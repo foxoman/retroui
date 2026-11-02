@@ -4,7 +4,7 @@
 
 import ../coords, ../input, ../screen
 from ../pixelutils import resizedRGBA
-import std/[strutils, os]
+import std/[strutils, os, dynlib]
 when defined(nimony):
   {.feature: "lenientnils".}
   import std/syncio  # for `quit`
@@ -1025,13 +1025,94 @@ proc dpiFromResources(): int =
       if dpi > 0: return dpi
     i = lineEnd + 1
 
+# ---- the monitor's real size (XRandR), when no desktop said how to scale ----
+#
+# libXrandr is opened when needed and only if it is there: a missing library
+# must not keep the app from starting.
+
+type
+  XRRScreenResources = object
+    timestamp, configTimestamp: culong
+    ncrtc: cint
+    crtcs: ptr UncheckedArray[culong]
+    noutput: cint
+    outputs: ptr UncheckedArray[culong]
+    nmode: cint
+    modes: pointer
+  XRROutputInfo = object
+    timestamp: culong
+    crtc: culong
+    name: cstring
+    nameLen: cint
+    mmWidth, mmHeight: culong
+    connection, subpixelOrder: cushort
+  XRRCrtcInfo = object
+    timestamp: culong
+    x, y: cint
+    width, height: cuint
+
+proc dpiFromMonitor(): int =
+  ## Pixels per inch of the main monitor from the size it reports (EDID),
+  ## 0 when that cannot be had or makes no sense (projectors say 0 mm).
+  let lib = loadLib("libXrandr.so.2")
+  if lib == nil: return 0
+  defer: unloadLib(lib)
+  type
+    GetRes = proc (d: pointer; w: XID): ptr XRRScreenResources {.cdecl.}
+    GetPrimary = proc (d: pointer; w: XID): culong {.cdecl.}
+    GetOutput = proc (d: pointer; r: ptr XRRScreenResources; o: culong): ptr XRROutputInfo {.cdecl.}
+    GetCrtc = proc (d: pointer; r: ptr XRRScreenResources; c: culong): ptr XRRCrtcInfo {.cdecl.}
+    Free = proc (p: pointer) {.cdecl.}
+  let getRes = cast[GetRes](lib.symAddr("XRRGetScreenResourcesCurrent"))
+  let getPrimary = cast[GetPrimary](lib.symAddr("XRRGetOutputPrimary"))
+  let getOutput = cast[GetOutput](lib.symAddr("XRRGetOutputInfo"))
+  let getCrtc = cast[GetCrtc](lib.symAddr("XRRGetCrtcInfo"))
+  let freeRes = cast[Free](lib.symAddr("XRRFreeScreenResources"))
+  let freeOut = cast[Free](lib.symAddr("XRRFreeOutputInfo"))
+  let freeCrtc = cast[Free](lib.symAddr("XRRFreeCrtcInfo"))
+  if getRes == nil or getOutput == nil or getCrtc == nil or freeRes == nil or
+     freeOut == nil or freeCrtc == nil: return 0
+  let root = XRootWindow(gDisplay, gScreen)
+  let res = getRes(gDisplay, root)
+  if res == nil: return 0
+  defer: freeRes(res)
+  let primary = if getPrimary != nil: getPrimary(gDisplay, root) else: 0
+  for pass in 0 .. 1:
+    for i in 0 ..< res.noutput:
+      let o = res.outputs[i]
+      if pass == 0 and o != primary: continue
+      let info = getOutput(gDisplay, res, o)
+      if info == nil: continue
+      if info.connection == 0 and info.crtc != 0 and info.mmWidth >= 100:
+        let crtc = getCrtc(gDisplay, res, info.crtc)
+        if crtc != nil:
+          let dpi = int(float(crtc.width) * 25.4 / float(info.mmWidth))
+          freeCrtc(crtc)
+          freeOut(info)
+          if dpi in 60 .. 600: return dpi
+          continue
+      freeOut(info)
+
 proc computeUiScale(): int =
   ## X11 coordinates are raw device pixels and nothing on the way to the screen
   ## scales them, so the display's full density has to land in `uiScale`.
-  ## Never below 100: shrinking an app's hardcoded sizes is more likely to make
-  ## it unusable than to be what the user meant.
+  ## In order: what the desktop set (`Xft.dpi`, GDK_SCALE, QT_SCALE_FACTOR),
+  ## else the monitor's own size (a 4K screen is not left at 100%), in steps
+  ## of 25%. Never below 100: shrinking an app's hardcoded sizes is more
+  ## likely to make it unusable than to be what the user meant.
   let dpi = dpiFromResources()
-  result = if dpi <= 0: 100 else: max(100, dpi * 100 div 96)
+  if dpi > 0: return max(100, dpi * 100 div 96)
+  let gdk = getEnv("GDK_SCALE")
+  if gdk.len > 0:
+    try: return clamp(parseInt(gdk) * 100, 100, 400) except ValueError: discard
+  let qt = getEnv("QT_SCALE_FACTOR")
+  if qt.len > 0:
+    try: return clamp(int(parseFloat(qt) * 100), 100, 400) except ValueError: discard
+  let mon = dpiFromMonitor()
+  if mon > 0:
+    # 25% steps; a little over (a 110 dpi laptop) stays at 100%
+    return clamp(((mon * 100 div 96) + 8) div 25 * 25, 100, 400)
+  100
 
 # ---- Screen hook implementations ----
 
