@@ -674,6 +674,25 @@ var
   gShownHash = FrameHashSeed  ## the frame the window is showing
   gFrameForced = true         ## the window is showing nothing yet
 
+var
+  gDamage: coords.Rect        ## what pictures were put on the back buffer this frame
+  gDamageAll = false          ## ... or something drawn that was not one
+  gBlitSerial = 0'u64
+
+proc damage(x, y, w, h: int) =
+  ## A picture put at `x`, `y`: that part of the window is copied at the
+  ## refresh (not all of it), and the frame is not the one shown.
+  inc gBlitSerial
+  if w <= 0 or h <= 0: return
+  if gDamage.w <= 0 or gDamage.h <= 0:
+    gDamage = coords.Rect(x: x, y: y, w: w, h: h)
+  else:
+    let x0 = min(gDamage.x, x)
+    let y0 = min(gDamage.y, y)
+    let x1 = max(gDamage.x + gDamage.w, x + w)
+    let y1 = max(gDamage.y + gDamage.h, y + h)
+    gDamage = coords.Rect(x: x0, y: y0, w: x1 - x0, h: y1 - y0)
+
 proc mixFrame(x: uint64) {.inline.} =
   var h = (gFrameHash xor x) * 0x9E3779B97F4A7C15'u64
   gFrameHash = h xor (h shr 29)
@@ -1362,11 +1381,19 @@ proc x11GetWindowLayout(): ScreenLayout =
 
 proc x11Refresh() =
   if gBackPixmap != None and (gFrameForced or gFrameHash != gShownHash):
-    discard XCopyArea(gDisplay, gBackPixmap, gWindow, gGC,
-      0, 0, gWidth.cuint, gHeight.cuint, 0, 0)
+    if gFrameForced or gDamageAll or gDamage.w <= 0 or gDamage.h <= 0:
+      discard XCopyArea(gDisplay, gBackPixmap, gWindow, gGC,
+        0, 0, gWidth.cuint, gHeight.cuint, 0, 0)
+    else:
+      # Only pictures were put: copy only where they went.
+      discard XCopyArea(gDisplay, gBackPixmap, gWindow, gGC,
+        gDamage.x.cint, gDamage.y.cint, gDamage.w.cuint, gDamage.h.cuint,
+        gDamage.x.cint, gDamage.y.cint)
     gShownHash = gFrameHash
     gFrameForced = false
   gFrameHash = FrameHashSeed
+  gDamage = coords.Rect()
+  gDamageAll = false
   discard XFlush(gDisplay)
 
 proc x11SaveState() = discard
@@ -1469,6 +1496,7 @@ proc paintText(fp: ptr XftFont; x, y: int; t: cstring; len: cint;
                w: cuint; fg, bg: screen.Color) =
   ## The drawing both entry points below share, once the width of the
   ## background is known -- by measuring, or because the caller said so.
+  gDamageAll = true
   mixFrame(3); mixFrame(cast[int](fp)); mixFrame(x); mixFrame(y)
   mixFrame(w.int); mixFrame(fg); mixFrame(bg); mixFrameText(t, len)
   var bgColor = toXftColor(bg)
@@ -1552,6 +1580,7 @@ proc x11GetFontMetrics(f: screen.Font): FontMetrics =
 
 proc x11FillRect(r: coords.Rect; color: screen.Color) =
   if r.w <= 0 or r.h <= 0 or color.a == 0: return
+  gDamageAll = true
   mixFrame(4); mixFrame(r.x); mixFrame(r.y); mixFrame(r.w); mixFrame(r.h)
   mixFrame(color)
   var c = toXftColor(color)
@@ -1577,6 +1606,7 @@ proc x11FillRect(r: coords.Rect; color: screen.Color) =
     XftDrawRect(gXftDraw, addr c, r.x.cint, r.y.cint, r.w.cuint, r.h.cuint)
 
 proc x11DrawLine(x1, y1, x2, y2: int; color: screen.Color) =
+  gDamageAll = true
   mixFrame(5); mixFrame(x1); mixFrame(y1); mixFrame(x2); mixFrame(y2)
   mixFrame(color)
   discard XSetForeground(gDisplay, gGC, toPixel(color))
@@ -1584,6 +1614,7 @@ proc x11DrawLine(x1, y1, x2, y2: int; color: screen.Color) =
     x1.cint, y1.cint, x2.cint, y2.cint)
 
 proc x11DrawPoint(x, y: int; color: screen.Color) =
+  gDamageAll = true
   mixFrame(6); mixFrame(x); mixFrame(y); mixFrame(color)
   discard XSetForeground(gDisplay, gGC, toPixel(color))
   discard XDrawPoint(gDisplay, gBackPixmap, gGC, x.cint, y.cint)
@@ -1632,9 +1663,10 @@ proc x11BlendRGBA(pixels: ptr UncheckedArray[uint32]; w, h: int;
     XRenderSetPictureClipRectangles(gDisplay, dest, 0, 0, addr rgbaClip, 1)
   let cw = min(w, dst.w)
   let ch = min(h, dst.h)
+  # Every picture put counts as a change; the window is copied where it went.
+  damage(dst.x, dst.y, cw, ch)
   mixFrame(8); mixFrame(dst.x); mixFrame(dst.y)
-  mixFrame(w); mixFrame(h); mixFrame(cw); mixFrame(ch)
-  for i in 0 ..< w * h: mixFrame(pixels[i].uint64)
+  mixFrame(w); mixFrame(h); mixFrame(cw); mixFrame(ch); mixFrame(gBlitSerial)
   XRenderComposite(gDisplay, 3, source, None, dest, 0, 0, 0, 0,
     dst.x.cint, dst.y.cint, cw.cuint, ch.cuint) # PictOpOver
   true
@@ -1671,15 +1703,12 @@ proc x11BlitRGBA(pixels: ptr UncheckedArray[uint32]; w, h: int;
   let cw = min(w, dst.w)
   let ch = min(h, dst.h)
 
-  # Every pixel that lands has to reach the frame hash. The hash is what
-  # decides whether the finished back buffer is worth copying to the window,
-  # and two different pictures of one size in one place are the same frame to
-  # a hash that only saw the rectangle -- the second one would never appear.
-  # Walking the buffer costs a fraction of sending it to the server, which is
-  # the very next thing that happens to it.
+  # Every picture put changes the frame (the caller only sends what changed:
+  # hashing its pixels would cost as much as sending them), and the refresh
+  # copies to the window only the part the pictures covered.
+  damage(dst.x, dst.y, cw, ch)
   mixFrame(7); mixFrame(dst.x); mixFrame(dst.y)
-  mixFrame(w); mixFrame(h); mixFrame(cw); mixFrame(ch)
-  for i in 0 ..< w * h: mixFrame(pixels[i].uint64)
+  mixFrame(w); mixFrame(h); mixFrame(cw); mixFrame(ch); mixFrame(gBlitSerial)
 
   discard XPutImage(gDisplay, gBackPixmap, gGC, img, 0, 0,
                     dst.x.cint, dst.y.cint, cw.cuint, ch.cuint)
