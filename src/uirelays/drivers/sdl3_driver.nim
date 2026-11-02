@@ -320,7 +320,7 @@ const
   TtfStyleItalic = 0x02'u32
 
 proc ttfSetFontStyle(font: sdl3_ttf.Font; style: uint32)
-  {.importc: "TTF_SetFontStyle", cdecl.}
+  {.importc: "TTF_SetFontStyle", cdecl, dynlib: sdl3_ttf.TtfLibName.}
   ## Declared here rather than taken from the wrapper: the C name is the one
   ## thing about SDL_ttf that cannot drift.
 
