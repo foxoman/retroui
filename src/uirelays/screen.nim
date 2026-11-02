@@ -161,8 +161,36 @@ type
       ## ScreenLayout.scaleX/scaleY without upscaling. Pixels are borrowed
       ## only until this callback returns. Optional.
 
+  GpuRelays* = object
+    ## OpenGL on the window, for an app that draws with the GPU. Every relay
+    ## is optional: a driver without them (or where they fail) is drawn with
+    ## `blitRGBA` as before.
+    startGpu*: proc (): bool {.nimcall.}
+      ## An OpenGL ES 2 (or desktop OpenGL 2.1) context current on the
+      ## window, drawing on its whole size; false when there is none. From
+      ## then on the app draws every frame with OpenGL and calls `swapGpu`;
+      ## `blitRGBA` and the text relays are not used.
+    stopGpu*: proc () {.nimcall.}
+      ## Back to `blitRGBA`: the context let go of.
+    swapGpu*: proc (): bool {.nimcall.}
+      ## The frame drawn shown (waiting for the screen when it has to);
+      ## false when the context was lost: draw with `blitRGBA` again.
+    gpuProc*: proc (name: cstring): pointer {.nimcall.}
+      ## An OpenGL function, by name.
+    gpuIsEs*: proc (): bool {.nimcall.}
+      ## OpenGL ES (else desktop OpenGL).
+    gpuGeneration*: proc (): int {.nimcall.}
+      ## Changes when the context had to be made again (textures and
+      ## buffers made before are gone).
+    gpuReady*: proc (): bool {.nimcall.}
+      ## There is a surface to draw on now (false while a phone app is in
+      ## the background).
+
 proc `==`*(a, b: Font): bool {.borrow.}
 proc `==`*(a, b: Image): bool {.borrow.}
+
+var gpuRelays*: GpuRelays
+  ## Filled by the drivers that can draw with OpenGL (none by default).
 
 var windowRelays* = WindowRelays(
   createWindow: proc (layout: var ScreenLayout;

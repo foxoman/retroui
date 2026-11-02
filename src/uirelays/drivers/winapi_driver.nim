@@ -434,6 +434,91 @@ var
 # Event queue: WndProc pushes events, pollEvent/waitEvent consumes them
 var eventQueue: seq[input.Event]
 
+# ---- OpenGL (WGL): desktop OpenGL 2.1 on the window ----
+
+type
+  PIXELFORMATDESCRIPTOR {.pure.} = object
+    nSize, nVersion: uint16
+    dwFlags: DWORD
+    iPixelType, cColorBits, cRedBits, cRedShift, cGreenBits, cGreenShift,
+      cBlueBits, cBlueShift, cAlphaBits, cAlphaShift, cAccumBits, cAccumRedBits,
+      cAccumGreenBits, cAccumBlueBits, cAccumAlphaBits, cDepthBits, cStencilBits,
+      cAuxBuffers, iLayerType, bReserved: uint8
+    dwLayerMask, dwVisibleMask, dwDamageMask: DWORD
+
+proc ChoosePixelFormat(hdc: HDC; pfd: ptr PIXELFORMATDESCRIPTOR): int32
+  {.stdcall, dynlib: "gdi32", importc.}
+proc SetPixelFormat(hdc: HDC; fmt: int32; pfd: ptr PIXELFORMATDESCRIPTOR): int32
+  {.stdcall, dynlib: "gdi32", importc.}
+proc SwapBuffers(hdc: HDC): int32
+  {.stdcall, dynlib: "gdi32", importc.}
+proc LoadLibraryA(name: cstring): pointer
+  {.stdcall, dynlib: "kernel32", importc.}
+proc GetProcAddress(m: pointer; name: cstring): pointer
+  {.stdcall, dynlib: "kernel32", importc.}
+
+var
+  gGlLib: pointer               # opengl32.dll
+  gGlDC: HDC
+  gGlRC: pointer
+  gGpu: bool                    # the window is drawn with OpenGL
+  wglCreateContextP: proc (hdc: HDC): pointer {.stdcall.}
+  wglMakeCurrentP: proc (hdc: HDC; rc: pointer): int32 {.stdcall.}
+  wglDeleteContextP: proc (rc: pointer): int32 {.stdcall.}
+  wglGetProcAddressP: proc (name: cstring): pointer {.stdcall.}
+
+proc winGpuProc(name: cstring): pointer =
+  ## OpenGL 1.1 from opengl32.dll; what came after it from the driver.
+  if gGlLib == nil: return nil
+  result = GetProcAddress(gGlLib, name)
+  if result == nil and wglGetProcAddressP != nil:
+    result = wglGetProcAddressP(name)
+    # Some drivers answer 1, 2, 3 or -1 for "none".
+    if cast[int](result) in [-1, 0, 1, 2, 3]: result = nil
+
+proc winStartGpu(): bool =
+  if gHwnd == nil: return false
+  if gGlLib == nil:
+    gGlLib = LoadLibraryA("opengl32.dll")
+    if gGlLib == nil: return false
+    wglCreateContextP = cast[typeof(wglCreateContextP)](GetProcAddress(gGlLib, "wglCreateContext"))
+    wglMakeCurrentP = cast[typeof(wglMakeCurrentP)](GetProcAddress(gGlLib, "wglMakeCurrent"))
+    wglDeleteContextP = cast[typeof(wglDeleteContextP)](GetProcAddress(gGlLib, "wglDeleteContext"))
+    wglGetProcAddressP = cast[typeof(wglGetProcAddressP)](
+      GetProcAddress(gGlLib, "wglGetProcAddress"))
+  if wglCreateContextP == nil or wglMakeCurrentP == nil or wglDeleteContextP == nil: return false
+  gGlDC = GetDC(gHwnd)
+  if gGlDC == nil: return false
+  var pfd = PIXELFORMATDESCRIPTOR(nSize: uint16(sizeof(PIXELFORMATDESCRIPTOR)), nVersion: 1,
+    dwFlags: DWORD(0x04 or 0x20 or 0x01),        # PFD_DRAW_TO_WINDOW, SUPPORT_OPENGL, DOUBLEBUFFER
+    iPixelType: 0, cColorBits: 24)
+  let fmt = ChoosePixelFormat(gGlDC, addr pfd)
+  if fmt == 0 or SetPixelFormat(gGlDC, fmt, addr pfd) == 0: return false
+  gGlRC = wglCreateContextP(gGlDC)
+  if gGlRC == nil: return false
+  if wglMakeCurrentP(gGlDC, gGlRC) == 0:
+    discard wglDeleteContextP(gGlRC)
+    gGlRC = nil
+    return false
+  # No shaders: OpenGL 1.1 only, which is all Windows itself offers.
+  if winGpuProc("glCreateShader") == nil:
+    discard wglMakeCurrentP(nil, nil)
+    discard wglDeleteContextP(gGlRC)
+    gGlRC = nil
+    return false
+  let swapInterval = cast[proc (n: int32): int32 {.stdcall.}](winGpuProc("wglSwapIntervalEXT"))
+  if swapInterval != nil: discard swapInterval(1)
+  gGpu = true
+  true
+
+proc winStopGpu() =
+  if gGlRC != nil:
+    discard wglMakeCurrentP(nil, nil)
+    discard wglDeleteContextP(gGlRC)
+  gGlRC = nil
+  gGpu = false
+  if gHwnd != nil: discard InvalidateRect(gHwnd, nil, 0)
+
 proc pushEvent(e: input.Event) =
   eventQueue.add e
 
@@ -601,7 +686,10 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
   of WM_PAINT:
     var ps: PAINTSTRUCT
     let hdc = BeginPaint(hwnd, addr ps)
-    if gBackDC != nil:
+    if gGpu:
+      # Drawn with OpenGL: the app draws the window again.
+      pushEvent(input.Event(kind: AppResumeEvent))
+    elif gBackDC != nil:
       discard BitBlt(hdc, 0, 0, gWidth, gHeight, gBackDC, 0, 0, SRCCOPY)
     discard EndPaint(hwnd, addr ps)
     return 0
@@ -1358,6 +1446,13 @@ proc initWinapiFontRelays*() =
   fontRelays = winapiFontRelays()
 
 proc initWinapiDriver*() =
+  gpuRelays = GpuRelays(
+    startGpu: winStartGpu, stopGpu: winStopGpu,
+    swapGpu: proc (): bool = gGpu and SwapBuffers(gGlDC) != 0,
+    gpuProc: winGpuProc,
+    gpuIsEs: proc (): bool = false,
+    gpuGeneration: proc (): int = 0,
+    gpuReady: proc (): bool = gGpu)
   setDpiAware()
   windowRelays = WindowRelays(
     createWindow: winCreateWindow, getWindowLayout: winGetWindowLayout,

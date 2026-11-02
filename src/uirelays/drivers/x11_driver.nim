@@ -2,7 +2,7 @@
 # Uses Xlib for windowing/events, Xft for antialiased font rendering.
 # Double-buffered via X Pixmap.
 
-import ../coords, ../input, ../screen
+import ../coords, ../input, ../screen, ../eglload
 from ../pixelutils import resizedRGBA
 import std/[strutils, os, dynlib]
 when defined(nimony):
@@ -633,6 +633,8 @@ var
   rgbaClipActive: bool
   rgbaClip: XRectangle
 
+var gGpu = false    ## the window is drawn with OpenGL
+
 proc pushEvent(e: input.Event) =
   # Pointer motion is coalesced: X11 sends one event per hardware sample --
   # a thousand a second with the mice that report that fast -- and a host that
@@ -853,7 +855,10 @@ var clickCount: int
 proc processXEvent(xev: XEvent) =
   case xev.theType
   of Expose:
-    if xev.xexpose.count == 0 and gBackPixmap != None:
+    if xev.xexpose.count == 0 and gGpu:
+      # Drawn with OpenGL: the app draws the window again.
+      pushEvent(input.Event(kind: AppResumeEvent))
+    elif xev.xexpose.count == 0 and gBackPixmap != None:
       discard XCopyArea(gDisplay, gBackPixmap, gWindow, gGC,
         0, 0, gWidth.cuint, gHeight.cuint, 0, 0)
       # This copy was of a pixmap the frame in progress is halfway through
@@ -1850,7 +1855,28 @@ proc x11QuitRequest() =
 
 # ---- Init ----
 
+# ---- OpenGL (EGL) ----
+
+proc XVisualIDFromVisual(v: pointer): culong
+  {.cdecl, dynlib: libX11, importc.}
+
+proc x11StartGpu(): bool =
+  if gDisplay == nil or gWindow == None: return false
+  result = eglload.current.openOnWindow(gDisplay, uint(gWindow), int(XVisualIDFromVisual(gVisual)))
+  gGpu = result
+
+proc x11StopGpu() =
+  eglload.current.close()
+  gGpu = false
+
 proc initX11Driver*() =
+  gpuRelays = GpuRelays(
+    startGpu: x11StartGpu, stopGpu: x11StopGpu,
+    swapGpu: proc (): bool = eglload.current.swap(),
+    gpuProc: proc (name: cstring): pointer = eglload.current.glProc(name),
+    gpuIsEs: proc (): bool = true,
+    gpuGeneration: proc (): int = 0,
+    gpuReady: proc (): bool = gGpu)
   windowRelays = WindowRelays(
     createWindow: x11CreateWindow, getWindowLayout: x11GetWindowLayout,
     refresh: x11Refresh,
