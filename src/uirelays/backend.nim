@@ -10,6 +10,9 @@
 ##   -d:sdl3    Force SDL3 backend
 ##   -d:sdl2    Force SDL2 backend
 ##   -d:gtk4    Force GTK4 backend
+##
+## Android (`--os:android`) uses the NativeActivity driver, iOS (`-d:ios`)
+## the UIKit driver.
 
 const NativeSiwin = defined(features.uirelays.siwin) or
   defined(features.uirelays.figDrawSiwin) or defined(figDrawSiwin)
@@ -47,6 +50,10 @@ elif defined(gtk4):
 elif defined(android):
   import drivers/android_driver
   proc initBackend*() = initAndroidDriver()
+
+elif defined(ios):
+  import drivers/uikit_driver
+  proc initBackend*() = initUIKitDriver()
 
 elif defined(macosx):
   import drivers/cocoa_driver
