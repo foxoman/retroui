@@ -44,6 +44,10 @@ elif defined(gtk4):
   import drivers/gtk4_driver
   proc initBackend*() = initGtk4Driver()
 
+elif defined(android):
+  import drivers/android_driver
+  proc initBackend*() = initAndroidDriver()
+
 elif defined(macosx):
   import drivers/cocoa_driver
   proc initBackend*() = initCocoaDriver()
