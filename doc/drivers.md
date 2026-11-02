@@ -42,6 +42,7 @@ will compile and run -- it just won't do anything for the missing parts.
 | `setClipRect` | `proc (r: Rect)` | Restrict drawing to the given rectangle. |
 | `setCursor` | `proc (c: CursorKind)` | Change the mouse cursor shape. |
 | `setWindowTitle` | `proc (title: string)` | Set the window title bar text. |
+| `pointerHeight` | `proc (): int` | Optional. How tall the mouse pointer is drawn, in window pixels (0 or nil: not known); tool tips go under it. |
 
 ### FontRelays
 
@@ -88,6 +89,28 @@ keyboard or enable IME. Desktop drivers can ignore it.
 | `getText` | `proc (): string` | Read UTF-8 text from the system clipboard. |
 | `putText` | `proc (text: string)` | Write UTF-8 text to the system clipboard. |
 
+### GpuRelays (optional)
+
+| Field | Signature | Notes |
+|-------|-----------|-------|
+| `startGpu` | `proc (): bool` | Make an OpenGL ES 2 (or desktop OpenGL 2.1) context current on the window; false when there is none. |
+| `stopGpu` | `proc ()` | Let the context go; back to `drawRGBA`. |
+| `swapGpu` | `proc (): bool` | Show the frame drawn; false when the context was lost. |
+| `gpuProc` | `proc (name: cstring): pointer` | An OpenGL function, by name. |
+| `gpuIsEs` | `proc (): bool` | OpenGL ES (else desktop OpenGL). |
+| `gpuGeneration` | `proc (): int` | Changes when the context had to be made again. |
+| `gpuReady` | `proc (): bool` | There is a surface to draw on now (false while a phone app is in the background). |
+
+A driver that draws with OpenGL should send `AppResumeEvent` when the window
+needs drawing again (an expose), since there is no back buffer to copy.
+
+### SystemRelays (optional, `services`)
+
+`dataDir`, `openUrl`, `platform`, `openFile`, `places`, `storageAccess`,
+`requestStorageAccess`, `decodeImage`, `minimize` and `call`. The defaults
+serve the desktops; the Android and iOS drivers replace what their platform
+does differently.
+
 ## Double buffering
 
 Most drivers use a double-buffered approach:
@@ -113,6 +136,17 @@ into `Event` values. Key points:
   set `e.button` and `e.clicks` (track double/triple clicks yourself).
 - **Scroll**: `MouseWheelEvent` with `e.y` as the scroll direction
   (+1 up, -1 down).
+- **Modifiers**: set `e.mods` on mouse events too, and `e.hasMods = true`
+  when you do. For a modifier key itself, report the state after the key.
+- **Side buttons**: `BackButton` and `ForwardButton` (X1, X2).
+- **Pens**: on the mouse events a pen makes, set `e.pen` and `pressure`,
+  `tilt`, `azimuth`, `twist` (see `drivers/penaxes` for the conversions from
+  what the platforms report).
+- **Phones**: fill in the safe area and `touch` in the `ScreenLayout`; send
+  `AppPauseEvent` / `AppResumeEvent` when the app goes to the background and
+  comes back, and `GestureEvent` for two fingers (a press already sent for
+  the first finger is let go far outside the window, so nothing is
+  clicked).
 - **Window**: Emit `WindowMetricsEvent` with the new size in `e.x`, `e.y` and
   the current scale in `e.scaleX`, `e.scaleY`, `e.uiScale`. Emit it whenever
   either the size *or* the density changes, so an app that only listens for
@@ -209,7 +243,8 @@ out of default platform builds.
 
 ## Checklist
 
-- [ ] Implement all 5 relay groups (or leave unneeded ones at defaults)
+- [ ] Implement all 5 relay groups (or leave unneeded ones at defaults);
+      `gpuRelays` and `systemRelays` are optional
 - [ ] Double-buffer all drawing, present on `refresh()`
 - [ ] Translate platform events to `Event` values
 - [ ] Handle window close without destroying the window

@@ -1,8 +1,8 @@
 # uirelays
 
 Native Nim UI library based on the idea of "relays" -- dependency injection
-via global callbacks. Has Windows API, X11, Cocoa, GTK4, SDL2, SDL3 and FigDraw
-support. Write UI apps as easily as terminal apps!
+via global callbacks. Has Windows API, X11, Cocoa, GTK4, SDL2, SDL3, FigDraw,
+Android and iOS support. Write UI apps as easily as terminal apps!
 
 [![focim](screenshots/focim.png)](https://github.com/Araq/focim)
 
@@ -37,6 +37,7 @@ Backend selection:
 - Default on Windows: WinAPI
 - Default on macOS: Cocoa
 - Default on Linux/BSD: X11
+- Android (`--os:android`): the NativeActivity driver; iOS (`-d:ios`): UIKit
 - Optional overrides: `-d:gtk4`, `-d:sdl3`, `-d:sdl2`
 - Optional features: `siwin`, `figDrawWindy`, and `figDrawSiwin`
 
@@ -252,7 +253,7 @@ nim c --define:"features.uirelays.figDrawSiwin" examples/hello.nim
 
 ## Architecture
 
-The library is split into five relay groups:
+The library is split into five relay groups, and two optional ones:
 
 | Module | Relays | Purpose |
 |--------|--------|---------|
@@ -261,6 +262,8 @@ The library is split into five relay groups:
 | `screen` | `drawRelays` | Rectangles, lines, points, images |
 | `input` | `inputRelays` | Events, timing, shutdown |
 | `input` | `clipboardRelays` | Copy/paste |
+| `screen` | `gpuRelays` | Optional: OpenGL (ES 2 or 2.1) on the window |
+| `services` | `systemRelays` | Optional: the app's data folder, links, files, places |
 
 Drivers populate these relay objects at init time. Application code calls
 convenience wrappers (`fillRect`, `drawText`, `waitEvent`, ...) that
@@ -279,9 +282,54 @@ allocation -- just plain proc pointers.
 | `sdl2_driver` | Cross-platform | SDL2, SDL2_ttf |
 | `figdraw_windy_driver` | Cross-platform | FigDraw, Windy |
 | `figdraw_siwin_driver` | Cross-platform | FigDraw, siwin |
+| `android_driver` | Android | None (NDK: libandroid, liblog) |
+| `uikit_driver` | iOS | None (UIKit) |
 
 See [Writing a custom driver](doc/drivers.md) for a guide on
 adding support for a new platform or graphics toolkit.
+
+## Phones, tablets and pens
+
+- `ScreenLayout.safeTop`, `safeBottom`, `safeLeft`, `safeRight`: the margins
+  a status bar, a notch or a gesture bar cover; `touch`: the main pointer is
+  a finger.
+- `AppPauseEvent` / `AppResumeEvent`: the app went to the background and
+  came back (stop drawing; draw everything again).
+- `GestureEvent`: two fingers -- `scale`, `dx`, `dy` round their middle
+  `x`, `y`, and the `phase`. `fromMouse`: on a touch screen, the pointer is a
+  mouse or a pen.
+- Pens: `pen`, `pressure`, `tilt`, `azimuth` and `twist` on the mouse events
+  a pen makes -- from Windows (WM_POINTER), X11 (XInput 2), macOS, GTK4, SDL3
+  and Android (`drivers/penaxes` does the arithmetic).
+- `hasMods`: the event's `mods` are filled in (mouse events too, not only
+  keys). `BackButton`, `ForwardButton`: the mouse's side buttons.
+
+### OpenGL
+
+Drivers that can draw with OpenGL on their window offer `gpuRelays` (WinAPI
+with WGL, X11 with EGL loaded at run time, Android). `startGpu()` makes a context
+current; the app then draws every frame with OpenGL, `swapGpu()` shows it, and
+`stopGpu()` goes back to `drawRGBA`. A driver without it keeps drawing as
+before.
+
+### Android
+
+Build the app as `libmain.so` and pack it into an APK whose activity is
+`android.app.NativeActivity` (with `android.app.lib_name` = `main`), or
+[UiRelaysActivity](src/uirelays/drivers/android/UiRelaysActivity.java) for
+text without key codes (Arabic, emoji), the keyboard and the system bars:
+
+```sh
+nim c --os:android --cpu:arm64 --app:lib --noMain -d:noSignalHandler \
+  --cc:clang --clang.exe:aarch64-linux-android24-clang \
+  --clang.linkerexe:aarch64-linux-android24-clang -o:libmain.so app.nim
+```
+
+### iOS
+
+On a Mac, compile with `--os:macosx -d:ios` and the iOS SDK's clang
+(`xcrun --sdk iphoneos clang`), and put the program in an .app bundle with an
+`Info.plist` that has `UILaunchScreen` (iOS 14 and later).
 
 ## Drawing full-resolution images
 
