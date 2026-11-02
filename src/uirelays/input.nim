@@ -31,7 +31,9 @@ type
     ShiftPressed, CtrlPressed, AltPressed, GuiPressed
 
   MouseButton* = enum
-    LeftButton, RightButton, MiddleButton
+    LeftButton, RightButton, MiddleButton,
+    BackButton,     ## side button X1 (back)
+    ForwardButton   ## side button X2 (forward)
 
   InputFlag* = enum
     WantTextInput   ## show on-screen keyboard / enable IME

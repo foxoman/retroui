@@ -143,6 +143,8 @@ const
   WM_RBUTTONDOWN = 0x0204'u32
   WM_RBUTTONUP = 0x0205'u32
   WM_MBUTTONDOWN = 0x0207'u32
+  WM_XBUTTONDOWN = 0x020B'u32
+  WM_XBUTTONUP = 0x020C'u32
   WM_MBUTTONUP = 0x0208'u32
   WM_MOUSEWHEEL = 0x020A'u32
   WM_SETFOCUS = 0x0007'u32
@@ -659,6 +661,18 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
   of WM_KILLFOCUS:
     pushEvent(input.Event(kind: WindowFocusLostEvent))
     return 0
+
+  of WM_XBUTTONDOWN, WM_XBUTTONUP:
+    # the side buttons: back (X1) and forward (X2)
+    var e = input.Event(kind: if msg == WM_XBUTTONDOWN: MouseDownEvent else: MouseUpEvent,
+                        hasMods: true)
+    e.x = xParam(lp)
+    e.y = yParam(lp)
+    e.mods = getModifiers()
+    e.button = if ((wp.uint shr 16) and 0xFFFF) == 1: BackButton else: ForwardButton
+    e.clicks = 1
+    pushEvent(e)
+    return 1
 
   of WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN:
     var e = input.Event(kind: MouseDownEvent, hasMods: true)

@@ -773,6 +773,8 @@ proc translateButton(button: cuint): MouseButton =
   of Button1: LeftButton
   of Button3: RightButton
   of Button2: MiddleButton
+  of 8: BackButton
+  of 9: ForwardButton
   else: LeftButton
 
 # ---- Clipboard handling ----

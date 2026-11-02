@@ -955,7 +955,7 @@ void cocoa_delay(uint32_t ms) {
   NSPoint p = [self convertPoint:event.locationInWindow fromView:nil];
   NEEvent e = {0};
   e.kind = NE_MOUSE_DOWN;
-  e.button = NE_MB_MIDDLE;
+  e.button = event.buttonNumber == 3 ? 3 : event.buttonNumber == 4 ? 4 : NE_MB_MIDDLE;
   e.x = (int)p.x;
   e.y = (int)p.y;
   e.clicks = (int)event.clickCount;
@@ -967,7 +967,7 @@ void cocoa_delay(uint32_t ms) {
   NSPoint p = [self convertPoint:event.locationInWindow fromView:nil];
   NEEvent e = {0};
   e.kind = NE_MOUSE_UP;
-  e.button = NE_MB_MIDDLE;
+  e.button = event.buttonNumber == 3 ? 3 : event.buttonNumber == 4 ? 4 : NE_MB_MIDDLE;
   e.x = (int)p.x;
   e.y = (int)p.y;
   e.mods = translateModifiers(event.modifierFlags);

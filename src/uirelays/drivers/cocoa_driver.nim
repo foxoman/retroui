@@ -294,6 +294,8 @@ proc translateNEEvent(ne: NEEvent; e: var input.Event) =
     of 0: e.button = LeftButton
     of 1: e.button = RightButton
     of 2: e.button = MiddleButton
+    of 3: e.button = BackButton
+    of 4: e.button = ForwardButton
     else: e.button = LeftButton
   of neMouseUp:
     e.kind = MouseUpEvent
@@ -303,6 +305,8 @@ proc translateNEEvent(ne: NEEvent; e: var input.Event) =
     of 0: e.button = LeftButton
     of 1: e.button = RightButton
     of 2: e.button = MiddleButton
+    of 3: e.button = BackButton
+    of 4: e.button = ForwardButton
     else: e.button = LeftButton
   of neMouseMove:
     e.kind = MouseMoveEvent
