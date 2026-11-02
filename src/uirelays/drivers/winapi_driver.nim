@@ -252,6 +252,9 @@ proc AdjustWindowRectEx(lpRect: pointer; dwStyle: DWORD; bMenu: BOOL; dwExStyle:
   {.stdcall, dynlib: "user32", importc.}
 proc SystemParametersInfoW(uiAction, uiParam: UINT; pvParam: pointer; fWinIni: UINT): BOOL
   {.stdcall, dynlib: "user32", importc.}
+proc RegGetValueW(hkey: pointer; subKey, value: ptr uint16; flags: DWORD; typ: ptr DWORD;
+                  data: pointer; size: ptr DWORD): int32
+  {.stdcall, dynlib: "advapi32", importc.}
 proc UpdateWindow(hWnd: HWND): BOOL
   {.stdcall, dynlib: "user32", importc.}
 proc DestroyWindow(hWnd: HWND): BOOL
@@ -741,6 +744,26 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
   return DefWindowProcW(hwnd, msg, wp, lp)
 
 # ---- Screen hook implementations ----
+
+var pointerBase = -1      # the user's pointer size (CursorBaseSize), read once
+
+proc winPointerHeight(): int =
+  ## The pointer's height on this display: Settings > Accessibility > Mouse
+  ## pointer's size (32 at the smallest, up to 256), at the display's scale.
+  if pointerBase < 0:
+    pointerBase = 32
+    let key = newWideCString("Control Panel\\Cursors")
+    let name = newWideCString("CursorBaseSize")
+    var v: DWORD
+    var size = DWORD(sizeof(DWORD))
+    # HKEY_CURRENT_USER, sign-extended; 0x10 is RRF_RT_REG_DWORD
+    let hkcu = cast[pointer](int(cast[int32](0x80000001'u32)))
+    if RegGetValueW(hkcu, cast[ptr uint16](key[0].addr),
+                    cast[ptr uint16](name[0].addr), 0x00000010, nil,
+                    addr v, addr size) == 0 and
+       v >= 16 and v <= 512:
+      pointerBase = int(v)
+  pointerBase * max(100, gUiScale) div 100
 
 proc winCreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   # Seed the scale before there is a window: `CreateWindowExW` and `ShowWindow`
@@ -1341,6 +1364,7 @@ proc initWinapiDriver*() =
     refresh: winRefresh,
     saveState: winSaveState, restoreState: winRestoreState,
     setClipRect: winSetClipRect, setCursor: winSetCursor,
+    pointerHeight: winPointerHeight,
     setWindowTitle: winSetWindowTitle)
   initWinapiFontRelays()
   drawRelays = DrawRelays(

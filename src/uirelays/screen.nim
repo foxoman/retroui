@@ -70,6 +70,10 @@ type
     restoreState*: proc () {.nimcall.}
     setClipRect*: proc (r: Rect) {.nimcall.}
     setCursor*: proc (c: CursorKind) {.nimcall.}
+    pointerHeight*: proc (): int {.nimcall.}
+      ## How tall the mouse pointer is drawn, in window pixels (the user's
+      ## pointer size and the display's scale in it); 0 or nil: not known.
+      ## Tool tips go under it, where it does not cover them.
     setWindowTitle*: proc (title: string) {.nimcall.}
       ## What the window says it is *showing* -- a document name, typically,
       ## and it changes as often as that does. What it says it *is* is
