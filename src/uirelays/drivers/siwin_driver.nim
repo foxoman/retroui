@@ -266,7 +266,8 @@ proc setCursor(cursor: screen.CursorKind) =
       of curCrosshair: BuiltinCursor.cross
       of curHand: BuiltinCursor.pointingHand
       of curSizeNS: BuiltinCursor.sizeVertical
-      of curSizeWE: BuiltinCursor.sizeHorizontal
+      of curSizeWE, curSizeNWSE, curSizeNESW: BuiltinCursor.sizeHorizontal
+      of curMove: BuiltinCursor.pointingHand
     ,
   )
 

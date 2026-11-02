@@ -49,7 +49,10 @@ type
 
   CursorKind* = enum
     curDefault, curArrow, curIbeam, curWait,
-    curCrosshair, curHand, curSizeNS, curSizeWE
+    curCrosshair, curHand, curSizeNS, curSizeWE,
+    curSizeNWSE,          ## a diagonal resize: top left to bottom right
+    curSizeNESW,          ## a diagonal resize: top right to bottom left
+    curMove               ## four arrows: what is under it moves
 
   WindowRelays* = object
     createWindow*: proc (layout: var ScreenLayout;

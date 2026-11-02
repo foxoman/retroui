@@ -531,6 +531,9 @@ proc sdlSetCursor(c: CursorKind) =
       of curHand: SYSTEM_CURSOR_POINTER
       of curSizeNS: SYSTEM_CURSOR_NS_RESIZE
       of curSizeWE: SYSTEM_CURSOR_EW_RESIZE
+      of curSizeNWSE: SYSTEM_CURSOR_NWSE_RESIZE
+      of curSizeNESW: SYSTEM_CURSOR_NESW_RESIZE
+      of curMove: SYSTEM_CURSOR_MOVE
     cursors[c] = sdl3.createSystemCursor(sc)
   if cursors[c] == nil:
     return

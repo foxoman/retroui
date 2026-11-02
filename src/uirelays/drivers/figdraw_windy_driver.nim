@@ -729,7 +729,8 @@ proc figSetCursor(c: screen.CursorKind) =
     of curCrosshair: CrosshairCursor
     of curHand: PointerCursor
     of curSizeNS: ResizeUpDownCursor
-    of curSizeWE: ResizeLeftRightCursor)
+    of curSizeWE, curSizeNWSE, curSizeNESW: ResizeLeftRightCursor
+    of curMove: PointerCursor)
 
 proc figSetWindowTitle(title: string) =
   if not appWindow.isNil:

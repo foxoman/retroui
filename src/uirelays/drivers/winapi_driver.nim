@@ -175,6 +175,9 @@ const
   IDC_HAND = cast[ptr uint16](32649)
   IDC_SIZENS = cast[ptr uint16](32645)
   IDC_SIZEWE = cast[ptr uint16](32644)
+  IDC_SIZENWSE = cast[ptr uint16](32642)
+  IDC_SIZENESW = cast[ptr uint16](32643)
+  IDC_SIZEALL = cast[ptr uint16](32646)
 
   VK_BACK = 0x08'u32
   VK_TAB = 0x09'u32
@@ -1208,6 +1211,9 @@ proc winSetCursor(c: CursorKind) =
     of curHand: IDC_HAND
     of curSizeNS: IDC_SIZENS
     of curSizeWE: IDC_SIZEWE
+    of curSizeNWSE: IDC_SIZENWSE
+    of curSizeNESW: IDC_SIZENESW
+    of curMove: IDC_SIZEALL
   let cur = LoadCursorW(nil, id)
   discard SetCursorWin(cur)
 

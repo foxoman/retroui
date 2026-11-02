@@ -1274,6 +1274,9 @@ void cocoa_setCursor(int kind) {
       case 5:  cur = [NSCursor pointingHandCursor]; break; /* curHand */
       case 6:  cur = [NSCursor resizeUpDownCursor]; break; /* curSizeNS */
       case 7:  cur = [NSCursor resizeLeftRightCursor]; break; /* curSizeWE */
+      case 8:  /* curSizeNWSE (no public diagonal cursor) */
+      case 9:  cur = [NSCursor crosshairCursor]; break;    /* curSizeNESW */
+      case 10: cur = [NSCursor openHandCursor]; break;     /* curMove */
       default: cur = [NSCursor arrowCursor]; break;
     }
     [cur set];

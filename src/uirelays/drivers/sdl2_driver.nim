@@ -244,6 +244,9 @@ proc sdlSetCursor(c: CursorKind) =
     of curHand: SDL_SYSTEM_CURSOR_HAND
     of curSizeNS: SDL_SYSTEM_CURSOR_SIZENS
     of curSizeWE: SDL_SYSTEM_CURSOR_SIZEWE
+    of curSizeNWSE: SDL_SYSTEM_CURSOR_SIZENWSE
+    of curSizeNESW: SDL_SYSTEM_CURSOR_SIZENESW
+    of curMove: SDL_SYSTEM_CURSOR_SIZEALL
   let cur = createSystemCursor(sdlCursor)
   setCursor(cur)
 

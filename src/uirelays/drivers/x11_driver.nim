@@ -297,6 +297,9 @@ const
   XC_hand2 = 60'u32
   XC_sb_v_double_arrow = 116'u32
   XC_sb_h_double_arrow = 108'u32
+  XC_bottom_right_corner = 14'u32   # top left to bottom right
+  XC_bottom_left_corner = 12'u32    # top right to bottom left
+  XC_fleur = 52'u32                 # four arrows: move
 
   # KeySyms
   XK_a = 0x61'u
@@ -1628,6 +1631,9 @@ proc x11SetCursor(c: CursorKind) =
     of curHand: XC_hand2
     of curSizeNS: XC_sb_v_double_arrow
     of curSizeWE: XC_sb_h_double_arrow
+    of curSizeNWSE: XC_bottom_right_corner
+    of curSizeNESW: XC_bottom_left_corner
+    of curMove: XC_fleur
   let cur = XCreateFontCursor(gDisplay, shape)
   discard XDefineCursor(gDisplay, gWindow, cur)
 

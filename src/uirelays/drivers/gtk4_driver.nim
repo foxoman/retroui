@@ -903,6 +903,9 @@ proc gtkSetCursor(c: CursorKind) =
     of curHand: "pointer"
     of curSizeNS: "ns-resize"
     of curSizeWE: "ew-resize"
+    of curSizeNWSE: "nwse-resize"
+    of curSizeNESW: "nesw-resize"
+    of curMove: "move"
   let cur = gdk_cursor_new_from_name(cstring(name), nil)
   if cur != nil:
     gtk_widget_set_cursor(drawingArea, cur)
