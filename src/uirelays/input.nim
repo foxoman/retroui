@@ -25,7 +25,17 @@ type
     MouseDownEvent, MouseUpEvent, MouseMoveEvent, MouseWheelEvent,
     WindowResizeEvent, WindowMetricsEvent, WindowCloseEvent,
     WindowFocusGainedEvent, WindowFocusLostEvent,
-    QuitEvent
+    QuitEvent,
+    AppPauseEvent,   ## mobile: the app goes to the background; stop drawing
+    AppResumeEvent,  ## mobile: the app is back; redraw everything
+    GestureEvent     ## touch: two fingers pinched (`scale`) or moved (`dx`,
+                     ## `dy`) round their middle (`x`, `y`)
+
+  GesturePhase* = enum
+    gsBegin,         ## a second finger came down; the first one's press is
+                     ## released far outside the window, so nothing is clicked
+    gsChange,        ## the fingers moved
+    gsEnd            ## a finger was lifted
 
   Modifier* = enum
     ShiftPressed, CtrlPressed, AltPressed, GuiPressed
@@ -53,6 +63,12 @@ type
                            ## window moved to a display of another density.
     button*: MouseButton   ## MouseDownEvent/MouseUpEvent: which button
     clicks*: int           ## number of consecutive clicks (double-click = 2)
+    fromMouse*: bool       ## touch screens: the pointer is a mouse or a pen,
+                           ## not a finger
+    scale*: float32        ## GestureEvent: finger distance over that of the
+                           ## last event (1 = unchanged)
+    dx*, dy*: float32      ## GestureEvent: how far their middle moved
+    phase*: GesturePhase   ## GestureEvent: begun, changed or ended
 
   ClipboardRelays* = object
     getText*: proc (): string {.nimcall.}

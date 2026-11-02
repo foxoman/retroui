@@ -213,6 +213,26 @@ proc resolveFontPath(path: string): string =
 
   ""
 
+proc sdlGetWindowSafeArea(window: sdl3.Window; rect: ptr sdl3.Rect): bool
+  {.importc: "SDL_GetWindowSafeArea", cdecl, dynlib: sdl3.LibName.}
+proc sdlStartTextInput(window: sdl3.Window): bool
+  {.importc: "SDL_StartTextInput", cdecl, dynlib: sdl3.LibName.}
+proc sdlStopTextInput(window: sdl3.Window): bool
+  {.importc: "SDL_StopTextInput", cdecl, dynlib: sdl3.LibName.}
+
+var textInputOn = false
+
+proc syncTextInput(flags: set[InputFlag]) =
+  ## The on-screen keyboard (and text events) only while a text field has
+  ## the focus: a phone that showed its keyboard all the time would cover
+  ## half of the app.
+  if win == nil: return
+  let want = WantTextInput in flags
+  if want != textInputOn:
+    textInputOn = want
+    if want: discard sdlStartTextInput(win)
+    else: discard sdlStopTextInput(win)
+
 proc syncWindowLayout(layout: var ScreenLayout) =
   ## With `WINDOW_HIGH_PIXEL_DENSITY` and no logical presentation set on the
   ## renderer, SDL's render coordinates are device pixels -- so the window size
@@ -232,6 +252,16 @@ proc syncWindowLayout(layout: var ScreenLayout) =
     else:
       # No window metrics yet; the display's own scale is the best guess.
       max(100, int(getWindowDisplayScale(win).float * 100.0 + 0.5))
+  # The part of the window a notch, a status bar or a gesture bar leave
+  # free, as margins in device pixels.
+  var safe = sdl3.Rect()
+  if logicalW > 0 and sdlGetWindowSafeArea(win, addr safe) and safe.w > 0:
+    let k = layout.uiScale
+    layout.safeLeft = safe.x.int * k div 100
+    layout.safeTop = safe.y.int * k div 100
+    layout.safeRight = (logicalW.int - safe.x.int - safe.w.int) * k div 100
+    layout.safeBottom = (logicalH.int - safe.y.int - safe.h.int) * k div 100
+  layout.touch = defined(android) or defined(ios)
   currentLayout = layout
 
 proc sdlGetWindowLayout(): ScreenLayout =
@@ -261,7 +291,7 @@ proc sdlCreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   if maximized: winFlags = winFlags or WINDOW_MAXIMIZED
   discard createWindowAndRenderer(cstring"NimEdit",
     reqW.cint, reqH.cint, winFlags, win, ren)
-  discard startTextInput(win)
+  textInputOn = false
   syncWindowLayout(layout)
   currentClip = ClipState()
   applyClipState()
@@ -634,7 +664,9 @@ proc translateScancode(sc: Scancode): input.KeyCode =
   of SCANCODE_KP_PLUS: KeyPlus
   of SCANCODE_KP_EQUALS: KeyEqual
   else:
+    # SDL_SCANCODE_AC_BACK: the Android back button acts as Escape.
     case ord(sc)
+    of 270: KeyEsc
     of 47: KeyLeftBracket
     of 48: KeyRightBracket
     of 49: KeyBackslash
@@ -662,6 +694,10 @@ proc translateEvent(sdlEvent: sdl3.Event; e: var input.Event) =
   let evType = uint32(sdlEvent.common.`type`)
   if evType == uint32(EVENT_QUIT):
     e.kind = QuitEvent
+  elif evType == 0x103'u32:   # SDL_EVENT_WILL_ENTER_BACKGROUND
+    e.kind = AppPauseEvent
+  elif evType == 0x106'u32:   # SDL_EVENT_DID_ENTER_FOREGROUND
+    e.kind = AppResumeEvent
   elif evType == uint32(EVENT_WINDOW_RESIZED) or
        evType == uint32(EVENT_WINDOW_PIXEL_SIZE_CHANGED) or
        evType == uint32(EVENT_WINDOW_DISPLAY_SCALE_CHANGED):
@@ -730,6 +766,7 @@ proc translateEvent(sdlEvent: sdl3.Event; e: var input.Event) =
     e.y = sdlEvent.wheel.y.int
 
 proc sdlPollEvent(e: var input.Event; flags: set[InputFlag]): bool =
+  syncTextInput(flags)
   var sdlEvent: sdl3.Event
   if not pollEvent(sdlEvent):
     return false
@@ -738,6 +775,7 @@ proc sdlPollEvent(e: var input.Event; flags: set[InputFlag]): bool =
 
 proc sdlWaitEvent(e: var input.Event; timeoutMs: int;
                   flags: set[InputFlag]): bool =
+  syncTextInput(flags)
   var sdlEvent: sdl3.Event
   let ok = if timeoutMs < 0: waitEvent(sdlEvent)
            else: waitEventTimeout(sdlEvent, timeoutMs.int32)

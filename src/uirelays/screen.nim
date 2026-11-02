@@ -46,6 +46,10 @@ type
                           ## the platform already accounts for the display's
                           ## density; 200 means the app draws twice as large.
     fullScreen*: bool
+    safeTop*, safeBottom*, safeLeft*, safeRight*: int
+      ## Phones: the margins, in the driver's units, that a status bar, a
+      ## notch or a gesture bar cover. Zero on the desktop.
+    touch*: bool          ## the main pointer is a finger, not a mouse
 
   CursorKind* = enum
     curDefault, curArrow, curIbeam, curWait,
