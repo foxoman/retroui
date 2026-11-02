@@ -332,7 +332,15 @@ proc translateScancode(sc: Scancode): KeyCode =
   of SDL_SCANCODE_SLASH: KeySlash
   of SDL_SCANCODE_MINUS: KeyMinus
   of SDL_SCANCODE_EQUALS: KeyEqual
-  else: KeyNone
+  else:
+    case ord(sc)
+    of 47: KeyLeftBracket
+    of 48: KeyRightBracket
+    of 49: KeyBackslash
+    of 51: KeySemicolon
+    of 52: KeyQuote
+    of 53: KeyBackquote
+    else: KeyNone
 
 proc translateMods(m: int16): set[Modifier] =
   let m = m.int32

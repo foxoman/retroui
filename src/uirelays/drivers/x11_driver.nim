@@ -734,10 +734,18 @@ proc translateKeySym(ks: XKeySym): input.KeyCode =
   of XK_Home: KeyHome
   of XK_End: KeyEnd
   of XK_Caps_Lock: KeyCapslock
+  of 0xff67'u: KeyMenu                  # XK_Menu
   of XK_plus: KeyPlus
   of XK_comma: KeyComma
   of XK_period: KeyPeriod
   of XK_minus: KeyMinus
+  of 0x2f'u, 0x3f'u: KeySlash
+  of 0x5b'u, 0x7b'u: KeyLeftBracket
+  of 0x5d'u, 0x7d'u: KeyRightBracket
+  of 0x3b'u, 0x3a'u: KeySemicolon
+  of 0x27'u, 0x22'u: KeyQuote
+  of 0x5c'u, 0x7c'u: KeyBackslash
+  of 0x60'u, 0x7e'u: KeyBackquote
   of XK_equal: KeyEqual
   else: KeyNone
 

@@ -630,7 +630,15 @@ proc translateScancode(sc: Scancode): input.KeyCode =
   of SCANCODE_KP_MINUS: KeyMinus
   of SCANCODE_KP_PLUS: KeyPlus
   of SCANCODE_KP_EQUALS: KeyEqual
-  else: KeyNone
+  else:
+    case ord(sc)
+    of 47: KeyLeftBracket
+    of 48: KeyRightBracket
+    of 49: KeyBackslash
+    of 51: KeySemicolon
+    of 52: KeyQuote
+    of 53: KeyBackquote
+    else: KeyNone
 
 proc translateKeycode(k: sdl3.Keycode): input.KeyCode =
   case k

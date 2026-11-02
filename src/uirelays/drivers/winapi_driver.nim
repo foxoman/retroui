@@ -489,10 +489,17 @@ proc translateVK(vk: WPARAM): input.KeyCode =
   of VK_HOME: KeyHome
   of VK_END: KeyEnd
   of VK_CAPITAL: KeyCapslock
+  of 0x5D'u32: KeyMenu                  # VK_APPS
   of VK_OEM_COMMA: KeyComma
   of VK_OEM_PERIOD: KeyPeriod
   of VK_OEM_2: KeySlash
   of VK_OEM_MINUS: KeyMinus
+  of 0xDB'u32: KeyLeftBracket
+  of 0xDD'u32: KeyRightBracket
+  of 0xBA'u32: KeySemicolon
+  of 0xDE'u32: KeyQuote
+  of 0xDC'u32: KeyBackslash
+  of 0xC0'u32: KeyBackquote
   of VK_OEM_PLUS: KeyEqual
   else: KeyNone
 
