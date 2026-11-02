@@ -134,6 +134,9 @@ const
   WM_KEYDOWN = 0x0100'u32
   WM_KEYUP = 0x0101'u32
   WM_CHAR = 0x0102'u32
+  WM_SYSKEYDOWN = 0x0104'u32
+  WM_SYSKEYUP = 0x0105'u32
+  WM_SYSCHAR = 0x0106'u32
   WM_MOUSEMOVE = 0x0200'u32
   WM_LBUTTONDOWN = 0x0201'u32
   WM_LBUTTONUP = 0x0202'u32
@@ -240,6 +243,10 @@ proc CreateWindowExW(dwExStyle: DWORD; lpClassName, lpWindowName: ptr uint16;
   {.stdcall, dynlib: "user32", importc.}
 proc ShowWindow(hWnd: HWND; nCmdShow: int32): BOOL
   {.stdcall, dynlib: "user32", importc.}
+proc AdjustWindowRectEx(lpRect: pointer; dwStyle: DWORD; bMenu: BOOL; dwExStyle: DWORD): BOOL
+  {.stdcall, dynlib: "user32", importc.}
+proc SystemParametersInfoW(uiAction, uiParam: UINT; pvParam: pointer; fWinIni: UINT): BOOL
+  {.stdcall, dynlib: "user32", importc.}
 proc UpdateWindow(hWnd: HWND): BOOL
   {.stdcall, dynlib: "user32", importc.}
 proc DestroyWindow(hWnd: HWND): BOOL
@@ -276,6 +283,10 @@ proc LoadIconW(hInstance: HINSTANCE; lpIconName: ptr uint16): HICON
 proc SetCursorWin(hCursor: HCURSOR): HCURSOR
   {.stdcall, dynlib: "user32", importc: "SetCursor".}
 proc GetKeyState(nVirtKey: int32): int16
+  {.stdcall, dynlib: "user32", importc.}
+proc SetCapture(hWnd: HWND): HWND
+  {.stdcall, dynlib: "user32", importc.}
+proc ReleaseCapture(): BOOL
   {.stdcall, dynlib: "user32", importc.}
 proc OpenClipboard(hWndNewOwner: HWND): BOOL
   {.stdcall, dynlib: "user32", importc.}
@@ -371,6 +382,13 @@ proc rgb(c: screen.Color): COLORREF {.inline.} =
 
 proc loWord(lp: LPARAM): int {.inline.} = int(lp and 0xFFFF)
 proc hiWord(lp: LPARAM): int {.inline.} = int((lp shr 16) and 0xFFFF)
+proc xParam(lp: LPARAM): int {.inline.} =
+  ## The signed x of a mouse message: negative left of the window while
+  ## the mouse is captured.
+  cast[int16](uint16(lp and 0xFFFF)).int
+proc yParam(lp: LPARAM): int {.inline.} =
+  cast[int16](uint16((lp shr 16) and 0xFFFF)).int
+
 proc signedHiWord(wp: WPARAM): int {.inline.} =
   ## For WM_MOUSEWHEEL: wParam high word is signed
   cast[int16](uint16((wp shr 16) and 0xFFFF)).int
@@ -508,6 +526,7 @@ proc getModifiers(): set[Modifier] =
   if GetKeyState(VK_CONTROL.int32) < 0: result.incl CtrlPressed
   if GetKeyState(VK_MENU.int32) < 0: result.incl AltPressed
 
+var gHighSurrogate: uint16
 var lastClickTime: DWORD
 var lastClickX, lastClickY: int
 var clickCount: int
@@ -579,36 +598,57 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
     discard EndPaint(hwnd, addr ps)
     return 0
 
-  of WM_KEYDOWN:
+  of WM_KEYDOWN, WM_SYSKEYDOWN:
+    # Alt+key and F10 arrive as WM_SYSKEYDOWN. They are passed on like any
+    # key (an app's menus and Alt shortcuts want them); only Alt+F4 still
+    # goes to Windows, which closes the window.
     var e = input.Event(kind: KeyDownEvent)
     e.key = translateVK(wp)
     e.mods = getModifiers()
     pushEvent(e)
-    return 0
+    if msg == WM_SYSKEYDOWN and wp.uint32 == 0x73'u32: discard
+    else: return 0
 
-  of WM_KEYUP:
+  of WM_KEYUP, WM_SYSKEYUP:
     var e = input.Event(kind: KeyUpEvent)
     e.key = translateVK(wp)
     e.mods = getModifiers()
     pushEvent(e)
+    if msg == WM_SYSKEYUP and wp.uint32 == 0x73'u32: discard
+    else: return 0
+
+  of WM_SYSCHAR:
+    # Swallowed: DefWindowProc would beep for an Alt+letter with no menu.
     return 0
 
   of WM_CHAR:
-    # wp is a UTF-16 code unit. For BMP characters, emit TextInputEvent.
+    # wp is a UTF-16 code unit; a character beyond the BMP comes as two.
     let ch = wp.uint16
-    if ch >= 32 and ch != 127:
+    if ch >= 0xD800'u16 and ch <= 0xDBFF'u16:
+      gHighSurrogate = ch
+      return 0
+    var codepoint = ch.uint32
+    if ch >= 0xDC00'u16 and ch <= 0xDFFF'u16:
+      if gHighSurrogate == 0: return 0
+      codepoint = 0x10000'u32 + ((gHighSurrogate.uint32 - 0xD800) shl 10) +
+                  (ch.uint32 - 0xDC00)
+      gHighSurrogate = 0
+    if codepoint >= 32 and codepoint != 127:
       var e = input.Event(kind: TextInputEvent)
-      # Convert UTF-16 to UTF-8 into e.text[0..3]
-      let codepoint = ch.uint32
       if codepoint < 0x80:
         e.text[0] = chr(codepoint)
       elif codepoint < 0x800:
         e.text[0] = chr(0xC0 or (codepoint shr 6))
         e.text[1] = chr(0x80 or (codepoint and 0x3F))
-      else:
+      elif codepoint < 0x10000:
         e.text[0] = chr(0xE0 or (codepoint shr 12))
         e.text[1] = chr(0x80 or ((codepoint shr 6) and 0x3F))
         e.text[2] = chr(0x80 or (codepoint and 0x3F))
+      else:
+        e.text[0] = chr(0xF0 or (codepoint shr 18))
+        e.text[1] = chr(0x80 or ((codepoint shr 12) and 0x3F))
+        e.text[2] = chr(0x80 or ((codepoint shr 6) and 0x3F))
+        e.text[3] = chr(0x80 or (codepoint and 0x3F))
       pushEvent(e)
     return 0
 
@@ -622,9 +662,12 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
 
   of WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN:
     var e = input.Event(kind: MouseDownEvent, hasMods: true)
-    e.x = loWord(lp)
-    e.y = hiWord(lp)
+    e.x = xParam(lp)
+    e.y = yParam(lp)
     e.mods = getModifiers()
+    # Keep receiving the mouse while a button is down, so a drag that ends
+    # outside the window still ends.
+    discard SetCapture(hwnd)
     case msg
     of WM_LBUTTONDOWN: e.button = LeftButton
     of WM_RBUTTONDOWN: e.button = RightButton
@@ -646,8 +689,9 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
   of WM_LBUTTONUP, WM_RBUTTONUP, WM_MBUTTONUP:
     var e = input.Event(kind: MouseUpEvent, hasMods: true)
     e.mods = getModifiers()
-    e.x = loWord(lp)
-    e.y = hiWord(lp)
+    e.x = xParam(lp)
+    e.y = yParam(lp)
+    discard ReleaseCapture()
     case msg
     of WM_LBUTTONUP: e.button = LeftButton
     of WM_RBUTTONUP: e.button = RightButton
@@ -657,8 +701,8 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
 
   of WM_MOUSEMOVE:
     var e = input.Event(kind: MouseMoveEvent, hasMods: true)
-    e.x = loWord(lp)
-    e.y = hiWord(lp)
+    e.x = xParam(lp)
+    e.y = yParam(lp)
     e.mods = getModifiers()
     pushEvent(e)
     return 0
@@ -707,14 +751,31 @@ proc winCreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   discard RegisterClassExW(addr wc)
 
   let title = newWideCString("NimEdit")
+  # The size asked for is the inside of the window (what the app draws on),
+  # in pixels of a 100% screen: grown by the display's scale, then by the
+  # title bar and the borders Windows adds around it -- else the app's own
+  # content does not fit and scrolls.
+  var outerW = 0x80000000'i32                    # CW_USEDEFAULT
+  var outerH = 0x80000000'i32
+  if layout.width >= 0 and layout.height >= 0:
+    var rc = WINAPIRECT(left: 0, top: 0,
+                        right: int32(layout.width * gUiScale div 100),
+                        bottom: int32(layout.height * gUiScale div 100))
+    discard AdjustWindowRectEx(addr rc, WS_OVERLAPPEDWINDOW, 0, 0)
+    outerW = rc.right - rc.left
+    outerH = rc.bottom - rc.top
+    # No bigger than the desktop without the taskbar.
+    var work: WINAPIRECT
+    if SystemParametersInfoW(0x0030, 0, addr work, 0) != 0:      # SPI_GETWORKAREA
+      outerW = min(outerW, work.right - work.left)
+      outerH = min(outerH, work.bottom - work.top)
   gHwnd = CreateWindowExW(
     0,
     cast[ptr uint16](className[0].addr),
     cast[ptr uint16](title[0].addr),
     WS_OVERLAPPEDWINDOW or WS_VISIBLE,
     0x80000000'i32, 0x80000000'i32, # CW_USEDEFAULT
-    (if layout.width < 0: 0x80000000'i32 else: layout.width.int32),
-    (if layout.height < 0: 0x80000000'i32 else: layout.height.int32),
+    outerW, outerH,
     nil, nil, gHinstance, nil)
 
   if gHwnd == nil:
