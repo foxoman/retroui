@@ -621,7 +621,7 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
     return 0
 
   of WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN:
-    var e = input.Event(kind: MouseDownEvent)
+    var e = input.Event(kind: MouseDownEvent, hasMods: true)
     e.x = loWord(lp)
     e.y = hiWord(lp)
     e.mods = getModifiers()
@@ -644,7 +644,8 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
     return 0
 
   of WM_LBUTTONUP, WM_RBUTTONUP, WM_MBUTTONUP:
-    var e = input.Event(kind: MouseUpEvent)
+    var e = input.Event(kind: MouseUpEvent, hasMods: true)
+    e.mods = getModifiers()
     e.x = loWord(lp)
     e.y = hiWord(lp)
     case msg
@@ -655,14 +656,16 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
     return 0
 
   of WM_MOUSEMOVE:
-    var e = input.Event(kind: MouseMoveEvent)
+    var e = input.Event(kind: MouseMoveEvent, hasMods: true)
     e.x = loWord(lp)
     e.y = hiWord(lp)
+    e.mods = getModifiers()
     pushEvent(e)
     return 0
 
   of WM_MOUSEWHEEL:
-    var e = input.Event(kind: MouseWheelEvent)
+    var e = input.Event(kind: MouseWheelEvent, hasMods: true)
+    e.mods = getModifiers()
     let delta = signedHiWord(wp)
     e.y = delta div 120  # standard wheel delta
     var pt = WINAPIPOINT(x: loWord(lp).LONG, y: hiWord(lp).LONG)

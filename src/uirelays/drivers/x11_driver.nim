@@ -756,6 +756,18 @@ proc translateMods(state: cuint): set[Modifier] =
   if (state and Mod1Mask) != 0: result.incl AltPressed
   if (state and Mod4Mask) != 0: result.incl GuiPressed
 
+proc modsAfter(state: cuint; ks: XKeySym; down: bool): set[Modifier] =
+  ## X reports the modifiers as they were before the event; for a modifier
+  ## key itself this is what they are after it.
+  result = translateMods(state)
+  let m = case int(ks)
+          of 0xffe1, 0xffe2: ShiftPressed
+          of 0xffe3, 0xffe4: CtrlPressed
+          of 0xffe7, 0xffe8, 0xffe9, 0xffea: AltPressed
+          of 0xffeb, 0xffec: GuiPressed
+          else: return
+  if down: result.incl m else: result.excl m
+
 proc translateButton(button: cuint): MouseButton =
   case button
   of Button1: LeftButton
@@ -887,9 +899,9 @@ proc processXEvent(xev: XEvent) =
           text.add char(0xC0'u8 or (b shr 6))
           text.add char(0x80'u8 or (b and 0x3F))
     if hasKey:
-      var e = input.Event(kind: KeyDownEvent)
+      var e = input.Event(kind: KeyDownEvent, hasMods: true)
       e.key = translateKeySym(ks)
-      e.mods = translateMods(xev.xkey.state)
+      e.mods = modsAfter(xev.xkey.state, ks, true)
       pushEvent(e)
     # Text input (if printable), one event per codepoint
     if text.len > 0 and text[0].uint8 >= 32 and text[0].uint8 != 127:
@@ -907,20 +919,21 @@ proc processXEvent(xev: XEvent) =
   of KeyRelease:
     var ks {.noinit.}: XKeySym
     discard XLookupString(unsafeAddr xev.xkey, nil, 0, addr ks, nil)
-    var e = input.Event(kind: KeyUpEvent)
+    var e = input.Event(kind: KeyUpEvent, hasMods: true)
     e.key = translateKeySym(ks)
-    e.mods = translateMods(xev.xkey.state)
+    e.mods = modsAfter(xev.xkey.state, ks, false)
     pushEvent(e)
 
   of ButtonPress:
     let btn = xev.xbutton.button
     if btn == Button4 or btn == Button5:
       # Scroll wheel
-      var e = input.Event(kind: MouseWheelEvent)
+      var e = input.Event(kind: MouseWheelEvent, hasMods: true)
       e.y = if btn == Button4: 1 else: -1
+      e.mods = translateMods(xev.xbutton.state)
       pushEvent(e)
     else:
-      var e = input.Event(kind: MouseDownEvent)
+      var e = input.Event(kind: MouseDownEvent, hasMods: true)
       e.x = xev.xbutton.x
       e.y = xev.xbutton.y
       e.button = translateButton(btn)
@@ -941,16 +954,18 @@ proc processXEvent(xev: XEvent) =
   of ButtonRelease:
     let btn = xev.xbutton.button
     if btn != Button4 and btn != Button5:
-      var e = input.Event(kind: MouseUpEvent)
+      var e = input.Event(kind: MouseUpEvent, hasMods: true)
       e.x = xev.xbutton.x
       e.y = xev.xbutton.y
       e.button = translateButton(btn)
+      e.mods = translateMods(xev.xbutton.state)
       pushEvent(e)
 
   of MotionNotify:
-    var e = input.Event(kind: MouseMoveEvent)
+    var e = input.Event(kind: MouseMoveEvent, hasMods: true)
     e.x = xev.xmotion.x
     e.y = xev.xmotion.y
+    e.mods = translateMods(xev.xmotion.state)
     pushEvent(e)
 
   of SelectionRequest:

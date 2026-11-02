@@ -249,7 +249,7 @@ proc cocoaSetWindowTitle(title: string) =
 # --- Event translation ---
 
 proc translateNEEvent(ne: NEEvent; e: var input.Event) =
-  e = input.Event(kind: NoEvent)
+  e = input.Event(kind: NoEvent, hasMods: true)
   # Translate modifiers
   if (ne.mods and neModShift) != 0: e.mods.incl ShiftPressed
   if (ne.mods and neModCtrl) != 0: e.mods.incl CtrlPressed

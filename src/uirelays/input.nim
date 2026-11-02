@@ -40,6 +40,8 @@ type
     kind*: EventKind
     key*: KeyCode
     mods*: set[Modifier]
+    hasMods*: bool         ## `mods` is set for this event (some drivers set
+                           ## it for keys only)
     text*: array[4, char]  ## TextInputEvent: one UTF-8 codepoint, no alloc
     x*, y*: int            ## mouse position, scroll delta, or new window size
     scaleX*, scaleY*: int  ## WindowMetricsEvent: device pixels per coordinate
