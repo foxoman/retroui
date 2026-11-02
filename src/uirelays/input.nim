@@ -65,6 +65,14 @@ type
     clicks*: int           ## number of consecutive clicks (double-click = 2)
     fromMouse*: bool       ## touch screens: the pointer is a mouse or a pen,
                            ## not a finger
+    pen*: bool             ## the pointer is a pen (a stylus)
+    pressure*: float32     ## pen: how hard it presses, 0..1
+    tilt*: float32         ## pen: how far it leans from upright, radians
+                           ## (0..pi/2)
+    azimuth*: float32      ## pen: which way it leans, radians (0 = right,
+                           ## clockwise)
+    twist*: float32        ## pen: turn about its own axis, degrees (-1: the
+                           ## eraser end is in use)
     scale*: float32        ## GestureEvent: finger distance over that of the
                            ## last event (1 = unchanged)
     dx*, dy*: float32      ## GestureEvent: how far their middle moved

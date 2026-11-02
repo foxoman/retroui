@@ -3,6 +3,7 @@
 # BitBlt to window on refresh.
 
 import ../coords, ../input, ../screen
+import penaxes
 import std/[widestrs, strutils, os]
 
 {.passL: "-lgdi32 -luser32 -lkernel32".}
@@ -117,6 +118,34 @@ type
   SIZE {.pure.} = object
     cx, cy: LONG
 
+  POINTER_INFO {.pure.} = object
+    ## Windows 8 and later: what a pointer (here a pen) reports with each message.
+    pointerType: DWORD
+    pointerId: UINT
+    frameId: UINT
+    pointerFlags: UINT
+    sourceDevice: HANDLE
+    hwndTarget: HWND
+    ptPixelLocation: WINAPIPOINT
+    ptHimetricLocation: WINAPIPOINT
+    ptPixelLocationRaw: WINAPIPOINT
+    ptHimetricLocationRaw: WINAPIPOINT
+    dwTime: DWORD
+    historyCount: UINT
+    inputData: int32
+    dwKeyStates: DWORD
+    performanceCount: uint64
+    buttonChangeType: int32
+
+  POINTER_PEN_INFO {.pure.} = object
+    pointerInfo: POINTER_INFO
+    penFlags: UINT
+    penMask: UINT
+    pressure: UINT
+    rotation: UINT
+    tiltX: int32
+    tiltY: int32
+
 # ---- Win32 constants ----
 
 const
@@ -150,6 +179,12 @@ const
   WM_SETFOCUS = 0x0007'u32
   WM_KILLFOCUS = 0x0008'u32
   WM_DPICHANGED = 0x02E0'u32
+  WM_POINTERUPDATE = 0x0245'u32
+  WM_POINTERDOWN = 0x0246'u32
+  WM_POINTERUP = 0x0247'u32
+  PT_PEN = 3'u32
+  POINTER_FLAG_INCONTACT = 0x4'u32
+  POINTER_FLAG_SECONDBUTTON = 0x20'u32
 
   PM_REMOVE = 0x0001'u32
   INFINITE = 0xFFFFFFFF'u32
@@ -635,6 +670,79 @@ proc pumpMessages() =
     if msg.message == WM_QUIT:
       pushEvent(input.Event(kind: QuitEvent))
 
+# ---- Pens (WM_POINTER, Windows 8 on) ----
+#
+# A pen's messages are made into events here, with its pressure, lean, turn
+# and eraser end. Anything else that points -- the mouse, a finger, a touch
+# pad -- is left to DefWindowProc, which turns it into the mouse messages
+# above exactly as before (EnableMouseInPointer is not called). A pen whose
+# messages are handled here gets no mouse messages made from them. The
+# functions are looked up at run time: Windows 7 sends no WM_POINTER at all.
+
+type
+  GetPointerTypeProc = proc (id: UINT; kind: ptr DWORD): BOOL {.stdcall.}
+  GetPointerPenInfoProc = proc (id: UINT; info: ptr POINTER_PEN_INFO): BOOL {.stdcall.}
+
+proc ScreenToClient(hWnd: HWND; lpPoint: ptr WINAPIPOINT): BOOL
+  {.stdcall, dynlib: "user32", importc.}
+
+var
+  gPointerApi = 0     ## 0: not looked up yet; 1: there; -1: not there
+  gGetPointerType: GetPointerTypeProc
+  gGetPointerPenInfo: GetPointerPenInfoProc
+  gPenButton = LeftButton   ## what the pen's tip pressed (right: with the side button down)
+
+proc penClicks(x, y: int): int =
+  ## The click count, kept with the mouse's: a double tap is a double click.
+  let now = GetTickCount()
+  if now - lastClickTime < 500 and abs(x - lastClickX) < 4 and abs(y - lastClickY) < 4:
+    inc clickCount
+  else:
+    clickCount = 1
+  lastClickTime = now
+  lastClickX = x
+  lastClickY = y
+  clickCount
+
+proc penMessage(hwnd: HWND; msg: UINT; wp: WPARAM): bool =
+  ## A WM_POINTER message of a pen as an event; false when it is not a pen's
+  ## (or cannot be read), and DefWindowProc is to have it.
+  if gPointerApi == 0:
+    let u = LoadLibraryA("user32.dll")
+    if u != nil:
+      gGetPointerType = cast[GetPointerTypeProc](GetProcAddress(u, "GetPointerType"))
+      gGetPointerPenInfo = cast[GetPointerPenInfoProc](GetProcAddress(u, "GetPointerPenInfo"))
+    gPointerApi = if gGetPointerType != nil and gGetPointerPenInfo != nil: 1 else: -1
+  if gPointerApi < 0: return false
+  let id = UINT(wp and 0xFFFF)          # GET_POINTERID_WPARAM
+  var kind: DWORD = 0
+  if gGetPointerType(id, addr kind) == 0 or kind != PT_PEN: return false
+  var info: POINTER_PEN_INFO
+  if gGetPointerPenInfo(id, addr info) == 0: return false
+  var pt = info.pointerInfo.ptPixelLocation
+  discard ScreenToClient(hwnd, addr pt)
+  let flags = info.pointerInfo.pointerFlags
+  var e = input.Event(hasMods: true, x: pt.x.int, y: pt.y.int, mods: getModifiers())
+  penFromWindows(e, info.pressure, info.rotation, info.tiltX, info.tiltY,
+                 info.penFlags, info.penMask, (flags and POINTER_FLAG_INCONTACT) != 0)
+  case msg
+  of WM_POINTERDOWN:
+    # The tip touches: a left click, or a right one with the side button
+    # held, as Windows' own mouse messages for a pen have it.
+    gPenButton = if (flags and POINTER_FLAG_SECONDBUTTON) != 0 or
+                    (info.penFlags and PenFlagBarrel) != 0: RightButton
+                 else: LeftButton
+    e.kind = MouseDownEvent
+    e.button = gPenButton
+    e.clicks = penClicks(e.x, e.y)
+  of WM_POINTERUP:
+    e.kind = MouseUpEvent
+    e.button = gPenButton
+  else:
+    e.kind = MouseMoveEvent
+  pushEvent(e)
+  true
+
 proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.} =
   # Capture gHwnd from the first message -- WM_SIZE etc. arrive
   # during CreateWindowExW, *before* it returns and assigns gHwnd.
@@ -825,6 +933,11 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
     # Nimedit only uses e.y for scroll direction
     pushEvent(e)
     return 0
+
+  of WM_POINTERDOWN, WM_POINTERUPDATE, WM_POINTERUP:
+    # a pen: its events with how it is held (see "Pens"); anything else goes
+    # on to DefWindowProc and comes back as mouse messages
+    if penMessage(hwnd, msg, wp): return 0
 
   else:
     discard

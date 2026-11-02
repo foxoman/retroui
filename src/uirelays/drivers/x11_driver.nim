@@ -3,6 +3,7 @@
 # Double-buffered via X Pixmap.
 
 import ../coords, ../input, ../screen, ../eglload
+import penaxes
 from ../pixelutils import resizedRGBA
 import std/[strutils, os, dynlib]
 when defined(nimony):
@@ -200,6 +201,17 @@ type
     property: Atom
     time: XTime
 
+  XGenericEventCookie {.pure.} = object
+    ## An extension's event (XInput 2's), its data fetched by `XGetEventData`.
+    theType: cint
+    serial: culong
+    send_event: XBool
+    display: pointer
+    extension: cint
+    evtype: cint
+    cookie: cuint
+    data: pointer
+
   XEvent {.union.} = object
     theType: cint
     xany: XAnyEvent
@@ -212,6 +224,7 @@ type
     xfocus: XFocusChangeEvent
     xselection: XSelectionEvent
     xselectionrequest: XSelectionRequestEvent
+    xcookie: XGenericEventCookie
     pad: array[24, clong]  # XEvent is 192 bytes on 64-bit
 
   # ---- Xft types ----
@@ -259,6 +272,7 @@ const
   SelectionNotify = 31.cint
   SelectionRequest = 30.cint
   ClientMessage = 33.cint
+  GenericEvent = 35.cint
 
   # Event masks
   ExposureMask = 1 shl 15
@@ -852,6 +866,239 @@ var lastClickTime: XTime
 var lastClickX, lastClickY: int
 var clickCount: int
 
+# ---- Pen tablets (XInput 2) ----
+#
+# The mouse path is left as it is: clicks and motion still come as the core
+# events above, from the master pointer, whatever moved it. What a pen adds
+# -- pressure, lean, turn, its eraser end -- only XInput 2 carries, in the
+# valuators of the tablet's own (slave) device. So the window asks for the
+# XInput 2 motion and buttons of the tablet devices only; asking for a slave
+# device's events does not take the core events away (those come from the
+# master), and the server sends the slave's event first, then the master's
+# core event made from it with the same timestamp. The newest pen state is
+# kept, and a core event of that very time is the pen's.
+#
+# libXi is opened at run time, and only used if it is there: nothing new is
+# needed to build or to start.
+
+type
+  XIEventMask {.pure.} = object
+    deviceid: cint
+    mask_len: cint
+    mask: ptr uint8
+
+  XIAnyClassInfo {.pure.} = object
+    theType: cint
+    sourceid: cint
+
+  XIValuatorClassInfo {.pure.} = object
+    theType: cint
+    sourceid: cint
+    number: cint
+    label: Atom
+    min, max, value: cdouble
+    resolution: cint
+    mode: cint
+
+  XIDeviceInfo {.pure.} = object
+    deviceid: cint
+    name: cstring
+    use: cint
+    attachment: cint
+    enabled: XBool
+    num_classes: cint
+    classes: ptr UncheckedArray[ptr XIAnyClassInfo]
+
+  XIButtonState {.pure.} = object
+    mask_len: cint
+    mask: ptr uint8
+
+  XIValuatorState {.pure.} = object
+    mask_len: cint
+    mask: ptr UncheckedArray[uint8]
+    values: ptr UncheckedArray[float64]
+
+  XIModifierState {.pure.} = object
+    base, latched, locked, effective: cint
+
+  XIDeviceEvent {.pure.} = object
+    theType: cint
+    serial: culong
+    send_event: XBool
+    display: pointer
+    extension: cint
+    evtype: cint
+    time: XTime
+    deviceid, sourceid, detail: cint
+    root, event, child: XID
+    root_x, root_y, event_x, event_y: cdouble
+    flags: cint
+    buttons: XIButtonState
+    valuators: XIValuatorState
+    mods: XIModifierState
+    group: XIModifierState
+
+  XDeviceInfoXI1 {.pure.} = object
+    ## XInput 1's `XDeviceInfo`: what is left of a device's type ("ERASER").
+    id: XID
+    devType: Atom
+    name: cstring
+    num_classes: cint
+    use: cint
+    inputclassinfo: pointer
+
+  XErrorHandler = proc (d: pointer; e: pointer): cint {.cdecl.}
+  XIQueryDeviceProc = proc (d: pointer; id: cint;
+                            n: ptr cint): ptr UncheckedArray[XIDeviceInfo] {.cdecl.}
+  XIFreeProc = proc (p: pointer) {.cdecl.}
+  XISelectEventsProc = proc (d: pointer; w: XID; masks: ptr XIEventMask; n: cint): cint {.cdecl.}
+  XListInputDevicesProc = proc (d: pointer;
+                                n: ptr cint): ptr UncheckedArray[XDeviceInfoXI1] {.cdecl.}
+  XGetEventDataProc = proc (d: pointer; c: ptr XGenericEventCookie): XBool {.cdecl.}
+  XFreeEventDataProc = proc (d: pointer; c: ptr XGenericEventCookie) {.cdecl.}
+
+const
+  XIAllDevices = 0.cint
+  XISlavePointer = 3.cint
+  XIValuatorClass = 2.cint
+  XI_ButtonPress = 4.cint
+  XI_ButtonRelease = 5.cint
+  XI_Motion = 6.cint
+  XI_HierarchyChanged = 11.cint
+
+proc XQueryExtension(dpy: pointer; name: cstring;
+                     major, firstEvent, firstError: ptr cint): XBool
+  {.cdecl, dynlib: libX11, importc.}
+proc XSync(dpy: pointer; discardEvents: XBool): cint
+  {.cdecl, dynlib: libX11, importc.}
+proc XSetErrorHandler(handler: XErrorHandler): XErrorHandler
+  {.cdecl, dynlib: libX11, importc.}
+
+var
+  gXiOpcode: cint = 0   ## XInput's major opcode; 0: pens are not followed
+  gXiQueryDevice: XIQueryDeviceProc
+  gXiFreeDeviceInfo: XIFreeProc
+  gXiSelectEvents: XISelectEventsProc
+  gXListInputDevices: XListInputDevicesProc
+  gXFreeDeviceList: XIFreeProc
+  gXGetEventData: XGetEventDataProc
+  gXFreeEventData: XFreeEventDataProc
+  gTablets: seq[TabletDevice]
+  gPenTablet = -1       ## the tablet the newest pen event came from
+  gPenTime: XTime       ## ... and its time: the core event of that time is the pen's
+
+proc ignoreXError(d: pointer; e: pointer): cint {.cdecl.} = 0
+
+proc scanTablets() =
+  ## Which input devices are pens (and which of those an eraser end), and
+  ## asks for their XInput 2 events on the window. Again whenever devices
+  ## come and go (xf86-input-libinput makes a pen's device the first time
+  ## the pen comes near).
+  gTablets.setLen(0)
+  gPenTablet = -1
+  var labels: array[PenAxisLabels.len, Atom]
+  for i in 0 ..< PenAxisLabels.len:
+    labels[i] = XInternAtom(gDisplay, cstring(PenAxisLabels[i]), 1)
+  let eraserType = XInternAtom(gDisplay, "ERASER", 1)
+  var n: cint = 0
+  let infos = gXiQueryDevice(gDisplay, XIAllDevices, addr n)
+  if infos != nil:
+    for i in 0 ..< n.int:
+      if infos[i].use != XISlavePointer or infos[i].name == nil: continue
+      var t = newTabletDevice(infos[i].deviceid.int, $infos[i].name)
+      for c in 0 ..< infos[i].num_classes.int:
+        let cls = infos[i].classes[c]
+        if cls == nil or cls.theType != XIValuatorClass: continue
+        let v = cast[ptr XIValuatorClassInfo](cls)
+        if v.label == None: continue
+        for k in 0 ..< labels.len:
+          if labels[k] != None and v.label == labels[k]:
+            t.addValuator(PenAxisLabels[k], v.number.int, v.min, v.max, v.value)
+      if t.isTablet:
+        t.eraser = isEraserName(t.name)
+        gTablets.add t
+    gXiFreeDeviceInfo(infos)
+  if gTablets.len > 0 and eraserType != None and gXListInputDevices != nil:
+    # XInput 1 still knows a device's type: the Wacom driver's "ERASER".
+    var m: cint = 0
+    let list = gXListInputDevices(gDisplay, addr m)
+    if list != nil:
+      for i in 0 ..< m.int:
+        if list[i].devType != eraserType: continue
+        for t in gTablets.mitems:
+          if XID(t.id) == list[i].id: t.eraser = true
+      gXFreeDeviceList(list)
+  # Devices coming and going, and the motion and buttons of each pen.
+  var bits = newSeq[uint8](4 * (gTablets.len + 1))
+  var masks = newSeq[XIEventMask](gTablets.len + 1)
+  bits[XI_HierarchyChanged shr 3] = uint8(1 shl (XI_HierarchyChanged and 7))
+  masks[0] = XIEventMask(deviceid: XIAllDevices, mask_len: 4, mask: addr bits[0])
+  for i in 0 ..< gTablets.len:
+    let o = 4 * (i + 1)
+    for ev in [XI_ButtonPress, XI_ButtonRelease, XI_Motion]:
+      bits[o + (ev shr 3)] = bits[o + (ev shr 3)] or uint8(1 shl (ev and 7))
+    masks[i + 1] = XIEventMask(deviceid: gTablets[i].id.cint, mask_len: 4,
+                               mask: addr bits[o])
+  # A device that went away in the meantime is an X error, which by default
+  # ends the program: not this one.
+  discard XSync(gDisplay, 0)
+  let previous = XSetErrorHandler(ignoreXError)
+  discard gXiSelectEvents(gDisplay, gWindow, addr masks[0], masks.len.cint)
+  discard XSync(gDisplay, 0)
+  discard XSetErrorHandler(previous)
+
+proc startPenInput() =
+  ## Follows pen tablets when the X server and libXi can (XInput 2).
+  let lib = loadLib("libXi.so.6")
+  if lib == nil: return
+  let x11 = loadLib("libX11.so.6")
+  if x11 == nil: return
+  type QueryVersion = proc (d: pointer; major, minor: ptr cint): XStatus {.cdecl.}
+  let queryVersion = cast[QueryVersion](lib.symAddr("XIQueryVersion"))
+  gXiQueryDevice = cast[XIQueryDeviceProc](lib.symAddr("XIQueryDevice"))
+  gXiFreeDeviceInfo = cast[XIFreeProc](lib.symAddr("XIFreeDeviceInfo"))
+  gXiSelectEvents = cast[XISelectEventsProc](lib.symAddr("XISelectEvents"))
+  gXListInputDevices = cast[XListInputDevicesProc](lib.symAddr("XListInputDevices"))
+  gXFreeDeviceList = cast[XIFreeProc](lib.symAddr("XFreeDeviceList"))
+  gXGetEventData = cast[XGetEventDataProc](x11.symAddr("XGetEventData"))
+  gXFreeEventData = cast[XFreeEventDataProc](x11.symAddr("XFreeEventData"))
+  if queryVersion == nil or gXiQueryDevice == nil or gXiFreeDeviceInfo == nil or
+     gXiSelectEvents == nil or gXGetEventData == nil or gXFreeEventData == nil or
+     gXFreeDeviceList == nil:
+    return
+  var opcode, firstEvent, firstError: cint
+  if XQueryExtension(gDisplay, "XInputExtension", addr opcode, addr firstEvent,
+                     addr firstError) == 0:
+    return
+  var major: cint = 2
+  var minor: cint = 0
+  if queryVersion(gDisplay, addr major, addr minor) != 0 or major < 2: return
+  # libXi stays open: it decodes the events from now on.
+  gXiOpcode = opcode
+  scanTablets()
+
+proc processXiEvent(xev: var XEvent) =
+  ## An XInput 2 event: a pen moved, touched or lifted (its state kept for
+  ## the core event that follows), or devices came or went.
+  if gXGetEventData(gDisplay, addr xev.xcookie) == 0: return
+  let evtype = xev.xcookie.evtype
+  if evtype == XI_Motion or evtype == XI_ButtonPress or evtype == XI_ButtonRelease:
+    let d = cast[ptr XIDeviceEvent](xev.xcookie.data)
+    for i in 0 ..< gTablets.len:
+      if gTablets[i].id == d.deviceid.int:
+        gTablets[i].updateValuators(d.valuators.mask, d.valuators.mask_len.int,
+                                    d.valuators.values)
+        gPenTablet = i
+        gPenTime = d.time
+        break
+  gXFreeEventData(gDisplay, addr xev.xcookie)
+  if evtype == XI_HierarchyChanged: scanTablets()
+
+proc withPen(e: var input.Event; time: XTime) =
+  ## A core pointer event that a pen made: how the pen is held.
+  if gPenTablet >= 0 and gPenTablet < gTablets.len and time == gPenTime:
+    penFromTablet(e, gTablets[gPenTablet])
+
 proc processXEvent(xev: XEvent) =
   case xev.theType
   of Expose:
@@ -978,6 +1225,7 @@ proc processXEvent(xev: XEvent) =
       lastClickX = e.x
       lastClickY = e.y
       e.clicks = clickCount
+      withPen(e, now)
       pushEvent(e)
 
   of ButtonRelease:
@@ -988,6 +1236,7 @@ proc processXEvent(xev: XEvent) =
       e.y = xev.xbutton.y
       e.button = translateButton(btn)
       e.mods = translateMods(xev.xbutton.state)
+      withPen(e, xev.xbutton.time)
       pushEvent(e)
 
   of MotionNotify:
@@ -995,6 +1244,7 @@ proc processXEvent(xev: XEvent) =
     e.x = xev.xmotion.x
     e.y = xev.xmotion.y
     e.mods = translateMods(xev.xmotion.state)
+    withPen(e, xev.xmotion.time)
     pushEvent(e)
 
   of SelectionRequest:
@@ -1008,6 +1258,9 @@ proc dispatchXEvent(xev: var XEvent) =
   ## goes nowhere, the input method gets the first look at the rest, and
   ## what it leaves is ours.
   if xev.xkey.theType == KeyRelease and isAutoRepeatRelease(xev): return
+  if xev.theType == GenericEvent:
+    if gXiOpcode != 0 and xev.xcookie.extension == gXiOpcode: processXiEvent(xev)
+    return
   if XFilterEvent(addr xev, None) == 0:
     processXEvent(xev)
 
@@ -1268,6 +1521,8 @@ proc x11CreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   var detectable: XBool = 0
   discard XkbSetDetectableAutoRepeat(gDisplay, 1, addr detectable)
   gRepeatsPaired = detectable == 0
+  # A pen tablet's pressure and lean, when there is one (see "Pen tablets").
+  startPenInput()
 
   # Register WM_DELETE_WINDOW
   gWmDeleteWindow = XInternAtom(gDisplay, "WM_DELETE_WINDOW", 0)

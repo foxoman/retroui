@@ -21,6 +21,8 @@ exec "nim c -r tests/tinyniftest.nim"
 # And so does the layout: dividing a rectangle, finding the borders in it, and
 # moving one, are arithmetic that never touches a window.
 exec "nim c -r tests/layouttest.nim"
+# A pen's pressure, lean and turn: arithmetic on what the systems report.
+exec "nim c -r tests/penaxestest.nim"
 
 exec "nim c -r tests/rgbatest.nim"
 when defined(windows):

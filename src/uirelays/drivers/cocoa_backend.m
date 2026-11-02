@@ -47,6 +47,10 @@ typedef struct {
   int button;         /* NE_MB_* */
   int buttons;        /* bitmask: 1=left, 2=right, 4=middle */
   int clicks;
+  int pen;            /* 0: a mouse; 1: a tablet's pen; 2: the pen's eraser end */
+  float pressure;     /* the pen's, 0 .. 1 */
+  float tiltX, tiltY; /* the pen's lean, -1 .. 1 each (NSEvent.tilt) */
+  float rotation;     /* the pen's turn, degrees (NSEvent.rotation) */
 } NEEvent;
 
 #define EVENT_QUEUE_SIZE 256
@@ -804,6 +808,29 @@ void cocoa_delay(uint32_t ms) {
   [NSThread sleepForTimeInterval:ms / 1000.0];
 }
 
+/* ---- A graphics tablet's pen ------------------------------------------ */
+
+static int penEraser = 0;   /* the end of the pen near the tablet is its eraser */
+
+static void notePenProximity(NSEvent *event) {
+  /* Only a proximity event says which end of the pen came near. */
+  penEraser = [event isEnteringProximity] &&
+              [event pointingDeviceType] == NSPointingDeviceTypeEraser;
+}
+
+static void withPen(NEEvent *e, NSEvent *event) {
+  /* a mouse event a tablet's pen made: how the pen is held */
+  NSEventSubtype sub = [event subtype];
+  if (sub == NSEventSubtypeTabletProximity) notePenProximity(event);
+  if (sub != NSEventSubtypeTabletPoint) return;
+  NSPoint tilt = [event tilt];
+  e->pen = penEraser ? 2 : 1;
+  e->pressure = [event pressure];
+  e->tiltX = (float)tilt.x;
+  e->tiltY = (float)tilt.y;
+  e->rotation = [event rotation];
+}
+
 /* ---- NSView subclass -------------------------------------------------- */
 
 @interface NimEditView : NSView <NSTextInputClient>
@@ -914,6 +941,7 @@ void cocoa_delay(uint32_t ms) {
   e.y = (int)p.y;
   e.clicks = (int)event.clickCount;
   e.mods = translateModifiers(event.modifierFlags);
+  withPen(&e, event);
   pushEvent(e);
 }
 
@@ -925,6 +953,7 @@ void cocoa_delay(uint32_t ms) {
   e.x = (int)p.x;
   e.y = (int)p.y;
   e.mods = translateModifiers(event.modifierFlags);
+  withPen(&e, event);
   pushEvent(e);
 }
 
@@ -937,6 +966,7 @@ void cocoa_delay(uint32_t ms) {
   e.y = (int)p.y;
   e.clicks = (int)event.clickCount;
   e.mods = translateModifiers(event.modifierFlags);
+  withPen(&e, event);
   pushEvent(e);
 }
 
@@ -948,6 +978,7 @@ void cocoa_delay(uint32_t ms) {
   e.x = (int)p.x;
   e.y = (int)p.y;
   e.mods = translateModifiers(event.modifierFlags);
+  withPen(&e, event);
   pushEvent(e);
 }
 
@@ -960,6 +991,7 @@ void cocoa_delay(uint32_t ms) {
   e.y = (int)p.y;
   e.clicks = (int)event.clickCount;
   e.mods = translateModifiers(event.modifierFlags);
+  withPen(&e, event);
   pushEvent(e);
 }
 
@@ -971,6 +1003,7 @@ void cocoa_delay(uint32_t ms) {
   e.x = (int)p.x;
   e.y = (int)p.y;
   e.mods = translateModifiers(event.modifierFlags);
+  withPen(&e, event);
   pushEvent(e);
 }
 
@@ -993,6 +1026,7 @@ static int currentButtons(NSEvent *event) {
   e.yrel = (int)event.deltaY;
   e.buttons = currentButtons(event);
   e.mods = translateModifiers(event.modifierFlags);
+  withPen(&e, event);
   pushEvent(e);
 }
 
@@ -1211,6 +1245,18 @@ void cocoa_createWindow(int w, int h, int *outW, int *outH,
 
     /* Window delegate (already allocated above for the Quit menu item) */
     [mainWindow setDelegate:winDelegate];
+
+    /* A tablet tells which end of its pen came near in proximity events of
+       their own, which no view method is sure to see: watch them here. */
+    static id penProximityMonitor = nil;
+    if (!penProximityMonitor) {
+      penProximityMonitor =
+        [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskTabletProximity
+                                              handler:^NSEvent *(NSEvent *ev) {
+          notePenProximity(ev);
+          return ev;
+        }];
+    }
 
     /* Show */
     [mainWindow makeKeyAndOrderFront:nil];

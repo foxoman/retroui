@@ -18,10 +18,15 @@ typedef struct {
   int button;
   int buttons;
   int clicks;
+  int pen;
+  float pressure;
+  float tiltX, tiltY;
+  float rotation;
 } NEEvent;
 """.}
 
 import ../coords, ../input, ../screen
+import penaxes
 
 proc prepareSiwinSurface*(width, height: cint; scale: cdouble): cint
   {.importc: "cocoa_prepareSiwinSurface", cdecl.}
@@ -44,6 +49,10 @@ type
     button: cint
     buttons: cint
     clicks: cint
+    pen: cint                 ## 0 a mouse, 1 a tablet's pen, 2 its eraser end
+    pressure: cfloat
+    tiltX, tiltY: cfloat
+    rotation: cfloat
 
 # Event kinds (must match cocoa_backend.m)
 const
@@ -317,6 +326,9 @@ proc translateNEEvent(ne: NEEvent; e: var input.Event) =
     e.x = ne.x
     e.y = ne.y
   else: discard
+  if ne.pen != 0 and e.kind in {MouseDownEvent, MouseUpEvent, MouseMoveEvent}:
+    # a tablet's pen: how it is held
+    penFromCocoa(e, ne.pressure, ne.tiltX, ne.tiltY, ne.rotation, ne.pen == 2)
 
 proc cocoaPollEvent(e: var input.Event; flags: set[InputFlag]): bool =
   var ne: NEEvent

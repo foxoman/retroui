@@ -29,10 +29,16 @@ static inline void nimedit_set_program_class(GdkDisplay *display, const char *na
   gdk_x11_display_set_program_class(display, name);
 #endif
 }
+
+static inline int nimedit_display_is_wayland(void) {
+  GdkDisplay *d = gdk_display_get_default();
+  return d != NULL && strstr(G_OBJECT_TYPE_NAME(d), "Wayland") != NULL;
+}
 """.}
 
 import std/[unicode, os, strutils]
 import ../coords, ../input, ../screen
+import penaxes
 
 const
   gtkCflags {.strdefine.} = staticExec("pkg-config --cflags gtk4 pangocairo pangoft2 fontconfig glib-2.0 2>/dev/null").strip
@@ -461,9 +467,43 @@ proc onImCommit(ctx: pointer; str: cstring; data: pointer) {.cdecl.} =
   if str != nil:
     enqueueTextFromUtf8($str)
 
+proc gdk_event_get_device_tool(ev: pointer): pointer {.importc, nodecl, cdecl.}
+proc gdk_device_tool_get_tool_type(tool: pointer): cint {.importc, nodecl, cdecl.}
+proc gdk_event_get_axis(ev: pointer; axis: cint; value: ptr gdouble): gboolean
+  {.importc, nodecl, cdecl.}
+proc displayIsWayland(): cint {.importc: "nimedit_display_is_wayland", nodecl, cdecl.}
+var
+  GDK_AXIS_PRESSURE {.importc, nodecl.}: cint
+  GDK_AXIS_XTILT {.importc, nodecl.}: cint
+  GDK_AXIS_YTILT {.importc, nodecl.}: cint
+  GDK_AXIS_ROTATION {.importc, nodecl.}: cint
+  GDK_DEVICE_TOOL_TYPE_ERASER {.importc, nodecl.}: cint
+  GDK_DEVICE_TOOL_TYPE_MOUSE {.importc, nodecl.}: cint
+  GDK_DEVICE_TOOL_TYPE_LENS {.importc, nodecl.}: cint
+
+proc penFrom(ctrl: pointer; e: var Event) =
+  ## A pointer event a tablet's pen made: how the pen is held. GDK gives its
+  ## pressure 0 .. 1, each tilt -1 .. 1 (of +-90 degrees on Wayland, of the
+  ## tablet's own range -- about +-64 -- on X11) and, on Wayland, its turn
+  ## 0 .. 1. A mouse or a finger has no tool, and a tablet's puck is no pen.
+  let gev = gtk_event_controller_get_current_event(ctrl)
+  if gev == nil: return
+  let tool = gdk_event_get_device_tool(gev)
+  if tool == nil: return
+  let kind = gdk_device_tool_get_tool_type(tool)
+  if kind == GDK_DEVICE_TOOL_TYPE_MOUSE or kind == GDK_DEVICE_TOOL_TYPE_LENS: return
+  var p, tx, ty, turn: gdouble
+  if gdk_event_get_axis(gev, GDK_AXIS_PRESSURE, addr p) == 0: p = 1
+  if gdk_event_get_axis(gev, GDK_AXIS_XTILT, addr tx) == 0: tx = 0
+  if gdk_event_get_axis(gev, GDK_AXIS_YTILT, addr ty) == 0: ty = 0
+  if gdk_event_get_axis(gev, GDK_AXIS_ROTATION, addr turn) == 0: turn = 0
+  let degrees = if displayIsWayland() != 0: 90.0 else: 64.0
+  setPen(e, p, tx * degrees, ty * degrees, turn * 360, kind == GDK_DEVICE_TOOL_TYPE_ERASER)
+
 proc onMotion(ctrl: pointer; x, y: gdouble; data: pointer) {.cdecl.} =
   syncModsFromController(ctrl)
   var ev = Event(kind: MouseMoveEvent, x: int(x), y: int(y), mods: modState)
+  penFrom(ctrl, ev)
   pushEvent ev
 
 proc onScroll(ctrl: pointer; dx, dy: gdouble; data: pointer): gboolean {.cdecl.} =
@@ -484,6 +524,7 @@ proc onClickPressed(gesture: pointer; nPress: gint; x, y: gdouble; data: pointer
   elif btn == GDK_BUTTON_MIDDLE: b = MiddleButton
   var ev = Event(kind: MouseDownEvent, x: int(x), y: int(y), button: b,
                  clicks: nPress.int)
+  penFrom(gesture, ev)
   pushEvent ev
 
 proc onClickReleased(gesture: pointer; nPress: gint; x, y: gdouble; data: pointer) {.cdecl.} =
@@ -491,7 +532,9 @@ proc onClickReleased(gesture: pointer; nPress: gint; x, y: gdouble; data: pointe
   var b = LeftButton
   if btn == GDK_BUTTON_SECONDARY: b = RightButton
   elif btn == GDK_BUTTON_MIDDLE: b = MiddleButton
-  pushEvent(Event(kind: MouseUpEvent, x: int(x), y: int(y), button: b))
+  var ev = Event(kind: MouseUpEvent, x: int(x), y: int(y), button: b)
+  penFrom(gesture, ev)
+  pushEvent ev
 
 proc g_main_loop_new(ctx: pointer, isRunning: gboolean): pointer {.importc, nodecl, cdecl.}
 proc g_main_loop_run(loop: pointer) {.importc, nodecl, cdecl.}

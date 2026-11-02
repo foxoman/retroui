@@ -4,6 +4,7 @@ import sdl3
 import sdl3_ttf
 import std/[hashes, os, tables]
 import ../coords, ../input, ../screen
+import penaxes
 
 # --- Font handle management ---
 
@@ -689,10 +690,54 @@ proc translateMods(m: Keymod): set[Modifier] =
   if (m and KMOD_ALT) != 0: result.incl AltPressed
   if (m and KMOD_GUI) != 0: result.incl GuiPressed
 
+# --- Pens ---
+# SDL3 reports a pen twice: in pen events of its own (which carry its axes)
+# and in the mouse events it makes from them (`which` = SDL_PEN_MOUSEID),
+# which are what the app gets here, as before. The axes and which end of the
+# pen is down are kept from the first, for the second. Pen events are read
+# through SDL3's own layout of them, so any binding of `Event` will do.
+
+type
+  SdlPenEvent = object
+    ## SDL_PenTouchEvent / SDL_PenMotionEvent / SDL_PenAxisEvent, as SDL3 lays
+    ## them out: alike up to `y`, then (touch) `eraser`, `down` as bytes or
+    ## (axis) `axis`, `value`.
+    kind, reserved: uint32
+    timestamp: uint64
+    windowID, which, penState: uint32
+    x, y: float32
+    tail: array[2, uint32]
+
+const
+  SdlEventPenDown = 0x1302'u32
+  SdlEventPenUp = 0x1303'u32
+  SdlEventPenMotion = 0x1306'u32
+  SdlEventPenAxis = 0x1307'u32
+  SdlPenMouseId = 0xFFFFFFFE'u32     ## SDL_PEN_MOUSEID: a mouse event a pen made
+  SdlPenInputEraserTip = 1'u32 shl 30
+
+var
+  sdlPenAxes: array[7, float32]   ## SDL_PenAxis values, as last reported
+  penEraser: bool              ## the eraser end is the one in use
+
+proc notePen(sdlEvent: sdl3.Event; evType: uint32) =
+  let p = cast[ptr SdlPenEvent](unsafeAddr sdlEvent)
+  if evType == SdlEventPenAxis:
+    let axis = cast[int32](p.tail[0])
+    if axis >= 0 and axis < sdlPenAxes.len.int32:
+      sdlPenAxes[axis] = cast[float32](p.tail[1])
+  if evType == SdlEventPenDown or evType == SdlEventPenUp:
+    penEraser = cast[ptr uint8](addr p.tail[0])[] != 0
+  else:
+    penEraser = (p.penState and SdlPenInputEraserTip) != 0
+
 proc translateEvent(sdlEvent: sdl3.Event; e: var input.Event) =
   e = input.Event(kind: NoEvent)
   let evType = uint32(sdlEvent.common.`type`)
-  if evType == uint32(EVENT_QUIT):
+  if evType == SdlEventPenDown or evType == SdlEventPenUp or
+     evType == SdlEventPenMotion or evType == SdlEventPenAxis:
+    notePen(sdlEvent, evType)
+  elif evType == uint32(EVENT_QUIT):
     e.kind = QuitEvent
   elif evType == 0x103'u32:   # SDL_EVENT_WILL_ENTER_BACKGROUND
     e.kind = AppPauseEvent
@@ -746,6 +791,7 @@ proc translateEvent(sdlEvent: sdl3.Event; e: var input.Event) =
     of BUTTON_RIGHT: e.button = RightButton
     of BUTTON_MIDDLE: e.button = MiddleButton
     else: e.button = LeftButton
+    if uint32(sdlEvent.button.which) == SdlPenMouseId: penFromSdl3(e, sdlPenAxes, penEraser)
   elif evType == uint32(EVENT_MOUSE_BUTTON_UP):
     e.kind = MouseUpEvent
     e.x = toPixelCoord(sdlEvent.button.x)
@@ -755,10 +801,12 @@ proc translateEvent(sdlEvent: sdl3.Event; e: var input.Event) =
     of BUTTON_RIGHT: e.button = RightButton
     of BUTTON_MIDDLE: e.button = MiddleButton
     else: e.button = LeftButton
+    if uint32(sdlEvent.button.which) == SdlPenMouseId: penFromSdl3(e, sdlPenAxes, penEraser)
   elif evType == uint32(EVENT_MOUSE_MOTION):
     e.kind = MouseMoveEvent
     e.x = toPixelCoord(sdlEvent.motion.x)
     e.y = toPixelCoord(sdlEvent.motion.y)
+    if uint32(sdlEvent.motion.which) == SdlPenMouseId: penFromSdl3(e, sdlPenAxes, penEraser)
   elif evType == uint32(EVENT_MOUSE_WHEEL):
     e.kind = MouseWheelEvent
     # Scroll deltas, not positions: nothing to convert.
