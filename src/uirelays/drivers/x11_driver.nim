@@ -1209,35 +1209,39 @@ type XdndState = object
   x, y: int            # where it is, in the window
   dropping: bool       # dropped: the list is being asked for
 
-var
-  gXdnd: XdndState
-  gXdndAtoms: array[12, Atom]   # (interned when the window is made)
-
 type XdndAtom = enum
   xaAware, xaEnter, xaPosition, xaStatus, xaLeave, xaDrop, xaFinished,
-  xaSelection, xaActionCopy, xaTypeList, xaUriList, xaProperty
+  xaSelection, xaActionCopy, xaTypeList, xaUriList, xaProperty,
+  xaActionMove, xaActionList, xaProxy, xaDelete, xaNull
 
-proc xa(a: XdndAtom): Atom {.inline.} = gXdndAtoms[ord(a)]
+var
+  gXdnd: XdndState
+  gXdndAtoms: array[XdndAtom, Atom]   # (interned when the window is made)
+
+proc xa(a: XdndAtom): Atom {.inline.} = gXdndAtoms[a]
 
 proc internXdnd() =
   const names = [cstring"XdndAware", "XdndEnter", "XdndPosition", "XdndStatus",
                  "XdndLeave", "XdndDrop", "XdndFinished", "XdndSelection",
                  "XdndActionCopy", "XdndTypeList", "text/uri-list",
-                 "UIRELAYS_DROP"]
-  for i, n in names: gXdndAtoms[i] = XInternAtom(gDisplay, n, 0)
+                 "UIRELAYS_DROP", "XdndActionMove", "XdndActionList",
+                 "XdndProxy", "DELETE", "NULL"]
+  for a in XdndAtom: gXdndAtoms[a] = XInternAtom(gDisplay, names[ord(a)], 0)
   # (version 5 of the protocol)
   var version = clong(5)
   discard XChangeProperty(gDisplay, gWindow, xa(xaAware), XA_ATOM, 32,
                           PropModeReplace, addr version, 1)
 
-proc xdndSend(to: XID; kind: Atom; d1, d2, d3, d4: clong) =
+proc xdndSend(to: XID; kind: Atom; d1, d2, d3, d4: clong; via = None) =
+  ## An XDND message about window `to`, sent to it -- or to `via`, its
+  ## proxy.
   var ev = XEvent()
   ev.xclient.theType = ClientMessage
   ev.xclient.window = to
   ev.xclient.message_type = kind
   ev.xclient.format = 32
   ev.xclient.data = [gWindow.clong, d1, d2, d3, d4]
-  discard XSendEvent(gDisplay, to, 0, 0, addr ev)
+  discard XSendEvent(gDisplay, if via != None: via else: to, 0, 0, addr ev)
   discard XFlush(gDisplay)
 
 proc xdndFinish(accepted: bool) =
@@ -1307,6 +1311,70 @@ proc xdndReceive(sel: XSelectionEvent) =
     pushEvent(input.Event(kind: FileDropEvent, x: gXdnd.x, y: gXdnd.y, files: files,
                           hasMods: true, mods: translateMods(mask)))
   xdndFinish(files.len > 0)
+
+# ---- Files dragged out of the window (XDND, as the source) ----
+#
+# `dragOut` runs the drag here until the button is let go. The files are
+# offered as `text/uri-list` on XdndSelection, and the pointer is grabbed: as
+# it moves, the window under it that takes drops (`XdndAware`, or its
+# `XdndProxy`) gets XdndEnter, then an XdndPosition at each move -- the next
+# only once XdndStatus answered the last: does it take them, as a copy or a
+# move -- and XdndLeave when the pointer leaves it. Let go over one that takes
+# them, it gets XdndDrop, asks for the list (and for DELETE after a move:
+# nothing is deleted here, the file manager moved them) and says
+# XdndFinished, waited for a few seconds at most. This window is no target
+# of its own drags.
+
+type XdndOut = object
+  list: string         # the files, as text/uri-list
+  target: XID          # the window under the pointer that takes drops (None: none)
+  proxy: XID           # ... where its messages go (None: to it)
+  version: int         # ... the protocol's version both speak
+  accepted: bool       # ... its last XdndStatus: it takes them
+  action: Atom         # ... with this action
+  waiting: bool        # an XdndPosition went, its XdndStatus has not come
+  waitSince: int
+  moved: bool          # ... and the pointer moved meanwhile
+  x, y: int            # the pointer, on the screen
+  time: XTime          # ... the time it was there
+  wanted: Atom         # the action asked for (copy, or move)
+  sent: bool           # the list was handed over
+  deleted: bool        # ... and DELETE asked for: a move
+
+var
+  gOut: XdndOut
+  gOutGrab = false     # the pointer is held for the button's release (Esc, back
+                       # over the window: the drag ended with the button down)
+
+proc answerDragList(req: XSelectionRequestEvent) =
+  ## A program asks for the files of the drag: as text/uri-list, the
+  ## targets there are, or DELETE (it moved them).
+  var ev = XEvent()
+  ev.xselection.theType = SelectionNotify
+  ev.xselection.requestor = req.requestor
+  ev.xselection.selection = req.selection
+  ev.xselection.target = req.target
+  ev.xselection.time = req.time
+  # (a requestor of ICCCM's first days names no property: the target's name)
+  let prop = if req.property != None: req.property else: req.target
+  ev.xselection.property = prop
+  if req.target == xa(xaUriList) and gOut.list.len > 0:
+    discard XChangeProperty(gDisplay, req.requestor, prop, xa(xaUriList), 8,
+                            PropModeReplace, addr gOut.list[0], gOut.list.len.cint)
+    gOut.sent = true
+  elif req.target == gTargets:
+    var targets = [gTargets, xa(xaUriList)]
+    discard XChangeProperty(gDisplay, req.requestor, prop, XA_ATOM, 32,
+                            PropModeReplace, addr targets[0], targets.len.cint)
+  elif req.target == xa(xaDelete):
+    # (done: a property of type NULL, as ICCCM has it)
+    discard XChangeProperty(gDisplay, req.requestor, prop, xa(xaNull), 32,
+                            PropModeReplace, nil, 0)
+    gOut.deleted = true
+  else:
+    ev.xselection.property = None
+  discard XSendEvent(gDisplay, req.requestor, 0, 0, addr ev)
+  discard XFlush(gDisplay)
 
 proc processXEvent(xev: XEvent) =
   case xev.theType
@@ -1461,6 +1529,10 @@ proc processXEvent(xev: XEvent) =
 
   of ButtonRelease:
     let btn = xev.xbutton.button
+    if gOutGrab and btn == Button1:
+      # (the release a drag of files out ended without: the pointer is free)
+      gOutGrab = false
+      discard XUngrabPointer(gDisplay, CurrentTime)
     if btn != Button4 and btn != Button5:
       var e = input.Event(kind: MouseUpEvent, hasMods: true)
       e.x = xev.xbutton.x
@@ -1479,7 +1551,10 @@ proc processXEvent(xev: XEvent) =
     pushEvent(e)
 
   of SelectionRequest:
-    handleSelectionRequest(xev.xselectionrequest)
+    if xev.xselectionrequest.selection == xa(xaSelection):
+      answerDragList(xev.xselectionrequest)     # (a drag of files out's)
+    else:
+      handleSelectionRequest(xev.xselectionrequest)
 
   else:
     discard
@@ -2395,6 +2470,273 @@ proc x11Delay(ms: int) =
     drainXEvents()
     sleepMs(min(deadline - now, 10))
 
+# ---- Files dragged out: the drag (see "XDND, as the source") ----
+
+proc XGrabPointer(dpy: pointer; w: XID; ownerEvents: XBool; mask: cuint;
+  pointerMode, keyboardMode: cint; confineTo, cursor: XID; time: XTime): cint
+  {.cdecl, dynlib: libX11, importc.}
+proc XGrabKeyboard(dpy: pointer; w: XID; ownerEvents: XBool;
+  pointerMode, keyboardMode: cint; time: XTime): cint
+  {.cdecl, dynlib: libX11, importc.}
+proc XUngrabKeyboard(dpy: pointer; time: XTime): cint
+  {.cdecl, dynlib: libX11, importc.}
+proc XChangeActivePointerGrab(dpy: pointer; mask: cuint; cursor: XID;
+  time: XTime): cint
+  {.cdecl, dynlib: libX11, importc.}
+proc XGetSelectionOwner(dpy: pointer; selection: Atom): XID
+  {.cdecl, dynlib: libX11, importc.}
+
+const
+  GrabModeAsync = 1.cint
+  GrabSuccess = 0.cint
+  XA_WINDOW = 33.Atom
+  XC_circle = 24'u32
+  OutGrabMask = cuint(ButtonPressMask or ButtonReleaseMask or PointerMotionMask)
+
+var gDndCursors: array[3, XID]   # (over nothing that takes it, a copy, a move)
+
+proc dndCursor(kind: int): XID =
+  ## The pointer of a drag over nothing that takes it (0), a copy (1), a
+  ## move (2): the theme's where libXcursor finds them, else X's own.
+  if gDndCursors[kind] == None:
+    const names = [[cstring"dnd-no-drop", "no-drop"], [cstring"dnd-copy", "copy"],
+                   [cstring"dnd-move", "move"]]
+    let lib = loadLib("libXcursor.so.1")
+    if lib != nil:
+      let load = cast[proc (dpy: pointer; name: cstring): XID {.cdecl.}](
+        lib.symAddr("XcursorLibraryLoadCursor"))
+      if load != nil:
+        for n in names[kind]:
+          if gDndCursors[kind] == None: gDndCursors[kind] = load(gDisplay, n)
+    if gDndCursors[kind] == None:
+      gDndCursors[kind] = XCreateFontCursor(gDisplay, [XC_circle, XC_hand2, XC_fleur][kind])
+  gDndCursors[kind]
+
+proc windowProp(w: XID; prop: Atom): XID =
+  ## A window's property of type WINDOW (`XdndProxy`); None: it has none.
+  var actualType: Atom
+  var actualFormat: cint
+  var n, after: culong
+  var data: pointer
+  if XGetWindowProperty(gDisplay, w, prop, 0, 1, 0, XA_WINDOW, addr actualType,
+                        addr actualFormat, addr n, addr after, addr data) == 0 and
+     data != nil:
+    if actualFormat == 32 and n >= 1: result = XID(cast[ptr clong](data)[])
+    discard XFree(data)
+
+proc xdndTargetAt(x, y: int): tuple[w, via: XID; version: int] =
+  ## The window at `x`, `y` on the screen that takes drops (None: none),
+  ## where its messages go (its proxy; None: to it) and its protocol's
+  ## version: the first window down from the root that says `XdndAware`.
+  let root = XRootWindow(gDisplay, gScreen)
+  var w = root
+  for depth in 0 .. 32:
+    # (a proxy counts when it says it is its own)
+    var via = windowProp(w, xa(xaProxy))
+    if via != None and windowProp(via, xa(xaProxy)) != via: via = None
+    let aware = atomsOf(if via != None: via else: w, xa(xaAware))
+    if aware.len > 0 and (w != root or via != None):
+      return (w, via, int(aware[0]))
+    var cx, cy: cint
+    var child: XID
+    if XTranslateCoordinates(gDisplay, root, w, x.cint, y.cint, addr cx, addr cy,
+                             addr child) == 0 or child == None:
+      break
+    w = child
+  result = (None, None, 0)
+
+proc outSend(kind: Atom; d1, d2, d3, d4: clong) =
+  xdndSend(gOut.target, kind, d1, d2, d3, d4, gOut.proxy)
+
+proc outPosition() =
+  ## (where the pointer is, to the window under it -- once it answered the
+  ## last one)
+  if gOut.target == None: return
+  if gOut.waiting:
+    gOut.moved = true
+    return
+  outSend(xa(xaPosition), 0, clong((gOut.x shl 16) or (gOut.y and 0xFFFF)),
+          clong(gOut.time), clong(gOut.wanted))
+  gOut.waiting = true
+  gOut.waitSince = x11GetTicks()
+  gOut.moved = false
+
+proc outCursor() =
+  let kind = if gOut.target == None or not gOut.accepted: 0
+             elif gOut.action == xa(xaActionMove): 2
+             else: 1
+  discard XChangeActivePointerGrab(gDisplay, OutGrabMask, dndCursor(kind), CurrentTime)
+
+proc outLeave() =
+  if gOut.target != None: outSend(xa(xaLeave), 0, 0, 0, 0)
+  gOut.target = None
+  gOut.accepted = false
+  gOut.waiting = false
+
+proc outMoveTo(x, y: int; back: bool): bool =
+  ## The pointer at `x`, `y` on the screen: the window under it is told.
+  ## False when it came back over this window, a little way in, and `back`
+  ## ends the drag there.
+  gOut.x = x
+  gOut.y = y
+  var t = xdndTargetAt(x, y)
+  if t.w == gWindow:
+    if back:
+      var wx, wy: cint
+      var child: XID
+      discard XTranslateCoordinates(gDisplay, XRootWindow(gDisplay, gScreen), gWindow,
+                                    x.cint, y.cint, addr wx, addr wy, addr child)
+      const m = 4
+      if wx >= m and wy >= m and wx < gWidth - m and wy < gHeight - m:
+        outLeave()
+        return false
+    t = (None, None, 0)                  # (no target of its own drags)
+  elif t.version < 3:
+    t = (None, None, 0)                  # (older than this speaks)
+  if t.w != gOut.target:
+    outLeave()
+    gOut.target = t.w
+    gOut.proxy = t.via
+    gOut.version = min(5, t.version)
+    if t.w != None:
+      outSend(xa(xaEnter), clong(gOut.version shl 24), clong(xa(xaUriList)), 0, 0)
+  outPosition()
+  outCursor()
+  true
+
+proc outStatus(m: XClientMessageEvent) =
+  ## (the window under the pointer answered: it takes them or not, and how)
+  if gOut.target == None or XID(m.data[0]) != gOut.target: return
+  gOut.waiting = false
+  gOut.accepted = (m.data[1] and 1) != 0
+  gOut.action = Atom(m.data[4])
+  if gOut.moved: outPosition()
+  outCursor()
+
+proc x11DragFilesOut(paths: seq[string]; move, backInside: bool): DragOutResult =
+  if gDisplay == nil or gWindow == None or paths.len == 0 or xa(xaSelection) == 0:
+    return drNone
+  var root, child: XID
+  var rx, ry, wx, wy: cint
+  var mask: cuint
+  discard XQueryPointer(gDisplay, gWindow, addr root, addr child,
+                        addr rx, addr ry, addr wx, addr wy, addr mask)
+  if (mask and Button1Mask) == 0: return drNone          # (let go already)
+  # The files on XdndSelection, from the press's time on, and what may be
+  # done with them: a copy, or a move too (asked for unless Ctrl is down).
+  discard XSetSelectionOwner(gDisplay, xa(xaSelection), gWindow, lastClickTime)
+  if XGetSelectionOwner(gDisplay, xa(xaSelection)) != gWindow: return drNone
+  if move:
+    var actions = [xa(xaActionCopy), xa(xaActionMove)]
+    discard XChangeProperty(gDisplay, gWindow, xa(xaActionList), XA_ATOM, 32,
+                            PropModeReplace, addr actions[0], 2)
+  else:
+    discard XDeleteProperty(gDisplay, gWindow, xa(xaActionList))
+  gOut = XdndOut(list: uriListOfFiles(paths), time: lastClickTime,
+                 wanted: if move and (mask and ControlMask) == 0: xa(xaActionMove)
+                         else: xa(xaActionCopy))
+  # (the windows asked about may go away meanwhile)
+  let oldHandler = XSetErrorHandler(ignoreXError)
+  if XGrabPointer(gDisplay, gWindow, 0, OutGrabMask, GrabModeAsync, GrabModeAsync,
+                  None, dndCursor(0), CurrentTime) != GrabSuccess:
+    discard XSetErrorHandler(oldHandler)
+    return drNone
+  discard XGrabKeyboard(gDisplay, gWindow, 0, GrabModeAsync, GrabModeAsync, CurrentTime)
+  gOutGrab = false
+  result = drCancelled
+  var released = false       # the button was let go (its release came here)
+  var relX, relY: cint
+  var relState: cuint
+  var dropAt = 0             # when XdndDrop went (0: not yet)
+  let xfd = ConnectionNumber(gDisplay)
+  block drag:
+    if not outMoveTo(rx, ry, backInside):
+      result = drBack
+      break drag
+    while true:
+      while XPending(gDisplay) > 0:
+        var xev {.noinit.}: XEvent
+        discard XNextEvent(gDisplay, addr xev)
+        case xev.theType
+        of MotionNotify:
+          if not released:
+            gOut.time = xev.xmotion.time
+            if not outMoveTo(xev.xmotion.x_root, xev.xmotion.y_root, backInside):
+              result = drBack
+              break drag
+        of ButtonRelease:
+          if xev.xbutton.button == Button1 and not released:
+            released = true
+            relX = xev.xbutton.x
+            relY = xev.xbutton.y
+            relState = xev.xbutton.state
+            gOut.time = xev.xbutton.time
+        of KeyPress:
+          var ks: XKeySym
+          discard XLookupString(addr xev.xkey, nil, 0, addr ks, nil)
+          if ks == XK_Escape and dropAt == 0:
+            outLeave()
+            break drag
+        of ClientMessage:
+          let k = xev.xclient.message_type
+          if k == xa(xaStatus):
+            outStatus(xev.xclient)
+          elif k == xa(xaFinished):
+            if dropAt != 0 and XID(xev.xclient.data[0]) == gOut.target:
+              # (version 5 says whether it went well, and what it did)
+              let ok = gOut.version < 5 or (xev.xclient.data[1] and 1) != 0
+              let did = if gOut.version >= 5: Atom(xev.xclient.data[2]) else: gOut.action
+              result = if not ok: drCancelled
+                       elif did == xa(xaActionMove) or gOut.deleted: drMoved
+                       else: drCopied
+              break drag
+          elif k in [xa(xaEnter), xa(xaPosition), xa(xaLeave), xa(xaDrop)]:
+            discard                       # (this window takes no drop now)
+          else:
+            processXEvent(xev)
+        of ButtonPress, KeyRelease, GenericEvent:
+          discard                         # (the drag's)
+        else:
+          processXEvent(xev)              # (painting, sizes, selections...)
+      let now = x11GetTicks()
+      # Let go: dropped where the last answer said they are taken (once it
+      # came, or a second later).
+      if released and dropAt == 0 and (not gOut.waiting or now - gOut.waitSince > 1000):
+        if gOut.target != None and gOut.accepted:
+          outSend(xa(xaDrop), 0, clong(gOut.time), 0, 0)
+          dropAt = now
+        else:
+          outLeave()
+          break drag
+      if dropAt != 0 and now - dropAt > 5000:
+        # (no word from it: taken if it took the list)
+        result = if not gOut.sent: drCancelled elif gOut.deleted: drMoved else: drCopied
+        break drag
+      if gOut.waiting and not released and now - gOut.waitSince > 2000:
+        gOut.waiting = false              # (it does not answer: asked again)
+        if gOut.moved: outPosition()
+      var fds {.noinit.}: XFdSet
+      xFdZero(addr fds)
+      xFdSet(xfd, addr fds)
+      var tv = XTimeval(tv_sec: 0, tv_usec: 20_000)
+      discard xSelect(xfd + 1, addr fds, nil, nil, addr tv)
+  discard XUngrabKeyboard(gDisplay, CurrentTime)
+  if released:
+    discard XUngrabPointer(gDisplay, CurrentTime)
+    pushEvent(input.Event(kind: MouseUpEvent, hasMods: true, x: relX.int, y: relY.int,
+                          button: LeftButton, mods: translateMods(relState)))
+  else:
+    # The button is still down (Esc, or back over the window): the window
+    # keeps the pointer until it is let go, as the press's own grab did.
+    gOutGrab = true
+    discard XChangeActivePointerGrab(gDisplay, OutGrabMask, None, CurrentTime)
+    discard XQueryPointer(gDisplay, gWindow, addr root, addr child,
+                          addr rx, addr ry, addr wx, addr wy, addr mask)
+    pushEvent(input.Event(kind: MouseMoveEvent, hasMods: true, x: wx.int, y: wy.int,
+                          mods: translateMods(mask)))
+  discard XSync(gDisplay, 0)
+  discard XSetErrorHandler(oldHandler)
+
 proc x11QuitRequest() =
   if gDisplay != nil:
     if gXic != nil: XDestroyIC(gXic)
@@ -2451,6 +2793,7 @@ proc initX11Driver*() =
     maximized: proc (): bool = gMaximized,
     active: proc (): bool = gFocused)
   systemRelays.minimize = x11Minimize
+  fileDragRelays = FileDragRelays(dragOut: x11DragFilesOut)
   inputRelays = InputRelays(
     pollEvent: x11PollEvent, waitEvent: x11WaitEvent,
     getTicks: x11GetTicks, sleep: x11Delay,

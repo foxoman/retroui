@@ -13,6 +13,10 @@
  * codes from the soft keyboard (Arabic, emoji), showing the keyboard, and
  * the insets of the system bars and the keyboard. Its native methods are
  * registered here; the methods it lacks are simply not used.
+ *
+ * A job of the system (the app's JobService) may start the process without
+ * an activity, for the app's background check: see "the background check"
+ * below.
  */
 
 #include <android/native_activity.h>
@@ -117,6 +121,37 @@ static struct {
   jobject paint;                     /* reused Paint */
   int paintSize;
 } g;
+
+/* ---- the background check -------------------------------------------------
+ * A job of the system (the app's JobService) may start this process with no
+ * activity: the app's start (NimMain) then runs on a thread of its own, the
+ * host, until the app registers its check (onBackgroundCheck) or asks for its
+ * window, and waits there; the check runs on the job's thread. NimMain runs
+ * once a process: an activity created later makes the host its app thread,
+ * which goes on from where it waited. With the activity there first, the job
+ * only runs the check, beside the app. Outside `g`, which every activity
+ * clears. */
+
+enum { BG_NONE, BG_STARTING, BG_PARKED, BG_APP, BG_ENDED };
+
+static struct {
+  pthread_mutex_t mu;
+  pthread_cond_t cond;
+  int nim;                 /* NimMain: 0 not run, 1 by the activity's thread, 2 by the host */
+  int state;               /* the host's: BG_* */
+  int appWanted;           /* an activity came: the host becomes its app thread */
+  JavaVM *vm;
+  JNIEnv *hostEnv;
+  jclass cls;              /* the job's class */
+  jmethodID call;          /* its static uirelaysCall: the Java parts without an activity */
+  char dataDir[1024];      /* the app's files folder (the activity's internalDataPath) */
+} bg = { PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER };
+
+static __thread int bgIsHost;      /* this thread is the host */
+
+/* The app's: runs its background check once, 1 when it ran (absent when the
+ * app has none) */
+extern int uirelays_background_check(void) __attribute__((weak));
 
 /* 0x00RRGGBB -> the window's bytes R, G, B, X (0xFFBBGGRR) and back */
 static inline uint32_t toWindow(uint32_t c) {
@@ -524,7 +559,8 @@ int uirelays_open_url(const char *s, int n) {
 }
 
 const char *uirelays_data_dir(void) {
-  return g.activity && g.activity->internalDataPath ? g.activity->internalDataPath : "";
+  if (g.activity && g.activity->internalDataPath) return g.activity->internalDataPath;
+  return bg.dataDir;     /* a background check's process: the job told it */
 }
 
 int uirelays_sdk(void) { return g.activity ? g.activity->sdkVersion : 0; }
@@ -581,12 +617,13 @@ int uirelays_open_file(const char *path, int n, int mode) {
 /* A photo through BitmapFactory, upright: malloc'ed 0xAARRGGBB pixels. */
 /* The JNI environment of the calling thread: worker threads (pictures
  * decoded in the background) are attached on their first call and stay
- * attached; they live as long as the app. */
+ * attached; they live as long as the app. Without an activity (a
+ * background check), the job's Java VM. */
 static JNIEnv *threadEnv(void) {
-  if (pthread_equal(pthread_self(), g.appThread)) return g.env;
+  if (g.env && pthread_equal(pthread_self(), g.appThread)) return g.env;
   ANativeActivity *a = g.activity;
-  if (!a || !a->vm) return NULL;
-  JavaVM *vm = a->vm;
+  JavaVM *vm = a && a->vm ? a->vm : bg.vm;
+  if (!vm) return NULL;
   JNIEnv *env = NULL;
   jint r = (*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6);
   if (r == JNI_EDETACHED &&
@@ -629,13 +666,17 @@ uint32_t *uirelays_decode_image(const char *path, int n, int maxW, int maxH,
 char *uirelays_call(const char *name, int nn, const char *arg, int na, int *len) {
   JNIEnv *env = threadEnv();
   *len = 0;
-  if (!env || !g.callMethod || !g.activity) return NULL;
+  /* no activity (a background check), or one not set up yet:
+   * the job class's static uirelaysCall */
+  int viaJob = bg.cls && bg.call && (!g.activity || !g.callMethod);
+  if (!env || (!viaJob && (!g.callMethod || !g.activity))) return NULL;
   char *out = NULL;
   (*env)->PushLocalFrame(env, 4);
   jstring jn = newString(env, name, nn);
   jstring ja = newString(env, arg, na);
-  jbyteArray r = (jbyteArray)(*env)->CallObjectMethod(env, g.activity->clazz,
-      g.callMethod, jn, ja);
+  jbyteArray r = viaJob
+      ? (jbyteArray)(*env)->CallStaticObjectMethod(env, bg.cls, bg.call, jn, ja)
+      : (jbyteArray)(*env)->CallObjectMethod(env, g.activity->clazz, g.callMethod, jn, ja);
   if (!jniFailed(env) && r) {
     jsize n = (*env)->GetArrayLength(env, r);
     out = (char *)malloc((size_t)n + 1);
@@ -1446,8 +1487,13 @@ int uirelays_wait(UrEvent *out, int timeoutMs) {
   }
 }
 
+static void bgPark(void);
+
 /* Wait until the activity has a window (the app's createWindow). */
 void uirelays_wait_window(void) {
+  /* started for a background check, with no activity: the host waits for
+   * one (the user opening the app), then goes on as its app thread */
+  if (bgIsHost && bg.state != BG_APP) bgPark();
   /* commands and input are handled; their events stay queued, in order */
   while (!g.window && !g.destroyRequested) {
     int ident = ALooper_pollOnce(1000, NULL, NULL, NULL);
@@ -1462,10 +1508,9 @@ void uirelays_wait_window(void) {
 
 /* ---- the app thread ----------------------------------------------------------- */
 
-static void *appThread(void *arg) {
-  (void)arg;
-  JavaVM *vm = g.activity->vm;
-  (*vm)->AttachCurrentThread(vm, &g.env, NULL);
+/* This thread becomes the app's: the activity's commands come to its looper. */
+static void appStart(JNIEnv *env) {
+  g.env = env;
   g.appThread = pthread_self();
   g.looper = ALooper_prepare(ALOOPER_PREPARE_ALLOW_NON_CALLBACKS);
   ALooper_addFd(g.looper, g.msgread, LOOPER_ID_CMD, ALOOPER_EVENT_INPUT, NULL, NULL);
@@ -1474,9 +1519,10 @@ static void *appThread(void *arg) {
   g.running = 1;
   pthread_cond_broadcast(&g.cond);
   pthread_mutex_unlock(&g.mu);
+}
 
-  NimMain();          /* the app: runs until its window closes */
-
+/* The app ended (its window closed): the activity finishes. */
+static void appEnd(void) {
   pthread_mutex_lock(&g.mu);
   if (g.queue) AInputQueue_detachLooper(g.queue);
   g.queue = NULL;
@@ -1485,6 +1531,16 @@ static void *appThread(void *arg) {
   pthread_cond_broadcast(&g.cond);
   pthread_mutex_unlock(&g.mu);
   if (!g.destroyRequested) ANativeActivity_finish(g.activity);
+}
+
+static void *appThread(void *arg) {
+  (void)arg;
+  JavaVM *vm = g.activity->vm;
+  JNIEnv *env = NULL;
+  (*vm)->AttachCurrentThread(vm, &env, NULL);
+  appStart(env);
+  NimMain();          /* the app: runs until its window closes */
+  appEnd();
   (*vm)->DetachCurrentThread(vm);
   return NULL;
 }
@@ -1530,6 +1586,101 @@ static void logToLogcat(void) {
   pthread_t t;
   pthread_create(&t, NULL, logThread, NULL);
   pthread_detach(t);
+}
+
+/* ---- the background check: the host and the job's call ---------------------------- */
+
+/* (the host) The app's start is as far as it goes without a window: tell the
+ * job, and wait for an activity -- then this thread is the app's and the
+ * start goes on. */
+static void bgPark(void) {
+  pthread_mutex_lock(&bg.mu);
+  bg.state = BG_PARKED;
+  pthread_cond_broadcast(&bg.cond);
+  while (!bg.appWanted) pthread_cond_wait(&bg.cond, &bg.mu);
+  bg.state = BG_APP;
+  pthread_mutex_unlock(&bg.mu);
+  appStart(bg.hostEnv);
+}
+
+/* The app registered its background check: a host started for a check waits
+ * there (for an activity); the app's own start goes on. */
+void uirelays_bg_registered(void) {
+  if (bgIsHost && bg.state != BG_APP) bgPark();
+}
+
+/* This thread runs the app's start with no window, for a background check. */
+int uirelays_bg_headless(void) {
+  return bgIsHost && bg.state != BG_APP;
+}
+
+static void *bgHost(void *arg) {
+  (void)arg;
+  JNIEnv *env = NULL;
+  if ((*bg.vm)->AttachCurrentThread(bg.vm, &env, NULL) != JNI_OK) env = NULL;
+  bgIsHost = 1;
+  bg.hostEnv = env;
+  NimMain();          /* the app's start: it waits in bgPark */
+  pthread_mutex_lock(&bg.mu);
+  int wasApp = bg.state == BG_APP;
+  bg.state = BG_ENDED;
+  pthread_cond_broadcast(&bg.cond);
+  pthread_mutex_unlock(&bg.mu);
+  if (wasApp) appEnd();
+  (*bg.vm)->DetachCurrentThread(bg.vm);
+  return NULL;
+}
+
+/* The app's start has run in this process -- by the activity's thread, or
+ * by the host started here, which is waited for until it registered the
+ * check or asked for its window. bg.mu held. */
+static void bgStartApp(void) {
+  if (bg.nim == 0) {
+    bg.nim = 2;
+    bg.state = BG_STARTING;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_attr_setstacksize(&attr, 8 << 20);   /* as the app's thread */
+    pthread_t t;
+    if (pthread_create(&t, &attr, bgHost, NULL) != 0) {
+      LOGE("background check: no thread for the app");
+      bg.state = BG_ENDED;
+    }
+    pthread_attr_destroy(&attr);
+  }
+  if (bg.nim == 2)
+    while (bg.state == BG_STARTING) pthread_cond_wait(&bg.cond, &bg.mu);
+}
+
+/* The job's native method calls this, on the job's thread, with its class
+ * (whose static `byte[] uirelaysCall(String, String)` stands in for the
+ * activity's) and the app's files folder: the app's check, run here (the
+ * app started first when this process has not); 1 when it ran. */
+__attribute__((visibility("default")))
+jint uirelays_bg_native_check(JNIEnv *env, jclass cls, jstring dataDir) {
+  pthread_mutex_lock(&bg.mu);
+  logToLogcat();
+  if (!bg.vm) (*env)->GetJavaVM(env, &bg.vm);
+  if (!bg.cls && cls) {
+    bg.call = (*env)->GetStaticMethodID(env, cls, "uirelaysCall",
+                                        "(Ljava/lang/String;Ljava/lang/String;)[B");
+    if (bg.call) bg.cls = (jclass)(*env)->NewGlobalRef(env, cls);
+    else jniFailed(env);
+  }
+  if (dataDir && !bg.dataDir[0]) {
+    int n = 0;
+    char *s = utf8String(env, dataDir, &n);
+    if (n > 0 && (size_t)n < sizeof bg.dataDir) memcpy(bg.dataDir, s, (size_t)n + 1);
+    free(s);
+  }
+  bgStartApp();
+  pthread_mutex_unlock(&bg.mu);
+  if (!uirelays_background_check) {
+    LOGE("background check: the app registers none");
+    return 0;
+  }
+  return uirelays_background_check();
 }
 
 /* ---- activity callbacks (UI thread) --------------------------------------------- */
@@ -1619,7 +1770,19 @@ __attribute__((visibility("default")))
 void ANativeActivity_onCreate(ANativeActivity *activity, void *savedState,
                               size_t savedStateSize) {
   (void)savedState; (void)savedStateSize;
+  /* The app's start may have run in this process already, with no window,
+   * for a background check: its thread (the host) becomes the app's, as
+   * NimMain runs once a process. It is waited for until it waits itself. */
+  pthread_mutex_lock(&bg.mu);
   logToLogcat();
+  int hosted = bg.nim == 2;
+  if (hosted) {
+    while (bg.state == BG_STARTING) pthread_cond_wait(&bg.cond, &bg.mu);
+    /* (a start that ended without asking for a window runs again) */
+    if (bg.state == BG_ENDED) hosted = 0;
+  }
+  if (!hosted) bg.nim = 1;
+  pthread_mutex_unlock(&bg.mu);
   if (g.activity) {    /* a second activity in this process: not supported */
     LOGE("uirelays: the activity was created twice");
   }
@@ -1646,12 +1809,19 @@ void ANativeActivity_onCreate(ANativeActivity *activity, void *savedState,
   g.msgwrite = fds[1];
   initJni(activity->env, activity->clazz);
   registerNatives(activity->env, activity->clazz);
-  pthread_attr_t attr;
-  pthread_attr_init(&attr);
-  pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-  pthread_attr_setstacksize(&attr, 8 << 20);   /* Nim likes a real stack */
-  pthread_t t;
-  pthread_create(&t, &attr, appThread, NULL);
+  if (hosted) {                 /* the host goes on as the app's thread */
+    pthread_mutex_lock(&bg.mu);
+    bg.appWanted = 1;
+    pthread_cond_broadcast(&bg.cond);
+    pthread_mutex_unlock(&bg.mu);
+  } else {
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_attr_setstacksize(&attr, 8 << 20);   /* Nim likes a real stack */
+    pthread_t t;
+    pthread_create(&t, &attr, appThread, NULL);
+  }
   pthread_mutex_lock(&g.mu);
   while (!g.running) pthread_cond_wait(&g.cond, &g.mu);
   pthread_mutex_unlock(&g.mu);

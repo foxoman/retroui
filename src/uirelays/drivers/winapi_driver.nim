@@ -1703,6 +1703,344 @@ proc winMinimize(): bool =
   discard ShowWindow(gHwnd, SW_MINIMIZE)
   true
 
+# ---- Files dragged out of the window (OLE) ----
+#
+# `dragOut` hands the files to OLE's DoDragDrop, which runs the drag until
+# the button is let go: a data object that offers them as CF_HDROP
+# (DROPFILES and the paths in UTF-16) -- what Explorer, Outlook and browsers
+# take -- and as the shell's "Shell IDList Array" (what Explorer's own drags
+# carry, and all some shells take), and a drop source that says when it ends
+# (the release: drop; Esc: cancel) and leaves the pointers to Windows. Both
+# are COM objects written out
+# here, a table of procs and a count of references, one of each: there is one
+# drag at a time, and what the data object hands out is a copy each time.
+# OLE is started on this thread, the window's, at the first drag. The window
+# takes no drop of its own files meanwhile (DragAcceptFiles off).
+
+type
+  HRESULT = int32
+  GUID {.pure.} = object
+    d1: uint32
+    d2, d3: uint16
+    d4: array[8, uint8]
+  FORMATETC {.pure.} = object
+    cfFormat: uint16
+    ptd: pointer
+    dwAspect: DWORD
+    lindex: LONG
+    tymed: DWORD
+  STGMEDIUM {.pure.} = object
+    tymed: DWORD
+    hGlobal: HGLOBAL
+    pUnkForRelease: pointer
+
+  ComObject {.pure.} = object
+    vtbl: pointer
+    refs: int32
+
+  DataObjectVtbl {.pure.} = object
+    queryInterface: proc (this: ptr ComObject; riid: ptr GUID; ppv: ptr pointer): HRESULT {.stdcall.}
+    addRef: proc (this: ptr ComObject): uint32 {.stdcall.}
+    release: proc (this: ptr ComObject): uint32 {.stdcall.}
+    getData: proc (this: ptr ComObject; fmt: ptr FORMATETC; medium: ptr STGMEDIUM): HRESULT {.stdcall.}
+    getDataHere: proc (this: ptr ComObject; fmt: ptr FORMATETC; medium: ptr STGMEDIUM): HRESULT {.stdcall.}
+    queryGetData: proc (this: ptr ComObject; fmt: ptr FORMATETC): HRESULT {.stdcall.}
+    getCanonicalFormatEtc: proc (this: ptr ComObject; fmtIn, fmtOut: ptr FORMATETC): HRESULT {.stdcall.}
+    setData: proc (this: ptr ComObject; fmt: ptr FORMATETC; medium: ptr STGMEDIUM;
+                   release: BOOL): HRESULT {.stdcall.}
+    enumFormatEtc: proc (this: ptr ComObject; direction: DWORD; enumOut: ptr pointer): HRESULT {.stdcall.}
+    dAdvise: proc (this: ptr ComObject; fmt: ptr FORMATETC; advf: DWORD; sink: pointer;
+                   conn: ptr DWORD): HRESULT {.stdcall.}
+    dUnadvise: proc (this: ptr ComObject; conn: DWORD): HRESULT {.stdcall.}
+    enumDAdvise: proc (this: ptr ComObject; enumOut: ptr pointer): HRESULT {.stdcall.}
+
+  DropSourceVtbl {.pure.} = object
+    queryInterface: proc (this: ptr ComObject; riid: ptr GUID; ppv: ptr pointer): HRESULT {.stdcall.}
+    addRef: proc (this: ptr ComObject): uint32 {.stdcall.}
+    release: proc (this: ptr ComObject): uint32 {.stdcall.}
+    queryContinueDrag: proc (this: ptr ComObject; escape: BOOL; keys: DWORD): HRESULT {.stdcall.}
+    giveFeedback: proc (this: ptr ComObject; effect: DWORD): HRESULT {.stdcall.}
+
+const
+  S_OK = 0'i32
+  S_FALSE = 1'i32
+  E_NOINTERFACE = cast[int32](0x80004002'u32)
+  E_NOTIMPL = cast[int32](0x80004001'u32)
+  DV_E_FORMATETC = cast[int32](0x80040064'u32)
+  OLE_E_ADVISENOTSUPPORTED = cast[int32](0x80040003'u32)
+  DRAGDROP_S_DROP = 0x00040100'i32
+  DRAGDROP_S_CANCEL = 0x00040101'i32
+  DRAGDROP_S_USEDEFAULTCURSORS = 0x00040102'i32
+  DROPEFFECT_COPY = 1'u32
+  DROPEFFECT_MOVE = 2'u32
+  DROPEFFECT_LINK = 4'u32
+  CF_HDROP = 15'u16
+  TYMED_HGLOBAL = 1'u32
+  DVASPECT_CONTENT = 1'u32
+  DATADIR_GET = 1'u32
+  GA_ROOT = 2'u32
+  IID_IUnknown = GUID(d1: 0x00000000'u32, d2: 0, d3: 0,
+                      d4: [0xC0'u8, 0, 0, 0, 0, 0, 0, 0x46])
+  IID_IDataObject = GUID(d1: 0x0000010E'u32, d2: 0, d3: 0,
+                         d4: [0xC0'u8, 0, 0, 0, 0, 0, 0, 0x46])
+  IID_IDropSource = GUID(d1: 0x00000121'u32, d2: 0, d3: 0,
+                         d4: [0xC0'u8, 0, 0, 0, 0, 0, 0, 0x46])
+
+proc OleInitialize(reserved: pointer): HRESULT
+  {.stdcall, dynlib: "ole32", importc.}
+proc DoDragDrop(dataObj, dropSource: pointer; okEffects: DWORD;
+                effect: ptr DWORD): HRESULT
+  {.stdcall, dynlib: "ole32", importc.}
+proc ReleaseStgMedium(medium: ptr STGMEDIUM)
+  {.stdcall, dynlib: "ole32", importc.}
+proc SHCreateStdEnumFmtEtc(n: UINT; fmts: ptr FORMATETC; enumOut: ptr pointer): HRESULT
+  {.stdcall, dynlib: "shell32", importc.}
+proc RegisterClipboardFormatW(name: WideCString): UINT
+  {.stdcall, dynlib: "user32", importc.}
+proc WindowFromPoint(pt: WINAPIPOINT): HWND
+  {.stdcall, dynlib: "user32", importc.}
+proc GetAncestor(hWnd: HWND; flags: UINT): HWND
+  {.stdcall, dynlib: "user32", importc.}
+proc ILCreateFromPathW(path: WideCString): pointer
+  {.stdcall, dynlib: "shell32", importc.}
+proc ILGetSize(idl: pointer): UINT
+  {.stdcall, dynlib: "shell32", importc.}
+proc ILFree(idl: pointer)
+  {.stdcall, dynlib: "shell32", importc.}
+proc ILFindLastID(idl: pointer): pointer
+  {.stdcall, dynlib: "shell32", importc.}
+proc GetAsyncKeyState(vKey: int32): int16
+  {.stdcall, dynlib: "user32", importc.}
+
+var
+  gOle = 0                  ## OLE on this thread: 0 not tried, 1 started, -1 cannot
+  cfPerformed, cfLogicalPerformed: UINT   ## what a target says it did
+  cfShellIdList: UINT       ## "Shell IDList Array"
+  gOutData: array[2, string] ## the files of the drag: CF_HDROP's block, the IDList Array
+  gOutBack: bool            ## the drag ends when the pointer comes back in
+  gOutCameBack: bool        ## ... and it did
+  gOutDid: DWORD            ## the target did this ("Performed DropEffect")
+  gOutDidLogically: DWORD   ## ... in effect: a move done as a copy and a delete
+                            ## (Explorer's moves on one disk: DoDragDrop says none)
+  gDataObject, gDropSource: ComObject
+
+proc sameGuid(a: ptr GUID; b: GUID): bool =
+  a.d1 == b.d1 and a.d2 == b.d2 and a.d3 == b.d3 and a.d4 == b.d4
+
+proc comAddRef(this: ptr ComObject): uint32 {.stdcall.} =
+  inc this.refs
+  uint32(this.refs)
+
+proc comRelease(this: ptr ComObject): uint32 {.stdcall.} =
+  # (static: nothing to free when it comes to none)
+  if this.refs > 0: dec this.refs
+  uint32(this.refs)
+
+proc dataQueryInterface(this: ptr ComObject; riid: ptr GUID; ppv: ptr pointer): HRESULT {.stdcall.} =
+  if sameGuid(riid, IID_IUnknown) or sameGuid(riid, IID_IDataObject):
+    ppv[] = this
+    discard comAddRef(this)
+    return S_OK
+  ppv[] = nil
+  E_NOINTERFACE
+
+proc shellIdListOf(paths: seq[string]): string =
+  ## The files as the shell names them ("Shell IDList Array", CIDA): their
+  ## count, where each item list starts, their folder's item list and each
+  ## file's within it -- or, files of several folders, the desktop's (empty)
+  ## and each file's full one. Empty when the shell knows none.
+  proc bytes(idl: pointer): string =
+    result = newString(ILGetSize(idl).int)       # (with its closing 0)
+    if result.len > 0: copyMem(addr result[0], idl, result.len)
+  var folder = paths[0].parentDir
+  for p in paths:
+    if p.parentDir != folder: folder = ""
+  let folderIdl = if folder.len > 0: ILCreateFromPathW(newWideCString(folder)) else: nil
+  var items: seq[string]
+  for p in paths:
+    let idl = ILCreateFromPathW(newWideCString(p))
+    if idl != nil:
+      items.add bytes(if folderIdl != nil: ILFindLastID(idl) else: idl)
+      ILFree(idl)
+  if items.len == 0 or items.len != paths.len:
+    if folderIdl != nil: ILFree(folderIdl)
+    return ""
+  proc put32(s: var string; at: int; v: int) =
+    for i in 0 .. 3: s[at + i] = char((v shr (8 * i)) and 0xFF)
+  result = newString(4 * (items.len + 2))
+  result.put32(0, items.len)
+  result.put32(4, result.len)
+  if folderIdl != nil:
+    result.add bytes(folderIdl)
+    ILFree(folderIdl)
+  else:
+    result.add "\0\0"                            # (the desktop)
+  for i, s in items:
+    result.put32(4 * (i + 2), result.len)
+    result.add s
+
+proc offered(fmt: ptr FORMATETC): int =
+  ## Which of the drag's forms `fmt` asks for (-1: none).
+  if (fmt.tymed and TYMED_HGLOBAL) == 0 or fmt.dwAspect != DVASPECT_CONTENT: return -1
+  if fmt.cfFormat == CF_HDROP: 0
+  elif fmt.cfFormat.UINT == cfShellIdList and cfShellIdList != 0 and gOutData[1].len > 0: 1
+  else: -1
+
+proc dataGetData(this: ptr ComObject; fmt: ptr FORMATETC; medium: ptr STGMEDIUM): HRESULT {.stdcall.} =
+  # A copy of the files' block each time: the taker frees it.
+  let k = offered(fmt)
+  if k < 0 or gOutData[k].len == 0: return DV_E_FORMATETC
+  let h = GlobalAlloc(GMEM_MOVEABLE, gOutData[k].len.uint)
+  if h == nil: return cast[int32](0x8007000E'u32)          # E_OUTOFMEMORY
+  let p = GlobalLock(h)
+  copyMem(p, addr gOutData[k][0], gOutData[k].len)
+  discard GlobalUnlock(h)
+  medium.tymed = TYMED_HGLOBAL
+  medium.hGlobal = h
+  medium.pUnkForRelease = nil
+  S_OK
+
+proc dataGetDataHere(this: ptr ComObject; fmt: ptr FORMATETC; medium: ptr STGMEDIUM): HRESULT {.stdcall.} =
+  E_NOTIMPL
+
+proc dataQueryGetData(this: ptr ComObject; fmt: ptr FORMATETC): HRESULT {.stdcall.} =
+  if offered(fmt) >= 0: S_OK else: DV_E_FORMATETC
+
+proc dataCanonical(this: ptr ComObject; fmtIn, fmtOut: ptr FORMATETC): HRESULT {.stdcall.} =
+  fmtOut.ptd = nil
+  E_NOTIMPL
+
+proc dataSetData(this: ptr ComObject; fmt: ptr FORMATETC; medium: ptr STGMEDIUM;
+                 release: BOOL): HRESULT {.stdcall.} =
+  # Only what the target says it did is kept; the rest (Explorer's drag
+  # images and descriptions) is not wanted.
+  if fmt.cfFormat.UINT notin [cfPerformed, cfLogicalPerformed] or
+     medium.tymed != TYMED_HGLOBAL or medium.hGlobal == nil:
+    return E_NOTIMPL
+  let p = cast[ptr DWORD](GlobalLock(medium.hGlobal))
+  if p != nil:
+    if fmt.cfFormat.UINT == cfPerformed: gOutDid = p[] else: gOutDidLogically = p[]
+    discard GlobalUnlock(medium.hGlobal)
+  if release != 0: ReleaseStgMedium(medium)
+  S_OK
+
+proc dataEnumFormatEtc(this: ptr ComObject; direction: DWORD; enumOut: ptr pointer): HRESULT {.stdcall.} =
+  if direction != DATADIR_GET:
+    enumOut[] = nil
+    return E_NOTIMPL
+  var fmts = [FORMATETC(cfFormat: CF_HDROP, dwAspect: DVASPECT_CONTENT, lindex: -1,
+                        tymed: TYMED_HGLOBAL),
+              FORMATETC(cfFormat: uint16(cfShellIdList), dwAspect: DVASPECT_CONTENT,
+                        lindex: -1, tymed: TYMED_HGLOBAL)]
+  SHCreateStdEnumFmtEtc(if gOutData[1].len > 0 and cfShellIdList != 0: 2 else: 1,
+                        addr fmts[0], enumOut)
+
+proc dataDAdvise(this: ptr ComObject; fmt: ptr FORMATETC; advf: DWORD; sink: pointer;
+                 conn: ptr DWORD): HRESULT {.stdcall.} =
+  OLE_E_ADVISENOTSUPPORTED
+
+proc dataDUnadvise(this: ptr ComObject; conn: DWORD): HRESULT {.stdcall.} =
+  OLE_E_ADVISENOTSUPPORTED
+
+proc dataEnumDAdvise(this: ptr ComObject; enumOut: ptr pointer): HRESULT {.stdcall.} =
+  enumOut[] = nil
+  OLE_E_ADVISENOTSUPPORTED
+
+proc sourceQueryInterface(this: ptr ComObject; riid: ptr GUID; ppv: ptr pointer): HRESULT {.stdcall.} =
+  if sameGuid(riid, IID_IUnknown) or sameGuid(riid, IID_IDropSource):
+    ppv[] = this
+    discard comAddRef(this)
+    return S_OK
+  ppv[] = nil
+  E_NOINTERFACE
+
+proc pointerBackInside(): bool =
+  ## The pointer is over the window's own part again, a little way in.
+  var pt: WINAPIPOINT
+  if gHwnd == nil or GetCursorPos(addr pt) == 0: return false
+  let w = WindowFromPoint(pt)
+  if w == nil or GetAncestor(w, GA_ROOT) != gHwnd: return false
+  discard ScreenToClient(gHwnd, addr pt)
+  const m = 4
+  pt.x >= m and pt.y >= m and pt.x < gWidth - m and pt.y < gHeight - m
+
+proc sourceQueryContinueDrag(this: ptr ComObject; escape: BOOL; keys: DWORD): HRESULT {.stdcall.} =
+  # (Esc: OLE sees it when the keyboard is this thread's; the key itself is
+  # asked too, wherever the keyboard went)
+  if escape != 0 or GetAsyncKeyState(VK_ESCAPE.int32) < 0: return DRAGDROP_S_CANCEL
+  if (keys and MK_LBUTTON) == 0: return DRAGDROP_S_DROP
+  if gOutBack and pointerBackInside():
+    gOutCameBack = true
+    return DRAGDROP_S_CANCEL
+  S_OK
+
+proc sourceGiveFeedback(this: ptr ComObject; effect: DWORD): HRESULT {.stdcall.} =
+  DRAGDROP_S_USEDEFAULTCURSORS
+
+var
+  dataObjectVtbl = DataObjectVtbl(
+    queryInterface: dataQueryInterface, addRef: comAddRef, release: comRelease,
+    getData: dataGetData, getDataHere: dataGetDataHere, queryGetData: dataQueryGetData,
+    getCanonicalFormatEtc: dataCanonical, setData: dataSetData,
+    enumFormatEtc: dataEnumFormatEtc, dAdvise: dataDAdvise, dUnadvise: dataDUnadvise,
+    enumDAdvise: dataEnumDAdvise)
+  dropSourceVtbl = DropSourceVtbl(
+    queryInterface: sourceQueryInterface, addRef: comAddRef, release: comRelease,
+    queryContinueDrag: sourceQueryContinueDrag, giveFeedback: sourceGiveFeedback)
+
+proc winDragFilesOut(paths: seq[string]; move, backInside: bool): DragOutResult =
+  if gHwnd == nil or paths.len == 0: return drNone
+  if GetKeyState(VK_LBUTTON) >= 0: return drNone          # (let go already)
+  if gOle == 0:
+    let hr = OleInitialize(nil)
+    gOle = if hr == S_OK or hr == S_FALSE: 1 else: -1
+    cfPerformed = RegisterClipboardFormatW(newWideCString("Performed DropEffect"))
+    cfLogicalPerformed = RegisterClipboardFormatW(newWideCString("Logical Performed DropEffect"))
+    cfShellIdList = RegisterClipboardFormatW(newWideCString("Shell IDList Array"))
+  if gOle < 0: return drNone
+  gOutData = [hdropOfFiles(paths), shellIdListOf(paths)]
+  gOutBack = backInside
+  gOutCameBack = false
+  gOutDid = 0
+  gOutDidLogically = 0
+  gDataObject = ComObject(vtbl: addr dataObjectVtbl, refs: 1)
+  gDropSource = ComObject(vtbl: addr dropSourceVtbl, refs: 1)
+  let queued = eventQueue.len
+  DragAcceptFiles(gHwnd, 0)
+  var effect: DWORD = 0
+  let hr = DoDragDrop(addr gDataObject, addr gDropSource,
+                      DROPEFFECT_COPY or (if move: DROPEFFECT_MOVE else: 0), addr effect)
+  DragAcceptFiles(gHwnd, 1)
+  # Keys and clicks that came meanwhile were the drag's.
+  var kept: seq[input.Event]
+  for i in queued ..< eventQueue.len:
+    if eventQueue[i].kind notin {KeyDownEvent, KeyUpEvent, TextInputEvent, MouseDownEvent,
+                                 MouseUpEvent, MouseMoveEvent, MouseWheelEvent}:
+      kept.add eventQueue[i]
+  eventQueue.setLen(queued)
+  eventQueue.add kept
+  result =
+    if hr == DRAGDROP_S_DROP:
+      if (effect and DROPEFFECT_MOVE) != 0 or gOutDidLogically == DROPEFFECT_MOVE or
+         gOutDid == DROPEFFECT_MOVE: drMoved
+      elif (effect and (DROPEFFECT_COPY or DROPEFFECT_LINK)) != 0: drCopied
+      else: drCancelled
+    elif hr == DRAGDROP_S_CANCEL:
+      if gOutCameBack: drBack else: drCancelled
+    else: drNone
+  # Let go, the release was the drag's: it is reported here. Still down (Esc,
+  # back over the window): the window takes the mouse again for its release.
+  var pt: WINAPIPOINT
+  discard GetCursorPos(addr pt)
+  discard ScreenToClient(gHwnd, addr pt)
+  if GetKeyState(VK_LBUTTON) < 0:
+    discard SetCapture(gHwnd)
+    pushEvent(input.Event(kind: MouseMoveEvent, hasMods: true, mods: getModifiers(),
+                          x: pt.x.int, y: pt.y.int))
+  else:
+    pushEvent(input.Event(kind: MouseUpEvent, hasMods: true, mods: getModifiers(),
+                          x: pt.x.int, y: pt.y.int, button: LeftButton))
+
 # ---- Input hook implementations ----
 
 proc winPollEvent(e: var input.Event; flags: set[InputFlag]): bool =
@@ -1835,6 +2173,7 @@ proc initWinapiDriver*() =
     setSystemFrame: winSetSystemFrame, dragWindow: winDragWindow,
     setMaximized: winSetMaximized, maximized: winMaximized, active: winActive)
   systemRelays.minimize = winMinimize
+  fileDragRelays = FileDragRelays(dragOut: winDragFilesOut)
   initWinapiFontRelays()
   drawRelays = DrawRelays(
     fillRect: winFillRect, drawLine: winDrawLine, drawPoint: winDrawPoint,

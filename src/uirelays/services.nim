@@ -70,6 +70,33 @@ type
       ## The window is the one in front, taking the keyboard: its title bar
       ## is drawn in the active colors.
 
+  DragOutResult* = enum
+    ## How a drag of files out of the window ended (`startFileDragOut`).
+    drNone,          ## there was none: the platform cannot drag files out,
+                     ## there were no files, or the button was up already
+    drCancelled,     ## let go where nothing took them, or Esc
+    drCopied,        ## another program took a copy (a file manager, a
+                     ## browser's upload box, a mail being written)
+    drMoved,         ## a file manager moved them (allowed with `move`): they
+                     ## may be gone from where they were
+    drBack           ## (`backInside`) the pointer came back over the window,
+                     ## the button still down: the app's own drag goes on
+
+  FileDragRelays* = object
+    ## Files dragged out of the window, to the system's file manager or
+    ## another program. Optional: nil where the platform cannot, and
+    ## `startFileDragOut` then answers `drNone`.
+    dragOut*: proc (paths: seq[string]; move, backInside: bool): DragOutResult {.nimcall.}
+      ## The system's drag of `paths` (files on disk), begun while the left
+      ## button is down and over when it is let go (or Esc): the call returns
+      ## then -- the window shows what it showed meanwhile. The program let
+      ## go over takes a copy, or (`move`) may move them instead. The window
+      ## itself takes no drop of its own files. `backInside`: the drag ends
+      ## with `drBack` when the pointer comes back over the window, the button
+      ## still down (a drag the app began in its window, that left it). The
+      ## button's release, which the system takes, is reported as a
+      ## MouseUpEvent; keys and clicks meanwhile were the drag's and are not.
+
 proc defaultDataDir(app: string): string =
   let base =
     when defined(windows): getEnv("APPDATA", getHomeDir())
@@ -227,6 +254,64 @@ proc filesOfUriList*(text: string): seq[string] =
       path = path.replace('/', '\\')
     if path.len > 0: result.add path
 
+proc uriListOfFiles*(paths: openArray[string]): string =
+  ## `paths` as a `text/uri-list` (what XDND and Wayland hand over in a drag
+  ## of files): `file://` URIs, one a line (CR LF), every byte but letters,
+  ## digits, `-._~` and `/` written `%XX` -- `filesOfUriList` the other way.
+  ## Windows' `C:\dir\file` is `file:///C:/dir/file`.
+  for path in paths:
+    if path.len == 0: continue
+    var p = if path.isAbsolute: path else: absolutePath(path)
+    when defined(windows):
+      p = p.replace('\\', '/')
+      if p.len >= 2 and p[1] == ':': p = "/" & p
+    result.add "file://"
+    for i, c in p:
+      if c in {'A'..'Z', 'a'..'z', '0'..'9', '-', '.', '_', '~', '/'} or
+         (c == ':' and i == 2 and defined(windows)):
+        result.add c
+      else:
+        result.add '%'
+        result.add toHex(ord(c), 2)
+    result.add "\r\n"
+
+proc hdropOfFiles*(paths: openArray[string]): string =
+  ## `paths` as Windows' CF_HDROP (what a drag of files, or a copy of them,
+  ## hands over): a DROPFILES header -- where the names start (20), a point
+  ## and a flag (0), the names are UTF-16 (1) -- then each path in UTF-16
+  ## ended by a 0, and one more 0 after the last. Bytes, little-endian.
+  proc put(s: var string; v: uint32; n: int) =
+    for i in 0 ..< n: s.add char((v shr (8 * i)) and 0xFF)
+  result.put(20, 4)                      # pFiles
+  result.put(0, 4)                       # pt.x
+  result.put(0, 4)                       # pt.y
+  result.put(0, 4)                       # fNC
+  result.put(1, 4)                       # fWide
+  for p in paths:
+    if p.len == 0: continue
+    var i = 0
+    while i < p.len:
+      # (UTF-8 in; a byte that starts no character stands for itself)
+      let b = uint32(p[i])
+      var n = if b >= 0xF0 and b < 0xF8: 3 elif b >= 0xE0: 2 elif b >= 0xC0: 1 else: 0
+      if b >= 0xF8 or i + n >= p.len: n = 0
+      var c = if n == 0: b else: b and (0x3F'u32 shr n)
+      for k in 1 .. n:
+        if (uint32(p[i + k]) and 0xC0) != 0x80:
+          c = b
+          n = 0
+          break
+        c = (c shl 6) or (uint32(p[i + k]) and 0x3F)
+      i += n + 1
+      if c >= 0x10000:                   # (a surrogate pair)
+        c -= 0x10000
+        result.put(0xD800 + (c shr 10), 2)
+        result.put(0xDC00 + (c and 0x3FF), 2)
+      else:
+        result.put(c, 2)
+    result.put(0, 2)
+  result.put(0, 2)
+
 var frameRelays*: FrameRelays
   ## Filled by the desktop drivers whose windows can go without the system's
   ## frame (none by default).
@@ -255,3 +340,19 @@ proc windowMaximized*(): bool =
 proc windowActive*(): bool =
   ## The window is the one in front (true where the driver cannot tell).
   frameRelays.active == nil or frameRelays.active()
+
+var fileDragRelays*: FileDragRelays
+  ## Filled by the desktop drivers that can drag files out of the window
+  ## (none by default).
+
+proc canDragFilesOut*(): bool = fileDragRelays.dragOut != nil
+  ## Files can be dragged out of the window to other programs here.
+
+proc startFileDragOut*(paths: openArray[string]; move = false;
+                       backInside = false): DragOutResult =
+  ## Drags `paths` (files on disk) out of the window: the system's drag,
+  ## while the left button is down, until it is let go (see
+  ## `FileDragRelays.dragOut`). `drNone` where the platform cannot, or with
+  ## no paths.
+  if fileDragRelays.dragOut == nil or paths.len == 0: return drNone
+  fileDragRelays.dragOut(@paths, move, backInside)

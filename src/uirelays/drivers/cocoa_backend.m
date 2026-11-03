@@ -836,6 +836,9 @@ static void withPen(NEEvent *e, NSEvent *event) {
 /* The left button's last press: a window drag (the app's own title bar)
    starts from it. */
 static NSEvent *lastMouseDown = nil;
+/* ... and its last drag since: a drag of files out of the window starts
+   from that. */
+static NSEvent *lastMouseDragged = nil;
 
 @interface NimEditView : NSView <NSTextInputClient>
 @property (nonatomic) BOOL hasMarkedText;
@@ -938,6 +941,7 @@ static NSEvent *lastMouseDown = nil;
 
 - (void)mouseDown:(NSEvent *)event {
   lastMouseDown = event;
+  lastMouseDragged = nil;
   NSPoint p = [self convertPoint:event.locationInWindow fromView:nil];
   NEEvent e = {0};
   e.kind = NE_MOUSE_DOWN;
@@ -1036,6 +1040,7 @@ static int currentButtons(NSEvent *event) {
 }
 
 - (void)mouseDragged:(NSEvent *)event {
+  lastMouseDragged = event;
   [self mouseMoved:event];
 }
 
@@ -1429,6 +1434,93 @@ int cocoa_dragWindow(int part, int keyboard) {
       [mainWindow setFrame:f display:YES];
     }
     releaseLeft();
+    return 1;
+  }
+}
+
+/* ---- Files dragged out of the window ---------------------------------- */
+/* The system's dragging session with the files' URLs (what Finder, Mail and
+   browsers take), begun from the left button's last drag; the events run
+   here until it ends, so the call returns then, as on the other systems.
+   The window takes no drop of its own files (nothing within the app). A
+   session cannot be ended from here, so one that comes back over the window
+   goes on to its end there. */
+
+@interface NimFileDragSource : NSObject <NSDraggingSource>
+@property (nonatomic) BOOL ended;
+@property (nonatomic) BOOL allowMove;
+@property (nonatomic) NSDragOperation operation;
+@end
+
+@implementation NimFileDragSource
+- (NSDragOperation)draggingSession:(NSDraggingSession *)session
+    sourceOperationMaskForDraggingContext:(NSDraggingContext)context {
+  if (context == NSDraggingContextWithinApplication) return NSDragOperationNone;
+  return self.allowMove ? (NSDragOperationCopy | NSDragOperationMove)
+                        : NSDragOperationCopy;
+}
+- (void)draggingSession:(NSDraggingSession *)session
+           endedAtPoint:(NSPoint)screenPoint
+              operation:(NSDragOperation)operation {
+  self.operation = operation;
+  self.ended = YES;
+}
+@end
+
+static void dropInputSince(int from) {
+  /* (keys and clicks that came during the drag were the drag's) */
+  int w = from;
+  for (int r = from; r != eqHead; r = (r + 1) % EVENT_QUEUE_SIZE) {
+    int k = eventQueue[r].kind;
+    if (k >= NE_KEY_DOWN && k <= NE_MOUSE_WHEEL) continue;
+    eventQueue[w] = eventQueue[r];
+    w = (w + 1) % EVENT_QUEUE_SIZE;
+  }
+  eqHead = w;
+}
+
+/* 0: no drag; 1: cancelled; 2: copied; 3: moved */
+int cocoa_dragFilesOut(const char **paths, int n, int move) {
+  @autoreleasepool {
+    if (!mainWindow || !mainView || n <= 0) return 0;
+    if (([NSEvent pressedMouseButtons] & 1) == 0) return 0;   /* let go already */
+    NSEvent *from = lastMouseDragged ? lastMouseDragged : lastMouseDown;
+    if (!from || [from window] != mainWindow) return 0;
+    NSPoint at = [mainView convertPoint:[from locationInWindow] fromView:nil];
+    NSMutableArray *items = [NSMutableArray array];
+    for (int i = 0; i < n; i++) {
+      NSString *path = [NSString stringWithUTF8String:paths[i]];
+      if (!path) continue;
+      NSURL *url = [NSURL fileURLWithPath:path];
+      NSDraggingItem *item = [[NSDraggingItem alloc] initWithPasteboardWriter:url];
+      NSImage *icon = [[NSWorkspace sharedWorkspace] iconForFile:path];
+      [item setDraggingFrame:NSMakeRect(at.x - 16 + 6 * i, at.y - 16 + 6 * i, 32, 32)
+                    contents:icon];
+      [items addObject:item];
+    }
+    if ([items count] == 0) return 0;
+    NimFileDragSource *source = [[NimFileDragSource alloc] init];
+    source.allowMove = move != 0;
+    int head0 = eqHead;
+    NSDraggingSession *session =
+      [mainView beginDraggingSessionWithItems:items event:from source:source];
+    if (!session) return 0;
+    session.animatesToStartingPositionsOnCancelOrFail = YES;
+    while (!source.ended) {
+      @autoreleasepool {
+        NSEvent *ev = [NSApp nextEventMatchingMask:NSEventMaskAny
+                                         untilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]
+                                            inMode:NSDefaultRunLoopMode
+                                           dequeue:YES];
+        if (ev) [NSApp sendEvent:ev];
+      }
+    }
+    dropInputSince(head0);
+    lastMouseDragged = nil;
+    releaseLeft();
+    NSDragOperation op = source.operation;
+    if (op & NSDragOperationMove) return 3;
+    if (op & (NSDragOperationCopy | NSDragOperationGeneric | NSDragOperationLink)) return 2;
     return 1;
   }
 }

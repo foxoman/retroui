@@ -133,6 +133,8 @@ proc cSetMaximized(on: cint) {.importc: "cocoa_setMaximized", cdecl.}
 proc cIsMaximized(): cint {.importc: "cocoa_isMaximized", cdecl.}
 proc cIsActive(): cint {.importc: "cocoa_isActive", cdecl.}
 proc cMinimize(): cint {.importc: "cocoa_minimize", cdecl.}
+proc cDragFilesOut(paths: ptr cstring; n, move: cint): cint
+  {.importc: "cocoa_dragFilesOut", cdecl.}
 
 # --- Relay implementations ---
 
@@ -371,6 +373,17 @@ proc cocoaMaximized(): bool = cIsMaximized() != 0
 proc cocoaActive(): bool = cIsActive() != 0
 proc cocoaMinimize(): bool = cMinimize() != 0
 
+proc cocoaDragFilesOut(paths: seq[string]; move, backInside: bool): DragOutResult =
+  # (`backInside` cannot be had: a dragging session goes on to its end)
+  if paths.len == 0: return drNone
+  var cs = newSeq[cstring](paths.len)
+  for i in 0 ..< paths.len: cs[i] = cstring(paths[i])
+  case cDragFilesOut(addr cs[0], paths.len.cint, move.cint)
+  of 1: drCancelled
+  of 2: drCopied
+  of 3: drMoved
+  else: drNone
+
 # --- Init ---
 
 proc initCocoaDriver*() =
@@ -401,3 +414,4 @@ proc initCocoaDriver*() =
     setMaximized: cocoaSetMaximized, maximized: cocoaMaximized,
     active: cocoaActive)
   systemRelays.minimize = cocoaMinimize
+  fileDragRelays = FileDragRelays(dragOut: cocoaDragFilesOut)
