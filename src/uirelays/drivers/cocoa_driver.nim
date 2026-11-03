@@ -25,7 +25,7 @@ typedef struct {
 } NEEvent;
 """.}
 
-import ../coords, ../input, ../screen
+import ../coords, ../input, ../screen, ../services
 import penaxes
 
 proc prepareSiwinSurface*(width, height: cint; scale: cdouble): cint
@@ -127,6 +127,12 @@ proc cSetCursor(kind: cint) {.importc: "cocoa_setCursor", cdecl.}
 proc cSetWindowTitle(title: cstring) {.importc: "cocoa_setWindowTitle", cdecl.}
 proc cStartTextInput() {.importc: "cocoa_startTextInput", cdecl.}
 proc cShutdown() {.importc: "cocoa_shutdown", cdecl.}
+proc cSetSystemFrame(on: cint): cint {.importc: "cocoa_setSystemFrame", cdecl.}
+proc cDragWindow(part, keyboard: cint): cint {.importc: "cocoa_dragWindow", cdecl.}
+proc cSetMaximized(on: cint) {.importc: "cocoa_setMaximized", cdecl.}
+proc cIsMaximized(): cint {.importc: "cocoa_isMaximized", cdecl.}
+proc cIsActive(): cint {.importc: "cocoa_isActive", cdecl.}
+proc cMinimize(): cint {.importc: "cocoa_minimize", cdecl.}
 
 # --- Relay implementations ---
 
@@ -357,6 +363,14 @@ proc cocoaGetTicks(): int = cGetTicks().int
 proc cocoaDelay(ms: int) = cDelay(ms.uint32)
 proc cocoaShutdown() = cShutdown()
 
+proc cocoaSetSystemFrame(on: bool): bool = cSetSystemFrame(on.cint) != 0
+proc cocoaDragWindow(part: WindowPart; keyboard: bool): bool =
+  cDragWindow(ord(part).cint, keyboard.cint) != 0
+proc cocoaSetMaximized(on: bool) = cSetMaximized(on.cint)
+proc cocoaMaximized(): bool = cIsMaximized() != 0
+proc cocoaActive(): bool = cIsActive() != 0
+proc cocoaMinimize(): bool = cMinimize() != 0
+
 # --- Init ---
 
 proc initCocoaDriver*() =
@@ -382,3 +396,8 @@ proc initCocoaDriver*() =
     shutdown: cocoaShutdown)
   clipboardRelays = ClipboardRelays(
     getText: cocoaGetClipboardText, putText: cocoaPutClipboardText)
+  frameRelays = FrameRelays(
+    setSystemFrame: cocoaSetSystemFrame, dragWindow: cocoaDragWindow,
+    setMaximized: cocoaSetMaximized, maximized: cocoaMaximized,
+    active: cocoaActive)
+  systemRelays.minimize = cocoaMinimize

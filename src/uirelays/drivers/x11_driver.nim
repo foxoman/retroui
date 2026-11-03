@@ -2,7 +2,7 @@
 # Uses Xlib for windowing/events, Xft for antialiased font rendering.
 # Double-buffered via X Pixmap.
 
-import ../coords, ../input, ../screen, ../eglload
+import ../coords, ../input, ../screen, ../eglload, ../services
 import penaxes
 from ../pixelutils import resizedRGBA
 import std/[strutils, os, dynlib]
@@ -178,6 +178,16 @@ type
     mode: cint
     detail: cint
 
+  XPropertyEvent {.pure.} = object
+    theType: cint
+    serial: culong
+    send_event: XBool
+    display: pointer
+    window: XID
+    atom: Atom
+    time: XTime
+    state: cint
+
   XSelectionRequestEvent {.pure.} = object
     theType: cint
     serial: culong
@@ -224,6 +234,7 @@ type
     xfocus: XFocusChangeEvent
     xselection: XSelectionEvent
     xselectionrequest: XSelectionRequestEvent
+    xproperty: XPropertyEvent
     xcookie: XGenericEventCookie
     pad: array[24, clong]  # XEvent is 192 bytes on 64-bit
 
@@ -269,6 +280,7 @@ const
   FocusOut = 10.cint
   Expose = 12.cint
   ConfigureNotify = 22.cint
+  PropertyNotify = 28.cint
   SelectionNotify = 31.cint
   SelectionRequest = 30.cint
   ClientMessage = 33.cint
@@ -286,6 +298,10 @@ const
   SubstructureRedirectMask = 1 shl 20
   FocusChangeMask = 1 shl 21
   PropertyChangeMask = 1 shl 22
+
+  # Focus changes that only a grab made (a window manager moving the window)
+  NotifyGrab = 1.cint
+  NotifyUngrab = 2.cint
 
   # Modifier masks
   ShiftMask = 1'u32
@@ -535,6 +551,18 @@ proc XGetWindowProperty(dpy: pointer; w: XID; property: Atom;
 proc XSendEvent(dpy: pointer; w: XID; propagate: XBool;
   mask: clong; ev: ptr XEvent): XStatus
   {.cdecl, dynlib: libX11, importc.}
+proc XDeleteProperty(dpy: pointer; w: XID; property: Atom): cint
+  {.cdecl, dynlib: libX11, importc.}
+proc XQueryPointer(dpy: pointer; w: XID; root, child: ptr XID;
+  rootX, rootY, winX, winY: ptr cint; mask: ptr cuint): XBool
+  {.cdecl, dynlib: libX11, importc.}
+proc XUngrabPointer(dpy: pointer; time: XTime): cint
+  {.cdecl, dynlib: libX11, importc.}
+proc XIconifyWindow(dpy: pointer; w: XID; screen: cint): XStatus
+  {.cdecl, dynlib: libX11, importc.}
+proc XTranslateCoordinates(dpy: pointer; src, dst: XID; srcX, srcY: cint;
+  dstX, dstY: ptr cint; child: ptr XID): XBool
+  {.cdecl, dynlib: libX11, importc.}
 proc XFree(data: pointer): cint
   {.cdecl, dynlib: libX11, importc.}
 proc XCloseDisplay(dpy: pointer): cint
@@ -618,6 +646,10 @@ var
   gClipProperty: Atom
   gUiScale: int = 100
   gXim: pointer        # input method, nil if none could be opened
+  gSystemFrame = true  # the window manager draws the frame (else the app does)
+  gFocused = true      # the window has the keyboard
+  gMaximized = false   # _NET_WM_STATE says maximized, both ways
+  gNetWmState: Atom
   gXic: pointer        # its input context for `gWindow`
 
 var eventQueue: seq[input.Event]
@@ -1099,6 +1131,183 @@ proc withPen(e: var input.Event; time: XTime) =
   if gPenTablet >= 0 and gPenTablet < gTablets.len and time == gPenTime:
     penFromTablet(e, gTablets[gPenTablet])
 
+# ---- The window's frame ----
+#
+# An app that draws its own title bar and borders asks the window manager for
+# a window without decorations (`_MOTIF_WM_HINTS`, which every window manager
+# reads). Moving and sizing it stay the window manager's: the app hands it the
+# press it got on its title bar or an edge (`_NET_WM_MOVERESIZE`), and the
+# window manager drags the window from there -- snapping, edge tiling and all
+# -- as from a frame of its own. Maximizing is `_NET_WM_STATE`, the same
+# request a panel's button sends, so the panels stay in view.
+
+proc atomsOf(w: XID; prop: Atom): seq[Atom] =
+  ## The atoms in a window's property of type ATOM (`_NET_WM_STATE`...).
+  var actualType: Atom
+  var actualFormat: cint
+  var n, after: culong
+  var data: pointer
+  if XGetWindowProperty(gDisplay, w, prop, 0, 1024, 0, XA_ATOM,
+                        addr actualType, addr actualFormat, addr n, addr after,
+                        addr data) == 0 and data != nil:
+    # (format 32 comes as C longs)
+    let items = cast[ptr UncheckedArray[clong]](data)
+    if actualFormat == 32:
+      for i in 0 ..< n.int: result.add Atom(items[i])
+    discard XFree(data)
+
+proc readMaximized(): bool =
+  if gDisplay == nil or gWindow == None or gNetWmState == 0: return false
+  let st = atomsOf(gWindow, gNetWmState)
+  XInternAtom(gDisplay, "_NET_WM_STATE_MAXIMIZED_HORZ", 0) in st and
+    XInternAtom(gDisplay, "_NET_WM_STATE_MAXIMIZED_VERT", 0) in st
+
+proc sendWmState(add: bool; a, b: Atom) =
+  ## Ask the window manager to add or remove states (the EWMH message, to
+  ## the root window; only once the window is mapped).
+  var ev = XEvent()
+  ev.xclient.theType = ClientMessage
+  ev.xclient.window = gWindow
+  ev.xclient.message_type = XInternAtom(gDisplay, "_NET_WM_STATE", 0)
+  ev.xclient.format = 32
+  ev.xclient.data[0] = (if add: 1 else: 0)    # _NET_WM_STATE_ADD / _REMOVE
+  ev.xclient.data[1] = a.clong
+  ev.xclient.data[2] = b.clong
+  ev.xclient.data[3] = 1  # a normal application, per the spec's source field
+  discard XSendEvent(gDisplay, XRootWindow(gDisplay, gScreen), 0,
+                     (SubstructureNotifyMask or SubstructureRedirectMask).clong,
+                     addr ev)
+  discard XFlush(gDisplay)
+
+proc putFrameHints() =
+  ## `_MOTIF_WM_HINTS`: no decorations, or (deleted) what the window manager
+  ## gives any window.
+  let hints = XInternAtom(gDisplay, "_MOTIF_WM_HINTS", 0)
+  if hints == 0: return
+  if gSystemFrame:
+    discard XDeleteProperty(gDisplay, gWindow, hints)
+  else:
+    # flags, functions, decorations, input mode, status: the decorations
+    # (MWM_HINTS_DECORATIONS) are none
+    var v = [clong(2), 0, 0, 0, 0]
+    discard XChangeProperty(gDisplay, gWindow, hints, hints, 32,
+                            PropModeReplace, addr v[0], 5)
+
+# ---- Files dropped from a file manager (XDND) ----
+#
+# The window says it takes drops (`XdndAware`, version 5). A file manager
+# dragging over it sends XdndEnter (what it offers), XdndPosition (where;
+# answered with XdndStatus: taken as a copy when it offers `text/uri-list`)
+# and XdndDrop; the list is then asked for (XdndSelection converted to
+# `text/uri-list`), its files become a FileDropEvent, and XdndFinished
+# tells the file manager it is done.
+
+type XdndState = object
+  source: XID          # the window dragging over this one (None: no drag)
+  version: int
+  uriList: bool        # it offers text/uri-list
+  x, y: int            # where it is, in the window
+  dropping: bool       # dropped: the list is being asked for
+
+var
+  gXdnd: XdndState
+  gXdndAtoms: array[12, Atom]   # (interned when the window is made)
+
+type XdndAtom = enum
+  xaAware, xaEnter, xaPosition, xaStatus, xaLeave, xaDrop, xaFinished,
+  xaSelection, xaActionCopy, xaTypeList, xaUriList, xaProperty
+
+proc xa(a: XdndAtom): Atom {.inline.} = gXdndAtoms[ord(a)]
+
+proc internXdnd() =
+  const names = [cstring"XdndAware", "XdndEnter", "XdndPosition", "XdndStatus",
+                 "XdndLeave", "XdndDrop", "XdndFinished", "XdndSelection",
+                 "XdndActionCopy", "XdndTypeList", "text/uri-list",
+                 "UIRELAYS_DROP"]
+  for i, n in names: gXdndAtoms[i] = XInternAtom(gDisplay, n, 0)
+  # (version 5 of the protocol)
+  var version = clong(5)
+  discard XChangeProperty(gDisplay, gWindow, xa(xaAware), XA_ATOM, 32,
+                          PropModeReplace, addr version, 1)
+
+proc xdndSend(to: XID; kind: Atom; d1, d2, d3, d4: clong) =
+  var ev = XEvent()
+  ev.xclient.theType = ClientMessage
+  ev.xclient.window = to
+  ev.xclient.message_type = kind
+  ev.xclient.format = 32
+  ev.xclient.data = [gWindow.clong, d1, d2, d3, d4]
+  discard XSendEvent(gDisplay, to, 0, 0, addr ev)
+  discard XFlush(gDisplay)
+
+proc xdndFinish(accepted: bool) =
+  if gXdnd.source != None:
+    xdndSend(gXdnd.source, xa(xaFinished), (if accepted: 1 else: 0),
+             (if accepted: xa(xaActionCopy).clong else: 0), 0, 0)
+  gXdnd = XdndState()
+
+proc xdndMessage(m: XClientMessageEvent) =
+  let kind = m.message_type
+  let source = XID(m.data[0])
+  if kind == xa(xaEnter):
+    gXdnd = XdndState(source: source, version: int((m.data[1] shr 24) and 0xFF))
+    var offered: seq[Atom]
+    if (m.data[1] and 1) != 0:
+      offered = atomsOf(source, xa(xaTypeList))      # (more than three)
+    else:
+      for i in 2 .. 4:
+        if m.data[i] != 0: offered.add Atom(m.data[i])
+    gXdnd.uriList = xa(xaUriList) in offered
+  elif kind == xa(xaPosition):
+    if gXdnd.source == None: gXdnd.source = source
+    var wx, wy: cint
+    var child: XID
+    discard XTranslateCoordinates(gDisplay, XRootWindow(gDisplay, gScreen), gWindow,
+      cint((m.data[2] shr 16) and 0xFFFF), cint(m.data[2] and 0xFFFF),
+      addr wx, addr wy, addr child)
+    gXdnd.x = wx.int
+    gXdnd.y = wy.int
+    # taken (as a copy) anywhere in the window when it offers files
+    xdndSend(source, xa(xaStatus), (if gXdnd.uriList: 1 else: 0), 0, 0,
+             (if gXdnd.uriList: xa(xaActionCopy).clong else: 0))
+  elif kind == xa(xaLeave):
+    gXdnd = XdndState()
+  elif kind == xa(xaDrop):
+    if gXdnd.source == None: gXdnd.source = source
+    if gXdnd.uriList:
+      gXdnd.dropping = true
+      discard XConvertSelection(gDisplay, xa(xaSelection), xa(xaUriList),
+        xa(xaProperty), gWindow, (if gXdnd.version >= 1: XTime(m.data[2]) else: CurrentTime))
+      discard XFlush(gDisplay)
+    else:
+      xdndFinish(false)
+
+proc xdndReceive(sel: XSelectionEvent) =
+  ## (the dropped list has come: its files as an event)
+  var files: seq[string]
+  if sel.property != None:
+    var actualType: Atom
+    var actualFormat: cint
+    var n, after: culong
+    var data: pointer
+    if XGetWindowProperty(gDisplay, gWindow, xa(xaProperty), 0, 1 shl 22, 1, 0,
+                          addr actualType, addr actualFormat, addr n, addr after,
+                          addr data) == 0 and data != nil:
+      if actualFormat == 8:
+        var text = newString(n.int)
+        if n > 0: copyMem(addr text[0], data, n.int)
+        files = filesOfUriList(text)
+      discard XFree(data)
+  if files.len > 0:
+    var root, child: XID
+    var rx, ry, wx, wy: cint
+    var mask: cuint
+    discard XQueryPointer(gDisplay, gWindow, addr root, addr child,
+                          addr rx, addr ry, addr wx, addr wy, addr mask)
+    pushEvent(input.Event(kind: FileDropEvent, x: gXdnd.x, y: gXdnd.y, files: files,
+                          hasMods: true, mods: translateMods(mask)))
+  xdndFinish(files.len > 0)
+
 proc processXEvent(xev: XEvent) =
   case xev.theType
   of Expose:
@@ -1131,16 +1340,38 @@ proc processXEvent(xev: XEvent) =
       pushEvent(e)
 
   of ClientMessage:
-    if xev.xclient.data[0] == gWmDeleteWindow.clong:
+    let kind = xev.xclient.message_type
+    if kind != 0 and kind in [xa(xaEnter), xa(xaPosition), xa(xaLeave), xa(xaDrop)]:
+      xdndMessage(xev.xclient)
+    elif xev.xclient.data[0] == gWmDeleteWindow.clong:
       pushEvent(input.Event(kind: WindowCloseEvent))
 
+  of SelectionNotify:
+    # (a drop's list of files; the clipboard's is waited for where it is asked)
+    if gXdnd.dropping and xev.xselection.selection == xa(xaSelection):
+      xdndReceive(xev.xselection)
+
   of FocusIn:
-    if gXic != nil: XSetICFocus(gXic)
-    pushEvent(input.Event(kind: WindowFocusGainedEvent))
+    # (a grab's -- the window manager moving the window -- is no change)
+    if xev.xfocus.mode notin [NotifyGrab, NotifyUngrab]:
+      if gXic != nil: XSetICFocus(gXic)
+      gFocused = true
+      pushEvent(input.Event(kind: WindowFocusGainedEvent))
 
   of FocusOut:
-    if gXic != nil: XUnsetICFocus(gXic)
-    pushEvent(input.Event(kind: WindowFocusLostEvent))
+    if xev.xfocus.mode notin [NotifyGrab, NotifyUngrab]:
+      if gXic != nil: XUnsetICFocus(gXic)
+      gFocused = false
+      pushEvent(input.Event(kind: WindowFocusLostEvent))
+
+  of PropertyNotify:
+    # maximized or restored (by the app, a key, a double click in a panel):
+    # the app lays its frame out again
+    if xev.xproperty.atom == gNetWmState and gNetWmState != 0:
+      let m = readMaximized()
+      if m != gMaximized:
+        gMaximized = m
+        pushEvent(input.Event(kind: WindowResizeEvent, x: gWidth.int, y: gHeight.int))
 
   of KeyPress:
     # The text a key types is UTF-8 from the input method, which is also what
@@ -1517,7 +1748,8 @@ proc x11CreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   discard XSelectInput(gDisplay, gWindow,
     (ExposureMask or KeyPressMask or KeyReleaseMask or
      ButtonPressMask or ButtonReleaseMask or PointerMotionMask or
-     StructureNotifyMask or FocusChangeMask).clong or imEvents)
+     StructureNotifyMask or FocusChangeMask or PropertyChangeMask).clong or
+    imEvents)
   var detectable: XBool = 0
   discard XkbSetDetectableAutoRepeat(gDisplay, 1, addr detectable)
   gRepeatsPaired = detectable == 0
@@ -1533,6 +1765,9 @@ proc x11CreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   gUtf8String = XInternAtom(gDisplay, "UTF8_STRING", 0)
   gTargets = XInternAtom(gDisplay, "TARGETS", 0)
   gClipProperty = XInternAtom(gDisplay, "NIMEDIT_CLIP", 0)
+
+  # Files dropped from a file manager (see "XDND")
+  internXdnd()
 
   # See "Startup notification" above. Both names are cleared: X11 launches
   # set the first, Wayland ones the second, and this window is the answer to
@@ -1584,6 +1819,11 @@ proc x11CreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
                               cast[pointer](cstr(startupId)),
                               startupId.len.cint)
 
+  # Without the window manager's frame (the app draws its own): said before
+  # the map, so the window never shows with one.
+  gNetWmState = XInternAtom(gDisplay, "_NET_WM_STATE", 0)
+  if not gSystemFrame: putFrameHints()
+
   discard XStoreName(gDisplay, gWindow, instName.cstr)
   discard XMapWindow(gDisplay, gWindow)
 
@@ -1594,24 +1834,10 @@ proc x11CreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
     # The message goes to the root window, as the EWMH spec requires, and only
     # after XMapWindow: a window manager ignores state changes for a window it
     # has not taken over yet.
-    const NetWmStateAdd = 1
-    let wmState = XInternAtom(gDisplay, "_NET_WM_STATE", 0)
     let maxHorz = XInternAtom(gDisplay, "_NET_WM_STATE_MAXIMIZED_HORZ", 0)
     let maxVert = XInternAtom(gDisplay, "_NET_WM_STATE_MAXIMIZED_VERT", 0)
-    if wmState != 0 and maxHorz != 0 and maxVert != 0:
-      var ev = XEvent()
-      ev.xclient.theType = ClientMessage
-      ev.xclient.window = gWindow
-      ev.xclient.message_type = wmState
-      ev.xclient.format = 32
-      ev.xclient.data[0] = NetWmStateAdd
-      ev.xclient.data[1] = maxHorz.clong
-      ev.xclient.data[2] = maxVert.clong
-      ev.xclient.data[3] = 1  # a normal application, per the spec's source field
-      discard XSendEvent(gDisplay, XRootWindow(gDisplay, gScreen), 0,
-                         (SubstructureNotifyMask or SubstructureRedirectMask).clong,
-                         addr ev)
-      discard XFlush(gDisplay)
+    if gNetWmState != 0 and maxHorz != 0 and maxVert != 0:
+      sendWmState(true, maxHorz, maxVert)
 
   # The window is up, so the launch is over. After the map: a desktop that
   # acts on this message drops the feedback the moment it arrives, and it
@@ -2011,6 +2237,75 @@ proc x11SetWindowTitle(title: string) =
   var t = title
   discard XStoreName(gDisplay, gWindow, cstr(t))
 
+# ---- Frame hook implementations ----
+
+proc x11SetSystemFrame(on: bool): bool =
+  gSystemFrame = on
+  if gDisplay != nil and gWindow != None:
+    putFrameHints()           # (window managers follow the property's changes)
+    discard XFlush(gDisplay)
+  true
+
+proc x11DragWindow(part: WindowPart; keyboard: bool): bool =
+  if gDisplay == nil or gWindow == None or part == wpClient: return false
+  let moveResize = XInternAtom(gDisplay, "_NET_WM_MOVERESIZE", 0)
+  let supported = XInternAtom(gDisplay, "_NET_SUPPORTED", 0)
+  # (no window manager, or one that cannot)
+  if moveResize == 0 or
+     moveResize notin atomsOf(XRootWindow(gDisplay, gScreen), supported):
+    return false
+  var root, child: XID
+  var rx, ry, wx, wy: cint
+  var mask: cuint
+  discard XQueryPointer(gDisplay, gWindow, addr root, addr child,
+                        addr rx, addr ry, addr wx, addr wy, addr mask)
+  # Let go already: nothing to drag.
+  if not keyboard and (mask and Button1Mask) == 0: return false
+  let direction = if keyboard: (if part == wpCaption: 10 else: 9)   # _KEYBOARD
+                  else:
+                    case part
+                    of wpTopLeft: 0
+                    of wpTop: 1
+                    of wpTopRight: 2
+                    of wpRight: 3
+                    of wpBottomRight: 4
+                    of wpBottom: 5
+                    of wpBottomLeft: 6
+                    of wpLeft: 7
+                    else: 8                                      # _MOVE
+  # The press's own grab of the pointer goes first: the window manager takes
+  # the pointer from here, and the button's release with it.
+  discard XUngrabPointer(gDisplay, CurrentTime)
+  var ev = XEvent()
+  ev.xclient.theType = ClientMessage
+  ev.xclient.window = gWindow
+  ev.xclient.message_type = moveResize
+  ev.xclient.format = 32
+  ev.xclient.data[0] = rx.clong
+  ev.xclient.data[1] = ry.clong
+  ev.xclient.data[2] = direction.clong
+  ev.xclient.data[3] = (if keyboard: 0 else: 1)                # the button
+  ev.xclient.data[4] = 1                                       # an application
+  discard XSendEvent(gDisplay, root, 0,
+                     (SubstructureNotifyMask or SubstructureRedirectMask).clong,
+                     addr ev)
+  discard XFlush(gDisplay)
+  if not keyboard:
+    pushEvent(input.Event(kind: MouseUpEvent, hasMods: true, x: wx.int, y: wy.int,
+                          button: LeftButton,
+                          mods: translateMods(mask)))
+  true
+
+proc x11SetMaximized(on: bool) =
+  if gDisplay == nil or gWindow == None: return
+  sendWmState(on, XInternAtom(gDisplay, "_NET_WM_STATE_MAXIMIZED_HORZ", 0),
+              XInternAtom(gDisplay, "_NET_WM_STATE_MAXIMIZED_VERT", 0))
+
+proc x11Minimize(): bool =
+  if gDisplay == nil or gWindow == None: return false
+  result = XIconifyWindow(gDisplay, gWindow, gScreen) != 0
+  discard XFlush(gDisplay)
+
 # ---- Input hook implementations ----
 
 proc x11PollEvent(e: var input.Event; flags: set[InputFlag]): bool =
@@ -2061,7 +2356,7 @@ proc x11GetClipboardText(): string =
     if XPending(gDisplay) > 0:
       var xev {.noinit.}: XEvent
       discard XNextEvent(gDisplay, addr xev)
-      if xev.theType == SelectionNotify:
+      if xev.theType == SelectionNotify and xev.xselection.selection == gClipboard:
         if xev.xselection.property != None:
           var actualType {.noinit.}: Atom
           var actualFormat {.noinit.}: cint
@@ -2150,6 +2445,12 @@ proc initX11Driver*() =
     # decode pictures. `blitRGBA` is how one gets on the screen -- whoever
     # can turn a file into pixels hands them over and gets the clip rectangle
     # and the frame's dirty tracking of this driver for free.
+  frameRelays = FrameRelays(
+    setSystemFrame: x11SetSystemFrame, dragWindow: x11DragWindow,
+    setMaximized: x11SetMaximized,
+    maximized: proc (): bool = gMaximized,
+    active: proc (): bool = gFocused)
+  systemRelays.minimize = x11Minimize
   inputRelays = InputRelays(
     pollEvent: x11PollEvent, waitEvent: x11WaitEvent,
     getTicks: x11GetTicks, sleep: x11Delay,

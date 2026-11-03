@@ -2,7 +2,7 @@
 # Uses a double-buffered GDI approach: draw to an off-screen bitmap,
 # BitBlt to window on refresh.
 
-import ../coords, ../input, ../screen
+import ../coords, ../input, ../screen, ../services
 import penaxes
 import std/[widestrs, strutils, os]
 
@@ -255,6 +255,64 @@ const
   WAIT_TIMEOUT = 258'u32
   QS_ALLINPUT = 0x04FF'u32
 
+  # a window without Windows' frame (the app draws its own)
+  WS_POPUP = 0x80000000'u32
+  WS_THICKFRAME = 0x00040000'u32
+  WS_SYSMENU = 0x00080000'u32
+  WS_MINIMIZEBOX = 0x00020000'u32
+  WS_MAXIMIZEBOX = 0x00010000'u32
+  WS_MINIMIZE = 0x20000000'u32
+  WS_MAXIMIZE = 0x01000000'u32
+  WS_FRAMELESS = WS_POPUP or WS_THICKFRAME or WS_SYSMENU or WS_MINIMIZEBOX or
+                 WS_MAXIMIZEBOX
+    ## Sized by its edges, snapped, minimized and maximized like any other
+    ## window (and kept on the taskbar), with no part of it Windows draws:
+    ## WM_NCCALCSIZE gives it all to the app.
+  WM_GETMINMAXINFO = 0x0024'u32
+  WM_NCCALCSIZE = 0x0083'u32
+  WM_NCACTIVATE = 0x0086'u32
+  WM_NCLBUTTONDOWN = 0x00A1'u32
+  WM_SETCURSOR = 0x0020'u32
+  WM_DROPFILES = 0x0233'u32
+  HTCLIENT = 1'u
+  WM_SYSCOMMAND = 0x0112'u32
+  SC_SIZE = 0xF000'u32
+  SC_MOVE = 0xF010'u32
+  HTCAPTION = 2'u
+  HTLEFT = 10'u
+  HTRIGHT = 11'u
+  HTTOP = 12'u
+  HTTOPLEFT = 13'u
+  HTTOPRIGHT = 14'u
+  HTBOTTOM = 15'u
+  HTBOTTOMLEFT = 16'u
+  HTBOTTOMRIGHT = 17'u
+  SW_MINIMIZE = 6'i32
+  SW_RESTORE = 9'i32
+  VK_LBUTTON = 0x01'i32
+  GWL_STYLE = -16'i32
+  SWP_NOSIZE = 0x0001'u32
+  SWP_NOMOVE = 0x0002'u32
+  SWP_NOZORDER = 0x0004'u32
+  SWP_NOACTIVATE = 0x0010'u32
+  SWP_FRAMECHANGED = 0x0020'u32
+  SWP_NOOWNERZORDER = 0x0200'u32
+  MONITOR_DEFAULTTONEAREST = 2'u32
+
+type
+  MONITORINFO {.pure.} = object
+    cbSize: DWORD
+    rcMonitor: WINAPIRECT
+    rcWork: WINAPIRECT
+    dwFlags: DWORD
+
+  MINMAXINFO {.pure.} = object
+    ptReserved, ptMaxSize, ptMaxPosition, ptMinTrackSize, ptMaxTrackSize: WINAPIPOINT
+
+  NCCALCSIZE_PARAMS {.pure.} = object
+    rgrc: array[3, WINAPIRECT]
+    lppos: pointer
+
 # ---- Win32 API imports ----
 
 proc GetModuleHandleW(lpModuleName: ptr uint16): HINSTANCE
@@ -417,6 +475,39 @@ proc AddFontResourceExW(name: ptr uint16; fl: DWORD; res: pointer): int32
   {.stdcall, dynlib: "gdi32", importc.}
 proc RemoveFontResourceExW(name: ptr uint16; fl: DWORD; res: pointer): BOOL
   {.stdcall, dynlib: "gdi32", importc.}
+
+proc SendMessageW(hWnd: HWND; msg: UINT; wParam: WPARAM; lParam: LPARAM): LRESULT
+  {.stdcall, dynlib: "user32", importc.}
+proc DragAcceptFiles(hWnd: HWND; accept: BOOL)
+  {.stdcall, dynlib: "shell32", importc.}
+proc DragQueryFileW(drop: HANDLE; i: UINT; file: ptr uint16; n: UINT): UINT
+  {.stdcall, dynlib: "shell32", importc.}
+proc DragQueryPoint(drop: HANDLE; pt: ptr WINAPIPOINT): BOOL
+  {.stdcall, dynlib: "shell32", importc.}
+proc DragFinish(drop: HANDLE)
+  {.stdcall, dynlib: "shell32", importc.}
+proc GetCursorPos(lpPoint: ptr WINAPIPOINT): BOOL
+  {.stdcall, dynlib: "user32", importc.}
+proc IsZoomed(hWnd: HWND): BOOL
+  {.stdcall, dynlib: "user32", importc.}
+proc GetActiveWindow(): HWND
+  {.stdcall, dynlib: "user32", importc.}
+proc MonitorFromWindow(hWnd: HWND; flags: DWORD): HANDLE
+  {.stdcall, dynlib: "user32", importc.}
+proc GetMonitorInfoW(monitor: HANDLE; info: ptr MONITORINFO): BOOL
+  {.stdcall, dynlib: "user32", importc.}
+proc SetWindowPos(hWnd, after: HWND; x, y, cx, cy: int32; flags: UINT): BOOL
+  {.stdcall, dynlib: "user32", importc.}
+when sizeof(int) == 8:
+  proc GetWindowLongPtrW(hWnd: HWND; index: int32): int
+    {.stdcall, dynlib: "user32", importc.}
+  proc SetWindowLongPtrW(hWnd: HWND; index: int32; value: int): int
+    {.stdcall, dynlib: "user32", importc.}
+else:
+  proc GetWindowLongPtrW(hWnd: HWND; index: int32): int
+    {.stdcall, dynlib: "user32", importc: "GetWindowLongW".}
+  proc SetWindowLongPtrW(hWnd: HWND; index: int32; value: int): int
+    {.stdcall, dynlib: "user32", importc: "SetWindowLongW".}
 
 # ---- Helpers ----
 
@@ -743,6 +834,32 @@ proc penMessage(hwnd: HWND; msg: UINT; wp: WPARAM): bool =
   pushEvent(e)
   true
 
+# ---- A window without Windows' frame ----
+#
+# An app that draws its own title bar and borders (`setSystemFrame(false)`)
+# gets a WS_POPUP window that is still WS_THICKFRAME and WS_SYSMENU and has
+# the minimize and maximize boxes: Windows sizes it, snaps it (Aero Snap,
+# Win+arrows), minimizes and maximizes it and keeps its taskbar button as for
+# any other window. WM_NCCALCSIZE makes all of it the client area, so nothing
+# of Windows' frame shows. The app moves and sizes it with `dragWindow`, which
+# hands the press on to DefWindowProc as one on a title bar or an edge
+# (WM_NCLBUTTONDOWN) -- Windows' own loop then does the rest, as for a frame
+# of its own.
+
+var gSystemFrame = true   ## Windows draws the frame (else the app does)
+var gCursor: HCURSOR      ## the pointer the app asked for (nil: the class's)
+
+proc workArea(hwnd: HWND): tuple[monitor, work: WINAPIRECT] =
+  ## The monitor the window is on, and that monitor without the taskbar.
+  var mi = MONITORINFO(cbSize: DWORD(sizeof(MONITORINFO)))
+  if GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), addr mi) != 0:
+    result = (mi.rcMonitor, mi.rcWork)
+  else:
+    discard SystemParametersInfoW(0x0030, 0, addr result.work, 0)   # SPI_GETWORKAREA
+    result.monitor = result.work
+
+proc styleWord(style: uint32): int {.inline.} = cast[int](uint(style))
+
 proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.} =
   # Capture gHwnd from the first message -- WM_SIZE etc. arrive
   # during CreateWindowExW, *before* it returns and assigns gHwnd.
@@ -760,6 +877,65 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
 
   of WM_ERASEBKGND:
     return 1  # we handle erasing via double buffer
+
+  of WM_NCCALCSIZE:
+    if not gSystemFrame:
+      # All of the window is the app's: the client area is the window's
+      # rectangle as proposed (the first of NCCALCSIZE_PARAMS, or -- when the
+      # window is made -- the RECT itself). Maximized, Windows makes a window
+      # larger than its monitor by the frame it would have: that is cut off.
+      if IsZoomed(hwnd) != 0:
+        let r = if wp != 0: addr cast[ptr NCCALCSIZE_PARAMS](lp).rgrc[0]
+                else: cast[ptr WINAPIRECT](lp)
+        let w = workArea(hwnd).work
+        r.left = max(r.left, w.left)
+        r.top = max(r.top, w.top)
+        r.right = min(r.right, w.right)
+        r.bottom = min(r.bottom, w.bottom)
+      return 0
+
+  of WM_GETMINMAXINFO:
+    if not gSystemFrame:
+      # A window without a caption is maximized over the whole monitor,
+      # taskbar and all: this one stops at the taskbar, as others do.
+      let (mon, work) = workArea(hwnd)
+      let mmi = cast[ptr MINMAXINFO](lp)
+      mmi.ptMaxPosition = WINAPIPOINT(x: work.left - mon.left, y: work.top - mon.top)
+      mmi.ptMaxSize = WINAPIPOINT(x: work.right - work.left, y: work.bottom - work.top)
+      return 0
+
+  of WM_DROPFILES:
+    # Files dropped from Explorer: their paths, and where.
+    let drop = cast[HANDLE](wp)
+    var e = input.Event(kind: FileDropEvent, hasMods: true, mods: getModifiers())
+    let n = DragQueryFileW(drop, 0xFFFFFFFF'u32, nil, 0)
+    for i in 0'u32 ..< n:
+      let len = DragQueryFileW(drop, i, nil, 0)
+      if len == 0: continue
+      var buf = newSeq[uint16](len.int + 1)
+      discard DragQueryFileW(drop, i, addr buf[0], len + 1)
+      var w = newWideCString("", len.int)
+      copyMem(addr w[0], addr buf[0], len.int * 2)
+      e.files.add $w
+    var pt: WINAPIPOINT
+    discard DragQueryPoint(drop, addr pt)
+    DragFinish(drop)
+    e.x = pt.x.int
+    e.y = pt.y.int
+    if e.files.len > 0: pushEvent(e)
+    return 0
+
+  of WM_SETCURSOR:
+    # Over the app's part of the window the pointer is the one it asked for
+    # (an I-beam, the sizing arrows of a frame it draws); DefWindowProc
+    # would put the class's arrow back at every move.
+    if (lp and 0xFFFF) == HTCLIENT.int and gCursor != nil:
+      discard SetCursorWin(gCursor)
+      return 1
+
+  of WM_NCACTIVATE:
+    # (no frame of Windows' to show in the active or the inactive colors)
+    if not gSystemFrame: return DefWindowProcW(hwnd, msg, wp, -1)
 
   of WM_SIZE:
     let newW = loWord(lp).int32
@@ -998,29 +1174,47 @@ proc winCreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   # content does not fit and scrolls.
   var outerW = 0x80000000'i32                    # CW_USEDEFAULT
   var outerH = 0x80000000'i32
+  var x = 0x80000000'i32
+  var y = 0x80000000'i32
+  var work: WINAPIRECT
+  let hasWork = SystemParametersInfoW(0x0030, 0, addr work, 0) != 0   # SPI_GETWORKAREA
   if layout.width >= 0 and layout.height >= 0:
     var rc = WINAPIRECT(left: 0, top: 0,
                         right: int32(layout.width * gUiScale div 100),
                         bottom: int32(layout.height * gUiScale div 100))
-    discard AdjustWindowRectEx(addr rc, WS_OVERLAPPEDWINDOW, 0, 0)
+    # (without Windows' frame the window is all inside)
+    if gSystemFrame: discard AdjustWindowRectEx(addr rc, WS_OVERLAPPEDWINDOW, 0, 0)
     outerW = rc.right - rc.left
     outerH = rc.bottom - rc.top
     # No bigger than the desktop without the taskbar.
-    var work: WINAPIRECT
-    if SystemParametersInfoW(0x0030, 0, addr work, 0) != 0:      # SPI_GETWORKAREA
+    if hasWork:
       outerW = min(outerW, work.right - work.left)
       outerH = min(outerH, work.bottom - work.top)
+      if not gSystemFrame:
+        # CW_USEDEFAULT places only windows with a caption: this one is
+        # put in the middle of the desktop.
+        x = work.left + (work.right - work.left - outerW) div 2
+        y = work.top + (work.bottom - work.top - outerH) div 2
+  elif not gSystemFrame and hasWork:
+    # (maximized below; restored, three quarters of the desktop, in the
+    # middle -- about what CW_USEDEFAULT gives a window with a caption)
+    outerW = (work.right - work.left) * 3 div 4
+    outerH = (work.bottom - work.top) * 3 div 4
+    x = work.left + (work.right - work.left - outerW) div 2
+    y = work.top + (work.bottom - work.top - outerH) div 2
   gHwnd = CreateWindowExW(
     0,
     cast[ptr uint16](className[0].addr),
     cast[ptr uint16](title[0].addr),
-    WS_OVERLAPPEDWINDOW or WS_VISIBLE,
-    0x80000000'i32, 0x80000000'i32, # CW_USEDEFAULT
-    outerW, outerH,
+    (if gSystemFrame: WS_OVERLAPPEDWINDOW else: WS_FRAMELESS) or WS_VISIBLE,
+    x, y, outerW, outerH,
     nil, nil, gHinstance, nil)
 
   if gHwnd == nil:
     quit("CreateWindowExW failed")
+
+  # Files dropped from Explorer come as WM_DROPFILES.
+  DragAcceptFiles(gHwnd, 1)
 
   # A negative dimension is MaxWindowWidth/MaxWindowHeight. SW_MAXIMIZE is the
   # shell's own idea of how large a window may be, so it stops at the taskbar
@@ -1439,12 +1633,75 @@ proc winSetCursor(c: CursorKind) =
     of curSizeNESW: IDC_SIZENESW
     of curMove: IDC_SIZEALL
   let cur = LoadCursorW(nil, id)
+  gCursor = cur
   discard SetCursorWin(cur)
 
 proc winSetWindowTitle(title: string) =
   if gHwnd != nil:
     let wtitle = newWideCString(title)
     discard SetWindowTextW(gHwnd, cast[ptr uint16](wtitle[0].addr))
+
+# ---- Frame hook implementations ----
+
+proc winSetSystemFrame(on: bool): bool =
+  if on != gSystemFrame:
+    gSystemFrame = on
+    if gHwnd != nil:
+      # The style changes and the frame is worked out again (WM_NCCALCSIZE);
+      # the window stays where it is, as large as it was.
+      let keep = uint32(GetWindowLongPtrW(gHwnd, GWL_STYLE) and 0xFFFFFFFF) and
+                 (WS_VISIBLE or WS_MINIMIZE or WS_MAXIMIZE)
+      discard SetWindowLongPtrW(gHwnd, GWL_STYLE,
+        styleWord(keep or (if on: WS_OVERLAPPEDWINDOW else: WS_FRAMELESS)))
+      discard SetWindowPos(gHwnd, nil, 0, 0, 0, 0,
+        SWP_FRAMECHANGED or SWP_NOMOVE or SWP_NOSIZE or SWP_NOZORDER or
+        SWP_NOACTIVATE or SWP_NOOWNERZORDER)
+  true
+
+proc winDragWindow(part: WindowPart; keyboard: bool): bool =
+  if gHwnd == nil or part == wpClient: return false
+  if keyboard:
+    # A control menu's Move or Size: Windows' own loop, with the arrow keys.
+    discard SendMessageW(gHwnd, WM_SYSCOMMAND,
+                         WPARAM(if part == wpCaption: SC_MOVE else: SC_SIZE), 0)
+    return true
+  # Let go already (the release waits in the queue): nothing to drag.
+  if GetKeyState(VK_LBUTTON) >= 0: return false
+  let ht = case part
+    of wpLeft: HTLEFT
+    of wpRight: HTRIGHT
+    of wpTop: HTTOP
+    of wpBottom: HTBOTTOM
+    of wpTopLeft: HTTOPLEFT
+    of wpTopRight: HTTOPRIGHT
+    of wpBottomLeft: HTBOTTOMLEFT
+    of wpBottomRight: HTBOTTOMRIGHT
+    else: HTCAPTION
+  var pt: WINAPIPOINT
+  discard GetCursorPos(addr pt)
+  discard ReleaseCapture()
+  # A press on a title bar or an edge of Windows' own: DefWindowProc runs the
+  # move or the sizing (with Aero Snap) until the button is let go...
+  discard SendMessageW(gHwnd, WM_NCLBUTTONDOWN, WPARAM(ht),
+    LPARAM((pt.x.int and 0xFFFF) or ((pt.y.int and 0xFFFF) shl 16)))
+  # ... and takes the release with it, so it is reported here.
+  discard GetCursorPos(addr pt)
+  discard ScreenToClient(gHwnd, addr pt)
+  pushEvent(input.Event(kind: MouseUpEvent, hasMods: true, mods: getModifiers(),
+                        x: pt.x.int, y: pt.y.int, button: LeftButton))
+  true
+
+proc winSetMaximized(on: bool) =
+  if gHwnd != nil: discard ShowWindow(gHwnd, if on: SW_MAXIMIZE else: SW_RESTORE)
+
+proc winMaximized(): bool = gHwnd != nil and IsZoomed(gHwnd) != 0
+
+proc winActive(): bool = gHwnd != nil and GetActiveWindow() == gHwnd
+
+proc winMinimize(): bool =
+  if gHwnd == nil: return false
+  discard ShowWindow(gHwnd, SW_MINIMIZE)
+  true
 
 # ---- Input hook implementations ----
 
@@ -1574,6 +1831,10 @@ proc initWinapiDriver*() =
     setClipRect: winSetClipRect, setCursor: winSetCursor,
     pointerHeight: winPointerHeight,
     setWindowTitle: winSetWindowTitle)
+  frameRelays = FrameRelays(
+    setSystemFrame: winSetSystemFrame, dragWindow: winDragWindow,
+    setMaximized: winSetMaximized, maximized: winMaximized, active: winActive)
+  systemRelays.minimize = winMinimize
   initWinapiFontRelays()
   drawRelays = DrawRelays(
     fillRect: winFillRect, drawLine: winDrawLine, drawPoint: winDrawPoint,

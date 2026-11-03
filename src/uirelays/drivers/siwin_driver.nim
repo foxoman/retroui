@@ -3,7 +3,7 @@ import std/[deques, math, monotimes, os, times, unicode]
 import siwin
 import siwin/platforms/any/clipboards
 import vmath
-import ../[coords, input, screen]
+import ../[coords, input, screen, services]
 import ./siwin_keys
 
 when defined(macosx):
@@ -278,6 +278,8 @@ proc initSiwinDriver*() =
     platformNative.initWinapiDriver()
   else:
     platformNative.initX11Driver()
+  # (the window is Siwin's: its frame stays the system's)
+  frameRelays = FrameRelays()
   windowRelays.createWindow = create
   windowRelays.getWindowLayout = currentLayout
   windowRelays.refresh = refresh

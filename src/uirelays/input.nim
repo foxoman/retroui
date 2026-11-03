@@ -28,8 +28,12 @@ type
     QuitEvent,
     AppPauseEvent,   ## mobile: the app goes to the background; stop drawing
     AppResumeEvent,  ## mobile: the app is back; redraw everything
-    GestureEvent     ## touch: two fingers pinched (`scale`) or moved (`dx`,
+    GestureEvent,    ## touch: two fingers pinched (`scale`) or moved (`dx`,
                      ## `dy`) round their middle (`x`, `y`)
+    FileDropEvent    ## files dragged from the system's file manager were
+                     ## dropped on the window: their paths (`files`) and
+                     ## where (`x`, `y`). A desktop driver takes drops
+                     ## always; there is nothing to ask for.
 
   GesturePhase* = enum
     gsBegin,         ## a second finger came down; the first one's press is
@@ -77,6 +81,8 @@ type
                            ## last event (1 = unchanged)
     dx*, dy*: float32      ## GestureEvent: how far their middle moved
     phase*: GesturePhase   ## GestureEvent: begun, changed or ended
+    files*: seq[string]    ## FileDropEvent: the files' paths (UTF-8); empty,
+                           ## and nothing allocated, for every other kind
 
   ClipboardRelays* = object
     getText*: proc (): string {.nimcall.}

@@ -36,6 +36,40 @@ type
       ## the activity's `uirelaysCall(name, arg)`, an app's own Java code);
       ## "\0" when it failed or is not there.
 
+  WindowPart* = enum
+    ## A part of a window whose frame the app draws itself: what the mouse
+    ## took hold of, as Windows' WM_NCHITTEST names it.
+    wpClient,        ## the inside, the app's own
+    wpCaption,       ## the title bar: it moves the window
+    wpLeft, wpRight, wpTop, wpBottom,
+    wpTopLeft, wpTopRight, wpBottomLeft, wpBottomRight
+
+  FrameRelays* = object
+    ## The window's frame, for an app that draws its own title bar and
+    ## borders in a window without the system's. Every relay is optional:
+    ## nil where the platform has no such thing, and the wrappers below then
+    ## answer false (or true for `active`).
+    setSystemFrame*: proc (on: bool): bool {.nimcall.}
+      ## The system's frame and title bar on (true) or off: off, the app's
+      ## drawing fills the whole window and the app draws a frame of its own.
+      ## Called before `createWindow`, it is how the window is made. False
+      ## when the window cannot go without it.
+    dragWindow*: proc (part: WindowPart; keyboard: bool): bool {.nimcall.}
+      ## The system moves (`wpCaption`) or sizes (an edge or a corner) the
+      ## window from here on, as its own frame would (snapping to the sides
+      ## of the screen where it does that): with the mouse, whose left button
+      ## is down on that part now -- its release is reported when the system
+      ## is done -- or with the arrow keys (`keyboard`: a control menu's Move
+      ## and Size). False when it cannot (the button is up already).
+    setMaximized*: proc (on: bool) {.nimcall.}
+      ## Maximize the window -- to the desktop without its taskbar, Dock or
+      ## panels -- or restore it.
+    maximized*: proc (): bool {.nimcall.}
+      ## The window is maximized now (by the app, the system's keys, a snap).
+    active*: proc (): bool {.nimcall.}
+      ## The window is the one in front, taking the keyboard: its title bar
+      ## is drawn in the active colors.
+
 proc defaultDataDir(app: string): string =
   let base =
     when defined(windows): getEnv("APPDATA", getHomeDir())
@@ -161,3 +195,63 @@ proc requestStorageAccess*() = systemRelays.requestStorageAccess()
   ## Asks the user for that (Android opens its settings page).
 proc minimizeApp*(): bool {.discardable.} = systemRelays.minimize()
   ## Sends the app to the background; false where apps cannot.
+
+proc filesOfUriList*(text: string): seq[string] =
+  ## The local files of a `text/uri-list` (what a file manager hands over
+  ## in a drag, XDND's and Wayland's alike): one URI a line, "#" lines
+  ## left out, `file://` URIs as paths with their `%XX` decoded; the other
+  ## URIs are not files and are left out.
+  for line in text.splitLines:
+    let u = line.strip
+    if u.len == 0 or u[0] == '#' or not u.startsWith("file:"): continue
+    var p = u[5 .. ^1]
+    if p.startsWith("//"):
+      # file://host/path: the path starts where the host ends ("" or
+      # localhost, this computer)
+      let slash = p.find('/', 2)
+      if slash < 0: continue
+      p = p[slash .. ^1]
+    var path = newStringOfCap(p.len)
+    var i = 0
+    while i < p.len:
+      if p[i] == '%' and i + 2 <= p.high and
+         p[i + 1] in HexDigits and p[i + 2] in HexDigits:
+        path.add char(parseHexInt(p[i + 1 .. i + 2]))
+        i += 3
+      else:
+        path.add p[i]
+        inc i
+    when defined(windows):
+      # (file:///C:/dir/file -> C:\dir\file)
+      if path.len >= 3 and path[0] == '/' and path[2] == ':': path = path[1 .. ^1]
+      path = path.replace('/', '\\')
+    if path.len > 0: result.add path
+
+var frameRelays*: FrameRelays
+  ## Filled by the desktop drivers whose windows can go without the system's
+  ## frame (none by default).
+
+proc canDrawFrame*(): bool = frameRelays.setSystemFrame != nil
+  ## The window can go without the system's frame, for the app to draw one.
+proc setSystemFrame*(on: bool): bool {.discardable.} =
+  ## The system's frame on or off (see `FrameRelays.setSystemFrame`).
+  frameRelays.setSystemFrame != nil and frameRelays.setSystemFrame(on)
+proc startWindowMove*(keyboard = false): bool {.discardable.} =
+  ## The system moves the window from here on: with the mouse, whose left
+  ## button is down on the app's title bar, or with the arrow keys.
+  frameRelays.dragWindow != nil and frameRelays.dragWindow(wpCaption, keyboard)
+proc startWindowResize*(edge: WindowPart; keyboard = false): bool {.discardable.} =
+  ## The system sizes the window from `edge` (an edge or a corner) from
+  ## here on: with the mouse, whose left button is down there, or with the
+  ## arrow keys.
+  edge notin {wpClient, wpCaption} and frameRelays.dragWindow != nil and
+    frameRelays.dragWindow(edge, keyboard)
+proc maximizeWindow*(on = true) =
+  ## Maximizes the window (true) or restores it.
+  if frameRelays.setMaximized != nil: frameRelays.setMaximized(on)
+proc windowMaximized*(): bool =
+  ## The window is maximized now.
+  frameRelays.maximized != nil and frameRelays.maximized()
+proc windowActive*(): bool =
+  ## The window is the one in front (true where the driver cannot tell).
+  frameRelays.active == nil or frameRelays.active()

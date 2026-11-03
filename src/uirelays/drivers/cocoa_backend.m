@@ -833,6 +833,10 @@ static void withPen(NEEvent *e, NSEvent *event) {
 
 /* ---- NSView subclass -------------------------------------------------- */
 
+/* The left button's last press: a window drag (the app's own title bar)
+   starts from it. */
+static NSEvent *lastMouseDown = nil;
+
 @interface NimEditView : NSView <NSTextInputClient>
 @property (nonatomic) BOOL hasMarkedText;
 @end
@@ -933,6 +937,7 @@ static void withPen(NEEvent *e, NSEvent *event) {
 /* ---- Mouse events ---- */
 
 - (void)mouseDown:(NSEvent *)event {
+  lastMouseDown = event;
   NSPoint p = [self convertPoint:event.locationInWindow fromView:nil];
   NEEvent e = {0};
   e.kind = NE_MOUSE_DOWN;
@@ -1173,6 +1178,31 @@ static int currentButtons(NSEvent *event) {
 
 @end
 
+/* ---- A window without the system's frame ------------------------------ */
+/* An app that draws its own title bar and borders gets a borderless window,
+   still resizable and miniaturizable. Such a window does not take the
+   keyboard unless it says it can: NimEditWindow says so (a titled one could
+   anyway). */
+
+@interface NimEditWindow : NSWindow
+@end
+
+@implementation NimEditWindow
+- (BOOL)canBecomeKeyWindow { return YES; }
+- (BOOL)canBecomeMainWindow { return YES; }
+@end
+
+static int systemFrame = 1;          /* the system draws the frame */
+static NSRect unzoomedFrame;         /* where a borderless window was before
+                                        it was maximized */
+
+static NSUInteger styleFor(int framed) {
+  return framed ? (NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                   NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
+                : (NSWindowStyleMaskBorderless | NSWindowStyleMaskMiniaturizable |
+                   NSWindowStyleMaskResizable);
+}
+
 /* ---- Window management ------------------------------------------------ */
 
 static NSWindow *mainWindow = nil;
@@ -1215,8 +1245,7 @@ void cocoa_createWindow(int w, int h, int *outW, int *outH,
        visible and the window stays out of a Space of its own. A window that
        maxes out in one direction is placed at that edge of the visible area
        and keeps its requested size in the other. */
-    NSUInteger style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-                       NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
+    NSUInteger style = styleFor(systemFrame);
     /* initWithContentRect: wants the CONTENT rect, so the visible frame has
        to have the title bar taken off it -- handing it over as-is would make
        the window taller than the space it is supposed to fit in. */
@@ -1231,7 +1260,7 @@ void cocoa_createWindow(int w, int h, int *outW, int *outH,
       rect.size.height = maxContent.size.height;
       rect.origin.y = maxContent.origin.y;
     }
-    mainWindow = [[NSWindow alloc] initWithContentRect:rect
+    mainWindow = [[NimEditWindow alloc] initWithContentRect:rect
                                              styleMask:style
                                                backing:NSBackingStoreBuffered
                                                  defer:NO];
@@ -1307,6 +1336,144 @@ void cocoa_refresh(void) {
 void cocoa_setWindowTitle(const char *title) {
   @autoreleasepool {
     [mainWindow setTitle:[NSString stringWithUTF8String:title]];
+  }
+}
+
+/* ---- The window's frame ------------------------------------------------ */
+/* The app's own title bar moves the window with the press it got
+   (performWindowDragWithEvent:); its border sizes it here, the window
+   following the mouse until the button is let go. Maximized, a borderless
+   window fills the screen without the menu bar and the Dock. */
+
+static void noteContentSize(void) {
+  /* (the content's new size: the backing and the app follow it) */
+  NSRect frame = [[mainWindow contentView] frame];
+  CGFloat scale = [mainWindow backingScaleFactor];
+  ensureBacking((int)frame.size.width, (int)frame.size.height, scale);
+  [[mainWindow contentView] setNeedsDisplay:YES];
+  NEEvent e = {0};
+  e.kind = NE_WINDOW_RESIZE;
+  e.x = (int)frame.size.width;
+  e.y = (int)frame.size.height;
+  pushEvent(e);
+}
+
+int cocoa_setSystemFrame(int on) {
+  @autoreleasepool {
+    systemFrame = on ? 1 : 0;
+    if (mainWindow) {
+      NSRect frame = [mainWindow frame];
+      [mainWindow setStyleMask:styleFor(systemFrame)];
+      [mainWindow setFrame:frame display:YES];
+      [mainWindow makeFirstResponder:mainView];
+      noteContentSize();
+    }
+    return 1;
+  }
+}
+
+static void releaseLeft(void) {
+  /* (the system took the button's release: it is reported here) */
+  NSPoint p = [mainWindow mouseLocationOutsideOfEventStream];
+  NSPoint v = [mainView convertPoint:p fromView:nil];
+  NEEvent e = {0};
+  e.kind = NE_MOUSE_UP;
+  e.button = NE_MB_LEFT;
+  e.x = (int)v.x;
+  e.y = (int)v.y;
+  pushEvent(e);
+}
+
+/* `part`: 1 the title bar, 2..5 left, right, top, bottom, 6..9 top left,
+   top right, bottom left, bottom right (uirelays' WindowPart). */
+int cocoa_dragWindow(int part, int keyboard) {
+  @autoreleasepool {
+    if (!mainWindow || keyboard || part < 1 || part > 9) return 0;
+    if (([NSEvent pressedMouseButtons] & 1) == 0) return 0;   /* let go already */
+    if (part == 1) {
+      if (!lastMouseDown ||
+          ![mainWindow respondsToSelector:@selector(performWindowDragWithEvent:)])
+        return 0;
+      [mainWindow performWindowDragWithEvent:lastMouseDown];
+      releaseLeft();
+      return 1;
+    }
+    int left = part == 2 || part == 6 || part == 8;
+    int right = part == 3 || part == 7 || part == 9;
+    int top = part == 4 || part == 6 || part == 7;
+    int bottom = part == 5 || part == 8 || part == 9;
+    NSRect start = [mainWindow frame];
+    NSPoint p0 = [NSEvent mouseLocation];
+    NSSize least = [mainWindow minSize];
+    CGFloat minW = MAX(least.width, 100), minH = MAX(least.height, 60);
+    for (;;) {
+      NSEvent *ev = [NSApp nextEventMatchingMask:(NSEventMaskLeftMouseDragged |
+                                                  NSEventMaskLeftMouseUp)
+                                       untilDate:[NSDate distantFuture]
+                                          inMode:NSEventTrackingRunLoopMode
+                                         dequeue:YES];
+      if (!ev || ev.type == NSEventTypeLeftMouseUp) break;
+      NSPoint p = [NSEvent mouseLocation];
+      CGFloat dx = p.x - p0.x, dy = p.y - p0.y;    /* (the screen's y goes up) */
+      NSRect f = start;
+      if (right) f.size.width = MAX(minW, start.size.width + dx);
+      if (left) {
+        f.size.width = MAX(minW, start.size.width - dx);
+        f.origin.x = start.origin.x + start.size.width - f.size.width;
+      }
+      if (top) f.size.height = MAX(minH, start.size.height + dy);
+      if (bottom) {
+        f.size.height = MAX(minH, start.size.height - dy);
+        f.origin.y = start.origin.y + start.size.height - f.size.height;
+      }
+      [mainWindow setFrame:f display:YES];
+    }
+    releaseLeft();
+    return 1;
+  }
+}
+
+static int fillsScreen(void) {
+  NSScreen *s = [mainWindow screen];
+  if (!s) s = [NSScreen mainScreen];
+  return NSEqualRects([mainWindow frame], [s visibleFrame]) ? 1 : 0;
+}
+
+void cocoa_setMaximized(int on) {
+  @autoreleasepool {
+    if (!mainWindow) return;
+    if (systemFrame) {
+      if ((on != 0) != ([mainWindow isZoomed] != NO)) [mainWindow zoom:nil];
+      return;
+    }
+    NSScreen *s = [mainWindow screen];
+    if (!s) s = [NSScreen mainScreen];
+    if (on && !fillsScreen()) {
+      unzoomedFrame = [mainWindow frame];
+      [mainWindow setFrame:[s visibleFrame] display:YES];
+    } else if (!on && fillsScreen() && !NSIsEmptyRect(unzoomedFrame)) {
+      [mainWindow setFrame:unzoomedFrame display:YES];
+    }
+  }
+}
+
+int cocoa_isMaximized(void) {
+  @autoreleasepool {
+    if (!mainWindow) return 0;
+    if (systemFrame) return [mainWindow isZoomed] ? 1 : 0;
+    return fillsScreen();
+  }
+}
+
+int cocoa_isActive(void) {
+  return (mainWindow && [mainWindow isKeyWindow]) ? 1 : 0;
+}
+
+int cocoa_minimize(void) {
+  @autoreleasepool {
+    if (!mainWindow) return 0;
+    [mainWindow miniaturize:nil];
+    return 1;
   }
 }
 
