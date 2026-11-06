@@ -835,6 +835,11 @@ var
   gDamageAll = false          ## ... or something drawn that was not one
   gBlitSerial = 0'u64
 
+
+proc x11Wake*() = pushEvent(input.Event(kind: NoEvent))
+  ## Wakes whoever waits for the driver's events (an empty event, `NoEvent`):
+  ## an `x11EventHook` changed something the window should show.
+
 proc damage(x, y, w, h: int) =
   ## A picture put at `x`, `y`: that part of the window is copied at the
   ## refresh (not all of it), and the frame is not the one shown.
@@ -1947,10 +1952,30 @@ proc processXEvent(xev: XEvent) =
   else:
     discard
 
+# ---- Sharing the connection ----
+#
+# A program that does more with the X server than its own window -- a
+# window manager, a panel, a tray -- works on the same connection: its
+# events come in with the window's, and `x11EventHook` sees each of them
+# first.
+
+var x11EventHook*: proc (ev: pointer): bool {.nimcall.}
+  ## Called with every event taken off the queue (an `XEvent*`) before this
+  ## driver looks at it; true: it was the hook's, and the driver leaves it.
+  ## Events of the driver's own window must be left to it (false).
+
+proc x11Display*(): pointer = gDisplay
+  ## The connection to the X server (an Xlib `Display*`), nil before the
+  ## window is made.
+
+proc x11Window*(): uint = uint(gWindow)
+  ## The driver's window (an X window id), 0 before it is made.
+
 proc dispatchXEvent(xev: var XEvent) =
   ## One event just taken off the queue: a release that auto-repeat made up
   ## goes nowhere, the input method gets the first look at the rest, and
   ## what it leaves is ours.
+  if x11EventHook != nil and x11EventHook(addr xev): return
   if xev.xkey.theType == KeyRelease and isAutoRepeatRelease(xev): return
   if xev.theType == GenericEvent:
     if gXiOpcode != 0 and xev.xcookie.extension == gXiOpcode: processXiEvent(xev)
@@ -2208,25 +2233,6 @@ proc putWindowName(title: string) =
 # manager running there (openbox, xfce...), windows are ordinary ones.
 
 when androidShell:
-  proc termuxX11(): pointer =
-    ## A connection to Termux:X11 -- started when it is not running yet --
-    ## with its app in front; nil when it is not installed.
-    proc show() =
-      discard execShellCmd("am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity " &
-                           ">/dev/null 2>&1")
-    if getEnv("DISPLAY").len == 0: putEnv("DISPLAY", ":0")
-    result = XOpenDisplay(nil)
-    if result != nil:
-      show()
-      return
-    if findExe("termux-x11").len == 0: return nil
-    discard execShellCmd("termux-x11 " & getEnv("DISPLAY") & " >/dev/null 2>&1 &")
-    for i in 0 ..< 100:                    # (up to 10 s for the server to come up)
-      os.sleep(100)
-      result = XOpenDisplay(nil)
-      if result != nil: break
-    if result != nil: show()
-
   proc windowManagerRunning(): bool =
     ## A window manager says so on the root window (EWMH).
     let root = XRootWindow(gDisplay, XDefaultScreen(gDisplay))
@@ -2240,6 +2246,29 @@ when androidShell:
                           addr after, addr data) == 0 and data != nil:
       result = actualFormat == 32 and n >= 1
       discard XFree(data)
+
+  proc termuxX11(): pointer =
+    ## A connection to Termux:X11 -- started when it is not running yet --
+    ## with its app in front; nil when it is not installed.
+    proc show() =
+      discard execShellCmd("am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity " &
+                           ">/dev/null 2>&1")
+    if getEnv("DISPLAY").len == 0: putEnv("DISPLAY", ":0")
+    result = XOpenDisplay(nil)
+    if result != nil:
+      # (a desktop on the server -- a window manager -- is in front already:
+      # its programs open without bringing the app forward again, which
+      # takes Android a second each time)
+      gDisplay = result
+      if not windowManagerRunning(): show()
+      return
+    if findExe("termux-x11").len == 0: return nil
+    discard execShellCmd("termux-x11 " & getEnv("DISPLAY") & " >/dev/null 2>&1 &")
+    for i in 0 ..< 100:                    # (up to 10 s for the server to come up)
+      os.sleep(100)
+      result = XOpenDisplay(nil)
+      if result != nil: break
+    if result != nil: show()
 
 proc x11CreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   # Fonts opened before the window already have the connection.
@@ -2354,6 +2383,24 @@ proc x11CreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   var classHint = XClassHint(res_name: cstr(instName),
                              res_class: cstr(className))
   discard XSetClassHint(gDisplay, gWindow, addr classHint)
+
+  # `_NET_WM_PID`: the process the window belongs to, which a task list reads
+  # to show how much memory the program holds and to end a program that no
+  # longer answers (EWMH has it set before the map, with WM_CLIENT_MACHINE)
+  block:
+    proc c_getpid(): cint {.importc: "getpid", header: "<unistd.h>".}
+    proc c_gethostname(name: cstring; len: csize_t): cint {.importc: "gethostname", header: "<unistd.h>".}
+    let pidAtom = XInternAtom(gDisplay, "_NET_WM_PID", 0)
+    if pidAtom != 0:
+      var pid = clong(c_getpid())
+      discard XChangeProperty(gDisplay, gWindow, pidAtom, XA_CARDINAL, 32,
+                              PropModeReplace, addr pid, 1)
+    var host = newString(256)
+    if c_gethostname(cstring(host), 255) == 0:
+      host.setLen(host.cstring.len)
+      if host.len > 0:
+        discard XChangeProperty(gDisplay, gWindow, XInternAtom(gDisplay, "WM_CLIENT_MACHINE", 0),
+                                XA_STRING, 8, PropModeReplace, addr host[0], host.len.cint)
 
   # `_NET_WM_ICON`: the taskbar bitmap, for a window whose application has no
   # installed entry to look one up in. Also before the map, so the window
