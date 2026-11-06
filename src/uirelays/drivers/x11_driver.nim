@@ -699,6 +699,7 @@ var
   gColormap: XID
   gDepth: cint
   gWindow: XID
+  gFillScreen = false   # the window fills the screen and follows it (Termux:X11, no window manager)
   gGC: pointer         # Xlib GC for primitives
   gBackPixmap: XID     # double buffer
   gXftDraw: pointer    # Xft draw context on back pixmap
@@ -1746,6 +1747,12 @@ proc processXEvent(xev: XEvent) =
       gFrameForced = true
 
   of ConfigureNotify:
+    if gFillScreen and xev.xconfigure.window == XRootWindow(gDisplay, gScreen):
+      # the screen changed size: the window with it (its own ConfigureNotify
+      # follows and does the rest)
+      discard XMoveResizeWindow(gDisplay, gWindow, 0, 0,
+                                xev.xconfigure.width.cuint, xev.xconfigure.height.cuint)
+      return
     let newW = xev.xconfigure.width
     let newH = xev.xconfigure.height
     if newW > 0 and newH > 0 and (newW != gWidth or newH != gHeight):
@@ -2190,16 +2197,70 @@ proc putWindowName(title: string) =
     discard XChangeProperty(gDisplay, gWindow, netName, gUtf8String, 8, PropModeReplace,
                             cast[pointer](cstr(t)), t.len.cint)
 
+# ---- Termux:X11 ----
+#
+# A program run in Termux (`androidShell`) has its window on Termux:X11, the
+# X server in an Android app. Two things a desktop has that it lacks are
+# made up for here: the server is started when there is none (and its app
+# brought to the front, as a desktop would show the window), and with no
+# window manager to place and size windows the window fills the screen and
+# follows it when the tablet turns, as an Android app does. With a window
+# manager running there (openbox, xfce...), windows are ordinary ones.
+
+when androidShell:
+  proc termuxX11(): pointer =
+    ## A connection to Termux:X11 -- started when it is not running yet --
+    ## with its app in front; nil when it is not installed.
+    proc show() =
+      discard execShellCmd("am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity " &
+                           ">/dev/null 2>&1")
+    if getEnv("DISPLAY").len == 0: putEnv("DISPLAY", ":0")
+    result = XOpenDisplay(nil)
+    if result != nil:
+      show()
+      return
+    if findExe("termux-x11").len == 0: return nil
+    discard execShellCmd("termux-x11 " & getEnv("DISPLAY") & " >/dev/null 2>&1 &")
+    for i in 0 ..< 100:                    # (up to 10 s for the server to come up)
+      os.sleep(100)
+      result = XOpenDisplay(nil)
+      if result != nil: break
+    if result != nil: show()
+
+  proc windowManagerRunning(): bool =
+    ## A window manager says so on the root window (EWMH).
+    let root = XRootWindow(gDisplay, XDefaultScreen(gDisplay))
+    var actualType: Atom
+    var actualFormat: cint
+    var n, after: culong
+    var data: pointer
+    # (33: XA_WINDOW)
+    if XGetWindowProperty(gDisplay, root, XInternAtom(gDisplay, "_NET_SUPPORTING_WM_CHECK", 0),
+                          0, 1, 0, 33.Atom, addr actualType, addr actualFormat, addr n,
+                          addr after, addr data) == 0 and data != nil:
+      result = actualFormat == 32 and n >= 1
+      discard XFree(data)
+
 proc x11CreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   # Fonts opened before the window already have the connection.
+  when androidShell:
+    if gDisplay == nil: gDisplay = termuxX11()
   if gDisplay == nil: gDisplay = XOpenDisplay(nil)
   if gDisplay == nil:
-    quit("Cannot open X11 display")
+    when androidShell:
+      quit("Cannot open X11 display: install Termux:X11 (the app, and pkg install termux-x11-nightly)")
+    else:
+      quit("Cannot open X11 display")
   gUiScale = computeUiScale()
   gScreen = XDefaultScreen(gDisplay)
   gVisual = XDefaultVisual(gDisplay, gScreen)
   gColormap = XDefaultColormap(gDisplay, gScreen)
   gDepth = XDefaultDepth(gDisplay, gScreen)
+
+  when androidShell:
+    if not windowManagerRunning():
+      gFillScreen = true
+      layout.fullScreen = true
 
   if layout.fullScreen:
     layout.width = XDisplayWidth(gDisplay, gScreen)
@@ -2247,6 +2308,9 @@ proc x11CreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
      ButtonPressMask or ButtonReleaseMask or PointerMotionMask or LeaveWindowMask or
      StructureNotifyMask or FocusChangeMask or PropertyChangeMask).clong or
     imEvents)
+  if gFillScreen:
+    # (the screen's own size changes -- the tablet turned -- come to us too)
+    discard XSelectInput(gDisplay, XRootWindow(gDisplay, gScreen), StructureNotifyMask.clong)
   var detectable: XBool = 0
   discard XkbSetDetectableAutoRepeat(gDisplay, 1, addr detectable)
   gRepeatsPaired = detectable == 0
