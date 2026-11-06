@@ -2,7 +2,7 @@
 # Uses Xlib for windowing/events, Xft for antialiased font rendering.
 # Double-buffered via X Pixmap.
 
-import ../coords, ../input, ../screen, ../eglload, ../services
+import ../coords, ../input, ../screen, ../eglload, ../services, ../target
 import penaxes
 from ../pixelutils import resizedRGBA
 import std/[strutils, os, dynlib]
@@ -2061,13 +2061,27 @@ proc dpiFromMonitor(): int =
           continue
       freeOut(info)
 
+when androidShell:
+  proc systemPropertyGet(name, value: cstring): cint
+    {.importc: "__system_property_get", header: "<sys/system_properties.h>".}
+
+  proc androidDensity(): int =
+    ## The screen's density as Android has it (`ro.sf.lcd_density`, 160 a
+    ## plain screen's), 0 when unknown: an X server on Android (Termux:X11)
+    ## draws on the device's own pixels and reports 96 dpi.
+    var buf: array[96, char]                 # (PROP_VALUE_MAX: 92)
+    if systemPropertyGet("ro.sf.lcd_density", cast[cstring](addr buf[0])) > 0:
+      try: result = parseInt($cast[cstring](addr buf[0]))
+      except ValueError: result = 0
+
 proc computeUiScale(): int =
   ## X11 coordinates are raw device pixels and nothing on the way to the screen
   ## scales them, so the display's full density has to land in `uiScale`.
   ## In order: what the desktop set (`Xft.dpi`, GDK_SCALE, QT_SCALE_FACTOR),
-  ## else the monitor's own size (a 4K screen is not left at 100%), in steps
-  ## of 25%. Never below 100: shrinking an app's hardcoded sizes is more
-  ## likely to make it unusable than to be what the user meant.
+  ## on Android (an X server in Termux) the device's density, else the
+  ## monitor's own size (a 4K screen is not left at 100%), in steps of 25%.
+  ## Never below 100: shrinking an app's hardcoded sizes is more likely to
+  ## make it unusable than to be what the user meant.
   let dpi = dpiFromResources()
   if dpi > 0: return max(100, dpi * 100 div 96)
   let gdk = getEnv("GDK_SCALE")
@@ -2076,6 +2090,10 @@ proc computeUiScale(): int =
   let qt = getEnv("QT_SCALE_FACTOR")
   if qt.len > 0:
     try: return clamp(int(parseFloat(qt) * 100), 100, 400) except ValueError: discard
+  when androidShell:
+    let d = androidDensity()
+    if d >= 120:
+      return clamp(((d * 100 div 160) + 12) div 25 * 25, 100, 400)
   let mon = dpiFromMonitor()
   if mon > 0:
     # 25% steps; a little over (a 110 dpi laptop) stays at 100%
