@@ -106,6 +106,9 @@ type
     phase*: GesturePhase   ## GestureEvent: begun, changed or ended
     files*: seq[string]    ## FileDropEvent: the files' paths (UTF-8); empty,
                            ## and nothing allocated, for every other kind
+    preciseLines*: int     ## MouseWheelEvent: lines to scroll, from a driver
+                           ## that tracks fine-grained (touchpad) scrolling;
+                           ## 0 = derive from `y` notches (see `wheelLines`)
 
   ClipboardRelays* = object
     ## The system clipboard's text (UTF-8), filled by the driver.
@@ -160,3 +163,8 @@ proc sleep*(ms: int) = inputRelays.sleep(ms)
   ## Waits `ms` milliseconds.
 proc shutdown*() = inputRelays.shutdown()
   ## Closes the window and the driver.
+
+proc wheelLines*(e: Event): int =
+  ## How many lines a MouseWheelEvent scrolls (positive = up): the driver's
+  ## precise count when it gives one, else 3 a wheel notch.
+  if e.preciseLines != 0: e.preciseLines else: e.y * 3

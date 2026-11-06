@@ -400,6 +400,7 @@ const
   XK_period = 0x2e'u
   XK_minus = 0x2d'u
   XK_equal = 0x3d'u
+  XK_slash = 0x2f'u
   XK_KP_Enter = 0xff8d'u
   XK_KP_0 = 0xffb0'u
   XK_KP_9 = 0xffb9'u
@@ -940,7 +941,7 @@ proc translateKeySym(ks: XKeySym): input.KeyCode =
   of XK_comma: KeyComma
   of XK_period: KeyPeriod
   of XK_minus: KeyMinus
-  of 0x2f'u, 0x3f'u: KeySlash
+  of XK_slash, 0x3f'u: KeySlash
   of 0x5b'u, 0x7b'u: KeyLeftBracket
   of 0x5d'u, 0x7d'u: KeyRightBracket
   of 0x3b'u, 0x3a'u: KeySemicolon
