@@ -46,8 +46,14 @@ proc androidKey(code: int32): KeyCode =
   of 75: KeyQuote
   of 68: KeyBackquote
   of 70: KeyEqual
-  of 81: KeyPlus
+  of 81, 157: KeyPlus                             # PLUS, NUMPAD_ADD
   of 82: KeyMenu                                  # MENU
+  of 144..153: KeyCode(ord(Key0) + code - 144)    # NUMPAD_0..9
+  of 154: KeySlash                                # NUMPAD_DIVIDE
+  of 156: KeyMinus                                # NUMPAD_SUBTRACT
+  of 158: KeyPeriod                               # NUMPAD_DOT
+  of 159: KeyComma                                # NUMPAD_COMMA
+  of 161: KeyEqual                                # NUMPAD_EQUALS
   else: KeyNone
 
 proc urGlStart(): cint {.importc: "uirelays_gl_start", cdecl.}

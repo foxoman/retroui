@@ -1,10 +1,18 @@
-# Platform-independent screen/drawing relays.
-# Part of the core stdlib abstraction (plan.md).
+## Platform-independent screen relays: the window (its size, density and
+## safe margins), colors, the cursor, and drawing by the driver (rectangles,
+## text, images, whole frames as pixels). A driver fills `windowRelays`
+## and `drawRelays`.
+##
+## ```nim
+## let l = getWindowLayout()
+## echo l.width, "x", l.height, " at ", l.uiScale, " %"
+## ```
 
 import coords
 
 type
   Color* = object
+    ## A color, 0..255 each; `a` 255 is opaque.
     r*, g*, b*, a*: uint8
 
   Font* = distinct int    ## opaque handle; 0 = invalid
@@ -24,9 +32,11 @@ type
     ## never missing.
 
   TextExtent* = object
+    ## The size of a piece of text, in the driver's units.
     w*, h*: int
 
   FontMetrics* = object
+    ## A font's height above and below the baseline, and its line height.
     ascent*, descent*, lineHeight*: int
 
   ScreenLayout* = object
@@ -35,7 +45,7 @@ type
     ## and 150% displays where that is not true -- a percentage, which is
     ## still an integer.
     width*, height*: int  ## window size, in the unit the driver draws in
-    pitch*: int
+    pitch*: int           ## pixels per row of a framebuffer the driver gives
     scaleX*, scaleY*: int ## device pixels the driver *already* puts per
                           ## coordinate unit, so `width * scaleX` is the
                           ## physical width. Purely informational: an app
@@ -45,7 +55,7 @@ type
                           ## the same on any display. 100 means the driver or
                           ## the platform already accounts for the display's
                           ## density; 200 means the app draws twice as large.
-    fullScreen*: bool
+    fullScreen*: bool     ## the window fills the screen
     safeTop*, safeBottom*, safeLeft*, safeRight*: int
       ## Phones: the margins, in the driver's units, that a status bar, a
       ## notch or a gesture bar cover. Zero on the desktop.
@@ -185,6 +195,15 @@ type
     gpuReady*: proc (): bool {.nimcall.}
       ## There is a surface to draw on now (false while a phone app is in
       ## the background).
+    gpuBufferAge*: proc (): int {.nimcall.}
+      ## How many frames old the pixels of the buffer about to be drawn
+      ## are: 1 it holds the last frame shown, 2 the one before... 0 when
+      ## that is not known (draw all of it). With it, a frame where little
+      ## changed is drawn only there. Optional.
+    swapGpuDamage*: proc (rects: openArray[Rect]): bool {.nimcall.}
+      ## `swapGpu`, told the parts of the window that changed since the last
+      ## frame (pixels, from the top left): the system copies only those.
+      ## Optional.
 
 proc `==`*(a, b: Font): bool {.borrow.}
 proc `==`*(a, b: Image): bool {.borrow.}

@@ -21,7 +21,8 @@ enum {
   NE_MOUSE_DOWN, NE_MOUSE_UP, NE_MOUSE_MOVE, NE_MOUSE_WHEEL,
   NE_WINDOW_RESIZE, NE_WINDOW_CLOSE,
   NE_WINDOW_FOCUS_GAINED, NE_WINDOW_FOCUS_LOST,
-  NE_QUIT
+  NE_QUIT,
+  NE_FILE_DROP        /* files dropped on the window: cocoa_dropPath */
 };
 
 enum {
@@ -57,11 +58,12 @@ typedef struct {
 static NEEvent eventQueue[EVENT_QUEUE_SIZE];
 static int eqHead = 0, eqTail = 0;
 
-static void pushEvent(NEEvent ev) {
+static int pushEvent(NEEvent ev) {
   int next = (eqHead + 1) % EVENT_QUEUE_SIZE;
-  if (next == eqTail) return;  /* queue full, drop */
+  if (next == eqTail) return 0;  /* queue full, drop */
   eventQueue[eqHead] = ev;
   eqHead = next;
+  return 1;
 }
 
 int cocoa_pollEvent(NEEvent *out) {
@@ -196,6 +198,22 @@ static int translateKeyCode(unsigned short kc) {
     case 0x67: return 47;  /* keyF11 */
     case 0x6F: return 48;  /* keyF12 */
     case 0x24: return 49;  /* keyEnter */
+    case 0x4C: return 49;  /* keyEnter: the keypad's */
+    case 0x52: return 27;  /* the keypad's 0 .. 9: key0 .. key9 */
+    case 0x53: return 28;
+    case 0x54: return 29;
+    case 0x55: return 30;
+    case 0x56: return 31;
+    case 0x57: return 32;
+    case 0x58: return 33;
+    case 0x59: return 34;
+    case 0x5B: return 35;
+    case 0x5C: return 36;
+    case 0x41: return 66;  /* keyPeriod: the keypad's decimal */
+    case 0x45: return 70;  /* keyPlus: the keypad's */
+    case 0x4E: return 68;  /* keyMinus: the keypad's */
+    case 0x4B: return 67;  /* keySlash: the keypad's divide */
+    case 0x51: return 69;  /* keyEqual: the keypad's */
     case 0x31: return 50;  /* keySpace */
     case 0x35: return 51;  /* keyEsc */
     case 0x30: return 52;  /* keyTab */
@@ -840,8 +858,31 @@ static NSEvent *lastMouseDown = nil;
    from that. */
 static NSEvent *lastMouseDragged = nil;
 
-@interface NimEditView : NSView <NSTextInputClient>
+/* The left button pressed with Control: a right click, as everywhere on a
+   Mac (its release is the right button's too). */
+static int controlClick = 0;
+
+/* Where the caret of the text being typed is (the view's points): an input
+   method composes there (cocoa_setTextCaret). */
+static NSRect textCaret = {{0, 0}, {1, 16}};
+
+/* Each drop of files' paths, in the order of their NE_FILE_DROP events. */
+static NSMutableArray *drops = nil;
+
+/* The pointer as it leaves the window: nothing in it is under the pointer. */
+static void pushOutside(NSEventModifierFlags flags) {
+  NEEvent e = {0};
+  e.kind = NE_MOUSE_MOVE;
+  e.x = -100000;   /* (OutsideWindow) */
+  e.y = -100000;
+  e.mods = translateModifiers(flags);
+  pushEvent(e);
+}
+
+@interface NimEditView : NSView <NSTextInputClient, NSDraggingDestination>
 @property (nonatomic) BOOL hasMarkedText;
+@property (nonatomic) NSUInteger markedLength;
+- (void)releasedAt:(NSPoint)p flags:(NSEventModifierFlags)flags others:(NSUInteger)others;
 @end
 
 @implementation NimEditView {
@@ -857,8 +898,8 @@ static NSEvent *lastMouseDragged = nil;
   if (_trackingArea) [self removeTrackingArea:_trackingArea];
   _trackingArea = [[NSTrackingArea alloc]
     initWithRect:self.bounds
-         options:NSTrackingMouseMoved | NSTrackingActiveInKeyWindow |
-                 NSTrackingInVisibleRect
+         options:NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited |
+                 NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect
            owner:self
         userInfo:nil];
   [self addTrackingArea:_trackingArea];
@@ -883,6 +924,13 @@ static NSEvent *lastMouseDragged = nil;
 /* ---- Keyboard events ---- */
 
 - (void)keyDown:(NSEvent *)event {
+  /* While an input method composes (marked text) every key is its own:
+     Return takes what was composed, Backspace and the arrows edit it there,
+     Esc drops it -- none of them is the app's. */
+  if (self.hasMarkedText) {
+    [self interpretKeyEvents:@[event]];
+    return;
+  }
   NEEvent e = {0};
   e.kind = NE_KEY_DOWN;
   e.key = translateKeyEvent(event);
@@ -905,6 +953,7 @@ static NSEvent *lastMouseDragged = nil;
       case 0x35: /* escape */
       case 0x30: /* tab */
       case 0x24: /* return */
+      case 0x4C: /* the keypad's enter */
       case 0x7B: case 0x7C: case 0x7E: case 0x7D: /* arrows */
       case 0x74: case 0x79: case 0x73: case 0x77: /* pgup/pgdn/home/end */
       case 0x72: /* insert/help */
@@ -925,6 +974,20 @@ static NSEvent *lastMouseDragged = nil;
      would otherwise trigger for keys without a binding */
 }
 
+/* Cmd+W is the app's key (Ctrl+W, which may close a tab), not the menu's
+   Close: the window closes when nothing in the app takes it. */
+- (BOOL)performKeyEquivalent:(NSEvent *)event {
+  NSEventModifierFlags f = event.modifierFlags &
+    (NSEventModifierFlagShift | NSEventModifierFlagControl |
+     NSEventModifierFlagOption | NSEventModifierFlagCommand);
+  if (event.type == NSEventTypeKeyDown && f == NSEventModifierFlagCommand &&
+      [[event charactersIgnoringModifiers] isEqualToString:@"w"]) {
+    [self keyDown:event];
+    return YES;
+  }
+  return [super performKeyEquivalent:event];
+}
+
 - (void)keyUp:(NSEvent *)event {
   NEEvent e = {0};
   e.kind = NE_KEY_UP;
@@ -940,6 +1003,23 @@ static NSEvent *lastMouseDragged = nil;
 /* ---- Mouse events ---- */
 
 - (void)mouseDown:(NSEvent *)event {
+  NSEventModifierFlags flags = event.modifierFlags;
+  if ((flags & NSEventModifierFlagControl) && !(flags & NSEventModifierFlagCommand)) {
+    /* Control + click: the right button's, without the Control */
+    controlClick = 1;
+    NSPoint p = [self convertPoint:event.locationInWindow fromView:nil];
+    NEEvent e = {0};
+    e.kind = NE_MOUSE_DOWN;
+    e.button = NE_MB_RIGHT;
+    e.x = (int)p.x;
+    e.y = (int)p.y;
+    e.clicks = (int)event.clickCount;
+    e.mods = translateModifiers(flags & ~NSEventModifierFlagControl);
+    withPen(&e, event);
+    pushEvent(e);
+    return;
+  }
+  controlClick = 0;
   lastMouseDown = event;
   lastMouseDragged = nil;
   NSPoint p = [self convertPoint:event.locationInWindow fromView:nil];
@@ -958,12 +1038,27 @@ static NSEvent *lastMouseDragged = nil;
   NSPoint p = [self convertPoint:event.locationInWindow fromView:nil];
   NEEvent e = {0};
   e.kind = NE_MOUSE_UP;
-  e.button = NE_MB_LEFT;
+  e.button = controlClick ? NE_MB_RIGHT : NE_MB_LEFT;
   e.x = (int)p.x;
   e.y = (int)p.y;
-  e.mods = translateModifiers(event.modifierFlags);
+  e.mods = translateModifiers(controlClick ? event.modifierFlags & ~NSEventModifierFlagControl
+                                           : event.modifierFlags);
+  controlClick = 0;
   withPen(&e, event);
   pushEvent(e);
+  [self releasedAt:p flags:event.modifierFlags others:~1];
+}
+
+/* Let go outside the window, no other button down: the pointer is not over
+   it any more (mouseExited: came while the button was held). */
+- (void)releasedAt:(NSPoint)p flags:(NSEventModifierFlags)flags others:(NSUInteger)others {
+  if (!NSPointInRect(p, self.bounds) && ([NSEvent pressedMouseButtons] & others) == 0)
+    pushOutside(flags);
+}
+
+- (void)mouseExited:(NSEvent *)event {
+  /* (with a button down a drag goes on outside: the release tells) */
+  if ([NSEvent pressedMouseButtons] == 0) pushOutside(event.modifierFlags);
 }
 
 - (void)rightMouseDown:(NSEvent *)event {
@@ -989,6 +1084,7 @@ static NSEvent *lastMouseDragged = nil;
   e.mods = translateModifiers(event.modifierFlags);
   withPen(&e, event);
   pushEvent(e);
+  [self releasedAt:p flags:event.modifierFlags others:~2];
 }
 
 - (void)otherMouseDown:(NSEvent *)event {
@@ -1053,31 +1149,79 @@ static int currentButtons(NSEvent *event) {
 }
 
 - (void)scrollWheel:(NSEvent *)event {
+  /* Whole notches, what is left of one kept for the next (a slow turn, a
+     slow swipe). A touch pad gives points: 48 to a notch -- three lines,
+     what a wheel's notch scrolls -- so the page goes about as far as the
+     fingers, as on Windows; a wheel gives lines (fractions of one when
+     turned slowly): one to a notch. The system makes Shift + the wheel
+     sideways itself. Right is > 0, as on the other systems: AppKit's
+     deltaX is > 0 to the left. */
+  static double accumX = 0, accumY = 0;
+  static int precise = -1;
+  int nowPrecise = event.hasPreciseScrollingDeltas ? 1 : 0;
+  if (nowPrecise != precise) { accumX = 0; accumY = 0; precise = nowPrecise; }
+  double unit = nowPrecise ? 48.0 : 1.0;
+  double dx = event.scrollingDeltaX / unit, dy = event.scrollingDeltaY / unit;
+  if (dx * accumX < 0) accumX = 0;   /* (the other way now) */
+  if (dy * accumY < 0) accumY = 0;
+  accumX += dx;
+  accumY += dy;
+  int nx = (int)accumX, ny = (int)accumY;
+  accumX -= nx;
+  accumY -= ny;
+  if (nx == 0 && ny == 0) return;
   NEEvent e = {0};
   e.kind = NE_MOUSE_WHEEL;
-  if (event.hasPreciseScrollingDeltas) {
-    /* Trackpad: pixel-level deltas, divide down to line-level.
-       Accumulate fractional remainder so slow swipes still register. */
-    static double accumX = 0, accumY = 0;
-    accumX += event.scrollingDeltaX;
-    accumY += event.scrollingDeltaY;
-    e.x = (int)(accumX / 16.0);
-    e.y = (int)(accumY / 16.0);
-    accumX -= e.x * 16.0;
-    accumY -= e.y * 16.0;
-    if (e.x == 0 && e.y == 0) return;  /* sub-line movement, wait */
-  } else {
-    /* Discrete mouse wheel: already line-based */
-    e.x = (int)event.scrollingDeltaX;
-    e.y = (int)event.scrollingDeltaY;
-  }
+  e.x = -nx;
+  e.y = ny;
   e.mods = translateModifiers(event.modifierFlags);
   pushEvent(e);
+}
+
+/* ---- Files dropped from the Finder ---- */
+
+static NSDictionary *fileUrlsOnly(void) {
+  return @{NSPasteboardURLReadingFileURLsOnlyKey: @YES};
+}
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+  /* (the window's own files dragged out come back: not taken) */
+  if ([sender draggingSource] != nil) return NSDragOperationNone;
+  return [[sender draggingPasteboard] canReadObjectForClasses:@[[NSURL class]]
+                                                      options:fileUrlsOnly()]
+    ? NSDragOperationCopy : NSDragOperationNone;
+}
+
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
+  return [self draggingEntered:sender];
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+  if ([sender draggingSource] != nil) return NO;
+  NSArray *urls = [[sender draggingPasteboard] readObjectsForClasses:@[[NSURL class]]
+                                                             options:fileUrlsOnly()];
+  NSMutableArray *paths = [NSMutableArray array];
+  for (NSURL *u in urls)
+    if ([u isFileURL] && [u path]) [paths addObject:[u path]];
+  if ([paths count] == 0) return NO;
+  if (!drops) drops = [NSMutableArray array];
+  [drops addObject:paths];
+  NSPoint p = [self convertPoint:[sender draggingLocation] fromView:nil];
+  NEEvent e = {0};
+  e.kind = NE_FILE_DROP;
+  e.x = (int)p.x;
+  e.y = (int)p.y;
+  e.mods = translateModifiers([NSEvent modifierFlags]);
+  if (!pushEvent(e)) [drops removeLastObject];
+  return YES;
 }
 
 /* ---- NSTextInputClient (for text input / IME) ---- */
 
 - (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
+  /* (what an input method composed is taken: nothing is marked now) */
+  self.hasMarkedText = NO;
+  self.markedLength = 0;
   NSString *s = ([string isKindOfClass:[NSAttributedString class]])
     ? [string string] : string;
   const char *utf8 = [s UTF8String];
@@ -1104,16 +1248,25 @@ static int currentButtons(NSEvent *event) {
 
 - (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange
       replacementRange:(NSRange)replacementRange {
-  self.hasMarkedText = ([(NSString *)string length] > 0);
+  NSUInteger n = [(NSString *)([string isKindOfClass:[NSAttributedString class]]
+                               ? [string string] : string) length];
+  self.markedLength = n;
+  self.hasMarkedText = n > 0;
 }
 
-- (void)unmarkText { self.hasMarkedText = NO; }
+- (void)unmarkText { self.hasMarkedText = NO; self.markedLength = 0; }
 - (BOOL)hasMarkedText { return _hasMarkedText; }
-- (NSRange)markedRange { return NSMakeRange(NSNotFound, 0); }
-- (NSRange)selectedRange { return NSMakeRange(0, 0); }
+- (NSRange)markedRange {
+  return _hasMarkedText ? NSMakeRange(0, self.markedLength) : NSMakeRange(NSNotFound, 0);
+}
+- (NSRange)selectedRange { return NSMakeRange(_hasMarkedText ? self.markedLength : 0, 0); }
 - (NSRect)firstRectForCharacterRange:(NSRange)range
                          actualRange:(NSRangePointer)actual {
-  return NSMakeRect(0, 0, 0, 0);
+  /* The caret the app told (cocoa_setTextCaret), on the screen: the input
+     method's candidates go under it. */
+  if (actual) *actual = range;
+  NSRect inWindow = [self convertRect:textCaret toView:nil];
+  return [[self window] convertRectToScreen:inWindow];
 }
 - (NSUInteger)characterIndexForPoint:(NSPoint)point { return NSNotFound; }
 - (NSArray *)validAttributesForMarkedText { return @[]; }
@@ -1125,6 +1278,22 @@ static int currentButtons(NSEvent *event) {
 @end
 
 /* ---- Window delegate -------------------------------------------------- */
+
+static int appItemChosen = 0;   /* the app's item in the menu bar was picked */
+
+void cocoa_setMaximized(int on);
+int cocoa_isMaximized(void);
+
+/* The app's name: its bundle's (Info.plist), else the program's. */
+static NSString *appName(void) {
+  NSBundle *b = [NSBundle mainBundle];
+  for (NSString *key in @[@"CFBundleDisplayName", @"CFBundleName"]) {
+    id n = [b objectForInfoDictionaryKey:key];
+    if ([n isKindOfClass:[NSString class]] && [n length] > 0) return n;
+  }
+  NSString *n = [[NSProcessInfo processInfo] processName];
+  return n ? n : @"";
+}
 
 @interface NimEditWindowDelegate : NSObject <NSWindowDelegate>
 @end
@@ -1181,6 +1350,31 @@ static int currentButtons(NSEvent *event) {
   pushEvent(e);
 }
 
+- (void)minimizeWindow:(id)sender {
+  /* (a window without the system's frame has no button for it: done here) */
+  [[NSApp mainWindow] miniaturize:nil];
+}
+
+- (void)zoomWindow:(id)sender {
+  cocoa_setMaximized(!cocoa_isMaximized());
+}
+
+- (void)closeWindow:(id)sender {
+  /* Close, as the close button: the app decides */
+  NEEvent e = {0};
+  e.kind = NE_WINDOW_CLOSE;
+  pushEvent(e);
+}
+
+- (void)chooseAppItem:(id)sender {
+  /* The app's item in the Window menu: told once (cocoa_menuItemChosen),
+     and an event of nothing wakes the app to ask. */
+  appItemChosen = 1;
+  NEEvent e = {0};
+  e.kind = NE_NONE;
+  pushEvent(e);
+}
+
 @end
 
 /* ---- A window without the system's frame ------------------------------ */
@@ -1214,6 +1408,113 @@ static NSWindow *mainWindow = nil;
 static NimEditView *mainView = nil;
 static NimEditWindowDelegate *winDelegate = nil;
 
+/* ---- The app's item in the menu bar ----------------------------------- */
+/* uirelays' `menuItem`: an item of the app's in a Window menu of the menu
+   bar, which is there whatever the window's frame -- so it is how the user
+   gets from either frame to the other. Asked for before the window, it is
+   added with the menu bar. */
+
+static NSString *appItemLabel = nil;   /* "" or nil: no item */
+static int appItemChecked = 0;
+static NSMenuItem *appItem = nil;      /* the item, once in the menu bar */
+static NSMenuItem *appItemLine = nil;  /* ... and the line over it */
+static NSMenu *windowMenu = nil;       /* the menu bar's Window menu */
+
+static void syncAppItem(void) {
+  if (!windowMenu) return;             /* (made with the window) */
+  if (appItemLabel.length == 0) {
+    if (appItem) {
+      [windowMenu removeItem:appItem];
+      [windowMenu removeItem:appItemLine];
+    }
+    appItem = nil;
+    appItemLine = nil;
+    return;
+  }
+  if (!appItem) {
+    appItemLine = [NSMenuItem separatorItem];
+    [windowMenu addItem:appItemLine];
+    appItem = [[NSMenuItem alloc] initWithTitle:appItemLabel
+                                         action:@selector(chooseAppItem:)
+                                  keyEquivalent:@""];
+    [appItem setTarget:winDelegate];
+    [windowMenu addItem:appItem];
+  }
+  [appItem setTitle:appItemLabel];
+  [appItem setState:appItemChecked ? NSControlStateValueOn : NSControlStateValueOff];
+}
+
+static NSMenuItem *menuItem(NSMenu *menu, NSString *title, SEL action, NSString *key,
+                            NSEventModifierFlags mods, id target) {
+  NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title action:action keyEquivalent:key];
+  if (key.length > 0) [item setKeyEquivalentModifierMask:mods];
+  if (target) [item setTarget:target];
+  [menu addItem:item];
+  return item;
+}
+
+static void makeMenuBar(void) {
+  /* The menus every Mac app has: the app's (Hide, Hide Others, Show All,
+     Quit, by the app's name) and the Window menu (Minimize, Zoom, Close;
+     the windows; the app's own item) */
+  NSString *name = appName();
+  NSMenu *menubar = [[NSMenu alloc] init];
+  NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
+  [menubar addItem:appMenuItem];
+  NSMenu *appMenu = [[NSMenu alloc] initWithTitle:name];
+  NSEventModifierFlags cmd = NSEventModifierFlagCommand;
+  menuItem(appMenu, [@"Hide " stringByAppendingString:name], @selector(hide:), @"h", cmd, NSApp);
+  menuItem(appMenu, @"Hide Others", @selector(hideOtherApplications:), @"h",
+           cmd | NSEventModifierFlagOption, NSApp);
+  menuItem(appMenu, @"Show All", @selector(unhideAllApplications:), @"", 0, NSApp);
+  [appMenu addItem:[NSMenuItem separatorItem]];
+  menuItem(appMenu, [@"Quit " stringByAppendingString:name], @selector(requestQuit:), @"q",
+           cmd, winDelegate);
+  [appMenuItem setSubmenu:appMenu];
+  windowMenu = [[NSMenu alloc] initWithTitle:@"Window"];
+  menuItem(windowMenu, @"Minimize", @selector(minimizeWindow:), @"m", cmd, winDelegate);
+  menuItem(windowMenu, @"Zoom", @selector(zoomWindow:), @"", 0, winDelegate);
+  [windowMenu addItem:[NSMenuItem separatorItem]];
+  /* (Cmd+W itself is the app's key first: the view's performKeyEquivalent:) */
+  menuItem(windowMenu, @"Close", @selector(closeWindow:), @"w", cmd, winDelegate);
+  NSMenuItem *windowMenuItem = [[NSMenuItem alloc] initWithTitle:@"Window" action:nil
+                                                   keyEquivalent:@""];
+  [windowMenuItem setSubmenu:windowMenu];
+  [menubar addItem:windowMenuItem];
+  [NSApp setMainMenu:menubar];
+  [NSApp setWindowsMenu:windowMenu];
+  /* (the app's item, asked for before the window) */
+  syncAppItem();
+}
+
+void cocoa_setMenuItem(const char *label, int checked) {
+  @autoreleasepool {
+    /* (Windows' "&" before the access key left out; "&&" is an "&") */
+    NSString *text = label ? [NSString stringWithUTF8String:label] : nil;
+    NSMutableString *s = [NSMutableString string];
+    for (NSUInteger i = 0; i < text.length; i++) {
+      unichar c = [text characterAtIndex:i];
+      if (c == '&') {
+        if (i + 1 < text.length && [text characterAtIndex:i + 1] == '&') {
+          [s appendString:@"&"];
+          i++;
+        }
+        continue;
+      }
+      [s appendFormat:@"%C", c];
+    }
+    appItemLabel = [s copy];
+    appItemChecked = checked ? 1 : 0;
+    syncAppItem();
+  }
+}
+
+int cocoa_menuItemChosen(void) {
+  int chosen = appItemChosen;
+  appItemChosen = 0;
+  return chosen;
+}
+
 void cocoa_createWindow(int w, int h, int *outW, int *outH,
                         int *outScaleX, int *outScaleY) {
   @autoreleasepool {
@@ -1228,20 +1529,7 @@ void cocoa_createWindow(int w, int h, int *outW, int *outH,
     /* The delegate is created up front: the Quit menu item below targets it. */
     winDelegate = [[NimEditWindowDelegate alloc] init];
 
-    /* Create menu bar (minimal: just app menu with Quit) */
-    NSMenu *menubar = [[NSMenu alloc] init];
-    NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
-    [menubar addItem:appMenuItem];
-    [NSApp setMainMenu:menubar];
-
-    NSMenu *appMenu = [[NSMenu alloc] init];
-    NSMenuItem *quitItem = [[NSMenuItem alloc]
-      initWithTitle:@"Quit NimEdit"
-             action:@selector(requestQuit:)
-      keyEquivalent:@"q"];
-    [quitItem setTarget:winDelegate];
-    [appMenu addItem:quitItem];
-    [appMenuItem setSubmenu:appMenu];
+    makeMenuBar();
 
     /* Create window. A negative dimension is MaxWindowWidth/MaxWindowHeight:
        take the screen's visibleFrame, which is the screen minus the menu bar
@@ -1269,13 +1557,16 @@ void cocoa_createWindow(int w, int h, int *outW, int *outH,
                                              styleMask:style
                                                backing:NSBackingStoreBuffered
                                                  defer:NO];
-    [mainWindow setTitle:@"NimEdit"];
+    /* (the app's name until the app gives the window its title) */
+    [mainWindow setTitle:appName()];
     [mainWindow setAcceptsMouseMovedEvents:YES];
 
     /* Create view */
     mainView = [[NimEditView alloc] initWithFrame:rect];
     [mainWindow setContentView:mainView];
     [mainWindow makeFirstResponder:mainView];
+    /* Files dragged from the Finder are taken (NE_FILE_DROP) */
+    [mainView registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
 
     /* Window delegate (already allocated above for the Quit menu item) */
     [mainWindow setDelegate:winDelegate];
@@ -1340,15 +1631,51 @@ void cocoa_refresh(void) {
 
 void cocoa_setWindowTitle(const char *title) {
   @autoreleasepool {
-    [mainWindow setTitle:[NSString stringWithUTF8String:title]];
+    NSString *t = [NSString stringWithUTF8String:title];
+    if (t) [mainWindow setTitle:t];
+  }
+}
+
+/* The paths of the oldest drop of files not read yet (cocoa_dropDone then
+   goes on to the next): their number, and each in UTF-8. */
+int cocoa_dropCount(void) {
+  return [drops count] > 0 ? (int)[[drops objectAtIndex:0] count] : 0;
+}
+
+const char *cocoa_dropPath(int i) {
+  static char path[4096];
+  @autoreleasepool {
+    path[0] = 0;
+    NSArray *paths = [drops count] > 0 ? [drops objectAtIndex:0] : nil;
+    if (i >= 0 && i < (int)[paths count]) {
+      const char *p = [[paths objectAtIndex:i] UTF8String];
+      if (p) strlcpy(path, p, sizeof path);
+    }
+  }
+  return path;
+}
+
+void cocoa_dropDone(void) {
+  if ([drops count] > 0) [drops removeObjectAtIndex:0];
+}
+
+/* Where the caret of the text being typed is (the view's points): an input
+   method's candidates go there. */
+void cocoa_setTextCaret(int x, int y, int w, int h) {
+  @autoreleasepool {
+    NSRect r = NSMakeRect(x, y, w > 0 ? w : 1, h > 0 ? h : 1);
+    if (NSEqualRects(r, textCaret)) return;
+    textCaret = r;
+    [[mainView inputContext] invalidateCharacterCoordinates];
   }
 }
 
 /* ---- The window's frame ------------------------------------------------ */
 /* The app's own title bar moves the window with the press it got
    (performWindowDragWithEvent:); its border sizes it here, the window
-   following the mouse until the button is let go. Maximized, a borderless
-   window fills the screen without the menu bar and the Dock. */
+   following the mouse until the button is let go, and a control menu's Move
+   and Size go by the arrow keys here. Maximized, a borderless window fills
+   the screen without the menu bar and the Dock. */
 
 static void noteContentSize(void) {
   /* (the content's new size: the backing and the app follow it) */
@@ -1391,9 +1718,64 @@ static void releaseLeft(void) {
 
 /* `part`: 1 the title bar, 2..5 left, right, top, bottom, 6..9 top left,
    top right, bottom left, bottom right (uirelays' WindowPart). */
+static NSRect placedFrame(NSRect start, int part, CGFloat dx, CGFloat dy) {
+  /* (the window moved -- the title bar -- or the part's edges, by dx, dy in
+     the screen's points, whose y goes up) */
+  if (part == 1) return NSOffsetRect(start, dx, dy);
+  int left = part == 2 || part == 6 || part == 8;
+  int right = part == 3 || part == 7 || part == 9;
+  int top = part == 4 || part == 6 || part == 7;
+  int bottom = part == 5 || part == 8 || part == 9;
+  NSSize least = [mainWindow minSize];
+  CGFloat minW = MAX(least.width, 100), minH = MAX(least.height, 60);
+  NSRect f = start;
+  if (right) f.size.width = MAX(minW, start.size.width + dx);
+  if (left) {
+    f.size.width = MAX(minW, start.size.width - dx);
+    f.origin.x = start.origin.x + start.size.width - f.size.width;
+  }
+  if (top) f.size.height = MAX(minH, start.size.height + dy);
+  if (bottom) {
+    f.size.height = MAX(minH, start.size.height - dy);
+    f.origin.y = start.origin.y + start.size.height - f.size.height;
+  }
+  return f;
+}
+
+static int keyMoveSize(int part) {
+  /* A control menu's Move or Size, as Windows does them: the arrow keys
+     move the window (or the part's edges) 10 points a press; Return, Enter
+     or a click keep it there, Esc puts it back. */
+  NSRect start = [mainWindow frame];
+  CGFloat dx = 0, dy = 0;
+  for (;;) {
+    NSEvent *ev = [NSApp nextEventMatchingMask:(NSEventMaskKeyDown |
+                                                NSEventMaskLeftMouseDown |
+                                                NSEventMaskRightMouseDown)
+                                     untilDate:[NSDate distantFuture]
+                                        inMode:NSEventTrackingRunLoopMode
+                                       dequeue:YES];
+    if (!ev || ev.type != NSEventTypeKeyDown) break;            /* a click */
+    unsigned short kc = ev.keyCode;
+    if (kc == 0x35) {                                           /* Esc */
+      [mainWindow setFrame:start display:YES];
+      break;
+    }
+    if (kc == 0x24 || kc == 0x4C) break;                        /* Return, Enter */
+    if (kc == 0x7B) dx -= 10;                                   /* the arrows */
+    else if (kc == 0x7C) dx += 10;
+    else if (kc == 0x7E) dy += 10;
+    else if (kc == 0x7D) dy -= 10;
+    else continue;
+    [mainWindow setFrame:placedFrame(start, part, dx, dy) display:YES];
+  }
+  return 1;
+}
+
 int cocoa_dragWindow(int part, int keyboard) {
   @autoreleasepool {
-    if (!mainWindow || keyboard || part < 1 || part > 9) return 0;
+    if (!mainWindow || part < 1 || part > 9) return 0;
+    if (keyboard) return keyMoveSize(part);
     if (([NSEvent pressedMouseButtons] & 1) == 0) return 0;   /* let go already */
     if (part == 1) {
       if (!lastMouseDown ||
@@ -1403,14 +1785,8 @@ int cocoa_dragWindow(int part, int keyboard) {
       releaseLeft();
       return 1;
     }
-    int left = part == 2 || part == 6 || part == 8;
-    int right = part == 3 || part == 7 || part == 9;
-    int top = part == 4 || part == 6 || part == 7;
-    int bottom = part == 5 || part == 8 || part == 9;
     NSRect start = [mainWindow frame];
     NSPoint p0 = [NSEvent mouseLocation];
-    NSSize least = [mainWindow minSize];
-    CGFloat minW = MAX(least.width, 100), minH = MAX(least.height, 60);
     for (;;) {
       NSEvent *ev = [NSApp nextEventMatchingMask:(NSEventMaskLeftMouseDragged |
                                                   NSEventMaskLeftMouseUp)
@@ -1419,19 +1795,7 @@ int cocoa_dragWindow(int part, int keyboard) {
                                          dequeue:YES];
       if (!ev || ev.type == NSEventTypeLeftMouseUp) break;
       NSPoint p = [NSEvent mouseLocation];
-      CGFloat dx = p.x - p0.x, dy = p.y - p0.y;    /* (the screen's y goes up) */
-      NSRect f = start;
-      if (right) f.size.width = MAX(minW, start.size.width + dx);
-      if (left) {
-        f.size.width = MAX(minW, start.size.width - dx);
-        f.origin.x = start.origin.x + start.size.width - f.size.width;
-      }
-      if (top) f.size.height = MAX(minH, start.size.height + dy);
-      if (bottom) {
-        f.size.height = MAX(minH, start.size.height - dy);
-        f.origin.y = start.origin.y + start.size.height - f.size.height;
-      }
-      [mainWindow setFrame:f display:YES];
+      [mainWindow setFrame:placedFrame(start, part, p.x - p0.x, p.y - p0.y) display:YES];
     }
     releaseLeft();
     return 1;
@@ -1543,8 +1907,14 @@ void cocoa_setMaximized(int on) {
     if (on && !fillsScreen()) {
       unzoomedFrame = [mainWindow frame];
       [mainWindow setFrame:[s visibleFrame] display:YES];
-    } else if (!on && fillsScreen() && !NSIsEmptyRect(unzoomedFrame)) {
-      [mainWindow setFrame:unzoomedFrame display:YES];
+    } else if (!on && fillsScreen()) {
+      /* (back where it was; never anywhere else -- it opened maximized, or
+         was maximized with the system's frame: three quarters of the
+         screen, in the middle) */
+      NSRect v = [s visibleFrame];
+      NSRect back = NSIsEmptyRect(unzoomedFrame)
+        ? NSInsetRect(v, v.size.width / 8, v.size.height / 8) : unzoomedFrame;
+      [mainWindow setFrame:back display:YES];
     }
   }
 }
@@ -1569,19 +1939,38 @@ int cocoa_minimize(void) {
   }
 }
 
+static NSCursor *systemCursor(NSString *name, NSCursor *instead) {
+  /* One of AppKit's own pointers that it does not make public (what Safari
+     shows for these), when this macOS has it; else `instead`. */
+  SEL sel = NSSelectorFromString(name);
+  if ([NSCursor respondsToSelector:sel]) {
+    NSCursor *(*get)(id, SEL) = (NSCursor *(*)(id, SEL))[NSCursor methodForSelector:sel];
+    NSCursor *c = get ? get([NSCursor class], sel) : nil;
+    if ([c isKindOfClass:[NSCursor class]]) return c;
+  }
+  return instead;
+}
+
 void cocoa_setCursor(int kind) {
   @autoreleasepool {
     NSCursor *cur;
     switch (kind) {
       case 2:  cur = [NSCursor IBeamCursor]; break;       /* curIbeam */
-      case 3:  cur = [NSCursor arrowCursor]; break;        /* curWait (no wait cursor, use arrow) */
+      case 3:  cur = systemCursor(@"busyButClickableCursor",
+                                  systemCursor(@"_waitCursor", [NSCursor arrowCursor]));
+               break;                                      /* curWait */
       case 4:  cur = [NSCursor crosshairCursor]; break;    /* curCrosshair */
       case 5:  cur = [NSCursor pointingHandCursor]; break; /* curHand */
       case 6:  cur = [NSCursor resizeUpDownCursor]; break; /* curSizeNS */
       case 7:  cur = [NSCursor resizeLeftRightCursor]; break; /* curSizeWE */
-      case 8:  /* curSizeNWSE (no public diagonal cursor) */
-      case 9:  cur = [NSCursor crosshairCursor]; break;    /* curSizeNESW */
-      case 10: cur = [NSCursor openHandCursor]; break;     /* curMove */
+      case 8:  cur = systemCursor(@"_windowResizeNorthWestSouthEastCursor",
+                                  [NSCursor crosshairCursor]);
+               break;                                      /* curSizeNWSE */
+      case 9:  cur = systemCursor(@"_windowResizeNorthEastSouthWestCursor",
+                                  [NSCursor crosshairCursor]);
+               break;                                      /* curSizeNESW */
+      case 10: cur = systemCursor(@"_moveCursor", [NSCursor openHandCursor]);
+               break;                                      /* curMove */
       default: cur = [NSCursor arrowCursor]; break;
     }
     [cur set];

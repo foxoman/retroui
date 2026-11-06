@@ -69,6 +69,7 @@ const
   neWindowFocusGained = 10.cint
   neWindowFocusLost = 11.cint
   neQuit = 12.cint
+  neFileDrop = 13.cint
 
   neModShift = 1.cint
   neModCtrl = 2.cint
@@ -132,9 +133,15 @@ proc cDragWindow(part, keyboard: cint): cint {.importc: "cocoa_dragWindow", cdec
 proc cSetMaximized(on: cint) {.importc: "cocoa_setMaximized", cdecl.}
 proc cIsMaximized(): cint {.importc: "cocoa_isMaximized", cdecl.}
 proc cIsActive(): cint {.importc: "cocoa_isActive", cdecl.}
+proc cSetMenuItem(label: cstring; checked: cint) {.importc: "cocoa_setMenuItem", cdecl.}
+proc cMenuItemChosen(): cint {.importc: "cocoa_menuItemChosen", cdecl.}
 proc cMinimize(): cint {.importc: "cocoa_minimize", cdecl.}
 proc cDragFilesOut(paths: ptr cstring; n, move: cint): cint
   {.importc: "cocoa_dragFilesOut", cdecl.}
+proc cDropCount(): cint {.importc: "cocoa_dropCount", cdecl.}
+proc cDropPath(i: cint): cstring {.importc: "cocoa_dropPath", cdecl.}
+proc cDropDone() {.importc: "cocoa_dropDone", cdecl.}
+proc cSetTextCaret(x, y, w, h: cint) {.importc: "cocoa_setTextCaret", cdecl.}
 
 # --- Relay implementations ---
 
@@ -265,13 +272,19 @@ proc cocoaSetWindowTitle(title: string) =
 
 # --- Event translation ---
 
+proc modsOf(m: cint): set[Modifier] =
+  ## Command is the key a Mac makes its shortcuts with, where the others
+  ## have Ctrl: it is reported as Ctrl, so that an app's Ctrl+C, Ctrl+wheel,
+  ## Ctrl+drag are Cmd's here and nothing in the app has to know. The
+  ## Control key is the one left over: the Gui key.
+  if (m and neModShift) != 0: result.incl ShiftPressed
+  if (m and neModGui) != 0: result.incl CtrlPressed
+  if (m and neModAlt) != 0: result.incl AltPressed
+  if (m and neModCtrl) != 0: result.incl GuiPressed
+
 proc translateNEEvent(ne: NEEvent; e: var input.Event) =
   e = input.Event(kind: NoEvent, hasMods: true)
-  # Translate modifiers
-  if (ne.mods and neModShift) != 0: e.mods.incl ShiftPressed
-  if (ne.mods and neModCtrl) != 0: e.mods.incl CtrlPressed
-  if (ne.mods and neModAlt) != 0: e.mods.incl AltPressed
-  if (ne.mods and neModGui) != 0: e.mods.incl GuiPressed
+  e.mods = modsOf(ne.mods)
 
   case ne.kind
   of neQuit:
@@ -333,6 +346,13 @@ proc translateNEEvent(ne: NEEvent; e: var input.Event) =
     e.kind = MouseWheelEvent
     e.x = ne.x
     e.y = ne.y
+  of neFileDrop:
+    # (files from the Finder: their paths, read once)
+    e.kind = FileDropEvent
+    e.x = ne.x
+    e.y = ne.y
+    for i in 0 ..< cDropCount().int: e.files.add $cDropPath(i.cint)
+    cDropDone()
   else: discard
   if ne.pen != 0 and e.kind in {MouseDownEvent, MouseUpEvent, MouseMoveEvent}:
     # a tablet's pen: how it is held
@@ -372,6 +392,10 @@ proc cocoaSetMaximized(on: bool) = cSetMaximized(on.cint)
 proc cocoaMaximized(): bool = cIsMaximized() != 0
 proc cocoaActive(): bool = cIsActive() != 0
 proc cocoaMinimize(): bool = cMinimize() != 0
+proc cocoaMenuItem(label: string; checked: bool) =
+  # (in the menu bar's Window menu: there with either frame)
+  cSetMenuItem(cstring(label), checked.cint)
+proc cocoaMenuItemChosen(): bool = cMenuItemChosen() != 0
 
 proc cocoaDragFilesOut(paths: seq[string]; move, backInside: bool): DragOutResult =
   # (`backInside` cannot be had: a dragging session goes on to its end)
@@ -412,6 +436,8 @@ proc initCocoaDriver*() =
   frameRelays = FrameRelays(
     setSystemFrame: cocoaSetSystemFrame, dragWindow: cocoaDragWindow,
     setMaximized: cocoaSetMaximized, maximized: cocoaMaximized,
-    active: cocoaActive)
+    active: cocoaActive,
+    menuItem: cocoaMenuItem, menuItemChosen: cocoaMenuItemChosen)
   systemRelays.minimize = cocoaMinimize
+  textCaretRelay = proc (x, y, w, h: int) = cSetTextCaret(x.cint, y.cint, w.cint, h.cint)
   fileDragRelays = FileDragRelays(dragOut: cocoaDragFilesOut)

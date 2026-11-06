@@ -37,7 +37,7 @@ static inline int nimedit_display_is_wayland(void) {
 """.}
 
 import std/[unicode, os, strutils]
-import ../coords, ../input, ../screen
+import ../coords, ../input, ../screen, ../services
 import penaxes
 
 const
@@ -508,7 +508,8 @@ proc onMotion(ctrl: pointer; x, y: gdouble; data: pointer) {.cdecl.} =
 
 proc onScroll(ctrl: pointer; dx, dy: gdouble; data: pointer): gboolean {.cdecl.} =
   syncModsFromController(ctrl)
-  pushEvent(Event(kind: MouseWheelEvent, x: int(-dx), y: int(-dy), mods: modState))
+  # (GTK's dy > 0 is down, ours up; its dx > 0 is right, as ours)
+  pushEvent(Event(kind: MouseWheelEvent, x: int(dx), y: int(-dy), mods: modState))
   G_TRUE
 
 proc onFocusEnter(ctrl: pointer; data: pointer) {.cdecl.} =
@@ -517,11 +518,120 @@ proc onFocusEnter(ctrl: pointer; data: pointer) {.cdecl.} =
 proc onFocusLeave(ctrl: pointer; data: pointer) {.cdecl.} =
   pushEvent(Event(kind: WindowFocusLostEvent))
 
+# --- The window's frame ---
+#
+# Without the system's frame the window is undecorated (no title bar of
+# GTK's own on Wayland, none of the window manager's on X11). The app's own
+# title bar and border hand the left button's press to the system:
+# `gdk_toplevel_begin_move` and `begin_resize`, the compositor's
+# `xdg_toplevel.move` / `resize` on Wayland and `_NET_WM_MOVERESIZE` on X11
+# (GDK does the moving itself where there is no window manager for it), so
+# the system's snapping and tiling come with them. The arrow keys' move and
+# sizing are X11's only (a button of 0 to GDK); Wayland has none.
+
+proc gtk_window_set_decorated(win: pointer; setting: gboolean) {.importc, nodecl, cdecl.}
+proc gtk_window_unmaximize(win: pointer) {.importc, nodecl, cdecl.}
+proc gtk_window_minimize(win: pointer) {.importc, nodecl, cdecl.}
+proc gtk_window_is_maximized(win: pointer): gboolean {.importc, nodecl, cdecl.}
+proc gtk_window_is_active(win: pointer): gboolean {.importc, nodecl, cdecl.}
+proc gtk_native_get_surface(native: pointer): pointer {.importc, nodecl, cdecl.}
+proc gdk_toplevel_begin_move(toplevel, device: pointer; button: gint;
+    x, y: gdouble; timestamp: uint32) {.importc, nodecl, cdecl.}
+proc gdk_toplevel_begin_resize(toplevel: pointer; edge: gint; device: pointer;
+    button: gint; x, y: gdouble; timestamp: uint32) {.importc, nodecl, cdecl.}
+proc gdk_event_get_device(ev: pointer): pointer {.importc, nodecl, cdecl.}
+proc gdk_event_get_time(ev: pointer): uint32 {.importc, nodecl, cdecl.}
+proc gdk_event_get_position(ev: pointer; x, y: ptr gdouble): gboolean {.importc, nodecl, cdecl.}
+proc gdk_display_get_default_seat(disp: pointer): pointer {.importc, nodecl, cdecl.}
+proc gdk_seat_get_pointer(seat: pointer): pointer {.importc, nodecl, cdecl.}
+proc gdk_surface_get_device_position(surface, device: pointer; x, y: ptr gdouble;
+    mask: pointer): gboolean {.importc, nodecl, cdecl.}
+
+const GDK_BUTTON_PRIMARY = 1'u32
+
+var
+  systemFrame = true   ## the system draws the frame (else the app does)
+  leftPress: tuple[down: bool; device: pointer; time: uint32; x, y: gdouble]
+    ## the left button's last press: down still, by which device, when, where
+    ## in the window's surface -- what a move or a sizing starts from
+
+proc edgeOf(part: WindowPart): gint =
+  ## (GdkSurfaceEdge)
+  case part
+  of wpTopLeft: 0
+  of wpTop: 1
+  of wpTopRight: 2
+  of wpLeft: 3
+  of wpRight: 4
+  of wpBottomLeft: 5
+  of wpBottom: 6
+  else: 7              # wpBottomRight
+
+proc gtkSetSystemFrame(on: bool): bool =
+  systemFrame = on
+  if win != nil: gtk_window_set_decorated(win, if on: G_TRUE else: G_FALSE)
+  true
+
+proc gtkDragWindow(part: WindowPart; keyboard: bool): bool =
+  if win == nil or part == wpClient: return false
+  let surface = gtk_native_get_surface(win)
+  if surface == nil: return false
+  if keyboard:
+    if displayIsWayland() != 0: return false
+    let seat = gdk_display_get_default_seat(gdk_display_get_default())
+    let device = if seat != nil: gdk_seat_get_pointer(seat) else: nil
+    if device == nil: return false
+    # (from where the pointer is: the window manager measures from there)
+    var px, py: gdouble
+    discard gdk_surface_get_device_position(surface, device, addr px, addr py, nil)
+    if part == wpCaption: gdk_toplevel_begin_move(surface, device, 0, px, py, 0)
+    else: gdk_toplevel_begin_resize(surface, edgeOf(part), device, 0, px, py, 0)
+    return true
+  # (let go already: nothing to drag)
+  if not leftPress.down or leftPress.device == nil: return false
+  if part == wpCaption:
+    gdk_toplevel_begin_move(surface, leftPress.device, gint(GDK_BUTTON_PRIMARY),
+                            leftPress.x, leftPress.y, leftPress.time)
+  else:
+    gdk_toplevel_begin_resize(surface, edgeOf(part), leftPress.device,
+                              gint(GDK_BUTTON_PRIMARY), leftPress.x, leftPress.y,
+                              leftPress.time)
+  # (the system takes the release: it is reported here)
+  leftPress.down = false
+  pushEvent(Event(kind: MouseUpEvent, x: int(leftPress.x), y: int(leftPress.y),
+                  button: LeftButton))
+  true
+
+proc gtkSetMaximized(on: bool) =
+  if win != nil:
+    if on: gtk_window_maximize(win) else: gtk_window_unmaximize(win)
+
+proc gtkMaximized(): bool = win != nil and gtk_window_is_maximized(win) != G_FALSE
+
+proc gtkActive(): bool = win == nil or gtk_window_is_active(win) != G_FALSE
+
+proc onMaximizedChanged(self, pspec, data: pointer) {.cdecl.} =
+  # (maximized or restored: the app lays its frame out again)
+  if drawingArea != nil:
+    pushEvent(windowMetricsEvent(gtk_widget_get_width(drawingArea).int,
+                                 gtk_widget_get_height(drawingArea).int))
+
+proc onActiveChanged(self, pspec, data: pointer) {.cdecl.} =
+  pushEvent(Event(kind: if gtkActive(): WindowFocusGainedEvent else: WindowFocusLostEvent))
+
 proc onClickPressed(gesture: pointer; nPress: gint; x, y: gdouble; data: pointer) {.cdecl.} =
   let btn = gtk_gesture_single_get_current_button(gesture)
   var b = LeftButton
   if btn == GDK_BUTTON_SECONDARY: b = RightButton
   elif btn == GDK_BUTTON_MIDDLE: b = MiddleButton
+  elif btn == GDK_BUTTON_PRIMARY:
+    let gev = gtk_event_controller_get_current_event(gesture)
+    if gev != nil:
+      var sx, sy: gdouble
+      if gdk_event_get_position(gev, addr sx, addr sy) == G_FALSE:
+        sx = x
+        sy = y
+      leftPress = (true, gdk_event_get_device(gev), gdk_event_get_time(gev), sx, sy)
   var ev = Event(kind: MouseDownEvent, x: int(x), y: int(y), button: b,
                  clicks: nPress.int)
   penFrom(gesture, ev)
@@ -532,6 +642,7 @@ proc onClickReleased(gesture: pointer; nPress: gint; x, y: gdouble; data: pointe
   var b = LeftButton
   if btn == GDK_BUTTON_SECONDARY: b = RightButton
   elif btn == GDK_BUTTON_MIDDLE: b = MiddleButton
+  elif btn == GDK_BUTTON_PRIMARY: leftPress.down = false
   var ev = Event(kind: MouseUpEvent, x: int(x), y: int(y), button: b)
   penFrom(gesture, ev)
   pushEvent ev
@@ -600,6 +711,12 @@ proc gtkCreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   # cardinals, which it has no use for. An installed `.desktop` entry and its
   # hicolor PNGs are what put a picture there.
   gtk_window_set_icon_name(win, instName.cstring)
+  # (without the system's frame: asked for before the window is shown)
+  if not systemFrame: gtk_window_set_decorated(win, G_FALSE)
+  discard g_signal_connect_data(win, "notify::maximized",
+    cast[GCallback](onMaximizedChanged), nil, nil, 0)
+  discard g_signal_connect_data(win, "notify::is-active",
+    cast[GCallback](onActiveChanged), nil, nil, 0)
   # A negative dimension is MaxWindowWidth/MaxWindowHeight: ask the window
   # manager to maximize, which leaves panels and docks visible (unlike
   # gtk_window_fullscreen). The default size is what unmaximizing returns to.
@@ -1044,3 +1161,10 @@ proc initGtk4Driver*() =
     shutdown: gtkQuitRequest)
   clipboardRelays = ClipboardRelays(
     getText: gtkGetClipboardText, putText: gtkPutClipboardText)
+  frameRelays = FrameRelays(
+    setSystemFrame: gtkSetSystemFrame, dragWindow: gtkDragWindow,
+    setMaximized: gtkSetMaximized, maximized: gtkMaximized, active: gtkActive)
+  systemRelays.minimize = proc (): bool =
+    if win == nil: return false
+    gtk_window_minimize(win)
+    true

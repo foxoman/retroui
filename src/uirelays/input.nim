@@ -1,8 +1,19 @@
-# Platform-independent input events and relays.
-# Part of the core stdlib abstraction.
+## Platform-independent input: the events a driver delivers (keys, typed
+## text, the mouse, touches, pens, gestures, dropped files, window changes)
+## and the relays that deliver them, the clipboard and the clock. A driver
+## fills `inputRelays` and `clipboardRelays`; an app calls `pollEvent`,
+## `waitEvent`, `getClipboardText`...
+##
+## ```nim
+## var e: Event
+## while pollEvent(e):
+##   if e.kind == KeyDownEvent and e.key == KeyEsc: quit()
+## ```
 
 type
   KeyCode* = enum
+    ## A key, the same on every keyboard layout (Ctrl+C is `KeyC` with
+    ## `CtrlPressed`, whatever the layout types).
     KeyNone,
     KeyA, KeyB, KeyC, KeyD, KeyE, KeyF, KeyG, KeyH, KeyI, KeyJ,
     KeyK, KeyL, KeyM, KeyN, KeyO, KeyP, KeyQ, KeyR, KeyS, KeyT,
@@ -42,7 +53,11 @@ type
     gsEnd            ## a finger was lifted
 
   Modifier* = enum
-    ShiftPressed, CtrlPressed, AltPressed, GuiPressed
+    ShiftPressed,
+    CtrlPressed,    ## Ctrl -- on macOS and iOS Command, the key shortcuts are
+                    ## made with there, so an app's Ctrl+C is Cmd+C there
+    AltPressed,     ## Alt (Option on macOS; AltGr is not Alt and not Ctrl)
+    GuiPressed      ## the Windows or Super key -- on macOS Control
 
   MouseButton* = enum
     LeftButton, RightButton, MiddleButton,
@@ -59,14 +74,22 @@ type
     hasMods*: bool         ## `mods` is set for this event (some drivers set
                            ## it for keys only)
     text*: array[4, char]  ## TextInputEvent: one UTF-8 codepoint, no alloc
-    x*, y*: int            ## mouse position, scroll delta, or new window size
+    x*, y*: int            ## mouse position, scroll delta, or new window size.
+                           ## MouseWheelEvent: whole notches, `y` > 0 away from
+                           ## the user (up), `x` > 0 to the right (a tilted
+                           ## wheel, a touchpad; Shift + the wheel stays `y`
+                           ## where the system leaves it so). A move to
+                           ## `OutsideWindow`, `OutsideWindow`: the pointer left
+                           ## the window (no button down)
     scaleX*, scaleY*: int  ## WindowMetricsEvent: device pixels per coordinate
                            ## unit, as in `ScreenLayout`
     uiScale*: int          ## WindowMetricsEvent: percent to enlarge the UI by,
                            ## as in `ScreenLayout`. A change here means the
                            ## window moved to a display of another density.
     button*: MouseButton   ## MouseDownEvent/MouseUpEvent: which button
-    clicks*: int           ## number of consecutive clicks (double-click = 2)
+    clicks*: int           ## number of consecutive clicks of this button
+                           ## (double-click = 2), as near in time and place as
+                           ## the system's double click wants them
     fromMouse*: bool       ## touch screens: the pointer is a mouse or a pen,
                            ## not a finger
     pen*: bool             ## the pointer is a pen (a stylus)
@@ -85,22 +108,32 @@ type
                            ## and nothing allocated, for every other kind
 
   ClipboardRelays* = object
-    getText*: proc (): string {.nimcall.}
-    putText*: proc (text: string) {.nimcall.}
+    ## The system clipboard's text (UTF-8), filled by the driver.
+    getText*: proc (): string {.nimcall.}       ## the text on the clipboard ("" none)
+    putText*: proc (text: string) {.nimcall.}   ## puts `text` on the clipboard
 
   InputRelays* = object
+    ## Where events and time come from, filled by the driver.
     pollEvent*: proc (e: var Event; flags: set[InputFlag]): bool {.nimcall.}
+      ## the next waiting event, if there is one (false: none)
     waitEvent*: proc (e: var Event; timeoutMs: int;
                       flags: set[InputFlag]): bool {.nimcall.}
-    getTicks*: proc (): int {.nimcall.}
-    sleep*: proc (ms: int) {.nimcall.}
-    shutdown*: proc () {.nimcall.}
+      ## the next event, waiting up to `timeoutMs` (-1: as long as it takes)
+    getTicks*: proc (): int {.nimcall.}          ## milliseconds since some start (monotonic)
+    sleep*: proc (ms: int) {.nimcall.}           ## waits `ms` milliseconds
+    shutdown*: proc () {.nimcall.}               ## closes the window and the driver
+
+const OutsideWindow* = -100_000
+  ## Where a MouseMoveEvent puts the pointer that left the window, so that
+  ## nothing in it is under the pointer any more (hover and tool tips end).
 
 var clipboardRelays* = ClipboardRelays(
+  ## The clipboard's relays (nothing until a driver fills them).
   getText: proc (): string = "",
   putText: proc (text: string) = discard)
 
 var inputRelays* = InputRelays(
+  ## The input relays (no events until a driver fills them).
   pollEvent: proc (e: var Event; flags: set[InputFlag]): bool = false,
   waitEvent: proc (e: var Event; timeoutMs: int;
                    flags: set[InputFlag]): bool = false,
@@ -109,12 +142,21 @@ var inputRelays* = InputRelays(
   shutdown: proc () = discard)
 
 proc pollEvent*(e: var Event; flags: set[InputFlag] = {}): bool =
+  ## The next waiting event into `e`; false when there is none.
+  ## `WantTextInput` in `flags` shows the soft keyboard / turns on the IME.
   inputRelays.pollEvent(e, flags)
 proc waitEvent*(e: var Event; timeoutMs: int = -1;
                 flags: set[InputFlag] = {}): bool =
+  ## Waits for the next event (at most `timeoutMs`, -1 for ever); false when
+  ## none came in time.
   inputRelays.waitEvent(e, timeoutMs, flags)
 proc getClipboardText*(): string = clipboardRelays.getText()
+  ## The text on the system clipboard ("" when there is none).
 proc putClipboardText*(text: string) = clipboardRelays.putText(text)
+  ## Puts `text` on the system clipboard.
 proc getTicks*(): int = inputRelays.getTicks()
+  ## Milliseconds from a fixed start; never goes back.
 proc sleep*(ms: int) = inputRelays.sleep(ms)
+  ## Waits `ms` milliseconds.
 proc shutdown*() = inputRelays.shutdown()
+  ## Closes the window and the driver.

@@ -63,7 +63,8 @@ elif defined(windows):
   import drivers/winapi_driver
   proc initBackend*() = initWinapiDriver()
 
-elif defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+elif defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd) or
+     defined(dragonfly):
   import drivers/x11_driver
   proc initBackend*() = initX11Driver()
 

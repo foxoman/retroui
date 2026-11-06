@@ -3,7 +3,7 @@
 
 import sdl2 except Rect, Point
 import sdl2/ttf
-import ../coords, ../input, ../screen
+import ../coords, ../input, ../screen, ../services
 
 # --- Font handle management ---
 
@@ -44,6 +44,58 @@ var
 # all. So this driver reports `uiScale = 100` and text stays small on a HiDPI
 # display -- use the SDL3 driver there.
 
+# --- The window's frame ---
+#
+# As in the SDL3 driver: without the system's frame the window is
+# borderless, and SDL's hit test (SDL 2.0.4 and later) asks where the app's
+# own frame is (`windowPartAt`), the system then moving or sizing the window
+# from a press on its title bar or border. No `dragWindow`, no arrow keys.
+
+type SdlPoint = object
+  x, y: cint             ## SDL_Point
+
+proc sdlSetWindowHitTest(window: WindowPtr;
+                         callback: proc (window: WindowPtr; area: ptr SdlPoint;
+                                         data: pointer): cint {.cdecl.};
+                         data: pointer): cint
+  {.importc: "SDL_SetWindowHitTest", cdecl, dynlib: sdl2.LibName.}
+
+var systemFrame = true   ## the system draws the frame (else the app does)
+
+proc hitTest(window: WindowPtr; area: ptr SdlPoint; data: pointer): cint {.cdecl.} =
+  ## (SDL_HitTestResult: 0 the app's, 1 the title bar, 2..9 the border from
+  ## the top left corner round to the left edge)
+  if area == nil or windowPartAt == nil: return 0
+  case windowPartAt(area.x.int, area.y.int)
+  of wpClient: 0
+  of wpCaption: 1
+  of wpTopLeft: 2
+  of wpTop: 3
+  of wpTopRight: 4
+  of wpRight: 5
+  of wpBottomRight: 6
+  of wpBottom: 7
+  of wpBottomLeft: 8
+  of wpLeft: 9
+
+proc sdlSetSystemFrame(on: bool): bool =
+  systemFrame = on
+  if window == nil: return true       # (the window is made so)
+  window.setBordered(if on: True32 else: False32)
+  if on: discard sdlSetWindowHitTest(window, nil, nil)
+  else: discard sdlSetWindowHitTest(window, hitTest, nil)
+  true
+
+proc sdlSetMaximized(on: bool) =
+  if window != nil:
+    if on: window.maximize() else: window.restore()
+
+proc sdlMaximized(): bool =
+  window != nil and (window.getFlags() and SDL_WINDOW_MAXIMIZED) != 0
+
+proc sdlActive(): bool =
+  window == nil or (window.getFlags() and SDL_WINDOW_INPUT_FOCUS) != 0
+
 proc sdlCreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   # A negative dimension is MaxWindowWidth/MaxWindowHeight; the window
   # manager's maximize keeps taskbars visible, unlike FULLSCREEN_DESKTOP. The
@@ -57,9 +109,11 @@ proc sdlCreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
     else:
       SDL_WINDOW_RESIZABLE or SDL_WINDOW_SHOWN
   if maximized: flags = flags or SDL_WINDOW_MAXIMIZED
+  if not systemFrame: flags = flags or SDL_WINDOW_BORDERLESS
   window = createWindow("NimEdit",
     SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
     reqW.cint, reqH.cint, flags)
+  if not systemFrame and window != nil: discard sdlSetWindowHitTest(window, hitTest, nil)
   renderer = createRenderer(window, -1, Renderer_Software)
   var w, h: cint
   window.getSize(w, h)
@@ -470,3 +524,11 @@ proc initSdl2Driver*() =
     shutdown: sdlQuitRequest)
   clipboardRelays = ClipboardRelays(
     getText: sdlGetClipboardText, putText: sdlPutClipboardText)
+  when not (defined(android) or defined(ios)):
+    frameRelays = FrameRelays(
+      setSystemFrame: sdlSetSystemFrame, setMaximized: sdlSetMaximized,
+      maximized: sdlMaximized, active: sdlActive)
+    systemRelays.minimize = proc (): bool =
+      if window == nil: return false
+      window.minimizeWindow()
+      true

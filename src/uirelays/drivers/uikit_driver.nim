@@ -46,7 +46,14 @@ proc hidKey(code: int32): KeyCode =
   of 80: KeyLeft
   of 81: KeyDown
   of 82: KeyUp
+  of 84: KeySlash                                 # keypad /
+  of 86: KeyMinus                                 # keypad -
   of 87: KeyPlus                                  # keypad +
+  of 89..97: KeyCode(ord(Key1) + code - 89)       # keypad 1..9
+  of 98: Key0                                     # keypad 0
+  of 99: KeyPeriod                                # keypad .
+  of 103: KeyEqual                                # keypad =
+  of 133: KeyComma                                # keypad ,
   else: KeyNone
 
 proc initUIKitDriver*() = initSurfaceDriver(hidKey)

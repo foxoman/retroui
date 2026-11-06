@@ -11,7 +11,9 @@ when not defined(windows) and not defined(android) and not defined(ios):
 type
   SystemRelays* = object
     dataDir*: proc (app: string): string {.nimcall.}
-      ## A folder only this app writes to, created on demand.
+      ## A folder only this app writes to, created on demand; `app` its name
+      ## (`folderName` makes it one the system takes). A phone's app has the
+      ## one folder of its own whatever the name: nothing else is in it.
     openUrl*: proc (url: string): bool {.nimcall.}
       ## Open `url` (https:, mailto:, a file) with the system's handler.
     platform*: proc (): string {.nimcall.}
@@ -49,18 +51,30 @@ type
     ## borders in a window without the system's. Every relay is optional:
     ## nil where the platform has no such thing, and the wrappers below then
     ## answer false (or true for `active`).
+    ##
+    ## Who has what: Windows (winapi) all of it; macOS (cocoa) all of it,
+    ## the item in the menu bar; X11 -- Linux and the BSDs, and Wayland
+    ## desktops through XWayland -- all but `menuItem`, the window manager
+    ## doing the moving, sizing and maximizing (EWMH), or the driver itself
+    ## where there is none; GTK 4 (Wayland's own windows too; the arrow keys
+    ## on X11 only) and Siwin (not on macOS; no arrow keys) all but
+    ## `menuItem`; SDL 3 and SDL 2 all but `menuItem` and `dragWindow`,
+    ## moving and sizing by `windowPartAt` instead. Android and iOS have no
+    ## windows to frame.
     setSystemFrame*: proc (on: bool): bool {.nimcall.}
       ## The system's frame and title bar on (true) or off: off, the app's
       ## drawing fills the whole window and the app draws a frame of its own.
       ## Called before `createWindow`, it is how the window is made. False
-      ## when the window cannot go without it.
+      ## when the window cannot have it so (some only as they are made: the
+      ## frame is then the next window's).
     dragWindow*: proc (part: WindowPart; keyboard: bool): bool {.nimcall.}
       ## The system moves (`wpCaption`) or sizes (an edge or a corner) the
       ## window from here on, as its own frame would (snapping to the sides
       ## of the screen where it does that): with the mouse, whose left button
       ## is down on that part now -- its release is reported when the system
       ## is done -- or with the arrow keys (`keyboard`: a control menu's Move
-      ## and Size). False when it cannot (the button is up already).
+      ## and Size; Enter keeps the place, Esc puts the window back). False
+      ## when it cannot (the button is up already; no keys on Wayland).
     setMaximized*: proc (on: bool) {.nimcall.}
       ## Maximize the window -- to the desktop without its taskbar, Dock or
       ## panels -- or restore it.
@@ -69,6 +83,20 @@ type
     active*: proc (): bool {.nimcall.}
       ## The window is the one in front, taking the keyboard: its title bar
       ## is drawn in the active colors.
+    menuItem*: proc (label: string; checked: bool) {.nimcall.}
+      ## One item of the app's own in a menu of the system's that is there
+      ## whatever the frame -- Windows: the system menu (the title bar's
+      ## icon, Alt+Space; the taskbar button's with the app's frame); macOS:
+      ## the menu bar's Window menu -- with `label` ("&" before the access
+      ## key, which macOS leaves out) and a check mark when `checked`; ""
+      ## takes it away. Set before `createWindow`, it is added with the
+      ## window. `menuItemChosen` tells when the user picks it. X11 and
+      ## Wayland have no such menu: the window manager's (Alt+Space, a right
+      ## click on the title bar) is its own, and an app offers the item in
+      ## the window instead -- in a menu of the frame it draws, in its
+      ## settings.
+    menuItemChosen*: proc (): bool {.nimcall.}
+      ## The item of `menuItem` was picked since the last call (once).
 
   DragOutResult* = enum
     ## How a drag of files out of the window ended (`startFileDragOut`).
@@ -97,12 +125,29 @@ type
       ## button's release, which the system takes, is reported as a
       ## MouseUpEvent; keys and clicks meanwhile were the drag's and are not.
 
+proc folderName*(name: string): string =
+  ## `name` (an app's, a title) as the name of a folder this system takes:
+  ## on Windows `<>:"|?*` and control characters as `_`, no dot or space at
+  ## the end, nor a device's name (CON, NUL, COM1...); elsewhere as it is.
+  result = name
+  when defined(windows):
+    for c in result.mitems:
+      if c in {'<', '>', ':', '"', '|', '?', '*'} or c < ' ': c = '_'
+    while result.len > 0 and result[^1] in {'.', ' '}: result.setLen(result.len - 1)
+    let stem = result.split('.')[0].strip.toUpperAscii
+    if stem in ["CON", "PRN", "AUX", "NUL"] or
+       (stem.len == 4 and stem[0 .. 2] in ["COM", "LPT"] and stem[3] in {'0' .. '9'}):
+      result.add '_'
+
 proc defaultDataDir(app: string): string =
   let base =
     when defined(windows): getEnv("APPDATA", getHomeDir())
     elif defined(macosx): getHomeDir() / "Library" / "Application Support"
-    else: getEnv("XDG_DATA_HOME", getHomeDir() / ".local" / "share")
-  result = base / app
+    else:
+      # (empty is the same as unset, as the XDG spec says)
+      let x = getEnv("XDG_DATA_HOME")
+      if x.len > 0 and x.isAbsolute: x else: getHomeDir() / ".local" / "share"
+  result = base / folderName(app)
   try: createDir(result) except OSError: discard
 
 when defined(windows):
@@ -132,6 +177,10 @@ proc defaultPlatform(): string =
   elif defined(windows): "windows"
   elif defined(macosx): "macos"
   elif defined(linux): "linux"
+  elif defined(freebsd): "freebsd"
+  elif defined(openbsd): "openbsd"
+  elif defined(netbsd): "netbsd"
+  elif defined(dragonfly): "dragonfly"
   else: hostOS
 
 proc defaultOpenFile(path: string; share: bool): bool =
@@ -139,6 +188,112 @@ proc defaultOpenFile(path: string; share: bool): bool =
 
 proc systemCall*(name, arg: string): string {.gcsafe.}
   ## `SystemRelays.call`: "\0" when it failed or is not there.
+
+when defined(windows):
+  type KnownFolderId = object
+    d1: uint32
+    d2, d3: uint16
+    d4: array[8, uint8]
+  proc shGetKnownFolderPath(id: ptr KnownFolderId; flags: uint32; token: pointer;
+                            path: ptr ptr UncheckedArray[uint16]): int32
+    {.stdcall, dynlib: "shell32", importc: "SHGetKnownFolderPath".}
+  proc coTaskMemFree(p: pointer) {.stdcall, dynlib: "ole32", importc: "CoTaskMemFree".}
+
+  proc knownFolder(id: KnownFolderId): string =
+    ## Where Windows has one of the user's folders (moved to another drive,
+    ## to OneDrive, by a policy...); "" when it cannot say.
+    var id = id
+    var p: ptr UncheckedArray[uint16]
+    if shGetKnownFolderPath(addr id, 0, nil, addr p) == 0 and p != nil:
+      var n = 0
+      while p[n] != 0: inc n
+      var w = newWideCString("", n)
+      copyMem(addr w[0], p, n * 2)
+      result = $w
+    if p != nil: coTaskMemFree(p)
+
+proc standardFolder*(which: string): string =
+  ## The user's own folder `which` -- "desktop", "documents", "downloads",
+  ## "music", "pictures", "videos", "templates", "public" -- where the system
+  ## keeps it: named in the user's language (Linux and the BSDs: XDG's
+  ## user-dirs.dirs), moved to another drive or to OneDrive (Windows' Known
+  ## Folders); the usual name in the home folder on a Mac. "" when there is
+  ## none.
+  let key = which.toLowerAscii
+  when defined(windows):
+    const ids = [
+      ("desktop", KnownFolderId(d1: 0xB4BFCC3A'u32, d2: 0xDB2C, d3: 0x424C,
+                                d4: [0xB0'u8, 0x29, 0x7F, 0xE9, 0x9A, 0x87, 0xC6, 0x41])),
+      ("documents", KnownFolderId(d1: 0xFDD39AD0'u32, d2: 0x238F, d3: 0x46AF,
+                                  d4: [0xAD'u8, 0xB4, 0x6C, 0x85, 0x48, 0x03, 0x69, 0xC7])),
+      ("downloads", KnownFolderId(d1: 0x374DE290'u32, d2: 0x123F, d3: 0x4565,
+                                  d4: [0x91'u8, 0x64, 0x39, 0xC4, 0x92, 0x5E, 0x46, 0x7B])),
+      ("music", KnownFolderId(d1: 0x4BD8D571'u32, d2: 0x6D19, d3: 0x48D3,
+                              d4: [0xBE'u8, 0x97, 0x42, 0x22, 0x20, 0x08, 0x0E, 0x43])),
+      ("pictures", KnownFolderId(d1: 0x33E28130'u32, d2: 0x4E1E, d3: 0x4676,
+                                 d4: [0x83'u8, 0x5A, 0x98, 0x39, 0x5C, 0x3B, 0xC3, 0xBB])),
+      ("videos", KnownFolderId(d1: 0x18989B1D'u32, d2: 0x99B5, d3: 0x455B,
+                               d4: [0x84'u8, 0x1C, 0xAB, 0x7C, 0x74, 0xE4, 0xDD, 0xFC])),
+      ("templates", KnownFolderId(d1: 0xA63293E8'u32, d2: 0x664E, d3: 0x48DB,
+                                  d4: [0xA0'u8, 0x79, 0xDF, 0x75, 0x9E, 0x05, 0x09, 0xF7])),
+      ("public", KnownFolderId(d1: 0xDFDF76A2'u32, d2: 0xC82A, d3: 0x4D63,
+                               d4: [0x90'u8, 0x6A, 0x56, 0x44, 0xAC, 0x45, 0x73, 0x85]))]
+    for (name, id) in ids:
+      if name == key:
+        result = knownFolder(id)
+    if result.len == 0:
+      let sub = case key
+                of "desktop": "Desktop"
+                of "documents": "Documents"
+                of "downloads": "Downloads"
+                of "music": "Music"
+                of "pictures": "Pictures"
+                of "videos": "Videos"
+                else: ""
+      if sub.len > 0: result = getHomeDir() / sub
+  elif defined(macosx) or defined(android) or defined(ios):
+    let sub = case key
+              of "desktop": "Desktop"
+              of "documents": "Documents"
+              of "downloads": "Downloads"
+              of "music": "Music"
+              of "pictures": "Pictures"
+              of "videos": "Movies"
+              of "public": "Public"
+              else: ""
+    if sub.len > 0: result = getHomeDir() / sub
+  else:
+    # XDG's user-dirs.dirs: XDG_DOCUMENTS_DIR="$HOME/Dokumente" and the
+    # like, as xdg-user-dirs wrote them in the user's language (a folder
+    # that is the home folder itself is none)
+    let name = case key
+               of "downloads": "DOWNLOAD"
+               of "public": "PUBLICSHARE"
+               else: key.toUpperAscii
+    let home = getHomeDir()
+    try:
+      for line in lines((let x = getEnv("XDG_CONFIG_HOME"); if x.len > 0: x else: home / ".config") / "user-dirs.dirs"):
+        let l = line.strip
+        let start = "XDG_" & name & "_DIR="
+        if l.startsWith(start):
+          var v = l[start.len .. ^1].strip.strip(chars = {'"'})
+          if v.startsWith("$HOME"): v = home / v[5 .. ^1]
+          elif not v.startsWith("/"): v = ""
+          if v.len > 0 and v.normalizedPath != home.normalizedPath: result = v
+    except IOError, OSError: discard
+    if result.len == 0:
+      let sub = case key
+                of "desktop": "Desktop"
+                of "documents": "Documents"
+                of "downloads": "Downloads"
+                of "music": "Music"
+                of "pictures": "Pictures"
+                of "videos": "Videos"
+                of "templates": "Templates"
+                of "public": "Public"
+                else: ""
+      if sub.len > 0: result = home / sub
+  if result.len > 0: result = result.normalizedPath
 
 proc defaultPlaces(): seq[tuple[name, path: string]] =
   let home = getHomeDir()
@@ -158,11 +313,19 @@ proc defaultPlaces(): seq[tuple[name, path: string]] =
         result.add ("Internal storage", root)
         break
   let base = if result.len > 0: result[0].path else: home
-  for (name, sub) in [("Desktop", "Desktop"), ("Documents", "Documents"),
-                      ("Downloads", "Download"), ("Downloads", "Downloads"),
-                      ("Pictures", "Pictures"), ("Camera", "DCIM"),
-                      ("Music", "Music"), ("Videos", "Videos"), ("Movies", "Movies")]:
-    if dirExists(base / sub): result.add (name, (base / sub).normalizedPath)
+  var seen: seq[string]
+  for (name, key, sub) in [("Desktop", "desktop", "Desktop"), ("Documents", "documents", "Documents"),
+                           ("Downloads", "downloads", "Download"), ("Downloads", "downloads", "Downloads"),
+                           ("Pictures", "pictures", "Pictures"), ("Camera", "", "DCIM"),
+                           ("Music", "music", "Music"), ("Videos", "videos", "Videos"),
+                           ("Movies", "", "Movies")]:
+    # (where the system keeps it -- in the user's language, on another
+    # drive -- else by its usual name)
+    var p = if key.len > 0 and base == home.normalizedPath: standardFolder(key) else: ""
+    if (p.len == 0 or not dirExists(p)) and dirExists(base / sub): p = (base / sub).normalizedPath
+    if p.len > 0 and dirExists(p) and p notin seen:
+      seen.add p
+      result.add (name, p)
   when defined(windows):
     for c in 'A' .. 'Z':
       if dirExists($c & ":\\"): result.add ($c & ":", $c & ":\\")
@@ -204,7 +367,8 @@ proc dataDir*(app: string): string = systemRelays.dataDir(app)
 proc openUrl*(url: string): bool {.discardable.} = systemRelays.openUrl(url)
   ## Opens `url` (https:, mailto:, a file) with the system's handler.
 proc platformName*(): string = systemRelays.platform()
-  ## Which platform this is: "linux", "windows", "macos", "android", "ios"...
+  ## Which platform this is: "linux", "windows", "macos", "android", "ios",
+  ## "freebsd", "openbsd", "netbsd", "dragonfly"...
 proc openFile*(path: string): bool {.discardable.} =
   ## Open `path` in the app the system has for its kind of file.
   systemRelays.openFile(path, false)
@@ -316,6 +480,30 @@ var frameRelays*: FrameRelays
   ## Filled by the desktop drivers whose windows can go without the system's
   ## frame (none by default).
 
+var windowPartAt*: proc (x, y: int): WindowPart {.nimcall.}
+  ## Set by an app that draws its own frame (nil: none): the part of the
+  ## window at `x`, `y`, as the mouse's events give them -- `wpClient` for
+  ## the app's own, its title bar's buttons too. Where the system asks
+  ## where the frame is before a press reaches the app (SDL's hit test),
+  ## the driver answers with it, and the system moves or sizes the window
+  ## from such a press, which never comes to the app (nor a double click
+  ## there: Windows maximizes the window for it, the others do nothing):
+  ## `dragWindow` is not needed there.
+
+var textCaretRelay*: proc (x, y, w, h: int) {.nimcall.}
+  ## Set by the drivers whose input method (an IME: Chinese, Japanese,
+  ## Korean...) can be told where the text goes (nil: none): see
+  ## `setTextCaret`.
+
+proc setTextCaret*(x, y, w, h: int) =
+  ## Where the caret of the text box being typed in is -- in the window's
+  ## coordinates, as the mouse's events give them; `h` the line's height --
+  ## so that an input method shows what it composes, and its candidates,
+  ## there instead of in a corner of the screen. Called while a box has the
+  ## keyboard, again when its caret moves; nothing where the driver has no
+  ## use for it (Windows and macOS have).
+  if textCaretRelay != nil: textCaretRelay(x, y, w, h)
+
 proc canDrawFrame*(): bool = frameRelays.setSystemFrame != nil
   ## The window can go without the system's frame, for the app to draw one.
 proc setSystemFrame*(on: bool): bool {.discardable.} =
@@ -340,6 +528,17 @@ proc windowMaximized*(): bool =
 proc windowActive*(): bool =
   ## The window is the one in front (true where the driver cannot tell).
   frameRelays.active == nil or frameRelays.active()
+proc canFrameMenuItem*(): bool = frameRelays.menuItem != nil
+  ## The menu of the system's frame can take an item of the app's here.
+proc setFrameMenuItem*(label: string; checked = false): bool {.discardable.} =
+  ## The app's item in the menu of the system's frame (see
+  ## `FrameRelays.menuItem`); false where there is no such menu.
+  if frameRelays.menuItem == nil: return false
+  frameRelays.menuItem(label, checked)
+  true
+proc frameMenuItemChosen*(): bool =
+  ## The item of `setFrameMenuItem` was picked since the last call.
+  frameRelays.menuItemChosen != nil and frameRelays.menuItemChosen()
 
 var fileDragRelays*: FileDragRelays
   ## Filled by the desktop drivers that can drag files out of the window

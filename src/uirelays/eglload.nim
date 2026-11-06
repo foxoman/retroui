@@ -1,6 +1,6 @@
-# EGL, loaded at run time (libEGL.so.1): an OpenGL ES 2 context on an X11
-# window, or off screen (a pbuffer, for tests). Nothing is linked: a
-# machine without EGL simply has no GPU drawing.
+## EGL, loaded at run time (libEGL.so.1): an OpenGL ES 2 context on an X11
+## window, or off screen (a pbuffer, for tests). Nothing is linked: a
+## machine without EGL simply has no GPU drawing.
 
 import std/dynlib
 
@@ -30,18 +30,20 @@ const
   EGL_NATIVE_VISUAL_ID = 0x302E'i32
   EGL_PLATFORM_X11_KHR = 0x31D5'u32
   EGL_PLATFORM_SURFACELESS_MESA = 0x31DD'u32
-  EGL_SUCCESS* = 0x3000'i32
-  EGL_CONTEXT_LOST* = 0x300E'i32
+  EGL_EXTENSIONS = 0x3055'i32
+  EGL_BUFFER_AGE_EXT = 0x313D'i32
+  EGL_SUCCESS* = 0x3000'i32       ## `eglGetError`: no error
+  EGL_CONTEXT_LOST* = 0x300E'i32  ## `eglGetError`: the context is gone (power event); make it again
 
 type
   Egl* = object
     ## A context and its surface (`ok`), and the calls.
-    ok*: bool
+    ok*: bool              ## the context is made and current
     lib: LibHandle
-    dpy*: EGLDisplay
-    cfg*: EGLConfig
-    ctx*: EGLContext
-    surf*: EGLSurface
+    dpy*: EGLDisplay       ## the EGL display
+    cfg*: EGLConfig        ## the configuration chosen
+    ctx*: EGLContext       ## the OpenGL ES 2 context
+    surf*: EGLSurface      ## the window's (or the pbuffer's) surface
     getProcAddress: proc (name: cstring): pointer {.cdecl, gcsafe.}
     getDisplay: proc (native: pointer): EGLDisplay {.cdecl, gcsafe.}
     getPlatformDisplay: proc (platform: uint32; native: pointer;
@@ -66,6 +68,13 @@ type
     swapBuffers: proc (d: EGLDisplay; s: EGLSurface): EGLBoolean {.cdecl, gcsafe.}
     swapInterval: proc (d: EGLDisplay; n: EGLint): EGLBoolean {.cdecl, gcsafe.}
     getError: proc (): EGLint {.cdecl, gcsafe.}
+    querySurface: proc (d: EGLDisplay; s: EGLSurface; attr: EGLint;
+                        v: ptr EGLint): EGLBoolean {.cdecl, gcsafe.}
+    queryString: proc (d: EGLDisplay; name: EGLint): cstring {.cdecl, gcsafe.}
+    swapWithDamage: proc (d: EGLDisplay; s: EGLSurface; rects: ptr EGLint;
+                          n: EGLint): EGLBoolean {.cdecl, gcsafe.}
+      ## eglSwapBuffersWithDamageKHR (or EXT): nil without the extension
+    hasAge: bool           ## EGL_EXT_buffer_age: the back buffer's age can be asked
 
 var glesLib: LibHandle
 
@@ -95,9 +104,34 @@ proc loadEgl(e: var Egl): bool =
   sym(swapBuffers, "eglSwapBuffers")
   sym(swapInterval, "eglSwapInterval")
   sym(getError, "eglGetError")
+  sym(querySurface, "eglQuerySurface")
+  sym(queryString, "eglQueryString")
   e.getPlatformDisplay = cast[typeof(e.getPlatformDisplay)](
     e.getProcAddress("eglGetPlatformDisplayEXT"))
   true
+
+proc hasExtension(e: Egl; name: string): bool =
+  ## The display has extension `name` (a whole word of its list).
+  let list = e.queryString(e.dpy, EGL_EXTENSIONS)
+  if list == nil: return false
+  let s = $list
+  var i = 0
+  while i < s.len:
+    var j = i
+    while j < s.len and s[j] != ' ': inc j
+    if j - i == name.len and s[i ..< j] == name: return true
+    i = j + 1
+  false
+
+proc findDamageCalls(e: var Egl) =
+  ## (a window's surface: what the display can tell of its back buffer and
+  ## take of the parts that changed)
+  e.hasAge = e.hasExtension("EGL_EXT_buffer_age")
+  e.swapWithDamage = nil
+  for (ext, fn) in [("EGL_KHR_swap_buffers_with_damage", "eglSwapBuffersWithDamageKHR"),
+                    ("EGL_EXT_swap_buffers_with_damage", "eglSwapBuffersWithDamageEXT")]:
+    if e.swapWithDamage == nil and e.hasExtension(ext):
+      e.swapWithDamage = cast[typeof(e.swapWithDamage)](e.getProcAddress(cstring(fn)))
 
 proc close*(e: var Egl) =
   ## The context and its surface let go of.
@@ -152,6 +186,7 @@ proc openOnWindow*(e: var Egl; xDisplay: pointer; xWindow: uint; visual: int): b
     e.close()
     return false
   discard e.swapInterval(e.dpy, 1)
+  e.findDamageCalls()
   e.ok = true
   true
 
@@ -190,6 +225,29 @@ proc glProc*(e: Egl; name: cstring): pointer =
 proc swap*(e: Egl): bool =
   ## The frame drawn shown.
   e.ok and e.swapBuffers(e.dpy, e.surf) != 0
+
+proc bufferAge*(e: Egl): int =
+  ## How many frames old the back buffer's pixels are (EGL_EXT_buffer_age):
+  ## 1 the frame shown last, 2 the one before; 0 when not known (or new).
+  if not e.ok or not e.hasAge: return 0
+  var v: EGLint
+  if e.querySurface(e.dpy, e.surf, EGL_BUFFER_AGE_EXT, addr v) == 0: return 0
+  int(v)
+
+proc swapDamaged*(e: Egl; rects: openArray[tuple[x, y, w, h: int]]; height: int): bool =
+  ## The frame drawn shown, where only `rects` (top-left origin, pixels of a
+  ## surface `height` high) changed since the last: the system copies only
+  ## them, where it can (else all of it, as `swap`).
+  if not e.ok: return false
+  if e.swapWithDamage == nil or rects.len == 0 or rects.len > 64:
+    return e.swapBuffers(e.dpy, e.surf) != 0
+  var r: array[256, EGLint]
+  for i, d in rects:
+    r[4 * i] = EGLint(d.x)
+    r[4 * i + 1] = EGLint(height - d.y - d.h)       # (EGL's rows count from the bottom)
+    r[4 * i + 2] = EGLint(d.w)
+    r[4 * i + 3] = EGLint(d.h)
+  e.swapWithDamage(e.dpy, e.surf, addr r[0], EGLint(rects.len)) != 0
 
 proc lastError*(e: Egl): int =
   ## EGL's last error code (0 when it cannot be asked).

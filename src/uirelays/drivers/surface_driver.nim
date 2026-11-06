@@ -92,8 +92,12 @@ proc next(e: var Event; timeoutMs: int; flags: set[InputFlag]): bool =
   if urWait(addr r, cint(timeoutMs)) == 0: return false
   e = Event()
   case r.kind
+  # (every event says which modifiers are held -- the pointer's too, so a
+  # Ctrl let go while nothing was typed is let go for the wheel and the
+  # clicks; 0x100 of a pointer's `meta`: a mouse or a pen, not a finger)
   of evMove:
     e = Event(kind: MouseMoveEvent, x: r.x, y: r.y,
+              mods: mapMods(r.meta), hasMods: true,
               fromMouse: (r.meta and 0x100) != 0)
     if r.pressure >= 0:
       e.pen = true
@@ -105,6 +109,7 @@ proc next(e: var Event; timeoutMs: int; flags: set[InputFlag]): bool =
     e = Event(kind: if r.kind == evDown: MouseDownEvent else: MouseUpEvent,
               x: r.x, y: r.y, clicks: max(1, r.clicks.int),
               button: if r.button == 1: RightButton else: LeftButton,
+              mods: mapMods(r.meta), hasMods: true,
               fromMouse: (r.meta and 0x100) != 0)
     if r.pressure >= 0:
       e.pen = true
@@ -112,10 +117,11 @@ proc next(e: var Event; timeoutMs: int; flags: set[InputFlag]): bool =
       e.tilt = r.tilt
       e.azimuth = r.azimuth
       e.twist = r.twist
-  of evWheel: e = Event(kind: MouseWheelEvent, y: r.y)
+  of evWheel:
+    e = Event(kind: MouseWheelEvent, x: r.x, y: r.y, mods: mapMods(r.meta), hasMods: true)
   of evKeyDown, evKeyUp:
     e = Event(kind: if r.kind == evKeyDown: KeyDownEvent else: KeyUpEvent,
-              key: mapKey(r.key), mods: mapMods(r.meta))
+              key: mapKey(r.key), mods: mapMods(r.meta), hasMods: true)
   of evText:
     e = Event(kind: TextInputEvent)
     for i in 0 .. 3: e.text[i] = r.text[i]

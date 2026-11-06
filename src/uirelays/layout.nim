@@ -1,36 +1,36 @@
-# Layout manager: a NIF description -> named Rects.
-#
-# The layout is a tree of boxes:
-#
-#   (layout
-#     (toolbar (lines 2))
-#     (cols
-#       (local (px 250))
-#       (divider (px 4))
-#       (remote))
-#     (log (lines 5))
-#     (status (lines 1)))
-#
-# * `(layout ...)` is the window; its children are stacked top to bottom.
-# * `(rows ...)` stacks its children top to bottom, `(cols ...)` left to right,
-#   and either may hold the other, so nesting replaces every special case.
-# * Every other tag is a leaf and names a widget: `resolve` puts its `Rect`
-#   under that name. Since there are no anonymous boxes -- a box that nothing
-#   draws in is not worth mentioning -- the name can be the tag itself.
-#
-# `layout`, `rows`, `cols`, `px`, `lines` and `stretch` are therefore the only
-# names a widget cannot have.
-#
-# A box may state its size along the axis its parent divides -- a height inside
-# `rows`, a width inside `cols`:
-#
-#   (px 250)     250 *logical* pixels: `resolve`'s `uiScale` turns them into
-#                the display's, so one layout describes the same window on a
-#                4K laptop panel as on a 96 dpi monitor
-#   (lines 5)    5 * lineHeight, plus the padding above and below
-#   (stretch 2)  two shares of what the fixed sizes leave over
-#
-# Leaving the size out means `(stretch 1)`.
+## Layout manager: a NIF description -> named Rects.
+##
+## The layout is a tree of boxes:
+##
+##   (layout
+##     (toolbar (lines 2))
+##     (cols
+##       (local (px 250))
+##       (divider (px 4))
+##       (remote))
+##     (log (lines 5))
+##     (status (lines 1)))
+##
+## * `(layout ...)` is the window; its children are stacked top to bottom.
+## * `(rows ...)` stacks its children top to bottom, `(cols ...)` left to right,
+##   and either may hold the other, so nesting replaces every special case.
+## * Every other tag is a leaf and names a widget: `resolve` puts its `Rect`
+##   under that name. Since there are no anonymous boxes -- a box that nothing
+##   draws in is not worth mentioning -- the name can be the tag itself.
+##
+## `layout`, `rows`, `cols`, `px`, `lines` and `stretch` are therefore the only
+## names a widget cannot have.
+##
+## A box may state its size along the axis its parent divides -- a height inside
+## `rows`, a width inside `cols`:
+##
+##   (px 250)     250 *logical* pixels: `resolve`'s `uiScale` turns them into
+##                the display's, so one layout describes the same window on a
+##                4K laptop panel as on a 96 dpi monitor
+##   (lines 5)    5 * lineHeight, plus the padding above and below
+##   (stretch 2)  two shares of what the fixed sizes leave over
+##
+## Leaving the size out means `(stretch 1)`.
 
 import std/[tables, math]
 import coords, tinynif
@@ -65,8 +65,9 @@ type
                      ## is -- and it is short enough for a status bar.
 
   CellHit* = object
-    name*: string
-    pos*: GlobalPos
+    ## Which named cell of a layout a point is in, and where in it.
+    name*: string     ## the cell's name ("" none)
+    pos*: GlobalPos   ## the point in the cell's own coordinates
 
   LayoutMetrics* = object
     ## What a layout needs besides itself to become rects: the window it fills

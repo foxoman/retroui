@@ -10,9 +10,11 @@ when defined(nimony):
   {.feature: "lenientnils".}
   import std/syncio  # for `quit`
 
-# All X11/Xft entry points below are loaded at runtime via the `dynlib`
-# pragma (dlopen of libX11.so / libXft.so), so no link-time `-lX11 -lXft`
-# is required and the dev packages need not be installed to build.
+# Nothing is linked: libX11's entry points are loaded at runtime via the
+# `dynlib` pragma (dlopen of libX11.so: the one library a program needs to
+# start), Xft and XRender -- the system's fonts, translucent fills -- and
+# the extensions (Xi, Xrandr, Xcursor, EGL) when they are there, with
+# std/dynlib. No `-lX11` at link time, no dev packages to build.
 
 # ---- Cross-compiler helpers ----
 # Nimony needs `toCString` for runtime string -> cstring; Nim uses the
@@ -36,6 +38,7 @@ var LC_CTYPE {.importc: "LC_CTYPE", header: "<locale.h>".}: cint
 
 proc clock_gettime(clk: ClockId; tp: var Timespec): cint
   {.importc, header: "<time.h>".}
+var CLOCK_MONOTONIC {.importc: "CLOCK_MONOTONIC", header: "<time.h>".}: ClockId
 proc nanosleep(req: var Timespec; rem: var Timespec): cint
   {.importc, header: "<time.h>".}
 
@@ -54,11 +57,16 @@ proc sleepMs(ms: int) =
   var rem = Timespec(tv_sec: 0, tv_nsec: 0)
   discard nanosleep(req, rem)
 
+proc loadOptional(name, other: string): LibHandle =
+  ## A library that may be missing, by Linux's name or else by its bare one,
+  ## which is how the BSDs find theirs (libXi.so.13.0 on OpenBSD).
+  result = loadLib(name)
+  if result == nil: result = loadLib(other)
+
 # ---- X11 type definitions ----
 
 const
   libX11 = "libX11.so(|.6)"
-  libXft = "libXft.so(|.2)"
 
 type
   XID = culong
@@ -149,6 +157,24 @@ type
     above: XID
     override_redirect: XBool
 
+  XCrossingEvent {.pure.} = object
+    ## The pointer came into the window or left it (EnterNotify, LeaveNotify).
+    theType: cint
+    serial: culong
+    send_event: XBool
+    display: pointer
+    window: XID
+    root: XID
+    subwindow: XID
+    time: XTime
+    x, y: cint
+    x_root, y_root: cint
+    mode: cint
+    detail: cint
+    same_screen: XBool
+    focus: XBool
+    state: cuint
+
   XExposeEvent {.pure.} = object
     theType: cint
     serial: culong
@@ -228,6 +254,7 @@ type
     xkey: XKeyEvent
     xbutton: XButtonEvent
     xmotion: XMotionEvent
+    xcrossing: XCrossingEvent
     xconfigure: XConfigureEvent
     xexpose: XExposeEvent
     xclient: XClientMessageEvent
@@ -276,6 +303,8 @@ const
   ButtonPress = 4.cint
   ButtonRelease = 5.cint
   MotionNotify = 6.cint
+  EnterNotify {.used.} = 7.cint
+  LeaveNotify = 8.cint
   FocusIn = 9.cint
   FocusOut = 10.cint
   Expose = 12.cint
@@ -293,6 +322,7 @@ const
   ButtonPressMask = 1 shl 2
   ButtonReleaseMask = 1 shl 3
   PointerMotionMask = 1 shl 6
+  LeaveWindowMask = 1 shl 5
   StructureNotifyMask = 1 shl 17
   SubstructureNotifyMask = 1 shl 19
   SubstructureRedirectMask = 1 shl 20
@@ -302,6 +332,13 @@ const
   # Focus changes that only a grab made (a window manager moving the window)
   NotifyGrab = 1.cint
   NotifyUngrab = 2.cint
+  # ... and one that stays inside the window (to a window within it)
+  NotifyInferior = 2.cint
+  # (the pointer itself moved, no grab began or ended)
+  NotifyNormal = 0.cint
+
+  GrabModeAsync = 1.cint
+  GrabSuccess = 0.cint
 
   # Modifier masks
   ShiftMask = 1'u32
@@ -318,6 +355,7 @@ const
   Button1Mask {.used.} = 1'u32 shl 8
   Button2Mask {.used.} = 1'u32 shl 9
   Button3Mask {.used.} = 1'u32 shl 10
+  AnyButtonMask = 0x1F'u32 shl 8    # Button1Mask .. Button5Mask
 
   # Cursor shapes
   XC_left_ptr = 68'u32
@@ -362,6 +400,9 @@ const
   XK_period = 0x2e'u
   XK_minus = 0x2d'u
   XK_equal = 0x3d'u
+  XK_KP_Enter = 0xff8d'u
+  XK_KP_0 = 0xffb0'u
+  XK_KP_9 = 0xffb9'u
 
   # Input method
   XIMPreeditNothing = 0x0008
@@ -563,39 +604,62 @@ proc XIconifyWindow(dpy: pointer; w: XID; screen: cint): XStatus
 proc XTranslateCoordinates(dpy: pointer; src, dst: XID; srcX, srcY: cint;
   dstX, dstY: ptr cint; child: ptr XID): XBool
   {.cdecl, dynlib: libX11, importc.}
+proc XMoveResizeWindow(dpy: pointer; w: XID; x, y: cint; width, height: cuint): cint
+  {.cdecl, dynlib: libX11, importc.}
+proc XGrabPointer(dpy: pointer; w: XID; ownerEvents: XBool; mask: cuint;
+  pointerMode, keyboardMode: cint; confineTo, cursor: XID; time: XTime): cint
+  {.cdecl, dynlib: libX11, importc.}
+proc XGrabKeyboard(dpy: pointer; w: XID; ownerEvents: XBool;
+  pointerMode, keyboardMode: cint; time: XTime): cint
+  {.cdecl, dynlib: libX11, importc.}
+proc XUngrabKeyboard(dpy: pointer; time: XTime): cint
+  {.cdecl, dynlib: libX11, importc.}
+proc XFreeCursor(dpy: pointer; cursor: XID): cint
+  {.cdecl, dynlib: libX11, importc.}
 proc XFree(data: pointer): cint
   {.cdecl, dynlib: libX11, importc.}
 proc XCloseDisplay(dpy: pointer): cint
   {.cdecl, dynlib: libX11, importc.}
 
-# ---- Xft function imports ----
+# ---- Xft and XRender, optional ----
+#
+# Only libX11 is needed to start. Xft (with fontconfig) draws the system's
+# fonts and XRender blends translucent fills and pictures; both are found
+# when the display is opened (`loadXftRender`). Without them the window
+# still opens and draws every picture it is given: system-font text is not
+# drawn (an app's own fonts are pictures), an opaque fill is drawn by Xlib,
+# a translucent one opaque, a picture with alpha is refused (`blitRGBA` false:
+# the caller blends it itself).
 
-proc XftFontOpenName(dpy: pointer; screen: cint; name: cstring): ptr XftFont
-  {.cdecl, dynlib: libXft, importc.}
-proc XftFontClose(dpy: pointer; font: ptr XftFont): void
-  {.cdecl, dynlib: libXft, importc.}
-proc XftDrawCreate(dpy: pointer; d: XID; visual: pointer; cmap: XID): pointer
-  {.cdecl, dynlib: libXft, importc.}
-proc XftDrawDestroy(draw: pointer): void
-  {.cdecl, dynlib: libXft, importc.}
-proc XftDrawChange(draw: pointer; d: XID): void
-  {.cdecl, dynlib: libXft, importc, used.}
-proc XftDrawStringUtf8(draw: pointer; color: ptr XftColor; font: ptr XftFont;
-  x, y: cint; text: cstring; len: cint): void
-  {.cdecl, dynlib: libXft, importc.}
-proc XftTextExtentsUtf8(dpy: pointer; font: ptr XftFont;
-  text: cstring; len: cint; extents: ptr XGlyphInfo): void
-  {.cdecl, dynlib: libXft, importc.}
-proc XftDrawCreateAlpha(dpy: pointer; pixmap: XID; depth: cint): pointer
-  {.cdecl, dynlib: libXft, importc.}
-proc XftDrawRect(draw: pointer; color: ptr XftColor;
-  x, y: cint; w, h: cuint): void
-  {.cdecl, dynlib: libXft, importc.}
-proc XftDrawSetClipRectangles(draw: pointer; x, y: cint;
-  rects: ptr XRectangle; n: cint): XBool
-  {.cdecl, dynlib: libXft, importc.}
-proc XftDrawSetClip(draw: pointer; region: pointer): XBool
-  {.cdecl, dynlib: libXft, importc.}
+type
+  XftFontOpenNameProc = proc (dpy: pointer; screen: cint; name: cstring): ptr XftFont {.cdecl, gcsafe.}
+  XftFontCloseProc = proc (dpy: pointer; font: ptr XftFont) {.cdecl, gcsafe.}
+  XftDrawCreateProc = proc (dpy: pointer; d: XID; visual: pointer; cmap: XID): pointer {.cdecl, gcsafe.}
+  XftDrawDestroyProc = proc (draw: pointer) {.cdecl, gcsafe.}
+  XftDrawStringUtf8Proc = proc (draw: pointer; color: ptr XftColor; font: ptr XftFont;
+                                x, y: cint; text: cstring; len: cint) {.cdecl, gcsafe.}
+  XftTextExtentsUtf8Proc = proc (dpy: pointer; font: ptr XftFont; text: cstring; len: cint;
+                                 extents: ptr XGlyphInfo) {.cdecl, gcsafe.}
+  XftDrawCreateAlphaProc = proc (dpy: pointer; pixmap: XID; depth: cint): pointer {.cdecl, gcsafe.}
+  XftDrawRectProc = proc (draw: pointer; color: ptr XftColor; x, y: cint; w, h: cuint) {.cdecl, gcsafe.}
+  XftDrawSetClipRectanglesProc = proc (draw: pointer; x, y: cint; rects: ptr XRectangle;
+                                       n: cint): XBool {.cdecl, gcsafe.}
+  XftDrawSetClipProc = proc (draw: pointer; region: pointer): XBool {.cdecl, gcsafe.}
+
+var
+  XftFontOpenName: XftFontOpenNameProc
+  XftFontClose: XftFontCloseProc
+  XftDrawCreate: XftDrawCreateProc
+  XftDrawDestroy: XftDrawDestroyProc
+  XftDrawStringUtf8: XftDrawStringUtf8Proc
+  XftTextExtentsUtf8: XftTextExtentsUtf8Proc
+  XftDrawCreateAlpha: XftDrawCreateAlphaProc
+  XftDrawRect: XftDrawRectProc
+  XftDrawSetClipRectangles: XftDrawSetClipRectanglesProc
+  XftDrawSetClip: XftDrawSetClipProc
+  gXft = false                 ## libXft was found, with every call used here
+  gRender = false              ## ... libXrender
+  gXftTried = false
 
 # ---- Helpers ----
 
@@ -644,6 +708,7 @@ var
   gTargets: Atom
   gClipboardText: string
   gClipProperty: Atom
+  gIncr: Atom          # a selection that comes in parts
   gUiScale: int = 100
   gXim: pointer        # input method, nil if none could be opened
   gSystemFrame = true  # the window manager draws the frame (else the app does)
@@ -654,26 +719,67 @@ var
 
 var eventQueue: seq[input.Event]
 
-type XRenderPictFormat = ptr object
+type
+  XRenderPictFormat = ptr object
+  XRenderFindStandardFormatProc = proc (display: pointer; format: cint): XRenderPictFormat {.cdecl, gcsafe.}
+  XRenderFindVisualFormatProc = proc (display, visual: pointer): XRenderPictFormat {.cdecl, gcsafe.}
+  XRenderCreatePictureProc = proc (display: pointer; drawable: XID; format: XRenderPictFormat;
+                                   mask: culong; attributes: pointer): XID {.cdecl, gcsafe.}
+  XRenderFreePictureProc = proc (display: pointer; picture: XID) {.cdecl, gcsafe.}
+  XRenderCompositeProc = proc (display: pointer; operation: cint; source, mask, dest: XID;
+                               sx, sy, mx, my, dx, dy: cint; width, height: cuint) {.cdecl, gcsafe.}
+  XRenderFillRectangleProc = proc (display: pointer; operation: cint; dest: XID;
+                                   color: ptr XRenderColor; x, y: cint;
+                                   width, height: cuint) {.cdecl, gcsafe.}
+  XRenderSetPictureClipRectanglesProc = proc (display: pointer; picture: XID; x, y: cint;
+                                              rectangles: ptr XRectangle; count: cint) {.cdecl, gcsafe.}
 
-proc XRenderFindStandardFormat(display: pointer; format: cint): XRenderPictFormat
-  {.cdecl, dynlib: "libXrender.so(|.1)", importc.}
-proc XRenderFindVisualFormat(display, visual: pointer): XRenderPictFormat
-  {.cdecl, dynlib: "libXrender.so(|.1)", importc.}
-proc XRenderCreatePicture(display: pointer; drawable: XID;
-    format: XRenderPictFormat; mask: culong; attributes: pointer): XID
-  {.cdecl, dynlib: "libXrender.so(|.1)", importc.}
-proc XRenderFreePicture(display: pointer; picture: XID)
-  {.cdecl, dynlib: "libXrender.so(|.1)", importc.}
-proc XRenderComposite(display: pointer; operation: cint; source, mask, dest: XID;
-    sx, sy, mx, my, dx, dy: cint; width, height: cuint)
-  {.cdecl, dynlib: "libXrender.so(|.1)", importc.}
-proc XRenderFillRectangle(display: pointer; operation: cint; dest: XID;
-    color: ptr XRenderColor; x, y: cint; width, height: cuint)
-  {.cdecl, dynlib: "libXrender.so(|.1)", importc.}
-proc XRenderSetPictureClipRectangles(display: pointer; picture: XID;
-    x, y: cint; rectangles: ptr XRectangle; count: cint)
-  {.cdecl, dynlib: "libXrender.so(|.1)", importc.}
+var
+  XRenderFindStandardFormat: XRenderFindStandardFormatProc
+  XRenderFindVisualFormat: XRenderFindVisualFormatProc
+  XRenderCreatePicture: XRenderCreatePictureProc
+  XRenderFreePicture: XRenderFreePictureProc
+  XRenderComposite: XRenderCompositeProc
+  XRenderFillRectangle: XRenderFillRectangleProc
+  XRenderSetPictureClipRectangles: XRenderSetPictureClipRectanglesProc
+
+proc loadXftRender() =
+  ## libXft and libXrender, when the system has them (once: see above).
+  if gXftTried: return
+  gXftTried = true
+  let render = loadOptional("libXrender.so.1", "libXrender.so")
+  if render != nil:
+    template get(f: untyped; name: string) =
+      f = cast[typeof(f)](render.symAddr(name))
+    get(XRenderFindStandardFormat, "XRenderFindStandardFormat")
+    get(XRenderFindVisualFormat, "XRenderFindVisualFormat")
+    get(XRenderCreatePicture, "XRenderCreatePicture")
+    get(XRenderFreePicture, "XRenderFreePicture")
+    get(XRenderComposite, "XRenderComposite")
+    get(XRenderFillRectangle, "XRenderFillRectangle")
+    get(XRenderSetPictureClipRectangles, "XRenderSetPictureClipRectangles")
+    gRender = XRenderFindStandardFormat != nil and XRenderFindVisualFormat != nil and
+              XRenderCreatePicture != nil and XRenderFreePicture != nil and
+              XRenderComposite != nil and XRenderFillRectangle != nil and
+              XRenderSetPictureClipRectangles != nil
+  let xft = loadOptional("libXft.so.2", "libXft.so")
+  if xft != nil:
+    template get(f: untyped; name: string) =
+      f = cast[typeof(f)](xft.symAddr(name))
+    get(XftFontOpenName, "XftFontOpenName")
+    get(XftFontClose, "XftFontClose")
+    get(XftDrawCreate, "XftDrawCreate")
+    get(XftDrawDestroy, "XftDrawDestroy")
+    get(XftDrawStringUtf8, "XftDrawStringUtf8")
+    get(XftTextExtentsUtf8, "XftTextExtentsUtf8")
+    get(XftDrawCreateAlpha, "XftDrawCreateAlpha")
+    get(XftDrawRect, "XftDrawRect")
+    get(XftDrawSetClipRectangles, "XftDrawSetClipRectangles")
+    get(XftDrawSetClip, "XftDrawSetClip")
+    gXft = XftFontOpenName != nil and XftFontClose != nil and XftDrawCreate != nil and
+           XftDrawDestroy != nil and XftDrawStringUtf8 != nil and XftTextExtentsUtf8 != nil and
+           XftDrawCreateAlpha != nil and XftDrawRect != nil and XftDrawSetClipRectangles != nil and
+           XftDrawSetClip != nil
 
 var
   rgbaClipActive: bool
@@ -759,12 +865,14 @@ proc mixFrameText(t: cstring; len: cint) =
 # ---- Back-buffer management ----
 
 proc recreateBackBuffer() =
+  loadXftRender()
   if gBackPixmap != None:
-    XftDrawDestroy(gXftDraw)
+    if gXftDraw != nil: XftDrawDestroy(gXftDraw)
+    gXftDraw = nil
     discard XFreePixmap(gDisplay, gBackPixmap)
   gBackPixmap = XCreatePixmap(gDisplay, gWindow,
     gWidth.cuint, gHeight.cuint, gDepth.cuint)
-  gXftDraw = XftDrawCreate(gDisplay, gBackPixmap, gVisual, gColormap)
+  if gXft: gXftDraw = XftDrawCreate(gDisplay, gBackPixmap, gVisual, gColormap)
   # Clear to black
   discard XSetForeground(gDisplay, gGC, 0)
   discard XFillRectangle(gDisplay, gBackPixmap, gGC, 0, 0,
@@ -787,7 +895,30 @@ proc translateKeySym(ks: XKeySym): input.KeyCode =
     return input.KeyCode(ord(Key0) + (ks.int - XK_0.int))
   if ks >= XK_F1 and ks <= XK_F12:
     return input.KeyCode(ord(KeyF1) + (ks.int - XK_F1.int))
+  # the keypad's keys are the keys they stand for, as on the other systems:
+  # its digits with Num Lock on, else its arrows, Home, End, Insert, Delete
+  if ks >= XK_KP_0 and ks <= XK_KP_9:
+    return input.KeyCode(ord(Key0) + (ks.int - XK_KP_0.int))
   case ks.uint
+  of XK_KP_Enter: KeyEnter
+  of 0xff80'u: KeySpace                 # XK_KP_Space
+  of 0xff89'u: KeyTab                   # XK_KP_Tab
+  of 0xff95'u: KeyHome                  # XK_KP_Home
+  of 0xff96'u: KeyLeft                  # XK_KP_Left
+  of 0xff97'u: KeyUp                    # XK_KP_Up
+  of 0xff98'u: KeyRight                 # XK_KP_Right
+  of 0xff99'u: KeyDown                  # XK_KP_Down
+  of 0xff9a'u: KeyPageUp                # XK_KP_Page_Up
+  of 0xff9b'u: KeyPageDown              # XK_KP_Page_Down
+  of 0xff9c'u: KeyEnd                   # XK_KP_End
+  of 0xff9e'u: KeyInsert                # XK_KP_Insert
+  of 0xff9f'u: KeyDelete                # XK_KP_Delete
+  of 0xffab'u: KeyPlus                  # XK_KP_Add
+  of 0xffac'u: KeyComma                 # XK_KP_Separator
+  of 0xffad'u: KeyMinus                 # XK_KP_Subtract
+  of 0xffae'u: KeyPeriod                # XK_KP_Decimal
+  of 0xffaf'u: KeySlash                 # XK_KP_Divide
+  of 0xffbd'u: KeyEqual                 # XK_KP_Equal
   of XK_Return: KeyEnter
   of XK_space: KeySpace
   of XK_Escape: KeyEsc
@@ -819,6 +950,39 @@ proc translateKeySym(ks: XKeySym): input.KeyCode =
   of XK_equal: KeyEqual
   else: KeyNone
 
+proc XLookupKeysym(ev: ptr XKeyEvent; index: cint): XKeySym
+  {.cdecl, dynlib: libX11, importc.}
+proc XkbKeycodeToKeysym(dpy: pointer; kc: uint8; group, level: cint): XKeySym
+  {.cdecl, dynlib: libX11, importc.}
+
+proc keyOf(ev: XKeyEvent; ks: XKeySym): input.KeyCode =
+  ## The key of a press or a release: what the layout in use types on it
+  ## (`ks`); else -- a letter of another script (Cyrillic, Greek, Arabic,
+  ## Hebrew...), or a digit AZERTY types with Shift -- what it is in the
+  ## first layout (Latin, as a rule), unshifted or shifted, so that Ctrl+C,
+  ## Ctrl+Z and Ctrl+1 are the same keys whatever the layout. (The text it
+  ## types is left as it is.)
+  result = translateKeySym(ks)
+  if result != KeyNone: return
+  var e = ev
+  result = translateKeySym(XLookupKeysym(addr e, 0))
+  if result != KeyNone or ev.keycode > 255: return
+  for group in 0 .. 3:
+    for level in 0 .. 1:
+      let other = XkbKeycodeToKeysym(gDisplay, uint8(ev.keycode), group.cint, level.cint)
+      if other != 0:
+        result = translateKeySym(other)
+        if result != KeyNone: return
+  # (a layout of another script alone, no Latin one with it: a letter's or
+  # a digit's place on a US keyboard -- evdev's key codes, XWayland's and
+  # Xorg's -- as Windows has them)
+  const usRow = "qwertyuiop....asdfghjkl.....zxcvbnm"   # key codes 24 ..
+  let kc = ev.keycode.int
+  if kc in 10 .. 19:
+    result = if kc == 19: Key0 else: input.KeyCode(ord(Key1) + kc - 10)
+  elif kc >= 24 and kc < 24 + usRow.len and usRow[kc - 24] in 'a' .. 'z':
+    result = input.KeyCode(ord(KeyA) + ord(usRow[kc - 24]) - ord('a'))
+
 proc translateMods(state: cuint): set[Modifier] =
   result = {}
   if (state and ShiftMask) != 0: result.incl ShiftPressed
@@ -849,6 +1013,34 @@ proc translateButton(button: cuint): MouseButton =
 
 # ---- Clipboard handling ----
 
+proc latin1Of(s: string): string =
+  ## UTF-8 as ISO 8859-1 (`STRING`, what old programs ask for): a character
+  ## beyond it as "?".
+  var i = 0
+  while i < s.len:
+    let b = s[i].uint8
+    var c: uint32
+    var n = 1
+    if b < 0x80: c = b
+    elif b >= 0xC0 and b < 0xE0 and i + 1 < s.len:
+      c = ((b.uint32 and 0x1F) shl 6) or (s[i + 1].uint32 and 0x3F)
+      n = 2
+    else:
+      c = 0x100
+      n = if b >= 0xF0: 4 elif b >= 0xE0: 3 else: 1
+    result.add(if c <= 0xFF: char(c) else: '?')
+    i += n
+
+proc utf8OfLatin1(s: string): string =
+  ## ISO 8859-1 (`STRING`) as UTF-8.
+  for ch in s:
+    let b = ch.uint8
+    if b < 0x80:
+      result.add ch
+    else:
+      result.add char(0xC0'u8 or (b shr 6))
+      result.add char(0x80'u8 or (b and 0x3F))
+
 proc handleSelectionRequest(req: XSelectionRequestEvent) =
   var ev {.noinit.}: XEvent
   zeroMem(addr ev, sizeof(XEvent))
@@ -858,10 +1050,16 @@ proc handleSelectionRequest(req: XSelectionRequestEvent) =
   ev.xselection.target = req.target
   ev.xselection.time = req.time
 
-  if req.target == gUtf8String or req.target == XA_STRING:
+  if req.target == gUtf8String:
     discard XChangeProperty(gDisplay, req.requestor, req.property,
       gUtf8String, 8, PropModeReplace,
       cast[pointer](cstr(gClipboardText)), gClipboardText.len.cint)
+    ev.xselection.property = req.property
+  elif req.target == XA_STRING:
+    # (an old program's: Latin-1, as it says)
+    var latin = latin1Of(gClipboardText)
+    discard XChangeProperty(gDisplay, req.requestor, req.property,
+      XA_STRING, 8, PropModeReplace, cast[pointer](cstr(latin)), latin.len.cint)
     ev.xselection.property = req.property
   elif req.target == gTargets:
     var targets = [gUtf8String, XA_STRING, gTargets]
@@ -897,6 +1095,7 @@ proc isAutoRepeatRelease(xev: XEvent): bool =
 var lastClickTime: XTime
 var lastClickX, lastClickY: int
 var clickCount: int
+var lastClickButton: cuint      ## (clicks are counted for one button at a time)
 
 # ---- Pen tablets (XInput 2) ----
 #
@@ -1081,9 +1280,9 @@ proc scanTablets() =
 
 proc startPenInput() =
   ## Follows pen tablets when the X server and libXi can (XInput 2).
-  let lib = loadLib("libXi.so.6")
+  let lib = loadOptional("libXi.so.6", "libXi.so")
   if lib == nil: return
-  let x11 = loadLib("libX11.so.6")
+  let x11 = loadOptional("libX11.so.6", "libX11.so")
   if x11 == nil: return
   type QueryVersion = proc (d: pointer; major, minor: ptr cint): XStatus {.cdecl.}
   let queryVersion = cast[QueryVersion](lib.symAddr("XIQueryVersion"))
@@ -1139,7 +1338,15 @@ proc withPen(e: var input.Event; time: XTime) =
 # press it got on its title bar or an edge (`_NET_WM_MOVERESIZE`), and the
 # window manager drags the window from there -- snapping, edge tiling and all
 # -- as from a frame of its own. Maximizing is `_NET_WM_STATE`, the same
-# request a panel's button sends, so the panels stay in view.
+# request a panel's button sends, so the panels stay in view. Wayland desktops
+# run the window through XWayland, whose window manager (Mutter, KWin...) does
+# the same.
+#
+# With no window manager that does these (none at all -- an X server that
+# shows one app, a kiosk -- or one without EWMH), the driver does them: the
+# window follows the pointer, which it holds until the button is let go, or
+# the arrow keys; maximized, it takes the screen (`_NET_WORKAREA`, when a
+# panel says what is left of it). The app's loop runs on meanwhile.
 
 proc atomsOf(w: XID; prop: Atom): seq[Atom] =
   ## The atoms in a window's property of type ATOM (`_NET_WM_STATE`...).
@@ -1192,6 +1399,151 @@ proc putFrameHints() =
     var v = [clong(2), 0, 0, 0, 0]
     discard XChangeProperty(gDisplay, gWindow, hints, hints, 32,
                             PropModeReplace, addr v[0], 5)
+
+proc wmSupports(name: cstring): bool =
+  ## The window manager does what the EWMH atom `name` stands for: it says
+  ## so in the root window's `_NET_SUPPORTED`. (None: no window manager, or
+  ## one of before EWMH.)
+  let a = XInternAtom(gDisplay, name, 0)
+  a != 0 and a in atomsOf(XRootWindow(gDisplay, gScreen),
+                          XInternAtom(gDisplay, "_NET_SUPPORTED", 0))
+
+proc screenRect(): tuple[x, y, w, h: int] =
+  ## Where a window may be, all of it in view: `_NET_WORKAREA`'s first
+  ## desktop (the screen without the panels), else the whole screen.
+  result = (0, 0, XDisplayWidth(gDisplay, gScreen).int,
+            XDisplayHeight(gDisplay, gScreen).int)
+  var actualType: Atom
+  var actualFormat: cint
+  var n, after: culong
+  var data: pointer
+  let root = XRootWindow(gDisplay, gScreen)
+  if XGetWindowProperty(gDisplay, root, XInternAtom(gDisplay, "_NET_WORKAREA", 0),
+                        0, 4, 0, XA_CARDINAL, addr actualType, addr actualFormat,
+                        addr n, addr after, addr data) == 0 and data != nil:
+    let v = cast[ptr UncheckedArray[clong]](data)
+    if actualFormat == 32 and n >= 4 and v[2] > 0 and v[3] > 0:
+      result = (v[0].int, v[1].int, v[2].int, v[3].int)
+    discard XFree(data)
+
+proc windowRect(): tuple[x, y, w, h: int] =
+  ## Where the window is on the screen, and its size.
+  var child: XID
+  var x, y: cint
+  discard XTranslateCoordinates(gDisplay, gWindow, XRootWindow(gDisplay, gScreen),
+                                0, 0, addr x, addr y, addr child)
+  (x.int, y.int, gWidth.int, gHeight.int)
+
+var
+  gHand: tuple[on, keyboard: bool; part: WindowPart; px, py, kx, ky: int;
+               start: tuple[x, y, w, h: int]; cursor: XID]
+    ## a move or a sizing the driver does (no window manager does it): the
+    ## part held, where the pointer was, how far the keys went, where the
+    ## window was
+  gRestoreTo: tuple[x, y, w, h: int]
+    ## where the window was before the driver maximized it
+
+const
+  HandStep = 8       ## pixels an arrow key moves or sizes the window by
+  HandLeast = 48     ## the smallest a window is sized to
+
+proc handPlace(dx, dy: int) =
+  ## (the window moved, or its edges, by `dx`, `dy` from where it was)
+  let s = gHand.start
+  var (x, y, w, h) = s
+  let p = gHand.part
+  if p == wpCaption:
+    x += dx
+    y += dy
+  else:
+    if p in {wpRight, wpTopRight, wpBottomRight}: w = max(HandLeast, s.w + dx)
+    if p in {wpLeft, wpTopLeft, wpBottomLeft}:
+      w = max(HandLeast, s.w - dx)
+      x = s.x + s.w - w
+    if p in {wpBottom, wpBottomLeft, wpBottomRight}: h = max(HandLeast, s.h + dy)
+    if p in {wpTop, wpTopLeft, wpTopRight}:
+      h = max(HandLeast, s.h - dy)
+      y = s.y + s.h - h
+  discard XMoveResizeWindow(gDisplay, gWindow, x.cint, y.cint, w.cuint, h.cuint)
+  discard XFlush(gDisplay)
+
+proc handEnd(keep: bool) =
+  ## (done: where it is now, or -- Esc -- back where it was)
+  if not keep:
+    let s = gHand.start
+    discard XMoveResizeWindow(gDisplay, gWindow, s.x.cint, s.y.cint, s.w.cuint, s.h.cuint)
+  discard XUngrabPointer(gDisplay, CurrentTime)
+  if gHand.keyboard: discard XUngrabKeyboard(gDisplay, CurrentTime)
+  if gHand.cursor != None: discard XFreeCursor(gDisplay, gHand.cursor)
+  gHand.on = false
+  gHand.cursor = None
+  discard XFlush(gDisplay)
+
+proc handStart(part: WindowPart; keyboard: bool): bool =
+  ## The driver moves or sizes the window from here on: with the pointer,
+  ## whose left button is down, until it is let go; or with the arrow keys
+  ## until Enter or a click. Esc puts it back. False when it cannot.
+  var root, child: XID
+  var rx, ry, wx, wy: cint
+  var mask: cuint
+  discard XQueryPointer(gDisplay, gWindow, addr root, addr child,
+                        addr rx, addr ry, addr wx, addr wy, addr mask)
+  if not keyboard and (mask and Button1Mask) == 0: return false   # (let go already)
+  if gMaximized: return false          # (maximized, it stays where it is)
+  if gHand.on: handEnd(true)
+  let shape = case part
+    of wpCaption: XC_fleur
+    of wpLeft, wpRight: XC_sb_h_double_arrow
+    of wpTop, wpBottom: XC_sb_v_double_arrow
+    of wpTopLeft, wpBottomRight: XC_bottom_right_corner
+    else: XC_bottom_left_corner
+  let cursor = XCreateFontCursor(gDisplay, shape)
+  # (the press's own hold on the pointer becomes this one, with its cursor)
+  if XGrabPointer(gDisplay, gWindow, 0,
+                  cuint(ButtonPressMask or ButtonReleaseMask or PointerMotionMask),
+                  GrabModeAsync, GrabModeAsync, None, cursor, CurrentTime) != GrabSuccess:
+    discard XFreeCursor(gDisplay, cursor)
+    return false
+  if keyboard:
+    discard XGrabKeyboard(gDisplay, gWindow, 0, GrabModeAsync, GrabModeAsync, CurrentTime)
+  gHand = (on: true, keyboard: keyboard, part: part, px: rx.int, py: ry.int,
+           kx: 0, ky: 0, start: windowRect(), cursor: cursor)
+  discard XFlush(gDisplay)
+  true
+
+proc handTakes(xev: var XEvent): bool =
+  ## An event of the move or sizing the driver does, taken by it (the
+  ## pointer's and the keys' while it goes on; the rest are the app's).
+  case xev.theType
+  of MotionNotify:
+    if not gHand.keyboard:
+      handPlace(xev.xmotion.x_root - gHand.px, xev.xmotion.y_root - gHand.py)
+    true
+  of ButtonPress:
+    if gHand.keyboard: handEnd(true)   # (a click ends the keys' move)
+    true
+  of ButtonRelease:
+    if not gHand.keyboard and xev.xbutton.button == Button1: handEnd(true)
+    true
+  of KeyPress:
+    var ks: XKeySym
+    discard XLookupString(addr xev.xkey, nil, 0, addr ks, nil)
+    case ks.uint
+    of XK_Escape: handEnd(false)
+    of XK_Return, XK_KP_Enter: handEnd(true)
+    of XK_Left, XK_Right, XK_Up, XK_Down:
+      if gHand.keyboard:
+        if ks.uint == XK_Left: gHand.kx -= HandStep
+        elif ks.uint == XK_Right: gHand.kx += HandStep
+        elif ks.uint == XK_Up: gHand.ky -= HandStep
+        else: gHand.ky += HandStep
+        handPlace(gHand.kx, gHand.ky)
+    else: discard
+    true
+  of KeyRelease:
+    true
+  else:
+    false
 
 # ---- Files dropped from a file manager (XDND) ----
 #
@@ -1427,7 +1779,9 @@ proc processXEvent(xev: XEvent) =
       pushEvent(input.Event(kind: WindowFocusGainedEvent))
 
   of FocusOut:
-    if xev.xfocus.mode notin [NotifyGrab, NotifyUngrab]:
+    # (to a window inside this one: the keyboard is still this window's)
+    if xev.xfocus.mode notin [NotifyGrab, NotifyUngrab] and
+       xev.xfocus.detail != NotifyInferior:
       if gXic != nil: XUnsetICFocus(gXic)
       gFocused = false
       pushEvent(input.Event(kind: WindowFocusLostEvent))
@@ -1475,7 +1829,7 @@ proc processXEvent(xev: XEvent) =
           text.add char(0x80'u8 or (b and 0x3F))
     if hasKey:
       var e = input.Event(kind: KeyDownEvent, hasMods: true)
-      e.key = translateKeySym(ks)
+      e.key = keyOf(xev.xkey, ks)
       e.mods = modsAfter(xev.xkey.state, ks, true)
       pushEvent(e)
     # Text input (if printable), one event per codepoint
@@ -1495,31 +1849,41 @@ proc processXEvent(xev: XEvent) =
     var ks {.noinit.}: XKeySym
     discard XLookupString(unsafeAddr xev.xkey, nil, 0, addr ks, nil)
     var e = input.Event(kind: KeyUpEvent, hasMods: true)
-    e.key = translateKeySym(ks)
+    e.key = keyOf(xev.xkey, ks)
     e.mods = modsAfter(xev.xkey.state, ks, false)
     pushEvent(e)
 
   of ButtonPress:
     let btn = xev.xbutton.button
-    if btn == Button4 or btn == Button5:
-      # Scroll wheel
+    if btn >= Button4 and btn <= 7:
+      # The wheel: 4 up, 5 down; 6 and 7 sideways, left and right (a tilted
+      # wheel, a touch pad's two fingers)
       var e = input.Event(kind: MouseWheelEvent, hasMods: true)
-      e.y = if btn == Button4: 1 else: -1
+      case btn
+      of Button4: e.y = 1
+      of Button5: e.y = -1
+      of 6: e.x = -1
+      else: e.x = 1
       e.mods = translateMods(xev.xbutton.state)
       pushEvent(e)
-    else:
+    elif btn <= Button3 or btn == 8 or btn == 9:
+      # (8 and 9 the side buttons, back and forward; the buttons past them
+      # are nothing X names)
       var e = input.Event(kind: MouseDownEvent, hasMods: true)
       e.x = xev.xbutton.x
       e.y = xev.xbutton.y
       e.button = translateButton(btn)
       e.mods = translateMods(xev.xbutton.state)
-      # Click counting for double/triple click
+      # Clicks counted, of one button: within half a second, and as near as
+      # 4 pixels of a 100% screen
       let now = xev.xbutton.time
-      if now - lastClickTime < 500 and
-         abs(e.x - lastClickX) < 4 and abs(e.y - lastClickY) < 4:
+      let near = max(4, 4 * gUiScale div 100)
+      if btn == lastClickButton and now - lastClickTime < 500 and
+         abs(e.x - lastClickX) < near and abs(e.y - lastClickY) < near:
         inc clickCount
       else:
         clickCount = 1
+      lastClickButton = btn
       lastClickTime = now
       lastClickX = e.x
       lastClickY = e.y
@@ -1533,7 +1897,7 @@ proc processXEvent(xev: XEvent) =
       # (the release a drag of files out ended without: the pointer is free)
       gOutGrab = false
       discard XUngrabPointer(gDisplay, CurrentTime)
-    if btn != Button4 and btn != Button5:
+    if btn <= Button3 or btn == 8 or btn == 9:
       var e = input.Event(kind: MouseUpEvent, hasMods: true)
       e.x = xev.xbutton.x
       e.y = xev.xbutton.y
@@ -1541,6 +1905,22 @@ proc processXEvent(xev: XEvent) =
       e.mods = translateMods(xev.xbutton.state)
       withPen(e, xev.xbutton.time)
       pushEvent(e)
+      # Let go outside the window, no other button down: the pointer is not
+      # over it any more (the LeaveNotify came while the button was held)
+      let others = xev.xbutton.state and AnyButtonMask and
+                   not (if btn <= 5: 1'u32 shl (7 + btn) else: 0'u32)
+      if others == 0 and (e.x < 0 or e.y < 0 or e.x >= gWidth or e.y >= gHeight):
+        pushEvent(input.Event(kind: MouseMoveEvent, hasMods: true, mods: e.mods,
+                              x: OutsideWindow, y: OutsideWindow))
+
+  of LeaveNotify:
+    # The pointer left the window -- not for a grab, nor with a button down
+    # (a drag goes on outside): nothing in it is under the pointer now
+    let c = xev.xcrossing
+    if c.mode == NotifyNormal and c.detail != NotifyInferior and
+       (c.state and AnyButtonMask) == 0:
+      pushEvent(input.Event(kind: MouseMoveEvent, hasMods: true, mods: translateMods(c.state),
+                            x: OutsideWindow, y: OutsideWindow))
 
   of MotionNotify:
     var e = input.Event(kind: MouseMoveEvent, hasMods: true)
@@ -1567,6 +1947,8 @@ proc dispatchXEvent(xev: var XEvent) =
   if xev.theType == GenericEvent:
     if gXiOpcode != 0 and xev.xcookie.extension == gXiOpcode: processXiEvent(xev)
     return
+  # (a move or a sizing the driver does takes the pointer's and the keys')
+  if gHand.on and handTakes(xev): return
   if XFilterEvent(addr xev, None) == 0:
     processXEvent(xev)
 
@@ -1637,9 +2019,11 @@ type
 proc dpiFromMonitor(): int =
   ## Pixels per inch of the main monitor from the size it reports (EDID),
   ## 0 when that cannot be had or makes no sense (projectors say 0 mm).
-  let lib = loadLib("libXrandr.so.2")
+  let lib = loadOptional("libXrandr.so.2", "libXrandr.so")
   if lib == nil: return 0
-  defer: unloadLib(lib)
+  # (never unloaded: its first call hooks RandR -- through libXext -- into
+  # the display, and XCloseDisplay calls those hooks; with the libraries
+  # gone it jumped into whatever was mapped there since and crashed)
   type
     GetRes = proc (d: pointer; w: XID): ptr XRRScreenResources {.cdecl.}
     GetPrimary = proc (d: pointer; w: XID): culong {.cdecl.}
@@ -1776,6 +2160,17 @@ proc openInputMethod() =
     discard XCloseIM(gXim)
     gXim = nil
 
+proc putWindowName(title: string) =
+  ## The window's title: `_NET_WM_NAME` in UTF-8, which the window managers
+  ## of today show, and `WM_NAME` in Latin-1 for the old ones.
+  var latin = latin1Of(title)
+  discard XStoreName(gDisplay, gWindow, cstr(latin))
+  let netName = XInternAtom(gDisplay, "_NET_WM_NAME", 0)
+  if netName != 0 and gUtf8String != 0:
+    var t = title
+    discard XChangeProperty(gDisplay, gWindow, netName, gUtf8String, 8, PropModeReplace,
+                            cast[pointer](cstr(t)), t.len.cint)
+
 proc x11CreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   # Fonts opened before the window already have the connection.
   if gDisplay == nil: gDisplay = XOpenDisplay(nil)
@@ -1797,7 +2192,15 @@ proc x11CreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   # ConfigureNotify carrying the size that was actually granted.
   let maximized = layout.width < 0 or layout.height < 0
   if layout.width < 0: layout.width = XDisplayWidth(gDisplay, gScreen)
+  elif not layout.fullScreen:
+    # The size asked for is in pixels of a 100% screen: grown by the
+    # display's scale, as on Windows, and no wider than the desktop without
+    # its panels (nor taller, with the title bar the window manager adds)
+    layout.width = min(layout.width * gUiScale div 100, screenRect().w)
   if layout.height < 0: layout.height = XDisplayHeight(gDisplay, gScreen)
+  elif not layout.fullScreen:
+    let bar = if gSystemFrame: 32 * gUiScale div 100 else: 0
+    layout.height = min(layout.height * gUiScale div 100, max(100, screenRect().h - bar))
 
   gWindow = XCreateSimpleWindow(gDisplay, XRootWindow(gDisplay, gScreen),
     0, 0, layout.width.cuint, layout.height.cuint, 0,
@@ -1822,7 +2225,7 @@ proc x11CreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
     discard XGetICValues(gXic, cstring"filterEvents", addr imEvents, nil)
   discard XSelectInput(gDisplay, gWindow,
     (ExposureMask or KeyPressMask or KeyReleaseMask or
-     ButtonPressMask or ButtonReleaseMask or PointerMotionMask or
+     ButtonPressMask or ButtonReleaseMask or PointerMotionMask or LeaveWindowMask or
      StructureNotifyMask or FocusChangeMask or PropertyChangeMask).clong or
     imEvents)
   var detectable: XBool = 0
@@ -1840,6 +2243,7 @@ proc x11CreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   gUtf8String = XInternAtom(gDisplay, "UTF8_STRING", 0)
   gTargets = XInternAtom(gDisplay, "TARGETS", 0)
   gClipProperty = XInternAtom(gDisplay, "NIMEDIT_CLIP", 0)
+  gIncr = XInternAtom(gDisplay, "INCR", 0)
 
   # Files dropped from a file manager (see "XDND")
   internXdnd()
@@ -1899,7 +2303,7 @@ proc x11CreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   gNetWmState = XInternAtom(gDisplay, "_NET_WM_STATE", 0)
   if not gSystemFrame: putFrameHints()
 
-  discard XStoreName(gDisplay, gWindow, instName.cstr)
+  putWindowName(instName)
   discard XMapWindow(gDisplay, gWindow)
 
   if maximized:
@@ -1963,7 +2367,7 @@ proc x11RestoreState() =
   # Reset clip on both GC and XftDraw
   mixFrame(1)
   discard XSetClipMask(gDisplay, gGC, None)
-  discard XftDrawSetClip(gXftDraw, nil)
+  if gXftDraw != nil: discard XftDrawSetClip(gXftDraw, nil)
 
 proc x11SetClipRect(r: coords.Rect) =
   mixFrame(2); mixFrame(r.x); mixFrame(r.y); mixFrame(r.w); mixFrame(r.h)
@@ -1973,7 +2377,7 @@ proc x11SetClipRect(r: coords.Rect) =
   rgbaClipActive = true
   rgbaClip = xr
   discard XSetClipRectangles(gDisplay, gGC, 0, 0, addr xr, 1, 0)
-  discard XftDrawSetClipRectangles(gXftDraw, 0, 0, addr xr, 1)
+  if gXftDraw != nil: discard XftDrawSetClipRectangles(gXftDraw, 0, 0, addr xr, 1)
 
 proc ensureDisplay(): bool =
   ## Fonts are opened before the window, and without one by a renderer that
@@ -1982,6 +2386,7 @@ proc ensureDisplay(): bool =
     gDisplay = XOpenDisplay(nil)
     if gDisplay == nil: return false
     gScreen = XDefaultScreen(gDisplay)
+  loadXftRender()
   true
 
 proc x11OpenFont(path: string; size: int; style: FontStyles;
@@ -2029,6 +2434,7 @@ proc x11OpenFont(path: string; size: int; style: FontStyles;
   if isBold: pattern &= ":weight=bold"
   if isItalic: pattern &= ":slant=italic"
 
+  if not gXft: return screen.Font(0)       # (no libXft: no system fonts)
   let f = XftFontOpenName(gDisplay, gScreen, cstr(pattern))
   if f == nil: return screen.Font(0)
 
@@ -2057,6 +2463,7 @@ proc paintText(fp: ptr XftFont; x, y: int; t: cstring; len: cint;
                w: cuint; fg, bg: screen.Color) =
   ## The drawing both entry points below share, once the width of the
   ## background is known -- by measuring, or because the caller said so.
+  if gXftDraw == nil: return
   gDamageAll = true
   mixFrame(3); mixFrame(cast[int](fp)); mixFrame(x); mixFrame(y)
   mixFrame(w.int); mixFrame(fg); mixFrame(bg); mixFrameText(t, len)
@@ -2150,7 +2557,11 @@ proc x11FillRect(r: coords.Rect; color: screen.Color) =
   c.color.red = ((c.color.red.uint32 * alpha + 127) div 255).cushort
   c.color.green = ((c.color.green.uint32 * alpha + 127) div 255).cushort
   c.color.blue = ((c.color.blue.uint32 * alpha + 127) div 255).cushort
-  if color.a < 255:
+  if not gRender or gXftDraw == nil:
+    # (without XRender and Xft: Xlib's own fill, the color as it is)
+    discard XSetForeground(gDisplay, gGC, toPixel(color))
+    discard XFillRectangle(gDisplay, gBackPixmap, gGC, r.x.cint, r.y.cint, r.w.cuint, r.h.cuint)
+  elif color.a < 255:
     # XftDrawRect replaces destination pixels; translucent fills need Over.
     let format = XRenderFindVisualFormat(gDisplay, gVisual)
     if format == nil:
@@ -2190,7 +2601,7 @@ var gBlitVerdict = 0
 
 proc x11BlendRGBA(pixels: ptr UncheckedArray[uint32]; w, h: int;
                   dst: coords.Rect): bool =
-  if gDisplay == nil or gBackPixmap == None: return false
+  if gDisplay == nil or gBackPixmap == None or not gRender: return false
   if w > 65535 or h > 65535: return false # X11 pixmap dimensions are CARD16.
   let sourceFormat = XRenderFindStandardFormat(gDisplay, 0) # PictStandardARGB32
   let destFormat = XRenderFindVisualFormat(gDisplay, gVisual)
@@ -2309,8 +2720,8 @@ proc x11SetCursor(c: CursorKind) =
   discard XDefineCursor(gDisplay, gWindow, cur)
 
 proc x11SetWindowTitle(title: string) =
-  var t = title
-  discard XStoreName(gDisplay, gWindow, cstr(t))
+  if gDisplay == nil or gWindow == None: return
+  putWindowName(title)
 
 # ---- Frame hook implementations ----
 
@@ -2323,12 +2734,6 @@ proc x11SetSystemFrame(on: bool): bool =
 
 proc x11DragWindow(part: WindowPart; keyboard: bool): bool =
   if gDisplay == nil or gWindow == None or part == wpClient: return false
-  let moveResize = XInternAtom(gDisplay, "_NET_WM_MOVERESIZE", 0)
-  let supported = XInternAtom(gDisplay, "_NET_SUPPORTED", 0)
-  # (no window manager, or one that cannot)
-  if moveResize == 0 or
-     moveResize notin atomsOf(XRootWindow(gDisplay, gScreen), supported):
-    return false
   var root, child: XID
   var rx, ry, wx, wy: cint
   var mask: cuint
@@ -2336,36 +2741,42 @@ proc x11DragWindow(part: WindowPart; keyboard: bool): bool =
                         addr rx, addr ry, addr wx, addr wy, addr mask)
   # Let go already: nothing to drag.
   if not keyboard and (mask and Button1Mask) == 0: return false
-  let direction = if keyboard: (if part == wpCaption: 10 else: 9)   # _KEYBOARD
-                  else:
-                    case part
-                    of wpTopLeft: 0
-                    of wpTop: 1
-                    of wpTopRight: 2
-                    of wpRight: 3
-                    of wpBottomRight: 4
-                    of wpBottom: 5
-                    of wpBottomLeft: 6
-                    of wpLeft: 7
-                    else: 8                                      # _MOVE
-  # The press's own grab of the pointer goes first: the window manager takes
-  # the pointer from here, and the button's release with it.
-  discard XUngrabPointer(gDisplay, CurrentTime)
-  var ev = XEvent()
-  ev.xclient.theType = ClientMessage
-  ev.xclient.window = gWindow
-  ev.xclient.message_type = moveResize
-  ev.xclient.format = 32
-  ev.xclient.data[0] = rx.clong
-  ev.xclient.data[1] = ry.clong
-  ev.xclient.data[2] = direction.clong
-  ev.xclient.data[3] = (if keyboard: 0 else: 1)                # the button
-  ev.xclient.data[4] = 1                                       # an application
-  discard XSendEvent(gDisplay, root, 0,
-                     (SubstructureNotifyMask or SubstructureRedirectMask).clong,
-                     addr ev)
-  discard XFlush(gDisplay)
+  if wmSupports("_NET_WM_MOVERESIZE"):
+    let direction = if keyboard: (if part == wpCaption: 10 else: 9)   # _KEYBOARD
+                    else:
+                      case part
+                      of wpTopLeft: 0
+                      of wpTop: 1
+                      of wpTopRight: 2
+                      of wpRight: 3
+                      of wpBottomRight: 4
+                      of wpBottom: 5
+                      of wpBottomLeft: 6
+                      of wpLeft: 7
+                      else: 8                                      # _MOVE
+    # The press's own grab of the pointer goes first: the window manager
+    # takes the pointer from here, and the button's release with it.
+    discard XUngrabPointer(gDisplay, CurrentTime)
+    var ev = XEvent()
+    ev.xclient.theType = ClientMessage
+    ev.xclient.window = gWindow
+    ev.xclient.message_type = XInternAtom(gDisplay, "_NET_WM_MOVERESIZE", 0)
+    ev.xclient.format = 32
+    ev.xclient.data[0] = rx.clong
+    ev.xclient.data[1] = ry.clong
+    ev.xclient.data[2] = direction.clong
+    ev.xclient.data[3] = (if keyboard: 0 else: 1)                # the button
+    ev.xclient.data[4] = 1                                       # an application
+    discard XSendEvent(gDisplay, root, 0,
+                       (SubstructureNotifyMask or SubstructureRedirectMask).clong,
+                       addr ev)
+    discard XFlush(gDisplay)
+  elif not handStart(part, keyboard):
+    # (no window manager that moves windows: the driver does it, unless it
+    # cannot -- the window maximized)
+    return false
   if not keyboard:
+    # (the release is the window manager's, or the driver's, from here)
     pushEvent(input.Event(kind: MouseUpEvent, hasMods: true, x: wx.int, y: wy.int,
                           button: LeftButton,
                           mods: translateMods(mask)))
@@ -2373,8 +2784,25 @@ proc x11DragWindow(part: WindowPart; keyboard: bool): bool =
 
 proc x11SetMaximized(on: bool) =
   if gDisplay == nil or gWindow == None: return
-  sendWmState(on, XInternAtom(gDisplay, "_NET_WM_STATE_MAXIMIZED_HORZ", 0),
-              XInternAtom(gDisplay, "_NET_WM_STATE_MAXIMIZED_VERT", 0))
+  if wmSupports("_NET_WM_STATE_MAXIMIZED_VERT"):
+    sendWmState(on, XInternAtom(gDisplay, "_NET_WM_STATE_MAXIMIZED_HORZ", 0),
+                XInternAtom(gDisplay, "_NET_WM_STATE_MAXIMIZED_VERT", 0))
+    return
+  # No window manager that maximizes: the driver makes the window as large
+  # as the screen, and puts it back.
+  if on == gMaximized: return
+  if gHand.on: handEnd(true)
+  if on:
+    gRestoreTo = windowRect()
+    let r = screenRect()
+    discard XMoveResizeWindow(gDisplay, gWindow, r.x.cint, r.y.cint, r.w.cuint, r.h.cuint)
+  elif gRestoreTo.w > 0:
+    let r = gRestoreTo
+    discard XMoveResizeWindow(gDisplay, gWindow, r.x.cint, r.y.cint, r.w.cuint, r.h.cuint)
+  gMaximized = on
+  discard XFlush(gDisplay)
+  # (the app lays its frame out again, as when a window manager does it)
+  pushEvent(input.Event(kind: WindowResizeEvent, x: gWidth.int, y: gHeight.int))
 
 proc x11Minimize(): bool =
   if gDisplay == nil or gWindow == None: return false
@@ -2420,45 +2848,89 @@ proc x11WaitEvent(e: var input.Event; timeoutMs: int;
     return true
   return false
 
+proc takeClipProperty(kind: var Atom): string =
+  ## What the clipboard's owner put on the window (`gClipProperty`), all of
+  ## it -- read in parts when it is large -- and the property deleted, which
+  ## tells an owner sending in parts (INCR) to send the next.
+  kind = None
+  var offset = 0
+  while true:
+    var actualType {.noinit.}: Atom
+    var actualFormat {.noinit.}: cint
+    var nitems {.noinit.}: culong
+    var bytesAfter {.noinit.}: culong
+    var data {.noinit.}: pointer
+    if XGetWindowProperty(gDisplay, gWindow, gClipProperty, clong(offset div 4),
+         1024 * 1024, 0, 0, # AnyPropertyType
+         addr actualType, addr actualFormat, addr nitems, addr bytesAfter,
+         addr data) != 0:
+      break
+    kind = actualType
+    if data != nil:
+      if actualFormat == 8 and nitems > 0:
+        let at = result.len
+        result.setLen(at + nitems.int)
+        copyMem(addr result[at], data, nitems.int)
+      discard XFree(data)
+    offset += nitems.int
+    if bytesAfter == 0 or actualFormat != 8: break
+  discard XDeleteProperty(gDisplay, gWindow, gClipProperty)
+
 proc x11GetClipboardText(): string =
+  ## The clipboard's text: as UTF-8 (else as Latin-1, from an old program),
+  ## and all of it -- a large one comes in parts (INCR), each when the last
+  ## was read.
   result = ""
-  discard XConvertSelection(gDisplay, gClipboard, gUtf8String,
-    gClipProperty, gWindow, CurrentTime)
-  discard XFlush(gDisplay)
-  # Wait for SelectionNotify (with timeout)
-  let deadline = getTicks() + 500  # 500ms timeout
-  while getTicks() < deadline:
-    if XPending(gDisplay) > 0:
+  if gDisplay == nil or gWindow == None: return
+  for target in [gUtf8String, XA_STRING]:
+    discard XConvertSelection(gDisplay, gClipboard, target,
+      gClipProperty, gWindow, CurrentTime)
+    discard XFlush(gDisplay)
+    # Wait for SelectionNotify, and in parts for each PropertyNotify (a half
+    # second without anything from the owner: it is not answering)
+    var deadline = getTicks() + 500
+    var parts = false
+    var kind: Atom = None
+    var refused = false
+    while getTicks() < deadline:
+      if XPending(gDisplay) == 0:
+        sleepMs(5)
+        continue
       var xev {.noinit.}: XEvent
       discard XNextEvent(gDisplay, addr xev)
-      if xev.theType == SelectionNotify and xev.xselection.selection == gClipboard:
-        if xev.xselection.property != None:
-          var actualType {.noinit.}: Atom
-          var actualFormat {.noinit.}: cint
-          var nitems {.noinit.}: culong
-          var bytesAfter {.noinit.}: culong
-          var data {.noinit.}: pointer
-          discard XGetWindowProperty(gDisplay, gWindow, gClipProperty,
-            0, 1024*1024, 1, 0, # delete=True, AnyPropertyType
-            addr actualType, addr actualFormat,
-            addr nitems, addr bytesAfter, addr data)
-          if data != nil:
-            result = $cast[cstring](data)
-            discard XFree(data)
-        return
+      if not parts and xev.theType == SelectionNotify and
+         xev.xselection.selection == gClipboard:
+        if xev.xselection.property == None:
+          refused = true                         # (not as this type: the next)
+          break
+        result = takeClipProperty(kind)
+        if kind != gIncr: break
+        parts = true
+        result = ""
+        deadline = getTicks() + 500
+      elif parts and xev.theType == PropertyNotify and xev.xproperty.window == gWindow and
+           xev.xproperty.atom == gClipProperty and xev.xproperty.state == 0: # NewValue
+        var partKind: Atom
+        let part = takeClipProperty(partKind)
+        if part.len == 0: break                  # (an empty part: the end)
+        kind = partKind
+        result.add part
+        deadline = getTicks() + 500
       else:
         dispatchXEvent(xev)
-    else:
-      sleepMs(5)
+    if not refused:
+      if kind == XA_STRING: result = utf8OfLatin1(result)
+      return
 
 proc x11PutClipboardText(text: string) =
   gClipboardText = text
   discard XSetSelectionOwner(gDisplay, gClipboard, gWindow, CurrentTime)
 
 proc x11GetTicks(): int =
-  # Use POSIX clock
+  # The monotonic clock: setting the time of day does not move it (its
+  # number differs between Linux and the BSDs: from the header)
   var ts {.noinit.}: Timespec
-  discard clock_gettime(0.ClockId, ts)  # CLOCK_REALTIME = 0
+  discard clock_gettime(CLOCK_MONOTONIC, ts)
   result = int(ts.tv_sec.int64 * 1000 + ts.tv_nsec.int64 div 1_000_000)
 
 proc x11Delay(ms: int) =
@@ -2472,14 +2944,6 @@ proc x11Delay(ms: int) =
 
 # ---- Files dragged out: the drag (see "XDND, as the source") ----
 
-proc XGrabPointer(dpy: pointer; w: XID; ownerEvents: XBool; mask: cuint;
-  pointerMode, keyboardMode: cint; confineTo, cursor: XID; time: XTime): cint
-  {.cdecl, dynlib: libX11, importc.}
-proc XGrabKeyboard(dpy: pointer; w: XID; ownerEvents: XBool;
-  pointerMode, keyboardMode: cint; time: XTime): cint
-  {.cdecl, dynlib: libX11, importc.}
-proc XUngrabKeyboard(dpy: pointer; time: XTime): cint
-  {.cdecl, dynlib: libX11, importc.}
 proc XChangeActivePointerGrab(dpy: pointer; mask: cuint; cursor: XID;
   time: XTime): cint
   {.cdecl, dynlib: libX11, importc.}
@@ -2487,8 +2951,6 @@ proc XGetSelectionOwner(dpy: pointer; selection: Atom): XID
   {.cdecl, dynlib: libX11, importc.}
 
 const
-  GrabModeAsync = 1.cint
-  GrabSuccess = 0.cint
   XA_WINDOW = 33.Atom
   XC_circle = 24'u32
   OutGrabMask = cuint(ButtonPressMask or ButtonReleaseMask or PointerMotionMask)
@@ -2501,7 +2963,7 @@ proc dndCursor(kind: int): XID =
   if gDndCursors[kind] == None:
     const names = [[cstring"dnd-no-drop", "no-drop"], [cstring"dnd-copy", "copy"],
                    [cstring"dnd-move", "move"]]
-    let lib = loadLib("libXcursor.so.1")
+    let lib = loadOptional("libXcursor.so.1", "libXcursor.so")
     if lib != nil:
       let load = cast[proc (dpy: pointer; name: cstring): XID {.cdecl.}](
         lib.symAddr("XcursorLibraryLoadCursor"))
@@ -2739,10 +3201,19 @@ proc x11DragFilesOut(paths: seq[string]; move, backInside: bool): DragOutResult 
 
 proc x11QuitRequest() =
   if gDisplay != nil:
+    # (the fonts still open closed first: the table that holds them is
+    # let go of as the program ends, and they were lost -- leaks)
+    for font in fonts.mitems:
+      if font.xftFont != nil: XftFontClose(gDisplay, font.xftFont)
+      font.xftFont = nil
     if gXic != nil: XDestroyIC(gXic)
     if gXim != nil: discard XCloseIM(gXim)
     discard XDestroyWindow(gDisplay, gWindow)
     discard XCloseDisplay(gDisplay)
+    # (once: a second call finds nothing left to close)
+    gXic = nil
+    gXim = nil
+    gDisplay = nil
 
 
 # ---- Init ----
@@ -2768,7 +3239,13 @@ proc initX11Driver*() =
     gpuProc: proc (name: cstring): pointer = eglload.current.glProc(name),
     gpuIsEs: proc (): bool = true,
     gpuGeneration: proc (): int = 0,
-    gpuReady: proc (): bool = gGpu)
+    gpuReady: proc (): bool = gGpu,
+    gpuBufferAge: proc (): int = eglload.current.bufferAge(),
+    swapGpuDamage: proc (rects: openArray[coords.Rect]): bool =
+      var r: array[64, tuple[x, y, w, h: int]]
+      let n = if rects.len <= r.len: rects.len else: 0      # (more: all of it copied)
+      for i in 0 ..< n: r[i] = (rects[i].x, rects[i].y, rects[i].w, rects[i].h)
+      eglload.current.swapDamaged(r.toOpenArray(0, n - 1), gHeight.int))
   windowRelays = WindowRelays(
     createWindow: x11CreateWindow, getWindowLayout: x11GetWindowLayout,
     refresh: x11Refresh,
@@ -2826,7 +3303,7 @@ proc attachSiwinSurface*(display: pointer; window: uint64; width, height: int) =
       discard XCopyArea(gDisplay, previousPixmap, gBackPixmap, copyGC, 0, 0,
         min(previousWidth, gWidth).cuint, min(previousHeight, gHeight).cuint, 0, 0)
       discard XFreeGC(gDisplay, copyGC)
-      XftDrawDestroy(previousDraw)
+      if previousDraw != nil: XftDrawDestroy(previousDraw)
       discard XFreePixmap(gDisplay, previousPixmap)
 
 proc presentSiwinSurface*() =

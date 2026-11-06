@@ -60,17 +60,19 @@ static int pop(UrEvent *out) {
   return 1;
 }
 
+static int gTouchMeta;   /* the keyboard's modifiers with the touch now (META_*) */
+
 static void pushMove(int x, int y) {
   if (qLen) {
     UrEvent *l = &q[(qHead + qLen - 1) % QN];
     if (l->kind == UR_MOVE) {
-      l->x = x; l->y = y;
+      l->x = x; l->y = y; l->meta = gTouchMeta;
       l->pressure = gPen[0]; l->tilt = gPen[1]; l->azimuth = gPen[2]; l->twist = gPen[3];
       return;
     }
   }
   UrEvent *e = push(UR_MOVE);
-  e->x = x; e->y = y;
+  e->x = x; e->y = y; e->meta = gTouchMeta;
 }
 
 static int utf8Of(uint32_t c, char *out) {
@@ -201,28 +203,42 @@ static void ensureShadow(void) {
   return CGPointMake(p.x * gScale, p.y * gScale);
 }
 
+static int metaOf(UIKeyModifierFlags f);
+
+/* The modifiers of a hardware keyboard held with a touch (iOS 13.4 on). */
+static int touchMeta(UIEvent *event) {
+  gTouchMeta = 0;
+  if (@available(iOS 13.4, *)) gTouchMeta = metaOf(event.modifierFlags);
+  return gTouchMeta;
+}
+
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
   if (tracked) return;
   tracked = touches.anyObject;
   reshow = 1;
   CGPoint p = [self pixelOf:tracked];
+  int meta = touchMeta(event);
   pushMove((int)p.x, (int)p.y);
   UrEvent *e = push(UR_DOWN);
   e->x = (int)p.x; e->y = (int)p.y; e->clicks = (int)tracked.tapCount;
+  e->meta = meta;
 }
 
 - (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
   if (!tracked || ![touches containsObject:tracked]) return;
   CGPoint p = [self pixelOf:tracked];
+  touchMeta(event);
   pushMove((int)p.x, (int)p.y);
 }
 
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
   if (!tracked || ![touches containsObject:tracked]) return;
   CGPoint p = [self pixelOf:tracked];
+  int meta = touchMeta(event);
   pushMove((int)p.x, (int)p.y);
   UrEvent *e = push(UR_UP);
   e->x = (int)p.x; e->y = (int)p.y;
+  e->meta = meta;
   tracked = nil;
 }
 
@@ -304,7 +320,8 @@ static BOOL typesText(long usage) {
       if (!k) { passOn = YES; continue; }
       int meta = metaOf(k.modifierFlags);
       long usage = (long)k.keyCode;
-      if (wantText && typesText(usage) && !(meta & (META_CTRL | META_ALT))
+      /* (Option types too: @, { and the rest on many layouts) */
+      if (wantText && typesText(usage) && !(meta & META_CTRL)
           && usage != 43) {
         passOn = YES;               /* UIKit calls insertText / deleteBackward */
         continue;

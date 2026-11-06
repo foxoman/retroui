@@ -176,6 +176,12 @@ const
   WM_XBUTTONUP = 0x020C'u32
   WM_MBUTTONUP = 0x0208'u32
   WM_MOUSEWHEEL = 0x020A'u32
+  WM_MOUSEHWHEEL = 0x020E'u32
+  WM_MOUSELEAVE = 0x02A3'u32
+  WM_IME_STARTCOMPOSITION = 0x010D'u32
+  TME_LEAVE = 0x0002'u32
+  SM_CXDOUBLECLK = 36'i32
+  SM_CYDOUBLECLK = 37'i32
   WM_SETFOCUS = 0x0007'u32
   WM_KILLFOCUS = 0x0008'u32
   WM_DPICHANGED = 0x02E0'u32
@@ -240,6 +246,9 @@ const
   VK_SHIFT = 0x10'u32
   VK_CONTROL = 0x11'u32
   VK_MENU = 0x12'u32   # Alt
+  VK_RMENU = 0xA5'u32  # the right Alt: AltGr on most layouts
+  VK_RBUTTON = 0x02'i32
+  VK_MBUTTON = 0x04'i32
 
   FW_NORMAL = 400'i32
   DEFAULT_CHARSET = 1'u8
@@ -278,6 +287,10 @@ const
   WM_SYSCOMMAND = 0x0112'u32
   SC_SIZE = 0xF000'u32
   SC_MOVE = 0xF010'u32
+  MF_SEPARATOR = 0x0800'u32
+  MF_CHECKED = 0x0008'u32
+  IDM_APP_SEP = 0x0300'u      # (the app's item in the system menu, and the line
+  IDM_APP_ITEM = 0x0310'u     # over it: ids under 0xF000, low four bits clear)
   HTCAPTION = 2'u
   HTLEFT = 10'u
   HTRIGHT = 11'u
@@ -313,14 +326,43 @@ type
     rgrc: array[3, WINAPIRECT]
     lppos: pointer
 
+  TrackMouseInfo {.pure.} = object   # (TRACKMOUSEEVENT)
+    cbSize, dwFlags: DWORD
+    hwndTrack: HWND
+    dwHoverTime: DWORD
+
+  COMPOSITIONFORM {.pure.} = object
+    dwStyle: DWORD
+    ptCurrentPos: WINAPIPOINT
+    rcArea: WINAPIRECT
+
+  CANDIDATEFORM {.pure.} = object
+    dwIndex, dwStyle: DWORD
+    ptCurrentPos: WINAPIPOINT
+    rcArea: WINAPIRECT
+
 # ---- Win32 API imports ----
 
 proc GetModuleHandleW(lpModuleName: ptr uint16): HINSTANCE
   {.stdcall, dynlib: "kernel32", importc.}
 proc GetLastError(): DWORD
   {.stdcall, dynlib: "kernel32", importc.}
-proc GetTickCount(): DWORD
+proc GetTickCount64(): uint64
   {.stdcall, dynlib: "kernel32", importc.}
+proc GetDoubleClickTime(): UINT
+  {.stdcall, dynlib: "user32", importc.}
+proc GetSystemMetrics(index: int32): int32
+  {.stdcall, dynlib: "user32", importc.}
+proc TrackMouseEvent(tme: ptr TrackMouseInfo): BOOL
+  {.stdcall, dynlib: "user32", importc.}
+proc ImmGetContext(hwnd: HWND): HANDLE
+  {.stdcall, dynlib: "imm32", importc.}
+proc ImmReleaseContext(hwnd: HWND; imc: HANDLE): BOOL
+  {.stdcall, dynlib: "imm32", importc.}
+proc ImmSetCompositionWindow(imc: HANDLE; form: ptr COMPOSITIONFORM): BOOL
+  {.stdcall, dynlib: "imm32", importc.}
+proc ImmSetCandidateWindow(imc: HANDLE; form: ptr CANDIDATEFORM): BOOL
+  {.stdcall, dynlib: "imm32", importc.}
 proc Sleep(dwMilliseconds: DWORD)
   {.stdcall, dynlib: "kernel32", importc.}
 proc GlobalAlloc(uFlags: UINT; dwBytes: uint): HGLOBAL
@@ -333,6 +375,15 @@ proc GlobalSize(hMem: HGLOBAL): uint
   {.stdcall, dynlib: "kernel32", importc.}
 
 proc RegisterClassExW(lpwcx: ptr WNDCLASSEXW): ATOM
+  {.stdcall, dynlib: "user32", importc.}
+proc GetSystemMenu(hWnd: HWND; bRevert: BOOL): HMENU
+  {.stdcall, dynlib: "user32", importc.}
+proc AppendMenuW(hMenu: HMENU; uFlags: UINT; uIDNewItem: uint; lpNewItem: ptr uint16): BOOL
+  {.stdcall, dynlib: "user32", importc.}
+proc ModifyMenuW(hMnu: HMENU; uPosition, uFlags: UINT; uIDNewItem: uint;
+                 lpNewItem: ptr uint16): BOOL
+  {.stdcall, dynlib: "user32", importc.}
+proc DeleteMenu(hMenu: HMENU; uPosition, uFlags: UINT): BOOL
   {.stdcall, dynlib: "user32", importc.}
 proc CreateWindowExW(dwExStyle: DWORD; lpClassName, lpWindowName: ptr uint16;
   dwStyle: DWORD; x, y, nWidth, nHeight: int32;
@@ -709,7 +760,14 @@ proc translateVK(vk: WPARAM): input.KeyCode =
     return input.KeyCode(ord(Key0) + (vk.int - ord('0')))
   if vk >= VK_F1 and vk <= VK_F12:
     return input.KeyCode(ord(KeyF1) + (vk.int - VK_F1.int))
+  # the keypad's digits (Num Lock on; off, they come as the arrows, Home...)
+  if vk >= 0x60'u32 and vk <= 0x69'u32:              # VK_NUMPAD0 .. VK_NUMPAD9
+    return input.KeyCode(ord(Key0) + (vk.int - 0x60))
   case vk
+  of 0x6B'u32: KeyPlus                  # VK_ADD
+  of 0x6D'u32: KeyMinus                 # VK_SUBTRACT
+  of 0x6E'u32: KeyPeriod                # VK_DECIMAL
+  of 0x6F'u32: KeySlash                 # VK_DIVIDE
   of VK_RETURN: KeyEnter
   of VK_SPACE: KeySpace
   of VK_ESCAPE: KeyEsc
@@ -744,11 +802,40 @@ proc getModifiers(): set[Modifier] =
   if GetKeyState(VK_SHIFT.int32) < 0: result.incl ShiftPressed
   if GetKeyState(VK_CONTROL.int32) < 0: result.incl CtrlPressed
   if GetKeyState(VK_MENU.int32) < 0: result.incl AltPressed
+  # AltGr -- the right Alt of the layouts that have one -- comes as Ctrl and
+  # Alt together. It types (@, {, the Polish ą, the German ~), it makes no
+  # shortcut: neither Ctrl nor Alt is held for it.
+  if CtrlPressed in result and GetKeyState(VK_RMENU.int32) < 0:
+    result.excl CtrlPressed
+    result.excl AltPressed
 
 var gHighSurrogate: uint16
-var lastClickTime: DWORD
+var gTracking: bool             ## WM_MOUSELEAVE was asked for
+var gWheelX, gWheelY: int       ## the wheels' turns not a notch yet (of 120)
+
+proc buttonsDown(): bool =
+  GetKeyState(VK_LBUTTON) < 0 or GetKeyState(VK_RBUTTON) < 0 or GetKeyState(VK_MBUTTON) < 0
+var lastClickTime: uint64
 var lastClickX, lastClickY: int
 var clickCount: int
+var lastClickButton: input.MouseButton
+
+proc countClick(button: input.MouseButton; x, y: int): int =
+  ## The clicks of `button` in a row: as soon after each other and as near
+  ## as the system's double click has them (its time, its rectangle).
+  let now = GetTickCount64()
+  let dx = max(1, GetSystemMetrics(SM_CXDOUBLECLK).int div 2)
+  let dy = max(1, GetSystemMetrics(SM_CYDOUBLECLK).int div 2)
+  if button == lastClickButton and now - lastClickTime <= GetDoubleClickTime().uint64 and
+     abs(x - lastClickX) <= dx and abs(y - lastClickY) <= dy:
+    inc clickCount
+  else:
+    clickCount = 1
+  lastClickButton = button
+  lastClickTime = now
+  lastClickX = x
+  lastClickY = y
+  clickCount
 
 proc pumpMessages() =
   ## Drain Win32 message queue. Must be called frequently to prevent
@@ -783,17 +870,9 @@ var
   gGetPointerPenInfo: GetPointerPenInfoProc
   gPenButton = LeftButton   ## what the pen's tip pressed (right: with the side button down)
 
-proc penClicks(x, y: int): int =
+proc penClicks(button: input.MouseButton; x, y: int): int =
   ## The click count, kept with the mouse's: a double tap is a double click.
-  let now = GetTickCount()
-  if now - lastClickTime < 500 and abs(x - lastClickX) < 4 and abs(y - lastClickY) < 4:
-    inc clickCount
-  else:
-    clickCount = 1
-  lastClickTime = now
-  lastClickX = x
-  lastClickY = y
-  clickCount
+  countClick(button, x, y)
 
 proc penMessage(hwnd: HWND; msg: UINT; wp: WPARAM): bool =
   ## A WM_POINTER message of a pen as an event; false when it is not a pen's
@@ -825,7 +904,7 @@ proc penMessage(hwnd: HWND; msg: UINT; wp: WPARAM): bool =
                  else: LeftButton
     e.kind = MouseDownEvent
     e.button = gPenButton
-    e.clicks = penClicks(e.x, e.y)
+    e.clicks = penClicks(gPenButton, e.x, e.y)
   of WM_POINTERUP:
     e.kind = MouseUpEvent
     e.button = gPenButton
@@ -859,6 +938,66 @@ proc workArea(hwnd: HWND): tuple[monitor, work: WINAPIRECT] =
     result.monitor = result.work
 
 proc styleWord(style: uint32): int {.inline.} = cast[int](uint(style))
+
+# ---- the app's item in the system menu ----
+var
+  gMenuLabel = ""              # the app's item in the system menu ("" none)
+  gMenuChecked = false
+  gMenuAdded = false           # ... is in the window's menu
+  gMenuChosen = false          # ... was picked (told once)
+
+proc winMenuItem(label: string; checked: bool) =
+  gMenuLabel = label
+  gMenuChecked = checked
+  if gHwnd == nil: return      # (added with the window)
+  let m = GetSystemMenu(gHwnd, 0)
+  if m == nil: return
+  if label.len == 0:
+    if gMenuAdded:
+      discard DeleteMenu(m, UINT(IDM_APP_ITEM), 0)
+      discard DeleteMenu(m, UINT(IDM_APP_SEP), 0)
+      gMenuAdded = false
+    return
+  let w = newWideCString(label)
+  let flags = if checked: MF_CHECKED else: 0'u32
+  if gMenuAdded:
+    discard ModifyMenuW(m, UINT(IDM_APP_ITEM), flags, IDM_APP_ITEM, cast[ptr uint16](w[0].addr))
+  else:
+    discard AppendMenuW(m, MF_SEPARATOR, IDM_APP_SEP, nil)
+    discard AppendMenuW(m, flags, IDM_APP_ITEM, cast[ptr uint16](w[0].addr))
+    gMenuAdded = true
+
+proc winMenuItemChosen(): bool =
+  result = gMenuChosen
+  gMenuChosen = false
+
+# ---- Where the text goes: the input method's windows (IME) ----
+
+var gCaret: tuple[on: bool; x, y, w, h: int]   ## the caret the app told
+
+proc placeIme() =
+  ## The IME's composition at the caret, its candidates under it (not over
+  ## the line typed in).
+  if gHwnd == nil or not gCaret.on: return
+  let imc = ImmGetContext(gHwnd)
+  if imc == nil: return
+  var cf = COMPOSITIONFORM(dwStyle: 0x0020,            # CFS_FORCE_POSITION
+                           ptCurrentPos: WINAPIPOINT(x: gCaret.x.LONG, y: gCaret.y.LONG))
+  discard ImmSetCompositionWindow(imc, addr cf)
+  let line = WINAPIRECT(left: gCaret.x.LONG, top: gCaret.y.LONG,
+                        right: LONG(gCaret.x + max(1, gCaret.w)),
+                        bottom: LONG(gCaret.y + gCaret.h))
+  var cand = CANDIDATEFORM(dwIndex: 0, dwStyle: 0x0080,  # CFS_EXCLUDE
+                           ptCurrentPos: WINAPIPOINT(x: gCaret.x.LONG,
+                                                     y: LONG(gCaret.y + gCaret.h)),
+                           rcArea: line)
+  discard ImmSetCandidateWindow(imc, addr cand)
+  discard ImmReleaseContext(gHwnd, imc)
+
+proc winTextCaret(x, y, w, h: int) =
+  if gCaret.on and (x, y, w, h) == (gCaret.x, gCaret.y, gCaret.w, gCaret.h): return
+  gCaret = (true, x, y, w, h)
+  placeIme()
 
 proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.} =
   # Capture gHwnd from the first message -- WM_SIZE etc. arrive
@@ -933,6 +1072,13 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
       discard SetCursorWin(gCursor)
       return 1
 
+  of WM_SYSCOMMAND:
+    # (the app's item in the system menu: told to the app, which wakes up)
+    if (uint(wp) and 0xFFF0'u) == IDM_APP_ITEM:
+      gMenuChosen = true
+      pushEvent(input.Event(kind: WindowFocusGainedEvent))
+      return 0
+
   of WM_NCACTIVATE:
     # (no frame of Windows' to show in the active or the inactive colors)
     if not gSystemFrame: return DefWindowProcW(hwnd, msg, wp, -1)
@@ -954,10 +1100,15 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
     return 0
 
   of WM_DPICHANGED:
-    # Dragged to a monitor of another density. The window keeps its pixel size
-    # -- so it stays physically the same -- and the app enlarges its own
-    # drawing by the new `uiScale`.
+    # Dragged to a monitor of another density: the window takes the size and
+    # place Windows suggests (`lp`), so that it stays physically as large, and
+    # the app enlarges its own drawing by the new `uiScale`. The WM_SIZE this
+    # sends carries the new scale; the event here is for a size that stayed.
     gUiScale = currentUiScale()
+    let r = cast[ptr WINAPIRECT](lp)
+    if r != nil:
+      discard SetWindowPos(hwnd, nil, r.left, r.top, r.right - r.left, r.bottom - r.top,
+                           SWP_NOZORDER or SWP_NOACTIVATE)
     var e = input.Event(kind: WindowMetricsEvent)
     e.x = gWidth
     e.y = gHeight
@@ -999,7 +1150,8 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
 
   of WM_SYSCHAR:
     # Swallowed: DefWindowProc would beep for an Alt+letter with no menu.
-    return 0
+    # Alt+Space goes on to it with Windows' frame: its system menu opens.
+    if not (wp.uint32 == 0x20'u32 and gSystemFrame): return 0
 
   of WM_CHAR:
     # wp is a UTF-16 code unit; a character beyond the BMP comes as two.
@@ -1036,6 +1188,11 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
     pushEvent(input.Event(kind: WindowFocusGainedEvent))
     return 0
 
+  of WM_IME_STARTCOMPOSITION:
+    # (an input method begins: its windows where the caret is; DefWindowProc
+    # does the rest)
+    placeIme()
+
   of WM_KILLFOCUS:
     pushEvent(input.Event(kind: WindowFocusLostEvent))
     return 0
@@ -1048,7 +1205,7 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
     e.y = yParam(lp)
     e.mods = getModifiers()
     e.button = if ((wp.uint shr 16) and 0xFFFF) == 1: BackButton else: ForwardButton
-    e.clicks = 1
+    e.clicks = if msg == WM_XBUTTONDOWN: countClick(e.button, e.x, e.y) else: 0
     pushEvent(e)
     return 1
 
@@ -1064,17 +1221,7 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
     of WM_LBUTTONDOWN: e.button = LeftButton
     of WM_RBUTTONDOWN: e.button = RightButton
     else: e.button = MiddleButton
-    # Track click count for double/triple click
-    let now = GetTickCount()
-    if now - lastClickTime < 500 and
-       abs(e.x - lastClickX) < 4 and abs(e.y - lastClickY) < 4:
-      inc clickCount
-    else:
-      clickCount = 1
-    lastClickTime = now
-    lastClickX = e.x
-    lastClickY = e.y
-    e.clicks = clickCount
+    e.clicks = countClick(e.button, e.x, e.y)
     pushEvent(e)
     return 0
 
@@ -1089,6 +1236,11 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
     of WM_RBUTTONUP: e.button = RightButton
     else: e.button = MiddleButton
     pushEvent(e)
+    # Let go outside the window, no button down now: the pointer is not over
+    # it any more (WM_MOUSELEAVE does not come while the mouse is captured)
+    if (e.x < 0 or e.y < 0 or e.x >= gWidth or e.y >= gHeight) and not buttonsDown():
+      pushEvent(input.Event(kind: MouseMoveEvent, hasMods: true, mods: e.mods,
+                            x: OutsideWindow, y: OutsideWindow))
     return 0
 
   of WM_MOUSEMOVE:
@@ -1097,17 +1249,38 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
     e.y = yParam(lp)
     e.mods = getModifiers()
     pushEvent(e)
+    # (told when the pointer leaves the window: WM_MOUSELEAVE)
+    if not gTracking:
+      var tme = TrackMouseInfo(cbSize: DWORD(sizeof(TrackMouseInfo)),
+                                dwFlags: TME_LEAVE, hwndTrack: hwnd)
+      gTracking = TrackMouseEvent(addr tme) != 0
     return 0
 
-  of WM_MOUSEWHEEL:
-    var e = input.Event(kind: MouseWheelEvent, hasMods: true)
-    e.mods = getModifiers()
+  of WM_MOUSELEAVE:
+    # The pointer left the window: nothing in it is under the pointer now
+    # (with a button down a drag goes on outside: the release tells)
+    gTracking = false
+    if not buttonsDown():
+      pushEvent(input.Event(kind: MouseMoveEvent, hasMods: true, mods: getModifiers(),
+                            x: OutsideWindow, y: OutsideWindow))
+    return 0
+
+  of WM_MOUSEWHEEL, WM_MOUSEHWHEEL:
+    # A notch is 120; a wheel without notches and a touch pad send less at a
+    # time, which is kept until it makes one (as long as it goes the same way)
     let delta = signedHiWord(wp)
-    e.y = delta div 120  # standard wheel delta
-    var pt = WINAPIPOINT(x: loWord(lp).LONG, y: hiWord(lp).LONG)
-    # wheel coords are screen-relative; could ScreenToClient but
-    # Nimedit only uses e.y for scroll direction
-    pushEvent(e)
+    let sideways = msg == WM_MOUSEHWHEEL
+    var acc = if sideways: addr gWheelX else: addr gWheelY
+    if (acc[] < 0) != (delta < 0): acc[] = 0
+    acc[] += delta
+    let notches = acc[] div 120
+    acc[] -= notches * 120
+    if notches != 0:
+      var e = input.Event(kind: MouseWheelEvent, hasMods: true)
+      e.mods = getModifiers()
+      # (WM_MOUSEHWHEEL's right is > 0, as ours)
+      if sideways: e.x = notches else: e.y = notches
+      pushEvent(e)
     return 0
 
   of WM_POINTERDOWN, WM_POINTERUPDATE, WM_POINTERUP:
@@ -1167,7 +1340,8 @@ proc winCreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
 
   discard RegisterClassExW(addr wc)
 
-  let title = newWideCString("NimEdit")
+  # (the program's name until the app gives the window its title)
+  let title = newWideCString(getAppFilename().extractFilename.changeFileExt(""))
   # The size asked for is the inside of the window (what the app draws on),
   # in pixels of a 100% screen: grown by the display's scale, then by the
   # title bar and the borders Windows adds around it -- else the app's own
@@ -1215,6 +1389,8 @@ proc winCreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
 
   # Files dropped from Explorer come as WM_DROPFILES.
   DragAcceptFiles(gHwnd, 1)
+  # (the app's item in the system menu, asked for before the window)
+  if gMenuLabel.len > 0: winMenuItem(gMenuLabel, gMenuChecked)
 
   # A negative dimension is MaxWindowWidth/MaxWindowHeight. SW_MAXIMIZE is the
   # shell's own idea of how large a window may be, so it stops at the taskbar
@@ -2065,19 +2241,19 @@ proc winWaitEvent(e: var input.Event; timeoutMs: int;
   # A single MWFMO(INFINITE) would block the thread entirely, causing
   # Windows to show the "Not Responding" ghost window after ~5 seconds
   # which then intercepts all user input -- deadlock.
-  let deadline = if timeoutMs < 0: uint32.high
-                 else: GetTickCount() + timeoutMs.uint32
+  let deadline = if timeoutMs < 0: uint64.high
+                 else: GetTickCount64() + timeoutMs.uint64
   while true:
-    let now = GetTickCount()
+    let now = GetTickCount64()
     if now >= deadline: return false
     let remaining = if timeoutMs < 0: 100'u32
-                    else: min(deadline - now, 100'u32)
+                    else: uint32(min(deadline - now, 100'u64))
     let res = MsgWaitForMultipleObjects(0, nil, 0, remaining, QS_ALLINPUT)
     if res != WAIT_TIMEOUT:
       if winPollEvent(e, flags): return true
     elif timeoutMs >= 0:
       # Finite timeout: check if expired
-      if GetTickCount() >= deadline: return false
+      if GetTickCount64() >= deadline: return false
 
 proc winGetClipboardText(): string =
   if OpenClipboard(gHwnd) == 0: return ""
@@ -2092,11 +2268,14 @@ proc winGetClipboardText(): string =
       result = $ws
       discard GlobalUnlock(cast[HGLOBAL](hData))
   discard CloseClipboard()
+  # (Windows' lines end in CR LF; the app's in LF, as on the other systems)
+  result = result.replace("\r\n", "\n")
 
 proc winPutClipboardText(text: string) =
   if OpenClipboard(gHwnd) == 0: return
   discard EmptyClipboard()
-  let ws = newWideCString(text)
+  # (lines end in CR LF, as Notepad and the rest want them)
+  let ws = newWideCString(text.replace("\r\n", "\n").replace("\n", "\r\n"))
   let bytes = (ws.len + 1) * 2
   let hMem = GlobalAlloc(GMEM_MOVEABLE, bytes.uint)
   if hMem != nil:
@@ -2107,14 +2286,15 @@ proc winPutClipboardText(text: string) =
       discard SetClipboardData(CF_UNICODETEXT, cast[HANDLE](hMem))
   discard CloseClipboard()
 
-proc winGetTicks(): int = GetTickCount().int
+proc winGetTicks(): int = GetTickCount64().int
+  ## (64 bits: GetTickCount's 32 go round every 49.7 days)
 proc winDelay(ms: int) =
-  let msU = ms.DWORD
-  let deadline = GetTickCount() + msU
+  let msU = max(0, ms).uint64
+  let deadline = GetTickCount64() + msU
   while true:
-    let now = GetTickCount()
+    let now = GetTickCount64()
     if now >= deadline: break
-    let remaining = min(deadline - now, msU)
+    let remaining = uint32(min(deadline - now, msU))
     discard MsgWaitForMultipleObjects(0, nil, 0, remaining, QS_ALLINPUT)
     pumpMessages()
 proc winQuitRequest() =
@@ -2171,8 +2351,10 @@ proc initWinapiDriver*() =
     setWindowTitle: winSetWindowTitle)
   frameRelays = FrameRelays(
     setSystemFrame: winSetSystemFrame, dragWindow: winDragWindow,
-    setMaximized: winSetMaximized, maximized: winMaximized, active: winActive)
+    setMaximized: winSetMaximized, maximized: winMaximized, active: winActive,
+    menuItem: winMenuItem, menuItemChosen: winMenuItemChosen)
   systemRelays.minimize = winMinimize
+  textCaretRelay = winTextCaret
   fileDragRelays = FileDragRelays(dragOut: winDragFilesOut)
   initWinapiFontRelays()
   drawRelays = DrawRelays(

@@ -3,7 +3,7 @@
 import sdl3
 import sdl3_ttf
 import std/[hashes, os, tables]
-import ../coords, ../input, ../screen
+import ../coords, ../input, ../screen, ../services
 import penaxes
 
 # --- Font handle management ---
@@ -276,6 +276,72 @@ template toPixelCoord(v: untyped): int =
   ## lands at a fraction of where it looked.
   int(v.float * currentLayout.uiScale.float / 100.0 + 0.5)
 
+# --- The window's frame ---
+#
+# Without the system's frame (`setSystemFrame(false)`) the window is
+# borderless, and SDL's hit test asks where the app's own frame is
+# (`windowPartAt`): the system moves or sizes the window from a press on the
+# title bar or the border -- snapping and all, on Windows, X11, Wayland and
+# macOS alike -- and the press goes no further. So `dragWindow` is not
+# needed (nor can SDL start a move from a press it has handed over), and the
+# arrow keys' move of a control menu is not had.
+
+proc sdlSetWindowBordered(window: sdl3.Window; bordered: bool): bool
+  {.importc: "SDL_SetWindowBordered", cdecl, dynlib: sdl3.LibName.}
+proc sdlSetWindowHitTest(window: sdl3.Window;
+                         callback: proc (window: sdl3.Window; area: ptr sdl3.Point;
+                                         data: pointer): cint {.cdecl.};
+                         data: pointer): bool
+  {.importc: "SDL_SetWindowHitTest", cdecl, dynlib: sdl3.LibName.}
+proc sdlMaximizeWindow(window: sdl3.Window): bool
+  {.importc: "SDL_MaximizeWindow", cdecl, dynlib: sdl3.LibName.}
+proc sdlRestoreWindow(window: sdl3.Window): bool
+  {.importc: "SDL_RestoreWindow", cdecl, dynlib: sdl3.LibName.}
+proc sdlMinimizeWindow(window: sdl3.Window): bool
+  {.importc: "SDL_MinimizeWindow", cdecl, dynlib: sdl3.LibName.}
+proc sdlGetWindowFlags(window: sdl3.Window): uint64
+  {.importc: "SDL_GetWindowFlags", cdecl, dynlib: sdl3.LibName.}
+
+const
+  SdlWindowBorderless = 0x10'u64      ## SDL_WINDOW_BORDERLESS
+  SdlWindowMaximized = 0x80'u64       ## SDL_WINDOW_MAXIMIZED
+  SdlWindowInputFocus = 0x200'u64     ## SDL_WINDOW_INPUT_FOCUS
+
+var systemFrame = true   ## the system draws the frame (else the app does)
+
+proc hitTest(window: sdl3.Window; area: ptr sdl3.Point; data: pointer): cint {.cdecl.} =
+  ## (SDL_HitTestResult: 0 the app's, 1 the title bar, 2..9 the border from
+  ## the top left corner round to the left edge)
+  if area == nil or windowPartAt == nil: return 0
+  case windowPartAt(toPixelCoord(area.x), toPixelCoord(area.y))
+  of wpClient: 0
+  of wpCaption: 1
+  of wpTopLeft: 2
+  of wpTop: 3
+  of wpTopRight: 4
+  of wpRight: 5
+  of wpBottomRight: 6
+  of wpBottom: 7
+  of wpBottomLeft: 8
+  of wpLeft: 9
+
+proc sdlSetSystemFrame(on: bool): bool =
+  systemFrame = on
+  if win == nil: return true          # (the window is made so)
+  result = sdlSetWindowBordered(win, on)
+  if on: discard sdlSetWindowHitTest(win, nil, nil)
+  else: discard sdlSetWindowHitTest(win, hitTest, nil)
+
+proc sdlSetMaximized(on: bool) =
+  if win != nil:
+    discard (if on: sdlMaximizeWindow(win) else: sdlRestoreWindow(win))
+
+proc sdlMaximized(): bool =
+  win != nil and (sdlGetWindowFlags(win) and SdlWindowMaximized) != 0
+
+proc sdlActive(): bool =
+  win == nil or (sdlGetWindowFlags(win) and SdlWindowInputFocus) != 0
+
 proc sdlCreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   if ren != nil or win != nil:
     resetSdlState()
@@ -290,8 +356,10 @@ proc sdlCreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
     if layout.fullScreen: WINDOW_FULLSCREEN or WINDOW_HIGH_PIXEL_DENSITY
     else: WINDOW_RESIZABLE or WINDOW_HIGH_PIXEL_DENSITY
   if maximized: winFlags = winFlags or WINDOW_MAXIMIZED
+  if not systemFrame: winFlags = winFlags or SdlWindowBorderless
   discard createWindowAndRenderer(cstring"NimEdit",
     reqW.cint, reqH.cint, winFlags, win, ren)
+  if not systemFrame and win != nil: discard sdlSetWindowHitTest(win, hitTest, nil)
   textInputOn = false
   syncWindowLayout(layout)
   currentClip = ClipState()
@@ -867,3 +935,8 @@ proc initSdl3Driver*() =
     shutdown: sdlQuitRequest)
   clipboardRelays = ClipboardRelays(
     getText: sdlGetClipboardText, putText: sdlPutClipboardText)
+  when not (defined(android) or defined(ios)):
+    frameRelays = FrameRelays(
+      setSystemFrame: sdlSetSystemFrame, setMaximized: sdlSetMaximized,
+      maximized: sdlMaximized, active: sdlActive)
+    systemRelays.minimize = proc (): bool = win != nil and sdlMinimizeWindow(win)

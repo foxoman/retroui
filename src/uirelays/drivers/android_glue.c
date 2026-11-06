@@ -93,6 +93,8 @@ static struct {
   /* gestures */
   int64_t lastDownT;
   int lastDownX, lastDownY, clicks, pointerId, downButton;
+  int lastDownButton;      /* (clicks are counted for one button at a time) */
+  float wheelX, wheelY;    /* the wheel's turns not a notch yet (a touch pad's) */
   /* two fingers: their ids, their last middle and distance; a gesture over,
    * the finger left waits to be lifted (no new press) */
   int g2, g2a, g2b, g2wait;
@@ -191,6 +193,11 @@ static int pop(UrEvent *out) {
 }
 
 static int g_mouse;          /* the pointer of the event being read is a mouse */
+static int g_meta;           /* ... and the keyboard's modifiers with it (AMETA_*) */
+
+/* An event's `meta`: the modifiers held, and 0x100 for a mouse or a pen
+   (no AMETA_ bit is 0x100). */
+static int pointerMeta(void) { return (g_meta & ~0x100) | (g_mouse ? 0x100 : 0); }
 
 /* The pen of the event being read: pressure, tilt, azimuth, twist. */
 static float g_pen[4] = {-1, 0, 0, 0};
@@ -217,13 +224,13 @@ static void withPen(UrEvent *e) {
 static void pushMove(int x, int y) {
   UrEvent *l = lastQueued();
   if (l && l->kind == UR_MOVE) {
-    l->x = x; l->y = y; l->meta = g_mouse ? 0x100 : 0;
+    l->x = x; l->y = y; l->meta = pointerMeta();
     withPen(l);
     return;
   }
   UrEvent *e = push(UR_MOVE);
   e->x = x; e->y = y;
-  e->meta = g_mouse ? 0x100 : 0;
+  e->meta = pointerMeta();
   withPen(e);
 }
 
@@ -1290,6 +1297,8 @@ static int translate(AInputEvent *ev) {
     g_mouse = tool == AMOTION_EVENT_TOOL_TYPE_MOUSE ||
               tool == AMOTION_EVENT_TOOL_TYPE_STYLUS ||
               (src & AINPUT_SOURCE_MOUSE) == AINPUT_SOURCE_MOUSE;
+    /* the modifiers held with it: a Ctrl let go is let go for the wheel too */
+    g_meta = AMotionEvent_getMetaState(ev);
     /* two fingers on the screen (not a mouse, not a pen): a gesture -- the
      * first one's press let go far away, so nothing is clicked */
     if (a == AMOTION_EVENT_ACTION_POINTER_DOWN && !g_mouse && !g.g2 &&
@@ -1348,18 +1357,19 @@ static int translate(AInputEvent *ev) {
       int64_t t = AMotionEvent_getEventTime(ev) / 1000000;   /* when it happened */
       g.reshow = 1;
       int slop = g.density * 24 / 160;
-      if (t - g.lastDownT < 400 && abs(x - g.lastDownX) < slop &&
-          abs(y - g.lastDownY) < slop) g.clicks++;
-      else g.clicks = 1;
-      g.lastDownT = t; g.lastDownX = x; g.lastDownY = y;
       g.downButton = 0;
       if ((src & AINPUT_SOURCE_MOUSE) == AINPUT_SOURCE_MOUSE &&
           (AMotionEvent_getButtonState(ev) & AMOTION_EVENT_BUTTON_SECONDARY))
         g.downButton = 1;
+      if (g.downButton == g.lastDownButton && t - g.lastDownT < 400 &&
+          abs(x - g.lastDownX) < slop && abs(y - g.lastDownY) < slop) g.clicks++;
+      else g.clicks = 1;
+      g.lastDownT = t; g.lastDownX = x; g.lastDownY = y;
+      g.lastDownButton = g.downButton;
       pushMove(x, y);
       UrEvent *e = push(UR_DOWN);
       e->x = x; e->y = y; e->button = g.downButton; e->clicks = g.clicks;
-      e->meta = g_mouse ? 0x100 : 0;
+      e->meta = pointerMeta();
       withPen(e);
       return 1;
     }
@@ -1396,15 +1406,27 @@ static int translate(AInputEvent *ev) {
       if (!cancelled) pushMove(x, y);
       UrEvent *e = push(UR_UP);
       e->x = x; e->y = y; e->button = g.downButton;
-      e->meta = g_mouse ? 0x100 : 0;
+      e->meta = pointerMeta();
       g.pointerId = -1;
       return 1;
     }
     case AMOTION_EVENT_ACTION_SCROLL: {
+      /* A wheel's notch is 1; a touch pad sends fractions of one, which are
+       * kept until they make one (as long as they go the same way). Up and
+       * right are > 0, as ours. */
       float v = AMotionEvent_getAxisValue(ev, AMOTION_EVENT_AXIS_VSCROLL, 0);
+      float h = AMotionEvent_getAxisValue(ev, AMOTION_EVENT_AXIS_HSCROLL, 0);
+      if (v * g.wheelY < 0) g.wheelY = 0;
+      if (h * g.wheelX < 0) g.wheelX = 0;
+      g.wheelY += v;
+      g.wheelX += h;
+      int ny = (int)g.wheelY, nx = (int)g.wheelX;
+      g.wheelY -= ny;
+      g.wheelX -= nx;
+      if (nx == 0 && ny == 0) return 1;
       UrEvent *e = push(UR_WHEEL);
-      e->y = v > 0 ? (int)(v + 0.5f) : (int)(v - 0.5f);
-      if (e->y == 0) e->y = v > 0 ? 1 : -1;
+      e->x = nx; e->y = ny;
+      e->meta = pointerMeta();
       return 1;
     }
     default:
@@ -1431,6 +1453,22 @@ static int translate(AInputEvent *ev) {
     if (action == AKEY_EVENT_ACTION_MULTIPLE) {
       /* text without key codes: UiRelaysActivity reads its characters */
       return 0;
+    }
+    if (!(meta & 0x200000)) {          /* AMETA_NUM_LOCK_ON */
+      /* Num Lock off: the keypad's keys are the arrows, Home, End... they
+       * are marked with (as on the other systems) */
+      switch (code) {
+      case AKEYCODE_NUMPAD_7: code = AKEYCODE_MOVE_HOME; break;
+      case AKEYCODE_NUMPAD_8: code = AKEYCODE_DPAD_UP; break;
+      case AKEYCODE_NUMPAD_9: code = AKEYCODE_PAGE_UP; break;
+      case AKEYCODE_NUMPAD_4: code = AKEYCODE_DPAD_LEFT; break;
+      case AKEYCODE_NUMPAD_6: code = AKEYCODE_DPAD_RIGHT; break;
+      case AKEYCODE_NUMPAD_1: code = AKEYCODE_MOVE_END; break;
+      case AKEYCODE_NUMPAD_2: code = AKEYCODE_DPAD_DOWN; break;
+      case AKEYCODE_NUMPAD_3: code = AKEYCODE_PAGE_DOWN; break;
+      case AKEYCODE_NUMPAD_0: code = AKEYCODE_INSERT; break;
+      case AKEYCODE_NUMPAD_DOT: code = AKEYCODE_FORWARD_DEL; break;
+      }
     }
     if (action == AKEY_EVENT_ACTION_DOWN) {
       UrEvent *e = push(UR_KEYDOWN);

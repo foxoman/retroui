@@ -121,6 +121,51 @@ proc resized(event: ResizeEvent) =
     )
   )
 
+# ---- The window's frame ----
+#
+# Siwin's own: a frameless window, moved and sized by the system from the
+# press on the app's title bar or border (`startInteractiveMove`,
+# `startInteractiveResize`: `_NET_WM_MOVERESIZE` on X11, Windows' own loop).
+# Siwin on Windows makes a window frameless only as it opens, so the frame
+# chosen there is the next window's; Siwin on macOS starts no move, so the
+# window keeps the system's frame there. No arrow keys' move.
+
+var systemFrame = true   ## the system draws the frame (else the app does)
+
+proc edgeOf(part: services.WindowPart): Edge =
+  # (Siwin has a WindowPart of its own)
+  case part
+  of wpLeft: Edge.left
+  of wpRight: Edge.right
+  of wpTop: Edge.top
+  of wpBottom: Edge.bottom
+  of wpTopLeft: Edge.topLeft
+  of wpTopRight: Edge.topRight
+  of wpBottomLeft: Edge.bottomLeft
+  else: Edge.bottomRight
+
+proc siwinSetSystemFrame(on: bool): bool =
+  if appWindow.isNil:
+    systemFrame = on                     # (the window opens so)
+    return true
+  when defined(windows):
+    on == systemFrame
+  else:
+    systemFrame = on
+    appWindow.frameless = not on
+    true
+
+proc siwinDragWindow(part: services.WindowPart; keyboard: bool): bool =
+  if appWindow.isNil or keyboard or part == wpClient: return false
+  if siwin.MouseButton.left notin appWindow.mouse.pressed: return false   # (let go)
+  let at = appWindow.mouse.pos
+  if part == wpCaption: appWindow.startInteractiveMove()
+  else: appWindow.startInteractiveResize(edgeOf(part))
+  # (the system takes the release: it is reported here)
+  events.addLast(input.Event(kind: MouseUpEvent, x: coordinate(at.x),
+                             y: coordinate(at.y), button: LeftButton))
+  true
+
 proc create(layout: var ScreenLayout, icon: pointer, iconLen: int) =
   if not appWindow.isNil:
     raise newException(ValueError, "The Siwin driver already has a window")
@@ -133,6 +178,7 @@ proc create(layout: var ScreenLayout, icon: pointer, iconLen: int) =
     size = ivec2(max(layout.width, 1).int32, max(layout.height, 1).int32),
     title = "uirelays",
     fullscreen = layout.fullScreen,
+    frameless = not systemFrame,
   )
   when defined(linux) or defined(bsd):
     xWindow.WindowX11SoftwareRendering(appWindow).softwarePresentEnabled = false
@@ -278,8 +324,20 @@ proc initSiwinDriver*() =
     platformNative.initWinapiDriver()
   else:
     platformNative.initX11Driver()
-  # (the window is Siwin's: its frame stays the system's)
-  frameRelays = FrameRelays()
+  # (the window is Siwin's, and so is its frame: see "The window's frame")
+  when defined(macosx):
+    frameRelays = FrameRelays()
+  else:
+    frameRelays = FrameRelays(
+      setSystemFrame: siwinSetSystemFrame, dragWindow: siwinDragWindow,
+      setMaximized: proc(on: bool) =
+        if not appWindow.isNil:
+          appWindow.maximized = on,
+      maximized: proc(): bool =
+        not appWindow.isNil and appWindow.maximized,
+      active: proc(): bool =
+        appWindow.isNil or appWindow.focused,
+    )
   windowRelays.createWindow = create
   windowRelays.getWindowLayout = currentLayout
   windowRelays.refresh = refresh
