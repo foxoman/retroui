@@ -3,6 +3,7 @@
 ## machine without EGL simply has no GPU drawing.
 
 import std/dynlib
+import target
 
 type
   EGLDisplay* = pointer
@@ -83,7 +84,9 @@ var current*: Egl
 
 proc loadEgl(e: var Egl): bool =
   e.lib = loadLib("libEGL.so.1")
-  if e.lib == nil: e.lib = loadLib("libEGL.so")
+  # (in Termux "libEGL.so" is Android's own, which knows no X11 windows: a
+  # Mesa one, "libEGL.so.1", or none)
+  if e.lib == nil and not androidShell: e.lib = loadLib("libEGL.so")
   if e.lib == nil: return false
   template sym(field: untyped; name: string) =
     e.field = cast[typeof(e.field)](symAddr(e.lib, name))
@@ -219,7 +222,7 @@ proc glProc*(e: Egl; name: cstring): pointer =
   if result == nil:
     if glesLib == nil:
       glesLib = loadLib("libGLESv2.so.2")
-      if glesLib == nil: glesLib = loadLib("libGLESv2.so")
+      if glesLib == nil and not androidShell: glesLib = loadLib("libGLESv2.so")
     if glesLib != nil: result = symAddr(glesLib, name)
 
 proc swap*(e: Egl): bool =

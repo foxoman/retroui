@@ -5,7 +5,8 @@
 # platform does differently.
 
 import std/[os, strutils]
-when not defined(windows) and not defined(android) and not defined(ios):
+import target
+when not defined(windows) and not androidApp and not defined(ios):
   import std/osproc
 
 type
@@ -160,7 +161,7 @@ proc defaultOpenUrl(url: string): bool =
   when defined(windows):
     shellExecuteW(nil, newWideCString("open"), newWideCString(url), nil, nil,
                   1) > 32
-  elif defined(android) or defined(ios):
+  elif androidApp or defined(ios):
     false
   else:
     let tool = when defined(macosx): "open" else: "xdg-open"
@@ -172,7 +173,7 @@ proc defaultOpenUrl(url: string): bool =
       false
 
 proc defaultPlatform(): string =
-  when defined(android): "android"
+  when androidApp: "android"
   elif defined(ios): "ios"
   elif defined(windows): "windows"
   elif defined(macosx): "macos"
@@ -251,7 +252,7 @@ proc standardFolder*(which: string): string =
                 of "videos": "Videos"
                 else: ""
       if sub.len > 0: result = getHomeDir() / sub
-  elif defined(macosx) or defined(android) or defined(ios):
+  elif defined(macosx) or androidApp or defined(ios):
     let sub = case key
               of "desktop": "Desktop"
               of "documents": "Documents"

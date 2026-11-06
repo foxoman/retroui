@@ -11,8 +11,11 @@
 ##   -d:sdl2    Force SDL2 backend
 ##   -d:gtk4    Force GTK4 backend
 ##
-## Android (`--os:android`) uses the NativeActivity driver, iOS (`-d:ios`)
-## the UIKit driver.
+## Android (`--os:android`) uses the NativeActivity driver for an app
+## (`--app:lib`, an APK's library) and X11 for a program run from a shell
+## (Termux, its window on Termux:X11); iOS (`-d:ios`) the UIKit driver.
+
+import target
 
 const NativeSiwin = defined(features.uirelays.siwin) or
   defined(features.uirelays.figDrawSiwin) or defined(figDrawSiwin)
@@ -47,7 +50,7 @@ elif defined(gtk4):
   import drivers/gtk4_driver
   proc initBackend*() = initGtk4Driver()
 
-elif defined(android):
+elif androidApp:
   import drivers/android_driver
   proc initBackend*() = initAndroidDriver()
 
