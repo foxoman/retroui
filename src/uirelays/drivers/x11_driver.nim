@@ -1481,10 +1481,13 @@ proc handEnd(keep: bool) =
     discard XMoveResizeWindow(gDisplay, gWindow, s.x.cint, s.y.cint, s.w.cuint, s.h.cuint)
   discard XUngrabPointer(gDisplay, CurrentTime)
   if gHand.keyboard: discard XUngrabKeyboard(gDisplay, CurrentTime)
-  if gHand.cursor != None: discard XFreeCursor(gDisplay, gHand.cursor)
+  # (the cursor is one of the kept ones: not freed)
   gHand.on = false
   gHand.cursor = None
   discard XFlush(gDisplay)
+
+proc cursorFor(c: CursorKind): XID
+  ## (below: the cursors, drawn at the screen's scale or the font's)
 
 proc handStart(part: WindowPart; keyboard: bool): bool =
   ## The driver moves or sizes the window from here on: with the pointer,
@@ -1498,18 +1501,16 @@ proc handStart(part: WindowPart; keyboard: bool): bool =
   if not keyboard and (mask and Button1Mask) == 0: return false   # (let go already)
   if gMaximized: return false          # (maximized, it stays where it is)
   if gHand.on: handEnd(true)
-  let shape = case part
-    of wpCaption: XC_fleur
-    of wpLeft, wpRight: XC_sb_h_double_arrow
-    of wpTop, wpBottom: XC_sb_v_double_arrow
-    of wpTopLeft, wpBottomRight: XC_bottom_right_corner
-    else: XC_bottom_left_corner
-  let cursor = XCreateFontCursor(gDisplay, shape)
+  let cursor = cursorFor(case part
+    of wpCaption: curMove
+    of wpLeft, wpRight: curSizeWE
+    of wpTop, wpBottom: curSizeNS
+    of wpTopLeft, wpBottomRight: curSizeNWSE
+    else: curSizeNESW)
   # (the press's own hold on the pointer becomes this one, with its cursor)
   if XGrabPointer(gDisplay, gWindow, 0,
                   cuint(ButtonPressMask or ButtonReleaseMask or PointerMotionMask),
                   GrabModeAsync, GrabModeAsync, None, cursor, CurrentTime) != GrabSuccess:
-    discard XFreeCursor(gDisplay, cursor)
     return false
   if keyboard:
     discard XGrabKeyboard(gDisplay, gWindow, 0, GrabModeAsync, GrabModeAsync, CurrentTime)
@@ -2834,7 +2835,151 @@ proc x11DrawRGBA(pixels: ptr UncheckedArray[uint32]; w, h: int;
   x11BlitRGBA(cast[ptr UncheckedArray[uint32]](unsafeAddr resized[0]),
               dst.w, dst.h, dst, format)
 
-proc x11SetCursor(c: CursorKind) =
+# ---- Cursors drawn at the screen's density ----
+#
+# The X cursor font has one size, 16 pixels: on a dense screen (a 2K tablet,
+# a 4K monitor) its arrow is a speck. Without a cursor theme to scale (no
+# libXcursor, no theme installed -- Termux as it comes) the driver draws the
+# classic shapes itself, two colors and a mask as the core protocol takes
+# them, each pixel of the drawing a square of the screen's scale.
+
+proc XCreateBitmapFromData(dpy: pointer; d: XID; data: cstring; w, h: cuint): XID
+  {.cdecl, dynlib: libX11, importc.}
+proc XCreatePixmapCursor(dpy: pointer; source, mask: XID; fg, bg: ptr XColor;
+                         x, y: cuint): XID
+  {.cdecl, dynlib: libX11, importc.}
+
+var
+  x11DrawnCursors* = -1
+    ## The cursors: 1 drawn by the driver in the classic shapes, at the
+    ## screen's scale; 0 the X cursor font's (a cursor theme's, through
+    ## libXcursor, when there is one); -1 drawn when the screen is at 150% or
+    ## more.
+  gCursorCache: seq[tuple[kind: CursorKind; scale: int; cursor: XID]]
+
+proc shapeArt(fill: seq[string]; ink: bool): seq[string] =
+  ## A shape (`#`) with a 1-pixel edge all round: white inside and black
+  ## edge, or (`ink`) black inside and a white edge, so it shows on any
+  ## background. (`X` black, `.` white, ` ` none.)
+  let h = fill.len + 2
+  var w = 0
+  for r in fill: w = max(w, r.len)
+  w += 2
+  template at(r, c: int): bool =
+    (let rr = r - 1; let cc = c - 1;
+     rr >= 0 and rr < fill.len and cc >= 0 and cc < fill[rr].len and fill[rr][cc] == '#')
+  for r in 0 ..< h:
+    var line = newString(w)
+    for c in 0 ..< w:
+      if at(r, c): line[c] = (if ink: 'X' else: '.')
+      else:
+        var edge = false
+        for dr in -1 .. 1:
+          for dc in -1 .. 1:
+            if at(r + dr, c + dc): edge = true
+        line[c] = (if edge: (if ink: '.' else: 'X') else: ' ')
+    result.add line
+
+proc grid(w, h: int; inside: proc (r, c: int): bool): seq[string] =
+  for r in 0 ..< h:
+    var line = newString(w)
+    for c in 0 ..< w: line[c] = (if inside(r, c): '#' else: ' ')
+    result.add line
+
+proc classicCursorArt*(c: CursorKind): tuple[rows: seq[string]; hx, hy: int] =
+  ## The classic drawing of cursor `c`: rows of `X` (black), `.` (white) and
+  ## ` ` (none), and its hot spot.
+  case c
+  of curDefault, curArrow:
+    (@["X           ", "XX          ", "X.X         ", "X..X        ", "X...X       ",
+       "X....X      ", "X.....X     ", "X......X    ", "X.......X   ", "X........X  ",
+       "X.....XXXXX ", "X..X..X     ", "X.X X..X    ", "XX  X..X    ", "X    X..X   ",
+       "     X..X   ", "      X..X  ", "      X..X  ", "       XX   "], 0, 0)
+  of curIbeam:
+    var core = @["### ###"]
+    for _ in 0 ..< 14: core.add "   #   "
+    core.add "### ###"
+    (shapeArt(core, true), 4, 8)
+  of curWait:
+    (@["XXXXXXXXXXXXX", "X...........X", "XXXXXXXXXXXXX", " X.........X ", " X.........X ",
+       "  X.......X  ", "   X.....X   ", "    X...X    ", "     X.X     ", "     X.X     ",
+       "    X...X    ", "   X..X..X   ", "  X..XXX..X  ", " X..XXXXX..X ", " X.XXXXXXX.X ",
+       "XXXXXXXXXXXXX", "X...........X", "XXXXXXXXXXXXX"], 6, 9)
+  of curHand:
+    (@["     XX         ", "    X..X        ", "    X..X        ", "    X..X        ",
+       "    X..X        ", "    X..XXX      ", "    X..X..XXX   ", "    X..X..X..XX ",
+       " XX X..X..X..X.X", "X..XX........X.X", "X...X..........X", " X.............X",
+       "  X............X", "  X...........X ", "   X..........X ", "   X.........X  ",
+       "    X........X  ", "    X........X  ", "    XXXXXXXXXX  "], 5, 0)
+  of curCrosshair:
+    (shapeArt(grid(15, 15, proc (r, c: int): bool = r == 7 or c == 7), true), 8, 8)
+  of curSizeWE:
+    (shapeArt(grid(21, 7, proc (r, c: int): bool =
+      (c <= 3 and abs(r - 3) <= c) or (c >= 17 and abs(r - 3) <= 20 - c) or
+      (r == 3)), false), 11, 4)
+  of curSizeNS:
+    (shapeArt(grid(7, 21, proc (r, c: int): bool =
+      (r <= 3 and abs(c - 3) <= r) or (r >= 17 and abs(c - 3) <= 20 - r) or
+      (c == 3)), false), 4, 11)
+  of curSizeNWSE:
+    (shapeArt(grid(13, 13, proc (r, c: int): bool =
+      (r + c <= 4) or ((12 - r) + (12 - c) <= 4) or (r == c)), false), 7, 7)
+  of curSizeNESW:
+    (shapeArt(grid(13, 13, proc (r, c: int): bool =
+      (r + (12 - c) <= 4) or ((12 - r) + c <= 4) or (r == 12 - c)), false), 7, 7)
+  of curMove:
+    (shapeArt(grid(19, 19, proc (r, c: int): bool =
+      (r <= 3 and abs(c - 9) <= r) or (r >= 15 and abs(c - 9) <= 18 - r) or
+      (c <= 3 and abs(r - 9) <= c) or (c >= 15 and abs(r - 9) <= 18 - c) or
+      (r == 9 and c >= 3 and c <= 15) or (c == 9 and r >= 3 and r <= 15)), false), 10, 10)
+
+proc x11ClassicCursor*(c: CursorKind; scale: int): uint =
+  ## Cursor `c` drawn in the classic shape, each pixel `scale` x `scale`
+  ## (made once, then kept).
+  if gDisplay == nil: return 0
+  let k = clamp(scale, 1, 8)
+  for e in gCursorCache:
+    if e.kind == c and e.scale == k: return uint(e.cursor)
+  let art = classicCursorArt(c)
+  var aw = 0
+  for r in art.rows: aw = max(aw, r.len)
+  let w = aw * k
+  let h = art.rows.len * k
+  let bpr = (w + 7) div 8
+  var src = newSeq[uint8](bpr * h)
+  var mask = newSeq[uint8](bpr * h)
+  for y in 0 ..< h:
+    let row = art.rows[y div k]
+    for x in 0 ..< w:
+      let col = x div k
+      let ch = if col < row.len: row[col] else: ' '
+      if ch == ' ': continue
+      let i = y * bpr + x div 8
+      let bit = uint8(1 shl (x mod 8))
+      mask[i] = mask[i] or bit
+      if ch == 'X': src[i] = src[i] or bit
+  let root = XRootWindow(gDisplay, gScreen)
+  let sp = XCreateBitmapFromData(gDisplay, root, cast[cstring](addr src[0]), w.cuint, h.cuint)
+  let mp = XCreateBitmapFromData(gDisplay, root, cast[cstring](addr mask[0]), w.cuint, h.cuint)
+  var fg = XColor(red: 0, green: 0, blue: 0)
+  var bg = XColor(red: 65535, green: 65535, blue: 65535)
+  let hx = art.hx * k + (if art.hx > 0: k div 2 else: 0)
+  let hy = art.hy * k + (if art.hy > 0: k div 2 else: 0)
+  let cur = XCreatePixmapCursor(gDisplay, sp, mp, addr fg, addr bg, hx.cuint, hy.cuint)
+  discard XFreePixmap(gDisplay, sp)
+  discard XFreePixmap(gDisplay, mp)
+  gCursorCache.add (c, k, cur)
+  uint(cur)
+
+proc drawnCursors(): bool =
+  if x11DrawnCursors >= 0: x11DrawnCursors == 1 else: gUiScale >= 150
+
+proc cursorFor(c: CursorKind): XID =
+  ## The cursor `c` this window shows: drawn at the screen's scale, or the
+  ## cursor font's (kept: one of each).
+  if drawnCursors(): return XID(x11ClassicCursor(c, max(1, (gUiScale + 50) div 100)))
+  for e in gCursorCache:
+    if e.kind == c and e.scale == 0: return e.cursor
   let shape = case c
     of curDefault, curArrow: XC_left_ptr
     of curIbeam: XC_xterm
@@ -2846,8 +2991,11 @@ proc x11SetCursor(c: CursorKind) =
     of curSizeNWSE: XC_bottom_right_corner
     of curSizeNESW: XC_bottom_left_corner
     of curMove: XC_fleur
-  let cur = XCreateFontCursor(gDisplay, shape)
-  discard XDefineCursor(gDisplay, gWindow, cur)
+  result = XCreateFontCursor(gDisplay, shape)
+  gCursorCache.add (c, 0, result)
+
+proc x11SetCursor(c: CursorKind) =
+  discard XDefineCursor(gDisplay, gWindow, cursorFor(c))
 
 proc x11SetWindowTitle(title: string) =
   if gDisplay == nil or gWindow == None: return
