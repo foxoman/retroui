@@ -2,9 +2,9 @@
 # Uses a double-buffered GDI approach: draw to an off-screen bitmap,
 # BitBlt to window on refresh.
 
-import ../coords, ../input, ../screen, ../services
+import ../coords, ../input, ../screen, ../services, ../access
 import penaxes
-import std/[widestrs, strutils, os]
+import std/[widestrs, strutils, os, dynlib, unicode]
 
 {.passL: "-lgdi32 -luser32 -lkernel32".}
 
@@ -363,6 +363,8 @@ proc ImmSetCompositionWindow(imc: HANDLE; form: ptr COMPOSITIONFORM): BOOL
   {.stdcall, dynlib: "imm32", importc.}
 proc ImmSetCandidateWindow(imc: HANDLE; form: ptr CANDIDATEFORM): BOOL
   {.stdcall, dynlib: "imm32", importc.}
+proc ImmGetCompositionStringW(imc: HANDLE; index: DWORD; buf: pointer; len: DWORD): LONG
+  {.stdcall, dynlib: "imm32", importc.}
 proc Sleep(dwMilliseconds: DWORD)
   {.stdcall, dynlib: "kernel32", importc.}
 proc GlobalAlloc(uFlags: UINT; dwBytes: uint): HGLOBAL
@@ -603,6 +605,9 @@ var
   gBackDC: HDC        # off-screen DC for double buffering
   gBackBmp: HBITMAP   # off-screen bitmap
   gOldBmp: HGDIOBJ    # original bitmap selected into gBackDC
+  gBackBits: ptr UncheckedArray[uint32]   # gBackBmp's pixels (a DIB section)
+  gDirty: WINAPIRECT  # what changed since the last refresh
+  gDirtyAll = false   # ... or all of it (GDI drew somewhere)
   gWidth, gHeight: int32
   gQuitFlag: bool
   gSavedClipRgn: HRGN
@@ -733,7 +738,22 @@ proc currentUiScale(): int =
 
 proc recreateBackBuffer() =
   let screenDC = GetDC(gHwnd)
-  let newBmp = CreateCompatibleBitmap(screenDC, gWidth, gHeight)
+  # A DIB section, top row first: its pixels are lent to the app to draw
+  # the frame in (`lockSurface`), so nothing is copied on the way to the
+  # window; a compatible bitmap where that cannot be had.
+  var bmi = BITMAPINFO()
+  bmi.bmiHeader.biSize = DWORD(sizeof(BITMAPINFOHEADER))
+  bmi.bmiHeader.biWidth = max(1, gWidth).LONG
+  bmi.bmiHeader.biHeight = LONG(-max(1, gHeight))
+  bmi.bmiHeader.biPlanes = 1
+  bmi.bmiHeader.biBitCount = 32
+  bmi.bmiHeader.biCompression = BI_RGB
+  var bits: pointer
+  var newBmp = CreateDIBSection(screenDC, addr bmi, DIB_RGB_COLORS, addr bits, nil, 0)
+  if newBmp == nil or bits == nil:
+    bits = nil
+    newBmp = CreateCompatibleBitmap(screenDC, gWidth, gHeight)
+  gBackBits = cast[ptr UncheckedArray[uint32]](bits)
   if gBackDC == nil:
     gBackDC = CreateCompatibleDC(screenDC)
   if gBackBmp != nil:
@@ -863,6 +883,10 @@ type
 
 proc ScreenToClient(hWnd: HWND; lpPoint: ptr WINAPIPOINT): BOOL
   {.stdcall, dynlib: "user32", importc.}
+proc ClientToScreen(hWnd: HWND; lpPoint: ptr WINAPIPOINT): BOOL
+  {.stdcall, dynlib: "user32", importc.}
+proc IsIconic(hWnd: HWND): BOOL
+  {.stdcall, dynlib: "user32", importc.}
 
 var
   gPointerApi = 0     ## 0: not looked up yet; 1: there; -1: not there
@@ -939,6 +963,30 @@ proc workArea(hwnd: HWND): tuple[monitor, work: WINAPIRECT] =
 
 proc styleWord(style: uint32): int {.inline.} = cast[int](uint(style))
 
+var gResizable = true     ## the user may size and maximize the window
+var gAsked: tuple[w, h: int]  ## the inside's size the app asked for, scaled
+
+proc noteWindowPlace() =
+  ## (where the window's inside is on the screen, and its size: for the next
+  ## run of the app, `keepWindowPlace`; not while maximized or minimized)
+  if gHwnd == nil or not keepsWindowPlace(): return
+  if IsZoomed(gHwnd) != 0 or IsIconic(gHwnd) != 0: return
+  var pt: WINAPIPOINT
+  discard ClientToScreen(gHwnd, addr pt)
+  var rc: WINAPIRECT
+  discard GetClientRect(gHwnd, addr rc)
+  keepWindowPlace(pt.x.int, pt.y.int, int(rc.right - rc.left), int(rc.bottom - rc.top),
+                  gAsked.w, gAsked.h)
+
+proc frameStyle(): uint32 =
+  ## (the window's style: Windows' frame or the app's; without the sizing
+  ## border and the maximize box when it is not to be sized -- the app's
+  ## frame keeps the border, which its hit test answers, and refuses itself)
+  result = if gSystemFrame: WS_OVERLAPPEDWINDOW else: WS_FRAMELESS
+  if not gResizable:
+    result = result and not WS_MAXIMIZEBOX
+    if gSystemFrame: result = result and not WS_THICKFRAME
+
 # ---- the app's item in the system menu ----
 var
   gMenuLabel = ""              # the app's item in the system menu ("" none)
@@ -999,12 +1047,19 @@ proc winTextCaret(x, y, w, h: int) =
   gCaret = (true, x, y, w, h)
   placeIme()
 
+proc uiaGetObject(hwnd: HWND; wp: WPARAM; lp: LPARAM; handled: var bool): LRESULT
+  ## (winuia.nim: a screen reader asks for the window's tree)
+
 proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.} =
   # Capture gHwnd from the first message -- WM_SIZE etc. arrive
   # during CreateWindowExW, *before* it returns and assigns gHwnd.
   if gHwnd == nil and hwnd != nil:
     gHwnd = hwnd
   case msg
+  of 0x003D'u32:            # WM_GETOBJECT: a screen reader
+    var handled = false
+    let r = uiaGetObject(hwnd, wp, lp, handled)
+    if handled: return r
   of WM_DESTROY:
     PostQuitMessage(0)
     pushEvent(input.Event(kind: QuitEvent))
@@ -1083,7 +1138,12 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
     # (no frame of Windows' to show in the active or the inactive colors)
     if not gSystemFrame: return DefWindowProcW(hwnd, msg, wp, -1)
 
+  of 0x0003'u32:                  # WM_MOVE: where it is, for the next run
+    noteWindowPlace()
+    return 0
+
   of WM_SIZE:
+    noteWindowPlace()
     let newW = loWord(lp).int32
     let newH = hiWord(lp).int32
     if newW > 0 and newH > 0 and (newW != gWidth or newH != gHeight):
@@ -1125,7 +1185,11 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
       # Drawn with OpenGL: the app draws the window again.
       pushEvent(input.Event(kind: AppResumeEvent))
     elif gBackDC != nil:
-      discard BitBlt(hdc, 0, 0, gWidth, gHeight, gBackDC, 0, 0, SRCCOPY)
+      # (only the part that changed or was uncovered)
+      let r = ps.rcPaint
+      if r.right > r.left and r.bottom > r.top:
+        discard BitBlt(hdc, r.left, r.top, r.right - r.left, r.bottom - r.top,
+                       gBackDC, r.left, r.top, SRCCOPY)
     discard EndPaint(hwnd, addr ps)
     return 0
 
@@ -1192,6 +1256,40 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
     # (an input method begins: its windows where the caret is; DefWindowProc
     # does the rest)
     placeIme()
+
+  of 0x0281'u32:            # WM_IME_SETCONTEXT
+    # (what it composes is drawn in the text box: not in a window of its own;
+    # its candidates are still its own)
+    return DefWindowProcW(hwnd, msg, wp, lp and not LPARAM(0x80000000'u32))
+
+  of 0x010F'u32:            # WM_IME_COMPOSITION
+    if (lp and 0x0008) != 0:              # GCS_COMPSTR: what it composes now
+      let imc = ImmGetContext(hwnd)
+      if imc != nil:
+        let bytes = ImmGetCompositionStringW(imc, 0x0008, nil, 0)
+        var w = newSeq[uint16](max(0, bytes div 2) + 1)
+        if bytes > 0: discard ImmGetCompositionStringW(imc, 0x0008, addr w[0], DWORD(bytes))
+        let caret16 = ImmGetCompositionStringW(imc, 0x0080, nil, 0)   # GCS_CURSORPOS
+        discard ImmReleaseContext(hwnd, imc)
+        var e = input.Event(kind: TextEditingEvent)
+        var before = ""
+        var i = 0
+        let n = max(0, bytes div 2)
+        while i < n:
+          var cp = uint32(w[i])
+          if cp >= 0xD800 and cp <= 0xDBFF and i + 1 < n:
+            cp = 0x10000'u32 + ((cp - 0xD800) shl 10) + (uint32(w[i + 1]) - 0xDC00)
+            inc i
+          let piece = $Rune(int32(cp))
+          if i < caret16: before.add piece
+          e.composing.add piece
+          inc i
+        e.x = if caret16 >= 0: before.len else: e.composing.len
+        pushEvent(e)
+    # (what it settles on comes as WM_CHAR, through DefWindowProc)
+
+  of 0x010E'u32:            # WM_IME_ENDCOMPOSITION
+    pushEvent(input.Event(kind: TextEditingEvent))
 
   of WM_KILLFOCUS:
     pushEvent(input.Event(kind: WindowFocusLostEvent))
@@ -1353,18 +1451,31 @@ proc winCreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   var work: WINAPIRECT
   let hasWork = SystemParametersInfoW(0x0030, 0, addr work, 0) != 0   # SPI_GETWORKAREA
   if layout.width >= 0 and layout.height >= 0:
-    var rc = WINAPIRECT(left: 0, top: 0,
-                        right: int32(layout.width * gUiScale div 100),
-                        bottom: int32(layout.height * gUiScale div 100))
+    gAsked = (layout.width * gUiScale div 100, layout.height * gUiScale div 100)
+    # where the last run left it ($RETRO_WINDOW_STATE): the inside there, at
+    # the size the user gave it unless the app asks for another one now
+    let kept = keptWindowPlace(gAsked.w, gAsked.h)
+    var rc = WINAPIRECT(left: 0, top: 0, right: int32(gAsked.w), bottom: int32(gAsked.h))
+    if kept.found:
+      let (w, h) = if kept.w > 0 and gResizable: (kept.w, kept.h) else: gAsked
+      rc = WINAPIRECT(left: int32(kept.x), top: int32(kept.y),
+                      right: int32(kept.x + w), bottom: int32(kept.y + h))
     # (without Windows' frame the window is all inside)
-    if gSystemFrame: discard AdjustWindowRectEx(addr rc, WS_OVERLAPPEDWINDOW, 0, 0)
+    if gSystemFrame: discard AdjustWindowRectEx(addr rc, frameStyle(), 0, 0)
+    if kept.found:
+      x = rc.left
+      y = rc.top
     outerW = rc.right - rc.left
     outerH = rc.bottom - rc.top
     # No bigger than the desktop without the taskbar.
     if hasWork:
       outerW = min(outerW, work.right - work.left)
       outerH = min(outerH, work.bottom - work.top)
-      if not gSystemFrame:
+      if kept.found:
+        # (all of it on the desktop, should the screen be another one now)
+        x = clamp(x, work.left, max(work.left, work.right - outerW))
+        y = clamp(y, work.top, max(work.top, work.bottom - outerH))
+      elif not gSystemFrame:
         # CW_USEDEFAULT places only windows with a caption: this one is
         # put in the middle of the desktop.
         x = work.left + (work.right - work.left - outerW) div 2
@@ -1380,7 +1491,7 @@ proc winCreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
     0,
     cast[ptr uint16](className[0].addr),
     cast[ptr uint16](title[0].addr),
-    (if gSystemFrame: WS_OVERLAPPEDWINDOW else: WS_FRAMELESS) or WS_VISIBLE,
+    frameStyle() or WS_VISIBLE,
     x, y, outerW, outerH,
     nil, nil, gHinstance, nil)
 
@@ -1424,9 +1535,36 @@ proc winGetWindowLayout(): ScreenLayout =
   ScreenLayout(width: gWidth.int, height: gHeight.int,
                scaleX: 1, scaleY: 1, uiScale: gUiScale)
 
+proc dirty(x, y, w, h: int) =
+  ## The back buffer's rectangle changed: the next refresh shows it.
+  if w <= 0 or h <= 0: return
+  let r = WINAPIRECT(left: x.int32, top: y.int32, right: int32(x + w), bottom: int32(y + h))
+  if gDirty.right <= gDirty.left or gDirty.bottom <= gDirty.top:
+    gDirty = r
+  else:
+    gDirty.left = min(gDirty.left, r.left)
+    gDirty.top = min(gDirty.top, r.top)
+    gDirty.right = max(gDirty.right, r.right)
+    gDirty.bottom = max(gDirty.bottom, r.bottom)
+
 proc winRefresh() =
-  discard InvalidateRect(gHwnd, nil, 0)
+  # (only what changed is copied to the window: a caret's blink is a few
+  # pixels, not the whole window)
+  if gDirtyAll or gDirty.right <= gDirty.left or gDirty.bottom <= gDirty.top:
+    discard InvalidateRect(gHwnd, nil, 0)
+  else:
+    discard InvalidateRect(gHwnd, addr gDirty, 0)
+  gDirty = WINAPIRECT()
+  gDirtyAll = false
   discard UpdateWindow(gHwnd)
+
+proc winLockSurface(w, h: int): ptr UncheckedArray[uint32] =
+  if gGpu or gBackBits == nil or w != gWidth.int or h != gHeight.int: return nil
+  discard GdiFlush()      # (GDI's own drawing on it finished first)
+  gBackBits
+
+proc winPresentSurface(r: coords.Rect) =
+  dirty(r.x, r.y, r.w, r.h)
 
 proc winSaveState() =
   # Save current clip region
@@ -1455,6 +1593,8 @@ proc winPutRGBA(pixels: ptr UncheckedArray[uint32]; w, h: int;
   ## relays. What it can do is take finished pixels from whoever does.
   if gBackDC == nil or pixels == nil: return false
   if w <= 0 or h <= 0 or dst.w <= 0 or dst.h <= 0: return false
+  dirty(dst.x, dst.y, (if scaleImage: dst.w else: min(w, dst.w)),
+        (if scaleImage: dst.h else: min(h, dst.h)))
   var bmi = BITMAPINFO()
   bmi.bmiHeader.biSize = DWORD(sizeof(BITMAPINFOHEADER))
   bmi.bmiHeader.biWidth = w.LONG
@@ -1713,6 +1853,7 @@ proc winDrawText(f: screen.Font; x, y: int; text: string;
   discard GetTextExtentPoint32W(gBackDC, cast[ptr uint16](wtext[0].addr),
     wlen, addr sz)
   discard SelectObject(gBackDC, oldFont)
+  dirty(x, y, sz.cx.int, sz.cy.int)
   result = TextExtent(w: sz.cx.int, h: sz.cy.int)
 
 proc winRenderText(f: screen.Font; text: string; fg: screen.Color;
@@ -1782,10 +1923,12 @@ proc winFillRect(r: coords.Rect; color: screen.Color) =
   var wr = WINAPIRECT(
     left: r.x.int32, top: r.y.int32,
     right: (r.x + r.w).int32, bottom: (r.y + r.h).int32)
+  dirty(r.x, r.y, r.w, r.h)
   discard FillRectGdi(gBackDC, addr wr, brush)
   discard DeleteObject(cast[HGDIOBJ](brush))
 
 proc winDrawLine(x1, y1, x2, y2: int; color: screen.Color) =
+  gDirtyAll = true
   let pen = CreatePen(0, 1, rgb(color)) # PS_SOLID = 0
   let oldPen = SelectObject(gBackDC, pen)
   discard MoveToEx(gBackDC, x1.int32, y1.int32, nil)
@@ -1794,6 +1937,7 @@ proc winDrawLine(x1, y1, x2, y2: int; color: screen.Color) =
   discard DeleteObject(pen)
 
 proc winDrawPoint(x, y: int; color: screen.Color) =
+  dirty(x, y, 1, 1)
   discard SetPixel(gBackDC, x.int32, y.int32, rgb(color))
 
 proc winSetCursor(c: CursorKind) =
@@ -1819,20 +1963,27 @@ proc winSetWindowTitle(title: string) =
 
 # ---- Frame hook implementations ----
 
+proc restyle() =
+  ## The style changes and the frame is worked out again (WM_NCCALCSIZE);
+  ## the window stays where it is, as large as it was.
+  if gHwnd == nil: return
+  let keep = uint32(GetWindowLongPtrW(gHwnd, GWL_STYLE) and 0xFFFFFFFF) and
+             (WS_VISIBLE or WS_MINIMIZE or WS_MAXIMIZE)
+  discard SetWindowLongPtrW(gHwnd, GWL_STYLE, styleWord(keep or frameStyle()))
+  discard SetWindowPos(gHwnd, nil, 0, 0, 0, 0,
+    SWP_FRAMECHANGED or SWP_NOMOVE or SWP_NOSIZE or SWP_NOZORDER or
+    SWP_NOACTIVATE or SWP_NOOWNERZORDER)
+
 proc winSetSystemFrame(on: bool): bool =
   if on != gSystemFrame:
     gSystemFrame = on
-    if gHwnd != nil:
-      # The style changes and the frame is worked out again (WM_NCCALCSIZE);
-      # the window stays where it is, as large as it was.
-      let keep = uint32(GetWindowLongPtrW(gHwnd, GWL_STYLE) and 0xFFFFFFFF) and
-                 (WS_VISIBLE or WS_MINIMIZE or WS_MAXIMIZE)
-      discard SetWindowLongPtrW(gHwnd, GWL_STYLE,
-        styleWord(keep or (if on: WS_OVERLAPPEDWINDOW else: WS_FRAMELESS)))
-      discard SetWindowPos(gHwnd, nil, 0, 0, 0, 0,
-        SWP_FRAMECHANGED or SWP_NOMOVE or SWP_NOSIZE or SWP_NOZORDER or
-        SWP_NOACTIVATE or SWP_NOOWNERZORDER)
+    restyle()
   true
+
+proc winSetResizable(on: bool) =
+  if on != gResizable:
+    gResizable = on
+    restyle()
 
 proc winDragWindow(part: WindowPart; keyboard: bool): bool =
   if gHwnd == nil or part == wpClient: return false
@@ -2333,7 +2484,12 @@ proc initWinapiFontRelays*() =
   ## Installs only the Win32 font provider.
   fontRelays = winapiFontRelays()
 
+include winuia
+
 proc initWinapiDriver*() =
+  surfaceRelays = SurfaceRelays(lockSurface: winLockSurface,
+                                presentSurface: winPresentSurface)
+  accessRelays = AccessRelays(start: uiaStart, update: uiaUpdate)
   gpuRelays = GpuRelays(
     startGpu: winStartGpu, stopGpu: winStopGpu,
     swapGpu: proc (): bool = gGpu and SwapBuffers(gGlDC) != 0,
@@ -2352,7 +2508,8 @@ proc initWinapiDriver*() =
   frameRelays = FrameRelays(
     setSystemFrame: winSetSystemFrame, dragWindow: winDragWindow,
     setMaximized: winSetMaximized, maximized: winMaximized, active: winActive,
-    menuItem: winMenuItem, menuItemChosen: winMenuItemChosen)
+    menuItem: winMenuItem, menuItemChosen: winMenuItemChosen,
+    setResizable: winSetResizable)
   systemRelays.minimize = winMinimize
   textCaretRelay = winTextCaret
   fileDragRelays = FileDragRelays(dragOut: winDragFilesOut)

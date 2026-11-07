@@ -31,6 +31,7 @@ const
   evQuit = 14'i32
   evGesture = 15'i32     # two fingers (Android): x, y their middle; button the phase;
                          # pressure the scale, tilt and azimuth the move
+  evCompose = 16'i32     # what the keyboard composes changed (Android): uirelays_compose_take
 
 proc urWait(e: ptr UrEvent; timeoutMs: cint): cint {.importc: "uirelays_wait", cdecl.}
 proc urWaitWindow() {.importc: "uirelays_wait_window", cdecl.}
@@ -86,6 +87,10 @@ proc mapMods(meta: int32): set[Modifier] =
   if (meta and 0x1000) != 0: result.incl CtrlPressed     # AMETA_CTRL_ON
   if (meta and 0x10000) != 0: result.incl GuiPressed     # AMETA_META_ON
 
+var composeTake*: proc (caret: var int): string {.nimcall.}
+  ## What the system's keyboard composes now and its caret (characters):
+  ## set by a driver whose keyboard composes (Android's).
+
 proc next(e: var Event; timeoutMs: int; flags: set[InputFlag]): bool =
   urKeyboard(cint(WantTextInput in flags))
   var r: UrEvent
@@ -125,6 +130,19 @@ proc next(e: var Event; timeoutMs: int; flags: set[InputFlag]): bool =
   of evText:
     e = Event(kind: TextInputEvent)
     for i in 0 .. 3: e.text[i] = r.text[i]
+  of evCompose:
+    e = Event(kind: TextEditingEvent)
+    if composeTake != nil:
+      var caret = 0
+      e.composing = composeTake(caret)
+      # (its caret, characters into it, made bytes)
+      var b = 0
+      var k = 0
+      while b < e.composing.len and k < caret:
+        let c = uint8(e.composing[b])
+        b += (if c < 0x80: 1 elif c < 0xE0: 2 elif c < 0xF0: 3 else: 4)
+        inc k
+      e.x = min(b, e.composing.len)
   of evResize: e = Event(kind: WindowResizeEvent, x: r.x, y: r.y)
   of evMetrics:
     let l = layoutNow()

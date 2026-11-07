@@ -205,11 +205,32 @@ type
       ## frame (pixels, from the top left): the system copies only those.
       ## Optional.
 
+  SurfaceRelays* = object
+    ## The window's own pixels, for an app that draws every pixel itself:
+    ## the driver lends it a buffer the screen takes its pixels from (shared
+    ## memory, a DIB section), so a frame goes up without being copied on
+    ## the way. Both relays are optional: without them (or when
+    ## `lockSurface` gives nil) the pixels go through `blitRGBA` as before.
+    lockSurface*: proc (w, h: int): ptr UncheckedArray[uint32] {.nimcall.}
+      ## The window's buffer, `w` x `h` device pixels, one row after the
+      ## other with nothing between them, 0x00RRGGBB in host byte order
+      ## (the top byte is not read). Ready to be written: the screen has
+      ## taken what was presented before. It keeps the pixels of the frames
+      ## before, so only what changed needs drawing -- unless the pointer
+      ## differs from the last one (a new buffer: draw all of it). nil when
+      ## there is none.
+    presentSurface*: proc (r: Rect) {.nimcall.}
+      ## The buffer's rectangle `r` (device pixels) put on the window;
+      ## `refresh` shows what was presented since the last one.
+
 proc `==`*(a, b: Font): bool {.borrow.}
 proc `==`*(a, b: Image): bool {.borrow.}
 
 var gpuRelays*: GpuRelays
   ## Filled by the drivers that can draw with OpenGL (none by default).
+
+var surfaceRelays*: SurfaceRelays
+  ## Filled by the drivers that lend the window's pixels (none by default).
 
 var windowRelays* = WindowRelays(
   createWindow: proc (layout: var ScreenLayout;

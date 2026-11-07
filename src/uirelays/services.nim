@@ -60,8 +60,8 @@ type
     ## where there is none; GTK 4 (Wayland's own windows too; the arrow keys
     ## on X11 only) and Siwin (not on macOS; no arrow keys) all but
     ## `menuItem`; SDL 3 and SDL 2 all but `menuItem` and `dragWindow`,
-    ## moving and sizing by `windowPartAt` instead. Android and iOS have no
-    ## windows to frame.
+    ## moving and sizing by `windowPartAt` instead. `setResizable`: all of
+    ## these but Siwin. Android and iOS have no windows to frame.
     setSystemFrame*: proc (on: bool): bool {.nimcall.}
       ## The system's frame and title bar on (true) or off: off, the app's
       ## drawing fills the whole window and the app draws a frame of its own.
@@ -98,6 +98,12 @@ type
       ## settings.
     menuItemChosen*: proc (): bool {.nimcall.}
       ## The item of `menuItem` was picked since the last call (once).
+    setResizable*: proc (on: bool) {.nimcall.}
+      ## The user may size and maximize the window (true, as windows are
+      ## made) or not: the system's frame then has no sizing border and no
+      ## maximize button, and the window keeps its size. Called before
+      ## `createWindow`, the window is made so. (The app's own frame does
+      ## the same on its side.)
 
   DragOutResult* = enum
     ## How a drag of files out of the window ended (`startFileDragOut`).
@@ -540,6 +546,10 @@ proc setFrameMenuItem*(label: string; checked = false): bool {.discardable.} =
 proc frameMenuItemChosen*(): bool =
   ## The item of `setFrameMenuItem` was picked since the last call.
   frameRelays.menuItemChosen != nil and frameRelays.menuItemChosen()
+proc setWindowResizable*(on: bool) =
+  ## The system's frame lets the user size and maximize the window, or not
+  ## (see `FrameRelays.setResizable`); nothing where the driver cannot say.
+  if frameRelays.setResizable != nil: frameRelays.setResizable(on)
 
 var fileDragRelays*: FileDragRelays
   ## Filled by the desktop drivers that can drag files out of the window
@@ -556,3 +566,53 @@ proc startFileDragOut*(paths: openArray[string]; move = false;
   ## no paths.
   if fileDragRelays.dragOut == nil or paths.len == 0: return drNone
   fileDragRelays.dragOut(@paths, move, backInside)
+
+# ---- the window's place, kept between runs ($RETRO_WINDOW_STATE) -------------------------------
+#
+# A program started again and again while it is worked on (`retrokit run
+# --watch` starts it again on every save) opens its window where the last
+# run left it. The drivers that can place their window read the file
+# $RETRO_WINDOW_STATE names when they make the window, and write it when the
+# window is moved or sized: X11 (with a window manager or without), Windows,
+# macOS, SDL 2 and SDL 3. (GTK 4 and Siwin cannot place a window: theirs
+# opens where the system puts it.) One line, "x y w h aw ah": where the
+# window's inside -- without the system's frame -- is on the screen and its
+# size, in the screen's pixels, and the size the app asked for then; a size
+# the app asks for that is not that one is a change to its code, and wins
+# over the size the user gave the window.
+
+type KeptPlace* = object
+  ## Where the last run left the window (`keptWindowPlace`).
+  found*: bool      ## the file names a place
+  x*, y*: int       ## the window's inside on the screen, in the screen's pixels
+  w*, h*: int       ## its size, 0 when the app asks for another size now
+
+proc keepsWindowPlace*(): bool = getEnv("RETRO_WINDOW_STATE").len > 0
+  ## The window's place is kept for the next run ($RETRO_WINDOW_STATE is
+  ## set): a driver notes it when the window moves or is sized.
+
+proc keptWindowPlace*(askedW, askedH: int): KeptPlace =
+  ## Where the last run of the app left its window ($RETRO_WINDOW_STATE),
+  ## for a window the app asks to be `askedW` x `askedH` screen pixels.
+  let path = getEnv("RETRO_WINDOW_STATE")
+  if path.len == 0: return
+  try:
+    let v = readFile(path).splitWhitespace()
+    if v.len < 6: return
+    var n: array[6, int]
+    for i in 0 ..< 6: n[i] = parseInt(v[i])
+    result = KeptPlace(found: true, x: n[0], y: n[1])
+    if n[4] == askedW and n[5] == askedH and n[2] > 0 and n[3] > 0:
+      result.w = n[2]
+      result.h = n[3]
+  except CatchableError: discard
+
+proc keepWindowPlace*(x, y, w, h, askedW, askedH: int) =
+  ## Writes where the window is now ($RETRO_WINDOW_STATE; nothing when it
+  ## is not set): the window's inside on the screen and its size, and the
+  ## size the app asked for.
+  let path = getEnv("RETRO_WINDOW_STATE")
+  if path.len == 0 or w <= 0 or h <= 0: return
+  try: writeFile(path, $x & " " & $y & " " & $w & " " & $h & " " & $askedW & " " &
+                       $askedH & "\n")
+  except CatchableError: discard

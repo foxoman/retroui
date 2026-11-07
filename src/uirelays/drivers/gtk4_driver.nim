@@ -467,6 +467,31 @@ proc onImCommit(ctx: pointer; str: cstring; data: pointer) {.cdecl.} =
   if str != nil:
     enqueueTextFromUtf8($str)
 
+proc gtk_im_context_get_preedit_string(im: pointer; str: ptr cstring; attrs: ptr pointer;
+                                       cursor: ptr cint) {.importc, nodecl, cdecl.}
+proc pango_attr_list_unref(l: pointer) {.importc, nodecl, cdecl.}
+
+proc onImPreedit(ctx: pointer; data: pointer) {.cdecl.} =
+  ## What the input method composes changed: the app draws it in the text box.
+  var str: cstring
+  var attrs: pointer
+  var cursor: cint
+  gtk_im_context_get_preedit_string(ctx, addr str, addr attrs, addr cursor)
+  var e = Event(kind: TextEditingEvent)
+  if str != nil:
+    e.composing = $str
+    g_free(cast[pointer](str))
+  if attrs != nil: pango_attr_list_unref(attrs)
+  # (its caret: characters into it, made bytes)
+  var b = 0
+  var k = 0
+  while b < e.composing.len and k < cursor:
+    let c = uint8(e.composing[b])
+    b += (if c < 0x80: 1 elif c < 0xE0: 2 elif c < 0xF0: 3 else: 4)
+    inc k
+  e.x = min(b, e.composing.len)
+  pushEvent(e)
+
 proc gdk_event_get_device_tool(ev: pointer): pointer {.importc, nodecl, cdecl.}
 proc gdk_device_tool_get_tool_type(tool: pointer): cint {.importc, nodecl, cdecl.}
 proc gdk_event_get_axis(ev: pointer; axis: cint; value: ptr gdouble): gboolean
@@ -530,6 +555,7 @@ proc onFocusLeave(ctrl: pointer; data: pointer) {.cdecl.} =
 # sizing are X11's only (a button of 0 to GDK); Wayland has none.
 
 proc gtk_window_set_decorated(win: pointer; setting: gboolean) {.importc, nodecl, cdecl.}
+proc gtk_window_set_resizable(win: pointer; setting: gboolean) {.importc, nodecl, cdecl.}
 proc gtk_window_unmaximize(win: pointer) {.importc, nodecl, cdecl.}
 proc gtk_window_minimize(win: pointer) {.importc, nodecl, cdecl.}
 proc gtk_window_is_maximized(win: pointer): gboolean {.importc, nodecl, cdecl.}
@@ -571,6 +597,12 @@ proc gtkSetSystemFrame(on: bool): bool =
   systemFrame = on
   if win != nil: gtk_window_set_decorated(win, if on: G_TRUE else: G_FALSE)
   true
+
+var resizable = true   ## the user may size the window
+
+proc gtkSetResizable(on: bool) =
+  resizable = on
+  if win != nil: gtk_window_set_resizable(win, if on: G_TRUE else: G_FALSE)
 
 proc gtkDragWindow(part: WindowPart; keyboard: bool): bool =
   if win == nil or part == wpClient: return false
@@ -713,6 +745,7 @@ proc gtkCreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   gtk_window_set_icon_name(win, instName.cstring)
   # (without the system's frame: asked for before the window is shown)
   if not systemFrame: gtk_window_set_decorated(win, G_FALSE)
+  if not resizable: gtk_window_set_resizable(win, G_FALSE)
   discard g_signal_connect_data(win, "notify::maximized",
     cast[GCallback](onMaximizedChanged), nil, nil, 0)
   discard g_signal_connect_data(win, "notify::is-active",
@@ -749,6 +782,8 @@ proc gtkCreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   gtk_event_controller_key_set_im_context(keyc, imContext)
   discard g_signal_connect_data(imContext, "commit",
     cast[GCallback](onImCommit), nil, nil, 0)
+  discard g_signal_connect_data(imContext, "preedit-changed",
+    cast[GCallback](onImPreedit), nil, nil, 0)
   let motion = gtk_event_controller_motion_new()
   gtk_widget_add_controller(drawingArea, motion)
   discard g_signal_connect_data(motion, "motion",
@@ -1163,7 +1198,8 @@ proc initGtk4Driver*() =
     getText: gtkGetClipboardText, putText: gtkPutClipboardText)
   frameRelays = FrameRelays(
     setSystemFrame: gtkSetSystemFrame, dragWindow: gtkDragWindow,
-    setMaximized: gtkSetMaximized, maximized: gtkMaximized, active: gtkActive)
+    setMaximized: gtkSetMaximized, maximized: gtkMaximized, active: gtkActive,
+    setResizable: gtkSetResizable)
   systemRelays.minimize = proc (): bool =
     if win == nil: return false
     gtk_window_minimize(win)

@@ -12,6 +12,8 @@
 #import <CoreText/CoreText.h>
 #import <CoreGraphics/CoreGraphics.h>
 #include <mach/mach_time.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 /* ---- Event queue (ring buffer) ---------------------------------------- */
 
@@ -22,7 +24,8 @@ enum {
   NE_WINDOW_RESIZE, NE_WINDOW_CLOSE,
   NE_WINDOW_FOCUS_GAINED, NE_WINDOW_FOCUS_LOST,
   NE_QUIT,
-  NE_FILE_DROP        /* files dropped on the window: cocoa_dropPath */
+  NE_FILE_DROP,       /* files dropped on the window: cocoa_dropPath */
+  NE_TEXT_EDIT        /* what an input method composes changed: cocoa_markedText */
 };
 
 enum {
@@ -53,6 +56,15 @@ typedef struct {
   float tiltX, tiltY; /* the pen's lean, -1 .. 1 each (NSEvent.tilt) */
   float rotation;     /* the pen's turn, degrees (NSEvent.rotation) */
 } NEEvent;
+
+/* What an input method composes now (cocoa_markedText). */
+static char markedUTF8[1024];
+static int markedCaret = 0;
+
+const char *cocoa_markedText(int *caret) {
+  *caret = markedCaret;
+  return markedUTF8;
+}
 
 #define EVENT_QUEUE_SIZE 256
 static NEEvent eventQueue[EVENT_QUEUE_SIZE];
@@ -552,13 +564,25 @@ void cocoa_detachSurface(void) {
 
 /* ---- Drawing primitives ----------------------------------------------- */
 
+/* What changed since the last refresh, in points: only that is drawn on
+   the window again (a caret's blink is a few pixels, not the window). */
+static CGRect dirtyPts;
+static int dirtyAll = 0;
+static void markDirty(CGFloat x, CGFloat y, CGFloat w, CGFloat h) {
+  if (w <= 0 || h <= 0) return;
+  CGRect r = CGRectMake(x, y, w, h);
+  dirtyPts = CGRectIsEmpty(dirtyPts) ? r : CGRectUnion(dirtyPts, r);
+}
+
 void cocoa_fillRect(int x, int y, int w, int h, int r, int g, int b, int a) {
+  markDirty(x, y, w, h);
   if (!backingCtx) return;
   CGContextSetRGBFillColor(backingCtx, r/255.0, g/255.0, b/255.0, a/255.0);
   CGContextFillRect(backingCtx, CGRectMake(x, y, w, h));
 }
 
 void cocoa_drawLine(int x1, int y1, int x2, int y2, int r, int g, int b, int a) {
+  dirtyAll = 1;
   if (!backingCtx) return;
   CGContextSetRGBStrokeColor(backingCtx, r/255.0, g/255.0, b/255.0, a/255.0);
   CGContextSetLineWidth(backingCtx, 1.0);
@@ -569,6 +593,7 @@ void cocoa_drawLine(int x1, int y1, int x2, int y2, int r, int g, int b, int a) 
 }
 
 void cocoa_drawPoint(int x, int y, int r, int g, int b, int a) {
+  markDirty(x, y, 1, 1);
   if (!backingCtx) return;
   CGContextSetRGBFillColor(backingCtx, r/255.0, g/255.0, b/255.0, a/255.0);
   CGContextFillRect(backingCtx, CGRectMake(x, y, 1, 1));
@@ -579,6 +604,7 @@ void cocoa_drawText(int fontHandle, int x, int y, const char *text,
                     int bgR, int bgG, int bgB, int bgA,
                     int *outW, int *outH) {
   *outW = 0; *outH = 0;
+  dirtyAll = 1;
   int idx = fontHandle - 1;
   if (idx < 0 || idx >= fontCount || !fonts[idx].font || !backingCtx) return;
   if (!text || !text[0]) return;
@@ -714,6 +740,7 @@ static int drawRGBA(const uint32_t *pixels, int w, int h,
 
   int cw = scaleImage ? dstW : (w < dstW ? w : dstW);
   int ch = scaleImage ? dstH : (h < dstH ? h : dstH);
+  markDirty(dstX, dstY, cw, ch);
   int drawW = scaleImage ? dstW : w;
   int drawH = scaleImage ? dstH : h;
 
@@ -744,6 +771,7 @@ int cocoa_drawRGBA(const uint32_t *pixels, int w, int h,
 
 void cocoa_drawImage(int handle, int srcX, int srcY, int srcW, int srcH,
                      int dstX, int dstY, int dstW, int dstH) {
+  markDirty(dstX, dstY, dstW, dstH);
   int idx = handle - 1;
   if (idx < 0 || idx >= imageCount || !imageSlots[idx] || !backingCtx) return;
 
@@ -1222,6 +1250,8 @@ static NSDictionary *fileUrlsOnly(void) {
   /* (what an input method composed is taken: nothing is marked now) */
   self.hasMarkedText = NO;
   self.markedLength = 0;
+  markedUTF8[0] = 0;
+  markedCaret = 0;
   NSString *s = ([string isKindOfClass:[NSAttributedString class]])
     ? [string string] : string;
   const char *utf8 = [s UTF8String];
@@ -1248,13 +1278,30 @@ static NSDictionary *fileUrlsOnly(void) {
 
 - (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange
       replacementRange:(NSRange)replacementRange {
-  NSUInteger n = [(NSString *)([string isKindOfClass:[NSAttributedString class]]
-                               ? [string string] : string) length];
+  NSString *s = [string isKindOfClass:[NSAttributedString class]] ? [string string] : string;
+  NSUInteger n = [s length];
   self.markedLength = n;
   self.hasMarkedText = n > 0;
+  /* (the app draws it in the text box: its text and caret, in UTF-8) */
+  const char *u = [s UTF8String];
+  snprintf(markedUTF8, sizeof markedUTF8, "%s", u ? u : "");
+  NSUInteger at = selectedRange.location <= n ? selectedRange.location : n;
+  const char *b = [[s substringToIndex:at] UTF8String];
+  markedCaret = b ? (int)strlen(b) : 0;
+  NEEvent e = {0};
+  e.kind = NE_TEXT_EDIT;
+  pushEvent(e);
 }
 
-- (void)unmarkText { self.hasMarkedText = NO; self.markedLength = 0; }
+- (void)unmarkText {
+  self.hasMarkedText = NO;
+  self.markedLength = 0;
+  markedUTF8[0] = 0;
+  markedCaret = 0;
+  NEEvent e = {0};
+  e.kind = NE_TEXT_EDIT;
+  pushEvent(e);
+}
 - (BOOL)hasMarkedText { return _hasMarkedText; }
 - (NSRange)markedRange {
   return _hasMarkedText ? NSMakeRange(0, self.markedLength) : NSMakeRange(NSNotFound, 0);
@@ -1295,6 +1342,51 @@ static NSString *appName(void) {
   return n ? n : @"";
 }
 
+/* ---- the window's place, kept between runs ($RETRO_WINDOW_STATE) ----
+   A program started again and again while it is worked on (`retrokit run
+   --watch`) opens its window where the last run left it, as uirelays'
+   services.nim has it: one line, "x y w h aw ah" -- the window's inside on
+   the screen, from the top left of the first screen, in points, and the
+   size the app asked for then (a size the app asks for that is not that one
+   is a change to its code, and wins over the size the user gave). */
+
+static int askedW = 0, askedH = 0;     /* the inside's size the app asked for */
+
+static CGFloat screensTop(void) {
+  NSArray *screens = [NSScreen screens];
+  return [screens count] > 0 ? NSMaxY([[screens objectAtIndex:0] frame]) : 0;
+}
+
+static void notePlace(NSWindow *w) {
+  const char *path = getenv("RETRO_WINDOW_STATE");
+  if (!path || !*path || !w || [w isMiniaturized] || cocoa_isMaximized()) return;
+  NSRect c = [w contentRectForFrameRect:[w frame]];
+  FILE *f = fopen(path, "w");
+  if (!f) return;
+  fprintf(f, "%d %d %d %d %d %d\n", (int)c.origin.x, (int)(screensTop() - NSMaxY(c)),
+          (int)c.size.width, (int)c.size.height, askedW, askedH);
+  fclose(f);
+}
+
+static BOOL keptPlace(BOOL sizable, NSRect *r) {
+  /* (`r`, the inside asked for, moved -- and sized -- where the last run left it) */
+  const char *path = getenv("RETRO_WINDOW_STATE");
+  if (!path || !*path) return NO;
+  FILE *f = fopen(path, "r");
+  if (!f) return NO;
+  int x, y, w, h, aw, ah;
+  int n = fscanf(f, "%d %d %d %d %d %d", &x, &y, &w, &h, &aw, &ah);
+  fclose(f);
+  if (n != 6) return NO;
+  if (sizable && aw == askedW && ah == askedH && w > 0 && h > 0) {
+    r->size.width = w;
+    r->size.height = h;
+  }
+  r->origin.x = x;
+  r->origin.y = screensTop() - y - r->size.height;
+  return YES;
+}
+
 @interface NimEditWindowDelegate : NSObject <NSWindowDelegate>
 @end
 
@@ -1319,6 +1411,11 @@ static NSString *appName(void) {
   e.x = (int)frame.size.width;
   e.y = (int)frame.size.height;
   pushEvent(e);
+  notePlace(w);
+}
+
+- (void)windowDidMove:(NSNotification *)n {
+  notePlace(n.object);
 }
 
 - (void)windowDidChangeBackingProperties:(NSNotification *)n {
@@ -1392,14 +1489,15 @@ static NSString *appName(void) {
 @end
 
 static int systemFrame = 1;          /* the system draws the frame */
+static int resizable = 1;            /* the user may size the window */
 static NSRect unzoomedFrame;         /* where a borderless window was before
                                         it was maximized */
 
 static NSUInteger styleFor(int framed) {
-  return framed ? (NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-                   NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
-                : (NSWindowStyleMaskBorderless | NSWindowStyleMaskMiniaturizable |
-                   NSWindowStyleMaskResizable);
+  NSUInteger style = framed ? (NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                               NSWindowStyleMaskMiniaturizable)
+                            : (NSWindowStyleMaskBorderless | NSWindowStyleMaskMiniaturizable);
+  return resizable ? (style | NSWindowStyleMaskResizable) : style;
 }
 
 /* ---- Window management ------------------------------------------------ */
@@ -1545,6 +1643,12 @@ void cocoa_createWindow(int w, int h, int *outW, int *outH,
     NSRect visible = [[NSScreen mainScreen] visibleFrame];
     NSRect maxContent = [NSWindow contentRectForFrameRect:visible styleMask:style];
     NSRect rect = NSMakeRect(100, 100, w, h);
+    /* (where the last run left it, $RETRO_WINDOW_STATE: see notePlace) */
+    if (w >= 0 && h >= 0) {
+      askedW = w;
+      askedH = h;
+      keptPlace(resizable != 0, &rect);
+    }
     if (w < 0) {
       rect.size.width = maxContent.size.width;
       rect.origin.x = maxContent.origin.x;
@@ -1624,7 +1728,10 @@ void cocoa_getWindowLayout(int *outW, int *outH, int *outScaleX, int *outScaleY)
 
 void cocoa_refresh(void) {
   @autoreleasepool {
-    [mainView setNeedsDisplay:YES];
+    if (dirtyAll || CGRectIsEmpty(dirtyPts)) [mainView setNeedsDisplay:YES];
+    else [mainView setNeedsDisplayInRect:NSRectFromCGRect(dirtyPts)];
+    dirtyPts = CGRectNull;
+    dirtyAll = 0;
     [mainView displayIfNeeded];
   }
 }
@@ -1699,6 +1806,21 @@ int cocoa_setSystemFrame(int on) {
       [mainWindow setFrame:frame display:YES];
       [mainWindow makeFirstResponder:mainView];
       noteContentSize();
+    }
+    return 1;
+  }
+}
+
+int cocoa_setResizable(int on) {
+  /* (no sizing edges, the zoom button grayed: the window keeps its size) */
+  @autoreleasepool {
+    resizable = on ? 1 : 0;
+    if (mainWindow) {
+      NSRect frame = [mainWindow frame];
+      [mainWindow setStyleMask:styleFor(systemFrame)];
+      [mainWindow setFrame:frame display:YES];
+      [[mainWindow standardWindowButton:NSWindowZoomButton] setEnabled:resizable ? YES : NO];
+      [mainWindow makeFirstResponder:mainView];
     }
     return 1;
   }
@@ -1985,4 +2107,263 @@ void cocoa_shutdown(void) {
   NEEvent e = {0};
   e.kind = NE_QUIT;
   pushEvent(e);
+}
+
+/* ---- screen readers: NSAccessibility (VoiceOver) ----------------------
+   The program's tree (cocoa_accessUpdate) becomes accessibility elements,
+   one a node, kept by id from frame to frame; the view is their container.
+   What VoiceOver asks (press, a value, the focus) goes to the program
+   (cocoa_accessRequest, in Nim) and wakes its loop. */
+
+typedef struct {
+  unsigned int nodeId;
+  int parent, role;
+  unsigned int states;
+  int x, y, w, h;
+  double lo, hi, now, step;
+  int caret, selA, selB, pos, count, level;
+  const char *name, *value, *help, *key;
+} NEAccessNode;
+
+/* (the program's: what a screen reader asked; that one listens) */
+extern void cocoa_accessRequest(int action, unsigned int nodeId, const char *text, double num);
+extern void cocoa_accessListen(void);
+
+enum { AX_FOCUSABLE = 1 << 0, AX_FOCUSED = 1 << 1, AX_DISABLED = 1 << 2, AX_CHECKED = 1 << 3,
+       AX_MIXED = 1 << 4, AX_SELECTED = 1 << 5, AX_EXPANDABLE = 1 << 6, AX_EXPANDED = 1 << 7,
+       AX_READONLY = 1 << 8, AX_DEFAULT = 1 << 9, AX_PRESSED = 1 << 10, AX_MULTILINE = 1 << 11,
+       AX_PROTECTED = 1 << 12, AX_MODAL = 1 << 13 };
+enum { AXR_WINDOW, AXR_PANE, AXR_GROUP, AXR_LABEL, AXR_BUTTON, AXR_TOGGLE, AXR_CHECK, AXR_RADIO,
+       AXR_FIELD, AXR_AREA, AXR_PASSWORD, AXR_COMBO, AXR_LIST, AXR_LISTITEM, AXR_SLIDER, AXR_SPIN,
+       AXR_PROGRESS, AXR_SCROLLBAR, AXR_MENUBAR, AXR_MENU, AXR_MENUITEM, AXR_TOOLBAR, AXR_STATUS,
+       AXR_TABLIST, AXR_TAB, AXR_TREE, AXR_TREEITEM, AXR_TABLE, AXR_ROW, AXR_CELL, AXR_COLHEADER,
+       AXR_DIALOG, AXR_LINK, AXR_IMAGE, AXR_HEADING, AXR_SEPARATOR, AXR_TOOLTIP, AXR_ALERT };
+enum { AXA_PRESS, AXA_FOCUS, AXA_SETVALUE, AXA_INCREMENT, AXA_DECREMENT };
+
+static void axWake(void) {
+  /* (the program's loop, maybe waiting for an event, goes on) */
+  NEEvent e = {0};
+  e.kind = NE_NONE;
+  pushEvent(e);
+  NSEvent *ev = [NSEvent otherEventWithType:NSEventTypeApplicationDefined location:NSZeroPoint
+                              modifierFlags:0 timestamp:0 windowNumber:0 context:nil
+                                    subtype:0 data1:0 data2:0];
+  [NSApp postEvent:ev atStart:NO];
+}
+
+@interface RetroAXElement : NSAccessibilityElement
+@property unsigned int nodeId;
+@property int axRole;
+@property unsigned int axStates;
+@property (copy) NSString *axName, *axValue, *axHelp;
+@property double lo, hi, now, step;
+@property NSRect local;
+@property (strong) NSMutableArray *kids;
+@end
+
+static NSMutableDictionary *axById = nil;   /* NSNumber (id) -> RetroAXElement */
+static NSMutableArray *axTop = nil;          /* the window's children */
+static RetroAXElement *axFocus = nil;
+static BOOL axListening = NO;
+
+static NSString *axString(const char *s) {
+  NSString *t = s ? [NSString stringWithUTF8String:s] : nil;
+  return t ? t : @"";
+}
+
+@implementation RetroAXElement
+- (NSRect)accessibilityFrame {
+  if (!mainView || !mainWindow) return NSZeroRect;
+  NSRect inWindow = [mainView convertRect:self.local toView:nil];
+  return [mainWindow convertRectToScreen:inWindow];
+}
+- (NSAccessibilityRole)accessibilityRole {
+  switch (self.axRole) {
+    case AXR_BUTTON: return NSAccessibilityButtonRole;
+    case AXR_TOGGLE: return NSAccessibilityCheckBoxRole;
+    case AXR_CHECK: return NSAccessibilityCheckBoxRole;
+    case AXR_RADIO: case AXR_TAB: return NSAccessibilityRadioButtonRole;
+    case AXR_FIELD: case AXR_PASSWORD: return NSAccessibilityTextFieldRole;
+    case AXR_AREA: return NSAccessibilityTextAreaRole;
+    case AXR_COMBO: return NSAccessibilityPopUpButtonRole;
+    case AXR_LIST: return NSAccessibilityListRole;
+    case AXR_LISTITEM: case AXR_LABEL: case AXR_HEADING: case AXR_STATUS: return NSAccessibilityStaticTextRole;
+    case AXR_SLIDER: return NSAccessibilitySliderRole;
+    case AXR_SPIN: return NSAccessibilityIncrementorRole;
+    case AXR_PROGRESS: return NSAccessibilityProgressIndicatorRole;
+    case AXR_SCROLLBAR: return NSAccessibilityScrollBarRole;
+    case AXR_MENUBAR: return NSAccessibilityMenuBarRole;
+    case AXR_MENU: return NSAccessibilityMenuRole;
+    case AXR_MENUITEM: return NSAccessibilityMenuItemRole;
+    case AXR_TOOLBAR: return NSAccessibilityToolbarRole;
+    case AXR_TABLIST: return NSAccessibilityTabGroupRole;
+    case AXR_TREE: return NSAccessibilityOutlineRole;
+    case AXR_TREEITEM: case AXR_ROW: return NSAccessibilityRowRole;
+    case AXR_TABLE: return NSAccessibilityTableRole;
+    case AXR_CELL: return NSAccessibilityCellRole;
+    case AXR_COLHEADER: return NSAccessibilityButtonRole;
+    case AXR_LINK: return NSAccessibilityLinkRole;
+    case AXR_IMAGE: return NSAccessibilityImageRole;
+    case AXR_SEPARATOR: return NSAccessibilitySplitterRole;
+    default: return NSAccessibilityGroupRole;
+  }
+}
+- (NSAccessibilitySubrole)accessibilitySubrole {
+  if (self.axRole == AXR_PASSWORD) return NSAccessibilitySecureTextFieldSubrole;
+  if (self.axRole == AXR_TOGGLE) return NSAccessibilityToggleSubrole;
+  if (self.axRole == AXR_TAB) return NSAccessibilityTabButtonSubrole;
+  if (self.axRole == AXR_DIALOG) return NSAccessibilityDialogSubrole;
+  return nil;
+}
+- (NSString *)accessibilityLabel { return self.axName; }
+- (NSString *)accessibilityTitle {
+  /* (a button's, a check box's, a menu item's title is its name) */
+  switch (self.axRole) {
+    case AXR_BUTTON: case AXR_TOGGLE: case AXR_CHECK: case AXR_RADIO: case AXR_TAB:
+    case AXR_MENUITEM: case AXR_MENU: case AXR_LINK: return self.axName;
+    default: return nil;
+  }
+}
+- (NSString *)accessibilityHelp { return self.axHelp.length > 0 ? self.axHelp : nil; }
+- (id)accessibilityValue {
+  switch (self.axRole) {
+    case AXR_FIELD: case AXR_AREA: case AXR_COMBO: return self.axValue;
+    case AXR_PASSWORD: return @"";
+    case AXR_LABEL: case AXR_HEADING: case AXR_STATUS: case AXR_LISTITEM: return self.axName;
+    case AXR_CHECK: case AXR_TOGGLE: case AXR_RADIO: case AXR_TAB:
+      return @((self.axStates & (AX_CHECKED | AX_PRESSED | AX_SELECTED)) ? 1 : 0);
+    case AXR_SLIDER: case AXR_SPIN: case AXR_PROGRESS: case AXR_SCROLLBAR: return @(self.now);
+    default: return nil;
+  }
+}
+- (id)accessibilityMinValue { return @(self.lo); }
+- (id)accessibilityMaxValue { return @(self.hi); }
+- (BOOL)isAccessibilityElement { return self.axRole != AXR_PANE; }
+- (BOOL)isAccessibilityEnabled { return (self.axStates & AX_DISABLED) == 0; }
+- (BOOL)isAccessibilityFocused { return (self.axStates & AX_FOCUSED) != 0; }
+- (BOOL)isAccessibilitySelected { return (self.axStates & AX_SELECTED) != 0; }
+- (BOOL)isAccessibilityExpanded { return (self.axStates & AX_EXPANDED) != 0; }
+- (NSArray *)accessibilityChildren { return self.kids; }
+- (BOOL)accessibilityPerformPress {
+  cocoa_accessRequest(AXA_PRESS, self.nodeId, NULL, 0);
+  axWake();
+  return YES;
+}
+- (BOOL)accessibilityPerformIncrement {
+  cocoa_accessRequest(AXA_INCREMENT, self.nodeId, NULL, 0);
+  axWake();
+  return YES;
+}
+- (BOOL)accessibilityPerformDecrement {
+  cocoa_accessRequest(AXA_DECREMENT, self.nodeId, NULL, 0);
+  axWake();
+  return YES;
+}
+- (BOOL)accessibilityPerformShowMenu { return NO; }
+- (void)setAccessibilityValue:(id)value {
+  if ([value isKindOfClass:[NSString class]]) {
+    cocoa_accessRequest(AXA_SETVALUE, self.nodeId, [value UTF8String], [value doubleValue]);
+  } else if ([value isKindOfClass:[NSNumber class]]) {
+    cocoa_accessRequest(AXA_SETVALUE, self.nodeId, [[value stringValue] UTF8String], [value doubleValue]);
+  } else return;
+  axWake();
+}
+- (void)setAccessibilityFocused:(BOOL)focused {
+  if (!focused) return;
+  cocoa_accessRequest(AXA_FOCUS, self.nodeId, NULL, 0);
+  axWake();
+}
+@end
+
+@implementation NimEditView (RetroAccess)
+- (BOOL)isAccessibilityElement { return NO; }
+- (NSArray *)accessibilityChildren {
+  if (!axListening) {
+    /* (someone reads the window: the program builds its tree from now on) */
+    axListening = YES;
+    cocoa_accessListen();
+    axWake();
+  }
+  return axTop ? axTop : @[];
+}
+- (id)accessibilityFocusedUIElement {
+  if (!axListening) {
+    axListening = YES;
+    cocoa_accessListen();
+    axWake();
+  }
+  return axFocus ? axFocus : self;
+}
+- (id)accessibilityHitTest:(NSPoint)point {
+  RetroAXElement *hit = nil;
+  for (RetroAXElement *e in [axById allValues]) {
+    if (NSPointInRect(point, [e accessibilityFrame]) &&
+        (!hit || e.local.size.width * e.local.size.height < hit.local.size.width * hit.local.size.height))
+      hit = e;
+  }
+  return hit ? hit : self;
+}
+@end
+
+void cocoa_accessUpdate(const NEAccessNode *nodes, int n, int focus) {
+  @autoreleasepool {
+    if (!axById) axById = [NSMutableDictionary new];
+    NSMutableDictionary *next = [NSMutableDictionary dictionaryWithCapacity:n];
+    NSMutableArray *els = [NSMutableArray arrayWithCapacity:n];
+    BOOL structure = NO;
+    RetroAXElement *oldFocus = axFocus;
+    NSMutableArray *changedValue = [NSMutableArray new];
+    NSMutableArray *changedTitle = [NSMutableArray new];
+    for (int i = 0; i < n; i++) {
+      const NEAccessNode *a = &nodes[i];
+      NSNumber *key = @(a->nodeId);
+      RetroAXElement *e = axById[key];
+      if (!e) {
+        e = [RetroAXElement new];
+        structure = YES;
+      } else {
+        NSString *v = axString(a->value);
+        if (![e.axValue isEqualToString:v] || e.now != a->now ||
+            (e.axStates & (AX_CHECKED | AX_SELECTED | AX_EXPANDED)) !=
+            (a->states & (AX_CHECKED | AX_SELECTED | AX_EXPANDED))) [changedValue addObject:e];
+        if (![e.axName isEqualToString:axString(a->name)]) [changedTitle addObject:e];
+      }
+      e.nodeId = a->nodeId;
+      e.axRole = a->role;
+      e.axStates = a->states;
+      e.axName = axString(a->name);
+      e.axValue = axString(a->value);
+      e.axHelp = axString(a->help);
+      e.lo = a->lo;
+      e.hi = a->hi;
+      e.now = a->now;
+      e.step = a->step;
+      e.local = NSMakeRect(a->x, a->y, a->w, a->h);
+      e.kids = [NSMutableArray new];
+      next[key] = e;
+      [els addObject:e];
+    }
+    if (next.count != axById.count) structure = YES;
+    NSMutableArray *top = [NSMutableArray new];
+    for (int i = 1; i < n; i++) {
+      int p = nodes[i].parent;
+      RetroAXElement *e = els[i];
+      if (p <= 0 || p >= n) {
+        [top addObject:e];
+        [e setAccessibilityParent:mainView];
+      } else {
+        RetroAXElement *pe = els[p];
+        [pe.kids addObject:e];
+        [e setAccessibilityParent:pe];
+      }
+    }
+    axTop = top;
+    axById = next;
+    axFocus = (focus > 0 && focus < n) ? els[focus] : nil;
+    if (structure && mainView) NSAccessibilityPostNotification(mainView, NSAccessibilityLayoutChangedNotification);
+    for (RetroAXElement *e in changedTitle) NSAccessibilityPostNotification(e, NSAccessibilityTitleChangedNotification);
+    for (RetroAXElement *e in changedValue) NSAccessibilityPostNotification(e, NSAccessibilityValueChangedNotification);
+    if (axFocus && axFocus != oldFocus)
+      NSAccessibilityPostNotification(axFocus, NSAccessibilityFocusedUIElementChangedNotification);
+  }
 }

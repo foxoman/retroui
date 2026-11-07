@@ -301,13 +301,34 @@ proc sdlMinimizeWindow(window: sdl3.Window): bool
   {.importc: "SDL_MinimizeWindow", cdecl, dynlib: sdl3.LibName.}
 proc sdlGetWindowFlags(window: sdl3.Window): uint64
   {.importc: "SDL_GetWindowFlags", cdecl, dynlib: sdl3.LibName.}
+proc sdlSetWindowResizable(window: sdl3.Window; resizable: bool): bool
+  {.importc: "SDL_SetWindowResizable", cdecl, dynlib: sdl3.LibName.}
+proc sdlGetWindowPosition(window: sdl3.Window; x, y: var cint): bool
+  {.importc: "SDL_GetWindowPosition", cdecl, dynlib: sdl3.LibName.}
+proc sdlSetWindowPosition(window: sdl3.Window; x, y: cint): bool
+  {.importc: "SDL_SetWindowPosition", cdecl, dynlib: sdl3.LibName.}
+proc sdlGetWindowSize(window: sdl3.Window; w, h: var cint): bool
+  {.importc: "SDL_GetWindowSize", cdecl, dynlib: sdl3.LibName.}
 
 const
   SdlWindowBorderless = 0x10'u64      ## SDL_WINDOW_BORDERLESS
   SdlWindowMaximized = 0x80'u64       ## SDL_WINDOW_MAXIMIZED
+  SdlWindowMinimized = 0x40'u64       ## SDL_WINDOW_MINIMIZED
   SdlWindowInputFocus = 0x200'u64     ## SDL_WINDOW_INPUT_FOCUS
 
 var systemFrame = true   ## the system draws the frame (else the app does)
+var resizable = true     ## the user may size the window
+var asked: tuple[w, h: int]  ## the size the app asked for
+
+const SdlEventWindowMoved = 0x205'u32   ## SDL_EVENT_WINDOW_MOVED
+
+proc notePlace() =
+  ## (where the window is and its size, for the next run: `keepWindowPlace`)
+  if win == nil or not keepsWindowPlace() or
+     (sdlGetWindowFlags(win) and (SdlWindowMaximized or SdlWindowMinimized)) != 0: return
+  var x, y, w, h: cint
+  if sdlGetWindowPosition(win, x, y) and sdlGetWindowSize(win, w, h):
+    keepWindowPlace(x.int, y.int, w.int, h.int, asked.w, asked.h)
 
 proc hitTest(window: sdl3.Window; area: ptr sdl3.Point; data: pointer): cint {.cdecl.} =
   ## (SDL_HitTestResult: 0 the app's, 1 the title bar, 2..9 the border from
@@ -332,6 +353,10 @@ proc sdlSetSystemFrame(on: bool): bool =
   if on: discard sdlSetWindowHitTest(win, nil, nil)
   else: discard sdlSetWindowHitTest(win, hitTest, nil)
 
+proc sdlSetResizable(on: bool) =
+  resizable = on
+  if win != nil: discard sdlSetWindowResizable(win, on)
+
 proc sdlSetMaximized(on: bool) =
   if win != nil:
     discard (if on: sdlMaximizeWindow(win) else: sdlRestoreWindow(win))
@@ -354,11 +379,17 @@ proc sdlCreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   let reqH = if layout.height < 0: 768 else: layout.height
   var winFlags =
     if layout.fullScreen: WINDOW_FULLSCREEN or WINDOW_HIGH_PIXEL_DENSITY
-    else: WINDOW_RESIZABLE or WINDOW_HIGH_PIXEL_DENSITY
+    elif resizable: WINDOW_RESIZABLE or WINDOW_HIGH_PIXEL_DENSITY
+    else: WINDOW_HIGH_PIXEL_DENSITY
   if maximized: winFlags = winFlags or WINDOW_MAXIMIZED
   if not systemFrame: winFlags = winFlags or SdlWindowBorderless
+  # (where the last run left it, $RETRO_WINDOW_STATE: `keptWindowPlace`)
+  asked = (reqW, reqH)
+  let kept = if layout.fullScreen or maximized: KeptPlace() else: keptWindowPlace(reqW, reqH)
+  let (startW, startH) = if kept.w > 0 and resizable: (kept.w, kept.h) else: (reqW, reqH)
   discard createWindowAndRenderer(cstring"NimEdit",
-    reqW.cint, reqH.cint, winFlags, win, ren)
+    startW.cint, startH.cint, winFlags, win, ren)
+  if kept.found and win != nil: discard sdlSetWindowPosition(win, kept.x.cint, kept.y.cint)
   if not systemFrame and win != nil: discard sdlSetWindowHitTest(win, hitTest, nil)
   textInputOn = false
   syncWindowLayout(layout)
@@ -811,9 +842,13 @@ proc translateEvent(sdlEvent: sdl3.Event; e: var input.Event) =
     e.kind = AppPauseEvent
   elif evType == 0x106'u32:   # SDL_EVENT_DID_ENTER_FOREGROUND
     e.kind = AppResumeEvent
+  elif evType == SdlEventWindowMoved:
+    notePlace()
+    e.kind = NoEvent
   elif evType == uint32(EVENT_WINDOW_RESIZED) or
        evType == uint32(EVENT_WINDOW_PIXEL_SIZE_CHANGED) or
        evType == uint32(EVENT_WINDOW_DISPLAY_SCALE_CHANGED):
+    notePlace()
     # `data1`/`data2` are logical units for RESIZED, so ignore them and ask
     # SDL for both sizes -- that is also what catches a density change.
     syncWindowLayout(currentLayout)
@@ -938,5 +973,5 @@ proc initSdl3Driver*() =
   when not (defined(android) or defined(ios)):
     frameRelays = FrameRelays(
       setSystemFrame: sdlSetSystemFrame, setMaximized: sdlSetMaximized,
-      maximized: sdlMaximized, active: sdlActive)
+      maximized: sdlMaximized, active: sdlActive, setResizable: sdlSetResizable)
     systemRelays.minimize = proc (): bool = win != nil and sdlMinimizeWindow(win)

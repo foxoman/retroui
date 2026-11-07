@@ -47,10 +47,11 @@ extern void NimMain(void);
 enum {
   UR_NONE, UR_MOVE, UR_DOWN, UR_UP, UR_WHEEL, UR_KEYDOWN, UR_KEYUP,
   UR_TEXT, UR_RESIZE, UR_METRICS, UR_FOCUS, UR_UNFOCUS, UR_PAUSE,
-  UR_RESUME, UR_QUIT, UR_GESTURE
+  UR_RESUME, UR_QUIT, UR_GESTURE, UR_COMPOSE
   /* UR_GESTURE: two fingers -- x, y their middle, button the phase (0
    * begun, 1 moved, 2 ended), pressure the scale since the last one, tilt
-   * and azimuth how far the middle moved */
+   * and azimuth how far the middle moved; UR_COMPOSE: what the keyboard
+   * composes changed (uirelays_compose_take) */
 };
 
 typedef struct {
@@ -61,7 +62,8 @@ typedef struct {
 
 enum {
   CMD_INPUT = 1, CMD_WINDOW, CMD_RESIZE, CMD_RECT, CMD_FOCUS, CMD_UNFOCUS,
-  CMD_CONFIG, CMD_DESTROY, CMD_START, CMD_STOP, CMD_TEXT
+  CMD_CONFIG, CMD_DESTROY, CMD_START, CMD_STOP, CMD_TEXT, CMD_ACCESS,
+  CMD_COMPOSE, CMD_KEYS
 };
 
 #define QN 512
@@ -478,6 +480,90 @@ static void JNICALL nativeInsets(JNIEnv *env, jclass cls, jint top, jint left,
   writeCmd(CMD_RECT);
 }
 
+/* ---- the keyboard's input connection (RetroInput): what it composes, its keys ---- */
+
+static char *composeText = NULL;      /* malloc'ed UTF-8, under g.mu */
+static int composeCaret = 0;
+static int keyAsks[64][2];            /* (Android key code, down) */
+static int keyAskN = 0;
+
+/* RetroActivity.nativeCompose, on the UI thread */
+static void JNICALL nativeCompose(JNIEnv *env, jclass cls, jstring s, jint caret) {
+  (void)cls;
+  int n = 0;
+  char *u = s ? utf8String(env, s, &n) : NULL;
+  pthread_mutex_lock(&g.mu);
+  free(composeText);
+  composeText = u;
+  composeCaret = (int)caret;
+  pthread_mutex_unlock(&g.mu);
+  writeCmd(CMD_COMPOSE);
+}
+
+/* RetroActivity.nativeKey, on the UI thread */
+static void JNICALL nativeKey(JNIEnv *env, jclass cls, jint code, jboolean down) {
+  (void)env; (void)cls;
+  pthread_mutex_lock(&g.mu);
+  if (keyAskN < 64) {
+    keyAsks[keyAskN][0] = (int)code;
+    keyAsks[keyAskN][1] = down ? 1 : 0;
+    keyAskN++;
+  }
+  pthread_mutex_unlock(&g.mu);
+  writeCmd(CMD_KEYS);
+}
+
+/* What the keyboard composes now, malloc'ed UTF-8 (NULL: nothing), and its
+ * caret in characters. */
+char *uirelays_compose_take(int *caret) {
+  pthread_mutex_lock(&g.mu);
+  char *s = composeText ? strdup(composeText) : NULL;
+  *caret = composeCaret;
+  pthread_mutex_unlock(&g.mu);
+  return s;
+}
+
+/* ---- screen readers (TalkBack): what one asked, for the app's thread ---- */
+
+typedef struct { int action; unsigned int id; double num; char *text; } AccessAsk;
+static AccessAsk accessAsks[64];
+static int accessAskN = 0;
+
+/* RetroActivity.nativeAccess, on the UI thread: action -1 a screen reader
+ * came, -2 it went; else what it asked of node `id` */
+static void JNICALL nativeAccess(JNIEnv *env, jclass cls, jint action, jint id,
+                                 jstring s, jdouble num) {
+  (void)cls;
+  int n = 0;
+  char *u = s ? utf8String(env, s, &n) : NULL;
+  pthread_mutex_lock(&g.mu);
+  if (accessAskN < 64) {
+    AccessAsk a = { (int)action, (unsigned int)id, (double)num, u };
+    accessAsks[accessAskN++] = a;
+    u = NULL;
+  }
+  pthread_mutex_unlock(&g.mu);
+  free(u);
+  writeCmd(CMD_ACCESS);
+}
+
+/* The next request of a screen reader (0: none); *text malloc'ed or NULL. */
+int uirelays_access_take(int *action, unsigned int *id, double *num, char **text) {
+  pthread_mutex_lock(&g.mu);
+  if (accessAskN == 0) {
+    pthread_mutex_unlock(&g.mu);
+    return 0;
+  }
+  *action = accessAsks[0].action;
+  *id = accessAsks[0].id;
+  *num = accessAsks[0].num;
+  *text = accessAsks[0].text;
+  memmove(&accessAsks[0], &accessAsks[1], sizeof(AccessAsk) * (size_t)(accessAskN - 1));
+  accessAskN--;
+  pthread_mutex_unlock(&g.mu);
+  return 1;
+}
+
 static void registerNatives(JNIEnv *env, jobject activity) {
   jclass cls = (*env)->GetObjectClass(env, activity);
   if (!cls) return;
@@ -486,6 +572,20 @@ static void registerNatives(JNIEnv *env, jobject activity) {
     { "nativeInsets", "(IIII)V", (void *)nativeInsets },
   };
   if ((*env)->RegisterNatives(env, cls, m, 2) != 0) jniFailed(env);   /* plain NativeActivity */
+  JNINativeMethod ma[] = {
+    { "nativeAccess", "(IILjava/lang/String;D)V", (void *)nativeAccess },
+  };
+  if ((*env)->RegisterNatives(env, cls, ma, 1) != 0) jniFailed(env);  /* (an activity without it) */
+  JNINativeMethod mi[] = {
+    { "nativeCompose", "(Ljava/lang/String;I)V", (void *)nativeCompose },
+    { "nativeKey", "(IZ)V", (void *)nativeKey },
+  };
+  if ((*env)->RegisterNatives(env, cls, mi, 2) == 0) {
+    /* (the keyboard goes through RetroInput from now on) */
+    jmethodID have = (*env)->GetStaticMethodID(env, cls, "haveInputNatives", "()V");
+    if (have) (*env)->CallStaticVoidMethod(env, cls, have);
+  }
+  jniFailed(env);
   g.keyboardMethod = (*env)->GetMethodID(env, cls, "keyboard", "(Z)V");
   if (!g.keyboardMethod) jniFailed(env);
   struct { jmethodID *m; const char *name, *sig; } ms[] = {
@@ -1227,6 +1327,22 @@ static void processCmd(int cmd) {
     push(UR_UNFOCUS);
     break;
   case CMD_TEXT: takeInbox(); break;
+  case CMD_ACCESS: push(UR_NONE); break;     /* (the app's loop goes on: a screen reader asked) */
+  case CMD_COMPOSE: push(UR_COMPOSE); break;
+  case CMD_KEYS: {
+    int keys[64][2];
+    int n;
+    pthread_mutex_lock(&g.mu);
+    n = keyAskN;
+    memcpy(keys, keyAsks, sizeof(int) * 2 * (size_t)n);
+    keyAskN = 0;
+    pthread_mutex_unlock(&g.mu);
+    for (int i = 0; i < n; i++) {
+      UrEvent *e = push(keys[i][1] ? UR_KEYDOWN : UR_KEYUP);
+      if (e) e->key = keys[i][0];
+    }
+    break;
+  }
   case CMD_CONFIG: {
     int old = g.density;
     readDensity();

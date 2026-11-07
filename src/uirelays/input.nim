@@ -45,6 +45,11 @@ type
                      ## dropped on the window: their paths (`files`) and
                      ## where (`x`, `y`). A desktop driver takes drops
                      ## always; there is nothing to ask for.
+    TextEditingEvent ## the system's input method is composing (Chinese,
+                     ## Japanese, Korean, a phone keyboard's word): the text
+                     ## so far (`composing`, UTF-8; empty: done or given up)
+                     ## and its caret (`x`, in bytes). What it settles on comes
+                     ## as TextInputEvents.
 
   GesturePhase* = enum
     gsBegin,         ## a second finger came down; the first one's press is
@@ -106,6 +111,8 @@ type
     phase*: GesturePhase   ## GestureEvent: begun, changed or ended
     files*: seq[string]    ## FileDropEvent: the files' paths (UTF-8); empty,
                            ## and nothing allocated, for every other kind
+    composing*: string     ## TextEditingEvent: the text being composed (UTF-8);
+                           ## empty, and nothing allocated, for every other kind
     preciseLines*: int     ## MouseWheelEvent: lines to scroll, from a driver
                            ## that tracks fine-grained (touchpad) scrolling;
                            ## 0 = derive from `y` notches (see `wheelLines`)

@@ -734,3 +734,147 @@ int uirelays_open_url(const char *s, int n) {
 const char *uirelays_data_dir(void) {
   @autoreleasepool { return dataDirImpl(); }
 }
+
+/* ---- screen readers: UIAccessibility (VoiceOver) ----------------------
+   The program's tree (uirelays_access_update) as accessibility elements of
+   the view; what VoiceOver asks (activate, a step, a value) is queued for
+   the program's loop (uirelays_access_take). */
+
+typedef struct {
+  unsigned int nodeId;
+  int parent, role;
+  unsigned int states;
+  int x, y, w, h;
+  double lo, hi, now, step;
+  int caret, selA, selB, pos, count, level;
+  const char *name, *value, *help, *key;
+} UrAccessNode;
+
+enum { UAX_FOCUSED = 1 << 1, UAX_DISABLED = 1 << 2, UAX_CHECKED = 1 << 3, UAX_SELECTED = 1 << 5,
+       UAX_PRESSED = 1 << 10 };
+enum { UAXR_WINDOW, UAXR_PANE, UAXR_GROUP, UAXR_LABEL, UAXR_BUTTON, UAXR_TOGGLE, UAXR_CHECK,
+       UAXR_RADIO, UAXR_FIELD, UAXR_AREA, UAXR_PASSWORD, UAXR_COMBO, UAXR_LIST, UAXR_LISTITEM,
+       UAXR_SLIDER, UAXR_SPIN, UAXR_PROGRESS, UAXR_SCROLLBAR, UAXR_MENUBAR, UAXR_MENU,
+       UAXR_MENUITEM, UAXR_TOOLBAR, UAXR_STATUS, UAXR_TABLIST, UAXR_TAB, UAXR_TREE, UAXR_TREEITEM,
+       UAXR_TABLE, UAXR_ROW, UAXR_CELL, UAXR_COLHEADER, UAXR_DIALOG, UAXR_LINK, UAXR_IMAGE,
+       UAXR_HEADING };
+
+typedef struct { int action; unsigned int nodeId; double num; char *text; } UrAccessAsk;
+static UrAccessAsk uaxAsks[64];
+static int uaxAskN = 0;
+static int uaxListening = -1;          /* -1: not told yet */
+
+static void uaxAsk(int action, unsigned int nodeId, NSString *text, double num) {
+  if (uaxAskN >= 64) return;
+  UrAccessAsk a = { action, nodeId, num, text ? strdup([text UTF8String]) : NULL };
+  uaxAsks[uaxAskN++] = a;
+  push(UR_NONE);                       /* (the program's loop goes on) */
+}
+
+int uirelays_access_take(int *action, unsigned int *nodeId, double *num, char **text) {
+  int on = UIAccessibilityIsVoiceOverRunning() ? 1 : 0;
+  if (on != uaxListening) {
+    /* (VoiceOver came or went: the program builds its tree or not) */
+    uaxListening = on;
+    *action = on ? -1 : -2;
+    *nodeId = 0;
+    *num = 0;
+    *text = NULL;
+    return 1;
+  }
+  if (uaxAskN == 0) return 0;
+  *action = uaxAsks[0].action;
+  *nodeId = uaxAsks[0].nodeId;
+  *num = uaxAsks[0].num;
+  *text = uaxAsks[0].text;
+  memmove(&uaxAsks[0], &uaxAsks[1], sizeof(UrAccessAsk) * (size_t)(uaxAskN - 1));
+  uaxAskN--;
+  return 1;
+}
+
+@interface UrAXElement : UIAccessibilityElement
+@property unsigned int nodeId;
+@property int axRole;
+@property unsigned int axStates;
+@property CGRect local;
+@property double now;
+@end
+
+@implementation UrAXElement
+- (CGRect)accessibilityFrame {
+  return gView ? UIAccessibilityConvertFrameToScreenCoordinates(self.local, gView) : CGRectZero;
+}
+- (BOOL)accessibilityActivate {
+  uaxAsk(0, self.nodeId, nil, 0);
+  return YES;
+}
+- (void)accessibilityIncrement { uaxAsk(3, self.nodeId, nil, 0); }
+- (void)accessibilityDecrement { uaxAsk(4, self.nodeId, nil, 0); }
+@end
+
+static NSMutableDictionary *uaxById = nil;
+static NSArray *uaxEls = nil;
+
+@implementation UrView (UrAccess)
+- (BOOL)isAccessibilityElement { return NO; }
+- (NSArray *)accessibilityElements { return uaxEls ? uaxEls : @[]; }
+@end
+
+void uirelays_access_update(const UrAccessNode *nodes, int n, int focus) {
+  @autoreleasepool {
+    if (!uaxById) uaxById = [NSMutableDictionary new];
+    NSMutableDictionary *next = [NSMutableDictionary dictionaryWithCapacity:n];
+    NSMutableArray *els = [NSMutableArray arrayWithCapacity:n];
+    BOOL shape = NO;
+    UrAXElement *focused = nil;
+    for (int i = 1; i < n; i++) {
+      const UrAccessNode *a = &nodes[i];
+      if (a->role == UAXR_PANE || a->role == UAXR_GROUP || a->role == UAXR_MENUBAR ||
+          a->role == UAXR_TOOLBAR || a->role == UAXR_TABLIST || a->role == UAXR_LIST) continue;
+      NSNumber *key = @(a->nodeId);
+      UrAXElement *e = uaxById[key];
+      if (!e) {
+        e = [[UrAXElement alloc] initWithAccessibilityContainer:gView];
+        shape = YES;
+      }
+      e.nodeId = a->nodeId;
+      e.axRole = a->role;
+      e.axStates = a->states;
+      /* (points: the program's units are the view's) */
+      e.local = CGRectMake(a->x, a->y, a->w, a->h);
+      e.now = a->now;
+      NSString *name = a->name ? [NSString stringWithUTF8String:a->name] : @"";
+      NSString *value = a->value ? [NSString stringWithUTF8String:a->value] : @"";
+      e.accessibilityLabel = name;
+      UIAccessibilityTraits t = UIAccessibilityTraitNone;
+      switch (a->role) {
+        case UAXR_BUTTON: case UAXR_TOGGLE: case UAXR_CHECK: case UAXR_RADIO: case UAXR_TAB:
+        case UAXR_MENUITEM: case UAXR_MENU: case UAXR_COMBO: case UAXR_LISTITEM:
+          t |= UIAccessibilityTraitButton; break;
+        case UAXR_LINK: t |= UIAccessibilityTraitLink; break;
+        case UAXR_IMAGE: t |= UIAccessibilityTraitImage; break;
+        case UAXR_HEADING: t |= UIAccessibilityTraitHeader; break;
+        case UAXR_SLIDER: case UAXR_SPIN: t |= UIAccessibilityTraitAdjustable; break;
+        case UAXR_LABEL: case UAXR_STATUS: t |= UIAccessibilityTraitStaticText; break;
+        default: break;
+      }
+      if (a->states & (UAX_SELECTED | UAX_CHECKED | UAX_PRESSED)) t |= UIAccessibilityTraitSelected;
+      if (a->states & UAX_DISABLED) t |= UIAccessibilityTraitNotEnabled;
+      e.accessibilityTraits = t;
+      if (a->role == UAXR_FIELD || a->role == UAXR_AREA || a->role == UAXR_COMBO ||
+          a->role == UAXR_SLIDER || a->role == UAXR_SPIN || a->role == UAXR_PROGRESS)
+        e.accessibilityValue = value;
+      else if (a->role == UAXR_CHECK || a->role == UAXR_TOGGLE)
+        e.accessibilityValue = (a->states & (UAX_CHECKED | UAX_PRESSED)) ? @"1" : @"0";
+      else e.accessibilityValue = nil;
+      e.accessibilityHint = a->help && a->help[0] ? [NSString stringWithUTF8String:a->help] : nil;
+      next[key] = e;
+      [els addObject:e];
+      if (i == focus) focused = e;
+    }
+    if (next.count != uaxById.count) shape = YES;
+    uaxById = next;
+    uaxEls = els;
+    if (shape) UIAccessibilityPostNotification(UIAccessibilityLayoutChangedNotification, focused);
+  }
+}
