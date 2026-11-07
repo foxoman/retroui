@@ -2125,9 +2125,12 @@ typedef struct {
   const char *name, *value, *help, *key;
 } NEAccessNode;
 
-/* (the program's: what a screen reader asked; that one listens) */
-extern void cocoa_accessRequest(int action, unsigned int nodeId, const char *text, double num);
-extern void cocoa_accessListen(void);
+/* (the program's: what a screen reader asked; that one listens. The Nim
+   driver defines them; these weak ones stand in where the backend is built
+   on its own -- a test in C -- and do nothing) */
+__attribute__((weak)) void cocoa_accessRequest(int action, unsigned int nodeId,
+                                               const char *text, double num) {}
+__attribute__((weak)) void cocoa_accessListen(void) {}
 
 enum { AX_FOCUSABLE = 1 << 0, AX_FOCUSED = 1 << 1, AX_DISABLED = 1 << 2, AX_CHECKED = 1 << 3,
        AX_MIXED = 1 << 4, AX_SELECTED = 1 << 5, AX_EXPANDABLE = 1 << 6, AX_EXPANDED = 1 << 7,
