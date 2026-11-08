@@ -223,8 +223,32 @@ type
       ## The buffer's rectangle `r` (device pixels) put on the window;
       ## `refresh` shows what was presented since the last one.
 
+  WindowsRelays* = object
+    ## More windows than the program's own: a tool window, a second view on
+    ## another monitor. Each has a number (the program's own window is 0);
+    ## its events carry it (`Event.window`), and drawing goes to the window
+    ## `target` names. Optional: a driver without them has one window.
+    openWindow*: proc (title: string; w, h: int): int {.nimcall.}
+      ## A new window `w` x `h` (coordinate units), above the program's own;
+      ## its number, or 0 when there can be none.
+    closeWindow*: proc (id: int) {.nimcall.}
+      ## The window `id` closed.
+    setTitle*: proc (id: int; title: string) {.nimcall.}
+      ## Its title.
+    layout*: proc (id: int): ScreenLayout {.nimcall.}
+      ## Its size and scale now.
+    target*: proc (id: int) {.nimcall.}
+      ## From now on `drawRGBA`, `blitRGBA`, the drawing relays and
+      ## `refresh` go to window `id` (0: the program's own, as before). A
+      ## window other than 0 has no surface (`lockSurface`) and no GPU.
+    toFront*: proc (id: int) {.nimcall.}
+      ## Its window brought to the front (optional).
+
 proc `==`*(a, b: Font): bool {.borrow.}
 proc `==`*(a, b: Image): bool {.borrow.}
+
+var windowsRelays*: WindowsRelays
+  ## Filled by the drivers that open more than one window (none by default).
 
 var gpuRelays*: GpuRelays
   ## Filled by the drivers that can draw with OpenGL (none by default).

@@ -116,6 +116,8 @@ type
     preciseLines*: int     ## MouseWheelEvent: lines to scroll, from a driver
                            ## that tracks fine-grained (touchpad) scrolling;
                            ## 0 = derive from `y` notches (see `wheelLines`)
+    window*: int           ## which window it is for: 0 the program's own,
+                           ## else one `windowsRelays.openWindow` made
 
   ClipboardRelays* = object
     ## The system clipboard's text (UTF-8), filled by the driver.

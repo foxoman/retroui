@@ -22,6 +22,7 @@ typedef struct {
   float pressure;
   float tiltX, tiltY;
   float rotation;
+  int window;
 } NEEvent;
 """.}
 
@@ -53,6 +54,7 @@ type
     pressure: cfloat
     tiltX, tiltY: cfloat
     rotation: cfloat
+    window: cint              ## 0 the app's window, else cocoa_openWindow's
 
 # Event kinds (must match cocoa_backend.m)
 const
@@ -367,6 +369,7 @@ proc translateNEEvent(ne: NEEvent; e: var input.Event) =
   if ne.pen != 0 and e.kind in {MouseDownEvent, MouseUpEvent, MouseMoveEvent}:
     # a tablet's pen: how it is held
     penFromCocoa(e, ne.pressure, ne.tiltX, ne.tiltY, ne.rotation, ne.pen == 2)
+  e.window = ne.window.int
 
 proc cocoaPollEvent(e: var input.Event; flags: set[InputFlag]): bool =
   var ne: NEEvent
@@ -418,6 +421,30 @@ proc cocoaDragFilesOut(paths: seq[string]; move, backInside: bool): DragOutResul
   of 3: drMoved
   else: drNone
 
+# --- More windows ---
+
+proc cOpenWindow(title: cstring; w, h: cint): cint {.importc: "cocoa_openWindow", cdecl.}
+proc cCloseWindow(id: cint) {.importc: "cocoa_closeWindow", cdecl.}
+proc cWindowTitle(id: cint; title: cstring) {.importc: "cocoa_windowTitle", cdecl.}
+proc cWindowLayout(id: cint; w, h, scale: ptr cint) {.importc: "cocoa_windowLayout", cdecl.}
+proc cRaiseWindow(id: cint) {.importc: "cocoa_raiseWindow", cdecl.}
+proc cTarget(id: cint) {.importc: "cocoa_target", cdecl.}
+
+proc cocoaWindowLayout(id: int): ScreenLayout =
+  var w, h, scale: cint
+  cWindowLayout(id.cint, addr w, addr h, addr scale)
+  ScreenLayout(width: w.int, height: h.int, scaleX: max(1, scale.int), scaleY: max(1, scale.int),
+               uiScale: 100)
+
+proc initCocoaWindows() =
+  windowsRelays = WindowsRelays(
+    openWindow: proc (title: string; w, h: int): int = cOpenWindow(cstring(title), w.cint, h.cint).int,
+    closeWindow: proc (id: int) = cCloseWindow(id.cint),
+    setTitle: proc (id: int; title: string) = cWindowTitle(id.cint, cstring(title)),
+    layout: cocoaWindowLayout,
+    target: proc (id: int) = cTarget(id.cint),
+    toFront: proc (id: int) = cRaiseWindow(id.cint))
+
 # --- Init ---
 
 # ---- screen readers (VoiceOver) ----
@@ -459,6 +486,7 @@ proc cocoa_accessListen() {.exportc, cdecl.} =
   accessListening = true
 
 proc initCocoaDriver*() =
+  initCocoaWindows()
   accessRelays = AccessRelays(start: proc (): bool = true, update: cocoaAccessUpdate)
   windowRelays = WindowRelays(
     createWindow: cocoaCreateWindow, getWindowLayout: cocoaGetWindowLayout,
