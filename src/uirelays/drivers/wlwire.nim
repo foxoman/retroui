@@ -138,7 +138,7 @@ proc flush*(c: WlConn): bool =
   if c == nil or c.failed: return false
   var sent = 0
   while sent < c.outb.len:
-    var iov = IOVec(iov_base: addr c.outb[sent], iov_len: csize_t(c.outb.len - sent))
+    var iov = IOVec(iov_base: addr c.outb[sent], iov_len: typeof(IOVec().iov_len)(c.outb.len - sent))
     var msg: Tmsghdr
     msg.msg_iov = addr iov
     msg.msg_iovlen = 1
@@ -148,11 +148,11 @@ proc flush*(c: WlConn): bool =
       nfds = min(c.outFds.len, 28)            # (what libwayland sends at once at most)
       let space = CMSG_SPACE(csize_t(nfds * sizeof(cint)))
       msg.msg_control = addr ctl[0]
-      msg.msg_controllen = space
+      msg.msg_controllen = typeof(msg.msg_controllen)(space)
       let cm = CMSG_FIRSTHDR(addr msg)
       cm.cmsg_level = SOL_SOCKET
       cm.cmsg_type = SCM_RIGHTS
-      cm.cmsg_len = CMSG_LEN(csize_t(nfds * sizeof(cint)))
+      cm.cmsg_len = typeof(cm.cmsg_len)(CMSG_LEN(csize_t(nfds * sizeof(cint))))
       copyMem(CMSG_DATA(cm), addr c.outFds[0], nfds * sizeof(cint))
     let n = sendmsg(SocketHandle(c.fd), addr msg, MSG_NOSIGNAL)
     if n < 0:
@@ -184,7 +184,7 @@ proc readSome*(c: WlConn; waitMs: int): bool =
   msg.msg_iov = addr iov
   msg.msg_iovlen = 1
   msg.msg_control = addr ctl[0]
-  msg.msg_controllen = csize_t(ctl.len)
+  msg.msg_controllen = typeof(msg.msg_controllen)(ctl.len)
   let n = recvmsg(SocketHandle(c.fd), addr msg, MSG_DONTWAIT or MSG_CMSG_CLOEXEC)
   if n < 0:
     let e = errno
