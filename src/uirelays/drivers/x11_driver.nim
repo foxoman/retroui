@@ -3,7 +3,8 @@
 # Double-buffered via X Pixmap.
 
 import ../coords, ../input, ../screen, ../eglload, ../services, ../target, ../access, ../atspi
-import penaxes
+import penaxes, cursorart, keysyms
+export cursorart.classicCursorArt
 from ../pixelutils import resizedRGBA
 import std/[strutils, os, dynlib, unicode]
 when defined(nimony):
@@ -370,40 +371,13 @@ const
   XC_fleur = 52'u32                 # four arrows: move
 
   # KeySyms
-  XK_a = 0x61'u
-  XK_z = 0x7a'u
-  XK_CapitalA = 0x41'u
-  XK_CapitalZ = 0x5a'u
-  XK_0 = 0x30'u
-  XK_9 = 0x39'u
-  XK_F1 = 0xffbe'u
-  XK_F12 = 0xffc9'u
   XK_Return = 0xff0d'u
-  XK_space = 0x20'u
   XK_Escape = 0xff1b'u
-  XK_Tab = 0xff09'u
-  XK_ISO_Left_Tab = 0xfe20'u
-  XK_BackSpace = 0xff08'u
-  XK_Delete = 0xffff'u
-  XK_Insert = 0xff63'u
   XK_Left = 0xff51'u
   XK_Up = 0xff52'u
   XK_Right = 0xff53'u
   XK_Down = 0xff54'u
-  XK_Page_Up = 0xff55'u
-  XK_Page_Down = 0xff56'u
-  XK_Home = 0xff50'u
-  XK_End = 0xff57'u
-  XK_Caps_Lock = 0xffe5'u
-  XK_plus = 0x2b'u
-  XK_comma = 0x2c'u
-  XK_period = 0x2e'u
-  XK_minus = 0x2d'u
-  XK_equal = 0x3d'u
-  XK_slash = 0x2f'u
   XK_KP_Enter = 0xff8d'u
-  XK_KP_0 = 0xffb0'u
-  XK_KP_9 = 0xffb9'u
 
   # Input method
   XIMPreeditCallbacks = 0x0002
@@ -971,72 +945,7 @@ proc recreateBackBuffer() =
 
 # ---- Key translation ----
 
-proc translateKeySym(ks: XKeySym): input.KeyCode =
-  if ks >= XK_a and ks <= XK_z:
-    return input.KeyCode(ord(KeyA) + (ks.int - XK_a.int))
-  # With Shift (or Caps Lock) down, X hands over the capital's keysym. It is
-  # the same key: a press has to say so, and a release all the more -- the
-  # release of W is what stops the running, Shift or not.
-  if ks >= XK_CapitalA and ks <= XK_CapitalZ:
-    return input.KeyCode(ord(KeyA) + (ks.int - XK_CapitalA.int))
-  if ks >= XK_0 and ks <= XK_9:
-    return input.KeyCode(ord(Key0) + (ks.int - XK_0.int))
-  if ks >= XK_F1 and ks <= XK_F12:
-    return input.KeyCode(ord(KeyF1) + (ks.int - XK_F1.int))
-  # the keypad's keys are the keys they stand for, as on the other systems:
-  # its digits with Num Lock on, else its arrows, Home, End, Insert, Delete
-  if ks >= XK_KP_0 and ks <= XK_KP_9:
-    return input.KeyCode(ord(Key0) + (ks.int - XK_KP_0.int))
-  case ks.uint
-  of XK_KP_Enter: KeyEnter
-  of 0xff80'u: KeySpace                 # XK_KP_Space
-  of 0xff89'u: KeyTab                   # XK_KP_Tab
-  of 0xff95'u: KeyHome                  # XK_KP_Home
-  of 0xff96'u: KeyLeft                  # XK_KP_Left
-  of 0xff97'u: KeyUp                    # XK_KP_Up
-  of 0xff98'u: KeyRight                 # XK_KP_Right
-  of 0xff99'u: KeyDown                  # XK_KP_Down
-  of 0xff9a'u: KeyPageUp                # XK_KP_Page_Up
-  of 0xff9b'u: KeyPageDown              # XK_KP_Page_Down
-  of 0xff9c'u: KeyEnd                   # XK_KP_End
-  of 0xff9e'u: KeyInsert                # XK_KP_Insert
-  of 0xff9f'u: KeyDelete                # XK_KP_Delete
-  of 0xffab'u: KeyPlus                  # XK_KP_Add
-  of 0xffac'u: KeyComma                 # XK_KP_Separator
-  of 0xffad'u: KeyMinus                 # XK_KP_Subtract
-  of 0xffae'u: KeyPeriod                # XK_KP_Decimal
-  of 0xffaf'u: KeySlash                 # XK_KP_Divide
-  of 0xffbd'u: KeyEqual                 # XK_KP_Equal
-  of XK_Return: KeyEnter
-  of XK_space: KeySpace
-  of XK_Escape: KeyEsc
-  of XK_Tab, XK_ISO_Left_Tab: KeyTab
-  of XK_BackSpace: KeyBackspace
-  of XK_Delete: KeyDelete
-  of XK_Insert: KeyInsert
-  of XK_Left: KeyLeft
-  of XK_Right: KeyRight
-  of XK_Up: KeyUp
-  of XK_Down: KeyDown
-  of XK_Page_Up: KeyPageUp
-  of XK_Page_Down: KeyPageDown
-  of XK_Home: KeyHome
-  of XK_End: KeyEnd
-  of XK_Caps_Lock: KeyCapslock
-  of 0xff67'u: KeyMenu                  # XK_Menu
-  of XK_plus: KeyPlus
-  of XK_comma: KeyComma
-  of XK_period: KeyPeriod
-  of XK_minus: KeyMinus
-  of XK_slash, 0x3f'u: KeySlash
-  of 0x5b'u, 0x7b'u: KeyLeftBracket
-  of 0x5d'u, 0x7d'u: KeyRightBracket
-  of 0x3b'u, 0x3a'u: KeySemicolon
-  of 0x27'u, 0x22'u: KeyQuote
-  of 0x5c'u, 0x7c'u: KeyBackslash
-  of 0x60'u, 0x7e'u: KeyBackquote
-  of XK_equal: KeyEqual
-  else: KeyNone
+proc translateKeySym(ks: XKeySym): input.KeyCode {.inline.} = keyOfSym(ks.uint)
 
 proc XLookupKeysym(ev: ptr XKeyEvent; index: cint): XKeySym
   {.cdecl, dynlib: libX11, importc.}
@@ -3579,82 +3488,6 @@ var
     ## libXcursor, when there is one); -1 drawn when the screen is at 150% or
     ## more.
   gCursorCache: seq[tuple[kind: CursorKind; scale: int; cursor: XID]]
-
-proc shapeArt(fill: seq[string]; ink: bool): seq[string] =
-  ## A shape (`#`) with a 1-pixel edge all round: white inside and black
-  ## edge, or (`ink`) black inside and a white edge, so it shows on any
-  ## background. (`X` black, `.` white, ` ` none.)
-  let h = fill.len + 2
-  var w = 0
-  for r in fill: w = max(w, r.len)
-  w += 2
-  template at(r, c: int): bool =
-    (let rr = r - 1; let cc = c - 1;
-     rr >= 0 and rr < fill.len and cc >= 0 and cc < fill[rr].len and fill[rr][cc] == '#')
-  for r in 0 ..< h:
-    var line = newString(w)
-    for c in 0 ..< w:
-      if at(r, c): line[c] = (if ink: 'X' else: '.')
-      else:
-        var edge = false
-        for dr in -1 .. 1:
-          for dc in -1 .. 1:
-            if at(r + dr, c + dc): edge = true
-        line[c] = (if edge: (if ink: '.' else: 'X') else: ' ')
-    result.add line
-
-proc grid(w, h: int; inside: proc (r, c: int): bool): seq[string] =
-  for r in 0 ..< h:
-    var line = newString(w)
-    for c in 0 ..< w: line[c] = (if inside(r, c): '#' else: ' ')
-    result.add line
-
-proc classicCursorArt*(c: CursorKind): tuple[rows: seq[string]; hx, hy: int] =
-  ## The classic drawing of cursor `c`: rows of `X` (black), `.` (white) and
-  ## ` ` (none), and its hot spot.
-  case c
-  of curDefault, curArrow:
-    (@["X           ", "XX          ", "X.X         ", "X..X        ", "X...X       ",
-       "X....X      ", "X.....X     ", "X......X    ", "X.......X   ", "X........X  ",
-       "X.....XXXXX ", "X..X..X     ", "X.X X..X    ", "XX  X..X    ", "X    X..X   ",
-       "     X..X   ", "      X..X  ", "      X..X  ", "       XX   "], 0, 0)
-  of curIbeam:
-    var core = @["### ###"]
-    for _ in 0 ..< 14: core.add "   #   "
-    core.add "### ###"
-    (shapeArt(core, true), 4, 8)
-  of curWait:
-    (@["XXXXXXXXXXXXX", "X...........X", "XXXXXXXXXXXXX", " X.........X ", " X.........X ",
-       "  X.......X  ", "   X.....X   ", "    X...X    ", "     X.X     ", "     X.X     ",
-       "    X...X    ", "   X..X..X   ", "  X..XXX..X  ", " X..XXXXX..X ", " X.XXXXXXX.X ",
-       "XXXXXXXXXXXXX", "X...........X", "XXXXXXXXXXXXX"], 6, 9)
-  of curHand:
-    (@["     XX         ", "    X..X        ", "    X..X        ", "    X..X        ",
-       "    X..X        ", "    X..XXX      ", "    X..X..XXX   ", "    X..X..X..XX ",
-       " XX X..X..X..X.X", "X..XX........X.X", "X...X..........X", " X.............X",
-       "  X............X", "  X...........X ", "   X..........X ", "   X.........X  ",
-       "    X........X  ", "    X........X  ", "    XXXXXXXXXX  "], 5, 0)
-  of curCrosshair:
-    (shapeArt(grid(15, 15, proc (r, c: int): bool = r == 7 or c == 7), true), 8, 8)
-  of curSizeWE:
-    (shapeArt(grid(21, 7, proc (r, c: int): bool =
-      (c <= 3 and abs(r - 3) <= c) or (c >= 17 and abs(r - 3) <= 20 - c) or
-      (r == 3)), false), 11, 4)
-  of curSizeNS:
-    (shapeArt(grid(7, 21, proc (r, c: int): bool =
-      (r <= 3 and abs(c - 3) <= r) or (r >= 17 and abs(c - 3) <= 20 - r) or
-      (c == 3)), false), 4, 11)
-  of curSizeNWSE:
-    (shapeArt(grid(13, 13, proc (r, c: int): bool =
-      (r + c <= 4) or ((12 - r) + (12 - c) <= 4) or (r == c)), false), 7, 7)
-  of curSizeNESW:
-    (shapeArt(grid(13, 13, proc (r, c: int): bool =
-      (r + (12 - c) <= 4) or ((12 - r) + c <= 4) or (r == 12 - c)), false), 7, 7)
-  of curMove:
-    (shapeArt(grid(19, 19, proc (r, c: int): bool =
-      (r <= 3 and abs(c - 9) <= r) or (r >= 15 and abs(c - 9) <= 18 - r) or
-      (c <= 3 and abs(r - 9) <= c) or (c >= 15 and abs(r - 9) <= 18 - c) or
-      (r == 9 and c >= 3 and c <= 15) or (c == 9 and r >= 3 and r <= 15)), false), 10, 10)
 
 proc x11ClassicCursor*(c: CursorKind; scale: int): uint =
   ## Cursor `c` drawn in the classic shape, each pixel `scale` x `scale`

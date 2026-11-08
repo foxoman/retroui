@@ -10,6 +10,8 @@
 ##   -d:sdl3    Force SDL3 backend
 ##   -d:sdl2    Force SDL2 backend
 ##   -d:gtk4    Force GTK4 backend
+##   -d:wayland Wayland only (no X11; without it, a Linux or BSD build has
+##              both and picks one as it starts: `useWayland`)
 ##
 ## Android (`--os:android`) uses the NativeActivity driver for an app
 ## (`--app:lib`, an APK's library) and X11 for a program run from a shell
@@ -66,10 +68,25 @@ elif defined(windows):
   import drivers/winapi_driver
   proc initBackend*() = initWinapiDriver()
 
+elif defined(wayland):
+  import drivers/wayland_driver
+  proc initBackend*() = initWaylandDriver()
+
 elif defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd) or
      defined(dragonfly):
-  import drivers/x11_driver
-  proc initBackend*() = initX11Driver()
+  import std/[os, strutils]
+  import drivers/[x11_driver, wayland_driver]
+  proc useWayland*(): bool =
+    ## The Wayland driver rather than X11: `RETRO_DRIVER=wayland` (or
+    ## `x11`) says; else a Wayland session without an X display.
+    case getEnv("RETRO_DRIVER").toLowerAscii
+    of "wayland": true
+    of "x11": false
+    else:
+      getEnv("DISPLAY").len == 0 and
+        (getEnv("WAYLAND_DISPLAY").len > 0 or getEnv("WAYLAND_SOCKET").len > 0)
+  proc initBackend*() =
+    if useWayland(): initWaylandDriver() else: initX11Driver()
 
 else:
   import drivers/sdl3_driver

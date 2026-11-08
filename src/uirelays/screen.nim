@@ -243,6 +243,10 @@ type
       ## window other than 0 has no surface (`lockSurface`) and no GPU.
     toFront*: proc (id: int) {.nimcall.}
       ## Its window brought to the front (optional).
+    framed*: proc (id: int): bool {.nimcall.}
+      ## The system draws the window's frame -- its title bar, its close
+      ## button -- (true, or nil); false: the app draws a title bar in it
+      ## (Wayland where the compositor draws none).
 
 proc `==`*(a, b: Font): bool {.borrow.}
 proc `==`*(a, b: Image): bool {.borrow.}
