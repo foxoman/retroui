@@ -627,10 +627,14 @@ void uirelays_keyboard(int show) {
   @autoreleasepool {
     /* asked again after each tap while a field wants text: the user may
      * have hidden the keyboard with its own key */
+    int tapped = reshow;
     int again = show && reshow;
     reshow = 0;
     if (show == wantText && !again) {
-      if (!gView.isFirstResponder && !show) [gView becomeFirstResponder];
+      /* a view put inside this one (a web view) keeps the keys it was
+       * given until this view is touched */
+      if (!gView.isFirstResponder && !show && (tapped || gView.subviews.count == 0))
+        [gView becomeFirstResponder];
       return;
     }
     wantText = show;
