@@ -468,6 +468,12 @@ proc XSetInputFocus(dpy: pointer; w: XID; revertTo: cint; time: XTime): cint
 
 const RevertToParent = 2.cint
 
+proc XGetInputFocus(dpy: pointer; w: var XID; revertTo: var cint): cint
+  {.cdecl, dynlib: libX11, importc.}
+proc XQueryTree(dpy: pointer; w: XID; root, parent: var XID; children: var pointer;
+                count: var cuint): cint
+  {.cdecl, dynlib: libX11, importc.}
+
 type XSizeHints {.pure.} = object
   ## (Xutil's: the sizes a window may take, WM_NORMAL_HINTS)
   flags: clong
@@ -885,6 +891,26 @@ var
   gDamageAll = false          ## ... or something drawn that was not one
   gBlitSerial = 0'u64
 
+
+proc takeFocusBack() =
+  ## A press in the window while the keyboard is in a window of another
+  ## program put inside it (a web view): the keyboard comes back.
+  var focus: XID
+  var revert: cint
+  discard XGetInputFocus(gDisplay, focus, revert)
+  if focus == gWindow or focus == None or focus <= 1: return     # (1: PointerRoot)
+  var w = focus
+  for _ in 0 ..< 8:
+    var root, parent: XID
+    var kids: pointer
+    var n: cuint
+    if XQueryTree(gDisplay, w, root, parent, kids, n) == 0: return
+    if kids != nil: discard XFree(kids)
+    if parent == gWindow:
+      discard XSetInputFocus(gDisplay, gWindow, RevertToParent, CurrentTime)
+      return
+    if parent == None or parent == root: return
+    w = parent
 
 proc x11Wake*() = pushEvent(input.Event(kind: NoEvent))
   ## Wakes whoever waits for the driver's events (an empty event, `NoEvent`):
@@ -2012,6 +2038,7 @@ proc processXEvent(xev: XEvent) =
       e.y = xev.xbutton.y
       e.button = translateButton(btn)
       e.mods = translateMods(xev.xbutton.state)
+      takeFocusBack()
       # Clicks counted, of one button: within half a second, and as near as
       # 4 pixels of a 100% screen
       let now = xev.xbutton.time

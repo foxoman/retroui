@@ -440,6 +440,10 @@ proc GetKeyState(nVirtKey: int32): int16
   {.stdcall, dynlib: "user32", importc.}
 proc SetCapture(hWnd: HWND): HWND
   {.stdcall, dynlib: "user32", importc.}
+proc GetFocus(): HWND
+  {.stdcall, dynlib: "user32", importc.}
+proc SetFocus(hWnd: HWND): HWND
+  {.stdcall, dynlib: "user32", importc.}
 proc ReleaseCapture(): BOOL
   {.stdcall, dynlib: "user32", importc.}
 proc OpenClipboard(hWndNewOwner: HWND): BOOL
@@ -1312,6 +1316,9 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
     e.x = xParam(lp)
     e.y = yParam(lp)
     e.mods = getModifiers()
+    # (the keyboard back from a window put inside this one -- a web view --
+    # when the window itself is clicked)
+    if GetFocus() != hwnd: discard SetFocus(hwnd)
     # Keep receiving the mouse while a button is down, so a drag that ends
     # outside the window still ends.
     discard SetCapture(hwnd)
@@ -2485,6 +2492,10 @@ proc initWinapiFontRelays*() =
   fontRelays = winapiFontRelays()
 
 include winuia
+
+proc winWindow*(): pointer = gHwnd
+  ## The driver's window (an `HWND`), nil before it is made: what a program
+  ## puts windows of its own into (a web view).
 
 proc initWinapiDriver*() =
   surfaceRelays = SurfaceRelays(lockSurface: winLockSurface,
