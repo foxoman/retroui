@@ -5,8 +5,10 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/strutils
 import retroui, retroui/native
+import retroui/uirelays/target
+when not androidApp:
+  import std/strutils                     # (Termux:API's answer)
 
 var
   screenOn = false

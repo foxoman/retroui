@@ -25,6 +25,12 @@
 ##                    cannot do without, Retro Mail); a browser that will not
 ##                    keep the page apart from other sites gets a message
 ##   --debug          checks and stack traces kept (slower, bigger)
+##   --jobs:N         N C compilers at once (else: one a core while the memory
+##                    lasts, at most 4 in Termux; or $RETRO_JOBS)
+##   --lto:K          full (one optimization of the whole program, the
+##                    default), thin (the same in pieces: much less memory --
+##                    the default in Termux or with under 3 GB free) or none
+##                    (the default for --serve: quick to build)
 ##   --serve, --watch built and served (and built again on every save)
 ##   --port:N         served on port N (8765 or the next free one else)
 ##   --no-open        served without opening the browser
@@ -37,7 +43,7 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[os, osproc, strutils, hashes, times, asynchttpserver, asyncdispatch, uri, streams]
-import retroui/codec
+import retroui/[codec, buildjobs]
 
 const
   # (joined with "/": read while compiling, on this system, whatever system
@@ -209,6 +215,9 @@ const webThreadsMaxMemory = 1 shl 30
 type WebOptions* = object
   outDir*, filesDir*, icon*, name*: string
   small*, debug*, dev*, noOpen*, threadsOnly*: bool
+  jobs*: int                ## C compilers at once (0: as the memory allows, see buildjobs)
+  lto*: string              ## "full", "thin", "none"; "": full, thin where memory is short,
+                            ## none for `run --web` (built to try, quickly)
   threads*: int             ## -1: one thread; 0: threads, as many workers as cores; N: N workers
   port*: int                ## (serving it) 0: 8765 or the next free one
   extra*: seq[string]
@@ -232,6 +241,10 @@ proc parseWebOptions*(args: openArray[string]; app: var string): WebOptions =
       result.threadsOnly = true
       if result.threads < 0: result.threads = 0
     of "debug": result.debug = true
+    of "jobs": result.jobs = (try: max(1, parseInt(value)) except ValueError: 0)
+    of "lto":
+      if value notin ["full", "thin", "none"]: say "--lto: full, thin or none (not " & value & ")"
+      else: result.lto = value
     of "port": result.port = (try: parseInt(value) except ValueError: 0)
     of "no-open": result.noOpen = true
     of "web": discard
@@ -256,13 +269,28 @@ proc buildWeb*(app: string; o: WebOptions): int =
   let outDir = if o.outDir.len > 0: o.outDir else: app.parentDir / "build" / "web"
   createDir(outDir)
   let (res, _) = run(cc, ["-print-resource-dir"])
+  # (how hard the build pushes the computer: a phone or a tablet stops a
+  # build that starts too many compilers or takes too much memory)
+  let jobs = buildJobs(o.jobs)
+  let free = memAvailableMB()
+  let lto = if o.debug: "none"
+            elif o.lto.len > 0: o.lto
+            elif o.dev: "none"                              # (to try: linked in seconds)
+            elif inTermux() or free in 0 ..< 3000: "thin"   # (a link in pieces: far less memory)
+            else: "full"
 
   proc compile(threads: bool; wasmName: string): int =
     let kit = prepare(cc, threads)
     var passC = cflagsFor(threads) & @["-nostdinc", "-isystem", kit / "libc" / "include",
                                        "-isystem", res.strip / "include"]
-    if not o.debug: passC.add "-flto"
+    case lto
+    of "full": passC.add "-flto"
+    of "thin": passC.add "-flto=thin"
+    else: discard
     if o.small: passC.add "-Oz"
+    let cache = app.parentDir / "build" / ("web-nimcache-" & app.splitFile.name &
+                                           (if threads: "-threads" else: "") &
+                                           (if lto == "full": "" else: "-" & lto))
     var exports = @["NimMain", "retro_frame", "retro_audio", "malloc", "free"]
     var passL = @["--target=wasm32", "-nostdlib", "-L" & kit / "lib", "-Wl,--no-entry",
                   "-Wl,--gc-sections", "-Wl,-z,stack-size=2097152", "-Wl,--allow-undefined",
@@ -275,27 +303,42 @@ proc buildWeb*(app: string; o: WebOptions): int =
                    "retro_thread_entry", "retro_thread_reap"]
     for e in exports: passL.add "-Wl,--export-if-defined=" & e
     if not o.debug:
-      # (link-time optimization: the program as one, its unused parts gone;
-      # the names section left out -- a release needs no function names)
-      passL.add ["-flto", "-Wl,--strip-all", (if o.small: "-Wl,--lto-O2" else: "-Wl,--lto-O3")]
+      # (the names section left out: a release needs no function names)
+      passL.add "-Wl,--strip-all"
+    case lto
+    of "full":
+      # (link-time optimization: the program as one, its unused parts gone)
+      passL.add ["-flto", (if o.small: "-Wl,--lto-O2" else: "-Wl,--lto-O3")]
+    of "thin":
+      # (the same in pieces, on threads of one process: a fraction of the memory)
+      passL.add ["-flto=thin", (if o.small: "-Wl,--lto-O2" else: "-Wl,--lto-O3"),
+                 "-Wl,--thinlto-jobs=" & $jobs]
+    else: discard
     passL.add kit / (if threads: "retrolibc-threads.o" else: "retrolibc.o")
     var args = @["c", "--cpu:wasm32", "--os:linux", "-d:wasm", "-d:useMalloc",
                  (if threads: "--threads:on" else: "--threads:off"),
                  "--mm:orc", "--noMain", "--cc:clang", "--clang.exe:" & cc, "--clang.linkerexe:" & cc,
-                 "--hints:off",
+                 "--hints:off", "--parallelBuild:" & $jobs,
                  # (one for each app and each build: several built at once in one folder)
-                 "--nimcache:" & (app.parentDir / "build" / ("web-nimcache-" & app.splitFile.name &
-                                                             (if threads: "-threads" else: ""))),
+                 "--nimcache:" & cache,
                  "--passC:" & passC.mapIt2(quoteShell).join(" "), "--passL:" & passL.mapIt2(quoteShell).join(" "),
                  "-o:" & (outDir / wasmName)]
     if not o.debug: args.add "-d:release"
     if o.small: args.add "--opt:size"
     args.add o.extra
     args.add app
-    say "building " & app & " for the web" & (if threads: " (with threads)" else: "")
+    say "building " & app & " for the web" & (if threads: " (with threads)" else: "") &
+        " -- " & $jobs & " compiler" & (if jobs == 1: "" else: "s") & " at once" &
+        (case lto
+         of "full": ", optimized as one"
+         of "thin": ", optimized in pieces (less memory)"
+         else: ", not optimized as one (quicker)")
+    if lastBuildCut(cache): say cutNote(jobs)
+    buildStarted(cache)
     let p = startProcess(findExe("nim"), args = args, options = {poParentStreams})
     result = p.waitForExit()
     p.close()
+    buildEnded(cache)
 
   if o.threadsOnly:
     removeFile(outDir / "app.wasm")
@@ -533,6 +576,9 @@ proc runWeb*(app: string; o: WebOptions; watch: bool): int =
   var o = o
   o.dev = true
   if o.outDir.len == 0: o.outDir = app.parentDir / "build" / "web-dev"
+  # (served here with the headers threads need: the build with them is
+  # enough -- one build, not two)
+  if o.threads >= 0: o.threadsOnly = true
   result = buildWeb(app, o)
   if result != 0 and not watch: return
   var port = if o.port > 0: o.port else: 8765
@@ -561,6 +607,7 @@ when isMainModule:
   let args = commandLineParams()
   if args.len == 0 or args[0] in ["-h", "--help"]:
     echo "retroweb APP.nim [--out:DIR] [--files:DIR] [--icon:FILE.png] [--name:TEXT] [--small] [--threads[:N]] [--debug]"
+    echo "         [--jobs:N] [--lto:full|thin|none]"
     echo "         [--serve] [--watch] [--port:N] [--no-open]   (built, served, opened in a browser)"
     quit 0
   var serveIt, watchIt = false

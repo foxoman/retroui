@@ -228,7 +228,9 @@ proc restoreSession() =
   ## (the first frame) The documents open at the end of the last run open
   ## again where they were, their unsaved changes too.
   sessionPending = false
-  if not prefs.session: return
+  # (the last run stopped and the user chose to start without what was
+  # open: the pictures stay closed this once -- their copies are kept)
+  if not prefs.session or startFresh(): return
   let st = loadSettings(AppName)
   let n = st.getInt("session.count", 0)
   var back: seq[DocWin]

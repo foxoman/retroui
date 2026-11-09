@@ -7,7 +7,7 @@
 
 import std/[os, osproc, json, strutils, times, net, sequtils, exitprocs, tables]
 import retroui/[db, http, oauth, secrets]
-import ../examples/mail/[store, api, sync, sigfind]
+import ../examples/mail/[store, sync, sigfind]
 
 proc freePort(): int =
   let s = newSocket()

@@ -13,8 +13,10 @@
 ##     echo p.durationMs()
 ## ```
 
-import std/[dynlib, os, strutils]
+import std/[os, strutils]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
+when not (androidApp or defined(ios) or defined(windows) or defined(macosx)):
+  import std/dynlib
 import gfx
 
 type

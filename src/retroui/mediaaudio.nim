@@ -13,8 +13,10 @@
 ## echo decodeWav(readFile("beep.wav")).duration  # seconds
 ## ```
 
-import std/[locks, math, dynlib, hashes]
+import std/[locks, math, hashes]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
+when not (androidApp or defined(windows)):
+  import std/dynlib
 when compileOption("threads"):
   import std/typedthreads
 

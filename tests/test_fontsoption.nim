@@ -2,7 +2,6 @@
 ## -d:retroFonts=ui too): the left-out faces drawn with FreeSans, or read
 ## from a folder of their files ($RETRO_FONTS).
 
-import std/os
 import retroui/typeset
 
 doAssert faceBytes(fSans).len > 100_000

@@ -36,9 +36,12 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[os, strutils, tables, times, locks, algorithm]
+import std/[os, strutils, tables, times, locks]
 import uirelays/target
-import uirelays/services
+when androidApp or defined(wasm):
+  import uirelays/services
+when not (androidApp or defined(windows) or defined(macosx) or defined(wasm)):
+  import std/algorithm                    # (the cameras listed in order)
 import gfx, core, widgets, imaging, jpeg
 import media
 
@@ -425,47 +428,49 @@ when not (androidApp or defined(windows) or defined(macosx) or defined(ios) or
       # (Termux: the phone's microphone through Termux:API)
       return execShellCmd("termux-microphone-record -f " & quoteShell(path) &
                           " -l 0 >/dev/null 2>&1") == 0
-    loadAudio()
-    # (the microphone opened here: a recording that cannot start says so)
-    var pa, pcm: pointer
-    var err: cint
-    if paNew != nil and paRead != nil:
-      var ss = PaSampleSpec(format: 3, rate: 44100, channels: 1)                          # S16LE
-      pa = paNew(nil, "retro", 2, nil, "recording", addr ss, nil, nil, addr err)          # record
-    if pa == nil and alsaOpen != nil and alsaSet != nil and alsaRead != nil:
-      if alsaOpen(addr pcm, "default", 1, 0) == 0:                                        # capture
-        if alsaSet(pcm, 2, 3, 1, 44100, 1, 300_000) != 0:                                 # S16_LE, rw
-          discard alsaClose(pcm)
-          pcm = nil
-      else: pcm = nil
-    if pa == nil and pcm == nil: return false
-    rec = cast[ptr Recorder](allocShared0(sizeof(Recorder)))
-    initLock rec.lock
-    rec.path = path
-    rec.dev = pa
-    rec.dev2 = pcm
-    rec.rate = 44100
-    rec.channels = 1
-    rec.running = true
-    rec.started = epochTime()
-    createThread(recThread, recordLoop, rec)
-    true
+    else:
+      loadAudio()
+      # (the microphone opened here: a recording that cannot start says so)
+      var pa, pcm: pointer
+      var err: cint
+      if paNew != nil and paRead != nil:
+        var ss = PaSampleSpec(format: 3, rate: 44100, channels: 1)                          # S16LE
+        pa = paNew(nil, "retro", 2, nil, "recording", addr ss, nil, nil, addr err)          # record
+      if pa == nil and alsaOpen != nil and alsaSet != nil and alsaRead != nil:
+        if alsaOpen(addr pcm, "default", 1, 0) == 0:                                        # capture
+          if alsaSet(pcm, 2, 3, 1, 44100, 1, 300_000) != 0:                                 # S16_LE, rw
+            discard alsaClose(pcm)
+            pcm = nil
+        else: pcm = nil
+      if pa == nil and pcm == nil: return false
+      rec = cast[ptr Recorder](allocShared0(sizeof(Recorder)))
+      initLock rec.lock
+      rec.path = path
+      rec.dev = pa
+      rec.dev2 = pcm
+      rec.rate = 44100
+      rec.channels = 1
+      rec.running = true
+      rec.started = epochTime()
+      createThread(recThread, recordLoop, rec)
+      true
 
   proc sysRecordStop(): int =
     when defined(android):
       discard execShellCmd("termux-microphone-record -q >/dev/null 2>&1")
       return 0
-    if rec == nil: return 0
-    withLock rec.lock: rec.stopAsked = true
-    joinThread(recThread)
-    let bytes = rec.pcm.len
-    result = bytes * 1000 div (2 * rec.channels * rec.rate)
-    try: writeFile(rec.path, wavHeader(rec.rate, rec.channels, bytes) & rec.pcm)
-    except IOError, OSError: result = -1
-    deinitLock rec.lock
-    `=destroy`(rec[])
-    deallocShared(rec)
-    rec = nil
+    else:
+      if rec == nil: return 0
+      withLock rec.lock: rec.stopAsked = true
+      joinThread(recThread)
+      let bytes = rec.pcm.len
+      result = bytes * 1000 div (2 * rec.channels * rec.rate)
+      try: writeFile(rec.path, wavHeader(rec.rate, rec.channels, bytes) & rec.pcm)
+      except IOError, OSError: result = -1
+      deinitLock rec.lock
+      `=destroy`(rec[])
+      deallocShared(rec)
+      rec = nil
 
   proc sysRecording(): bool =
     if rec == nil: return false

@@ -59,6 +59,10 @@ block settingsRows:
   run()
 
 block appearance:
+  # ($RETRO_SCALE and $RETRO_THEME win over what was kept: the systems
+  # workflow sets the first)
+  delEnv("RETRO_SCALE")
+  delEnv("RETRO_THEME")
   var s: Settings
   ui.theme = Dark
   setUiScale(125)

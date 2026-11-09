@@ -13,8 +13,8 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[os, math, strutils, sequtils]
-import retroui/[gfx, photo, photopaint, photofx, photoshapes, photostyles, photodevelop, photovector,
+import std/[os, math]
+import retroui/[gfx, photo, photopaint, photofx, photoshapes, photovector,
               photowarp, photoneural, photopdf, photofiles, textengine]
 
 const

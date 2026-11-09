@@ -175,8 +175,17 @@ retrokit run --web --watch app.nim      # served on http://localhost:8765, rebui
 ```
 
 `--out:DIR` puts the page elsewhere, `--small` optimizes for size (`-Oz`),
-`--debug` keeps Nim's checks and stack traces; anything else goes to the
-compiler. Put `build/web` on any web server (HTTPS, for the service
+`--debug` keeps Nim's checks and stack traces, `--jobs:N` runs N C
+compilers at once (else one a core while the memory lasts; at most 4 in
+Termux), `--lto:full|thin|none` chooses how the program is optimized as a
+whole (below); anything else goes to the compiler.
+
+**How the program is linked:** `full` (the default) optimizes the whole
+program at once -- the Gallery's link takes 1.5 GB; `thin` does it in
+pieces on threads of one process -- 0.9 GB, the page 6 % bigger -- and is
+the default in Termux and where less than 3 GB is free; `none` skips it:
+the quickest build, the default of `retrokit run --web` (to try it, on
+your own computer). Put `build/web` on any web server (HTTPS, for the service
 worker); the page is `index.html`. The C library is compiled once into
 the cache (`RETROWEB_CACHE` another folder), once with threads and once
 without.
@@ -190,7 +199,8 @@ manifest, the icons and `sw.js` (the service worker).
 
 **Threads:** `--threads` builds the app twice, `app.wasm` and
 `app-threads.wasm` (`--threads:on`, WebAssembly's atomics, one shared
-memory of up to 1 GB); the page takes the second where the browser lets
+memory of up to 1 GB) -- `retrokit run --web --threads` once, with
+threads only (its server lets the page use them); the page takes the second where the browser lets
 it share memory with Web Workers (crossOriginIsolated: the server sends
 `Cross-Origin-Opener-Policy: same-origin` and
 `Cross-Origin-Embedder-Policy: require-corp` -- the page's service worker
@@ -206,6 +216,15 @@ being embedded (`Cross-Origin-Resource-Policy`) in a page with threads.
 0.94 MB), `sans`, `ui` (FreeSans and its bold) or `none`: the faces left
 out are read from `fonts/` beside the program (the `.ttf.z` files of
 `src/retroui/fonts`) or `$RETRO_FONTS`, else drawn with FreeSans.
+
+**What CI checks, here:** `sh tools/cicheck.sh` runs the steps GitHub's CI
+runs -- the return check, the warnings on every system
+(`sh tools/warncheck.sh`: the kit's own files have none, as Linux,
+Termux, an Android app, Windows, macOS, iOS and the web build them, and
+neither have the examples and the tests), the
+tests, a short fuzz, the Android driver on a fake Android, the tests as
+WebAssembly, the tools -- and ends with the number that failed
+(`quick`: the longer ones left out).
 
 **Testing it all**, in a clone: `nimble test` (headless), `nimble fuzz`,
 `sh tests/run32.sh` (as 32-bit programs: `apt install gcc-multilib` and
@@ -329,6 +348,30 @@ retroapk app.nim --name:"My App" --install     # the installer asks to confirm
 
 Termux's clang builds for the phone's own ABI; with `pkg install lld` the
 sysroot in `retroapk` builds the others too (`--abi:x86_64`...).
+
+### Building on a phone or tablet
+
+A build starts the Nim compiler (about 600 MB of memory for a big app),
+C compilers, and a linker. Android watches all of it:
+
+- **"[Process completed (signal 9)]":** Android 12 and later stop an app's
+  processes when there are many of them (32, for all apps together), or
+  when they use much of the processor while the app is in the background;
+  with little memory it stops them too. The kit's builds run as many C
+  compilers as the free memory allows and at most four in Termux; the next
+  build says when the last one was stopped, and goes on from what it had
+  compiled. Fewer: `--jobs:1` (or `RETRO_JOBS=1`).
+- **Keep Termux in front** while it builds (or `termux-wake-lock`).
+- **Turn Android's limit off:** Android 14 and later -- Settings, Developer
+  options, "Disable child process restrictions". Android 12 and 13 -- from
+  a computer with adb (or Termux's `adb` paired by Wireless debugging):
+  `adb shell "settings put global settings_enable_monitor_phantom_procs false"`
+  (Android 12L, 13), or
+  `adb shell "/system/bin/device_config put activity_manager max_phantom_processes 2147483647"`
+  (Android 12).
+- **Web pages:** `retrokit run --web` builds once and links quickly; `retrokit
+  web` links in pieces in Termux (`--lto:thin`, 0.9 GB instead of 1.5 GB for
+  the Gallery).
 
 ### A desktop app in Termux, on Termux:X11
 
@@ -499,6 +542,21 @@ the APKs a phone gets: `java -jar bundletool.jar build-apks
 - **"App not installed" on the phone:** the app is already there signed
   with another key (uninstall it first), or the `--code` is lower than the
   installed one's.
+- **The app closes as it opens:** open it again -- the kit wrote down what
+  stopped it (a crash of its Nim code, of the native code or of Java) and
+  shows it first, before the app runs, with Copy and Send by Email; "Start
+  without what was open the last time" opens it without the document,
+  folder or board that may have caused it.
+- **Permissions:** `retroapk` reads what the app's compiled code uses --
+  the camera, the microphone, notifications, the place, a buzz, the
+  network -- and lists those permissions in the manifest by itself (it says
+  which; `--no-auto-permissions` leaves them out). The app asks the user
+  the first time the feature is used (Android 6 and later), and goes on
+  without it when the answer is no.
+- **Built for Android's emulator:** `nimble emuapks` (x86_64, debuggable);
+  `sh tests/android/apps.sh build/apps/list.txt` opens each with and
+  without its permissions, drives it with the monkey and fails on a
+  crash (the systems workflow does it on Android 11 and 15).
 
 ---
 

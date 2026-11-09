@@ -10,7 +10,7 @@
 ## ```
 
 import std/[math, strutils]
-import photo, photofx, photosmart, photoneural, photoshapes, gfx, parallel, textengine
+import photo, photofx, photosmart, photoneural, photoshapes, gfx, textengine
 
 # ---- Layer Cleanup -------------------------------------------------------------------------------------------------
 

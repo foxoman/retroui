@@ -9,7 +9,6 @@
 
 import ../input, ../screen, ../services, ../access
 import surface_driver
-import std/strutils
 
 {.compile: "android_glue.c".}
 {.passL: "-landroid -llog -ldl".}

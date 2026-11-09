@@ -61,6 +61,8 @@
 ## `mediasession`    the system's media controls (lock screen, taskbar)
 ## `sign`, `msix`    signatures (JAR, Authenticode, time stamps), MSIX packages
 ## `macapp`          macOS bundles signed ad hoc, .icns, iOS archives
+## `buildjobs`       how hard a build pushes the computer: C compilers as the memory
+##                   allows (at most four in Termux), a build stopped half way told
 ## `system`          the system's features in one API: share, the place, speech,
 ##                   the device, starting with the computer (docs/system.md)
 ## `update`          updates inside the app: a signed update file (Ed25519), the
@@ -191,6 +193,7 @@ macro app*(args: varargs[untyped]): untyped =
   for i in 0 ..< args.len - 1: start.add args[i]
   let beginF = bindSym"beginFrame"
   let caption = bindSym"captionBar"
+  let stoppedNow = bindSym"stoppedScreen"
   let endF = bindSym"endFrame"
   let done = bindSym"appFrameDone"
   let close = bindSym"closeApp"
@@ -203,7 +206,8 @@ macro app*(args: varargs[untyped]): untyped =
       `frames`(proc () =
         if `beginF`():
           `caption`()
-          `body`
+          if not `stoppedNow`():
+            `body`
           `endF`()
           `done`()
         if not `running`(): `close`())
@@ -212,7 +216,8 @@ macro app*(args: varargs[untyped]): untyped =
       `start`
       while `beginF`():
         `caption`()
-        `body`
+        if not `stoppedNow`():
+          `body`
         `endF`()
         `done`()
       `close`()

@@ -37,7 +37,9 @@
 ## `RETRO_SPELL=enchant` (or `none`) in the environment chooses the checker
 ## on Linux, for tests.
 
-import std/[os, strutils, unicode, tables, sets, algorithm, sequtils, dynlib]
+import std/[os, strutils, unicode, tables, sets, algorithm, sequtils]
+when not defined(ios):
+  import std/dynlib
 import uirelays/services
 when defined(macosx) and not defined(ios):
   import native

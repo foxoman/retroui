@@ -39,7 +39,9 @@ type
 
   MsixError* = object of CatchableError
 
-const BlockSize = 65536
+const
+  BlockSize = 65536
+  MaxSmall = 0xFFFFFFFE'i64            ## (bigger: its sizes after the data, zip64)
 
 proc bad(why: string) {.noreturn.} = raise newException(MsixError, why)
 
@@ -118,7 +120,8 @@ proc check(a: MsixApp) =
     if p == a.exe: found = true
   if not found: bad("the program " & a.exe & " is not among the files")
 
-# ---- the zip, as Windows' own packager writes it (zip64 records, data descriptors) ----------
+# ---- the zip, as Windows' own packager writes it (zip64 end records; the sizes in the local
+# headers, a data descriptor only for a file of 4 GB or more) ----------------------------------
 
 type
   Entry = object
@@ -126,6 +129,7 @@ type
     offset, csize, usize: int
     crc: uint32
     deflated: bool
+    big: bool                    ## (4 GB or more: a data descriptor, zip64)
   PkgZip = object
     data: string
     entries: seq[Entry]
@@ -156,29 +160,42 @@ proc add(z: var PkgZip; name, content: string; compress: bool): seq[int] =
     result = sizes
   else: body = content
   e.csize = body.len
+  # (as Windows' packager writes a file under 4 GB: its sizes in the local
+  # header, no data descriptor; a bigger one has them after its data)
+  e.big = int64(e.csize) > MaxSmall or int64(e.usize) > MaxSmall
+  if int64(e.offset) > MaxSmall: bad("the package is bigger than 4 GB")
   var h = "PK\3\4"
-  h.le(45, 2); h.le(8, 2); h.le(if e.deflated: 8 else: 0, 2)
+  h.le(if e.big: 45 else: 20, 2); h.le(if e.big: 8 else: 0, 2); h.le(if e.deflated: 8 else: 0, 2)
   h.le(0, 2); h.le(0x21, 2)                     # 1980-01-01
-  h.le(0, 4); h.le(0, 4); h.le(0, 4)            # (in the descriptor)
+  if e.big:
+    h.le(0, 4); h.le(0, 4); h.le(0, 4)          # (in the descriptor)
+  else:
+    h.le(e.crc, 4); h.le(uint64(e.csize), 4); h.le(uint64(e.usize), 4)
   h.le(uint64(name.len), 2); h.le(0, 2)
   h.add name
   z.data.add h
   z.data.add body
-  var d = "PK\7\8"
-  d.le(e.crc, 4); d.le(uint64(e.csize), 8); d.le(uint64(e.usize), 8)
-  z.data.add d
+  if e.big:
+    var d = "PK\7\8"
+    d.le(e.crc, 4); d.le(uint64(e.csize), 8); d.le(uint64(e.usize), 8)
+    z.data.add d
   z.entries.add e
 
 proc central(z: PkgZip; skip = ""): tuple[cd: string; count: int] =
   for e in z.entries:
     if e.name == skip: continue
     var c = "PK\1\2"
-    c.le(45, 2); c.le(45, 2); c.le(8, 2); c.le(if e.deflated: 8 else: 0, 2)
+    c.le(45, 2); c.le(if e.big: 45 else: 20, 2); c.le(if e.big: 8 else: 0, 2)
+    c.le(if e.deflated: 8 else: 0, 2)
     c.le(0, 2); c.le(0x21, 2)
-    c.le(e.crc, 4); c.le(uint64(e.csize), 4); c.le(uint64(e.usize), 4)
-    c.le(uint64(e.name.len), 2); c.le(0, 2); c.le(0, 2); c.le(0, 2); c.le(0, 2)
+    c.le(e.crc, 4)
+    if e.big: (c.le(0xFFFFFFFF'u32, 4); c.le(0xFFFFFFFF'u32, 4))
+    else: (c.le(uint64(e.csize), 4); c.le(uint64(e.usize), 4))
+    c.le(uint64(e.name.len), 2); c.le(if e.big: 20 else: 0, 2); c.le(0, 2); c.le(0, 2); c.le(0, 2)
     c.le(0, 4); c.le(uint64(e.offset), 4)
     c.add e.name
+    if e.big:                                   # (zip64: the two sizes)
+      c.le(1, 2); c.le(16, 2); c.le(uint64(e.usize), 8); c.le(uint64(e.csize), 8)
     result.cd.add c
     inc result.count
 
@@ -330,6 +347,14 @@ proc buildMsix*(a: MsixApp; key: RsaKey; cert: seq[byte]; chain: seq[seq[byte]] 
   let digest = appxDigest(z, ct, bm)
   let sig = msixSignature(digest, key, cert, chain, a.displayName, timestamper)
   discard z.add("AppxSignature.p7x", sig, true)
+  let (cd, count) = z.central()
+  result = z.data & cd & ending(count, cd.len, z.data.len)
+
+proc buildUnsignedMsix*(a: MsixApp): string =
+  ## The .msix of `a` without its signature: to sign elsewhere (signtool,
+  ## a signing service, a hardware key).
+  check(a)
+  let (z, _, _) = unsignedMsix(a, payload(a))
   let (cd, count) = z.central()
   result = z.data & cd & ending(count, cd.len, z.data.len)
 

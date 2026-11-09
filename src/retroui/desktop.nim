@@ -1451,6 +1451,77 @@ proc aboutBox*(open: var bool; app: string; version = ""; lines: openArray[strin
       spring()
       if button("OK", isDefault = true, w = dp(80)): open = false
 
+# ---- the last run stopped ---------------------------------------------------------------------------
+
+var stopped: tuple[checked, on, fresh: bool; text: string]
+
+proc startFresh*(): bool =
+  ## The user chose, on the "stopped" screen, to start without what was
+  ## open the last time: an app that brings back its documents, windows or
+  ## folders leaves them this once.
+  stopped.fresh
+
+proc stoppedPending*(): bool =
+  ## The "stopped" screen is to be shown (the last run ended in a crash and
+  ## Start was not pressed yet): an app with its own frame loop asks it
+  ## before bringing back what was open, and at the start of each frame
+  ## (`stoppedFrame`).
+  if not stopped.checked:
+    stopped.checked = true
+    if lastRunStopped():
+      stopped.on = true
+      stopped.text = takeFaults()
+  stopped.on
+
+proc showStoppedScreen*(report: string) =
+  ## Opens the "stopped" screen with `report` (an app that keeps its own
+  ## crash reports; a test): shown by `stoppedScreen` until Start.
+  stopped = (true, true, false, report)
+  ui.redraw = true
+
+proc stoppedScreen*(): bool =
+  ## Called before the app's own code in every frame (`app` does it): when
+  ## the last run ended in a crash, its report -- before anything of the app
+  ## runs, so a crash at the start shows too -- with Copy, Send by Email and
+  ## Start; true while it is shown (the app's frame waits).
+  if not stoppedPending(): return false
+  result = true
+  let app = if ui.title.len > 0: ui.title else: "The app"
+  row:
+    msgIcon(miWarning)
+    paragraph(app & " stopped the last time it ran. What it said is below: copy it or " &
+              "send it to the developer, so it can be put right. Your files are as they were.")
+  editArea(stopped.text, lines = clamp((ui.h - dp(200)) div max(1, rowHeight()), 5, 24))
+  checkbox("Start &without what was open the last time", stopped.fresh)
+  row:
+    let report = stopped.text & "\n" & aboutInfo(app)
+    if button("&Copy", w = dp(80)): putClipboardText(report)
+    if button("Send by &Email...", w = dp(140)):
+      var body = report
+      if body.len > 1800: body = body[^1800 .. ^1]
+      discard openUrl("mailto:" & RetroEmail & "?subject=" &
+                      encodeUrl(app & ": it stopped", usePlus = false) &
+                      "&body=" & encodeUrl(body, usePlus = false))
+    spring()
+    if button("&Start", isDefault = true, w = dp(80)):
+      stopped.on = false
+      ui.redraw = true
+
+proc stoppedFrame*(): bool =
+  ## For an app with its own frame loop, first in each frame: the caption
+  ## bar and the "stopped" screen when it is to be shown -- true: the frame
+  ## is done (`endFrame`, then the next one).
+  ##
+  ## ```nim
+  ## while beginFrame():
+  ##   if stoppedFrame(): (endFrame(); continue)
+  ##   myFrame()
+  ##   endFrame()
+  ## ```
+  if not stoppedPending(): return false
+  captionBar()
+  stoppedScreen()
+
 # ---- Report a Problem -----------------------------------------------------------------------------
 
 var problem: tuple[on, checked: bool; text: string]

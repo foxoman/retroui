@@ -5,7 +5,7 @@
 ## the image composited at 16 bits, the gradient at 16 bits.
 
 import std/[os, sets, math]
-import retroui/[gfx, photo, photofx, photohdr, photodeep, photodevelop, photopaint]
+import retroui/[gfx, photo, photofx, photohdr, photodeep, photopaint]
 
 let S = getTempDir()
 

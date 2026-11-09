@@ -11,7 +11,7 @@
 ## ```
 
 import std/[math, algorithm, strutils]
-import gfx, photo, photofx, photodevelop, parallel
+import photo, photofx, photodevelop, parallel
 
 type
   RawImage* = object

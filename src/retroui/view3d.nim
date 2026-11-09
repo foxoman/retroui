@@ -1741,7 +1741,7 @@ proc view3dPicture*(key = ""): Bitmap =
     if c.onGpu:
       let gv = glViews.getOrDefault(id, nil)
       if gv == nil or gv.fb == 0 or gv.epoch != gpuEpoch() or not gpuFiltersReady():
-        return nil
+        return                          # (nil)
       let gl = gpuGl()
       let old = gpuBeginOffscreen()
       gl.bindFramebuffer(GL_FRAMEBUFFER, gv.fb)

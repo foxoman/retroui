@@ -33,7 +33,7 @@
 ## meshopt compression (export without them), cameras and lights (the
 ## view has its own).
 
-import std/[json, os, strutils, math, base64, osproc, tables, times, streams]
+import std/[json, os, strutils, osproc, tables, times, streams]
 import gfx, imaging, jpeg, webp, view3d
 from codec import unbase64
 

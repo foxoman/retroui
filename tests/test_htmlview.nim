@@ -5,7 +5,7 @@
 import std/[sequtils, os, strutils, times, monotimes]
 import retroui
 import retroui/[htmlview, webnative]
-import retroui/uirelays/[input, services]
+import retroui/uirelays/services
 import harness
 
 fakeDriver()

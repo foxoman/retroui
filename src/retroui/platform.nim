@@ -1,8 +1,10 @@
 ## Platform services for apps: a folder for the app's files, small saved
 ## settings, opening links, and what kind of device this is.
 
-import std/[os, tables, strutils, osproc]
+import std/[os, tables, strutils]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
+when not (androidApp or defined(ios)):
+  import std/osproc
 import uirelays/[services, input]
 import core, gfx
 from ttf import sfntOf

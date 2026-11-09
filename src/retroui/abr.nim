@@ -8,7 +8,7 @@
 ## for tip in readBrushes(path, readFile(path)): brushes.add tip   # .abr or .gbr
 ## ```
 
-import std/[strutils, math]
+import std/strutils
 import photopaint
 
 proc be16(s: string; at: int): int =

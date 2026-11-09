@@ -155,6 +155,9 @@ proc msixCmd*(args: seq[string]): int =
   --min-windows:V      lowest Windows (default 10.0.17763.0)
   --key, --cert, --chain, --timestamp  as for `retrokit sign` (the program
                        inside is signed with them too; --no-exe-sign leaves it)
+  --unsigned           the package without its signature (to sign elsewhere:
+                       signtool, a signing service; the program inside is
+                       still signed unless --no-exe-sign)
   -o:FILE.msix         output (default: <program>.msix beside it)
 To install a package signed with a test certificate yourself: put the
 certificate (~/.retro/windows/dev-cert.der) in the local machine's
@@ -195,7 +198,8 @@ certificate (~/.retro/windows/dev-cert.der) in the local machine's
       a.files.add (f.replace('\\', '/'), readFile(dir / f))
   let output = o.opt("o", "out", "output", default = path.changeFileExt("msix"))
   try:
-    writeFile(output, buildMsix(a, key, cert, chain, stamper(o)))
+    writeFile(output, if o.has("unsigned"): buildUnsignedMsix(a)
+                      else: buildMsix(a, key, cert, chain, stamper(o)))
   except MsixError as e: die e.msg
   except SignError as e: die e.msg
   echo "Built ", output, " (", getFileSize(output) div 1024, " KB, ", a.name, " ", a.version, " ",

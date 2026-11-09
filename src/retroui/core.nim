@@ -20,7 +20,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.30.0"
+const RetroVersion* = "0.30.1"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -297,6 +297,8 @@ type Ctx* = object
   pressed*: bool                 ## ... went down this frame
   released*: bool                ## ... was let go this frame
   rpressed*: bool                ## a right click (or a long press, or the menu key) this frame
+  rpressAgain: bool              ## (a right click that closed a menu: given again next frame)
+  popupBefore: Id                ## (the popup open when the frame began)
   rmouseDown*: bool              ## the right button is held (a drag with it: Alt + right in Photoshop)
   pressUsed*: bool               ## a widget took this frame's press (`takePress`)
   mpressed*: bool                ## the middle button went down this frame
@@ -348,6 +350,7 @@ type Ctx* = object
   lastRect*: Rect                ## ... and where it was
   focusRect*: Rect               ## where the focused widget was drawn
   focusMoved*: int               ## frame the keyboard last moved focus
+  focusByKeys*: bool             ## the focus came from the keyboard (Tab, arrows), not a click
   tabOrder: seq[Id]
   focusSeen: bool                ## the focused widget answered this frame (a stop of Tab
                                  ## or not: a list that takes keys but no Tab)
@@ -1268,6 +1271,7 @@ proc interact*(id: Id; r: Rect; focusable = true; enabled = true): Hit =
       ui.spaceDown = false
       if focusable:
         ui.focus = id
+        ui.focusByKeys = false
         result.focused = true
   if ui.active == id and not ui.spaceDown:
     if ui.released:
@@ -1481,6 +1485,12 @@ proc layoutRestore*(m: LayoutMark) =
 
 var faultPath = ""     ## (where faults are written: the app's data folder)
 
+when androidApp:
+  # (a crash of the native code written down too: Nim's own signal handler
+  # is left out on Android, where the runtime uses the signals itself)
+  {.compile: "crashlog.c".}
+  proc retroCrashLog(path: cstring) {.importc: "retro_crash_log", cdecl.}
+
 proc writeFault(msg: string) {.tags: [WriteIOEffect], gcsafe, nimcall, raises: [].} =
   {.cast(gcsafe).}:
     try: stderr.write msg
@@ -1503,6 +1513,18 @@ proc noteFault*(where, msg: string) =
   if m == lastNoted: return
   lastNoted = m
   writeFault(m)
+
+proc peekFaults*(): string =
+  ## What the fault log holds, left there ("" when nothing).
+  if faultPath.len == 0 or not fileExists(faultPath): return ""
+  try: result = readFile(faultPath)
+  except CatchableError: discard
+
+proc lastRunStopped*(): bool =
+  ## The last run ended in a crash (an error nothing caught, a fault of the
+  ## native code, Java's on Android): its report is in the fault log.
+  let f = peekFaults()
+  "unhandled exception" in f or "--- the app stopped" in f
 
 proc takeFaults*(): string =
   ## What went wrong since the faults were last taken (the last run's end
@@ -2810,6 +2832,8 @@ proc startApp*(title: string; w, h: int; theme = ui.theme; zoom = 0) =
   try: faultPath = dataDir(appIdent) / "faults.log"
   except CatchableError: discard
   errorMessageWriter = writeFault
+  when androidApp:
+    if faultPath.len > 0: retroCrashLog(faultPath.cstring)
   case getEnv("RETRO_GPU").toLowerAscii
   of "0", "cpu": setGpuMode(gmCpu)
   of "1", "gpu": setGpuMode(gmGpu)
@@ -3106,6 +3130,11 @@ proc beginFrame*(): bool =
     else: -1
   ui.redraw = false
   pump(waitMs)
+  if ui.rpressAgain:
+    # (a right click that closed an open menu: the next one opens where it was)
+    ui.rpressAgain = false
+    ui.rpressed = true
+  ui.popupBefore = ui.popup
   frameSetup(true)
   true
 
@@ -3360,6 +3389,7 @@ proc frameFinish(main: bool) =
                  else: (at + 1) mod n
       ui.focus = ui.tabOrder[next]
       ui.focusMoved = ui.frameNo
+      ui.focusByKeys = true
       ui.spaceDown = false
       ui.redraw = true
     elif at < 0 and not ui.focusSeen and not ui.touch and
@@ -3369,12 +3399,17 @@ proc frameFinish(main: bool) =
       # focus and answered without being a stop of Tab keeps it)
       ui.focus = ui.tabOrder[0]
       ui.redraw = true
-  # A press outside an open popup closes it.
+  # A press outside an open popup closes it; a right click outside, too --
+  # and is given again on the next frame, so the menu of what it is on opens
+  # (one right click to another place, as a desktop's menus do).
   if ui.popup != 0:
     let p = point(ui.mx, ui.my)
+    let outside = not ui.popupRectNow.contains(p) and not ui.popupRect2Now.contains(p)
     if (ui.popupRectNow.w == 0 and not ui.popupOpened) or
-       (ui.pressed and not ui.pressUsed and not ui.popupRectNow.contains(p) and
-        not ui.popupRect2Now.contains(p)):
+       (ui.pressed and not ui.pressUsed and outside) or
+       (ui.rpressed and outside and ui.popupBefore == ui.popup and not ui.touch):
+      # (not the right click that opened it, this frame)
+      if ui.rpressed and outside and ui.popupBefore == ui.popup: ui.rpressAgain = true
       ui.popup = 0
       ui.menuOpen = false
       ui.redraw = true

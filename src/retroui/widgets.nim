@@ -321,6 +321,17 @@ proc spaceKey*(id: Id; hit: var Hit) =
       ui.spaceDown = false
   if ui.active == id and ui.spaceDown: hit.down = true
 
+proc dropKey*(): bool =
+  ## F4 or Alt+Down was pressed (and is taken): what drops a drop-down with
+  ## the focus open, or closes it, as in Windows -- combo boxes, date
+  ## pickers, menu buttons, a grid's drop-down cells. (Enter opens a closed
+  ## one too; Alt+Up and Esc close an open one.)
+  if canInput() and not ui.keyUsed and
+     ((ui.key == KeyDown and AltPressed in ui.mods) or
+      (ui.key == KeyF4 and ui.mods * {AltPressed, CtrlPressed, ShiftPressed, GuiPressed} == {})):
+    ui.keyUsed = true
+    result = true
+
 proc mnemonicHit*(label: string): bool =
   ## Alt + the underlined letter.
   if ui.mnemonic != '\0' and not ui.keyUsed and canInput() and
@@ -680,6 +691,7 @@ proc radio*(label: string; v: var int; value: int;
         let to = (at + d + prevIds.len) mod prevIds.len
         ui.focus = prevIds[to]
         ui.focusMoved = ui.frameNo
+        ui.focusByKeys = true
         if v != prevValues[to]:
           v = prevValues[to]
           result = true
@@ -1343,19 +1355,31 @@ proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
           let g1 = lineGeo(s, vl[t].a, vl[t].b, pass, tx, inner.w - 6)
           moveTo(hitOf(s, vl, t, x - g1.left, pass, g1))
       of KeyBackspace:
+        # (Ctrl+Backspace -- Option on a Mac -- the word before the caret;
+        # Cmd+Backspace on a Mac, the line before it; a password's words
+        # are not shown: all of it before the caret)
         ui.keyUsed = true
+        let byWord = when defined(macosx): AltPressed in ui.mods else: ctrl
+        let byLine = when defined(macosx): ctrl else: false
         if a0 != b0: replaceSel("")
         elif st.caret > 0:
-          st.anchor = runeBefore(s, st.caret)
+          st.anchor =
+            if pass and (byWord or byLine): 0
+            elif byLine: s.rfind('\n', 0, st.caret - 1) + 1
+            elif byWord: wordLeft(s, st.caret)
+            else: runeBefore(s, st.caret)
           replaceSel("")
       of KeyDelete:
         ui.keyUsed = true
+        let byWord = when defined(macosx): AltPressed in ui.mods else: ctrl
         if shift and a0 != b0 and not pass:
           putClipboardText(s[a0 ..< b0])
           replaceSel("")
         elif a0 != b0: replaceSel("")
         elif st.caret < s.len:
-          st.anchor = clusterAfter(s, st.caret)    # (a letter with its marks)
+          # (Ctrl+Delete -- Option on a Mac -- the word after the caret)
+          st.anchor = if byWord: (if pass: s.len else: wordRight(s, st.caret))
+                      else: clusterAfter(s, st.caret)    # (a letter with its marks)
           replaceSel("")
       of KeyInsert:
         ui.keyUsed = true
@@ -1637,7 +1661,10 @@ proc listbox*(items: openArray[string]; sel: var int; rows = 6; w = 0;
       if ui.pressed and ui.clicks >= 2: markDouble(id)
     if hit.focused and n > 0:
       if not ui.touch: ui.takesText = true   # type-ahead; no keyboard pops up
-      case ui.key
+      # (with Ctrl or Alt the keys are the app's: a list in a panel does not
+      # move as the app's own shortcut runs)
+      let plain = not ui.keyUsed and ui.mods * {CtrlPressed, AltPressed, GuiPressed} == {}
+      case (if plain: ui.key else: KeyNone)
       of KeyUp: nsel = max(0, nsel - 1); follow = true
       of KeyDown: nsel = min(n - 1, nsel + 1); follow = true
       of KeyPageUp: nsel = max(0, nsel - vis + 1); follow = true
@@ -1709,6 +1736,29 @@ type ItemPreview* = proc (i: int; r: Rect; selected: bool) {.closure.}
   ## Draws item `i` of a drop-down list in `r` (its background is drawn
   ## already): a font's name in the font, a color, a line style.
 
+var typeAhead: tuple[id: Id; text: string; at: int]
+
+proc typeAheadPick(id: Id; items: openArray[string]; current: int): int =
+  ## (letters typed on a list: the next item that starts with them; typed
+  ## quickly one after the other, a longer start -- "fr" finds France after
+  ## Finland; the same letter again goes on to the next with it) -1 none.
+  result = -1
+  if ui.typed.len == 0 or items.len == 0: return
+  if typeAhead.id != id or ui.now - typeAhead.at > 1000: typeAhead.text = ""
+  typeAhead.id = id
+  typeAhead.at = ui.now
+  let t = unicode.toLower(ui.typed)
+  var want = typeAhead.text & t
+  var same = true
+  for c in want:
+    if c != want[0]: same = false
+  if same and want.len > 1: want = t          # (the same letter again: the next one)
+  typeAhead.text = want
+  let start = if want.len > t.len: max(0, current) else: current + 1
+  for k in 0 ..< items.len:
+    let i = (start + k + items.len) mod items.len
+    if unicode.toLower(tr(items[i])).startsWith(want): return i
+
 proc popupList(id: Id; r: Rect; items: openArray[string]; sel: var int;
                preview: ItemPreview = nil): bool =
   ## The list a combo box drops down. Runs in the popup layer.
@@ -1738,6 +1788,13 @@ proc popupList(id: Id; r: Rect; items: openArray[string]; sel: var int;
         sel = ui.popupHi
         result = true
         ui.popup = 0
+    if dropKey() or (ui.key == KeyUp and AltPressed in ui.mods and not ui.keyUsed):
+      # F4, Alt+Down, Alt+Up: closed, the item lit picked (as Windows does)
+      if ui.popupHi >= 0 and ui.popupHi != sel:
+        sel = ui.popupHi
+        result = true
+      ui.popup = 0
+      ui.keyUsed = true
     case ui.key
     of KeyUp: ui.popupHi = max(0, ui.popupHi - 1); ui.keyUsed = true
     of KeyDown: ui.popupHi = min(items.len - 1, ui.popupHi + 1); ui.keyUsed = true
@@ -1755,6 +1812,14 @@ proc popupList(id: Id; r: Rect; items: openArray[string]; sel: var int;
       ui.popup = 0
       ui.keyUsed = true
     else: discard
+    if ui.typed.len > 0:
+      # (letters typed: the item that starts with them, lit)
+      ui.takesText = true
+      let i = typeAheadPick(id, items, ui.popupHi)
+      if i >= 0:
+        ui.popupHi = i
+        ui.keyUsed = true
+      ui.typed = ""
     if ui.popupHi >= 0 and ui.keyUsed:
       scrollShow(id, off, ui.popupHi * ItemH, (ui.popupHi + 1) * ItemH, viewH, maxOff)
     elif ui.popupHi >= 0 and not scrolling(id) and not mouseIn(area):
@@ -1785,7 +1850,12 @@ proc popupList(id: Id; r: Rect; items: openArray[string]; sel: var int;
 proc combo*(items: openArray[string]; sel: var int; w = 0;
             enabled = true; preview: ItemPreview = nil): bool {.discardable.} =
   ## A drop-down list bound to the selected index `sel`; `preview` draws
-  ## its items in the list (a font's name in the font).
+  ## its items in the list (a font's name in the font). With the focus:
+  ## Enter, Alt+Down or F4 open it (F4, Alt+Up or Enter close it on
+  ## the item lit; Esc without), Up / Down / Home / End pick, letters typed
+  ## pick the item that starts with them (in the open list; in the closed
+  ## one when Tab brought the focus -- a list clicked leaves the letters to
+  ## the app's keys).
   var mw = 40
   for it in items: mw = max(mw, textWidth(tr(it)))
   let r = place(if w > 0: w else: mw + SbW + 12, EditH)
@@ -1818,11 +1888,25 @@ proc combo*(items: openArray[string]; sel: var int; w = 0;
       ui.popupHi = sel
       ui.redraw = true
     if hit.focused and canInput() and not open:
-      if (ui.key == KeyDown and AltPressed in ui.mods) or ui.key == KeyF4:
+      # (type-ahead when the keyboard brought the focus: a list clicked once
+      # does not take the letters an app's keys of one letter are -- a
+      # paint program's tools; no keyboard pops up on a touch screen)
+      let ahead = ui.focusByKeys and not ui.touch
+      if ahead: ui.takesText = true
+      # (not Space, as in Windows: an app's Space -- a paint program's Hand
+      # -- still works with a list focused)
+      if not ui.keyUsed and ((ui.key == KeyDown and AltPressed in ui.mods) or ui.key == KeyF4 or
+                             (ui.key == KeyEnter and ui.mods == {})):
         ui.popup = id
         ui.popupHi = sel
         ui.keyUsed = true
         ui.redraw = true
+      elif ui.typed.len > 0 and ahead:
+        let i = typeAheadPick(id, items, sel)
+        if i >= 0 and i != sel:
+          sel = i
+          result = true
+        ui.typed = ""
       elif ui.key == KeyUp and sel > 0:
         dec sel
         ui.keyUsed = true
@@ -2021,7 +2105,8 @@ proc popupSlider*(v: var int; lo, hi: int; w = 0; unit = "%";
   ## options bar has for Opacity, Flow or Tolerance: type the number; or
   ## press the arrow and drag (letting go closes it); or click the arrow,
   ## then click or drag on the slider (Enter, Esc or a click outside close
-  ## it). Up / Down and the wheel step it when it has the focus.
+  ## it). Up / Down and the wheel step it when it has the focus; F4 or
+  ## Alt+Down drop the slider from the keyboard (Left / Right move it).
   let r = place(if w > 0: w else: textWidth($hi & unit) + SbW + dp(14), EditH)
   let id = idOf(v, "popslider")
   let editId = id + 31
@@ -2052,6 +2137,12 @@ proc popupSlider*(v: var int; lo, hi: int; w = 0; unit = "%";
         st.aux = ui.mx
       ui.redraw = true
     if ui.focus == editId:
+      if ui.popup != popId and dropKey():
+        # (F4, Alt+Down: the slider drops; again, or Alt+Up: it closes)
+        ui.popup = popId
+        ui.menuOpen = false
+        st.anchor = 1                        # (it stays open: Left / Right move it)
+        ui.redraw = true
       if keyHit(KeyUp): inc nv
       if keyHit(KeyDown): dec nv
       if keyHit(KeyPageUp): nv += 10
@@ -2084,7 +2175,9 @@ proc popupSlider*(v: var int; lo, hi: int; w = 0; unit = "%";
       if st.anchor == 0 and abs(ui.mx - st.aux) > dp(3): st.anchor = 2
     if ui.active == dragId and ui.released and st.anchor == 2:
       ui.popup = 0
-    if canInput() and (keyHit(KeyEsc) or keyHit(KeyEnter)): ui.popup = 0
+    if canInput() and (keyHit(KeyEsc) or keyHit(KeyEnter) or dropKey() or
+                       (ui.key == KeyUp and AltPressed in ui.mods and keyHit(KeyUp))):
+      ui.popup = 0
     if canInput():
       if keyHit(KeyLeft): dec nv
       if keyHit(KeyRight): inc nv

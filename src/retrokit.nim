@@ -37,8 +37,11 @@
 ##
 ## No dependencies but Nim and a C compiler.
 
-import std/[os, osproc, strutils, dynlib, sequtils, times, hashes]
+import std/[os, osproc, strutils, sequtils, times, hashes]
+when not defined(windows):
+  import std/dynlib
 import retroweb, retrostore
+import retroui/buildjobs
 
 const usage = """
 retrokit -- start, check and build Retro Nim UI apps
@@ -77,6 +80,10 @@ retrokit -- start, check and build Retro Nim UI apps
         --threads[:N]  a second build with threads, taken where the browser
                        allows them (Web Workers on one memory)
         --threads-only with threads alone (an app that needs them)
+        --jobs:N       N C compilers at once (else as the memory allows; at
+                       most 4 in Termux, where Android stops builds with
+                       too many: "signal 9")
+        --lto:K        full, thin (much less memory: Termux's default) or none
   retrokit apk APP.nim [...]   an Android APK (same options as retroapk)
   retrokit aab APP.nim [...]   an Android App Bundle (.aab) for Google Play,
       signed with your upload key (--key, --cert)
@@ -418,13 +425,27 @@ proc doctor() =
 proc build(app: string; extra: openArray[string]; run: bool): int =
   if not fileExists(app): quit "retrokit: no file " & app
   var args = @["c", "-d:release", "-d:useMalloc", "--hints:off"]
-  for e in extra: args.add e
+  # (C compilers at once as the memory allows -- in Termux a build with too
+  # many is stopped by Android, "signal 9" -- unless the call says)
+  var asked = 0
+  for e in extra:
+    if e.startsWith("--jobs:"):
+      asked = (try: parseInt(e[7 .. ^1]) except ValueError: 0)
+  let jobs = buildJobs(asked)
+  if not extra.anyIt(it.startsWith("--parallelBuild")): args.add "--parallelBuild:" & $jobs
+  for e in extra:
+    if not e.startsWith("--jobs:"): args.add e
   if run: args.add "-r"
   args.add app
+  # (Nim's own cache for the program: where a build stopped half way shows)
+  let cache = getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / "nim" / (app.splitFile.name & "_r")
+  if lastBuildCut(cache): echo "retrokit: ", cutNote(jobs)
   echo "nim ", args.join(" ")
+  buildStarted(cache)
   let p = startProcess(findExe("nim"), args = args, options = {poParentStreams})
   result = p.waitForExit()
   p.close()
+  buildEnded(cache)
 
 # ---- run --watch: built again on every save ------------------------------------------------
 #

@@ -3,8 +3,8 @@
 ## picture, presets made from layers, kept in a file and read back, and a
 ## batch of files.
 
-import std/[os, strutils]
-import retroui/[gfx, imaging, photo, photofx, photodevelop, photopresets]
+import std/os
+import retroui/[gfx, imaging, photo, photodevelop, photopresets]
 
 proc photo(w, h: int): Doc =
   result = newDoc(w, h)

@@ -22,8 +22,8 @@
 ##
 ## Run `retroapk --help` for every option.
 
-import std/[os, osproc, strutils, parseopt, algorithm, unicode, sequtils]
-import retroui/[appicon, androiddex, rsa, zip, codec]
+import std/[os, osproc, strutils, parseopt, algorithm, unicode, sequtils, tables]
+import retroui/[appicon, androiddex, rsa, zip, codec, buildjobs]
 from retroui/sign import jarSign, SignError
 
 const Usage = """
@@ -39,7 +39,12 @@ Options:
   --abi:LIST         arm64-v8a (default), x86_64; comma separated (armeabi-v7a
                      and x86, 32-bit, build with the NDK only)
   --orientation:O    any (default), portrait, landscape
-  --permission:NAME  add a permission, e.g. INTERNET (repeatable)
+  --permission:NAME  add a permission, e.g. INTERNET (repeatable); the ones
+                     the app's code needs -- the camera, the microphone,
+                     notifications, the place, a buzz, the network -- are
+                     added by themselves (said as they are; the app asks
+                     the user when the feature is first used)
+  --no-auto-permissions  only the --permission ones
   --query:PACKAGE    an app this one needs to see installed (Android 11+;
                      repeatable; --storage adds com.termux)
   --storage          the app works with all the user's files (a file
@@ -64,6 +69,8 @@ Options:
   --run              start it after installing (adb)
   --nim:FLAG         pass a flag to the Nim compiler (repeatable)
   --verbose          show the commands
+  --jobs:N           N C compilers at once (else one a core while the memory
+                     lasts, at most 4 in Termux; or $RETRO_JOBS)
   --clean            remove the compiled pieces after (they are kept in the
                      user's cache folder, ~/.cache/retro/apk, for quick rebuilds)
   --work:DIR         keep them in DIR instead
@@ -79,6 +86,53 @@ in retroapk (arm64-v8a, x86_64; unpacked once into
 """
 
 var verbose = false
+
+proc permissionsOfCode*(caches: openArray[string]): seq[tuple[name, why: string]] =
+  ## The permissions an app's compiled code needs, read from its C files
+  ## (Nim writes C only for what the program uses): the camera's views,
+  ## recording sound, notifications, the place, a buzz, the network. An app
+  ## asks for them when the feature is first used; the manifest must list
+  ## them, or Android refuses before asking.
+  var files: seq[string]
+  for c in caches:
+    for f in walkFiles(c / "*.c"): files.add f
+  var texts: Table[string, string]
+  proc code(module: string): string =
+    ## (the C of one of the kit's modules, "" when the app does not use it)
+    if module in texts: return texts[module]
+    result = ""
+    for f in files:
+      if f.endsWith("@s" & module & ".nim.c") or f.endsWith("@m" & module & ".nim.c"):
+        try: result = readFile(f) except IOError: discard
+        break
+    texts[module] = result
+  proc uses(module: string; procs: openArray[string]): bool =
+    let c = code(module)
+    if c.len == 0: return false
+    for p in procs:
+      if (p & "__") in c: return true
+    false
+  template need(p, why: string) =
+    if result.allIt(it.name != p): result.add ("android.permission." & p, why)
+  if uses("capture", ["cameraView", "cameraPhoto", "cameraFrame", "cameraRecord"]):
+    need("CAMERA", "the camera (retroui/capture)")
+  if uses("capture", ["recordSound", "cameraRecord"]):
+    need("RECORD_AUDIO", "recording sound (retroui/capture)")
+  if uses("notify", ["notify", "notifyAt", "setBadge"]) or uses("system", ["notify"]):
+    need("POST_NOTIFICATIONS", "notifications (retroui/notify)")
+  if uses("system", ["location"]):
+    need("ACCESS_COARSE_LOCATION", "the place (retroui/system's location)")
+    need("ACCESS_FINE_LOCATION", "the place, precise (retroui/system's location)")
+  if uses("native", ["vibrate"]) or uses("system", ["haptic"]):
+    need("VIBRATE", "a buzz (vibrate, haptic)")
+  # (the network: every request of the kit goes through http's, a download,
+  # chat's connection, or a web view)
+  if uses("http", ["httpRequest"]): need("INTERNET", "the network (retroui/http)")
+  elif uses("fetch", ["downloadFile"]): need("INTERNET", "downloads (retroui/fetch)")
+  elif uses("xmpp", ["xmppStart"]): need("INTERNET", "chat (retroui/xmpp)")
+  elif uses("htmlview", ["webView"]): need("INTERNET", "web pages (webView)")
+var jobsAsked = 0         # (--jobs: C compilers at once; 0 as the memory allows)
+var autoPermissions = true  # (the permissions the code needs, added: --no-auto-permissions leaves them)
 
 proc hashOf(s: string): uint32 =
   ## FNV-1a: a short name for a source path (its own build folder).
@@ -1123,6 +1177,8 @@ proc main() =
       of "run": install = true; runIt = true
       of "nim": nimFlags.add val
       of "verbose", "v": verbose = true
+      of "jobs": jobsAsked = (try: max(1, parseInt(val)) except ValueError: 0)
+      of "noautopermissions": autoPermissions = false
       of "clean": clean = true
       of "work": workDir = val
       of "help", "h": echo Usage; quit 0
@@ -1154,6 +1210,7 @@ proc main() =
 
   # 1. compile libmain.so for every ABI
   var libs: seq[(string, string)]
+  var caches: seq[string]
   for an in abiList:
     var abi: Abi
     var found = false
@@ -1182,19 +1239,34 @@ proc main() =
                  # C is unchanged, whatever made it -- zig's LTO objects are
                  # not clang 18's)
                  "--nimcache:" & work / "nimcache-" & abi.name & "-" & tc.kind,
+                 # (C compilers at once as the memory allows: in Termux a
+                 # build with too many is stopped by Android -- "signal 9")
+                 "--parallelBuild:" & $buildJobs(jobsAsked),
                  "--hints:off", "-o:" & lib]
     # (the system's malloc, unless the program asks for Nim's allocator:
     # with it the app's memory would only grow -- see retroui/memwatch)
     if not nimFlags.anyIt("retroNimAlloc" in it): args.add "-d:useMalloc"
     args.add nimFlags
     args.add src
+    let cache = work / "nimcache-" & abi.name & "-" & tc.kind
+    caches.add cache
+    if lastBuildCut(cache): echo cutNote(buildJobs(jobsAsked))
+    buildStarted(cache)
     run(quoteShellCommand(args), "compiling for " & abi.name)
+    buildEnded(cache)
     for n in neededLibs(lib):
       if n notin SystemLibs:
         die abi.name & ": libmain.so needs " & n & ", which is not part of " &
             "Android; an app cannot load it (on Termux, libraries in $PREFIX " &
             "are not visible to apps)"
     libs.add ("lib/" & abi.name & "/libmain.so", lib)
+  # (what the code uses asks for its permission when it is first used: the
+  # manifest lists them, or Android refuses at once)
+  if autoPermissions:
+    for (p, why) in permissionsOfCode(caches):
+      if p notin permissions:
+        permissions.add p
+        echo "  ", p.replace("android.permission.", ""), ": ", why
 
   # 2. manifest, resources, icon
   let orient = case orientation
@@ -1275,6 +1347,20 @@ proc main() =
   for p in permissions:
     manifest.kids.add XNode(name: "uses-permission",
                             attrs: @[sAttr("name", 0x01010003, p)])
+  # (a permission implies the hardware: not required, so the app installs
+  # on a device without a camera, a microphone, GPS -- it asks and goes on)
+  var features: seq[string]
+  for p in permissions:
+    case p.replace("android.permission.", "")
+    of "CAMERA": features.add ["android.hardware.camera", "android.hardware.camera.autofocus"]
+    of "RECORD_AUDIO": features.add "android.hardware.microphone"
+    of "ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION":
+      features.add ["android.hardware.location", "android.hardware.location.gps",
+                    "android.hardware.location.network"]
+    else: discard
+  for f in features.deduplicate:
+    manifest.kids.add XNode(name: "uses-feature", attrs: @[sAttr("name", 0x01010003, f),
+                                                           bAttr("required", 0x0101028e, false)])
   if queries.len > 0:
     var q = XNode(name: "queries")
     for pkg in queries:

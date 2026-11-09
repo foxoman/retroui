@@ -1,8 +1,8 @@
 ## Tests of `retroui/photovp`: a plane in perspective, a picture pasted on it,
 ## its texture cloned along it.
 
-import std/[math, strutils]
-import retroui/[gfx, photo, photofx, photovp]
+import std/math
+import retroui/[photo, photofx, photovp]
 
 let d = newDoc(200, 150, 0xFFFFFFFF'u32)
 # a floor going back: wide at the bottom, narrow at the top

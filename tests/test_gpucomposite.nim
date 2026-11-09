@@ -7,7 +7,7 @@
 ## Off screen (EGL); skipped where there is no OpenGL.
 
 import std/[os, strutils, tables, monotimes, times]
-import retroui/[gfx, photo, photodevelop, photostyles, photogpu]
+import retroui/[gfx, photo, photogpu]
 import retroui/uirelays/[eglload, screen]
 
 putEnv("RETRO_GPU", "1")                 # (llvmpipe counts: it is what there is here)

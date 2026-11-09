@@ -49,6 +49,8 @@ block whatALinuxDesktopSays:
   doAssert not speak("   ")
   let lang = systemLanguage()
   doAssert lang.len >= 2 and '_' notin lang and '.' notin lang, lang
+  putEnv("LC_ALL", "C.UTF-8")
+  doAssert systemLanguage().len >= 2, "C.UTF-8 names no language: " & systemLanguage()
   putEnv("LC_ALL", "ar_OM.UTF-8")
   doAssert systemLanguage() == "ar-OM", systemLanguage()
   delEnv("LC_ALL")

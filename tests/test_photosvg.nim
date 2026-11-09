@@ -1,7 +1,7 @@
 ## Tests of `retroui/photosvg`: a shape layer as an SVG path, type as text, pixels as a picture.
 
 import std/[strutils, os]
-import retroui/[gfx, photo, photoshapes, photosvg, textengine]
+import retroui/[photo, photosvg, textengine]
 let d = newDoc(200, 100)
 var sh = ShapeData(kind: "Ellipse", fill: ShapePaint(kind: spColor, color: 0xFFFF0000'u32),
                    stroke: ShapePaint(kind: spColor, color: 0xFF000000'u32), strokeWidth: 3)

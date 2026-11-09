@@ -1022,6 +1022,11 @@ scroll bars.
   `findIn` and `replaceAllIn` for the text.
 - **Shortcuts the user chooses:** `hotkeyEdit(keys)` takes the next key
   pressed ("Ctrl+Shift+S"); `hotkeyPressed(keys)` tells when it is pressed.
+- **When the app stopped:** `app` shows what the last run's crash wrote
+  down before the app's own code runs (`stoppedScreen`: Copy, Send by
+  Email, Start); an app with its own frame loop calls `stoppedFrame` first
+  in each frame and `stoppedPending` before it brings back what was open,
+  and leaves that out when `startFresh` (the user chose so).
 - **About:** `aboutBox(open, "Ledger", "2.0", ["(c) 2026 ..."], tagline = ...,
   iconPng = staticRead("icon.png"), whatsNew = [...], credits = [...])`: a
   banner in the blue of a 1994 Setup screen with the icon, name, version
@@ -2146,7 +2151,25 @@ retroapk app.nim --name:"My App" --id:com.me.myapp --run
 retroapk app.nim --abi:arm64-v8a,x86_64     # also the emulator (32-bit ABIs: with the NDK)
 ```
 
-Other options: `--icon:icon.png`, `--version:1.2 --code:3`,
+**Permissions:** `retroapk` reads what the app's compiled code uses -- the
+camera, the microphone, notifications, the place, a buzz, the network --
+and lists those permissions by itself (it says which; the hardware they
+imply is not required, so the app still installs where there is none).
+The app asks the user the first time the feature is used, and goes on
+without it when the answer is no.
+
+**When an app stops:** a crash of its Nim code, of its native code (a
+signal) or of Java is written to its fault log; the next start shows it
+first -- before the app's own code runs, so a crash at the start shows too
+-- with Copy and Send by Email, and "Start without what was open the last
+time" (`startFresh`: Files, Photo and Board leave their last folders,
+pictures and board).
+
+**On a phone or tablet,** a build runs as many C compilers as the memory
+allows, at most four in Termux (Android stops builds with too many:
+"signal 9"; BUILDING.md has the setting that turns that off).
+
+Other options: `--icon:icon.png`, `--version:1.2 --code:3`, `--jobs:N`,
 `--orientation:portrait`, `--permission:INTERNET`, `--storage` (a file
 manager; it may also see Termux), `--query:com.termux` (another app this
 one looks for), `--debuggable`, `--key:key.pem --cert:cert.der` (else a debug
@@ -2445,6 +2468,18 @@ here.
 The tests swap the screen for a fake driver that plays back scripted
 mouse, keyboard and touch input and keeps the pixels, so no window is
 needed. `nimble test` runs them all; `nimble fuzz` runs the fuzzers.
+`sh tools/cicheck.sh` runs what GitHub's CI runs, here, and
+`sh tools/warncheck.sh` checks that the kit's own files build without a
+warning as every system builds them (Linux, Termux, an Android app,
+Windows, macOS, iOS, the web with threads and without), and the examples
+and the tests too.
+
+**Every app on Android's emulator:** the systems workflow builds the main
+apps for the emulator (`nimble emuapks`) and `tests/android/apps.sh` opens
+each on Android 11 and 15 -- with nothing allowed, then with every
+permission -- drives it with the monkey (random taps and keys, the same
+each time), and fails on a crash of Java or of the native code, with the
+screens, the log and the app's own fault log kept.
 
 **On every system, with its own drivers.** `tests/live/livecheck.nim` opens
 a real window and goes through pages of the guide by itself -- controls, a

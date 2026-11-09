@@ -671,15 +671,21 @@ proc propertyGrid*(props: var seq[Prop]; sel: var int; height = -1;
   # keys
   if hit.focused and canInput() and props.len > 0:
     var k = lineOfSel
+    if ui.key == KeyDown and AltPressed in ui.mods and sel in 0 ..< props.len and
+       props[sel].kind == pkChoice and not props[sel].readOnly and k >= 0:
+      # (Alt+Down drops a choice's list, as F4 and Enter do)
+      openPopupMenu("propgrid-choice:" & key, divX, area.y + (k + 1) * rh - top)
+      ui.keyUsed = true
     case ui.key
     of KeyUp, KeyDown:
-      let d = if ui.key == KeyUp: -1 else: 1
-      var j = k + d
-      while j in 0 .. lines.high and lines[j].prop < 0: j += d
-      if j in 0 .. lines.high:
-        sel = lines[j].prop
-        follow = true
-      ui.keyUsed = true
+      if not ui.keyUsed:
+        let d = if ui.key == KeyUp: -1 else: 1
+        var j = k + d
+        while j in 0 .. lines.high and lines[j].prop < 0: j += d
+        if j in 0 .. lines.high:
+          sel = lines[j].prop
+          follow = true
+        ui.keyUsed = true
     of KeyHome, KeyEnd:
       var j = if ui.key == KeyHome: 0 else: lines.high
       let d = if ui.key == KeyHome: 1 else: -1

@@ -5,7 +5,7 @@
 ## tools are there, they read the files back.)
 
 import std/[os, osproc, strutils]
-import retroui/[gfx, photo, photopdf, photoimport, textengine, photoshapes, zip, pdfread, pdf, ttf]
+import retroui/[photo, photopdf, photoimport, textengine, photoshapes, pdfread, pdf, ttf]
 
 let dir = getTempDir() / "retro-photopdf-test"
 removeDir(dir)

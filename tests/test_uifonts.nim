@@ -4,7 +4,7 @@
 ## own strings and the examples' translations use found in the fonts --
 ## headless, on the fake driver.
 
-import std/[unicode, math, os, strutils, osproc, tables]
+import std/[unicode, math, os, strutils, tables]
 import retroui
 import retroui/[typeset, ttf, canvas2d]
 import harness

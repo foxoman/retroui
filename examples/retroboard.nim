@@ -21,7 +21,7 @@ import retroui/[board, freehand]
 
 const
   AppName = "Retro Board"
-  BoardVersion = "1.3.3"
+  BoardVersion = "1.3.4"
   iconPng = staticRead("assets/board-icon.png")
 
 type
@@ -441,15 +441,29 @@ proc typing() =
   if not ui.keyUsed and canInput():
     let ctrl = CtrlPressed in ui.mods
     var used = true
+    # (Ctrl+Backspace / Ctrl+Delete -- Option on a Mac -- a word at a time)
+    let byWord = when defined(macosx): AltPressed in ui.mods else: ctrl
+    proc wordy(r: Rune): bool = r.isAlpha or (r.int32 >= ord('0') and r.int32 <= ord('9')) or r == Rune(ord('_'))
     case ui.key
     of KeyBackspace:
       if caret > 0:
-        runes.delete(caret - 1)
-        dec caret
+        var a = caret - 1
+        if byWord:
+          a = caret
+          while a > 0 and not wordy(runes[a - 1]): dec a
+          while a > 0 and wordy(runes[a - 1]): dec a
+        runes.delete(a .. caret - 1)
+        caret = a
         changed = true
     of KeyDelete:
       if caret < runes.len:
-        runes.delete(caret)
+        var b = caret + 1
+        if byWord:
+          b = caret
+          while b < runes.len and wordy(runes[b]): inc b
+          while b < runes.len and not wordy(runes[b]) and runes[b] != Rune(10): inc b
+          b = max(b, caret + 1)
+        runes.delete(caret .. b - 1)
         changed = true
     of KeyLeft: caret = max(0, caret - 1)
     of KeyRight: caret = min(runes.len, caret + 1)
@@ -779,8 +793,9 @@ proc darkScheme(): bool =
   let t = ui.theme
   int(t.window.r) + int(t.window.g) + int(t.window.b) < 200
 
-proc loadStart() =
-  ## The board as it was when the program last ended.
+proc loadStart(fresh = false) =
+  ## The board as it was when the program last ended (`fresh`: the last run
+  ## stopped and the user chose to start without it -- the settings alone).
   let s = loadSettings(AppName)
   showGrid = s.get("grid", "true") == "true"
   snapOn = s.get("snap", "true") == "true"
@@ -792,7 +807,7 @@ proc loadStart() =
     if $f == s.get("font", "hand"): cur.font = f
   if s.get("sketch", "false") == "true": cur.dash = bdSketch
   restoreAppearance(s)
-  if fileExists(autosavePath()):
+  if not fresh and fileExists(autosavePath()):
     let b = loadBoard(autosavePath())
     if b != nil:
       bd = b
@@ -3282,7 +3297,10 @@ proc dialogs() =
             "on as many pages as you like.",
             "Made with Retro Nim UI " & RetroVersion & " (retroui/board, retroui/freehand)."],
            tagline = "Draw, sketch and think together", iconPng = iconPng,
-           whatsNew = ["1.3.3: the words on the board twice as big -- as Excalidraw's beside the shapes (S, M, L, XL: " &
+           whatsNew = ["1.3.4: Ctrl+Shift+Up / Down make the next step, and only that (the pages' list " &
+                       "leaves them be); Ctrl+Backspace and Ctrl+Delete take a word in a text; when the " &
+                       "board stopped, the next start says why first",
+                       "1.3.3: the words on the board twice as big -- as Excalidraw's beside the shapes (S, M, L, XL: " &
                        "38, 48, 68, 86); boards made before keep theirs as they were drawn until you choose a size",
                        "1.3.2: the menus answer at once; the letters drawn as before, Sharp text a choice; " &
                        "the Windows 3.1 frame on every desktop",
@@ -3419,7 +3437,9 @@ proc boardFrame() =
 proc main() =
   windowIcon = windowIconFromPng(iconPng)
   startApp(AppName, 1100, 720)
-  loadStart()
+  # (the last run stopped: its board waits for the "stopped" screen's Start)
+  let waiting = stoppedPending()
+  if not waiting: loadStart()
   restoreDock()
   applyDark()
   # (the phone short of memory, or the program put away: what can be made again goes)
@@ -3431,7 +3451,13 @@ proc main() =
     for a in commandLineParams():
       if a.endsWith(".board") and fileExists(a): openBoard(a)
   var first = true
+  var boardWaits = waiting
   while beginFrame():
+    if stoppedFrame(): (endFrame(); continue)
+    if boardWaits:
+      boardWaits = false
+      loadStart(fresh = startFresh())
+      applyDark()
     if first:
       view = rect(0, ui.barY + MenuH, ui.w, ui.h - ui.barY - MenuH)
       if bd.page.shapes.len == 0 and bd.page.camX == 0 and bd.page.camY == 0:

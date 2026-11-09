@@ -4,7 +4,7 @@
 ## workers (`pdfView`, `pageAsync`) and the sound player -- headless, on
 ## the fake driver.
 
-import std/[os, times, strutils, tables, sequtils]
+import std/[os, times, strutils, sequtils]
 import retroui, retroui/pdfview
 import retroui/uirelays/[input, services]
 import harness

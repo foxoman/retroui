@@ -11,7 +11,7 @@
 ##             r: "i + ctl(0) / 4", g: "i", b: "i - ctl(0) / 4", a: "a"))
 ##   let fn = f.filterFn([64, 0, 0, 0, 0, 0, 0, 0])
 
-import std/[math, strutils, json, os, random]
+import std/[math, strutils, json, os]
 import gfx, photofx, parallel
 
 type

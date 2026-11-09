@@ -13,7 +13,7 @@
 ## ```
 
 import std/[strutils, math]
-import psd, photo, photoshapes, photoinks
+import psd, photo, photoinks
 
 type
   AdobeError* = object of ValueError

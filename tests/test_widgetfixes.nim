@@ -5,9 +5,8 @@
 ## selected and copied but not changed, Alt+Space and Ctrl+Space press no
 ## button, and `app`'s options.
 
-import std/strutils
 import retroui
-import retroui/uirelays/[input, screen]
+import retroui/uirelays/input
 import harness
 
 fakeDriver()

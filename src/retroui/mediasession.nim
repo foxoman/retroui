@@ -32,9 +32,14 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[os, strutils, times]
+import std/times
 import uirelays/target
-import uirelays/services
+when not (androidApp or defined(windows) or defined(macosx)):
+  import std/os
+when not (defined(windows) or defined(macosx)):
+  import std/strutils
+when androidApp or defined(wasm):
+  import uirelays/services
 import core
 
 type

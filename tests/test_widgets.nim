@@ -167,10 +167,17 @@ block tabAndSpace:
 block mnemonics:
   key(KeyC, {AltPressed})
   run()
-  doAssert not checked, "Alt+C toggles '&Check me'"
-  key(KeyO, {AltPressed})
-  run()
-  doAssert clicks == 3, "Alt+O clicks '&OK'"
+  when defined(macosx):
+    # (a Mac types with Option -- no menu letters: the box and the button
+    # stay as they were; the rest of the test goes on as if pressed)
+    doAssert checked, "Option+C is text on a Mac, not '&Check me'"
+    checked = false
+    inc clicks
+  else:
+    doAssert not checked, "Alt+C toggles '&Check me'"
+    key(KeyO, {AltPressed})
+    run()
+    doAssert clicks == 3, "Alt+O clicks '&OK'"
 
 block listKeys:
   key(KeyTab)

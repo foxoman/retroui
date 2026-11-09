@@ -4,7 +4,7 @@
 ## Dehaze and Grain adjustment layers, the locks and linked layers.
 
 import std/[os, math]
-import retroui/[gfx, photo, photofx, photosmart, photocc, photoshapes, textengine, photodevelop]
+import retroui/[gfx, photo, photosmart, photocc, textengine]
 
 proc rgbOf(p: uint32): (int, int, int) = (rOf(p), gOf(p), bOf(p))
 

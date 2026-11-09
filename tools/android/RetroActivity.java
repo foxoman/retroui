@@ -45,6 +45,25 @@ public class RetroActivity extends NativeActivity {
 
   @Override
   protected void onCreate(Bundle state) {
+    // (before anything else -- the native library is loaded next: a crash
+    // of the Java side written to the app's fault log, which the next start
+    // shows; then the system's own report, as before)
+    final java.io.File faults = new java.io.File(getFilesDir(), "faults.log");
+    final Thread.UncaughtExceptionHandler before = Thread.getDefaultUncaughtExceptionHandler();
+    Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+      public void uncaughtException(Thread t, Throwable e) {
+        try {
+          java.io.StringWriter w = new java.io.StringWriter();
+          e.printStackTrace(new java.io.PrintWriter(w));
+          java.io.FileOutputStream o = new java.io.FileOutputStream(faults, true);
+          o.write(("--- the app stopped\nJava, on the thread " + t.getName() + " (Android " +
+                   Build.VERSION.RELEASE + ", " + Build.MANUFACTURER + " " + Build.MODEL + "):\n" +
+                   w.toString()).getBytes("UTF-8"));
+          o.close();
+        } catch (Throwable ignored) { }
+        if (before != null) before.uncaughtException(t, e);
+      }
+    });
     super.onCreate(state);
     getWindow().getDecorView().setOnApplyWindowInsetsListener(
         new View.OnApplyWindowInsetsListener() {

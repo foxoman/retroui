@@ -2,7 +2,7 @@
 ## curves (.acv), levels (.alv) written and read back; gradients (.grd) and
 ## patterns (.pat) made as Photoshop writes them, then read.
 
-import std/[unittest, strutils]
+import std/unittest
 import retroui/[adobefiles, psd, photo]
 
 proc be16(o: var string; v: int) =

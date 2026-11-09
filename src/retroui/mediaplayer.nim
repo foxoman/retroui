@@ -17,7 +17,8 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/strutils
-import uirelays/target
+when not (defined(wasm) or defined(windows)):
+  import uirelays/target
 
 when defined(wasm):
   import gfx

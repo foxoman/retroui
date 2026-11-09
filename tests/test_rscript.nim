@@ -28,6 +28,17 @@ proc errOf(src: string; vm: Vm = nil): ref ScriptError =
     return e
   nil
 
+var stopperStarted: bool
+
+proc stopper(p: pointer) {.thread.} =
+  ## (cancels the script running on the other thread once it started)
+  let v {.cursor.} = cast[Vm](p)
+  while not atomicLoadN(addr stopperStarted, ATOMIC_ACQUIRE): discard
+  v.cancel()
+
+proc startStopper(th: var Thread[pointer]; vm: Vm) =
+  createThread(th, stopper, cast[pointer](vm))
+
 suite "values and operators":
   test "numbers print as JavaScript prints them":
     check ev("0.1 + 0.2") == "0.30000000000000004"
@@ -787,17 +798,12 @@ suite "limits":
     check ticks == 100
     check vm.run(compile("2 + 2")).toNum == 4
   test "cancel from another thread":
-    var started {.global.}: bool
     let vm = newVm()
     vm.defineFn("started", proc (args: seq[Value]): Value =
-      atomicStoreN(addr started, true, ATOMIC_RELEASE)
+      atomicStoreN(addr stopperStarted, true, ATOMIC_RELEASE)
       undefinedValue())
     var th: Thread[pointer]
-    proc stopper(p: pointer) {.thread.} =
-      let v {.cursor.} = cast[Vm](p)
-      while not atomicLoadN(addr started, ATOMIC_ACQUIRE): discard
-      v.cancel()
-    createThread(th, stopper, cast[pointer](vm))
+    startStopper(th, vm)
     let e = errOf("started(); let n = 0; for (;;) { n++ }", vm)
     joinThread(th)
     check e != nil and e.fatal

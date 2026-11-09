@@ -111,13 +111,19 @@ proc rangeSlider*(lo, hi: var int; minV, maxV: int; w = 0; ticks = 10;
 
 proc menuButton*(label: string; items: openArray[string]; w = 0; enabled = true): int =
   ## A button with an arrow that drops a menu of `items`: the index
-  ## chosen, or -1. ("-" in `items` is a separator.)
+  ## chosen, or -1. ("-" in `items` is a separator.) A click, Space,
+  ## Enter, Down, Alt+Down or F4 drop it.
   result = -1
   let bw = if w > 0: w else: labelWidth(label) + dp(34)
   let r = place(bw, CtrlH)
   let key = "menubtn:" & label
-  let hit = interact(idOf(key), r, enabled = enabled)
+  var hit = interact(idOf(key), r, enabled = enabled)
   let open = popupMenuOpen(key)
+  if enabled:
+    spaceKey(idOf(key), hit)                 # (Space, Enter: it drops, as a click does)
+    if hit.focused:
+      ui.takesEnter = true
+      if keyHit(KeyEnter): hit.clicked = true
   buttonFace(r, hit.down or open, 1, hot = enabled and hovered(r))
   let o = if hit.down or open: 1 else: 0
   drawLabel(r.x + dp(8) + o, r.y + (r.h - FontH) div 2 + o, label, if enabled: th.text else: th.gray)
@@ -125,6 +131,7 @@ proc menuButton*(label: string; items: openArray[string]; w = 0; enabled = true)
   if accessOn:
     accessNode(arButton, label, id = idOf(key), r = r,
                states = accessOff(enabled) + {asExpandable} + (if open: {asExpanded} else: {}))
+  if hit.focused and dropKey(): hit.clicked = true
   if hit.clicked or (enabled and mnemonicHit(label)) or (hit.focused and keyHit(KeyDown)):
     openPopupMenu(key, r.x, r.y + r.h)
   popupMenu(key):
@@ -133,8 +140,9 @@ proc menuButton*(label: string; items: openArray[string]; w = 0; enabled = true)
       elif menuItem(it): result = i
 
 proc splitButton*(label: string; items: openArray[string]; w = 0; enabled = true): tuple[clicked: bool; chose: int] =
-  ## A button whose left part does its default (`clicked`) and whose arrow
-  ## part drops a menu of the other ways (`chose`: the index, else -1).
+  ## A button whose left part does its default (`clicked`: a click, Space,
+  ## Enter) and whose arrow part drops a menu of the other ways (`chose`:
+  ## the index, else -1; Alt+Down or F4 drop it too).
   result.chose = -1
   let aw = dp(16)
   let bw = if w > 0: w else: labelWidth(label) + dp(24) + aw
@@ -142,7 +150,12 @@ proc splitButton*(label: string; items: openArray[string]; w = 0; enabled = true
   let main = rect(r.x, r.y, r.w - aw + 1, r.h)
   let drop = rect(r.x + r.w - aw, r.y, aw, r.h)
   let key = "splitbtn:" & label
-  let mh = interact(idOf(key & ":main"), main, enabled = enabled)
+  var mh = interact(idOf(key & ":main"), main, enabled = enabled)
+  if enabled:
+    spaceKey(idOf(key & ":main"), mh)        # (Space, Enter: its default)
+    if mh.focused:
+      ui.takesEnter = true
+      if keyHit(KeyEnter): mh.clicked = true
   let dh = interact(idOf(key & ":drop"), drop, focusable = false, enabled = enabled)
   let open = popupMenuOpen(key)
   buttonFace(main, mh.down, 1, hot = enabled and hovered(main))
@@ -159,12 +172,14 @@ proc splitButton*(label: string; items: openArray[string]; w = 0; enabled = true
     accessNode(arButton, plainName(label) & ": more", id = idOf(key & ":drop"), r = drop,
                states = accessOff(enabled) + {asExpandable} + (if open: {asExpanded} else: {}))
   result.clicked = mh.clicked or (enabled and mnemonicHit(label))
-  if dh.clicked or (mh.focused and keyHit(KeyDown) and AltPressed in ui.mods):
+  if dh.clicked or (mh.focused and dropKey()):
     openPopupMenu(key, r.x, r.y + r.h)
   popupMenu(key):
     for i, it in items:
       if it == "-": menuSeparator()
       elif menuItem(it): result.chose = i
+  ui.lastId = idOf(key & ":main")              # (the whole button, for a tooltip after it)
+  ui.lastRect = r
 
 # ---- tags --------------------------------------------------------------------------------------------
 

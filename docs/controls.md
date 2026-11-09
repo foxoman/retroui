@@ -30,7 +30,7 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 - **[Progress and status](#progress-and-status)**: [progressRing, spinner, sparkline, usageBar](#progressring-spinner-sparkline-usagebar) · [banner](#banner) · [toast](#toast) · [showSnackbar, snackbar](#showsnackbar-snackbar) · [led, pill](#led-pill) · [timeline](#timeline) · [emptyState, busyState](#emptystate-busystate) · [statusbar](#statusbar) · [statusRow, statusSep](#statusrow-statussep)
 - **[Containers](#containers)**: [expander](#expander) · [accordionHeader](#accordionheader) · [tabStrip (document tabs)](#tabstrip-document-tabs)
 - **[Menus and bars](#menus-and-bars)**: [menubar, menu, menuItem, submenu](#menubar-menu-menuitem-submenu) · [contextMenu](#contextmenu) · [popupMenu, openPopupMenu](#popupmenu-openpopupmenu) · [breadcrumb](#breadcrumb) · [pager, stepper](#pager-stepper) · [recordNav](#recordnav) · [findBar, findIn, replaceAllIn](#findbar-findin-replaceallin)
-- **[Dialogs](#dialogs)**: [msgBox](#msgbox) · [inputBox](#inputbox) · [dialog](#dialog) · [progressBox](#progressbox) · [wizard, stepDone](#wizard-stepdone) · [aboutBox](#aboutbox) · [splashBox](#splashbox) · [problemBox, reportProblem](#problembox-reportproblem) · [fileDialog (3.1)](#filedialog-31)
+- **[Dialogs](#dialogs)**: [msgBox](#msgbox) · [inputBox](#inputbox) · [dialog](#dialog) · [progressBox](#progressbox) · [wizard, stepDone](#wizard-stepdone) · [aboutBox](#aboutbox) · [splashBox](#splashbox) · [problemBox, reportProblem](#problembox-reportproblem) · [stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen](#stoppedscreen-stoppedframe-stoppedpending-startfresh-showstoppedscreen) · [fileDialog (3.1)](#filedialog-31)
 - **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator](#toolbar-toolbutton-toolseparator) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
 - **[Files](#files)**: [fileList](#filelist) · [fileList: large icons](#filelist-large-icons) · [folderTree](#foldertree) · [placesView](#placesview) · [filePreview](#filepreview) · [pathBar](#pathbar) · [driveBar](#drivebar) · [filePicker](#filepicker) · [trashList](#trashlist) · [propertiesDialog](#propertiesdialog) · [runJobDialog](#runjobdialog) · [textFileView, hexFileView](#textfileview-hexfileview) · [pictureBox](#picturebox) · [storageDialog](#storagedialog)
 - **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart)
@@ -933,14 +933,16 @@ proc menuButton*(label: string; items: openArray[string]; w = 0; enabled = true)
 ```
 
 A button with an arrow that drops a menu of `items`: the index
-chosen, or -1. ("-" in `items` is a separator.)
+chosen, or -1. ("-" in `items` is a separator.) A click, Space,
+Enter, Down, Alt+Down or F4 drop it.
 
 ```nim
 proc splitButton*(label: string; items: openArray[string]; w = 0; enabled = true): tuple[clicked: bool; chose: int]
 ```
 
-A button whose left part does its default (`clicked`) and whose arrow
-part drops a menu of the other ways (`chose`: the index, else -1).
+A button whose left part does its default (`clicked`: a click, Space,
+Enter) and whose arrow part drops a menu of the other ways (`chose`:
+the index, else -1; Alt+Down or F4 drop it too).
 
 ### buttonRow
 
@@ -1447,9 +1449,10 @@ proc comboEdit*(text: var string; items: openArray[string]; w = 0;
 ```
 
 A text field that suggests matching `items` as you type (or lists
-them all from its button). Up/Down, Enter, Esc work in the list; none
-is picked until Down (or the mouse) points at one, so Enter on its own
-keeps what was typed.
+them all from its button, Alt+Down, F4, or Enter when no list is
+open; F4, Alt+Up or Esc close it). Up/Down, Enter, Esc work in the
+list; none is picked until Down (or the mouse) points at one, so Enter
+on its own keeps what was typed.
 
 ### hotkeyEdit
 
@@ -1672,11 +1675,7 @@ proc popupSlider*(v: var int; lo, hi: int; w = 0; unit = "%";
                   enabled = true): bool {.discardable.}
 ```
 
-A number box with a slider that drops down from its arrow, as a tool's
-options bar has for Opacity, Flow or Tolerance: type the number; or
-press the arrow and drag (letting go closes it); or click the arrow,
-then click or drag on the slider (Enter, Esc or a click outside close
-it). Up / Down and the wheel step it when it has the focus.
+
 
 ### knob
 
@@ -1737,8 +1736,8 @@ proc datePicker*(d: var Date; w = 0; enabled = true): bool {.discardable.}
 ```
 
 A date field (typed in `dateStyle`) with a drop-down calendar (its
-button, Alt+Down or F4). With the focus, Up / Down move a day and
-Page Up / Page Down a month.
+button, Enter, Alt+Down or F4; F4, Alt+Up or Esc close it). With the
+focus, Up / Down move a day and Page Up / Page Down a month.
 
 ### calendar
 
@@ -1973,7 +1972,7 @@ grow with the UI's size).
 
 ### combo
 
-A drop-down list: one item shown, the list under it when it is opened (a click, Alt+Down, F4). Typing a letter picks the next item that begins with it.
+A drop-down list: one item shown, the list under it when it is opened (a click, Enter, Alt+Down, F4 -- `dropKey` is that key for a control of your own). Typing a letter picks the next item that begins with it.
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -2000,7 +1999,21 @@ proc combo*(items: openArray[string]; sel: var int; w = 0;
 ```
 
 A drop-down list bound to the selected index `sel`; `preview` draws
-its items in the list (a font's name in the font).
+its items in the list (a font's name in the font). With the focus:
+Enter, Alt+Down or F4 open it (F4, Alt+Up or Enter close it on
+the item lit; Esc without), Up / Down / Home / End pick, letters typed
+pick the item that starts with them (in the open list; in the closed
+one when Tab brought the focus -- a list clicked leaves the letters to
+the app's keys).
+
+```nim
+proc dropKey*(): bool
+```
+
+F4 or Alt+Down was pressed (and is taken): what drops a drop-down with
+the focus open, or closes it, as in Windows -- combo boxes, date
+pickers, menu buttons, a grid's drop-down cells. (Enter opens a closed
+one too; Alt+Up and Esc close an open one.)
 
 ### checkList
 
@@ -2128,8 +2141,8 @@ Columns can hold more than text (`Column.kind`: `checkColumn`,
 `colorColumn`, `progressColumn`, `choiceColumn`, `buttonColumn`,
 `linkColumn`, `iconColumn`, `numberColumn`): a check box cell flips on
 a click or Space (`toggled`, `edited` with "1" / "0"), a drop-down cell
-opens its `choices` (F4, a click on the current cell; `edited`), a
-button or link reports `clicked`. `style(row, col)` gives cells their
+opens its `choices` (F4, Alt+Down, Enter, a click on the current cell;
+`edited`), a button or link reports `clicked`. `style(row, col)` gives cells their
 own colors and weight; `rowHeaders` adds the record indicator column
 (an arrow at the current row); `footer(col)` a totals row.
 
@@ -2651,7 +2664,8 @@ proc imageView*(b: Bitmap; zoom: var float; height = -1; w = 0)
 
 A picture to look at: fitted into the view while `zoom` is 0, else
 `zoom` screen pixels per picture pixel (1.0: actual size). The wheel
-(and + / - / 0 with the focus) zooms, a double click or double tap
+zooms about the point under the mouse (+ / - / 0 with the focus, about
+the middle), a double click or double tap
 goes between fitted and actual size, dragging (a finger, the arrow
 keys) moves it.
 
@@ -3596,6 +3610,73 @@ proc reportProblem*(text = "")
 Opens the "Report a Problem" box (Help > Report a Problem; draw it with
 `problemBox`): `text`, else what the fault log holds (`takeFaults`),
 for the user to add what they were doing, then copy or send.
+
+### stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen
+
+What a run that ended in a crash wrote down -- an error nothing caught, a fault of the native code, Java's on Android -- shown when the app starts again, before any of its own code runs (`app` does it; an app with its own frame loop calls `stoppedFrame` first in each frame, and asks `stoppedPending` before bringing back what was open): Copy, Send by Email, Start. `startFresh` is true when the user chose to start without what was open the last time.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen, normal](controls/stoppedscreen-normal.png) | ![stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen, touch screen](controls/stoppedscreen-touch-screen.png) | ![stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen, dark scheme](controls/stoppedscreen-dark-scheme.png) |
+
+```nim
+const
+  report = "--- the app stopped\nSIGSEGV: memory that is not the program\'s (signal 11) at address 0x0\n" &
+      "  #00 0x7a1c2e4b10 libmain.so+0x14fb10\n  #01 0x7a1c2e3f2c libmain.so+0x14ef2c\n"
+showStoppedScreen(report)
+
+discard stoppedScreen()
+```
+
+**API**
+
+```nim
+proc stoppedScreen*(): bool
+```
+
+Called before the app's own code in every frame (`app` does it): when
+the last run ended in a crash, its report -- before anything of the app
+runs, so a crash at the start shows too -- with Copy, Send by Email and
+Start; true while it is shown (the app's frame waits).
+
+```nim
+proc stoppedFrame*(): bool
+```
+
+For an app with its own frame loop, first in each frame: the caption
+bar and the "stopped" screen when it is to be shown -- true: the frame
+is done (`endFrame`, then the next one).
+
+```nim
+while beginFrame():
+  if stoppedFrame(): (endFrame(); continue)
+  myFrame()
+  endFrame()
+```
+
+```nim
+proc stoppedPending*(): bool
+```
+
+The "stopped" screen is to be shown (the last run ended in a crash and
+Start was not pressed yet): an app with its own frame loop asks it
+before bringing back what was open, and at the start of each frame
+(`stoppedFrame`).
+
+```nim
+proc startFresh*(): bool
+```
+
+The user chose, on the "stopped" screen, to start without what was
+open the last time: an app that brings back its documents, windows or
+folders leaves them this once.
+
+```nim
+proc showStoppedScreen*(report: string)
+```
+
+Opens the "stopped" screen with `report` (an app that keeps its own
+crash reports; a test): shown by `stoppedScreen` until Start.
 
 ### fileDialog (3.1)
 

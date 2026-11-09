@@ -77,7 +77,10 @@ ufMono), `zoom`, `id`, `icon` (PNG bytes, `staticRead`), `look` (keeps the
 look the user picks), `resizable` (false: the window keeps its size). A
 misspelled option is a compile error. An app with its own loop uses
 `openApp(...)`, `while beginFrame(): ...; endFrame(); appFrameDone()`,
-`closeApp()`.
+`closeApp()` -- and first in each frame `if stoppedFrame(): (endFrame();
+continue)`: when the last run crashed, its report shows before the app's
+code runs (`app` does this itself); ask `stoppedPending()` before bringing
+back what was open, and leave it out when `startFresh()`.
 
 The whole syntax, every form as a small program with a picture of what it
 draws (what each number in `row([50, -1, 0, -2])` gives, binding, events,
@@ -116,7 +119,9 @@ line.
 - **Keyboard shortcuts:** the shortcut text of `menuItem("&Open...", "Ctrl+O")`
   is only shown in the menu. Handle the key every frame, outside the
   `menubar` block: `if hotkeyPressed("Ctrl+O"): openDlg = true` (on a Mac
-  "Ctrl+O" is Cmd+O).
+  "Ctrl+O" is Cmd+O). The controls share their keys (docs/syntax.md has
+  the table): a control of your own that drops something open opens on
+  `dropKey()` (F4, Alt+Down) and Enter, and closes on them, Alt+Up or Esc.
 - **Focus:** call `focusFirstText()` when a screen or dialog opens so the
   user can type at once (`focusFirstText(inDialog = true)` for a dialog
   opened this frame); `focusNext()` moves to the next control. Clicking a
@@ -139,7 +144,7 @@ or put several in a `row:` inside the `field`. `field("")` lines a control
 up under the others. When the row is narrower than the captions plus about
 200 pixels (a phone), each caption goes above its control.
 
-## 6. Controls (docs/controls.md has all 376, with pictures)
+## 6. Controls (docs/controls.md has all 382, with pictures)
 
 Text: `label`, `paragraph`, `heading`, `styledText`, `link`, `badge`, `icon`, `iconLabel`, `image`, `tooltip`.
 Buttons: `button`, `segmented`, `menuButton`, `splitButton`, `buttonRow`.
@@ -407,8 +412,15 @@ without input (its dialogs and menus do not take the window's);
 `ui.measuring` with `notePlaced` tells where things were drawn.
 
 `retroapk` needs only clang with lld (or Zig); without either it fetches
-the NDK. Keep `~/.retro/android` (the signing key) for updates. Details per
-OS in BUILDING.md.
+the NDK. Keep `~/.retro/android` (the signing key) for updates. It adds
+the permissions the app's code needs (camera, microphone, notifications,
+the place, vibration, the network) and says which; the app asks the user
+the first time a feature is used and must go on when the answer is no
+(every call answers false or "denied", never raises). In Termux a build
+runs at most four C compilers (`--jobs:N`; Android stops builds with too
+many, "signal 9": BUILDING.md, "Building on a phone or tablet").
+`retrokit run --web --threads` builds once; `--lto:thin` links a web page
+with much less memory. Details per OS in BUILDING.md.
 
 ## 10. Check your work
 

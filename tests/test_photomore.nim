@@ -6,8 +6,8 @@
 ## are written there as pictures to look at.
 
 import std/[os, math, strutils, json]
-import retroui/[gfx, imaging, photo, photopaint, photofx, photodevelop, photostyles, photoshapes, photofiles, photovector,
-              psd, photoinks, filterfactory, imageformats, textengine]
+import retroui/[gfx, imaging, photo, photopaint, photofx, photostyles, photoshapes, photofiles, photovector,
+              psd, photoinks, filterfactory, textengine]
 
 let dump = getEnv("PHOTO_DUMP")
 if dump.len > 0: createDir(dump)

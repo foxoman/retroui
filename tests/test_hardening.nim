@@ -4,7 +4,7 @@
 import std/[os, strutils, random]
 import retroui
 import retroui/[zip, photo, jxl, exr, morepictures, gltf, sign, codec]
-import retroui/uirelays/[input, screen, services]
+import retroui/uirelays/[screen, services]
 import harness
 
 fakeDriver()

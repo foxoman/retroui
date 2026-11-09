@@ -38,7 +38,7 @@ const TermuxHome = "/data/data/com.termux/files/home"
 const
   AppTitle = "Retro Files"
   AppId = "RetroFiles"
-  AppVersion = "3.3.3"
+  AppVersion = "3.3.4"
 
 type
   ViewerKind = enum vkNone, vkText, vkMarkdown, vkImage, vkHex, vkZip, vkPdf, vkVideo, vkAudio
@@ -592,7 +592,10 @@ proc dropBigCopy() =
     if getFileSize(viewSrc) > 64 * 1024 * 1024: removeFile(viewSrc)
   except OSError: discard
 
+var focusBeforeViewer: Id       # (the list that opened the viewer: the focus goes back to it)
+
 proc openViewer(f: FileItem; kind: ViewerKind) =
+  focusBeforeViewer = ui.focus
   closeFiles()
   stopMedia()
   dropBigCopy()
@@ -661,6 +664,10 @@ proc closeViewer(force = false) =
   viewText = ""
   editing = false
   folder.reload(viewInfo.name)
+  # (back on the file that was opened, in the list it was opened from: the
+  # arrows go on from it)
+  if focusBeforeViewer != 0: ui.focus = focusBeforeViewer
+  ui.redraw = true
 
 proc saveViewer() =
   try:
@@ -1686,7 +1693,10 @@ proc helpDialogs() =
             tr("Copyright (c) 2026 Sultan Al Isaiee. MIT licence.")],
            tagline = tr("Your files, as in 1994"),
            iconPng = FilesIconPng, glyph = pxFolderOpen,
-           whatsNew = [tr("3.3.3: the menus answer at once (a submenu waits only while the pointer heads for it); " &
+           whatsNew = [tr("3.3.4: a picture zooms about the mouse; after the viewer (Esc) the keys go on " &
+                            "from the file that was opened; a right click elsewhere moves an open menu there; " &
+                            "Ctrl+Backspace takes a word; when Files stopped, the next start says why first"),
+                       tr("3.3.3: the menus answer at once (a submenu waits only while the pointer heads for it); " &
                             "the letters drawn as before, Sharp text a choice; the Windows 3.1 frame on every desktop"),
                        tr("The menus by the keyboard: Alt (pressed and let go) or F10 opens them, the " &
                             "arrows go along and through them; a menu taller than the screen in even columns, submenus moved up to fit"),
@@ -2336,14 +2346,17 @@ proc startFolder(saved: string): string =
   elif platformName() == "ios": dataDir(AppId)
   else: getHomeDir()
 
-proc restoreTabs(saved: string) =
+proc restoreTabs(saved: string; fresh = false) =
+  ## (`fresh`: the last run stopped and the user chose to start without
+  ## what was open -- the start folder alone)
   for p in 0 .. 1:
+    if fresh: break
     for key in prefs.get("tabs" & $p).split('\n'):
       if key.len == 0: continue
       if key == deviceId or key == trashId or (startIn == siLast and (dirExists(key) or isDocPath(key))):
         panes[p].tabs.add newTab(key)
     panes[p].at = clamp(prefs.getInt("tab" & $p, 0), 0, max(0, panes[p].tabs.high))
-  if panes[0].tabs.len == 0: panes[0].tabs.add newTab(startFolder(saved))
+  if panes[0].tabs.len == 0: panes[0].tabs.add newTab(startFolder(if fresh: "" else: saved))
   elif startIn != siLast:
     panes[0].tabs[panes[0].at].m.open(startFolder(saved))
   if dual and panes[1].tabs.len == 0: panes[1].tabs.add newTab(startFolder(saved))
@@ -2352,6 +2365,8 @@ proc restoreTabs(saved: string) =
     if panes[p].tabs.len > 0: syncQuery(p)
 
 var hadAccess = false            # (Android: whether the files could be seen the last frame)
+var savedAtStart = ""            # (the folder last shown: brought back after the "stopped" screen)
+var tabsWaiting = false          # (the last run stopped: its tabs wait for Start)
 
 proc filesStart*() =
   ## The window opened, the settings read, the tabs restored (the tests
@@ -2366,11 +2381,21 @@ proc filesStart*() =
   applyLanguage()
   applyThumbCache()
   try: removeDir(cacheDir()) except OSError: discard
-  restoreTabs(saved)
+  # (the last run stopped: what it had open waits for the "stopped" screen's
+  # Start -- one of them may be what stopped it)
+  if stoppedPending():
+    savedAtStart = saved
+    tabsWaiting = true
+  else:
+    restoreTabs(saved)
   hadAccess = storageAccess()
 
 proc filesFrame*() =
   ## One frame of the program (between `beginFrame` and `endFrame`).
+  if stoppedFrame(): return
+  if tabsWaiting:
+    tabsWaiting = false
+    restoreTabs(savedAtStart, fresh = startFresh())
   captionBar()
   if canSeeFiles() != hadAccess:
     hadAccess = canSeeFiles()

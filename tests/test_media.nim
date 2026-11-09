@@ -2,7 +2,7 @@
 ## to Android's side (with a fake one), videos in the window (GStreamer,
 ## when the system has it) -- headless.
 
-import std/[os, strutils, math, tables, sequtils]
+import std/[os, strutils, math, sequtils]
 import retroui
 import retroui/media
 import retroui/mediaaudio except Sound

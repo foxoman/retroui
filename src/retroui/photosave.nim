@@ -8,8 +8,11 @@
 ## let r = saveFinished()          # (done, error, path) once it is over
 ## ```
 
-import std/[os, strutils, atomics, typedthreads]
-import gfx, photo, photofiles, psd, parallel, busy
+import std/[os, atomics]
+import photo, photofiles, psd, busy
+when compileOption("threads"):
+  import std/typedthreads
+  import parallel                         # (runAlone: the save's thread does not fan out)
 
 type
   SaveKind = enum skRpd, skPsd, skFlat
@@ -61,15 +64,17 @@ proc runSave*(job: var SaveJob) =
   job.psd = PsdDoc()
 
 var
-  worker: Thread[ptr SaveJob]
   current: ptr SaveJob
   finished: Atomic[bool]
 
-proc work(j: ptr SaveJob) {.thread.} =
-  runAlone()
-  {.cast(gcsafe).}:
-    runSave(j[])
-  finished.store(true)
+when compileOption("threads"):
+  var worker: Thread[ptr SaveJob]
+
+  proc work(j: ptr SaveJob) {.thread.} =
+    runAlone()
+    {.cast(gcsafe).}:
+      runSave(j[])
+    finished.store(true)
 
 proc saving*(): bool = current != nil
   ## A save is going on in the background.
@@ -81,19 +86,24 @@ proc startSave*(job: sink SaveJob) =
   ## Saves in the background (one at a time: a save still going on is
   ## waited for first).
   if current != nil:
-    joinThread(worker)
+    when compileOption("threads"): joinThread(worker)
     `=destroy`(current[])
     deallocShared(current)
     current = nil
   current = cast[ptr SaveJob](allocShared0(sizeof(SaveJob)))
   current[] = move(job)
   finished.store(false)
-  createThread(worker, work, current)
+  when compileOption("threads"):
+    createThread(worker, work, current)
+  else:
+    # (a web page without threads: saved now)
+    runSave(current[])
+    finished.store(true)
 
 proc saveFinished*(): tuple[done: bool; error, path: string] =
   ## Whether the background save is over (once: then it is forgotten).
   if current == nil or not finished.load: return
-  joinThread(worker)
+  when compileOption("threads"): joinThread(worker)
   result = (true, current.error, current.path)
   `=destroy`(current[])
   deallocShared(current)

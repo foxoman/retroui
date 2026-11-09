@@ -51,8 +51,8 @@ import std/[json, os, strutils, sysrand, base64]
 import http, sha2, vault
 import uirelays/services
 from codec import unbase64
-when not defined(wasm):
-  import std/osproc
+when not (defined(wasm) or defined(android) or defined(ios)):
+  import std/osproc                       # (a desktop starts the update itself)
 
 {.compile: "vendor/monocypher-ed25519.c".}
 
@@ -161,19 +161,20 @@ proc updatePlatform*(): string =
   ## "windows-arm64", "macos-arm64", "macos-x86_64", "android-arm64",
   ## "ios-arm64", "web".
   when defined(wasm): return "web"
-  let os = when defined(android): "android"
-           elif defined(ios): "ios"
-           elif defined(macosx): "macos"
-           elif defined(windows): "windows"
-           elif defined(freebsd): "freebsd"
-           else: "linux"
-  let cpu = when defined(amd64): "x86_64"
-            elif defined(arm64): "arm64"
-            elif defined(i386): "x86"
-            elif defined(arm): "arm"
-            elif defined(riscv64): "riscv64"
-            else: hostCPU
-  os & "-" & cpu
+  else:
+    let os = when defined(android): "android"
+             elif defined(ios): "ios"
+             elif defined(macosx): "macos"
+             elif defined(windows): "windows"
+             elif defined(freebsd): "freebsd"
+             else: "linux"
+    let cpu = when defined(amd64): "x86_64"
+              elif defined(arm64): "arm64"
+              elif defined(i386): "x86"
+              elif defined(arm): "arm"
+              elif defined(riscv64): "riscv64"
+              else: hostCPU
+    os & "-" & cpu
 
 # ---- the app's side --------------------------------------------------------------------------
 

@@ -1,7 +1,6 @@
 ## Tests of retroui/morecontrols and the buttons with a picture: driven
 ## headlessly (the fake driver of harness.nim).
 
-import std/strutils
 import retroui/uirelays/input
 import harness, retroui
 

@@ -24,6 +24,7 @@ PLAIN = re.compile(
     r'Rect|Vec2|Vec3|Mat|Quat|Natural|Positive|BiggestInt|Time|Duration|ptr .*|'
     r'tuple\[[a-z, ]*: (int|float|bool|int64|float32|uint32)\])$')
 SIG_END = re.compile(r'\)\s*(:\s*[^=]+)?(\{\.[^}]*\.\})?\s*=\s*(#.*)?$')
+CODE = re.compile(r'"(?:[^"\\]|\\.)*"')   # (string literals: "oauth.result" is no use of result)
 RTYPE = re.compile(r'\)\s*:\s*([^={]+?)\s*(\{\.[^}]*\.\})?\s*=\s*(#.*)?$')
 
 
@@ -77,7 +78,7 @@ def check(path):
             top['loops'].append((ind, n))
         if re.search(r'\breturn\s+(?!$|#)\S', line) and not re.search(r'\breturn\s+result\s*$', line):
             top['returns'].append((n, text, [st for _, st in top['loops']]))
-        elif re.search(r'\bresult\b', line):
+        elif re.search(r'\bresult\b', CODE.sub('""', line)):
             top['uses'].append(n)
     while stack:
         close(stack.pop(), last)

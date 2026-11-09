@@ -776,7 +776,7 @@ if spellAvailable("en-US"):
     doc.spell = true
     run()
     clickAt(edRect.x + 40, edRect.y + 10)
-    typeText("Gud")
+    typeText("Gudz")              # (a word in no dictionary: Windows' took "Gud")
     run()
     doAssert richMisspelled(doc, 0).len == 1
     let r = richCaretRect(doc)

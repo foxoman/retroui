@@ -5,7 +5,7 @@
 
 import std/random
 import retroui/photo {.all.}
-import retroui/[gfx, photodevelop]
+import retroui/gfx
 
 var r = initRand(7)
 

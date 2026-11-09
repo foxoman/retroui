@@ -1,5 +1,108 @@
 # Changes
 
+## 0.30.1
+
+Every CI failure fixed, builds that a phone or tablet finishes, no
+warnings anywhere, an app's crash shown at its next start, the
+permissions an app needs added by themselves, and the bugs people
+reported on GitHub.
+
+- **Builds on a phone or tablet.** In Termux, Android 12 and later stop a
+  build that runs too many processes or uses much memory ("[Process
+  completed (signal 9)]"). Every build -- `retrokit run`, `retrokit web`,
+  `retroapk` -- now runs as many C compilers as the free memory allows,
+  at most four in Termux (`--jobs:N`, `$RETRO_JOBS`; `retroui/buildjobs`),
+  and the next build says when the last one was stopped, and that what it
+  compiled is kept. `retrokit run --web --threads` builds once (with
+  threads only: its server lets the page use them) instead of twice. A web
+  page's link: `--lto:full` (as before, 1.5 GB for the Gallery), `thin`
+  (in pieces: 0.9 GB, the default in Termux and with under 3 GB free) or
+  `none` (the default of `run --web`: quick). BUILDING.md, "Building on a
+  phone or tablet", says how to turn Android's limit off.
+- **No warnings, on any system.** The kit's files had unused imports and
+  code after a `return` that only some systems compile (the web, Windows,
+  macOS, iOS, Android); all gone: an import used on some systems is
+  imported under the same `when` as its use; the tests' own unused
+  imports are gone too. `sh tools/warncheck.sh` checks every module, the
+  tools and the examples as Linux, Termux, an Android app, Windows, macOS,
+  iOS and the web (with threads and without) build them, and the tests. Retro Photo's saving, its undo's scratch disk and the asset
+  downloads now build in a web page without threads (they did not).
+- **CI.** The return check took `"oauth.result"` (a string) for a use of
+  `result`, and the 3D view's picture had a real `return nil` after
+  `result`: both fixed. The live check, the screen-reader check and the
+  pixel compare did not find the kit (`tests/` and `tools/`' config named
+  `$projectDir`: wrong for a program in a subfolder) -- they build now.
+  `systemLanguage` gave "C" for `LANG=C.UTF-8` (English now). The tests
+  that differ on a system say so: a Mac has no Alt+letter shortcuts; the
+  spelling test types a word no dictionary has (Windows' took "Gud");
+  `$RETRO_SCALE` wins over a kept size. The
+  32-bit job installs its OpenSSL. **`sh tools/cicheck.sh`** runs what
+  GitHub's CI runs, here.
+- **MSIX packages as Windows' own packager writes them:** the sizes in the
+  local headers, a data descriptor only past 4 GB (Windows did not verify
+  the signature of the old layout; osslsigncode did). `retrokit msix
+  --unsigned` makes one to sign elsewhere; when Windows still refuses one,
+  the systems workflow signs the same package with signtool and prints the
+  two signatures' digests side by side.
+- **An app's crash, shown the next time it starts.** A crash of the native
+  code on Android (a signal: `src/retroui/crashlog.c`, the addresses in
+  the library) and of Java (any thread) is written to the app's fault log,
+  as Nim's errors were. The next start shows it **before the app's own code
+  runs** -- so a crash at the start shows too -- with Copy, Send by Email
+  and Start (`stoppedScreen`; `app` does it, an app with its own frame
+  loop calls `stoppedFrame`); "Start without what was open the last time"
+  (`startFresh`) opens Files without its last folders, Photo without its
+  last pictures, Board without its last board. `stoppedPending`,
+  `showStoppedScreen`, `lastRunStopped`, `peekFaults`.
+- **The permissions an Android app needs, by themselves.** `retroapk`
+  reads the app's compiled code and adds the permissions of what it uses
+  -- the camera, the microphone, notifications, the place, a buzz, the
+  network -- and says which (`--no-auto-permissions` leaves them out); the
+  hardware they imply is not required, so the app installs on a device
+  without a camera or GPS. The app asks the user the first time the
+  feature is used. The Gallery's System page now has all it asks for.
+- **Every app on Android's emulator.** The systems workflow builds the
+  main apps for the emulator (`nimble emuapks`) and opens each on Android
+  11 and 15 with nothing allowed, then with every permission, drives it
+  with the monkey, and fails on a crash (`tests/android/apps.sh`; the
+  screens, the log and the app's own fault log are kept).
+- **What people reported on GitHub:**
+  - #1: Ctrl+Backspace takes the word before the caret, Ctrl+Delete the
+    one after (Option on a Mac; Cmd+Backspace the line), in every text box
+    and in Board's texts.
+  - #3: the picture viewer (`imageView`: Retro Files' viewer) zooms about
+    the mouse.
+  - #4: Retro Photo's Move tool turns and sizes the layer from its box's
+    handles and the corners' turning room before Auto-Select picks the
+    layer under them.
+  - #5: after Retro Files' viewer (Enter, then Esc) the keys go on from the
+    file that was opened; the file list keeps the focus while it reads a
+    folder or shows it empty (Backspace up a folder no longer sent the keys
+    to the tree).
+  - #6: a right click elsewhere while a menu is open closes it and opens
+    the menu of what was clicked.
+  - #7: a list (`listbox`) leaves Ctrl and Alt with the arrows to the app:
+    Board's Ctrl+Shift+Up / Down make the next step and no longer change
+    the page as well.
+  - #8: letters typed on a drop-down list (`combo`) pick the item that
+    starts with them: in the open list, and in the closed one when the
+    keyboard brought the focus (Tab) -- a list clicked once leaves the
+    letters, and Space, to the app's own keys (Retro Photo's tools, its
+    Hand) (`ui.focusByKeys`).
+  - #9: Enter opens a closed `combo`, a `datePicker`'s calendar
+    and a `comboEdit`'s whole list (F4 and Alt+Down too); a date picked in
+    the calendar shows in the box at once. And the round of keys its
+    comments asked for -- the same keys for every drop-down: F4, Alt+Down
+    and Enter open a grid's drop-down cells (the Records page's Store), a
+    property list's choices, a `menuButton`'s menu (Space too) and a
+    `splitButton`'s (Enter and Space do its default), a `popupSlider`'s
+    slider; F4, Alt+Up and Alt+Down close an open one (a list on the item
+    lit), Esc without picking (`dropKey`). docs/syntax.md has the table.
+    A `splitButton`'s `ui.lastRect` is the whole button (it was its
+    arrow).
+- Retro Files 3.3.4, Retro Photo 4.9.4, Retro Board 1.3.4, HR Book 0.2,
+  Retro Gallery and the small examples 0.30.1.
+
 ## 0.30.0
 
 Web pages that do what apps do everywhere else -- threads, the camera,

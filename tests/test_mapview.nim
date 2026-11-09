@@ -2,7 +2,7 @@
 ## finger -- headless, on the fake driver.
 
 import std/[math, monotimes, times, strutils]
-import retroui/[core, gfx, widgets, mapview]
+import retroui/[core, gfx, mapview]
 import retroui/uirelays/[coords, screen, input]
 
 # (a fake driver of its own: the test needs only the map's modules)

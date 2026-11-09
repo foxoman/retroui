@@ -26,10 +26,10 @@
 ## `keepTogether` keeps a group on one page. Arabic paragraphs run right to
 ## left. Sizes are points (1/72 inch; `mm` converts).
 
-import std/[strutils, tables, math, unicode, os, streams]
+import std/[strutils, tables, math, unicode, os]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 when not androidApp and not defined(ios) and not defined(windows):
-  import std/osproc
+  import std/[osproc, streams]
 import gfx, core, widgets, business, typeset, ttf, imaging, pdf, templates, nerdicons, uirelays
 when defined(windows): import std/dynlib
 when androidApp or defined(wasm): import uirelays/services
@@ -1082,45 +1082,46 @@ proc printPdf*(path: string; jobName = ""; printer = ""; pages = 0): tuple[ok: b
   when defined(wasm):
     return if systemCall("print", path) == "1": (true, "Printing (the browser's print dialog).")
            else: (false, "This browser cannot print the document; save it as PDF instead.")
-  let job = if jobName.len > 0: jobName else: path.extractFilename
-  when androidApp:
-    let res = systemCall("print.pdf", absolutePath(path) & "\t" & job & "\t" &
-                         (if pages > 0: $pages else: ""))
-    if res == "1": (true, "Opened the print dialog for " & job & ".")
-    else: (false, "Printing is not available on this device.")
-  elif defined(ios):
-    (false, "Printing is not available on iOS yet.")
-  elif defined(windows):
-    type ShellExecuteW = proc (hwnd: pointer; op, file, params, dir: WideCString;
-                               show: int32): int {.stdcall.}
-    let lib = loadLib("shell32.dll")
-    if lib == nil: return (false, "Cannot reach the Windows shell.")
-    let fn = cast[ShellExecuteW](lib.symAddr("ShellExecuteW"))
-    if fn == nil: return (false, "Cannot reach the Windows shell.")
-    let r = fn(nil, newWideCString("print"), newWideCString(absolutePath(path)), nil, nil, 0)
-    if r > 32: (true, "Sent " & job & " to the default printer.")
-    else: (false, "Windows has no app that prints PDF files: install a PDF reader " &
-                  "(Acrobat Reader, SumatraPDF...), or open the file and print it from there.")
   else:
-    let lp = findExe("lp")
-    if lp.len == 0:
-      return (false, "There is no printing system here (CUPS's lp): install CUPS, or " &
-                     "open the PDF and print it from its reader.")
-    if printer.len == 0:
-      let stat = findExe("lpstat")
-      if stat.len > 0:
-        let d = runOut(stat, ["-d"])
-        if d.code == 0 and d.output.toLowerAscii.contains("no system default"):
-          let ps = runOut(stat, ["-p"])
-          if ps.code != 0 or not ps.output.contains("printer "):
-            return (false, "No printer is set up.")
-    var args = @["-t", job]
-    if printer.len > 0: args.add ["-d", printer]
-    args.add path
-    let res = runOut(lp, args)
-    if res.code == 0: (true, if res.output.len > 0: res.output else: "Sent " & job & " to the printer.")
-    elif res.code < 0: (false, "lp could not be started.")
-    else: (false, if res.output.len > 0: res.output else: "lp could not print " & job & ".")
+    let job = if jobName.len > 0: jobName else: path.extractFilename
+    when androidApp:
+      let res = systemCall("print.pdf", absolutePath(path) & "\t" & job & "\t" &
+                           (if pages > 0: $pages else: ""))
+      if res == "1": (true, "Opened the print dialog for " & job & ".")
+      else: (false, "Printing is not available on this device.")
+    elif defined(ios):
+      (false, "Printing is not available on iOS yet.")
+    elif defined(windows):
+      type ShellExecuteW = proc (hwnd: pointer; op, file, params, dir: WideCString;
+                                 show: int32): int {.stdcall.}
+      let lib = loadLib("shell32.dll")
+      if lib == nil: return (false, "Cannot reach the Windows shell.")
+      let fn = cast[ShellExecuteW](lib.symAddr("ShellExecuteW"))
+      if fn == nil: return (false, "Cannot reach the Windows shell.")
+      let r = fn(nil, newWideCString("print"), newWideCString(absolutePath(path)), nil, nil, 0)
+      if r > 32: (true, "Sent " & job & " to the default printer.")
+      else: (false, "Windows has no app that prints PDF files: install a PDF reader " &
+                    "(Acrobat Reader, SumatraPDF...), or open the file and print it from there.")
+    else:
+      let lp = findExe("lp")
+      if lp.len == 0:
+        return (false, "There is no printing system here (CUPS's lp): install CUPS, or " &
+                       "open the PDF and print it from its reader.")
+      if printer.len == 0:
+        let stat = findExe("lpstat")
+        if stat.len > 0:
+          let d = runOut(stat, ["-d"])
+          if d.code == 0 and d.output.toLowerAscii.contains("no system default"):
+            let ps = runOut(stat, ["-p"])
+            if ps.code != 0 or not ps.output.contains("printer "):
+              return (false, "No printer is set up.")
+      var args = @["-t", job]
+      if printer.len > 0: args.add ["-d", printer]
+      args.add path
+      let res = runOut(lp, args)
+      if res.code == 0: (true, if res.output.len > 0: res.output else: "Sent " & job & " to the printer.")
+      elif res.code < 0: (false, "lp could not be started.")
+      else: (false, if res.output.len > 0: res.output else: "lp could not print " & job & ".")
 
 proc printReport*(r: Report; jobName = ""; printer = ""): tuple[ok: bool; message: string] =
   ## Prints the document (see `printPdf` for each system): it is written as

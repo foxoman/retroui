@@ -13,10 +13,10 @@
 ## spot (no nesting). With one core, or little work, everything runs on
 ## the calling thread.
 
-import std/[locks, cpuinfo, atomics, os, strutils]
+import std/[locks, atomics]
 import busy, codec
 when compileOption("threads"):
-  import std/typedthreads
+  import std/[typedthreads, cpuinfo, os, strutils]
 
 type Body = proc (lo, hi: int) {.closure.}
 

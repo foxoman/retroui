@@ -2,7 +2,7 @@
 ## navigator, two lists, date ranges, the property grid, the tree grid and
 ## wizards -- by mouse, keyboard and finger, headless.
 
-import std/[strutils, unicode]
+import std/unicode
 import retroui
 import retroui/records
 import retroui/uirelays/input

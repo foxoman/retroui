@@ -7,7 +7,7 @@
 ##   let photo = decodeJpeg(readFile("IMG_0001.jpg"))
 ##   let thumb = decodeJpeg(readFile("IMG_0001.jpg"), scale = 8)
 
-import std/[math, bitops]
+import std/bitops
 import gfx, parallel, busy
 
 type JpegError* = object of CatchableError

@@ -583,57 +583,59 @@ proc vibrate*(ms = 50): bool {.discardable.} =
   ## their standard short buzz; a web page buzzes the phone it runs on).
   ## False where nothing buzzes.
   when defined(wasm): return systemCall("vibrate", $ms) == "1"
-  try:
-    when defined(ios):
-      let tb = nativeLib("/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox")
-      let play = nativeProc[proc (id: uint32) {.cdecl.}](tb, "AudioServicesPlaySystemSound")
-      if play != nil:
-        play(4095)                              # kSystemSoundID_Vibrate
-        result = true
-    else:
-      when androidApp:
-        if javaAvailable():
-          let v = javaActivityObj("getSystemService", "vibrator")
-          if v.isNil: return false
-          discard javaCall(v, "vibrate", jlong(ms))
-          result = javaError().len == 0
-          javaRelease(v)
-          return
-      if inTermux() and findExe("termux-vibrate").len > 0:
-        discard termuxApi("vibrate", ["-d", $ms, "-f"])
-        result = true
-  except CatchableError:
-    result = false
+  else:
+    try:
+      when defined(ios):
+        let tb = nativeLib("/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox")
+        let play = nativeProc[proc (id: uint32) {.cdecl.}](tb, "AudioServicesPlaySystemSound")
+        if play != nil:
+          play(4095)                              # kSystemSoundID_Vibrate
+          result = true
+      else:
+        when androidApp:
+          if javaAvailable():
+            let v = javaActivityObj("getSystemService", "vibrator")
+            if v.isNil: return false
+            discard javaCall(v, "vibrate", jlong(ms))
+            result = javaError().len == 0
+            javaRelease(v)
+            return
+        if inTermux() and findExe("termux-vibrate").len > 0:
+          discard termuxApi("vibrate", ["-d", $ms, "-f"])
+          result = true
+    except CatchableError:
+      result = false
 
 proc deviceName*(): string =
   ## What the device or computer is called: the model on phones ("Google
   ## Pixel 9", "Foxoman's iPad"), the computer's name on desktops, the
   ## browser in a web page ("Chrome 131 on Windows").
   when defined(wasm): return systemCall("device", "")
-  try:
-    when defined(ios):
-      let dev = objcSend(ObjcId, objcClass("UIDevice"), "currentDevice")
-      toNim(objcSend(ObjcId, dev, "name"))
-    elif defined(macosx):
-      toNim(objcSend(ObjcId, processInfo(), "hostName"))
-    elif defined(windows):
-      var buf: array[257, uint16]
-      var n = uint32(buf.len)
-      if GetComputerNameW(addr buf[0], addr n) != 0: wideText(buf) else: ""
-    else:
-      when androidApp:
-        if javaAvailable(): return deviceModel()
-        if inTermux():
-          let model = getprop("ro.product.model")
-          if model.len > 0:
-            let maker = getprop("ro.product.manufacturer")
-            return if model.toLowerAscii.startsWith(maker.toLowerAscii): model
-                   else: (maker.capitalizeAscii & " " & model).strip
-      var buf: array[256, char]
-      if gethostname(cast[cstring](addr buf[0]), buf.len) == 0: $cast[cstring](addr buf[0])
-      else: ""
-  except CatchableError:
-    ""
+  else:
+    try:
+      when defined(ios):
+        let dev = objcSend(ObjcId, objcClass("UIDevice"), "currentDevice")
+        toNim(objcSend(ObjcId, dev, "name"))
+      elif defined(macosx):
+        toNim(objcSend(ObjcId, processInfo(), "hostName"))
+      elif defined(windows):
+        var buf: array[257, uint16]
+        var n = uint32(buf.len)
+        if GetComputerNameW(addr buf[0], addr n) != 0: wideText(buf) else: ""
+      else:
+        when androidApp:
+          if javaAvailable(): return deviceModel()
+          if inTermux():
+            let model = getprop("ro.product.model")
+            if model.len > 0:
+              let maker = getprop("ro.product.manufacturer")
+              return if model.toLowerAscii.startsWith(maker.toLowerAscii): model
+                     else: (maker.capitalizeAscii & " " & model).strip
+        var buf: array[256, char]
+        if gethostname(cast[cstring](addr buf[0]), buf.len) == 0: $cast[cstring](addr buf[0])
+        else: ""
+    except CatchableError:
+      ""
 
 proc osVersion*(): string =
   ## The system and its version: "Android 15", "iOS 18.1", "macOS Version
@@ -643,67 +645,69 @@ proc osVersion*(): string =
     let d = systemCall("device", "")
     let i = d.find(" on ")
     return "Web" & (if i >= 0: " (" & d[i + 4 .. ^1] & ")" else: "")
-  try:
-    when defined(ios):
-      let dev = objcSend(ObjcId, objcClass("UIDevice"), "currentDevice")
-      "iOS " & toNim(objcSend(ObjcId, dev, "systemVersion"))
-    elif defined(macosx):
-      "macOS " & toNim(objcSend(ObjcId, processInfo(), "operatingSystemVersionString"))
-    elif defined(windows):
-      let nt = nativeLib("ntdll.dll")
-      let rtl = nativeProc[proc (v: ptr OsVersionInfo): int32 {.stdcall.}](nt, "RtlGetVersion")
-      if rtl == nil: return "Windows"
-      var v = OsVersionInfo(size: uint32(sizeof(OsVersionInfo)))
-      if rtl(addr v) != 0: return "Windows"
-      "Windows " & $v.major & "." & $v.minor & "." & $v.build
-    else:
-      when androidApp:
-        if javaAvailable(): return "Android " & androidVersion().release
-        let rel = getprop("ro.build.version.release")
-        if rel.len > 0: return "Android " & rel
-      for line in readSmall("/etc/os-release").splitLines:
-        if line.startsWith("PRETTY_NAME="): return line[12 .. ^1].strip(chars = {'"'})
-      var u: Utsname
-      if uname(u) == 0: $cast[cstring](addr u.sysname[0]) & " " & $cast[cstring](addr u.release[0])
-      else: hostOS
-  except CatchableError:
-    hostOS
+  else:
+    try:
+      when defined(ios):
+        let dev = objcSend(ObjcId, objcClass("UIDevice"), "currentDevice")
+        "iOS " & toNim(objcSend(ObjcId, dev, "systemVersion"))
+      elif defined(macosx):
+        "macOS " & toNim(objcSend(ObjcId, processInfo(), "operatingSystemVersionString"))
+      elif defined(windows):
+        let nt = nativeLib("ntdll.dll")
+        let rtl = nativeProc[proc (v: ptr OsVersionInfo): int32 {.stdcall.}](nt, "RtlGetVersion")
+        if rtl == nil: return "Windows"
+        var v = OsVersionInfo(size: uint32(sizeof(OsVersionInfo)))
+        if rtl(addr v) != 0: return "Windows"
+        "Windows " & $v.major & "." & $v.minor & "." & $v.build
+      else:
+        when androidApp:
+          if javaAvailable(): return "Android " & androidVersion().release
+          let rel = getprop("ro.build.version.release")
+          if rel.len > 0: return "Android " & rel
+        for line in readSmall("/etc/os-release").splitLines:
+          if line.startsWith("PRETTY_NAME="): return line[12 .. ^1].strip(chars = {'"'})
+        var u: Utsname
+        if uname(u) == 0: $cast[cstring](addr u.sysname[0]) & " " & $cast[cstring](addr u.release[0])
+        else: hostOS
+    except CatchableError:
+      hostOS
 
 proc batteryLevel*(): int =
   ## The battery's charge in percent, -1 when unknown (no battery, a desktop
   ## without the information, macOS; a browser that does not tell).
   when defined(wasm):
     return (try: parseInt(systemCall("battery", "").split(' ')[0]) except ValueError: -1)
-  try:
-    when defined(ios):
-      let dev = objcSend(ObjcId, objcClass("UIDevice"), "currentDevice")
-      objcSend(void, dev, "setBatteryMonitoringEnabled:", true)
-      let f = objcSend(float32, dev, "batteryLevel")
-      if f < 0: -1 else: int(f * 100 + 0.5)
-    elif defined(macosx):
+  else:
+    try:
+      when defined(ios):
+        let dev = objcSend(ObjcId, objcClass("UIDevice"), "currentDevice")
+        objcSend(void, dev, "setBatteryMonitoringEnabled:", true)
+        let f = objcSend(float32, dev, "batteryLevel")
+        if f < 0: -1 else: int(f * 100 + 0.5)
+      elif defined(macosx):
+        -1
+      elif defined(windows):
+        var s: PowerStatus
+        if GetSystemPowerStatus(addr s) == 0 or s.percent == 255 or s.batteryFlag == 128: -1
+        else: int(s.percent)
+      else:
+        when androidApp:
+          if javaAvailable():
+            let bm = javaActivityObj("getSystemService", "batterymanager")
+            if bm.isNil: return -1
+            let v = javaCall(bm, "getIntProperty", 4)      # BATTERY_PROPERTY_CAPACITY
+            javaRelease(bm)
+            return (try: parseInt(v) except ValueError: -1)
+        if inTermux():
+          let j = termuxApi("battery-status")
+          if j.len > 0: return jsonNumber(j, "percentage")
+        for kind, dir in walkDir("/sys/class/power_supply"):
+          if readSmall(dir / "type") == "Battery":
+            let c = readSmall(dir / "capacity")
+            if c.len > 0: return (try: clamp(parseInt(c), 0, 100) except ValueError: -1)
+        -1
+    except CatchableError:
       -1
-    elif defined(windows):
-      var s: PowerStatus
-      if GetSystemPowerStatus(addr s) == 0 or s.percent == 255 or s.batteryFlag == 128: -1
-      else: int(s.percent)
-    else:
-      when androidApp:
-        if javaAvailable():
-          let bm = javaActivityObj("getSystemService", "batterymanager")
-          if bm.isNil: return -1
-          let v = javaCall(bm, "getIntProperty", 4)      # BATTERY_PROPERTY_CAPACITY
-          javaRelease(bm)
-          return (try: parseInt(v) except ValueError: -1)
-      if inTermux():
-        let j = termuxApi("battery-status")
-        if j.len > 0: return jsonNumber(j, "percentage")
-      for kind, dir in walkDir("/sys/class/power_supply"):
-        if readSmall(dir / "type") == "Battery":
-          let c = readSmall(dir / "capacity")
-          if c.len > 0: return (try: clamp(parseInt(c), 0, 100) except ValueError: -1)
-      -1
-  except CatchableError:
-    -1
 
 var darkCache: tuple[at: float; v: bool] = (-100.0, false)
 
@@ -712,44 +716,45 @@ proc systemDarkMode*(): bool =
   ## and macOS Dark appearance, Windows' dark app mode, a dark GTK theme or
   ## GNOME's color scheme on Linux). Asked at most every 5 seconds.
   when defined(wasm): return systemCall("dark", "") == "1"
-  let now = epochTime()
-  if now - darkCache.at < 5: return darkCache.v
-  var dark = false
-  try:
-    when defined(ios):
-      let screen = objcSend(ObjcId, objcClass("UIScreen"), "mainScreen")
-      let traits = objcSend(ObjcId, screen, "traitCollection")
-      dark = traits != nil and objcSend(int, traits, "userInterfaceStyle") == 2
-    elif defined(macosx):
-      let d = objcSend(ObjcId, objcClass("NSUserDefaults"), "standardUserDefaults")
-      dark = toNim(objcSend(ObjcId, d, "stringForKey:", nsString("AppleInterfaceStyle"))) == "Dark"
-    elif defined(windows):
-      dark = windowsAppsUseDarkMode()
-    else:
-      when androidApp:
-        if javaAvailable():
-          let res = javaActivityObj("getResources")
-          let conf = javaCallObj(res, "getConfiguration")
-          let mode = try: parseInt(javaCall(conf, "uiMode")) except ValueError: 0
-          javaRelease(conf, res)
-          dark = (mode and 0x30) == 0x20
-      if not dark:
-        let gtk = getEnv("GTK_THEME").toLowerAscii
-        if "dark" in gtk: dark = true
-        else:
-          let ini = readSmall(getConfigDir() / "gtk-3.0" / "settings.ini").toLowerAscii
-          if "gtk-application-prefer-dark-theme=1" in ini or "gtk-application-prefer-dark-theme=true" in ini:
-            dark = true
+  else:
+    let now = epochTime()
+    if now - darkCache.at < 5: return darkCache.v
+    var dark = false
+    try:
+      when defined(ios):
+        let screen = objcSend(ObjcId, objcClass("UIScreen"), "mainScreen")
+        let traits = objcSend(ObjcId, screen, "traitCollection")
+        dark = traits != nil and objcSend(int, traits, "userInterfaceStyle") == 2
+      elif defined(macosx):
+        let d = objcSend(ObjcId, objcClass("NSUserDefaults"), "standardUserDefaults")
+        dark = toNim(objcSend(ObjcId, d, "stringForKey:", nsString("AppleInterfaceStyle"))) == "Dark"
+      elif defined(windows):
+        dark = windowsAppsUseDarkMode()
+      else:
+        when androidApp:
+          if javaAvailable():
+            let res = javaActivityObj("getResources")
+            let conf = javaCallObj(res, "getConfiguration")
+            let mode = try: parseInt(javaCall(conf, "uiMode")) except ValueError: 0
+            javaRelease(conf, res)
+            dark = (mode and 0x30) == 0x20
+        if not dark:
+          let gtk = getEnv("GTK_THEME").toLowerAscii
+          if "dark" in gtk: dark = true
           else:
-            when not androidApp:
-              let gs = findExe("gsettings")
-              if gs.len > 0:
-                let (o, code) = execCmdEx(gs & " get org.gnome.desktop.interface color-scheme")
-                dark = code == 0 and "dark" in o
-  except CatchableError, Defect:
-    dark = false
-  darkCache = (now, dark)
-  dark
+            let ini = readSmall(getConfigDir() / "gtk-3.0" / "settings.ini").toLowerAscii
+            if "gtk-application-prefer-dark-theme=1" in ini or "gtk-application-prefer-dark-theme=true" in ini:
+              dark = true
+            else:
+              when not androidApp:
+                let gs = findExe("gsettings")
+                if gs.len > 0:
+                  let (o, code) = execCmdEx(gs & " get org.gnome.desktop.interface color-scheme")
+                  dark = code == 0 and "dark" in o
+    except CatchableError, Defect:
+      dark = false
+    darkCache = (now, dark)
+    dark
 
 proc beepSystem*() =
   ## The system's alert sound (Windows' default beep, NSBeep on macOS, a
@@ -757,38 +762,39 @@ proc beepSystem*() =
   when defined(wasm):
     discard systemCall("beep", "")
     return
-  try:
-    when defined(ios):
-      let tb = nativeLib("/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox")
-      let play = nativeProc[proc (id: uint32) {.cdecl.}](tb, "AudioServicesPlaySystemSound")
-      if play != nil: play(1104)
-    elif defined(macosx):
-      let kit = nativeLib("/System/Library/Frameworks/AppKit.framework/AppKit")
-      let beep = nativeProc[proc () {.cdecl.}](kit, "NSBeep")
-      if beep != nil: beep()
-    elif defined(windows):
-      discard MessageBeep(0)
-    else:
-      when androidApp:
-        if javaAvailable():
-          if toneGen.isNil:                          # the notification stream, 80%
-            toneGen = javaNew("android.media.ToneGenerator", 5, 80)
-          if not toneGen.isNil: discard javaCall(toneGen, "startTone", 24, 150)  # TONE_PROP_BEEP
-          return
-      let x = nativeLib("libX11.so.6", "libX11.so")
-      if x == nil: return
-      let open = nativeProc[proc (name: cstring): pointer {.cdecl.}](x, "XOpenDisplay")
-      let bell = nativeProc[proc (d: pointer; percent: cint): cint {.cdecl.}](x, "XBell")
-      let flush = nativeProc[proc (d: pointer): cint {.cdecl.}](x, "XFlush")
-      let close = nativeProc[proc (d: pointer): cint {.cdecl.}](x, "XCloseDisplay")
-      if open == nil or bell == nil or flush == nil or close == nil: return
-      let d = open(nil)
-      if d == nil: return
-      discard bell(d, 0)
-      discard flush(d)
-      discard close(d)
-  except CatchableError:
-    discard
+  else:
+    try:
+      when defined(ios):
+        let tb = nativeLib("/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox")
+        let play = nativeProc[proc (id: uint32) {.cdecl.}](tb, "AudioServicesPlaySystemSound")
+        if play != nil: play(1104)
+      elif defined(macosx):
+        let kit = nativeLib("/System/Library/Frameworks/AppKit.framework/AppKit")
+        let beep = nativeProc[proc () {.cdecl.}](kit, "NSBeep")
+        if beep != nil: beep()
+      elif defined(windows):
+        discard MessageBeep(0)
+      else:
+        when androidApp:
+          if javaAvailable():
+            if toneGen.isNil:                          # the notification stream, 80%
+              toneGen = javaNew("android.media.ToneGenerator", 5, 80)
+            if not toneGen.isNil: discard javaCall(toneGen, "startTone", 24, 150)  # TONE_PROP_BEEP
+            return
+        let x = nativeLib("libX11.so.6", "libX11.so")
+        if x == nil: return
+        let open = nativeProc[proc (name: cstring): pointer {.cdecl.}](x, "XOpenDisplay")
+        let bell = nativeProc[proc (d: pointer; percent: cint): cint {.cdecl.}](x, "XBell")
+        let flush = nativeProc[proc (d: pointer): cint {.cdecl.}](x, "XFlush")
+        let close = nativeProc[proc (d: pointer): cint {.cdecl.}](x, "XCloseDisplay")
+        if open == nil or bell == nil or flush == nil or close == nil: return
+        let d = open(nil)
+        if d == nil: return
+        discard bell(d, 0)
+        discard flush(d)
+        discard close(d)
+    except CatchableError:
+      discard
 
 proc userName*(): string =
   ## The user's name on this system ("" when there is none, as on Android).
@@ -813,23 +819,24 @@ proc keepScreenOn*(on: bool): bool {.discardable.} =
   ## (a presentation, a long job). Android, iOS, Windows and web pages (the
   ## Wake Lock); false elsewhere.
   when defined(wasm): return systemCall("wakelock", if on: "1" else: "0") == "1"
-  try:
-    when defined(ios):
-      let app = objcSend(ObjcId, objcClass("UIApplication"), "sharedApplication")
-      objcSend(void, app, "setIdleTimerDisabled:", on)
-      result = true
-    elif defined(windows):
-      const continuous = 0x80000000'u32
-      result = SetThreadExecutionState(if on: continuous or 0x2 or 0x1 else: continuous) != 0
-    elif androidApp:
-      if javaAvailable():
-        onUiThread:
-          let w = javaActivityObj("getWindow")
-          discard javaCall(w, if on: "addFlags" else: "clearFlags", 128)  # FLAG_KEEP_SCREEN_ON
-          javaRelease(w)
-        result = javaError().len == 0
-  except CatchableError:
-    result = false
+  else:
+    try:
+      when defined(ios):
+        let app = objcSend(ObjcId, objcClass("UIApplication"), "sharedApplication")
+        objcSend(void, app, "setIdleTimerDisabled:", on)
+        result = true
+      elif defined(windows):
+        const continuous = 0x80000000'u32
+        result = SetThreadExecutionState(if on: continuous or 0x2 or 0x1 else: continuous) != 0
+      elif androidApp:
+        if javaAvailable():
+          onUiThread:
+            let w = javaActivityObj("getWindow")
+            discard javaCall(w, if on: "addFlags" else: "clearFlags", 128)  # FLAG_KEEP_SCREEN_ON
+            javaRelease(w)
+          result = javaError().len == 0
+    except CatchableError:
+      result = false
 
 proc openSettings*(kind = ""): bool {.discardable.} =
   ## Opens the system's settings: `kind` "" (the main page), "wifi",

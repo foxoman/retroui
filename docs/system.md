@@ -92,18 +92,25 @@ what it needs (see "What the app declares").
 
 ### What the app declares
 
-**Android** (`retroapk` / `retrokit apk`):
+**Android** (`retroapk` / `retrokit apk`): the permissions of what the
+app's code uses are added by `retroapk` itself -- it reads the compiled
+code and says which it added; the hardware they imply is listed as not
+required, so the app installs on a device without a camera or GPS.
+`--no-auto-permissions` leaves them out (then add them yourself):
 
-| For | Add |
-|---|---|
-| notifications (Android 13+) | `--permission:POST_NOTIFICATIONS` |
-| `vibrate` | `--permission:VIBRATE` |
-| `location` | `--permission:ACCESS_COARSE_LOCATION` (`precise`: `ACCESS_FINE_LOCATION`) |
-| camera, microphone | `--permission:CAMERA`, `--permission:RECORD_AUDIO` |
-| background checks | `--background` |
-| installing an update's APK | `--permission:REQUEST_INSTALL_PACKAGES` |
+| For | Added by itself | Else |
+|---|---|---|
+| notifications (Android 13+) | ✓ (`notify`) | `--permission:POST_NOTIFICATIONS` |
+| `vibrate`, `haptic` | ✓ | `--permission:VIBRATE` |
+| `location` | ✓ | `--permission:ACCESS_COARSE_LOCATION`, `ACCESS_FINE_LOCATION` |
+| camera, microphone | ✓ (`cameraView`, `recordSound`...) | `--permission:CAMERA`, `--permission:RECORD_AUDIO` |
+| the network | ✓ (`httpRequest`, downloads, chat, `webView`) | `--permission:INTERNET` |
+| background checks | | `--background` |
+| installing an update's APK | | `--permission:REQUEST_INSTALL_PACKAGES` |
 
-The window asks the user the first time (never a background check).
+The window asks the user the first time a feature is used (never a
+background check); a "no" makes the call answer false or `psDenied`, and
+the app goes on.
 
 **iOS and macOS**: the app's Info.plist says why it asks (`retroios` and
 `tools/macapp.sh` write them): `NSLocationWhenInUseUsageDescription`,

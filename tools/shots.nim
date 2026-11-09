@@ -915,8 +915,8 @@ do:
   aim()
 
 example("combo", "combo",
-        "A drop-down list: one item shown, the list under it when it is opened (a click, Alt+Down, F4). Typing a letter picks the next item that begins with it.",
-        260, 190, ["combo"], @[ssNormal, ssTouch, ssDark, ssFocused, ssOpen, ssDisabled]):
+        "A drop-down list: one item shown, the list under it when it is opened (a click, Enter, Alt+Down, F4 -- `dropKey` is that key for a control of your own). Typing a letter picks the next item that begins with it.",
+        260, 190, ["combo", "dropKey"], @[ssNormal, ssTouch, ssDark, ssFocused, ssOpen, ssDisabled]):
   var comboFruits = @["Apple", "Banana", "Cherry", "Dates", "Figs", "Grapes"]
   var fruitCombo = 2
 do:
@@ -1325,6 +1325,16 @@ example("problembox", "problemBox, reportProblem",
   aim()
   problemBox("Ledger", "2.0")
 opts(act = acClick)
+
+example("stoppedscreen", "stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen",
+        "What a run that ended in a crash wrote down -- an error nothing caught, a fault of the native code, Java's on Android -- shown when the app starts again, before any of its own code runs (`app` does it; an app with its own frame loop calls `stoppedFrame` first in each frame, and asks `stoppedPending` before bringing back what was open): Copy, Send by Email, Start. `startFresh` is true when the user chose to start without what was open the last time.",
+        520, 360, ["stoppedScreen", "stoppedFrame", "stoppedPending", "startFresh", "showStoppedScreen"], std3):
+  const report = "--- the app stopped\nSIGSEGV: memory that is not the program's (signal 11) at address 0x0\n" &
+                 "  #00 0x7a1c2e4b10 libmain.so+0x14fb10\n  #01 0x7a1c2e3f2c libmain.so+0x14ef2c\n"
+  showStoppedScreen(report)
+do:
+  discard stoppedScreen()
+opts(reset = proc () = showStoppedScreen(report))
 
 example("filedialog", "fileDialog (3.1)",
         "The Windows 3.1 Open and Save As dialog: the file name with its list, the folders, the drives and the file types. True once, with `path` set.",

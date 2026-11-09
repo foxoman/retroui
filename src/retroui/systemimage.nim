@@ -23,12 +23,13 @@
 ##   writeFile("out.avif", encodeWithSystem(b, "avif", 80))
 ## ```
 
-import std/[os, osproc, strutils]
+import std/[os, strutils]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 import gfx, imaging
-import uirelays/services
-when not androidApp:
-  import std/locks
+when androidApp:
+  import uirelays/services
+else:
+  import std/[locks, osproc]
 
 const systemImageExts* = [".heic", ".heif", ".hif", ".avif"]
   ## What `decodeWithSystem` is for.

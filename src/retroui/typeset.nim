@@ -16,7 +16,7 @@
 ## (`fUser`). A style a font does not have is made from its regular
 ## (`fauxStyle`).
 
-import std/[tables, unicode, math, locks, algorithm]
+import std/[tables, unicode, locks, algorithm]
 import ttf, arabicdata, codec
 
 type

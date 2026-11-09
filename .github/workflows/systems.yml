@@ -111,7 +111,7 @@ jobs:
           sudo dpkg --add-architecture i386
           sudo apt-get update
           sudo apt-get install -y gcc-multilib libx11-6:i386 libxext6:i386 libxrandr2:i386 \
-            libxcursor1:i386 libxi6:i386 libxfixes3:i386 libxrender1:i386
+            libxcursor1:i386 libxi6:i386 libxfixes3:i386 libxrender1:i386 libssl3t64:i386
           sh tests/run32.sh
 
   windows:
@@ -232,6 +232,12 @@ jobs:
 
   android:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # (Android 11, and Android 15: the newest phones' rules -- edge to
+        # edge, the permissions asked for at the moment)
+        api: [30, 35]
     steps:
       - uses: actions/checkout@v4
       - uses: jiro4989/setup-nim-action@v2
@@ -243,22 +249,24 @@ jobs:
           nim c -d:release --hints:off -o:build/retroapk src/retroapk.nim
           build/retroapk tests/live/livecheck.nim --abi:x86_64 --debuggable \
             --id:org.retro.livecheck --name:Livecheck --nim:--path:src -o:build/livecheck.apk
+      - name: The apps' APKs (x86_64, for the emulator)
+        run: nimble emuapks -y
       - name: KVM for the emulator
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
-      - name: Live check in the emulator
+      - name: Live check and every app in the emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 30
+          api-level: ${{ matrix.api }}
           arch: x86_64
           target: google_apis
-          script: sh tests/live/android.sh
+          script: sh tests/android/emulator.sh
       - name: The same pixels as the reference
         if: always()
         run: nim c -r --hints:off tools/live/compare.nim live
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: live-android
+          name: live-android-${{ matrix.api }}
           path: live/

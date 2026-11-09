@@ -15,16 +15,16 @@ import retroui
 import retroui/lang_ar as kitArabic
 import retroui/rscript except parseJson, toJson
 import photo/lang_ar as photoLang
-import retroui/[photo, photopaint, photofx, photoartistic, photohdr, photodeep, photoanim, otshape, ttf, photosvg, photovp, photodevelop, photosmart, photowarp, photostyles, photowidgets, photoneural,
-              photopresets, photocc, phototemplates, photoquick, photogpu, qrcode, systemimage, jxl, webp, assetstore,
+import retroui/[photo, photopaint, photofx, photoartistic, photohdr, otshape, ttf, photosvg, photovp, photodevelop, photosmart, photowarp, photostyles, photowidgets, photoneural,
+              photopresets, photocc, phototemplates, photoquick, photogpu, qrcode, systemimage, assetstore,
               svgimport, morepictures, edgetrace,
               photofiles, photosave, photoshapes, photomerge, photopdf, photoimport, pdfread, googlefonts, photovector, iccprofile, icclut, abr, rawphoto, imageformats, filterfactory,
               photobrushes, adobefiles,
-              imaging, report, canvas2d, markdown, jpeg, textengine, textwidgets, parallel, files]
+              imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files]
 
 const
   AppName = "Retro Photo"
-  AppVersion = "4.9.3"
+  AppVersion = "4.9.4"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -2577,6 +2577,21 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
                  "outside ends it -- then the Move tool again"
         drag.on = false
         return
+    # (a handle of the current layer's box -- its corners, its sides, the
+    # turning zone just outside them: the transform, at once; before
+    # Auto-Select, which would pick the layer under the pointer there)
+    if moveShowControls and not d.current.background and not d.editMask and not ev.alt and
+       not d.quickMask and not d.current.isLine and
+       not ((d.current.locked or d.current.lockPosition) and d.movedLayers.len == 1):
+      let r = if d.hasSelection: d.clip(d.selBounds) else: d.layerBox(d.current)
+      if r.w > 0 and r.h > 0:
+        let h = dw.boxHit(quadOf(r), ui.mx, ui.my)
+        if h >= 0 and h != 4:
+          drag.on = false
+          startTransform(xkScale)
+          if xf.on:
+            dw.transformMouse(ev)
+          return
     var justPicked = false
     if (moveAutoSelect != (ev.ctrl and not springing)) and not ev.alt:
       # (Auto-Select: the top layer with something where it was clicked --
@@ -2602,20 +2617,6 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
       status = "\"" & d.current.name & "\" is locked in place (the lock of Position in Layers)."
       drag.on = false
       return
-    # (a handle of the current layer's box: not on the click that picked it --
-    # that click moves it)
-    if moveShowControls and not justPicked and not d.current.background and not d.editMask and
-       not d.quickMask and not d.current.isLine:
-      # (a handle of the box: the transform, at once)
-      let r = if d.hasSelection: d.clip(d.selBounds) else: d.layerBox(d.current)
-      if r.w > 0 and r.h > 0:
-        let h = dw.boxHit(quadOf(r), ui.mx, ui.my)
-        if h >= 0 and h != 4:
-          drag.on = false
-          startTransform(xkScale)
-          if xf.on:
-            dw.transformMouse(ev)
-          return
     if ev.alt and not d.editMask and not d.quickMask and not d.current.background:
       # Alt: a copy moves (of the selection; else of the layer), the original stays
       if d.hasSelection:
@@ -4546,6 +4547,7 @@ proc main() =
     try: addDoc(openPicture(atStart))
     except CatchableError: status = "Could not open " & atStart
   while beginFrame():
+    if stoppedFrame(): (endFrame(); continue)
     if first:
       splashUntil = ui.now + splashMs
       splashStart = ui.now

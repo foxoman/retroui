@@ -1,6 +1,6 @@
 # Retro Nim UI: a study of its syntax
 
-By Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)), for Retro Nim UI 0.30.0.
+By Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)), for Retro Nim UI 0.30.1.
 
 The syntax is immediate mode written as plain Nim: a window is a block that runs every frame, a control is a proc call, its result is the event, and your own variables are the state. That one choice removes callbacks, widget objects and data binding, the three things that make most UI code hard to follow.
 
@@ -522,7 +522,7 @@ The system's features (`retroui/system`: notifications, sharing, the place, spee
 
 Every size in the code is design pixels: `row([80, -1])`, `dp(16)` for your own drawing, a dialog's width (see Widths in a row). An app that runs its own loop calls `openApp`, `while beginFrame(): ...`, `endFrame()` and `closeApp()` itself; How it is built shows the five calls, and they draw the same window as `app`.
 
-A new control almost never adds a shape: it is an action, a binding or an event object, so learning one control teaches the others. The reference documents 376 controls in [docs/controls.md](controls.md), each with its pictures; they all follow these forms.
+A new control almost never adds a shape: it is an action, a binding or an event object, so learning one control teaches the others. The reference documents 382 controls in [docs/controls.md](controls.md), each with its pictures; they all follow these forms.
 
 ## How it is built
 
@@ -561,6 +561,17 @@ The id and layout stacks are reset at every frame, so a slip costs one frame, ne
 ### One proc decides what the mouse and keys did
 
 Every clickable control calls `interact(id, rect)`. It sets `hot` (under the mouse), `active` (pressed) and `focus` (the keyboard), adds the control to the Tab order in the order it was called, and reports a click only when the press and the release fall on the same control. Space, Enter on the default button and the Alt mnemonics are handled the same way for every control, so all controls behave alike.
+
+The keys are the same from one control to the next, as Windows has them:
+
+| Keys | What they do |
+|---|---|
+| Space, Enter | press the focused button (a menu button drops its menu; a split button does its default) |
+| F4, Alt+Down, Enter | open a closed drop-down: a drop-down list, a combo box, a date's calendar, a grid's or a property list's drop-down cell, a menu or split button's menu, a number box's slider (`dropKey`) |
+| F4, Alt+Up, Alt+Down | close an open one (a list on the item lit); Esc closes it without picking |
+| Letters | in a drop-down list, open or closed: the item that starts with them |
+| F2 | edit the current cell of a grid, a property, a name in a list |
+| Ctrl+Backspace, Ctrl+Delete | the word before or after the caret (Option on a Mac; Cmd the line) |
 
 ### Memory for what you do not keep yourself
 
@@ -612,7 +623,7 @@ The reasons, in the order they matter while reading someone else's app:
 - **Plain Nim does the rest.** Showing something only sometimes is an `if`; a list is a `for`; reuse is a `proc` that draws controls. There is no special syntax for any of them.
 - **Blocks instead of Begin/End pairs.** Nim templates close every container by indentation, so a forgotten `End()` cannot happen. Ids come from labels and variables, so `##` suffixes are rarely needed.
 - **Names over positions.** Options and parameters go by name, and a misspelled one is a compile error rather than a silent default.
-- **A small surface that does not grow.** Four shapes of call cover 376 controls, from Hello (16 lines) to Notepad (206 lines, with menus, dialogs and Print to PDF), Retro Communicator (1,640 lines) and Retro Photo (nearly 30,000 lines across its files).
+- **A small surface that does not grow.** Four shapes of call cover 382 controls, from Hello (16 lines) to Notepad (206 lines, with menus, dialogs and Print to PDF), Retro Communicator (1,640 lines) and Retro Photo (nearly 30,000 lines across its files).
 - **One code base, every screen.** The same lines run on Windows, macOS, Linux (X11, Wayland, a screen with no desktop), Android, iOS and in the browser; design pixels keep the sizes right on each.
 - **Testable without a screen.** A frame depends only on the input and your variables, so the fake driver can click, type and read pixels in a test.
 

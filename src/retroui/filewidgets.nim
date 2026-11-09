@@ -22,7 +22,7 @@
 ##     let ev = fileList(folder, fvIcons)
 ##     if ev.activated and ev.item.isDir: folder.open(ev.item.path)
 
-import std/[os, strutils, times, tables, sets, algorithm, monotimes, math, sequtils]
+import std/[os, strutils, times, tables, sets, algorithm, monotimes, sequtils]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 import gfx, core, widgets, business, extras, nerdicons, pixelicons, platform, files,
        imaging, background, textfile, docfs, memwatch
@@ -1319,8 +1319,16 @@ proc fileList*(m: FolderModel; view = fvDetails; thumbnails = true; bigIcons = t
     ui.lastRect = cell
     return
   let h = remainingH()
+  template keepFocus() =
+    # (while it reads its folder, or shows it empty, the list is still a
+    # stop of Tab and keeps the focus: the keys go on in it once it is
+    # filled, not to the tree beside it)
+    discard interact(idOf(m.sel, if view in {fvIcons, fvTiles, fvSmallIcons} and not m.searching: "iconview"
+                               else: "grid"),
+                     ui.lastRect, focusable = true)
   if m.needsAccess:
     accessState(m, h)
+    keepFocus()
     return
   if m.items.len == 0:
     if m.ticket != 0 and m.loadingFor > 150:
@@ -1331,6 +1339,7 @@ proc fileList*(m: FolderModel; view = fvDetails; thumbnails = true; bigIcons = t
     elif m.ticket != 0: emptyState("", "", h)
     elif m.error.len > 0 and m.dir.len == 0: emptyState(retroOr(pxWarning, nfWarning), m.error, h)
     else: emptyState(retroOr(pxFolderOpen, nfFolderOpen), "This folder is empty.", h)
+    keepFocus()
     # an empty folder still takes files
     if dragDrop and m.canTake(m.dir):
       case dropTarget(ui.lastRect, "files")

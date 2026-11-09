@@ -14,7 +14,7 @@
 ## ```
 
 import std/[math, algorithm]
-import gfx, photo, photofx, photosmart
+import photo, photofx, photosmart
 
 # ---- masks ----------------------------------------------------------------------------------------------
 

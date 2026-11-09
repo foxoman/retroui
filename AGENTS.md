@@ -142,6 +142,23 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
    every night (`.github/workflows/nightly.yml`: sanitizers, long fuzzing,
    libFuzzer on `tests/fuzz/libfuzz.nim`, 32-bit, WebAssembly); a crash's
    input is in the run's artifacts.
+5. Before every release, **`sh tools/cicheck.sh`**: what GitHub's CI runs
+   (the return check, the warnings, the tests, a short fuzz, the fake
+   Android, WebAssembly under Node, the tools, the programs in subfolders
+   found from their config) -- all must pass; a release never goes out
+   with a CI step not run here. **No warnings:** `sh tools/warncheck.sh`
+   checks the kit's own files as every system builds them (Linux, Termux,
+   an Android app, Windows, macOS, iOS, the web with threads and
+   without), the examples and the tests; an import used on some systems only is imported under the
+   same `when` as its use, an early `return` for one system gets an `else`
+   for the rest. A program in a subfolder of `tests/` or `tools/` finds the
+   kit through that folder's `config.nims` (`thisDir()`, not
+   `$projectDir`).
+6. A change to an Android app or to `tools/android/*.java`: `nimble
+   emuapks` and `sh tests/android/apps.sh` on an emulator when one is
+   there (the systems workflow does it on Android 11 and 15); Java changes
+   need `sh tools/android/build_dex.sh` (javac, `dx`, an android.jar) and
+   the regenerated `src/retroui/androiddex.nim` committed.
 
 ## Rules
 

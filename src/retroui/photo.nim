@@ -14,7 +14,9 @@
 ##   d.updateComposite()          # d.comp: what the document looks like
 ##   d.undo()
 
-import std/[math, tables, strutils, json, os, base64, algorithm, locks, typedthreads, atomics, hashes]
+import std/[math, tables, strutils, json, os, base64, algorithm, locks, atomics, hashes]
+when compileOption("threads"):
+  import std/typedthreads
 import gfx, imaging, zip, jpeg, parallel, textengine, busy, photoinks
 from codec import unbase64
 export photoinks
@@ -2813,11 +2815,13 @@ var
   spillCond: Cond
   spillQueue: array[256, ptr SpillJob]
   spillHead, spillTail: int
-  spillThread: Thread[void]
   spillStarted = false
   spillFinished: Atomic[int]    # the jobs the writer is done with
   spillCount = 0
   scratchBroken = false         # the scratch disk failed: the history in memory only
+
+when compileOption("threads"):
+  var spillThread: Thread[void]
 
 proc spillWriter() {.thread.} =
   ## Writes the queued steps to their files, one after the other.
@@ -2936,34 +2940,38 @@ proc spillStep(s: var Step) =
   ## Starts writing the step's pixels to the scratch disk (in the
   ## background); `collectSpills` gives their memory back once written.
   if s.spill != nil: return
-  if not spillStarted:
-    initLock(spillLock)
-    initCond(spillCond)
-    createThread(spillThread, spillWriter)
-    spillStarted = true
-  if spillTail - spillHead >= spillQueue.len - 1: return
-  inc spillCount
-  let path = scratchFolder() / ("undo-" & $getCurrentProcessId() & "-" & $spillCount & ".raw")
-  let sp = Spill(path: path)
-  var bufs: seq[tuple[p: pointer; len: int]]
-  s.eachBuffer:
-    let bytes = buf.len * sizeof(buf[0])
-    sp.lens.add bytes
-    bufs.add ((if buf.len > 0: pointer(addr buf[0]) else: nil), bytes)
-  let job = createShared(SpillJob)
-  let n = min(path.len, job.path.len - 1)
-  if n > 0: copyMem(addr job.path[0], unsafeAddr path[0], n)
-  job.path[n] = '\0'
-  job.n = bufs.len
-  job.bufs = cast[ptr UncheckedArray[tuple[p: pointer; len: int]]](allocShared0(max(1, bufs.len) * sizeof(bufs[0])))
-  for k, b in bufs: job.bufs[k] = b
-  sp.job = job
-  s.spill = sp
-  acquire(spillLock)
-  spillQueue[spillTail mod spillQueue.len] = job
-  inc spillTail
-  signal(spillCond)
-  release(spillLock)
+  when not compileOption("threads"):
+    # (a web page without threads: the history stays in memory)
+    return
+  else:
+    if not spillStarted:
+      initLock(spillLock)
+      initCond(spillCond)
+      createThread(spillThread, spillWriter)
+      spillStarted = true
+    if spillTail - spillHead >= spillQueue.len - 1: return
+    inc spillCount
+    let path = scratchFolder() / ("undo-" & $getCurrentProcessId() & "-" & $spillCount & ".raw")
+    let sp = Spill(path: path)
+    var bufs: seq[tuple[p: pointer; len: int]]
+    s.eachBuffer:
+      let bytes = buf.len * sizeof(buf[0])
+      sp.lens.add bytes
+      bufs.add ((if buf.len > 0: pointer(addr buf[0]) else: nil), bytes)
+    let job = createShared(SpillJob)
+    let n = min(path.len, job.path.len - 1)
+    if n > 0: copyMem(addr job.path[0], unsafeAddr path[0], n)
+    job.path[n] = '\0'
+    job.n = bufs.len
+    job.bufs = cast[ptr UncheckedArray[tuple[p: pointer; len: int]]](allocShared0(max(1, bufs.len) * sizeof(bufs[0])))
+    for k, b in bufs: job.bufs[k] = b
+    sp.job = job
+    s.spill = sp
+    acquire(spillLock)
+    spillQueue[spillTail mod spillQueue.len] = job
+    inc spillTail
+    signal(spillCond)
+    release(spillLock)
 
 proc collectStep(s: var Step) =
   ## The step's memory given back once its pixels are on the disk.

@@ -1592,7 +1592,11 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["4.9.3: the menus answer at once -- a submenu waits only while the pointer heads for it; " &
+           whatsNew = ["4.9.4: the Move tool turns and sizes the layer from its box's handles and the " &
+                       "corners' turning room, before Auto-Select picks what is under them; when Retro " &
+                       "Photo stopped, the next start says why first, and can open without the pictures " &
+                       "that were open",
+                       "4.9.3: the menus answer at once -- a submenu waits only while the pointer heads for it; " &
                        "the letters drawn as in 4.9 (FreeSans, its heights on whole pixels), Sharp text a choice; " &
                        "the Windows 3.1 frame on every desktop; Arabic and other right-to-left text by the whole bidi rules",
                        "The Line tool: arrowheads and other ends (open, stealth, circle, square, diamond, bar) " &

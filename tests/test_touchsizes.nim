@@ -4,7 +4,7 @@
 
 import std/os
 import retroui
-import retroui/uirelays/[input, screen]
+import retroui/uirelays/screen
 import harness
 
 fakeDriver()

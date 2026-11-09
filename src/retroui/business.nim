@@ -298,8 +298,8 @@ proc calendar*(d: var Date; enabled = true): bool {.discardable.} =
 
 proc datePicker*(d: var Date; w = 0; enabled = true): bool {.discardable.} =
   ## A date field (typed in `dateStyle`) with a drop-down calendar (its
-  ## button, Alt+Down or F4). With the focus, Up / Down move a day and
-  ## Page Up / Page Down a month.
+  ## button, Enter, Alt+Down or F4; F4, Alt+Up or Esc close it). With the
+  ## focus, Up / Down move a day and Page Up / Page Down a month.
   let r = place(if w > 0: w else: textWidth("00/00/0000") + SbW + 18, EditH)
   let id = idOf(d, "datepicker")
   let editId = id + 31
@@ -322,8 +322,8 @@ proc datePicker*(d: var Date; w = 0; enabled = true): bool {.discardable.} =
       ui.menuOpen = false
       ui.focus = editId
       ui.redraw = true
-    if ui.focus == editId and not ui.keyUsed and
-       ((ui.key == KeyDown and AltPressed in ui.mods) or ui.key == KeyF4):
+    if ui.focus == editId and not ui.keyUsed and ui.popup != popId and
+       ((ui.key == KeyDown and AltPressed in ui.mods) or ui.key == KeyF4 or ui.key == KeyEnter):
       ui.keyUsed = true
       ui.popup = popId
       ui.redraw = true
@@ -363,11 +363,21 @@ proc datePicker*(d: var Date; w = 0; enabled = true): bool {.discardable.} =
     if pr.x + pr.w > ui.w: pr.x = max(0, ui.w - pr.w)
     pushLayer(LayerPopup)
     ui.popupRectNow = pr
+    if canInput() and (dropKey() or (ui.key == KeyUp and AltPressed in ui.mods and keyHit(KeyUp))):
+      ui.popup = 0                           # (F4, Alt+Down, Alt+Up close it, as Esc does)
+      ui.focus = editId
     var picked = false
-    if calendarAt(popId, pr, d, true, true, true, picked): result = true
+    if ui.popup == popId and calendarAt(popId, pr, d, true, true, true, picked): result = true
     if picked:
       ui.popup = 0
       ui.redraw = true
+      # (the box shows the date picked, selected: the focus stayed in it)
+      st.buf = $d
+      state(id) = st
+      var es = state(editId)
+      es.anchor = 0
+      es.caret = st.buf.len
+      state(editId) = es
     if canInput() and keyHit(KeyEsc):
       ui.popup = 0
     popLayer()
@@ -933,9 +943,16 @@ proc gridImpl(colsIn: var seq[Column]; rows: int; cell: proc (row, col: int): st
     ui.takesText = true
   if hit.focused and not editing and canInput() and rows > 0:
     var moved = -1
+    # (a drop-down cell opens as every drop-down does: F4, Alt+Down, Enter)
+    let onChoice = sel >= 0 and sel < rows and cols.len > 0 and cols[curCol].kind == ckChoice and
+                   cols[curCol].editable and cols[curCol].choices.len > 0
     case ui.key
     of KeyUp: moved = max(0, sel - 1)
-    of KeyDown: moved = min(rows - 1, sel + 1)
+    of KeyDown:
+      if AltPressed in ui.mods and onChoice:
+        openChoices(sel, curCol)
+        ui.keyUsed = true
+      else: moved = min(rows - 1, sel + 1)
     of KeyPageUp: moved = max(0, sel - vis + 1)
     of KeyPageDown: moved = min(rows - 1, sel + vis - 1)
     of KeyHome: moved = 0
@@ -943,7 +960,11 @@ proc gridImpl(colsIn: var seq[Column]; rows: int; cell: proc (row, col: int): st
     of KeyLeft: curCol = max(0, curCol - 1); follow = true; ui.keyUsed = true
     of KeyRight: curCol = min(cols.high, curCol + 1); follow = true; ui.keyUsed = true
     of KeyEnter:
-      if AltPressed notin ui.mods:          # Alt+Enter: properties
+      if AltPressed in ui.mods: discard      # Alt+Enter: properties
+      elif onChoice and ui.mods * {CtrlPressed, ShiftPressed} == {}:
+        openChoices(sel, curCol)
+        ui.keyUsed = true
+      else:
         result.activated = true
         result.row = sel
         markDouble(id)
@@ -951,8 +972,7 @@ proc gridImpl(colsIn: var seq[Column]; rows: int; cell: proc (row, col: int): st
     of KeyF2, KeyF4:
       if sel >= 0 and sel < rows and cols.len > 0 and textEditable(curCol):
         startEdit(cell(sel, curCol), true)
-      elif sel >= 0 and sel < rows and cols.len > 0 and cols[curCol].kind == ckChoice and
-           cols[curCol].editable and cols[curCol].choices.len > 0:
+      elif onChoice:
         openChoices(sel, curCol)
       ui.keyUsed = true
     of KeySpace:
@@ -1319,8 +1339,8 @@ proc grid*(cols: var seq[Column]; rows: int; cell: proc (row, col: int): string;
   ## `colorColumn`, `progressColumn`, `choiceColumn`, `buttonColumn`,
   ## `linkColumn`, `iconColumn`, `numberColumn`): a check box cell flips on
   ## a click or Space (`toggled`, `edited` with "1" / "0"), a drop-down cell
-  ## opens its `choices` (F4, a click on the current cell; `edited`), a
-  ## button or link reports `clicked`. `style(row, col)` gives cells their
+  ## opens its `choices` (F4, Alt+Down, Enter, a click on the current cell;
+  ## `edited`), a button or link reports `clicked`. `style(row, col)` gives cells their
   ## own colors and weight; `rowHeaders` adds the record indicator column
   ## (an arrow at the current row); `footer(col)` a totals row.
   gridImpl(cols, rows, cell, sel, nil, height, w, sortColumn, sortDescending,
@@ -2053,7 +2073,8 @@ proc breadcrumb*(parts: openArray[string]; w = 0;
 proc imageView*(b: Bitmap; zoom: var float; height = -1; w = 0) =
   ## A picture to look at: fitted into the view while `zoom` is 0, else
   ## `zoom` screen pixels per picture pixel (1.0: actual size). The wheel
-  ## (and + / - / 0 with the focus) zooms, a double click or double tap
+  ## zooms about the point under the mouse (+ / - / 0 with the focus, about
+  ## the middle), a double click or double tap
   ## goes between fitted and actual size, dragging (a finger, the arrow
   ## keys) moves it.
   let r = place(if w > 0: w else: 0, if height < 0: remainingH() else: height,
@@ -2084,7 +2105,14 @@ proc imageView*(b: Bitmap; zoom: var float; height = -1; w = 0) =
     if mouseIn(r) and ui.wheel != 0 and not ui.wheelUsed:
       ui.wheelUsed = true
       let cur = if zoom <= 0: dw.float * s / b.w.float else: zoom
+      # (the point of the picture under the mouse stays under it)
+      let fx = (ui.mx - (inner.x + max(0, (inner.w - dw) div 2) - ox)).float / dw.float
+      let fy = (ui.my - (inner.y + max(0, (inner.h - dh) div 2) - oy)).float / dh.float
       zoom = clamp(cur * (if ui.wheel > 0: 1.25 else: 0.8), 0.05, 16.0)
+      dw = max(1, int(b.w.float * zoom / s))
+      dh = max(1, int(b.h.float * zoom / s))
+      ox = int(fx * dw.float) - (ui.mx - inner.x - max(0, (inner.w - dw) div 2))
+      oy = int(fy * dh.float) - (ui.my - inner.y - max(0, (inner.h - dh) div 2))
     if hit.focused and not ui.keyUsed:
       case ui.key
       of KeyPlus, KeyEqual:
@@ -2490,9 +2518,10 @@ proc intEdit*(v: var int; w = 80; lo = low(int); hi = high(int);
 proc comboEdit*(text: var string; items: openArray[string]; w = 0;
                 enabled = true): bool {.discardable.} =
   ## A text field that suggests matching `items` as you type (or lists
-  ## them all from its button). Up/Down, Enter, Esc work in the list; none
-  ## is picked until Down (or the mouse) points at one, so Enter on its own
-  ## keeps what was typed.
+  ## them all from its button, Alt+Down, F4, or Enter when no list is
+  ## open; F4, Alt+Up or Esc close it). Up/Down, Enter, Esc work in the
+  ## list; none is picked until Down (or the mouse) points at one, so Enter
+  ## on its own keeps what was typed.
   let r = place(if w > 0: w else: 160, EditH)
   let id = idOf(text, "comboedit")
   let editId = id + 31
@@ -2506,6 +2535,14 @@ proc comboEdit*(text: var string; items: openArray[string]; w = 0;
     st.aux2 = 1
     st.caret = -1
     ui.focus = editId
+  elif enabled and live and ui.focus == editId and not ui.keyUsed and st.aux == 0 and
+       ((ui.key == KeyDown and AltPressed in ui.mods) or ui.key == KeyF4 or ui.key == KeyEnter):
+    # (the whole list from the keyboard)
+    st.aux = 1
+    st.aux2 = 1
+    st.caret = -1
+    ui.keyUsed = true
+    ui.redraw = true
   if editAt(editId, text, field, false, false, enabled):
     result = true
     st.aux = 1
@@ -2534,6 +2571,11 @@ proc comboEdit*(text: var string; items: openArray[string]; w = 0;
     var off = clamp(st.scrollY, 0, maxOff)
     var pick = -1
     var keyMoved = false
+    if ui.focus == editId and live and not ui.keyUsed and
+       (dropKey() or (ui.key == KeyUp and AltPressed in ui.mods)):
+      st.aux = 0                       # (F4, Alt+Down, Alt+Up close it, as Esc does)
+      ui.keyUsed = true
+      ui.redraw = true
     if ui.focus == editId and live and not ui.keyUsed:
       case ui.key
       of KeyDown: hi = min(list.high, hi + 1); ui.keyUsed = true; keyMoved = true

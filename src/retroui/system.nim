@@ -32,9 +32,11 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[os, strutils, times]
-when not defined(wasm):
-  import std/[osproc, streams]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
+when not defined(wasm):
+  import std/osproc
+when not (defined(wasm) or androidApp):
+  import std/streams
 import uirelays/services
 import native, notify
 
@@ -600,9 +602,10 @@ proc systemLanguage*(): string =
       for i in 0 ..< max(0, n - 1): result.add char(buf[i] and 0x7F)
     if result.len == 0:
       for v in ["LC_ALL", "LC_MESSAGES", "LANG"]:
-        let s = getEnv(v)
+        # (C, POSIX and C.UTF-8 name no language: the next one, else English)
+        let s = getEnv(v).split('.')[0].split('@')[0]
         if s.len > 0 and s notin ["C", "POSIX"]:
-          result = s.split('.')[0].split('@')[0].replace('_', '-')
+          result = s.replace('_', '-')
           break
   except CatchableError: discard
   if result.len == 0 or result == "\0": result = "en"

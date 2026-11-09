@@ -1,7 +1,6 @@
 # (the notifications of a web page: `notify.nim` includes this; see its
 # documentation)
 
-import std/strutils
 import uirelays/services
 
 var badgeNow = 0

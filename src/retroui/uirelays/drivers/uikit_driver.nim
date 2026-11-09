@@ -65,7 +65,7 @@ proc initUIKitDriver*() =
 
 # ---- screen readers (VoiceOver) ----
 
-import ../access, ../services
+import ../access
 
 type
   UrAccessNode {.bycopy.} = object

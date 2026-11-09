@@ -1,8 +1,10 @@
 # (the notifications of the systems: `notify.nim` includes this; see its
 # documentation)
 
-import std/[os, strutils, tables, locks, typedthreads, times, unicode]
-import uirelays/target   # (androidApp: an APK, not a program in Termux)
+import std/[os, strutils, locks, typedthreads, times, unicode]
+when not defined(ios):
+  import std/tables
+  import uirelays/target   # (androidApp: an APK, not a program in Termux)
 import native, bgcheck
 when defined(windows):
   import std/exitprocs

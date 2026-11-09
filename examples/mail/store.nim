@@ -390,7 +390,7 @@ proc whereMessages*(db: Db; where: string; args: seq[DbValue]; limit = 2000): se
 proc unreadIn*(db: Db; folder: int): int =
   int db.value("SELECT count(*) FROM messages WHERE folder = ? AND unread = 1", folder).num
 
-proc setFlags*(db: Db; id: int; unread, flagged: int = -1) =
+proc setFlags*(db: Db; id: int; unread = -1; flagged = -1) =
   if unread >= 0: db.exec("UPDATE messages SET unread = ? WHERE id = ?", unread, id)
   if flagged >= 0: db.exec("UPDATE messages SET flagged = ? WHERE id = ?", flagged, id)
 

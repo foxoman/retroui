@@ -21,7 +21,9 @@
 ## Java's own HTTP (tools/android/RetroNet.java, which any thread may call;
 ## the APK needs the INTERNET permission).
 
-import std/[os, strutils, times, locks, typedthreads, algorithm, sequtils]
+import std/[os, strutils, times, locks, algorithm, sequtils]
+when compileOption("threads"):
+  import std/typedthreads
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 import core
 when androidApp:
@@ -62,6 +64,8 @@ type
     timeoutSec: int
     waiters: seq[Waiter]     # who wants it (the same address asked again joins)
 
+when compileOption("threads"):
+  var workers: seq[Thread[void]]
 var
   lock: Lock
   cond: Cond
@@ -69,7 +73,6 @@ var
   active: seq[Job]                 # guarded by lock: being downloaded
   done: seq[FetchResult]           # guarded by lock
   paused = false                   # guarded by lock
-  workers: seq[Thread[void]]
   started = false
   # UI thread only:
   ready: seq[FetchResult]          # handed over by the next `fetchDone`
@@ -255,72 +258,86 @@ proc fetchNow*(url: string; dest: string; timeoutSec = 120): string =
     except OSError, IOError: discard
   downloadTo(url, dest, assetUserAgent, timeoutSec)
 
-proc work() {.thread.} =
-  while true:
-    var job: Job
-    {.cast(gcsafe).}:
-      acquire(lock)
+proc workOne(waitForOne: bool): bool {.gcsafe.} =
+  ## One download (the most urgent): false when there was none to do
+  ## (`waitForOne`: waits for one, on a worker thread).
+  var job: Job
+  {.cast(gcsafe).}:
+    acquire(lock)
+    if waitForOne:
       while todo.len == 0 or paused: wait(cond, lock)
-      # the most urgent, and of those the newest (what the user looks at now)
-      var best = todo.high
-      for i in countdown(todo.high, 0):
-        if todo[i].priority > todo[best].priority: best = i
-      job = move todo[best]
-      todo.delete(best)
-      # (its waiters stay where `fetchAsync` and `cancelFetches` see them)
-      active.add Job(id: job.id, url: job.url, waiters: move job.waiters)
+    elif todo.len == 0 or paused:
       release(lock)
-    let tmp = job.base & ".download"
-    let urlExt = extOfUrl(job.url)
-    var err = downloadTo(job.url, tmp, job.agent, job.timeoutSec)
-    var path = ""
-    var stale = false
-    if err.len == 0:
-      let final = job.base & "." & sniffExt(tmp, urlExt)
-      for e in @knownExts & @sniffedExts:            # an older copy of another kind
-        let old = job.base & "." & e
-        if old != final and fileExists(old):
-          try: removeFile(old) except OSError: discard
-      try:
-        moveFile(tmp, final)
-        path = final
-      except OSError as e:
-        err = e.msg
-    if path.len == 0:
-      try: removeFile(tmp) except OSError: discard
-      # offline: an older copy is better than nothing
-      for e in (if urlExt.len > 0: @[urlExt] else: @[]) & @knownExts & @sniffedExts:
-        if fileExists(job.base & "." & e):
-          path = job.base & "." & e
-          stale = true
-          err = ""
-          break
-    {.cast(gcsafe).}:
-      acquire(lock)
-      var waiters: seq[Waiter]
-      for i in 0 ..< active.len:
-        if active[i].id == job.id:
-          waiters = move active[i].waiters
-          active.delete(i)
-          break
-      for w in waiters:
-        done.add FetchResult(ticket: w.ticket, group: w.group, url: job.url, path: path,
-                             error: err, stale: stale)
-      release(lock)
+      return false
+    # the most urgent, and of those the newest (what the user looks at now)
+    var best = todo.high
+    for i in countdown(todo.high, 0):
+      if todo[i].priority > todo[best].priority: best = i
+    job = move todo[best]
+    todo.delete(best)
+    # (its waiters stay where `fetchAsync` and `cancelFetches` see them)
+    active.add Job(id: job.id, url: job.url, waiters: move job.waiters)
+    release(lock)
+  let tmp = job.base & ".download"
+  let urlExt = extOfUrl(job.url)
+  var err = downloadTo(job.url, tmp, job.agent, job.timeoutSec)
+  var path = ""
+  var stale = false
+  if err.len == 0:
+    let final = job.base & "." & sniffExt(tmp, urlExt)
+    for e in @knownExts & @sniffedExts:            # an older copy of another kind
+      let old = job.base & "." & e
+      if old != final and fileExists(old):
+        try: removeFile(old) except OSError: discard
+    try:
+      moveFile(tmp, final)
+      path = final
+    except OSError as e:
+      err = e.msg
+  if path.len == 0:
+    try: removeFile(tmp) except OSError: discard
+    # offline: an older copy is better than nothing
+    for e in (if urlExt.len > 0: @[urlExt] else: @[]) & @knownExts & @sniffedExts:
+      if fileExists(job.base & "." & e):
+        path = job.base & "." & e
+        stale = true
+        err = ""
+        break
+  {.cast(gcsafe).}:
+    acquire(lock)
+    var waiters: seq[Waiter]
+    for i in 0 ..< active.len:
+      if active[i].id == job.id:
+        waiters = move active[i].waiters
+        active.delete(i)
+        break
+    for w in waiters:
+      done.add FetchResult(ticket: w.ticket, group: w.group, url: job.url, path: path,
+                           error: err, stale: stale)
+    release(lock)
+  true
+
+when compileOption("threads"):
+  proc work() {.thread.} =
+    while true: discard workOne(true)
 
 proc start() =
   if started: return
   started = true
   initLock(lock)
   initCond(cond)
-  let n = clamp(assetFetchThreads, 1, 4)
-  workers.setLen(n)
-  for i in 0 ..< n: createThread(workers[i], work)
+  when compileOption("threads"):
+    let n = clamp(assetFetchThreads, 1, 4)
+    workers.setLen(n)
+    for i in 0 ..< n: createThread(workers[i], work)
 
 proc pump() =
   ## Moves what the workers finished to the UI thread's side and keeps the
   ## frames coming while downloads wait or run.
   if not started: return
+  when not compileOption("threads"):
+    # (a web page without threads: one download a frame, here)
+    discard workOne(false)
   var got: seq[FetchResult]
   var busy = false
   withLock lock:

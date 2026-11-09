@@ -23,7 +23,7 @@ import hrbook/[model, store, importer, letters]
 
 const
   AppTitle = "HR Book"
-  AppVersion = "0.1"
+  AppVersion = "0.2"
   AppId = "HRBook"
   AppIconPng = staticRead("assets/hrbook-icon.png")
 
@@ -271,6 +271,7 @@ proc main() =
   openApp(AppTitle, 1280, 800, id = AppId, icon = AppIconPng, look = AppId)
   lastInput = nowT()
   while beginFrame():
+    if stoppedFrame(): (endFrame(); continue)
     captionBar()
     if ui.pressed or ui.key != KeyNone or ui.wheel != 0 or ui.typed.len > 0:
       lastInput = nowT()
