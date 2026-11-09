@@ -13,7 +13,7 @@
 
 import ../[coords, input, screen, services, access]
 import pixbuf
-import std/strutils
+import std/[strutils, os]
 
 type
   WebEvent {.bycopy.} = object
@@ -434,7 +434,11 @@ proc initWebDriver*() =
   systemRelays.openFile = proc (path: string; share: bool): bool =
     # (the user's own copy: downloaded)
     rwOpenFile(cstring(path)) != 0
-  systemRelays.dataDir = proc (app: string): string = "/data/" & app
+  systemRelays.dataDir = proc (app: string): string =
+    # (made on demand, as on every system: in the page's storage, kept)
+    result = "/data/" & app
+    try: createDir(result)
+    except OSError, IOError: discard
   accessRelays = AccessRelays(start: webAccessStart, update: webAccessUpdate,
     announce: proc (text: string) = discard webCall("access.say", text))
   systemRelays.call = proc (name, arg: string): string {.gcsafe.} =
