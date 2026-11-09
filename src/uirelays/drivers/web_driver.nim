@@ -11,7 +11,7 @@
 ## waits: the page runs a frame when something happened or the program
 ## asked for one, so `waitEvent` takes what is there and returns.
 
-import ../[coords, input, screen, services]
+import ../[coords, input, screen, services, access]
 import pixbuf
 import std/strutils
 
@@ -57,6 +57,8 @@ proc rwOpenUrl(s: cstring): cint {.importc: "rw_open_url", cdecl.}
 proc rwTextCaret(x, y, w, h: cint) {.importc: "rw_text_caret", cdecl.}
 proc rwWantText(on: cint) {.importc: "rw_want_text", cdecl.}
 proc rwOpenFile(path: cstring): cint {.importc: "rw_open_file", cdecl.}
+proc rwCall(name, arg: cstring; outp: pointer; cap: cint): cint {.importc: "rw_call", cdecl.}
+proc rwAccess(text: cstring; n, focus: cint) {.importc: "rw_access", cdecl.}
 
 var
   pb: PixBuf
@@ -256,9 +258,13 @@ proc webEventsWaiting*(): bool =
   ## come at once).
   queue.len > 0
 
+proc takeAccess()
+
 proc webPollEvent(e: var input.Event; flags: set[InputFlag]): bool =
   rwWantText(cint(WantTextInput in flags))
-  if queue.len == 0: drain()
+  if queue.len == 0:
+    if accessListening: takeAccess()
+    drain()
   if queue.len == 0: return false
   e = queue[0]
   queue.delete(0)
@@ -352,6 +358,59 @@ proc webPutClip(text: string) =
   clipboardText = text
   rwClipPut(cstring(text), cint(text.len))
 
+proc webCall(name, arg: string): string =
+  ## The page's answer to a system call (`SystemRelays.call`); "\0" when
+  ## the page has no such call.
+  var buf = newString(256)
+  var n = rwCall(cstring(name), cstring(arg), addr buf[0], cint(buf.len))
+  if n < 0: return "\0"
+  if n >= buf.len:
+    buf = newString(n + 1)
+    n = rwCall(cstring(name), cstring(arg), addr buf[0], cint(buf.len))
+    if n < 0: return "\0"
+  buf.setLen(n)
+  buf
+
+# ---- screen readers: the tree mirrored as ARIA in the page (retro.js) ----
+
+proc webAccessStart(): bool =
+  ## (a page cannot tell whether a screen reader reads it: the tree is kept
+  ## unless the page said no -- `Retro.boot({ accessible: false })`)
+  accessListening = webCall("access.on", "") == "1"
+  accessListening
+
+proc webAccessUpdate(nodes: openArray[AccessNode]; focus: int) =
+  proc addText(t: var string; s: string) =
+    for c in s:
+      t.add(if c in {'\t', '\n', '\r'}: ' ' else: c)
+  var t = newStringOfCap(nodes.len * 64)
+  for n in nodes:
+    var bits = 0
+    for st in n.states: bits = bits or (1 shl ord(st))
+    t.add $n.id & '\t' & $n.parent & '\t' & $ord(n.role) & '\t' & $bits & '\t' & $n.x & '\t' &
+          $n.y & '\t' & $n.w & '\t' & $n.h & '\t'
+    t.addText n.name
+    t.add '\t'
+    t.addText(if asProtected in n.states: "" else: n.value)
+    t.add '\t'
+    t.addText n.help
+    t.add '\t' & $n.lo & '\t' & $n.hi & '\t' & $n.now & '\t' & $n.pos & '\t' & $n.count & '\t' &
+          $n.level & '\t'
+    t.addText n.key
+    t.add '\n'
+  rwAccess(cstring(t), cint(t.len), cint(focus))
+
+proc takeAccess() =
+  ## What the screen reader pressed (a click on a control's ARIA element).
+  let s = webCall("access.take", "")
+  if s.len == 0 or s == "\0": return
+  for line in s.splitLines:
+    let f = line.split('\t')
+    if f.len >= 2 and f[0] == "press":
+      try: accessRequests.add AccessRequest(action: aaPress, id: uint32(parseBiggestUInt(f[1])))
+      except ValueError: discard
+  queue.add input.Event(kind: NoEvent)
+
 proc webTicks(): int = ticks()
 proc webSleep(ms: int) = discard
 proc webShutdown() = discard
@@ -376,3 +435,10 @@ proc initWebDriver*() =
     # (the user's own copy: downloaded)
     rwOpenFile(cstring(path)) != 0
   systemRelays.dataDir = proc (app: string): string = "/data/" & app
+  accessRelays = AccessRelays(start: webAccessStart, update: webAccessUpdate,
+    announce: proc (text: string) = discard webCall("access.say", text))
+  systemRelays.call = proc (name, arg: string): string {.gcsafe.} =
+    {.cast(gcsafe).}: webCall(name, arg)
+  systemRelays.places = proc (): seq[tuple[name, path: string]] =
+    # (what the app writes in Downloads is handed to the user)
+    @[("Home", "/home/web"), ("Downloads", "/downloads")]
