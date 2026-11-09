@@ -1,5 +1,16 @@
 # Changes
 
+## 0.33.1
+
+One branch: `main`.
+
+- **GitHub's workflows run on a push to `main` only.** "Every system" ran on
+  `next` and on `main`, so pushing both at once ran it twice on the same
+  commit; "Real devices" ran only on `next`. Both now run on `main` (and by
+  hand from the Actions tab), with CI as before -- there is no `next` to
+  push to any more. AGENTS.md and the README say so.
+- Retro Gallery and the small examples 0.33.1.
+
 ## 0.33.0
 
 What GitHub's runs of 0.32 showed -- above all, every Mac app stopped at its

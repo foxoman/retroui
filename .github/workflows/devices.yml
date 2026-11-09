@@ -13,11 +13,11 @@ name: Real devices
 #             (a self-hosted runner labelled raspberrypi: Settings > Actions >
 #             Runners); only when the variable HAS_PI_RUNNER is "true".
 #
-# By hand (Actions > Real devices > Run workflow), and on a push to `next`.
+# By hand (Actions > Real devices > Run workflow), and on a push to main.
 
 on:
   push:
-    branches: [next]
+    branches: [main]
   workflow_dispatch:
 
 env:

@@ -2377,7 +2377,7 @@ installed and removed) and by macOS (`codesign --verify --deep --strict`).
 | anywhere | SDL3 | `nim c -d:release -d:sdl3 app.nim` (needs the `sdl3` wrapper package) | built |
 
 "GitHub" is the *Every system* workflow (`.github/workflows/systems.yml`),
-run on a push to `next` or `main`; the README says what it runs, its
+run on a push to `main`; the README says what it runs, its
 results are in each run's log and pictures.
 
 ## Speed and size
@@ -2559,7 +2559,7 @@ a real window and goes through pages of the guide by itself -- controls, a
 grid, a chart, HTML, an open menu, a dialog -- saving each frame, then
 shows a page in the system's browser engine and talks to it (`webRun`,
 `webPost`, `retro.post`), and writes `results.txt`. GitHub Actions
-(`.github/workflows/systems.yml`, on a push to `next` or `main`) runs it on
+(`.github/workflows/systems.yml`, on a push to `main`) runs it on
 Linux (Xvfb, WebKitGTK), Windows (WebView2), macOS (WKWebView), the iOS
 Simulator and the Android emulator, with the tests made for every system
 on Windows and macOS; `tools/live/compare.nim` checks every system's

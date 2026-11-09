@@ -29,12 +29,12 @@ name: Every system
 # every system). Each job uploads its pictures and results.txt, and the
 # differences in red.
 #
-# It runs on a push to `next` (to try a release before it is published),
-# to main, and by hand (Actions > Every system > Run workflow).
+# It runs on a push to main, and by hand (Actions > Every system > Run
+# workflow).
 
 on:
   push:
-    branches: [next, main]
+    branches: [main]
   workflow_dispatch:
 
 env:

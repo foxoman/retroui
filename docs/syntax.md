@@ -1,6 +1,6 @@
 # Retro Nim UI: a study of its syntax
 
-By Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)), for Retro Nim UI 0.33.0.
+By Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)), for Retro Nim UI 0.33.1.
 
 The syntax is immediate mode written as plain Nim: a window is a block that runs every frame, a control is a proc call, its result is the event, and your own variables are the state. That one choice removes callbacks, widget objects and data binding, the three things that make most UI code hard to follow.
 

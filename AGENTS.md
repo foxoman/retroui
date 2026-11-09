@@ -132,7 +132,7 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
    check passed). A change to how one of its pages draws: `sh
    tools/live/makeref.sh`, then look at `tests/live/ref` before it is kept.
    GitHub runs it on every system (`.github/workflows/systems.yml`) on a
-   push to `next`.
+   push to `main` (the only branch: no `next` to try it first).
 4. Before a release, run the tests under the sanitizers too (the command
    is at the top of `tests/lsan.supp`); a leak found goes into
    `test_hardening`. Also `python3 tools/returncheck.py`, `nimble fuzz`,
