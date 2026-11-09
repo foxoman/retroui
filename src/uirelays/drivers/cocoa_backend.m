@@ -25,7 +25,9 @@ enum {
   NE_WINDOW_FOCUS_GAINED, NE_WINDOW_FOCUS_LOST,
   NE_QUIT,
   NE_FILE_DROP,       /* files dropped on the window: cocoa_dropPath */
-  NE_TEXT_EDIT        /* what an input method composes changed: cocoa_markedText */
+  NE_TEXT_EDIT,       /* what an input method composes changed: cocoa_markedText */
+  NE_WINDOW_HIDDEN,   /* minimized into the Dock */
+  NE_WINDOW_SHOWN     /* back from it */
 };
 
 enum {
@@ -1448,6 +1450,18 @@ static BOOL keptPlace(BOOL sizable, NSRect *r) {
 - (void)windowDidResignKey:(NSNotification *)n {
   NEEvent e = {0};
   e.kind = NE_WINDOW_FOCUS_LOST;
+  pushEvent(e);
+}
+
+- (void)windowDidMiniaturize:(NSNotification *)n {
+  NEEvent e = {0};
+  e.kind = NE_WINDOW_HIDDEN;
+  pushEvent(e);
+}
+
+- (void)windowDidDeminiaturize:(NSNotification *)n {
+  NEEvent e = {0};
+  e.kind = NE_WINDOW_SHOWN;
   pushEvent(e);
 }
 

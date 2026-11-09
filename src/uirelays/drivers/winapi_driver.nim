@@ -613,6 +613,7 @@ var
   gDirty: WINAPIRECT  # what changed since the last refresh
   gDirtyAll = false   # ... or all of it (GDI drew somewhere)
   gWidth, gHeight: int32
+  gMinimized = false  # (told to the app once each way)
   gQuitFlag: bool
   gSavedClipRgn: HRGN
   gUiScale: int = 100
@@ -1325,6 +1326,11 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
 
   of WM_SIZE:
     noteWindowPlace()
+    # minimized (SIZE_MINIMIZED), or back: told to the app once each way
+    let minimized = int(wp) == 1
+    if minimized != gMinimized:
+      gMinimized = minimized
+      pushEvent(input.Event(kind: (if minimized: WindowHiddenEvent else: WindowShownEvent)))
     let newW = loWord(lp).int32
     let newH = hiWord(lp).int32
     if newW > 0 and newH > 0 and (newW != gWidth or newH != gHeight):

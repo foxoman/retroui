@@ -73,6 +73,8 @@ const
   neQuit = 12.cint
   neFileDrop = 13.cint
   neTextEdit = 14.cint
+  neWindowHidden = 15.cint
+  neWindowShown = 16.cint
 
   neModShift = 1.cint
   neModCtrl = 2.cint
@@ -311,6 +313,10 @@ proc translateNEEvent(ne: NEEvent; e: var input.Event) =
     e.kind = WindowFocusGainedEvent
   of neWindowFocusLost:
     e.kind = WindowFocusLostEvent
+  of neWindowHidden:
+    e.kind = WindowHiddenEvent
+  of neWindowShown:
+    e.kind = WindowShownEvent
   of neKeyDown:
     e.kind = KeyDownEvent
     e.key = KeyCode(ne.key)
