@@ -10,8 +10,12 @@
 ##   -d:sdl3    Force SDL3 backend
 ##   -d:sdl2    Force SDL2 backend
 ##   -d:gtk4    Force GTK4 backend
+##   -d:wasm    a browser page (WebAssembly, `retrokit web`)
 ##   -d:wayland Wayland only (no X11; without it, a Linux or BSD build has
 ##              both and picks one as it starts: `useWayland`)
+##   -d:kiosk   the screen alone, no windowing system (DRM/KMS or the
+##              framebuffer, evdev input); a Linux build has it too and
+##              takes it as it starts: `useScreen`
 ##
 ## Android (`--os:android`) uses the NativeActivity driver for an app
 ## (`--app:lib`, an APK's library) and X11 for a program run from a shell
@@ -68,14 +72,43 @@ elif defined(windows):
   import drivers/winapi_driver
   proc initBackend*() = initWinapiDriver()
 
+elif defined(wasm):
+  import drivers/web_driver
+  proc initBackend*() = initWebDriver()
+
 elif defined(wayland):
   import drivers/wayland_driver
   proc initBackend*() = initWaylandDriver()
+
+elif defined(kiosk):
+  import drivers/fb_driver
+  proc initBackend*() = initFbDriver()
 
 elif defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd) or
      defined(dragonfly):
   import std/[os, strutils]
   import drivers/[x11_driver, wayland_driver]
+  when defined(linux):
+    import std/posix
+    import drivers/fb_driver
+  proc useScreen*(): bool =
+    ## The screen itself, no windowing system (`fb_driver`):
+    ## `RETRO_DRIVER=kms` (or `fb`); else the program started on a text
+    ## console (a VT) with no X display and no Wayland session, and a
+    ## screen is there.
+    when defined(linux):
+      case getEnv("RETRO_DRIVER").toLowerAscii
+      of "kms", "drm", "fb", "fbdev", "kiosk", "screen": return true
+      of "x11", "wayland": return false
+      else: discard
+      if getEnv("DISPLAY").len > 0 or getEnv("WAYLAND_DISPLAY").len > 0 or
+         getEnv("WAYLAND_SOCKET").len > 0:
+        return false
+      let tty = ttyname(0)
+      tty != nil and ($tty).startsWith("/dev/tty") and ($tty).len > 8 and
+        ($tty)[8] in '0' .. '9' and fbAvailable()
+    else:
+      false
   proc useWayland*(): bool =
     ## The Wayland driver rather than X11: `RETRO_DRIVER=wayland` (or
     ## `x11`) says; else a Wayland session without an X display.
@@ -86,6 +119,10 @@ elif defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd) o
       getEnv("DISPLAY").len == 0 and
         (getEnv("WAYLAND_DISPLAY").len > 0 or getEnv("WAYLAND_SOCKET").len > 0)
   proc initBackend*() =
+    when defined(linux):
+      if useScreen():
+        initFbDriver()
+        return
     if useWayland(): initWaylandDriver() else: initX11Driver()
 
 else:

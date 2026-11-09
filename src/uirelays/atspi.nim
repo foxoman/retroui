@@ -168,7 +168,7 @@ proc actionName(i: int): string =
 
 proc interfacesOf(i: int): seq[string] =
   result = @[IfAccessible, IfComponent]
-  if i == AppNode: return @[IfAccessible, IfApplication]
+  if i == AppNode: result = @[IfAccessible, IfApplication]; return
   if actionName(i).len > 0: result.add IfAction
   if hasText(i): result.add IfText
   if i >= 0 and nodes[i].role in {arTextField, arTextArea, arPasswordField} and
