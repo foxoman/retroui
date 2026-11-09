@@ -89,7 +89,7 @@ static int pushEvent(NEEvent ev) {
 static void sendOne(NSEvent *ev) {
   int before = gEventWin;
   gEventWin = winIdOf([ev window]);
-  sendOne(ev);
+  [NSApp sendEvent:ev];
   gEventWin = before;
 }
 
