@@ -2142,8 +2142,8 @@ proc layoutTable(c: var Lay; t: Box; x, cbW: int; y: var int; parent: int32): tu
 proc stampOf(imgVersion: int; zoom: float): int =
   ## What sizes depend on: the text size, the scale, the font, the zoom,
   ## the pictures.
-  var h = hash(textSize()) !& hash(ui.k) !& hash(ord(uiFont())) !& hash(pxScale) !&
-          hash(hdText()) !& hash(zoom) !& hash(imgVersion)
+  var h = hashF(textSize()) !& hashF(ui.k) !& hash(ord(uiFont())) !& hash(pxScale) !&
+          hash(hdText()) !& hashF(zoom) !& hash(imgVersion)
   !$h
 
 var layoutSerial = 0

@@ -2207,7 +2207,7 @@ proc drawnBounds(it: SvgItem; within: Box): Box =
     let r = it.strokeWidth / 2 * (if it.join == ljMiter: max(1.5, it.miterLimit) else: 1.5)
     let rough = (b[0] - r, b[1] - r, b[2] + r, b[3] + r)
     if rough[0] >= within[0] and rough[1] >= within[1] and rough[2] <= within[2] and rough[3] <= within[3]:
-      return union(result, rough)
+      result = union(result, rough); return
     let k = 1 / max(1e-12, it.strokeWidth)            # (pieces a tenth of its width or finer)
     let o = strokeOutline(it, scaleM(k, k), k)
     let ob = tightBounds(o)

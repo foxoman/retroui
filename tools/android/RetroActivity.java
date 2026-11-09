@@ -268,6 +268,8 @@ public class RetroActivity extends NativeActivity {
    *  in, UTF-8 text out (null: failed). */
   public byte[] uirelaysCall(String name, String arg) {
     try {
+      // (pictures go as bytes, not text)
+      if (name.equals("camera.frame")) return RetroCamera.frameBytes();
       String r = call(name, arg);
       return r == null ? null : r.getBytes("UTF-8");
     } catch (Throwable t) {
@@ -404,6 +406,8 @@ public class RetroActivity extends NativeActivity {
 
   @Override
   protected void onActivityResult(int request, int result, Intent data) {
+    // (a page's file picker)
+    if (RetroWeb.onResult(request, result, data)) return;
     if (request == PICK_TREE) {
       if (result == RESULT_OK && data != null && data.getData() != null) {
         try {

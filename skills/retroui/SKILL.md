@@ -139,7 +139,7 @@ or put several in a `row:` inside the `field`. `field("")` lines a control
 up under the others. When the row is narrower than the captions plus about
 200 pixels (a phone), each caption goes above its control.
 
-## 6. Controls (docs/controls.md has all 303, with pictures)
+## 6. Controls (docs/controls.md has all 376, with pictures)
 
 Text: `label`, `paragraph`, `heading`, `styledText`, `link`, `badge`, `icon`, `iconLabel`, `image`, `tooltip`.
 Buttons: `button`, `segmented`, `menuButton`, `splitButton`, `buttonRow`.
@@ -148,9 +148,48 @@ Text input: `edit`, `editArea`, `searchBox`, `autocomplete`, `maskedEdit`, `comb
 Numbers, dates, colors: `spin`, `intEdit`, `numberEdit`, `slider`, `progress`, `datePicker`, `calendar`, `timePicker`, `colorPicker`, `colorWell`.
 Lists and data: `listbox`, `combo`, `grid` (the data grid with editing, sorting, totals), `tree`.
 Files: `fileDialog`, `fileList`, `folderTree`, `filePicker`, `filePreview`, `placesView`.
-Charts and more: `chart` (21 kinds, from your numbers or a CSV table), `barChart`, `lineChart`, `pieChart`, maps (`retroui/mapview`), 3D (`retroui/view3d`),
+Charts and more: `chart` (21 kinds, from your numbers or a CSV table), `barChart`, `lineChart`, `pieChart`, the world map (`retroui/mapview`), street maps (`tileMap`, `retroui/tilemap`; places and routes `retroui/geo`), 3D (`retroui/view3d`; Blender's models `retroui/gltf`),
 HTML and Markdown (`htmlView`), web pages (`webView`), canvas (`canvas`, `retroui/canvas2d`), reports and PDF (`retroui/report`),
-sound and video (`retroui/media`), spreadsheets (`retroui/xlsx`).
+sound and video (`retroui/media`; the system's media controls `retroui/mediasession`; camera and microphone `retroui/capture`), spreadsheets (`retroui/xlsx`), more windows (`window`).
+
+**A street map with a route** (`import retroui/[tilemap, geo]`):
+
+```nim
+var city = TileMapState(lat: 23.588, lon: 58.3829, zoom: 12)   # (beside your other state)
+let src = osmTiles()          # light use only; a business app: googleTiles(key), mapTilerVector(key),
+                              # azureTiles(key)... or pmtilesSource("city.pmtiles") offline
+var trip: Route
+# in the frame:
+if button("&Route"):
+  let r = route([(23.588, 58.383), (23.614, 58.593)], service(gpOsrm))   # waits; routeAsync does not
+  if r.ok: trip = r.route
+let ev = tileMap(city, src, markers = [MapMarker(lat: 23.614, lon: 58.593, label: "Airport")],
+                 shapes = [routeShape(trip)])
+if ev.clicked: echo ev.lat, ", ", ev.lon
+```
+
+**A model from Blender** (`import retroui/[view3d, gltf]`): export glTF
+(`.glb`, "Animation" on), name the parts the app moves; then
+
+```nim
+var car = loadGltf("car.glb")     # (beside your other state); a .blend: loadModel3
+var cam = camera3()
+fitView(car, cam)
+# in the frame:
+if button("&Door"): car.play("DoorOpen", loop = false)   # its clips by name: car.animationNames
+if button("&Red"): car.recolor("CarPaint", color(170, 0, 20))
+car.animate(1 / 60)                                     # every frame, while clips play
+let ev = view3d(car, cam)
+if ev.clicked: echo ev.nodeName                         # the part picked: "Door_L"
+```
+
+`turnNode`, `moveNode`, `setVisible`, `tint` take a part's name
+(`car.nodeNames`); `retrokit model car.blend` lists them.
+
+**More windows**: `window(toolsOpen, "Tools", 240, 360): body` -- a
+window of the system's own, drawn where the frame reaches it; its close
+button sets the `bool` to false; not drawn, it closes (a dialog on phones
+and in the browser).
 
 **A web page with scripts** (help pages, a map or chart made in JavaScript,
 a sign-in page): `webView(url, key = "k", engine = weSystem)` shows it in
@@ -177,7 +216,10 @@ Keep the `key` the same every frame; draw the view every frame it should
 show (a view not drawn is hidden). `webRun` and `webPost` are actions:
 call them on an event (a button, a message), not on every frame. `webGoBack`, `webGoForward`,
 `webReload`, `webStop`, `webZoom`, `webClose` take the key. Pages on the
-web need `retroapk --permission:INTERNET` in an APK.
+web need `retroapk --permission:INTERNET` in an APK. The app's own pages:
+`webAppFolder(dir)` then `webView(webAppUrl("index.html"), ...)` (they
+fetch each other as a site's files do); `webPermit(key, {wpCamera})` lets
+a page use the camera; `webPrint(key)` prints it.
 
 **Grid sorting:** the grid does not reorder your data. Keep the order in
 your own variables, pass it in for the header's arrow, and sort a list of
@@ -291,7 +333,32 @@ nim c -d:release -d:mingw --cpu:amd64 --app:gui app.nim        # Windows .exe fr
 retroapk app.nim --name:"My App" --id:com.me.myapp             # Android APK: no SDK, no NDK needed
 retroios app.nim --simulator --run                             # iOS, on a Mac with Xcode
 retrokit small app.nim                                         # smallest desktop build
+retrokit web app.nim                                           # a web page (clang + lld, no Emscripten)
+retrokit run --web --watch app.nim                             # ... served, rebuilt on every save
 ```
+
+For the stores (all made in Nim; `--help` on each; BUILDING.md "Shipping
+to the stores"):
+
+```sh
+retrokit aab app.nim --key:upload.pem --cert:upload.der        # Google Play (an App Bundle)
+retrokit sign app.exe --key:k.pem --cert:c.pem --timestamp:http://timestamp.digicert.com
+retrokit msix app.exe --name:Company.App --version:1.2.0.0 --key:k.pem --cert:c.pem
+retrokit mac app --name:"My App" --id:com.me.app               # .app signed ad hoc (any system)
+retrokit mac app --sign:"Developer ID Application: ..." --notarize:PROFILE   # on a Mac
+retroios app.nim --sign:... --profile:appstore.mobileprovision --ipa        # App Store
+retrokit model car.blend                                       # a 3D model as the .glb the app carries
+```
+
+Without `--key`/`--cert` a test key is made (never publish with it).
+
+A Linux build runs on X11, on Wayland (its own driver, no libwayland) and
+on a console with no desktop (the screen driver: DRM/KMS or the
+framebuffer, evdev input): `RETRO_DRIVER=x11|wayland|kms|fb` chooses,
+`-d:wayland` or `-d:kiosk` builds only one. A web build is 32-bit with no
+threads and no sockets: keep work short in the frame (the kit's
+`background` tasks run there), `httpRequest` reaches the page's own site
+with a short address.
 
 In Termux on Android, `nim c -r app.nim` runs the app on Termux:X11
 (`pkg install x11-repo termux-x11-nightly libx11`): it starts the X server
@@ -339,7 +406,10 @@ OS in BUILDING.md.
 - Headless tests: the kit's fake driver (`tests/harness.nim` in the repo:
   `fakeDriver()`, `startApp`, `run()`, `click`, `key`, `px(x, y)`) drives an
   app without a screen.
-- `RETRO_SIZE=420x840 RETRO_TOUCH=1 ./app` tries a phone's size on a desktop.
+- `RETRO_SIZE=420x840 RETRO_TOUCH=1 ./app` tries a phone's size on a desktop;
+  `RETRO_TOUCH=1` alone gives finger-sized controls on a tablet or a desktop
+  (`RETRO_CONTROLS=touch|desktop|auto` for the sizes only). Put
+  `appearanceSettings()` in the app's settings so users choose their sizes.
 
 ## 11. Common mistakes
 
@@ -365,3 +435,8 @@ OS in BUILDING.md.
 - Making a string or a seq in the frame code of something that does not change
   (`"Total: " & $n` every frame is fine; building big lists every frame is not):
   an unchanged frame of the kit itself takes no memory.
+- `return x` (or `return nil`) after `result` was set, in a proc that returns
+  a picture, a string, a seq or an object: Nim 2.2 never frees what `result`
+  held. Write `result = x; return`, or build the value in a local and set
+  `result` once at the end. The kit's `tools/returncheck.py` finds them:
+  `python3 path/to/retroui/tools/returncheck.py app.nim src/`.

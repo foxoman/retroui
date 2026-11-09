@@ -17,8 +17,9 @@ import std/[os, strutils, tables, algorithm, sequtils, json, math]
 from std/times import fromUnix, epochTime
 from std/unicode import runes, toUTF8
 import retroui
-import retroui/[textwidgets, richedit, qrcode, pdfview]
+import retroui/[textwidgets, richedit, qrcode, pdfview, tilemap, mvt, gltf, capture, mediasession]
 import retroui/uirelays/[coords, screen, input, services]
+include "../tests/carscene"
 
 # ---- a sample home: the files the file controls show ------------------------------------------------
 
@@ -1357,6 +1358,17 @@ example("toolbar", "toolbar, toolButton, toolSeparator",
     toolButton(pxCopy, "Copy")
     toolButton(pxPaste, "Paste", down = true)
 
+example("window", "window",
+        "A window of the system's own beside the app's: a tool palette, a second view for another monitor, a preview. It is laid out and drawn as the app's window is, with its own menus and dialogs, at the place in the frame the app draws it; its close button sets the `bool` to false, and it closes when it is no longer drawn. X11, Wayland, Windows and macOS open real windows; on phones, in the browser and on a screen without a desktop it is a dialog over the app.",
+        380, 120, ["window", "inWindow", "captionBar"], std3):
+  var toolsOpen = true
+  var bold = false
+do:
+  if button("&Tools..."): toolsOpen = true
+  window(toolsOpen, "Tools", 240, 160):
+    checkbox("&Bold", bold)
+opts(noPicture = "The window is the system's: it has the app's look inside a frame of the system's.")
+
 example("windowbox", "windowBox, inert, showMenu, hideMenu",
         "A window drawn inside this one at a rectangle -- its menu bar, tool bar and status bar along the rectangle's edges, its dialogs and menus kept in it -- the way a designer or a guide shows a window. `inert` draws it without input (its dialogs do not take the window's); `showMenu` opens one of its menus as if it was clicked, `hideMenu` closes it again.",
         380, 210, ["windowBox", "inert", "showMenu", "hideMenu"], @[ssNormal, ssDark]):
@@ -1828,10 +1840,57 @@ block:
   fitView(modelScene, modelCam)
   fitView(barsScene, barsCam)
 
+block:
+  # a vector map of a coast of our own, as a folder of tiles (no network)
+  var w: MvtWriter
+  w.addFeature("water", mgPolygon, [@[(0, 0), (4096, 0), (4096, 1500), (2600, 1900), (1500, 2500),
+                                      (0, 2300), (0, 0)]])
+  w.addFeature("landuse", mgPolygon, [@[(2600, 2600), (3500, 2600), (3500, 3400), (2600, 3400), (2600, 2600)]],
+               {"class": "park"})
+  w.addFeature("transportation", mgLine, [@[(0, 3000), (1800, 2800), (4096, 3200)]], {"class": "motorway"})
+  w.addFeature("transportation", mgLine, [@[(1200, 2600), (1300, 4096)], @[(2200, 2200), (2400, 4096)]],
+               {"class": "primary"})
+  w.addFeature("place", mgPoint, [@[(1500, 2900)]], {"class": "city", "name": "Muscat"})
+  w.addFeature("place", mgPoint, [@[(3300, 3700)]], {"class": "town", "name": "Seeb"})
+  w.addFeature("transportation_name", mgLine, [@[(0, 3000), (1800, 2800), (4096, 3200)]], {"name": "Route 1"})
+  # (the tile of zoom 12 where Muscat is: the guide shows it larger)
+  let tiles = sampleRoot / "tiles"
+  createDir(tiles / "12" / "2712")
+  writeFile(tiles / "12" / "2712" / "1771.pbf", w.toMvt())
+
+example("tilemap", "tileMap",
+        "A street map from any map service (OpenStreetMap, Google, Azure Maps, Mapbox, HERE, MapTiler, Esri, TomTom, Stadia, AMap, Tencent, Tianditu) or maps of your own (PMTiles, MBTiles, a folder; vector tiles drawn by the kit): dragged, zoomed with the wheel, fingers, keys and its buttons, with markers, lines, areas, circles and routes over it. Places and routes come from `retroui/geo`. The picture is a vector tile of the guide's own.",
+        600, 320, ["tileMap", "fitBounds", "fitPoints", "centerOn", "metersPerPixel", "mapPointOf",
+                   "routeShape", "geoJsonShapes", "keepArea", "tilesIn", "loadingTiles", "clearTileCache",
+                   "osmTiles", "openTopoMap", "cartoTiles", "googleTiles", "azureTiles", "mapboxTiles",
+                   "mapboxVector", "hereTiles", "mapTilerTiles", "mapTilerVector", "protomapsVector",
+                   "esriTiles", "tomTomTiles", "stadiaTiles", "amapTiles", "tencentTiles", "tiandituTiles",
+                   "pmtilesSource", "mbtilesSource", "folderSource", "tileJsonSource", "mapKitPage",
+                   "googleMapsPage", "tileUrl", "quadkey"], @[ssNormal, ssTouch, ssDark]):
+  var coast = TileMapState(lat: 23.59341, lon: 58.40332, zoom: 13.25)
+  let coastTiles = folderSource(sampleRoot / "tiles", "pbf", maxZoom = 12, attribution = "The guide's own map")
+do:
+  tileMap(coast, coastTiles, height = 300,
+          markers = [MapMarker(lat: 23.59046, lon: 58.38512, label: "Office")],
+          shapes = [MapShape(kind: msLine, points: @[(23.59046, 58.38512), (23.59636, 58.42804)], label: "Delivery")])
+opts(settle = 1500)
+
 example("view3d", "view3d",
         "A 3D view of meshes and models (OBJ, STL): boxes, spheres, cylinders, cones and planes, a grid and axes. Drag to turn it, the wheel to zoom.",
         380, 260, ["view3d", "box", "sphere", "cylinder", "cone", "plane", "loadModel", "addGrid", "addAxes", "fitView", "camera3", "render3d"], focus4):
   view3d(modelScene, modelCam, height = 240)
+
+example("model3d", "Models: parts and clips",
+        "A model's parts are nodes the app finds by name and moves, turns, hides and tints; its clips play. Models come from Blender and every 3D tool as glTF (`loadGltf` in `retroui/gltf`; a `.blend` through Blender: `loadModel3`, or once with `retrokit model`), or are made in code. The picture is a car made in code, its door's clip half played.",
+        380, 260, ["play", "stop", "isPlaying", "animate", "seekAnimation", "animationNames", "nodeNames",
+                   "setVisible", "tint", "turnNode", "moveNode", "recolor", "findNode", "newNode", "addNode",
+                   "loadGltf", "loadModel3", "toGlb", "view3dOnGpu", "view3dPicture"], @[ssNormal, ssDark]):
+  var car3d = carScene()
+  var car3dCam = camera3(yaw = 35, pitch = 18)
+  fitView(car3d, car3dCam)
+  car3d.seekAnimation("DoorOpen", 0.6)
+do:
+  view3d(car3d, car3dCam, height = 240)
 
 example("bars3d", "bars3d",
         "A 3D bar chart, shown in a `view3d`.",
@@ -1865,7 +1924,8 @@ example("htmlview", "htmlView, htmlBlock",
 example("webview", "webView, webRun, webPost",
         "A web page in the window. With the system's engine (`engine = weSystem`; the default in an Android app) the page is the system's browser placed over the widget: scripts, forms, video, its own Back and Forward. Its scripts talk to the app: `retro.post(text)` in the page comes in `messages`, `webPost` sends a `retro` event to the page, `webRun` runs a script and its answer comes in `results`. `webAllow` keeps it to the hosts you trust, `webZoom` sizes it. The picture is the kit's own engine (the system's view is drawn by the system, not here).",
         420, 220, ["webView", "webGoBack", "webGoForward", "webReload", "webStop", "webRun",
-                   "webPost", "webAllow", "webZoom", "webClose"], std3):
+                   "webPost", "webAllow", "webZoom", "webClose", "webPermit", "webPrint",
+                   "webAppFolder", "webAppUrl"], std3):
   let ev = webView("html:<title>Order 1042</title><h3>Order 1042</h3>" &
                    "<p>Ready to <b>ship</b> on Sunday.</p><ul><li>12 chairs<li>2 tables</ul>",
                    height = 150, key = "order", engine = weSystem)
@@ -1993,12 +2053,32 @@ do:
     label "An animated GIF"
 
 example("videoview", "videoView",
-        "A video with play, pause, a position bar and the time. On Android the system's VideoView shows it, on Linux GStreamer; elsewhere a button opens it in the system's player. Space plays and pauses.",
+        "A video with play, pause, a position bar and the time: a file or a web address (HLS where the system plays it), played by the system's own player and drawn by the kit in the window -- Media Foundation on Windows, AVFoundation on macOS and iOS, GStreamer on Linux, Android's VideoView. Space plays and pauses.",
         420, 280, ["videoView", "closeVideo"], std3):
   let movie = getHomeDir() / "Videos" / "Harbour.avi"
 do:
   videoView(movie, height = 260)
 opts(settle = 1200)
+
+example("cameraview", "cameraView",
+        "The camera's live picture in the window, drawn by the kit under its menus and dialogs, through the system's own API (Video4Linux, Media Foundation, AVFoundation, Camera2): photos, videos of it, and sound recorded from the microphone.",
+        420, 300, ["cameraView", "cameras", "cameraPhoto", "cameraRecord", "cameraStop", "cameraFrame",
+                   "cameraClose", "recordSound", "stopRecordingSound", "recordingSound", "soundLevel"], std3):
+  let cam = cameraView(height = 240)
+  row:
+    if button("&Photo"): cameraPhoto("", "photo.jpg")
+    if button(if cam.recording: "&Stop" else: "&Record"):
+      if cam.recording: cameraStop() else: cameraRecord("", "clip.mp4")
+opts(noPicture = "The picture is the camera's.")
+
+example("nowplaying", "setNowPlaying, mediaKeys",
+        "What the app plays, shown where the system shows it -- the lock screen, the notification shade, the taskbar's media flyout, the menu bar's Now Playing, the desktop's media applet -- and what the user presses there and on media keys, handed to the app (MPRIS, the System Media Transport Controls, MPNowPlayingInfoCenter, a MediaSession). Call it every frame: the system is told only what changed.",
+        420, 80, ["setNowPlaying", "endNowPlaying", "mediaKeys"], std3):
+  setNowPlaying(NowPlaying(title: "Morning bell", artist: "Retro", playing: true,
+                           positionMs: 12_000, durationMs: 95_000, canNext: true))
+  for k in mediaKeys():
+    if k.key == mkPlayPause: discard
+opts(noPicture = "The system draws it, outside the app.")
 
 example("audioview", "audioView",
         "A sound file to play: its name, play and pause, a position bar and the time (MP3, OGG, FLAC, WAV where the system plays them).",
@@ -2213,7 +2293,7 @@ const apiModules = ["widgets", "extras", "business", "morecontrols", "records", 
   "toolcustom", "dock", "textwidgets", "filewidgets", "charts", "planning", "mapview",
   "view3d", "htmlview", "markdown", "richedit", "media", "qrcode", "pdfview", "core", "gfx",
   "platform", "files", "textfile", "mediagif", "imaging", "templates", "native", "canvas2d",
-  "report"]
+  "report", "tilemap", "gltf", "capture", "mediasession"]
   ## Where the API is read from; a name in several is shown from the first
   ## (or as "module.name").
 

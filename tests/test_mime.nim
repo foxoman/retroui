@@ -3,7 +3,7 @@
 ## addresses and dates; making messages and reading them back; and damaged
 ## samples that must not crash it.
 
-import std/[os, strutils, times, random, monotimes]
+import std/[os, strutils, times, random, monotimes, math]
 import retroui/mime
 
 const data = currentSourcePath().parentDir / "data" / "mime"
@@ -240,7 +240,7 @@ block dates:
   doAssert formatMailDate(0) == "Thu, 01 Jan 1970 00:00:00 +0000"
   var r = initRand(3)
   for k in 0 ..< 2000:
-    let t = float(r.rand(4_102_444_800))
+    let t = floor(r.rand(4_102_444_800.0))
     doAssert parseMailDate(formatMailDate(t)) == t
 
 block flowedAndSniff:

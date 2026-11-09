@@ -169,7 +169,7 @@ block info:
   let t = getMonoTime()
   let f = jxlInfo(readFile(dir / "flat-12mp.jxl"))        # headers only: at once
   doAssert f.w == 4000 and f.h == 3000 and f.frames == 1
-  doAssert (getMonoTime() - t).inMilliseconds < 100
+  doAssert (getMonoTime() - t).inMilliseconds < (when sizeof(int) == 8: 100 else: 1000)
   doAssert jxlInfo(readFile(dir / "vd-prog.jxl")).frames == 1   # (the LF frame is not shown)
   doAssert jxlInfo(readFile(dir / "splines-first-frame.jxl")).frames == 1
   doAssert pic("vd-d1.jxl").opaque and not pic("ll-alpha.jxl").opaque
@@ -249,7 +249,7 @@ block lossless:
   var r = initRand(5)
   for (w, h) in [(1, 1), (1, 17), (3, 1), (17, 33), (257, 3), (2, 300)]:
     let src = newBitmap(w, h)
-    for i in 0 ..< w * h: src.px[i] = uint32(r.rand(int(high(uint32))))
+    for i in 0 ..< w * h: src.px[i] = uint32(r.next() and 0xFFFFFFFF'u64)
     for effort in [1, 3, 7]:
       doAssert decodeJxl(encodeJxlLossless(src, effort)).px == src.px, $w & "x" & $h
   # one color; 2000 colors (too many for a palette); gray with alpha

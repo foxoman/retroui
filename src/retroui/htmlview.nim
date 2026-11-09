@@ -49,6 +49,7 @@ import core, widgets, markdown, pixelicons, nerdicons, imaging, htmldom, htmllay
 import webp, gifanim
 import uirelays/[services, input]
 import webnative
+export webnative.WebPermission, webnative.WebDownload
 
 export htmldom.decodeEntities, htmldom.htmlEscape
 
@@ -427,7 +428,7 @@ proc blockOf(c: var Conv; n: HNode; depth, nest: int): seq[string] =
     c.size += t.len
   of "blockquote":
     if nest >= MaxNest:
-      return c.blocks(n.kids, depth + 1, nest)
+      result = c.blocks(n.kids, depth + 1, nest); return
     for line in c.blocks(n.kids, depth + 1, nest + 1):
       result.add(if line.len == 0: ">" else: "> " & line)
   of "ul", "ol", "menu", "dir":
@@ -635,11 +636,11 @@ proc picSource(baseDir: string; images: HtmlImageSource): PicSource =
   ## Where a page's pictures come from: itself (`data:`), the app, the
   ## files next to it.
   result = proc (src: string): Bitmap =
-    if src.len == 0: return nil
-    if src.len > 5 and src[0 .. 4].toLowerAscii == "data:": return dataPicture(src)
+    if src.len == 0: result = nil; return
+    if src.len > 5 and src[0 .. 4].toLowerAscii == "data:": result = dataPicture(src); return
     let key = baseDir & "\0" & src
     picCache.withValue(key, v):
-      return v[]
+      result = v[]; return
     var b: Bitmap = nil
     if images != nil:
       try:
@@ -1400,6 +1401,10 @@ type
     results*: seq[WebResult] ## the answers of `webRun`
     blocked*: seq[string]    ## addresses it was kept from (`webAllow`); the app may
                              ## `openUrl` them
+    asked*: seq[WebPermission]   ## what the page asked to use and was not allowed
+                                 ## (`webPermit`)
+    downloads*: seq[WebDownload] ## files it downloads into the Downloads folder (each
+                                 ## as it goes; a finished or failed one once)
   WebMode = enum wmKit, wmRelay, wmNative
   WebState = ref object
     asked: string        ## the address the app gave last
@@ -1422,6 +1427,13 @@ type
     messages: seq[string]
     results: seq[WebResult]
     blocked: seq[string]
+    refused: seq[WebPermission]
+    downloads: seq[WebDownload]
+    permit: set[WebPermission]
+    permitSent: bool     ## (sent to the page's engine)
+    permitSet: bool      ## (`webPermit` was called)
+    snapshot: Bitmap     ## the page as it was last seen (drawn while it is hidden)
+    snapAt: int          ## when one was asked (ms)
     file: tuple[path, text: string; stamp: Time]
 
 proc engineFromEnv(): WebEngine =
@@ -1457,7 +1469,18 @@ proc relayTake(key: string): WebNativeState =
   if p.len >= 7:
     for n in p[6].split('\2'):
       if n.len == 0: continue
-      if n[0] == 'b': result.blocked.add n[1 .. ^1]
+      case n[0]
+      of 'b': result.blocked.add n[1 .. ^1]
+      of 'p':
+        for p in WebPermission:
+          if ($p)[2 .. ^1].toLowerAscii == n[1 .. ^1]: result.asked.add p
+      of 'd':
+        # (a download: url, file, progress, done/failed)
+        let d = n[1 .. ^1].split('\3')
+        if d.len >= 4:
+          result.downloads.add WebDownload(url: d[0], file: d[1],
+            progress: (try: parseInt(d[2]) except ValueError: 0), done: d[3] == "1",
+            failed: d[3] == "-1")
       else: result.notes.add n[1 .. ^1]
 
 proc localPath(u: string): string
@@ -1509,6 +1532,29 @@ proc engAllow(w: WebState; key: string) =
   of wmKit: discard
   w.hostsSent = true
 
+proc engSnap(w: WebState; key: string) =
+  ## A picture of the page now (some engines give it later).
+  case w.mode
+  of wmRelay:
+    let tmp = getTempDir() / "retro-web-" & $getCurrentProcessId() & ".png"
+    if systemCall("web.snap", key & "\t" & tmp) == "1":
+      let pic = try: decodePng(readFile(tmp)) except CatchableError: nil
+      if pic != nil: w.snapshot = pic
+      try: removeFile(tmp) except OSError: discard
+  of wmNative: webNativeSnap(key)
+  of wmKit: discard
+  w.snapAt = ui.now
+
+proc engPermit(w: WebState; key: string) =
+  case w.mode
+  of wmRelay:
+    var l: seq[string]
+    for p in w.permit: l.add ($p)[2 .. ^1].toLowerAscii
+    discard systemCall("web.permit", key & "\t" & l.join(","))
+  of wmNative: webNativePermit(key, w.permit)
+  of wmKit: discard
+  w.permitSent = true
+
 proc engTake(w: WebState; key: string): WebNativeState =
   case w.mode
   of wmRelay: relayTake(key)
@@ -1523,6 +1569,13 @@ proc webFrameHook() {.nimcall.} =
       w.engHide(k)
       w.shown = false
 
+proc webStopAll() {.nimcall.} =
+  ## The app ends: every system view let go, the engine stopped.
+  for k, w in webs:
+    if w.mode == wmRelay: discard systemCall("web.close", k)
+  webs.clear()
+  webNativeShutdown()
+
 proc webOf(key: string): WebState =
   result = webs.getOrDefault(key, nil)
   if result == nil:
@@ -1531,6 +1584,7 @@ proc webOf(key: string): WebState =
   if not hooked:
     hooked = true
     beginFrameHooks.add webFrameHook
+    stopAppHooks.add webStopAll
 
 proc isWeb(u: string): bool =
   let l = u.toLowerAscii
@@ -1683,6 +1737,42 @@ proc webAllow*(key: string; hosts: openArray[string]) =
     w.hosts = @hosts
     w.hostsSent = false
 
+proc webPermit*(key: string; allowed: set[WebPermission]) =
+  ## What the page of the `webView` with `key` may use when it asks: the
+  ## camera, the microphone, the location, notifications (none by
+  ## default). What it asks for and is not allowed comes in
+  ## `WebEvent.asked`; the app may allow it then and reload the page. The
+  ## system's engine (the app needs the system's permission too: an
+  ## Android app `--permission:CAMERA`...).
+  let w = webOf(key)
+  if w.permit != allowed or not w.permitSet:
+    w.permit = allowed
+    w.permitSent = false
+    w.permitSet = true
+
+proc webPrint*(key: string) =
+  ## Prints the page of the `webView` with `key`: the system's print
+  ## dialog (the system's engine; the kit's own prints nothing here --
+  ## `retroui/report` prints documents).
+  let w = webs.getOrDefault(key, nil)
+  if w != nil and w.mode != wmKit and w.shown: discard w.engNav(key, wnPrint)
+
+proc webAppFolder*(folder: string) =
+  ## The folder of the app's own web pages (its scripts, styles, pictures),
+  ## served to pages at `webAppUrl`: an address of their own, so they may
+  ## fetch each other as a site's files do (a `file://` page may not).
+  webNativeAppFolder(folder.absolutePath)
+  when androidApp: discard systemCall("web.appFolder", folder.absolutePath)
+
+proc webAppUrl*(path = "index.html"): string =
+  ## The address of the file `path` of the app's folder (`webAppFolder`):
+  ## "app://local/PATH" (on Windows "https://app.local/PATH").
+  ##
+  ## .. code-block:: nim
+  ##   webAppFolder(getAppDir() / "web")
+  ##   webView(webAppUrl("index.html"), key = "ui", engine = weSystem)
+  webNativeAppUrl(path)
+
 proc webZoom*(key: string; zoom: float) =
   ## The size of the page of the `webView` with `key`, text and pictures:
   ## 1.0 as it is (0.5 .. 3.0); the system's engine.
@@ -1718,7 +1808,11 @@ proc follow(w: WebState; link: string; ev: var WebEvent) =
 
 proc webPlaceholder(r: Rect; w: WebState) =
   ## What shows where the system's view goes, under it (and while it is
-  ## hidden by a menu or a dialog).
+  ## hidden by a menu or a dialog): the page as it was last seen, else its
+  ## title.
+  if w.snapshot != nil and w.snapshot.w > 0:
+    drawBitmap(r, w.snapshot)
+    return
   fill(r, th.field)
   box(r, th.edge)
   let t = if w.progress < 100: "Loading... " & $w.progress & "%"
@@ -1804,11 +1898,14 @@ proc webView*(url: string; height = -1; key = ""; engine = webEngine): WebEvent 
     w.history.setLen(0)
     w.title = ""
     w.progress = if mode != wmKit: 0 else: 100
+    w.snapshot = nil
+    w.permitSent = false
   if url != w.asked:
     w.asked = url
     w.cur = url
     w.history.setLen(0)
     w.title = ""
+    w.snapshot = nil
     w.progress = if w.mode != wmKit: 0 else: 100
   w.drawn = ui.frameNo
   if w.mode != wmKit:
@@ -1820,6 +1917,11 @@ proc webView*(url: string; height = -1; key = ""; engine = webEngine): WebEvent 
                   (ui.popup != 0 and intersect(ui.popupRect, vis).w > 0)
     if covered:
       if w.shown:
+        # (the page as it is now, drawn in its place while it is hidden)
+        w.engSnap(key)
+        let st = w.engTake(key)
+        if st.snapshot != nil: w.snapshot = st.snapshot
+        for n in st.notes: w.messages.add n
         w.engHide(key)
         w.shown = false
     else:
@@ -1836,6 +1938,10 @@ proc webView*(url: string; height = -1; key = ""; engine = webEngine): WebEvent 
       if w.pending.len > 0:
         for js in w.pending: w.engRun(key, js)
         w.pending.setLen(0)
+      if w.permitSet and not w.permitSent: w.engPermit(key)
+      # (a picture of the page now and then, for when it is hidden: engines
+      #  that give it later)
+      if w.mode == wmNative and w.progress >= 100 and ui.now - w.snapAt > 2000: w.engSnap(key)
       # what the page does by itself (links followed, its title, loading,
       # what its scripts post)
       if ui.now - w.polledAt >= 100 or ui.now < w.polledAt:
@@ -1866,6 +1972,10 @@ proc webView*(url: string; height = -1; key = ""; engine = webEngine): WebEvent 
           let l = b.toLowerAscii
           if l.startsWith("http:") or l.startsWith("https:"): w.blocked.add b
           elif openUrl(b): discard          # (mail, phone, maps: their apps)
+        for p in st.asked:
+          if p notin w.refused: w.refused.add p
+        for d in st.downloads: w.downloads.add d
+        if st.snapshot != nil: w.snapshot = st.snapshot
       wakeIn(if w.progress < 100 or w.mode == wmNative: 100 else: 500)
     result.url = w.cur
     result.title = w.title
@@ -1878,6 +1988,8 @@ proc webView*(url: string; height = -1; key = ""; engine = webEngine): WebEvent 
     swap(result.messages, w.messages)
     swap(result.results, w.results)
     swap(result.blocked, w.blocked)
+    swap(result.asked, w.refused)
+    swap(result.downloads, w.downloads)
     w.backOut = false
     ui.lastRect = r
     return

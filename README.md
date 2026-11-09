@@ -5,7 +5,8 @@
 Co-author: Claude (Anthropic)
 
 A **Windows 3.1 style UI toolkit for Nim** that builds business and desktop
-apps for **Windows, macOS, Linux, Android and iOS** from one code base. The
+apps for **Windows, macOS, Linux, Android, iOS and the web** from one code
+base, and packs them for the stores itself. The
 package and its module are called `retroui`: `nimble install retroui`, `import retroui`.
 
 **Learn the syntax: [docs/syntax.md](docs/syntax.md)** -- the whole way of
@@ -25,12 +26,12 @@ change is written into the same `.nim` file.
 
 ## Why Retro
 
-- **Small and light.** A "hello" app is a single 1.8 MB file (Linux
+- **Small and light.** A "hello" app is a single 1.9 MB file (Linux
   x86-64, built with `retrokit small`; about 1 MB of it the fonts) that
   runs in 7 MB of memory on one thread -- the same Hello in egui, iced or
   Slint is a 15-22 MB file in 15-120 MB (see [Speed and size](#speed-and-size));
-  the full file manager and the gallery with every control, the map, 3D,
-  the canvas and PDF are 4.1 MB. Fonts, icons, the PDF writer, the world map, the 3D view and
+  the full file manager is 4.3 MB, and the gallery with every control, the
+  street map, 3D models, the canvas and PDF 5.7 MB. Fonts, icons, the PDF writer, the world map, the 3D view and
   the decoders are all built in, and only what an app calls is linked.
 - **No dependencies.** You need Nim and a C compiler — nothing else to
   install, now or on the user's machine: no GTK, Qt, SDL, Electron, browser
@@ -39,9 +40,16 @@ change is written into the same `.nim` file.
   the system has them), so building needs no `-dev` packages; sound, video
   and printing use whatever the system offers, loaded only when used.
 - **Runs anywhere.** One code base for Windows, macOS, Linux/BSD (X11, and
-  Wayland through XWayland), Termux:X11, Android 7+ and iOS. Touch, mouse and
-  keyboard all work everywhere, and the layout adapts to phones, tablets,
-  laptops and 4K screens.
+  Wayland with a driver of its own), Termux:X11, Android 7+, iOS, a web page
+  (WebAssembly made by clang alone, no Emscripten) and a screen with no
+  windowing system at all (a kiosk, a device: the Linux framebuffer or DRM).
+  Touch, mouse and keyboard all work everywhere, and the layout adapts to
+  phones, tablets, laptops and 4K screens.
+- **Ships itself.** `retrokit` makes what each store takes, in Nim, on any
+  system: an APK and an App Bundle for Google Play, an MSIX and an
+  Authenticode-signed program for Windows and the Microsoft Store, a signed
+  macOS app (notarized on a Mac), an .ipa for the App Store, a web page
+  that installs and works offline.
 - **Fast.** Immediate mode with a software renderer that redraws only the
   32-pixel bands that changed: a full 800×600 window takes about 0.25 ms, an
   unchanged frame costs nothing and is not sent to the screen, and the app
@@ -72,9 +80,11 @@ change is written into the same `.nim` file.
   fonts" below). 255 pixel icons in
   the manner of the period. Lists and pages glide when scrolled, and a
   flicked finger keeps them moving.
-- **Safe.** Every decoder and parser (PNG, JPEG, BMP, GIF, WAV, zip, CSV,
-  Markdown, HTML, OBJ, STL, templates) is fuzzed with hostile input, and
-  the tests also run under AddressSanitizer.
+- **Safe.** Every decoder and parser (pictures, zip and ZIP64, CSV,
+  Markdown, HTML, OBJ, STL and glTF models, vector tiles, the map services'
+  answers, certificates, the programs it signs) is fuzzed with hostile
+  input, and the tests also run under AddressSanitizer and as 32-bit
+  programs. See [SECURITY.md](SECURITY.md).
 
 | | |
 |---|---|
@@ -99,8 +109,11 @@ every module is in `docs/api/` (open `docs/api/retro.html`).
 [Planning views](#planning-views) · [Desktop apps](#desktop-apps) ·
 [Files](#files) · [Maps](#maps) · [3D](#3d-view) · [Canvas](#canvas) · [Whiteboard](#whiteboard) ·
 [Image editing](#image-editing) · [Web and HTML](#web-and-html) · [Sound and video](#sound-and-video) ·
+[Camera and microphone](#camera-and-microphone) · [More windows](#more-windows) ·
 [The system's own APIs](#the-systems-own-apis) ·
 [Platform services](#platform-services) · [Android](#android) · [iOS](#ios) ·
+[Apps as web pages](#apps-as-web-pages) · [Screens without a desktop](#screens-without-a-desktop) ·
+[Shipping to the stores](#shipping-to-the-stores) ·
 [Platforms](#platforms) · [Speed and size](#speed-and-size) ·
 [Safety](#safety) · [Tests](#tests) · [Examples](#examples) · [FAQ](#faq) ·
 [Limits](#limits) · [License](#license)
@@ -113,10 +126,11 @@ You need **Nim 2.0 or newer** and **a C compiler**:
 |---|---|---|
 | Windows | `choosenim` (brings MinGW-w64) | GDI, nothing else |
 | macOS | `brew install nim`, `xcode-select --install` | Cocoa |
-| Linux / BSD | your package manager: `nim`, `gcc` or `clang` | X11 is loaded at run time: no `-dev` packages |
+| Linux / BSD | your package manager: `nim`, `gcc` or `clang` | X11 is loaded at run time, Wayland spoken by the kit itself: no `-dev` packages |
 | Android, on the device | Termux: `pkg install nim clang ndk-sysroot git` | builds APKs right on the phone |
 | Android, from a desktop | a clang with lld (LLVM on Windows, `brew install llvm lld`, `clang lld` packages) or zig; with neither, the first APK build fetches the NDK into `~/.retro/ndk` | no NDK, no Java, no Gradle, no SDK, no OpenSSL |
 | iOS | a Mac with Xcode | |
+| The web | clang and lld (`apt install clang lld`, LLVM on Windows, `brew install llvm lld`) | WebAssembly without Emscripten |
 
 Then:
 
@@ -136,6 +150,13 @@ cd myapp && nimble run
 | `retrokit run app.nim` | builds in release mode and runs it |
 | `retrokit small app.nim` | the smallest build (optimized for size, stripped), and its size |
 | `retrokit apk app.nim` | an Android APK (the `retroapk` tool, below) |
+| `retrokit aab app.nim` | an Android App Bundle for Google Play, signed with your upload key |
+| `retrokit web app.nim` | the app as a web page: installable, offline ([Apps as web pages](#apps-as-web-pages)); `retrokit run --web --watch` serves it and reloads on every save |
+| `retrokit sign app.exe` | Windows' Authenticode signature, made here, with a time stamp |
+| `retrokit msix app.exe` | an MSIX for the Microsoft Store and Windows' installer, signed |
+| `retrokit mac app` | a macOS `.app`, signed ad hoc here or with your Developer ID, notarized and stapled on a Mac |
+| `retrokit ipa App.app` | an iOS app as the `.ipa` TestFlight and the App Store take |
+| `retrokit model car.blend` | a 3D model (Blender's, glTF, OBJ, STL) as the `.glb` an app carries, its parts and clips named |
 | `retrokit designer app.nim` | [Retro Designer](#retro-designer): the file's windows to design, every change written into the file (built once for this computer) |
 
 From a clone of this repository (the examples are built only when you ask,
@@ -242,8 +263,10 @@ it too, as **Window**. On X11 and Wayland the window manager keeps its menu
 any window manager (EWMH: GNOME, KDE, Xfce, openbox... -- snapping and
 tiling as for other windows) or none (an X server that shows one app: the
 app's window is then moved, sized and maximized by the driver); Wayland
-desktops through XWayland (the default build), or as Wayland's own windows
-with `-d:gtk4` or `-d:sdl3`. The other drivers have it too: GTK 4, SDL 3
+desktops with the kit's own Wayland driver (the default build takes it when
+there is no X11, `RETRO_DRIVER=wayland` asks for it: the system's frame
+where the compositor draws one, else the 3.1 frame by itself), through
+XWayland, or with `-d:gtk4` or `-d:sdl3`. The other drivers have it too: GTK 4, SDL 3
 and SDL 2 (where a double click on the title bar maximizes on Windows only,
 and the control menu's Move and Size do nothing), Siwin (not on macOS; on
 Windows the frame chosen is the next window's). Only the phones keep their
@@ -278,7 +301,7 @@ app "Hello", 320, 120:
 
 ```sh
 nim c -r -d:release -d:useMalloc hello.nim   # or: retrokit run hello.nim
-retrokit small hello.nim          # optimized for size, LTO, stripped: about 1.1 to 1.5 MB, one file
+retrokit small hello.nim          # optimized for size, LTO, stripped: about 1.9 MB, one file
 retroapk hello.nim --install      # on a phone in Termux
 ```
 
@@ -524,6 +547,15 @@ size (12 pixels per em on desktops and tablets, 15 on phones).
 [docs/syntax.md](docs/syntax.md#widths-in-a-row) shows each kind of width
 with the pixels it came to. Try layouts on a desktop with `RETRO_SIZE=420x840`, `RETRO_TOUCH=1`,
 `RETRO_CAPTION=1` (the phone title bar), `RETRO_SCALE=150`, `RETRO_ZOOM=2`.
+
+**Controls for a mouse or for fingers.** `setControlSizes` chooses:
+`csAuto` (finger-sized on a phone, desktop-sized on a tablet and a desktop,
+whose screens hold a desktop layout), `csDesktop` or `csTouch` (finger-sized
+everywhere). The user chooses in Appearance (`appearanceSettings`, Controls),
+kept with the look. `RETRO_TOUCH=1` is a finger on any screen: finger-sized
+controls, no hover, tooltips above the finger; `RETRO_CONTROLS=touch`,
+`desktop` or `auto` sets the sizes alone (`retrokit run --touch`,
+`--controls:touch`). Both win over what the user kept.
 
 ## Text and icons
 
@@ -1206,9 +1238,9 @@ retroapk examples/filemanager.nim --name:"Retro Files" --id:org.retro.files \
 
 ## Maps
 
-A world map for dashboards that needs nothing from the network: the
-countries of Natural Earth (public domain) are built in, about 70 KB, and
-linked only into apps that use the map.
+Two maps. **The world map** for dashboards needs nothing from the network:
+the countries of Natural Earth (public domain) are built in, about 70 KB,
+and linked only into apps that use it.
 
 ```nim
 var world = MapState()
@@ -1227,10 +1259,57 @@ mouse is lit and named, and a click or a tap reports it. The map is drawn
 anti-aliased into a picture of its own only when the view or the colours
 change.
 
+**The street map** (`retroui/tilemap`) shows the whole world from any map
+service, or from maps of your own, with places and routes from
+`retroui/geo`:
+
+```nim
+import retroui, retroui/[tilemap, geo]
+var city = TileMapState(lat: 23.588, lon: 58.3829, zoom: 12)
+let src = mapTilerVector(key)          # osmTiles(), googleTiles(key), azureTiles(key), pmtilesSource("oman.pmtiles")...
+var trip: Route
+app "Deliveries", 1000, 700:
+  if button("&Route"):
+    let r = route([(23.588, 58.383), (23.614, 58.593)], service(gpOsrm))
+    if r.ok:
+      trip = r.route
+      city.fitPoints(trip.points)
+  let ev = tileMap(city, src, markers = [MapMarker(lat: 23.614, lon: 58.593, label: "Airport")],
+                   shapes = [routeShape(trip)])
+  if ev.clicked: echo ev.lat, " ", ev.lon
+```
+
+- **Every service's tiles**: OpenStreetMap, OpenTopoMap, CARTO, Google
+  (its map tiles API, with a session made for you), Azure Maps, Mapbox,
+  HERE, MapTiler, Protomaps, Esri, TomTom, Stadia, China's AMap, Tencent
+  and Tianditu (drawn in GCJ-02, with your GPS points moved to match), any
+  TileJSON. Raster tiles at twice the pixels on dense screens; vector tiles
+  (Mapbox Vector Tiles) drawn by the kit in a style of yours
+  (`classicStyle`, `darkStyle`), their names upright and never on top of
+  each other.
+- **Maps of your own, offline**: a PMTiles file (or a PMTiles address: only
+  the parts shown are read), an MBTiles file, a folder of tiles.
+  `retroui/pmtiles` writes PMTiles too, and `retroui/mvt` vector tiles.
+- **Places and routes** from 13 services (Nominatim, Photon, OSRM,
+  Valhalla, GraphHopper, OpenRouteService, Google, Mapbox, HERE, Azure
+  Maps, TomTom, MapTiler, Esri): `geocode`, `reverseGeocode`, `route`
+  (with its turns, in words), or `geocodeAsync` and friends on a worker
+  thread; distances, bearings, polylines (Google's and HERE's), GeoJSON in
+  and out.
+- Tiles come on six worker threads, are kept in memory and on the disk
+  (a week), and the tile above is shown larger while one comes. The map
+  shows each service's attribution, as each asks. OpenStreetMap's own
+  servers are for light use: `keepArea` (tiles for offline use) refuses
+  them; a business app takes a service with a key, or its own tiles.
+- Apple's maps and Google's JavaScript map are not tiles another program
+  may draw: `mapKitPage` and `googleMapsPage` make a page of theirs for
+  `webView`.
+
 ## 3D view
 
-A small 3D view drawn by the kit itself — no GPU, no OpenGL, no
-libraries — for product viewers, 3D bar charts and simple scenes.
+A 3D view drawn by the kit itself -- on the CPU with nothing to install, or
+on the GPU where there is one -- for product viewers, car configurators,
+3D bar charts and scenes that move.
 
 ```nim
 var scene = Scene3()
@@ -1245,10 +1324,37 @@ var bars = bars3d([@[3.0, 5, 4], @[4.0, 6, 7]], ["2025", "2026"], ["Q1", "Q2", "
 discard render3d(scene, cam, 800, 600).savePng("scene.png")
 ```
 
+**Models from Blender** (and every 3D tool) come as glTF 2.0
+(`retroui/gltf`): `.glb`, or `.gltf` with its files; a `.blend` is turned
+into one by Blender when it is installed (`loadModel3`, or once with
+`retrokit model car.blend`). Their parts are nodes the app moves, turns,
+hides and tints by name, their clips play, their bones and shapes follow:
+
+```nim
+import retroui, retroui/[view3d, gltf]
+var car = loadGltf("car.glb")
+var cam = camera3()
+fitView(car, cam)
+app "Showroom", 1000, 700:
+  if button("&Open the door"): car.play("DoorOpen", loop = false)
+  if button("&Red"): car.recolor("CarPaint", color(170, 0, 20))
+  if button("&Steer"): car.turnNode("Wheel_FL", vec3(0, 1, 0), 15)  # setVisible, tint, moveNode
+  car.animate(1 / 60)
+  let ev = view3d(car, cam)
+  if ev.clicked and ev.nodeName == "Hood": car.play("HoodOpen", loop = false)
+```
+
 Meshes: `box`, `sphere`, `cylinder`, `cone`, `plane`, or `loadObj` /
-`loadStl` (text and binary) / `loadModel`; flat or smooth lighting,
-outlines, labels. Triangles are filled with a z-buffer at the screen's own
-resolution, and only when the scene, the camera or the size changed.
+`loadStl` (text and binary) / `loadModel` / `loadGltf`. Materials are
+glTF's metallic-roughness (paint, chrome, glass that lets light through,
+lights that glow, pictures on surfaces, KHR_materials_unlit and
+emissive_strength, KHR_texture_transform, WebP pictures); clips are
+linear, stepped or cubic, of places, turns, sizes and shapes' weights;
+bones skin the points. On the CPU triangles are filled with a z-buffer at
+the screen's own resolution, lit on all the cores; with `RETRO_GPU=gpu`
+(or where the kit draws with the GPU) the view is drawn by OpenGL into a
+picture of its own, the same scene, the same light. Either way it is drawn
+again only when the scene, the camera or the size changed.
 
 ## Canvas
 
@@ -1731,9 +1837,28 @@ if button("&Larger"): webZoom("help", 1.25)  # text and pictures 125 %
 In the page: `retro.post("text")` to the app, and
 `window.addEventListener("retro", e => use(e.detail))` from it. The
 `WebEvent` also says the address, the title, how much is loaded, and
-whether Back and Forward can go. The view hides itself while a menu or a
-dialog of the app is over it (the widget shows the page's title then), and
-a click in the app takes the keyboard back from it. An Android app needs
+whether Back and Forward can go. While a menu or a dialog of the app is
+over it, the view steps aside and the widget shows a picture of the page
+as it last was, so the menu is drawn over the page as over any control;
+a click in the app takes the keyboard back from it.
+
+The page is part of the app, as a page in a browser is part of the
+browser:
+
+```nim
+webAppFolder(getAppDir() / "web")            # the app's own pages, scripts, styles
+let ui = webView(webAppUrl("index.html"), key = "ui", engine = weSystem)  # app://local/...
+webPermit("ui", {wpCamera, wpMicrophone})    # what the page may use when it asks (none by default)
+for p in ui.asked: echo "the page wanted ", p # asked and not allowed
+for d in ui.downloads: echo d.file, " ", d.done   # into the Downloads folder
+if button("&Print"): webPrint("ui")          # the system's print dialog
+```
+
+`webAppUrl` gives the app's pages an address of their own
+(`app://local/`, `https://app.local/` on Windows,
+`https://appassets.androidplatform.net/app/` on Android), so they fetch
+each other as a site's files do, which a `file://` page may not. A page's
+file box opens the system's file chooser. An Android app needs
 the INTERNET permission for pages on the web (`retroapk
 --permission:INTERNET`). While you make the app, `RETRO_WEB_TOOLS=1` offers
 the engine's developer tools (Inspect Element in the page's menu, F12 in
@@ -1768,21 +1893,97 @@ discard playSound("music.mp3")                    # other formats: the system's 
 tone(880, 150)                                    # a sound made on the spot
 uiSound(usError)                                  # the toolkit's own sounds
 let v = videoView("intro.mp4", height = 240)      # play / pause, position, time
+discard videoView("https://example.com/live.m3u8")  # web addresses and streams (HLS)
 animation(spinner)        # spinner = loadGif(readFile("spinner.gif"))
 ```
 
 The kit decodes WAV and makes tones itself and plays them through the
-system's own audio, loaded only when the first sound plays:
+system's own audio, loaded only when the first sound plays; videos and the
+other formats are played by the system's own player, and the kit draws
+the video's pictures in the window itself, under its menus and dialogs:
 
-| Platform | WAV, tones | MP3, OGG, AAC… | Video |
+| Platform | WAV, tones | MP3, OGG, AAC… | Video (`videoView`) |
 |---|---|---|---|
 | Linux, BSD, Termux:X11 | PulseAudio or ALSA | GStreamer, when installed | in the window (GStreamer) |
-| Windows | waveOut | the system (MCI) | the system's player |
-| macOS, iOS | AudioQueue | AVAudioPlayer | the system's player |
+| Windows | waveOut | the system (MCI) | in the window (Media Foundation) |
+| macOS, iOS | AudioQueue | AVAudioPlayer | in the window (AVFoundation) |
 | Android | MediaPlayer | MediaPlayer | in the window (VideoView) |
 
 Without a sound device, or a format the system cannot play, sounds are
-quietly not heard; nothing waits or crashes.
+quietly not heard; nothing waits or crashes. `videoInfo`, `videoFrameAt`
+and `videoFrames` read a video's pictures; `beginVideo`, `addFrame` and
+`finish` write an MP4.
+
+**The system's media controls** (`retroui/mediasession`): what the app
+plays shows on the lock screen, the notification shade, the taskbar's
+media flyout, the menu bar's Now Playing or the desktop's media applet,
+and their buttons and the keyboard's media keys come back to the app --
+MPRIS on Linux and the BSDs, the System Media Transport Controls on
+Windows, MPNowPlayingInfoCenter on macOS and iOS, a MediaSession on
+Android:
+
+```nim
+setNowPlaying(NowPlaying(title: song.title, artist: song.artist, playing: playing,
+                         positionMs: pos, durationMs: dur, canNext: true))
+for k in mediaKeys():
+  case k.key
+  of mkPlayPause: playing = not playing
+  of mkNext: nextSong()
+  else: discard
+```
+
+## Camera and microphone
+
+`retroui/capture` takes the camera and the microphone through each
+system's own API, loaded when first used: a live picture in the window
+(drawn by the kit, under its menus and dialogs), photos, videos of the
+camera, sound recorded to a file.
+
+```nim
+let cam = cameraView(height = 420)                  # cameras() lists them
+if button("&Photo"): cameraPhoto("", "photo.jpg")
+if button(if cam.recording: "&Stop" else: "&Record"):
+  if cam.recording: cameraStop() else: cameraRecord("", "clip.mp4")
+if button("&Voice"):
+  if recordingSound(): discard stopRecordingSound() else: discard recordSound("note.wav")
+progress(soundLevel())
+```
+
+| Platform | Camera | Microphone |
+|---|---|---|
+| Linux, BSD | Video4Linux (YUYV, MJPEG) | PulseAudio (or PipeWire's), else ALSA |
+| Windows | Media Foundation | waveIn |
+| macOS, iOS | AVFoundation | AVAudioRecorder |
+| Android app | Camera2, its preview over the widget | MediaRecorder |
+| Termux | Termux:API (photos) | Termux:API |
+
+Phones ask the user the first time: an Android app needs `retroapk
+--permission:CAMERA --permission:RECORD_AUDIO`; `retroios` and `retrokit
+mac` put the usage texts in Info.plist.
+
+## More windows
+
+`window` opens a window of the system's own beside the app's -- a tool
+palette, a second view for another monitor, a preview -- laid out and
+drawn as the app's own is, with its own menus and dialogs, at the place in
+the frame the app draws it:
+
+```nim
+var toolsOpen = true
+app "Editor", 800, 600:
+  if menuItem("&Tools"): toolsOpen = true
+  window(toolsOpen, "Tools", 240, 360):     # its close button sets toolsOpen to false
+    if button("&Bold"): bold = not bold
+  textArea(doc)
+```
+
+It closes when it is no longer drawn; `inWindow` says whether the code
+runs inside one, and `Event.window` which window an event came from. X11,
+Wayland, WinAPI and Cocoa open real windows; where the system has one
+window (phones, the browser, a screen without a desktop) it is a dialog
+over the app. Where the system draws no title bar (phones, Wayland
+without server-side frames, the screen driver), `captionBar` draws the
+3.1 one.
 
 ## The system's own APIs
 
@@ -1880,6 +2081,12 @@ one looks for), `--debuggable`, `--key:key.pem --cert:cert.der` (else a debug
 key is made once in `~/.retro/android`; keep it: updates must be signed
 with the same key). `echo` output goes to `adb logcat -s retro`.
 
+For Google Play, `--aab` (or `retrokit aab`) writes an Android App Bundle
+instead: the manifest and resources in aapt2's proto formats, the
+libraries of each ABI, signed with your upload key (`--key`, `--cert`);
+Play makes the APKs for each phone from it, with the libraries
+uncompressed on 16 KB pages.
+
 On Android the app gets the touch metrics, the window's real density,
 its own navy title bar under a matching status bar, safe margins, the
 soft keyboard while a text field has the focus, Back as Esc, pause and
@@ -1898,19 +2105,93 @@ retroios app.nim --sign:"Apple Development: Me (TEAMID)" \
 The driver is UIKit in one Objective-C file: the frame is the view's
 layer image, touches and the keyboard (`UIKeyInput`, hardware keys with
 Cmd as Ctrl) come in. Without a Mac, `retroios app.nim --sdk:iPhoneOS.sdk`
-cross-links an unsigned bundle with `lld`.
+cross-links an unsigned bundle with `lld`. `--ipa` also writes the `.ipa`
+(`Payload/<Name>.app`, zipped) that Transporter and TestFlight take; for
+the App Store, sign with your distribution certificate and profile.
+
+## Apps as web pages
+
+`retrokit web app.nim` makes the app a web page, with nothing but Nim and
+clang: Nim's C becomes WebAssembly by clang and wasm-ld alone -- no
+Emscripten, no WASI SDK -- with the kit's own small C library and page
+script, carried inside the tool. The same app, the same code, the same
+pixels:
+
+```sh
+retrokit web ledger.nim --files:data --icon:ledger.png    # build/web: index.html, app.wasm, retro.js, ...
+retrokit run --web --watch ledger.nim                     # served on localhost, built again on every save
+```
+
+The page installs (a manifest, icons) and works offline (a service worker
+keeps it); the app's files are at `/app`, and what it writes in its home
+folder stays in the browser (IndexedDB) for the next visit. Input is the
+browser's: input methods, dead keys, paste, the pen, touch, the wheel;
+drops land in `/tmp/dropped`; sound plays through Web Audio, video
+through the browser's own; `httpRequest` reaches the page's own site with
+a short address, other sites when they allow the page (CORS). A web view
+is the page's own frame. What a page cannot do: threads (background work
+runs in the frame), sockets and other programs. `tests/web/run.sh` checks
+it all in a real Chromium, at 100 % and 200 %.
+
+## Screens without a desktop
+
+A kiosk, a till, a machine's panel, a Raspberry Pi with no desktop
+installed: the screen driver draws straight to the Linux screen (DRM/KMS,
+or the framebuffer `/dev/fb0` where there is no DRM) and reads the
+keyboard, mouse, touch screen, touch pad and pen itself (evdev). Started
+on a text console with no X11 or Wayland, an app takes it by itself;
+`RETRO_DRIVER=kms` (or `fb`) asks for it, `-d:kiosk` builds an app with
+only it.
+
+It takes the screen's own mode (`RETRO_KMS_MODE=1280x800` another), the
+keyboard's layout from the system's settings, and the scale from the
+screen's size in millimetres; Ctrl+Alt+F1..F12 switch consoles and give
+the screen back, Ctrl+Alt+Backspace closes the app. `tests/kiosk/run.sh`
+checks it with a file as the screen and pipes as the devices.
+
+## Shipping to the stores
+
+What each store takes is made in Nim, on any system: no Android SDK, no
+Windows SDK, no Xcode (except where Apple's own tools must sign).
+
+| Store | Command | What it makes |
+|---|---|---|
+| Google Play | `retrokit aab app.nim --key:upload.pem --cert:upload.der` | an Android App Bundle (aapt2's proto formats, JAR-signed with your upload key); Play makes the APKs |
+| Android, side-loaded | `retrokit apk app.nim` | an APK, signed (APK signature v2) |
+| Microsoft Store, Windows | `retrokit msix app.exe --name:Company.App --version:1.2.0.0 --key:k.pem --cert:c.pem --timestamp:URL` | an MSIX (its manifest, block map, logos, signature) with the program inside signed too |
+| Windows, any | `retrokit sign app.exe --key:k.pem --cert:c.pem --timestamp:URL` | the program signed (Authenticode, SHA-256, an RFC 3161 time stamp) |
+| macOS, outside the store | `retrokit mac app --sign:"Developer ID Application: ..." --notarize:PROFILE` | an `.app` (Info.plist, the icon as `.icns`), signed with the hardened runtime, notarized and stapled (on a Mac), zipped |
+| macOS, to try | `retrokit mac app` | the `.app` signed ad hoc, on whatever system builds it (Apple silicon runs it; a downloaded copy asks once) |
+| App Store, TestFlight | `retroios app.nim --sign:... --profile:... --ipa` (or `retrokit ipa App.app`) | the `.ipa` |
+| The web | `retrokit web app.nim` | a page that installs and works offline |
+
+Without `--key` and `--cert` a test key is made once (`~/.retro/android`,
+`~/.retro/windows`): good to try a package, never to publish. A key from a
+`.pfx` is two `openssl pkcs12` commands away (`retrokit sign --help`). Each
+package is checked with the tools of others: `jarsigner` and `bundletool`
+for the bundle, `osslsigncode` for the program and the MSIX (all its
+digests), `rcodesign` for the Mac's signature -- and on GitHub, by
+Windows itself (`Get-AuthenticodeSignature`, `signtool verify`, the MSIX
+installed and removed) and by macOS (`codesign --verify --deep --strict`).
 
 ## Platforms
 
 | Target | Driver | Build | Checked |
 |---|---|---|---|
-| Linux / BSD | X11 | `nim c -d:release app.nim` | run, screenshots, tests |
-| Windows | GDI | `nim c -d:release --app:gui app.nim` | run under Wine 9 |
-| Windows from Linux | GDI | `nim c -d:release -d:mingw --cpu:amd64 --app:gui --passL:-static app.nim` | built |
-| macOS | Cocoa | `nim c -d:release app.nim` | not run yet |
-| Android 7+ | NativeActivity | `retroapk app.nim` | built, signed, verified with `apksigner` and `aapt`; built without the NDK (clang + lld, zig) for arm64-v8a and x86_64; run on a tablet; driver tested against a simulated Android |
-| iOS 14+ | UIKit | `retroios app.nim` | compiled and linked against the iOS 16.5 SDK |
+| Linux / BSD, X11 | X11 (Xlib loaded at run time) | `nim c -d:release app.nim` | run, screenshots, every test; GitHub: the live check under Xvfb with WebKitGTK |
+| Linux / BSD, Wayland | Wayland, the protocol spoken by the kit (no libwayland) | the same build (`RETRO_DRIVER=wayland`, or by itself with no X11) or `-d:wayland` | sway with no screen, 100 % and 150 % (here and on GitHub); weston by hand |
+| Linux, no desktop | the screen driver: DRM/KMS, else the framebuffer; evdev input | the same build (on a console, or `RETRO_DRIVER=kms`), or `-d:kiosk` | a file as the screen and pipes as the devices, three sizes and depths (here and on GitHub); not yet on a real DRM screen |
+| Windows | WinAPI (GDI) | `nim c -d:release --app:gui app.nim` | Wine; GitHub: the portable tests, the live check (WebView2), a program signed and an MSIX installed by Windows |
+| Windows from Linux | WinAPI | `nim c -d:release -d:mingw --cpu:amd64 --app:gui --passL:-static app.nim` | built |
+| macOS | Cocoa | `nim c -d:release app.nim` (`retrokit mac` for the `.app`) | GitHub: the portable tests, the live check (WKWebView), an `.app` signed in Nim checked by `codesign` and run |
+| Android 7+ | NativeActivity | `retroapk app.nim` (`--aab` for Google Play) | built, signed, verified with `apksigner`, `aapt`, `jarsigner` and `bundletool`; built without the NDK (clang + lld, zig); run on a tablet; the driver against a simulated Android; GitHub: the live check in the emulator |
+| iOS 14+ | UIKit | `retroios app.nim` (`--ipa` for the App Store) | linked against the iOS SDK; GitHub: the live check in the Simulator |
+| The web | WebAssembly (clang and wasm-ld, the kit's own C library) | `retrokit web app.nim` | Chromium (Playwright), 100 % and 200 %, here and on GitHub |
 | anywhere | SDL3 | `nim c -d:release -d:sdl3 app.nim` (needs the `sdl3` wrapper package) | built |
+
+"GitHub" is the *Every system* workflow (`.github/workflows/systems.yml`),
+run on a push to `next` or `main`; the README says what it runs, its
+results are in each run's log and pictures.
 
 ## Speed and size
 
@@ -1955,6 +2236,9 @@ machine, so the numbers wander by a third):
 | the world map at a new zoom | 32 ms (then nothing until it changes) |
 | a 106-page table report laid out and written as PDF | 0.15–0.3 s |
 | 1,000 filled and stroked canvas shapes, 800×600 | 15 ms |
+| a street map's vector tile decoded and drawn, 512 px | 7 ms |
+| a glTF model read (the tests' car) / drawn lit on the CPU, 800×600 | 0.4 / 11 ms |
+| a 4 MB program signed (Authenticode) / made into a signed MSIX | 80 / 75 ms |
 
 JPEG colours are scaled up smoothly as libjpeg does (within 3 levels of it
 on every pixel); on Android and iOS the system decodes pictures.
@@ -1964,13 +2248,18 @@ stripped):
 
 | App | Size |
 |---|---|
-| `examples/hello.nim` | 1.8 MB |
-| `examples/ledger.nim` (grids, forms, CSV) | 2.1 MB |
-| `examples/charts.nim` (Chart Viewer) | 2.3 MB |
-| `examples/notepad.nim` (with the file dialogs) | 2.4 MB |
-| `examples/invoice.nim` (templates, reports, PDF, printing) | 2.5 MB |
-| `examples/gallery.nim` (everything: map, 3D, canvas, PDF, HTML, media) | 4.1 MB |
-| `examples/filemanager.nim` (Retro Files) | 4.1 MB |
+| `examples/hello.nim` | 1.9 MB |
+| `examples/ledger.nim` (grids, forms, CSV) | 2.2 MB |
+| `examples/charts.nim` (Chart Viewer) | 2.5 MB |
+| `examples/notepad.nim` (with the file dialogs) | 2.5 MB |
+| `examples/invoice.nim` (templates, reports, PDF, printing) | 2.6 MB |
+| `examples/communicator.nim` (chat, end-to-end encryption) | 2.8 MB |
+| `examples/hrbook.nim` (HR Book) | 3.4 MB |
+| `examples/retroboard.nim` (the whiteboard) | 3.7 MB |
+| `examples/filemanager.nim` (Retro Files) | 4.3 MB |
+| `examples/gallery.nim` (everything: street map, 3D models, canvas, PDF, HTML, media) | 5.7 MB |
+| `examples/mail.nim` (Retro Mail) | 6.0 MB |
+| `examples/photo.nim` (Retro Photo) | 10.6 MB |
 
 Only what an app calls is linked: an app without the map, the 3D view or
 PDF does not carry them. The fonts (FreeSans, FreeSerif and FreeMono in
@@ -2006,9 +2295,13 @@ here.
 
 - **Every decoder and parser checks what it reads:** PNG, BMP, JPEG and
   GIF headers, Huffman tables and coefficient ranges, deflate streams, zip
-  directories and dates, WAV chunks, CSV, OBJ and STL models, Markdown and
-  HTML nesting (deeper than 24 levels is text), report templates. A damaged
-  or hostile file is refused with an error, never a crash.
+  directories (ZIP64 too) and dates, WAV chunks, CSV, OBJ, STL and glTF
+  models (every index, kind and size of the JSON, every accessor inside its
+  buffer), vector tiles and PMTiles archives, the map services' answers
+  (JSON of any shape), Markdown and HTML nesting (deeper than 24 levels is
+  text), report templates, certificates, time-stamping answers, and the
+  Windows and macOS programs it signs. A damaged or hostile file is refused
+  with an error, never a crash.
 - **Limits on size:** pictures larger than `maxPicturePixels` (120 million)
   are refused, inflating stops at the size the file claims (a "zip bomb"
   cannot use up the memory), models, sounds and templates have limits of
@@ -2023,14 +2316,23 @@ here.
   touches and hostile data — the explorer parts, the grids with every cell
   kind, masks, property and tree grids, MDI windows, find, the planning
   views, the map, the 3D view and HTML; `fuzz_charts`, `fuzz_htmlview`,
-  `fuzz_view3d`, `fuzz_media`, `fuzz_canvas2d` and `fuzz_report` do the
-  same for their modules. They found real bugs, now fixed and kept as
-  tests.
+  `fuzz_view3d`, `fuzz_media`, `fuzz_canvas2d`, `fuzz_report`,
+  `fuzz_models` (glTF: damaged bytes, and JSON with its numbers, kinds and
+  indices changed, then played and drawn), `fuzz_maps` (vector tiles,
+  PMTiles, the answers of all 13 services, polylines) and `fuzz_store`
+  (certificates, time stamps, Windows and macOS programs, zip archives and
+  MSIX packages) do the same for their modules. They found real bugs, now
+  fixed and kept as tests.
+- **32-bit:** `tests/run32.sh` runs the tests as 32-bit programs, where an
+  `int` is as small as WebAssembly's: a number that only fits in 64 bits
+  (a checksum, a color's weighted sum, a file's size) shows up there.
 - **Memory checked:** the tests also run under AddressSanitizer, UBSan
   and LeakSanitizer (`--cc:clang -d:useMalloc
   --passC:"-fsanitize=address,undefined" --passL:"-fsanitize=address,undefined"`,
   `LSAN_OPTIONS=suppressions=tests/lsan.supp` for what Nim's runtime keeps
-  for each thread), without a report.
+  for each thread), without a report. `tools/returncheck.py` finds the
+  shape of code Nim 2.2 leaks with (`return x` after `result` was set):
+  none in the kit or the apps.
 - **Threads:** work on worker threads never shares state with the UI
   thread except through a locked queue; results are handed over at the
   start of a frame. A file that changes or shrinks while it is shown (a
@@ -2047,6 +2349,29 @@ here.
 The tests swap the screen for a fake driver that plays back scripted
 mouse, keyboard and touch input and keeps the pixels, so no window is
 needed. `nimble test` runs them all; `nimble fuzz` runs the fuzzers.
+
+**On every system, with its own drivers.** `tests/live/livecheck.nim` opens
+a real window and goes through pages of the guide by itself -- controls, a
+grid, a chart, HTML, an open menu, a dialog -- saving each frame, then
+shows a page in the system's browser engine and talks to it (`webRun`,
+`webPost`, `retro.post`), and writes `results.txt`. GitHub Actions
+(`.github/workflows/systems.yml`, on a push to `next` or `main`) runs it on
+Linux (Xvfb, WebKitGTK), Windows (WebView2), macOS (WKWebView), the iOS
+Simulator and the Android emulator, with the tests made for every system
+on Windows and macOS; `tools/live/compare.nim` checks every system's
+frames against `tests/live/ref`, made on Linux: the kit draws the same
+pixels everywhere. The pictures, the results and the differences (in red)
+are kept with each run. After a change to how one of those pages draws,
+`sh tools/live/makeref.sh` makes the reference again.
+
+The same workflow checks what has no window of its own to test with a
+fake: the Wayland driver on sway with no screen (`tests/wayland/run.sh`,
+100 % and 150 %), the screen driver with a file as the screen
+(`tests/kiosk/run.sh`), the 3D view on the GPU against the CPU
+(`tests/gpu3d`), an app as a web page in Chromium (`tests/web/run.sh`), the
+headless tests as 32-bit programs (`tests/run32.sh`: an `int` as small as
+WebAssembly's), and the store packages with the tools of others and the
+systems themselves (`tests/store`).
 
 | Test | What it checks |
 |---|---|
@@ -2065,6 +2390,9 @@ needed. `nimble test` runs them all; `nimble fuzz` runs the fuzzers.
 | `test_charts` | every kind of chart with odd data (empty, NaN, negative, huge), axes, legends, tooltips by mouse and keys, events, CSV reading, PNG export |
 | `test_planning` | the kanban board, Gantt, agenda and org chart by mouse, keys and finger; KPI tiles |
 | `test_mapview` | the built-in countries, lookups, values, markers, routes, zoom and pan, hits |
+| `test_windows` | windows besides the app's own: opened, drawn, their input, closed by their button or by not being drawn, a dialog where the system has one window |
+| `test_capture` | the camera and the microphone without either: a webcam's YUYV picture turned into pixels exactly, a recording's WAV header, the view and the recorder saying plainly there is nothing |
+| `test_mediasession` | the app's MPRIS player on a session bus of the test's own: its state and track as a desktop's applet reads them, the applet's buttons coming back in `mediaKeys` |
 | `test_view3d` | meshes, OBJ and STL (text and binary), the camera, picking, rendering |
 | `test_htmlview` | the HTML parser, entities, nesting, tables, pictures, links, `htmlToMarkdown`, the web view's fallbacks, its talk with the page (messages, scripts' answers, allowed hosts, zoom, Forward) through a fake system |
 | `test_media` | WAV decoding and encoding, tones, GIF frames, the video and animation widgets without a device |
@@ -2072,7 +2400,10 @@ needed. `nimble test` runs them all; `nimble fuzz` runs the fuzzers.
 | `test_photo` | the image engine: blend modes, layers, undo and cancelled steps, the selection and channels, Quick Mask, paths, every painting tool, transforms, color modes, every filter and adjustment, .rpd / PNG / JPEG / BMP files |
 | `test_canvas2d` | the Canvas 2D API: paths, fills and strokes, transforms, gradients and patterns, text, pictures, clipping, compositing, against expected pixels |
 | `test_pdf`, `test_report` | the PDF writer (structure, fonts, pictures, cross-reference table), templates, HTML reports, page breaks, repeated headers, totals, previews |
-| `test_apk` | the APK tool's SHA-256, CRC-32, deflate and PNG |
+| `test_apk` | the APK tool's SHA-256, CRC-32, deflate and PNG; the App Bundle's proto manifest and resources, its JAR signature (checked with `jarsigner` and `bundletool` when they are there) |
+| `test_store` | DER, certificates and their subjects, JAR signatures, Authenticode (the digest, the checksum, signing again, a time stamp from an authority made with OpenSSL), MSIX (ZIP64 records, the block map's blocks one by one, the signed digests rebuilt by the test), macOS: the `.icns`, the code directory read back page by page (one architecture and universal), the sealed resources, the `.ipa`; `osslsigncode` and `rcodesign` when they are there |
+| `test_tilemap` | the street map: tiles of every kind of source, the cache, dragging, zooming, markers and shapes, the services' answers (places and routes of each), polylines, GCJ-02, GeoJSON, vector tiles decoded and drawn, PMTiles and MBTiles read and written |
+| `test_gltf` | glTF read and written, the car's parts moved, turned, hidden and tinted, its clips (linear, step, cubic), shapes and bones, a picture on a surface (unlit), damaged files refused, Blender's `.blend` when Blender is there |
 | `test_board`, `test_boardapp` | the whiteboard: ink, shapes, arrows held by shapes, typing, undo, files, PDF, the memory kept; Retro Board as a program -- its docked panels, Tab, the panels kept between runs, Zen and View mode and the button that leaves them |
 | `test_xmpp` | chat on XMPP with a small server of the test's own: signing on, the account's archive found, a page of it (yours and theirs, in order, with their archive ids), a forged answer from someone else left out; a port where nothing answers |
 | `test_omemo` | OMEMO: X25519, Ed25519 and HKDF against the RFCs' vectors, XEdDSA (the identity's X25519 key and its signatures, keys of both signs), AES-GCM, protobuf; two devices talking (a session from a bundle, answers, messages out of order, one twice, a changed one, one not for this device, the store read back from its file), trust (a verified device: only it), a bundle not signed right; files (aesgcm://) |
@@ -2080,9 +2411,11 @@ needed. `nimble test` runs them all; `nimble fuzz` runs the fuzzers.
 | `test_atspi` | Orca's side on a real X server and AT-SPI bus: the window's objects walked, text put in a box, a button pressed, the focus moved and its event heard |
 | `test_uia` | (Windows, also under Wine) the UI Automation provider: the tree a client reads, names, the patterns (invoke, value, toggle, range, selection) |
 | `test_scale` | fractional scales (125 % to 300 %): controls and text the size asked for, lines on whole pixels, a change of scale followed |
+| `test_touchsizes` | `RETRO_TOUCH` and `RETRO_CONTROLS`: finger-sized controls on a tablet's screen when asked, desktop and automatic sizes |
 | `test_shm` | the frame drawn into memory shared with the X server and what the window then shows, with and without it (`RETRO_SURFACE=0`) |
 | `test_designer` | Retro Designer: every example app read and drawn, each of their controls deleted and the file still Nim, every control of the Widget Box dropped into one app that compiles, moves, groups, events, properties, renames, undo, the lock on the file; `windowBox`, `inert`, `showMenu` |
 | `android_mock/run.sh` | the real Android driver against a fake Android (looper, input queue, window, JNI): frames, taps, keyboard, Arabic text, insets, cancelled touches, keys, rotation, Back, an input method composing |
+| `soak_maps3d` (not in `nimble test`: a few minutes, `nim c -r -d:release -d:useMalloc tests/soak_maps3d.nim`) | a long session: the street map moved and zoomed over the world through thousands of tiles, then a model's clips played for thousands of frames -- the memory levels off |
 
 ## Examples
 
@@ -2156,14 +2489,15 @@ files).
 
 **What do my users need to install?**
 Nothing. The app is one file (an `.exe`, a binary, an `.app`, an `.apk`).
-On Linux it needs an X server (or XWayland, or Termux:X11), which every
-desktop has; sound and video use the system's audio and, for compressed
-formats, GStreamer when it is there.
+On Linux it needs a desktop -- X11 or Wayland, or Termux:X11 -- which every
+desktop has, or none at all (a console: the screen driver); sound and
+video use the system's audio and, for compressed formats, GStreamer when
+it is there.
 
 **How big is an app?**
-Under a megabyte for "hello" (`retrokit small`), 1.6 MB for a full
-file manager, about 1 MB as an APK. Only what the app calls is linked:
-an app without the map does not carry the map.
+About 1.9 MB for "hello" (`retrokit small`; 1 MB of it the fonts), 4.3 MB
+for a full file manager, 1.6 MB as an APK. Only what the app calls is
+linked: an app without the map does not carry the map.
 
 **Is drawing every frame slow, or bad for the battery?**
 No. A frame runs only when something happened (input, a timer you asked
@@ -2236,10 +2570,11 @@ says how.
 
 - Not run on a real phone in this release: Android was run on a tablet
   before; the Android parts new since 0.7 (the web view, sound and video,
-  printing, the Java calls, the new look and font) build into the APKs and
-  pass the desktop-side tests, and Termux's files are tested against a
-  fake documents provider, but none of them has run on a device yet. iOS compiles and links but has
-  not been run on a device or the Simulator.
+  the camera, the media session, printing, the Java calls, the new look
+  and font) build into the APKs and pass the desktop-side tests, and
+  Termux's files are tested against a fake documents provider. The live
+  check runs in the Android emulator and the iOS Simulator on GitHub; no
+  phone or tablet has run this release yet.
 - What an input method is composing is drawn in the text box on X11,
   Windows, macOS, GTK 4 and Android; with SDL 2, SDL 3 and on iOS it shows
   in the input method's own window. Screen readers were tried end to end
@@ -2260,17 +2595,42 @@ says how.
   only when it has the joined forms (presentation forms) in its character
   map; else FreeSerif's Arabic stands in.
 - `webView`'s system engine is a window of the system's over the app's:
-  it hides (it is not drawn under) the app's menus and dialogs, and has no
-  picture in the app's screenshots. It is used with the X11 driver (and
-  Termux:X11), WinAPI, Cocoa and UIKit; SDL, GTK 4 and Siwin use the kit's
-  engine. WebKitGTK was run end to end on X11; WebView2 builds for Windows
-  and WKWebView for macOS and iOS, but neither has run yet: on Windows,
+  under the app's menus and dialogs it steps aside and a picture of the
+  page stands in, so a page that changes then (a video) is still until
+  the menu closes. It is used with the X11 driver (and Termux:X11),
+  WinAPI, Cocoa and UIKit; on Wayland's own driver, SDL, GTK 4 and Siwin
+  the kit's engine shows pages. WebKitGTK was run end to end on X11;
+  WebView2 and WKWebView run in the live check on GitHub: on Windows,
   `WebView2Loader.dll` beside the program is the surest start (without it
-  the kit finds the runtime where Windows keeps it). `htmlView` is a subset
-  of HTML without CSS layout or scripts.
-- Video plays in the window on Linux (with GStreamer) and Android; on
-  Windows and macOS it opens in the system's player.
-- One window per app (dialogs and MDI windows are inside it).
+  the kit finds the runtime where Windows keeps it). In a web page
+  (`retrokit web`) a web view is the page's own frame: pages of the same
+  site talk with the app, others are shown but not driven. `htmlView` is a
+  subset of HTML without CSS layout or scripts.
+- Video in the window on Windows (Media Foundation) and macOS and iOS
+  (AVFoundation) is new in this release: it runs in the live check on
+  GitHub, not yet by hand on those systems.
+- More windows (`window`) open on X11, Wayland, WinAPI and Cocoa; on
+  phones, in a web page and on a screen without a desktop they are dialogs
+  over the app.
+- An app as a web page has no threads (background work runs in the
+  frame), no sockets and no other programs; `httpRequest` waits for its
+  answer (another site must allow the page: CORS).
+- The screen driver (DRM/KMS, framebuffer) is tested with a file as the
+  screen, not yet on a real DRM screen.
+- Store packages: a Developer ID signature, notarization and stapling are
+  Apple's tools' (`retrokit mac --sign --notarize` runs them on a Mac); an
+  iOS app is signed with your profile by `codesign`. The App Bundle passes
+  `bundletool`'s checks and the MSIX `osslsigncode`'s and Windows' own
+  (installed on GitHub), but neither has gone through Google Play's or
+  Partner Center's upload in this release. Windows signatures are stamped
+  with the time only when `--timestamp` names an authority (the network is
+  needed then).
+- Maps: Apple's maps and Google's JavaScript map are web pages of theirs
+  (`mapKitPage`, `googleMapsPage`), not tiles the kit draws; vector tiles
+  are drawn flat (no 3D buildings or terrain).
+- 3D: no shadows, and no Draco or meshopt compression in glTF (export
+  without them); cameras and lights of a model are not read (the view has
+  its own).
 - Retro Photo: no Rotate View, 32-bit or Multichannel modes, or Generative
   Fill. PostScript and EPS files open by the picture they hold (or their
   preview): there is no PostScript interpreter. Get Google Fonts has not

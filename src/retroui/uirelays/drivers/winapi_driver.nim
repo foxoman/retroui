@@ -705,7 +705,11 @@ proc winStopGpu() =
   gGpu = false
   if gHwnd != nil: discard InvalidateRect(gHwnd, nil, 0)
 
+var gEventWin = 0   ## the window the message being handled is for (`Event.window`)
+
 proc pushEvent(e: input.Event) =
+  var e = e
+  e.window = gEventWin
   eventQueue.add e
 
 # ---- Display density ----
@@ -1053,6 +1057,179 @@ proc winTextCaret(x, y, w, h: int) =
 
 proc uiaGetObject(hwnd: HWND; wp: WPARAM; lp: LPARAM; handled: var bool): LRESULT
   ## (winuia.nim: a screen reader asks for the window's tree)
+
+# ---- More windows ----
+#
+# A program may open windows besides its own (`windowsRelays`): top-level
+# windows of the same class, owned by the program's (kept above it), each
+# with a DIB section of its own. `winTarget` swaps the globals the drawing
+# uses for a window's own; the window procedure tells them apart by their
+# handle, and their events carry their number.
+
+type
+  WinWin = object
+    id: int
+    hwnd: HWND
+    backDC: HDC
+    backBmp: HBITMAP
+    oldBmp: HGDIOBJ
+    bits: ptr UncheckedArray[uint32]
+    dirty: WINAPIRECT
+    dirtyAll: bool
+    w, h: int32
+
+var
+  gWins: seq[WinWin]
+  gMainWin: WinWin
+  gTargetW = 0
+  gNextWin = 1
+
+proc winIndex(id: int): int =
+  for i, w in gWins:
+    if w.id == id: return i
+  -1
+
+proc winOfHwnd(h: HWND): int =
+  for w in gWins:
+    if w.hwnd == h: return w.id
+  0
+
+proc saveTarget(w: var WinWin) =
+  w.hwnd = gHwnd
+  w.backDC = gBackDC
+  w.backBmp = gBackBmp
+  w.oldBmp = gOldBmp
+  w.bits = gBackBits
+  w.dirty = gDirty
+  w.dirtyAll = gDirtyAll
+  w.w = gWidth
+  w.h = gHeight
+
+proc loadTarget(w: WinWin) =
+  gHwnd = w.hwnd
+  gBackDC = w.backDC
+  gBackBmp = w.backBmp
+  gOldBmp = w.oldBmp
+  gBackBits = w.bits
+  gDirty = w.dirty
+  gDirtyAll = w.dirtyAll
+  gWidth = w.w
+  gHeight = w.h
+
+proc winTarget(id: int) =
+  ## Drawing goes to window `id` from now on (0: the program's own).
+  if id == gTargetW: return
+  if id != 0 and winIndex(id) < 0: return
+  if gTargetW == 0: saveTarget(gMainWin)
+  else:
+    let at = winIndex(gTargetW)
+    if at >= 0: saveTarget(gWins[at])
+  if id == 0: loadTarget(gMainWin)
+  else: loadTarget(gWins[winIndex(id)])
+  gTargetW = id
+
+proc winOpenWindow(title: string; w, h: int): int =
+  ## A window besides the program's own, its inside `w` x `h` pixels.
+  if gHwnd == nil: return 0
+  let owner = if gTargetW == 0: gHwnd else: gMainWin.hwnd
+  let className = newWideCString("NimEditWinAPI")
+  let t = newWideCString(title)
+  var r = WINAPIRECT(left: 0, top: 0, right: int32(max(1, w)), bottom: int32(max(1, h)))
+  discard AdjustWindowRectEx(addr r, WS_OVERLAPPEDWINDOW, 0, 0)
+  let hwnd = CreateWindowExW(0, cast[ptr uint16](className[0].addr), cast[ptr uint16](t[0].addr),
+                             WS_OVERLAPPEDWINDOW, 0x80000000'i32, 0x80000000'i32,
+                             r.right - r.left, r.bottom - r.top, owner, nil, gHinstance, nil)
+  if hwnd == nil: return 0
+  var x = WinWin(id: gNextWin, hwnd: hwnd, w: int32(max(1, w)), h: int32(max(1, h)))
+  inc gNextWin
+  # its buffer: made as the program's is, with its globals in place
+  let was = gTargetW
+  winTarget(0)
+  saveTarget(gMainWin)
+  loadTarget(x)
+  gBackDC = nil
+  gBackBmp = nil
+  recreateBackBuffer()
+  saveTarget(x)
+  loadTarget(gMainWin)
+  gWins.add x
+  if was != 0: winTarget(was)
+  discard ShowWindow(hwnd, SW_SHOW)
+  x.id
+
+proc winCloseWindow(id: int) =
+  let i = winIndex(id)
+  if i < 0: return
+  if gTargetW == id: winTarget(0)
+  let w = gWins[i]
+  gWins.delete(i)
+  if w.backDC != nil:
+    if w.oldBmp != nil: discard SelectObject(w.backDC, w.oldBmp)
+    discard DeleteDC(w.backDC)
+  if w.backBmp != nil: discard DeleteObject(cast[HGDIOBJ](w.backBmp))
+  discard DestroyWindow(w.hwnd)
+
+proc winWindowTitle(id: int; title: string) =
+  let i = winIndex(id)
+  if i < 0: return
+  let t = newWideCString(title)
+  discard SetWindowTextW(gWins[i].hwnd, cast[ptr uint16](t[0].addr))
+
+proc winWindowLayout(id: int): ScreenLayout =
+  let i = winIndex(id)
+  result = ScreenLayout(scaleX: 1, scaleY: 1, uiScale: gUiScale)
+  if i >= 0:
+    result.width = (if gTargetW == id: gWidth else: gWins[i].w).int
+    result.height = (if gTargetW == id: gHeight else: gWins[i].h).int
+
+proc extraMessage(hwnd: HWND; id: int; msg: UINT; wp: WPARAM; lp: LPARAM;
+                  done: var bool): LRESULT =
+  ## What only the windows besides the program's own handle here: their
+  ## close button, their size, their pictures shown again.
+  let i = winIndex(id)
+  done = true
+  if i < 0: return 0
+  case msg
+  of WM_CLOSE:
+    pushEvent(input.Event(kind: WindowCloseEvent))
+    return 0
+  of WM_DESTROY: return 0
+  of WM_SIZE:
+    let nw = loWord(lp).int32
+    let nh = hiWord(lp).int32
+    if nw > 0 and nh > 0 and (nw != gWins[i].w or nh != gWins[i].h):
+      let was = gTargetW
+      winTarget(id)
+      gWidth = nw
+      gHeight = nh
+      recreateBackBuffer()
+      winTarget(was)
+      pushEvent(input.Event(kind: WindowResizeEvent, x: nw.int, y: nh.int))
+    return 0
+  of WM_PAINT:
+    var ps: PAINTSTRUCT
+    let hdc = BeginPaint(hwnd, addr ps)
+    let dc = if gTargetW == id: gBackDC else: gWins[i].backDC
+    let r = ps.rcPaint
+    if dc != nil and r.right > r.left and r.bottom > r.top:
+      discard BitBlt(hdc, r.left, r.top, r.right - r.left, r.bottom - r.top, dc, r.left, r.top, SRCCOPY)
+    discard EndPaint(hwnd, addr ps)
+    return 0
+  else:
+    done = false
+
+proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
+
+proc wndProcOf(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.} =
+  ## (the class's procedure: a window besides the program's own first)
+  let id = if gWins.len > 0: winOfHwnd(hwnd) else: 0
+  if id == 0: return wndProc(hwnd, msg, wp, lp)
+  let before = gEventWin
+  gEventWin = id
+  var done = false
+  result = extraMessage(hwnd, id, msg, wp, lp, done)
+  if not done: result = wndProc(hwnd, msg, wp, lp)
+  gEventWin = before
 
 proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.} =
   # Capture gHwnd from the first message -- WM_SIZE etc. arrive
@@ -1433,7 +1610,7 @@ proc winCreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   var wc: WNDCLASSEXW
   wc.cbSize = UINT(sizeof(WNDCLASSEXW))
   wc.style = CS_HREDRAW or CS_VREDRAW
-  wc.lpfnWndProc = wndProc
+  wc.lpfnWndProc = wndProcOf
   wc.hInstance = gHinstance
   # Resource ID 1 is the app icon when the binary was linked with a `.res`
   # -- `1 ICON "app.ico"` in the `.rc` the application compiled. Nil is fine
@@ -2497,7 +2674,13 @@ proc winWindow*(): pointer = gHwnd
   ## The driver's window (an `HWND`), nil before it is made: what a program
   ## puts windows of its own into (a web view).
 
+proc initWinapiWindows() =
+  windowsRelays = WindowsRelays(openWindow: winOpenWindow, closeWindow: winCloseWindow,
+                                setTitle: winWindowTitle, layout: winWindowLayout,
+                                target: winTarget)
+
 proc initWinapiDriver*() =
+  initWinapiWindows()
   surfaceRelays = SurfaceRelays(lockSurface: winLockSurface,
                                 presentSurface: winPresentSurface)
   accessRelays = AccessRelays(start: uiaStart, update: uiaUpdate)

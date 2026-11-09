@@ -21,7 +21,8 @@ MODULES = [
     "widgets", "business", "extras", "morecontrols", "records", "desktop",
     "toolcustom", "dock", "textwidgets", "filewidgets", "charts", "planning",
     "mapview", "view3d", "htmlview", "markdown", "richedit", "media",
-    "qrcode", "canvas2d", "report", "pdfview", "board",
+    "qrcode", "canvas2d", "report", "pdfview", "board", "tilemap",
+    "capture", "mediasession",
 ]
 # Not in the list: calendar (there is no calendar.nim: `calendar` is in
 # business), photowidgets (Retro Photo's own panels, not for other apps),
@@ -126,9 +127,14 @@ NOT_CONTROLS = {
         "countryCount", "countryIndex", "countryNameAt", "countryA2At",
         "countryA3At", "cityLatLon", "mapPoint", "mapLatLonAt", "countryAtLatLon",
     },
+    "capture": {  # (a webcam's pixels, a WAV header: helpers of the recorder)
+        "yuyvToBitmap", "wavHeader",
+    },
     "view3d": {  # (the scene's model)
         "vec3", "newMesh", "triangleCount", "add", "addLine", "addLabel",
         "sceneChanged", "centerMesh", "loadObj", "loadStl", "bounds", "renders",
+        # turns and matrices, for the parts' places
+        "quat", "quatAxis", "*", "quatEuler", "slerp", "compose", "decompose",
     },
     "htmlview": {
         "htmlTitle", "htmlImagesChanged", "htmlZoomStep", "htmlToText",

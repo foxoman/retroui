@@ -1717,7 +1717,7 @@ proc selectSubject*(src: Img; detail = 360): seq[uint8] =
     for i in 0 ..< w2 * h2:
       if fg2[i] and sizes2[id2[i]] * 4 < big2: fg2[i] = false
     fillHoles(fg2, w2, h2, big2 div 8)
-    return maskUp(fg2, w2, h2, src, lum2)
+    result = maskUp(fg2, w2, h2, src, lum2); return
   result = maskUp(fg, w, h, src, lum)
 
 # ---- Object Selection, Quick Selection ----------------------------------------------------------------------

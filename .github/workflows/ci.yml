@@ -19,12 +19,17 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Libraries the GPU tests load (Mesa's EGL)
         run: sudo apt-get update && sudo apt-get install -y libegl1 libgles2 libegl-mesa0
+      - name: No return after result (Nim 2.2 leaks the old value)
+        run: python3 tools/returncheck.py
       - name: Tests
         run: nimble test -y
       - name: Fuzz (a short run)
         run: |
           nim c -r -d:release --hints:off tests/fuzz/fuzz.nim tests/fuzz/seeds 2000
           nim c -r -d:release --hints:off tests/fuzz/fuzzui.nim 200
+          for f in fuzz_store fuzz_models fuzz_maps; do
+            nim c -r -d:release --hints:off tests/fuzz/$f.nim 500
+          done
       - name: Android driver on a fake Android
         # (Android's headers from the sysroot retroapk carries: no NDK)
         run: sh tests/android_mock/run.sh

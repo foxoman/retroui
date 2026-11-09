@@ -12,6 +12,8 @@ import std/[os, strutils]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 when androidApp:
   import native
+elif defined(wasm):
+  import http
 elif not defined(ios):
   import std/osproc
 
@@ -56,6 +58,14 @@ proc downloadFile*(url, dest: string; userAgent = defaultAgent; timeoutSec = 60;
     if not fileExists(part) or getFileSize(part) == 0: return "nothing came (" & err & ")"
   elif defined(ios):
     return "downloading is not done on iOS yet"
+  elif defined(wasm):
+    # (a browser page: through the page, the site must allow it -- CORS)
+    var hs = @headers
+    let r = httpRequest("GET", url, hs, timeoutSec = timeoutSec)
+    if r.status == 0: return r.error
+    if r.status != 200: return "the server answered " & $r.status
+    try: writeFile(part, r.body)
+    except IOError as e: return e.msg
   else:
     var tool = findExe("curl")
     var cmd: string

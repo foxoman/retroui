@@ -240,7 +240,7 @@ proc installGoogleFont*(family, dir: string; needArabic = false;
   result.files = fromGithub(fam, d, github, needArabic, why)
   if result.files > 0: return
   let viaCss = installFromCss(fam, d, needArabic)
-  if viaCss.files > 0: return (viaCss.files, "")
+  if viaCss.files > 0: result = (viaCss.files, ""); return
   # (why the repository's files were not taken says more than a web error)
   let notThere = why.len == 0 or why == "not in Google's font repository"
   result.error = if not notThere: why elif viaCss.error.len > 0: viaCss.error

@@ -144,8 +144,8 @@ when not defined(windows):
     result = readSmall(path)
     if result.len == 32: return
     var raw = newString(32)
-    if not urandom(raw.toOpenArrayByte(0, 31)): return ""
-    if not replaceFile(path, raw): return ""
+    if not urandom(raw.toOpenArrayByte(0, 31)): result = ""; return
+    if not replaceFile(path, raw): result = ""; return
     result = readSmall(path)
     if result.len != 32: result = ""
 
@@ -184,7 +184,7 @@ when not defined(windows) and not androidApp and not defined(ios):
     if t.len mod 2 != 0: return ""
     for i in countup(0, t.len - 2, 2):
       try: result.add char(parseHexInt(t[i .. i + 1]))
-      except ValueError: return ""
+      except ValueError: result = ""; return
 
   proc run(tool: string; args: openArray[string]; input = ""): tuple[output: string; code: int] =
     ## Runs `tool` with `args` (`input` on its standard input) and waits;

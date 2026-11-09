@@ -32,6 +32,8 @@ import std/[strutils, uri]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 when defined(windows):
   import std/[locks, widestrs]
+elif defined(wasm):
+  discard
 elif not defined(ios):
   import std/[dynlib, locks, os, sysrand]
   when androidApp:
@@ -48,7 +50,12 @@ type
     error*: string                    ## why no answer came ("" when one did)
 
 const
-  defaultAgent = "RetroNimUI/0.16"
+  defaultAgent = block:
+    # ("RetroNimUI/" and the kit's version, read from core.nim: this module
+    # stays without the rest of the kit)
+    let core = staticRead("core.nim")
+    let k = core.find("RetroVersion* = \"") + len("RetroVersion* = \"")
+    "RetroNimUI/" & core[k ..< core.find('"', k)]
   maxRedirects = 10
 
 proc header*(r: HttpResponse; name: string): string =
@@ -142,7 +149,7 @@ proc headerOk(k, v: string): bool =
   k.len > 0 and not k.contains({'\r', '\n', ':', '\t', '\0'}) and not v.contains({'\r', '\n', '\0'}) and
     cmpIgnoreCase(k, "Content-Length") != 0
 
-when not defined(windows) and not defined(ios):
+when not defined(windows) and not defined(ios) and not defined(wasm):
   proc randomName(): string =
     ## A name for a file of this request alone.
     var b: array[8, byte]
@@ -293,7 +300,7 @@ when defined(windows):
       var got = 0'u32
       if WinHttpReadData(req, addr chunk[0], uint32(chunk.len), addr got) == 0:
         let e = GetLastError()
-        return HttpResponse(status: 0, error: "the answer was cut off: " & winError(e))
+        result = HttpResponse(status: 0, error: "the answer was cut off: " & winError(e)); return
       if got == 0: break
       let at = result.body.len
       result.body.setLen(at + int(got))
@@ -333,14 +340,52 @@ when androidApp:
     let nl = r.find('\n')
     let first = if nl < 0: r else: r[0 ..< nl]
     result.status = try: parseInt(first.strip) except ValueError: 0
-    if result.status == 0: return failed("a strange answer from Java: " & first)
+    if result.status == 0: result = failed("a strange answer from Java: " & first); return
     if nl >= 0: result.headerLines(r[nl + 1 .. ^1])
     try: result.body = readFile(outPath)
     except IOError: discard
 
+# ---- a browser page: the page's own requests ---------------------------------------------
+
+when defined(wasm):
+  proc rwHttp(meth, url, headers: cstring; body: pointer; bodyLen, timeoutMs, follow: cint): cint {.importc: "rw_http", cdecl.}
+  proc rwHttpPart(h, part: cint; buf: pointer; cap: cint): cint {.importc: "rw_http_part", cdecl.}
+  proc rwHttpFree(h: cint) {.importc: "rw_http_free", cdecl.}
+  proc rwPageUrl(s: cstring; buf: pointer; cap: cint): cint {.importc: "rw_page_url", cdecl.}
+
+  proc pageUrl(s: string): string =
+    ## An address of the page's own site ("data/x.json", "/api") made whole.
+    let n = rwPageUrl(cstring(s), nil, 0)
+    if n <= 0: return s
+    result = newString(n)
+    discard rwPageUrl(cstring(s), addr result[0], cint(n + 1))
+
+  proc webRequest(meth, url: string; headers: openArray[(string, string)]; body: string;
+                  timeoutSec: int; follow: bool): HttpResponse =
+    ## Through the page (the site must allow it: CORS); it waits for the
+    ## answer, as everywhere.
+    var hs = ""
+    for (k, v) in headers: hs.add k & ": " & v & "\r\n"
+    let h = rwHttp(cstring(meth), cstring(url), cstring(hs),
+                   if body.len > 0: unsafeAddr body[0] else: nil, cint(body.len),
+                   cint(max(1, timeoutSec) * 1000), cint(follow))
+    if h <= 0: return failed("the page could not send it")
+    defer: rwHttpFree(h)
+    proc part(h, which: cint): string =
+      let n = rwHttpPart(h, which, nil, 0)
+      if n <= 0: return ""
+      result = newString(n)
+      discard rwHttpPart(h, which, addr result[0], cint(n))
+    result.status = rwHttpPart(h, 0, nil, 0)
+    if result.status == 0:
+      let why = part(h, 3)
+      result = failed(if why.len > 0: why else: "no answer (no network, or the site does not allow pages of other sites: CORS)"); return
+    result.headerLines(part(h, 1))
+    result.body = part(h, 2)
+
 # ---- Linux, macOS, BSD (and Termux): libcurl, or the curl command ------------------------
 
-when not defined(windows) and not defined(ios):
+when not defined(windows) and not defined(ios) and not defined(wasm):
   type
     CurlInit = proc (): pointer {.cdecl, gcsafe.}
     CurlSetopt = proc (h: pointer; opt: cint): cint {.cdecl, varargs, gcsafe.}
@@ -500,10 +545,10 @@ when not defined(windows) and not defined(ios):
     curl.reset(h)                         # (lets go of `list`, `result`)
     curl.freeList(list)
     giveBack(h)
-    if code == 28: return failed("no answer from the server in " & $max(1, timeoutSec) & " s")
+    if code == 28: result = failed("no answer from the server in " & $max(1, timeoutSec) & " s"); return
     if code != 0:
       let msg = $cast[cstring](addr errBuf[0])
-      return failed(if msg.len > 0: msg else: $curl.strerror(code))
+      result = failed(if msg.len > 0: msg else: $curl.strerror(code)); return
     result.status = int(status)
 
   when not androidApp:
@@ -596,12 +641,17 @@ proc httpRequest*(meth, url: string; headers: openArray[(string, string)] = [];
   ## 0 when none came (no network, no such server, `timeoutSec` passed with
   ## no word from the server...) and `error` says why; an HTTP error such
   ## as 404 or 500 is an answer: its status, headers and body are there.
+  ## In a web page (`retrokit web`) an address of the page's own site can be
+  ## short ("data/prices.json"), and another site must allow the page (CORS).
   ## With `followRedirects` off a redirect (301, 302...) comes back as it
   ## is. Any thread may call it, many at once.
   var meth = meth.toUpperAscii
   if meth.len == 0 or not meth.allCharsInSet({'A'..'Z', '-', '_'}):
     return failed("bad method: " & meth)
   var url = cleanUrl(url)
+  when defined(wasm):
+    # (in a web page an address of its own site may be short: "data/x.json")
+    if "://" notin url and url.len > 0: url = pageUrl(url)
   let lower = url.toLowerAscii
   if not (lower.startsWith("http://") or lower.startsWith("https://")):
     return failed("not a web address: " & url)
@@ -638,6 +688,9 @@ proc httpRequest*(meth, url: string; headers: openArray[(string, string)] = [];
     result = failed("too many redirects")
   elif defined(ios):
     result = failed("HTTP requests are not done on iOS yet")
+  elif defined(wasm):
+    {.cast(gcsafe).}:
+      result = webRequest(meth, url, hs, body, timeoutSec, followRedirects)
   else:
     {.cast(gcsafe).}:
       when androidApp:

@@ -17,6 +17,7 @@
 ## (`std/sysrand`).
 
 import std/[sysrand, base64, strutils, times, bitops]
+from codec import unbase64
 
 type
   Big = seq[uint32]            # little-endian limbs, no zero limbs at the top (0: empty)
@@ -481,7 +482,8 @@ proc pem*(k: RsaKey): string =
   result.add "-----END PRIVATE KEY-----\n"
 
 proc nameDer(subject: string): seq[byte] =
-  ## ("CN=retro debug, O=retro" -> a Name)
+  ## ("CN=retro debug, O=retro" -> a Name: written last part first, as
+  ## X.509 keeps it, so that it reads back as given)
   var sets: seq[seq[byte]]
   for part in subject.split(','):
     let kv = part.strip.split('=', 1)
@@ -492,23 +494,38 @@ proc nameDer(subject: string): seq[byte] =
               of "OU": "2.5.4.11"
               of "C": "2.5.4.6"
               of "L": "2.5.4.7"
-              of "ST": "2.5.4.8"
+              of "ST", "S": "2.5.4.8"
+              of "E": "1.2.840.113549.1.9.1"
               else: ""
     if oid.len == 0: continue
-    sets.add derSet(derSeq(derOid(oid), derUtf8(kv[1].strip)))
+    let v = kv[1].strip
+    let value = if oid in ["2.5.4.6", "1.2.840.113549.1.9.1"]: tlv(if oid == "2.5.4.6": 0x13 else: 0x16, v.toOpenArrayByte(0, v.len - 1))
+                else: derUtf8(v)
+    sets.insert derSet(derSeq(derOid(oid), value))
   var c: seq[byte]
   for s in sets: c.add s
   tlv(0x30, c)
 
-proc selfSignedCert*(k: RsaKey; subject = "CN=retro debug, O=retro"; years = 30): seq[byte] =
+proc selfSignedCert*(k: RsaKey; subject = "CN=retro debug, O=retro"; years = 30;
+                     codeSigning = false): seq[byte] =
   ## A self-signed X.509 certificate (DER) of the key: what an APK carries.
+  ## `codeSigning`: marked for signing code only (what Windows wants of an
+  ## MSIX's or a program's certificate).
   var serial = newSeq[byte](8)
   if not urandom(serial): raise newException(RsaError, "no random numbers")
   serial[0] = serial[0] and 0x7F
   let now = now().utc
-  let tbs = derSeq(tlv(0xA0, derSmallInt(2)), derInt(serial), derSeq(derOid(oidSha256Rsa), derNull()),
-                   nameDer(subject), derSeq(derTime(now), derTime(now + years.years)),
-                   nameDer(subject), publicKeyDer(k))
+  var parts = @[tlv(0xA0, derSmallInt(2)), derInt(serial), derSeq(derOid(oidSha256Rsa), derNull()),
+                nameDer(subject), derSeq(derTime(now), derTime(now + years.years)),
+                nameDer(subject), publicKeyDer(k)]
+  if codeSigning:
+    let critical = @[0x01'u8, 0x01, 0xFF]
+    let exts = derSeq(
+      derSeq(derOid("2.5.29.15"), critical, derOctets(@[0x03'u8, 0x02, 0x07, 0x80])),  # digital signature
+      derSeq(derOid("2.5.29.37"), derOctets(derSeq(derOid("1.3.6.1.5.5.7.3.3")))),       # code signing
+      derSeq(derOid("2.5.29.19"), derOctets(derSeq())))                                  # not an authority
+    parts.add tlv(0xA3, exts)
+  let tbs = derSeq(parts)
   derSeq(tbs, derSeq(derOid(oidSha256Rsa), derNull()), derBits(k.sign(tbs)))
 
 # ---- reading keys --------------------------------------------------------------------------
@@ -560,7 +577,8 @@ proc readRsaKey*(pemText: string): RsaKey =
     if l.startsWith("-----END"): break
     if inside: body.add l
   if body.len == 0: raise newException(RsaError, "no key in the file")
-  let der = cast[seq[byte]](decode(body))
+  let der = try: cast[seq[byte]](unbase64(body))
+            except ValueError: raise newException(RsaError, "the key's PEM is damaged")
   if pkcs1: return readPkcs1(der)
   # PKCS #8: version, the algorithm, an OCTET STRING with the PKCS #1 key
   var at = 0

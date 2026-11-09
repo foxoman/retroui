@@ -296,7 +296,7 @@ proc showOf(b: Buddy): string =
   if b == nil or b.shows.len == 0: return "unavailable"
   result = "xa"
   for s in b.shows.values:
-    if s in ["", "chat"]: return ""
+    if s in ["", "chat"]: result = ""; return
     if s == "away" and result == "xa": result = "away"
     if s == "dnd": result = "dnd"
 

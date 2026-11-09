@@ -302,7 +302,7 @@ proc paintDaubs*(size = 8; sharpness = 7): FilterFn =
   ## sharpened (`sharpness` 0 .. 40).
   result = proc (src: Img; inner: Rect): Img =
     let k = kuwahara(src, max(1, size div 2))
-    if sharpness <= 0: return k
+    if sharpness <= 0: result = k; return
     unsharpMask(sharpness * 8, 1.5, 0)(k, rect(0, 0, k.w, k.h))
 
 proc posterEdges*(thickness = 2; intensity = 1; posterization = 2): FilterFn =
@@ -750,7 +750,7 @@ proc stainedGlass*(cellSize = 10; border = 4; light = 3; lead = 0xFF000000'u32):
     let far = max(1.0, hypot(cx0, cy0))
     mapPixels(src, proc (p: uint32; i, x, y: int): uint32 =
       let v = voronoi(x.float, y.float, cell, 79)
-      if v.d2 - v.d1 < bw: return (lead and 0x00FFFFFF'u32) or (aOf(p).uint32 shl 24)
+      if v.d2 - v.d1 < bw: result = (lead and 0x00FFFFFF'u32) or (aOf(p).uint32 shl 24); return
       let q = sp[clamp(int(v.cy), 0, h - 1) * w + clamp(int(v.cx), 0, w - 1)]
       let glow = (1 - hypot(x.float - cx0, y.float - cy0) / far) * lt * 60
       argb(int(aOf(p)), c255(rOf(q).float + glow), c255(gOf(q).float + glow), c255(bOf(q).float + glow)))

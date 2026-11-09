@@ -78,12 +78,12 @@ proc deviceZone*(): string =
   else:
     try:
       let s = readFile("/etc/timezone").strip
-      if '/' in s: return s
+      if '/' in s: result = s; return
     except IOError, OSError: discard
     try:
       let target = expandSymlink("/etc/localtime")
       let k = target.find("zoneinfo/")
-      if k >= 0: return target[k + 9 .. ^1]
+      if k >= 0: result = target[k + 9 .. ^1]; return
     except OSError: discard
 
 proc wallOf(t: float; zone: string): tuple[stamp, zone: string] =

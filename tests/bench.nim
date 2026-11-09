@@ -292,3 +292,40 @@ if data.len > 0:
   timeIt("... its 1/8 thumbnail", 5, proc () = discard decodeJpeg(jpg, 8))
   let prog = readFile(data / "photo12mp-prog.jpg")
   timeIt("decode a 12 MP progressive JPEG", 2, proc () = discard decodeJpeg(prog))
+
+# ---- the parts new in 0.29: a vector tile, a model, a package -------------------------------------
+
+import retroui/[mvt, gltf, msix, sign]
+include carscene
+
+block:
+  var w: MvtWriter
+  for i in 0 ..< 200:
+    let x = (i * 37) mod 4000
+    let y = (i * 91) mod 4000
+    w.addFeature("building", mgPolygon, [@[(x, y), (x + 60, y), (x + 60, y + 40), (x, y + 40), (x, y)]])
+    w.addFeature("transportation", mgLine, [@[(0, y), (4096, (y + 700) mod 4096)]], {"class": "primary"})
+  w.addFeature("water", mgPolygon, [@[(0, 0), (4096, 0), (4096, 900), (0, 1300), (0, 0)]])
+  w.addFeature("place", mgPoint, [@[(2000, 2000)]], {"class": "city", "name": "Muscat"})
+  let tile = w.toMvt()
+  timeIt("a vector tile decoded and drawn, 512 px", 20, proc () =
+    discard renderMvtPixels(decodeMvt(tile), 14, 512, classicStyle()))
+  let car = carScene()
+  let glb = toGlb(car)
+  timeIt("a glTF model read (the test car)", 50, proc () = discard readGlb(glb))
+  var cam = camera3()
+  fitView(car, cam)
+  timeIt("the car drawn lit on the CPU, 800x600", 20, proc () = discard render3d(car, cam, 800, 600))
+  let (key, cert) = devKey(getTempDir() / "retro-bench-keys")
+  var big = newString(4 shl 20)
+  for i in 0 ..< big.len: big[i] = char((i * 31 + i shr 9) and 255)
+  var pe = newString(0x400)
+  pe[0] = 'M'; pe[1] = 'Z'; pe[0x3C] = '\x40'; pe[0x40 .. 0x43] = "PE\0\0"
+  pe[0x44] = '\x64'; pe[0x45] = '\x86'; pe[0x46] = '\1'; pe[0x54] = '\xF0'
+  pe[0x58] = '\x0B'; pe[0x59] = '\x02'; pe[0x58 + 61] = '\2'; pe[0x58 + 108] = '\x10'
+  let prog = pe & big
+  timeIt("a 4 MB program signed (Authenticode)", 5, proc () = discard authenticodeSign(prog, key, cert))
+  var app = MsixApp(name: "Retro.Bench", publisher: certSubject(cert), version: "1.0.0.0",
+                    displayName: "Bench", publisherName: "Retro", exe: "b.exe")
+  app.files.add ("b.exe", prog)
+  timeIt("an MSIX of it made and signed", 3, proc () = discard buildMsix(app, key, cert))

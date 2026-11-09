@@ -33,6 +33,7 @@
 
 import std/[json, strutils, times, locks, net, nativesockets, selectors, sysrand, base64, typedthreads]
 import http, sha2, core
+from codec import unbase64
 import uirelays/services
 
 type
@@ -104,7 +105,7 @@ proc b64url(data: string): string =
 proc unb64url(s: string): string =
   var t = s.multiReplace(("-", "+"), ("_", "/"))
   while t.len mod 4 != 0: t.add '='
-  try: decode(t) except ValueError: ""
+  try: unbase64(t) except ValueError: ""
 
 proc randomText(bytes: int): string =
   var b = newString(bytes)

@@ -154,6 +154,22 @@ block manyRowsAndTypeAhead:
   doAssert per < 0.05, "a frame of the column view took " & $per & " s"
   view = proc () = discard
 
+block twoModelsOneKey:
+  # two folder windows in columns, drawn with one key: each keeps its own
+  # columns -- no listing again every frame (that piled up thousands of
+  # listings once), and the work settles
+  let a = newFolderModel(base / "Alpha" / "Inner")
+  let b = newFolderModel(base / "Beta")
+  waitFor(proc (): bool = not a.loading and not b.loading, "both listed")
+  view = proc () =
+    discard fileColumns(a, root = base, height = 200, key = "same")
+    discard fileColumns(b, root = base, height = 200, key = "same")
+  run(3)
+  waitFor(proc (): bool = (run(); not busy()), "the columns' listings done")
+  for _ in 0 ..< 50: run()
+  doAssert not busy(), "the columns list their folders again every frame"
+  view = proc () = discard
+
 # ---- PDF pages on workers ---------------------------------------------------------------------
 
 block pdfViewPages:

@@ -6,7 +6,7 @@
 ## same pixels on every platform, nothing drawn or sent when nothing
 ## changed.
 
-import std/[unicode, tables, math, strutils, algorithm]
+import std/[unicode, tables, math, strutils, algorithm, hashes]
 from std/os import getEnv, fileExists, removeFile, createDir, parentDir
 
 when (defined(gcc) or defined(clang)) and not defined(retroSizeOnly):
@@ -17,6 +17,12 @@ when (defined(gcc) or defined(clang)) and not defined(retroSizeOnly):
 from std/strutils import toLowerAscii, contains
 import uirelays/[coords, screen]
 import ttf, typeset, raster, parallel
+
+proc hashF*(x: float): Hash {.inline.} =
+  ## A float's hash from all its bits. (Nim's `hash(float)` keeps only the
+  ## low 32 of them on a 32-bit system -- WebAssembly is one -- where 1.0,
+  ## 1.5 and 2.0 hash alike: a cache keyed so would not see a new size.)
+  hashWangYi1(cast[int64](x + 0.0))
 
 export typeset.textIsRtl, typeset.strongDir, typeset.setRtlInterface
 
@@ -2105,6 +2111,80 @@ proc overlayNow*(r: Rect; body: proc ()) =
     frameHash = sHash
     screenRect = sScreen
 
+var drawingExtra = false
+  ## (a window besides the program's own is drawn: no surface, no GPU)
+
+type
+  FrameState* = object
+    ## Everything a frame's drawing keeps -- its commands, clips, layers --
+    ## and its window's pixels and tiles: a window besides the program's own
+    ## has one of its own, swapped in while it is drawn (`swapFrameState`).
+    layers: array[MaxLayers, seq[Cmd]]
+    arena: string
+    imgArena: seq[uint32]
+    pathArena: seq[float32]
+    frameBitmaps: seq[Bitmap]
+    clipStack: seq[Rect]
+    layerStack: seq[tuple[layer: int, clip: Rect]]
+    curLayer: int
+    curClip, screenRect: Rect
+    clearColor: uint32
+    frameHash, shownHash: uint64
+    mirrorW: int
+    noMirror: seq[int]
+    fb: seq[uint32]
+    fbMem: ptr UncheckedArray[uint32]
+    fbSurface: bool
+    fbW, fbH: int
+    tileHash, shownTiles, tileSalt: seq[uint64]
+    tilesX, tilesY: int
+    extra*: bool              ## another window's (no surface, no GPU)
+
+proc swapFrameState*(s: var FrameState) =
+  ## Puts `s`'s drawing in place of the one going on, and the one going on
+  ## into `s` (nothing copied): a frame of another window, drawn in the
+  ## middle of this one.
+  for l in 0 ..< MaxLayers: swap(s.layers[l], layers[l])
+  swap(s.arena, arena)
+  swap(s.imgArena, imgArena)
+  swap(s.pathArena, pathArena)
+  swap(s.frameBitmaps, frameBitmaps)
+  swap(s.clipStack, clipStack)
+  swap(s.layerStack, layerStack)
+  swap(s.curLayer, curLayer)
+  swap(s.curClip, curClip)
+  swap(s.screenRect, screenRect)
+  swap(s.clearColor, clearColor)
+  swap(s.frameHash, frameHash)
+  swap(s.shownHash, shownHash)
+  swap(s.mirrorW, mirrorW)
+  swap(s.noMirror, noMirror)
+  swap(s.fb, fb)
+  swap(s.fbMem, fbMem)
+  swap(s.fbSurface, fbSurface)
+  swap(s.fbW, fbW)
+  swap(s.fbH, fbH)
+  swap(s.tileHash, tileHash)
+  swap(s.shownTiles, shownTiles)
+  swap(s.tileSalt, tileSalt)
+  swap(s.tilesX, tilesX)
+  swap(s.tilesY, tilesY)
+  var e = drawingExtra
+  swap(s.extra, e)
+  drawingExtra = e
+  # (the buffer of our own moved: its pointer follows it)
+  if not fbSurface and fb.len > 0: fbMem = cast[ptr UncheckedArray[uint32]](addr fb[0])
+  if not s.fbSurface and s.fb.len > 0: s.fbMem = cast[ptr UncheckedArray[uint32]](addr s.fb[0])
+
+proc framePicture*(): Bitmap =
+  ## The window's pixels as last drawn by the CPU (device pixels,
+  ## 0xFFRRGGBB), for checks and screenshots the app takes of itself; nil
+  ## while the GPU draws or before the first frame.
+  if fbMem == nil or fbW <= 0 or fbH <= 0: return nil
+  result = newBitmap(fbW, fbH)
+  for i in 0 ..< fbW * fbH: result.px[i] = fbMem[i] or 0xFF000000'u32
+  result.opaque = true
+
 proc present*(devW, devH: int; force: bool): bool =
   ## Rasterize and show the frame. Nothing happens -- not even a driver
   ## call -- when the frame is the one already on screen; otherwise only
@@ -2118,12 +2198,12 @@ proc present*(devW, devH: int; force: bool): bool =
     force = true
   # with the GPU when there is one (tried once; the CPU's framebuffer is
   # then not needed)
-  if not gpuTried and gpuWanted != gmCpu and gpuRelays.startGpu != nil:
+  if not drawingExtra and not gpuTried and gpuWanted != gmCpu and gpuRelays.startGpu != nil:
     if startGpu():
       fb = @[]
       fbMem = nil
       fbSurface = false
-  if gpuOn:
+  if gpuOn and not drawingExtra:
     if gpuRelays.gpuReady != nil and not gpuRelays.gpuReady():
       return false                  # (no surface now: in the background)
     var shown = false
@@ -2134,7 +2214,8 @@ proc present*(devW, devH: int; force: bool): bool =
     stopGpu()
   # the window's own pixels when the driver lends them (nothing copied on
   # the way to the screen), else a buffer of our own
-  let lent = if unitPx == 1 and surfaceRelays.lockSurface != nil and surfaceWanted:
+  let lent = if unitPx == 1 and surfaceRelays.lockSurface != nil and surfaceWanted and
+                not drawingExtra:
                surfaceRelays.lockSurface(fbW, fbH)
              else: nil
   if lent != nil:

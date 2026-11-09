@@ -102,7 +102,7 @@ proc evalFn(f: PdfFile; fo: PObj; input: seq[float]; depth = 0): seq[float] =
     # (several functions of one input each giving one output)
     for x in fn.a: result.add f.evalFn(x, input, depth + 1)
     return
-  if not fn.isDict: return input
+  if not fn.isDict: result = input; return
   let dom = f.g(fn, "Domain").arr
   var x = input
   for i in 0 ..< x.len:
@@ -128,7 +128,7 @@ proc evalFn(f: PdfFile; fo: PObj; input: seq[float]; depth = 0): seq[float] =
     let d1 = if dom.len >= 2: f.resolve(dom[1]).num else: 1.0
     var k = 0
     while k < bounds.len and t >= f.resolve(bounds[k]).num: inc k
-    if fns.len == 0: return input
+    if fns.len == 0: result = input; return
     k = min(k, fns.high)
     let lo = if k == 0: d0 else: f.resolve(bounds[k - 1]).num
     let hi = if k < bounds.len: f.resolve(bounds[k]).num else: d1
@@ -407,10 +407,14 @@ proc decodeImage(p: var Painter; o: PObj; res: PObj; inlineData = ""; isInline =
     for x in f.g(o, "D").arr: dec.add f.resolve(x).num
   let codec = f.pictureFilter(o)
   var data = if isInline: inlineData else: f.decodeStream(o)
+  # (what is not read is known before `result` is set: `return nil` after
+  # it leaks the picture in Nim 2.2)
+  let jpeg = codec in ["DCTDecode", "DCT"]
+  if codec.len > 0 and not jpeg: return nil       # (JPEG 2000, JBIG2, fax: not read)
+  let j = if jpeg: (try: decodeJpeg(data) except CatchableError: nil) else: nil
+  if jpeg and j == nil: return nil
   result = newBitmap(w, h)
-  if codec in ["DCTDecode", "DCT"]:
-    let j = try: decodeJpeg(data) except CatchableError: nil
-    if j == nil: return nil
+  if jpeg:
     if j.w == w and j.h == h: result.px = j.px
     else:
       for y in 0 ..< h:
@@ -418,8 +422,6 @@ proc decodeImage(p: var Painter; o: PObj; res: PObj; inlineData = ""; isInline =
           result.px[y * w + x] = j.px[min(j.h - 1, y * j.h div h) * j.w + min(j.w - 1, x * j.w div w)]
     if dec.len >= 2 and dec[0] > dec[1]:
       for px in result.px.mitems: px = (px and 0xFF000000'u32) or ((not px) and 0xFFFFFF'u32)
-  elif codec.len > 0:
-    return nil                      # (JPEG 2000, JBIG2, fax: not read)
   else:
     let n = if isMask: 1 else: cs.n
     let rowBits = w * n * bpc
@@ -1151,7 +1153,7 @@ proc lineText(gs: seq[tuple[x, y, w, size: float; s: string; actual: bool]]): st
     for k in 0 ..< gs.len:
       if k > 0 and spaced(k - 1, k) and not result.endsWith(" "): result.add ' '
       result.add piece(k)
-    return result.strip
+    result = result.strip; return
   var given = true
   for g in gs:
     if not g.actual and g.s.strip.len > 0: given = false
@@ -1174,7 +1176,7 @@ proc lineText(gs: seq[tuple[x, y, w, size: float; s: string; actual: bool]]): st
       if u.strip.len == 0: continue
       if t.len > 0: t.add ' '
       t.add u.strip
-    return t
+    result = t; return
   # else as they stand, left to right, the right-to-left runs turned round
   readingOrder(units).strip
 

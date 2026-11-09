@@ -28,7 +28,7 @@ block formats:
   doAssert sizeText(1) == "1 byte"
   doAssert sizeText(1536) == "1.5 KB"
   doAssert sizeText(700 * 1024 * 1024) == "700 MB"
-  doAssert sizeText(3 * 1024 * 1024 * 1024 + 300 * 1024 * 1024) == "3.3 GB"
+  doAssert sizeText(3'i64 * 1024 * 1024 * 1024 + 300 * 1024 * 1024) == "3.3 GB"
   doAssert validName("ok.txt") == ""
   doAssert validName("a/b").len > 0 and validName("  ").len > 0
   doAssert extOf("Photo.JPG") == "jpg"

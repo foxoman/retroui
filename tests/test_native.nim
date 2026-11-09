@@ -76,8 +76,12 @@ block bridge:
   # every kind of argument, typed by its first letter
   discard javaStatic("x.Y", "m", "text", 7, jlong(8), 2.5, jfloat(1.5), true, jnull, jactivity())
   doAssert last()[3 .. ^1] == @["stext", "i7", "l8", "d2.5", "f1.5", "b1", "n", "a"], $last()
-  discard javaStatic("x.Y", "m", 1 shl 40, false, int32(-3))
-  doAssert last()[3 .. ^1] == @["i1099511627776", "b0", "i-3"]
+  when sizeof(int) == 8:
+    discard javaStatic("x.Y", "m", 1 shl 40, false, int32(-3))
+    doAssert last()[3 .. ^1] == @["i1099511627776", "b0", "i-3"]
+  else:
+    discard javaStatic("x.Y", "m", 1 shl 30, false, int32(-3))
+    doAssert last()[3 .. ^1] == @["i1073741824", "b0", "i-3"]
   # any string travels as it is: tabs, newlines, backslashes, NUL, Unicode
   let tricky = "a\tb\nc\r\\d \0e ä ع 😀 \\t"
   doAssert javaStatic("x.Y", "echo", tricky) == tricky

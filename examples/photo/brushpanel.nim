@@ -106,7 +106,7 @@ proc strokeBitmap(p: BrushPreset; w, h: int): Bitmap =
   if result != nil: return
   if strokesMade >= 3:
     wakeIn(16)
-    return nil
+    result = nil; return
   inc strokesMade
   result = toBitmapOf(strokePreview(p, w, h, inkPx(), rgbOf(ui.theme.window) or 0xFF000000'u32), w, h)
   if strokePrevs.len > 300: strokePrevs.clear()

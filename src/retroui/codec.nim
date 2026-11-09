@@ -10,11 +10,29 @@
 ## echo crc32(back)
 ## ```
 
-import std/[algorithm, bitops]
+import std/[algorithm, bitops, base64]
 import busy
 
 type Bytes* = seq[byte]
   ## Bytes, as the codecs take and give them (`toBytes` makes them of a string).
+
+proc unbase64*(text: string): string =
+  ## The bytes of base64 `text` (the standard letters or the web's `-` and
+  ## `_`; spaces, tabs and line ends left out). Raises `ValueError` on any
+  ## other letter, before anything is made: Nim's own `decode` raising
+  ## part way leaks the text it was making.
+  var clean = newStringOfCap(text.len)
+  for c in text:
+    case c
+    of 'A'..'Z', 'a'..'z', '0'..'9', '+', '/', '-', '_': clean.add c
+    of '=': clean.add c
+    of ' ', '\t', '\n', '\r': discard
+    else: raise newException(ValueError, "not base64: the letter " & $ord(c))
+  # ('=' only at the end: in the middle `decode` would refuse it)
+  var k = clean.len
+  while k > 0 and clean[k - 1] == '=': dec k
+  if '=' in clean.toOpenArray(0, k - 1): raise newException(ValueError, "not base64: '=' inside")
+  result = decode(clean)
 
 proc toBytes*(s: string): Bytes =
   ## The bytes of `s`.
@@ -532,6 +550,29 @@ proc adler32Combine*(a1, a2: uint32; len2: int): uint32 =
 var compressPieces*: proc (n: int; body: proc (lo, hi: int) {.closure.}) {.nimcall.}
   ## Runs `body` on pieces of `0 ..< n` at once (set by `retroui/parallel`;
   ## without it, one after the other).
+
+proc deflatePieces*(data: openArray[byte]; piece: int; level = 6): tuple[stream: Bytes; sizes: seq[int]] =
+  ## Raw deflate of `data` in pieces of `piece` bytes, each compressed on
+  ## its own and ending on a whole byte (one stream all the same), with the
+  ## compressed size of every piece: what an MSIX's block map lists.
+  let n = data.len
+  let pieces = max(1, (n + piece - 1) div piece)
+  var outs = newSeq[Bytes](pieces)
+  let dp = if n > 0: cast[ptr UncheckedArray[byte]](unsafeAddr data[0]) else: nil
+  let op = cast[ptr UncheckedArray[Bytes]](addr outs[0])
+  let body = proc (lo, hi: int) =
+    for k in lo ..< hi:
+      let a = k * piece
+      let b = min(n, a + piece)
+      var w: BitWriter
+      if b > a: w.deflateBlocks(toOpenArray(dp, a, b - 1), level, k == pieces - 1)
+      else: w.deflateBlocks(newSeq[byte](), level, true)
+      op[k] = w.finish()
+  if compressPieces != nil and pieces > 1: compressPieces(pieces, body)
+  else: body(0, pieces)
+  for o in outs:
+    result.sizes.add o.len
+    result.stream.add o
 
 proc zlibCompressLevel*(data: openArray[byte]; level = 6): Bytes =
   ## A zlib stream of `data`: big data in pieces of a megabyte compressed

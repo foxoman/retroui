@@ -2944,15 +2944,15 @@ proc getMember(vm: Vm; v: Value; key: string; n: Node): Value =
   case v.kind
   of vkObject: result = v.oval.getProp(key)
   of vkArray:
-    if key == "length": return numV(float(v.aval.items.len))
+    if key == "length": result = numV(float(v.aval.items.len)); return
     let i = indexKey(key)
-    if i >= 0: return (if i < v.aval.items.len: v.aval.items[i] else: undef())
+    if i >= 0: result = (if i < v.aval.items.len: v.aval.items[i] else: undef()); return
     let m = methodOf(key)
     if m in arrMethods: result = boundMethod(v, m)
   of vkStr:
-    if key == "length": return numV(float(v.sval.cpCount))
+    if key == "length": result = numV(float(v.sval.cpCount)); return
     let i = indexKey(key)
-    if i >= 0: return (if i < v.sval.cpCount: strV(v.sval.cpSlice(i, i + 1)) else: undef())
+    if i >= 0: result = (if i < v.sval.cpCount: strV(v.sval.cpSlice(i, i + 1)) else: undef()); return
     let m = methodOf(key)
     if m in strMethods: result = boundMethod(v, m)
   of vkNum:
@@ -2965,14 +2965,14 @@ proc getMember(vm: Vm; v: Value; key: string; n: Node): Value =
     let f = v.fval
     if f.props != nil:
       let i = f.props.find(key)
-      if i >= 0: return f.props.vals[i]
+      if i >= 0: result = f.props.vals[i]; return
     if key == "name": result = strV(f.name)
     elif key == "length": result = numV(float(if f.kind == fkScript: f.proto.nparams else: 0))
     else:
       let m = methodOf(key)
       if m in fnMethods: result = boundMethod(v, m)
   of vkHost:
-    if v.hval.get == nil: return undef()
+    if v.hval.get == nil: result = undef(); return
     vm.hostGuard(n):
       result = v.hval.get(key)
   of vkUndefined, vkNull:
@@ -3278,19 +3278,19 @@ proc evalCall(vm: Vm; n: Node): Value =
     of vkFunction:
       let f = this.fval
       if c.meth in fnMethods and (f.props == nil or f.props.find(c.name) < 0):
-        return vm.callMethodArgs(this, c.meth, n)
+        result = vm.callMethodArgs(this, c.meth, n); return
       fnv = vm.getMember(this, c.name, c)
     of vkUndefined, vkNull:
       if nfOptional in c.flags:
         vm.optShort = true
-        return undef()
+        result = undef(); return
       vm.typeErr(c, "Cannot read properties of " & kindWord(this) & " (reading '" & c.name & "')")
   of nkIndex:
     this = eval(vm, c.a)
-    if nfInOpt in c.flags and vm.optShort: return undef()
+    if nfInOpt in c.flags and vm.optShort: result = undef(); return
     if this.kind <= vkNull and nfOptional in c.flags:
       vm.optShort = true
-      return undef()
+      result = undef(); return
     let k = eval(vm, c.b)
     if this.kind == vkHost and this.hval.call != nil:
       let key = propKey(k)
@@ -3305,10 +3305,10 @@ proc evalCall(vm: Vm; n: Node): Value =
     fnv = vm.getIndex(this, k, c)
   else:
     fnv = eval(vm, c)
-    if nfInOpt in c.flags and vm.optShort: return undef()
+    if nfInOpt in c.flags and vm.optShort: result = undef(); return
   if nfOptional in n.flags and fnv.kind <= vkNull:
     vm.optShort = true
-    return undef()
+    result = undef(); return
   let base = vm.sp
   vm.pushArgs(n.list)
   vm.callValue(fnv, this, base, vm.sp - base, n)
@@ -3576,7 +3576,7 @@ proc assignCompound(vm: Vm; n: Node): Value {.noinline.} =
           vm.checkStr(st.s.len + add.len, n)
           st.s.add add
         st.offs.setLen(0)
-        return p[]
+        result = p[]; return
       cur = p[]
   result = vm.binop(op, cur, rhs, n)
   vm.setRef(r, result)
@@ -3604,7 +3604,7 @@ proc evalAssign(vm: Vm; n: Node): Value =
       var x: float64
       if op == nkAdd:
         result = eval(vm, n.b)
-        if result.kind != vkNum: return vm.compoundSlow(n, numV(old), move(result))
+        if result.kind != vkNum: result = vm.compoundSlow(n, numV(old), move(result)); return
         x = old + result.nval
       else:
         let y = vm.evalNum(n.b)
@@ -3696,7 +3696,7 @@ proc eval(vm: Vm; n: Node): Value =
     result = Value(kind: vkFunction, fval: Fn(kind: fkScript, name: n.proto.name, proto: n.proto, env: vm.env))
   of nkMember:
     let o = eval(vm, n.a)
-    if nfInOpt in n.flags and vm.optShort: return undef()
+    if nfInOpt in n.flags and vm.optShort: result = undef(); return
     case o.kind
     of vkObject: result = o.oval.getProp(n.name)
     of vkArray:
@@ -3705,15 +3705,15 @@ proc eval(vm: Vm; n: Node): Value =
     of vkUndefined, vkNull:
       if nfOptional in n.flags:
         vm.optShort = true
-        return undef()
+        result = undef(); return
       result = vm.getMember(o, n.name, n)
     else: result = vm.getMember(o, n.name, n)
   of nkIndex:
     let o = eval(vm, n.a)
-    if nfInOpt in n.flags and vm.optShort: return undef()
+    if nfInOpt in n.flags and vm.optShort: result = undef(); return
     if o.kind <= vkNull and nfOptional in n.flags:
       vm.optShort = true
-      return undef()
+      result = undef(); return
     let k = eval(vm, n.b)
     result = vm.getIndex(o, k, n)
   of nkCall: result = vm.evalCall(n)
@@ -3893,7 +3893,7 @@ proc execTry(vm: Vm; n: Node): Completion =
     let savedRet = vm.retVal
     let savedLabel = vm.label
     let fc = exec(vm, n.d)
-    if fc != cNormal: return fc
+    if fc != cNormal: result = fc; return
     vm.retVal = savedRet
     vm.label = savedLabel
     if pending != nil: raise pending
@@ -3990,14 +3990,14 @@ proc exec(vm: Vm; n: Node): Completion =
       if c != cNormal:
         if c == cBreak and vm.ownsLabel(n): break
         elif c == cContinue and vm.ownsLabel(n): continue
-        else: return c
+        else: result = c; return
   of nkDoWhile:
     while true:
       let c = exec(vm, n.b)
       if c != cNormal:
         if c == cBreak and vm.ownsLabel(n): break
         elif c == cContinue and vm.ownsLabel(n): discard
-        else: return c
+        else: result = c; return
       if not vm.evalCond(n.a): break
   of nkFor: result = vm.execFor(n)
   of nkForOf, nkForIn: result = vm.execForOf(n)

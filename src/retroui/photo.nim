@@ -16,6 +16,7 @@
 
 import std/[math, tables, strutils, json, os, base64, algorithm, locks, typedthreads, atomics, hashes]
 import gfx, imaging, zip, jpeg, parallel, textengine, busy, photoinks
+from codec import unbase64
 export photoinks
 
 template pixPtr(s: seq[uint32]): ptr UncheckedArray[uint32] =
@@ -1495,8 +1496,9 @@ proc channelTables(lut: seq[uint32]): seq[uint8] =
       let xi = x * n div 255
       let xf = x * n - xi * 255
       let x1 = min(xi + 1, n)
-      result[c * 256 + x] = uint8((f(xi) * (255 - xf) * 65025 + f(x1) * xf * 65025 + 255 * 255 * 255 div 2) div
-                                  (255 * 255 * 255))
+      # (in 64 bits: 255^4 is past what a 32-bit int holds)
+      result[c * 256 + x] = uint8((int64(f(xi)) * (255 - xf) * 65025 + int64(f(x1)) * xf * 65025 +
+                                   255 * 255 * 255 div 2) div (255 * 255 * 255))
 
 proc ensureLut(L: Layer): bool =
   ## An adjustment layer's table, made when its settings changed.
@@ -1540,7 +1542,7 @@ proc lutAt(lut: ptr UncheckedArray[uint32]; p: uint32): uint32 {.inline.} =
     let c11 = v(r1, g1, bi) * (255 - bf) + v(r1, g1, b1) * bf
     let c0 = c00 * (255 - gf) + c01 * gf
     let c1 = c10 * (255 - gf) + c11 * gf
-    o[c] = (c0 * (255 - rf) + c1 * rf + 255 * 255 * 255 div 2) div (255 * 255 * 255)
+    o[c] = int((int64(c0) * (255 - rf) + int64(c1) * rf + 255 * 255 * 255 div 2) div (255 * 255 * 255))
   (p and 0xFF000000'u32) or (uint32(o[0]) shl 16) or (uint32(o[1]) shl 8) or uint32(o[2])
 
 type PlanePtr = object
@@ -1853,28 +1855,29 @@ proc bilinearAt(src: ptr UncheckedArray[uint32]; sw, sh: int; sx, sy: float; str
   let ty = int((sy - fy) * 256)
   template at(px, py: int): uint32 =
     (if px < 0 or py < 0 or px >= sw or py >= sh: 0'u32 else: src[py * st + px])
-  var a, r, g, b = 0
+  # (64-bit sums: a color times its weight passes 2^31)
+  var a, r, g, b = 0'i64
   for (ddx, ddy, wt) in [(0, 0, (256 - tx) * (256 - ty)), (1, 0, tx * (256 - ty)),
                          (0, 1, (256 - tx) * ty), (1, 1, tx * ty)]:
     if wt == 0: continue
     let p = at(x0 + ddx, y0 + ddy)
-    let pa = int(p shr 24) * wt
+    let pa = int64(p shr 24) * int64(wt)
     if pa == 0: continue
     a += pa
-    r += int((p shr 16) and 255) * pa
-    g += int((p shr 8) and 255) * pa
-    b += int(p and 255) * pa
+    r += int64((p shr 16) and 255) * pa
+    g += int64((p shr 8) and 255) * pa
+    b += int64(p and 255) * pa
   if a < 32768: return 0
   (uint32((a + 32768) shr 16) shl 24) or (uint32(r div a) shl 16) or (uint32(g div a) shl 8) or uint32(b div a)
 
-proc bilinearFix(src: ptr UncheckedArray[uint32]; sw, sh, st: int; sxF, syF: int): uint32 {.inline.} =
+proc bilinearFix(src: ptr UncheckedArray[uint32]; sw, sh, st: int; sxF, syF: int64): uint32 {.inline.} =
   ## `bilinearAt` at 32.32 fixed-point `sxF`, `syF` (rows `st` apart): four
   ## opaque pixels mixed side by side in integers -- a photo turned or
-  ## scaled quickly.
-  let x0 = ashr(sxF, 32)
-  let y0 = ashr(syF, 32)
-  let tx = (sxF shr 24) and 255
-  let ty = (syF shr 24) and 255
+  ## scaled quickly. (64 bits on every system: 32-bit ones too)
+  let x0 = int(ashr(sxF, 32))
+  let y0 = int(ashr(syF, 32))
+  let tx = int((sxF shr 24) and 255)
+  let ty = int((syF shr 24) and 255)
   if x0 >= 0 and y0 >= 0 and x0 + 1 < sw and y0 + 1 < sh:
     let i = y0 * st + x0
     let p00 = src[i]
@@ -1893,7 +1896,7 @@ proc bilinearFix(src: ptr UncheckedArray[uint32]; sw, sh, st: int; sxF, syF: int
       return 0xFF000000'u32 or (uint32((srb shr 48) and 255) shl 16) or (uint32((sg shr 16) and 255) shl 8) or
              uint32((srb shr 16) and 255)
   # (at the edges, or with transparency: weighed by alpha)
-  var a, r, g, b = 0
+  var a, r, g, b = 0'i64
   for (ddx, ddy, wt) in [(0, 0, (256 - tx) * (256 - ty)), (1, 0, tx * (256 - ty)),
                          (0, 1, (256 - tx) * ty), (1, 1, tx * ty)]:
     if wt == 0: continue
@@ -1901,12 +1904,12 @@ proc bilinearFix(src: ptr UncheckedArray[uint32]; sw, sh, st: int; sxF, syF: int
     let py = y0 + ddy
     if px < 0 or py < 0 or px >= sw or py >= sh: continue
     let p = src[py * st + px]
-    let pa = int(p shr 24) * wt
+    let pa = int64(p shr 24) * int64(wt)
     if pa == 0: continue
     a += pa
-    r += int((p shr 16) and 255) * pa
-    g += int((p shr 8) and 255) * pa
-    b += int(p and 255) * pa
+    r += int64((p shr 16) and 255) * pa
+    g += int64((p shr 8) and 255) * pa
+    b += int64(p and 255) * pa
   if a < 32768: return 0
   (uint32((a + 32768) shr 16) shl 24) or (uint32(r div a) shl 16) or (uint32(g div a) shl 8) or uint32(b div a)
 
@@ -3667,10 +3670,10 @@ proc statePixels*(d: Doc; L: Layer; k: int): seq[uint32] =
         var there = false
         for pr in st.layerList.props:
           if pr.layer == L or pr.s.mask == L: there = true
-        if not there and L != d.maskLayer: return @[]
+        if not there and L != d.maskLayer: result = @[]; return
       if st.hasSnap:
         let sp = snapPixels(st.snap, L, d.w, d.h)
-        if sp.len == 0: return @[]
+        if sp.len == 0: result = @[]; return
         result = sp
   elif k > cur:
     # forward: an undone step keeps what was after it
@@ -3680,7 +3683,7 @@ proc statePixels*(d: Doc; L: Layer; k: int): seq[uint32] =
       template st: untyped = d.redoSteps[si]
       if st.hasSnap:
         let sp = snapPixels(st.snap, L, d.w, d.h)
-        if sp.len == 0: return @[]
+        if sp.len == 0: result = @[]; return
         result = sp
       for t in st.tiles:
         if t.layer == L: discard tileInto(result, d.w, d.h, t)
@@ -6115,14 +6118,14 @@ proc warpOnto*(d: Doc; base: var seq[uint32]; src: ptr UncheckedArray[uint32]; s
         # (the source point steps evenly: in 32.32 fixed point)
         const one = 4294967296.0
         let fx0 = xa.float + 0.5
-        var sxF = int((( u0 + du * fx0) * swf - 0.5) * one)
-        var syF = int(((v0 + dv * fx0) * shf - 0.5) * one)
-        let dsx = int(du * swf * one)
-        let dsy = int(dv * shf * one)
-        let loX = int((-0.01 * swf - 0.5) * one)
-        let hiX = int((1.01 * swf - 0.5) * one)
-        let loY = int((-0.01 * shf - 0.5) * one)
-        let hiY = int((1.01 * shf - 0.5) * one)
+        var sxF = int64((( u0 + du * fx0) * swf - 0.5) * one)
+        var syF = int64(((v0 + dv * fx0) * shf - 0.5) * one)
+        let dsx = int64(du * swf * one)
+        let dsy = int64(dv * shf * one)
+        let loX = int64((-0.01 * swf - 0.5) * one)
+        let hiX = int64((1.01 * swf - 0.5) * one)
+        let loY = int64((-0.01 * shf - 0.5) * one)
+        let hiY = int64((1.01 * shf - 0.5) * one)
         for x in xa ..< xb:
           if sxF >= loX and sxF <= hiX and syF >= loY and syF <= hiY:
             let c = bilinearFix(fsp, fsw, fsh, fst, sxF, syF)
@@ -6680,7 +6683,7 @@ proc paintFrom(j: JsonNode): ShapePaint =
                                     mid: (if e.len == 3: clamp(e[2].getFloat, 0.0, 1.0) else: 0.0))
   if j.hasKey("pattern"):
     try:
-      let b = decodePng(decode(j["pattern"].getStr))
+      let b = decodePng(unbase64(j["pattern"].getStr))
       if b != nil and b.w > 0 and b.w * b.h <= 4096 * 4096:
         result.pattern = b.px
         result.pw = b.w
@@ -6962,9 +6965,9 @@ proc loadRpd*(path: string): Doc =
     if at >= 0:
       result = move unpacked[at]
       return
-    if not files.hasKey(file): return nil
+    if not files.hasKey(file): result = nil; return
     let b = decodePng(readEntry(path, files[file]))
-    if b == nil or b.w != w or b.h != h: return nil
+    if b == nil or b.w != w or b.h != h: result = nil; return
     b
   for lj in j{"layers"}.getElems:
     let b = pic(lj{"file"}.getStr)

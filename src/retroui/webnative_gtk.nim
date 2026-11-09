@@ -11,7 +11,7 @@ import std/[locks, dynlib, os, tables]
 import uirelays/drivers/x11_driver
 
 type
-  GtkCmdKind = enum gcShow, gcHide, gcClose, gcNav, gcRun, gcAllow
+  GtkCmdKind = enum gcShow, gcHide, gcClose, gcNav, gcRun, gcAllow, gcQuit, gcPermit
   GtkCmd = object
     kind: GtkCmdKind
     key: string
@@ -21,12 +21,21 @@ type
     nav: WebNav
     hosts: seq[string]
     zoom: float
+    permit: set[WebPermission]
   GtkView = object
     win, wv, ucm: pointer
     xid: culong
     loaded: string
     hosts: seq[string]
     zoom: float
+    permit: set[WebPermission]
+  XImage {.bycopy.} = object
+    width, height, xoffset, format: cint
+    data: ptr UncheckedArray[uint8]
+    byteOrder, bitmapUnit, bitmapBitOrder, bitmapPad, depth, bytesPerLine, bitsPerPixel: cint
+    redMask, greenMask, blueMask: culong
+    obdata: pointer
+    createImage, destroyImage, getPixel, putPixel, subImage, addPixel: pointer
 
   GCallback = proc () {.cdecl.}
 
@@ -34,15 +43,20 @@ var
   gtkLock: Lock
   gtkCmds: seq[GtkCmd]                       # (under the lock)
   gtkShared: Table[string, WebNativeState]   # (under the lock)
-  gtkState = 0                               # 0 not started, 1 starting, 2 ready, -1 none
+  gtkState = 0                               # 0 not started, 1 starting, 2 ready, -1 none,
+                                             # 3 ended
   gtkThread: Thread[void]
   gtkViews: Table[string, GtkView]           # (GTK's thread only)
   gtkKeyOf: Table[pointer, string]           # (GTK's thread only) a view's or manager's key
   gtkXDpy: pointer                           # (GTK's thread only) GTK's X connection
+  gtkPlaces: Table[string, tuple[xid: culong; w, h: int]]   # (under the lock) for pictures
+  gtkDownloads: Table[pointer, string]       # (GTK's thread only) a download's page
+  gtkPermits: Table[string, set[WebPermission]]   # (under the lock) what the app allows
 
   # GTK, GDK, GLib, GObject
   gtk_init_check: proc (argc, argv: pointer): cint {.cdecl, gcsafe.}
   gtk_main: proc () {.cdecl, gcsafe.}
+  gtk_main_quit: proc () {.cdecl, gcsafe.}
   gtk_window_new: proc (kind: cint): pointer {.cdecl, gcsafe.}
   gtk_window_set_default_size: proc (w: pointer; width, height: cint) {.cdecl, gcsafe.}
   gtk_window_move: proc (w: pointer; x, y: cint) {.cdecl, gcsafe.}
@@ -93,6 +107,44 @@ var
   webkit_policy_decision_ignore: proc (d: pointer) {.cdecl, gcsafe.}
   webkit_javascript_result_get_js_value: proc (r: pointer): pointer {.cdecl, gcsafe.}
   jsc_value_to_string: proc (v: pointer): cstring {.cdecl, gcsafe.}
+  # pictures of a page (the app's thread, its own X connection)
+  XGetImage: proc (dpy: pointer; d: culong; x, y: cint; w, h: cuint; planes: culong;
+                   format: cint): ptr XImage {.cdecl, gcsafe.}
+  # the app's own address (app://local/...)
+  g_malloc: proc (n: csize_t): pointer {.cdecl, gcsafe.}
+  g_object_unref: proc (o: pointer) {.cdecl, gcsafe.}
+  g_quark_from_static_string: proc (s: cstring): uint32 {.cdecl, gcsafe.}
+  g_error_new_literal: proc (domain: uint32; code: cint; msg: cstring): pointer {.cdecl, gcsafe.}
+  g_error_free: proc (e: pointer) {.cdecl, gcsafe.}
+  g_memory_input_stream_new_from_data: proc (data: pointer; n: int; free: pointer): pointer {.cdecl, gcsafe.}
+  g_type_check_instance_is_a: proc (inst: pointer; t: csize_t): cint {.cdecl, gcsafe.}
+  webkit_web_context_get_default: proc (): pointer {.cdecl, gcsafe.}
+  webkit_web_context_register_uri_scheme: proc (c: pointer; scheme: cstring; cb, data, destroy: pointer) {.cdecl, gcsafe.}
+  webkit_web_context_get_security_manager: proc (c: pointer): pointer {.cdecl, gcsafe.}
+  webkit_security_manager_register_uri_scheme_as_secure: proc (m: pointer; s: cstring) {.cdecl, gcsafe.}
+  webkit_security_manager_register_uri_scheme_as_cors_enabled: proc (m: pointer; s: cstring) {.cdecl, gcsafe.}
+  webkit_uri_scheme_request_get_path: proc (r: pointer): cstring {.cdecl, gcsafe.}
+  webkit_uri_scheme_request_finish: proc (r, stream: pointer; n: int64; mime: cstring) {.cdecl, gcsafe.}
+  webkit_uri_scheme_request_finish_error: proc (r, err: pointer) {.cdecl, gcsafe.}
+  # what a page asks to use
+  webkit_permission_request_allow: proc (r: pointer) {.cdecl, gcsafe.}
+  webkit_permission_request_deny: proc (r: pointer) {.cdecl, gcsafe.}
+  webkit_user_media_permission_request_get_type: proc (): csize_t {.cdecl, gcsafe.}
+  webkit_geolocation_permission_request_get_type: proc (): csize_t {.cdecl, gcsafe.}
+  webkit_notification_permission_request_get_type: proc (): csize_t {.cdecl, gcsafe.}
+  webkit_user_media_permission_is_for_audio_device: proc (r: pointer): cint {.cdecl, gcsafe.}
+  webkit_user_media_permission_is_for_video_device: proc (r: pointer): cint {.cdecl, gcsafe.}
+  # printing, downloads
+  webkit_print_operation_new: proc (v: pointer): pointer {.cdecl, gcsafe.}
+  webkit_print_operation_run_dialog: proc (op, parent: pointer): cint {.cdecl, gcsafe.}
+  webkit_download_get_request: proc (d: pointer): pointer {.cdecl, gcsafe.}
+  webkit_download_get_web_view: proc (d: pointer): pointer {.cdecl, gcsafe.}
+  webkit_download_set_destination: proc (d: pointer; uri: cstring) {.cdecl, gcsafe.}
+  webkit_download_get_estimated_progress: proc (d: pointer): cdouble {.cdecl, gcsafe.}
+  webkit_response_policy_decision_is_mime_type_supported: proc (d: pointer): cint {.cdecl, gcsafe.}
+  webkit_policy_decision_download: proc (d: pointer) {.cdecl, gcsafe.}
+
+initLock gtkLock
 
 const
   GtkWindowPopup = 1.cint
@@ -100,6 +152,7 @@ const
   InjectAtStart = 0.cint
   PolicyNavigation = 0.cint
   PolicyNewWindow = 1.cint
+  PolicyResponse = 2.cint
   RevertToParent = 2.cint
 
 proc loadGtk(): bool =
@@ -124,6 +177,7 @@ proc loadGtk(): bool =
                  "libwebkit2gtk-4.0.so"])
   gtk.get(gtk_init_check, "gtk_init_check")
   gtk.get(gtk_main, "gtk_main")
+  gtk.get(gtk_main_quit, "gtk_main_quit")
   gtk.get(gtk_window_new, "gtk_window_new")
   gtk.get(gtk_window_set_default_size, "gtk_window_set_default_size")
   gtk.get(gtk_window_move, "gtk_window_move")
@@ -144,6 +198,15 @@ proc loadGtk(): bool =
   x11.get(XReparentWindow, "XReparentWindow")
   x11.get(XSetInputFocus, "XSetInputFocus")
   x11.get(XFlush, "XFlush")
+  x11.get(XGetImage, "XGetImage")
+  let gio = lib(["libgio-2.0.so.0", "libgio-2.0.so"])
+  glib.get(g_malloc, "g_malloc")
+  glib.get(g_quark_from_static_string, "g_quark_from_static_string")
+  glib.get(g_error_new_literal, "g_error_new_literal")
+  glib.get(g_error_free, "g_error_free")
+  gobj.get(g_object_unref, "g_object_unref")
+  gobj.get(g_type_check_instance_is_a, "g_type_check_instance_is_a")
+  gio.get(g_memory_input_stream_new_from_data, "g_memory_input_stream_new_from_data")
   wk.get(webkit_user_content_manager_new, "webkit_user_content_manager_new")
   wk.get(webkit_user_content_manager_register_script_message_handler,
          "webkit_user_content_manager_register_script_message_handler")
@@ -175,6 +238,32 @@ proc loadGtk(): bool =
   wk.get(webkit_uri_request_get_uri, "webkit_uri_request_get_uri")
   wk.get(webkit_policy_decision_ignore, "webkit_policy_decision_ignore")
   wk.get(webkit_javascript_result_get_js_value, "webkit_javascript_result_get_js_value")
+  wk.get(webkit_web_context_get_default, "webkit_web_context_get_default")
+  wk.get(webkit_web_context_register_uri_scheme, "webkit_web_context_register_uri_scheme")
+  wk.get(webkit_web_context_get_security_manager, "webkit_web_context_get_security_manager")
+  wk.get(webkit_security_manager_register_uri_scheme_as_secure,
+         "webkit_security_manager_register_uri_scheme_as_secure")
+  wk.get(webkit_security_manager_register_uri_scheme_as_cors_enabled,
+         "webkit_security_manager_register_uri_scheme_as_cors_enabled", false)
+  wk.get(webkit_uri_scheme_request_get_path, "webkit_uri_scheme_request_get_path")
+  wk.get(webkit_uri_scheme_request_finish, "webkit_uri_scheme_request_finish")
+  wk.get(webkit_uri_scheme_request_finish_error, "webkit_uri_scheme_request_finish_error")
+  wk.get(webkit_permission_request_allow, "webkit_permission_request_allow")
+  wk.get(webkit_permission_request_deny, "webkit_permission_request_deny")
+  wk.get(webkit_user_media_permission_request_get_type, "webkit_user_media_permission_request_get_type")
+  wk.get(webkit_geolocation_permission_request_get_type, "webkit_geolocation_permission_request_get_type")
+  wk.get(webkit_notification_permission_request_get_type, "webkit_notification_permission_request_get_type")
+  wk.get(webkit_user_media_permission_is_for_audio_device, "webkit_user_media_permission_is_for_audio_device")
+  wk.get(webkit_user_media_permission_is_for_video_device, "webkit_user_media_permission_is_for_video_device")
+  wk.get(webkit_print_operation_new, "webkit_print_operation_new")
+  wk.get(webkit_print_operation_run_dialog, "webkit_print_operation_run_dialog")
+  wk.get(webkit_download_get_request, "webkit_download_get_request")
+  wk.get(webkit_download_get_web_view, "webkit_download_get_web_view")
+  wk.get(webkit_download_set_destination, "webkit_download_set_destination")
+  wk.get(webkit_download_get_estimated_progress, "webkit_download_get_estimated_progress")
+  wk.get(webkit_response_policy_decision_is_mime_type_supported,
+         "webkit_response_policy_decision_is_mime_type_supported")
+  wk.get(webkit_policy_decision_download, "webkit_policy_decision_download")
   # (JavaScriptCore comes with WebKit)
   wk.get(jsc_value_to_string, "jsc_value_to_string", false)
   if jsc_value_to_string == nil:
@@ -227,6 +316,12 @@ proc onMessage(ucm, res, data: pointer) {.cdecl, gcsafe.} =
 proc onPolicy(wv, decision: pointer; kind: cint; data: pointer): cint {.cdecl, gcsafe.} =
   ## Where the page goes: an address it is not allowed is kept from it (the
   ## app is told); a new window opens in the same view.
+  if kind == PolicyResponse:
+    # (what the page cannot show -- an archive, a program -- is downloaded)
+    if webkit_response_policy_decision_is_mime_type_supported(decision) == 0:
+      webkit_policy_decision_download(decision)
+      return 1
+    return 0
   if kind != PolicyNavigation and kind != PolicyNewWindow: return 0
   let key = keyOf(wv)
   let action = webkit_navigation_policy_decision_get_navigation_action(decision)
@@ -247,6 +342,105 @@ proc onPolicy(wv, decision: pointer; kind: cint; data: pointer): cint {.cdecl, g
     webkit_web_view_load_uri(wv, url.cstring)
     return 1
   0
+
+proc onPermission(wv, req, data: pointer): cint {.cdecl, gcsafe.} =
+  ## A page asks to use the camera, the microphone, the location or
+  ## notifications: allowed only what the app allowed (`webPermit`); the
+  ## rest is refused and the app told.
+  let key = keyOf(wv)
+  var wanted: set[WebPermission]
+  if g_type_check_instance_is_a(req, webkit_user_media_permission_request_get_type()) != 0:
+    if webkit_user_media_permission_is_for_video_device(req) != 0: wanted.incl wpCamera
+    if webkit_user_media_permission_is_for_audio_device(req) != 0: wanted.incl wpMicrophone
+  elif g_type_check_instance_is_a(req, webkit_geolocation_permission_request_get_type()) != 0:
+    wanted.incl wpLocation
+  elif g_type_check_instance_is_a(req, webkit_notification_permission_request_get_type()) != 0:
+    wanted.incl wpNotifications
+  var permit: set[WebPermission]
+  {.cast(gcsafe).}:
+    if gtkViews.hasKey(key): permit = gtkViews[key].permit
+  if wanted.len > 0 and wanted <= permit:
+    webkit_permission_request_allow(req)
+  else:
+    webkit_permission_request_deny(req)
+    shared(key):
+      for p in wanted - permit:
+        if p notin it.asked: it.asked.add p
+  1
+
+proc onAppScheme(req, data: pointer) {.cdecl, gcsafe.} =
+  ## app://local/PATH: a file of the app's folder (`webNativeAppFolder`).
+  let p = webkit_uri_scheme_request_get_path(req)
+  let file = appFile(if p == nil: "" else: $p)
+  var body = ""
+  if file.len > 0:
+    try: body = readFile(file) except IOError, OSError: discard
+  if file.len == 0 or (body.len == 0 and getFileSize(file) > 0):
+    let e = g_error_new_literal(g_quark_from_static_string("retro"), 404, "Not in the app's folder")
+    webkit_uri_scheme_request_finish_error(req, e)
+    g_error_free(e)
+    return
+  let mem = g_malloc(csize_t(max(1, body.len)))
+  if body.len > 0: copyMem(mem, addr body[0], body.len)
+  let stream = g_memory_input_stream_new_from_data(mem, body.len, cast[pointer](g_free))
+  webkit_uri_scheme_request_finish(req, stream, int64(body.len), mimeOf(file).cstring)
+  g_object_unref(stream)
+
+proc dlKey(dl: pointer): string =
+  {.cast(gcsafe).}: gtkDownloads.getOrDefault(dl, "")
+
+proc onDownloadDest(dl: pointer; name: cstring; data: pointer): cint {.cdecl, gcsafe.} =
+  ## Where a download goes: the user's Downloads folder, a free name there.
+  let base = downloadsFolder()
+  try: createDir(base) except OSError: discard
+  var file = base / (if name == nil or name[0] == '\0': "download" else: extractFilename($name))
+  var n = 1
+  let (dir, stem, ext) = file.splitFile
+  while fileExists(file):
+    file = dir / stem & " (" & $n & ")" & ext
+    inc n
+  webkit_download_set_destination(dl, fileUrl(file).cstring)
+  let key = dlKey(dl)
+  shared(key):
+    for d in it.downloads.mitems:
+      if d.file.len == 0 and not d.done: d.file = file
+  1
+
+proc onDownloadProgress(dl, spec, data: pointer) {.cdecl, gcsafe.} =
+  let key = dlKey(dl)
+  let p = int(webkit_download_get_estimated_progress(dl) * 100)
+  shared(key):
+    if it.downloads.len > 0: it.downloads[^1].progress = clamp(p, 0, 100)
+
+proc onDownloadDone(dl, data: pointer) {.cdecl, gcsafe.} =
+  let key = dlKey(dl)
+  shared(key):
+    for d in it.downloads.mitems:
+      if not d.done and not d.failed:
+        d.done = true
+        d.progress = 100
+        break
+
+proc onDownloadFailed(dl, err, data: pointer) {.cdecl, gcsafe.} =
+  let key = dlKey(dl)
+  shared(key):
+    for d in it.downloads.mitems:
+      if not d.done and not d.failed:
+        d.failed = true
+        break
+
+proc onDownload(ctx, dl, data: pointer) {.cdecl, gcsafe.} =
+  ## A page starts a download: into the Downloads folder, the app told.
+  let key = keyOf(webkit_download_get_web_view(dl))
+  let req = webkit_download_get_request(dl)
+  let u = if req == nil: nil else: webkit_uri_request_get_uri(req)
+  {.cast(gcsafe).}: gtkDownloads[dl] = key
+  shared(key): it.downloads.add WebDownload(url: if u == nil: "" else: $u)
+  discard g_signal_connect_data(dl, "decide-destination", cast[GCallback](onDownloadDest), nil, nil, 0)
+  discard g_signal_connect_data(dl, "notify::estimated-progress", cast[GCallback](onDownloadProgress),
+                                nil, nil, 0)
+  discard g_signal_connect_data(dl, "finished", cast[GCallback](onDownloadDone), nil, nil, 0)
+  discard g_signal_connect_data(dl, "failed", cast[GCallback](onDownloadFailed), nil, nil, 0)
 
 proc onPress(widget, event, data: pointer): cint {.cdecl, gcsafe.} =
   ## A press in the page: the keyboard goes to it.
@@ -306,6 +500,7 @@ proc exec(c: GtkCmd) =
                   "load-changed"]:
           connect(v.wv, s, onChange)
         connect(v.wv, "decide-policy", onPolicy)
+        connect(v.wv, "permission-request", onPermission)
         connect(v.wv, "button-press-event", onPress)
         v.win = gtk_window_new(GtkWindowPopup)
         gtkKeyOf[v.win] = c.key
@@ -325,7 +520,9 @@ proc exec(c: GtkCmd) =
         v.zoom = c.zoom
         webkit_web_view_set_zoom_level(v.wv, c.zoom)
       if c.text != v.loaded: v.load(c.text)
+      v.permit = c.permit
       gtkViews[c.key] = v
+      withLock gtkLock: gtkPlaces[c.key] = (v.xid, max(1, c.w), max(1, c.h))
     of gcHide:
       if gtkViews.hasKey(c.key): gtk_widget_hide(gtkViews[c.key].win)
     of gcClose:
@@ -336,6 +533,7 @@ proc exec(c: GtkCmd) =
         gtkKeyOf.del v.win
         gtk_widget_destroy(v.win)
         gtkViews.del c.key
+        withLock gtkLock: gtkPlaces.del c.key
     of gcNav:
       if gtkViews.hasKey(c.key):
         let wv = gtkViews[c.key].wv
@@ -344,10 +542,23 @@ proc exec(c: GtkCmd) =
         of wnForward: webkit_web_view_go_forward(wv)
         of wnReload: webkit_web_view_reload(wv)
         of wnStop: webkit_web_view_stop_loading(wv)
+        of wnPrint:
+          let op = webkit_print_operation_new(wv)
+          discard webkit_print_operation_run_dialog(op, nil)
+          g_object_unref(op)
     of gcRun:
       if gtkViews.hasKey(c.key): runJs(gtkViews[c.key].wv, c.text)
     of gcAllow:
       if gtkViews.hasKey(c.key): gtkViews[c.key].hosts = c.hosts
+    of gcPermit:
+      if gtkViews.hasKey(c.key): gtkViews[c.key].permit = c.permit
+    of gcQuit:
+      # (every page let go, then GTK's loop ends: before the app's own end,
+      #  which frees what this thread uses)
+      for k, v in gtkViews: gtk_widget_destroy(v.win)
+      gtkViews.clear()
+      gtkKeyOf.clear()
+      gtk_main_quit()
 
 proc drain(data: pointer): cint {.cdecl, gcsafe.} =
   ## The app's orders, run in GTK's thread.
@@ -363,18 +574,28 @@ proc webkitLoop() {.thread.} =
       withLock gtkLock: gtkState = -1
       return
     gtkXDpy = gdk_x11_display_get_xdisplay(gdk_display_get_default())
+    # the app's own address, and downloads, for every page
+    let ctx = webkit_web_context_get_default()
+    webkit_web_context_register_uri_scheme(ctx, "app", cast[pointer](onAppScheme), nil, nil)
+    let sm = webkit_web_context_get_security_manager(ctx)
+    webkit_security_manager_register_uri_scheme_as_secure(sm, "app")
+    if webkit_security_manager_register_uri_scheme_as_cors_enabled != nil:
+      webkit_security_manager_register_uri_scheme_as_cors_enabled(sm, "app")
+    discard g_signal_connect_data(ctx, "download-started", cast[GCallback](onDownload), nil, nil, 0)
     withLock gtkLock: gtkState = 2
     gtk_main()
+    withLock gtkLock: gtkState = 3
 
 # ---- in the app's thread --------------------------------------------------------------------------
 
 proc webNativeAvailable*(): bool =
   ## Whether the system has a browser engine the kit can show pages in
   ## (WebKitGTK here, with the X11 driver's window). The first call starts
-  ## it (a second or so).
+  ## it (a second or so). Not with the Wayland driver: there is no X11
+  ## window to put pages in.
+  if x11Window() == 0: return false
   if gtkState == 0:
     gtkState = 1
-    initLock gtkLock
     if not loadGtk():
       gtkState = -1
       return false
@@ -402,8 +623,55 @@ proc send(c: sink GtkCmd) =
 proc webNativeShow*(key: string; r: Rect; url: string; zoom: float) =
   ## The page `key` placed at `r` (window pixels), showing `url`; `zoom`
   ## (> 0) the size of its text and pictures.
+  var permit: set[WebPermission]
+  withLock gtkLock: permit = gtkPermits.getOrDefault(key)
   send GtkCmd(kind: gcShow, key: key, x: r.x, y: r.y, w: r.w, h: r.h, parent: x11Window(),
-              text: url, zoom: zoom)
+              text: url, zoom: zoom, permit: permit)
+
+proc webNativeSnap*(key: string) =
+  ## A picture of the page as it is on the screen now, taken from its
+  ## window (X11): in the next `webNativeTake`'s `snapshot`.
+  if gtkState != 2: return
+  var place: tuple[xid: culong; w, h: int]
+  withLock gtkLock: place = gtkPlaces.getOrDefault(key)
+  let dpy = x11Display()
+  if place.xid == 0 or dpy == nil: return
+  let img = XGetImage(dpy, place.xid, 0, 0, cuint(place.w), cuint(place.h), not culong(0), 2)  # ZPixmap
+  if img == nil: return
+  if img.bitsPerPixel == 32 and img.width > 0 and img.height > 0:
+    let pic = newBitmap(img.width, img.height)
+    for y in 0 ..< img.height:
+      let row = cast[ptr UncheckedArray[uint32]](addr img.data[y * img.bytesPerLine])
+      for x in 0 ..< img.width: pic.px[y * img.width + x] = row[x] or 0xFF000000'u32
+    pic.opaque = true
+    withLock gtkLock:
+      if gtkShared.hasKey(key): gtkShared[key].snapshot = pic
+  discard cast[proc (i: ptr XImage): cint {.cdecl, gcsafe.}](img.destroyImage)(img)
+
+proc webNativePermit*(key: string; allowed: set[WebPermission]) =
+  ## What the page may use when it asks (the rest is refused).
+  withLock gtkLock: gtkPermits[key] = allowed
+  if gtkState == 2: send GtkCmd(kind: gcPermit, key: key, permit: allowed)
+
+proc webNativeAppUrl*(path: string): string =
+  ## The address of the file `path` of the app's folder (`webNativeAppFolder`).
+  "app://local/" & path.strip(chars = {'/'})
+
+proc webNativeShutdown*() =
+  ## Every page let go and the engine stopped, before the app ends (GTK's
+  ## thread would go on using what the app's end frees).
+  if gtkState != 2: return
+  send GtkCmd(kind: gcQuit)
+  var waited = 0
+  while waited < 3000:
+    var s: int
+    withLock gtkLock: s = gtkState
+    if s != 2: break
+    sleep(5)
+    waited += 5
+  var s: int
+  withLock gtkLock: s = gtkState
+  if s == 3: joinThread(gtkThread)
 
 proc webNativeHide*(key: string) = send GtkCmd(kind: gcHide, key: key)
   ## Hides the page (kept with its place in history).
@@ -432,3 +700,10 @@ proc webNativeTake*(key: string): WebNativeState =
       result = gtkShared[key]
       gtkShared[key].notes.setLen(0)
       gtkShared[key].blocked.setLen(0)
+      gtkShared[key].asked.setLen(0)
+      gtkShared[key].snapshot = nil
+      # (a download finished or failed is told once)
+      var keep: seq[WebDownload]
+      for d in gtkShared[key].downloads:
+        if not (d.done or d.failed): keep.add d
+      gtkShared[key].downloads = keep

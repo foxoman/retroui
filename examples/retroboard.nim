@@ -584,7 +584,7 @@ proc handleAt(f: SelFrame; sp: P): Handle =
     if l < 1: continue
     let t = clamp(((sp.x - pa.x) * (pb.x - pa.x) + (sp.y - pa.y) * (pb.y - pa.y)) / (l * l), 0.0, 1.0)
     let q: P = (pa.x + (pb.x - pa.x) * t, pa.y + (pb.y - pa.y) * t)
-    if dist(q, sp) <= float(if ui.touch: dp(8) else: dp(3)) and t > 0.1 and t < 0.9: return h
+    if dist(q, sp) <= float(if ui.touch: dp(8) else: dp(3)) and t > 0.1 and t < 0.9: result = h; return
 
 proc pointHandles(): seq[P] =
   ## A single arrow's ends and bend, a line's points (page).

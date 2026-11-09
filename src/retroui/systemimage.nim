@@ -455,7 +455,7 @@ when UseLibs:
       rgb.depth = 8
       rgb.pixels = addr result.px[0]
       rgb.rowBytes = uint32(w * 4)
-      if avif.yuvToRgb(img, addr rgb) != 0: return nil
+      if avif.yuvToRgb(img, addr rgb) != 0: result = nil; return
       discard finished(result)
     let flags = head.transformFlags
     if (flags and (AvifTransformIrot or AvifTransformImir)) != 0:
@@ -613,11 +613,11 @@ elif defined(macosx) or defined(ios):
               px16[4 * i + k] = uint16(min(65535'u32, (uint32(px16[4 * i + k]) * 65535 + a div 2) div a))
         result = bitmapOf16(w, h, px16)
         hi[] = move px16
-        return orientBitmap(result, hi, o.int)
+        result = orientBitmap(result, hi, o.int); return
     result = newBitmap(w, h)
     let ctx = CGBitmapContextCreate(addr result.px[0], csize_t(w), csize_t(h), 8, csize_t(w * 4),
                                     space, BitmapBgraPremultiplied)
-    if ctx == nil: return nil
+    if ctx == nil: result = nil; return
     CGContextDrawImage(ctx, r, img)
     CGContextRelease(ctx)
     for p in result.px.mitems:
@@ -946,7 +946,7 @@ proc decodeWithSystem*(path: string; hi: ptr seq[uint16] = nil): Bitmap =
         p.close()
         if code == 0 and fileExists(tmp):
           let b = loadPicture(tmp, 1 shl 15, 1 shl 15)
-          if b != nil: return b
+          if b != nil: result = b; return
       except CatchableError, OSError: discard
     result = nil
 

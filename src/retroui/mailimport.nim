@@ -142,7 +142,7 @@ proc headerField(raw, name: string): string =
     if e < 0: e = lim
     var le = e
     if le > i and raw[le - 1] == '\r': dec le
-    if le == i: return ""                             # the empty line: the body follows
+    if le == i: result = ""; return                   # the empty line: the body follows
     if first and raw.continuesWith("From ", i):       # (an mbox "From " line)
       first = false
       i = e + 1
@@ -166,7 +166,7 @@ proc headerField(raw, name: string): string =
             result.add ' '
             result.addRange(raw, k, le2)
             k = e2 + 1
-          return result.strip
+          result = result.strip; return
     i = e + 1
 
 proc looksLikeMail(s: string; start = 0): bool =

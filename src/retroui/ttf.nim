@@ -117,7 +117,14 @@ proc i16(f: Face; i: int): int {.inline.} =
   let v = f.u16(i)
   if v >= 0x8000: v - 0x10000 else: v
 proc u32(f: Face; i: int): int {.inline.} =
-  (f.u16(i) shl 16) or f.u16(i + 2)
+  ## (an offset or a length: on a 32-bit system one past what an int holds
+  ## is the most it holds, so that it points past the end of any file)
+  let v = (uint32(f.u16(i)) shl 16) or uint32(f.u16(i + 2))
+  when sizeof(int) == 8: int(v)
+  else: (if v > 0x7FFFFFFF'u32: high(int) else: int(v))
+
+proc s32(f: Face; i: int): int {.inline.} =
+  int(cast[int32]((uint32(f.u16(i)) shl 16) or uint32(f.u16(i + 2))))
 
 # ---- parsing ------------------------------------------------------------------------
 
@@ -437,7 +444,7 @@ proc sfntOf*(data: string; index: int): string =
     let r = at + 12 + 16 * i
     let off = be32(r + 8)
     let len = be32(r + 12)
-    if off < 0 or len < 0 or off + len > data.len: return ""
+    if off < 0 or len < 0 or off + len > data.len: result = ""; return
     let newOff = 12 + 16 * n + body.len
     for k in 0 .. 3: result[12 + 16 * i + 8 + k] = char((newOff shr (8 * (3 - k))) and 255)
     body.add data[off ..< off + len]
@@ -815,7 +822,7 @@ proc halfUp(x: float32): int =
   int(floor(float64(x) + 0.5))
 
 proc fixed1616(f: Face; i: int): float =
-  float(cast[int32](uint32(f.u32(i)))) / 65536
+  float(f.s32(i)) / 65536
 
 proc varFont(f: Face): VarFont =
   ## The variation tables, read the first time they are asked for.
@@ -987,7 +994,7 @@ proc varStoreDelta*(f: Face; store, outer, inner: int): float32 =
     var d: int
     if i < words:
       if longWords:
-        d = int(cast[int32](uint32(f.u32(p)))); p += 4
+        d = f.s32(p); p += 4
       else:
         d = f.i16(p); p += 2
     else:
@@ -1059,7 +1066,7 @@ proc readDeltas(f: Face; p: var int; stop, count: int): seq[int] =
         result[i] = f.i16(p); p += 2
       of 0xC0:
         if p + 4 > stop: return
-        result[i] = int(cast[int32](uint32(f.u32(p)))); p += 4
+        result[i] = f.s32(p); p += 4
       else:
         if p >= stop: return
         result[i] = int(cast[int8](uint8(f.u8(p)))); inc p

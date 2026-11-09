@@ -20,7 +20,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.28.0"
+const RetroVersion* = "0.29.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -2217,6 +2217,16 @@ proc applyLayout(l: ScreenLayout) =
   fitMetrics()
   ui.force = true
 
+proc sizesFromEnv*(): string =
+  ## The control sizes asked for in the environment: "touch", "desktop" or
+  ## "auto" from $RETRO_CONTROLS, "touch" for $RETRO_TOUCH=1, else "" (they
+  ## win over the sizes the user kept, as $RETRO_SCALE does).
+  case getEnv("RETRO_CONTROLS").toLowerAscii
+  of "touch", "finger", "fingers": "Touch"
+  of "desktop", "mouse": "Desktop"
+  of "auto", "automatic": "Automatic"
+  else: (if getEnv("RETRO_TOUCH") == "1": "Touch" else: "")
+
 proc setControlSizes*(c: ControlSizes) =
   ## How big controls are: `csAuto` (finger-sized on phones, desktop-sized
   ## on tablets and desktops), `csDesktop` or `csTouch`. `appearanceSettings`
@@ -2314,139 +2324,152 @@ proc penFrom(e: Event) {.inline.} =
 var wheelShift = false
   ## (Shift is held for this frame's sideways wheel only: `beginFrame`)
 
+proc applyEvent(e: Event): bool =
+  ## An event into `ui` (the window's whose frame runs); true when the frame
+  ## starts with it -- a press, a key, a close -- and the events after it
+  ## wait for the next.
+  case e.kind
+  of MouseMoveEvent:
+    if e.hasMods: ui.mods = e.mods
+    ui.mx = mirroredX(e.x div zoom)
+    ui.my = e.y div zoom
+    penFrom(e)
+    ui.mouseMoved = true
+    # moving with no button down: a mouse or a pen, not a finger
+    if not ui.mouseDown and (e.fromMouse or not ui.touch): ui.hovering = true
+  of WindowFocusGainedEvent, WindowFocusLostEvent:
+    ui.active31 = e.kind == WindowFocusGainedEvent
+  of MouseWheelEvent:
+    if e.hasMods: ui.mods = e.mods
+    ui.wheel += e.y
+    ui.wheelX += e.x
+  of FileDropEvent:
+    # (files from the system's file manager: this frame's drop)
+    ui.mx = mirroredX(e.x div zoom)
+    ui.my = e.y div zoom
+    ui.mouseMoved = true
+    dropFiles = e.files
+    dropAt = point(ui.mx, ui.my)
+    return true
+  of GestureEvent:
+    # (two fingers: pinched and moved -- the frame's changes together)
+    ui.pinch *= max(0.01, e.scale.float)
+    ui.panDX += e.dx.float / zoom.float
+    ui.panDY += e.dy.float / zoom.float
+    ui.pinchX = mirroredX(e.x div zoom)
+    ui.pinchY = e.y div zoom
+    ui.gesturing = e.phase != gsEnd
+  of TextInputEvent:
+    if ui.textOk:
+      for c in e.text:
+        if c == '\0': break
+        ui.typed.add c
+    if ui.composing.len > 0:
+      ui.composing.setLen(0)          # (settled: it came as text)
+      ui.redraw = true
+  of TextEditingEvent:
+    ui.composing = e.composing
+    ui.composeCaret = clamp(e.x, 0, ui.composing.len)
+    ui.redraw = true
+  of WindowResizeEvent, WindowMetricsEvent:
+    var l = getWindowLayout()
+    l.width = e.x
+    l.height = e.y
+    if e.kind == WindowMetricsEvent:
+      l.scaleX = e.scaleX
+      l.uiScale = e.uiScale
+    applyLayout(l)
+  of AppPauseEvent:
+    ui.paused = true
+  of AppResumeEvent:
+    ui.paused = false
+    ui.force = true
+  of QuitEvent, WindowCloseEvent:
+    ui.closeAsked = true
+    return true
+  of MouseDownEvent:
+    ui.altArmed = false
+    if e.hasMods: ui.mods = e.mods
+    ui.mx = mirroredX(e.x div zoom)
+    ui.my = e.y div zoom
+    penFrom(e)
+    ui.mouseMoved = true
+    ui.active31 = true
+    ui.fingerDown = ui.touch and not e.fromMouse
+    if e.fromMouse: ui.hovering = true
+    if e.button == LeftButton:
+      ui.mouseDown = true
+      ui.pressed = true
+      ui.clicks = e.clicks
+      ui.pressAt = getTicks()
+      ui.pressX = ui.mx
+      ui.pressY = ui.my
+      ui.longFired = false
+      ui.panning = false
+      ui.dragsActive = false
+      ui.panFrom = point(ui.mx, ui.my)
+    elif e.button == RightButton:
+      ui.rpressed = true
+      ui.rmouseDown = true
+    elif e.button == MiddleButton:
+      ui.mpressed = true
+    elif e.button == BackButton:
+      ui.navBack = true
+    elif e.button == ForwardButton:
+      ui.navForward = true
+    return true
+  of MouseUpEvent:
+    if e.hasMods: ui.mods = e.mods
+    ui.mx = mirroredX(e.x div zoom)
+    ui.my = e.y div zoom
+    penFrom(e)
+    if e.button == LeftButton:
+      ui.mouseDown = false
+      ui.released = true
+      # a finger lifted is no longer over anything
+      if ui.touch and not e.fromMouse: ui.hovering = false
+      return true
+    elif e.button == RightButton:
+      ui.rmouseDown = false
+      return true
+  of KeyDownEvent:
+    ui.key = e.key
+    ui.mods = e.mods
+    let ctrl = CtrlPressed in e.mods
+    let alt = AltPressed in e.mods
+    when defined(macosx):
+      # (a Mac types with Option -- @, {, [, |, € on many layouts -- and makes
+      # no menu's letters with it: what Cmd, the Ctrl here, leaves is text)
+      ui.textOk = not ctrl and GuiPressed notin e.mods
+    else:
+      # (Ctrl and Alt together are AltGr where a driver cannot tell them apart)
+      ui.textOk = ctrl == alt and GuiPressed notin e.mods
+      if alt and not ctrl: ui.mnemonic = letterOf(e.key)
+      # (Alt down alone -- the key itself, no other one -- arms the menu bar)
+      ui.altArmed = e.key == KeyNone and e.mods == {AltPressed}
+    return true
+  of KeyUpEvent:
+    if e.hasMods: ui.mods = e.mods
+    ui.keyUp = e.key
+    if ui.altArmed and e.key == KeyNone and AltPressed notin e.mods:
+      ui.altTapped = true            # (let go with nothing between: the menu bar)
+    ui.altArmed = false
+    return true
+  else: discard
+  false
+
+proc routeToWindow(e: Event) {.nimcall.}
+
 proc pump(waitMs: int) =
   var e: Event
   var t = waitMs
   while nextEvent(e, t):
     t = 0
-    case e.kind
-    of MouseMoveEvent:
-      if e.hasMods: ui.mods = e.mods
-      ui.mx = mirroredX(e.x div zoom)
-      ui.my = e.y div zoom
-      penFrom(e)
-      ui.mouseMoved = true
-      # moving with no button down: a mouse or a pen, not a finger
-      if not ui.mouseDown and (e.fromMouse or not ui.touch): ui.hovering = true
-    of WindowFocusGainedEvent, WindowFocusLostEvent:
-      ui.active31 = e.kind == WindowFocusGainedEvent
-    of MouseWheelEvent:
-      if e.hasMods: ui.mods = e.mods
-      ui.wheel += e.y
-      ui.wheelX += e.x
-    of FileDropEvent:
-      # (files from the system's file manager: this frame's drop)
-      ui.mx = mirroredX(e.x div zoom)
-      ui.my = e.y div zoom
-      ui.mouseMoved = true
-      dropFiles = e.files
-      dropAt = point(ui.mx, ui.my)
-      break
-    of GestureEvent:
-      # (two fingers: pinched and moved -- the frame's changes together)
-      ui.pinch *= max(0.01, e.scale.float)
-      ui.panDX += e.dx.float / zoom.float
-      ui.panDY += e.dy.float / zoom.float
-      ui.pinchX = mirroredX(e.x div zoom)
-      ui.pinchY = e.y div zoom
-      ui.gesturing = e.phase != gsEnd
-    of TextInputEvent:
-      if ui.textOk:
-        for c in e.text:
-          if c == '\0': break
-          ui.typed.add c
-      if ui.composing.len > 0:
-        ui.composing.setLen(0)          # (settled: it came as text)
-        ui.redraw = true
-    of TextEditingEvent:
-      ui.composing = e.composing
-      ui.composeCaret = clamp(e.x, 0, ui.composing.len)
-      ui.redraw = true
-    of WindowResizeEvent, WindowMetricsEvent:
-      var l = getWindowLayout()
-      l.width = e.x
-      l.height = e.y
-      if e.kind == WindowMetricsEvent:
-        l.scaleX = e.scaleX
-        l.uiScale = e.uiScale
-      applyLayout(l)
-    of AppPauseEvent:
-      ui.paused = true
-    of AppResumeEvent:
-      ui.paused = false
-      ui.force = true
-    of QuitEvent, WindowCloseEvent:
-      ui.closeAsked = true
-      break
-    of MouseDownEvent:
-      ui.altArmed = false
-      if e.hasMods: ui.mods = e.mods
-      ui.mx = mirroredX(e.x div zoom)
-      ui.my = e.y div zoom
-      penFrom(e)
-      ui.mouseMoved = true
-      ui.active31 = true
-      ui.fingerDown = ui.touch and not e.fromMouse
-      if e.fromMouse: ui.hovering = true
-      if e.button == LeftButton:
-        ui.mouseDown = true
-        ui.pressed = true
-        ui.clicks = e.clicks
-        ui.pressAt = getTicks()
-        ui.pressX = ui.mx
-        ui.pressY = ui.my
-        ui.longFired = false
-        ui.panning = false
-        ui.dragsActive = false
-        ui.panFrom = point(ui.mx, ui.my)
-      elif e.button == RightButton:
-        ui.rpressed = true
-        ui.rmouseDown = true
-      elif e.button == MiddleButton:
-        ui.mpressed = true
-      elif e.button == BackButton:
-        ui.navBack = true
-      elif e.button == ForwardButton:
-        ui.navForward = true
-      break
-    of MouseUpEvent:
-      if e.hasMods: ui.mods = e.mods
-      ui.mx = mirroredX(e.x div zoom)
-      ui.my = e.y div zoom
-      penFrom(e)
-      if e.button == LeftButton:
-        ui.mouseDown = false
-        ui.released = true
-        # a finger lifted is no longer over anything
-        if ui.touch and not e.fromMouse: ui.hovering = false
-        break
-      elif e.button == RightButton:
-        ui.rmouseDown = false
-        break
-    of KeyDownEvent:
-      ui.key = e.key
-      ui.mods = e.mods
-      let ctrl = CtrlPressed in e.mods
-      let alt = AltPressed in e.mods
-      when defined(macosx):
-        # (a Mac types with Option -- @, {, [, |, € on many layouts -- and makes
-        # no menu's letters with it: what Cmd, the Ctrl here, leaves is text)
-        ui.textOk = not ctrl and GuiPressed notin e.mods
-      else:
-        # (Ctrl and Alt together are AltGr where a driver cannot tell them apart)
-        ui.textOk = ctrl == alt and GuiPressed notin e.mods
-        if alt and not ctrl: ui.mnemonic = letterOf(e.key)
-        # (Alt down alone -- the key itself, no other one -- arms the menu bar)
-        ui.altArmed = e.key == KeyNone and e.mods == {AltPressed}
-      break
-    of KeyUpEvent:
-      if e.hasMods: ui.mods = e.mods
-      ui.keyUp = e.key
-      if ui.altArmed and e.key == KeyNone and AltPressed notin e.mods:
-        ui.altTapped = true            # (let go with nothing between: the menu bar)
-      ui.altArmed = false
-      break
-    else: discard
+    if e.window != 0:
+      # (another window's: kept for its frame, which runs in this one)
+      routeToWindow(e)
+      continue
+    if applyEvent(e): break
 
 # ---- long work: a box with an animation, the events kept read ---------------------------------------
 
@@ -2740,6 +2763,10 @@ proc startApp*(title: string; w, h: int; theme = ui.theme; zoom = 0) =
   let sc = getEnv("RETRO_SCALE")
   if sc.len > 0:
     try: ui.uiScale = clamp(parseInt(sc), 50, 300) except ValueError: discard
+  # how big controls are: RETRO_CONTROLS (touch, desktop, auto); RETRO_TOUCH=1
+  # is a finger, so finger-sized controls too, on a tablet or a desktop
+  let asked = sizesFromEnv()
+  if asked.len > 0: ui.sizes = parseEnum[ControlSizes](asked, ui.sizes)
   # the window's frame: the 3.1 one the app draws, or the system's -- as
   # built, as the user chose it last time, as RETRO_FRAME says
   if userFrameChoice:
@@ -2756,6 +2783,11 @@ proc startApp*(title: string; w, h: int; theme = ui.theme; zoom = 0) =
   else: discard
   captionEnv = getEnv("RETRO_CAPTION") == "1"
   ui.ownFrame = frameWanted and canClassicFrame() and setSystemFrame(false)
+  if not ui.ownFrame and canClassicFrame() and not setSystemFrame(true):
+    # (a system whose windows have no frame of its own -- Wayland where the
+    # compositor draws none, GNOME's: the 3.1 one, else the window could
+    # not be moved, sized or closed)
+    ui.ownFrame = setSystemFrame(false)
   if ui.ownFrame:
     # (the frame goes round the size asked for: the app's room stays as big)
     if w >= 0: w += 2 * FrameDesignBorder
@@ -2881,10 +2913,8 @@ proc applyIconStyle() =
            of isLine: true
   setLineIcons(on, ui.theme.text)
 
-proc beginFrame*(): bool =
-  ## Wait for input (or a timer) and start a frame. False once the app ends.
-  if not ui.running: return false
-  applyIconStyle()
+proc frameReset() =
+  ## (the input of the frame before forgotten)
   ui.pressed = false
   ui.released = false
   ui.rpressed = false
@@ -2912,13 +2942,10 @@ proc beginFrame*(): bool =
   ui.typed.setLen(0)
   dropFiles.setLen(0)
   ui.closeCancelled = false
-  let busy = (ui.redraw or ui.force) and not ui.paused
-  let waitMs =
-    if busy: 0
-    elif ui.wakeAt > 0 and not ui.paused: max(1, ui.wakeAt - getTicks())
-    else: -1
-  ui.redraw = false
-  pump(waitMs)
+
+proc frameSetup(main: bool) =
+  ## (the frame started, its input in: what the input means, the layout
+  ## begun; `main`: the program's own window, else one besides it)
   # A sideways wheel (a tilted one, a touch pad's fingers, macOS's Shift +
   # the wheel) is Shift + the wheel, as Windows and X11 send that: what
   # scrolls sideways with Shift + the wheel scrolls with it, on every system
@@ -2934,14 +2961,14 @@ proc beginFrame*(): bool =
     ui.key = KeyNone
   # (the 3.1 frame picked in the menu of the system's -- which Alt+Space
   # opened, so that key is not the new frame's)
-  if userFrameChoice and frameMenuItemChosen(): chooseClassicFrame(not ui.ownFrame)
+  if main and userFrameChoice and frameMenuItemChosen(): chooseClassicFrame(not ui.ownFrame)
   if uiFont() != layoutFont:
     layoutFont = uiFont()                  # the font changed: sizes follow it
     fitMetrics()
     ui.force = true
-  statT0 = getMonoTime()
+  if main: statT0 = getMonoTime()
   ui.now = getTicks()
-  accessFrameStart()
+  if main: accessFrameStart()
   mirrorW = if ui.rtl: ui.w else: 0
   # The menu key, or Shift+F10: a right click on the focused widget, so its
   # context menu opens there (lists put it on their current row)
@@ -3035,7 +3062,8 @@ proc beginFrame*(): bool =
   ui.blockers.setLen(0)
   # (after the frame's state is reset: what the hooks ask for -- a wake-up,
   # a redraw -- stays)
-  for hook in beginFrameHooks: hook()
+  if main:
+    for hook in beginFrameHooks: hook()
   # a press for a `fileDragSource` is this frame's or none; a drag of the
   # toolkit's that left the window with files for other programs is the
   # system's from here (`startDrag`'s `files`)
@@ -3065,7 +3093,55 @@ proc beginFrame*(): bool =
   if ui.fingerDown and ui.mouseDown and not ui.longFired and not ui.panning and
      not ui.dragsActive:
     wakeIn(ui.pressAt + 501 - ui.now)
+
+proc beginFrame*(): bool =
+  ## Wait for input (or a timer) and start a frame. False once the app ends.
+  if not ui.running: return false
+  applyIconStyle()
+  frameReset()
+  let busy = (ui.redraw or ui.force) and not ui.paused
+  let waitMs =
+    if busy: 0
+    elif ui.wakeAt > 0 and not ui.paused: max(1, ui.wakeAt - getTicks())
+    else: -1
+  ui.redraw = false
+  pump(waitMs)
+  frameSetup(true)
   true
+
+proc frameWaitMs*(): int =
+  ## How long until the next frame is wanted (0: at once; -1: only when
+  ## something happens) -- what `beginFrame` waits for, for a loop that
+  ## is not this one's: a browser page's (`webFrames`).
+  if not ui.running: -2
+  elif (ui.redraw or ui.force) and not ui.paused: 0
+  elif ui.wakeAt > 0 and not ui.paused: max(1, ui.wakeAt - getTicks())
+  else: -1
+
+when defined(wasm):
+  from uirelays/drivers/web_driver import webEventsWaiting
+  var webFrame: proc () {.closure.}
+
+  proc webFrames*(frame: proc () {.closure.}) =
+    ## A browser page's loop: `frame` (`beginFrame` .. `endFrame`) is run
+    ## by the page (`retro_frame`) when something happened or the last
+    ## frame asked for another, not in a loop of the program's.
+    webFrame = frame
+
+  proc webFrameNow(): cint {.exportc: "retro_frame", cdecl.} =
+    ## (the page's: one frame; when the next is wanted, `frameWaitMs`)
+    ## -3: an error nobody caught ended it (as it ends a program anywhere:
+    ## its message and where it came from on stderr, the page's console)
+    if webFrame == nil: return -2
+    try:
+      webFrame()
+    except CatchableError, Defect:
+      let e = getCurrentException()
+      stderr.writeLine e.getStackTrace() & "Error: unhandled exception: " & e.msg & " [" & $e.name & "]"
+      webFrame = nil
+      return -3
+    result = cint(frameWaitMs())
+    if result != -2 and webEventsWaiting(): result = 0
 
 proc cancelClose*() =
   ## Keep running although the user asked to close the window.
@@ -3095,6 +3171,9 @@ proc backPressed*(): bool = ui.closeAsked and ui.byBackNow
 
 proc quitApp*() = ui.running = false
   ## Ends the app: `beginFrame` is false from the next frame on.
+
+proc appRunning*(): bool = ui.running
+  ## The app has not ended (`quitApp`, its window closed).
 
 proc themeIndex*(): int =
   ## Which of `builtinThemes` is in use (-1: a theme of the app's own).
@@ -3250,10 +3329,11 @@ proc drawDragGhost() =
   popClip()
   popLayer()
 
-proc endFrame*() =
-  ## Finish the frame: keyboard focus, popups, tooltips, then put it on
-  ## screen (only if it changed).
-  for hook in endFrameHooks: hook()
+proc frameFinish(main: bool) =
+  ## (the frame's end before it is shown: focus, popups, dialogs, the
+  ## close asked; `main`: the program's own window)
+  if main:
+    for hook in endFrameHooks: hook()
   # What a key or a click changed late in the frame (after the widgets that
   # show it were drawn) appears on one more frame.
   if ui.keyUsed or ui.pressed or ui.released or ui.wheelUsed or ui.typed.len > 0 or
@@ -3342,7 +3422,12 @@ proc endFrame*() =
     ui.redraw = true
   if ui.closeAsked and not ui.closeCancelled: ui.running = false
   ui.closeAsked = false
-  accessFrameEnd()
+  if main: accessFrameEnd()
+
+proc endFrame*() =
+  ## Finish the frame: keyboard focus, popups, tooltips, then put it on
+  ## screen (only if it changed).
+  frameFinish(true)
   # Present -- unless another frame is due right away anyway.
   if ui.redraw and ui.redrawCount < 3:
     inc ui.redrawCount
@@ -3362,6 +3447,180 @@ proc endFrame*() =
   ui.force = false
   noteFrame(true)
 
+var stopAppHooks*: seq[proc () {.nimcall.}]
+  ## Run first in `stopApp`, while the window is still there: what a module
+  ## must end before the app does (a thread of its own, windows of the
+  ## system's inside the app's).
+
+# ---- windows besides the program's own ----------------------------------------------------------
+#
+# A window of the system's of its own (`window` in `widgets`): its frame
+# runs in the middle of the program's, at the place the app draws it, with
+# a `ui` and a drawing of its own swapped in (nothing copied), the events
+# the driver gave it, and its pixels sent to it (`windowsRelays.target`).
+# The settings everybody shares (the theme, sizes, the scale) are the
+# program's window's.
+
+type
+  KitWindow = ref object
+    id: int                    ## the driver's number for it
+    ctx: Ctx                   ## its `ui` (the program's while its frame runs)
+    draw: FrameState           ## its drawing (the program's while its frame runs)
+    events: seq[Event]         ## what came for it, waiting for its frame
+    title: string
+    seen: int                  ## the program's frame it was drawn in
+
+var
+  kitWindows: Table[string, KitWindow]
+  curWindow: KitWindow
+  windowsFailed = false
+  windowHooked = false
+
+proc windowsAvailable*(): bool =
+  ## The system shows windows besides the program's own (X11, Wayland,
+  ## Windows, macOS); elsewhere `window` is a dialog over the app.
+  windowsRelays.openWindow != nil and windowsRelays.target != nil and not windowsFailed and
+    not androidApp and not defined(ios)
+
+proc routeToWindow(e: Event) =
+  for _, w in kitWindows:
+    if w.id == e.window:
+      if e.kind == MouseMoveEvent and w.events.len > 0 and w.events[^1].kind == MouseMoveEvent:
+        w.events[^1] = e
+      else: w.events.add e
+      ui.redraw = true
+      return
+
+proc shareSettings(dst: var Ctx; src: Ctx) =
+  ## (what the windows share: the program's window's)
+  dst.theme = src.theme
+  dst.m = src.m
+  dst.metricsSet = src.metricsSet
+  dst.touch = src.touch
+  dst.sizes = src.sizes
+  dst.roomy = src.roomy
+  dst.k = src.k
+  dst.density = src.density
+  dst.uiScale = src.uiScale
+  dst.textScale = src.textScale
+  dst.baseEm = src.baseEm
+  dst.rtl = src.rtl
+  dst.paused = src.paused
+
+proc closeKitWindow(key: string) =
+  let w = kitWindows.getOrDefault(key)
+  if w == nil: return
+  if windowsRelays.closeWindow != nil: windowsRelays.closeWindow(w.id)
+  kitWindows.del key
+
+proc windowsFrame() {.nimcall.} =
+  ## Windows not drawn in the program's frame before close (their `window`
+  ## was not reached: the app closed them by not drawing them).
+  var gone: seq[string]
+  for k, w in kitWindows:
+    if w.seen < ui.frameNo - 1: gone.add k
+  for k in gone: closeKitWindow(k)
+
+proc windowsEnd() {.nimcall.} =
+  var all: seq[string]
+  for k in kitWindows.keys: all.add k
+  for k in all: closeKitWindow(k)
+
+proc beginWindow*(open: var bool; title: string; w, h: int; key = ""): bool =
+  ## Starts the frame of a window besides the program's own (see `window`
+  ## in `widgets`), `w` x `h` design pixels when it opens; true while it is
+  ## `open` and the system has it. Its `ui` is the window's until
+  ## `endWindow`.
+  let k = if key.len > 0: key else: title
+  if not open:
+    closeKitWindow(k)
+    return false
+  if curWindow != nil or not windowsAvailable(): return false
+  if not windowHooked:
+    windowHooked = true
+    beginFrameHooks.add windowsFrame
+    stopAppHooks.add windowsEnd
+  var win = kitWindows.getOrDefault(k)
+  if win == nil:
+    let id = windowsRelays.openWindow(title, dp(w) * zoom, dp(h) * zoom)
+    if id == 0:
+      windowsFailed = true
+      return false
+    win = KitWindow(id: id, title: title)
+    win.ctx.running = true
+    win.ctx.title = title
+    win.ctx.w = dp(w)
+    win.ctx.h = dp(h)
+    win.ctx.devW = dp(w) * pxScale
+    win.ctx.devH = dp(h) * pxScale
+    win.ctx.force = true
+    win.ctx.theme = ui.theme
+    win.draw.extra = true
+    kitWindows[k] = win
+  elif title != win.title:
+    win.title = title
+    if windowsRelays.setTitle != nil: windowsRelays.setTitle(win.id, title)
+  win.seen = ui.frameNo
+  # its frame, in place of the program's
+  windowsRelays.target(win.id)
+  swap(ui, win.ctx)
+  shareSettings(ui, win.ctx)
+  swapFrameState(win.draw)
+  curWindow = win
+  # (a window the system draws no frame round: a title bar of its own)
+  ui.ownCaption = windowsRelays.framed != nil and not windowsRelays.framed(win.id)
+  frameReset()
+  var used = 0
+  for e in win.events:
+    inc used
+    case e.kind
+    of WindowResizeEvent, WindowMetricsEvent:
+      # (its own size: the scale is the program's window's)
+      ui.devW = e.x * unitPx
+      ui.devH = e.y * unitPx
+      ui.w = e.x div zoom
+      ui.h = e.y div zoom
+      ui.force = true
+    else:
+      if applyEvent(e): break
+  if used > 0: win.events = win.events[used .. ^1]
+  if win.events.len > 0: ui.redraw = true
+  frameSetup(false)
+  true
+
+proc endWindow*(): bool {.discardable.} =
+  ## Ends the frame `beginWindow` started and shows it; true when the user
+  ## closed the window (its close button) in it.
+  let win = curWindow
+  if win == nil: return false
+  frameFinish(false)
+  if present(ui.devW, ui.devH, ui.force): ui.lastPresent = ui.now
+  ui.force = false
+  result = not ui.running
+  ui.running = true
+  let again = ui.redraw
+  let wake = ui.wakeAt
+  ui.redraw = false
+  swapFrameState(win.draw)
+  swap(ui, win.ctx)
+  windowsRelays.target(0)
+  curWindow = nil
+  # (what the window asked for -- another frame, a wake-up -- is the
+  #  program's, whose frames run its)
+  if again: ui.redraw = true
+  if wake > 0 and (ui.wakeAt == 0 or wake < ui.wakeAt): ui.wakeAt = wake
+  if result: closeKitWindow(block:
+    var key = ""
+    for k, w in kitWindows:
+      if w == win: key = k
+    key)
+
+proc inWindow*(): bool = curWindow != nil
+  ## A window besides the program's own is being drawn (between
+  ## `beginWindow` and `endWindow`).
+
+
 proc stopApp*() =
   ## Closes the window and ends the app (`app` calls it when its loop ends).
+  for h in stopAppHooks: h()
   shutdown()

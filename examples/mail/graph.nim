@@ -127,9 +127,9 @@ proc graphDelta*(token, folderRemote, deltaLink: string; sinceDays: int; account
     for it in j{"value"}.getElems:
       result.items.add parseMessage(it, account, me)
     if j{"@odata.deltaLink"} != nil:
-      return (result.items, j{"@odata.deltaLink"}.getStr, true)
+      result = (result.items, j{"@odata.deltaLink"}.getStr, true); return
     link = j{"@odata.nextLink"}.getStr
-    if link.len == 0: return (result.items, "", true)
+    if link.len == 0: result = (result.items, "", true); return
   (result.items, link, false)
 
 proc graphBody*(token, remoteId: string): GraphBody =

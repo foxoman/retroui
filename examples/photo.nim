@@ -1128,9 +1128,12 @@ var
 
 proc traceKey(d: Doc): int =
   ## (changes when the picture's pixels change, not with its paths)
-  result = d.layers.len * 1_000_003 + traceDetail * 7919 + d.w * 31 + d.h
+  # (wrapping: a picture of many layers goes past any int)
+  template u(x: untyped): uint64 = cast[uint64](int64(x))
+  var h = u(d.layers.len) * 1_000_003'u64 + u(traceDetail) * 7919'u64 + u(d.w) * 31'u64 + u(d.h)
   for L in d.layers:
-    result = result * 31 + L.ver + ord(L.visible) * 17 + L.opacity * 3
+    h = h * 31'u64 + u(L.ver) + u(ord(L.visible)) * 17'u64 + u(L.opacity) * 3'u64
+  int(h and uint64(high(int)))
 
 proc traceEdges(d: Doc): EdgeMap =
   ## The edges of the picture as it looks (found once while it is unchanged).

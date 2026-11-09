@@ -9,17 +9,34 @@
 ##       --scale:N     everything N percent of its normal size (and the window)
 ##       --size:WxH    the window this many design pixels (to try layouts)
 ##       --theme:NAME  a built-in theme ("Dark", "OLED Black"...)
+##       --touch       as on a touch screen: finger-sized controls, no hover
+##       --controls:K  control sizes: touch, desktop or auto
 ##       --watch       built again and started again on every save, in the
 ##                     same place (with --window); --live is both
 ##       other options go to the Nim compiler
+##       --web         as a web page: built (`retrokit web`), served on
+##                     localhost and opened in the browser (with --watch,
+##                     built again on every save and the page reloaded)
 ##   retrokit small app.nim           the smallest build (optimized for size, stripped)
+##   retrokit web app.nim [options]   a web page: WebAssembly made by clang
+##                                    alone (no Emscripten), installable
+##                                    and working offline (see retroweb)
 ##   retrokit apk app.nim [options]   an Android APK (the retroapk tool)
+##   retrokit aab app.nim [options]   an Android App Bundle for Google Play
+##   retrokit sign PROGRAM.exe        Windows' Authenticode signature, made here
+##   retrokit msix PROGRAM.exe        an MSIX for the Microsoft Store, signed
+##   retrokit mac PROGRAM             a macOS .app: signed ad hoc here, or with
+##                                    your Developer ID, notarized and stapled
+##                                    on a Mac; zipped
+##   retrokit ipa APP.app             an iOS .ipa for TestFlight and the App Store
+##   retrokit model FILE              a 3D model (.blend, .gltf, .obj, .stl) as .glb
 ##   retrokit designer [app.nim]      Retro Designer: the app's windows, designed
 ##                                    (built once for this machine, then run)
 ##
 ## No dependencies but Nim and a C compiler.
 
 import std/[os, osproc, strutils, dynlib, sequtils, times, hashes]
+import retroweb, retrostore
 
 const usage = """
 retrokit -- start, check and build Retro Nim UI apps
@@ -38,13 +55,37 @@ retrokit -- start, check and build Retro Nim UI apps
         --scale:N     everything N percent of its normal size (the window too)
         --size:WxH    the window W x H design pixels, to try layouts
         --theme:NAME  a built-in theme ("Dark", "OLED Black"...)
+        --touch       as on a touch screen: finger-sized controls, no hover
+        --controls:K  control sizes only: touch, desktop or auto
         --watch       on every save of a .nim file in the app's folder, built
                       again and started again where the window was; the old
                       one runs on while the code does not build
         --live        --window and --watch together
+        --web         as a web page, served on localhost and opened in the
+                      browser (with --watch: built again on every save, the
+                      page reloading itself)
       anything else goes to the Nim compiler (-d:..., --opt:...)
   retrokit small APP.nim       the smallest build: optimized for size, stripped
+  retrokit web APP.nim [options]
+      the app as a web page in build/web (index.html, app.wasm, retro.js,
+      the manifest, icons and a service worker: installable, offline):
+      WebAssembly from clang and wasm-ld alone, no Emscripten. Options:
+        --out:DIR  --files:DIR (the app's files, in /app)  --icon:FILE.png
+        --name:TEXT  --small  --debug
   retrokit apk APP.nim [...]   an Android APK (same options as retroapk)
+  retrokit aab APP.nim [...]   an Android App Bundle (.aab) for Google Play,
+      signed with your upload key (--key, --cert)
+  retrokit sign PROGRAM.exe [--key:K.pem --cert:C.pem] [--name:TEXT]
+      Windows' Authenticode signature (SHA-256), made here on any system
+  retrokit msix PROGRAM.exe [--name:Company.App --version:1.0.0.0 --icon:F.png]
+      an MSIX for the Microsoft Store and Windows' installer, signed
+  retrokit mac PROGRAM [--name --id --version --icon] [--sign:ID --notarize:P]
+      a macOS .app, zipped: signed ad hoc here (any system), or on a Mac with
+      your Developer ID, notarized and stapled
+  retrokit ipa APP.app         an iOS app (built by retroios) as an .ipa
+  retrokit model FILE          a 3D model (.blend through Blender, .gltf, .obj, .stl)
+      as the .glb an app carries; says its parts and clips by name
+  (each with --help for all its options)
   retrokit designer [APP.nim] [--rebuild]
       Retro Designer: the file's windows drawn with the real controls, to
       design by dragging and setting properties; every change written into
@@ -473,7 +514,8 @@ proc watchRun(app: string; extra: seq[string]): int =
 
 const RetroVersion = block:
   # (read from the toolkit beside retrokit: one version for both)
-  let core = staticRead(currentSourcePath().parentDir / "retroui" / "core.nim")
+  let here = currentSourcePath()
+  let core = staticRead(here[0 ..< here.rfind({'/', '\\'})] & "/retroui/core.nim")
   let k = core.find("RetroVersion* = \"")
   if k < 0: "0" else: core[k + 17 ..< core.find('"', k + 17)]
 
@@ -742,6 +784,11 @@ proc runOptions(args: openArray[string]): seq[string] =
       if 'x' notin value: quit "retrokit: --size wants a width and a height, like --size:420x840"
       putEnv("RETRO_SIZE", value)
     of "theme": putEnv("RETRO_THEME", value)
+    of "touch": putEnv("RETRO_TOUCH", "1")
+    of "controls":
+      if value.toLowerAscii notin ["touch", "desktop", "auto"]:
+        quit "retrokit: --controls wants touch, desktop or auto"
+      putEnv("RETRO_CONTROLS", value)
     of "watch": watching = true
     of "live":
       putEnv("RETRO_WINDOW", "1")
@@ -762,8 +809,18 @@ proc main() =
       elif name.len == 0: name = a
     newApp(name, kind)
   of "doctor": doctor()
+  of "web":
+    var app = ""
+    let o = parseWebOptions(args[1 .. ^1], app)
+    if app.len == 0: quit usage
+    quit buildWeb(app, o)
   of "run":
     # (the file may come before or after the options)
+    if "--web" in args:
+      var app = ""
+      let o = parseWebOptions(args[1 .. ^1].filterIt(it notin ["--watch", "--live"]), app)
+      if app.len == 0: quit usage
+      quit runWeb(app, o, "--watch" in args or "--live" in args)
     let rest = runOptions(args[1 .. ^1])
     let app = rest.filterIt(it.endsWith(".nim"))
     if app.len == 0: quit usage
@@ -779,13 +836,19 @@ proc main() =
     quit code
   of "designer":
     quit designer(args[1 .. ^1])
-  of "apk":
+  of "apk", "aab":
     let tool = findExe("retroapk")
     if tool.len == 0: quit "retrokit: retroapk is not installed (nimble install retroui)"
-    let p = startProcess(tool, args = args[1 .. ^1], options = {poParentStreams})
+    let more = if args[0] == "aab": @["--aab"] else: @[]
+    let p = startProcess(tool, args = args[1 .. ^1] & more, options = {poParentStreams})
     let code = p.waitForExit()
     p.close()
     quit code
+  of "sign": quit signCmd(args[1 .. ^1])
+  of "msix": quit msixCmd(args[1 .. ^1])
+  of "mac": quit macCmd(args[1 .. ^1])
+  of "ipa": quit ipaCmd(args[1 .. ^1])
+  of "model": quit modelCmd(args[1 .. ^1])
   else:
     quit usage
 

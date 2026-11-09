@@ -1,6 +1,6 @@
 ## ZIP archives in plain Nim: list, extract and create them (stored and
-## deflated entries, UTF-8 names). No ZIP64: entries and archives up to
-## 4 GB, which is what a phone or a desktop tool needs day to day.
+## deflated entries, UTF-8 names). ZIP64 archives are read (MSIX packages,
+## files over 4 GB); the archives made here are up to 4 GB.
 ##
 ## .. code-block:: nim
 ##   var z = newZipWriter()
@@ -47,6 +47,8 @@ proc u32(b: var Bytes; v: SomeInteger) =
 proc rd16(s: string; i: int): int = ord(s[i]) or (ord(s[i+1]) shl 8)
 proc rd32(s: string; i: int): int =
   ord(s[i]) or (ord(s[i+1]) shl 8) or (ord(s[i+2]) shl 16) or (ord(s[i+3]) shl 24)
+proc rd64(s: string; i: int): int64 =
+  for k in countdown(7, 0): result = (result shl 8) or int64(ord(s[i + k]))
 
 proc dosTime(t: Time): tuple[time, date: int] =
   let d = t.local
@@ -93,16 +95,28 @@ proc zipEntries*(archive: string): seq[ZipEntry] =
       break
     dec i
   if e < 0: raise newException(ZipError, archive & " is not a zip file")
-  let n = tail.rd16(e + 10)
-  let cdSize = tail.rd32(e + 12)
-  let cdAt = tail.rd32(e + 16)
-  if cdAt == 0xFFFFFFFF or n == 0xFFFF:
-    raise newException(ZipError, "ZIP64 archives are not supported")
-  if cdAt < 0 or cdSize < 0 or int64(cdAt) + cdSize > size:
+  var n = int64(tail.rd16(e + 10))
+  var cdSize = int64(uint32(tail.rd32(e + 12)))
+  var cdAt = int64(uint32(tail.rd32(e + 16)))
+  if cdAt == 0xFFFFFFFF'i64 or n == 0xFFFF or cdSize == 0xFFFFFFFF'i64:
+    # ZIP64: the locator just before the end record, then its own end record
+    if e < 20 or tail.rd32(e - 20) != 0x07064b50:
+      raise newException(ZipError, "the zip directory is damaged")
+    let at = tail.rd64(e - 20 + 8)
+    if at < 0 or at + 56 > size: raise newException(ZipError, "the zip directory is damaged")
+    var rec = newString(56)
+    f.setFilePos(at)
+    if f.readBuffer(addr rec[0], 56) != 56 or rec.rd32(0) != 0x06064b50:
+      raise newException(ZipError, "the zip directory is damaged")
+    n = rec.rd64(32)
+    cdSize = rec.rd64(40)
+    cdAt = rec.rd64(48)
+  if cdAt < 0 or cdSize < 0 or n < 0 or cdAt + cdSize > size or cdSize > high(int) or
+     n > cdSize div 46 + 1:
     raise newException(ZipError, "the zip directory is damaged")
-  var s = newString(cdSize)
+  var s = newString(int(cdSize))
   f.setFilePos(cdAt)
-  if cdSize > 0 and f.readBuffer(addr s[0], cdSize) != cdSize:
+  if cdSize > 0 and f.readBuffer(addr s[0], int(cdSize)) != int(cdSize):
     raise newException(ZipError, "cannot read the zip directory")
   var p = 0
   for _ in 0 ..< n:
@@ -113,10 +127,31 @@ proc zipEntries*(archive: string): seq[ZipEntry] =
     let commentLen = s.rd16(p + 32)
     if p + 46 + nameLen > s.len:
       raise newException(ZipError, "the zip directory is damaged")
+    if p + 46 + nameLen + extraLen > s.len:
+      raise newException(ZipError, "the zip directory is damaged")
+    var packed = int64(uint32(s.rd32(p + 20)))
+    var usize = int64(uint32(s.rd32(p + 24)))
+    var offset = int64(uint32(s.rd32(p + 42)))
+    # (ZIP64: the sizes and offset that did not fit, in its extra field)
+    var x = p + 46 + nameLen
+    let xEnd = x + extraLen
+    while x + 4 <= xEnd:
+      let id = s.rd16(x)
+      let len = s.rd16(x + 2)
+      if id == 1:
+        var q = x + 4
+        for v in [addr usize, addr packed, addr offset]:
+          if v[] == 0xFFFFFFFF'i64 and q + 8 <= x + 4 + len and q + 8 <= xEnd:
+            v[] = s.rd64(q)
+            q += 8
+      x += 4 + len
+    if packed < 0 or usize < 0 or offset < 0 or packed > high(int) or usize > high(int) or
+       offset > high(int):
+      raise newException(ZipError, "the zip directory is damaged")
     var en = ZipEntry(compression: s.rd16(p + 10),
                       time: fromDos(s.rd16(p + 12), s.rd16(p + 14)),
-                      crc: uint32(s.rd32(p + 16)), packed: s.rd32(p + 20),
-                      size: s.rd32(p + 24), offset: s.rd32(p + 42),
+                      crc: uint32(s.rd32(p + 16)), packed: int(packed),
+                      size: int(usize), offset: int(offset),
                       name: s[p + 46 ..< p + 46 + nameLen].replace('\\', '/'))
     en.isDir = en.name.endsWith("/")
     result.add en
@@ -190,9 +225,10 @@ const storedKinds = [".zip", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp3",
                      ".gz", ".xz", ".bz2", ".7z", ".rar", ".heic", ".ogg", ".opus"]
 
 proc addFile*(z: var ZipWriter; name, content: string; time = getTime();
-              compress = true) =
+              compress = true; executable = false) =
   ## Adds a file `name` ('/' separated) with `content`. Content that is
   ## already compressed (pictures, music, archives) is stored as it is.
+  ## `executable`: marked as a program (for Unix, macOS and iOS).
   let raw = content.toBytes
   let crc = crc32(raw)
   var packed: Bytes
@@ -217,7 +253,7 @@ proc addFile*(z: var ZipWriter; name, content: string; time = getTime();
   c.u32(0x02014b50); c.u16(0x031E); c.u16(20); c.u16(flags); c.u16(methodNo)
   c.u16(t); c.u16(d); c.u32(crc); c.u32(packed.len); c.u32(raw.len)
   c.u16(name.len); c.u16(0); c.u16(0); c.u16(0); c.u16(0)
-  c.u32((if name.endsWith("/"): 0o40755 else: 0o100644) shl 16)
+  c.u32((if name.endsWith("/"): 0o40755 elif executable: 0o100755 else: 0o100644) shl 16)
   c.u32(offset)
   for ch in name: c.add byte(ch)
   z.central.add c

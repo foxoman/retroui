@@ -84,6 +84,38 @@ is in `docs/uirelays-pr.md`.
   UIKit lets such a view keep it until its own view is touched);
   `winWindow` gives the WinAPI driver's window, as `x11Window` the X11
   driver's.
+- `drivers/wayland_driver.nim` -- Wayland spoken directly over its socket
+  (`drivers/wlwire.nim`: the wire protocol, no libwayland): windows in
+  shared memory (`drivers/pixbuf.nim`), fractional scaling, the system's
+  frame where the compositor draws one, the clipboard and drops, the
+  keyboard's layout through libxkbcommon loaded at run time
+  (`drivers/xkbload.nim`; `drivers/keysyms.nim`, shared with X11), input
+  methods, touch, cursors (the compositor's shapes, else
+  `drivers/cursorart.nim`, shared with X11), text through fontconfig and
+  FreeType loaded at run time (`drivers/ftfonts.nim`), screen readers.
+  `-d:wayland` builds it alone; a Linux build has it with X11 and picks
+  one as it starts (`backend.useWayland`: `RETRO_DRIVER`, else a Wayland
+  session without an X display).
+- `drivers/fb_driver.nim` -- a screen with no windowing system: DRM/KMS (a
+  dumb buffer in the connector's mode) or the framebuffer device, drawn
+  from a shadow buffer (`pixbuf.nim`) with a software cursor; input read
+  from evdev itself (keyboards with the system's layout through
+  `xkbload.nim`, mice, touch screens and pads, pens), devices plugged in
+  while it runs, the console switched with Ctrl+Alt+F1..F12 (VT_PROCESS).
+  `-d:kiosk` builds it alone; a Linux build has it and takes it on a text
+  console (`backend.useScreen`: `RETRO_DRIVER=kms|fb`, else no X11 or
+  Wayland and a screen there). `RETRO_FB_FILE` and `RETRO_FB_INPUT` give
+  it a file as the screen and pipes as the devices, for tests.
+- `drivers/web_driver.nim` -- a page in the browser (`-d:wasm`, WebAssembly):
+  the frame put on a canvas, input, the clipboard, fonts and sound through
+  functions the page gives the program (its imports), a frame at a time.
+- More windows than the program's own: `WindowsRelays` in `screen.nim`
+  (`openWindow`, `closeWindow`, `setTitle`, `layout`, `target`, `toFront`)
+  and `Event.window`, the window an event came to (0 the program's). Each
+  window has its own back buffer; `target` says which one drawing goes to.
+  X11 (transient for the program's window), WinAPI (owned windows of the
+  same class), Cocoa and Wayland (`framed`: whether the system draws their
+  frame); the other drivers have one window.
 - `drivers/penaxes.nim` -- a pen's pressure, lean and turn from what each
   system reports.
 - `input.nim`, `screen.nim`: more keys, the mouse's side buttons,

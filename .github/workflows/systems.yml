@@ -1,0 +1,256 @@
+name: Every system
+
+# The kit on every system it runs on, with its own drivers -- what the
+# headless tests (ci.yml) cannot see:
+#
+#   Linux    the live check under Xvfb, WebKitGTK as the browser engine;
+#            the Wayland driver on sway with no screen (tests/wayland/run.sh:
+#            its own mouse and keyboard, the clipboard, the pixels shown);
+#            the screen driver with no windowing system (tests/kiosk/run.sh);
+#            the store packages made in Nim checked with others' tools
+#            (osslsigncode, jarsigner, bundletool, rcodesign: tests/store)
+#   Web      an app as WebAssembly (clang and wasm-ld, no Emscripten) in
+#            headless Chromium (tests/web/run.sh); the headless tests as
+#            32-bit programs, an int as small as WebAssembly's (run32.sh)
+#   Windows  the tests made for every system, and the live check (WinAPI,
+#            WebView2); a program signed and an MSIX made in Nim, checked,
+#            installed and removed by Windows itself (tests/store/windows.ps1)
+#   macOS    the same with Cocoa and WKWebView; an .app signed in Nim,
+#            checked by codesign and run (tests/store/mac.sh)
+#   iOS      the live check in the iOS Simulator (UIKit, WKWebView)
+#   Android  the live check in the Android emulator (the APK's driver and
+#            its WebView)
+#
+# The live check (tests/live/livecheck.nim) goes through the guide's pages,
+# saves each frame and checks the browser engine; tools/live/compare.nim
+# compares the frames with tests/live/ref (the kit draws the same pixels on
+# every system). Each job uploads its pictures and results.txt, and the
+# differences in red.
+#
+# It runs on a push to `next` (to try a release before it is published),
+# to main, and by hand (Actions > Every system > Run workflow).
+
+on:
+  push:
+    branches: [next, main]
+  workflow_dispatch:
+
+env:
+  NIM_VERSION: "2.2.6"
+  # the tests that need nothing of Linux's (no X server, no D-Bus)
+  PORTABLE: >-
+    test_widgets test_business test_text test_bidi test_input test_records
+    test_charts test_planning test_mapview test_view3d test_htmlview
+    test_canvas2d test_pdf test_report test_scroll test_xlsx test_letters
+    test_morecontrols test_dock test_toolcustom test_richedit test_calendar
+    test_qrcode test_touchsizes test_scale test_hardening test_designer
+    test_tilemap test_gltf test_store
+  # the live check: frames drawn by the CPU at 100 %, the browser engine
+  # needed
+  RETRO_GPU: cpu
+  RETRO_SCALE: "100"
+  RETRO_LIVE_WEB: need
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: X server, WebKitGTK and GStreamer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libwebkit2gtk-4.1-0 gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good gstreamer1.0-libav sway grim wl-clipboard osslsigncode
+      - name: Store packages (Authenticode, MSIX, App Bundles, macOS signatures)
+        run: sh tests/store/linux.sh
+      - name: The Wayland driver (sway, headless; 100 % and 150 %)
+        run: sh tests/wayland/run.sh
+      - name: The screen driver (no windowing system; a file as the screen)
+        run: sh tests/kiosk/run.sh
+      - name: The 3D view on the GPU against the CPU (Mesa's OpenGL)
+        run: |
+          nim c -d:release --hints:off --path:src -o:build/gpu3dcheck tests/gpu3d/gpu3dcheck.nim
+          RETRO_GPU=gpu xvfb-run -a -s "-screen 0 1280x800x24" build/gpu3dcheck
+      - name: Live check
+        run: |
+          nim c -d:release --hints:off -o:build/livecheck tests/live/livecheck.nim
+          xvfb-run -a -s "-screen 0 1280x800x24" env RETRO_LIVE_OUT=live RETRO_LIVE_VIDEO_NEED=1 build/livecheck
+      - name: The same pixels as the reference
+        if: always()
+        run: nim c -r --hints:off tools/live/compare.nim live
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-linux
+          path: live/
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: clang, wasm-ld, Chromium (Playwright)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: An app as a web page in a real browser (100 % and 200 %)
+        run: sh tests/web/run.sh
+      - name: 32-bit (an int as small as WebAssembly's)
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib libx11-6:i386 libxext6:i386 libxrandr2:i386 \
+            libxcursor1:i386 libxi6:i386 libxfixes3:i386 libxrender1:i386
+          sh tests/run32.sh
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tests
+        shell: bash
+        run: |
+          for t in $PORTABLE; do
+            echo "::group::$t"
+            nim c -r --hints:off tests/$t.nim || { echo "::error::$t failed"; exit 1; }
+            echo "::endgroup::"
+          done
+      - name: Live check
+        if: always()
+        shell: bash
+        run: |
+          nim c -d:release --hints:off -o:build/livecheck.exe tests/live/livecheck.nim
+          RETRO_LIVE_OUT=live ./build/livecheck.exe
+      - name: A program signed and an MSIX, as Windows sees them
+        if: always()
+        shell: pwsh
+        run: ./tests/store/windows.ps1
+      - name: The same pixels as the reference
+        if: always()
+        shell: bash
+        run: nim c -r --hints:off tools/live/compare.nim live
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-windows
+          path: live/
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tests
+        run: |
+          for t in $PORTABLE; do
+            echo "::group::$t"
+            nim c -r --hints:off tests/$t.nim || { echo "::error::$t failed"; exit 1; }
+            echo "::endgroup::"
+          done
+      - name: Live check
+        if: always()
+        run: |
+          nim c -d:release --hints:off -o:build/livecheck tests/live/livecheck.nim
+          RETRO_LIVE_OUT=live RETRO_LIVE_VIDEO_NEED=1 ./build/livecheck
+      - name: The same pixels as the reference
+        if: always()
+        run: nim c -r --hints:off tools/live/compare.nim live
+      - name: An .app signed in Nim, as macOS sees it
+        if: always()
+        run: sh tests/store/mac.sh
+      - name: A picture of the screen (the system's views too)
+        if: always()
+        run: screencapture -x live/screen-after.png || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-macos
+          path: live/
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: A Simulator
+        run: |
+          dev=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          d = json.load(sys.stdin)["devices"]
+          print(next(x["udid"] for r in d for x in d[r] if "iOS" in r and "iPhone" in x["name"]))')
+          echo "SIM=$dev" >> "$GITHUB_ENV"
+          xcrun simctl boot "$dev"
+          xcrun simctl bootstatus "$dev" -b
+      - name: Live check in the Simulator
+        run: |
+          nim c -d:release --hints:off -o:build/retroios src/retroios.nim
+          build/retroios tests/live/livecheck.nim --simulator --id:org.retro.livecheck --name:Livecheck \
+            --nim:--path:src --run
+          data=$(xcrun simctl get_app_container booted org.retro.livecheck data)
+          out="$data/Library/Application Support"
+          for i in $(seq 1 120); do [ -f "$out/results.txt" ] && break; sleep 1; done
+          xcrun simctl io booted screenshot live-screen.png || true
+          mkdir -p live && cp "$out"/*.png "$out"/results.txt live/ 2>/dev/null || true
+          mv live-screen.png live/ 2>/dev/null || true
+          cat live/results.txt
+          ! grep -q '^FAIL' live/results.txt
+      - name: The same pixels as the reference
+        if: always()
+        run: nim c -r --hints:off tools/live/compare.nim live
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-ios
+          path: live/
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: The live check's APK (x86_64, for the emulator)
+        run: |
+          nim c -d:release --hints:off -o:build/retroapk src/retroapk.nim
+          build/retroapk tests/live/livecheck.nim --abi:x86_64 --debuggable \
+            --id:org.retro.livecheck --name:Livecheck --nim:--path:src -o:build/livecheck.apk
+      - name: KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Live check in the emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          script: sh tests/live/android.sh
+      - name: The same pixels as the reference
+        if: always()
+        run: nim c -r --hints:off tools/live/compare.nim live
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-android
+          path: live/

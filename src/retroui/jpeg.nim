@@ -278,7 +278,10 @@ proc exifOrientation(s: ptr UncheckedArray[char]; t, stop: int): int =
   template r32(i: int): int =
     (if le: r16(i) or (r16(i + 2) shl 16) else: (r16(i) shl 16) or r16(i + 2))
   if t + 8 > stop: return
-  let ifd = t + r32(t + 4)
+  let off = r32(t + 4)
+  # (on a 32-bit system a number past 2^31 reads negative: no such place)
+  if off < 0 or off > stop - t: return
+  let ifd = t + off
   if ifd + 2 > stop: return
   for k in 0 ..< r16(ifd):
     let e = ifd + 2 + 12 * k

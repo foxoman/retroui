@@ -925,7 +925,7 @@ proc adobeOf(make, model: string): tuple[found: bool; black, white: int; m: arra
   for (tm, prefix, bl, wh, t) in adobe:
     if tm == mk and md.startsWith(prefix.toLowerAscii):
       for i in 0 .. 8: result.m[i] = t[i].float / 10000
-      return (true, bl, wh, result.m)
+      result = (true, bl, wh, result.m); return
   var n = 0
   for (tm, prefix, bl, wh, t) in adobe:
     if tm == mk:
@@ -2008,7 +2008,10 @@ iterator boxes(r: Rd; at, stop: int): tuple[name: string; at, stop: int] =
     var head = 8
     if size == 1:
       if o + 16 > stop: break
-      size = (r.u32(o + 8) shl 32) or r.u32(o + 12)
+      when sizeof(int) < 8:
+        size = if r.u32(o + 8) != 0: high(int) else: r.u32(o + 12)
+      else:
+        size = (r.u32(o + 8) shl 32) or r.u32(o + 12)
       head = 16
     elif size == 0:
       size = stop - o
@@ -2058,7 +2061,11 @@ proc cr3Tracks(r: Rd; data: string; moovAt, moovStop: int): seq[Cr3Track] =
               if fixed != 0: t.size = fixed
               elif r.u32(a2 + 8) > 0 and z2 - a2 >= 16: t.size = r.u32(a2 + 12)
           of "co64":
-            if z2 - a2 >= 16 and r.u32(a2 + 4) > 0: t.at = (r.u32(a2 + 8) shl 32) or r.u32(a2 + 12)
+            if z2 - a2 >= 16 and r.u32(a2 + 4) > 0:
+              when sizeof(int) < 8:
+                t.at = if r.u32(a2 + 8) != 0: high(int) else: r.u32(a2 + 12)
+              else:
+                t.at = (r.u32(a2 + 8) shl 32) or r.u32(a2 + 12)
           of "stco":
             if z2 - a2 >= 12 and r.u32(a2 + 4) > 0: t.at = r.u32(a2 + 8)
           else: discard
@@ -2382,13 +2389,13 @@ proc exifCfa(r: Rd; exif: Dir): seq[int] =
   if r.u16(at) == 2 and r.u16(at + 2) == 2:
     for i in 0 .. 3:
       let c = r.b.at(at + 4 + i)
-      if c > 2: return @[]
+      if c > 2: result = @[]; return
       result.add c
   elif r.u16(at) == 0x200 and r.u16(at + 2) == 0x200:
     # (written in the other byte order)
     for i in 0 .. 3:
       let c = r.b.at(at + 4 + i)
-      if c > 2: return @[]
+      if c > 2: result = @[]; return
       result.add c
 
 proc readOrf(data: string; b: Bytes): Sensor =

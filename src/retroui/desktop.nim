@@ -1029,9 +1029,9 @@ proc parseHotkey*(s: string): tuple[key: KeyCode; mods: set[Modifier]] =
     of "alt", "option": result.mods.incl AltPressed
     of "shift": result.mods.incl ShiftPressed
     of "win", "super", "meta": result.mods.incl GuiPressed
-    else: return (KeyNone, {})
+    else: result = (KeyNone, {}); return
   let name = parts[^1].strip
-  if name.len == 0: return (KeyNone, {})
+  if name.len == 0: result = (KeyNone, {}); return
   for k in KeyCode:
     if k != KeyNone and cmpIgnoreCase(keyName(k), name) == 0:
       result.key = k

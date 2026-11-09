@@ -200,7 +200,7 @@ proc pressureOf(n: MemoryNumbers): MemoryPressure =
     if f < 0.08 or n.free < 160 * MB: result = mpLow
   if n.program > 0:
     let p = n.program.float / n.device.float
-    if p > 0.6: return mpCritical
+    if p > 0.6: result = mpCritical; return
     if p > 0.4: result = mpLow
 
 proc memoryPressure*(): MemoryPressure =

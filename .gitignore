@@ -20,6 +20,7 @@ tests/*
 !tests/*.nims
 !tests/*.py
 !tests/*.supp
+!tests/*.sh
 !tests/*/
 tests/fuzz/fuzz
 tests/fuzz/fuzzui

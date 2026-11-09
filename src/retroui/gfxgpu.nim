@@ -41,6 +41,7 @@ type
     tiles: seq[TexTile]
     w, h: int
     whole: uint64              ## the bitmap's version (all of it) the texture has
+    outside: bool              ## a texture of other code's (`gpuShowTexture`): not given back here
     stamp: uint64              ## ... and its last change
     used: int                  ## the frame it was last drawn in
 
@@ -881,9 +882,10 @@ proc endGpuFrame(changed: openArray[Rect] = []): bool =
         gone.add k
         total -= bytes
     for k in gone:
-      for t in texCache[k].tiles:
-        var id = t.tex
-        gl.deleteTextures(1, addr id)
+      if not texCache[k].outside:
+        for t in texCache[k].tiles:
+          var id = t.tex
+          gl.deleteTextures(1, addr id)
       texCache.del k
   result = if changed.len > 0 and gpuRelays.swapGpuDamage != nil: gpuRelays.swapGpuDamage(changed)
            else: gpuRelays.swapGpu == nil or gpuRelays.swapGpu()
@@ -1716,6 +1718,15 @@ proc gpuBeginOffscreen*(): GLint =
     gl.colorMask(1, 1, 1, 1)
     if gl.disableVertexAttribArray != nil:
       for i in 1'u32 .. 3'u32: gl.disableVertexAttribArray(i)
+
+proc gpuShowTexture*(key: uint64; tex: GLuint; w, h: int) =
+  ## Texture `tex` (drawn by other code: `retroui/view3d` on the GPU) shown
+  ## as the picture `key` (`drawGpuImage`); its rows from the top, its
+  ## colors as the bitmaps' (blue, green, red, alpha). The texture stays
+  ## the caller's to give back.
+  {.cast(gcsafe).}:
+    texCache[cast[pointer](key)] = TexEntry(tiles: @[(tex, 0, 0, w, h, GLint(GL_LINEAR))], w: w, h: h,
+                                            outside: true, used: gpuFrame)
 
 proc gpuEndOffscreen*(oldFb: GLint) =
   ## The state frames are drawn with put back (after `gpuBeginOffscreen`).

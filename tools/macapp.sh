@@ -46,6 +46,8 @@ cat > "$app/Contents/Info.plist" <<EOF
   <key>CFBundleVersion</key><string>$version</string>
   <key>LSMinimumSystemVersion</key><string>10.15</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSCameraUsageDescription</key><string>$name uses the camera when you ask it to.</string>
+  <key>NSMicrophoneUsageDescription</key><string>$name records sound when you ask it to.</string>
   <key>NSHumanReadableCopyright</key><string>Sultan Al Isaiee @foxoman -- www.foxoman.net</string>
 </dict>
 </plist>

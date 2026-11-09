@@ -11,6 +11,7 @@
 
 import std/[os, osproc, strutils, parseopt]
 import retroui/appicon
+from retroui/macapp import ipaOf, MacError
 
 const Usage = """
 retroios -- build an iOS .app from a retro app
@@ -30,6 +31,8 @@ Options:
   --device:NAME      device to install on with --run (devicectl)
   --run              install and start it
   --nim:FLAG         pass a flag to the Nim compiler (repeatable)
+  --ipa              also the .ipa (Payload/<Name>.app, zipped) that TestFlight
+                     and the App Store take, beside the bundle
   -o:DIR.app         output bundle (default: build/ios-<file>/<Name>.app)
   --verbose          show the commands
 """
@@ -68,6 +71,8 @@ proc infoPlist(name, id, exe, version, code, minIos: string; simulator: bool): s
   <key>CFBundleVersion</key><string>$5</string>
   <key>CFBundleSupportedPlatforms</key><array><string>$7</string></array>
   <key>MinimumOSVersion</key><string>$6</string>
+  <key>NSCameraUsageDescription</key><string>$1 uses the camera when you ask it to.</string>
+  <key>NSMicrophoneUsageDescription</key><string>$1 records sound when you ask it to.</string>
   <key>LSRequiresIPhoneOS</key><true/>
   <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
   <key>UIRequiredDeviceCapabilities</key><array><string>arm64</string></array>
@@ -106,7 +111,7 @@ proc main() =
     version = "1.0"
     code = "1"
     minIos = "14.0"
-    simulator, runIt = false
+    simulator, runIt, makeIpa = false
     nimFlags: seq[string]
   for kind, key, val in getopt(commandLineParams()):
     case kind
@@ -127,6 +132,7 @@ proc main() =
       of "run": runIt = true
       of "nim": nimFlags.add val
       of "o", "out", "output": outDir = val
+      of "ipa": makeIpa = true
       of "verbose", "v": verbose = true
       of "help", "h": echo Usage; quit 0
       else: die "unknown option --" & key & " (see --help)"
@@ -210,6 +216,12 @@ proc main() =
   else:
     echo "Note: not signed (codesign runs on a Mac)."
   echo "Built ", outDir, " (", id, ")"
+  if makeIpa:
+    if simulator: die "an .ipa is of a device build (leave out --simulator)"
+    let ipa = outDir.changeFileExt("ipa")
+    try: ipaOf(outDir, ipa)
+    except MacError as e: die e.msg
+    echo "Built ", ipa, (if identity.len == 0: " (not signed for the App Store: --sign, --profile)" else: "")
   if runIt:
     if not onMac: die "--run needs a Mac"
     if simulator:

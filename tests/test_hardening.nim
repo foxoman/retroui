@@ -3,8 +3,8 @@
 
 import std/[os, strutils, random]
 import retroui
-import retroui/[zip, photo, jxl, exr]
-import retroui/uirelays/[input, screen]
+import retroui/[zip, photo, jxl, exr, morepictures, gltf, sign, codec]
+import retroui/uirelays/[input, screen, services]
 import harness
 
 fakeDriver()
@@ -49,7 +49,7 @@ block pngReadFreesItsData:
   # every PNG read left its compressed data behind: `idat = @[]` after a
   # loop that filled it was taken by Nim 2.2 for a first value (no destroy)
   let b = newBitmap(120, 90)
-  for i in 0 ..< b.px.len: b.px[i] = 0xFF000000'u32 or uint32(i * 2654435761'u32.int)
+  for i in 0 ..< b.px.len: b.px[i] = 0xFF000000'u32 or (uint32(i) * 2654435761'u32)
   let png = encodePng(b)
   leaksNot("decodePng", 200):
     doAssert decodePng(png).w == 120
@@ -149,5 +149,47 @@ block listColumnsKeepApart:
     for y in top ..< top + FontH div 2:
       doAssert not ink(x, y), "the first column's text runs into the second at x " & $x
   setUiScale(100)
+
+block returnAfterResultFreesIt:
+  # `return x` after `result` was set leaks the old value in Nim 2.2: a
+  # picture the system decodes (every picture on Android, iOS, macOS and
+  # Windows), a damaged HDR file, a picture of a PDF the kit does not read
+  # -- each kept its pixels until the program ended
+  let saved = systemRelays.decodeImage
+  systemRelays.decodeImage = proc (path: string; maxW, maxH: int):
+                                  tuple[w, h: int; px: seq[uint32]] =
+    (300, 200, newSeq[uint32](300 * 200))
+  leaksNot("a picture the system decodes", 40):
+    let b = loadPicture("/nonexistent/retro-system-decoded.jpg", 64, 64)
+    doAssert b != nil and b.w == 64
+  systemRelays.decodeImage = saved
+  addMorePictures()
+  let hdr = getTempDir() / "retro-hardening.hdr"
+  # (400 x 400, its first row packed, a run of no length in it: refused
+  # after the picture was made)
+  writeFile(hdr, "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 400 +X 400\n\x02\x02\x01\x90" &
+                 "\x00".repeat(15000))
+  leaksNot("a damaged HDR file", 40):
+    doAssert loadPicture(hdr, 64, 64) == nil
+  removeFile(hdr)
+
+block halfReadFreed:
+  # a model that an error stops half read, into a variable the caller
+  # already has; a PEM with a letter base64 does not have (Nim's `decode`
+  # raised part way): neither may keep what it had made
+  var good = "{\"asset\":{\"version\":\"2.0\"},\"materials\":["
+  for i in 0 ..< 200: good.add "{\"name\":\"paint " & $i & "\"},"
+  let broken = good & "{\"name\":5}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":99}}]}]}"
+  var scene: Scene3
+  leaksNot("a model stopped half read", 40):
+    try:
+      scene = readGltf(broken)
+    except GltfError: discard
+  let pem = "-----BEGIN CERTIFICATE-----\n" & "QUJD".repeat(4000) & "*\n-----END CERTIFICATE-----\n"
+  leaksNot("a damaged PEM", 40):
+    try: discard readCerts(pem)
+    except SignError: discard
+  doAssert unbase64(" QU\nJD ") == "ABC"
+  doAssertRaises(ValueError): discard unbase64("QU=JD")
 
 echo "hardening tests passed"

@@ -3,7 +3,8 @@
 
 import std/[strutils, os, osproc]
 import ../src/retroapk {.all.}
-import retroui/appicon
+import retroui/[appicon, rsa, zip, androiddex]
+from retroui/sign import jarSign
 
 proc hex(b: Bytes): string =
   for x in b: result.add x.toHex(2).toLowerAscii
@@ -121,4 +122,111 @@ when not defined(windows):
   let (o2, code2) = execCmdEx(quoteShellCommand([w, "x y"]))
   doAssert code2 == 0 and o2.strip == "it's $x|x y|", o2.repr
   removeFile(w)
+
+# ---- an App Bundle (.aab): aapt2's proto formats, a JAR signature ---------------------------------
+
+type PbField = tuple[field, wire: int; data: string; v: uint64]
+
+proc pbRead(b: string): seq[PbField] =
+  ## (a protocol buffer's fields, one level)
+  var i = 0
+  proc varint(): uint64 =
+    var shift = 0
+    while true:
+      let c = uint8(b[i])
+      inc i
+      result = result or (uint64(c and 0x7F) shl shift)
+      if (c and 0x80) == 0: break
+      shift += 7
+  while i < b.len:
+    let key = varint()
+    let f = int(key shr 3)
+    let w = int(key and 7)
+    case w
+    of 0: result.add (f, w, "", varint())
+    of 2:
+      let n = int(varint())
+      result.add (f, w, b[i ..< i + n], 0'u64)
+      i += n
+    else: doAssert false, "wire type " & $w
+
+proc pbOne(b: string; field: int): string =
+  for f in pbRead(b):
+    if f.field == field: return f.data
+proc pbAll(b: string; field: int): seq[string] =
+  for f in pbRead(b):
+    if f.field == field: result.add f.data
+proc pbInt(b: string; field: int): uint64 =
+  for f in pbRead(b):
+    if f.field == field and f.wire == 0: return f.v
+
+let xm = XNode(name: "manifest", attrs: @[
+  XAttr(name: "package", kind: TString, str: "org.retro.t"),
+  iAttr("versionCode", 0x0101021b, 7),
+  sAttr("versionName", 0x0101021c, "1.2")],
+  kids: @[XNode(name: "application", attrs: @[
+    iAttr("icon", 0x01010002, int(IconRes), TRef),
+    bAttr("hasCode", 0x0101000c, true),
+    iAttr("configChanges", 0x0101001f, 0x5000FFFF, THex)],
+    kids: @[XNode(name: "layout", attrs: @[iAttr("minWidth", 0x0101013f, dp(480), TDimen)])])])
+let px = protoXml(xm).toStr
+let root = px.pbOne(1)
+doAssert root.pbOne(3) == "manifest"
+let nsDecl = root.pbOne(1)
+doAssert nsDecl.pbOne(1) == "android" and nsDecl.pbOne(2) == AndroidNs
+proc attrNamed(el, name: string): string =
+  for a in el.pbAll(4):
+    if a.pbOne(2) == name: return a
+  doAssert false, name
+let pkgAttr = root.attrNamed("package")
+doAssert pkgAttr.pbOne(1) == "" and pkgAttr.pbOne(3) == "org.retro.t", "package: no namespace"
+let vc = root.attrNamed("versionCode")
+doAssert vc.pbOne(1) == AndroidNs and vc.pbInt(5) == 0x0101021b'u64
+doAssert vc.pbOne(6).pbOne(7).pbInt(6) == 7, "a decimal: its primitive"
+doAssert root.attrNamed("versionName").pbOne(6).pbOne(2).pbOne(1) == "1.2", "a string item"
+let appEl = root.pbOne(5).pbOne(1)
+doAssert appEl.pbOne(3) == "application"
+doAssert appEl.attrNamed("icon").pbOne(6).pbOne(1).pbInt(2) == uint64(IconRes), "a reference"
+doAssert appEl.attrNamed("hasCode").pbOne(6).pbOne(7).pbInt(8) == 1, "a boolean"
+doAssert appEl.attrNamed("configChanges").pbOne(6).pbOne(7).pbInt(7) == 0x5000FFFF'u64, "hex"
+let layoutEl = appEl.pbOne(5).pbOne(1)
+doAssert layoutEl.attrNamed("minWidth").pbOne(6).pbOne(7).pbInt(13) == uint64(dp(480)), "a dimension"
+# resources.pb: package 0x7f, drawable (1), icon (0) -> the PNG
+let rt = protoResources("org.retro.t").toStr
+let pkg = rt.pbOne(2)
+doAssert pkg.pbOne(1).pbInt(1) == 0x7f and pkg.pbOne(2) == "org.retro.t"
+let typ = pkg.pbOne(3)
+doAssert typ.pbOne(1).pbInt(1) == 1 and typ.pbOne(2) == "drawable"
+let ent = typ.pbOne(3)
+doAssert ent.pbOne(2) == "icon"
+let fileRef = ent.pbOne(6).pbOne(2).pbOne(4).pbOne(5)
+doAssert fileRef.pbOne(1) == IconPath and fileRef.pbInt(2) == 1, "a PNG file"
+let bc = bundleConfig().toStr
+doAssert bc.pbOne(1).pbOne(2).len > 0, "the bundletool version"
+doAssert bc.pbOne(2).pbOne(2).pbInt(1) == 1, "native libraries uncompressed"
+
+# a whole bundle, signed: jarsigner and bundletool check it when they are here
+block:
+  let key = newRsaKey()
+  let cert = key.selfSignedCert("CN=retro test")
+  var files = @[("BundleConfig.pb", bc), ("base/manifest/AndroidManifest.xml", px),
+                ("base/resources.pb", rt), ("base/dex/classes.dex", classesDex),
+                ("base/" & IconPath, iconPng(48).toStr)]
+  var z: ZipFile
+  for (n, data) in jarSign(files, key, cert) & files: z.addFile(n, data.toBytes, 1)
+  let aab = getTempDir() / "retro-test-" & $getCurrentProcessId() & ".aab"
+  writeFile(aab, z.finish.toStr)
+  let names = block:
+    var r: seq[string]
+    for e in zipEntries(aab): r.add e.name
+    r
+  doAssert names[0 .. 2] == @["META-INF/MANIFEST.MF", "META-INF/CERT.SF", "META-INF/CERT.RSA"]
+  if findExe("jarsigner").len > 0:
+    let (o, code) = execCmdEx(quoteShellCommand(["jarsigner", "-verify", aab]))
+    doAssert code == 0 and "jar verified" in o, o
+  let bt = getEnv("RETRO_BUNDLETOOL")
+  if bt.len > 0 and fileExists(bt):
+    let (o, code) = execCmdEx(quoteShellCommand(["java", "-jar", bt, "validate", "--bundle=" & aab]))
+    doAssert code == 0 and "Feature module: base" in o, o
+  removeFile(aab)
 echo "apk tool tests passed"

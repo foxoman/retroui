@@ -1,5 +1,221 @@
 # Changes
 
+## 0.29.0
+
+The kit on every system, on screens without a desktop and in the
+browser, with maps, Blender's models, the system's media, more windows,
+and the packages each store takes -- made in Nim. Not 1.0 yet: this
+release is for trying in real apps.
+
+- **Apps as web pages, without Emscripten.** `retrokit web app.nim` makes
+  the app WebAssembly with clang and wasm-ld alone, with the kit's own C
+  library (`src/retroui/web/libc`: memory, `printf` with exact floats,
+  `strtod`, files, time, math through the browser) and its page side
+  (`src/retroui/web/retro.js`), both carried inside the tool
+  (`src/retroweb.nim`). The page installs (a manifest, icons) and works
+  offline (a service worker: the app's files of 1 MB or less kept when it
+  installs, bigger ones when first read); the app's files are at `/app`,
+  its home folder kept in IndexedDB; input is the browser's (input methods,
+  dead keys, paste, pens, touch); drops go to `/tmp/dropped`; sound through
+  Web Audio, video through `<video>`; `httpRequest` through the browser
+  (a short address is the page's own site); a web view is an iframe that
+  talks with `retro.post`. The driver is
+  `src/retroui/uirelays/drivers/web_driver.nim` (`-d:wasm`); the app runs
+  frame by frame (`app` registers its frame; an uncaught error shows in a
+  red box instead of stopping the page silently). `retrokit run --web
+  [--watch]` serves it on localhost (ranges, no cache, reloaded on every
+  save; `--port`, `--no-open`). `tests/web/run.sh` checks it in Chromium
+  at 100 % and 200 %: clicks, typing, paste, the canvas against the
+  frame, files kept across a reload, the server.
+- **The screen driver: a screen with no desktop.** Kiosks, tills, panels,
+  a Raspberry Pi with no X11 or Wayland:
+  `src/retroui/uirelays/drivers/fb_driver.nim` draws to DRM/KMS (a dumb
+  buffer in the connector's preferred mode; `RETRO_KMS_CARD`,
+  `RETRO_KMS_MODE`) or the framebuffer (`RETRO_FBDEV`; 32, 24 and 16 bits),
+  with a software cursor, and reads evdev itself: keyboards (the layout
+  from `/etc/default/keyboard` or `vconsole.conf`), mice, touch screens,
+  touch pads, pens with pressure, wheels, plugged in while it runs. The
+  console is put in graphics mode; Ctrl+Alt+F1..F12 switch consoles (the
+  screen given back and taken again), Ctrl+Alt+Backspace closes. The scale
+  comes from the screen's millimetres. The default Linux build takes it
+  when started on a console (or `RETRO_DRIVER=kms`, `fb`); `-d:kiosk`
+  builds only it. `tests/kiosk/run.sh` checks it with a file as the screen
+  (`RETRO_FB_FILE`) and pipes as the devices (`RETRO_FB_INPUT`).
+- **The Wayland driver.** `src/retroui/uirelays/drivers/wayland_driver.nim`
+  speaks Wayland's protocol itself (`wlwire.nim`: no libwayland), draws
+  into shared memory (`pixbuf.nim`), finds fonts with fontconfig and
+  FreeType loaded at run time (`ftfonts.nim`), keys with the compositor's
+  keymap (`xkbload.nim`). Fractional scales (fractional-scale and
+  viewporter), the system's frame (xdg-decoration) or the 3.1 frame by
+  itself, cursor shapes or the classic cursors drawn, input methods
+  (text-input-v3), activation, the clipboard and drops, touch, key repeat,
+  compose. The default Linux build has X11 and Wayland and takes Wayland
+  when there is no X11 (`RETRO_DRIVER=wayland`, `x11` to choose);
+  `-d:wayland` builds only it; the BSDs too. `RETRO_WAYLAND_DEBUG=1` (or 2)
+  says what goes on. `tests/wayland/run.sh` checks it on sway with no
+  screen, at 100 % and 150 %. The system's web view needs X11: on Wayland's
+  own driver the kit's engine shows pages.
+- **More windows.** `window(open, title, w, h): body` opens a window of the
+  system's own beside the app's -- a tool palette, a second view, a
+  preview -- laid out and drawn as the app's is, with its own menus,
+  dialogs and focus; its close button sets `open` to false, and it closes
+  when it is no longer drawn. X11, Wayland, WinAPI and Cocoa open real
+  windows; phones, the browser and the screen driver show a dialog.
+  `beginWindow`, `endWindow`, `inWindow`; `Event.window` says which window
+  an event is for (uirelays' `WindowsRelays`). `captionBar` draws the 3.1
+  title bar where the system draws none (Wayland without server-side
+  frames, the screen driver), as on phones.
+- **Maps from every service.** `retroui/tilemap`: `tileMap(state, source)`
+  is a street map of the whole world -- dragged, zoomed with the wheel,
+  fingers, keys and its buttons -- from OpenStreetMap, OpenTopoMap, CARTO,
+  Google (`googleTiles`, its session made for you), Azure Maps, Mapbox
+  (raster and vector), HERE, MapTiler (raster and vector), Protomaps, Esri,
+  TomTom, Stadia, AMap and Tencent (in GCJ-02, your GPS points moved to
+  match), Tianditu, TileJSON, or your own maps: PMTiles (a file, or an
+  address read in ranges), MBTiles, a folder. Markers, lines, areas with
+  holes, circles; `fitBounds`, `fitPoints`, `centerOn`, `mapPointOf`,
+  `metersPerPixel`; `keepArea` saves tiles for offline use (and refuses
+  OpenStreetMap's servers, as their policy asks); the attribution of each
+  source is shown. Tiles come on six worker threads (in the browser,
+  fetched by it), are kept in memory (192 MB at most) and on the disk (a
+  week), the tile above shown larger while one comes. `mapKitPage` and
+  `googleMapsPage` make pages for `webView` of the maps that are not tiles.
+  `retroui/mvt` decodes, draws (`classicStyle`, `darkStyle`, labels that
+  never overlap) and writes Mapbox Vector Tiles; `retroui/pmtiles` reads and
+  writes PMTiles. `retroui/geo`: places, reverse places and routes from 13
+  services (Nominatim, Photon, OSRM, Valhalla, GraphHopper,
+  OpenRouteService, Google, Mapbox, HERE, Azure Maps, TomTom, MapTiler,
+  Esri), waiting or on a worker thread (`geocodeAsync`, `routeAsync`,
+  `geoFinished`), the turns in words; distances, bearings, polylines
+  (Google's, HERE's flexible), WGS 84 / GCJ-02 / BD-09, GeoJSON in and out;
+  `routeShape`, `geoJsonShapes` put them on the map.
+- **Blender's models in the 3D view.** `retroui/gltf` reads glTF 2.0
+  (`.glb`, `.gltf` with its files or data: addresses): every accessor kind,
+  normalized and sparse, triangles, strips and fans, the node tree, skins,
+  morph targets, clips (linear, step, cubic spline), materials
+  (metallic-roughness, pictures, alpha mask and blend, double-sided,
+  KHR_materials_unlit, KHR_materials_emissive_strength,
+  KHR_texture_transform, EXT_texture_webp); `toGlb` writes one;
+  `loadModel3` takes a `.blend` through Blender when it is installed
+  (`RETRO_BLENDER`), and `retrokit model car.blend` makes the `.glb` once,
+  naming its parts and clips. The 3D view has nodes (`findNode`,
+  `nodeNames`, `setVisible`, `tint`, `turnNode`, `moveNode`, `recolor`),
+  clips (`play`, `stop`, `seekAnimation`, `animate`, `isPlaying`), bones
+  and shapes, light that knows metal from paint and glass from chrome, a
+  picked part's name (`View3DEvent.node`, `nodeName`), and draws lit
+  triangles on all the cores. With the GPU (`RETRO_GPU=gpu`, or where the
+  kit draws with it) it is drawn by OpenGL (`view3dgl.nim`: GLSL ES 1.00,
+  a depth buffer of 24 bits where there is one), the same light, checked
+  against the CPU's pixels (`tests/gpu3d`). `view3dOnGpu`, `view3dPicture`.
+- **Store packages, made in Nim.** `retroapk --aab` (`retrokit aab`): an
+  Android App Bundle for Google Play -- the manifest and resources in
+  aapt2's proto formats, `BundleConfig.pb` (libraries uncompressed, 16 KB
+  pages), JAR-signed with the upload key; it passes `bundletool validate`
+  and makes APKs. `retrokit sign app.exe`: Windows' Authenticode signature
+  (SHA-256, the checksum made again, an older signature replaced), with an
+  RFC 3161 time stamp (`--timestamp:URL`). `retrokit msix app.exe`: an MSIX
+  (its manifest for a desktop program, logos from the icon, the block map
+  with each 64 KB block compressed on its own, the content types, ZIP64
+  records, the signature over its four digests), the program inside signed
+  too; the publisher is read from the certificate. `retrokit mac app`: a
+  macOS `.app` (Info.plist, the `.icns` written in Nim, the files),
+  signed ad hoc in Nim -- the code directory of each architecture, the
+  sealed resources, as `codesign --sign -` makes them -- or on a Mac with
+  your Developer ID (hardened runtime, secure time stamp), notarized and
+  stapled (`--notarize`: `xcrun notarytool`, `stapler`), zipped.
+  `retroios --ipa` and `retrokit ipa`: the `.ipa`. The modules:
+  `retroui/sign` (DER, certificates, CMS, JAR, Authenticode, time stamps),
+  `retroui/msix`, `retroui/macapp`; `src/retrostore.nim` the commands.
+  Checked with `jarsigner`, `bundletool`, `osslsigncode` (every digest, and
+  the time stamp of an authority made with OpenSSL) and `rcodesign`
+  (`tests/store/linux.sh`); on GitHub by Windows itself
+  (`Get-AuthenticodeSignature`, `signtool verify`, `makeappx unpack`, the
+  MSIX installed and removed) and by macOS (`codesign --verify --deep
+  --strict`, the app run, a universal build).
+- **The system's media.** `videoView` plays in the window on Windows
+  (Media Foundation) and macOS and iOS (AVFoundation) as on Linux and
+  Android, files and web addresses (HLS where the system plays it), drawn
+  by the kit under its menus and dialogs. `retroui/mediasession`
+  (`setNowPlaying`, `endNowPlaying`, `mediaKeys`): what the app plays on the
+  lock screen, the taskbar's flyout, Now Playing, the desktop's applet --
+  MPRIS, the System Media Transport Controls, MPNowPlayingInfoCenter, a
+  MediaSession -- and their buttons and the media keys back to the app.
+  `retroui/capture`: the camera in the window (`cameraView`, `cameras`,
+  `cameraPhoto`, `cameraRecord`, `cameraStop`, `cameraFrame`,
+  `cameraClose`; Video4Linux, Media Foundation, AVFoundation, Camera2,
+  Termux:API) and the microphone (`recordSound`, `stopRecordingSound`,
+  `recordingSound`, `soundLevel`).
+- **The web view inside the app.** Under the app's menus and dialogs the
+  system's view steps aside and a picture of the page stands in (every
+  engine). `webPermit` says what a page may use (camera, microphone,
+  location, notifications), `WebEvent.asked` what it asked for and was
+  refused; `WebEvent.downloads` the files it downloads (into Downloads);
+  a page's file box opens the system's chooser; `webAppFolder` and
+  `webAppUrl` give the app's own pages an address of their own
+  (`app://local/`; `https://app.local/` on Windows; Android's asset
+  loader); `webPrint` prints the page.
+- **On every system, with its own drivers.** The live check
+  (`tests/live/livecheck.nim`) runs on GitHub on Linux, Windows, macOS, the
+  iOS Simulator and the Android emulator (`.github/workflows/systems.yml`),
+  its frames compared with `tests/live/ref` (`tools/live/compare.nim`):
+  the kit draws the same pixels everywhere. The same workflow runs the
+  Wayland, screen driver, web, GPU 3D, 32-bit and store checks.
+- **Touch sizes from the environment**: `RETRO_TOUCH=1`, `RETRO_CONTROLS`
+  (`touch`, `desktop`, `auto`) and `retrokit run --touch`, `--controls`:
+  finger-sized controls on a desktop screen to try a tablet's layout; they
+  win over the sizes kept in the app's settings, as `RETRO_SCALE` does.
+- **32-bit, and so WebAssembly.** `tests/run32.sh` runs the tests as
+  32-bit programs. What only fitted in 64 bits now fits everywhere: PNG
+  checksums, WAV sizes, photo merging's noise, PSD's 16-bit alpha and
+  paths, the photo engine's look-up tables, warps and bilinear sums (a
+  perspective crop came out wrong), 16-bit picture files, TrueType's
+  32-bit numbers, a JPEG's EXIF offsets, the designer's numbers, the edge
+  finder's key (it overflowed with many layers on 64-bit too). Floats are
+  hashed with all their bits (`hashF`: Nim's own `hash(float)` drops half
+  of them on 32-bit).
+- **Found by the new fuzzers, fixed:** a glTF index into a missing array,
+  a JSON node of another kind, sizes and offsets whose products overflow
+  (`fuzz_models`); a PMTiles offset past `int64` (`fuzz_maps`); a macOS
+  program's sections read past its load commands, a universal program
+  whose alignment no number holds, a Windows program's signature inside
+  its headers
+  (`fuzz_store`).
+- **A picture the system decodes no longer leaks.** `loadPicture` handed
+  back a picture from the system's decoder (every picture on Android and
+  iOS, and on macOS and Windows the kinds the kit does not decode) with
+  `return` after `result` was set, which Nim 2.2 does not free: each
+  picture's pixels stayed until the app ended. The same shape freed
+  nothing in the HDR reader (a damaged file), the PDF reader (a picture it
+  does not read), font tables, links in rich text, the media players, D-Bus
+  and the script engine. `tools/returncheck.py` finds the shape (0 in the
+  kit and the apps; GitHub runs it), and `test_hardening` keeps it fixed.
+  Found under LeakSanitizer too: a glTF model that an error stopped half
+  read kept its parts when read into a variable the caller had, and a PEM,
+  a board's picture, a data: address or a token with a letter that is not
+  base64 kept what Nim's `decode` had made; `codec.unbase64` decodes
+  without that.
+- **The column view** keeps its columns for each folder model: two folder
+  windows in columns (Retro Files' View > Folders in Windows) drawn with
+  one `key` listed each other's folders again every frame, and the
+  memory grew until the app was stopped. A model's listings and
+  thumbnails not started are dropped when the view lets it go.
+- `retroui/zip` reads ZIP64 archives (MSIX, files over 4 GB) and marks
+  programs as such when it writes (`addFile(..., executable = true)`).
+  `codec.deflatePieces` compresses in pieces each on its own.
+  `rsa.selfSignedCert` keeps the subject in the order it is written and can
+  mark a certificate for signing code; `imaging.windowIconFromPng` takes
+  any sizes.
+- Docs: README (apps as web pages, screens without a desktop, shipping to
+  the stores, more windows, camera and microphone, the street map, models
+  from Blender, the platforms table, tests, safety, limits), SECURITY.md,
+  THIRD-PARTY-NOTICES.md (and LICENSE, which named files the kit no longer
+  has), BUILDING.md, the controls guide, the syntax study, the skill and
+  llms.txt.
+- Retro Gallery and the small examples are 0.29.0. The Gallery's map page
+  has a Streets button (OpenStreetMap's tiles, from the network) and its 3D
+  side a Car: a model with named parts and two clips -- the door opens and
+  closes, the wheels turn, Paint changes its color, a click names the part.
+
 ## 0.28.0
 
 - **`webView` with the system's browser engine, on every system.** Give a

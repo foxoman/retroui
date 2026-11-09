@@ -199,7 +199,11 @@ proc u64(r: var Reader): int =
   var lo = r.u32
   if r.le: swap(hi, lo)
   if hi > 0x7FFF_FFFF: fail("a length too big")
-  (hi shl 32) or lo
+  when sizeof(int) < 8:
+    if hi != 0: fail("a length too big")
+    lo
+  else:
+    (hi shl 32) or lo
 
 proc len(r: var Reader; big: bool): int =
   ## A length: 8 bytes in .psb, 4 in .psd.
@@ -1575,7 +1579,9 @@ proc vectorMaskData*(subs: seq[PsdSubpath]; w, h: int; invert = false; fillAll =
   result.be16(ord(fillAll))
   result.add repeat('\0', 22)
   proc fix(v: float; size: int): int =
-    int(round(v / max(1, size).float * 16777216.0))   # (be32 writes the low 32 bits)
+    # (be32 writes the low 32 bits: they are kept, in an int of any size)
+    let f = clamp(round(v / max(1, size).float * 16777216.0), -2147483648.0 * 2, 2147483647.0 * 2)
+    int(cast[int32](uint32(int64(f) and 0xFFFFFFFF'i64)))
   for sp in subs:
     result.be16(if sp.closed: 0 else: 3)
     result.be16(sp.knots.len)
@@ -1855,7 +1861,7 @@ proc writePsd*(doc: PsdDoc): string =
       if c < nColor and transparent and doc.composite16.len == n * 4:
         for i in 0 ..< n:
           let a = doc.composite16[4 * i + 3].int
-          v[i] = uint16((v[i].int * a + 65535 * (65535 - a)) div 65535)
+          v[i] = uint16((uint64(v[i]) * uint64(a) + 65535'u64 * uint64(65535 - a)) div 65535)
       for x in v:
         o.add char((x shr 8) and 255)
         o.add char(x and 255)

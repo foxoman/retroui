@@ -779,8 +779,8 @@ proc mapView*(m: var MapState; height = -1;
     result.code = countryA3At(result.country)
     result.code2 = countryA2At(result.country)
   # the picture, made again only when something in it changed
-  var key = hash((dw, dh, m.zoom, m.lat, m.lon, ord(m.projection), m.showAntarctica))
-  key = key !& hash(vh) !& hash(m.hover) !& hash((lo, hi))
+  var key = hash((dw, dh, ord(m.projection), m.showAntarctica)) !& hashF(m.zoom) !& hashF(m.lat) !& hashF(m.lon)
+  key = key !& hash(vh) !& hash(m.hover) !& hashF(lo) !& hashF(hi)
   key = key !& hash((argb(th.field), argb(th.face), argb(th.select), argb(th.text)))
   key = key !& hash((argb(loC), argb(hiC)))
   let k64 = uint64(!$key)

@@ -21,6 +21,7 @@
 
 import std/[math, tables, json, strutils, algorithm, base64, hashes, sets, os, unicode]
 import gfx, freehand, textengine, raster, imaging, pdf, ttf
+from codec import unbase64
 
 type
   BoardColor* = enum
@@ -2406,10 +2407,10 @@ proc keepPictures(b: Board; s: var Shape; assets: JsonNode) =
   if s.image.len == 0: return
   if s.image.startsWith("asset:"):
     if s.image notin b.assets and assets != nil and assets{s.image} != nil:
-      try: b.assets[s.image] = decode(assets{s.image}.getStr)
+      try: b.assets[s.image] = unbase64(assets{s.image}.getStr)
       except CatchableError: discard
   else:
-    try: s.image = b.addAsset(decode(s.image))
+    try: s.image = b.addAsset(unbase64(s.image))
     except CatchableError: s.image = ""
 
 proc toJson*(b: Board): JsonNode =

@@ -1,6 +1,7 @@
 ## Retro Nim UI (`retroui`) -- a small, fast, dependency-free Windows 3.1
 ## style UI toolkit for business and desktop apps, one code base for
-## Windows (GDI), macOS (Cocoa), Linux and BSD (X11), Android and iOS.
+## Windows (GDI), macOS (Cocoa), Linux and BSD (X11, Wayland, or a screen
+## with no desktop), Android, iOS and the web (WebAssembly).
 ##
 ## Immediate mode: write the UI as plain code that runs once per frame;
 ## widgets are procs bound to your own variables. `import retroui` brings
@@ -53,6 +54,13 @@
 ## `notify`          the system's notifications (and the unread count on the icon)
 ## `bgcheck`         a check the system runs while the app is closed (Android)
 ## `vault`, `rsa`    encryption with a password, RSA keys
+## `tilemap`, `geo`  street maps from any service, places and routes
+## `mvt`, `pmtiles`  vector tiles; PMTiles and MBTiles archives
+## `gltf`            models from Blender and other tools (glTF, .blend)
+## `capture`         the camera and the microphone
+## `mediasession`    the system's media controls (lock screen, taskbar)
+## `sign`, `msix`    signatures (JAR, Authenticode, time stamps), MSIX packages
+## `macapp`          macOS bundles signed ad hoc, .icns, iOS archives
 ## ================  ==========================================================
 ##
 ## .. code-block:: nim
@@ -181,11 +189,25 @@ macro app*(args: varargs[untyped]): untyped =
   let endF = bindSym"endFrame"
   let done = bindSym"appFrameDone"
   let close = bindSym"closeApp"
-  result = quote do:
-    `start`
-    while `beginF`():
-      `caption`()
-      `body`
-      `endF`()
-      `done`()
-    `close`()
+  when defined(wasm):
+    # (a browser page runs the frames: the block is one of them)
+    let frames = bindSym"webFrames"
+    let running = bindSym"appRunning"
+    result = quote do:
+      `start`
+      `frames`(proc () =
+        if `beginF`():
+          `caption`()
+          `body`
+          `endF`()
+          `done`()
+        if not `running`(): `close`())
+  else:
+    result = quote do:
+      `start`
+      while `beginF`():
+        `caption`()
+        `body`
+        `endF`()
+        `done`()
+      `close`()

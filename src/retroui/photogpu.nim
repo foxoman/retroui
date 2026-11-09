@@ -213,8 +213,9 @@ proc channelTables(lut: seq[uint32]): seq[uint8] =
       let xi = x * n div 255
       let xf = x * n - xi * 255
       let x1 = min(xi + 1, n)
-      result[c * 256 + x] = uint8((f(xi) * (255 - xf) * 65025 + f(x1) * xf * 65025 + 255 * 255 * 255 div 2) div
-                                  (255 * 255 * 255))
+      # (in 64 bits: 255^4 is past what a 32-bit int holds)
+      result[c * 256 + x] = uint8((int64(f(xi)) * (255 - xf) * 65025 + int64(f(x1)) * xf * 65025 +
+                                   255 * 255 * 255 div 2) div (255 * 255 * 255))
 
 # ---- the shaders ------------------------------------------------------------------------------------------
 #

@@ -139,7 +139,7 @@ proc extOfUrl*(url: string): string =
   if result.len == 0 and fromFile.len > 0: result = extIn(fromFile)
   if result == "jpeg": result = "jpg"
   for c in result:
-    if c notin {'a'..'z', '0'..'9'}: return ""
+    if c notin {'a'..'z', '0'..'9'}: result = ""; return
   if result.len > 5: result = ""
 
 proc cacheDir(): string =

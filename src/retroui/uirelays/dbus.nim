@@ -487,24 +487,24 @@ proc connectBus*(address: string; timeoutMs = 2000): DBusConn =
   var hex = ""
   for ch in uid: hex.add toHex(ord(ch), 2).toLowerAscii
   if not result.writeAll("\0AUTH EXTERNAL " & hex & "\r\n"):
-    return nil
+    result = nil; return
   let t0 = getMonoTime()
   while "\r\n" notin result.inbuf:
     let left = timeoutMs - int((getMonoTime() - t0).inMilliseconds)
     if left <= 0 or not result.readSome(min(left, 100)):
       result.close()
-      return nil
+      result = nil; return
   if not result.inbuf.startsWith("OK"):
     result.close()
-    return nil
+    result = nil; return
   result.inbuf = result.inbuf[result.inbuf.find("\r\n") + 2 .. ^1]
   if not result.writeAll("BEGIN\r\n"):
-    return nil
+    result = nil; return
   let hello = result.callWait("org.freedesktop.DBus", "/org/freedesktop/DBus",
                               "org.freedesktop.DBus", "Hello", timeoutMs = timeoutMs)
   if hello.kind != dkMethodReturn:
     result.close()
-    return nil
+    result = nil; return
   var r = hello.reader()
   result.uniqueName = r.str()
   # (from now on reads never wait)

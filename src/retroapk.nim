@@ -24,6 +24,7 @@
 
 import std/[os, osproc, strutils, parseopt, algorithm, unicode, sequtils]
 import retroui/[appicon, androiddex, rsa, zip, codec]
+from retroui/sign import jarSign, SignError
 
 const Usage = """
 retroapk -- build an Android APK from a retro app
@@ -56,7 +57,9 @@ Options:
   --key:FILE.pem --cert:FILE.der   sign with your own key (default: a
                      debug key made once in ~/.retro/android)
   --signer:S         builtin (default: signed here, nothing needed) or apksigner
-  -o:FILE.apk        output (default: <file>.apk next to the source)
+  --aab              an Android App Bundle (.aab) for Google Play instead,
+                     signed (JAR signature) with --key/--cert: your upload key
+  -o:FILE.apk        output (default: <file>.apk, or .aab, next to the source)
   --install          install it (adb, or Termux's package installer)
   --run              start it after installing (adb)
   --nim:FLAG         pass a flag to the Nim compiler (repeatable)
@@ -187,16 +190,16 @@ proc dp(v: int): int = (v shl 8) or 1     ## a dimension in dp (complex: mantiss
 
 type
   XAttr = object
-    android: bool
-    name: string
-    resId: uint32
-    kind: uint8
-    str: string
-    data: uint32
+    android*: bool
+    name*: string
+    resId*: uint32
+    kind*: uint8
+    str*: string
+    data*: uint32
   XNode = object
-    name: string
-    attrs: seq[XAttr]
-    kids: seq[XNode]
+    name*: string
+    attrs*: seq[XAttr]
+    kids*: seq[XNode]
 
 proc sAttr(name: string; id: uint32; v: string): XAttr =
   XAttr(android: true, name: name, resId: id, kind: TString, str: v)
@@ -350,6 +353,98 @@ proc resourceTable(pkg: string): Bytes =
   result.u32(1)
   result.add values
   result.add p
+
+# ---- an App Bundle's manifest and resources: protocol buffers (aapt2's) ----------------
+
+proc pbVarint(b: var Bytes; v: uint64) =
+  var x = v
+  while x >= 0x80:
+    b.add byte((x and 0x7F) or 0x80)
+    x = x shr 7
+  b.add byte(x)
+
+proc pbInt(b: var Bytes; field: int; v: uint64) =
+  b.pbVarint(uint64(field shl 3))
+  b.pbVarint(v)
+
+proc pbBytes(b: var Bytes; field: int; v: Bytes) =
+  b.pbVarint(uint64((field shl 3) or 2))
+  b.pbVarint(uint64(v.len))
+  b.add v
+
+proc pbStr(b: var Bytes; field: int; s: string) = b.pbBytes(field, s.toBytes)
+
+proc protoXml(n: XNode; root = true): Bytes =
+  ## A manifest in aapt2's proto XML (an App Bundle's manifest).
+  var el: Bytes
+  if root:
+    var ns: Bytes
+    ns.pbStr(1, "android"); ns.pbStr(2, AndroidNs)
+    el.pbBytes(1, ns)
+  el.pbStr(3, n.name)
+  for a in n.attrs:
+    var at: Bytes
+    if a.android: at.pbStr(1, AndroidNs)
+    at.pbStr(2, a.name)
+    var item, inner: Bytes
+    case a.kind
+    of TString:
+      at.pbStr(3, a.str)
+      if a.android:
+        inner.pbStr(1, a.str)
+        item.pbBytes(2, inner)                    # String
+    of TRef:
+      at.pbStr(3, "@0x" & toHex(a.data, 8).toLowerAscii)
+      inner.pbInt(2, uint64(a.data))
+      item.pbBytes(1, inner)                      # Reference
+    of TBool:
+      at.pbStr(3, if a.data != 0: "true" else: "false")
+      inner.pbInt(8, if a.data != 0: 1 else: 0)
+      item.pbBytes(7, inner)                      # Primitive: boolean
+    of THex:
+      at.pbStr(3, "0x" & toHex(a.data, 8).toLowerAscii)
+      inner.pbInt(7, uint64(a.data))
+      item.pbBytes(7, inner)
+    of TDimen:
+      at.pbStr(3, $(a.data shr 8) & "dp")
+      inner.pbInt(13, uint64(a.data))
+      item.pbBytes(7, inner)
+    else:
+      at.pbStr(3, $cast[int32](a.data))
+      inner.pbInt(6, cast[uint64](int64(cast[int32](a.data))))
+      item.pbBytes(7, inner)                      # Primitive: decimal
+    if a.resId != 0: at.pbInt(5, uint64(a.resId))
+    if item.len > 0: at.pbBytes(6, item)
+    el.pbBytes(4, at)
+  for k in n.kids: el.pbBytes(5, protoXml(k, false))
+  result.pbBytes(1, el)
+
+proc protoResources(pkg: string): Bytes =
+  ## resources.pb: the one resource, the icon (as resourceTable).
+  var file, item, value, config, entry, typ, package, id: Bytes
+  file.pbStr(1, IconPath); file.pbInt(2, 1)         # PNG
+  item.pbBytes(5, file)
+  value.pbBytes(4, item)
+  config.pbBytes(1, @[])                            # (any configuration)
+  config.pbBytes(2, value)
+  id.pbInt(1, 0)
+  entry.pbBytes(1, id); entry.pbStr(2, "icon"); entry.pbBytes(6, config)
+  id = @[]; id.pbInt(1, 1)
+  typ.pbBytes(1, id); typ.pbStr(2, "drawable"); typ.pbBytes(3, entry)
+  id = @[]; id.pbInt(1, 0x7f)
+  package.pbBytes(1, id); package.pbStr(2, pkg); package.pbBytes(3, typ)
+  result.pbBytes(2, package)
+
+proc bundleConfig(): Bytes =
+  ## BundleConfig.pb: the bundletool it is made for, and the native
+  ## libraries kept uncompressed in the APKs made of it, on 16 KB pages.
+  var tool, opt, uncompressed: Bytes
+  tool.pbStr(2, "1.15.6")
+  result.pbBytes(1, tool)
+  uncompressed.pbInt(1, 1)
+  uncompressed.pbInt(2, 2)
+  opt.pbBytes(2, uncompressed)
+  result.pbBytes(2, opt)
 
 # ---- zip -------------------------------------------------------------------------
 
@@ -777,7 +872,7 @@ proc findZig(): string =
     if exe.len == 0: continue
     let (dir, code) = execCmdEx(quoteShellCommand([exe, "-c",
       "import os, sys, ziglang; sys.stdout.write(os.path.dirname(ziglang.__file__))"]))
-    if code == 0 and fileExists(dir.strip / "zig" & ExeExt): return dir.strip / "zig" & ExeExt
+    if code == 0 and fileExists(dir.strip / "zig" & ExeExt): result = dir.strip / "zig" & ExeExt; return
 
 proc writeWrapper(path: string; env: openArray[(string, string)];
                   cmd, before, after: openArray[string]): bool =
@@ -993,7 +1088,7 @@ proc main() =
     permissions: seq[string]
     queries: seq[string]
     nimFlags: seq[string]
-    debuggable, install, runIt, storage, background, clean = false
+    debuggable, install, runIt, storage, background, clean, aab = false
     signer = "auto"
     workDir = ""
     toolchain = getEnv("RETRO_ANDROID_TOOLCHAIN", "auto").toLowerAscii
@@ -1022,6 +1117,7 @@ proc main() =
       of "key": keyPem = val
       of "cert": certDer = val
       of "signer": signer = val
+      of "aab", "bundle": aab = true
       of "o", "out", "output": outPath = val
       of "install": install = true
       of "run": install = true; runIt = true
@@ -1045,7 +1141,9 @@ proc main() =
       if c in {'a'..'z', '0'..'9'}: clean.add c
     id = "org.retro." & (if clean.len > 0 and clean[0] in {'a'..'z'}: clean
                            else: "app" & clean)
-  if outPath.len == 0: outPath = src.changeFileExt("apk")
+  if outPath.len == 0: outPath = src.changeFileExt(if aab: "aab" else: "apk")
+  if aab and install:
+    die "an App Bundle is for Google Play, not to install; leave out --aab to install an APK"
   # (the compiled pieces: kept for quick rebuilds -- out of the source
   # folder, in the user's cache; --clean removes them after)
   let work = if workDir.len > 0: workDir
@@ -1186,6 +1284,33 @@ proc main() =
   let icon = if iconPath.len > 0: readFile(iconPath).toBytes else: iconPng(192)
   if icon.len < 8 or icon[1] != byte('P') or icon[2] != byte('N'):
     die "the icon must be a PNG file"
+
+  if aab:
+    # 3. the bundle: Google Play makes the APKs of it (bundletool's layout,
+    # aapt2's proto formats), signed here with the upload key
+    if keyPem.len == 0:
+      (keyPem, certDer) = debugKey()
+      echo "Signing with the debug key: Google Play wants your upload key (--key, --cert)"
+    let key = try: readRsaKey(readFile(keyPem))
+              except RsaError as e: die "the key " & keyPem & ": " & e.msg
+              except IOError: die "cannot read the key " & keyPem
+    let cert = try: readFile(certDer).toBytes
+               except IOError: die "cannot read the certificate " & certDer
+    var files = @[("BundleConfig.pb", bundleConfig().toStr),
+                  ("base/manifest/AndroidManifest.xml", protoXml(manifest).toStr),
+                  ("base/resources.pb", protoResources(id).toStr),
+                  ("base/dex/classes.dex", classesDex),
+                  ("base/" & IconPath, icon.toStr)]
+    for (inZip, path) in libs: files.add ("base/" & inZip, readFile(path))
+    let meta = try: jarSign(files, key, cert)
+               except SignError as e: die "signing the bundle: " & e.msg
+    var z: ZipFile
+    for (n, data) in meta & files: z.addFile(n, data.toBytes, 1)
+    writeFile(outPath, z.finish.toStr)
+    echo "Built ", outPath, " (", getFileSize(outPath) div 1024, " KB, ", id, ", for Google Play)"
+    if clean:
+      try: removeDir(work) except OSError: discard
+    return
 
   # 3. the zip; Android unpacks the (deflated) libraries when installing
   var z: ZipFile

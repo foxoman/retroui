@@ -1,4 +1,4 @@
-The country outlines of retro's map view (src/retro/worlddata.nim, made by
+The country outlines of retro's map view (src/retroui/worlddata.nim, made by
 tools/genworld.py) come from:
 
 Natural Earth -- Free vector and raster map data @ naturalearthdata.com

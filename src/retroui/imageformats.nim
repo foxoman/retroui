@@ -203,9 +203,10 @@ proc ditherTo*(q: var Quantized; px: openArray[uint32]; w, h: int; alphaCut = 12
 
 # ---- PNG with a palette ----------------------------------------------------------------------
 
-proc putBe32(o: var string; v: int) =
+proc putBe32(o: var string; v: uint32) =
   o.add char((v shr 24) and 255); o.add char((v shr 16) and 255)
   o.add char((v shr 8) and 255); o.add char(v and 255)
+proc putBe32(o: var string; v: int) = o.putBe32(uint32(v))
 
 proc pngChunk(o: var string; kind: string; data: openArray[byte]) =
   o.putBe32(data.len)
@@ -217,7 +218,7 @@ proc pngChunk(o: var string; kind: string; data: openArray[byte]) =
     copyMem(addr o[p], unsafeAddr data[0], data.len)
   var c = 0xFFFFFFFF'u32
   for i in at ..< o.len: c = crcStep(c, byte(o[i]))
-  o.putBe32(int(c xor 0xFFFFFFFF'u32))
+  o.putBe32(c xor 0xFFFFFFFF'u32)
 
 proc encodePngIndexed*(w, h: int; q: Quantized; level = 6; dpi = 0): string =
   ## A PNG of a picture with a palette (8 bits a pixel; fewer when the

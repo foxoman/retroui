@@ -1,4 +1,4 @@
-# Building Retro apps: desktop, Android and iOS, step by step
+# Building Retro apps: desktop, Android, iOS and the web, step by step
 
 Retro builds its own Android packages: `retroapk` compiles the app and
 writes and signs the APK itself. You do **not** need the Android SDK,
@@ -9,6 +9,11 @@ with **zig**. Only when neither is there does it fetch the NDK (about
 700 MB) once, as a fallback.
 
 iOS apps are built on a Mac with Xcode by `retroios`: no Xcode project.
+
+A web page is built by `retrokit web` with clang and wasm-ld alone: no
+Emscripten. The packages the stores take -- an App Bundle, an MSIX, a
+signed Windows program, a signed macOS app, an .ipa -- are made and
+signed in Nim by `retrokit` ("Shipping to the stores", at the end).
 
 `retroapk`, `retroios` and `retrokit` come with the package: after
 `nimble install retroui` they are on your PATH (in `~/.nimble/bin`).
@@ -52,11 +57,28 @@ tools/macapp.sh program "My App" 1.0 icon.png com.me.myapp out.zip` (in a
 clone) makes the `.app` with its icon and zips it.
 
 **Linux:** gcc or clang; no `-dev` packages (libX11 is loaded when the
-app starts). `nim c -r tools/appimage.nim program "My App" 1.0
+app starts; Wayland is spoken by the kit itself). `nim c -r tools/appimage.nim program "My App" 1.0
 icon.png MyApp-x86_64.AppImage` (in a clone) packs it as an AppImage, one
 file with its icon and menu entry.
 
-**BSD:** as on Linux, with the system's clang and X11 from packages.
+The same build runs on X11, on Wayland and on a screen with no desktop;
+it takes what it finds, and the environment chooses:
+
+| | |
+|---|---|
+| `RETRO_DRIVER=x11` / `wayland` | X11 (or XWayland) / the Wayland driver (taken by itself when there is no X11; fontconfig and FreeType, loaded when it starts, find its fonts) |
+| `RETRO_DRIVER=kms` / `fb` | the screen driver: DRM/KMS, or the framebuffer (taken by itself on a text console with no X11 or Wayland) |
+| `-d:wayland`, `-d:kiosk` | a build with only that driver (smaller; a kiosk image needs nothing else) |
+| `RETRO_KMS_CARD=/dev/dri/card1`, `RETRO_KMS_MODE=1280x800`, `RETRO_FBDEV=/dev/fb1` | the screen driver's screen and mode |
+| `RETRO_FB_GRAB=0` | the screen driver leaves the input devices to others too |
+| `RETRO_WAYLAND_DEBUG=1` (or `2`) | what the Wayland driver finds (and every event) |
+
+The screen driver needs the user in the `video` and `input` groups (or
+root), and a console of its own: on a kiosk, start the app from a systemd
+service on `tty1` (`TTYPath=/dev/tty1`, `StandardInput=tty`).
+
+**BSD:** as on Linux, with the system's clang and X11 (or Wayland) from
+packages.
 
 **The examples** are built only when you ask, one at a time:
 `RETRO_APP=photo nimble exe` (Windows, from Linux or macOS),
@@ -142,6 +164,35 @@ before 9 has no `glob()`, which the compiler's sources name: a stand-in in
 `src/retrodesigner/androidglob.c` is linked). Its tests:
 `nim c -r tests/test_designer.nim` (it finds the compiler's sources the same
 way, `tests/test_designer.nims`).
+
+**The web:** clang with the WebAssembly target and wasm-ld (LLVM's lld):
+`apt install clang lld`, `dnf install clang lld`, `brew install llvm
+lld`, LLVM's installer on Windows. Then
+
+```sh
+retrokit web app.nim --files:data --icon:icon.png --name:"My App"   # build/web
+retrokit run --web --watch app.nim      # served on http://localhost:8765, rebuilt on every save
+```
+
+`--out:DIR` puts the page elsewhere, `--small` optimizes for size,
+`--debug` keeps Nim's checks and stack traces; anything else goes to the
+compiler. Put `build/web` on any web server (HTTPS, for the service
+worker); the page is `index.html`. The C library is compiled once into
+the cache (`RETROWEB_CACHE` another folder).
+
+**Testing it all**, in a clone: `nimble test` (headless), `nimble fuzz`,
+`sh tests/run32.sh` (as 32-bit programs: `apt install gcc-multilib` and
+the i386 X11 libraries), `sh tests/web/run.sh` (Playwright's Chromium),
+`sh tests/wayland/run.sh` (sway), `sh tests/kiosk/run.sh`,
+`sh tests/store/linux.sh`, `python3 tools/returncheck.py` (no `return x`
+after `result` was set: Nim 2.2 leaks the old value). Under the sanitizers:
+
+```sh
+ASAN_OPTIONS=detect_leaks=1 LSAN_OPTIONS=suppressions=tests/lsan.supp \
+nim c -r --hints:off --cc:clang -d:useMalloc --debugger:native \
+  --passC:"-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize=function" \
+  --passL:"-fsanitize=address,undefined" tests/test_widgets.nim
+```
 
 ---
 
@@ -345,6 +396,7 @@ retroapk app.nim --name:"My App" --id:com.me.myapp \
   -o:build/MyApp.apk
 ```
 
+`--aab` makes an Android App Bundle for Google Play instead (below).
 `retroapk --help` lists every option. The examples have tasks:
 `nimble galleryapk`, `nimble photoapk`, `nimble apk` (Retro Files),
 `nimble mailapk`, `nimble boardapk`, `nimble apks` (all), into `build/`.
@@ -358,6 +410,24 @@ somewhere safe): Android installs an update only when it is signed with
 the same key as the app on the phone. For a key of your own:
 `--key:key.pem --cert:cert.der`; `RETRO_KEYS=folder` keeps the debug key
 elsewhere.
+
+### For Google Play
+
+Play takes an App Bundle signed with your **upload key**:
+
+```sh
+openssl req -x509 -newkey rsa:2048 -nodes -keyout upload.pem -out upload.crt \
+  -days 9125 -subj "/CN=My Company"                        # once; keep both files safe
+openssl x509 -in upload.crt -outform DER -out upload.der
+retroapk app.nim --aab --name:"My App" --id:com.me.myapp --version:1.2 --code:3 \
+  --abi:arm64-v8a,x86_64 --key:upload.pem --cert:upload.der   # app.aab
+```
+
+In Play Console, let Google keep the app's signing key (Play App
+Signing) and upload `app.aab`; register `upload.der` as the upload key the
+first time. To try a bundle before uploading it, Google's bundletool makes
+the APKs a phone gets: `java -jar bundletool.jar build-apks
+--bundle=app.aab --output=app.apks --mode=universal`.
 
 ### Installing on the phone
 
@@ -452,29 +522,99 @@ The app is built into `build/ios-app/App.app` beside `app.nim` (`build/ios-<file
 ### For TestFlight or the App Store
 
 Sign with an "Apple Distribution" identity and an App Store
-provisioning profile (made at <https://developer.apple.com/account>),
-then pack the bundle as an .ipa and send it with Apple's Transporter app:
+provisioning profile (made at <https://developer.apple.com/account>);
+`--ipa` packs the bundle as the .ipa you send with Apple's Transporter app
+(or `xcrun altool --upload-app`):
 
 ```sh
 retroios app.nim --name:"My App" --id:com.me.myapp --version:1.0 --code:1 \
-  --sign:"Apple Distribution: Sultan Al Isaiee (TEAMID1234)" --profile:appstore.mobileprovision
-mkdir -p Payload && cp -R build/ios-app/MyApp.app Payload/
-zip -qr MyApp.ipa Payload
+  --sign:"Apple Distribution: Sultan Al Isaiee (TEAMID1234)" --profile:appstore.mobileprovision --ipa
 ```
 
-(This last route follows Apple's documented .ipa layout; it is not yet
-among the verified steps below.)
+`retrokit ipa build/ios-app/MyApp.app` packs a bundle you built and signed
+before. (The .ipa follows Apple's documented layout, `Payload/<Name>.app`;
+an upload to App Store Connect is not yet among the verified steps below.)
 
 ### Options
 
 `retroios --help`: `--name`, `--id`, `--version`, `--code`, `--icon`
 (1024x1024 PNG), `--min-ios` (default 14.0), `--simulator`, `--sign`,
-`--profile`, `--device`, `--run`, `--nim:FLAG`, `-o:Dir.app`, `--verbose`.
+`--profile`, `--device`, `--run`, `--ipa`, `--nim:FLAG`, `-o:Dir.app`, `--verbose`.
 Without a Mac, `retroios app.nim --sdk:iPhoneOS.sdk` (an iOS SDK copied
 from a Mac, and LLVM's `lld`) links an unsigned bundle -- to check that
 the app compiles for iOS.
 
 ---
+
+## Shipping to the stores
+
+Every package below is made and signed by `retrokit` in Nim, on any
+system; only Apple's own signature and notarization need a Mac. Each
+command has `--help`.
+
+### Windows: a signed program, an MSIX
+
+A code signing certificate comes from an authority (DigiCert, Sectigo,
+SSL.com, Certum, or Microsoft's Trusted Signing) as a `.pfx`; take its key
+and certificate out once:
+
+```sh
+openssl pkcs12 -in my.pfx -nocerts -nodes -out key.pem
+openssl pkcs12 -in my.pfx -clcerts -nokeys -out cert.pem     # yours
+openssl pkcs12 -in my.pfx -cacerts -nokeys -out chain.pem    # the authority's
+```
+
+```sh
+retrokit sign app.exe --key:key.pem --cert:cert.pem --chain:chain.pem --name:"My App" \
+  --url:https://me.example --timestamp:http://timestamp.digicert.com
+retrokit msix app.exe --name:MyCompany.MyApp --display:"My App" --version:1.2.0.0 \
+  --icon:icon.png --files:data --key:key.pem --cert:cert.pem --chain:chain.pem \
+  --timestamp:http://timestamp.digicert.com                # app.msix, the program inside signed too
+```
+
+The time stamp keeps the signature good after the certificate expires;
+use your authority's server. The MSIX's publisher is your certificate's
+subject (read from it); for the **Microsoft Store**, take the package
+name, publisher and publisher name Partner Center gives the app (`--name`,
+and a certificate whose subject is that publisher, or let the Store sign
+it: upload it as it is). `--capability:internetClient` (and webcam,
+microphone...) adds what the app uses; `--arch` is read from the program.
+
+**To install it yourself**, Windows must trust the certificate: with a
+test certificate (no `--key`: one made in `~/.retro/windows`), as an
+administrator, `Import-Certificate -FilePath dev-cert.der
+-CertStoreLocation Cert:\LocalMachine\TrustedPeople`, then open the .msix
+or `Add-AppxPackage app.msix`.
+
+### macOS: an app signed, notarized, stapled
+
+```sh
+nim c -d:release app.nim                                   # on a Mac (or give a program built there)
+retrokit mac app --name:"My App" --id:com.me.myapp --version:1.2 --icon:icon.png   # signed ad hoc
+retrokit mac app.nim --universal ...                      # built here for Apple silicon and Intel
+```
+
+That `.app` (and its `.zip`) runs on the Mac that made it and on Apple
+silicon anywhere; one downloaded from the web asks once (right click,
+Open). For people to open it without asking, sign it with your **Developer
+ID** and have Apple notarize it, on a Mac:
+
+```sh
+xcrun notarytool store-credentials myprofile --apple-id me@example.com --team-id TEAMID1234
+retrokit mac app --name:"My App" --id:com.me.myapp \
+  --sign:"Developer ID Application: Sultan Al Isaiee (TEAMID1234)" --notarize:myprofile
+```
+
+It is signed with the hardened runtime and a secure time stamp, sent to
+Apple, waited for, and the ticket stapled to it; the zip beside it is what
+you put on your site. `--entitlements:app.entitlements` adds what the app
+needs (the camera's and the microphone's usage texts are in its
+Info.plist already).
+
+### Android, iOS, the web
+
+Google Play: `retroapk --aab` (above, "For Google Play"). The App Store:
+`retroios --ipa` (above). The web: `retrokit web` (above).
 
 ### Verified
 
@@ -483,7 +623,19 @@ clang 18 + lld and with zig 0.17; each `libmain.so` checked
 (its machine, the libraries it needs, no symbol outside Android's system
 libraries, 16 KB page alignment) and each APK verified with `apksigner` and
 `aapt`. Built with the NDK's compiler before, and run on an Android tablet.
-Windows and macOS find their compilers in the places above and follow the
-same steps (a `.cmd` wrapper on Windows); the NDK download for them follows
-Google's packages (zip, .dmg). iOS: compiled and linked against the iOS
-SDK; the Simulator and device steps are Apple's standard ones.
+App Bundles: `bundletool validate`, `bundletool build-apks` (the APK's
+manifest and resources as aapt2 makes them), `jarsigner -verify`.
+Windows programs and MSIX packages: `osslsigncode verify` (the
+Authenticode digest, the MSIX's four digests, the time stamp of an
+authority made with OpenSSL); on GitHub, Windows' own
+`Get-AuthenticodeSignature`, `signtool verify` and `makeappx`, and the
+MSIX installed and removed. macOS apps signed ad hoc: `rcodesign verify`,
+the sealed resources the same as `rcodesign`'s to the byte; on GitHub,
+`codesign --verify --deep --strict` and the app run. Windows and macOS find
+their compilers in the places above and follow the same steps (a `.cmd`
+wrapper on Windows); the NDK download for them follows Google's packages
+(zip, .dmg). iOS: compiled and linked against the iOS SDK; the Simulator
+runs the live check on GitHub; the device steps are Apple's standard ones.
+Not yet tried: an upload to Google Play, to Partner Center, to App Store
+Connect; Apple's notarization from `retrokit mac` (its steps are Apple's
+own commands).

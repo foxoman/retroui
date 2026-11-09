@@ -576,7 +576,7 @@ proc typeAhead(ex: var WState; count: int; sel: int;
   let start = if again or ex.buf.len == 1: cur + 1 else: max(0, cur)
   for k in 0 ..< count:
     let i = (start + k) mod count
-    if unicode.toLower(name(i)).startsWith(q): return i
+    if unicode.toLower(name(i)).startsWith(q): result = i; return
 
 proc listSelect(marked: ptr seq[bool]; sel: var int; ex: var WState; row: int;
                 ctrl, shift, toggle: bool): bool =

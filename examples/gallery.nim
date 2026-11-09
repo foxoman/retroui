@@ -6,6 +6,7 @@
 
 import std/[strutils, os, json, math]
 import retroui
+import retroui/tilemap
 
 const
   languages = ["English", "Deutsch", "Français", "Español", "Italiano",
@@ -55,6 +56,7 @@ var
   italicOn = false
   scheme = 0
   showAbout = false
+  showLook = false          # View > Appearance
   showConfirm = false
   showDelete = false
   status = "Ready"
@@ -622,30 +624,108 @@ fitView(model3d, model3dCam)
 var model3dPick = "nothing yet"
 var show3d = 0
 
+proc carModel(): Scene3 =
+  ## A car made in code, its parts named as a model from Blender has them:
+  ## the body, four wheels, a door; two clips (the door, the wheels).
+  result.materials.add Material3(name: "CarPaint", baseColor: [0.7'f32, 0.05, 0.08, 1], metallic: 0.6,
+                                 roughness: 0.3, alphaCutoff: 0.5)
+  result.materials.add Material3(name: "Tire", baseColor: [0.08'f32, 0.08, 0.08, 1], metallic: 0,
+                                 roughness: 0.9, alphaCutoff: 0.5)
+  let car = result.addNode(newNode("Car"))
+  proc part(s: var Scene3; m: Mesh3; parent: int; name: string; at = vec3(0, 0, 0);
+            turn = Quat(w: 1)): int =
+    var n = newNode(name, parent)
+    n.t = at
+    n.r = turn
+    result = s.addNode(n)
+    var mm = m
+    mm.node = result
+    s.nodes[result].meshes.add s.meshes.len
+    s.meshes.add mm
+  var body = box(4, 1, 2, name = "Body")
+  body.material = 0
+  discard result.part(body, car, "Body")
+  for (name, x, z) in [("Wheel_FL", 1.3, 1.0), ("Wheel_FR", 1.3, -1.0), ("Wheel_RL", -1.3, 1.0),
+                       ("Wheel_RR", -1.3, -1.0)]:
+    var w = cylinder(0.45, 0.3, name = name)
+    w.material = 1
+    discard result.part(w, car, name, vec3(x, -0.5, z), quatAxis(vec3(1, 0, 0), 90))
+  var door = box(1.2, 0.8, 0.05, name = "Door")
+  for v in door.verts.mitems: v = Vec3(x: v.x - 0.6, y: v.y, z: v.z)   # (its hinge at the front)
+  door.material = 0
+  let di = result.part(door, car, "Door", vec3(0.6, 0, 1.02))
+  result.animations.add Animation3(name: "DoorOpen", duration: 1, channels: @[
+    AnimChannel3(node: di, path: apRotation, times: @[0'f32, 1],
+                 values: @[0'f32, 0, 0, 1, 0, sin(PI / 4).float32, 0, cos(PI / 4).float32])])
+  var spin = Animation3(name: "WheelsTurn", duration: 2)
+  for name in ["Wheel_FL", "Wheel_FR", "Wheel_RL", "Wheel_RR"]:
+    var vals: seq[float32]
+    for k in 0 .. 4:
+      let q = quatAxis(vec3(0, 0, 1), -90.0 * k.float) * quatAxis(vec3(1, 0, 0), 90)
+      vals.add [q.x, q.y, q.z, q.w]
+    spin.channels.add AnimChannel3(node: result.findNode(name), path: apRotation,
+                                   times: @[0'f32, 0.5, 1, 1.5, 2], values: vals)
+  result.animations.add spin
+  sceneChanged(result)
+
+var car3d = carModel()
+var car3dCam = camera3(yaw = 35, pitch = 18)
+fitView(car3d, car3dCam)
+var doorOpen = false
+var carPick = "Click a part"
+
+var streets = false         # the street map (OpenStreetMap's tiles: the network)
+var streetMap = TileMapState(lat: 23.588, lon: 58.3829, zoom: 12)
+
 proc mapTab() =
   # (big screens: down to the bottom)
   let tall = not isCompact()
   adaptive(360):
     col:
-      let ev = mapView(mapState, height = if tall: max(dp(300), remainingH() - CtrlH - Gap)
-                                          else: dp(300),
-                       values = [("OM", 120.0), ("AE", 340.0), ("SA", 510.0), ("IN", 800.0),
-                                 ("GB", 380.0), ("US", 950.0), ("QA", 150.0)],
-                       markers = [cityMarker("Muscat", size = 6), cityMarker("Mumbai"),
-                                  cityMarker("London"), cityMarker("New York")],
-                       routes = [MapRoute(fromLat: 23.59, fromLon: 58.41, toLat: 51.51, toLon: -0.13)],
-                       legendTitle = "Sales (OMR k)", key = "gallery")
-      if ev.clicked and ev.country >= 0: mapPicked = ev.name & " (" & ev.code & ")"
-      row:
-        label mapPicked
-        spring()
-        if button("G&ulf"): mapState.fitTo(["OM", "AE", "SA", "QA", "BH", "KW"])
-        if button("&World"): mapState.resetView()
+      if streets:
+        discard tileMap(streetMap, osmTiles(), height = if tall: max(dp(300), remainingH() - CtrlH - Gap)
+                                                         else: dp(300),
+                        markers = [MapMarker(lat: 23.588, lon: 58.3829, label: "Muscat")], key = "gallery")
+        row:
+          label "OpenStreetMap's tiles, from the network"
+          spring()
+          if button("&World map"): streets = false
+      else:
+        let ev = mapView(mapState, height = if tall: max(dp(300), remainingH() - CtrlH - Gap)
+                                            else: dp(300),
+                         values = [("OM", 120.0), ("AE", 340.0), ("SA", 510.0), ("IN", 800.0),
+                                   ("GB", 380.0), ("US", 950.0), ("QA", 150.0)],
+                         markers = [cityMarker("Muscat", size = 6), cityMarker("Mumbai"),
+                                    cityMarker("London"), cityMarker("New York")],
+                         routes = [MapRoute(fromLat: 23.59, fromLon: 58.41, toLat: 51.51, toLon: -0.13)],
+                         legendTitle = "Sales (OMR k)", key = "gallery")
+        if ev.clicked and ev.country >= 0: mapPicked = ev.name & " (" & ev.code & ")"
+        row:
+          label mapPicked
+          spring()
+          if button("G&ulf"): mapState.fitTo(["OM", "AE", "SA", "QA", "BH", "KW"])
+          if button("&World"): mapState.resetView()
+          if button("Stree&ts"): streets = true
     col:
-      segmented(["Bars", "Model"], show3d)
+      segmented(["Bars", "Model", "Car"], show3d)
       let h3 = if tall: max(dp(270), remainingH() - 2 * (FontH + Gap)) else: dp(270)
       if show3d == 0:
         discard view3d(sales3d, sales3dCam, height = h3, key = "bars")
+      elif show3d == 2:
+        # (its clips move on with the frames: a model's parts by name)
+        if car3d.animate(1 / 60): wakeIn(16)
+        let ev = view3d(car3d, car3dCam, height = h3 - CtrlH - Gap, key = "car")
+        if ev.clicked: carPick = if ev.nodeName.len > 0: ev.nodeName else: "nothing"
+        row:
+          if button(if doorOpen: "Close the &door" else: "Open the &door"):
+            doorOpen = not doorOpen
+            car3d.play("DoorOpen", loop = false, speed = if doorOpen: 1.0 else: -1.0)
+          if button("&Wheels"):
+            if car3d.isPlaying("WheelsTurn"): car3d.stop("WheelsTurn") else: car3d.play("WheelsTurn")
+          if button("&Paint"):
+            car3d.recolor("CarPaint", if car3d.materials[0].baseColor[2] > 0.5: color(180, 12, 20)
+                                      else: color(20, 60, 170))
+          label carPick
       else:
         let ev = view3d(model3d, model3dCam, height = h3, key = "model")
         if ev.clicked:
@@ -937,6 +1017,8 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
       submenu "&Toolbar Labels":
         for lk in [blIconOnly, blTextBelow, blTextBeside, blTextOnly]:
           if menuItem($lk, checked = toolbarLook == lk): setToolbarLook(lk)
+      menuSeparator()
+      if menuItem("&Appearance..."): showLook = true
     menu "&Insert":
       if menuItem("&Date and Time"): status = "Inserted " & $today()
       if menuItem("&Page Break", "Ctrl+Enter"): status = "Page break"
@@ -1321,6 +1403,13 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
       running = false
       status = "Done"
     wakeIn(40)
+
+  # (colors, sizes -- touch or desktop controls --, text and font: kept by `look`)
+  dialog(showLook, "Appearance", 420):
+    appearanceSettings()
+    row:
+      spring()
+      if button("Close", isDefault = true): showLook = false
 
   aboutBox(showAbout, "Control Gallery", RetroVersion,
            ["Every control of Retro Nim UI, page by page: Windows 3.1 widgets " &

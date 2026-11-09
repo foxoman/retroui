@@ -217,7 +217,7 @@ proc kindName*(f: FileItem): string =
   result = kindNameEn(f, e, up)
   if uiLanguageCode() notin ["", "en"]:
     let t = tr(result)
-    if t != result: return t
+    if t != result: result = t; return
     if up.len > 0 and result.startsWith(up & " "):
       result = tr("$1" & result[up.len .. ^1]).replace("$1", up)
 

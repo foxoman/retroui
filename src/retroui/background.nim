@@ -22,8 +22,13 @@
 ## is no longer shown. A cancelled request's callback still runs, with
 ## `cancelled` set, so whoever asked knows it will not come.
 
-import std/[locks, typedthreads, cpuinfo, tables]
-import gfx, files, imaging, core, thumbcache, parallel
+import std/[locks, tables]
+import gfx, files, imaging, core, thumbcache
+when compileOption("threads"):
+  import std/[typedthreads, cpuinfo]
+  import parallel
+else:
+  from uirelays/input import getTicks
 
 type
   TaskKind* = enum
@@ -66,7 +71,6 @@ var
   todo: seq[Task]                  # guarded by lock
   done: seq[TaskResult]            # guarded by lock
   running: int                     # guarded by lock: tasks being worked on
-  workers: seq[Thread[void]]
   nextTicket = 1
   started = false
   # UI thread only:
@@ -74,25 +78,21 @@ var
   unclaimed: seq[TaskResult]       # results without a callback, for `finished`
   pendingCount = 0                 # asked and not yet handed over
 
-proc work() {.thread.} =
-  # (a worker decodes by itself: the cores' pool belongs to the drawing
-  # thread -- several workers sharing it at once would break it)
-  runAlone()
-  while true:
-    var t: Task
-    {.cast(gcsafe).}:
-      acquire(lock)
-      while todo.len == 0: wait(cond, lock)
-      # the most urgent, and of those the newest (what the user looks at now)
-      var best = todo.high
-      for i in countdown(todo.high, 0):
-        if todo[i].priority > todo[best].priority: best = i
-      t = move todo[best]
-      todo.delete(best)
-      inc running
-      release(lock)
-    var r = TaskResult(kind: t.kind, ticket: t.ticket, group: t.group, path: t.path,
-                       quick: t.quick, page: t.page)
+proc takeNext(): Task =
+  ## (lock held) the most urgent task, and of those the newest (what the
+  ## user looks at now)
+  var best = todo.high
+  for i in countdown(todo.high, 0):
+    if todo[i].priority > todo[best].priority: best = i
+  result = move todo[best]
+  todo.delete(best)
+  inc running
+
+proc runTask(t: Task) =
+  ## Does `t` and puts its result with the others finished.
+  var r = TaskResult(kind: t.kind, ticket: t.ticket, group: t.group, path: t.path,
+                     quick: t.quick, page: t.page)
+  block:
     {.cast(gcsafe).}:
       try:
         case t.kind
@@ -129,14 +129,39 @@ proc work() {.thread.} =
       dec running
       release(lock)
 
+when compileOption("threads"):
+  var workers: seq[Thread[void]]
+
+  proc work() {.thread.} =
+    # (a worker decodes by itself: the cores' pool belongs to the drawing
+    # thread -- several workers sharing it at once would break it)
+    runAlone()
+    while true:
+      var t: Task
+      {.cast(gcsafe).}:
+        acquire(lock)
+        while todo.len == 0: wait(cond, lock)
+        t = takeNext()
+        release(lock)
+        runTask(t)
+
 proc start() =
   if started: return
   started = true
   initLock(lock)
   initCond(cond)
-  let n = clamp(countProcessors() - 1, 1, 3)
-  workers.setLen(n)
-  for i in 0 ..< n: createThread(workers[i], work)
+  when compileOption("threads"):
+    let n = clamp(countProcessors() - 1, 1, 3)
+    workers.setLen(n)
+    for i in 0 ..< n: createThread(workers[i], work)
+
+proc workHere() =
+  ## Without threads (a browser): the tasks done between frames, the most
+  ## urgent first, for a few milliseconds a frame.
+  when not compileOption("threads"):
+    let t0 = getTicks()
+    while todo.len > 0 and getTicks() - t0 < 12:
+      runTask(takeNext())
 
 proc submit(t: sink Task; onDone: TaskDone): int =
   start()
@@ -177,6 +202,7 @@ proc takeDone() =
   ## Moves what the workers finished to the UI thread's side, running the
   ## callbacks.
   if not started: return
+  workHere()
   var got: seq[TaskResult]
   var more = false
   withLock lock:

@@ -42,7 +42,10 @@ proc literal(e: var Eval; n: PNode): Value =
   case n.kind
   of nkStrLit, nkRStrLit, nkTripleStrLit: Value(kind: vkStr, s: n.strVal)
   of nkCharLit: Value(kind: vkStr, s: $char(n.intVal))
-  of nkIntLit .. nkUInt64Lit: Value(kind: vkInt, i: int(n.intVal))
+  of nkIntLit .. nkUInt64Lit:
+    # (on a 32-bit system a number past an int's: its low 32 bits, as a color is)
+    when sizeof(int) == 8: Value(kind: vkInt, i: int(n.intVal))
+    else: Value(kind: vkInt, i: int(cast[int32](uint32(n.intVal and 0xFFFFFFFF'i64))))
   of nkFloatLit .. nkFloat128Lit: Value(kind: vkFloat, f: n.floatVal)
   else: Value()
 
@@ -250,9 +253,9 @@ proc initValue(e: var Eval; init: PNode): Value =
     for k in countdown(init.len - 1, 1):
       let a = if init[k].kind == nkExprEqExpr: init[k][1] else: init[k]
       let v = e.literal(a)
-      if v.kind != vkNone: return v
+      if v.kind != vkNone: result = v; return
       if a.kind == nkIdent and a.ident.s in ["true", "false"]:
-        return Value(kind: vkBool, b: a.ident.s == "true")
+        result = Value(kind: vkBool, b: a.ident.s == "true"); return
 
 proc setCell(c: VarCell; v: Value) =
   if v.kind != vkNone: c.kind = v.kind

@@ -236,7 +236,9 @@ proc hdrPicture(path: string): Bitmap =
     # (the middle of the step, as Radiance reads it -- but 0 stays black)
     (if m == 0: 0'f32 else: (m.float32 + 0.5) * f)
   let t = screenTable()
-  result = newBitmap(w, h)
+  # (the picture in a local until it is whole: `return nil` after `result`
+  # was set leaks it in Nim 2.2)
+  let b = newBitmap(w, h)
   var scan = newSeq[uint8](w * 4)
   for y in 0 ..< h:
     if i + 4 <= data.len and data[i] == '\x02' and data[i + 1] == '\x02' and
@@ -272,9 +274,10 @@ proc hdrPicture(path: string): Bitmap =
         let f = factor[ex]
         p = p or (level(t, light(scan[4 * x], f)) shl 16) or
             (level(t, light(scan[4 * x + 1], f)) shl 8) or level(t, light(scan[4 * x + 2], f))
-      result.px[row + (if flip: w - 1 - x else: x)] = p
-  result.opaque = true
-  result.changed()
+      b.px[row + (if flip: w - 1 - x else: x)] = p
+  b.opaque = true
+  b.changed()
+  result = b
 
 # ---- TIFF, TGA, JPEG XL; GIF, WebP and HEIC on the desktops ----------------------------------------
 

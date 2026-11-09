@@ -31,14 +31,14 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 - **[Containers](#containers)**: [expander](#expander) · [accordionHeader](#accordionheader) · [tabStrip (document tabs)](#tabstrip-document-tabs)
 - **[Menus and bars](#menus-and-bars)**: [menubar, menu, menuItem, submenu](#menubar-menu-menuitem-submenu) · [contextMenu](#contextmenu) · [popupMenu, openPopupMenu](#popupmenu-openpopupmenu) · [breadcrumb](#breadcrumb) · [pager, stepper](#pager-stepper) · [recordNav](#recordnav) · [findBar, findIn, replaceAllIn](#findbar-findin-replaceallin)
 - **[Dialogs](#dialogs)**: [msgBox](#msgbox) · [inputBox](#inputbox) · [dialog](#dialog) · [progressBox](#progressbox) · [wizard, stepDone](#wizard-stepdone) · [aboutBox](#aboutbox) · [splashBox](#splashbox) · [problemBox, reportProblem](#problembox-reportproblem) · [fileDialog (3.1)](#filedialog-31)
-- **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator](#toolbar-toolbutton-toolseparator) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
+- **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator](#toolbar-toolbutton-toolseparator) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
 - **[Files](#files)**: [fileList](#filelist) · [fileList: large icons](#filelist-large-icons) · [folderTree](#foldertree) · [placesView](#placesview) · [filePreview](#filepreview) · [pathBar](#pathbar) · [driveBar](#drivebar) · [filePicker](#filepicker) · [trashList](#trashlist) · [propertiesDialog](#propertiesdialog) · [runJobDialog](#runjobdialog) · [textFileView, hexFileView](#textfileview-hexfileview) · [pictureBox](#picturebox) · [storageDialog](#storagedialog)
 - **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart)
 - **[Planning and dashboards](#planning-and-dashboards)**: [kpiTile, statCard, kpiRow](#kpitile-statcard-kpirow) · [kanbanBoard](#kanbanboard) · [ganttView](#ganttview) · [agendaView](#agendaview) · [orgChart](#orgchart)
-- **[Maps and 3D](#maps-and-3d)**: [mapView](#mapview) · [view3d](#view3d) · [bars3d](#bars3d)
+- **[Maps and 3D](#maps-and-3d)**: [mapView](#mapview) · [tileMap](#tilemap) · [view3d](#view3d) · [Models: parts and clips](#models-parts-and-clips) · [bars3d](#bars3d)
 - **[HTML, Markdown and rich text](#html-markdown-and-rich-text)**: [htmlView, htmlBlock](#htmlview-htmlblock) · [webView, webRun, webPost](#webview-webrun-webpost) · [markdownView, markdown](#markdownview-markdown) · [richEdit, richToolbar](#richedit-richtoolbar)
 - **[Canvas and reports](#canvas-and-reports)**: [canvas: your own drawing](#canvas-your-own-drawing) · [canvas2d (the HTML5 Canvas 2D API)](#canvas2d-the-html5-canvas-2d-api) · [reportView (an HTML template: PDF, printing)](#reportview-an-html-template-pdf-printing) · [pdfView](#pdfview) · [QR codes](#qr-codes)
-- **[Sound and video](#sound-and-video)**: [animation (animated GIFs)](#animation-animated-gifs) · [videoView](#videoview) · [audioView](#audioview)
+- **[Sound and video](#sound-and-video)**: [animation (animated GIFs)](#animation-animated-gifs) · [videoView](#videoview) · [cameraView](#cameraview) · [setNowPlaying, mediaKeys](#setnowplaying-mediakeys) · [audioView](#audioview)
 - **[Looks](#looks)**: [Themes](#themes) · [Dark mode](#dark-mode) · [Size and text size](#size-and-text-size) · [Fonts](#fonts) · [The window's frame](#the-windows-frame)
 - **[Screen readers and input methods](#screen-readers-and-input-methods)**: [Screen readers: what an app draws itself](#screen-readers-what-an-app-draws-itself)
 
@@ -3684,6 +3684,66 @@ proc toolSeparator*()
 
 A gap between groups of tool buttons.
 
+### window
+
+A window of the system's own beside the app's: a tool palette, a second view for another monitor, a preview. It is laid out and drawn as the app's window is, with its own menus and dialogs, at the place in the frame the app draws it; its close button sets the `bool` to false, and it closes when it is no longer drawn. X11, Wayland, Windows and macOS open real windows; on phones, in the browser and on a screen without a desktop it is a dialog over the app.
+
+*The window is the system's: it has the app's look inside a frame of the system's.*
+
+```nim
+var toolsOpen = true
+var bold = false
+
+if button("&Tools..."):
+  toolsOpen = true
+window(toolsOpen, "Tools", 240, 160):
+  checkbox("&Bold", bold)
+```
+
+**API**
+
+```nim
+template window*(open: var bool; title: string; w, h: int; body: untyped)
+```
+
+A window of the system's own besides the app's, `w` x `h` design
+pixels when it opens, shown while `open` is true: a tool palette, a
+second view for another monitor, a preview. It is laid out and drawn
+as the app's window is (menus, dialogs, tool bars in it are its own),
+at the place in the frame the app draws it; its close button sets
+`open` to false; it closes when it is no longer drawn. Where the
+system has one window (phones, the browser) it is a dialog over the
+app (`dialog`).
+
+```nim
+var toolsOpen = true
+app "Editor", 800, 600:
+  if menuItem("&Tools"): toolsOpen = true
+  window(toolsOpen, "Tools", 240, 360):
+    if button("&Bold"): bold = not bold
+```
+
+```nim
+proc inWindow*(): bool
+```
+
+A window besides the program's own is being drawn (between
+`beginWindow` and `endWindow`).
+
+```nim
+proc captionBar*()
+```
+
+The window's 3.1 title bar where the app draws it. Phones and tablets:
+the system does not draw one there -- navy from the top of the screen
+(under the status bar, whose icons turn white over it), the
+control-menu box (zoom, minimize, close; also Alt+Space), the title,
+and the minimize button. Desktops with the 3.1 frame on
+(`setClassicFrame`): the title bar of a Windows 3.1 window, its
+control-menu box, its minimize and maximize buttons, inside the sizing
+border. `app` calls it every frame; with the system's frame it draws
+nothing.
+
 ### windowBox, inert, showMenu, hideMenu
 
 A window drawn inside this one at a rectangle -- its menu bar, tool bar and status bar along the rectangle's edges, its dialogs and menus kept in it -- the way a designer or a guide shows a window. `inert` draws it without input (its dialogs do not take the window's); `showMenu` opens one of its menus as if it was clicked, `hideMenu` closes it again.
@@ -5349,6 +5409,281 @@ proc latLonOf*(code: string): tuple[lat, lon: float]
 A point well inside the country (for its label or a marker); (0, 0)
 when there is no such country.
 
+### tileMap
+
+A street map from any map service (OpenStreetMap, Google, Azure Maps, Mapbox, HERE, MapTiler, Esri, TomTom, Stadia, AMap, Tencent, Tianditu) or maps of your own (PMTiles, MBTiles, a folder; vector tiles drawn by the kit): dragged, zoomed with the wheel, fingers, keys and its buttons, with markers, lines, areas, circles and routes over it. Places and routes come from `retroui/geo`. The picture is a vector tile of the guide's own.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![tileMap, normal](controls/tilemap-normal.png) | ![tileMap, touch screen](controls/tilemap-touch-screen.png) | ![tileMap, dark scheme](controls/tilemap-dark-scheme.png) |
+
+```nim
+var coast = TileMapState(lat: 23.59341, lon: 58.40332, zoom: 13.25)
+let coastTiles = folderSource(sampleRoot / "tiles", "pbf", maxZoom = 12,
+                              attribution = "The guide\'s own map")
+
+tileMap(coast, coastTiles, height = 300,
+        markers = [MapMarker(lat: 23.59046, lon: 58.38512, label: "Office")], shapes = [MapShape(
+    kind: msLine, points: @[(23.59046, 58.38512), (23.59636, 58.42804)],
+    label: "Delivery")])
+```
+
+**API**
+
+```nim
+proc tileMap*(m: var TileMapState; src: TileSource; height = -1;
+              markers: openArray[MapMarker] = []; shapes: openArray[MapShape] = [];
+              overlays: openArray[TileSource] = []; showScale = true; showZoom = true;
+              key = ""): TileMapEvent {.discardable.}
+```
+
+The map of `src`, `height` pixels high (-1: the room left), as wide as
+the space it is in; `overlays` drawn over it (labels, sea marks, rain),
+`shapes` and `markers` over them. Drag to move it; the wheel, a double
+click, two fingers, + / - (with the focus) or its buttons zoom; arrows
+move it. `clicked` reports a click or a tap and where.
+
+```nim
+proc fitBounds*(m: var TileMapState; south, west, north, east: float)
+```
+
+Shows the area from `south`, `west` to `north`, `east` (degrees) as
+large as the map shows it (done when it is next drawn).
+
+```nim
+proc fitPoints*(m: var TileMapState; points: openArray[LatLon])
+```
+
+Shows all of `points` (a route, the markers).
+
+```nim
+proc centerOn*(m: var TileMapState; lat, lon: float; zoom = -1.0)
+```
+
+Moves the view to `lat`, `lon` (and `zoom` when given).
+
+```nim
+proc metersPerPixel*(m: TileMapState): float
+```
+
+How many meters a design pixel covers at the middle of the view.
+
+```nim
+proc mapPointOf*(m: TileMapState; src: TileSource; p: LatLon): tuple[x, y: int]
+```
+
+Where `p` is drawn in the last `tileMap` of `m` (logical pixels).
+
+```nim
+proc routeShape*(r: Route; color = Color(); width = 5.0; label = ""): MapShape
+```
+
+A route found by `geo.route` as a line on the map.
+
+```nim
+proc geoJsonShapes*(text: string; color = Color(); fill = Color()): tuple[shapes: seq[MapShape]; markers: seq[MapMarker]]
+```
+
+The lines and areas of a GeoJSON text as shapes, its points as markers.
+
+```nim
+proc keepArea*(src: TileSource; south, west, north, east: float; minZoom, maxZoom: int): string
+```
+
+Fetches an area's tiles into the disk cache, for a map that works
+without the network (a car, a kiosk); "" when it was asked, else why
+not. OpenStreetMap's own servers do not allow it (their rule):
+take a service that does, or a .pmtiles file of the area.
+
+```nim
+proc tilesIn*(south, west, north, east: float; minZoom, maxZoom: int): int
+```
+
+How many tiles an area has from `minZoom` to `maxZoom`.
+
+```nim
+proc loadingTiles*(): int
+```
+
+Tiles asked for and not yet come.
+
+```nim
+proc clearTileCache*(disk = false)
+```
+
+Forgets the tiles kept in memory (and on the disk with `disk`).
+
+```nim
+proc osmTiles*(): TileSource
+```
+
+OpenStreetMap's own map (its servers are for light use; your app's
+name goes with each request: `tileAgent`).
+
+```nim
+proc openTopoMap*(): TileSource
+```
+
+OpenTopoMap: heights, contour lines, paths (to zoom 17).
+
+```nim
+proc cartoTiles*(style = "light_all"): TileSource
+```
+
+CARTO's basemaps: "light_all" (Positron), "dark_all" (Dark Matter),
+"rastertiles/voyager" (Voyager); their `_nolabels` and `_only_labels`.
+
+```nim
+proc googleTiles*(key: string; mapType = "roadmap"; language = "en-US"; region = "US"): TileSource
+```
+
+Google's Map Tiles API (2D tiles): `mapType` "roadmap", "satellite"
+or "terrain"; a key with the Map Tiles API enabled.
+
+```nim
+proc azureTiles*(key: string; tileset = "microsoft.base.road"; language = ""): TileSource
+```
+
+Azure Maps (Render, Get Map Tile): "microsoft.base.road",
+"microsoft.base.darkgrey", "microsoft.imagery", "microsoft.base.hybrid.road"...
+
+```nim
+proc mapboxTiles*(token: string; style = "mapbox/streets-v12"): TileSource
+```
+
+Mapbox's styles as pictures: "mapbox/streets-v12", "mapbox/outdoors-v12",
+"mapbox/light-v11", "mapbox/dark-v11", "mapbox/satellite-streets-v12"
+or a style of your own ("you/abc123").
+
+```nim
+proc mapboxVector*(token: string; style = classicStyle()): TileSource
+```
+
+Mapbox Streets v8 as vector tiles, drawn by the kit in `style`.
+
+```nim
+proc hereTiles*(key: string; style = "explore.day"): TileSource
+```
+
+HERE's Raster Tile API: "explore.day", "explore.night", "lite.day",
+"satellite.day", "explore.satellite.day", "logistics.day"...
+
+```nim
+proc mapTilerTiles*(key: string; map = "streets-v2"): TileSource
+```
+
+MapTiler's maps as pictures: "streets-v2", "outdoor-v2", "basic-v2",
+"bright-v2", "satellite", "topo-v2", "dataviz"...
+
+```nim
+proc mapTilerVector*(key: string; style = classicStyle()): TileSource
+```
+
+MapTiler's vector tiles (OpenMapTiles), drawn by the kit in `style`.
+
+```nim
+proc protomapsVector*(key: string; style = classicStyle()): TileSource
+```
+
+Protomaps' basemap (its API; or a .pmtiles file of it: `pmtilesSource`).
+
+```nim
+proc esriTiles*(service = "World_Street_Map"; token = ""): TileSource
+```
+
+Esri's (ArcGIS) basemaps: "World_Street_Map", "World_Imagery",
+"World_Topo_Map", "World_Terrain_Base"...; with a token of your
+ArcGIS account, through its basemap service.
+
+```nim
+proc tomTomTiles*(key: string; layer = "basic"; style = "main"): TileSource
+```
+
+TomTom's Map Display API: `layer` "basic", "hybrid" or "labels",
+`style` "main" or "night".
+
+```nim
+proc stadiaTiles*(key = ""; style = "alidade_smooth"): TileSource
+```
+
+Stadia Maps: "alidade_smooth", "alidade_smooth_dark", "outdoors",
+"osm_bright", "stamen_toner", "stamen_terrain" (a key, or your app's
+web address registered with them).
+
+```nim
+proc amapTiles*(satellite = false; language = "zh_cn"): TileSource
+```
+
+AMap (Gaode) of China: its streets, or satellite pictures; GCJ-02.
+
+```nim
+proc tencentTiles*(): TileSource
+```
+
+Tencent's map of China; GCJ-02.
+
+```nim
+proc tiandituTiles*(key: string; layer = "vec"): TileSource
+```
+
+Tianditu, China's national map (CGCS2000, as GPS): `layer` "vec"
+(streets), "img" (satellite), "ter" (terrain); their names over them
+are the "cva", "cia", "cta" layers.
+
+```nim
+proc pmtilesSource*(path: string; style = classicStyle(); attribution = "© OpenStreetMap contributors"): TileSource
+```
+
+A PMTiles archive (a file, or its web address: read in pieces),
+raster or vector as it holds.
+
+```nim
+proc mbtilesSource*(path: string; style = classicStyle(); attribution = "© OpenStreetMap contributors"): TileSource
+```
+
+An MBTiles file, raster or vector as it holds.
+
+```nim
+proc folderSource*(dir: string; ext = "png"; maxZoom = 18; attribution = ""): TileSource
+```
+
+Tiles in folders of your own: `dir`/z/x/y.`ext` (what a tile tool
+writes; "pbf" for vector tiles).
+
+```nim
+proc tileJsonSource*(url: string; style = classicStyle()): TileSource
+```
+
+A TileJSON's tiles (OpenFreeMap: "https://tiles.openfreemap.org/planet";
+a tile server's). Waits for it.
+
+```nim
+proc mapKitPage*(token: string; lat, lon: float; zoomMeters = 5000.0): string
+```
+
+A page with Apple's map (MapKit JS) for `webView`: `token` a MapKit JS
+token of your Apple developer account; the map around `lat`, `lon`,
+`zoomMeters` across.
+
+```nim
+proc googleMapsPage*(key: string; lat, lon: float; zoom = 12): string
+```
+
+A page with Google's own JavaScript map for `webView` (a key with the
+Maps JavaScript API enabled).
+
+```nim
+proc tileUrl*(s: TileSource; z, x, y: int; dense = false): string
+```
+
+The address of tile `z`/`x`/`y` of `s` (`dense`: the one with twice the pixels).
+
+```nim
+proc quadkey*(z, x, y: int): string
+```
+
+A tile's quadkey (Bing's and Azure's numbering).
+
 ### view3d
 
 A 3D view of meshes and models (OBJ, STL): boxes, spheres, cylinders, cones and planes, a grid and axes. Drag to turn it, the wheel to zoom.
@@ -5455,6 +5790,155 @@ proc render3d*(scene: Scene3; cam: Camera3; w, h: int; background = Color()): Bi
 
 The scene seen by `cam`, `w` x `h` pixels (to save with `encodePng`),
 on `background` (else the scene's). Labels are not in it.
+
+### Models: parts and clips
+
+A model's parts are nodes the app finds by name and moves, turns, hides and tints; its clips play. Models come from Blender and every 3D tool as glTF (`loadGltf` in `retroui/gltf`; a `.blend` through Blender: `loadModel3`, or once with `retrokit model`), or are made in code. The picture is a car made in code, its door's clip half played.
+
+| Normal | Dark scheme |
+|---|---|
+| ![Models: parts and clips, normal](controls/model3d-normal.png) | ![Models: parts and clips, dark scheme](controls/model3d-dark-scheme.png) |
+
+```nim
+var car3d = carScene()
+var car3dCam = camera3(yaw = 35, pitch = 18)
+fitView(car3d, car3dCam)
+car3d.seekAnimation("DoorOpen", 0.6)
+
+view3d(car3d, car3dCam, height = 240)
+```
+
+**API**
+
+```nim
+proc play*(scene: var Scene3; name = ""; loop = true; speed = 1.0)
+```
+
+Plays clip `name` ("" the first) from its start, over and over with
+`loop`; `animate` moves it on each frame.
+
+```nim
+proc stop*(scene: var Scene3; name = "")
+```
+
+Stops clip `name` (every clip: "") where it is.
+
+```nim
+proc isPlaying*(scene: Scene3; name = ""): bool
+```
+
+Clip `name` (any: "") is playing.
+
+```nim
+proc animate*(scene: var Scene3; seconds: float): bool {.discardable.}
+```
+
+Moves the clips playing on by `seconds` (the time since the last
+frame); true while one plays (keep the frames coming: `wakeIn`).
+
+```nim
+proc seekAnimation*(scene: var Scene3; name: string; seconds: float)
+```
+
+The model as clip `name` has it at `seconds` (a slider scrubbing it).
+
+```nim
+proc animationNames*(scene: Scene3): seq[string]
+```
+
+The model's clips ("DoorOpen", "WheelsTurn"...).
+
+```nim
+proc nodeNames*(scene: Scene3): seq[string]
+```
+
+The names of the model's parts (to find what to move: "Wheel_FL"...).
+
+```nim
+proc setVisible*(scene: var Scene3; node: string; visible: bool)
+```
+
+Shows or hides a part (with what is in it: a door, the hood, a wheel).
+
+```nim
+proc tint*(scene: var Scene3; node: string; c: Color)
+```
+
+A part (and what is in it) in color `c` (alpha 0: its own colors
+again) -- the body of the car in the customer's choice.
+
+```nim
+proc turnNode*(scene: var Scene3; node: string; axis: Vec3; degrees: float)
+```
+
+Turns a part about `axis` (in its parent's directions) by `degrees`
+more (a wheel rolling, a door opening).
+
+```nim
+proc moveNode*(scene: var Scene3; node: string; by: Vec3)
+```
+
+Moves a part by `by` (in its parent's directions).
+
+```nim
+proc recolor*(scene: var Scene3; material: string; c: Color)
+```
+
+A material's color (by its name: "CarPaint") changed for every part
+that has it.
+
+```nim
+proc findNode*(scene: Scene3; name: string): int
+```
+
+The node called `name` (-1: none); the first of that name.
+
+```nim
+proc newNode*(name = ""; parent = -1): Node3
+```
+
+A part with nothing in it yet, in its place (add it with `addNode`).
+
+```nim
+proc addNode*(scene: var Scene3; n: Node3): int {.discardable.}
+```
+
+Puts `n` in the scene (under its `parent`); its index.
+
+```nim
+proc loadGltf*(path: string): Scene3
+```
+
+The model in `path` (`.glb` or `.gltf`); `GltfError` when it cannot
+be read, `IOError` when the file cannot.
+
+```nim
+proc loadModel3*(path: string): Scene3
+```
+
+Any model as a scene: `.glb`, `.gltf`, `.blend` (through Blender), and
+`.obj`, `.stl` (one mesh, centered, 2 units across).
+
+```nim
+proc toGlb*(scene: Scene3): string
+```
+
+The scene as a `.glb`: its meshes, their materials' colors (no
+pictures), its nodes and clips.
+
+```nim
+proc view3dOnGpu*(key = ""): bool
+```
+
+The 3D view `key`'s last picture was drawn by the GPU.
+
+```nim
+proc view3dPicture*(key = ""): Bitmap
+```
+
+The last picture the 3D view `key` showed (device pixels), drawn by the
+CPU or by the GPU (read back from it): a screenshot of the model.
+Nil before it was shown. Call it in a frame (after the view).
 
 ### bars3d
 
@@ -5690,6 +6174,45 @@ proc webClose*(key = "")
 
 Lets the `webView` with `key` go (the system's view is freed; drawing
 it again starts afresh).
+
+```nim
+proc webPermit*(key: string; allowed: set[WebPermission])
+```
+
+What the page of the `webView` with `key` may use when it asks: the
+camera, the microphone, the location, notifications (none by
+default). What it asks for and is not allowed comes in
+`WebEvent.asked`; the app may allow it then and reload the page. The
+system's engine (the app needs the system's permission too: an
+Android app `--permission:CAMERA`...).
+
+```nim
+proc webPrint*(key: string)
+```
+
+Prints the page of the `webView` with `key`: the system's print
+dialog (the system's engine; the kit's own prints nothing here --
+`retroui/report` prints documents).
+
+```nim
+proc webAppFolder*(folder: string)
+```
+
+The folder of the app's own web pages (its scripts, styles, pictures),
+served to pages at `webAppUrl`: an address of their own, so they may
+fetch each other as a site's files do (a `file://` page may not).
+
+```nim
+proc webAppUrl*(path = "index.html"): string
+```
+
+The address of the file `path` of the app's folder (`webAppFolder`):
+"app://local/PATH" (on Windows "https://app.local/PATH").
+
+```nim
+webAppFolder(getAppDir() / "web")
+webView(webAppUrl("index.html"), key = "ui", engine = weSystem)
+```
 
 ### markdownView, markdown
 
@@ -6319,7 +6842,7 @@ message, something done, a warning, an error. Made here, no files.
 
 ### videoView
 
-A video with play, pause, a position bar and the time. On Android the system's VideoView shows it, on Linux GStreamer; elsewhere a button opens it in the system's player. Space plays and pauses.
+A video with play, pause, a position bar and the time: a file or a web address (HLS where the system plays it), played by the system's own player and drawn by the kit in the window -- Media Foundation on Windows, AVFoundation on macOS and iOS, GStreamer on Linux, Android's VideoView. Space plays and pauses.
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -6341,11 +6864,14 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
 A video in the window, with play / pause, a position bar and the time
 under it (`controls`); Space plays and pauses, Left / Right go back
 and on 5 seconds, Home to the start, when it has the focus; a click on
-the picture plays and pauses. On Android the system's VideoView shows
-it (hidden while a menu or a dialog is over it); on Linux GStreamer
-draws it into the window; elsewhere it shows a button that opens the
-file in the system's player. `key` tells several apart. `audio`: a
-sound file (`audioView`).
+the picture plays and pauses. `path` is a file or a web address
+(http, https; HLS where the system plays it). The system's own player
+plays it and the kit draws its pictures in the window (under its
+menus and dialogs): Media Foundation on Windows, AVFoundation on macOS
+and iOS, GStreamer on Linux; in an Android app the system's VideoView
+shows it (hidden while a menu or a dialog is over it). Where there is
+none it shows a button that opens the file in the system's player.
+`key` tells several apart. `audio`: a sound file (`audioView`).
 
 ```nim
 proc closeVideo*(key: string)
@@ -6353,6 +6879,148 @@ proc closeVideo*(key: string)
 
 Lets the player of the `videoView` (or `audioView`) with this `key`
 (or path) go.
+
+### cameraView
+
+The camera's live picture in the window, drawn by the kit under its menus and dialogs, through the system's own API (Video4Linux, Media Foundation, AVFoundation, Camera2): photos, videos of it, and sound recorded from the microphone.
+
+*The picture is the camera's.*
+
+```nim
+let cam = cameraView(height = 240)
+row:
+  if button("&Photo"):
+    cameraPhoto("", "photo.jpg")
+  if button(if cam.recording:
+    "&Stop"
+  else:
+    "&Record"):
+    if cam.recording:
+      cameraStop()
+    else:
+      cameraRecord("", "clip.mp4")
+```
+
+**API**
+
+```nim
+proc cameraView*(key = ""; camera = ""; facing = cfAny; height = -1; w = 0;
+                 mirror = false): CameraEvent {.discardable.}
+```
+
+The camera's live picture, as large as fits, `height` pixels high (-1:
+the room left). `camera`: one of `cameras()` (""): the first, or one
+that looks `facing`). `mirror`: shown as in a mirror (a front camera).
+The camera is on while the view is drawn, and off once it is not.
+
+```nim
+proc cameras*(): seq[CameraInfo]
+```
+
+The cameras the system has.
+
+```nim
+proc cameraPhoto*(key = ""; path: string)
+```
+
+Saves the camera's next picture to `path` (JPEG; PNG by its
+extension); `CameraEvent.photo` says when it is there.
+
+```nim
+proc cameraRecord*(key = ""; path: string): bool {.discardable.}
+```
+
+Records the camera into the video `path` (MP4, H.264, 30 pictures a
+second, by `retroui/media`'s writer) until `cameraStop`; false when
+the camera shows nothing yet or no writer is there.
+
+```nim
+proc cameraStop*(key = "")
+```
+
+Ends the recording `cameraRecord` started; `CameraEvent.saved` says
+when the video is written.
+
+```nim
+proc cameraFrame*(key = ""): Bitmap
+```
+
+The camera's latest picture (nil: none yet), to read it: a barcode,
+a face. Not to be changed.
+
+```nim
+proc cameraClose*(key = "")
+```
+
+Lets the camera go now (it goes by itself once its view is not drawn).
+
+```nim
+proc recordSound*(path: string): bool
+```
+
+Records the microphone into `path` until `stopRecordingSound`: a WAV
+file (16-bit, 44.1 kHz, mono) on Linux and Windows; on Android, iOS
+and macOS the system's recorder writes it (AAC in an .m4a by its
+extension, else WAV). False when there is no microphone (or the user
+said no).
+
+```nim
+proc stopRecordingSound*(): int {.discardable.}
+```
+
+Ends the recording `recordSound` started and writes it; how long it
+is in milliseconds (0: not known, -1: it could not be written).
+
+```nim
+proc recordingSound*(): bool
+```
+
+The microphone records.
+
+```nim
+proc soundLevel*(): float
+```
+
+How loud the microphone is now, 0..1 (a meter; 0 when not recording).
+
+### setNowPlaying, mediaKeys
+
+What the app plays, shown where the system shows it -- the lock screen, the notification shade, the taskbar's media flyout, the menu bar's Now Playing, the desktop's media applet -- and what the user presses there and on media keys, handed to the app (MPRIS, the System Media Transport Controls, MPNowPlayingInfoCenter, a MediaSession). Call it every frame: the system is told only what changed.
+
+*The system draws it, outside the app.*
+
+```nim
+setNowPlaying(NowPlaying(title: "Morning bell", artist: "Retro", playing: true,
+                         positionMs: 12000, durationMs: 95000, canNext: true))
+for k in mediaKeys():
+  if k.key == mkPlayPause:
+    discard
+```
+
+**API**
+
+```nim
+proc setNowPlaying*(np: NowPlaying)
+```
+
+What the app plays, for the system's media controls; the controls'
+presses come in `mediaKeys`. Call it when it changes, or every frame:
+the system is told only what changed (a position that keeps time with
+the playing is not news).
+
+```nim
+proc endNowPlaying*()
+```
+
+The app plays nothing now: the system's controls let it go.
+
+```nim
+proc mediaKeys*(): seq[MediaKeyEvent]
+```
+
+What the system's media controls asked since the last frame (the lock
+screen, the media keys of a keyboard or a headset, the desktop's media
+applet). Empty (and nothing made) when nothing was pressed.
 
 ### audioView
 

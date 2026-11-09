@@ -247,31 +247,31 @@ proc loadPicture*(path: string; maxW = 4096; maxH = 4096): Bitmap =
       result = newBitmap(d.w, d.h)
       result.px = move d.px
       result.changed()
-      return thumbnail(result, maxW, maxH)
+      result = thumbnail(result, maxW, maxH); return
     let n = f.readBuffer(addr head[0], 8)
     f.close()
     if n >= 8 and head == "\x89PNG\r\n\x1a\n":
       let big = readBigPicture(path, maxW, maxH)
-      if big.read: return big.b
-      return thumbnail(decodePng(readFile(path)), maxW, maxH)
+      if big.read: result = big.b; return
+      result = thumbnail(decodePng(readFile(path)), maxW, maxH); return
     if n >= 2 and head[0 .. 1] == "BM":
       let big = readBigPicture(path, maxW, maxH)
-      if big.read: return big.b
-      return thumbnail(decodeBmp(readFile(path)), maxW, maxH)
+      if big.read: result = big.b; return
+      result = thumbnail(decodeBmp(readFile(path)), maxW, maxH); return
     var d = systemRelays.decodeImage(path, maxW, maxH)
     if d.w > 0 and d.h > 0 and d.px.len >= d.w * d.h:
       result = newBitmap(d.w, d.h)
       result.px = move d.px
       result.changed()
-      return thumbnail(result, maxW, maxH)
+      result = thumbnail(result, maxW, maxH); return
     if n >= 2 and head[0] == '\xFF' and head[1] == '\xD8':
       let big = readBigPicture(path, maxW, maxH)
-      if big.read: return big.b
+      if big.read: result = big.b; return
       let data = readFile(path)
       let (w, h) = jpegSize(data)
       # much bigger than wanted: only the blocks' averages (8 times faster)
       let scale = if w div 8 >= maxW or h div 8 >= maxH: 8 else: 1
-      return thumbnail(decodeJpeg(data, scale), maxW, maxH)
+      result = thumbnail(decodeJpeg(data, scale), maxW, maxH); return
   except CatchableError:
     result = nil
 
@@ -412,11 +412,11 @@ proc encodePng*(b: Bitmap; level = 6; dpi = 0; alpha = -1; gray = -1): string =
   # the file: the data in pieces of 8 MB (their checks made at once)
   var o = newStringOfCap(z.len + 256)
   o.add "\x89PNG\r\n\x1a\n"
-  proc add32(v: int) =
+  proc add32(v: uint32) =
     o.add char((v shr 24) and 255); o.add char((v shr 16) and 255)
     o.add char((v shr 8) and 255); o.add char(v and 255)
   proc chunk(kind: string; data: openArray[byte]) =
-    add32(data.len)
+    add32(uint32(data.len))
     let at = o.len
     o.add kind
     if data.len > 0:
@@ -425,7 +425,7 @@ proc encodePng*(b: Bitmap; level = 6; dpi = 0; alpha = -1; gray = -1): string =
       copyMem(addr o[p], unsafeAddr data[0], data.len)
     var c = 0xFFFFFFFF'u32
     for i in at ..< o.len: c = crcStep(c, byte(o[i]))
-    add32(int(c xor 0xFFFFFFFF'u32))
+    add32(c xor 0xFFFFFFFF'u32)
   var ihdr: seq[byte]
   for v in [w, h]:
     ihdr.add [byte((v shr 24) and 255), byte((v shr 16) and 255), byte((v shr 8) and 255), byte(v and 255)]
@@ -456,12 +456,12 @@ proc encodePng*(b: Bitmap; level = 6; dpi = 0; alpha = -1; gray = -1): string =
   for k in 0 ..< np:
     let a0 = k * Piece
     let e = min(z.len, a0 + Piece)
-    add32(e - a0)
+    add32(uint32(e - a0))
     o.add "IDAT"
     let p0 = o.len
     o.setLen(p0 + e - a0)
     copyMem(addr o[p0], unsafeAddr z[a0], e - a0)
-    add32(int(crcs[k]))
+    add32(crcs[k])
   chunk("IEND", [])
   o
 
@@ -491,17 +491,17 @@ proc encodePng16*(w, h: int; px: openArray[uint16]; level = 6; dpi = 0; alpha = 
     swap(prev, cur)
   let z = zlibCompressLevel(raw, level)
   var o = "\x89PNG\r\n\x1a\n"
-  proc add32(v: int) =
+  proc add32(v: uint32) =
     o.add char((v shr 24) and 255); o.add char((v shr 16) and 255)
     o.add char((v shr 8) and 255); o.add char(v and 255)
   proc chunk(kind: string; data: openArray[byte]) =
-    add32(data.len)
+    add32(uint32(data.len))
     let at = o.len
     o.add kind
     for v in data: o.add char(v)
     var c = 0xFFFFFFFF'u32
     for i in at ..< o.len: c = crcStep(c, byte(o[i]))
-    add32(int(c xor 0xFFFFFFFF'u32))
+    add32(c xor 0xFFFFFFFF'u32)
   var ihdr: seq[byte]
   for v in [w, h]:
     ihdr.add [byte((v shr 24) and 255), byte((v shr 16) and 255), byte((v shr 8) and 255), byte(v and 255)]
@@ -527,7 +527,7 @@ proc savePng*(b: Bitmap; path: string): bool {.discardable.} =
     false
 
 
-proc windowIconFromPng*(data: string; sizes = [16, 24, 32, 48, 64, 128]): seq[uint32] =
+proc windowIconFromPng*(data: string; sizes: openArray[int] = [16, 24, 32, 48, 64, 128]): seq[uint32] =
   ## A window icon (`windowIcon`, set before `startApp`; `app`'s `icon`
   ## option does it) from an app's icon as a PNG: the picture at each of
   ## `sizes`, made smaller by averaging (its edges soft, as a desktop draws

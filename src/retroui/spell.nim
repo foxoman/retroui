@@ -130,7 +130,7 @@ proc scriptOfWord(w: string): Script =
     if not isLetter(c): continue
     let s = scriptOf(c)
     if result == scNone: result = s
-    elif s != result: return scMixed
+    elif s != result: result = scMixed; return
 
 proc scriptOfLang(tag: string): Script =
   ## The script a language is written in (by its first subtag).
@@ -481,7 +481,7 @@ when not defined(windows) and not defined(macosx) and not defined(ios):
     var inl = csize_t(s.len)
     var outp = cast[cstring](addr result[0])
     var outl = csize_t(result.len)
-    if iconvRun(cd, addr inp, addr inl, addr outp, addr outl) == cast[csize_t](-1): return ""
+    if iconvRun(cd, addr inp, addr inl, addr outp, addr outl) == cast[csize_t](-1): result = ""; return
     result.setLen(result.len - int(outl))
     ok = true
 
@@ -490,7 +490,8 @@ when not defined(windows) and not defined(macosx) and not defined(ios):
     for r in s.runes:
       if int(r) > 255:
         ok = false
-        return ""
+        result = ""
+        return
       result.add char(int(r))
 
   proc fromLatin1(s: string): string =
@@ -529,7 +530,7 @@ when not defined(windows) and not defined(macosx) and not defined(ios):
           result.fromDict = b
       if result.toDict == nil:
         if enc in ["ISO88591", "LATIN1"]: result.latin1 = true
-        else: return nil
+        else: result = nil; return
     # the user's own words, for the suggestions too
     if hunAdd != nil:
       for w in userWords:
@@ -1385,7 +1386,7 @@ proc autoCorrect*(text: string; caret: int; lang = ""): tuple[a, b: int; replace
       if key.len <= caret and text.continuesWith(key, caret - key.len):
         let s0 = caret - key.len
         if s0 == 0 or isSpaceRune(runeAtB(text, runeBack(text, s0))):
-          return (s0, caret, by)
+          result = (s0, caret, by); return
   # (not the end of a word: inside an address or a number)
   if typed in [ord('.'), ord(':'), ord('/'), ord('@'), ord('-'), ord('#'), ord('&'), ord('='),
                ord('+'), ord('%'), ord('~'), ord('_')]:

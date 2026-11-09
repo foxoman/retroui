@@ -349,16 +349,16 @@ proc imagesFor(m: Msg): HtmlImageSource =
   result = proc (src: string): Bitmap =
     if src.startsWith("cid:"):
       let key = "cid:" & $mid & ":" & src[4 .. ^1]
-      if pictures.hasKey(key): return pictures[key]
+      if pictures.hasKey(key): result = pictures[key]; return
       let cids = store0.cidData(mid)
       let want = src[4 .. ^1]
       if cids.hasKey(want):
         let b = pictureFromBytes(key, cids[want])
         pictures[key] = b
-        return b
-      return nil
+        result = b; return
+      result = nil; return
     if (src.startsWith("http://") or src.startsWith("https://")):
-      if pictures.hasKey(src): return pictures[src]
+      if pictures.hasKey(src): result = pictures[src]; return
       if allowed and src notin picturesAsked:
         picturesAsked.incl src
         fetchLink[].send(src)

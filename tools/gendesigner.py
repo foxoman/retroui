@@ -30,7 +30,8 @@ sys.path.insert(0, HERE)
 import controlscheck as cc  # noqa: E402
 
 OUT = os.path.join(ROOT, "src", "retrodesigner", "registry.nim")
-EXTRA = ["textwidgets", "richedit", "qrcode", "pdfview"]   # not in `import retroui`
+EXTRA = ["textwidgets", "richedit", "qrcode", "pdfview",    # not in `import retroui`
+         "tilemap", "gltf", "capture", "mediasession"]
 # Layout from core that the designer offers (the rest of core is the frame
 # loop, input, ids).
 CORE = {"row", "col", "rowPx", "spring", "space", "withId", "adaptive"}
@@ -49,7 +50,7 @@ SKIP_PARTS = {"Getting started", "Looks", "Screen readers and input methods"}
 # Names only the screenshot tool has: an example using one is not offered.
 SHOT_ONLY = {"ledgerIcon", "samplePicture", "sampleHome", "sampleRoot", "samplePlaces", "makeSampleHome",
              "target", "aimed", "sampleUi", "themeLook", "kindCols", "settle", "run(",
-             "look(", "opts("}
+             "look(", "opts(", "carScene"}
 
 # The standard modules an example may call (as tools/shots.nim imports
 # them): an example using one of these names gets the module imported.

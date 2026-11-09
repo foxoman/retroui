@@ -744,7 +744,7 @@ proc openStrip(m: Mapped; t: TiffInfo; k: int): Strip =
     let sp = result.p
     let sn = result.n
     result.z = initInflater(proc (): tuple[p: pointer; n: int] {.closure, gcsafe.} =
-      if given or sn == 0: return (nil, 0)
+      if given or sn == 0: result = (nil, 0); return
       given = true
       (pointer(sp), sn))
   else: discard

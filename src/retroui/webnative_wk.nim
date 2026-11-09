@@ -20,11 +20,66 @@ type
     hosts: seq[string]
     st: WebNativeState
     shown: bool
+    permit: set[WebPermission]
+  BlockDesc = object
+    reserved, size: culong
+  BlockLit = object
+    ## (an Objective-C block of the kit's, with nothing captured: global)
+    isa: pointer
+    flags, reserved: int32
+    invoke: pointer
+    desc: ptr BlockDesc
 
 var
   wkState = 0            ## 0 not tried, 1 ready, -1 none
   wkHandler: ObjcId      ## the kit's script message handler and navigation delegate
+  wkScheme: ObjcId       ## the kit's app:// handler
   wkViews: seq[WkView]
+  wkSnapKey: string      ## the page a picture is coming for
+  wkSession: ObjcId      ## downloads (answers on the main queue)
+  wkDownloads: seq[tuple[key, url: string]]
+  nsGlobalBlock {.importc: "_NSConcreteGlobalBlock".}: pointer
+  blockDesc = BlockDesc(reserved: 0, size: culong(sizeof(BlockLit)))
+
+proc globalBlock(invoke: pointer): BlockLit =
+  BlockLit(isa: addr nsGlobalBlock, flags: 1'i32 shl 28, invoke: invoke, desc: addr blockDesc)
+
+# CoreGraphics: a picture (CGImage) into the kit's pixels
+type CGRectC {.bycopy.} = object
+  x, y, w, h: float64
+var
+  cgWidth, cgHeight: proc (img: pointer): csize_t {.cdecl.}
+  cgSpace: proc (): pointer {.cdecl.}
+  cgSpaceRelease, cgContextRelease: proc (p: pointer) {.cdecl.}
+  cgContext: proc (data: pointer; w, h, bits, row: csize_t; space: pointer; info: uint32): pointer {.cdecl.}
+  cgDraw: proc (ctx: pointer; r: CGRectC; img: pointer) {.cdecl.}
+
+proc pictureOf(img: pointer): Bitmap =
+  if img == nil: return nil
+  if cgWidth == nil:
+    let cg = loadLib("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+    if cg == nil: return nil
+    cgWidth = cast[typeof(cgWidth)](cg.symAddr("CGImageGetWidth"))
+    cgHeight = cast[typeof(cgHeight)](cg.symAddr("CGImageGetHeight"))
+    cgSpace = cast[typeof(cgSpace)](cg.symAddr("CGColorSpaceCreateDeviceRGB"))
+    cgSpaceRelease = cast[typeof(cgSpaceRelease)](cg.symAddr("CGColorSpaceRelease"))
+    cgContextRelease = cast[typeof(cgContextRelease)](cg.symAddr("CGContextRelease"))
+    cgContext = cast[typeof(cgContext)](cg.symAddr("CGBitmapContextCreate"))
+    cgDraw = cast[typeof(cgDraw)](cg.symAddr("CGContextDrawImage"))
+  if cgWidth == nil or cgContext == nil or cgDraw == nil: return nil
+  let w = int(cgWidth(img))
+  let h = int(cgHeight(img))
+  if w <= 0 or h <= 0 or w > 8192 or h > 8192: return nil
+  result = newBitmap(w, h)
+  let cs = cgSpace()
+  # (premultiplied first, 32-bit little-endian: the kit's 0xAARRGGBB)
+  let ctx = cgContext(addr result.px[0], csize_t(w), csize_t(h), 8, csize_t(w * 4), cs, 2 or (2 shl 12))
+  if ctx != nil:
+    cgDraw(ctx, CGRectC(x: 0, y: 0, w: float64(w), h: float64(h)), img)
+    cgContextRelease(ctx)
+  cgSpaceRelease(cs)
+  for i in 0 ..< w * h: result.px[i] = result.px[i] or 0xFF000000'u32
+  result.opaque = true
 
 proc objc_allocateClassPair(super: pointer; name: cstring; extra: int): pointer {.importc, cdecl.}
 proc objc_registerClassPair(cls: pointer) {.importc, cdecl.}
@@ -73,6 +128,121 @@ proc onDecide(self, cmd, webView, action: ObjcId; decision: pointer) {.cdecl.} =
     return
   callDecision(decision, 1)                                  # allow
 
+proc onSnapshot(blk, image, error: pointer) {.cdecl.} =
+  ## takeSnapshotWithConfiguration:completionHandler:'s answer.
+  let i = indexOf(wkSnapKey)
+  wkSnapKey = ""
+  if i < 0 or image == nil: return
+  let cg = when defined(ios): objcSend(pointer, image, "CGImage")
+           else: objcSend(pointer, image, "CGImageForProposedRect:context:hints:", pointer(nil),
+                          pointer(nil), pointer(nil))
+  let pic = pictureOf(cg)
+  if pic != nil: wkViews[i].st.snapshot = pic
+
+var snapBlock = globalBlock(cast[pointer](onSnapshot))
+
+proc onMedia(self, cmd, webView, origin, frame: ObjcId; kind: int; decision: pointer) {.cdecl.} =
+  ## A page asks for the camera or the microphone (macOS 12, iOS 15).
+  let i = indexOf(webView)
+  var wanted: set[WebPermission]
+  case kind
+  of 0: wanted = {wpCamera}
+  of 1: wanted = {wpMicrophone}
+  else: wanted = {wpCamera, wpMicrophone}
+  let ok = i >= 0 and wanted <= wkViews[i].permit
+  if not ok and i >= 0:
+    for p in wanted - wkViews[i].permit:
+      if p notin wkViews[i].st.asked: wkViews[i].st.asked.add p
+  callDecision(decision, if ok: 1 else: 2)                   # grant, deny
+
+proc onOpenPanel(self, cmd, webView, params, frame: ObjcId; done: pointer) {.cdecl.} =
+  ## <input type=file> (macOS: WebKit leaves it to the app): the system's
+  ## Open panel.
+  let invoke = cast[ptr pointer](cast[uint](done) + 16)[]
+  let answer = cast[proc (blk: pointer; urls: ObjcId) {.cdecl.}](invoke)
+  when defined(ios):
+    answer(done, nil)
+  else:
+    let panel = objcSend(ObjcId, objcClass("NSOpenPanel"), "openPanel")
+    objcSend(void, panel, "setAllowsMultipleSelection:", objcSend(bool, params, "allowsMultipleSelection"))
+    if respondsTo(params, "allowsDirectories"):
+      objcSend(void, panel, "setCanChooseDirectories:", objcSend(bool, params, "allowsDirectories"))
+    if objcSend(int, panel, "runModal") == 1: answer(done, objcSend(ObjcId, panel, "URLs"))
+    else: answer(done, nil)
+
+proc onDownloaded(blk, data, response, error: pointer) {.cdecl.} =
+  ## A download's answer (on the main queue): written into Downloads.
+  if response == nil: return
+  let url = urlOf(objcSend(ObjcId, response, "URL"))
+  var at = -1
+  for k, d in wkDownloads:
+    if d.url == url: at = k
+  if at < 0: return
+  let key = wkDownloads[at].key
+  wkDownloads.delete(at)
+  let i = indexOf(key)
+  if i < 0: return
+  var d = WebDownload(url: url, progress: 100)
+  if data == nil or error != nil: d.failed = true
+  else:
+    let base = downloadsFolder()
+    try: createDir(base) except OSError: discard
+    var name = toNim(objcSend(ObjcId, response, "suggestedFilename"))
+    if name.len == 0: name = "download"
+    var file = base / name.extractFilename
+    var n = 1
+    let (dir, stem, ext) = file.splitFile
+    while fileExists(file):
+      file = dir / stem & " (" & $n & ")" & ext
+      inc n
+    d.file = file
+    d.done = objcSend(bool, data, "writeToFile:atomically:", nsString(file), true)
+    d.failed = not d.done
+  wkViews[i].st.downloads.add d
+
+var downloadBlock = globalBlock(cast[pointer](onDownloaded))
+
+proc onResponse(self, cmd, webView, response: ObjcId; decision: pointer) {.cdecl.} =
+  ## What a page cannot show (an archive, a program) is downloaded.
+  if objcSend(bool, response, "canShowMIMEType"):
+    callDecision(decision, 1)
+    return
+  callDecision(decision, 0)
+  let i = indexOf(webView)
+  let r = objcSend(ObjcId, response, "response")
+  let u = objcSend(ObjcId, r, "URL")
+  if i < 0 or u == nil: return
+  if wkSession == nil:
+    wkSession = objcSend(ObjcId, objcClass("NSURLSession"), "sessionWithConfiguration:delegate:delegateQueue:",
+                         objcSend(ObjcId, objcClass("NSURLSessionConfiguration"), "defaultSessionConfiguration"),
+                         ObjcId(nil), objcSend(ObjcId, objcClass("NSOperationQueue"), "mainQueue"))
+    objcSend(void, wkSession, "retain")
+  wkDownloads.add (wkViews[i].key, urlOf(u))
+  wkViews[i].st.downloads.add WebDownload(url: urlOf(u))
+  let task = objcSend(ObjcId, wkSession, "dataTaskWithURL:completionHandler:", u, addr downloadBlock)
+  objcSend(void, task, "resume")
+
+proc onSchemeStart(self, cmd, webView, task: ObjcId) {.cdecl.} =
+  ## app://local/PATH: a file of the app's folder.
+  let url = objcSend(ObjcId, objcSend(ObjcId, task, "request"), "URL")
+  let file = appFile(toNim(objcSend(ObjcId, url, "path")))
+  let data = if file.len > 0: objcSend(ObjcId, objcClass("NSData"), "dataWithContentsOfFile:", nsString(file))
+             else: nil
+  if data == nil:
+    objcSend(void, task, "didFailWithError:",
+             objcSend(ObjcId, objcClass("NSError"), "errorWithDomain:code:userInfo:", nsString("retro"),
+                      404, ObjcId(nil)))
+    return
+  let resp = objcSend(ObjcId, objcSend(ObjcId, objcClass("NSURLResponse"), "alloc"),
+                      "initWithURL:MIMEType:expectedContentLength:textEncodingName:", url,
+                      nsString(mimeOf(file)), objcSend(int, data, "length"), ObjcId(nil))
+  objcSend(void, task, "didReceiveResponse:", resp)
+  objcSend(void, task, "didReceiveData:", data)
+  objcSend(void, task, "didFinish")
+  objcSend(void, resp, "release")
+
+proc onSchemeStop(self, cmd, webView, task: ObjcId) {.cdecl.} = discard
+
 proc loadWebKit(): bool =
   ## WebKit, and the kit's class that hears its pages.
   if loadLib("/System/Library/Frameworks/WebKit.framework/WebKit") == nil: return false
@@ -85,11 +255,28 @@ proc loadWebKit(): bool =
                             cast[pointer](onScriptMessage), "v@:@@")
     discard class_addMethod(cls, sel("webView:decidePolicyForNavigationAction:decisionHandler:"),
                             cast[pointer](onDecide), "v@:@@@?")
-    for p in ["WKScriptMessageHandler", "WKNavigationDelegate"]:
+    discard class_addMethod(cls, sel("webView:decidePolicyForNavigationResponse:decisionHandler:"),
+                            cast[pointer](onResponse), "v@:@@@?")
+    discard class_addMethod(cls,
+      sel("webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:"),
+      cast[pointer](onMedia), "v@:@@@q@?")
+    discard class_addMethod(cls, sel("webView:runOpenPanelWithParameters:initiatedByFrame:completionHandler:"),
+                            cast[pointer](onOpenPanel), "v@:@@@@?")
+    for p in ["WKScriptMessageHandler", "WKNavigationDelegate", "WKUIDelegate"]:
       let proto = objc_getProtocol(cstring(p))
       if proto != nil: discard class_addProtocol(cls, proto)
     objc_registerClassPair(cls)
+  var sc = objcClass("RetroSchemeHandler")
+  if sc == nil:
+    sc = objc_allocateClassPair(objcClass("NSObject"), "RetroSchemeHandler", 0)
+    if sc == nil: return false
+    discard class_addMethod(sc, sel("webView:startURLSchemeTask:"), cast[pointer](onSchemeStart), "v@:@@")
+    discard class_addMethod(sc, sel("webView:stopURLSchemeTask:"), cast[pointer](onSchemeStop), "v@:@@")
+    let proto = objc_getProtocol("WKURLSchemeHandler")
+    if proto != nil: discard class_addProtocol(sc, proto)
+    objc_registerClassPair(sc)
   wkHandler = objcSend(ObjcId, objcSend(ObjcId, cls, "alloc"), "init")
+  wkScheme = objcSend(ObjcId, objcSend(ObjcId, sc, "alloc"), "init")
   wkHandler != nil
 
 proc hostView(): ObjcId =
@@ -152,10 +339,14 @@ proc makeView(host: ObjcId; frame: CGRect): ObjcId =
                         nsString(shimFor("window.webkit.messageHandlers.retro.postMessage")), 0, true)
   objcSend(void, ucc, "addUserScript:", script)
   objcSend(void, script, "release")
+  # the app's own folder at app://local/ (macOS 10.13, iOS 11)
+  if wkScheme != nil and respondsTo(config, "setURLSchemeHandler:forURLScheme:"):
+    objcSend(void, config, "setURLSchemeHandler:forURLScheme:", wkScheme, nsString("app"))
   result = objcSend(ObjcId, objcSend(ObjcId, objcClass("WKWebView"), "alloc"),
                     "initWithFrame:configuration:", frame, config)
   objcSend(void, config, "release")
   objcSend(void, result, "setNavigationDelegate:", wkHandler)
+  objcSend(void, result, "setUIDelegate:", wkHandler)
   # (Safari's Web Inspector reaches it only when asked for: macOS 13.3, iOS 16.4)
   if webToolsWanted() and respondsTo(result, "setInspectable:"):
     objcSend(void, result, "setInspectable:", true)
@@ -178,8 +369,13 @@ proc webNativeShow*(key: string; r: Rect; url: string; zoom: float) =
     let frame = frameFor(host, r)
     var i = indexOf(key)
     if i < 0:
-      wkViews.add WkView(key: key, view: makeView(host, frame))
-      i = wkViews.high
+      # (one made by `webNativePermit` before the page: its view now)
+      for k, v in wkViews:
+        if v.key == key and v.view == nil: i = k
+      if i < 0:
+        wkViews.add WkView(key: key)
+        i = wkViews.high
+      wkViews[i].view = makeView(host, frame)
     else:
       objcSend(void, wkViews[i].view, "setFrame:", frame)
     objcSend(void, wkViews[i].view, "setHidden:", false)
@@ -208,6 +404,11 @@ proc webNativeClose*(key: string) =
   objcSend(void, wkViews[i].view, "release")
   wkViews[i].view = nil
 
+proc webNativeShutdown*() =
+  ## Every page let go, before the app ends.
+  for i in 0 ..< wkViews.len:
+    if wkViews[i].view != nil: webNativeClose(wkViews[i].key)
+
 proc webNativeNav*(key: string; what: WebNav) =
   ## Back, Forward, Reload or Stop in the page.
   let i = indexOf(key)
@@ -218,6 +419,19 @@ proc webNativeNav*(key: string; what: WebNav) =
   of wnForward: discard objcSend(ObjcId, v, "goForward")
   of wnReload: discard objcSend(ObjcId, v, "reload")
   of wnStop: objcSend(void, v, "stopLoading")
+  of wnPrint:
+    autoreleasePool:
+      when defined(ios):
+        let pc = objcSend(ObjcId, objcClass("UIPrintInteractionController"), "sharedPrintController")
+        objcSend(void, pc, "setPrintFormatter:", objcSend(ObjcId, v, "viewPrintFormatter"))
+        discard objcSend(bool, pc, "presentAnimated:completionHandler:", true, pointer(nil))
+      else:
+        if respondsTo(v, "printOperationWithPrintInfo:"):
+          let op = objcSend(ObjcId, v, "printOperationWithPrintInfo:",
+                            objcSend(ObjcId, objcClass("NSPrintInfo"), "sharedPrintInfo"))
+          objcSend(void, objcSend(ObjcId, op, "view"), "setFrame:", objcSend(CGRect, v, "bounds"))
+          objcSend(void, op, "runOperationModalForWindow:delegate:didRunSelector:contextInfo:",
+                   objcSend(ObjcId, v, "window"), ObjcId(nil), pointer(nil), pointer(nil))
 
 proc webNativeRun*(key: string; js: string) =
   ## Runs `js` in the page (what it posts comes as notes).
@@ -231,6 +445,26 @@ proc webNativeAllow*(key: string; hosts: seq[string]) =
   ## The hosts the page may open (none: any).
   let i = indexOf(key)
   if i >= 0: wkViews[i].hosts = hosts
+
+proc webNativeSnap*(key: string) =
+  ## A picture of the page (WebKit's snapshot): in a later `webNativeTake`'s
+  ## `snapshot`.
+  let i = indexOf(key)
+  if i < 0 or wkSnapKey.len > 0 or not respondsTo(wkViews[i].view, "takeSnapshotWithConfiguration:completionHandler:"):
+    return
+  wkSnapKey = key
+  objcSend(void, wkViews[i].view, "takeSnapshotWithConfiguration:completionHandler:", ObjcId(nil),
+           addr snapBlock)
+
+proc webNativePermit*(key: string; allowed: set[WebPermission]) =
+  ## What the page may use when it asks (the rest is refused).
+  let i = indexOf(key)
+  if i >= 0: wkViews[i].permit = allowed
+  else: wkViews.add WkView(key: key, permit: allowed)
+
+proc webNativeAppUrl*(path: string): string =
+  ## The address of the file `path` of the app's folder (`webNativeAppFolder`).
+  "app://local/" & path.strip(chars = {'/'})
 
 proc webNativeTake*(key: string): WebNativeState =
   ## The page now, and what it posted since the last look.
@@ -247,3 +481,9 @@ proc webNativeTake*(key: string): WebNativeState =
   result = wkViews[i].st
   wkViews[i].st.notes.setLen(0)
   wkViews[i].st.blocked.setLen(0)
+  wkViews[i].st.asked.setLen(0)
+  wkViews[i].st.snapshot = nil
+  var keep: seq[WebDownload]
+  for d in wkViews[i].st.downloads:
+    if not (d.done or d.failed): keep.add d
+  wkViews[i].st.downloads = keep

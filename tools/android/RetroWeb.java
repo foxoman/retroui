@@ -12,7 +12,24 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.app.DownloadManager;
+import android.content.Context;
+import android.graphics.Canvas;
+import android.os.Environment;
+import android.print.PrintManager;
+import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
+import android.webkit.MimeTypeMap;
+import android.webkit.PermissionRequest;
+import android.webkit.URLUtil;
+import android.webkit.ValueCallback;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -49,7 +66,64 @@ public final class RetroWeb {
     volatile int progress = 100;
     volatile boolean canBack, canForward, backOut;
     volatile String[] hosts = new String[0];
-    final ArrayList<String> notes = new ArrayList<String>();   // "m" text, "b" address
+    volatile String permit = "";       // what the page may use: "camera,microphone,location"
+    final ArrayList<String> notes = new ArrayList<String>();   // "m" text, "b" address,
+                                       // "p" a permission refused, "d" a download
+    final ArrayList<long[]> downloads = new ArrayList<long[]>();   // DownloadManager ids
+    final ArrayList<String> downloadUrls = new ArrayList<String>();
+  }
+
+  /** The app's own pages (web.appFolder): served at
+   *  https://appassets.androidplatform.net/app/PATH, an address of their own. */
+  static volatile String appFolder = "";
+  static final String APP_PREFIX = "https://appassets.androidplatform.net/app/";
+
+  static WebResourceResponse appFile(String url) {
+    if (appFolder.length() == 0 || !url.startsWith(APP_PREFIX)) return null;
+    String p = Uri.parse(url).getPath();
+    if (p == null) return null;
+    p = p.substring("/app/".length() - 1);
+    while (p.startsWith("/")) p = p.substring(1);
+    if (p.length() == 0) p = "index.html";
+    if (p.contains("..")) return null;
+    File f = new File(appFolder, p);
+    if (f.isDirectory()) f = new File(f, "index.html");
+    if (!f.isFile()) return new WebResourceResponse("text/plain", "utf-8", 404, "Not found",
+        null, new java.io.ByteArrayInputStream(new byte[0]));
+    String ext = MimeTypeMap.getFileExtensionFromUrl(f.getName());
+    String mime = ext == null ? null : MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext.toLowerCase());
+    if (mime == null) mime = f.getName().endsWith(".js") ? "text/javascript" : "application/octet-stream";
+    try {
+      return new WebResourceResponse(mime, "utf-8", new FileInputStream(f));
+    } catch (Throwable t) { return null; }
+  }
+
+  static boolean permitted(Web w, String what) {
+    for (String p : w.permit.split(",")) if (p.trim().equals(what)) return true;
+    return false;
+  }
+
+  static void refused(Web w, String what) {
+    synchronized (w.notes) { w.notes.add("p" + what); }
+  }
+
+  /** <input type=file>: the system's picker, its answer from the activity. */
+  static ValueCallback<Uri[]> pickCallback;
+  static final int PICK_FILES = 4245;
+
+  public static boolean onResult(int request, int result, Intent data) {
+    if (request != PICK_FILES || pickCallback == null) return false;
+    Uri[] uris = null;
+    if (result == Activity.RESULT_OK && data != null) {
+      if (data.getClipData() != null) {
+        int n = data.getClipData().getItemCount();
+        uris = new Uri[n];
+        for (int i = 0; i < n; i++) uris[i] = data.getClipData().getItemAt(i).getUri();
+      } else if (data.getData() != null) uris = new Uri[] { data.getData() };
+    }
+    pickCallback.onReceiveValue(uris);
+    pickCallback = null;
+    return true;
   }
 
   /** retro.post(text) in the page's scripts. */
@@ -183,8 +257,13 @@ public final class RetroWeb {
     s.setAllowUniversalAccessFromFileURLs(false);
     v.setWebViewClient(new WebViewClient() {
       @Override
+      public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest r) {
+        return appFile(r.getUrl().toString());
+      }
+      @Override
       public boolean shouldOverrideUrlLoading(WebView view, String url) {
         String l = url.toLowerCase();
+        if (url.startsWith(APP_PREFIX)) return false;
         if (l.startsWith("http:") || l.startsWith("https:")) {
           if (allowed(nw, url)) return false;
           synchronized (nw.notes) { nw.notes.add("b" + url); }   // the app is told
@@ -222,6 +301,63 @@ public final class RetroWeb {
       public void onProgressChanged(WebView view, int p) { nw.progress = p; }
       @Override
       public void onReceivedTitle(WebView view, String t) { nw.title = t == null ? "" : t; }
+      @Override
+      public void onPermissionRequest(final PermissionRequest r) {
+        // only what the app allowed (webPermit) -- and has itself
+        ArrayList<String> grant = new ArrayList<String>();
+        for (String res : r.getResources()) {
+          String what = res.equals(PermissionRequest.RESOURCE_VIDEO_CAPTURE) ? "camera"
+                      : res.equals(PermissionRequest.RESOURCE_AUDIO_CAPTURE) ? "microphone" : "";
+          String sys = what.equals("camera") ? android.Manifest.permission.CAMERA
+                     : what.equals("microphone") ? android.Manifest.permission.RECORD_AUDIO : null;
+          if (what.length() > 0 && permitted(nw, what)) {
+            if (a.checkSelfPermission(sys) == android.content.pm.PackageManager.PERMISSION_GRANTED)
+              grant.add(res);
+            else a.requestPermissions(new String[] { sys }, 4246);
+          } else if (what.length() > 0) refused(nw, what);
+        }
+        if (grant.isEmpty()) r.deny();
+        else r.grant(grant.toArray(new String[0]));
+      }
+      @Override
+      public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback cb) {
+        boolean ok = permitted(nw, "location");
+        if (!ok) refused(nw, "location");
+        cb.invoke(origin, ok, false);
+      }
+      @Override
+      public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> cb, FileChooserParams p) {
+        if (pickCallback != null) pickCallback.onReceiveValue(null);
+        pickCallback = cb;
+        try {
+          a.startActivityForResult(p.createIntent(), PICK_FILES);
+          return true;
+        } catch (Throwable t) {
+          pickCallback = null;
+          return false;
+        }
+      }
+    });
+    // downloads: the system's download manager, into Downloads (the app told)
+    v.setDownloadListener(new android.webkit.DownloadListener() {
+      public void onDownloadStart(String url, String agent, String disposition, String mime, long length) {
+        try {
+          String name = URLUtil.guessFileName(url, disposition, mime);
+          DownloadManager.Request r = new DownloadManager.Request(Uri.parse(url));
+          r.setMimeType(mime);
+          r.addRequestHeader("User-Agent", agent);
+          r.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+          r.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name);
+          DownloadManager dm = (DownloadManager) a.getSystemService(Context.DOWNLOAD_SERVICE);
+          long id = dm.enqueue(r);
+          synchronized (nw.notes) {
+            nw.downloads.add(new long[] { id });
+            nw.downloadUrls.add(url);
+          }
+        } catch (Throwable t) {
+          synchronized (nw.notes) { nw.notes.add("d" + url + "\u0003\u00030\u0003-1"); }
+        }
+      }
     });
     v.addJavascriptInterface(new Bridge(nw), "retro");
     nw.view = v;
@@ -300,12 +436,84 @@ public final class RetroWeb {
       synchronized (wb.notes) {
         for (String n : wb.notes) notes.append(n).append('\u0002');
         wb.notes.clear();
+        // the downloads: url, file, progress, done (1) or failed (-1)
+        if (!wb.downloads.isEmpty()) {
+          DownloadManager dm = (DownloadManager) act.getSystemService(Context.DOWNLOAD_SERVICE);
+          for (int i = wb.downloads.size() - 1; i >= 0; i--) {
+            long id = wb.downloads.get(i)[0];
+            android.database.Cursor c = null;
+            try {
+              c = dm.query(new DownloadManager.Query().setFilterById(id));
+              if (c != null && c.moveToFirst()) {
+                int st = c.getInt(c.getColumnIndex(DownloadManager.COLUMN_STATUS));
+                long got = c.getLong(c.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
+                long all = c.getLong(c.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
+                String file = c.getString(c.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI));
+                if (file != null && file.startsWith("file://")) file = Uri.parse(file).getPath();
+                String end = st == DownloadManager.STATUS_SUCCESSFUL ? "1"
+                           : st == DownloadManager.STATUS_FAILED ? "-1" : "0";
+                int pct = all > 0 ? (int) (got * 100 / all) : 0;
+                notes.append("d").append(wb.downloadUrls.get(i)).append('\u0003')
+                     .append(file == null ? "" : file).append('\u0003').append(pct).append('\u0003')
+                     .append(end).append('\u0002');
+                if (!end.equals("0")) { wb.downloads.remove(i); wb.downloadUrls.remove(i); }
+              }
+            } catch (Throwable t) {
+            } finally { if (c != null) c.close(); }
+          }
+        }
       }
       return wb.url + "\t" + wb.title.replace('\t', ' ') + "\t" + wb.progress + "\t"
           + (wb.canBack ? "1" : "0") + "\t" + (out ? "1" : "0") + "\t"
           + (wb.canForward ? "1" : "0") + "\t" + notes;
     }
+    if (what.equals("appFolder")) {
+      appFolder = key;
+      return "1";
+    }
     if (wb == null) return what.equals("back") ? "0" : "";
+    if (what.equals("permit")) {
+      wb.permit = a.length > 1 ? a[1] : "";
+      return "1";
+    }
+    if (what.equals("snap")) {
+      // a picture of the page as it is now, into a PNG (the UI thread draws it)
+      if (a.length < 2 || !wb.added) return "0";
+      final String path = a[1];
+      final boolean[] ok = new boolean[1];
+      final CountDownLatch done = new CountDownLatch(1);
+      act.runOnUiThread(new Runnable() {
+        public void run() {
+          try {
+            int w = wb.view.getWidth(), h = wb.view.getHeight();
+            if (w > 0 && h > 0) {
+              Bitmap b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+              wb.view.draw(new Canvas(b));
+              FileOutputStream o = new FileOutputStream(path);
+              b.compress(Bitmap.CompressFormat.PNG, 100, o);
+              o.close();
+              b.recycle();
+              ok[0] = true;
+            }
+          } catch (Throwable t) {
+          } finally { done.countDown(); }
+        }
+      });
+      try { done.await(2, TimeUnit.SECONDS); } catch (Throwable t) { }
+      return ok[0] ? "1" : "0";
+    }
+    if (what.equals("print")) {
+      act.runOnUiThread(new Runnable() {
+        public void run() {
+          try {
+            PrintManager pm = (PrintManager) act.getSystemService(Context.PRINT_SERVICE);
+            String name = wb.title.length() > 0 ? wb.title : "Page";
+            pm.print(name, wb.view.createPrintDocumentAdapter(name), null);
+          } catch (Throwable t) { }
+        }
+      });
+      return "1";
+    }
     if (what.equals("back")) {
       if (!wb.canBack) return "0";
       act.runOnUiThread(new Runnable() {

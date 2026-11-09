@@ -39,6 +39,7 @@
 import std/[strutils, base64, json, tables, os, times, xmlparser, xmltree, dynlib, sysrand, algorithm, random, sequtils]
 from std/openssl import DLLUtilName
 import sha2, xmpp
+from codec import unbase64
 
 const
   Ns* = "eu.siacs.conversations.axolotl"
@@ -714,7 +715,7 @@ proc key(jid: string; dev: int): string = jid & "/" & $dev
 
 proc b64(s: string): string = encode(s)
 proc unb64(s: string): string =
-  try: decode(s.strip.multiReplace(("\n", ""), ("\r", ""), (" ", "")))
+  try: unbase64(s)
   except CatchableError: ""
 
 proc chainJson(c: Chain): JsonNode =

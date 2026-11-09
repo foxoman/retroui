@@ -21,8 +21,8 @@
 ## ============  ===========================  ==========================  ============================
 ## Linux, BSD    PulseAudio or ALSA           GStreamer, when installed   in the window (GStreamer)
 ## Termux (X11)  PulseAudio                   GStreamer, when installed   in the window (GStreamer)
-## Windows       waveOut                      the system (MCI)            the system's player
-## macOS, iOS    AudioQueue                   AVAudioPlayer               the system's player
+## Windows       waveOut                      the system (MCI)            in the window (Media Foundation)
+## macOS, iOS    AudioQueue                   AVAudioPlayer               in the window (AVFoundation)
 ## Android       MediaPlayer                  MediaPlayer                 in the window (VideoView)
 ## ============  ===========================  ==========================  ============================
 ##
@@ -54,7 +54,7 @@ import uirelays/target   # (androidApp: an APK, not a program in Termux)
 from std/math import round
 import gfx, core, widgets, platform, pixelicons, imaging
 import uirelays/services
-import mediaaudio, mediagif, mediagst
+import mediaaudio, mediagif, mediagst, mediaplayer
 from thumbcache import cacheFolder
 export mediaaudio.Sound, mediaaudio.Waveform, mediaaudio.decodeWav,
        mediaaudio.encodeWav, mediaaudio.makeTone, mediaaudio.joinSounds,
@@ -389,7 +389,7 @@ type
     path: string
     audio: bool              # a sound: its name in a panel, no picture
     sound: SoundId           # (played by `playSound` where nothing else can)
-    gst: GstPlayer
+    gst: MediaPlayer         # the system's player, drawn by the kit (`mediaplayer`)
     tried: bool
     shown: bool              # the system's view is over the window
     shownRect: Rect
@@ -404,10 +404,11 @@ var videos: Table[string, VideoState]
 var videoHook = false
 
 proc videoPlaysInWindow*(): bool =
-  ## `videoView` shows videos inside the window here (Android; Linux and
-  ## other Unix systems with GStreamer); elsewhere it offers the system's
-  ## player.
-  mediaThroughSystem or gstAvailable()
+  ## `videoView` shows videos inside the window here: Android (the system's
+  ## view), Windows (Media Foundation), macOS and iOS (AVFoundation), Linux
+  ## and other Unix systems with GStreamer; elsewhere it offers the
+  ## system's player.
+  mediaThroughSystem or playerAvailable()
 
 proc deviceRect(r: Rect): Rect =
   rect(r.x * pxScale, r.y * pxScale, r.w * pxScale, r.h * pxScale)
@@ -436,11 +437,14 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
   ## A video in the window, with play / pause, a position bar and the time
   ## under it (`controls`); Space plays and pauses, Left / Right go back
   ## and on 5 seconds, Home to the start, when it has the focus; a click on
-  ## the picture plays and pauses. On Android the system's VideoView shows
-  ## it (hidden while a menu or a dialog is over it); on Linux GStreamer
-  ## draws it into the window; elsewhere it shows a button that opens the
-  ## file in the system's player. `key` tells several apart. `audio`: a
-  ## sound file (`audioView`).
+  ## the picture plays and pauses. `path` is a file or a web address
+  ## (http, https; HLS where the system plays it). The system's own player
+  ## plays it and the kit draws its pictures in the window (under its
+  ## menus and dialogs): Media Foundation on Windows, AVFoundation on macOS
+  ## and iOS, GStreamer on Linux; in an Android app the system's VideoView
+  ## shows it (hidden while a menu or a dialog is over it). Where there is
+  ## none it shows a button that opens the file in the system's player.
+  ## `key` tells several apart. `audio`: a sound file (`audioView`).
   let k = if key.len > 0: key else: path
   var v = videos.getOrDefault(k)
   if v == nil or v.path != path or v.audio != audio:
@@ -459,7 +463,7 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
   let hit = interact(id, area)
   v.drawnFrame = ui.frameNo
   v.drawnDialog = ui.curDialog
-  let exists = fileExists(path)
+  let exists = isStream(path) or fileExists(path)
   if not exists: v.error = "There is no file " & path.extractFilename & "."
   # the player
   var toggle, toStart = false
@@ -472,7 +476,7 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
     elif keyHit(KeyHome): toStart = true
   let mode = if not exists: 0
              elif mediaThroughSystem: 1
-             elif gstAvailable(): 2
+             elif playerAvailable(): 2
              elif audio: 3
              else: 0
   case mode
@@ -511,7 +515,7 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
   of 2:
     if v.gst == nil and not v.tried:
       v.tried = true
-      v.gst = gstOpen(path, video = not audio, audioSink = gstAudioSink)
+      v.gst = openPlayer(path, video = not audio, audioSink = gstAudioSink)
       if v.gst == nil:
         v.error = if audio: "This sound cannot be played here." else: "This video cannot be played here."
       elif autoplay:

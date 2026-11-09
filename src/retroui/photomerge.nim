@@ -998,7 +998,9 @@ type SkyKind* = enum
   skSunset = "Sunset", skDusk = "Dusk", skOvercast = "Overcast", skNight = "Starry Night"
 
 proc hashNoise(x, y, seed: int): float {.inline.} =
-  var h = uint32(x * 374761393 + y * 668265263 + seed * 2147483647)
+  # (in 32 bits, wrapping: the same on every system)
+  var h = cast[uint32](x) * 374761393'u32 + cast[uint32](y) * 668265263'u32 +
+          cast[uint32](seed) * 2147483647'u32
   h = (h xor (h shr 13)) * 1274126177'u32
   h = h xor (h shr 16)
   float(h and 0xFFFFFF) / float(0xFFFFFF)

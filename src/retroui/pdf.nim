@@ -661,7 +661,7 @@ proc subsetTtf*(data: string; keep: openArray[int]): string =
       sum += v
       k += 4
     dir.add t.tag
-    for v in [int(sum), off + payload.len, body.len]:
+    for v in [sum, uint32(off + payload.len), uint32(body.len)]:
       for q in 0 .. 3: dir.add char((v shr (24 - 8 * q)) and 255)
     payload.add body
     while payload.len mod 4 != 0: payload.add '\0'

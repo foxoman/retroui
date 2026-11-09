@@ -265,7 +265,7 @@ proc wordRight(s: string; i: int): int =
 
 proc clampPos(d: RichDoc; p: RichPos): RichPos =
   result.para = clamp(p.para, 0, max(0, d.paras.high))
-  if d.paras.len == 0: return RichPos()
+  if d.paras.len == 0: result = RichPos(); return
   let n = paraLen(d.paras[result.para])
   result.off = clamp(p.off, 0, n)
   if result.off > 0 and result.off < n:
@@ -706,7 +706,7 @@ proc cleanUrl(url: string): string =
     if c == ':': break
     if c notin {' ', '\t'}: scheme.add c.toLowerAscii
     if scheme.len > 12: break
-  if ':' in result and scheme in ["javascript", "vbscript", "data"]: return ""
+  if ':' in result and scheme in ["javascript", "vbscript", "data"]: result = ""; return
   if result.len == 0: return
   if ':' notin result and '@' in result and '/' notin result and ' ' notin result:
     result = "mailto:" & result
@@ -1256,7 +1256,7 @@ proc paraKey(p: RichPara): Hash =
     let s = r.style
     h = h !& (ord(s.bold) or ord(s.italic) shl 1 or ord(s.underline) shl 2 or
               ord(s.strike) shl 3 or ord(s.mono) shl 4)
-    h = h !& hash(s.size)
+    h = h !& hashF(s.size)
     h = h !& hash(s.link)
   !$h
 
@@ -1271,8 +1271,8 @@ proc ensureLayout(d: var RichDoc; w: int) =
   env = env !& FontAscent
   env = env !& pxScale
   env = env !& ord(uiFont())
-  env = env !& hash(textSize())
-  env = env !& hash(ui.k)
+  env = env !& hashF(textSize())
+  env = env !& hashF(ui.k)
   env = !$env
   var old = move d.lays
   if env != d.layEnv:
@@ -2933,7 +2933,7 @@ proc cleanHref(h: string): string =
     if c == ':': break
     if c notin {' ', '\t', '\n', '\r'}: scheme.add c.toLowerAscii
     if scheme.len > 12: break
-  if ':' in result and scheme in ["javascript", "vbscript", "data"]: return ""
+  if ':' in result and scheme in ["javascript", "vbscript", "data"]: result = ""; return
 
 proc popElem(b: var HB) =
   let e = b.stack[^1]

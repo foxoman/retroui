@@ -494,7 +494,7 @@ proc sourcesFor*(kind: AssetKind): seq[AssetSource] =
   of akIcon: result = @[asIconify]
   of akTexture: result = @[asPolyHaven, asAmbientCG]
   of akBackground: result = @[asPolyHaven, asPixabay, asPexels, asUnsplash, asOpenverse]
-  of akBrush, akPattern, akGradient, akSwatches, akStyle, akDesign: return @[asLibrary]
+  of akBrush, akPattern, akGradient, akSwatches, akStyle, akDesign: result = @[asLibrary]; return
   if libraryHas(kind): result.add asLibrary
 
 proc needsKey*(s: AssetSource): bool =
@@ -728,7 +728,7 @@ proc queryUrl*(q: AssetQuery): string =
              "&iiextmetadatafilter=ObjectName%7CArtist%7CCredit%7CLicenseShortName%7CLicenseUrl%7CLicense%7CAttributionRequired%7CRestrictions" &
              "&iiextmetadatalanguage=en"
   of asPixabay:
-    if pixabayKey.len == 0: return ""
+    if pixabayKey.len == 0: result = ""; return
     let kind = case q.kind
       of akIllustration: "illustration"
       of akVector: "vector"
@@ -743,7 +743,7 @@ proc queryUrl*(q: AssetQuery): string =
       if hasArabic(t): result.add "&lang=ar"
     if category.len > 0: result.add "&category=" & enc(category)
   of asPexels:
-    if pexelsKey.len == 0: return ""
+    if pexelsKey.len == 0: result = ""; return
     # (nothing typed or picked: the photos Pexels picks, "curated")
     let words = if q.text.strip.len > 0 or q.category.strip.len > 0: searchWords(q) else: ""
     result = (if words.len == 0: pexelsApi & "/curated?" else: pexelsApi & "/search?query=" & enc(words) & "&") &
@@ -751,7 +751,7 @@ proc queryUrl*(q: AssetQuery): string =
     if words.len > 0 and q.kind == akBackground: result.add "&orientation=landscape"
     result = withHeaders(result, [("Authorization", pexelsKey)])
   of asUnsplash:
-    if unsplashKey.len == 0: return ""
+    if unsplashKey.len == 0: result = ""; return
     # (nothing typed or picked: the popular photos)
     let words = if q.text.strip.len > 0 or q.category.strip.len > 0: searchWords(q) else: ""
     result = if words.len == 0: unsplashApi & "/photos?order_by=popular&per_page=" & $n & "&page=" & $p
@@ -765,7 +765,7 @@ proc queryUrl*(q: AssetQuery): string =
     if t.len > 0:
       # (`limit` is how many are found in all, 32 to 999; `start` skips)
       let start = (p - 1) * n
-      if start + n + 1 > 999: return ""
+      if start + n + 1 > 999: result = ""; return
       result = iconifyApi & "/search?query=" & enc(t) & "&limit=" & $max(32, start + n + 1) &
                "&start=" & $start & "&prefixes=" & sets.join(",")
     elif q.category.len > 0 and not q.category.startsWith("group:"):

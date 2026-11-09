@@ -13,13 +13,17 @@
 ## spot (no nesting). With one core, or little work, everything runs on
 ## the calling thread.
 
-import std/[locks, typedthreads, cpuinfo, atomics, os, strutils]
+import std/[locks, cpuinfo, atomics, os, strutils]
 import busy, codec
+when compileOption("threads"):
+  import std/typedthreads
 
 type Body = proc (lo, hi: int) {.closure.}
 
+when compileOption("threads"):
+  var workers: seq[Thread[void]]
+
 var
-  workers: seq[Thread[void]]
   lock: Lock
   wake, doneCond: Cond
   gen: int                      # a new job each time (guarded by `lock`)
@@ -73,12 +77,16 @@ proc work() {.thread.} =
 
 proc threadCount*(): int =
   ## How many threads share the work (the worker threads and the caller):
-  ## one per core, or `setThreadCount`, or $RETRO_THREADS.
-  var n = maxThreads
-  if n <= 0:
-    n = try: parseInt(getEnv("RETRO_THREADS", "0")) except ValueError: 0
-  if n <= 0: n = countProcessors()
-  clamp(n, 1, 16)
+  ## one per core, or `setThreadCount`, or $RETRO_THREADS (one in a
+  ## browser).
+  when not compileOption("threads"):
+    1
+  else:
+    var n = maxThreads
+    if n <= 0:
+      n = try: parseInt(getEnv("RETRO_THREADS", "0")) except ValueError: 0
+    if n <= 0: n = countProcessors()
+    clamp(n, 1, 16)
 
 proc setThreadCount*(n: int) =
   ## At most `n` threads (0: one per core). Takes effect before the first
@@ -91,9 +99,10 @@ proc start() =
   initLock(lock)
   initCond(wake)
   initCond(doneCond)
-  let n = threadCount() - 1
-  workers.setLen(n)
-  for i in 0 ..< n: createThread(workers[i], work)
+  when compileOption("threads"):
+    let n = threadCount() - 1
+    workers.setLen(n)
+    for i in 0 ..< n: createThread(workers[i], work)
 
 proc runAlone*() =
   ## This thread (one of its own: saving in the background) does its
@@ -117,43 +126,46 @@ proc parallelFor*(n: int; body: proc (lo, hi: int) {.closure.}; grain = 1; keepA
       busyCheck()
     return
   start()
-  if workers.len == 0:
+  when compileOption("threads"):
+    if workers.len == 0:
+      alone()
+      return
+    var fn: Body = body
+    # (more, smaller pieces for big jobs: the cores stay even, and the
+    # window is kept alive between them)
+    let pieces = threadCount() * (if n >= 4096 * max(1, grain): 16 else: 4)
+    let chunk = max(max(1, grain), (n + pieces - 1) div pieces)
+    acquire(lock)
+    while active > 0: wait(doneCond, lock)       # (the last job's late workers)
+    jobFn = addr fn
+    jobKeepAlive = keepAlive
+    jobN = n
+    jobChunk = chunk
+    nextChunk.store(0)
+    pending.store((n + chunk - 1) div chunk)
+    failed.store(false)
+    inc gen
+    broadcast(wake)
+    release(lock)
+    runChunks()
+    if onUiThread() and keepAlive:
+      # the drawing thread waits in short naps, keeping the window alive
+      waiting = true
+      var spins = 0
+      while pending.load > 0:
+        if spins < 20000:
+          inc spins                     # (a short wait: spun)
+        else:
+          busyTick()
+          sleep(1)
+      waiting = false
+    acquire(lock)
+    while pending.load > 0 or active > 0: wait(doneCond, lock)
+    release(lock)
+    if failed.load: raise newException(ValueError, "a parallel piece failed")
+    if keepAlive: busyCheck()
+  else:
     alone()
-    return
-  var fn: Body = body
-  # (more, smaller pieces for big jobs: the cores stay even, and the
-  # window is kept alive between them)
-  let pieces = threadCount() * (if n >= 4096 * max(1, grain): 16 else: 4)
-  let chunk = max(max(1, grain), (n + pieces - 1) div pieces)
-  acquire(lock)
-  while active > 0: wait(doneCond, lock)       # (the last job's late workers)
-  jobFn = addr fn
-  jobKeepAlive = keepAlive
-  jobN = n
-  jobChunk = chunk
-  nextChunk.store(0)
-  pending.store((n + chunk - 1) div chunk)
-  failed.store(false)
-  inc gen
-  broadcast(wake)
-  release(lock)
-  runChunks()
-  if onUiThread() and keepAlive:
-    # the drawing thread waits in short naps, keeping the window alive
-    waiting = true
-    var spins = 0
-    while pending.load > 0:
-      if spins < 20000:
-        inc spins                     # (a short wait: spun)
-      else:
-        busyTick()
-        sleep(1)
-    waiting = false
-  acquire(lock)
-  while pending.load > 0 or active > 0: wait(doneCond, lock)
-  release(lock)
-  if failed.load: raise newException(ValueError, "a parallel piece failed")
-  if keepAlive: busyCheck()
 
 template parallelRows*(n: int; y: untyped; body: untyped) =
   ## `body` for each `y` in `0 ..< n`, the rows shared out among the cores.

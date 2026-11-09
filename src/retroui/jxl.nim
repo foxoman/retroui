@@ -6058,7 +6058,7 @@ proc lossySubtree(img: MImage; c, q, kind, effort: int): ENode =
     var nonzero = 0
     for v in img.ch[c].px:
       if v != 0: inc nonzero
-    if nonzero == 0: return leaf(0)                  # (all 0: no multiplier, the same leaf as others)
+    if nonzero == 0: result = leaf(0); return                  # (all 0: no multiplier, the same leaf as others)
     if effort <= 2: result = fixedResidualTree(q, nonzero)
     else:
       let budget = [0, 0, 0, 50_000, 200_000, 400_000, 800_000, 1_600_000, 3_200_000, 1 shl 30][effort]

@@ -1,6 +1,7 @@
 ## GStreamer, when the system has it (most Linux desktops do), loaded at
 ## run time: `retroui/media` plays sound files of any kind (MP3, OGG, AAC,
-## FLAC...) and shows video in the window with it. Without GStreamer,
+## FLAC...) and shows video in the window with it, from files and web
+## addresses. Without GStreamer,
 ## `gstAvailable` is false and nothing else here is used. Apps use it
 ## through `retroui/media`'s `videoView` and `playSound`.
 ##
@@ -12,7 +13,7 @@
 ##     echo p.durationMs()
 ## ```
 
-import std/[dynlib, os]
+import std/[dynlib, os, strutils]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 import gfx
 
@@ -146,17 +147,24 @@ proc gstOpen*(path: string; video: bool; audioSink = ""): GstPlayer =
   ## `path` ready to play (paused on its first picture); nil when
   ## GStreamer is not there or cannot make the player. `audioSink`: an
   ## element for the sound ("fakesink": none; "" the system's).
-  if not gstAvailable() or not fileExists(path): return nil
+  let l = path.toLowerAscii
+  let stream = l.startsWith("http://") or l.startsWith("https://") or l.startsWith("rtsp://")
+  if not gstAvailable() or not (stream or fileExists(path)): return nil
   let pipe = makeElement("playbin", nil)
   if pipe == nil: return nil
   result = GstPlayer(pipe: pipe, video: video, volume: 1.0)
-  var err: pointer
-  let uri = toUri(path.absolutePath.cstring, addr err)
-  if uri == nil:
-    objUnref(pipe)
-    return nil
-  objSet(pipe, "uri", uri, nil)
-  gFree(uri)
+  if stream:
+    # (a web address: playbin fetches it, HLS and DASH too where the
+    #  plugins are there)
+    objSet(pipe, "uri", path.cstring, nil)
+  else:
+    var err: pointer
+    let uri = toUri(path.absolutePath.cstring, addr err)
+    if uri == nil:
+      objUnref(pipe)
+      result = nil; return
+    objSet(pipe, "uri", uri, nil)
+    gFree(uri)
   if video:
     let sink = makeElement("appsink", nil)
     if sink != nil:
@@ -178,7 +186,7 @@ proc gstOpen*(path: string; video: bool; audioSink = ""): GstPlayer =
   result.bus = getBus(pipe)
   if setState(pipe, StatePaused) == 0:       # GST_STATE_CHANGE_FAILURE
     result.close()
-    return nil
+    result = nil; return
 
 proc play*(p: GstPlayer) =
   ## Plays (on from where it is).

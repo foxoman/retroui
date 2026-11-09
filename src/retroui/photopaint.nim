@@ -1308,7 +1308,7 @@ proc gradientColorF*(stops: openArray[GradientStop]; t: float): array[4, float32
       let a = stops[k - 1]
       let b = stops[k]
       let span = b.at - a.at
-      if span <= 1e-9: return f(b.color)
+      if span <= 1e-9: result = f(b.color); return
       var u = (t - a.at) / span
       let m = if a.mid <= 0.001 or a.mid >= 0.999: 0.5 else: a.mid
       if abs(m - 0.5) > 1e-6 and u > 0: u = pow(u, ln(0.5) / ln(m))

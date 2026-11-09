@@ -409,16 +409,17 @@ proc findSplitter(n: Node; r: Rect; path: BoxPath; m: LayoutMetrics;
              w: max(0, b.x - (a.x + a.w)) + 2 * slack, h: r.h)
     if strip.contains(p):
       let edge = if vertical: a.y + a.h else: a.x + a.w
-      return Splitter(found: true, parent: path, before: i,
-                      vertical: vertical,
-                      grab: (if vertical: y else: x) - edge)
+      result = Splitter(found: true, parent: path, before: i,
+                        vertical: vertical,
+                        grab: (if vertical: y else: x) - edge)
+      return
   # Not one of this box's own borders, so it belongs to whatever is inside the
   # child under the pointer. Outer borders win the ties this leaves at a
   # T-junction, which is the answer that needs no explaining: it is the border
   # that runs *through* the junction rather than the one that stops at it.
   for i in 0 ..< n.children.len:
     if rects[i].contains(p):
-      return findSplitter(n.children[i], rects[i], path & i, m, x, y, slack)
+      result = findSplitter(n.children[i], rects[i], path & i, m, x, y, slack); return
 
 proc splitterAt*(layout: Layout; m: LayoutMetrics; x, y: int;
                  slack = 2): Splitter =

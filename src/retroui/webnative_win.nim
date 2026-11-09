@@ -8,7 +8,8 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[os, widestrs, algorithm]
+import std/[os, widestrs, algorithm, options]
+import imaging
 import uirelays/drivers/winapi_driver
 
 type
@@ -19,7 +20,8 @@ type
   Com = ptr object
     vtbl: ptr UncheckedArray[pointer]
 
-  HandlerKind = enum hkNone, hkEnv, hkController, hkNavStart, hkNavDone, hkMessage, hkNewWindow
+  HandlerKind = enum hkNone, hkEnv, hkController, hkNavStart, hkNavDone, hkMessage, hkNewWindow,
+                     hkCapture, hkPermission
   Handler = object
     vtbl: ptr array[4, pointer]
     refs: int32
@@ -37,6 +39,8 @@ type
     hosts: seq[string]
     st: WebNativeState
     closed: bool
+    permit: set[WebPermission]
+    capture: Com         ## the stream a picture of the page is coming into
 
 var
   wvEnv: Com
@@ -53,6 +57,12 @@ proc RegGetValueW(key: uint; subKey, value: WideCString; flags: uint32; kind: pt
                   data: pointer; size: ptr uint32): int32
   {.stdcall, dynlib: "advapi32", importc.}
 proc GetDpiForWindow(w: pointer): uint32 {.stdcall, dynlib: "user32", importc.}
+proc CreateStreamOnHGlobal(h: pointer; deleteOnRelease: WBOOL; s: ptr Com): HRESULT
+  {.stdcall, dynlib: "ole32", importc.}
+proc GetHGlobalFromStream(s: Com; h: ptr pointer): HRESULT {.stdcall, dynlib: "ole32", importc.}
+proc GlobalLock(h: pointer): pointer {.stdcall, dynlib: "kernel32", importc.}
+proc GlobalUnlock(h: pointer): WBOOL {.stdcall, dynlib: "kernel32", importc.}
+proc GlobalSize(h: pointer): uint {.stdcall, dynlib: "kernel32", importc.}
 
 const
   HkeyCurrentUser = 0x80000001'u
@@ -60,6 +70,14 @@ const
   RrfRtRegSz = 0x00000002'u32
   RrfSubkeyWow6432 = 0x00020000'u32
   WebView2Client = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+
+type WvGuid {.bycopy.} = object
+  d1: uint32
+  d2, d3: uint16
+  d4: array[8, uint8]
+
+const Guid3 = WvGuid(d1: 0xA0D6DF20'u32, d2: 0x3B92, d3: 0x416D,
+                     d4: [0xAA'u8, 0x0C, 0x43, 0x7A, 0x9C, 0x72, 0x78, 0x57])   # ICoreWebView2_3
 
 template call(o: Com; slot: int; T: typedesc): untyped =
   ## The method in `slot` of COM object `o`, as a proc of type `T`.
@@ -89,6 +107,8 @@ proc onNavStart(view: int; args: Com)
 proc onNavDone(view: int)
 proc onMessage(view: int; args: Com)
 proc onNewWindow(view: int; args: Com)
+proc onCapture(view: int; err: HRESULT)
+proc onPermission(view: int; args: Com)
 
 proc hQuery(this: ptr Handler; iid, obj: pointer): HRESULT {.stdcall.} =
   cast[ptr pointer](obj)[] = this
@@ -116,6 +136,8 @@ proc hInvoke(this: ptr Handler; a, b: pointer): HRESULT {.stdcall.} =
   of hkNavDone: onNavDone(this.view)
   of hkMessage: onMessage(this.view, cast[Com](b))
   of hkNewWindow: onNewWindow(this.view, cast[Com](b))
+  of hkCapture: onCapture(this.view, cast[HRESULT](uint32(cast[uint](a) and 0xFFFF_FFFF'u)))
+  of hkPermission: onPermission(this.view, cast[Com](b))
   0
 
 proc newHandler(kind: HandlerKind; view = -1): ptr Handler =
@@ -246,6 +268,17 @@ proc onController(view: int; err: HRESULT; c: Com) =
   discard wv.call(15, AddHandler)(wv, newHandler(hkNavDone, view), addr token)
   discard wv.call(34, AddHandler)(wv, newHandler(hkMessage, view), addr token)
   discard wv.call(44, AddHandler)(wv, newHandler(hkNewWindow, view), addr token)
+  discard wv.call(23, AddHandler)(wv, newHandler(hkPermission, view), addr token)
+  # the app's own folder at https://app.local/ (ICoreWebView2_3)
+  let folder = appFolderNow()
+  if folder.len > 0:
+    var iid3 = Guid3
+    var wv3: Com
+    if wv.call(0, proc (this: Com; iid: ptr WvGuid; r: ptr Com): HRESULT {.stdcall.})(
+         wv, addr iid3, addr wv3) >= 0 and wv3 != nil:
+      discard wv3.call(71, proc (this: Com; host, path: WideCString; kind: int32): HRESULT {.stdcall.})(
+        wv3, newWideCString("app.local"), newWideCString(folder), 1)   # SetVirtualHostNameToFolderMapping
+      release(wv3)
   # the developer tools (F12, Inspect) only when asked for
   var settings: Com
   discard wv.call(3, proc (this: Com; o: ptr Com): HRESULT {.stdcall.})(wv, addr settings)
@@ -299,6 +332,42 @@ proc makeView(i: int) =
   wvViews[i].pending = true
   discard wvEnv.call(3, proc (this: Com; parent: pointer; h: pointer): HRESULT {.stdcall.})(
     wvEnv, hwnd, newHandler(hkController, i))
+
+proc onCapture(view: int; err: HRESULT) =
+  ## A picture of the page came (PNG, into a stream in memory).
+  if view < 0 or view >= wvViews.len: return
+  template v: untyped = wvViews[view]
+  let stream = v.capture
+  v.capture = nil
+  if stream == nil: return
+  var h: pointer
+  if err >= 0 and GetHGlobalFromStream(stream, addr h) >= 0 and h != nil:
+    let n = int(GlobalSize(h))
+    let p = GlobalLock(h)
+    if p != nil and n > 0:
+      var data = newString(n)
+      copyMem(addr data[0], p, n)
+      discard GlobalUnlock(h)
+      let pic = try: decodePng(data) except CatchableError: nil
+      if pic != nil: v.st.snapshot = pic
+  release(stream)
+
+proc onPermission(view: int; args: Com) =
+  ## A page asks to use the camera, the microphone, the location or
+  ## notifications: allowed only what the app allowed.
+  if view < 0 or view >= wvViews.len or args == nil: return
+  var kind: int32
+  discard args.call(4, proc (this: Com; k: ptr int32): HRESULT {.stdcall.})(args, addr kind)
+  let what = case kind
+             of 1: some(wpMicrophone)
+             of 2: some(wpCamera)
+             of 3: some(wpLocation)
+             of 4: some(wpNotifications)
+             else: none(WebPermission)
+  if what.isNone: return                         # (others: as WebView2 does)
+  let ok = what.get in wvViews[view].permit
+  discard args.call(7, proc (this: Com; s: int32): HRESULT {.stdcall.})(args, if ok: 1 else: 2)
+  if not ok and what.get notin wvViews[view].st.asked: wvViews[view].st.asked.add what.get
 
 # ---- in the app's thread ------------------------------------------------------------------------
 
@@ -354,16 +423,27 @@ proc webNativeClose*(key: string) =
     v.webview = nil
     v.controller = nil
 
+proc webNativeShutdown*() =
+  ## Every page let go, before the app ends.
+  for i in 0 ..< wvViews.len:
+    if not wvViews[i].closed: webNativeClose(wvViews[i].key)
+
 proc webNativeNav*(key: string; what: WebNav) =
   ## Back, Forward, Reload or Stop in the page.
   let i = viewIndex(key)
   if i < 0 or wvViews[i].webview == nil: return
   let wv = wvViews[i].webview
+  if what == wnPrint:
+    # (WebView2 prints as Edge does: its print preview)
+    discard wv.call(29, proc (this: Com; js: WideCString; h: pointer): HRESULT {.stdcall.})(
+      wv, newWideCString("window.print()"), newHandler(hkNone))
+    return
   let slot = case what
              of wnBack: 40
              of wnForward: 41
              of wnReload: 31
              of wnStop: 43
+             of wnPrint: 31
   discard wv.call(slot, proc (this: Com): HRESULT {.stdcall.})(wv)
 
 proc webNativeRun*(key: string; js: string) =
@@ -373,6 +453,26 @@ proc webNativeRun*(key: string; js: string) =
   let wv = wvViews[i].webview
   discard wv.call(29, proc (this: Com; js: WideCString; h: pointer): HRESULT {.stdcall.})(
     wv, newWideCString(js), newHandler(hkNone))
+
+proc webNativeSnap*(key: string) =
+  ## A picture of the page (WebView2's CapturePreview, as PNG): in a later
+  ## `webNativeTake`'s `snapshot`.
+  let i = viewIndex(key)
+  if i < 0 or wvViews[i].webview == nil or wvViews[i].capture != nil: return
+  var stream: Com
+  if CreateStreamOnHGlobal(nil, 1, addr stream) < 0 or stream == nil: return
+  wvViews[i].capture = stream
+  discard wvViews[i].webview.call(30, proc (this: Com; fmt: int32; s: Com; h: pointer): HRESULT {.stdcall.})(
+    wvViews[i].webview, 0, stream, newHandler(hkCapture, i))      # CapturePreview: PNG
+
+proc webNativePermit*(key: string; allowed: set[WebPermission]) =
+  ## What the page may use when it asks (the rest is refused).
+  wvViews[viewFor(key)].permit = allowed
+
+proc webNativeAppUrl*(path: string): string =
+  ## The address of the file `path` of the app's folder (`webNativeAppFolder`):
+  ## WebView2 serves the folder as a host of its own.
+  "https://app.local/" & path.strip(chars = {'/'})
 
 proc webNativeAllow*(key: string; hosts: seq[string]) =
   ## The hosts the page may open (none: any).
@@ -397,3 +497,5 @@ proc webNativeTake*(key: string): WebNativeState =
   result = v.st
   v.st.notes.setLen(0)
   v.st.blocked.setLen(0)
+  v.st.asked.setLen(0)
+  v.st.snapshot = nil

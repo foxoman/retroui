@@ -398,7 +398,7 @@ type
     deep: bool                   ## searching through the subfolders
     searchFor: string
     todo: seq[string]
-    group: int                   ## of its thumbnails' requests
+    group: int                   ## of its requests (its listings, its thumbnails)
     stats: tuple[files, folders: int; bytes: int64]
     needsAccess*: bool           ## `dir` is another app's folder, not given to
                                  ## this app yet (`askAccess`; `fileList` offers it)
@@ -479,6 +479,7 @@ proc applyView*(m: FolderModel; keepName = "") =
 proc took(m: FolderModel; r: var TaskResult) =
   if r.ticket != m.ticket: return                # an older request
   m.ticket = 0
+  if r.cancelled: return                         # (let go: `forget`)
   if r.error.len > 0:
     m.error = "Cannot open " & r.path & ":\n" & r.error
     if r.path == m.dir: m.all.setLen(0)
@@ -512,7 +513,7 @@ proc took(m: FolderModel; r: var TaskResult) =
   m.changed = true
   if r.quick:
     # the names are shown: now the sizes and dates (the selection stays)
-    m.ticket = folderAsync(m.dir, m.showHidden,
+    m.ticket = folderAsync(m.dir, m.showHidden, group = m.group,
       onDone = proc (r: var TaskResult) = m.took(r))
 
 proc load(m: FolderModel; path: string; keepName = "") =
@@ -545,8 +546,14 @@ proc load(m: FolderModel; path: string; keepName = "") =
   # and date on slow storage), then everything; sorted by size or date,
   # the order would jump: everything at once
   let quick = p != m.dir and m.sortBy in {byName, byKind} and not isDocPath(p)
-  m.ticket = folderAsync(p, m.showHidden, quick = quick,
+  m.ticket = folderAsync(p, m.showHidden, quick = quick, group = m.group,
     onDone = proc (r: var TaskResult) = m.took(r))
+
+proc forget(m: FolderModel) =
+  ## (a model let go) its listings and thumbnails not started are dropped,
+  ## so nothing waits on them -- or keeps the model alive
+  cancelTasks(tkFolder, m.group)
+  cancelTasks(tkPicture, m.group)
 
 proc newFolderModel*(path = ""; showHidden = false): FolderModel =
   ## A model, listing `path` if given.
@@ -991,6 +998,7 @@ type ColumnsState = ref object
   typed: string                         ## the name being typed (type-ahead)
   typedAt: int
   shownKey: string                      ## (the columns shown: when they change, the last in view)
+  seen: int                             ## (the frame it was last drawn in)
 var columnStates: Table[string, ColumnsState]
 
 proc countsText(items: openArray[FileItem]): string =
@@ -1011,11 +1019,23 @@ proc fileColumns*(m: FolderModel; root = ""; height = -1; key = ""; preview = tr
   ## into the folder picked, Up and Down along the column.
   m.update()
   result.item = FileItem()
-  let k = if key.len > 0: key else: "cols"
+  # (the state is the model's: two models drawn with one `key` -- two
+  # folder windows -- each keep their own columns, rather than listing
+  # each other's folders again every frame; a state not drawn for a while
+  # is let go, with its listings)
+  if (ui.frameNo and 1023) == 0:
+    var old: seq[string]
+    for sk, s in columnStates:
+      if ui.frameNo - s.seen > 1024: old.add sk
+    for sk in old:
+      for _, pm in columnStates[sk].parents: pm.forget()
+      columnStates.del sk
+  let k = (if key.len > 0: key else: "cols") & "#" & $m.group
   var st = columnStates.getOrDefault(k)
   if st == nil:
     st = ColumnsState()
     columnStates[k] = st
+  st.seen = ui.frameNo
   let fullH = if height >= 0: height else: remainingH()
   # the folders of the way here
   var chain: seq[string]
@@ -1048,7 +1068,9 @@ proc fileColumns*(m: FolderModel; root = ""; height = -1; key = ""; preview = tr
   var gone: seq[string]
   for d, _ in st.parents:
     if d notin chain or d == m.dir: gone.add d
-  for d in gone: st.parents.del d
+  for d in gone:
+    st.parents[d].forget()
+    st.parents.del d
   let curCol = chain.high - (if peek.len > 0: 1 else: 0)   # (the column of `m`)
   let showPv = preview and curPicked and not cur.isDir
   let room = available()

@@ -13,8 +13,10 @@
 ## echo decodeWav(readFile("beep.wav")).duration  # seconds
 ## ```
 
-import std/[locks, typedthreads, math, dynlib, hashes]
+import std/[locks, math, dynlib, hashes]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
+when compileOption("threads"):
+  import std/typedthreads
 
 type
   Pcm = object
@@ -94,9 +96,14 @@ proc pcmHash*(s: Sound): Hash =
 # ---- WAV files --------------------------------------------------------------------------------------
 
 proc le16(d: string; i: int): int = int(d[i].uint8) or (int(d[i + 1].uint8) shl 8)
+proc le32u(d: string; i: int): uint32 =
+  uint32(d[i].uint8) or (uint32(d[i + 1].uint8) shl 8) or
+    (uint32(d[i + 2].uint8) shl 16) or (uint32(d[i + 3].uint8) shl 24)
 proc le32(d: string; i: int): int =
-  int(uint32(d[i].uint8) or (uint32(d[i + 1].uint8) shl 8) or
-      (uint32(d[i + 2].uint8) shl 16) or (uint32(d[i + 3].uint8) shl 24))
+  ## (a size: one past what an `int` holds is as good as the most it holds)
+  let v = le32u(d, i)
+  when sizeof(int) == 8: int(v)
+  else: (if v > 0x7FFFFFFF'u32: high(int) else: int(v))
 
 proc decodeWav*(data: string): Sound =
   ## The sound in the WAV file `data`: PCM of 8, 16, 24 or 32 bits, or
@@ -152,9 +159,9 @@ proc decodeWav*(data: string): Sound =
     of 24: int(cast[int16]((uint16(data[p + 1].uint8)) or (uint16(data[p + 2].uint8) shl 8)))
     of 32:
       if fmtTag == 3:
-        let f = float(cast[float32](uint32(le32(data, p))))
+        let f = float(cast[float32](le32u(data, p)))
         if f != f: 0 else: int(clamp(f * 32767, -32768, 32767))
-      else: int(cast[int32](uint32(le32(data, p))) shr 16)
+      else: int(cast[int32](le32u(data, p)) shr 16)
     else:
       var u = 0'u64
       for k in 0 .. 7: u = u or (uint64(data[p + k].uint8) shl (8 * k))
@@ -261,7 +268,6 @@ var
   masterVol = 1.0'f32
   mixerStarted = false
   deviceName = ""              # what opened ("" none yet, "none" none there)
-  mixer: Thread[void]
 
 initLock(mixLock)
 initCond(mixCond)
@@ -549,6 +555,14 @@ elif defined(macosx) or defined(ios):
 else:
   proc openOutput(o: var AudioOut): bool = false
 
+when defined(wasm):
+  # (a browser page: its Web Audio asks for the samples, `retro_audio`)
+  proc rwAudioStart(rate, channels: cint) {.importc: "rw_audio_start", cdecl.}
+
+  proc webAudioFill(dst: ptr UncheckedArray[int16]; n: cint) {.exportc: "retro_audio", cdecl.} =
+    ## (the page's: `n` samples, stereo, to play next)
+    mixInto(dst, n)
+
 proc mixerLoop() {.thread.} =
   ## Waits for sounds; while there are some, mixes and writes them to the
   ## device (opened then, closed after a second and a half of silence).
@@ -579,10 +593,19 @@ proc mixerLoop() {.thread.} =
       if playingCount() == 0: quiet += buf.len div OutChannels else: quiet = 0
     o.close(o)
 
+when compileOption("threads"):
+  var mixer: Thread[void]
+
 proc startMixer() =
   if not mixerStarted:
     mixerStarted = true
-    createThread(mixer, mixerLoop)
+    when defined(wasm):
+      rwAudioStart(OutRate, OutChannels)
+      deviceName = "webaudio"
+    elif compileOption("threads"):
+      createThread(mixer, mixerLoop)
+    else:
+      deviceName = "none"
 
 proc mixSound*(s: Sound; volume = 1.0; loop = false; start = true): int {.gcsafe.} =
   ## Puts `s` in the mixer; its voice number (0 when `s` is empty). With

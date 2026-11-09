@@ -284,7 +284,7 @@ proc arabicOf*(b: Book; value: string): string =
   result = b.arabic.getOrDefault(value)
   if result.len > 0: return
   for k, v in b.arabic:
-    if cmpIgnoreCase(k, value) == 0: return v
+    if cmpIgnoreCase(k, value) == 0: result = v; return
   result = value
 
 proc newBook*(hotelNames: openArray[string] = ["Hotel 1", "Hotel 2", "Hotel 3"]): Book =
@@ -394,7 +394,7 @@ proc parseDateText*(s: string): tuple[ok: bool; y, m, d: int] =
         if y < 100: y += (if y < 50: 2000 else: 1900)
         result = (true, y, m, d)
   except ValueError:
-    return (false, 0, 0, 0)
+    result = (false, 0, 0, 0); return
   if result.ok and (result.m notin 1 .. 12 or result.d notin 1 .. 31 or result.y notin 1900 .. 2200):
     result = (false, 0, 0, 0)
 

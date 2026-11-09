@@ -55,6 +55,7 @@ typedef struct {
   float pressure;     /* the pen's, 0 .. 1 */
   float tiltX, tiltY; /* the pen's lean, -1 .. 1 each (NSEvent.tilt) */
   float rotation;     /* the pen's turn, degrees (NSEvent.rotation) */
+  int window;         /* the window it is for: 0 the app's own, else cocoa_openWindow's */
 } NEEvent;
 
 /* What an input method composes now (cocoa_markedText). */
@@ -70,12 +71,24 @@ const char *cocoa_markedText(int *caret) {
 static NEEvent eventQueue[EVENT_QUEUE_SIZE];
 static int eqHead = 0, eqTail = 0;
 
+static int gEventWin = 0;   /* the window the event being handled is for */
+static int winIdOf(NSWindow *w);
+
 static int pushEvent(NEEvent ev) {
+  ev.window = gEventWin;
   int next = (eqHead + 1) % EVENT_QUEUE_SIZE;
   if (next == eqTail) return 0;  /* queue full, drop */
   eventQueue[eqHead] = ev;
   eqHead = next;
   return 1;
+}
+
+/* An event to its window, its number kept for what it pushes. */
+static void sendOne(NSEvent *ev) {
+  int before = gEventWin;
+  gEventWin = winIdOf([ev window]);
+  sendOne(ev);
+  gEventWin = before;
 }
 
 int cocoa_pollEvent(NEEvent *out) {
@@ -86,7 +99,7 @@ int cocoa_pollEvent(NEEvent *out) {
                                     untilDate:nil
                                        inMode:NSDefaultRunLoopMode
                                       dequeue:YES]) != nil) {
-      [NSApp sendEvent:ev];
+      sendOne(ev);
       [NSApp updateWindows];
     }
   }
@@ -114,14 +127,14 @@ int cocoa_waitEvent(NEEvent *out, int timeoutMs) {
                                           inMode:NSDefaultRunLoopMode
                                          dequeue:YES];
       if (ev) {
-        [NSApp sendEvent:ev];
+        sendOne(ev);
         [NSApp updateWindows];
         /* drain remaining without blocking */
         while ((ev = [NSApp nextEventMatchingMask:NSEventMaskAny
                                         untilDate:nil
                                            inMode:NSDefaultRunLoopMode
                                           dequeue:YES]) != nil) {
-          [NSApp sendEvent:ev];
+          sendOne(ev);
           [NSApp updateWindows];
         }
       } else {
@@ -907,6 +920,8 @@ static void pushOutside(NSEventModifierFlags flags) {
   pushEvent(e);
 }
 
+static CGContextRef ctxForView(NSView *v);
+
 @interface NimEditView : NSView <NSTextInputClient, NSDraggingDestination>
 @property (nonatomic) BOOL hasMarkedText;
 @property (nonatomic) NSUInteger markedLength;
@@ -934,9 +949,10 @@ static void pushOutside(NSEventModifierFlags flags) {
 }
 
 - (void)drawRect:(NSRect)dirtyRect {
-  if (!backingCtx) return;
+  CGContextRef source = ctxForView(self);
+  if (!source) return;
   CGContextRef viewCtx = [[NSGraphicsContext currentContext] CGContext];
-  CGImageRef img = CGBitmapContextCreateImage(backingCtx);
+  CGImageRef img = CGBitmapContextCreateImage(source);
   if (img) {
     NSRect bounds = self.bounds;
     /* Flip for drawing since view is flipped but CGImage is bottom-up */
@@ -1726,13 +1742,16 @@ void cocoa_getWindowLayout(int *outW, int *outH, int *outScaleX, int *outScaleY)
   }
 }
 
+static NSView *targetView(void);
+
 void cocoa_refresh(void) {
   @autoreleasepool {
-    if (dirtyAll || CGRectIsEmpty(dirtyPts)) [mainView setNeedsDisplay:YES];
-    else [mainView setNeedsDisplayInRect:NSRectFromCGRect(dirtyPts)];
+    NSView *v = targetView();
+    if (dirtyAll || CGRectIsEmpty(dirtyPts)) [v setNeedsDisplay:YES];
+    else [v setNeedsDisplayInRect:NSRectFromCGRect(dirtyPts)];
     dirtyPts = CGRectNull;
     dirtyAll = 0;
-    [mainView displayIfNeeded];
+    [v displayIfNeeded];
   }
 }
 
@@ -2096,6 +2115,231 @@ void cocoa_setCursor(int kind) {
       default: cur = [NSCursor arrowCursor]; break;
     }
     [cur set];
+  }
+}
+
+/* ---- More windows ----------------------------------------------------
+   An app may open windows besides its own (uirelays' windowsRelays): plain
+   titled windows, each with a NimEditView and a backing bitmap of its own.
+   cocoa_target swaps the backing the drawing goes to; a view draws the
+   bitmap of its own window; events carry the number of the window they
+   came to (sendOne). */
+
+#define MAX_EXTRA_WINS 16
+
+typedef struct {
+  int wid;               /* 0: a free slot */
+  CGContextRef ctx;
+  int w, h;
+  CGFloat scale;
+  CGRect dirty;
+  int dirtyAll;
+} DrawTarget;
+
+static DrawTarget mainTarget;
+static DrawTarget extras[MAX_EXTRA_WINS];
+static NSWindow *extraWins[MAX_EXTRA_WINS];
+static NimEditView *extraViews[MAX_EXTRA_WINS];
+static id extraDelegates[MAX_EXTRA_WINS];
+static int targetId = 0;
+static int nextWinId = 1;
+
+static int extraIndex(int wid) {
+  if (wid == 0) return -1;
+  for (int i = 0; i < MAX_EXTRA_WINS; i++)
+    if (extras[i].wid == wid) return i;
+  return -1;
+}
+
+static int winIdOf(NSWindow *w) {
+  if (!w || w == mainWindow) return 0;
+  for (int i = 0; i < MAX_EXTRA_WINS; i++)
+    if (extras[i].wid != 0 && extraWins[i] == w) return extras[i].wid;
+  return 0;
+}
+
+static DrawTarget *targetOf(int wid) {
+  if (wid == 0) return &mainTarget;
+  int i = extraIndex(wid);
+  return i >= 0 ? &extras[i] : NULL;
+}
+
+static void saveTarget(DrawTarget *t) {
+  t->ctx = backingCtx;
+  t->w = backingW;
+  t->h = backingH;
+  t->scale = backingScale;
+  t->dirty = dirtyPts;
+  t->dirtyAll = dirtyAll;
+}
+
+static void loadTarget(const DrawTarget *t) {
+  backingCtx = t->ctx;
+  backingW = t->w;
+  backingH = t->h;
+  backingScale = t->scale > 0 ? t->scale : 1.0;
+  dirtyPts = t->dirty;
+  dirtyAll = t->dirtyAll;
+}
+
+void cocoa_target(int wid) {
+  if (wid == targetId) return;
+  DrawTarget *next = targetOf(wid);
+  if (!next) return;
+  DrawTarget *now = targetOf(targetId);
+  if (now) saveTarget(now);
+  loadTarget(next);
+  targetId = wid;
+}
+
+static CGContextRef ctxForView(NSView *v) {
+  int wid = winIdOf([v window]);
+  if (wid == targetId) return backingCtx;
+  DrawTarget *t = targetOf(wid);
+  return t ? t->ctx : NULL;
+}
+
+static NSView *targetView(void) {
+  int i = extraIndex(targetId);
+  return i >= 0 ? extraViews[i] : mainView;
+}
+
+@interface NimEditExtraDelegate : NSObject <NSWindowDelegate>
+@property (nonatomic) int winId;
+@end
+
+@implementation NimEditExtraDelegate
+
+- (void)push:(int)kind x:(int)x y:(int)y {
+  int before = gEventWin;
+  gEventWin = self.winId;
+  NEEvent e = {0};
+  e.kind = kind;
+  e.x = x;
+  e.y = y;
+  pushEvent(e);
+  gEventWin = before;
+}
+
+- (BOOL)windowShouldClose:(NSWindow *)sender {
+  [self push:NE_WINDOW_CLOSE x:0 y:0];
+  return NO;  /* the app decides */
+}
+
+- (void)windowDidResize:(NSNotification *)n {
+  NSWindow *w = n.object;
+  NSRect frame = [[w contentView] frame];
+  int was = targetId;
+  cocoa_target(self.winId);
+  ensureBacking((int)frame.size.width, (int)frame.size.height, [w backingScaleFactor]);
+  cocoa_target(was);
+  [[w contentView] setNeedsDisplay:YES];
+  [self push:NE_WINDOW_RESIZE x:(int)frame.size.width y:(int)frame.size.height];
+}
+
+- (void)windowDidChangeBackingProperties:(NSNotification *)n {
+  [self windowDidResize:n];
+}
+
+- (void)windowDidBecomeKey:(NSNotification *)n {
+  [self push:NE_WINDOW_FOCUS_GAINED x:0 y:0];
+}
+
+- (void)windowDidResignKey:(NSNotification *)n {
+  [self push:NE_WINDOW_FOCUS_LOST x:0 y:0];
+}
+
+@end
+
+int cocoa_openWindow(const char *title, int w, int h) {
+  @autoreleasepool {
+    if (!mainWindow) return 0;
+    int slot = -1;
+    for (int i = 0; i < MAX_EXTRA_WINS; i++)
+      if (extras[i].wid == 0) { slot = i; break; }
+    if (slot < 0) return 0;
+    if (w < 1) w = 1;
+    if (h < 1) h = 1;
+    NSRect rect = NSMakeRect(0, 0, w, h);
+    NSWindow *win = [[NSWindow alloc] initWithContentRect:rect
+      styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
+        backing:NSBackingStoreBuffered defer:NO];
+    if (!win) return 0;
+    [win setReleasedWhenClosed:NO];
+    NSString *t = title ? [NSString stringWithUTF8String:title] : nil;
+    if (t) [win setTitle:t];
+    [win setAcceptsMouseMovedEvents:YES];
+    NimEditView *view = [[NimEditView alloc] initWithFrame:rect];
+    [win setContentView:view];
+    [win makeFirstResponder:view];
+    [view registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
+    int wid = nextWinId++;
+    NimEditExtraDelegate *d = [[NimEditExtraDelegate alloc] init];
+    d.winId = wid;
+    [win setDelegate:d];
+    extras[slot] = (DrawTarget){0};
+    extras[slot].wid = wid;
+    extras[slot].dirty = CGRectNull;
+    extraWins[slot] = win;
+    extraViews[slot] = view;
+    extraDelegates[slot] = d;
+    /* its backing, made as the app's is with the window's in place */
+    int was = targetId;
+    cocoa_target(wid);
+    ensureBacking(w, h, [win backingScaleFactor]);
+    cocoa_target(was);
+    /* a little in from the app's window's top left */
+    NSRect mf = [mainWindow frame];
+    [win setFrameTopLeftPoint:NSMakePoint(mf.origin.x + 40, mf.origin.y + mf.size.height - 40)];
+    [win makeKeyAndOrderFront:nil];
+    return wid;
+  }
+}
+
+void cocoa_closeWindow(int wid) {
+  @autoreleasepool {
+    int i = extraIndex(wid);
+    if (i < 0) return;
+    if (targetId == wid) cocoa_target(0);
+    NSWindow *win = extraWins[i];
+    [win setDelegate:nil];
+    [win orderOut:nil];
+    [win close];
+    if (extras[i].ctx) CGContextRelease(extras[i].ctx);
+    extras[i] = (DrawTarget){0};
+    extraWins[i] = nil;
+    extraViews[i] = nil;
+    extraDelegates[i] = nil;
+  }
+}
+
+void cocoa_windowTitle(int wid, const char *title) {
+  @autoreleasepool {
+    int i = extraIndex(wid);
+    NSString *t = title ? [NSString stringWithUTF8String:title] : nil;
+    if (i >= 0 && t) [extraWins[i] setTitle:t];
+  }
+}
+
+void cocoa_windowLayout(int wid, int *outW, int *outH, int *outScale) {
+  @autoreleasepool {
+    int i = extraIndex(wid);
+    *outW = 0;
+    *outH = 0;
+    *outScale = 1;
+    if (i < 0) return;
+    NSRect f = [extraViews[i] frame];
+    *outW = (int)f.size.width;
+    *outH = (int)f.size.height;
+    *outScale = (int)[extraWins[i] backingScaleFactor];
+  }
+}
+
+void cocoa_raiseWindow(int wid) {
+  @autoreleasepool {
+    int i = extraIndex(wid);
+    if (i >= 0) [extraWins[i] makeKeyAndOrderFront:nil];
   }
 }
 

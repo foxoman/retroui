@@ -701,7 +701,7 @@ proc transform*(t: IccTransform; src: openArray[float]; dst: var openArray[float
 
 proc to8(v: float): int {.inline.} =
   ## 0..1 as 0..255, the way littlecms makes 8 bits from its 16.
-  (int(sat16(v * 65535)) * 65281 + 8388608) shr 24
+  int((int64(sat16(v * 65535)) * 65281 + 8388608) shr 24)
 
 proc transform8*(t: IccTransform; src: openArray[int]; dst: var openArray[int]) =
   ## One color converted with 8 bits a channel (0..255 in and out, as

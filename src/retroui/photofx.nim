@@ -239,7 +239,7 @@ proc mapFn3D*(f: proc (p: uint32): uint32): FilterFn =
   ## read between them (trilinear), as photo programs do -- several times
   ## quicker than working each pixel out.
   result = proc (src: Img; inner: Rect): Img =
-    if src.px.len < 600_000: return mapFn(f)(src, inner)
+    if src.px.len < 600_000: result = mapFn(f)(src, inner); return
     const N = 52                       # grid colours 0, 5, 10 .. 255
     var lut = newSeq[uint32](N * N * N)
     let lp = cast[ptr UncheckedArray[uint32]](addr lut[0])
@@ -251,7 +251,7 @@ proc mapFn3D*(f: proc (p: uint32): uint32): FilterFn =
     if gpuFiltersReady():
       # (on the GPU when frames are drawn with it: the table read between)
       let g = gpuColorTable(src.px, src.w, src.h, lut, N)
-      if g.len == src.px.len: return Img(w: src.w, h: src.h, px: g)
+      if g.len == src.px.len: result = Img(w: src.w, h: src.h, px: g); return
     # (each entry its three channels 16 bits apart: one multiplication
     # weighs all three; read in the tetrahedron the color falls in -- four
     # entries, not eight)
@@ -1009,7 +1009,7 @@ proc pinch*(amount: int): FilterFn =
     let k = amount.float / 100
     warp(src, inner, proc (u, v: float): (float, float) =
       let r = sqrt(u * u + v * v)
-      if r >= 1 or r <= 0: return (u, v)
+      if r >= 1 or r <= 0: result = (u, v); return
       let f = pow(sin(PI / 2 * r), -k) * r
       let s = (if k > 0: pow(r, k) else: f) / r
       (u * s, v * s))
@@ -1034,7 +1034,7 @@ proc spherize*(amount: int; mode = 0): FilterFn =
       of 1: (bend(u), v)
       of 2: (u, bend(v))
       else:
-        if r >= 1 or r <= 0: return (u, v)
+        if r >= 1 or r <= 0: result = (u, v); return
         let nr = r + (arcsin(r) * 2 / PI - r) * k
         (u * nr / r, v * nr / r))
 
@@ -1044,7 +1044,7 @@ proc twirl*(angle: float): FilterFn =
     let a = degToRad(angle)
     warp(src, inner, proc (u, v: float): (float, float) =
       let r = sqrt(u * u + v * v)
-      if r >= 1: return (u, v)
+      if r >= 1: result = (u, v); return
       let t = a * (1 - r)
       (u * cos(t) - v * sin(t), u * sin(t) + v * cos(t)))
 
@@ -1082,7 +1082,7 @@ proc zigzag*(amount, ridges: int): FilterFn =
     let n = max(1, ridges).float
     warp(src, inner, proc (u, v: float): (float, float) =
       let r = sqrt(u * u + v * v)
-      if r >= 1 or r <= 0: return (u, v)
+      if r >= 1 or r <= 0: result = (u, v); return
       let nr = r + k * sin(r * n * 2 * PI) * (1 - r)
       (u * nr / r, v * nr / r))
 
@@ -1820,7 +1820,7 @@ proc equalize*(h: Histogram): FilterFn =
   result = mapFn(proc (p: uint32): uint32 =
     let l = lumaOf(p)
     let nl = int(lut[l])
-    if l == 0: return grayPx(nl, aOf(p))
+    if l == 0: result = grayPx(nl, aOf(p)); return
     let k = nl.float / l.float
     argb(aOf(p), int(rOf(p).float * k), int(gOf(p).float * k), int(bOf(p).float * k)))
 

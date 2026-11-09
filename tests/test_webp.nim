@@ -211,7 +211,7 @@ block lossless:
     doAssert decodeWebp(data).px == src.px, name
   for (w, h) in [(1, 1), (1, 17), (3, 1), (17, 33)]:
     let src = newBitmap(w, h)
-    for i in 0 ..< w * h: src.px[i] = uint32(i * 0x01030507) or 0x80000000'u32
+    for i in 0 ..< w * h: src.px[i] = uint32(i) * 0x01030507'u32 or 0x80000000'u32
     doAssert decodeWebp(encodeWebpLossless(src)).px == src.px
   let photo = pic("ll-photo-m4.webp")
   let mine = encodeWebpLossless(photo).len

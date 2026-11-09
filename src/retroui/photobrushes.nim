@@ -13,6 +13,7 @@
 
 import std/[math, random, json, strutils, base64]
 import photo, photopaint
+from codec import unbase64
 
 type
   TipKind* = enum
@@ -390,7 +391,7 @@ proc presetOf*(j: JsonNode): BrushPreset =
                           angle: t{"angle"}.getInt(0), roundness: t{"roundness"}.getInt(100),
                           flipX: t{"flipX"}.getBool(false), flipY: t{"flipY"}.getBool(false))
     if t{"custom"} != nil:
-      let raw = decode(t{"custom"}.getStr(""))
+      let raw = unbase64(t{"custom"}.getStr(""))
       let cw = t{"cw"}.getInt(0)
       let ch = t{"ch"}.getInt(0)
       if cw > 0 and ch > 0 and raw.len == cw * ch:

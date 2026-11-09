@@ -72,6 +72,19 @@ const
   GL_ACTIVE_TEXTURE* = 0x84E0'u32  ## `getIntegerv`: the active texture unit
   GL_ARRAY_BUFFER_BINDING* = 0x8894'u32  ## `getIntegerv`: the vertex buffer bound
   GL_MAX_TEXTURE_IMAGE_UNITS* = 0x8872'u32  ## `getIntegerv`: how many texture units a fragment shader has
+  # (for the 3D view drawn on the GPU, `retroui/view3d`)
+  GL_DEPTH_BUFFER_BIT* = 0x0100'u32  ## `clear`: the depth buffer
+  GL_LEQUAL* = 0x0203'u32  ## `depthFunc`: nearer or as near passes
+  GL_LINES* = 0x0001'u32  ## `drawArrays`: separate lines
+  GL_ELEMENT_ARRAY_BUFFER* = 0x8893'u32  ## `bindBuffer`: indices
+  GL_STATIC_DRAW* = 0x88E4'u32  ## `bufferData`: set once
+  GL_UNSIGNED_SHORT* = 0x1403'u32  ## `drawElements`: 16-bit indices
+  GL_UNSIGNED_INT* = 0x1405'u32  ## `drawElements`: 32-bit indices
+  GL_RENDERBUFFER* = 0x8D41'u32  ## `bindRenderbuffer`
+  GL_DEPTH_COMPONENT16* = 0x81A5'u32  ## `renderbufferStorage`: 16-bit depth
+  GL_DEPTH_ATTACHMENT* = 0x8D00'u32  ## `framebufferRenderbuffer`: the depth buffer
+  GL_REPEAT* = 0x2901'u32  ## `texParameteri`: a picture repeated
+  GL_EXTENSIONS* = 0x1F03'u32  ## `getString`: the extensions
 
 type
   GlTable* = object
@@ -196,6 +209,25 @@ type
       ## `glBlendColor`
     disableVertexAttribArray*: proc (i: GLuint) {.cdecl, gcsafe.}
       ## `glDisableVertexAttribArray`
+    # (for the 3D view drawn on the GPU; nil where the driver has none)
+    genRenderbuffers*: proc (n: GLsizei; r: ptr GLuint) {.cdecl, gcsafe.}
+      ## `glGenRenderbuffers`
+    deleteRenderbuffers*: proc (n: GLsizei; r: ptr GLuint) {.cdecl, gcsafe.}
+      ## `glDeleteRenderbuffers`
+    bindRenderbuffer*: proc (target: GLenum; r: GLuint) {.cdecl, gcsafe.}
+      ## `glBindRenderbuffer`
+    renderbufferStorage*: proc (target, internal: GLenum; w, h: GLsizei) {.cdecl, gcsafe.}
+      ## `glRenderbufferStorage`
+    framebufferRenderbuffer*: proc (target, attach, rbTarget: GLenum; r: GLuint) {.cdecl, gcsafe.}
+      ## `glFramebufferRenderbuffer`
+    drawElements*: proc (mode: GLenum; count: GLsizei; typ: GLenum; offset: pointer) {.cdecl, gcsafe.}
+      ## `glDrawElements`
+    depthFunc*: proc (f: GLenum) {.cdecl, gcsafe.}
+      ## `glDepthFunc`
+    depthMask*: proc (on: GLboolean) {.cdecl, gcsafe.}
+      ## `glDepthMask`
+    uniform3f*: proc (loc: GLint; a, b, c: GLf32) {.cdecl, gcsafe.}
+      ## `glUniform3f`
 
 proc loadGl*(t: var GlTable; getProc: proc (name: cstring): pointer {.nimcall.}; es: bool): bool =
   ## Every function from `getProc` (the driver's) into `t`; `es`: the driver
@@ -266,5 +298,14 @@ proc loadGl*(t: var GlTable; getProc: proc (name: cstring): pointer {.nimcall.};
   opt(uniform4f, "glUniform4f")
   opt(blendColor, "glBlendColor")
   opt(disableVertexAttribArray, "glDisableVertexAttribArray")
+  opt(genRenderbuffers, "glGenRenderbuffers")
+  opt(deleteRenderbuffers, "glDeleteRenderbuffers")
+  opt(bindRenderbuffer, "glBindRenderbuffer")
+  opt(renderbufferStorage, "glRenderbufferStorage")
+  opt(framebufferRenderbuffer, "glFramebufferRenderbuffer")
+  opt(drawElements, "glDrawElements")
+  opt(depthFunc, "glDepthFunc")
+  opt(depthMask, "glDepthMask")
+  opt(uniform3f, "glUniform3f")
   t.ok = not missing
   t.ok

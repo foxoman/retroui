@@ -256,7 +256,8 @@ proc restoreAppearance*(s: Settings) =
     of "sharp": setSubpixelText(true)
     of "smooth": setSubpixelText(false)
     else: discard
-  case s.getOrDefault("look.controls", "")
+  # ($RETRO_CONTROLS and $RETRO_TOUCH, when set, win over what was kept)
+  case (if sizesFromEnv().len > 0: "" else: s.getOrDefault("look.controls", ""))
   of "auto": setControlSizes(csAuto)
   of "desktop": setControlSizes(csDesktop)
   of "touch": setControlSizes(csTouch)

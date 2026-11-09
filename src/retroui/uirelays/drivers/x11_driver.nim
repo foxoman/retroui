@@ -3,7 +3,8 @@
 # Double-buffered via X Pixmap.
 
 import ../coords, ../input, ../screen, ../eglload, ../services, ../target, ../access, ../atspi
-import penaxes
+import penaxes, cursorart, keysyms
+export cursorart.classicCursorArt
 from ../pixelutils import resizedRGBA
 import std/[strutils, os, dynlib, unicode]
 when defined(nimony):
@@ -370,40 +371,13 @@ const
   XC_fleur = 52'u32                 # four arrows: move
 
   # KeySyms
-  XK_a = 0x61'u
-  XK_z = 0x7a'u
-  XK_CapitalA = 0x41'u
-  XK_CapitalZ = 0x5a'u
-  XK_0 = 0x30'u
-  XK_9 = 0x39'u
-  XK_F1 = 0xffbe'u
-  XK_F12 = 0xffc9'u
   XK_Return = 0xff0d'u
-  XK_space = 0x20'u
   XK_Escape = 0xff1b'u
-  XK_Tab = 0xff09'u
-  XK_ISO_Left_Tab = 0xfe20'u
-  XK_BackSpace = 0xff08'u
-  XK_Delete = 0xffff'u
-  XK_Insert = 0xff63'u
   XK_Left = 0xff51'u
   XK_Up = 0xff52'u
   XK_Right = 0xff53'u
   XK_Down = 0xff54'u
-  XK_Page_Up = 0xff55'u
-  XK_Page_Down = 0xff56'u
-  XK_Home = 0xff50'u
-  XK_End = 0xff57'u
-  XK_Caps_Lock = 0xffe5'u
-  XK_plus = 0x2b'u
-  XK_comma = 0x2c'u
-  XK_period = 0x2e'u
-  XK_minus = 0x2d'u
-  XK_equal = 0x3d'u
-  XK_slash = 0x2f'u
   XK_KP_Enter = 0xff8d'u
-  XK_KP_0 = 0xffb0'u
-  XK_KP_9 = 0xffb9'u
 
   # Input method
   XIMPreeditCallbacks = 0x0002
@@ -845,7 +819,12 @@ var
 
 var gGpu = false    ## the window is drawn with OpenGL
 
+var gEventWindow = 0   ## the window the X event being read is for (`Event.window`)
+var gShmState = 0      ## MIT-SHM: 0 not tried, 1 working, -1 not to be had
+
 proc pushEvent(e: input.Event) =
+  var e = e
+  e.window = gEventWindow
   # Pointer motion is coalesced: X11 sends one event per hardware sample --
   # a thousand a second with the mice that report that fast -- and a host that
   # repaints per event would repaint a thousand times to follow one sweep of
@@ -853,7 +832,7 @@ proc pushEvent(e: input.Event) =
   # arrives behind another that nobody has read yet replaces it. Anything
   # else in between (a click, a key) ends the run and is kept in order.
   if e.kind == MouseMoveEvent and eventQueue.len > 0 and
-     eventQueue[^1].kind == MouseMoveEvent:
+     eventQueue[^1].kind == MouseMoveEvent and eventQueue[^1].window == e.window:
     eventQueue[^1] = e
   else:
     eventQueue.add e
@@ -966,72 +945,7 @@ proc recreateBackBuffer() =
 
 # ---- Key translation ----
 
-proc translateKeySym(ks: XKeySym): input.KeyCode =
-  if ks >= XK_a and ks <= XK_z:
-    return input.KeyCode(ord(KeyA) + (ks.int - XK_a.int))
-  # With Shift (or Caps Lock) down, X hands over the capital's keysym. It is
-  # the same key: a press has to say so, and a release all the more -- the
-  # release of W is what stops the running, Shift or not.
-  if ks >= XK_CapitalA and ks <= XK_CapitalZ:
-    return input.KeyCode(ord(KeyA) + (ks.int - XK_CapitalA.int))
-  if ks >= XK_0 and ks <= XK_9:
-    return input.KeyCode(ord(Key0) + (ks.int - XK_0.int))
-  if ks >= XK_F1 and ks <= XK_F12:
-    return input.KeyCode(ord(KeyF1) + (ks.int - XK_F1.int))
-  # the keypad's keys are the keys they stand for, as on the other systems:
-  # its digits with Num Lock on, else its arrows, Home, End, Insert, Delete
-  if ks >= XK_KP_0 and ks <= XK_KP_9:
-    return input.KeyCode(ord(Key0) + (ks.int - XK_KP_0.int))
-  case ks.uint
-  of XK_KP_Enter: KeyEnter
-  of 0xff80'u: KeySpace                 # XK_KP_Space
-  of 0xff89'u: KeyTab                   # XK_KP_Tab
-  of 0xff95'u: KeyHome                  # XK_KP_Home
-  of 0xff96'u: KeyLeft                  # XK_KP_Left
-  of 0xff97'u: KeyUp                    # XK_KP_Up
-  of 0xff98'u: KeyRight                 # XK_KP_Right
-  of 0xff99'u: KeyDown                  # XK_KP_Down
-  of 0xff9a'u: KeyPageUp                # XK_KP_Page_Up
-  of 0xff9b'u: KeyPageDown              # XK_KP_Page_Down
-  of 0xff9c'u: KeyEnd                   # XK_KP_End
-  of 0xff9e'u: KeyInsert                # XK_KP_Insert
-  of 0xff9f'u: KeyDelete                # XK_KP_Delete
-  of 0xffab'u: KeyPlus                  # XK_KP_Add
-  of 0xffac'u: KeyComma                 # XK_KP_Separator
-  of 0xffad'u: KeyMinus                 # XK_KP_Subtract
-  of 0xffae'u: KeyPeriod                # XK_KP_Decimal
-  of 0xffaf'u: KeySlash                 # XK_KP_Divide
-  of 0xffbd'u: KeyEqual                 # XK_KP_Equal
-  of XK_Return: KeyEnter
-  of XK_space: KeySpace
-  of XK_Escape: KeyEsc
-  of XK_Tab, XK_ISO_Left_Tab: KeyTab
-  of XK_BackSpace: KeyBackspace
-  of XK_Delete: KeyDelete
-  of XK_Insert: KeyInsert
-  of XK_Left: KeyLeft
-  of XK_Right: KeyRight
-  of XK_Up: KeyUp
-  of XK_Down: KeyDown
-  of XK_Page_Up: KeyPageUp
-  of XK_Page_Down: KeyPageDown
-  of XK_Home: KeyHome
-  of XK_End: KeyEnd
-  of XK_Caps_Lock: KeyCapslock
-  of 0xff67'u: KeyMenu                  # XK_Menu
-  of XK_plus: KeyPlus
-  of XK_comma: KeyComma
-  of XK_period: KeyPeriod
-  of XK_minus: KeyMinus
-  of XK_slash, 0x3f'u: KeySlash
-  of 0x5b'u, 0x7b'u: KeyLeftBracket
-  of 0x5d'u, 0x7d'u: KeyRightBracket
-  of 0x3b'u, 0x3a'u: KeySemicolon
-  of 0x27'u, 0x22'u: KeyQuote
-  of 0x5c'u, 0x7c'u: KeyBackslash
-  of 0x60'u, 0x7e'u: KeyBackquote
-  of XK_equal: KeyEqual
-  else: KeyNone
+proc translateKeySym(ks: XKeySym): input.KeyCode {.inline.} = keyOfSym(ks.uint)
 
 proc XLookupKeysym(ev: ptr XKeyEvent; index: cint): XKeySym
   {.cdecl, dynlib: libX11, importc.}
@@ -1872,7 +1786,203 @@ proc answerDragList(req: XSelectionRequestEvent) =
 proc followMonitor()
   ## (below: the window moved; on another monitor's density, the UI follows)
 
+# ---- More windows ----
+#
+# A program may open windows besides its own (`windowsRelays`): each is a
+# top-level X window of the same visual, kept above the program's own
+# (WM_TRANSIENT_FOR), with a back pixmap of its own. `x11Target` makes the
+# drawing go to one of them: the globals the drawing uses (the window, its
+# pixmap, its size, what the frame hashes to) are swapped for its own. Their
+# events carry their number; their pixels go up through `blitRGBA` (no
+# shared memory, no GPU).
+
+type
+  X11Win = object
+    id: int
+    win, pixmap: XID
+    xft: pointer
+    w, h: cint
+    frameHash, shownHash: uint64
+    forced: bool
+    damage: coords.Rect
+    damageAll: bool
+
+proc XSetTransientForHint(dpy: pointer; w, owner: XID): cint
+  {.cdecl, dynlib: libX11, importc.}
+proc XRaiseWindow(dpy: pointer; w: XID): cint {.cdecl, dynlib: libX11, importc.}
+
+var
+  gWins: seq[X11Win]      ## the windows besides the program's own
+  gMainWin: X11Win        ## the program's own, while another is the target
+  gTargetId = 0
+  gMainShm = 0
+  gNextWinId = 1
+
+proc winIndex(id: int): int =
+  for i, w in gWins:
+    if w.id == id: return i
+  -1
+
+proc winOfXid(x: XID): int =
+  ## The number of the window `x` (0: the program's own, or none of these).
+  for w in gWins:
+    if w.win == x: return w.id
+  0
+
+proc saveTarget(w: var X11Win) =
+  w.win = gWindow
+  w.pixmap = gBackPixmap
+  w.xft = gXftDraw
+  w.w = gWidth
+  w.h = gHeight
+  w.frameHash = gFrameHash
+  w.shownHash = gShownHash
+  w.forced = gFrameForced
+  w.damage = gDamage
+  w.damageAll = gDamageAll
+
+proc loadTarget(w: X11Win) =
+  gWindow = w.win
+  gBackPixmap = w.pixmap
+  gXftDraw = w.xft
+  gWidth = w.w
+  gHeight = w.h
+  gFrameHash = w.frameHash
+  gShownHash = w.shownHash
+  gFrameForced = w.forced
+  gDamage = w.damage
+  gDamageAll = w.damageAll
+
+proc x11Target(id: int) =
+  ## Drawing goes to window `id` from now on (0: the program's own).
+  if id == gTargetId: return
+  let to = if id == 0: 0 else: winIndex(id)
+  if id != 0 and to < 0: return
+  # what is the target now goes back to its place
+  if gTargetId == 0:
+    saveTarget(gMainWin)
+    gMainShm = gShmState
+  else:
+    let at = winIndex(gTargetId)
+    if at >= 0: saveTarget(gWins[at])
+  if id == 0:
+    loadTarget(gMainWin)
+    gShmState = gMainShm
+  else:
+    loadTarget(gWins[to])
+    gShmState = -1                      # (its pixels through XPutImage)
+  gTargetId = id
+
+proc newPixmapOf(w: var X11Win) =
+  if w.pixmap != None:
+    if w.xft != nil: XftDrawDestroy(w.xft)
+    w.xft = nil
+    discard XFreePixmap(gDisplay, w.pixmap)
+  w.pixmap = XCreatePixmap(gDisplay, w.win, max(1, w.w).cuint, max(1, w.h).cuint, gDepth.cuint)
+  if gXft: w.xft = XftDrawCreate(gDisplay, w.pixmap, gVisual, gColormap)
+  discard XSetForeground(gDisplay, gGC, 0)
+  discard XFillRectangle(gDisplay, w.pixmap, gGC, 0, 0, max(1, w.w).cuint, max(1, w.h).cuint)
+  w.forced = true
+  w.frameHash = FrameHashSeed
+  w.shownHash = FrameHashSeed
+
+proc x11OpenWindow(title: string; w, h: int): int =
+  ## A window besides the program's own, `w` x `h` pixels; its number.
+  if gDisplay == nil or gWindow == None: return 0
+  let main = if gTargetId == 0: gWindow else: gMainWin.win
+  var x: X11Win
+  x.id = gNextWinId
+  inc gNextWinId
+  x.w = max(1, w).cint
+  x.h = max(1, h).cint
+  x.win = XCreateSimpleWindow(gDisplay, XRootWindow(gDisplay, gScreen), 40, 40,
+                              x.w.cuint, x.h.cuint, 0, XBlackPixel(gDisplay, gScreen),
+                              XBlackPixel(gDisplay, gScreen))
+  if x.win == None: return 0
+  discard XSelectInput(gDisplay, x.win,
+    (ExposureMask or KeyPressMask or KeyReleaseMask or
+     ButtonPressMask or ButtonReleaseMask or PointerMotionMask or LeaveWindowMask or
+     StructureNotifyMask or FocusChangeMask).clong)
+  discard XSetWMProtocols(gDisplay, x.win, addr gWmDeleteWindow, 1)
+  discard XSetTransientForHint(gDisplay, x.win, main)
+  var latin = latin1Of(title)
+  discard XStoreName(gDisplay, x.win, cstr(latin))
+  let netName = XInternAtom(gDisplay, "_NET_WM_NAME", 0)
+  if netName != 0 and gUtf8String != 0:
+    var t = title
+    discard XChangeProperty(gDisplay, x.win, netName, gUtf8String, 8, PropModeReplace,
+                            cast[pointer](cstr(t)), t.len.cint)
+  x.newPixmapOf()
+  discard XMapWindow(gDisplay, x.win)
+  discard XFlush(gDisplay)
+  gWins.add x
+  x.id
+
+proc x11CloseWindow(id: int) =
+  let i = winIndex(id)
+  if i < 0: return
+  if gTargetId == id: x11Target(0)
+  let w = gWins[i]
+  if w.xft != nil: XftDrawDestroy(w.xft)
+  if w.pixmap != None: discard XFreePixmap(gDisplay, w.pixmap)
+  discard XDestroyWindow(gDisplay, w.win)
+  discard XFlush(gDisplay)
+  gWins.delete(i)
+
+proc x11WindowTitle(id: int; title: string) =
+  let i = winIndex(id)
+  if i < 0: return
+  var latin = latin1Of(title)
+  discard XStoreName(gDisplay, gWins[i].win, cstr(latin))
+
+proc x11WindowLayout(id: int): ScreenLayout =
+  let i = winIndex(id)
+  result = ScreenLayout(scaleX: 1, scaleY: 1, uiScale: gUiScale)
+  if i >= 0:
+    let w = if gTargetId == id: (gWidth, gHeight) else: (gWins[i].w, gWins[i].h)
+    result.width = w[0].int
+    result.height = w[1].int
+
+proc x11RaiseWindow(id: int) =
+  let i = winIndex(id)
+  if i >= 0: discard XRaiseWindow(gDisplay, gWins[i].win)
+
+proc extraEvent(xev: XEvent; id: int): bool =
+  ## What only the windows besides the program's own handle here: their
+  ## pictures shown again, their size, their close button. True: done.
+  let i = winIndex(id)
+  if i < 0: return true
+  case xev.theType
+  of Expose:
+    if xev.xexpose.count == 0:
+      let w = if gTargetId == id: (gBackPixmap, gWidth, gHeight)
+              else: (gWins[i].pixmap, gWins[i].w, gWins[i].h)
+      if w[0] != None:
+        discard XCopyArea(gDisplay, w[0], gWins[i].win, gGC, 0, 0, w[1].cuint, w[2].cuint, 0, 0)
+    true
+  of ConfigureNotify:
+    let nw = xev.xconfigure.width
+    let nh = xev.xconfigure.height
+    if nw > 0 and nh > 0 and (nw != gWins[i].w or nh != gWins[i].h):
+      if gTargetId == id: x11Target(0)
+      gWins[i].w = nw
+      gWins[i].h = nh
+      gWins[i].newPixmapOf()
+      pushEvent(input.Event(kind: WindowResizeEvent, x: nw.int, y: nh.int))
+    true
+  of ClientMessage:
+    if xev.xclient.data[0] == gWmDeleteWindow.clong:
+      pushEvent(input.Event(kind: WindowCloseEvent))
+    true
+  else: false
+
 proc processXEvent(xev: XEvent) =
+  # (a window besides the program's own: its events carry its number)
+  gEventWindow = if gWins.len > 0: winOfXid(xev.xany.window) else: 0
+  if gEventWindow != 0 and extraEvent(xev, gEventWindow):
+    gEventWindow = 0
+    return
+  defer: gEventWindow = 0
   case xev.theType
   of Expose:
     if xev.xexpose.count == 0 and gGpu:
@@ -1968,7 +2078,9 @@ proc processXEvent(xev: XEvent) =
     var ks: XKeySym = 0
     var text = ""
     var hasKey = true
-    if gXic != nil:
+    # (the input method's context is the program's own window's: another
+    #  window's keys are read without it)
+    if gXic != nil and gEventWindow == 0:
       var status: cint = 0
       var n = Xutf8LookupString(gXic, unsafeAddr xev.xkey,
         cast[cstring](addr buf[0]), buf.len.cint, addr ks, addr status)
@@ -3208,7 +3320,6 @@ type
   ShmCtlProc = proc (id, cmd: cint; buf: pointer): cint {.cdecl.}
 
 var
-  gShmState = 0               ## 0 not tried, 1 working, -1 not to be had
   gShmInfo: XShmSegmentInfo
   gShmBytes = 0               ## the segment's size
   gShmImg: ptr XImageObj      ## the frame's size, on the segment
@@ -3377,82 +3488,6 @@ var
     ## libXcursor, when there is one); -1 drawn when the screen is at 150% or
     ## more.
   gCursorCache: seq[tuple[kind: CursorKind; scale: int; cursor: XID]]
-
-proc shapeArt(fill: seq[string]; ink: bool): seq[string] =
-  ## A shape (`#`) with a 1-pixel edge all round: white inside and black
-  ## edge, or (`ink`) black inside and a white edge, so it shows on any
-  ## background. (`X` black, `.` white, ` ` none.)
-  let h = fill.len + 2
-  var w = 0
-  for r in fill: w = max(w, r.len)
-  w += 2
-  template at(r, c: int): bool =
-    (let rr = r - 1; let cc = c - 1;
-     rr >= 0 and rr < fill.len and cc >= 0 and cc < fill[rr].len and fill[rr][cc] == '#')
-  for r in 0 ..< h:
-    var line = newString(w)
-    for c in 0 ..< w:
-      if at(r, c): line[c] = (if ink: 'X' else: '.')
-      else:
-        var edge = false
-        for dr in -1 .. 1:
-          for dc in -1 .. 1:
-            if at(r + dr, c + dc): edge = true
-        line[c] = (if edge: (if ink: '.' else: 'X') else: ' ')
-    result.add line
-
-proc grid(w, h: int; inside: proc (r, c: int): bool): seq[string] =
-  for r in 0 ..< h:
-    var line = newString(w)
-    for c in 0 ..< w: line[c] = (if inside(r, c): '#' else: ' ')
-    result.add line
-
-proc classicCursorArt*(c: CursorKind): tuple[rows: seq[string]; hx, hy: int] =
-  ## The classic drawing of cursor `c`: rows of `X` (black), `.` (white) and
-  ## ` ` (none), and its hot spot.
-  case c
-  of curDefault, curArrow:
-    (@["X           ", "XX          ", "X.X         ", "X..X        ", "X...X       ",
-       "X....X      ", "X.....X     ", "X......X    ", "X.......X   ", "X........X  ",
-       "X.....XXXXX ", "X..X..X     ", "X.X X..X    ", "XX  X..X    ", "X    X..X   ",
-       "     X..X   ", "      X..X  ", "      X..X  ", "       XX   "], 0, 0)
-  of curIbeam:
-    var core = @["### ###"]
-    for _ in 0 ..< 14: core.add "   #   "
-    core.add "### ###"
-    (shapeArt(core, true), 4, 8)
-  of curWait:
-    (@["XXXXXXXXXXXXX", "X...........X", "XXXXXXXXXXXXX", " X.........X ", " X.........X ",
-       "  X.......X  ", "   X.....X   ", "    X...X    ", "     X.X     ", "     X.X     ",
-       "    X...X    ", "   X..X..X   ", "  X..XXX..X  ", " X..XXXXX..X ", " X.XXXXXXX.X ",
-       "XXXXXXXXXXXXX", "X...........X", "XXXXXXXXXXXXX"], 6, 9)
-  of curHand:
-    (@["     XX         ", "    X..X        ", "    X..X        ", "    X..X        ",
-       "    X..X        ", "    X..XXX      ", "    X..X..XXX   ", "    X..X..X..XX ",
-       " XX X..X..X..X.X", "X..XX........X.X", "X...X..........X", " X.............X",
-       "  X............X", "  X...........X ", "   X..........X ", "   X.........X  ",
-       "    X........X  ", "    X........X  ", "    XXXXXXXXXX  "], 5, 0)
-  of curCrosshair:
-    (shapeArt(grid(15, 15, proc (r, c: int): bool = r == 7 or c == 7), true), 8, 8)
-  of curSizeWE:
-    (shapeArt(grid(21, 7, proc (r, c: int): bool =
-      (c <= 3 and abs(r - 3) <= c) or (c >= 17 and abs(r - 3) <= 20 - c) or
-      (r == 3)), false), 11, 4)
-  of curSizeNS:
-    (shapeArt(grid(7, 21, proc (r, c: int): bool =
-      (r <= 3 and abs(c - 3) <= r) or (r >= 17 and abs(c - 3) <= 20 - r) or
-      (c == 3)), false), 4, 11)
-  of curSizeNWSE:
-    (shapeArt(grid(13, 13, proc (r, c: int): bool =
-      (r + c <= 4) or ((12 - r) + (12 - c) <= 4) or (r == c)), false), 7, 7)
-  of curSizeNESW:
-    (shapeArt(grid(13, 13, proc (r, c: int): bool =
-      (r + (12 - c) <= 4) or ((12 - r) + c <= 4) or (r == 12 - c)), false), 7, 7)
-  of curMove:
-    (shapeArt(grid(19, 19, proc (r, c: int): bool =
-      (r <= 3 and abs(c - 9) <= r) or (r >= 15 and abs(c - 9) <= 18 - r) or
-      (c <= 3 and abs(r - 9) <= c) or (c >= 15 and abs(r - 9) <= 18 - c) or
-      (r == 9 and c >= 3 and c <= 15) or (c == 9 and r >= 3 and r <= 15)), false), 10, 10)
 
 proc x11ClassicCursor*(c: CursorKind; scale: int): uint =
   ## Cursor `c` drawn in the classic shape, each pixel `scale` x `scale`
@@ -4082,6 +4117,9 @@ proc initX11Driver*() =
       let n = if rects.len <= r.len: rects.len else: 0      # (more: all of it copied)
       for i in 0 ..< n: r[i] = (rects[i].x, rects[i].y, rects[i].w, rects[i].h)
       eglload.current.swapDamaged(r.toOpenArray(0, n - 1), gHeight.int))
+  windowsRelays = WindowsRelays(openWindow: x11OpenWindow, closeWindow: x11CloseWindow,
+                                setTitle: x11WindowTitle, layout: x11WindowLayout,
+                                target: x11Target, toFront: x11RaiseWindow)
   windowRelays = WindowRelays(
     createWindow: x11CreateWindow, getWindowLayout: x11GetWindowLayout,
     refresh: x11Refresh,

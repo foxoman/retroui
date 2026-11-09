@@ -363,6 +363,59 @@ block webTalksToThePage:
   doAssert shownUrl == "html:<p>Hi</p>", shownUrl
   webClose("swap")
 
+block webInsideTheApp:
+  # what a page asks to use, its downloads, its picture under a menu,
+  # printing, the app's own folder -- through the Android protocol
+  useSystemWebView = true
+  var ev: WebEvent
+  var asked: seq[WebPermission]
+  var downloads: seq[WebDownload]
+  view = proc () =
+    ev = webView("https://a.example/", height = 200, key = "inside")
+    asked.add ev.asked
+    downloads.add ev.downloads
+  calls.setLen(0)
+  webPermit("inside", {wpCamera, wpLocation})
+  info = "https://a.example/\tA\t100\t1\t0\t0"
+  notesOnce = "pmicrophone\2dhttps://a.example/f.zip\3/sdcard/Download/f.zip\3" & "50\3" & "0\2"
+  harness.ticks += 1000
+  run(3)
+  doAssert calls.anyIt(it == "web.permit inside\tcamera,location"), $calls
+  doAssert asked == @[wpMicrophone], $asked
+  doAssert downloads.len == 1 and downloads[0].url == "https://a.example/f.zip" and
+           downloads[0].file == "/sdcard/Download/f.zip" and downloads[0].progress == 50 and
+           not downloads[0].done
+  notesOnce = "dhttps://a.example/f.zip\3/sdcard/Download/f.zip\3" & "100\3" & "1\2"
+  harness.ticks += 1000
+  run(2)
+  doAssert downloads.len == 2 and downloads[1].done and downloads[1].progress == 100
+  # the same permission asked again: sent once
+  calls.setLen(0)
+  webPermit("inside", {wpCamera, wpLocation})
+  run(2)
+  doAssert not calls.anyIt(it.startsWith("web.permit")), $calls
+  # printing
+  webPrint("inside")
+  doAssert calls[^1] == "web.print inside", $calls
+  # a dialog over it: a picture asked first, then hidden
+  calls.setLen(0)
+  var open = true
+  view = proc () =
+    ev = webView("https://a.example/", height = 200, key = "inside")
+    dialog(open, "Over", 200):
+      label "a dialog"
+  run(3)
+  let snap = calls.filterIt(it.startsWith("web.snap inside\t"))
+  doAssert snap.len == 1, $calls
+  doAssert calls.find(snap[0]) < calls.find("web.hide inside"), $calls
+  webClose("inside")
+  useSystemWebView = false
+  # the app's own folder (Linux: app://local/)
+  when not defined(windows):
+    doAssert webAppUrl("index.html") == "app://local/index.html"
+    doAssert webAppUrl("/css/a.css") == "app://local/css/a.css"
+    doAssert allowedBy(["nim-lang.org"], webAppUrl("x.html"))
+
 block webNativeAllowedHosts:
   # which addresses a page that is allowed some hosts may open
   doAssert allowedBy([], "https://any.example/")

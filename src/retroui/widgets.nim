@@ -965,7 +965,7 @@ proc visualLines(s: string; w: int): seq[VLine] =
 
 proc wrapLook(): Hash =
   ## (what the characters' widths depend on: the font, its size, the scale)
-  !$(hash(textSize()) !& ord(uiFont()) !& pxScale !& ord(hdText()) !& FontH !&
+  !$(hashF(textSize()) !& ord(uiFont()) !& pxScale !& ord(hdText()) !& FontH !&
      textWidth("Wide words wrap: 0123456789, mm ii"))
 
 proc samePrefix(a, b: string): int =
@@ -3838,6 +3838,38 @@ template dialog*(open: var bool; title: string; width: int; body: untyped) =
       endBusy()
     endDialog()
 
+template window*(open: var bool; title: string; w, h: int; body: untyped) =
+  ## A window of the system's own besides the app's, `w` x `h` design
+  ## pixels when it opens, shown while `open` is true: a tool palette, a
+  ## second view for another monitor, a preview. It is laid out and drawn
+  ## as the app's window is (menus, dialogs, tool bars in it are its own),
+  ## at the place in the frame the app draws it; its close button sets
+  ## `open` to false; it closes when it is no longer drawn. Where the
+  ## system has one window (phones, the browser) it is a dialog over the
+  ## app (`dialog`).
+  ##
+  ## .. code-block:: nim
+  ##   var toolsOpen = true
+  ##   app "Editor", 800, 600:
+  ##     if menuItem("&Tools"): toolsOpen = true
+  ##     window(toolsOpen, "Tools", 240, 360):
+  ##       if button("&Bold"): bold = not bold
+  if windowsAvailable() and open:
+    if beginWindow(open, title, w, h):
+      var closedNow = false
+      try:
+        captionBar()
+        body
+      finally:
+        closedNow = endWindow()
+      if closedNow: open = false
+    elif not windowsAvailable():
+      dialog(open, title, w):
+        body
+  else:
+    dialog(open, title, w):
+      body
+
 type MsgIcon* = enum
   ## The sign of a message box.
   miNone, miInfo, miQuestion, miWarning, miStop
@@ -4269,6 +4301,10 @@ proc captionBar*() =
     captionArrow(inset(mr, 1), false, mh.down)
     if mh.clicked: minimizeApp()
     right = mr.x
+  # (a desktop's window: dragged by its title bar)
+  when not (defined(android) or defined(ios)):
+    let barR = rect(boxR.x + boxR.w + 3, cap.y, right - (boxR.x + boxR.w + 3), ch)
+    if canInput() and hover(barR) and takePress(): discard startWindowMove()
   # the title, centered between them
   let room = right - (boxR.x + boxR.w) - 12
   let t = ellipsize(ui.title, room, style(bold = true))
@@ -4276,7 +4312,11 @@ proc captionBar*() =
   text(max(boxR.x + boxR.w + 6, cap.x + (cap.w - tw) div 2),
        cap.y + (ch - FontH) div 2, t, th.selectText, true)
   # its menu
-  if ui.popup == menuId and beginPopupMenu(menuId, boxR.x, cap.y + ch):
+  if ui.popup == menuId and inWindow() and beginPopupMenu(menuId, boxR.x, cap.y + ch):
+    # (a window besides the app's: its size is the app's)
+    if menuItem("&Close", "Alt+F4"): requestClose()
+    endMenu()
+  elif ui.popup == menuId and beginPopupMenu(menuId, boxR.x, cap.y + ch):
     if menuItem("&Larger", "Ctrl++", enabled = uiScale() < 300):
       setUiScale(scaleStep(1))
     if menuItem("&Smaller", "Ctrl+-", enabled = uiScale() > 50):

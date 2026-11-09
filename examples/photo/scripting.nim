@@ -268,7 +268,7 @@ proc docValue(d: Doc): Value =
       d.touchLayers()
       made = d.addLayer(name)
       d.endStep()
-      return layerValue(d, made)
+      result = layerValue(d, made); return
     of "addText":
       let s = arg(args, 0).toStr
       var st = typingStyle()
@@ -282,7 +282,7 @@ proc docValue(d: Doc): Value =
       made = d.addTextLayer(t)
       made.name = s
       d.endStep()
-      return layerValue(d, made)
+      result = layerValue(d, made); return
     of "undo":
       d.undo()
     of "redo":
@@ -337,7 +337,7 @@ proc makeScriptVm(): Vm =
     case key
     of "foregroundColor": fg = colorArg(v, fg)
     of "backgroundColor": bg = colorArg(v, bg)
-    else: return false
+    else: result = false; return
     true
   let appCall = proc (key: string; args: seq[Value]): Value =
     case key

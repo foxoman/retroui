@@ -11,7 +11,8 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
 - `src/retroui.nim` and `src/retroui/` -- the toolkit;
   `src/retroui/uirelays/` -- the platform layer (a fork of nim-lang's
   uirelays, kept generic: see below); `src/retroapk.nim`, `retroios.nim`,
-  `retrokit.nim` -- the command-line tools.
+  `retrokit.nim` -- the command-line tools; `retroweb.nim` (web pages) and
+  `retrostore.nim` (store packages, 3D models) are retrokit's commands.
 - `examples/` -- the example apps (Gallery, Retro Photo, Retro Files,
   Retro Mail, Retro Communicator, Retro Board, HR Book, Notepad, Ledger,
   Charts...). They are
@@ -63,6 +64,37 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   them (the same `webNative*` proc, a `web.` call in the Java) and into the
   fake. The page's side is `retro.post(text)` and a `retro` event on
   `window`, the same everywhere.
+- The drivers without a library under them: `drivers/wayland_driver.nim`
+  (Wayland's protocol in `wlwire.nim`, shared memory in `pixbuf.nim`,
+  fonts through `ftfonts.nim`, keys through `xkbload.nim`; cursors and key
+  names shared with X11 in `cursorart.nim`, `keysyms.nim`),
+  `drivers/fb_driver.nim` (DRM/KMS, the framebuffer, evdev: the ioctl
+  structures are Nim objects whose sizes the kernel checks -- keep them
+  exact), `drivers/web_driver.nim` (WebAssembly). `backend.nim` picks the
+  Linux driver (`useScreen`, `RETRO_DRIVER`).
+- **The web build:** `src/retroweb.nim` carries `src/retroui/web/libc` (the
+  C library: only what Nim's C and the kit call; a missing function shows
+  as wasm-ld's "undefined symbol") and `web/retro.js` (the page: files,
+  input, sound, video, fetch, the iframe web view); `tests/web/run.sh`
+  checks both in Chromium. A web build is 32-bit and has no threads:
+  `when defined(wasm)` (or `compileOption("threads")`) for what differs,
+  and `tests/run32.sh` before a release (`int` overflows show there). An
+  exported Nim proc called from the page catches every exception (Nim's
+  goto exceptions would leave the error set and stop the next frame).
+- **Maps:** `tilemap.nim` (the widget, sources, cache, workers), `geo.nim`
+  (services: each provider's request and answer in one `case`, the tests'
+  answers in `tests/test_tilemap.nim`), `mvt.nim`, `pmtiles.nim`. A new
+  service adds its request, its reader and a saved answer to the test.
+- **3D:** `view3d.nim` (scene, nodes, clips, skinning, the CPU's lit
+  triangles), `view3dgl.nim` (the GPU's: included where OpenGL is),
+  `gltf.nim` (read and write; every index and size checked through `item`,
+  `view`, `fits`: keep them). `tests/carscene.nim` is the test car.
+- **Store packages:** `sign.nim` (DER, CMS, JAR, Authenticode, time
+  stamps), `msix.nim`, `macapp.nim` (bundles, `.icns`, the ad hoc
+  signature, `.ipa`); `retroapk.nim`'s `protoXml` and `protoResources`
+  for App Bundles. Check a change with `sh tests/store/linux.sh`
+  (osslsigncode, jarsigner, bundletool, rcodesign); Windows and macOS
+  check theirs on GitHub (`tests/store/windows.ps1`, `mac.sh`).
 - `tools/compare/` -- Hello in egui, iced and Slint, and `compare.sh`
   measuring them and the kit the same way (memory, size, CPU).
 - `docs/syntax.md` -- the study of the syntax: every form as a whole program
@@ -82,17 +114,33 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
    Android driver (`uirelays/drivers/android*`): `sh
    tests/android_mock/run.sh` too (the driver on a fake Android; a new
    NDK function needs its fake in `tests/android_mock/mock_android.c`).
-3. Before a release, run the tests under the sanitizers too (the command
+3. A change to a driver, the drawing or the web view: the live check too
+   (`tests/live/livecheck.nim` on a real window; it ends with 0 when every
+   check passed). A change to how one of its pages draws: `sh
+   tools/live/makeref.sh`, then look at `tests/live/ref` before it is kept.
+   GitHub runs it on every system (`.github/workflows/systems.yml`) on a
+   push to `next`.
+4. Before a release, run the tests under the sanitizers too (the command
    is at the top of `tests/lsan.supp`); a leak found goes into
-   `test_hardening`.
+   `test_hardening`. Also `python3 tools/returncheck.py`, `nimble fuzz`,
+   `sh tests/run32.sh`, and the checks of what changed: `tests/web/run.sh`,
+   `tests/wayland/run.sh`, `tests/kiosk/run.sh`, `tests/store/linux.sh`.
 
 ## Rules
 
 - **Nim 2.2 leaks** in three shapes, worked around in the kit: `return x`
-  after `result` was already set (keep the value in a local until it is
-  returned); `x = y` after `x` was filled in a loop or a branch
+  after `result` was already set, `return nil` too (write `result = x;
+  return`, or keep the value in a local until it is whole;
+  `python3 tools/returncheck.py` finds every one and must say 0); `x = y`
+  after `x` was filled in a loop or a branch
   (`swap`, or give `x` a value where it is declared); a call that may raise
-  whose result goes into a field (into a `let` first, then the field).
+  whose result goes into a field (into a `let` first, then the field). And
+  where a reader fills `result` and then raises (a damaged file), a caller
+  that reads into a variable it already has keeps the half: read into a
+  variable of the reader's own, then `result = move` it (`readGltf`); a
+  string `result` set before a `raise` is never freed; Nim's base64
+  `decode` raising on a wrong letter leaks, so the kit uses
+  `codec.unbase64`.
 
 - **Voice:** comments, docs and messages in the repository speak as the
   developer, Sultan Al Isaiee, to his users and developers: plain, short
@@ -152,7 +200,11 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   (`RetroCredit`). Commits are authored by him; an AI that helped is
   named in a `Co-Authored-By:` line.
 - **Never commit** private fonts (Helvetica World), secrets (Retro Mail's
-  Google/Microsoft ids: from the environment at build time), build
-  outputs, or real personal data in examples and tests (sample data is
-  made up: names, and numbers like +968 0000 0123).
+  Google/Microsoft ids: from the environment at build time), signing keys
+  (the tests make their own in a temporary folder), build outputs, or real
+  personal data in examples and tests (sample data is made up: names, and
+  numbers like +968 0000 0123).
+- **Third parties:** a part of someone else's (a font, data, code) goes
+  into `THIRD-PARTY-NOTICES.md` with its license text beside it; nothing
+  GPL is linked into apps (FreeFont's font exception covers the fonts).
 - **Commits and pushes:** only the developer pushes.

@@ -1,6 +1,6 @@
 # Retro Nim UI: a study of its syntax
 
-By Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)), for Retro Nim UI 0.28.0.
+By Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)), for Retro Nim UI 0.29.0.
 
 The syntax is immediate mode written as plain Nim: a window is a block that runs every frame, a control is a proc call, its result is the event, and your own variables are the state. That one choice removes callbacks, widget objects and data binding, the three things that make most UI code hard to follow.
 
@@ -391,6 +391,8 @@ app "Dialog", 380, 200:
 
 The dialog, 240 pixels wide, is drawn over the window while `showOptions` is true. OK, Cancel, Esc and its close box set it false. Built on a template with a `var bool`.
 
+`window(toolsOpen, "Tools", 240, 360):` is the same form for a window of the system's own beside the app's -- a tool palette, a second view -- with its own size: its close button sets the `bool` false, and it closes when the frame no longer draws it. Where the system has one window (a phone, the browser) it is this dialog.
+
 ### Message box
 
 ```nim
@@ -493,7 +495,7 @@ A web page is one more event object: `webView` returns a `WebEvent` (its address
 
 Every size in the code is design pixels: `row([80, -1])`, `dp(16)` for your own drawing, a dialog's width (see Widths in a row). An app that runs its own loop calls `openApp`, `while beginFrame(): ...`, `endFrame()` and `closeApp()` itself; How it is built shows the five calls, and they draw the same window as `app`.
 
-A new control almost never adds a shape: it is an action, a binding or an event object, so learning one control teaches the others. The reference documents 303 controls in [docs/controls.md](controls.md), each with its pictures; they all follow these forms.
+A new control almost never adds a shape: it is an action, a binding or an event object, so learning one control teaches the others. The reference documents 376 controls in [docs/controls.md](controls.md), each with its pictures; they all follow these forms.
 
 ## How it is built
 
@@ -583,8 +585,8 @@ The reasons, in the order they matter while reading someone else's app:
 - **Plain Nim does the rest.** Showing something only sometimes is an `if`; a list is a `for`; reuse is a `proc` that draws controls. There is no special syntax for any of them.
 - **Blocks instead of Begin/End pairs.** Nim templates close every container by indentation, so a forgotten `End()` cannot happen. Ids come from labels and variables, so `##` suffixes are rarely needed.
 - **Names over positions.** Options and parameters go by name, and a misspelled one is a compile error rather than a silent default.
-- **A small surface that does not grow.** Four shapes of call cover 303 controls, from Hello (16 lines) to Notepad (206 lines, with menus, dialogs and Print to PDF), Retro Communicator (1,640 lines) and Retro Photo (nearly 30,000 lines across its files).
-- **One code base, every screen.** The same lines run on Windows, macOS, Linux, Android and iOS; design pixels keep the sizes right on each.
+- **A small surface that does not grow.** Four shapes of call cover 376 controls, from Hello (16 lines) to Notepad (206 lines, with menus, dialogs and Print to PDF), Retro Communicator (1,640 lines) and Retro Photo (nearly 30,000 lines across its files).
+- **One code base, every screen.** The same lines run on Windows, macOS, Linux (X11, Wayland, a screen with no desktop), Android, iOS and in the browser; design pixels keep the sizes right on each.
 - **Testable without a screen.** A frame depends only on the input and your variables, so the fake driver can click, type and read pixels in a test.
 
 ## Where it asks for care

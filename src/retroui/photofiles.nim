@@ -1512,7 +1512,7 @@ proc openPicture*(path: string): Doc =
         ld.format = ext.strip(chars = {'.'})
         ld.useProfile(iccFromTiff(data))
         ld.modified = false
-        return ld
+        result = ld; return
     let b = try: (if ext == ".tga": decodeTga(data) else: decodeTiff(data))
             except CatchableError as e: raise newException(IOError, path.extractFilename & ": " & e.msg)
     if b == nil or b.w <= 0: raise newException(IOError, "cannot read " & path.extractFilename)
@@ -1532,7 +1532,7 @@ proc openPicture*(path: string): Doc =
         if f.readBuffer(addr head[0], 4) != 4: head = ""
         close(f)
     except IOError, OSError: discard
-    if head == "8BPS": return loadPsd(path)
+    if head == "8BPS": result = loadPsd(path); return
     var depth16 = false
     if ext == ".png":
       # (its bit depth, from the header: an 8-bit one is not decoded twice)
@@ -1627,7 +1627,8 @@ proc flatExport*(d: Doc; o: ExportOptions): FlatExport =
       for i in 0 ..< w * h:
         let a = hi[4 * i + 3].int
         if a < 65535:
-          for c in 0 .. 2: hi[4 * i + c] = uint16((hi[4 * i + c].int * a + 65535 * (65535 - a)) div 65535)
+          for c in 0 .. 2:
+            hi[4 * i + c] = uint16((int64(hi[4 * i + c]) * a + 65535'i64 * (65535 - a)) div 65535)
           hi[4 * i + 3] = 65535
     result.px16 = move(hi)
   if o.format in {efHdr, efPfm, efExr} and w == d.w and h == d.h:
