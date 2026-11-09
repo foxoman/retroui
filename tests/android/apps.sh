@@ -22,6 +22,23 @@ crashed() {
   grep -A2 "FATAL EXCEPTION" "$2" | grep -q "Process: $1" ||
     grep -q "Fatal signal.*($1)\|>>> $1 <<<" "$2"
 }
+addr2line=$(ls "${ANDROID_NDK_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}/ndk}"/*/toolchains/llvm/prebuilt/*/bin/llvm-addr2line \
+            "${ANDROID_NDK_HOME:-/nonexistent}"/toolchains/llvm/prebuilt/*/bin/llvm-addr2line 2>/dev/null | tail -1)
+named() {
+  # named APK LOG: the native crash's frames in the app's library, named
+  # (the emulator's APKs are built --debuggable: not stripped)
+  [ -n "$addr2line" ] || return 0
+  lib=$(mktemp -d)
+  unzip -q -o "$1" 'lib/*/libmain.so' -d "$lib" 2>/dev/null || { rm -rf "$lib"; return 0; }
+  so=$(ls "$lib"/lib/*/libmain.so 2>/dev/null | head -1)
+  grep -E "#[0-9]+ pc [0-9a-f]+ .*libmain.so" "$2" | grep -v Monkey | head -24 |
+    while read -r line; do
+      pc=$(echo "$line" | sed -n 's/.* pc \([0-9a-f]*\) .*/\1/p')
+      fn=$("$addr2line" -f -C -e "$so" "0x$pc" 2>/dev/null | head -1)
+      echo "  $(echo "$line" | sed -n 's/.*\(#[0-9]*\) pc.*/\1/p') 0x$pc $fn"
+    done
+  rm -rf "$lib"
+}
 start() {
   # (by its launcher activity, waited for -- not the monkey, whose one event
   # stops the emulator's own system UI now and then; then up to 30 s for a
@@ -81,6 +98,8 @@ while read -r pkg apk; do
     if crashed "$pkg" "$out/$name-logcat.txt"; then
       grep -E -A 25 "FATAL EXCEPTION|Fatal signal|backtrace:" "$out/$name-logcat.txt" |
         grep -v "com.android.systemui" | head -60
+      echo "the frames in the app's library, named:"
+      named "$apk" "$out/$name-logcat.txt"
     else
       grep -E "$pkg|ActivityManager|libc|DEBUG|linker|dlopen|UnsatisfiedLink|RetroActivity" \
         "$out/$name-logcat.txt" | grep -v "monkey" | tail -60

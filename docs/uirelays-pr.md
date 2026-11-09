@@ -19,6 +19,7 @@ This adds two phone drivers (Android and iOS), pen input for the desktop drivers
 9. **screen, input: phones.**
    - `ScreenLayout` gets the safe-area margins (`safeTop`, `safeBottom`, `safeLeft`, `safeRight`) and `touch`.
    - New events: `AppPauseEvent`, `AppResumeEvent`, and `GestureEvent` (`scale`, `dx`, `dy`, `phase`). Events also get `fromMouse`.
+   - `WindowHiddenEvent` and `WindowShownEvent`: a desktop window minimized and back (X11: unmapped or `_NET_WM_STATE_HIDDEN`; WinAPI: `SIZE_MINIMIZED`; macOS: into the Dock), so an app can leave out drawing nobody sees while its timers go on.
    - SDL3 fills these in, maps Android's back key to Escape, and turns text input on only while `WantTextInput` is set.
 10. **SDL3: `TTF_SetFontStyle` loads from SDL_ttf.** `-d:sdl3` no longer needs `-lSDL3_ttf` passed by hand.
 11. **screen: `GpuRelays`** (optional): an OpenGL context on the window.

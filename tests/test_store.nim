@@ -129,8 +129,10 @@ if openssl.len > 0:
     "-addext", "extendedKeyUsage=critical,timeStamping", "-addext", "keyUsage=critical,digitalSignature"]))
   if code == 0:
     writeFile(t / "serial", "01\n")
-    writeFile(t / "tsa.cnf", "[ tsa ]\ndefault_tsa = tsa1\n[ tsa1 ]\nserial = " & t / "serial" &
-      "\ncrypto_device = builtin\nsigner_cert = " & t / "tsa.pem" & "\nsigner_key = " & t / "tsa.key" &
+    # (OpenSSL's config reads a backslash as an escape: Windows' paths with /)
+    let ct = t.replace('\\', '/')
+    writeFile(t / "tsa.cnf", "[ tsa ]\ndefault_tsa = tsa1\n[ tsa1 ]\nserial = " & ct & "/serial" &
+      "\ncrypto_device = builtin\nsigner_cert = " & ct & "/tsa.pem" & "\nsigner_key = " & ct & "/tsa.key" &
       "\nsigner_digest = sha256\ndefault_policy = 1.2.3.4.1\ndigests = sha256\naccuracy = secs:1\n" &
       "ordering = yes\ntsa_name = yes\ness_cert_id_chain = no\ness_cert_id_alg = sha256\n")
     stamper = proc (q: seq[byte]): seq[byte] =

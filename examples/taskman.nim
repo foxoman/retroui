@@ -23,7 +23,7 @@ import retroui/[sysmon, system]
 
 const
   AppTitle = "Retro Task Manager"
-  AppVersion* = "1.0.1"
+  AppVersion* = "1.0.2"
   AppId = "RetroTaskManager"
   IconPng = staticRead("assets/taskman-icon.png")
 
@@ -89,9 +89,10 @@ proc say(s: string) =
   statusAt = epochTime()
 
 proc interval(): int =
-  ## How often the system is read: as asked, every 5 seconds while the app
-  ## is put away (a phone) or paused -- nobody looks.
-  if speed == 3 or ui.paused: 5000 else: speeds[speed]
+  ## How often the system is read: as asked, every 5 seconds while the
+  ## window is minimized, the app put away (a phone) or paused -- nobody
+  ## looks.
+  if speed == 3 or ui.paused or ui.hidden: 5000 else: speeds[speed]
 
 # ---- the processes ------------------------------------------------------------------------------
 

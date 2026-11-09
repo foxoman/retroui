@@ -10,7 +10,7 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[os, osproc, json, strutils, times, net, exitprocs, tables]
-import retroui/[imap, smtp, netconn, mailsetup, mime, secrets]
+import retroui/[imap, smtp, netconn, mailsetup, mime, secrets, db]
 import ../examples/mail/[store, sync, imapsync]
 
 proc freePort(): int =
@@ -252,6 +252,7 @@ ad.logout()
 let r2 = syncOnce(mailDir() / "mail.db")
 check r2.count == 1 and "Brand new" in r2.latest, "new mail told: " & $r2
 
+store0.close()             # (Windows: an open database cannot be removed)
 removeDir(home)
 if failures > 0:
   echo failures, " failed"

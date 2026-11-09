@@ -416,6 +416,11 @@ else:
 
 # ---- for every system -------------------------------------------------------------------------------
 
+when not declared(mediaSessionBusName):
+  proc mediaSessionBusName*(): string = ""
+    ## The bus name the app's controls have on D-Bus: "" here (D-Bus is
+    ## Linux's and the BSDs'). (Retro Designer lists it on every system.)
+
 var hooked = false
 
 proc sessionFrame() {.nimcall.} = pump()

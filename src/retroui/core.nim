@@ -20,7 +20,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.32.1"
+const RetroVersion* = "0.33.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -271,6 +271,9 @@ type Ctx* = object
   textScale: int                 ## the user's text size, percent (100)
   baseEm: float                  ## text size at 100%
   paused*: bool                  ## mobile app in the background
+  hidden*: bool                  ## desktop window minimized: frames and timers go
+                                 ## on, nothing is drawn (read less often, as
+                                 ## nobody looks)
   safe*: tuple[top, left, bottom, right: int]
     ## margins a notch or system bars cover, in logical pixels (and the
     ## sizing border of the 3.1 frame, `setClassicFrame`)
@@ -2439,6 +2442,11 @@ proc applyEvent(e: Event): bool =
   of AppResumeEvent:
     ui.paused = false
     ui.force = true
+  of WindowHiddenEvent:
+    ui.hidden = true
+  of WindowShownEvent:
+    ui.hidden = false
+    ui.force = true
   of QuitEvent, WindowCloseEvent:
     ui.closeAsked = true
     return true
@@ -2564,6 +2572,9 @@ proc busyPump(boxShown: bool) =
       deferred.add e
     of AppResumeEvent:
       ui.paused = false
+      deferred.add e
+    of WindowHiddenEvent, WindowShownEvent:
+      ui.hidden = e.kind == WindowHiddenEvent
       deferred.add e
     of QuitEvent, WindowCloseEvent:
       busyCancelAsked = true
@@ -3525,7 +3536,7 @@ proc endFrame*() =
   if hasPending and ui.now - ui.lastPresent < 50:
     noteFrame(false)
     return
-  if ui.paused: return
+  if ui.paused or ui.hidden: return     # (nobody sees it: not drawn)
   if present(ui.devW, ui.devH, ui.force):
     ui.lastPresent = ui.now
   ui.force = false

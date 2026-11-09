@@ -204,7 +204,7 @@ block noCommandLineInApps:
   for dir in ["src/retroui", "examples"]:
     for f in walkDirRec(root / dir):
       if not f.endsWith(".nim") or "/build/" in f: continue
-      let rel = f.relativePath(root)
+      let rel = f.relativePath(root).replace('\\', '/')     # (Windows' too)
       if rel in allowed: continue
       var n = 0
       for line in readFile(f).splitLines:
@@ -213,5 +213,35 @@ block noCommandLineInApps:
         for call in ["paramCount(", "paramStr(", "commandLineParams("]:
           if call in code: bad.add rel & "(" & $n & "): " & line.strip
   doAssert bad.len == 0, "asks the command line where an app may have none:\n" & bad.join("\n")
+
+block noCFunctionCallsItself:
+  # Every Mac app (0.29 to 0.32) stopped at its first event: the Cocoa
+  # backend's sendOne called itself where it meant [NSApp sendEvent:]. A C
+  # or Objective-C function of the drivers that calls itself: none (they
+  # have no recursion meant).
+  let root = currentSourcePath().parentDir.parentDir
+  var found: seq[string]
+  for f in walkDirRec(root / "src" / "retroui"):
+    if not (f.endsWith(".c") or f.endsWith(".m")) or "/web/libc/" in f.replace('\\', '/') or
+       "/vendor/" in f.replace('\\', '/'): continue
+    var name = ""
+    for line in readFile(f).splitLines:
+      if name.len == 0:
+        # (a function's first line: "static void sendOne(NSEvent *ev) {")
+        if line.len > 0 and line[0] notin {' ', '\t', '#', '/', '*', '}'} and line.endsWith(") {") and
+           not line.startsWith("@") and not line.startsWith("-") and not line.startsWith("+"):
+          let open = line.find('(')
+          if open > 0:
+            var k = open - 1
+            while k >= 0 and line[k] in IdentChars: dec k
+            name = line[k + 1 ..< open]
+            if name in ["if", "while", "for", "switch"]: name = ""
+      elif line.startsWith("}"):
+        name = ""
+      elif (name & "(") in line and not line.strip.startsWith("//") and not line.strip.startsWith("*"):
+        let at = line.find(name & "(")
+        if at == 0 or line[at - 1] notin IdentChars:
+          found.add f.relativePath(root) & ": " & name & " calls itself: " & line.strip
+  doAssert found.len == 0, found.join("\n")
 
 echo "hardening tests passed"

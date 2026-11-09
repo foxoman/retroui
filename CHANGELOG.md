@@ -1,5 +1,45 @@
 # Changes
 
+## 0.33.0
+
+What GitHub's runs of 0.32 showed -- above all, every Mac app stopped at its
+first event -- and a minimized window that draws nothing.
+
+- **macOS: every app stopped at its first click or key** (since 0.29): the
+  Cocoa backend's `sendOne`, which keeps the window an event is for while
+  Cocoa handles it, called itself where it meant `[NSApp sendEvent:]`, and
+  the first event ran the stack out. The live check's run under lldb (from
+  0.31.1) showed it at once. `tests/test_hardening.nim` now fails when a C
+  or Objective-C function of the drivers calls itself.
+- **A minimized window draws nothing** (as Argus reads less often while
+  nobody looks): uirelays has `WindowHiddenEvent` and `WindowShownEvent`
+  (X11: unmapped or `_NET_WM_STATE_HIDDEN`; Windows: minimized; macOS: in
+  the Dock); the kit's `ui.hidden` is true meanwhile -- the app's frames
+  and timers go on, nothing is drawn or sent to the screen, and all of it
+  is drawn when the window is back. Retro Task Manager reads the system
+  every 5 seconds then. Tested on a real X server (Xvfb) and in
+  `tests/test_frame.nim`.
+- **Retro Designer builds on Windows and macOS again:**
+  `mediaSessionBusName` is there on every system ("" without D-Bus), and
+  its drawing of a page has no unused import there.
+- **Windows:** a PMTiles archive that cannot be read is closed (a map's
+  file could not be removed after), and an archive is opened for each
+  read, so an offline map shown is never kept open; the IMAP test closes
+  its database, the tile map test its archive, and the Authenticode test's
+  time-stamp authority is given its paths with forward slashes (OpenSSL's
+  configuration reads a backslash as an escape). The check for apps that
+  ask Nim for the command line compares Windows' paths too.
+- **A Mac's spell checker** takes the Arabic word the rich text test marks
+  as wrong: the test asks the checker first.
+- **Android's emulator job names a native crash's functions:**
+  `retroapk --debuggable` leaves the library unstripped and turns Nim's
+  stack traces on, and `tests/android/apps.sh` looks the crash's frames
+  up in it (the NDK's `llvm-addr2line`). Retro Photo stops on the emulator
+  in a worker thread: the next run says where.
+- Retro Files 3.3.6, Retro Photo 4.9.7, Retro Board 1.3.6, Retro Mail
+  1.1.2, HR Book 0.2.2, Retro Task Manager 1.0.2; Retro Gallery and the
+  small examples 0.33.0.
+
 ## 0.32.1
 
 Retro Files opens as an Android app again.

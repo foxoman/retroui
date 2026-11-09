@@ -50,6 +50,11 @@ type
                      ## so far (`composing`, UTF-8; empty: done or given up)
                      ## and its caret (`x`, in bytes). What it settles on comes
                      ## as TextInputEvents.
+    WindowHiddenEvent ## the desktop window was minimized: nothing of it is
+                      ## seen, so the app may leave out drawing; its timers
+                      ## go on (a mobile app sent to the background gets
+                      ## AppPauseEvent instead)
+    WindowShownEvent  ## it is seen again: redraw everything
 
   GesturePhase* = enum
     gsBegin,         ## a second finger came down; the first one's press is

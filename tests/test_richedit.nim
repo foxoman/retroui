@@ -796,7 +796,9 @@ if spellAvailable("en-US"):
     doc.spell = true
     ui.focus = 0
     run()
-    if spellAvailable("ar"):
+    # (where the system's checker knows the word is wrong: a Mac's Arabic,
+    # on GitHub's machines, takes it)
+    if spellAvailable("ar") and isMisspelled("كتابب", "ar"):
       let t = paraText(doc.paras[0])
       let bad = richMisspelled(doc, 0)
       doAssert bad.len == 1 and t[bad[0].a ..< bad[0].b] == "كتابب", $bad

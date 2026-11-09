@@ -563,7 +563,9 @@ the APKs a phone gets: `java -jar bundletool.jar build-apks
 - **Built for Android's emulator:** `nimble emuapks` (x86_64, debuggable);
   `sh tests/android/apps.sh build/apps/list.txt` opens each with and
   without its permissions, drives it with the monkey and fails on a
-  crash (the systems workflow does it on Android 11 and 15).
+  crash (the systems workflow does it on Android 11 and 15). A debuggable
+  APK's library is not stripped, so a native crash's frames are named
+  (with the NDK's `llvm-addr2line`), and Nim's stack traces are on.
 
 ---
 

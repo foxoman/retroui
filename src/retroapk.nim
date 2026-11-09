@@ -53,7 +53,9 @@ Options:
                      job service, kept across reboots
   --min-sdk:N        lowest Android API level (default 24, Android 7)
   --target-sdk:N     API level the app is made for (default 35)
-  --debuggable       allow debugging (run-as, logcat of the app)
+  --debuggable       allow debugging (run-as, logcat of the app); its library
+                     not stripped, a crash's report names the functions,
+                     Nim's stack traces on
   --cc:PATH          C compiler for Android (default: found, see below)
   --toolchain:T      auto (default), ndk, clang (clang + lld, no NDK) or zig
                      (zig cc, no NDK); also $RETRO_ANDROID_TOOLCHAIN
@@ -1235,7 +1237,10 @@ proc main() =
                  # Nim's -d:lto puts there: without it lld still links the
                  # LTO objects, but with native TLS, which Android before 10
                  # cannot load (emulated TLS below API 29)
-                 "--clang.options.linker:-s -Wl,-z,max-page-size=16384" & ltoLink,
+                 # (--debuggable: not stripped, its functions' names exported,
+                 # so a crash's report names them; Nim's stack traces on)
+                 "--clang.options.linker:" & (if debuggable: "-Wl,--export-dynamic" else: "-s") &
+                   " -Wl,-z,max-page-size=16384" & ltoLink,
                  # (a nimcache for each compiler: Nim reuses an object whose
                  # C is unchanged, whatever made it -- zig's LTO objects are
                  # not clang 18's)
@@ -1247,6 +1252,7 @@ proc main() =
     # (the system's malloc, unless the program asks for Nim's allocator:
     # with it the app's memory would only grow -- see retroui/memwatch)
     if not nimFlags.anyIt("retroNimAlloc" in it): args.add "-d:useMalloc"
+    if debuggable: args.add ["--stackTrace:on", "--lineTrace:on"]
     args.add nimFlags
     args.add src
     let cache = work / "nimcache-" & abi.name & "-" & tc.kind

@@ -339,6 +339,7 @@ block pmtilesFiles:
   doAssert writePmtiles(vpath, [(0, 0, 0, gzipOf(sampleTile()))], ptMvt, gzipTiles = true)
   let vp = openPmtiles(vpath)
   doAssert vp.ok and vp.tileType == ptMvt and vp.tile(0, 0, 0) == sampleTile()
+  vp.close()
 
 block mbtilesFiles:
   let path = tmp / "colors.mbtiles"

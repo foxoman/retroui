@@ -66,14 +66,28 @@ proc readRange(p: Pmtiles; offset, length: uint64): string =
       # (a server that sends it all: the part of it)
       return r.body[int(offset) ..< int(offset + length)]
     return ""
-  if p.file == nil: return ""
-  try:
-    p.file.setFilePos(int64(offset))
-    result = newString(int(length))
-    let n = p.file.readBuffer(addr result[0], int(length))
-    result.setLen(n)
-  except IOError, OSError:
-    result = ""
+  when defined(windows):
+    # (Windows: a file open here could not be removed or replaced while the
+    # app runs -- an offline map deleted in Explorer: opened for each read)
+    var f: File
+    if not open(f, p.path): return ""
+    try:
+      f.setFilePos(int64(offset))
+      result = newString(int(length))
+      result.setLen(f.readBuffer(addr result[0], int(length)))
+    except IOError, OSError:
+      result = ""
+    finally:
+      f.close()
+  else:
+    if p.file == nil: return             # ("")
+    try:
+      p.file.setFilePos(int64(offset))
+      result = newString(int(length))
+      let n = p.file.readBuffer(addr result[0], int(length))
+      result.setLen(n)
+    except IOError, OSError:
+      result = ""
 
 proc gunzipped(data: string): string =
   if data.len < 18 or data[0] != '\x1f' or data[1] != '\x8b': return data
@@ -150,20 +164,27 @@ proc tileId*(z, x, y: int): uint64 =
 
 proc openPmtiles*(path: string; headers: openArray[(string, string)] = []): Pmtiles =
   ## The archive at `path` (a file, or an http(s) address); `ok` false and
-  ## `error` why when it cannot be read.
+  ## `error` why when it cannot be read (the file is closed then).
   result = Pmtiles(path: path, headers: @headers)
+  template fail(why: string) =
+    # (closed: on Windows an open file cannot be removed or replaced)
+    result.error = why
+    if result.file != nil:
+      result.file.close()
+      result.file = nil
+    return
   result.remote = path.startsWith("http://") or path.startsWith("https://")
   if not result.remote:
     if not open(result.file, path):
       result.error = "it cannot be opened"
       return
+    when defined(windows):
+      # (each read opens it again: see readRange)
+      result.file.close()
+      result.file = nil
   let head = result.readRange(0, 127)
-  if head.len < 127 or head[0 .. 6] != "PMTiles":
-    result.error = "it is not a PMTiles archive"
-    return
-  if ord(head[7]) != 3:
-    result.error = "PMTiles version " & $ord(head[7]) & " (3 is read)"
-    return
+  if head.len < 127 or head[0 .. 6] != "PMTiles": fail("it is not a PMTiles archive")
+  if ord(head[7]) != 3: fail("PMTiles version " & $ord(head[7]) & " (3 is read)")
   let p = result
   p.rootOffset = u64le(head, 8)
   p.rootLength = u64le(head, 16)
@@ -185,12 +206,9 @@ proc openPmtiles*(path: string; headers: openArray[(string, string)] = []): Pmti
   p.centerLon = float(i32le(head, 119)) / 1e7
   p.centerLat = float(i32le(head, 123)) / 1e7
   if p.internalCompression notin {pcNone, pcGzip, pcUnknown}:
-    p.error = "its directories are packed with " & $p.internalCompression & " (gzip is read)"
-    return
+    fail("its directories are packed with " & $p.internalCompression & " (gzip is read)")
   p.root = readDirectory(unpack(p.internalCompression, p.readRange(p.rootOffset, p.rootLength)))
-  if p.root.len == 0:
-    p.error = "its directory cannot be read"
-    return
+  if p.root.len == 0: fail("its directory cannot be read")
   p.ok = true
 
 proc close*(p: Pmtiles) =

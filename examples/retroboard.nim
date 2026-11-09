@@ -21,7 +21,7 @@ import retroui/[board, freehand]
 
 const
   AppName = "Retro Board"
-  BoardVersion = "1.3.5"
+  BoardVersion = "1.3.6"
   iconPng = staticRead("assets/board-icon.png")
 
 type
@@ -3297,7 +3297,8 @@ proc dialogs() =
             "on as many pages as you like.",
             "Made with Retro Nim UI " & RetroVersion & " (retroui/board, retroui/freehand)."],
            tagline = "Draw, sketch and think together", iconPng = iconPng,
-           whatsNew = ["1.3.5: in Termux, a .board named after it on the command line opens; a report of a " &
+           whatsNew = ["1.3.6: on a Mac it opens again (it stopped at the first click or key since 0.29 of the kit); minimized, it draws nothing",
+                       "1.3.5: in Termux, a .board named after it on the command line opens; a report of a " &
                        "fault says the version",
                        "1.3.4: Ctrl+Shift+Up / Down make the next step, and only that (the pages' list " &
                        "leaves them be); Ctrl+Backspace and Ctrl+Delete take a word in a text; when the " &

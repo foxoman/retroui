@@ -434,7 +434,8 @@ retrokit designer app.nim       # app.nim's windows (a new file when there is no
   timer asked for one (`wakeIn(ms)`) or when work on a background thread
   finished. Between frames the app sleeps. Drawing commands carry hashes:
   an unchanged frame is skipped, and a changed one redraws only the bands
-  that changed.
+  that changed. A minimized window draws nothing at all (`ui.hidden`:
+  its frames and timers go on, so it can read less often).
 - **Input, the same everywhere.** Mouse: click, double-click, the wheel
   (Shift for sideways, Ctrl to zoom where it makes sense), drag, the right
   button for menus, the middle and side buttons. Keyboard: Tab and
@@ -1170,7 +1171,7 @@ toast("Copied 12 items", title = "Files")    # a yellow Windows 95 balloon
 ### Retro Files
 
 `examples/filemanager.nim` (about 2,100 lines: the rest is the toolkit's)
-is **Retro Files 3.3.5**, a complete file manager in the manner of the Windows 98
+is **Retro Files 3.3.6**, a complete file manager in the manner of the Windows 98
 Explorer -- the Standard Buttons with their labels under the icons (View >
 Toolbars > Text Labels), the Address bar, View as Web Page (the folder's
 name large and the selection described at the left), Large and Small icons,
@@ -1423,7 +1424,7 @@ drawing (`fill`, `box`, `line`, `text`, `disc`, `polygon`…).
 
 ![Retro Mail: All Inboxes in threads, tags, the conversation in the preview pane](docs/mail.png)
 
-`examples/mail.nim` is **Retro Mail 1.1.1**: Outlook Express 4 to look at and to
+`examples/mail.nim` is **Retro Mail 1.1.2**: Outlook Express 4 to look at and to
 use, with what the new Outlook does, for Microsoft 365, Outlook.com and Gmail
 -- and any other provider through IMAP and SMTP. It is the toolkit's network
 modules at work:
@@ -1588,7 +1589,7 @@ b.saveBoard("flow.board")
   scale, transparent or on the canvas's color), SVG and PDF (vectors,
   text as outlines).
 
-`examples/retroboard.nim` is **Retro Board 1.3.5**, a whiteboard app made of
+`examples/retroboard.nim` is **Retro Board 1.3.6**, a whiteboard app made of
 it: the 3.1 title bar on phones and tablets, a status bar (the tool's
 hint, page, shapes, zoom, memory), the color schemes and Appearance, a
 floating tool bar (select, hand, draw, highlighter, eraser, laser,
@@ -1659,7 +1660,7 @@ the picture whatever the number of values.
 
 ![Retro Task Manager: the processes](docs/taskman.png)
 
-`examples/taskman.nim` is **Retro Task Manager 1.0.1**: the processes with
+`examples/taskman.nim` is **Retro Task Manager 1.0.2**: the processes with
 their share of the processor, the memory and the disk (search, sort by any
 column, End task, End process tree, a priority, Open file location,
 Properties; Delete ends the one selected, after asking), the processor (and
@@ -1748,7 +1749,7 @@ s.dehaze = 10
 p.applyFilter(developMargin(s), develop(s))
 ```
 
-`examples/photo.nim` is **Retro Photo 4.9.6**, an image editor in the manner
+`examples/photo.nim` is **Retro Photo 4.9.7**, an image editor in the manner
 of the ones of 1994: the toolbox, the tabbed floating palettes (Brushes
 and Options; Picker, Swatches and Scratch; Layers, Channels and Paths;
 Info; Commands; Navigator, History and Actions; Properties), an options
@@ -2722,8 +2723,8 @@ when they are there.
 **Is drawing every frame slow, or bad for the battery?**
 No. A frame runs only when something happened (input, a timer you asked
 for with `wakeIn`, finished background work); an unchanged frame is not
-drawn or sent; a changed one redraws only the bands that changed. An idle
-app uses no CPU.
+drawn or sent; a changed one redraws only the bands that changed; a
+minimized window draws nothing. An idle app uses no CPU.
 
 **Where do widget ids come from? What about lists of rows?**
 From the variable a widget is bound to, or its label. When the same

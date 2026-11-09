@@ -38,7 +38,7 @@ const TermuxHome = "/data/data/com.termux/files/home"
 const
   AppTitle = "Retro Files"
   AppId = "RetroFiles"
-  AppVersion = "3.3.5"
+  AppVersion = "3.3.6"
 
 type
   ViewerKind = enum vkNone, vkText, vkMarkdown, vkImage, vkHex, vkZip, vkPdf, vkVideo, vkAudio
@@ -1693,7 +1693,9 @@ proc helpDialogs() =
             tr("Copyright (c) 2026 Sultan Al Isaiee. MIT licence.")],
            tagline = tr("Your files, as in 1994"),
            iconPng = FilesIconPng, glyph = pxFolderOpen,
-           whatsNew = [tr("3.3.5: opens as an Android app again (it closed at its start: it asked for a " &
+           whatsNew = [tr("3.3.6: on a Mac it opens again (it stopped at the first click or key since " &
+                            "0.29 of the kit); minimized, it draws nothing"),
+                       tr("3.3.5: opens as an Android app again (it closed at its start: it asked for a " &
                             "command line, which an Android app does not have); a report of a fault says " &
                             "the version"),
                        tr("3.3.4: a picture zooms about the mouse; after the viewer (Esc) the keys go on " &

@@ -941,7 +941,8 @@ proc startMonitor*(everyMs = 1000) =
 
 proc setMonitorInterval*(ms: int) =
   ## How often the system is read: a second while a window shows it, five
-  ## while it is hidden or put away (`ui.paused`) -- less work for nobody.
+  ## while it is minimized (`ui.hidden`) or put away (`ui.paused`) -- less
+  ## work for nobody.
   if running:
     withLock lock: intervalMs = max(100, ms)
 

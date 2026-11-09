@@ -110,7 +110,9 @@ line.
   shows a busy box for work that must run on the UI thread. Ask for a
   frame later with `wakeIn(ms)`; for something that moves by itself where
   it is drawn (an animation, a clock), `wakeInShown(rect, ms)`: no frames
-  while it is out of view, so an app at rest takes no CPU.
+  while it is out of view, so an app at rest takes no CPU. A minimized
+  window draws nothing (`ui.hidden`; its frames and timers go on): read
+  what changes by itself less often then.
 - `&` in a label underlines the next letter (Alt+letter). `isDefault = true`
   makes Enter press the button.
 - Dialogs and popups are drawn by the same frame code, opened by a

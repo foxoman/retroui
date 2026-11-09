@@ -8,7 +8,7 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[tables, strutils, math]
+import std/[tables, strutils]
 import compiler/[ast, idents]
 import retroui
 import source, registry, values, model

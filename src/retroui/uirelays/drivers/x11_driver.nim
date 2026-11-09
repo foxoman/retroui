@@ -309,6 +309,8 @@ const
   FocusIn = 9.cint
   FocusOut = 10.cint
   Expose = 12.cint
+  UnmapNotify = 18.cint
+  MapNotify = 19.cint
   ConfigureNotify = 22.cint
   PropertyNotify = 28.cint
   SelectionNotify = 31.cint
@@ -1366,6 +1368,21 @@ proc readMaximized(): bool =
   XInternAtom(gDisplay, "_NET_WM_STATE_MAXIMIZED_HORZ", 0) in st and
     XInternAtom(gDisplay, "_NET_WM_STATE_MAXIMIZED_VERT", 0) in st
 
+var
+  gHidden = false       ## (minimized: told to the app once each way)
+  gUnmapped = false     ## (taken off the screen: ICCCM's minimized)
+
+proc readHidden(): bool =
+  ## (the window manager says it is minimized: _NET_WM_STATE_HIDDEN)
+  if gDisplay == nil or gWindow == None or gNetWmState == 0: return false
+  XInternAtom(gDisplay, "_NET_WM_STATE_HIDDEN", 0) in atomsOf(gWindow, gNetWmState)
+
+proc tellHidden() =
+  let hidden = gUnmapped or readHidden()
+  if hidden != gHidden:
+    gHidden = hidden
+    pushEvent(input.Event(kind: (if hidden: WindowHiddenEvent else: WindowShownEvent)))
+
 proc sendWmState(add: bool; a, b: Atom) =
   ## Ask the window manager to add or remove states (the EWMH message, to
   ## the root window; only once the window is mapped).
@@ -2068,6 +2085,18 @@ proc processXEvent(xev: XEvent) =
       if m != gMaximized:
         gMaximized = m
         pushEvent(input.Event(kind: WindowResizeEvent, x: gWidth.int, y: gHeight.int))
+      tellHidden()
+
+  of UnmapNotify:
+    # (minimized by a window manager without _NET_WM_STATE_HIDDEN: unmapped)
+    if xev.xany.window == gWindow:
+      gUnmapped = true
+      tellHidden()
+
+  of MapNotify:
+    if xev.xany.window == gWindow:
+      gUnmapped = false
+      tellHidden()
 
   of KeyPress:
     # The text a key types is UTF-8 from the input method, which is also what

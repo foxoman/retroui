@@ -424,5 +424,29 @@ block sizeGripAndResizable:
   run(2)
   doAssert sizeGrip().w > 0 and told == @[false, true]
 
+block minimized:
+  # minimized (the driver's WindowHiddenEvent): frames and timers go on,
+  # nothing is drawn; back again (WindowShownEvent): drawn whole
+  var n = 0
+  var frames = 0
+  view = proc () =
+    inc frames
+    label "Count " & $n
+  run(3)
+  let shown = pixels
+  queue.add Event(kind: WindowHiddenEvent)
+  run(1)
+  doAssert ui.hidden
+  for i in 0 ..< 5:
+    inc n
+    let before = frames
+    run(1)
+    doAssert frames > before, "the app's frames go on"
+  doAssert pixels == shown, "nothing drawn while nobody sees it"
+  queue.add Event(kind: WindowShownEvent)
+  run(2)
+  doAssert not ui.hidden
+  doAssert pixels != shown, "drawn again, with what changed"
+
 removeDir(keepHome)
 echo "test_frame: ok"
