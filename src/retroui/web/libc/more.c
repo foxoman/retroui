@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/syscall.h>
+#include <iconv.h>
+#include <pthread.h>
 #include <sys/select.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
@@ -26,8 +28,20 @@
 #include <sys/stat.h>
 #include <stdint.h>
 
+RL_IMPORT(rl_random) void rl_random(void *p, size_t n);
+
 long syscall(long n, ...) {
-  if (n == SYS_gettid) return 1;
+  if (n == SYS_gettid) return (long)pthread_self();
+  if (n == SYS_getrandom) {
+    /* (Nim's std/sysrand asks this way: the browser's crypto.getRandomValues) */
+    va_list a;
+    va_start(a, n);
+    void *buf = va_arg(a, void *);
+    size_t len = va_arg(a, size_t);
+    va_end(a);
+    rl_random(buf, len);
+    return (long)len;
+  }
   errno = ENOSYS;
   return -1;
 }
@@ -240,3 +254,80 @@ __int128 __multi3(__int128 a, __int128 b) {
   r.hi += al * bh + ah * bl;
   return (__int128)(((unsigned __int128)r.hi << 64) | r.lo);
 }
+
+/* ---- character sets (iconv): to UTF-8 by the browser's TextDecoder; from
+   UTF-8 to Latin-1 and ASCII here. A conversion is done whole: when the
+   output does not fit it says E2BIG and takes nothing (the caller grows it
+   and asks again, as Nim's std/encodings does). ---- */
+
+RL_IMPORT(rl_charset) int rl_charset(const char *name);
+RL_IMPORT(rl_decode) int rl_decode(const char *from, const char *in, int inLen, char *out, int outCap);
+
+typedef struct { char from[40]; int kind; } RlIconv;   /* kind 0: to UTF-8 (the browser); 1: Latin-1; 2: ASCII */
+
+static int sameName(const char *a, const char *b) {
+  for (;; a++, b++) {
+    while (*a == '-' || *a == '_') a++;
+    while (*b == '-' || *b == '_') b++;
+    int x = *a >= 'A' && *a <= 'Z' ? *a + 32 : *a, y = *b >= 'A' && *b <= 'Z' ? *b + 32 : *b;
+    if (x != y) return 0;
+    if (!x) return 1;
+  }
+}
+
+iconv_t iconv_open(const char *to, const char *from) {
+  RlIconv *c = calloc(1, sizeof *c);
+  if (!c) { errno = ENOMEM; return (iconv_t)-1; }
+  size_t n = strlen(from);
+  if (n >= sizeof c->from) { free(c); errno = EINVAL; return (iconv_t)-1; }
+  memcpy(c->from, from, n + 1);
+  if (sameName(to, "UTF8")) {
+    if (!rl_charset(from)) { free(c); errno = EINVAL; return (iconv_t)-1; }
+    c->kind = 0;
+  } else if (sameName(from, "UTF8") && (sameName(to, "ISO88591") || sameName(to, "LATIN1"))) c->kind = 1;
+  else if (sameName(from, "UTF8") && (sameName(to, "ASCII") || sameName(to, "USASCII"))) c->kind = 2;
+  else { free(c); errno = EINVAL; return (iconv_t)-1; }
+  return c;
+}
+
+size_t iconv(iconv_t cd, char **restrict in, size_t *restrict inLeft, char **restrict out, size_t *restrict outLeft) {
+  RlIconv *c = cd;
+  if (!in || !*in || !inLeft) return 0;            /* (a flush: nothing kept) */
+  if (c->kind == 0) {
+    int r = rl_decode(c->from, *in, (int)*inLeft, *out, (int)*outLeft);
+    if (r < 0) { errno = E2BIG; return (size_t)-1; }
+    *in += *inLeft;
+    *inLeft = 0;
+    *out += r;
+    *outLeft -= (size_t)r;
+    return 0;
+  }
+  /* UTF-8 to one byte a character: what does not fit is '?' */
+  const unsigned char *s = (const unsigned char *)*in, *e = s + *inLeft;
+  size_t need = 0;
+  for (const unsigned char *p = s; p < e; p++) if ((*p & 0xC0) != 0x80) need++;
+  if (need > *outLeft) { errno = E2BIG; return (size_t)-1; }
+  size_t odd = 0;
+  unsigned char *o = (unsigned char *)*out;
+  while (s < e) {
+    unsigned cp = *s++;
+    if (cp >= 0xC0) {
+      int more = cp >= 0xF0 ? 3 : cp >= 0xE0 ? 2 : 1;
+      cp &= 0x3F >> more;
+      while (more-- && s < e && (*s & 0xC0) == 0x80) cp = (cp << 6) | (*s++ & 0x3F);
+    }
+    unsigned lim = c->kind == 1 ? 0xFF : 0x7F;
+    if (cp > lim) { cp = '?'; odd++; }
+    *o++ = (unsigned char)cp;
+  }
+  *outLeft -= (size_t)((char *)o - *out);
+  *out = (char *)o;
+  *in += *inLeft;
+  *inLeft = 0;
+  return odd;
+}
+
+int iconv_close(iconv_t cd) { free(cd); return 0; }
+
+int *__errno_location(void) { return &errno; }
+

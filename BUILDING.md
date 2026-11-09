@@ -174,18 +174,56 @@ retrokit web app.nim --files:data --icon:icon.png --name:"My App"   # build/web
 retrokit run --web --watch app.nim      # served on http://localhost:8765, rebuilt on every save
 ```
 
-`--out:DIR` puts the page elsewhere, `--small` optimizes for size,
+`--out:DIR` puts the page elsewhere, `--small` optimizes for size (`-Oz`),
 `--debug` keeps Nim's checks and stack traces; anything else goes to the
 compiler. Put `build/web` on any web server (HTTPS, for the service
 worker); the page is `index.html`. The C library is compiled once into
-the cache (`RETROWEB_CACHE` another folder).
+the cache (`RETROWEB_CACHE` another folder), once with threads and once
+without.
+
+What is beside the page: `app.wasm` and its gzipped copy `app.wasm.gz`
+(for servers that hand such copies out: nginx's `gzip_static`; GitHub
+Pages and the like compress by themselves), `retro.js`, `kit/fonts/` (the
+kit's fonts, fetched when a face is first used), `app/` (`--files`),
+`oauth.html` (where a sign-in comes back to, `retroui/oauth`), the
+manifest, the icons and `sw.js` (the service worker).
+
+**Threads:** `--threads` builds the app twice, `app.wasm` and
+`app-threads.wasm` (`--threads:on`, WebAssembly's atomics, one shared
+memory of up to 1 GB); the page takes the second where the browser lets
+it share memory with Web Workers (crossOriginIsolated: the server sends
+`Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp` -- the page's service worker
+adds them on any server, the page loading once more the first time;
+`retrokit run --web` sends them itself). `--threads:N` starts N workers
+with the page (the cores, at most 8, else); `--threads-only` builds only
+with threads (an app that needs them; elsewhere the page says so). Code
+that starts threads itself compiles both ways: `when
+compileOption("threads")`. Other sites' pages in a frame need to allow
+being embedded (`Cross-Origin-Resource-Policy`) in a page with threads.
+
+**Fonts in programs:** `-d:retroFonts=all` (the default: twelve faces,
+0.94 MB), `sans`, `ui` (FreeSans and its bold) or `none`: the faces left
+out are read from `fonts/` beside the program (the `.ttf.z` files of
+`src/retroui/fonts`) or `$RETRO_FONTS`, else drawn with FreeSans.
 
 **Testing it all**, in a clone: `nimble test` (headless), `nimble fuzz`,
 `sh tests/run32.sh` (as 32-bit programs: `apt install gcc-multilib` and
 the i386 X11 libraries), `sh tests/web/run.sh` (Playwright's Chromium),
 `sh tests/wayland/run.sh` (sway), `sh tests/kiosk/run.sh`,
-`sh tests/store/linux.sh`, `python3 tools/returncheck.py` (no `return x`
-after `result` was set: Nim 2.2 leaks the old value). Under the sanitizers:
+`sh tests/store/linux.sh`, `sh tests/web/node.sh` (the headless tests as
+WebAssembly under Node), `python3 tools/returncheck.py` (no `return x`
+after `result` was set: Nim 2.2 leaks the old value; `docs/nim-bugs.md`).
+The decoders under libFuzzer (clang):
+
+```sh
+nim c --cc:clang --noMain -d:useMalloc -d:release --debugger:native \
+  --passC:"-fsanitize=fuzzer,address,undefined -fno-sanitize=function" \
+  --passL:"-fsanitize=fuzzer,address,undefined" -d:fuzzTarget=png -o:lf tests/fuzz/libfuzz.nim
+./lf -max_total_time=300 corpus/ tests/fuzz/seeds
+```
+
+Under the sanitizers:
 
 ```sh
 ASAN_OPTIONS=detect_leaks=1 LSAN_OPTIONS=suppressions=tests/lsan.supp \
@@ -615,6 +653,34 @@ Info.plist already).
 
 Google Play: `retroapk --aab` (above, "For Google Play"). The App Store:
 `retroios --ipa` (above). The web: `retrokit web` (above).
+
+### Updates inside the app
+
+For an app shipped outside the stores (an AppImage, a Windows program, a
+page): `retroui/update` takes your releases by itself, signed by you.
+
+```sh
+retrokit update-key                  # once: update-key.secret, and the public key for the app
+```
+
+Keep `update-key.secret` out of the repository (`.gitignore` has
+`*.secret`); in CI give it as a secret, `RETRO_UPDATE_KEY` (the key itself).
+Put the public key in the app (`checkForUpdate(url, updateKey, version)`).
+For each release, beside its files, write `update.json`:
+
+```json
+{ "version": "1.3.0", "notes": "Faster search.",
+  "files": { "linux-x86_64": { "url": "https://example.com/notes/Notes-1.3.0.AppImage" },
+             "windows-x86_64": { "url": "https://example.com/notes/Notes-1.3.0.exe" } } }
+```
+
+```sh
+retrokit update-sign update.json     # each file's size and SHA-256 filled in; update.json.sig
+```
+
+and publish `update.json`, `update.json.sig` and the files where the app
+looks. The systems' names: `linux-x86_64`, `linux-arm64`, `windows-x86_64`,
+`windows-arm64`, `macos-arm64`, `macos-x86_64`, `android-arm64`, `web`.
 
 ### Verified
 

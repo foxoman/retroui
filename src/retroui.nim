@@ -61,6 +61,11 @@
 ## `mediasession`    the system's media controls (lock screen, taskbar)
 ## `sign`, `msix`    signatures (JAR, Authenticode, time stamps), MSIX packages
 ## `macapp`          macOS bundles signed ad hoc, .icns, iOS archives
+## `system`          the system's features in one API: share, the place, speech,
+##                   the device, starting with the computer (docs/system.md)
+## `update`          updates inside the app: a signed update file (Ed25519), the
+##                   download checked, installed (retrokit update-key, update-sign)
+## `xmpp`            chat (XMPP: contacts, rooms, files, history; a WebSocket in a page)
 ## ================  ==========================================================
 ##
 ## .. code-block:: nim

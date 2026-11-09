@@ -1,0 +1,143 @@
+name: Nightly
+
+# What takes too long for every push, every night:
+#
+#   sanitizers  the headless tests under AddressSanitizer and UBSan (leaks
+#               too: tests/lsan.supp names the few that are not the kit's)
+#   fuzz        the mutation fuzzers, long runs, under the sanitizers
+#   libfuzzer   the decoders under libFuzzer (tests/fuzz/libfuzz.nim):
+#               coverage-guided, five minutes a target
+#   32-bit      the headless tests as 32-bit programs under UBSan: an int as
+#               small as WebAssembly's, a shift of 32 that is undefined in C
+#   wasm        the headless tests that need nothing of the system as
+#               WebAssembly under Node (tests/web/node.sh)
+#
+# A crash's input is uploaded (Actions > the run > Artifacts).
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+env:
+  NIM_VERSION: "2.2.6"
+
+jobs:
+  sanitizers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Libraries the tests load
+        run: sudo apt-get update && sudo apt-get install -y clang libegl1 libgles2 libegl-mesa0
+      - name: The headless tests under ASan and UBSan
+        run: |
+          mkdir -p build
+          tests=$(tr '\n' ' ' < retroui.nimble | sed -n 's/.*task test,[^[]*\[\([^]]*\)\].*/\1/p' | tr -d '",')
+          failed=0
+          for t in $tests; do
+            if ASAN_OPTIONS=detect_leaks=1 LSAN_OPTIONS=suppressions=tests/lsan.supp \
+               nim c -r --hints:off --warnings:off --cc:clang -d:useMalloc --debugger:native \
+                 --passC:"-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize=function" \
+                 --passL:"-fsanitize=address,undefined" -o:build/san_$t tests/$t.nim > build/san_$t.log 2>&1
+            then echo "ok   $t"
+            else echo "FAIL $t"; tail -40 build/san_$t.log; failed=$((failed + 1))
+            fi
+            rm -f build/san_$t
+          done
+          echo "$failed failed"
+          exit $failed
+
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: sudo apt-get update && sudo apt-get install -y clang
+      - name: The mutation fuzzers, long, under the sanitizers
+        run: |
+          SAN='--cc:clang -d:useMalloc --debugger:native --passC:-fsanitize=address,undefined --passC:-fno-sanitize=function --passL:-fsanitize=address,undefined'
+          mkdir -p crashes && cd crashes
+          ASAN_OPTIONS=detect_leaks=0 nim c -r -d:release --hints:off $SAN ../tests/fuzz/fuzz.nim ../tests/fuzz/seeds 200000
+          ASAN_OPTIONS=detect_leaks=0 nim c -r -d:release --hints:off $SAN ../tests/fuzz/fuzzui.nim 5000
+          for f in fuzz_store fuzz_models fuzz_maps fuzz_media fuzz_photo fuzz_report fuzz_view3d fuzz_htmlview fuzz_charts fuzz_canvas2d; do
+            ASAN_OPTIONS=detect_leaks=0 nim c -r -d:release --hints:off $SAN ../tests/fuzz/$f.nim 20000
+          done
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-crashes
+          path: crashes/
+
+  libfuzzer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [png, bmp, jpg, webp, inflate, md, html, pdf, gltf, mvt]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Build
+        run: |
+          mkdir -p build
+          nim c --cc:clang --noMain -d:useMalloc -d:release --debugger:native --hints:off \
+            --passC:"-fsanitize=fuzzer,address,undefined -fno-sanitize=function" \
+            --passL:"-fsanitize=fuzzer,address,undefined" \
+            -d:fuzzTarget=${{ matrix.target }} -o:build/lf tests/fuzz/libfuzz.nim
+      - name: Five minutes of it
+        run: |
+          mkdir -p corpus crashes
+          cd crashes && ../build/lf -max_total_time=300 -rss_limit_mb=4096 ../corpus ../tests/fuzz/seeds
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: libfuzzer-${{ matrix.target }}
+          path: crashes/
+
+  thirty-two-bit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: The 32-bit libraries
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib libx11-6:i386 libxext6:i386 libxrandr2:i386 libxcursor1:i386 libxi6:i386
+      - name: The headless tests as 32-bit programs, under UBSan
+        run: RETRO32_UBSAN=1 sh tests/run32.sh
+
+  wasm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: clang and wasm-ld
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+      - name: The headless tests as WebAssembly under Node
+        run: sh tests/web/node.sh

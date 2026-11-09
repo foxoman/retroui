@@ -11,6 +11,8 @@
 ## - macOS and iOS: MPNowPlayingInfoCenter and MPRemoteCommandCenter.
 ## - Android: a MediaSession with its notification
 ##   (`tools/android/RetroSession.java`).
+## - A web page: the browser's Media Session (a phone's lock screen, the
+##   browser's media hub, a headset's keys).
 ##
 ## .. code-block:: nim
 ##   app "Player", 600, 400:
@@ -359,6 +361,48 @@ elif defined(windows):
 
 elif defined(macosx) or defined(ios):
   include mediasession_apple
+
+# ---- a web page: the browser's Media Session (a phone's lock screen, a
+# desktop browser's media hub, a headset's keys) -------------------------------------------------
+
+elif defined(wasm):
+  proc webJson(s: string): string =
+    result = "\""
+    for c in s:
+      case c
+      of '"': result.add "\\\""
+      of '\\': result.add "\\\\"
+      of '\0' .. '\x1f': discard
+      else: result.add c
+    result.add '"'
+
+  proc tell(old: NowPlaying; first: bool) =
+    discard systemCall("media.set", "{\"title\":" & webJson(current.title) &
+      ",\"artist\":" & webJson(current.artist) & ",\"album\":" & webJson(current.album) &
+      ",\"art\":" & webJson(if current.artPath.len > 0: absolutePath(current.artPath) else: "") &
+      ",\"playing\":" & $current.playing & ",\"position\":" & $(current.positionMs / 1000) &
+      ",\"duration\":" & $(current.durationMs / 1000) & ",\"next\":" & $current.canNext &
+      ",\"previous\":" & $current.canPrevious & ",\"seek\":" & $current.canSeek & "}")
+
+  proc untell() = discard systemCall("media.clear", "")
+
+  proc pump() =
+    if not active: return
+    while true:
+      let s = systemCall("media.pressed", "")
+      if s.len == 0 or s == "\0": return
+      let p = s.split('\t')
+      let ms = if p.len > 1: (try: parseInt(p[1]) except ValueError: 0) else: 0
+      case p[0]
+      of "play": press(mkPlay)
+      of "pause": press(mkPause)
+      of "stop": press(mkStop)
+      of "nexttrack": press(mkNext)
+      of "previoustrack": press(mkPrevious)
+      of "seekto": press(mkSeekTo, ms)
+      of "seekbackward": press(mkSeekBy, -10000)
+      of "seekforward": press(mkSeekBy, 10000)
+      else: discard
 
 else:
   proc tell(old: NowPlaying; first: bool) = discard

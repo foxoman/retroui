@@ -410,8 +410,8 @@ block webInsideTheApp:
   doAssert calls.find(snap[0]) < calls.find("web.hide inside"), $calls
   webClose("inside")
   useSystemWebView = false
-  # the app's own folder (Linux: app://local/)
-  when not defined(windows):
+  # the app's own folder (Linux: app://local/; a web page: the page's own address)
+  when not defined(windows) and not defined(wasm):
     doAssert webAppUrl("index.html") == "app://local/index.html"
     doAssert webAppUrl("/css/a.css") == "app://local/css/a.css"
     doAssert allowedBy(["nim-lang.org"], webAppUrl("x.html"))

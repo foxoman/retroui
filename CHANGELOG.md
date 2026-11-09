@@ -1,5 +1,114 @@
 # Changes
 
+## 0.30.0
+
+Web pages that do what apps do everywhere else -- threads, the camera,
+the GPU, chat, signing in, Retro Mail itself -- smaller and faster; one
+API for the system's features on every system; updates inside apps,
+signed. Not 1.0 yet.
+
+- **One API for the system's features: `retroui/system`.** Notifications
+  and the badge, sharing (`share`: text, a link, files -- the share sheet
+  of phones, macOS's menu, Web Share), a tap felt (`haptic`), the place
+  (`location`, `stopLocation`), speech (`speak`, `stopSpeaking`,
+  `speaking`), starting with the computer (`setOpenAtLogin`), asking for
+  attention (`requestAttention`: the taskbar flashes, the Dock bounces, the
+  tab blinks), `online`, `systemLanguage`, `battery`, `revealFile`,
+  `deviceInfo` -- the same calls on Linux, Windows, macOS, Android, iOS and
+  in a page; "not here" answers false, never an error, and nothing waits on
+  the system. **`docs/system.md`** says what every call does on every
+  system, what an app declares for it (Android permissions, Info.plist,
+  https) and how to write it so it works everywhere. Android's part is
+  `tools/android/RetroSystem.java`. The Gallery has a System page: the
+  device, notifications, sharing, speech, the place, the camera, a
+  recording, a secret, native code of each system.
+- **Threads in web pages.** `retrokit web --threads` makes a second build
+  with threads (`app-threads.wasm`) that the page takes where the browser
+  lets it share memory with workers: the kit's drawing (`parallelFor`),
+  pictures, maps and the app's own `createThread` run in Web Workers on one
+  memory, each with its own stack and thread-local storage. The kit's C
+  library has real locks (futexes: WebAssembly's atomic wait and notify;
+  the page's own thread spins, and meanwhile does what the threads ask of
+  the page), a heap behind a lock, `pthread_create` / `join` / `detach`,
+  conditions, `sleep` in a thread. What a thread asks of the page -- its
+  files, its console, the canvas -- the page does for it; its HTTP requests
+  wait in the worker. The page is kept apart from other sites
+  (crossOriginIsolated) on any server: its service worker adds the headers
+  and the page loads once more the first time; without that (or with
+  `?threads=0`) the build without threads runs. `--threads:N` starts N
+  workers with the page; `--threads-only` builds only with them, for an app
+  that cannot do without. `tests/web/threadcheck.nim` checks locks,
+  atomics, channels, thread-local variables, files and memory from
+  threads, conditions, `parallelFor`; the web checks run once more with
+  threads.
+- **Retro Mail as a web page.** `retrokit web examples/mail.nim
+  --threads-only`: Microsoft 365 and Gmail through Graph and the Gmail API
+  (HTTPS, from its sync thread), its SQLite database in the page's
+  storage, signing in through a pop-up that comes back to `oauth.html`
+  beside the page (`retrokit web` writes it; register its address).
+  `retroui/oauth` signs in this way in any page.
+- **The camera and the microphone in a page** (`retroui/capture`:
+  getUserMedia; a recording is a 16-bit WAV), **the media keys and the lock
+  screen** (`retroui/mediasession`: the browser's Media Session),
+  **secrets** (`retroui/secrets`: sealed with AES-GCM by a WebCrypto key the
+  browser keeps and never hands out), **screen readers** (the window's
+  controls mirrored as ARIA elements over the canvas, the focus said as it
+  moves, a screen reader's click a press), **chat** (`retroui/xmpp` over a
+  WebSocket, RFC 7395: the server's host-meta says where), **the 3D view on
+  the GPU** (WebGL 2, a context of its own, the picture read back),
+  **printing** (the browser's print dialog), **files out and in** (what an
+  app writes in `/downloads` is handed to the user -- the browser's Save
+  As, or a download; Open is the browser's file chooser), **the end of the
+  program** (File, Exit closes the window or says it ended, with Start
+  again), **sound through an AudioWorklet**.
+- **Smaller, faster pages.** WebAssembly SIMD, link-time optimization
+  (`-flto`, the names section left out), `--small` with `-Oz`, the kit's
+  fonts beside the page (fetched when a face is first used: 0.94 MB out of
+  every app), a gzipped copy beside the wasm (`retrokit run --web` serves
+  it), compiled while it downloads, frames shown through WebGL 2 (the
+  changed rows uploaded straight from the program's memory; a 2D canvas
+  where there is none). Character sets through the browser (`iconv`: every
+  encoding the web knows), `getrandom`, file locks for SQLite in the page's
+  C library: SQLite works in a page (Retro Mail's database, MBTiles maps).
+  The app's data folder is made on demand there too (the fault log).
+- **Updates inside apps: `retroui/update`.** The app reads the update file
+  you publish (`update.json`: the newest version, its file for each
+  system), checks its Ed25519 signature with the public key built into it,
+  downloads the file for its system, checks its SHA-256, and installs it
+  (an AppImage replaced, a Windows program or installer, a package handed
+  to the system's installer, a page's newest build); `restartApp`.
+  `retrokit update-key` makes the key (keep `update-key.secret` out of the
+  repository: `.gitignore` has `*.secret`), `retrokit update-sign
+  update.json` fills in the files' sizes and SHA-256s and signs it.
+  Monocypher's Ed25519 (`vendor/monocypher-ed25519.c`); RFC 8032's test
+  vectors in `tests/test_update.nim`.
+- **Smaller programs: `-d:retroFonts`.** `all` (the twelve faces built in,
+  as before), `sans` (FreeSans's four), `ui` (FreeSans and its bold: Hello
+  goes from 2.2 MB to 1.4 MB), `none`; the faces left out are read from
+  `fonts/` beside the program (or `$RETRO_FONTS`) when they are there, else
+  drawn with FreeSans in the same style.
+- **Tested further.** `.github/workflows/nightly.yml`: every night the
+  headless tests under AddressSanitizer and UBSan, the mutation fuzzers
+  for long runs, the decoders under libFuzzer (`tests/fuzz/libfuzz.nim`:
+  PNG, BMP, JPEG, WebP, inflate, Markdown, HTML, PDF, glTF, vector tiles),
+  the tests as 32-bit programs under UBSan (`RETRO32_UBSAN=1 sh
+  tests/run32.sh`), and as WebAssembly under Node (`tests/web/node.sh`, on
+  every push too). `.github/workflows/devices.yml`: the live check on real
+  phones in Firebase Test Lab (with the `FIREBASE_SA_KEY` secret) and on a
+  Raspberry Pi (a self-hosted runner). Screen readers on Windows: UI
+  Automation finds the controls and presses a button
+  (`tests/access/windows.ps1`). Chat over a WebSocket against a small
+  server (`tests/web/xmppws.py`).
+- **Before 1.0:** `docs/stability.md` says which APIs are settled, which
+  still move, and how a change reaches you (deprecated before removed).
+  `docs/nim-bugs.md` has two leaks of Nim 2.2's ORC and an overflow in
+  its float parsing (libFuzzer found it in a glTF model), written up to
+  report.
+- **Fixed:** a shift by 32 of a 32-bit `uint` (undefined in C) that froze
+  windows in web pages (Desktop's window ids); a program without windows
+  in a page; the web builds of several apps in one folder at once (a
+  cache each).
+
 ## 0.29.0
 
 The kit on every system, on screens without a desktop and in the

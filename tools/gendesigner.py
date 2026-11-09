@@ -68,6 +68,13 @@ STD = {
     "std/json": {"parseJson", "newJObject", "newJArray"},
     "std/algorithm": {"sort", "sorted", "reversed"},
     "std/tables": {"initTable", "toTable", "initOrderedTable"},
+    # (the kit's modules of the system's features: no controls in them)
+    "retroui/system": {"notify", "setBadge", "share", "haptic", "hSuccess", "vibrate", "location",
+                       "stopLocation", "speak", "stopSpeaking", "speaking", "deviceInfo",
+                       "openAtLogin", "setOpenAtLogin", "requestAttention", "online",
+                       "systemLanguage", "battery", "revealFile", "psOk", "psWaiting"},
+    "retroui/secrets": {"saveSecret", "loadSecret", "deleteSecret"},
+    "retroui/update": {"checkForUpdate", "downloadUpdate", "installUpdate", "restartApp"},
 }
 
 # Examples of the guide that are about showing a window, not a control to drop.

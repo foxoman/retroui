@@ -1,6 +1,6 @@
 # Retro Nim UI: a study of its syntax
 
-By Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)), for Retro Nim UI 0.29.0.
+By Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)), for Retro Nim UI 0.30.0.
 
 The syntax is immediate mode written as plain Nim: a window is a block that runs every frame, a control is a proc call, its result is the event, and your own variables are the state. That one choice removes callbacks, widget objects and data binding, the three things that make most UI code hard to follow.
 
@@ -490,6 +490,33 @@ app "Web page", 340, 200:
 ![A Greet button, the text The page said: nothing yet, and under them a page with the heading Order 1042](syntax/f-web.png)
 
 A web page is one more event object: `webView` returns a `WebEvent` (its address, title, loading, Back and Forward), and what the page's scripts posted since the last frame is in its `messages`. Going the other way is an action: `webPost` sends a `retro` event to the page, `webRun` runs a script and its answer comes in a later frame's `results` with the number it returned. No callback, no bridge object: you read the page where you draw it. `engine = weSystem` asks for the system's browser (WebView2, WKWebView, WebKitGTK; an Android app has it unless you ask for `weKit`); the picture is the kit's own engine, which draws the page but runs no scripts, so the label still says "nothing yet". With the system's, it says "loaded".
+
+### Asking the system
+
+```nim
+import retroui
+import retroui/system
+
+var asked = false
+
+app "Where", 320, 110:
+  row:
+    if button("&Where am I?"): asked = true      # from a click: the user may be asked
+    if button("&Share"):
+      if not share(text = "Order 1042"):         # false: no share sheet here
+        putClipboardText("Order 1042")           # so the app offers what it can
+  if asked:
+    let p = location()                           # asked every frame: the answer comes later
+    case p.state
+    of psOk: label "At " & $p.lat & ", " & $p.lon
+    of psWaiting: label "Looking..."
+    of psDenied: label "The place was not allowed."
+    of psNone: label "No place on this device."  # "not here" is an answer
+```
+
+![A Where am I? button and a Share button, and under them the words No place on this device.](syntax/f-system.png)
+
+The system's features (`retroui/system`: notifications, sharing, the place, speech...) keep the forms above, with two habits. **An answer that comes later is asked for again**: `location()` is called every frame while it is needed, and says `psWaiting` until the system knows (the user is asked to allow it the first time, so it is asked from a click); the kit draws a frame when the answer comes, as it does for a web page's messages. **"Not here" is an answer**: where a system has no such feature the call says so (false, `psNone`) instead of raising, and the app offers what it can -- here the picture is a desktop with no place to give, and `share` with no share sheet copies the text. The same lines run on every system and in a web page; [docs/system.md](system.md) says what each system answers.
 
 ### Sizes, and your own loop
 

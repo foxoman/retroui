@@ -49,3 +49,7 @@ tests/fuzz/fuzz
 tests/fuzz/fuzzui
 tests/fuzz/fuzz_*
 !tests/fuzz/fuzz_*.nim
+
+# a key that signs updates (retrokit update-key): never in the repository
+*.secret
+tests/build/

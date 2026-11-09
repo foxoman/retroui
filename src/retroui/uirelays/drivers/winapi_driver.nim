@@ -2214,6 +2214,25 @@ proc winMinimize(): bool =
   discard ShowWindow(gHwnd, SW_MINIMIZE)
   true
 
+type FlashInfo = object
+  size: uint32
+  hwnd: HWND
+  flags, count, timeout: uint32
+
+proc FlashWindowEx(fi: ptr FlashInfo): int32 {.stdcall, dynlib: "user32", importc.}
+
+proc winCall(name, arg: string): string =
+  ## `SystemRelays.call`: "attention" (the taskbar's button flashes until
+  ## the window comes to the front).
+  case name
+  of "attention":
+    if gHwnd == nil: return "0"
+    var fi = FlashInfo(size: uint32(sizeof(FlashInfo)), hwnd: gHwnd,
+                       flags: 3 or 12)               # FLASHW_ALL, FLASHW_TIMERNOFG
+    discard FlashWindowEx(addr fi)
+    "1"
+  else: "\0"
+
 # ---- Files dragged out of the window (OLE) ----
 #
 # `dragOut` hands the files to OLE's DoDragDrop, which runs the drag until
@@ -2705,6 +2724,8 @@ proc initWinapiDriver*() =
     menuItem: winMenuItem, menuItemChosen: winMenuItemChosen,
     setResizable: winSetResizable)
   systemRelays.minimize = winMinimize
+  systemRelays.call = proc (name, arg: string): string {.gcsafe.} =
+    {.cast(gcsafe).}: winCall(name, arg)
   textCaretRelay = winTextCaret
   fileDragRelays = FileDragRelays(dragOut: winDragFilesOut)
   initWinapiFontRelays()

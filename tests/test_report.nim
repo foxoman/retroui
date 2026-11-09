@@ -440,7 +440,7 @@ block invoiceTemplate:
 
 # ---- printing (a fake CUPS) -------------------------------------------------------------------
 
-when defined(posix) and not defined(android) and not defined(macosx):
+when defined(posix) and not defined(android) and not defined(macosx) and not defined(wasm):
   block printing:
     let bin = tmp / "bin"
     createDir(bin)

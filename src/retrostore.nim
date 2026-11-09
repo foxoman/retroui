@@ -9,9 +9,12 @@
 ##   retrokit aab APP.nim          an Android App Bundle (retroapk --aab)
 ##   retrokit model FILE           a 3D model (.blend, .gltf, .obj, .stl) as the .glb
 ##                                 an app carries, with its parts and clips listed
+##   retrokit update-key           a key for updates inside apps (retroui/update)
+##   retrokit update-sign FILE     update.json signed with it (FILE.sig)
 
 import std/[os, osproc, strutils]
-import retroui/[sign, msix, macapp, rsa, http, view3d, gltf]
+import std/json
+import retroui/[sign, msix, macapp, rsa, http, view3d, gltf, update, sha2]
 
 proc die(msg: string) {.noreturn.} =
   stderr.writeLine "retrokit: " & msg
@@ -354,3 +357,64 @@ tint, play)."""
   if names.len > 0: echo "Parts: ", names.join(", ")
   let clips = scene.animationNames
   if clips.len > 0: echo "Clips: ", clips.join(", ")
+
+# ---- updates inside apps (retroui/update) --------------------------------------------------
+
+proc updateKeyCmd*(args: seq[string]): int =
+  let (files, o) = options(args)
+  if o.has("help", "h") or files.len > 0:
+    echo """retrokit update-key [--out:update-key.secret]   a key for updates inside apps
+  Writes the secret key (keep it to yourself: never in the repository, in
+  CI a secret) and prints the public key, for the app's checkForUpdate."""
+    return (if o.has("help", "h"): 0 else: 1)
+  let path = o.opt("out", "o", default = "update-key.secret")
+  if fileExists(path): die path & " is there already (a second key would not match the apps out there)"
+  let (secret, public) = newUpdateKeys()
+  writeFile(path, secret & "\n")
+  when not defined(windows):
+    setFilePermissions(path, {fpUserRead, fpUserWrite})
+  echo "the secret key: ", path, " (keep it; anyone with it can ship to your users)"
+  echo "the public key, for the app:"
+  echo "  const updateKey = \"", public, "\""
+  0
+
+proc updateSignCmd*(args: seq[string]): int =
+  let (files, o) = options(args)
+  if o.has("help", "h") or files.len != 1:
+    echo """retrokit update-sign update.json [--key:update-key.secret]
+  Fills in each file's "size" and "sha256" (from the files beside it, by
+  the name their address ends in), writes update.json again and signs it:
+  update.json.sig. Publish both where the app's checkForUpdate looks.
+  --key: the secret key file (or $RETRO_UPDATE_KEY, the key itself)."""
+    return (if o.has("help", "h"): 0 else: 1)
+  let path = files[0]
+  if not fileExists(path): die "no such file: " & path
+  var secret = getEnv("RETRO_UPDATE_KEY").strip
+  let keyFile = o.opt("key", "k", default = "update-key.secret")
+  if secret.len == 0:
+    if not fileExists(keyFile): die "no key: " & keyFile & " (retrokit update-key makes one)"
+    secret = readFile(keyFile).strip
+  var j: JsonNode
+  try: j = parseJson(readFile(path))
+  except CatchableError as e: die "not JSON: " & e.msg
+  if j{"version"}.getStr.len == 0: die "update.json has no \"version\""
+  let files2 = j{"files"}
+  if files2 != nil and files2.kind == JObject:
+    for platform, f in files2.pairs:
+      let name = f{"url"}.getStr.split('?')[0].split('/')[^1]
+      let local = path.parentDir / name
+      if name.len > 0 and fileExists(local):
+        let data = readFile(local)
+        f["size"] = %data.len
+        f["sha256"] = %sha256(data).toHex.toLowerAscii
+        echo platform, ": ", name, " ", data.len, " bytes"
+      elif f{"sha256"}.getStr.len != 64:
+        die platform & ": " & name & " is not beside " & path & " and has no sha256"
+  let text = j.pretty & "\n"
+  writeFile(path, text)
+  let sig = signUpdate(text, secret)
+  if not verifyUpdate(text, sig, publicKeyOf(secret)): die "the signature does not check (a bad key?)"
+  writeFile(path & ".sig", sig & "\n")
+  echo "signed: ", path & ".sig", " (public key ", publicKeyOf(secret), ")"
+  0
+

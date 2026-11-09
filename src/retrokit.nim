@@ -28,6 +28,8 @@
 ##   retrokit mac PROGRAM             a macOS .app: signed ad hoc here, or with
 ##                                    your Developer ID, notarized and stapled
 ##                                    on a Mac; zipped
+##   retrokit update-key              a key for updates inside apps
+##   retrokit update-sign update.json the update file signed (retroui/update)
 ##   retrokit ipa APP.app             an iOS .ipa for TestFlight and the App Store
 ##   retrokit model FILE              a 3D model (.blend, .gltf, .obj, .stl) as .glb
 ##   retrokit designer [app.nim]      Retro Designer: the app's windows, designed
@@ -72,6 +74,9 @@ retrokit -- start, check and build Retro Nim UI apps
       WebAssembly from clang and wasm-ld alone, no Emscripten. Options:
         --out:DIR  --files:DIR (the app's files, in /app)  --icon:FILE.png
         --name:TEXT  --small  --debug
+        --threads[:N]  a second build with threads, taken where the browser
+                       allows them (Web Workers on one memory)
+        --threads-only with threads alone (an app that needs them)
   retrokit apk APP.nim [...]   an Android APK (same options as retroapk)
   retrokit aab APP.nim [...]   an Android App Bundle (.aab) for Google Play,
       signed with your upload key (--key, --cert)
@@ -85,6 +90,10 @@ retrokit -- start, check and build Retro Nim UI apps
   retrokit ipa APP.app         an iOS app (built by retroios) as an .ipa
   retrokit model FILE          a 3D model (.blend through Blender, .gltf, .obj, .stl)
       as the .glb an app carries; says its parts and clips by name
+  retrokit update-key          a key for updates inside apps (retroui/update):
+      update-key.secret (yours alone), the public key printed for the app
+  retrokit update-sign update.json [--key:update-key.secret]
+      the update file's sizes and SHA-256s filled in, signed (update.json.sig)
   (each with --help for all its options)
   retrokit designer [APP.nim] [--rebuild]
       Retro Designer: the file's windows drawn with the real controls, to
@@ -849,6 +858,8 @@ proc main() =
   of "mac": quit macCmd(args[1 .. ^1])
   of "ipa": quit ipaCmd(args[1 .. ^1])
   of "model": quit modelCmd(args[1 .. ^1])
+  of "update-key": quit updateKeyCmd(args[1 .. ^1])
+  of "update-sign": quit updateSignCmd(args[1 .. ^1])
   else:
     quit usage
 

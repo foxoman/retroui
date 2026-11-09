@@ -1,0 +1,90 @@
+name: Real devices
+
+# The kit on real hardware, where the emulators and Xvfb cannot show what
+# a phone's GPU, its touch screen or an ARM board does:
+#
+#   android   the live check's APK (arm64) on real phones in Firebase Test
+#             Lab: a Pixel and a Samsung, their screenshots and logs kept.
+#             Needs the secret FIREBASE_SA_KEY (a Google Cloud service
+#             account's JSON key, with the Firebase Test Lab Admin role)
+#             and the variable FIREBASE_PROJECT; without them it says so
+#             and stops.
+#   raspberry-pi  the headless tests and the live check on a Raspberry Pi
+#             (a self-hosted runner labelled raspberrypi: Settings > Actions >
+#             Runners); only when the variable HAS_PI_RUNNER is "true".
+#
+# By hand (Actions > Real devices > Run workflow), and on a push to `next`.
+
+on:
+  push:
+    branches: [next]
+  workflow_dispatch:
+
+env:
+  NIM_VERSION: "2.2.6"
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      HAS_KEY: ${{ secrets.FIREBASE_SA_KEY != '' && vars.FIREBASE_PROJECT != '' }}
+    steps:
+      - name: Firebase Test Lab is set up
+        if: env.HAS_KEY != 'true'
+        run: echo "No FIREBASE_SA_KEY secret or FIREBASE_PROJECT variable -- no real phones this time."
+      - uses: actions/checkout@v4
+        if: env.HAS_KEY == 'true'
+      - uses: jiro4989/setup-nim-action@v2
+        if: env.HAS_KEY == 'true'
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: The live check's APK (arm64, for phones)
+        if: env.HAS_KEY == 'true'
+        run: |
+          nim c -d:release --hints:off -o:build/retroapk src/retroapk.nim
+          build/retroapk tests/live/livecheck.nim --abi:arm64-v8a --debuggable \
+            --id:org.retro.livecheck --name:Livecheck --nim:--path:src -o:build/livecheck.apk
+      - uses: google-github-actions/auth@v2
+        if: env.HAS_KEY == 'true'
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+        if: env.HAS_KEY == 'true'
+      - name: On real phones
+        if: env.HAS_KEY == 'true'
+        run: |
+          gcloud config set project "${{ vars.FIREBASE_PROJECT }}"
+          gcloud firebase test android run --type robo --app build/livecheck.apk \
+            --device model=oriole,version=33 --device model=a51,version=31 \
+            --timeout 5m --results-dir "retro-${{ github.run_id }}" \
+            --format json | tee devices.json
+      - uses: actions/upload-artifact@v4
+        if: always() && env.HAS_KEY == 'true'
+        with:
+          name: devices-android
+          path: devices.json
+
+  raspberry-pi:
+    if: vars.HAS_PI_RUNNER == 'true'
+    runs-on: [self-hosted, linux, raspberrypi]
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - name: The headless tests on ARM
+        run: nimble test -y
+      - name: The live check on the Pi's screen (or Xvfb)
+        run: |
+          nim c -d:release --hints:off --path:src -o:build/livecheck tests/live/livecheck.nim
+          if [ -z "${DISPLAY:-}" ] && command -v xvfb-run > /dev/null; then
+            RETRO_LIVE_OUT=live xvfb-run -s "-screen 0 1280x800x24" build/livecheck
+          else
+            RETRO_LIVE_OUT=live build/livecheck
+          fi
+          nim c -r --hints:off tools/live/compare.nim live
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-raspberry-pi
+          path: live/

@@ -382,6 +382,8 @@ block inputDialog:
   doAssert dlgResult == 1 and answer == "Fox" and not dlgOpen
 
 block fileDialogPick:
+  # (a web page has the browser's file chooser instead: tests/web)
+  if defined(wasm): break fileDialogPick
   page = 8
   let dir = getTempDir() / "retro-test"
   createDir(dir)

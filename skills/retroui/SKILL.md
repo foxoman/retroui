@@ -152,6 +152,19 @@ Charts and more: `chart` (21 kinds, from your numbers or a CSV table), `barChart
 HTML and Markdown (`htmlView`), web pages (`webView`), canvas (`canvas`, `retroui/canvas2d`), reports and PDF (`retroui/report`),
 sound and video (`retroui/media`; the system's media controls `retroui/mediasession`; camera and microphone `retroui/capture`), spreadsheets (`retroui/xlsx`), more windows (`window`).
 
+**The system's features** (`import retroui/system`; docs/system.md has
+every system's answer and what the app declares): `notify`, `setBadge`,
+`share`, `haptic`, `vibrate`, `location` (every frame while needed:
+`psWaiting` until the first fix), `speak`, `setOpenAtLogin`,
+`requestAttention`, `online`, `systemLanguage`, `battery`, `deviceInfo`,
+`revealFile`. "Not here" answers false (never raises): fall back
+(`share` false -> `putClipboardText`; `notify` false -> `toast`). Ask from a
+click (phones and browsers ask the user). Secrets: `retroui/secrets`;
+signing in: `retroui/oauth`; updates inside the app, signed:
+`retroui/update` (`checkForUpdate(url, publicKey, version)`,
+`downloadUpdate`, `installUpdate`, `restartApp`; `retrokit update-key`,
+`retrokit update-sign update.json`).
+
 **A street map with a route** (`import retroui/[tilemap, geo]`):
 
 ```nim
@@ -334,7 +347,9 @@ retroapk app.nim --name:"My App" --id:com.me.myapp             # Android APK: no
 retroios app.nim --simulator --run                             # iOS, on a Mac with Xcode
 retrokit small app.nim                                         # smallest desktop build
 retrokit web app.nim                                           # a web page (clang + lld, no Emscripten)
+retrokit web app.nim --threads                                 # ... and a build with threads where the browser allows
 retrokit run --web --watch app.nim                             # ... served, rebuilt on every save
+nim c -d:release -d:retroFonts=ui app.nim                      # fewer fonts built in: a smaller program
 ```
 
 For the stores (all made in Nim; `--help` on each; BUILDING.md "Shipping
@@ -356,9 +371,12 @@ A Linux build runs on X11, on Wayland (its own driver, no libwayland) and
 on a console with no desktop (the screen driver: DRM/KMS or the
 framebuffer, evdev input): `RETRO_DRIVER=x11|wayland|kms|fb` chooses,
 `-d:wayland` or `-d:kiosk` builds only one. A web build is 32-bit with no
-threads and no sockets: keep work short in the frame (the kit's
-`background` tasks run there), `httpRequest` reaches the page's own site
-with a short address.
+raw sockets: keep work short in the frame (without `--threads` the kit's
+`background` tasks run there); code that starts threads compiles both
+ways (`when compileOption("threads")`); `httpRequest` reaches the page's
+own site with a short address; a file written in `/downloads` goes to the
+user; chat (`retroui/xmpp`) needs `--threads` and a server with a
+WebSocket.
 
 In Termux on Android, `nim c -r app.nim` runs the app on Termux:X11
 (`pkg install x11-repo termux-x11-nightly libx11`): it starts the X server

@@ -9,6 +9,27 @@
 
 import glapi
 
+# (the GPU it draws with: the frames' (`retroui/gfx`), or in a web page a
+# WebGL 2 context of its own whose picture is read back -- the page's frames
+# are drawn by the CPU; `webgl3d`)
+when defined(wasm):
+  import webgl3d
+  template v3Ready(): bool = webGl3dReady()
+  template v3Gl(): ptr GlTable = webGl3d()
+  template v3Epoch(): int = webGl3dEpoch()
+  template v3Compile(vs, fs: string; attribs: openArray[string]): GLuint = webGl3dProgram(vs, fs, attribs)
+  template v3Begin(): GLint = webGl3dBegin()
+  template v3End(old: GLint) = webGl3dEnd(old)
+  template v3Show(key: uint64; tex: GLuint; w, h: int) = webGl3dShow(key, w, h)
+else:
+  template v3Ready(): bool = drawnWithGpu() and gpuFiltersReady()
+  template v3Gl(): ptr GlTable = gpuGl()
+  template v3Epoch(): int = gpuEpoch()
+  template v3Compile(vs, fs: string; attribs: openArray[string]): GLuint = gpuCompileProgram(vs, fs, attribs)
+  template v3Begin(): GLint = gpuBeginOffscreen()
+  template v3End(old: GLint) = gpuEndOffscreen(old)
+  template v3Show(key: uint64; tex: GLuint; w, h: int) = gpuShowTexture(key, tex, w, h)
+
 const
   Vert3D = """
 attribute vec3 aPos;
@@ -128,16 +149,16 @@ var
   uintIndices = -1                 # (the GPU takes 32-bit indices: -1 not asked yet)
 
 proc glReady3D(): bool =
-  if not drawnWithGpu() or not gpuFiltersReady(): return false
-  let gl = gpuGl()
+  if not v3Ready(): return false
+  let gl = v3Gl()
   gl.genRenderbuffers != nil and gl.bindRenderbuffer != nil and gl.renderbufferStorage != nil and
     gl.framebufferRenderbuffer != nil and gl.drawElements != nil and gl.depthFunc != nil and
     gl.depthMask != nil and gl.uniform3f != nil and gl.uniform4f != nil and gl.uniform1f != nil
 
 proc forget(v: GlView) =
   ## (what the view made on the GPU given back)
-  if v.epoch != gpuEpoch(): return            # (gone with the context)
-  let gl = gpuGl()
+  if v.epoch != v3Epoch(): return            # (gone with the context)
+  let gl = v3Gl()
   for m in v.meshes.mitems:
     if m.vbo != 0: gl.deleteBuffers(1, addr m.vbo)
     if m.ibo != 0: gl.deleteBuffers(1, addr m.ibo)
@@ -160,13 +181,13 @@ proc forget(v: GlView) =
 proc u(v: GlView; name: string): GLint =
   result = v.loc.getOrDefault(name, -2)
   if result == -2:
-    result = gpuGl().getUniformLocation(v.prog, cstring(name))
+    result = v3Gl().getUniformLocation(v.prog, cstring(name))
     v.loc[name] = result
 
 proc textureOf(v: GlView; b: Bitmap): GLuint =
   ## A material's picture on the GPU (sent again when it changed).
   if b == nil or b.w <= 0 or b.h <= 0 or b.px.len < b.w * b.h: return 0
-  let gl = gpuGl()
+  let gl = v3Gl()
   let k = cast[pointer](b)
   let have = v.textures.getOrDefault(k, (0'u32, 0'u64))
   if have.tex != 0 and have.stamp == stampOf(b): return have.tex
@@ -188,7 +209,7 @@ proc textureOf(v: GlView; b: Bitmap): GLuint =
 
 proc ensureTarget(v: GlView; w, h: int): bool =
   ## The texture drawn into and its depth buffer, `w` x `h`.
-  let gl = gpuGl()
+  let gl = v3Gl()
   if v.fb != 0 and v.w == w and v.h == h: return true
   if v.fb == 0: gl.genFramebuffers(1, addr v.fb)
   if v.color == 0: gl.genTextures(1, addr v.color)
@@ -215,8 +236,8 @@ proc renderGpu(v: GlView; ctx: var RenderCtx; scene: Scene3; cam: Camera3; bg: C
   ## The scene drawn by the GPU into the view's texture; false: it could not
   ## (the CPU draws it). `ctx.view` gets the posed points as the CPU's
   ## drawing does (for picking).
-  let gl = gpuGl()
-  if v.epoch != gpuEpoch():
+  let gl = v3Gl()
+  if v.epoch != v3Epoch():
     v.meshes.setLen(0)
     v.textures.clear()
     v.fb = 0
@@ -225,9 +246,9 @@ proc renderGpu(v: GlView; ctx: var RenderCtx; scene: Scene3; cam: Camera3; bg: C
     v.prog = 0
     v.lineVbo = 0
     v.loc.clear()
-    v.epoch = gpuEpoch()
+    v.epoch = v3Epoch()
   if v.prog == 0:
-    v.prog = gpuCompileProgram(Vert3D, Frag3D, ["aPos", "aNrm", "aUV", "aCol"])
+    v.prog = v3Compile(Vert3D, Frag3D, ["aPos", "aNrm", "aUV", "aCol"])
     if v.prog == 0:
       v.failed = true
       return false
@@ -237,8 +258,8 @@ proc renderGpu(v: GlView; ctx: var RenderCtx; scene: Scene3; cam: Camera3; bg: C
     uintIndices = if not gl.es or (ext != nil and "GL_OES_element_index_uint" in $ext): 1 else: 0
   let w = ctx.w
   let h = ctx.h
-  let oldFb = gpuBeginOffscreen()
-  defer: gpuEndOffscreen(oldFb)
+  let oldFb = v3Begin()
+  defer: v3End(oldFb)
   if not v.ensureTarget(w, h):
     v.failed = true
     return false
@@ -496,5 +517,5 @@ proc renderGpu(v: GlView; ctx: var RenderCtx; scene: Scene3; cam: Camera3; bg: C
       let s = project(ctx, p, 1)
       ctx.labels[k] = (s.x, s.y, finite(s.x) and finite(s.y))
     else: ctx.labels[k] = (0'f32, 0'f32, false)
-  gpuShowTexture(v.key, v.color, w, h)
+  v3Show(v.key, v.color, w, h)
   true

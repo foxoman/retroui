@@ -39,6 +39,7 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 - **[HTML, Markdown and rich text](#html-markdown-and-rich-text)**: [htmlView, htmlBlock](#htmlview-htmlblock) · [webView, webRun, webPost](#webview-webrun-webpost) · [markdownView, markdown](#markdownview-markdown) · [richEdit, richToolbar](#richedit-richtoolbar)
 - **[Canvas and reports](#canvas-and-reports)**: [canvas: your own drawing](#canvas-your-own-drawing) · [canvas2d (the HTML5 Canvas 2D API)](#canvas2d-the-html5-canvas-2d-api) · [reportView (an HTML template: PDF, printing)](#reportview-an-html-template-pdf-printing) · [pdfView](#pdfview) · [QR codes](#qr-codes)
 - **[Sound and video](#sound-and-video)**: [animation (animated GIFs)](#animation-animated-gifs) · [videoView](#videoview) · [cameraView](#cameraview) · [setNowPlaying, mediaKeys](#setnowplaying-mediakeys) · [audioView](#audioview)
+- **[The system's features](#the-systems-features)**: [notify, share, haptic](#notify-share-haptic) · [location, speak](#location-speak) · [deviceInfo, setOpenAtLogin](#deviceinfo-setopenatlogin) · [saveSecret, loadSecret](#savesecret-loadsecret) · [checkForUpdate, downloadUpdate, installUpdate](#checkforupdate-downloadupdate-installupdate)
 - **[Looks](#looks)**: [Themes](#themes) · [Dark mode](#dark-mode) · [Size and text size](#size-and-text-size) · [Fonts](#fonts) · [The window's frame](#the-windows-frame)
 - **[Screen readers and input methods](#screen-readers-and-input-methods)**: [Screen readers: what an app draws itself](#screen-readers-what-an-app-draws-itself)
 
@@ -3622,7 +3623,8 @@ proc fileDialog*(open: var bool; path: var string; mode = fmOpen;
 ```
 
 The 3.1 Open / Save As dialog while `open`. Returns true once, with
-`path` set, when the user confirms a file.
+`path` set, when the user confirms a file. (In a web page: the
+browser's file chooser, and Save As through `/downloads`.)
 
 ## App parts
 
@@ -6669,6 +6671,8 @@ it could not) in `message`:
 - Android: the system's print dialog (its printers, Save as PDF);
   `pages` (if known) shows there.
 - iOS: not available yet.
+- A web page: the browser's print dialog, with the PDF in it (its
+  printers, Save as PDF).
 
 ### pdfView
 
@@ -6882,7 +6886,7 @@ Lets the player of the `videoView` (or `audioView`) with this `key`
 
 ### cameraView
 
-The camera's live picture in the window, drawn by the kit under its menus and dialogs, through the system's own API (Video4Linux, Media Foundation, AVFoundation, Camera2): photos, videos of it, and sound recorded from the microphone.
+The camera's live picture in the window, drawn by the kit under its menus and dialogs, through the system's own API (Video4Linux, Media Foundation, AVFoundation, Camera2; getUserMedia in a web page): photos, videos of it, and sound recorded from the microphone.
 
 *The picture is the camera's.*
 
@@ -6985,7 +6989,7 @@ How loud the microphone is now, 0..1 (a meter; 0 when not recording).
 
 ### setNowPlaying, mediaKeys
 
-What the app plays, shown where the system shows it -- the lock screen, the notification shade, the taskbar's media flyout, the menu bar's Now Playing, the desktop's media applet -- and what the user presses there and on media keys, handed to the app (MPRIS, the System Media Transport Controls, MPNowPlayingInfoCenter, a MediaSession). Call it every frame: the system is told only what changed.
+What the app plays, shown where the system shows it -- the lock screen, the notification shade, the taskbar's media flyout, the menu bar's Now Playing, the desktop's media applet, the browser's media hub -- and what the user presses there and on media keys, handed to the app (MPRIS, the System Media Transport Controls, MPNowPlayingInfoCenter, a MediaSession, the browser's Media Session). Call it every frame: the system is told only what changed.
 
 *The system draws it, outside the app.*
 
@@ -7047,6 +7051,147 @@ a position bar and the time under it (MP3, OGG, FLAC, WAV... where the
 system plays them: Android; GStreamer on Linux; elsewhere it plays
 from the start with `playSound`, without the position). `closeVideo`
 stops it.
+
+## The system's features
+
+`retroui/system` asks each system for its own notifications, share sheet,
+place, voice, haptics and more, with the same calls everywhere -- Linux,
+Windows, macOS, Android, iOS and a web page. Nothing waits on the system
+(an answer that comes later is asked again next frame), and "not here" is
+an answer (false, `psNone`, -1), never an error: the app offers what it
+can instead. [docs/system.md](system.md) has what each call does on each
+system and what an app declares for it (Android permissions, Info.plist,
+https).
+
+### notify, share, haptic
+
+Tell the user outside the window (`notify`: the system's notification; `setBadge`: the count on the app's icon), offer something to other apps (`share`: a share sheet, a share menu, Web Share), a tap felt (`haptic`), a buzz (`vibrate`). False where the system has none: the example falls back to a toast and the clipboard.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![notify, share, haptic, normal](controls/notify-normal.png) | ![notify, share, haptic, touch screen](controls/notify-touch-screen.png) | ![notify, share, haptic, dark scheme](controls/notify-dark-scheme.png) |
+
+```nim
+row:
+  if button("&Notify"):
+    if not notify("Order 1042", "Ready at the counter", tag = "orders"):
+      toast("Order 1042 is ready")
+  if button("&Share"):
+    if not share(text = "Order 1042", url = "https://example.com/o/1042"):
+      putClipboardText("https://example.com/o/1042")
+  if button("&Tap"):
+    haptic(hSuccess)
+  if button("&Attention"):
+    requestAttention()
+```
+
+**API**
+
+```nim
+proc vibrate*(ms = 50): bool {.discardable.}
+```
+
+Buzzes the phone for `ms` milliseconds (Android apps need
+`retroapk --permission:VIBRATE`; Termux uses Termux:API; iPhones buzz
+their standard short buzz; a web page buzzes the phone it runs on).
+False where nothing buzzes.
+
+### location, speak
+
+Where the device is (`location`: `psWaiting` until the first fix, the user asked the first time; `stopLocation` when done) and words said aloud with the system's voice (`speak`, `stopSpeaking`, `speaking`).
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![location, speak, normal](controls/location-normal.png) | ![location, speak, touch screen](controls/location-touch-screen.png) | ![location, speak, dark scheme](controls/location-dark-scheme.png) |
+
+```nim
+var sysPlace = false
+
+row:
+  if button("&Where am I?"):
+    sysPlace = true
+  if button("S&peak"):
+    speak("Your order is ready")
+  if button("Sto&p"):
+    stopSpeaking()
+if sysPlace:
+  let p = location()
+  label(case p.state
+  of psOk:
+    "At " & $p.lat & ", " & $p.lon
+  of psWaiting:
+    "Looking..."
+  of psDenied:
+    "The place was not allowed."
+  of psNone:
+    "No place on this device.")
+```
+
+### deviceInfo, setOpenAtLogin
+
+The device in one call (`deviceInfo`: its name, system, language, battery, dark look, network, cores), the app started with the computer (`setOpenAtLogin`: Windows' Run key, a launch agent, an autostart entry), `online`, `systemLanguage`, `battery`, `revealFile`.
+
+*It shows the device it runs on.*
+
+```nim
+let d = deviceInfo()
+factList({"Device": d.name, "System": d.system, "Language": d.language, "Network":
+  if d.online:
+    "connected"
+  else:
+    "offline"
+  })
+var atLogin = openAtLogin("Shop")
+if toggle("Start with the &computer", atLogin):
+  setOpenAtLogin(atLogin, "Shop")
+```
+
+### saveSecret, loadSecret
+
+Small secrets -- a sign-in's tokens, an API's key -- kept where other users and programs cannot read them: DPAPI on Windows, the keychain on macOS, the desktop's keyring on Linux, a sealed file on phones, WebCrypto in a web page.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![saveSecret, loadSecret, normal](controls/secrets-normal.png) | ![saveSecret, loadSecret, touch screen](controls/secrets-touch-screen.png) | ![saveSecret, loadSecret, dark scheme](controls/secrets-dark-scheme.png) |
+
+```nim
+var sysSaid = ""
+
+row:
+  if button("&Keep the key"):
+    sysSaid = $saveSecret("Shop", "api key", "k-1042")
+  if button("&Read it"):
+    sysSaid = loadSecret("Shop", "api key")
+  if button("&Forget it"):
+    deleteSecret("Shop", "api key")
+label sysSaid
+```
+
+### checkForUpdate, downloadUpdate, installUpdate
+
+Updates inside the app: the update file you publish, its signature checked (Ed25519) with the public key built into the app, the file for this system downloaded and its SHA-256 checked, then installed (`restartApp`). `retrokit update-key` makes the key, `retrokit update-sign update.json` signs each release. It waits for the network: on a thread of its own, or at a moment the app may wait.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![checkForUpdate, downloadUpdate, installUpdate, normal](controls/updates-normal.png) | ![checkForUpdate, downloadUpdate, installUpdate, touch screen](controls/updates-touch-screen.png) | ![checkForUpdate, downloadUpdate, installUpdate, dark scheme](controls/updates-dark-scheme.png) |
+
+```nim
+var updateSaid = ""
+
+if button("Check for &updates"):
+  let u = checkForUpdate("https://example.com/shop/update.json",
+                         "01VFThQl2gEEkWYqnvsvw+bbRTD59hQ2SAdg6kBwDjU=", "1.2.0")
+  if u.available:
+    let file = downloadUpdate(u)
+    if installUpdate(file):
+      restartApp()
+  else:
+    updateSaid = if u.error.len > 0:
+      u.error
+    else:
+      "This is the newest."
+label updateSaid
+```
 
 ## Looks
 

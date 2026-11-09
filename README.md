@@ -110,8 +110,8 @@ every module is in `docs/api/` (open `docs/api/retro.html`).
 [Files](#files) · [Maps](#maps) · [3D](#3d-view) · [Canvas](#canvas) · [Whiteboard](#whiteboard) ·
 [Image editing](#image-editing) · [Web and HTML](#web-and-html) · [Sound and video](#sound-and-video) ·
 [Camera and microphone](#camera-and-microphone) · [More windows](#more-windows) ·
-[The system's own APIs](#the-systems-own-apis) ·
-[Platform services](#platform-services) · [Android](#android) · [iOS](#ios) ·
+[The system's features](#the-systems-features) · [The system's own APIs](#the-systems-own-apis) ·
+[Updates inside the app](#updates-inside-the-app) · [Platform services](#platform-services) · [Android](#android) · [iOS](#ios) ·
 [Apps as web pages](#apps-as-web-pages) · [Screens without a desktop](#screens-without-a-desktop) ·
 [Shipping to the stores](#shipping-to-the-stores) ·
 [Platforms](#platforms) · [Speed and size](#speed-and-size) ·
@@ -1508,6 +1508,10 @@ lock button in a talk (on by itself when the other one's app has OMEMO),
 the fingerprints in Info and My Profile, files and voice messages locked
 too.
 
+In a web page (`retrokit web --threads`) the connection is a WebSocket
+(RFC 7395) to the address the server's host-meta names (Prosody's
+`mod_websocket`, ejabberd's `ejabberd_http_ws`).
+
 ## Whiteboard
 
 `retroui/board` is a whiteboard's document, in the manner of tldraw: pages
@@ -1985,6 +1989,51 @@ over the app. Where the system draws no title bar (phones, Wayland
 without server-side frames, the screen driver), `captionBar` draws the
 3.1 one.
 
+## The system's features
+
+Notifications, sharing, the place, speech, a tap felt, starting with the
+computer, the battery, the device: `retroui/system` asks each system for
+its own, with the same calls on Linux, Windows, macOS, Android, iOS and
+in a web page. Nothing waits on the system (an answer that comes later is
+asked again next frame), and "not here" is an answer, never an error:
+the app offers what it can instead. **[docs/system.md](docs/system.md)**
+says what every call does on every system, what the app declares for it
+(Android permissions, Info.plist, https) and how to write it so it works
+everywhere.
+
+```nim
+import retroui, retroui/system
+var askPlace = false
+app "Shop", 420, 300:
+  if button("&Notify"):
+    if not notify("Order 1042", "Ready at the counter", tag = "orders"):
+      toast("Order 1042 is ready")                       # no system notifications here
+  if button("&Share"):
+    if not share(text = "Order 1042 is ready", url = "https://example.com/o/1042"):
+      putClipboardText("https://example.com/o/1042")     # no share sheet: copied
+  if button("&Where am I?"): askPlace = true
+  if askPlace:
+    let p = location()                                   # psWaiting until the first fix
+    if p.state == psOk: label "At " & $p.lat & ", " & $p.lon
+  if button("S&peak"): speak("Your order is ready")
+  if button("&Tap"): haptic(hSuccess)
+  let d = deviceInfo()                                   # name, system, language, battery, dark, online
+  label d.name & ", " & d.system
+```
+
+| | Linux | Windows | macOS | Android | iOS | Web |
+|---|---|---|---|---|---|---|
+| `notify`, `setBadge` | ✓ | ✓ | ✓ | ✓ | – | ✓ |
+| `share` | – | – | ✓ | ✓ | ✓ | ✓ |
+| `location` | – | – | ✓ | ✓ | ✓ | ✓ |
+| `speak` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `haptic`, `vibrate` | – | – | ✓ | ✓ | ✓ | ✓ |
+| `setOpenAtLogin` | ✓ | ✓ | ✓ | – | – | – |
+| `requestAttention` | ✓ | ✓ | ✓ | – | – | ✓ |
+| camera, microphone, media keys, secrets, signing in | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+The Gallery's System page tries each one.
+
 ## The system's own APIs
 
 Retro never stands between an app and its system: `retroui/native` reaches
@@ -2023,6 +2072,29 @@ when defined(windows):                              # Win32 and COM
 
 Nim also compiles to C, so `{.importc.}` and C headers work as in any Nim
 program; `examples/native.nim` shows each platform.
+
+## Updates inside the app
+
+`retroui/update`: the app reads the update file you publish, checks its
+signature (Ed25519) with the public key built into it, downloads its file
+for the system, checks its SHA-256, and installs it -- an AppImage
+replaced, a Windows program or installer, a package handed to the
+system's installer, a web page's newest build. Nothing comes from anyone
+without your key.
+
+```nim
+import retroui/update
+const updateKey = "01VFThQl2gEEkWYqnvsvw+bbRTD59hQ2SAdg6kBwDjU="   # retrokit update-key printed it
+let u = checkForUpdate("https://example.com/notes/update.json", updateKey, "1.2.0")
+if u.available:
+  let file = downloadUpdate(u)        # raises UpdateError when it is not the signed file
+  if installUpdate(file): restartApp()
+```
+
+```sh
+retrokit update-key                   # once: update-key.secret (yours alone) and the public key
+retrokit update-sign update.json      # each release: sizes and SHA-256s filled in, update.json.sig
+```
 
 ## Platform services
 
@@ -2126,12 +2198,32 @@ The page installs (a manifest, icons) and works offline (a service worker
 keeps it); the app's files are at `/app`, and what it writes in its home
 folder stays in the browser (IndexedDB) for the next visit. Input is the
 browser's: input methods, dead keys, paste, the pen, touch, the wheel;
-drops land in `/tmp/dropped`; sound plays through Web Audio, video
+drops land in `/tmp/dropped`; sound plays through an AudioWorklet, video
 through the browser's own; `httpRequest` reaches the page's own site with
 a short address, other sites when they allow the page (CORS). A web view
-is the page's own frame. What a page cannot do: threads (background work
-runs in the frame), sockets and other programs. `tests/web/run.sh` checks
-it all in a real Chromium, at 100 % and 200 %.
+is the page's own frame. What the app writes in `/downloads` is handed to
+the user (the browser's Save As), Open is the browser's file chooser,
+printing is the browser's print dialog. The camera and the microphone,
+the media keys, notifications, sharing, the place, secrets (sealed by a
+key the browser keeps), signing in (a pop-up back to `oauth.html`), chat
+(XMPP over a WebSocket), the 3D view on the GPU (WebGL 2) and screen
+readers (the controls mirrored as ARIA) work in a page too.
+
+```sh
+retrokit web app.nim --threads        # and a build with threads, taken where the browser allows it
+retrokit web mail.nim --threads-only  # an app that needs them: Retro Mail in a page
+```
+
+**Threads:** with `--threads` the kit's drawing, pictures and maps run on
+every core, and the app's own `createThread` works: Web Workers on one
+memory, real locks. The page keeps itself apart from other sites
+(crossOriginIsolated) on any server through its service worker; a browser
+that will not runs the build without threads. **Small:** SIMD,
+link-time optimization, the fonts beside the page (fetched when used), a
+gzipped copy; `--small` for the least. What a page cannot do: other
+programs and raw sockets. `tests/web/run.sh` checks it all in a real
+Chromium (at 100 % and 200 %, with and without threads), and
+`tests/web/node.sh` runs the headless tests as WebAssembly under Node.
 
 ## Screens without a desktop
 
@@ -2322,7 +2414,9 @@ here.
   PMTiles, the answers of all 13 services, polylines) and `fuzz_store`
   (certificates, time stamps, Windows and macOS programs, zip archives and
   MSIX packages) do the same for their modules. They found real bugs, now
-  fixed and kept as tests.
+  fixed and kept as tests. Every night the decoders also run under
+  libFuzzer (`tests/fuzz/libfuzz.nim`: coverage-guided, with the
+  sanitizers).
 - **32-bit:** `tests/run32.sh` runs the tests as 32-bit programs, where an
   `int` is as small as WebAssembly's: a number that only fits in 64 bits
   (a checksum, a color's weighted sum, a file's size) shows up there.
@@ -2337,6 +2431,8 @@ here.
   thread except through a locked queue; results are handed over at the
   start of a frame. A file that changes or shrinks while it is shown (a
   log rotated) is read safely.
+- **Updates only from you:** `retroui/update` installs nothing that your
+  key did not sign (Ed25519), and only the download whose SHA-256 was signed.
 - **Files written safely:** settings, PDFs and pictures are written to a
   temporary file and moved into place; file jobs leave no half-written
   file when cancelled and never follow links out of a folder they delete.
@@ -2373,6 +2469,15 @@ headless tests as 32-bit programs (`tests/run32.sh`: an `int` as small as
 WebAssembly's), and the store packages with the tools of others and the
 systems themselves (`tests/store`).
 
+Every night (`.github/workflows/nightly.yml`) the headless tests run under
+AddressSanitizer and UBSan, the fuzzers run for long under them, the
+decoders run under libFuzzer (`tests/fuzz/libfuzz.nim`), the tests run as
+32-bit programs under UBSan and as WebAssembly under Node
+(`tests/web/node.sh`). `.github/workflows/devices.yml` runs the live check
+on real phones (Firebase Test Lab) and on a Raspberry Pi when they are set
+up; on Windows, UI Automation reads the controls and presses a button as a
+screen reader does (`tests/access/windows.ps1`).
+
 | Test | What it checks |
 |---|---|
 | `test_widgets` | clicks, slide-off, default button, typing and the clipboard, Tab and Space, mnemonics, lists, modal dialogs, pixels, frame skipping, hover (mouse yes, finger no), Back versus Exit |
@@ -2403,6 +2508,9 @@ systems themselves (`tests/store`).
 | `test_apk` | the APK tool's SHA-256, CRC-32, deflate and PNG; the App Bundle's proto manifest and resources, its JAR signature (checked with `jarsigner` and `bundletool` when they are there) |
 | `test_store` | DER, certificates and their subjects, JAR signatures, Authenticode (the digest, the checksum, signing again, a time stamp from an authority made with OpenSSL), MSIX (ZIP64 records, the block map's blocks one by one, the signed digests rebuilt by the test), macOS: the `.icns`, the code directory read back page by page (one architecture and universal), the sealed resources, the `.ipa`; `osslsigncode` and `rcodesign` when they are there |
 | `test_tilemap` | the street map: tiles of every kind of source, the cache, dragging, zooming, markers and shapes, the services' answers (places and routes of each), polylines, GCJ-02, GeoJSON, vector tiles decoded and drawn, PMTiles and MBTiles read and written |
+| `test_system` | `retroui/system` on Linux: what answers and what says false, the autostart entry made and taken away, the answers of a page and of phones read right, speech when a voice is installed |
+| `test_update` | Ed25519 against RFC 8032, signatures checked (a byte changed, another key), versions compared, an update found, checked and downloaded from a small server, a changed file or update file refused |
+| `test_fontsoption` | `-d:retroFonts`: the faces left out drawn with FreeSans, or read from a folder of their files |
 | `test_gltf` | glTF read and written, the car's parts moved, turned, hidden and tinted, its clips (linear, step, cubic), shapes and bones, a picture on a surface (unlit), damaged files refused, Blender's `.blend` when Blender is there |
 | `test_board`, `test_boardapp` | the whiteboard: ink, shapes, arrows held by shapes, typing, undo, files, PDF, the memory kept; Retro Board as a program -- its docked panels, Tab, the panels kept between runs, Zen and View mode and the button that leaves them |
 | `test_xmpp` | chat on XMPP with a small server of the test's own: signing on, the account's archive found, a page of it (yours and theirs, in order, with their archive ids), a forged answer from someone else left out; a port where nothing answers |
@@ -2497,7 +2605,10 @@ it is there.
 **How big is an app?**
 About 1.9 MB for "hello" (`retrokit small`; 1 MB of it the fonts), 4.3 MB
 for a full file manager, 1.6 MB as an APK. Only what the app calls is
-linked: an app without the map does not carry the map.
+linked: an app without the map does not carry the map. With fewer fonts
+built in (`-d:retroFonts=ui`: FreeSans and its bold; `sans`; `none`) hello
+is 1.4 MB; the faces left out are read from `fonts/` beside the program
+when they are there.
 
 **Is drawing every frame slow, or bad for the battery?**
 No. A frame runs only when something happened (input, a timer you asked
@@ -2612,9 +2723,14 @@ says how.
 - More windows (`window`) open on X11, Wayland, WinAPI and Cocoa; on
   phones, in a web page and on a screen without a desktop they are dialogs
   over the app.
-- An app as a web page has no threads (background work runs in the
-  frame), no sockets and no other programs; `httpRequest` waits for its
-  answer (another site must allow the page: CORS).
+- An app as a web page has threads only in its `--threads` build and only
+  where the browser keeps the page apart from other sites (else background
+  work runs in the frame); no raw sockets and no other programs (chat goes
+  over a WebSocket the server must offer); `httpRequest` waits for its
+  answer (another site must allow the page: CORS). A thread started while
+  every worker is busy starts once the page's thread is free again: a
+  program that starts many threads and waits for them at once asks for
+  more workers (`--threads:N`).
 - The screen driver (DRM/KMS, framebuffer) is tested with a file as the
   screen, not yet on a real DRM screen.
 - Store packages: a Developer ID signature, notarization and stapling are

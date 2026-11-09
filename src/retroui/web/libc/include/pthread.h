@@ -1,30 +1,20 @@
 #ifndef _RL_PTHREAD_H
 #define _RL_PTHREAD_H
-/* One thread in a browser: the locks are free to take, the conditions are
-   never waited on for long, and no new thread starts (pthread_create says
-   EAGAIN). */
+/* Threads in a browser: built with them (`retrokit web --threads`), a
+   thread is a Web Worker on the same memory, and the locks are futexes
+   (WebAssembly's atomic wait and notify; the page's own thread may not
+   wait, so it spins). Built without them, there is one thread: the locks
+   are free to take and pthread_create says EAGAIN. */
 #include "_rl.h"
 #include <sys/types.h>
 #include <time.h>
 #include <sched.h>
 RL_BEGIN
-typedef unsigned long pthread_t;
-typedef struct { int kind, locked; } pthread_mutex_t;
-typedef struct { int kind; } pthread_mutexattr_t;
-typedef struct { int waiters; } pthread_cond_t;
-typedef struct { int clock; } pthread_condattr_t;
-typedef struct { size_t stacksize; int detach; } pthread_attr_t;
-typedef unsigned pthread_key_t;
-typedef int pthread_once_t;
-typedef struct { int readers, writer; } pthread_rwlock_t;
-typedef struct { int kind; } pthread_rwlockattr_t;
-typedef struct { int count; } pthread_barrier_t;
-typedef struct { int pshared; } pthread_barrierattr_t;
-typedef int pthread_spinlock_t;
-#define PTHREAD_MUTEX_INITIALIZER {0, 0}
-#define PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP {1, 0}
-#define PTHREAD_COND_INITIALIZER {0}
-#define PTHREAD_RWLOCK_INITIALIZER {0, 0}
+/* (the types are in <sys/types.h>, as Linux has them) */
+#define PTHREAD_MUTEX_INITIALIZER {0, 0, 0, 0}
+#define PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP {1, 0, 0, 0}
+#define PTHREAD_COND_INITIALIZER {0, 0}
+#define PTHREAD_RWLOCK_INITIALIZER {{0, 0, 0, 0}, 0, 0}
 #define PTHREAD_ONCE_INIT 0
 #define PTHREAD_MUTEX_NORMAL 0
 #define PTHREAD_MUTEX_RECURSIVE 1

@@ -44,20 +44,64 @@ const
     "FreeSans", "FreeSansBold", "FreeSansOblique", "FreeSansBoldOblique",
     "FreeSerif", "FreeSerifBold", "FreeSerifItalic", "FreeSerifBoldItalic",
     "FreeMono", "FreeMonoBold", "FreeMonoOblique", "FreeMonoBoldOblique"]
-  fontPacked: array[fSans .. fMonoBoldItalic, string] =
-    # the fonts, zlib-compressed (tools/genfreefont.py): 1.6 MB of TrueType
-    # take 0.94 MB in every app, and a face is unpacked when it is first used
-    [staticRead("fonts/FreeSans.ttf.z"), staticRead("fonts/FreeSansBold.ttf.z"),
-     staticRead("fonts/FreeSansOblique.ttf.z"), staticRead("fonts/FreeSansBoldOblique.ttf.z"),
-     staticRead("fonts/FreeSerif.ttf.z"), staticRead("fonts/FreeSerifBold.ttf.z"),
-     staticRead("fonts/FreeSerifItalic.ttf.z"), staticRead("fonts/FreeSerifBoldItalic.ttf.z"),
-     staticRead("fonts/FreeMono.ttf.z"), staticRead("fonts/FreeMonoBold.ttf.z"),
-     staticRead("fonts/FreeMonoOblique.ttf.z"), staticRead("fonts/FreeMonoBoldOblique.ttf.z")]
   iconsPacked = staticRead("fonts/Icons.ttf.z")
   IconCell = 1.25'f32        ## icons sit centered in cells this many ems wide
   FauxBoldEm* = 1'f32 / 24   ## a style made bold: its strokes this much thicker, its letters wider
   TabStops = 4               ## a tab is this many spaces wide
 
+when defined(wasm):
+  # (a web page: the fonts are files beside the page, fetched when a face
+  # is first used -- a PDF, the canvas's text; the page's own text is the
+  # browser's -- so an app's WebAssembly does not carry their 0.94 MB)
+  proc packedFont(id: FaceId): string =
+    try: readFile("/kit/fonts/" & faceFiles[id] & ".ttf.z")
+    except IOError, OSError: ""
+else:
+  const retroFonts {.strdefine.} = "all"
+    ## Which faces are built into the program (`-d:retroFonts=...`):
+    ## "all" (the twelve: 0.94 MB), "sans" (FreeSans's four: 0.23 MB),
+    ## "ui" (FreeSans and its bold: 0.13 MB), "none". The others are read
+    ## from `fonts/` beside the program (or $RETRO_FONTS) when they are
+    ## there -- the .ttf.z files of src/retroui/fonts -- else drawn with
+    ## FreeSans in the same style. Arabic comes from FreeSerif: an app in
+    ## Arabic keeps "all", or FreeSerif's files beside it.
+  const builtin: set[FaceId] =
+    when retroFonts == "all": {fSans .. fMonoBoldItalic}
+    elif retroFonts == "sans": {fSans .. fSansBoldItalic}
+    elif retroFonts == "ui": {fSans, fSansBold}
+    elif retroFonts == "none": {}
+    else: {.error: "retroFonts: all, sans, ui or none (not " & retroFonts & ")".}
+
+  proc packedAt(id: FaceId): string {.compileTime.} =
+    if id in builtin: staticRead("fonts/" & faceFiles[id] & ".ttf.z") else: ""
+
+  const
+    fontPacked: array[fSans .. fMonoBoldItalic, string] =
+      # the fonts, zlib-compressed (tools/genfreefont.py): 1.6 MB of TrueType
+      # take 0.94 MB in every app, and a face is unpacked when it is first used
+      [packedAt(fSans), packedAt(fSansBold), packedAt(fSansItalic), packedAt(fSansBoldItalic),
+       packedAt(fSerif), packedAt(fSerifBold), packedAt(fSerifItalic), packedAt(fSerifBoldItalic),
+       packedAt(fMono), packedAt(fMonoBold), packedAt(fMonoItalic), packedAt(fMonoBoldItalic)]
+
+  when builtin == {fSans .. fMonoBoldItalic}:
+    proc packedFont(id: FaceId): string = fontPacked[id]
+  else:
+    import std/os
+
+    proc packedFont(id: FaceId): string =
+      ## (a face left out: its file beside the program, else FreeSans's
+      ## face of the same style, else FreeSans)
+      if id in builtin: return fontPacked[id]
+      for dir in [getEnv("RETRO_FONTS"), getAppDir() / "fonts", getAppDir() / ".." / "share" / "retroui" / "fonts"]:
+        if dir.len == 0: continue
+        let f = dir / faceFiles[id] & ".ttf.z"
+        if fileExists(f):
+          try: return readFile(f)
+          except IOError, OSError: discard
+      let same = FaceId(ord(id) mod 4)                    # (FreeSans in this style)
+      if id != same: return packedFont(same)
+      if id != fSans: return packedFont(fSans)
+      ""
 var
   fontFiles: array[FaceId, string]          # unpacked or read, kept for the app's life
   faces: array[FaceId, Face]
@@ -128,7 +172,7 @@ proc load(id: FaceId) =
   resolve(id)
   if standIn[id] != id: return
   if id == fIcons or builtinFace(id):
-    let packed = if id == fIcons: iconsPacked else: fontPacked[id]
+    let packed = if id == fIcons: iconsPacked else: packedFont(id)
     let b = zlibDecompress(packed.toOpenArrayByte(0, packed.high))
     var s = newString(b.len)
     if b.len > 0: copyMem(addr s[0], unsafeAddr b[0], b.len)

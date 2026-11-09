@@ -26,4 +26,18 @@ typedef unsigned char u_char;
 typedef unsigned short u_short;
 typedef unsigned int u_int;
 typedef unsigned long u_long;
+/* threads' types (<pthread.h> has what uses them) */
+typedef unsigned long pthread_t;
+typedef struct { int kind, locked; unsigned long owner; int count; } pthread_mutex_t;
+typedef struct { int kind; } pthread_mutexattr_t;
+typedef struct { int seq, clock; } pthread_cond_t;
+typedef struct { int clock; } pthread_condattr_t;
+typedef struct { size_t stacksize; int detach; } pthread_attr_t;
+typedef unsigned pthread_key_t;
+typedef int pthread_once_t;
+typedef struct { pthread_mutex_t m; int readers, writer; } pthread_rwlock_t;
+typedef struct { int kind; } pthread_rwlockattr_t;
+typedef struct { int count; } pthread_barrier_t;
+typedef struct { int pshared; } pthread_barrierattr_t;
+typedef int pthread_spinlock_t;
 #endif

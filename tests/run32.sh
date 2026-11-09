@@ -7,6 +7,10 @@
 # libxext6:i386 libxrandr2:i386 libxcursor1:i386 libxi6:i386).
 #
 #   sh tests/run32.sh [test_name ...]       (all of `nimble test`'s else)
+#   RETRO32_UBSAN=1 sh tests/run32.sh ...    (and under UBSan: a shift of 32
+#                                            on a 32-bit `uint` is undefined
+#                                            in C, and WebAssembly's optimizer
+#                                            makes anything of it)
 #
 # Exit code: the number of tests that failed.
 
@@ -20,10 +24,17 @@ if [ $# -gt 0 ]; then
 else
   tests=$(tr '\n' ' ' < retroui.nimble | sed -n 's/.*task test,[^[]*\[\([^]]*\)\].*/\1/p' | tr -d '",')
 fi
+SAN_C=""
+SAN_L=""
+if [ "${RETRO32_UBSAN:-0}" = 1 ]; then
+  SAN_C="-fsanitize=undefined -fno-sanitize-recover=undefined -fno-sanitize=alignment"
+  SAN_L="-fsanitize=undefined"
+fi
 one() {
   t=$1
   # (SSE for the floats, not the x87's 80 bits: as WebAssembly computes them)
-  if nim c -r --hints:off --warnings:off --cpu:i386 --passC:"-m32 -msse2 -mfpmath=sse" --passL:-m32 \
+  if nim c -r --hints:off --warnings:off --cpu:i386 --passC:"-m32 -msse2 -mfpmath=sse $SAN_C" \
+       --passL:"-m32 $SAN_L" \
        --nimcache:"$OUT/c_$t" -o:"$OUT/$t" "tests/$t.nim" > "$OUT/$t.log" 2>&1; then
     echo "ok   $t"
   else
@@ -32,7 +43,7 @@ one() {
   fi
   rm -rf "$OUT/c_$t" "$OUT/$t"
 }
-export OUT
+export OUT SAN_C SAN_L
 running=0
 for t in $tests; do
   one "$t" &

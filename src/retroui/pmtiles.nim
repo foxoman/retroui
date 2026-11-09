@@ -15,9 +15,7 @@
 ## from gzip when it was packed; Brotli and Zstandard are not read).
 
 import std/[strutils, tables, json]
-import http, codec
-when not defined(wasm):
-  import db
+import http, codec, db
 
 type
   PmCompression* = enum pcUnknown, pcNone, pcGzip, pcBrotli, pcZstd
@@ -319,57 +317,41 @@ proc writePmtiles*(path: string; tiles: openArray[(int, int, int, string)]; tile
 
 # ---- MBTiles ------------------------------------------------------------------------
 
-when not defined(wasm):
-  type
-    Mbtiles* = ref object
-      ## An open MBTiles file.
-      ok*: bool
-      error*: string
-      db: Db
-      meta*: Table[string, string]     ## its metadata (name, format, minzoom, bounds...)
-      format*: string                  ## "png", "jpg", "webp", "pbf"
+type
+  Mbtiles* = ref object
+    ## An open MBTiles file.
+    ok*: bool
+    error*: string
+    db: Db
+    meta*: Table[string, string]     ## its metadata (name, format, minzoom, bounds...)
+    format*: string                  ## "png", "jpg", "webp", "pbf"
 
-  proc openMbtiles*(path: string): Mbtiles =
-    ## The MBTiles file `path`.
-    result = Mbtiles()
-    try:
-      result.db = openDb(path, readOnly = true)
-      for r in result.db.rows("SELECT name, value FROM metadata"):
-        result.meta[r[0].str] = r[1].str
-      result.format = result.meta.getOrDefault("format", "png")
-      result.ok = true
-    except CatchableError as e:
-      result.error = e.msg
+proc openMbtiles*(path: string): Mbtiles =
+  ## The MBTiles file `path`.
+  result = Mbtiles()
+  try:
+    result.db = openDb(path, readOnly = true)
+    for r in result.db.rows("SELECT name, value FROM metadata"):
+      result.meta[r[0].str] = r[1].str
+    result.format = result.meta.getOrDefault("format", "png")
+    result.ok = true
+  except CatchableError as e:
+    result.error = e.msg
 
-  proc tile*(m: Mbtiles; z, x, y: int): string =
-    ## The bytes of tile `z`/`x`/`y` ("" none); MBTiles numbers its rows from
-    ## the south (TMS): turned here.
-    if m == nil or not m.ok: return ""
-    let row = (1 shl z) - 1 - y
-    try:
-      for r in m.db.rows("SELECT tile_data FROM tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ?",
-                         z, x, row):
-        return gunzipped(r[0].str)
-    except CatchableError:
-      discard
-    ""
+proc tile*(m: Mbtiles; z, x, y: int): string =
+  ## The bytes of tile `z`/`x`/`y` ("" none); MBTiles numbers its rows from
+  ## the south (TMS): turned here.
+  if m == nil or not m.ok: return ""
+  let row = (1 shl z) - 1 - y
+  try:
+    for r in m.db.rows("SELECT tile_data FROM tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ?",
+                       z, x, row):
+      return gunzipped(r[0].str)
+  except CatchableError:
+    discard
+  ""
 
-  proc close*(m: Mbtiles) =
-    if m != nil and m.ok:
-      m.db.close()
-      m.ok = false
-
-else:
-  type
-    Mbtiles* = ref object
-      ## (in a web page MBTiles are not read: SQLite is not there; PMTiles are)
-      ok*: bool
-      error*: string
-      meta*: Table[string, string]
-      format*: string
-
-  proc openMbtiles*(path: string): Mbtiles =
-    Mbtiles(error: "MBTiles are not read in a web page (make a PMTiles file of it: pmtiles convert)")
-
-  proc tile*(m: Mbtiles; z, x, y: int): string = ""
-  proc close*(m: Mbtiles) = discard
+proc close*(m: Mbtiles) =
+  if m != nil and m.ok:
+    m.db.close()
+    m.ok = false

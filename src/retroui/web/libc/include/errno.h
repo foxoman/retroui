@@ -2,7 +2,11 @@
 #define _RL_ERRNO_H
 #include "_rl.h"
 RL_BEGIN
+#ifdef __wasm_atomics__
+extern _Thread_local int errno;     /* (threads: each its own) */
+#else
 extern int errno;
+#endif
 RL_END
 #define EPERM 1
 #define ENOENT 2

@@ -5,14 +5,17 @@
 ## ============  ===========================================  =========================================
 ## Platform      Camera                                       Microphone
 ## ============  ===========================================  =========================================
-## Linux, BSD    Video4Linux (/dev/video*: YUYV, MJPEG)       PulseAudio (or PipeWire's), else ALSA
+## Linux, BSD    Video4Linux (/dev/videoN: YUYV, MJPEG)       PulseAudio (or PipeWire's), else ALSA
 ## Windows       Media Foundation (the source reader)         waveIn
 ## macOS, iOS    AVFoundation (AVCaptureSession)              AVAudioRecorder
 ## Android app   Camera2, its preview over the widget         MediaRecorder
 ## Termux        Termux:API (photos)                          Termux:API (termux-microphone-record)
+## Web page      getUserMedia (a <video>, its pictures read)  getUserMedia (16-bit WAV)
 ## ============  ===========================================  =========================================
 ##
 ## Nothing is linked: each is loaded or opened the first time it is used.
+## A web page asks the browser, which asks the user (the page over https
+## or from localhost).
 ## Phones ask the user for the camera or the microphone the first time
 ## (an Android app needs `retroapk --permission:CAMERA` and
 ## `--permission:RECORD_AUDIO`; iOS and macOS apps the usage texts
@@ -119,9 +122,9 @@ type
     started: float
     lock: Lock
 
-var
-  rec: ptr Recorder
-  recThread: Thread[ptr Recorder]
+var rec: ptr Recorder
+when not defined(wasm):
+  var recThread: Thread[ptr Recorder]
 
 proc wavHeader*(rate, channels, bytes: int): string =
   ## The 44 bytes before `bytes` of 16-bit PCM samples in a WAV file.
@@ -478,6 +481,8 @@ elif defined(macosx) or defined(ios):
   include capture_apple
 elif androidApp:
   include capture_android
+elif defined(wasm):
+  include capture_web
 else:
   proc sysRecordStart(path: string): bool = false
   proc sysRecordStop(): int = 0

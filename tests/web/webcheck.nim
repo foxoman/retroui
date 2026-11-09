@@ -10,7 +10,7 @@
 
 import std/[os, strutils]
 import retroui
-import retroui/[htmlview, http, imaging, media]
+import retroui/[htmlview, http, imaging, media, system, capture, mediasession, secrets, view3d]
 import retroui/uirelays/screen
 
 var
@@ -26,6 +26,15 @@ var
   showWeb = false
   vid: VideoEvent
   showVideo = false
+  picking = false
+  picked = ""
+  openR: Rect
+  showCamera = false
+  cam: CameraEvent
+  camFrames = 0
+  show3d = false
+  scene3: Scene3
+  cam3 = camera3()
 
 for i in 1 .. 50: items.add "Row " & $i
 
@@ -55,8 +64,18 @@ app "webcheck", 640, 480:
   label "clicks " & $clicks & ", name " & name & ", row " & $(sel + 1)
   if showWeb:
     web = webView(webAppUrl("page.html"), height = 90, key = "page", engine = weSystem)
+  if step == 7:
+    if button("&Open..."): picking = true
+    openR = ui.lastRect
+    var path = ""
+    if filePicker(picking, path, fmOpen, ["*.txt"]): picked = path
   if showVideo:
     vid = videoView("/app/live.mp4", height = 90, autoplay = true, key = "v")
+  if showCamera:
+    cam = cameraView(height = 90, key = "cam")
+    if cam.ready: inc camFrames
+  if show3d:
+    view3d(scene3, cam3, height = 120, key = "web3d")
   case step
   of 0:
     if stepFrames > 3:
@@ -119,6 +138,78 @@ app "webcheck", 640, 480:
       showVideo = false
       next()
   of 7:
+    # the system's features in a page; a file to the user; a file from the user
+    if stepFrames == 1:
+      let d = deviceInfo()
+      check(d.name.len > 0 and d.platform == "web" and d.system.startsWith("Web"),
+            "the device: " & d.name & ", " & d.system)
+      check(systemLanguage().len >= 2, "the language: " & systemLanguage())
+      check(d.battery.level >= -1, "the battery: " & $d.battery.level)
+      # (headless Chromium refuses notifications whatever the page is allowed:
+      # what `notify` answers must agree with `notifyAvailable`)
+      let allowed = notifyAvailable()
+      check(notify("webcheck", "a notification of the page", tag = "check") == allowed,
+            "a notification (" & (if allowed: "shown" else: "the browser refuses them") & ")")
+      check(speak("") == false, "nothing to say says nothing")
+      writeFile("/downloads/saved.txt", "saved by the app")
+      check(fileExists("/downloads/saved.txt"), "a file written for the user")
+    let p = location()
+    if stepFrames > 3 and stepFrames < 6: mark("open", openR)
+    if stepFrames == 5:
+      echo "NEXT open"
+    if (p.state != psWaiting and picked.len > 0) or stepFrames > 900:
+      check(p.state == psOk and abs(p.lat - 23.588) < 0.01, "the place: " & $p.state & " " & $p.lat & ", " & $p.lon)
+      let text = try: readFile(picked) except IOError: ""
+      check(text == "picked by the browser", "a file from the browser's chooser: " & picked & " " & text)
+      next()
+  of 8:
+    # secrets, the camera and the microphone (Chromium's fake ones), the
+    # system's media controls
+    if stepFrames == 1:
+      check(saveSecret("webcheck", "token", "s3cr\x01et ✓"), "a secret kept")
+      check(loadSecret("webcheck", "token") == "s3cr\x01et ✓", "the secret read back")
+      check(saveSecret("webcheck", "gone", "x") and (deleteSecret("webcheck", "gone"); loadSecret("webcheck", "gone") == ""),
+            "a secret forgotten")
+      setNowPlaying(NowPlaying(title: "webcheck song", artist: "Retro", playing: true,
+                               durationMs: 60000, canNext: true))
+      showCamera = true
+      check(recordSound("/tmp/voice.wav"), "the microphone asked")
+    if (camFrames >= 5 and stepFrames > 60) or stepFrames > 900:
+      check(camFrames >= 5 and cam.width > 0, "the camera: " & $camFrames & " pictures of " & $cam.width & " x " &
+            $cam.height & (if cam.error.len > 0: " (" & cam.error & ")" else: ""))
+      let ms = stopRecordingSound()
+      let wav = try: readFile("/tmp/voice.wav") except IOError: ""
+      check(ms > 0 and wav.startsWith("RIFF") and wav.len > 1000, "the microphone recorded " & $ms & " ms, " &
+            $wav.len & " bytes")
+      showCamera = false
+      echo "NEXT access"
+      next()
+  of 9:
+    # a screen reader presses the button (its ARIA element, clicked)
+    if clicks >= 3 or stepFrames > 600:
+      check(clicks == 3, "a screen reader pressed the button: " & $clicks)
+      # a model with materials: drawn by WebGL 2 (a context of its own)
+      var m = box(2, 2, 2, color(200, 30, 30))
+      m.material = 0
+      scene3.materials.add Material3(name: "red", baseColor: [0.85'f32, 0.1, 0.1, 1], metallic: 0.1,
+                                     roughness: 0.6)
+      scene3.add m
+      show3d = true
+      next()
+  of 10:
+    if stepFrames > 20:
+      let pic = view3dPicture("web3d")
+      var red = false
+      if pic != nil:
+        let c = pic.px[(pic.h div 2) * pic.w + pic.w div 2]
+        red = ((c shr 16) and 255) > 2 * ((c shr 8) and 255) and ((c shr 16) and 255) > 60
+      check(view3dOnGpu("web3d") and red, "a 3D model drawn by WebGL 2: on the GPU " & $view3dOnGpu("web3d") &
+            ", red in its middle " & $red)
+      show3d = false
+      next()
+  of 11:
+    # (no caret blinking: the frame and the canvas compared a moment apart)
+    if stepFrames == 1: ui.focus = Id(0)
     if stepFrames > 10:
       # (the frame as the app drew it, for run.js to compare with the canvas)
       let pic = framePicture()

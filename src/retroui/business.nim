@@ -2686,6 +2686,47 @@ type FileMode* = enum
   fmSave        ## name a file to write
   fmFolder      ## pick a folder (`filePicker`)
 
+when defined(wasm):
+  var webPicking = ""       # (the dialog waiting for the browser's file chooser)
+
+  proc webFileDialog*(open: var bool; path: var string; mode: FileMode;
+                      patterns: openArray[string]; key: string): bool =
+    ## A web page's Open and Save As (`fileDialog`, `filePicker` call it):
+    ## opening asks the browser's own file chooser (the file comes in
+    ## `/tmp/opened`); saving answers at once with a path in `/downloads`,
+    ## and what the app writes there is handed to the user when it is done
+    ## (the browser's Save As, or a download).
+    if not open:
+      if webPicking == key: webPicking = ""
+      return false
+    case mode
+    of fmSave:
+      let name = if path.len > 0 and not path.endsWith("/") and not dirExists(path):
+                   path.extractFilename
+                 else: "Untitled"
+      path = "/downloads/" & name
+      open = false
+      true
+    of fmOpen:
+      if webPicking != key:
+        webPicking = key
+        var accept = ""
+        for p in patterns:
+          let ext = p.replace("*", "")
+          if ext.startsWith(".") and '"' notin ext and '\\' notin ext:
+            accept.add (if accept.len > 0: "," else: "") & ext
+        discard systemCall("pick", "{\"accept\":\"" & accept & "\"}")
+        return false
+      let r = systemCall("pick.result", "")
+      if r.len == 0 or r == "\0": return false
+      webPicking = ""
+      open = false
+      if r == "\x01": return false
+      path = r.split('\n')[0]
+      true
+    of fmFolder:
+      false
+
 var fdlg: tuple[opened: bool; dir, name, msg: string; files, dirs,
                 drives: seq[string]; fileSel, dirSel, filterIdx, driveIdx: int;
                 custom: string]
@@ -2802,7 +2843,13 @@ proc fileDialog*(open: var bool; path: var string; mode = fmOpen;
                  filters: openArray[string] = ["All Files (*.*)"];
                  title = ""): bool =
   ## The 3.1 Open / Save As dialog while `open`. Returns true once, with
-  ## `path` set, when the user confirms a file.
+  ## `path` set, when the user confirms a file. (In a web page: the
+  ## browser's file chooser, and Save As through `/downloads`.)
+  when defined(wasm):
+    if mode != fmFolder:
+      var pats: seq[string]
+      for f in filters: pats.add patternsOf(f)
+      return webFileDialog(open, path, mode, pats, "fileDialog")
   if not open:
     fdlg.opened = false
     return false

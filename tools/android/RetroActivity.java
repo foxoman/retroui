@@ -420,6 +420,13 @@ public class RetroActivity extends NativeActivity {
     super.onActivityResult(request, result, data);
   }
 
+  @Override
+  public void onRequestPermissionsResult(int request, String[] names, int[] answers) {
+    // (the place's permission: retroui/system's location)
+    RetroSystem.permissionAnswer(request, answers.length > 0 && answers[0] == 0);
+    super.onRequestPermissionsResult(request, names, answers);
+  }
+
   /** Show or hide the soft keyboard; called by native code on its thread.
    *  The keyboard works through RetroInput's input connection (suggestions,
    *  swipe and voice typing, what it composes); an app without the natives

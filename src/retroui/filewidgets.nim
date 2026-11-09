@@ -2313,6 +2313,9 @@ proc filePicker*(open: var bool; path: var string; mode = fmOpen;
   # (a program may have several pickers -- Open, Save As, Place -- that
   # share this state: the one open keeps it)
   let key = $mode & ":" & title
+  when defined(wasm):
+    # (a web page: the browser's file chooser; saving through /downloads)
+    if mode != fmFolder: return webFileDialog(open, path, mode, patterns, key)
   if not open:
     if picker.key == key: picker.opened = false
     return false

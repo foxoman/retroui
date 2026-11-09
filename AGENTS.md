@@ -74,13 +74,26 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   Linux driver (`useScreen`, `RETRO_DRIVER`).
 - **The web build:** `src/retroweb.nim` carries `src/retroui/web/libc` (the
   C library: only what Nim's C and the kit call; a missing function shows
-  as wasm-ld's "undefined symbol") and `web/retro.js` (the page: files,
-  input, sound, video, fetch, the iframe web view); `tests/web/run.sh`
-  checks both in Chromium. A web build is 32-bit and has no threads:
-  `when defined(wasm)` (or `compileOption("threads")`) for what differs,
-  and `tests/run32.sh` before a release (`int` overflows show there). An
-  exported Nim proc called from the page catches every exception (Nim's
-  goto exceptions would leave the error set and stop the next frame).
+  as wasm-ld's "undefined symbol", or at run time as an import the page
+  lacks) and `web/retro.js` (the page: files, input, sound, video, fetch,
+  the iframe web view, the system's calls in `call(name, arg)`, the
+  threads' workers); `tests/web/run.sh` checks both in Chromium, with and
+  without threads, and `tests/web/node.sh` runs headless tests as
+  WebAssembly under Node. A web build is 32-bit: `when defined(wasm)` for
+  what differs, and `tests/run32.sh` before a release (`int` overflows show
+  there). Threads (`--threads`): `web/libc/threads.c` (futexes; the page's
+  thread spins and serves the workers' calls, `rl_thread_serve`), the heap
+  behind a lock (`alloc.c`), `RetroThreads` and `threadWorker` in retro.js
+  (each worker a mailbox of shared memory; an import a worker does not do
+  itself the page does for it). Code that differs with threads:
+  `compileOption("threads")` -- a build without them must still compile.
+  A new import that a worker can do itself (no DOM) goes into its `local`
+  list. An exported Nim proc called from the page catches every exception
+  (Nim's goto exceptions would leave the error set and stop the next
+  frame). The system's features (`retroui/system`, `docs/system.md`): a
+  new one is a `call` name in retro.js, a branch in each system's part of
+  the proc, a line in docs/system.md's table, and a check in
+  `tests/web/webcheck.nim` and `tests/test_system.nim`.
 - **Maps:** `tilemap.nim` (the widget, sources, cache, workers), `geo.nim`
   (services: each provider's request and answer in one `case`, the tests'
   answers in `tests/test_tilemap.nim`), `mvt.nim`, `pmtiles.nim`. A new
@@ -123,8 +136,12 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
 4. Before a release, run the tests under the sanitizers too (the command
    is at the top of `tests/lsan.supp`); a leak found goes into
    `test_hardening`. Also `python3 tools/returncheck.py`, `nimble fuzz`,
-   `sh tests/run32.sh`, and the checks of what changed: `tests/web/run.sh`,
-   `tests/wayland/run.sh`, `tests/kiosk/run.sh`, `tests/store/linux.sh`.
+   `sh tests/run32.sh` (and `RETRO32_UBSAN=1`), and the checks of what
+   changed: `tests/web/run.sh`, `tests/web/node.sh`, `tests/wayland/run.sh`,
+   `tests/kiosk/run.sh`, `tests/store/linux.sh`. GitHub runs the long ones
+   every night (`.github/workflows/nightly.yml`: sanitizers, long fuzzing,
+   libFuzzer on `tests/fuzz/libfuzz.nim`, 32-bit, WebAssembly); a crash's
+   input is in the run's artifacts.
 
 ## Rules
 
@@ -201,7 +218,8 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   named in a `Co-Authored-By:` line.
 - **Never commit** private fonts (Helvetica World), secrets (Retro Mail's
   Google/Microsoft ids: from the environment at build time), signing keys
-  (the tests make their own in a temporary folder), build outputs, or real
+  and update keys (`*.secret`; the tests make their own in a temporary
+  folder), build outputs, or real
   personal data in examples and tests (sample data is made up: names, and
   numbers like +968 0000 0123).
 - **Third parties:** a part of someone else's (a font, data, code) goes

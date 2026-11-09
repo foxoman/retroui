@@ -2,7 +2,12 @@
 # The kit as a web page in a real browser: tests/web/webcheck.nim built with
 # retroweb (clang and wasm-ld, no Emscripten), served on localhost, driven
 # by headless Chromium (Playwright: npm install playwright; npx playwright
-# install chromium). At 100 % and at 200 % (a dense screen).
+# install chromium). At 100 % and at 200 % (a dense screen); then built
+# with threads (`--threads`: the page loaded once more through its service
+# worker to be kept apart from other sites, its drawing on every core),
+# and tests/web/threadcheck.nim: threads, locks, channels, files from a
+# thread, the page's fallback without them; tests/web/chatcheck.nim: XMPP
+# over a WebSocket (tests/web/xmppws.py, Python's websockets).
 #
 #   sh tests/web/run.sh
 #
@@ -26,6 +31,40 @@ for scale in 1 2; do
   node tests/web/run.js "http://127.0.0.1:$PORT/" "$scale" || failed=$((failed + 1))
 done
 kill $server 2> /dev/null
+# with threads: through a server that says nothing of isolation (the
+# service worker does)
+"$OUT/retroweb" tests/web/webcheck.nim --threads --out:"$OUT/page-threads" --files:"$OUT/files" \
+  --path:src > "$OUT/threads-build.log" 2>&1 || { echo "FAIL the build with threads"; tail "$OUT/threads-build.log"; exit 1; }
+( cd "$OUT/page-threads" && python3 -m http.server "$PORT" --bind 127.0.0.1 > "$OUT/http.log" 2>&1 ) &
+server=$!
+sleep 1
+echo "== with threads"
+node tests/web/run.js "http://127.0.0.1:$PORT/" 1 threads || failed=$((failed + 1))
+kill $server 2> /dev/null
+"$OUT/retroweb" tests/web/threadcheck.nim --threads:4 --out:"$OUT/threadcheck" --path:src \
+  > "$OUT/threadcheck.log" 2>&1 || { echo "FAIL threadcheck's build"; tail "$OUT/threadcheck.log"; exit 1; }
+( cd "$OUT/threadcheck" && python3 -m http.server "$PORT" --bind 127.0.0.1 > "$OUT/http.log" 2>&1 ) &
+server=$!
+sleep 1
+echo "== threads"
+node tests/web/threads.js "http://127.0.0.1:$PORT/" threads || failed=$((failed + 1))
+node tests/web/threads.js "http://127.0.0.1:$PORT/?threads=0" one || failed=$((failed + 1))
+kill $server 2> /dev/null
+# chat over a WebSocket (a small XMPP server of Python's websockets)
+if python3 -c "import websockets" 2> /dev/null; then
+  python3 tests/web/xmppws.py 8774 > "$OUT/xmppws.log" 2>&1 &
+  xmppws=$!
+  "$OUT/retroweb" tests/web/chatcheck.nim --threads:2 --out:"$OUT/chatcheck" --path:src \
+    > "$OUT/chatcheck.log" 2>&1 || { echo "FAIL chatcheck's build"; tail "$OUT/chatcheck.log"; exit 1; }
+  ( cd "$OUT/chatcheck" && python3 -m http.server "$PORT" --bind 127.0.0.1 > "$OUT/http.log" 2>&1 ) &
+  server=$!
+  sleep 1
+  echo "== chat"
+  node tests/web/threads.js "http://127.0.0.1:$PORT/" chat || failed=$((failed + 1))
+  kill $server $xmppws 2> /dev/null
+else
+  echo "(no chat check: pip install websockets)"
+fi
 # retroweb's own server (retrokit run --web): the page, a part of a video
 # (seeking), the version the page polls to reload itself
 DEV=$((PORT + 1))
@@ -42,6 +81,8 @@ check "the dev server: a part of a video" \
   "$(curl -s -o /dev/null -w '%{http_code} %{size_download}' -H 'Range: bytes=100-199' "http://127.0.0.1:$DEV/app/live.mp4")" "206 100"
 check "the dev server: the version" "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$DEV/__retro_version")" 200
 check "the dev server: nothing outside the page" "$(curl -s -o /dev/null -w '%{http_code}' --path-as-is "http://127.0.0.1:$DEV/../retroweb")" 403
+check "the dev server: a page without threads stays open to other sites" \
+  "$(curl -sI "http://127.0.0.1:$DEV/" | grep -ci cross-origin-embedder)" 0
 kill $dev 2> /dev/null
 [ $failed -eq 0 ] && echo "web: all ok" || echo "web: $failed failed"
 exit $failed

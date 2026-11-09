@@ -3650,6 +3650,17 @@ proc x11Minimize(): bool =
   result = XIconifyWindow(gDisplay, gWindow, gScreen) != 0
   discard XFlush(gDisplay)
 
+proc x11Call(name, arg: string): string =
+  ## `SystemRelays.call`: "attention" (the taskbar's entry asks to be
+  ## looked at: _NET_WM_STATE_DEMANDS_ATTENTION, cleared by the window
+  ## manager when the window is focused).
+  case name
+  of "attention":
+    if gDisplay == nil or gWindow == None: return "0"
+    sendWmState(true, XInternAtom(gDisplay, "_NET_WM_STATE_DEMANDS_ATTENTION", 0), Atom(0))
+    "1"
+  else: "\0"
+
 # ---- Input hook implementations ----
 
 # ---- screen readers (AT-SPI) ----
@@ -4145,6 +4156,8 @@ proc initX11Driver*() =
     active: proc (): bool = gFocused,
     setResizable: x11SetResizable)
   systemRelays.minimize = x11Minimize
+  systemRelays.call = proc (name, arg: string): string {.gcsafe.} =
+    {.cast(gcsafe).}: x11Call(name, arg)
   fileDragRelays = FileDragRelays(dragOut: x11DragFilesOut)
   inputRelays = InputRelays(
     pollEvent: x11PollEvent, waitEvent: x11WaitEvent,

@@ -32,7 +32,7 @@ when not androidApp and not defined(ios) and not defined(windows):
   import std/osproc
 import gfx, core, widgets, business, typeset, ttf, imaging, pdf, templates, nerdicons, uirelays
 when defined(windows): import std/dynlib
-when androidApp: import uirelays/services
+when androidApp or defined(wasm): import uirelays/services
 export pdf, templates, Align, Color, color
 
 # ---- the document ------------------------------------------------------------------------------------
@@ -1076,7 +1076,12 @@ proc printPdf*(path: string; jobName = ""; printer = ""; pages = 0): tuple[ok: b
   ## - Android: the system's print dialog (its printers, Save as PDF);
   ##   `pages` (if known) shows there.
   ## - iOS: not available yet.
+  ## - A web page: the browser's print dialog, with the PDF in it (its
+  ##   printers, Save as PDF).
   if not fileExists(path): return (false, "There is no file " & path & ".")
+  when defined(wasm):
+    return if systemCall("print", path) == "1": (true, "Printing (the browser's print dialog).")
+           else: (false, "This browser cannot print the document; save it as PDF instead.")
   let job = if jobName.len > 0: jobName else: path.extractFilename
   when androidApp:
     let res = systemCall("print.pdf", absolutePath(path) & "\t" & job & "\t" &

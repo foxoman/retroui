@@ -17,7 +17,8 @@ import std/[os, strutils, tables, algorithm, sequtils, json, math]
 from std/times import fromUnix, epochTime
 from std/unicode import runes, toUTF8
 import retroui
-import retroui/[textwidgets, richedit, qrcode, pdfview, tilemap, mvt, gltf, capture, mediasession]
+import retroui/[textwidgets, richedit, qrcode, pdfview, tilemap, mvt, gltf, capture, mediasession, system,
+                secrets, update]
 import retroui/uirelays/[coords, screen, input, services]
 include "../tests/carscene"
 
@@ -2061,7 +2062,7 @@ do:
 opts(settle = 1200)
 
 example("cameraview", "cameraView",
-        "The camera's live picture in the window, drawn by the kit under its menus and dialogs, through the system's own API (Video4Linux, Media Foundation, AVFoundation, Camera2): photos, videos of it, and sound recorded from the microphone.",
+        "The camera's live picture in the window, drawn by the kit under its menus and dialogs, through the system's own API (Video4Linux, Media Foundation, AVFoundation, Camera2; getUserMedia in a web page): photos, videos of it, and sound recorded from the microphone.",
         420, 300, ["cameraView", "cameras", "cameraPhoto", "cameraRecord", "cameraStop", "cameraFrame",
                    "cameraClose", "recordSound", "stopRecordingSound", "recordingSound", "soundLevel"], std3):
   let cam = cameraView(height = 240)
@@ -2072,7 +2073,7 @@ example("cameraview", "cameraView",
 opts(noPicture = "The picture is the camera's.")
 
 example("nowplaying", "setNowPlaying, mediaKeys",
-        "What the app plays, shown where the system shows it -- the lock screen, the notification shade, the taskbar's media flyout, the menu bar's Now Playing, the desktop's media applet -- and what the user presses there and on media keys, handed to the app (MPRIS, the System Media Transport Controls, MPNowPlayingInfoCenter, a MediaSession). Call it every frame: the system is told only what changed.",
+        "What the app plays, shown where the system shows it -- the lock screen, the notification shade, the taskbar's media flyout, the menu bar's Now Playing, the desktop's media applet, the browser's media hub -- and what the user presses there and on media keys, handed to the app (MPRIS, the System Media Transport Controls, MPNowPlayingInfoCenter, a MediaSession, the browser's Media Session). Call it every frame: the system is told only what changed.",
         420, 80, ["setNowPlaying", "endNowPlaying", "mediaKeys"], std3):
   setNowPlaying(NowPlaying(title: "Morning bell", artist: "Retro", playing: true,
                            positionMs: 12_000, durationMs: 95_000, canNext: true))
@@ -2087,6 +2088,86 @@ example("audioview", "audioView",
 do:
   audioView(song, height = 120)
 opts(settle = 600)
+
+# ======================================================================================================
+# The system's features
+# ======================================================================================================
+
+part("The system's features", """
+`retroui/system` asks each system for its own notifications, share sheet,
+place, voice, haptics and more, with the same calls everywhere -- Linux,
+Windows, macOS, Android, iOS and a web page. Nothing waits on the system
+(an answer that comes later is asked again next frame), and "not here" is
+an answer (false, `psNone`, -1), never an error: the app offers what it
+can instead. [docs/system.md](system.md) has what each call does on each
+system and what an app declares for it (Android permissions, Info.plist,
+https).
+""")
+
+example("notify", "notify, share, haptic",
+        "Tell the user outside the window (`notify`: the system's notification; `setBadge`: the count on the app's icon), offer something to other apps (`share`: a share sheet, a share menu, Web Share), a tap felt (`haptic`), a buzz (`vibrate`). False where the system has none: the example falls back to a toast and the clipboard.",
+        420, 70, ["notify", "clearNotification", "setBadge", "share", "haptic", "vibrate", "requestAttention"], std3):
+  row:
+    if button("&Notify"):
+      if not notify("Order 1042", "Ready at the counter", tag = "orders"):
+        toast("Order 1042 is ready")
+    if button("&Share"):
+      if not share(text = "Order 1042", url = "https://example.com/o/1042"):
+        putClipboardText("https://example.com/o/1042")
+    if button("&Tap"): haptic(hSuccess)
+    if button("&Attention"): requestAttention()
+
+example("location", "location, speak",
+        "Where the device is (`location`: `psWaiting` until the first fix, the user asked the first time; `stopLocation` when done) and words said aloud with the system's voice (`speak`, `stopSpeaking`, `speaking`).",
+        420, 90, ["location", "stopLocation", "speak", "stopSpeaking", "speaking"], std3):
+  var sysPlace = false
+do:
+  row:
+    if button("&Where am I?"): sysPlace = true
+    if button("S&peak"): speak("Your order is ready")
+    if button("Sto&p"): stopSpeaking()
+  if sysPlace:
+    let p = location()
+    label(case p.state
+          of psOk: "At " & $p.lat & ", " & $p.lon
+          of psWaiting: "Looking..."
+          of psDenied: "The place was not allowed."
+          of psNone: "No place on this device.")
+
+example("deviceinfo", "deviceInfo, setOpenAtLogin",
+        "The device in one call (`deviceInfo`: its name, system, language, battery, dark look, network, cores), the app started with the computer (`setOpenAtLogin`: Windows' Run key, a launch agent, an autostart entry), `online`, `systemLanguage`, `battery`, `revealFile`.",
+        420, 160, ["deviceInfo", "online", "systemLanguage", "battery", "revealFile", "setOpenAtLogin",
+                   "openAtLogin"], std3):
+  let d = deviceInfo()
+  factList({"Device": d.name, "System": d.system, "Language": d.language,
+            "Network": (if d.online: "connected" else: "offline")})
+  var atLogin = openAtLogin("Shop")
+  if toggle("Start with the &computer", atLogin): setOpenAtLogin(atLogin, "Shop")
+opts(noPicture = "It shows the device it runs on.")
+
+example("secrets", "saveSecret, loadSecret",
+        "Small secrets -- a sign-in's tokens, an API's key -- kept where other users and programs cannot read them: DPAPI on Windows, the keychain on macOS, the desktop's keyring on Linux, a sealed file on phones, WebCrypto in a web page.",
+        420, 70, ["saveSecret", "loadSecret", "deleteSecret"], std3):
+  var sysSaid = ""
+do:
+  row:
+    if button("&Keep the key"): sysSaid = $saveSecret("Shop", "api key", "k-1042")
+    if button("&Read it"): sysSaid = loadSecret("Shop", "api key")
+    if button("&Forget it"): deleteSecret("Shop", "api key")
+  label sysSaid
+
+example("updates", "checkForUpdate, downloadUpdate, installUpdate",
+        "Updates inside the app: the update file you publish, its signature checked (Ed25519) with the public key built into the app, the file for this system downloaded and its SHA-256 checked, then installed (`restartApp`). `retrokit update-key` makes the key, `retrokit update-sign update.json` signs each release. It waits for the network: on a thread of its own, or at a moment the app may wait.",
+        420, 70, ["checkForUpdate", "downloadUpdate", "installUpdate", "restartApp", "newerVersion"], std3):
+  var updateSaid = ""
+do:
+  if button("Check for &updates"):
+    let u = checkForUpdate("https://example.com/shop/update.json", "01VFThQl2gEEkWYqnvsvw+bbRTD59hQ2SAdg6kBwDjU=", "1.2.0")
+    if u.available:
+      let file = downloadUpdate(u)
+      if installUpdate(file): restartApp()
+    else: updateSaid = if u.error.len > 0: u.error else: "This is the newest."
+  label updateSaid
 
 # ======================================================================================================
 # Looks

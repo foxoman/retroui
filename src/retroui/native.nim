@@ -580,7 +580,9 @@ var toneGen: JObject     # Android: the tone generator of `beepSystem`, kept
 proc vibrate*(ms = 50): bool {.discardable.} =
   ## Buzzes the phone for `ms` milliseconds (Android apps need
   ## `retroapk --permission:VIBRATE`; Termux uses Termux:API; iPhones buzz
-  ## their standard short buzz). False where nothing buzzes.
+  ## their standard short buzz; a web page buzzes the phone it runs on).
+  ## False where nothing buzzes.
+  when defined(wasm): return systemCall("vibrate", $ms) == "1"
   try:
     when defined(ios):
       let tb = nativeLib("/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox")
@@ -605,7 +607,9 @@ proc vibrate*(ms = 50): bool {.discardable.} =
 
 proc deviceName*(): string =
   ## What the device or computer is called: the model on phones ("Google
-  ## Pixel 9", "Foxoman's iPad"), the computer's name on desktops.
+  ## Pixel 9", "Foxoman's iPad"), the computer's name on desktops, the
+  ## browser in a web page ("Chrome 131 on Windows").
+  when defined(wasm): return systemCall("device", "")
   try:
     when defined(ios):
       let dev = objcSend(ObjcId, objcClass("UIDevice"), "currentDevice")
@@ -633,7 +637,12 @@ proc deviceName*(): string =
 
 proc osVersion*(): string =
   ## The system and its version: "Android 15", "iOS 18.1", "macOS Version
-  ## 14.1 (Build 23B74)", "Windows 10.0.22631", "Ubuntu 24.04.1 LTS".
+  ## 14.1 (Build 23B74)", "Windows 10.0.22631", "Ubuntu 24.04.1 LTS"; "Web"
+  ## and the system under the browser in a page.
+  when defined(wasm):
+    let d = systemCall("device", "")
+    let i = d.find(" on ")
+    return "Web" & (if i >= 0: " (" & d[i + 4 .. ^1] & ")" else: "")
   try:
     when defined(ios):
       let dev = objcSend(ObjcId, objcClass("UIDevice"), "currentDevice")
@@ -662,7 +671,9 @@ proc osVersion*(): string =
 
 proc batteryLevel*(): int =
   ## The battery's charge in percent, -1 when unknown (no battery, a desktop
-  ## without the information, macOS).
+  ## without the information, macOS; a browser that does not tell).
+  when defined(wasm):
+    return (try: parseInt(systemCall("battery", "").split(' ')[0]) except ValueError: -1)
   try:
     when defined(ios):
       let dev = objcSend(ObjcId, objcClass("UIDevice"), "currentDevice")
@@ -700,6 +711,7 @@ proc systemDarkMode*(): bool =
   ## The user chose a dark look for the system (Android's dark theme, iOS
   ## and macOS Dark appearance, Windows' dark app mode, a dark GTK theme or
   ## GNOME's color scheme on Linux). Asked at most every 5 seconds.
+  when defined(wasm): return systemCall("dark", "") == "1"
   let now = epochTime()
   if now - darkCache.at < 5: return darkCache.v
   var dark = false
@@ -742,6 +754,9 @@ proc systemDarkMode*(): bool =
 proc beepSystem*() =
   ## The system's alert sound (Windows' default beep, NSBeep on macOS, a
   ## tick on iOS, a short tone on Android, the X11 bell on Linux).
+  when defined(wasm):
+    discard systemCall("beep", "")
+    return
   try:
     when defined(ios):
       let tb = nativeLib("/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox")
@@ -795,7 +810,9 @@ proc userName*(): string =
 
 proc keepScreenOn*(on: bool): bool {.discardable.} =
   ## Keeps the screen from dimming and the device from sleeping while `on`
-  ## (a presentation, a long job). Android, iOS and Windows; false elsewhere.
+  ## (a presentation, a long job). Android, iOS, Windows and web pages (the
+  ## Wake Lock); false elsewhere.
+  when defined(wasm): return systemCall("wakelock", if on: "1" else: "0") == "1"
   try:
     when defined(ios):
       let app = objcSend(ObjcId, objcClass("UIApplication"), "sharedApplication")

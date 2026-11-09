@@ -303,7 +303,7 @@ proc beginMdiWindow*(w: var MdiWindow): bool =
       let cw = a.w div cols
       let ch = (a.h - (if m.nIcons > 0: dp(64) else: 0)) div rowsN
       w.r = rect(rank mod cols * cw, rank div cols * ch, cw, ch)
-  let id = Id(mixId(uint32(key and 0xFFFFFFFF'u), uint32(key shr 32) xor 0x6d6469'u32))
+  let id = Id(mixId(uint32(uint64(key) and 0xFFFFFFFF'u64), uint32(uint64(key) shr 32) xor 0x6d6469'u32))
   # minimized: an icon along the bottom of the area (and not the active
   # window any more: it goes to the back)
   if w.minimized and m.z.len > 1 and m.mdiTop == key:
@@ -792,7 +792,7 @@ proc mdiIsActive*(w: var MdiWindow; key = ""): bool =
 proc mdiTitleDragged*(w: var MdiWindow): bool =
   ## `w` is being moved by its title bar (the mouse held down on it).
   let key = keyOf(w)
-  let id = Id(mixId(uint32(key and 0xFFFFFFFF'u), uint32(key shr 32) xor 0x6d6469'u32))
+  let id = Id(mixId(uint32(uint64(key) and 0xFFFFFFFF'u64), uint32(uint64(key) shr 32) xor 0x6d6469'u32))
   ui.active == id + 2 and ui.mouseDown
 
 proc mdiAreaRect*(key = ""): Rect =

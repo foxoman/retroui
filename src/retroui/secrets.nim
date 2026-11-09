@@ -11,6 +11,9 @@
 ##   encrypted (XChaCha20-Poly1305, see `retroui/vault`) with a random key
 ##   kept in a file only this user may read.
 ## - **Android:** the app's private folder, encrypted the same way.
+## - **A web page:** the page's storage, sealed (AES-GCM, WebCrypto) with
+##   a key the browser keeps for the site and never hands out (a CryptoKey
+##   that cannot be exported, in IndexedDB).
 ##
 ## .. code-block:: nim
 ##   if not saveSecret("Retro Mail", "account 1", $(%tokens)): echo "not saved"
@@ -37,6 +40,14 @@ else:
 
 var secretsLock: Lock
 initLock(secretsLock)
+
+when defined(wasm):
+  import std/base64
+
+  proc webSecret(op, app, name: string; value = ""): string =
+    ## (retro.js: "=VALUE" found, "" none, "1" done, "\x01" or "\0": not here)
+    proc q(s: string): string = "\"" & encode(s) & "\""
+    systemCall("secret." & op, "{\"key\":" & q(app & "\0" & name) & ",\"value\":" & q(value) & "}")
 
 proc folderOf(app: string; make = false): string =
   ## The app's folder of secrets (with `make`, made when missing: only for
@@ -257,6 +268,10 @@ proc saveSecret*(app, name, value: string): bool {.gcsafe.} =
   ## name); false when it could not be kept.
   if app.len == 0 or name.len == 0: return false
   {.cast(gcsafe).}:
+    when defined(wasm):
+      if webSecret("set", app, name, value) == "1":
+        try: removeFile(fileOf(app, name)) except OSError: discard
+        return true
     when defined(windows):
       # (a byte before the value: DPAPI may refuse an empty one)
       let (ok, sealed) = dpapi("v" & value, "retro." & app & "\0" & name, true)
@@ -284,6 +299,11 @@ proc loadSecret*(app, name: string): string {.gcsafe.} =
   ## opened: another user's, another computer's).
   if app.len == 0 or name.len == 0: return ""
   {.cast(gcsafe).}:
+    when defined(wasm):
+      let r = webSecret("get", app, name)
+      if r.startsWith("="):
+        try: return decode(r[1 .. ^1])
+        except ValueError: return ""
     when defined(windows):
       var sealed: string
       withLock secretsLock:
@@ -310,6 +330,8 @@ proc deleteSecret*(app, name: string) {.gcsafe.} =
   ## none).
   if app.len == 0 or name.len == 0: return
   {.cast(gcsafe).}:
+    when defined(wasm):
+      discard webSecret("delete", app, name)
     when not defined(windows) and not androidApp and not defined(ios):
       if not filesOnly():
         when defined(macosx): keychainDelete(app, name)

@@ -13,8 +13,10 @@ name: Every system
 #            headless Chromium (tests/web/run.sh); the headless tests as
 #            32-bit programs, an int as small as WebAssembly's (run32.sh)
 #   Windows  the tests made for every system, and the live check (WinAPI,
-#            WebView2); a program signed and an MSIX made in Nim, checked,
-#            installed and removed by Windows itself (tests/store/windows.ps1)
+#            WebView2); screen readers' UI Automation reading the controls
+#            and pressing a button (tests/access/windows.ps1); a program
+#            signed and an MSIX made in Nim, checked, installed and removed
+#            by Windows itself (tests/store/windows.ps1)
 #   macOS    the same with Cocoa and WKWebView; an .app signed in Nim,
 #            checked by codesign and run (tests/store/mac.sh)
 #   iOS      the live check in the iOS Simulator (UIKit, WKWebView)
@@ -134,6 +136,12 @@ jobs:
         run: |
           nim c -d:release --hints:off -o:build/livecheck.exe tests/live/livecheck.nim
           RETRO_LIVE_OUT=live ./build/livecheck.exe
+      - name: Screen readers (UI Automation reads the controls, presses a button)
+        if: always()
+        shell: pwsh
+        run: |
+          nim c -d:release --hints:off -o:build/accesscheck.exe tests/access/accesscheck.nim
+          ./tests/access/windows.ps1
       - name: A program signed and an MSIX, as Windows sees them
         if: always()
         shell: pwsh

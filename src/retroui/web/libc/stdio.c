@@ -84,7 +84,10 @@ static FILE *newFile(int fd, int flags) {
   f->cap = 16384;
   f->buf = malloc(f->cap);
   if (!f->buf) { free(f); return 0; }
-  for (int i = 0; i < MAXOPEN; i++) if (!openFiles[i]) { openFiles[i] = f; break; }
+  for (int i = 0; i < MAXOPEN; i++) {
+    FILE *none = 0;           /* (a slot taken atomically: threads open files too) */
+    if (__atomic_compare_exchange_n(&openFiles[i], &none, f, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) break;
+  }
   return f;
 }
 
@@ -114,7 +117,10 @@ int fclose(FILE *f) {
   if (!f) return EOF;
   int r = fflush(f);
   if (!f->own) return r;
-  for (int i = 0; i < MAXOPEN; i++) if (openFiles[i] == f) openFiles[i] = 0;
+  for (int i = 0; i < MAXOPEN; i++) {
+    FILE *was = f;
+    if (__atomic_compare_exchange_n(&openFiles[i], &was, (FILE *)0, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) break;
+  }
   if (close(f->fd)) r = EOF;
   free(f->buf);
   free(f);

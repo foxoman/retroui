@@ -26,12 +26,26 @@
 ##
 ## Microsoft: register the app in Entra ("Mobile and desktop
 ## applications", redirect address `http://localhost`); it has no secret.
+
 ## Google: a "Desktop app" client; its secret is not secret, and it is
 ## needed. Both providers ask for `openid`, `email` and `profile` too
 ## (`claims` then has the name and address), and Microsoft for
 ## `offline_access` (a refresh token).
+##
+## In a web page the sign-in page opens in a window of its own (a pop-up:
+## `beginSignIn` from a click), and comes back to `oauth.html` beside the
+## app's page (`retrokit web` writes it), which hands the answer to the
+## app and closes. Register that address: for Microsoft a "Single-page
+## application" with the redirect address https://YOUR.SITE/APP/oauth.html;
+## for Google a "Web application" client with it as a redirect address
+## (and its secret, which a page cannot keep: Google's own rules for web
+## pages apply).
 
-import std/[json, strutils, times, locks, net, nativesockets, selectors, sysrand, base64, typedthreads]
+when defined(wasm):
+  import std/[json, strutils, times, sysrand, base64]
+  from std/uri import decodeUrl
+else:
+  import std/[json, strutils, times, locks, net, nativesockets, selectors, sysrand, base64, typedthreads]
 import http, sha2, core
 from codec import unbase64
 import uirelays/services
@@ -60,15 +74,29 @@ type
     osFailed,                           ## `error` says why
     osCancelled                         ## `cancel` was called
 
-  Link = object
-    slot: int                           # the flow's slot while its thread may still write it; -1 after
+when defined(wasm):
+  type
+    FlowObj = object
+      st: OAuthState
+      toks: OAuthTokens
+      err, address: string
+      provider: OAuthProvider
+      verifier, expected, redirect: string
+      popup: string                     # (the page's sign-in window, by its number)
+      started: float
+else:
+  type
+    Link = object
+      slot: int                           # the flow's slot while its thread may still write it; -1 after
 
-  FlowObj = object
-    link: Link
-    st: OAuthState
-    toks: OAuthTokens
-    err, address: string
+    FlowObj = object
+      link: Link
+      st: OAuthState
+      toks: OAuthTokens
+      err, address: string
 
+
+type
   OAuthFlow* = ref FlowObj
     ## A sign-in in progress.
 
@@ -76,25 +104,26 @@ const
   signInSeconds = 600.0                 # how long the user has
   maxSlots = 8                          # sign-ins at once
 
-type
-  Job = object
-    slot: int
-    provider: OAuthProvider
-    verifier, expected, redirect: string
-    listeners: seq[(SocketHandle, Domain)]
+when not defined(wasm):
+  type
+    Job = object
+      slot: int
+      provider: OAuthProvider
+      verifier, expected, redirect: string
+      listeners: seq[(SocketHandle, Domain)]
 
-  Slot = object
-    inUse, attached, finished, cancel: bool
-    state: OAuthState
-    tokens: OAuthTokens
-    error: string
-    thread: Thread[Job]
+    Slot = object
+      inUse, attached, finished, cancel: bool
+      state: OAuthState
+      tokens: OAuthTokens
+      error: string
+      thread: Thread[Job]
 
-var
-  signInLock: Lock
-  slots: array[maxSlots, Slot]          # guarded by signInLock
+  var
+    signInLock: Lock
+    slots: array[maxSlots, Slot]          # guarded by signInLock
 
-initLock(signInLock)
+  initLock(signInLock)
 
 # ---- small parts ----------------------------------------------------------------------------
 
@@ -244,284 +273,385 @@ proc ensureFresh*(p: OAuthProvider; t: var OAuthTokens; margin = 120.0): string 
   result = refresh(p, t)
   if result.len > 0 and t.accessToken.len > 0 and left > 10: result = ""
 
-# ---- the loopback server (on its own thread) ------------------------------------------------
+when not defined(wasm):
+  # ---- the loopback server (on its own thread) ------------------------------------------------
 
-proc page(title, text: string): string =
-  ## The small page the browser shows.
-  proc esc(s: string): string =
-    s.multiReplace(("&", "&amp;"), ("<", "&lt;"), (">", "&gt;"), ("\"", "&quot;"))
-  "<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><title>" & esc(title) &
-    "</title>\n<style>body{font:16px/1.5 system-ui,sans-serif;margin:4em auto;max-width:34em;" &
-    "padding:0 1em;color:#222}h1{font-size:1.4em}</style></head>\n<body><h1>" & esc(title) &
-    "</h1><p>" & esc(text) & "</p></body></html>\n"
+  proc page(title, text: string): string =
+    ## The small page the browser shows.
+    proc esc(s: string): string =
+      s.multiReplace(("&", "&amp;"), ("<", "&lt;"), (">", "&gt;"), ("\"", "&quot;"))
+    "<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><title>" & esc(title) &
+      "</title>\n<style>body{font:16px/1.5 system-ui,sans-serif;margin:4em auto;max-width:34em;" &
+      "padding:0 1em;color:#222}h1{font-size:1.4em}</style></head>\n<body><h1>" & esc(title) &
+      "</h1><p>" & esc(text) & "</p></body></html>\n"
 
-proc reply(c: Socket; status: int; html: string) =
-  let reason = case status
-               of 200: "OK"
-               of 400: "Bad Request"
-               of 404: "Not Found"
-               else: "Error"
-  try:
-    c.send("HTTP/1.1 " & $status & " " & reason & "\r\nContent-Type: text/html; charset=utf-8\r\n" &
-           "Content-Length: " & $html.len & "\r\nCache-Control: no-store\r\n" &
-           "Referrer-Policy: no-referrer\r\nConnection: close\r\n\r\n" & html)
-  except OSError, IOError: discard
+  proc reply(c: Socket; status: int; html: string) =
+    let reason = case status
+                 of 200: "OK"
+                 of 400: "Bad Request"
+                 of 404: "Not Found"
+                 else: "Error"
+    try:
+      c.send("HTTP/1.1 " & $status & " " & reason & "\r\nContent-Type: text/html; charset=utf-8\r\n" &
+             "Content-Length: " & $html.len & "\r\nCache-Control: no-store\r\n" &
+             "Referrer-Policy: no-referrer\r\nConnection: close\r\n\r\n" & html)
+    except OSError, IOError: discard
 
-proc finish(slot: int; state: OAuthState; tokens: OAuthTokens; error: string) =
-  withLock signInLock:
-    let s = addr slots[slot]
-    if s.state == osWaiting:
-      s.state = state
-      s.tokens = tokens
-      s.error = error
+  proc finish(slot: int; state: OAuthState; tokens: OAuthTokens; error: string) =
+    withLock signInLock:
+      let s = addr slots[slot]
+      if s.state == osWaiting:
+        s.state = state
+        s.tokens = tokens
+        s.error = error
 
-proc cancelled(slot: int): bool =
-  withLock signInLock:
-    result = slots[slot].cancel
+  proc cancelled(slot: int): bool =
+    withLock signInLock:
+      result = slots[slot].cancel
 
-proc listen(job: Job) {.thread.} =
-  {.cast(gcsafe).}:
-    let p = job.provider
-    let deadline = epochTime() + signInSeconds
-    var sel = newSelector[int]()
-    var listeners: seq[Socket]
-    for (fd, domain) in job.listeners:
-      let l = newSocket(fd, domain, SOCK_STREAM, IPPROTO_TCP, buffered = false)
-      listeners.add l
-      sel.registerHandle(fd, {Event.Read}, -1)
-    var clients: seq[tuple[sock: Socket; data: string; since: float]]
+  proc listen(job: Job) {.thread.} =
+    {.cast(gcsafe).}:
+      let p = job.provider
+      let deadline = epochTime() + signInSeconds
+      var sel = newSelector[int]()
+      var listeners: seq[Socket]
+      for (fd, domain) in job.listeners:
+        let l = newSocket(fd, domain, SOCK_STREAM, IPPROTO_TCP, buffered = false)
+        listeners.add l
+        sel.registerHandle(fd, {Event.Read}, -1)
+      var clients: seq[tuple[sock: Socket; data: string; since: float]]
 
-    proc drop(i: int) =
-      try: sel.unregister(clients[i].sock.getFd)
-      except CatchableError: discard
-      clients[i].sock.close()
-      clients.delete(i)
+      proc drop(i: int) =
+        try: sel.unregister(clients[i].sock.getFd)
+        except CatchableError: discard
+        clients[i].sock.close()
+        clients.delete(i)
 
-    var outcome = osWaiting
-    var tokens: OAuthTokens
-    var error = ""
-    while outcome == osWaiting:
-      if cancelled(job.slot):
-        outcome = osCancelled
-        break
-      if epochTime() > deadline:
-        outcome = osFailed
-        error = "the sign-in took too long (10 minutes); sign in again"
-        break
-      var ready: seq[ReadyKey]
-      try: ready = sel.select(200)
-      except CatchableError: ready = @[]
-      for k in ready:
-        if outcome != osWaiting: break
-        let fd = SocketHandle(k.fd)
-        var listener = false
-        for l in listeners:
-          if l.getFd == fd:                             # a new client
-            listener = true
-            var c: Socket
-            try:
-              l.accept(c)
-              clients.add (c, "", epochTime())
-              sel.registerHandle(c.getFd, {Event.Read}, 0)
-            except CatchableError: discard
-        if listener: continue
-        var at = -1
-        for i, c in clients:
-          if c.sock.getFd == fd: at = i
-        if at < 0: continue
-        var buf: array[4096, char]
-        let n = try: clients[at].sock.recv(addr buf[0], buf.len) except CatchableError: -1
-        if n <= 0:
-          drop(at)
-          continue
-        for i in 0 ..< n: clients[at].data.add buf[i]
-        if clients[at].data.len > 16384:
-          reply(clients[at].sock, 400, page("Too long", "This request is too long."))
-          drop(at)
-          continue
-        if "\r\n\r\n" notin clients[at].data and "\n\n" notin clients[at].data: continue
-        # a whole request: GET /?code=...&state=... HTTP/1.1
-        let c = clients[at].sock
-        let first = clients[at].data.splitLines()[0].splitWhitespace()
-        let target = if first.len >= 2: first[1] else: ""
-        let q = target.find('?')
-        let path = if q < 0: target else: target[0 ..< q]
-        let query = formDecode(if q < 0: "" else: target[q + 1 .. ^1])
-        proc get(name: string): string =
-          for (k, v) in query:
-            if k == name: return v
-        if first.len < 2 or first[0] notin ["GET", "HEAD"] or path != "/":
-          reply(c, 404, page("Not here", "There is nothing here."))
-        elif get("state").len == 0:
-          reply(c, 400, page("Not signed in", "This page waits for the answer of a sign-in."))
-        elif get("state") != job.expected:
-          reply(c, 400, page("Not this sign-in",
-                "This answer belongs to another sign-in (an older window?). " &
-                "Go back to the app and sign in from there."))
-        elif get("error").len > 0:
+      var outcome = osWaiting
+      var tokens: OAuthTokens
+      var error = ""
+      while outcome == osWaiting:
+        if cancelled(job.slot):
+          outcome = osCancelled
+          break
+        if epochTime() > deadline:
           outcome = osFailed
-          error = readable(get("error"), get("error_description"))
-          reply(c, 200, page("Not signed in", "The sign-in did not work: " & error &
-                ". You can close this window and go back to the app."))
-        elif get("code").len == 0:
-          reply(c, 400, page("Not signed in", "The answer has no code."))
-        else:
-          # the code: no more listening, then tokens for it
+          error = "the sign-in took too long (10 minutes); sign in again"
+          break
+        var ready: seq[ReadyKey]
+        try: ready = sel.select(200)
+        except CatchableError: ready = @[]
+        for k in ready:
+          if outcome != osWaiting: break
+          let fd = SocketHandle(k.fd)
+          var listener = false
           for l in listeners:
-            try: sel.unregister(l.getFd) except CatchableError: discard
-            l.close()
-          listeners.setLen(0)
-          error = tokenRequest(p, @[("grant_type", "authorization_code"), ("code", get("code")),
-                                    ("redirect_uri", job.redirect),
-                                    ("code_verifier", job.verifier)], tokens)
-          if cancelled(job.slot):
-            outcome = osCancelled
-            reply(c, 200, page("Cancelled", "The sign-in was cancelled in the app."))
-          elif error.len == 0:
-            outcome = osDone
-            reply(c, 200, page("Signed in", "You are signed in with " & p.name &
-                  ". You can close this window and go back to the app."))
-          else:
+            if l.getFd == fd:                             # a new client
+              listener = true
+              var c: Socket
+              try:
+                l.accept(c)
+                clients.add (c, "", epochTime())
+                sel.registerHandle(c.getFd, {Event.Read}, 0)
+              except CatchableError: discard
+          if listener: continue
+          var at = -1
+          for i, c in clients:
+            if c.sock.getFd == fd: at = i
+          if at < 0: continue
+          var buf: array[4096, char]
+          let n = try: clients[at].sock.recv(addr buf[0], buf.len) except CatchableError: -1
+          if n <= 0:
+            drop(at)
+            continue
+          for i in 0 ..< n: clients[at].data.add buf[i]
+          if clients[at].data.len > 16384:
+            reply(clients[at].sock, 400, page("Too long", "This request is too long."))
+            drop(at)
+            continue
+          if "\r\n\r\n" notin clients[at].data and "\n\n" notin clients[at].data: continue
+          # a whole request: GET /?code=...&state=... HTTP/1.1
+          let c = clients[at].sock
+          let first = clients[at].data.splitLines()[0].splitWhitespace()
+          let target = if first.len >= 2: first[1] else: ""
+          let q = target.find('?')
+          let path = if q < 0: target else: target[0 ..< q]
+          let query = formDecode(if q < 0: "" else: target[q + 1 .. ^1])
+          proc get(name: string): string =
+            for (k, v) in query:
+              if k == name: return v
+          if first.len < 2 or first[0] notin ["GET", "HEAD"] or path != "/":
+            reply(c, 404, page("Not here", "There is nothing here."))
+          elif get("state").len == 0:
+            reply(c, 400, page("Not signed in", "This page waits for the answer of a sign-in."))
+          elif get("state") != job.expected:
+            reply(c, 400, page("Not this sign-in",
+                  "This answer belongs to another sign-in (an older window?). " &
+                  "Go back to the app and sign in from there."))
+          elif get("error").len > 0:
             outcome = osFailed
+            error = readable(get("error"), get("error_description"))
             reply(c, 200, page("Not signed in", "The sign-in did not work: " & error &
                   ". You can close this window and go back to the app."))
-        drop(at)
-      # clients that say nothing (a browser's spare connection)
-      var i = 0
-      while i < clients.len:
-        if epochTime() - clients[i].since > 20: drop(i) else: inc i
-    while clients.len > 0: drop(0)
-    for l in listeners: l.close()
-    sel.close()
-    finish(job.slot, outcome, tokens, error)
-    withLock signInLock:
-      slots[job.slot].finished = true
-
-# ---- the flow, on the UI thread -------------------------------------------------------------
-
-proc dropLink(slot: int) =
-  ## A flow no one keeps: its sign-in stops, its slot is free once its
-  ## thread ends.
-  if slot >= 0:
-    {.cast(gcsafe).}:
+          elif get("code").len == 0:
+            reply(c, 400, page("Not signed in", "The answer has no code."))
+          else:
+            # the code: no more listening, then tokens for it
+            for l in listeners:
+              try: sel.unregister(l.getFd) except CatchableError: discard
+              l.close()
+            listeners.setLen(0)
+            error = tokenRequest(p, @[("grant_type", "authorization_code"), ("code", get("code")),
+                                      ("redirect_uri", job.redirect),
+                                      ("code_verifier", job.verifier)], tokens)
+            if cancelled(job.slot):
+              outcome = osCancelled
+              reply(c, 200, page("Cancelled", "The sign-in was cancelled in the app."))
+            elif error.len == 0:
+              outcome = osDone
+              reply(c, 200, page("Signed in", "You are signed in with " & p.name &
+                    ". You can close this window and go back to the app."))
+            else:
+              outcome = osFailed
+              reply(c, 200, page("Not signed in", "The sign-in did not work: " & error &
+                    ". You can close this window and go back to the app."))
+          drop(at)
+        # clients that say nothing (a browser's spare connection)
+        var i = 0
+        while i < clients.len:
+          if epochTime() - clients[i].since > 20: drop(i) else: inc i
+      while clients.len > 0: drop(0)
+      for l in listeners: l.close()
+      sel.close()
+      finish(job.slot, outcome, tokens, error)
       withLock signInLock:
-        slots[slot].cancel = true
-        slots[slot].attached = false
+        slots[job.slot].finished = true
 
-when defined(gcDestructors):
-  proc `=destroy`(l: Link) = dropLink(l.slot)
-else:      # (--mm:refc, an editor's check among them: its hooks take `var`)
-  proc `=destroy`(l: var Link) = dropLink(l.slot)
+  # ---- the flow, on the UI thread -------------------------------------------------------------
 
-proc `=copy`(a: var Link; b: Link) {.error.}
+  proc dropLink(slot: int) =
+    ## A flow no one keeps: its sign-in stops, its slot is free once its
+    ## thread ends.
+    if slot >= 0:
+      {.cast(gcsafe).}:
+        withLock signInLock:
+          slots[slot].cancel = true
+          slots[slot].attached = false
 
-proc reap() =
-  ## Joins the threads of sign-ins that ended and no flow looks at.
-  withLock signInLock:
-    for s in slots.mitems:
-      if s.inUse and s.finished and not s.attached:
-        joinThread(s.thread)
-        s.inUse = false
-        s.tokens = OAuthTokens()
-        s.error = ""
+  when defined(gcDestructors):
+    proc `=destroy`(l: Link) = dropLink(l.slot)
+  else:      # (--mm:refc, an editor's check among them: its hooks take `var`)
+    proc `=destroy`(l: var Link) = dropLink(l.slot)
 
-proc failedFlow(msg: string): OAuthFlow =
-  OAuthFlow(link: Link(slot: -1), st: osFailed, err: msg)
+  proc `=copy`(a: var Link; b: Link) {.error.}
 
-proc beginSignIn*(p: OAuthProvider; loginHint = "";
-                  openBrowser: proc (url: string) {.gcsafe.} = nil): OAuthFlow =
-  ## Starts signing in with `p`: listens on 127.0.0.1 (a free port) and
-  ## opens the sign-in page in the browser (`openUrl`), or hands its
-  ## address to `openBrowser`. `loginHint` fills in the account. Look at
-  ## `state` every frame; it never waits.
-  reap()
-  var verifier, expected: string
-  try:
-    verifier = randomText(32)
-    expected = randomText(16)
-  except OSError:
-    return failedFlow("no random numbers")
-  # the port: free on 127.0.0.1 (and the same on ::1 for "localhost")
-  var listeners: seq[(SocketHandle, Domain)]
-  var port: Port
-  try:
-    let s4 = newSocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, buffered = false)
-    s4.bindAddr(Port(0), "127.0.0.1")
-    s4.listen()
-    port = s4.getLocalAddr()[1]
-    listeners.add (s4.getFd, AF_INET)
-  except OSError as e:
-    return failedFlow("cannot listen on 127.0.0.1: " & e.msg)
-  let host = if p.redirectHost.len > 0: p.redirectHost else: "127.0.0.1"
-  if host == "localhost":
+  proc reap() =
+    ## Joins the threads of sign-ins that ended and no flow looks at.
+    withLock signInLock:
+      for s in slots.mitems:
+        if s.inUse and s.finished and not s.attached:
+          joinThread(s.thread)
+          s.inUse = false
+          s.tokens = OAuthTokens()
+          s.error = ""
+
+  proc failedFlow(msg: string): OAuthFlow =
+    OAuthFlow(link: Link(slot: -1), st: osFailed, err: msg)
+
+  proc beginSignIn*(p: OAuthProvider; loginHint = "";
+                    openBrowser: proc (url: string) {.gcsafe.} = nil): OAuthFlow =
+    ## Starts signing in with `p`: listens on 127.0.0.1 (a free port) and
+    ## opens the sign-in page in the browser (`openUrl`), or hands its
+    ## address to `openBrowser`. `loginHint` fills in the account. Look at
+    ## `state` every frame; it never waits.
+    reap()
+    var verifier, expected: string
     try:
-      let s6 = newSocket(AF_INET6, SOCK_STREAM, IPPROTO_TCP, buffered = false)
+      verifier = randomText(32)
+      expected = randomText(16)
+    except OSError:
+      return failedFlow("no random numbers")
+    # the port: free on 127.0.0.1 (and the same on ::1 for "localhost")
+    var listeners: seq[(SocketHandle, Domain)]
+    var port: Port
+    try:
+      let s4 = newSocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, buffered = false)
+      s4.bindAddr(Port(0), "127.0.0.1")
+      s4.listen()
+      port = s4.getLocalAddr()[1]
+      listeners.add (s4.getFd, AF_INET)
+    except OSError as e:
+      return failedFlow("cannot listen on 127.0.0.1: " & e.msg)
+    let host = if p.redirectHost.len > 0: p.redirectHost else: "127.0.0.1"
+    if host == "localhost":
       try:
-        s6.bindAddr(port, "::1")
-        s6.listen()
-        listeners.add (s6.getFd, AF_INET6)
-      except OSError:
-        s6.close()
-    except OSError: discard
-  let redirect = "http://" & host & ":" & $int(port) & "/"
-  var fields = @[("client_id", p.clientId), ("response_type", "code"),
-                 ("redirect_uri", redirect), ("scope", p.scopes.join(" ")),
-                 ("state", expected), ("code_challenge", b64url(sha256(verifier).toBinary)),
-                 ("code_challenge_method", "S256")]
-  if loginHint.len > 0: fields.add ("login_hint", loginHint)
-  for f in p.authParams: fields.add f
-  let address = p.authUrl & (if '?' in p.authUrl: "&" else: "?") & formEncode(fields)
-  var slot = -1
-  withLock signInLock:
-    for i in 0 ..< maxSlots:
-      if not slots[i].inUse:
-        slot = i
-        slots[i] = Slot(inUse: true, attached: true, state: osWaiting)
-        break
-  if slot < 0:
-    for (fd, _) in listeners: fd.close()
-    return failedFlow("too many sign-ins at once")
-  result = OAuthFlow(link: Link(slot: slot), st: osWaiting, address: address)
-  createThread(slots[slot].thread, listen,
-               Job(slot: slot, provider: p, verifier: verifier, expected: expected,
-                   redirect: redirect, listeners: listeners))
-  if openBrowser != nil: openBrowser(address)
-  else: discard openUrl(address)
-
-proc state*(f: OAuthFlow): OAuthState =
-  ## Where the sign-in is; never waits (call it every frame).
-  if f.link.slot >= 0:
+        let s6 = newSocket(AF_INET6, SOCK_STREAM, IPPROTO_TCP, buffered = false)
+        try:
+          s6.bindAddr(port, "::1")
+          s6.listen()
+          listeners.add (s6.getFd, AF_INET6)
+        except OSError:
+          s6.close()
+      except OSError: discard
+    let redirect = "http://" & host & ":" & $int(port) & "/"
+    var fields = @[("client_id", p.clientId), ("response_type", "code"),
+                   ("redirect_uri", redirect), ("scope", p.scopes.join(" ")),
+                   ("state", expected), ("code_challenge", b64url(sha256(verifier).toBinary)),
+                   ("code_challenge_method", "S256")]
+    if loginHint.len > 0: fields.add ("login_hint", loginHint)
+    for f in p.authParams: fields.add f
+    let address = p.authUrl & (if '?' in p.authUrl: "&" else: "?") & formEncode(fields)
+    var slot = -1
     withLock signInLock:
-      let s = addr slots[f.link.slot]
-      if s.state != osWaiting:
-        f.st = s.state
-        f.toks = s.tokens
-        f.err = s.error
-        s.attached = false
-    if f.st != osWaiting: f.link.slot = -1
-    else: wakeIn(250)                  # (frames keep coming to see the end)
-  f.st
+      for i in 0 ..< maxSlots:
+        if not slots[i].inUse:
+          slot = i
+          slots[i] = Slot(inUse: true, attached: true, state: osWaiting)
+          break
+    if slot < 0:
+      for (fd, _) in listeners: fd.close()
+      return failedFlow("too many sign-ins at once")
+    result = OAuthFlow(link: Link(slot: slot), st: osWaiting, address: address)
+    createThread(slots[slot].thread, listen,
+                 Job(slot: slot, provider: p, verifier: verifier, expected: expected,
+                     redirect: redirect, listeners: listeners))
+    if openBrowser != nil: openBrowser(address)
+    else: discard openUrl(address)
 
-proc tokens*(f: OAuthFlow): OAuthTokens =
-  ## The tokens, once `state` is `osDone`.
-  discard f.state
-  f.toks
+  proc state*(f: OAuthFlow): OAuthState =
+    ## Where the sign-in is; never waits (call it every frame).
+    if f.link.slot >= 0:
+      withLock signInLock:
+        let s = addr slots[f.link.slot]
+        if s.state != osWaiting:
+          f.st = s.state
+          f.toks = s.tokens
+          f.err = s.error
+          s.attached = false
+      if f.st != osWaiting: f.link.slot = -1
+      else: wakeIn(250)                  # (frames keep coming to see the end)
+    f.st
 
-proc error*(f: OAuthFlow): string =
-  ## Why it failed, once `state` is `osFailed`.
-  discard f.state
-  f.err
+  proc tokens*(f: OAuthFlow): OAuthTokens =
+    ## The tokens, once `state` is `osDone`.
+    discard f.state
+    f.toks
 
-proc url*(f: OAuthFlow): string =
-  ## The sign-in page's address (to show, or copy into a browser).
-  f.address
+  proc error*(f: OAuthFlow): string =
+    ## Why it failed, once `state` is `osFailed`.
+    discard f.state
+    f.err
 
-proc cancel*(f: OAuthFlow) =
-  ## Stops waiting: the state becomes `osCancelled` (unless it ended
-  ## already) and the port is let go.
-  if f.link.slot >= 0:
-    withLock signInLock:
-      slots[f.link.slot].cancel = true
-      slots[f.link.slot].attached = false
-    f.link.slot = -1
-    f.st = osCancelled
+  proc url*(f: OAuthFlow): string =
+    ## The sign-in page's address (to show, or copy into a browser).
+    f.address
+
+  proc cancel*(f: OAuthFlow) =
+    ## Stops waiting: the state becomes `osCancelled` (unless it ended
+    ## already) and the port is let go.
+    if f.link.slot >= 0:
+      withLock signInLock:
+        slots[f.link.slot].cancel = true
+        slots[f.link.slot].attached = false
+      f.link.slot = -1
+      f.st = osCancelled
+
+else:
+  # ---- in a web page: a window of its own, oauth.html hands the answer back ----
+
+  proc failedFlow(msg: string): OAuthFlow =
+    OAuthFlow(st: osFailed, err: msg)
+
+  proc beginSignIn*(p: OAuthProvider; loginHint = "";
+                    openBrowser: proc (url: string) {.gcsafe.} = nil): OAuthFlow =
+    ## Starts signing in with `p`: the sign-in page in a window of its own
+    ## (call it from a click: browsers let pages open windows just after
+    ## one), which comes back to oauth.html beside the app's page. Look at
+    ## `state` every frame; it never waits.
+    var verifier, expected: string
+    try:
+      verifier = randomText(32)
+      expected = randomText(16)
+    except OSError:
+      return failedFlow("no random numbers")
+    let redirect = systemCall("page.url", "oauth.html")
+    if redirect.len == 0 or redirect == "\0": return failedFlow("the page has no address")
+    var fields = @[("client_id", p.clientId), ("response_type", "code"),
+                   ("redirect_uri", redirect), ("scope", p.scopes.join(" ")),
+                   ("state", expected), ("code_challenge", b64url(sha256(verifier).toBinary)),
+                   ("code_challenge_method", "S256")]
+    if loginHint.len > 0: fields.add ("login_hint", loginHint)
+    for f in p.authParams: fields.add f
+    let address = p.authUrl & (if '?' in p.authUrl: "&" else: "?") & formEncode(fields)
+    result = OAuthFlow(st: osWaiting, address: address, provider: p, verifier: verifier,
+                       expected: expected, redirect: redirect, started: epochTime())
+    # (`openBrowser` is not used: the answer comes back to this page's window)
+    result.popup = systemCall("oauth.open", address)
+    if result.popup.len == 0 or result.popup == "\0" or result.popup == "0":
+      result.st = osFailed
+      result.err = "the browser did not open the sign-in window (allow pop-ups for this site)"
+
+  proc state*(f: OAuthFlow): OAuthState =
+    ## Where the sign-in is; never waits (call it every frame).
+    if f.st != osWaiting: return f.st
+    let got = systemCall("oauth.result", f.popup)
+    if got == "\x01":
+      f.st = osCancelled
+      return f.st
+    if got.len == 0 or got == "\0":
+      if epochTime() - f.started > signInSeconds:
+        f.st = osFailed
+        f.err = "the sign-in took too long"
+        discard systemCall("oauth.close", f.popup)
+      else: wakeIn(250)
+      return f.st
+    # (the address oauth.html came back to: its query, as the server put it)
+    var code, st, err, desc: string
+    for part in got.strip(chars = {'?', '#'}).split('&'):
+      let eq = part.find('=')
+      if eq <= 0: continue
+      let v = decodeUrl(part[eq + 1 .. ^1])
+      case part[0 ..< eq]
+      of "code": code = v
+      of "state": st = v
+      of "error": err = v
+      of "error_description": desc = v
+      else: discard
+    if err.len > 0:
+      f.st = osFailed
+      f.err = readable(err, desc)
+    elif st != f.expected or code.len == 0:
+      f.st = osFailed
+      f.err = "the sign-in's answer did not match the request"
+    else:
+      var t: OAuthTokens
+      let why = tokenRequest(f.provider, @[("grant_type", "authorization_code"), ("code", code),
+                                           ("redirect_uri", f.redirect), ("code_verifier", f.verifier)], t)
+      if why.len > 0:
+        f.st = osFailed
+        f.err = why
+      else:
+        f.st = osDone
+        f.toks = t
+    f.st
+
+  proc tokens*(f: OAuthFlow): OAuthTokens =
+    ## The tokens, once `state` is `osDone`.
+    discard f.state
+    f.toks
+
+  proc error*(f: OAuthFlow): string =
+    ## Why it failed, once `state` is `osFailed`.
+    discard f.state
+    f.err
+
+  proc url*(f: OAuthFlow): string =
+    ## The sign-in page's address (to show, or copy into a browser).
+    f.address
+
+  proc cancel*(f: OAuthFlow) =
+    ## Stops waiting: the state becomes `osCancelled` (unless it ended
+    ## already); the sign-in window closes.
+    if f.st == osWaiting:
+      discard systemCall("oauth.close", f.popup)
+      f.st = osCancelled

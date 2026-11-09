@@ -23,7 +23,11 @@
 #include <stdio.h>
 #include <wchar.h>
 
+#ifdef __wasm_atomics__
+_Thread_local int errno;
+#else
 int errno;
+#endif
 
 /* ---- the page's side ---- */
 
@@ -221,7 +225,18 @@ int fcntl(int fd, int cmd, ...) {
   switch (cmd) {
   case F_GETFD: return FD_CLOEXEC;
   case F_GETFL: return O_RDWR;
+  /* (locks: one program has the page's files -- what its threads share,
+     SQLite keeps track of itself -- so a lock is always had, and nobody
+     else ever holds one) */
   case F_SETFD: case F_SETFL: case F_SETLK: case F_SETLKW: return 0;
+  case F_GETLK: {
+    va_list a;
+    va_start(a, cmd);
+    struct flock *l = va_arg(a, struct flock *);
+    va_end(a);
+    if (l) l->l_type = F_UNLCK;
+    return 0;
+  }
   default: errno = EINVAL; return -1;
   }
 }
@@ -426,10 +441,24 @@ clock_t clock(void) { return (clock_t)(rl_now(1) * 1000.0); }
 double difftime(time_t a, time_t b) { return (double)(a - b); }
 
 /* (no sleeping in a browser's thread: a wait is the page's frame) */
+#ifdef __wasm_atomics__
+int rl_sleep_ns(long long ns);
+int nanosleep(const struct timespec *a, struct timespec *b) {
+  if (a) rl_sleep_ns((long long)a->tv_sec * 1000000000LL + a->tv_nsec);
+  if (b) { b->tv_sec = 0; b->tv_nsec = 0; }
+  return 0;
+}
+#else
 int nanosleep(const struct timespec *a, struct timespec *b) { (void)a; if (b) { b->tv_sec = 0; b->tv_nsec = 0; } return 0; }
+#endif
 int clock_nanosleep(clockid_t c, int f, const struct timespec *a, struct timespec *b) { (void)c; (void)f; return nanosleep(a, b); }
+#ifdef __wasm_atomics__
+unsigned sleep(unsigned s) { rl_sleep_ns((long long)s * 1000000000LL); return 0; }
+int usleep(useconds_t u) { rl_sleep_ns((long long)u * 1000LL); return 0; }
+#else
 unsigned sleep(unsigned s) { (void)s; return 0; }
 int usleep(useconds_t u) { (void)u; return 0; }
+#endif
 
 long timezone;
 int daylight;
@@ -749,10 +778,17 @@ int getlogin_r(char *b, size_t n) { strlcpy(b, "web", n); return 0; }
 int getpagesize(void) { return 65536; }
 int getloadavg(double *l, int n) { for (int i = 0; i < n; i++) l[i] = 0; return n; }
 
+#ifdef __wasm_atomics__
+RL_IMPORT(rl_cpus) int rl_cpus(void);
+#endif
 long sysconf(int n) {
   switch (n) {
   case _SC_PAGESIZE: return 65536;
+#ifdef __wasm_atomics__
+  case _SC_NPROCESSORS_CONF: case _SC_NPROCESSORS_ONLN: return rl_cpus();
+#else
   case _SC_NPROCESSORS_CONF: case _SC_NPROCESSORS_ONLN: return 1;
+#endif
   case _SC_CLK_TCK: return 100;
   case _SC_OPEN_MAX: return 1024;
   case _SC_PHYS_PAGES: return 32768;           /* (2 GB of 64 KB pages) */
@@ -820,10 +856,20 @@ void *dlsym(void *restrict h, const char *restrict n) { (void)h; (void)n; return
 int dlclose(void *h) { (void)h; return 0; }
 char *dlerror(void) { return (char *)"no shared libraries in a browser"; }
 
+/* (Nim's command line: a page starts its program with none but its name --
+   what Nim's own main would have set; retroweb builds with --noMain) */
+static char rlProgram[] = "/app/app";
+static char *rlArgv[] = { rlProgram, 0 };
+char **cmdLine = rlArgv;
+int cmdCount = 1;
+
 char *setlocale(int c, const char *l) { (void)c; (void)l; return (char *)"C.UTF-8"; }
 static struct lconv cLocale = { ".", "", "", "", "", "", "", "", "", "" };
 struct lconv *localeconv(void) { return &cLocale; }
 
+#ifdef __wasm_atomics__
+#include "threads.c"
+#else
 /* ---- threads: one ---- */
 
 int pthread_create(pthread_t *restrict t, const pthread_attr_t *restrict a, void *(*f)(void *), void *restrict arg) {
@@ -847,7 +893,7 @@ int pthread_getattr_np(pthread_t t, pthread_attr_t *a) { (void)t; return pthread
 int pthread_attr_getstack(const pthread_attr_t *restrict a, void **restrict p, size_t *restrict n) { (void)a; *p = 0; *n = 0; return 0; }
 int pthread_setname_np(pthread_t t, const char *n) { (void)t; (void)n; return 0; }
 int pthread_setaffinity_np(pthread_t t, size_t n, const void *s) { (void)t; (void)n; (void)s; return 0; }
-int pthread_mutex_init(pthread_mutex_t *restrict m, const pthread_mutexattr_t *restrict a) { m->kind = a ? a->kind : 0; m->locked = 0; return 0; }
+int pthread_mutex_init(pthread_mutex_t *restrict m, const pthread_mutexattr_t *restrict a) { m->kind = a ? a->kind : 0; m->locked = 0; m->owner = 0; m->count = 0; return 0; }
 int pthread_mutex_destroy(pthread_mutex_t *m) { (void)m; return 0; }
 int pthread_mutex_lock(pthread_mutex_t *m) { m->locked++; return 0; }
 int pthread_mutex_trylock(pthread_mutex_t *m) {
@@ -859,7 +905,7 @@ int pthread_mutex_unlock(pthread_mutex_t *m) { if (m->locked) m->locked--; retur
 int pthread_mutexattr_init(pthread_mutexattr_t *a) { a->kind = 0; return 0; }
 int pthread_mutexattr_destroy(pthread_mutexattr_t *a) { (void)a; return 0; }
 int pthread_mutexattr_settype(pthread_mutexattr_t *a, int t) { a->kind = t; return 0; }
-int pthread_cond_init(pthread_cond_t *restrict c, const pthread_condattr_t *restrict a) { (void)a; c->waiters = 0; return 0; }
+int pthread_cond_init(pthread_cond_t *restrict c, const pthread_condattr_t *restrict a) { (void)a; c->seq = 0; return 0; }
 int pthread_cond_destroy(pthread_cond_t *c) { (void)c; return 0; }
 /* (nobody else could signal it: a wait would be forever, so it returns) */
 int pthread_cond_wait(pthread_cond_t *restrict c, pthread_mutex_t *restrict m) { (void)c; (void)m; return 0; }
@@ -882,11 +928,12 @@ int pthread_key_delete(pthread_key_t k) { (void)k; return 0; }
 void *pthread_getspecific(pthread_key_t k) { return k < 128 ? (void *)keyValues[k] : 0; }
 int pthread_setspecific(pthread_key_t k, const void *v) { if (k >= 128) return EINVAL; keyValues[k] = v; return 0; }
 int pthread_once(pthread_once_t *o, void (*f)(void)) { if (!*o) { *o = 1; f(); } return 0; }
-int pthread_rwlock_init(pthread_rwlock_t *restrict l, const pthread_rwlockattr_t *restrict a) { (void)a; l->readers = l->writer = 0; return 0; }
+int pthread_rwlock_init(pthread_rwlock_t *restrict l, const pthread_rwlockattr_t *restrict a) { (void)a; l->readers = l->writer = 0; l->m.locked = 0; return 0; }
 int pthread_rwlock_destroy(pthread_rwlock_t *l) { (void)l; return 0; }
 int pthread_rwlock_rdlock(pthread_rwlock_t *l) { l->readers++; return 0; }
 int pthread_rwlock_wrlock(pthread_rwlock_t *l) { l->writer = 1; return 0; }
 int pthread_rwlock_unlock(pthread_rwlock_t *l) { if (l->writer) l->writer = 0; else if (l->readers) l->readers--; return 0; }
+#endif
 int sched_yield(void) { return 0; }
 int sched_getcpu(void) { return 0; }
 

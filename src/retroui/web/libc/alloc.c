@@ -13,6 +13,19 @@
 
 extern unsigned char __heap_base;
 
+#ifdef __wasm_atomics__
+/* (threads: the heap behind one lock, taken for the few steps a request
+   is; below, these are the parts without it) */
+#define malloc rlMallocU
+#define free rlFreeU
+#define calloc rlCallocU
+#define realloc rlReallocU
+#define aligned_alloc rlAlignedU
+#define posix_memalign rlMemalignU
+void *rlMallocU(size_t n);
+void rlFreeU(void *p);
+#endif
+
 #define ALIGN 16u
 #define HDR 16u                        /* (a chunk's header: payload stays aligned) */
 #define MIN_CHUNK 32u
@@ -236,3 +249,24 @@ int malloc_trim(size_t pad) { (void)pad; return 0; }
 size_t __rl_heap_used(void) { return heapUsed; }
 size_t __rl_heap_size(void) { return (size_t)(heapEnd - heapStart); }
 int mallopt(int p, int v) { (void)p; (void)v; return 1; }
+
+#ifdef __wasm_atomics__
+#undef malloc
+#undef free
+#undef calloc
+#undef realloc
+#undef aligned_alloc
+#undef posix_memalign
+static int heapLock;
+static inline void lockHeap(void) {
+  while (__atomic_exchange_n(&heapLock, 1, __ATOMIC_ACQUIRE))
+    while (__atomic_load_n(&heapLock, __ATOMIC_RELAXED)) {}
+}
+static inline void unlockHeap(void) { __atomic_store_n(&heapLock, 0, __ATOMIC_RELEASE); }
+void *malloc(size_t n) { lockHeap(); void *p = rlMallocU(n); unlockHeap(); return p; }
+void free(void *p) { if (!p) return; lockHeap(); rlFreeU(p); unlockHeap(); }
+void *calloc(size_t n, size_t m) { lockHeap(); void *p = rlCallocU(n, m); unlockHeap(); return p; }
+void *realloc(void *p, size_t n) { lockHeap(); void *q = rlReallocU(p, n); unlockHeap(); return q; }
+void *aligned_alloc(size_t a, size_t n) { lockHeap(); void *p = rlAlignedU(a, n); unlockHeap(); return p; }
+int posix_memalign(void **p, size_t a, size_t n) { lockHeap(); int r = rlMemalignU(p, a, n); unlockHeap(); return r; }
+#endif

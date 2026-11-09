@@ -47,7 +47,7 @@ for name, lines in programs():
     script = [l[3:] if l.startswith("#> ") else l[2:] for l in lines if l.startswith("#>")]
     run = []
     for l in lines:
-        if l.startswith("#>") or l.startswith("import retroui"):
+        if l.startswith("#>") or l.strip() == "import retroui":
             continue
         if l.startswith("import ") or l.startswith("from "):
             imports.add(l)

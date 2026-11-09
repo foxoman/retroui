@@ -1689,8 +1689,7 @@ proc pickAt(ctx: RenderCtx; scene: Scene3; sx, sy: float32): tuple[mesh, tri: in
 
 # ---- on the GPU -----------------------------------------------------------------------------------
 
-when not defined(wasm):
-  include view3dgl
+include view3dgl
 
 var view3dGpu* = getEnv("RETRO_3D_GPU") != "0"
   ## Scenes with materials drawn on the GPU when frames are (`drawnWithGpu`);
@@ -1728,7 +1727,17 @@ proc view3dPicture*(key = ""): Bitmap =
   let id = peekId("view3d:" & key)
   let c = caches.getOrDefault(id, nil)
   if c == nil: return nil
-  when not defined(wasm):
+  when defined(wasm):
+    if c.onGpu:
+      let gv = glViews.getOrDefault(id, nil)
+      let b = if gv != nil: webGl3dPicture(gv.key) else: nil
+      if b == nil: return nil
+      result = newBitmap(b.w, b.h)
+      result.px = b.px
+      result.opaque = true
+      result.changed()
+      return
+  else:
     if c.onGpu:
       let gv = glViews.getOrDefault(id, nil)
       if gv == nil or gv.fb == 0 or gv.epoch != gpuEpoch() or not gpuFiltersReady():
@@ -1913,7 +1922,7 @@ proc view3d*(scene: var Scene3; cam: var Camera3; height = -1; w = 0; key = "";
   let dh = max(1, inner.h * pxScale)
   let hsh = sceneHash(scene, cam, dw, dh)
   var gpuNow = false
-  when not defined(wasm):
+  block:
     if view3dGpu and not scene.wireframe and scene.hasMaterials() and glReady3D():
       var gv = glViews.getOrDefault(id, nil)
       if gv == nil:
@@ -1929,7 +1938,8 @@ proc view3d*(scene: var Scene3; cam: var Camera3; height = -1; w = 0; key = "";
             inc renderCount
             gpuNow = true
         else:
-          gpuShowTexture(gv.key, gv.color, gv.w, gv.h)
+          # (the same picture: shown again; in a page its copy is kept)
+          when not defined(wasm): v3Show(gv.key, gv.color, gv.w, gv.h)
           gpuNow = true
   if not gpuNow and (c.onGpu or c.bmp == nil or c.bmp.w != dw or c.bmp.h != dh or c.hash != hsh):
     if c.bmp == nil or c.bmp.w != dw or c.bmp.h != dh:
@@ -1948,7 +1958,10 @@ proc view3d*(scene: var Scene3; cam: var Camera3; height = -1; w = 0; key = "";
   sunken(r)
   box(inset(r, 1), th.edge)
   if gpuNow:
-    when not defined(wasm):
+    when defined(wasm):
+      let b = webGl3dPicture(glViews[id].key)
+      if b != nil: drawBitmap(inner, b)
+    else:
       drawGpuImage(glViews[id].key, rect(inner.x * pxScale, inner.y * pxScale, dw, dh), int(hsh and 0x7FFFFFFF))
   else:
     drawBitmap(inner, c.bmp)

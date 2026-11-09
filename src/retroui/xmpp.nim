@@ -29,11 +29,23 @@
 ##
 ## Compile with `-d:ssl` (OpenSSL, loaded at run time).
 ##
+## In a web page (`retrokit web --threads`) the connection is a WebSocket
+## (RFC 7395) the page opens, to the address the server's host-meta names
+## (XEP-0156: /.well-known/host-meta), else wss://DOMAIN/xmpp-websocket;
+## `host` may be that address itself (wss://...). The page has no sockets
+## of its own and the connection needs a thread: built without threads,
+## `xmppStart` answers xeError.
+##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[net, strutils, xmlparser, xmltree, base64, os, json, times, typedthreads, random, locks]
+when defined(wasm):
+  import std/[strutils, xmlparser, xmltree, base64, os, json, times, random, locks]
+  import uirelays/services
+  when compileOption("threads"): import std/typedthreads
+else:
+  import std/[net, strutils, xmlparser, xmltree, base64, os, json, times, typedthreads, random, locks]
+  from std/posix import poll, TPollfd, POLLIN
 import http
-from std/posix import poll, TPollfd, POLLIN
 
 when defined(android) and defined(ssl):
   # (bionic has glob() only from Android 9, and std/net looks for the
@@ -102,9 +114,11 @@ var
   lock: Lock                   # (the two queues between the app and the thread)
   outbox {.guard: lock.}: seq[string]
   inbox {.guard: lock.}: seq[XmppEvent]
-  worker: Thread[Config]
   running: bool
   myJid*: string               ## the full address of this session (after xeOnline)
+
+when not defined(wasm) or compileOption("threads"):
+  var worker: Thread[Config]
 
 proc bareJid*(jid: string): string =
   ## "me@yax.im/Retro" -> "me@yax.im".
@@ -155,7 +169,7 @@ proc next(r: var Reader): (Piece, XmlNode) =
     if k < 0: return (pNone, nil)
     r.buf = r.buf[k + 2 .. ^1]
     return r.next()
-  if r.buf.startsWith("</stream:stream"):
+  if r.buf.startsWith("</stream:stream") or r.buf.startsWith("<close ") or r.buf.startsWith("<close/"):
     r.buf = ""
     return (pEnd, nil)
   # (a tag's end: its '>' outside quotes)
@@ -168,7 +182,8 @@ proc next(r: var Reader): (Piece, XmlNode) =
       elif c in {'"', '\''}: q = c
       elif c == '>': return i
     -1
-  if r.buf.startsWith("<stream:stream"):
+  if r.buf.startsWith("<stream:stream") or r.buf.startsWith("<open ") or r.buf.startsWith("<open/"):
+    # (a stream's start; over a WebSocket, RFC 7395's <open/>)
     let e = tagEnd(r.buf, 0)
     if e < 0: return (pNone, nil)
     r.buf = r.buf[e + 1 .. ^1]
@@ -242,31 +257,79 @@ proc caFile(): string =
   ""
 
 proc streamOpen(domain: string): string =
-  "<?xml version='1.0'?><stream:stream to='" & esc(domain) & "' xmlns='jabber:client' " &
-  "xmlns:stream='http://etherx.jabber.org/streams' version='1.0'>"
+  when defined(wasm):
+    "<open xmlns='urn:ietf:params:xml:ns:xmpp-framing' to='" & esc(domain) & "' version='1.0'/>"
+  else:
+    "<?xml version='1.0'?><stream:stream to='" & esc(domain) & "' xmlns='jabber:client' " &
+    "xmlns:stream='http://etherx.jabber.org/streams' version='1.0'>"
+
+const streamClose = when defined(wasm): "<close xmlns='urn:ietf:params:xml:ns:xmpp-framing'/>"
+                    else: "</stream:stream>"
+
+when defined(wasm):
+  proc webSocketUrl(domain, host: string): string =
+    ## Where the server takes XMPP over a WebSocket: `host` when it is that
+    ## address, else what its host-meta says (XEP-0156), else the usual place.
+    if host.startsWith("wss://") or host.startsWith("ws://"): return host
+    try:
+      let r = httpRequest("GET", "https://" & domain & "/.well-known/host-meta.json", timeoutSec = 8)
+      if r.ok:
+        for l in parseJson(r.body){"links"}.getElems:
+          if l{"rel"}.getStr == "urn:xmpp:alt-connections:websocket" and l{"href"}.getStr.len > 0:
+            return l{"href"}.getStr
+    except CatchableError: discard
+    try:
+      let r = httpRequest("GET", "https://" & domain & "/.well-known/host-meta", timeoutSec = 8)
+      if r.ok:
+        for l in parseXml(r.body).findAll("Link"):
+          if l.attr("rel") == "urn:xmpp:alt-connections:websocket" and l.attr("href").len > 0:
+            return l.attr("href")
+    except CatchableError: discard
+    "wss://" & (if host.len > 0: host else: domain) & "/xmpp-websocket"
 
 proc runWorker(cfg: Config) {.thread.} =
-  var sock: Socket
+  when defined(wasm):
+    var sock = 0                 # (the page's WebSocket, by its number)
+  else:
+    var sock: Socket
   var r: Reader
   var lastSend = epochTime()
   let domain = domainOf(cfg.jid)
 
   proc put(s: string) =
-    sock.send(s)
+    when defined(wasm): discard systemCall("ws.send", $sock & "\n" & s)
+    else: sock.send(s)
     lastSend = epochTime()
+
+  proc closeSock() =
+    when defined(wasm):
+      if sock > 0: discard systemCall("ws.close", $sock)
+    else:
+      if sock != nil: sock.close()
 
   proc pump(timeout: int): bool =
     ## Bytes from the server into the reader, when some come within
     ## `timeout` ms; false when it closed.
-    if not sock.hasDataBuffered:
-      var fds = [TPollfd(fd: cint(sock.getFd), events: POLLIN)]
-      if poll(addr fds[0], 1, cint(timeout)) <= 0: return true
-    var data = newString(16384)
-    let n = sock.recv(addr data[0], data.len)
-    if n <= 0: return false
-    data.setLen(n)
-    r.buf.add data
-    true
+    when defined(wasm):
+      let until = epochTime() + timeout / 1000
+      while true:
+        let got = systemCall("ws.recv", $sock)
+        if got == "\x01": return false
+        if got.len > 0 and got != "\0":
+          r.buf.add got
+          return true
+        if epochTime() >= until: return true
+        sleep(15)
+    else:
+      if not sock.hasDataBuffered:
+        var fds = [TPollfd(fd: cint(sock.getFd), events: POLLIN)]
+        if poll(addr fds[0], 1, cint(timeout)) <= 0: return true
+      var data = newString(16384)
+      let n = sock.recv(addr data[0], data.len)
+      if n <= 0: return false
+      data.setLen(n)
+      r.buf.add data
+      true
 
   proc wait(seconds = 20.0): (Piece, XmlNode) =
     ## The next piece, waiting for it.
@@ -299,28 +362,45 @@ proc runWorker(cfg: Config) {.thread.} =
 
   try:
     emit(xeConnecting, "Looking up " & domain)
-    var (host, port) = (cfg.host, cfg.port)
-    if host.len == 0: (host, port) = srvLookup(domain)
-    if port <= 0: port = 5222
-    emit(xeConnecting, "Connecting to " & host)
-    sock = newSocket(buffered = false)
-    sock.connect(host, Port(port), timeout = 15000)
-    put(streamOpen(domain))
-    var f = features()
-    # (encryption first: the password never goes in the clear)
-    if f.child("starttls") != nil:
-      put("<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>")
-      let (k, n) = wait()
-      if k != pElement or n.tag != "proceed": raise newException(IOError, "the server refused TLS")
-      let ca = caFile()
-      let ctx = newContext(verifyMode = (if cfg.insecure: CVerifyNone else: CVerifyPeer), caFile = ca)
-      wrapConnectedSocket(ctx, sock, handshakeAsClient, domain)
-      r.buf = ""
-      emit(xeConnecting, "Secured")
+    when defined(wasm):
+      # (a WebSocket the page opens: wss is encrypted, no STARTTLS in it)
+      let url = webSocketUrl(domain, cfg.host)
+      emit(xeConnecting, "Connecting to " & url)
+      sock = try: parseInt(systemCall("ws.open", url)) except ValueError: 0
+      if sock <= 0: raise newException(IOError, "this browser has no WebSockets")
+      let until = epochTime() + 15
+      while true:
+        let st = systemCall("ws.state", $sock)
+        if st == "open": break
+        if st == "closed" or epochTime() > until:
+          raise newException(IOError, "the server did not take a WebSocket at " & url)
+        sleep(20)
       put(streamOpen(domain))
-      f = features()
-    elif not cfg.insecure:
-      raise newException(IOError, "the server offers no encryption")
+      var f = features()
+    else:
+      var (host, port) = (cfg.host, cfg.port)
+      if host.len == 0: (host, port) = srvLookup(domain)
+      if port <= 0: port = 5222
+      emit(xeConnecting, "Connecting to " & host)
+      sock = newSocket(buffered = false)
+      sock.connect(host, Port(port), timeout = 15000)
+      put(streamOpen(domain))
+      var f = features()
+    # (encryption first: the password never goes in the clear)
+    when not defined(wasm):
+      if f.child("starttls") != nil:
+        put("<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>")
+        let (k, n) = wait()
+        if k != pElement or n.tag != "proceed": raise newException(IOError, "the server refused TLS")
+        let ca = caFile()
+        let ctx = newContext(verifyMode = (if cfg.insecure: CVerifyNone else: CVerifyPeer), caFile = ca)
+        wrapConnectedSocket(ctx, sock, handshakeAsClient, domain)
+        r.buf = ""
+        emit(xeConnecting, "Secured")
+        put(streamOpen(domain))
+        f = features()
+      elif not cfg.insecure:
+        raise newException(IOError, "the server offers no encryption")
     if cfg.register:
       # in-band registration (XEP-0077)
       let q = iq("<iq type='get' id='reg1' to='" & esc(domain) & "'><query xmlns='jabber:iq:register'/></iq>", "reg1")
@@ -354,8 +434,8 @@ proc runWorker(cfg: Config) {.thread.} =
           let t = e.child("text")
           if t != nil and t.innerText.len > 0: why &= " (" & t.innerText & ")"
         emit(xeError, why)
-      put("</stream:stream>")
-      sock.close()
+      put(streamClose)
+      closeSock()
       emit(xeOffline)
       return
     # signing on: SASL PLAIN, inside TLS
@@ -615,15 +695,17 @@ proc runWorker(cfg: Config) {.thread.} =
           break
         put(msg)
       if quit:
-        put("<presence type='unavailable'/></stream:stream>")
-        sock.close()
+        put("<presence type='unavailable'/>")
+        put(streamClose)
+        closeSock()
         emit(xeOffline)
         return
-      if epochTime() - lastSend > 50: put(" ")
+      # (a space now and then keeps it open; a WebSocket takes whole stanzas only: a ping)
+      if epochTime() - lastSend > 50:
+        put(when defined(wasm): "<iq type='get' id='keepalive'><ping xmlns='urn:xmpp:ping'/></iq>" else: " ")
       if not pump(200): raise newException(IOError, "the connection was lost")
   except CatchableError as e:
-    try:
-      if sock != nil: sock.close()
+    try: closeSock()
     except CatchableError: discard
     emit(xeError, e.msg)
     emit(xeOffline, e.msg)
@@ -646,8 +728,13 @@ proc xmppStart*(jid, password: string; host = ""; port = 0; insecure = false;
     inbox = @[]
   running = true
   myJid = ""
-  createThread(worker, runWorker, Config(jid: jid, password: password, host: host, port: port,
-               insecure: insecure, register: register, resource: resource, show: show, status: status))
+  when defined(wasm) and not compileOption("threads"):
+    withLock lock:
+      inbox.add XmppEvent(kind: xeError, text: "chat in a web page needs threads (retrokit web --threads)")
+      inbox.add XmppEvent(kind: xeOffline, text: "no threads")
+  else:
+    createThread(worker, runWorker, Config(jid: jid, password: password, host: host, port: port,
+                 insecure: insecure, register: register, resource: resource, show: show, status: status))
 
 proc xmppEvents*(): seq[XmppEvent] =
   ## What came since the last call (call it every frame).
@@ -661,7 +748,7 @@ proc xmppEvents*(): seq[XmppEvent] =
     result.add e
     if e.kind == xeOffline:
       running = false
-      joinThread(worker)
+      when not defined(wasm) or compileOption("threads"): joinThread(worker)
       return
 
 proc xmppSend*(xml: string) =

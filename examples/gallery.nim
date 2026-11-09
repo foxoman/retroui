@@ -4,9 +4,9 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[strutils, os, json, math]
+import std/[strutils, os, json, math, times]
 import retroui
-import retroui/tilemap
+import retroui/[tilemap, system, capture, secrets]
 
 const
   languages = ["English", "Deutsch", "Français", "Español", "Italiano",
@@ -891,6 +891,8 @@ var
   quoteDoc: Report
   quoteMadeFor = ""
   quoteStatus = "Change the customer or the lines: the document follows."
+  quoteSaving = false                      # (the Save As dialog is open)
+  quotePath = ""
 
 proc quoteData(): JsonNode =
   var items = newJArray()
@@ -918,14 +920,18 @@ proc reportsTab() =
             "pages: headers and footers, the table's header again on each page, totals.",
             color = ui.theme.gray
     row:
-      if button(pxPdf & " Save &PDF"):
-        let path = dataDir("retro-gallery") / "quote.pdf"
-        try:
-          quoteDoc.savePdf(path)
-          quoteStatus = "Saved " & path
-        except IOError, OSError:
-          quoteStatus = "Could not save " & path
+      if button(pxPdf & " Save &PDF..."):
+        quoteSaving = true
+        quotePath = "quote.pdf"
       if button(pxPrint & " P&rint"): quoteStatus = quoteDoc.printReport().message
+    # (Save As: the system's dialog; in a web page, the browser's -- the file
+    # written in /downloads goes to the user)
+    if filePicker(quoteSaving, quotePath, fmSave, ["*.pdf"], title = "Save the Quote"):
+      try:
+        quoteDoc.savePdf(quotePath)
+        quoteStatus = "Saved " & quotePath
+      except IOError, OSError:
+        quoteStatus = "Could not save " & quotePath
     label quoteStatus
   if isCompact():                           # a phone: the form, then the pages
     quoteForm()
@@ -938,47 +944,153 @@ proc reportsTab() =
         let ev = reportView(quoteDoc, key = "gallery")
         if ev.link.len > 0: discard openUrl(ev.link)
 
-# ---- the System page: the OS's own APIs ------------------------------------------------------------
+# ---- the System page: the system's own features (retroui/system) -------------------------------------
 
-var nativeAnswer = ""
-var nativeScreenOn = false
+var
+  sysAnswer = ""
+  sysScreenOn = false
+  sysAskPlace = false
+  sysLogin = false
+  sysLoginRead = false
+  sysWords = "Hello from Retro Nim UI"
+  sysDevice: DeviceInfo
+  sysDeviceAt = -10.0
+  sysCamera = false
+  sysSecret = ""
+  clipPath = ""
 let tune = joinSounds([makeTone(523, 140), makeTone(659, 140), makeTone(784, 260)])
 const patternGif = staticRead("assets/pattern.gif")
 let gifFrames = loadGif(patternGif)
+const clipMp4 = staticRead("assets/clip.mp4")      # (6 s, 320 x 180, a tone: made with ffmpeg)
+const clipWebm = staticRead("assets/clip.webm")
+
+proc clipFile(): string =
+  ## The Gallery's clip, written once where the player can read it: MP4
+  ## (H.264), or WebM (VP9) for a browser without H.264.
+  if clipPath.len == 0:
+    let webm = when defined(wasm): systemCall("canplay", "video/mp4; codecs=\"avc1.42E01E\"") != "1"
+               else: false
+    clipPath = getTempDir() / (if webm: "retro-gallery-clip.webm" else: "retro-gallery-clip.mp4")
+    try: writeFile(clipPath, if webm: clipWebm else: clipMp4)
+    except IOError, OSError: discard
+  clipPath
+
+proc placeText(p: Place): string =
+  case p.state
+  of psOk: formatFloat(p.lat, ffDecimal, 5) & ", " & formatFloat(p.lon, ffDecimal, 5) &
+           " (within " & $int(p.accuracy) & " m)"
+  of psWaiting: "Looking..."
+  of psDenied: "The place was not allowed."
+  of psNone: "No place on this device."
 
 proc systemTab() =
-  card("Native APIs"):
-    factList({"Device": deviceName(), "System": osVersion(),
-              "Battery": (let b = batteryLevel(); if b < 0: "unknown" else: $b & "%"),
-              "Dark mode": (if systemDarkMode(): "on" else: "off")})
-    row:
-      if button("&Beep"): beepSystem()
-      if button("&Vibrate"): nativeAnswer = if vibrate(80): "Buzzed." else: "Nothing buzzes here."
-      if toggle("Keep the screen &on", nativeScreenOn): discard keepScreenOn(nativeScreenOn)
-    when defined(android):
-      if button("Build.MODEL (Java)"): nativeAnswer = javaStatic("android.os.Build", "MODEL")
-    elif defined(macosx) or defined(ios):
-      if button("Host name (Objective-C)"):
-        nativeAnswer = toNim(objcSend(ObjcId, objcSend(ObjcId, objcClass("NSProcessInfo"), "processInfo"), "hostName"))
-    elif defined(windows):
-      if button("Documents (Win32)"): nativeAnswer = windowsDocumentsFolder()
-    else:
-      if button("getpid (libc)"):
-        let libc = nativeLib("libc.so.6", "libc.so", "libc.so.7")
-        let getpid = nativeProc[proc (): cint {.cdecl.}](libc, "getpid")
-        nativeAnswer = if getpid != nil: "Process " & $getpid() else: "no libc"
-    label nativeAnswer
+  if epochTime() - sysDeviceAt > 2:          # (asked again every 2 seconds, not every frame)
+    sysDevice = deviceInfo()
+    sysDeviceAt = epochTime()
+  if not sysLoginRead:
+    sysLoginRead = true
+    sysLogin = openAtLogin("Retro Gallery")
+  let d = sysDevice
+  row([300, -1]):
+    col:
+      card("The device"):
+        factList({"Device": d.name, "System": d.system, "Language": d.language,
+                  "Battery": (if d.battery.level < 0: "unknown"
+                              else: $d.battery.level & "%" & (if d.battery.charging: ", charging" else: "")),
+                  "Look": (if d.dark: "dark" else: "light"),
+                  "Network": (if d.online: "connected" else: "offline"),
+                  "Processors": $d.cpus})
+      card("Native code"):
+        when defined(android):
+          if button("Build.MODEL (Java)"): sysAnswer = javaStatic("android.os.Build", "MODEL")
+        elif defined(macosx) or defined(ios):
+          if button("Host name (Objective-C)"):
+            sysAnswer = toNim(objcSend(ObjcId, objcSend(ObjcId, objcClass("NSProcessInfo"), "processInfo"), "hostName"))
+        elif defined(windows):
+          if button("Documents (Win32)"): sysAnswer = windowsDocumentsFolder()
+        elif defined(wasm):
+          if button("Installed? (the page)"):
+            sysAnswer = if systemCall("installed", "") == "1": "Installed as an app." else: "Open in a browser tab."
+        else:
+          if button("getpid (libc)"):
+            let libc = nativeLib("libc.so.6", "libc.so", "libc.so.7")
+            let getpid = nativeProc[proc (): cint {.cdecl.}](libc, "getpid")
+            sysAnswer = if getpid != nil: "Process " & $getpid() else: "no libc"
+    col:
+      card("Tell the user"):
+        row:
+          if button("&Notify"):
+            sysAnswer = if notify("Retro Gallery", "A notification of the system.", tag = "gallery"): "Notified."
+                        else: "No notifications here: a toast instead."
+            if sysAnswer.startsWith("No"): toast("A notification of the system.", title = "Retro Gallery")
+          if button("&Badge"):
+            setBadge(if badgeCount() > 0: 0 else: 3)
+            sysAnswer = "The badge: " & $badgeCount() & "."
+          if button("&Attention"):
+            sysAnswer = if requestAttention(): "Asked: it shows while the window is behind others."
+                        else: "No such sign on this system."
+          if button("&Beep"): beepSystem()
+        row:
+          if button("&Vibrate"): sysAnswer = if vibrate(80): "Buzzed." else: "Nothing buzzes here."
+          if button("&Tap felt"): sysAnswer = if haptic(hSuccess): "Felt." else: "Nothing is felt here."
+          if toggle("Keep the screen &on", sysScreenOn):
+            sysAnswer = if keepScreenOn(sysScreenOn): "The screen stays on: " & $sysScreenOn & "."
+                        else: "This system decides."
+      card("Share, speak, the place"):
+        row:
+          if button("S&hare"):
+            if share(text = "Retro Nim UI", url = "https://github.com/foxoman/retroui"):
+              sysAnswer = "Shared."
+            else:
+              putClipboardText("https://github.com/foxoman/retroui")
+              sysAnswer = "No share sheet here: the link was copied."
+          if button("&Where am I?"): sysAskPlace = true
+          if toggle("Start with the &computer", sysLogin):
+            sysAnswer = if setOpenAtLogin(sysLogin, "Retro Gallery"): (if sysLogin: "Starts with the computer." else: "Does not start with the computer.")
+                        else: "This system decides."
+        row([-1, 0, 0]):
+          edit sysWords
+          if button("S&peak"):
+            sysAnswer = if speak(sysWords): "Speaking." else: "No voice here."
+          if button("Sto&p"): stopSpeaking()
+        if sysAskPlace:
+          let p = location()
+          label "The place: " & placeText(p)
+          if p.state == psWaiting: wakeIn(400)
+      card("The camera, the microphone, a secret"):
+        row:
+          if toggle("&Camera", sysCamera): sysAnswer = if sysCamera: "The camera is on while it is shown." else: ""
+          if button(if recordingSound(): "Stop &recording" else: "&Record a note"):
+            if recordingSound():
+              let ms = stopRecordingSound()
+              sysAnswer = if ms > 0: "Recorded " & $(ms div 1000) & " s: " & getTempDir() / "gallery-note.wav"
+                          else: "The note could not be written."
+            elif not recordSound(getTempDir() / "gallery-note.wav"):
+              sysAnswer = "No microphone here (or it was not allowed)."
+          if recordingSound():
+            progress(soundLevel(), w = dp(80))
+            wakeIn(100)
+        if sysCamera:
+          let cam = cameraView(height = dp(150), key = "gallery")
+          if cam.error.len > 0: label cam.error, color = ui.theme.gray
+        row([-1, 0, 0]):
+          edit sysSecret
+          if button("&Keep"):
+            sysAnswer = if saveSecret("Retro Gallery", "secret", sysSecret): "Kept where only you can read it."
+                        else: "It could not be kept."
+          if button("&Read"):
+            let back = loadSecret("Retro Gallery", "secret")
+            sysAnswer = if back.len > 0: "The secret: " & back else: "No secret kept."
+      label sysAnswer
   card("Sound and video"):
     row:
-      if button("&Tone"): discard tone(660, 180)
+      if button("T&one"): discard tone(660, 180)
       if button("T&une"): discard playSound(tune)
       if button("&Error sound"): uiSound(usError)
-      if button("&Notify"): uiSound(usNotify)
-    row:
-      animation(gifFrames, height = dp(40))
-      label "An animated GIF, decoded by the kit."
-    label("Sounds are made and mixed by the kit and played by the system's own audio; " &
-          "videoView(\"clip.mp4\") plays a video in the window.", color = ui.theme.gray)
+      if button("No&tify sound"): uiSound(usNotify)
+      animation(gifFrames, height = dp(28))
+    let ev = videoView(clipFile(), height = dp(200), key = "galleryclip")
+    if ev.error.len > 0: label "The clip: " & ev.error, color = ui.theme.gray
 
 var settings: array[40, tuple[on: bool, name: string]]
 for i in 0 ..< settings.len:

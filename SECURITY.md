@@ -39,9 +39,10 @@ The README's "Safety" section has the whole list; in short:
   refused), and names that would climb out of a folder are refused.
 - **Fuzzed and checked for memory faults.** `nimble fuzz` feeds hundreds
   of thousands of damaged inputs to every reader and random input to the
-  widgets; the tests also run under AddressSanitizer, UBSan and
-  LeakSanitizer, and as 32-bit programs (an `int` as small as
-  WebAssembly's), so a number that only fits in 64 bits is caught.
+  widgets; the decoders run under libFuzzer every night; the tests also
+  run under AddressSanitizer, UBSan and LeakSanitizer, as 32-bit programs
+  (an `int` as small as WebAssembly's) and as WebAssembly, so a number
+  that only fits in 64 bits is caught.
 - **Pages do not run code.** The kit's own HTML view has no scripts and
   never reaches the network. The system's web view (`webView`) is the
   system's browser engine, with its own protections; an app decides what
@@ -49,7 +50,11 @@ The README's "Safety" section has the whole list; in short:
 - **Secrets stay the user's.** `retroui/secrets` keeps tokens in the
   system's keychain (DPAPI on Windows, the keychain on macOS, the desktop
   keyring on Linux), or encrypted (XChaCha20-Poly1305) in a file only
-  that user can read.
+  that user can read; a web page seals them (AES-GCM) with a WebCrypto key
+  the browser keeps and never hands out.
+- **Updates come only from you.** `retroui/update` takes an update only
+  when its file is signed (Ed25519) by the key whose public half is built
+  into the app, and only a download whose SHA-256 is the signed one.
 - **Network.** `retroui/http` goes through the system's own HTTP and TLS
   (WinHTTP on Windows, libcurl on Linux, macOS and the BSDs, Java's on
   Android, the browser's in a web page), which check certificates;
@@ -70,3 +75,8 @@ of your repository and your app's folder; the kit never writes a key
 anywhere but where you tell it, and never sends one anywhere. Stamp
 Windows signatures with the time (`--timestamp:URL`) so they stay good
 after the certificate expires.
+
+The key that signs updates (`retrokit update-key`: `update-key.secret`)
+is yours alone: anyone with it can ship to your users. Keep it out of the
+repository (`.gitignore` has `*.secret`) and give it to CI as a secret
+(`RETRO_UPDATE_KEY`).

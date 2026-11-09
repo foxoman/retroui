@@ -34,6 +34,24 @@ jobs:
         # (Android's headers from the sysroot retroapk carries: no NDK)
         run: sh tests/android_mock/run.sh
 
+  wasm:
+    # the headless tests that need nothing of the system, as WebAssembly
+    # (clang and wasm-ld, the kit's C library for the web) under Node
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: "2.2.6"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: clang and wasm-ld
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+      - name: The tests as WebAssembly under Node
+        run: sh tests/web/node.sh
+
   build:
     # the tools compile on the three desktops; the examples too, but only
     # when asked (Actions > CI > Run workflow): they are not part of the
