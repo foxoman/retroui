@@ -846,9 +846,17 @@ def cal_log(service, op, eid, body=None, query=None):
     extra().setdefault("calendar", []).append({"service": service, "op": op, "id": eid, "body": body,
                                                 "query": query or {}})
 
+# (where Python has no zone database -- Windows without the tzdata package --
+# the zones the tests use, at their November offsets)
+FIXED = {"UTC": 0, "Etc/UTC": 0, "Asia/Muscat": 4, "Asia/Dubai": 4, "Europe/Paris": 1,
+         "Europe/Berlin": 1, "America/New_York": -5, "America/Los_Angeles": -8}
+
 def zone_of(name):
-    try: return ZoneInfo(WINZONES.get(name, name))
-    except Exception: return None
+    iana = WINZONES.get(name, name)
+    try: return ZoneInfo(iana)
+    except Exception:
+        if iana in FIXED: return datetime.timezone(datetime.timedelta(hours=FIXED[iana]), iana)
+        return None
 
 def wall(s):
     return datetime.datetime.strptime(s[:19], "%Y-%m-%dT%H:%M:%S")

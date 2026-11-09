@@ -2,7 +2,7 @@ import std/strutils
 
 # Package
 
-version       = "0.31.0"
+version       = "0.31.1"
 author        = "Sultan Al Isaiee (@foxoman) <sultan@foxoman.net>"
 description   = "Retro Nim UI (retroui): a small, fast, dependency-free Windows 3.1 style UI toolkit for business and desktop apps on Windows, macOS, Linux, Android and iOS"
 license       = "MIT"
@@ -91,8 +91,8 @@ type RetroApp = tuple
 const RetroApps: seq[RetroApp] = @[
   # the apps: every package of each is made from this table
   (key: "photo", src: "examples/photo.nim", name: "Retro Photo", stem: "RetroPhoto",
-   id: "org.retro.photo", version: "4.9.4", icon: "examples/assets/photo-icon-512.png",
-   apk: "--orientation:landscape --storage --permission:INTERNET --nim:-d:lto", code: 27, small: false),
+   id: "org.retro.photo", version: "4.9.5", icon: "examples/assets/photo-icon-512.png",
+   apk: "--orientation:landscape --storage --permission:INTERNET --nim:-d:lto", code: 28, small: false),
   (key: "files", src: "examples/filemanager.nim", name: "Retro Files", stem: "RetroFiles",
    id: "org.retro.files", version: "3.3.4", icon: "examples/assets/filemanager-icon.png",
    apk: "--storage --nim:-d:lto", code: 37, small: true),
@@ -106,27 +106,27 @@ const RetroApps: seq[RetroApp] = @[
    id: "org.retro.hrbook", version: "0.2", icon: "examples/assets/hrbook-icon-512.png",
    apk: "--storage --nim:-d:lto", code: 2, small: true),
   (key: "gallery", src: "examples/gallery.nim", name: "Retro Gallery", stem: "RetroGallery",
-   id: "org.retro.gallery", version: "0.31.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--permission:INTERNET --permission:VIBRATE --nim:-d:lto --nim:--opt:size", code: 213, small: true),
+   id: "org.retro.gallery", version: "0.31.1", icon: "examples/assets/gallery-icon.png",
+   apk: "--permission:INTERNET --permission:VIBRATE --nim:-d:lto --nim:--opt:size", code: 214, small: true),
   # the small examples (the gallery's icon)
   (key: "notepad", src: "examples/notepad.nim", name: "Retro Notepad", stem: "RetroNotepad",
-   id: "org.retro.notepad", version: "0.31.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--storage --nim:-d:lto --nim:--opt:size", code: 213, small: true),
+   id: "org.retro.notepad", version: "0.31.1", icon: "examples/assets/gallery-icon.png",
+   apk: "--storage --nim:-d:lto --nim:--opt:size", code: 214, small: true),
   (key: "ledger", src: "examples/ledger.nim", name: "Retro Ledger", stem: "RetroLedger",
-   id: "org.retro.ledger", version: "0.31.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--nim:-d:lto --nim:--opt:size", code: 213, small: true),
+   id: "org.retro.ledger", version: "0.31.1", icon: "examples/assets/gallery-icon.png",
+   apk: "--nim:-d:lto --nim:--opt:size", code: 214, small: true),
   (key: "charts", src: "examples/charts.nim", name: "Retro Charts", stem: "RetroCharts",
-   id: "org.retro.charts", version: "0.31.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--storage --nim:-d:lto --nim:--opt:size", code: 213, small: true),
+   id: "org.retro.charts", version: "0.31.1", icon: "examples/assets/gallery-icon.png",
+   apk: "--storage --nim:-d:lto --nim:--opt:size", code: 214, small: true),
   (key: "invoice", src: "examples/invoice.nim", name: "Retro Invoice", stem: "RetroInvoice",
-   id: "org.retro.invoice", version: "0.31.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--storage --nim:-d:lto --nim:--opt:size", code: 213, small: true),
+   id: "org.retro.invoice", version: "0.31.1", icon: "examples/assets/gallery-icon.png",
+   apk: "--storage --nim:-d:lto --nim:--opt:size", code: 214, small: true),
   (key: "native", src: "examples/native.nim", name: "Retro Native", stem: "RetroNative",
-   id: "org.retro.native", version: "0.31.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--permission:VIBRATE --nim:-d:lto --nim:--opt:size", code: 213, small: true),
+   id: "org.retro.native", version: "0.31.1", icon: "examples/assets/gallery-icon.png",
+   apk: "--permission:VIBRATE --nim:-d:lto --nim:--opt:size", code: 214, small: true),
   (key: "hello", src: "examples/hello.nim", name: "Retro Hello", stem: "RetroHello",
-   id: "org.retro.hello", version: "0.31.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--nim:-d:lto --nim:--opt:size", code: 213, small: true)]
+   id: "org.retro.hello", version: "0.31.1", icon: "examples/assets/gallery-icon.png",
+   apk: "--nim:-d:lto --nim:--opt:size", code: 214, small: true)]
 
 proc app(key: string): RetroApp =
   for a in RetroApps:

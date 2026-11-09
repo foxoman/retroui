@@ -7,8 +7,24 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[locks, dynlib, os, tables]
+import std/[locks, dynlib, os, tables, exitprocs]
+from std/posix import exitnow
 import uirelays/drivers/x11_driver
+
+proc c_atexit(f: proc () {.noconv.}): cint {.importc: "atexit", header: "<stdlib.h>".}
+
+var teardownSkipped = false
+
+proc skipWebKitTeardown() {.noconv.} =
+  ## (WebKitGTK's own teardown at the program's end runs on the program's
+  ## main thread, not on the thread WebKit lives on, and stops the program
+  ## with SIGABRT once a video played too: the program ends here, its work
+  ## done, with its own exit code)
+  try:
+    flushFile(stdout)
+    flushFile(stderr)
+  except IOError: discard
+  exitnow(cint(getProgramResult()))
 
 type
   GtkCmdKind = enum gcShow, gcHide, gcClose, gcNav, gcRun, gcAllow, gcQuit, gcPermit
@@ -493,6 +509,10 @@ proc exec(c: GtkCmd) =
           InjectTopFrame, InjectAtStart, nil, nil))
         v.wv = webkit_web_view_new_with_user_content_manager(v.ucm)
         gtkKeyOf[v.wv] = c.key
+        if not teardownSkipped:
+          # (after WebKit registered its own end: this one runs before it)
+          teardownSkipped = true
+          discard c_atexit(skipWebKitTeardown)
         # (Inspect Element in the page's menu only when asked for)
         webkit_settings_set_enable_developer_extras(webkit_web_view_get_settings(v.wv),
                                                     cint(webToolsWanted()))

@@ -149,7 +149,13 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
    with a CI step not run here. **No warnings:** `sh tools/warncheck.sh`
    checks the kit's own files as every system builds them (Linux, Termux,
    an Android app, Windows, macOS, iOS, the web with threads and
-   without), the examples and the tests; an import used on some systems only is imported under the
+   without), the examples and the tests. A module imported for what it
+   sets up when imported (photodevelop, photoshapes, photostyles,
+   photodeep, photohdr, rawformats, parallel: they fill retroui/photo's
+   and codec's hooks) is never taken out for an "unused" warning: it is
+   imported between `{.push warning[UnusedImport]: off.}` and `{.pop.}`,
+   with a word on what it sets up (`tests/test_photoapp.nim` checks Retro
+   Photo's); an import used on some systems only is imported under the
    same `when` as its use, an early `return` for one system gets an `else`
    for the rest. A program in a subfolder of `tests/` or `tools/` finds the
    kit through that folder's `config.nims` (`thisDir()`, not

@@ -8,6 +8,9 @@
 import std/[os, math, strutils, json]
 import retroui/[gfx, imaging, photo, photopaint, photofx, photostyles, photoshapes, photofiles, photovector,
               psd, photoinks, filterfactory, textengine]
+{.push warning[UnusedImport]: off.}
+import retroui/photodevelop   # (imported for what it sets up in retroui/photo: the adjustment layers' tables)
+{.pop.}
 
 let dump = getEnv("PHOTO_DUMP")
 if dump.len > 0: createDir(dump)

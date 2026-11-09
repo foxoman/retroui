@@ -2,7 +2,7 @@
 ## warps, text on a path.
 
 import std/[math, unicode, json, strutils, os]
-import retroui/[textengine, ttf, typeset, otshape]
+import retroui/[textengine, ttf, typeset]
 
 proc style(size = 40'f32): CharStyle =
   result = defaultStyle()

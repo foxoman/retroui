@@ -3,9 +3,10 @@
 ## app runs and the log is empty. Faults the app caught (`guarded`) and
 ## went on from do not stop it.
 
-import std/[os, strutils]
+import std/[os, strutils, sequtils]
 import retroui
 import retroui/uirelays/input
+import retroui/core {.all.}
 import harness
 
 let home = getTempDir() / "retro-test-stopped"
@@ -44,5 +45,16 @@ doAssert "the color panel" in peekFaults()
 # an error nothing caught (Nim's own words) is a stop
 writeFile(log, "Error: unhandled exception: index 4 not in 0 .. 2 [IndexDefect]\n")
 doAssert lastRunStopped()
+removeFile(log)
+
+# what Nim writes when a signal ends the program (its handler, through
+# errorMessageWriter) goes into the log -- also when it comes as the
+# program ends and its strings are gone: here the path's string is
+# scribbled over, as freed memory would be
+let cwdBefore = toSeq(walkDir(getCurrentDir())).len
+for c in faultPath.mitems: c = '\xE0'
+errorMessageWriter("(test_stopped: the words of a signal, written as the program ends)\n")
+doAssert "the words of a signal" in readFile(log), "written into the log"
+doAssert toSeq(walkDir(getCurrentDir())).len == cwdBefore, "no file of another name"
 removeFile(log)
 echo "stopped tests passed"

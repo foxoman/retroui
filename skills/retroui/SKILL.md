@@ -122,6 +122,8 @@ line.
   "Ctrl+O" is Cmd+O). The controls share their keys (docs/syntax.md has
   the table): a control of your own that drops something open opens on
   `dropKey()` (F4, Alt+Down) and Enter, and closes on them, Alt+Up or Esc.
+  On a Mac, Option + a letter types (no underlined letters); an app or a
+  test that wants Alt's letters there sets `optionLetters = true`.
 - **Focus:** call `focusFirstText()` when a screen or dialog opens so the
   user can type at once (`focusFirstText(inDialog = true)` for a dialog
   opened this frame); `focusNext()` moves to the next control. Clicking a

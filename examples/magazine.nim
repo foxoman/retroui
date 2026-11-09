@@ -16,6 +16,10 @@
 import std/[os, math]
 import retroui/[gfx, photo, photopaint, photofx, photoshapes, photovector,
               photowarp, photoneural, photopdf, photofiles, textengine]
+{.push warning[UnusedImport]: off.}
+# (imported for what they set up in retroui/photo: layer styles drawn, adjustment layers' tables)
+import retroui/[photostyles, photodevelop]
+{.pop.}
 
 const
   W = 1240                 # A4 at 150 pixels an inch

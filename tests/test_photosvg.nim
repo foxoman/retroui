@@ -2,6 +2,9 @@
 
 import std/[strutils, os]
 import retroui/[photo, photosvg, textengine]
+{.push warning[UnusedImport]: off.}
+import retroui/photoshapes   # (imported for what it sets up in retroui/photo: how shape layers are drawn)
+{.pop.}
 let d = newDoc(200, 100)
 var sh = ShapeData(kind: "Ellipse", fill: ShapePaint(kind: spColor, color: 0xFFFF0000'u32),
                    stroke: ShapePaint(kind: spColor, color: 0xFF000000'u32), strokeWidth: 3)

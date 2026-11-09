@@ -3,6 +3,8 @@
 ## from a folder of their files ($RETRO_FONTS).
 
 import retroui/typeset
+when defined(retroFonts):
+  from std/envvars import getEnv   # (only this build reads $RETRO_FONTS)
 
 doAssert faceBytes(fSans).len > 100_000
 doAssert faceBytes(fSansBold).len > 50_000

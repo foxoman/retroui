@@ -21,10 +21,13 @@ import retroui/[photo, photopaint, photofx, photoartistic, photohdr, otshape, tt
               photofiles, photosave, photoshapes, photomerge, photopdf, photoimport, pdfread, googlefonts, photovector, iccprofile, icclut, abr, rawphoto, imageformats, filterfactory,
               photobrushes, adobefiles,
               imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files]
+{.push warning[UnusedImport]: off.}
+import retroui/photodeep   # (imported for what it sets up: filters, flattening and gradients at 16 and 32 bits)
+{.pop.}
 
 const
   AppName = "Retro Photo"
-  AppVersion = "4.9.4"
+  AppVersion = "4.9.5"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 

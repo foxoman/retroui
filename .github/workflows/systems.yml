@@ -125,11 +125,17 @@ jobs:
       - name: Tests
         shell: bash
         run: |
+          # (the mail tests' stand-in server needs the zone database Windows'
+          # Python has not)
+          python3 -m pip install --quiet tzdata || python -m pip install --quiet tzdata || true
+          # (every test runs, a failure or not: the log shows them all)
+          failed=""
           for t in $PORTABLE; do
             echo "::group::$t"
-            nim c -r --hints:off tests/$t.nim || { echo "::error::$t failed"; exit 1; }
+            nim c -r --hints:off tests/$t.nim || { echo "::error::$t failed"; failed="$failed $t"; }
             echo "::endgroup::"
           done
+          [ -z "$failed" ] || { echo "failed:$failed"; exit 1; }
       - name: IMAP and SMTP over the system's TLS (SChannel)
         if: always()
         continue-on-error: true
@@ -171,11 +177,14 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Tests
         run: |
+          # (every test runs, a failure or not: the log shows them all)
+          failed=""
           for t in $PORTABLE; do
             echo "::group::$t"
-            nim c -r --hints:off tests/$t.nim || { echo "::error::$t failed"; exit 1; }
+            nim c -r --hints:off tests/$t.nim || { echo "::error::$t failed"; failed="$failed $t"; }
             echo "::endgroup::"
           done
+          [ -z "$failed" ] || { echo "failed:$failed"; exit 1; }
       - name: IMAP and SMTP over the system's TLS (Secure Transport)
         if: always()
         continue-on-error: true
@@ -184,7 +193,17 @@ jobs:
         if: always()
         run: |
           nim c -d:release --hints:off -o:build/livecheck tests/live/livecheck.nim
-          RETRO_LIVE_OUT=live RETRO_LIVE_VIDEO_NEED=1 ./build/livecheck
+          RETRO_LIVE_OUT=live RETRO_LIVE_VIDEO_NEED=1 ./build/livecheck || {
+            # (it stopped: again, built with its stack trace, under lldb --
+            #  where it stopped is in the log)
+            echo "::group::the live check again, with where it stops"
+            nim c -d:release --stackTrace:on --lineTrace:on --debugger:native --hints:off \
+              -o:build/livecheck-trace tests/live/livecheck.nim
+            RETRO_LIVE_OUT=live RETRO_LIVE_VIDEO_NEED=1 lldb --batch -o run -k "bt 50" -k quit \
+              -- ./build/livecheck-trace || true
+            echo "::endgroup::"
+            exit 1
+          }
       - name: The same pixels as the reference
         if: always()
         run: nim c -r --hints:off tools/live/compare.nim live

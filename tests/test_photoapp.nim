@@ -9,6 +9,14 @@ import harness
 const photoUnderTest = true
 include ../examples/photo
 
+# (the modules Retro Photo imports for what they set up are imported: a
+# cleanup of unused imports once took photodeep out, and 16-bit filters
+# went with it)
+doAssert adjustmentLut != nil and shapeRender != nil and layerFxRender != nil and
+         syncHdrHook != nil and showHdrHook != nil and hiFilterHook != nil and
+         flatten16Hook != nil and deepGradientHook != nil and cameraRawReader != nil,
+         "every hook of retroui/photo is set"
+
 # a home of its own: the settings (and the actions) go there
 let home = getTempDir() / "retro-photo-apptest"
 removeDir(home)

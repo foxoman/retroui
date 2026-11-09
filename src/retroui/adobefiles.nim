@@ -14,6 +14,9 @@
 
 import std/[strutils, math]
 import psd, photo, photoinks
+{.push warning[UnusedImport]: off.}
+import photoshapes   # (imported for what it sets up: a file's shape layers drawn)
+{.pop.}
 
 type
   AdobeError* = object of ValueError

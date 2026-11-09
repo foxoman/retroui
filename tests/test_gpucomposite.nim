@@ -9,6 +9,12 @@
 import std/[os, strutils, tables, monotimes, times]
 import retroui/[gfx, photo, photogpu]
 import retroui/uirelays/[eglload, screen]
+{.push warning[UnusedImport]: off.}
+import retroui/photodevelop   # (imported for what it sets up in retroui/photo: the adjustment layers' tables)
+{.pop.}
+{.push warning[UnusedImport]: off.}
+import retroui/photostyles   # (imported for what it sets up in retroui/photo: how layer styles are drawn)
+{.pop.}
 
 putEnv("RETRO_GPU", "1")                 # (llvmpipe counts: it is what there is here)
 var egl: Egl

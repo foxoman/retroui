@@ -6,6 +6,9 @@
 import std/random
 import retroui/photo {.all.}
 import retroui/gfx
+{.push warning[UnusedImport]: off.}
+import retroui/photodevelop   # (imported for what it sets up in retroui/photo: the adjustment layers' tables)
+{.pop.}
 
 var r = initRand(7)
 

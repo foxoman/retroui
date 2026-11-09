@@ -15,6 +15,9 @@ var
   view*: proc ()     ## the UI under test, run once per frame
 
 proc fakeDriver*() =
+  # (the same keys on every system: a Mac's Option + a letter picks the
+  # underlined one here, as Alt does elsewhere)
+  optionLetters = true
   windowRelays.createWindow = proc (l: var ScreenLayout; icon: pointer;
                                     iconLen: int) =
     l.width = W; l.height = H; l.scaleX = 1; l.scaleY = 1; l.uiScale = 100

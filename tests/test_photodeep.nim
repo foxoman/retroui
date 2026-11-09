@@ -6,6 +6,9 @@
 
 import std/[os, sets, math]
 import retroui/[gfx, photo, photofx, photohdr, photodeep, photopaint]
+{.push warning[UnusedImport]: off.}
+import retroui/photodevelop   # (imported for what it sets up in retroui/photo: the adjustment layers' tables)
+{.pop.}
 
 let S = getTempDir()
 

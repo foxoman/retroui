@@ -1592,7 +1592,9 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["4.9.4: the Move tool turns and sizes the layer from its box's handles and the " &
+           whatsNew = ["4.9.5: filters, flattening and gradients at 16 and 32 bits work again (4.9.4 " &
+                       "left the part that does them out)",
+                       "4.9.4: the Move tool turns and sizes the layer from its box's handles and the " &
                        "corners' turning room, before Auto-Select picks what is under them; when Retro " &
                        "Photo stopped, the next start says why first, and can open without the pictures " &
                        "that were open",

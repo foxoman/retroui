@@ -3,8 +3,9 @@
 ## pixels, so every system should come out the same -- within a few pixels
 ## (a caret, a font the system stands in with). A picture twice or three
 ## times as big (a Retina or 200 % screen) is compared at the reference's
-## size. Writes `NAME-diff.png` (the differing pixels in red) beside each
-## one that differs, and a line per picture; ends with 1 when one is off.
+## size; one of another shape (a phone's screen) is not compared. Writes
+## `NAME-diff.png` (the differing pixels in red) beside each one that
+## differs, and a line per picture; ends with 1 when one is off.
 ##
 ##   nim c -r tools/live/compare.nim OUT_DIR [REF_DIR] [--limit:0.5]
 
@@ -57,8 +58,9 @@ proc main(): int =
         got = shrunk(got, k)
         echo "  ", name, " was drawn at ", k, "x"
       else:
-        echo "SIZE ", name, ": ", got.w, "x", got.h, " (", want.w, "x", want.h, ")"
-        inc bad
+        # (a phone's screen, of its own shape: the picture is there to look
+        # at -- the artifact -- not to compare with a desktop's)
+        echo "OTHER ", name, ": ", got.w, "x", got.h, " (a screen of its own shape: not compared)"
         continue
     var diff = newBitmap(want.w, want.h)
     var n = 0

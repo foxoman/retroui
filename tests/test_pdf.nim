@@ -7,7 +7,7 @@
 
 import std/[os, osproc, strutils, times, json]
 import std/unicode except splitWhitespace
-import retroui/[gfx, imaging]
+import retroui/gfx
 import retroui/pdf
 
 let outDir = getTempDir() / "retro-test-pdf"

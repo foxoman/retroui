@@ -5,6 +5,12 @@
 
 import std/[os, math]
 import retroui/[gfx, photo, photosmart, photocc, textengine]
+{.push warning[UnusedImport]: off.}
+import retroui/photoshapes   # (imported for what it sets up in retroui/photo: how shape layers are drawn)
+{.pop.}
+{.push warning[UnusedImport]: off.}
+import retroui/photodevelop   # (imported for what it sets up in retroui/photo: the adjustment layers' tables)
+{.pop.}
 
 proc rgbOf(p: uint32): (int, int, int) = (rOf(p), gOf(p), bOf(p))
 

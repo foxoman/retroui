@@ -17,6 +17,7 @@ var
   clip = ""
 
 proc fakeDriver() =
+  optionLetters = true            # (a Mac's Option + a letter as Alt elsewhere)
   windowRelays.createWindow = proc (l: var ScreenLayout; icon: pointer;
                                     iconLen: int) =
     l.width = W; l.height = H; l.scaleX = 1; l.scaleY = 1; l.uiScale = 100
@@ -167,17 +168,10 @@ block tabAndSpace:
 block mnemonics:
   key(KeyC, {AltPressed})
   run()
-  when defined(macosx):
-    # (a Mac types with Option -- no menu letters: the box and the button
-    # stay as they were; the rest of the test goes on as if pressed)
-    doAssert checked, "Option+C is text on a Mac, not '&Check me'"
-    checked = false
-    inc clicks
-  else:
-    doAssert not checked, "Alt+C toggles '&Check me'"
-    key(KeyO, {AltPressed})
-    run()
-    doAssert clicks == 3, "Alt+O clicks '&OK'"
+  doAssert not checked, "Alt+C toggles '&Check me'"
+  key(KeyO, {AltPressed})
+  run()
+  doAssert clicks == 3, "Alt+O clicks '&OK'"
 
 block listKeys:
   key(KeyTab)

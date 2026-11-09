@@ -12,7 +12,6 @@
 
 import std/[random, strutils, os]
 import retroui
-import retroui/[typeset, textfile]
 import retroui/uirelays/input
 import ../harness
 

@@ -1,5 +1,61 @@
 # Changes
 
+## 0.31.1
+
+What GitHub's CI found in 0.30.1 and 0.31.0, fixed -- among it Retro
+Photo's filters at 16 and 32 bits, which 0.30.1's cleanup of unused
+imports had taken away.
+
+- **Modules imported for what they set up are imported again.**
+  `retroui/photodeep` fills in Retro Photo's filters, flattening and
+  gradients at 16 and 32 bits when it is imported; nothing of it is called
+  by name, so Nim called the import unused, and 0.30.1 took it out of
+  Retro Photo (4.9.5 has it again). The same for the Magazine example
+  (`photostyles`, `photodevelop`: layer styles and adjustment layers),
+  `retroui/adobefiles` (`photoshapes`: a file's shape layers) and the
+  tests of the blend tables, Photo's color adjustments, 16-bit pictures,
+  SVG and the GPU's composite (the CI's crash in `test_blendfast`). Such
+  an import now sits between `{.push warning[UnusedImport]: off.}` and
+  `{.pop.}` with a word on what it sets up; `tests/test_photoapp.nim`
+  checks that every hook of `retroui/photo` is filled in Retro Photo.
+- **The tests' last unused imports** (a test built before, from the
+  cache, showed none here): gone, the UI fuzzer's too. The fonts option
+  test, built a second time with `-d:retroFonts=ui` as `nimble test`'s
+  last step, had lost its `getEnv` to the same cleanup (only that build
+  uses it): it imports it for that build alone. The whole suite ran from
+  a clean cache, that step included.
+- **On a Mac** the tests press Alt + a letter as everywhere else:
+  `optionLetters` (false by default: Option types on a Mac) lets Option +
+  a letter pick the underlined letter, and the tests' driver turns it on.
+- **The live check on Linux** ended with SIGABRT after "all passed":
+  WebKitGTK's own teardown at the program's end runs on the main thread,
+  not on WebKit's, and aborts once a video played too. A program that
+  showed a web page now ends before that teardown (its work done, its exit
+  code kept); the live check's exit code follows its results. On a Mac the
+  live check stops at its start: the systems workflow now builds it again
+  with its stack trace and runs it under lldb, so the next run says where.
+- **A fault as the program ends** (a signal during that teardown) went
+  into a file named from freed memory, in the current folder, instead of
+  the fault log: the log's path is now also kept where nothing frees it,
+  and on Linux, macOS and Android it is written with the calls a signal
+  handler may make. `tests/test_stopped.nim` scribbles over the path's
+  string and checks the log.
+- **The live check's pictures** have no pointer in them (the CI desktop's
+  mouse lit a bar of the chart on Windows).
+- **The pixel compare** leaves out a phone's pictures (a screen of its
+  own shape, not the desktop's 800 x 600): they are kept to look at.
+- **Windows:** the mail tests' stand-in server finds its time zones there
+  too (Python without the tzdata package: the workflow installs it, and
+  the server has the tests' zones at their November offsets).
+- **The emulator job** tried only the first app: `adb shell` read the
+  list of apps meant for the loop. Every adb call reads nothing now; an
+  app is opened by its launcher activity and waited for (up to 30 s for a
+  big library on an emulator), the system UI's own stops are not the
+  app's, and a failure shows what the system said of the app's process.
+- **The systems workflow** runs every portable test even after one
+  fails, so a run shows them all.
+- Retro Photo 4.9.5; Retro Gallery and the small examples 0.31.1.
+
 ## 0.31.0
 
 Retro Mail reads and sends the mail of any provider -- IMAP and SMTP,

@@ -19,7 +19,7 @@
 ## player; $RETRO_LIVE_ONLY=web,grid only those pages; $RETRO_LIVE_VIDEO the
 ## video it plays (tests/data/media/live.mp4).
 
-import std/[os, strutils, times]
+import std/[os, strutils, times, exitprocs]
 import retroui
 import retroui/[htmlview, imaging, charts, media]
 
@@ -100,6 +100,7 @@ proc finish() =
   try: writeFile(outDir / "results.txt", results.join("\n") & "\n")
   except IOError: echo "livecheck: results.txt not written"
   echo "livecheck: ", (if failed == 0: "all passed" else: $failed & " failed")
+  setProgramResult(if failed == 0: 0 else: 1)     # (the program's exit code: 0, or 1)
   quitApp()
 
 if outDir.len == 0: outDir = dataDir("livecheck")
@@ -113,6 +114,10 @@ pageStart = epochTime()
 
 app "Live check", 800, 600:
   inc pageFrames
+  # (nobody points at the window: where the system's own mouse pointer is --
+  #  over a bar of the chart, on a Windows runner -- lights nothing up)
+  ui.mx = -10000
+  ui.my = -10000
   # (gray text on every system, as the reference pictures: not the
   #  system's sharp text where it is the default)
   if ui.frameNo <= 1:

@@ -20,7 +20,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.31.0"
+const RetroVersion* = "0.31.1"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -1484,6 +1484,27 @@ proc layoutRestore*(m: LayoutMark) =
 # ---- faults --------------------------------------------------------------------------------------------
 
 var faultPath = ""     ## (where faults are written: the app's data folder)
+var faultFile: array[1024, char]
+  ## (the same, where nothing frees it: a fault at the very end -- a signal
+  ## while the program ends, its strings gone -- still finds the file,
+  ## not a name made of what that memory holds by then)
+
+proc setFaultPath(p: string) =
+  faultPath = p
+  faultFile[0] = '\0'
+  if p.len < faultFile.len:
+    for i in 0 ..< p.len: faultFile[i] = p[i]
+    faultFile[p.len] = '\0'
+
+when defined(posix) and not defined(wasm):
+  # (what a signal handler may call: open, write, close)
+  var
+    oWrOnly {.importc: "O_WRONLY", header: "<fcntl.h>".}: cint
+    oCreat {.importc: "O_CREAT", header: "<fcntl.h>".}: cint
+    oAppend {.importc: "O_APPEND", header: "<fcntl.h>".}: cint
+  proc cOpen(path: cstring; flags: cint): cint {.importc: "open", header: "<fcntl.h>", varargs.}
+  proc cWrite(fd: cint; buf: pointer; n: csize_t): int {.importc: "write", header: "<unistd.h>".}
+  proc cClose(fd: cint): cint {.importc: "close", header: "<unistd.h>".}
 
 when androidApp:
   # (a crash of the native code written down too: Nim's own signal handler
@@ -1495,13 +1516,19 @@ proc writeFault(msg: string) {.tags: [WriteIOEffect], gcsafe, nimcall, raises: [
   {.cast(gcsafe).}:
     try: stderr.write msg
     except CatchableError: discard
-    if faultPath.len > 0:
-      try:
-        var f: File
-        if open(f, faultPath, fmAppend):
-          f.write(msg)
-          f.close()
-      except CatchableError: discard
+    if faultFile[0] != '\0':
+      when defined(posix) and not defined(wasm):
+        let fd = cOpen(cast[cstring](addr faultFile[0]), oWrOnly or oCreat or oAppend, cint(0o600))
+        if fd >= 0:
+          if msg.len > 0: discard cWrite(fd, unsafeAddr msg[0], csize_t(msg.len))
+          discard cClose(fd)
+      else:
+        try:
+          var f: File
+          if open(f, $cast[cstring](addr faultFile[0]), fmAppend):
+            f.write(msg)
+            f.close()
+        except CatchableError: discard
 
 var lastNoted = ""
 
@@ -2056,6 +2083,12 @@ proc noteTextCaret*(r: Rect) =
 const macKeys = defined(macosx)
   ## (macOS and iOS: Cmd is the Ctrl of shortcuts -- the drivers report it so)
 
+var optionLetters* = false
+  ## On a Mac, Option + a letter picks the underlined letter of a menu or a
+  ## control, as Alt does elsewhere (false, the default: it types, as Mac
+  ## users expect -- @, {, |, € on many layouts). The tests turn it on, so
+  ## they press the same keys on every system.
+
 proc modifierName*(m: Modifier): string =
   ## A modifier key's name as this system's keyboards have it: Ctrl, Alt,
   ## Shift, Win; on a Mac Cmd, Option, Shift, Control (Cmd is reported as
@@ -2459,7 +2492,7 @@ proc applyEvent(e: Event): bool =
     ui.mods = e.mods
     let ctrl = CtrlPressed in e.mods
     let alt = AltPressed in e.mods
-    when defined(macosx):
+    if defined(macosx) and not optionLetters:
       # (a Mac types with Option -- @, {, [, |, € on many layouts -- and makes
       # no menu's letters with it: what Cmd, the Ctrl here, leaves is text)
       ui.textOk = not ctrl and GuiPressed notin e.mods
@@ -2829,7 +2862,7 @@ proc startApp*(title: string; w, h: int; theme = ui.theme; zoom = 0) =
   except CatchableError: discard
   # (what brings the program down written down, for the next start to tell)
   # (the app's name without its version: the log stays when it is updated)
-  try: faultPath = dataDir(appIdent) / "faults.log"
+  try: setFaultPath(dataDir(appIdent) / "faults.log")
   except CatchableError: discard
   errorMessageWriter = writeFault
   when androidApp:
