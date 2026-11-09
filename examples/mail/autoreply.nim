@@ -107,6 +107,12 @@ proc gmailAutoReplyJson*(r: AutoReply; email: string): JsonNode =
 
 # ---- the calls ---------------------------------------------------------------------------
 
+proc noAutoReply(): ref ApiError =
+  ## (IMAP has none of its own: the provider's web mail sets them)
+  result = newException(ApiError, "an IMAP account's automatic replies are set in its " &
+                                  "provider's web mail (IMAP has none of its own)")
+  result.status = 400
+
 proc getAutoReply*(acc: Account; token: string): AutoReply =
   ## The account's automatic replies as the service keeps them.
   case acc.kind
@@ -116,6 +122,8 @@ proc getAutoReply*(acc: Account; token: string): AutoReply =
   of akGmail:
     gmailAutoReply(callJson("GET", gmailBase() & "/gmail/v1/users/me/settings/vacation", token,
                             what = "the vacation responder"))
+  of akImap:
+    raise noAutoReply()
 
 proc setAutoReply*(acc: Account; token: string; r: AutoReply) =
   ## Turns the account's automatic replies on or off, with their messages.
@@ -127,3 +135,5 @@ proc setAutoReply*(acc: Account; token: string; r: AutoReply) =
   of akGmail:
     discard callJson("PUT", gmailBase() & "/gmail/v1/users/me/settings/vacation", token,
                      gmailAutoReplyJson(r, acc.email), what = "the vacation responder")
+  of akImap:
+    raise noAutoReply()

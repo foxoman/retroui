@@ -21,7 +21,8 @@
 import std/[os, strutils, json, times, tables, sets, algorithm, sequtils, unicode, hashes, math]
 import retroui, retroui/[db, http, oauth, secrets, mime, richedit, spell, pdfview, mailimport, notify,
                      bgcheck]
-import mail/[store, api, sync, graph, gmail, appids, rules, forward, importer, calendar]
+import retroui/[mailsetup, netconn]
+import mail/[store, api, sync, graph, gmail, appids, rules, forward, importer, calendar, imapsync]
 
 include mail/ui_state
 include mail/ui_data

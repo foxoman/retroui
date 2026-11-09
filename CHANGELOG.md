@@ -1,5 +1,61 @@
 # Changes
 
+## 0.31.0
+
+Retro Mail reads and sends the mail of any provider -- IMAP and SMTP,
+with a password -- and the kit has what that takes: connections with the
+system's own TLS, IMAP, SMTP, and finding an address's servers.
+
+- **IMAP accounts in Retro Mail (#2 on GitHub).** File > Add Account, an
+  address Retro Mail does not know (or "Another provider (IMAP)"): type
+  the password, and the servers are found by themselves (below); check
+  them or change them, Next signs in to both and the mail comes. Folders
+  with what they are for (Sent, Drafts, Trash, Junk, Archive: the
+  server's special-use flags, else their names in English, German,
+  French, Spanish, Italian, Dutch, Russian and Arabic), the newest mail
+  first for the days kept, then only what is new (UIDs) and only the flags
+  that changed (CONDSTORE); read, flag, tags (as IMAP keywords: what
+  Thunderbird's five are, they are here), move, delete, Trash, Junk, all
+  sent to the server; sending through SMTP with a copy in Sent (Gmail and
+  Microsoft 365 keep one themselves); a reply marks what it answers;
+  meeting invitations read from the message and answered by mail;
+  searching the server's Inbox and Sent too. The password is kept
+  encrypted with the account's sign-in (as the tokens are); when the
+  server stops taking it, the account asks for it again (Tools > Options >
+  Accounts > Servers... changes the servers). An IMAP account has no
+  calendar and no automatic replies here (IMAP has neither).
+- **`retroui/netconn`:** a connection to a server over TCP, encrypted
+  with TLS from the start or after STARTTLS, read by lines and bytes with
+  a timeout -- through each system's own TLS, with its certificate
+  authorities: SChannel on Windows, Secure Transport on macOS and iOS,
+  Java in an Android app, OpenSSL on Linux, the BSDs and Termux (loaded
+  the first time a connection is encrypted, so a program without it still
+  starts). `insecure` takes a server's own certificate (a server at home).
+- **`retroui/imap`:** IMAP4rev1 / IMAP4rev2: sign in (PLAIN, LOGIN,
+  XOAUTH2), folders and their special use, SELECT with CONDSTORE, SEARCH,
+  FETCH of header fields, flags and whole messages (literals of any size),
+  STORE, COPY, MOVE (or copy, then delete), EXPUNGE, APPEND, CREATE,
+  DELETE, RENAME, STATUS, any other command (`command`); folder names in
+  modified UTF-7 both ways.
+- **`retroui/smtp`:** sending through a server: TLS or STARTTLS, AUTH
+  PLAIN, LOGIN or XOAUTH2, SIZE, 8BITMIME, SMTPUTF8, dots doubled, each
+  recipient refused said (`smtpSend`, or `smtpConnect`, `login`,
+  `sendMail`, `quit`).
+- **`retroui/mailsetup`:** where an address's mail is (`findMailServers`):
+  the biggest providers known, then the provider's own autoconfig file,
+  Thunderbird's list (ISPDB), DNS (SRV records, then the MX host's
+  provider), and last the usual names.
+- `retroapk` adds INTERNET for an app that opens connections.
+- Tests: `tests/test_imap.nim` against a server of its own
+  (`tests/imapmock.py`: IMAP and SMTP, plain, STARTTLS and TLS), with
+  Retro Mail's engine and an IMAP account; on Windows and macOS too, so
+  SChannel and Secure Transport are tried by the systems workflow (a step
+  of its own, that does not fail the job until it has passed there).
+- Retro Designer's registry builds without a warning (a module whose
+  calls were all left out was imported; `tools/gendesigner.py` writes it
+  so now).
+- Retro Mail 1.1; Retro Gallery and the small examples 0.31.0.
+
 ## 0.30.1
 
 Every CI failure fixed, builds that a phone or tablet finishes, no

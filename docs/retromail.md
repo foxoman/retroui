@@ -1,16 +1,19 @@
 # Retro Mail
 
 Outlook Express 4 to look at and to use, with what the new Outlook does:
-Microsoft 365 (work or school), Outlook.com and Gmail, side by side.
+Microsoft 365 (work or school), Outlook.com, Gmail -- and any other
+provider's mail, through IMAP and SMTP -- side by side.
 
 - **Signed in in the browser.** The service's own sign-in page opens in
   your browser (OAuth 2.0 with PKCE, answered on a loopback address).
   Retro Mail never sees a password; it keeps an encrypted sign-in token
   (DPAPI on Windows, the keychain on macOS, libsecret or an encrypted file
   on Linux, the app's private folder on Android).
-- **Official APIs only:** Microsoft Graph and the Gmail API (and Google
-  Calendar). No IMAP passwords, no screen scraping: one click to add an
-  account (below).
+- **Official APIs for Microsoft and Google:** Microsoft Graph and the
+  Gmail API (and Google Calendar), one click to add an account, no
+  password (below). **Every other provider through IMAP and SMTP**, with
+  its password (or an app password), the servers found by themselves;
+  the password is kept encrypted as the tokens are.
 - **Offline first.** Mail is kept in a local SQLite file with a full-text
   index: the list opens at once, search answers in milliseconds without the
   network, and changes made offline go out when the network comes back.
@@ -46,6 +49,37 @@ on by itself. That is all.
 
 (An organisation that allows only apps it registered itself: Tools >
 Options > Accounts > *Organisation's App* takes its Application ID.)
+
+### Any other provider: IMAP
+
+An address Retro Mail does not know, or *Another provider (IMAP)* on the
+wizard's "Where Is Your Mail?" page: type your name and your password,
+and the servers are found meanwhile -- the biggest providers by name,
+then the provider's own autoconfig file, Thunderbird's list of providers,
+the domain's DNS (its SRV records; its MX host's provider), and last the
+usual names (imap.example.com, smtp.example.com), marked as a guess.
+Check them (the incoming IMAP server, the outgoing SMTP server, their
+ports and encryption -- SSL/TLS or STARTTLS -- and the user name),
+change what is wrong, and *Next* signs in to both; the mail comes.
+
+- Many providers want an **app password** here, not the account's own:
+  Gmail (with 2-step verification), Yahoo, iCloud, AOL, Outlook.com.
+  Make one in the account's security settings (Gmail and Outlook.com are
+  added better through their own sign-in, above).
+- A server of your own with a certificate it signed itself: *Take the
+  server's own certificate* (the mail is still encrypted).
+- What it does: the folders with what they are for (Sent, Drafts, Trash,
+  Junk, Archive), the mail of the days kept (Tools > Options), then only
+  what is new and only the flags that changed; read, flags, tags (as IMAP
+  keywords, Thunderbird's own five as theirs), moves, deletes, all made on
+  the server; sending through SMTP, a copy in Sent (Gmail and Microsoft
+  365 keep one themselves); meeting invitations read from the message and
+  answered by mail; search of the server's Inbox and Sent as well.
+- What it does not: an IMAP account has no calendar and no automatic
+  replies here (IMAP has neither; the provider's web mail sets them).
+- When the server stops taking the password (it was changed), the
+  account says so and asks for it again. Tools > Options > Accounts >
+  *Servers...* changes the servers.
 
 ## For whoever builds it: the app registrations, once
 

@@ -8,7 +8,9 @@
 
 import std/tables
 import retroui
+{.push warning[UnusedImport]: off.}   # (a module whose calls were all left out)
 import retroui/[textwidgets, richedit, qrcode, pdfview, tilemap, gltf, capture, mediasession]
+{.pop.}
 import values
 
 {.push warning[Deprecated]: off, warning[UnusedImport]: off, hint[XDeclaredButNotUsed]: off.}

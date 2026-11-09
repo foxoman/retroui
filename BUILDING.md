@@ -97,6 +97,13 @@ play with the system's sound, or mpv or ffplay. Its encryption
 (`retroui/omemo`) uses libcrypto 1.1.1 or later, the same OpenSSL; where
 it is missing, talks go unencrypted and the lock button is grayed.
 
+**Connections (`retroui/netconn`: Retro Mail's IMAP and SMTP) need
+nothing at build time:** each system's own TLS -- SChannel on Windows,
+Secure Transport on macOS and iOS, Java in an Android app -- and on Linux,
+the BSDs and Termux OpenSSL's libssl (3 or 1.1), loaded the first time a
+connection is encrypted (a program without it still starts; Termux: `pkg
+install openssl`).
+
 **Screen readers and input methods need nothing at build time**: the
 app speaks AT-SPI over D-Bus itself on Linux and BSD (Orca reads it when
 the desktop runs the accessibility bus, as GNOME, KDE and Retro Desktop

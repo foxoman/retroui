@@ -130,6 +130,11 @@ jobs:
             nim c -r --hints:off tests/$t.nim || { echo "::error::$t failed"; exit 1; }
             echo "::endgroup::"
           done
+      - name: IMAP and SMTP over the system's TLS (SChannel)
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: nim c -r --hints:off tests/test_imap.nim
       - name: Live check
         if: always()
         shell: bash
@@ -171,6 +176,10 @@ jobs:
             nim c -r --hints:off tests/$t.nim || { echo "::error::$t failed"; exit 1; }
             echo "::endgroup::"
           done
+      - name: IMAP and SMTP over the system's TLS (Secure Transport)
+        if: always()
+        continue-on-error: true
+        run: nim c -r --hints:off tests/test_imap.nim
       - name: Live check
         if: always()
         run: |

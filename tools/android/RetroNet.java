@@ -9,8 +9,19 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.reflect.Field;
 import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
 import java.net.ProtocolException;
+import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.net.URL;
+import java.security.cert.X509Certificate;
+import java.util.HashMap;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
 /** Downloads for retro's asset store (src/retro/assetfetch.nim) and web
  *  requests for retro/http. The native side calls "net.what" with
@@ -26,10 +37,31 @@ import java.net.URL;
  *  answer file and answers the status and the headers ("200\nname: value\n
  *  ..."), or "e" and why no answer came. Redirects are followed by hand
  *  when asked; Authorization and Cookie go only to the first host.
- *  "net.available" answers "1". */
+ *  "net.available" answers "1".
+ *  "net.tls.open" host, port, tls ("1"/"0"), insecure, timeout in ms opens
+ *  a connection (retro/netconn: IMAP, SMTP), encrypted at once when tls:
+ *  "o" and its number, or "e" and why not. "net.tls.start" number, host,
+ *  insecure encrypts it from there (STARTTLS); "net.tls.write" number,
+ *  base64 sends; "net.tls.read" number, most reads what came: "d" and
+ *  base64, "c" closed, "t" no answer in the timeout; "net.tls.close"
+ *  number. The certificate is checked against Android's authorities and
+ *  for the host's name, unless insecure. */
 public class RetroNet {
+  static final HashMap<Integer, Socket> socks = new HashMap<Integer, Socket>();
+  static int nextSock = 1;
+
   public static String call(Activity a, String what, String[] args) {
     if (what.equals("available")) return "1";
+    if (what.startsWith("tls.")) {
+      try {
+        return tls(what.substring(4), args);
+      } catch (SocketTimeoutException e) {
+        return "t";
+      } catch (Throwable t) {
+        String m = t.getMessage();
+        return "e" + (m != null ? m : t.getClass().getSimpleName());
+      }
+    }
     if (what.equals("request")) {
       if (args.length < 7) return "emissing arguments";
       int ms = 60000;
@@ -296,5 +328,86 @@ public class RetroNet {
     } finally {
       try { in.close(); } catch (Throwable t) { }
     }
+  }
+
+  static Socket sock(String n) throws IOException {
+    Socket s;
+    synchronized (socks) { s = socks.get(Integer.parseInt(n.trim())); }
+    if (s == null) throw new IOException("the connection is closed");
+    return s;
+  }
+
+  static SSLSocketFactory factory(boolean insecure) throws Exception {
+    if (!insecure) return (SSLSocketFactory) SSLSocketFactory.getDefault();
+    SSLContext c = SSLContext.getInstance("TLS");
+    c.init(null, new TrustManager[] { new X509TrustManager() {
+      public void checkClientTrusted(X509Certificate[] ch, String t) { }
+      public void checkServerTrusted(X509Certificate[] ch, String t) { }
+      public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+    } }, null);
+    return c.getSocketFactory();
+  }
+
+  static void handshake(SSLSocket t, String host, boolean insecure) throws IOException {
+    t.startHandshake();
+    if (!insecure && !HttpsURLConnection.getDefaultHostnameVerifier().verify(host, t.getSession())) {
+      try { t.close(); } catch (Throwable e) { }
+      throw new IOException("the server's certificate is for another name");
+    }
+  }
+
+  static String tls(String what, String[] a) throws Exception {
+    if (what.equals("open")) {
+      String host = a[0];
+      int port = Integer.parseInt(a[1].trim());
+      boolean tls = a[2].equals("1");
+      boolean insecure = a[3].equals("1");
+      int ms = Math.max(1000, Integer.parseInt(a[4].trim()));
+      Socket p = new Socket();
+      p.connect(new InetSocketAddress(host, port), ms);
+      p.setSoTimeout(ms);
+      Socket s = p;
+      if (tls) {
+        SSLSocket t = (SSLSocket) factory(insecure).createSocket(p, host, port, true);
+        t.setSoTimeout(ms);
+        handshake(t, host, insecure);
+        s = t;
+      }
+      synchronized (socks) {
+        int n = nextSock++;
+        socks.put(n, s);
+        return "o" + n;
+      }
+    }
+    if (what.equals("start")) {
+      Socket p = sock(a[0]);
+      boolean insecure = a.length > 2 && a[2].equals("1");
+      SSLSocket t = (SSLSocket) factory(insecure).createSocket(p, a[1], p.getPort(), true);
+      t.setSoTimeout(p.getSoTimeout());
+      handshake(t, a[1], insecure);
+      synchronized (socks) { socks.put(Integer.parseInt(a[0].trim()), t); }
+      return "1";
+    }
+    if (what.equals("write")) {
+      byte[] b = android.util.Base64.decode(a[1], android.util.Base64.DEFAULT);
+      OutputStream o = sock(a[0]).getOutputStream();
+      o.write(b);
+      o.flush();
+      return "1";
+    }
+    if (what.equals("read")) {
+      int most = Math.max(1, Integer.parseInt(a[1].trim()));
+      byte[] b = new byte[most];
+      int n = sock(a[0]).getInputStream().read(b);
+      if (n < 0) return "c";
+      return "d" + android.util.Base64.encodeToString(b, 0, n, android.util.Base64.NO_WRAP);
+    }
+    if (what.equals("close")) {
+      Socket s;
+      synchronized (socks) { s = socks.remove(Integer.parseInt(a[0].trim())); }
+      if (s != null) try { s.close(); } catch (Throwable t) { }
+      return "1";
+    }
+    return "eunknown: " + what;
   }
 }

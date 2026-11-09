@@ -13,6 +13,7 @@ type
   AccountKind* = enum
     akGraph = "graph"      ## Microsoft 365 / Outlook.com through Microsoft Graph
     akGmail = "gmail"      ## Gmail through the Gmail API
+    akImap = "imap"        ## any provider through IMAP and SMTP, with a password
   Account* = object
     id*: int
     kind*: AccountKind
@@ -21,6 +22,7 @@ type
     syncDays*: int
     state*: string         ## "" fine, "signin" to sign in again, else the last error
     history*: string       ## Gmail's history id / Graph's (unused)
+    server*: string        ## an IMAP account's servers (JSON: imapsync.serversOf)
   Folder* = object
     id*, account*: int
     remoteId*, name*, role*, parent*: string
@@ -72,7 +74,8 @@ type
 const schema = """
 CREATE TABLE IF NOT EXISTS accounts(id INTEGER PRIMARY KEY, kind TEXT, email TEXT,
   name TEXT, client_id TEXT, tenant TEXT, sync_days INTEGER DEFAULT 90,
-  state TEXT DEFAULT '', history TEXT DEFAULT '', added REAL DEFAULT 0);
+  state TEXT DEFAULT '', history TEXT DEFAULT '', added REAL DEFAULT 0,
+  server TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS folders(id INTEGER PRIMARY KEY, account INTEGER, remote_id TEXT,
   name TEXT, role TEXT DEFAULT '', parent TEXT DEFAULT '', unread INTEGER DEFAULT 0,
   total INTEGER DEFAULT 0, delta TEXT DEFAULT '', synced REAL DEFAULT 0,
@@ -139,6 +142,10 @@ proc openStore*(path = ""): Db =
   if "follow" notin cols:
     result.exec("ALTER TABLE messages ADD COLUMN follow REAL DEFAULT 0")
   cols.setLen(0)
+  for r in result.rows("PRAGMA table_info(accounts)"): cols.add r[1].str
+  if "server" notin cols:
+    result.exec("ALTER TABLE accounts ADD COLUMN server TEXT DEFAULT ''")
+  cols.setLen(0)
   for r in result.rows("PRAGMA table_info(events)"): cols.add r[1].str
   for (col, decl) in [("organizer", "TEXT DEFAULT ''"), ("mine", "INTEGER DEFAULT 1"),
                       ("attendees", "TEXT DEFAULT ''"), ("join_url", "TEXT DEFAULT ''"),
@@ -164,31 +171,41 @@ proc unpackTags*(s: string): seq[string] =
 # ---- rows ------------------------------------------------------------------------------
 
 proc toAccount(r: DbRow): Account =
-  Account(id: int r[0].num, kind: (if r[1].str == "gmail": akGmail else: akGraph),
+  Account(id: int r[0].num, kind: (case r[1].str
+                                    of "gmail": akGmail
+                                    of "imap": akImap
+                                    else: akGraph),
           email: r[2].str, name: r[3].str, clientId: r[4].str, tenant: r[5].str,
-          syncDays: int r[6].num, state: r[7].str, history: r[8].str)
+          syncDays: int r[6].num, state: r[7].str, history: r[8].str, server: r[9].str)
 
 proc accounts*(db: Db): seq[Account] =
-  for r in db.rows("SELECT id, kind, email, name, client_id, tenant, sync_days, state, history " &
-                   "FROM accounts ORDER BY id"):
+  for r in db.rows("SELECT id, kind, email, name, client_id, tenant, sync_days, state, history, " &
+                   "server FROM accounts ORDER BY id"):
     result.add toAccount(r)
 
 proc account*(db: Db; id: int): Account =
-  let r = db.one("SELECT id, kind, email, name, client_id, tenant, sync_days, state, history " &
-                 "FROM accounts WHERE id = ?", id)
+  let r = db.one("SELECT id, kind, email, name, client_id, tenant, sync_days, state, history, " &
+                 "server FROM accounts WHERE id = ?", id)
   if r.len > 0: result = toAccount(r)
 
 proc addAccount*(db: Db; kind: AccountKind; email, name, clientId, tenant: string;
-                 syncDays = 90): int =
-  ## A new account (or the same address again: updated), its id.
+                 syncDays = 90; server = ""): int =
+  ## A new account (or the same address again: updated), its id. `server`:
+  ## an IMAP account's servers (JSON).
   let old = db.value("SELECT id FROM accounts WHERE email = ? AND kind = ?", email, $kind)
   if not old.isNull:
-    db.exec("UPDATE accounts SET name = ?, client_id = ?, tenant = ?, state = '' WHERE id = ?",
-            name, clientId, tenant, old.num)
+    db.exec("UPDATE accounts SET name = ?, client_id = ?, tenant = ?, state = '', " &
+            "server = CASE WHEN ? = '' THEN server ELSE ? END WHERE id = ?",
+            name, clientId, tenant, server, server, old.num)
     return int old.num
-  db.exec("INSERT INTO accounts(kind, email, name, client_id, tenant, sync_days, added) " &
-          "VALUES(?, ?, ?, ?, ?, ?, ?)", $kind, email, name, clientId, tenant, syncDays, epochTime())
+  db.exec("INSERT INTO accounts(kind, email, name, client_id, tenant, sync_days, added, server) " &
+          "VALUES(?, ?, ?, ?, ?, ?, ?, ?)", $kind, email, name, clientId, tenant, syncDays, epochTime(),
+          server)
   int db.lastInsertId
+
+proc setAccountServer*(db: Db; id: int; server: string) =
+  ## An IMAP account's servers changed (JSON).
+  db.exec("UPDATE accounts SET server = ? WHERE id = ?", server, id)
 
 proc setAccountState*(db: Db; id: int; state: string) =
   db.exec("UPDATE accounts SET state = ? WHERE id = ?", state, id)

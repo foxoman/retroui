@@ -114,7 +114,10 @@ proc keepWebSignature(account: int; data: string) =
     for s in store0.signatures():
       if s.html.strip == html: return s.id
     store0.saveSignature(0, name, html)
-  let svc = if acc.kind == akGmail: "Gmail" else: "Outlook"
+  let svc = case acc.kind
+            of akGmail: "Gmail"
+            of akImap: "IMAP"
+            of akGraph: "Outlook"
   let nid = keep(n, svc & " - " & acc.email)
   let rid = if r.len == 0 or r == n: nid else: keep(r, svc & " replies - " & acc.email)
   if sigAsked or prefInt("sigNew" & $account, -2) == -2: prefs.put("sigNew" & $account, nid)
@@ -290,7 +293,7 @@ proc send(later = 0.0) =
       let dest = box / a.name
       copyFile(a.path, dest)
       atts.add %*{"path": dest, "name": a.name, "mime": mimeOf(a.name), "copy": true}
-    if acc.kind == akGmail:
+    if acc.kind in {akGmail, akImap}:
       for a in cFwdAtts:
         let data = store0.attachmentData(a.id)
         if data.len > 0:
@@ -435,7 +438,10 @@ proc composeWindow() =
             elif cSavedAt > 0: "Draft saved at " & fromUnixFloat(cSavedAt).local.format("HH:mm")
             else: "New message",
             (if cSig >= 0 and cSig < sigsC.len: "Signature: " & sigsC[cSig].name else: "No signature"),
-            (if acc.kind == akGmail: "Sends with Gmail" else: "Sends with Microsoft 365"))
+            (case acc.kind
+             of akGmail: "Sends with Gmail"
+             of akImap: "Sends through " & serversOf(acc).smtpHost
+             of akGraph: "Sends with Microsoft 365"))
   let compact = isCompact()
   let lw = if compact: dp(54) else: dp(70)
   if cFocus == 1:

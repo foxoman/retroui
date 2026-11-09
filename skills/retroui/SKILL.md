@@ -292,6 +292,14 @@ costs what its visible rows cost.
   All of them are in `retroui/charts` (part of `import retroui`).
 - **Network:** `import retroui/http` -- `httpRequest("GET", url)` from any
   thread (status, headers, body; `error` when no answer came). `import
+  retroui/netconn` -- a connection with the system's TLS: `netOpen(host,
+  port, tls = true)`, `readLine`, `readBytes`, `write`, `startTls` after a
+  protocol's STARTTLS (raises `NetError`). Mail: `retroui/imap`
+  (`imapConnect`, `login`, `listFolders`, `select`, `uidSearch`,
+  `fetchHeaders`, `fetchMessage`, `addFlags`, `move`, `append`),
+  `retroui/smtp` (`smtpSend(host, port, security, user, password, from,
+  rcpts, rawMessage)`: "" when sent), `retroui/mailsetup`
+  (`findMailServers(email)`); blocking: on a thread of their own. `import
   retroui/xmpp` -- chat: `xmppStart(jid, password)`, take `xmppEvents()`
   every frame (with `wakeIn(250)` while `xmppRunning()`), `sendChat(to,
   text)`; the server's history: when xeServices says "archive",

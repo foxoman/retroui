@@ -171,7 +171,7 @@ nimble invoice        # an invoice from an HTML template: preview, PDF, printing
 nimble charts         # Chart Viewer: a CSV file as charts, saved as PNG
 nimble photo          # Retro Photo, the image editor
 nimble board          # Retro Board, the whiteboard
-nimble mail           # Retro Mail: Microsoft 365, Outlook.com and Gmail (mailexe, mailapk)
+nimble mail           # Retro Mail: Microsoft 365, Outlook.com, Gmail, any IMAP (mailexe, mailapk)
 nimble hrbook         # HR Book: employee records of several hotels, sealed with a PIN
 nimble apk            # Retro Files as an Android APK (build/RetroFiles.apk)
 nimble photoapk       # Retro Photo as an APK (photoinstall: build and adb install)
@@ -1420,15 +1420,21 @@ drawing (`fill`, `box`, `line`, `text`, `disc`, `polygon`…).
 
 ![Retro Mail: All Inboxes in threads, tags, the conversation in the preview pane](docs/mail.png)
 
-`examples/mail.nim` is **Retro Mail 1.0.4**: Outlook Express 4 to look at and to
-use, with what the new Outlook does, for Microsoft 365, Outlook.com and Gmail.
-It is the toolkit's network modules at work:
+`examples/mail.nim` is **Retro Mail 1.1**: Outlook Express 4 to look at and to
+use, with what the new Outlook does, for Microsoft 365, Outlook.com and Gmail
+-- and any other provider through IMAP and SMTP. It is the toolkit's network
+modules at work:
 
 - `retroui/oauth` signs in in the system browser (OAuth 2.0, PKCE, a loopback
   address) and `retroui/secrets` keeps the tokens (DPAPI, the keychain,
   libsecret): no password is ever typed into the app.
 - `retroui/http` talks to Microsoft Graph and the Gmail API from the sync
   thread (WinHTTP, libcurl, Java's HTTP on Android).
+- `retroui/imap` and `retroui/smtp` read and send any other provider's mail,
+  over `retroui/netconn`'s connections (the system's own TLS: SChannel,
+  Secure Transport, Java's, OpenSSL loaded when needed);
+  `retroui/mailsetup` finds an address's servers (autoconfig, Thunderbird's
+  list, DNS).
 - `retroui/db` keeps every message in SQLite with a full-text index: search
   is offline and instant; `retroui/mime` reads and writes the messages.
 - `htmlView` draws the mail -- newsletters' nested tables and styles,
@@ -1449,7 +1455,8 @@ sound; on a phone,
 swipe a message right to archive it, left to delete it, hold one to choose
 several, pull to refresh. Adding an account is your address and Enter: the browser opens the
 right sign-in page, done (`docs/retromail.md`: the app registrations a build
-carries, made once).
+carries, made once); for any other provider, the password, and the servers
+are found.
 
 | | |
 |---|---|

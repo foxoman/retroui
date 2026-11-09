@@ -6,10 +6,10 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[json, strutils, times, tables, os, hashes, sets, sequtils, uri, locks]
-import retroui/[db, http, oauth, secrets, mime]
+import std/[json, strutils, times, tables, os, hashes, sets, sequtils, uri, locks, algorithm]
+import retroui/[db, http, oauth, secrets, mime, imap, netconn]
 import api, store, graph, gmail, appids, sigfind, invites, autoreply, assist, rules, forward, importer,
-       calendar
+       calendar, imapsync
 
 const secretApp* = "RetroMail"
 
@@ -87,6 +87,7 @@ proc providerFor*(acc: Account; clientSecret = ""): OAuthProvider {.gcsafe.} =
     result = googleProvider(acc.clientId, secret, gmailScopes)
     result.authUrl = gAuthUrl()
     result.tokenUrl = gTokenUrl()
+  of akImap: discard                    # (a password, no sign-in service)
 
 proc plainOf*(html: string): string =
   ## Rough text of HTML, for the search index.
@@ -148,6 +149,7 @@ type
     newest: Table[int, float]       ## per account: the newest inbox mail seen
     later: seq[SyncCmd]             ## commands put off while syncing
     fresh: seq[string]              ## the remote ids of mail that just came (for the rules)
+    imaps: Table[int, ImapClient]   ## IMAP accounts: the connection of each, kept open
 
 proc send(w: var Worker; ev: SyncEvent) = w.link.events.send(ev)
 proc status(w: var Worker; s: string) = w.send(SyncEvent(kind: seStatus, text: s))
@@ -183,6 +185,14 @@ proc takeUnannounced*(): tuple[count: int; latest: string] =
 
 proc token(w: var Worker; acc: Account): string =
   ## A fresh access token, or "" (then the account has to sign in again).
+  ## An IMAP account's: its password ("" when it was refused: typed again).
+  if acc.kind == akImap:
+    if acc.state == "signin" or w.db.account(acc.id).state == "signin": return ""
+    let pw = imapPassword(acc)
+    if pw.len == 0:
+      w.db.setAccountState(acc.id, "signin")
+      w.send(SyncEvent(kind: seSignIn, id: acc.id))
+    return pw
   if not w.tokens.hasKey(acc.id):
     let s = loadSecret(secretApp, tokenKey(acc.id))
     if s.len == 0:
@@ -224,6 +234,54 @@ proc pending(w: var Worker): seq[SyncCmd] =
     if not ok: break
     result.add c
 
+# ---- IMAP accounts: one connection each, kept open --------------------------------------------
+
+proc imapOf(w: var Worker; acc: Account; pw: string): ImapClient =
+  ## The account's connection (made and signed in the first time).
+  if w.imaps.hasKey(acc.id): return w.imaps[acc.id]
+  let s = serversOf(acc)
+  w.status("Connecting to " & s.imapHost & "...")
+  let c = imapConnect(s.imapHost, s.imapPort, s.imapSec, timeoutSec = 60, insecure = s.insecure)
+  try:
+    c.login(s.imapUser, pw)
+  except CatchableError:
+    c.close()
+    raise
+  c.enable("CONDSTORE")
+  w.imaps[acc.id] = c
+  c
+
+proc dropImap(w: var Worker; acc: int) =
+  if w.imaps.hasKey(acc):
+    w.imaps[acc].close()
+    w.imaps.del acc
+
+template withImap(w: var Worker; acc: Account; pw: string; c, body: untyped) =
+  ## (`body` on the account's connection, once more on a new one when the
+  ## old one broke -- a server closes one left alone; errors as ApiError)
+  for attempt in 0 .. 1:
+    try:
+      let c {.inject.} = w.imapOf(acc, pw)
+      body
+      break
+    except NetError as e:
+      w.dropImap(acc.id)
+      if attempt == 1: raise imapError(e)
+    except ImapError as e:
+      let ae = imapError(e)
+      if ae.status == 401:
+        w.dropImap(acc.id)
+        w.db.setAccountState(acc.id, "signin")       # (the password, typed again)
+        w.send(SyncEvent(kind: seSignIn, id: acc.id, text: e.msg))
+      raise ae
+
+proc selectIn(c: ImapClient; folder: string): ImapBox {.discardable.} =
+  ## (the folder selected, unless it is already)
+  if c.selected != folder: result = c.select(folder)
+
+const NoSelect = "{\"noselect\":true}"
+
+
 # ---- bodies and attachments ------------------------------------------------------------
 
 proc fetchBody(w: var Worker; id: int) =
@@ -256,6 +314,13 @@ proc fetchBody(w: var Worker; id: int) =
         for a in b.atts:
           discard w.db.addAttachment(id, a.remoteId, a.name, a.mime, a.size, a.cid, a.inline,
                                      a.data, a.hasData)
+    of akImap:
+      let (folder, uid) = splitRemote(m.remoteId)
+      var raw = ""
+      w.withImap(acc, tok, c):
+        c.selectIn(folder)
+        raw = c.fetchMessage(uid)
+      storeImapBody(w.db, id, raw, textToHtml)
     w.send(SyncEvent(kind: seBody, id: id))
   except ApiError as e:
     if e.status == 401: w.forget(acc.id)
@@ -277,6 +342,11 @@ proc fetchAttachment(w: var Worker; id: int) =
     let data = case acc.kind
                of akGraph: graphAttachment(tok, m.remoteId, r[1].str)
                of akGmail: gmailAttachment(tok, m.remoteId, r[1].str)
+               of akImap: ""             # (the body brought them all: fetched again below)
+    if acc.kind == akImap:
+      w.fetchBody(m.id)
+      w.send(SyncEvent(kind: seAttachment, id: id))
+      return
     w.db.setAttachmentData(id, data)
     w.send(SyncEvent(kind: seAttachment, id: id))
   except CatchableError as e:
@@ -350,11 +420,89 @@ proc gmailFolderLabels(role: string): tuple[add, remove: seq[string]] =
   of "archive": (@[], @["INBOX", "SPAM"])
   else: (@[], @[])
 
+proc imapAction(w: var Worker; acc: Account; pw: string; a: Action; m: Msg) =
+  ## A change made here, on the server.
+  let d = a.data
+  let (folder, uid) = splitRemote(m.remoteId)
+  case a.kind
+  of "read", "flag":
+    if uid == 0: return
+    let flag = if a.kind == "read": "\\Seen" else: "\\Flagged"
+    let on = if a.kind == "read": not d{"unread"}.getBool else: d{"flagged"}.getBool
+    w.withImap(acc, pw, c):
+      c.selectIn(folder)
+      if on: c.addFlags([uid], [flag]) else: c.removeFlags([uid], [flag])
+  of "tags":
+    if uid == 0: return
+    var add, remove: seq[string]
+    for t in d{"tags"}.getElems: add.add keywordOf(t.getStr)
+    for t in d{"removed"}.getElems: remove.add keywordsOf(t.getStr)
+    w.withImap(acc, pw, c):
+      c.selectIn(folder)
+      if remove.len > 0: c.removeFlags([uid], remove)
+      if add.len > 0: c.addFlags([uid], add)
+  of "move":
+    if uid == 0: return
+    let dest = w.db.folder(d{"folder"}.getInt)
+    let src = w.db.folder(m.folder)
+    w.withImap(acc, pw, c):
+      c.selectIn(folder)
+      if dest.role == "trash" and src.role == "trash":
+        c.deleteForever([uid])
+        if m.id > 0: w.db.deleteMessage(m.id)
+      elif dest.remoteId.len > 0 and dest.remoteId != folder:
+        let moved = c.move([uid], dest.remoteId)
+        if m.id > 0:
+          if moved.len == 1:
+            w.db.exec("UPDATE messages SET remote_id = ?, folder = ? WHERE id = ?",
+                      imapRemote(dest.remoteId, moved[0]), dest.id, m.id)
+          else: w.db.deleteMessage(m.id)        # (the next sync brings it, in its new folder)
+  of "newtag":
+    w.db.upsertTag(acc.id, d{"name"}.getStr, d{"color"}.getStr, keywordOf(d{"name"}.getStr))
+  of "send":
+    let s = serversOf(acc)
+    let raw = buildRaw(d, MailAddress(name: acc.name, email: acc.email))
+    var rcpts: seq[string]
+    for r in d{"to"}.getElems & d{"cc"}.getElems & d{"bcc"}.getElems:
+      let e = r{"email"}.getStr.strip
+      if e.len > 0: rcpts.add e
+    let refused = smtpSendRaw(acc, pw, rcpts, raw)
+    if refused.len > 0: w.send(SyncEvent(kind: seError, id: acc.id, text: refused))
+    # a copy into Sent (where the service does not keep one itself)
+    if not savesSentItself(s):
+      let sent = w.db.folderByRole(acc.id, "sent")
+      if sent.id > 0:
+        try:
+          w.withImap(acc, pw, c):
+            discard c.append(sent.remoteId, raw, ["\\Seen"])
+        except CatchableError as e:
+          w.send(SyncEvent(kind: seError, id: acc.id, text: "Sent, but not kept in Sent: " & e.msg))
+    # (an answer: the message answered is marked so)
+    if d{"mode"}.getStr in ["reply", "replyAll"]:
+      let (of0, ou) = splitRemote(d{"replyTo"}.getStr)
+      if ou > 0:
+        try:
+          w.withImap(acc, pw, c):
+            c.selectIn(of0)
+            c.addFlags([ou], ["\\Answered"])
+        except CatchableError: discard
+  else: discard
+
 proc runAction(w: var Worker; acc: Account; tok: string; a: Action) =
   let d = a.data
   let id = d{"id"}.getInt
   var m = if id > 0: w.db.message(id) else: Msg()
   let remote = if m.remoteId.len > 0: m.remoteId else: d{"remote"}.getStr
+  if acc.kind == akImap:
+    w.imapAction(acc, tok, a, m)
+    if a.kind == "send":
+      for at in d{"attachments"}.getElems:
+        if at{"copy"}.getBool:
+          try: removeFile(at{"path"}.getStr) except OSError: discard
+      for r in d{"to"}.getElems & d{"cc"}.getElems:
+        w.db.noteContact(r{"email"}.getStr, r{"name"}.getStr, epochTime())
+      w.send(SyncEvent(kind: seSent, text: d{"subject"}.getStr))
+    return
   case a.kind
   of "read":
     let unread = d{"unread"}.getBool
@@ -363,6 +511,7 @@ proc runAction(w: var Worker; acc: Account; tok: string; a: Action) =
     of akGmail:
       if unread: gmailModify(tok, remote, ["UNREAD"], [])
       else: gmailModify(tok, remote, [], ["UNREAD"])
+    of akImap: discard
   of "flag":
     let on = d{"flagged"}.getBool
     case acc.kind
@@ -370,6 +519,7 @@ proc runAction(w: var Worker; acc: Account; tok: string; a: Action) =
     of akGmail:
       if on: gmailModify(tok, remote, ["STARRED"], [])
       else: gmailModify(tok, remote, [], ["STARRED"])
+    of akImap: discard
   of "tags":
     var names: seq[string]
     for t in d{"tags"}.getElems: names.add t.getStr
@@ -390,6 +540,7 @@ proc runAction(w: var Worker; acc: Account; tok: string; a: Action) =
         let t = w.db.tagOf(acc.id, n)
         if t.remoteId.len > 0: remIds.add t.remoteId
       gmailModify(tok, remote, addIds, remIds)
+    of akImap: discard
   of "move":
     let dest = w.db.folder(d{"folder"}.getInt)
     case acc.kind
@@ -407,6 +558,7 @@ proc runAction(w: var Worker; acc: Account; tok: string; a: Action) =
         if m.folder > 0 and w.db.folder(m.folder).role == "trash": gmailUntrash(tok, remote)
         let (add, rem) = gmailFolderLabels(dest.role)
         if add.len + rem.len > 0: gmailModify(tok, remote, add, rem)
+    of akImap: discard
   of "newtag":
     let name = d{"name"}.getStr
     let color = d{"color"}.getStr
@@ -417,12 +569,14 @@ proc runAction(w: var Worker; acc: Account; tok: string; a: Action) =
     of akGmail:
       let lid = gmailCreateLabel(tok, name, nearestGmail(color))
       w.db.upsertTag(acc.id, name, color, lid)
+    of akImap: discard
   of "send":
     case acc.kind
     of akGraph: graphSend(tok, d)
     of akGmail:
       let raw = buildRaw(d, MailAddress(name: acc.name, email: acc.email))
       gmailSend(tok, raw, d{"threadId"}.getStr)
+    of akImap: discard
     for at in d{"attachments"}.getElems:
       if at{"copy"}.getBool:
         try: removeFile(at{"path"}.getStr) except OSError: discard
@@ -610,6 +764,127 @@ proc syncGmail(w: var Worker; acc: Account; tok: string; count: var int; latest:
     if ch.changed.len + ch.deleted.len > 0: w.send(SyncEvent(kind: seChanged))
   w.db.recount(acc.id)
 
+proc syncImap(w: var Worker; acc: Account; pw: string; count: var int; latest: var string) =
+  w.withImap(acc, pw, c):
+    if epochTime() - w.lastFolders.getOrDefault(acc.id, 0) > 1800 or w.db.folders(acc.id).len == 0:
+      w.status("Checking folders of " & acc.email & "...")
+      let tree = folderTree(c.listFolders())
+      var keep: HashSet[string]
+      w.db.transaction:
+        for f in tree:
+          keep.incl f.raw
+          let id = w.db.upsertFolder(acc.id, f.raw, f.name, f.role, f.parent)
+          # (a folder of folders only: never selected)
+          let was = w.db.folder(id).delta
+          if not f.selectable: w.db.setFolderDelta(id, NoSelect)
+          elif was == NoSelect: w.db.setFolderDelta(id, "")
+        for f in w.db.folders(acc.id):
+          if f.remoteId notin keep:
+            for r in w.db.all("SELECT id FROM messages WHERE folder = ?", f.id):
+              w.db.deleteMessage(int r[0].num)
+            w.db.exec("DELETE FROM folders WHERE id = ?", f.id)
+      w.lastFolders[acc.id] = epochTime()
+    # the Inbox first, then Sent, Drafts, the rest
+    var fs = w.db.folders(acc.id)
+    proc order(f: Folder): int =
+      case f.role
+      of "inbox": 0
+      of "sent": 1
+      of "drafts": 2
+      of "": 3
+      else: 4
+    fs.sort(proc (a, b: Folder): int = cmp(order(a), order(b)))
+    for f in fs:
+      if f.delta == NoSelect: continue                       # (a folder of folders)
+      w.status("Downloading " & f.name & " of " & acc.email & "...")
+      let box = c.select(f.remoteId)
+      var st = try: parseJson(f.delta) except CatchableError: newJObject()
+      if st.kind != JObject: st = newJObject()
+      if st{"v"}.getBiggestInt(0) != box.uidValidity:
+        # (new UIDs: the folder is read again)
+        for r in w.db.all("SELECT id FROM messages WHERE folder = ?", f.id):
+          w.db.deleteMessage(int r[0].num)
+        st = %*{"v": box.uidValidity, "next": 0, "modseq": 0}
+      # what is kept here of this folder, by UID
+      var local = initTable[int64, int]()
+      for r in w.db.all("SELECT id, remote_id FROM messages WHERE folder = ?", f.id):
+        let (_, uid) = splitRemote(r[1].str)
+        if uid > 0: local[uid] = int r[0].num
+      # gone from the server
+      let onServer = c.uidSearch("ALL")
+      var there = initHashSet[int64]()
+      for u in onServer: there.incl u
+      w.db.transaction:
+        for uid, id in local:
+          if uid notin there: w.db.deleteMessage(id)
+      # new: after the last one seen (the first time, the days kept)
+      let next = st{"next"}.getBiggestInt(0)
+      var fresh: seq[int64]
+      if next <= 0:
+        let since = epochTime() - float(max(acc.syncDays, 1)) * 86400
+        fresh = c.uidSearch("SINCE " & imapDate(since))
+      else:
+        for u in onServer:
+          if u >= next and not local.hasKey(u): fresh.add u
+      fresh.reverse()                                        # (the newest first)
+      var i = 0
+      while i < fresh.len:
+        let part = fresh[i ..< min(i + 200, fresh.len)]
+        let hs = c.fetchHeaders(part)
+        w.db.transaction:
+          for im in hs:
+            let m = msgOfImap(acc, f, im)
+            w.noteNew(acc, m, f.role, count, latest)
+            discard w.db.upsertMessage(m)
+            w.db.noteContact(m.fromEmail, m.fromName, m.date)
+        w.send(SyncEvent(kind: seChanged))
+        i += 200
+        for cm in w.pending():                     # (the window may want a body meanwhile)
+          case cm.kind
+          of scBody: w.fetchBody(cm.id)
+          of scAttachment: w.fetchAttachment(cm.id)
+          of scQuit:
+            w.later.add cm
+            return
+          else: w.later.add cm
+        if c.selected != f.remoteId: discard c.select(f.remoteId)
+      # flags changed elsewhere (only what changed, where the server counts changes)
+      let modseq = st{"modseq"}.getBiggestInt(0)
+      if local.len > 0 and (modseq == 0 or box.highestModSeq == 0 or box.highestModSeq > modseq):
+        var known: seq[int64]
+        for uid in local.keys:
+          if uid in there: known.add uid
+        let changed = c.fetchFlags(known, changedSince = (if box.highestModSeq > 0: modseq else: 0))
+        if changed.len > 0:
+          w.db.transaction:
+            for im in changed:
+              let id = local.getOrDefault(im.uid)
+              if id == 0: continue
+              var unread = true
+              var flagged = false
+              var tags: seq[string]
+              for fl in im.flags:
+                case fl.toLowerAscii
+                of "\\seen": unread = false
+                of "\\flagged": flagged = true
+                else:
+                  if not fl.startsWith("\\") and not (fl.startsWith("$") and not fl.toLowerAscii.startsWith("$label")):
+                    tags.add tagOfKeyword(fl)
+              # (a change made here, not sent yet, stays)
+              var waiting = false
+              for r in w.db.rows("SELECT 1 FROM actions WHERE error = '' AND " &
+                                 "json_extract(data, '$.id') = ?", id):
+                waiting = true
+              if waiting: continue
+              w.db.setFlags(id, unread = ord(unread), flagged = ord(flagged))
+              w.db.setTags(id, tags)
+          w.send(SyncEvent(kind: seChanged))
+      st["next"] = %box.uidNext
+      st["modseq"] = %box.highestModSeq
+      w.db.setFolderDelta(f.id, $st)
+  w.db.recount(acc.id)
+
+
 proc syncCalendar(w: var Worker; acc: Account; tok: string) =
   let fromT = epochTime() - 31 * 86400
   let toT = epochTime() + 92 * 86400
@@ -639,6 +914,7 @@ proc syncAccount(w: var Worker; acc: Account) =
       case acc.kind
       of akGraph: w.syncGraph(acc, tok, count, latest)
       of akGmail: w.syncGmail(w.db.account(acc.id), tok, count, latest)
+      of akImap: w.syncImap(acc, tok, count, latest)
       if w.fresh.len > 0:
         var ids: seq[int]
         for r in w.fresh:
@@ -647,7 +923,7 @@ proc syncAccount(w: var Worker; acc: Account) =
         w.applyRules(acc, ids)
         w.fresh.setLen(0)
       w.markNewest(acc)
-      if epochTime() - w.lastCal.getOrDefault(acc.id, 0) > 900:
+      if acc.kind != akImap and epochTime() - w.lastCal.getOrDefault(acc.id, 0) > 900:
         try: w.syncCalendar(acc, tok)
         except ApiError: discard         # (no calendar permission: mail still works)
       w.prefetch(acc)
@@ -693,6 +969,17 @@ proc search(w: var Worker; q: string) =
           var m = m0
           m.folder = w.db.folderByRemote(acc.id, fr).id
           ids.add w.db.upsertMessage(m)
+      of akImap:
+        # (the Inbox and Sent on the server: what is older than the days kept here)
+        w.withImap(acc, tok, c):
+          for role in ["inbox", "sent"]:
+            let f = w.db.folderByRole(acc.id, role)
+            if f.id == 0: continue
+            discard c.select(f.remoteId)
+            var found = c.uidSearch("TEXT " & quoted(q))
+            if found.len > 100: found = found[^100 .. ^1]
+            for im in c.fetchHeaders(found):
+              ids.add w.db.upsertMessage(msgOfImap(acc, f, im))
     except CatchableError as e:
       w.send(SyncEvent(kind: seError, id: acc.id, text: e.msg))
   w.send(SyncEvent(kind: seSearch, ids: ids, text: q))
@@ -711,6 +998,7 @@ proc fetchSignatures(w: var Worker; id: int) =
       replyHtml = newHtml
     of akGraph:
       (newHtml, replyHtml) = graphSignatures(tok, acc.email)
+    of akImap: return                     # (IMAP keeps no signature)
     w.send(SyncEvent(kind: seSignature, id: id, text: $(%*{"new": newHtml, "reply": replyHtml})))
   except CatchableError as e:
     w.send(SyncEvent(kind: seSignature, id: id, text: $(%*{"error": e.msg})))

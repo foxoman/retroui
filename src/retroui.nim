@@ -44,6 +44,9 @@
 ##
 ## ================  ==========================================================
 ## `http`            web requests from any thread: WinHTTP, libcurl, Java
+## `netconn`         connections to a server with the system's TLS (STARTTLS too)
+## `imap`, `smtp`    a mail account's folders and messages; sending through its server
+## `mailsetup`       where an address's mail is: its IMAP and SMTP servers
 ## `oauth`           signing in in the system browser (OAuth 2.0, PKCE)
 ## `secrets`         tokens kept safe: DPAPI, the keychain, libsecret
 ## `db`              SQLite (compiled in) with full-text search

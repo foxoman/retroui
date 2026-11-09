@@ -6,7 +6,7 @@
 
 import std/[json, strutils, os, times, hashes]
 import retroui/[http, mime]
-import api, store
+import api, store, imapsync
 
 proc rawMessage*(acc: Account; token, remoteId: string): string =
   ## The message's whole MIME source. Graph: its $value; Gmail: format=raw.
@@ -19,6 +19,8 @@ proc rawMessage*(acc: Account; token, remoteId: string): string =
     let j = callJson("GET", gmailBase() & "/gmail/v1/users/me/messages/" & remoteId & "?format=raw",
                      token, what = "the message")
     base64UrlDecode(j{"raw"}.getStr)
+  of akImap:
+    imapRaw(acc, token, remoteId)
 
 const reservedNames = ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6",
                        "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6",

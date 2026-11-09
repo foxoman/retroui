@@ -131,6 +131,7 @@ proc permissionsOfCode*(caches: openArray[string]): seq[tuple[name, why: string]
   elif uses("fetch", ["downloadFile"]): need("INTERNET", "downloads (retroui/fetch)")
   elif uses("xmpp", ["xmppStart"]): need("INTERNET", "chat (retroui/xmpp)")
   elif uses("htmlview", ["webView"]): need("INTERNET", "web pages (webView)")
+  elif uses("netconn", ["netOpen"]): need("INTERNET", "connections (retroui/netconn: IMAP, SMTP)")
 var jobsAsked = 0         # (--jobs: C compilers at once; 0 as the memory allows)
 var autoPermissions = true  # (the permissions the code needs, added: --no-auto-permissions leaves them)
 

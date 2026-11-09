@@ -229,6 +229,7 @@ proc optionsDialog() =
           var names: seq[string]
           for a in accountsC:
             names.add a.email & "   (" & (if isLocal(a): "on this computer" elif a.kind == akGmail: "Gmail"
+                                         elif a.kind == akImap: "IMAP, " & serversOf(a).imapHost
                                          else: "Microsoft") &
                       (if a.state == "signin": ", sign in again" elif a.state.len > 0: ", " & a.state
                        else: "") & ")"
@@ -238,8 +239,9 @@ proc optionsDialog() =
               if button("&Add...", w = dp(140)):
                 optOpen = false
                 openWizard()
-              if button("&Sign In Again", w = dp(140), enabled = optAcct in 0 ..< accountsC.len and
-                        not isLocal(accountsC[optAcct])):
+              let imapAcc = optAcct in 0 ..< accountsC.len and accountsC[optAcct].kind == akImap
+              if button(if imapAcc: "&Servers..." else: "&Sign In Again", w = dp(140),
+                        enabled = optAcct in 0 ..< accountsC.len and not isLocal(accountsC[optAcct])):
                 optOpen = false
                 signInAgain(accountsC[optAcct])
               if button("&Remove", w = dp(140), enabled = optAcct in 0 ..< accountsC.len):

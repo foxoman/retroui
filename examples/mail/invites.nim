@@ -9,7 +9,7 @@
 
 import std/[json, strutils, times, sysrand, base64]
 import retroui/[http, mime]
-import api, store, gmail, ical
+import api, store, gmail, ical, imapsync
 
 type
   InviteKind* = enum
@@ -318,6 +318,10 @@ proc inviteOf*(acc: Account; token: string; m: Msg): Invite =
     let j = callJson("GET", gmailBase() & "/gmail/v1/users/me/messages/" & m.remoteId &
                      "?format=full", token, what = "the invitation")
     result = gmailInvite(token, m.remoteId, j, acc.email)
+  of akImap:
+    let ics = calendarPart(imapRaw(acc, token, m.remoteId))
+    if ics.len == 0: return
+    result = parseInvite(ics, acc.email)
   if result.kind == ikNone: return
   if result.threadId.len == 0: result.threadId = m.thread
   if result.msgId.len == 0: result.msgId = m.msgId
@@ -348,3 +352,10 @@ proc respondInvite*(acc: Account; token: string; inv: Invite; answer: InviteAnsw
     if inv.organizerEmail.len == 0: raise newException(ValueError, "the invitation names no organizer")
     gmailSend(token, replyMail(inv, answer, MailAddress(name: acc.name, email: acc.email), comment),
               inv.threadId)
+  of akImap:
+    if not sendReply: return
+    if inv.organizerEmail.len == 0: raise newException(ValueError, "the invitation names no organizer")
+    let raw = replyMail(inv, answer, MailAddress(name: acc.name, email: acc.email), comment)
+    discard smtpSendRaw(acc, token, [inv.organizerEmail], raw)
+    try: appendSent(acc, token, raw)
+    except CatchableError: discard
