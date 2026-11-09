@@ -46,7 +46,7 @@ env:
     test_canvas2d test_pdf test_report test_scroll test_xlsx test_letters
     test_morecontrols test_dock test_toolcustom test_richedit test_calendar
     test_qrcode test_touchsizes test_scale test_hardening test_designer
-    test_tilemap test_gltf test_store
+    test_tilemap test_gltf test_store test_sysmon test_taskman
   # the live check: frames drawn by the CPU at 100 %, the browser engine
   # needed
   RETRO_GPU: cpu

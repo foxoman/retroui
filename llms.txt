@@ -15,6 +15,7 @@
 - Media and devices: `videoView` in the window everywhere, `setNowPlaying`/`mediaKeys` (`retroui/mediasession`: lock screen, taskbar, Now Playing), `cameraView`, `cameraPhoto`, `recordSound` (`retroui/capture`)
 - More windows: `window(open, "Tools", 240, 360): ...` opens a window of the system's own (a dialog on phones and in the browser)
 - [The system's features](https://github.com/foxoman/retroui/blob/main/docs/system.md): `retroui/system` -- `notify`, `share`, `location`, `speak`, `haptic`, `setOpenAtLogin`, `requestAttention`, `deviceInfo`... the same calls on every system and in a web page, each system's answer and what an app declares for it; updates inside the app, signed (`retroui/update`, `retrokit update-key`, `update-sign`)
+- What the computer is doing: `retroui/sysmon` -- `startMonitor()`, `latestSample()` (read on a thread of its own, never waited for: the processor and its cores, the memory, the disks, the network, the battery, every process with its share; the last good numbers when a read fails), `endProcess` / `endProcessTree` (a process known by its id and its start), `setPriority`, `startupItems`, `connections`, `appendHistory`; `liveGraph` (charts) draws a task manager's moving graph for the cost of a copy
 - Web pages (`retrokit web`): threads with `--threads` (Web Workers on one memory), the camera, the media keys, secrets (WebCrypto), signing in (a pop-up), chat over a WebSocket, the 3D view on WebGL 2, screen readers (ARIA); Retro Mail runs as a page (`--threads-only`)
 - Android: `retroapk` lists the permissions the app's code needs by itself (camera, microphone, notifications, the place, vibration, the network); a crash (Nim, native, Java) is shown at the next start before the app runs (`stoppedScreen`; `stoppedFrame` for an app with its own loop; `startFresh`); builds in Termux run at most four compilers (`--jobs:N`)
 - Checks: `sh tools/cicheck.sh` (what GitHub's CI runs), `sh tools/warncheck.sh` (no warning in the kit's files on any system)
@@ -31,5 +32,5 @@
 
 ## Examples
 
-- [examples/](https://github.com/foxoman/retroui/tree/main/examples): Gallery (every control), Retro Photo, Retro Files, Retro Mail (Microsoft 365, Gmail, any IMAP: `retroui/imap`, `retroui/smtp`, `retroui/netconn`), Retro Communicator (XMPP chat, `retroui/xmpp`; OMEMO encryption, `retroui/omemo`), Retro Board, HR Book, Notepad, Ledger, Charts, Invoice
+- [examples/](https://github.com/foxoman/retroui/tree/main/examples): Gallery (every control), Retro Photo, Retro Files, Retro Mail (Microsoft 365, Gmail, any IMAP: `retroui/imap`, `retroui/smtp`, `retroui/netconn`), Retro Communicator (XMPP chat, `retroui/xmpp`; OMEMO encryption, `retroui/omemo`), Retro Board, Retro Task Manager (`retroui/sysmon`), HR Book, Notepad, Ledger, Charts, Invoice
 - [Retro Desktop](https://github.com/foxoman/retrodesktop): a Windows 3.1 desktop and window manager for Termux:X11 and Linux, made with the kit (the X11 driver's `x11EventHook`)

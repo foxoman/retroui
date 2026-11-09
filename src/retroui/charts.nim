@@ -24,7 +24,7 @@
 ## legend's place, data labels, the axis range, a gauge's target, the
 ## palette. `exportPng(ui.lastRect, "chart.png")` after a chart saves it.
 
-import std/[math, strutils, algorithm, unicode]
+import std/[math, strutils, algorithm, unicode, tables]
 import uirelays/screen
 import gfx, core, widgets, business, imaging
 
@@ -2186,3 +2186,116 @@ proc pieChart*(values: openArray[float]; labels: openArray[string] = [];
   ## Slices of a circle, with a legend of shares (see `chart` for more).
   discard chartImpl(chPie, labels, [series("", values)],
                     ChartOpts(title: title, legend: laRight), h, w)
+
+
+# ---- live graphs: a graph that moves as values come -----------------------------------------------
+
+type LiveGraphCache = ref object
+  bmp: Bitmap
+  version: int
+  look: uint64
+  seen: int                      ## (the frame it was last drawn in)
+
+var liveGraphs: Table[string, LiveGraphCache]
+
+const
+  lgBack = 0xFF000000'u32        ## (Task Manager's: black, a dark green grid, a green line)
+  lgGrid = 0xFF00552B'u32
+  lgGreen = color(0, 255, 0)
+
+proc argbOf(c: Color): uint32 =
+  0xFF000000'u32 or (uint32(c.r) shl 16) or (uint32(c.g) shl 8) or uint32(c.b)
+
+proc liveGraph*(key: string; values: openArray[float]; version: int; maxValue = 100.0;
+                w = 0; h = 0; color = Color(); step = 0; label = ""; caption = "";
+                fillUnder = false) =
+  ## A graph of the last `values` (the newest at the right) that moves left
+  ## as values come, on a grid that moves with it -- the processor's graph
+  ## of a task manager: black, a dark green grid, a green line (`color`
+  ## another). `key` names the graph (its picture is kept); `version` grows
+  ## by one with each new value (a sample's number): the graph is drawn
+  ## whole once, then only moved a step and its new part drawn, so a frame
+  ## costs a copy of the picture whatever the number of values. `maxValue`
+  ## is the top; `step` the design pixels between two values (0: the width
+  ## over 60 values); `label` and `caption` are written over it, top left
+  ## and top right; `fillUnder` fills below the line with its color, darker.
+  ## `w` 0 fills the width; `h` 0 is 80 design pixels.
+  let r = place(if w > 0: w else: 0, if h > 0: h else: dp(80), fill = w <= 0)
+  ui.lastRect = r
+  if r.w <= 0 or r.h <= 0: return
+  let k = max(1, pxScale)
+  let bw = r.w * k
+  let bh = r.h * k
+  let stepPx = clamp(if step > 0: dp(step) * k else: bw div 60, 1, bw)
+  let grid = max(4, dp(12) * k)                      # (the grid's squares)
+  let ink = if color.a == 0: lgGreen else: color
+  let line = argbOf(ink)
+  let under = argbOf(mixColor(ink, color(0, 0, 0), 0.6))
+  let look = uint64(line) xor (uint64(maxValue * 1000) shl 32) xor (uint64(stepPx) shl 24) xor
+             uint64(ord(fillUnder))
+  var c = liveGraphs.getOrDefault(key)
+  if c == nil:
+    c = LiveGraphCache(version: -1)
+    liveGraphs[key] = c
+    # (graphs no longer drawn let go of their pictures)
+    if liveGraphs.len > 16:
+      var gone: seq[string]
+      for name, g in liveGraphs:
+        if ui.frameNo - g.seen > 600 and name != key: gone.add name
+      for name in gone: liveGraphs.del name
+  c.seen = ui.frameNo
+  let n = values.len
+  let phase = (version * stepPx) mod grid
+  proc yOf(v: float): int =
+    let t = if maxValue > 0 and v == v: clamp(v / maxValue, 0.0, 1.0) else: 0.0
+    clamp(bh - 1 - int(t * float(bh - 1) + 0.5), 0, bh - 1)
+  proc back(b: Bitmap; x: int) =
+    ## (one column of the background: black and the grid's lines)
+    let vertical = ((x + phase) mod grid) == 0
+    for y in 0 ..< bh:
+      b.px[y * bw + x] = if vertical or (bh - 1 - y) mod grid == 0: lgGrid else: lgBack
+  proc segment(b: Bitmap; x0, v0, x1, v1: int) =
+    ## (the line from one value to the next, `k` pixels thick, and what is
+    ## under it)
+    var prev = v0
+    for x in x0 .. x1:
+      let y = if x1 == x0: v1 else: v0 + (v1 - v0) * (x - x0) div (x1 - x0)
+      if x >= 0 and x < bw:
+        let lo = max(0, min(y, prev) - k div 2)
+        let hi = min(bh - 1, max(y, prev) + (k - 1) div 2)
+        if fillUnder:
+          for yy in hi + 1 ..< bh: b.px[yy * bw + x] = under
+        for yy in lo .. hi: b.px[yy * bw + x] = line
+      prev = y
+  if c.bmp == nil or c.bmp.w != bw or c.bmp.h != bh or c.look != look or
+     version != c.version + 1 and version != c.version:
+    # drawn whole: a new size, a new look, or values missed
+    c.bmp = newBitmap(bw, bh)
+    c.bmp.opaque = true
+    for x in 0 ..< bw: back(c.bmp, x)
+    var x1 = bw - 1
+    for i in countdown(n - 1, 1):
+      let x0 = x1 - stepPx
+      segment(c.bmp, x0, yOf(values[i - 1]), x1, yOf(values[i]))
+      x1 = x0
+      if x1 < 0: break
+    c.bmp.changed()
+  elif version == c.version + 1:
+    # a value more: the picture moved left a step, the new part drawn
+    let b = c.bmp
+    for y in 0 ..< bh:
+      let row = y * bw
+      moveMem(addr b.px[row], addr b.px[row + stepPx], (bw - stepPx) * sizeof(uint32))
+    for x in max(0, bw - stepPx) ..< bw: back(b, x)
+    if n >= 2: segment(b, bw - 1 - stepPx, yOf(values[n - 2]), bw - 1, yOf(values[n - 1]))
+    b.changed()
+  c.version = version
+  c.look = look
+  drawBitmap(r, c.bmp)
+  let st = style(size = 0.85)
+  if label.len > 0: text(r.x + dp(4), r.y + dp(2), label, ink, st)
+  if caption.len > 0:
+    text(r.x + r.w - dp(4) - textWidth(caption, st), r.y + dp(2), caption, ink, st)
+  if accessOn:
+    accessNode(arImage, label, (if n > 0: formatFloat(values[n - 1], ffDecimal, 1) else: ""),
+               r = r, help = caption)

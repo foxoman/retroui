@@ -33,7 +33,7 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 - **[Dialogs](#dialogs)**: [msgBox](#msgbox) · [inputBox](#inputbox) · [dialog](#dialog) · [progressBox](#progressbox) · [wizard, stepDone](#wizard-stepdone) · [aboutBox](#aboutbox) · [splashBox](#splashbox) · [problemBox, reportProblem](#problembox-reportproblem) · [stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen](#stoppedscreen-stoppedframe-stoppedpending-startfresh-showstoppedscreen) · [fileDialog (3.1)](#filedialog-31)
 - **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator](#toolbar-toolbutton-toolseparator) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
 - **[Files](#files)**: [fileList](#filelist) · [fileList: large icons](#filelist-large-icons) · [folderTree](#foldertree) · [placesView](#placesview) · [filePreview](#filepreview) · [pathBar](#pathbar) · [driveBar](#drivebar) · [filePicker](#filepicker) · [trashList](#trashlist) · [propertiesDialog](#propertiesdialog) · [runJobDialog](#runjobdialog) · [textFileView, hexFileView](#textfileview-hexfileview) · [pictureBox](#picturebox) · [storageDialog](#storagedialog)
-- **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart)
+- **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart) · [liveGraph](#livegraph)
 - **[Planning and dashboards](#planning-and-dashboards)**: [kpiTile, statCard, kpiRow](#kpitile-statcard-kpirow) · [kanbanBoard](#kanbanboard) · [ganttView](#ganttview) · [agendaView](#agendaview) · [orgChart](#orgchart)
 - **[Maps and 3D](#maps-and-3d)**: [mapView](#mapview) · [tileMap](#tilemap) · [view3d](#view3d) · [Models: parts and clips](#models-parts-and-clips) · [bars3d](#bars3d)
 - **[HTML, Markdown and rich text](#html-markdown-and-rich-text)**: [htmlView, htmlBlock](#htmlview-htmlblock) · [webView, webRun, webPost](#webview-webrun-webpost) · [markdownView, markdown](#markdownview-markdown) · [richEdit, richToolbar](#richedit-richtoolbar)
@@ -1675,7 +1675,12 @@ proc popupSlider*(v: var int; lo, hi: int; w = 0; unit = "%";
                   enabled = true): bool {.discardable.}
 ```
 
-
+A number box with a slider that drops down from its arrow, as a tool's
+options bar has for Opacity, Flow or Tolerance: type the number; or
+press the arrow and drag (letting go closes it); or click the arrow,
+then click or drag on the slider (Enter, Esc or a click outside close
+it). Up / Down and the wheel step it when it has the focus; F4 or
+Alt+Down drop the slider from the keyboard (Left / Right move it).
 
 ### knob
 
@@ -5153,6 +5158,43 @@ proc exportPng*(r: Rect; path: string)
 Saves the part `r` of the window -- a chart: `ui.lastRect` right after
 it -- as the PNG file `path`, as it is drawn on the next frame (without
 tooltips); `exportResult` tells when it is written.
+
+### liveGraph
+
+A task manager's graph: the last values, the newest at the right, on a grid that moves with them. Give it a number that grows by one with each new value: the picture is kept and moved a step, only the new part drawn -- a frame costs a copy, however many values (retroui/sysmon reads the numbers).
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![liveGraph, normal](controls/livegraph-normal.png) | ![liveGraph, touch screen](controls/livegraph-touch-screen.png) | ![liveGraph, dark scheme](controls/livegraph-dark-scheme.png) |
+
+```nim
+var lgValues: seq[float]
+for i in 0 ..< 60:
+  lgValues.add 35 + 25 * sin(i.float / 4) + float((i * 37) mod 11)
+
+liveGraph("guide", lgValues, 60, h = 100, label = "% Utilization",
+          caption = "60 seconds")
+```
+
+**API**
+
+```nim
+proc liveGraph*(key: string; values: openArray[float]; version: int; maxValue = 100.0;
+                w = 0; h = 0; color = Color(); step = 0; label = ""; caption = "";
+                fillUnder = false)
+```
+
+A graph of the last `values` (the newest at the right) that moves left
+as values come, on a grid that moves with it -- the processor's graph
+of a task manager: black, a dark green grid, a green line (`color`
+another). `key` names the graph (its picture is kept); `version` grows
+by one with each new value (a sample's number): the graph is drawn
+whole once, then only moved a step and its new part drawn, so a frame
+costs a copy of the picture whatever the number of values. `maxValue`
+is the top; `step` the design pixels between two values (0: the width
+over 60 values); `label` and `caption` are written over it, top left
+and top right; `fillUnder` fills below the line with its color, darker.
+`w` 0 fills the width; `h` 0 is 80 design pixels.
 
 ## Planning and dashboards
 

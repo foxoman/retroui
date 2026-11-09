@@ -17,7 +17,7 @@ import std/[os, strutils, tables, algorithm, sequtils, json, math]
 from std/times import fromUnix, epochTime
 from std/unicode import runes, toUTF8
 import retroui
-import retroui/[textwidgets, richedit, qrcode, pdfview, tilemap, mvt, gltf, capture, mediasession, system,
+import retroui/[textwidgets, richedit, qrcode, pdfview, tilemap, mvt, capture, mediasession, system,
                 secrets, update]
 import retroui/uirelays/[coords, screen, input, services]
 include "../tests/carscene"
@@ -1738,6 +1738,14 @@ example("chartkinds", "The 21 kinds of chart",
     for k in ChartKind:
       card($k):
         chart("", k, salesTable, "Month", kindCols(k), height = 150)
+
+example("livegraph", "liveGraph",
+        "A task manager's graph: the last values, the newest at the right, on a grid that moves with them. Give it a number that grows by one with each new value: the picture is kept and moved a step, only the new part drawn -- a frame costs a copy, however many values (retroui/sysmon reads the numbers).",
+        440, 120, ["liveGraph"], std3):
+  var lgValues: seq[float]
+  for i in 0 ..< 60: lgValues.add 35 + 25 * sin(i.float / 4) + float((i * 37) mod 11)
+do:
+  liveGraph("guide", lgValues, 60, h = 100, label = "% Utilization", caption = "60 seconds")
 
 # ======================================================================================================
 # Planning and dashboards

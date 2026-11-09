@@ -487,7 +487,7 @@ retroapk app.nim --name:"My App" --id:com.me.myapp \
 `--aab` makes an Android App Bundle for Google Play instead (below).
 `retroapk --help` lists every option. The examples have tasks:
 `nimble galleryapk`, `nimble photoapk`, `nimble apk` (Retro Files),
-`nimble mailapk`, `nimble boardapk`, `nimble apks` (all), into `build/`.
+`nimble mailapk`, `nimble boardapk`, `nimble taskmanapk`, `nimble apks` (all), into `build/`.
 `nimble ndk` fetches the NDK now, for machines that will use it.
 
 ### Signing

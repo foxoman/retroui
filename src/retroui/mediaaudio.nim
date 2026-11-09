@@ -15,8 +15,8 @@
 
 import std/[locks, math, hashes]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
-when not (androidApp or defined(windows)):
-  import std/dynlib
+when (defined(linux) and not androidApp) or defined(macosx) or defined(ios):
+  import std/dynlib       # (PulseAudio or ALSA; AudioToolbox)
 when compileOption("threads"):
   import std/typedthreads
 

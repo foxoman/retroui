@@ -1,5 +1,57 @@
 # Changes
 
+## 0.32.0
+
+Retro Task Manager -- what the computer is doing, on every system -- and
+what Argus taught about doing that lightly, in the kit.
+
+- **Retro Task Manager 1.0** (`examples/taskman.nim`, `nimble taskman`,
+  `nimble taskmanapk`): the processes with their share of the processor,
+  the memory and the disk (search, sort by any column, End task, End
+  process tree, a priority, Open file location, Properties; Delete ends
+  the one selected, after asking), the processor (and each core), the
+  memory, the disks and the network as graphs that move, the programs
+  that start with the system (turned off and on), the network's
+  connections with their programs, and the last week's history; the
+  update speed (twice a second, every second, every 4 seconds, paused);
+  on a phone, a bottom bar. Linux, Windows, macOS, Termux (a BSD: what its
+  Linux /proc shows); an
+  Android app sees its own process, the memory, the storage, the network
+  and the battery.
+- **`retroui/sysmon`:** the system read on a thread of its own, every
+  second or as often as asked (`setMonitorInterval`), never waited for
+  (`latestSample`: the last good numbers, `stale` when a read failed);
+  each process known by its id and its start time (an id is used again:
+  `endProcess` leaves another program alone, and checks a process newer
+  than the last sample with a read of its own), its rates from the real
+  time between two reads, what does not change (its file, its command
+  line, its user) read once and kept; `takeSample` (one read at a time,
+  whichever thread asks), `monitorHistory`, `endProcess`,
+  `endProcessTree` (a child is one that started after its parent: on
+  Windows a parent's id may be another program's by now), `setPriority`,
+  `startupItems`, `setStartupEnabled`, `connections`, `appendHistory`,
+  `loadHistory`. /proc and /sys (Linux, Termux, Android; a BSD's linprocfs); one
+  NtQuerySystemInformation for every process, each physical drive's
+  counters, the connections' tables (Windows); host_statistics64 and
+  proc_pidinfo, the memory as Activity Monitor counts it (macOS).
+- **`liveGraph`** (charts): a task manager's graph -- black, a green grid
+  that moves with the line -- kept as a picture that moves left a step for
+  each new value, only the new part drawn: a frame costs a copy, whatever
+  the number of values (Argus scrolls its chart layers so). Graphs no
+  longer drawn let go of their pictures.
+- No unused import in `retroui/mediaaudio` on the BSDs, nor in the guide's
+  tool (`tools/shots.nim`). The guide shows `liveGraph`, and `popupSlider`'s
+  whole description.
+- `tests/test_sysmon.nim` (a sample's numbers, this program among the
+  processes, the reading thread, a child given another priority and
+  ended, an id that is another process's left alone, the autostart
+  entries turned off and on, a socket of its own among the connections,
+  the history on disk, the graph's frame), `tests/test_taskman.nim` (the
+  app: the list, the selection kept on the same process as the samples
+  come, search and sort, the graphs, the other pages, paused).
+  Both run on Windows and macOS too, in the systems workflow.
+- Retro Gallery and the small examples 0.32.0.
+
 ## 0.31.1
 
 What GitHub's CI found in 0.30.1 and 0.31.0, fixed -- among it Retro

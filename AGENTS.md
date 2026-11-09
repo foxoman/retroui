@@ -14,8 +14,8 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   `retrokit.nim` -- the command-line tools; `retroweb.nim` (web pages) and
   `retrostore.nim` (store packages, 3D models) are retrokit's commands.
 - `examples/` -- the example apps (Gallery, Retro Photo, Retro Files,
-  Retro Mail, Retro Communicator, Retro Board, HR Book, Notepad, Ledger,
-  Charts...). They are
+  Retro Mail, Retro Communicator, Retro Board, Retro Task Manager, HR
+  Book, Notepad, Ledger, Charts...). They are
   built only when asked, one at a time (`nimble photo`, `nimble photoexe`,
   `RETRO_APP=photo nimble exe`...), never by `nimble install`. GitHub's
   Release workflow (`.github/workflows/release.yml`, on a `v...` tag or by

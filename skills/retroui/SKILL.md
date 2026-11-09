@@ -146,7 +146,7 @@ or put several in a `row:` inside the `field`. `field("")` lines a control
 up under the others. When the row is narrower than the captions plus about
 200 pixels (a phone), each caption goes above its control.
 
-## 6. Controls (docs/controls.md has all 382, with pictures)
+## 6. Controls (docs/controls.md has all 383, with pictures)
 
 Text: `label`, `paragraph`, `heading`, `styledText`, `link`, `badge`, `icon`, `iconLabel`, `image`, `tooltip`.
 Buttons: `button`, `segmented`, `menuButton`, `splitButton`, `buttonRow`.
@@ -155,7 +155,7 @@ Text input: `edit`, `editArea`, `searchBox`, `autocomplete`, `maskedEdit`, `comb
 Numbers, dates, colors: `spin`, `intEdit`, `numberEdit`, `slider`, `progress`, `datePicker`, `calendar`, `timePicker`, `colorPicker`, `colorWell`.
 Lists and data: `listbox`, `combo`, `grid` (the data grid with editing, sorting, totals), `tree`.
 Files: `fileDialog`, `fileList`, `folderTree`, `filePicker`, `filePreview`, `placesView`.
-Charts and more: `chart` (21 kinds, from your numbers or a CSV table), `barChart`, `lineChart`, `pieChart`, the world map (`retroui/mapview`), street maps (`tileMap`, `retroui/tilemap`; places and routes `retroui/geo`), 3D (`retroui/view3d`; Blender's models `retroui/gltf`),
+Charts and more: `chart` (21 kinds, from your numbers or a CSV table), `barChart`, `lineChart`, `pieChart`, `liveGraph` (a task manager's graph that moves: a frame costs a copy), the world map (`retroui/mapview`), street maps (`tileMap`, `retroui/tilemap`; places and routes `retroui/geo`), 3D (`retroui/view3d`; Blender's models `retroui/gltf`),
 HTML and Markdown (`htmlView`), web pages (`webView`), canvas (`canvas`, `retroui/canvas2d`), reports and PDF (`retroui/report`),
 sound and video (`retroui/media`; the system's media controls `retroui/mediasession`; camera and microphone `retroui/capture`), spreadsheets (`retroui/xlsx`), more windows (`window`).
 
@@ -170,7 +170,14 @@ click (phones and browsers ask the user). Secrets: `retroui/secrets`;
 signing in: `retroui/oauth`; updates inside the app, signed:
 `retroui/update` (`checkForUpdate(url, publicKey, version)`,
 `downloadUpdate`, `installUpdate`, `restartApp`; `retrokit update-key`,
-`retrokit update-sign update.json`).
+`retrokit update-sign update.json`). What the computer is doing:
+`import retroui/sysmon` -- `startMonitor()` once, then `latestSample()` in
+the frame (never waits; nil before the first: the processor, its cores,
+the memory, the disks, the network, the battery, every process),
+`monitorHistory()` for graphs, `setMonitorInterval` (slower while hidden),
+`endProcess(p)` (refuses an id that is another program's by now),
+`setPriority`, `startupItems`, `connections`, `appendHistory` /
+`loadHistory`; examples/taskman.nim uses all of it.
 
 **A street map with a route** (`import retroui/[tilemap, geo]`):
 

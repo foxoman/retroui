@@ -108,6 +108,7 @@ every module is in `docs/api/` (open `docs/api/retro.html`).
 [Charts](#charts) · [Reports, PDF and printing](#reports-pdf-and-printing) ·
 [Planning views](#planning-views) · [Desktop apps](#desktop-apps) ·
 [Files](#files) · [Maps](#maps) · [3D](#3d-view) · [Canvas](#canvas) · [Whiteboard](#whiteboard) ·
+[What the computer is doing](#what-the-computer-is-doing) ·
 [Image editing](#image-editing) · [Web and HTML](#web-and-html) · [Sound and video](#sound-and-video) ·
 [Camera and microphone](#camera-and-microphone) · [More windows](#more-windows) ·
 [The system's features](#the-systems-features) · [The system's own APIs](#the-systems-own-apis) ·
@@ -171,12 +172,14 @@ nimble invoice        # an invoice from an HTML template: preview, PDF, printing
 nimble charts         # Chart Viewer: a CSV file as charts, saved as PNG
 nimble photo          # Retro Photo, the image editor
 nimble board          # Retro Board, the whiteboard
+nimble taskman        # Retro Task Manager: the programs, the processor, the memory, the network
 nimble mail           # Retro Mail: Microsoft 365, Outlook.com, Gmail, any IMAP (mailexe, mailapk)
 nimble hrbook         # HR Book: employee records of several hotels, sealed with a PIN
 nimble apk            # Retro Files as an Android APK (build/RetroFiles.apk)
 nimble photoapk       # Retro Photo as an APK (photoinstall: build and adb install)
 nimble galleryapk     # the gallery as an APK
 nimble boardapk       # Retro Board as an APK (boardinstall: build and adb install)
+nimble taskmanapk     # Retro Task Manager as an APK (taskmanexe: for Windows)
 nimble photoexe       # Retro Photo for Windows, with its icon (from Linux or macOS: MinGW; build/win/)
 nimble filesexe       # Retro Files for Windows (galleryexe, boardexe: the others)
 nimble photoappimage  # Retro Photo as a Linux AppImage, with its icon and menu entry (one file, runs anywhere:
@@ -1610,6 +1613,67 @@ an APK (`nimble boardapk`).
 |---|---|
 | ![Retro Board in the dark](docs/board-dark.png) | ![Retro Board on a phone](docs/board-phone.png) |
 
+## What the computer is doing
+
+`retroui/sysmon` reads the processor (all of it and each core), the
+memory, the disks, the network, the battery and every process with its
+share of them -- on a thread of its own, so the window never waits for the
+system. What Argus taught about doing that lightly is in it: a read that
+fails leaves the last good numbers (`stale`), a process is known by its id
+*and* its start (an id is used again: `endProcess` leaves another program
+alone), rates come from the real time between two reads, what does not
+change (a program's file, its command line, its user) is read once per
+process, and the system is read less often while nobody looks
+(`setMonitorInterval`).
+
+```nim
+import retroui, retroui/sysmon
+startMonitor()                        # read every second, on its thread
+app "Monitor", 500, 400:
+  let s = latestSample()              # never waits; nil before the first
+  if s != nil:
+    label "CPU " & $int(s.cpu) & " %, memory " & bytesText(s.memUsed)
+    for p in s.processes[0 ..< min(10, s.processes.len)]:
+      label p.name & "  " & $p.pid & "  " & formatFloat(p.cpu, ffDecimal, 1) & " %"
+```
+
+| Where | What it reads |
+|---|---|
+| Linux, Termux | /proc and /sys (Termux: Android shows a shell its own processes; the cores' speeds instead of their times); a BSD: what its Linux /proc (linprocfs) shows |
+| Windows | one `NtQuerySystemInformation` for every process and the cores; the memory, the disks, the network, the battery |
+| macOS | `host_statistics64`, `host_processor_info`, `proc_pidinfo` |
+| Android app | its own process, the memory, the storage, the network, the battery (Android shows an app no other) |
+
+Also: `endProcessTree` (a process and every one it started), `setPriority`,
+`startupItems` / `setStartupEnabled` (the programs that start with the
+system: freedesktop's autostart entries, Windows' Run keys turned off and
+on as Task Manager does, a Mac's launch agents to look at),
+`connections` (TCP and UDP, with their programs: Linux, Termux and
+Windows), `appendHistory` / `loadHistory` (a point every few seconds on disk, the
+last week).
+
+`liveGraph` (charts) is the graph of a task manager: black, a green grid
+that moves with the line. It keeps its picture and moves it left a step
+for each new value, drawing only the new part -- a frame costs a copy of
+the picture whatever the number of values.
+
+![Retro Task Manager: the processes](docs/taskman.png)
+
+`examples/taskman.nim` is **Retro Task Manager 1.0**: the processes with
+their share of the processor, the memory and the disk (search, sort by any
+column, End task, End process tree, a priority, Open file location,
+Properties; Delete ends the one selected, after asking), the processor (and
+each core), the memory, the disks and the network as graphs that move, the
+programs that start with the system (turned off and on), the network's
+connections with their programs, and the last week's history; the update
+speed (twice a second, every second, every 4 seconds, paused); on a phone,
+a bottom bar. `nimble taskman` builds and runs it, `nimble taskmanapk`
+makes its APK (about 1.8 MB).
+
+| | |
+|---|---|
+| ![Retro Task Manager: the processor](docs/taskman-performance.png) | ![Retro Task Manager: the programs that start with the system](docs/taskman-startup.png) |
+
 ## Image editing
 
 `retroui/photo` is an image editor's engine: documents of layers (opacity,
@@ -2372,6 +2436,7 @@ stripped):
 |---|---|
 | `examples/hello.nim` | 1.9 MB |
 | `examples/ledger.nim` (grids, forms, CSV) | 2.2 MB |
+| `examples/taskman.nim` (Retro Task Manager) | 2.3 MB |
 | `examples/charts.nim` (Chart Viewer) | 2.5 MB |
 | `examples/notepad.nim` (with the file dialogs) | 2.5 MB |
 | `examples/invoice.nim` (templates, reports, PDF, printing) | 2.6 MB |
@@ -2554,6 +2619,7 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_update` | Ed25519 against RFC 8032, signatures checked (a byte changed, another key), versions compared, an update found, checked and downloaded from a small server, a changed file or update file refused |
 | `test_fontsoption` | `-d:retroFonts`: the faces left out drawn with FreeSans, or read from a folder of their files |
 | `test_gltf` | glTF read and written, the car's parts moved, turned, hidden and tinted, its clips (linear, step, cubic), shapes and bones, a picture on a surface (unlit), damaged files refused, Blender's `.blend` when Blender is there |
+| `test_sysmon`, `test_taskman` | what the computer is doing: a sample's numbers in their ranges, this program among the processes with its start time, the reading thread, a child given another priority and ended, an id that is another process's left alone, the autostart entries turned off and on, a socket of its own among the connections, the history on disk, the live graph's frame with a new value; Retro Task Manager as a program -- the list and the selection kept on the same process as samples come, search and sort, the graphs, the other pages, paused |
 | `test_board`, `test_boardapp` | the whiteboard: ink, shapes, arrows held by shapes, typing, undo, files, PDF, the memory kept; Retro Board as a program -- its docked panels, Tab, the panels kept between runs, Zen and View mode and the button that leaves them |
 | `test_xmpp` | chat on XMPP with a small server of the test's own: signing on, the account's archive found, a page of it (yours and theirs, in order, with their archive ids), a forged answer from someone else left out; a port where nothing answers |
 | `test_omemo` | OMEMO: X25519, Ed25519 and HKDF against the RFCs' vectors, XEdDSA (the identity's X25519 key and its signatures, keys of both signs), AES-GCM, protobuf; two devices talking (a session from a bundle, answers, messages out of order, one twice, a changed one, one not for this device, the store read back from its file), trust (a verified device: only it), a bundle not signed right; files (aesgcm://) |
@@ -2582,6 +2648,7 @@ screen reader does (`tests/access/windows.ps1`).
 | `examples/native.nim` | calling the system's own APIs on each platform |
 | `examples/photo.nim` | Retro Photo 4: an image editor of 1994 laid out as today's image editors -- layers and groups, Smart Objects, 62 tools, filters, Neural Filters, PDF for print, Arabic type, panoramas, raw photos |
 | `examples/magazine.nim` | a three-page magazine made with Retro Photo's engine, tool by tool, saved as .rpd and PDF |
+| `examples/taskman.nim` | Retro Task Manager: the processes (end one or a tree, a priority), the processor, the memory, the disks and the network as graphs that move, what starts with the system, the connections, the last week (also an APK: `nimble taskmanapk`) |
 | `examples/retroboard.nim` | Retro Board: a whiteboard in the manner of tldraw -- ink, shapes, arrows, notes, frames, pages; PNG, SVG and PDF (also an APK: `nimble boardapk`) |
 | `examples/hrbook.nim` | HR Book: the staff records of a group of hotels, private on a tablet -- smart Excel import, letters and certificates, charts, expiry alerts, encrypted backups |
 
