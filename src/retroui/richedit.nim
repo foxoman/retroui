@@ -2134,14 +2134,16 @@ proc richEdit*(d: var RichDoc; height = -1; key = ""; placeholder = "";
     let px = if l.rtl or textIsRtl(placeholder): ox + l.textR - tw else: ox + l.textL
     text(px, y0, placeholder, th.gray)
   d.caretBox = rect(globalX(ox + cg.x), y0 + cg.y, 1, cg.h)
-  if focused and ui.active31 and ((ui.now - caretT) div 530) mod 2 == 0:
+  if focused and ui.active31 and (ui.now - caretT >= CaretBlinkFor or
+                                 ((ui.now - caretT) div 530) mod 2 == 0):
     vline(ox + cg.x, y0 + cg.y, cg.h, th.fieldText)
   popClip()
   endKeepSides()
   template inBox(px: int): int =
     # (a point of the window in the text's box as drawn, and back)
     (if ui.rtl: 2 * area.x + area.w - 1 - px else: px)
-  if focused and ui.active31: wakeIn(530 - (ui.now - caretT) mod 530)
+  if focused and ui.active31 and ui.now - caretT < CaretBlinkFor:
+    wakeIn(min(530 - (ui.now - caretT) mod 530, CaretBlinkFor - (ui.now - caretT)))
   # a link under the mouse: its address as a tip, a hand with Ctrl
   if enabled and hit.hover and canHover():
     let lk = richLinkAt(d, ui.mx, ui.my)

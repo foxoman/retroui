@@ -1675,17 +1675,25 @@ static void appStart(JNIEnv *env) {
   pthread_mutex_unlock(&g.mu);
 }
 
-/* The app ended (its window closed): the activity finishes. */
+/* The app ended (its window closed): the activity finishes. (Its activity
+ * is taken under the lock: once `finished` is set, a new activity may clear
+ * `g` for a new start.) */
 static void appEnd(void) {
   pthread_mutex_lock(&g.mu);
   if (g.queue) AInputQueue_detachLooper(g.queue);
   g.queue = NULL;
   g.window = NULL;
+  ANativeActivity *act = g.destroyRequested ? NULL : g.activity;
   g.finished = 1;
   pthread_cond_broadcast(&g.cond);
   pthread_mutex_unlock(&g.mu);
-  if (!g.destroyRequested) ANativeActivity_finish(g.activity);
+  if (act) ANativeActivity_finish(act);
 }
+
+/* (the Nim side, android_driver.nim) NimMain has returned on this thread:
+ * the cycles it left are collected, so a start run again on another thread
+ * finds none of this thread's roots in its objects. */
+void uirelays_main_ended(void);
 
 static void *appThread(void *arg) {
   (void)arg;
@@ -1694,6 +1702,7 @@ static void *appThread(void *arg) {
   (*vm)->AttachCurrentThread(vm, &env, NULL);
   appStart(env);
   NimMain();          /* the app: runs until its window closes */
+  uirelays_main_ended();
   appEnd();
   (*vm)->DetachCurrentThread(vm);
   return NULL;
@@ -1775,6 +1784,7 @@ static void *bgHost(void *arg) {
   bgIsHost = 1;
   bg.hostEnv = env;
   NimMain();          /* the app's start: it waits in bgPark */
+  uirelays_main_ended();
   pthread_mutex_lock(&bg.mu);
   int wasApp = bg.state == BG_APP;
   bg.state = BG_ENDED;
@@ -1844,7 +1854,7 @@ static void writeCmd(int8_t cmd) {
 }
 
 static void onInputQueueCreated(ANativeActivity *a, AInputQueue *q) {
-  (void)a;
+  if (a != g.activity) return;     /* (an activity replaced by a newer one: its end is not the app's) */
   pthread_mutex_lock(&g.mu);
   g.pendingQueue = q;
   writeCmd(CMD_INPUT);
@@ -1858,7 +1868,7 @@ static void onInputQueueDestroyed(ANativeActivity *a, AInputQueue *q) {
 }
 
 static void onNativeWindowCreated(ANativeActivity *a, ANativeWindow *w) {
-  (void)a;
+  if (a != g.activity) return;
   pthread_mutex_lock(&g.mu);
   g.pendingWindow = w;
   writeCmd(CMD_WINDOW);
@@ -1872,17 +1882,19 @@ static void onNativeWindowDestroyed(ANativeActivity *a, ANativeWindow *w) {
 }
 
 static void onNativeWindowResized(ANativeActivity *a, ANativeWindow *w) {
-  (void)a; (void)w;
+  (void)w;
+  if (a != g.activity) return;
   writeCmd(CMD_RESIZE);
 }
 
 static void onNativeWindowRedrawNeeded(ANativeActivity *a, ANativeWindow *w) {
-  (void)a; (void)w;
+  (void)w;
+  if (a != g.activity) return;
   writeCmd(CMD_RESIZE);
 }
 
 static void onContentRectChanged(ANativeActivity *a, const ARect *r) {
-  (void)a;
+  if (a != g.activity) return;
   pthread_mutex_lock(&g.mu);
   g.pendingRect = *r;
   pthread_mutex_unlock(&g.mu);
@@ -1890,20 +1902,22 @@ static void onContentRectChanged(ANativeActivity *a, const ARect *r) {
 }
 
 static void onWindowFocusChanged(ANativeActivity *a, int focused) {
-  (void)a;
+  if (a != g.activity) return;
   writeCmd(focused ? CMD_FOCUS : CMD_UNFOCUS);
 }
 
 static void onConfigurationChanged(ANativeActivity *a) {
-  (void)a;
+  if (a != g.activity) return;
   writeCmd(CMD_CONFIG);
 }
 
-static void onStart(ANativeActivity *a) { (void)a; writeCmd(CMD_START); }
-static void onStop(ANativeActivity *a) { (void)a; writeCmd(CMD_STOP); }
+static void onStart(ANativeActivity *a) { if (a == g.activity) writeCmd(CMD_START); }
+static void onStop(ANativeActivity *a) { if (a == g.activity) writeCmd(CMD_STOP); }
 
 static void onDestroy(ANativeActivity *a) {
-  (void)a;
+  /* (an activity whose app ended and was started again in a newer one: the
+   * process is the newer one's now) */
+  if (a != g.activity) return;
   writeCmd(CMD_DESTROY);
   /* Give the app a moment to finish (it gets a QuitEvent); then end the
    * process, so the next start runs NimMain in a fresh one. */
@@ -1937,8 +1951,21 @@ void ANativeActivity_onCreate(ANativeActivity *activity, void *savedState,
   }
   if (!hosted) bg.nim = 1;
   pthread_mutex_unlock(&bg.mu);
-  if (g.activity) {    /* a second activity in this process: not supported */
-    LOGE("uirelays: the activity was created twice");
+  if (g.activity) {
+    /* One more activity while this process has one (an intent made another,
+     * the manifest's singleTask aside). NimMain runs once at a time: while
+     * the app runs, the new one closes and the app goes on in its own; an
+     * app that has ended (its activity not gone yet) starts again in this
+     * one, whose process it is from now on. */
+    pthread_mutex_lock(&g.mu);
+    int ended = g.finished;
+    pthread_mutex_unlock(&g.mu);
+    if (!ended) {
+      LOGE("a second activity while the app runs: it is closed");
+      ANativeActivity_finish(activity);
+      return;
+    }
+    LOGI("the app ended in another activity: it starts again here");
   }
   memset(&g, 0, sizeof g);
   g.activity = activity;

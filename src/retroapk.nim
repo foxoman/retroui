@@ -56,6 +56,9 @@ Options:
   --debuggable       allow debugging (run-as, logcat of the app); its library
                      not stripped, a crash's report names the functions,
                      Nim's stack traces on
+                     (without it the library in the APK is stripped and a
+                     copy with its functions' names is kept beside it, in
+                     APP-symbols/ABI/libmain.so: `retrokit symbolize`)
   --cc:PATH          C compiler for Android (default: found, see below)
   --toolchain:T      auto (default), ndk, clang (clang + lld, no NDK) or zig
                      (zig cc, no NDK); also $RETRO_ANDROID_TOOLCHAIN
@@ -1069,6 +1072,23 @@ proc ndkToolchain(ndk: string; abi: Abi; minSdk: int): Toolchain =
     if fileExists(cc): return Toolchain(cc: cc, ld: cc, kind: "ndk", what: "NDK " & ndk)
   die "no " & abi.triple & "-clang in " & bin
 
+proc stripTool(tc: Toolchain): string =
+  ## (llvm-strip: the NDK's, beside the compiler, on the PATH or LLVM's own
+  ## folder; "" when there is none -- the library is then linked stripped
+  ## and its names are not kept)
+  if tc.kind == "ndk":
+    let s = tc.cc.parentDir / "llvm-strip" & ExeExt
+    if fileExists(s): return s
+  result = findExe("llvm-strip")
+  if result.len > 0: return
+  for v in countdown(30, 14):
+    for dir in ["/usr/lib/llvm-" & $v & "/bin", "/opt/homebrew/opt/llvm/bin", "/usr/local/opt/llvm/bin"]:
+      if fileExists(dir / "llvm-strip"):
+        result = dir / "llvm-strip"
+        return
+    result = findExe("llvm-strip-" & $v)
+    if result.len > 0: return
+
 proc compilerFor(abi: Abi; minSdk: int; explicit, choice, work: string): Toolchain =
   ## The C compiler for `abi`: --cc, $RETRO_ANDROID_CC, Termux's clang, an
   ## NDK that is there, the sysroot in retroapk with clang + lld or zig,
@@ -1214,6 +1234,7 @@ proc main() =
   # 1. compile libmain.so for every ABI
   var libs: seq[(string, string)]
   var caches: seq[string]
+  var symbolsKept = ""            ## (where the libraries with their names went)
   for an in abiList:
     var abi: Abi
     var found = false
@@ -1221,6 +1242,10 @@ proc main() =
       if a.name == an.strip: (abi = a; found = true)
     if not found: die "unknown ABI " & an
     let tc = compilerFor(abi, minSdk, cc, toolchain, work)
+    # (the library is linked with its functions' names, kept beside the
+    # package -- <app>-symbols/<abi>/libmain.so, for `retrokit symbolize` --
+    # and stripped in it; --debuggable keeps them in it)
+    let strip = if debuggable: "" else: stripTool(tc)
     let ltoLink =
       if nimFlags.anyIt(it.toLowerAscii.endsWith(":lto_incremental")): " -flto=thin"
       elif nimFlags.anyIt(it.toLowerAscii.endsWith(":lto")): " -flto"
@@ -1239,7 +1264,8 @@ proc main() =
                  # cannot load (emulated TLS below API 29)
                  # (--debuggable: not stripped, its functions' names exported,
                  # so a crash's report names them; Nim's stack traces on)
-                 "--clang.options.linker:" & (if debuggable: "-Wl,--export-dynamic" else: "-s") &
+                 "--clang.options.linker:" & (if debuggable: "-Wl,--export-dynamic"
+                                              elif strip.len > 0: "" else: "-s") &
                    " -Wl,-z,max-page-size=16384" & ltoLink,
                  # (a nimcache for each compiler: Nim reuses an object whose
                  # C is unchanged, whatever made it -- zig's LTO objects are
@@ -1259,6 +1285,8 @@ proc main() =
     caches.add cache
     if lastBuildCut(cache): echo cutNote(buildJobs(jobsAsked))
     buildStarted(cache)
+    # (linked again, whatever changed: the last build's copy is stripped)
+    if strip.len > 0: removeFile(lib)
     run(quoteShellCommand(args), "compiling for " & abi.name)
     buildEnded(cache)
     for n in neededLibs(lib):
@@ -1266,6 +1294,12 @@ proc main() =
         die abi.name & ": libmain.so needs " & n & ", which is not part of " &
             "Android; an app cannot load it (on Termux, libraries in $PREFIX " &
             "are not visible to apps)"
+    if strip.len > 0:
+      let keep = outPath.changeFileExt("") & "-symbols" / abi.name
+      createDir(keep)
+      copyFile(lib, keep / "libmain.so")
+      run(quoteShellCommand([strip, "--strip-all", lib]), "stripping the library")
+      symbolsKept = outPath.changeFileExt("") & "-symbols"
     libs.add ("lib/" & abi.name & "/libmain.so", lib)
   # (what the code uses asks for its permission when it is first used: the
   # manifest lists them, or Android refuses at once)
@@ -1286,6 +1320,10 @@ proc main() =
     # every configuration change is the app's (rotation, size, language,
     # font size, dark mode...): the activity is never recreated
     iAttr("configChanges", 0x0101001f, 0x5000FFFF, THex),
+    # one activity, the task's: started again (its icon, an intent, adb's
+    # am start) it is brought back as it is -- never a second one beside it,
+    # whose start would run the app's again in the same process
+    iAttr("launchMode", 0x0101001d, 2),          # singleTask
     iAttr("windowSoftInputMode", 0x0101022b, 0x10, THex),
     # a window the user sizes with the mouse (DeX, desktop windowing,
     # split screen) -- the app follows every size
@@ -1401,6 +1439,8 @@ proc main() =
     for (n, data) in meta & files: z.addFile(n, data.toBytes, 1)
     writeFile(outPath, z.finish.toStr)
     echo "Built ", outPath, " (", getFileSize(outPath) div 1024, " KB, ", id, ", for Google Play)"
+    if symbolsKept.len > 0:
+      echo "  its functions' names: ", symbolsKept, " (retrokit symbolize report.txt ", symbolsKept, ")"
     if clean:
       try: removeDir(work) except OSError: discard
     return
@@ -1431,6 +1471,8 @@ proc main() =
   else:
     writeFile(outPath, signV2(z, keyPem, certDer, work).toStr)
   echo "Built ", outPath, " (", getFileSize(outPath) div 1024, " KB, ", id, ")"
+  if symbolsKept.len > 0:
+    echo "  its functions' names: ", symbolsKept, " (retrokit symbolize report.txt ", symbolsKept, ")"
   if clean:
     try: removeDir(work) except OSError: discard
 

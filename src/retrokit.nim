@@ -34,6 +34,7 @@
 ##   retrokit model FILE              a 3D model (.blend, .gltf, .obj, .stl) as .glb
 ##   retrokit designer [app.nim]      Retro Designer: the app's windows, designed
 ##                                    (built once for this machine, then run)
+##   retrokit symbolize REPORT [SYMBOLS]  a crash report's frames named
 ##
 ## No dependencies but Nim and a C compiler.
 
@@ -41,7 +42,7 @@ import std/[os, osproc, strutils, sequtils, times, hashes]
 when not defined(windows):
   import std/dynlib
 import retroweb, retrostore
-import retroui/buildjobs
+import retroui/[buildjobs, symbolize]
 
 const usage = """
 retrokit -- start, check and build Retro Nim UI apps
@@ -107,6 +108,11 @@ retrokit -- start, check and build Retro Nim UI apps
       design by dragging and setting properties; every change written into
       the same file. Built once for this machine (it needs Nim's compiler
       sources: a normal Nim has them; else `nimble install compiler`)
+  retrokit symbolize REPORT.txt [SYMBOLS]
+      an app's crash report (the "stopped" screen's Copy, or Android's
+      logcat) with each frame in its library named: SYMBOLS is the folder
+      retroapk kept beside the APK (APP-symbols), or a libmain.so with its
+      names; without it, the APP-symbols folders here and in build/
 """
 
 const templates = [
@@ -881,6 +887,14 @@ proc main() =
   of "model": quit modelCmd(args[1 .. ^1])
   of "update-key": quit updateKeyCmd(args[1 .. ^1])
   of "update-sign": quit updateSignCmd(args[1 .. ^1])
+  of "symbolize":
+    if args.len < 2 or not fileExists(args[1]): quit usage
+    var syms = if args.len >= 3: args[2] else: ""
+    if syms.len == 0:
+      for d in walkDirs("*-symbols") : syms = d
+      for d in walkDirs("build" / "*-symbols"): (if syms.len == 0: syms = d)
+    if syms.len == 0: quit "retrokit: no APP-symbols folder here; give it after the report"
+    echo symbolizeReport(readFile(args[1]), syms)
   else:
     quit usage
 

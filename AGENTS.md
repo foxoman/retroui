@@ -164,7 +164,18 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
    emuapks` and `sh tests/android/apps.sh` on an emulator when one is
    there (the systems workflow does it on Android 11 and 15); Java changes
    need `sh tools/android/build_dex.sh` (javac, `dx`, an android.jar) and
-   the regenerated `src/retroui/androiddex.nim` committed.
+   the regenerated `src/retroui/androiddex.nim` committed. A native crash
+   there is named: the emulator's APKs are `--debuggable`, and a stripped
+   APK's names are in `APP-symbols/` beside it (`retrokit symbolize`).
+7. A change to an app, to how frames run (waking, carets, drawing) or to a
+   driver: **`sh tests/smoke/run.sh`** (`xvfb-run -a` before it on Linux
+   without a screen) -- each app started for real (`RETRO_SMOKE`), its
+   first frame timed, 3 seconds untouched measured, then driven by
+   clicks and keys. An app at rest runs next to no frames: one that is
+   busy while untouched (a widget that asks for a frame each frame, a
+   setter that draws again when nothing changed) fails it, as a fault, a
+   crash or a hang does. The systems workflow runs it on Linux, Windows
+   and macOS.
 
 ## Rules
 

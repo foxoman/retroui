@@ -23,7 +23,7 @@ import hrbook/[model, store, importer, letters]
 
 const
   AppTitle = "HR Book"
-  AppVersion = "0.2.2"
+  AppVersion = "0.2.3"
   AppId = "HRBook"
   AppIconPng = staticRead("assets/hrbook-icon.png")
 

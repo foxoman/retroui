@@ -19,7 +19,7 @@ This adds two phone drivers (Android and iOS), pen input for the desktop drivers
 9. **screen, input: phones.**
    - `ScreenLayout` gets the safe-area margins (`safeTop`, `safeBottom`, `safeLeft`, `safeRight`) and `touch`.
    - New events: `AppPauseEvent`, `AppResumeEvent`, and `GestureEvent` (`scale`, `dx`, `dy`, `phase`). Events also get `fromMouse`.
-   - `WindowHiddenEvent` and `WindowShownEvent`: a desktop window minimized and back (X11: unmapped or `_NET_WM_STATE_HIDDEN`; WinAPI: `SIZE_MINIMIZED`; macOS: into the Dock), so an app can leave out drawing nobody sees while its timers go on.
+   - `WindowHiddenEvent` and `WindowShownEvent`: a desktop window minimized or covered all over, and back (X11: unmapped, `_NET_WM_STATE_HIDDEN` or fully obscured; WinAPI: `SIZE_MINIMIZED`; macOS: into the Dock, or its occlusion state; Wayland: xdg-shell 6's suspended state), so an app can leave out drawing nobody sees while its timers go on.
    - SDL3 fills these in, maps Android's back key to Escape, and turns text input on only while `WantTextInput` is set.
 10. **SDL3: `TTF_SetFontStyle` loads from SDL_ttf.** `-d:sdl3` no longer needs `-lSDL3_ttf` passed by hand.
 11. **screen: `GpuRelays`** (optional): an OpenGL context on the window.
@@ -33,6 +33,7 @@ This adds two phone drivers (Android and iOS), pen input for the desktop drivers
     - Rectangles, lines, points and RGBA pictures; text in the system font, which shapes Arabic.
     - The clipboard, links, and OpenGL ES through EGL.
     - It runs with a plain `NativeActivity`. `drivers/android/UiRelaysActivity.java` is an optional subclass that adds text without key codes, the on-screen keyboard, insets and system-bar colors.
+    - `NimMain` runs once at a time in a process: an activity made while the app runs is closed, the callbacks of an activity that is no longer the app's are ignored, and when `NimMain` returns the cycle collector's roots of its thread are collected (`uirelays_main_ended`), so an app started again in the same process never reads the first thread's root list. The manifest should make the activity `singleTask`.
 15. **iOS driver (UIKit).** Touch, the keyboard, hardware keys, the clipboard and CoreText text. It shares `surface_driver.nim` with Android.
 16. **README and doc/drivers.md:** the new relays, events and layout fields, and how to build for Android and iOS.
 

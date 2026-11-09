@@ -80,7 +80,8 @@ misspelled option is a compile error. An app with its own loop uses
 `closeApp()` -- and first in each frame `if stoppedFrame(): (endFrame();
 continue)`: when the last run crashed, its report shows before the app's
 code runs (`app` does this itself); ask `stoppedPending()` before bringing
-back what was open, and leave it out when `startFresh()`. Set
+back what was open, and leave it out when `startFresh()` (ticked by
+itself when the app stopped again right after that screen's Start). Set
 `reportedVersion = "1.2"` before the window opens: the report says it. Files
 named on the command line: `appArguments()` (none in a phone's app).
 
@@ -110,9 +111,19 @@ line.
   shows a busy box for work that must run on the UI thread. Ask for a
   frame later with `wakeIn(ms)`; for something that moves by itself where
   it is drawn (an animation, a clock), `wakeInShown(rect, ms)`: no frames
-  while it is out of view, so an app at rest takes no CPU. A minimized
-  window draws nothing (`ui.hidden`; its frames and timers go on): read
-  what changes by itself less often then.
+  while it is out of view, so an app at rest takes no CPU. A window
+  minimized or covered all over draws nothing (`ui.hidden`; its frames and
+  timers go on): read what changes by itself less often then. A caret
+  rests after `CaretBlinkFor` (10 s). Setters such as `setToolbarLook`,
+  `setTabLook`, `setUiScale` are cheap every frame: only a change draws
+  again -- a call of your own that sets `ui.redraw` or `wakeIn` every frame
+  keeps the app busy for nothing.
+- **Check it at rest:** `RETRO_SMOKE=14 ./app` starts it for real, times
+  the first frame (`firstFrameMs()`), measures 3 seconds untouched, then
+  clicks and types until 14 s; it ends 0 (ok), 1 (a fault) or 2 (busy
+  while untouched), with a line on stderr (and in `$RETRO_SMOKE_OUT`). Run
+  it in a home of its own: the clicks reach anything. The kit's
+  `tests/smoke/run.sh` does it for its apps.
 - `&` in a label underlines the next letter (Alt+letter). `isDefault = true`
   makes Enter press the button.
 - Dialogs and popups are drawn by the same frame code, opened by a
@@ -439,7 +450,13 @@ the place, vibration, the network) and says which; the app asks the user
 the first time a feature is used and must go on when the answer is no
 (every call answers false or "denied", never raises). In Termux a build
 runs at most four C compilers (`--jobs:N`; Android stops builds with too
-many, "signal 9": BUILDING.md, "Building on a phone or tablet").
+many, "signal 9": BUILDING.md, "Building on a phone or tablet"). The
+APK's library is stripped; its names are kept beside it in
+`APP-symbols/ABI/libmain.so`: keep that with each APK, and `retrokit
+symbolize report.txt APP-symbols` names a crash report's frames
+(`--debuggable` leaves them in the APK). The activity is `singleTask`:
+the app's start runs once in a process, so an app's globals are set up
+once.
 `retrokit run --web --threads` builds once; `--lto:thin` links a web page
 with much less memory. Details per OS in BUILDING.md.
 

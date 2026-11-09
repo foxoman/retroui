@@ -116,7 +116,7 @@ var
 
 const
   appName = "Retro Mail"
-  appVersion = "1.1.2"
+  appVersion = "1.1.3"
   credit = "Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net"
   tagPalette = [("Blue", "#0063b1"), ("Green", "#00a300"), ("Red", "#e81123"),
                 ("Orange", "#ff8c00"), ("Purple", "#7a3ba0"), ("Teal", "#008080"),

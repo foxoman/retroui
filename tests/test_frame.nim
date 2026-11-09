@@ -448,5 +448,24 @@ block minimized:
   doAssert not ui.hidden
   doAssert pixels != shown, "drawn again, with what changed"
 
+block caretRests:
+  # a text box with the focus: its caret blinks (a frame each half second)
+  # for 10 seconds after it last moved, then stays shown -- no more frames
+  var s = "hello"
+  view = proc () =
+    edit(s, w = 200)
+  run(2)
+  key(KeyTab)
+  run(2)
+  ticks += 600
+  run(1)
+  doAssert ui.wakeAt > 0, "it blinks"
+  ticks += CaretBlinkFor + 100
+  run(2)
+  doAssert ui.wakeAt == 0, "left alone 10 seconds: no frames for it (" & $(ui.wakeAt - ui.now) & ")"
+  typeText("!")
+  run(2)
+  doAssert ui.wakeAt > 0, "typed: it blinks again"
+
 removeDir(keepHome)
 echo "test_frame: ok"

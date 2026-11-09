@@ -72,6 +72,7 @@ type
     pendW, pendH: int
     pendStates: string
     maximized, fullscreen, activated: bool
+    suspended: bool   ## (xdg-shell 6: minimized or fully covered -- not seen)
     floatW, floatH: int ## its size before it was maximized (given back after)
     ssd: bool         ## the compositor draws its frame
     bufs: seq[WlBuf]
@@ -426,8 +427,9 @@ proc ensureConn(): bool =
       compositorId = bindGlobal(g, okCompositor, 6)
     of "wl_shm": shmId = bindGlobal(g, okShm, 1)
     of "xdg_wm_base":
-      wmBaseVersion = min(g.version, 5)
-      wmBaseId = bindGlobal(g, okWmBase, 5)
+      # (6: a toplevel says when it is suspended -- minimized, or covered)
+      wmBaseVersion = min(g.version, 6)
+      wmBaseId = bindGlobal(g, okWmBase, 6)
     of "wl_seat":
       if seatId == 0:
         seatVersion = min(g.version, 8)
@@ -691,12 +693,14 @@ proc handleConfigure(w: WlWin; serial: uint32) =
   let wasMax = w.maximized
   let wasFull = w.fullscreen
   let wasActive = w.activated
+  let wasSuspended = w.suspended
   if not wasMax and not wasFull and w.configured:
     w.floatW = w.lw
     w.floatH = w.lh
   w.maximized = false
   w.fullscreen = false
   w.activated = false
+  w.suspended = false
   var i = 0
   while i + 4 <= w.pendStates.len:
     var st: uint32
@@ -705,6 +709,7 @@ proc handleConfigure(w: WlWin; serial: uint32) =
     of 1: w.maximized = true
     of 2: w.fullscreen = true
     of 4: w.activated = true
+    of 9: w.suspended = true
     else: discard
     i += 4
   if w.pendW > 0 and w.pendH > 0:
@@ -728,6 +733,8 @@ proc handleConfigure(w: WlWin; serial: uint32) =
   if w.activated != wasActive and not first:
     pushEvent(input.Event(kind: if w.activated: WindowFocusGainedEvent
                                 else: WindowFocusLostEvent), w.id)
+  if w.id == 0 and w.suspended != wasSuspended:
+    pushEvent(input.Event(kind: if w.suspended: WindowHiddenEvent else: WindowShownEvent))
 
 proc flushAxis() =
   ## The wheel's notches of this frame, as the app counts them (up: y > 0).

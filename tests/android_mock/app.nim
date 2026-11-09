@@ -7,6 +7,7 @@ import retroui/uirelays/drivers/android_driver
 
 # The fake Android's relays, in place of the desktop driver's.
 initAndroidDriver()
+echo "the app starts"     # (twice in one process: started again in a new activity)
 
 var
   clicks = 0

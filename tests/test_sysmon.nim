@@ -35,6 +35,10 @@ check me.pid > 0 and me.memory > 0, "this program among the processes (" & me.na
 when not defined(windows):
   check me.started > 0 and abs(me.started - epochTime()) < 3600, "its start time"
 check s.readMs >= 0 and s.readMs < 5000, "read in " & formatFloat(s.readMs, ffDecimal, 1) & " ms"
+when defined(macosx):
+  check s.disks.len > 0, "the disks: " & $s.disks.len & " (their counts, IOKit's)"
+when defined(macosx) or defined(windows):
+  check s.nets.len > 0, "the network's interfaces: " & $s.nets.len
 check bytesText(1536) == "1.5 KB" and bytesText(512) == "512 B" and rateText(0) == "0 KB/s",
       "sizes and rates as text"
 
@@ -92,7 +96,7 @@ when defined(linux) and not defined(android):
   removeDir(cfg)
 
 echo "connections"
-when defined(linux) or defined(windows):
+when defined(linux) or defined(windows) or defined(macosx):
   let srv = newSocket()
   srv.setSockOpt(OptReuseAddr, true)
   srv.bindAddr(Port(0), "127.0.0.1")

@@ -23,6 +23,11 @@ name: Every system
 #   Android  the live check in the Android emulator (the APK's driver and
 #            its WebView)
 #
+# On Linux, Windows and macOS the apps are also started for real, each in a
+# home of its own (tests/smoke/run.sh): left alone 3 seconds -- they must
+# do next to nothing --, then clicked, keyed and typed at; a fault, a stop
+# or a hang fails it, and each app's first frame time is in the log.
+#
 # The live check (tests/live/livecheck.nim) goes through the guide's pages,
 # saves each frame and checks the browser engine; tools/live/compare.nim
 # compares the frames with tests/live/ref (the kit draws the same pixels on
@@ -84,11 +89,18 @@ jobs:
       - name: The same pixels as the reference
         if: always()
         run: nim c -r --hints:off tools/live/compare.nim live
+      - name: The apps started for real (left alone, then clicked and typed at)
+        if: always()
+        run: |
+          sudo apt-get install -y xdotool
+          xvfb-run -a -s "-screen 0 1280x800x24" sh tests/smoke/run.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: live-linux
-          path: live/
+          path: |
+            live/
+            build/smoke/*.txt
 
   web:
     runs-on: ubuntu-latest
@@ -161,11 +173,17 @@ jobs:
         if: always()
         shell: bash
         run: nim c -r --hints:off tools/live/compare.nim live
+      - name: The apps started for real (left alone, then clicked and typed at)
+        if: always()
+        shell: bash
+        run: sh tests/smoke/run.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: live-windows
-          path: live/
+          path: |
+            live/
+            build/smoke/*.txt
 
   macos:
     runs-on: macos-latest
@@ -207,6 +225,9 @@ jobs:
       - name: The same pixels as the reference
         if: always()
         run: nim c -r --hints:off tools/live/compare.nim live
+      - name: The apps started for real (left alone, then clicked and typed at)
+        if: always()
+        run: sh tests/smoke/run.sh
       - name: An .app signed in Nim, as macOS sees it
         if: always()
         run: sh tests/store/mac.sh
@@ -217,7 +238,9 @@ jobs:
         if: always()
         with:
           name: live-macos
-          path: live/
+          path: |
+            live/
+            build/smoke/*.txt
 
   ios:
     runs-on: macos-latest

@@ -7,6 +7,7 @@ import std/[os, strutils, sequtils]
 import retroui
 import retroui/uirelays/input
 import retroui/core {.all.}
+import retroui/desktop {.all.}
 import harness
 
 let home = getTempDir() / "retro-test-stopped"
@@ -39,6 +40,22 @@ when defined(macosx): key(KeyEnter)       # (no menu letters on a Mac: the defau
 run(2)
 doAssert ran > 0, "Start: the app runs"
 doAssert not startFresh()
+
+# Start says the app is starting again: a stop within 20 seconds of it is
+# a loop; after 20 seconds running, the mark goes
+let mark = dataDir(appIdent) / "starting"
+doAssert readFile(mark) == "again", readFile(mark)
+ticks += 21_000
+run(2)
+doAssert not fileExists(mark), "20 seconds running: no stop at the start"
+# (the next start, as if it stopped again within seconds of Start: the
+# screen says so, and starts without what was open unless unticked)
+writeFile(log, "--- the app stopped\nSIGSEGV (signal 11)\n")
+prevStartMark = "again"
+stopped.checked = false
+doAssert stoppedPending() and stopped.again and startFresh(), "a loop: started fresh"
+stopped.on = false
+prevStartMark = ""
 
 # a fault the app caught and went on from: no screen, the problem box's
 writeFile(log, "--- the color panel\nindex 4 not in 0 .. 2\n")

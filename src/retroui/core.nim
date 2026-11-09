@@ -20,7 +20,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.33.1"
+const RetroVersion* = "0.34.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -271,9 +271,9 @@ type Ctx* = object
   textScale: int                 ## the user's text size, percent (100)
   baseEm: float                  ## text size at 100%
   paused*: bool                  ## mobile app in the background
-  hidden*: bool                  ## desktop window minimized: frames and timers go
-                                 ## on, nothing is drawn (read less often, as
-                                 ## nobody looks)
+  hidden*: bool                  ## desktop window minimized or covered all over:
+                                 ## frames and timers go on, nothing is drawn
+                                 ## (read less often, as nobody looks)
   safe*: tuple[top, left, bottom, right: int]
     ## margins a notch or system bars cover, in logical pixels (and the
     ## sizing border of the 3.1 frame, `setClassicFrame`)
@@ -1515,6 +1515,43 @@ when androidApp:
   {.compile: "crashlog.c".}
   proc retroCrashLog(path: cstring) {.importc: "retro_crash_log", cdecl.}
 
+# ---- a stop right after the start ------------------------------------------------------------------
+#
+# A file in the app's data folder says it is starting ("start"; "again"
+# after the "stopped" screen's Start); it goes once the app has run 20
+# seconds or ended well. Found at the next start beside a fault: the app
+# stopped within seconds -- "again": in a loop, what it brings back at its
+# start the likely cause (desktop's "stopped" screen leaves it out then).
+
+var
+  startMark = ""               ## (the file)
+  startMarkAt = -1             ## (when it was written, ui's time; -1: not counted yet)
+  prevStartMark = ""           ## (what the last run's said, read at this start)
+
+proc markStarting*(how = "start") =
+  ## Writes that the app is starting (`how`: "start", or "again" after the
+  ## "stopped" screen's Start); it goes after 20 seconds running.
+  if startMark.len == 0: return
+  try:
+    createDir(startMark.parentDir)
+    writeFile(startMark, how)
+    startMarkAt = -1
+  except IOError, OSError: discard
+
+proc lastStartMark*(): string =
+  ## What the last run's start left ("start", "again") when it stopped
+  ## within 20 seconds of it; "" when it ran longer or ended well.
+  prevStartMark
+
+proc startMarkFrame() =
+  ## (each frame: 20 seconds after the start, the mark goes)
+  if startMark.len == 0: return
+  if startMarkAt < 0: startMarkAt = ui.now
+  elif ui.now - startMarkAt > 20_000:
+    try: removeFile(startMark)
+    except OSError: discard
+    startMark = ""
+
 proc writeFault(msg: string) {.tags: [WriteIOEffect], gcsafe, nimcall, raises: [].} =
   {.cast(gcsafe).}:
     try: stderr.write msg
@@ -2320,8 +2357,11 @@ proc lookChanged*(): bool =
 proc setUiScale*(percent: int) =
   ## The size of everything (text, controls, spacing), 50..300 percent of
   ## the normal size for the screen. Ctrl and +, - or 0 change it too.
-  if clamp(percent, 50, 300) != ui.uiScale: lookDirty = true
-  ui.uiScale = clamp(percent, 50, 300)
+  ## Cheap to call every frame: only a change lays out and draws again.
+  let p = clamp(percent, 50, 300)
+  if p == ui.uiScale and ui.k == ui.density * float(p) / 100: return
+  if p != ui.uiScale: lookDirty = true
+  ui.uiScale = p
   ui.k = ui.density * float(ui.uiScale) / 100
   fitMetrics()
   ui.force = true
@@ -2343,7 +2383,8 @@ proc scaleStep*(dir: int): int =
 
 proc setTextScale*(percent: int) =
   ## The size of the text alone (controls grow with it), 50..300 percent.
-  if clamp(percent, 50, 300) != ui.textScale: lookDirty = true
+  if clamp(percent, 50, 300) == ui.textScale: return
+  lookDirty = true
   ui.textScale = clamp(percent, 50, 300)
   fitMetrics()
   ui.force = true
@@ -2354,6 +2395,7 @@ proc textScale*(): int = ui.textScale
 proc setBaseTextSize*(em: float) =
   ## The text size at 100%, logical pixels per em (default `DesktopTextEm`,
   ## 12, on desktops and tablets; `TouchTextEm`, 15, on phones).
+  if em == ui.baseEm: return
   ui.baseEm = em
   fitMetrics()
   ui.force = true
@@ -2807,6 +2849,7 @@ proc setResizable*(on: bool) =
   ## the frame then has no sizing border to drag, no maximize button and no
   ## size grip, and the window keeps the size the app gave it -- the 3.1
   ## frame and the system's alike. `app`'s `resizable` option sets it.
+  if on == resizableWanted and ui.running: return
   resizableWanted = on
   setWindowResizable(on)
   ui.force = true
@@ -2891,6 +2934,12 @@ proc startApp*(title: string; w, h: int; theme = ui.theme; zoom = 0) =
   # (the app's name without its version: the log stays when it is updated)
   try: setFaultPath(dataDir(appIdent) / "faults.log")
   except CatchableError: discard
+  # (the last run's start mark, then this one's)
+  try:
+    startMark = dataDir(appIdent) / "starting"
+    prevStartMark = if fileExists(startMark): readFile(startMark).strip else: ""
+  except CatchableError: startMark = ""
+  markStarting()
   errorMessageWriter = writeFault
   when androidApp:
     if faultPath.len > 0: retroCrashLog(faultPath.cstring)
@@ -2927,10 +2976,15 @@ var
   statsOn = getEnv("RETRO_STATS") == "1"
   statStart = getMonoTime()
   statFirst = false
+  firstShownMs = -1               ## (when the first frame was shown, ms after the start)
+  shownCount = 0                  ## (frames put on the screen so far)
 
 proc noteFrame(presented: bool) =
   let ms = float((getMonoTime() - statT0).inMicroseconds) / 1000
   statAvg = if statAvg == 0: ms else: statAvg * 0.9 + ms * 0.1
+  if presented:
+    inc shownCount
+    if firstShownMs < 0: firstShownMs = int((getMonoTime() - statStart).inMilliseconds)
   if not statsOn: return
   statSum += ms
   statMax = max(statMax, ms)
@@ -2955,6 +3009,131 @@ proc noteFrame(presented: bool) =
 proc frameTime*(): float = statAvg
   ## How long the app's frames take to build and draw, in milliseconds
   ## (smoothed); RETRO_STATS=1 prints it every 2 seconds.
+
+proc firstFrameMs*(): int = firstShownMs
+  ## How long after the program started its first frame was shown, in
+  ## milliseconds (-1: not yet).
+
+# ---- a smoke run: the app started for real, left alone, then driven --------------------------------
+#
+# RETRO_SMOKE=12: the app runs as people start it -- its own window, the
+# system's driver -- and the kit measures it: the first frame's time, then
+# 3 seconds untouched (the frames run and the processor's time: an app at
+# rest should do next to nothing), then clicks, keys, the wheel and typing
+# until 12 seconds have passed. Then it ends: exit code 0, 1 when a fault
+# was caught or logged, 2 when it was busy while untouched. A line is
+# written to stderr and added to $RETRO_SMOKE_OUT (also when a click closed
+# the app before its time). Run it in a home of its
+# own: the clicks can delete what they reach (tests/smoke/run.sh does so).
+
+const
+  smokeSettleMs = 4000            ## (the start: a splash, the first loads)
+  smokeIdleMs = 3000              ## (left alone)
+  smokeIdleFrames = 30            ## (most frames while left alone: 10 a second -- a caret blinks)
+  smokeIdleCpu = 1.0              ## (most processor seconds while left alone: a third of one core)
+
+var smoke = (secs: (try: parseInt(getEnv("RETRO_SMOKE", "0")) except ValueError: 0),
+             start: getMonoTime(), idleFrom: MonoTime(), idleCpu0: 0.0,
+             idleFrames: 0, idleShown: 0, idleCpu: 0.0, phase: 0, events: 0,
+             seed: 0x9E3779B9'u32, frames: 0, shown: -1, pressed: false)
+
+proc smokeOn*(): bool = smoke.secs > 0
+  ## A smoke run (RETRO_SMOKE) is going on.
+
+proc smokeRand(n: int): int =
+  smoke.seed = smoke.seed xor (smoke.seed shl 13)
+  smoke.seed = smoke.seed xor (smoke.seed shr 17)
+  smoke.seed = smoke.seed xor (smoke.seed shl 5)
+  int(smoke.seed mod uint32(max(1, n)))
+
+proc smokeReport(closed = false): int =
+  ## (the run's line, written; its exit code. `closed`: the app ended
+  ## before the time was up -- a click reached its close box or Exit)
+  if smoke.phase > 2: return 0
+  smoke.phase = 3
+  let faults = (if faultPath.len > 0 and fileExists(faultPath):
+                  (try: readFile(faultPath) except IOError: "") else: "") & ui.lastFault
+  let busy = smoke.idleFrames > smokeIdleFrames or smoke.idleCpu > smokeIdleCpu
+  let line = (if ui.title.len > 0: ui.title else: "the app") & ": first frame " & $firstShownMs &
+             " ms; untouched 3 s: " & $smoke.idleFrames & " frames (" & $smoke.idleShown & " shown), " &
+             $int(smoke.idleCpu * 1000) & " ms of processor; " & $smoke.events & " events; " &
+             (if faults.len > 0: "FAULT: " & faults.strip.splitLines[0] elif busy: "BUSY while untouched"
+              elif closed: "ok (it closed itself: a click on Exit or its close box)"
+              else: "ok")
+  stderr.writeLine "smoke: ", line
+  let outFile = getEnv("RETRO_SMOKE_OUT")
+  if outFile.len > 0:
+    try:
+      var f: File
+      if open(f, outFile, fmAppend):
+        f.writeLine line
+        f.close()
+    except IOError, OSError: discard
+  result = if faults.len > 0: 1 elif busy: 2 else: 0
+
+proc smokeFinish() =
+  quit(smokeReport())
+
+proc smokeEvent(): Event =
+  ## (something a person does: a move, a press or a let-go, the wheel, a key, a letter)
+  let x = smokeRand(max(1, ui.w))
+  let y = smokeRand(max(1, ui.h))
+  if smoke.pressed:
+    smoke.pressed = false
+    return Event(kind: MouseUpEvent, x: ui.mx, y: ui.my, button: LeftButton)
+  case smokeRand(10)
+  of 0, 1: Event(kind: MouseMoveEvent, x: x, y: y)
+  of 2, 3, 4:
+    smoke.pressed = true
+    Event(kind: MouseDownEvent, x: x, y: y, button: LeftButton, clicks: 1 + smokeRand(4) div 3)
+  of 5: Event(kind: MouseWheelEvent, x: 0, y: smokeRand(7) - 3)
+  of 6, 7:
+    const keys = [KeyTab, KeyDown, KeyUp, KeyLeft, KeyRight, KeyEsc, KeySpace, KeyPageDown, KeyHome,
+                  KeyEnd, KeyEnter, KeyEsc]
+    Event(kind: KeyDownEvent, key: keys[smokeRand(keys.len)])
+  else:
+    var e = Event(kind: TextInputEvent)
+    e.text[0] = char(ord('a') + smokeRand(26))
+    e
+
+proc smokeFrame() =
+  ## (each frame of a smoke run: where it is, what it does now)
+  if smoke.secs <= 0: return
+  inc smoke.frames
+  let ms = int((getMonoTime() - smoke.start).inMilliseconds)
+  case smoke.phase
+  of 0:
+    if ms >= smokeSettleMs and firstShownMs >= 0:
+      smoke.phase = 1
+      smoke.idleFrom = getMonoTime()
+      smoke.idleCpu0 = cpuTime()
+      smoke.idleFrames = 0
+      smoke.shown = -1                # (counted from the next frame: this one is shown yet)
+      wakeIn(smokeIdleMs)             # (the measure's end: an app at rest wakes nothing itself)
+    else:
+      wakeIn(max(1, smokeSettleMs - ms))
+  of 1:
+    if smoke.shown < 0: smoke.shown = shownCount
+    inc smoke.idleFrames
+    let idle = int((getMonoTime() - smoke.idleFrom).inMilliseconds)
+    if idle >= smokeIdleMs:
+      smoke.idleCpu = cpuTime() - smoke.idleCpu0
+      smoke.idleShown = shownCount - smoke.shown
+      dec smoke.idleFrames            # (this frame is the measure's, not the app's)
+      smoke.phase = 2
+      wakeIn(15)
+    else:
+      wakeIn(smokeIdleMs - idle)
+  else:
+    if ms >= smoke.secs * 1000: smokeFinish()
+    let e = smokeEvent()
+    inc smoke.events
+    if e.kind == KeyDownEvent:
+      discard applyEvent(e)
+      discard applyEvent(Event(kind: KeyUpEvent, key: e.key))
+    else:
+      discard applyEvent(e)
+    wakeIn(15)
 
 proc themeFromEnv*() =
   ## `RETRO_THEME` (a built-in theme's name, "OLED Black", or its number)
@@ -3196,6 +3375,8 @@ proc beginFrame*(): bool =
     ui.rpressed = true
   ui.popupBefore = ui.popup
   frameSetup(true)
+  if startMark.len > 0: startMarkFrame()
+  if smoke.secs > 0: smokeFrame()
   true
 
 proc frameWaitMs*(): int =
@@ -3717,5 +3898,16 @@ proc inWindow*(): bool = curWindow != nil
 
 proc stopApp*() =
   ## Closes the window and ends the app (`app` calls it when its loop ends).
+  if startMark.len > 0:
+    try: removeFile(startMark)          # (ended well: no stop at the start)
+    except OSError: discard
+  if smoke.secs > 0:
+    # (a smoke run's app closed by a click: its line still written, and a
+    # fault or a busy rest still its exit code)
+    let code = smokeReport(closed = true)
+    if code != 0:
+      for h in stopAppHooks: h()
+      shutdown()
+      quit(code)
   for h in stopAppHooks: h()
   shutdown()

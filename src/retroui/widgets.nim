@@ -21,6 +21,10 @@ from typeset import bidiInfo, visualOrderOf, isMark, shownRtl, plainLetters, joi
 
 template th: untyped = ui.theme
 
+const CaretBlinkFor* = 10_000
+  ## How long a caret blinks after it last moved, in milliseconds; then it
+  ## stays shown, and a window left with a text box focused runs no frames.
+
 var
   caretT: int      ## when the caret last moved; it blinks from there
   repeatAt: int    ## next auto-repeat of a held scroll arrow or spin button
@@ -1487,14 +1491,16 @@ proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
         text(px0, y, shown(s, sa, sb, pass), th.selectText)
     if focusedNow and ui.active31 and st.caret >= a and
        (st.caret < b or (st.caret == b and not vl[k].soft)) and
-       ((ui.now - caretT) div 530) mod 2 == 0:
+       (ui.now - caretT >= CaretBlinkFor or ((ui.now - caretT) div 530) mod 2 == 0):
       vline(x0 + vxOf(s, a, st.caret, pass, g), y, FontH, fg)
     inc shownLines
     inc k
     y += FontH
   popClip()
-  if focusedNow and ui.active31:
-    wakeIn(530 - (ui.now - caretT) mod 530)
+  if focusedNow and ui.active31 and ui.now - caretT < CaretBlinkFor:
+    # (it blinks a while after it last moved, then stays: no frames for a
+    # caret nobody is using, as Windows stops its blinking)
+    wakeIn(min(530 - (ui.now - caretT) mod 530, CaretBlinkFor - (ui.now - caretT)))
     # (the system's input method composes at the caret)
     noteTextCaret(rect(globalX(gc.left - st.scrollX + vxOf(s, cl, st.caret, pass, gc)),
                        (if multi: ty + ln * FontH - st.scrollY else: ty), 1, FontH))
@@ -2231,7 +2237,9 @@ var tabLook* = tlPalette
   ## Photo's palette tabs since 0.9.
 
 proc setTabLook*(look: TabLook) =
-  ## Every `tabs` and `tabStrip` from now on in this look.
+  ## Every `tabs` and `tabStrip` from now on in this look (a change draws
+  ## again; the same look again, nothing).
+  if look == tabLook: return
   tabLook = look
   ui.redraw = true
 
@@ -3458,9 +3466,12 @@ var toolbarLook* = blIconOnly
   ## Labels"; a setting the app can offer: `setToolbarLook`).
 
 proc setToolbarLook*(look: ButtonLook) =
-  ## Every tool bar's buttons from now on (blDefault: icon only).
-  toolbarLook = if look == blDefault: blIconOnly else: look
-  ui.redraw = true
+  ## Every tool bar's buttons from now on (blDefault: icon only). Cheap to
+  ## call every frame: only a change draws again.
+  let l = if look == blDefault: blIconOnly else: look
+  if l != toolbarLook:
+    toolbarLook = l
+    ui.redraw = true
 
 template ToolH: int =
   (if toolbarLook == blTextBelow: CtrlH + FontH + dp(5) else: CtrlH + 5)

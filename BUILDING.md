@@ -553,7 +553,22 @@ the APKs a phone gets: `java -jar bundletool.jar build-apks
   stopped it (a crash of its Nim code, of the native code or of Java) and
   shows it first, before the app runs, with Copy and Send by Email; "Start
   without what was open the last time" opens it without the document,
-  folder or board that may have caused it.
+  folder or board that may have caused it (ticked by itself when it
+  stopped again right after that screen's Start).
+- **A crash report with addresses only** (`libmain.so+0x386786`, or
+  logcat's `#00 pc 0000000000386786 .../libmain.so`): the APK's library
+  is stripped, and `retroapk` keeps a copy with its functions' names beside
+  the APK, in `APP-symbols/ABI/libmain.so` (llvm-strip: the NDK's, LLVM's,
+  or on the PATH; without one the library is linked stripped and no copy
+  is kept). Keep that folder with each APK you hand out (the Release has
+  `APP-symbols.zip`); `retrokit symbolize report.txt build/RetroPhoto-symbols`
+  names the frames.
+- **One activity:** the manifest makes the activity its task's only one
+  (`singleTask`), so starting the app again -- its icon, an intent,
+  `adb shell am start` -- brings it back as it was. The app's start runs
+  once at a time in a process: an activity made beside a running app
+  closes, and an app that ended starts again in the next one with the
+  first run's cycles collected.
 - **Permissions:** `retroapk` reads what the app's compiled code uses --
   the camera, the microphone, notifications, the place, a buzz, the
   network -- and lists those permissions in the manifest by itself (it says
@@ -562,8 +577,9 @@ the APKs a phone gets: `java -jar bundletool.jar build-apks
   without it when the answer is no.
 - **Built for Android's emulator:** `nimble emuapks` (x86_64, debuggable);
   `sh tests/android/apps.sh build/apps/list.txt` opens each with and
-  without its permissions, drives it with the monkey and fails on a
-  crash (the systems workflow does it on Android 11 and 15). A debuggable
+  without its permissions, turns the screen both ways, puts it away and
+  brings it back, drives it with the monkey and fails on a crash (the
+  systems workflow does it on Android 11 and 15). A debuggable
   APK's library is not stripped, so a native crash's frames are named
   (with the NDK's `llvm-addr2line`), and Nim's stack traces are on.
 

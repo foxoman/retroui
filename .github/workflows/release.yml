@@ -6,7 +6,8 @@ name: Release
 #
 #   Linux    an AppImage (one file, runs on most distributions)
 #   Windows  an .exe (with its icon and version)
-#   Android  an APK (arm64)
+#   Android  an APK (arm64), and its library with its functions' names
+#            (APP-symbols.zip: `retrokit symbolize` on a phone's crash report)
 #   macOS    the .app, zipped
 #
 # It runs when a version tag is pushed (git push origin v0.20.8: the release
@@ -129,11 +130,18 @@ jobs:
             echo "no signing key in the secrets: this run makes one"
           fi
       - name: APK
-        run: RETRO_APP=${{ matrix.app }} nimble appapk -y
+        run: |
+          RETRO_APP=${{ matrix.app }} nimble appapk -y
+          # (its library with the functions' names, for `retrokit symbolize`
+          # on a crash report from a phone)
+          cd build
+          for d in *-symbols; do [ -d "$d" ] && zip -qr "$d.zip" "$d"; done
       - uses: actions/upload-artifact@v4
         with:
           name: android-${{ matrix.app }}
-          path: build/*.apk
+          path: |
+            build/*.apk
+            build/*-symbols.zip
 
   macos:
     needs: plan

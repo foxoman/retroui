@@ -36,4 +36,7 @@ nim c --hints:off --cc:clang --noMain -d:retroAndroidMock --passL:"-L$work/stubs
   --path:"$here/../../src" --nimcache:"$work/cache" \
   --passC:"-D_GNU_SOURCE -include $work/include/mockdefs.h -I$work/include" \
   -o:"$work/app" "$here/app.nim"
-RETRO_GPU=0 "$work/app"
+# (the fake Android's process ends as Android's does, with _exit(0) in the
+# last activity's end: passed only when it said so)
+RETRO_GPU=0 "$work/app" 2>&1 | tee "$work/out.txt"
+grep -q "android mock tests passed" "$work/out.txt"

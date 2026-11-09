@@ -13,6 +13,14 @@ import surface_driver
 {.compile: "android_glue.c".}
 {.passL: "-landroid -llog -ldl".}
 
+proc uirelaysMainEnded() {.exportc: "uirelays_main_ended", cdecl.} =
+  ## (android_glue.c, when NimMain has returned on this thread) The cycle
+  ## collector's roots of this thread let go: a start run again in this
+  ## process, on another thread, finds no object still counted as a root of
+  ## this one (whose last reference let go there would read a list that is
+  ## not its thread's). Again while freeing made new roots.
+  for i in 0 .. 3: GC_fullCollect()
+
 proc androidKey(code: int32): KeyCode =
   ## AKEYCODE_* to ours.
   case code

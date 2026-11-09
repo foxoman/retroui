@@ -564,7 +564,8 @@ Tabs whose page keeps the height of the tallest one shown so far
 proc setTabLook*(look: TabLook)
 ```
 
-Every `tabs` and `tabStrip` from now on in this look.
+Every `tabs` and `tabStrip` from now on in this look (a change draws
+again; the same look again, nothing).
 
 ### Splitters: split, vsplit
 
@@ -1219,7 +1220,9 @@ With the focus: Left / Right one star less / more, Home none, End all.
 
 Every text box has Cut, Copy, Paste, Undo and its menu (a right click, a
 long press), selects with the mouse, the keyboard and fingers, and takes
-Arabic and any text the system's input method gives.
+Arabic and any text the system's input method gives. Its caret blinks for
+`CaretBlinkFor` (10 seconds) after it last moved, then stays shown: a
+window left with a text box focused runs no frames.
 
 ### edit
 
@@ -3942,7 +3945,8 @@ proc barButton*(glyph: string; label: string; tip = ""; down = false; enabled = 
 proc setToolbarLook*(look: ButtonLook)
 ```
 
-Every tool bar's buttons from now on (blDefault: icon only).
+Every tool bar's buttons from now on (blDefault: icon only). Cheap to
+call every frame: only a change draws again.
 
 ### customizeToolbar
 

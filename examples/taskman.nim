@@ -23,7 +23,7 @@ import retroui/[sysmon, system]
 
 const
   AppTitle = "Retro Task Manager"
-  AppVersion* = "1.0.2"
+  AppVersion* = "1.0.3"
   AppId = "RetroTaskManager"
   IconPng = staticRead("assets/taskman-icon.png")
 

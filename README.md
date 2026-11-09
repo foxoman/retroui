@@ -434,8 +434,10 @@ retrokit designer app.nim       # app.nim's windows (a new file when there is no
   timer asked for one (`wakeIn(ms)`) or when work on a background thread
   finished. Between frames the app sleeps. Drawing commands carry hashes:
   an unchanged frame is skipped, and a changed one redraws only the bands
-  that changed. A minimized window draws nothing at all (`ui.hidden`:
-  its frames and timers go on, so it can read less often).
+  that changed. A window minimized or covered all over by others draws
+  nothing at all (`ui.hidden`: its frames and timers go on, so it can read
+  less often), and a caret stops blinking 10 seconds after it last moved,
+  so a window left with a text box focused runs no frames.
 - **Input, the same everywhere.** Mouse: click, double-click, the wheel
   (Shift for sideways, Ctrl to zoom where it makes sense), drag, the right
   button for menus, the middle and side buttons. Keyboard: Tab and
@@ -1030,7 +1032,10 @@ scroll bars.
   down before the app's own code runs (`stoppedScreen`: Copy, Send by
   Email, Start); an app with its own frame loop calls `stoppedFrame` first
   in each frame and `stoppedPending` before it brings back what was open,
-  and leaves that out when `startFresh` (the user chose so).
+  and leaves that out when `startFresh` (the user chose so). When it stops
+  again within seconds of that screen's Start -- a loop, what it brings
+  back at its start the likely cause -- the screen says so and the box to
+  start without it is ticked (`lastStartMark`).
 - **About:** `aboutBox(open, "Ledger", "2.0", ["(c) 2026 ..."], tagline = ...,
   iconPng = staticRead("icon.png"), whatsNew = [...], credits = [...])`: a
   banner in the blue of a 1994 Setup screen with the icon, name, version
@@ -1171,7 +1176,7 @@ toast("Copied 12 items", title = "Files")    # a yellow Windows 95 balloon
 ### Retro Files
 
 `examples/filemanager.nim` (about 2,100 lines: the rest is the toolkit's)
-is **Retro Files 3.3.6**, a complete file manager in the manner of the Windows 98
+is **Retro Files 3.3.7**, a complete file manager in the manner of the Windows 98
 Explorer -- the Standard Buttons with their labels under the icons (View >
 Toolbars > Text Labels), the Address bar, View as Web Page (the folder's
 name large and the selection described at the left), Large and Small icons,
@@ -1424,7 +1429,7 @@ drawing (`fill`, `box`, `line`, `text`, `disc`, `polygon`…).
 
 ![Retro Mail: All Inboxes in threads, tags, the conversation in the preview pane](docs/mail.png)
 
-`examples/mail.nim` is **Retro Mail 1.1.2**: Outlook Express 4 to look at and to
+`examples/mail.nim` is **Retro Mail 1.1.3**: Outlook Express 4 to look at and to
 use, with what the new Outlook does, for Microsoft 365, Outlook.com and Gmail
 -- and any other provider through IMAP and SMTP. It is the toolkit's network
 modules at work:
@@ -1589,7 +1594,7 @@ b.saveBoard("flow.board")
   scale, transparent or on the canvas's color), SVG and PDF (vectors,
   text as outlines).
 
-`examples/retroboard.nim` is **Retro Board 1.3.6**, a whiteboard app made of
+`examples/retroboard.nim` is **Retro Board 1.3.7**, a whiteboard app made of
 it: the 3.1 title bar on phones and tablets, a status bar (the tool's
 hint, page, shapes, zoom, memory), the color schemes and Appearance, a
 floating tool bar (select, hand, draw, highlighter, eraser, laser,
@@ -1642,15 +1647,15 @@ app "Monitor", 500, 400:
 |---|---|
 | Linux, Termux | /proc and /sys (Termux: Android shows a shell its own processes; the cores' speeds instead of their times); a BSD: what its Linux /proc (linprocfs) shows |
 | Windows | one `NtQuerySystemInformation` for every process and the cores; the memory, the disks, the network, the battery |
-| macOS | `host_statistics64`, `host_processor_info`, `proc_pidinfo` |
+| macOS | `host_statistics64`, `host_processor_info`, `proc_pidinfo`, the disks' statistics (IOKit), the connections (`proc_pidfdinfo`) |
 | Android app | its own process, the memory, the storage, the network, the battery (Android shows an app no other) |
 
 Also: `endProcessTree` (a process and every one it started), `setPriority`,
 `startupItems` / `setStartupEnabled` (the programs that start with the
 system: freedesktop's autostart entries, Windows' Run keys turned off and
 on as Task Manager does, a Mac's launch agents to look at),
-`connections` (TCP and UDP, with their programs: Linux, Termux and
-Windows), `appendHistory` / `loadHistory` (a point every few seconds on disk, the
+`connections` (TCP and UDP, with their programs: Linux, Termux, Windows
+and macOS), `appendHistory` / `loadHistory` (a point every few seconds on disk, the
 last week).
 
 `liveGraph` (charts) is the graph of a task manager: black, a green grid
@@ -1660,7 +1665,7 @@ the picture whatever the number of values.
 
 ![Retro Task Manager: the processes](docs/taskman.png)
 
-`examples/taskman.nim` is **Retro Task Manager 1.0.2**: the processes with
+`examples/taskman.nim` is **Retro Task Manager 1.0.3**: the processes with
 their share of the processor, the memory and the disk (search, sort by any
 column, End task, End process tree, a priority, Open file location,
 Properties; Delete ends the one selected, after asking), the processor (and
@@ -1749,7 +1754,7 @@ s.dehaze = 10
 p.applyFilter(developMargin(s), develop(s))
 ```
 
-`examples/photo.nim` is **Retro Photo 4.9.7**, an image editor in the manner
+`examples/photo.nim` is **Retro Photo 4.9.8**, an image editor in the manner
 of the ones of 1994: the toolbox, the tabbed floating palettes (Brushes
 and Options; Picker, Swatches and Scratch; Layers, Channels and Paths;
 Info; Commands; Navigator, History and Actions; Properties), an options
@@ -2235,7 +2240,21 @@ signal) or of Java is written to its fault log; the next start shows it
 first -- before the app's own code runs, so a crash at the start shows too
 -- with Copy and Send by Email, and "Start without what was open the last
 time" (`startFresh`: Files, Photo and Board leave their last folders,
-pictures and board).
+pictures and board), ticked by itself when it stopped again right after
+that screen's Start.
+
+**A crash's report with its functions' names:** without `--debuggable`
+the library in the APK is stripped and a copy with its names is kept
+beside it (`RetroPhoto-symbols/arm64-v8a/libmain.so`; the Release has it
+as `RetroPhoto-symbols.zip`). `retrokit symbolize report.txt
+build/RetroPhoto-symbols` names each frame of a report -- the "stopped"
+screen's (`libmain.so+0x386786`) or logcat's (`#00 pc 0000000000386786
+.../libmain.so`) -- and `retroui/symbolize` does it from Nim.
+
+**One activity, one start:** the activity is its task's only one
+(`singleTask`): started again -- its icon, an intent, `adb shell am
+start` -- it comes back as it was, and the app's start (NimMain) never
+runs twice at once in one process.
 
 **On a phone or tablet,** a build runs as many C compilers as the memory
 allows, at most four in Termux (Android stops builds with too many:
@@ -2550,9 +2569,21 @@ and the tests too.
 **Every app on Android's emulator:** the systems workflow builds the main
 apps for the emulator (`nimble emuapks`) and `tests/android/apps.sh` opens
 each on Android 11 and 15 -- with nothing allowed, then with every
-permission -- drives it with the monkey (random taps and keys, the same
-each time), and fails on a crash of Java or of the native code, with the
-screens, the log and the app's own fault log kept.
+permission -- turns the screen both ways, puts it away and brings it
+back, drives it with the monkey (random taps and keys, the same each
+time), and fails on a crash of Java or of the native code, with the
+screens, the log and the app's own fault log kept; a native crash's
+frames are named (the emulator's APKs are built `--debuggable`).
+
+**Every app started for real:** `sh tests/smoke/run.sh` (on Linux without
+a screen: `xvfb-run -a sh tests/smoke/run.sh`) builds the apps and starts
+each in a home of its own with `RETRO_SMOKE=14`: the kit measures the
+first frame, then 3 seconds untouched (the frames and the processor's
+time: an app at rest does next to nothing), then clicks, keys, the wheel
+and typing until the time is up (on X, xdotool's real input too). A
+fault, a crash, a hang or an app busy while untouched fails it; a line
+for each app goes to `build/smoke/results.txt`. The systems workflow runs
+it on Linux, Windows and macOS.
 
 **On every system, with its own drivers.** `tests/live/livecheck.nim` opens
 a real window and goes through pages of the guide by itself -- controls, a
@@ -2724,7 +2755,8 @@ when they are there.
 No. A frame runs only when something happened (input, a timer you asked
 for with `wakeIn`, finished background work); an unchanged frame is not
 drawn or sent; a changed one redraws only the bands that changed; a
-minimized window draws nothing. An idle app uses no CPU.
+minimized or covered window draws nothing; a caret rests after 10
+seconds. An idle app uses no CPU (`RETRO_SMOKE` measures it).
 
 **Where do widget ids come from? What about lists of rows?**
 From the variable a widget is bound to, or its label. When the same

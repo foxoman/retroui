@@ -1592,7 +1592,10 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["4.9.7: on a Mac it opens again (it stopped at the first click or key since 0.29 of the kit); minimized, it draws nothing",
+           whatsNew = ["4.9.8: on Android it opens every time (a second start in the same process stopped " &
+                       "it in its filters); covered by another window it draws nothing; the caret rests " &
+                       "after 10 seconds untouched",
+                       "4.9.7: on a Mac it opens again (it stopped at the first click or key since 0.29 of the kit); minimized, it draws nothing",
                        "4.9.6: in Termux, pictures named after it on the command line open; a report of a " &
                        "fault says the version",
                        "4.9.5: filters, flattening and gradients at 16 and 32 bits work again (4.9.4 " &

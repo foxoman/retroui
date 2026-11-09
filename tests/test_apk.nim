@@ -5,6 +5,7 @@ import std/[strutils, os, osproc]
 import ../src/retroapk {.all.}
 import retroui/[appicon, rsa, zip, androiddex]
 from retroui/sign import jarSign
+import retroui/symbolize
 
 proc hex(b: Bytes): string =
   for x in b: result.add x.toHex(2).toLowerAscii
@@ -229,4 +230,27 @@ block:
     let (o, code) = execCmdEx(quoteShellCommand(["java", "-jar", bt, "validate", "--bundle=" & aab]))
     doAssert code == 0 and "Feature module: base" in o, o
   removeFile(aab)
+
+block symbolized:
+  # a crash report's frames named from a library's symbol table: this
+  # program's own (an ELF file with its names, on Linux)
+  let me = readFile(getAppFilename())
+  if me.startsWith("\x7fELF") and me[4] == '\x02':
+    let e = readElfSymbols(me)
+    doAssert e.ok, e.error
+    var some = ElfSymbol()
+    for s in e.syms:
+      if s.size > 64 and "__" in s.name: (some = s; break)
+    doAssert some.name.len > 0
+    let off = some.start + 16
+    doAssert e.lookup(off) == (some.name, 16'u64)
+    let report = "--- the app stopped\n  #00 0x7f0000 libmain.so+0x" & toHex(off) & "\n" &
+                 "F DEBUG   :       #01 pc " & toHex(off) & "  /data/app/x/lib/x86_64/libmain.so\n"
+    writeFile(getTempDir() / "retro-sym.so", me)
+    let named = symbolizeReport(report, getTempDir() / "retro-sym.so")
+    doAssert named.count(nimName(some.name)) == 2, named
+    removeFile(getTempDir() / "retro-sym.so")
+  doAssert nimName("beginFrame__OOZsrcZretrouiZcore_u12585") == "beginFrame (src/retroui/core)"
+  doAssert nimName("memcpy") == "memcpy"
+  doAssert not readElfSymbols("not a library").ok
 echo "apk tool tests passed"

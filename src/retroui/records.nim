@@ -272,9 +272,10 @@ proc maskedEdit*(value: var string; mask: string; w = 0;
     x += textWidth(ch)
     inc ti
   if hit.focused and enabled:
-    if ((ui.now - maskCaretT) div 530) mod 2 == 0:
+    let since = ui.now - maskCaretT
+    if since >= CaretBlinkFor or (since div 530) mod 2 == 0:
       vline(slotX[st.caret], ty, FontH, th.fieldText)
-    wakeIn(530 - (ui.now - maskCaretT) mod 530)
+    if since < CaretBlinkFor: wakeIn(min(530 - since mod 530, CaretBlinkFor - since))
   popClip()
   if accessOn:
     let k = accessNode(arTextField, value = full, states = accessOff(enabled), id = id, r = r,

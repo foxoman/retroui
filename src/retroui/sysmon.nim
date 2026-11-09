@@ -18,8 +18,8 @@
 ##               the memory, the network's interfaces, each physical drive's
 ##               counters, the drives, the battery
 ## macOS         host_statistics64, host_processor_info, proc_pidinfo for each
-##               process, the network's interfaces, the volumes (not yet: the
-##               disks' rates, the connections)
+##               process, the network's interfaces, the disks (IOKit), the
+##               volumes, the connections (libproc)
 ## Web page      the cores the browser tells; nothing else is the page's to see
 ## ============  ==================================================================
 ##
@@ -45,6 +45,8 @@ import std/[strutils, tables, times, locks, algorithm]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 when not defined(wasm):
   import std/os
+when defined(macosx) and not defined(ios):
+  import std/dynlib        # (IOKit and CoreFoundation for the disks' counts)
 const threaded = compileOption("threads") and not defined(wasm)
   ## (a web page reads where it is asked, in its frame: no thread of its own)
 when threaded:
@@ -692,6 +694,8 @@ elif defined(macosx) and not defined(ios):
   proc freeifaddrs(list: ptr IfAddrs) {.importc, header: "<ifaddrs.h>".}
   proc sysctlbyname(name: cstring; old: pointer; oldlen: ptr csize_t; new: pointer; newlen: csize_t): cint
     {.importc, header: "<sys/sysctl.h>".}
+  proc proc_pidfdinfo(pid: cint; fd: cint; flavor: cint; buf: pointer; size: cint): cint
+    {.importc, header: "<libproc.h>".}
 
   var exeOf: Table[(int, float), string]
   var userNames: Table[int, string]
@@ -702,6 +706,89 @@ elif defined(macosx) and not defined(ios):
     let pw = getpwuid(Uid(uid))
     result = if pw != nil and pw.pw_name != nil: $pw.pw_name else: $uid
     userNames[uid] = result
+
+  # (the disks' counts: IOKit's block storage drivers, loaded at run time)
+  type
+    IOServiceMatchingFn = proc (name: cstring): pointer {.cdecl, gcsafe.}
+    IOServiceGetMatchingServicesFn = proc (port: uint32; matching: pointer; it: ptr uint32): cint {.cdecl, gcsafe.}
+    IOIteratorNextFn = proc (it: uint32): uint32 {.cdecl, gcsafe.}
+    IOObjectReleaseFn = proc (o: uint32): cint {.cdecl, gcsafe.}
+    IORegistryEntryCreateCFPropertiesFn = proc (entry: uint32; props: ptr pointer; alloc: pointer;
+                                                options: uint32): cint {.cdecl, gcsafe.}
+    CFDictionaryGetValueFn = proc (d, key: pointer): pointer {.cdecl, gcsafe.}
+    CFStringCreateWithCStringFn = proc (alloc: pointer; s: cstring; enc: uint32): pointer {.cdecl, gcsafe.}
+    CFNumberGetValueFn = proc (n: pointer; kind: cint; v: pointer): uint8 {.cdecl, gcsafe.}
+    CFReleaseFn = proc (p: pointer) {.cdecl, gcsafe.}
+  var
+    ioTried = false
+    ioMatching: IOServiceMatchingFn
+    ioServices: IOServiceGetMatchingServicesFn
+    ioNext: IOIteratorNextFn
+    ioRelease: IOObjectReleaseFn
+    ioProps: IORegistryEntryCreateCFPropertiesFn
+    cfGet: CFDictionaryGetValueFn
+    cfString: CFStringCreateWithCStringFn
+    cfNumber: CFNumberGetValueFn
+    cfRelease: CFReleaseFn
+    cfKeys: array[5, pointer]      # Statistics, Bytes (Read), Bytes (Write), Total Time (Read), (Write)
+
+  proc loadIoKit(): bool =
+    if ioTried: return ioMatching != nil and cfGet != nil
+    ioTried = true
+    let io = loadLib("/System/Library/Frameworks/IOKit.framework/IOKit")
+    let cf = loadLib("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+    if io == nil or cf == nil: return false
+    ioMatching = cast[IOServiceMatchingFn](io.symAddr("IOServiceMatching"))
+    ioServices = cast[IOServiceGetMatchingServicesFn](io.symAddr("IOServiceGetMatchingServices"))
+    ioNext = cast[IOIteratorNextFn](io.symAddr("IOIteratorNext"))
+    ioRelease = cast[IOObjectReleaseFn](io.symAddr("IOObjectRelease"))
+    ioProps = cast[IORegistryEntryCreateCFPropertiesFn](io.symAddr("IORegistryEntryCreateCFProperties"))
+    cfGet = cast[CFDictionaryGetValueFn](cf.symAddr("CFDictionaryGetValue"))
+    cfString = cast[CFStringCreateWithCStringFn](cf.symAddr("CFStringCreateWithCString"))
+    cfNumber = cast[CFNumberGetValueFn](cf.symAddr("CFNumberGetValue"))
+    cfRelease = cast[CFReleaseFn](cf.symAddr("CFRelease"))
+    if ioMatching == nil or ioServices == nil or ioNext == nil or ioRelease == nil or ioProps == nil or
+       cfGet == nil or cfString == nil or cfNumber == nil or cfRelease == nil:
+      ioMatching = nil
+      return false
+    for i, k in ["Statistics", "Bytes (Read)", "Bytes (Write)", "Total Time (Read)", "Total Time (Write)"]:
+      cfKeys[i] = cfString(nil, k.cstring, 0x08000100'u32)        # kCFStringEncodingUTF8
+    true
+
+  proc readMacDisks(s: Sample; dt: float) =
+    ## (each disk's bytes and the time it spent working, from its driver's
+    ## statistics: disk0, disk1... in the order IOKit gives them)
+    if not loadIoKit(): return
+    var it: uint32
+    if ioServices(0, ioMatching("IOBlockStorageDriver"), addr it) != 0: return
+    var seenDisks: Table[string, tuple[read, write, ticks: int64]]
+    var n = 0
+    while true:
+      let d = ioNext(it)
+      if d == 0: break
+      var props: pointer
+      if ioProps(d, addr props, nil, 0) == 0 and props != nil:
+        let stats = cfGet(props, cfKeys[0])
+        if stats != nil:
+          var v: array[4, int64]
+          for k in 0 .. 3:
+            let num = cfGet(stats, cfKeys[k + 1])
+            if num != nil: discard cfNumber(num, 4, addr v[k])     # kCFNumberSInt64Type
+          let name = "disk" & $n
+          var di = DiskInfo(name: name)
+          let busyNs = v[2] + v[3]
+          if name in raw.disks and dt > 0:
+            let b = raw.disks[name]
+            di.readRate = max(0.0, float(v[0] - b.read) / dt)
+            di.writeRate = max(0.0, float(v[1] - b.write) / dt)
+            di.busy = clamp(float(busyNs - b.ticks) / (dt * 1e9) * 100, 0, 100)
+          seenDisks[name] = (v[0], v[1], busyNs)
+          s.disks.add di
+          inc n
+        cfRelease(props)
+      discard ioRelease(d)
+    discard ioRelease(it)
+    raw.disks = seenDisks
 
   proc readAll(s: Sample; dt: float) =
     if tb.denom == 0: discard mach_timebase_info(addr tb)
@@ -817,6 +904,7 @@ elif defined(macosx) and not defined(ios):
     if sysctlbyname("kern.boottime", addr boot[0], addr bl, nil, 0) == 0:
       s.uptime = epochTime() - boot[0].float
     s.battery = -1
+    readMacDisks(s, dt)
     # the network: each interface's link entry has its counts (if_data:
     # bytes in at 40, out at 44; 32 bits, they wrap)
     var list: ptr IfAddrs
@@ -1218,7 +1306,7 @@ when (defined(linux) or defined(android)) and not defined(wasm):
 proc connections*(): tuple[list: seq[Connection]; why: string] =
   ## The TCP and UDP endpoints of the programs, with the program's id where
   ## the system says it; `why` says when the system shows none (Android 10
-  ## and later, macOS here, a web page).
+  ## and later, an iPhone, a web page). Linux, Termux, Windows, macOS.
   when defined(wasm) or defined(ios):
     result.why = "the system shows no connections here"
   elif defined(linux) or defined(android):
@@ -1285,6 +1373,57 @@ proc connections*(): tuple[list: seq[Connection]; why: string] =
                                      remote: ip4(buf[b + 3]) & ":" & $port(buf[b + 4]),
                                      state: (if st in 0 .. winStates.high: winStates[st] else: $st),
                                      pid: int(buf[b + 5]))
+  elif defined(macosx):
+    # every process's sockets (libproc): another user's are not shown without
+    # the administrator's rights
+    const macStates = ["Closed", "Listening", "SYN sent", "SYN received", "Established", "Close wait",
+                       "FIN wait 1", "Closing", "Last ACK", "FIN wait 2", "Time wait"]
+    proc port(v: uint32): int = int(((v and 0xFF) shl 8) or ((v shr 8) and 0xFF))
+    proc address(b: ptr UncheckedArray[uint8]; v6: bool): string =
+      if v6:
+        var groups: seq[string]
+        for k in 0 ..< 8: groups.add toHex(int(b[k * 2]) shl 8 or int(b[k * 2 + 1]), 4).toLowerAscii.strip(trailing = false, chars = {'0'})
+        for g in groups.mitems:
+          if g.len == 0: g = "0"
+        result = "[" & groups.join(":") & "]"
+        if result == "[0:0:0:0:0:0:0:0]": result = "[::]"
+        elif result == "[0:0:0:0:0:0:0:1]": result = "[::1]"
+      else:
+        result = $b[12] & "." & $b[13] & "." & $b[14] & "." & $b[15]
+    var pids = newSeq[int32](4096)
+    let np = proc_listallpids(addr pids[0], cint(pids.len * 4))
+    var buf: array[1536, uint8]
+    for i in 0 ..< max(0, np):
+      let pid = pids[i]
+      if pid <= 0: continue
+      let need = proc_pidinfo(cint(pid), 1, 0, nil, 0)              # PROC_PIDLISTFDS
+      if need <= 0: continue
+      var fds = newSeq[uint32](need div 4 + 32)
+      let got = proc_pidinfo(cint(pid), 1, 0, addr fds[0], cint(fds.len * 4))
+      for k in 0 ..< max(0, got) div 8:
+        if fds[k * 2 + 1] != 2: continue                            # PROX_FDTYPE_SOCKET
+        let n = proc_pidfdinfo(cint(pid), cast[cint](fds[k * 2]), 3, addr buf[0], cint(buf.len))
+        if n < 24 + 240 + 84: continue                             # (PROC_PIDFDSOCKETINFO)
+        template i32(at: int): int32 = cast[ptr int32](addr buf[at])[]
+        let si = 24                                                 # (after proc_fileinfo)
+        let kind = i32(si + 232)                                    # soi_kind
+        if kind notin [1'i32, 2]: continue                          # IN, TCP
+        let proto = i32(si + 156)                                   # soi_protocol
+        let ini = si + 240                                          # in_sockinfo
+        let v6 = (buf[ini + 24] and 2) != 0                         # insi_vflag
+        let fa = cast[ptr UncheckedArray[uint8]](addr buf[ini + 32])
+        let la = cast[ptr UncheckedArray[uint8]](addr buf[ini + 48])
+        var c = Connection(pid: int(pid),
+                           local: address(la, v6) & ":" & $port(cast[uint32](i32(ini + 4))))
+        if kind == 2:
+          c.proto = if v6: "TCP6" else: "TCP"
+          c.remote = address(fa, v6) & ":" & $port(cast[uint32](i32(ini)))
+          let st = i32(ini + 80)                                    # tcpsi_state
+          c.state = if st in 0'i32 .. int32(macStates.high): macStates[st] else: $st
+        elif proto == 17:
+          c.proto = if v6: "UDP6" else: "UDP"
+        else: continue
+        result.list.add c
   else:
     result.why = "connections are not shown on this system yet"
 

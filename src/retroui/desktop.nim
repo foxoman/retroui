@@ -1455,7 +1455,7 @@ proc aboutBox*(open: var bool; app: string; version = ""; lines: openArray[strin
 
 # ---- the last run stopped ---------------------------------------------------------------------------
 
-var stopped: tuple[checked, on, fresh: bool; text: string]
+var stopped: tuple[checked, on, fresh, again: bool; text: string]
 
 proc startFresh*(): bool =
   ## The user chose, on the "stopped" screen, to start without what was
@@ -1473,12 +1473,17 @@ proc stoppedPending*(): bool =
     if lastRunStopped():
       stopped.on = true
       stopped.text = takeFaults()
+      # (it stopped again within seconds of this screen's Start: in a loop --
+      # what it brings back at its start is left out, unless unticked)
+      if lastStartMark() == "again":
+        stopped.again = true
+        stopped.fresh = true
   stopped.on
 
 proc showStoppedScreen*(report: string) =
   ## Opens the "stopped" screen with `report` (an app that keeps its own
   ## crash reports; a test): shown by `stoppedScreen` until Start.
-  stopped = (true, true, false, report)
+  stopped = (true, true, false, false, report)
   ui.redraw = true
 
 proc stoppedScreen*(): bool =
@@ -1491,8 +1496,13 @@ proc stoppedScreen*(): bool =
   let app = if ui.title.len > 0: ui.title else: "The app"
   row:
     msgIcon(miWarning)
-    paragraph(app & " stopped the last time it ran. What it said is below: copy it or " &
-              "send it to the developer, so it can be put right. Your files are as they were.")
+    if stopped.again:
+      paragraph(app & " stopped again, right after it started. This time it starts without " &
+                "what was open the last time (untick the box to bring it back). What it said " &
+                "is below: copy it or send it to the developer. Your files are as they were.")
+    else:
+      paragraph(app & " stopped the last time it ran. What it said is below: copy it or " &
+                "send it to the developer, so it can be put right. Your files are as they were.")
   editArea(stopped.text, lines = clamp((ui.h - dp(200)) div max(1, rowHeight()), 5, 24))
   checkbox("Start &without what was open the last time", stopped.fresh)
   row:
@@ -1507,6 +1517,7 @@ proc stoppedScreen*(): bool =
     spring()
     if button("&Start", isDefault = true, w = dp(80)):
       stopped.on = false
+      markStarting("again")       # (a stop within seconds of this: a loop)
       ui.redraw = true
 
 proc stoppedFrame*(): bool =

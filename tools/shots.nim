@@ -723,7 +723,9 @@ do:
 part("Text input", """
 Every text box has Cut, Copy, Paste, Undo and its menu (a right click, a
 long press), selects with the mouse, the keyboard and fingers, and takes
-Arabic and any text the system's input method gives.
+Arabic and any text the system's input method gives. Its caret blinks for
+`CaretBlinkFor` (10 seconds) after it last moved, then stays shown: a
+window left with a text box focused runs no frames.
 """)
 
 example("edit", "edit",

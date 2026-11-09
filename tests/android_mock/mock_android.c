@@ -31,6 +31,8 @@ static volatile int sawClick, sawText, sawPause, finished, kbShown, kbHidden;
 static volatile int sawArabic, clicks2, lastHandled = -1;
 static volatile int sawCompose, sawKey;
 static volatile int lastClicks;
+static volatile int starts;
+static ANativeActivity *volatile finishedAct;
 
 /* ---- log -------------------------------------------------------------- */
 
@@ -44,6 +46,7 @@ int __android_log_write(int prio, const char *tag, const char *text) {
   if (strstr(text, "composing ok")) sawCompose = 1;
   if (strstr(text, "key ok")) sawKey = 1;
   if (strstr(text, "clicked 2")) clicks2 = 1;
+  if (strstr(text, "the app starts")) starts++;
   return 1;
 }
 
@@ -229,7 +232,7 @@ void AConfiguration_fromAssetManager(AConfiguration *c, AAssetManager *m) {
 }
 int32_t AConfiguration_getDensity(AConfiguration *c) { return c->density; }
 
-void ANativeActivity_finish(ANativeActivity *a) { (void)a; finished = 1; }
+void ANativeActivity_finish(ANativeActivity *a) { finishedAct = a; finished = 1; }
 void ANativeActivity_showSoftInput(ANativeActivity *a, uint32_t f) { (void)a; (void)f; kbShown++; }
 void ANativeActivity_hideSoftInput(ANativeActivity *a, uint32_t f) { (void)a; (void)f; kbHidden++; }
 
@@ -449,10 +452,54 @@ int main(void) {
       if (win.px[(size_t)yy * (win.w + 16) + 2 * 12] == 0xFFC0C0C0u) first = yy;
     check(first >= 100, "the system bar insets move the content down");
   }
+  {                                             /* one more activity while the app runs */
+    ANativeActivityCallbacks cb2;
+    memset(&cb2, 0, sizeof cb2);
+    ANativeActivity act2 = act;
+    act2.callbacks = &cb2;
+    finishedAct = NULL;
+    finished = 0;
+    ANativeActivity_onCreate(&act2, NULL, 0);
+    check(finishedAct == &act2 && !cb2.onDestroy && !cb2.onNativeWindowCreated,
+          "a second activity while the app runs is closed, the app's left alone");
+    check(starts == 1, "... and the app's start does not run again");
+    sawPause = 0;
+    cb.onNativeWindowDestroyed(&act2, &win);     /* (a callback for one not the app's) */
+    ms(200);
+    check(!sawPause, "an activity's callback is let go when it is not the app's");
+    int p = win.posts;
+    cb.onNativeWindowRedrawNeeded(&act, &win);
+    ms(300);
+    check(win.posts > p, "the app goes on drawing in its own");
+  }
+  finished = 0;
   key(q, AKEYCODE_BACK);
   ms(300);
-  check(finished, "Back closes the app, which finishes the activity");
-  dprintf(realErr, "android mock tests passed\n");
-  cb.onDestroy(&act);                            /* ends the process */
+  check(finished && finishedAct == &act, "Back closes the app, which finishes the activity");
+  {                                             /* a new activity before the old one's end */
+    ANativeActivityCallbacks cb3;
+    memset(&cb3, 0, sizeof cb3);
+    ANativeActivity act3 = act;
+    act3.callbacks = &cb3;
+    ANativeActivity_onCreate(&act3, NULL, 0);
+    check(cb3.onDestroy && cb3.onNativeWindowCreated, "an activity after the app ended takes it");
+    cb.onDestroy(&act);                          /* (the old one's: the process is the new one's) */
+    check(1, "the old activity's end leaves the process to the new one");
+    AInputQueue *q3 = newQueue();
+    cb3.onInputQueueCreated(&act3, q3);
+    ANativeWindow win3 = { 600, 800, 0, 0, 0, NULL };
+    win3.px = calloc((size_t)(win3.w + 16) * win3.h, 4);
+    cb3.onNativeWindowCreated(&act3, &win3);
+    cb3.onWindowFocusChanged(&act3, 1);
+    ms(600);
+    check(starts == 2, "the app starts again in the same process");
+    check(win3.posts > 0, "... and draws in the new activity's window");
+    finished = 0;
+    key(q3, AKEYCODE_BACK);
+    ms(300);
+    check(finished && finishedAct == &act3, "Back closes it again");
+    dprintf(realErr, "android mock tests passed\n");
+    cb3.onDestroy(&act3);                        /* ends the process */
+  }
   return 1;
 }

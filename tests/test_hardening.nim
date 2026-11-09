@@ -244,4 +244,39 @@ block noCFunctionCallsItself:
           found.add f.relativePath(root) & ": " & name & " calls itself: " & line.strip
   doAssert found.len == 0, found.join("\n")
 
+block androidStartRunsOnce:
+  # Retro Photo stopped on Android's emulator, in its start, when a second
+  # activity ran the app's start again in the same process: the filters'
+  # table still held the first run's closures, counted as cycle roots of the
+  # first app thread, and the new thread's empty list was read at -1. Now
+  # the activity is the task's only one (singleTask), a second while the app
+  # runs closes, every callback of an activity no longer the app's is let go,
+  # and the cycles' roots are collected when NimMain returns.
+  let root = currentSourcePath().parentDir.parentDir
+  let glue = readFile(root / "src/retroui/uirelays/drivers/android_glue.c")
+  var unguarded: seq[string]
+  var name = ""
+  var guarded = true
+  for line in glue.splitLines:
+    if line.startsWith("static void on") and "(ANativeActivity *a" in line:
+      if name.len > 0 and not guarded: unguarded.add name
+      name = line[len("static void ") ..< line.find('(')]
+      guarded = "g.activity" in line
+    elif name.len > 0:
+      if "g.activity" in line or "onInputQueueCreated(a" in line or "onNativeWindowCreated(a" in line:
+        guarded = true
+      if line.startsWith("}"):
+        if not guarded: unguarded.add name
+        name = ""
+  doAssert unguarded.len == 0, "an activity's callback that does not ask whose app it is: " & unguarded.join(", ")
+  var mains, ended = 0
+  for line in glue.splitLines:
+    if line.strip.startsWith("NimMain();"): inc mains
+    if line.strip.startsWith("uirelays_main_ended();"): inc ended
+  doAssert mains >= 2 and ended == mains, "NimMain without the collect after it"
+  doAssert "if (!ended) {" in glue and "ANativeActivity_finish(activity);" in glue
+  doAssert "uirelays_main_ended" in readFile(root / "src/retroui/uirelays/drivers/android_driver.nim")
+  let apk = readFile(root / "src/retroapk.nim")
+  doAssert "iAttr(\"launchMode\", 0x0101001d, 2)" in apk, "the activity: singleTask"
+
 echo "hardening tests passed"

@@ -1,8 +1,9 @@
 #!/bin/sh
 # Every app's APK on a running emulator or phone (adb), as people use them:
 # installed and opened without its permissions (nothing allowed yet), then
-# with them all; then the monkey -- random taps, swipes and keys, the same
-# ones each time (a fixed seed) -- for a while. A crash anywhere, the Java
+# with them all; turned both ways, put away and brought back; then the
+# monkey -- random taps, swipes and keys, the same ones each time (a fixed
+# seed) -- for a while. A crash anywhere, the Java
 # side's or the native code's, fails it. The screens and the logs go to
 # live/apps/.
 #
@@ -56,6 +57,13 @@ start() {
   done
   sleep 3
 }
+back() {
+  # (brought back from the background as its icon does: not stopped first)
+  act=$(adb shell cmd package resolve-activity --brief -c android.intent.category.LAUNCHER "$1" \
+        < /dev/null 2>/dev/null | tr -d '\r' | tail -1)
+  adb shell am start -n "$act" < /dev/null > /dev/null 2>&1
+  sleep 4
+}
 while read -r pkg apk; do
   [ -z "$pkg" ] && continue
   name=$(basename "$apk" .apk)
@@ -80,10 +88,24 @@ while read -r pkg apk; do
   start "$pkg"
   adb exec-out screencap -p < /dev/null > "$out/$name-2-allowed.png" 2>/dev/null
   [ -z "$bad" ] && ! alive "$pkg" && bad="it closed when opened with its permissions"
-  # 3. the monkey: 600 events, the same each time
+  # 3. turned both ways (a phone held upright turns an app that wants
+  # landscape as it starts), then put away and brought back
+  adb shell settings put system accelerometer_rotation 0 < /dev/null
+  for r in 1 0 3 0; do
+    adb shell settings put system user_rotation $r < /dev/null
+    sleep 2
+  done
+  adb exec-out screencap -p < /dev/null > "$out/$name-3-turned.png" 2>/dev/null
+  [ -z "$bad" ] && ! alive "$pkg" && bad="it closed when the screen was turned"
+  adb shell input keyevent KEYCODE_HOME < /dev/null
+  sleep 3
+  back "$pkg"
+  adb exec-out screencap -p < /dev/null > "$out/$name-4-back.png" 2>/dev/null
+  [ -z "$bad" ] && ! alive "$pkg" && bad="it closed when put away and brought back"
+  # 5. the monkey: 600 events, the same each time
   adb shell monkey -p "$pkg" -s 4242 --throttle 120 --pct-syskeys 0 --pct-appswitch 0 \
     --pct-anyevent 0 -v 600 < /dev/null > "$out/$name-monkey.txt" 2>&1
-  adb exec-out screencap -p < /dev/null > "$out/$name-3-monkey.png" 2>/dev/null
+  adb exec-out screencap -p < /dev/null > "$out/$name-5-monkey.png" 2>/dev/null
   # (the app's own: the emulator's system UI stops now and then by itself)
   if [ -z "$bad" ] && grep -q "// CRASH: $pkg\|// NATIVE CRASH: $pkg\|// NOT RESPONDING: $pkg" "$out/$name-monkey.txt"; then
     bad="it stopped under the monkey ($(grep -m1 "// CRASH: $pkg\|// NATIVE CRASH: $pkg\|// NOT RESPONDING: $pkg" "$out/$name-monkey.txt"))"
@@ -100,6 +122,10 @@ while read -r pkg apk; do
         grep -v "com.android.systemui" | head -60
       echo "the frames in the app's library, named:"
       named "$apk" "$out/$name-logcat.txt"
+      # (what led there: the app's own lines, its activity's starts)
+      echo "the app's own lines and its activity's starts:"
+      grep -E " uirelays *:|START u0.*$pkg|Displayed $pkg|Relaunch|$pkg.*(died|has died)" \
+        "$out/$name-logcat.txt" | grep -v "monkey" | tail -30
     else
       grep -E "$pkg|ActivityManager|libc|DEBUG|linker|dlopen|UnsatisfiedLink|RetroActivity" \
         "$out/$name-logcat.txt" | grep -v "monkey" | tail -60

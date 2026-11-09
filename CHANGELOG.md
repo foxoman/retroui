@@ -1,5 +1,65 @@
 # Changes
 
+## 0.34.0
+
+The kit checks itself as people use it: every app started for real on
+every system, measured at rest, its crashes named -- and the fault this
+found in Retro Photo on Android.
+
+- **Retro Photo stopped on Android's emulator, in its start** (Android 11
+  and 15, since 0.32): a second activity in the same process ran the
+  app's start (NimMain) again on a new thread while Photo's table of
+  filters still held the first run's closures -- counted by Nim's cycle
+  collector as roots of the first app thread -- and the new thread's empty
+  list of roots was read at -1 (`SIGSEGV` at `-16`, in `rememberCycle`, from
+  `defFilter`; the stripped 0.32 APKs said only addresses, the 0.33.1 run
+  named it). Now the activity is its task's only one (`singleTask`:
+  started again by its icon, an intent or `am start`, it comes back as it
+  was); an activity made while the app runs closes, every callback of an
+  activity no longer the app's is let go, and when NimMain returns its
+  thread's cycles are collected (uirelays, `uirelays_main_ended`), so an
+  app started again in the same process never reads the first thread's
+  list. `tests/test_hardening.nim` checks all four.
+- **Every app started for real** (`RETRO_SMOKE=14`; `tests/smoke/run.sh`,
+  in the systems workflow on Linux, Windows and macOS): its own window and
+  the system's driver, in a home of its own; the kit times the first frame
+  (`firstFrameMs`), measures 3 seconds untouched -- the frames run and the
+  processor's time -- then clicks, presses keys, turns the wheel and types
+  until the time is up (on X, xdotool's real input too). It ends 0, 1 on a
+  fault, 2 when the app was busy while untouched; a line for each app goes
+  to `build/smoke/results.txt`. Its first run found Retro Mail drawing 17
+  frames a second at rest (it set its tool bar's look every frame:
+  `setToolbarLook` and `setTabLook` now draw again only on a change, as
+  `setUiScale`, `setTextScale`, `setBaseTextSize` and `setResizable` do),
+  and that a caret blinked for ever.
+- **A caret rests:** it blinks for `CaretBlinkFor` (10 seconds) after it
+  last moved, then stays shown, as Windows' does -- a window left with a
+  text box focused runs no frames (the text box, the masked one, the rich
+  text editor).
+- **A covered window draws nothing**, as a minimized one: X11's
+  `VisibilityNotify` (fully obscured), macOS' occlusion state, Wayland's
+  suspended state (xdg-shell 6); `ui.hidden` meanwhile.
+- **No crash loop:** the "stopped" screen's Start marks the start; when the
+  app stops again within seconds, the next screen says it stopped right
+  after it started, and its box "Start without what was open the last
+  time" is ticked (`lastStartMark`, `markStarting`). A start mark is kept
+  for the first 20 seconds of every run.
+- **A crash report with its functions' names:** `retroapk` strips the
+  APK's library with llvm-strip and keeps a copy with its names beside it,
+  `APP-symbols/ABI/libmain.so` (the Release has `APP-symbols.zip`);
+  `retrokit symbolize report.txt build/RetroPhoto-symbols` (or
+  `retroui/symbolize`) names each frame of the "stopped" screen's report
+  or of logcat's. A `--debuggable` APK keeps its names and exports them.
+- **Android's emulator job** turns each app both ways, puts it away and
+  brings it back (as its icon does) before the monkey, and prints the
+  app's own log lines and its activity's starts with a crash.
+- **Retro Task Manager on a Mac:** the connections with their programs
+  (`proc_pidfdinfo`: TCP with its state, UDP) and the disks' reads and
+  writes (IOKit's statistics of each disk, loaded at run time).
+- Retro Files 3.3.7, Retro Photo 4.9.8, Retro Board 1.3.7, Retro Mail
+  1.1.3, HR Book 0.2.3, Retro Task Manager 1.0.3; Retro Gallery and the
+  small examples 0.34.0.
+
 ## 0.33.1
 
 One branch: `main`.
