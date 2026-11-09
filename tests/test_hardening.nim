@@ -192,4 +192,26 @@ block halfReadFreed:
   doAssert unbase64(" QU\nJD ") == "ABC"
   doAssertRaises(ValueError): discard unbase64("QU=JD")
 
+block noCommandLineInApps:
+  # Retro Files 3.3.x closed at once as an APK: it asked `paramCount`, which
+  # raises in an Android app (no command line). The apps and the kit's
+  # modules ask `appArguments` (none there); only it, the update's restart
+  # on a desktop and the Magazine example (a command-line tool) may ask Nim.
+  doAssert appArguments() == commandLineParams()
+  let allowed = ["src/retroui/core.nim", "src/retroui/update.nim", "examples/magazine.nim"]
+  let root = currentSourcePath().parentDir.parentDir
+  var bad: seq[string]
+  for dir in ["src/retroui", "examples"]:
+    for f in walkDirRec(root / dir):
+      if not f.endsWith(".nim") or "/build/" in f: continue
+      let rel = f.relativePath(root)
+      if rel in allowed: continue
+      var n = 0
+      for line in readFile(f).splitLines:
+        inc n
+        let code = line.split('#')[0]
+        for call in ["paramCount(", "paramStr(", "commandLineParams("]:
+          if call in code: bad.add rel & "(" & $n & "): " & line.strip
+  doAssert bad.len == 0, "asks the command line where an app may have none:\n" & bad.join("\n")
+
 echo "hardening tests passed"

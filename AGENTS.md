@@ -214,7 +214,11 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   Termux (X11 on Termux:X11, files and services as on Linux). Use
   `androidApp` for anything of the activity's; `defined(android)` only
   for what Android's libc and system are either way (bionic's malloc,
-  /system/fonts, /storage).
+  /system/fonts, /storage). An APK, an iOS app and a web page have no
+  command line: Nim's `paramCount`, `paramStr` and `commandLineParams`
+  raise there, so apps and modules ask `appArguments()` (none there);
+  `tests/test_hardening.nim` fails on any other use (Retro Files closed
+  at its start as an APK because of one).
 - **A driver's C and Objective-C build on their own**: the uirelays tests
   compile `cocoa_backend.m` (and others) as plain C, without Nim. What such
   a file calls in Nim gets a weak stand-in there

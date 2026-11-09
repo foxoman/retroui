@@ -21,7 +21,7 @@ import retroui/[board, freehand]
 
 const
   AppName = "Retro Board"
-  BoardVersion = "1.3.4"
+  BoardVersion = "1.3.5"
   iconPng = staticRead("assets/board-icon.png")
 
 type
@@ -3297,7 +3297,9 @@ proc dialogs() =
             "on as many pages as you like.",
             "Made with Retro Nim UI " & RetroVersion & " (retroui/board, retroui/freehand)."],
            tagline = "Draw, sketch and think together", iconPng = iconPng,
-           whatsNew = ["1.3.4: Ctrl+Shift+Up / Down make the next step, and only that (the pages' list " &
+           whatsNew = ["1.3.5: in Termux, a .board named after it on the command line opens; a report of a " &
+                       "fault says the version",
+                       "1.3.4: Ctrl+Shift+Up / Down make the next step, and only that (the pages' list " &
                        "leaves them be); Ctrl+Backspace and Ctrl+Delete take a word in a text; when the " &
                        "board stopped, the next start says why first",
                        "1.3.3: the words on the board twice as big -- as Excalidraw's beside the shapes (S, M, L, XL: " &
@@ -3436,6 +3438,7 @@ proc boardFrame() =
 
 proc main() =
   windowIcon = windowIconFromPng(iconPng)
+  reportedVersion = BoardVersion
   startApp(AppName, 1100, 720)
   # (the last run stopped: its board waits for the "stopped" screen's Start)
   let waiting = stoppedPending()
@@ -3447,9 +3450,8 @@ proc main() =
     bd.forgetDrawings()
     pics.clear()
     ui.redraw = true)
-  when not (defined(android) or defined(retroAndroidMock)):
-    for a in commandLineParams():
-      if a.endsWith(".board") and fileExists(a): openBoard(a)
+  for a in appArguments():                      # (none in a phone's app)
+    if a.endsWith(".board") and fileExists(a): openBoard(a)
   var first = true
   var boardWaits = waiting
   while beginFrame():

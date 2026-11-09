@@ -3554,6 +3554,7 @@ its name, version and `tagline`; then pages (tabs as the docked
 panels'): About -- `lines` (what it is, copyright, licence; each wraps)
 and what it runs on; What's New -- `whatsNew`, a line each; Credits --
 `credits`. Copy Info puts the facts on the clipboard; OK closes it.
+`version` is also kept as `reportedVersion` (what a fault's report says).
 
 ### splashBox
 
@@ -3600,7 +3601,7 @@ problemBox("Ledger", "2.0")
 **API**
 
 ```nim
-proc problemBox*(app: string; version = "")
+proc problemBox*(app: string; version = reportedVersion)
 ```
 
 Call it every frame: the "Report a Problem" box when it is open -- and,

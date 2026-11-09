@@ -80,7 +80,9 @@ misspelled option is a compile error. An app with its own loop uses
 `closeApp()` -- and first in each frame `if stoppedFrame(): (endFrame();
 continue)`: when the last run crashed, its report shows before the app's
 code runs (`app` does this itself); ask `stoppedPending()` before bringing
-back what was open, and leave it out when `startFresh()`.
+back what was open, and leave it out when `startFresh()`. Set
+`reportedVersion = "1.2"` before the window opens: the report says it. Files
+named on the command line: `appArguments()` (none in a phone's app).
 
 The whole syntax, every form as a small program with a picture of what it
 draws (what each number in `row([50, -1, 0, -2])` gives, binding, events,
@@ -472,6 +474,9 @@ with much less memory. Details per OS in BUILDING.md.
 - A shortcut written only in `menuItem(..., "Ctrl+S")`: it is a label; handle it
   with `hotkeyPressed("Ctrl+S")`.
 - Passing `RetroCredit` to `aboutBox`: it is there already (it would show twice).
+- `paramCount`, `paramStr` or `commandLineParams` in an app: an Android or
+  iOS app and a web page have no command line, Nim raises, and the app
+  closes at its start. `appArguments()` gives none there.
 - Expecting `grid` to sort the data: it reports the header click (`ev.sorted`);
   you sort.
 - Using the old name `retro` (`import retro`, `nimble install retro`): the package

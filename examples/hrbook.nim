@@ -23,7 +23,7 @@ import hrbook/[model, store, importer, letters]
 
 const
   AppTitle = "HR Book"
-  AppVersion = "0.2"
+  AppVersion = "0.2.1"
   AppId = "HRBook"
   AppIconPng = staticRead("assets/hrbook-icon.png")
 
@@ -268,6 +268,7 @@ proc main() =
   createDir(dir)
   setupMode = not hasData(dir)
   # (the look chosen in Settings > Look is kept in the settings "HRBook")
+  reportedVersion = AppVersion
   openApp(AppTitle, 1280, 800, id = AppId, icon = AppIconPng, look = AppId)
   lastInput = nowT()
   while beginFrame():

@@ -26,7 +26,7 @@ Dec,300,185,125,310
 
 var
   table = parseCsv(sample)
-  path = if paramCount() >= 1: paramStr(1) else: ""
+  path = (let a = appArguments(); if a.len >= 1: a[0] else: "")   # (no command line in an APK)
   kind = 0                      # chartKindNames
   labelCol = 0
   useCols: seq[bool]            # the value columns shown

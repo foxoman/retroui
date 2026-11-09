@@ -1373,6 +1373,8 @@ proc aboutBox*(open: var bool; app: string; version = ""; lines: openArray[strin
   ## panels'): About -- `lines` (what it is, copyright, licence; each wraps)
   ## and what it runs on; What's New -- `whatsNew`, a line each; Credits --
   ## `credits`. Copy Info puts the facts on the clipboard; OK closes it.
+  ## `version` is also kept as `reportedVersion` (what a fault's report says).
+  if version.len > 0 and reportedVersion.len == 0: reportedVersion = version
   if not open:
     aboutTab = 0
     return
@@ -1494,7 +1496,7 @@ proc stoppedScreen*(): bool =
   editArea(stopped.text, lines = clamp((ui.h - dp(200)) div max(1, rowHeight()), 5, 24))
   checkbox("Start &without what was open the last time", stopped.fresh)
   row:
-    let report = stopped.text & "\n" & aboutInfo(app)
+    let report = stopped.text & "\n" & aboutInfo(app, reportedVersion)
     if button("&Copy", w = dp(80)): putClipboardText(report)
     if button("Send by &Email...", w = dp(140)):
       var body = report
@@ -1534,7 +1536,7 @@ proc reportProblem*(text = "") =
   if t.len == 0: t = "(Nothing went wrong since the program started.)"
   problem = (true, true, t & "\n\nWhat I was doing:\n")
 
-proc problemBox*(app: string; version = "") =
+proc problemBox*(app: string; version = reportedVersion) =
   ## Call it every frame: the "Report a Problem" box when it is open -- and,
   ## the first time, opened by itself when the last run left faults (the
   ## program stopped, or `guarded` caught one). Copy puts the report on the

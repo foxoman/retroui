@@ -38,7 +38,7 @@ const TermuxHome = "/data/data/com.termux/files/home"
 const
   AppTitle = "Retro Files"
   AppId = "RetroFiles"
-  AppVersion = "3.3.4"
+  AppVersion = "3.3.5"
 
 type
   ViewerKind = enum vkNone, vkText, vkMarkdown, vkImage, vkHex, vkZip, vkPdf, vkVideo, vkAudio
@@ -1693,7 +1693,10 @@ proc helpDialogs() =
             tr("Copyright (c) 2026 Sultan Al Isaiee. MIT licence.")],
            tagline = tr("Your files, as in 1994"),
            iconPng = FilesIconPng, glyph = pxFolderOpen,
-           whatsNew = [tr("3.3.4: a picture zooms about the mouse; after the viewer (Esc) the keys go on " &
+           whatsNew = [tr("3.3.5: opens as an Android app again (it closed at its start: it asked for a " &
+                            "command line, which an Android app does not have); a report of a fault says " &
+                            "the version"),
+                       tr("3.3.4: a picture zooms about the mouse; after the viewer (Esc) the keys go on " &
                             "from the file that was opened; a right click elsewhere moves an open menu there; " &
                             "Ctrl+Backspace takes a word; when Files stopped, the next start says why first"),
                        tr("3.3.3: the menus answer at once (a submenu waits only while the pointer heads for it); " &
@@ -2328,8 +2331,10 @@ proc content() =
 proc startFolder(saved: string): string =
   # (a folder on the command line -- a desktop's "open this folder", a
   # file's folder -- first)
-  if paramCount() >= 1:
-    let arg = paramStr(1)
+  # (an Android app has no command line: appArguments, not paramCount)
+  let args = appArguments()
+  if args.len >= 1:
+    let arg = args[0]
     if dirExists(arg): return absolutePath(arg)
     if fileExists(arg): return absolutePath(arg).parentDir
   let storage = "/storage/emulated/0"
@@ -2375,6 +2380,7 @@ proc filesStart*() =
   windowIcon = windowIconFromPng(iconPng)   # (the taskbar's picture)
   addPdfPreviews()                          # (PDFs' first pages as their pictures)
   addMorePictures()                         # (raw photos, PSD, SVG, JPEG XL, WebP...)
+  reportedVersion = AppVersion
   startApp(AppTitle, 1100, 700)
   addVideoPreviews()                        # (videos' pictures, where they can be had)
   let saved = loadSettings()

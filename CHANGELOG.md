@@ -1,5 +1,28 @@
 # Changes
 
+## 0.32.1
+
+Retro Files opens as an Android app again.
+
+- **Retro Files closed at its start as an APK** ("paramCount is not
+  implemented on current platform"): it asked Nim for its command line (a
+  folder to open), and an Android app has none -- Nim raises. The kit
+  has `appArguments()` now: the words on the command line where there is
+  one (a desktop, Termux), none in an Android or iOS app and in a web page.
+  Retro Files, Retro Photo, Retro Board and the Chart Viewer ask it (the
+  Chart Viewer had the same fault as an APK); Retro Photo and Retro Board
+  now open what is named on Termux's command line too.
+  `tests/test_hardening.nim` fails when an app or a module asks Nim for
+  the command line itself; AGENTS.md and the skill say why.
+- **The report of a fault says the app's version** (the "stopped" screen
+  said "Version: -"): `reportedVersion`, set before the window opens (the
+  "stopped" screen comes before any About box), and kept by `aboutBox`
+  from its `version`; `problemBox` uses it unless given another. Retro
+  Files, Photo, Board, Mail, HR Book and Task Manager set it.
+- Retro Files 3.3.5, Retro Photo 4.9.6, Retro Board 1.3.5, Retro Mail
+  1.1.1, HR Book 0.2.1, Retro Task Manager 1.0.1; Retro Gallery and the
+  small examples 0.32.1.
+
 ## 0.32.0
 
 Retro Task Manager -- what the computer is doing, on every system -- and

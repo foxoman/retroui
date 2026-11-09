@@ -321,6 +321,7 @@ proc checkMail() {.nimcall, gcsafe.} =
 
 onBackgroundCheck(checkMail)     # (before the window: a check's process stops here)
 
+reportedVersion = appVersion     # (what a fault's report says)
 app appName, 1280, 800:
   if not started: startup()
   handleEvents()

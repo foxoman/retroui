@@ -23,7 +23,7 @@ import retroui/[sysmon, system]
 
 const
   AppTitle = "Retro Task Manager"
-  AppVersion* = "1.0"
+  AppVersion* = "1.0.1"
   AppId = "RetroTaskManager"
   IconPng = staticRead("assets/taskman-icon.png")
 
@@ -572,6 +572,7 @@ proc taskmanStart*() =
   try: createDir(dataDir(AppId)) except OSError: discard
   startMonitor(interval())
   windowIcon = windowIconFromPng(IconPng)
+  reportedVersion = AppVersion
   startApp(AppTitle, 780, 560)
 
 proc taskmanStop*() =

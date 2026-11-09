@@ -14,6 +14,7 @@ removeDir(home)
 createDir(home)
 putEnv("XDG_DATA_HOME", home)
 appIdent = "stopped-test"
+reportedVersion = "2.4.1"                 # (the report says the version)
 let log = dataDir(appIdent) / "faults.log"
 writeFile(log, "--- the app stopped\nSIGSEGV: memory that is not the program's (signal 11) at address 0x0\n" &
                "  #00 0x7f00001234 libmain.so+0x1234\n")
@@ -32,6 +33,7 @@ run()
 when not defined(macosx):
   let copied = getClipboardText()
   doAssert "signal 11" in copied and "libmain.so+0x1234" in copied, copied
+  doAssert "Version: 2.4.1" in copied, copied
 key(KeyS, {AltPressed})                   # &Start
 when defined(macosx): key(KeyEnter)       # (no menu letters on a Mac: the default button)
 run(2)

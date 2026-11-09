@@ -27,7 +27,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 
 const
   AppName = "Retro Photo"
-  AppVersion = "4.9.5"
+  AppVersion = "4.9.6"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -4538,12 +4538,12 @@ proc main() =
   setup()
   const iconPng = staticRead("assets/photo-icon.png")
   windowIcon = windowIconFromPng(iconPng)   # (the taskbar's picture)
+  reportedVersion = AppVersion
   startApp(AppName & " " & AppVersion, 1280, 800)
   restoreAppearance(loadSettings(AppName))      # (the look chosen in Preferences)
   let splashMs = (try: parseInt(getEnv("RETRO_PHOTO_SPLASH", "1800")) except ValueError: 1800)
   var first = true
-  when not (defined(android) or defined(retroAndroidMock)):    # (a phone has no command line)
-    for a in commandLineParams(): openFile(a)
+  for a in appArguments(): openFile(a)                         # (none in a phone's app)
   # (a picture to start with: $RETRO_PHOTO_OPEN)
   let atStart = getEnv("RETRO_PHOTO_OPEN")
   if atStart.len > 0:

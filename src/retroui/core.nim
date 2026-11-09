@@ -20,7 +20,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.32.0"
+const RetroVersion* = "0.32.1"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -2699,6 +2699,22 @@ var appIdent* = ""
   ## chose, the log of faults, the GPU's start that failed -- set before
   ## `startApp` (the `app` template's `id`); "": the window's title without
   ## a version at its end.
+
+var reportedVersion* = ""
+  ## The app's version, for what is sent of a fault (the "stopped" screen,
+  ## Report a Problem). Set it before `startApp`: `aboutBox` sets it too,
+  ## but the "stopped" screen comes before any About box is drawn.
+
+proc appArguments*(): seq[string] =
+  ## The words after the program's name on its command line (a desktop's
+  ## "open with", a file dropped on its icon, Termux): none in an Android or
+  ## iOS app and in a web page, which have no command line -- there Nim's
+  ## `paramCount` and `commandLineParams` raise. Use this in an app's code.
+  when androidApp or defined(ios) or defined(wasm):
+    result = @[]
+  else:
+    try: result = commandLineParams()
+    except OSError: result = @[]
 
 const frameMenuLabel = "Windows 3.1 &Frame"   ## (the item in the system's menu)
 
