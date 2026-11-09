@@ -26,8 +26,8 @@ enum {
   NE_QUIT,
   NE_FILE_DROP,       /* files dropped on the window: cocoa_dropPath */
   NE_TEXT_EDIT,       /* what an input method composes changed: cocoa_markedText */
-  NE_WINDOW_HIDDEN,   /* minimized into the Dock */
-  NE_WINDOW_SHOWN     /* back from it */
+  NE_WINDOW_HIDDEN,   /* minimized into the Dock, or covered all over */
+  NE_WINDOW_SHOWN     /* seen again */
 };
 
 enum {
@@ -1405,6 +1405,19 @@ static BOOL keptPlace(BOOL sizable, NSRect *r) {
   return YES;
 }
 
+/* Not seen -- in the Dock, or covered all over by other windows (the
+   occlusion state, which also says when it is on another Space): told to
+   the app once each way. */
+static int gNotSeen = 0;
+
+static void tellSeen(int notSeen) {
+  if (notSeen == gNotSeen) return;
+  gNotSeen = notSeen;
+  NEEvent e = {0};
+  e.kind = notSeen ? NE_WINDOW_HIDDEN : NE_WINDOW_SHOWN;
+  pushEvent(e);
+}
+
 @interface NimEditWindowDelegate : NSObject <NSWindowDelegate>
 @end
 
@@ -1454,15 +1467,16 @@ static BOOL keptPlace(BOOL sizable, NSRect *r) {
 }
 
 - (void)windowDidMiniaturize:(NSNotification *)n {
-  NEEvent e = {0};
-  e.kind = NE_WINDOW_HIDDEN;
-  pushEvent(e);
+  tellSeen(1);
 }
 
 - (void)windowDidDeminiaturize:(NSNotification *)n {
-  NEEvent e = {0};
-  e.kind = NE_WINDOW_SHOWN;
-  pushEvent(e);
+  tellSeen(0);
+}
+
+- (void)windowDidChangeOcclusionState:(NSNotification *)n {
+  NSWindow *w = n.object;
+  tellSeen(([w occlusionState] & NSWindowOcclusionStateVisible) == 0);
 }
 
 - (void)requestQuit:(id)sender {

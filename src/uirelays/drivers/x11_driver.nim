@@ -205,6 +205,14 @@ type
     mode: cint
     detail: cint
 
+  XVisibilityEvent {.pure.} = object
+    theType: cint
+    serial: culong
+    send_event: XBool
+    display: pointer
+    window: XID
+    state: cint            ## 0 unobscured, 1 partly, 2 fully
+
   XPropertyEvent {.pure.} = object
     theType: cint
     serial: culong
@@ -260,6 +268,7 @@ type
     xexpose: XExposeEvent
     xclient: XClientMessageEvent
     xfocus: XFocusChangeEvent
+    xvisibility: XVisibilityEvent
     xselection: XSelectionEvent
     xselectionrequest: XSelectionRequestEvent
     xproperty: XPropertyEvent
@@ -309,6 +318,7 @@ const
   FocusIn = 9.cint
   FocusOut = 10.cint
   Expose = 12.cint
+  VisibilityNotify = 15.cint
   UnmapNotify = 18.cint
   MapNotify = 19.cint
   ConfigureNotify = 22.cint
@@ -329,6 +339,7 @@ const
   StructureNotifyMask = 1 shl 17
   SubstructureNotifyMask = 1 shl 19
   SubstructureRedirectMask = 1 shl 20
+  VisibilityChangeMask = 1 shl 16
   FocusChangeMask = 1 shl 21
   PropertyChangeMask = 1 shl 22
 
@@ -1371,6 +1382,8 @@ proc readMaximized(): bool =
 var
   gHidden = false       ## (minimized: told to the app once each way)
   gUnmapped = false     ## (taken off the screen: ICCCM's minimized)
+  gCovered = false      ## (other windows over all of it: VisibilityFullyObscured;
+                        ## a compositing window manager never says so)
 
 proc readHidden(): bool =
   ## (the window manager says it is minimized: _NET_WM_STATE_HIDDEN)
@@ -1378,7 +1391,7 @@ proc readHidden(): bool =
   XInternAtom(gDisplay, "_NET_WM_STATE_HIDDEN", 0) in atomsOf(gWindow, gNetWmState)
 
 proc tellHidden() =
-  let hidden = gUnmapped or readHidden()
+  let hidden = gUnmapped or gCovered or readHidden()
   if hidden != gHidden:
     gHidden = hidden
     pushEvent(input.Event(kind: (if hidden: WindowHiddenEvent else: WindowShownEvent)))
@@ -2096,6 +2109,11 @@ proc processXEvent(xev: XEvent) =
   of MapNotify:
     if xev.xany.window == gWindow:
       gUnmapped = false
+      tellHidden()
+
+  of VisibilityNotify:
+    if xev.xvisibility.window == gWindow:
+      gCovered = xev.xvisibility.state == 2
       tellHidden()
 
   of KeyPress:
@@ -2827,7 +2845,7 @@ proc x11CreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   discard XSelectInput(gDisplay, gWindow,
     (ExposureMask or KeyPressMask or KeyReleaseMask or
      ButtonPressMask or ButtonReleaseMask or PointerMotionMask or LeaveWindowMask or
-     StructureNotifyMask or FocusChangeMask or PropertyChangeMask).clong or
+     StructureNotifyMask or FocusChangeMask or PropertyChangeMask or VisibilityChangeMask).clong or
     imEvents)
   if gFillScreen:
     # (the screen's own size changes -- the tablet turned -- come to us too)
