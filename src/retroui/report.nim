@@ -26,7 +26,8 @@
 ## `keepTogether` keeps a group on one page. Arabic paragraphs run right to
 ## left. Sizes are points (1/72 inch; `mm` converts).
 
-import std/[strutils, tables, math, unicode, os]
+import std/[strutils, tables, math, os]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 when not androidApp and not defined(ios) and not defined(windows):
   import std/[osproc, streams]
@@ -1755,6 +1756,7 @@ proc reportView*(r: Report; height = -1; key = ""): ReportViewEvent {.discardabl
     label("Page " & $(v.page + 1) & " of " & $n)
     if toolButton(nfChevronRight, "Next page", enabled = v.toPage < n - 1): goPage = v.toPage + 1
     if toolButton(nfStepForward, "Last page", enabled = v.toPage < n - 1): goPage = n - 1
+    accessName("Zoom")
     if combo(zoomNames, v.zoomSel, w = dp(110)): ui.redraw = true
   let id = idOf("desk")
   let gap = dp(12)

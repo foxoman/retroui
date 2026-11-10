@@ -9,7 +9,8 @@
 ## the drawing procs of `gfx`. An app usually only needs `app` (in `retroui`)
 ## and the widgets.
 
-import std/[tables, unicode, os, math, strutils, monotimes, times]
+import std/[tables, sets, os, math, strutils, monotimes, times]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 import uirelays
 import uirelays/services
@@ -20,7 +21,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.36.0"
+const RetroVersion* = "0.37.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -352,9 +353,12 @@ type Ctx* = object
   lastId*: Id                    ## the widget drawn last (for `tooltip`, `contextMenu`...)
   lastRect*: Rect                ## ... and where it was
   focusRect*: Rect               ## where the focused widget was drawn
+  seeRect: Rect                  # a screen reader asked to see this (its control's place)
+  seeAt: int                     # ... in this frame
   focusMoved*: int               ## frame the keyboard last moved focus
   focusByKeys*: bool             ## the focus came from the keyboard (Tab, arrows), not a click
   tabOrder: seq[Id]
+  stopsBefore: seq[Id]           # the last frame's stops of Tab
   focusSeen: bool                ## the focused widget answered this frame (a stop of Tab
                                  ## or not: a list that takes keys but no Tab)
   takesEnter*, prevTakesEnter*: bool  ## the focused widget uses Enter itself (no default button)
@@ -1005,6 +1009,28 @@ proc heldFor*(): int =
   ## (0 when it is up): repeat buttons, press-and-hold.
   if ui.mouseDown: ui.now - ui.pressAt else: 0
 
+proc wantSeen*(): Rect =
+  ## What a view that scrolls should bring into sight this frame (`w` 0:
+  ## nothing): the control Tab moved the focus to, or one a screen reader
+  ## or the driver asked to see. The kit's scroll views use it; a view of
+  ## your own that scrolls its content does too.
+  if ui.seeAt == ui.frameNo and ui.seeRect.w > 0: ui.seeRect
+  elif ui.frameNo - ui.focusMoved == 1: ui.focusRect
+  else: Rect()
+
+proc tabStops*(): seq[Id] =
+  ## The controls Tab stops at so far this frame, in the order it goes
+  ## (Retro Designer numbers them on the window being designed).
+  ui.tabOrder
+
+proc focusInControls*(): bool =
+  ## A control Tab stops at has the keyboard (a text box, a list, a check
+  ## box): Tab goes on to the next. Else -- nothing focused, or a drawing
+  ## of the app's that took the keys (a canvas clicked) -- an app may give
+  ## Tab a meaning of its own: Retro Photo and Retro Board hide their
+  ## panels with it.
+  ui.focus != 0 and (ui.focus in ui.tabOrder or ui.focus in ui.stopsBefore)
+
 proc tabStop*(id: Id; r: Rect): bool {.discardable.} =
   ## Makes `id` a stop of Tab: for a widget that takes the keyboard but
   ## handles its clicks itself (a tab strip, a chip row). True when it has
@@ -1039,6 +1065,7 @@ var
   accessLabelUsed = true
   accessNameNext: string           # a name the app gave the next control
   accessNameElse: string           # its name when no label names it (a placeholder)
+  accessSee: Id                    # a control a screen reader asked to see (scrolled to)
   accessPress*: Id                 ## a press asked for: `interact` clicks it
   accessPressed*: Id               ## the widget a screen reader pressed this frame
   accessSet*: tuple[id: Id; text: string; num: float; on: bool]
@@ -1052,7 +1079,9 @@ var
     ## The last frame's whole tree, while `accessKeep`.
 
 proc plainName*(s: string): string =
-  ## A label as it is read: no '&' of a mnemonic, no tab, one line.
+  ## A label as it is read: no '&' of a mnemonic, no tab, one line, no
+  ## icon (the kit's icons are private-use letters, which a screen reader
+  ## cannot say: "Notify", not "🔔 Notify").
   var i = 0
   while i < s.len:
     let c = s[i]
@@ -1062,6 +1091,17 @@ proc plainName*(s: string): string =
         inc i
     elif c in {'\t', '\n', '\r'}:
       if result.len > 0 and result[^1] != ' ': result.add ' '
+    elif c == '\xEE' or c == '\xEF' or c == '\xF3' or c == '\xF4':
+      # (U+E000..U+F8FF, and planes 15 and 16: the icons; other letters of
+      # those first bytes kept)
+      let r = int(s.runeAt(i))
+      let n = max(1, s.runeLenAt(i))
+      if r in 0xE000 .. 0xF8FF or r >= 0xF0000:
+        i += n
+        continue
+      result.add s[i ..< i + n]
+      i += n
+      continue
     else: result.add c
     inc i
   result = result.strip()
@@ -1121,6 +1161,10 @@ proc accessNode*(role: AccessRole; name = ""; value = ""; states: set[AccessStat
     for c in n.name: mixH(uint32(ord(c)))
     mixH(uint32(r.x and 0xFFFF)); mixH(uint32(r.y and 0xFFFF))
     n.id = h or 0x80000000'u32
+  if accessSee != 0 and n.id == uint32(accessSee):
+    ui.seeRect = r                         # (the page scrolls to it: `endPage`)
+    ui.seeAt = ui.frameNo
+    accessSee = 0
   let d = deviceRect(r)
   n.x = d.x
   n.y = d.y
@@ -1129,10 +1173,10 @@ proc accessNode*(role: AccessRole; name = ""; value = ""; states: set[AccessStat
   if id != 0 and id == ui.focus and role notin {arGroup, arPane, arWindow}:
     n.states.incl asFocused
     accessFocusAt = accessTree.len
-  if asFocused in n.states or role in {arButton, arToggleButton, arCheckBox, arRadioButton,
-      arTextField, arTextArea, arPasswordField, arComboBox, arList, arSlider, arSpinButton,
-      arTab, arMenuItem, arLink}:
-    n.states.incl asFocusable
+  # (which nodes take the focus is known at the frame's end: the ones Tab
+  # stops at, `accessFrameEnd`; a menu's items and a strip's tabs, which
+  # the arrows move through, by what they are)
+  if asFocused in n.states or role in {arTab, arMenuItem}: n.states.incl asFocusable
   accessTree.add n
   accessTree.high
 
@@ -1234,7 +1278,10 @@ proc accessFrameStart() =
       accessPress = id
       ui.redraw = true
     of aaFocus:
+      # (as Tab moves it: the page scrolls to the control)
       ui.focus = id
+      ui.focusMoved = ui.frameNo
+      ui.focusByKeys = true
       ui.redraw = true
     of aaSetValue:
       if accessSet.on:
@@ -1251,7 +1298,10 @@ proc accessFrameStart() =
       ui.menuKey = true
       ui.rpressed = true
       ui.redraw = true
-    of aaScrollIntoView, aaSetCaret: discard
+    of aaScrollIntoView:
+      accessSee = id
+      ui.redraw = true
+    of aaSetCaret: discard
   accessRequests = later
   if later.len > 0: ui.redraw = true
   accessPressed = 0
@@ -1270,6 +1320,12 @@ proc accessFrameEnd() =
   ## (endFrame: the tree to the screen reader when it changed)
   if not accessOn: return
   accessOpen.setLen(0)
+  # the controls Tab stops at take the focus (a tool button, a chip row of
+  # buttons, an app's drawing named for readers do not)
+  if ui.tabOrder.len > 0:
+    let stops = toHashSet(ui.tabOrder)
+    for n in accessTree.mitems:
+      if Id(n.id) in stops: n.states.incl asFocusable
   var h = 0xcbf29ce484222325'u64
   template mix(v: uint64) = h = (h xor v) * 0x100000001B3'u64
   for n in accessTree:
@@ -2188,7 +2244,7 @@ const macKeys = defined(macosx)
 var optionLetters* = false
   ## On a Mac, Option + a letter picks the underlined letter of a menu or a
   ## control, as Alt does elsewhere (false, the default: it types, as Mac
-  ## users expect -- @, {, |, € on many layouts). The tests turn it on, so
+  ## users expect -- @, braces, the bar, € on many layouts). The tests turn it on, so
   ## they press the same keys on every system.
 
 proc modifierName*(m: Modifier): string =
@@ -3084,6 +3140,14 @@ proc noteFrame(presented: bool) =
     inc shownCount
     if firstShownMs < 0: firstShownMs = int((getMonoTime() - statStart).inMilliseconds)
   if not statsOn: return
+  if ms >= 250:
+    # (a frame long enough to feel: where the mouse was, the key, the
+    # control with the focus when a reader's tree is kept -- RETRO_ACCESS=1)
+    var foc = ""
+    for n in accessTree:
+      if asFocused in n.states: foc = ", the focus on " & ($n.role)[2 .. ^1] & " \"" & n.name & "\""
+    stderr.writeLine "retroui: a frame of ", int(ms), " ms (the mouse at ", ui.mx, ",", ui.my,
+      (if ui.key != KeyNone: ", key " & $ui.key else: ""), foc, ")"
   statSum += ms
   statMax = max(statMax, ms)
   inc statN
@@ -3127,7 +3191,9 @@ proc firstFrameMs*(): int = firstShownMs
 const
   smokeSettleMs = 4000            ## (the start: a splash, the first loads)
   smokeIdleMs = 3000              ## (left alone)
-  smokeIdleFrames = 30            ## (most frames while left alone: 10 a second -- a caret blinks)
+  smokeIdleFrames = 10            ## (most frames while left alone: a caret blinks 6 times in
+                                  ## 3 s, a monitor's graph moves once a second -- a driver
+                                  ## that draws twice for each, X11's before 0.36, is caught)
   smokeIdleCpu = 1.0              ## (most processor seconds while left alone: a third of one core)
 
 var smoke = (secs: (try: parseInt(getEnv("RETRO_SMOKE", "0")) except ValueError: 0),
@@ -3411,6 +3477,7 @@ proc frameSetup(main: bool) =
     if ui.popup != 0: LayerPopup
     elif ui.dialogTop != 0: LayerDialog
     else: LayerBase
+  swap(ui.tabOrder, ui.stopsBefore)        # (last frame's stops kept: `focusInControls`)
   ui.tabOrder.setLen(0)
   ui.focusSeen = false
   ui.hot = 0
@@ -3662,8 +3729,9 @@ proc endPage() =
   scrollTick(pageIdY, y, hiY)
   scrollTick(pageIdX, x, ui.pageMaxX)
   if (ui.pageOn or ui.pageMaxX > 0) and ui.inputLayer == LayerBase and ui.popup == 0:
-    if ui.frameNo - ui.focusMoved == 1:          # (focused last frame, drawn now)
-      let r = ui.focusRect
+    let r = wantSeen()
+    if r.w > 0:
+      # (focused last frame, drawn now; or a screen reader asked to see it)
       if r.y < view.y: y -= view.y + Pad - r.y
       elif r.y + r.h > view.y + view.h: y += r.y + r.h + Pad - (view.y + view.h)
       if ui.pageMaxX > 0:                  # ... and sideways

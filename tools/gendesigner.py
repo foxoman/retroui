@@ -34,7 +34,8 @@ EXTRA = ["textwidgets", "richedit", "qrcode", "pdfview",    # not in `import ret
          "tilemap", "gltf", "capture", "mediasession"]
 # Layout from core that the designer offers (the rest of core is the frame
 # loop, input, ids).
-CORE = {"row", "col", "rowPx", "spring", "space", "withId", "adaptive"}
+CORE = {"row", "col", "rowPx", "spring", "space", "withId", "adaptive",
+        "accessName", "accessNameOr"}   # (and the names a screen reader and a driver know controls by)
 # Controls the designer never calls: they open windows of the system, wait,
 # or end the app (they are drawn as boxes when a file has them).
 NEVER = {"quitApp", "openApp", "beginFrame", "endFrame", "appFrameDone", "closeApp",

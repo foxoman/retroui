@@ -13,7 +13,8 @@
 ##   s.endStroke()
 ##   d.endStep()
 
-import std/[math, algorithm, strutils, tables, unicode, random]
+import std/[math, algorithm, strutils, tables, random]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import parallel
 import gfx, photo, canvas2d
 

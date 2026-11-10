@@ -6,7 +6,8 @@
 ## same pixels on every platform, nothing drawn or sent when nothing
 ## changed.
 
-import std/[unicode, tables, math, strutils, algorithm, hashes]
+import std/[tables, math, strutils, algorithm, hashes]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 from std/os import getEnv, fileExists, removeFile, createDir, parentDir
 
 when (defined(gcc) or defined(clang)) and not defined(retroSizeOnly):

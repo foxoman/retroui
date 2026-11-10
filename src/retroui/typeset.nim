@@ -6,9 +6,10 @@
 ## Arabic letters take their joined forms (and lam + alef its ligature),
 ## mixed Arabic/Latin lines follow the Unicode bidirectional algorithm
 ## (paragraph direction from the first strong letter), and characters a
-## face lacks come from the others: Arabic from FreeSerif (its bold for
-## bold text), symbols from the regular of the family, then FreeSans and
-## FreeSerif, icons from the Nerd Fonts symbols.
+## face lacks come from the others: Arabic and Thai from FreeSerif (its bold
+## for bold text), symbols from the regular of the family, then FreeSans and
+## FreeSerif, icons from the Nerd Fonts symbols. Thai's vowels and tone
+## marks are stacked over and under their letter here (`thaiMark`).
 ##
 ## The faces are GNU FreeFont -- FreeSans, FreeSerif and FreeMono, each in
 ## its regular, bold, italic (oblique) and bold italic -- built into every
@@ -52,14 +53,14 @@ const
 when defined(wasm):
   # (a web page: the fonts are files beside the page, fetched when a face
   # is first used -- a PDF, the canvas's text; the page's own text is the
-  # browser's -- so an app's WebAssembly does not carry their 0.94 MB)
+  # browser's -- so an app's WebAssembly does not carry their 1.0 MB)
   proc packedFont(id: FaceId): string =
     try: readFile("/kit/fonts/" & faceFiles[id] & ".ttf.z")
     except IOError, OSError: ""
 else:
   const retroFonts {.strdefine.} = "all"
     ## Which faces are built into the program (`-d:retroFonts=...`):
-    ## "all" (the twelve: 0.94 MB), "sans" (FreeSans's four: 0.23 MB),
+    ## "all" (the twelve: 1.0 MB), "sans" (FreeSans's four: 0.24 MB),
     ## "ui" (FreeSans and its bold: 0.13 MB), "none". The others are read
     ## from `fonts/` beside the program (or $RETRO_FONTS) when they are
     ## there -- the .ttf.z files of src/retroui/fonts -- else drawn with
@@ -78,7 +79,7 @@ else:
   const
     fontPacked: array[fSans .. fMonoBoldItalic, string] =
       # the fonts, zlib-compressed (tools/genfreefont.py): 1.6 MB of TrueType
-      # take 0.94 MB in every app, and a face is unpacked when it is first used
+      # take 1.0 MB in every app, and a face is unpacked when it is first used
       [packedAt(fSans), packedAt(fSansBold), packedAt(fSansItalic), packedAt(fSansBoldItalic),
        packedAt(fSerif), packedAt(fSerifBold), packedAt(fSerifItalic), packedAt(fSerifBoldItalic),
        packedAt(fMono), packedAt(fMonoBold), packedAt(fMonoItalic), packedAt(fMonoBoldItalic)]
@@ -324,6 +325,7 @@ proc isMark*(cp: int): bool =
      0x0730..0x074A, 0x07A6..0x07B0, 0x07EB..0x07F3, 0x07FD, 0x0816..0x0819,
      0x081B..0x0823, 0x0825..0x0827, 0x0829..0x082D, 0x0859..0x085B,
      0x0897..0x089F, 0x08CA..0x08E1, 0x08E3..0x08FF,
+     0x0E31, 0x0E34..0x0E3A, 0x0E47..0x0E4E,
      0x1AB0..0x1AFF, 0x1DC0..0x1DFF, 0x20D0..0x20FF, 0xFE00..0xFE0F,
      0xFE20..0xFE2F: true
   else: false
@@ -1132,6 +1134,64 @@ proc asciiWidth(s: string; base: FaceId): float32 =
     if prev >= 0: result += kern[][prev * 96 + k]
     prev = k
 
+proc thaiAbove(cp: int): bool {.inline.} =
+  cp == 0x0E31 or cp in 0x0E34 .. 0x0E37 or cp in 0x0E47 .. 0x0E4E
+
+proc thaiTone(cp: int): bool {.inline.} = cp in 0x0E48 .. 0x0E4C
+
+proc thaiPlace*(letter: int; lf: Face; lg: int; mark: int; mf: Face; mg: int;
+                above = 0'f32; beforeAm = false): tuple[left, y: float32] =
+  ## Where Thai mark `mark` (a vowel or tone mark, above or below) goes on
+  ## its letter `letter` (glyph `lg` of face `lf`, the mark glyph `mg` of
+  ## `mf`), as the font's own positioning would put it: the kit's FreeSerif
+  ## keeps the Thai letters, not their tables. `left`: the mark's origin
+  ## from the letter's, in ems (NaN: where the font draws it, after the
+  ## letter); `y`: up, in ems. `above`: the top of the marks already over
+  ## the letter (ems, 0: none); `beforeAm`: sara am (ำ) comes next.
+  ##
+  ## FreeSerif draws a mark after its letter, with no width of its own, and
+  ## its tone marks high, for a vowel under them. So: over a tall letter
+  ## (ป ฝ ฟ ฬ) the marks go left of its stem; a tone mark sits just over
+  ## its letter, or over the vowel above it (กี่), or over the circle of
+  ## sara am after it (น้ำ); a vowel under a letter with a tail (ฎ ฏ) goes
+  ## under the tail.
+  result.left = NaN
+  let m = mf.bounds(mg)
+  if m.x1 <= m.x0: return
+  let me = float32(mf.unitsPerEm)
+  let le = float32(lf.unitsPerEm)
+  let bb = lf.bounds(lg)
+  let gap = 0.04'f32
+  let tall = letter in [0x0E1B, 0x0E1D, 0x0E1F, 0x0E2C]
+  if thaiAbove(mark):
+    if tall:
+      # (the mark's right edge a stem's width inside the letter's)
+      result.left = (float32(bb.x1) / le - 0.12'f32) - float32(m.x1) / me
+    var top = float32(bb.y1) / le
+    if tall: top = float32(lf.bounds(lf.glyphOf(0x0E01)).y1) / le     # (the letter's body)
+    top = max(top, above)
+    if thaiTone(mark) and beforeAm:
+      top = max(top, float32(mf.bounds(mf.glyphOf(0x0E4D)).y1) / me)
+    let y0 = float32(m.y0) / me
+    if thaiTone(mark) or mark == 0x0E4D or top + gap > y0: result.y = top + gap - y0
+  elif letter in [0x0E0E, 0x0E0F]:
+    let drop = float32(m.y1) / me - (float32(bb.y0) / le - gap)
+    if drop > 0: result.y = -drop
+
+proc thaiMark(r: var Run; cps, at: seq[int]; li, b: int) =
+  ## (Thai mark `li` of the run on its letter `b`: `thaiPlace`)
+  let mg = addr r.glyphs[at[li]]
+  let bg = r.glyphs[at[b]]
+  var above = 0'f32
+  for k in b + 1 ..< li:
+    if at[k] >= 0 and thaiAbove(cps[k]):
+      let pg = r.glyphs[at[k]]
+      above = max(above, float32(face(pg.face).bounds(int(pg.gid)).y1) / em(pg.face) + pg.y)
+  let p = thaiPlace(cps[b], face(bg.face), int(bg.gid), cps[li], face(mg.face), int(mg.gid),
+                    above, li + 1 < cps.len and cps[li + 1] == 0x0E33)
+  if p.left == p.left and bg.x + p.left < mg.x: mg.x = bg.x + p.left
+  mg.y = p.y
+
 proc build(s: string; base: FaceId; rtl: int): Run =
   ## `rtl`: -1 from the text, 0 left to right, 1 right to left.
   var cps: seq[int]
@@ -1191,6 +1251,9 @@ proc build(s: string; base: FaceId; rtl: int): Run =
     var b = li - 1
     while b >= 0 and (cps[b] < 0 or isMark(cps[b])): dec b
     if b < 0 or at[b] < 0: continue
+    if cps[li] in 0x0E31 .. 0x0E4E:
+      thaiMark(result, cps, at, li, b)
+      continue
     let mg = addr result.glyphs[at[li]]
     let bg = result.glyphs[at[b]]
     let mf = face(mg.face)

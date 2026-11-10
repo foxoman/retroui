@@ -1,7 +1,9 @@
-# Two leaks in Nim 2.2 (ORC) and an overflow, ready to report
+# Two leaks in Nim 2.2 (ORC), an overflow and a cut letter, ready to report
 
 Retro Nim UI works around the leaks (see `tools/returncheck.py` and
-AGENTS.md), but they belong in Nim itself, as does the third. Each report
+AGENTS.md) and the cut letter (`import std/unicode except strip`, kept by
+`tests/test_hardening.nim`), but they belong in Nim itself, as does the
+overflow. Each report
 below is what goes on https://github.com/nim-lang/Nim/issues: the
 program, what it prints, what it should print. They are seen with Nim 2.2.6 (Linux, amd64), `--mm:orc`
 (the default), with and without `-d:useMalloc`, in debug and release.
@@ -139,6 +141,43 @@ compilers may do anything with the overflow (here it happens to give
 carry such a number. Expected: the exponent stops growing once it is past
 what a float can hold (as `strtod` does). libFuzzer found it in a glTF
 model (`tests/fuzz/libfuzz.nim`, `-d:fuzzTarget=gltf`).
+
+---
+
+## 4. `unicode.strip` cuts the last letter when its last byte is 0x85 or 0xA0
+
+**Title:** std/unicode: `strip` drops the last byte of a line ending in a
+3- or 4-byte letter whose last byte is 0x85 or 0xA0
+
+```nim
+import std/unicode
+for s in ["ภาษาไทย ภ", "†", "丠", "\u{10F005}"]:
+  let t = s.strip
+  echo s.len, " -> ", t.len, " valid: ", t.validateUtf8 == -1
+```
+
+```
+nim c -r strip.nim
+```
+
+```
+25 -> 24 valid: false
+3 -> 2 valid: false
+3 -> 2 valid: false
+4 -> 3 valid: false
+```
+
+The trailing loop (lib/pure/unicode.nim, `strip`) walks back from the
+last byte and reads it as a letter of its own: 0x85 and 0xA0 are U+0085
+and U+00A0, both in `unicodeSpaces`, so the byte goes. A two-byte letter
+(Å, the Arabic meem) is read right; a longer one -- Thai ภ (U+0E20), †
+(U+2020), one Chinese character in 32, the private-use letters of icon
+fonts -- loses its last byte, and the line is no longer UTF-8. And it is
+the `strip` a module that imports `std/[strutils, unicode]` calls: a plain
+`s.strip` picks it over strutils'. Expected: each letter kept whole (walk
+back over the continuation bytes, 0x80..0xBF, to the letter's first byte
+before reading it). Found when the driver's tree of the control gallery
+was not UTF-8 (a pixel icon's name, U+10F005, cut).
 
 ---
 

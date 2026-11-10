@@ -430,11 +430,47 @@ proc translateMods(m: int16): set[Modifier] =
   if (m and KMOD_ALT) != 0: result.incl AltPressed
   if (m and KMOD_GUI) != 0: result.incl GuiPressed
 
+proc sdlTranslate(sdlEvent: var sdl2.Event; e: var input.Event)
+
+var lettersLeft: seq[input.Event]
+  # (the rest of a text event of several letters -- an input method's word
+  # -- one event a letter, given before SDL is asked again)
+
+proc lettersOf(s: cstring; e: var input.Event) =
+  ## (text `s` as TextInputEvents: the first into `e`, the others kept)
+  var i = 0
+  var first = true
+  while s[i] != '\0':
+    var te = input.Event(kind: TextInputEvent)
+    var k = 0
+    while true:
+      if k < te.text.len: te.text[k] = s[i]
+      inc k
+      inc i
+      if s[i] == '\0' or (uint8(s[i]) and 0xC0) != 0x80: break
+    if first:
+      e = te
+      first = false
+    else: lettersLeft.add te
+
 proc sdlPollEvent(e: var input.Event; flags: set[InputFlag]): bool =
+  if lettersLeft.len > 0:
+    e = lettersLeft[0]
+    lettersLeft.delete(0)
+    return true
   var sdlEvent: sdl2.Event
   if not sdl2.pollEvent(sdlEvent):
     return false
   result = true
+  sdlTranslate(sdlEvent, e)
+
+proc sdlTextCaret(x, y, w, h: int) =
+  # (where the box's caret is: the input method's candidates go under it)
+  var r = sdl2.rect(cint(x), cint(y), cint(max(w, 1)), cint(max(h, 1)))
+  sdl2.setTextInputRect(addr r)
+
+proc sdlTranslate(sdlEvent: var sdl2.Event; e: var input.Event) =
+  ## (an SDL event as the toolkit's; NoEvent when it is none of its)
   e = input.Event(kind: NoEvent)
   case sdlEvent.kind
   of QuitEvent:
@@ -470,9 +506,21 @@ proc sdlPollEvent(e: var input.Event; flags: set[InputFlag]): bool =
     e.key = translateScancode(sdlEvent.key.keysym.scancode)
     e.mods = translateMods(sdlEvent.key.keysym.modstate)
   of TextInput:
-    e.kind = TextInputEvent
-    for i in 0..3:
-      e.text[i] = sdlEvent.text.text[i]
+    # (all of it: an input method gives a word at once)
+    lettersOf(cast[cstring](addr sdlEvent.text.text[0]), e)
+  of TextEditing:
+    # what the input method is composing, drawn in the box; its caret
+    # (`start`, in letters) as a byte offset
+    let ed = cast[TextEditingEventPtr](addr sdlEvent)
+    e = input.Event(kind: TextEditingEvent)
+    e.composing = $cast[cstring](addr ed.text[0])
+    var at = 0
+    var n = 0
+    while at < e.composing.len and n < int(ed.start):
+      inc at
+      while at < e.composing.len and (uint8(e.composing[at]) and 0xC0) == 0x80: inc at
+      inc n
+    e.x = at
   of MouseButtonDown:
     e.kind = MouseDownEvent
     e.x = sdlEvent.button.x
@@ -505,20 +553,25 @@ proc sdlPollEvent(e: var input.Event; flags: set[InputFlag]): bool =
 
 proc sdlWaitEvent(e: var input.Event; timeoutMs: int;
                   flags: set[InputFlag]): bool =
-  # Use pollEvent with delay for timeout behavior
-  if timeoutMs < 0:
-    # Block until event
-    while true:
-      if sdlPollEvent(e, flags): return true
-      sdl2.delay(10)
-  elif timeoutMs == 0:
-    return sdlPollEvent(e, flags)
-  else:
-    let start = sdl2.getTicks()
-    while sdl2.getTicks() - start < timeoutMs.uint32:
-      if sdlPollEvent(e, flags): return true
-      sdl2.delay(10)
-    return false
+  # SDL's own wait (no waking every few milliseconds to look): until an
+  # event that is one of the toolkit's, or the time asked for
+  if sdlPollEvent(e, flags) and e.kind != NoEvent: return true
+  if timeoutMs == 0: return false
+  let start = sdl2.getTicks()
+  while true:
+    var sdlEvent: sdl2.Event
+    var got: bool
+    if timeoutMs < 0:
+      got = sdl2.waitEvent(sdlEvent)
+    else:
+      let left = timeoutMs - int(sdl2.getTicks() - start)
+      if left <= 0: return false
+      got = sdl2.waitEventTimeout(sdlEvent, left.cint)
+    if got:
+      sdlTranslate(sdlEvent, e)
+      if e.kind != NoEvent: return true
+    elif timeoutMs >= 0 and int(sdl2.getTicks() - start) >= timeoutMs:
+      return false
 
 proc sdlGetTicks(): int = sdl2.getTicks().int
 
@@ -529,6 +582,9 @@ proc sdlQuitRequest() = sdl2.quit()
 # --- Init ---
 
 proc initSdl2Driver*() =
+  # (an input method's composing comes as TEXTEDITING, drawn in the box;
+  # its list of candidates shown by the system)
+  discard setHint("SDL_IME_SHOW_UI", "1")
   if sdl2.init(INIT_VIDEO or INIT_EVENTS) != SdlSuccess:
     quit("SDL init failed")
   if ttfInit() != SdlSuccess:
@@ -546,6 +602,7 @@ proc initSdl2Driver*() =
   drawRelays = DrawRelays(
     fillRect: sdlFillRect, drawLine: sdlDrawLine, drawPoint: sdlDrawPoint,
     blitRGBA: sdlBlitRGBA)
+  textCaretRelay = sdlTextCaret
   inputRelays = InputRelays(
     pollEvent: sdlPollEvent, waitEvent: sdlWaitEvent,
     getTicks: sdlGetTicks, sleep: sdlDelay,

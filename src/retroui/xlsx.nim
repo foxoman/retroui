@@ -8,7 +8,8 @@
 ##     echo sheet.name, ": ", sheet.rows.len, " rows"
 ##     for row in sheet.rows: echo row.join(" | ")
 
-import std/[strutils, parsexml, streams, tables, math, os, unicode]
+import std/[strutils, parsexml, streams, tables, math, os]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import zip
 
 type

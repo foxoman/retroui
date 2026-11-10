@@ -305,6 +305,73 @@ block moreControls:
     if n.role == arTextArea and asReadOnly in n.states: md = i
   doAssert md > 0 and t[md].value == "Hello\n\nSome bold words and a link.", t[md].value
 
+block stopsAndNames:
+  # a range's two ends: two stops of Tab, each its own node; a time's hours
+  # and minutes named; whether a control has the keyboard
+  var lo = 10
+  var hi = 80
+  var hh = 9
+  var mm = 30
+  view = proc () =
+    rangeSlider(lo, hi, 0, 100)
+    timePicker(hh, mm)
+    if button("OK"): discard
+  run(3)
+  let t = sent[^1]
+  let f = t.find(arSlider, "From")
+  let e = t.find(arSlider, "To")
+  doAssert f > 0 and e > 0 and asFocusable in t[f].states and asFocusable in t[e].states
+  doAssert t.find(arSpinButton, "Hours") > 0 and t.find(arSpinButton, "Minutes") > 0
+  let stops = tabStops()
+  doAssert Id(t[f].id) in stops and Id(t[e].id) in stops, "both ends are stops of Tab"
+  accessRequests.add AccessRequest(action: aaFocus, id: t[f].id)
+  run(2)
+  key(KeyRight)
+  run(2)
+  doAssert lo == 11 and hi == 80
+  key(KeyTab)
+  run(2)
+  key(KeyRight)
+  run(2)
+  doAssert lo == 11 and hi == 81, "Tab to the right end: the arrows move it"
+  doAssert focusInControls()
+  ui.focus = 0
+  doAssert not focusInControls(), "nothing focused: an app may give Tab a meaning of its own"
+
+block openListsAndScrolling:
+  # an open drop-down's items are read and pressed; a control a screen
+  # reader asks to see is scrolled to
+  var lang2 = 0
+  var far = ""
+  view = proc () =
+    label "Language:"
+    combo ["English", "Deutsch", "Français"], lang2
+    scrollPanel 60:
+      for i in 0 ..< 12: label "Line " & $i
+      label "Far:"
+      edit far
+  run(3)
+  var t = sent[^1]
+  let c = t.find(arComboBox)
+  doAssert c > 0
+  accessRequests.add AccessRequest(action: aaPress, id: t[c].id)
+  run(3)
+  t = sent[^1]
+  let fr = t.find(arListItem, "Français")
+  doAssert t.find(arListItem, "Deutsch") > 0 and fr > 0, "the open list's items are read"
+  accessRequests.add AccessRequest(action: aaPress, id: t[fr].id)
+  run(3)
+  doAssert lang2 == 2, "an item pressed is picked"
+  t = sent[^1]
+  let e = t.find(arTextField, "Far:")
+  doAssert e > 0
+  let y0 = t[e].y
+  accessRequests.add AccessRequest(action: aaScrollIntoView, id: t[e].id)
+  run(4)
+  t = sent[^1]
+  let e2 = t.find(arTextField, "Far:")
+  doAssert t[e2].y < y0, "scrolled to it: " & $(y0, t[e2].y)
+
 accessListening = false
 run(2)
 doAssert not accessible()

@@ -29,7 +29,8 @@
 ##   discard propertyGrid(props, propSel, height = 200)
 ## ```
 
-import std/[strutils, tables, unicode, algorithm, hashes]
+import std/[strutils, tables, algorithm, hashes]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import gfx, core, widgets, business, extras, pixelicons, nerdicons
 import uirelays/input
 
@@ -498,6 +499,7 @@ proc dateRange*(a, b: var Date; presets = true; key = ""): bool {.discardable.} 
   let before = (a, b)
   row:
     if presets:
+      accessName("Range")
       if combo(names, p[], w = dp(130)) and p[] != 0:
         (a, b) = presetRange(RangePreset(p[]))
     label "&From"

@@ -36,7 +36,8 @@ static inline int nimedit_display_is_wayland(void) {
 }
 """.}
 
-import std/[unicode, os, strutils]
+import std/[os, strutils]
+import std/unicode except strip   # (its strip cuts a letter ending in byte 0x85 or 0xA0)
 import ../coords, ../input, ../screen, ../services
 import penaxes
 
@@ -120,6 +121,9 @@ proc g_type_from_name(name: cstring): GType {.importc, nodecl, cdecl.}
 proc g_type_check_instance_is_a(inst: pointer; t: GType): gboolean {.importc, nodecl, cdecl.}
 
 proc g_main_context_iteration(ctx: pointer; mayBlock: gboolean): gboolean {.importc, nodecl, cdecl.}
+proc g_timeout_add(ms: cuint; fn: proc (data: pointer): gboolean {.cdecl.};
+                   data: pointer): cuint {.importc, nodecl, cdecl.}
+proc g_source_remove(tag: cuint): gboolean {.importc, nodecl, cdecl.}
 
 proc gtk_init_check(): gboolean {.importc, nodecl, cdecl.}
 proc gtk_window_new(): pointer {.importc, nodecl, cdecl.}
@@ -1136,12 +1140,19 @@ proc gtkWaitEvent(e: var Event; timeoutMs: int;
   elif timeoutMs == 0:
     return false
   else:
+    # (GLib's own wait, a timer of its own ending it: no waking every few
+    # milliseconds to look)
     let t0 = g_get_monotonic_time() div 1000
-    while g_get_monotonic_time() div 1000 - t0 < timeoutMs:
-      discard g_main_context_iteration(nil, G_FALSE)
+    var due = false
+    let tag = g_timeout_add(cuint(timeoutMs), proc (data: pointer): gboolean {.cdecl.} =
+      cast[ptr bool](data)[] = true
+      G_FALSE, addr due)
+    while not due and g_get_monotonic_time() div 1000 - t0 < timeoutMs + 50:
+      discard g_main_context_iteration(nil, G_TRUE)
       if gtkPollEvent(e, flags):
+        if not due: discard g_source_remove(tag)
         return true
-      g_usleep(5000)
+    if not due: discard g_source_remove(tag)
     return gtkPollEvent(e, flags)
 
 proc gtkGetClipboardText(): string =

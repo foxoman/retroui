@@ -43,7 +43,8 @@
 ##   for m in w.messages: echo "the page says ", m   # retro.post(text) in its scripts
 ##   if w.back: requestClose()      # Back with no page before (Android)
 
-import std/[strutils, unicode, tables, os, hashes, times, base64, math]
+import std/[strutils, tables, os, hashes, times, base64, math]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 import core, widgets, markdown, pixelicons, nerdicons, imaging, htmldom, htmllayout, htmlcss
 import webp, gifanim

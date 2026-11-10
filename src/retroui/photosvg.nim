@@ -8,7 +8,8 @@
 ## writeFile("logo.svg", d.svgOf())
 ## ```
 
-import std/[strutils, math, base64, unicode]
+import std/[strutils, math, base64]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import gfx, photo, photoshapes, textengine, imaging
 
 proc hexColor(c: uint32): string = "#" & toHex(int(c and 0xFFFFFF), 6).toLowerAscii

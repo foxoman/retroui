@@ -50,10 +50,10 @@ proc channelThumb(d: Doc; ch: int; size: int): Bitmap =
       if mode == cmDuotone:
         let t = duotoneTable(d.duotone)
         for p in small.mitems: p = (t[(p shr 16) and 255] and 0xFFFFFF'u32) or (p and 0xFF000000'u32)
-      elif mode == cmCMYK or d.proof:
+      elif mode == cmCMYK or d.proof or (mode == cmMultichannel and d.spotBase == cmCMYK):
         for p in small.mitems: p = proofOf(p)
     else:
-      for p in small.mitems: p = grayPx(channelGray(mode, p, ch))
+      for p in small.mitems: p = grayPx(d.channelGrayOf(p, ch))
     result = thumbnailOf(small, tw, th, size, size)
     if chanThumbs.len > 256: chanThumbs.clear()
     chanThumbs[key] = (d.ver, result)
@@ -1197,11 +1197,14 @@ proc channelsBody(d: Doc) =
   let rowH = dp(30)
   let names = d.channelNames
   let all = d.colorChannelsAll and d.viewChannel < 0
+  # (a Multichannel image: its inks alone, no channel of them mixed first)
+  let comp = d.hasComposite
   for i, nm in names:
-    let ch = if names.len == 1: -1 else: i - 1
+    let ch = if names.len == 1: -1 elif comp: i - 1 else: i
     let on = if ch < 0: all else: d.channelsOn[ch] and not all
-    # (the keys: the usual Ctrl+2 for all, Ctrl+3.. a channel; 1994's Ctrl+0, 1..)
-    let k = if prefs.keySet == 0: i + 2 else: i
+    # (the keys: the usual Ctrl+2 for all, Ctrl+3.. a channel; 1994's Ctrl+0,
+    # 1..; a Multichannel image's inks Ctrl+1..)
+    let k = if not comp and names.len > 1: i + 1 elif prefs.keySet == 0: i + 2 else: i
     rows.add LayerRow(name: nm, thumb: channelThumb(d, ch, rowH - dp(6)), visible: ch < 0 or d.channelsOn[ch] or all,
                       active: on and not d.quickMask, note: "Ctrl+" & $k)
   for k, a in d.alphas:
@@ -1215,8 +1218,9 @@ proc channelsBody(d: Doc) =
   endScroll()
   if ev.clicked >= 0:
     if ev.clicked < names.len:
-      let ch = if names.len == 1: -1 else: ev.clicked - 1
-      if ch < 0: d.showAllChannels()
+      let ch = if names.len == 1: -1 elif comp: ev.clicked - 1 else: ev.clicked
+      # (an ink of a Multichannel image clicked again: all of them again)
+      if ch < 0 or (not comp and d.viewChannel == ch): d.showAllChannels()
       else: d.showChannel(ch)
       inc d.ver
     elif ev.clicked - names.len < d.alphas.len:
@@ -1230,11 +1234,17 @@ proc channelsBody(d: Doc) =
       d.snapStep("Save Selection")
       discard d.saveSelection()
       d.endStep()
-    if toolButton(glyphIcon(pxTrash, ui.theme.text, dp(16)), "Delete the Last Channel",
-                  enabled = d.alphas.len > 0):
-      d.snapStep("Delete Channel")
-      d.alphas.setLen(d.alphas.len - 1)
-      d.endStep()
+    # (deleting a color channel -- the one shown -- makes the image
+    # Multichannel: its ink taken out; else the last saved selection goes)
+    let colorCh = d.viewChannel >= 0 and d.canDeleteSpot
+    if toolButton(glyphIcon(pxTrash, ui.theme.text, dp(16)),
+                  (if colorCh: "Delete the Channel (Multichannel)" else: "Delete the Last Channel"),
+                  enabled = colorCh or d.alphas.len > 0):
+      if colorCh: runCommand("Delete Color Channel")
+      else:
+        d.snapStep("Delete Channel")
+        d.alphas.setLen(d.alphas.len - 1)
+        d.endStep()
 
 proc pathsBody(d: Doc) =
   # the path tools of 1994: the arrow, the pen, add, delete and convert point

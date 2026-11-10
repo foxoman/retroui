@@ -163,6 +163,7 @@ proc crudTask() =
   var items: seq[string]
   for i in shown: items.add people[i].surname & ", " & people[i].name
   row([280, -1]):
+    accessName "People"
     listbox(items, pick, rows = 8)
     col:
       row([80, -1]):

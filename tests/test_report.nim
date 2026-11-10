@@ -5,7 +5,7 @@
 ## that `reportFromHtml` reads, printing (with a fake CUPS), and the
 ## preview by mouse, keyboard and finger -- headless.
 
-import std/[os, strutils, json, times, sequtils, unicode]
+import std/[os, strutils, json, times, sequtils]
 import retroui
 import retroui/report
 import retroui/uirelays/input

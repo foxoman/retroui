@@ -6,7 +6,7 @@
 ## there, its check too.
 
 import std/[os, osproc, strutils, times, json]
-import std/unicode except splitWhitespace
+import std/unicode except splitWhitespace, strip   # (its strip cuts letters: docs/nim-bugs.md)
 import retroui/gfx
 import retroui/pdf
 

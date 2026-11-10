@@ -22,7 +22,8 @@
 ## links(doc.root, found)        # @["https://nim-lang.org"]
 ## ```
 
-import std/[strutils, unicode, tables]
+import std/[strutils, tables]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 
 const
   MaxHtml* = 4_000_000       ## bytes of HTML read (the rest is left out)

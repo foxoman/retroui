@@ -641,6 +641,47 @@ block arabicEverywhere:
   doAssert ink > 30, $ink
   doAssert textWidth("بب", bold = true) > 0 and hasGlyphs("مرحبا", fSansBold)
 
+block thaiAndVietnamese:
+  # Vietnamese in all twelve faces; Thai from FreeSerif (its bold for bold),
+  # its marks stacked: a tone mark over a vowel above (กี่) higher than over
+  # its letter alone (ก่), the marks of a tall letter (ปั้) left of its stem,
+  # a vowel under a letter with a tail (ฎุ) under the tail
+  for id in fSans .. fMonoBoldItalic:
+    doAssert face(id).glyphOf(0x1EBF) != 0 and face(id).glyphOf(0x1EF9) != 0, $id
+  doAssert hasGlyphs("Tiếng Việt: Xin chào thế giới") and hasGlyphs("Đồng hồ", fMonoBoldItalic)
+  doAssert hasGlyphs("สวัสดีครับ") and hasGlyphs("ภาษาไทย", fSansBold)
+  let th = shape("สวัสดี")
+  doAssert not th.missing and not th.rtl
+  for g in th.glyphs: doAssert g.face == fSerif, $g.face
+  for g in shape("สวัสดี", fSansBold).glyphs: doAssert g.face == fSerifBold, $g.face
+  proc markOf(s: string; base = fSans): PGlyph =
+    let r = shape(s, base)
+    r.glyphs[^1]
+  let alone = markOf("ก่")
+  let overVowel = markOf("กี่")
+  doAssert alone.y < 0 and overVowel.y > 0.05, $(alone.y, overVowel.y)
+  doAssert markOf("ก่ำ".runeSubStr(0, 2)).y == alone.y
+  let am = shape("น้ำ")
+  doAssert am.glyphs[1].y > alone.y + 0.1, "the tone over sara am's circle: " & $am.glyphs[1].y
+  let normal = shape("กั")
+  let tall = shape("ปั")
+  doAssert tall.glyphs[1].x - tall.glyphs[0].x < normal.glyphs[1].x - normal.glyphs[0].x - 0.05,
+           "left of the stem"
+  doAssert markOf("ฎุ").y < -0.15 and markOf("กุ").y == 0
+  # caret steps and word letters: a letter and its marks are one
+  doAssert isMark(0x0E35) and isMark(0x0E48) and not isMark(0x0E33)
+  doAssert clusterAfter("กี่ข", 0) == "กี่".len and clusterBefore("กี่ข", "กี่".len) == 0
+  # drawn
+  view = proc () =
+    label "ภาษาไทย ที่นี่"
+    label "Tiếng Việt", bold = true
+  run(3)
+  var ink = 0
+  for y in 0 ..< 50:
+    for x in 0 ..< 200:
+      if px(x, y) == 0: inc ink
+  doAssert ink > 30, $ink
+
 block switchFonts:
   let h = FontH
   setUiFont(ufMono)

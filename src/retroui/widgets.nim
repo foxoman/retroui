@@ -14,7 +14,8 @@
 ## - the pieces they are made of: `buttonFace`, `raised`, `sunken`,
 ##   `checkBox`, `radioDisc`, `arrow`, `scrollbarAt`, `focusDots`
 
-import std/[strutils, unicode, tables, math, hashes]
+import std/[strutils, tables, math, hashes]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import uirelays/input
 import core, nerdicons, pixelicons, busy
 from typeset import bidiInfo, visualOrderOf, isMark, shownRtl, plainLetters, joinsAt
@@ -1857,6 +1858,24 @@ proc popupList(id: Id; r: Rect; items: openArray[string]; sel: var int;
     else:
       text(ir.x + 2, itemTextY(ir.y), tr(items[i]), th.fieldText)
   popClip()
+  if accessOn:
+    # (the open list and the items it shows, the lit one focused; a screen
+    # reader's press on one picks it)
+    accessBegin(arList, id = id, r = area)
+    for i in top ..< min(items.len, top + vis + 1):
+      let iid = accessSubId(id, i)
+      if accessPress != 0 and accessPress == iid:
+        accessPress = 0
+        sel = i
+        result = true
+        ui.popup = 0
+        ui.redraw = true
+      let k = accessNode(arListItem, tr(items[i]), id = iid,
+                         r = rect(area.x + 1, area.y + 1 + i * ItemH - off, area.w - 2, ItemH),
+                         states = (if i == ui.popupHi: {asSelected} else: {}))
+      accessItem(k, i + 1, items.len)
+      if i == ui.popupHi: accessFocus(k)
+    accessEnd()
   st.scrollY = off
   state(id) = st
   popLayer()
@@ -2724,8 +2743,10 @@ proc tabStrip*(labels: openArray[string]; sel: var int; glyphs: openArray[string
   if addButton:
     let ax = if over: bx else: min(x + dp(2), r.x + r.w - addW)
     let plusR = rect(ax, r.y + dp(3), addW - dp(4), r.h - dp(6))
-    let hit = interact(id, plusR, focusable = false, enabled = enabled)
-    if accessOn: accessNode(arButton, "New tab", id = id, r = plusR, states = accessOff(enabled))
+    # (an id of its own: the strip's is its stop of Tab, the tabs' focus)
+    let pid = id + 300'u32
+    let hit = interact(pid, plusR, focusable = false, enabled = enabled)
+    if accessOn: accessNode(arButton, tr("New tab"), id = pid, r = plusR, states = accessOff(enabled))
     buttonFace(plusR, hit.down, bevel = 1, hot = hovered(plusR))
     text(plusR.x + (plusR.w - textWidth(nfPlus)) div 2, plusR.y + (plusR.h - FontH) div 2, nfPlus,
          th.text)
@@ -2791,9 +2812,10 @@ proc endScroll*() =
   scrollWheel(id, y, maxY, r, 3 * ItemH)
   scrollPan(id, y, maxY, r)
   scrollTick(id, y, maxY)
-  # Tab into a widget out of view scrolls it into view.
-  let f = ui.focusRect
-  if f.w > 0 and ui.frameNo - ui.focusMoved == 1:
+  # Tab into a widget out of view scrolls it into view (one a screen
+  # reader asks to see too).
+  let f = wantSeen()
+  if f.w > 0:
     if f.y < r.y + 1: y = clamp(y - (r.y + 1 + Pad - f.y), 0, maxY)
     elif f.y + f.h > r.y + r.h - 1:
       y = clamp(y + (f.y + f.h + Pad - (r.y + r.h - 1)), 0, maxY)
@@ -2855,8 +2877,8 @@ proc endPanel*() =
     scrollWheel(id, y, maxY, inner, 3 * ItemH)
     scrollPan(id, y, maxY, inner)
     scrollTick(id, y, maxY)
-    let f = ui.focusRect                      # Tab to a widget out of view
-    if f.w > 0 and ui.frameNo - ui.focusMoved == 1:
+    let f = wantSeen()                        # Tab to a widget out of view
+    if f.w > 0:
       if f.y < inner.y: y = clamp(y - (inner.y + Pad - f.y), 0, maxY)
       elif f.y + f.h > inner.y + inner.h:
         y = clamp(y + (f.y + f.h + Pad - (inner.y + inner.h)), 0, maxY)
@@ -4007,8 +4029,8 @@ proc endDialog*() =
       scrollWheel(id, y, hi, c, 3 * ItemH)
       scrollPan(id, y, hi, c)
     scrollTick(id, y, hi)
-    if canInput() and ui.frameNo - ui.focusMoved == 1:
-      let f = ui.focusRect
+    let f = wantSeen()
+    if canInput() and f.w > 0:
       if f.y < c.y: y -= c.y + Pad - f.y
       elif f.y + f.h > c.y + c.h: y += f.y + f.h + Pad - (c.y + c.h)
     # the standard scroll bar, fingers too (they can also drag the content)

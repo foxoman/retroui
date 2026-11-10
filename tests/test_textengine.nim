@@ -1,7 +1,8 @@
 ## Tests of styled text (retroui/textengine): fonts, layout, editing, drawing,
 ## warps, text on a path.
 
-import std/[math, unicode, json, strutils, os]
+import std/[math, json, strutils, os]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import retroui/[textengine, ttf, typeset]
 
 proc style(size = 40'f32): CharStyle =
@@ -438,5 +439,21 @@ block openType:
     let lb = layoutText(newText("abc بيت", a))
     doAssert la.glyphs.len > 0 and lb.glyphs.len > 0
     doAssert la.glyphs[^1].face != lb.glyphs[^1].face, "the variable font at another weight"
+
+block thai:
+  # Thai in a document: its marks stacked as in the interface (FreeSans's
+  # text takes FreeSerif's Thai; FreeSerif's has no Thai tables to shape it)
+  for fam in ["", "FreeSerif"]:
+    let st = CharStyle(family: fam, style: (if fam == "": "" else: "Regular"), size: 40,
+                       color: 0xFF000000'u32, hScale: 1, vScale: 1)
+    let alone = layoutText(newText("ก่", st))
+    let stacked = layoutText(newText("กี่", st))
+    doAssert alone.glyphs.len == 2 and stacked.glyphs.len == 3, $(alone.glyphs.len, stacked.glyphs.len)
+    let base = alone.glyphs[0].y
+    doAssert alone.glyphs[1].y > base, "a tone mark alone sits low: " & fam
+    doAssert stacked.glyphs[2].y < base - 2, "over the vowel: " & fam & " " & $(stacked.glyphs[2].y, base)
+    let tall = layoutText(newText("ปั", st))
+    let normal = layoutText(newText("กั", st))
+    doAssert tall.glyphs[1].x - tall.glyphs[0].x < normal.glyphs[1].x - normal.glyphs[0].x - 2, fam
 
 echo "textengine ok"

@@ -92,9 +92,15 @@ proc details() =
   for i, l in lines.mpairs:
     withId(i):
       row([-1, 50, 80, 28]):
+        # (the boxes of a line have no label each: named for screen readers)
+        let n = $(i + 1)
+        accessName("Line " & n & ": item")
         edit(l.name)
+        accessName("Line " & n & ": quantity")
         numberEdit(l.qty, decimals = 0, w = 50, lo = 0)
+        accessName("Line " & n & ": price")
         numberEdit(l.price, decimals = 2, w = 80, lo = 0)
+        accessName("Remove line " & n)
         if button("x", w = dp(28)): gone = i
   if gone >= 0: lines.delete(gone)
   if button("&Add a line"): lines.add Line(name: "New item", qty: 1, price: 0)

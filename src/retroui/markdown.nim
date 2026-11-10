@@ -12,7 +12,8 @@
 ##   let ev = markdownView(readFile("README.md"), baseDir = ".")
 ##   if ev.link.len > 0: discard openUrl(ev.link)
 
-import std/[strutils, unicode, tables, os, hashes, algorithm]
+import std/[strutils, tables, os, hashes, algorithm]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import core, widgets, imaging
 import uirelays/input
 

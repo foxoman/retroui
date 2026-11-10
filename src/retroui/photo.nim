@@ -387,7 +387,13 @@ type
   ColorMode* = enum
     ## The mode of an image (Mode menu): it limits the colors it holds.
     cmBitmap = "Bitmap", cmGray = "Grayscale", cmIndexed = "Indexed Color", cmRGB = "RGB Color",
-    cmCMYK = "CMYK Color", cmLab = "Lab Color", cmDuotone = "Duotone"
+    cmCMYK = "CMYK Color", cmLab = "Lab Color", cmDuotone = "Duotone", cmMultichannel = "Multichannel"
+
+  SpotChannel* = object
+    ## A channel of a Multichannel image: an ink of its own, printed on its
+    ## plate -- what was a channel of the mode it came from (`Doc.spotBase`).
+    name*: string           ## "Cyan", "Magenta"...
+    ch*: int                ## which channel of `spotBase` it is (0..3)
 
   Layer* = ref object
     ## A layer: as big as the document, pixels 0xAARRGGBB. An adjustment
@@ -840,6 +846,8 @@ type
     channelsOn*: array[4, bool]    ## R, G, B (C, M, Y, K; L, a, b): the color channels edited
     viewChannel*: int              ## -1 all, 0..3 one color channel (in gray)
     duotone*: seq[DuotoneInk]      ## Duotone: its inks
+    spots*: seq[SpotChannel]       ## Multichannel: its channels, each an ink
+    spotBase*: ColorMode           ## Multichannel: the mode its channels came from (RGB, CMYK, Grayscale)
     proof*: bool                   ## View > Proof Colors: shown as it prints
     icc*: string                   ## its color profile (ICC); "": sRGB, the working space
     gamutWarning*: bool            ## View > Gamut Warning: what cannot be printed in gray
@@ -3994,7 +4002,7 @@ proc loadSelection*(d: Doc; i: int; op = soReplace; invert = false) =
 const
   colorModes* = {cmRGB, cmCMYK, cmLab}
     ## The modes of full color.
-  editModes* = {cmRGB, cmCMYK, cmLab, cmGray, cmDuotone}
+  editModes* = {cmRGB, cmCMYK, cmLab, cmGray, cmDuotone, cmMultichannel}
     ## The modes the filters and adjustments work in.
 
 proc channelCount*(d: Doc): int =
@@ -4002,11 +4010,23 @@ proc channelCount*(d: Doc): int =
   case d.mode
   of cmGray, cmBitmap, cmDuotone: 1
   of cmCMYK: 4
+  of cmMultichannel: max(1, d.spots.len)
   else: 3
 
+proc hasComposite*(d: Doc): bool =
+  ## Channels lists the channels mixed first ("RGB", "CMYK"): a mode of
+  ## several channels, but not Multichannel (its inks are on their own).
+  d.mode != cmMultichannel and d.channelCount > 1
+
 proc channelNames*(d: Doc): seq[string] =
-  ## The color channels (the composite first when there are several).
+  ## The color channels (the composite first when there are several, but
+  ## a Multichannel image's inks alone: `hasComposite`).
   case d.mode
+  of cmMultichannel:
+    var names: seq[string]
+    for s in d.spots: names.add s.name
+    if names.len == 0: names.add "Black"
+    names
   of cmGray, cmBitmap: @["Black"]
   of cmDuotone: @[(if d.duotone.len <= 1: "Monotone" elif d.duotone.len == 2: "Duotone"
                    elif d.duotone.len == 3: "Tritone" else: "Quadtone")]
@@ -4034,36 +4054,56 @@ proc showChannel*(d: Doc; ch: int) =
 
 proc channelGray*(mode: ColorMode; p: uint32; ch: int): int =
   ## A color channel of a pixel as a gray (how Channels shows it): ink as
-  ## black for CMYK, Lightness, a, b for Lab.
+  ## black for CMYK, Lightness, a, b for Lab. (Multichannel: `channelGrayOf`.)
   case mode
   of cmCMYK: 255 - int(inkOf(p)[clamp(ch, 0, 3)])
   of cmLab: labBytes(p)[clamp(ch, 0, 2)]
   else: int((p shr (16 - 8 * clamp(ch, 0, 2))) and 255)
 
-proc keepChannels*(d: Doc; before, after: uint32): uint32 =
-  ## `after` with the color channels not being edited taken from `before`.
-  if d.colorChannelsAll: return after
-  case d.mode
+proc channelGrayOf*(d: Doc; p: uint32; ch: int): int =
+  ## Channel `ch` of a pixel of `d` as a gray: a Multichannel image's ink
+  ## as its plate shows it (black: all of the ink).
+  if d.mode == cmMultichannel and d.spots.len > 0:
+    let s = d.spots[clamp(ch, 0, d.spots.high)]
+    channelGray(d.spotBase, p, s.ch)
+  else: channelGray(d.mode, p, ch)
+
+proc keepIn(mode: ColorMode; on: array[4, bool]; before, after: uint32): uint32 =
+  case mode
   of cmCMYK:
     var a = inkOf(after)
     let b = inkOf(before)
     for c in 0 .. 3:
-      if not d.channelsOn[c]: a[c] = b[c]
+      if not on[c]: a[c] = b[c]
     fromInk(a, aOf(after))
   of cmLab:
     var a = labBytes(after)
     let b = labBytes(before)
     for c in 0 .. 2:
-      if not d.channelsOn[c]: a[c] = b[c]
+      if not on[c]: a[c] = b[c]
     fromLabBytes(a, aOf(after))
   else:
     var r = rOf(after)
     var g = gOf(after)
     var b = bOf(after)
-    if not d.channelsOn[0]: r = rOf(before)
-    if not d.channelsOn[1]: g = gOf(before)
-    if not d.channelsOn[2]: b = bOf(before)
+    if not on[0]: r = rOf(before)
+    if not on[1]: g = gOf(before)
+    if not on[2]: b = bOf(before)
     argb(aOf(after), r, g, b)
+
+proc keepChannels*(d: Doc; before, after: uint32): uint32 =
+  ## `after` with the color channels not being edited taken from `before`
+  ## (a Multichannel image: its inks not being edited, and the ones it no
+  ## longer has).
+  if d.mode == cmMultichannel:
+    if d.spotBase in {cmGray, cmBitmap, cmDuotone}:
+      return (if d.channelsOn[0]: after else: before)
+    var on: array[4, bool]
+    for i, s in d.spots:
+      if i < 4 and s.ch in 0 .. 3: on[s.ch] = d.channelsOn[i]
+    return keepIn(d.spotBase, on, before, after)
+  if d.colorChannelsAll: return after
+  keepIn(d.mode, d.channelsOn, before, after)
 
 # ---- Quick Mask -----------------------------------------------------------------------------------------
 
@@ -6306,6 +6346,53 @@ proc toLab*(d: Doc) =
   d.showAllChannels()
   d.markAll()
 
+proc toMultichannel*(d: Doc) =
+  ## Mode > Multichannel: each color channel an ink of its own, on its own
+  ## plate -- RGB's red, green and blue become cyan, magenta and yellow,
+  ## CMYK's four inks stay, a gray image is one black (Lab is made RGB
+  ## first). The layers are flattened: the inks are the picture. The
+  ## picture looks as it did; deleting a channel (`deleteSpot`) takes its
+  ## ink out.
+  if d.mode == cmMultichannel: return
+  if d.mode in {cmIndexed, cmLab}: d.toRGB()
+  if d.mode == cmBitmap: d.mode = cmGray
+  if d.mode == cmDuotone: d.toGrayscale()
+  if d.layers.len > 1 or (d.layers.len == 1 and not d.layers[0].background): d.flatten()
+  d.spots.setLen(0)
+  case d.mode
+  of cmCMYK:
+    d.spotBase = cmCMYK
+    for i, n in ["Cyan", "Magenta", "Yellow", "Black"]: d.spots.add SpotChannel(name: n, ch: i)
+  of cmGray:
+    d.spotBase = cmGray
+    d.spots.add SpotChannel(name: "Black", ch: 0)
+  else:
+    d.spotBase = cmRGB
+    for i, n in ["Cyan", "Magenta", "Yellow"]: d.spots.add SpotChannel(name: n, ch: i)
+  d.palette.setLen(0)
+  d.mode = cmMultichannel
+  d.showAllChannels()
+  d.markAll()
+
+proc canDeleteSpot*(d: Doc): bool =
+  ## A channel of the image can be deleted, its ink taken out: one of RGB's
+  ## (or of a Multichannel image made from RGB) while another stays. (A
+  ## CMYK image's inks are kept as the picture they print -- separated
+  ## again from it, a black taken out would come back -- so they stay.)
+  d.channelCount > 1 and (d.mode == cmRGB or (d.mode == cmMultichannel and d.spotBase == cmRGB))
+
+proc deleteSpot*(d: Doc; i: int) =
+  ## Channel `i` of a Multichannel image made from RGB deleted: its ink
+  ## taken out of the picture (the others print as they did). The last one
+  ## stays (`canDeleteSpot`).
+  if d.mode != cmMultichannel or d.spotBase != cmRGB or i < 0 or i >= d.spots.len or
+     d.spots.len <= 1: return
+  let sh = 16 - 8 * d.spots[i].ch
+  d.mapAllPixels(proc (p: uint32): uint32 = p or (0xFF'u32 shl sh))
+  d.spots.delete(i)
+  d.showAllChannels()
+  d.markAll()
+
 proc toDuotone*(d: Doc; inks: seq[DuotoneInk]) =
   ## Mode > Duotone: a gray image printed in one to four inks (from
   ## Grayscale).
@@ -6448,6 +6535,11 @@ proc fitColor*(d: Doc; c: uint32): uint32 =
   of cmRGB, cmLab: c
   of cmCMYK: proofOf(c)
   of cmDuotone: grayPx(lumaOf(c), aOf(c))
+  of cmMultichannel:
+    case d.spotBase
+    of cmCMYK: proofOf(c)
+    of cmGray: grayPx(lumaOf(c), aOf(c))
+    else: c
 
 # ---- histogram ----------------------------------------------------------------------------------------------
 
@@ -6899,6 +6991,11 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
     var inks = newJArray()
     for ink in d.duotone: inks.add %*{"name": ink.name, "color": int(ink.color and 0xFFFFFF'u32), "gamma": ink.gamma}
     j["duotone"] = inks
+  if d.mode == cmMultichannel:
+    var sp = newJArray()
+    for s in d.spots: sp.add %*{"name": s.name, "channel": s.ch}
+    j["spots"] = sp
+    j["spotBase"] = %($d.spotBase)
   addRaw("document.json", pretty(j))
   parts
 
@@ -7091,6 +7188,13 @@ proc loadRpd*(path: string): Doc =
                                     color: uint32(ij{"color"}.getInt) or 0xFF000000'u32,
                                     gamma: clamp(ij{"gamma"}.getFloat(1), 0.05, 20.0))
   if result.mode == cmDuotone and result.duotone.len == 0: result.mode = cmGray
+  if result.mode == cmMultichannel:
+    for m in ColorMode:
+      if $m == j{"spotBase"}.getStr: result.spotBase = m
+    for sj in j{"spots"}.getElems:
+      if result.spots.len < 4:
+        result.spots.add SpotChannel(name: sj{"name"}.getStr("Ink"), ch: clamp(sj{"channel"}.getInt, 0, 3))
+    if result.spots.len == 0 or result.spotBase notin {cmRGB, cmCMYK, cmGray}: result.mode = cmRGB
   result.cur = clamp(j{"current"}.getInt(0), 0, result.layers.high)
   for cj in j{"comps"}.getElems: result.comps.add compFrom(cj)
   for fj in j{"frames"}.getElems:

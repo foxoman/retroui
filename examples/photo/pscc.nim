@@ -245,7 +245,8 @@ proc psMenus() =
         ci("&RGB Color", enabled = some and d.mode != cmRGB, checked = some and d.mode == cmRGB)
         ci("&CMYK Color", enabled = some and d.mode != cmCMYK, checked = some and d.mode == cmCMYK)
         ci("&Lab Color", enabled = some and d.mode != cmLab, checked = some and d.mode == cmLab)
-        ci("&Multichannel", enabled = false)
+        ci("&Multichannel", enabled = some and d.mode in {cmRGB, cmCMYK, cmLab, cmGray, cmDuotone, cmIndexed},
+           checked = some and d.mode == cmMultichannel)
         sep()
         ci("&8 Bits/Channel", enabled = some, checked = some and d.depth notin [16, 32])
         ci("1&6 Bits/Channel", enabled = some and d.mode in {cmRGB, cmGray}, checked = some and d.depth == 16)

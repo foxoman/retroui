@@ -147,6 +147,9 @@ type
     layers*: seq[PsdLayer]      ## bottom first
     composite*: seq[uint32]     ## the merged picture (w x h), when the file has one
     composite16*: seq[uint16]   ## ... at 16 bits (R G B A), when it is a 16-bit file (and writing one)
+    spots*: seq[seq[uint8]]     ## a Multichannel file: each channel's plate (w x h, 255 no ink), as it
+                                ## is kept; writing one: the plates to write (mode `pmMultichannel`)
+    spotNames*: seq[string]     ## ... and their names ("Cyan", "Spot Color 1")
     palette*: seq[uint32]       ## Indexed Color
     cmykComposite*: seq[uint8]  ## CMYK files: the merged picture's ink, 4 bytes a pixel (255 full)
     globalAngle*: int           ## the global light's angle (degrees)
@@ -864,7 +867,11 @@ proc pixelsOf(mode: PsdColorMode; chans: seq[seq[byte]]; alpha: seq[byte]; n: in
     of pmLab:
       (r, g, b) = labToRgb(ch(0, i) * 100 / 255, float(ch(1, i) - 128), float(ch(2, i) - 128))
     of pmMultichannel:
-      if chans.len >= 3:
+      if chans.len >= 4:
+        # (taken as cyan, magenta, yellow and black inks, stored as 255 - ink)
+        let v = printedFast(255 - ch(0, i), 255 - ch(1, i), 255 - ch(2, i), 255 - ch(3, i))
+        r = int((v shr 16) and 255); g = int((v shr 8) and 255); b = int(v and 255)
+      elif chans.len >= 3:
         # (taken as cyan, magenta, yellow inks, stored as 255 - ink)
         r = ch(0, i); g = ch(1, i); b = ch(2, i)
       else:
@@ -1224,6 +1231,14 @@ proc readPsd*(data: string): PsdDoc =
     elif id == 0x040D and n >= 4: result.globalAngle = r.i32
     elif id == 0x0419 and n >= 4: result.globalAltitude = r.i32
     elif id == 0x040F and n > 128 and at + n <= data.len: result.icc = data[at ..< at + n]
+    elif id == 0x03EE and at + n <= data.len:
+      # (the channels' names, Pascal strings: a Multichannel file's inks)
+      var k = at
+      while k < at + n and result.spotNames.len < 64:
+        let m = ord(data[k])
+        if k + 1 + m > at + n: break
+        result.spotNames.add data[k + 1 ..< k + 1 + m]
+        k += 1 + m
     r.pos = at + n + (n and 1)
   r.pos = resEnd
   # the layers and masks
@@ -1296,7 +1311,11 @@ proc readPsd*(data: string): PsdDoc =
           if comp == 3: unpredict(raw, w, h, result.depth)
           planes[c] = if result.depth == 8: raw else: to8(raw, w, h, result.depth, c >= colorChannels(result.mode))
           if result.depth == 16: raws[c] = raw
-      let nColor = colorChannels(result.mode)
+      # (a Multichannel file: every channel an ink -- its plates kept, the
+      # picture as the first four print)
+      let nColor = if result.mode == pmMultichannel: clamp(planes.len, 1, 4) else: colorChannels(result.mode)
+      if result.mode == pmMultichannel and result.depth == 8:
+        result.spots = planes
       var alpha: seq[byte]
       # (an alpha channel after the colors: the merged picture's
       # transparency when there are layers; else not shown)
@@ -1763,11 +1782,60 @@ proc linkedData*(files: openArray[PsdLinkedFile]): string =
     result.setBe32(sizeAt + 4, result.len - start)
     while (result.len - start) mod 4 != 0: result.add '\0'
 
+proc writeMultichannelPsd(doc: PsdDoc): string =
+  ## (a Multichannel document: its plates, `spots`, and their names; no
+  ## layers -- Photoshop has none in Multichannel -- 8 bits, raw)
+  let big = doc.big or doc.w > 30000 or doc.h > 30000
+  let n = doc.w * doc.h
+  var o = "8BPS"
+  o.be16(if big: 2 else: 1)
+  o.add "\0\0\0\0\0\0"
+  o.be16(doc.spots.len)
+  o.be32(doc.h)
+  o.be32(doc.w)
+  o.be16(8)
+  o.be16(ord(pmMultichannel))
+  o.be32(0)                                  # color mode data
+  var res = ""
+  res.add "8BIM"
+  res.be16(0x03ED)
+  res.add "\0\0"
+  res.be32(16)
+  let dpiFix = int(round(max(1.0, doc.dpi) * 65536))
+  res.be32(dpiFix); res.be16(1); res.be16(1)
+  res.be32(dpiFix); res.be16(1); res.be16(1)
+  # (the inks' names)
+  var names = ""
+  for i in 0 ..< doc.spots.len:
+    var s = if i < doc.spotNames.len: doc.spotNames[i] else: "Spot Color " & $(i + 1)
+    if s.len > 255: s.setLen(255)
+    names.add char(s.len)
+    names.add s
+  res.add "8BIM"
+  res.be16(0x03EE)
+  res.add "\0\0"
+  res.be32(names.len)
+  res.add names
+  if (names.len and 1) == 1: res.add '\0'
+  o.be32(res.len)
+  o.add res
+  if big: o.add "\0\0\0\0\0\0\0\0" else: o.add "\0\0\0\0"   # no layers
+  o.be16(0)                                  # raw
+  for s in doc.spots:
+    let at = o.len
+    o.setLen(at + n)
+    if s.len == n and n > 0: copyMem(addr o[at], unsafeAddr s[0], n)
+    else:
+      for k in at ..< at + n: o[k] = '\xFF'
+  o
+
 proc writePsd*(doc: PsdDoc): string =
   ## `doc` as a Photoshop document (8 bits; RGB, grayscale or CMYK as its
   ## `mode` says; .psb when it is bigger than 30000 pixels across or down
   ## or `big`). Its layers' pixels are RLE-coded; the merged picture is
-  ## `composite` (made by the caller).
+  ## `composite` (made by the caller). A Multichannel one (`pmMultichannel`
+  ## with `spots`): its plates and their names, no layers.
+  if doc.mode == pmMultichannel and doc.spots.len > 0: return writeMultichannelPsd(doc)
   let big = doc.big or doc.w > 30000 or doc.h > 30000
   let mode = if doc.mode in {pmGray, pmCMYK}: doc.mode else: pmRGB
   let nColor = colorChannels(mode)

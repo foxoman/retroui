@@ -1,7 +1,8 @@
 # (the notifications of the systems: `notify.nim` includes this; see its
 # documentation)
 
-import std/[os, strutils, locks, typedthreads, times, unicode]
+import std/[os, strutils, locks, typedthreads, times]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 when not defined(ios):
   import std/tables
   import uirelays/target   # (androidApp: an APK, not a program in Termux)

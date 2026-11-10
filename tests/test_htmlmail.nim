@@ -216,6 +216,55 @@ block receiptColumns:
   doAssert "Toner cartridge HP 59A (black)\t2\tOMR 38.900\tOMR 77.800" in txt, txt
   doAssert "View online <https://supplies.example/r/INV-2026-1187>" in txt
 
+# ---- flexible boxes and grids --------------------------------------------------------------------
+
+block flexAndGrid:
+  # a row: side by side, the room shared as grow says, placed as
+  # justify-content says, the boxes across it as align-items says
+  let row = htmlPageInfo("""<div style="display:flex; gap:10px; width:400px">
+    <div style="flex:1; background:#eee">Alpha</div><div style="flex:2; background:#ddd">Beta</div>
+    <span>Gamma</span></div>""", 600)
+  let a = row.word("Alpha")
+  let b = row.word("Beta")
+  let g = row.word("Gamma")
+  doAssert a.y == b.y and b.y == g.y, "one row: " & $(a, b, g)
+  doAssert a.x < b.x and b.x < g.x
+  doAssert g.x + g.w <= 400 + 2 and g.x + g.w >= 400 - 2, "the last at the right, the room shared: " & $g
+  doAssert b.x - a.x < (g.x - b.x) * 3, "Beta's share twice Alpha's: " & $(a.x, b.x, g.x)
+  let between = htmlPageInfo("""<div style="display:flex; justify-content:space-between; width:300px">
+    <b>One</b><b>Two</b><b>Three</b></div>""", 600)
+  doAssert between.word("One").x <= 2
+  doAssert abs(between.word("Three").x + between.word("Three").w - 300) <= 2
+  let mid = between.word("Two")
+  doAssert abs((mid.x + mid.w div 2) - 150) <= 6, "the middle one in the middle: " & $mid
+  let centered = htmlPageInfo("""<div style="display:flex; justify-content:center; align-items:center;
+    height:100px; width:300px"><span>Mid</span><div style="height:60px">Tall</div></div>""", 600)
+  let m = centered.word("Mid")
+  doAssert m.x > 100 and m.x < 150, "centered along: " & $m
+  doAssert m.y > centered.word("Tall").y, "centered across (beside a taller box): " & $m
+  # wrapped onto more rows; a column
+  let wrapped = htmlPageInfo("""<div style="display:flex; flex-wrap:wrap; width:200px">
+    <div style="width:120px">First</div><div style="width:120px">Second</div></div>""", 600)
+  doAssert wrapped.word("Second").y > wrapped.word("First").y and wrapped.word("Second").x == wrapped.word("First").x
+  let col = htmlPageInfo("""<div style="display:flex; flex-direction:column; align-items:flex-end;
+    gap:8px; width:300px"><span>Top</span><span>Bottom</span></div>""", 600)
+  doAssert col.word("Bottom").y > col.word("Top").y
+  doAssert abs(col.word("Top").x + col.word("Top").w - 300) <= 2, "at the end of the column"
+  # right to left: the first at the right
+  let rtlRow = htmlPageInfo("""<div dir="rtl" style="display:flex; width:300px"><b>واحد</b><b>اثنان</b></div>""", 600)
+  doAssert rtlRow.word("واحد").x > rtlRow.word("اثنان").x
+  # a grid: three columns, a box over two; as many columns of 100 as fit
+  let grid = htmlPageInfo("""<div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;
+    width:320px"><div>A1</div><div>A2</div><div>A3</div><div style="grid-column:span 2">B12</div>
+    <div>B3</div></div>""", 600)
+  doAssert grid.word("A1").y == grid.word("A3").y and grid.word("B12").y > grid.word("A1").y
+  doAssert grid.word("A2").x == 110 and grid.word("A3").x == 220, $(grid.word("A2"), grid.word("A3"))
+  doAssert grid.word("B12").x == 0 and grid.word("B3").x == 220
+  let fill = htmlPageInfo("""<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(100px, 1fr));
+    width:350px"><i>c1</i><i>c2</i><i>c3</i><i>c4</i></div>""", 600)
+  doAssert fill.word("c3").y == fill.word("c1").y and fill.word("c4").y > fill.word("c1").y
+  doAssert fill.word("c4").x == 0
+
 # ---- tables: what browsers do with them ------------------------------------------------------------
 
 block tables:

@@ -281,6 +281,60 @@ suite "Photoshop documents: what stays editable":
     check a == b
     check again.linked.len == 2 and again.linked[0].data == p.linked[0].data
 
+suite "Multichannel":
+  test "RGB's channels become cyan, magenta, yellow inks; one deleted takes its ink out":
+    var d = newDoc(4, 2, 0xFF336699'u32)
+    d.toMultichannel()
+    check d.mode == cmMultichannel and d.spotBase == cmRGB
+    check d.channelNames == @["Cyan", "Magenta", "Yellow"] and not d.hasComposite
+    check d.layers[0].px[0] == 0xFF336699'u32                    # (it looks as it did)
+    check d.channelGrayOf(d.layers[0].px[0], 1) == 0x66
+    d.deleteSpot(0)                                               # (no cyan ink)
+    check d.channelNames == @["Magenta", "Yellow"] and d.channelCount == 2
+    check d.layers[0].px[0] == 0xFFFF6699'u32
+    # editing one ink leaves the others (and the deleted one stays empty)
+    d.showChannel(0)
+    check d.keepChannels(0xFFFF6699'u32, 0xFF000000'u32) == 0xFFFF0099'u32
+    d.showAllChannels()
+    check d.keepChannels(0xFFFF6699'u32, 0xFF000000'u32) == 0xFFFF0000'u32
+    # to a .psd (Photoshop's mode 7: the plates and their names) and back
+    let data = writePsd(psdOf(d))
+    let p = readPsd(data)
+    check p.mode == pmMultichannel and p.spots.len == 2 and p.spotNames == @["Magenta", "Yellow"]
+    check p.layers.len == 0
+    let back = docOfPsd(p)
+    check back.mode == cmMultichannel and back.channelNames == @["Magenta", "Yellow"]
+    check back.spots[0].ch == 1 and back.spots[1].ch == 2
+    check back.layers[0].px[0] == 0xFFFF6699'u32
+    # its own file, too
+    let f = getTempDir() / "retro_multichannel.rpd"
+    saveRpd(d, f)
+    let again = openPicture(f)
+    check again.mode == cmMultichannel and again.channelNames == @["Magenta", "Yellow"]
+    removeFile(f)
+
+  test "CMYK's four inks; gray's one":
+    var d = newDoc(2, 2, 0xFF336699'u32)
+    d.toCMYK()
+    d.toMultichannel()
+    check d.channelNames == @["Cyan", "Magenta", "Yellow", "Black"] and d.spotBase == cmCMYK
+    let before = d.layers[0].px[0]
+    check not d.canDeleteSpot                                     # (its inks are the picture's)
+    d.deleteSpot(3)
+    check d.channelCount == 4 and d.layers[0].px[0] == before
+    let back = docOfPsd(readPsd(writePsd(psdOf(d))))
+    check back.mode == cmMultichannel and back.spotBase == cmCMYK and back.channelCount == 4
+    check back.channelNames == @["Cyan", "Magenta", "Yellow", "Black"]
+    check abs(rOf(back.layers[0].px[0]) - rOf(before)) <= 3 and abs(bOf(back.layers[0].px[0]) - bOf(before)) <= 3
+    var g = newDoc(2, 2, 0xFF808080'u32)
+    g.toGrayscale()
+    g.toMultichannel()
+    check g.channelNames == @["Black"] and g.spotBase == cmGray and g.channelCount == 1
+    g.deleteSpot(0)                                               # (the last one stays)
+    check g.channelCount == 1
+    g.toRGB()
+    check g.mode == cmRGB and g.hasComposite
+
 suite "TIFF with layers (tag 37724)":
   let d = makeDoc()
 

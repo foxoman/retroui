@@ -1674,8 +1674,9 @@ proc rangeSlider*(lo, hi: var int; minV, maxV: int; w = 0; ticks = 10;
 
 A track bar with two thumbs, `lo` and `hi` (`minV <= lo <= hi <=
 maxV`): drag either (the nearer is taken), or the band between them
-to move both. Keys: arrows move the focused end (Tab... the left
-first; Shift+arrows the right). True when either changed.
+to move both. Keys: Tab stops at each end, the left first; the arrows
+move the focused one (Shift+arrows the other). True when either
+changed.
 
 ### popupSlider
 
@@ -2494,7 +2495,7 @@ proc iconView*(count: int; label: proc (i: int): string;
                tapActivates = false; checkboxes = false;
                enabled = true; picSize = 0; detail: proc (i: int): string = nil;
                dragItems = false; dropOk: proc (i: int): bool = nil;
-               oneLine = false): GridEvent {.discardable.}
+               oneLine = false; columnWise = false): GridEvent {.discardable.}
 ```
 
 Items as large pictures with their names under them, in rows (the
@@ -2502,10 +2503,11 @@ Items as large pictures with their names under them, in rows (the
 picture at the left, the name and a line or two of `detail(i)` beside
 it. `picture(i, r)` draws item `i` into `r` (an icon, a thumbnail with
 `drawBitmap`). With `oneLine`, small tiles of one line each: the
-picture and the name beside it ("Small icons"). Selection, keys,
-touch, selection rectangles (drag on
-the empty part), `dragItems` and `dropOk` work as in the multi-select
-`grid`; arrows move in two dimensions.
+picture and the name beside it ("Small icons"); `columnWise` too, the
+items down columns that go on to the right, scrolled sideways
+(Explorer's "List"). Selection, keys, touch, selection rectangles (drag
+on the empty part), `dragItems` and `dropOk` work as in the
+multi-select `grid`; arrows move in two dimensions.
 
 ### lineView
 
@@ -5931,6 +5933,21 @@ proc addAxes*(scene: var Scene3; length = 1.0)
 ```
 
 The x (red), y (green) and z (blue) axes from the origin.
+
+```nim
+proc addShadow*(scene: var Scene3; strength = 0.5; softness = 0.06;
+                name = "shadow"): int {.discardable.}
+```
+
+A soft shadow on the ground under the scene's meshes, as a light high
+above casts it: the meshes seen from above, their outline blurred
+(`softness`: a share of the scene's size), laid as a see-through
+picture on the ground under them. Made from the scene as it is now --
+a model's pose, its parts shown or hidden; after they change, call it
+again: it puts the new shadow in the old one's place. A flat mesh
+lying level (a floor) casts none: the shadow is laid on it. Its mesh's
+index; -1 when there is nothing to cast one. (The meshes do not
+shadow each other.)
 
 ```nim
 proc fitView*(scene: Scene3; cam: var Camera3)

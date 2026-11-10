@@ -276,6 +276,68 @@ template toPixelCoord(v: untyped): int =
   ## lands at a fraction of where it looked.
   int(v.float * currentLayout.uiScale.float / 100.0 + 0.5)
 
+# --- The input method ---
+
+type SdlTextEditing = object
+  ## (SDL_TextEditingEvent, as SDL 3 lays it out)
+  kind: uint32
+  reserved: uint32
+  timestamp: uint64
+  windowID: uint32
+  text: cstring
+  start: int32
+  length: int32
+
+proc sdlSetTextInputArea(window: sdl3.Window; rect: ptr sdl3.Rect; cursor: cint): bool
+  {.importc: "SDL_SetTextInputArea", cdecl, dynlib: sdl3.LibName.}
+proc sdlSetHint(name, value: cstring): bool
+  {.importc: "SDL_SetHint", cdecl, dynlib: sdl3.LibName.}
+
+var lettersLeft: seq[input.Event]
+  # (the rest of a text event of several letters -- an input method's word
+  # -- one event a letter, given before SDL is asked again)
+
+proc lettersOf(s: cstring; e: var input.Event) =
+  ## (text `s` as TextInputEvents: the first into `e`, the others kept)
+  if s == nil: return
+  var i = 0
+  var first = true
+  while s[i] != '\0':
+    var te = input.Event(kind: TextInputEvent)
+    var k = 0
+    while true:
+      if k < te.text.len: te.text[k] = s[i]
+      inc k
+      inc i
+      if s[i] == '\0' or (uint8(s[i]) and 0xC0) != 0x80: break
+    if first:
+      e = te
+      first = false
+    else: lettersLeft.add te
+
+proc composingOf(p: pointer; e: var input.Event) =
+  ## (an SDL_EVENT_TEXT_EDITING: what the input method is composing, drawn
+  ## in the box; its caret, `start` in letters, as a byte offset)
+  let ed = cast[ptr SdlTextEditing](p)
+  e = input.Event(kind: TextEditingEvent)
+  if ed.text != nil: e.composing = $ed.text
+  var at = 0
+  var n = 0
+  while at < e.composing.len and n < int(ed.start):
+    inc at
+    while at < e.composing.len and (uint8(e.composing[at]) and 0xC0) == 0x80: inc at
+    inc n
+  e.x = at
+
+proc sdlTextCaret(x, y, w, h: int) =
+  # (where the box's caret is, in SDL's units: the input method's
+  # candidates go under it)
+  if win == nil: return
+  let s = max(1.0, currentLayout.uiScale.float / 100.0)
+  var r = sdl3.Rect(x: cint(x.float / s), y: cint(y.float / s),
+                    w: cint(max(1.0, w.float / s)), h: cint(max(1.0, h.float / s)))
+  discard sdlSetTextInputArea(win, addr r, 0)
+
 # --- The window's frame ---
 #
 # Without the system's frame (`setSystemFrame(false)`) the window is
@@ -877,13 +939,10 @@ proc translateEvent(sdlEvent: sdl3.Event; e: var input.Event) =
       e.key = translateKeycode(sdlEvent.key.key)
     e.mods = translateMods(sdlEvent.key.`mod`)
   elif evType == uint32(EVENT_TEXT_INPUT):
-    e.kind = TextInputEvent
-    if sdlEvent.text.text != nil:
-      for i in 0..3:
-        if sdlEvent.text.text[i] == '\0':
-          e.text[i] = '\0'
-          break
-        e.text[i] = sdlEvent.text.text[i]
+    # (all of it: an input method gives a word at once)
+    lettersOf(cast[cstring](sdlEvent.text.text), e)
+  elif evType == 0x302'u32:   # SDL_EVENT_TEXT_EDITING
+    composingOf(unsafeAddr sdlEvent, e)
   elif evType == uint32(EVENT_MOUSE_BUTTON_DOWN):
     e.kind = MouseDownEvent
     e.x = toPixelCoord(sdlEvent.button.x)
@@ -918,6 +977,10 @@ proc translateEvent(sdlEvent: sdl3.Event; e: var input.Event) =
 
 proc sdlPollEvent(e: var input.Event; flags: set[InputFlag]): bool =
   syncTextInput(flags)
+  if lettersLeft.len > 0:
+    e = lettersLeft[0]
+    lettersLeft.delete(0)
+    return true
   var sdlEvent: sdl3.Event
   if not pollEvent(sdlEvent):
     return false
@@ -927,6 +990,10 @@ proc sdlPollEvent(e: var input.Event; flags: set[InputFlag]): bool =
 proc sdlWaitEvent(e: var input.Event; timeoutMs: int;
                   flags: set[InputFlag]): bool =
   syncTextInput(flags)
+  if lettersLeft.len > 0:
+    e = lettersLeft[0]
+    lettersLeft.delete(0)
+    return true
   var sdlEvent: sdl3.Event
   let ok = if timeoutMs < 0: waitEvent(sdlEvent)
            else: waitEventTimeout(sdlEvent, timeoutMs.int32)
@@ -946,6 +1013,9 @@ proc sdlQuitRequest() =
 # --- Init ---
 
 proc initSdl3Driver*() =
+  # (the app draws what an input method composes, in the box; the system
+  # its list of candidates)
+  discard sdlSetHint("SDL_IME_IMPLEMENTED_UI", "composition")
   if not sdl3.init(INIT_VIDEO or INIT_EVENTS):
     quit("SDL3 init failed")
   if not sdl3_ttf.init():
@@ -964,6 +1034,7 @@ proc initSdl3Driver*() =
     fillRect: sdlFillRect, drawLine: sdlDrawLine, drawPoint: sdlDrawPoint,
     loadImage: sdlLoadImage, freeImage: sdlFreeImage, drawImage: sdlDrawImage,
     imageSize: sdlImageSize, blitRGBA: sdlBlitRGBA)
+  textCaretRelay = sdlTextCaret
   inputRelays = InputRelays(
     pollEvent: sdlPollEvent, waitEvent: sdlWaitEvent,
     getTicks: sdlGetTicks, sleep: sdlDelay,

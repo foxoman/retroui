@@ -15,8 +15,13 @@
 ## browsers give (the least and most each column's content needs, widths
 ## in pixels and percents, colspan, rowspan, cellpadding and cellspacing,
 ## collapsed borders, cells aligned top, middle or bottom), nested as deep
-## as newsletters nest them. Pictures keep their aspect and are made
-## smaller to fit.
+## as newsletters nest them; flexible boxes (display: flex -- rows,
+## wrapped or not, and columns; the room shared as flex-grow and -shrink
+## say from each box's basis, width or content; justify-content,
+## align-items and -self, gap, order, right to left too) and grids (the
+## columns of grid-template-columns, boxes over several with
+## grid-column: span). Pictures keep their aspect and are made smaller to
+## fit.
 ##
 ## Sizes: CSS pixels are `dp` pixels, the text the UI's font (12 CSS
 ## pixels: the UI's own text size) -- times the page's `zoom`, as a
@@ -33,7 +38,8 @@
 ##   if it.kind == dkText: echo it.x, ",", it.y, " ", it.text
 ## ```
 
-import std/[strutils, unicode, tables, math, hashes, sets, algorithm]
+import std/[strutils, tables, math, hashes, sets, algorithm]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import gfx, htmldom, htmlcss
 from core import ui
 
@@ -424,6 +430,10 @@ proc walkInto(b: var Builder; box: Box; r: var Run; n: HNode; si: int32; link: i
     try: counter = parseInt(n.attr("start").strip)
     except ValueError: discard
   let isList = n.tag in ["ul", "ol", "menu", "dir"]
+  # (a flexible box's or a grid's children: each a box of its own, one of
+  # its cells -- an inline one, a link, a picture too; text between them
+  # one box)
+  let flexed = b.d.styles[si].flow != bfNormal and box.st == si
   for k in n.kids:
     if k.tag.len == 0:
       if k.text.len > 0:
@@ -440,7 +450,11 @@ proc walkInto(b: var Builder; box: Box; r: var Run; n: HNode; si: int32; link: i
     else: discard
     var ks = cascade(k, b.d.styles[si], b.sh)
     if ks.hidden: continue
-    let disp = ks.display
+    var disp = ks.display
+    if flexed:
+      ks.floatSide = 0
+      if disp in {dsInline, dsInlineBlock}: disp = dsBlock
+      elif disp == dsInlineTable: disp = dsTable
     if disp in {dsNone, dsColumn, dsColumnGroup}: continue
     var klink = link
     if k.tag == "a":
@@ -537,7 +551,7 @@ proc buildBlock(b: var Builder; n: HNode; si: int32; link: int32; depth: int): B
   result.tag = n.tag
   var r = Run()
   b.walkInto(result, r, n, si, link, depth)
-  if result.kids.len == 0:
+  if result.kids.len == 0 and b.d.styles[si].flow == bfNormal:
     result.inl = true
     result.items = move r.items
     b.finishInline(result)
@@ -956,6 +970,26 @@ proc intrinsic(c: var Lay; b: Box): tuple[mn, mx: int] =
     else:
       var inner: tuple[mn, mx: int]
       if b.inl: inner = c.inlineIntrinsic(b)
+      elif not b.anon and s.flow != bfNormal and not (s.flow == bfFlex and s.column):
+        # (a row: its boxes side by side -- the least, one under another
+        # when it wraps; a grid: its widest box in every column)
+        let gap = max(0, c.lenPx(s.gapCol, 0))
+        var cols = 1
+        if s.flow == bfGrid:
+          cols = max(1, s.tracks.len)
+          for tr in s.tracks:
+            if tr.k == gtFill: cols = 1
+        var widest = 0
+        for i, k in b.kids:
+          let (mn, mx) = c.intrinsic(k)
+          let ks = c.S(k.st)
+          let m = if k.anon: 0 else: c.lenPx(ks.margin[1], 0) + c.lenPx(ks.margin[3], 0)
+          widest = max(widest, mx + m)
+          if s.flow == bfFlex:
+            inner.mn = if s.wrap: max(inner.mn, mn + m) else: inner.mn + mn + m + (if i > 0: gap else: 0)
+            inner.mx += mx + m + (if i > 0: gap else: 0)
+          else: inner.mn = max(inner.mn, mn + m)
+        if s.flow == bfGrid: inner.mx = widest * min(cols, max(1, b.kids.len)) + gap * (min(cols, b.kids.len) - 1)
       else:
         for k in b.kids:
           let (mn, mx) = c.intrinsic(k)
@@ -1588,7 +1622,7 @@ proc topEdge(c: Lay; s: ptr CStyle; base: int): bool =
 proc bfcRoot(c: Lay; b: Box): bool =
   let s = c.S(b.st)
   b.cell or s.overflowHidden or s.floatSide != 0 or s.display in {dsInlineBlock, dsInlineTable} or
-    b.kind != bxBlock
+    b.kind != bxBlock or (s.flow != bfNormal and not b.anon)
 
 proc firstChild(b: Box): Box =
   for k in b.kids:
@@ -1619,8 +1653,266 @@ proc flowChild(c: var Lay; b: Box; parent: int32; x, cbW: int; y: var int; mc: v
 
 proc layoutTable(c: var Lay; t: Box; x, cbW: int; y: var int; parent: int32): tuple[w, h: int]
 
+# ---- flexible boxes and grids ----------------------------------------------------------------
+
+proc cellBox(c: var Lay; k: Box; x, w, y: int): int =
+  ## (one box of a flexible row or column or of a grid, `w` wide at `x`,
+  ## `y`, its margins outside: its height)
+  var yy = y
+  if k.anon:
+    c.layoutLines(k, x, w, yy)
+    return yy - y
+  c.layoutBox(k, x, w, yy).h
+
+proc stretchBox(c: var Lay; a, x, top, h: int) =
+  ## (the background and border of a box laid out from item `a` at `x`,
+  ## `top`: made `h` high -- a row's boxes stretched to the row)
+  if a < c.p.items.len and c.p.items[a].kind == dkBox and c.p.items[a].x == x and c.p.items[a].y == top:
+    c.p.items[a].h = max(c.p.items[a].h, h)
+
+proc alignOf(c: Lay; k: Box; s: ptr CStyle): FlexAlign =
+  if k.anon: s.alignItems
+  else:
+    let a = c.S(k.st).alignSelf
+    if a == faAuto: s.alignItems else: a
+
+proc cellsInOrder(c: Lay; b: Box; reverse: bool): seq[Box] =
+  ## (a flexible box's or grid's children, by their `order`)
+  result = b.kids
+  var any = false
+  for k in result:
+    if not k.anon and c.S(k.st).order != 0: any = true
+  if any:
+    var key = newSeq[(int, int)](result.len)
+    for i, k in result: key[i] = ((if k.anon: 0 else: int(c.S(k.st).order)), i)
+    key.sort()
+    let was = result
+    for i, (_, j) in key: result[i] = was[j]
+  if reverse: result.reverse()
+
+proc placeRow(c: var Lay; s: ptr CStyle; boxes: seq[Box]; xs, ws, mts, mbs: seq[int];
+              top: int; rtl: bool; x, w: int): int =
+  ## (a row of boxes laid out at `xs` (from the row's left), `ws` wide,
+  ## then put in their places across it: its height)
+  var at, h: seq[int]
+  var lineH = 0
+  for i, k in boxes:
+    let bx = if rtl: x + w - xs[i] - ws[i] else: x + xs[i]
+    at.add c.p.items.len
+    let hh = c.cellBox(k, bx, ws[i], top + mts[i])
+    h.add hh
+    lineH = max(lineH, mts[i] + hh + mbs[i])
+  for i, k in boxes:
+    let e = if i + 1 < boxes.len: at[i + 1] else: c.p.items.len
+    let room = lineH - mts[i] - h[i] - mbs[i]
+    case c.alignOf(k, s)
+    of faCenter: c.shift(at[i], e, 0, room div 2)
+    of faEnd: c.shift(at[i], e, 0, room)
+    of faStretch, faAuto:
+      if not k.anon and c.S(k.st).height.k == lkAuto:
+        let bx = if rtl: x + w - xs[i] - ws[i] else: x + xs[i]
+        c.stretchBox(at[i], bx, top + mts[i], lineH - mts[i] - mbs[i])
+    of faStart: discard
+  lineH
+
+proc flexFlow(c: var Lay; b: Box; x, w: int; y: var int) =
+  ## A flexible box's children: in a row (wrapped into more when `wrap`),
+  ## sized from their basis or content, sharing the room left as `grow`
+  ## and `shrink` say, placed along it as `justify` and across it as
+  ## `align`; or in a column.
+  let s = c.S(b.st)
+  let boxes = c.cellsInOrder(b, s.reverse)
+  if boxes.len == 0: return
+  let gapC = max(0, c.lenPx(s.gapCol, w))
+  let gapR = max(0, c.lenPx(s.gapRow, w))
+  let rtl = s.dir == dirRtl
+  if s.column:
+    for i, k in boxes:
+      if i > 0: y += gapR
+      let ks = c.S(k.st)
+      let ml = if k.anon: 0 else: c.lenPx(ks.margin[3], w)
+      let mr = if k.anon: 0 else: c.lenPx(ks.margin[1], w)
+      let mt = if k.anon: 0 else: c.lenPx(ks.margin[0], w)
+      let mb = if k.anon: 0 else: c.lenPx(ks.margin[2], w)
+      let avail = max(0, w - ml - mr)
+      let al = c.alignOf(k, s)
+      let kw = if k.anon or (al in {faStretch, faAuto} and ks.width.k == lkAuto): avail
+               else: c.shrinkWidth(k, avail)
+      var off = case al
+                of faCenter: (avail - kw) div 2
+                of faEnd: avail - kw
+                else: 0
+      if rtl: off = avail - kw - off
+      y += mt + c.cellBox(k, x + ml + off, kw, y + mt) + mb
+    return
+  # each box's size before the room is shared: its basis, its width, else its content's
+  var base, least, ml, mr, mt, mb: seq[int]
+  var grow, shrink: seq[float32]
+  for k in boxes:
+    let ks = c.S(k.st)
+    let l = if k.anon: 0 else: c.lenPx(ks.margin[3], w)
+    let r = if k.anon: 0 else: c.lenPx(ks.margin[1], w)
+    ml.add l
+    mr.add r
+    mt.add(if k.anon: 0 else: c.lenPx(ks.margin[0], w))
+    mb.add(if k.anon: 0 else: c.lenPx(ks.margin[2], w))
+    let avail = max(0, w - l - r)
+    let (mn, mx) = c.intrinsic(k)
+    var bs: int
+    if k.anon: bs = min(mx, avail)
+    elif ks.basis.k in {lkPx, lkPct}:
+      bs = c.lenPx(ks.basis, w) + (if ks.borderBox or k.kind != bxBlock: 0 else: c.hEdges(ks, w))
+    else: bs = c.shrinkWidth(k, avail)
+    base.add max(0, bs)
+    least.add(if not k.anon and ks.width.k == lkPx: bs else: min(mn, avail))
+    grow.add(if k.anon: 0'f32 else: ks.grow)
+    shrink.add(if k.anon: 1'f32 else: ks.shrink)
+  # the rows
+  var rows: seq[(int, int)]
+  var first = 0
+  var used = 0
+  for i in 0 ..< boxes.len:
+    let outer = base[i] + ml[i] + mr[i]
+    if s.wrap and i > first and used + gapC + outer > w:
+      rows.add (first, i)
+      first = i
+      used = 0
+    used += (if i > first: gapC else: 0) + outer
+  rows.add (first, boxes.len)
+  for ri, (a, e) in rows:
+    if ri > 0: y += gapR
+    let n = e - a
+    var ws = base[a ..< e]
+    var sum = 0
+    for i in a ..< e: sum += base[i] + ml[i] + mr[i]
+    var free = w - sum - gapC * (n - 1)
+    if free > 0:
+      var g = 0'f32
+      for i in a ..< e: g += grow[i]
+      if g > 0:
+        var given = 0
+        for i in a ..< e:
+          let add = int(float32(free) * grow[i] / g)
+          ws[i - a] += add
+          given += add
+        # (what rounding left, to the last that grows)
+        for i in countdown(e - 1, a):
+          if grow[i] > 0:
+            ws[i - a] += free - given
+            break
+        free = 0
+    elif free < 0:
+      var weight = 0'f32
+      for i in a ..< e: weight += shrink[i] * float32(base[i])
+      if weight > 0:
+        for i in a ..< e:
+          let cut = int(float32(-free) * shrink[i] * float32(base[i]) / weight + 0.5)
+          ws[i - a] = max(least[i], base[i] - cut)
+      free = w - gapC * (n - 1)
+      for i in a ..< e: free -= ws[i - a] + ml[i] + mr[i]
+    for i in a ..< e:
+      let ks = c.S(boxes[i].st)
+      if not boxes[i].anon:
+        if ks.maxW.k == lkPx: ws[i - a] = min(ws[i - a], c.lp(ks.maxW.v) + (if ks.borderBox: 0 else: c.hEdges(ks, w)))
+        if ks.minW.k == lkPx: ws[i - a] = max(ws[i - a], c.lp(ks.minW.v) + (if ks.borderBox: 0 else: c.hEdges(ks, w)))
+    # along the row: where the room left goes
+    var left = w - gapC * (n - 1)
+    for i in a ..< e: left -= ws[i - a] + ml[i] + mr[i]
+    left = max(0, left)
+    var start = 0
+    var step = 0
+    case s.justify
+    of fjEnd: start = left
+    of fjCenter: start = left div 2
+    of fjBetween: step = (if n > 1: left div (n - 1) else: 0)
+    of fjAround:
+      step = left div n
+      start = step div 2
+    of fjEvenly:
+      step = left div (n + 1)
+      start = step
+    of fjStart: discard
+    var xs: seq[int]
+    var cx = start
+    for i in a ..< e:
+      cx += ml[i]
+      xs.add cx
+      cx += ws[i - a] + mr[i] + gapC + step
+    y += c.placeRow(s, boxes[a ..< e], xs, ws, mt[a ..< e], mb[a ..< e], y, rtl, x, w)
+
+proc gridFlow(c: var Lay; b: Box; x, w: int; y: var int) =
+  ## A grid's children, row by row in its columns (grid-template-columns:
+  ## pixels, percents, shares of what is left, as many as fit), each as
+  ## many columns wide as its `grid-column` says.
+  let s = c.S(b.st)
+  let boxes = c.cellsInOrder(b, false)
+  if boxes.len == 0: return
+  let gapC = max(0, c.lenPx(s.gapCol, w))
+  let gapR = max(0, c.lenPx(s.gapRow, w))
+  var tracks = s.tracks
+  for t in s.tracks:
+    if t.k == gtFill:
+      let least = max(1, c.lp(t.v))
+      let n = clamp((w + gapC) div (least + gapC), 1, 100)
+      tracks = newSeq[GridTrack](n)
+      for tr in tracks.mitems: tr = GridTrack(k: gtFr, v: 1)
+      break
+  if tracks.len == 0: tracks = @[GridTrack(k: gtFr, v: 1)]
+  let n = tracks.len
+  let avail = max(0, w - gapC * (n - 1))
+  var cols = newSeq[int](n)
+  var fixed = 0
+  var fr = 0'f32
+  for i, t in tracks:
+    case t.k
+    of gtPx: cols[i] = c.lp(t.v)
+    of gtPct: cols[i] = int(float32(avail) * t.v / 100)
+    else: fr += max(0.01'f32, t.v)
+    fixed += cols[i]
+  let rest = max(0, avail - fixed)
+  for i, t in tracks:
+    if t.k in {gtFr, gtAuto, gtFill}: cols[i] = int(float32(rest) * max(0.01'f32, t.v) / fr)
+  var colX = newSeq[int](n)
+  var cx = 0
+  for i in 0 ..< n:
+    colX[i] = cx
+    cx += cols[i] + gapC
+  # rows of boxes, each in the next columns free
+  var i = 0
+  var firstRow = true
+  while i < boxes.len:
+    var row: seq[Box]
+    var xs, ws, mts, mbs: seq[int]
+    var col = 0
+    while i < boxes.len:
+      let k = boxes[i]
+      let ks = c.S(k.st)
+      let span = if k.anon: 1 else: clamp(int(ks.colSpan), 1, n)
+      if col > 0 and col + span > n: break
+      var cw = 0
+      for j in col ..< min(n, col + span): cw += cols[j]
+      cw += gapC * (min(n, col + span) - col - 1)
+      let ml = if k.anon: 0 else: c.lenPx(ks.margin[3], w)
+      let mr = if k.anon: 0 else: c.lenPx(ks.margin[1], w)
+      row.add k
+      xs.add colX[col] + ml
+      ws.add max(0, cw - ml - mr)
+      mts.add(if k.anon: 0 else: c.lenPx(ks.margin[0], w))
+      mbs.add(if k.anon: 0 else: c.lenPx(ks.margin[2], w))
+      col += span
+      inc i
+      if col >= n: break
+    if not firstRow: y += gapR
+    firstRow = false
+    y += c.placeRow(s, row, xs, ws, mts, mbs, y, s.dir == dirRtl, x, w)
+
 proc contentFlow(c: var Lay; b: Box; x, w: int; y: var int; mc: var MC; chainDone: bool) =
   ## A block's content: its lines, or its children.
+  if not b.anon and not b.inl and c.S(b.st).flow != bfNormal:
+    y += mc.total
+    mc = MC()
+    if c.S(b.st).flow == bfFlex: c.flexFlow(b, x, w, y) else: c.gridFlow(b, x, w, y)
+    return
   if b.inl:
     y += mc.total
     mc = MC()

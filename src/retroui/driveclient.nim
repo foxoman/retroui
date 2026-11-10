@@ -26,24 +26,36 @@ type
   DriveError* = object of CatchableError
     ## The app could not be reached, or did not answer in time.
 
-proc driveConnect*(port: int; host = "127.0.0.1"; timeoutMs = 10000): DriveClient =
-  ## Connect to the app driven on `port`, trying until `timeoutMs` (an app
-  ## just started takes a moment to listen).
-  let t0 = getMonoTime()
-  while true:
-    try:
-      let s = newSocket(buffered = false)
-      s.connect(host, Port(port))
-      return DriveClient(sock: s)
-    except OSError as e:
-      if (getMonoTime() - t0).inMilliseconds > timeoutMs:
-        raise newException(DriveError, "no app driven on " & host & ":" & $port & " (" &
-                           e.msg & ")")
-      sleep(100)
-
 proc close*(c: DriveClient) =
   ## The connection closed (the app goes on).
   try: c.sock.close() except CatchableError: discard
+
+proc reply*(c: DriveClient; timeoutMs = 30000; idle: proc () = nil): JsonNode
+
+proc driveConnect*(port: int; host = "127.0.0.1"; timeoutMs = 10000; probe = false): DriveClient =
+  ## Connect to the app driven on `port`, trying until `timeoutMs` (an app
+  ## just started takes a moment to listen). `probe`: the app asked once
+  ## (`info`) before it counts as there -- through `adb forward` the port
+  ## takes a connection before the app on the phone listens, then drops it.
+  let t0 = getMonoTime()
+  while true:
+    var why = ""
+    try:
+      let s = newSocket(buffered = false)
+      s.connect(host, Port(port))
+      let c = DriveClient(sock: s)
+      if not probe: return c
+      try:
+        s.send("{\"cmd\":\"info\",\"id\":0}\n")
+        discard c.reply(3000)
+        return c
+      except CatchableError as e:
+        c.close()
+        why = e.msg
+    except OSError as e: why = e.msg
+    if (getMonoTime() - t0).inMilliseconds > timeoutMs:
+      raise newException(DriveError, "no app driven on " & host & ":" & $port & " (" & why & ")")
+    sleep(200)
 
 proc send*(c: DriveClient; req: JsonNode) =
   ## A command sent, without waiting for its answer (`reply`).

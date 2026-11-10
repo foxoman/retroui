@@ -395,11 +395,12 @@ proc groupTabs(d: Dock; g: DockGroup; r: Rect; ev: var DockEvent; folding: bool)
       ui.redraw = true
   if g.panels.len > 0:
     let mr = rect(r.x + r.w - mw, r.y + dp(1), mw - dp(1), r.h - dp(3))
-    let mh = interact(idOf("dockmenu:" & g.panels[0].key), mr, focusable = false)
+    let mid = idOf("dockmenu:" & g.panels[0].key)   # (one id: a second `idOf` is another)
+    let mh = interact(mid, mr, focusable = false)
     arrow(mr.x + mr.w div 2, mr.y + mr.h div 2, dRight, if mh.showsHover: th.select else: th.text, dp(4))
     if accessOn:
-      accessNode(arButton, "The panel's menu", id = idOf("dockmenu:" & g.panels[0].key), r = mr)
-    if mh.down and ui.pressed or accessPressed == idOf("dockmenu:" & g.panels[0].key):
+      accessNode(arButton, "The panel's menu", id = mid, r = mr)
+    if mh.down and ui.pressed or accessPressed == mid:
       d.menuFor = g.panels[clamp(g.sel, 0, g.panels.high)].key
       openPopupMenu("dock:menu", ui.mx, ui.my)
     ui.lastRect = mr

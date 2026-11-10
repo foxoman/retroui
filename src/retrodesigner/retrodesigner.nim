@@ -95,6 +95,13 @@ var
   drag: tuple[kind: DragKind; item: Item; x, y: int]
   onSurface = false                # the window being designed was clicked last: its keys
   target: Target
+  # what screen readers and drivers know of the page (`accessKeep`)
+  namesOn = false                  # View > Names and Tab Order
+  pageNodes: seq[AccessNode]       # the page's nodes, as the last frame drew them
+  pageStops: seq[uint32]           # ... and its stops of Tab, in order
+  nameAsk = false                  # the Name It dialog
+  nameText = ""
+  nameFor: Item
 
 # ---- the file ----------------------------------------------------------------------------------
 
@@ -1023,6 +1030,108 @@ proc writeSize(pg: Page; w, h: int) =
   change(apply(src.text, [(src.startOff(ints[0]), src.endOff(ints[0]), $w),
                           (src.startOff(ints[1]), src.endOff(ints[1]), $h)]), line)
 
+const Unnamed = {arButton, arToggleButton, arCheckBox, arRadioButton, arTextField, arTextArea,
+                 arPasswordField, arComboBox, arList, arSlider, arSpinButton, arLink, arTable, arTree}
+  ## (the roles a screen reader must be told the name of)
+
+proc nodeRect(n: AccessNode): Rect =
+  ## (a node's place on the designer's window: the reader's device pixels
+  ## back to the designer's, a right-to-left look mirrored back)
+  let z = max(1, zoom)
+  result = rect(n.x div z, n.y div z, n.w div z, n.h div z)
+  if look == 3: result.x = ui.w - result.x - result.w
+
+proc nodeOf(it: Item): int =
+  ## The page's node of control `it` (-1 none): the biggest one inside it
+  ## that is a control, else the biggest one.
+  result = -1
+  if it == nil or not it.drawn or it.rect.w <= 0: return
+  let outer = rect(it.rect.x - 2, it.rect.y - 2, it.rect.w + 4, it.rect.h + 4)
+  var best = -1
+  var bestControl = false
+  for i, n in pageNodes:
+    if n.role in {arWindow, arPane, arGroup}: continue
+    let r = nodeRect(n)
+    if r.w <= 0 or r.h <= 0 or not outer.contains(point(r.x, r.y)) or
+       not outer.contains(point(r.x + r.w - 1, r.y + r.h - 1)): continue
+    let control = n.role in Unnamed
+    if best < 0 or (control and not bestControl) or
+       (control == bestControl and r.w * r.h > nodeRect(pageNodes[best]).w * nodeRect(pageNodes[best]).h):
+      best = i
+      bestControl = control
+  result = best
+
+proc stopsOf(nodes: seq[AccessNode]): seq[uint32] =
+  ## The stops of Tab of a page drawn without input (the designer's): its
+  ## controls in the order they are drawn -- a list, a table, a tree one
+  ## stop, not what is in them; not a tool bar's buttons, a menu's items,
+  ## nor what is disabled.
+  for i, n in nodes:
+    if n.role notin Unnamed or asDisabled in n.states: continue
+    var inside = false
+    for j in countdown(i - 1, 0):
+      let m = nodes[j]
+      if m.role in {arList, arTable, arTree, arToolBar, arMenu, arMenuBar, arTabList} and
+         n.x >= m.x and n.y >= m.y and n.x + n.w <= m.x + m.w and n.y + n.h <= m.y + m.h:
+        inside = true
+        break
+    if not inside: result.add n.id
+
+proc unnamedCount(): int =
+  for n in pageNodes:
+    if n.role in Unnamed and n.name.strip.len == 0: inc result
+
+proc readAs(n: AccessNode): string =
+  ## (a node as a screen reader and the driver know it: its role, its name)
+  roleWord(n.role) & (if n.name.len > 0: " \"" & n.name & "\"" else: " (no name)")
+
+proc namesOverlay() =
+  ## The page's stops of Tab numbered in their order, and the controls a
+  ## screen reader cannot name -- no label before them, no `accessName` --
+  ## outlined in red.
+  let th = ui.theme
+  let red = color(220, 30, 30)
+  for n in pageNodes:
+    if n.role in Unnamed and n.name.strip.len == 0:
+      let r = nodeRect(n)
+      dashed(rect(r.x - 1, r.y - 1, r.w + 2, r.h + 2), red)
+      dashed(r, red)
+  for i, id in pageStops:
+    for n in pageNodes:
+      if n.id != id: continue
+      let r = nodeRect(n)
+      let tag = $(i + 1)
+      let bw = textWidth(tag, style(size = 0.85)) + dp(6)
+      let b = rect(r.x - dp(2), r.y - dp(2), bw, FontH - dp(1))
+      fill(b, if n.name.strip.len == 0 and n.role in Unnamed: red else: th.select)
+      text(b.x + dp(3), b.y, tag, th.selectText, style(size = 0.85))
+      break
+
+proc suggestedName(it: Item): string =
+  ## (a name for a control from its variable: `userName` -> "User name")
+  if it == nil or it.call == nil: return ""
+  for a in it.call.args:
+    if a.kind == nkIdent:
+      let s = a.ident.s
+      var words = ""
+      for i, ch in s:
+        if i > 0 and ch.isUpperAscii: words.add ' '
+        words.add(if i == 0: ch.toUpperAscii else: ch.toLowerAscii)
+      return words
+  ""
+
+proc nameIt(it: Item; name: string) =
+  ## `accessName "..."` put before control `it`: what screen readers and
+  ## drivers know it by.
+  if it == nil or name.strip.len == 0: return
+  let (list, owner) = it.parentList
+  if list == nil: return
+  let at = list.stmts.find(it.node)
+  if at < 0: return
+  let line = it.line
+  tryChange((proc (): string = src.insertAt(list, owner, at, "accessName " & nimLit(name.strip))), line + 1)
+  status = "Named \"" & name.strip & "\" (accessName, line " & $line & ")"
+
 proc surface() =
   let pg = page()
   let th = ui.theme
@@ -1039,7 +1148,16 @@ proc surface() =
   pageRect = rect(whole.x + margin, whole.y + margin + dp(20), w, h)
   frameAround(pageRect, pg.title)
   ev.focus = if sel.len > 0: sel[0] else: nil
+  let a0 = accessTree.len
+  let s0 = tabStops().len           # (none while the page takes no input: then from its nodes)
   applyLook(look, proc () = ev.drawPage(pg, pageRect))
+  # (what a screen reader and a driver know of it: its nodes, its stops of Tab)
+  pageNodes = if accessTree.len > a0: accessTree[a0 ..< accessTree.len] else: @[]
+  pageStops.setLen(0)
+  let stops = tabStops()
+  for i in s0 ..< stops.len: pageStops.add uint32(stops[i])
+  if pageStops.len == 0: pageStops = stopsOf(pageNodes)
+  if namesOn and not inEditor and not readOnly: namesOverlay()
   if inEditor or readOnly:
     # (greyed: the file is the editor's, or another designer's)
     for y in countup(pageRect.y, pageRect.y + pageRect.h, 3):
@@ -1216,6 +1334,24 @@ proc propertiesPane() =
   if it == nil or it.call == nil:
     label "Choose a control on the window."
     return
+  # (what screen readers and drivers know it by)
+  let k0 = nodeOf(it)
+  if k0 >= 0:
+    let n = pageNodes[k0]
+    row([-1, 0, 0]):
+      label("Read as: " & readAs(n),
+            color = if n.role in Unnamed and n.name.strip.len == 0: color(200, 30, 30) else: ui.theme.text)
+      if n.role in Unnamed and n.name.strip.len == 0:
+        if button("&Name It...", enabled = not readOnly and not inEditor):
+          nameFor = it
+          nameText = suggestedName(it)
+          nameAsk = true
+      elif n.name.len > 0:
+        if button("Driver Command"):
+          let cmd = "click " & nimLit(n.name) & " --role " & roleWord(n.role)
+          putClipboardText(cmd)
+          status = "Copied: retrokit drive PORT " & cmd
+        tooltip "The command that clicks it, for `retrokit drive` (the app run with RETRO_DRIVE=PORT)"
   if it != propsFor or propsText != src.text: buildProps(it)
   if props.len == 0:
     label "It has nothing to set."
@@ -1398,6 +1534,8 @@ proc main() =
   webEngine = weKit
   settings = loadSettings(SettingsName)
   editorCmd = settings.getOrDefault("editor")
+  namesOn = settings.getOrDefault("names") == "true"
+  accessKeep = true                    # (the page's names and stops of Tab: `pageNodes`)
   # (the panes as they were left)
   try:
     leftW = parseInt(settings.getOrDefault("leftW", $leftW))
@@ -1476,6 +1614,14 @@ proc main() =
         for i, l in Looks:
           if menuItem("&" & l, checked = look == i): look = i
         menuSeparator()
+        if menuItem("&Names and Tab Order", checked = namesOn):
+          namesOn = not namesOn
+          settings["names"] = $namesOn
+          discard saveSettings(SettingsName, settings)
+          if namesOn:
+            let n = unnamedCount()
+            status = (if n == 0: "Every control has a name" else: $n & " controls have no name (red)") &
+                     "; " & $pageStops.len & " stops of Tab, numbered"
         if menuItem("&Preview", "F5", checked = previewOn): previewOn = not previewOn
         let vs = views()
         if vs.len > 1:
@@ -1558,7 +1704,7 @@ proc main() =
               of 1: eventsPane()
               else: variablesPane()
     # (the designer's keys: after the panes, which take theirs first)
-    if not (openDlg or saveDlg or askSave or settingsOpen or aboutOpen): keys()
+    if not (openDlg or saveDlg or askSave or settingsOpen or aboutOpen or nameAsk): keys()
     # the dialogs
     if fileDialog(openDlg, dlgPath, fmOpen, ["Nim Files (*.nim)", "All Files (*.*)"], "Open"):
       openFile(dlgPath)
@@ -1581,6 +1727,17 @@ proc main() =
       of 3:
         askSave = false
         afterSave = nil
+      else: discard
+    dialog(nameAsk, "Name It", 420):
+      label "The name screen readers and drivers know it by:"
+      edit nameText
+      label("Written before it as accessName \"...\" (a label just before it names it too).",
+            color = ui.theme.gray)
+      case buttonRow(["OK", "Cancel"])
+      of 1:
+        nameAsk = false
+        nameIt(nameFor, nameText)
+      of 2: nameAsk = false
       else: discard
     dialog(settingsOpen, "Settings", 480):
       label "Your &editor ({file} and {line} are put in; empty: found by itself):"

@@ -38,7 +38,7 @@ const TermuxHome = "/data/data/com.termux/files/home"
 const
   AppTitle = "Retro Files"
   AppId = "RetroFiles"
-  AppVersion = "3.3.7"
+  AppVersion = "3.3.8"
 
 type
   ViewerKind = enum vkNone, vkText, vkMarkdown, vkImage, vkHex, vkZip, vkPdf, vkVideo, vkAudio
@@ -63,8 +63,9 @@ const
   viewSteps = [(fvDetails, 0, "&Details"), (fvTiles, 48, "&Tiles"),
                (fvIcons, 48, "&Medium icons"), (fvIcons, 72, "&Large icons"),
                (fvIcons, 128, "E&xtra large icons"), (fvIcons, 200, "&Huge icons"),
-               (fvSmallIcons, 16, "&Small icons"), (fvColumns, 0, "C&olumns")]
-  viewOrder = [0, 7, 1, 2, 3, 4, 5, 6]   ## (the order of the Views menu)
+               (fvSmallIcons, 16, "&Small icons"), (fvColumns, 0, "C&olumns"),
+               (fvList, 16, "L&ist")]
+  viewOrder = [0, 7, 1, 2, 3, 4, 5, 6, 8]   ## (the order of the Views menu)
   columnsStep = 7
   zoomSteps = 5                    ## (Ctrl+wheel steps through the views up to here)
   deviceId = "::device"
@@ -1204,7 +1205,7 @@ proc preview() =
 
 proc setView*(step: int) =
   viewStep = clamp(step, 0, viewSteps.high)
-  if viewSteps[viewStep][0] in {fvIcons, fvTiles, fvSmallIcons}: lastIconStep = viewStep
+  if viewSteps[viewStep][0] in {fvIcons, fvTiles, fvSmallIcons, fvList}: lastIconStep = viewStep
   saveSettings()
 
 proc paneTop(p: int; strip = true; key = "") =
@@ -1290,9 +1291,9 @@ proc paneTop(p: int; strip = true; key = "") =
         if toolButton(pixelIcon(pxDetails), "Details", down = v == fvDetails):
           active = p
           setView(0)
-        if toolButton(pixelIcon(pxIcons), "Icons", down = v in {fvIcons, fvTiles, fvSmallIcons}):
+        if toolButton(pixelIcon(pxIcons), "Icons", down = v in {fvIcons, fvTiles, fvSmallIcons, fvList}):
           active = p
-          if v notin {fvIcons, fvTiles, fvSmallIcons}: setView(lastIconStep)
+          if v notin {fvIcons, fvTiles, fvSmallIcons, fvList}: setView(lastIconStep)
         if toolButton(pixelIcon(pxColumns), "Columns", down = v == fvColumns):
           active = p
           setView(columnsStep)
@@ -1693,7 +1694,9 @@ proc helpDialogs() =
             tr("Copyright (c) 2026 Sultan Al Isaiee. MIT licence.")],
            tagline = tr("Your files, as in 1994"),
            iconPng = FilesIconPng, glyph = pxFolderOpen,
-           whatsNew = [tr("3.3.7: covered by another window it draws nothing; the caret rests after 10 " &
+           whatsNew = [tr("3.3.8: View > List -- small icons in columns, scrolled sideways; every control " &
+                            "reached by Tab and named for screen readers; Thai and Vietnamese names"),
+                       tr("3.3.7: covered by another window it draws nothing; the caret rests after 10 " &
                             "seconds untouched; on Android, opened again it comes back as it was"),
                        tr("3.3.6: on a Mac it opens again (it stopped at the first click or key since " &
                             "0.29 of the kit); minimized, it draws nothing"),

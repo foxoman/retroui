@@ -4,7 +4,8 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[json, tables, strutils, times, sysrand, algorithm, math, sequtils, unicode]
+import std/[json, tables, strutils, times, sysrand, algorithm, math, sequtils]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import retroui/templates
 
 type

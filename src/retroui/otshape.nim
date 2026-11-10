@@ -2709,6 +2709,13 @@ proc hasLayout*(f: Face): bool =
   let L = f.layout
   L.t[0].at >= 0 or L.t[1].at >= 0
 
+proc placesMark*(f: Face; g: int): bool =
+  ## The face's GDEF calls glyph `g` a mark: the font places it with its
+  ## own tables (a mark it does not name -- a letter added to a font
+  ## without its tables -- is the shaper's to place).
+  let L = f.layout
+  L.glyphClass > 0 and L.classOf(L.glyphClass, g) == 3
+
 proc featureTags*(f: Face): seq[string] =
   ## Every feature tag the face's GSUB and GPOS tables have, sorted.
   let L = f.layout

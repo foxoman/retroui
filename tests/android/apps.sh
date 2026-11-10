@@ -1,11 +1,12 @@
 #!/bin/sh
 # Every app's APK on a running emulator or phone (adb), as people use them:
 # installed and opened without its permissions (nothing allowed yet), then
-# with them all; turned both ways, put away and brought back; then the
-# monkey -- random taps, swipes and keys, the same ones each time (a fixed
-# seed) -- for a while. A crash anywhere, the Java
-# side's or the native code's, fails it. The screens and the logs go to
-# live/apps/.
+# with them all; turned both ways, put away and brought back; driven by its
+# controls' names (RETRO_DRIVE given with its start, build/tour through adb
+# forward: every tab, every menu, the keyboard alone); then the monkey --
+# random taps, swipes and keys, the same ones each time (a fixed seed) --
+# for a while. A crash anywhere, the Java side's or the native code's, fails
+# it. The screens and the logs go to live/apps/.
 #
 #   sh tests/android/apps.sh build/apps/list.txt
 #
@@ -136,6 +137,22 @@ while read -r pkg apk; do
   back "$pkg"
   adb exec-out screencap -p < /dev/null > "$out/$name-4-back.png" 2>/dev/null
   [ -z "$bad" ] && ! alive "$pkg" && { bad="it closed when put away and brought back"; why "$pkg" "$bad"; }
+  # 4b. driven by its controls' names (RETRO_DRIVE, given with the start;
+  # the port reached through adb): every tab, every menu, the keyboard alone
+  if [ -z "$bad" ] && [ -x build/tour ]; then
+    adb shell am force-stop "$pkg" < /dev/null
+    act=$(adb shell cmd package resolve-activity --brief -c android.intent.category.LAUNCHER "$pkg" \
+          < /dev/null 2>/dev/null | tr -d '\r' | tail -1)
+    adb shell am start -W -n "$act" --es RETRO_DRIVE 7000 < /dev/null > /dev/null 2>&1
+    adb forward tcp:7000 tcp:7000 < /dev/null > /dev/null 2>&1
+    sleep 5
+    build/tour --port 7000 --name "$name" < /dev/null > "$out/$name-tour.txt" 2>&1
+    tour=$?
+    cat "$out/$name-tour.txt"
+    adb forward --remove tcp:7000 < /dev/null > /dev/null 2>&1
+    [ $tour -ne 0 ] && bad="its driven tour failed (see above)"
+    [ -z "$bad" ] && ! alive "$pkg" && { bad="it closed while driven"; why "$pkg" "$bad"; }
+  fi
   # 5. the monkey: 600 events, the same each time
   adb shell monkey -p "$pkg" -s 4242 --throttle 120 --pct-syskeys 0 --pct-appswitch 0 \
     --pct-anyevent 0 -v 600 < /dev/null > "$out/$name-monkey.txt" 2>&1

@@ -15,13 +15,14 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[os, math, strutils, tables, sets, unicode, json, sequtils, hashes]
+import std/[os, math, strutils, tables, sets, json, sequtils, hashes]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import retroui
 import retroui/[board, freehand]
 
 const
   AppName = "Retro Board"
-  BoardVersion = "1.3.7"
+  BoardVersion = "1.3.8"
   iconPng = staticRead("assets/board-icon.png")
 
 type
@@ -1037,9 +1038,10 @@ proc panel(r: Rect) =
 proc iconButton(key: string; r: Rect; down: bool; tip: string; ic: Icon; geo = gkRectangle;
                 enabled = true): bool =
   ## A button of a floating bar with a picture: true when clicked.
-  let hit = interact(idOf("bb:" & key), r, focusable = false, enabled = enabled)
+  let id = idOf("bb:" & key)                 # (one id: a second `idOf` is another)
+  let hit = interact(id, r, focusable = false, enabled = enabled)
   if accessible():
-    accessNode(if down: arToggleButton else: arButton, tip, id = idOf("bb:" & key), r = r,
+    accessNode(if down: arToggleButton else: arButton, tip, id = id, r = r,
                states = (if down: {asPressed, asChecked} else: {}) + (if enabled: {} else: {asDisabled}))
   let pressed = down or hit.down
   buttonFace(r, pressed, 1, rounded = false, bevel = 1, hot = enabled and hovered(r))
@@ -1051,9 +1053,10 @@ proc iconButton(key: string; r: Rect; down: bool; tip: string; ic: Icon; geo = g
 
 proc paintButton(key: string; r: Rect; down: bool; tip: string): tuple[clicked: bool; r: Rect] =
   ## A button whose picture the caller draws (in the rectangle returned).
-  let hit = interact(idOf("bp:" & key), r, focusable = false)
+  let id = idOf("bp:" & key)
+  let hit = interact(id, r, focusable = false)
   if accessible():
-    accessNode(if down: arToggleButton else: arButton, tip, id = idOf("bp:" & key), r = r,
+    accessNode(if down: arToggleButton else: arButton, tip, id = id, r = r,
                states = (if down: {asPressed, asChecked} else: {}))
   let pressed = down or hit.down
   buttonFace(r, pressed, 1, rounded = false, bevel = 1, hot = hovered(r))
@@ -1669,6 +1672,7 @@ proc canvasInput() =
     ui.rpressed = false
   if ui.pressed and over and not ui.pressUsed and not ui.gesturing:
     ui.pressUsed = true
+    ui.focus = 0                          # (the keys are the board's again: arrows nudge, Tab hides the panels)
     pressCanvas()
   elif ui.mouseDown and drag != dkNone:
     dragCanvas()
@@ -3072,8 +3076,12 @@ proc keys() =
     case ui.key
     of KeyDelete, KeyBackspace: deleteSel()
     of KeyTab:
-      panelsHidden = not panelsHidden
-      saveSettingsNow()
+      # (Tab hides the panels when no control of theirs has the keyboard:
+      # else it goes on to the next control)
+      if not focusInControls():
+        panelsHidden = not panelsHidden
+        saveSettingsNow()
+      else: used = false
     of KeyEsc:
       if drag != dkNone: cancelDrag()
       elif moreOpen: moreOpen = false
@@ -3297,7 +3305,9 @@ proc dialogs() =
             "on as many pages as you like.",
             "Made with Retro Nim UI " & RetroVersion & " (retroui/board, retroui/freehand)."],
            tagline = "Draw, sketch and think together", iconPng = iconPng,
-           whatsNew = ["1.3.7: covered by another window it draws nothing; the caret rests after 10 seconds " &
+           whatsNew = ["1.3.8: Tab goes through the panels' controls (on the board it still hides the " &
+                       "panels; a click on the board gives it the keys again); Thai and Vietnamese text",
+                       "1.3.7: covered by another window it draws nothing; the caret rests after 10 seconds " &
                        "untouched; on Android, opened again it comes back as it was",
                        "1.3.6: on a Mac it opens again (it stopped at the first click or key since 0.29 of the kit); minimized, it draws nothing",
                        "1.3.5: in Termux, a .board named after it on the command line opens; a report of a " &
@@ -3443,6 +3453,7 @@ proc main() =
   windowIcon = windowIconFromPng(iconPng)
   reportedVersion = BoardVersion
   startApp(AppName, 1100, 720)
+  autoFocus = false             # (the keys are the board's until a panel's control is clicked)
   # (the last run stopped: its board waits for the "stopped" screen's Start)
   let waiting = stoppedPending()
   if not waiting: loadStart()

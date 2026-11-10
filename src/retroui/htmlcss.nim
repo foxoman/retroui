@@ -18,7 +18,12 @@
 ## style, color), border-radius, width, min-/max-width, height,
 ## min-/max-height, line-height, white-space, text-transform, direction,
 ## visibility, opacity, overflow, float, clear, list-style-type,
-## border-collapse, border-spacing, box-sizing, text-indent, mso-hide.
+## border-collapse, border-spacing, box-sizing, text-indent, mso-hide; and
+## for flexible boxes and grids: display flex and grid, flex-direction,
+## -wrap, -flow, flex, -grow, -shrink, -basis, justify-content,
+## align-items, align-self, gap, row-gap, column-gap, order,
+## grid-template-columns (pixels, percents, fr, repeat, minmax,
+## auto-fill) and grid-column (span).
 ## Elements a mail hides (a newsletter's "preheader": display none,
 ## visibility hidden, opacity 0, max-height 0 with overflow hidden, a font
 ## of no size, mso-hide with any of these) are marked hidden.
@@ -324,7 +329,10 @@ type
     pBorderRadius, pWidth, pMinWidth, pMaxWidth, pHeight, pMinHeight, pMaxHeight,
     pLineHeight, pWhiteSpace, pTextTransform, pDirection, pVisibility, pOpacity,
     pOverflow, pMsoHide, pListStyleType, pListStyle, pFloat, pClear, pBorderCollapse,
-    pBorderSpacing, pBoxSizing, pTextIndent, pPaddingInlineStart, pMarginInlineStart
+    pBorderSpacing, pBoxSizing, pTextIndent, pPaddingInlineStart, pMarginInlineStart,
+    pFlexDirection, pFlexWrap, pFlexFlow, pFlex, pFlexGrow, pFlexShrink, pFlexBasis,
+    pJustifyContent, pAlignItems, pAlignSelf, pGap, pRowGap, pColumnGap, pOrder,
+    pGridTemplateColumns, pGridColumn
 
   Decl* = object
     ## A declaration: a property and its value (lower case, trimmed).
@@ -362,7 +370,16 @@ const propNames = {
   "border-collapse": pBorderCollapse, "border-spacing": pBorderSpacing,
   "box-sizing": pBoxSizing, "text-indent": pTextIndent,
   "padding-inline-start": pPaddingInlineStart,
-  "margin-inline-start": pMarginInlineStart}.toTable
+  "margin-inline-start": pMarginInlineStart,
+  "flex-direction": pFlexDirection, "flex-wrap": pFlexWrap, "flex-flow": pFlexFlow,
+  "flex": pFlex, "flex-grow": pFlexGrow, "flex-shrink": pFlexShrink, "flex-basis": pFlexBasis,
+  "justify-content": pJustifyContent, "align-items": pAlignItems, "align-self": pAlignSelf,
+  "gap": pGap, "grid-gap": pGap, "row-gap": pRowGap, "grid-row-gap": pRowGap,
+  "column-gap": pColumnGap, "grid-column-gap": pColumnGap, "order": pOrder,
+  "grid-template-columns": pGridTemplateColumns, "grid-column": pGridColumn,
+  "-webkit-flex-direction": pFlexDirection, "-webkit-flex-wrap": pFlexWrap,
+  "-webkit-flex": pFlex, "-webkit-justify-content": pJustifyContent,
+  "-webkit-align-items": pAlignItems}.toTable
 
 proc stripComments(s: string): string =
   if "/*" notin s: return s
@@ -744,6 +761,27 @@ type
   LineH* = enum
     ## How a line height is given.
     lhNormal, lhFactor, lhPx
+  BoxFlow* = enum
+    ## How a box lays out its children: one under another (and lines of
+    ## words), in a row or a column of flexible boxes, in a grid.
+    bfNormal, bfFlex, bfGrid
+  FlexJustify* = enum
+    ## justify-content: where a flexible row's boxes go when they leave room.
+    fjStart, fjEnd, fjCenter, fjBetween, fjAround, fjEvenly
+  FlexAlign* = enum
+    ## align-items, align-self: where a box sits across its row (stretched to
+    ## the row's height, at its top or bottom, in its middle); auto: as its
+    ## container says.
+    faAuto, faStretch, faStart, faEnd, faCenter
+  GridTrackKind* = enum
+    ## A grid column's width: pixels, a percentage, a share (fr) of what is
+    ## left, as wide as its content (auto: a share too), or as many columns
+    ## of at least `v` pixels as fit (auto-fill, auto-fit).
+    gtPx, gtPct, gtFr, gtAuto, gtFill
+  GridTrack* = object
+    ## A column of a grid (grid-template-columns).
+    k*: GridTrackKind
+    v*: float32
 
   CStyle* = object
     ## An element's computed style (lengths in CSS pixels).
@@ -785,6 +823,19 @@ type
     borderBox*: bool           ## box-sizing: border-box
     textIndent*: float32       ## text-indent: the first line's
     explicitColor*: bool       ## the element's own color was given (links keep it)
+    flow*: BoxFlow                ## display: flex or grid -- its children laid out so
+    column*: bool              ## flex-direction: column
+    reverse*: bool             ## ... row-reverse, column-reverse
+    wrap*: bool                ## flex-wrap: wrap
+    justify*: FlexJustify          ## justify-content
+    alignItems*: FlexAlign         ## align-items (its children's place across a row)
+    alignSelf*: FlexAlign          ## align-self (its own; auto: its container's)
+    gapRow*, gapCol*: Len      ## row-gap, column-gap (gap)
+    grow*, shrink*: float32    ## flex-grow, flex-shrink
+    basis*: Len                ## flex-basis (auto: its width, else its content's)
+    order*: int16              ## order (in a flexible row or a grid)
+    tracks*: seq[GridTrack]        ## grid-template-columns
+    colSpan*: int16            ## grid-column: how many columns it takes (0: one)
 
 const RootPx* = 12.0
   ## The CSS pixels of the root's font: the UI's text size.
@@ -793,6 +844,10 @@ proc initialStyle*(): CStyle =
   ## The root's style before the page's.
   result.fontPx = RootPx
   result.spacing = 0
+  result.shrink = 1
+  result.alignItems = faStretch
+  result.gapRow = px(0)
+  result.gapCol = px(0)
   result.maxW = NoneLen
   result.maxH = NoneLen
   for k in 0 .. 3:
@@ -937,6 +992,76 @@ proc fourOf(v: string): array[4, string] =
   of 3: [p[0], p[1], p[2], p[1]]
   else: [p[0], p[1], p[2], p[3]]
 
+proc tracksOf(v: string; fontPx: float): seq[GridTrack] =
+  ## grid-template-columns: "200px 1fr", "repeat(3, 1fr)", "1fr 2fr",
+  ## "repeat(auto-fill, minmax(180px, 1fr))", "25% auto".
+  proc one(w: string): GridTrack =
+    let w = w.strip
+    if w.endsWith("fr"):
+      try: return GridTrack(k: gtFr, v: max(0'f32, float32(parseFloat(w[0 ..< ^2]))))
+      except ValueError: return GridTrack(k: gtFr, v: 1)
+    if w.startsWith("minmax(") and w.endsWith(")"):
+      let ab = w[7 ..< ^1].split(',')
+      if ab.len == 2:
+        let hi = one(ab[1])
+        return (if hi.k in {gtFr, gtAuto}: GridTrack(k: gtFr, v: max(1'f32, hi.v)) else: one(ab[0]))
+    if w in ["auto", "min-content", "max-content"] or w.startsWith("fit-content"): return GridTrack(k: gtAuto, v: 1)
+    var ok: bool
+    let l = parseLen(w, fontPx, RootPx, ok)
+    if ok and l.k == lkPx: return GridTrack(k: gtPx, v: l.v)
+    if ok and l.k == lkPct: return GridTrack(k: gtPct, v: l.v)
+    GridTrack(k: gtFr, v: 1)
+  # (the top-level words, a function's commas kept inside it)
+  var words: seq[string]
+  var depth = 0
+  var cur = ""
+  for ch in v:
+    if ch == '(': inc depth
+    elif ch == ')': dec depth
+    if ch == ' ' and depth == 0:
+      if cur.len > 0: words.add cur
+      cur = ""
+    else: cur.add ch
+  if cur.len > 0: words.add cur
+  for w in words:
+    if w.startsWith("[") : continue                   # (a line's name)
+    if w.startsWith("repeat(") and w.endsWith(")"):
+      let inner = w[7 ..< ^1]
+      let comma = inner.find(',')
+      if comma < 0: continue
+      let count = inner[0 ..< comma].strip
+      let what = inner[comma + 1 .. ^1].strip
+      if count in ["auto-fill", "auto-fit"]:
+        # (as many columns as fit, each at least its minmax's least)
+        var least = 0'f32
+        if what.startsWith("minmax(") and what.endsWith(")"):
+          let ab = what[7 ..< ^1].split(',')
+          var ok: bool
+          let l = parseLen(ab[0].strip, fontPx, RootPx, ok)
+          if ok and l.k == lkPx: least = l.v
+        else:
+          let t = one(what)
+          if t.k == gtPx: least = t.v
+        result.add GridTrack(k: gtFill, v: max(1'f32, least))
+        continue
+      var n = 1
+      try: n = clamp(parseInt(count), 1, 100) except ValueError: discard
+      var parts: seq[string]
+      depth = 0
+      cur = ""
+      for ch in what:
+        if ch == '(': inc depth
+        elif ch == ')': dec depth
+        if ch == ' ' and depth == 0:
+          if cur.len > 0: parts.add cur
+          cur = ""
+        else: cur.add ch
+      if cur.len > 0: parts.add cur
+      for _ in 0 ..< n:
+        for p in parts: result.add one(p)
+    else: result.add one(w)
+    if result.len > 100: break
+
 proc applyDecl*(st: var CStyle; d: Decl; parent: CStyle) =
   ## One declaration on a style (font-size comes first: see `cascade`).
   let v = d.val
@@ -944,10 +1069,14 @@ proc applyDecl*(st: var CStyle; d: Decl; parent: CStyle) =
   template lenv(x: string): Len = lenOf(x, fpx, RootPx)
   case d.prop
   of pDisplay:
+    st.flow = case v
+      of "flex", "inline-flex", "-webkit-box", "-webkit-flex", "-webkit-inline-box": bfFlex
+      of "grid", "inline-grid": bfGrid
+      else: bfNormal
     st.display = case v
       of "none": dsNone
-      of "block", "flex", "grid", "flow-root", "run-in", "-webkit-box": dsBlock
-      of "inline-block", "inline-flex", "inline-grid": dsInlineBlock
+      of "block", "flex", "grid", "flow-root", "run-in", "-webkit-box", "-webkit-flex": dsBlock
+      of "inline-block", "inline-flex", "inline-grid", "-webkit-inline-box": dsInlineBlock
       of "list-item": dsListItem
       of "table": dsTable
       of "inline-table": dsInlineTable
@@ -1200,6 +1329,80 @@ proc applyDecl*(st: var CStyle; d: Decl; parent: CStyle) =
   of pTextIndent:
     let l = lenv(v)
     if l.k == lkPx: st.textIndent = l.v
+  of pFlexDirection:
+    st.column = v.startsWith("column")
+    st.reverse = v.endsWith("-reverse")
+  of pFlexWrap: st.wrap = v.startsWith("wrap")
+  of pFlexFlow:
+    for w in splitValue(v):
+      if w.startsWith("row") or w.startsWith("column"):
+        st.column = w.startsWith("column")
+        st.reverse = w.endsWith("-reverse")
+      elif w.startsWith("wrap") or w == "nowrap": st.wrap = w.startsWith("wrap")
+  of pFlex:
+    # (none, auto, a grow, a grow and a shrink, a grow and a basis, all three)
+    case v
+    of "none": (st.grow, st.shrink, st.basis) = (0'f32, 0'f32, Len(k: lkAuto))
+    of "auto": (st.grow, st.shrink, st.basis) = (1'f32, 1'f32, Len(k: lkAuto))
+    of "initial": (st.grow, st.shrink, st.basis) = (0'f32, 1'f32, Len(k: lkAuto))
+    else:
+      var nums: seq[float32]
+      var basis = px(0)
+      for w in splitValue(v):
+        try: nums.add float32(parseFloat(w))
+        except ValueError:
+          let l = lenv(w)
+          if l.k in {lkPx, lkPct} or w in ["auto", "content"]: basis = l
+      if nums.len > 0: st.grow = max(0'f32, nums[0])
+      st.shrink = if nums.len > 1: max(0'f32, nums[1]) else: 1
+      st.basis = basis
+  of pFlexGrow:
+    try: st.grow = max(0'f32, float32(parseFloat(v))) except ValueError: discard
+  of pFlexShrink:
+    try: st.shrink = max(0'f32, float32(parseFloat(v))) except ValueError: discard
+  of pFlexBasis: st.basis = lenv(v)
+  of pJustifyContent:
+    st.justify = case v
+      of "flex-end", "end", "right": fjEnd
+      of "center": fjCenter
+      of "space-between": fjBetween
+      of "space-around": fjAround
+      of "space-evenly": fjEvenly
+      else: fjStart
+  of pAlignItems, pAlignSelf:
+    let a = case v
+      of "flex-start", "start", "self-start", "baseline", "first baseline": faStart
+      of "flex-end", "end", "self-end": faEnd
+      of "center": faCenter
+      of "auto": faAuto
+      else: faStretch
+    if d.prop == pAlignItems: st.alignItems = (if a == faAuto: faStretch else: a)
+    else: st.alignSelf = a
+  of pGap:
+    let w = splitValue(v)
+    if w.len > 0:
+      st.gapRow = lenv(w[0])
+      st.gapCol = if w.len > 1: lenv(w[1]) else: st.gapRow
+  of pRowGap: st.gapRow = lenv(v)
+  of pColumnGap: st.gapCol = lenv(v)
+  of pOrder:
+    try: st.order = int16(clamp(parseInt(v), -1000, 1000)) except ValueError: discard
+  of pGridTemplateColumns: st.tracks = tracksOf(v, fpx)
+  of pGridColumn:
+    # ("span 2", "1 / 3", "1 / -1": every column)
+    let parts = v.split('/')
+    if parts.len == 1 and v.startsWith("span"):
+      try: st.colSpan = int16(clamp(parseInt(v[4 .. ^1].strip), 1, 1000)) except ValueError: discard
+    elif parts.len == 2:
+      let b = parts[1].strip
+      if b.startsWith("span"):
+        try: st.colSpan = int16(clamp(parseInt(b[4 .. ^1].strip), 1, 1000)) except ValueError: discard
+      else:
+        try:
+          let a = parseInt(parts[0].strip)
+          let e = parseInt(b)
+          st.colSpan = if e < 0: 1000 else: int16(clamp(e - a, 1, 1000))
+        except ValueError: discard
   of pUnknown: discard
 
 # ---- the tags' own styles and their attributes -------------------------------------------------

@@ -58,8 +58,8 @@ nim c -r examples/hello.nim
 check boxes, text boxes and the rich text editor, lists, trees and the
 data grid, menus and tool bars, dialogs, charts, the calendar and the
 Gantt chart, maps, the 3D view, the canvas, windows inside the window.
-Open it to see what a control looks like and how it behaves before you
-use it; the guide, [docs/controls.md](../docs/controls.md), has each
+Open it to see what a control looks like and how it behaves -- with the
+mouse, the keyboard alone, a screen reader -- before you use it; the guide, [docs/controls.md](../docs/controls.md), has each
 one's code.
 
 ```sh
@@ -140,8 +140,8 @@ nim c -r examples/native.nim
 
 `filemanager.nim` is Retro Files, a full file manager in the style of
 the Windows 3.1 File Manager with what Explorer has today: tabs, two
-panes, an address bar, a folder tree, details, tiles and icons with
-picture thumbnails, a preview pane, drag and drop, copy and move in the
+panes, an address bar, a folder tree, details, tiles, icons and a list
+with picture thumbnails, a preview pane, drag and drop, copy and move in the
 background with "Replace or keep both?", the trash, undo, zip, search,
 favorites, the disks and how full they are, and viewers for text, pictures,
 PDF, Markdown and more. It runs on phones and tablets too.
@@ -159,7 +159,8 @@ nimble apk                  # an Android APK
 the tools of today's: layers and groups with blend modes, masks and
 styles, Smart Objects, selections, channels and paths, sixty-two tools,
 filters and adjustments with previews, Neural Filters, Arabic type,
-panoramas, raw photos, PDF for print, and many undos. Its engine is in
+panoramas, raw photos, CMYK, Lab, duotones and Multichannel images, PDF
+for print, and many undos. Its engine is in
 `retroui/photo`.
 
 ```sh

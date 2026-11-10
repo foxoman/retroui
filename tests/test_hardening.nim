@@ -302,4 +302,45 @@ block enterIsClaimed:
         if not claimed: unclaimed.add f.extractFilename & ":" & $(i + 1)
   doAssert unclaimed.len == 0, "Enter used without claiming it: " & unclaimed.join(", ")
 
+block oneIdPerWidget:
+  # A label's second `idOf` in a frame is another id: a reader's node made
+  # with `idOf` again is not the widget's -- its focus is not shown, a
+  # screen reader's press does not reach it. The node takes the widget's id.
+  let root = currentSourcePath().parentDir.parentDir
+  var twice: seq[string]
+  for f in walkFiles(root / "src/retroui/*.nim"):
+    let lines = splitLines(readFile(f))
+    for i, line in lines:
+      if "accessNode(" in line and "id = idOf(" in line:
+        twice.add f.extractFilename & ":" & $(i + 1)
+  doAssert twice.len == 0, "a reader's node with an id of its own: " & twice.join(", ")
+
+block noRuneStrip:
+  # Nim's `strip` of runes (std/unicode's, the one a module that imports
+  # it whole calls) cuts the last letter of a line ending in a letter whose
+  # last byte is 0x85 or 0xA0 -- Thai ภ, †, one Chinese character in 32
+  # (docs/nim-bugs.md): a module that strips imports it `except strip`
+  # and strips with strutils'.
+  doAssert strutils.strip("ภาษา ภ ") == "ภาษา ภ"
+  let root = currentSourcePath().parentDir.parentDir
+  var bad: seq[string]
+  for pat in ["src/*.nim", "src/retroui/*.nim", "src/retroui/uirelays/*.nim",
+              "src/retroui/uirelays/drivers/*.nim", "examples/*.nim", "examples/*/*.nim"]:
+    for f in walkFiles(root / pat):
+      let t = readFile(f)
+      var whole = false
+      for line in t.splitLines:
+        let l = line.strip
+        if l.startsWith("import ") and "unicode" in l and "except" notin l and "from " notin l:
+          for w in l[7 .. ^1].multiReplace(("[", ","), ("]", ","), ("std/", "")).split(','):
+            if w.strip == "unicode": whole = true
+      if not whole: continue
+      let lines = splitLines(t)
+      for i, line in lines:
+        let code = line.split('#')[0]
+        if code.contains("strip(") or code.contains(".strip") or code.endsWith(" strip"):
+          bad.add f.extractFilename & ":" & $(i + 1)
+          break
+  doAssert bad.len == 0, "strips with std/unicode's strip: " & bad.join(", ")
+
 echo "hardening tests passed"

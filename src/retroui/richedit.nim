@@ -39,7 +39,8 @@
 ##     richEdit body, placeholder = "Write your message"
 ##     if button("&Send"): send(toHtml(body), toPlainText(body))
 
-import std/[strutils, unicode, hashes, tables, math, sequtils]
+import std/[strutils, hashes, tables, math, sequtils]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import uirelays/input
 import core, widgets, business, pixelicons, nerdicons, spell
 from extras import toast

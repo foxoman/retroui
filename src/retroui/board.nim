@@ -19,7 +19,8 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[math, tables, json, strutils, algorithm, base64, hashes, sets, os, unicode]
+import std/[math, tables, json, strutils, algorithm, base64, hashes, sets, os]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import gfx, freehand, textengine, raster, imaging, pdf, ttf
 from codec import unbase64
 

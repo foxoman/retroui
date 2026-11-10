@@ -136,6 +136,35 @@ block offscreen:
     if p != 0xFFFFFF and p notin shades: shades.add p
   doAssert shades.len >= 2, "faces are lit differently"
 
+block groundShadow:
+  # a soft shadow under the box, on the ground: darker there, and a click
+  # on it picks nothing; made again, it takes the old one's place
+  var scene = Scene3()
+  scene.add box(1, 1, 1, color(200, 0, 0))
+  scene.background = color(255, 255, 255)
+  var cam = camera3(pitch = 40)
+  fitView(scene, cam)
+  cam.distance *= 1.6
+  let before = render3d(scene, cam, 200, 150)
+  let s = addShadow(scene, strength = 0.8)
+  doAssert s == 1 and scene.meshes.len == 2 and scene.meshes[1].ghost
+  doAssert addShadow(scene, strength = 0.8) == 1 and scene.meshes.len == 2, "in the old one's place"
+  doAssert scene.meshes[1].visible
+  let after = render3d(scene, cam, 200, 150)
+  var darker = 0
+  var other = 0
+  for i in 0 ..< 200 * 150:
+    let a = before.px[i] and 0xFFFFFF
+    let c = after.px[i] and 0xFFFFFF
+    if a == 0xFFFFFF and c != 0xFFFFFF:
+      if (c and 0xFF) < 0xF0: inc darker
+    elif a != c: inc other
+  doAssert darker > 300, "a shadow on the white ground: " & $darker
+  doAssert other < darker div 4, "the box as it was: " & $other
+  # (nothing to shadow: none added)
+  var empty = Scene3()
+  doAssert addShadow(empty) == -1 and empty.meshes.len == 0
+
 block speed:
   var scene = Scene3()
   scene.add sphere(1, segments = 100, rings = 51)

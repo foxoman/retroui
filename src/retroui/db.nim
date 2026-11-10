@@ -28,7 +28,8 @@
 ## other). Statements are prepared once and kept (the last 64, by their
 ## text). Every error raises `DbError` with SQLite's message and the SQL.
 
-import std/[os, strutils, tables, unicode]
+import std/[os, strutils, tables]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 
 const
   sqliteFlags = "-O2 -DSQLITE_ENABLE_FTS5 -DSQLITE_THREADSAFE=1 " &

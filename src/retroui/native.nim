@@ -710,6 +710,11 @@ proc batteryLevel*(): int =
       -1
 
 var darkCache: tuple[at: float; v: bool] = (-100.0, false)
+when not defined(windows) and not defined(macosx) and not defined(ios) and not defined(wasm) and
+     not androidApp:
+  var darkAsk: Process
+    # (GNOME's color scheme asked again, the frames not waiting for it: the
+    # last answer kept until it comes)
 
 proc systemDarkMode*(): bool =
   ## The user chose a dark look for the system (Android's dark theme, iOS
@@ -747,10 +752,27 @@ proc systemDarkMode*(): bool =
               dark = true
             else:
               when not androidApp:
-                let gs = findExe("gsettings")
-                if gs.len > 0:
-                  let (o, code) = execCmdEx(gs & " get org.gnome.desktop.interface color-scheme")
+                if darkAsk != nil:
+                  # (an answer asked for before: taken when it has come)
+                  let code = darkAsk.peekExitCode()
+                  if code == -1: return darkCache.v
+                  let o = try: darkAsk.outputStream.readAll() except CatchableError: ""
+                  darkAsk.close()
+                  darkAsk = nil
                   dark = code == 0 and "dark" in o
+                else:
+                  let gs = findExe("gsettings")
+                  if gs.len > 0:
+                    if darkCache.at < 0:
+                      # the first time: waited for (the app's first look follows it)
+                      let (o, code) = execCmdEx(gs & " get org.gnome.desktop.interface color-scheme")
+                      dark = code == 0 and "dark" in o
+                    else:
+                      # then asked in the background (starting gsettings takes from a few
+                      # milliseconds to half a second): the frames go on
+                      darkAsk = startProcess(gs, args = ["get", "org.gnome.desktop.interface", "color-scheme"],
+                                             options = {poStdErrToStdOut})
+                      return darkCache.v
     except CatchableError, Defect:
       dark = false
     darkCache = (now, dark)

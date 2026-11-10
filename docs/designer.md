@@ -144,6 +144,19 @@ The file's variables and what they start with; change a value here and the
 not a field or an argument of the same name, and not inside a proc that has
 its own of that name.
 
+### Names and the keyboard
+
+**View > Names and Tab Order** shows on the window what a screen reader --
+and the kit's driver, which finds controls the same way (`RETRO_DRIVE`,
+`retrokit drive`) -- knows of it: each stop of Tab numbered in the order Tab
+goes, and the controls it cannot name outlined in red: a box with no label
+before it, a button with only an icon and no tooltip. Choose a control and
+Properties says how it is read (`Read as: button "Save"`). One without a
+name has **Name It...**: the name you give it is written before it as
+`accessName "..."`. One with a name has **Driver Command**: the command
+that clicks it (`click "Save" --role button`) copied, for
+`retrokit drive PORT ...` while the app runs with `RETRO_DRIVE=PORT`.
+
 ## Preview
 
 F5 shows the window as it will be: its controls work -- type in the boxes,

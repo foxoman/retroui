@@ -37,7 +37,8 @@
 ## `RETRO_SPELL=enchant` (or `none`) in the environment chooses the checker
 ## on Linux, for tests.
 
-import std/[os, strutils, unicode, tables, sets, algorithm, sequtils]
+import std/[os, strutils, tables, sets, algorithm, sequtils]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 when not defined(ios):
   import std/dynlib
 import uirelays/services
@@ -85,7 +86,8 @@ proc isMark(c: int): bool =
     c in 0x0610 .. 0x061A or c in 0x064B .. 0x065F or c == 0x0670 or
     c in 0x06D6 .. 0x06DC or c in 0x06DF .. 0x06E4 or c in 0x06E7 .. 0x06E8 or
     c in 0x06EA .. 0x06ED or c == 0x0711 or c in 0x0730 .. 0x074A or
-    c in 0x08D3 .. 0x08FF or c in 0x1AB0 .. 0x1AFF or c in 0x1DC0 .. 0x1DFF or
+    c in 0x08D3 .. 0x08FF or c == 0x0E31 or c in 0x0E34 .. 0x0E3A or c in 0x0E47 .. 0x0E4E or
+    c in 0x1AB0 .. 0x1AFF or c in 0x1DC0 .. 0x1DFF or
     c in 0x20D0 .. 0x20FF or c in 0xFE00 .. 0xFE0F or c in 0xFE20 .. 0xFE2F
 
 proc isDigitRune(c: int): bool =

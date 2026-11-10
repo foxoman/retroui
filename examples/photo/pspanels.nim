@@ -1032,10 +1032,12 @@ proc librariesBody() =
   row([-1, 0]):
     var names: seq[string]
     for l in libs: names.add l.name
+    accessName(tr("Library"))
     if combo(names, libCur): libSel = -1
     if toolButton("New...", "A new library"): libNew = (true, "Library " & $(libs.len + 1))
   if libNew.open:
     row([-1, 0, 0]):
+      accessName(tr("The new library's name"))
       edit libNew.name
       if toolButton("OK", "Make it") and libNew.name.strip.len > 0:
         libs.add (libNew.name.strip, newSeq[LibItem]())

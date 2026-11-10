@@ -235,7 +235,7 @@ compileOption("threads")`. Other sites' pages in a frame need to allow
 being embedded (`Cross-Origin-Resource-Policy`) in a page with threads.
 
 **Fonts in programs:** `-d:retroFonts=all` (the default: twelve faces,
-0.94 MB), `sans`, `ui` (FreeSans and its bold) or `none`: the faces left
+1.0 MB), `sans`, `ui` (FreeSans and its bold) or `none`: the faces left
 out are read from `fonts/` beside the program (the `.ttf.z` files of
 `src/retroui/fonts`) or `$RETRO_FONTS`, else drawn with FreeSans.
 
@@ -803,3 +803,68 @@ runs the live check on GitHub; the device steps are Apple's standard ones.
 Not yet tried: an upload to Google Play, to Partner Center, to App Store
 Connect; Apple's notarization from `retrokit mac` (its steps are Apple's
 own commands).
+
+## Every RETRO_ setting
+
+An app built with the kit reads these from its environment when it starts
+(none is needed: each has a default). On Android an app has no
+environment of its own: `adb shell am start -n PACKAGE/org.retro.RetroActivity
+--es RETRO_DRIVE 7000` gives it the settings its start names.
+
+**The window and the look**
+
+| Setting | What it does |
+|---|---|
+| `RETRO_DRIVER=x11`, `wayland`, `kms`, `fb` | the driver on Linux and BSD (else the one there is) |
+| `RETRO_FRAME=classic` / `system` | the 3.1 frame the kit draws, or the system's |
+| `RETRO_CAPTION=1` | the phone's title bar on a desktop |
+| `RETRO_SIZE=420x840` | the window this many design pixels (to try layouts) |
+| `RETRO_SCALE=150` | everything this percent of its size, the window too |
+| `RETRO_ZOOM=2` | whole driver pixels per design pixel (1-4) |
+| `RETRO_TOUCH=1`, `RETRO_CONTROLS=touch` / `desktop` / `auto` | as on a touch screen; the controls' sizes only |
+| `RETRO_THEME=Dark` | a built-in theme |
+| `RETRO_TEXT=sharp` / `sharp-bgr` | letters drawn in the screen's color strips |
+| `RETRO_WINDOW=1` | on a screen with no window manager (Termux:X11): the app as a window of its own size, on a desktop the kit draws |
+| `RETRO_WINDOW_STATE=FILE` | where the window's place and size are kept (`retrokit run --watch`) |
+| `RETRO_GPU=cpu` / `gpu` / `auto` | drawing on the CPU or with OpenGL |
+| `RETRO_GPU_KEEP=0` | the GPU keeps no pictures between frames (to compare) |
+| `RETRO_SURFACE=0` | no memory shared with the screen (MIT-SHM, the DIB section): the frame copied |
+| `RETRO_3D_GPU=0` | the 3D view drawn on the CPU |
+| `RETRO_KMS_CARD`, `RETRO_KMS_MODE`, `RETRO_FBDEV` | the screen driver's card, mode, framebuffer |
+| `RETRO_FB_GRAB=0` | the screen driver leaves the input devices to others too |
+| `RETRO_FB_INPUT=/dev/input/event3,...` | the screen driver's input devices (else all it finds) |
+| `RETRO_FB_FILE=FILE` | the screen driver draws into a file (tests) |
+| `RETRO_FONTS=FOLDER` | the faces a build with fewer fonts (`-d:retroFonts`) left out, read from there |
+
+**What the app does**
+
+| Setting | What it does |
+|---|---|
+| `RETRO_INSPECT=1` | the inspector shown from the start (F12 in any build) |
+| `RETRO_DRIVE=PORT` | the driver: a program on this machine uses the app by its controls' names (`retrokit drive`) |
+| `RETRO_ACCESS=1` | the screen readers' tree made with no screen reader |
+| `RETRO_SMOKE=SECONDS`, `RETRO_SMOKE_OUT=FILE` | the smoke run: the first frame timed, 3 s untouched measured, then clicks and keys |
+| `RETRO_STATS=1` | the frames' times and counts on stderr, every 2 seconds, and each frame of 250 ms or more (where the mouse was, the key) |
+| `RETRO_THREADS=N` | the worker threads (else one a processor, at most 16) |
+| `RETRO_WEB=system` | every `webView` in the system's browser engine |
+| `RETRO_WEB_TOOLS=1` | the system's web view with its developer tools |
+| `RETRO_SPELL=none` | no spell checking (else the system's checker, or Hunspell) |
+| `RETRO_SECRETS_DIR=FOLDER` | `saveSecret` keeps secrets in files there, not in the system's keychain |
+| `RETRO_HTTP_CURL_COMMAND=1` | `httpRequest` runs the `curl` program, not libcurl |
+| `RETRO_MAIL_ISPDB=URL`, `RETRO_MAIL_DOH=URL` | where Retro Mail's setup looks a mail server up |
+| `RETRO_BLENDER=PATH` | the Blender that turns `.blend` models into glTF |
+| `RETRO_GPU_COMPOSITE=0` | Retro Photo's layers put together on the CPU |
+| `RETRO_GPU_DEBUG=1`, `RETRO_3D_DEBUG=1`, `RETRO_WAYLAND_DEBUG=1` | what the GPU, the 3D view, the Wayland driver find, on stderr |
+
+**The tools** (`retrokit`, `retroapk`, `retroweb`)
+
+| Setting | What it does |
+|---|---|
+| `RETRO_APP=NAME` | the app of `retroui.nimble`'s table the `nimble` tasks build |
+| `RETRO_JOBS=N` | C compilers at once |
+| `RETRO_KEYS=FOLDER` | the Android signing keys (else `~/.retro/android`) |
+| `RETRO_ANDROID_CC=PATH`, `RETRO_ANDROID_TOOLCHAIN=clang` / `zig` / `ndk` | the compiler for APKs |
+| `RETRO_SYSROOT_DIR=FOLDER` | where Android's small sysroot is unpacked |
+| `RETRO_NDK_DIR=FOLDER`, `RETRO_NDK_URL=URL` | where the NDK is kept, and where it comes from |
+| `RETRO_TIMESTAMP=URL` | the time-stamp authority for Windows' signatures |
+| `RETRO_UPDATE_KEY=KEY` | the key `retrokit update-sign` signs with (in CI, a secret) |

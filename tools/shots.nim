@@ -1898,7 +1898,7 @@ opts(settle = 1500)
 
 example("view3d", "view3d",
         "A 3D view of meshes and models (OBJ, STL): boxes, spheres, cylinders, cones and planes, a grid and axes. Drag to turn it, the wheel to zoom.",
-        380, 260, ["view3d", "box", "sphere", "cylinder", "cone", "plane", "loadModel", "addGrid", "addAxes", "fitView", "camera3", "render3d"], focus4):
+        380, 260, ["view3d", "box", "sphere", "cylinder", "cone", "plane", "loadModel", "addGrid", "addAxes", "addShadow", "fitView", "camera3", "render3d"], focus4):
   view3d(modelScene, modelCam, height = 240)
 
 example("model3d", "Models: parts and clips",

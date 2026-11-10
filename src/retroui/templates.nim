@@ -28,7 +28,8 @@
 ## names are empty. A broken template (a section never closed, a stray
 ## `{{`) still gives its best output: it never raises.
 
-import std/[json, strutils, tables, math, unicode]
+import std/[json, strutils, tables, math]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 
 type
   NodeKind = enum nkText, nkValue, nkSection

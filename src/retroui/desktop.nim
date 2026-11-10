@@ -830,26 +830,30 @@ proc paletteTabs*(labels: openArray[string]; sel: var int; menu = true): tuple[c
     let tw = widths[i]
     let l = if tw < natural[i]: ellipsize(l0, max(dp(8), tw - dp(10)), st) else: l0
     let tr = rect(x, r.y + (if i == sel: 0 else: dp(2)), tw, h - (if i == sel: 0 else: dp(2)))
-    let hit = interact(idOf("paltab:" & l0 & $i), tr, focusable = false)
+    # (one id for the tab, its press by a screen reader and its node: a
+    # label's second `idOf` in a frame is another id)
+    let tid = idOf("paltab:" & l0 & $i)
+    let hit = interact(tid, tr, focusable = false)
     if tw < natural[i] and hit.hover: ui.tip = l0
     let ink = paletteTabFace(tr, i == sel, hit.showsHover)
     text(tr.x + dp(6), tr.y + (tr.h - lineHeight(st)) div 2, l, ink, st)
-    if (hit.down and ui.pressed or accessPressed == idOf("paltab:" & l0 & $i)) and sel != i:
+    if (hit.down and ui.pressed or accessPressed == tid) and sel != i:
       sel = i
       result.changed = true
     if accessOn:
-      let k = accessNode(arTab, l0, id = idOf("paltab:" & l0 & $i), r = tr,
+      let k = accessNode(arTab, l0, id = tid, r = tr,
                          states = (if i == sel: {asSelected} else: {}))
       accessItem(k, i + 1, labels.len)
     x += tw - 1
   if accessOn: accessEnd()
   if menu:
     let mr = rect(r.x + r.w - h, r.y + dp(1), h - dp(1), h - dp(3))
-    let mh = interact(idOf("palmenu:" & (if labels.len > 0: labels[0] else: "")), mr, focusable = false)
+    let mid = idOf("palmenu:" & (if labels.len > 0: labels[0] else: ""))
+    let mh = interact(mid, mr, focusable = false)
     arrow(mr.x + mr.w div 2, mr.y + mr.h div 2, dRight, th.text, dp(4))
     if accessOn:
-      accessNode(arButton, "Menu", id = idOf("palmenu:" & (if labels.len > 0: labels[0] else: "")), r = mr)
-    if mh.down and ui.pressed or accessPressed == idOf("palmenu:" & (if labels.len > 0: labels[0] else: "")):
+      accessNode(arButton, "Menu", id = mid, r = mr)
+    if mh.down and ui.pressed or accessPressed == mid:
       result.menu = true
   ui.lastRect = r
 

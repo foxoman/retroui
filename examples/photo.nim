@@ -27,7 +27,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 
 const
   AppName = "Retro Photo"
-  AppVersion = "4.9.9"
+  AppVersion = "4.9.10"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -633,6 +633,7 @@ proc title(dw: DocWin): string =
           of cmCMYK: "CMYK"
           of cmLab: "Lab"
           of cmDuotone: "Duotone"
+          of cmMultichannel: "Multichannel"
   var t = d.name & " (" & (if d.quickMask: "Quick Mask, " else: "") &
           (if d.proof and d.mode != cmCMYK: "Proof, " else: "") &
           (if d.layers.len > 1: d.layer.name & ", " else: "") & m & "/" & $(if d.depth in [16, 32]: d.depth else: 8) & ", " &
@@ -4540,6 +4541,7 @@ proc main() =
   windowIcon = windowIconFromPng(iconPng)   # (the taskbar's picture)
   reportedVersion = AppVersion
   startApp(AppName & " " & AppVersion, 1280, 800)
+  autoFocus = false             # (the keys are the picture's until a palette's control is clicked)
   restoreAppearance(loadSettings(AppName))      # (the look chosen in Preferences)
   let splashMs = (try: parseInt(getEnv("RETRO_PHOTO_SPLASH", "1800")) except ValueError: 1800)
   var first = true

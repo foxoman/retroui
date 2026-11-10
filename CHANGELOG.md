@@ -1,5 +1,147 @@
 # Changes
 
+## 0.37.0
+
+Every app walked with the keyboard alone and driven by its controls'
+names until nothing was left to find; Thai and Vietnamese in the fonts
+built in; flexible boxes and grids in HTML; Retro Photo's Multichannel
+images, Retro Files' List view, a model's shadow on the ground; and Retro
+Designer shows what screen readers and drivers know of a window.
+
+- **The keyboard alone, in every app.** The driven tour
+  (`tests/drive/tour.nim`) now walks each page with Tab as a person
+  without a mouse would: every control reached once, the focus never
+  stuck, Shift+Tab back the same way, a drop-down opened by Enter and
+  Alt+Down and closed by Esc with the focus kept, a check box ticked by
+  Space, every control with a name; and each "..." of the menus opened
+  and closed by Esc. It walked the 15 apps; what it found is fixed, and
+  it now finds nothing in them:
+  - a control whose screen reader's node had an id of its own (a second
+    `idOf` of its label is another id): the gallery's palette tabs, menu
+    buttons, split buttons, the tag box's ×, accordion headers, a snack
+    bar's action, color wells, docked panels' menus, Retro Board's
+    buttons -- their focus was not shown to a reader and a reader's press
+    did not reach them. One id each now; `tests/test_hardening.nim`
+    (`oneIdPerWidget`) keeps it so.
+  - which controls take the focus is known at the frame's end, from the
+    stops of Tab: a tool button, a row of chips, a drawing named for
+    readers no longer say they do.
+  - `rangeSlider`: its right end could not be reached by Tab (only by
+    Shift+arrows): the two ends are two stops now, each read as its own
+    slider ("From", "To").
+  - names: `timePicker`'s hours and minutes, `rating` ("Rating"); the
+    gallery's city box and settings, Retro Invoice's line boxes, 7GUIs'
+    list, a report's zoom, a record's range, Retro Task Manager's three
+    tables, Retro Photo's library box and the 19 drop-downs of its
+    options bar (Arabic too). A name is read without the kit's icons in
+    it (private-use letters, which a reader cannot say: "Notify", not
+    "🔔 Notify"), so an icon alone is no name.
+  - the tab strip's "New tab" button said it was the strip's stop of Tab
+    (it had the strip's id): it has its own now.
+  - Retro Photo and Retro Board hid their panels with Tab even when one
+    of their controls had the keyboard, so Tab could not go through them:
+    Tab hides the panels now only when no control has the keyboard
+    (`focusInControls`); clicking the picture or the board gives it the
+    keys again, and they start with the keys their canvas's (`autoFocus
+    = false`).
+  - On Android the emulator job drives every APK the same way:
+    `RETRO_DRIVE` given with its start, the port through `adb forward`,
+    `build/tour --port`. Through `adb forward` the port takes a
+    connection before the app on the phone listens, then drops it: the
+    tour and `retrokit drive` ask the app once before they count it as
+    there (`driveConnect(..., probe = true)`).
+- **Screen readers:** an open drop-down's items are read and pressed
+  (`combo`, the editable drop-down, every popup list), the editable
+  drop-down and the date box say whether they are open, as `combo` did; a control a reader asks to see is
+  scrolled to in every view that scrolls, not only the page (`wantSeen()`
+  for a view of your own). The driver finds a node by its id (`"node"`),
+  and a name alone prefers a control to a label of the same text.
+- **Thai and Vietnamese** in the fonts built in: FreeSerif's Thai (in its
+  regular and bold: every face draws Thai with it) and the 90 Vietnamese
+  letters in all twelve faces -- 56 KB more in every app (0.94 MB to
+  1.0). `tools/genfreefont.py --add` adds letters to the subsets from any
+  FreeFont release and keeps the rest of each face as it is (Debian's
+  2021 FreeFont, cut whole, would have been 230 KB more for the same
+  letters). Thai's vowels and tone marks are stacked by the kit
+  (`thaiPlace`): a tone mark over a vowel above (กี่), over sara am's
+  circle (น้ำ), left of a tall letter's stem (ปั้น), a vowel under a
+  letter's tail (ฎุ) -- in labels and boxes and in documents
+  (`textengine`, where a font without Thai tables is not shaped for
+  Thai). A letter and its marks are one step of the caret and one word.
+- **A bug of Nim's, worked round:** `unicode.strip` -- the `strip` a
+  module that imports `std/unicode` calls -- cuts the last byte of a line
+  ending in a letter whose last byte is 0x85 or 0xA0: Thai ภ, †, one
+  Chinese character in 32, the kit's own pixel icons. Found when the
+  driver's tree of the gallery was not UTF-8 (an icon's label, cut).
+  Every module of the kit and the examples that strips imports
+  `std/unicode except strip`; `test_hardening` (`noRuneStrip`) keeps it
+  so; the report is ready in `docs/nim-bugs.md`.
+- **HTML: flexible boxes and grids.** `htmlView` lays out `display:
+  flex` -- rows wrapped or not, columns, the room shared by `flex-grow`
+  and `-shrink` from each box's `flex-basis`, width or content,
+  `justify-content`, `align-items` and `-self`, `gap`, `order`, right to
+  left -- and `display: grid` with `grid-template-columns` (pixels,
+  percents, `fr`, `repeat`, `minmax`, `auto-fill`) and `grid-column:
+  span`.
+- **Retro Photo 4.9.10: Image > Mode > Multichannel.** Each channel an
+  ink of its own -- RGB's red, green and blue become cyan, magenta and
+  yellow, CMYK's four inks stay, a gray image is one black; the layers
+  flattened. Deleting a channel in Channels takes its ink out (an RGB
+  image becomes Multichannel first). Saved as Photoshop's Multichannel
+  documents (mode 7: the plates and their names) and opened from them, as
+  any Multichannel file is (four inks printed as CMYK, three as cyan,
+  magenta, yellow); `.rpd` keeps them. A Multichannel image made from
+  CMYK keeps its four inks: the kit keeps CMYK as the picture it prints,
+  and a black taken out would come back when separated again.
+- **Retro Files 3.3.8: View > List** -- small icons in columns that go on
+  to the right, scrolled sideways, as Explorer's List. `iconView`'s
+  `columnWise`; `FileView.fvList`.
+- **3D: shadows on the ground.** `addShadow` lays a soft shadow under
+  the scene's meshes (on the floor when there is one); called again after
+  a pose changes, it replaces the old one. A mesh can be `ghost`: seen,
+  not picked; glTF export leaves it out. The gallery's car and model have
+  theirs.
+- **Input methods with SDL 2 and SDL 3** are drawn in the text box, as on
+  the other systems: what is composing (`TEXTEDITING`), its candidates
+  under the caret (`setTextCaret`). And a word an input method gives at
+  once was cut to its first letter there: every letter comes now.
+- **Retro Designer: View > Names and Tab Order** numbers the window's
+  stops of Tab in their order and outlines in red the controls a screen
+  reader cannot name; Properties says how the chosen control is read
+  (`Read as: button "Save"`), **Name It...** writes `accessName "..."`
+  before one without a name, **Driver Command** copies the command that
+  clicks it. The designer draws `accessName` and `accessNameOr` (they
+  are in its registry now).
+- **Frames, measured.** Release builds of the big apps, a smoke run each
+  with `RETRO_STATS=1`: a frame takes 0.3 to 0.4 ms on average (the
+  gallery, Retro Photo, Retro Mail...), and an input runs two of them --
+  the second rule stays: cheap, and some 170 places read a press
+  directly. `RETRO_STATS` now names every frame of 250 ms or more (where
+  the mouse was, the key, the control with the focus with
+  `RETRO_ACCESS=1`), and found one: the gallery's System page asked the
+  system's dark look of `gsettings` in the frame -- 400 ms the first time
+  on a desktop without a session bus, 5 to 15 ms every 5 seconds after.
+  `systemDarkMode` waits for it the first time only; then it asks in the
+  background and keeps the last answer. The SDL 2 and GTK 4 drivers wait
+  for an event without waking every few milliseconds to look.
+- **The docs against the code:** `tools/docscheck.py` (in CI) checks
+  that what the pages name is there -- every `RETRO_` setting read and
+  documented, `nimble` tasks, `retrokit` commands, files, the calls the
+  examples show, README's tests. BUILDING.md lists every `RETRO_`
+  setting; README's Limits say what is left. `nim jsondoc` reads the kit
+  again (a doc comment and the driver's sockets stopped it).
+- The smoke run fails an app that draws more than 10 frames in 3 seconds
+  untouched (was 30): a driver that draws twice is caught.
+- New: `tabStops`, `focusInControls`, `wantSeen` (core); `thaiPlace`
+  (typeset); `placesMark` (otshape); `addShadow`, `Mesh3.ghost`
+  (view3d); `SpotChannel`, `toMultichannel`, `deleteSpot`,
+  `canDeleteSpot`, `channelGrayOf`, `hasComposite` (photo); `spots`,
+  `spotNames` (psd); `BoxFlow`, `FlexJustify`, `FlexAlign`, `GridTrack`
+  and the style's flex and grid fields (htmlcss).
+- The kit, Retro Gallery and the small examples 0.37.0; Retro Photo
+  4.9.10, Retro Files 3.3.8, Retro Board 1.3.8, Retro Task Manager
+  1.0.4, HR Book 0.2.4, Retro Communicator 1.3.1.
+
 ## 0.36.0
 
 Enter opens a drop-down past a default button, an inspector says why

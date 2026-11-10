@@ -35,6 +35,8 @@ proc duplicateDoc(d: Doc; name: string; merged: bool): Doc =
   result = newDoc(d.w, d.h, 0, d.dpi, name)
   result.mode = d.mode
   result.palette = d.palette
+  result.spots = d.spots
+  result.spotBase = d.spotBase
   if merged:
     let L = result.layers[0]
     L.px = d.flattened(white)
@@ -541,6 +543,19 @@ proc doCommand(name: string) =
     if d != nil and d.mode != cmCMYK:
       if d.mode in {cmIndexed, cmBitmap}: d.change("RGB Color"): d.toRGB()
       d.change("CMYK Color"): d.toCMYK()
+  of "Multichannel":
+    if d != nil and d.mode != cmMultichannel and d.mode != cmBitmap:
+      d.change("Multichannel"): d.toMultichannel()
+      status = "Multichannel: each channel an ink of its own (" & d.channelNames.join(", ") &
+               "); delete one in Channels to take its ink out"
+  of "Delete Color Channel":
+    # (the channel shown, deleted: RGB becomes Multichannel first)
+    if d != nil and d.viewChannel >= 0 and d.canDeleteSpot:
+      let ch = d.viewChannel
+      d.change("Delete Channel"):
+        if d.mode != cmMultichannel: d.toMultichannel()
+        d.deleteSpot(ch)
+      status = "Multichannel: " & d.channelNames.join(", ")
   of "Lab Color":
     if d != nil and d.mode != cmLab:
       if d.mode in {cmIndexed, cmBitmap}: d.change("RGB Color"): d.toRGB()
@@ -1227,7 +1242,8 @@ proc classicMenus() =
       item("&RGB Color", enabled = some and d.mode != cmRGB, checked = some and d.mode == cmRGB)
       item("&CMYK Color", enabled = some and d.mode != cmCMYK, checked = some and d.mode == cmCMYK)
       item("&Lab Color", enabled = some and d.mode != cmLab, checked = some and d.mode == cmLab)
-      item("&Multichannel", enabled = false)
+      item("&Multichannel", enabled = some and d.mode in {cmRGB, cmCMYK, cmLab, cmGray, cmDuotone, cmIndexed},
+           checked = some and d.mode == cmMultichannel)
       menuSeparator()
       item("&8 Bits/Channel", enabled = some, checked = some and d.depth notin [16, 32])
       item("1&6 Bits/Channel", enabled = some and d.mode in {cmRGB, cmGray}, checked = some and d.depth == 16)
@@ -1592,7 +1608,11 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["4.9.9: on Android it opens on a small screen too (its opening picture was " &
+           whatsNew = ["4.9.10: Image > Mode > Multichannel -- each channel an ink of its own; one deleted in " &
+                       "Channels takes its ink out; saved as Photoshop's Multichannel documents. Tab goes " &
+                       "through a palette's controls (on the picture it still hides the palettes); every box " &
+                       "of the options bar has a name for screen readers; Thai and Vietnamese type",
+                       "4.9.9: on Android it opens on a small screen too (its opening picture was " &
                        "painted before the window had a size, and stopped it)",
                        "4.9.8: on Android it opens every time (a second start in the same process stopped " &
                        "it in its filters); covered by another window it draws nothing; the caret rests " &
@@ -2042,7 +2062,7 @@ proc keys() =
     return
   if ctrl or alt:
     # one color channel: Ctrl+3, 4, 5 (the usual), Ctrl+1, 2, 3 (1994's); all: Ctrl+2 (Ctrl+~)
-    let first = if prefs.keySet == 0: Key3 else: Key1
+    let first = if prefs.keySet == 0 and (d == nil or d.hasComposite): Key3 else: Key1
     if d != nil and ctrl and not shift and ui.key in first .. Key5 and
        ord(ui.key) - ord(first) < d.channelCount and d.channelCount > 1:
       ui.keyUsed = true
@@ -2111,7 +2131,9 @@ proc keys() =
         d.endStep()
       else: nudge(dx, dy)
   of KeyTab:
-    if not ui.takesText:
+    # (the palettes hidden and shown -- but from a palette's control Tab
+    # goes on to the next: the keyboard alone reaches all of them)
+    if not ui.takesText and not focusInControls():
       ui.keyUsed = true
       palettesHidden = not palettesHidden
   else:

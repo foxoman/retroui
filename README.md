@@ -657,12 +657,14 @@ maps, the media controls (play, the time bar) and pictures their sides.
 
 The fonts are subsets of GNU FreeFont 0412 made by `tools/genfreefont.py`
 from the fonts GNU publishes: Latin (with Latin-1, Extended-A and -B,
-IPA), Greek, Cyrillic, Hebrew, Arabic (FreeSerif, FreeMono), punctuation,
+IPA, Vietnamese), Greek, Cyrillic, Hebrew, Arabic (FreeSerif, FreeMono),
+Thai (FreeSerif: its vowels and tone marks stacked over and under their
+letter by the kit, in labels and in documents alike), punctuation,
 currency, arrows, mathematical operators, box drawing, geometric shapes
 and the symbols the kit's own text uses -- the bold and italic styles the
 letters, their symbols coming from the regular -- with their OpenType
 kerning, marks, ligatures and Arabic forms, without the TrueType hinting.
-The twelve files take 0.94 MB in every app (compressed, unpacked when a
+The twelve files take 1.0 MB in every app (compressed, unpacked when a
 face is first used; the fonts before them took 0.96 MB, and apps with
 `retroui/textengine` carried Amiri's 0.21 MB more).
 
@@ -765,13 +767,25 @@ if toolButton(nfTrash): deleteIt()
 `accessNode(arListItem, ...)` with `accessItem`), `accessRange` gives a
 value a range, `accessible()` says whether a screen reader listens. A
 custom control takes a screen reader's press through `interact`, as a
-click.
+click. An open drop-down's items are read and pressed; a control the
+screen reader asks to see is scrolled to in every view that scrolls
+(`wantSeen()` for a view of your own).
+
+**The keyboard alone.** Tab stops at every control, in the order they
+are drawn (`tabStops()`; a range slider's two ends are two stops), and
+Shift+Tab goes back. An app that gives Tab a meaning of its own -- an
+image editor hides its panels with it -- does so only when
+`not focusInControls()`, and sets `autoFocus = false` when its keys
+belong to its canvas until a control is clicked (Retro Photo and Retro
+Board do both). `tests/drive/run.sh` walks every page of the kit's apps
+with Tab alone: each control reached, each one named.
 
 **Input methods.** What the system's input method is composing (pinyin,
 kana, hangul, a phone keyboard's word) is drawn underlined in the text box
 at the caret, and typed when it is settled: XIM on X11, IMM on Windows,
 marked text on macOS, GTK 4's preedit, the kit's own input connection on
-Android. `ui.composing` holds it for a text box of your own.
+Android, SDL 2's and SDL 3's text editing (their candidates under the
+caret). `ui.composing` holds it for a text box of your own.
 
 **Scaling.** The window takes the scale of the screen it is on -- on X11
 the monitor's DPI (RandR), on Windows and macOS the system's -- and again
@@ -827,7 +841,9 @@ The commands: `tree`, `find`, `info`, `click` (by name or at x, y; right,
 double), `move`, `scroll`, `press`, `focus` and `set` (as a screen reader
 does them), `key`, `type`, `wait` (frames, milliseconds, or until a control
 is there or gone), `quit` (the close box). A name with no `--role` finds
-the control, not the label that names it (`set "Name:" Ada` is the box).
+the control, not the label that names it (`set "Name:" Ada` is the box);
+`"node": ID` finds a node by the id `tree` gave it. `info` answers with
+the window, the control with the focus and the ids of what it is in.
 An action is answered once the app has taken it and drawn the frames
 after it, with the control as it is then: the next command sees what it
 did. Only the machine itself can connect, only an app started with
@@ -838,8 +854,11 @@ then `adb forward tcp:7000 tcp:7000` (an APK built with
 `--permission:INTERNET`). Not in web pages.
 
 `sh tests/drive/run.sh` drives the examples so: every tab clicked, every
-menu opened and closed, the app asked after each step that it is still
-there, then closed by its close box; the systems workflow runs it on
+menu opened and closed (its "..." dialogs too, closed by Esc), every page
+walked with Tab alone -- each control reached once, named, Shift+Tab
+back, a drop-down opened by Enter and closed by Esc --, the app asked
+after each step that it is still there, then closed by its close box
+(`--strict`: what it finds fails it); the systems workflow runs it on
 Linux, Windows and macOS. A test in the same program as its app runs the
 frames while it waits for the answer (`ask(..., idle = proc () = run())`,
 `tests/test_drive.nim`), and a headless test finds controls by name with
@@ -1252,11 +1271,11 @@ toast("Copied 12 items", title = "Files")    # a yellow Windows 95 balloon
 ### Retro Files
 
 `examples/filemanager.nim` (about 2,100 lines: the rest is the toolkit's)
-is **Retro Files 3.3.7**, a complete file manager in the manner of the Windows 98
+is **Retro Files 3.3.8**, a complete file manager in the manner of the Windows 98
 Explorer -- the Standard Buttons with their labels under the icons (View >
 Toolbars > Text Labels), the Address bar, View as Web Page (the folder's
 name large and the selection described at the left), Large and Small icons,
-Details, Tiles, Columns (each folder of the way a column, as Finder has it,
+List (small icons in columns, scrolled sideways), Details, Tiles, Columns (each folder of the way a column, as Finder has it,
 with type-ahead and the picked file's preview), Arrange Icons, Explorer Bar >
 Folders, Tools > Find (F3),
 Folder Options, the zone in the status bar -- and what one does today:
@@ -1406,6 +1425,7 @@ var scene = Scene3()
 discard scene.add box(1, 1, 1, color(0, 0, 160))
 discard scene.add loadModel("part.stl")             # or .obj
 scene.addGrid(); scene.addAxes()
+discard scene.addShadow()                           # its soft shadow on the ground under it
 var cam = camera3()
 fitView(scene, cam)
 let ev = view3d(scene, cam, height = -1)            # drag turns, Shift+drag moves, wheel zooms
@@ -1670,7 +1690,7 @@ b.saveBoard("flow.board")
   scale, transparent or on the canvas's color), SVG and PDF (vectors,
   text as outlines).
 
-`examples/retroboard.nim` is **Retro Board 1.3.7**, a whiteboard app made of
+`examples/retroboard.nim` is **Retro Board 1.3.8**, a whiteboard app made of
 it: the 3.1 title bar on phones and tablets, a status bar (the tool's
 hint, page, shapes, zoom, memory), the color schemes and Appearance, a
 floating tool bar (select, hand, draw, highlighter, eraser, laser,
@@ -1741,7 +1761,7 @@ the picture whatever the number of values.
 
 ![Retro Task Manager: the processes](docs/taskman.png)
 
-`examples/taskman.nim` is **Retro Task Manager 1.0.3**: the processes with
+`examples/taskman.nim` is **Retro Task Manager 1.0.4**: the processes with
 their share of the processor, the memory and the disk (search, sort by any
 column, End task, End process tree, a priority, Open file location,
 Properties; Delete ends the one selected, after asking), the processor (and
@@ -1799,7 +1819,10 @@ stay sharp at any size, and layers can be clipped to the one under them.
 layers, groups, masks, vector masks, shapes, clipping, adjustment and fill
 layers, layer styles) and exports to JPEG, PNG, PNG-8, GIF, TIFF, Targa
 and BMP with their options. `retroui/photoinks` models printing inks for
-the CMYK mode, Proof Colors and the gamut warning, with Lab and duotones.
+the CMYK mode, Proof Colors and the gamut warning, with Lab, duotones and
+Multichannel images (each channel an ink of its own -- RGB's become cyan,
+magenta and yellow --; one deleted in Channels takes its ink out; saved as
+Photoshop's Multichannel documents, opened from them).
 Brushes have dynamics (jitter, scattering, flow, color) and symmetry, and
 `retroui/filterfactory` runs filters written as formulas, kept as plug-ins.
 `retroui/photowidgets` shows
@@ -1830,7 +1853,7 @@ s.dehaze = 10
 p.applyFilter(developMargin(s), develop(s))
 ```
 
-`examples/photo.nim` is **Retro Photo 4.9.9**, an image editor in the manner
+`examples/photo.nim` is **Retro Photo 4.9.10**, an image editor in the manner
 of the ones of 1994: the toolbox, the tabbed floating palettes (Brushes
 and Options; Picker, Swatches and Scratch; Layers, Channels and Paths;
 Info; Commands; Navigator, History and Actions; Properties), an options
@@ -1961,9 +1984,13 @@ for m in w.messages: echo "the page says ", m     # retro.post(text) in its scri
 `htmlView` shows a safe subset of HTML — headings, paragraphs, bold,
 italic, underline, strike, code, marked and coloured text, links, lists,
 quotes, preformatted text, tables, pictures next to the page, definition
-lists — read by a forgiving parser. Scripts, styles, frames and forms are
-left out, so no page can run code or reach the network. `htmlToMarkdown`
-converts a page.
+lists — read by a forgiving parser and styled by its CSS: style sheets,
+`style` attributes and the old attributes, with floats, nested tables,
+flexible boxes (`display: flex`: rows and columns, wrapped, `flex-grow`,
+`justify-content`, `align-items`, `gap`) and grids
+(`grid-template-columns`: pixels, `fr`, `repeat`, `minmax`, `auto-fill`;
+`grid-column: span`). Scripts, frames and forms are left out, so no page
+can run code or reach the network. `htmlToMarkdown` converts a page.
 
 `webView` is a web page, shown by one of two engines:
 
@@ -2591,8 +2618,8 @@ here.
   cannot use up the memory), models, sounds and templates have limits of
   their own, and zip names that would climb out of their folder ("../")
   are refused.
-- **Pages cannot run code:** `htmlView` leaves out scripts, styles, frames
-  and forms and never reaches the network; report templates only read the
+- **Pages cannot run code:** `htmlView` leaves out scripts, frames and
+  forms and never reaches the network; report templates only read the
   data they are given.
 - **Fuzzed:** `tests/fuzz/fuzz.nim` feeds hundreds of thousands of damaged
   files to every decoder; `fuzzui.nim` drives the widgets with random
@@ -2919,10 +2946,10 @@ says how.
   check runs in the Android emulator and the iOS Simulator on GitHub; no
   phone or tablet has run this release yet.
 - What an input method is composing is drawn in the text box on X11,
-  Windows, macOS, GTK 4 and Android; with SDL 2, SDL 3 and on iOS it shows
-  in the input method's own window. Screen readers were tried end to end
-  with AT-SPI's own client (what Orca uses) and with UI Automation under
-  Wine; VoiceOver and TalkBack build and pass the tests of their parts, but
+  Windows, macOS, GTK 4, Android, SDL 2 and SDL 3 (its list of candidates
+  under the caret); on iOS it shows in the input method's own window.
+  Screen readers were tried end to end with AT-SPI's own client (what Orca
+  uses) and with UI Automation under Wine; VoiceOver and TalkBack build and pass the tests of their parts, but
   have not been run on a device in this release.
 - Retro Photo's own picture controls (curves, levels, gradients, the
   brushes and swatches, the color field) and a canvas an app draws itself
@@ -2931,12 +2958,15 @@ says how.
   them are read.
 - At fractional scales lines stay one whole pixel (or two at 200 %...):
   sizes and text follow the scale exactly, lines do not.
-- Text shaping covers Latin, Greek, Cyrillic, Hebrew and Arabic (with
-  Persian and Urdu letters); in the UI marks are placed without the font's
-  positioning tables (documents use them). Other scripts use the
-  platform's text where it has one. A font file is drawn with its Arabic
-  only when it has the joined forms (presentation forms) in its character
-  map; else FreeSerif's Arabic stands in.
+- Text shaping covers Latin (Vietnamese too), Greek, Cyrillic, Hebrew,
+  Arabic (with Persian and Urdu letters) and Thai (its vowels and tone
+  marks stacked by the kit); in the UI marks are placed without the font's
+  positioning tables (documents use them). The Indic scripts, Khmer,
+  Myanmar and Lao are not shaped (their letters are drawn one by one, in a
+  font of yours that has them, or the platform's text where it has one).
+  A font file is drawn with its Arabic only when it has the joined forms
+  (presentation forms) in its character map; else FreeSerif's Arabic
+  stands in.
 - `webView`'s system engine is a window of the system's over the app's:
   under the app's menus and dialogs it steps aside and a picture of the
   page stands in, so a page that changes then (a video) is still until
@@ -2947,8 +2977,9 @@ says how.
   `WebView2Loader.dll` beside the program is the surest start (without it
   the kit finds the runtime where Windows keeps it). In a web page
   (`retrokit web`) a web view is the page's own frame: pages of the same
-  site talk with the app, others are shown but not driven. `htmlView` is a
-  subset of HTML without CSS layout or scripts.
+  site talk with the app, others are shown but not driven. `htmlView` lays
+  out blocks, floats, tables, flexible boxes and grids; not positioned
+  boxes (`position`), grid rows and areas by name, or scripts.
 - Video in the window on Windows (Media Foundation) and macOS and iOS
   (AVFoundation) is new in this release: it runs in the live check on
   GitHub, not yet by hand on those systems.
@@ -2976,17 +3007,19 @@ says how.
 - Maps: Apple's maps and Google's JavaScript map are web pages of theirs
   (`mapKitPage`, `googleMapsPage`), not tiles the kit draws; vector tiles
   are drawn flat (no 3D buildings or terrain).
-- 3D: no shadows, and no Draco or meshopt compression in glTF (export
-  without them); cameras and lights of a model are not read (the view has
-  its own).
-- Retro Photo: no Rotate View, 32-bit or Multichannel modes, or Generative
-  Fill. PostScript and EPS files open by the picture they hold (or their
+- 3D: a model casts its shadow on the ground under it (`addShadow`), not
+  on itself or on other models; no Draco or meshopt compression in glTF
+  (export without them); cameras and lights of a model are not read (the
+  view has its own).
+- Retro Photo: no Generative Fill; a Multichannel image made from CMYK
+  keeps its four inks (one deleted would come back, separated again from
+  the picture: delete inks from RGB's three). PostScript and EPS files open by the picture they hold (or their
   preview): there is no PostScript interpreter. Get Google Fonts has not
   been tried against the live catalog in this release (only against saved
   copies of its answers).
-- Retro Files: no List view (column-wise small icons) and no Paste Shortcut;
-  sounds play from the start, without seeking, where neither GStreamer nor
-  Android plays them (Windows and macOS use the system's sound playing).
+- Retro Files: no Paste Shortcut; sounds play from the start, without
+  seeking, where neither GStreamer nor Android plays them (Windows and
+  macOS use the system's sound playing).
 
 ## License
 

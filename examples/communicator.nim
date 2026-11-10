@@ -26,7 +26,8 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[os, strutils, tables, times, algorithm, base64, typedthreads, locks, unicode, sets, osproc, hashes, exitprocs, uri, sequtils]
+import std/[os, strutils, tables, times, algorithm, base64, typedthreads, locks, sets, osproc, hashes, exitprocs, uri, sequtils]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import retroui
 import retroui/[qrcode, xmpp, media, mediaaudio, notify, http, secrets, omemo]
 when not defined(windows): import std/posix
@@ -1545,7 +1546,7 @@ proc dialogs() =
   if showSendFile and sendTo != nil:
     if fileDialog(showSendFile, sendPath, fmOpen, ["All Files (*.*)"], title = "Send a File"):
       sendFile(sendTo, sendPath)
-  aboutBox(showAbout, "Retro Communicator", "1.3",
+  aboutBox(showAbout, "Retro Communicator", "1.3.1",
            ["An instant messenger on XMPP: any public server, any XMPP app.",
             "Developed by Sultan Al Isaiee @foxoman"])
 

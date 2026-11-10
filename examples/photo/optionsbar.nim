@@ -56,6 +56,7 @@ proc commitCrop() = commitCropNow()
 proc barType() =
   # (the usual Type tool and Type Mask tool)
   var tm = ord(typeMaskMode)
+  accessName(tr("Type tool"))
   if combo(["Type", "Type Mask"], tm, w = dp(90)): typeMaskMode = tm == 1
   # (Toggle Text Orientation: the text being edited, or the next one)
   let L0 = typeTarget()
@@ -113,6 +114,7 @@ proc barShape() =
     shapeSynced = d.current
     syncShapeOptions(d.current)
   elif d == nil or not d.current.isShape: shapeSynced = nil
+  accessName(tr("Shape tool mode"))
   combo(["Shape Layer", "Path", "Pixels"], shapeMode, w = dp(100))
   if shapeMode == 0 and shapeKind != 4:
     var changed = false
@@ -210,6 +212,7 @@ proc optionsBar() =
       case t
       of tMarquee:
         barSelModes()
+        accessName(tr("Marquee shape"))
         combo(["Rectangular", "Elliptical", "Single Row", "Single Column"], marqueeShape, w = dp(100))
         barFeather(marqueeFeather)
         barCheck("Anti-aliased", marqueeAA)
@@ -237,12 +240,14 @@ proc optionsBar() =
         toolSeparator()
         if toolButton("Select and Mask...", enabled = cur() != nil): runCommand("Select and Mask...")
       of tWand:
+        accessName(tr("Selection tool"))
         combo(["Magic Wand", "Quick Selection", "Object Selection", "Selection Brush"], wandMode, w = dp(120))
         if wandMode != 3: barSelModes()
         case wandMode
         of 3:
           # the Selection Brush: add or take away, its size and hardness, the red overlay
           var m = ord(selBrushSub)
+          accessName(tr("The brush adds or subtracts"))
           if combo(["Add", "Subtract"], m, w = dp(84)): selBrushSub = m == 1
           label "Size:"
           popupSlider(quickSize, 1, 1000, unit = "px")
@@ -289,6 +294,7 @@ proc optionsBar() =
           barCheck("Auto-Select", moveAutoSelect)
           # (what a click picks: the layer, or the outermost group it is in)
           var ag = ord(moveAutoGroup)
+          accessName(tr("Auto-Select picks"))
           if combo(["Layer", "Group"], ag, w = dp(70), enabled = moveAutoSelect):
             moveAutoGroup = ag == 1
             savePrefs()
@@ -351,6 +357,7 @@ proc optionsBar() =
           if toolButton("Cancel", "Leave it (Esc)"): pendingCrop.on = false
       of tType: barType()
       of tBucket:
+        accessName(tr("Fill with"))
         combo(["Foreground", "Pattern"], bucketPattern, w = dp(96))
         barMode(tBucket)
         barOpacity(tBucket)
@@ -427,6 +434,7 @@ proc optionsBar() =
           barCheck("Contiguous", magicContig)
         else:
           barBrush(tEraser)
+          accessName(tr("Eraser mode"))
           combo(["Paintbrush", "Airbrush", "Pencil", "Block"], eraserMode, w = dp(90))
           if eraserMode != 3: barOpacity(tEraser)
           barCheck("Erase to Saved", eraseToSaved)
@@ -441,14 +449,17 @@ proc optionsBar() =
         barOpacity(tAirbrush, "Pressure:")
         barFlow(tAirbrush)
       of tBrush:
+        accessName(tr("Brush tool"))
         combo(["Paintbrush", "Mixer Brush", "Color Replacement", "Adjustment Brush"], brushTool, w = dp(128))
         barBrush(tBrush)
         if brushTool == 3:
           # the Adjustment Brush: which adjustment, how much, add or take away
+          accessName(tr("Adjustment"))
           if combo(adjBrushPresets, adjBrushKind, w = dp(110)): discard
           label "Amount:"
           if popupSlider(adjBrushAmount, -100, 100, unit = ""): adjBrushChanged()
           var m = ord(adjBrushSub)
+          accessName(tr("The brush adds or subtracts"))
           if combo(["Add", "Subtract"], m, w = dp(84)): adjBrushSub = m == 1
           barFlow(tBrush)
           label("Alt: takes it away", color = ui.theme.gray)
@@ -478,6 +489,7 @@ proc optionsBar() =
         if barIcon(pxSymmetry, "Symmetry (the Options palette)", down = symmetry > 0):
           togglePanel("options")
       of tStamp:
+        accessName(tr("Stamp tool"))
         combo(["Rubber Stamp", "History Brush", "Art History Brush"], stampTool, w = dp(120))
         barBrush(tStamp)
         barMode(tStamp)
@@ -486,6 +498,7 @@ proc optionsBar() =
           label "Style:"
           var names: seq[string]
           for st in ArtStyle: names.add $st
+          accessName(tr("Art style"))
           combo(names, artStyle, w = dp(120))
           label "Area:"
           spin(artArea, 1, 500, w = dp(56))
@@ -494,6 +507,7 @@ proc optionsBar() =
           spin(artTolerance, 0, 100, w = dp(52))
           label "%"
         elif stampTool == 0:
+          accessName(tr("Clone from"))
           combo(["Clone (aligned)", "Clone", "Pattern (aligned)", "Pattern", "From Snapshot", "From Saved",
                  "Impressionist"], stampMode, w = dp(120))
           barSource()
@@ -505,14 +519,17 @@ proc optionsBar() =
         barOpacity(tSmudge, "Strength:")
         barCheck("Finger Painting", opts[tSmudge].finger)
       of tBlur:
+        accessName(tr("Blur or Sharpen"))
         combo(["Blur", "Sharpen"], blurMode, w = dp(80))
         barBrush(tBlur)
         barMode(tBlur)
         barOpacity(tBlur, "Strength:")
       of tDodge:
+        accessName(tr("Dodge, Burn or Sponge"))
         combo(["Dodge", "Burn", "Sponge"], dodgeMode, w = dp(80))
         barBrush(tDodge)
         if dodgeMode == 2:
+          accessName(tr("Sponge mode"))
           combo(["Desaturate", "Saturate"], spongeMode, w = dp(90))
           barOpacity(tDodge, "Flow:")
         else:
@@ -520,6 +537,7 @@ proc optionsBar() =
           combo(["Shadows", "Midtones", "Highlights"], dodgeTone, w = dp(90))
           barOpacity(tDodge, "Exposure:")
       of tHeal:
+        accessName(tr("Healing tool"))
         combo(["Spot Healing Brush", "Healing Brush", "Patch", "Remove Tool", "Content-Aware Move"], healMode,
               w = dp(140))
         if healMode in {0, 1, 3}: barBrush(tHeal)
@@ -544,6 +562,7 @@ proc optionsBar() =
             spin(patchColor, 0, 10, w = dp(44))
         of 4:
           var m = if camExtend: 1 else: 0
+          accessName(tr("Move mode"))
           if combo(["Move", "Extend"], m, w = dp(80)): camExtend = m == 1
         else: discard
       of tRedEye:

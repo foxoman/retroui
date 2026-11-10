@@ -16,7 +16,8 @@
 ## radial as their middle color, encrypted files (refused), JBIG2 and
 ## JPEG 2000 pictures (left out).
 
-import std/[tables, strutils, math, unicode, algorithm]
+import std/[tables, strutils, math, algorithm]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import gfx, codec, jpeg, ttf, typeset, canvas2d
 
 type

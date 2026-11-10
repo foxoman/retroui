@@ -21,6 +21,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libegl1 libgles2 libegl-mesa0
       - name: No return after result (Nim 2.2 leaks the old value)
         run: python3 tools/returncheck.py
+      - name: The docs name what is in the code; the guide shows every control
+        run: |
+          python3 tools/docscheck.py
+          python3 tools/controlscheck.py
       - name: Tests
         run: nimble test -y
       - name: Fuzz (a short run)

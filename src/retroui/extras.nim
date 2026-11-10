@@ -5,7 +5,8 @@
 ## floating action button, sparklines, progress rings, empty and busy
 ## states, and label / value lists.
 
-import std/[strutils, unicode, math, tables]
+import std/[strutils, math, tables]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 import core, widgets, business, platform, nerdicons, pixelicons
 import uirelays/input
@@ -493,6 +494,7 @@ proc rating*(v: var int; stars = 5; enabled = true): bool {.discardable.} =
          if not enabled: th.gray elif lit: gold else: th.shadow, st)
   if hit.focused: focusDots(r)
   if accessOn:
+    accessNameOr(tr("Rating"))
     let k = accessNode(arSlider, value = $v & " / " & $stars, id = id, r = r,
                        states = accessOff(enabled))
     accessRange(k, 0, float(stars), float(v))
@@ -937,8 +939,11 @@ proc colorWell*(c: var Color; key: string; w = 0; title = "Color"; enabled = tru
   ## Lum, Red / Green / Blue, "#RRGGBB" -- and OK sets `c` (true then).
   ## Use one wherever a color is chosen; `key` tells the wells apart.
   let r = place(if w > 0: w else: dp(40), EditH)
-  var hit = interact(idOf("colorwell:" & key), r, enabled = enabled)
-  if enabled: spaceKey(idOf("colorwell:" & key), hit)
+  # (one id for the well, its keys and its node: a label's second `idOf` in
+  # a frame is another id)
+  let wid = idOf("colorwell:" & key)
+  var hit = interact(wid, r, enabled = enabled)
+  if enabled: spaceKey(wid, hit)
   if hit.focused: ui.takesEnter = true     # (as a button: a default button leaves Enter to it)
   if hit.focused and keyHit(KeyEnter): hit.clicked = true
   sunken(r)
@@ -947,7 +952,7 @@ proc colorWell*(c: var Color; key: string; w = 0; title = "Color"; enabled = tru
   if hit.focused: dots(inset(r, -1), th.text)
   if accessOn:
     accessNameOr(tr(title))
-    accessNode(arButton, "", id = idOf("colorwell:" & key), r = r, states = accessOff(enabled),
+    accessNode(arButton, "", id = wid, r = r, states = accessOff(enabled),
                help = hexOf(c))
   if hit.clicked and enabled: openColorDialog(key, c, title)
   if colorDialogResult(key, c): result = true
@@ -969,8 +974,10 @@ proc restoreCustomColors*(s: Settings) =
 proc timePicker*(h, m: var int; enabled = true): bool {.discardable.} =
   ## Hours (0..23) and minutes as two spin boxes.
   row:
+    accessName(tr("Hours"))
     if spin(h, 0, 23, w = dp(64), enabled = enabled): result = true
     label ":"
+    accessName(tr("Minutes"))
     if spin(m, 0, 59, w = dp(64), enabled = enabled): result = true
 
 # ---- the line viewer ------------------------------------------------------------------------

@@ -153,6 +153,13 @@ proc testView() =
                      msel, marked, height = 200)
     if e.selChanged or e.activated: iconEv = e
     r1 = ui.lastRect
+  of 14:
+    # (Explorer's "List": small icons down columns, scrolled sideways)
+    let e = iconView(40, proc (i: int): string = "File " & $i,
+                     proc (i: int; r: Rect) = image(r.x, r.y, icFolder),
+                     msel, marked, height = 100, tile = 120, oneLine = true, columnWise = true)
+    if e.selChanged or e.activated: iconEv = e
+    r1 = ui.lastRect
   of 12:
     let c = breadcrumb(["/", "home", "foxoman", "Documents"], w = 400)
     if c >= 0: crumb = c
@@ -488,6 +495,36 @@ block iconViewSelect:
   key(KeyEnter)
   run()
   doAssert iconEv.activated
+
+block listView:
+  # down the columns, then the next column; Left and Right go a column over
+  page = 14
+  marked = @[]
+  msel = 0
+  run(2)
+  click(r1, 20, 10)
+  doAssert msel == 0 and marked[0]
+  key(KeyDown)
+  run()
+  doAssert msel == 1, "Down: the next item, in the same column " & $msel
+  key(KeyRight)
+  run()
+  let tall = msel - 1                    # (the items a column holds)
+  doAssert tall >= 2 and tall <= 4, "Right: the item a column over " & $msel
+  key(KeyLeft)
+  run()
+  doAssert msel == 1
+  key(KeyEnd)
+  run()
+  doAssert msel == 39
+  # scrolled sideways to the last column: the first ones out of sight
+  doAssert pixels.len > 0
+  key(KeyHome)
+  run(40)                                # (it glides back to the start)
+  doAssert msel == 0
+  # a click in the second column picks its first item
+  click(r1, 120 + 30, 10)
+  doAssert msel == tall, $msel & " " & $tall
 
 block crumbsImageProgress:
   page = 12

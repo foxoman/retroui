@@ -519,8 +519,12 @@ proc renderView(v: var PhotoView; d: Doc; bw, bh: int; bg: uint32; part = rect(0
       xs[bx] = int32(min(lw - 1, ix0 shr level))
   let quick = d.quickMask and d.maskLayer != nil and d.maskLayer.px.len == d.w * d.h
   let mask = if quick: cast[ptr UncheckedArray[uint32]](addr d.maskLayer.px[0]) else: nil
-  let ch = d.viewChannel
-  let mode = d.mode
+  var ch = d.viewChannel
+  var mode = d.mode
+  if mode == cmMultichannel:
+    # (an ink of a Multichannel image: the channel of the mode it came from)
+    if ch >= 0 and ch < d.spots.len: ch = d.spots[ch].ch
+    mode = d.spotBase
   # (how the colors are shown: as they print in CMYK or with Proof Colors,
   # in the inks of a Duotone, what cannot print in gray)
   let proofT = if ch < 0 and (mode == cmCMYK or d.proof or d.gamutWarning): proofTablePtr() else: nil

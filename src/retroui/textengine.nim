@@ -18,7 +18,8 @@
 ##
 ## Positions are in pixels of the picture drawn on (y down).
 
-import std/[math, os, strutils, tables, unicode, algorithm, json]
+import std/[math, os, strutils, tables, algorithm, json]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import ttf, typeset, raster, otshape, codec
 
 const defaultFamily* = "FreeSans"
@@ -472,6 +473,7 @@ type
     nominal: int               # (the character as typed, digits and caps made: what OpenType shapes)
     shaped: bool               # set by the font's OpenType tables: `parts` drawn, not `gid`
     parts: seq[GlyphPart]
+    markDx, markDy: float32    # (a Thai mark: pixels from the pen, right and up)
     style: int                 # index into styles
     face: Face
     gid: int
@@ -790,13 +792,18 @@ proc layoutPlain(t: TextData): TextLayout =
         var e = k + 1
         while e < paraEnd and chars[e].style == si and (chars[e].level and 1) == odd and chars[e].cp notin [9, 10]:
           inc e
-        # (all of it in the font: else as before, a character at a time)
+        # (all of it in the font: else as before, a character at a time; Thai
+        # too, in a font that does not place its marks -- the kit's
+        # FreeSerif --: they are placed below)
         var all = true
+        var thai = false
         var cps = newSeq[int](e - k)
         for j in k ..< e:
           cps[j - k] = chars[j].nominal
           let cp = chars[j].nominal
           if cp >= 32 and cp notin [0x200C, 0x200D, 0x200E, 0x200F] and not fc.hasGlyph(cp): all = false
+          if cp in 0x0E31 .. 0x0E4E and isMark(cp) and not fc.placesMark(fc.glyphOf(cp)): thai = true
+        if thai: all = false
         if not all:
           k = e
           continue
@@ -828,6 +835,28 @@ proc layoutPlain(t: TextData): TextLayout =
           chars[j].adv = (if chars[j].cp == 9: st.size * 2 else: a)
           if chars[j].parts.len > 0: chars[j].gid = chars[j].parts[0].gid
         k = e
+    # Thai vowels and tone marks a character at a time (the kit's FreeSerif
+    # has no Thai tables): over and under their letter, stacked
+    for k in paraStart + 1 ..< paraEnd:
+      let c = addr chars[k]
+      if c.shaped or c.cp notin 0x0E31 .. 0x0E4E or not isMark(c.cp) or c.shown < 0: continue
+      var b = k - 1
+      while b > paraStart and isMark(chars[b].cp): dec b
+      if chars[b].shaped or chars[b].shown < 0 or isMark(chars[b].cp): continue
+      var above = 0'f32
+      for j in b + 1 ..< k:
+        if chars[j].cp in 0x0E31 .. 0x0E4E and chars[j].cp notin 0x0E38 .. 0x0E3A and chars[j].size > 0:
+          let jf = chars[j].face
+          above = max(above, float32(jf.bounds(chars[j].gid).y1) / float32(jf.unitsPerEm) +
+                             chars[j].markDy / chars[j].size)
+      let p = thaiPlace(chars[b].cp, chars[b].face, chars[b].gid, c.cp, c.face, c.gid, above,
+                        k + 1 < paraEnd and chars[k + 1].cp == 0x0E33)
+      let st = styles[c.style]
+      if p.left == p.left:
+        var pen = 0'f32                     # (the letter's origin to this mark's pen)
+        for j in b ..< k: pen += chars[j].adv
+        c.markDx = min(0'f32, p.left * c.size * st.hScale - pen)
+      c.markDy = p.y * c.size * st.vScale
     # kerning (left to right only)
     for k in paraStart + 1 ..< paraEnd:
       let a = chars[k - 1]
@@ -1014,7 +1043,8 @@ proc layoutPlain(t: TextData): TextLayout =
           if st.script == scSuper: y -= st.size * 0.333
           elif st.script == scSub: y += st.size * 0.15
           let fb = faces[c.style]
-          result.glyphs.add LaidGlyph(face: f, gid: g, x: x, y: y, size: c.size, hScale: st.hScale,
+          result.glyphs.add LaidGlyph(face: f, gid: g, x: x + c.markDx, y: y - c.markDy, size: c.size,
+                                      hScale: st.hScale,
                                       vScale: st.vScale,
                                       embolden: (if st.fauxBold or fb.fauxBold: max(0.6'f32, c.size / 28) else: 0'f32),
                                       shear: (if st.fauxItalic or fb.fauxItalic: 0.21'f32 else: 0'f32),

@@ -23,7 +23,7 @@ import retroui/[sysmon, system]
 
 const
   AppTitle = "Retro Task Manager"
-  AppVersion* = "1.0.3"
+  AppVersion* = "1.0.4"
   AppId = "RetroTaskManager"
   IconPng = staticRead("assets/taskman-icon.png")
 
@@ -224,6 +224,7 @@ proc processesPage(s: Sample) =
       spring()
       if button("&End task", enabled = sel in 0 ..< shown.len, w = dp(96)): askEnd = true
   var cols = if compact: phoneCols else: procCols
+  accessName "Processes"
   let ev = grid(cols, shown.len,
                 proc (r, c: int): string =
                   if r >= shown.len: ""
@@ -380,6 +381,7 @@ proc startupPage() =
     paragraph "Nothing starts with the system here for this app to show (on a phone, " &
               "the system decides)."
     return
+  accessName "Programs that start with the system"
   let ev = grid(startCols, startup.len,
                 proc (r, c: int): string =
                   if r >= startup.len: ""
@@ -417,6 +419,7 @@ proc networkPage(s: Sample) =
     namesOf = sampleNo
     names.clear()
     for p in s.processes: names[p.pid] = p.name
+  accessName "Connections"
   discard grid(connCols, conns.len,
                proc (r, c: int): string =
                  if r >= conns.len: ""

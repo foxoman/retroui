@@ -148,7 +148,15 @@ line.
   `request`). In a headless test of your own, `accessKeep = true` and
   `findNode(accessLast, "OK", {arButton})` / `nodeRect` find a control by
   name. Give a control without a label before it a name
-  (`accessName "Celsius"`) so readers and drivers can find it.
+  (`accessName "Celsius"`) so readers and drivers can find it. A node's
+  id (`"node": 1234` in JSON) finds it exactly; a name alone prefers a
+  control to a label of the same text. Retro Designer's View > Names and
+  Tab Order shows the stops of Tab and the unnamed controls.
+- **Tab is the keyboard's**: every control Tab stops at, in order
+  (`tabStops()`). An app that gives Tab a meaning of its own (hide the
+  panels, as image editors do) does it only when `not focusInControls()`
+  -- else Tab must go on to the next control -- and sets `autoFocus =
+  false` when its keys are its canvas's until a control is clicked.
 - `&` in a label underlines the next letter (Alt+letter). `isDefault = true`
   makes Enter press the button -- unless the focused control acts on Enter
   itself (a drop-down, a date, a button, a grid cell, a multi-line text
@@ -199,7 +207,7 @@ Numbers, dates, colors: `spin`, `intEdit`, `numberEdit`, `slider`, `progress`, `
 Lists and data: `listbox`, `combo`, `grid` (the data grid with editing, sorting, totals), `tree`.
 Files: `fileDialog`, `fileList`, `folderTree`, `filePicker`, `filePreview`, `placesView`.
 Charts and more: `chart` (21 kinds, from your numbers or a CSV table), `barChart`, `lineChart`, `pieChart`, `liveGraph` (a task manager's graph that moves: a frame costs a copy), the world map (`retroui/mapview`), street maps (`tileMap`, `retroui/tilemap`; places and routes `retroui/geo`), 3D (`retroui/view3d`; Blender's models `retroui/gltf`),
-HTML and Markdown (`htmlView`), web pages (`webView`), canvas (`canvas`, `retroui/canvas2d`), reports and PDF (`retroui/report`),
+HTML and Markdown (`htmlView`: its CSS, flexible boxes and grids too), web pages (`webView`), canvas (`canvas`, `retroui/canvas2d`), reports and PDF (`retroui/report`),
 sound and video (`retroui/media`; the system's media controls `retroui/mediasession`; camera and microphone `retroui/capture`), spreadsheets (`retroui/xlsx`), more windows (`window`).
 
 **The system's features** (`import retroui/system`; docs/system.md has
@@ -254,7 +262,8 @@ if ev.clicked: echo ev.nodeName                         # the part picked: "Door
 ```
 
 `turnNode`, `moveNode`, `setVisible`, `tint` take a part's name
-(`car.nodeNames`); `retrokit model car.blend` lists them.
+(`car.nodeNames`); `retrokit model car.blend` lists them. `car.addShadow()`
+lays its soft shadow on the ground (again after its pose changes).
 
 **More windows**: `window(toolsOpen, "Tools", 240, 360): body` -- a
 window of the system's own, drawn where the frame reaches it; its close
@@ -374,7 +383,8 @@ costs what its visible rows cost.
   phones; controls grow with the text. `setTextScale(120)` (the user's text
   size), `setUiScale(125)` (everything), `setBaseTextSize(14)` (your app's
   100 %).
-- Fonts: FreeSans (default), FreeSerif, FreeMono, built in with Arabic;
+- Fonts: FreeSans (default), FreeSerif, FreeMono, built in with Arabic,
+  Thai and Vietnamese;
   `loadUiFontFile(path)` for a font of your own; `appearanceSettings` lets
   the user choose (theme, font, text size, Sharp text, window frame) and
   `look = "myapp"` keeps it.

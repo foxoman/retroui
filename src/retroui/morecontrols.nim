@@ -22,14 +22,20 @@ proc rangeSlider*(lo, hi: var int; minV, maxV: int; w = 0; ticks = 10;
                   enabled = true): bool {.discardable.} =
   ## A track bar with two thumbs, `lo` and `hi` (`minV <= lo <= hi <=
   ## maxV`): drag either (the nearer is taken), or the band between them
-  ## to move both. Keys: arrows move the focused end (Tab... the left
-  ## first; Shift+arrows the right). True when either changed.
+  ## to move both. Keys: Tab stops at each end, the left first; the arrows
+  ## move the focused one (Shift+arrows the other). True when either
+  ## changed.
   let tw = if fingers(): dp(20) else: dp(11)
   let tht = if fingers(): dp(26) else: dp(18)
   let tick = if ticks > 0: dp(5) else: 0
   let r = place(if w > 0: w else: 0, max(tht + tick + dp(2), FontH + 8), fill = w <= 0)
   let id = idOf(lo, "range")
   let hit = interact(id, r, enabled = enabled)
+  # (the right end: Tab's second stop, no place of its own for the mouse)
+  let hid = idOf(lo, "range-to")
+  let hit2 = interact(hid, rect(r.x, r.y, 0, 0), enabled = enabled)
+  ui.lastId = id                          # (the slider is what was drawn last: its tooltip, its place)
+  ui.lastRect = r
   let span = max(1, maxV - minV)
   let chan = rect(r.x + tw div 2, r.y + tht div 2 - dp(2), max(1, r.w - tw), dp(4))
   let travel = max(1, chan.w)
@@ -47,6 +53,7 @@ proc rangeSlider*(lo, hi: var int; minV, maxV: int; w = 0; ticks = 10;
                elif dl < dh or (dl == dh and ui.mx < xOf(lo)): 1
                else: 2
       st.aux2 = vOf(ui.mx) - lo
+      if st.aux == 2: ui.focus = hid          # (the right end taken: the keys move it)
     if ui.active == id and ui.mouseDown:
       ui.dragsActive = true
       let v = vOf(ui.mx)
@@ -58,9 +65,9 @@ proc rangeSlider*(lo, hi: var int; minV, maxV: int; w = 0; ticks = 10;
         nlo = clamp(v - st.aux2, minV, maxV - width)
         nhi = nlo + width
       else: discard
-    if hit.focused and canInput():
+    if (hit.focused or hit2.focused) and canInput():
       let big = max(1, span div 10)
-      let right = ShiftPressed in ui.mods
+      let right = hit2.focused xor (ShiftPressed in ui.mods)
       var d = 0
       case ui.key
       of KeyLeft, KeyDown: d = -1
@@ -73,8 +80,8 @@ proc rangeSlider*(lo, hi: var int; minV, maxV: int; w = 0; ticks = 10;
         if right: nhi = max(lo, hi + d) else: nlo = min(hi, lo + d)
   if accessOn and enabled:
     # (a screen reader set one end)
-    if accessValueFor(accessSubId(id, 0)): nlo = min(int(round(accessSet.num)), hi)
-    if accessValueFor(accessSubId(id, 1)): nhi = max(int(round(accessSet.num)), lo)
+    if accessValueFor(id): nlo = min(int(round(accessSet.num)), hi)
+    if accessValueFor(hid): nhi = max(int(round(accessSet.num)), lo)
   nlo = clamp(nlo, minV, maxV)
   nhi = clamp(nhi, nlo, maxV)
   if nlo != lo or nhi != hi:
@@ -96,15 +103,18 @@ proc rangeSlider*(lo, hi: var int; minV, maxV: int; w = 0; ticks = 10;
   if ticks > 0:
     for i in 0 .. ticks:
       vline(chan.x + i * travel div ticks, r.y + tht + dp(2), dp(3), if enabled: th.text else: th.gray)
-  if hit.focused: focusDots(rect(r.x, r.y - 1, r.w, r.h + 2))
+  if hit.focused or hit2.focused:
+    focusDots(rect(r.x, r.y - 1, r.w, r.h + 2))
+    let v = if hit2.focused: hi else: lo
+    ui.focusRect = rect(xOf(v) - tw div 2, r.y, tw, tht)
   if accessOn:
     # (its two ends, as two sliders in a group)
-    accessBegin(arGroup, "", r, id, accessOff(enabled), takesLabel = true)
+    accessBegin(arGroup, "", r, accessSubId(id, 2), accessOff(enabled), takesLabel = true)
     for (v, k, n) in [(lo, 0, "From"), (hi, 1, "To")]:
-      let i = accessNode(arSlider, n, $v, accessOff(enabled), accessSubId(id, k),
+      let i = accessNode(arSlider, tr(n), $v, accessOff(enabled), (if k == 0: id else: hid),
                          rect(xOf(v) - tw div 2, r.y, tw, tht))
       accessRange(i, float(minV), float(maxV), float(v))
-      if k == 0 and hit.focused: accessFocus(i)
+      if (k == 0 and hit.focused) or (k == 1 and hit2.focused): accessFocus(i)
     accessEnd()
 
 # ---- buttons that open a menu ------------------------------------------------------------------------
@@ -117,10 +127,11 @@ proc menuButton*(label: string; items: openArray[string]; w = 0; enabled = true)
   let bw = if w > 0: w else: labelWidth(label) + dp(34)
   let r = place(bw, CtrlH)
   let key = "menubtn:" & label
-  var hit = interact(idOf(key), r, enabled = enabled)
+  let bid = idOf(key)                        # (one id: a second `idOf` is another)
+  var hit = interact(bid, r, enabled = enabled)
   let open = popupMenuOpen(key)
   if enabled:
-    spaceKey(idOf(key), hit)                 # (Space, Enter: it drops, as a click does)
+    spaceKey(bid, hit)                       # (Space, Enter: it drops, as a click does)
     if hit.focused:
       ui.takesEnter = true
       if keyHit(KeyEnter): hit.clicked = true
@@ -129,7 +140,7 @@ proc menuButton*(label: string; items: openArray[string]; w = 0; enabled = true)
   drawLabel(r.x + dp(8) + o, r.y + (r.h - FontH) div 2 + o, label, if enabled: th.text else: th.gray)
   arrow(r.x + r.w - dp(11) + o, r.y + r.h div 2 + o, dDown, if enabled: th.text else: th.gray)
   if accessOn:
-    accessNode(arButton, label, id = idOf(key), r = r,
+    accessNode(arButton, label, id = bid, r = r,
                states = accessOff(enabled) + {asExpandable} + (if open: {asExpanded} else: {}))
   if hit.focused and dropKey(): hit.clicked = true
   if hit.clicked or (enabled and mnemonicHit(label)) or (hit.focused and keyHit(KeyDown)):
@@ -150,13 +161,15 @@ proc splitButton*(label: string; items: openArray[string]; w = 0; enabled = true
   let main = rect(r.x, r.y, r.w - aw + 1, r.h)
   let drop = rect(r.x + r.w - aw, r.y, aw, r.h)
   let key = "splitbtn:" & label
-  var mh = interact(idOf(key & ":main"), main, enabled = enabled)
+  let mainId = idOf(key & ":main")           # (one id each: a second `idOf` is another)
+  let dropId = idOf(key & ":drop")
+  var mh = interact(mainId, main, enabled = enabled)
   if enabled:
-    spaceKey(idOf(key & ":main"), mh)        # (Space, Enter: its default)
+    spaceKey(mainId, mh)                     # (Space, Enter: its default)
     if mh.focused:
       ui.takesEnter = true
       if keyHit(KeyEnter): mh.clicked = true
-  let dh = interact(idOf(key & ":drop"), drop, focusable = false, enabled = enabled)
+  let dh = interact(dropId, drop, focusable = false, enabled = enabled)
   let open = popupMenuOpen(key)
   buttonFace(main, mh.down, 1, hot = enabled and hovered(main))
   buttonFace(drop, dh.down or open, 1, hot = enabled and hovered(drop))
@@ -168,8 +181,8 @@ proc splitButton*(label: string; items: openArray[string]; w = 0; enabled = true
   arrow(drop.x + drop.w div 2 + o2, drop.y + drop.h div 2 + o2, dDown, if enabled: th.text else: th.gray)
   if mh.focused: focusDots(inset(main, 3))
   if accessOn:
-    accessNode(arButton, label, id = idOf(key & ":main"), r = main, states = accessOff(enabled))
-    accessNode(arButton, plainName(label) & ": more", id = idOf(key & ":drop"), r = drop,
+    accessNode(arButton, label, id = mainId, r = main, states = accessOff(enabled))
+    accessNode(arButton, plainName(label) & ": more", id = dropId, r = drop,
                states = accessOff(enabled) + {asExpandable} + (if open: {asExpanded} else: {}))
   result.clicked = mh.clicked or (enabled and mnemonicHit(label))
   if dh.clicked or (mh.focused and dropKey()):
@@ -217,9 +230,10 @@ proc tagInput*(tags: var seq[string]; text: var string; w = 0; enabled = true;
     raised(cr, 1)
     text(cr.x + dp(6), cr.y + (cr.h - lineHeight(st)) div 2, tags[i], th.text, st)
     let xr = rect(cr.x + cr.w - dp(14), cr.y + (cr.h - dp(10)) div 2, dp(10), dp(10))
-    let xh = interact(idOf("tagx:" & tags[i] & $i), xr, focusable = false, enabled = enabled)
+    let xid = idOf("tagx:" & tags[i] & $i)     # (one id: a second `idOf` is another)
+    let xh = interact(xid, xr, focusable = false, enabled = enabled)
     if accessOn:
-      accessNode(arButton, tags[i], id = idOf("tagx:" & tags[i] & $i), r = cr,
+      accessNode(arButton, tags[i], id = xid, r = cr,
                  states = accessOff(enabled), help = "Remove")
     let c = if xh.hover: th.select else: th.gray
     line(xr.x + 1, xr.y + 1, xr.x + xr.w - 2, xr.y + xr.h - 2, c)
@@ -412,7 +426,8 @@ proc accordionHeader*(title: string; index: int; open: var int): bool =
   ##   for i, t in ["General", "Advanced"]:
   ##     if accordionHeader(t, i, openSection): label "..."
   let r = place(0, CtrlH, fill = true)
-  let hit = interact(idOf("accordion:" & title & $index), r)
+  let hid = idOf("accordion:" & title & $index)  # (one id: a second `idOf` is another)
+  let hit = interact(hid, r)
   if hit.focused: ui.takesEnter = true
   if hit.clicked or (hit.focused and (keyHit(KeyEnter) or keyHit(KeySpace))):
     open = if open == index: -1 else: index
@@ -423,7 +438,7 @@ proc accordionHeader*(title: string; index: int; open: var int): bool =
   drawLabel(r.x + dp(20), r.y + (r.h - FontH) div 2, title, th.text, bold = isOpen)
   if hit.focused: focusDots(inset(r, 3))
   if accessOn:
-    accessNode(arButton, title, id = idOf("accordion:" & title & $index), r = r,
+    accessNode(arButton, title, id = hid, r = r,
                states = {asExpandable} + (if isOpen: {asExpanded} else: {}))
   isOpen
 
@@ -512,10 +527,11 @@ proc snackbar*(): bool =
     if accessOn: accessEnd()
   if snack.action.len > 0:
     let ar = rect(r.x + r.w - aw, r.y, aw, r.h)
-    let hit = interact(idOf("snackbar" & $snack.id), ar, focusable = false)
+    let aid = idOf("snackbar" & $snack.id)     # (one id: a second `idOf` is another)
+    let hit = interact(aid, ar, focusable = false)
     if hit.hover: fill(inset(ar, 2), color(80, 80, 80))
     text(ar.x + pad, r.y + pad, snack.action, color(120, 190, 255), true)
-    if accessOn: accessNode(arButton, snack.action, id = idOf("snackbar" & $snack.id), r = ar)
+    if accessOn: accessNode(arButton, snack.action, id = aid, r = ar)
     let key = canInput() and not ui.keyUsed and ui.key == KeyZ and CtrlPressed in ui.mods
     if hit.clicked or key:
       if key: ui.keyUsed = true

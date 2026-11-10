@@ -24,7 +24,8 @@
 ##   discard grid(cols, rows, sel, height = 8)
 ## ```
 
-import std/[strutils, unicode, os, algorithm, math, times, hashes]
+import std/[strutils, os, algorithm, math, times, hashes]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 import core, widgets, pixelicons
 import uirelays/services
@@ -357,6 +358,13 @@ proc datePicker*(d: var Date; w = 0; enabled = true): bool {.discardable.} =
   for k in 0 .. 2: fill(g.x + 2 + k * 2, g.y + 5, 1, 1, c)
   ui.lastId = editId
   ui.lastRect = r
+  if accessOn:
+    # (its box says it has a calendar, and whether it is open)
+    for k in countdown(accessTree.high, max(0, accessTree.len - 64)):
+      if accessTree[k].id == uint32(editId):
+        accessTree[k].states.incl asExpandable
+        if ui.popup == popId: accessTree[k].states.incl asExpanded
+        break
   if ui.popup == popId:
     let (cw, chh, _, _) = calendarSize()
     var pr = rect(r.x, r.y + r.h - 1, cw, chh)
@@ -381,6 +389,7 @@ proc datePicker*(d: var Date; w = 0; enabled = true): bool {.discardable.} =
       state(editId) = es
     if canInput() and keyHit(KeyEsc):
       ui.popup = 0
+      ui.focus = editId                      # (back in the box, as F4 leaves it)
     popLayer()
 
 # ---- grid ---------------------------------------------------------------------
@@ -1690,16 +1699,17 @@ proc iconView*(count: int; label: proc (i: int): string;
                tapActivates = false; checkboxes = false;
                enabled = true; picSize = 0; detail: proc (i: int): string = nil;
                dragItems = false; dropOk: proc (i: int): bool = nil;
-               oneLine = false): GridEvent {.discardable.} =
+               oneLine = false; columnWise = false): GridEvent {.discardable.} =
   ## Items as large pictures with their names under them, in rows (the
   ## "Large icons" view of a file manager); with `detail` as tiles: the
   ## picture at the left, the name and a line or two of `detail(i)` beside
   ## it. `picture(i, r)` draws item `i` into `r` (an icon, a thumbnail with
   ## `drawBitmap`). With `oneLine`, small tiles of one line each: the
-  ## picture and the name beside it ("Small icons"). Selection, keys,
-  ## touch, selection rectangles (drag on
-  ## the empty part), `dragItems` and `dropOk` work as in the multi-select
-  ## `grid`; arrows move in two dimensions.
+  ## picture and the name beside it ("Small icons"); `columnWise` too, the
+  ## items down columns that go on to the right, scrolled sideways
+  ## (Explorer's "List"). Selection, keys, touch, selection rectangles (drag
+  ## on the empty part), `dragItems` and `dropOk` work as in the
+  ## multi-select `grid`; arrows move in two dimensions.
   result.sortColumn = -1
   result.row = -1
   result.hot = -1
@@ -1717,17 +1727,26 @@ proc iconView*(count: int; label: proc (i: int): string;
   var st = state(id)
   var ex = state(id + 23)
   let area0 = inset(r, 1)
-  let perRow0 = max(1, area0.w div tw)
+  # (`cw`: the items down columns, scrolled sideways -- `top` is then how
+  # far it is scrolled to the right, `perRow` how many a column holds)
+  let cw = columnWise and oneLine
+  let perRow0 = if cw: max(1, area0.h div th2) else: max(1, area0.w div tw)
   let lines = (count + perRow0 - 1) div perRow0
-  let bar = lines * th2 > area0.h
-  let area = if bar: rect(area0.x, area0.y, area0.w - SbW + 1, area0.h) else: area0
-  let perRow = max(1, area.w div tw)
+  let bar = if cw: lines * tw > area0.w else: lines * th2 > area0.h
+  let area = if not bar: area0
+             elif cw: rect(area0.x, area0.y, area0.w, area0.h - SbW + 1)
+             else: rect(area0.x, area0.y, area0.w - SbW + 1, area0.h)
+  let perRow = if cw: max(1, area.h div th2) else: max(1, area.w div tw)
   let rowsN = (count + perRow - 1) div perRow
-  let maxTop = max(0, rowsN * th2 - area.h)
+  let maxTop = if cw: max(0, rowsN * tw - area.w) else: max(0, rowsN * th2 - area.h)
   var top = clamp(st.scrollY, 0, maxTop)      # (pixels)
   if bar:
-    scrollBarFor(id + 9, id, rect(r.x + r.w - SbW, r.y, SbW, r.h), true,
-                 top, maxTop, max(1, area.h - th2), max(1, th2 div 2), enabled)
+    if cw:
+      scrollBarFor(id + 9, id, rect(r.x, r.y + r.h - SbW, r.w, SbW), false,
+                   top, maxTop, max(1, area.w - tw), max(1, tw div 4), enabled)
+    else:
+      scrollBarFor(id + 9, id, rect(r.x + r.w - SbW, r.y, SbW, r.h), true,
+                   top, maxTop, max(1, area.h - th2), max(1, th2 div 2), enabled)
   let hit = interact(id, area, enabled = enabled)
   var nsel = sel
   var follow = ex.anchor != sel + 1          # moved by the app: show it
@@ -1735,11 +1754,18 @@ proc iconView*(count: int; label: proc (i: int): string;
   let shift = ShiftPressed in ui.mods
   let ctrl = CtrlPressed in ui.mods     # (a Mac's Cmd: its driver reports it as Ctrl)
   let gap = if tiles: 0 else: (area.w - perRow * tw) div max(1, perRow)
-  let tww = if tiles: area.w div perRow else: tw
+  let tww = if cw: tw elif tiles: area.w div perRow else: tw
   proc tileRect(i: int): Rect =
-    rect(area.x + (i mod perRow) * (tww + gap) + gap div 2,
-         area.y + (i div perRow) * th2 - top, tww, th2)
+    if cw: rect(area.x + (i div perRow) * tww - top, area.y + (i mod perRow) * th2, tww, th2)
+    else: rect(area.x + (i mod perRow) * (tww + gap) + gap div 2,
+               area.y + (i div perRow) * th2 - top, tww, th2)
   proc indexAt(px, py: int): int =
+    if cw:
+      let c = (px - area.x + top) div max(1, tww)
+      let rr = (py - area.y) div th2
+      let i = c * perRow + rr
+      return (if px >= area.x and rr >= 0 and rr < perRow and i >= 0 and i < count and
+                 tileRect(i).contains(point(px, py)): i else: -1)
     let c = (px - area.x) div max(1, tww + gap)
     let rr = (py - area.y + top) div th2
     let i = rr * perRow + c
@@ -1747,8 +1773,8 @@ proc iconView*(count: int; label: proc (i: int): string;
        tileRect(i).contains(point(px, py)): i else: -1
   if enabled and canInput():
     if CtrlPressed notin ui.mods:
-      scrollWheel(id, top, maxTop, r, max(ItemH, th2 * 2 div 3))
-    scrollPan(id, top, maxTop, r)
+      scrollWheel(id, top, maxTop, r, if cw: max(ItemH, tw div 3) else: max(ItemH, th2 * 2 div 3))
+    scrollPan(id, top, maxTop, r, sideways = cw)
     if tapped(id, hit):
       let i = indexAt(ui.mx, ui.my)
       if not finger(): press = (id, i, ui.mx, ui.my, top, false)
@@ -1793,13 +1819,16 @@ proc iconView*(count: int; label: proc (i: int): string;
         else:
           if not press.band: bandBase = marked
           press.band = true
-          let by = press.y + (press.top - top)
-          let band = rect(min(press.x, ui.mx), min(by, ui.my), abs(ui.mx - press.x) + 1,
+          let bx = if cw: press.x + (press.top - top) else: press.x
+          let by = if cw: press.y else: press.y + (press.top - top)
+          let band = rect(min(bx, ui.mx), min(by, ui.my), abs(ui.mx - bx) + 1,
                           abs(ui.my - by) + 1)
           if ctrl and bandBase.len == marked.len: marked = bandBase
           else: clearMarks(marked)
-          let r0 = max(0, (band.y - area.y + top) div th2)
-          let r1 = min(rowsN - 1, (band.y + band.h - area.y + top) div th2)
+          let r0 = if cw: max(0, (band.x - area.x + top) div tww)
+                   else: max(0, (band.y - area.y + top) div th2)
+          let r1 = if cw: min(rowsN - 1, (band.x + band.w - area.x + top) div tww)
+                   else: min(rowsN - 1, (band.y + band.h - area.y + top) div th2)
           for rr in r0 .. r1:
             for c in 0 ..< perRow:
               let i = rr * perRow + c
@@ -1808,23 +1837,27 @@ proc iconView*(count: int; label: proc (i: int): string;
                 marked[i] = true
           result.selChanged = true
           # near an edge: it scrolls on, a little each frame
-          if ui.my < area.y + th2 div 4 and top > 0:
+          let (at, lo, hi, unit) = if cw: (ui.mx, area.x, area.x + area.w, tww)
+                                   else: (ui.my, area.y, area.y + area.h, th2)
+          if at < lo + unit div 4 and top > 0:
             scrollStop(id)
-            top = max(0, top - max(2, th2 div 12))
+            top = max(0, top - max(2, unit div 12))
             wakeIn(16)
-          elif ui.my > area.y + area.h - th2 div 4 and top < maxTop:
+          elif at > hi - unit div 4 and top < maxTop:
             scrollStop(id)
-            top = min(maxTop, top + max(2, th2 div 12))
+            top = min(maxTop, top + max(2, unit div 12))
             wakeIn(16)
     if press.id == id and not ui.mouseDown: press.id = 0
     if dragging() and mouseIn(area):
-      if ui.my < area.y + th2 div 4 and top > 0:
+      let (at, lo, hi, unit) = if cw: (ui.mx, area.x, area.x + area.w, tww)
+                               else: (ui.my, area.y, area.y + area.h, th2)
+      if at < lo + unit div 4 and top > 0:
         scrollStop(id)
-        top = max(0, top - max(2, th2 div 16))
+        top = max(0, top - max(2, unit div 16))
         wakeIn(16)
-      elif ui.my > area.y + area.h - th2 div 4 and top < maxTop:
+      elif at > hi - unit div 4 and top < maxTop:
         scrollStop(id)
-        top = min(maxTop, top + max(2, th2 div 16))
+        top = min(maxTop, top + max(2, unit div 16))
         wakeIn(16)
       let i = indexAt(ui.mx, ui.my)
       if dropOk != nil:
@@ -1866,12 +1899,20 @@ proc iconView*(count: int; label: proc (i: int): string;
   if hit.focused and canInput() and count > 0:
     var moved = -1
     let cur = clamp(sel, 0, count - 1)
-    let page = max(1, area.h div th2) * perRow
-    case ui.key
-    of KeyLeft: moved = max(0, cur - 1)
-    of KeyRight: moved = min(count - 1, cur + 1)
-    of KeyUp: moved = if cur >= perRow: cur - perRow else: cur
-    of KeyDown: moved = if cur + perRow < count: cur + perRow else: cur
+    let page = if cw: max(1, area.w div tww) * perRow else: max(1, area.h div th2) * perRow
+    # (down columns: Up and Down the next one, Left and Right the next column)
+    let (back, fwd, prevLine, nextLine) =
+      if cw: (KeyUp, KeyDown, KeyLeft, KeyRight) else: (KeyLeft, KeyRight, KeyUp, KeyDown)
+    let k = ui.key
+    if k == back: moved = max(0, cur - 1)
+    elif k == fwd: moved = min(count - 1, cur + 1)
+    elif k == prevLine: moved = if cur >= perRow: cur - perRow else: cur
+    elif k == nextLine:
+      moved = if cur + perRow < count: cur + perRow
+              elif cw and cur div perRow < (count - 1) div perRow: count - 1
+              else: cur
+    case k
+    of KeyLeft, KeyRight, KeyUp, KeyDown: discard
     of KeyPageUp: moved = max(0, cur - page)
     of KeyPageDown: moved = min(count - 1, cur + page)
     of KeyHome: moved = 0
@@ -1929,11 +1970,13 @@ proc iconView*(count: int; label: proc (i: int): string;
     result.selChanged = true
     follow = true
   if follow and sel in 0 ..< count:
-    let y = (sel div perRow) * th2
+    let unit = if cw: tww else: th2
+    let view = if cw: area.w else: area.h
+    let y = (sel div perRow) * unit
     if appMoved and not scrolling(id):
-      top = clamp(clamp(top, y + th2 - area.h, y), 0, maxTop)
+      top = clamp(clamp(top, y + unit - view, y), 0, maxTop)
     else:
-      scrollShow(id, top, y, y + th2, area.h, maxTop)
+      scrollShow(id, top, y, y + unit, view, maxTop)
   scrollTick(id, top, maxTop)
   ex.anchor = sel + 1
   st.scrollY = top
@@ -1943,8 +1986,9 @@ proc iconView*(count: int; label: proc (i: int): string;
   fill(rect(r.x, r.y, area.w + 2, r.h), th.field)
   box(rect(r.x, r.y, area.w + 2, r.h), if enabled: th.edge else: th.gray)
   pushClip(area)
-  let first = max(0, (top div th2) * perRow)
-  let last = min(count, ((top + area.h) div th2 + 1) * perRow)
+  let first = if cw: max(0, (top div tww) * perRow) else: max(0, (top div th2) * perRow)
+  let last = if cw: min(count, ((top + area.w) div tww + 1) * perRow)
+             else: min(count, ((top + area.h) div th2 + 1) * perRow)
   let small = style(size = 0.85)
   for i in first ..< last:
     let tr = tileRect(i)
@@ -2003,8 +2047,9 @@ proc iconView*(count: int; label: proc (i: int): string;
       checkBox(rect(tr.x + 3, tr.y + 3, bs, bs), marked[i], false, true)
     if result.dropOver == i: dropHighlight(inset(tr, 1))
   if press.id == id and press.band:
-    let by = press.y + (press.top - top)
-    box(rect(min(press.x, ui.mx), min(by, ui.my), abs(ui.mx - press.x) + 1,
+    let bx = if cw: press.x + (press.top - top) else: press.x
+    let by = if cw: press.y else: press.y + (press.top - top)
+    box(rect(min(bx, ui.mx), min(by, ui.my), abs(ui.mx - bx) + 1,
              abs(ui.my - by) + 1), th.select)
   if result.dropOver == -2: dropHighlight(area)
   popClip()
@@ -2234,8 +2279,8 @@ proc endPane(id: Id; a: Rect) =
     scrollWheel(id, y, maxY, a, 3 * ItemH)
     scrollPan(id, y, maxY, a)
     scrollTick(id, y, maxY)
-    let f = ui.focusRect               # Tab to a widget out of view
-    if f.w > 0 and ui.frameNo - ui.focusMoved == 1:
+    let f = wantSeen()                 # Tab to a widget out of view
+    if f.w > 0:
       if f.y < a.y: y = clamp(y - (a.y + Pad - f.y), 0, maxY)
       elif f.y + f.h > a.y + a.h: y = clamp(y + (f.y + f.h + Pad - (a.y + a.h)), 0, maxY)
     scrollBarFor(id + 9, id, rect(a.x + a.w - SbW, a.y, SbW, a.h), true, y, maxY,
@@ -2640,6 +2685,20 @@ proc comboEdit*(text: var string; items: openArray[string]; w = 0;
         text(ir.x + 2, itemTextY(ir.y), items[list[k]],
              if k == hi: th.selectText else: th.fieldText)
       popClip()
+      if accessOn:
+        # (the open list and the items it shows; a screen reader's press
+        # on one picks it)
+        accessBegin(arList, id = id, r = pr)
+        for k in top ..< min(list.len, top + vis + 1):
+          let iid = accessSubId(id, k)
+          if accessPress != 0 and accessPress == iid:
+            accessPress = 0
+            pick = list[k]
+          let n = accessNode(arListItem, items[list[k]], id = iid,
+                             r = rect(pr.x + 1, pr.y + 1 + k * ItemH - off, pr.w - 2, ItemH),
+                             states = (if k == hi: {asSelected} else: {}))
+          accessItem(n, k + 1, list.len)
+        accessEnd()
     ui.overlayOwner = false
     popLayer()
     st.caret = hi
@@ -2652,6 +2711,13 @@ proc comboEdit*(text: var string; items: openArray[string]; w = 0;
       es.caret = text.len
       es.anchor = text.len
       state(editId) = es
+  if accessOn:
+    # (its box says it has a list, and whether it is open)
+    for k in countdown(accessTree.high, max(0, accessTree.len - 64)):
+      if accessTree[k].id == uint32(editId):
+        accessTree[k].states.incl asExpandable
+        if st.aux == 1: accessTree[k].states.incl asExpanded
+        break
   state(id) = st
   ui.lastId = editId
   ui.lastRect = r

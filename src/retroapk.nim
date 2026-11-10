@@ -22,7 +22,8 @@
 ##
 ## Run `retroapk --help` for every option.
 
-import std/[os, osproc, strutils, parseopt, algorithm, unicode, sequtils, tables]
+import std/[os, osproc, strutils, parseopt, algorithm, sequtils, tables]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import retroui/[appicon, androiddex, rsa, zip, codec, buildjobs]
 from retroui/sign import jarSign, SignError
 

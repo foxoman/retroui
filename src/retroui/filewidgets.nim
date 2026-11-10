@@ -880,6 +880,8 @@ type
     fvSmallIcons   ## small icons with the name beside them, in rows (Explorer's "Small icons")
     fvColumns      ## columns: each folder of the way here a column, the picked file's preview at
                    ## the right (`fileColumns`; macOS Finder's and DeskFiles' view)
+    fvList         ## small icons with the name beside them, down columns that go on to the
+                   ## right, scrolled sideways (Explorer's "List")
 
   FileDrop* = object
     ## Files let go over a folder: move them there (copy if `copy`).
@@ -1127,10 +1129,11 @@ proc fileColumns*(m: FolderModel; root = ""; height = -1; key = ""; preview = tr
              ellipsize(nm, hr.w - cw - sortW - dp(18)), if ci == curCol: th.select else: th.text, true)
         text(hr.x + hr.w - sortW - cw - dp(6), hr.y + (hr.h - FontH) div 2, cnt, th.gray)
         let sr = rect(hr.x + hr.w - sortW - dp(2), hr.y + dp(2), sortW, hr.h - dp(4))
-        let sh = interact(idOf(k & ":sort:" & dir), sr, focusable = false)
+        let sid = idOf(k & ":sort:" & dir)
+        let sh = interact(sid, sr, focusable = false)
         if accessOn:
           accessBegin(arList, nm, rect(hr.x, hr.y, hr.w, h), idOf(k & ":col:" & dir))
-          accessNode(arButton, "Sort", id = idOf(k & ":sort:" & dir), r = sr,
+          accessNode(arButton, "Sort", id = sid, r = sr,
                      help = ["name", "size", "type", "date"][(ord(mm.sortBy) + 1) mod 4])
         if sh.hover: fill(sr, hoverColor())
         text(sr.x + (sr.w - textWidth("↕")) div 2, sr.y + (sr.h - FontH) div 2, "↕", th.text)
@@ -1323,7 +1326,8 @@ proc fileList*(m: FolderModel; view = fvDetails; thumbnails = true; bigIcons = t
     # (while it reads its folder, or shows it empty, the list is still a
     # stop of Tab and keeps the focus: the keys go on in it once it is
     # filled, not to the tree beside it)
-    discard interact(idOf(m.sel, if view in {fvIcons, fvTiles, fvSmallIcons} and not m.searching: "iconview"
+    discard interact(idOf(m.sel, if view in {fvIcons, fvTiles, fvSmallIcons, fvList} and
+                                    not m.searching: "iconview"
                                else: "grid"),
                      ui.lastRect, focusable = true)
   if m.needsAccess:
@@ -1359,8 +1363,8 @@ proc fileList*(m: FolderModel; view = fvDetails; thumbnails = true; bigIcons = t
      mouseIn(rect(0, 0, ui.w, ui.h)):
     result.zoom = (if ui.wheel > 0: 1 else: -1)
     ui.wheelUsed = true
-  if view in {fvIcons, fvTiles, fvSmallIcons} and not m.searching:
-    let pic = if view == fvSmallIcons: (if fingers(): 24 else: 16)
+  if view in {fvIcons, fvTiles, fvSmallIcons, fvList} and not m.searching:
+    let pic = if view in {fvSmallIcons, fvList}: (if fingers(): 24 else: 16)
               elif iconSize > 0: iconSize
               elif view == fvTiles: 48
               elif bigIcons: 72 else: 48
@@ -1373,8 +1377,9 @@ proc fileList*(m: FolderModel; view = fvDetails; thumbnails = true; bigIcons = t
         image(r.x, r.y, fileIcon(f[], min(r.w, r.h))),
       m.sel, m.marked, height = -1, tapActivates = tapActivates,
       checkboxes = checkboxes,
-      tile = (if view == fvSmallIcons: 180 elif view == fvTiles: max(220, pic * 4) else: max(76, pic + 40)),
-      picSize = pic, oneLine = view == fvSmallIcons,
+      tile = (if view in {fvSmallIcons, fvList}: 180 elif view == fvTiles: max(220, pic * 4)
+              else: max(76, pic + 40)),
+      picSize = pic, oneLine = view in {fvSmallIcons, fvList}, columnWise = view == fvList,
       detail = (if view == fvTiles:
                   proc (i: int): string =
                     let f = addr m.items[i]

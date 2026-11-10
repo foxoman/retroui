@@ -240,6 +240,38 @@ block refusesWhatDoesNotRead:
   change(t & "\n  label (\n")
   expect(src.text == t and status.startsWith("Not done"), "a change that would not read is refused")
 
+# ---- names and the keyboard -----------------------------------------------------------------------
+
+block namesAndTabOrder:
+  # what screen readers and drivers know of the page: its stops of Tab,
+  # the control they cannot name, and Name It writing its name
+  writeFile(tmp / "names.nim", "import retroui\n\nvar who = \"\"\nvar code = \"\"\n\n" &
+            "app \"Names\", 300, 200:\n  label \"Name:\"\n  edit who\n  edit code\n" &
+            "  if button(\"OK\"): discard\n")
+  openFile(tmp / "names.nim")
+  accessKeep = true
+  namesOn = true
+  drawing = proc () = surface()
+  run(3)
+  expect(pageStops.len == 3, "three stops of Tab: " & $pageStops.len)
+  expect(unnamedCount() == 1, "one control without a name: " & $unnamedCount())
+  let named = findItem("edit")
+  expect(named != nil and nodeOf(named) >= 0 and readAs(pageNodes[nodeOf(named)]) == "textField \"Name:\"",
+         "read as its label names it")
+  var second: Item
+  for it in page().root.walk:
+    if it.kind == ikControl and it.name == "edit" and it != named: second = it
+  expect(second != nil and nodeOf(second) >= 0 and pageNodes[nodeOf(second)].name.len == 0,
+         "the second box has no name")
+  expect(suggestedName(second) == "Code", "a name from its variable: " & suggestedName(second))
+  nameIt(second, "Code")
+  expect("  accessName \"Code\"\n  edit code" in src.text, "named before it:\n" & src.text)
+  run(3)
+  expect(unnamedCount() == 0, "named now")
+  drawing = nil
+  namesOn = false
+  accessKeep = false
+
 # ---- the lock -------------------------------------------------------------------------------------
 
 block lockHandoff:

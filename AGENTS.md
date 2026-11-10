@@ -200,6 +200,20 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   string `result` set before a `raise` is never freed; Nim's base64
   `decode` raising on a wrong letter leaks, so the kit uses
   `codec.unbase64`.
+- **Nim's `unicode.strip`** cuts the last letter of a line ending in a
+  letter whose last byte is 0x85 or 0xA0 (Thai ภ, †, a Chinese character in
+  32: `docs/nim-bugs.md`), and it is the `strip` a module that imports
+  `std/unicode` whole calls. A module that strips imports `std/unicode
+  except strip` (strutils' `strip` then); `tests/test_hardening.nim`
+  (`noRuneStrip`) keeps it so.
+- **A control's ids:** a widget calls `idOf` once and uses that id for
+  `interact`, its keys and its reader's node (a second `idOf` of the same
+  label is another id: the node would not be the widget's --
+  `oneIdPerWidget`). A widget with more than one stop of Tab (a range's
+  two ends) registers each (`interact` with an empty rectangle, or
+  `tabStop`). Reader nodes take the focus when Tab stops at them: the kit
+  marks them at the frame's end from the stops; a control acting on Enter
+  sets `ui.takesEnter` (`enterIsClaimed`).
 
 - **Voice:** comments, docs and messages in the repository speak as the
   developer, Sultan Al Isaiee, to his users and developers: plain, short
@@ -222,6 +236,10 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   new or changed control: `python3 tools/gendesigner.py`
   too, and `tests/test_designer.nim` must still pass (every control of the
   Widget Box dropped into one app has to compile).
+- **The built-in fonts** are GNU FreeFont 0412 cut by
+  `tools/genfreefont.py`; letters added since (Vietnamese, Thai) come with
+  `--add` from any FreeFont release, the rest of each face kept as it is:
+  a newer release cut whole is bigger for the same letters.
 - **Looks:** the Windows 3.1 look and FreeSans drawn in gray (its heights
   on whole pixels, its strokes as the font has them; "Sharp" text is an
   option). Check a change by looking at a screenshot.

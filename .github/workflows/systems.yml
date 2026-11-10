@@ -313,8 +313,10 @@ jobs:
           nim c -d:release --hints:off -o:build/retroapk src/retroapk.nim
           build/retroapk tests/live/livecheck.nim --abi:x86_64 --debuggable \
             --id:org.retro.livecheck --name:Livecheck --nim:--path:src -o:build/livecheck.apk
-      - name: The apps' APKs (x86_64, for the emulator)
-        run: nimble emuapks -y
+      - name: The apps' APKs (x86_64, for the emulator), and the tour that drives them
+        run: |
+          nimble emuapks -y
+          nim c -d:release --hints:off --path:src -o:build/tour tests/drive/tour.nim
       - name: KVM for the emulator
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

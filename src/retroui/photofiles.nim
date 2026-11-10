@@ -19,7 +19,8 @@
 ##   let d = openPicture("poster.psd")
 ##   d.exportPicture("poster.jpg", ExportOptions(format: efJpeg, quality: 90, scale: 0.5))
 
-import std/[os, strutils, math, tables, algorithm, unicode, json]
+import std/[os, strutils, math, tables, algorithm, json]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import gfx, imaging, jpeg, imageformats, psd, photo, parallel, photoshapes, mediagif, iccprofile, rawphoto,
        photoimport, pdfview, photohdr, textengine, ttf, exr, gifanim, photoanim, webp, rawformats, systemimage, jxl, svgimport,
        bigpicture
@@ -726,12 +727,57 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
   of pmGray, pmDuotone, pmBitmap: d.mode = cmGray
   of pmCMYK: d.mode = cmCMYK
   of pmLab: d.mode = cmLab
+  of pmMultichannel:
+    # (its first four inks, each the channel its name says -- cyan,
+    # magenta, yellow of RGB; with black, of CMYK; one alone, a gray --
+    # else in their order; the picture made again from their plates)
+    let k = min(p.spots.len, 4)
+    if k >= 1:
+      var names: seq[string]
+      for i in 0 ..< k:
+        names.add(if i < p.spotNames.len and p.spotNames[i].len > 0: p.spotNames[i] else: "Spot Color " & $(i + 1))
+      let printed = ["Cyan", "Magenta", "Yellow", "Black"]
+      d.spotBase = if "Black" in names and k > 1: cmCMYK
+                   elif k == 1 and names[0] notin printed[0 .. 2]: cmGray
+                   elif k == 4: cmCMYK
+                   else: cmRGB
+      var used: set[0 .. 3]
+      for i in 0 ..< k:
+        var c = printed.find(names[i])
+        if d.spotBase == cmRGB and c == 3: c = -1
+        if d.spotBase == cmGray: c = 0
+        if c < 0 or c in used:
+          c = -1
+          for j in 0 .. (if d.spotBase == cmRGB: 2 elif d.spotBase == cmGray: 0 else: 3):
+            if j notin used:
+              c = j
+              break
+        if c < 0: break
+        used.incl c
+        d.spots.add SpotChannel(name: names[i], ch: c)
+      d.mode = cmMultichannel
   else: discard
   if p.depth == 16 and p.mode in {pmRGB, pmGray}: d.depth = 16
   let n = p.w * p.h
   d.layers.setLen(0)
   if p.layers.len == 0:
     var px = p.composite
+    if d.mode == cmMultichannel and p.spots.len >= d.spots.len:
+      # (the picture as its inks print: from their plates, 255 no ink)
+      px = newSeq[uint32](n)
+      for i in 0 ..< n:
+        case d.spotBase
+        of cmCMYK:
+          var ink: Ink
+          for s, sp in d.spots:
+            if i < p.spots[s].len: ink[sp.ch] = 255'u8 - p.spots[s][i]
+          px[i] = fromInk(ink)
+        of cmGray: px[i] = grayPx(if i < p.spots[0].len: int(p.spots[0][i]) else: 255)
+        else:
+          var rgb = [255, 255, 255]
+          for s, sp in d.spots:
+            if i < p.spots[s].len: rgb[clamp(sp.ch, 0, 2)] = int(p.spots[s][i])
+          px[i] = argb(255, rgb[0], rgb[1], rgb[2])
     if px.len != n: px = newSeq[uint32](n)
     if d.depth == 16 and p.composite16.len == n * 4:
       let L = d.newLayer("Background")
@@ -1109,8 +1155,18 @@ proc psdOf*(d: Doc; composite = true): PsdDoc =
                   mode: (case d.mode
                          of cmGray, cmBitmap: pmGray
                          of cmCMYK: pmCMYK
+                         of cmMultichannel: pmMultichannel
                          else: pmRGB))
   let n = d.w * d.h
+  if d.mode == cmMultichannel:
+    # (its inks, each a plate: what Photoshop keeps, no layers)
+    let flat = d.flattened(0xFFFFFFFF'u32)
+    for i, s in d.spots:
+      var plate = newSeq[uint8](n)
+      for k in 0 ..< min(n, flat.len): plate[k] = uint8(d.channelGrayOf(flat[k], i))
+      result.spots.add plate
+      result.spotNames.add s.name
+    return
   for i, L in d.layers:
     # a group's end (before its layers)
     for g in i .. d.layers.high:

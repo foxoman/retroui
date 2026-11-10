@@ -21,7 +21,8 @@
 ##             window's logical pixels) and `parent`
 ## find        a control: `name` (any case; failing that, a part of it; ""
 ##             any), `role` ("button", "textField", "menuItem"...; several
-##             as "button|link"), `nth` (the n-th, from 0) -- or `index`.
+##             as "button|link"), `nth` (the n-th, from 0) -- or `index`, or
+##             `node`: a node's `id` (the same while it is shown).
 ##             With no role, a control that is not a label comes first (the
 ##             label "Name:" names the box after it: the box is meant)
 ## click       the middle of a control (as `find`), or `x`, `y`; `button`
@@ -59,7 +60,8 @@
 import std/strutils
 import uirelays/[input, access]
 when not defined(wasm):
-  import std/[os, unicode, nativesockets]
+  import std/[os, nativesockets]
+  import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
   import core, gfx, inspect
 
 var drivePortNow = 0
@@ -272,7 +274,8 @@ when not defined(wasm):
       # (a client gone is no SIGPIPE: MSG_NOSIGNAL, or on Apple's systems the
       # socket's SO_NOSIGPIPE, set when it was taken)
       let n =
-        when defined(windows) or defined(macosx) or defined(ios):
+        when defined(nimdoc): line.len - sent    # (the docs' build: no sockets)
+        elif defined(windows) or defined(macosx) or defined(ios):
           send(clientFd, addr line[sent], cint(line.len - sent), 0'i32)
         else: send(clientFd, addr line[sent], line.len - sent, MSG_NOSIGNAL)
       if n <= 0:
@@ -285,7 +288,7 @@ when not defined(wasm):
 
   proc nodeJson(i: int; n: AccessNode): string =
     let r = nodeRect(n)
-    result = "{\"index\":" & $i & ",\"role\":" & jstr(roleWord(n.role)) & ",\"name\":" &
+    result = "{\"index\":" & $i & ",\"id\":" & $n.id & ",\"role\":" & jstr(roleWord(n.role)) & ",\"name\":" &
              jstr(n.name) & ",\"x\":" & $r.x & ",\"y\":" & $r.y & ",\"w\":" & $r.w &
              ",\"h\":" & $r.h & ",\"parent\":" & $n.parent
     if n.value.len > 0: result.add ",\"value\":" & jstr(n.value)
@@ -303,6 +306,11 @@ when not defined(wasm):
       result.add ']'
     result.add '}'
 
+  proc byId(id: uint32): int =
+    for i, n in accessLast:
+      if n.id == id: return i
+    -1
+
   proc findCtl(name: string; roles: set[AccessRole]; nth: int): int =
     ## (a control by its name: with no role asked, one that is not a label
     ## first -- a label names the box after it, and the box is meant)
@@ -318,12 +326,11 @@ when not defined(wasm):
     if req.has("index"):
       let i = req.num("index", -1)
       return if i in 0 ..< accessLast.len: i else: -1
+    if req.has("node"):
+      var id = 0'u32
+      try: id = uint32(parseBiggestUInt(req.str("node"))) except ValueError: return -1
+      return byId(id)
     findCtl(req.str("name"), parseRoles(req.str("role")), req.num("nth"))
-
-  proc byId(id: uint32): int =
-    for i, n in accessLast:
-      if n.id == id: return i
-    -1
 
   proc noControl(req: Req): string =
     "no control called \"" & req.str("name") & "\"" &
@@ -383,7 +390,21 @@ when not defined(wasm):
                 ",\"w\":" & $ui.w & ",\"h\":" & $ui.h & ",\"zoom\":" & $max(1, zoom) &
                 ",\"rtl\":" & $ui.rtl & ",\"frames\":" & $framesRun
       for i, n in accessLast:
-        if asFocused in n.states: res.add ",\"focused\":" & nodeJson(i, n)
+        if asFocused in n.states:
+          res.add ",\"focused\":" & nodeJson(i, n)
+          # (what it is in: a list's item reaches the list, scrolled or not)
+          res.add ",\"within\":["
+          var p = int(n.parent)
+          var first = true
+          var guard = 0
+          while p > 0 and p < accessLast.len and guard < 64:
+            if not first: res.add ','
+            res.add $accessLast[p].id
+            first = false
+            p = int(accessLast[p].parent)
+            inc guard
+          res.add ']'
+          break
       answer(req, res)
     of "click", "move", "scroll":
       var ex, ey, at: int

@@ -621,6 +621,7 @@ block:
   model3d.addAxes(1.5)
 var model3dCam = camera3()
 fitView(model3d, model3dCam)
+addShadow(model3d)
 var model3dPick = "nothing yet"
 var show3d = 0
 
@@ -671,6 +672,7 @@ proc carModel(): Scene3 =
 var car3d = carModel()
 var car3dCam = camera3(yaw = 35, pitch = 18)
 fitView(car3d, car3dCam)
+addShadow(car3d)              # (a soft shadow on the ground under it)
 var doorOpen = false
 var carPick = "Click a part"
 
@@ -1374,6 +1376,7 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
             label "Color:"
             if colorWell(wellColor, "gallery", title = "Pick a color"): status = "Color " & hexOf(wellColor)
           tagInput(tagList, tagText)
+          accessName "City"
           autocomplete(acCity, ["Muscat", "Muttrah", "Sohar", "Salalah", "Nizwa", "Sur", "Ibri", "Barka"])
           row:
             knob(volumeKnob, 0, 100, label = "Vol")
@@ -1429,6 +1432,8 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
           styledText("Italic, underlined", style(italic = true, underline = true))
           styledText("Mono 0O1lI", style(mono = true))
           label "العربية: مرحبا بالعالم"
+          label "ภาษาไทย: สวัสดีครับ"
+          label "Tiếng Việt: Xin chào thế giới"
           label "Size: " & $uiScale() & "% (Ctrl + / - / 0)"
           row:
             if button("Smaller"): setUiScale(scaleStep(-1))
@@ -1502,6 +1507,7 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
           row([30, 130, -1]):
             label $(i + 1)
             checkbox "Enabled", settings[i].on
+            accessName "Setting " & $(i + 1)
             edit settings[i].name
 
   filesJob()
@@ -1528,15 +1534,13 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
             "for Nim on Windows, macOS, Linux, Android and iOS."],
            tagline = "Every control of Retro Nim UI",
            iconPng = GalleryIconPng, glyph = pxApp,
-           whatsNew = ["Menus by the keyboard: F10, or Alt pressed and let go; the arrows along and " &
-                       "through them. Long menus in even columns; a submenu moves up to fit, opens beside " &
-                       "the whole menu and stays open while the pointer goes to it (Insert > Field)",
-                       "Windows kept on top: the pin in a title bar, the control menu, Window > Always on " &
-                       "Top; a size grip on any window (Windows page)",
-                       "Docked panels (retroui/dock): tabs, groups, a column of icons, floating -- the side " &
-                       "panel sized from its edge (Windows page)",
-                       "The folder tree: room inside its frame, and a menu on a right click (Files page)",
-                       "Rows of fixed and own-width widgets share the room (nothing pushed out of the row)"],
+           whatsNew = ["Thai and Vietnamese in every font; flexible boxes and grids in HTML",
+                       "Every control reached by Tab alone and named for screen readers: the price " &
+                       "range's two ends are two stops, the time's hours and minutes, the stars named",
+                       "Files: the List view -- small icons in columns, scrolled sideways",
+                       "3D: the models' soft shadows on the ground",
+                       "An open drop-down's items read by screen readers; a control they ask to see is " &
+                       "scrolled to in every view"],
            credits = [RetroFontCredit,
                       "Map: Natural Earth (public domain)."])
 

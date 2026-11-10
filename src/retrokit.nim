@@ -858,7 +858,7 @@ proc driveCmd(args: seq[string]): int =
   let raw = "--json" in args
   let words = args[1 .. ^1].filterIt(it != "--json")
   var app: DriveClient
-  try: app = driveConnect(port, timeoutMs = 5000)
+  try: app = driveConnect(port, timeoutMs = 5000, probe = true)   # (through adb forward too)
   except DriveError as e:
     echo "retrokit: ", e.msg
     return 1

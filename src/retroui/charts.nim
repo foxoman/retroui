@@ -24,7 +24,8 @@
 ## legend's place, data labels, the axis range, a gauge's target, the
 ## palette. `exportPng(ui.lastRect, "chart.png")` after a chart saves it.
 
-import std/[math, strutils, algorithm, unicode, tables]
+import std/[math, strutils, algorithm, tables]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import uirelays/screen
 import gfx, core, widgets, business, imaging
 

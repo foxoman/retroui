@@ -697,8 +697,9 @@ proc toGlb*(scene: Scene3): string =
   var roots = newJArray()
   if scene.nodes.len == 0:
     for mi, m in scene.meshes:
+      if m.ghost: continue                       # (a shadow is the view's, not the model's)
       nodes.add %*{"name": m.name, "mesh": mi, "translation": [m.pos.x, m.pos.y, m.pos.z]}
-      roots.add %mi
+      roots.add %(nodes.len - 1)
   else:
     for i, n in scene.nodes:
       var jn = %*{"name": n.name, "translation": [n.t.x, n.t.y, n.t.z],

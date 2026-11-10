@@ -30,7 +30,8 @@
 ## what is used instead of linking to it; send `assetUserAgent`; ask for one
 ## page at a time (Openverse allows few anonymous searches a day).
 
-import std/[json, strutils, os, algorithm, sets, math, unicode]
+import std/[json, strutils, os, algorithm, sets, math]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import assetfetch, zip, codec
 
 export assetfetch

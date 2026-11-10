@@ -139,6 +139,7 @@ type
     targets*: seq[seq[Vec3]]         ## shapes it can take (each point's move)
     targetNormals*: seq[seq[Vec3]]
     morphWeights*: seq[float32]      ## how much of each shape (its node's when it has them)
+    ghost*: bool             ## seen, but a click goes through it (a shadow: `addShadow`)
 
   Line3* = object
     ## A line in the scene (an axis, a grid, a measure).
@@ -1051,6 +1052,144 @@ proc bounds*(scene: Scene3): tuple[lo, hi: Vec3; empty: bool] =
     take(l.a)
     take(l.b)
 
+proc addShadow*(scene: var Scene3; strength = 0.5; softness = 0.06;
+                name = "shadow"): int {.discardable.} =
+  ## A soft shadow on the ground under the scene's meshes, as a light high
+  ## above casts it: the meshes seen from above, their outline blurred
+  ## (`softness`: a share of the scene's size), laid as a see-through
+  ## picture on the ground under them. Made from the scene as it is now --
+  ## a model's pose, its parts shown or hidden; after they change, call it
+  ## again: it puts the new shadow in the old one's place. A flat mesh
+  ## lying level (a floor) casts none: the shadow is laid on it. Its mesh's
+  ## index; -1 when there is nothing to cast one. (The meshes do not
+  ## shadow each other.)
+  var at = -1
+  for i, m in scene.meshes:
+    if m.ghost and m.material >= 0 and m.material < scene.materials.len and
+       scene.materials[m.material].name == name and m.verts.len == 4:
+      at = i
+  if at >= 0: scene.meshes[at].visible = false       # (not its own shadow)
+  # (what casts it: the meshes but flat ones lying level -- a floor, which
+  # the shadow is laid on)
+  let worlds = nodeWorlds(scene)
+  var vs, ns: seq[Vec3]
+  var casts: seq[int]
+  var b: tuple[lo, hi: Vec3; empty: bool]
+  b.empty = true
+  var floorY = -Inf.float32
+  for mi, m in scene.meshes:
+    if not scene.meshShown(m) or m.verts.len == 0: continue
+    discard poseMesh(scene, worlds, mi, vs, ns)
+    var lo, hi: Vec3
+    var any = false
+    for v in vs:
+      if not finite(v): continue
+      if not any:
+        lo = v
+        hi = v
+        any = true
+      else:
+        lo = Vec3(x: min(lo.x, v.x), y: min(lo.y, v.y), z: min(lo.z, v.z))
+        hi = Vec3(x: max(hi.x, v.x), y: max(hi.y, v.y), z: max(hi.z, v.z))
+    if not any: continue
+    if hi.y - lo.y <= 0.001'f32 * max(hi.x - lo.x, hi.z - lo.z):
+      floorY = max(floorY, hi.y)
+      continue
+    casts.add mi
+    if b.empty:
+      b = (lo, hi, false)
+    else:
+      b.lo = Vec3(x: min(b.lo.x, lo.x), y: min(b.lo.y, lo.y), z: min(b.lo.z, lo.z))
+      b.hi = Vec3(x: max(b.hi.x, hi.x), y: max(b.hi.y, hi.y), z: max(b.hi.z, hi.z))
+  if at >= 0: scene.meshes[at].visible = true
+  if b.empty: return at
+  let size = max(b.hi.x - b.lo.x, b.hi.z - b.lo.z)
+  if not (size > 0): return at
+  let blur = max(0.001'f32, softness.float32 * size)
+  let margin = blur * 3 + size * 0.05'f32
+  let x0 = b.lo.x - margin
+  let z0 = b.lo.z - margin
+  let wx = b.hi.x - b.lo.x + 2 * margin
+  let wz = b.hi.z - b.lo.z + 2 * margin
+  # the meshes seen from above, into a map of 256 on the longer side
+  let n = 256
+  let mw = max(8, int(float32(n) * wx / max(wx, wz)))
+  let mh = max(8, int(float32(n) * wz / max(wx, wz)))
+  var cover = newSeq[float32](mw * mh)
+  for mi in casts:
+    let m = scene.meshes[mi]
+    discard poseMesh(scene, worlds, mi, vs, ns)
+    for t in m.tris:
+      if t[0] < 0 or t[1] < 0 or t[2] < 0 or t[0] >= vs.len or t[1] >= vs.len or t[2] >= vs.len: continue
+      var px, py: array[3, float32]
+      var ok = true
+      for k in 0 .. 2:
+        let v = vs[t[k]]
+        if not finite(v): ok = false
+        px[k] = (v.x - x0) / wx * float32(mw)
+        py[k] = (v.z - z0) / wz * float32(mh)
+      if not ok: continue
+      # (filled by its rows: a pixel's middle inside the triangle)
+      let ya = max(0, int(floor(min(py[0], min(py[1], py[2])))))
+      let yb = min(mh - 1, int(ceil(max(py[0], max(py[1], py[2])))))
+      for y in ya .. yb:
+        let cy = float32(y) + 0.5'f32
+        var xl = Inf.float32
+        var xr = -Inf.float32
+        for k in 0 .. 2:
+          let (ax, ay, bx, by) = (px[k], py[k], px[(k + 1) mod 3], py[(k + 1) mod 3])
+          if (ay <= cy and by > cy) or (by <= cy and ay > cy):
+            let x = ax + (cy - ay) / (by - ay) * (bx - ax)
+            xl = min(xl, x)
+            xr = max(xr, x)
+        if xl > xr: continue
+        for x in max(0, int(floor(xl + 0.5'f32))) .. min(mw - 1, int(ceil(xr - 0.5'f32))):
+          cover[y * mw + x] = 1
+  # blurred: three box passes each way (nearly a Gaussian)
+  let r = max(1, int(blur / wx * float32(mw)))
+  var tmp = newSeq[float32](mw * mh)
+  for _ in 0 ..< 3:
+    for y in 0 ..< mh:
+      var acc = 0'f32
+      for x in -r .. r: acc += cover[y * mw + clamp(x, 0, mw - 1)]
+      for x in 0 ..< mw:
+        tmp[y * mw + x] = acc / float32(2 * r + 1)
+        acc += cover[y * mw + clamp(x + r + 1, 0, mw - 1)] - cover[y * mw + clamp(x - r, 0, mw - 1)]
+    for x in 0 ..< mw:
+      var acc = 0'f32
+      for y in -r .. r: acc += tmp[clamp(y, 0, mh - 1) * mw + x]
+      for y in 0 ..< mh:
+        cover[y * mw + x] = acc / float32(2 * r + 1)
+        acc += tmp[clamp(y + r + 1, 0, mh - 1) * mw + x] - tmp[clamp(y - r, 0, mh - 1) * mw + x]
+  let pic = newBitmap(mw, mh)
+  let k = clamp(strength, 0.0, 1.0).float32
+  for i in 0 ..< mw * mh:
+    pic.px[i] = uint32(clamp(cover[i] * k * 255, 0, 255)) shl 24
+  pic.changed()
+  # the ground: just over a floor under the meshes, else a little under
+  # their lowest point; the picture on it
+  var mat = Material3(name: name, baseColor: [0'f32, 0, 0, 1], texture: pic, alphaMode: amBlend,
+                      unlit: true, roughness: 1)
+  var g = newMesh("", color(0, 0, 0))
+  g.ghost = true                                 # (a click goes through it)
+  let eps = max(1e-4'f32, size * 0.002'f32)
+  let y = if floorY > -Inf.float32 and floorY <= b.lo.y + eps: floorY + eps else: b.lo.y - eps
+  g.verts = @[Vec3(x: x0, y: y, z: z0 + wz), Vec3(x: x0 + wx, y: y, z: z0 + wz),
+              Vec3(x: x0 + wx, y: y, z: z0), Vec3(x: x0, y: y, z: z0)]
+  g.uvs = @[[0'f32, 1], [1'f32, 1], [1'f32, 0], [0'f32, 0]]
+  g.tris = @[[0'i32, 1, 2], [0'i32, 2, 3]]
+  g.normals = @[Vec3(y: 1), Vec3(y: 1), Vec3(y: 1), Vec3(y: 1)]
+  if at >= 0:
+    g.material = scene.meshes[at].material
+    scene.materials[g.material] = mat
+    scene.meshes[at] = g
+    result = at
+  else:
+    scene.materials.add mat
+    g.material = scene.materials.high
+    result = scene.add(g)
+  sceneChanged(scene)
+
 proc fitView*(scene: Scene3; cam: var Camera3) =
   ## Aims the camera at the middle of the scene, far enough to see all of
   ## it; Home (and the home button) come back to this view.
@@ -1657,7 +1796,7 @@ proc pickAt(ctx: RenderCtx; scene: Scene3; sx, sy: float32): tuple[mesh, tri: in
                       y: -(sy - ctx.h.float32 * 0.5'f32) / ctx.focal, z: 1))
   var best = Inf.float32
   for mi, m in scene.meshes:
-    if mi >= ctx.view.len or not scene.meshShown(m): continue
+    if mi >= ctx.view.len or not scene.meshShown(m) or m.ghost: continue
     let vv = ctx.view[mi]
     if vv.len != m.verts.len or vv.len == 0: continue
     let (c, r) = ctx.spheres[mi]
