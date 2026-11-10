@@ -316,6 +316,7 @@ proc datePicker*(d: var Date; w = 0; enabled = true): bool {.discardable.} =
       result = true
   st.buf = buf
   state(id) = st
+  if enabled and ui.focus == editId: ui.takesEnter = true   # (Enter opens its calendar: #9)
   if enabled and canInput():
     if hover(btn) and takePress():
       ui.popup = if ui.popup == popId: 0 else: popId
@@ -428,6 +429,7 @@ type
     rightClicked*: bool    ## right click or long press on `row`
     row*, col*: int        ## the cell the event is about
     text*: string          ## the cell's new text (`edited`)
+    curCol*: int           ## the current cell's column, every frame (its row: `sel`)
     hot*: int              ## the row under the mouse, -1 if none (not fingers)
     dragStarted*: bool     ## a drag began on `row`: call `startDrag` to carry it
     dropOver*: int         ## a drag is over this row (one `dropOk` takes), else -1
@@ -619,7 +621,8 @@ proc gridImpl(colsIn: var seq[Column]; rows: int; cell: proc (row, col: int): st
               typeToEdit, tapActivates, checkboxes: bool;
               dragRows = false; dropOk: proc (row: int): bool = nil;
               styleOf: proc (row, col: int): CellStyle = nil; rowHeaders = false;
-              footer: proc (col: int): string = nil): GridEvent =
+              footer: proc (col: int): string = nil;
+              editText: proc (row, col: int): string = nil): GridEvent =
   # column widths are design pixels: scaled to the screen here, and a
   # column resized by dragging is stored back unscaled
   var cols = colsIn
@@ -680,6 +683,10 @@ proc gridImpl(colsIn: var seq[Column]; rows: int; cell: proc (row, col: int): st
     st.aux2 = ord(sortDescending)
   let hit = interact(id, body, enabled = enabled)
   var curCol = clamp(st.caret, 0, max(0, cols.high))
+  # (what an edit starts with: the cell's text, or `editText`'s -- a
+  # spreadsheet's formula where the cell shows its value)
+  proc editOf(row, col: int): string =
+    if editText != nil: editText(row, col) else: cell(row, col)
   let editId = id + 21
   let choiceKey = "grid-choice:" & $id
   template textEditable(c: int): bool =
@@ -735,7 +742,7 @@ proc gridImpl(colsIn: var seq[Column]; rows: int; cell: proc (row, col: int): st
     curCol = pendingEdit.col
     follow = true
     if cols[curCol].kind in {ckText, ckNumber}:
-      startEdit(cell(sel, curCol), true, pendingEdit.selectTo)
+      startEdit(editOf(sel, curCol), true, pendingEdit.selectTo)
   # headers: click sorts, edge drag resizes
   var hdrHit = -1
   if enabled and canInput():
@@ -830,7 +837,7 @@ proc gridImpl(colsIn: var seq[Column]; rows: int; cell: proc (row, col: int): st
             if ui.clicks >= 2 and typeToEdit and cols.len > 0 and
                textEditable(curCol):
               sel = nsel
-              startEdit(cell(nsel, curCol), true)
+              startEdit(editOf(nsel, curCol), true)
             elif ui.clicks >= 2 and cols.len > 0 and cols[curCol].kind == ckChoice and
                  cols[curCol].editable and cols[curCol].choices.len > 0:
               sel = nsel
@@ -941,11 +948,13 @@ proc gridImpl(colsIn: var seq[Column]; rows: int; cell: proc (row, col: int): st
   if hit.focused and not ui.touch and typeToEdit and cols.len > 0 and
      textEditable(curCol):
     ui.takesText = true
+  if editing: ui.takesEnter = true   # (Enter ends the edit, not a dialog: #9)
   if hit.focused and not editing and canInput() and rows > 0:
     var moved = -1
     # (a drop-down cell opens as every drop-down does: F4, Alt+Down, Enter)
     let onChoice = sel >= 0 and sel < rows and cols.len > 0 and cols[curCol].kind == ckChoice and
                    cols[curCol].editable and cols[curCol].choices.len > 0
+    if onChoice: ui.takesEnter = true
     case ui.key
     of KeyUp: moved = max(0, sel - 1)
     of KeyDown:
@@ -971,7 +980,7 @@ proc gridImpl(colsIn: var seq[Column]; rows: int; cell: proc (row, col: int): st
         ui.keyUsed = true
     of KeyF2, KeyF4:
       if sel >= 0 and sel < rows and cols.len > 0 and textEditable(curCol):
-        startEdit(cell(sel, curCol), true)
+        startEdit(editOf(sel, curCol), true)
       elif onChoice:
         openChoices(sel, curCol)
       ui.keyUsed = true
@@ -1056,6 +1065,7 @@ proc gridImpl(colsIn: var seq[Column]; rows: int; cell: proc (row, col: int): st
   top = oy div rowH
   ex.anchor = sel + 1
   st.caret = curCol
+  result.curCol = curCol
   st.scrollY = oy
   st.scrollX = sx
   # draw
@@ -1304,7 +1314,7 @@ proc gridImpl(colsIn: var seq[Column]; rows: int; cell: proc (row, col: int): st
                    right = cols[curCol].align == alRight)
     popClip()
     st.buf = buf
-    if gone or (canInput() and ui.focus == editId and keyHit(KeyEnter)):
+    if gone or (canInput() and ui.focus == editId and keyHit(KeyEnter)):  # (Enter claimed above)
       commit()
       if not gone: ui.focus = id
     elif canInput() and ui.focus == editId and keyHit(KeyEsc):
@@ -1322,7 +1332,8 @@ proc grid*(cols: var seq[Column]; rows: int; cell: proc (row, col: int): string;
            sortDescending = false; enabled = true;
            icon: proc (row: int): Icon = nil; typeToEdit = true;
            tapActivates = false; style: proc (row, col: int): CellStyle = nil;
-           rowHeaders = false; footer: proc (col: int): string = nil): GridEvent
+           rowHeaders = false; footer: proc (col: int): string = nil;
+           editText: proc (row, col: int): string = nil): GridEvent
           {.discardable.} =
   ## A table of `rows` rows; `cell(row, col)` gives the text of the cells
   ## on screen (so a million rows cost what the visible ones cost). Click a
@@ -1343,9 +1354,12 @@ proc grid*(cols: var seq[Column]; rows: int; cell: proc (row, col: int): string;
   ## `edited`), a button or link reports `clicked`. `style(row, col)` gives cells their
   ## own colors and weight; `rowHeaders` adds the record indicator column
   ## (an arrow at the current row); `footer(col)` a totals row.
+  ## `editText(row, col)`: what an edit of a cell starts with, when it is
+  ## not the text shown (a formula, its value in the cell). The result's
+  ## `curCol` is the current cell's column.
   gridImpl(cols, rows, cell, sel, nil, height, w, sortColumn, sortDescending,
            enabled, icon, typeToEdit, tapActivates, false,
-           styleOf = style, rowHeaders = rowHeaders, footer = footer)
+           styleOf = style, rowHeaders = rowHeaders, footer = footer, editText = editText)
 
 proc grid*(cols: var seq[Column]; rows: int; cell: proc (row, col: int): string;
            sel: var int; marked: var seq[bool]; height = 10; w = 0;
@@ -1354,7 +1368,8 @@ proc grid*(cols: var seq[Column]; rows: int; cell: proc (row, col: int): string;
            tapActivates = false; checkboxes = false; dragRows = false;
            dropOk: proc (row: int): bool = nil;
            style: proc (row, col: int): CellStyle = nil; rowHeaders = false;
-           footer: proc (col: int): string = nil): GridEvent {.discardable.} =
+           footer: proc (col: int): string = nil;
+           editText: proc (row, col: int): string = nil): GridEvent {.discardable.} =
   ## A grid where many rows can be selected: `marked[row]`; `sel` is the
   ## row with the focus. Ctrl+click toggles a row, Shift+click selects a
   ## range, Ctrl+A all, dragging from below the rows draws a selection
@@ -1365,7 +1380,7 @@ proc grid*(cols: var seq[Column]; rows: int; cell: proc (row, col: int): string;
   ## part), reported as `dropOver` and `dropped`.
   gridImpl(cols, rows, cell, sel, addr marked, height, w, sortColumn,
            sortDescending, enabled, icon, typeToEdit, tapActivates, checkboxes,
-           dragRows, dropOk, style, rowHeaders, footer)
+           dragRows, dropOk, style, rowHeaders, footer, editText)
 
 proc grid*(cols: var seq[Column]; data: seq[seq[string]]; sel: var int;
            height = 10; w = 0; sortColumn = -1; sortDescending = false;
@@ -2530,6 +2545,7 @@ proc comboEdit*(text: var string; items: openArray[string]; w = 0;
   let btn = rect(r.x + r.w - SbW, r.y, SbW, r.h)
   let live = canInput()          # before the list goes to the popup layer
   let home = layer()
+  if enabled and ui.focus == editId: ui.takesEnter = true   # (Enter opens its list, or picks: #9)
   if enabled and hover(btn) and takePress():
     st.aux = 1 - st.aux
     st.aux2 = 1
@@ -2688,6 +2704,7 @@ proc link*(caption: string; enabled = true): bool {.discardable.} =
   if enabled:
     if hit.hover and canHover(): ui.cursor = curHand
     spaceKey(id, hit)
+    if hit.focused: ui.takesEnter = true   # (as a button: before a default button too)
     if hit.focused and keyHit(KeyEnter): hit.clicked = true
   let c = if enabled: th.link else: th.gray
   text(r.x + 1, r.y + 1, caption, c)

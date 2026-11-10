@@ -1592,7 +1592,9 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["4.9.8: on Android it opens every time (a second start in the same process stopped " &
+           whatsNew = ["4.9.9: on Android it opens on a small screen too (its opening picture was " &
+                       "painted before the window had a size, and stopped it)",
+                       "4.9.8: on Android it opens every time (a second start in the same process stopped " &
                        "it in its filters); covered by another window it draws nothing; the caret rests " &
                        "after 10 seconds untouched",
                        "4.9.7: on a Mac it opens again (it stopped at the first click or key since 0.29 of the kit); minimized, it draws nothing",
@@ -1867,9 +1869,11 @@ proc moreDialogs() =
 
 # ---- the splash --------------------------------------------------------------------------------------------
 
-proc splashArt(w, h: int): Bitmap =
+proc splashArt(width, height: int): Bitmap =
   ## The opening picture, painted with the program's own engine: a dusk
   ## sky with its first stars, a glint, the hills (the name goes over it).
+  let w = max(1, width)
+  let h = max(1, height)
   let d = newDoc(w, h, white)
   var o = PaintOpts(color: argb(255, 20, 16, 64), bg: argb(255, 214, 96, 54), opacity: 100, mode: bmNormal)
   d.gradient(0, 0, 0, h.float, o, gsFgToBg, gkLinear, 58, 0, true)
@@ -1897,7 +1901,11 @@ proc splash() =
   ## name and version, a 3.1 progress bar.
   if ui.now >= splashUntil: return
   let w = min(dp(460), ui.w - dp(16))
-  if splashBmp == nil: splashBmp = splashArt((w - 6) * pxScale, dp(170) * pxScale)
+  # (no window yet -- Android's first frames come before it has a size --
+  # or one too small for the box: nothing this frame)
+  if w < dp(120): return
+  let artW = (w - 6) * pxScale
+  if splashBmp == nil or splashBmp.w != artW: splashBmp = splashArt(artW, dp(170) * pxScale)
   let total = max(1, splashUntil - splashStart)
   let done = clamp((ui.now - splashStart) / total, 0.0, 1.0)
   let steps = ["Starting...", "Reading the brushes and presets...", "Loading the filters...",

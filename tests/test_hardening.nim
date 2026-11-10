@@ -254,7 +254,8 @@ block androidStartRunsOnce:
   # an activity no longer the app's is let go, and the cycles' roots are
   # collected when NimMain returns.
   let root = currentSourcePath().parentDir.parentDir
-  let glue = readFile(root / "src/retroui/uirelays/drivers/android_glue.c")
+  # (a checkout on Windows has its lines ended with CR LF)
+  let glue = readFile(root / "src/retroui/uirelays/drivers/android_glue.c").replace("\r\n", "\n")
   var unguarded: seq[string]
   var name = ""
   var guarded = true
@@ -280,5 +281,25 @@ block androidStartRunsOnce:
   doAssert "uirelays_main_ended" in readFile(root / "src/retroui/uirelays/drivers/android_driver.nim")
   let apk = readFile(root / "src/retroapk.nim")
   doAssert "iAttr(\"launchMode\", 0x0101001d, 2)" in apk, "the activity: singleTask"
+
+block enterIsClaimed:
+  # (#9) A control that acts on Enter while it has the focus says Enter is
+  # its own (`ui.takesEnter`): a default button drawn before it in the frame
+  # leaves Enter to it. Every Enter the kit reads has the claim a few lines
+  # before -- but the default button's own, an open menu's, and one marked
+  # "(Enter claimed above)".
+  let root = currentSourcePath().parentDir.parentDir
+  var unclaimed: seq[string]
+  for f in walkFiles(root / "src/retroui/*.nim"):
+    let lines = readFile(f).splitLines
+    for i, line in lines:
+      if ("keyHit(KeyEnter)" in line or "ui.key == KeyEnter" in line) and
+         "isDefault" notin line and "(an open menu's)" notin line and
+         "(Enter claimed above)" notin line:
+        var claimed = false
+        for j in max(0, i - 15) .. i:
+          if "takesEnter = true" in lines[j]: claimed = true
+        if not claimed: unclaimed.add f.extractFilename & ":" & $(i + 1)
+  doAssert unclaimed.len == 0, "Enter used without claiming it: " & unclaimed.join(", ")
 
 echo "hardening tests passed"

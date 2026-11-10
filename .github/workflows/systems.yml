@@ -26,7 +26,9 @@ name: Every system
 # On Linux, Windows and macOS the apps are also started for real, each in a
 # home of its own (tests/smoke/run.sh): left alone 3 seconds -- they must
 # do next to nothing --, then clicked, keyed and typed at; a fault, a stop
-# or a hang fails it, and each app's first frame time is in the log.
+# or a hang fails it, and each app's first frame time is in the log. Then
+# they are driven by their controls' names (RETRO_DRIVE, tests/drive/run.sh):
+# every tab clicked, every menu opened and closed.
 #
 # The live check (tests/live/livecheck.nim) goes through the guide's pages,
 # saves each frame and checks the browser engine; tools/live/compare.nim
@@ -52,6 +54,7 @@ env:
     test_morecontrols test_dock test_toolcustom test_richedit test_calendar
     test_qrcode test_touchsizes test_scale test_hardening test_designer
     test_tilemap test_gltf test_store test_sysmon test_taskman
+    test_inspect test_drive test_sevenguis
   # the live check: frames drawn by the CPU at 100 %, the browser engine
   # needed
   RETRO_GPU: cpu
@@ -94,6 +97,9 @@ jobs:
         run: |
           sudo apt-get install -y xdotool
           xvfb-run -a -s "-screen 0 1280x800x24" sh tests/smoke/run.sh
+      - name: The apps driven by their controls' names (every tab, every menu)
+        if: always()
+        run: xvfb-run -a -s "-screen 0 1280x800x24" sh tests/drive/run.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -177,6 +183,10 @@ jobs:
         if: always()
         shell: bash
         run: sh tests/smoke/run.sh
+      - name: The apps driven by their controls' names (every tab, every menu)
+        if: always()
+        shell: bash
+        run: sh tests/drive/run.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -228,6 +238,9 @@ jobs:
       - name: The apps started for real (left alone, then clicked and typed at)
         if: always()
         run: sh tests/smoke/run.sh
+      - name: The apps driven by their controls' names (every tab, every menu)
+        if: always()
+        run: sh tests/drive/run.sh
       - name: An .app signed in Nim, as macOS sees it
         if: always()
         run: sh tests/store/mac.sh

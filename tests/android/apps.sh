@@ -74,6 +74,16 @@ why() {
     grep -v "monkey\|InputDispatcher\|ImeTracker\|InputMethod" | tail -40
   echo "---"
 }
+online() {
+  # (the emulator drops off adb now and then -- "device offline" -- for a
+  # moment: it is waited for, up to a minute, before the next app)
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    [ "$(adb get-state < /dev/null 2>/dev/null | tr -d '\r')" = device ] && return 0
+    adb reconnect offline < /dev/null > /dev/null 2>&1
+    sleep 5
+  done
+  return 1
+}
 back() {
   # (brought back from the background as its icon does: not stopped first)
   act=$(adb shell cmd package resolve-activity --brief -c android.intent.category.LAUNCHER "$1" \
@@ -85,9 +95,15 @@ while read -r pkg apk; do
   [ -z "$pkg" ] && continue
   name=$(basename "$apk" .apk)
   echo "== $name ($pkg)"
+  online || echo "(the emulator is offline)"
   adb uninstall "$pkg" < /dev/null >/dev/null 2>&1
   if ! adb install -r "$apk" < /dev/null >/dev/null; then
-    echo "FAIL $name: it did not install"; failed=$((failed + 1)); continue
+    # (once more, the emulator back first)
+    online
+    if ! adb install -r "$apk" < /dev/null >/dev/null; then
+      echo "FAIL $name: it did not install ($(adb get-state < /dev/null 2>&1 | tr -d '\r'))"
+      failed=$((failed + 1)); continue
+    fi
   fi
   adb logcat -c < /dev/null
   adb logcat -b crash -c < /dev/null 2>/dev/null

@@ -64,6 +64,18 @@ public class RetroActivity extends NativeActivity {
         if (before != null) before.uncaughtException(t, e);
       }
     });
+    // (the RETRO_ settings given to the app's start, as a program on a
+    // desktop gets them from its environment -- before the native library
+    // reads them: adb shell am start -n PACKAGE/ACTIVITY --es RETRO_DRIVE 7000)
+    try {
+      Bundle extras = getIntent() != null ? getIntent().getExtras() : null;
+      if (extras != null) {
+        for (String k : extras.keySet()) {
+          Object v = extras.get(k);
+          if (k.startsWith("RETRO_") && v != null) android.system.Os.setenv(k, v.toString(), true);
+        }
+      }
+    } catch (Throwable ignored) { }
     super.onCreate(state);
     getWindow().getDecorView().setOnApplyWindowInsetsListener(
         new View.OnApplyWindowInsetsListener() {

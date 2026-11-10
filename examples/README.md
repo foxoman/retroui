@@ -31,9 +31,10 @@ hello, notepad, ledger, charts, invoice, then the apps.
 | [communicator](#retro-communicator) | Retro Communicator, chat on XMPP |
 | [taskman](#retro-task-manager) | Retro Task Manager, what the computer is doing |
 | [hrbook](#hr-book) | HR Book, a private book of a hotel group's staff |
+| [sevenguis](#7guis) | the seven tasks of the 7GUIs benchmark, a tab each |
 
-The pictures of hello, the gallery, charts, native, HR Book and the
-magazine are made by `sh tools/exampleshots.sh`; the others are the main
+The pictures of hello, the gallery, charts, native, HR Book, the magazine
+and 7GUIs are made by `sh tools/exampleshots.sh`; the others are the main
 README's.
 
 ## Hello
@@ -262,4 +263,36 @@ folder of its own).
 
 ```sh
 nimble hrbook               # or: nim c -r -d:release examples/hrbook.nim
+```
+
+## 7GUIs
+
+![7GUIs: the spreadsheet, its sums and averages](../docs/examples/sevenguis.png)
+
+`sevenguis.nim` is [7GUIs](https://eugenkiss.github.io/7guis/), the
+benchmark that measures a GUI toolkit by seven small tasks, each made as
+the tasks ask, in a tab of its own:
+
+1. **Counter** -- a box and a button that counts.
+2. **Temperature Converter** -- Celsius and Fahrenheit, each kept in step
+   with the other as it is typed; what is not a number changes nothing.
+3. **Flight Booker** -- a one-way or a return flight, two dates typed
+   (DD.MM.YYYY), red while they are no date, and Book only when the
+   dates allow it.
+4. **Timer** -- a gauge of the time gone, a slider for how long, Reset;
+   the time goes on in any tab.
+5. **CRUD** -- names in a list, filtered by the surname's start; create,
+   update, delete.
+6. **Circle Drawer** -- a click makes a circle, a right click on one
+   adjusts its diameter in a dialog; undo and redo.
+7. **Cells** -- a spreadsheet of A..Z by 0..99 with formulas (`=B1*C1`,
+   `=SUM(D1:D3)`, `AVG`, `MIN`, `MAX`, `COUNT`, `PROD`); a change reaches
+   every cell that reads it, a cycle says `#CYCLE`. F2 edits a cell's
+   formula, not its value.
+
+`tests/test_sevenguis.nim` uses it as a person would, by its controls'
+names; the picture above was taken the same way (the driver, `RETRO_DRIVE`).
+
+```sh
+nimble sevenguis            # or: nim c -r -d:release examples/sevenguis.nim
 ```

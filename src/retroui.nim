@@ -89,9 +89,10 @@ export core, widgets, business, extras, markdown, icons, nerdicons, pixelicons,
        platform, files, docfs, imaging, zip, background, textfile, filewidgets, charts,
        memwatch, thumbcache
 import retroui/[records, desktop, planning, view3d, mapview, htmlview, native, media,
-                report, pdf, templates, canvas2d, morecontrols, dock, toolcustom]
+                report, pdf, templates, canvas2d, morecontrols, dock, toolcustom, inspect,
+                drive]
 export records, desktop, planning, view3d, mapview, htmlview, native, media,
-       report, pdf, templates, canvas2d, morecontrols, dock, toolcustom
+       report, pdf, templates, canvas2d, morecontrols, dock, toolcustom, inspect, drive
 
 import std/macros
 

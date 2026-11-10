@@ -1278,16 +1278,17 @@ form 0:
 
 ```nim
 proc edit*(s: var string; w = 0; password = false;
-           enabled = true; readOnly = false): bool {.discardable.}
+           enabled = true; readOnly = false; invalid = false): bool {.discardable.}
 ```
 
 A one-line text box bound to `s`; true when the text changed.
-`readOnly`: selected and copied, not changed.
+`readOnly`: selected and copied, not changed. `invalid`: red, what is
+typed is not right yet (a form says so as it is typed).
 
 ```nim
 proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
              allowed: set[char] = {}; right = false; frameless = false;
-             wrap = false; readOnly = false): bool
+             wrap = false; readOnly = false; invalid = false): bool
 ```
 
 A text box at `r` (for widgets made of one: spin, number fields...).
@@ -1295,6 +1296,8 @@ A text box at `r` (for widgets made of one: spin, number fields...).
 `frameless` leaves out the border (the widget around draws one),
 `wrap` (several lines) wraps long lines at the words, `readOnly`: the
 text is selected, copied and scrolled through, not changed.
+`invalid`: what is typed is not right yet (a date that is none): the
+box is red until it is.
 Its menu (a right click, a long press): Cut, Copy, Paste, Delete,
 Select all. In a right-to-left interface its text keeps its own
 direction (a line of Arabic at the right, of Latin at the left, an
@@ -2155,7 +2158,8 @@ proc grid*(cols: var seq[Column]; rows: int; cell: proc (row, col: int): string;
            sortDescending = false; enabled = true;
            icon: proc (row: int): Icon = nil; typeToEdit = true;
            tapActivates = false; style: proc (row, col: int): CellStyle = nil;
-           rowHeaders = false; footer: proc (col: int): string = nil): GridEvent
+           rowHeaders = false; footer: proc (col: int): string = nil;
+           editText: proc (row, col: int): string = nil): GridEvent
           {.discardable.}
 ```
 
@@ -2178,6 +2182,9 @@ opens its `choices` (F4, Alt+Down, Enter, a click on the current cell;
 `edited`), a button or link reports `clicked`. `style(row, col)` gives cells their
 own colors and weight; `rowHeaders` adds the record indicator column
 (an arrow at the current row); `footer(col)` a totals row.
+`editText(row, col)`: what an edit of a cell starts with, when it is
+not the text shown (a formula, its value in the cell). The result's
+`curCol` is the current cell's column.
 
 ```nim
 proc grid*(cols: var seq[Column]; rows: int; cell: proc (row, col: int): string;
@@ -2187,7 +2194,8 @@ proc grid*(cols: var seq[Column]; rows: int; cell: proc (row, col: int): string;
            tapActivates = false; checkboxes = false; dragRows = false;
            dropOk: proc (row: int): bool = nil;
            style: proc (row, col: int): CellStyle = nil; rowHeaders = false;
-           footer: proc (col: int): string = nil): GridEvent {.discardable.}
+           footer: proc (col: int): string = nil;
+           editText: proc (row, col: int): string = nil): GridEvent {.discardable.}
 ```
 
 A grid where many rows can be selected: `marked[row]`; `sel` is the
@@ -7579,6 +7587,48 @@ proc accessible*(): bool {.inline.}
 
 A screen reader reads this frame (widgets of your own add themselves
 with `accessNode` then).
+
+### The inspector and the driver: controls found by their names
+
+The names screen readers read are how the inspector (F12; `RETRO_INSPECT=1`)
+shows the controls, how a program uses an app from outside
+(`RETRO_DRIVE=PORT`, `retrokit drive PORT click OK`; README, "The inspector
+and the driver") and how a test finds them without coordinates:
+
+```nim
+accessKeep = true                                   # the last frame's tree in accessLast
+let i = findNode(accessLast, "Save", {arButton})    # -1: none
+click(nodeRect(accessLast[i]))                      # (the tests' harness)
+```
+
+```nim
+proc findNode*(tree: openArray[AccessNode]; name: string; roles: set[AccessRole] = {};
+               nth = 0): int
+```
+
+The control called `name` (any case; failing that, one whose name has it
+in it; "" any), of one of `roles`, the `nth` of them; -1 when there is none.
+
+```nim
+proc nodeRect*(n: AccessNode): Rect
+proc nodeAt*(tree: openArray[AccessNode]; x, y: int): int
+proc nodeLine*(n: AccessNode): string
+```
+
+A node's place in the window's logical pixels; the smallest control at a
+point (0: the window); a node as one line (`Button "OK"`, `Text field
+"Name:" = Ada`).
+
+```nim
+proc showInspector*(on = true)
+proc inspectorShown*(): bool
+proc startDriver*(port: int): int
+proc drivePort*(): int
+```
+
+Show the inspector as F12 does; listen for a driver as `RETRO_DRIVE` does
+(0: any free port; the port, or 0). `whyFrames` and `frameCause` (the
+core) say why each frame ran.
 
 ---
 

@@ -56,6 +56,9 @@ proc outline*(r: Rect; t = 1; rounded = true) =
   vline(r.x + r.w - 1, r.y + o, r.h - 2*o, th.frame)
   if t > 1: outline(inset(r, 1), t - 1, false)
 
+const InvalidRed* = Color(r: 224, g: 32, b: 32, a: 255)
+  ## The red of a text box whose text is not right (`edit(invalid = true)`).
+
 proc mixColor*(a, b: Color; t: float): Color =
   ## `a` moved `t` (0..1) of the way to `b`.
   template m(x, y: uint8): uint8 = uint8(float(x) + (float(y) - float(x)) * t + 0.5)
@@ -1202,12 +1205,14 @@ var tapFocus: Id
 
 proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
              allowed: set[char] = {}; right = false; frameless = false;
-             wrap = false; readOnly = false): bool =
+             wrap = false; readOnly = false; invalid = false): bool =
   ## A text box at `r` (for widgets made of one: spin, number fields...).
   ## `allowed` limits the characters typed, `right` aligns the text right,
   ## `frameless` leaves out the border (the widget around draws one),
   ## `wrap` (several lines) wraps long lines at the words, `readOnly`: the
   ## text is selected, copied and scrolled through, not changed.
+  ## `invalid`: what is typed is not right yet (a date that is none): the
+  ## box is red until it is.
   ## Its menu (a right click, a long press): Cut, Copy, Paste, Delete,
   ## Select all. In a right-to-left interface its text keeps its own
   ## direction (a line of Arabic at the right, of Latin at the left, an
@@ -1441,8 +1446,9 @@ proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
   if right and not multi:
     tx = inner.x + 2 + max(0, inner.w - 6 - textWidth(shown(s, 0, s.len, pass)))
     if tx > inner.x + 2: st.scrollX = 0
-  fill(area, th.field)
+  fill(area, if invalid and enabled: mixColor(th.field, InvalidRed, 0.3) else: th.field)
   if not frameless: fieldFrame(area, enabled)
+  if invalid and enabled: box(area, InvalidRed)
   pushClip(inset(inner, 1))
   let fg = if enabled: th.fieldText else: th.gray
   let selA = min(st.caret, st.anchor)
@@ -1567,11 +1573,13 @@ proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
   changed
 
 proc edit*(s: var string; w = 0; password = false;
-           enabled = true; readOnly = false): bool {.discardable.} =
+           enabled = true; readOnly = false; invalid = false): bool {.discardable.} =
   ## A one-line text box bound to `s`; true when the text changed.
-  ## `readOnly`: selected and copied, not changed.
+  ## `readOnly`: selected and copied, not changed. `invalid`: red, what is
+  ## typed is not right yet (a form says so as it is typed).
   let r = place(if w > 0: w else: 0, EditH, fill = w <= 0)
-  editAt(idOf(s, "edit"), s, r, false, password, enabled, readOnly = readOnly)
+  editAt(idOf(s, "edit"), s, r, false, password, enabled, readOnly = readOnly,
+         invalid = invalid)
 
 proc editArea*(s: var string; lines = 6; w = 0;
                enabled = true; wrap = true; readOnly = false): bool {.discardable.} =
@@ -1893,6 +1901,9 @@ proc combo*(items: openArray[string]; sel: var int; w = 0;
       ui.menuOpen = false
       ui.popupHi = sel
       ui.redraw = true
+    # (Enter is its own while it has the focus: it opens the list, or picks
+    # in it -- a default button drawn before it leaves Enter to it, #9)
+    if hit.focused: ui.takesEnter = true
     if hit.focused and canInput() and not open:
       # (type-ahead when the keyboard brought the focus: a list clicked once
       # does not take the letters an app's keys of one letter are -- a
@@ -2181,6 +2192,7 @@ proc popupSlider*(v: var int; lo, hi: int; w = 0; unit = "%";
       if st.anchor == 0 and abs(ui.mx - st.aux) > dp(3): st.anchor = 2
     if ui.active == dragId and ui.released and st.anchor == 2:
       ui.popup = 0
+    if canInput(): ui.takesEnter = true    # (Enter closes the slider: #9)
     if canInput() and (keyHit(KeyEsc) or keyHit(KeyEnter) or dropKey() or
                        (ui.key == KeyUp and AltPressed in ui.mods and keyHit(KeyUp))):
       ui.popup = 0
@@ -3385,7 +3397,7 @@ proc menuItem*(label: string; shortcut = ""; checked = false;
     if ui.released and mouseIn(r) and enabled and not (finger() and longPressed()):
       result = true
   if menuKeysLive():
-    if hiOf(level) == i and enabled and keyHit(KeyEnter): result = true
+    if hiOf(level) == i and enabled and keyHit(KeyEnter): result = true  # (an open menu's)
     if ui.key in KeyA..KeyZ and ui.mods * {CtrlPressed, AltPressed} == {} and
        not ui.keyUsed and enabled and
        mnemonicOf(label) == char(ord('a') + ord(ui.key) - ord(KeyA)):
@@ -3439,7 +3451,7 @@ proc beginSubmenu*(label: string; enabled = true): bool =
       elif subId == id:
         ui.popupHi = i
     if ui.popupHi == i and subId != id and not ui.keyUsed and
-       (ui.key == KeyRight or ui.key == KeyEnter):
+       (ui.key == KeyRight or ui.key == KeyEnter):   # (an open menu's)
       ui.keyUsed = true
       subId = id
       subHi = 0

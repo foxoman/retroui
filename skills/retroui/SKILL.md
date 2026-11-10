@@ -135,8 +135,25 @@ line.
   while untouched), with a line on stderr (and in `$RETRO_SMOKE_OUT`). Run
   it in a home of its own: the clicks reach anything. The kit's
   `tests/smoke/run.sh` does it for its apps.
+- **See why it draws:** F12 in a debug build (`RETRO_INSPECT=1` in any)
+  shows the inspector: each frame's time, **why it ran** (the input, or
+  the line that asked: `ui.redraw = true at app.nim:42`, `wakeIn at
+  ...`), what the next one waits for, the control under the mouse and
+  the frame's controls by name. An app at rest says "at rest".
+- **Use it from outside, by its controls' names:** `RETRO_DRIVE=7000 ./app
+  &`, then `retrokit drive 7000 tree`, `click "Save"`, `click 120,40`,
+  `type "Ada"`, `key ctrl+s`, `set "Name:" Ada`, `wait "Saved" --timeout
+  3000`, `quit` -- each answered once the app has done it (exit 1 when it
+  could not). From Nim: `retroui/driveclient` (`driveConnect`, `ask`,
+  `request`). In a headless test of your own, `accessKeep = true` and
+  `findNode(accessLast, "OK", {arButton})` / `nodeRect` find a control by
+  name. Give a control without a label before it a name
+  (`accessName "Celsius"`) so readers and drivers can find it.
 - `&` in a label underlines the next letter (Alt+letter). `isDefault = true`
-  makes Enter press the button.
+  makes Enter press the button -- unless the focused control acts on Enter
+  itself (a drop-down, a date, a button, a grid cell, a multi-line text
+  box). A control of your own that acts on Enter sets `ui.takesEnter =
+  true` while it has the focus, so the default button leaves Enter to it.
 - Dialogs and popups are drawn by the same frame code, opened by a
   variable (`var showAbout = false` ... `aboutBox(showAbout, "My App", ...)`).
 - `aboutBox` shows the toolkit's credit (`RetroCredit`, with its web site

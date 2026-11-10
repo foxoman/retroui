@@ -328,6 +328,7 @@ proc beginMdiWindow*(w: var MdiWindow): bool =
       w.minimized = false
       m.toFront(key)
     if hit.clicked: m.toFront(key)
+    if hit.focused: ui.takesEnter = true
     if (hit.down and ui.pressed and ui.clicks >= 2) or (hit.focused and keyHit(KeyEnter)):
       w.minimized = false
       m.toFront(key)
@@ -964,6 +965,7 @@ proc findBar*(f: var FindState; key = ""): FindEvent =
     edit(f.what, w = dp(180))
     let editId = ui.lastId
     if ui.focus == editId and canInput():
+      ui.takesEnter = true                # (Enter finds the next: #9)
       if keyHit(KeyEnter):
         if ShiftPressed in ui.mods: result.prev = true else: result.next = true
     if button("&Next", enabled = f.what.len > 0, w = dp(64)): result.next = true

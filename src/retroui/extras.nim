@@ -939,6 +939,7 @@ proc colorWell*(c: var Color; key: string; w = 0; title = "Color"; enabled = tru
   let r = place(if w > 0: w else: dp(40), EditH)
   var hit = interact(idOf("colorwell:" & key), r, enabled = enabled)
   if enabled: spaceKey(idOf("colorwell:" & key), hit)
+  if hit.focused: ui.takesEnter = true     # (as a button: a default button leaves Enter to it)
   if hit.focused and keyHit(KeyEnter): hit.clicked = true
   sunken(r)
   fill(inset(r, 2), if enabled: c else: mixColor(c, th.face, 0.6))
@@ -1469,6 +1470,7 @@ proc avatar*(name: string; size = 0; color = Color()): bool {.discardable.} =
   let id = idOf("avatar:" & name)
   var hit = interact(id, r)
   spaceKey(id, hit)
+  if hit.focused: ui.takesEnter = true     # (as a button: a default button leaves Enter to it)
   if hit.focused and keyHit(KeyEnter): hit.clicked = true
   var h = 0'u32
   for c in name: h = h * 31 + uint32(ord(c))
@@ -1601,6 +1603,7 @@ proc banner*(msg: string; kind = bkInfo; actions: openArray[string] = [];
     text(xr.x + (xw - textWidth(nfTimes)) div 2, xr.y + (CtrlH - FontH) div 2, nfTimes,
          if hit.showsHover or hit.focused: th.text else: th.gray)
     if hit.focused:
+      ui.takesEnter = true
       focusDots(inset(xr, dp(4)))
       if keyHit(KeyEnter) or keyHit(KeyEsc): hit.clicked = true
     if accessOn: accessNode(arButton, "Close", id = id, r = xr)
@@ -1731,6 +1734,7 @@ proc fab*(glyph: string; tip = ""; color = Color()): bool =
     ui.overlayNow = r
     ui.overlayLayerNow = layer()
   spaceKey(id, hit)
+  if hit.focused: ui.takesEnter = true     # (as a button: a default button leaves Enter to it)
   if hit.focused and keyHit(KeyEnter): hit.clicked = true
   if tip.len > 0: tooltip(tip)
   pushLayer(LayerDialog)

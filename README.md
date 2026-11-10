@@ -26,7 +26,7 @@ change is written into the same `.nim` file.
 
 ## Why Retro
 
-- **Small and light.** A "hello" app is a single 1.9 MB file (Linux
+- **Small and light.** A "hello" app is a single 2.1 MB file (Linux
   x86-64, built with `retrokit small`; about 1 MB of it the fonts) that
   runs in 7 MB of memory on one thread -- the same Hello in egui, iced or
   Slint is a 15-22 MB file in 15-120 MB (see [Speed and size](#speed-and-size));
@@ -104,7 +104,8 @@ every module is in `docs/api/` (open `docs/api/retro.html`).
 [The syntax, studied](docs/syntax.md) · [Install](#install) · [Your first app](#your-first-app) ·
 [Retro Designer](#retro-designer) · [How it works](#how-it-works) · [Controls](#controls) · [Layout](#layout) ·
 [Text and icons](#text-and-icons) ·
-[Screen readers and input methods](#screen-readers-and-input-methods) · [Business apps](#business-apps) ·
+[Screen readers and input methods](#screen-readers-and-input-methods) ·
+[The inspector and the driver](#the-inspector-and-the-driver) · [Business apps](#business-apps) ·
 [Charts](#charts) · [Reports, PDF and printing](#reports-pdf-and-printing) ·
 [Planning views](#planning-views) · [Desktop apps](#desktop-apps) ·
 [Files](#files) · [Maps](#maps) · [3D](#3d-view) · [Canvas](#canvas) · [Whiteboard](#whiteboard) ·
@@ -304,7 +305,7 @@ app "Hello", 320, 120:
 
 ```sh
 nim c -r -d:release -d:useMalloc hello.nim   # or: retrokit run hello.nim
-retrokit small hello.nim          # optimized for size, LTO, stripped: about 1.9 MB, one file
+retrokit small hello.nim          # optimized for size, LTO, stripped: about 2.1 MB, one file
 retroapk hello.nim --install      # on a phone in Termux
 ```
 
@@ -432,7 +433,7 @@ retrokit designer app.nim       # app.nim's windows (a new file when there is no
   rows of the same widgets).
 - **Frames only when needed.** A frame runs when input arrives, when a
   timer asked for one (`wakeIn(ms)`) or when work on a background thread
-  finished. Between frames the app sleeps. Drawing commands carry hashes:
+  finished -- the inspector (F12) says which, and which line of yours. Between frames the app sleeps. Drawing commands carry hashes:
   an unchanged frame is skipped, and a changed one redraws only the bands
   that changed. A window minimized or covered all over by others draws
   nothing at all (`ui.hidden`: its frames and timers go on, so it can read
@@ -776,6 +777,74 @@ Android. `ui.composing` holds it for a text box of your own.
 the monitor's DPI (RandR), on Windows and macOS the system's -- and again
 when it moves to another monitor; at 125 %, 150 % or 175 % controls and
 text are the size asked for, and lines stay on whole pixels.
+
+## The inspector and the driver
+
+**The inspector.** F12 over any app built without `-d:release` (in any
+build with `RETRO_INSPECT=1`, which shows it from the start) puts a panel
+at the side of the window:
+
+- the frame: how long it took to build, how many ran in the last second;
+- why it ran -- the input it took, or the line of your program that asked
+  for it (`ui.redraw = true`, `wakeIn`) -- and what the next one waits
+  for: an app at rest waits for input;
+- the control under the mouse, outlined, with its kind, name, value, id,
+  place and states, and the one with the focus;
+- the frame's controls as a tree, as a screen reader reads them.
+
+Shift+F12 moves it to the other side. It takes no click: what is under it
+gets them. Its first find was in the kit itself: on X11 every frame shown
+woke the program for a second frame (the server's answer to the copy of
+the picture), so each caret blink and each timer cost two frames. Now one.
+
+**The driver.** An app started with `RETRO_DRIVE=PORT` takes commands on
+127.0.0.1:PORT -- a JSON object a line, an answer a line -- and does them
+as a person would: it finds a control by its name (as the inspector shows
+it), clicks it, types, presses keys, waits for a window to come. From a
+shell:
+
+```sh
+RETRO_DRIVE=7000 ./notepad &
+retrokit drive 7000 click File --role menu
+retrokit drive 7000 key Escape
+retrokit drive 7000 type "Shopping list"
+retrokit drive 7000 key ctrl+s
+retrokit drive 7000 wait "Save As" --timeout 3000
+retrokit drive 7000 tree
+```
+
+From Nim (`retroui/driveclient`, which needs no window) or any language
+that opens a socket:
+
+```nim
+import std/json, retroui/driveclient
+let app = driveConnect(7000)
+discard app.ask(request(["click", "Greet"]))
+echo app.ask(%*{"cmd": "find", "name": "Name:"})["node"]["value"]
+```
+
+The commands: `tree`, `find`, `info`, `click` (by name or at x, y; right,
+double), `move`, `scroll`, `press`, `focus` and `set` (as a screen reader
+does them), `key`, `type`, `wait` (frames, milliseconds, or until a control
+is there or gone), `quit` (the close box). A name with no `--role` finds
+the control, not the label that names it (`set "Name:" Ada` is the box).
+An action is answered once the app has taken it and drawn the frames
+after it, with the control as it is then: the next command sees what it
+did. Only the machine itself can connect, only an app started with
+`RETRO_DRIVE` listens (`RETRO_DRIVE=0`: any free port, said on stderr),
+and while it waits it draws nothing. On
+Android: `adb shell am start -n PACKAGE/ACTIVITY --es RETRO_DRIVE 7000`,
+then `adb forward tcp:7000 tcp:7000` (an APK built with
+`--permission:INTERNET`). Not in web pages.
+
+`sh tests/drive/run.sh` drives the examples so: every tab clicked, every
+menu opened and closed, the app asked after each step that it is still
+there, then closed by its close box; the systems workflow runs it on
+Linux, Windows and macOS. A test in the same program as its app runs the
+frames while it waits for the answer (`ask(..., idle = proc () = run())`,
+`tests/test_drive.nim`), and a headless test finds controls by name with
+`findNode(accessLast, "OK", {arButton})` and `nodeRect` once `accessKeep`
+is on (`tests/test_sevenguis.nim`).
 
 ## Business apps
 
@@ -1761,7 +1830,7 @@ s.dehaze = 10
 p.applyFilter(developMargin(s), develop(s))
 ```
 
-`examples/photo.nim` is **Retro Photo 4.9.8**, an image editor in the manner
+`examples/photo.nim` is **Retro Photo 4.9.9**, an image editor in the manner
 of the ones of 1994: the toolbox, the tabbed floating palettes (Brushes
 and Options; Picker, Swatches and Scratch; Layers, Channels and Paths;
 Info; Commands; Navigator, History and Actions; Properties), an options
@@ -2462,7 +2531,7 @@ stripped):
 
 | App | Size |
 |---|---|
-| `examples/hello.nim` | 1.9 MB |
+| `examples/hello.nim` | 2.1 MB |
 | `examples/ledger.nim` (grids, forms, CSV) | 2.2 MB |
 | `examples/taskman.nim` (Retro Task Manager) | 2.3 MB |
 | `examples/charts.nim` (Chart Viewer) | 2.5 MB |
@@ -2491,7 +2560,7 @@ Resizing at 1080p draws every pixel again; CPU is per step, counted in
 
 | | file | memory idle | at 1080p | threads | CPU idle | a resize at 1080p | a hover |
 |---|---|---|---|---|---|---|---|
-| **Retro Nim UI** | **1.9 MB** | **7.1 MB** | **14.6 MB** | **1** | 0 % | 1.8 ms | **0.2 ms** |
+| **Retro Nim UI** | **2.1 MB** | **7.1 MB** | **14.6 MB** | **1** | 0 % | 1.8 ms | **0.2 ms** |
 | Retro Nim UI, no shared memory | | 7.2 MB | 14.9 MB | 1 | 0 % | 3.8 ms | 0.15 ms |
 | Retro Nim UI, OpenGL | | 107 MB | 115 MB | 6 | 0 % | 12 ms | 0.5 ms |
 | egui (OpenGL) | 20.2 MB | 122 MB | 153 MB | 8 | 0 % | 46 ms | 88 ms |
@@ -2593,6 +2662,12 @@ fault, a crash, a hang or an app busy while untouched fails it; a line
 for each app goes to `build/smoke/results.txt`. The systems workflow runs
 it on Linux, Windows and macOS.
 
+**Every app driven by its controls' names:** `sh tests/drive/run.sh`
+starts the apps with `RETRO_DRIVE` and clicks every tab, opens and closes
+every menu, asks after each step that the app is still there, then closes
+it by its close box (see [The inspector and the
+driver](#the-inspector-and-the-driver)); on Linux, Windows and macOS too.
+
 **On every system, with its own drivers.** `tests/live/livecheck.nim` opens
 a real window and goes through pages of the guide by itself -- controls, a
 grid, a chart, HTML, an open menu, a dialog -- saving each frame, then
@@ -2666,6 +2741,9 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_access` | the screen readers' tree: every control's role, name (from the label before it), value, state, place in its list; the grid's headers, rows and cells, the tree's levels, the check list, the calendar's days, charts; presses, text, values and focus asked for, done by the next frame; nothing made without a screen reader |
 | `test_atspi` | Orca's side on a real X server and AT-SPI bus: the window's objects walked, text put in a box, a button pressed, the focus moved and its event heard |
 | `test_uia` | (Windows, also under Wine) the UI Automation provider: the tree a client reads, names, the patterns (invoke, value, toggle, range, selection) |
+| `test_inspect` | the inspector: its panel over the app, why each frame ran (the input, the line that asked: `ui.redraw = true`, `wakeIn`), the control under the mouse and found by name, F12 |
+| `test_drive` | the driver: a client in the same program finds controls by name, clicks, types (Arabic too), presses keys, sets values, waits for a control and for its going, opens a drop-down past a default button with Enter, closes the window |
+| `test_sevenguis` | the 7GUIs example driven by its controls' names: each task as its rules ask (the flight booked only when the dates allow, the timer stopping at its duration, CRUD's filter, the circles' undo, the cells' formulas and their cycles) |
 | `test_scale` | fractional scales (125 % to 300 %): controls and text the size asked for, lines on whole pixels, a change of scale followed |
 | `test_touchsizes` | `RETRO_TOUCH` and `RETRO_CONTROLS`: finger-sized controls on a tablet's screen when asked, desktop and automatic sizes |
 | `test_shm` | the frame drawn into memory shared with the X server and what the window then shows, with and without it (`RETRO_SURFACE=0`) |
@@ -2693,6 +2771,7 @@ it is and how to run it.
 | `examples/magazine.nim` | a three-page magazine made with Retro Photo's engine, tool by tool, saved as .rpd and PDF |
 | `examples/taskman.nim` | Retro Task Manager: the processes (end one or a tree, a priority), the processor, the memory, the disks and the network as graphs that move, what starts with the system, the connections, the last week (also an APK: `nimble taskmanapk`) |
 | `examples/retroboard.nim` | Retro Board: a whiteboard in the manner of tldraw -- ink, shapes, arrows, notes, frames, pages; PNG, SVG and PDF (also an APK: `nimble boardapk`) |
+| `examples/sevenguis.nim` | 7GUIs: the seven tasks of the GUI benchmark -- a counter, a temperature converter, a flight booker, a timer, CRUD, a circle drawer with undo, a spreadsheet with formulas |
 | `examples/hrbook.nim` | HR Book: the staff records of a group of hotels, private on a tablet -- smart Excel import, letters and certificates, charts, expiry alerts, encrypted backups |
 
 `examples/hrbook.nim` is **HR Book**: every employee of your hotels in one
@@ -2755,7 +2834,7 @@ video use the system's audio and, for compressed formats, GStreamer when
 it is there.
 
 **How big is an app?**
-About 1.9 MB for "hello" (`retrokit small`; 1 MB of it the fonts), 4.3 MB
+About 2.1 MB for "hello" (`retrokit small`; 1 MB of it the fonts), 4.3 MB
 for a full file manager, 1.6 MB as an APK. Only what the app calls is
 linked: an app without the map does not carry the map. With fewer fonts
 built in (`-d:retroFonts=ui`: FreeSans and its bold; `sans`; `none`) hello

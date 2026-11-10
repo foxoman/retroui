@@ -175,7 +175,15 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
    busy while untouched (a widget that asks for a frame each frame, a
    setter that draws again when nothing changed) fails it, as a fault, a
    crash or a hang does. The systems workflow runs it on Linux, Windows
-   and macOS.
+   and macOS. Then **`sh tests/drive/run.sh`**: the apps driven by their
+   controls' names (`RETRO_DRIVE`), every tab and every menu.
+8. To see what an app does, use it as a person would, by its controls'
+   names: start it with `RETRO_DRIVE=7000` and `retrokit drive 7000 tree`
+   / `click NAME` / `type TEXT` / `key ctrl+s` / `wait NAME` (each answered
+   once the app has done it); in a headless test, `accessKeep = true` and
+   `findNode(accessLast, "OK", {arButton})` with `nodeRect`. `RETRO_INSPECT=1`
+   (or F12 in a debug build) says why each frame ran and which line asked
+   for it -- the place to look when an app is not at rest.
 
 ## Rules
 

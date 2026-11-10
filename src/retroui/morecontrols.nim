@@ -241,6 +241,7 @@ proc tagInput*(tags: var seq[string]; text: var string; w = 0; enabled = true;
   if text.len == 0 and not focused:
     text(er.x + dp(3), er.y + (er.h - FontH) div 2, placeholder, th.gray)
   if ui.focus == id and enabled:
+    ui.takesEnter = true                  # (Enter adds the tag: #9)
     var add = false
     if text.endsWith(","):
       text.setLen(text.len - 1)
@@ -285,6 +286,7 @@ proc autocomplete*(s: var string; choices: openArray[string]; w = 0; rows = 6;
   if lr.y + lr.h > ui.h: lr.y = r.y - lr.h
   st.aux = clamp(st.aux, 0, shown.high)
   if canInput():
+    ui.takesEnter = true                  # (Enter takes the suggestion: #9)
     case ui.key
     of KeyDown: st.aux = min(shown.high, st.aux + 1); ui.keyUsed = true
     of KeyUp: st.aux = max(0, st.aux - 1); ui.keyUsed = true
@@ -411,6 +413,7 @@ proc accordionHeader*(title: string; index: int; open: var int): bool =
   ##     if accordionHeader(t, i, openSection): label "..."
   let r = place(0, CtrlH, fill = true)
   let hit = interact(idOf("accordion:" & title & $index), r)
+  if hit.focused: ui.takesEnter = true
   if hit.clicked or (hit.focused and (keyHit(KeyEnter) or keyHit(KeySpace))):
     open = if open == index: -1 else: index
     ui.redraw = true

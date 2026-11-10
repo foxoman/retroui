@@ -121,6 +121,21 @@ Android. To try them without a screen reader, in a clone:
 - `RETRO_SURFACE=0` draws without shared memory (MIT-SHM on X11, the DIB
   section on Windows), to compare.
 
+**The inspector and the driver need nothing at build time either.** F12
+over an app built without `-d:release` (or any build started with
+`RETRO_INSPECT=1`) shows why each frame ran, the control under the mouse
+and the frame's controls. An app started with `RETRO_DRIVE=7000` is used
+from outside by its controls' names: `retrokit drive 7000 click OK`,
+`retrokit drive 7000 type "Ada"`, `retrokit drive 7000 tree` (README,
+"The inspector and the driver"). Only 127.0.0.1 can connect. On Android:
+
+```sh
+retroapk app.nim --permission:INTERNET --install    # (sockets, even to the phone itself)
+adb shell am start -n org.example.app/org.retro.RetroActivity --es RETRO_DRIVE 7000
+adb forward tcp:7000 tcp:7000
+retrokit drive 7000 tree
+```
+
 **The system's web view needs nothing at build time either**
 (`webView(url, engine = weSystem)`, README "Web and HTML"): the engine is
 loaded when the first page is shown, and without it the kit's own engine

@@ -35,6 +35,8 @@
 ##   retrokit designer [app.nim]      Retro Designer: the app's windows, designed
 ##                                    (built once for this machine, then run)
 ##   retrokit symbolize REPORT [SYMBOLS]  a crash report's frames named
+##   retrokit drive PORT COMMAND...   an app started with RETRO_DRIVE=PORT,
+##                                    driven: click, type, key, wait, tree
 ##
 ## No dependencies but Nim and a C compiler.
 
@@ -42,7 +44,8 @@ import std/[os, osproc, strutils, sequtils, times, hashes]
 when not defined(windows):
   import std/dynlib
 import retroweb, retrostore
-import retroui/[buildjobs, symbolize]
+import retroui/[buildjobs, symbolize, driveclient]
+import std/json
 
 const usage = """
 retrokit -- start, check and build Retro Nim UI apps
@@ -113,6 +116,16 @@ retrokit -- start, check and build Retro Nim UI apps
       logcat) with each frame in its library named: SYMBOLS is the folder
       retroapk kept beside the APK (APP-symbols), or a libmain.so with its
       names; without it, the APP-symbols folders here and in build/
+  retrokit drive PORT COMMAND [ARGS] [--role R] [--nth N] [--json]
+      an app started with RETRO_DRIVE=PORT, driven as a person would, by its
+      controls' names (as the inspector, F12, shows them):
+        tree | info | find NAME | click NAME (or X,Y; --right, --double)
+        press NAME | focus NAME | set NAME VALUE | move NAME
+        scroll NAME LINES | key ctrl+s | type TEXT | quit
+        wait MS | wait --frames N | wait NAME [--gone] [--timeout MS]
+      each answered once the app has done it; exit 1 when it could not.
+      `retrokit drive PORT -` takes one command a line from stdin (words or
+      JSON), stopping at the first that fails
 """
 
 const templates = [
@@ -831,6 +844,61 @@ proc runOptions(args: openArray[string]): seq[string] =
       watching = true
     else: result.add a
 
+proc driveCmd(args: seq[string]): int =
+  ## `retrokit drive PORT COMMAND...`: one command (or one a line from
+  ## stdin, `-`), its answer printed: a node or the tree as lines, or the
+  ## JSON with --json.
+  if args.len < 2:
+    echo usage
+    return 2
+  let port = try: parseInt(args[0]) except ValueError: -1
+  if port notin 1 .. 65535:
+    echo "retrokit: not a port: ", args[0]
+    return 2
+  let raw = "--json" in args
+  let words = args[1 .. ^1].filterIt(it != "--json")
+  var app: DriveClient
+  try: app = driveConnect(port, timeoutMs = 5000)
+  except DriveError as e:
+    echo "retrokit: ", e.msg
+    return 1
+  defer: app.close()
+  proc one(w: seq[string]): int =
+    var req: JsonNode
+    try: req = request(w)
+    except CatchableError as e:
+      echo "retrokit: ", e.msg
+      return 2
+    var r: JsonNode
+    try: r = app.ask(req, timeoutMs = 60000)
+    except DriveError as e:
+      echo "retrokit: ", e.msg
+      return 1
+    if raw: echo r
+    elif not r{"ok"}.getBool: echo "retrokit: ", r{"error"}.getStr
+    elif r.hasKey("nodes"):
+      var depth = newSeq[int]()
+      for n in r["nodes"]:
+        let p = n{"parent"}.getInt(-1)
+        depth.add(if p >= 0 and p < depth.len: depth[p] + 1 else: 0)
+        echo repeat("  ", depth[^1]), describe(n)
+    elif r.hasKey("node"): echo describe(r["node"])
+    elif r.hasKey("title"):
+      echo "\"", r["title"].getStr, "\" ", r["w"].getInt, " x ", r["h"].getInt,
+           " (zoom ", r["zoom"].getInt, (if r["rtl"].getBool: ", right to left" else: ""),
+           "), ", r["frames"].getInt, " frames"
+      if r.hasKey("focused"): echo "focused: ", describe(r["focused"])
+    if r{"ok"}.getBool: 0 else: 1
+  if words == @["-"]:
+    for line in stdin.lines:
+      let l = line.strip
+      if l.len == 0 or l.startsWith("#"): continue
+      let w = if l.startsWith("{"): @[l] else: parseCmdLine(l)
+      let code = one(w)
+      if code != 0: return code
+    0
+  else: one(words)
+
 proc main() =
   let args = commandLineParams()
   if args.len == 0 or args[0] in ["-h", "--help", "help"]:
@@ -887,6 +955,7 @@ proc main() =
   of "model": quit modelCmd(args[1 .. ^1])
   of "update-key": quit updateKeyCmd(args[1 .. ^1])
   of "update-sign": quit updateSignCmd(args[1 .. ^1])
+  of "drive": quit driveCmd(args[1 .. ^1])
   of "symbolize":
     if args.len < 2 or not fileExists(args[1]): quit usage
     var syms = if args.len >= 3: args[2] else: ""

@@ -1,5 +1,96 @@
 # Changes
 
+## 0.36.0
+
+Enter opens a drop-down past a default button, an inspector says why
+each frame ran, a driver uses any app by its controls' names, and 7GUIs
+is among the examples.
+
+- **Enter belongs to the focused control that acts on it** (#9). A
+  default button drawn before a drop-down took Enter, so the gallery's
+  pickers could not be opened from the keyboard. Every control that does
+  something with Enter -- the drop-down, the date picker, the editable
+  drop-down, the grid while it edits or on a list cell, the property
+  grid and its edit, links, color wells, avatars, the floating button,
+  MDI icons, drive tiles, accordion headers, KPI tiles, stat cards, the
+  tag box, the path bar, find's box, a chart's points, a list of
+  suggestions, a banner's close box, the number box's slider -- now says
+  so (`ui.takesEnter = true`), and the default button leaves Enter to it.
+  A control of your own does the same. `tests/test_keys.nim` opens two
+  drop-downs and a date picker past a default button with Enter;
+  `tests/test_hardening.nim` checks the kit's source: every Enter it
+  reads has the claim before it.
+- **The inspector: F12** in a debug build, or `RETRO_INSPECT=1` in any
+  (shown from the start). A panel at the side of the window says how long
+  the frame took and how many ran in the last second, **why it ran** --
+  the input, or the line of the program that asked for it, `ui.redraw =
+  true` or `wakeIn` -- and what the next one waits for; outlines the
+  control under the mouse with its kind, name, value, id, place and
+  states, and the one with the focus; and lists the frame's controls as
+  a screen reader gets them. Shift+F12 moves it to the other side; it
+  takes no click. `retroui/inspect`: `showInspector`, `findNode`,
+  `nodeAt`, `nodeRect`, `nodeLine`; `accessKeep` keeps the last frame's
+  whole tree in `accessLast` (tests find controls by name with it);
+  `whyFrames` and `frameCause` in the core. `ui.redraw` is read and set
+  as before (it is a template now, which notes where it was set).
+- **X11: one frame where there were two.** The inspector's first find:
+  every frame shown woke the program again -- the server's NoExpose
+  answer to the copy of the picture -- so every caret blink and every
+  timer ran two frames. The copies ask for no such answer now, and the
+  wait goes on through the server's own traffic until an event of the
+  program's or the time asked for.
+- **The driver: `RETRO_DRIVE=PORT`.** An app started with it takes
+  commands on 127.0.0.1 -- a JSON object a line, an answer a line -- and
+  does them as a person would: finds a control by its name, clicks it
+  (or a point), moves the pointer, scrolls, presses or focuses it or sets
+  its value as a screen reader does, presses keys (`ctrl+s`), types any
+  text, waits for frames, for a time or for a control to come or go, and
+  closes the window by its close box. An action is answered once the app
+  has taken it and drawn the frames after it. While it waits it draws
+  nothing (`idlePollers`, asked every 50 ms). `retroui/drive`,
+  `retroui/driveclient` (the other end, for tests and tools, without a
+  window), `retrokit drive PORT COMMAND...` (or a command a line from
+  stdin). On Android the start's `--es RETRO_...` extras are the app's
+  environment (`adb shell am start -n ... --es RETRO_DRIVE 7000`). Every
+  app carries it for about 40 KB: it reads its commands itself and
+  speaks to the system's sockets directly (Nim's JSON and `net` would be
+  70 KB); "hello" is 2.1 MB with `retrokit small` (the README said 1.9,
+  from before the last releases).
+- **The apps driven by their controls' names:** `tests/drive/run.sh`
+  clicks every tab of the gallery, Notepad, Retro Task Manager, HR Book
+  and 7GUIs, opens and closes every menu, asks after each step that the
+  app is still there, then closes it by its close box; the systems
+  workflow runs it on Linux, Windows and macOS. `tests/test_drive.nim`
+  drives an app from the same program (Arabic typed, a drop-down opened
+  by Enter past a default button).
+- **7GUIs** (`examples/sevenguis.nim`, `nimble sevenguis`): the seven
+  tasks of the GUI benchmark -- counter, temperature converter, flight
+  booker, timer, CRUD, circle drawer with undo, and a spreadsheet with
+  formulas that reach every cell that reads them, cycles said.
+  `tests/test_sevenguis.nim` uses each task by its controls' names; its
+  picture in examples/README.md was taken by driving it to its last tab.
+  What it asked of the kit: the grid's `editText` (an edit starts from
+  the formula, not the value shown) and its event's `curCol`, and
+  `edit(..., invalid = true)` -- a box drawn red while what is in it is
+  wrong (`InvalidRed`).
+- **The red runs of 0.35.0's systems workflow:**
+  - Android 11 and 15: Retro Photo closed at its first start. The
+    emulator job's new report named it: its opening picture was painted
+    before the window had a size (a width below zero), an index out of
+    range. The splash waits for a window now. **Retro Photo 4.9.9.**
+  - Android 15: the emulator went offline after it, and the six apps
+    after it "did not install": the job waits up to a minute for the
+    emulator before each app, and installs once more.
+  - Windows: a check of the Android glue in `test_hardening` read the
+    file with Windows' line ends (CR LF): read with LF now.
+  - macOS: `test_richedit`'s F7 jumped past "mornin", which the Mac's
+    spell checker knows: the test takes words every checker flags, and
+    the system's own first suggestion.
+- New in the core: `feedEvent` (an event as if from the system),
+  `eventsWaiting`, `idlePollers`.
+- The kit, Retro Gallery and the small examples 0.36.0; Retro 7GUIs 0.36.0
+  among the apps `nimble` builds for every system; Retro Photo 4.9.9.
+
 ## 0.35.0
 
 Lists drawn by hand cost what is on the screen, every example has a page

@@ -1584,6 +1584,7 @@ proc kpiTile*(label, value: string; delta = NaN; deltaNote = "";
   let id = idOf("kpi:" & label)
   var hit = interact(id, r)
   spaceKey(id, hit)
+  if hit.focused: ui.takesEnter = true   # (as a button: before a default button too)
   if hit.focused and keyHit(KeyEnter): hit.clicked = true
   let accent = if color.a == 0: th.select else: color
   tileFrame(r, accent, hovered(r), hit.focused)
@@ -1638,6 +1639,7 @@ proc statCard*(glyph, label, value: string; detail = ""; color = Color();
   let id = idOf("stat:" & label)
   var hit = interact(id, r)
   spaceKey(id, hit)
+  if hit.focused: ui.takesEnter = true   # (as a button: before a default button too)
   if hit.focused and keyHit(KeyEnter): hit.clicked = true
   let accent = if color.a == 0: th.select else: color
   tileFrame(r, accent, hovered(r), hit.focused)

@@ -39,6 +39,7 @@ their parameters in a minor version.
 | `xmpp`, `omemo`, `mime`, `mailimport`, `richedit`, `spell` | Retro Mail and the communicator's parts |
 | `designer` and the designer's file format | Retro Designer is young |
 | the web build (`retroweb` options, `Retro.boot` options) | the page's side grows with the browsers |
+| `inspect`, `drive`, `driveclient` and the driver's commands | new in 0.36: the panel's lines and the commands may grow (an answer only gains fields) |
 
 ## How a change reaches you
 

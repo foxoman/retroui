@@ -20,7 +20,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.35.0"
+const RetroVersion* = "0.36.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -363,7 +363,7 @@ type Ctx* = object
   textFocusWanted*: bool         ## the next text box takes the focus (`focusFirstText`)
   textFocusInDialog*: bool       ## ... the next one in a dialog
   wakeAt*: int                   ## when to run a frame without input (see `wakeIn`)
-  redraw*: bool                  ## run another frame right away (something changed)
+  redrawNow*: bool               ## run another frame right away: read and set it as `ui.redraw`
   redrawCount, lastPresent: int
   spaceDown*: bool               ## Space is holding a button down
   # ids
@@ -424,6 +424,35 @@ var ui*: Ctx
   ## The UI's state for this frame: the window's size (`ui.w`, `ui.h`), the
   ## pointer and keys (`ui.mx`, `ui.my`, `ui.key`, `ui.mods`), the theme,
   ## the time (`ui.now`)... Read it in an app; the kit writes it.
+
+# ---- why a frame runs ---------------------------------------------------------------------------
+#
+# An app at rest runs no frames; one that does, the inspector (F12,
+# RETRO_INSPECT) says why: the input it took, or where the frame before
+# asked for it -- the line of its `ui.redraw = true` or of its `wakeIn`.
+# Nothing is noted unless `whyFrames` (the inspector) is on.
+
+type FrameSite* = tuple[file: string; line: int]
+  ## A line of the program: where a frame was asked for.
+
+var
+  whyFrames*: bool
+    ## Note who asks for frames (the inspector does): `frameCause`.
+  redrawSite*: FrameSite             ## the last `ui.redraw = true` (while `whyFrames`)
+  wakeSite*: FrameSite               ## the `wakeIn` that set the next timer (while `whyFrames`)
+  frameEvents*: int                  ## the input events this frame took
+  frameCause*: string                ## why this frame ran (while `whyFrames`)
+
+template redraw*(u: Ctx): bool = u.redrawNow
+  ## Another frame is wanted right away (something changed).
+
+template `redraw=`*(u: var Ctx; v: bool) =
+  ## Ask for another frame right away (`ui.redraw = true`), or not; while
+  ## the inspector looks, where it was asked is noted (`redrawSite`).
+  u.redrawNow = v
+  if whyFrames and u.redrawNow:
+    const at = instantiationInfo(-1)
+    redrawSite = (at.filename, at.line)
 
 ui.theme = Classic
 ui.m = DesktopMetrics
@@ -682,10 +711,17 @@ proc keyHit*(k: KeyCode): bool =
     true
   else: false
 
-proc wakeIn*(ms: int) =
-  ## Run another frame after `ms` milliseconds even without input.
+proc wakeInFrom*(ms: int; file: string; line: int) =
+  ## `wakeIn`, told where it was called (for the inspector).
   let t = ui.now + max(1, ms)
-  if ui.wakeAt == 0 or t < ui.wakeAt: ui.wakeAt = t
+  if ui.wakeAt == 0 or t <= ui.wakeAt:
+    ui.wakeAt = t
+    if whyFrames: wakeSite = (file, line)
+
+template wakeIn*(ms: int) =
+  ## Run another frame after `ms` milliseconds even without input.
+  const at = instantiationInfo(-1)
+  wakeInFrom(ms, at.filename, at.line)
 
 proc wakeInShown*(r: Rect; ms: int) =
   ## `wakeIn` for what changes by itself where it is drawn (an animation, a
@@ -1009,6 +1045,11 @@ var
     ## a value asked for: the widget `id` takes it (`accessValueFor`)
   accessForced = getEnv("RETRO_ACCESS") == "1"
   accessStarted = false
+  accessKeep*: bool
+    ## Build the tree every frame and keep the last whole one in
+    ## `accessLast` (the inspector, the driver), with or without a reader.
+  accessLast*: seq[AccessNode]
+    ## The last frame's whole tree, while `accessKeep`.
 
 proc plainName*(s: string): string =
   ## A label as it is read: no '&' of a mnemonic, no tab, one line.
@@ -1179,7 +1220,7 @@ proc accessFrameStart() =
   if not accessStarted and ui.running:
     accessStarted = true
     discard accessStart()
-  accessOn = accessListening or accessForced
+  accessOn = accessListening or accessForced or accessKeep
   if not accessOn: return
   # (one press and one value a frame: the rest wait for the next)
   var later: seq[AccessRequest]
@@ -1238,6 +1279,8 @@ proc accessFrameEnd() =
     mix(cast[uint64](n.now)); mix(n.caret.uint64); mix(n.selA.uint64); mix(n.selB.uint64)
     for c in n.name: mix(ord(c).uint64)
     for c in n.value: mix(ord(c).uint64)
+  if accessKeep: accessLast = accessTree
+  if not (accessListening or accessForced): return
   if h != accessSentHash or accessFocusAt != accessSentFocus:
     accessSentHash = h
     accessSentFocus = accessFocusAt
@@ -2447,6 +2490,7 @@ proc applyEvent(e: Event): bool =
   ## An event into `ui` (the window's whose frame runs); true when the frame
   ## starts with it -- a press, a key, a close -- and the events after it
   ## wait for the next.
+  inc frameEvents
   case e.kind
   of MouseMoveEvent:
     if e.hasMods: ui.mods = e.mods
@@ -2584,16 +2628,51 @@ proc applyEvent(e: Event): bool =
 
 proc routeToWindow(e: Event) {.nimcall.}
 
+var idlePollers*: seq[proc (): bool {.nimcall.}]
+  ## Asked every 50 ms while the app waits for input: true wakes it for a
+  ## frame. For what comes from outside the system's input -- a line on a
+  ## socket (the driver, `retroui/drive`) -- with no frame drawn for nothing
+  ## while it waits.
+var polledAwake: bool             # (this frame was woken by a poller)
+
+proc feedEvent*(e: Event) =
+  ## An event as if it came from the system: taken by the next frames, after
+  ## those already waiting (the driver's clicks and keys, `retroui/drive`).
+  deferred.add e
+
+proc eventsWaiting*(): int = deferred.len
+  ## The events fed (`feedEvent`) and not taken yet.
+
+proc takeEvent(e: Event): bool =
+  if e.window != 0:
+    # (another window's: kept for its frame, which runs in this one)
+    routeToWindow(e)
+    return false
+  applyEvent(e)
+
 proc pump(waitMs: int) =
   var e: Event
   var t = waitMs
+  polledAwake = false
+  if idlePollers.len > 0 and t != 0:
+    # (the wait in slices, the pollers asked between them; a driver that
+    # does not wait -- a test's, a headless one -- is asked once, and so is
+    # the last slice of a few ms)
+    let until = if t < 0: -1 else: getTicks() + t
+    while true:
+      let slice = if until < 0: 50 else: min(50, until - getTicks())
+      if slice <= 0: break
+      let t0 = getMonoTime()
+      if nextEvent(e, slice):
+        if takeEvent(e): return
+        break
+      for p in idlePollers:
+        if p(): polledAwake = true
+      if polledAwake or slice < 4 or (getMonoTime() - t0).inMilliseconds < slice div 2: break
+    t = 0
   while nextEvent(e, t):
     t = 0
-    if e.window != 0:
-      # (another window's: kept for its frame, which runs in this one)
-      routeToWindow(e)
-      continue
-    if applyEvent(e): break
+    if takeEvent(e): break
 
 # ---- long work: a box with an animation, the events kept read ---------------------------------------
 
@@ -3406,7 +3485,18 @@ proc beginFrame*(): bool =
     elif ui.wakeAt > 0 and not ui.paused: max(1, ui.wakeAt - getTicks())
     else: -1
   ui.redraw = false
+  frameEvents = 0
   pump(waitMs)
+  if whyFrames:
+    frameCause =
+      if frameEvents > 0: $frameEvents & (if frameEvents == 1: " input event" else: " input events")
+      elif busy and ui.force: "drawn anew (the window, the theme)"
+      elif busy: "ui.redraw = true at " & redrawSite.file & ":" & $redrawSite.line
+      elif polledAwake: "a poller (idlePollers): something came from outside"
+      elif waitMs >= 0 and wakeSite.file.len > 0: "wakeIn at " & wakeSite.file & ":" & $wakeSite.line
+      elif waitMs >= 0: "wakeIn (asked before the inspector was shown)"
+      else: "the system (the window shown, sized or put back)"
+    redrawSite = ("", 0)
   if ui.rpressAgain:
     # (a right click that closed an open menu: the next one opens where it was)
     ui.rpressAgain = false

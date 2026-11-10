@@ -847,21 +847,25 @@ if spellAvailable("en-US"):
     run()
 
   block f7:
-    doc = richDoc("Good mornin all\nthe meating is at nine")
+    # (words every system's checker takes as wrong: a Mac's knows "mornin";
+    # its first suggestion is the system's own)
+    doc = richDoc("Good mornnig all\nthe meatting is at nine")
     doc.spell = true
     run()
     clickAt(edRect.x + 2 + dp(6) + 1, edRect.y + 2 + dp(6) + FontH div 2)
     key(KeyF7)
     run()
-    doAssert richSelectedText(doc) == "mornin", richSelectedText(doc)
+    doAssert richSelectedText(doc) == "mornnig", richSelectedText(doc)
     doAssert ui.popup != 0, "its menu is open"
+    let first = spellSuggest("mornnig")
     key(KeyDown)
     key(KeyEnter)
     run()
-    doAssert doc.texts[0] == "Good morning all", $doc.texts
+    doAssert first.len > 0 and doc.texts[0] == "Good " & first[0] & " all",
+             $doc.texts & " " & $first
     key(KeyF7)
     run()
-    doAssert richSelectedText(doc) == "meating"
+    doAssert richSelectedText(doc) == "meatting", richSelectedText(doc)
     key(KeyEsc)
     run()
     doAssert ui.popup == 0

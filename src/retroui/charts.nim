@@ -2029,6 +2029,7 @@ proc chartImpl(kind: ChartKind; labels: openArray[string]; ser: openArray[Series
                  else: catCount(labels, ser))
   if not exporting():
     if plotHit.focused and canInput():
+      ui.takesEnter = true                # (Enter picks the point: #9)
       var c = st.caret
       case ui.key
       of KeyLeft, KeyUp: c = max(0, c - 1)

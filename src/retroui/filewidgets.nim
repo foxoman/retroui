@@ -1972,6 +1972,7 @@ proc pathBar*(path: string; key = ""; editNow = false; w = 0): PathBarEvent =
       es.caret = st.buf.len
       state(editId) = es
     if ui.focus == editId and canInput():
+      ui.takesEnter = true                # (Enter goes there: #9)
       # Enter on what is typed, or on a suggestion picked with Down
       if keyHit(KeyEnter) or (changed and ui.key == KeyEnter):
         let p = st.buf.strip.expandTilde
@@ -2461,6 +2462,7 @@ proc placeTile(name, path, glyph: string; tint: Color): bool =
     accessNode(arButton, name, id = id, r = r,
                help = (if sp.total > 0: sizeText(sp.free) & " free of " & sizeText(sp.total) else: path))
   ui.lastRect = r
+  if hit.focused: ui.takesEnter = true
   hit.clicked or (hit.focused and keyHit(KeyEnter))
 
 proc placesView*(favorites: openArray[string] = []; height = -1; key = ""): string =

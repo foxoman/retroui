@@ -670,6 +670,8 @@ proc propertyGrid*(props: var seq[Prop]; sel: var int; height = -1;
               ui.focus = editId
             else: discard
   # keys
+  if hit.focused and sel in 0 ..< props.len and not props[sel].readOnly:
+    ui.takesEnter = true           # (Enter edits it or opens its choices: #9)
   if hit.focused and canInput() and props.len > 0:
     var k = lineOfSel
     if ui.key == KeyDown and AltPressed in ui.mods and sel in 0 ..< props.len and
@@ -877,6 +879,7 @@ proc propertyGrid*(props: var seq[Prop]; sel: var int; height = -1;
               props[i].color = c
               result = i
           else: discard
+        if ui.focus == editId: ui.takesEnter = true    # (Enter ends the edit: #9)
         if canInput() and (keyHit(KeyEnter) or keyHit(KeyEsc)):
           ui.focus = id
           propBuf.del editId

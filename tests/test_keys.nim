@@ -160,6 +160,48 @@ block pickersOpen:
   run()
   doAssert city == "Muscat", "Enter opens a combo box's whole list: " & city
 
+block enterPastDefaultButton:
+  # (#9's last comment: Control Gallery > Controls > Pickers -- Language and
+  # Colors opened with F4 and Alt+Down, not Enter: the page's default OK
+  # button, drawn before them, took Enter, as a list did not say Enter was
+  # its own. Every control that acts on Enter claims it while focused.)
+  let langs = @["English", "Arabic", "French"]
+  var lang, scheme = 0
+  var okClicks = 0
+  var d = date(2026, 11, 10)
+  var lr, sr, dr: Rect
+  view = proc () =
+    if button("OK", isDefault = true): inc okClicks
+    combo(langs, lang)
+    lr = ui.lastRect
+    combo(["Classic", "Gray dialogs", "Dark"], scheme)
+    sr = ui.lastRect
+    datePicker(d)
+    dr = ui.lastRect
+  run()
+  key(KeyEnter)
+  run()
+  doAssert okClicks == 1, "with nothing focused that takes it, Enter clicks the default button"
+  for (r, what) in [(lr, "Language"), (sr, "Colors")]:
+    click(r)                                  # (open, then closed again)
+    key(KeyEsc)
+    run()
+    let before = okClicks
+    key(KeyEnter)
+    run()
+    doAssert ui.popup != 0, what & ": Enter opens the list past a default button"
+    doAssert okClicks == before, what & ": the default button is not clicked"
+    key(KeyEsc)
+    run()
+  click(rect(dr.x, dr.y, dr.w - 30, dr.h))
+  run()
+  let before = okClicks
+  key(KeyEnter)
+  run()
+  doAssert ui.popup != 0 and okClicks == before, "a date's calendar opens past a default button"
+  key(KeyEsc)
+  run()
+
 block sameKeysEverywhere:
   # (#9's comments: every drop-down opens with F4, Alt+Down and Enter, and
   # F4, Alt+Down, Alt+Up close it -- a grid's drop-down cells, the menu

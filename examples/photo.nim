@@ -27,7 +27,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 
 const
   AppName = "Retro Photo"
-  AppVersion = "4.9.8"
+  AppVersion = "4.9.9"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
