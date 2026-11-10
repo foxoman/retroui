@@ -484,6 +484,15 @@ proc XCreateGC(dpy: pointer; d: XID; mask: culong; values: pointer): pointer
   {.cdecl, dynlib: libX11, importc.}
 proc XFreeGC(dpy: pointer; gc: pointer): cint
   {.cdecl, dynlib: libX11, importc, used.}
+proc XSetGraphicsExposures(dpy: pointer; gc: pointer; on: cint): cint
+  {.cdecl, dynlib: libX11, importc.}
+
+proc copyGC(dpy: pointer; d: XID): pointer =
+  ## A GC for copying pictures: without the NoExpose event the server sends
+  ## after each copy -- an event of no use here that woke the program for a
+  ## frame (two frames for every one: every caret blink, every timer).
+  result = XCreateGC(dpy, d, 0, nil)
+  if result != nil: discard XSetGraphicsExposures(dpy, result, 0)
 proc XSetForeground(dpy: pointer; gc: pointer; pixel: culong): cint
   {.cdecl, dynlib: libX11, importc.}
 proc XFillRectangle(dpy: pointer; d: XID; gc: pointer;
@@ -2968,7 +2977,7 @@ proc x11CreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   if startupId.len > 0:
     sendStartupInfo("remove: ID=" & snQuote(startupId))
 
-  gGC = XCreateGC(gDisplay, gWindow, 0, nil)
+  gGC = copyGC(gDisplay, gWindow)
 
   # Wait for the first Expose/ConfigureNotify to get actual size
   gWidth = layout.width.cint
@@ -3253,7 +3262,7 @@ proc x11BlendRGBA(pixels: ptr UncheckedArray[uint32]; w, h: int;
   let pixmap = XCreatePixmap(gDisplay, gWindow, w.cuint, h.cuint, 32)
   if pixmap == None: return false
   defer: discard XFreePixmap(gDisplay, pixmap)
-  let gc = XCreateGC(gDisplay, pixmap, 0, nil)
+  let gc = copyGC(gDisplay, pixmap)
   if gc == nil: return false
   defer: discard XFreeGC(gDisplay, gc)
   let image = XCreateImage(gDisplay, gVisual, 32, ZPixmap, 0,
@@ -3736,6 +3745,8 @@ proc x11PollEvent(e: var input.Event; flags: set[InputFlag]): bool =
     return true
   return false
 
+proc x11GetTicks(): int
+
 proc x11WaitEvent(e: var input.Event; timeoutMs: int;
                   flags: set[InputFlag]): bool =
   if eventQueue.len > 0:
@@ -3744,33 +3755,40 @@ proc x11WaitEvent(e: var input.Event; timeoutMs: int;
     return true
   if x11PollEvent(e, flags): return true
 
-  # Block on the X11 connection fd using select() with timeout.
-  let xfd = ConnectionNumber(gDisplay)
-  var fds {.noinit.}: XFdSet
-  xFdZero(addr fds)
-  xFdSet(xfd, addr fds)
-  var top = xfd
-  if gAtspi:
-    # (and the accessibility buses: a screen reader asking wakes it)
-    for fd in atspiFds():
-      xFdSet(fd, addr fds)
-      top = max(top, fd)
+  # Block on the X11 connection fd using select() with timeout -- again
+  # while what comes is the server's own traffic (a property, a selection
+  # served) and no event of the program's, until the time is up: a wake-up
+  # for nothing would cost the program a frame. (A screen reader's request
+  # comes as an event: `atspiWake`.)
+  let t0 = x11GetTicks()
+  while true:
+    let xfd = ConnectionNumber(gDisplay)
+    var fds {.noinit.}: XFdSet
+    xFdZero(addr fds)
+    xFdSet(xfd, addr fds)
+    var top = xfd
+    if gAtspi:
+      # (and the accessibility buses: a screen reader asking wakes it)
+      for fd in atspiFds():
+        xFdSet(fd, addr fds)
+        top = max(top, fd)
 
-  if timeoutMs < 0:
-    discard xSelect(top + 1, addr fds, nil, nil, nil)
-  else:
-    var tv = XTimeval(tv_sec: (timeoutMs div 1000).clong,
-                      tv_usec: ((timeoutMs mod 1000) * 1000).clong)
-    discard xSelect(top + 1, addr fds, nil, nil, addr tv)
+    if timeoutMs < 0:
+      discard xSelect(top + 1, addr fds, nil, nil, nil)
+    else:
+      let left = max(0, timeoutMs - (x11GetTicks() - t0))
+      var tv = XTimeval(tv_sec: (left div 1000).clong,
+                        tv_usec: ((left mod 1000) * 1000).clong)
+      discard xSelect(top + 1, addr fds, nil, nil, addr tv)
 
-  # select() returned -- drain whatever arrived
-  if gAtspi: atspiProcess()
-  drainXEvents()
-  if eventQueue.len > 0:
-    e = eventQueue[0]
-    eventQueue.delete(0)
-    return true
-  return false
+    # select() returned -- drain whatever arrived
+    if gAtspi: atspiProcess()
+    drainXEvents()
+    if eventQueue.len > 0:
+      e = eventQueue[0]
+      eventQueue.delete(0)
+      return true
+    if timeoutMs >= 0 and x11GetTicks() - t0 >= timeoutMs: return false
 
 proc takeClipProperty(kind: var Atom): string =
   ## What the clipboard's owner put on the window (`gClipProperty`), all of
@@ -4222,7 +4240,7 @@ proc attachSiwinSurface*(display: pointer; window: uint64; width, height: int) =
     gVisual = XDefaultVisual(display, gScreen)
     gColormap = XDefaultColormap(display, gScreen)
     gDepth = XDefaultDepth(display, gScreen)
-    gGC = XCreateGC(display, gWindow, 0, nil)
+    gGC = copyGC(display, gWindow)
   if gWidth != width.cint or gHeight != height.cint or gBackPixmap == None:
     let previousPixmap = gBackPixmap
     let previousDraw = gXftDraw
@@ -4234,10 +4252,10 @@ proc attachSiwinSurface*(display: pointer; window: uint64; width, height: int) =
     gHeight = height.cint
     recreateBackBuffer()
     if previousPixmap != None:
-      let copyGC = XCreateGC(gDisplay, gBackPixmap, 0, nil)
-      discard XCopyArea(gDisplay, previousPixmap, gBackPixmap, copyGC, 0, 0,
+      let pixGC = copyGC(gDisplay, gBackPixmap)
+      discard XCopyArea(gDisplay, previousPixmap, gBackPixmap, pixGC, 0, 0,
         min(previousWidth, gWidth).cuint, min(previousHeight, gHeight).cuint, 0, 0)
-      discard XFreeGC(gDisplay, copyGC)
+      discard XFreeGC(gDisplay, pixGC)
       if previousDraw != nil: XftDrawDestroy(previousDraw)
       discard XFreePixmap(gDisplay, previousPixmap)
 
