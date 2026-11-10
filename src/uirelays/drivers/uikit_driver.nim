@@ -6,6 +6,7 @@
 # SDK's clang, and put it in an .app bundle (see README.md).
 
 import ../input
+import ../services
 import surface_driver
 
 {.compile("uikit_backend.m", "-fobjc-arc").}
@@ -58,10 +59,24 @@ proc hidKey(code: int32): KeyCode =
 
 proc initUIKitAccess*()
 
+proc urComposeTake(caret: ptr cint): cstring {.importc: "uirelays_compose_take", cdecl.}
+proc urTextCaret(x, y, w, h: cint) {.importc: "uirelays_text_caret", cdecl.}
+proc cFreeText(p: pointer) {.importc: "free", header: "<stdlib.h>".}
+
 proc initUIKitDriver*() =
+  ## Points the relays at iOS (the surface driver's, with its keys).
   initSurfaceDriver(hidKey)
   initUIKitAccess()
-  ## Points the relays at iOS (the surface driver's, with its keys).
+  # what an input method composes (UITextInput), and where the box's caret
+  # is for its suggestions
+  composeTake = proc (caret: var int): string =
+    var c: cint
+    let p = urComposeTake(addr c)
+    caret = int(c)
+    if p != nil:
+      result = $p
+      cFreeText(p)
+  textCaretRelay = proc (x, y, w, h: int) = urTextCaret(x.cint, y.cint, w.cint, h.cint)
 
 # ---- screen readers (VoiceOver) ----
 

@@ -97,6 +97,8 @@ type
     pos*, count*: int          ## an item's place in its list (1-based) and how many there are
     level*: int                ## a tree item's depth (1: at the top)
     key*: string               ## its keyboard shortcut ("Alt+F", "Ctrl+S")
+    letter*: char              ## the letter underlined in its label, lower case ('\0': none):
+                               ## Alt and it press it, in a menu the letter alone
 
   AccessRequest* = object
     ## What a screen reader asked, for the next frame to do.
