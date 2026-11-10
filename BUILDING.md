@@ -136,6 +136,14 @@ adb forward tcp:7000 tcp:7000
 retrokit drive 7000 tree
 ```
 
+The kit's own tour of its apps (`sh tests/drive/run.sh`; `TOUR_STRICT=1`:
+a finding fails it, as on the CI's Linux job) builds them and drives each
+with the keyboard alone; `build/drive/tour --touch` as on a touch screen
+(`RETRO_TOUCH=1`), and on a phone `build/drive/tour --port 7000 --touch
+--keyboard` checks the on-screen keyboard too. Retro Designer's File >
+Export Driver Test writes a window's test: `retrokit drive 7000 - <
+app.drive`.
+
 **The system's web view needs nothing at build time either**
 (`webView(url, engine = weSystem)`, README "Web and HTML"): the engine is
 loaded when the first page is shown, and without it the kit's own engine

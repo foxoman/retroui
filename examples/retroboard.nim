@@ -22,7 +22,7 @@ import retroui/[board, freehand]
 
 const
   AppName = "Retro Board"
-  BoardVersion = "1.3.8"
+  BoardVersion = "1.3.9"
   iconPng = staticRead("assets/board-icon.png")
 
 type
@@ -2001,27 +2001,34 @@ proc dashIcon(r: Rect; d: BoardDash) =
     strokeScr([(x0 - 2, y - 1.5), (x1 + 1, y - 0.5)], 1.3, th.text)
     strokeScr([(x0 + 1, y + 1.5), (x1 + 3, y + 0.8)], 1.3, th.text)
 
+var samples: array[BoardFont, tuple[made: bool; d: Drawing; x0, y0, x1, y1: float]]
+  ## (the Text panel's samples, set once: each frame only draws them)
+
 proc fontSample(r: Rect; f: BoardFont) =
   ## "Aa" in the board's font.
-  var t = bd.textShape(0, 0, if f == bfnRuqaa: "خط" else: "Aa")
-  t.id = -(100 + ord(f))
-  t.font = f
-  t.color = bcBlack
-  t.size = bsS
-  t.ver = 1
-  t.fitText()
-  let d = bd.drawingOf(t)
-  var x0, y0 = 1e9
-  var x1, y1 = -1e9
-  for piece in d.pieces:
-    for c in piece.contours:
-      for p in c:
-        x0 = min(x0, p[0]); x1 = max(x1, p[0]); y0 = min(y0, p[1]); y1 = max(y1, p[1])
+  if not samples[f].made:
+    var t = bd.textShape(0, 0, if f == bfnRuqaa: "خط" else: "Aa")
+    t.id = -(100 + ord(f))
+    t.font = f
+    t.color = bcBlack
+    t.size = bsS
+    t.ver = 1
+    t.fitText()
+    let d = bd.drawingOf(t)
+    var x0, y0 = 1e9
+    var x1, y1 = -1e9
+    for piece in d.pieces:
+      for c in piece.contours:
+        for p in c:
+          x0 = min(x0, p[0]); x1 = max(x1, p[0]); y0 = min(y0, p[1]); y1 = max(y1, p[1])
+    samples[f] = (true, d, x0, y0, x1, y1)
+  let sm = addr samples[f]              # (not a copy of it every frame)
+  let (x0, y0, x1, y1) = (sm.x0, sm.y0, sm.x1, sm.y1)
   if x1 <= x0: return
   let k = min(r.w.float * 0.62 / (x1 - x0), r.h.float * 0.5 / (y1 - y0))
   let ox = r.x.float + (r.w.float - (x1 - x0) * k) / 2 - x0 * k
   let oy = r.y.float + (r.h.float - (y1 - y0) * k) / 2 - y0 * k
-  for piece in d.pieces:
+  for piece in sm.d.pieces:
     fillContours(piece.contours, th.text, ox, oy, k)
 
 proc headName(h: Arrowhead): string = capitalizeAscii($h)
@@ -2557,7 +2564,7 @@ proc infoPanel() =
   paragraph "Drawings kept " & mbs(bd.drawingBytes) & ", steps to undo " & mbs(bd.historyBytes) & ", pictures " &
             mbs(picBytes)
   if mem.device > 0: paragraph "Free on the device: " & mbs(int(mem.free))
-  if button("&Free Memory"): freeMemory()
+  if button("Free &Memory"): freeMemory()
 
 const panelList = [("color", "Color", nfPalette), ("stroke", "Stroke", nfPencil), ("fill", "Fill", nfPaintBrush),
                    ("text", "Text", nfFont), ("arrow", "Arrow", nfArrowRight), ("shape", "Shapes", nfCube),
@@ -3200,7 +3207,7 @@ proc dialogs() =
               " -- pictures: " & $bd.assets.len & ", " & mbs(picBytes)
     if mem.device > 0: paragraph "Device: " & mbs(int(mem.free)) & " free of " & mbs(int(mem.device))
     space 4
-    case buttonRow(["&Free Memory", "Close"])
+    case buttonRow(["Free &Memory", "Close"])
     of 1: freeMemory()
     of 2: statsDlg = false
     else: discard
@@ -3225,7 +3232,7 @@ proc dialogs() =
       radio("P&DF", exportFormat, 2)
     label "What:"
     row:
-      radio("The &page", exportWhat, 0)
+      radio("The pa&ge", exportWhat, 0)
       radio("The &selection", exportWhat, 1, enabled = sel.len > 0)
     if exportFormat == 0:
       label "Scale:"
@@ -3234,7 +3241,7 @@ proc dialogs() =
         radio("&2x", exportScale, 1)
         radio("&3x", exportScale, 2)
     checkbox("&Background", exportBg)
-    checkbox("&Dark", exportDark)
+    checkbox("Dar&k", exportDark)
     row:
       label "Padding:"
       discard spin(exportPad, 0, 400, w = dp(80), step = 8)
@@ -3305,7 +3312,10 @@ proc dialogs() =
             "on as many pages as you like.",
             "Made with Retro Nim UI " & RetroVersion & " (retroui/board, retroui/freehand)."],
            tagline = "Draw, sketch and think together", iconPng = iconPng,
-           whatsNew = ["1.3.8: Tab goes through the panels' controls (on the board it still hides the " &
+           whatsNew = ["1.3.9: it opens in a quarter of the time (its handwriting fonts unpacked while the " &
+                       "window opens, the Text panel's samples made once); F6 goes from the board to the " &
+                       "panels and the menu bar",
+                       "1.3.8: Tab goes through the panels' controls (on the board it still hides the " &
                        "panels; a click on the board gives it the keys again); Thai and Vietnamese text",
                        "1.3.7: covered by another window it draws nothing; the caret rests after 10 seconds " &
                        "untouched; on Android, opened again it comes back as it was",
@@ -3450,6 +3460,7 @@ proc boardFrame() =
     writeAutosave()
 
 proc main() =
+  useHandFonts()                # (the hands unpacked on a thread while the window opens)
   windowIcon = windowIconFromPng(iconPng)
   reportedVersion = BoardVersion
   startApp(AppName, 1100, 720)

@@ -553,7 +553,7 @@ proc peopleView() =
       label "Contact", bold = true
       form dp(90):
         field "&Name:": edit pName
-        field "&E-mail:": edit pMail
+        field "E-ma&il:": edit pMail
         field "&Phone:": edit pPhone
         field "&Company:": edit pCompany
       label "Notes:"
@@ -563,7 +563,7 @@ proc peopleView() =
           store0.saveContact(pMail, pName, pPhone, pCompany, pNotes)
           peopleVer = -1
           status = "Saved " & pMail
-        if button("&New Message", pxMail, enabled = '@' in pMail):
+        if button("New Mess&age", pxMail, enabled = '@' in pMail):
           openCompose("new", to = (if pName.len > 0: pName & " <" & pMail & ">" else: pMail))
         if button("Ne&w Contact"):
           pName = ""

@@ -11,7 +11,7 @@
 ## let px = strokePreview(presets[0], 160, 40)       # (ARGB, w x h)
 ## ```
 
-import std/[math, random, json, strutils, base64]
+import std/[math, random, json, strutils, base64, algorithm]
 import photo, photopaint
 from codec import unbase64
 
@@ -54,7 +54,10 @@ proc blob(px: var seq[float]; n: int; cx, cy, r, v: float; soft = 0.6) =
       px[y * n + x] = max(px[y * n + x], a * v)
 
 proc polygon(px: var seq[float]; n: int; pts: openArray[(float, float)]; v = 1.0) =
-  ## A filled polygon (4 samples a pixel: smooth edges).
+  ## A filled polygon (4 samples a pixel: smooth edges), a row of samples at
+  ## a time: where its edges cross the row, sorted, tell which samples are
+  ## inside (an odd number of crossings after them) -- what testing each
+  ## sample against every edge tells, thirty times quicker.
   var x0, y0 = n
   var x1, y1 = 0
   for (px0, py0) in pts:
@@ -62,21 +65,33 @@ proc polygon(px: var seq[float]; n: int; pts: openArray[(float, float)]; v = 1.0
     y0 = min(y0, int(floor(py0)))
     x1 = max(x1, int(ceil(px0)))
     y1 = max(y1, int(ceil(py0)))
+  let xa = max(0, x0)
+  let xb = min(n - 1, x1)
+  if xb < xa: return
+  var hits = newSeq[int](xb - xa + 1)
+  var xs: seq[float]
   for y in max(0, y0) .. min(n - 1, y1):
-    for x in max(0, x0) .. min(n - 1, x1):
-      var hits = 0
-      for (sx, sy) in [(0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)]:
-        let px0 = x.float + sx
-        let py0 = y.float + sy
-        var inside = false
-        var j = pts.high
-        for i in 0 .. pts.high:
-          let (xi, yi) = pts[i]
-          let (xj, yj) = pts[j]
-          if (yi > py0) != (yj > py0) and px0 < (xj - xi) * (py0 - yi) / (yj - yi) + xi: inside = not inside
-          j = i
-        if inside: inc hits
-      if hits > 0: px[y * n + x] = max(px[y * n + x], v * hits.float / 4)
+    for h in hits.mitems: h = 0
+    for sy in [0.25, 0.75]:
+      let py0 = y.float + sy
+      xs.setLen(0)
+      var j = pts.high
+      for i in 0 .. pts.high:
+        let (xi, yi) = pts[i]
+        let (xj, yj) = pts[j]
+        if (yi > py0) != (yj > py0): xs.add (xj - xi) * (py0 - yi) / (yj - yi) + xi
+        j = i
+      if xs.len == 0: continue
+      xs.sort()
+      var k = 0
+      for x in xa .. xb:
+        for sx in [0.25, 0.75]:
+          let px0 = x.float + sx
+          while k < xs.len and xs[k] <= px0: inc k
+          if ((xs.len - k) and 1) == 1: inc hits[x - xa]
+    for x in xa .. xb:
+      let h = hits[x - xa]
+      if h > 0: px[y * n + x] = max(px[y * n + x], v * h.float / 4)
 
 proc noiseField(n: int; rng: var Rand; cell: int): seq[float] =
   ## Smooth value noise, `cell` pixels a lump.

@@ -456,7 +456,7 @@ proc psMenus() =
       ci("&Load Selection...", "Load Selection", enabled = some and d.alphas.len > 0)
       ci("&Save Selection...", "Save Selection", enabled = sel)
       ci("Make &Work Path", enabled = sel)
-    psMenu "Fi&lter":
+    psMenu "Filte&r":
       ci("&Last Filter" & (if lastFilter.set: " (" & lastFilter.name & ")" else: ""), "Last Filter",
          enabled = edits and lastFilter.set)
       sep()

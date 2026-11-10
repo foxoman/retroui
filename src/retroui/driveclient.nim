@@ -100,8 +100,9 @@ proc request*(words: openArray[string]): JsonNode =
   ## A command from words, as `retrokit drive` takes them:
   ##
   ## - `tree`, `info`, `quit`
-  ## - `find NAME`, `press NAME`, `focus NAME`
-  ## - `click NAME` or `click X,Y` (`--right`, `--double`, `--finger`)
+  ## - `find NAME`, `focused NAME` (it has the focus), `press NAME`, `focus NAME`
+  ## - `click NAME` or `click X,Y` (`--right`, `--double`, `--finger`,
+  ##   `--hold MS`: held down, a finger's long press)
   ## - `move NAME`, `scroll NAME LINES` (up > 0)
   ## - `set NAME VALUE`, `key ctrl+s`, `type TEXT`
   ## - `wait MS`, `wait --frames N`, `wait NAME [--gone] [--timeout MS]`
@@ -128,7 +129,7 @@ proc request*(words: openArray[string]): JsonNode =
       of "double": result["clicks"] = %2
       of "finger": result["finger"] = %true
       of "gone": result["gone"] = %true
-      of "role", "nth", "timeout", "frames", "index":
+      of "role", "nth", "timeout", "frames", "index", "hold":
         if v.len == 0 and i + 1 < words.len:
           inc i
           v = words[i]

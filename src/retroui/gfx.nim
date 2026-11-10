@@ -492,6 +492,9 @@ proc setTextSize*(em: float) =
   for i in 0 .. 255:
     textLut[i] = uint8(round(pow(i.float / 255, 1 / 1.2) * 255))
 
+# (the bold of the UI and the icons unpacked on a thread meanwhile: the
+# first frame finds them there)
+unpackFacesSoon([styled(uiBase(), true, false), fIcons])
 setTextSize(12)
 
 proc textSize*(): float = textEm

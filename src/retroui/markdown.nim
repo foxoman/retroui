@@ -1417,6 +1417,18 @@ proc mdPlainText*(md: string): string =
     if result.len > 0: result.add '\n'
     result.add o
 
+
+proc mdNode(md: string; id: Id; r: Rect) =
+  ## (a document's node for screen readers: read by the label before it,
+  ## else by its first heading)
+  var title = ""
+  for line in md.splitLines:
+    if line.startsWith("#"):
+      title = line.strip(chars = {'#', ' '})
+      break
+  accessNameOr(if title.len > 0: title else: tr("Document"))
+  accessNode(arTextArea, value = mdPlainText(md), id = id, r = r, states = {asReadOnly, asMultiLine})
+
 proc markdown*(md: string; baseDir = ""; w = 0): MdEvent {.discardable.} =
   ## Markdown flowing in the layout at its natural height (in a page that
   ## scrolls, a card, a dialog). See `markdownView` for a framed, scrolling
@@ -1428,8 +1440,7 @@ proc markdown*(md: string; baseDir = ""; w = 0): MdEvent {.discardable.} =
   let id = idOf("md" & $hash(md))
   let hit = interact(id, r, focusable = false)
   drawLayout(lay, r.x, r.y, intersect(r, clipRect()), baseDir, hit.clicked, result)
-  if accessOn:
-    accessNode(arTextArea, value = mdPlainText(md), id = id, r = r, states = {asReadOnly, asMultiLine})
+  if accessOn: mdNode(md, id, r)
   ui.lastId = id
   ui.lastRect = r
 
@@ -1488,8 +1499,7 @@ proc markdownView*(md: string; height = -1; w = 0; baseDir = "";
     st.scrollY = y
     ui.redraw = true
   state(id) = st
-  if accessOn:
-    accessNode(arTextArea, value = mdPlainText(md), id = id, r = r, states = {asReadOnly, asMultiLine})
+  if accessOn: mdNode(md, id, r)
   ui.lastId = id
   ui.lastRect = r
 

@@ -11,6 +11,7 @@
 
 import std/[tables, sets, os, math, strutils, monotimes, times]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
+from std/algorithm import sort
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 import uirelays
 import uirelays/services
@@ -21,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.37.0"
+const RetroVersion* = "0.38.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -359,6 +360,15 @@ type Ctx* = object
   focusByKeys*: bool             ## the focus came from the keyboard (Tab, arrows), not a click
   tabOrder: seq[Id]
   stopsBefore: seq[Id]           # the last frame's stops of Tab
+  stopArea: seq[Id]              # each stop's area (F6), beside `tabOrder`
+  stopIndex: seq[int16]          # each stop's `tabIndex` (0: none), beside `tabOrder`
+  nextTabIndex: int              # the next stop's (`tabIndex`)
+  anyTabIndex: bool              # ... some stop has one this frame
+  notFirst: seq[Id]              # stops the focus does not start at (a tool bar's)
+  areaNow: Id                    # the area being drawn (0: the window's own)
+  areaStack: seq[Id]
+  menuFirst: Id                  # the menu bar's first menu, this frame (F6 reaches it)
+  areaWanted: int                # F6 from an open menu: the first (1) or last (-1) area next
   focusSeen: bool                ## the focused widget answered this frame (a stop of Tab
                                  ## or not: a list that takes keys but no Tab)
   takesEnter*, prevTakesEnter*: bool  ## the focused widget uses Enter itself (no default button)
@@ -369,6 +379,7 @@ type Ctx* = object
   wakeAt*: int                   ## when to run a frame without input (see `wakeIn`)
   redrawNow*: bool               ## run another frame right away: read and set it as `ui.redraw`
   redrawCount, lastPresent: int
+  inputOnly: bool                # this frame's redraw is only the one after an input
   spaceDown*: bool               ## Space is holding a button down
   # ids
   idStack: seq[uint32]
@@ -649,6 +660,10 @@ proc longPressed*(): bool = ui.longFired
 proc finger*(): bool = ui.fingerDown
   ## The press now (or the last one) is a finger's on a touch screen, not a
   ## mouse's: taps open, drags scroll, a long press is a right click.
+
+proc keyboardWanted*(): bool = ui.prevTakesText
+  ## The focused control takes typing: the window asks for the on-screen
+  ## keyboard (a phone, a tablet), and lets it go when this turns false.
 
 proc canHover*(): bool = ui.hovering or not ui.touch
   ## A mouse is over the window (hover effects make sense); false on a
@@ -1031,17 +1046,89 @@ proc focusInControls*(): bool =
   ## panels with it.
   ui.focus != 0 and (ui.focus in ui.tabOrder or ui.focus in ui.stopsBefore)
 
-proc tabStop*(id: Id; r: Rect): bool {.discardable.} =
+proc tabStop*(id: Id; r: Rect; first = true): bool {.discardable.} =
   ## Makes `id` a stop of Tab: for a widget that takes the keyboard but
   ## handles its clicks itself (a tab strip, a chip row). True when it has
-  ## the focus.
+  ## the focus. `first` false: a stop the focus does not start at, nor
+  ## `focusNext` lands on (a tool bar's buttons: Tab reaches them, but a
+  ## window opens with its list or its first box focused).
   if canInput():
     ui.tabOrder.add id
-    if ui.focusWanted:
+    ui.stopArea.add ui.areaNow
+    ui.stopIndex.add int16(ui.nextTabIndex)
+    ui.nextTabIndex = 0
+    if not first: ui.notFirst.add id
+    elif ui.focusWanted:
       ui.focusWanted = false
       ui.focus = id
   result = ui.focus == id
   if result: ui.focusRect = r
+
+proc tabIndex*(n: int) =
+  ## The next control's place in the order Tab goes, as HTML's tabindex:
+  ## the controls given one come first, 1 before 2, then the others in the
+  ## order they are drawn. For a window laid out in one order and read in
+  ## another (a form in two columns read down each); Retro Designer writes
+  ## them when its Tab order's numbers are dragged.
+  ##
+  ## .. code-block:: nim
+  ##   row:
+  ##     tabIndex 1
+  ##     edit first      # (Tab: first, then last, then the city)
+  ##     tabIndex 3
+  ##     edit city
+  ##   tabIndex 2
+  ##   edit last
+  ui.nextTabIndex = clamp(n, 0, 30000)
+  if n > 0: ui.anyTabIndex = true
+
+proc orderStops() =
+  ## (the stops given a `tabIndex` first, by it; the others after, as drawn)
+  if not ui.anyTabIndex or ui.tabOrder.len < 2: return
+  var keys = newSeq[(int, int)](ui.tabOrder.len)
+  for i in 0 ..< ui.tabOrder.len:
+    let t = if i < ui.stopIndex.len: int(ui.stopIndex[i]) else: 0
+    keys[i] = ((if t > 0: t else: high(int16).int + 1), i)
+  keys.sort()
+  let (ids, areas, idx) = (ui.tabOrder, ui.stopArea, ui.stopIndex)
+  for k, (_, i) in keys:
+    ui.tabOrder[k] = ids[i]
+    if i < areas.len: ui.stopArea[k] = areas[i]
+    if i < idx.len: ui.stopIndex[k] = idx[i]
+
+# ---- areas: F6 and Shift+F6 go from one to the next ---------------------------
+
+var areaLast: Table[Id, Id]
+  ## (each area's stop that had the focus last: F6 comes back to it)
+
+proc beginArea*(key: string) =
+  ## Starts an area of the window that F6 and Shift+F6 go to: its stops of
+  ## Tab are one place for them (a pane, a panel, a tool bar). The kit's
+  ## tool bars, split panes, docked panels and MDI windows are areas
+  ## already; `area` is for a part of your own layout. F6 comes back to the
+  ## control of the area that had the focus last.
+  ui.areaStack.add ui.areaNow
+  ui.areaNow = makeId(fnv(key, fnv("area")))
+
+proc beginArea*(id: Id) =
+  ## `beginArea` by the id of the widget it is.
+  ui.areaStack.add ui.areaNow
+  ui.areaNow = Id(uint32(id) xor 0x4152_4541'u32)
+
+proc endArea*() =
+  ## Ends the area `beginArea` started.
+  if ui.areaStack.len > 0: ui.areaNow = ui.areaStack.pop()
+  else: ui.areaNow = 0
+
+template area*(key: string; body: untyped) =
+  ## An area F6 and Shift+F6 go to (see `beginArea`).
+  beginArea(key)
+  body
+  endArea()
+
+proc noteMenuBar*(first: Id) =
+  ## (the kit's menu bar: its first menu, which F6 opens after the last area)
+  ui.menuFirst = first
 
 # ---- accessibility: the frame as a tree for screen readers ---------------------
 #
@@ -1125,7 +1212,9 @@ proc accessLabelFor*(text: string) =
   ## A label was drawn: the next control without a name of its own is named
   ## by it (a text box after "Name:").
   if accessOn:
-    accessLabelText = plainName(text)
+    let t = plainName(text)
+    if t.strip.len == 0: return        # (an icon alone, a space: no name)
+    accessLabelText = t
     accessLabelUsed = false
 
 proc deviceRect(r: Rect): Rect =
@@ -1142,11 +1231,15 @@ proc accessNode*(role: AccessRole; name = ""; value = ""; states: set[AccessStat
   ## A control without a `name` takes the label drawn just before it.
   if not accessOn: return -1
   var n = AccessNode(id: uint32(id), role: role, value: value, states: states, help: help)
+  if '&' in name:
+    let c = mnemonicOf(name)                     # (the letter underlined)
+    if c in {'a'..'z', '0'..'9'}: n.letter = c
   n.parent = if accessOpen.len > 0: accessOpen[^1] else: 0'i32
   n.name = if accessNameNext.len > 0: accessNameNext
            elif name.len > 0: plainName(name)
            elif role notin {arLabel, arGroup, arPane, arWindow, arMenuBar, arToolBar,
-                            arStatusBar, arSeparator} and not accessLabelUsed: accessLabelText
+                            arStatusBar, arSeparator} and not accessLabelUsed and
+                accessLabelText.len > 0: accessLabelText
            elif role notin {arLabel, arGroup, arPane, arWindow}: accessNameElse
            else: ""
   accessNameNext.setLen(0)
@@ -1359,6 +1452,9 @@ proc interact*(id: Id; r: Rect; focusable = true; enabled = true): Hit =
     return
   if focusable and canInput():
     ui.tabOrder.add id
+    ui.stopArea.add ui.areaNow
+    ui.stopIndex.add int16(ui.nextTabIndex)
+    ui.nextTabIndex = 0
     if ui.focusWanted:
       ui.focusWanted = false
       ui.focus = id
@@ -2412,6 +2508,10 @@ proc applyLayout(l: ScreenLayout) =
   ui.w = l.width div zoom
   ui.h = l.height div zoom
   template inset(v: int): int = (max(0, v) + zoom - 1) div zoom
+  if inset(l.safeBottom) > ui.layoutSafe.bottom + dp(40) and ui.prevTakesText:
+    # (the on-screen keyboard came up under a text box with the focus: the
+    # views that scroll bring it into sight above the keyboard, as Tab does)
+    ui.focusMoved = ui.frameNo
   ui.layoutSafe = (inset(l.safeTop), inset(l.safeLeft), inset(l.safeBottom),
                    inset(l.safeRight))
   # (and the 3.1 frame's border all round, worked out again by `beginFrame`)
@@ -3133,6 +3233,12 @@ var
   firstShownMs = -1               ## (when the first frame was shown, ms after the start)
   shownCount = 0                  ## (frames put on the screen so far)
 
+proc framesShown*(): int = shownCount
+  ## How many frames were put on the screen so far. What the first frame
+  ## can do without -- a picture of a splash box, a list read, a cache
+  ## filled -- waits for `framesShown() > 0`: the window shows something
+  ## sooner.
+
 proc noteFrame(presented: bool) =
   let ms = float((getMonoTime() - statT0).inMicroseconds) / 1000
   statAvg = if statAvg == 0: ms else: statAvg * 0.9 + ms * 0.1
@@ -3479,6 +3585,14 @@ proc frameSetup(main: bool) =
     else: LayerBase
   swap(ui.tabOrder, ui.stopsBefore)        # (last frame's stops kept: `focusInControls`)
   ui.tabOrder.setLen(0)
+  ui.stopArea.setLen(0)
+  ui.stopIndex.setLen(0)
+  ui.nextTabIndex = 0
+  ui.anyTabIndex = false
+  ui.notFirst.setLen(0)
+  ui.areaStack.setLen(0)
+  ui.areaNow = 0
+  ui.menuFirst = 0
   ui.focusSeen = false
   ui.hot = 0
   ui.dialogTopNow = 0
@@ -3795,15 +3909,87 @@ proc drawDragGhost() =
   popClip()
   popLayer()
 
+proc areaKeys(at: int) =
+  ## (F6 and Shift+F6: the next area's control, or the previous one's --
+  ## its tool bars, panes, panels; the drawing of an app whose keys are its
+  ## own when nothing is focused (`autoFocus` off); the menu bar's first
+  ## menu after the last area. `at`: the focused stop's place in Tab's order.)
+  if ui.areaWanted == 0 and
+     (ui.key != KeyF6 or ui.keyUsed or ui.mods * {CtrlPressed, AltPressed, GuiPressed} != {} or
+      ui.dialogTopNow != 0 or ui.inputLayer != LayerBase and not ui.menuOpen):
+    return
+  let back = if ui.areaWanted != 0: ui.areaWanted < 0 else: ShiftPressed in ui.mods
+  if ui.menuOpen and ui.popup != 0:
+    ui.keyUsed = true
+    # (an open menu of the bar: closed, and the area after it next frame --
+    # the menu's frame has no stops of the window)
+    ui.popup = 0
+    ui.menuOpen = false
+    ui.areaWanted = if back: -1 else: 1
+    ui.redraw = true
+    return
+  # the areas in the order Tab meets them; 1: the drawing (focus 0); 2: the menu bar
+  const Canvas = Id(1)
+  const Bar = Id(2)
+  var areas: seq[Id]
+  if not autoFocus: areas.add Canvas
+  for a in ui.stopArea:
+    if a notin areas: areas.add a
+  if ui.menuFirst != 0: areas.add Bar
+  if areas.len == 0 or areas.len < 2 and ui.areaWanted == 0:
+    ui.areaWanted = 0
+    return
+  if ui.areaWanted == 0: ui.keyUsed = true
+  let here = if ui.areaWanted > 0: areas.len - 1     # (from the menu bar: the first)
+             elif ui.areaWanted < 0: (if ui.menuFirst != 0: areas.len - 1 else: 0)
+             elif at >= 0: areas.find(ui.stopArea[at])
+             elif not autoFocus: 0
+             else: -1
+  ui.areaWanted = 0
+  let n = areas.len
+  let next = if here < 0: (if back: n - 1 else: 0)
+             elif back: (here + n - 1) mod n
+             else: (here + 1) mod n
+  let a = areas[next]
+  ui.redraw = true
+  if a == Bar:
+    ui.popup = ui.menuFirst
+    ui.menuOpen = true
+    ui.popupHi = 0
+    ui.popupOpened = true
+  elif a == Canvas:
+    ui.focus = 0
+  else:
+    var to = areaLast.getOrDefault(a)
+    var found = false
+    for i, s in ui.tabOrder:
+      if ui.stopArea[i] == a and s == to: found = true
+    if not found:
+      for i, s in ui.tabOrder:
+        if ui.stopArea[i] == a and s notin ui.notFirst:
+          to = s
+          found = true
+          break
+    if not found:
+      to = ui.tabOrder[ui.stopArea.find(a)]
+    ui.focus = to
+    ui.focusMoved = ui.frameNo
+    ui.focusByKeys = true
+    ui.spaceDown = false
+
 proc frameFinish(main: bool) =
   ## (the frame's end before it is shown: focus, popups, dialogs, the
   ## close asked; `main`: the program's own window)
   if main:
     for hook in endFrameHooks: hook()
   # What a key or a click changed late in the frame (after the widgets that
-  # show it were drawn) appears on one more frame.
+  # show it were drawn) appears on one more frame. (When nothing asked for
+  # it -- a letter typed into a box, which shows it at once -- this frame is
+  # shown at once, and the next one only if it differs.)
+  ui.inputOnly = false
   if ui.keyUsed or ui.pressed or ui.released or ui.wheelUsed or ui.typed.len > 0 or
      dropFiles.len > 0:
+    ui.inputOnly = not ui.redraw and main
     ui.redraw = true
   if ui.drag.active:
     if ui.dragDropping:
@@ -3814,6 +4000,7 @@ proc frameFinish(main: bool) =
     else:
       drawDragGhost()
   endPage()
+  orderStops()
   # Tab and Shift+Tab move the focus through the widgets of the top layer.
   if ui.tabOrder.len > 0:
     var at = -1
@@ -3830,12 +4017,23 @@ proc frameFinish(main: bool) =
       ui.spaceDown = false
       ui.redraw = true
     elif at < 0 and not ui.focusSeen and not ui.touch and
-         (autoFocus or ui.dialogTopNow != 0):
+         (autoFocus or ui.dialogTopNow != 0) and ui.areaWanted == 0 and
+         not (ui.key == KeyF6 and not ui.keyUsed):
       # (a touch screen focuses nothing on its own: a text box with the
       # focus would bring up the on-screen keyboard; a widget that has the
-      # focus and answered without being a stop of Tab keeps it)
-      ui.focus = ui.tabOrder[0]
-      ui.redraw = true
+      # focus and answered without being a stop of Tab keeps it; the first
+      # that is not a tool bar's)
+      for s in ui.tabOrder:
+        if s notin ui.notFirst:
+          ui.focus = s
+          ui.redraw = true
+          break
+    if at >= 0 and ui.stopArea[at] != 0 and ui.focus == ui.tabOrder[at] and
+       areaLast.getOrDefault(ui.stopArea[at]) != ui.focus:
+      areaLast[ui.stopArea[at]] = ui.focus
+    areaKeys(at)
+  elif ui.areaWanted != 0 or ui.key == KeyF6:
+    areaKeys(-1)
   # A press outside an open popup closes it; a right click outside, too --
   # and is given again on the next frame, so the menu of what it is on opens
   # (one right click to another place, as a desktop's menus do).
@@ -3900,17 +4098,23 @@ proc endFrame*() =
   ## Finish the frame: keyboard focus, popups, tooltips, then put it on
   ## screen (only if it changed).
   frameFinish(true)
-  # Present -- unless another frame is due right away anyway.
-  if ui.redraw and ui.redrawCount < 3:
+  # Present -- unless another frame is due right away anyway (one that
+  # shows what changed late in this one); the frame after an input that
+  # nothing else asked to draw again is shown at once.
+  if ui.redraw and ui.redrawCount < 3 and not ui.inputOnly:
     inc ui.redrawCount
     noteFrame(false)
     return
-  ui.redraw = false
-  ui.redrawCount = 0
-  if not hasPending:
+  if ui.inputOnly: ui.redrawCount = 0     # (the next frame comes: `redraw` kept)
+  else:
+    ui.redraw = false
+    ui.redrawCount = 0
+  # (events waiting: shown with the next frame -- not the one after an input,
+  # which is shown now, the next event left for the frame it brings)
+  if not hasPending and not ui.inputOnly:
     hasPending = pollEvent(pending,
       if ui.prevTakesText: {WantTextInput} else: {})
-  if hasPending and ui.now - ui.lastPresent < 50:
+  if hasPending and not ui.inputOnly and ui.now - ui.lastPresent < 50:
     noteFrame(false)
     return
   if ui.paused or ui.hidden: return     # (nobody sees it: not drawn)

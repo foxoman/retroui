@@ -119,7 +119,8 @@ retrokit -- start, check and build Retro Nim UI apps
   retrokit drive PORT COMMAND [ARGS] [--role R] [--nth N] [--json]
       an app started with RETRO_DRIVE=PORT, driven as a person would, by its
       controls' names (as the inspector, F12, shows them):
-        tree | info | find NAME | click NAME (or X,Y; --right, --double)
+        tree | info | find NAME | focused NAME (it has the focus)
+        click NAME (or X,Y; --right, --double, --finger, --hold MS)
         press NAME | focus NAME | set NAME VALUE | move NAME
         scroll NAME LINES | key ctrl+s | type TEXT | quit
         wait MS | wait --frames N | wait NAME [--gone] [--timeout MS]

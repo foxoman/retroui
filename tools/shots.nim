@@ -1359,7 +1359,7 @@ settings page and the parts of a phone app.
 """)
 
 example("toolbar", "toolbar, toolButton, toolSeparator",
-        "A tool bar of small buttons; those that do not fit go into a \"more\" menu. `down` shows a button held in.",
+        "A tool bar of small buttons; those that do not fit go into a \"more\" menu. `down` shows a button held in. Its buttons are one stop of Tab, as in Windows: the arrows go along them, Home and End to the ends, Space or Enter presses the one lit (any run of tool buttons is so: a palette's tools); a window starts at its first box, not at its tool bar. F6 goes to it from the other parts of the window.",
         360, 70, ["toolbar", "toolButton", "toolSeparator"], @[ssNormal, ssTouch, ssDark, ssHover, ssPressed]):
   toolbar:
     toolButton(pxNew, "New")
@@ -2364,8 +2364,81 @@ click.
 **Input methods** (pinyin, kana, hangul, a phone keyboard's word) compose in
 the text box itself: what is being composed is drawn underlined at the
 caret and typed when it is settled -- XIM on X11, IMM on Windows, marked
-text on macOS, GTK 4's preedit, the kit's own input connection on Android.
-`ui.composing` holds it for a text box of your own.
+text on macOS, GTK 4's preedit, the kit's own input connection on Android,
+UITextInput on iOS. `ui.composing` holds it for a text box of your own.
+""", outro = """
+### The keyboard alone: Tab's order and F6
+
+Tab goes through the controls in the order they are drawn, a run of tool
+buttons one stop (the arrows go along it). `tabIndex` before a control puts
+it first; F6 and Shift+F6 go from one part of the window to the next, each
+back at the control it had the focus on: the tool bars, the panes of a
+split, the docked panels, the windows in the window, the menu bar -- and
+a part of your own:
+
+```nim
+row:
+  tabIndex 1
+  edit first        # (Tab: first, then last, then the city)
+  tabIndex 3
+  edit city
+tabIndex 2
+edit last
+area "preview":     # (F6 comes here, to the list's selection)
+  listbox(items, sel)
+```
+
+{{api:tabStops}}
+
+{{api:tabIndex}}
+
+{{api:area}}
+
+{{api:beginArea}}
+
+{{api:endArea}}
+
+### The inspector and the driver: controls found by their names
+
+The names screen readers read are how the inspector (F12; `RETRO_INSPECT=1`)
+shows the controls, how a program uses an app from outside
+(`RETRO_DRIVE=PORT`, `retrokit drive PORT click OK`; README, "The inspector
+and the driver") and how a test finds them without coordinates:
+
+```nim
+accessKeep = true                                   # the last frame's tree in accessLast
+let i = findNode(accessLast, "Save", {arButton})    # -1: none
+click(nodeRect(accessLast[i]))                      # (the tests' harness)
+```
+
+```nim
+proc findNode*(tree: openArray[AccessNode]; name: string; roles: set[AccessRole] = {};
+               nth = 0): int
+```
+
+The control called `name` (any case; failing that, one whose name has it
+in it; "" any), of one of `roles`, the `nth` of them; -1 when there is none.
+
+```nim
+proc nodeRect*(n: AccessNode): Rect
+proc nodeAt*(tree: openArray[AccessNode]; x, y: int): int
+proc nodeLine*(n: AccessNode): string
+```
+
+A node's place in the window's logical pixels; the smallest control at a
+point (0: the window); a node as one line (`Button "OK"`, `Text field
+"Name:" = Ada`).
+
+```nim
+proc showInspector*(on = true)
+proc inspectorShown*(): bool
+proc startDriver*(port: int): int
+proc drivePort*(): int
+```
+
+Show the inspector as F12 does; listen for a driver as `RETRO_DRIVE` does
+(0: any free port; the port, or 0). `whyFrames` and `frameCause` (the
+core) say why each frame ran.
 """)
 
 example("access", "Screen readers: what an app draws itself",
@@ -2760,7 +2833,23 @@ proc main() =
           sigs.add "```nim\n" & d.sig & "\n```\n\n"
           if d.doc.len > 0: sigs.add docText(d.doc) & "\n\n"
       if sigs.len > 0: body.add "**API**\n\n" & sigs
-    if p.outro.len > 0: body.add p.outro.strip & "\n\n"
+    if p.outro.len > 0:
+      var outro = p.outro.strip
+      while true:
+        let at = outro.find("{{api:")
+        if at < 0: break
+        let e = outro.find("}}", at)
+        var sigs = ""
+        for d in apiOf(api, outro[at + 6 ..< e]):
+          sigs.add "```nim\n" & d.sig & "\n```\n\n"
+          if d.doc.len > 0: sigs.add docText(d.doc) & "\n\n"
+        outro = outro[0 ..< at] & sigs.strip & outro[e + 2 .. ^1]
+      var inCode = false
+      for l in outro.splitLines:
+        if l.startsWith("```"): inCode = not inCode
+        if not inCode and l.startsWith("### "):
+          entries.add "[" & l[4 .. ^1] & "](#" & slug(l[4 .. ^1], used) & ")"
+      body.add outro & "\n\n"
     contents.add "- **[" & p.title & "](#" & pslug & ")**" &
                  (if entries.len > 0: ": " & entries.join(" · ") else: "") & "\n"
   let md = "# Retro Nim UI: the guide\n\n" &
@@ -2770,7 +2859,7 @@ proc main() =
     "each control as it is, on a touch screen and in a dark color scheme (some\n" &
     "in more states too), and they are drawn from the very example beside them,\n" &
     "so they always match the toolkit.\n\n" &
-    "Every control works with the mouse, the keyboard (Tab, the arrows, Space,\n" &
+    "Every control works with the mouse, the keyboard (Tab, F6, the arrows, Space,\n" &
     "Enter, Esc, `&` letters with Alt, the menu key), fingers (a tap, a drag to\n" &
     "scroll, a long press for the menu) and screen readers (see\n" &
     "[Screen readers and input methods](#screen-readers-and-input-methods)).\n" &

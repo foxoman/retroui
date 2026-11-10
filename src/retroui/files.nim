@@ -593,7 +593,9 @@ proc restore*(it: TrashItem): string =
 proc deleteForever*(it: TrashItem): string =
   ## Removes `it` from the trash for good.
   try:
-    if it.isDir: removeDir(it.path) else: removeFile(it.path)
+    # (a link to a folder is the link alone: removeDir would go through it
+    # and delete what is in the folder it leads to)
+    if it.isDir and not symlinkExists(it.path): removeDir(it.path) else: removeFile(it.path)
     if fileExists(it.info): removeFile(it.info)
     ""
   except CatchableError as e: e.msg
@@ -1044,3 +1046,72 @@ proc undo*(): tuple[error: string; touched: seq[string]] =
       if not found: errors.add p.extractFilename & " is not in the trash"
       result.touched.add p.parentDir
   result.error = errors.join("\n")
+
+# ---- shortcuts: Explorer's Paste Shortcut --------------------------------------------------
+
+proc fileUrl(path: string): string =
+  ## (a Windows path as a file:// address, the letters other than a plain
+  ## few written %XX)
+  result = "file:///"
+  for c in path.replace('\\', '/'):
+    if c in {'A'..'Z', 'a'..'z', '0'..'9', '/', ':', '.', '-', '_', '~'}: result.add c
+    else: result.add '%' & toHex(ord(c), 2)
+
+proc shortcutTarget*(path: string): string =
+  ## Where a shortcut leads -- a symbolic link's target, a Windows Internet
+  ## shortcut's (".url") file:// address as a path -- "" when `path` is
+  ## not one.
+  if symlinkExists(path):
+    try:
+      let t = expandSymlink(path)
+      return if t.isAbsolute: t else: path.parentDir / t
+    except OSError: return ""
+  if path.toLowerAscii.endsWith(".url") and fileExists(path):
+    try:
+      for line in readFile(path).splitLines:
+        let l = line.strip
+        if l.toLowerAscii.startsWith("url=file:///"):
+          var p = ""
+          var i = 12
+          let u = l
+          while i < u.len:
+            if u[i] == '%' and i + 2 < u.len:
+              try: p.add char(parseHexInt(u[i + 1 .. i + 2]))
+              except ValueError: p.add u[i]
+              i += 3
+            else:
+              p.add u[i]
+              inc i
+          return (when defined(windows): p.replace('/', '\\') else: "/" & p)
+    except IOError, OSError: discard
+  ""
+
+proc makeShortcuts*(paths: openArray[string]; dir: string): tuple[made: seq[string]; error: string] =
+  ## A shortcut in `dir` to each of `paths` -- Explorer's Paste Shortcut --
+  ## named "Shortcut to" its name (a second one "(2)"...): a symbolic link
+  ## on Linux, macOS, the BSDs and Termux; on Windows an Internet shortcut
+  ## (".url", a file:// address), which Explorer opens as well. `made`: the
+  ## shortcuts made (Edit > Undo takes them back: `remember`); `error`:
+  ## the ones that could not be (a phone's shared storage, another app's
+  ## folder, have no links).
+  var errors: seq[string]
+  for p in paths:
+    let name = p.extractFilename
+    if name.len == 0: continue
+    if isDocPath(dir) or isDocPath(p):
+      errors.add name & ": " & tr("another app's folder holds no shortcuts")
+      continue
+    try:
+      when defined(windows):
+        let at = dir / uniqueName(dir, tr("Shortcut to ") & name & ".url")
+        writeFile(at, "[InternetShortcut]\r\nURL=" & fileUrl(absolutePath(p)) & "\r\n")
+      else:
+        let at = dir / uniqueName(dir, tr("Shortcut to ") & name)
+        createSymlink(absolutePath(p), at)
+      result.made.add at
+    except CatchableError as e:
+      errors.add name & ": " & e.msg
+  result.error = errors.join("\n")
+  if result.made.len > 0:
+    remember UndoStep(kind: ukCreate, paths: result.made,
+                      what: tr("Paste Shortcut"))

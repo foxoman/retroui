@@ -268,6 +268,42 @@ block namesAndTabOrder:
   expect("  accessName \"Code\"\n  edit code" in src.text, "named before it:\n" & src.text)
   run(3)
   expect(unnamedCount() == 0, "named now")
+  # the order Tab goes: the third stop dragged first -- one tabIndex written
+  # (the stops by their names: the page drawn anew after a change has new ids)
+  proc stopNames(): seq[string] =
+    for id in pageStops:
+      for n in pageNodes:
+        if n.id == id: result.add n.name
+  proc idsOf(names: seq[string]): seq[uint32] =
+    for nm in names:
+      for n in pageNodes:
+        if n.name == nm and n.id in pageStops: result.add n.id
+  expect(stopNames() == @["Name:", "Code", "OK"], "as drawn: " & $stopNames())
+  writeTabOrder(idsOf(@["OK", "Name:", "Code"]))
+  expect("  tabIndex 1\n  if button(\"OK\")" in src.text, "the OK button first:\n" & src.text)
+  expect(src.text.count("tabIndex") == 1, "one tabIndex is enough:\n" & src.text)
+  run(3)
+  expect(stopNames() == @["OK", "Name:", "Code"], "numbered so: " & $stopNames())
+  # the second box first: its tabIndex, the one there was taken away
+  writeTabOrder(idsOf(@["Code", "Name:", "OK"]))
+  run(3)
+  expect(stopNames() == @["Code", "Name:", "OK"], "numbered again: " & $stopNames())
+  expect(src.text.count("tabIndex") == 1 and "tabIndex 1\n  edit code" in src.text,
+         "Code first, then the others as drawn:\n" & src.text)
+  writeTabOrder(idsOf(@["OK", "Code", "Name:"]))
+  run(3)
+  expect(stopNames() == @["OK", "Code", "Name:"] and src.text.count("tabIndex") == 2,
+         "two written when two are out of their place:\n" & src.text)
+  # back as drawn: none left
+  writeTabOrder(idsOf(@["Name:", "Code", "OK"]))
+  expect("tabIndex" notin src.text, "as drawn, no tabIndex:\n" & src.text)
+  run(3)
+  # the window as a driver's test: found by name, Tab checked
+  let t = driverTest()
+  expect("wait \"Name:\" --role textField --timeout 10000" in t and
+         "find \"OK\" --role button" in t, "found by name:\n" & t)
+  expect("focus \"Name:\" --role textField\nkey Tab\nfocused \"Code\" --role textField\n" &
+         "key Tab\nfocused \"OK\" --role button" in t, "Tab checked:\n" & t)
   drawing = nil
   namesOn = false
   accessKeep = false

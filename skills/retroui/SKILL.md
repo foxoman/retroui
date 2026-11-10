@@ -153,10 +153,21 @@ line.
   control to a label of the same text. Retro Designer's View > Names and
   Tab Order shows the stops of Tab and the unnamed controls.
 - **Tab is the keyboard's**: every control Tab stops at, in order
-  (`tabStops()`). An app that gives Tab a meaning of its own (hide the
+  (`tabStops()`; `tabIndex 1`, `tabIndex 2`... before controls put them
+  first). A run of tool buttons is one stop (the arrows go along it). F6
+  goes from part to part (tool bars, split panes, docked panels, MDI
+  windows, the menu bar; `area "key": ...` for a part of your own). An app
+  that gives Tab a meaning of its own (hide the
   panels, as image editors do) does it only when `not focusInControls()`
   -- else Tab must go on to the next control -- and sets `autoFocus =
   false` when its keys are its canvas's until a control is clicked.
+  Give each `&` letter once in a window and in a dialog: the tour
+  (`tests/drive/run.sh`) finds one used twice (in a menu a shared letter
+  lights the next item that has it, as in Windows).
+- **Start fast**: work the first frame can do without waits for
+  `framesShown() > 0`; `scanFontsSoon()` at the start of an app that lists
+  the system's fonts; `addFontData(..., packed = true)` early (unpacked on
+  a thread from then).
 - `&` in a label underlines the next letter (Alt+letter). `isDefault = true`
   makes Enter press the button -- unless the focused control acts on Enter
   itself (a drop-down, a date, a button, a grid cell, a multi-line text
@@ -409,7 +420,8 @@ costs what its visible rows cost.
   is built otherwise); `RETRO_ACCESS=1` builds the tree to try it.
 - Input methods (Chinese, Japanese, Korean, a phone keyboard's word) need
   nothing: what they compose is drawn in the text box at the caret
-  (`ui.composing`) and comes as typed text when settled.
+  (`ui.composing`) and comes as typed text when settled (iOS too). On a
+  phone the box with the focus is scrolled above the on-screen keyboard.
 - Scaling: sizes and text follow the screen's scale exactly (125 %, 150 %,
   175 %...), lines stay on whole pixels; nothing to do in an app.
 

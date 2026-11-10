@@ -888,125 +888,128 @@ proc c362_mediaSessionBusName(a: var Args): Value =
   toValue(mediaSessionBusName())
 proc c364_mediaKeys(a: var Args): Value =
   toValue(mediaKeys())
-proc c365_accessName(a: var Args): Value =
+proc c365_tabIndex(a: var Args): Value =
+  tabIndex(n = a.argInt(0, 0))
+  Value()
+proc c366_accessName(a: var Args): Value =
   accessName(name = a.argStr(0, ""))
   Value()
-proc c366_accessNameOr(a: var Args): Value =
+proc c367_accessNameOr(a: var Args): Value =
   accessNameOr(name = a.argStr(0, ""))
   Value()
-proc c367_space(a: var Args): Value =
+proc c368_space(a: var Args): Value =
   space(px = a.argInt(0, Gap))
   Value()
-proc c368_spring(a: var Args): Value =
+proc c369_spring(a: var Args): Value =
   spring()
   Value()
-proc c369_fontSample(a: var Args): Value =
+proc c370_fontSample(a: var Args): Value =
   toValue(fontSample(family = a.argStr(0, ""), style = a.argStr(1, ""), text = a.argStr(2, ""), h = a.argInt(3, 0)))
-proc c370_fontCombo(a: var Args): Value =
+proc c371_fontCombo(a: var Args): Value =
   toValue(fontCombo(family = a.vstr(0), w = a.argInt(1, 0), enabled = a.argBool(2, true)))
-proc c371_fontStyleCombo(a: var Args): Value =
+proc c372_fontStyleCombo(a: var Args): Value =
   toValue(fontStyleCombo(family = a.argStr(0, ""), style = a.vstr(1), w = a.argInt(2, 0), enabled = a.argBool(3, true)))
-proc c376_richFromHtml(a: var Args): Value =
+proc c377_richFromHtml(a: var Args): Value =
   toValue(richFromHtml(html = a.argStr(0, "")))
-proc c379_pdfPreview(a: var Args): Value =
+proc c380_pdfPreview(a: var Args): Value =
   toValue(pdfPreview(path = a.argStr(0, ""), maxW = a.argInt(1, 512), maxH = a.argInt(2, 512)))
-proc c380_openPdfView(a: var Args): Value =
+proc c381_openPdfView(a: var Args): Value =
   toValue(openPdfView(path = a.argStr(0, "")))
-proc c382_osmTiles(a: var Args): Value =
+proc c383_osmTiles(a: var Args): Value =
   toValue(osmTiles())
-proc c383_openTopoMap(a: var Args): Value =
+proc c384_openTopoMap(a: var Args): Value =
   toValue(openTopoMap())
-proc c384_cartoTiles(a: var Args): Value =
+proc c385_cartoTiles(a: var Args): Value =
   toValue(cartoTiles(style = a.argStr(0, "light_all")))
-proc c385_googleTiles(a: var Args): Value =
+proc c386_googleTiles(a: var Args): Value =
   toValue(googleTiles(key = a.argStr(0, ""), mapType = a.argStr(1, "roadmap"), language = a.argStr(2, "en-US"), region = a.argStr(3, "US")))
-proc c386_azureTiles(a: var Args): Value =
+proc c387_azureTiles(a: var Args): Value =
   toValue(azureTiles(key = a.argStr(0, ""), tileset = a.argStr(1, "microsoft.base.road"), language = a.argStr(2, "")))
-proc c387_mapboxTiles(a: var Args): Value =
+proc c388_mapboxTiles(a: var Args): Value =
   toValue(mapboxTiles(token = a.argStr(0, ""), style = a.argStr(1, "mapbox/streets-v12")))
-proc c388_mapboxVector(a: var Args): Value =
+proc c389_mapboxVector(a: var Args): Value =
   toValue(mapboxVector(token = a.argStr(0, "")))
-proc c389_hereTiles(a: var Args): Value =
+proc c390_hereTiles(a: var Args): Value =
   toValue(hereTiles(key = a.argStr(0, ""), style = a.argStr(1, "explore.day")))
-proc c390_mapTilerTiles(a: var Args): Value =
+proc c391_mapTilerTiles(a: var Args): Value =
   toValue(mapTilerTiles(key = a.argStr(0, ""), map = a.argStr(1, "streets-v2")))
-proc c391_mapTilerVector(a: var Args): Value =
+proc c392_mapTilerVector(a: var Args): Value =
   toValue(mapTilerVector(key = a.argStr(0, "")))
-proc c392_protomapsVector(a: var Args): Value =
+proc c393_protomapsVector(a: var Args): Value =
   toValue(protomapsVector(key = a.argStr(0, "")))
-proc c393_esriTiles(a: var Args): Value =
+proc c394_esriTiles(a: var Args): Value =
   toValue(esriTiles(service = a.argStr(0, "World_Street_Map"), token = a.argStr(1, "")))
-proc c394_tomTomTiles(a: var Args): Value =
+proc c395_tomTomTiles(a: var Args): Value =
   toValue(tomTomTiles(key = a.argStr(0, ""), layer = a.argStr(1, "basic"), style = a.argStr(2, "main")))
-proc c395_stadiaTiles(a: var Args): Value =
+proc c396_stadiaTiles(a: var Args): Value =
   toValue(stadiaTiles(key = a.argStr(0, ""), style = a.argStr(1, "alidade_smooth")))
-proc c396_amapTiles(a: var Args): Value =
+proc c397_amapTiles(a: var Args): Value =
   toValue(amapTiles(satellite = a.argBool(0, false), language = a.argStr(1, "zh_cn")))
-proc c397_tencentTiles(a: var Args): Value =
+proc c398_tencentTiles(a: var Args): Value =
   toValue(tencentTiles())
-proc c398_tiandituTiles(a: var Args): Value =
+proc c399_tiandituTiles(a: var Args): Value =
   toValue(tiandituTiles(key = a.argStr(0, ""), layer = a.argStr(1, "vec")))
-proc c399_pmtilesSource(a: var Args): Value =
+proc c400_pmtilesSource(a: var Args): Value =
   toValue(pmtilesSource(path = a.argStr(0, ""), attribution = a.argStr(2, "© OpenStreetMap contributors")))
-proc c400_mbtilesSource(a: var Args): Value =
+proc c401_mbtilesSource(a: var Args): Value =
   toValue(mbtilesSource(path = a.argStr(0, ""), attribution = a.argStr(2, "© OpenStreetMap contributors")))
-proc c401_folderSource(a: var Args): Value =
+proc c402_folderSource(a: var Args): Value =
   toValue(folderSource(dir = a.argStr(0, ""), ext = a.argStr(1, "png"), maxZoom = a.argInt(2, 18), attribution = a.argStr(3, "")))
-proc c402_tileJsonSource(a: var Args): Value =
+proc c403_tileJsonSource(a: var Args): Value =
   toValue(tileJsonSource(url = a.argStr(0, "")))
-proc c403_mapKitPage(a: var Args): Value =
+proc c404_mapKitPage(a: var Args): Value =
   toValue(mapKitPage(token = a.argStr(0, ""), lat = a.argFloat(1, 0.0), lon = a.argFloat(2, 0.0), zoomMeters = a.argFloat(3, 5000.0)))
-proc c404_googleMapsPage(a: var Args): Value =
+proc c405_googleMapsPage(a: var Args): Value =
   toValue(googleMapsPage(key = a.argStr(0, ""), lat = a.argFloat(1, 0.0), lon = a.argFloat(2, 0.0), zoom = a.argInt(3, 12)))
-proc c405_quadkey(a: var Args): Value =
+proc c406_quadkey(a: var Args): Value =
   toValue(quadkey(z = a.argInt(0, 0), x = a.argInt(1, 0), y = a.argInt(2, 0)))
-proc c407_loadingTiles(a: var Args): Value =
+proc c408_loadingTiles(a: var Args): Value =
   toValue(loadingTiles())
-proc c408_clearTileCache(a: var Args): Value =
+proc c409_clearTileCache(a: var Args): Value =
   clearTileCache(disk = a.argBool(0, false))
   Value()
-proc c415_tilesIn(a: var Args): Value =
+proc c416_tilesIn(a: var Args): Value =
   toValue(tilesIn(south = a.argFloat(0, 0.0), west = a.argFloat(1, 0.0), north = a.argFloat(2, 0.0), east = a.argFloat(3, 0.0), minZoom = a.argInt(4, 0), maxZoom = a.argInt(5, 0)))
-proc c418_geoJsonShapes(a: var Args): Value =
+proc c419_geoJsonShapes(a: var Args): Value =
   toValue(geoJsonShapes(text = a.argStr(0, ""), color = a.argColor(1, Color()), fill = a.argColor(2, Color())))
-proc c419_readGltf(a: var Args): Value =
+proc c420_readGltf(a: var Args): Value =
   toValue(readGltf(json = a.argStr(0, ""), bin = a.argStr(1, ""), baseDir = a.argStr(2, "")))
-proc c420_readGlb(a: var Args): Value =
+proc c421_readGlb(a: var Args): Value =
   toValue(readGlb(data = a.argStr(0, ""), baseDir = a.argStr(1, "")))
-proc c421_loadGltf(a: var Args): Value =
+proc c422_loadGltf(a: var Args): Value =
   toValue(loadGltf(path = a.argStr(0, "")))
-proc c422_blendToGlb(a: var Args): Value =
+proc c423_blendToGlb(a: var Args): Value =
   toValue(blendToGlb(blend = a.argStr(0, ""), glb = a.argStr(1, "")))
-proc c423_loadModel3(a: var Args): Value =
+proc c424_loadModel3(a: var Args): Value =
   toValue(loadModel3(path = a.argStr(0, "")))
-proc c425_cameras(a: var Args): Value =
+proc c426_cameras(a: var Args): Value =
   toValue(cameras())
-proc c426_cameraView(a: var Args): Value =
+proc c427_cameraView(a: var Args): Value =
   toValue(cameraView(key = a.argStr(0, ""), camera = a.argStr(1, ""), facing = enum_CameraFacing(a.argIdent(2), CameraFacing.cfAny), height = a.argInt(3, -1), w = a.argInt(4, 0), mirror = a.argBool(5, false)))
-proc c427_cameraPhoto(a: var Args): Value =
+proc c428_cameraPhoto(a: var Args): Value =
   cameraPhoto(key = a.argStr(0, ""), path = a.argStr(1, ""))
   Value()
-proc c428_cameraFrame(a: var Args): Value =
+proc c429_cameraFrame(a: var Args): Value =
   toValue(cameraFrame(key = a.argStr(0, "")))
-proc c429_cameraRecord(a: var Args): Value =
+proc c430_cameraRecord(a: var Args): Value =
   toValue(cameraRecord(key = a.argStr(0, ""), path = a.argStr(1, "")))
-proc c430_cameraStop(a: var Args): Value =
+proc c431_cameraStop(a: var Args): Value =
   cameraStop(key = a.argStr(0, ""))
   Value()
-proc c431_cameraClose(a: var Args): Value =
+proc c432_cameraClose(a: var Args): Value =
   cameraClose(key = a.argStr(0, ""))
   Value()
-proc c432_recordSound(a: var Args): Value =
+proc c433_recordSound(a: var Args): Value =
   toValue(recordSound(path = a.argStr(0, "")))
-proc c433_stopRecordingSound(a: var Args): Value =
+proc c434_stopRecordingSound(a: var Args): Value =
   toValue(stopRecordingSound())
-proc c434_recordingSound(a: var Args): Value =
+proc c435_recordingSound(a: var Args): Value =
   toValue(recordingSound())
-proc c435_soundLevel(a: var Args): Value =
+proc c436_soundLevel(a: var Args): Value =
   toValue(soundLevel())
-proc c436_mediaSessionBusName(a: var Args): Value =
+proc c437_mediaSessionBusName(a: var Args): Value =
   toValue(mediaSessionBusName())
-proc c438_mediaKeys(a: var Args): Value =
+proc c439_mediaKeys(a: var Args): Value =
   toValue(mediaKeys())
 
 # ---- the blocks ----
@@ -1104,22 +1107,25 @@ proc b32_canvas2d(a: var Args; bodies: seq[proc () {.closure.}]) =
 proc b34_withId(a: var Args; bodies: seq[proc () {.closure.}]) =
   withId(key = a.argStr(0, "")):
     bodies[0]()
-proc b35_row(a: var Args; bodies: seq[proc () {.closure.}]) =
-  row():
+proc b35_area(a: var Args; bodies: seq[proc () {.closure.}]) =
+  area(key = a.argStr(0, "")):
     bodies[0]()
 proc b36_row(a: var Args; bodies: seq[proc () {.closure.}]) =
+  row():
+    bodies[0]()
+proc b37_row(a: var Args; bodies: seq[proc () {.closure.}]) =
   row(widths = a.argInts(0, @[])):
     bodies[0]()
-proc b37_rowPx(a: var Args; bodies: seq[proc () {.closure.}]) =
+proc b38_rowPx(a: var Args; bodies: seq[proc () {.closure.}]) =
   rowPx(widths = a.argInts(0, @[])):
     bodies[0]()
-proc b38_col(a: var Args; bodies: seq[proc () {.closure.}]) =
+proc b39_col(a: var Args; bodies: seq[proc () {.closure.}]) =
   col():
     bodies[0]()
-proc b39_col(a: var Args; bodies: seq[proc () {.closure.}]) =
+proc b40_col(a: var Args; bodies: seq[proc () {.closure.}]) =
   col(width = a.argInt(0, 0)):
     bodies[0]()
-proc b40_adaptive(a: var Args; bodies: seq[proc () {.closure.}]) =
+proc b41_adaptive(a: var Args; bodies: seq[proc () {.closure.}]) =
   adaptive(minW = a.argInt(0, 0)):
     bodies[0]()
 
@@ -1491,80 +1497,81 @@ proc initRegistry*() =
   controls.mgetOrPut("mediaSessionBusName", Control(name: "mediaSessionBusName", module: "mediasession", doc: "The bus name the app's controls have on D-Bus (\"\" before setNowPlaying): playerctl -p NAME, tests.")).overloads.add Overload(params: @[], returns: "string", call: c362_mediaSessionBusName)
   controls.mgetOrPut("setNowPlaying", Control(name: "setNowPlaying", module: "mediasession", doc: "What the app plays, for the system's media controls; the controls' presses come in mediaKeys. Call it when it changes, or every frame: the system is told only what changed (a position that keeps time with the playing is not news).")).overloads.add Overload(params: @[Param(name: "np", typ: "NowPlaying", default: "", kind: kNone)], returns: "", call: nil)
   controls.mgetOrPut("mediaKeys", Control(name: "mediaKeys", module: "mediasession", doc: "What the system's media controls asked since the last frame (the lock screen, the media keys of a keyboard or a headset, the desktop's media applet). Empty (and nothing made) when nothing was pressed.")).overloads.add Overload(params: @[], returns: "seq[MediaKeyEvent]", call: c364_mediaKeys)
-  controls.mgetOrPut("accessName", Control(name: "accessName", module: "core", doc: "The name the next control is read by -- for a button with only an icon, a box with no label before it. (Labels name the control after them on their own.)")).overloads.add Overload(params: @[Param(name: "name", typ: "string", default: "", kind: kStr)], returns: "", call: c365_accessName)
-  controls.mgetOrPut("accessNameOr", Control(name: "accessNameOr", module: "core", doc: "The name the next control is read by when no label before it names it (a search box by its placeholder).")).overloads.add Overload(params: @[Param(name: "name", typ: "string", default: "", kind: kStr)], returns: "", call: c366_accessNameOr)
-  controls.mgetOrPut("space", Control(name: "space", module: "core", doc: "Empty space: down in a column, right in a row.")).overloads.add Overload(params: @[Param(name: "px", typ: "int", default: "Gap", kind: kInt)], returns: "", call: c367_space)
-  controls.mgetOrPut("spring", Control(name: "spring", module: "core", doc: "In a row: the widgets after it go to the row's right end.")).overloads.add Overload(params: @[], returns: "", call: c368_spring)
-  controls.mgetOrPut("fontSample", Control(name: "fontSample", module: "textwidgets", doc: "text in a font, h screen pixels tall (kept: drawn once).")).overloads.add Overload(params: @[Param(name: "family", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "string", default: "", kind: kStr), Param(name: "text", typ: "string", default: "", kind: kStr), Param(name: "h", typ: "int", default: "", kind: kInt), Param(name: "color", typ: "", default: "0xFF000000'u32", kind: kNone)], returns: "Bitmap", call: c369_fontSample)
-  controls.mgetOrPut("fontCombo", Control(name: "fontCombo", module: "textwidgets", doc: "A drop-down list of the font families (the system's and the built-in ones), each shown in its own letters.")).overloads.add Overload(params: @[Param(name: "family", typ: "var string", default: "", kind: kVStr), Param(name: "w", typ: "int", default: "0", kind: kInt), Param(name: "enabled", typ: "bool", default: "true", kind: kBool)], returns: "bool", call: c370_fontCombo)
-  controls.mgetOrPut("fontStyleCombo", Control(name: "fontStyleCombo", module: "textwidgets", doc: "The styles of family (\"Regular\", \"Bold\"...), each in its letters.")).overloads.add Overload(params: @[Param(name: "family", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "var string", default: "", kind: kVStr), Param(name: "w", typ: "int", default: "0", kind: kInt), Param(name: "enabled", typ: "bool", default: "true", kind: kBool)], returns: "bool", call: c371_fontStyleCombo)
+  controls.mgetOrPut("tabIndex", Control(name: "tabIndex", module: "core", doc: "The next control's place in the order Tab goes, as HTML's tabindex: the controls given one come first, 1 before 2, then the others in the order they are drawn. For a window laid out in one order and read in another (a form in two columns read down each); Retro Designer writes them when its Tab order's numbers are dragged.row: tabIndex 1 edit first # (Tab: first, then last, then the city) tabIndex ")).overloads.add Overload(params: @[Param(name: "n", typ: "int", default: "", kind: kInt)], returns: "", call: c365_tabIndex)
+  controls.mgetOrPut("accessName", Control(name: "accessName", module: "core", doc: "The name the next control is read by -- for a button with only an icon, a box with no label before it. (Labels name the control after them on their own.)")).overloads.add Overload(params: @[Param(name: "name", typ: "string", default: "", kind: kStr)], returns: "", call: c366_accessName)
+  controls.mgetOrPut("accessNameOr", Control(name: "accessNameOr", module: "core", doc: "The name the next control is read by when no label before it names it (a search box by its placeholder).")).overloads.add Overload(params: @[Param(name: "name", typ: "string", default: "", kind: kStr)], returns: "", call: c367_accessNameOr)
+  controls.mgetOrPut("space", Control(name: "space", module: "core", doc: "Empty space: down in a column, right in a row.")).overloads.add Overload(params: @[Param(name: "px", typ: "int", default: "Gap", kind: kInt)], returns: "", call: c368_space)
+  controls.mgetOrPut("spring", Control(name: "spring", module: "core", doc: "In a row: the widgets after it go to the row's right end.")).overloads.add Overload(params: @[], returns: "", call: c369_spring)
+  controls.mgetOrPut("fontSample", Control(name: "fontSample", module: "textwidgets", doc: "text in a font, h screen pixels tall (kept: drawn once).")).overloads.add Overload(params: @[Param(name: "family", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "string", default: "", kind: kStr), Param(name: "text", typ: "string", default: "", kind: kStr), Param(name: "h", typ: "int", default: "", kind: kInt), Param(name: "color", typ: "", default: "0xFF000000'u32", kind: kNone)], returns: "Bitmap", call: c370_fontSample)
+  controls.mgetOrPut("fontCombo", Control(name: "fontCombo", module: "textwidgets", doc: "A drop-down list of the font families (the system's and the built-in ones), each shown in its own letters.")).overloads.add Overload(params: @[Param(name: "family", typ: "var string", default: "", kind: kVStr), Param(name: "w", typ: "int", default: "0", kind: kInt), Param(name: "enabled", typ: "bool", default: "true", kind: kBool)], returns: "bool", call: c371_fontCombo)
+  controls.mgetOrPut("fontStyleCombo", Control(name: "fontStyleCombo", module: "textwidgets", doc: "The styles of family (\"Regular\", \"Bold\"...), each in its letters.")).overloads.add Overload(params: @[Param(name: "family", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "var string", default: "", kind: kVStr), Param(name: "w", typ: "int", default: "0", kind: kInt), Param(name: "enabled", typ: "bool", default: "true", kind: kBool)], returns: "bool", call: c372_fontStyleCombo)
   controls.mgetOrPut("`&lt;`", Control(name: "`&lt;`", module: "richedit", doc: "a comes before b.")).overloads.add Overload(params: @[Param(name: "a", typ: "RichPos", default: "", kind: kNone), Param(name: "b", typ: "RichPos", default: "", kind: kNone)], returns: "bool", call: nil)
   controls.mgetOrPut("`&lt;=`", Control(name: "`&lt;=`", module: "richedit", doc: "a comes before b or is b.")).overloads.add Overload(params: @[Param(name: "a", typ: "RichPos", default: "", kind: kNone), Param(name: "b", typ: "RichPos", default: "", kind: kNone)], returns: "bool", call: nil)
   controls.mgetOrPut("richEdit", Control(name: "richEdit", module: "richedit", doc: "The rich text editor, height pixels high (-1: the height left in the window), bound to d: true when its text (or its formatting) changed this frame. placeholder shows while it is empty; key tells editors of the same document apart. Its menu (a right click, a long press): Undo, Cut, Copy, Paste, Link, Select all. In a right-to-left interface each paragraph keeps its own direction (Arabic at the rig")).overloads.add Overload(params: @[Param(name: "d", typ: "var RichDoc", default: "", kind: kNone), Param(name: "height", typ: "int", default: "-1", kind: kInt), Param(name: "key", typ: "string", default: "\"\"", kind: kStr), Param(name: "placeholder", typ: "string", default: "\"\"", kind: kStr), Param(name: "enabled", typ: "bool", default: "true", kind: kBool)], returns: "bool", call: nil)
   controls.mgetOrPut("richToolbar", Control(name: "richToolbar", module: "richedit", doc: "A row of formatting buttons for d's editor: bold, italic, underline, strikethrough, monospace, the text color and size, bullets, numbers, a quote, indents, alignment, a link (asked for in a small dialog) and plain text again; pressed for what the caret has. compact (phones): the most used ones, the rest in a \"more\" menu.")).overloads.add Overload(params: @[Param(name: "d", typ: "var RichDoc", default: "", kind: kNone), Param(name: "compact", typ: "bool", default: "false", kind: kBool)], returns: "", call: nil)
-  controls.mgetOrPut("richFromHtml", Control(name: "richFromHtml", module: "richedit", doc: "A document from a mail's HTML: paragraphs (p, div, br), bold, italic, underline, strike, font and span styles (color, size, weight, family), links, lists (nested), quotes, headings, preformatted text; anything else gives its text, scripts and styles nothing. Never raises.")).overloads.add Overload(params: @[Param(name: "html", typ: "string", default: "", kind: kStr)], returns: "RichDoc", call: c376_richFromHtml)
+  controls.mgetOrPut("richFromHtml", Control(name: "richFromHtml", module: "richedit", doc: "A document from a mail's HTML: paragraphs (p, div, br), bold, italic, underline, strike, font and span styles (color, size, weight, family), links, lists (nested), quotes, headings, preformatted text; anything else gives its text, scripts and styles nothing. Never raises.")).overloads.add Overload(params: @[Param(name: "html", typ: "string", default: "", kind: kStr)], returns: "RichDoc", call: c377_richFromHtml)
   controls.mgetOrPut("`[]`", Control(name: "`[]`", module: "qrcode", doc: "The module in column x, row y is dark (outside the code: light).")).overloads.add Overload(params: @[Param(name: "q", typ: "QrCode", default: "", kind: kNone), Param(name: "x", typ: "int", default: "", kind: kInt), Param(name: "y", typ: "int", default: "", kind: kInt)], returns: "bool", call: nil)
   controls.mgetOrPut("qrBitmap", Control(name: "qrBitmap", module: "qrcode", doc: "The code as a picture: scale pixels a module, border modules of quiet zone (light) around it (4 is what the standard asks).")).overloads.add Overload(params: @[Param(name: "q", typ: "QrCode", default: "", kind: kNone), Param(name: "scale", typ: "int", default: "4", kind: kInt), Param(name: "border", typ: "int", default: "4", kind: kInt), Param(name: "dark", typ: "Color", default: "color(0, 0, 0)", kind: kColor), Param(name: "light", typ: "Color", default: "color(255, 255, 255)", kind: kColor)], returns: "Bitmap", call: nil)
-  controls.mgetOrPut("pdfPreview", Control(name: "pdfPreview", module: "pdfview", doc: "The first page of a PDF (or an .ai) drawn to fit maxW x maxH; nil when it is not one.")).overloads.add Overload(params: @[Param(name: "path", typ: "string", default: "", kind: kStr), Param(name: "maxW", typ: "int", default: "512", kind: kInt), Param(name: "maxH", typ: "int", default: "512", kind: kInt)], returns: "Bitmap", call: c379_pdfPreview)
-  controls.mgetOrPut("openPdfView", Control(name: "openPdfView", module: "pdfview", doc: "Opens the PDF path to read (its pages are drawn when shown). Raises PdfError when it is not one or is damaged past reading, IOError when it cannot be read.")).overloads.add Overload(params: @[Param(name: "path", typ: "string", default: "", kind: kStr)], returns: "PdfView", call: c380_openPdfView)
+  controls.mgetOrPut("pdfPreview", Control(name: "pdfPreview", module: "pdfview", doc: "The first page of a PDF (or an .ai) drawn to fit maxW x maxH; nil when it is not one.")).overloads.add Overload(params: @[Param(name: "path", typ: "string", default: "", kind: kStr), Param(name: "maxW", typ: "int", default: "512", kind: kInt), Param(name: "maxH", typ: "int", default: "512", kind: kInt)], returns: "Bitmap", call: c380_pdfPreview)
+  controls.mgetOrPut("openPdfView", Control(name: "openPdfView", module: "pdfview", doc: "Opens the PDF path to read (its pages are drawn when shown). Raises PdfError when it is not one or is damaged past reading, IOError when it cannot be read.")).overloads.add Overload(params: @[Param(name: "path", typ: "string", default: "", kind: kStr)], returns: "PdfView", call: c381_openPdfView)
   controls.mgetOrPut("pdfView", Control(name: "pdfView", module: "pdfview", doc: "The pages of v one under another on a gray ground, each drawn at the size it is shown (while it is being drawn, the one drawn before, or a blank page). The wheel and the scroll bars (a finger) move along; Ctrl + the wheel zooms; a double click (a double tap) goes between as wide as the view and twice that. With the focus: Page Up / Down, Space, Home, End, the arrows, + / - / 0 (as wide as the view")).overloads.add Overload(params: @[Param(name: "v", typ: "PdfView", default: "", kind: kNone), Param(name: "height", typ: "int", default: "-1", kind: kInt), Param(name: "w", typ: "int", default: "0", kind: kInt)], returns: "PdfViewEvent", call: nil)
-  controls.mgetOrPut("osmTiles", Control(name: "osmTiles", module: "tilemap", doc: "OpenStreetMap's own map (its servers are for light use; your app's name goes with each request: tileAgent).")).overloads.add Overload(params: @[], returns: "TileSource", call: c382_osmTiles)
-  controls.mgetOrPut("openTopoMap", Control(name: "openTopoMap", module: "tilemap", doc: "OpenTopoMap: heights, contour lines, paths (to zoom 17).")).overloads.add Overload(params: @[], returns: "TileSource", call: c383_openTopoMap)
-  controls.mgetOrPut("cartoTiles", Control(name: "cartoTiles", module: "tilemap", doc: "CARTO's basemaps: \"light_all\" (Positron), \"dark_all\" (Dark Matter), \"rastertiles/voyager\" (Voyager); their _nolabels and _only_labels.")).overloads.add Overload(params: @[Param(name: "style", typ: "string", default: "\"light_all\"", kind: kStr)], returns: "TileSource", call: c384_cartoTiles)
-  controls.mgetOrPut("googleTiles", Control(name: "googleTiles", module: "tilemap", doc: "Google's Map Tiles API (2D tiles): mapType \"roadmap\", \"satellite\" or \"terrain\"; a key with the Map Tiles API enabled.")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "", kind: kStr), Param(name: "mapType", typ: "string", default: "\"roadmap\"", kind: kStr), Param(name: "language", typ: "string", default: "\"en-US\"", kind: kStr), Param(name: "region", typ: "string", default: "\"US\"", kind: kStr)], returns: "TileSource", call: c385_googleTiles)
-  controls.mgetOrPut("azureTiles", Control(name: "azureTiles", module: "tilemap", doc: "Azure Maps (Render, Get Map Tile): \"microsoft.base.road\", \"microsoft.base.darkgrey\", \"microsoft.imagery\", \"microsoft.base.hybrid.road\"...")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "", kind: kStr), Param(name: "tileset", typ: "string", default: "\"microsoft.base.road\"", kind: kStr), Param(name: "language", typ: "string", default: "\"\"", kind: kStr)], returns: "TileSource", call: c386_azureTiles)
-  controls.mgetOrPut("mapboxTiles", Control(name: "mapboxTiles", module: "tilemap", doc: "Mapbox's styles as pictures: \"mapbox/streets-v12\", \"mapbox/outdoors-v12\", \"mapbox/light-v11\", \"mapbox/dark-v11\", \"mapbox/satellite-streets-v12\" or a style of your own (\"you/abc123\").")).overloads.add Overload(params: @[Param(name: "token", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "string", default: "\"mapbox/streets-v12\"", kind: kStr)], returns: "TileSource", call: c387_mapboxTiles)
-  controls.mgetOrPut("mapboxVector", Control(name: "mapboxVector", module: "tilemap", doc: "Mapbox Streets v8 as vector tiles, drawn by the kit in style.")).overloads.add Overload(params: @[Param(name: "token", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "", default: "classicStyle()", kind: kNone)], returns: "TileSource", call: c388_mapboxVector)
-  controls.mgetOrPut("hereTiles", Control(name: "hereTiles", module: "tilemap", doc: "HERE's Raster Tile API: \"explore.day\", \"explore.night\", \"lite.day\", \"satellite.day\", \"explore.satellite.day\", \"logistics.day\"...")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "string", default: "\"explore.day\"", kind: kStr)], returns: "TileSource", call: c389_hereTiles)
-  controls.mgetOrPut("mapTilerTiles", Control(name: "mapTilerTiles", module: "tilemap", doc: "MapTiler's maps as pictures: \"streets-v2\", \"outdoor-v2\", \"basic-v2\", \"bright-v2\", \"satellite\", \"topo-v2\", \"dataviz\"...")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "", kind: kStr), Param(name: "map", typ: "string", default: "\"streets-v2\"", kind: kStr)], returns: "TileSource", call: c390_mapTilerTiles)
-  controls.mgetOrPut("mapTilerVector", Control(name: "mapTilerVector", module: "tilemap", doc: "MapTiler's vector tiles (OpenMapTiles), drawn by the kit in style.")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "", default: "classicStyle()", kind: kNone)], returns: "TileSource", call: c391_mapTilerVector)
-  controls.mgetOrPut("protomapsVector", Control(name: "protomapsVector", module: "tilemap", doc: "Protomaps' basemap (its API; or a .pmtiles file of it: pmtilesSource).")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "", default: "classicStyle()", kind: kNone)], returns: "TileSource", call: c392_protomapsVector)
-  controls.mgetOrPut("esriTiles", Control(name: "esriTiles", module: "tilemap", doc: "Esri's (ArcGIS) basemaps: \"World_Street_Map\", \"World_Imagery\", \"World_Topo_Map\", \"World_Terrain_Base\"...; with a token of your ArcGIS account, through its basemap service.")).overloads.add Overload(params: @[Param(name: "service", typ: "string", default: "\"World_Street_Map\"", kind: kStr), Param(name: "token", typ: "string", default: "\"\"", kind: kStr)], returns: "TileSource", call: c393_esriTiles)
-  controls.mgetOrPut("tomTomTiles", Control(name: "tomTomTiles", module: "tilemap", doc: "TomTom's Map Display API: layer \"basic\", \"hybrid\" or \"labels\", style \"main\" or \"night\".")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "", kind: kStr), Param(name: "layer", typ: "string", default: "\"basic\"", kind: kStr), Param(name: "style", typ: "string", default: "\"main\"", kind: kStr)], returns: "TileSource", call: c394_tomTomTiles)
-  controls.mgetOrPut("stadiaTiles", Control(name: "stadiaTiles", module: "tilemap", doc: "Stadia Maps: \"alidade_smooth\", \"alidade_smooth_dark\", \"outdoors\", \"osm_bright\", \"stamen_toner\", \"stamen_terrain\" (a key, or your app's web address registered with them).")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "\"\"", kind: kStr), Param(name: "style", typ: "string", default: "\"alidade_smooth\"", kind: kStr)], returns: "TileSource", call: c395_stadiaTiles)
-  controls.mgetOrPut("amapTiles", Control(name: "amapTiles", module: "tilemap", doc: "AMap (Gaode) of China: its streets, or satellite pictures; GCJ-02.")).overloads.add Overload(params: @[Param(name: "satellite", typ: "bool", default: "false", kind: kBool), Param(name: "language", typ: "string", default: "\"zh_cn\"", kind: kStr)], returns: "TileSource", call: c396_amapTiles)
-  controls.mgetOrPut("tencentTiles", Control(name: "tencentTiles", module: "tilemap", doc: "Tencent's map of China; GCJ-02.")).overloads.add Overload(params: @[], returns: "TileSource", call: c397_tencentTiles)
-  controls.mgetOrPut("tiandituTiles", Control(name: "tiandituTiles", module: "tilemap", doc: "Tianditu, China's national map (CGCS2000, as GPS): layer \"vec\" (streets), \"img\" (satellite), \"ter\" (terrain); their names over them are the \"cva\", \"cia\", \"cta\" layers.")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "", kind: kStr), Param(name: "layer", typ: "string", default: "\"vec\"", kind: kStr)], returns: "TileSource", call: c398_tiandituTiles)
-  controls.mgetOrPut("pmtilesSource", Control(name: "pmtilesSource", module: "tilemap", doc: "A PMTiles archive (a file, or its web address: read in pieces), raster or vector as it holds.")).overloads.add Overload(params: @[Param(name: "path", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "", default: "classicStyle()", kind: kNone), Param(name: "attribution", typ: "string", default: "\"© OpenStreetMap contributors\"", kind: kStr)], returns: "TileSource", call: c399_pmtilesSource)
-  controls.mgetOrPut("mbtilesSource", Control(name: "mbtilesSource", module: "tilemap", doc: "An MBTiles file, raster or vector as it holds.")).overloads.add Overload(params: @[Param(name: "path", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "", default: "classicStyle()", kind: kNone), Param(name: "attribution", typ: "string", default: "\"© OpenStreetMap contributors\"", kind: kStr)], returns: "TileSource", call: c400_mbtilesSource)
-  controls.mgetOrPut("folderSource", Control(name: "folderSource", module: "tilemap", doc: "Tiles in folders of your own: dir/z/x/y.ext (what a tile tool writes; \"pbf\" for vector tiles).")).overloads.add Overload(params: @[Param(name: "dir", typ: "string", default: "", kind: kStr), Param(name: "ext", typ: "string", default: "\"png\"", kind: kStr), Param(name: "maxZoom", typ: "int", default: "18", kind: kInt), Param(name: "attribution", typ: "string", default: "\"\"", kind: kStr)], returns: "TileSource", call: c401_folderSource)
-  controls.mgetOrPut("tileJsonSource", Control(name: "tileJsonSource", module: "tilemap", doc: "A TileJSON's tiles (OpenFreeMap: \"https://tiles.openfreemap.org/planet\"; a tile server's). Waits for it.")).overloads.add Overload(params: @[Param(name: "url", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "", default: "classicStyle()", kind: kNone)], returns: "TileSource", call: c402_tileJsonSource)
-  controls.mgetOrPut("mapKitPage", Control(name: "mapKitPage", module: "tilemap", doc: "A page with Apple's map (MapKit JS) for webView: token a MapKit JS token of your Apple developer account; the map around lat, lon, zoomMeters across.")).overloads.add Overload(params: @[Param(name: "token", typ: "string", default: "", kind: kStr), Param(name: "lat", typ: "float", default: "", kind: kFloat), Param(name: "lon", typ: "float", default: "", kind: kFloat), Param(name: "zoomMeters", typ: "float", default: "5000.0", kind: kFloat)], returns: "string", call: c403_mapKitPage)
-  controls.mgetOrPut("googleMapsPage", Control(name: "googleMapsPage", module: "tilemap", doc: "A page with Google's own JavaScript map for webView (a key with the Maps JavaScript API enabled).")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "", kind: kStr), Param(name: "lat", typ: "float", default: "", kind: kFloat), Param(name: "lon", typ: "float", default: "", kind: kFloat), Param(name: "zoom", typ: "int", default: "12", kind: kInt)], returns: "string", call: c404_googleMapsPage)
-  controls.mgetOrPut("quadkey", Control(name: "quadkey", module: "tilemap", doc: "A tile's quadkey (Bing's and Azure's numbering).")).overloads.add Overload(params: @[Param(name: "z", typ: "int", default: "", kind: kInt), Param(name: "x", typ: "int", default: "", kind: kInt), Param(name: "y", typ: "int", default: "", kind: kInt)], returns: "string", call: c405_quadkey)
+  controls.mgetOrPut("osmTiles", Control(name: "osmTiles", module: "tilemap", doc: "OpenStreetMap's own map (its servers are for light use; your app's name goes with each request: tileAgent).")).overloads.add Overload(params: @[], returns: "TileSource", call: c383_osmTiles)
+  controls.mgetOrPut("openTopoMap", Control(name: "openTopoMap", module: "tilemap", doc: "OpenTopoMap: heights, contour lines, paths (to zoom 17).")).overloads.add Overload(params: @[], returns: "TileSource", call: c384_openTopoMap)
+  controls.mgetOrPut("cartoTiles", Control(name: "cartoTiles", module: "tilemap", doc: "CARTO's basemaps: \"light_all\" (Positron), \"dark_all\" (Dark Matter), \"rastertiles/voyager\" (Voyager); their _nolabels and _only_labels.")).overloads.add Overload(params: @[Param(name: "style", typ: "string", default: "\"light_all\"", kind: kStr)], returns: "TileSource", call: c385_cartoTiles)
+  controls.mgetOrPut("googleTiles", Control(name: "googleTiles", module: "tilemap", doc: "Google's Map Tiles API (2D tiles): mapType \"roadmap\", \"satellite\" or \"terrain\"; a key with the Map Tiles API enabled.")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "", kind: kStr), Param(name: "mapType", typ: "string", default: "\"roadmap\"", kind: kStr), Param(name: "language", typ: "string", default: "\"en-US\"", kind: kStr), Param(name: "region", typ: "string", default: "\"US\"", kind: kStr)], returns: "TileSource", call: c386_googleTiles)
+  controls.mgetOrPut("azureTiles", Control(name: "azureTiles", module: "tilemap", doc: "Azure Maps (Render, Get Map Tile): \"microsoft.base.road\", \"microsoft.base.darkgrey\", \"microsoft.imagery\", \"microsoft.base.hybrid.road\"...")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "", kind: kStr), Param(name: "tileset", typ: "string", default: "\"microsoft.base.road\"", kind: kStr), Param(name: "language", typ: "string", default: "\"\"", kind: kStr)], returns: "TileSource", call: c387_azureTiles)
+  controls.mgetOrPut("mapboxTiles", Control(name: "mapboxTiles", module: "tilemap", doc: "Mapbox's styles as pictures: \"mapbox/streets-v12\", \"mapbox/outdoors-v12\", \"mapbox/light-v11\", \"mapbox/dark-v11\", \"mapbox/satellite-streets-v12\" or a style of your own (\"you/abc123\").")).overloads.add Overload(params: @[Param(name: "token", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "string", default: "\"mapbox/streets-v12\"", kind: kStr)], returns: "TileSource", call: c388_mapboxTiles)
+  controls.mgetOrPut("mapboxVector", Control(name: "mapboxVector", module: "tilemap", doc: "Mapbox Streets v8 as vector tiles, drawn by the kit in style.")).overloads.add Overload(params: @[Param(name: "token", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "", default: "classicStyle()", kind: kNone)], returns: "TileSource", call: c389_mapboxVector)
+  controls.mgetOrPut("hereTiles", Control(name: "hereTiles", module: "tilemap", doc: "HERE's Raster Tile API: \"explore.day\", \"explore.night\", \"lite.day\", \"satellite.day\", \"explore.satellite.day\", \"logistics.day\"...")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "string", default: "\"explore.day\"", kind: kStr)], returns: "TileSource", call: c390_hereTiles)
+  controls.mgetOrPut("mapTilerTiles", Control(name: "mapTilerTiles", module: "tilemap", doc: "MapTiler's maps as pictures: \"streets-v2\", \"outdoor-v2\", \"basic-v2\", \"bright-v2\", \"satellite\", \"topo-v2\", \"dataviz\"...")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "", kind: kStr), Param(name: "map", typ: "string", default: "\"streets-v2\"", kind: kStr)], returns: "TileSource", call: c391_mapTilerTiles)
+  controls.mgetOrPut("mapTilerVector", Control(name: "mapTilerVector", module: "tilemap", doc: "MapTiler's vector tiles (OpenMapTiles), drawn by the kit in style.")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "", default: "classicStyle()", kind: kNone)], returns: "TileSource", call: c392_mapTilerVector)
+  controls.mgetOrPut("protomapsVector", Control(name: "protomapsVector", module: "tilemap", doc: "Protomaps' basemap (its API; or a .pmtiles file of it: pmtilesSource).")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "", default: "classicStyle()", kind: kNone)], returns: "TileSource", call: c393_protomapsVector)
+  controls.mgetOrPut("esriTiles", Control(name: "esriTiles", module: "tilemap", doc: "Esri's (ArcGIS) basemaps: \"World_Street_Map\", \"World_Imagery\", \"World_Topo_Map\", \"World_Terrain_Base\"...; with a token of your ArcGIS account, through its basemap service.")).overloads.add Overload(params: @[Param(name: "service", typ: "string", default: "\"World_Street_Map\"", kind: kStr), Param(name: "token", typ: "string", default: "\"\"", kind: kStr)], returns: "TileSource", call: c394_esriTiles)
+  controls.mgetOrPut("tomTomTiles", Control(name: "tomTomTiles", module: "tilemap", doc: "TomTom's Map Display API: layer \"basic\", \"hybrid\" or \"labels\", style \"main\" or \"night\".")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "", kind: kStr), Param(name: "layer", typ: "string", default: "\"basic\"", kind: kStr), Param(name: "style", typ: "string", default: "\"main\"", kind: kStr)], returns: "TileSource", call: c395_tomTomTiles)
+  controls.mgetOrPut("stadiaTiles", Control(name: "stadiaTiles", module: "tilemap", doc: "Stadia Maps: \"alidade_smooth\", \"alidade_smooth_dark\", \"outdoors\", \"osm_bright\", \"stamen_toner\", \"stamen_terrain\" (a key, or your app's web address registered with them).")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "\"\"", kind: kStr), Param(name: "style", typ: "string", default: "\"alidade_smooth\"", kind: kStr)], returns: "TileSource", call: c396_stadiaTiles)
+  controls.mgetOrPut("amapTiles", Control(name: "amapTiles", module: "tilemap", doc: "AMap (Gaode) of China: its streets, or satellite pictures; GCJ-02.")).overloads.add Overload(params: @[Param(name: "satellite", typ: "bool", default: "false", kind: kBool), Param(name: "language", typ: "string", default: "\"zh_cn\"", kind: kStr)], returns: "TileSource", call: c397_amapTiles)
+  controls.mgetOrPut("tencentTiles", Control(name: "tencentTiles", module: "tilemap", doc: "Tencent's map of China; GCJ-02.")).overloads.add Overload(params: @[], returns: "TileSource", call: c398_tencentTiles)
+  controls.mgetOrPut("tiandituTiles", Control(name: "tiandituTiles", module: "tilemap", doc: "Tianditu, China's national map (CGCS2000, as GPS): layer \"vec\" (streets), \"img\" (satellite), \"ter\" (terrain); their names over them are the \"cva\", \"cia\", \"cta\" layers.")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "", kind: kStr), Param(name: "layer", typ: "string", default: "\"vec\"", kind: kStr)], returns: "TileSource", call: c399_tiandituTiles)
+  controls.mgetOrPut("pmtilesSource", Control(name: "pmtilesSource", module: "tilemap", doc: "A PMTiles archive (a file, or its web address: read in pieces), raster or vector as it holds.")).overloads.add Overload(params: @[Param(name: "path", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "", default: "classicStyle()", kind: kNone), Param(name: "attribution", typ: "string", default: "\"© OpenStreetMap contributors\"", kind: kStr)], returns: "TileSource", call: c400_pmtilesSource)
+  controls.mgetOrPut("mbtilesSource", Control(name: "mbtilesSource", module: "tilemap", doc: "An MBTiles file, raster or vector as it holds.")).overloads.add Overload(params: @[Param(name: "path", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "", default: "classicStyle()", kind: kNone), Param(name: "attribution", typ: "string", default: "\"© OpenStreetMap contributors\"", kind: kStr)], returns: "TileSource", call: c401_mbtilesSource)
+  controls.mgetOrPut("folderSource", Control(name: "folderSource", module: "tilemap", doc: "Tiles in folders of your own: dir/z/x/y.ext (what a tile tool writes; \"pbf\" for vector tiles).")).overloads.add Overload(params: @[Param(name: "dir", typ: "string", default: "", kind: kStr), Param(name: "ext", typ: "string", default: "\"png\"", kind: kStr), Param(name: "maxZoom", typ: "int", default: "18", kind: kInt), Param(name: "attribution", typ: "string", default: "\"\"", kind: kStr)], returns: "TileSource", call: c402_folderSource)
+  controls.mgetOrPut("tileJsonSource", Control(name: "tileJsonSource", module: "tilemap", doc: "A TileJSON's tiles (OpenFreeMap: \"https://tiles.openfreemap.org/planet\"; a tile server's). Waits for it.")).overloads.add Overload(params: @[Param(name: "url", typ: "string", default: "", kind: kStr), Param(name: "style", typ: "", default: "classicStyle()", kind: kNone)], returns: "TileSource", call: c403_tileJsonSource)
+  controls.mgetOrPut("mapKitPage", Control(name: "mapKitPage", module: "tilemap", doc: "A page with Apple's map (MapKit JS) for webView: token a MapKit JS token of your Apple developer account; the map around lat, lon, zoomMeters across.")).overloads.add Overload(params: @[Param(name: "token", typ: "string", default: "", kind: kStr), Param(name: "lat", typ: "float", default: "", kind: kFloat), Param(name: "lon", typ: "float", default: "", kind: kFloat), Param(name: "zoomMeters", typ: "float", default: "5000.0", kind: kFloat)], returns: "string", call: c404_mapKitPage)
+  controls.mgetOrPut("googleMapsPage", Control(name: "googleMapsPage", module: "tilemap", doc: "A page with Google's own JavaScript map for webView (a key with the Maps JavaScript API enabled).")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "", kind: kStr), Param(name: "lat", typ: "float", default: "", kind: kFloat), Param(name: "lon", typ: "float", default: "", kind: kFloat), Param(name: "zoom", typ: "int", default: "12", kind: kInt)], returns: "string", call: c405_googleMapsPage)
+  controls.mgetOrPut("quadkey", Control(name: "quadkey", module: "tilemap", doc: "A tile's quadkey (Bing's and Azure's numbering).")).overloads.add Overload(params: @[Param(name: "z", typ: "int", default: "", kind: kInt), Param(name: "x", typ: "int", default: "", kind: kInt), Param(name: "y", typ: "int", default: "", kind: kInt)], returns: "string", call: c406_quadkey)
   controls.mgetOrPut("tileUrl", Control(name: "tileUrl", module: "tilemap", doc: "The address of tile z/x/y of s (dense: the one with twice the pixels).")).overloads.add Overload(params: @[Param(name: "s", typ: "TileSource", default: "", kind: kNone), Param(name: "z", typ: "int", default: "", kind: kInt), Param(name: "x", typ: "int", default: "", kind: kInt), Param(name: "y", typ: "int", default: "", kind: kInt), Param(name: "dense", typ: "bool", default: "false", kind: kBool)], returns: "string", call: nil)
-  controls.mgetOrPut("loadingTiles", Control(name: "loadingTiles", module: "tilemap", doc: "Tiles asked for and not yet come.")).overloads.add Overload(params: @[], returns: "int", call: c407_loadingTiles)
-  controls.mgetOrPut("clearTileCache", Control(name: "clearTileCache", module: "tilemap", doc: "Forgets the tiles kept in memory (and on the disk with disk).")).overloads.add Overload(params: @[Param(name: "disk", typ: "bool", default: "false", kind: kBool)], returns: "", call: c408_clearTileCache)
+  controls.mgetOrPut("loadingTiles", Control(name: "loadingTiles", module: "tilemap", doc: "Tiles asked for and not yet come.")).overloads.add Overload(params: @[], returns: "int", call: c408_loadingTiles)
+  controls.mgetOrPut("clearTileCache", Control(name: "clearTileCache", module: "tilemap", doc: "Forgets the tiles kept in memory (and on the disk with disk).")).overloads.add Overload(params: @[Param(name: "disk", typ: "bool", default: "false", kind: kBool)], returns: "", call: c409_clearTileCache)
   controls.mgetOrPut("fitBounds", Control(name: "fitBounds", module: "tilemap", doc: "Shows the area from south, west to north, east (degrees) as large as the map shows it (done when it is next drawn).")).overloads.add Overload(params: @[Param(name: "m", typ: "var TileMapState", default: "", kind: kNone), Param(name: "south", typ: "float", default: "", kind: kFloat), Param(name: "west", typ: "float", default: "", kind: kFloat), Param(name: "north", typ: "float", default: "", kind: kFloat), Param(name: "east", typ: "float", default: "", kind: kFloat)], returns: "", call: nil)
   controls.mgetOrPut("fitPoints", Control(name: "fitPoints", module: "tilemap", doc: "Shows all of points (a route, the markers).")).overloads.add Overload(params: @[Param(name: "m", typ: "var TileMapState", default: "", kind: kNone), Param(name: "points", typ: "openArray[LatLon]", default: "", kind: kNone)], returns: "", call: nil)
   controls.mgetOrPut("centerOn", Control(name: "centerOn", module: "tilemap", doc: "Moves the view to lat, lon (and zoom when given).")).overloads.add Overload(params: @[Param(name: "m", typ: "var TileMapState", default: "", kind: kNone), Param(name: "lat", typ: "float", default: "", kind: kFloat), Param(name: "lon", typ: "float", default: "", kind: kFloat), Param(name: "zoom", typ: "float", default: "-1.0", kind: kFloat)], returns: "", call: nil)
   controls.mgetOrPut("metersPerPixel", Control(name: "metersPerPixel", module: "tilemap", doc: "How many meters a design pixel covers at the middle of the view.")).overloads.add Overload(params: @[Param(name: "m", typ: "TileMapState", default: "", kind: kNone)], returns: "float", call: nil)
   controls.mgetOrPut("tileMap", Control(name: "tileMap", module: "tilemap", doc: "The map of src, height pixels high (-1: the room left), as wide as the space it is in; overlays drawn over it (labels, sea marks, rain), shapes and markers over them. Drag to move it; the wheel, a double click, two fingers, + / - (with the focus) or its buttons zoom; arrows move it. clicked reports a click or a tap and where.")).overloads.add Overload(params: @[Param(name: "m", typ: "var TileMapState", default: "", kind: kNone), Param(name: "src", typ: "TileSource", default: "", kind: kNone), Param(name: "height", typ: "int", default: "-1", kind: kInt), Param(name: "markers", typ: "openArray[MapMarker]", default: "[]", kind: kNone), Param(name: "shapes", typ: "openArray[MapShape]", default: "[]", kind: kNone), Param(name: "overlays", typ: "openArray[TileSource]", default: "[]", kind: kNone), Param(name: "showScale", typ: "bool", default: "true", kind: kBool), Param(name: "showZoom", typ: "bool", default: "true", kind: kBool), Param(name: "key", typ: "string", default: "\"\"", kind: kStr)], returns: "TileMapEvent", call: nil)
   controls.mgetOrPut("mapPointOf", Control(name: "mapPointOf", module: "tilemap", doc: "Where p is drawn in the last tileMap of m (logical pixels).")).overloads.add Overload(params: @[Param(name: "m", typ: "TileMapState", default: "", kind: kNone), Param(name: "src", typ: "TileSource", default: "", kind: kNone), Param(name: "p", typ: "LatLon", default: "", kind: kNone)], returns: "tuple[x, y: int]", call: nil)
-  controls.mgetOrPut("tilesIn", Control(name: "tilesIn", module: "tilemap", doc: "How many tiles an area has from minZoom to maxZoom.")).overloads.add Overload(params: @[Param(name: "south", typ: "float", default: "", kind: kFloat), Param(name: "west", typ: "float", default: "", kind: kFloat), Param(name: "north", typ: "float", default: "", kind: kFloat), Param(name: "east", typ: "float", default: "", kind: kFloat), Param(name: "minZoom", typ: "int", default: "", kind: kInt), Param(name: "maxZoom", typ: "int", default: "", kind: kInt)], returns: "int", call: c415_tilesIn)
+  controls.mgetOrPut("tilesIn", Control(name: "tilesIn", module: "tilemap", doc: "How many tiles an area has from minZoom to maxZoom.")).overloads.add Overload(params: @[Param(name: "south", typ: "float", default: "", kind: kFloat), Param(name: "west", typ: "float", default: "", kind: kFloat), Param(name: "north", typ: "float", default: "", kind: kFloat), Param(name: "east", typ: "float", default: "", kind: kFloat), Param(name: "minZoom", typ: "int", default: "", kind: kInt), Param(name: "maxZoom", typ: "int", default: "", kind: kInt)], returns: "int", call: c416_tilesIn)
   controls.mgetOrPut("keepArea", Control(name: "keepArea", module: "tilemap", doc: "Fetches an area's tiles into the disk cache, for a map that works without the network (a car, a kiosk); \"\" when it was asked, else why not. OpenStreetMap's own servers do not allow it (their rule): take a service that does, or a .pmtiles file of the area.")).overloads.add Overload(params: @[Param(name: "src", typ: "TileSource", default: "", kind: kNone), Param(name: "south", typ: "float", default: "", kind: kFloat), Param(name: "west", typ: "float", default: "", kind: kFloat), Param(name: "north", typ: "float", default: "", kind: kFloat), Param(name: "east", typ: "float", default: "", kind: kFloat), Param(name: "minZoom", typ: "int", default: "", kind: kInt), Param(name: "maxZoom", typ: "int", default: "", kind: kInt)], returns: "string", call: nil)
   controls.mgetOrPut("routeShape", Control(name: "routeShape", module: "tilemap", doc: "A route found by geo.route as a line on the map.")).overloads.add Overload(params: @[Param(name: "r", typ: "Route", default: "", kind: kNone), Param(name: "color", typ: "Color", default: "Color()", kind: kColor), Param(name: "width", typ: "float", default: "5.0", kind: kFloat), Param(name: "label", typ: "string", default: "\"\"", kind: kStr)], returns: "MapShape", call: nil)
-  controls.mgetOrPut("geoJsonShapes", Control(name: "geoJsonShapes", module: "tilemap", doc: "The lines and areas of a GeoJSON text as shapes, its points as markers.")).overloads.add Overload(params: @[Param(name: "text", typ: "string", default: "", kind: kStr), Param(name: "color", typ: "Color", default: "Color()", kind: kColor), Param(name: "fill", typ: "Color", default: "Color()", kind: kColor)], returns: "tuple[shapes: seq[MapShape], markers: seq[MapMarker]]", call: c418_geoJsonShapes)
-  controls.mgetOrPut("readGltf", Control(name: "readGltf", module: "gltf", doc: "A model from glTF's JSON text, its binary chunk (.glb) and the folder its files are in; GltfError when it cannot be read.")).overloads.add Overload(params: @[Param(name: "json", typ: "string", default: "", kind: kStr), Param(name: "bin", typ: "string", default: "\"\"", kind: kStr), Param(name: "baseDir", typ: "string", default: "\"\"", kind: kStr)], returns: "Scene3", call: c419_readGltf)
-  controls.mgetOrPut("readGlb", Control(name: "readGlb", module: "gltf", doc: "A model from the bytes of a .glb file.")).overloads.add Overload(params: @[Param(name: "data", typ: "string", default: "", kind: kStr), Param(name: "baseDir", typ: "string", default: "\"\"", kind: kStr)], returns: "Scene3", call: c420_readGlb)
-  controls.mgetOrPut("loadGltf", Control(name: "loadGltf", module: "gltf", doc: "The model in path (.glb or .gltf); GltfError when it cannot be read, IOError when the file cannot.")).overloads.add Overload(params: @[Param(name: "path", typ: "string", default: "", kind: kStr)], returns: "Scene3", call: c421_loadGltf)
-  controls.mgetOrPut("blendToGlb", Control(name: "blendToGlb", module: "gltf", doc: "Turns a .blend into a .glb with Blender (in the background, its clips with it); the .glb's path, \"\" when Blender is not there or could not. glb \"\": beside the .blend, made again only when the .blend is newer.")).overloads.add Overload(params: @[Param(name: "blend", typ: "string", default: "", kind: kStr), Param(name: "glb", typ: "string", default: "\"\"", kind: kStr)], returns: "string", call: c422_blendToGlb)
-  controls.mgetOrPut("loadModel3", Control(name: "loadModel3", module: "gltf", doc: "Any model as a scene: .glb, .gltf, .blend (through Blender), and .obj, .stl (one mesh, centered, 2 units across).")).overloads.add Overload(params: @[Param(name: "path", typ: "string", default: "", kind: kStr)], returns: "Scene3", call: c423_loadModel3)
+  controls.mgetOrPut("geoJsonShapes", Control(name: "geoJsonShapes", module: "tilemap", doc: "The lines and areas of a GeoJSON text as shapes, its points as markers.")).overloads.add Overload(params: @[Param(name: "text", typ: "string", default: "", kind: kStr), Param(name: "color", typ: "Color", default: "Color()", kind: kColor), Param(name: "fill", typ: "Color", default: "Color()", kind: kColor)], returns: "tuple[shapes: seq[MapShape], markers: seq[MapMarker]]", call: c419_geoJsonShapes)
+  controls.mgetOrPut("readGltf", Control(name: "readGltf", module: "gltf", doc: "A model from glTF's JSON text, its binary chunk (.glb) and the folder its files are in; GltfError when it cannot be read.")).overloads.add Overload(params: @[Param(name: "json", typ: "string", default: "", kind: kStr), Param(name: "bin", typ: "string", default: "\"\"", kind: kStr), Param(name: "baseDir", typ: "string", default: "\"\"", kind: kStr)], returns: "Scene3", call: c420_readGltf)
+  controls.mgetOrPut("readGlb", Control(name: "readGlb", module: "gltf", doc: "A model from the bytes of a .glb file.")).overloads.add Overload(params: @[Param(name: "data", typ: "string", default: "", kind: kStr), Param(name: "baseDir", typ: "string", default: "\"\"", kind: kStr)], returns: "Scene3", call: c421_readGlb)
+  controls.mgetOrPut("loadGltf", Control(name: "loadGltf", module: "gltf", doc: "The model in path (.glb or .gltf); GltfError when it cannot be read, IOError when the file cannot.")).overloads.add Overload(params: @[Param(name: "path", typ: "string", default: "", kind: kStr)], returns: "Scene3", call: c422_loadGltf)
+  controls.mgetOrPut("blendToGlb", Control(name: "blendToGlb", module: "gltf", doc: "Turns a .blend into a .glb with Blender (in the background, its clips with it); the .glb's path, \"\" when Blender is not there or could not. glb \"\": beside the .blend, made again only when the .blend is newer.")).overloads.add Overload(params: @[Param(name: "blend", typ: "string", default: "", kind: kStr), Param(name: "glb", typ: "string", default: "\"\"", kind: kStr)], returns: "string", call: c423_blendToGlb)
+  controls.mgetOrPut("loadModel3", Control(name: "loadModel3", module: "gltf", doc: "Any model as a scene: .glb, .gltf, .blend (through Blender), and .obj, .stl (one mesh, centered, 2 units across).")).overloads.add Overload(params: @[Param(name: "path", typ: "string", default: "", kind: kStr)], returns: "Scene3", call: c424_loadModel3)
   controls.mgetOrPut("toGlb", Control(name: "toGlb", module: "gltf", doc: "The scene as a .glb: its meshes, their materials' colors (no pictures), its nodes and clips.")).overloads.add Overload(params: @[Param(name: "scene", typ: "Scene3", default: "", kind: kNone)], returns: "string", call: nil)
-  controls.mgetOrPut("cameras", Control(name: "cameras", module: "capture", doc: "The cameras the system has.")).overloads.add Overload(params: @[], returns: "seq[CameraInfo]", call: c425_cameras)
-  controls.mgetOrPut("cameraView", Control(name: "cameraView", module: "capture", doc: "The camera's live picture, as large as fits, height pixels high (-1: the room left). camera: one of cameras() (\"\"): the first, or one that looks facing). mirror: shown as in a mirror (a front camera). The camera is on while the view is drawn, and off once it is not.")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "\"\"", kind: kStr), Param(name: "camera", typ: "string", default: "\"\"", kind: kStr), Param(name: "facing", typ: "CameraFacing", default: "cfAny", kind: kEnum), Param(name: "height", typ: "int", default: "-1", kind: kInt), Param(name: "w", typ: "int", default: "0", kind: kInt), Param(name: "mirror", typ: "bool", default: "false", kind: kBool)], returns: "CameraEvent", call: c426_cameraView)
-  controls.mgetOrPut("cameraPhoto", Control(name: "cameraPhoto", module: "capture", doc: "Saves the camera's next picture to path (JPEG; PNG by its extension); CameraEvent.photo says when it is there.")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "\"\"", kind: kStr), Param(name: "path", typ: "string", default: "", kind: kStr)], returns: "", call: c427_cameraPhoto)
-  controls.mgetOrPut("cameraFrame", Control(name: "cameraFrame", module: "capture", doc: "The camera's latest picture (nil: none yet), to read it: a barcode, a face. Not to be changed.")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "\"\"", kind: kStr)], returns: "Bitmap", call: c428_cameraFrame)
-  controls.mgetOrPut("cameraRecord", Control(name: "cameraRecord", module: "capture", doc: "Records the camera into the video path (MP4, H.264, 30 pictures a second, by retroui/media's writer) until cameraStop; false when the camera shows nothing yet or no writer is there.")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "\"\"", kind: kStr), Param(name: "path", typ: "string", default: "", kind: kStr)], returns: "bool", call: c429_cameraRecord)
-  controls.mgetOrPut("cameraStop", Control(name: "cameraStop", module: "capture", doc: "Ends the recording cameraRecord started; CameraEvent.saved says when the video is written.")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "\"\"", kind: kStr)], returns: "", call: c430_cameraStop)
-  controls.mgetOrPut("cameraClose", Control(name: "cameraClose", module: "capture", doc: "Lets the camera go now (it goes by itself once its view is not drawn).")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "\"\"", kind: kStr)], returns: "", call: c431_cameraClose)
-  controls.mgetOrPut("recordSound", Control(name: "recordSound", module: "capture", doc: "Records the microphone into path until stopRecordingSound: a WAV file (16-bit, 44.1 kHz, mono) on Linux and Windows; on Android, iOS and macOS the system's recorder writes it (AAC in an .m4a by its extension, else WAV). False when there is no microphone (or the user said no).")).overloads.add Overload(params: @[Param(name: "path", typ: "string", default: "", kind: kStr)], returns: "bool", call: c432_recordSound)
-  controls.mgetOrPut("stopRecordingSound", Control(name: "stopRecordingSound", module: "capture", doc: "Ends the recording recordSound started and writes it; how long it is in milliseconds (0: not known, -1: it could not be written).")).overloads.add Overload(params: @[], returns: "int", call: c433_stopRecordingSound)
-  controls.mgetOrPut("recordingSound", Control(name: "recordingSound", module: "capture", doc: "The microphone records.")).overloads.add Overload(params: @[], returns: "bool", call: c434_recordingSound)
-  controls.mgetOrPut("soundLevel", Control(name: "soundLevel", module: "capture", doc: "How loud the microphone is now, 0..1 (a meter; 0 when not recording).")).overloads.add Overload(params: @[], returns: "float", call: c435_soundLevel)
-  controls.mgetOrPut("mediaSessionBusName", Control(name: "mediaSessionBusName", module: "mediasession", doc: "The bus name the app's controls have on D-Bus (\"\" before setNowPlaying): playerctl -p NAME, tests.")).overloads.add Overload(params: @[], returns: "string", call: c436_mediaSessionBusName)
+  controls.mgetOrPut("cameras", Control(name: "cameras", module: "capture", doc: "The cameras the system has.")).overloads.add Overload(params: @[], returns: "seq[CameraInfo]", call: c426_cameras)
+  controls.mgetOrPut("cameraView", Control(name: "cameraView", module: "capture", doc: "The camera's live picture, as large as fits, height pixels high (-1: the room left). camera: one of cameras() (\"\"): the first, or one that looks facing). mirror: shown as in a mirror (a front camera). The camera is on while the view is drawn, and off once it is not.")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "\"\"", kind: kStr), Param(name: "camera", typ: "string", default: "\"\"", kind: kStr), Param(name: "facing", typ: "CameraFacing", default: "cfAny", kind: kEnum), Param(name: "height", typ: "int", default: "-1", kind: kInt), Param(name: "w", typ: "int", default: "0", kind: kInt), Param(name: "mirror", typ: "bool", default: "false", kind: kBool)], returns: "CameraEvent", call: c427_cameraView)
+  controls.mgetOrPut("cameraPhoto", Control(name: "cameraPhoto", module: "capture", doc: "Saves the camera's next picture to path (JPEG; PNG by its extension); CameraEvent.photo says when it is there.")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "\"\"", kind: kStr), Param(name: "path", typ: "string", default: "", kind: kStr)], returns: "", call: c428_cameraPhoto)
+  controls.mgetOrPut("cameraFrame", Control(name: "cameraFrame", module: "capture", doc: "The camera's latest picture (nil: none yet), to read it: a barcode, a face. Not to be changed.")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "\"\"", kind: kStr)], returns: "Bitmap", call: c429_cameraFrame)
+  controls.mgetOrPut("cameraRecord", Control(name: "cameraRecord", module: "capture", doc: "Records the camera into the video path (MP4, H.264, 30 pictures a second, by retroui/media's writer) until cameraStop; false when the camera shows nothing yet or no writer is there.")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "\"\"", kind: kStr), Param(name: "path", typ: "string", default: "", kind: kStr)], returns: "bool", call: c430_cameraRecord)
+  controls.mgetOrPut("cameraStop", Control(name: "cameraStop", module: "capture", doc: "Ends the recording cameraRecord started; CameraEvent.saved says when the video is written.")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "\"\"", kind: kStr)], returns: "", call: c431_cameraStop)
+  controls.mgetOrPut("cameraClose", Control(name: "cameraClose", module: "capture", doc: "Lets the camera go now (it goes by itself once its view is not drawn).")).overloads.add Overload(params: @[Param(name: "key", typ: "string", default: "\"\"", kind: kStr)], returns: "", call: c432_cameraClose)
+  controls.mgetOrPut("recordSound", Control(name: "recordSound", module: "capture", doc: "Records the microphone into path until stopRecordingSound: a WAV file (16-bit, 44.1 kHz, mono) on Linux and Windows; on Android, iOS and macOS the system's recorder writes it (AAC in an .m4a by its extension, else WAV). False when there is no microphone (or the user said no).")).overloads.add Overload(params: @[Param(name: "path", typ: "string", default: "", kind: kStr)], returns: "bool", call: c433_recordSound)
+  controls.mgetOrPut("stopRecordingSound", Control(name: "stopRecordingSound", module: "capture", doc: "Ends the recording recordSound started and writes it; how long it is in milliseconds (0: not known, -1: it could not be written).")).overloads.add Overload(params: @[], returns: "int", call: c434_stopRecordingSound)
+  controls.mgetOrPut("recordingSound", Control(name: "recordingSound", module: "capture", doc: "The microphone records.")).overloads.add Overload(params: @[], returns: "bool", call: c435_recordingSound)
+  controls.mgetOrPut("soundLevel", Control(name: "soundLevel", module: "capture", doc: "How loud the microphone is now, 0..1 (a meter; 0 when not recording).")).overloads.add Overload(params: @[], returns: "float", call: c436_soundLevel)
+  controls.mgetOrPut("mediaSessionBusName", Control(name: "mediaSessionBusName", module: "mediasession", doc: "The bus name the app's controls have on D-Bus (\"\" before setNowPlaying): playerctl -p NAME, tests.")).overloads.add Overload(params: @[], returns: "string", call: c437_mediaSessionBusName)
   controls.mgetOrPut("setNowPlaying", Control(name: "setNowPlaying", module: "mediasession", doc: "What the app plays, for the system's media controls; the controls' presses come in mediaKeys. Call it when it changes, or every frame: the system is told only what changed (a position that keeps time with the playing is not news).")).overloads.add Overload(params: @[Param(name: "np", typ: "NowPlaying", default: "", kind: kNone)], returns: "", call: nil)
-  controls.mgetOrPut("mediaKeys", Control(name: "mediaKeys", module: "mediasession", doc: "What the system's media controls asked since the last frame (the lock screen, the media keys of a keyboard or a headset, the desktop's media applet). Empty (and nothing made) when nothing was pressed.")).overloads.add Overload(params: @[], returns: "seq[MediaKeyEvent]", call: c438_mediaKeys)
+  controls.mgetOrPut("mediaKeys", Control(name: "mediaKeys", module: "mediasession", doc: "What the system's media controls asked since the last frame (the lock screen, the media keys of a keyboard or a headset, the desktop's media applet). Empty (and nothing made) when nothing was pressed.")).overloads.add Overload(params: @[], returns: "seq[MediaKeyEvent]", call: c439_mediaKeys)
   blocks.mgetOrPut("group", @[]).add Block(name: "group", module: "widgets", doc: "A group box: a frame with a title around body.", params: @[Param(name: "title", typ: "string", default: "", kind: kStr)], bodies: 1, run: b0_group)
   blocks.mgetOrPut("tabs", @[]).add Block(name: "tabs", module: "widgets", doc: "Tabs bound to sel; draw the page for sel in body.", params: @[Param(name: "sel", typ: "var int", default: "", kind: kVInt), Param(name: "labels", typ: "openArray[string]", default: "", kind: kStrs)], bodies: 1, run: b1_tabs)
   blocks.mgetOrPut("tabs", @[]).add Block(name: "tabs", module: "widgets", doc: "Tabs whose page keeps the height of the tallest one shown so far (property sheets, settings dialogs).", params: @[Param(name: "sel", typ: "var int", default: "", kind: kVInt), Param(name: "labels", typ: "openArray[string]", default: "", kind: kStrs), Param(name: "sameHeight", typ: "bool", default: "", kind: kBool)], bodies: 1, run: b2_tabs)
@@ -1597,12 +1604,13 @@ proc initRegistry*() =
   blocks.mgetOrPut("kpiRow", @[]).add Block(name: "kpiRow", module: "planning", doc: "Tiles side by side, as many as fit, wrapping onto more lines on phones.", params: @[], bodies: 1, run: b31_kpiRow)
   blocks.mgetOrPut("canvas2d", @[]).add Block(name: "canvas2d", module: "canvas2d", doc: "A canvas w x h (logical pixels; w <= 0: the room's width) in the layout, its context named ctx in body:canvas2d(ctx, 300, 200): ctx.fillStyle = \"navy\" ctx.fillRect(10, 10, 100, 50) if ctx.input.clicked: echo \"clicked at \", ctx.input.x, \", \", ctx.input.y", params: @[Param(name: "ctx", typ: "untyped", default: "", kind: kNone), Param(name: "w", typ: "int", default: "", kind: kInt), Param(name: "h", typ: "int", default: "", kind: kInt)], bodies: 1, run: b32_canvas2d)
   blocks.mgetOrPut("withId", @[]).add Block(name: "withId", module: "core", doc: "Give the widgets in body their own id scope (e.g. per list row).", params: @[Param(name: "key", typ: "typed", default: "", kind: kStr)], bodies: 1, run: b34_withId)
-  blocks.mgetOrPut("row", @[]).add Block(name: "row", module: "core", doc: "Widgets side by side, each at its natural width (wrapping when full).", params: @[], bodies: 1, run: b35_row)
-  blocks.mgetOrPut("row", @[]).add Block(name: "row", module: "core", doc: "Widgets side by side in columns: a width > 0 is fixed, -1 shares the rest, 0 is the widget's own width. More widgets than widths wrap. The widths are design pixels, scaled as everything is: write row([80, -1]), not row([dp(80), -1]) (that scales twice: the columns too wide on a tablet or a phone); widths measured on the screen (a text's width) go to rowPx.", params: @[Param(name: "widths", typ: "openArray[int]", default: "", kind: kInts)], bodies: 1, run: b36_row)
-  blocks.mgetOrPut("rowPx", @[]).add Block(name: "rowPx", module: "core", doc: "row with widths in logical pixels, as they are (measured on the screen: textWidth, dp): not scaled again.", params: @[Param(name: "widths", typ: "openArray[int]", default: "", kind: kInts)], bodies: 1, run: b37_rowPx)
-  blocks.mgetOrPut("col", @[]).add Block(name: "col", module: "core", doc: "Widgets stacked top to bottom (a column inside a row).", params: @[], bodies: 1, run: b38_col)
-  blocks.mgetOrPut("col", @[]).add Block(name: "col", module: "core", doc: "A column width design pixels wide.", params: @[Param(name: "width", typ: "int", default: "", kind: kInt)], bodies: 1, run: b39_col)
-  blocks.mgetOrPut("adaptive", @[]).add Block(name: "adaptive", module: "core", doc: "As many equal columns as fit, each at least minW design pixels wide; the widgets (groups, cards) of body flow through them and wrap. One column on a phone, three on a desktop -- with the same code.", params: @[Param(name: "minW", typ: "int", default: "", kind: kInt)], bodies: 1, run: b40_adaptive)
+  blocks.mgetOrPut("area", @[]).add Block(name: "area", module: "core", doc: "An area F6 and Shift+F6 go to (see beginArea).", params: @[Param(name: "key", typ: "string", default: "", kind: kStr)], bodies: 1, run: b35_area)
+  blocks.mgetOrPut("row", @[]).add Block(name: "row", module: "core", doc: "Widgets side by side, each at its natural width (wrapping when full).", params: @[], bodies: 1, run: b36_row)
+  blocks.mgetOrPut("row", @[]).add Block(name: "row", module: "core", doc: "Widgets side by side in columns: a width > 0 is fixed, -1 shares the rest, 0 is the widget's own width. More widgets than widths wrap. The widths are design pixels, scaled as everything is: write row([80, -1]), not row([dp(80), -1]) (that scales twice: the columns too wide on a tablet or a phone); widths measured on the screen (a text's width) go to rowPx.", params: @[Param(name: "widths", typ: "openArray[int]", default: "", kind: kInts)], bodies: 1, run: b37_row)
+  blocks.mgetOrPut("rowPx", @[]).add Block(name: "rowPx", module: "core", doc: "row with widths in logical pixels, as they are (measured on the screen: textWidth, dp): not scaled again.", params: @[Param(name: "widths", typ: "openArray[int]", default: "", kind: kInts)], bodies: 1, run: b38_rowPx)
+  blocks.mgetOrPut("col", @[]).add Block(name: "col", module: "core", doc: "Widgets stacked top to bottom (a column inside a row).", params: @[], bodies: 1, run: b39_col)
+  blocks.mgetOrPut("col", @[]).add Block(name: "col", module: "core", doc: "A column width design pixels wide.", params: @[Param(name: "width", typ: "int", default: "", kind: kInt)], bodies: 1, run: b40_col)
+  blocks.mgetOrPut("adaptive", @[]).add Block(name: "adaptive", module: "core", doc: "As many equal columns as fit, each at least minW design pixels wide; the widgets (groups, cards) of body flow through them and wrap. One column on a phone, three on a desktop -- with the same code.", params: @[Param(name: "minW", typ: "int", default: "", kind: kInt)], bodies: 1, run: b41_adaptive)
   enumValues["Align"] = @["alLeft", "alCenter", "alRight"]
   enumValues["BannerKind"] = @["bkInfo", "bkSuccess", "bkWarning", "bkError"]
   enumValues["ButtonLook"] = @["blDefault", "blIconOnly", "blTextOnly", "blTextBelow", "blTextBeside"]

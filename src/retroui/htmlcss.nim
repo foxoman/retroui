@@ -332,7 +332,9 @@ type
     pBorderSpacing, pBoxSizing, pTextIndent, pPaddingInlineStart, pMarginInlineStart,
     pFlexDirection, pFlexWrap, pFlexFlow, pFlex, pFlexGrow, pFlexShrink, pFlexBasis,
     pJustifyContent, pAlignItems, pAlignSelf, pGap, pRowGap, pColumnGap, pOrder,
-    pGridTemplateColumns, pGridColumn
+    pGridTemplateColumns, pGridColumn, pGridTemplateRows, pGridTemplateAreas, pGridArea,
+    pGridRow, pGridRowStart, pGridRowEnd, pGridColumnStart, pGridColumnEnd,
+    pPosition, pTop, pRight, pBottom, pLeft, pInset
 
   Decl* = object
     ## A declaration: a property and its value (lower case, trimmed).
@@ -377,6 +379,11 @@ const propNames = {
   "gap": pGap, "grid-gap": pGap, "row-gap": pRowGap, "grid-row-gap": pRowGap,
   "column-gap": pColumnGap, "grid-column-gap": pColumnGap, "order": pOrder,
   "grid-template-columns": pGridTemplateColumns, "grid-column": pGridColumn,
+  "grid-template-rows": pGridTemplateRows, "grid-template-areas": pGridTemplateAreas,
+  "grid-area": pGridArea, "grid-row": pGridRow, "grid-row-start": pGridRowStart,
+  "grid-row-end": pGridRowEnd, "grid-column-start": pGridColumnStart,
+  "grid-column-end": pGridColumnEnd, "position": pPosition, "top": pTop, "right": pRight,
+  "bottom": pBottom, "left": pLeft, "inset": pInset,
   "-webkit-flex-direction": pFlexDirection, "-webkit-flex-wrap": pFlexWrap,
   "-webkit-flex": pFlex, "-webkit-justify-content": pJustifyContent,
   "-webkit-align-items": pAlignItems}.toTable
@@ -779,9 +786,15 @@ type
     ## of at least `v` pixels as fit (auto-fill, auto-fit).
     gtPx, gtPct, gtFr, gtAuto, gtFill
   GridTrack* = object
-    ## A column of a grid (grid-template-columns).
+    ## A column of a grid (grid-template-columns), or a row
+    ## (grid-template-rows: its pixels; the others as tall as their content).
     k*: GridTrackKind
     v*: float32
+  Position* = enum
+    ## position: in the flow (static); moved from its place by top, left...
+    ## (relative; sticky is drawn so); out of the flow, placed in the box
+    ## that is positioned around it (absolute), or in the page (fixed).
+    psStatic, psRelative, psAbsolute, psFixed
 
   CStyle* = object
     ## An element's computed style (lengths in CSS pixels).
@@ -836,6 +849,14 @@ type
     order*: int16              ## order (in a flexible row or a grid)
     tracks*: seq[GridTrack]        ## grid-template-columns
     colSpan*: int16            ## grid-column: how many columns it takes (0: one)
+    rowTracks*: seq[GridTrack]     ## grid-template-rows
+    areas*: seq[seq[string]]       ## grid-template-areas: each row's names ("." none)
+    areaName*: string          ## grid-area: the named area it goes in
+    colStart*, colEnd*, rowStart*, rowEnd*: int16
+      ## grid-column, grid-row: its lines (1 the first, -1 the last; 0 auto)
+    rowSpan*: int16            ## grid-row: how many rows it takes (0: one)
+    position*: Position        ## position
+    inset*: array[4, Len]      ## top, right, bottom, left (auto: not given)
 
 const RootPx* = 12.0
   ## The CSS pixels of the root's font: the UI's text size.
@@ -1061,6 +1082,38 @@ proc tracksOf(v: string; fontPx: float): seq[GridTrack] =
         for p in parts: result.add one(p)
     else: result.add one(w)
     if result.len > 100: break
+
+proc gridLines(v: string; start, stop, span: var int16) =
+  ## (grid-column, grid-row: "2", "1 / 3", "1 / -1", "span 2", "2 / span 3")
+  proc num(w: string): int =
+    try: clamp(parseInt(w.strip), -1000, 1000) except ValueError: 0
+  proc spanOf(w: string): int =
+    try: clamp(parseInt(w.strip[4 .. ^1].strip), 1, 1000) except ValueError: 1
+  let parts = v.split('/')
+  let a = parts[0].strip
+  if a.startsWith("span"): span = int16(spanOf(a))
+  elif a != "auto": start = int16(num(a))
+  if parts.len > 1:
+    let b = parts[1].strip
+    if b.startsWith("span"): span = int16(spanOf(b))
+    elif b != "auto":
+      stop = int16(num(b))
+      # (as wide as the lines say, for a grid that only counts spans)
+      if start > 0 and stop > start: span = stop - start
+      elif stop < 0: span = 1000
+
+proc areasOf(v: string): seq[seq[string]] =
+  ## (grid-template-areas: "head head" "side main": each string a row)
+  var i = 0
+  while i < v.len:
+    let q = v[i]
+    if q in {'"', '\''}:
+      let e = v.find(q, i + 1)
+      if e < 0: break
+      let row = v[i + 1 ..< e].splitWhitespace
+      if row.len > 0: result.add row
+      i = e + 1
+    else: inc i
 
 proc applyDecl*(st: var CStyle; d: Decl; parent: CStyle) =
   ## One declaration on a style (font-size comes first: see `cascade`).
@@ -1388,21 +1441,49 @@ proc applyDecl*(st: var CStyle; d: Decl; parent: CStyle) =
   of pOrder:
     try: st.order = int16(clamp(parseInt(v), -1000, 1000)) except ValueError: discard
   of pGridTemplateColumns: st.tracks = tracksOf(v, fpx)
-  of pGridColumn:
-    # ("span 2", "1 / 3", "1 / -1": every column)
+  of pGridColumn: gridLines(v, st.colStart, st.colEnd, st.colSpan)
+  of pGridColumnStart: gridLines(v, st.colStart, st.colEnd, st.colSpan)
+  of pGridColumnEnd:
+    var a: int16
+    gridLines(v, a, a, st.colSpan)
+    if not v.startsWith("span"): st.colEnd = a
+  of pGridRow: gridLines(v, st.rowStart, st.rowEnd, st.rowSpan)
+  of pGridRowStart: gridLines(v, st.rowStart, st.rowEnd, st.rowSpan)
+  of pGridRowEnd:
+    var a: int16
+    gridLines(v, a, a, st.rowSpan)
+    if not v.startsWith("span"): st.rowEnd = a
+  of pGridTemplateRows: st.rowTracks = tracksOf(v, fpx)
+  of pGridTemplateAreas: st.areas = (if v == "none": @[] else: areasOf(v))
+  of pGridArea:
+    # (a name, or its lines: row start / column start / row end / column end)
     let parts = v.split('/')
-    if parts.len == 1 and v.startsWith("span"):
-      try: st.colSpan = int16(clamp(parseInt(v[4 .. ^1].strip), 1, 1000)) except ValueError: discard
-    elif parts.len == 2:
-      let b = parts[1].strip
-      if b.startsWith("span"):
-        try: st.colSpan = int16(clamp(parseInt(b[4 .. ^1].strip), 1, 1000)) except ValueError: discard
-      else:
-        try:
-          let a = parseInt(parts[0].strip)
-          let e = parseInt(b)
-          st.colSpan = if e < 0: 1000 else: int16(clamp(e - a, 1, 1000))
-        except ValueError: discard
+    if parts.len == 1 and v.len > 0 and v[0] in {'a'..'z', '_', '-'} and not v.startsWith("span") and
+       v != "auto":
+      st.areaName = v
+    else:
+      if parts.len > 0: gridLines(parts[0], st.rowStart, st.rowEnd, st.rowSpan)
+      if parts.len > 1: gridLines(parts[1], st.colStart, st.colEnd, st.colSpan)
+      if parts.len > 2: gridLines(parts[0] & " / " & parts[2], st.rowStart, st.rowEnd, st.rowSpan)
+      if parts.len > 3: gridLines(parts[1] & " / " & parts[3], st.colStart, st.colEnd, st.colSpan)
+  of pPosition:
+    st.position = case v
+      of "relative", "sticky", "-webkit-sticky": psRelative
+      of "absolute": psAbsolute
+      of "fixed": psFixed
+      else: psStatic
+  of pTop: st.inset[0] = lenv(v)
+  of pRight: st.inset[1] = lenv(v)
+  of pBottom: st.inset[2] = lenv(v)
+  of pLeft: st.inset[3] = lenv(v)
+  of pInset:
+    let w = splitValue(v)
+    if w.len > 0:
+      let t = lenv(w[0])
+      let r = if w.len > 1: lenv(w[1]) else: t
+      let b = if w.len > 2: lenv(w[2]) else: t
+      let l = if w.len > 3: lenv(w[3]) else: r
+      st.inset = [t, r, b, l]
   of pUnknown: discard
 
 # ---- the tags' own styles and their attributes -------------------------------------------------

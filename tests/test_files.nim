@@ -417,5 +417,35 @@ block trashAndUndo:
   doAssert emptyTrash() == 0 and trashItems().len == 0
   doAssert cp.bytesPerSecond >= 0 and durationTextOk()
 
+block pasteShortcut:
+  # Explorer's Paste Shortcut: a link here (on Windows a .url), followed;
+  # a second one numbered; Undo takes them away
+  createDir(root / "sc")
+  writeFile(root / "sc" / "notes.txt", "hello")
+  createDir(root / "sc" / "Pictures")
+  writeFile(root / "sc" / "Pictures" / "beach.png", "png")
+  createDir(root / "sc" / "here")
+  let r = makeShortcuts([root / "sc" / "notes.txt", root / "sc" / "Pictures"], root / "sc" / "here")
+  doAssert r.error == "", r.error
+  doAssert r.made.len == 2
+  doAssert r.made[0].extractFilename.startsWith("Shortcut to notes.txt"), r.made[0]
+  doAssert shortcutTarget(r.made[0]) == absolutePath(root / "sc" / "notes.txt"), shortcutTarget(r.made[0])
+  doAssert shortcutTarget(r.made[1]) == absolutePath(root / "sc" / "Pictures")
+  doAssert shortcutTarget(root / "sc" / "notes.txt") == "", "a file is not a shortcut"
+  when not defined(windows):
+    doAssert readFile(r.made[0]) == "hello", "the link opens the file"
+    doAssert dirExists(r.made[1]), "and the folder"
+  let again = makeShortcuts([root / "sc" / "notes.txt"], root / "sc" / "here")
+  doAssert again.made.len == 1 and "(2)" in again.made[0].extractFilename, again.made[0]
+  doAssert canUndo() and undoLabel() == "Undo Paste Shortcut"
+  doAssert undo().error == ""
+  doAssert not fileExists(again.made[0]) and not symlinkExists(again.made[0])
+  doAssert undo().error == ""
+  doAssert not symlinkExists(r.made[0]) and not fileExists(r.made[0])
+  doAssert fileExists(root / "sc" / "notes.txt"), "the file itself stays"
+  # (the links in the trash, emptied: the links go, not what they lead to)
+  doAssert emptyTrash() == 0
+  doAssert fileExists(root / "sc" / "Pictures" / "beach.png"), "emptying the trash kept the folder's files"
+
 removeDir(root)
 echo "files tests passed"

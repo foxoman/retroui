@@ -142,9 +142,9 @@ nim c -r examples/native.nim
 the Windows 3.1 File Manager with what Explorer has today: tabs, two
 panes, an address bar, a folder tree, details, tiles, icons and a list
 with picture thumbnails, a preview pane, drag and drop, copy and move in the
-background with "Replace or keep both?", the trash, undo, zip, search,
-favorites, the disks and how full they are, and viewers for text, pictures,
-PDF, Markdown and more. It runs on phones and tablets too.
+background with "Replace or keep both?", Paste Shortcut, the trash, undo,
+zip, search, favorites, the disks and how full they are, and viewers for
+text, pictures, PDF, Markdown and more. It runs on phones and tablets too.
 
 ```sh
 nimble files                # or: nim c -r -d:release examples/filemanager.nim

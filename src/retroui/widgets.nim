@@ -2742,7 +2742,9 @@ proc tabStrip*(labels: openArray[string]; sel: var int; glyphs: openArray[string
       bx += arrowW
   if addButton:
     let ax = if over: bx else: min(x + dp(2), r.x + r.w - addW)
-    let plusR = rect(ax, r.y + dp(3), addW - dp(4), r.h - dp(6))
+    # (with fingers as tall as the strip, and as wide)
+    let m = if fingers(): dp(1) else: dp(3)
+    let plusR = rect(ax, r.y + m, addW - (if fingers(): dp(2) else: dp(4)), r.h - 2 * m)
     # (an id of its own: the strip's is its stop of Tab, the tabs' focus)
     let pid = id + 300'u32
     let hit = interact(pid, plusR, focusable = false, enabled = enabled)
@@ -3019,8 +3021,12 @@ type PopMenu = object
   natural: int      ## the height of the rows in one column
   mark: int         ## where its drawing starts (`cmdMark`)
   fixedTop: bool    ## a menu bar's (it stays under its title)
+  letters: seq[char]  ## each item's underlined letter ('\0': none, or disabled)
 
 var
+  menuLetters: Table[Id, seq[char]]
+    ## (each open menu's items' letters, as the last frame drew them: a
+    ## letter two items have lights the next of them, as Windows' menus do)
   barX: int
   barIds: seq[Id]
   menuSwitch: int
@@ -3074,6 +3080,7 @@ proc endMenubar*() =
       ui.popupHi = 0
       ui.redraw = true
   if ui.menuOpen and menuSwitch != 0: ui.popupOpened = true
+  if barIds.len > 0: noteMenuBar(barIds[0])     # (F6 after the last area)
   # F10, or Alt pressed and let go alone: the first menu, its first item lit
   # (the arrows go on from there); again: closed
   let opener = (ui.key == KeyF10 and ShiftPressed notin ui.mods) or ui.altTapped
@@ -3150,7 +3157,9 @@ proc beginPopupMenu(id: Id; x, y: int; level = 0; fixedTop = false): bool =
 proc endMenu*() =
   ## Ends an open menu (`beginMenu`, `beginSubmenu`, `beginContextMenu`,
   ## `beginPopupMenuFor`): draws its frame; Up, Down, Home, End, Esc.
-  let m = pms.pop()
+  var m = pms.pop()
+  if menuLetters.getOrDefault(m.id) != m.letters: menuLetters[m.id] = move m.letters
+  if menuLetters.len > 64: menuLetters.clear()     # (menus opened long ago)
   let r = rect(m.x, m.y, m.w * m.cols, max(m.cy, m.maxCy) - m.y + 3)
   notePlaced(r)
   if accessOn: accessEnd(r)
@@ -3399,6 +3408,33 @@ proc menuKeysLive(): bool =
   ## to the submenu.
   canInput() and not ui.keyUsed and (pm.level == 1 or subId == 0)
 
+proc menuLetter(label: string; enabled: bool; i, level: int): bool =
+  ## (the letter pressed is item `i`'s: true when it is chosen by it -- the
+  ## only item with that letter; one of several: the next of them is lit
+  ## instead, as in Windows, and the key taken)
+  let c = if enabled: mnemonicOf(label) else: '\0'
+  pm.letters.add(if c in {'a'..'z', '0'..'9'}: c else: '\0')
+  if not menuKeysLive() or c == '\0' or ui.mods * {CtrlPressed, AltPressed} != {}: return
+  let k = if ui.key in KeyA..KeyZ: char(ord('a') + ord(ui.key) - ord(KeyA))
+          elif ui.key in Key0..Key9: char(ord('0') + ord(ui.key) - ord(Key0))
+          else: '\0'
+  if k != c: return
+  ui.keyUsed = true
+  let before = menuLetters.getOrDefault(pm.id)
+  var same = 0
+  for x in before:
+    if x == c: inc same
+  if same <= 1: return true
+  # several: from the one lit on, the next that has it
+  let n = before.len
+  let at = hiOf(level)
+  for step in 1 .. n:
+    let j = (at + step + n) mod n
+    if j >= 0 and before[j] == c:
+      hiOf(level) = j
+      break
+  ui.redraw = true
+
 proc menuItem*(label: string; shortcut = ""; checked = false;
                enabled = true): bool =
   ## An item of the open menu; true when chosen.
@@ -3420,11 +3456,7 @@ proc menuItem*(label: string; shortcut = ""; checked = false;
       result = true
   if menuKeysLive():
     if hiOf(level) == i and enabled and keyHit(KeyEnter): result = true  # (an open menu's)
-    if ui.key in KeyA..KeyZ and ui.mods * {CtrlPressed, AltPressed} == {} and
-       not ui.keyUsed and enabled and
-       mnemonicOf(label) == char(ord('a') + ord(ui.key) - ord(KeyA)):
-      ui.keyUsed = true
-      result = true
+  if menuLetter(label, enabled, i, level): result = true
   let itemId = accessSubId(pm.id, i)
   if accessPress != 0 and accessPress == itemId and enabled:
     # (a screen reader chose it)
@@ -3451,6 +3483,12 @@ proc beginSubmenu*(label: string; enabled = true): bool =
   let level = pm.level
   let id = mixId(pm.id, fnv("sub:" & label))
   let r = itemRow(label, "", false, enabled, true, i)
+  if menuLetter(label, enabled and level == 0, i, level):
+    # (its letter: it opens, its first item lit)
+    ui.popupHi = i
+    subId = id
+    subHi = 0
+    ui.redraw = true
   if accessOn:
     let k = accessNode(arMenuItem, label, id = id, r = r,
                        states = offWhen(enabled) + {asExpandable} +
@@ -3597,6 +3635,92 @@ var tbar: tuple[on, full: bool; y, h: int; chosen: string;
   ## The tool bar being drawn: buttons that do not fit go into its "more"
   ## menu (`chosen`: the one picked there, which clicks next frame).
 
+# A run of tool buttons -- a tool bar's, between its boxes; a palette's tools
+# -- is one stop of Tab, as Windows' tool bars are: the arrows go along it,
+# Home and End to its ends, Space or Enter presses the one lit. It is the
+# buttons drawn one after another with no other control between them.
+var trun: tuple[id, last: Id; frame, n, hot, mask: int; on: bool]
+
+proc runNext(mask, n, start, step: int): int =
+  ## (the next button of the run that is enabled, from `start` going `step`)
+  var i = start
+  for _ in 0 ..< n:
+    i = (i + step + n) mod n
+    if i >= 62 or (mask and (1 shl i)) != 0: return i
+  start
+
+proc toolRun(id: Id; r: Rect; enabled: bool): bool =
+  ## (button `id` joins the run of tool buttons drawn now; true: it is the
+  ## one lit, the run having the focus -- it draws the focus and takes
+  ## Space and Enter)
+  if trun.frame != ui.frameNo or ui.lastId != trun.last or trun.last == 0:
+    # a new run: one stop of Tab (not the one a window starts at), the
+    # arrows going along it by last frame's buttons
+    trun.frame = ui.frameNo
+    trun.id = Id(uint32(id) xor 0x544F_4F4C'u32)
+    trun.n = 0
+    trun.mask = 0
+    let st = state(trun.id)
+    let (count, was) = (st.aux2, st.anchor)
+    trun.hot = st.aux
+    trun.on = false
+    if not (count > 0 and was == 0):          # (none enabled: no stop)
+      trun.on = tabStop(trun.id, r, first = false)
+    if count > 0:
+      if trun.hot >= count or (trun.hot < 62 and (was and (1 shl trun.hot)) == 0):
+        trun.hot = runNext(was, count, max(0, min(trun.hot, count - 1)) - 1, 1)
+      if trun.on and not ui.keyUsed and canInput() and
+         ui.mods * {CtrlPressed, AltPressed, GuiPressed} == {}:
+        let fwd = if ui.rtl: KeyLeft else: KeyRight
+        let bwd = if ui.rtl: KeyRight else: KeyLeft
+        let k = ui.key
+        let to = if k == fwd or k == KeyDown: runNext(was, count, trun.hot, 1)
+                 elif k == bwd or k == KeyUp: runNext(was, count, trun.hot, -1)
+                 elif k == KeyHome: runNext(was, count, count - 1, 1)
+                 elif k == KeyEnd: runNext(was, count, 0, -1)
+                 else: -1
+        if to >= 0:
+          ui.keyUsed = true
+          ui.spaceDown = false
+          ui.focusMoved = ui.frameNo
+          ui.redraw = true
+          trun.hot = to
+    state(trun.id).aux = trun.hot
+  let i = trun.n
+  inc trun.n
+  if enabled and i < 62: trun.mask = trun.mask or (1 shl i)
+  trun.last = id
+  var st = addr state(trun.id)
+  st.aux2 = trun.n
+  st.anchor = trun.mask
+  if ui.focus == id and id != 0:
+    # (a screen reader or the driver focused the button itself: the run,
+    # lit there)
+    ui.focus = trun.id
+    trun.on = true
+    trun.hot = i
+    st.aux = i
+  result = trun.on and i == trun.hot and enabled
+  if result: ui.focusRect = r
+
+proc runClicked(hit: Hit) =
+  ## (a button of the run clicked with the run focused: it is the one lit)
+  if hit.clicked and trun.on:
+    state(trun.id).aux = trun.n - 1
+
+proc runNode(n: int; lit: bool) =
+  ## (the reader's node of a run's button: the lit one takes the focus)
+  if n < 0: return
+  if trun.hot == trun.n - 1: accessTree[n].states.incl asFocusable
+  if lit: accessFocus(n)
+
+proc runKeys(id: Id; hit: var Hit) =
+  ## (the lit button of a focused run: Space and Enter press it)
+  hit.focused = true
+  spaceKey(id, hit)
+  ui.takesEnter = true
+  if keyHit(KeyEnter): hit.clicked = true
+
 proc beginToolbar*() =
   ## Starts the tool bar (see `toolbar`).
   pushLayer(LayerBase)
@@ -3610,6 +3734,7 @@ proc beginToolbar*() =
           tbar.h - 6)
   shiftContent(tbar.h)
   if accessOn: accessBegin(arToolBar, "", r)
+  beginArea(makeId(uint32(ui.barY) * 0x9E3779B1'u32 + 0x7B))   # (F6: the tool bar)
   tbar.on = true
   tbar.full = false
   tbar.y = r.y
@@ -3635,29 +3760,34 @@ proc overflowItem(key, label: string; enabled, down: bool; clicked: var bool): b
 proc endToolbar*() =
   ## Ends the tool bar: the buttons that did not fit go into its "more" menu.
   tbar.on = false
-  if accessOn: accessEnd()
   if tbar.items.len > 0:
     # the buttons that did not fit, in a menu
     let r = place(CtrlH + 1, CtrlH - 1)
     let id = idOf("toolbar-more")
-    let hit = interact(id, r, focusable = false)
+    let lit = toolRun(id, r, true)
+    var hit = interact(id, r, focusable = false)
+    if lit: runKeys(id, hit)
     let open = ui.popup == id
     if accessOn:
-      accessNode(arButton, "More", id = id, r = r,
-                 states = {asExpandable} + (if open: {asExpanded} else: {}))
+      runNode(accessNode(arButton, tr("More"), id = id, r = r,
+                         states = {asExpandable} + (if open: {asExpanded} else: {})), lit)
     buttonFace(r, open or hit.down, bevel = 1, hot = hovered(r))
     let g = "\uf142"                     # a vertical ellipsis (nfEllipsisV)
     text(r.x + (r.w - textWidth(g)) div 2, r.y + (r.h - FontH) div 2, g, th.text)
+    if lit: focusDots(inset(r, 3))
+    if accessOn: accessEnd()
     if hit.clicked:
       ui.popup = if open: 0 else: id
       ui.menuOpen = false
-      ui.popupHi = -1
+      ui.popupHi = if lit: 0 else: -1     # (opened with the keys: its first item lit)
       ui.redraw = true
     if ui.popup == id and beginPopupMenu(id, max(0, r.x + r.w - dp(200)), tbar.y + tbar.h):
       for it in tbar.items:
         if menuItem(it.label, checked = it.down, enabled = it.enabled):
           tbar.chosen = it.key
       endMenu()
+  elif accessOn: accessEnd()
+  endArea()
   discard popFrame()
   popLayer()
   ui.barY += tbar.h
@@ -3679,10 +3809,13 @@ proc toolButton*(ic: Icon; tip = ""; down = false;
   if overflows(CtrlH + 1, "tool:" & tip, tip, enabled, down, result): return
   let r = place(CtrlH + 1, if tbar.on: tbar.h - 6 else: CtrlH - 1)
   let id = idOfLabel("tool:", tip)
-  let hit = interact(id, r, focusable = false, enabled = enabled)
+  let lit = toolRun(id, r, enabled)
+  var hit = interact(id, r, focusable = false, enabled = enabled)
+  if lit: runKeys(id, hit)
+  runClicked(hit)
   if accessOn:
-    accessNode(if down: arToggleButton else: arButton, tip,
-               states = offWhen(enabled) + (if down: {asPressed} else: {}))
+    runNode(accessNode(if down: arToggleButton else: arButton, tip,
+                       states = offWhen(enabled) + (if down: {asPressed} else: {})), lit)
   let pr = hit.down or down
   buttonFace(r, pr, bevel = 1, hot = enabled and hovered(r))
   if down and not hit.down: checker(inset(r, 2), th.light)   # a switched-on button: dithered
@@ -3690,6 +3823,7 @@ proc toolButton*(ic: Icon; tip = ""; down = false;
   # (the icon itself, not a copy of it, when it is not grayed)
   if enabled: image(r.x + (r.w - ic.w) div 2 + o, r.y + (r.h - ic.h) div 2 + o, ic)
   else: image(r.x + (r.w - ic.w) div 2 + o, r.y + (r.h - ic.h) div 2 + o, grayed(ic))
+  if lit: focusDots(inset(r, 3))
   tooltip(tip)
   hit.clicked
 
@@ -3704,16 +3838,20 @@ proc toolButton*(caption: string; tip = ""; down = false; bold = false;
                caption & "   " & tip, enabled, down, result): return
   let r = place(max(CtrlH + 1, tw + dp(10)), if tbar.on: tbar.h - 6 else: CtrlH - 1)
   let id = idOf("tool:" & caption & tip)
-  let hit = interact(id, r, focusable = false, enabled = enabled)
+  let lit = toolRun(id, r, enabled)
+  var hit = interact(id, r, focusable = false, enabled = enabled)
+  if lit: runKeys(id, hit)
+  runClicked(hit)
   if accessOn:
-    accessNode(if down: arToggleButton else: arButton, (if tip.len > 0: tip else: caption),
-               states = offWhen(enabled) + (if down: {asPressed} else: {}))
+    runNode(accessNode(if down: arToggleButton else: arButton, (if tip.len > 0: tip else: caption),
+                       states = offWhen(enabled) + (if down: {asPressed} else: {})), lit)
   let pr = hit.down or down
   buttonFace(r, pr, bevel = 1, hot = enabled and hovered(r))
   if down and not hit.down: checker(inset(r, 2), th.light)   # a switched-on button: dithered
   let o = if pr: 1 else: 0
   text(r.x + (r.w - tw) div 2 + o, r.y + (r.h - lineHeight(st)) div 2 + o, shown,
        if enabled: th.text else: th.gray, st)
+  if lit: focusDots(inset(r, 3))
   tooltip(tip)
   hit.clicked
 
@@ -3815,14 +3953,19 @@ proc barButton*(pic: ButtonPic; label: string; tip = ""; down = false; enabled =
   let key = "bar:" & label & tip
   if overflows(bw, key, label, enabled, down, result): return
   let r = place(bw, rowH)
-  let hit = interact(idOf(key), r, focusable = false, enabled = enabled)
+  let id = idOf(key)
+  let lit = toolRun(id, r, enabled)
+  var hit = interact(id, r, focusable = false, enabled = enabled)
+  if lit: runKeys(id, hit)
+  runClicked(hit)
   if accessOn:
-    accessNode(if down: arToggleButton else: arButton, (if label.len > 0: label else: tip),
-               states = offWhen(enabled) + (if down: {asPressed} else: {}), help = tip)
+    runNode(accessNode(if down: arToggleButton else: arButton, (if label.len > 0: label else: tip),
+                       states = offWhen(enabled) + (if down: {asPressed} else: {}), help = tip), lit)
   let pr = hit.down or down
   buttonFace(r, pr, bevel = 1, hot = enabled and hovered(r))
   if down and not hit.down: checker(inset(r, 2), th.light)   # a switched-on button: dithered
   drawLabeled(inset(r, 1), pic, label, lk, enabled, pr)
+  if lit: focusDots(inset(r, 3))
   tooltip(if tip.len > 0: tip elif lk == blIconOnly: label.replace("&", "") else: "")
   hit.clicked
 

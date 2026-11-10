@@ -265,6 +265,53 @@ block flexAndGrid:
   doAssert fill.word("c3").y == fill.word("c1").y and fill.word("c4").y > fill.word("c1").y
   doAssert fill.word("c4").x == 0
 
+block gridAreasAndPositions:
+  # named areas: the head over both columns, the side under it at the left
+  let areas = htmlPageInfo("""<div style="display:grid; grid-template-columns:100px 1fr;
+    grid-template-areas:'head head' 'side main' 'foot foot'; gap:10px; width:400px">
+    <div style="grid-area:main">Main</div><div style="grid-area:head">Head</div>
+    <div style="grid-area:side">Side<br>more<br>lines</div><div style="grid-area:foot">Foot</div></div>""", 600)
+  let hd = areas.word("Head")
+  let sd = areas.word("Side")
+  let mn = areas.word("Main")
+  let ft = areas.word("Foot")
+  doAssert hd.x == 0 and hd.y < sd.y, "the head first, over the columns: " & $(hd, sd)
+  doAssert sd.x == 0 and mn.x == 110 and mn.y == sd.y, "side, then main beside it: " & $(sd, mn)
+  doAssert ft.y > areas.word("lines").y, "the foot under the tallest of the row: " & $(ft, areas.word("lines"))
+  # lines: a box over two rows, the others round it; rows of given pixels
+  let lines = htmlPageInfo("""<div style="display:grid; grid-template-columns:repeat(3, 100px);
+    grid-template-rows:40px 40px; width:300px">
+    <div style="grid-column:2; grid-row:1 / 3">Tall</div><i>p1</i><i>p2</i><i>p3</i><i>p4</i></div>""", 600)
+  doAssert lines.word("Tall").x == 100 and lines.word("Tall").y < 40
+  doAssert lines.word("p1").x == 0 and lines.word("p2").x == 200, "round the tall one: " & $(lines.word("p1"), lines.word("p2"))
+  doAssert lines.word("p3").x == 0 and lines.word("p3").y >= 40 and lines.word("p4").x == 200,
+           "the second row of 40 pixels, the tall one still in its middle: " & $(lines.word("p3"), lines.word("p4"))
+  let lastCol = htmlPageInfo("""<div style="display:grid; grid-template-columns:repeat(4, 50px); width:200px">
+    <b style="grid-column:-2">End</b><b>Next</b></div>""", 600)
+  doAssert lastCol.word("End").x == 150, "-2: the last column: " & $lastCol.word("End")
+  # position: relative moves it, absolute takes it out of the flow into the
+  # positioned box around it, fixed into the page
+  let rel = htmlPageInfo("""<p>Before</p><div style="position:relative; left:30px; top:5px">Moved</div>
+    <p>After</p>""", 600)
+  let plain = htmlPageInfo("""<p>Before</p><div>Moved</div><p>After</p>""", 600)
+  doAssert rel.word("Moved").x == plain.word("Moved").x + 30 and
+           rel.word("Moved").y == plain.word("Moved").y + 5, "relative: moved, " & $(rel.word("Moved"), plain.word("Moved"))
+  doAssert rel.word("After").y == plain.word("After").y, "the rest where it was"
+  let abso = htmlPageInfo("""<div style="position:relative; width:300px; height:80px; border:1px solid #000">
+    Card<span style="position:absolute; top:6px; right:6px">Badge</span>
+    <div style="position:absolute; bottom:0; left:0">Corner</div></div><p>Below</p>""", 600)
+  let badge = abso.word("Badge")
+  doAssert abs(badge.x + badge.w - (300 - 6 - 1)) <= 3 and badge.y >= 6 and badge.y < 12,
+           "at the box's top right: " & $badge
+  let corner = abso.word("Corner")
+  doAssert corner.x <= 2 and corner.y + corner.h >= 76 and corner.y + corner.h <= 82,
+           "at its bottom left: " & $corner
+  doAssert abso.word("Card").y < 10 and abso.word("Card").x < 10, "the text as if they were not there"
+  doAssert abso.word("Below").y > 80, "after the box: " & $abso.word("Below")
+  let fixed = htmlPageInfo("""<div style="margin:40px; position:relative">x
+    <b style="position:fixed; top:0; left:0">Pinned</b></div>""", 600)
+  doAssert fixed.word("Pinned").x <= 1 and fixed.word("Pinned").y <= 1, "fixed: to the page " & $fixed.word("Pinned")
+
 # ---- tables: what browsers do with them ------------------------------------------------------------
 
 block tables:

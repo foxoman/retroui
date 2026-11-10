@@ -13,7 +13,7 @@
 ## ```
 
 import std/unicode
-import gfx, icons, codec, lineicons
+import gfx, icons, lineicons, unpacking
 
 const
   pxFolder* = "\u{10F000}"  ## A closed folder.
@@ -275,40 +275,48 @@ const
 const pixelArtPacked = staticRead("pixelart.z")
   # every icon: width, height and a letter a pixel, at 16 x 16 then at 32 x 32
 
-var artLetters: Bytes          # every icon's letters (one a pixel), unpacked once
+var artLetters: string         # every icon's letters (one a pixel), unpacked once
 var artAt: seq[int32]         # where each icon's pair of pictures starts in them
+var artTicket = -1            # (being unpacked on a thread, from the start: `unpacking`)
+
+const pixelIconCount = 255
+  ## (how many icons there are: U+10F000 .. U+10F0FE)
 
 proc artIcon(at: var int): Icon =
   ## The picture at `at` (width, height, a letter a pixel), `at` moved past it.
   if at + 2 > artLetters.len: return Icon()
-  let w = int(artLetters[at])
-  let h = int(artLetters[at + 1])
+  let w = ord(artLetters[at])
+  let h = ord(artLetters[at + 1])
   at += 2
   if w == 0 or h == 0 or at + w * h > artLetters.len: return Icon()
   result.w = w
   result.h = h
   result.px = newSeq[uint32](w * h)
-  for i in 0 ..< w * h: result.px[i] = vgaColor(char(artLetters[at + i]))
+  for i in 0 ..< w * h: result.px[i] = vgaColor(artLetters[at + i])
   at += w * h
 
 proc loadArt(i: int): tuple[small, big: Icon] {.nimcall.} =
   ## Icon `i` (16 x 16 and 32 x 32), made when it is first shown.
+  if artTicket >= 0:
+    # (the first icon shown: the letters, unpacked meanwhile, and where
+    # each icon starts in them)
+    artLetters = unpacked(artTicket)
+    artTicket = -1
+    var at = 0
+    while at + 2 <= artLetters.len:
+      artAt.add int32(at)
+      for _ in 0 .. 1:
+        if at + 2 > artLetters.len: break
+        at += 2 + ord(artLetters[at]) * ord(artLetters[at + 1])
   if i < 0 or i >= artAt.len: return
   var at = int(artAt[i])
   result.small = artIcon(at)
   result.big = artIcon(at)
 
-block:
-  # (only where each icon starts is worked out now: the pictures are made
-  # when they are shown, so an app holds only the ones it shows)
-  artLetters = zlibDecompress(pixelArtPacked.toOpenArrayByte(0, pixelArtPacked.high))
-  var at = 0
-  while at + 2 <= artLetters.len:
-    artAt.add int32(at)
-    for _ in 0 .. 1:
-      if at + 2 > artLetters.len: break
-      at += 2 + int(artLetters[at]) * int(artLetters[at + 1])
-  setPixelIconSource(artAt.len, loadArt)
+# (the pictures are made when they are shown, so an app holds only the ones
+# it shows; their letters are unpacked on a thread meanwhile)
+artTicket = unpackSoon(pixelArtPacked)
+setPixelIconSource(pixelIconCount, loadArt)
 
 for (i, g, c) in lineTwins: setPixelTwin(i, g, c)
   # (their line twins: see `setLineIcons`)

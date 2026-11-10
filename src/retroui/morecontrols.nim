@@ -25,8 +25,8 @@ proc rangeSlider*(lo, hi: var int; minV, maxV: int; w = 0; ticks = 10;
   ## to move both. Keys: Tab stops at each end, the left first; the arrows
   ## move the focused one (Shift+arrows the other). True when either
   ## changed.
-  let tw = if fingers(): dp(20) else: dp(11)
-  let tht = if fingers(): dp(26) else: dp(18)
+  let tw = if fingers(): dp(28) else: dp(11)      # (a finger's width)
+  let tht = if fingers(): dp(30) else: dp(18)
   let tick = if ticks > 0: dp(5) else: 0
   let r = place(if w > 0: w else: 0, max(tht + tick + dp(2), FontH + 8), fill = w <= 0)
   let id = idOf(lo, "range")
@@ -155,7 +155,7 @@ proc splitButton*(label: string; items: openArray[string]; w = 0; enabled = true
   ## Enter) and whose arrow part drops a menu of the other ways (`chose`:
   ## the index, else -1; Alt+Down or F4 drop it too).
   result.chose = -1
-  let aw = dp(16)
+  let aw = if fingers(): dp(28) else: dp(16)       # (a finger's width)
   let bw = if w > 0: w else: labelWidth(label) + dp(24) + aw
   let r = place(bw, CtrlH)
   let main = rect(r.x, r.y, r.w - aw + 1, r.h)
@@ -203,7 +203,7 @@ proc tagInput*(tags: var seq[string]; text: var string; w = 0; enabled = true;
   ## True when the tags changed.
   let room = if w > 0: w else: available()
   let st = style(size = 0.9)
-  let chipH = FontH + dp(4)
+  let chipH = FontH + (if fingers(): dp(12) else: dp(4))   # (a finger's height)
   # (where each chip goes: wrapping; then the box)
   var x = 0
   var y = 0

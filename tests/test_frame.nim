@@ -467,5 +467,29 @@ block caretRests:
   run(2)
   doAssert ui.wakeAt > 0, "typed: it blinks again"
 
+# ---- a letter typed is on the screen with the frame that took it ---------------------------------
+
+block typedShownAtOnce:
+  var s = ""
+  var r: Rect
+  view = proc () =
+    edit s
+    r = ui.lastRect
+  run(3)
+  click(r)
+  run(2)
+  let before = pixels
+  typeText("W")
+  var frames = 0
+  while s.len == 0 and frames < 10:
+    discard beginFrame()
+    view()
+    endFrame()
+    inc frames
+    ticks += 16
+  doAssert s == "W"
+  doAssert pixels != before, "the frame that took the letter is shown at once"
+  run(2)
+
 removeDir(keepHome)
 echo "test_frame: ok"

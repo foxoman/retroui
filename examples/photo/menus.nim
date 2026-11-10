@@ -1383,7 +1383,7 @@ proc classicMenus() =
       item(if grp: "Merge Grou&p" else: "Merge Do&wn", "Ctrl+E", some and canMergeDown(d))
       item("Merge &Visible", "Ctrl+Shift+E", some and d.layers.len > 1)
       item("&Flatten Image", enabled = some and d.layers.len > 1)
-    menu "Fi&lter":
+    menu "Filte&r":
       if menuItem("Last Filter" & (if lastFilter.set: " (" & lastFilter.name & ")" else: ""), "Ctrl+F",
                   enabled = edits and lastFilter.set): runCommand("Last Filter")
       menuSeparator()
@@ -1608,7 +1608,11 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["4.9.10: Image > Mode > Multichannel -- each channel an ink of its own; one deleted in " &
+           whatsNew = ["4.9.11: it opens in a third of the time -- its brushes' tips made thirty times " &
+                       "quicker, its opening picture painted once the window shows, the type tool's fonts " &
+                       "looked for meanwhile; F6 goes from the picture to the options bar, the tools and " &
+                       "the palettes; the tools one stop of Tab, the arrows along them",
+                       "4.9.10: Image > Mode > Multichannel -- each channel an ink of its own; one deleted in " &
                        "Channels takes its ink out; saved as Photoshop's Multichannel documents. Tab goes " &
                        "through a palette's controls (on the picture it still hides the palettes); every box " &
                        "of the options bar has a name for screen readers; Thai and Vietnamese type",
@@ -1925,7 +1929,18 @@ proc splash() =
   # or one too small for the box: nothing this frame)
   if w < dp(120): return
   let artW = (w - 6) * pxScale
-  if splashBmp == nil or splashBmp.w != artW: splashBmp = splashArt(artW, dp(170) * pxScale)
+  # (painted once the first frame is on the screen -- till then its sky
+  # alone, a column of it stretched: the window shows sooner)
+  if framesShown() > 0 and (splashBmp == nil or splashBmp.w != artW):
+    splashBmp = splashArt(artW, dp(170) * pxScale)
+    ui.redraw = true
+  elif splashBmp == nil:
+    let h = dp(170)
+    splashBmp = newBitmap(1, h)
+    for y in 0 ..< h:
+      let t = y / max(1, h - 1)
+      splashBmp.px[y] = argb(255, int(20 + (214 - 20) * t), int(16 + (96 - 16) * t),
+                             int(64 + (54 - 64) * t))
   let total = max(1, splashUntil - splashStart)
   let done = clamp((ui.now - splashStart) / total, 0.0, 1.0)
   let steps = ["Starting...", "Reading the brushes and presets...", "Loading the filters...",

@@ -178,14 +178,14 @@ proc invoicesPage() =
   let bw = if ui.touch: 84 else: 74
   if available() >= 500:
     row([44, -1, 110, bw, bw]):
-      label "&Find:"
+      label "F&ind:"
       if edit(filterText): invSel = 0
       checkbox "&Unpaid only", unpaidOnly
       if button("&New..."): startEdit(-1)
       if button("&Delete", enabled = view.len > 0): askDelete = true
   else:                                  # a phone held upright
     row([44, -1]):
-      label "&Find:"
+      label "F&ind:"
       if edit(filterText): invSel = 0
     row([-1, bw, bw]):
       checkbox "&Unpaid only", unpaidOnly

@@ -7,7 +7,7 @@ each control as it is, on a touch screen and in a dark color scheme (some
 in more states too), and they are drawn from the very example beside them,
 so they always match the toolkit.
 
-Every control works with the mouse, the keyboard (Tab, the arrows, Space,
+Every control works with the mouse, the keyboard (Tab, F6, the arrows, Space,
 Enter, Esc, `&` letters with Alt, the menu key), fingers (a tap, a drag to
 scroll, a long press for the menu) and screen readers (see
 [Screen readers and input methods](#screen-readers-and-input-methods)).
@@ -41,7 +41,7 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 - **[Sound and video](#sound-and-video)**: [animation (animated GIFs)](#animation-animated-gifs) · [videoView](#videoview) · [cameraView](#cameraview) · [setNowPlaying, mediaKeys](#setnowplaying-mediakeys) · [audioView](#audioview)
 - **[The system's features](#the-systems-features)**: [notify, share, haptic](#notify-share-haptic) · [location, speak](#location-speak) · [deviceInfo, setOpenAtLogin](#deviceinfo-setopenatlogin) · [saveSecret, loadSecret](#savesecret-loadsecret) · [checkForUpdate, downloadUpdate, installUpdate](#checkforupdate-downloadupdate-installupdate)
 - **[Looks](#looks)**: [Themes](#themes) · [Dark mode](#dark-mode) · [Size and text size](#size-and-text-size) · [Fonts](#fonts) · [The window's frame](#the-windows-frame)
-- **[Screen readers and input methods](#screen-readers-and-input-methods)**: [Screen readers: what an app draws itself](#screen-readers-what-an-app-draws-itself)
+- **[Screen readers and input methods](#screen-readers-and-input-methods)**: [Screen readers: what an app draws itself](#screen-readers-what-an-app-draws-itself) · [The keyboard alone: Tab's order and F6](#the-keyboard-alone-tabs-order-and-f6) · [The inspector and the driver: controls found by their names](#the-inspector-and-the-driver-controls-found-by-their-names)
 
 ## Getting started
 
@@ -3759,7 +3759,7 @@ settings page and the parts of a phone app.
 
 ### toolbar, toolButton, toolSeparator
 
-A tool bar of small buttons; those that do not fit go into a "more" menu. `down` shows a button held in.
+A tool bar of small buttons; those that do not fit go into a "more" menu. `down` shows a button held in. Its buttons are one stop of Tab, as in Windows: the arrows go along them, Home and End to the ends, Space or Enter presses the one lit (any run of tool buttons is so: a palette's tools); a window starts at its first box, not at its tool bar. F6 goes to it from the other parts of the window.
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -7510,8 +7510,8 @@ click.
 **Input methods** (pinyin, kana, hangul, a phone keyboard's word) compose in
 the text box itself: what is being composed is drawn underlined at the
 caret and typed when it is settled -- XIM on X11, IMM on Windows, marked
-text on macOS, GTK 4's preedit, the kit's own input connection on Android.
-`ui.composing` holds it for a text box of your own.
+text on macOS, GTK 4's preedit, the kit's own input connection on Android,
+UITextInput on iOS. `ui.composing` holds it for a text box of your own.
 
 ### Screen readers: what an app draws itself
 
@@ -7604,6 +7604,82 @@ proc accessible*(): bool {.inline.}
 
 A screen reader reads this frame (widgets of your own add themselves
 with `accessNode` then).
+
+### The keyboard alone: Tab's order and F6
+
+Tab goes through the controls in the order they are drawn, a run of tool
+buttons one stop (the arrows go along it). `tabIndex` before a control puts
+it first; F6 and Shift+F6 go from one part of the window to the next, each
+back at the control it had the focus on: the tool bars, the panes of a
+split, the docked panels, the windows in the window, the menu bar -- and
+a part of your own:
+
+```nim
+row:
+  tabIndex 1
+  edit first        # (Tab: first, then last, then the city)
+  tabIndex 3
+  edit city
+tabIndex 2
+edit last
+area "preview":     # (F6 comes here, to the list's selection)
+  listbox(items, sel)
+```
+
+```nim
+proc tabStops*(): seq[Id]
+```
+
+The controls Tab stops at so far this frame, in the order it goes
+(Retro Designer numbers them on the window being designed).
+
+```nim
+proc tabIndex*(n: int)
+```
+
+The next control's place in the order Tab goes, as HTML's tabindex:
+the controls given one come first, 1 before 2, then the others in the
+order they are drawn. For a window laid out in one order and read in
+another (a form in two columns read down each); Retro Designer writes
+them when its Tab order's numbers are dragged.
+
+```nim
+row:
+  tabIndex 1
+  edit first      # (Tab: first, then last, then the city)
+  tabIndex 3
+  edit city
+tabIndex 2
+edit last
+```
+
+```nim
+template area*(key: string; body: untyped)
+```
+
+An area F6 and Shift+F6 go to (see `beginArea`).
+
+```nim
+proc beginArea*(key: string)
+```
+
+Starts an area of the window that F6 and Shift+F6 go to: its stops of
+Tab are one place for them (a pane, a panel, a tool bar). The kit's
+tool bars, split panes, docked panels and MDI windows are areas
+already; `area` is for a part of your own layout. F6 comes back to the
+control of the area that had the focus last.
+
+```nim
+proc beginArea*(id: Id)
+```
+
+`beginArea` by the id of the widget it is.
+
+```nim
+proc endArea*()
+```
+
+Ends the area `beginArea` started.
 
 ### The inspector and the driver: controls found by their names
 

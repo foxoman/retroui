@@ -3,7 +3,7 @@
 
 import std/[os, strutils, random]
 import retroui
-import retroui/[zip, photo, jxl, exr, morepictures, gltf, sign, codec]
+import retroui/[zip, photo, jxl, exr, morepictures, gltf, sign, codec, unpacking]
 import retroui/uirelays/[screen, services]
 import harness
 
@@ -342,5 +342,25 @@ block noRuneStrip:
           bad.add f.extractFilename & ":" & $(i + 1)
           break
   doAssert bad.len == 0, "strips with std/unicode's strip: " & bad.join(", ")
+
+block unpackedOnAThread:
+  # what is unpacked on a thread comes back whole, in any order asked; a
+  # damaged stream is "", a ticket asked twice too
+  var texts: seq[string]
+  var tickets: seq[int]
+  for i in 0 ..< 6:
+    var t = ""
+    for k in 0 ..< 20000 * (i + 1): t.add char(ord('a') + (k * 7 + i) mod 26)
+    texts.add t
+    let z = zlibCompress(t.toOpenArrayByte(0, t.high))
+    var zs = newString(z.len)
+    if z.len > 0: copyMem(addr zs[0], unsafeAddr z[0], z.len)
+    tickets.add unpackSoon(zs)
+  let bad = unpackSoon("not zlib at all")
+  for i in countdown(5, 0):
+    doAssert unpacked(tickets[i]) == texts[i], "ticket " & $i
+  doAssert unpacked(tickets[0]) == "", "asked twice: nothing"
+  doAssert unpacked(bad) == "", "damaged: nothing"
+  doAssert unpacked(-1) == "" and unpacked(100000) == ""
 
 echo "hardening tests passed"

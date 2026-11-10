@@ -39,11 +39,13 @@ proc toBytes*(s: string): Bytes =
   result = newSeq[byte](s.len)
   if s.len > 0: copyMem(addr result[0], unsafeAddr s[0], s.len)
 
-var crcTable: array[256, uint32]
-for i in 0 .. 255:
-  var c = uint32(i)
-  for _ in 0 .. 7: c = if (c and 1) != 0: 0xEDB88320'u32 xor (c shr 1) else: c shr 1
-  crcTable[i] = c
+proc makeCrcTable(): array[256, uint32] =
+  for i in 0 .. 255:
+    var c = uint32(i)
+    for _ in 0 .. 7: c = if (c and 1) != 0: 0xEDB88320'u32 xor (c shr 1) else: c shr 1
+    result[i] = c
+
+const crcTable = makeCrcTable()
 
 proc crcStep*(c: uint32; b: byte): uint32 {.inline.} =
   ## The CRC-32 register after one more byte (start 0xFFFFFFFF, end xor it).
@@ -284,15 +286,19 @@ proc lenSym(l: int): int {.inline.} =
   while li + 1 < lenBase.len and lenBase[li + 1] <= l: inc li
   li
 
-var lenTable: array[259, uint8]        # match length -> its length code (- 257)
-var distTable: array[512, uint8]       # distance - 1 -> its code (small ones; big: by 128)
-block:
-  for l in 3 .. 258: lenTable[l] = uint8(lenSym(l))
+proc makeLenTable(): array[259, uint8] =
+  for l in 3 .. 258: result[l] = uint8(lenSym(l))
+
+proc makeDistTable(): array[512, uint8] =
   for d in 1 .. 32768:
     var di = 0
     while di + 1 < distBase.len and distBase[di + 1] <= d: inc di
-    if d <= 256: distTable[d - 1] = uint8(di)
-    elif ((d - 1) shr 7) < 256: distTable[256 + ((d - 1) shr 7)] = uint8(di)
+    if d <= 256: result[d - 1] = uint8(di)
+    elif ((d - 1) shr 7) < 256: result[256 + ((d - 1) shr 7)] = uint8(di)
+
+const lenTable = makeLenTable()     # match length -> its length code (- 257)
+const distTable = makeDistTable()   # distance - 1 -> its code (small ones; big: by 128)
+  # (made when the program is built: a million steps a start saved)
 
 proc distSym(d: int): int {.inline.} =
   if d <= 256: int(distTable[d - 1]) else: int(distTable[256 + ((d - 1) shr 7)])

@@ -103,7 +103,7 @@ proc details() =
         accessName("Remove line " & n)
         if button("x", w = dp(28)): gone = i
   if gone >= 0: lines.delete(gone)
-  if button("&Add a line"): lines.add Line(name: "New item", qty: 1, price: 0)
+  if button("Add a &line"): lines.add Line(name: "New item", qty: 1, price: 0)
 
 app "Invoice", 1100, 760:
   # the document, made again when the data changed

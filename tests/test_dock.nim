@@ -48,7 +48,7 @@ block layout:
 
 block tabsAndFolding:
   # a click on a tab shows it
-  let tabY = a.y + (if fingers(): dp(16) else: dp(11)) + 4
+  let tabY = a.y + panelHeaderH() + 4
   let x0 = mainX + dp(6) + textWidth("Color", style(size = 0.9)) + dp(12)
   click(rect(x0, tabY - 4, 20, 8), dx = 4)
   run(2)
@@ -65,7 +65,7 @@ block tabsAndFolding:
 
 block icons:
   # a click on an icon shows its group beside the strip; Esc puts it away
-  let iy = a.y + (if fingers(): dp(16) else: dp(11)) + dp(3) + 4
+  let iy = a.y + panelHeaderH() + dp(3) + 4
   click(rect(iconX + 4, iy, 10, 10), dx = 4)
   run(2)
   doAssert dk.panelShown("history"), "the fly-out"
@@ -95,7 +95,7 @@ block closeAndBack:
 
 block collapseColumn:
   # the arrows at the top of the main column: icons; again: open
-  let hh = if fingers(): dp(16) else: dp(11)
+  let hh = panelHeaderH()
   click(rect(mainX + colW - hh - dp(4), a.y, hh, hh), dx = 4)
   run(2)
   doAssert dk.columns[0].iconic
@@ -154,7 +154,7 @@ block dragToAnotherGroup:
   dk.showPanel("layers")
   run(2)
   # (where the second group's tabs are: under the first group and the bar)
-  let hh = if fingers(): dp(16) else: dp(11)
+  let hh = panelHeaderH()
   let tabsH = FontH + dp(5) + (if fingers(): dp(8) else: 0)
   let barH = if fingers(): dp(10) else: dp(5)
   let room = a.h - hh - 2 * tabsH - barH
@@ -179,7 +179,7 @@ block dragToAnotherGroup:
 
 block dragOutAndBack:
   # "Layers" dragged out over the documents: a floating palette of its own
-  let hh = if fingers(): dp(16) else: dp(11)
+  let hh = panelHeaderH()
   let tabsH = FontH + dp(5) + (if fingers(): dp(8) else: 0)
   let top0 = a.y + hh
   # (its tab: the one shown, after Color and Swatches)

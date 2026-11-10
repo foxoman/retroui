@@ -2000,7 +2000,8 @@ proc pathBar*(path: string; key = ""; editNow = false; w = 0): PathBarEvent =
   let pad = if fingers(): dp(8) else: dp(4)
   let sepW = textWidth(sep) + 2 * (if fingers(): dp(6) else: dp(3))
   var widths: seq[int]
-  for p in parts: widths.add textWidth(p.name, true) + 2 * pad
+  # (a short name, as "/", still as wide as a finger)
+  for p in parts: widths.add max(textWidth(p.name, true) + 2 * pad, if fingers(): dp(32) else: 0)
   var first = 0
   var total = 0
   let lead = textWidth(retroOr(pxFolderOpen, nfFolderOpen)) + dp(8)
@@ -2054,7 +2055,7 @@ proc pathBar*(path: string; key = ""; editNow = false; w = 0): PathBarEvent =
           result.drop = FileDrop(paths: ui.drag.items, into: parts[i].path,
                                  copy: dragCopies())
         else: discard
-    text(br.x + pad, ty, parts[i].name, th.fieldText, lastOne)
+    text(br.x + (br.w - textWidth(parts[i].name, true)) div 2, ty, parts[i].name, th.fieldText, lastOne)
     if h.clicked and not lastOne: result.go = parts[i].path
     x += br.w
     # the arrow after it: its subfolders drop down

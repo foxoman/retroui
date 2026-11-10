@@ -176,7 +176,11 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
    setter that draws again when nothing changed) fails it, as a fault, a
    crash or a hang does. The systems workflow runs it on Linux, Windows
    and macOS. Then **`sh tests/drive/run.sh`**: the apps driven by their
-   controls' names (`RETRO_DRIVE`), every tab and every menu.
+   controls' names (`RETRO_DRIVE`), every tab and every menu, every page
+   by Tab alone, no `&` letter used twice where one Alt reaches both --
+   the window, a dialog (`TOUR_STRICT=1`: a finding fails it, as on the CI's Linux job);
+   `build/drive/tour --touch APPS` as a finger finds them (too small, only
+   under a mouse, a long press's menu).
 8. To see what an app does, use it as a person would, by its controls'
    names: start it with `RETRO_DRIVE=7000` and `retrokit drive 7000 tree`
    / `click NAME` / `type TEXT` / `key ctrl+s` / `wait NAME` (each answered
@@ -213,7 +217,16 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   two ends) registers each (`interact` with an empty rectangle, or
   `tabStop`). Reader nodes take the focus when Tab stops at them: the kit
   marks them at the frame's end from the stops; a control acting on Enter
-  sets `ui.takesEnter` (`enterIsClaimed`).
+  sets `ui.takesEnter` (`enterIsClaimed`). Tool buttons are a run, one
+  stop (`toolRun` in widgets: the first button's stop, `first = false` so
+  a window does not start there); a container of the kit that is a part
+  of the window (a pane, a docked panel, an MDI window, a tool bar) is an
+  `area` for F6 (`beginArea`/`endArea` round its content).
+- **The first frame:** what it can do without waits for `framesShown() >
+  0`; data the kit carries packed is unpacked on a thread (`unpacking`:
+  `unpackSoon`, then `unpacked` where it is needed); tables made once go
+  in a `const` (built with the program) or are made when first needed --
+  not at a module's start.
 
 - **Voice:** comments, docs and messages in the repository speak as the
   developer, Sultan Al Isaiee, to his users and developers: plain, short

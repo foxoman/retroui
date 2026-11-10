@@ -381,7 +381,7 @@ proc findDialog() =
     row([dp(150), dp(150)]):
       checkbox("Received &before:", fBeforeOn)
       datePicker(fBefore, w = dp(150), enabled = fBeforeOn)
-    checkbox("Message has a&ttachment(s)", fAtt)
+    checkbox("Message has atta&chment(s)", fAtt)
     checkbox("Message is fla&gged", fFlag)
     checkbox("Message is &unread", fUnread)
     row:

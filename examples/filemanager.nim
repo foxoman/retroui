@@ -38,7 +38,7 @@ const TermuxHome = "/data/data/com.termux/files/home"
 const
   AppTitle = "Retro Files"
   AppId = "RetroFiles"
-  AppVersion = "3.3.8"
+  AppVersion = "3.3.9"
 
 type
   ViewerKind = enum vkNone, vkText, vkMarkdown, vkImage, vkHex, vkZip, vkPdf, vkVideo, vkAudio
@@ -423,6 +423,16 @@ proc paste() =
   else:
     startJob(jkCopy, clipPaths, folder.dir, "Copying")
 
+proc pasteShortcut() =
+  ## Edit > Paste Shortcut: a shortcut here to each item copied (a link;
+  ## on Windows a ".url" Explorer opens too).
+  if clipPaths.len == 0 or tab.special != spFolder: return
+  let r = makeShortcuts(clipPaths, folder.dir)
+  if r.made.len > 0:
+    folder.selectAfterLoad(r.made)
+    refreshAll()
+  if r.error.len > 0: showError(tr("Some shortcuts could not be made:\n") & r.error)
+
 proc toOther(move: bool) =
   ## Two panes: the selection copied (or moved) to the other pane's folder.
   let o = other()
@@ -641,8 +651,14 @@ proc openViewer(f: FileItem; kind: ViewerKind) =
 
 proc openItem(f: FileItem) =
   ## Enter, a double click or a tap: into a folder, or the file in a viewer
-  ## (or the app the system has for it).
+  ## (or the app the system has for it); a shortcut, what it leads to.
   if f.isDir: go(f.path)
+  elif extOf(f.name) == "url" and shortcutTarget(f.path).len > 0:
+    # (Windows' Internet shortcut to a file or a folder: Paste Shortcut's)
+    let t = shortcutTarget(f.path)
+    if dirExists(t): go(t)
+    elif fileExists(t): openItem(infoOf(t))
+    else: showError(tr("What this shortcut leads to is not there:\n") & t)
   elif extOf(f.name) == "zip": openViewer(f, vkZip)
   elif isMarkdown(f): openViewer(f, vkMarkdown)
   elif extOf(f.name) in ["pdf", "ai"]: openViewer(f, vkPdf)
@@ -1027,6 +1043,7 @@ proc contextMenu() =
     if menuItem("Cu&t", "Ctrl+X", enabled = list.len > 0): copySel(true)
     if menuItem("&Copy", "Ctrl+C", enabled = list.len > 0): copySel(false)
     if menuItem("&Paste", "Ctrl+V", enabled = clipPaths.len > 0): paste()
+    if menuItem("Paste &Shortcut", enabled = clipPaths.len > 0 and not clipCut): pasteShortcut()
     if twoPanes():
       if menuItem("Copy to the other pane", enabled = list.len > 0 and other() != nil):
         toOther(false)
@@ -1050,7 +1067,7 @@ proc contextMenu() =
                 list[0].path notin favorites):
       favorites.add list[0].path
       saveSettings()
-    if menuItem("New &folder...", "Ctrl+Shift+N"): askName(naNewFolder, tr("New folder"))
+    if menuItem("&New folder...", "Ctrl+Shift+N"): askName(naNewFolder, tr("New folder"))
     if menuItem("Propert&ies", "Alt+Enter", enabled = list.len > 0): showProperties()
 
 proc folderBody(p: int; t: Tab) =
@@ -1694,7 +1711,10 @@ proc helpDialogs() =
             tr("Copyright (c) 2026 Sultan Al Isaiee. MIT licence.")],
            tagline = tr("Your files, as in 1994"),
            iconPng = FilesIconPng, glyph = pxFolderOpen,
-           whatsNew = [tr("3.3.8: View > List -- small icons in columns, scrolled sideways; every control " &
+           whatsNew = [tr("3.3.9: Edit > Paste Shortcut -- a link here to each item copied; the tool " &
+                            "bar one stop of Tab (the arrows along it), F6 from part to part; emptying the " &
+                            "trash no longer goes through a link to a folder"),
+                       tr("3.3.8: View > List -- small icons in columns, scrolled sideways; every control " &
                             "reached by Tab and named for screen readers; Thai and Vietnamese names"),
                        tr("3.3.7: covered by another window it draws nothing; the caret rests after 10 " &
                             "seconds untouched; on Android, opened again it comes back as it was"),
@@ -1827,6 +1847,7 @@ proc menus() =
       if menuItem("Cu&t", "Ctrl+X"): copySel(true)
       if menuItem("&Copy", "Ctrl+C"): copySel(false)
       if menuItem("&Paste", "Ctrl+V", enabled = clipPaths.len > 0): paste()
+      if menuItem("Paste &Shortcut", enabled = clipPaths.len > 0 and not clipCut): pasteShortcut()
       if twoPanes():
         if menuItem("Copy to the &other pane", enabled = other() != nil): toOther(false)
         if menuItem("&Move to the other pane", enabled = other() != nil): toOther(true)

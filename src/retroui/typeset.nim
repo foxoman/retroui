@@ -18,7 +18,7 @@
 ## (`fauxStyle`).
 
 import std/[tables, unicode, locks, algorithm]
-import ttf, arabicdata, codec
+import ttf, arabicdata, codec, unpacking
 
 type
   FaceId* = enum
@@ -167,12 +167,26 @@ proc resolve(id: FaceId) =
     standIn[id] = reg
     faux[id] = (bold, italic)
 
+var soon: array[FaceId, int]               # a face being unpacked on a thread: its ticket
+for t in soon.mitems: t = -1
+
+proc unpackFacesSoon*(ids: openArray[FaceId]) =
+  ## Starts unpacking built-in faces on a thread of their own (`unpacking`),
+  ## for the first frame to find them there: the bold of the UI, the icons.
+  for id in ids:
+    if (id == fIcons or builtinFace(id)) and fontFiles[id].len == 0 and soon[id] < 0:
+      soon[id] = unpackSoon(if id == fIcons: iconsPacked else: packedFont(id))
+
 proc load(id: FaceId) =
   ## Face `id`'s font bytes into `fontFiles` (a stand-in's: none).
   if fontFiles[id].len > 0: return
   resolve(id)
   if standIn[id] != id: return
   if id == fIcons or builtinFace(id):
+    if soon[id] >= 0:
+      fontFiles[id] = unpacked(soon[id])      # (unpacked meanwhile, or waited for)
+      soon[id] = -1
+      if fontFiles[id].len > 0: return
     let packed = if id == fIcons: iconsPacked else: packedFont(id)
     let b = zlibDecompress(packed.toOpenArrayByte(0, packed.high))
     var s = newString(b.len)
@@ -235,12 +249,15 @@ proc face*(id: FaceId): Face =
       asciiAdv[id][c] = float32(f.advance(f.glyphOf(c))) / em
     asciiAdv[id][9] = asciiAdv[id][32] * TabStops
     asciiKern[id] = newSeq[float32](96 * 96)
-    for a in 32 .. 126:
-      let ga = f.glyphOf(a)
-      if ga == 0: continue
-      for b in 32 .. 126:
-        let k = f.kerning(ga, f.glyphOf(b))
-        if k != 0: asciiKern[id][(a - 32) * 96 + b - 32] = float32(k) / em
+    if f.hasKerning:
+      var gs: seq[int]
+      for c in 32 .. 126: gs.add f.glyphOf(c)
+      let t = f.kerningTable(gs)          # (every pair at once: 16 times quicker)
+      for a in 32 .. 126:
+        if gs[a - 32] == 0: continue
+        for b in 32 .. 126:
+          let k = t[(a - 32) * 95 + b - 32]
+          if k != 0: asciiKern[id][(a - 32) * 96 + b - 32] = float32(k) / em
   faces[id]
 
 proc fontName*(id: FaceId): string =

@@ -28,7 +28,9 @@ name: Every system
 # do next to nothing --, then clicked, keyed and typed at; a fault, a stop
 # or a hang fails it, and each app's first frame time is in the log. Then
 # they are driven by their controls' names (RETRO_DRIVE, tests/drive/run.sh):
-# every tab clicked, every menu opened and closed.
+# every tab clicked, every menu opened and closed, every page walked with Tab
+# alone; on Linux what the tour finds (a stop Tab never reaches, a letter
+# underlined twice...) fails the job too (TOUR_STRICT).
 #
 # The live check (tests/live/livecheck.nim) goes through the guide's pages,
 # saves each frame and checks the browser engine; tools/live/compare.nim
@@ -99,6 +101,8 @@ jobs:
           xvfb-run -a -s "-screen 0 1280x800x24" sh tests/smoke/run.sh
       - name: The apps driven by their controls' names (every tab, every menu)
         if: always()
+        env:
+          TOUR_STRICT: "1"
         run: xvfb-run -a -s "-screen 0 1280x800x24" sh tests/drive/run.sh
       - uses: actions/upload-artifact@v4
         if: always()

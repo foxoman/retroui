@@ -413,7 +413,9 @@ designer: **Edit Code** opens your editor at the control's code, and while
 one of them has the file the other leaves it alone (a lock beside it, the
 file read-only for the others). Dialogs and menus open over their window
 when you choose something in them; F5 shows the window working, in each
-look.
+look. View > Names and Tab Order numbers the stops of Tab -- drag a
+number onto another to change the order (`tabIndex` written) -- and File >
+Export Driver Test writes a test of the window for `retrokit drive`.
 
 It comes with the package and builds itself the first time you run it, for
 your computer and your Nim: Windows, macOS, Linux and BSD, and Termux on
@@ -449,7 +451,8 @@ retrokit designer app.nim       # app.nim's windows (a new file when there is no
 - **Input, the same everywhere.** Mouse: click, double-click, the wheel
   (Shift for sideways, Ctrl to zoom where it makes sense), drag, the right
   button for menus, the middle and side buttons. Keyboard: Tab and
-  Shift+Tab move the focus (shown as the dotted 3.1 rectangle), Space and
+  Shift+Tab move the focus (shown as the dotted 3.1 rectangle), F6 and
+  Shift+F6 from one part of the window to the next, Space and
   Enter activate, arrows/Home/End/PageUp/PageDown move, Esc closes,
   Alt+letter for `&` mnemonics, the menu key or Shift+F10 for context
   menus. Fingers: a tap activates (a drag cancels it), dragging scrolls
@@ -773,19 +776,38 @@ screen reader asks to see is scrolled to in every view that scrolls
 
 **The keyboard alone.** Tab stops at every control, in the order they
 are drawn (`tabStops()`; a range slider's two ends are two stops), and
-Shift+Tab goes back. An app that gives Tab a meaning of its own -- an
+Shift+Tab goes back; `tabIndex 1`, `tabIndex 2`... before controls put
+them first, in that order, as HTML's tabindex does (Retro Designer writes
+them when its Tab order's numbers are dragged). A run of tool buttons --
+a tool bar's, a palette's tools -- is one stop, as in Windows: the arrows
+go along it, Home and End to its ends, Space or Enter presses the one
+lit; a window starts at its first box or list, not at its tool bar.
+
+F6 and Shift+F6 go from one part of the window to the next: its tool
+bars, the panes of a split, the docked panels, the MDI windows and
+palettes, the menu bar (its first menu opened) -- each part's control
+that had the focus last; `area "key": ...` makes a part of your own
+layout one. In an app whose keys are its canvas's when nothing is focused
+(`autoFocus = false`), the canvas is one of them. An app that gives Tab a
+meaning of its own -- an
 image editor hides its panels with it -- does so only when
 `not focusInControls()`, and sets `autoFocus = false` when its keys
 belong to its canvas until a control is clicked (Retro Photo and Retro
 Board do both). `tests/drive/run.sh` walks every page of the kit's apps
-with Tab alone: each control reached, each one named.
+with Tab alone: each control reached, each one named, no letter
+underlined twice where one Alt reaches both. In a menu, a letter two
+items share lights the next of them (Enter then chooses it), as Windows'
+menus do; a submenu opens by its letter.
 
 **Input methods.** What the system's input method is composing (pinyin,
 kana, hangul, a phone keyboard's word) is drawn underlined in the text box
 at the caret, and typed when it is settled: XIM on X11, IMM on Windows,
 marked text on macOS, GTK 4's preedit, the kit's own input connection on
-Android, SDL 2's and SDL 3's text editing (their candidates under the
-caret). `ui.composing` holds it for a text box of your own.
+Android, UITextInput on iOS, SDL 2's and SDL 3's text editing (their
+candidates under the caret). `ui.composing` holds it for a text box of
+your own. On a phone a box that takes the focus while the on-screen
+keyboard comes up is scrolled above it, and the keyboard goes when the
+focus leaves the box (`keyboardWanted()`).
 
 **Scaling.** The window takes the scale of the screen it is on -- on X11
 the monitor's DPI (RandR), on Windows and macOS the system's -- and again
@@ -856,10 +878,22 @@ then `adb forward tcp:7000 tcp:7000` (an APK built with
 `sh tests/drive/run.sh` drives the examples so: every tab clicked, every
 menu opened and closed (its "..." dialogs too, closed by Esc), every page
 walked with Tab alone -- each control reached once, named, Shift+Tab
-back, a drop-down opened by Enter and closed by Esc --, the app asked
-after each step that it is still there, then closed by its close box
-(`--strict`: what it finds fails it); the systems workflow runs it on
-Linux, Windows and macOS. A test in the same program as its app runs the
+back, a drop-down opened by Enter and closed by Esc --, every letter
+underlined (`&`) one of its kind where one Alt reaches it (the window, a
+dialog; in a menu a letter two items share lights the next of them, as
+in Windows), the app asked after each step that it is still there,
+then closed by its close box (`--strict`, `TOUR_STRICT=1`: what it finds
+fails it); the systems workflow runs it on Linux (strict), Windows and
+macOS. `--touch` tours them as on a touch screen (`RETRO_TOUCH=1`,
+fingers): a control too small for a finger (`--min-dp`, 28 by default;
+the kit's own finger sizes are 31 to 35, Apple asks 44 and Google 48),
+what shows only with the mouse over a control, a right click's menu a
+long press does not open; `--keyboard` also taps a text box on a phone
+and checks the on-screen keyboard comes, the box is above it, and it
+goes with the focus (the emulator job). The driver's `click ... --hold
+700 --finger` is a long press, `focused NAME` says the focus is there,
+`info` has `dp`, `touch`, `keyboard` and `below` (what the system
+covers), and each node its underlined `letter`. A test in the same program as its app runs the
 frames while it waits for the answer (`ask(..., idle = proc () = run())`,
 `tests/test_drive.nim`), and a headless test finds controls by name with
 `findNode(accessLast, "OK", {arButton})` and `nodeRect` once `accessKeep`
@@ -1271,7 +1305,7 @@ toast("Copied 12 items", title = "Files")    # a yellow Windows 95 balloon
 ### Retro Files
 
 `examples/filemanager.nim` (about 2,100 lines: the rest is the toolkit's)
-is **Retro Files 3.3.8**, a complete file manager in the manner of the Windows 98
+is **Retro Files 3.3.9**, a complete file manager in the manner of the Windows 98
 Explorer -- the Standard Buttons with their labels under the icons (View >
 Toolbars > Text Labels), the Address bar, View as Web Page (the folder's
 name large and the selection described at the left), Large and Small icons,
@@ -1288,7 +1322,8 @@ path bar whose folders are clicked or dropped down as in Explorer and
 that takes a typed path with suggestions (F4, Alt+D, Ctrl+L), "This device"
 with how full each disk is, the trash with restore (Delete moves there,
 Shift+Delete deletes for good), undo of renames, moves, copies, new items
-and trashing (Ctrl+Z), details, tiles and five icon sizes (Ctrl + the
+and trashing (Ctrl+Z), Edit > Paste Shortcut (a link to each item copied,
+"Shortcut to ..."), details, tiles and five icon sizes (Ctrl + the
 wheel), a selection rectangle, a preview that follows the mouse, file
 name extensions shown or hidden, copy speed and time left,
 folder tree with places and favorites, the 3.1 drive bar, picture
@@ -1690,7 +1725,7 @@ b.saveBoard("flow.board")
   scale, transparent or on the canvas's color), SVG and PDF (vectors,
   text as outlines).
 
-`examples/retroboard.nim` is **Retro Board 1.3.8**, a whiteboard app made of
+`examples/retroboard.nim` is **Retro Board 1.3.9**, a whiteboard app made of
 it: the 3.1 title bar on phones and tablets, a status bar (the tool's
 hint, page, shapes, zoom, memory), the color schemes and Appearance, a
 floating tool bar (select, hand, draw, highlighter, eraser, laser,
@@ -1761,7 +1796,7 @@ the picture whatever the number of values.
 
 ![Retro Task Manager: the processes](docs/taskman.png)
 
-`examples/taskman.nim` is **Retro Task Manager 1.0.4**: the processes with
+`examples/taskman.nim` is **Retro Task Manager 1.0.5**: the processes with
 their share of the processor, the memory and the disk (search, sort by any
 column, End task, End process tree, a priority, Open file location,
 Properties; Delete ends the one selected, after asking), the processor (and
@@ -1853,7 +1888,7 @@ s.dehaze = 10
 p.applyFilter(developMargin(s), develop(s))
 ```
 
-`examples/photo.nim` is **Retro Photo 4.9.10**, an image editor in the manner
+`examples/photo.nim` is **Retro Photo 4.9.11**, an image editor in the manner
 of the ones of 1994: the toolbox, the tabbed floating palettes (Brushes
 and Options; Picker, Swatches and Scratch; Layers, Channels and Paths;
 Info; Commands; Navigator, History and Actions; Properties), an options
@@ -1987,10 +2022,13 @@ quotes, preformatted text, tables, pictures next to the page, definition
 lists — read by a forgiving parser and styled by its CSS: style sheets,
 `style` attributes and the old attributes, with floats, nested tables,
 flexible boxes (`display: flex`: rows and columns, wrapped, `flex-grow`,
-`justify-content`, `align-items`, `gap`) and grids
+`justify-content`, `align-items`, `gap`), grids
 (`grid-template-columns`: pixels, `fr`, `repeat`, `minmax`, `auto-fill`;
-`grid-column: span`). Scripts, frames and forms are left out, so no page
-can run code or reach the network. `htmlToMarkdown` converts a page.
+`grid-template-rows`; `grid-template-areas` and `grid-area`;
+`grid-column` and `grid-row` by lines or `span`) and positioned boxes
+(`position: relative`, `absolute`, `fixed`, with `top`, `right`,
+`bottom`, `left`, `inset`). Scripts, frames and forms are left out, so no
+page can run code or reach the network. `htmlToMarkdown` converts a page.
 
 `webView` is a web page, shown by one of two engines:
 
@@ -2521,6 +2559,21 @@ report pages are drawn into pictures of their own only when they change;
 slow work (listing folders, decoding pictures) runs on worker threads
 (`retroui/background`).
 
+**Starting.** What a program carries packed -- the bold of the UI's font,
+the icons' font, the pixel icons, an app's own fonts (`addFontData(...,
+packed = true)`) -- is unpacked on a thread of its own from the start
+(`retroui/unpacking`: `unpackSoon`, `unpacked`) while the window opens; a
+font the program carries is found without looking through the system's
+font folders (`scanFontsSoon()` looks through them on a thread, for an app
+that will list them); the tables a codec needs are made when the program
+is built or when it first needs them. What the first frame can do without
+waits for `framesShown() > 0` (Retro Photo paints its splash then). A
+frame after an input that nothing asked to draw again -- a letter typed --
+is shown at once, the next one only if it differs. The first frame on the
+screen, release builds on the 2-core machine below: Retro Photo 30 ms,
+Retro Board 25-30 ms, Mail 22, Files 21, the gallery and HR Book 17,
+Communicator 15, Chart Viewer 10.
+
 Measured on Linux (`nimble bench`, library cost without the OS: a change
 and the frames until it is on the screen; a small, shared 2-core cloud
 machine, so the numbers wander by a third):
@@ -2946,8 +2999,10 @@ says how.
   check runs in the Android emulator and the iOS Simulator on GitHub; no
   phone or tablet has run this release yet.
 - What an input method is composing is drawn in the text box on X11,
-  Windows, macOS, GTK 4, Android, SDL 2 and SDL 3 (its list of candidates
-  under the caret); on iOS it shows in the input method's own window.
+  Windows, macOS, GTK 4, Android, iOS, SDL 2 and SDL 3 (its list of
+  candidates under the caret). The iOS one (UITextInput) is new in this
+  release and builds on GitHub for the iOS Simulator; it has not been typed
+  in on an iPhone yet.
   Screen readers were tried end to end with AT-SPI's own client (what Orca
   uses) and with UI Automation under Wine; VoiceOver and TalkBack build and pass the tests of their parts, but
   have not been run on a device in this release.
@@ -2978,8 +3033,10 @@ says how.
   the kit finds the runtime where Windows keeps it). In a web page
   (`retrokit web`) a web view is the page's own frame: pages of the same
   site talk with the app, others are shown but not driven. `htmlView` lays
-  out blocks, floats, tables, flexible boxes and grids; not positioned
-  boxes (`position`), grid rows and areas by name, or scripts.
+  out blocks, floats, tables, flexible boxes, grids (with named areas and
+  lines) and positioned boxes; not scripts, `z-index` (a box out of the
+  flow is drawn over the content of the box it is in), nor a grid's `fr`
+  rows (as tall as their content).
 - Video in the window on Windows (Media Foundation) and macOS and iOS
   (AVFoundation) is new in this release: it runs in the live check on
   GitHub, not yet by hand on those systems.
@@ -3017,9 +3074,11 @@ says how.
   preview): there is no PostScript interpreter. Get Google Fonts has not
   been tried against the live catalog in this release (only against saved
   copies of its answers).
-- Retro Files: no Paste Shortcut; sounds play from the start, without
-  seeking, where neither GStreamer nor Android plays them (Windows and
-  macOS use the system's sound playing).
+- Retro Files: sounds play from the start, without seeking, where
+  neither GStreamer nor Android plays them (Windows and macOS use the
+  system's sound playing). Paste Shortcut makes a symbolic link, and on
+  Windows an Internet shortcut (.url) rather than a .lnk; a phone's shared
+  storage has no links.
 
 ## License
 

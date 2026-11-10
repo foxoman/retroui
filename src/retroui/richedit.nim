@@ -2213,7 +2213,8 @@ proc richEdit*(d: var RichDoc; height = -1; key = ""; placeholder = "";
       if menuItem("&Open link"): d.clicked = lk.url
       if menuItem("Remove lin&k"): richLink(d, "")
     menuSeparator()
-    if menuItem("Select &all", "Ctrl+A", enabled = d.paras.len > 1 or paraLen(d.paras[0]) > 0):
+    # (S: A is Add to Dictionary's when a word is misspelled)
+    if menuItem("&Select all", "Ctrl+A", enabled = d.paras.len > 1 or paraLen(d.paras[0]) > 0):
       richSelectAll(d)
     endMenu()
   linkDialog(d)

@@ -20,7 +20,7 @@
 
 import std/[math, os, strutils, tables, algorithm, json]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
-import ttf, typeset, raster, otshape, codec
+import ttf, typeset, raster, otshape, unpacking
 
 const defaultFamily* = "FreeSans"
   ## The family of new text
@@ -44,18 +44,20 @@ var
   loaded: Table[string, Face]
   unreadable: Table[string, string]   ## family -> why its file could not be read
 
-var memFonts: seq[tuple[entry: FontEntry; packed: string; face: Face]]
+var memFonts: seq[tuple[entry: FontEntry; ticket: int; face: Face]]
+  ## (a packed one: unpacked on a thread from when it is offered, `unpacking`)
   ## Fonts an app (or a module) carries in itself (`addFontData`).
 
 proc addFontData*(family, style: string; data: string; packed = false; weight = 400; italic = false) =
   ## Offers a font the program carries -- its bytes (`packed`: zlib
-  ## compressed, as `staticRead` of a ".ttf.z") -- as `family` / `style`,
-  ## read the first time it is drawn. Again with the same family and style:
-  ## nothing.
+  ## compressed, as `staticRead` of a ".ttf.z", unpacked on a thread from
+  ## now) -- as `family` / `style`, read the first time it is drawn. Again
+  ## with the same family and style: nothing.
   for m in memFonts:
     if m.entry.family == family and m.entry.style == style: return
   memFonts.add (FontEntry(family: family, style: style, path: "<mem:" & $memFonts.len & ">", weight: weight,
-                          italic: italic), (if packed: data else: ""), (if packed: nil else: parseFace(data)))
+                          italic: italic), (if packed: unpackSoon(data) else: -1),
+                (if packed: nil else: parseFace(data)))
   if scanned: catalog.add memFonts[^1].entry
 
 proc memFace(path: string): Face =
@@ -63,11 +65,9 @@ proc memFace(path: string): Face =
   let i = try: parseInt(path[5 ..< path.high]) except ValueError: -1
   if i < 0 or i >= memFonts.len: return face(fSans)
   if memFonts[i].face == nil:
-    let b = zlibDecompress(memFonts[i].packed.toOpenArrayByte(0, memFonts[i].packed.high))
-    var s = newString(b.len)
-    if b.len > 0: copyMem(addr s[0], unsafeAddr b[0], b.len)
-    memFonts[i].face = parseFace(s)
-    memFonts[i].packed = ""
+    let s = unpacked(memFonts[i].ticket)
+    memFonts[i].ticket = -1
+    memFonts[i].face = if s.len > 0: parseFace(s) else: face(fSans)
   memFonts[i].face
 
 proc builtinEntries(): seq[FontEntry] =
@@ -125,17 +125,11 @@ proc addFontDir*(dir: string) =
     extraDirs.add dir
     scanned = false
 
-proc scanFonts*(force = false) =
-  ## Looks through the font folders (once; again with `force`).
-  if scanned and not force: return
-  scanned = true
-  if force:
-    loaded.clear()                    # (files fetched or replaced since: read again)
-    unreadable.clear()
-  catalog = builtinEntries()
+proc scanDirs(dirs: seq[string]): seq[FontEntry] =
+  ## (the faces of the font files in `dirs` and below, the first of each
+  ## family and style)
   var seen: Table[string, bool]
-  for e in catalog: seen[e.family & "/" & e.style] = true
-  for dir in systemFontDirs() & extraDirs:
+  for dir in dirs:
     if not dirExists(dir): continue
     for path in walkDirRec(dir):
       let ext = path.splitFile.ext.toLowerAscii
@@ -147,8 +141,80 @@ proc scanFonts*(force = false) =
         let key = fi.family & "/" & fi.style
         if seen.hasKey(key): continue
         seen[key] = true
-        catalog.add FontEntry(family: fi.family, style: fi.style, path: path, index: fi.index,
-                              weight: fi.weight, italic: fi.italic)
+        result.add FontEntry(family: fi.family, style: fi.style, path: path, index: fi.index,
+                             weight: fi.weight, italic: fi.italic)
+
+const ScanThreads = compileOption("threads") and not defined(js) and not defined(emscripten)
+when ScanThreads:
+  import std/[typedthreads, locks]
+  var
+    scanThread: Thread[seq[string]]
+    scanLock: Lock
+    scanFound: seq[FontEntry]          # (what the thread found, under the lock)
+  initLock(scanLock)
+
+  proc scanWork(dirs: seq[string]) {.thread.} =
+    let found = scanDirs(dirs)
+    {.cast(gcsafe).}:
+      withLock scanLock: scanFound = found
+
+var
+  scanSoon = 0                         # 1: the folders being looked through on a thread
+  scanSoonDirs: seq[string]            # ... these
+
+proc scanFontsSoon*() =
+  ## Starts looking through the font folders on a thread, now: for an app
+  ## that will list the fonts there are (a font menu) to find them there
+  ## when it does. (Fonts the program has itself never wait for it.)
+  when ScanThreads:
+    if scanned or scanSoon != 0: return
+    scanSoonDirs = systemFontDirs() & extraDirs
+    scanSoon = 1
+    createThread(scanThread, scanWork, scanSoonDirs)
+
+proc scanFonts*(force = false) =
+  ## Looks through the font folders (once; again with `force`).
+  if scanned and not force: return
+  scanned = true
+  if force:
+    loaded.clear()                    # (files fetched or replaced since: read again)
+    unreadable.clear()
+  catalog = builtinEntries()
+  var seen: Table[string, bool]
+  for e in catalog: seen[e.family & "/" & e.style] = true
+  let dirs = systemFontDirs() & extraDirs
+  var found: seq[FontEntry]
+  var left = dirs
+  when ScanThreads:
+    if scanSoon == 1:
+      # (looked through on a thread already: what it found, and the folders
+      # offered since, here)
+      joinThread(scanThread)
+      scanSoon = 0
+      withLock scanLock: found = move scanFound
+      if force: found.setLen(0)
+      else:
+        left.setLen(0)
+        for d in dirs:
+          if d notin scanSoonDirs: left.add d
+  found.add scanDirs(left)
+  for e in found:
+    let key = e.family & "/" & e.style
+    if seen.hasKey(key): continue
+    seen[key] = true
+    catalog.add e
+
+var carriedList: seq[FontEntry]        # FreeFont and the fonts the program carries
+var carriedFor = -1                    # ... made for this many carried fonts
+
+proc carriedEntries(family: string): bool =
+  ## (`family` is one the program has itself: found without looking through
+  ## the font folders -- the faces it has are the ones they would give)
+  if carriedFor != memFonts.len:
+    carriedList = builtinEntries()
+    carriedFor = memFonts.len
+  for e in carriedList:
+    if e.family == family: return true
 
 proc fontFamilies*(): seq[string] =
   ## The families there are, the built-in ones first, the rest by name.
@@ -164,9 +230,10 @@ proc fontFamilies*(): seq[string] =
 
 proc fontStyles*(family: string): seq[string] =
   ## The styles of a family ("Regular", "Bold", "Italic"...), lighter first.
-  scanFonts()
+  let own = not scanned and carriedEntries(family)
+  if not own: scanFonts()
   var es: seq[FontEntry]
-  for e in catalog:
+  for e in (if own: carriedList else: catalog):
     if e.family == family: es.add e
   es.sort(proc (a, b: FontEntry): int =
     result = cmp(a.weight, b.weight)
@@ -204,13 +271,17 @@ proc fontFace*(family, style: string): tuple[face: Face; fauxBold, fauxItalic: b
   ## The face for a family and style; a style it lacks is made from the
   ## one it has (faux bold, faux italic); an unknown family is FreeSans (a
   ## font the kit had before, FreeFont's like of it: "Amiri" is FreeSerif).
-  scanFonts()
+  # (FreeFont and the fonts the program carries: found without looking
+  # through the font folders)
+  let own = not scanned and carriedEntries(family)
+  if not own: scanFonts()
   let wantBold = style.toLowerAscii.contains("bold") or style.toLowerAscii.contains("black") or
                  style.toLowerAscii.contains("heavy")
   let wantItalic = style.toLowerAscii.contains("italic") or style.toLowerAscii.contains("oblique")
   var best = -1
   var bestScore = -1
-  for i, e in catalog:
+  let list = if own: addr carriedList else: addr catalog
+  for i, e in list[]:
     if e.family != family: continue
     if e.style == style: return (entryFace(e), false, false)
     var sc = 0
@@ -225,7 +296,7 @@ proc fontFace*(family, style: string): tuple[face: Face; fauxBold, fauxItalic: b
       if cmpIgnoreCase(family, old) == 0 and now != family: return fontFace(now, style)
     let id = styled(fSans, wantBold, wantItalic)
     return (face(id), fauxStyle(id).bold, fauxStyle(id).italic)
-  let e = catalog[best]
+  let e = list[][best]
   (entryFace(e), wantBold and e.weight < 600, wantItalic and not e.italic)
 
 # ---- styles -------------------------------------------------------------------------------------------------

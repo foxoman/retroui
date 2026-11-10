@@ -468,7 +468,9 @@ proc rating*(v: var int; stars = 5; enabled = true): bool {.discardable.} =
   ## With the focus: Left / Right one star less / more, Home none, End all.
   let st = style(size = 1.3)
   let sw = textWidth(nfStar, st) + dp(2)
-  let r = place(sw * stars, lineHeight(st))
+  # (a finger's height: the stars in its middle)
+  let r = place(sw * stars, max(lineHeight(st), if fingers(): dp(30) else: 0))
+  let sy = r.y + (r.h - lineHeight(st)) div 2
   let id = idOf(v, "rating")
   var hit = interact(id, r, enabled = enabled)
   if accessOn and enabled and accessValueFor(id):
@@ -490,7 +492,7 @@ proc rating*(v: var int; stars = 5; enabled = true): bool {.discardable.} =
   let gold = color(230, 170, 0)
   for i in 0 ..< stars:
     let lit = if over > 0: i < over else: i < v
-    text(r.x + i * sw, r.y, if lit: nfStar else: nfStarO,
+    text(r.x + i * sw, sy, if lit: nfStar else: nfStarO,
          if not enabled: th.gray elif lit: gold else: th.shadow, st)
   if hit.focused: focusDots(r)
   if accessOn:
@@ -1498,7 +1500,7 @@ proc stepper*(steps: openArray[string]; current: int; enabled = true): int =
   ## step clicked (only steps already done can be), -1 if none.
   result = -1
   if steps.len == 0: return
-  let d = FontH + dp(8)
+  let d = FontH + (if fingers(): dp(12) else: dp(8))   # (a finger can hit a step)
   let showLabels = available() div max(1, steps.len) > dp(60)
   let r = place(0, d + (if showLabels: FontH + dp(4) else: 0), fill = true)
   ui.lastId = 0

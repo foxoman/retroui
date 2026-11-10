@@ -338,6 +338,33 @@ block stopsAndNames:
   ui.focus = 0
   doAssert not focusInControls(), "nothing focused: an app may give Tab a meaning of its own"
 
+block toolRunsAndNames:
+  # a tool bar's run of buttons: one stop, its lit button the reader's
+  # focus; a label of only an icon names nothing; a document by its heading
+  var md = "# Notes\n\nSome text."
+  view = proc () =
+    toolbar:
+      toolButton("B", "Bold")
+      toolButton("I", "Italic")
+    label "\uf02d"                       # (an icon alone)
+    discard markdownView(md, height = 80)
+  run(3)
+  var t = sent[^1]
+  let bold = t.find(arButton, "Bold")
+  let italic = t.find(arButton, "Italic")
+  doAssert bold > 0 and italic > 0
+  doAssert asFocusable in t[bold].states and asFocusable notin t[italic].states,
+           "the run's lit button is its stop"
+  doAssert t.find(arTextArea, "Notes") > 0, "the document named by its heading: " &
+           (if t.find(arTextArea) > 0: t[t.find(arTextArea)].name else: "none")
+  ui.focus = 0
+  key(KeyTab)
+  run(2)
+  key(KeyRight)
+  run(2)
+  t = sent[^1]
+  doAssert asFocused in t[t.find(arButton, "Italic")].states, "the arrows: Italic lit, read as focused"
+
 block openListsAndScrolling:
   # an open drop-down's items are read and pressed; a control a screen
   # reader asks to see is scrolled to

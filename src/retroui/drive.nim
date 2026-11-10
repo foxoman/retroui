@@ -27,9 +27,13 @@
 ##             label "Name:" names the box after it: the box is meant)
 ## click       the middle of a control (as `find`), or `x`, `y`; `button`
 ##             ("left", "right", "middle"), `clicks` (2: a double click),
-##             `finger` (true: a finger, not a mouse)
+##             `finger` (true: a finger, not a mouse), `hold` (ms the
+##             button or the finger stays down: 600 with a finger is a long
+##             press, a touch screen's right click)
 ## move        the pointer over a control or to `x`, `y` (hover, tips)
 ## scroll      the wheel over a control or at `x`, `y`: `lines` (up > 0)
+## focused     the control with the keyboard's focus is this one (as
+##             `find`): fails, saying which has it, when it is another
 ## press       a control pressed as a screen reader presses it (no pointer)
 ## focus       the keyboard's focus to a control
 ## set         a control's value as a screen reader sets it: `value` (a
@@ -40,7 +44,11 @@
 ##             (as `find`) is there -- `gone`: true, until it is not --
 ##             at most `timeout` ms (5000)
 ## info        the window: `title`, `w`, `h`, `zoom`, `rtl`, `frames`, the
-##             `focused` control
+##             `focused` control, `dp` (logical pixels in a design pixel:
+##             a size in dp is `w / dp`), `touch` (a touch screen),
+##             `fingers` (finger-sized controls), `keyboard` (the focused
+##             control asks for the on-screen keyboard), `below` (the
+##             window's bottom the system covers: its bars, the keyboard)
 ## quit        the window's close box, as a person clicks it (the app may
 ##             still ask "Save changes?")
 ## ==========  ===============================================================
@@ -231,7 +239,7 @@ when not defined(wasm):
     result.add '"'
 
   type
-    Waiting = enum wNone, wSettle, wFrames, wMs, wNode
+    Waiting = enum wNone, wSettle, wFrames, wMs, wNode, wHold
     Pending = object
       what: Waiting
       req: Req
@@ -243,6 +251,9 @@ when not defined(wasm):
       roles: set[AccessRole]
       nth: int
       gone: bool
+      x, y: int                   # (a held press: where it is let go)
+      button: MouseButton
+      mouse: bool
 
   var
     listenFd = osInvalidSocket
@@ -294,6 +305,7 @@ when not defined(wasm):
     if n.value.len > 0: result.add ",\"value\":" & jstr(n.value)
     if n.help.len > 0: result.add ",\"help\":" & jstr(n.help)
     if n.key.len > 0: result.add ",\"key\":" & jstr(n.key)
+    if n.letter != '\0': result.add ",\"letter\":" & jstr($n.letter)
     if n.states.len > 0:
       result.add ",\"states\":["
       var first = true
@@ -384,11 +396,25 @@ when not defined(wasm):
       let i = lookup(req)
       if i < 0: fail(req, noControl(req))
       else: answer(req, "\"ok\":true,\"node\":" & nodeJson(i, accessLast[i]))
+    of "focused":
+      var at = -1
+      for i, n in accessLast:
+        if asFocused in n.states: at = i
+      let i = lookup(req)
+      if at < 0: fail(req, "nothing has the focus")
+      elif i == at or (i >= 0 and accessLast[i].id == accessLast[at].id):
+        answer(req, "\"ok\":true,\"node\":" & nodeJson(at, accessLast[at]))
+      else:
+        let n = accessLast[at]
+        fail(req, "the focus is on " & roleWord(n.role) & " \"" & n.name & "\", not " &
+                  (if req.has("role"): req.str("role") & " " else: "") & "\"" & req.str("name") & "\"")
     of "info":
       var res = "\"ok\":true,\"title\":" &
                 jstr(if accessLast.len > 0: accessLast[0].name else: "") &
                 ",\"w\":" & $ui.w & ",\"h\":" & $ui.h & ",\"zoom\":" & $max(1, zoom) &
-                ",\"rtl\":" & $ui.rtl & ",\"frames\":" & $framesRun
+                ",\"rtl\":" & $ui.rtl & ",\"frames\":" & $framesRun &
+                ",\"dp\":" & $dpf(1.0) & ",\"touch\":" & $ui.touch & ",\"fingers\":" & $fingers() &
+                ",\"keyboard\":" & $keyboardWanted() & ",\"below\":" & $(ui.h - ui.bottom)
       for i, n in accessLast:
         if asFocused in n.states:
           res.add ",\"focused\":" & nodeJson(i, n)
@@ -419,6 +445,16 @@ when not defined(wasm):
                 of "right": RightButton
                 of "middle": MiddleButton
                 else: LeftButton
+        let hold = req.num("hold")
+        if hold > 0:
+          # (held: let go after `hold` ms of frames -- a long press)
+          feedEvent Event(kind: MouseDownEvent, x: ex, y: ey, button: b, clicks: 1,
+                          fromMouse: mouse)
+          pending = Pending(what: wHold, req: req, untilMs: ui.now + hold, x: ex, y: ey,
+                            button: b, mouse: mouse,
+                            target: if at >= 0: accessLast[at].id else: 0'u32)
+          wakeIn(1)
+          return
         for c in 1 .. clamp(req.num("clicks", 1), 1, 3):
           feedEvent Event(kind: MouseDownEvent, x: ex, y: ey, button: b, clicks: c,
                           fromMouse: mouse)
@@ -476,7 +512,7 @@ when not defined(wasm):
       answer(req, "\"ok\":true")
       feedEvent Event(kind: WindowCloseEvent)
     else:
-      fail(req, "no command \"" & cmd & "\" (tree, find, info, click, move, scroll, " &
+      fail(req, "no command \"" & cmd & "\" (tree, find, focused, info, click, move, scroll, " &
                 "press, focus, set, key, type, wait, quit)")
 
   proc pendingDone(): bool =
@@ -506,6 +542,14 @@ when not defined(wasm):
         return false
       pending = Pending()
       answer(p.req, "\"ok\":true")
+    of wHold:
+      if ui.now < p.untilMs:
+        wakeIn(max(1, min(50, p.untilMs - ui.now)))   # (frames while it is held)
+        return false
+      feedEvent Event(kind: MouseUpEvent, x: p.x, y: p.y, button: p.button, fromMouse: p.mouse)
+      pending = Pending(what: wSettle, req: p.req, target: p.target)
+      nextFrame()
+      return false
     of wMs:
       if ui.now < p.untilMs:
         wakeIn(p.untilMs - ui.now)

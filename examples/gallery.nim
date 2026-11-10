@@ -405,7 +405,7 @@ proc ordTotal(): string =
   formatNumber(t, 3)
 
 proc recordsTab() =
-  tabs recTab, ["&Data grid", "&Forms", "&Properties", "&Accounts"]:
+  tabs recTab, ["Data &grid", "Fo&rms", "&Properties", "&Accounts"]:
     case recTab
     of 0:
       let e = grid(ordCols, ordRows.len, proc (r, c: int): string = ordRows[r][c], ordSel,
@@ -491,7 +491,7 @@ var
 
 proc windowsTab() =
   row:
-    if button("&Cascade", w = 90): mdiCascade("gallery")
+    if button("Ca&scade", w = 90): mdiCascade("gallery")
     if button("&Tile", w = 90): mdiTile("gallery")
     if button("&Open all", w = 90):
       win1.open = true
@@ -507,7 +507,7 @@ proc windowsTab() =
       hotkeyEdit(saveKey)
   if hotkeyPressed(saveKey): toast("Saved (" & saveKey & ")", glyph = pxSave)
   if not finder.open:
-    if button("&Find...") or hotkeyPressed("Ctrl+F"): finder.open = true
+    if button("Fin&d...") or hotkeyPressed("Ctrl+F"): finder.open = true
   let fe = findBar(finder)
   if fe.next or fe.prev:
     let start = if foundAt < 0: 0 elif fe.next: foundAt + 1 else: foundAt
@@ -585,7 +585,7 @@ proc planningTab() =
     discard kpiTile("Complaints", "12", -0.2, "vs last month", lowerIsBetter = true,
                     color = color(219, 68, 55))
     discard statCard(pxUser, "Guests", "214", "38 arriving today", color(15, 157, 88))
-  tabs pTab, ["&Board", "&Gantt", "A&genda", "&People"]:
+  tabs pTab, ["&Board", "&Gantt", "&Agenda", "&People"]:
     case pTab
     of 0:
       let e = kanbanBoard(pLanes, pKsel)
@@ -691,7 +691,7 @@ proc mapTab() =
         row:
           label "OpenStreetMap's tiles, from the network"
           spring()
-          if button("&World map"): streets = false
+          if button("Wo&rld map"): streets = false
       else:
         let ev = mapView(mapState, height = if tall: max(dp(300), remainingH() - CtrlH - Gap)
                                             else: dp(300),
@@ -706,7 +706,7 @@ proc mapTab() =
           label mapPicked
           spring()
           if button("G&ulf"): mapState.fitTo(["OM", "AE", "SA", "QA", "BH", "KW"])
-          if button("&World"): mapState.resetView()
+          if button("Wo&rld"): mapState.resetView()
           if button("Stree&ts"): streets = true
     col:
       segmented(["Bars", "Model", "Car"], show3d)
@@ -1127,7 +1127,7 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
       if menuItem("&Gray dialogs", checked = scheme == 1): setScheme(1)
       if menuItem("&Dark", checked = scheme == 2): setScheme(2)
       menuSeparator()
-      if menuItem("Show &grid", checked = showGrid): showGrid = not showGrid
+      if menuItem("Show g&rid", checked = showGrid): showGrid = not showGrid
       submenu "&Toolbar Labels":
         for lk in [blIconOnly, blTextBelow, blTextBeside, blTextOnly]:
           if menuItem($lk, checked = toolbarLook == lk): setToolbarLook(lk)
@@ -1174,11 +1174,12 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
       status = "Went to " & ["Home", "Search", "Alerts", "Profile"][navSel]
     if fab(nfPlus, "New item"): toast("New item", glyph = nfPlus)
 
-  # (Alt + a letter: a letter of its own for each tab; the menus' letters --
-  # F, E, V, I, W, H -- and the buttons' of the pages are left to them)
-  tabs(tab, ["&Controls", "&Lists", "&Business", "Char&ts", "Drawin&g", "&Scrolling",
-             "&More", "Mar&kdown", "&Apps", "Files", "&Records", "Windows", "&Planning",
-             "Map && &3D", "Ca&nvas", "HTML", "Reports", "S&ystem"]):
+  # (the tabs: Ctrl+Tab and Ctrl+Shift+Tab, or the arrows on the strip --
+  # eighteen of them would take most letters, and Alt + a letter is the
+  # menus' (F, E, V, I, W, H) and the controls' of each page)
+  tabs(tab, ["Controls", "Lists", "Business", "Charts", "Drawing", "Scrolling",
+             "More", "Markdown", "Apps", "Files", "Records", "Windows", "Planning",
+             "Map && 3D", "Canvas", "HTML", "Reports", "System"]):
     case tab
     of 14: canvasTab()
     of 15: htmlTab()
@@ -1209,7 +1210,7 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
             if button("Print", pxPrint, blTextOnly): status = "Print (text only)"
           row:
             if button("Open", pxOpen, blTextBelow): status = "Open (text below)"
-            if button("&Find", pxSearch, blTextBeside): status = "Find (text beside)"
+            if button("Find", pxSearch, blTextBeside): status = "Find (text beside)"
         group "Choices":
           checkbox "&Auto save", autoSave
           checkbox "Keep &backups", backups
@@ -1222,7 +1223,7 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
         group "Text":
           label "&Name:"
           edit name
-          label "Pass&word:"
+          label "&Password:"
           edit secret, password = true
           row([60, 70]):
             label "Copies:"
@@ -1250,7 +1251,7 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
                 $copies & " copies"
     of 1:
       adaptive(420):
-        group "&Files":
+        group "Fi&les":
           listbox files, fileSel, rows = 13, tabs = [110, 160]
           contextMenu:
             if menuItem("&Open"): status = "Open " & files[fileSel]
@@ -1285,7 +1286,7 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
               leaf "Reports"
           if doubleClicked(): status = "Opened " & treeSel
       adaptive(420):
-        group "&Form":
+        group "For&m":
           form 70:
             field "Due date:": datePicker due
             field "Amount:": numberEdit amount
@@ -1293,7 +1294,7 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
             field "City:": comboEdit city, cities
             field "Help:":
               if link("Open nim-lang.org"): openUrl("https://nim-lang.org")
-        group "C&ontact by":
+        group "Contact &by":
           checkList channels, channelOn, rows = 6
     of 3:
       row:
@@ -1348,7 +1349,7 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
         group "Palette":
           for i, c in palette:
             if i mod 4 == 0: beginRow()
-            let r = canvas(dp(32), dp(24))
+            let r = canvas(dp(32), if fingers(): dp(30) else: dp(24))   # (a finger's height)
             accessNode(arButton, "Color " & $(i + 1), id = 0, r = r,
                        states = if i == colorSel: {asSelected} else: {})
             fill(r, c)
@@ -1367,7 +1368,7 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
           rangeSlider(priceLo, priceHi, 0, 500)
           label("$" & $priceLo & " to $" & $priceHi, color = ui.theme.gray)
           row:
-            let pick = menuButton("&Export", ["PNG", "JPEG", "-", "PDF"])
+            let pick = menuButton("E&xport", ["PNG", "JPEG", "-", "PDF"])
             if pick >= 0: status = "Export as " & ["PNG", "JPEG", "", "PDF"][pick]
             let sb = splitButton("&Save", ["Save As...", "Save a Copy..."])
             if sb.clicked: status = "Saved"
@@ -1390,7 +1391,7 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
           timeline([("09:00", "Order placed", "Al Noor Trading"), ("11:30", "Packed", ""),
                     ("14:10", "Shipped", "by courier")], current = 1)
         card("Switches"):
-          toggle("&Wi-Fi", wifi)
+          toggle("Wi-Fi", wifi)
           toggle("&Bluetooth", bluetooth)
           segmented(["Day", "Week", "Month"], period)
           rating(stars)
@@ -1534,7 +1535,11 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
             "for Nim on Windows, macOS, Linux, Android and iOS."],
            tagline = "Every control of Retro Nim UI",
            iconPng = GalleryIconPng, glyph = pxApp,
-           whatsNew = ["Thai and Vietnamese in every font; flexible boxes and grids in HTML",
+           whatsNew = ["The keyboard: a tool bar one stop of Tab (the arrows along it), F6 from part to " &
+                       "part of the window, tabIndex; every letter underlined once where one Alt reaches it",
+                       "HTML: grids by named areas and lines, positioned boxes; Files: Paste Shortcut",
+                       "Every app opens quicker: the fonts and icons unpacked while the window opens",
+                       "Thai and Vietnamese in every font; flexible boxes and grids in HTML",
                        "Every control reached by Tab alone and named for screen readers: the price " &
                        "range's two ends are two stops, the time's hours and minutes, the stars named",
                        "Files: the List view -- small icons in columns, scrolled sideways",

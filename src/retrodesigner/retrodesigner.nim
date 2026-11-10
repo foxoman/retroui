@@ -99,6 +99,8 @@ var
   namesOn = false                  # View > Names and Tab Order
   pageNodes: seq[AccessNode]       # the page's nodes, as the last frame drew them
   pageStops: seq[uint32]           # ... and its stops of Tab, in order
+  pageDrawn: seq[uint32]           # ... in the order they are drawn
+  stopDrag: tuple[on: bool; at: int]   # a number of the Tab order being dragged
   nameAsk = false                  # the Name It dialog
   nameText = ""
   nameFor: Item
@@ -1064,18 +1066,151 @@ proc nodeOf(it: Item): int =
 proc stopsOf(nodes: seq[AccessNode]): seq[uint32] =
   ## The stops of Tab of a page drawn without input (the designer's): its
   ## controls in the order they are drawn -- a list, a table, a tree one
-  ## stop, not what is in them; not a tool bar's buttons, a menu's items,
-  ## nor what is disabled.
+  ## stop, not what is in them; a tool bar's run of buttons one, its lit
+  ## button; not a menu's items, nor what is disabled.
   for i, n in nodes:
     if n.role notin Unnamed or asDisabled in n.states: continue
     var inside = false
     for j in countdown(i - 1, 0):
       let m = nodes[j]
-      if m.role in {arList, arTable, arTree, arToolBar, arMenu, arMenuBar, arTabList} and
+      if (m.role in {arList, arTable, arTree, arMenu, arMenuBar, arTabList} or
+          m.role == arToolBar and asFocusable notin n.states) and
          n.x >= m.x and n.y >= m.y and n.x + n.w <= m.x + m.w and n.y + n.h <= m.y + m.h:
         inside = true
         break
     if not inside: result.add n.id
+
+proc controlItems(it: Item; into: var seq[Item]) =
+  ## (the page's controls, every body's, in the order they are in the file)
+  if it == nil: return
+  if it.kind in {ikControl, ikEvent, ikValue} and it.drawn: into.add it
+  for k in it.kids: controlItems(k, into)
+  for b in it.bodies:
+    for k in b: controlItems(k, into)
+
+proc stopItems(): Table[uint32, Item] =
+  ## (each stop of Tab's control in the file)
+  let pg = page()
+  if pg == nil: return
+  var its: seq[Item]
+  controlItems(pg.root, its)
+  for it in its:
+    let n = nodeOf(it)
+    if n >= 0 and pageNodes[n].id notin result: result[pageNodes[n].id] = it
+
+proc tabIndexBefore(it: Item): tuple[stmt: PNode; k: int] =
+  ## (the `tabIndex k` written just before control `it`, if one is)
+  let (list, _) = it.parentList
+  if list == nil: return (nil, 0)
+  let ss = list.stmts
+  var at = ss.find(it.node) - 1
+  while at >= 0:
+    # (over the names written before it too: `accessName`)
+    let p = ss[at]
+    if not p.isCallNode: break
+    if p.callee == "tabIndex":
+      let ps = p.positional
+      if ps.len > 0 and ps[0].kind in {nkIntLit .. nkUInt64Lit}: return (p, int(ps[0].intVal))
+      return (p, 0)
+    if p.callee notin ["accessName", "accessNameOr"]: break
+    dec at
+  (nil, 0)
+
+proc orderedStops(natural: seq[uint32]): seq[uint32] =
+  ## (the stops as Tab goes: the ones with a `tabIndex` first, by it, then
+  ## the rest as drawn -- the kit's order, `tabIndex`)
+  let items = stopItems()
+  var keys: seq[(int, int)]
+  for i, id in natural:
+    let t = if id in items: tabIndexBefore(items[id]).k else: 0
+    keys.add ((if t > 0: t else: high(int)), i)
+  keys.sort()
+  for (_, i) in keys: result.add natural[i]
+
+proc writeTabOrder(order: seq[uint32]) =
+  ## The page's Tab order made `order`: `tabIndex 1, 2...` written before
+  ## as few controls as it takes (the first ones of the order whose place is
+  ## not the one they are drawn in), the ones there were taken away.
+  let natural = pageDrawn
+  let items = stopItems()
+  var k = 0
+  while k <= order.len:
+    var rest: seq[uint32]
+    for id in natural:
+      if id notin order[0 ..< k]: rest.add id
+    if rest == order[k .. ^1]: break
+    inc k
+  var drop: seq[PNode]
+  for id, it in items:
+    let t = tabIndexBefore(it)
+    if t.stmt != nil: drop.add t.stmt
+  var add: seq[tuple[n: PNode; k: int]]
+  for i in 0 ..< min(k, order.len):
+    if order[i] notin items:
+      status = "That stop's control is not one of the file's (drawn by a call of yours)"
+      return
+    add.add (items[order[i]].node, i + 1)
+  if drop.len == 0 and add.len == 0: return
+  tryChange((proc (): string = src.writeTabIndexes(drop, add)))
+  status = (if add.len == 0: "Tab goes as the controls are drawn: the tabIndex lines taken away"
+            else: "Tab's order written: tabIndex 1 to " & $add.len & " before those controls")
+
+proc driverTest(): string =
+  ## The window being designed as a test for the driver (`retrokit drive
+  ## PORT - < file.drive`): every control there by its name and role, then
+  ## Tab through its stops in their order, each one checked.
+  let pg = page()
+  if pg == nil: return ""
+  let fname = if filePath.len > 0: filePath.extractFilename else: "the file"
+  result = "# The window \"" & pg.title & "\" of " & fname & ", driven as a person would:\n" &
+           "# every control there found by its name, then Tab through them in their\n" &
+           "# order. (Retro Designer: File > Export Driver Test)\n#\n" &
+           "#   RETRO_DRIVE=7000 ./" & fname.changeFileExt("") & " &\n" &
+           "#   retrokit drive 7000 - < " & fname.changeFileExt("drive") & "\n"
+  if pg.kind == pgProc: result.add "#\n# (a window drawn by a proc: open it in the app first)\n"
+  result.add "\n"
+  var first = true
+  for n in pageNodes:
+    if n.role notin Unnamed or n.w <= 0: continue
+    if n.name.strip.len == 0:
+      result.add "# a " & roleWord(n.role) & " with no name: not found (Properties > Name It)\n"
+      continue
+    let cmd = if first: "wait " & nimLit(n.name) & " --role " & roleWord(n.role) & " --timeout 10000"
+              else: "find " & nimLit(n.name) & " --role " & roleWord(n.role)
+    result.add cmd & "\n"
+    first = false
+  if pageStops.len >= 2:
+    result.add "\n# Tab, in its order\n"
+    var byId: Table[uint32, AccessNode]
+    for n in pageNodes: byId[n.id] = n
+    var started = false
+    for id in pageStops:
+      if id notin byId: continue
+      let n = byId[id]
+      let what = nimLit(n.name.strip) & " --role " & roleWord(n.role)
+      if not started:
+        if n.name.strip.len == 0: continue        # (a start the driver can find)
+        result.add "focus " & what & "\n"
+        started = true
+      else:
+        result.add "key Tab\nfocused " & what & "\n"
+
+proc exportDriverTest() =
+  ## File > Export Driver Test: the test beside the file (its name, .drive).
+  let t = driverTest()
+  if t.len == 0:
+    status = "No window to make a test of"
+    return
+  if filePath.len == 0:
+    putClipboardText(t)
+    status = "The file is not saved yet: the test copied (paste it into a .drive file)"
+    return
+  let path = filePath.changeFileExt("drive")
+  try:
+    writeFile(path, t)
+    status = "Written: " & path & " (retrokit drive PORT - < " & path.extractFilename & ")"
+  except IOError, OSError:
+    status = "Could not write " & path & ": " & getCurrentExceptionMsg()
 
 proc unnamedCount(): int =
   for n in pageNodes:
@@ -1085,10 +1220,12 @@ proc readAs(n: AccessNode): string =
   ## (a node as a screen reader and the driver know it: its role, its name)
   roleWord(n.role) & (if n.name.len > 0: " \"" & n.name & "\"" else: " (no name)")
 
-proc namesOverlay() =
+proc namesOverlay(): bool =
   ## The page's stops of Tab numbered in their order, and the controls a
   ## screen reader cannot name -- no label before them, no `accessName` --
-  ## outlined in red.
+  ## outlined in red. A number dragged onto another: that stop takes its
+  ## place in the order (`writeTabOrder`). True while one is dragged (the
+  ## mouse is its).
   let th = ui.theme
   let red = color(220, 30, 30)
   for n in pageNodes:
@@ -1096,16 +1233,52 @@ proc namesOverlay() =
       let r = nodeRect(n)
       dashed(rect(r.x - 1, r.y - 1, r.w + 2, r.h + 2), red)
       dashed(r, red)
+  var badges: seq[Rect]
   for i, id in pageStops:
+    var b = Rect()
     for n in pageNodes:
       if n.id != id: continue
       let r = nodeRect(n)
       let tag = $(i + 1)
-      let bw = textWidth(tag, style(size = 0.85)) + dp(6)
-      let b = rect(r.x - dp(2), r.y - dp(2), bw, FontH - dp(1))
-      fill(b, if n.name.strip.len == 0 and n.role in Unnamed: red else: th.select)
-      text(b.x + dp(3), b.y, tag, th.selectText, style(size = 0.85))
+      let bw = max(textWidth(tag, style(size = 0.85)) + dp(6), dp(14))
+      b = rect(r.x - dp(2), r.y - dp(2), bw, FontH - dp(1))
+      if not (stopDrag.on and stopDrag.at == i):
+        fill(b, if n.name.strip.len == 0 and n.role in Unnamed: red else: th.select)
+        text(b.x + dp(3), b.y, tag, th.selectText, style(size = 0.85))
       break
+    badges.add b
+  # a number dragged: the stop to another place in the order
+  if not stopDrag.on and ui.pressed and not inEditor and not readOnly:
+    for i, b in badges:
+      if b.w > 0 and mouseIn(b):
+        stopDrag = (true, i)
+        ui.redraw = true
+        return true
+  if not stopDrag.on: return false
+  var to = -1
+  for i, b in badges:
+    if b.w > 0 and mouseIn(inset(b, -dp(3))): to = i
+  if to >= 0 and to != stopDrag.at: outlineRect(inset(badges[to], -1), th.text, 2)
+  let tag = $(stopDrag.at + 1)
+  let g = rect(ui.mx + dp(6), ui.my - dp(6), max(textWidth(tag, style(size = 0.85)) + dp(6), dp(14)),
+               FontH - dp(1))
+  fill(g, th.select)
+  outlineRect(g, th.text)
+  text(g.x + dp(3), g.y, tag, th.selectText, style(size = 0.85))
+  status = if to >= 0 and to != stopDrag.at: "Let go: this control becomes number " & $(to + 1) &
+                                             " in Tab's order"
+           else: "Drag the number onto another: the control takes that place in Tab's order"
+  ui.redraw = true
+  if not ui.mouseDown:
+    let at = stopDrag.at
+    stopDrag.on = false
+    if to >= 0 and to != at and at < pageStops.len:
+      var order = pageStops
+      let id = order[at]
+      order.delete(at)
+      order.insert(id, to)
+      writeTabOrder(order)
+  true
 
 proc suggestedName(it: Item): string =
   ## (a name for a control from its variable: `userName` -> "User name")
@@ -1157,7 +1330,10 @@ proc surface() =
   let stops = tabStops()
   for i in s0 ..< stops.len: pageStops.add uint32(stops[i])
   if pageStops.len == 0: pageStops = stopsOf(pageNodes)
-  if namesOn and not inEditor and not readOnly: namesOverlay()
+  pageDrawn = pageStops
+  pageStops = orderedStops(pageDrawn)
+  if namesOn and not inEditor and not readOnly:
+    if namesOverlay(): return       # (a number of the Tab order dragged: the mouse is its)
   if inEditor or readOnly:
     # (greyed: the file is the editor's, or another designer's)
     for y in countup(pageRect.y, pageRect.y + pageRect.h, 3):
@@ -1570,6 +1746,8 @@ proc main() =
           saveDlg = true
         if menuItem("&Reload", enabled = filePath.len > 0 and not inEditor):
           whenSaved(proc () = openFile(filePath))
+        menuSeparator()
+        if menuItem("Export &Driver Test", enabled = page() != nil): exportDriverTest()
         if recent.len > 0:
           menuSeparator()
           for i, r in recent:

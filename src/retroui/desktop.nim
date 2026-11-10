@@ -220,9 +220,16 @@ proc winButton(id: Id; r: Rect; kind: int): bool =
   else: captionRestore(f, hit.down)
   hit.clicked
 
+proc openMdiWindow(w: var MdiWindow): bool
+
 proc beginMdiWindow*(w: var MdiWindow): bool =
   ## A window of the current `mdiArea`; draw its content after it (see
   ## `mdiWindow`). False when it is closed or minimized (an icon then).
+  ## Each one is an area F6 goes to.
+  result = openMdiWindow(w)
+  if result: beginArea(mdiStack[^1].id)
+
+proc openMdiWindow(w: var MdiWindow): bool =
   if not mdis.hasKey(mdiKey): return false
   var m = mdis[mdiKey]
   let key = keyOf(w)
@@ -662,6 +669,7 @@ proc endMdiWindow*() =
   ## Ends a `beginMdiWindow`: its size grip and scroll bar.
   if mdiStack.len == 0: return
   let f = mdiStack.pop()
+  endArea()
   defer:
     if accessOn: accessEnd()
   let used = popFrame() + 2 * f.pad
@@ -972,10 +980,12 @@ proc findBar*(f: var FindState; key = ""): FindEvent =
       ui.takesEnter = true                # (Enter finds the next: #9)
       if keyHit(KeyEnter):
         if ShiftPressed in ui.mods: result.prev = true else: result.next = true
-    if button("&Next", enabled = f.what.len > 0, w = dp(64)): result.next = true
-    if button("&Previous", enabled = f.what.len > 0, w = dp(80)): result.prev = true
+    # (Next and Previous are Enter and Shift+Enter, F3 and Shift+F3: their
+    # letters are left to the app's menus and controls)
+    if button("Next", enabled = f.what.len > 0, w = dp(64)): result.next = true
+    if button("Previous", enabled = f.what.len > 0, w = dp(80)): result.prev = true
     checkbox("Match &case", f.matchCase)
-    checkbox("&Whole word", f.wholeWord)
+    checkbox("Who&le word", f.wholeWord)
     spring()
     if toolButton("x", "Close (Esc)", bold = true):
       result.closed = true

@@ -802,6 +802,78 @@ proc gposKerning(f: Face; left, right: int): int =
         done = true
     inc i                                  # (past the end of the lookup)
 
+proc kerningTable*(f: Face; glyphs: openArray[int]): seq[int] =
+  ## The kerning of every pair of `glyphs` (`result[i * glyphs.len + j]`:
+  ## `glyphs[i]` then `glyphs[j]`, font units), each as `kerning` gives it:
+  ## worked out a subtable at a time -- where each glyph is in its coverage
+  ## and its classes found once, not once a pair (the kit's table of the
+  ## ASCII pairs of a face: 9,000 pairs).
+  let m = glyphs.len
+  result = newSeq[int](m * m)
+  if f.kern.len > 0:
+    for a in 0 ..< m:
+      for b in 0 ..< m:
+        result[a * m + b] = int(f.kern.getOrDefault((uint32(glyphs[a]) shl 16) or uint32(glyphs[b]), 0))
+    return
+  if not f.gposRead: f.readGposKern()
+  if f.gposPairs.len == 0: return
+  let n = f.src.bytes.len
+  var done = newSeq[bool](m * m)
+  var cov = newSeq[int](m)
+  var cls = newSeq[int](m)
+  var i = 0
+  while i < f.gposPairs.len:
+    # (the subtables of one lookup: the first that has the pair applies)
+    for d in done.mitems: d = false
+    while i < f.gposPairs.len and f.gposPairs[i] >= 0:
+      let st = f.gposPairs[i]
+      inc i
+      var any = false
+      for a in 0 ..< m:
+        cov[a] = f.coverageIndex(st + f.u16(st + 2), glyphs[a])
+        if cov[a] >= 0: any = true
+      if not any: continue
+      let fmt1 = f.u16(st + 4)
+      let fmt2 = f.u16(st + 6)
+      let recSize = valueSize(fmt1) + valueSize(fmt2)
+      if f.u16(st) == 1:
+        let size = 2 + recSize
+        for a in 0 ..< m:
+          let c = cov[a]
+          if c < 0 or c >= f.u16(st + 8) or st + 10 + 2 * c + 2 > n: continue
+          let ps = st + f.u16(st + 10 + 2 * c)
+          if ps + 2 > n: continue
+          let count = f.u16(ps)
+          for b in 0 ..< m:
+            if done[a * m + b]: continue
+            let right = glyphs[b]
+            var lo = 0
+            var hi = count - 1
+            while lo <= hi:
+              let mid = (lo + hi) shr 1
+              let r = ps + 2 + size * mid
+              if r + size > n: break
+              let g2 = f.u16(r)
+              if g2 == right:
+                result[a * m + b] += f.xKern(r + 2, fmt1, fmt2)
+                done[a * m + b] = true
+                break
+              if g2 < right: lo = mid + 1 else: hi = mid - 1
+      else:
+        let n1 = f.u16(st + 12)
+        let n2 = f.u16(st + 14)
+        for b in 0 ..< m: cls[b] = f.classOf(st + f.u16(st + 10), glyphs[b])
+        for a in 0 ..< m:
+          if cov[a] < 0: continue
+          let c1 = f.classOf(st + f.u16(st + 8), glyphs[a])
+          if c1 >= n1: continue
+          for b in 0 ..< m:
+            if done[a * m + b] or cls[b] >= n2: continue
+            let r = st + 16 + (c1 * n2 + cls[b]) * recSize
+            if r + recSize <= n: result[a * m + b] += f.xKern(r, fmt1, fmt2)
+            done[a * m + b] = true
+    inc i                                  # (past the end of the lookup)
+
 # ---- variable fonts -----------------------------------------------------------------
 #
 # A variable font (fvar) keeps one outline per glyph and, in gvar, how its

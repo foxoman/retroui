@@ -1,5 +1,121 @@
 # Changes
 
+## 0.38.0
+
+The keyboard, a finger and the start of every app: a tool bar one stop of
+Tab, F6 from part to part of a window, `tabIndex`, no letter underlined
+twice; a tour as fingers find the apps and the on-screen keyboard
+checked; apps that open in a third of the time; HTML grids by areas and
+positioned boxes; the iOS input method in the box; Retro Designer's Tab
+order dragged, its windows exported as tests; Retro Files' Paste
+Shortcut.
+
+- **A run of tool buttons is one stop of Tab**, as Windows' tool bars
+  are: the arrows go along it (right to left too), Home and End to its
+  ends, Space or Enter presses the one lit, a disabled one is passed
+  over; a tool bar's buttons between its boxes, a palette's tools, the
+  "More" button of a narrow bar. A window starts at its first box or
+  list, not at its tool bar (`tabStop(..., first = false)`). A click on a
+  tool button leaves the focus where it was. A screen reader is told the
+  lit one.
+- **F6 and Shift+F6** go from one part of a window to the next: its tool
+  bars, the panes of a split, the docked panels, the MDI windows and
+  palettes, the menu bar (its first menu opened; F6 again closes it and
+  goes on) -- each part back at the control that had the focus last. In
+  an app whose keys are its canvas's when nothing is focused (`autoFocus
+  = false`: Retro Photo, Retro Board) the canvas is one of the parts.
+  `area "key": ...` (`beginArea`, `endArea`) makes a part of your own
+  layout one. Retro Files' and Retro Mail's own F6 stay theirs.
+- **`tabIndex n`** before a control puts it first in Tab's order, as
+  HTML's tabindex: 1 before 2, then the others as they are drawn.
+- **The tour** (`tests/drive/tour.nim`) also finds a letter underlined
+  twice where one Alt reaches both -- the window, each dialog: only the
+  first was reached. It found the gallery's eighteen tabs taking letters
+  its pages' controls had (the tabs have none now: Ctrl+Tab goes through
+  them), the kit's find bar's Find and Next, Previous and Replace (Next
+  and Previous are Enter and F3, Shift+Enter and Shift+F3), Retro Photo's
+  Layer and Filter menus, Retro Board's File menu and Free Memory and its
+  Export dialog's PNG and The page, PDF and Dark, Retro Mail's Edit menu
+  and a contact's E-mail, Name and New Message, the Find Message dialog's
+  To and attachments, Ledger's File and Find, Invoice's Address and Add a
+  line. The CI's Linux job tours with `TOUR_STRICT=1`: a finding fails it.
+  The driver gives each node its underlined `letter`.
+- **Menus: a letter two items share lights the next of them** (Enter then
+  chooses it), as Windows' menus do -- before, the second could not be
+  reached by its letter; a letter one item has still chooses it, and a
+  submenu opens by its letter, its first item lit. Digits count too ("&1
+  notes.txt"). Retro Task Manager's View, the gallery's View, Retro
+  Files' item menu have a letter for each item now anyway; in the rich
+  text box's menu Select all is S (A adds a word to the dictionary).
+- **As a finger finds them:** `tour --touch` starts the apps as on a touch
+  screen (`RETRO_TOUCH=1`) and clicks with a finger; on every page it
+  finds what is too small for one (`--min-dp`, 28 design pixels by
+  default: under the kit's own finger sizes, 31 to 35 -- Apple asks 44,
+  Google 48), what shows only with the mouse over a control (a finger has
+  no hover), and a control whose right click opens a menu a long press
+  does not. `--keyboard` (on a phone: the emulator job) taps a text box
+  and checks that the on-screen keyboard comes, the box is above it, and
+  the keyboard goes when the focus leaves. The driver: `click ... --hold
+  MS` (a finger held: a long press), `focused NAME` (it has the focus),
+  `info`'s `dp`, `touch`, `fingers`, `keyboard` and `below`.
+- **A finger's size** wherever the tour found less, on a touch screen: the
+  stars of `rating` a finger high, `rangeSlider`'s thumbs and a
+  `splitButton`'s arrow a finger wide, `tagInput`'s tags, `stepper`'s
+  steps, the tab strip's + button, `pathBar`'s short folders ("/"), the
+  strip at the top of the docked columns (`panelHeaderH`, its arrows), the
+  gallery's palette. It finds nothing now in the gallery, Retro Photo,
+  Retro Board, Retro Files, Retro Mail and Notepad.
+- **The on-screen keyboard:** a text box with the focus when the
+  keyboard comes up is scrolled above it in every view that scrolls
+  (before, only a box Tab had just moved to). `keyboardWanted()`.
+- **Apps open sooner.** What the kit carries packed is unpacked on a
+  thread from the start (`retroui/unpacking`: `unpackSoon`, `unpacked`):
+  the UI's bold and the icons' font, the pixel icons (indexed when the
+  first is shown), the fonts an app offers packed (`addFontData`). A font
+  the program has is found without looking through the system's font
+  folders (Retro Board looked through them at its start); `scanFontsSoon()`
+  looks through them on a thread for an app that will list them (Retro
+  Photo, once its window shows). A face's kerning of every two ASCII
+  letters is made a subtable at a time (`kerningTable`, 16 times
+  quicker); zlib's tables are made when the program is built, OpenEXR's
+  half floats when the first EXR is read. `framesShown()` for work the
+  first frame can do without. The first frame on the screen, release
+  builds: Retro Photo 30 ms (55 to 95 before), Retro Board 25-30 (127),
+  Mail 22 (26), Files 21 (34), HR Book 17 (34), Communicator 15 (32),
+  Chart Viewer 10 (32), the gallery 17 (18).
+- **A frame after an input that nothing asked to draw again** -- a letter
+  typed into a box -- is shown at once, and the next one only if it
+  differs: what is typed is on the screen a frame sooner.
+- **HTML** (`htmlView`): grids by `grid-template-areas` and `grid-area`,
+  `grid-template-rows`, `grid-row` and `grid-column` by lines (`1 / 3`,
+  `-1`, `span`), the boxes placed first, the rest in the next cells free;
+  `position: relative` (moved by `top`, `left`...), `absolute` (out of the
+  flow, in the positioned box around it, by its `top`, `right`, `bottom`,
+  `left`, or where it would have been), `fixed` (in the page); `inset`.
+- **iOS: the input method in the box.** The view is a UITextInput: what an
+  input method composes (Chinese, Japanese, Korean, a swiped word) is
+  drawn underlined at the box's caret and typed when it is settled, its
+  suggestions by the caret (`setTextCaret`).
+- **Retro Designer:** View > Names and Tab Order -- drag a number onto
+  another and that control takes its place in Tab's order: `tabIndex`
+  written before as few controls as it takes, the old ones taken away.
+  File > Export Driver Test: the window as a test for `retrokit drive
+  PORT - < app.drive` -- each control found by its name and role, then
+  Tab through the stops, each one checked. `tabIndex` and `area` are in
+  its Widget Box.
+- **Retro Files 3.3.9: Edit > Paste Shortcut** -- a link here to each item
+  copied ("Shortcut to notes.txt"; on Windows an Internet shortcut, .url,
+  that Explorer opens too, followed by Retro Files), taken back by Undo
+  (`makeShortcuts`, `shortcutTarget`). And a fault fixed: emptying the
+  trash went through a link to a folder in it and deleted what was in the
+  folder it led to (`deleteForever`).
+- **Retro Photo 4.9.11** opens in a third of the time: its brushes' tips
+  are filled a row of samples at a time (the same pixels, thirty times
+  quicker), its opening picture painted once the window shows.
+- **Retro Board 1.3.9:** its hands unpacked while the window opens, the
+  Text panel's samples made once.
+- Retro Task Manager 1.0.5; the gallery and the small examples 0.38.0.
+
 ## 0.37.0
 
 Every app walked with the keyboard alone and driven by its controls'

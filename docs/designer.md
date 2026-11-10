@@ -157,6 +157,20 @@ name has **Name It...**: the name you give it is written before it as
 that clicks it (`click "Save" --role button`) copied, for
 `retrokit drive PORT ...` while the app runs with `RETRO_DRIVE=PORT`.
 
+**The order Tab goes:** drag a number onto another and that control takes
+its place in the order. The designer writes `tabIndex 1`, `tabIndex 2`...
+before as few controls as it takes -- the first ones of the order whose
+place is not the one they are drawn in; the others follow as they are
+drawn -- and takes away the ones that were there. Dragged back to the
+order they are drawn in, none is left.
+
+**File > Export Driver Test** writes a test of the window beside the file
+(`app.drive`): every control found by its name and role, then Tab through
+the stops in their order, each one checked (`focused "Password" --role
+passwordField`). Run the app with `RETRO_DRIVE=7000` and `retrokit drive
+7000 - < app.drive` goes through it, stopping at the first line that
+fails; a control with no name is a comment in it, to be named first.
+
 ## Preview
 
 F5 shows the window as it will be: its controls work -- type in the boxes,

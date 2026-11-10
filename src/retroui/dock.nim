@@ -101,7 +101,7 @@ proc dockPanel*(key, title: string; icon = ""): DockPanel =
 
 proc openWidth(): int = (if fingers(): dp(290) else: dp(236))
 proc iconWidth(): int = (if fingers(): dp(46) else: dp(32))
-proc headH(): int = (if fingers(): dp(16) else: dp(11))
+proc headH(): int = (if fingers(): dp(28) else: dp(11))    # (its arrows a finger's size)
 proc tabsH(): int = paletteTabH()
 proc barH(): int = (if fingers(): dp(10) else: dp(5))
 proc gripW(): int = (if fingers(): dp(10) else: dp(5))
@@ -424,8 +424,10 @@ proc groupBody(d: Dock; g: DockGroup; r: Rect; body: proc (key: string)) =
     # (a panel that fails says so where it is; the program goes on)
     let before = ui.lastFault
     ui.lastFault = ""
+    beginArea("dock:" & key)              # (F6 goes from panel to panel)
     guarded("the " & key & " panel"):
       body(key)
+    endArea()
     if ui.lastFault.len > 0:
       label("This panel could not be shown:", bold = true)
       paragraph(ui.lastFault, color = th.gray)
@@ -474,7 +476,7 @@ proc panelHeader*(r: Rect; id: Id; dir: Dir; tip = ""; side = hsRight): bool =
   if accessOn: accessNode(arButton, (if tip.len > 0: tip else: "Fold"), id = id, r = br)
   let ink = if hit.showsHover: mixColor(tfg, tbg, 0.35) else: tfg
   let cy = r.y + r.h div 2
-  let s = max(2, r.h div 4)
+  let s = max(2, min(r.h div 4, dp(4)))
   let cx = br.x + br.w div 2
   arrow(cx - s - 1, cy, dir, ink, s)
   arrow(cx + s + 1, cy, dir, ink, s)

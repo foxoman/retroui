@@ -2266,8 +2266,10 @@ proc beginPane(id: Id; a: Rect) =
   ui.focusRect = rect(0, 0, 0, 0)
   pushFrame(rect(a.x, a.y - (if over: st.scrollY else: 0),
                  a.w - (if over: SbW else: 0), a.h))
+  beginArea(id)                          # (F6 goes from pane to pane)
 
 proc endPane(id: Id; a: Rect) =
+  endArea()
   let ch = popFrame()
   endClipped()
   popClip()

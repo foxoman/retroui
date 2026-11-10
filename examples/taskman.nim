@@ -23,7 +23,7 @@ import retroui/[sysmon, system]
 
 const
   AppTitle = "Retro Task Manager"
-  AppVersion* = "1.0.4"
+  AppVersion* = "1.0.5"
   AppId = "RetroTaskManager"
   IconPng = staticRead("assets/taskman-icon.png")
 
@@ -32,6 +32,8 @@ type
 
 const
   pageNames = ["Processes", "Performance", "Startup", "Network", "History"]
+  pageItems = ["&Processes", "P&erformance", "&Startup", "&Network", "&History"]
+    ## (View's items: a letter each)
   speeds = [500, 1000, 4000]          ## (how often the system is read, ms)
   speedNames = ["&High (twice a second)", "&Normal (every second)",
                 "&Low (every 4 seconds)", "&Paused"]
@@ -472,7 +474,7 @@ proc menus() =
             setMonitorInterval(interval())
     menu "&View":
       for p in Page:
-        if menuItem("&" & pageNames[ord(p)], checked = page == p): page = p
+        if menuItem(pageItems[ord(p)], checked = page == p): page = p
     menu "&Help":
       if menuItem("&About Retro Task Manager..."): aboutOpen = true
 
@@ -507,6 +509,8 @@ proc dialogs() =
             "the network, what starts with the system, and the last week.",
             "Copyright (c) 2026 Sultan Al Isaiee. MIT licence."],
            tagline = "What the computer is doing", iconPng = IconPng, glyph = pxGauge,
+           whatsNew = ["1.0.5: View's pages each with a letter of its own (Processes and Performance " &
+                       "had the same)"],
            credits = ["What Argus (github.com/Ray-lea/Argus) shows, and how lightly it " &
                       "does it, taught this one."])
 

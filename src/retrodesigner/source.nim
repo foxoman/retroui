@@ -465,6 +465,22 @@ proc deleteStmt*(s: Src; n: PNode; list: PNode): string =
     return apply(s.text, [(a, b, repeat(' ', ln.indent) & "discard\n")])
   apply(s.text, [(a, b, "")])
 
+proc writeTabIndexes*(s: Src; drop: openArray[PNode]; add: openArray[tuple[n: PNode; k: int]]): string =
+  ## The statements `drop` (the `tabIndex` lines there were) taken away and
+  ## `tabIndex k` written before each statement of `add`, in one change.
+  var edits: seq[Edit]
+  for n in drop:
+    let ln = s.stmtLines(n, false)
+    if not ln.whole: fail "a tabIndex shares its line with other code (line " & $ln.first & ")"
+    let (a, b) = s.lineSpan(ln.first, ln.last)
+    edits.add (a, b, "")
+  for (n, k) in add:
+    let ln = s.stmtLines(n)
+    if not ln.whole: fail "a control shares its line with other code (line " & $ln.first & ")"
+    let a = s.lineStart[ln.first - 1]
+    edits.add (a, a, repeat(' ', ln.indent) & "tabIndex " & $k & "\n")
+  apply(s.text, edits)
+
 proc stmtText*(s: Src; n: PNode): string =
   ## Statement `n`'s lines (its comments in) at column 0.
   let ln = s.stmtLines(n)

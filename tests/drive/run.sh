@@ -6,6 +6,8 @@
 #
 #   sh tests/drive/run.sh                       the apps below
 #   sh tests/drive/run.sh gallery notepad       these
+#   TOUR_STRICT=1 sh tests/drive/run.sh         a finding fails it too (the
+#                                               Linux job of the CI)
 #
 # Linux without a screen: xvfb-run -a sh tests/drive/run.sh
 set -u
@@ -29,5 +31,7 @@ for app in $apps; do
     exit 1
   fi
 done
+strict=""
+[ -n "${TOUR_STRICT:-}" ] && strict="--strict"
 # shellcheck disable=SC2086
-"$out/tour$exe" $list
+"$out/tour$exe" $strict $list

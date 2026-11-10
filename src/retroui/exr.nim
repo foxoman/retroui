@@ -29,27 +29,34 @@ import codec, parallel
 # ---- half floats ----------------------------------------------------------------------------------------------
 
 var halfTable: array[65536, float32]
-for i in 0 .. 65535:
-  let s = uint32(i and 0x8000) shl 16
-  let e = (i shr 10) and 0x1F
-  let m = uint32(i and 0x3FF)
-  var bits: uint32
-  if e == 0:
-    if m == 0: bits = s
-    else:
-      # (a subnormal half: a normal float)
-      var ee = 113'u32
-      var mm = m
-      while (mm and 0x400) == 0:
-        mm = mm shl 1
-        dec ee
-      bits = s or (ee shl 23) or ((mm and 0x3FF) shl 13)
-  elif e == 31: bits = s or 0x7F800000'u32 or (m shl 13)
-  else: bits = s or (uint32(e + 112) shl 23) or (m shl 13)
-  halfTable[i] = cast[float32](bits)
+var halfMade = false
+
+proc makeHalfTable() =
+  ## (the table of every half float, made the first time one is read: an
+  ## app that never opens an EXR does not pay for it at its start)
+  halfMade = true
+  for i in 0 .. 65535:
+    let s = uint32(i and 0x8000) shl 16
+    let e = (i shr 10) and 0x1F
+    let m = uint32(i and 0x3FF)
+    var bits: uint32
+    if e == 0:
+      if m == 0: bits = s
+      else:
+        # (a subnormal half: a normal float)
+        var ee = 113'u32
+        var mm = m
+        while (mm and 0x400) == 0:
+          mm = mm shl 1
+          dec ee
+        bits = s or (ee shl 23) or ((mm and 0x3FF) shl 13)
+    elif e == 31: bits = s or 0x7F800000'u32 or (m shl 13)
+    else: bits = s or (uint32(e + 112) shl 23) or (m shl 13)
+    halfTable[i] = cast[float32](bits)
 
 proc halfToFloat*(h: uint16): float32 {.inline.} =
   ## A half float (16 bits) as a float, exactly.
+  if not halfMade: makeHalfTable()
   halfTable[h]
 
 proc floatToHalf*(f: float32): uint16 =
@@ -833,9 +840,14 @@ proc pizPack(h: Header; raw: openArray[byte]; x0, x1, y0, y1: int): seq[byte] =
 # ---- B44 and B44A ---------------------------------------------------------------------------------------------
 
 var logTable: array[65536, uint16]     # (B44's perceptually linear channels: kept as 8 ln x)
-for i in 0 ..< 65536:
-  let f = halfTable[i]
-  logTable[i] = if (i and 0x7C00) == 0x7C00 or f < 0: 0'u16 else: floatToHalf(float32(8 * ln(float(f))))
+var logMade = false
+
+proc makeLogTable() =
+  ## (made the first time a B44 file is read)
+  logMade = true
+  for i in 0 ..< 65536:
+    let f = halfToFloat(uint16(i))
+    logTable[i] = if (i and 0x7C00) == 0x7C00 or f < 0: 0'u16 else: floatToHalf(float32(8 * ln(float(f))))
 
 proc unpack14(b: openArray[byte]; at: int; s: var array[16, uint16]) =
   template B(i: int): int = int(b[at + i])
@@ -932,7 +944,7 @@ type
 
 proc sampleAt(raw: ptr UncheckedArray[byte]; at, kind: int): float32 {.inline.} =
   case kind
-  of 1: halfTable[uint16(raw[at]) or (uint16(raw[at + 1]) shl 8)]
+  of 1: halfToFloat(uint16(raw[at]) or (uint16(raw[at + 1]) shl 8))
   of 2:
     let u = uint32(raw[at]) or (uint32(raw[at + 1]) shl 8) or (uint32(raw[at + 2]) shl 16) or (uint32(raw[at + 3]) shl 24)
     cast[float32](u)
@@ -975,7 +987,7 @@ proc scatter(h: Header; tg: seq[Target]; raw: ptr UncheckedArray[byte]; rawLen: 
             elif c.kind == 1:
               for x in a .. b:
                 let at = p + (x - x0) * 2
-                o.px[(row + x) * 4 + t.slot] = halfTable[uint16(raw[at]) or (uint16(raw[at + 1]) shl 8)]
+                o.px[(row + x) * 4 + t.slot] = halfToFloat(uint16(raw[at]) or (uint16(raw[at + 1]) shl 8))
             else:
               for x in a .. b: o.px[(row + x) * 4 + t.slot] = sampleAt(raw, p + (x - x0) * sz, c.kind)
       p += n * sz
@@ -1213,6 +1225,9 @@ proc readExr*(data: string): tuple[w, h: int; px: seq[float32]; channels: seq[st
   ## window), and the names of every channel in the file. Raises
   ## `ValueError` when it is not an OpenEXR file, is damaged, or is
   ## compressed in a way not read (DWAA, DWAB, HTJ2K) or deep.
+  # (the tables made before the threads read them)
+  if not halfMade: makeHalfTable()
+  if not logMade: makeLogTable()
   try: readExrFile(data)
   except IndexDefect, RangeDefect, OverflowDefect:
     raise newException(ValueError, "EXR: damaged (" & getCurrentExceptionMsg() & ")")

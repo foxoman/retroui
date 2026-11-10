@@ -48,7 +48,8 @@ type
     ## A picture for an `<img src>` while laying out, or nil when there is none.
 
   ItemKind = enum
-    ikText, ikBreak, ikAtomic, ikOpen, ikClose, ikFloat, ikAnchor
+    ikText, ikBreak, ikAtomic, ikOpen, ikClose, ikFloat, ikAnchor,
+    ikAbs                      # (a box out of the flow: position absolute, fixed)
 
   Item = object
     ## A piece of a paragraph: a word, a line break, a picture or inline
@@ -451,7 +452,8 @@ proc walkInto(b: var Builder; box: Box; r: var Run; n: HNode; si: int32; link: i
     var ks = cascade(k, b.d.styles[si], b.sh)
     if ks.hidden: continue
     var disp = ks.display
-    if flexed:
+    let outside = ks.position in {psAbsolute, psFixed} and disp != dsNone
+    if flexed or outside:
       ks.floatSide = 0
       if disp in {dsInline, dsInlineBlock}: disp = dsBlock
       elif disp == dsInlineTable: disp = dsTable
@@ -540,7 +542,9 @@ proc walkInto(b: var Builder; box: Box; r: var Run; n: HNode; si: int32; link: i
         bb.listItem = true
         bb.marker = marker
         bb.markerStyle = ks.listStyle
-      if ks.floatSide != 0 and r.any:
+      if outside and r.any:
+        r.items.add Item(kind: ikAbs, box: bb)       # (in a line: where it would be)
+      elif ks.floatSide != 0 and r.any:
         r.items.add Item(kind: ikFloat, box: bb)
       else:
         b.flushRun(box, r)
@@ -754,6 +758,10 @@ type
     mBox: Box
     mX, mRight: int
     mRtl: bool
+    # the boxes out of the flow (position absolute, fixed) waiting for the
+    # box they are placed in: the page's first, then each positioned one's
+    abs: seq[seq[tuple[b: Box; x, y: int]]]
+    absBottom: int
 
   LI = object
     it: int32
@@ -934,7 +942,7 @@ proc inlineIntrinsic(c: var Lay; b: Box): tuple[mn, mx: int] =
     of ikOpen, ikClose:
       chain += int(it.w)
       line += int(it.w)
-    of ikAnchor: discard
+    of ikAnchor, ikAbs: discard            # (out of the flow: no room taken)
   result.mn = max(result.mn, chain)
   result.mx = max(result.mx, line)
 
@@ -1102,6 +1110,13 @@ proc shift(c: var Lay; a, b: int; dx, dy: int) =
   for i in a ..< min(b, c.p.items.len):
     c.p.items[i].x += dx
     c.p.items[i].y += dy
+
+proc queueAbs(c: var Lay; b: Box; x, y: int) =
+  ## (a box out of the flow, `x`, `y` where it would have been: placed when
+  ## the positioned box it is in ends -- the page, for a fixed one)
+  if c.abs.len == 0: c.abs.add @[]
+  if c.S(b.st).position == psFixed: c.abs[0].add (b, x, y)
+  else: c.abs[^1].add (b, x, y)
 
 proc boundary(c: var Lay; v: int8) {.inline.} =
   if v > c.sep: c.sep = v
@@ -1324,6 +1339,10 @@ proc layoutLines(c: var Lay; b: Box; x, w: int; y: var int) =
         break
       of ikAnchor:
         c.p.items.add DItem(kind: dkAnchor, x: (l), y: (y), text: it.text, link: -1)
+        inc i
+        continue
+      of ikAbs:
+        c.queueAbs(it.box, l + lw, y)       # (placed when its box ends; where it stands)
         inc i
         continue
       of ikFloat:
@@ -1677,8 +1696,10 @@ proc alignOf(c: Lay; k: Box; s: ptr CStyle): FlexAlign =
     if a == faAuto: s.alignItems else: a
 
 proc cellsInOrder(c: Lay; b: Box; reverse: bool): seq[Box] =
-  ## (a flexible box's or grid's children, by their `order`)
-  result = b.kids
+  ## (a flexible box's or grid's children, by their `order`; the ones out
+  ## of the flow left out: `outOfFlow`)
+  for k in b.kids:
+    if k.anon or c.S(k.st).position notin {psAbsolute, psFixed}: result.add k
   var any = false
   for k in result:
     if not k.anon and c.S(k.st).order != 0: any = true
@@ -1689,6 +1710,12 @@ proc cellsInOrder(c: Lay; b: Box; reverse: bool): seq[Box] =
     let was = result
     for i, (_, j) in key: result[i] = was[j]
   if reverse: result.reverse()
+
+proc outOfFlow(c: var Lay; b: Box; x, y: int) =
+  ## (a flexible box's or grid's children out of the flow: waiting to be
+  ## placed, at its start where none is given)
+  for k in b.kids:
+    if not k.anon and c.S(k.st).position in {psAbsolute, psFixed}: c.queueAbs(k, x, y)
 
 proc placeRow(c: var Lay; s: ptr CStyle; boxes: seq[Box]; xs, ws, mts, mbs: seq[int];
               top: int; rtl: bool; x, w: int): int =
@@ -1840,10 +1867,164 @@ proc flexFlow(c: var Lay; b: Box; x, w: int; y: var int) =
       cx += ws[i - a] + mr[i] + gapC + step
     y += c.placeRow(s, boxes[a ..< e], xs, ws, mt[a ..< e], mb[a ..< e], y, rtl, x, w)
 
+proc lineAt(v, count: int): int {.inline.} =
+  ## (a grid line, 1 the first and -1 the last, as a track's index)
+  if v > 0: v - 1 else: max(0, count + 1 + v)
+
+proc gridPlace(c: var Lay; s: ptr CStyle; boxes: seq[Box]; cols, colX: seq[int];
+               gapR, x, w: int; y: var int) =
+  ## (a grid whose children say where they go -- a named area, its lines,
+  ## how many rows -- or whose rows are given: each in its cells, the ones
+  ## placed first, the rest in the next cells free, row by row; each row as
+  ## tall as its pixels, else as its tallest)
+  let n = cols.len
+  let rtl = s.dir == dirRtl
+  var occ: seq[seq[bool]]
+  proc ensure(occ: var seq[seq[bool]]; rows, n: int) =
+    while occ.len < rows: occ.add newSeq[bool](n)
+  proc free(occ: var seq[seq[bool]]; r, c0, rs, cs, n: int): bool =
+    occ.ensure(r + rs, n)
+    for rr in r ..< r + rs:
+      for cc in c0 ..< c0 + cs:
+        if occ[rr][cc]: return false
+    true
+  # the named areas, each a rectangle of cells
+  var areaAt: Table[string, tuple[r0, c0, r1, c1: int]]
+  for r, row in s.areas:
+    for ci, name in row:
+      if name == "." or ci >= n: continue
+      if name in areaAt:
+        let a = areaAt[name]
+        areaAt[name] = (min(a.r0, r), min(a.c0, ci), max(a.r1, r), max(a.c1, ci))
+      else: areaAt[name] = (r, ci, r, ci)
+  let rowsGiven = max(s.areas.len, s.rowTracks.len)
+  occ.ensure(rowsGiven, n)
+  type Cell = tuple[k: Box; r, c, rs, cs: int]
+  var placed = newSeq[Cell](boxes.len)
+  var done = newSeq[bool](boxes.len)
+  var cursor = (r: 0, c: 0)
+  for pass in 0 .. 2:
+    for i, k in boxes:
+      if done[i]: continue
+      var r, cc = -1
+      var rs, cs = 1
+      if not k.anon:
+        let ks = c.S(k.st)
+        cs = clamp(max(1, int(ks.colSpan)), 1, n)
+        rs = clamp(max(1, int(ks.rowSpan)), 1, 1000)
+        if ks.areaName.len > 0 and ks.areaName in areaAt:
+          let a = areaAt[ks.areaName]
+          (r, cc, rs, cs) = (a.r0, a.c0, a.r1 - a.r0 + 1, a.c1 - a.c0 + 1)
+        else:
+          if ks.colStart != 0:
+            cc = min(lineAt(ks.colStart, n), n - 1)
+            if ks.colEnd != 0: cs = max(1, lineAt(ks.colEnd, n) - cc)
+          elif ks.colEnd != 0:
+            cc = max(0, lineAt(ks.colEnd, n) - cs)
+          if ks.rowStart != 0:
+            r = lineAt(ks.rowStart, max(1, rowsGiven))
+            if ks.rowEnd != 0: rs = max(1, lineAt(ks.rowEnd, max(1, rowsGiven)) - r)
+          elif ks.rowEnd != 0:
+            r = max(0, lineAt(ks.rowEnd, max(1, rowsGiven)) - rs)
+      cs = min(cs, n)
+      if cc >= 0: cc = min(cc, n - cs)
+      # (the ones placed both ways first, then one way, then the rest)
+      let want = if r >= 0 and cc >= 0: 0 elif r >= 0 or cc >= 0: 1 else: 2
+      if want != pass: continue
+      if pass == 1:
+        if r < 0:
+          r = 0
+          while not occ.free(r, cc, rs, cs, n): inc r
+        else:
+          cc = 0
+          while cc + cs <= n and not occ.free(r, cc, rs, cs, n): inc cc
+          if cc + cs > n: cc = 0          # (no room in its row: over the first)
+      elif pass == 2:
+        var (rr, c0) = cursor
+        while true:
+          if c0 + cs > n:
+            inc rr
+            c0 = 0
+          elif occ.free(rr, c0, rs, cs, n): break
+          else: inc c0
+        (r, cc) = (rr, c0)
+        cursor = (rr, c0 + cs)
+      occ.ensure(r + rs, n)
+      for rr in r ..< r + rs:
+        for c0 in cc ..< cc + cs: occ[rr][c0] = true
+      placed[i] = (k, r, cc, rs, cs)
+      done[i] = true
+  # the rows, from the top: each one's boxes laid out at its top, the row as
+  # tall as its pixels or its tallest box; a box over rows makes the last taller
+  let rows = occ.len
+  var rowH = newSeq[int](rows)
+  var fixed = newSeq[bool](rows)
+  for r in 0 ..< min(rows, s.rowTracks.len):
+    if s.rowTracks[r].k == gtPx:
+      rowH[r] = c.lp(s.rowTracks[r].v)
+      fixed[r] = true
+  var order = newSeq[int](placed.len)
+  for i in 0 ..< placed.len: order[i] = i
+  order.sort(proc (a, b: int): int = cmp((placed[a].r, placed[a].c), (placed[b].r, placed[b].c)))
+  let m = placed.len
+  var at = newSeq[int](m)
+  var hs = newSeq[int](m)
+  var mts = newSeq[int](m)
+  var mbs = newSeq[int](m)
+  var bxs = newSeq[int](m)
+  var cws = newSeq[int](m)
+  var rowTop = newSeq[int](rows + 1)
+  var cur = y
+  var o = 0
+  for r in 0 ..< rows:
+    rowTop[r] = cur
+    while o < order.len and placed[order[o]].r == r:
+      let i = order[o]
+      let p = placed[i]
+      let k = p.k
+      let cw = colX[p.c + p.cs - 1] + cols[p.c + p.cs - 1] - colX[p.c]   # (the gaps between in it)
+      let ml = if k.anon: 0 else: c.lenPx(c.S(k.st).margin[3], w)
+      let mr = if k.anon: 0 else: c.lenPx(c.S(k.st).margin[1], w)
+      mts[i] = if k.anon: 0 else: c.lenPx(c.S(k.st).margin[0], w)
+      mbs[i] = if k.anon: 0 else: c.lenPx(c.S(k.st).margin[2], w)
+      let kw = max(0, cw - ml - mr)
+      let left = colX[p.c] + ml
+      bxs[i] = if rtl: x + w - left - kw else: x + left
+      cws[i] = kw
+      at[i] = c.p.items.len
+      hs[i] = c.cellBox(k, bxs[i], kw, cur + mts[i])
+      if p.rs == 1 and not fixed[r]: rowH[r] = max(rowH[r], mts[i] + hs[i] + mbs[i])
+      inc o
+    # (a box over rows that ends here: the rows it is over as tall as it)
+    for i, p in placed:
+      if p.rs > 1 and p.r + p.rs - 1 == r and not fixed[r]:
+        var have = gapR * (p.rs - 1)
+        for rr in p.r .. r: have += rowH[rr]
+        let need = mts[i] + hs[i] + mbs[i]
+        if need > have: rowH[r] += need - have
+    cur += rowH[r] + (if r < rows - 1: gapR else: 0)
+  rowTop[rows] = cur
+  # each box in its cells: across its rows, as its align says
+  for oi, i in order:
+    let p = placed[i]
+    let e = if oi + 1 < order.len: at[order[oi + 1]] else: c.p.items.len
+    var cellH = gapR * (p.rs - 1)
+    for rr in p.r ..< p.r + p.rs: cellH += rowH[rr]
+    let room = cellH - mts[i] - hs[i] - mbs[i]
+    case c.alignOf(p.k, s)
+    of faCenter: c.shift(at[i], e, 0, room div 2)
+    of faEnd: c.shift(at[i], e, 0, room)
+    of faStretch, faAuto:
+      if not p.k.anon and c.S(p.k.st).height.k == lkAuto:
+        c.stretchBox(at[i], bxs[i], rowTop[p.r] + mts[i], cellH - mts[i] - mbs[i])
+    of faStart: discard
+  y = cur
+
 proc gridFlow(c: var Lay; b: Box; x, w: int; y: var int) =
   ## A grid's children, row by row in its columns (grid-template-columns:
   ## pixels, percents, shares of what is left, as many as fit), each as
-  ## many columns wide as its `grid-column` says.
+  ## many columns wide as its `grid-column` says; or each where it says
+  ## (`grid-area`, `grid-row`, `grid-column`, named areas: `gridPlace`).
   let s = c.S(b.st)
   let boxes = c.cellsInOrder(b, false)
   if boxes.len == 0: return
@@ -1858,6 +2039,10 @@ proc gridFlow(c: var Lay; b: Box; x, w: int; y: var int) =
       for tr in tracks.mitems: tr = GridTrack(k: gtFr, v: 1)
       break
   if tracks.len == 0: tracks = @[GridTrack(k: gtFr, v: 1)]
+  # (named areas wider than the columns given: the rest shares)
+  var areaW = 0
+  for row in s.areas: areaW = max(areaW, row.len)
+  while tracks.len < min(areaW, 100): tracks.add GridTrack(k: gtFr, v: 1)
   let n = tracks.len
   let avail = max(0, w - gapC * (n - 1))
   var cols = newSeq[int](n)
@@ -1877,6 +2062,17 @@ proc gridFlow(c: var Lay; b: Box; x, w: int; y: var int) =
   for i in 0 ..< n:
     colX[i] = cx
     cx += cols[i] + gapC
+  # (placed by name, lines or rows: in two directions)
+  var placing = s.areas.len > 0 or s.rowTracks.len > 0
+  for k in boxes:
+    if not k.anon:
+      let ks = c.S(k.st)
+      if ks.areaName.len > 0 or ks.colStart != 0 or ks.rowStart != 0 or ks.rowSpan > 1 or
+         ks.rowEnd != 0 or ks.colEnd != 0:
+        placing = true
+  if placing:
+    c.gridPlace(s, boxes, cols, colX, gapR, x, w, y)
+    return
   # rows of boxes, each in the next columns free
   var i = 0
   var firstRow = true
@@ -1911,6 +2107,7 @@ proc contentFlow(c: var Lay; b: Box; x, w: int; y: var int; mc: var MC; chainDon
   if not b.anon and not b.inl and c.S(b.st).flow != bfNormal:
     y += mc.total
     mc = MC()
+    c.outOfFlow(b, x, y)
     if c.S(b.st).flow == bfFlex: c.flexFlow(b, x, w, y) else: c.gridFlow(b, x, w, y)
     return
   if b.inl:
@@ -1958,6 +2155,9 @@ proc blockX(c: Lay; s, ps: ptr CStyle; x, cbW, outerW, ml, mr: int; rtlParent: b
   if rtlParent and (s.width.k != lkAuto or s.maxW.k in {lkPx, lkPct}): return x + ml + free
   x + ml
 
+proc placeAbs(c: var Lay; boxes: seq[tuple[b: Box; x, y: int]]; cx, cy, cw, ch: int)
+proc moveRelative(c: var Lay; s: ptr CStyle; startAt, cbW: int)
+
 proc layoutBox(c: var Lay; b: Box; x, w: int; y: var int): tuple[w, h: int] =
   ## A box that holds its floats and margins (an inline block, a float, a
   ## cell's content) laid out `w` wide (border box) at `x`, `y`: its size.
@@ -1984,6 +2184,9 @@ proc layoutBox(c: var Lay; b: Box; x, w: int; y: var int): tuple[w, h: int] =
     y += ih + eh
     return (iw + ew, ih + eh)
   of bxBlock:
+    let startAt = c.p.items.len
+    let positioned = s.position != psStatic and not b.cell
+    if positioned: c.abs.add @[]
     let slot = if b.cell: -1 else: c.reserveBox(s)
     let pt = c.lenPx(s.padding[0], w) + c.bw(s, 0)
     let pb = c.lenPx(s.padding[2], w) + c.bw(s, 2)
@@ -2010,6 +2213,12 @@ proc layoutBox(c: var Lay; b: Box; x, w: int; y: var int): tuple[w, h: int] =
     if b.isLink and b.link >= 0:
       c.p.items.add DItem(kind: dkLinkArea, x: (x), y: (top), w: (w), h: (h),
                           link: b.link)
+    if positioned:
+      # (the boxes out of the flow inside it: in its padding box)
+      let fr = c.abs.pop()
+      c.placeAbs(fr, x + c.bw(s, 3), top + c.bw(s, 0), w - c.bw(s, 1) - c.bw(s, 3),
+                 h - c.bw(s, 0) - c.bw(s, 2))
+      if s.position == psRelative: c.moveRelative(s, startAt, w)
     c.boundary(c.sepOf(b, s))
     return (w, h)
 
@@ -2080,6 +2289,9 @@ proc flowChild(c: var Lay; b: Box; parent: int32; x, cbW: int; y: var int; mc: v
     c.layoutLines(b, x, cbW, y)
     c.boundary(3)
     return
+  if s.position in {psAbsolute, psFixed} and not b.cell:
+    c.queueAbs(b, x, y + mc.total)          # (out of the flow: where it would have been)
+    return
   if s.floatSide != 0 and not b.cell:
     c.placeFloat(b, x, x + cbW, y + mc.total)
     return
@@ -2138,6 +2350,9 @@ proc flowChild(c: var Lay; b: Box; parent: int32; x, cbW: int; y: var int; mc: v
   let outer = cw + edges
   let bx = c.blockX(s, ps, bxx, bw0, outer, ml, mr, ps.dir == dirRtl)
   let top = y
+  let startAt = c.p.items.len
+  let positioned = s.position != psStatic
+  if positioned: c.abs.add @[]
   if b.anchor.len > 0:
     c.p.items.add DItem(kind: dkAnchor, x: (bx), y: (top), text: b.anchor, link: -1)
   let slot = c.reserveBox(s)
@@ -2176,10 +2391,74 @@ proc flowChild(c: var Lay; b: Box; parent: int32; x, cbW: int; y: var int; mc: v
   if b.isLink and b.link >= 0:
     c.p.items.add DItem(kind: dkLinkArea, x: (bx), y: (top), w: (outer),
                         h: (h), link: b.link)
+  if positioned:
+    # (the boxes out of the flow inside it: in its padding box)
+    let fr = c.abs.pop()
+    c.placeAbs(fr, bx + c.bw(s, 3), top + c.bw(s, 0), outer - c.bw(s, 1) - c.bw(s, 3),
+               h - c.bw(s, 0) - c.bw(s, 2))
+    if s.position == psRelative: c.moveRelative(s, startAt, cbW)
   c.p.right = max(c.p.right, bx + outer)
   mc = cmc
   mc.add(mb)
   c.boundary(c.sepOf(b, s))
+
+# ---- boxes out of the flow: position ----------------------------------------------------------------
+
+proc moveRelative(c: var Lay; s: ptr CStyle; startAt, cbW: int) =
+  ## (position: relative -- what the box drew, from `startAt`, moved by its
+  ## left or right, its top or bottom)
+  let dx = if s.inset[3].k in {lkPx, lkPct}: c.lenPx(s.inset[3], cbW)
+           elif s.inset[1].k in {lkPx, lkPct}: -c.lenPx(s.inset[1], cbW)
+           else: 0
+  let dy = if s.inset[0].k == lkPx: c.lenPx(s.inset[0], cbW)
+           elif s.inset[2].k == lkPx: -c.lenPx(s.inset[2], cbW)
+           else: 0
+  c.shift(startAt, c.p.items.len, dx, dy)
+
+proc placeAbs(c: var Lay; boxes: seq[tuple[b: Box; x, y: int]]; cx, cy, cw, ch: int) =
+  ## The boxes out of the flow of a positioned box (`cx`, `cy`, `cw` x `ch`:
+  ## its padding box): each by its top, right, bottom and left in it, where
+  ## it would have been for the ones not given; as wide as its width, else
+  ## between its left and right, else its content; drawn over the content.
+  for (b, sx, sy) in boxes:
+    let s = c.S(b.st)
+    template given(side: int): bool = s.inset[side].k in {lkPx, lkPct}
+    let off = [c.lenPx(s.inset[0], ch), c.lenPx(s.inset[1], cw), c.lenPx(s.inset[2], ch),
+               c.lenPx(s.inset[3], cw)]
+    let ml = c.lenPx(s.margin[3], cw)
+    let mr = c.lenPx(s.margin[1], cw)
+    let mt = c.lenPx(s.margin[0], cw)
+    let mb = c.lenPx(s.margin[2], cw)
+    let edges = c.hEdges(s, cw)
+    var outer: int
+    if b.kind == bxBlock and s.width.k in {lkPx, lkPct}:
+      outer = c.blockWidth(b, s, cw, ml, mr) + edges
+    elif b.kind == bxBlock and given(1) and given(3):
+      outer = max(0, cw - off[1] - off[3] - ml - mr)
+    else:
+      let room = max(0, cw - (if given(3): off[3] else: 0) - (if given(1): off[1] else: 0) - ml - mr)
+      outer = c.shrinkWidth(b, room)
+    let x = if given(3): cx + off[3] + ml
+            elif given(1): cx + cw - off[1] - mr - outer
+            else: sx + ml
+    var y0 = if given(0): cy + off[0] + mt else: sy + mt
+    let at = c.p.items.len
+    c.abs.add @[]                          # (the ones out of the flow inside it)
+    var yy = y0
+    let (bw, bh) = c.layoutBox(b, x, outer, yy)
+    var h = bh
+    if given(0) and given(2) and s.height.k == lkAuto and b.kind == bxBlock:
+      h = max(bh, ch - off[0] - off[2] - mt - mb)
+      c.stretchBox(at, x, y0, h)
+    let inner = c.abs.pop()
+    c.placeAbs(inner, x + c.bw(s, 3), y0 + c.bw(s, 0), bw - c.bw(s, 1) - c.bw(s, 3),
+               h - c.bw(s, 0) - c.bw(s, 2))
+    if not given(0) and given(2):
+      let to = cy + ch - off[2] - mb - h
+      c.shift(at, c.p.items.len, 0, to - y0)
+      y0 = to
+    c.absBottom = max(c.absBottom, y0 + h + mb)
+    c.p.right = max(c.p.right, x + bw)
 
 # ---- tables --------------------------------------------------------------------------------------
 
@@ -2465,8 +2744,17 @@ proc layoutDoc*(d: Doc; width: int; pics: PicSource; imgVersion = 0; picKey = 0;
     d.stamp = fontStamp
   var y = 0
   let w = max(20, width)
+  c.abs = @[@[]]
   discard c.layoutBox(d.root, 0, w, y)
-  result.height = max(y, c.floatsBottom())
+  # (the boxes out of the flow no positioned box holds: in the page; and
+  # the fixed ones those hold)
+  var rounds = 0
+  while c.abs.len > 0 and c.abs[0].len > 0 and rounds < 8:
+    let pageAbs = move c.abs[0]
+    c.abs = @[@[]]
+    c.placeAbs(pageAbs, 0, 0, w, y)
+    inc rounds
+  result.height = max(max(y, c.floatsBottom()), c.absBottom)
   result.right = max(result.right, 0)
   for it in result.items:
     if it.kind == dkAnchor and it.text notin result.anchors:
@@ -2553,7 +2841,7 @@ proc textOfItems(d: Doc; items: seq[Item]; o: var TextOut) =
         o.want(3)
         walkBox(d, b, o)
         o.want(3)
-    of ikFloat:
+    of ikFloat, ikAbs:
       var sub = TextOut()
       walkBox(d, it.box, sub)
       if sub.cur.len > 0: sub.endLine()

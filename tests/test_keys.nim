@@ -367,4 +367,157 @@ block zoomAboutMouse:
            abs(int((before shr 8) and 0xFF) - int((after shr 8) and 0xFF)) <= 2,
            "the point under the mouse stays: " & toHex(before) & " " & toHex(after)
 
+# ---- a run of tool buttons is one stop of Tab; F6 goes from area to area --------------------------
+
+block toolRunsAndAreas:
+  autoFocus = true
+  var pressed = ""
+  var boxA, boxB = ""
+  var idA, idB: Id
+  var bolds: Rect
+  view = proc () =
+    toolbar:
+      if toolButton("B", "Bold"): pressed = "Bold"
+      bolds = ui.lastRect
+      if toolButton("I", "Italic", enabled = false): pressed = "Italic"
+      if toolButton("U", "Underline"): pressed = "Underline"
+    area("left"):
+      edit boxA
+      idA = ui.lastId
+    area("right"):
+      edit boxB
+      idB = ui.lastId
+  run(3)
+  doAssert ui.focus == idA, "the window starts at its first box, not the tool bar"
+  key(KeyTab, {ShiftPressed})
+  run(2)
+  let bar = ui.focus
+  doAssert bar != idA and bar != idB and bar != 0, "Shift+Tab back to the tool bar"
+  key(KeySpace)
+  run(2)
+  doAssert pressed == "Bold", "Space presses the lit button (" & pressed & ")"
+  key(KeyRight)
+  run(2)
+  key(KeyEnter)
+  run(2)
+  doAssert pressed == "Underline", "Right skips the disabled one: " & pressed
+  doAssert ui.focus == bar, "the arrows stay in the run"
+  key(KeyHome)
+  key(KeyEnter)
+  run(2)
+  doAssert pressed == "Bold", "Home: the first"
+  key(KeyTab)
+  run(2)
+  doAssert ui.focus == idA, "one Tab out of the whole run"
+  # F6: the next area, Shift+F6 back; an area's last control comes back
+  key(KeyF6)
+  run(2)
+  doAssert ui.focus == idB, "F6: the right area"
+  key(KeyF6)
+  run(2)
+  doAssert ui.focus == bar, "F6 round to the tool bar"
+  key(KeyF6, {ShiftPressed})
+  run(2)
+  doAssert ui.focus == idB, "Shift+F6 back"
+  # a click on a tool button does not take the keys from a box
+  click(bolds)
+  run(2)
+  doAssert ui.focus == idB and pressed == "Bold", "a click leaves the focus"
+
+block f6MenuBarAndDrawing:
+  # the menu bar after the last area; the drawing of an app whose keys
+  # are its own when nothing is focused (autoFocus off)
+  autoFocus = false
+  var box = ""
+  var idBox: Id
+  view = proc () =
+    menubar:
+      menu "&File":
+        discard menuItem("&New")
+    area("panel"):
+      edit box
+      idBox = ui.lastId
+  run(2)
+  ui.focus = 0
+  run(2)
+  doAssert ui.focus == 0, "nothing focused: the drawing has the keys"
+  key(KeyF6)
+  run(2)
+  doAssert ui.focus == idBox, "F6: the panel"
+  key(KeyF6)
+  run(2)
+  doAssert ui.popup != 0 and ui.menuOpen, "F6: the menu bar's first menu"
+  key(KeyF6)
+  run(3)
+  doAssert ui.popup == 0 and ui.focus == 0, "F6: round to the drawing"
+  key(KeyF6, {ShiftPressed})
+  run(2)
+  doAssert ui.popup != 0, "Shift+F6: back to the menu bar"
+  key(KeyF6, {ShiftPressed})
+  run(3)
+  doAssert ui.popup == 0 and ui.focus == idBox, "Shift+F6: the panel"
+  autoFocus = true
+
+block tabIndexOrder:
+  # tabIndex: a form drawn across, read down: first, last, then the city
+  var a, b, c = ""
+  var ia, ib, ic: Id
+  view = proc () =
+    row:
+      tabIndex 1
+      edit a
+      ia = ui.lastId
+      tabIndex 3
+      edit c
+      ic = ui.lastId
+    tabIndex 2
+    edit b
+    ib = ui.lastId
+  run(2)
+  ui.focus = ia
+  run(1)
+  key(KeyTab)
+  run(2)
+  doAssert ui.focus == ib, "1, then 2 (drawn after 3)"
+  key(KeyTab)
+  run(2)
+  doAssert ui.focus == ic, "then 3"
+  key(KeyTab, {ShiftPressed})
+  run(2)
+  doAssert ui.focus == ib, "Shift+Tab back the same way"
+  doAssert tabStops() == @[ia, ib, ic], "the stops in that order"
+
+block menuLettersShared:
+  # a letter two items of a menu have lights the next of them (Windows'
+  # menus do so); one only one has chooses it
+  var chosen = ""
+  view = proc () =
+    menubar:
+      menu "&File":
+        if menuItem("&Save"): chosen = "Save"
+        if menuItem("Sa&ve As..."): chosen = "Save As"
+        if menuItem("&Send"): chosen = "Send"
+        if menuItem("E&xit"): chosen = "Exit"
+  run(2)
+  key(KeyF, {AltPressed})
+  run(3)
+  doAssert ui.popup != 0, "Alt+F: the menu"
+  key(KeyS)
+  run(2)
+  doAssert chosen == "" and ui.popup != 0, "S twice in it: not chosen"
+  let first = ui.popupHi
+  key(KeyS)
+  run(2)
+  doAssert ui.popupHi != first and chosen == "", "S again: the other one lit"
+  key(KeyEnter)
+  run(2)
+  doAssert chosen == "Send" or chosen == "Save", "Enter chooses the one lit: " & chosen
+  let lit = chosen
+  chosen = ""
+  key(KeyF, {AltPressed})
+  run(3)
+  key(KeyV)
+  run(2)
+  doAssert chosen == "Save As", "V only once: chosen at once (" & chosen & ", " & lit & ")"
+
 echo "keys tests passed"

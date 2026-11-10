@@ -3,8 +3,10 @@
  * main() starts UIKit; once it has launched, the app's own main loop runs
  * (NimMain) on the main thread and pumps the run loop while it waits for
  * input, the way SDL does on iOS. A view shows the app's pixels as its
- * layer's image, takes touches and keys (UIKeyInput brings up the
- * keyboard), and CoreText draws text the built-in font lacks.
+ * layer's image, takes touches and keys (UITextInput brings up the
+ * keyboard, and what an input method composes -- Chinese, Japanese,
+ * Korean, a word being swiped -- goes to the app, which draws it in the
+ * box), and CoreText draws text the built-in font lacks.
  *
  * Offers the same uirelays_* functions as android_glue.c (see surface_driver).
  * Built with -fobjc-arc. Needs iOS 14 (UILaunchScreen in Info.plist). */
@@ -22,7 +24,8 @@ extern void NimMain(void);
 enum {
   UR_NONE, UR_MOVE, UR_DOWN, UR_UP, UR_WHEEL, UR_KEYDOWN, UR_KEYUP,
   UR_TEXT, UR_RESIZE, UR_METRICS, UR_FOCUS, UR_UNFOCUS, UR_PAUSE,
-  UR_RESUME, UR_QUIT
+  UR_RESUME, UR_QUIT,
+  UR_COMPOSE = 16       /* what an input method composes changed: uirelays_compose_take */
 };
 
 typedef struct {
@@ -105,6 +108,9 @@ static int wantText, reshow;       /* a field wants the keyboard; a new tap */
 static int kbInset;                /* pixels the on-screen keyboard covers */
 static int lightBackground = 1;    /* for the status bar's text color */
 static UIView *noKeyboard;         /* inputView while no field wants text */
+static char *composeText;          /* what an input method composes (UTF-8, malloc'ed) */
+static int composeCaret;           /* ... its caret, in characters */
+static struct { int x, y, w, h; } textCaret = {0, 0, 1, 16};   /* the box's caret (pixels) */
 @class UrViewController;
 static UrViewController *gController;
 
@@ -124,11 +130,49 @@ static void ensureShadow(void) {
 
 /* ---- the view ------------------------------------------------------------- */
 
-@interface UrView : UIView <UIKeyInput>
+/* UITextInput's positions and ranges: places in the text being composed,
+ * the only text the view holds (the app keeps the box's own). */
+@interface UrTextPosition : UITextPosition
+@property (nonatomic) NSInteger index;
++ (instancetype)at:(NSInteger)i;
+@end
+
+@implementation UrTextPosition
++ (instancetype)at:(NSInteger)i {
+  UrTextPosition *p = [UrTextPosition new];
+  p.index = i;
+  return p;
+}
+@end
+
+@interface UrTextRange : UITextRange
+@property (nonatomic) NSInteger from, to;
++ (instancetype)from:(NSInteger)a to:(NSInteger)b;
+@end
+
+@implementation UrTextRange
++ (instancetype)from:(NSInteger)a to:(NSInteger)b {
+  UrTextRange *r = [UrTextRange new];
+  r.from = MIN(a, b);
+  r.to = MAX(a, b);
+  return r;
+}
+- (UITextPosition *)start { return [UrTextPosition at:self.from]; }
+- (UITextPosition *)end { return [UrTextPosition at:self.to]; }
+- (BOOL)isEmpty { return self.from == self.to; }
+@end
+
+@interface UrView : UIView <UITextInput>
+@property (nonatomic, weak) id<UITextInputDelegate> inputDelegate;
+@property (nonatomic, copy) NSDictionary *markedTextStyle;
+- (void)dropComposing;
 @end
 
 @implementation UrView {
   UITouch *tracked;
+  NSMutableString *marked;          /* what an input method composes now */
+  NSRange markedSel;                /* ... its selection (the caret: empty) */
+  id<UITextInputTokenizer> tok;
 }
 
 - (instancetype)initWithFrame:(CGRect)f {
@@ -267,7 +311,175 @@ static void keyPress(int code, int meta) {
   u->key = code; u->meta = meta;
 }
 
+/* ---- UITextInput: what an input method composes ---- */
+
+static NSInteger clampIndex(NSInteger i, NSUInteger n) {
+  return i < 0 ? 0 : (i > (NSInteger)n ? (NSInteger)n : i);
+}
+
+- (NSMutableString *)markedText {
+  if (!marked) marked = [NSMutableString new];
+  return marked;
+}
+
+/* The app told what is composed now (the box draws it at its caret). */
+- (void)composeChanged {
+  NSString *m = self.markedText;
+  free(composeText);
+  const char *u = m.UTF8String;
+  composeText = strdup(u ? u : "");
+  /* (its caret in characters, not UTF-16's halves of one) */
+  NSUInteger at = MIN(markedSel.location, m.length);
+  int chars = 0;
+  for (NSUInteger i = 0; i < at; i++) {
+    unichar c = [m characterAtIndex:i];
+    if (!(c >= 0xDC00 && c < 0xE000)) chars++;
+  }
+  composeCaret = chars;
+  push(UR_COMPOSE);
+}
+
+/* (the composing given up: the box's focus left, the keyboard went) */
+- (void)dropComposing {
+  if (self.markedText.length == 0) return;
+  [self.inputDelegate textWillChange:self];
+  [self.markedText setString:@""];
+  markedSel = NSMakeRange(0, 0);
+  [self.inputDelegate textDidChange:self];
+  [self composeChanged];
+}
+
+- (NSString *)textInRange:(UITextRange *)range {
+  UrTextRange *r = (UrTextRange *)range;
+  NSUInteger n = self.markedText.length;
+  NSInteger a = clampIndex(r.from, n), b = clampIndex(r.to, n);
+  return [self.markedText substringWithRange:NSMakeRange((NSUInteger)a, (NSUInteger)(b - a))];
+}
+
+- (void)replaceRange:(UITextRange *)range withText:(NSString *)text {
+  /* (the composed text is all the text the view has: what replaces it is
+   * typed, as a word picked from the suggestions is) */
+  [self insertText:text];
+}
+
+- (UITextRange *)selectedTextRange {
+  return [UrTextRange from:(NSInteger)markedSel.location
+                        to:(NSInteger)(markedSel.location + markedSel.length)];
+}
+
+- (void)setSelectedTextRange:(UITextRange *)range {
+  UrTextRange *r = (UrTextRange *)range;
+  NSUInteger n = self.markedText.length;
+  NSInteger a = clampIndex(r.from, n), b = clampIndex(r.to, n);
+  markedSel = NSMakeRange((NSUInteger)a, (NSUInteger)(b - a));
+}
+
+- (UITextRange *)markedTextRange {
+  NSUInteger n = self.markedText.length;
+  return n ? [UrTextRange from:0 to:(NSInteger)n] : nil;
+}
+
+- (void)setMarkedText:(NSString *)text selectedRange:(NSRange)range {
+  [self.markedText setString:text ? text : @""];
+  NSUInteger n = self.markedText.length;
+  NSUInteger at = MIN(range.location, n);
+  markedSel = NSMakeRange(at, MIN(range.length, n - at));
+  [self composeChanged];
+}
+
+- (void)unmarkText {
+  /* (what was composed stays: it is typed) */
+  NSString *t = [self.markedText copy];
+  [self.markedText setString:@""];
+  markedSel = NSMakeRange(0, 0);
+  [self composeChanged];
+  if (t.length) [self typeText:t];
+}
+
+- (UITextPosition *)beginningOfDocument { return [UrTextPosition at:0]; }
+- (UITextPosition *)endOfDocument { return [UrTextPosition at:(NSInteger)self.markedText.length]; }
+
+- (UITextRange *)textRangeFromPosition:(UITextPosition *)a toPosition:(UITextPosition *)b {
+  return [UrTextRange from:((UrTextPosition *)a).index to:((UrTextPosition *)b).index];
+}
+
+- (UITextPosition *)positionFromPosition:(UITextPosition *)p offset:(NSInteger)offset {
+  NSInteger i = ((UrTextPosition *)p).index + offset;
+  if (i < 0 || i > (NSInteger)self.markedText.length) return nil;
+  return [UrTextPosition at:i];
+}
+
+- (UITextPosition *)positionFromPosition:(UITextPosition *)p
+                             inDirection:(UITextLayoutDirection)d offset:(NSInteger)offset {
+  BOOL back = d == UITextLayoutDirectionLeft || d == UITextLayoutDirectionUp;
+  return [self positionFromPosition:p offset:back ? -offset : offset];
+}
+
+- (NSComparisonResult)comparePosition:(UITextPosition *)a toPosition:(UITextPosition *)b {
+  NSInteger x = ((UrTextPosition *)a).index, y = ((UrTextPosition *)b).index;
+  return x < y ? NSOrderedAscending : (x > y ? NSOrderedDescending : NSOrderedSame);
+}
+
+- (NSInteger)offsetFromPosition:(UITextPosition *)a toPosition:(UITextPosition *)b {
+  return ((UrTextPosition *)b).index - ((UrTextPosition *)a).index;
+}
+
+- (id<UITextInputTokenizer>)tokenizer {
+  if (!tok) tok = [[UITextInputStringTokenizer alloc] initWithTextInput:self];
+  return tok;
+}
+
+- (UITextPosition *)positionWithinRange:(UITextRange *)range
+                    farthestInDirection:(UITextLayoutDirection)d {
+  BOOL back = d == UITextLayoutDirectionLeft || d == UITextLayoutDirectionUp;
+  return back ? range.start : range.end;
+}
+
+- (UITextRange *)characterRangeByExtendingPosition:(UITextPosition *)p
+                                       inDirection:(UITextLayoutDirection)d {
+  NSInteger i = ((UrTextPosition *)p).index;
+  NSUInteger n = self.markedText.length;
+  BOOL back = d == UITextLayoutDirectionLeft || d == UITextLayoutDirectionUp;
+  return back ? [UrTextRange from:clampIndex(i - 1, n) to:i]
+              : [UrTextRange from:i to:clampIndex(i + 1, n)];
+}
+
+- (NSWritingDirection)baseWritingDirectionForPosition:(UITextPosition *)p
+                                          inDirection:(UITextStorageDirection)d {
+  return NSWritingDirectionNatural;
+}
+
+- (void)setBaseWritingDirection:(NSWritingDirection)d forRange:(UITextRange *)range {}
+
+/* Where the box's caret is (uirelays_text_caret): the input method shows
+ * its suggestions by it. */
+- (CGRect)caretRect {
+  CGFloat k = gScale > 0 ? gScale : 1;
+  return CGRectMake(textCaret.x / k, textCaret.y / k, MAX(1, textCaret.w / k), MAX(1, textCaret.h / k));
+}
+- (CGRect)firstRectForRange:(UITextRange *)range { return [self caretRect]; }
+- (CGRect)caretRectForPosition:(UITextPosition *)p { return [self caretRect]; }
+- (NSArray<UITextSelectionRect *> *)selectionRectsForRange:(UITextRange *)range { return @[]; }
+- (UITextPosition *)closestPositionToPoint:(CGPoint)pt { return self.endOfDocument; }
+- (UITextPosition *)closestPositionToPoint:(CGPoint)pt withinRange:(UITextRange *)range {
+  return range.end;
+}
+- (UITextRange *)characterRangeAtPoint:(CGPoint)pt {
+  NSInteger n = (NSInteger)self.markedText.length;
+  return [UrTextRange from:n to:n];
+}
+
 - (void)insertText:(NSString *)text {
+  /* (typed, or what was composed taken: nothing is composed now) */
+  if (self.markedText.length) {
+    [self.markedText setString:@""];
+    markedSel = NSMakeRange(0, 0);
+    [self composeChanged];
+  }
+  [self typeText:text];
+}
+
+- (void)typeText:(NSString *)text {
   NSUInteger n = text.length;
   NSUInteger i = 0;
   while (i < n) {
@@ -294,7 +506,7 @@ static void keyPress(int code, int meta) {
 
 - (void)paste:(id)sender {
   NSString *s = UIPasteboard.generalPasteboard.string;
-  if (s.length) [self insertText:s];
+  if (s.length) [self typeText:s];
 }
 
 /* Hardware keyboards: keys that edit text go through UIKeyInput while the
@@ -638,9 +850,23 @@ void uirelays_keyboard(int show) {
       return;
     }
     wantText = show;
+    if (!show) [gView dropComposing];   /* (the box let go: what was composed with it) */
     if (gView.isFirstResponder) [gView reloadInputViews];
     else [gView becomeFirstResponder];
   }
+}
+
+/* What an input method composes now (malloc'ed UTF-8, NULL: nothing) and
+ * its caret in characters: UR_COMPOSE says it changed. */
+char *uirelays_compose_take(int *caret) {
+  *caret = composeCaret;
+  return composeText && composeText[0] ? strdup(composeText) : NULL;
+}
+
+/* Where the box being typed in has its caret (pixels): an input method's
+ * suggestions go by it. */
+void uirelays_text_caret(int x, int y, int w, int h) {
+  textCaret.x = x; textCaret.y = y; textCaret.w = w; textCaret.h = h;
 }
 
 void uirelays_finish(void) {

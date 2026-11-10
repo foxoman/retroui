@@ -138,7 +138,10 @@ while read -r pkg apk; do
   adb exec-out screencap -p < /dev/null > "$out/$name-4-back.png" 2>/dev/null
   [ -z "$bad" ] && ! alive "$pkg" && { bad="it closed when put away and brought back"; why "$pkg" "$bad"; }
   # 4b. driven by its controls' names (RETRO_DRIVE, given with the start;
-  # the port reached through adb): every tab, every menu, the keyboard alone
+  # the port reached through adb): every tab, every menu, the keyboard alone;
+  # as a finger finds it (too small, only under a mouse, the long press's
+  # menus) and the on-screen keyboard (it comes for a box tapped, the box
+  # above it, it goes with the focus)
   if [ -z "$bad" ] && [ -x build/tour ]; then
     adb shell am force-stop "$pkg" < /dev/null
     act=$(adb shell cmd package resolve-activity --brief -c android.intent.category.LAUNCHER "$pkg" \
@@ -146,7 +149,7 @@ while read -r pkg apk; do
     adb shell am start -W -n "$act" --es RETRO_DRIVE 7000 < /dev/null > /dev/null 2>&1
     adb forward tcp:7000 tcp:7000 < /dev/null > /dev/null 2>&1
     sleep 5
-    build/tour --port 7000 --name "$name" < /dev/null > "$out/$name-tour.txt" 2>&1
+    build/tour --port 7000 --name "$name" --touch --keyboard < /dev/null > "$out/$name-tour.txt" 2>&1
     tour=$?
     cat "$out/$name-tour.txt"
     adb forward --remove tcp:7000 < /dev/null > /dev/null 2>&1

@@ -1,6 +1,6 @@
 # Retro Nim UI: a study of its syntax
 
-By Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)), for Retro Nim UI 0.37.0.
+By Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)), for Retro Nim UI 0.38.0.
 
 The syntax is immediate mode written as plain Nim: a window is a block that runs every frame, a control is a proc call, its result is the event, and your own variables are the state. That one choice removes callbacks, widget objects and data binding, the three things that make most UI code hard to follow.
 
@@ -572,6 +572,9 @@ The keys are the same from one control to the next, as Windows has them:
 | Letters | in a drop-down list, open or closed: the item that starts with them |
 | F2 | edit the current cell of a grid, a property, a name in a list |
 | Ctrl+Backspace, Ctrl+Delete | the word before or after the caret (Option on a Mac; Cmd the line) |
+| Tab, Shift+Tab | the next control, the one before (in the order they are drawn; `tabIndex` first) |
+| the arrows, Home, End | along a tool bar's buttons -- a run of tool buttons is one stop of Tab |
+| F6, Shift+F6 | the next part of the window: its tool bars, panes, docked panels, windows in it, the menu bar (`area` for one of your own) |
 
 Enter belongs to the focused control when it acts on it -- a button, a
 drop-down, a date, a grid's cell, a multi-line text box -- and to the

@@ -27,7 +27,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 
 const
   AppName = "Retro Photo"
-  AppVersion = "4.9.10"
+  AppVersion = "4.9.11"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -4557,6 +4557,8 @@ proc main() =
       splashUntil = ui.now + splashMs
       splashStart = ui.now
       first = false
+    # (the type tool's fonts looked for on a thread once the window shows)
+    if framesShown() > 0: scanFontsSoon()
     photoFrame()
     endFrame()
   if saving(): discard waitForSave()
