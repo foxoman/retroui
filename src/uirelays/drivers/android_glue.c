@@ -1934,6 +1934,21 @@ static void onDestroy(ANativeActivity *a) {
   _exit(0);      /* no destructors while other threads still run */
 }
 
+static void setCallbacks(ANativeActivity *activity) {
+  activity->callbacks->onDestroy = onDestroy;
+  activity->callbacks->onStart = onStart;
+  activity->callbacks->onStop = onStop;
+  activity->callbacks->onConfigurationChanged = onConfigurationChanged;
+  activity->callbacks->onWindowFocusChanged = onWindowFocusChanged;
+  activity->callbacks->onNativeWindowCreated = onNativeWindowCreated;
+  activity->callbacks->onNativeWindowDestroyed = onNativeWindowDestroyed;
+  activity->callbacks->onNativeWindowResized = onNativeWindowResized;
+  activity->callbacks->onNativeWindowRedrawNeeded = onNativeWindowRedrawNeeded;
+  activity->callbacks->onContentRectChanged = onContentRectChanged;
+  activity->callbacks->onInputQueueCreated = onInputQueueCreated;
+  activity->callbacks->onInputQueueDestroyed = onInputQueueDestroyed;
+}
+
 __attribute__((visibility("default")))
 void ANativeActivity_onCreate(ANativeActivity *activity, void *savedState,
                               size_t savedStateSize) {
@@ -1952,17 +1967,26 @@ void ANativeActivity_onCreate(ANativeActivity *activity, void *savedState,
   if (!hosted) bg.nim = 1;
   pthread_mutex_unlock(&bg.mu);
   if (g.activity) {
-    /* One more activity while this process has one (an intent made another,
-     * the manifest's singleTask aside). NimMain runs once at a time: while
-     * the app runs, the new one closes and the app goes on in its own; an
-     * app that has ended (its activity not gone yet) starts again in this
-     * one, whose process it is from now on. */
+    /* One more activity while this process has one (made beside it or in
+     * its place: the system's, an intent's -- the manifest's singleTask
+     * aside). NimMain runs once at a time. While the app runs, it goes on
+     * in the new one: the old one's window and input are let go first (the
+     * app waits for the new ones), then it finishes, and what it says from
+     * then on is not the app's. An app that has ended (its activity not
+     * gone yet) starts again in the new one, whose process it is now. */
     pthread_mutex_lock(&g.mu);
     int ended = g.finished;
     pthread_mutex_unlock(&g.mu);
     if (!ended) {
-      LOGE("a second activity while the app runs: it is closed");
-      ANativeActivity_finish(activity);
+      ANativeActivity *old = g.activity;
+      LOGI("a second activity while the app runs: the app goes on in it");
+      onNativeWindowDestroyed(old, NULL);
+      onInputQueueDestroyed(old, NULL);
+      pthread_mutex_lock(&g.mu);
+      g.activity = activity;
+      pthread_mutex_unlock(&g.mu);
+      setCallbacks(activity);
+      ANativeActivity_finish(old);
       return;
     }
     LOGI("the app ended in another activity: it starts again here");
@@ -1970,19 +1994,9 @@ void ANativeActivity_onCreate(ANativeActivity *activity, void *savedState,
   memset(&g, 0, sizeof g);
   g.activity = activity;
   g.pointerId = -1;
-  activity->callbacks->onDestroy = onDestroy;
-  activity->callbacks->onStart = onStart;
-  activity->callbacks->onStop = onStop;
-  activity->callbacks->onConfigurationChanged = onConfigurationChanged;
-  activity->callbacks->onWindowFocusChanged = onWindowFocusChanged;
-  activity->callbacks->onNativeWindowCreated = onNativeWindowCreated;
-  activity->callbacks->onNativeWindowDestroyed = onNativeWindowDestroyed;
-  activity->callbacks->onNativeWindowResized = onNativeWindowResized;
-  activity->callbacks->onNativeWindowRedrawNeeded = onNativeWindowRedrawNeeded;
-  activity->callbacks->onContentRectChanged = onContentRectChanged;
-  activity->callbacks->onInputQueueCreated = onInputQueueCreated;
-  activity->callbacks->onInputQueueDestroyed = onInputQueueDestroyed;
+  setCallbacks(activity);
   pthread_mutex_init(&g.mu, NULL);
+
   pthread_cond_init(&g.cond, NULL);
   int fds[2];
   if (pipe(fds) != 0) { LOGE("pipe failed"); return; }
