@@ -208,7 +208,10 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   `BUILDING.md` (builds), `docs/controls.md` (controls), `docs/syntax.md`
   (when the syntax or what a form draws changes: run
   `sh tools/syntaxshots/make.sh`), `docs/designer.md` (Retro Designer),
-  `llms.txt`. A new or changed control: `python3 tools/gendesigner.py`
+  `llms.txt`, `examples/README.md` (a new example, or one whose look or
+  purpose changed: its section and its picture -- `sh
+  tools/exampleshots.sh NAME` for those the README has no picture of). A
+  new or changed control: `python3 tools/gendesigner.py`
   too, and `tests/test_designer.nim` must still pass (every control of the
   Widget Box dropped into one app has to compile).
 - **Looks:** the Windows 3.1 look and FreeSans drawn in gray (its heights

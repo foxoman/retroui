@@ -438,6 +438,13 @@ retrokit designer app.nim       # app.nim's windows (a new file when there is no
   nothing at all (`ui.hidden`: its frames and timers go on, so it can read
   less often), and a caret stops blinking 10 seconds after it last moved,
   so a window left with a text box focused runs no frames.
+- **What a frame costs.** The code you run each frame, so a list you draw
+  yourself in a loop costs each of its rows on every frame, whatever
+  changed (a key or a click runs the frame twice: what it changed shows
+  at once). For thousands of rows use `grid` or `listbox`, which
+  draw only the rows in view, or draw yours with `visibleRows`, which does
+  the same for any rows (3,000 labels: 1.5 ms a frame drawn all, under
+  0.1 ms so).
 - **Input, the same everywhere.** Mouse: click, double-click, the wheel
   (Shift for sideways, Ctrl to zoom where it makes sense), drag, the right
   button for menus, the middle and side buttons. Keyboard: Tab and
@@ -2254,7 +2261,8 @@ screen's (`libmain.so+0x386786`) or logcat's (`#00 pc 0000000000386786
 **One activity, one start:** the activity is its task's only one
 (`singleTask`): started again -- its icon, an intent, `adb shell am
 start` -- it comes back as it was, and the app's start (NimMain) never
-runs twice at once in one process.
+runs twice at once in one process: an activity Android makes beside the
+running app, or in its place, takes the app over.
 
 **On a phone or tablet,** a build runs as many C compilers as the memory
 allows, at most four in Termux (Android stops builds with too many:
@@ -2666,6 +2674,9 @@ screen reader does (`tests/access/windows.ps1`).
 | `soak_maps3d` (not in `nimble test`: a few minutes, `nim c -r -d:release -d:useMalloc tests/soak_maps3d.nim`) | a long session: the street map moved and zoomed over the world through thousands of tiles, then a model's clips played for thousands of frames -- the memory levels off |
 
 ## Examples
+
+[examples/README.md](examples/README.md) shows each one with a picture, what
+it is and how to run it.
 
 | File | What it is |
 |---|---|

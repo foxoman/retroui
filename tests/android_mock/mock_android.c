@@ -452,30 +452,42 @@ int main(void) {
       if (win.px[(size_t)yy * (win.w + 16) + 2 * 12] == 0xFFC0C0C0u) first = yy;
     check(first >= 100, "the system bar insets move the content down");
   }
-  {                                             /* one more activity while the app runs */
-    ANativeActivityCallbacks cb2;
-    memset(&cb2, 0, sizeof cb2);
-    ANativeActivity act2 = act;
-    act2.callbacks = &cb2;
-    finishedAct = NULL;
-    finished = 0;
-    ANativeActivity_onCreate(&act2, NULL, 0);
-    check(finishedAct == &act2 && !cb2.onDestroy && !cb2.onNativeWindowCreated,
-          "a second activity while the app runs is closed, the app's left alone");
-    check(starts == 1, "... and the app's start does not run again");
-    sawPause = 0;
-    cb.onNativeWindowDestroyed(&act2, &win);     /* (a callback for one not the app's) */
-    ms(200);
-    check(!sawPause, "an activity's callback is let go when it is not the app's");
-    int p = win.posts;
-    cb.onNativeWindowRedrawNeeded(&act, &win);
-    ms(300);
-    check(win.posts > p, "the app goes on drawing in its own");
-  }
+  /* one more activity while the app runs (made beside it, or in its place):
+   * the app goes on in it, the first one finished */
+  ANativeActivityCallbacks cb2;
+  memset(&cb2, 0, sizeof cb2);
+  ANativeActivity act2 = act;
+  act2.callbacks = &cb2;
+  finishedAct = NULL;
   finished = 0;
-  key(q, AKEYCODE_BACK);
+  ANativeActivity_onCreate(&act2, NULL, 0);
+  check(cb2.onDestroy && cb2.onNativeWindowCreated, "a second activity while the app runs takes the app");
+  check(finishedAct == &act, "... the first one is finished");
+  check(starts == 1, "... and the app's start does not run again");
+  ms(200);
+  sawPause = 0;
+  cb.onNativeWindowDestroyed(&act, &win);        /* (the old one's window going: not the app's) */
+  cb.onWindowFocusChanged(&act, 0);
+  ms(200);
+  check(!sawPause, "the old activity's callbacks are let go");
+  AInputQueue *q2 = newQueue();
+  cb2.onInputQueueCreated(&act2, q2);
+  ANativeWindow win2 = { 600, 800, 0, 0, 0, NULL };
+  win2.px = calloc((size_t)(win2.w + 16) * win2.h, 4);
+  cb2.onNativeWindowCreated(&act2, &win2);
+  cb2.onWindowFocusChanged(&act2, 1);
+  ms(600);
+  check(win2.posts > 0, "the app draws in the new activity's window");
+  cb.onDestroy(&act);                            /* (the old one's end: the process goes on) */
+  check(1, "the old activity's end leaves the process to the app");
+  int p = win2.posts;
+  cb2.onNativeWindowRedrawNeeded(&act2, &win2);
   ms(300);
-  check(finished && finishedAct == &act, "Back closes the app, which finishes the activity");
+  check(win2.posts > p, "the app goes on drawing");
+  finished = 0;
+  key(q2, AKEYCODE_BACK);
+  ms(300);
+  check(finished && finishedAct == &act2, "Back closes the app, which finishes its activity");
   {                                             /* a new activity before the old one's end */
     ANativeActivityCallbacks cb3;
     memset(&cb3, 0, sizeof cb3);
@@ -483,7 +495,7 @@ int main(void) {
     act3.callbacks = &cb3;
     ANativeActivity_onCreate(&act3, NULL, 0);
     check(cb3.onDestroy && cb3.onNativeWindowCreated, "an activity after the app ended takes it");
-    cb.onDestroy(&act);                          /* (the old one's: the process is the new one's) */
+    cb2.onDestroy(&act2);                        /* (the old one's: the process is the new one's) */
     check(1, "the old activity's end leaves the process to the new one");
     AInputQueue *q3 = newQueue();
     cb3.onInputQueueCreated(&act3, q3);

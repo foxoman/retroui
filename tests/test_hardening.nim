@@ -249,9 +249,10 @@ block androidStartRunsOnce:
   # activity ran the app's start again in the same process: the filters'
   # table still held the first run's closures, counted as cycle roots of the
   # first app thread, and the new thread's empty list was read at -1. Now
-  # the activity is the task's only one (singleTask), a second while the app
-  # runs closes, every callback of an activity no longer the app's is let go,
-  # and the cycles' roots are collected when NimMain returns.
+  # the activity is the task's only one (singleTask), the app goes on in a
+  # second one made while it runs (the first finished), every callback of
+  # an activity no longer the app's is let go, and the cycles' roots are
+  # collected when NimMain returns.
   let root = currentSourcePath().parentDir.parentDir
   let glue = readFile(root / "src/retroui/uirelays/drivers/android_glue.c")
   var unguarded: seq[string]
@@ -274,7 +275,8 @@ block androidStartRunsOnce:
     if line.strip.startsWith("NimMain();"): inc mains
     if line.strip.startsWith("uirelays_main_ended();"): inc ended
   doAssert mains >= 2 and ended == mains, "NimMain without the collect after it"
-  doAssert "if (!ended) {" in glue and "ANativeActivity_finish(activity);" in glue
+  doAssert "if (!ended) {" in glue and "ANativeActivity_finish(old);" in glue and
+           "setCallbacks(activity);\n      ANativeActivity_finish(old);" in glue
   doAssert "uirelays_main_ended" in readFile(root / "src/retroui/uirelays/drivers/android_driver.nim")
   let apk = readFile(root / "src/retroapk.nim")
   doAssert "iAttr(\"launchMode\", 0x0101001d, 2)" in apk, "the activity: singleTask"

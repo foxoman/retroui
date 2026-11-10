@@ -841,7 +841,9 @@ proc unpack14(b: openArray[byte]; at: int; s: var array[16, uint16]) =
   template B(i: int): int = int(b[at + i])
   var v: array[16, int]
   v[0] = (B(0) shl 8) or B(1)
-  let shift = B(2) shr 2
+  # (every value is kept to 16 bits: a shift past 16 adds nothing more --
+  # and past 31 it would be undefined where `int` has 32 bits)
+  let shift = min(B(2) shr 2, 16)
   let bias = 0x20 shl shift
   template d(x: int): int = ((x and 0x3F) shl shift) - bias
   v[4] = (v[0] + d((B(2) shl 4) or (B(3) shr 4))) and 0xFFFF
@@ -1306,7 +1308,7 @@ proc writeExr*(w, h: int; px: openArray[float32]; half = true; compression = "zi
   result = newStringOfCap(total)
   result.add o
   for k in 0 ..< n:
-    for b in 0 .. 7: result.add char((at shr (8 * b)) and 255)
+    for b in 0 .. 7: result.add char((uint64(at) shr (8 * b)) and 255)   # (64 bits where int has 32)
     at += 8 + blocks[k].len
   for k in 0 ..< n:
     result.i32(k * lpb)

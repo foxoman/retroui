@@ -253,7 +253,7 @@ proc toneAt(pr: ptr Prepared; x: float32): float32 {.inline.} =
   pr.tone[i] + (pr.tone[i + 1] - pr.tone[i]) * f
 
 proc hash01(x, y: int): float32 {.inline.} =
-  var h = uint32(x * 374761393 + y * 668265263)
+  var h = uint32(x) * 374761393'u32 + uint32(y) * 668265263'u32   # (wraps: no overflow where int has 32 bits)
   h = (h xor (h shr 13)) * 1274126177'u32
   h = h xor (h shr 16)
   float32(h and 0xFFFF) / 32767.5'f32 - 1

@@ -15,16 +15,20 @@ OUT=${RETRO_NODE_OUT:-$(mktemp -d)}
 JOBS=${RETRO_NODE_JOBS:-4}
 tests=${*:-"test_widgets test_business test_text test_bidi test_input test_records
   test_charts test_planning test_mapview test_view3d test_htmlview test_canvas2d test_pdf
-  test_report test_scroll test_xlsx test_letters test_morecontrols test_dock test_toolcustom
+  test_report test_scroll test_rows test_xlsx test_letters test_morecontrols test_dock test_toolcustom
   test_richedit test_qrcode test_touchsizes test_scale
   test_tilemap test_gltf test_update"}
 nim c -d:release --hints:off --warnings:off -o:"$OUT/retroweb" src/retroweb.nim || exit 1
 one() {
   t=$1
+  # (built again once when it fails: four big builds at once can run the
+  # runner out of memory, and the compiler is stopped without a word)
   if ! "$OUT/retroweb" "tests/$t.nim" --out:"$OUT/$t" --path:src --path:tests --warnings:off \
+       > "$OUT/$t.build" 2>&1 &&
+     ! "$OUT/retroweb" "tests/$t.nim" --out:"$OUT/$t" --path:src --path:tests --warnings:off \
        > "$OUT/$t.build" 2>&1; then
     echo "FAIL $t (it did not build: $OUT/$t.build)"
-    grep -m3 "Error" "$OUT/$t.build" | sed 's/^/       /'
+    tail -8 "$OUT/$t.build" | sed 's/^/       /'
     return
   fi
   if node tests/web/node.js "$OUT/$t/app.wasm" --mount:tests="$(pwd)/tests" \

@@ -497,6 +497,11 @@ type
     toggled*: bool         ## `task`'s parts were folded or unfolded
     task*: int             ## the task the others speak of (an index)
 
+proc doneShare(progress: float): float =
+  ## (a task's progress as drawn: 0 .. 1, and 0 for NaN -- a file's or a
+  ## formula's -- whose conversion to a whole number is undefined)
+  if progress.isNaN: 0.0 else: clamp(progress, 0.0, 1.0)
+
 var
   ganttDrag: tuple[id: Id; task, part, x0: int; s0, f0: Date; live: bool]
     ## a bar being dragged; part: 0 the whole bar, 1 its start, 2 its end
@@ -957,11 +962,11 @@ proc ganttView*(tasks: var seq[GanttTask]; sel: var int; scale: var GanttScale;
       let w = max(dp(3), b - a)
       let br = rect(a, by, w, bh2)
       fill(br, mixColor(c, th.field, 0.55))
-      let done = int(float(w) * clamp(tasks[i].progress, 0.0, 1.0))
+      let done = int(float(w) * doneShare(tasks[i].progress))
       if done > 0: fill(rect(a, by, done, bh2), c)
       box(br, mixColor(c, th.frame, 0.4))
       if tasks[i].progress > 0 and w > textWidth("100%", smallSt()) + dp(6):
-        let ps = $int(round(clamp(tasks[i].progress, 0.0, 1.0) * 100)) & "%"
+        let ps = $int(round(doneShare(tasks[i].progress) * 100)) & "%"
         text(a + dp(3), by + (bh2 - lineHeight(smallSt())) div 2, ps,
              if done > textWidth(ps, smallSt()) + dp(3): th.selectText else: th.text, smallSt())
     if i == sel:
@@ -997,7 +1002,7 @@ proc ganttView*(tasks: var seq[GanttTask]; sel: var int; scale: var GanttScale;
         ui.focus = id
       let k = accessNode(arTreeItem, t.name, id = nid, r = r,
                          states = (if i == sel: {asSelected} else: {}),
-                         help = $t.start & " - " & $t.finish & ", " & $int(t.progress * 100 + 0.5) & "%")
+                         help = $t.start & " - " & $t.finish & ", " & $int(doneShare(t.progress) * 100 + 0.5) & "%")
       accessItem(k, i + 1, n, t.level + 1)
       if i == sel and focused: accessFocus(k)
     accessEnd()

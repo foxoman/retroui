@@ -507,13 +507,13 @@ opts(looks = @[look("A desktop window", proc () = discard, proc () = discard),
                look("A phone", proc () = discard, proc () = discard, w = 230, h = 260, touch = true)])
 
 example("scroll", "Scrolling: scrollPanel, panel, pane",
-        "The window's page scrolls by itself. `scrollPanel(height)` scrolls a part of it, in a frame; `panel` is a framed white page down to the bottom (a page beside a tree, as in File Manager); `pane` scrolls on the dialog's face. `withId` gives the rows drawn by a loop ids of their own.",
-        340, 140, ["scrollPanel", "panel", "pane", "revealInPanel", "withId", "pushId"], std3):
+        "The window's page scrolls by itself. `scrollPanel(height)` scrolls a part of it, in a frame; `panel` is a framed white page down to the bottom (a page beside a tree, as in File Manager); `pane` scrolls on the dialog's face. `withId` gives the rows drawn by a loop ids of their own. Rows you draw yourself cost on every frame, each one: `visibleRows` draws only those in view and keeps the others' room, so a list of thousands costs what fits on the screen.",
+        340, 140, ["scrollPanel", "panel", "pane", "visibleRows", "revealInPanel", "withId", "pushId"], std3):
   var scrollChecks = newSeq[bool](20)
 do:
   label "Twenty rows in 100 pixels:"
   scrollPanel 100:
-    for i in 0 ..< scrollChecks.len:
+    for i in visibleRows(scrollChecks.len):
       withId(i):
         checkbox("Item " & $(i + 1), scrollChecks[i])
 
@@ -2431,7 +2431,7 @@ proc readApi(): Table[string, seq[ApiDoc]] =
     while i < lines.len:
       let l = lines[i]
       if (l.startsWith("proc ") or l.startsWith("template ") or l.startsWith("func ") or
-          l.startsWith("macro ")) and "*" in l.split('(')[0]:
+          l.startsWith("macro ") or l.startsWith("iterator ")) and "*" in l.split('(')[0]:
         let head = l.split(' ', 1)[1]
         let name = if head.startsWith("`"): head[1 ..< head.find('`', 1)]
                    else: head.split({'*', '(', '[', ':'})[0]

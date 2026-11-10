@@ -1,5 +1,57 @@
 # Changes
 
+## 0.35.0
+
+Lists drawn by hand cost what is on the screen, every example has a page
+with its picture, and the CI's red runs are fixed.
+
+- **`visibleRows`**: a list you draw yourself in a `panel`, `scrollPanel`,
+  `pane` or the page draws only the rows in view; the others keep their
+  room, so the scroll bar and what comes after are where they would be.
+  Rows of one height (measured as drawn) or, `varying = true`, each of
+  its own, kept from the last time it was drawn (text that wraps). 3,000
+  labels, a release build: 1.5 ms a frame drawn all, under 0.1 ms so
+  (`tests/test_rows.nim` measures it). New in the layout, for lists of
+  your own: `layoutY`, `layoutWidth`, `inColumn`, `skipDown`.
+- **Retro Communicator 1.3** draws only the lines of a talk in view, so a
+  long talk stays quick to type in; it still opens at the newest line.
+- The README's "How it works" says what a frame costs: the code you run
+  each frame, a list in your own loop each row (a key or a click runs the
+  frame twice, so what it changed shows at once -- kept: some 170 places
+  in the kit and the examples read a press directly, and would show a
+  stale screen without the second run).
+- **examples/README.md**: every example with its picture, what it is and
+  how to run it; `tools/exampleshots.sh` takes the pictures no other page
+  has (hello, the gallery, Chart Viewer, Native, HR Book's demo book, the
+  magazine).
+- **Android: a second activity takes the app over.** Retro Photo no
+  longer crashed on the emulator with 0.34.0, but still closed at its
+  first start, without a crash: most likely an activity Android made a
+  second time, which 0.34.0 closed. Now the app goes on in an activity
+  Android makes beside it or in its place: the old one's window and
+  input are let go, then it finishes. And the emulator job says why an
+  app's process ended when one closes (Android's exit record, the crash
+  log, the activity's events, on a 16 MB log), so the next run tells.
+- **The systems workflow on Windows:** the smoke runs read the processor
+  time from `GetProcessTimes` (the C library's `clock()`, `cpuTime`'s, is
+  the time on the wall there: every app was "busy").
+- **The nightly runs:**
+  - 32-bit programs and WebAssembly (UBSan): the JPEG decoder's IDCT, the
+    WebP encoder's scores, a JPEG XL tree's limits, OpenEXR's B44 and its
+    offsets, and the grain of Develop went past 32 bits, which C
+    leaves undefined -- 64 bits or wrapping now, the same results as
+    before on 64-bit systems. The job installs the 32-bit OpenSSL (the
+    XMPP, OMEMO and IMAP tests need it).
+  - Fuzzing: a Gantt task's progress of NaN drawn as a whole number
+    (undefined): drawn as 0 now.
+  - Sanitizers: LeakSanitizer's suppressions given by full path (two
+    tests change folder), and the SVG blow-up check given more time
+    under ASan.
+  - WebAssembly: a test that did not build (four big builds at once can
+    run out of memory) is built again once, and its log's end shown.
+- Retro Communicator 1.3; the kit, Retro Gallery and the small examples
+  0.35.0.
+
 ## 0.34.0
 
 The kit checks itself as people use it: every app started for real on

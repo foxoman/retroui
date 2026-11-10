@@ -20,7 +20,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.34.0"
+const RetroVersion* = "0.35.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -1942,6 +1942,25 @@ proc popFrame*(): int =
 proc frameBottom*(): int = top().bottom
   ## The lowest point the current column or row has reached.
 
+proc layoutY*(): int = top().cy
+  ## Where the current column's next cell starts (in a row: its line's top).
+
+proc layoutWidth*(): int = top().w
+  ## The current column's (or row's) width.
+
+proc inColumn*(): bool = ui.frames.len > 0 and top().kind != lkRow
+  ## The cells go down (a column, a panel, a group), not across a row.
+
+proc skipDown*(px: int) =
+  ## The current column goes down `px` as if cells `px` high were there,
+  ## the gap after the last one counted (its bottom too, so a panel's
+  ## scroll bar counts them): the room of rows not drawn (`visibleRows`).
+  if px <= 0 or ui.frames.len == 0: return
+  let f = top()
+  if f.kind == lkRow: return
+  f.cy += px
+  f.bottom = max(f.bottom, f.cy - Gap)
+
 # ---- a window in the window, controls without input --------------------------------------------
 
 type WindowBoxState* = object
@@ -3040,6 +3059,25 @@ var smoke = (secs: (try: parseInt(getEnv("RETRO_SMOKE", "0")) except ValueError:
 proc smokeOn*(): bool = smoke.secs > 0
   ## A smoke run (RETRO_SMOKE) is going on.
 
+when defined(windows):
+  type SmokeFileTime = object
+    lo, hi: uint32
+  proc smokeProcessTimes(p: int; c, e, k, u: var SmokeFileTime): int32 {.
+    importc: "GetProcessTimes", stdcall, dynlib: "kernel32".}
+  proc smokeThisProcess(): int {.importc: "GetCurrentProcess", stdcall, dynlib: "kernel32".}
+
+proc processSeconds(): float =
+  ## (the processor's time this process has had, all its threads: on Windows
+  ## from GetProcessTimes -- its C library's clock(), cpuTime's, is the time
+  ## on the wall there)
+  when defined(windows):
+    var c, e, k, u: SmokeFileTime
+    if smokeProcessTimes(smokeThisProcess(), c, e, k, u) == 0: return cpuTime()
+    let ticks = (uint64(k.hi) shl 32 or uint64(k.lo)) + (uint64(u.hi) shl 32 or uint64(u.lo))
+    float(ticks) / 1e7               # (100 ns each)
+  else:
+    cpuTime()
+
 proc smokeRand(n: int): int =
   smoke.seed = smoke.seed xor (smoke.seed shl 13)
   smoke.seed = smoke.seed xor (smoke.seed shr 17)
@@ -3106,7 +3144,7 @@ proc smokeFrame() =
     if ms >= smokeSettleMs and firstShownMs >= 0:
       smoke.phase = 1
       smoke.idleFrom = getMonoTime()
-      smoke.idleCpu0 = cpuTime()
+      smoke.idleCpu0 = processSeconds()
       smoke.idleFrames = 0
       smoke.shown = -1                # (counted from the next frame: this one is shown yet)
       wakeIn(smokeIdleMs)             # (the measure's end: an app at rest wakes nothing itself)
@@ -3117,7 +3155,7 @@ proc smokeFrame() =
     inc smoke.idleFrames
     let idle = int((getMonoTime() - smoke.idleFrom).inMilliseconds)
     if idle >= smokeIdleMs:
-      smoke.idleCpu = cpuTime() - smoke.idleCpu0
+      smoke.idleCpu = processSeconds() - smoke.idleCpu0
       smoke.idleShown = shownCount - smoke.shown
       dec smoke.idleFrames            # (this frame is the measure's, not the app's)
       smoke.phase = 2

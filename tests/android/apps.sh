@@ -15,6 +15,9 @@ list=${1:-build/apps/list.txt}
 out=live/apps
 mkdir -p "$out"
 failed=0
+# (a log big enough for an app's whole run: the emulator's own is a few
+# hundred kilobytes, gone in a minute)
+adb logcat -G 16M < /dev/null > /dev/null 2>&1
 # (every adb here reads from /dev/null: adb shell reads its input, and would
 # eat the rest of the list -- only the first app was tried)
 alive() { [ -n "$(adb shell pidof "$1" < /dev/null 2>/dev/null | tr -d '\r')" ]; }
@@ -57,6 +60,20 @@ start() {
   done
   sleep 3
 }
+why() {
+  # (what the system knows of how the app's process ended, said at once:
+  # the log rotates on an emulator in a minute or two)
+  echo "--- $1: $2"
+  adb shell dumpsys activity exit-info "$1" < /dev/null 2>/dev/null | tr -d '\r' |
+    grep -E "ApplicationExitInfo|reason=|status=|importance=|description=|timestamp=" | head -24
+  adb logcat -d -b crash < /dev/null 2>/dev/null | tail -60
+  adb logcat -d -b events < /dev/null 2>/dev/null |
+    grep -E "am_proc_died|am_crash|am_kill|wm_finish_activity|wm_destroy_activity|wm_relaunch|am_proc_start" |
+    grep "$1" | tail -20
+  adb logcat -d < /dev/null 2>/dev/null | grep -E " uirelays *:|$1|AndroidRuntime|DEBUG *:|libc *:" |
+    grep -v "monkey\|InputDispatcher\|ImeTracker\|InputMethod" | tail -40
+  echo "---"
+}
 back() {
   # (brought back from the background as its icon does: not stopped first)
   act=$(adb shell cmd package resolve-activity --brief -c android.intent.category.LAUNCHER "$1" \
@@ -73,11 +90,12 @@ while read -r pkg apk; do
     echo "FAIL $name: it did not install"; failed=$((failed + 1)); continue
   fi
   adb logcat -c < /dev/null
+  adb logcat -b crash -c < /dev/null 2>/dev/null
   bad=""
   # 1. opened with nothing allowed yet
   start "$pkg"
   adb exec-out screencap -p < /dev/null > "$out/$name-1-first.png" 2>/dev/null
-  alive "$pkg" || bad="it closed when opened without its permissions"
+  alive "$pkg" || { bad="it closed when opened without its permissions"; why "$pkg" "$bad"; }
   # 2. every permission it asks for allowed (and all files' access)
   for p in $(adb shell dumpsys package "$pkg" < /dev/null | tr -d '\r' |
              sed -n '/requested permissions:/,/install permissions:/p' |
@@ -87,7 +105,7 @@ while read -r pkg apk; do
   adb shell appops set --uid "$pkg" MANAGE_EXTERNAL_STORAGE allow < /dev/null >/dev/null 2>&1
   start "$pkg"
   adb exec-out screencap -p < /dev/null > "$out/$name-2-allowed.png" 2>/dev/null
-  [ -z "$bad" ] && ! alive "$pkg" && bad="it closed when opened with its permissions"
+  [ -z "$bad" ] && ! alive "$pkg" && { bad="it closed when opened with its permissions"; why "$pkg" "$bad"; }
   # 3. turned both ways (a phone held upright turns an app that wants
   # landscape as it starts), then put away and brought back
   adb shell settings put system accelerometer_rotation 0 < /dev/null
@@ -96,12 +114,12 @@ while read -r pkg apk; do
     sleep 2
   done
   adb exec-out screencap -p < /dev/null > "$out/$name-3-turned.png" 2>/dev/null
-  [ -z "$bad" ] && ! alive "$pkg" && bad="it closed when the screen was turned"
+  [ -z "$bad" ] && ! alive "$pkg" && { bad="it closed when the screen was turned"; why "$pkg" "$bad"; }
   adb shell input keyevent KEYCODE_HOME < /dev/null
   sleep 3
   back "$pkg"
   adb exec-out screencap -p < /dev/null > "$out/$name-4-back.png" 2>/dev/null
-  [ -z "$bad" ] && ! alive "$pkg" && bad="it closed when put away and brought back"
+  [ -z "$bad" ] && ! alive "$pkg" && { bad="it closed when put away and brought back"; why "$pkg" "$bad"; }
   # 5. the monkey: 600 events, the same each time
   adb shell monkey -p "$pkg" -s 4242 --throttle 120 --pct-syskeys 0 --pct-appswitch 0 \
     --pct-anyevent 0 -v 600 < /dev/null > "$out/$name-monkey.txt" 2>&1

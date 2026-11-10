@@ -86,6 +86,7 @@ type
     lastKey: float
     autoReplied: bool
     stick: bool                    ## the transcript follows the newest line
+    stuck: int                     ## ... frames it went to the bottom for that
     asking: string                 ## an archive's page asked for it ("" none)
     archiveEnd: bool               ## the archive has nothing earlier
     secure: bool                   ## messages go encrypted (OMEMO)
@@ -1288,7 +1289,10 @@ proc conversation(t: Talk) =
         t.asking = if before.len > 0: askArchive(with = t.jid, before = before, max = 50)
                    else: askArchive(with = t.jid, latest = true, max = 50)
         earlier[t.asking] = @[]
-    for i, l in t.lines:
+    # (only the lines in view are drawn: a long talk costs what is on the
+    # screen, and typing in the box below stays quick)
+    for i in visibleRows(t.lines.len, key = "lines" & t.jid, varying = true):
+      let l = t.lines[i]
       withId(i):
         if l.system:
           label(l.text, color = idle, literal = true)
@@ -1320,7 +1324,12 @@ proc conversation(t: Talk) =
     let bottom = place(0, 1, fill = true)
     if t.stick:
       revealInPanel(bottom, glide = false)
-      t.stick = false
+      # (the lines at the bottom are measured as they are drawn: down there
+      # once more while their heights come in, so it ends at the bottom)
+      inc t.stuck
+      if not ui.redraw or t.stuck >= 4:
+        t.stick = false
+        t.stuck = 0
     endPanel()
   if t.room:
     # (the talk, and beside it who is in the room)
@@ -1536,7 +1545,7 @@ proc dialogs() =
   if showSendFile and sendTo != nil:
     if fileDialog(showSendFile, sendPath, fmOpen, ["All Files (*.*)"], title = "Send a File"):
       sendFile(sendTo, sendPath)
-  aboutBox(showAbout, "Retro Communicator", "1.2",
+  aboutBox(showAbout, "Retro Communicator", "1.3",
            ["An instant messenger on XMPP: any public server, any XMPP app.",
             "Developed by Sultan Al Isaiee @foxoman"])
 

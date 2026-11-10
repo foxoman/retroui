@@ -566,9 +566,9 @@ the APKs a phone gets: `java -jar bundletool.jar build-apks
 - **One activity:** the manifest makes the activity its task's only one
   (`singleTask`), so starting the app again -- its icon, an intent,
   `adb shell am start` -- brings it back as it was. The app's start runs
-  once at a time in a process: an activity made beside a running app
-  closes, and an app that ended starts again in the next one with the
-  first run's cycles collected.
+  once at a time in a process: a running app goes on in an activity made
+  beside it or in its place (the old one finishes), and an app that ended
+  starts again in the next one with the first run's cycles collected.
 - **Permissions:** `retroapk` reads what the app's compiled code uses --
   the camera, the microphone, notifications, the place, a buzz, the
   network -- and lists those permissions in the manifest by itself (it says

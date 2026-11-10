@@ -2880,6 +2880,88 @@ template panel*(height: int; body: untyped) =
   body
   endPanel()
 
+# ---- rows in view -------------------------------------------------------------------------------
+
+type RowsMemo = ref object
+  pitch: int              ## same height: a row's height and the gap after it, as drawn
+  heights: seq[int32]     ## varying: each row's, when it was last drawn (0: not yet)
+
+var rowsMemo: Table[Id, RowsMemo]
+
+iterator visibleRows*(n: int; rowH = -1; key = ""; varying = false): int =
+  ## The rows `0 ..< n` that are in view, to draw in the loop's body: in a
+  ## `panel`, `scrollPanel`, `pane` or the page, a list you draw yourself
+  ## costs what is on the screen, not its length (3,000 labels, a release
+  ## build: 1.5 ms a frame drawn all, under 0.1 ms so; `tests/test_rows.nim`
+  ## measures it). The others keep their room, so
+  ## the scroll bar and what comes after are where they would be.
+  ##
+  ## Each row is what the body places in the column for its index, the same
+  ## height each (`rowH`: its cells' height, `ItemH` when -1; measured as
+  ## drawn) or, `varying`, its own -- text that wraps, a message with a
+  ## picture: each row's is kept from the last time it was drawn, `rowH`
+  ## guessed for those not drawn yet. `key` tells several lists apart.
+  ## Rows not drawn take no focus, no Tab stop; never `break` out of it (the
+  ## room of the rows after would be lost). In a `row` it draws them all.
+  ##
+  ## .. code-block:: nim
+  ##   panel:
+  ##     for i in visibleRows(lines.len, key = "log"):
+  ##       withId(i): label(lines[i])
+  let est = (if rowH > 0: rowH else: ItemH) + Gap
+  if n > 0 and not inColumn():
+    for i in 0 ..< n: yield i
+  elif n > 0:
+    let id = makeId(fnv("visible-rows" & key))
+    var m = rowsMemo.getOrDefault(id)
+    if m == nil:
+      m = RowsMemo()
+      rowsMemo[id] = m
+    # (a row's height is kept until it is drawn again: wider or narrower,
+    # the rows in view are measured anew, the others as they were)
+    let clip = clipRect()
+    let top0 = layoutY()
+    var changed = false
+    if not varying:
+      let p = if m.pitch > 0: m.pitch else: est
+      let first = clamp((clip.y - top0) div p, 0, n)
+      let last = if clip.y + clip.h <= top0: -1
+                 else: min(n - 1, (clip.y + clip.h - top0 - 1) div p)
+      skipDown(first * p)
+      for i in first .. last:
+        let y0 = layoutY()
+        yield i
+        let got = layoutY() - y0
+        if i == first and got > 0 and got != m.pitch:   # (the first one's: all alike)
+          m.pitch = got
+          changed = true
+      skipDown((n - max(last + 1, first)) * p)
+    else:
+      if m.heights.len != n: m.heights.setLen(n)
+      var y = top0
+      var i = 0
+      while i < n:                        # (the rows above the view: room only)
+        let h = if m.heights[i] > 0: int(m.heights[i]) else: est
+        if y + h - Gap > clip.y: break
+        y += h
+        inc i
+      skipDown(y - top0)
+      while i < n and layoutY() < clip.y + clip.h:
+        let y0 = layoutY()
+        yield i
+        let got = layoutY() - y0
+        if got > 0 and got != int(m.heights[i]):
+          if m.heights[i] != 0 or got != est: changed = true
+          m.heights[i] = int32(got)
+        inc i
+      var rest = 0
+      while i < n:
+        rest += (if m.heights[i] > 0: int(m.heights[i]) else: est)
+        inc i
+      skipDown(rest)
+    # (a guess that was wrong: once more, where the rows really are)
+    if changed: ui.redraw = true
+
 template pane*(height: int; body: untyped) =
   ## An area `height` pixels high on the dialog's face (no frame) whose
   ## content scrolls when it is taller: the pages of a dialog that keeps its

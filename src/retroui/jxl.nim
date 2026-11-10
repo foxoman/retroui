@@ -1305,9 +1305,10 @@ proc readTree(r: var Bits; limit: int): MATree =
       let mulLog = int(c.hybrid(rd, r, 4))
       if mulLog >= 31: fail("damaged JPEG XL (tree)")
       let mulBits = int(c.hybrid(rd, r, 5))
-      if mulBits >= (1 shl (31 - mulLog)) - 1: fail("damaged JPEG XL (tree)")
+      # (in 64 bits: 1 shl 31 is no int where int has 32 bits)
+      if int64(mulBits) >= (1'i64 shl (31 - mulLog)) - 1: fail("damaged JPEG XL (tree)")
       result.nodes.add TreeNode(prop: -1, ctx: leaves, pred: int32(pred), offset: off,
-                                mult: int64((mulBits + 1) shl mulLog))
+                                mult: (int64(mulBits) + 1) shl mulLog)
       inc leaves
     else:
       let split = unpackSigned(c.hybrid(rd, r, 0))

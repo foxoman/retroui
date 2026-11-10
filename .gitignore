@@ -13,6 +13,7 @@ __pycache__/
 examples/*
 !examples/*.nim
 !examples/*.nims
+!examples/README.md
 !examples/*/
 examples/build/
 tests/*

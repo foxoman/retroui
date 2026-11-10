@@ -449,7 +449,7 @@ and the user's UI size (`setUiScale`). 1 stays 1.
 
 ### Scrolling: scrollPanel, panel, pane
 
-The window's page scrolls by itself. `scrollPanel(height)` scrolls a part of it, in a frame; `panel` is a framed white page down to the bottom (a page beside a tree, as in File Manager); `pane` scrolls on the dialog's face. `withId` gives the rows drawn by a loop ids of their own.
+The window's page scrolls by itself. `scrollPanel(height)` scrolls a part of it, in a frame; `panel` is a framed white page down to the bottom (a page beside a tree, as in File Manager); `pane` scrolls on the dialog's face. `withId` gives the rows drawn by a loop ids of their own. Rows you draw yourself cost on every frame, each one: `visibleRows` draws only those in view and keeps the others' room, so a list of thousands costs what fits on the screen.
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -460,7 +460,7 @@ var scrollChecks = newSeq[bool](20)
 
 label "Twenty rows in 100 pixels:"
 scrollPanel 100:
-  for i in 0 ..< scrollChecks.len:
+  for i in visibleRows(scrollChecks.len):
     withId(i):
       checkbox("Item " & $(i + 1), scrollChecks[i])
 ```
@@ -495,6 +495,31 @@ template pane*(height: int; body: untyped)
 An area `height` pixels high on the dialog's face (no frame) whose
 content scrolls when it is taller: the pages of a dialog that keeps its
 size (Preferences).
+
+```nim
+iterator visibleRows*(n: int; rowH = -1; key = ""; varying = false): int
+```
+
+The rows `0 ..< n` that are in view, to draw in the loop's body: in a
+`panel`, `scrollPanel`, `pane` or the page, a list you draw yourself
+costs what is on the screen, not its length (3,000 labels, a release
+build: 1.5 ms a frame drawn all, under 0.1 ms so; `tests/test_rows.nim`
+measures it). The others keep their room, so
+the scroll bar and what comes after are where they would be.
+
+Each row is what the body places in the column for its index, the same
+height each (`rowH`: its cells' height, `ItemH` when -1; measured as
+drawn) or, `varying`, its own -- text that wraps, a message with a
+picture: each row's is kept from the last time it was drawn, `rowH`
+guessed for those not drawn yet. `key` tells several lists apart.
+Rows not drawn take no focus, no Tab stop; never `break` out of it (the
+room of the rows after would be lost). In a `row` it draws them all.
+
+```nim
+panel:
+  for i in visibleRows(lines.len, key = "log"):
+    withId(i): label(lines[i])
+```
 
 ```nim
 proc revealInPanel*(r: Rect; glide = true)

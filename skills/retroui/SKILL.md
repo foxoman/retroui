@@ -118,6 +118,17 @@ line.
   `setTabLook`, `setUiScale` are cheap every frame: only a change draws
   again -- a call of your own that sets `ui.redraw` or `wakeIn` every frame
   keeps the app busy for nothing.
+- **Long lists you draw yourself:** a `for` loop of labels or rows costs
+  every row on every frame (and a key or a click runs the frame twice).
+  For thousands, draw them with `visibleRows` inside a `panel` or
+  `scrollPanel`: only the rows in view are drawn, the others keep their
+  room (`varying = true` for rows of their own heights, a chat's wrapped
+  lines). Or use `grid` / `listbox`, which do it themselves.
+  ```nim
+  panel:
+    for i in visibleRows(lines.len, key = "log", varying = true):
+      withId(i): paragraph(lines[i])
+  ```
 - **Check it at rest:** `RETRO_SMOKE=14 ./app` starts it for real, times
   the first frame (`firstFrameMs()`), measures 3 seconds untouched, then
   clicks and types until 14 s; it ends 0 (ok), 1 (a fault) or 2 (busy

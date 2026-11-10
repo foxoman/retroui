@@ -33,7 +33,7 @@ This adds two phone drivers (Android and iOS), pen input for the desktop drivers
     - Rectangles, lines, points and RGBA pictures; text in the system font, which shapes Arabic.
     - The clipboard, links, and OpenGL ES through EGL.
     - It runs with a plain `NativeActivity`. `drivers/android/UiRelaysActivity.java` is an optional subclass that adds text without key codes, the on-screen keyboard, insets and system-bar colors.
-    - `NimMain` runs once at a time in a process: an activity made while the app runs is closed, the callbacks of an activity that is no longer the app's are ignored, and when `NimMain` returns the cycle collector's roots of its thread are collected (`uirelays_main_ended`), so an app started again in the same process never reads the first thread's root list. The manifest should make the activity `singleTask`.
+    - `NimMain` runs once at a time in a process: a running app goes on in an activity made while it runs (the old one gives up its window and input, then finishes), the callbacks of an activity that is no longer the app's are ignored, and when `NimMain` returns the cycle collector's roots of its thread are collected (`uirelays_main_ended`), so an app started again in the same process never reads the first thread's root list. The manifest should make the activity `singleTask`.
 15. **iOS driver (UIKit).** Touch, the keyboard, hardware keys, the clipboard and CoreText text. It shares `surface_driver.nim` with Android.
 16. **README and doc/drivers.md:** the new relays, events and layout fields, and how to build for Android and iOS.
 

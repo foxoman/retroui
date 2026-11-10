@@ -170,7 +170,9 @@ proc resetBits(d: var Decoder) =
 # ---- the IDCT --------------------------------------------------------------------------
 
 # The integer IDCT of stb_image (after the IJG's jidctint): 12-bit fixed
-# point, columns then rows, the rows written as clamped bytes.
+# point, columns then rows, the rows written as clamped bytes. In 64 bits
+# where `int` has 32 (WebAssembly, 32-bit programs): a broken file's
+# coefficients overflow 32 bits, which C leaves undefined.
 
 const
   c0541 = 2217     ## round(0.5411961 * 4096) ...
@@ -186,9 +188,9 @@ const
   c1961 = -8034
   c0390 = -1597
 
-template idct1d(s0, s1, s2, s3, s4, s5, s6, s7: int;
+template idct1d(s0, s1, s2, s3, s4, s5, s6, s7: int64;
                 t0, t1, t2, t3, x0, x1, x2, x3: untyped) =
-  var t0, t1, t2, t3, x0, x1, x2, x3: int
+  var t0, t1, t2, t3, x0, x1, x2, x3: int64
   block:
     var p2 = s2
     var p3 = s6
@@ -225,21 +227,21 @@ template idct1d(s0, s1, s2, s3, s4, s5, s6, s7: int;
     t1 += p2 + p4
     t0 += p1 + p3
 
-template clampByte(v: int): uint8 =
+template clampByte(v: int64): uint8 =
   (let x = v; if x < 0: 0'u8 elif x > 255: 255'u8 else: uint8(x))
 
 {.push boundChecks: off, overflowChecks: off.}
 proc idct(blk: array[64, int32]; outp: var seq[uint8]; at, stride: int) =
   ## Dequantized coefficients (natural order) -> 8x8 pixels at `at`.
-  var v: array[64, int]
+  var v: array[64, int64]
   for i in 0 .. 7:                               # columns
     if blk[8 + i] == 0 and blk[16 + i] == 0 and blk[24 + i] == 0 and
        blk[32 + i] == 0 and blk[40 + i] == 0 and blk[48 + i] == 0 and blk[56 + i] == 0:
-      let dc = int(blk[i]) * 4                   # (most columns are only that)
+      let dc = int64(blk[i]) * 4                 # (most columns are only that)
       for k in 0 .. 7: v[k * 8 + i] = dc
     else:
-      idct1d(int(blk[i]), int(blk[8 + i]), int(blk[16 + i]), int(blk[24 + i]),
-             int(blk[32 + i]), int(blk[40 + i]), int(blk[48 + i]), int(blk[56 + i]),
+      idct1d(int64(blk[i]), int64(blk[8 + i]), int64(blk[16 + i]), int64(blk[24 + i]),
+             int64(blk[32 + i]), int64(blk[40 + i]), int64(blk[48 + i]), int64(blk[56 + i]),
              t0, t1, t2, t3, x0, x1, x2, x3)
       x0 += 512; x1 += 512; x2 += 512; x3 += 512
       v[i] = (x0 + t3) shr 10

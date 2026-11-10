@@ -3636,10 +3636,11 @@ proc vp8Bitstream(px: openArray[uint32]; w, h, quality: int; opaqueOnly: bool): 
   let qI4 = avgQ(y1)
   let qI16 = avgQ(y2)
   let qUv = avgQ(uvq)
-  let lambdaI4 = max(1, (3 * qI4 * qI4) shr 7)
-  let lambdaI16 = max(1, 3 * qI16 * qI16)
-  let lambdaUv = max(1, (3 * qUv * qUv) shr 6)
-  let lambdaMode = max(1, (qI4 * qI4) shr 7)
+  # (the scores in 64 bits: a cost times a lambda passes 2^31 where int has 32)
+  let lambdaI4 = int64(max(1, (3 * qI4 * qI4) shr 7))
+  let lambdaI16 = int64(max(1, 3 * qI16 * qI16))
+  let lambdaUv = int64(max(1, (3 * qUv * qUv) shr 6))
+  let lambdaMode = int64(max(1, (qI4 * qI4) shr 7))
   var probas: array[1056, uint8]
   for i in 0 ..< 1056: probas[i] = coeffsProba0[i]
   var cs = CostSink(probas: cast[ptr UncheckedArray[uint8]](addr probas[0]))
@@ -3709,7 +3710,7 @@ proc vp8Bitstream(px: openArray[uint32]; w, h, quality: int; opaqueOnly: bool): 
         copyMem(addr s[VOff + j * Bps], addr srcV[(mbY * 8 + j) * uvStride + mbX * 8], 8)
       let dcVariant = if mbX == 0: (if mbY == 0: 6 else: 5) else: (if mbY == 0: 4 else: 0)
       # -- 16x16 --
-      var best16Score = high(int)
+      var best16Score = high(int64)
       var best16R, best16D = 0
       var lv16: array[17, array[16, int16]]   # 16 AC blocks, the Y2 block last
       var last16: array[17, int]
@@ -3747,7 +3748,7 @@ proc vp8Bitstream(px: openArray[uint32]; w, h, quality: int; opaqueOnly: bool): 
           let f = last[n] >= 0
           tnz[x] = f
           lnz[y] = f
-        let score = cs.cost * lambdaI16 + 256 * d
+        let score = int64(cs.cost) * lambdaI16 + 256 * int64(d)
         if score < best16Score:
           best16Score = score
           best16R = cs.cost
@@ -3757,8 +3758,8 @@ proc vp8Bitstream(px: openArray[uint32]; w, h, quality: int; opaqueOnly: bool): 
           last16 = last
           copyBlock(p, YOff, b16, YOff, 16, 16)
       # -- 4x4 --
-      var i4Score = costOf(0, 145) * lambdaMode
-      let i16Final = best16R * lambdaMode + 256 * best16D
+      var i4Score = int64(costOf(0, 145)) * lambdaMode
+      let i16Final = int64(best16R) * lambdaMode + 256 * int64(best16D)
       var i4Wins = true
       var modes4: array[16, uint8]
       var lv4: array[16, array[16, int16]]
@@ -3773,7 +3774,7 @@ proc vp8Bitstream(px: openArray[uint32]; w, h, quality: int; opaqueOnly: bool): 
           let top = if y == 0: int(intraT[4 * mbX + x]) else: int(modes4[n - 4])
           let left = if x == 0: int(intraL[y]) else: int(modes4[n - 1])
           let ctx = ord(tnz[x]) + ord(lnz[y])
-          var bestS = high(int)
+          var bestS = high(int64)
           var bestR, bestD, bestM = 0
           var bestLv: array[16, int16]
           var bestLast = -1
@@ -3788,7 +3789,7 @@ proc vp8Bitstream(px: openArray[uint32]; w, h, quality: int; opaqueOnly: bool): 
             let d = sse(s, d0, p, d0, 4, 4)
             cs.cost = i4Costs[(top * 10 + left) * 10 + mode]
             emitCoeffs(cs, 3, ctx, lv, 0, last)
-            let sc = cs.cost * lambdaI4 + 256 * d
+            let sc = int64(cs.cost) * lambdaI4 + 256 * int64(d)
             if sc < bestS:
               bestS = sc
               bestR = cs.cost
@@ -3804,7 +3805,7 @@ proc vp8Bitstream(px: openArray[uint32]; w, h, quality: int; opaqueOnly: bool): 
           let f = bestLast >= 0
           tnz[x] = f
           lnz[y] = f
-          i4Score += bestR * lambdaMode + 256 * bestD
+          i4Score += int64(bestR) * lambdaMode + 256 * int64(bestD)
           if i4Score >= i16Final:
             i4Wins = false
             break i4
@@ -3835,7 +3836,7 @@ proc vp8Bitstream(px: openArray[uint32]; w, h, quality: int; opaqueOnly: bool): 
           intraT[4 * mbX + k] = uint8(bestMode16)
           intraL[k] = uint8(bestMode16)
       # -- chroma --
-      var bestUv = high(int)
+      var bestUv = high(int64)
       var uvBest: array[2 * 8 * Bps, uint8]   # U rows then V rows, Bps apart
       var lvUv: array[8, array[16, int16]]
       var lastUv: array[8, int]
@@ -3865,7 +3866,7 @@ proc vp8Bitstream(px: openArray[uint32]; w, h, quality: int; opaqueOnly: bool): 
             tnz[x] = last[k] >= 0
             lnz[y] = last[k] >= 0
           d += sse(s, base, p, base, 8, 8)
-        let sc = cs.cost * lambdaUv + 256 * d
+        let sc = int64(cs.cost) * lambdaUv + 256 * int64(d)
         if sc < bestUv:
           bestUv = sc
           modeUv = mode

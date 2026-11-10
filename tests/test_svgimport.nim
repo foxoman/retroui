@@ -306,7 +306,10 @@ block:
   fan.add "</defs><use href='#u12'/>"
   let t0 = getMonoTime()
   tryAll(svg(fan))                                       # (10^12 uses: cut short)
-  doAssert (getMonoTime() - t0).inMilliseconds < 20_000
+  # (a bound for a blow-up, not a speed: under ASan and UBSan -- the nightly
+  # job sets ASAN_OPTIONS -- each step is many times slower)
+  let bound = if getEnv("ASAN_OPTIONS").len > 0 or getEnv("UBSAN_OPTIONS").len > 0: 150_000 else: 20_000
+  doAssert (getMonoTime() - t0).inMilliseconds < bound
   var lol = "<?xml version='1.0'?><!DOCTYPE svg [<!ENTITY a \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\">"
   lol.add "<!ENTITY b \"&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;\"><!ENTITY c \"<g>&b;&b;&b;&b;&b;&b;&b;&b;</g>\">]>"
   lol.add svg(repeat("&c;", 2000))
