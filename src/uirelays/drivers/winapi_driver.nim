@@ -2616,7 +2616,8 @@ proc winWaitEvent(e: var input.Event; timeoutMs: int;
       if GetTickCount64() >= deadline: return false
 
 proc winGetClipboardText(): string =
-  if OpenClipboard(gHwnd) == 0: return ""
+  result = ""   # (a value at once: else Nim 2.2 frees not what the loop made when `result =` gives another)
+  if OpenClipboard(gHwnd) == 0: return
   let hData = GetClipboardData(CF_UNICODETEXT)
   if hData != nil:
     let p = cast[ptr UncheckedArray[uint16]](GlobalLock(cast[HGLOBAL](hData)))
