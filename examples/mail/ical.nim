@@ -430,6 +430,7 @@ proc knownZone(tzid: string): seq[Observance] =
 proc zoneOf(tzid: string; cal: IcalComp): seq[Observance] =
   ## A TZID's observances: the calendar's VTIMEZONE, else a known zone;
   ## none when it is not known.
+  result = @[]         # (a value at once: see tools/writecheck.py)
   if not cal.isNil:
     for vcal in (if cal.name == "VCALENDAR": @[cal] else: cal.children("VCALENDAR") & @[cal]):
       for tz in vcal.children("VTIMEZONE"):
@@ -514,6 +515,7 @@ proc escapeText*(s: string): string =
 proc paramValue*(s: string): string =
   ## A parameter value as written: quoted when it holds : ; or , (double
   ## quotes and line breaks cannot be in one: left out).
+  result = ""         # (a value at once: see tools/writecheck.py)
   for c in s:
     if c != '"' and ord(c) >= 32 and c != '\x7F': result.add c
   if result.contains({':', ';', ','}): result = "\"" & result & "\""

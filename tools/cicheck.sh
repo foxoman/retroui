@@ -31,6 +31,7 @@ step() {
   fi
 }
 step returncheck python3 tools/returncheck.py
+step writecheck python3 tools/writecheck.py
 step docscheck python3 tools/docscheck.py
 step controlscheck python3 tools/controlscheck.py
 if [ "$quick" = quick ]; then

@@ -23,6 +23,7 @@ import glob
 import os
 import re
 import sys
+import subprocess
 
 ROOT = os.getcwd()
 PAGES = (["README.md", "BUILDING.md", "AGENTS.md", "llms.txt", "SECURITY.md",
@@ -94,17 +95,26 @@ for page, t in texts.items():
             problems.append(f"{page}: `retrokit {w}` is no command")
 
 # ---- files and folders ----------------------------------------------------------------------
+def made(p):
+    """a path git ignores is made by a build (docs/api: `nimble docs`): not looked for"""
+    try:
+        # (a folder that is not there yet is asked for with its slash)
+        return subprocess.run(["git", "check-ignore", p, p.rstrip("/") + "/"], cwd=ROOT,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+    except OSError:
+        return False
+
 for page, t in texts.items():
     for m in re.finditer(r"(?<![\w/.-])((?:src|tests|tools|examples|docs|skills|\.github)/[\w./*-]+)", t):
         p = m.group(1).rstrip(".,:;)")
         if "*" in p or p.endswith("/"):
             base = p.split("*")[0].rstrip("/")
-            if base and not os.path.exists(base) and not glob.glob(base + "*"):
+            if base and not os.path.exists(base) and not glob.glob(base + "*") and not made(base):
                 problems.append(f"{page}: {p}: no such files")
             continue
         if "NAME" in p or "APP" in p or "XXX" in p or p.endswith("_"):
             continue
-        if not os.path.exists(p) and not os.path.exists(p.rsplit("#", 1)[0]):
+        if not os.path.exists(p) and not os.path.exists(p.rsplit("#", 1)[0]) and not made(p):
             problems.append(f"{page}: {p}: no such file")
 
 # ---- calls ----------------------------------------------------------------------------------

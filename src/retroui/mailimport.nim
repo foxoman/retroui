@@ -470,6 +470,7 @@ proc storeCodepage(list: seq[DbxFolderInfo]; files: Table[string, string]; given
   if sys.len > 0: sys else: "windows-1252"
 
 proc cleanFolderName(s: string): string =
+  result = ""         # (a value at once: see tools/writecheck.py)
   for c in s:
     if c in {'/', '\\'}: result.add '-'
     elif ord(c) >= 32 and c != '\x7F': result.add c
@@ -612,6 +613,7 @@ proc idxBeside(path: string): string =
 proc mbxRecords(s: var Store; path: string): seq[MbxRecord] =
   ## The messages of an Outlook Express 4 mailbox: as its .idx lists them
   ## when it has one that agrees with it, else every record in it.
+  result = @[]         # (a value at once: see tools/writecheck.py)
   if not isMbx(s.readAt(0, 8)): return
   var ok = false
   let idx = idxBeside(path)

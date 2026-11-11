@@ -672,7 +672,9 @@ block bigDocument:
     key(KeyDown)
     run()
     worst = max(worst, (getMonoTime() - t0).inMicroseconds.float / 1000)
-  doAssert worst < 60, "a keystroke in a 2000-paragraph mail: " & $worst & " ms"
+  # (the sanitizers make it some 7 times slower)
+  doAssert worst < (when defined(retroSanitized): 400 else: 60),
+    "a keystroke in a 2000-paragraph mail: " & $worst & " ms"
   echo "  2000 paragraphs: worst keystroke frame ", worst, " ms"
   ctrl(KeyEnd)
   run()

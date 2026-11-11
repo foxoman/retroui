@@ -387,6 +387,7 @@ proc tableLines(c: var Conv; n: HNode; depth: int): seq[string] =
     result.add line(newSeq[string](ncols))
 
 proc blockOf(c: var Conv; n: HNode; depth, nest: int): seq[string] =
+  result = @[]         # (a value at once: see tools/writecheck.py)
   if c.size > MaxOut or n.tag in skipTags: return
   if depth > MaxDepth:
     var st = Inl(lastSpace: true)
@@ -566,7 +567,8 @@ proc htmlImagesChanged*() =
 proc decodePicture(data: string): Bitmap =
   ## PNG, JPEG, GIF (its first frame), BMP or WebP bytes; nil when they are
   ## none of these, or damaged.
-  if data.len < 8: return nil
+  result = nil         # (a value at once: see tools/writecheck.py)
+  if data.len < 8: return
   try:
     if data.startsWith("\x89PNG"): result = decodePng(data)
     elif data[0] == '\xFF' and data[1] == '\xD8': result = decodeJpeg(data)

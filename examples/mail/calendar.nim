@@ -266,7 +266,8 @@ proc googleEventJson*(e: EventDraft; parts = AllParts; requestId = ""; patch = f
 
 proc textOfHtml(s: string): string =
   ## A description written as HTML (Google Calendar's own) as text.
-  if "</" notin s and "<br" notin s.toLowerAscii: return s
+  result = ""         # (a value at once: see tools/writecheck.py)
+  if "</" notin s and "<br" notin s.toLowerAscii: result = s; return
   var i = 0
   while i < s.len:
     if s[i] == '<':

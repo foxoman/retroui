@@ -66,13 +66,24 @@ type
 
 when compileOption("threads"):
   var workers: seq[Thread[void]]
+type
+  Shared = object
+    todo: seq[Job]                 # guarded by lock
+    active: seq[Job]               # guarded by lock: being downloaded
+    done: seq[FetchResult]         # guarded by lock
+    paused: bool                   # guarded by lock
+
+# (never freed: a worker may still be at work as the program ends, after Nim
+# has destroyed the program's globals -- these are not among them)
+let sh = cast[ptr Shared](allocShared0(sizeof(Shared)))
+template todo: untyped = sh.todo
+template active: untyped = sh.active
+template done: untyped = sh.done
+template paused: untyped = sh.paused
+
 var
   lock: Lock
   cond: Cond
-  todo: seq[Job]                   # guarded by lock
-  active: seq[Job]                 # guarded by lock: being downloaded
-  done: seq[FetchResult]           # guarded by lock
-  paused = false                   # guarded by lock
   started = false
   # UI thread only:
   ready: seq[FetchResult]          # handed over by the next `fetchDone`

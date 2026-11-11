@@ -510,6 +510,7 @@ when not defined(windows) and not defined(macosx) and not defined(ios):
       w
 
   proc utf8Word(c: Checker; w: string): string =
+    result = ""         # (a value at once: see tools/writecheck.py)
     var ok = false
     if c.fromDict != nil:
       result = convert(c.fromDict, w, ok)

@@ -428,6 +428,7 @@ proc cell(s: SheetIn; r, c: int): string =
 
 proc normNo(s: string): string = s.toUpperAscii.replace(" ", "").replace("-", "").replace("/", "")
 proc digitsOf(s: string): string =
+  result = ""         # (a value at once: see tools/writecheck.py)
   for c in s:
     if c in {'0'..'9'}: result.add c
   result = result.strip(trailing = false, chars = {'0'})

@@ -21,7 +21,7 @@ discard dk.addGroup(1, [dockPanel("history", "History", nfHistory), dockPanel("a
 discard dk.addGroup(1, [dockPanel("info", "Info", nfInfo)])
 
 var drawn: seq[string]
-var ev: DockEvent
+var ev = DockEvent()
 view = proc () =
   drawn.setLen(0)
   if beginMdi(-1, "ws"):

@@ -141,6 +141,7 @@ proc truthy(v: JsonNode): bool =
 
 proc grouped(s: string): string =
   ## "1234567" -> "1,234,567"
+  result = ""         # (a value at once: see tools/writecheck.py)
   let neg = s.startsWith('-')
   let d = if neg: s[1 .. ^1] else: s
   for i, c in d:
@@ -347,7 +348,8 @@ proc arCounted(n: int64; one, two, few, many: string; feminine = false): string 
 proc amountWords*(v: float; cur = omaniRial; arabic = false): string =
   ## An amount in words: 790.5 -> "Seven Hundred Ninety Omani Rials and Five
   ## Hundred Baisa", or (`arabic`) "سبعمائة وتسعون ريالاً عمانياً وخمسمائة بيسة".
-  if v.isNaN or abs(v) > 1e15: return ""
+  result = ""         # (a value at once: see tools/writecheck.py)
+  if v.isNaN or abs(v) > 1e15: return
   let units = max(1, cur.minorUnits)
   let total = int64(round(abs(v) * float(units)))
   let major = total div units

@@ -530,11 +530,17 @@ proc runTile(job: TileJob): TileDone =
 # ---- the workers -------------------------------------------------------------------------
 
 when compileOption("threads"):
+  type TileShared = object
+    todo: seq[TileJob]
+    done: seq[TileDone]
+  # (never freed: a worker may still be at work as the program ends, after
+  # Nim has destroyed the program's globals -- these are not among them)
+  let tileSh = cast[ptr TileShared](allocShared0(sizeof(TileShared)))
+  template tileTodo: untyped = tileSh.todo
+  template tileDone: untyped = tileSh.done
   var
     tileLock: Lock
     tileReady: Cond
-    tileTodo: seq[TileJob]
-    tileDone: seq[TileDone]
     tileThreads: seq[Thread[void]]
     tileStarted = false
 

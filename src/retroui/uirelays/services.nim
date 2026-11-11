@@ -226,6 +226,7 @@ proc standardFolder*(which: string): string =
   ## user-dirs.dirs), moved to another drive or to OneDrive (Windows' Known
   ## Folders); the usual name in the home folder on a Mac. "" when there is
   ## none.
+  result = ""   # (a value at once: else Nim 2.2 frees not what the loop made when `result =` gives another)
   let key = which.toLowerAscii
   when defined(windows):
     const ids = [

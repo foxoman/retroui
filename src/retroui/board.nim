@@ -1662,7 +1662,7 @@ proc buildDrawing(b: Board; s: Shape): Drawing =
         tc = (if lum > 150: 0xFF1D1D1D'u32 else: 0xFFFFFFFF'u32).withAlpha(s.opacity)
       b.labelFrame(s).textPieces(s.text, tc, result.pieces)
   of skArrow, skLine:
-    var path: seq[V]
+    var path: seq[V] = @[]
     if s.kind == skArrow: path = b.arrowPath(s)
     else:
       for p in s.pts: path.add s.toPage(p.x.float, p.y.float)

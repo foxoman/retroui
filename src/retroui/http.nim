@@ -645,21 +645,22 @@ proc httpRequest*(meth, url: string; headers: openArray[(string, string)] = [];
   ## short ("data/prices.json"), and another site must allow the page (CORS).
   ## With `followRedirects` off a redirect (301, 302...) comes back as it
   ## is. Any thread may call it, many at once.
+  result = HttpResponse()         # (a value at once: see tools/writecheck.py)
   var meth = meth.toUpperAscii
   if meth.len == 0 or not meth.allCharsInSet({'A'..'Z', '-', '_'}):
-    return failed("bad method: " & meth)
+    result = failed("bad method: " & meth); return
   var url = cleanUrl(url)
   when defined(wasm):
     # (in a web page an address of its own site may be short: "data/x.json")
     if "://" notin url and url.len > 0: url = pageUrl(url)
   let lower = url.toLowerAscii
   if not (lower.startsWith("http://") or lower.startsWith("https://")):
-    return failed("not a web address: " & url)
+    result = failed("not a web address: " & url); return
   var hs: seq[(string, string)]
   for (k, v) in headers:
     if headerOk(k, v): hs.add (k, v)
     elif cmpIgnoreCase(k, "Content-Length") != 0:
-      return failed("bad header: " & k)
+      result = failed("bad header: " & k); return
   when defined(windows):
     # redirects by hand: WinHTTP would send the Authorization on to any host
     var body = body

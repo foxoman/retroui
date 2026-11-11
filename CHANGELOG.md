@@ -1,5 +1,47 @@
 # Changes
 
+## 0.39.0
+
+Memory that was never freed, a crash as a program ends, Up twice in Retro
+Files, and the CI green again: some 70 places where Nim 2.2 kept a value
+it should have freed, found by a new check that GitHub runs on every
+push; the background workers' queues kept to the program's very end.
+
+- **Nim 2.2's third leak** (`docs/nim-bugs.md`, 5, ready to report: it is
+  in Nim's devel too): `var x: T` declared without a value, given one in
+  an `if` or filled in a loop, then given another -- the first is never
+  freed; `result` the same. It was in a chart's areas and treemaps (their
+  points, every frame), the names a screen reader or the inspector is
+  given (every frame), Retro Board's smooth lines, the font's hinting of
+  stems, numbers grouped in a report's templates, an SVG's dash lists,
+  Retro Photo's layer from a file (the whole file kept), Content-Aware
+  Scale's masks, a smart object's contents, the edge tracer's small copy,
+  Retro Mail's calendar and sync, HR Book's importer. Each now has its
+  value where it is declared (`result` one at the proc's start).
+  `python3 tools/writecheck.py` finds the shape (0 now; your own files:
+  `python3 path/to/retroui/tools/writecheck.py app.nim src/`); the CI runs
+  it with `returncheck.py`.
+- **A program's end:** a worker that finished a picture, a listing, a
+  download, a map tile, a place's address or a font as the program ended
+  wrote into a queue Nim had already freed (AddressSanitizer: a use after
+  free in `test_memcache`, now and then). The queues of
+  `retroui/background`, `assetfetch`, `tilemap`, `geo` and `unpacking`
+  are kept to the very end.
+- **An SVG's dash list** of an odd count read freed memory as it doubled
+  itself.
+- **Retro Files 3.3.10, the column view:** Left pressed twice (or Up
+  twice) before the folder above was listed went up one folder only; it
+  goes up two now, from the folder on its way, and Back comes back the
+  same way. (Seen on the CI's 32-bit run, where the listing came late.)
+- **The CI:** the docs check took `docs/api` -- made by `nimble docs`,
+  not kept in git -- for missing, and failed every push since 0.37.0
+  (what git ignores is made by a build: not looked for). The nightly run's
+  sanitizers, which make a program 7 times slower and keep freed memory a
+  while, no longer fail the memory soak's ceiling, the fuzzers' and a
+  keystroke's time limits (`-d:retroSanitized`).
+- Retro Photo 4.9.12, Retro Files 3.3.10, Retro Board 1.3.10, Retro Mail
+  1.1.4, HR Book 0.2.5; the gallery and the small examples 0.39.0.
+
 ## 0.38.0
 
 The keyboard, a finger and the start of every app: a tool bar one stop of

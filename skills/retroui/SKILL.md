@@ -561,3 +561,9 @@ with much less memory. Details per OS in BUILDING.md.
   held. Write `result = x; return`, or build the value in a local and set
   `result` once at the end. The kit's `tools/returncheck.py` finds them:
   `python3 path/to/retroui/tools/returncheck.py app.nim src/`.
+- `var x: seq[T]` (a string, a picture, an object of them) declared without
+  a value, given one in an `if` or filled in a loop, and then given another
+  (`x = sorted(x)`, `x = @[]`): Nim 2.2 never frees the first. The same for
+  `result`. Give `x` its value where it is declared (`var x: seq[T] =
+  @[]`), `result` one at the proc's start; `python3
+  path/to/retroui/tools/writecheck.py app.nim src/` finds them.

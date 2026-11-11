@@ -1313,10 +1313,11 @@ proc videoFrameAt*(path: string; ms: int; maxSide = 0): Bitmap {.gcsafe.} =
   ## come quickly (scrubbing, playing through); `closeVideoReader` lets it
   ## go. Android: the system's; Linux: GStreamer (an exact seek each
   ## time), else ffmpeg; Windows, macOS: ffmpeg when installed.
+  result = nil         # (a value at once: see tools/writecheck.py)
   {.cast(gcsafe).}:
     try:
-      if mediaThroughSystem: return systemFrameAt(path, ms, maxSide)
-      if not fileExists(path): return nil
+      if mediaThroughSystem: result = systemFrameAt(path, ms, maxSide); return
+      if not fileExists(path): result = nil; return
       withLock readLock:
         if useGst():
           result = gstFrameAt(path, ms, maxSide)
@@ -1348,6 +1349,7 @@ const videoExts* = [".mp4", ".mkv", ".avi", ".mov", ".webm", ".wmv", ".3gp", ".m
 proc ffOneFrame(path: string; ms, maxW, maxH: int): Bitmap =
   ## One picture by a short-lived ffmpeg (the file lists' pictures: not the
   ## kept reader, which a scrubbing view may be using).
+  result = nil         # (a value at once: see tools/writecheck.py)
   let r = FfReader(path: path, maxSide: max(maxW, maxH), curT: -1, nextT: -1)
   try:
     if r.start(ms / 1000) and r.advance(): result = r.cur
@@ -1402,10 +1404,11 @@ proc videoFrame*(path: string; maxW, maxH: int): Bitmap {.gcsafe.} =
   ## where it cannot be had (Android, Linux with GStreamer, desktops with
   ## ffmpeg can). Takes a moment: ask for it on a worker (`pictureAsync`,
   ## after `addVideoPreviews`).
+  result = nil         # (a value at once: see tools/writecheck.py)
   {.cast(gcsafe).}:
     try:
       if mediaThroughSystem:
-        if not path.startsWith("/"): return nil
+        if not path.startsWith("/"): return
         let tmp = cacheDir() / "frame-" & toHex(int(hash(path & $getThreadId())) and 0x7FFFFFFF, 8) & ".jpg"
         if systemCall("media.frame", path & "\t" & tmp & "\t" & $max(maxW, maxH)) == "1":
           result = loadPicture(tmp, maxW, maxH)

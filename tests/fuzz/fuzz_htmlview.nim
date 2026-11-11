@@ -121,7 +121,8 @@ for it in 0 ..< iters:
     report($e.name & ": " & e.msg & "\n" & e.getStackTrace(), src)
   let ms = (getMonoTime() - start).inMilliseconds
   slowest = max(slowest, ms)
-  if ms > 1000: report("slow: " & $ms & " ms", src)
+  if ms > (when defined(retroSanitized): 8000 else: 1000):      # (the sanitizers: 7 times slower)
+    report("slow: " & $ms & " ms", src)
   if it mod 5000 == 0 and it > 0:
     echo "round ", it, " (slowest ", slowest, " ms)"
 let all = (getMonoTime() - t0).inMilliseconds

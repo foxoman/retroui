@@ -625,6 +625,7 @@ proc ftsQuery*(typed: string; fold = false): string =
   ## can give a syntax error; with nothing searchable typed it is `""`,
   ## which matches nothing. `fold`: the words go through `ftsText` -- for
   ## an index filled through `fts_text()`, where Arabic is found as typed.
+  result = ""         # (a value at once: see tools/writecheck.py)
   var words: seq[string]
   for w in unicode.splitWhitespace(if fold: ftsText(typed) else: typed):
     var useful = false

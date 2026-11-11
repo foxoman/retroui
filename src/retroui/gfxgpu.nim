@@ -1556,6 +1556,7 @@ proc gpuBlur*(px: openArray[uint32]; w, h: int; radius: float): seq[uint32] =
   ## A Gaussian blur of `radius` pixels worked out by the GPU (its colors
   ## weighed by their alpha); empty when it cannot be (no GPU, too big, a
   ## radius past 40 pixels): the CPU does it then.
+  result = @[]         # (a value at once: see tools/writecheck.py)
   {.cast(gcsafe).}:
     if not gpuFiltersReady() or w <= 0 or h <= 0 or px.len != w * h or radius <= 0.05 or radius > 40: return
     if w > maxTexture() or h > maxTexture(): return
@@ -1617,6 +1618,7 @@ proc gpuColorTable*(px: openArray[uint32]; w, h: int; lut: openArray[uint32]; n:
   ## Each pixel through a table of `n` x `n` x `n` colors (0xRRGGBB, red
   ## slowest), read between them, on the GPU (the alpha kept); empty when it
   ## cannot be.
+  result = @[]         # (a value at once: see tools/writecheck.py)
   {.cast(gcsafe).}:
     if not gpuFiltersReady() or w <= 0 or h <= 0 or px.len != w * h or lut.len != n * n * n or n < 2: return
     if w > maxTexture() or h > maxTexture() or n * n > maxTexture(): return

@@ -1,7 +1,7 @@
-# Two leaks in Nim 2.2 (ORC), an overflow and a cut letter, ready to report
+# Three leaks in Nim 2.2 (ORC), an overflow and a cut letter, ready to report
 
-Retro Nim UI works around the leaks (see `tools/returncheck.py` and
-AGENTS.md) and the cut letter (`import std/unicode except strip`, kept by
+Retro Nim UI works around the leaks (see `tools/returncheck.py`,
+`tools/writecheck.py` and AGENTS.md) and the cut letter (`import std/unicode except strip`, kept by
 `tests/test_hardening.nim`), but they belong in Nim itself, as does the
 overflow. Each report
 below is what goes on https://github.com/nim-lang/Nim/issues: the
@@ -178,6 +178,90 @@ the `strip` a module that imports `std/[strutils, unicode]` calls: a plain
 back over the continuation bytes, 0x80..0xBF, to the letter's first byte
 before reading it). Found when the driver's tree of the control gallery
 was not UTF-8 (a pixel icon's name, U+10F005, cut).
+
+---
+
+## 5. A `var` given a value in a branch or a loop is not freed when it is given another
+
+**Title:** ORC: a variable declared without a value, set in an `if` or a
+loop, leaks that value when it is assigned again
+
+`var x: T` (no value), given one in an `if` without an `else`, a `case`,
+a `try`, or filled in a loop (`x.add`), and then assigned again in the
+block it was declared in: the second assignment copies over the first
+without destroying it. `result` does the same.
+
+```nim
+type R = ref object
+  data: seq[int]
+var made, freed = 0
+proc `=destroy`(x: typeof(R()[])) =
+  inc freed
+  `=destroy`(x.data)
+proc mk(): R =
+  inc made
+  R(data: newSeq[int](10))
+
+proc inBranch(n: int) =
+  var x: R
+  if n > 0: x = mk()
+  x = mk()                        # (the first R is never freed)
+
+proc inLoop(n: int) =
+  var xs: seq[R]
+  for i in 0 ..< n: xs.add mk()
+  xs = @[]                        # (nor the ones the loop added)
+
+proc inResult(n: int): R =
+  if n > 0: result = mk()
+  result = mk()                   # (nor here)
+
+proc withValue(n: int) =
+  var x: R = nil
+  if n > 0: x = mk()
+  x = mk()                        # (freed: x had a value from the start)
+
+for i in 0 ..< 10: inBranch(1)
+echo "var given in an if, then again:  made ", made, ", freed ", freed
+made = 0; freed = 0
+for i in 0 ..< 10: inLoop(1)
+echo "var filled in a loop, then given: made ", made, ", freed ", freed
+made = 0; freed = 0
+for i in 0 ..< 10: discard inResult(1)
+echo "result given in an if, then again: made ", made, ", freed ", freed
+made = 0; freed = 0
+for i in 0 ..< 10: withValue(1)
+echo "the same with var x: R = nil:     made ", made, ", freed ", freed
+```
+
+`nim c -r leak5.nim` prints (Nim 2.2.6, and devel d61298c of
+2026-11-11):
+
+```
+var given in an if, then again:  made 20, freed 10
+var filled in a loop, then given: made 10, freed 0
+result given in an if, then again: made 20, freed 10
+the same with var x: R = nil:     made 20, freed 20
+```
+
+Expected: `freed 20`, `freed 10`, `freed 20`, `freed 20`. In the C code
+the second assignment is a plain copy (`x = mk()`; for `xs = @[]`,
+`xs.len = 0; xs.p = newSeqPayload(...)`) with no `eqdestroy` before it.
+
+The cause looks to be `initVar` in compiler/sempass2.nim: an assignment
+to a local that is not in `a.init` gets `nfFirstWrite` (when it is in the
+block the local was declared in), and injectdestructors.nim's `genSink`
+then turns it into a bitwise copy. But `a.init` holds what is *surely*
+initialized, so after `if n > 0: x = mk()` (no `else`) -- or after a loop,
+which is taken as maybe never run -- `x` is not in it, and the next
+assignment is taken for the first although the first may well have run.
+A first write wants "surely not initialized yet" (no path has written
+it), not "not surely initialized".
+
+Retro Nim UI had some 70 of these (a chart's area points every frame, the
+names a screen reader is given every frame, a picture's dash lists, a
+whole picture opened to make a layer); `tools/writecheck.py` lists them,
+and each now has its value where it is declared.
 
 ---
 

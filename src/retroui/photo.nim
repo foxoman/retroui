@@ -3151,6 +3151,7 @@ var flatten16Hook*: proc (d: Doc): seq[uint16] {.nimcall.}
 proc flattened16*(d: Doc): seq[uint16] =
   ## The image at 16 bits: its layers composited at 16 bits (`photodeep`),
   ## else the composite made 16.
+  result = @[]         # (a value at once: see tools/writecheck.py)
   var only: Layer
   var n = 0
   for L in d.layers:
@@ -3159,7 +3160,7 @@ proc flattened16*(d: Doc): seq[uint16] =
       only = L
   if n == 1 and only.opacity == 100 and only.mode == bmNormal and only.mask == nil and not only.hasFx and
      only.adjust.kind.len == 0 and d.hiValid(only):
-    return d.hiPixels(only)
+    result = d.hiPixels(only); return
   if flatten16Hook != nil:
     result = flatten16Hook(d)
     if result.len == d.w * d.h * 4: return

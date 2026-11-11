@@ -460,6 +460,7 @@ proc speaking*(): bool =
 
 proc appId(app: string): string =
   ## A file name of the app: "Retro Mail" -> "retro-mail".
+  result = ""         # (a value at once: see tools/writecheck.py)
   let name = if app.len > 0: app else: getAppFilename().splitFile.name
   for c in name.toLowerAscii:
     if c in {'a'..'z', '0'..'9'}: result.add c
@@ -585,6 +586,7 @@ proc online*(): bool =
 
 proc systemLanguage*(): string =
   ## The user's language, as a tag: "en-US", "ar-OM", "fr".
+  result = ""         # (a value at once: see tools/writecheck.py)
   try:
     when defined(wasm):
       result = systemCall("language", "")

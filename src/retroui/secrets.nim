@@ -297,18 +297,19 @@ proc saveSecret*(app, name, value: string): bool {.gcsafe.} =
 proc loadSecret*(app, name: string): string {.gcsafe.} =
   ## The secret `name` of `app`; "" when there is none (or it cannot be
   ## opened: another user's, another computer's).
-  if app.len == 0 or name.len == 0: return ""
+  result = ""         # (a value at once: see tools/writecheck.py)
+  if app.len == 0 or name.len == 0: return
   {.cast(gcsafe).}:
     when defined(wasm):
       let r = webSecret("get", app, name)
       if r.startsWith("="):
-        try: return decode(r[1 .. ^1])
-        except ValueError: return ""
+        try: result = decode(r[1 .. ^1]); return
+        except ValueError: result = ""; return
     when defined(windows):
       var sealed: string
       withLock secretsLock:
         sealed = readSmall(fileOf(app, name))
-      if sealed.len == 0: return ""
+      if sealed.len == 0: result = ""; return
       let (ok, plain) = dpapi(sealed, "retro." & app & "\0" & name, false)
       if ok and plain.startsWith("v"): result = plain[1 .. ^1]
     elif androidApp or defined(ios):

@@ -367,6 +367,7 @@ proc money*(v: float; decimals = 3): string =
 
 proc parseDateText*(s: string): tuple[ok: bool; y, m, d: int] =
   ## "2018-09-02", "02/09/2018", "2/9/18", "02-Sep-2018", "2 September 2018".
+  result = default(tuple[ok: bool; y, m, d: int])         # (a value at once: see tools/writecheck.py)
   let t = s.strip
   if t.len == 0: return
   const months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]

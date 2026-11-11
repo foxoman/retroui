@@ -593,9 +593,10 @@ proc dpf(v: float): float = v * float(dp(1000)) / 1000
 
 proc fmtValue(v: float): string =
   ## 1234567 as "1,234,567"; 12.5 as "12.50".
-  if v != v: return ""
+  result = ""         # (a value at once: see tools/writecheck.py)
+  if v != v: return
   let a = abs(v)
-  if a >= 1e15: return formatFloat(v, ffScientific, 3)
+  if a >= 1e15: result = formatFloat(v, ffScientific, 3); return
   let whole = a == floor(a)
   let cents = int64(round(a * 100))
   let digits = $(cents div 100)

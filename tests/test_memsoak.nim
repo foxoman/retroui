@@ -78,6 +78,8 @@ when defined(linux) and defined(useMalloc):
   # (what it holds follows what it keeps: the pictures, not every page it
   # ever took -- 146 MB here with Nim's own allocator, 38 MB with malloc and
   # the trimming of retroui/memwatch)
-  doAssert seen[^1] < 120 * 1024 * 1024, "too much memory held: " & $(seen[^1] div (1024 * 1024)) & " MB"
+  # (not under the sanitizers, which keep what is freed a while: 420 MB)
+  when not defined(retroSanitized):
+    doAssert seen[^1] < 120 * 1024 * 1024, "too much memory held: " & $(seen[^1] div (1024 * 1024)) & " MB"
 removeDir(root)
 echo "memory soak passed"

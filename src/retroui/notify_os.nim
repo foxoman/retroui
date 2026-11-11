@@ -60,6 +60,7 @@ proc finished(j: Job; ok: bool) =
 proc cleanText(s: string; maxRunes: int): string =
   ## `s` as a notification may take it: valid UTF-8, no control characters
   ## but line breaks and tabs, at most `maxRunes` letters.
+  result = ""         # (a value at once: see tools/writecheck.py)
   var t = if s.len > maxRunes * 4: s[0 ..< maxRunes * 4] else: s
   var bad = validateUtf8(t)
   while bad >= 0:                      # (a mail's broken bytes)

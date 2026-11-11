@@ -1743,7 +1743,7 @@ proc render*(f: Face; g: int; size: float32; dx = 0'f32; shear = 0'f32;
   let s = size / float32(f.unitsPerEm)
   let sx = s * xScale
   let zs = if hint and size < 26 and f.zones.len > 0: f.hintMap(s) else: @[]
-  var xs, ys: seq[(float32, float32)]
+  var xs, ys: seq[(float32, float32)] = @[]
   if fitStems and size < 30 and shear == 0:
     let turn = f.orientation()
     let em = float32(f.unitsPerEm)

@@ -27,7 +27,7 @@ proc center(r: Rect): (int, int) = (r.x + r.w div 2, r.y + r.h div 2)
 
 block coreDragAndDrop:
   var src, dst, other: Rect
-  var got: seq[string]
+  var got: seq[string] = @[]
   var wasOver, otherHit = false
   view = proc () =
     row([120, 120, 120]):
@@ -88,7 +88,7 @@ block fileListDrops:
   let m = newFolderModel(root)
   var ev: FileListEvent
   var r: Rect
-  var drop: FileDrop
+  var drop = FileDrop()
   view = proc () =
     ev = fileList(m, fvDetails)
     r = ui.lastRect

@@ -949,11 +949,17 @@ when compileOption("threads"):
     query: string
     stops: seq[LatLon]
     alternatives: bool
+  type GeoShared = object
+    todo: seq[GeoJob]
+    done: seq[GeoAnswer]
+  # (never freed: a worker may still be at work as the program ends, after
+  # Nim has destroyed the program's globals -- these are not among them)
+  let geoSh = cast[ptr GeoShared](allocShared0(sizeof(GeoShared)))
+  template geoTodo: untyped = geoSh.todo
+  template geoDone: untyped = geoSh.done
   var
     geoLock: Lock
     geoReady: Cond
-    geoTodo: seq[GeoJob]
-    geoDone: seq[GeoAnswer]
     geoThreads: seq[Thread[void]]
     geoStarted = false
   proc geoWorker() {.thread.} =

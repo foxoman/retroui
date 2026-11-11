@@ -77,6 +77,7 @@ proc unicodeOfName(n: string): int =
 # ---- CMaps (ToUnicode, and the codes of composite fonts) ------------------------------------------------
 
 proc utf16Text(s: string): string =
+  result = ""         # (a value at once: see tools/writecheck.py)
   var i = 0
   while i + 1 < s.len:
     var u = (ord(s[i]) shl 8) or ord(s[i + 1])

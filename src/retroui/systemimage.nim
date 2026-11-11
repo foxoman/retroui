@@ -576,19 +576,20 @@ elif defined(macosx) or defined(ios):
     BitmapRgba16Premultiplied = 0x1001'u32
 
   proc imageIODecode(data: string; hi: ptr seq[uint16]): Bitmap =
-    if data.len == 0: return nil
+    result = nil         # (a value at once: see tools/writecheck.py)
+    if data.len == 0: return
     let cfData = CFDataCreate(nil, unsafeAddr data[0], clong(data.len))
-    if cfData == nil: return nil
+    if cfData == nil: return
     defer: CFRelease(cfData)
     let src = CGImageSourceCreateWithData(cfData, nil)
-    if src == nil: return nil
+    if src == nil: return
     defer: CFRelease(src)
     let img = CGImageSourceCreateImageAtIndex(src, 0, nil)
-    if img == nil: return nil
+    if img == nil: return
     defer: CGImageRelease(img)
     let w = CGImageGetWidth(img).int
     let h = CGImageGetHeight(img).int
-    if not sizeOk(w, h): return nil
+    if not sizeOk(w, h): return
     # the way the picture is to be turned (ImageIO leaves that to the caller)
     var o: int32 = 1
     let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil)
@@ -597,7 +598,7 @@ elif defined(macosx) or defined(ios):
       if n == nil or CFNumberGetValue(n, kCFNumberSInt32Type, addr o) == 0: o = 1
       CFRelease(props)
     let space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB)
-    if space == nil: return nil
+    if space == nil: return
     defer: CGColorSpaceRelease(space)
     let r = CGRect(x: 0, y: 0, w: cdouble(w), h: cdouble(h))
     if hi != nil and CGImageGetBitsPerComponent(img) > 8:
@@ -907,13 +908,14 @@ proc decodeWithSystem*(path: string; hi: ptr seq[uint16] = nil): Bitmap =
   ## AVIF) also puts its pixels there at 16 bits, R G B A each (as
   ## `decodePng` does) -- where the system's libraries give them; else `hi`
   ## is left empty.
+  result = nil         # (a value at once: see tools/writecheck.py)
   when androidApp:
     let tmp = getTempDir() / ("retro-sysimg-" & $getCurrentProcessId() & "-" & $getThreadId() & ".png")   # (one per thread)
     defer:
       try: removeFile(tmp) except OSError: discard
     if systemCall("media.decode", path & "\t" & tmp) == "1" and fileExists(tmp):
-      return loadPicture(tmp, 1 shl 15, 1 shl 15)
-    return nil
+      result = loadPicture(tmp, 1 shl 15, 1 shl 15); return
+    result = nil; return
   else:
     let ext = path.splitFile.ext.toLowerAscii
     # the system's own libraries

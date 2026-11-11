@@ -262,7 +262,9 @@ the i386 X11 libraries), `sh tests/web/run.sh` (Playwright's Chromium),
 `sh tests/wayland/run.sh` (sway), `sh tests/kiosk/run.sh`,
 `sh tests/store/linux.sh`, `sh tests/web/node.sh` (the headless tests as
 WebAssembly under Node), `python3 tools/returncheck.py` (no `return x`
-after `result` was set: Nim 2.2 leaks the old value; `docs/nim-bugs.md`).
+after `result` was set: Nim 2.2 leaks the old value) and `python3
+tools/writecheck.py` (no `var` or `result` given a value in a branch or a
+loop and then another: Nim 2.2 leaks the first; `docs/nim-bugs.md`).
 The decoders under libFuzzer (clang):
 
 ```sh

@@ -67,6 +67,7 @@ proc cleanSignature(html: string): string =
   result = result.strip
 
 proc textOf(html: string): string =
+  result = ""         # (a value at once: see tools/writecheck.py)
   var inTag = false
   for c in html:
     if c == '<': inTag = true

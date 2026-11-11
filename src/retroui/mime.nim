@@ -1240,6 +1240,7 @@ proc mimeTypeOf*(filename: string): string =
 proc safeFileName(s: string): string =
   ## A file name from a message, safe to save: no folders, no characters
   ## Windows refuses, not too long.
+  result = ""         # (a value at once: see tools/writecheck.py)
   var t = s
   let slash = max(t.rfind('/'), t.rfind('\\'))
   if slash >= 0: t = t[slash + 1 .. ^1]

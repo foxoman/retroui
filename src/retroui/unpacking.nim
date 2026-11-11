@@ -27,8 +27,14 @@ type
     packed, output: string
     state: int                 # 0 waiting, 1 being unpacked, 2 done, 3 handed out
 
-var
+type Shared = object
   jobs: seq[Job]
+# (never freed: a worker may still be at work as the program ends, after Nim
+# has destroyed the program's globals -- these are not among them)
+let sh = cast[ptr Shared](allocShared0(sizeof(Shared)))
+template jobs: untyped = sh.jobs
+
+var
   lk: Lock
   cv: Cond
   running, started: bool

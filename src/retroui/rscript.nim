@@ -2095,7 +2095,7 @@ proc parseBindingTarget(ps: var Parser): Node =
         p.a = ps.parseAssign()
         ps.expect(tkRBracket)
       else: ps.unexpected()
-      var target: Node
+      var target: Node = nil
       if ps.tok.kind == tkColon:
         ps.next
         target = ps.parseBindingTarget()
@@ -2221,6 +2221,7 @@ proc parseBlock(ps: var Parser): Node =
   ps.next
 
 proc parseStatement(ps: var Parser): Node =
+  result = nil         # (a value at once: see tools/writecheck.py)
   inc ps.depth
   if ps.depth > maxNesting: ps.errAt(ps.tok, "The script is nested too deeply")
   let t = ps.tok

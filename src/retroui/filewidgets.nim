@@ -565,6 +565,11 @@ proc newFolderModel*(path = ""; showHidden = false): FolderModel =
     phoneColumns: @[column("Name", 230, editable = true), column("Size", 80, alRight)])
   if path.len > 0: result.load(path)
 
+proc heading(m: FolderModel): string =
+  ## (the folder being listed, when a listing is on its way; else the one
+  ## shown: Up pressed twice before the first listing came goes up two)
+  if m.ticket != 0 and m.loadPath.len > 0: m.loadPath else: m.dir
+
 proc reload*(m: FolderModel; keepName = "") =
   ## Lists the folder again (after files changed, or `showHidden`).
   m.load(if m.loadPath.len > 0 and m.ticket != 0: m.loadPath else: m.dir, keepName)
@@ -573,8 +578,9 @@ proc open*(m: FolderModel; path: string; keepName = "") =
   ## Shows the folder `path` (remembered for `goBack`); `keepName` is
   ## selected when it is there.
   let p = cleanPath(path)
-  if p != m.dir and m.dir.len > 0:
-    m.backStack.add m.dir
+  let here = m.heading
+  if p != here and here.len > 0:
+    m.backStack.add here
     m.fwdStack.setLen(0)
   m.filter = ""
   m.deep = false
@@ -601,7 +607,8 @@ proc canGoForward*(m: FolderModel): bool = m.fwdStack.len > 0
   ## There is a folder to go forward to (`goForward`).
 proc canGoUp*(m: FolderModel): bool =
   ## The folder has a parent (`goUp`).
-  m.dir.len > 0 and m.dir.parentDir.len > 0 and m.dir.parentDir != m.dir
+  let d = m.heading
+  d.len > 0 and d.parentDir.len > 0 and d.parentDir != d
 
 proc goBack*(m: FolderModel) =
   ## Opens the folder shown before this one (like a browser's Back).
@@ -616,8 +623,10 @@ proc goForward*(m: FolderModel) =
     m.load(m.fwdStack.pop())
 
 proc goUp*(m: FolderModel) =
-  ## The folder above, with the one we were in selected.
-  if m.canGoUp: m.open(m.dir.parentDir, m.dir.extractFilename)
+  ## The folder above, with the one we were in selected (above the one on
+  ## its way, when its listing has not come yet).
+  let d = m.heading
+  if m.canGoUp: m.open(d.parentDir, d.extractFilename)
 
 proc loading*(m: FolderModel): bool = m.ticket != 0
   ## A listing is on its way.
@@ -1275,8 +1284,8 @@ proc fileColumns*(m: FolderModel; root = ""; height = -1; key = ""; preview = tr
           st.follow = true
       ui.keyUsed = true
     of KeyLeft:
-      if m.canGoUp and (root.len == 0 or m.dir != root):
-        st.keyPicked = m.dir                 # (the folder left, shown ahead)
+      if m.canGoUp and (root.len == 0 or m.heading != root):
+        st.keyPicked = m.heading             # (the folder left, shown ahead)
         m.goUp()
         ui.keyUsed = true
     of KeyRight:

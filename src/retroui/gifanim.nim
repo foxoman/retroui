@@ -369,7 +369,7 @@ proc encodeGifFrames*(w, h: int; frames: openArray[tuple[px: seq[uint32]; delayM
       let clear = pp[k].needClear
       let first = ord(clear)
       var idx = newSeq[uint8](rw * rh)
-      var pal: seq[uint32]
+      var pal: seq[uint32] = @[]
       var local = false
       let colors = pp[k].colors
       if not colors.over and colors.list.len <= 256 - first:

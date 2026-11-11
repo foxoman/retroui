@@ -215,8 +215,11 @@ for it in 0 ..< iters:
   let ms = (getMonoTime() - start).inMilliseconds
   slowest = max(slowest, ms)
   # (a document of thousands of pages may take seconds: more than 2 ms a
-  # page is what is looked for)
-  if ms > 2000 and ms > 2 * n: report("slow: " & $ms & " ms for " & $n & " pages", input)
+  # page is what is looked for -- 8 times that under the sanitizers, which
+  # make it 7 times slower)
+  const slower = when defined(retroSanitized): 8 else: 1
+  if ms > 2000 * slower and ms > 2 * slower * n:
+    report("slow: " & $ms & " ms for " & $n & " pages", input)
   inc done
   if it mod 5000 == 0 and it > 0: echo "round ", it, " (slowest ", slowest, " ms)"
 let all = (getMonoTime() - t0).inMilliseconds

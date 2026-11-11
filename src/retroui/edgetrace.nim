@@ -273,8 +273,9 @@ proc newEdgeMap*(b: Bitmap; detail = 50): EdgeMap =
     if (p shr 24) != 255:
       alpha = true
       break
-  var small: seq[uint32]
-  if s > 1: small = shrunk(b, s, w, h, alpha)
+  # (given at once: Nim 2.2.6 does not free a value first given in an `if`
+  # when it is given another -- `small = @[]` below)
+  var small = if s > 1: shrunk(b, s, w, h, alpha) else: newSeq[uint32]()
   let src = if s > 1: cast[ptr UncheckedArray[uint32]](addr small[0])
             else: cast[ptr UncheckedArray[uint32]](unsafeAddr b.px[0])
   let sigma = 1.6 - 0.6 * float(detail - 1) / 99

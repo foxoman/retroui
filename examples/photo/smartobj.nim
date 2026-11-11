@@ -165,7 +165,7 @@ proc editSmartContents(d: Doc; L: Layer) =
           active = dw
           mdiActivate(dw.win, "ws")
           return
-  var child: Doc
+  var child: Doc = nil
   if L.smart.file.len > 0:
     try:
       let tmp = getTempDir() / "retro-photo-contents.rpd"

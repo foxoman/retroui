@@ -98,6 +98,7 @@ proc threadForAi*(thread: seq[tuple[sender, date, text: string]]; budget = maxTe
 
 proc ask(key, model, system, user: string; maxTokens: int): string =
   ## One question to the Messages API; the text of its answer.
+  result = ""         # (a value at once: see tools/writecheck.py)
   if key.strip.len == 0:
     var e = newException(ApiError, "the assistant: no API key is set")
     e.status = 401

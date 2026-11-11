@@ -1614,6 +1614,7 @@ proc moved*(t: TextData; dx, dy: float32): TextData =
 
 proc layerName*(t: TextData): string =
   ## A layer's name from its text (its first words).
+  result = ""         # (a value at once: see tools/writecheck.py)
   for r in t.plainText.runes:
     if result.runeLen >= 30: break
     result.add(if int(r) == 10 or int(r) == 9: " " else: r.toUTF8)

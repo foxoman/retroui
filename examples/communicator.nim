@@ -632,7 +632,7 @@ var
 proc fetchNow(j: FetchJob) {.thread.} =
   var err = ""
   try:
-    var r: HttpResponse
+    var r = HttpResponse()
     if j.plainHttp and j.url.isAesgcm:
       # (a server of your own, for trying: its files may be on plain http)
       r = httpRequest("GET", "http://" & fetchUrlOf(j.url)[8 .. ^1], timeoutSec = 10)

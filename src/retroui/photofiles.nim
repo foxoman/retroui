@@ -509,8 +509,8 @@ proc stopsOf(d: PsdValue): seq[GradientStop] =
   ## apart), the midpoints between them kept.
   let g = d["Grad"]
   if g == nil: return
-  var cs: seq[(float, uint32, float)]
-  var ts: seq[(float, float, float)]
+  var cs: seq[(float, uint32, float)] = @[]
+  var ts: seq[(float, float, float)] = @[]
   let clrs = g["Clrs"]
   if clrs != nil and clrs.kind == pkList:
     for st in clrs.list: cs.add (st["Lctn"].num / 4096, st["Clr "].rgbOf, st["Mdpn"].num(50) / 100)
@@ -2433,7 +2433,7 @@ proc smartOfPsd*(P: PsdLayer; p: PsdDoc): SmartData =
       found = true
       break
   if not found: return nil
-  var src: seq[uint32]
+  var src: seq[uint32] = @[]
   var w, h: int
   var file = ""
   let data = f.data
@@ -2457,7 +2457,7 @@ proc smartOfPsd*(P: PsdLayer; p: PsdDoc): SmartData =
   except CatchableError: return nil
   if src.len != w * h or w <= 0: return nil
   # its corners
-  var c: seq[float]
+  var c: seq[float] = @[]
   for key in ["nonAffineTransform", "Trnf"]:
     let v = P.smartDesc[key]
     if v != nil and v.kind == pkList and v.list.len == 8:

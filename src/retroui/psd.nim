@@ -1087,7 +1087,7 @@ proc readLayers(r: var Reader; doc: var PsdDoc; infoEnd: int) =
     var L = addr layers[li]
     let nColor = colorChannels(doc.mode)
     var colors = newSeq[seq[byte]](nColor)
-    var alpha: seq[byte]
+    var alpha: seq[byte] = @[]
     var colors16 = newSeq[seq[byte]](nColor)
     var alpha16: seq[byte]
     var hasReal = false

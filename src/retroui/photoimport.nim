@@ -294,6 +294,7 @@ proc importPs*(data: string; name: string): Doc =
   ## or Retro Photo wrote it (%ImageData), else the TIFF preview an EPS
   ## carries. Raises `IOError` when it has neither (drawing PostScript
   ## itself is not done).
+  result = nil         # (a value at once: see tools/writecheck.py)
   var ps = data
   var tiff = ""
   if data.len > 30 and data[0 .. 3] == "\xC5\xD0\xD3\xC6":

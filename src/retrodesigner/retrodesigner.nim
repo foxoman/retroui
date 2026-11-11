@@ -408,7 +408,7 @@ proc insertExample(ex: Example; t: Target) =
   ## modules it needs imported.
   if not t.ok: return
   let (code, decls) = exampleCode(ex)
-  var text: string
+  var text = ""
   try:
     text = src.insertAt(t.list, t.owner, t.index, code)
   except DesignError as e:

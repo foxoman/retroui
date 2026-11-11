@@ -285,8 +285,8 @@ proc writeAlv*(recs: openArray[LevelsRecord]): string =
 
 proc stopsOfGrdn(g: PsdValue): seq[GradientStop] =
   ## A gradient descriptor's colors and opacities, as stops.
-  var cs: seq[(float, uint32)]
-  var ts: seq[(float, float)]
+  var cs: seq[(float, uint32)] = @[]
+  var ts: seq[(float, float)] = @[]
   let clrs = g["Clrs"]
   if clrs != nil and clrs.kind == pkList:
     for c in clrs.list:

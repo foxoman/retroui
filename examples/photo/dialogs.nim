@@ -469,7 +469,7 @@ proc layerFromFile(d: Doc; path: string) =
   ## new layer above the current one, in the middle (made smaller to fit).
   try:
     beginBusy("Opening " & path.extractFilename)
-    var src: Doc
+    var src: Doc = nil
     try: src = openPicture(path)
     finally: endBusy()
     var c = Clip(w: src.w, h: src.h, px: src.flattened())
@@ -3308,7 +3308,7 @@ proc contentAwareScaleDialog() =
       col:
         if button("OK", isDefault = true, w = dp(80), enabled = sizeOk(nw, nh) and (nw != d.w or nh != d.h)):
           caOpen = false
-          var protect: seq[uint8]
+          var protect: seq[uint8] = @[]
           if caSel and d.hasSelection: protect = d.sel
           if caSkin:
             d.updateComposite()

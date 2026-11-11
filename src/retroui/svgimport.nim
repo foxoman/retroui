@@ -1217,7 +1217,7 @@ proc applyProp(c: Ctx; st: var Style; parent: Style; name, value: string) =
     if low == "none":
       st.dashes = @[]
       return
-    var ds: seq[float]
+    var ds: seq[float] = @[]
     for p in v.multiReplace((",", " ")).splitWhitespace:
       var d: float
       if not c.parseLen(p, 2, d, st.fontSize) or d < 0: return
@@ -1227,7 +1227,7 @@ proc applyProp(c: Ctx; st: var Style; parent: Style; name, value: string) =
     if total <= 0:
       st.dashes = @[]
       return
-    if ds.len mod 2 == 1: ds.add ds
+    if ds.len mod 2 == 1: ds = ds & ds          # (a copy: `add` of itself reads freed memory)
     st.dashes = ds
   of "stroke-dashoffset":
     var d: float

@@ -232,18 +232,19 @@ proc loadPicture*(path: string; maxW = 4096; maxH = 4096): Bitmap =
   ## when it cannot be read or decoded here. (Kinds of file a program
   ## taught it, `addPictureReader`, first.) A big PNG, JPEG or BMP is read
   ## a band at a time (`bigPictureBytes`).
+  result = nil         # (a value at once: see tools/writecheck.py)
   try:
     let rd = pictureReaderFor(path)
     if rd != nil:
       let b = rd(path, maxW, maxH)
-      return (if b == nil: nil else: thumbnail(b, maxW, maxH))
+      result = (if b == nil: nil else: thumbnail(b, maxW, maxH)); return
     var head = newString(8)
     var f: File
     if not open(f, path):
       # not a file this app can open (a document of another app, on
       # Android): the system may still decode it
       var d = systemRelays.decodeImage(path, maxW, maxH)
-      if d.w <= 0 or d.h <= 0 or d.px.len < d.w * d.h: return nil
+      if d.w <= 0 or d.h <= 0 or d.px.len < d.w * d.h: result = nil; return
       result = newBitmap(d.w, d.h)
       result.px = move d.px
       result.changed()

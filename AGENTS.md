@@ -135,7 +135,8 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
    push to `main` (the only branch: no `next` to try it first).
 4. Before a release, run the tests under the sanitizers too (the command
    is at the top of `tests/lsan.supp`); a leak found goes into
-   `test_hardening`. Also `python3 tools/returncheck.py`, `nimble fuzz`,
+   `test_hardening`. Also `python3 tools/returncheck.py` and
+   `python3 tools/writecheck.py` (both on GitHub too), `nimble fuzz`,
    `sh tests/run32.sh` (and `RETRO32_UBSAN=1`), and the checks of what
    changed: `tests/web/run.sh`, `tests/web/node.sh`, `tests/wayland/run.sh`,
    `tests/kiosk/run.sh`, `tests/store/linux.sh`. GitHub runs the long ones
@@ -195,8 +196,10 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   after `result` was already set, `return nil` too (write `result = x;
   return`, or keep the value in a local until it is whole;
   `python3 tools/returncheck.py` finds every one and must say 0); `x = y`
-  after `x` was filled in a loop or a branch
-  (`swap`, or give `x` a value where it is declared); a call that may raise
+  after `x` was filled in a loop or a branch -- a `var x: T` declared
+  without a value, and `result` too (give `x` a value where it is
+  declared, `result` one at the proc's start; `python3
+  tools/writecheck.py` finds every one and must say 0); a call that may raise
   whose result goes into a field (into a `let` first, then the field). And
   where a reader fills `result` and then raises (a damaged file), a caller
   that reads into a variable it already has keeps the half: read into a

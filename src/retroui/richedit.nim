@@ -830,9 +830,10 @@ proc richState*(d: RichDoc): RichStyle =
   ## The style at the caret (what typing takes), or of the selection: bold
   ## and the others when all of it is; the color, size and link of its
   ## start. For the tool bar's pressed buttons.
+  result = RichStyle()         # (a value at once: see tools/writecheck.py)
   if d.paras.len == 0: return
   let (a, b) = selRange(d)
-  if a == b: return typingStyle(d)
+  if a == b: result = typingStyle(d); return
   var first = true
   for pi in a.para .. b.para:
     let s = if pi == a.para: a.off else: 0

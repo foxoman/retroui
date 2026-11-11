@@ -38,7 +38,7 @@ const TermuxHome = "/data/data/com.termux/files/home"
 const
   AppTitle = "Retro Files"
   AppId = "RetroFiles"
-  AppVersion = "3.3.9"
+  AppVersion = "3.3.10"
 
 type
   ViewerKind = enum vkNone, vkText, vkMarkdown, vkImage, vkHex, vkZip, vkPdf, vkVideo, vkAudio
@@ -1711,7 +1711,9 @@ proc helpDialogs() =
             tr("Copyright (c) 2026 Sultan Al Isaiee. MIT licence.")],
            tagline = tr("Your files, as in 1994"),
            iconPng = FilesIconPng, glyph = pxFolderOpen,
-           whatsNew = [tr("3.3.9: Edit > Paste Shortcut -- a link here to each item copied; the tool " &
+           whatsNew = [tr("3.3.10: Left pressed twice in the columns (or Up twice) before the folder " &
+                            "above is listed goes up two folders, and Back comes back the same way"),
+                       tr("3.3.9: Edit > Paste Shortcut -- a link here to each item copied; the tool " &
                             "bar one stop of Tab (the arrows along it), F6 from part to part; emptying the " &
                             "trash no longer goes through a link to a folder"),
                        tr("3.3.8: View > List -- small icons in columns, scrolled sideways; every control " &

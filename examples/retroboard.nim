@@ -22,7 +22,7 @@ import retroui/[board, freehand]
 
 const
   AppName = "Retro Board"
-  BoardVersion = "1.3.9"
+  BoardVersion = "1.3.10"
   iconPng = staticRead("assets/board-icon.png")
 
 type
@@ -3312,7 +3312,8 @@ proc dialogs() =
             "on as many pages as you like.",
             "Made with Retro Nim UI " & RetroVersion & " (retroui/board, retroui/freehand)."],
            tagline = "Draw, sketch and think together", iconPng = iconPng,
-           whatsNew = ["1.3.9: it opens in a quarter of the time (its handwriting fonts unpacked while the " &
+           whatsNew = ["1.3.10: a smooth line no longer keeps its points twice in memory each time it is drawn",
+                       "1.3.9: it opens in a quarter of the time (its handwriting fonts unpacked while the " &
                        "window opens, the Text panel's samples made once); F6 goes from the board to the " &
                        "panels and the menu bar",
                        "1.3.8: Tab goes through the panels' controls (on the board it still hides the " &

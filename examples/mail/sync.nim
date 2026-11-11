@@ -91,6 +91,7 @@ proc providerFor*(acc: Account; clientSecret = ""): OAuthProvider {.gcsafe.} =
 
 proc plainOf*(html: string): string =
   ## Rough text of HTML, for the search index.
+  result = ""         # (a value at once: see tools/writecheck.py)
   var inTag = false
   var skip = false
   var i = 0

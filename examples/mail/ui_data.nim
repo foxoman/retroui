@@ -72,6 +72,7 @@ proc searchWhere(q: string; args: var seq[DbValue]): string =
   if conds.len == 0: "0" else: conds.join(" AND ")
 
 proc loadMessages(): seq[Msg] =
+  result = @[]         # (a value at once: see tools/writecheck.py)
   let now = epochTime()
   var args: seq[DbValue]
   if query.strip.len > 0:

@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.38.0"
+const RetroVersion* = "0.39.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -1169,6 +1169,7 @@ proc plainName*(s: string): string =
   ## A label as it is read: no '&' of a mnemonic, no tab, one line, no
   ## icon (the kit's icons are private-use letters, which a screen reader
   ## cannot say: "Notify", not "🔔 Notify").
+  result = ""         # (a value at once: see tools/writecheck.py)
   var i = 0
   while i < s.len:
     let c = s[i]
@@ -1791,7 +1792,8 @@ proc lastRunStopped*(): bool =
 proc takeFaults*(): string =
   ## What went wrong since the faults were last taken (the last run's end
   ## too, when the program stopped): "" when nothing. The log is emptied.
-  if faultPath.len == 0 or not fileExists(faultPath): return ""
+  result = ""         # (a value at once: see tools/writecheck.py)
+  if faultPath.len == 0 or not fileExists(faultPath): return
   try:
     result = readFile(faultPath)
     removeFile(faultPath)

@@ -1049,8 +1049,8 @@ proc categoryChart(kind: ChartKind; labels: openArray[string]; ser: openArray[Se
     if kind in {chArea, chStackedArea}:
       var tops = newSeq[seq[float]](ser.len)
       for k in order:
-        var pts: seq[(float, float)]
-        var bottom: seq[(float, float)]
+        var pts: seq[(float, float)] = @[]
+        var bottom: seq[(float, float)] = @[]
         tops[k] = newSeq[float](n)
         for i in 0 ..< n:
           let v = ser[k].val(i)
@@ -1607,7 +1607,7 @@ proc treemapChart(labels: openArray[string]; ser: openArray[Series]; o: ChartOpt
     noData(area)
     return
   let s = ser[0]
-  var items: seq[(float, int)]
+  var items: seq[(float, int)] = @[]
   var total = 0.0
   for i in 0 ..< min(s.values.len, 2000):
     let v = s.val(i)

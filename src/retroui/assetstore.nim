@@ -402,6 +402,7 @@ proc decodeEntities(s: string): string =
 proc stripHtml*(s: string): string =
   ## Text of an HTML snippet (an artist's name with links): tags out,
   ## entities decoded, spaces collapsed.
+  result = ""         # (a value at once: see tools/writecheck.py)
   var t = ""
   var tag = ""
   var inTag = false
@@ -705,9 +706,10 @@ proc iconPrefixes(q: AssetQuery): seq[string] =
 proc queryUrl*(q: AssetQuery): string =
   ## The request to make for `q` ("" when the source cannot answer that
   ## kind, Pixabay has no key, or it is the library: see `libraryPage`).
+  result = ""         # (a value at once: see tools/writecheck.py)
   let n = perPageOf(q)
   let p = pageNo(q)
-  if q.source notin sourcesFor(q.kind) and q.source != asLibrary: return ""
+  if q.source notin sourcesFor(q.kind) and q.source != asLibrary: return
   case q.source
   of asOpenverse:
     result = openverseApi & "?q=" & enc(searchWords(q)) & "&page=" & $p & "&page_size=" & $n &
@@ -1183,7 +1185,7 @@ proc parseIconify(q: AssetQuery; j: JsonNode): AssetPage =
     for prefix, info in j:
       let st = setFromInfo(prefix, info)
       if not usableSet(st): continue
-      var samples: seq[string]
+      var samples: seq[string] = @[]
       let sm = info.getOrDefault("samples")
       if sm != nil and sm.kind == JArray:
         for s in sm: samples.add s.getStr

@@ -65,12 +65,22 @@ type
     priority: int
     page: int
 
+type
+  Shared = object
+    todo: seq[Task]                # guarded by lock
+    done: seq[TaskResult]          # guarded by lock
+    running: int                   # guarded by lock: tasks being worked on
+
+# (never freed: a worker may finish a task as the program ends, after Nim
+# has destroyed the program's globals -- the queues are not among them)
+let sh = cast[ptr Shared](allocShared0(sizeof(Shared)))
+template todo: untyped = sh.todo
+template done: untyped = sh.done
+template running: untyped = sh.running
+
 var
   lock: Lock
   cond: Cond
-  todo: seq[Task]                  # guarded by lock
-  done: seq[TaskResult]            # guarded by lock
-  running: int                     # guarded by lock: tasks being worked on
   nextTicket = 1
   started = false
   # UI thread only:

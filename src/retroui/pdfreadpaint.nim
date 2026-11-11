@@ -96,8 +96,9 @@ proc scaleOf(m: Mat): float = sqrt(abs(m[0] * m[3] - m[1] * m[2]))
 # ---- functions (tint transforms, gradients) ----------------------------------------------------------
 
 proc evalFn(f: PdfFile; fo: PObj; input: seq[float]; depth = 0): seq[float] =
+  result = @[]         # (a value at once: see tools/writecheck.py)
   let fn = f.resolve(fo)
-  if depth > 8: return input
+  if depth > 8: result = input; return
   if fn.kind == pkArr:
     # (several functions of one input each giving one output)
     for x in fn.a: result.add f.evalFn(x, input, depth + 1)

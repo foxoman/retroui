@@ -1608,7 +1608,9 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["4.9.11: it opens in a third of the time -- its brushes' tips made thirty times " &
+           whatsNew = ["4.9.12: a layer made from a file no longer keeps that whole file in memory, " &
+                       "nor Content-Aware Scale its masks, nor Edit Contents the smart object's picture",
+                       "4.9.11: it opens in a third of the time -- its brushes' tips made thirty times " &
                        "quicker, its opening picture painted once the window shows, the type tool's fonts " &
                        "looked for meanwhile; F6 goes from the picture to the options bar, the tools and " &
                        "the palettes; the tools one stop of Tab, the arrows along them",

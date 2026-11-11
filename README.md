@@ -2696,9 +2696,11 @@ here.
   and LeakSanitizer (`--cc:clang -d:useMalloc
   --passC:"-fsanitize=address,undefined" --passL:"-fsanitize=address,undefined"`,
   `LSAN_OPTIONS=suppressions=tests/lsan.supp` for what Nim's runtime keeps
-  for each thread), without a report. `tools/returncheck.py` finds the
-  shape of code Nim 2.2 leaks with (`return x` after `result` was set):
-  none in the kit or the apps.
+  for each thread), without a report. `tools/returncheck.py` and
+  `tools/writecheck.py` find the two shapes of code Nim 2.2 leaks with
+  (`return x` after `result` was set; a `var` or `result` given a value in
+  a branch or a loop and then another, the first never freed): none in
+  the kit or the apps, on every push.
 - **Threads:** work on worker threads never shares state with the UI
   thread except through a locked queue; results are handed over at the
   start of a frame. A file that changes or shrinks while it is shown (a

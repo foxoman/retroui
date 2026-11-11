@@ -41,7 +41,7 @@ proc keypad(s: var string; okLabel: string): bool =
           elif s.len < 12: s.add k
 
 proc startBook() =
-  var names: seq[string]
+  var names: seq[string] = @[]
   for n in setupNames:
     if n.strip.len > 0: names.add n.strip
   if names.len == 0: names = @["Hotel 1"]

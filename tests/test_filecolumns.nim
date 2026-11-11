@@ -244,5 +244,18 @@ block audioPlayer:
   mediaThroughSystem = false
   systemRelays.call = before
 
+block upTwiceAtOnce:
+  # Up twice before the first listing came goes up two (from the folder on
+  # its way), and Back comes back the same way
+  view = proc () = discard
+  let m = newFolderModel(base / "Alpha" / "Inner")
+  waitFor(proc (): bool = m.dir == base / "Alpha" / "Inner" and not m.loading, "Inner")
+  m.goUp()
+  m.goUp()
+  waitFor(proc (): bool = m.dir == base and not m.loading, "two up")
+  doAssert m.current.name == "Alpha", m.current.name
+  m.goBack()
+  waitFor(proc (): bool = m.dir == base / "Alpha" and not m.loading, "back one")
+
 removeDir(base)
 echo "test_filecolumns: ok"
