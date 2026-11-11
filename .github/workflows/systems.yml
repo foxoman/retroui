@@ -52,7 +52,7 @@ env:
   PORTABLE: >-
     test_widgets test_business test_text test_bidi test_input test_records
     test_charts test_planning test_mapview test_view3d test_htmlview
-    test_canvas2d test_pdf test_report test_scroll test_xlsx test_letters
+    test_canvas2d test_pdf test_report test_scroll test_nestedscroll test_xlsx test_letters
     test_morecontrols test_dock test_toolcustom test_richedit test_calendar
     test_qrcode test_touchsizes test_scale test_hardening test_designer
     test_tilemap test_gltf test_store test_sysmon test_taskman

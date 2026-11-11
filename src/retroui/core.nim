@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.39.1"
+const RetroVersion* = "0.39.2"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -333,6 +333,10 @@ type Ctx* = object
   panX*, panY*: int              ## pixels a finger dragged content this frame
   panFrom*: Point                ## where that drag began
   panUsed*: bool                 ## a widget scrolled with it already
+  panOwner*: uint32              ## the scroller this gesture is with (0: none yet)
+  panAlong*: int8                ## its axis, from its first move: 1 sideways, 2 up and down
+  panHanded: bool                # the owner reached its end this frame: the rest to one around it
+  panOwnerSeen: int              # the frame the owner was last drawn in
   key*: KeyCode                  ## the key pressed this frame (KeyNone: none)
   mods*: set[Modifier]           ## Ctrl, Alt, Shift held now
   keyUp*: KeyCode                ## the key let go this frame
@@ -689,13 +693,67 @@ proc takePress*(): bool =
     true
   else: false
 
-proc takePanX*(r: Rect): int =
+proc panShare*(id: uint32; area: Rect; vx, hiX, vy, hiY: int): tuple[dx, dy: int] =
+  ## The part of this frame's finger movement the scroller `id` takes: its
+  ## `area`, at `vx` of 0 .. `hiX` and `vy` of 0 .. `hiY` (a `hi` of 0: it
+  ## does not scroll that way). Scrollers inside one another share a swipe
+  ## as Android's do -- the inner one is drawn, and asks, first:
+  ##
+  ## - a gesture goes along the axis of its first move; a scroller that
+  ##   scrolls only the other way leaves it (a carousel, to the page);
+  ## - a scroller at its end that way leaves it (a list at its top, swiped
+  ##   down: the page around it moves);
+  ## - the first one that takes a gesture keeps it until the finger lifts,
+  ##   the way back too;
+  ## - one that reaches its end in the middle of it hands the rest, and
+  ##   the gesture from then on, to the nearest one around it that can move
+  ##   that way -- never back inward.
+  ##
+  ## `scrollPan`, `scrollPan2`, `takePan` and `takePanX` go by it; a
+  ## scroller of your own calls it with its id and moves by what it gives.
+  if id != 0 and ui.panOwner == id: ui.panOwnerSeen = ui.frameNo
+  if (ui.panX == 0 and ui.panY == 0) or ui.panUsed or not canInput() or
+     not area.contains(ui.panFrom):
+    return
+  let sideways = ui.panAlong == 1
+  let d = if sideways: ui.panX else: ui.panY
+  let v = if sideways: vx else: vy
+  let hi = if sideways: hiX else: hiY
+  if hi <= 0 or d == 0: return
+  let mine = ui.panOwner == id
+  if ui.panOwner != 0 and not mine and not ui.panHanded: return   # (another's)
+  let take = if d > 0: min(d, max(0, hi - v)) else: max(d, min(0, -v))
+  if take == 0:
+    if mine: ui.panHanded = true             # at its end: on to one around it
+    return
+  ui.panOwner = id
+  ui.panOwnerSeen = ui.frameNo
+  ui.panHanded = false
+  if sideways:
+    result.dx = take
+    ui.panX = d - take
+    if hiY > 0:
+      result.dy = ui.panY
+      ui.panY = 0
+  else:
+    result.dy = take
+    ui.panY = d - take
+    if hiX > 0:
+      result.dx = ui.panX
+      ui.panX = 0
+  if take != d: ui.panHanded = true          # its end reached: the rest on
+  else: ui.panUsed = true
+
+proc panIdOf(r: Rect): uint32 =
+  ## (an id for a scroller that has none of its own: its place)
+  0x9A000000'u32 xor uint32((r.x * 7919 + r.y * 31 + r.w * 3 + r.h) and 0xFFFFFF)
+
+proc takePanX*(r: Rect; id = Id(0)): int =
   ## Touch: the pixels a finger dragged sideways over `r` this frame (tab
-  ## strips, carousels); 0 when there is nothing to take.
-  if ui.panX != 0 and not ui.panUsed and canInput() and r.contains(ui.panFrom):
-    ui.panUsed = true
-    ui.panX
-  else: 0
+  ## strips, carousels); 0 when there is nothing to take -- a gesture up
+  ## or down is the page's (`panShare`).
+  let k = if id != 0: uint32(id) else: panIdOf(r)
+  panShare(k, r, 1 shl 29, 1 shl 30, 0, 0).dx         # (its range unknown: room both ways)
 
 proc middleClicked*(r: Rect): bool =
   ## The middle mouse button went down over `r` this frame (open in a new
@@ -715,13 +773,12 @@ proc mouseForward*(): bool =
   result = ui.navForward and canInput()
   if result: ui.navForward = false
 
-proc takePan*(r: Rect): int =
+proc takePan*(r: Rect; id = Id(0)): int =
   ## Touch: the pixels a finger dragged vertically over `r` this frame, for
-  ## scrolling content; 0 when there is nothing to take.
-  if ui.panY != 0 and not ui.panUsed and canInput() and r.contains(ui.panFrom):
-    ui.panUsed = true
-    ui.panY
-  else: 0
+  ## scrolling content; 0 when there is nothing to take -- a sideways
+  ## gesture is left to what is around it (`panShare`).
+  let k = if id != 0: uint32(id) else: panIdOf(r)
+  panShare(k, r, 0, 0, 1 shl 29, 1 shl 30).dy         # (its range unknown: room both ways)
 
 proc keyHit*(k: KeyCode): bool =
   ## `k` was pressed this frame and is not used yet; uses it.
@@ -857,16 +914,49 @@ proc scrollShow*(id: Id; v: var int; a, b, viewLen, hi: int) =
   if a < goal: scrollTo(id, v, a, hi)
   elif b > goal + viewLen: scrollTo(id, v, b - viewLen, hi)
 
+var
+  wheelOwner: array[bool, uint32] ## the scroller the wheel scrolled last (sideways: [true])
+  wheelAt: array[bool, int]       ## when
+  wheelX, wheelY: int             ## where the pointer was
+
+const WheelLatchMs = 400          ## notches this close together stay with one scroller
+
+proc wheelHeld(sideways: bool): bool =
+  ## (the last notch that way a moment ago, the pointer where it was)
+  wheelOwner[sideways] != 0 and ui.now - wheelAt[sideways] < WheelLatchMs and
+    abs(ui.mx - wheelX) <= 12 and abs(ui.my - wheelY) <= 12
+
+proc wheelLatched*(id: Id; sideways = false): bool =
+  ## Another scroller took the wheel's last notch that way a moment ago, the
+  ## pointer not moved since: the notches that keep coming are its, not
+  ## this one's (as a browser does).
+  wheelHeld(sideways) and wheelOwner[sideways] != uint32(id)
+
+proc noteWheel*(id: Id; sideways = false) =
+  ## The scroller `id` took this notch of the wheel (see `wheelLatched`).
+  wheelOwner[sideways] = uint32(id)
+  wheelAt[sideways] = ui.now
+  wheelX = ui.mx
+  wheelY = ui.my
+
 proc scrollWheel*(id: Id; v: var int; hi: int; area: Rect; step: int;
                   sideways = false): bool {.discardable.} =
   ## The wheel over `area` scrolls `v` (0 .. `hi`) by `step` pixels a notch,
   ## gliding. `sideways`: the horizontal scroller, which takes Shift + the
-  ## wheel. Content that cannot scroll leaves the wheel to what is around it.
-  ## True when it took the wheel.
+  ## wheel. Content that cannot scroll, or is at its end that way, leaves
+  ## the wheel to what is around it -- a list at its bottom, the page goes
+  ## on -- but notches that keep coming stay with the scroller they began
+  ## in (`wheelLatched`). True when it took the wheel.
   if ui.wheel == 0 or ui.wheelUsed or hi <= 0 or not canInput() or not mouseIn(area):
     return false
   if sideways != (ShiftPressed in ui.mods): return false
+  if wheelLatched(id, sideways): return false
+  let goal = scrollTarget(id, v)
+  let atEnd = (ui.wheel > 0 and goal <= 0) or (ui.wheel < 0 and goal >= hi)
+  if atEnd and not (wheelHeld(sideways) and wheelOwner[sideways] == uint32(id)):
+    return false
   ui.wheelUsed = true
+  noteWheel(id, sideways)
   scrollBy(id, v, -ui.wheel * step, hi)
   true
 
@@ -924,12 +1014,9 @@ proc scrollPan2*(idY: Id; vy: var int; hiY: int; idX: Id; vx: var int; hiX: int;
         scrollAnims.del(k)
         caught = true
     if caught and finger(): flingCaught = true
-  var dy, dx = 0
-  if (ui.panX != 0 or ui.panY != 0) and not ui.panUsed and canInput() and
-     area.contains(ui.panFrom) and (hiY > 0 or hiX > 0):
-    ui.panUsed = true
-    dy = if hiY > 0: ui.panY else: 0
-    dx = if hiX > 0: ui.panX else: 0
+  # (the share of the gesture this one takes: `panShare`)
+  let owner = uint32(if idY != 0: idY else: idX)
+  let (dx, dy) = panShare(owner, area, vx, hiX, vy, hiY)
   if hiY > 0 or scrolling(idY): panAxis(idY, vy, hiY, area, dy)
   if hiX > 0 or scrolling(idX): panAxis(idX, vx, hiX, area, dx)
   dy != 0 or dx != 0
@@ -3546,6 +3633,12 @@ proc frameSetup(main: bool) =
   ui.panX = 0
   ui.panY = 0
   ui.panUsed = false
+  ui.panHanded = false
+  if ui.pressed or not ui.mouseDown:
+    ui.panOwner = 0                       # (a new gesture, or none: nobody's)
+    ui.panAlong = 0
+  elif ui.panOwner != 0 and ui.frameNo - ui.panOwnerSeen > 2:
+    ui.panOwner = 0                       # (its scroller is no longer drawn)
   ui.lift = false
   if ui.fingerDown and ui.mouseDown and not ui.pressed:
     if not ui.panning and not ui.longFired and not ui.dragsActive and
@@ -3559,6 +3652,8 @@ proc frameSetup(main: bool) =
       ui.panX = ui.pressX - ui.mx
       ui.pressY = ui.my
       ui.pressX = ui.mx
+      if ui.panAlong == 0 and (ui.panX != 0 or ui.panY != 0):
+        ui.panAlong = if abs(ui.panX) > abs(ui.panY): 1 else: 2
     elif not ui.longFired and not ui.dragsActive:
       if ui.now - ui.pressAt >= 500:
         ui.longFired = true
@@ -3831,9 +3926,13 @@ proc endPage() =
   if (ui.pageOn or ui.pageMaxX > 0) and ui.inputLayer == LayerBase and ui.popup == 0:
     let m = point(ui.mx, ui.my)
     if ui.wheel != 0 and not ui.wheelUsed and view.contains(m):
+      # (the page is around everything: it takes what was left, latched or not)
       if ShiftPressed in ui.mods or not ui.pageOn:      # Shift + the wheel: sideways
         scrollBy(pageIdX, x, -ui.wheel * 3 * ItemH, ui.pageMaxX)
-      else: scrollBy(pageIdY, y, -ui.wheel * 3 * ItemH, hiY)
+        noteWheel(pageIdX, true)
+      else:
+        scrollBy(pageIdY, y, -ui.wheel * 3 * ItemH, hiY)
+        noteWheel(pageIdY)
       ui.wheelUsed = true
     # a finger drags the page both ways (and a flick goes on)
     scrollPan2(pageIdY, y, hiY, pageIdX, x, ui.pageMaxX, view)

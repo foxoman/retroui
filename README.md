@@ -555,6 +555,16 @@ picking an item. `setSmoothScrolling(false)` (or the user, in
 get the same with `scrollWheel`, `scrollPan`, `scrollTo` / `scrollBy` /
 `scrollShow` and one `scrollTick` a frame.
 
+**Scrolling areas inside one another** pass a swipe on at their ends, as
+on Android: a list in a scrolling panel follows the finger while it can,
+and a swipe down on it at its top (up at its bottom, or up and down over
+a sideways carousel) moves the panel around it. The scroller a swipe began
+with keeps it to the end, the way back too; one that reaches its end in
+the middle of it hands the rest on, outward, never back in. The wheel
+does the same at a list's end, once its notches have paused (notches that
+keep coming stay with the list). A scroller of your own goes by the same
+rule with `panShare`.
+
 **Sizes.** The UI follows the display's density: whole pixels keep lines
 sharp (2x, 3x) and the text and controls make up the rest (a 1.33x tablet
 gets 1x lines and 1.33x text). `setUiScale(125)` (and Ctrl + / - / 0, and

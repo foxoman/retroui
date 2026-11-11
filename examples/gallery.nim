@@ -1535,7 +1535,9 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
             "for Nim on Windows, macOS, Linux, Android and iOS."],
            tagline = "Every control of Retro Nim UI",
            iconPng = GalleryIconPng, glyph = pxApp,
-           whatsNew = ["Memory: charts with areas, treemaps, the screen reader's names, smooth lines no " &
+           whatsNew = ["Scrolling inside scrolling: a list in a panel passes a swipe on at its ends, " &
+                       "as on Android; the wheel too",
+                       "Memory: charts with areas, treemaps, the screen reader's names, smooth lines no " &
                        "longer keep a copy each frame; Files: Up twice goes up two",
                        "The keyboard: a tool bar one stop of Tab (the arrows along it), F6 from part to " &
                        "part of the window, tabIndex; every letter underlined once where one Alt reaches it",

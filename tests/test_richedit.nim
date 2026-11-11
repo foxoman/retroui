@@ -672,8 +672,9 @@ block bigDocument:
     key(KeyDown)
     run()
     worst = max(worst, (getMonoTime() - t0).inMicroseconds.float / 1000)
-  # (the sanitizers make it some 7 times slower)
-  doAssert worst < (when defined(retroSanitized): 400 else: 60),
+  # (the sanitizers make it some 7 times slower; a debug build on GitHub's
+  # Windows runner took 70 ms)
+  doAssert worst < (when defined(retroSanitized): 400 elif defined(release): 60 else: 150),
     "a keystroke in a 2000-paragraph mail: " & $worst & " ms"
   echo "  2000 paragraphs: worst keystroke frame ", worst, " ms"
   ctrl(KeyEnd)
@@ -682,7 +683,7 @@ block bigDocument:
   let t0 = getMonoTime()
   key(KeyPageUp)
   run()
-  doAssert (getMonoTime() - t0).inMilliseconds < (when defined(retroSanitized): 400 else: 60)
+  doAssert (getMonoTime() - t0).inMilliseconds < (when defined(retroSanitized): 400 elif defined(release): 60 else: 150)
   doAssert richCaret(doc).para < 1999
 
 block baseStyle:

@@ -449,7 +449,7 @@ and the user's UI size (`setUiScale`). 1 stays 1.
 
 ### Scrolling: scrollPanel, panel, pane
 
-The window's page scrolls by itself. `scrollPanel(height)` scrolls a part of it, in a frame; `panel` is a framed white page down to the bottom (a page beside a tree, as in File Manager); `pane` scrolls on the dialog's face. `withId` gives the rows drawn by a loop ids of their own. Rows you draw yourself cost on every frame, each one: `visibleRows` draws only those in view and keeps the others' room, so a list of thousands costs what fits on the screen.
+The window's page scrolls by itself. `scrollPanel(height)` scrolls a part of it, in a frame; `panel` is a framed white page down to the bottom (a page beside a tree, as in File Manager); `pane` scrolls on the dialog's face. `withId` gives the rows drawn by a loop ids of their own. Rows you draw yourself cost on every frame, each one: `visibleRows` draws only those in view and keeps the others' room, so a list of thousands costs what fits on the screen. Scrolling areas inside one another pass a swipe on at their ends, as on Android: a list in a panel swiped down at its top moves the panel; the scroller a swipe began with keeps it (`panShare`, for a scroller of your own).
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -547,6 +547,28 @@ proc pushId*(key: int)
 ```
 
 `pushId` with a number (a row's index).
+
+```nim
+proc panShare*(id: uint32; area: Rect; vx, hiX, vy, hiY: int): tuple[dx, dy: int]
+```
+
+The part of this frame's finger movement the scroller `id` takes: its
+`area`, at `vx` of 0 .. `hiX` and `vy` of 0 .. `hiY` (a `hi` of 0: it
+does not scroll that way). Scrollers inside one another share a swipe
+as Android's do -- the inner one is drawn, and asks, first:
+
+- a gesture goes along the axis of its first move; a scroller that
+  scrolls only the other way leaves it (a carousel, to the page);
+- a scroller at its end that way leaves it (a list at its top, swiped
+  down: the page around it moves);
+- the first one that takes a gesture keeps it until the finger lifts,
+  the way back too;
+- one that reaches its end in the middle of it hands the rest, and
+  the gesture from then on, to the nearest one around it that can move
+  that way -- never back inward.
+
+`scrollPan`, `scrollPan2`, `takePan` and `takePanX` go by it; a
+scroller of your own calls it with its id and moves by what it gives.
 
 ### Tabs
 

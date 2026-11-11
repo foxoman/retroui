@@ -507,8 +507,8 @@ opts(looks = @[look("A desktop window", proc () = discard, proc () = discard),
                look("A phone", proc () = discard, proc () = discard, w = 230, h = 260, touch = true)])
 
 example("scroll", "Scrolling: scrollPanel, panel, pane",
-        "The window's page scrolls by itself. `scrollPanel(height)` scrolls a part of it, in a frame; `panel` is a framed white page down to the bottom (a page beside a tree, as in File Manager); `pane` scrolls on the dialog's face. `withId` gives the rows drawn by a loop ids of their own. Rows you draw yourself cost on every frame, each one: `visibleRows` draws only those in view and keeps the others' room, so a list of thousands costs what fits on the screen.",
-        340, 140, ["scrollPanel", "panel", "pane", "visibleRows", "revealInPanel", "withId", "pushId"], std3):
+        "The window's page scrolls by itself. `scrollPanel(height)` scrolls a part of it, in a frame; `panel` is a framed white page down to the bottom (a page beside a tree, as in File Manager); `pane` scrolls on the dialog's face. `withId` gives the rows drawn by a loop ids of their own. Rows you draw yourself cost on every frame, each one: `visibleRows` draws only those in view and keeps the others' room, so a list of thousands costs what fits on the screen. Scrolling areas inside one another pass a swipe on at their ends, as on Android: a list in a panel swiped down at its top moves the panel; the scroller a swipe began with keeps it (`panShare`, for a scroller of your own).",
+        340, 140, ["scrollPanel", "panel", "pane", "visibleRows", "revealInPanel", "withId", "pushId", "panShare"], std3):
   var scrollChecks = newSeq[bool](20)
 do:
   label "Twenty rows in 100 pixels:"

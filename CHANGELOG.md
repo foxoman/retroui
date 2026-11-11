@@ -1,5 +1,50 @@
 # Changes
 
+## 0.39.2
+
+Scrolling areas inside one another pass a swipe on at their ends, as on
+Android.
+
+- **A list in a scrolling panel on a phone** took every swipe that began
+  on it, even at its top or bottom: the page around it could hardly be
+  scrolled (a phone's layout with a list of 47 over half the screen).
+  Now:
+  - a gesture goes along the axis of its first move; a scroller that
+    scrolls only the other way leaves it (a swipe up and down over a
+    sideways carousel scrolls the page);
+  - a scroller at its end that way leaves it (a list at its top, swiped
+    down: the panel moves);
+  - the first scroller that takes a gesture keeps it until the finger
+    lifts, the way back too (a swipe that began moving the page keeps
+    moving it when it turns back over the list);
+  - one that reaches its end in the middle of a gesture hands the rest of
+    it, and the gesture from then on, to the nearest scroller around it
+    that can move that way -- never back inward;
+  - a flick flies on in the scroller that had the gesture when the finger
+    lifted (its leftover speed is not handed on);
+  - unchanged: a tap picks, a drag does not; a finger that lands on a
+    flying list stops only that list (`scrollCaught`); scroll thumbs,
+    sliders, a long press; the map views and the business grids, which
+    take the finger themselves.
+
+  One rule in `retroui/core`, `panShare(id, area, vx, hiX, vy, hiY)`,
+  used by `scrollPan`, `scrollPan2`, `takePan` and `takePanX` (which take
+  an `id` now, their place by default): every list, tree, grid, table,
+  text box, panel, pane, dialog and the page behave the same; a scroller
+  of your own calls it.
+- **The wheel** does the same at a list's end: a notch over a list at its
+  bottom scrolls the panel or the page around it. Notches that keep
+  coming stay with the scroller they began in (400 ms, the pointer still,
+  as a browser latches them), so scrolling a list to its end does not run
+  on into the page (`wheelLatched`, `noteWheel` for a wheel of your own).
+- `tests/test_nestedscroll.nim`: the list at its top swiped up and down,
+  at its bottom swiped up, an end reached mid-swipe, a swipe that turns
+  back, a tap and a drag, a carousel in a panel, a caught flick, the
+  wheel at a list's end and its latch.
+- The rich text box's keystroke and Page Up limits allow for a debug
+  build on GitHub's Windows runner (70 ms where 60 were asked).
+- The gallery and the small examples 0.39.2.
+
 ## 0.39.1
 
 The CI steadier, and what running every test under the sanitizers found:

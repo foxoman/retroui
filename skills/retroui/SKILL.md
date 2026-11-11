@@ -196,7 +196,9 @@ line.
 `row:` / `row([w1, w2, -1]):` (left to right), plain statements stack top
 to bottom, `group "Title":`, `card`, `form(labelWidth): field("&Name:"): edit x`,
 `spring()` (pushes the rest to the far side), `space(n)`, `adaptive(minW): ...`
-(columns that fold into one on a phone), `scrollPanel`/`panel(h)`/`pane`,
+(columns that fold into one on a phone), `scrollPanel`/`panel(h)`/`pane`
+(a list or a carousel inside one passes a swipe on to it at its ends, as
+on Android: nothing to do),
 `tabs`, `split`/`vsplit`, `sidePane`, `menubar: menu "&File": if menuItem("&Open", "Ctrl+O"): ...`,
 `toolbar:`, `statusbar(...)`, MDI windows (`mdiArea`, `mdiWindow`; `noPin` for no pin in the title bar), docking (`retroui/dock`).
 Sizes are design pixels; the kit scales them to the screen (`dp(n)` for your own).
