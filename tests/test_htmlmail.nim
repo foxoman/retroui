@@ -814,7 +814,8 @@ block hostile:
   let t1 = getMonoTime()
   let word = htmlPageInfo("<p>" & repeat("w", 1_000_000) & "</p><pre>" & repeat("p", 300_000) & "</pre>", 300)
   doAssert word.right <= 300 and word.height > 1000
-  doAssert (getMonoTime() - t1).inMilliseconds < 10_000
+  # (the sanitizers: some 7 times slower)
+  doAssert (getMonoTime() - t1).inMilliseconds < (when defined(retroSanitized): 40_000 else: 10_000)
   var wide = "<table><tr>"
   for i in 0 ..< 5000: wide.add "<td>c" & $i & "</td>"
   wide.add "</tr></table>"
@@ -829,7 +830,7 @@ block hostile:
   css.add "<p class=c1><span>s</span></p>"
   discard htmlPageInfo(css, 600)
   let ms = (getMonoTime() - t0).inMilliseconds
-  doAssert ms < 30_000, "hostile pages take " & $ms & " ms"
+  doAssert ms < (when defined(retroSanitized): 120_000 else: 30_000), "hostile pages take " & $ms & " ms"
 
 # ---- damaged pages: no harm ---------------------------------------------------------------------------
 

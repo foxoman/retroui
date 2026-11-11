@@ -33,7 +33,7 @@ jobs:
           nim-version: ${{ env.NIM_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Libraries the tests load
-        run: sudo apt-get update && sudo apt-get install -y clang libegl1 libgles2 libegl-mesa0
+        run: sh tools/apt.sh clang libegl1 libgles2 libegl-mesa0
       - name: The headless tests under ASan and UBSan
         run: |
           mkdir -p build
@@ -61,7 +61,7 @@ jobs:
         with:
           nim-version: ${{ env.NIM_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - run: sudo apt-get update && sudo apt-get install -y clang
+      - run: sh tools/apt.sh clang
       - name: The mutation fuzzers, long, under the sanitizers
         run: |
           SAN='--cc:clang -d:useMalloc -d:retroSanitized --debugger:native --passC:-fsanitize=address,undefined --passC:-fno-sanitize=function --passL:-fsanitize=address,undefined'
@@ -90,7 +90,7 @@ jobs:
         with:
           nim-version: ${{ env.NIM_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - run: sudo apt-get update && sudo apt-get install -y clang
+      - run: sh tools/apt.sh clang
       - name: Build
         run: |
           mkdir -p build
@@ -120,8 +120,7 @@ jobs:
       - name: The 32-bit libraries
         run: |
           sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo apt-get install -y gcc-multilib libx11-6:i386 libxext6:i386 libxrandr2:i386 libxcursor1:i386 libxi6:i386 libssl3:i386
+          sh tools/apt.sh gcc-multilib libx11-6:i386 libxext6:i386 libxrandr2:i386 libxcursor1:i386 libxi6:i386 libssl3:i386
       - name: The headless tests as 32-bit programs, under UBSan
         run: RETRO32_UBSAN=1 sh tests/run32.sh
 
@@ -138,6 +137,6 @@ jobs:
         with:
           node-version: "22"
       - name: clang and wasm-ld
-        run: sudo apt-get update && sudo apt-get install -y clang lld
+        run: sh tools/apt.sh clang lld
       - name: The headless tests as WebAssembly under Node
         run: sh tests/web/node.sh

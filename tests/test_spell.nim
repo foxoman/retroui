@@ -227,8 +227,10 @@ if spellAvailable("en-US"):
          shown.formatFloat(ffDecimal, 3), " ms"
     # (a debug build is some ten times slower; the editor keeps each
     # paragraph's verdicts besides: a frame asks nothing again)
-    doAssert again < (when defined(release): 2.0 else: 30.0), "5,000 words checked again: " & $again & " ms"
-    doAssert shown < (when defined(release): 0.5 else: 3.0), "a screen checked again: " & $shown & " ms"
+    # (and the sanitizers some 7 times slower than that)
+    const slower = when defined(retroSanitized): 7.0 else: 1.0
+    doAssert again < (when defined(release): 2.0 else: 30.0) * slower, "5,000 words checked again: " & $again & " ms"
+    doAssert shown < (when defined(release): 0.5 else: 3.0) * slower, "a screen checked again: " & $shown & " ms"
 
 if spellAvailable("ar"):
   block arabic:

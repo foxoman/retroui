@@ -69,13 +69,20 @@ var
   dictTags: seq[string]            ## the engine's languages, "en-US" (and their aliases)
   shownTags: seq[string]           ## ... each dictionary once (`spellLanguages`)
   dictFiles: Table[string, string] ## (Hunspell) tag -> the .aff's path, without ".aff"
-  checkers: Table[string, Checker] ## opened (nil: there is none for that language)
   verdicts: Table[string, bool]    ## word (or language & '\x1F' & word) -> misspelled
   ignored: HashSet[string]
   userWords: HashSet[string]
   userLoaded = false
   generation = 1
   userLang = ""
+
+type Opened = object
+  checkers: Table[string, Checker] ## opened (nil: there is none for that language)
+# (a checker, once opened, is the program's to its very end: kept where
+# Nim's globals are not destroyed as it ends, so the system's library still
+# holds its dictionary then rather than seeming to have lost it)
+let opened = cast[ptr Opened](allocShared0(sizeof(Opened)))
+template checkers: untyped = opened.checkers
 
 # ---- words ----------------------------------------------------------------------------------------
 

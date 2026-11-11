@@ -339,20 +339,22 @@ proc imapConnect*(host: string; port = 993; security = secTls; timeoutSec = 60;
   ## Raises `NetError` (no connection) or `ImapError` (the server refused).
   result = ImapClient(log: log)
   result.conn = openSecured(host, port, security, timeoutSec, insecure)
-  let g = result.readLine()
-  if not g.startsWith("* OK") and not g.startsWith("* PREAUTH"):
-    result.conn.close()
-    imapFail(if g.startsWith("* BYE"): g[5 .. ^1].strip else: "not an IMAP server: " & g)
-  result.readCaps(g)
-  if result.caps.len == 0: discard result.capability()
-  if security == secStartTls:
-    if not result.has("STARTTLS"):
-      result.conn.close()
-      imapFail(host & " does not offer STARTTLS (try TLS, port 993)")
-    discard result.cmd("STARTTLS")
-    result.conn.startTls()
-    result.caps.setLen(0)
-    discard result.capability()
+  try:
+    let g = result.readLine()
+    if not g.startsWith("* OK") and not g.startsWith("* PREAUTH"):
+      imapFail(if g.startsWith("* BYE"): g[5 .. ^1].strip else: "not an IMAP server: " & g)
+    result.readCaps(g)
+    if result.caps.len == 0: discard result.capability()
+    if security == secStartTls:
+      if not result.has("STARTTLS"):
+        imapFail(host & " does not offer STARTTLS (try TLS, port 993)")
+      discard result.cmd("STARTTLS")
+      result.conn.startTls()
+      result.caps.setLen(0)
+      discard result.capability()
+  except CatchableError:
+    result.conn.close()           # (no socket or TLS state left behind)
+    raise
 
 proc login*(c: ImapClient; user, password: string) =
   ## Signs in with a password (AUTHENTICATE PLAIN where the server has it,

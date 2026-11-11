@@ -23,7 +23,7 @@ import retroui/[sysmon, system]
 
 const
   AppTitle = "Retro Task Manager"
-  AppVersion* = "1.0.5"
+  AppVersion* = "1.0.6"
   AppId = "RetroTaskManager"
   IconPng = staticRead("assets/taskman-icon.png")
 
@@ -509,7 +509,8 @@ proc dialogs() =
             "the network, what starts with the system, and the last week.",
             "Copyright (c) 2026 Sultan Al Isaiee. MIT licence."],
            tagline = "What the computer is doing", iconPng = IconPng, glyph = pxGauge,
-           whatsNew = ["1.0.5: View's pages each with a letter of its own (Processes and Performance " &
+           whatsNew = ["1.0.6: the processes it cannot look into no longer each keep a little memory",
+                       "1.0.5: View's pages each with a letter of its own (Processes and Performance " &
                        "had the same)"],
            credits = ["What Argus (github.com/Ray-lea/Argus) shows, and how lightly it " &
                       "does it, taught this one."])

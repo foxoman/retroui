@@ -3175,11 +3175,21 @@ proc bindParams(vm: Vm; fn: Fn; this: Value; argc: int; rest: sink Value) {.noin
       else: vm.bindTarget(d.a, v)
   if p.rest != nil: vm.bindTarget(p.rest, rest)
 
+when defined(js) or defined(emscripten) or defined(wasm) or defined(wasm32) or defined(vcc):
+  template stackHere(): int =
+    var marker = 0
+    cast[int](addr marker)
+else:
+  proc frameAddress(level: cuint): pointer {.importc: "__builtin_frame_address", nodecl.}
+  template stackHere(): int =
+    # (the machine's stack itself: under AddressSanitizer a local's address
+    # may be on its fake stack, on the heap, and the guard never fired)
+    cast[int](frameAddress(0))
+
 proc callScript(vm: Vm; fn: Fn; this: Value; base, argc: int; site: Node): Value =
   let p {.cursor.} = fn.proto
   step(vm, site)
-  var marker = 0
-  if vm.depth >= vm.maxDepth or abs(vm.stackBase - cast[int](addr marker)) > vm.maxNativeStack:
+  if vm.depth >= vm.maxDepth or abs(vm.stackBase - stackHere()) > vm.maxNativeStack:
     vm.sp = base
     vm.rangeErr(site, "Maximum call stack size exceeded")
   if p.rest != nil or p.argsTarget != nil:
@@ -4800,11 +4810,11 @@ proc leave(vm: Vm) =
     vm.retVal = undef()
     vm.env = nil
 
-proc enter(vm: Vm; budget: int; marker: pointer) =
+proc enter(vm: Vm; budget: int; base: int) =
   if vm.running == 0:
     vm.left = budget
     atomicStoreN(addr vm.cancelled, false, ATOMIC_RELAXED)
-    vm.stackBase = cast[int](marker)
+    vm.stackBase = base
     vm.sp = 0
     vm.bp = 0
     vm.depth = 0
@@ -4821,8 +4831,7 @@ proc run*(vm: Vm; s: Script; maxSteps = 50_000_000): Value =
   ## the message, line, column and calls of an error the script didn't
   ## catch. `maxSteps` bounds the work (a run inside a running script
   ## shares the outer budget).
-  var marker = 0
-  vm.enter(maxSteps, addr marker)
+  vm.enter(maxSteps, stackHere())
   let sBp = vm.bp
   let sSp = vm.sp
   let sEnv = vm.env
@@ -4863,8 +4872,7 @@ proc run*(vm: Vm; s: Script; maxSteps = 50_000_000): Value =
 proc call*(vm: Vm; fn: Value; args: seq[Value]): Value =
   ## Calls a script function (a callback the script gave the host, or one
   ## found with `getGlobal`). Outside a run it gets `stepBudget` steps.
-  var marker = 0
-  vm.enter(vm.stepBudget, addr marker)
+  vm.enter(vm.stepBudget, stackHere())
   let sBp = vm.bp
   let sSp = vm.sp
   let sEnv = vm.env

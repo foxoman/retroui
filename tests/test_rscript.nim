@@ -810,6 +810,11 @@ suite "limits":
     check "cancelled" in e.msg
   test "recursion depth":
     let vm = newVm()
+    # (the sanitizers' frames are many times larger: 2 MiB of the machine's
+    # stack is some 50 calls deep there)
+    when defined(retroSanitized):
+      vm.maxDepth = 60
+      vm.maxNativeStack = 6 shl 20
     let e = errOf("function down(n) { return down(n + 1) } down(0)", vm)
     check not e.fatal
     check "Maximum call stack size exceeded" in e.msg

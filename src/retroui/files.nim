@@ -21,7 +21,7 @@ import gfx, icons, business, zip, docfs, core
 when defined(windows):
   import std/widestrs
 else:
-  from std/posix import Statvfs, statvfs, Stat, stat, getuid, Dev
+  from std/posix import Statvfs, statvfs, Stat, stat, getuid, Dev, readlink
 
 type
   FileItem* = object
@@ -1057,15 +1057,33 @@ proc fileUrl(path: string): string =
     if c in {'A'..'Z', 'a'..'z', '0'..'9', '/', ':', '.', '-', '_', '~'}: result.add c
     else: result.add '%' & toHex(ord(c), 2)
 
+proc linkTarget*(path: string): string =
+  ## Where the symbolic link `path` leads, as the link says it (not made
+  ## absolute); "" when it is no link or cannot be read -- it never raises.
+  ## (Nim's `expandSymlink` raises there with its string already made,
+  ## which Nim 2.2 then never frees: once for every process Retro Task
+  ## Manager could not look into.)
+  when defined(windows):
+    result = expandSymlink(path)       # (there: the path itself, no raise)
+  else:
+    var buf = newString(256)
+    while true:
+      let n = posix.readlink(path.cstring, buf.cstring, buf.len)
+      if n < 0: break
+      if n < buf.len:
+        buf.setLen(n)
+        result = move buf
+        break
+      buf.setLen(buf.len * 2)
+
 proc shortcutTarget*(path: string): string =
   ## Where a shortcut leads -- a symbolic link's target, a Windows Internet
   ## shortcut's (".url") file:// address as a path -- "" when `path` is
   ## not one.
   if symlinkExists(path):
-    try:
-      let t = expandSymlink(path)
-      return if t.isAbsolute: t else: path.parentDir / t
-    except OSError: return ""
+    let t = linkTarget(path)
+    if t.len == 0: return ""
+    return if t.isAbsolute: t else: path.parentDir / t
   if path.toLowerAscii.endsWith(".url") and fileExists(path):
     try:
       for line in readFile(path).splitLines:

@@ -168,15 +168,17 @@ proc randomBytes*(n: int): string =
 
 proc sha512(data: string): string =
   need()
-  result = newString(64)
+  var o = newString(64)          # (a local: see aesGcmOpen)
   var n: cuint = 64
-  if digest(bp(data), csize_t(data.len), bp(result), addr n, sha512md(), nil) != 1:
+  if digest(bp(data), csize_t(data.len), bp(o), addr n, sha512md(), nil) != 1:
     raise newException(IOError, "SHA-512 failed")
+  result = move o
 
 proc rawPub(p: Pk): string =
-  result = newString(32)
+  var o = newString(32)          # (a local: see aesGcmOpen)
   var n = csize_t(32)
-  if pkGetPub(p, bp(result), addr n) != 1 or n != 32: raise newException(IOError, "no public key")
+  if pkGetPub(p, bp(o), addr n) != 1 or n != 32: raise newException(IOError, "no public key")
+  result = move o
 
 proc x25519Pub*(priv: string): string =
   ## The X25519 public key of a 32-byte private key.
@@ -198,14 +200,15 @@ proc x25519*(priv, pub: string): string =
   if a == nil or b == nil: raise newException(ValueError, "bad key")
   let c = ctxNew(a, nil)
   defer: ctxFree(c)
-  result = newString(32)
+  var o = newString(32)          # (a local: see aesGcmOpen)
   var n = csize_t(32)
-  if deriveInit(c) != 1 or derivePeer(c, b) != 1 or derive(c, bp(result), addr n) != 1 or n != 32:
+  if deriveInit(c) != 1 or derivePeer(c, b) != 1 or derive(c, bp(o), addr n) != 1 or n != 32:
     raise newException(ValueError, "the key agreement failed")
   var zero = true
-  for ch in result:
+  for ch in o:
     if ch != '\0': zero = false
   if zero: raise newException(ValueError, "a weak key")
+  result = move o
 
 proc ed25519Pub*(seed: string): string =
   ## The Ed25519 public key of a 32-byte seed.
@@ -222,10 +225,11 @@ proc ed25519Sign*(seed, msg: string): string =
   defer: pkFree(p)
   let c = mdNew()
   defer: mdFree(c)
-  result = newString(64)
+  var o = newString(64)          # (a local: see aesGcmOpen)
   var n = csize_t(64)
-  if signInit(c, nil, nil, nil, p) != 1 or signIt(c, bp(result), addr n, bp(msg), csize_t(msg.len)) != 1:
+  if signInit(c, nil, nil, nil, p) != 1 or signIt(c, bp(o), addr n, bp(msg), csize_t(msg.len)) != 1:
     raise newException(IOError, "signing failed")
+  result = move o
 
 proc ed25519Verify*(pub, msg, sig: string): bool =
   need()
@@ -242,18 +246,19 @@ proc aesCbc(encrypt: bool; key, iv, data: string): string =
   need()
   let c = cipherNew()
   defer: cipherFree(c)
-  result = newString(data.len + 32)
+  var o = newString(data.len + 32)   # (a local: see aesGcmOpen)
   var n, m: cint
   let ok = if encrypt:
              encInit(c, aes256cbc(), nil, bp(key), bp(iv)) == 1 and
-             encUpdate(c, bp(result), addr n, bp(data), cint(data.len)) == 1 and
-             encFinal(c, cast[ptr byte](addr result[n]), addr m) == 1
+             encUpdate(c, bp(o), addr n, bp(data), cint(data.len)) == 1 and
+             encFinal(c, cast[ptr byte](addr o[n]), addr m) == 1
            else:
              decInit(c, aes256cbc(), nil, bp(key), bp(iv)) == 1 and
-             decUpdate(c, bp(result), addr n, bp(data), cint(data.len)) == 1 and
-             decFinal(c, cast[ptr byte](addr result[n]), addr m) == 1
+             decUpdate(c, bp(o), addr n, bp(data), cint(data.len)) == 1 and
+             decFinal(c, cast[ptr byte](addr o[n]), addr m) == 1
   if not ok: raise newException(ValueError, "AES-CBC failed")
-  result.setLen(n + m)
+  o.setLen(n + m)
+  result = move o
 
 proc gcmOf(key: string): pointer =
   if key.len == 32: aes256gcm() elif key.len == 16: aes128gcm()
@@ -281,16 +286,19 @@ proc aesGcmOpen*(key, iv, data, tag: string): string =
   need()
   let c = cipherNew()
   defer: cipherFree(c)
-  result = newString(data.len + 16)
+  # (opened into a local, `result` given at the end: what a proc filled
+  # before it raised is never freed by Nim 2.2 -- docs/nim-bugs.md, 2)
+  var o = newString(data.len + 16)
   var n, m: cint
   var t = tag
   if decInit(c, gcmOf(key), nil, nil, nil) != 1 or cipherCtrl(c, GcmSetIvLen, cint(iv.len), nil) != 1 or
      decInit(c, nil, nil, bp(key), bp(iv)) != 1 or
-     decUpdate(c, bp(result), addr n, bp(data), cint(data.len)) != 1 or
+     decUpdate(c, bp(o), addr n, bp(data), cint(data.len)) != 1 or
      cipherCtrl(c, GcmSetTag, cint(t.len), addr t[0]) != 1 or
-     decFinal(c, cast[ptr byte](addr result[n]), addr m) != 1:
+     decFinal(c, cast[ptr byte](addr o[n]), addr m) != 1:
     raise newException(ValueError, "the message was changed, or the key is wrong")
-  result.setLen(n + m)
+  o.setLen(n + m)
+  result = move o
 
 proc hmac(key, data: string): string = hmacSha256(key, data).toBinary
 

@@ -2,7 +2,7 @@ import std/strutils
 
 # Package
 
-version       = "0.39.0"
+version       = "0.39.1"
 author        = "Sultan Al Isaiee (@foxoman) <sultan@foxoman.net>"
 description   = "Retro Nim UI (retroui): a small, fast, dependency-free Windows 3.1 style UI toolkit for business and desktop apps on Windows, macOS, Linux, Android and iOS"
 license       = "MIT"
@@ -100,39 +100,39 @@ const RetroApps: seq[RetroApp] = @[
    id: "org.retro.board", version: "1.3.10", icon: "examples/assets/board-icon-512.png",
    apk: "--storage --nim:-d:lto", code: 14, small: true),
   (key: "mail", src: "examples/mail.nim", name: "Retro Mail", stem: "RetroMail",
-   id: "org.retro.mail", version: "1.1.4", icon: "examples/assets/mail-icon-512.png",
-   apk: "--permission:INTERNET --permission:POST_NOTIFICATIONS --background --nim:-d:lto", code: 9, small: false),
+   id: "org.retro.mail", version: "1.1.5", icon: "examples/assets/mail-icon-512.png",
+   apk: "--permission:INTERNET --permission:POST_NOTIFICATIONS --background --nim:-d:lto", code: 10, small: false),
   (key: "taskman", src: "examples/taskman.nim", name: "Retro Task Manager", stem: "RetroTaskManager",
-   id: "org.retro.taskman", version: "1.0.5", icon: "examples/assets/taskman-icon-512.png",
-   apk: "--nim:-d:lto", code: 6, small: true),
+   id: "org.retro.taskman", version: "1.0.6", icon: "examples/assets/taskman-icon-512.png",
+   apk: "--nim:-d:lto", code: 7, small: true),
   (key: "hrbook", src: "examples/hrbook.nim", name: "HR Book", stem: "HRBook",
    id: "org.retro.hrbook", version: "0.2.5", icon: "examples/assets/hrbook-icon-512.png",
    apk: "--storage --nim:-d:lto", code: 7, small: true),
   (key: "gallery", src: "examples/gallery.nim", name: "Retro Gallery", stem: "RetroGallery",
-   id: "org.retro.gallery", version: "0.39.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--permission:INTERNET --permission:VIBRATE --nim:-d:lto --nim:--opt:size", code: 224, small: true),
+   id: "org.retro.gallery", version: "0.39.1", icon: "examples/assets/gallery-icon.png",
+   apk: "--permission:INTERNET --permission:VIBRATE --nim:-d:lto --nim:--opt:size", code: 225, small: true),
   # the small examples (the gallery's icon)
   (key: "notepad", src: "examples/notepad.nim", name: "Retro Notepad", stem: "RetroNotepad",
-   id: "org.retro.notepad", version: "0.39.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--storage --nim:-d:lto --nim:--opt:size", code: 224, small: true),
+   id: "org.retro.notepad", version: "0.39.1", icon: "examples/assets/gallery-icon.png",
+   apk: "--storage --nim:-d:lto --nim:--opt:size", code: 225, small: true),
   (key: "ledger", src: "examples/ledger.nim", name: "Retro Ledger", stem: "RetroLedger",
-   id: "org.retro.ledger", version: "0.39.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--nim:-d:lto --nim:--opt:size", code: 224, small: true),
+   id: "org.retro.ledger", version: "0.39.1", icon: "examples/assets/gallery-icon.png",
+   apk: "--nim:-d:lto --nim:--opt:size", code: 225, small: true),
   (key: "charts", src: "examples/charts.nim", name: "Retro Charts", stem: "RetroCharts",
-   id: "org.retro.charts", version: "0.39.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--storage --nim:-d:lto --nim:--opt:size", code: 224, small: true),
+   id: "org.retro.charts", version: "0.39.1", icon: "examples/assets/gallery-icon.png",
+   apk: "--storage --nim:-d:lto --nim:--opt:size", code: 225, small: true),
   (key: "invoice", src: "examples/invoice.nim", name: "Retro Invoice", stem: "RetroInvoice",
-   id: "org.retro.invoice", version: "0.39.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--storage --nim:-d:lto --nim:--opt:size", code: 224, small: true),
+   id: "org.retro.invoice", version: "0.39.1", icon: "examples/assets/gallery-icon.png",
+   apk: "--storage --nim:-d:lto --nim:--opt:size", code: 225, small: true),
   (key: "native", src: "examples/native.nim", name: "Retro Native", stem: "RetroNative",
-   id: "org.retro.native", version: "0.39.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--permission:VIBRATE --nim:-d:lto --nim:--opt:size", code: 224, small: true),
+   id: "org.retro.native", version: "0.39.1", icon: "examples/assets/gallery-icon.png",
+   apk: "--permission:VIBRATE --nim:-d:lto --nim:--opt:size", code: 225, small: true),
   (key: "hello", src: "examples/hello.nim", name: "Retro Hello", stem: "RetroHello",
-   id: "org.retro.hello", version: "0.39.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--nim:-d:lto --nim:--opt:size", code: 224, small: true),
+   id: "org.retro.hello", version: "0.39.1", icon: "examples/assets/gallery-icon.png",
+   apk: "--nim:-d:lto --nim:--opt:size", code: 225, small: true),
   (key: "sevenguis", src: "examples/sevenguis.nim", name: "Retro 7GUIs", stem: "Retro7GUIs",
-   id: "org.retro.sevenguis", version: "0.39.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--nim:-d:lto --nim:--opt:size", code: 224, small: true)]
+   id: "org.retro.sevenguis", version: "0.39.1", icon: "examples/assets/gallery-icon.png",
+   apk: "--nim:-d:lto --nim:--opt:size", code: 225, small: true)]
 
 proc app(key: string): RetroApp =
   for a in RetroApps:

@@ -54,6 +54,21 @@ when threaded:
 when defined(posix) and not defined(ios):
   import std/posix         # (an iPhone shows an app nothing of this)
 
+when (defined(linux) or defined(android) or defined(bsd)) and not defined(wasm):
+  proc linkOf(path: string): string =
+    ## (where a link of /proc leads; "" when it cannot be read: as
+    ## files.linkTarget -- Nim's `expandSymlink` raises with its string
+    ## made, never freed, for every process not ours)
+    var buf = newString(256)
+    while true:
+      let n = posix.readlink(path.cstring, buf.cstring, buf.len)
+      if n < 0: break
+      if n < buf.len:
+        buf.setLen(n)
+        result = move buf
+        break
+      buf.setLen(buf.len * 2)
+
 type
   ProcInfo* = object
     ## One process, as the last sample saw it.
@@ -273,7 +288,7 @@ when (defined(linux) or defined(android) or defined(bsd)) and not defined(wasm):
       let key = (pid, p.started)
       if key notin exeOf:
         var exe = ""
-        try: exe = expandSymlink(dir / "exe") except CatchableError: discard
+        exe = linkOf(dir / "exe")
         var cmd = readSmall(dir / "cmdline").replace('\0', ' ').strip
         exeOf[key] = (exe, cmd)
       (p.exe, p.command) = exeOf[key]
@@ -1317,7 +1332,7 @@ proc connections*(): tuple[list: seq[Connection]; why: string] =
       if name.len == 0 or not name[0].isDigit: continue
       let pid = try: parseInt(name) except ValueError: continue
       for k2, fd in walkDir(p / "fd"):
-        let target = try: expandSymlink(fd) except OSError: ""
+        let target = linkOf(fd)
         if target.startsWith("socket:["): owner[target[8 .. ^2]] = pid
     var any = false
     for (file, proto, v6) in [("tcp", "TCP", false), ("tcp6", "TCP6", true),

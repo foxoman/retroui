@@ -1,5 +1,62 @@
 # Changes
 
+## 0.39.1
+
+The CI steadier, and what running every test under the sanitizers found:
+the chat's encryption and a failed TLS connection keeping memory, a link
+that could not be read keeping a little each time, and the script
+engine's stack guard blind there.
+
+- **The CI's packages:** every job that installs Ubuntu packages goes
+  through `tools/apt.sh`, which tries again (six times, some 7 minutes)
+  when a mirror does not answer and stops a try that hangs (Playwright's
+  browser install: three times). 0.39.0's runs went red for one: a GitHub
+  runner's name lookups failed for a few minutes, and the tests, the
+  WebAssembly build and the Windows packages of the release never
+  started. On another runner apt's own retries spun ("Tried to start
+  delayed item", twelve million lines) for nearly two hours before it
+  gave up; `tools/apt.sh` turns them off and tries again itself. Every
+  job has a time limit now (some three times its usual time), not
+  GitHub's six hours.
+- **retroui/rscript's stack guard** measures the machine's stack from the
+  frame itself (`__builtin_frame_address`), not from a local's address:
+  under AddressSanitizer a local may live on its fake stack, on the heap,
+  and a script that recursed deep went past the guard and took the
+  program down instead of getting "Maximum call stack size exceeded".
+  (A WebAssembly or MSVC build measures as before.) Under the sanitizers
+  (`-d:retroSanitized`) its recursion test, and the HTML view's hostile
+  pages, allow for frames many times larger and code 7 times slower.
+- **retroui/omemo** (Retro Communicator's encryption): a message changed
+  on its way, or sent with the wrong key, left what was opened of it in
+  memory, never freed (Nim 2.2's second leak, `docs/nim-bugs.md`); so did
+  a weak or bad key, and a wrong padding. AES-GCM and AES-CBC open, the
+  key agreement, the signature and the digests now fill a local and give
+  `result` at the end.
+- **A connection that failed:** a TLS connection whose certificate was
+  refused (or that timed out in its handshake) kept OpenSSL's state, some
+  80 KB, never freed; an IMAP or SMTP server that did not greet, refused
+  STARTTLS or broke during it left the socket open. `netOpen`,
+  `imapConnect` and `smtpConnect` close what they opened before they
+  raise. (Retro Mail 1.1.5 tries again and again when a server is down.)
+- **A link that cannot be read:** Nim's `expandSymlink` raises with its
+  string already made, never freed -- once for every process Retro Task
+  Manager (1.0.6) could not look into, every link a file's Properties
+  showed broken. `linkTarget` (retroui/files) reads a link and never
+  raises; the system monitor and the file views use it.
+- **The spelling's dictionaries** (Hunspell's), opened once, are kept to
+  the program's very end, as the workers' queues are: as the program
+  ended they seemed lost (16 MB under LeakSanitizer).
+- **The sanitizer run** (all the tests under ASan, UBSan and LSan, here):
+  the HTML view's and the HTML mail's hostile pages, the rich text box's
+  Page Up and the spelling's second look allow for the sanitizers;
+  GStreamer's libav decoders' own buffers are suppressed in
+  `tests/lsan.supp` (the video test reads its file back through them).
+- **uirelays upstream** is looked at before every release now (AGENTS.md,
+  5: `tools/uirelays.sh merge`, and upstream's open pull requests):
+  nim-lang/uirelays has nothing new since cb82378, which the branch has.
+- Retro Task Manager 1.0.6, Retro Mail 1.1.5; the gallery and the small
+  examples 0.39.1.
+
 ## 0.39.0
 
 Memory that was never freed, a crash as a program ends, Up twice in Retro

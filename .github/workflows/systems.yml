@@ -66,6 +66,7 @@ env:
 jobs:
   linux:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: jiro4989/setup-nim-action@v2
@@ -74,8 +75,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: X server, WebKitGTK and GStreamer
         run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb libwebkit2gtk-4.1-0 gstreamer1.0-plugins-base \
+          sh tools/apt.sh xvfb libwebkit2gtk-4.1-0 gstreamer1.0-plugins-base \
             gstreamer1.0-plugins-good gstreamer1.0-libav sway grim wl-clipboard osslsigncode
       - name: Store packages (Authenticode, MSIX, App Bundles, macOS signatures)
         run: sh tests/store/linux.sh
@@ -97,7 +97,7 @@ jobs:
       - name: The apps started for real (left alone, then clicked and typed at)
         if: always()
         run: |
-          sudo apt-get install -y xdotool
+          sh tools/apt.sh xdotool
           xvfb-run -a -s "-screen 0 1280x800x24" sh tests/smoke/run.sh
       - name: The apps driven by their controls' names (every tab, every menu)
         if: always()
@@ -114,6 +114,7 @@ jobs:
 
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: jiro4989/setup-nim-action@v2
@@ -122,22 +123,22 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: clang, wasm-ld, Chromium (Playwright)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang lld
+          sh tools/apt.sh clang lld
           npm install --no-save playwright
-          npx playwright install --with-deps chromium
+          # (its own apt-get inside: tried again as tools/apt.sh does)
+          for try in 1 2 3; do npx playwright install --with-deps chromium && break; [ $try = 3 ] && exit 1; sleep 60; done
       - name: An app as a web page in a real browser (100 % and 200 %)
         run: sh tests/web/run.sh
       - name: 32-bit (an int as small as WebAssembly's)
         run: |
           sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo apt-get install -y gcc-multilib libx11-6:i386 libxext6:i386 libxrandr2:i386 \
+          sh tools/apt.sh gcc-multilib libx11-6:i386 libxext6:i386 libxrandr2:i386 \
             libxcursor1:i386 libxi6:i386 libxfixes3:i386 libxrender1:i386 libssl3t64:i386
           sh tests/run32.sh
 
   windows:
     runs-on: windows-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: jiro4989/setup-nim-action@v2
@@ -201,6 +202,7 @@ jobs:
 
   macos:
     runs-on: macos-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: jiro4989/setup-nim-action@v2
@@ -261,6 +263,7 @@ jobs:
 
   ios:
     runs-on: macos-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: jiro4989/setup-nim-action@v2
@@ -300,6 +303,7 @@ jobs:
 
   android:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:

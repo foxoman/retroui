@@ -96,7 +96,8 @@ block hostile:
   doAssert md("<") == "\\<" and md("</") == "\\<\\/" and md("<!") == "" and
     md("&#") == "\\&\\#"
   let ms = (getMonoTime() - t0).inMilliseconds
-  doAssert ms < 20_000, "hostile pages take " & $ms & " ms"
+  const slower = when defined(retroSanitized): 4 else: 1   # (the sanitizers: some 7 times slower)
+  doAssert ms < 20_000 * slower, "hostile pages take " & $ms & " ms"
   # the Markdown side: thousands of unclosed tags and "<" do not make it slow
   var lt = repeat('<', 300_000)
   var tags = ""
@@ -106,7 +107,7 @@ block hostile:
     discard markdownView(lt, height = 200, key = "lt")
     discard markdownView(tags, height = 200, key = "tags")
   run(2)
-  doAssert (getMonoTime() - t1).inMilliseconds < 20_000
+  doAssert (getMonoTime() - t1).inMilliseconds < 20_000 * slower
 
 # ---- shown -------------------------------------------------------------------------------------
 

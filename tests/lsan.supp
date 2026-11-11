@@ -14,3 +14,9 @@ leak:registerCycle
 # std/times keeps the UTC time zone of each thread in a threadvar, never
 # freed (lib/pure/times.nim, utc)
 leak:newTimezone
+
+# GStreamer's libav decoders keep frame buffers they never free (the video
+# encoder's test reads its file back through them where gst-libav is
+# installed)
+leak:libavutil.so
+leak:libgstvideo-1.0.so

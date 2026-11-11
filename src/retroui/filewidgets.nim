@@ -1613,7 +1613,7 @@ proc filePreview*(items: openArray[FileItem]; folder = ""; folderStats =
     if pv.size.w > 0:
       facts.add ("Picture", $pv.size.w & " x " & $pv.size.h & tr(" pixels"))
     if f.readOnly: facts.add ("Access", tr("read only"))
-    if f.isLink: facts.add ("Link to", try: expandSymlink(f.path) except OSError: "?")
+    if f.isLink: facts.add ("Link to", (let t = linkTarget(f.path); if t.len > 0: t else: "?"))
     if not wide: facts.add ("Location", f.path.parentDir)
   elif n > 1:
     var bytes = 0'i64
@@ -2269,7 +2269,7 @@ proc propertiesDialog*(open: var bool; items: openArray[FileItem]): bool {.disca
         if perms.len > 0:
           field "Permissions:": label perms
         if f.isLink:
-          field "Link to:": label(try: expandSymlink(f.path) except OSError: "?")
+          field "Link to:": label((let t = linkTarget(f.path); if t.len > 0: t else: "?"))
     row:
       spring()
       if button("OK", isDefault = true): open = false

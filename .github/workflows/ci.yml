@@ -11,6 +11,7 @@ jobs:
     # the headless tests (a fake screen driver: no display needed), a short
     # run of the fuzzers, and the Android driver on a fake Android
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: jiro4989/setup-nim-action@v2
@@ -18,7 +19,7 @@ jobs:
           nim-version: "2.2.6"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Libraries the GPU tests load (Mesa's EGL)
-        run: sudo apt-get update && sudo apt-get install -y libegl1 libgles2 libegl-mesa0
+        run: sh tools/apt.sh libegl1 libgles2 libegl-mesa0
       - name: No return after result (Nim 2.2 leaks the old value)
         run: python3 tools/returncheck.py
       - name: No var given in a branch, then again (Nim 2.2 leaks the first)
@@ -44,6 +45,7 @@ jobs:
     # the headless tests that need nothing of the system, as WebAssembly
     # (clang and wasm-ld, the kit's C library for the web) under Node
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: jiro4989/setup-nim-action@v2
@@ -54,7 +56,7 @@ jobs:
         with:
           node-version: "22"
       - name: clang and wasm-ld
-        run: sudo apt-get update && sudo apt-get install -y clang lld
+        run: sh tools/apt.sh clang lld
       - name: The tests as WebAssembly under Node
         run: sh tests/web/node.sh
 
@@ -67,6 +69,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: jiro4989/setup-nim-action@v2

@@ -682,7 +682,7 @@ block bigDocument:
   let t0 = getMonoTime()
   key(KeyPageUp)
   run()
-  doAssert (getMonoTime() - t0).inMilliseconds < 60
+  doAssert (getMonoTime() - t0).inMilliseconds < (when defined(retroSanitized): 400 else: 60)
   doAssert richCaret(doc).para < 1999
 
 block baseStyle:

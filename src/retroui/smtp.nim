@@ -80,16 +80,19 @@ proc smtpConnect*(host: string; port = 465; security = secTls; timeoutSec = 60;
   ## Connects, greets (EHLO), and encrypts (STARTTLS) with `secStartTls`.
   result = SmtpClient(host: host, log: log)
   result.conn = openSecured(host, port, security, timeoutSec, insecure)
-  discard result.expect([220], host & " did not greet")
-  result.hello(helloName)
-  if security == secStartTls:
-    if not result.has("STARTTLS"):
-      result.conn.close()
-      smtpFail(0, host & " does not offer STARTTLS (try TLS, port 465)")
-    result.sendLine("STARTTLS")
-    discard result.expect([220], "STARTTLS")
-    result.conn.startTls()
+  try:
+    discard result.expect([220], host & " did not greet")
     result.hello(helloName)
+    if security == secStartTls:
+      if not result.has("STARTTLS"):
+        smtpFail(0, host & " does not offer STARTTLS (try TLS, port 465)")
+      result.sendLine("STARTTLS")
+      discard result.expect([220], "STARTTLS")
+      result.conn.startTls()
+      result.hello(helloName)
+  except CatchableError:
+    result.conn.close()           # (no socket or TLS state left behind)
+    raise
 
 proc login*(c: SmtpClient; user, password: string) =
   ## Signs in (AUTH PLAIN, else LOGIN). Raises `SmtpError` when refused.

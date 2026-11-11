@@ -142,8 +142,19 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
    `tests/kiosk/run.sh`, `tests/store/linux.sh`. GitHub runs the long ones
    every night (`.github/workflows/nightly.yml`: sanitizers, long fuzzing,
    libFuzzer on `tests/fuzz/libfuzz.nim`, 32-bit, WebAssembly); a crash's
-   input is in the run's artifacts.
-5. Before every release, **`sh tools/cicheck.sh`**: what GitHub's CI runs
+   input is in the run's artifacts. Built with `-d:retroSanitized` there, a
+   test's limit of time or memory allows for the sanitizers (some 7 times
+   slower, freed memory kept a while). A workflow installs Ubuntu packages
+   with `sh tools/apt.sh PKGS` (never `apt-get` itself): it tries again
+   when a mirror does not answer.
+5. Before every release, **`sh tools/uirelays.sh merge`**: what
+   nim-lang/uirelays has new merged into the `uirelays` branch, then
+   `pull`, and what it changes in retroui fixed and tested (the upstream
+   commit merged goes into `src/retroui/uirelays/VERSION`); it says when
+   the branch has upstream's last commit already. Also look at upstream's
+   open pull requests (`git ls-remote https://github.com/nim-lang/uirelays
+   'refs/pull/*'`) for a fix retroui needs before upstream takes it.
+   Then **`sh tools/cicheck.sh`**: what GitHub's CI runs
    (the return check, the warnings, the tests, a short fuzz, the fake
    Android, WebAssembly under Node, the tools, the programs in subfolders
    found from their config) -- all must pass; a release never goes out
@@ -298,7 +309,8 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   without it.
 - **Credits:** the About boxes credit only Sultan Al Isaiee
   (`RetroCredit`). Commits are authored by him; an AI that helped is
-  named in a `Co-Authored-By:` line.
+  named in a `Co-Authored-By:` line, and that is all: no link to the
+  session it worked in, in a commit or anywhere in the repository.
 - **Never commit** private fonts (Helvetica World), secrets (Retro Mail's
   Google/Microsoft ids: from the environment at build time), signing keys
   and update keys (`*.secret`; the tests make their own in a temporary

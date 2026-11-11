@@ -544,6 +544,8 @@ proc handshake(c: NetConn) =
         let why = osslWhy()
         fail("TLS failed" & (if why.len > 0: ": " & why else: ""))
 
+proc close*(c: NetConn)
+
 proc netOpen*(host: string; port: int; tls = false; timeoutSec = 30;
               insecure = false): NetConn =
   ## Connects to `host`:`port`, encrypted from the start when `tls`
@@ -565,7 +567,7 @@ proc netOpen*(host: string; port: int; tls = false; timeoutSec = 30;
     if tls:
       try: result.startTls()
       except NetError:
-        try: result.sock.close() except CatchableError: discard
+        result.close()            # (the TLS state too: OpenSSL's SSL was never freed)
         raise
 
 proc openSecured*(host: string; port: int; security: Security; timeoutSec = 30;
