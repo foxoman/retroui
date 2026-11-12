@@ -4,15 +4,16 @@
 # window saved once it is up (ImageMagick's import). The others' pictures
 # are the README's own (docs/*.png).
 #
-#   sh tools/exampleshots.sh                 hello charts native gallery hrbook magazine sevenguis
+#   sh tools/exampleshots.sh                 hello charts native gallery hrbook magazine sevenguis navigator
 #   sh tools/exampleshots.sh hello charts    these
 #
 # 7GUIs is driven to its spreadsheet first (RETRO_DRIVE, `retrokit drive`).
 #
-# Needs Xvfb, xdotool and ImageMagick (Debian: xvfb xdotool imagemagick).
+# Needs Xvfb, xdotool and ImageMagick (Debian: xvfb xdotool imagemagick);
+# Retro Navigator's picture, WebKitGTK too (libwebkit2gtk-4.1-0).
 set -eu
 cd "$(dirname "$0")/.."
-apps=${*:-hello charts native gallery hrbook magazine sevenguis}
+apps=${*:-hello charts native gallery hrbook magazine sevenguis navigator}
 out=docs/examples
 mkdir -p "$out" build/shots
 case " $apps " in
@@ -47,6 +48,8 @@ for app in $apps; do
     sleep 6
     w=$(xdotool search --onlyvisible --pid $pid 2>/dev/null | head -1)
     [ -n "$w" ] || w=$(xdotool search --onlyvisible --name . 2>/dev/null | tail -1)
+    # (the web engine starts, then draws its page)
+    if [ "$2" = navigator ]; then sleep 8; fi
     if [ "$2" = hrbook ]; then
       # (the PIN, then the book opens)
       xdotool type --delay 60 246810; xdotool key Return; sleep 3

@@ -243,10 +243,17 @@ maximize doesn't close. The 3.1 frame, every dialog, the windows in an
 `mdiArea` and a window besides the app's with no frame of the system's have
 them; X does what Alt+F4 does (the app is asked first, so it can still say
 "Save changes?"), a dialog's what Esc does, an inner window's what Ctrl+F4
-does. `captionButtons = cbWin31` (before `startApp`) gives every title bar
+does. A message box whose last button is not Cancel, Close or OK (Yes and
+No, Abort, Retry and Ignore) has its close button grayed, as Windows has
+it: the question has to be answered (Esc still counts as its last button).
+`captionButtons = cbWin31` (before `startApp`) gives every title bar
 Windows 3.1's two triangles instead, with no close button: the control-menu
 box closes, as in 3.1. The user picks either as **Title bar buttons** in
-`appearanceSettings`, kept with the look. A phone's caption bar has no
+`appearanceSettings`, or with **Windows 3.1 Buttons** (**Windows 95
+Buttons**) in the 3.1 frame's window menu; it is kept with the look. On
+Windows 11 the 3.1 frame's maximize button shows Windows' snap layouts when
+the mouse rests on it, as Windows' own does (the kit tells Windows where it
+is: `wpMaxButton`, and still takes its clicks). A phone's caption bar has no
 close button in either (Back closes the app), and a title bar the system
 draws keeps the system's buttons.
 
@@ -2068,6 +2075,10 @@ page can run code or reach the network. `htmlToMarkdown` converts a page.
   (`file://`, paths, `html:` text) drawn with `htmlView`, and pages on the
   web get a button that opens them in the browser.
 
+**Retro Navigator** (`examples/navigator.nim`, `nimble navigator`) is a
+whole browser made this way: a 1995 window around the system's engine
+([the examples](examples/README.md#retro-navigator)).
+
 The system's engine talks to your app both ways, as Qt's web view does with
 its web channel, without a bridge object to set up:
 
@@ -2850,6 +2861,7 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_inspect` | the inspector: its panel over the app, why each frame ran (the input, the line that asked: `ui.redraw = true`, `wakeIn`), the control under the mouse and found by name, F12 |
 | `test_drive` | the driver: a client in the same program finds controls by name, clicks, types (Arabic too), presses keys, sets values, waits for a control and for its going, opens a drop-down past a default button with Enter, closes the window |
 | `test_sevenguis` | the 7GUIs example driven by its controls' names: each task as its rules ask (the flight booked only when the dates allow, the timer stopping at its duration, CRUD's filter, the circles' undo, the cells' formulas and their cycles) |
+| `test_navigator` | Retro Navigator's places: what the Location box goes to (an address, a host, a file that is there, words searched for), the key, the bookmarks kept, the pages of a session |
 | `test_scale` | fractional scales (125 % to 300 %): controls and text the size asked for, lines on whole pixels, a change of scale followed |
 | `test_touchsizes` | `RETRO_TOUCH` and `RETRO_CONTROLS`: finger-sized controls on a tablet's screen when asked, desktop and automatic sizes |
 | `test_shm` | the frame drawn into memory shared with the X server and what the window then shows, with and without it (`RETRO_SURFACE=0`) |
@@ -2878,6 +2890,7 @@ it is and how to run it.
 | `examples/taskman.nim` | Retro Task Manager: the processes (end one or a tree, a priority), the processor, the memory, the disks and the network as graphs that move, what starts with the system, the connections, the last week (also an APK: `nimble taskmanapk`) |
 | `examples/retroboard.nim` | Retro Board: a whiteboard in the manner of tldraw -- ink, shapes, arrows, notes, frames, pages; PNG, SVG and PDF (also an APK: `nimble boardapk`) |
 | `examples/sevenguis.nim` | 7GUIs: the seven tasks of the GUI benchmark -- a counter, a temperature converter, a flight booker, a timer, CRUD, a circle drawer with undo, a spreadsheet with formulas |
+| `examples/navigator.nim` | Retro Navigator: a web browser in the manner of 1995's -- the tool bar, the Location box, the directory buttons, a logo that moves while a page loads, the key, bookmarks, the Go menu, find, print, the source -- around the system's own engine (`webView`, `weSystem`) |
 | `examples/hrbook.nim` | HR Book: the staff records of a group of hotels, private on a tablet -- smart Excel import, letters and certificates, charts, expiry alerts, encrypted backups |
 
 `examples/hrbook.nim` is **HR Book**: every employee of your hotels in one

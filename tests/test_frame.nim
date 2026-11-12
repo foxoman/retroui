@@ -153,13 +153,14 @@ block parts:
 block hitTest:
   # what the toolkit tells a system that asks where the frame is before a
   # press comes (SDL's hit test): the title bar and the border, not its
-  # buttons nor the content
+  # buttons nor the content -- but the maximize button, over which Windows
+  # 11 shows its snap layouts (the press still the app's)
   doAssert windowPartAt != nil
   for (x, y, want) in [(320, 12, wpCaption), (2, 240, wpLeft), (W - 1, 240, wpRight),
                        (320, 1, wpTop), (320, H - 1, wpBottom), (0, 0, wpTopLeft),
                        (W - 2, H - 2, wpBottomRight), (10, 10, wpClient),
-                       (W - 10, 10, wpClient), (W - 10 - ch, 10, wpClient),
-                       (320, 240, wpClient)]:
+                       (W - 10, 10, wpClient), (minR().x + 5, 10, wpClient),
+                       (maxR().x + 5, 10, wpMaxButton), (320, 240, wpClient)]:
     doAssert windowPartAt(x, y) == want, $(x, y) & ": " & $windowPartAt(x, y)
   # right to left: the same edges on the screen
   ui.rtl = true
@@ -284,6 +285,18 @@ block controlMenu:
   key(KeyM)                        # &Move: with the arrow keys
   run(2)
   doAssert drags == @[(wpCaption, true)], $drags
+  # Windows 3.1 &Buttons: 3.1's two buttons, kept with the look; and back
+  discard lookChanged()
+  key(KeySpace, {AltPressed})
+  run()
+  key(KeyB)
+  run(2)
+  doAssert captionButtons == cbWin31 and lookChanged() and frameLayout().close.w == 0
+  key(KeySpace, {AltPressed})
+  run()
+  key(KeyB)                        # Windows 95 &Buttons
+  run(2)
+  doAssert captionButtons == cbWin95 and frameLayout().close == closeR()
   key(KeySpace, {AltPressed})
   run()
   key(KeyEsc)

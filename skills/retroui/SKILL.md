@@ -417,7 +417,10 @@ costs what its visible rows cost.
   Esc (a dialog) or Ctrl+F4 (an inner window) does, so `closeRequested`
   still lets the app ask to save. `captionButtons = cbWin31` before
   `startApp` gives 3.1's two triangles and no close button; users pick
-  either in `appearanceSettings` ("Title bar buttons", kept with `look`).
+  either in `appearanceSettings` ("Title bar buttons", kept with `look`)
+  or the 3.1 frame's window menu. A `msgBox` whose last button is not
+  Cancel, Close or OK (Yes/No) grays its X. Windows 11 shows its snap
+  layouts over the 3.1 frame's maximize button.
 - Screen readers (Orca, NVDA, Narrator, VoiceOver, TalkBack) read every
   control by itself: its role, its label (a `label` before a box names the
   box: write `row([60, -1]): label "&Name:"; edit name`), its value and

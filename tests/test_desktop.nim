@@ -3,7 +3,7 @@
 
 import std/[strutils, os]
 import retroui
-import retroui/desktop
+import retroui/[desktop, inspect]
 import retroui/uirelays/[input, services]
 import harness
 
@@ -225,6 +225,40 @@ block dialogClose:
   doAssert open, "3.1: no close button"
   open = false
   captionButtons = cbWin95
+  run(2)
+  # a message box: X counts as its last button; a question with no way out
+  # but its answers (Yes and No) has it grayed, and Esc still answers
+  accessKeep = true
+  var asking = true
+  var answer = 0
+  var choices = @["OK", "Cancel"]
+  view = proc () =
+    let a = msgBox(asking, "Ledger", "Post them now?", choices, miQuestion)
+    if a != 0: answer = a
+  run(3)
+  var x = findNode(accessLast, "Close", {arButton})
+  doAssert x > 0 and asDisabled notin accessLast[x].states
+  var xr = nodeRect(accessLast[x])
+  doAssert px(xr.x + xr.w div 2, xr.y + xr.h div 2) == 0, "the X black"
+  tap(xr.x + xr.w div 2, xr.y + xr.h div 2)
+  run(2)
+  doAssert not asking and answer == 2, "X: Cancel"
+  choices = @["&Yes", "&No"]
+  asking = true
+  answer = 0
+  run(3)
+  x = findNode(accessLast, "Close", {arButton})
+  doAssert x > 0 and asDisabled in accessLast[x].states, "grayed"
+  xr = nodeRect(accessLast[x])
+  doAssert px(xr.x + xr.w div 2, xr.y + xr.h div 2) == 0x808080, "the X gray"
+  tap(xr.x + xr.w div 2, xr.y + xr.h div 2)
+  run(2)
+  doAssert asking and answer == 0, "a grayed X does nothing"
+  key(KeyEsc)
+  run(2)
+  doAssert not asking and answer == 2, "Esc: the last button"
+  accessKeep = false
+  view = proc () = discard
   run(2)
 
 # ---- find and replace ---------------------------------------------------------------------------

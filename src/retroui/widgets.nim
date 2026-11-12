@@ -4124,8 +4124,12 @@ proc statusSep*() =
 
 template TitleH: int = FontH + (if fingers(): dp(10) else: dp(5))
 
+var dlgCloseOff = false     # (the next dialog's close button grayed: `msgBox`)
+
 proc beginDialog*(open: var bool; title: string; width: int): bool =
   ## Starts a modal dialog (see `dialog`): true while it is `open`.
+  let closeOff = dlgCloseOff
+  dlgCloseOff = false
   if not open: return false
   let id = idOf(open, "dialog")
   var st = state(id)
@@ -4150,7 +4154,7 @@ proc beginDialog*(open: var bool; title: string; width: int): bool =
              else: rect(bar.x + bar.w, bar.y, 0, TitleH)
   var xHit: Hit
   if canInput():
-    if xBox.w > 0: xHit = interact(id + 3, xBox, focusable = false)
+    if xBox.w > 0 and not closeOff: xHit = interact(id + 3, xBox, focusable = false)
     if xHit.clicked or keyHit(KeyEsc):
       open = false
     elif hover(sysBox) and takePress():
@@ -4184,7 +4188,7 @@ proc beginDialog*(open: var bool; title: string; width: int): bool =
     vline(xBox.x, xBox.y, xBox.h, th.frame)
     let face = rect(xBox.x + 1, xBox.y, xBox.w - 1, xBox.h)
     captionButton(face, xHit.down)
-    captionMark(face, cmClose, xHit.down)
+    captionMark(face, cmClose, xHit.down, enabled = not closeOff)
     if xHit.hover and canHover(): ui.tip = "Close"
   let title = tr(title)
   let tw = textWidth(title, true)
@@ -4196,7 +4200,7 @@ proc beginDialog*(open: var bool; title: string; width: int): bool =
   fill(client, th.window)
   if accessOn:
     accessBegin(arDialog, title, r, id, {asModal})
-    if xBox.w > 0: accessNode(arButton, "Close", id = id + 3, r = xBox)
+    if xBox.w > 0: accessNode(arButton, "Close", id = id + 3, r = xBox, states = accessOff(not closeOff))
   if not tall: st.caret = 0
   state(id) = st
   dlgClient = client
@@ -4338,7 +4342,10 @@ proc msgIcon*(kind: MsgIcon) =
 proc msgBox*(open: var bool; title, msg: string;
              buttons: openArray[string] = ["OK"]; icon = miInfo): int =
   ## A message box while `open`. Returns the number of the button clicked
-  ## (1 = first) once, closing it; Esc counts as the last button.
+  ## (1 = first) once, closing it; Esc and the close button count as the
+  ## last button. A question with no way out but its answers -- its last
+  ## button not Cancel, Close or OK: Yes and No, Abort, Retry and Ignore --
+  ## has its close button grayed, as Windows has it (Esc still counts).
   var tw = 0
   # (the sizes grow with the UI's: at 300% a message wrapped at 360
   # pixels broke after every word or two, beside a tiny icon)
@@ -4347,6 +4354,8 @@ proc msgBox*(open: var bool; title, msg: string;
   let inner = max(tw + (if icon == miNone: 0 else: dp(48)), bw) + 8
   let w = min(inner + 2 * Pad + 10, ui.w - 16)
   let was = open
+  let last = if buttons.len > 0: buttons[^1].replace("&", "").toLowerAscii else: ""
+  dlgCloseOff = buttons.len > 1 and last notin ["cancel", "close", "ok"]
   if beginDialog(open, title, w):
     row:
       if icon != miNone: msgIcon(icon)
@@ -4488,11 +4497,14 @@ proc systemPart*(p: FramePart): WindowPart =
 proc classicPartAt(x, y: int): WindowPart =
   ## (`windowPartAt` for the drivers whose system asks where the frame is
   ## before a press comes: the part of the 3.1 frame at `x`, `y` in the
-  ## window's pixels; none while a menu is open, which a press closes)
+  ## window's pixels; none while a menu is open, which a press closes. The
+  ## maximize button is `wpMaxButton`: Windows 11 shows its snap layouts
+  ## over it, and the press still comes here)
   if not ui.ownFrame or ui.popup != 0: return wpClient
   let z = max(1, zoomLevel())
   let lx = x div z
-  systemPart(framePartAt(if ui.rtl: ui.w - 1 - lx else: lx, y div z))
+  let p = framePartAt(if ui.rtl: ui.w - 1 - lx else: lx, y div z)
+  if p == fpMaximize: wpMaxButton else: systemPart(p)
 
 windowPartAt = classicPartAt
 
@@ -4651,7 +4663,12 @@ proc classicCaption() =
     if userFrameChoice and
        menuItem(if platformName() == "windows": "&Windows' Own Frame" else: "&Desktop's Own Frame"):
       chooseClassicFrame(false)
-    if userFrameChoice: menuSeparator()
+    # (the title bars' buttons, as "Title bar buttons" in `appearanceSettings`)
+    if menuItem(if captionButtons == cbWin95: "Windows 3.1 &Buttons" else: "Windows 95 &Buttons"):
+      captionButtons = if captionButtons == cbWin95: cbWin31 else: cbWin95
+      noteLookChanged()
+      ui.redraw = true
+    menuSeparator()
     if menuItem("&Larger", "Ctrl++", enabled = uiScale() < 300):
       setUiScale(scaleStep(1))
     if menuItem("Sm&aller", "Ctrl+-", enabled = uiScale() > 50):

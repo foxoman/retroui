@@ -1,5 +1,51 @@
 # Changes
 
+## 0.41.0
+
+Retro Navigator, a web browser in the manner of 1995's around the
+system's engine, and the three title bar pieces 0.40.0 left out.
+
+- **Retro Navigator** (`examples/navigator.nim`, `nimble navigator`; one
+  of the apps the packages are made of): a 1995 browser window
+  around `webView` with `weSystem` -- WebView2, WKWebView, WebKitGTK,
+  Android's WebView -- so today's web works in it.
+  - The tool bar with its labels and, at its right, a logo of its own (a
+    planet in the night) with a comet going round it while a page loads;
+    a click on it goes home.
+  - The Location box: an address, a host (`https://` before it), a file
+    that is there, or words, searched for with DuckDuckGo, Google, Bing or
+    Wikipedia (General Preferences).
+  - The directory buttons, the status bar (what happens, the key for
+    https or a warning sign, how much is loaded, downloads), bookmarks
+    (Ctrl+D, View Bookmarks), the Go menu with this session's pages, find
+    on the page, print, the document's source, larger and smaller pages.
+  - Its own pages, `about:welcome` (the home page at first) and
+    `about:handbook`, in HTML and CSS; Back goes back to them too, which
+    the engine keeps no history of.
+  - Where the system has no engine it shows its own pages and opens the
+    others in the browser.
+  - `tests/test_navigator.nim` (on every system too): the Location box's
+    addresses, the key, the bookmarks kept, the session's pages. Its icon
+    (`tools/gennavigatoricon.py`) and its picture in the examples' guide.
+- **Snap layouts on Windows 11** over the 3.1 frame's maximize button, as
+  over Windows' own. uirelays' `WindowPart` gains `wpMaxButton`, which the
+  frame answers for the button (`windowPartAt`). The WinAPI driver tells
+  Windows it is the maximize button (WM_NCHITTEST, HTMAXBUTTON), and gives
+  the app the mouse over it as its own (the non-client moves, the press
+  and the release), so the kit still draws the button and takes its
+  clicks. SDL's hit test answers it as the app's.
+- **The title bars' buttons in the window menu:** the 3.1 frame's control
+  menu has "Windows 3.1 Buttons" (with Windows 95's: "Windows 95
+  Buttons"), kept with the look as Appearance's choice is.
+- **A grayed X on a question:** a message box whose last button is not
+  Cancel, Close or OK (Yes and No; Abort, Retry and Ignore) has its close
+  button grayed and doing nothing, as Windows has it. Esc still counts as
+  its last button.
+- Tests: `test_frame` (the window menu's item, `wpMaxButton` for the
+  maximize button), `test_desktop` (a message box's X: Cancel, and grayed
+  on Yes and No), `test_navigator`.
+- The gallery and the small examples 0.41.0.
+
 ## 0.40.0
 
 Windows 95's title bar buttons, _ □ X, are the default: every window and

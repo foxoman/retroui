@@ -1,0 +1,99 @@
+## Retro Navigator's own pages: the welcome page (about:welcome, the home
+## page at first) and the handbook (about:handbook). Plain HTML and CSS, the
+## pictures drawn by the style sheet: nothing to fetch.
+##
+## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
+
+const style = """
+<style>
+body { margin: 0; background: #c0c0c0; color: #000; font: 16px/1.5 "Times New Roman", Times, serif; }
+.page { padding: 12px 18px 28px; max-width: 860px; }
+.banner { position: relative; height: 150px; max-width: 640px; overflow: hidden;
+  background: radial-gradient(circle at 18% 30%, #fff 0 1px, transparent 2px),
+              radial-gradient(circle at 72% 18%, #fff 0 1px, transparent 2px),
+              radial-gradient(circle at 46% 78%, #ffd 0 1px, transparent 2px),
+              radial-gradient(circle at 88% 64%, #fff 0 1px, transparent 2px),
+              radial-gradient(circle at 30% 88%, #cdf 0 1px, transparent 2px),
+              linear-gradient(135deg, #000040, #000010 60%, #200030); }
+.planet { position: absolute; left: 42px; top: 34px; width: 82px; height: 82px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #7fd4ff, #0080c0 55%, #003060); }
+.ring { position: absolute; left: 22px; top: 66px; width: 122px; height: 18px; border-radius: 50%;
+  border: 3px solid #ffd040; transform: rotate(-14deg); }
+.comet { position: absolute; left: 250px; top: 26px; width: 120px; height: 4px; border-radius: 2px;
+  background: linear-gradient(90deg, transparent, #ffe680); transform: rotate(18deg); }
+.banner h1 { position: absolute; left: 170px; top: 52px; margin: 0; color: #5ff;
+  font: bold 34px/1.1 Arial, Helvetica, sans-serif; letter-spacing: 1px; text-shadow: 2px 2px 0 #004; }
+.banner small { display: block; color: #ffd040; font-size: 15px; letter-spacing: 3px; }
+h2 { font-size: 30px; margin: 18px 0 8px; }
+h3 { font-size: 21px; margin: 18px 0 4px; }
+a { color: #0000ee; } a:visited { color: #551a8b; }
+hr { border: 0; border-top: 2px groove #fff; margin: 18px 0; }
+table { border-collapse: collapse; } td { padding: 2px 16px 2px 0; vertical-align: top; }
+kbd { font: 14px "Courier New", monospace; }
+</style>
+"""
+
+const banner = """
+<div class="banner"><div class="ring"></div><div class="planet"></div><div class="comet"></div>
+<h1><small>WELCOME TO</small>Retro Navigator</h1></div>
+"""
+
+const welcomeHtml* = "<!doctype html><html><head><meta charset=\"utf-8\">" &
+  "<title>Welcome to Retro Navigator</title>" & style & "</head><body><div class=\"page\">" &
+  banner & """
+<h2>Welcome to Retro Navigator</h2>
+<p>You are on the web with a browser in the manner of 1995's, made with Retro
+Nim UI. The pages are drawn by your system's own engine, so today's web works
+in it: sign-ins, maps, video.</p>
+<p>To get around, type an address or a few words in the <b>Location</b> box and
+press Enter: words are searched for. Click the blue words on a page to follow
+them, and <b>Back</b> and <b>Forward</b> take you through the pages you saw.
+<b>Home</b> brings you here. Keep a page you like with <i>Add Bookmark</i> in
+the <i>Bookmarks</i> menu (Ctrl+D).</p>
+<hr>
+<h3>Places to start</h3>
+<ul>
+<li><a href="https://www.wikipedia.org">Wikipedia</a>, the free encyclopedia</li>
+<li><a href="https://news.ycombinator.com">Hacker News</a></li>
+<li><a href="https://nim-lang.org">Nim</a>, the language Retro Navigator is written in</li>
+<li><a href="https://github.com/foxoman/retroui">Retro Nim UI</a>, the toolkit it is made with</li>
+</ul>
+<p>The <i>Handbook</i> button tells the rest: the keys, the bookmarks, the
+preferences.</p>
+</div></body></html>
+"""
+
+const handbookHtml* = "<!doctype html><html><head><meta charset=\"utf-8\">" &
+  "<title>Retro Navigator Handbook</title>" & style & "</head><body><div class=\"page\">" & """
+<h2>Retro Navigator Handbook</h2>
+<h3>Going places</h3>
+<p>Type in the <b>Location</b> box and press Enter. An address goes there
+(<i>nim-lang.org</i> is <i>https://nim-lang.org</i>), a file on your computer
+opens, and anything else is searched for with the search engine of
+<i>Options &gt; General Preferences</i>. The logo at the right moves while a
+page loads; click it to go home.</p>
+<h3>The key in the status bar</h3>
+<p>The key: the page came over an encrypted connection (https). A warning
+sign: it did not, so what you type there can be read on its way.</p>
+<h3>Keys</h3>
+<table>
+<tr><td><kbd>Ctrl+L</kbd></td><td>the Location box</td></tr>
+<tr><td><kbd>Alt+Left</kbd>, <kbd>Alt+Right</kbd></td><td>Back, Forward</td></tr>
+<tr><td><kbd>Alt+Home</kbd></td><td>Home</td></tr>
+<tr><td><kbd>F5</kbd>, <kbd>Esc</kbd></td><td>Reload, Stop</td></tr>
+<tr><td><kbd>Ctrl+D</kbd></td><td>Add Bookmark</td></tr>
+<tr><td><kbd>Ctrl+F</kbd>, <kbd>F3</kbd></td><td>Find, Find Again</td></tr>
+<tr><td><kbd>Ctrl+O</kbd>, <kbd>Ctrl+P</kbd></td><td>Open a file, Print</td></tr>
+</table>
+<p>While a page has the keyboard, its own keys come first: click the tool bar
+or the Location box for these.</p>
+<h3>Bookmarks and the Go menu</h3>
+<p><i>Bookmarks &gt; View Bookmarks</i> lists them: go to one, or remove it.
+The <i>Go</i> menu lists the pages of this session, the last first.</p>
+<h3>Where the pages come from</h3>
+<p>Retro Navigator draws its window itself and leaves the pages to the
+system: WebView2 on Windows, WebKit on macOS and iOS, WebKitGTK on Linux
+(<i>libwebkit2gtk-4.1</i>), Android's WebView. Where there is none, it shows
+its own pages and offers to open the others in your browser.</p>
+</div></body></html>
+"""

@@ -3445,7 +3445,10 @@ proc msgBox*(open: var bool; title, msg: string;
 ```
 
 A message box while `open`. Returns the number of the button clicked
-(1 = first) once, closing it; Esc counts as the last button.
+(1 = first) once, closing it; Esc and the close button count as the
+last button. A question with no way out but its answers -- its last
+button not Cancel, Close or OK: Yes and No, Abort, Retry and Ignore --
+has its close button grayed, as Windows has it (Esc still counts).
 
 ```nim
 proc msgIcon*(kind: MsgIcon)
@@ -7497,8 +7500,11 @@ dialogs, the windows in an `mdiArea` and a window besides the app's with no
 frame of the system's have them. `captionButtons = cbWin31` (before
 `startApp`) gives every title bar 3.1's two triangles instead, with no close
 button: the control-menu box closes, as in 3.1. The user picks either as
-"Title bar buttons" in `appearanceSettings`, kept with the look. A phone's
-caption bar has no close button in either: Back closes the app.
+"Title bar buttons" in `appearanceSettings` or in the 3.1 frame's window
+menu, kept with the look. A message box whose last button is not Cancel,
+Close or OK (Yes and No) has its close button grayed. On Windows 11 the
+maximize button shows Windows' snap layouts, as Windows' own does. A
+phone's caption bar has no close button in either: Back closes the app.
 
 ```nim
 app "Ledger", 640, 480, frame = wfClassic:   # wfAsBuilt (the default), wfSystem, wfClassic

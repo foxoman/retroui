@@ -32,10 +32,11 @@ hello, notepad, ledger, charts, invoice, then the apps.
 | [taskman](#retro-task-manager) | Retro Task Manager, what the computer is doing |
 | [hrbook](#hr-book) | HR Book, a private book of a hotel group's staff |
 | [sevenguis](#7guis) | the seven tasks of the 7GUIs benchmark, a tab each |
+| [navigator](#retro-navigator) | Retro Navigator, a web browser in the manner of 1995's |
 
-The pictures of hello, the gallery, charts, native, HR Book, the magazine
-and 7GUIs are made by `sh tools/exampleshots.sh`; the others are the main
-README's.
+The pictures of hello, the gallery, charts, native, HR Book, the magazine,
+7GUIs and Retro Navigator are made by `sh tools/exampleshots.sh`; the
+others are the main README's.
 
 ## Hello
 
@@ -296,4 +297,42 @@ names; the picture above was taken the same way (the driver, `RETRO_DRIVE`).
 
 ```sh
 nimble sevenguis            # or: nim c -r -d:release examples/sevenguis.nim
+```
+
+## Retro Navigator
+
+![Retro Navigator: its welcome page, the tool bar, the Location box, the directory buttons](../docs/examples/navigator.png)
+
+`navigator.nim` is a web browser in the manner of 1995's around the
+system's own engine (`webView` with `weSystem`): WebView2 on Windows,
+WebKit on macOS and iOS, WebKitGTK on Linux and BSD, Android's WebView.
+So today's web works in it -- sign-ins, maps, video -- in a window of 1995:
+
+- the tool bar with its labels (Back, Forward, Home, Reload, Open, Print,
+  Find, Stop) and, at its right, a logo of its own -- a planet in the night
+  -- with a comet going round it while a page loads (a click goes home);
+- the **Location** box: an address goes there, a host gets `https://`, a
+  file on the computer opens, and anything else is searched for with the
+  search engine of General Preferences (DuckDuckGo, Google, Bing,
+  Wikipedia);
+- the directory buttons: Welcome, What's New, Net Search, Net Directory,
+  Handbook, Software;
+- the status bar: what happens, the key (https) or a warning sign (http),
+  how much is loaded, downloads;
+- **Bookmarks** (Add Bookmark, Ctrl+D; View Bookmarks to go to one or
+  remove it), the **Go** menu with the pages of this session, find on the
+  page (`window.find`), print, the document's source, larger and smaller
+  pages, Back to its own pages too;
+- its own pages, `about:welcome` and `about:handbook`, written in HTML and
+  CSS (`examples/navigator/pages.nim`);
+- General Preferences (the home page, the search engine), Appearance,
+  and the tool bar, the Location box and the directory buttons shown or
+  hidden, kept for the next start.
+
+Where the system has no engine, it shows its own pages and opens the
+others in the browser. `tests/test_navigator.nim` checks its places
+(`examples/navigator/places.nim`).
+
+```sh
+nimble navigator            # or: nim c -r -d:release examples/navigator.nim
 ```

@@ -45,7 +45,10 @@ type
     wpClient,        ## the inside, the app's own
     wpCaption,       ## the title bar: it moves the window
     wpLeft, wpRight, wpTop, wpBottom,
-    wpTopLeft, wpTopRight, wpBottomLeft, wpBottomRight
+    wpTopLeft, wpTopRight, wpBottomLeft, wpBottomRight,
+    wpMaxButton      ## its maximize button: the app's still (it takes the
+                     ## clicks), but told to Windows as its own, which then
+                     ## shows its snap layouts over it (Windows 11)
 
   FrameRelays* = object
     ## The window's frame, for an app that draws its own title bar and
@@ -492,8 +495,9 @@ var windowPartAt*: proc (x, y: int): WindowPart {.nimcall.}
   ## Set by an app that draws its own frame (nil: none): the part of the
   ## window at `x`, `y`, as the mouse's events give them -- `wpClient` for
   ## the app's own, its title bar's buttons too. Where the system asks
-  ## where the frame is before a press reaches the app (SDL's hit test),
-  ## the driver answers with it, and the system moves or sizes the window
+  ## where the frame is before a press reaches the app (SDL's hit test,
+  ## Windows' WM_NCHITTEST for `wpMaxButton`), the driver answers with it,
+  ## and the system moves or sizes the window
   ## from such a press, which never comes to the app (nor a double click
   ## there: Windows maximizes the window for it, the others do nothing):
   ## `dragWindow` is not needed there.
