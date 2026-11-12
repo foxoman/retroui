@@ -1360,7 +1360,8 @@ proc appearanceSettings*(): bool {.discardable.} =
   ## Settings rows for how every app looks: the color scheme, the size of
   ## everything, the size of the text, the size of controls (for a mouse
   ## or fingers), the window's frame (on desktops: the system's or Windows
-  ## 3.1's) and the font. True when something changed (store them with
+  ## 3.1's), the title bars' buttons (`captionButtons`) and the font. True
+  ## when something changed (store them with
   ## `storeAppearance`; `app`'s `look` keeps them by itself).
   result = appearanceRows()
   if result: noteLookChanged()
@@ -1394,6 +1395,12 @@ proc appearanceRows(): bool =
     if settingCombo("Window", [own, "Windows 3.1 frame"], fr):
       chooseClassicFrame(fr == 1)       # (kept for the app's next start)
       result = true
+  # (the title bars the toolkit draws: the 3.1 frame's, dialogs', the windows' in the app)
+  var cb = ord(captionButtons)
+  if settingCombo("Title bar buttons", ["Windows 95 (with close)", "Windows 3.1 (no close)"], cb):
+    captionButtons = CaptionButtons(cb)
+    invalidate()
+    result = true
   var gm = ord(gpuMode())
   if settingCombo("Drawing", ["Automatic (the GPU when there is a real one)", "With the GPU",
                               "On the CPU"], gm):

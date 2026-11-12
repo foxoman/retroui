@@ -224,7 +224,7 @@ the secrets `ANDROID_KEY_PEM` and `ANDROID_CERT_DER` (base64 of the files in
 A desktop app has the system's own frame, or the one Windows 3.1 had: the
 gray sizing border with dark lines at its corners, the navy title bar (white
 while another window is in front) with the control-menu box at its left and
-the minimize and maximize buttons at its right. The app draws that one
+the minimize, maximize and close buttons at its right. The app draws that one
 itself, in a window without the system's frame, and the system still does
 the rest: drag the title bar to move the window (Aero Snap on Windows), the
 border or a corner to size it; a double click or the maximize button
@@ -236,6 +236,19 @@ inside the frame (in the status bar's end when there is one; the bottom
 left, right to left): drag it to size the window, with the mouse or a
 finger, on every platform the 3.1 frame is drawn. The frame takes the
 theme's colors, and follows when the user picks another theme.
+
+**The title bars' buttons** are Windows 95's, _ □ X: minimize, maximize
+(restore) and close, the close button a little apart so a slip off
+maximize doesn't close. The 3.1 frame, every dialog, the windows in an
+`mdiArea` and a window besides the app's with no frame of the system's have
+them; X does what Alt+F4 does (the app is asked first, so it can still say
+"Save changes?"), a dialog's what Esc does, an inner window's what Ctrl+F4
+does. `captionButtons = cbWin31` (before `startApp`) gives every title bar
+Windows 3.1's two triangles instead, with no close button: the control-menu
+box closes, as in 3.1. The user picks either as **Title bar buttons** in
+`appearanceSettings`, kept with the look. A phone's caption bar has no
+close button in either (Back closes the app), and a title bar the system
+draws keeps the system's buttons.
 
 **A window that keeps its size:** `app "Calculator", 260, 320, resizable = false:`
 (or `setResizable(false)`). The 3.1 frame then has no sizing border to drag,
@@ -1156,10 +1169,11 @@ scroll bars.
   ```
 
   They have the 3.1 frame (a thick sizing border, the control-menu box,
-  a navy title bar when in front and a white one behind), move by their
-  title bars, size by their edges, minimize to icons, maximize (also with
-  a double click on the title), and come to the front with a click; Ctrl+F6 goes to the next
-  one and Ctrl+F4 closes; their content scrolls when it is taller. A pin
+  a navy title bar when in front and a white one behind, minimize,
+  maximize and close buttons), move by their title bars, size by their
+  edges, minimize to icons, maximize (also with a double click on the
+  title), and come to the front with a click; Ctrl+F6 goes to the next
+  one and Ctrl+F4 or the close button closes; their content scrolls when it is taller. A pin
   in the title bar keeps one on top; `noPin = true` leaves it out (a
   window that is never kept on top, as Program Manager's groups).
 - **Find and replace:** `findBar(state)` (Enter / F3 next, Shift+F3

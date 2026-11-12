@@ -1,6 +1,7 @@
 ## The Windows 3.1 window frame on desktops (`setClassicFrame`), headless:
 ## where its parts are, what a press on each asks of the system (move, size,
-## maximize, minimize), the parts a system's hit test is told
+## maximize, minimize, close; Windows 95's buttons and 3.1's,
+## `captionButtons`), the parts a system's hit test is told
 ## (`windowPartAt`), the control menu, the colors of an inactive window,
 ## how the bars move down under it, switching it at run time, the item in
 ## the system's menu and its check mark, and keeping the choice.
@@ -95,6 +96,11 @@ const Black = 0x000000'u32
 const Gray = 0xC0C0C0'u32
 let ch = MenuH            # the title bar's height (and its buttons' size)
 let c = 5 + ch            # where the corners' parts end along the border
+# the buttons at the right (Windows 95's, the default): close, then two
+# pixels apart, maximize and minimize; `b` the border
+proc closeR(b = 5): Rect = rect(W - b - ch, b, ch, ch)
+proc maxR(b = 5): Rect = rect(W - b - 2 * ch - 2, b, ch, ch)
+proc minR(b = 5): Rect = rect(W - b - 3 * ch - 2, b, ch, ch)
 
 block layout:
   # the border all round, the title bar (and its line) inside it: the bars
@@ -106,8 +112,7 @@ block layout:
   let f = frameLayout()
   doAssert f.caption == rect(5, 5, W - 10, ch), $f.caption
   doAssert f.controlBox == rect(5, 5, ch, ch)
-  doAssert f.maximize == rect(W - 5 - ch, 5, ch, ch)
-  doAssert f.minimize == rect(W - 5 - 2 * ch, 5, ch, ch)
+  doAssert f.close == closeR() and f.maximize == maxR() and f.minimize == minR(), $f
   doAssert f.corner == c
 
 block drawn:
@@ -121,7 +126,7 @@ block drawn:
   doAssert px(2, H - 1 - c) == Black and px(c, H - 3) == Black, "bottom left"
   doAssert px(c - 1, 2) == Gray and px(c + 1, 2) == Gray
   # the active title bar, the line under it, the menu bar under that
-  doAssert px(40, 10) == Navy and px(W - 60, 10) == Navy, "the title bar"
+  doAssert px(40, 10) == Navy and px(minR().x - 10, 10) == Navy, "the title bar"
   doAssert px(40, 5 + ch) == Black, "the line under the title bar"
   doAssert px(100, 5 + ch + 4) == White, "the menu bar"
   doAssert px(8, 8) == Gray, "the control-menu box"
@@ -132,13 +137,14 @@ block parts:
                        (320, H - 1, fpBottom), (W - 1, H - 1, fpBottomRight),
                        (c - 1, H - 2, fpBottomLeft), (W - 2, 2, fpTopRight),
                        (W - 2, H - c, fpBottomRight), (W - 2, H - c - 1, fpRight),
-                       (10, 10, fpControlBox), (W - 10, 10, fpMaximize),
-                       (W - 10 - ch, 10, fpMinimize), (320, 10, fpCaption),
+                       (10, 10, fpControlBox), (W - 10, 10, fpClose),
+                       (maxR().x + 5, 10, fpMaximize), (minR().x + 5, 10, fpMinimize),
+                       (W - 6 - ch, 10, fpCaption), (320, 10, fpCaption),
                        (320, 5 + ch, fpCaption), (320, 6 + ch, fpNone),
                        (320, 240, fpNone)]:
     doAssert framePartAt(x, y) == want, $(x, y) & ": " & $framePartAt(x, y)
   doAssert systemPart(fpCaption) == wpCaption and systemPart(fpTopLeft) == wpTopLeft
-  doAssert systemPart(fpMinimize) == wpClient
+  doAssert systemPart(fpMinimize) == wpClient and systemPart(fpClose) == wpClient
   # right to left the window is drawn mirrored: its left edge is on the right
   ui.rtl = true
   doAssert systemPart(fpLeft) == wpRight and systemPart(fpBottomLeft) == wpBottomRight
@@ -204,14 +210,14 @@ block maximize:
   doAssert ui.frameBorder == 0 and ui.safe == (0, 0, 0, 0)
   doAssert ui.barY == ch + 1 + MenuH + 1
   doAssert framePartAt(0, 240) == fpNone and framePartAt(320, 10) == fpCaption
-  let mx = rect(W - ch, 0, ch, ch)
-  doAssert frameLayout().maximize == mx
+  let mx = maxR(0)
+  doAssert frameLayout().maximize == mx and frameLayout().close == closeR(0)
   doAssert px(0, 200) != Black, "no border"
   # the maximize button restores
   click(mx)
   run()
   doAssert not maxed and ui.frameBorder == 5
-  click(rect(W - 5 - ch, 5, ch, ch))
+  click(maxR())
   run()
   doAssert maxed
   click(mx)
@@ -219,8 +225,45 @@ block maximize:
   doAssert not maxed
 
 block minimize:
-  click(rect(W - 5 - 2 * ch, 5, ch, ch))
+  click(minR())
   doAssert minimized == 1
+
+block closeButton:
+  # Windows 95's close button: the X, a little apart from the others (the
+  # title bar's color between); a click asks the app to close, as Alt+F4
+  let x = closeR()
+  let face = rect(x.x + 1, x.y, x.w - 1, x.h)
+  doAssert px(face.x + face.w div 2, face.y + face.h div 2) == Black, "the X's middle"
+  doAssert px(face.x + 2, face.y + face.h div 2) == Gray, "its face"
+  doAssert px(W - 6 - ch, 10) == Navy, "the gap before it"
+  move(x.x + 5, x.y + 5)
+  run(2)
+  doAssert ui.tip == "Close", ui.tip
+  # a press that leaves it does nothing
+  down(x.x + 5, x.y + 5)
+  run()
+  up(320, 200)
+  run(2)
+  doAssert closes == 0 and not maxed and minimized == 1
+  click(x, dx = 5)
+  run()
+  doAssert closes == 1, $closes
+
+block win31Buttons:
+  # Windows 3.1's buttons: minimize and maximize at the right, no close
+  # button (the control-menu box closes); a change shows at once
+  captionButtons = cbWin31
+  run(2)
+  let f = frameLayout()
+  doAssert f.close.w == 0 and f.maximize == rect(W - 5 - ch, 5, ch, ch) and
+           f.minimize == rect(W - 5 - 2 * ch, 5, ch, ch), $f
+  doAssert framePartAt(W - 10, 10) == fpMaximize and framePartAt(W - 10 - ch, 10) == fpMinimize
+  doAssert px(W - 6 - ch, 10) != Navy, "no gap: the buttons side by side"
+  click(f.minimize, dx = 5)
+  doAssert minimized == 2
+  captionButtons = cbWin95
+  run(2)
+  doAssert frameLayout().close == closeR()
 
 block controlMenu:
   # a click on the control-menu box opens its menu; its letters choose
@@ -255,7 +298,7 @@ block controlMenu:
   run()
   up(10, 10)
   run(2)
-  doAssert closes == 1, $closes
+  doAssert closes == 2, $closes
   doAssert ui.popup == 0
 
 block inactive:
@@ -327,6 +370,19 @@ block settings:
   restoreAppearance(s)
   doAssert classicFrame() and keptFrame() == "classic"
   delEnv("RETRO_FRAME")
+  # the title bars' buttons are kept with the look; a store of before has
+  # none, and the app's own stays
+  s.del("look.buttons")
+  captionButtons = cbWin31
+  restoreAppearance(s)
+  doAssert captionButtons == cbWin31
+  storeAppearance(s)
+  doAssert s["look.buttons"] == "win31"
+  captionButtons = cbWin95
+  restoreAppearance(s)
+  doAssert captionButtons == cbWin31, "the user's choice wins"
+  captionButtons = cbWin95
+  run()
 
 block altSpace:
   # Alt+Space opens the window's menu -- the 3.1 control menu, or the
@@ -407,8 +463,9 @@ block sizeGripAndResizable:
   doAssert told == @[false] and not resizable()
   doAssert sizeGrip().w == 0
   let f = frameLayout()
-  doAssert f.maximize.w == 0 and f.minimize == rect(W - 5 - ch, 5, ch, ch), $f.minimize
-  doAssert framePartAt(W - 10, 10) == fpMinimize
+  doAssert f.maximize.w == 0 and f.close == closeR() and
+           f.minimize == rect(W - 5 - 2 * ch - 2, 5, ch, ch), $f
+  doAssert framePartAt(W - 10, 10) == fpClose and framePartAt(f.minimize.x + 5, 10) == fpMinimize
   for (x, y) in [(2, 240), (W - 2, H - 2), (320, 1), (g.x + 2, g.y + 2)]:
     doAssert framePartAt(x, y) == fpNone, $(x, y) & ": " & $framePartAt(x, y)
   doAssert px(c, 2) == Gray, "no sizing marks across the border"

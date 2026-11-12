@@ -269,7 +269,10 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   a newer release cut whole is bigger for the same letters.
 - **Looks:** the Windows 3.1 look and FreeSans drawn in gray (its heights
   on whole pixels, its strokes as the font has them; "Sharp" text is an
-  option). Check a change by looking at a screenshot.
+  option); the title bars the kit draws have Windows 95's minimize,
+  maximize and close buttons (`captionButtons`, 3.1's two a setting away):
+  a new title bar draws its buttons with `captionButton` and `captionMark`.
+  Check a change by looking at a screenshot.
 - **The same everywhere:** behaviour and looks must match on Windows,
   macOS, Linux/BSD and Android; platform conventions (Cmd on macOS) go in
   the drivers, not in the app code. A frame relay added to `FrameRelays`

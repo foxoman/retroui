@@ -1511,8 +1511,8 @@ do:
   discard settingButtons("Cache", ["Clear"], "12 MB")
 
 example("appearance", "appearanceSettings",
-        "The look of every app in a few rows: the color scheme, the size of everything, the size of the text, controls for a mouse or fingers, the window's frame and the font. `app`'s `look` keeps the user's choice by itself.",
-        460, 560, ["appearanceSettings", "storeAppearance", "restoreAppearance"], std3):
+        "The look of every app in a few rows: the color scheme, the size of everything, the size of the text, controls for a mouse or fingers, the window's frame, the title bars' buttons and the font. `app`'s `look` keeps the user's choice by itself.",
+        460, 610, ["appearanceSettings", "storeAppearance", "restoreAppearance"], std3):
   appearanceSettings()
 
 example("avatar", "avatar, factList",
@@ -2279,13 +2279,22 @@ Windows' ClearType does. It is off by default.
 
 A desktop app has the system's own frame, or the one Windows 3.1 had: the
 gray sizing border, the navy title bar with the control-menu box at its
-left and the minimize and maximize buttons at its right, and a size grip in
-the bottom right corner. The app draws it itself, in the theme's colors, and
+left and the minimize, maximize and close buttons at its right, and a size
+grip in the bottom right corner. The app draws it itself, in the theme's colors, and
 the system still does the rest: drag the title bar to move the window (Aero
 Snap on Windows), the border or the grip to size it (a finger takes the grip
 too), a double click to maximize it, Alt+Space for the control menu.
 `resizable = false` keeps the window's size: no sizing border, no maximize
 button, no grip, and the system's frame the same.
+
+**The title bars' buttons** are Windows 95's, _ □ X: minimize, maximize
+(restore) and close, the close button a little apart. The 3.1 frame, the
+dialogs, the windows in an `mdiArea` and a window besides the app's with no
+frame of the system's have them. `captionButtons = cbWin31` (before
+`startApp`) gives every title bar 3.1's two triangles instead, with no close
+button: the control-menu box closes, as in 3.1. The user picks either as
+"Title bar buttons" in `appearanceSettings`, kept with the look. A phone's
+caption bar has no close button in either: Back closes the app.
 
 ```nim
 app "Ledger", 640, 480, frame = wfClassic:   # wfAsBuilt (the default), wfSystem, wfClassic
@@ -2334,7 +2343,10 @@ opts(inline = true, looks = @[
   look("Windows 3.1 frame (frame = wfClassic)", proc () = (setTitle("Ledger"); setClassicFrame(true)),
        proc () = setClassicFrame(false)),
   look("In a dark scheme", proc () = (setTitle("Ledger"); setClassicFrame(true); ui.theme = Dark),
-       proc () = (setClassicFrame(false); ui.theme = Classic))])
+       proc () = (setClassicFrame(false); ui.theme = Classic)),
+  look("Windows 3.1's buttons (captionButtons = cbWin31)",
+       proc () = (setTitle("Ledger"); setClassicFrame(true); captionButtons = cbWin31),
+       proc () = (setClassicFrame(false); captionButtons = cbWin95))])
 
 # Screen readers and input methods
 # ======================================================================================================

@@ -40,7 +40,7 @@ NOT_CONTROLS = {
         "lumaOfColor", "contrastInk", "softLight", "raisedFace", "buttonFace",
         "fieldFrame", "etchedBox", "etchedLine", "titleColors", "windowFrame",
         "captionButton", "controlMenuMark", "ditherFill", "hdDetail", "arrow",
-        "captionArrow", "captionRestore", "pattern", "focusDots", "itemTextY",
+        "captionArrow", "captionRestore", "captionMark", "pattern", "focusDots", "itemTextY",
         "boxH", "checkBox", "radioDisc", "drawLabeled", "labeledSize",
         "paletteTabH", "paletteTabFace",
         # input helpers for controls of one's own

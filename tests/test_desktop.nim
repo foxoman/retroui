@@ -73,16 +73,18 @@ block mdi:
   key(KeyF6, {CtrlPressed})
   run(2)
   doAssert px(area.x + w2.r.x + w2.r.w div 2 + 60, area.y + w2.r.y + 4 + barH div 2) == 0x000080
-  # maximize fills the area, restore brings it back
-  let mx = area.x + w2.r.x + w2.r.w - 4 - barH div 2
+  # maximize fills the area, restore brings it back (Windows 95's buttons:
+  # the close button at the right, two pixels apart)
+  let xw = barH + dp(2)
+  let mx = area.x + w2.r.x + w2.r.w - 4 - xw - barH div 2
   tap(mx, area.y + w2.r.y + 4 + barH div 2)
   run(2)
   doAssert w2.maximized
-  tap(area.x + area.w - 1 - barH div 2, area.y + 1 + barH div 2)
+  tap(area.x + area.w - 1 - xw - barH div 2, area.y + 1 + barH div 2)
   run(2)
   doAssert not w2.maximized, "the restore button"
   # minimize: an icon at the bottom; a double click restores it
-  let mn = area.x + w2.r.x + w2.r.w - 4 - barH - barH div 2
+  let mn = area.x + w2.r.x + w2.r.w - 4 - xw - barH - barH div 2
   tap(mn, area.y + w2.r.y + 4 + barH div 2)
   run(2)
   doAssert w2.minimized
@@ -96,6 +98,21 @@ block mdi:
   up(area.x + dp(4) + dp(38), iy)
   run(2)
   doAssert not w2.minimized, "a double click on the icon restores it"
+  # the close button closes that window only (as Ctrl+F4)
+  tap(area.x + w2.r.x + w2.r.w - 4 - barH div 2, area.y + w2.r.y + 4 + barH div 2)
+  run(2)
+  doAssert not w2.open and w1.open, "the close button"
+  w2.open = true
+  run(2)
+  # Windows 3.1's buttons: maximize at the right, no close button
+  captionButtons = cbWin31
+  run(2)
+  tap(area.x + w2.r.x + w2.r.w - 4 - barH div 2, area.y + w2.r.y + 4 + barH div 2)
+  run(2)
+  doAssert w2.open and w2.maximized, "3.1: the maximize button at the right"
+  w2.maximized = false
+  captionButtons = cbWin95
+  run(2)
   # Tile lays them side by side; Ctrl+F4 closes the active one
   mdiTile()
   run(3)
@@ -154,7 +171,7 @@ block mdi:
   # the pin in the title bar, clicked: on; again: off (the title bar's drag
   # does not take its press)
   let bh = FontH + dp(5)
-  let pinX = area.x + w2.r.x + w2.r.w - dp(5) - 2 * bh - dp(2) - bh div 2
+  let pinX = area.x + w2.r.x + w2.r.w - dp(5) - (bh + dp(2)) - 2 * bh - dp(2) - bh div 2
   let pinY = area.y + w2.r.y + dp(5) + bh div 2
   doAssert not w2.pinned
   tap(pinX, pinY)
@@ -173,6 +190,42 @@ block mdi:
   run(2)
   doAssert not w2.pinned, "no pin to click"
   w2.noPin = false
+
+# ---- a dialog's close button --------------------------------------------------------------------
+
+block dialogClose:
+  # Windows 95's close button at the right of a dialog's title bar does what
+  # Esc does; a press that leaves it does nothing; 3.1's buttons: none there
+  let tb = FontH + dp(5)                   # (a dialog's title bar)
+  var open = true
+  var first: Rect
+  view = proc () =
+    dialog(open, "Page setup", 300):
+      label "Copies"
+      first = ui.lastRect
+  run(3)
+  let w = dp(300)
+  let xc = (ui.w - w) div 2 + w - 5 - tb div 2
+  let yc = first.y - Pad - 1 - tb div 2
+  doAssert px(xc, yc) == 0, "the X's middle: " & $px(xc, yc)
+  down(xc, yc)
+  run()
+  up(xc - 100, yc + 100)
+  run(2)
+  doAssert open, "a press that leaves it"
+  tap(xc, yc)
+  run(2)
+  doAssert not open, "the close button"
+  open = true
+  captionButtons = cbWin31
+  run(3)
+  doAssert px(xc, yc) == 0x000080, "3.1: the title bar there"
+  tap(xc, yc)
+  run(2)
+  doAssert open, "3.1: no close button"
+  open = false
+  captionButtons = cbWin95
+  run(2)
 
 # ---- find and replace ---------------------------------------------------------------------------
 

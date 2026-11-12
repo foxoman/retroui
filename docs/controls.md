@@ -3511,8 +3511,9 @@ dialog(dlgOpen, "Page setup", 300):
 template dialog*(open: var bool; title: string; width: int; body: untyped)
 ```
 
-A modal dialog, `width` pixels wide, shown while `open` is true. Esc
-and the control-menu box close it; drag it by its title. Work that
+A modal dialog, `width` pixels wide, shown while `open` is true. Esc,
+the close button (`captionButtons`) and the control-menu box close it;
+drag it by its title. Work that
 takes a while in it (its OK) is named by its title in the box that
 comes up.
 
@@ -3887,11 +3888,12 @@ The window's 3.1 title bar where the app draws it. Phones and tablets:
 the system does not draw one there -- navy from the top of the screen
 (under the status bar, whose icons turn white over it), the
 control-menu box (zoom, minimize, close; also Alt+Space), the title,
-and the minimize button. Desktops with the 3.1 frame on
-(`setClassicFrame`): the title bar of a Windows 3.1 window, its
-control-menu box, its minimize and maximize buttons, inside the sizing
-border. `app` calls it every frame; with the system's frame it draws
-nothing.
+and the minimize button where the system has one (Android); a window
+besides the app's also gets the close button (`captionButtons`).
+Desktops with the 3.1 frame on (`setClassicFrame`): the title bar
+inside the sizing border, its control-menu box, its minimize, maximize
+and close buttons. `app` calls it every frame; with the system's frame
+it draws nothing.
 
 ### windowBox, inert, showMenu, hideMenu
 
@@ -4380,7 +4382,7 @@ when clicked.
 
 ### appearanceSettings
 
-The look of every app in a few rows: the color scheme, the size of everything, the size of the text, controls for a mouse or fingers, the window's frame and the font. `app`'s `look` keeps the user's choice by itself.
+The look of every app in a few rows: the color scheme, the size of everything, the size of the text, controls for a mouse or fingers, the window's frame, the title bars' buttons and the font. `app`'s `look` keeps the user's choice by itself.
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -4399,15 +4401,16 @@ proc appearanceSettings*(): bool {.discardable.}
 Settings rows for how every app looks: the color scheme, the size of
 everything, the size of the text, the size of controls (for a mouse
 or fingers), the window's frame (on desktops: the system's or Windows
-3.1's) and the font. True when something changed (store them with
+3.1's), the title bars' buttons (`captionButtons`) and the font. True
+when something changed (store them with
 `storeAppearance`; `app`'s `look` keeps them by itself).
 
 ```nim
 proc storeAppearance*(s: var Settings)
 ```
 
-Puts the look the user chose (colors, sizes, font, the window's frame)
-into `s`.
+Puts the look the user chose (colors, sizes, font, the title bars'
+buttons) into `s`.
 
 ```nim
 proc restoreAppearance*(s: Settings)
@@ -4507,11 +4510,12 @@ The window's 3.1 title bar where the app draws it. Phones and tablets:
 the system does not draw one there -- navy from the top of the screen
 (under the status bar, whose icons turn white over it), the
 control-menu box (zoom, minimize, close; also Alt+Space), the title,
-and the minimize button. Desktops with the 3.1 frame on
-(`setClassicFrame`): the title bar of a Windows 3.1 window, its
-control-menu box, its minimize and maximize buttons, inside the sizing
-border. `app` calls it every frame; with the system's frame it draws
-nothing.
+and the minimize button where the system has one (Android); a window
+besides the app's also gets the close button (`captionButtons`).
+Desktops with the 3.1 frame on (`setClassicFrame`): the title bar
+inside the sizing border, its control-menu box, its minimize, maximize
+and close buttons. `app` calls it every frame; with the system's frame
+it draws nothing.
 
 ## Files
 
@@ -7479,13 +7483,22 @@ Windows' ClearType does. It is off by default.
 
 A desktop app has the system's own frame, or the one Windows 3.1 had: the
 gray sizing border, the navy title bar with the control-menu box at its
-left and the minimize and maximize buttons at its right, and a size grip in
-the bottom right corner. The app draws it itself, in the theme's colors, and
+left and the minimize, maximize and close buttons at its right, and a size
+grip in the bottom right corner. The app draws it itself, in the theme's colors, and
 the system still does the rest: drag the title bar to move the window (Aero
 Snap on Windows), the border or the grip to size it (a finger takes the grip
 too), a double click to maximize it, Alt+Space for the control menu.
 `resizable = false` keeps the window's size: no sizing border, no maximize
 button, no grip, and the system's frame the same.
+
+**The title bars' buttons** are Windows 95's, _ □ X: minimize, maximize
+(restore) and close, the close button a little apart. The 3.1 frame, the
+dialogs, the windows in an `mdiArea` and a window besides the app's with no
+frame of the system's have them. `captionButtons = cbWin31` (before
+`startApp`) gives every title bar 3.1's two triangles instead, with no close
+button: the control-menu box closes, as in 3.1. The user picks either as
+"Title bar buttons" in `appearanceSettings`, kept with the look. A phone's
+caption bar has no close button in either: Back closes the app.
 
 ```nim
 app "Ledger", 640, 480, frame = wfClassic:   # wfAsBuilt (the default), wfSystem, wfClassic
@@ -7505,6 +7518,10 @@ their own.
 | Windows 3.1 frame (frame = wfClassic) | In a dark scheme |
 |---|---|
 | ![The window's frame: Windows 3.1 frame (frame = wfClassic)](controls/frame-windows-31-frame-frame-wfclassic.png) | ![The window's frame: In a dark scheme](controls/frame-in-a-dark-scheme.png) |
+
+| Windows 3.1's buttons (captionButtons = cbWin31) |
+|---|
+| ![The window's frame: Windows 3.1's buttons (captionButtons = cbWin31)](controls/frame-windows-31s-buttons-captionbuttons-cbwin31.png) |
 
 ## Screen readers and input methods
 

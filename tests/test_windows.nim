@@ -1,7 +1,8 @@
 ## Windows besides the program's own (`window`), headless: a fake driver
 ## that opens them, the window's frame run inside the program's with its
 ## own `ui` (its size, its pointer, its focus), its events kept for it, its
-## pixels sent to it, its close button, and its closing once it is no
+## pixels sent to it, its close button (the system's, and the caption
+## bar's where the system draws no frame), and its closing once it is no
 ## longer drawn; and a dialog where the system has one window.
 
 import retroui
@@ -89,11 +90,37 @@ draw = false
 run(3)
 doAssert closed == @[1, 2], $closed
 
+# a window the system draws no frame round (Wayland without one): the
+# caption bar, Windows 95's close button at its right closes it; 3.1's
+# buttons: none (its control menu closes it)
+proc unframed(id: int): bool = false
+windowsRelays.framed = unframed
+draw = true
+toolsOpen = true
+run(3)
+doAssert toolsOpen and opened.len == 3
+let s = MenuH - 6
+proc clickTools(x, y: int) =
+  queue.add Event(kind: MouseMoveEvent, x: x, y: y, window: 3)
+  queue.add Event(kind: MouseDownEvent, x: x, y: y, button: LeftButton, clicks: 1, window: 3)
+  run(2)
+  queue.add Event(kind: MouseUpEvent, x: x, y: y, button: LeftButton, window: 3)
+  run(3)
+captionButtons = cbWin31
+run(2)
+clickTools(insideW - 3 - s div 2, 3 + s div 2)
+doAssert toolsOpen, "3.1: no close button"
+captionButtons = cbWin95
+run(2)
+clickTools(insideW - 3 - s div 2, 3 + s div 2)
+doAssert not toolsOpen and closed == @[1, 2, 3], $closed
+windowsRelays.framed = nil
+
 # a system with one window: a dialog over the app
 windowsRelays = WindowsRelays()
 draw = true
 toolsOpen = true
 insideW = 0
 run(3)
-doAssert insideW == 640 and opened.len == 2           # (in a dialog of the program's window)
+doAssert insideW == 640 and opened.len == 3           # (in a dialog of the program's window)
 echo "test_windows: ok"

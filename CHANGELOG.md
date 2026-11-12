@@ -1,5 +1,46 @@
 # Changes
 
+## 0.40.0
+
+Windows 95's title bar buttons, _ □ X, are the default: every window and
+dialog the kit draws has a close button. Windows 3.1's two are a setting
+away.
+
+- **The title bars the kit draws** -- the 3.1 frame's, a dialog's, a
+  window's in an `mdiArea`, and the caption bar of a window besides the
+  app's where the system draws no frame round it -- have minimize,
+  maximize (restore) and close at their right, the close button two
+  pixels apart so a slip off maximize doesn't close. The marks are
+  Windows 95's: _, □, two windows, X. The control-menu box stays at the
+  left, with its menu, its double click and Alt+Space.
+  - The 3.1 frame: X asks the app to close, as Alt+F4 does
+    (`closeRequested`: it can still ask "Save changes?"); a press that
+    leaves the button does nothing; the buttons have tooltips.
+    `frameLayout().close`; `framePartAt` gives `fpClose`.
+  - A dialog: X does what Esc does (a message box: its last button).
+  - A window in an `mdiArea`: X closes that window only, as Ctrl+F4; its
+    pin stays left of the buttons.
+  - A window besides the app's with no frame of the system's (Wayland
+    without one): X closes it.
+  - A phone's caption bar has no close button (Back closes the app);
+    Android's minimize button has the _ mark. iOS and a screen without a
+    desktop keep the box only.
+- **Windows 3.1's buttons:** `captionButtons = cbWin31` (before
+  `startApp`: the app's default) gives every title bar the two triangles
+  and no close button: the control-menu box closes, as in 3.1. The user
+  picks either as "Title bar buttons" in `appearanceSettings`; it is kept
+  with the look (`storeAppearance`, `look.buttons`) and wins over the
+  app's. A title bar the system draws keeps the system's buttons.
+- `captionMark(r, mark, pressed, enabled)` draws a title bar button's mark
+  in either style, for a title bar of your own.
+- Tests: `test_frame` (the layout, the parts, the close button, 3.1's
+  buttons, the setting kept), `test_desktop` (an inner window's and a
+  dialog's close button, and 3.1's), `test_windows` (a window's caption
+  bar).
+- The guide's pictures of the frame, dialogs, boxes and inner windows, the
+  syntax guide's and the examples' pictures.
+- The gallery and the small examples 0.40.0.
+
 ## 0.39.2
 
 Scrolling areas inside one another pass a swipe on at their ends, as on

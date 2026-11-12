@@ -206,18 +206,15 @@ proc toFront(m: var MdiState; key: uint) =
     m.z.insert(key, at)
   if m.z.find(key) != i: ui.redraw = true
 
-proc winButton(id: Id; r: Rect; kind: int): bool =
-  ## The minimize (0), maximize (1) and restore (2) buttons of a title bar.
+proc winButton(id: Id; r: Rect; mark: CaptionMark): bool =
+  ## A title bar's minimize, maximize, restore or close button.
   let hit = interact(id, r, focusable = false)
-  if accessOn: accessNode(arButton, ["Minimize", "Maximize", "Restore"][clamp(kind, 0, 2)], id = id, r = r)
+  if accessOn: accessNode(arButton, ["Minimize", "Maximize", "Restore", "Close"][ord(mark)], id = id, r = r)
   # the Win31 caption button: a black line at its left, a gray face
   vline(r.x, r.y, r.h, th.frame)
   let f = rect(r.x + 1, r.y, r.w - 1, r.h)
   captionButton(f, hit.down)
-  case kind
-  of 0: captionArrow(f, false, hit.down)
-  of 1: captionArrow(f, true, hit.down)
-  else: captionRestore(f, hit.down)
+  captionMark(f, mark, hit.down)
   hit.clicked
 
 proc openMdiWindow(w: var MdiWindow): bool
@@ -490,7 +487,9 @@ proc openMdiWindow(w: var MdiWindow): bool =
   var title = rect(sr.x + border, sr.y + border, sr.w - 2 * border, barH)
   let sysBox = rect(title.x, title.y, barH, barH)
   let bs = barH
-  let maxBox = rect(title.x + title.w - bs, title.y, bs, barH)
+  # (Windows 95's close button at the right, a little apart: `captionButtons`)
+  let xw = if captionButtons == cbWin95: bs + dp(2) else: 0
+  let maxBox = rect(title.x + title.w - xw - bs, title.y, bs, barH)
   let minBox = rect(maxBox.x - bs, title.y, bs, barH)
   let pinBox = if w.noPin: rect(minBox.x, title.y, 0, barH)
                else: rect(minBox.x - bs - dp(2), title.y, bs, barH)
@@ -562,7 +561,7 @@ proc openMdiWindow(w: var MdiWindow): bool =
   captionButton(sys, false)
   vline(sys.x + sys.w, sys.y, sys.h, th.frame)
   controlMenuMark(sys)
-  let mx2 = rect(title.x + title.w - bs, title.y, bs, barH)
+  let mx2 = rect(title.x + title.w - xw - bs, title.y, bs, barH)
   let mn2 = rect(mx2.x - bs, title.y, bs, barH)
   # (the pin: always on top -- shown pressed while it is)
   let pinR = if w.noPin: rect(mn2.x, title.y, 0, barH)
@@ -604,11 +603,14 @@ proc openMdiWindow(w: var MdiWindow): bool =
     if can and ph.clicked:
       w.pinned = not w.pinned
       ui.redraw = true
-  if winButton(id + 3, mn2, 0):
+  if winButton(id + 3, mn2, cmMinimize):
     w.minimized = true
     w.maximized = false
-  if winButton(id + 4, mx2, if w.maximized: 2 else: 1):
+  if winButton(id + 4, mx2, if w.maximized: cmRestore else: cmMaximize):
     w.maximized = not w.maximized
+  if xw > 0:
+    if winButton(id + 8, rect(title.x + title.w - bs, title.y, bs, barH), cmClose): w.open = false
+    if ui.hot == id + 8 and canHover(): ui.tip = "Close (Ctrl+F4)"
   # the control-menu box: a menu; a double click closes
   let sh = interact(id + 5, sys, focusable = false)
   let menuKey = "mdi-sys:" & $key

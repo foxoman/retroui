@@ -239,6 +239,46 @@ proc captionRestore*(r: Rect; pressed = false) =
   arrow(r.x + r.w div 2 + o, r.y + r.h div 2 - n div 2 - 1 + o, dUp, th.text, n)
   arrow(r.x + r.w div 2 + o, r.y + r.h div 2 + n div 2 + 1 + o, dDown, th.text, n)
 
+type CaptionMark* = enum
+  ## The mark on a title bar's button (`captionMark`).
+  cmMinimize, cmMaximize, cmRestore, cmClose
+
+proc captionMark*(r: Rect; mark: CaptionMark; pressed = false; enabled = true) =
+  ## The mark on a title bar's button in `r`, in the style of
+  ## `captionButtons`: Windows 95's _ □ (restore: two windows) X, or 3.1's
+  ## triangles (3.1 had no close button: `cmClose` draws its X then too).
+  ## `enabled` false: grayed.
+  if captionButtons == cbWin31 and mark != cmClose:
+    case mark
+    of cmMinimize: captionArrow(r, false, pressed)
+    of cmMaximize: captionArrow(r, true, pressed)
+    else: captionRestore(r, pressed)
+    return
+  let o = if pressed: 1 else: 0
+  let g = max(7, r.h * 9 div 16)             # (the mark's square: 11 in a 20-pixel button)
+  let t = max(2, (g + 3) div 7)              # (its strokes)
+  let x = r.x + (r.w - g) div 2 + o
+  let y = r.y + (r.h - g) div 2 + o
+  let c = if enabled: th.text else: th.shadow
+  case mark
+  of cmMinimize:
+    fill(rect(x + g div 6, y + g - t, g - g div 3, t), c)
+  of cmMaximize:
+    box(rect(x, y, g, g), c)
+    fill(rect(x, y, g, t), c)
+  of cmRestore:
+    # (the window behind, and the one in front of it)
+    let s = g * 3 div 4
+    box(rect(x + g - s, y, s, s), c)
+    fill(rect(x + g - s, y, s, t), c)
+    fill(rect(x, y + g - s, s, s), th.face)
+    box(rect(x, y + g - s, s, s), c)
+    fill(rect(x, y + g - s, s, t), c)
+  of cmClose:
+    for k in 0 ..< t:
+      line(x + k, y, x + g - t + k, y + g - 1, c)
+      line(x + g - t + k, y, x + k, y + g - 1, c)
+
 proc pattern*(x, y: int; rows: openArray[string]; keys: string;
              cols: openArray[Color]) =
   ## Pixel art: each character of `rows` is a pixel whose color is the
@@ -4105,8 +4145,13 @@ proc beginDialog*(open: var bool; title: string; width: int): bool =
   notePlaced(r)
   let bar = rect(x + 5, y + 5, w - 10, TitleH)
   let sysBox = rect(bar.x, bar.y, TitleH, TitleH)
+  # (Windows 95's close button at the right: what Esc does)
+  let xBox = if captionButtons == cbWin95: rect(bar.x + bar.w - TitleH, bar.y, TitleH, TitleH)
+             else: rect(bar.x + bar.w, bar.y, 0, TitleH)
+  var xHit: Hit
   if canInput():
-    if keyHit(KeyEsc):
+    if xBox.w > 0: xHit = interact(id + 3, xBox, focusable = false)
+    if xHit.clicked or keyHit(KeyEsc):
       open = false
     elif hover(sysBox) and takePress():
       open = false
@@ -4135,14 +4180,23 @@ proc beginDialog*(open: var bool; title: string; width: int): bool =
   captionButton(sysBox, ui.active == id + 1)
   vline(sysBox.x + sysBox.w, sysBox.y, sysBox.h, th.frame)
   controlMenuMark(sysBox)
+  if xBox.w > 0:
+    vline(xBox.x, xBox.y, xBox.h, th.frame)
+    let face = rect(xBox.x + 1, xBox.y, xBox.w - 1, xBox.h)
+    captionButton(face, xHit.down)
+    captionMark(face, cmClose, xHit.down)
+    if xHit.hover and canHover(): ui.tip = "Close"
   let title = tr(title)
   let tw = textWidth(title, true)
-  text(bar.x + TitleH + max(dp(4), (bar.w - TitleH - tw) div 2),
-       bar.y + (TitleH - FontH) div 2, ellipsize(title, bar.w - TitleH - dp(8), style(bold = true)),
+  let titleRoom = bar.w - TitleH - xBox.w
+  text(bar.x + TitleH + max(dp(4), (titleRoom - tw) div 2),
+       bar.y + (TitleH - FontH) div 2, ellipsize(title, titleRoom - dp(8), style(bold = true)),
        tfg, true)
   let client = rect(x + 5, bar.y + bar.h + 1, w - 10, h - TitleH - 11)
   fill(client, th.window)
-  if accessOn: accessBegin(arDialog, title, r, id, {asModal})
+  if accessOn:
+    accessBegin(arDialog, title, r, id, {asModal})
+    if xBox.w > 0: accessNode(arButton, "Close", id = id + 3, r = xBox)
   if not tall: st.caret = 0
   state(id) = st
   dlgClient = client
@@ -4189,8 +4243,9 @@ proc endDialog*() =
   ui.curDialog = 0
 
 template dialog*(open: var bool; title: string; width: int; body: untyped) =
-  ## A modal dialog, `width` pixels wide, shown while `open` is true. Esc
-  ## and the control-menu box close it; drag it by its title. Work that
+  ## A modal dialog, `width` pixels wide, shown while `open` is true. Esc,
+  ## the close button (`captionButtons`) and the control-menu box close it;
+  ## drag it by its title. Work that
   ## takes a while in it (its OK) is named by its title in the box that
   ## comes up.
   if beginDialog(open, title, width):
@@ -4319,7 +4374,8 @@ type
     fpNone,                                ## not the frame: the window's content
     fpCaption,                             ## the title bar: drags the window,
                                            ## a double click maximizes it
-    fpControlBox, fpMinimize, fpMaximize,  ## the title bar's buttons
+    fpControlBox, fpMinimize, fpMaximize,  ## the title bar's buttons (and
+    fpClose,                               ## Windows 95's close: `captionButtons`)
     fpLeft, fpRight, fpTop, fpBottom,      ## the sizing border...
     fpTopLeft, fpTopRight, fpBottomLeft, fpBottomRight  ## ... and its corners
 
@@ -4331,6 +4387,7 @@ type
                                            ## the border (to the dark lines across it)
     caption*: Rect                         ## the title bar, without the line under it
     controlBox*, minimize*, maximize*: Rect
+    close*: Rect                           ## empty with 3.1's buttons (`captionButtons`)
 
 const
   ClassicMenuId = Id(0x31f2a7c5'u32)       # the control menu
@@ -4344,9 +4401,11 @@ var
 proc frameLayout*(): FrameLayout =
   ## The parts of the 3.1 frame (`setClassicFrame`): the sizing border all
   ## round, the title bar inside it with the control-menu box at its left
-  ## and the minimize and maximize buttons at its right. All empty when the
-  ## frame is not drawn. A window that keeps its size (`setResizable`) has
-  ## no maximize button: the minimize button is at the right.
+  ## and the minimize, maximize and close buttons at its right -- the close
+  ## button a little apart, as Windows 95 has it (with 3.1's buttons,
+  ## `captionButtons`, no close button). All empty when the frame is not
+  ## drawn. A window that keeps its size (`setResizable`) has no maximize
+  ## button.
   if not ui.ownFrame: return
   let b = ui.frameBorder
   let h = max(1, ui.captionH - 1)
@@ -4354,11 +4413,14 @@ proc frameLayout*(): FrameLayout =
   result.corner = b + h          # (in line with the title bar's bottom)
   result.caption = rect(b, b, ui.w - 2 * b, h)
   result.controlBox = rect(b, b, h, h)
+  var right = ui.w - b
+  if captionButtons == cbWin95:
+    result.close = rect(right - h, b, h, h)
+    right -= h + dp(2)           # (a slip off the maximize button doesn't close)
   if resizable():
-    result.maximize = rect(ui.w - b - h, b, h, h)
-    result.minimize = rect(ui.w - b - 2 * h, b, h, h)
-  else:
-    result.minimize = rect(ui.w - b - h, b, h, h)
+    result.maximize = rect(right - h, b, h, h)
+    right -= h
+  result.minimize = rect(right - h, b, h, h)
 
 proc framePartAt*(x, y: int): FramePart =
   ## Which part of the 3.1 frame is at `x`, `y` (`fpNone`: the content, or
@@ -4370,6 +4432,7 @@ proc framePartAt*(x, y: int): FramePart =
   if f.controlBox.contains(p): return fpControlBox
   if f.minimize.contains(p): return fpMinimize
   if f.maximize.contains(p): return fpMaximize
+  if f.close.contains(p): return fpClose
   if rect(f.caption.x, f.caption.y, f.caption.w, ui.captionH).contains(p): return fpCaption
   # (the size grip sizes the window as the corner does)
   if sizeGrip().contains(p): return fpBottomRight
@@ -4503,7 +4566,7 @@ proc classicCaption() =
       case part
       of fpControlBox:
         if ui.clicks >= 2: requestClose() else: openControlMenu()
-      of fpMinimize, fpMaximize:
+      of fpMinimize, fpMaximize, fpClose:
         classicHeld = part
         ui.redraw = true
       of fpCaption:
@@ -4513,7 +4576,9 @@ proc classicCaption() =
         startWindowResize(systemPart(part))
   if classicHeld != fpNone and (ui.released or not ui.mouseDown):
     if ui.released and part == classicHeld:
-      if classicHeld == fpMinimize: minimizeApp()
+      case classicHeld
+      of fpMinimize: minimizeApp()
+      of fpClose: requestClose()
       else: maximizeWindow(not maxed)
     classicHeld = fpNone
     ui.redraw = true
@@ -4529,6 +4594,12 @@ proc classicCaption() =
   if free and ui.active == 0 and not ui.mouseDown:
     let c = frameCursor(part)
     if c != curDefault: ui.cursor = c
+    if canHover():
+      case part
+      of fpMinimize: ui.tip = "Minimize"
+      of fpMaximize: ui.tip = if maxed: "Restore" else: "Maximize"
+      of fpClose: ui.tip = "Close"
+      else: discard
   # draw: the title bar in the active colors (white while another window is
   # in front), the line under it, its buttons, the title
   let (tbg, tfg) = titleColors(ui.active31 and windowActive())
@@ -4539,15 +4610,16 @@ proc classicCaption() =
   captionButton(cb, false)
   vline(cb.x + cb.w, cap.y, cap.h, th.frame)
   controlMenuMark(cb)
-  for (r, p) in [(f.minimize, fpMinimize), (f.maximize, fpMaximize)]:
+  for (r, p) in [(f.minimize, fpMinimize), (f.maximize, fpMaximize), (f.close, fpClose)]:
     if r.w <= 0: continue            # (no maximize button: a window that keeps its size)
     vline(r.x, r.y, r.h, th.frame)
     let face = rect(r.x + 1, r.y, r.w - 1, r.h)
     let down = classicHeld == p and part == p and ui.mouseDown
     captionButton(face, down)
-    if p == fpMinimize: captionArrow(face, false, down)
-    elif maxed: captionRestore(face, down)
-    else: captionArrow(face, true, down)
+    captionMark(face, (case p
+                       of fpMinimize: cmMinimize
+                       of fpClose: cmClose
+                       else: (if maxed: cmRestore else: cmMaximize)), down)
   let left = cb.x + cb.w + 1
   let room = f.minimize.x - left - dp(8)
   let t = ellipsize(ui.title, room, style(bold = true))
@@ -4618,11 +4690,12 @@ proc captionBar*() =
   ## the system does not draw one there -- navy from the top of the screen
   ## (under the status bar, whose icons turn white over it), the
   ## control-menu box (zoom, minimize, close; also Alt+Space), the title,
-  ## and the minimize button. Desktops with the 3.1 frame on
-  ## (`setClassicFrame`): the title bar of a Windows 3.1 window, its
-  ## control-menu box, its minimize and maximize buttons, inside the sizing
-  ## border. `app` calls it every frame; with the system's frame it draws
-  ## nothing.
+  ## and the minimize button where the system has one (Android); a window
+  ## besides the app's also gets the close button (`captionButtons`).
+  ## Desktops with the 3.1 frame on (`setClassicFrame`): the title bar
+  ## inside the sizing border, its control-menu box, its minimize, maximize
+  ## and close buttons. `app` calls it every frame; with the system's frame
+  ## it draws nothing.
   if ui.ownFrame:
     classicCaption()
     return
@@ -4652,8 +4725,20 @@ proc captionBar*() =
     ui.menuOpen = false
     ui.popupHi = -1
     ui.redraw = true
-  # the minimize button, where the system can do it
   var right = cap.x + cap.w
+  # a window besides the app's (where the system draws no frame round it):
+  # Windows 95's close button -- not the app's own window, which a phone
+  # closes with Back and a kiosk's screen must not close with a tap
+  if inWindow() and captionButtons == cbWin95:
+    let xr = rect(right - s - 3, cap.y + 3, s, s)
+    let xh = interact(id + 4, xr, focusable = false)
+    if accessOn: accessNode(arButton, "Close", id = id + 4, r = xr)
+    box(xr, th.frame)
+    captionButton(inset(xr, 1), xh.down)
+    captionMark(inset(xr, 1), cmClose, xh.down)
+    if xh.clicked: requestClose()
+    right = xr.x
+  # the minimize button, where the system can do it
   let canMin = platformName() == "android"
   if canMin:
     let mr = rect(right - s - 3, cap.y + 3, s, s)
@@ -4661,7 +4746,7 @@ proc captionBar*() =
     if accessOn: accessNode(arButton, "Minimize", id = id + 3, r = mr)
     box(mr, th.frame)
     captionButton(inset(mr, 1), mh.down)
-    captionArrow(inset(mr, 1), false, mh.down)
+    captionMark(inset(mr, 1), cmMinimize, mh.down)
     if mh.clicked: minimizeApp()
     right = mr.x
   # (a desktop's window: dragged by its title bar)

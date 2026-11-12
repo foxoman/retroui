@@ -211,13 +211,14 @@ proc addRecentFile*(s: var Settings; path: string; keep = 10; key = "recent") =
   for i, p in l: s[key & "." & $(i + 1)] = p
 
 proc storeAppearance*(s: var Settings) =
-  ## Puts the look the user chose (colors, sizes, font, the window's frame)
-  ## into `s`.
+  ## Puts the look the user chose (colors, sizes, font, the title bars'
+  ## buttons) into `s`.
   let t = themeIndex()
   if t >= 0: s["look.colors"] = $t
   s["look.size"] = $uiScale()
   s["look.text"] = $textScale()
   s["look.smooth"] = $smoothScrolling
+  s["look.buttons"] = $captionButtons
   s["look.controls"] = (case controlSizes()
                         of csAuto: "auto"
                         of csDesktop: "desktop"
@@ -253,6 +254,10 @@ proc restoreAppearance*(s: Settings) =
   if s.hasKey("look.size") and not existsEnv("RETRO_SCALE"): setUiScale(s.getInt("look.size", 100))
   if s.hasKey("look.text"): setTextScale(s.getInt("look.text", 100))
   if s.hasKey("look.smooth"): setSmoothScrolling(s.getBool("look.smooth", true))
+  case s.getOrDefault("look.buttons", "")
+  of "win95": captionButtons = cbWin95
+  of "win31": captionButtons = cbWin31
+  else: discard
   if not existsEnv("RETRO_TEXT"):
     case s.getOrDefault("look.textedges", "")
     of "sharp": setSubpixelText(true)

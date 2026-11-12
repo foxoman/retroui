@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.39.2"
+const RetroVersion* = "0.40.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -830,6 +830,22 @@ var smoothScrolling* = true
 proc setSmoothScrolling*(on: bool) =
   ## Turns gliding scrolls and flicks on or off (see `smoothScrolling`).
   smoothScrolling = on
+
+type CaptionButtons* = enum
+  ## The buttons at the right of the title bars the toolkit draws: the 3.1
+  ## frame's (`setClassicFrame`), a dialog's, a window's in an `mdiArea`,
+  ## the caption bar of a window besides the app's (`captionButtons`).
+  cbWin95 = "win95"   ## minimize, maximize (restore) and close, _ □ X, as
+                      ## Windows 95 has them (the default)
+  cbWin31 = "win31"   ## Windows 3.1's: minimize and maximize as triangles,
+                      ## no close button (the control-menu box closes)
+
+var captionButtons* = cbWin95
+  ## The title bars' buttons (`CaptionButtons`). Set it before `startApp`
+  ## for the app's own default; the user's choice ("Title bar buttons" in
+  ## `appearanceSettings`) is kept with the look (`storeAppearance`) and
+  ## wins. A title bar the system draws keeps the system's buttons, and a
+  ## phone's caption bar has no close button in either (Back closes).
 
 type
   ScrollMode = enum smIdle, smGlide, smFling, smFinger
@@ -3147,8 +3163,9 @@ proc showFrameMenuItem() =
 
 proc setClassicFrame*(on: bool) =
   ## The window's frame as Windows 3.1 drew it (true): the sizing border and
-  ## the title bar with its control-menu box and its minimize and maximize
-  ## buttons, drawn by the app in a window without the system's frame -- or
+  ## the title bar with its control-menu box and its minimize, maximize and
+  ## close buttons (or 3.1's two: `captionButtons`), drawn by the app in a
+  ## window without the system's frame -- or
   ## the system's own frame (false). Before `startApp` it is how the window
   ## opens, after it the window changes. Where it cannot be
   ## (`canClassicFrame`), the system's frame stays.

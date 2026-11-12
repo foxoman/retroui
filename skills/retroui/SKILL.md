@@ -399,7 +399,8 @@ costs what its visible rows cost.
 - Fonts: FreeSans (default), FreeSerif, FreeMono, built in with Arabic,
   Thai and Vietnamese;
   `loadUiFontFile(path)` for a font of your own; `appearanceSettings` lets
-  the user choose (theme, font, text size, Sharp text, window frame) and
+  the user choose (theme, font, text size, Sharp text, window frame,
+  title bar buttons) and
   `look = "myapp"` keeps it.
 - Arabic and right-to-left text work everywhere (joined, bidi);
   `setRtlInterface(true)` mirrors the interface. Markdown in Arabic reads
@@ -411,6 +412,12 @@ costs what its visible rows cost.
   corner (the status bar's end; `sizeGrip()` says where). `resizable = false`
   (`setResizable`) keeps the window's size: no sizing border, maximize
   button or grip, and the system's frame fixed too.
+- Title bars the kit draws (the 3.1 frame, dialogs, `mdiWindow`s) have
+  Windows 95's minimize, maximize and close buttons; X does what Alt+F4,
+  Esc (a dialog) or Ctrl+F4 (an inner window) does, so `closeRequested`
+  still lets the app ask to save. `captionButtons = cbWin31` before
+  `startApp` gives 3.1's two triangles and no close button; users pick
+  either in `appearanceSettings` ("Title bar buttons", kept with `look`).
 - Screen readers (Orca, NVDA, Narrator, VoiceOver, TalkBack) read every
   control by itself: its role, its label (a `label` before a box names the
   box: write `row([60, -1]): label "&Name:"; edit name`), its value and
