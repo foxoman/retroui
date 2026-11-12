@@ -397,7 +397,7 @@ proc hitTest(window: sdl3.Window; area: ptr sdl3.Point; data: pointer): cint {.c
   ## the top left corner round to the left edge)
   if area == nil or windowPartAt == nil: return 0
   case windowPartAt(toPixelCoord(area.x), toPixelCoord(area.y))
-  of wpClient: 0
+  of wpClient, wpMaxButton: 0
   of wpCaption: 1
   of wpTopLeft: 2
   of wpTop: 3

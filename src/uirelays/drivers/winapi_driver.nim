@@ -280,7 +280,12 @@ const
   WM_GETMINMAXINFO = 0x0024'u32
   WM_NCCALCSIZE = 0x0083'u32
   WM_NCACTIVATE = 0x0086'u32
+  WM_NCHITTEST = 0x0084'u32
+  WM_NCMOUSEMOVE = 0x00A0'u32
   WM_NCLBUTTONDOWN = 0x00A1'u32
+  WM_NCLBUTTONUP = 0x00A2'u32
+  WM_NCLBUTTONDBLCLK = 0x00A3'u32
+  HTMAXBUTTON = 9'u
   WM_SETCURSOR = 0x0020'u32
   WM_DROPFILES = 0x0233'u32
   HTCLIENT = 1'u
@@ -1314,6 +1319,36 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
     if (uint(wp) and 0xFFF0'u) == IDM_APP_ITEM:
       gMenuChosen = true
       pushEvent(input.Event(kind: WindowFocusGainedEvent))
+      return 0
+
+  of WM_NCHITTEST:
+    # An app that draws its own frame: its maximize button is answered as
+    # Windows' own, so Windows 11 shows its snap layouts over it. The mouse
+    # there then comes as WM_NC* messages, given to the app below.
+    if not gSystemFrame and windowPartAt != nil:
+      var pt = WINAPIPOINT(x: LONG(xParam(lp)), y: LONG(yParam(lp)))
+      if ScreenToClient(hwnd, addr pt) != 0 and
+         windowPartAt(pt.x.int, pt.y.int) == wpMaxButton:
+        return LRESULT(HTMAXBUTTON)
+
+  of WM_NCMOUSEMOVE, WM_NCLBUTTONDOWN, WM_NCLBUTTONDBLCLK, WM_NCLBUTTONUP:
+    # (the app's maximize button, told to Windows as its own: the mouse over
+    # it is the app's, not Windows' -- which would draw a button of its own;
+    # a press takes the mouse, so the release comes as WM_LBUTTONUP)
+    if not gSystemFrame and uint(wp) == HTMAXBUTTON:
+      var pt = WINAPIPOINT(x: LONG(xParam(lp)), y: LONG(yParam(lp)))
+      discard ScreenToClient(hwnd, addr pt)
+      var e = input.Event(kind: MouseMoveEvent, hasMods: true, mods: getModifiers(),
+                          x: pt.x.int, y: pt.y.int)
+      if msg == WM_NCLBUTTONUP:
+        e.kind = MouseUpEvent
+        e.button = LeftButton
+      elif msg != WM_NCMOUSEMOVE:
+        e.kind = MouseDownEvent
+        e.button = LeftButton
+        e.clicks = countClick(LeftButton, e.x, e.y)
+        discard SetCapture(hwnd)
+      pushEvent(e)
       return 0
 
   of WM_NCACTIVATE:
