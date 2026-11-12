@@ -50,6 +50,8 @@ proc webNativeAppUrl*(path: string): string =
   ## the program).
   "app/" & path.strip(chars = {'/'})
 proc webNativeShutdown*() = discard
+proc webNativeClearData*() = discard
+  ## (a browser page's frames: the browser keeps their data)
 
 proc webNativeTake*(key: string): WebNativeState =
   ## The page now, and what it posted since the last look: the page's side

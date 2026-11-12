@@ -6260,7 +6260,7 @@ left out.
 
 ### webView, webRun, webPost
 
-A web page in the window. With the system's engine (`engine = weSystem`; the default in an Android app) the page is the system's browser placed over the widget: scripts, forms, video, its own Back and Forward. Its scripts talk to the app: `retro.post(text)` in the page comes in `messages`, `webPost` sends a `retro` event to the page, `webRun` runs a script and its answer comes in `results`. `webAllow` keeps it to the hosts you trust, `webZoom` sizes it. The picture is the kit's own engine (the system's view is drawn by the system, not here).
+A web page in the window. With the system's engine (`engine = weSystem`; the default in an Android app) the page is the system's browser placed over the widget: scripts, forms, video, its own Back and Forward. Its scripts talk to the app: `retro.post(text)` in the page comes in `messages`, `webPost` sends a `retro` event to the page, `webRun` runs a script and its answer comes in `results`. `webAllow` keeps it to the hosts you trust, `webZoom` sizes it, `webStartScript` puts a script of yours in every page before its own (an ad blocker), `webClearData` clears the cookies and caches. The picture is the kit's own engine (the system's view is drawn by the system, not here).
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -6402,6 +6402,27 @@ proc webPrint*(key: string)
 Prints the page of the `webView` with `key`: the system's print
 dialog (the system's engine; the kit's own prints nothing here --
 `retroui/report` prints documents).
+
+```nim
+proc webStartScript*(key: string; js: string)
+```
+
+A script run in every page of the `webView` with `key` before the
+page's own, when the system's engine shows it: an ad blocker, a style
+of the app's. Set it before the view is first shown: a view keeps the
+script it was made with (`webClose` makes it again at its next
+drawing, the page loaded afresh). WebView2 runs it in every frame of
+the page, WebKit in the top one; Android's WebView as the page starts
+loading, which may be after its first scripts.
+
+```nim
+proc webClearData*()
+```
+
+Clears what the system's engine keeps of the pages it showed: cookies
+(the sign-ins), its cache of pages and pictures, and the sites' own
+storage (WebView2: cookies and the cache, through a page shown now).
+The kit's own engine keeps nothing.
 
 ```nim
 proc webAppFolder*(folder: string)

@@ -288,7 +288,8 @@ proc onController(view: int; err: HRESULT; c: Com) =
     settings.release()
   # `retro.post(text)` in every page, before its own scripts
   discard wv.call(27, proc (this: Com; js: WideCString; h: pointer): HRESULT {.stdcall.})(
-    wv, newWideCString(shimFor("window.chrome.webview.postMessage")), newHandler(hkNone))
+    wv, newWideCString(shimFor("window.chrome.webview.postMessage") & startScriptOf(v.key)),
+    newHandler(hkNone))
   placeView(v)
   loadView(v)
 
@@ -422,6 +423,17 @@ proc webNativeClose*(key: string) =
     release(v.controller)
     v.webview = nil
     v.controller = nil
+
+proc webNativeClearData*() =
+  ## Clears what WebView2 keeps of the pages: its cookies and its cache,
+  ## through the DevTools protocol of a page that is open
+  ## (CallDevToolsProtocolMethod).
+  for v in wvViews:
+    if v.webview == nil or v.closed: continue
+    for m in ["Network.clearBrowserCookies", "Network.clearBrowserCache"]:
+      discard v.webview.call(36, proc (this: Com; meth, params: WideCString; h: pointer): HRESULT {.stdcall.})(
+        v.webview, newWideCString(m), newWideCString("{}"), newHandler(hkNone))
+    break
 
 proc webNativeShutdown*() =
   ## Every page let go, before the app ends.

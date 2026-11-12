@@ -1943,10 +1943,10 @@ example("htmlview", "htmlView, htmlBlock",
            "<ul><li>North<li>South</ul>", height = 210)
 
 example("webview", "webView, webRun, webPost",
-        "A web page in the window. With the system's engine (`engine = weSystem`; the default in an Android app) the page is the system's browser placed over the widget: scripts, forms, video, its own Back and Forward. Its scripts talk to the app: `retro.post(text)` in the page comes in `messages`, `webPost` sends a `retro` event to the page, `webRun` runs a script and its answer comes in `results`. `webAllow` keeps it to the hosts you trust, `webZoom` sizes it. The picture is the kit's own engine (the system's view is drawn by the system, not here).",
+        "A web page in the window. With the system's engine (`engine = weSystem`; the default in an Android app) the page is the system's browser placed over the widget: scripts, forms, video, its own Back and Forward. Its scripts talk to the app: `retro.post(text)` in the page comes in `messages`, `webPost` sends a `retro` event to the page, `webRun` runs a script and its answer comes in `results`. `webAllow` keeps it to the hosts you trust, `webZoom` sizes it, `webStartScript` puts a script of yours in every page before its own (an ad blocker), `webClearData` clears the cookies and caches. The picture is the kit's own engine (the system's view is drawn by the system, not here).",
         420, 220, ["webView", "webGoBack", "webGoForward", "webReload", "webStop", "webRun",
                    "webPost", "webAllow", "webZoom", "webClose", "webPermit", "webPrint",
-                   "webAppFolder", "webAppUrl"], std3):
+                   "webStartScript", "webClearData", "webAppFolder", "webAppUrl"], std3):
   let ev = webView("html:<title>Order 1042</title><h3>Order 1042</h3>" &
                    "<p>Ready to <b>ship</b> on Sunday.</p><ul><li>12 chairs<li>2 tables</ul>",
                    height = 150, key = "order", engine = weSystem)

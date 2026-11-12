@@ -1535,7 +1535,9 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
             "for Nim on Windows, macOS, Linux, Android and iOS."],
            tagline = "Every control of Retro Nim UI",
            iconPng = GalleryIconPng, glyph = pxApp,
-           whatsNew = ["Retro Navigator: a web browser of 1995 around the system's engine; " &
+           whatsNew = ["Retro Navigator gets tabs, keeps ads and trackers off the pages, takes " &
+                       "links to secure addresses and loads them ahead; webStartScript, webClearData",
+                       "Retro Navigator: a web browser of 1995 around the system's engine; " &
                        "snap layouts over the maximize button on Windows 11",
                        "Title bars with Windows 95's buttons: minimize, maximize and close on every " &
                        "window and dialog; Windows 3.1's two are a setting away (Appearance)",

@@ -2062,12 +2062,19 @@ proc tileRuns(force: var bool; result: var seq[Rect]) =
 
 include gfxgpu
 
+proc lentGone(): bool =
+  ## The window's own pixels the last frame was drawn in are not there any
+  ## more: the window was sized since (its events read while work went on;
+  ## Windows makes its buffer anew then).
+  fbSurface and (surfaceRelays.lockSurface == nil or surfaceRelays.lockSurface(fbW, fbH) != fbMem)
+
 proc overlayNow*(r: Rect; body: proc ()) =
   ## What `body` draws, put at once over what is on the screen (in `r`,
   ## logical pixels) and shown -- in the middle of a frame, which is kept
   ## as it was: a box shown while the program works between frames. The
   ## next frame draws those rows again.
   if (fbMem == nil and not gpuOn) or fbW <= 0 or fbH <= 0: return
+  if not gpuOn and lentGone(): return
   var saved: array[MaxLayers, seq[Cmd]]
   for l in 0 ..< MaxLayers:
     saved[l] = move(layers[l])
@@ -2184,7 +2191,7 @@ proc framePicture*(): Bitmap =
   ## The window's pixels as last drawn by the CPU (device pixels,
   ## 0xFFRRGGBB), for checks and screenshots the app takes of itself; nil
   ## while the GPU draws or before the first frame.
-  if fbMem == nil or fbW <= 0 or fbH <= 0: return nil
+  if fbMem == nil or fbW <= 0 or fbH <= 0 or lentGone(): return nil
   result = newBitmap(fbW, fbH)
   for i in 0 ..< fbW * fbH: result.px[i] = fbMem[i] or 0xFF000000'u32
   result.opaque = true

@@ -3460,6 +3460,9 @@ proc menuLetter(label: string; enabled: bool; i, level: int): bool =
           else: '\0'
   if k != c: return
   ui.keyUsed = true
+  # (the letter is the menu's, not typed in the box with the focus: its text
+  # came with this frame's events, or comes with the next one's)
+  if ui.typed.len > 0: ui.typed = "" else: dropKeyText = true
   let before = menuLetters.getOrDefault(pm.id)
   var same = 0
   for x in before:

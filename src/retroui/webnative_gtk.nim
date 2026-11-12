@@ -27,13 +27,14 @@ proc skipWebKitTeardown() {.noconv.} =
   exitnow(cint(getProgramResult()))
 
 type
-  GtkCmdKind = enum gcShow, gcHide, gcClose, gcNav, gcRun, gcAllow, gcQuit, gcPermit
+  GtkCmdKind = enum gcShow, gcHide, gcClose, gcNav, gcRun, gcAllow, gcQuit, gcPermit, gcClear
   GtkCmd = object
     kind: GtkCmdKind
     key: string
     x, y, w, h: int
     parent: uint
     text: string
+    start: string             ## (gcShow: the page's start script, for a view made now)
     nav: WebNav
     hosts: seq[string]
     zoom: float
@@ -135,6 +136,9 @@ var
   g_memory_input_stream_new_from_data: proc (data: pointer; n: int; free: pointer): pointer {.cdecl, gcsafe.}
   g_type_check_instance_is_a: proc (inst: pointer; t: csize_t): cint {.cdecl, gcsafe.}
   webkit_web_context_get_default: proc (): pointer {.cdecl, gcsafe.}
+  webkit_web_context_get_website_data_manager: proc (c: pointer): pointer {.cdecl, gcsafe.}
+  webkit_website_data_manager_clear: proc (m: pointer; types: cint; timespan: int64;
+      cancel, cb, data: pointer) {.cdecl, gcsafe.}
   webkit_web_context_register_uri_scheme: proc (c: pointer; scheme: cstring; cb, data, destroy: pointer) {.cdecl, gcsafe.}
   webkit_web_context_get_security_manager: proc (c: pointer): pointer {.cdecl, gcsafe.}
   webkit_security_manager_register_uri_scheme_as_secure: proc (m: pointer; s: cstring) {.cdecl, gcsafe.}
@@ -255,6 +259,9 @@ proc loadGtk(): bool =
   wk.get(webkit_policy_decision_ignore, "webkit_policy_decision_ignore")
   wk.get(webkit_javascript_result_get_js_value, "webkit_javascript_result_get_js_value")
   wk.get(webkit_web_context_get_default, "webkit_web_context_get_default")
+  wk.get(webkit_web_context_get_website_data_manager, "webkit_web_context_get_website_data_manager",
+         needed = false)
+  wk.get(webkit_website_data_manager_clear, "webkit_website_data_manager_clear", needed = false)
   wk.get(webkit_web_context_register_uri_scheme, "webkit_web_context_register_uri_scheme")
   wk.get(webkit_web_context_get_security_manager, "webkit_web_context_get_security_manager")
   wk.get(webkit_security_manager_register_uri_scheme_as_secure,
@@ -505,7 +512,7 @@ proc exec(c: GtkCmd) =
         connect(v.ucm, "script-message-received::retro", onMessage)
         discard webkit_user_content_manager_register_script_message_handler(v.ucm, "retro")
         webkit_user_content_manager_add_script(v.ucm, webkit_user_script_new(
-          shimFor("window.webkit.messageHandlers.retro.postMessage").cstring,
+          (shimFor("window.webkit.messageHandlers.retro.postMessage") & c.start).cstring,
           InjectTopFrame, InjectAtStart, nil, nil))
         v.wv = webkit_web_view_new_with_user_content_manager(v.ucm)
         gtkKeyOf[v.wv] = c.key
@@ -572,6 +579,13 @@ proc exec(c: GtkCmd) =
       if gtkViews.hasKey(c.key): gtkViews[c.key].hosts = c.hosts
     of gcPermit:
       if gtkViews.hasKey(c.key): gtkViews[c.key].permit = c.permit
+    of gcClear:
+      # (cookies, caches, the sites' storage: every kind WebKit keeps -- the
+      #  bits of WebKitWebsiteDataTypes up to DOM_CACHE -- of all time)
+      if webkit_web_context_get_website_data_manager != nil and
+         webkit_website_data_manager_clear != nil:
+        let m = webkit_web_context_get_website_data_manager(webkit_web_context_get_default())
+        if m != nil: webkit_website_data_manager_clear(m, 0x3FFF, 0, nil, nil, nil)
     of gcQuit:
       # (every page let go, then GTK's loop ends: before the app's own end,
       #  which frees what this thread uses)
@@ -646,7 +660,7 @@ proc webNativeShow*(key: string; r: Rect; url: string; zoom: float) =
   var permit: set[WebPermission]
   withLock gtkLock: permit = gtkPermits.getOrDefault(key)
   send GtkCmd(kind: gcShow, key: key, x: r.x, y: r.y, w: r.w, h: r.h, parent: x11Window(),
-              text: url, zoom: zoom, permit: permit)
+              text: url, zoom: zoom, permit: permit, start: startScriptOf(key))
 
 proc webNativeSnap*(key: string) =
   ## A picture of the page as it is on the screen now, taken from its
@@ -692,6 +706,11 @@ proc webNativeShutdown*() =
   var s: int
   withLock gtkLock: s = gtkState
   if s == 3: joinThread(gtkThread)
+
+proc webNativeClearData*() =
+  ## Clears what WebKit keeps of the pages: cookies, its caches, the sites'
+  ## storage.
+  if gtkState == 2: send GtkCmd(kind: gcClear)
 
 proc webNativeHide*(key: string) = send GtkCmd(kind: gcHide, key: key)
   ## Hides the page (kept with its place in history).

@@ -330,13 +330,14 @@ proc loadInto(v: var WkView; url: string) =
     let req = objcSend(ObjcId, objcClass("NSURLRequest"), "requestWithURL:", u)
     discard objcSend(ObjcId, v.view, "loadRequest:", req)
 
-proc makeView(host: ObjcId; frame: CGRect): ObjcId =
+proc makeView(host: ObjcId; frame: CGRect; key: string): ObjcId =
   let config = objcSend(ObjcId, objcSend(ObjcId, objcClass("WKWebViewConfiguration"), "alloc"), "init")
   let ucc = objcSend(ObjcId, config, "userContentController")
   objcSend(void, ucc, "addScriptMessageHandler:name:", wkHandler, nsString("retro"))
   let script = objcSend(ObjcId, objcSend(ObjcId, objcClass("WKUserScript"), "alloc"),
                         "initWithSource:injectionTime:forMainFrameOnly:",
-                        nsString(shimFor("window.webkit.messageHandlers.retro.postMessage")), 0, true)
+                        nsString(shimFor("window.webkit.messageHandlers.retro.postMessage") &
+                                 startScriptOf(key)), 0, true)
   objcSend(void, ucc, "addUserScript:", script)
   objcSend(void, script, "release")
   # the app's own folder at app://local/ (macOS 10.13, iOS 11)
@@ -375,7 +376,7 @@ proc webNativeShow*(key: string; r: Rect; url: string; zoom: float) =
       if i < 0:
         wkViews.add WkView(key: key)
         i = wkViews.high
-      wkViews[i].view = makeView(host, frame)
+      wkViews[i].view = makeView(host, frame, key)
     else:
       objcSend(void, wkViews[i].view, "setFrame:", frame)
     objcSend(void, wkViews[i].view, "setHidden:", false)
@@ -403,6 +404,21 @@ proc webNativeClose*(key: string) =
   objcSend(void, wkViews[i].view, "removeFromSuperview")
   objcSend(void, wkViews[i].view, "release")
   wkViews[i].view = nil
+
+proc onDataRemoved(b: pointer) {.cdecl.} = discard
+var dataBlock = globalBlock(cast[pointer](onDataRemoved))
+
+proc webNativeClearData*() =
+  ## Clears what WebKit keeps of the pages (the default WKWebsiteDataStore):
+  ## cookies, caches, the sites' storage.
+  if not webNativeAvailable(): return
+  autoreleasePool:
+    let store = objcSend(ObjcId, objcClass("WKWebsiteDataStore"), "defaultDataStore")
+    let kinds = objcSend(ObjcId, objcClass("WKWebsiteDataStore"), "allWebsiteDataTypes")
+    let since = objcSend(ObjcId, objcClass("NSDate"), "distantPast")
+    if store != nil and kinds != nil and since != nil:
+      objcSend(void, store, "removeDataOfTypes:modifiedSince:completionHandler:", kinds, since,
+               addr dataBlock)
 
 proc webNativeShutdown*() =
   ## Every page let go, before the app ends.

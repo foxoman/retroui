@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.41.0"
+const RetroVersion* = "0.42.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -2746,6 +2746,9 @@ proc penFrom(e: Event) {.inline.} =
 
 var wheelShift = false
   ## (Shift is held for this frame's sideways wheel only: `beginFrame`)
+var dropKeyText* = false
+  ## The text of this frame's key is not typed when it comes (a menu took
+  ## the letter): set by the menus.
 
 proc applyEvent(e: Event): bool =
   ## An event into `ui` (the window's whose frame runs); true when the frame
@@ -2784,7 +2787,8 @@ proc applyEvent(e: Event): bool =
     ui.pinchY = e.y div zoom
     ui.gesturing = e.phase != gsEnd
   of TextInputEvent:
-    if ui.textOk:
+    if dropKeyText: dropKeyText = false
+    elif ui.textOk:
       for c in e.text:
         if c == '\0': break
         ui.typed.add c
@@ -2862,6 +2866,7 @@ proc applyEvent(e: Event): bool =
       ui.rmouseDown = false
       return true
   of KeyDownEvent:
+    dropKeyText = false
     ui.key = e.key
     ui.mods = e.mods
     let ctrl = CtrlPressed in e.mods
@@ -2878,6 +2883,7 @@ proc applyEvent(e: Event): bool =
       ui.altArmed = e.key == KeyNone and e.mods == {AltPressed}
     return true
   of KeyUpEvent:
+    dropKeyText = false
     if e.hasMods: ui.mods = e.mods
     ui.keyUp = e.key
     if ui.altArmed and e.key == KeyNone and AltPressed notin e.mods:

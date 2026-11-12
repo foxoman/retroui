@@ -58,8 +58,8 @@ the <i>Bookmarks</i> menu (Ctrl+D).</p>
 <li><a href="https://nim-lang.org">Nim</a>, the language Retro Navigator is written in</li>
 <li><a href="https://github.com/foxoman/retroui">Retro Nim UI</a>, the toolkit it is made with</li>
 </ul>
-<p>The <i>Handbook</i> button tells the rest: the keys, the bookmarks, the
-preferences.</p>
+<p>The <i>Handbook</i> button tells the rest: tabs, the shield that keeps ads
+and trackers off, the keys, the bookmarks, the preferences.</p>
 </div></body></html>
 """
 
@@ -72,18 +72,47 @@ const handbookHtml* = "<!doctype html><html><head><meta charset=\"utf-8\">" &
 opens, and anything else is searched for with the search engine of
 <i>Options &gt; General Preferences</i>. The logo at the right moves while a
 page loads; click it to go home.</p>
+<h3>Tabs</h3>
+<p><i>File &gt; New Tab</i> (Ctrl+T) opens another page beside this one, and
+the tabs show above the page while there are two or more. A link clicked with
+Ctrl (Cmd on a Mac) or the middle button opens in a tab behind, which loads
+when you go to it; a link for a new window opens in a new tab. Close a tab
+with its x or Ctrl+W, and bring the last one closed back with Ctrl+Shift+T.
+Drag a tab to move it; right-click it for its menu.</p>
 <h3>The key in the status bar</h3>
 <p>The key: the page came over an encrypted connection (https). A warning
 sign: it did not, so what you type there can be read on its way.</p>
+<h3>The shield</h3>
+<p>Retro Navigator keeps ads and trackers off the pages, so they load faster
+and fewer sites follow you from one to the next; the status bar counts what
+it kept off this page. If a site does not work without them, choose
+<i>Options &gt; Allow Ads on This Site</i>. It also asks sites not to track
+you, and goes to the secure (https) address of a link to an insecure one: to
+go to one that has no secure address, type <i>http://</i> before it. All of
+this is in <i>Options &gt; Security Preferences</i>.</p>
+<h3>Faster</h3>
+<p>A link of this site is loaded ahead while the pointer rests on it, so it
+opens at once when you click. In <i>Options &gt; Network Preferences</i> you
+can also keep videos and sounds from playing until you click, and let tabs
+you have not looked at for ten minutes sleep: they free their memory and
+load their page again when you go back to them.</p>
+<h3>Clear Browsing Data</h3>
+<p><i>Options &gt; Clear Browsing Data</i> (Ctrl+Shift+Delete) forgets the
+pages you visited (the Go menu, and Back in every tab) and what sites keep:
+cookies, so you are signed out, their stored data and the cache.</p>
 <h3>Keys</h3>
 <table>
 <tr><td><kbd>Ctrl+L</kbd></td><td>the Location box</td></tr>
+<tr><td><kbd>Ctrl+T</kbd>, <kbd>Ctrl+W</kbd></td><td>New Tab, Close Tab</td></tr>
+<tr><td><kbd>Ctrl+Tab</kbd>, <kbd>Ctrl+Shift+Tab</kbd></td><td>the next tab, the one before</td></tr>
+<tr><td><kbd>Ctrl+Shift+T</kbd></td><td>Reopen Closed Tab</td></tr>
 <tr><td><kbd>Alt+Left</kbd>, <kbd>Alt+Right</kbd></td><td>Back, Forward</td></tr>
 <tr><td><kbd>Alt+Home</kbd></td><td>Home</td></tr>
 <tr><td><kbd>F5</kbd>, <kbd>Esc</kbd></td><td>Reload, Stop</td></tr>
 <tr><td><kbd>Ctrl+D</kbd></td><td>Add Bookmark</td></tr>
 <tr><td><kbd>Ctrl+F</kbd>, <kbd>F3</kbd></td><td>Find, Find Again</td></tr>
 <tr><td><kbd>Ctrl+O</kbd>, <kbd>Ctrl+P</kbd></td><td>Open a file, Print</td></tr>
+<tr><td><kbd>Ctrl+Shift+Delete</kbd></td><td>Clear Browsing Data</td></tr>
 </table>
 <p>While a page has the keyboard, its own keys come first: click the tool bar
 or the Location box for these.</p>

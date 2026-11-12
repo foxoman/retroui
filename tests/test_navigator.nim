@@ -1,5 +1,6 @@
 ## Retro Navigator's places (examples/navigator/places): what the Location
-## box goes to, the bookmarks kept, the pages of a session.
+## box goes to, the bookmarks kept, the pages of a session, the shield's
+## settings and its script.
 
 import std/[os, strutils]
 import retroui/platform
@@ -64,5 +65,52 @@ block settings:
   doAssert searchOf(s) == 0
   s["search"] = "9"
   doAssert searchOf(s) == Searches.high
+
+block secureUrls:
+  doAssert secureUrl("http://example.com/a?b=1") == "https://example.com/a?b=1"
+  doAssert secureUrl("HTTP://Example.com") == "https://Example.com"
+  doAssert secureUrl("https://example.com") == "https://example.com"
+  doAssert secureUrl("about:welcome") == "about:welcome"
+  for local in ["http://localhost:8080/x", "http://192.168.1.1/admin", "http://10.0.0.2",
+                "http://172.20.1.1", "http://printer.local/", "http://127.0.0.1:3000"]:
+    doAssert secureUrl(local) == local, local
+  doAssert secureUrl("http://172.32.1.1") == "https://172.32.1.1", "not a local network"
+  doAssert hostOf("https://WWW.Example.com:8080/a") == "www.example.com"
+  doAssert hostOf("about:welcome") == ""
+
+block adHosts:
+  doAssert isAdHost("doubleclick.net") and isAdHost("securepubads.g.doubleclick.net")
+  doAssert isAdHost("WWW.Google-Analytics.com")
+  doAssert isAdHost("mc.yandex.ru") and not isAdHost("yandex.ru"), "the tracker, not the search"
+  doAssert not isAdHost("example.com") and not isAdHost("notdoubleclick.net")
+
+block shieldSettings:
+  var s: Settings
+  doAssert shieldsOf(s) == DefaultShields
+  s.setShields({shNoAutoplay})
+  doAssert shieldsOf(s) == {shNoAutoplay} and s["blockAds"] == "off"
+  doAssert adsAllowedOf(s).len == 0 and not adsAllowedOn(s, "news.example.com")
+  s.allowAds("Example.com", true)
+  s.allowAds("example.com", true)
+  doAssert adsAllowedOf(s) == @["example.com"], "once"
+  doAssert adsAllowedOn(s, "news.example.com") and not adsAllowedOn(s, "example.org")
+  doAssert not adsAllowedOn(s, ""), "no host: no site"
+  s.allowAds("example.com", false)
+  doAssert adsAllowedOf(s).len == 0
+
+block script:
+  let all = startScript({shBlockAds, shNoTrack, shHttps, shNoAutoplay, shPreload}, ["a.org"])
+  let none = startScript({})
+  # links into a new tab: always; the rest when asked
+  for js in [all, none]:
+    doAssert js.startsWith("(function(){") and js.endsWith("})();")
+    doAssert "'tab:'" in js and "'newtab:'" in js and "var up=" in js
+  doAssert "var up=1" in all and "var up=0" in none
+  doAssert "globalPrivacyControl" in all and "globalPrivacyControl" notin none
+  doAssert "doubleclick.net" in all and "doubleclick.net" notin none
+  doAssert "\"a.org\"" in all, "the sites ads are allowed on"
+  doAssert "HTMLMediaElement" in all and "prefetch" in all
+  doAssert "HTMLMediaElement" notin none and "prefetch" notin none
+  doAssert "</script" notin all.toLowerAscii, "nothing that ends a script tag"
 
 echo "test_navigator: ok"

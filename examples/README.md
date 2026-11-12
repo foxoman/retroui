@@ -325,13 +325,33 @@ So today's web works in it -- sign-ins, maps, video -- in a window of 1995:
   pages, Back to its own pages too;
 - its own pages, `about:welcome` and `about:handbook`, written in HTML and
   CSS (`examples/navigator/pages.nim`);
-- General Preferences (the home page, the search engine), Appearance,
-  and the tool bar, the Location box and the directory buttons shown or
-  hidden, kept for the next start.
+- **tabs**, shown above the page while there are two or more, in Windows
+  3.1's document style: New Tab (Ctrl+T), Close Tab (Ctrl+W), Reopen
+  Closed Tab (Ctrl+Shift+T), Ctrl+Tab; a link with Ctrl or the middle
+  button opens in a tab behind, a link for a new window in a new tab; a
+  tab's menu (Duplicate, Close Other Tabs), and tabs dragged into order;
+- **the shield**, a script it puts in every page before the page's own
+  (`webStartScript`, `examples/navigator/shield.nim`): ads and trackers
+  blocked -- the page's requests to them, their scripts, frames and
+  pictures, the usual ad boxes -- with the number kept off the page in the
+  status bar and Allow Ads on This Site; sites asked not to track (Global
+  Privacy Control); links to `http://` taken to `https://` (not on the
+  local network; type `http://` to go anyway);
+- **faster**: a link of the site loaded ahead while the pointer rests on
+  it, videos kept from playing by themselves (a setting), and tabs not
+  looked at for ten minutes put to sleep to free their memory (a setting);
+- **Clear Browsing Data** (Ctrl+Shift+Delete): the pages visited, and the
+  cookies, cache and site data (`webClearData`);
+- **Preferences** as Netscape had them, a tabbed dialog opened at its
+  tab from the Options menu: General (the home page, the search engine),
+  Appearance (the colors, the frame, the title bars' buttons), Security
+  (the shield, the sites ads are allowed on), Network (the speed); and the
+  tool bar, the Location box and the directory buttons shown or hidden,
+  kept for the next start.
 
 Where the system has no engine, it shows its own pages and opens the
 others in the browser. `tests/test_navigator.nim` checks its places
-(`examples/navigator/places.nim`).
+(`examples/navigator/places.nim`) and its shield.
 
 ```sh
 nimble navigator            # or: nim c -r -d:release examples/navigator.nim

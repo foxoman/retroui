@@ -76,9 +76,10 @@ def check(path):
             continue
         if re.match(r'^\s*(for|while)\b', line):
             top['loops'].append((ind, n))
-        if re.search(r'\breturn\s+(?!$|#)\S', line) and not re.search(r'\breturn\s+result\s*$', line):
+        code = CODE.sub('""', line)   # (a "return" in a string -- a script's -- is no return)
+        if re.search(r'\breturn\s+(?!$|#)\S', code) and not re.search(r'\breturn\s+result\s*$', code):
             top['returns'].append((n, text, [st for _, st in top['loops']]))
-        elif re.search(r'\bresult\b', CODE.sub('""', line)):
+        elif re.search(r'\bresult\b', code):
             top['uses'].append(n)
     while stack:
         close(stack.pop(), last)

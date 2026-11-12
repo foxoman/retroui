@@ -21,7 +21,7 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[strutils, uri, os, locks]
+import std/[strutils, uri, os, locks, tables]
 import uirelays/target
 import uirelays/[coords, services]
 import gfx
@@ -97,6 +97,21 @@ var
   appFolderLock: Lock
   appFolder {.guard: appFolderLock.}: string
 initLock appFolderLock
+
+var
+  startLock: Lock
+  startScripts {.guard: startLock.}: Table[string, string]
+initLock startLock
+
+proc webNativeStartScript*(key, js: string) =
+  ## A script for every page of the view `key`, before the page's own: given
+  ## to the view when it is made.
+  withLock startLock: startScripts[key] = js
+
+proc startScriptOf(key: string): string {.used, gcsafe.} =
+  ## (the view `key`'s start script, "" for none)
+  {.cast(gcsafe).}:
+    withLock startLock: result = startScripts.getOrDefault(key)
 
 proc webNativeAppFolder*(folder: string) =
   ## The folder whose files pages get at the app's own address
@@ -183,6 +198,8 @@ when androidApp:
   proc webNativeShutdown*() = discard
   proc webNativeSnap*(key: string) = discard
   proc webNativePermit*(key: string; allowed: set[WebPermission]) = discard
+  proc webNativeClearData*() = discard
+    ## (the WebView's data: "web.clear", through `systemCall`)
   proc webNativeAppUrl*(path: string): string =
     ## (the WebView's own address for an app's files)
     "https://appassets.androidplatform.net/app/" & path.strip(chars = {'/'})
@@ -220,4 +237,5 @@ else:
   proc webNativeShutdown*() = discard
   proc webNativeSnap*(key: string) = discard
   proc webNativePermit*(key: string; allowed: set[WebPermission]) = discard
+  proc webNativeClearData*() = discard
   proc webNativeAppUrl*(path: string): string = "app://local/" & path.strip(chars = {'/'})

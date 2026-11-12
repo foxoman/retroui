@@ -1437,6 +1437,9 @@ type
     permitSet: bool      ## (`webPermit` was called)
     snapshot: Bitmap     ## the page as it was last seen (drawn while it is hidden)
     snapAt: int          ## when one was asked (ms)
+    shownAt: int         ## when the view was shown (ms; a picture taken just after
+                         ## may come before the engine drew it)
+    wasCovered: bool     ## it was under a menu or dialog the frame before
     file: tuple[path, text: string; stamp: Time]
 
 proc engineFromEnv(): WebEngine =
@@ -1776,6 +1779,25 @@ proc webAppUrl*(path = "index.html"): string =
   ##   webView(webAppUrl("index.html"), key = "ui", engine = weSystem)
   webNativeAppUrl(path)
 
+proc webStartScript*(key: string; js: string) =
+  ## A script run in every page of the `webView` with `key` before the
+  ## page's own, when the system's engine shows it: an ad blocker, a style
+  ## of the app's. Set it before the view is first shown: a view keeps the
+  ## script it was made with (`webClose` makes it again at its next
+  ## drawing, the page loaded afresh). WebView2 runs it in every frame of
+  ## the page, WebKit in the top one; Android's WebView as the page starts
+  ## loading, which may be after its first scripts.
+  webNativeStartScript(key, js)
+  if useSystemWebView: discard systemCall("web.script", key & "\t" & js)
+
+proc webClearData*() =
+  ## Clears what the system's engine keeps of the pages it showed: cookies
+  ## (the sign-ins), its cache of pages and pictures, and the sites' own
+  ## storage (WebView2: cookies and the cache, through a page shown now).
+  ## The kit's own engine keeps nothing.
+  webNativeClearData()
+  if useSystemWebView: discard systemCall("web.clear", "")
+
 proc webZoom*(key: string; zoom: float) =
   ## The size of the page of the `webView` with `key`, text and pictures:
   ## 1.0 as it is (0.5 .. 3.0); the system's engine.
@@ -1919,20 +1941,27 @@ proc webView*(url: string; height = -1; key = ""; engine = webEngine): WebEvent 
                   (ui.dialogTop != 0 and ui.curDialog != ui.dialogTop) or
                   (ui.popup != 0 and intersect(ui.popupRect, vis).w > 0)
     if covered:
+      w.wasCovered = true
       if w.shown:
         # (the page as it is now, drawn in its place while it is hidden)
-        w.engSnap(key)
+        if ui.now - w.shownAt >= 300: w.engSnap(key)
         let st = w.engTake(key)
         if st.snapshot != nil: w.snapshot = st.snapshot
         for n in st.notes: w.messages.add n
         w.engHide(key)
         w.shown = false
+    elif w.wasCovered:
+      # (shown again a frame later: a menu or dialog opened in this frame is
+      #  drawn after the view, and it would flash over it)
+      w.wasCovered = false
+      ui.redraw = true
     else:
       let dr = rect(vis.x * pxScale, vis.y * pxScale, vis.w * pxScale, vis.h * pxScale)
       let zoom = if w.zoom > 0: w.zoom else: 1.0
       # (the address the app asked: a page the engine went on to is not loaded
       #  again when the view only moves)
       if not w.shown or dr != w.rect or w.sent != w.asked or zoom != w.zoomSent:
+        if not w.shown: w.shownAt = ui.now
         w.engShow(key, dr, w.asked)
         w.shown = true
         w.rect = dr
@@ -1944,7 +1973,8 @@ proc webView*(url: string; height = -1; key = ""; engine = webEngine): WebEvent 
       if w.permitSet and not w.permitSent: w.engPermit(key)
       # (a picture of the page now and then, for when it is hidden: engines
       #  that give it later)
-      if w.mode == wmNative and w.progress >= 100 and ui.now - w.snapAt > 2000: w.engSnap(key)
+      if w.mode == wmNative and w.progress >= 100 and ui.now - w.snapAt > 2000 and
+         ui.now - w.shownAt >= 300: w.engSnap(key)
       # what the page does by itself (links followed, its title, loading,
       # what its scripts post)
       if ui.now - w.polledAt >= 100 or ui.now < w.polledAt:

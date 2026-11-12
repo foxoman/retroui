@@ -2076,8 +2076,9 @@ page can run code or reach the network. `htmlToMarkdown` converts a page.
   web get a button that opens them in the browser.
 
 **Retro Navigator** (`examples/navigator.nim`, `nimble navigator`) is a
-whole browser made this way: a 1995 window around the system's engine
-([the examples](examples/README.md#retro-navigator)).
+whole browser made this way: a 1995 window around the system's engine,
+with tabs, ads and trackers kept off the pages, secure connections, and
+links loaded ahead ([the examples](examples/README.md#retro-navigator)).
 
 The system's engine talks to your app both ways, as Qt's web view does with
 its web channel, without a bridge object to set up:
@@ -2115,6 +2116,20 @@ for p in ui.asked: echo "the page wanted ", p # asked and not allowed
 for d in ui.downloads: echo d.file, " ", d.done   # into the Downloads folder
 if button("&Print"): webPrint("ui")          # the system's print dialog
 ```
+
+A script of the app's can go into every page a view shows, before the
+page's own (an ad blocker's, a polyfill), and what the engine keeps can be
+cleared:
+
+```nim
+webStartScript("page", "navigator.globalPrivacyControl = true;")  # before its first draw
+let page = webView(url, key = "page", engine = weSystem)
+if button("&Clear Data"): webClearData()     # cookies, storage and cache of every view
+```
+
+A view takes its start script when it is made: to change it, call
+`webStartScript` again and `webClose` the view, and the next draw makes it
+anew.
 
 `webAppUrl` gives the app's pages an address of their own
 (`app://local/`, `https://app.local/` on Windows,
@@ -2861,7 +2876,7 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_inspect` | the inspector: its panel over the app, why each frame ran (the input, the line that asked: `ui.redraw = true`, `wakeIn`), the control under the mouse and found by name, F12 |
 | `test_drive` | the driver: a client in the same program finds controls by name, clicks, types (Arabic too), presses keys, sets values, waits for a control and for its going, opens a drop-down past a default button with Enter, closes the window |
 | `test_sevenguis` | the 7GUIs example driven by its controls' names: each task as its rules ask (the flight booked only when the dates allow, the timer stopping at its duration, CRUD's filter, the circles' undo, the cells' formulas and their cycles) |
-| `test_navigator` | Retro Navigator's places: what the Location box goes to (an address, a host, a file that is there, words searched for), the key, the bookmarks kept, the pages of a session |
+| `test_navigator` | Retro Navigator's places: what the Location box goes to (an address, a host, a file that is there, words searched for), the key, the bookmarks kept, the pages of a session; its shield: secure addresses (not on the local network), the ad and tracker hosts, its settings and the sites ads are allowed on, its script |
 | `test_scale` | fractional scales (125 % to 300 %): controls and text the size asked for, lines on whole pixels, a change of scale followed |
 | `test_touchsizes` | `RETRO_TOUCH` and `RETRO_CONTROLS`: finger-sized controls on a tablet's screen when asked, desktop and automatic sizes |
 | `test_shm` | the frame drawn into memory shared with the X server and what the window then shows, with and without it (`RETRO_SURFACE=0`) |
@@ -2890,7 +2905,7 @@ it is and how to run it.
 | `examples/taskman.nim` | Retro Task Manager: the processes (end one or a tree, a priority), the processor, the memory, the disks and the network as graphs that move, what starts with the system, the connections, the last week (also an APK: `nimble taskmanapk`) |
 | `examples/retroboard.nim` | Retro Board: a whiteboard in the manner of tldraw -- ink, shapes, arrows, notes, frames, pages; PNG, SVG and PDF (also an APK: `nimble boardapk`) |
 | `examples/sevenguis.nim` | 7GUIs: the seven tasks of the GUI benchmark -- a counter, a temperature converter, a flight booker, a timer, CRUD, a circle drawer with undo, a spreadsheet with formulas |
-| `examples/navigator.nim` | Retro Navigator: a web browser in the manner of 1995's -- the tool bar, the Location box, the directory buttons, a logo that moves while a page loads, the key, bookmarks, the Go menu, find, print, the source -- around the system's own engine (`webView`, `weSystem`) |
+| `examples/navigator.nim` | Retro Navigator: a web browser in the manner of 1995's -- the tool bar, the Location box, the directory buttons, a logo that moves while a page loads, the key, bookmarks, the Go menu, find, print, the source -- around the system's own engine (`webView`, `weSystem`), with tabs, ads and trackers blocked, secure connections, links loaded ahead, tabs that sleep, Clear Browsing Data |
 | `examples/hrbook.nim` | HR Book: the staff records of a group of hotels, private on a tablet -- smart Excel import, letters and certificates, charts, expiry alerts, encrypted backups |
 
 `examples/hrbook.nim` is **HR Book**: every employee of your hotels in one

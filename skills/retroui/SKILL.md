@@ -311,7 +311,10 @@ call them on an event (a button, a message), not on every frame. `webGoBack`, `w
 web need `retroapk --permission:INTERNET` in an APK. The app's own pages:
 `webAppFolder(dir)` then `webView(webAppUrl("index.html"), ...)` (they
 fetch each other as a site's files do); `webPermit(key, {wpCamera})` lets
-a page use the camera; `webPrint(key)` prints it.
+a page use the camera; `webPrint(key)` prints it. `webStartScript(key, js)`
+puts a script in every page of the view before the page's own (set it
+before the view's first draw; to change it, set it and `webClose(key)`);
+`webClearData()` clears the engine's cookies, storage and cache.
 
 **Grid sorting:** the grid does not reorder your data. Keep the order in
 your own variables, pass it in for the header's arrow, and sort a list of

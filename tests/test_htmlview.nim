@@ -291,6 +291,11 @@ block webOnAndroid:
   doAssert not webGoBack("and")
   webClose("and")
   doAssert calls[^1] == "web.close and"
+  # a script for every page of a view, and the engine's data cleared
+  calls.setLen(0)
+  webStartScript("and", "window.x = 1;\tdone()")
+  webClearData()
+  doAssert calls == @["web.script and\twindow.x = 1;\tdone()", "web.clear "], $calls
   useSystemWebView = false
 
 block webTalksToThePage:

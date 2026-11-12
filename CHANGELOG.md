@@ -1,5 +1,64 @@
 # Changes
 
+## 0.42.0
+
+Retro Navigator gets what a browser has now -- tabs, ads and trackers kept
+off the pages, secure connections, links loaded ahead, Clear Browsing Data
+-- in its 1995 window, and the web view gets the calls it needs for them.
+
+- **Retro Navigator 0.2.0** (`examples/navigator.nim`):
+  - **Tabs**, shown above the page while there are two or more, in Windows
+    3.1's document style (`tabStrip` with `tlDocument`): New Tab (Ctrl+T),
+    Close Tab (Ctrl+W), Reopen Closed Tab (Ctrl+Shift+T), Ctrl+Tab, a
+    tab's menu (Duplicate, Close Other Tabs), dragged into order. A link
+    with Ctrl, Cmd or the middle button opens in a tab behind (loaded when
+    it is first shown), a link for a new window in a new tab. Each tab is a
+    `webView` of its own.
+  - **The shield** (`examples/navigator/shield.nim`), a script put in every
+    page before the page's own: ads and trackers blocked (the page's
+    requests to about 80 of their hosts, their scripts, frames and
+    pictures, the usual ad boxes), with the number kept off the page in
+    the status bar and Allow Ads on This Site; sites asked not to track
+    (Global Privacy Control); links to `http://` taken to `https://`, not
+    on this computer or the local network (an address typed with `http://`
+    goes as it is).
+  - **Faster:** a link of the site is loaded ahead while the pointer rests
+    on it (not one with a query, a download, or one that signs out or
+    deletes); videos and sounds kept from playing by themselves, and tabs
+    not looked at for ten minutes put to sleep to free their memory (both
+    settings, off at first).
+  - **Clear Browsing Data** (Ctrl+Shift+Delete): the pages visited (the Go
+    menu, Back in every tab), and cookies, cache and site data.
+  - **Preferences** as Netscape had them: one tabbed dialog, opened at its
+    tab by General, Appearance, Security and Network Preferences in the
+    Options menu. Appearance has the colors, the frame and the title bars'
+    buttons.
+  - The handbook tells all of it; `test_navigator` checks the secure
+    addresses, the ad and tracker hosts, the shield's settings and its
+    script.
+- **`webStartScript(key, js)`**: a script of the app's in every page of a
+  view, before the page's own, on every engine (WebKitGTK's user script,
+  WebView2's script on document creation, WKWebView's user script,
+  Android's at the page's start: `web.script`). A view takes it when it is
+  made: to change it, set it and `webClose` the view.
+- **`webClearData()`**: the engine's cookies, storage and cache cleared
+  (WebKitGTK's website data manager, WebView2's DevTools protocol,
+  WKWebView's data store, Android's cookie manager, web storage and cache:
+  `web.clear`).
+- **A system web view under a menu or dialog** comes back a frame after
+  they let it go, so a dialog opened from a menu no longer has the page
+  flash over it; and its picture is not taken in the moment after it is
+  shown, before the engine drew it (on X11 the picture held a piece of the
+  menu that had been there).
+- **A menu's letter is not typed** into the box with the focus: choosing
+  an item with its letter (Options, then I) left the letter in the
+  Location box after the menu closed.
+- **Windows: the busy box after a resize.** While the app worked in a
+  frame, a resize read meanwhile made the window's buffer anew, and the
+  busy box was then drawn into the one let go. It now waits for the next
+  frame; so does `framePicture`.
+- The gallery and the small examples 0.42.0.
+
 ## 0.41.0
 
 Retro Navigator, a web browser in the manner of 1995's around the

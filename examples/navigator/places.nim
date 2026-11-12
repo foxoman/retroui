@@ -1,10 +1,13 @@
 ## Retro Navigator's places: what the Location box takes to an address, the
-## bookmarks, the pages of this session, and the settings they are kept in.
+## bookmarks, the pages of this session, the shield's settings, and the
+## settings they are kept in.
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[os, strutils, uri, sequtils]
 import retroui/platform
+import shield
+export shield
 
 type
   Place* = object
@@ -69,6 +72,18 @@ proc isSecure*(url: string): bool =
   l.startsWith("https://") or l.startsWith("file:") or l.startsWith("about:") or
     l.startsWith("html:") or l.startsWith("app://") or l.len == 0
 
+proc hostOf*(url: string): string =
+  ## The host of `url` ("www.example.com"), lower case; "" for none.
+  try: parseUri(url).hostname.toLowerAscii
+  except CatchableError: ""
+
+proc secureUrl*(url: string): string =
+  ## `url` over an encrypted connection: "http://" made "https://", not on
+  ## this computer or the local network (`isLocalHost`).
+  if url.toLowerAscii.startsWith("http://") and not isLocalHost(hostOf(url)):
+    "https://" & url[7 .. ^1]
+  else: url
+
 proc visit*(pages: var seq[Place]; p: Place; keep = 15) =
   ## `p` first in the pages of this session (once), `keep` of them.
   if p.url.len == 0: return
@@ -113,3 +128,28 @@ proc searchOf*(s: Settings): int =
 proc homeOf*(s: Settings): string =
   ## The home page ("about:welcome": the welcome page).
   s.getOrDefault("home", "about:welcome")
+
+proc shieldsOf*(s: Settings): set[Shield] =
+  ## What the shield does (`DefaultShields` for those not set yet).
+  for x in Shield:
+    let v = s.getOrDefault($x, "")
+    if v == "on" or (v.len == 0 and x in DefaultShields): result.incl x
+
+proc setShields*(s: var Settings; on: set[Shield]) =
+  for x in Shield: s[$x] = (if x in on: "on" else: "off")
+
+proc adsAllowedOf*(s: Settings): seq[string] =
+  ## The sites ads are allowed on (the shield leaves them be).
+  for h in s.getOrDefault("adsAllowed", "").splitWhitespace: result.add h
+
+proc allowAds*(s: var Settings; host: string; allowed: bool) =
+  ## Ads allowed on `host` (and the sites under it), or not.
+  var l = adsAllowedOf(s)
+  let h = host.toLowerAscii
+  l.keepItIf(it != h)
+  if allowed and h.len > 0: l.add h
+  s["adsAllowed"] = l.join(" ")
+
+proc adsAllowedOn*(s: Settings; host: string): bool =
+  ## The shield leaves `host` be: it is one of `adsAllowedOf` or under one.
+  host.len > 0 and isAdHost(host, adsAllowedOf(s))

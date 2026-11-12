@@ -17,6 +17,7 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.os.Environment;
 import android.print.PrintManager;
+import android.webkit.CookieManager;
 import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
 import android.webkit.MimeTypeMap;
@@ -32,6 +33,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
+import android.webkit.WebStorage;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
@@ -41,7 +43,8 @@ import java.util.HashMap;
 /** Web pages: the system's WebView over a part of the window (webView in
  *  src/retroui/htmlview.nim), reached as "web.show", "web.hide",
  *  "web.close", "web.back", "web.forward", "web.reload", "web.stop",
- *  "web.run", "web.allow", "web.zoom" and "web.info" through
+ *  "web.run", "web.allow", "web.zoom", "web.script" (the app's script for
+ *  each page), "web.clear" (cookies, storage, caches) and "web.info" through
  *  RetroActivity.uirelaysCall. The page's scripts post to the app with
  *  retro.post(text); what they post comes with "web.info".
  *
@@ -67,6 +70,7 @@ public final class RetroWeb {
     volatile boolean canBack, canForward, backOut;
     volatile String[] hosts = new String[0];
     volatile String permit = "";       // what the page may use: "camera,microphone,location"
+    String start = "";                 // the app's script for each page ("web.script")
     final ArrayList<String> notes = new ArrayList<String>();   // "m" text, "b" address,
                                        // "p" a permission refused, "d" a download
     final ArrayList<long[]> downloads = new ArrayList<long[]>();   // DownloadManager ids
@@ -152,6 +156,8 @@ public final class RetroWeb {
   }
 
   static final HashMap<String, Web> webs = new HashMap<String, Web>();
+  /** The app's script for every page of a view, run as each page starts ("web.script"). */
+  static final HashMap<String, String> starts = new HashMap<String, String>();
   static boolean watching;
 
   static final class Root extends FrameLayout {
@@ -244,6 +250,7 @@ public final class RetroWeb {
     watch(a);
     final Web nw = new Web();
     nw.act = a;
+    synchronized (starts) { String st = starts.get(key); if (st != null) nw.start = st; }
     WebView v = new WebView(a);
     WebSettings s = v.getSettings();
     s.setJavaScriptEnabled(true);
@@ -281,6 +288,7 @@ public final class RetroWeb {
       public void onPageStarted(WebView view, String url, Bitmap icon) {
         nw.url = url == null ? "" : url;
         nw.progress = 0;
+        if (nw.start.length() > 0) view.evaluateJavascript(nw.start, null);
       }
       @Override
       public void onPageFinished(WebView view, String url) {
@@ -398,6 +406,24 @@ public final class RetroWeb {
    *  ending with \2) -- from the native thread. */
   public static String call(final Activity act, String what, String[] a) {
     final String key = a.length > 0 ? a[0] : "";
+    if (what.equals("script")) {
+      StringBuilder j = new StringBuilder(a.length > 1 ? a[1] : "");
+      for (int i = 2; i < a.length; i++) j.append('\t').append(a[i]);
+      synchronized (starts) { starts.put(key, j.toString()); }
+      return "";
+    }
+    if (what.equals("clear")) {
+      act.runOnUiThread(new Runnable() {
+        public void run() {
+          try {
+            CookieManager.getInstance().removeAllCookies(null);
+            WebStorage.getInstance().deleteAllData();
+            synchronized (webs) { for (Web w : webs.values()) w.view.clearCache(true); }
+          } catch (Throwable t) { }
+        }
+      });
+      return "";
+    }
     if (what.equals("show")) {
       if (a.length < 6) return null;
       final int x = Integer.parseInt(a[1]), y = Integer.parseInt(a[2]);
