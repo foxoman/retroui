@@ -3683,13 +3683,16 @@ var tbar: tuple[on, full: bool; y, h: int; chosen: string;
 # Home and End to its ends, Space or Enter presses the one lit. It is the
 # buttons drawn one after another with no other control between them.
 var trun: tuple[id, last: Id; frame, n, hot, mask: int; on: bool]
+const RunBits = sizeof(int) * 8 - 2
+  ## (the buttons of a run whose being enabled `trun.mask` keeps: 62, or 30
+  ## where an int has 32 bits -- the rest count as enabled)
 
 proc runNext(mask, n, start, step: int): int =
   ## (the next button of the run that is enabled, from `start` going `step`)
   var i = start
   for _ in 0 ..< n:
     i = (i + step + n) mod n
-    if i >= 62 or (mask and (1 shl i)) != 0: return i
+    if i >= RunBits or (mask and (1 shl i)) != 0: return i
   start
 
 proc toolRun(id: Id; r: Rect; enabled: bool): bool =
@@ -3710,7 +3713,8 @@ proc toolRun(id: Id; r: Rect; enabled: bool): bool =
     if not (count > 0 and was == 0):          # (none enabled: no stop)
       trun.on = tabStop(trun.id, r, first = false)
     if count > 0:
-      if trun.hot >= count or (trun.hot < 62 and (was and (1 shl trun.hot)) == 0):
+      if trun.hot < 0 or trun.hot >= count or
+         (trun.hot < RunBits and (was and (1 shl trun.hot)) == 0):
         trun.hot = runNext(was, count, max(0, min(trun.hot, count - 1)) - 1, 1)
       if trun.on and not ui.keyUsed and canInput() and
          ui.mods * {CtrlPressed, AltPressed, GuiPressed} == {}:
@@ -3731,7 +3735,7 @@ proc toolRun(id: Id; r: Rect; enabled: bool): bool =
     state(trun.id).aux = trun.hot
   let i = trun.n
   inc trun.n
-  if enabled and i < 62: trun.mask = trun.mask or (1 shl i)
+  if enabled and i < RunBits: trun.mask = trun.mask or (1 shl i)
   trun.last = id
   var st = addr state(trun.id)
   st.aux2 = trun.n

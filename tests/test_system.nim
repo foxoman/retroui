@@ -5,6 +5,7 @@
 import std/[os, strutils, times]
 import retroui/system {.all.}
 import retroui/native
+import retroui/admin
 
 block jsonAndPlaces:
   doAssert jsonText("a \"b\"\n\\c\t\x01") == "\"a \\\"b\\\"\\n\\\\c\\t\""
@@ -72,5 +73,22 @@ block speech:
     doAssert not speaking()
   else:
     doAssert not speak("Retro")
+
+block runAsAdministrator:
+  # (the words given to sh, to Windows and to AppleScript, quoted as each wants)
+  doAssert posixCommand("/bin/sh", ["-c", "echo 'hi' $HOME"]) == "/bin/sh -c 'echo '\\''hi'\\'' $HOME'"
+  doAssert posixCommand("nmcli", ["device", "x=1,2"]) == "nmcli device x=1,2"
+  doAssert windowsArgs(["-NoProfile", "a b", "q\"x", "end\\", "x y\\"]) ==
+    "-NoProfile \"a b\" \"q\\\"x\" end\\ \"x y\\\\\""
+  doAssert windowsArgs([""]) == "\"\""
+  doAssert appleScriptText("a \"b\" \\c") == "\"a \\\"b\\\" \\\\c\""
+  # (here: pkexec, when there is one, asks; with none it fails at once and says why)
+  if not canRunAsAdmin():
+    var r = runAsAdmin("t", "true")
+    for _ in 0 ..< 500:
+      if r.state != adWaiting: break
+      sleep 10
+      r = runAsAdmin("t", "true")
+    doAssert r.state == adFailed and "pkexec" in r.output, $r
 
 echo "system tests passed"

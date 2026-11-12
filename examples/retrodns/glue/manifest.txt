@@ -1,0 +1,17 @@
+# What retroapk adds to the manifest it writes (--java:examples/retrodns/glue).
+#
+# One element a line: its name, then its attributes as name=value (no
+# spaces in a value). Two spaces of indent put an element inside the one
+# above. uses-permission, uses-feature and queries go in <manifest>;
+# everything else in <application>.
+#
+# Retro DNS's VPN: Android starts only a VPN service the manifest declares,
+# guarded by BIND_VPN_SERVICE (only the system may bind to it). It and its
+# Disconnect (VpnStop, for the notification's button) run in a small process
+# of their own, ":vpn": Java only, so the app's window can go while the VPN
+# stays on.
+
+service android:name=net.foxoman.retrodns.DnsVpn android:permission=android.permission.BIND_VPN_SERVICE android:exported=false android:process=:vpn
+  intent-filter
+    action android:name=android.net.VpnService
+receiver android:name=net.foxoman.retrodns.VpnStop android:exported=false android:process=:vpn

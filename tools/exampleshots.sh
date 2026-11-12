@@ -4,7 +4,7 @@
 # window saved once it is up (ImageMagick's import). The others' pictures
 # are the README's own (docs/*.png).
 #
-#   sh tools/exampleshots.sh                 hello charts native gallery hrbook magazine sevenguis navigator
+#   sh tools/exampleshots.sh                 hello charts native gallery hrbook magazine sevenguis navigator retrodns
 #   sh tools/exampleshots.sh hello charts    these
 #
 # 7GUIs is driven to its spreadsheet first (RETRO_DRIVE, `retrokit drive`).
@@ -13,7 +13,7 @@
 # Retro Navigator's picture, WebKitGTK too (libwebkit2gtk-4.1-0).
 set -eu
 cd "$(dirname "$0")/.."
-apps=${*:-hello charts native gallery hrbook magazine sevenguis navigator}
+apps=${*:-hello charts native gallery hrbook magazine sevenguis navigator retrodns}
 out=docs/examples
 mkdir -p "$out" build/shots
 case " $apps " in

@@ -1,8 +1,9 @@
 name: Release
 
 # The example apps I use and work on every day -- Retro Gallery, Retro
-# Files, Retro Photo, Retro Board and Retro Mail -- built for every system
-# and put on a GitHub release, so users find them ready to run:
+# Files, Retro Photo, Retro Board, Retro Mail, Retro Navigator and Retro
+# DNS -- built for every system and put on a GitHub release, so users find
+# them ready to run:
 #
 #   Linux    an AppImage (one file, runs on most distributions)
 #   Windows  an .exe (with its icon and version)
@@ -33,7 +34,7 @@ on:
       apps:
         description: "The apps, by their keys in retroui.nimble"
         required: false
-        default: "gallery files photo board mail"
+        default: "gallery files photo board mail navigator dns"
 
 # Retro Mail's app registrations (examples/mail/appids.nim): repository
 # secrets, so the packages sign in with one click
@@ -53,7 +54,7 @@ jobs:
     steps:
       - id: plan
         env:
-          APPS: ${{ inputs.apps || 'gallery files photo board mail' }}
+          APPS: ${{ inputs.apps || 'gallery files photo board mail navigator dns' }}
           TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
         run: |
           echo "apps=$(printf '%s\n' $APPS | jq -R . | jq -cs .)" >> "$GITHUB_OUTPUT"
@@ -68,7 +69,7 @@ jobs:
       matrix:
         app: ${{ fromJSON(needs.plan.outputs.apps) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: "2.2.6"
@@ -77,7 +78,7 @@ jobs:
         run: pip install ziglang
       - name: AppImage
         run: RETRO_APP=${{ matrix.app }} nimble appimage -y
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: linux-${{ matrix.app }}
           path: build/*.AppImage
@@ -92,7 +93,7 @@ jobs:
       matrix:
         app: ${{ fromJSON(needs.plan.outputs.apps) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: "2.2.6"
@@ -101,7 +102,7 @@ jobs:
         run: sh tools/apt.sh mingw-w64
       - name: Windows program
         run: RETRO_APP=${{ matrix.app }} nimble exe -y
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: windows-${{ matrix.app }}
           path: build/win/*.exe
@@ -115,7 +116,7 @@ jobs:
       matrix:
         app: ${{ fromJSON(needs.plan.outputs.apps) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: "2.2.6"
@@ -140,7 +141,7 @@ jobs:
           # on a crash report from a phone)
           cd build
           for d in *-symbols; do [ -d "$d" ] && zip -qr "$d.zip" "$d"; done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: android-${{ matrix.app }}
           path: |
@@ -156,14 +157,14 @@ jobs:
       matrix:
         app: ${{ fromJSON(needs.plan.outputs.apps) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: "2.2.6"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: macOS app
         run: RETRO_APP=${{ matrix.app }} nimble macapp -y
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: macos-${{ matrix.app }}
           path: build/mac/*.zip
@@ -178,11 +179,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: dist
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.plan.outputs.tag }}
           name: Retro Nim UI ${{ needs.plan.outputs.tag }}

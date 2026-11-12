@@ -56,7 +56,7 @@ env:
     test_morecontrols test_dock test_toolcustom test_richedit test_calendar
     test_qrcode test_touchsizes test_scale test_hardening test_designer
     test_tilemap test_gltf test_store test_sysmon test_taskman
-    test_inspect test_drive test_sevenguis test_navigator
+    test_inspect test_drive test_sevenguis test_navigator test_retrodns
   # the live check: frames drawn by the CPU at 100 %, the browser engine
   # needed
   RETRO_GPU: cpu
@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: ${{ env.NIM_VERSION }}
@@ -104,7 +104,7 @@ jobs:
         env:
           TOUR_STRICT: "1"
         run: xvfb-run -a -s "-screen 0 1280x800x24" sh tests/drive/run.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: live-linux
@@ -116,7 +116,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: ${{ env.NIM_VERSION }}
@@ -140,7 +140,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: ${{ env.NIM_VERSION }}
@@ -192,7 +192,7 @@ jobs:
         if: always()
         shell: bash
         run: sh tests/drive/run.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: live-windows
@@ -204,7 +204,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: ${{ env.NIM_VERSION }}
@@ -253,7 +253,7 @@ jobs:
       - name: A picture of the screen (the system's views too)
         if: always()
         run: screencapture -x live/screen-after.png || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: live-macos
@@ -265,7 +265,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: ${{ env.NIM_VERSION }}
@@ -295,7 +295,7 @@ jobs:
       - name: The same pixels as the reference
         if: always()
         run: nim c -r --hints:off tools/live/compare.nim live
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: live-ios
@@ -311,7 +311,7 @@ jobs:
         # edge, the permissions asked for at the moment)
         api: [30, 35]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: ${{ env.NIM_VERSION }}
@@ -339,7 +339,7 @@ jobs:
       - name: The same pixels as the reference
         if: always()
         run: nim c -r --hints:off tools/live/compare.nim live
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: live-android-${{ matrix.api }}

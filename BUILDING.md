@@ -84,7 +84,14 @@ packages.
 `RETRO_APP=photo nimble exe` (Windows, from Linux or macOS),
 `RETRO_APP=photo nimble appimage`, `RETRO_APP=photo nimble macapp` (on a
 Mac), `RETRO_APP=photo nimble appapk`; the apps are listed in
-`retroui.nimble` (`RetroApps`).
+`retroui.nimble` (`RetroApps`). `nimble apps` builds every one of them
+for this computer.
+
+**An app with Java of its own** (Retro DNS's VPN): the repository has its
+compiled `classes.dex`, so `retroapk --java:DIR` needs no Java on the
+computer. To change the Java, compile it again with a JDK and d8 or dx
+(Termux: `pkg install openjdk-21`, then d8 or dx; Debian: a JDK and
+`dalvik-exchange`): `sh examples/retrodns/build.sh dex`.
 
 **Apps that use `retroui/xmpp`** (Retro Communicator: `nimble
 communicator`) build with `-d:ssl`: Nim's TLS through OpenSSL, loaded when

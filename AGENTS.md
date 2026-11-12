@@ -15,7 +15,7 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   `retrostore.nim` (store packages, 3D models) are retrokit's commands.
 - `examples/` -- the example apps (Gallery, Retro Photo, Retro Files,
   Retro Mail, Retro Communicator, Retro Board, Retro Task Manager, HR
-  Book, Notepad, Ledger, Charts...). They are
+  Book, Retro Navigator, Retro DNS, Notepad, Ledger, Charts...). They are
   built only when asked, one at a time (`nimble photo`, `nimble photoexe`,
   `RETRO_APP=photo nimble exe`...), never by `nimble install`. GitHub's
   Release workflow (`.github/workflows/release.yml`, on a `v...` tag or by
@@ -52,7 +52,11 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
 - The Java of the APKs (`tools/android/*.java`) is compiled into
   `src/retroui/androiddex.nim` by `sh tools/android/build_dex.sh` (javac,
   an android.jar of API 23, dx or dalvik-exchange): run it after changing
-  one, and use only calls API 23 has (the APKs start on Android 7).
+  one, and use only calls API 23 has (the APKs start on Android 7). An
+  app's own Java goes in with `retroapk --java:DIR`
+  (`examples/retrodns/glue`): its `classes.dex` is committed too, made
+  again by `sh examples/retrodns/build.sh dex` after its Java changes
+  (javac against glue/stubs, then d8 or dx: no android.jar).
 - The web view (`webView`, in `htmlview.nim`): the system's engines are
   `webnative.nim` and the file it includes for each system --
   `webnative_gtk.nim` (WebKitGTK, in a GTK thread of its own, its window

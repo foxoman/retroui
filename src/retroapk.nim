@@ -20,6 +20,13 @@
 ## Usage:
 ##   retroapk app.nim [--name:"My App"] [--id:org.me.myapp] [--install]
 ##
+## An app that brings Java of its own -- a service, a receiver, which
+## Android starts only from a class its manifest declares -- gives it with
+## `--java:DIR`: the folder's classes.dex (compiled ahead with javac and d8;
+## examples/retrodns/glue/build-dex.sh) goes in as classes2.dex, and its
+## manifest.txt's entries into the manifest. Nim calls the Java by
+## reflection (retroui/native).
+##
 ## Run `retroapk --help` for every option.
 
 import std/[os, osproc, strutils, parseopt, algorithm, sequtils, tables]
@@ -50,6 +57,12 @@ Options:
                      repeatable; --storage adds com.termux)
   --storage          the app works with all the user's files (a file
                      manager): asks for "All files access"
+  --java:DIR         the app's own Java: DIR/classes.dex (compiled ahead:
+                     javac, then d8 or dx) goes in as classes2.dex, and the
+                     entries of DIR/manifest.txt into the manifest (a
+                     service, a receiver; the file says how to write them);
+                     repeatable
+  --manifest:FILE    entries for the manifest, as a manifest.txt is written
   --background       the app checks while it is closed (retroui/bgcheck): its
                      job service, kept across reboots
   --min-sdk:N        lowest Android API level (default 24, Android 7)
@@ -269,6 +282,107 @@ proc iAttr(name: string; id: uint32; v: int; kind = TDec): XAttr =
 proc bAttr(name: string; id: uint32; v: bool): XAttr =
   XAttr(android: true, name: name, resId: id, kind: TBool,
         data: if v: 0xFFFFFFFF'u32 else: 0)
+
+# ---- an app's own manifest entries (--java, --manifest) --------------------------------
+#
+# manifest.txt: one element a line, its name and then its attributes as
+# name=value (no spaces in a value); two more spaces of indent put an element
+# inside the one above; # starts a comment. uses-permission, uses-feature,
+# permission and queries go in <manifest>, the rest in <application>:
+#
+#   service android:name=org.me.MyVpn android:permission=android.permission.BIND_VPN_SERVICE android:exported=false
+#     intent-filter
+#       action android:name=android.net.VpnService
+
+const ManifestAttrIds = [
+  ("theme", 0x01010000'u32), ("label", 0x01010001'u32), ("icon", 0x01010002'u32),
+  ("name", 0x01010003'u32), ("permission", 0x01010006'u32), ("enabled", 0x0101000e'u32),
+  ("exported", 0x01010010'u32), ("process", 0x01010011'u32),
+  ("authorities", 0x01010018'u32), ("grantUriPermissions", 0x0101001b'u32),
+  ("priority", 0x0101001c'u32), ("description", 0x01010020'u32), ("value", 0x01010024'u32),
+  ("resource", 0x01010025'u32), ("maxSdkVersion", 0x01010271'u32),
+  ("required", 0x0101028e'u32), ("stopWithTask", 0x0101036a'u32),
+  ("directBootAware", 0x01010505'u32), ("foregroundServiceType", 0x01010599'u32)]
+  ## (the android: attributes manifest.txt may use, with their resource ids)
+
+const InManifest = ["uses-permission", "uses-feature", "permission", "queries"]
+  ## (the entries that go in <manifest>; the rest go in <application>)
+
+proc entryAttr(name, v: string; android: bool): XAttr =
+  ## (an attribute of manifest.txt: true and false, @0x references, 0x and
+  ## decimal numbers as Android keeps them; the rest as text)
+  result = XAttr(android: android, name: name, kind: TString, str: v)
+  if not android: return
+  for (n, id) in ManifestAttrIds:
+    if n == name: result.resId = id
+  if result.resId == 0:
+    raise newException(ValueError, "android:" & name & " is not an attribute retroapk knows")
+  if v == "true" or v == "false":
+    result = bAttr(name, result.resId, v == "true")
+  elif v.startsWith("@0x") and v.len > 3 and v[3 .. ^1].allCharsInSet(HexDigits):
+    result = iAttr(name, result.resId, parseHexInt(v[1 .. ^1]), TRef)
+  elif v.startsWith("0x") and v.len > 2 and v[2 .. ^1].allCharsInSet(HexDigits):
+    result = iAttr(name, result.resId, parseHexInt(v), THex)
+  elif v.len > 0 and v.len < 10 and v.allCharsInSet(Digits):
+    result = iAttr(name, result.resId, parseInt(v))
+
+proc parseManifestEntries*(text: string): seq[XNode] =
+  ## The elements of a manifest.txt, with those inside them. Raises
+  ## ValueError for a line it cannot read.
+  var stack: seq[(int, XNode)]                    # (indent, element)
+  var tops: seq[XNode]
+  proc close(downTo: int) =
+    while stack.len > 0 and stack[^1][0] >= downTo:
+      let (_, n) = stack.pop()
+      if stack.len > 0: stack[^1][1].kids.add n
+      else: tops.add n
+  var n = -1
+  for raw in text.splitLines:
+    inc n
+    let line = raw.strip(leading = false)
+    let body = line.strip
+    if body.len == 0 or body.startsWith("#"): continue
+    let indent = line.len - line.strip(trailing = false).len
+    if stack.len == 0 and indent > 0:
+      raise newException(ValueError, "line " & $(n + 1) & ": indented with nothing above it")
+    close(indent)
+    let parts = strutils.splitWhitespace(body)
+    var e = XNode(name: parts[0])
+    for p in parts[1 .. ^1]:
+      let eq = p.find('=')
+      if eq <= 0: raise newException(ValueError, "line " & $(n + 1) & ": " & p & " is not name=value")
+      var key = p[0 ..< eq]
+      let android = key.startsWith("android:")
+      if android: key = key[8 .. ^1]
+      try: e.attrs.add entryAttr(key, p[eq + 1 .. ^1], android)
+      except ValueError as x: raise newException(ValueError, "line " & $(n + 1) & ": " & x.msg)
+    stack.add (indent, e)
+  close(0)
+  tops
+
+proc nameOf(n: XNode): string =
+  for a in n.attrs:
+    if a.name == "name" and a.kind == TString: return a.str
+
+proc mergeEntries*(manifest: var XNode; entries: openArray[XNode]): int =
+  ## Puts `entries` in `manifest` (in <manifest> or its <application>),
+  ## leaving out one whose kind and android:name are there already. How many
+  ## went in.
+  var app = -1
+  for i, k in manifest.kids:
+    if k.name == "application": app = i
+  for e in entries:
+    let inRoot = e.name in InManifest or app < 0
+    var there = false
+    for k in (if inRoot: manifest.kids else: manifest.kids[app].kids):
+      if k.name == e.name and nameOf(k) == nameOf(e) and nameOf(e).len > 0: there = true
+    if there: continue
+    if inRoot and app >= 0:
+      manifest.kids.insert(e, app)                # (before <application>)
+      inc app
+    elif inRoot: manifest.kids.add e
+    else: manifest.kids[app].kids.add e
+    inc result
 
 proc stringPool(strs: openArray[string]; utf8 = false): Bytes =
   ## A ResStringPool chunk (UTF-16 strings by default).
@@ -1166,6 +1280,7 @@ proc main() =
     permissions: seq[string]
     queries: seq[string]
     nimFlags: seq[string]
+    javaDirs, manifestFiles: seq[string]
     debuggable, install, runIt, storage, background, clean, aab = false
     signer = "auto"
     workDir = ""
@@ -1187,6 +1302,8 @@ proc main() =
       of "query": queries.add val
       of "storage": storage = true
       of "background": background = true
+      of "java": javaDirs.add val
+      of "manifest": manifestFiles.add val
       of "minsdk": minSdk = parseInt(val)
       of "targetsdk": targetSdk = parseInt(val)
       of "debuggable": debuggable = true
@@ -1413,6 +1530,23 @@ proc main() =
       q.kids.add XNode(name: "package", attrs: @[sAttr("name", 0x01010003, pkg)])
     manifest.kids.add q
   manifest.kids.add app
+  # the app's own Java (--java) and manifest entries (--java, --manifest)
+  var dexes: seq[string]                    ## (classes2.dex, classes3.dex...)
+  for d in javaDirs:
+    if not dirExists(d): die "--java:" & d & " is not a folder"
+    let dexPath = d / "classes.dex"
+    if fileExists(dexPath):
+      let dex = readFile(dexPath)
+      if not dex.startsWith("dex\n"): die dexPath & " is not a dex file"
+      dexes.add dex
+    if fileExists(d / "manifest.txt"): manifestFiles.add d / "manifest.txt"
+    elif not fileExists(dexPath): die "--java:" & d & " has no classes.dex and no manifest.txt"
+  for f in manifestFiles:
+    let text = try: readFile(f) except IOError: die "cannot read " & f
+    let entries = try: parseManifestEntries(text)
+                  except ValueError as e: die f & ": " & e.msg
+    let n = manifest.mergeEntries(entries)
+    echo "  ", f, ": ", n, " manifest entr", (if n == 1: "y" else: "ies")
   let icon = if iconPath.len > 0: readFile(iconPath).toBytes else: iconPng(192)
   if icon.len < 8 or icon[1] != byte('P') or icon[2] != byte('N'):
     die "the icon must be a PNG file"
@@ -1431,8 +1565,9 @@ proc main() =
     var files = @[("BundleConfig.pb", bundleConfig().toStr),
                   ("base/manifest/AndroidManifest.xml", protoXml(manifest).toStr),
                   ("base/resources.pb", protoResources(id).toStr),
-                  ("base/dex/classes.dex", classesDex),
-                  ("base/" & IconPath, icon.toStr)]
+                  ("base/dex/classes.dex", classesDex)]
+    for i, dex in dexes: files.add ("base/dex/classes" & $(i + 2) & ".dex", dex)
+    files.add ("base/" & IconPath, icon.toStr)
     for (inZip, path) in libs: files.add ("base/" & inZip, readFile(path))
     let meta = try: jarSign(files, key, cert)
                except SignError as e: die "signing the bundle: " & e.msg
@@ -1450,6 +1585,7 @@ proc main() =
   var z: ZipFile
   z.addFile("AndroidManifest.xml", axml(manifest))
   z.addFile("classes.dex", classesDex.toBytes)
+  for i, dex in dexes: z.addFile("classes" & $(i + 2) & ".dex", dex.toBytes)
   z.addFile("resources.arsc", resourceTable(id), compress = false)  # Android 11+
   z.addFile(IconPath, icon, compress = false)
   for (inZip, path) in libs: z.addFile(inZip, readFile(path).toBytes, 16384)

@@ -89,6 +89,7 @@ what it needs (see "What the app declares").
 | open / save files | ✓ the kit's dialog | ✓ | ✓ | ✓ | ✓ | ✓ the browser's chooser, downloads |
 | printing (`printPdf`) | ✓ CUPS | ✓ the PDF reader | ✓ CUPS | ✓ the print dialog | – | ✓ the browser's print |
 | chat (`retroui/xmpp`) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ *threads build*, WebSocket |
+| a command as the administrator (`retroui/admin`) | ✓ polkit's pkexec | ✓ UAC | ✓ the password dialog | – | – | – |
 
 ### What the app declares
 
@@ -106,6 +107,7 @@ required, so the app installs on a device without a camera or GPS.
 | camera, microphone | ✓ (`cameraView`, `recordSound`...) | `--permission:CAMERA`, `--permission:RECORD_AUDIO` |
 | the network | ✓ (`httpRequest`, downloads, chat, `webView`) | `--permission:INTERNET` |
 | background checks | | `--background` |
+| Java of the app's own (a service, a receiver) | | `--java:DIR` (its classes.dex, its manifest.txt) |
 | installing an update's APK | | `--permission:REQUEST_INSTALL_PACKAGES` |
 
 The window asks the user the first time a feature is used (never a
@@ -309,3 +311,31 @@ What a page can do depends on the browser:
 
 Not in a page: processes (`osproc`), raw sockets, the file system of the
 computer (only what the user picks), background checks.
+
+## A command as the administrator
+
+`retroui/admin` runs a short command as the computer's administrator --
+a setting of the whole computer, as Retro DNS's DNS servers -- the system
+asking the user first: Windows with its UAC dialog, macOS with its
+password dialog, Linux and the BSDs with polkit's (`pkexec`). It runs on a
+thread of its own, so the window keeps drawing; ask again each frame
+until it is no longer waiting. Phones and pages have no administrator:
+`canRunAsAdmin()` is false there, and the answer `adNone`.
+
+```nim
+import retroui, retroui/admin
+var asked = false
+app "Settings", 400, 200:
+  if button("&Flush the DNS cache", enabled = canRunAsAdmin()): asked = true
+  if asked:
+    let r = runAsAdmin("flush", "resolvectl", ["flush-caches"], why = "Settings flushes the DNS cache.")
+    case r.state
+    of adWaiting: wakeIn(200)
+    of adDone: asked = false; toast(if r.code == 0: "Done" else: r.output)
+    of adRefused: asked = false; toast("Not allowed")
+    of adNone, adFailed: asked = false; toast(r.output)
+```
+
+On Windows the command gives nothing back but its exit code: a script
+that must say why it failed writes it to a file (Retro DNS's does).
+

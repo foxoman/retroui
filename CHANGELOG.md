@@ -1,5 +1,53 @@
 # Changes
 
+## 0.43.0
+
+Retro DNS joins the examples, on every system, and the kit gets what it
+needed: an Android app's own Java, and a command run as the computer's
+administrator.
+
+- **Retro DNS 1.1** (`examples/retrodns.nim`, `nimble dns`): a DNS changer
+  with 47 public servers, what each is good for, speed tests, favourites
+  and servers of your own (CSV).
+  - **Android:** a VPN of its own Java that stays on the device and
+    carries DNS only, encrypted (DNS over HTTPS or TLS), in a process of
+    its own, with a notification while it is on.
+  - **Windows, Linux, macOS:** Use on This Computer gives the computer the
+    server's addresses as its administrator: every adapter on Windows (with
+    DNS over HTTPS where Windows 11 has it), NetworkManager's connections
+    on Linux (DNS over TLS where systemd-resolved does it; else
+    systemd-resolved alone), every network service on a Mac. Back to
+    Automatic gives back the network's own. The scripts are made of checked
+    addresses only, whatever a CSV file holds.
+  - **macOS, iOS:** a server with encrypted DNS comes as a profile that
+    Settings installs.
+  - In the release builds with Retro Navigator: an AppImage, an .exe, an
+    APK and the macOS app.
+  - `test_retrodns` checks its servers, the CSV, the VPN's settings, the
+    scripts and the profile.
+- **`retroapk --java:DIR`**: an app's own Java. DIR's `classes.dex` goes
+  in as `classes2.dex` and the entries of its `manifest.txt` (an element a
+  line, `name=value` attributes, two spaces of indent inside) into the
+  manifest, of an APK or a bundle; `--manifest:FILE` adds entries alone.
+  Android starts a service, a receiver or a VPN only from a class its
+  manifest declares: now an app can bring one, and call it by reflection
+  (`retroui/native`).
+- **`retroui/admin`**: `runAsAdmin(key, exe, args, why)` runs a short
+  command as the computer's administrator, the system asking first --
+  Windows' UAC, macOS's password dialog, polkit's pkexec -- on a thread of
+  its own, asked each frame until it is done; `canRunAsAdmin()`; `adNone`
+  on phones and pages. In docs/system.md.
+- **A run of tool buttons in a 32-bit program** (and WebAssembly): the one
+  lit could be -1, and the buttons past the 30th were counted with a shift
+  past an int's bits. The nightly 32-bit tests (under UBSan) failed on it
+  in test_report, test_photoapp and test_channelspanel.
+- **CI:** the actions on Node 24 (checkout 5, setup-node 5, upload-artifact
+  6, download-artifact 7, action-gh-release 3, Google's auth and gcloud 3):
+  GitHub said Node 20's were going away. The release builds Retro
+  Navigator and Retro DNS too. `nimble apps` builds every app of the
+  table, not a list of its own that had fallen behind.
+- The gallery and the small examples 0.43.0.
+
 ## 0.42.0
 
 Retro Navigator gets what a browser has now -- tabs, ads and trackers kept

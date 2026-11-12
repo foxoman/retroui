@@ -2075,6 +2075,12 @@ page can run code or reach the network. `htmlToMarkdown` converts a page.
   (`file://`, paths, `html:` text) drawn with `htmlView`, and pages on the
   web get a button that opens them in the browser.
 
+**Retro DNS** (`examples/retrodns.nim`, `nimble dns`) changes the DNS
+server of a phone or a computer: Android's with a VPN of its own Java
+(`--java`), a computer's as its administrator (`retroui/admin`), a Mac's,
+an iPhone's and an iPad's with a profile of encrypted DNS
+([the examples](examples/README.md#retro-dns)).
+
 **Retro Navigator** (`examples/navigator.nim`, `nimble navigator`) is a
 whole browser made this way: a 1995 window around the system's engine,
 with tabs, ads and trackers kept off the pages, secure connections, and
@@ -2458,6 +2464,22 @@ manager; it may also see Termux), `--query:com.termux` (another app this
 one looks for), `--debuggable`, `--key:key.pem --cert:cert.der` (else a debug
 key is made once in `~/.retro/android`; keep it: updates must be signed
 with the same key). `echo` output goes to `adb logcat -s retro`.
+
+**Java of the app's own.** Android starts a service, a receiver or a VPN
+only from a class its manifest declares. An app that needs one brings it:
+`--java:DIR` puts the folder's `classes.dex` (compiled ahead with javac
+and d8 or dx) in as `classes2.dex`, and the entries of its `manifest.txt`
+into the manifest, APK or bundle alike; Nim calls the Java by reflection
+(`retroui/native`). Retro DNS's VPN is made so
+(`examples/retrodns/glue`: its Java, the stand-ins it compiles against
+with no android.jar, its manifest.txt and build-dex.sh):
+
+```
+# manifest.txt: an element a line, name=value attributes, two spaces inside
+service android:name=org.me.MyVpn android:permission=android.permission.BIND_VPN_SERVICE android:exported=false
+  intent-filter
+    action android:name=android.net.VpnService
+```
 
 For Google Play, `--aab` (or `retrokit aab`) writes an Android App Bundle
 instead: the manifest and resources in aapt2's proto formats, the
@@ -2859,10 +2881,10 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_photo` | the image engine: blend modes, layers, undo and cancelled steps, the selection and channels, Quick Mask, paths, every painting tool, transforms, color modes, every filter and adjustment, .rpd / PNG / JPEG / BMP files |
 | `test_canvas2d` | the Canvas 2D API: paths, fills and strokes, transforms, gradients and patterns, text, pictures, clipping, compositing, against expected pixels |
 | `test_pdf`, `test_report` | the PDF writer (structure, fonts, pictures, cross-reference table), templates, HTML reports, page breaks, repeated headers, totals, previews |
-| `test_apk` | the APK tool's SHA-256, CRC-32, deflate and PNG; the App Bundle's proto manifest and resources, its JAR signature (checked with `jarsigner` and `bundletool` when they are there) |
+| `test_apk` | the APK tool's SHA-256, CRC-32, deflate and PNG; the App Bundle's proto manifest and resources, its JAR signature (checked with `jarsigner` and `bundletool` when they are there); `--java`'s manifest.txt read, nested and merged into both manifests, a bad line refused |
 | `test_store` | DER, certificates and their subjects, JAR signatures, Authenticode (the digest, the checksum, signing again, a time stamp from an authority made with OpenSSL), MSIX (ZIP64 records, the block map's blocks one by one, the signed digests rebuilt by the test), macOS: the `.icns`, the code directory read back page by page (one architecture and universal), the sealed resources, the `.ipa`; `osslsigncode` and `rcodesign` when they are there |
 | `test_tilemap` | the street map: tiles of every kind of source, the cache, dragging, zooming, markers and shapes, the services' answers (places and routes of each), polylines, GCJ-02, GeoJSON, vector tiles decoded and drawn, PMTiles and MBTiles read and written |
-| `test_system` | `retroui/system` on Linux: what answers and what says false, the autostart entry made and taken away, the answers of a page and of phones read right, speech when a voice is installed |
+| `test_system` | `retroui/system` on Linux: what answers and what says false, the autostart entry made and taken away, the answers of a page and of phones read right, speech when a voice is installed; `retroui/admin`'s words for sh, Windows and AppleScript, and its answer with no polkit |
 | `test_update` | Ed25519 against RFC 8032, signatures checked (a byte changed, another key), versions compared, an update found, checked and downloaded from a small server, a changed file or update file refused |
 | `test_fontsoption` | `-d:retroFonts`: the faces left out drawn with FreeSans, or read from a folder of their files |
 | `test_gltf` | glTF read and written, the car's parts moved, turned, hidden and tinted, its clips (linear, step, cubic), shapes and bones, a picture on a surface (unlit), damaged files refused, Blender's `.blend` when Blender is there |
@@ -2877,6 +2899,7 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_drive` | the driver: a client in the same program finds controls by name, clicks, types (Arabic too), presses keys, sets values, waits for a control and for its going, opens a drop-down past a default button with Enter, closes the window |
 | `test_sevenguis` | the 7GUIs example driven by its controls' names: each task as its rules ask (the flight booked only when the dates allow, the timer stopping at its duration, CRUD's filter, the circles' undo, the cells' formulas and their cycles) |
 | `test_navigator` | Retro Navigator's places: what the Location box goes to (an address, a host, a file that is there, words searched for), the key, the bookmarks kept, the pages of a session; its shield: secure addresses (not on the local network), the ad and tracker hosts, its settings and the sites ads are allowed on, its script |
+| `test_retrodns` | Retro DNS: its 47 servers well formed, the user's own kept as CSV, the VPN's settings, the scripts that change a computer's DNS (Windows, Linux, macOS) made of checked addresses only whatever a CSV holds, PowerShell's encoded command, the profile of encrypted DNS for macOS and iOS |
 | `test_scale` | fractional scales (125 % to 300 %): controls and text the size asked for, lines on whole pixels, a change of scale followed |
 | `test_touchsizes` | `RETRO_TOUCH` and `RETRO_CONTROLS`: finger-sized controls on a tablet's screen when asked, desktop and automatic sizes |
 | `test_shm` | the frame drawn into memory shared with the X server and what the window then shows, with and without it (`RETRO_SURFACE=0`) |
@@ -2906,6 +2929,7 @@ it is and how to run it.
 | `examples/retroboard.nim` | Retro Board: a whiteboard in the manner of tldraw -- ink, shapes, arrows, notes, frames, pages; PNG, SVG and PDF (also an APK: `nimble boardapk`) |
 | `examples/sevenguis.nim` | 7GUIs: the seven tasks of the GUI benchmark -- a counter, a temperature converter, a flight booker, a timer, CRUD, a circle drawer with undo, a spreadsheet with formulas |
 | `examples/navigator.nim` | Retro Navigator: a web browser in the manner of 1995's -- the tool bar, the Location box, the directory buttons, a logo that moves while a page loads, the key, bookmarks, the Go menu, find, print, the source -- around the system's own engine (`webView`, `weSystem`), with tabs, ads and trackers blocked, secure connections, links loaded ahead, tabs that sleep, Clear Browsing Data |
+| `examples/retrodns.nim` | Retro DNS: a DNS changer with 47 public servers, what each is good for, speed tests and your own -- on Android a VPN of its own Java (`--java`), on Windows, Linux and macOS the computer's DNS as its administrator (`retroui/admin`), on macOS and iOS a profile of encrypted DNS |
 | `examples/hrbook.nim` | HR Book: the staff records of a group of hotels, private on a tablet -- smart Excel import, letters and certificates, charts, expiry alerts, encrypted backups |
 
 `examples/hrbook.nim` is **HR Book**: every employee of your hotels in one

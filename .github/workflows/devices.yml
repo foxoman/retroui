@@ -33,7 +33,7 @@ jobs:
       - name: Firebase Test Lab is set up
         if: env.HAS_KEY != 'true'
         run: echo "No FIREBASE_SA_KEY secret or FIREBASE_PROJECT variable -- no real phones this time."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: env.HAS_KEY == 'true'
       - uses: jiro4989/setup-nim-action@v2
         if: env.HAS_KEY == 'true'
@@ -46,11 +46,11 @@ jobs:
           nim c -d:release --hints:off -o:build/retroapk src/retroapk.nim
           build/retroapk tests/live/livecheck.nim --abi:arm64-v8a --debuggable \
             --id:org.retro.livecheck --name:Livecheck --nim:--path:src -o:build/livecheck.apk
-      - uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v3
         if: env.HAS_KEY == 'true'
         with:
           credentials_json: ${{ secrets.FIREBASE_SA_KEY }}
-      - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v3
         if: env.HAS_KEY == 'true'
       - name: On real phones
         if: env.HAS_KEY == 'true'
@@ -60,7 +60,7 @@ jobs:
             --device model=oriole,version=33 --device model=a51,version=31 \
             --timeout 5m --results-dir "retro-${{ github.run_id }}" \
             --format json | tee devices.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always() && env.HAS_KEY == 'true'
         with:
           name: devices-android
@@ -71,7 +71,7 @@ jobs:
     runs-on: [self-hosted, linux, raspberrypi]
     timeout-minutes: 240
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: The headless tests on ARM
         run: nimble test -y
       - name: The live check on the Pi's screen (or Xvfb)
@@ -83,7 +83,7 @@ jobs:
             RETRO_LIVE_OUT=live build/livecheck
           fi
           nim c -r --hints:off tools/live/compare.nim live
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: live-raspberry-pi

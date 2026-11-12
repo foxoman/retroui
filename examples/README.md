@@ -33,10 +33,11 @@ hello, notepad, ledger, charts, invoice, then the apps.
 | [hrbook](#hr-book) | HR Book, a private book of a hotel group's staff |
 | [sevenguis](#7guis) | the seven tasks of the 7GUIs benchmark, a tab each |
 | [navigator](#retro-navigator) | Retro Navigator, a web browser in the manner of 1995's |
+| [retrodns](#retro-dns) | Retro DNS, a DNS changer for phones and computers |
 
 The pictures of hello, the gallery, charts, native, HR Book, the magazine,
-7GUIs and Retro Navigator are made by `sh tools/exampleshots.sh`; the
-others are the main README's.
+7GUIs, Retro Navigator and Retro DNS are made by `sh tools/exampleshots.sh`;
+the others are the main README's.
 
 ## Hello
 
@@ -356,3 +357,44 @@ others in the browser. `tests/test_navigator.nim` checks its places
 ```sh
 nimble navigator            # or: nim c -r -d:release examples/navigator.nim
 ```
+
+## Retro DNS
+
+![Retro DNS: the servers, Cloudflare's details, and Use on This Computer](../docs/examples/retrodns.png)
+
+`retrodns.nim` changes the DNS server a phone, a tablet or a computer
+uses: 47 public resolvers -- fast, private, secure, ad-blocking, family,
+unfiltered, regional -- each with what it is good for, speed tests (the
+time to reach it, on two worker threads), favourites, and servers of your
+own (CSV, imported and exported). Each system the way it allows:
+
+- **Android:** a VPN that stays on the device and carries DNS only,
+  encrypted (DNS over HTTPS or TLS), with a notification while it is on.
+  Android starts a VPN only from a Java class its manifest declares, so
+  the app brings it: `retrodns/glue/` holds the VPN service (`java/`),
+  stand-ins for the Android classes it compiles against (`stubs/`: no
+  android.jar), the manifest lines (`manifest.txt`) and the compiled
+  `classes.dex`; `retroapk --java:examples/retrodns/glue` puts them in the
+  APK or bundle. Nim calls the Java by reflection (`retroui/native`).
+- **Windows, Linux, macOS:** Use on This Computer gives the computer the
+  server's addresses as its administrator, the system asking first
+  (`retroui/admin`: UAC, polkit, the password dialog): every adapter's
+  servers on Windows, with DNS over HTTPS where Windows 11 has it;
+  NetworkManager's connections on Linux, with DNS over TLS where
+  systemd-resolved does it (else systemd-resolved alone); every network
+  service on a Mac. Back to Automatic gives back the network's own. The
+  scripts are made of checked addresses only (`retrodns/desktop.nim`).
+- **macOS, iOS:** a server with encrypted DNS comes as a profile that
+  Settings installs (and removes): DNS over HTTPS or TLS for every app.
+- **A web page:** the servers and what they are good for.
+
+```sh
+nimble dns                                  # or: nim c -r -d:release examples/retrodns.nim
+sh examples/retrodns/build.sh apk           # Android, its VPN in it
+sh examples/retrodns/build.sh key           # a Google Play upload key, once
+sh examples/retrodns/build.sh aab           # the bundle for Google Play
+sh examples/retrodns/build.sh dex           # its Java compiled again (javac, d8 or dx)
+```
+
+`tests/test_retrodns.nim` checks its servers, the CSV, the VPN's
+settings, the scripts and the profile.

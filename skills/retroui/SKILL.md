@@ -241,7 +241,15 @@ the memory, the disks, the network, the battery, every process),
 `monitorHistory()` for graphs, `setMonitorInterval` (slower while hidden),
 `endProcess(p)` (refuses an id that is another program's by now),
 `setPriority`, `startupItems`, `connections`, `appendHistory` /
-`loadHistory`; examples/taskman.nim uses all of it.
+`loadHistory`; examples/taskman.nim uses all of it. A command as the
+computer's administrator (a setting of the whole computer): `import
+retroui/admin` -- `runAsAdmin(key, exe, args, why)` each frame until it is
+not `adWaiting` (the system asks: UAC, polkit's pkexec, macOS's password
+dialog; `adNone` on phones and pages; `canRunAsAdmin()`). An Android app's
+own Java (a service, a receiver, a VPN): `retroapk --java:DIR` puts
+DIR/classes.dex in as classes2.dex and DIR/manifest.txt's entries in the
+manifest; call it by reflection (`retroui/native`). examples/retrodns.nim
+does both.
 
 **A street map with a route** (`import retroui/[tilemap, geo]`):
 

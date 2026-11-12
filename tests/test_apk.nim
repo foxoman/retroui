@@ -253,4 +253,45 @@ block symbolized:
   doAssert nimName("beginFrame__OOZsrcZretrouiZcore_u12585") == "beginFrame (src/retroui/core)"
   doAssert nimName("memcpy") == "memcpy"
   doAssert not readElfSymbols("not a library").ok
+block appsOwnJava:
+  # --java's manifest.txt: entries in <application> or <manifest>, nested,
+  # their values as Android keeps them, one already there left out
+  let entries = parseManifestEntries("""
+# a VPN of the app's own
+service android:name=org.me.Vpn android:permission=android.permission.BIND_VPN_SERVICE android:exported=false android:process=:vpn
+  intent-filter
+    action android:name=android.net.VpnService
+
+receiver android:name=org.me.Stop android:exported=false android:priority=10
+uses-permission android:name=android.permission.INTERNET
+uses-permission android:name=android.permission.FOREGROUND_SERVICE
+""")
+  doAssert entries.len == 4
+  doAssert entries[0].name == "service" and entries[0].kids.len == 1
+  doAssert entries[0].kids[0].kids[0].name == "action"
+  doAssert entries[0].attrs[2].kind == TBool and entries[0].attrs[2].data == 0
+  doAssert entries[0].attrs[3].resId == 0x01010011'u32 and entries[0].attrs[3].str == ":vpn"
+  doAssert entries[1].attrs[2].kind == TDec and entries[1].attrs[2].data == 10
+  var m = XNode(name: "manifest", kids: @[
+    XNode(name: "uses-sdk"),
+    XNode(name: "uses-permission", attrs: @[sAttr("name", 0x01010003, "android.permission.INTERNET")]),
+    XNode(name: "application", kids: @[XNode(name: "activity")])])
+  doAssert m.mergeEntries(entries) == 3, "INTERNET was there"
+  doAssert m.kids.len == 4 and m.kids[2].name == "uses-permission" and m.kids[3].name == "application"
+  doAssert m.kids[3].kids.len == 3 and m.kids[3].kids[1].name == "service"
+  doAssert m.mergeEntries(entries) == 0, "all of them there now"
+  # both of retroapk's manifests carry them
+  let bin = axml(m).toStr
+  let proto = protoXml(m).toStr
+  for s in ["org.me.Vpn", "android.net.VpnService", ":vpn", "org.me.Stop"]:
+    doAssert s in proto, s
+    var utf16 = ""
+    for c in s: utf16.add c & '\0'
+    doAssert utf16 in bin, s
+  for bad in ["  service android:name=x", "service android:name", "service android:colour=red"]:
+    var failed = false
+    try: discard parseManifestEntries(bad)
+    except ValueError: failed = true
+    doAssert failed, bad
+
 echo "apk tool tests passed"
