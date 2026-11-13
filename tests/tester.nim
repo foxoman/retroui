@@ -39,7 +39,7 @@ elif defined(macosx):
 when defined(macosx):
   let cocoaTest = getTempDir() / ("uirelays-cocoargbatest-" & $getCurrentProcessId())
   exec "clang -fobjc-arc tests/cocoargbatest.m -o " & quoteShell(cocoaTest) &
-    " -framework Cocoa -framework CoreText -framework CoreGraphics -framework QuartzCore"
+    " -framework Cocoa -framework Carbon -framework CoreText -framework CoreGraphics -framework QuartzCore"
   exec quoteShell(cocoaTest)
   removeFile(cocoaTest)
 

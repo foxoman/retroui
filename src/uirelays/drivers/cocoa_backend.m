@@ -5,7 +5,7 @@
  *  NSView subclass for events.
  *
  *  Compile:  included automatically via {.compile.} in cocoa_driver.nim
- *  Link:     -framework Cocoa -framework CoreText -framework CoreGraphics -framework QuartzCore
+ *  Link:     -framework Cocoa -framework Carbon -framework CoreText -framework CoreGraphics -framework QuartzCore
  */
 
 #import <Carbon/Carbon.h>   /* (the hot keys: RegisterEventHotKey) */

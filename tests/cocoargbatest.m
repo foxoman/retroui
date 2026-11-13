@@ -1,5 +1,5 @@
 /* clang -fobjc-arc tests/cocoargbatest.m -o /tmp/uirelays-cocoargbatest
-   -framework Cocoa -framework CoreText -framework CoreGraphics -framework QuartzCore */
+   -framework Cocoa -framework Carbon -framework CoreText -framework CoreGraphics -framework QuartzCore */
 #include <assert.h>
 #include "../src/uirelays/drivers/cocoa_backend.m"
 
