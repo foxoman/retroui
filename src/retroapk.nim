@@ -311,20 +311,22 @@ const InManifest = ["uses-permission", "uses-feature", "permission", "queries"]
 proc entryAttr(name, v: string; android: bool): XAttr =
   ## (an attribute of manifest.txt: true and false, @0x references, 0x and
   ## decimal numbers as Android keeps them; the rest as text)
-  result = XAttr(android: android, name: name, kind: TString, str: v)
-  if not android: return
-  for (n, id) in ManifestAttrIds:
-    if n == name: result.resId = id
-  if result.resId == 0:
+  if not android: return XAttr(name: name, kind: TString, str: v)
+  # (its id looked up before anything is made: a result half made when it
+  # raises is not freed)
+  var id = 0'u32
+  for (n, i) in ManifestAttrIds:
+    if n == name: id = i
+  if id == 0:
     raise newException(ValueError, "android:" & name & " is not an attribute retroapk knows")
-  if v == "true" or v == "false":
-    result = bAttr(name, result.resId, v == "true")
+  if v == "true" or v == "false": bAttr(name, id, v == "true")
   elif v.startsWith("@0x") and v.len > 3 and v[3 .. ^1].allCharsInSet(HexDigits):
-    result = iAttr(name, result.resId, parseHexInt(v[1 .. ^1]), TRef)
+    iAttr(name, id, parseHexInt(v[1 .. ^1]), TRef)
   elif v.startsWith("0x") and v.len > 2 and v[2 .. ^1].allCharsInSet(HexDigits):
-    result = iAttr(name, result.resId, parseHexInt(v), THex)
+    iAttr(name, id, parseHexInt(v), THex)
   elif v.len > 0 and v.len < 10 and v.allCharsInSet(Digits):
-    result = iAttr(name, result.resId, parseInt(v))
+    iAttr(name, id, parseInt(v))
+  else: sAttr(name, id, v)
 
 proc parseManifestEntries*(text: string): seq[XNode] =
   ## The elements of a manifest.txt, with those inside them. Raises

@@ -16,12 +16,18 @@ const wasm = args.find((a) => !a.startsWith("--"));
 const rt = new Retro({ name: "test", onOutput: (fd, l) => (fd === 2 ? process.stderr : process.stdout).write(l + "\n") });
 for (const a of args.filter((a) => a.startsWith("--mount:"))) {
   const [host, at] = a.slice(8).split("=");
+  // (not build/: the builds of the other tests, made at the same time --
+  // their files come and go as they are read)
   const walk = (dir, to) => {
     rt.fs.mkdirp(to);
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const h = path.join(dir, e.name), t = to + "/" + e.name;
-      if (e.isDirectory()) walk(h, t);
-      else if (e.isFile()) rt.fs.addFile(t, new Uint8Array(fs.readFileSync(h)), false);
+      if (e.isDirectory()) { if (e.name !== "build") walk(h, t); }
+      else if (e.isFile()) {
+        let data;
+        try { data = fs.readFileSync(h); } catch (err) { if (err.code === "ENOENT") continue; throw err; }
+        rt.fs.addFile(t, new Uint8Array(data), false);
+      }
     }
   };
   walk(host, at);

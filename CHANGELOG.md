@@ -1,5 +1,19 @@
 # Changes
 
+## 0.43.1
+
+The night's tests after 0.43.0, both green again.
+
+- **`retroapk --java`: a manifest.txt line it refuses no longer leaks**
+  the attribute it had half made (the nightly's LeakSanitizer, on
+  test_apk's bad lines): its id is looked up before anything is made.
+- **The WebAssembly tests under Node** no longer copy `tests/build/` into
+  each test's files: the other tests' builds write there at the same time,
+  and a file gone between the listing and the reading stopped
+  test_mapview. Files that go away meanwhile are passed over too, and each
+  test's files no longer hold every build's C.
+- The gallery and the small examples 0.43.1.
+
 ## 0.43.0
 
 Retro DNS joins the examples, on every system, and the kit gets what it
