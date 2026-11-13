@@ -128,14 +128,16 @@ proc timerTask() =
   if button("&Reset"):
     elapsedMs = 0
 
-proc timerTick() =
+proc timerTick(shown: bool) =
   ## (every frame, whatever tab is open: the elapsed time follows the
-  ## clock until the duration, and wakes the window while it runs)
+  ## clock until the duration; while it runs it wakes the window when its
+  ## tab is shown -- a tenth of a second, what its label shows -- else the
+  ## time is caught up with at the next frame)
   if lastTick < 0: lastTick = ui.now
   let limit = durationTenths * 100
   if elapsedMs < limit:
     elapsedMs = min(limit, elapsedMs + (ui.now - lastTick))
-    wakeIn(50)
+    if shown: wakeIn(100)
   lastTick = ui.now
 
 # ---- 5. CRUD ------------------------------------------------------------------------------------
@@ -494,7 +496,7 @@ seedCells()
 # ---- the window ---------------------------------------------------------------------------------
 
 proc sevenGuisFrame*() =
-  timerTick()
+  timerTick(page == 3)
   tabs(page, ["Counter", "Temperature", "Flight Booker", "Timer", "CRUD",
               "Circle Drawer", "Cells"]):
     case page

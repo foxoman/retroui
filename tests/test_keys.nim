@@ -369,6 +369,23 @@ block zoomAboutMouse:
 
 # ---- a run of tool buttons is one stop of Tab; F6 goes from area to area --------------------------
 
+block barControlsNotFirst:
+  # (a switch or a box in a tool bar: the window still starts at its content)
+  autoFocus = true
+  var sel = 0
+  var place = ""
+  var items = @["one", "two"]
+  var idPlace: Id
+  view = proc () =
+    toolbar:
+      discard toolButton("B", "Bold")
+      discard segmented(["Modern", "Classic", "Plain"], sel)
+    discard comboEdit(place, items)
+    idPlace = ui.lastId
+  ui.focus = 0
+  run(3)
+  doAssert ui.focus == idPlace, "the window starts at its box, not the tool bar's switch"
+
 block toolRunsAndAreas:
   autoFocus = true
   var pressed = ""

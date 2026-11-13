@@ -29,6 +29,8 @@ const
                 lkClassic: "&Classic (1995's fonts and colors)",
                 lkPlain: "&Plain (the HTML alone, no scripts)"]
     ## The looks, as the menus and Preferences say them.
+  LookShort* = ["Modern", "Classic", "Plain"]
+    ## The looks, as the tool bar's switch says them.
   ClassicColors* = LookColors(face: "#c0c0c0", light: "#ffffff", shadow: "#808080",
     frame: "#000000", text: "#000000", field: "#ffffff", fieldText: "#000000",
     scroll: "#c0c0c0", link: "#0000ee", select: "#000080", selectText: "#ffffff")
@@ -98,9 +100,9 @@ proc classicCss*(c: LookColors): string =
     "*,*::before,*::after{text-shadow:none!important;box-shadow:none!important;border-radius:0!important;" &
     "animation:none!important;transition:none!important;backdrop-filter:none!important;" &
     "filter:none!important;background-image:none!important;border-color:" & c.shadow & "!important}" &
-    # (every box on the face: a bar that stays at the top over what scrolls,
-    # a menu over the page, are not see-through)
-    "*{background-color:" & c.face & "!important;color:" & c.text & "!important}" &
+    # (every box on the paper of a field, white for reading: a bar that stays
+    # at the top over what scrolls, a menu over the page, are not see-through)
+    "*{background-color:" & c.field & "!important;color:" & c.fieldText & "!important}" &
     "a:link,a:link *{color:" & c.link & "!important;text-decoration:underline!important}" &
     "a:visited,a:visited *{color:#551a8b!important}" &
     "img,video,canvas,svg{filter:none!important}" &
@@ -140,7 +142,7 @@ proc lookScript*(look: PageLook; c: LookColors; scrollBars: bool): string =
     result.add "var lazy=function(n){var s=n.getAttribute('data-src')||n.getAttribute('data-lazy-src');" &
       "if(s&&(!n.getAttribute('src')||/^data:|blank|placeholder|spacer/i.test(n.getAttribute('src'))))n.src=s;" &
       "var ss=n.getAttribute('data-srcset');if(ss&&!n.getAttribute('srcset'))n.srcset=ss};" &
-      "var strip=function(n){if(n.nodeType!==1||n===css)return;var t=n.tagName;" &
+      "var strip=function(n){if(n.nodeType!==1||n===css||/^__retro/.test(n.id))return;var t=n.tagName;" &
       "if(t==='SCRIPT'){n.type='text/plain';n.removeAttribute('src');n.remove();return}" &
       "if(t==='STYLE'||(t==='LINK'&&/stylesheet|preload|modulepreload/i.test(n.rel))){n.remove();return}" &
       "if(t==='NOSCRIPT'){var d=document.createElement('div');d.innerHTML=n.textContent;n.replaceWith(d);" &

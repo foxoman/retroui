@@ -76,14 +76,15 @@ you visited and your bookmarks that have those letters: Down and Enter, or a
 click, go to one. The logo at the right moves while a page loads; click it to
 go home.</p>
 <h3>How pages look</h3>
-<p><i>View &gt; Page Look</i> chooses: <b>Modern</b>, the page as its site
-made it; <b>Classic</b>, the site's layout and its scripts (sign-ins, menus
-and forms work) but 1995's type and colors, flat buttons and fields, no
-shadows, rounded corners or animation; or <b>Plain</b>, the HTML alone, as a
-browser of 1995 showed it: none of the site's style sheets or scripts, its
-pictures, links and forms still there. Plain pages are the quickest and the
-lightest. <i>View &gt; 3.1 Scroll Bars on Pages</i> gives every page Windows
-3.1's scroll bars, in the window's colors.</p>
+<p>The switch on the tool bar (and <i>View &gt; Page Look</i>) chooses:
+<b>Modern</b>, the page as its site made it; <b>Classic</b>, the site's
+layout and its scripts (sign-ins, menus and forms work) but 1995's type on
+white paper, flat buttons and fields, no shadows, rounded corners or
+animation; or <b>Plain</b>, the HTML alone, as a browser of 1995 showed it:
+none of the site's style sheets or scripts, its pictures, links and forms
+still there. Plain pages are the quickest and the lightest. <i>View &gt; 3.1
+Scroll Bars on Pages</i> gives every page the window's own scroll bar beside
+it, and Windows 3.1's to the boxes inside it, in the window's colors.</p>
 <h3>Tabs</h3>
 <p><i>File &gt; New Tab</i> (Ctrl+T) opens another page beside this one, and
 the tabs show above the page while there are two or more. A link clicked with
@@ -114,7 +115,7 @@ not looked at for five minutes sleep: they free their memory and load their
 page again when you go back to them (and a tab behind is paused at once,
 where the engine can).</p>
 <h3>Size, full screen, video</h3>
-<p>The <b>Zoom</b> box in the status bar makes the page larger or smaller
+<p>The <b>Zoom</b> slider in the status bar makes the page larger or smaller
 (Ctrl and +, Ctrl and -, Ctrl+0 too). A video's full-screen button fills the
 screen with it, and Esc brings the window back; <i>View &gt; Full Screen</i>
 (F11) gives the page the whole screen with the menus still there.

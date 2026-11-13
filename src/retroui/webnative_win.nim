@@ -529,8 +529,11 @@ proc webNativeSnap*(key: string) =
   var stream: Com
   if CreateStreamOnHGlobal(nil, 1, addr stream) < 0 or stream == nil: return
   wvViews[i].capture = stream
-  discard wvViews[i].webview.call(30, proc (this: Com; fmt: int32; s: Com; h: pointer): HRESULT {.stdcall.})(
-    wvViews[i].webview, 0, stream, newHandler(hkCapture, i))      # CapturePreview: PNG
+  if wvViews[i].webview.call(30, proc (this: Com; fmt: int32; s: Com; h: pointer): HRESULT {.stdcall.})(
+       wvViews[i].webview, 0, stream, newHandler(hkCapture, i)) < 0:   # CapturePreview: PNG
+    # (refused at once, its handler never called: the next one may be taken)
+    wvViews[i].capture = nil
+    release(stream)
 
 proc webNativePermit*(key: string; allowed: set[WebPermission]) =
   ## What the page may use when it asks (the rest is refused).

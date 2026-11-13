@@ -3783,6 +3783,7 @@ proc beginToolbar*() =
   if accessOn: accessBegin(arToolBar, "", r)
   beginArea(makeId(uint32(ui.barY) * 0x9E3779B1'u32 + 0x7B))   # (F6: the tool bar)
   tbar.on = true
+  inBarNow = true
   tbar.full = false
   tbar.y = r.y
   tbar.items.setLen(0)
@@ -3807,6 +3808,7 @@ proc overflowItem(key, label: string; enabled, down: bool; clicked: var bool): b
 proc endToolbar*() =
   ## Ends the tool bar: the buttons that did not fit go into its "more" menu.
   tbar.on = false
+  inBarNow = false
   if tbar.items.len > 0:
     # the buttons that did not fit, in a menu
     let r = place(CtrlH + 1, CtrlH - 1)

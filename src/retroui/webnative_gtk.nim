@@ -28,7 +28,7 @@ proc skipWebKitTeardown() {.noconv.} =
 
 type
   GtkCmdKind = enum gcShow, gcHide, gcClose, gcNav, gcRun, gcAllow, gcQuit, gcPermit, gcClear,
-                    gcBlock
+                    gcBlock, gcSnap
   GtkCmd = object
     kind: GtkCmdKind
     key: string
@@ -47,14 +47,6 @@ type
     hosts: seq[string]
     zoom: float
     permit: set[WebPermission]
-  XImage {.bycopy.} = object
-    width, height, xoffset, format: cint
-    data: ptr UncheckedArray[uint8]
-    byteOrder, bitmapUnit, bitmapBitOrder, bitmapPad, depth, bytesPerLine, bitsPerPixel: cint
-    redMask, greenMask, blueMask: culong
-    obdata: pointer
-    createImage, destroyImage, getPixel, putPixel, subImage, addPixel: pointer
-
   GCallback = proc () {.cdecl.}
 
 var
@@ -67,7 +59,6 @@ var
   gtkViews: Table[string, GtkView]           # (GTK's thread only)
   gtkKeyOf: Table[pointer, string]           # (GTK's thread only) a view's or manager's key
   gtkXDpy: pointer                           # (GTK's thread only) GTK's X connection
-  gtkPlaces: Table[string, tuple[xid: culong; w, h: int]]   # (under the lock) for pictures
   gtkDownloads: Table[pointer, string]       # (GTK's thread only) a download's page
   gtkPermits: Table[string, set[WebPermission]]   # (under the lock) what the app allows
   gtkFilter: pointer                         # (GTK's thread only) the block list, compiled
@@ -127,9 +118,15 @@ var
   webkit_policy_decision_ignore: proc (d: pointer) {.cdecl, gcsafe.}
   webkit_javascript_result_get_js_value: proc (r: pointer): pointer {.cdecl, gcsafe.}
   jsc_value_to_string: proc (v: pointer): cstring {.cdecl, gcsafe.}
-  # pictures of a page (the app's thread, its own X connection)
-  XGetImage: proc (dpy: pointer; d: culong; x, y: cint; w, h: cuint; planes: culong;
-                   format: cint): ptr XImage {.cdecl, gcsafe.}
+  # pictures of a page (WebKit draws them: X11, XWayland, any scale)
+  webkit_web_view_get_snapshot: proc (v: pointer; region, options: cint; cancel, cb, data: pointer) {.cdecl, gcsafe.}
+  webkit_web_view_get_snapshot_finish: proc (v, res: pointer; err: ptr pointer): pointer {.cdecl, gcsafe.}
+  cairo_surface_flush: proc (s: pointer) {.cdecl, gcsafe.}
+  cairo_surface_destroy: proc (s: pointer) {.cdecl, gcsafe.}
+  cairo_image_surface_get_data: proc (s: pointer): ptr UncheckedArray[uint8] {.cdecl, gcsafe.}
+  cairo_image_surface_get_width: proc (s: pointer): cint {.cdecl, gcsafe.}
+  cairo_image_surface_get_height: proc (s: pointer): cint {.cdecl, gcsafe.}
+  cairo_image_surface_get_stride: proc (s: pointer): cint {.cdecl, gcsafe.}
   # the app's own address (app://local/...)
   g_malloc: proc (n: csize_t): pointer {.cdecl, gcsafe.}
   g_object_unref: proc (o: pointer) {.cdecl, gcsafe.}
@@ -231,7 +228,16 @@ proc loadGtk(): bool =
   x11.get(XReparentWindow, "XReparentWindow")
   x11.get(XSetInputFocus, "XSetInputFocus")
   x11.get(XFlush, "XFlush")
-  x11.get(XGetImage, "XGetImage")
+  wk.get(webkit_web_view_get_snapshot, "webkit_web_view_get_snapshot", false)
+  wk.get(webkit_web_view_get_snapshot_finish, "webkit_web_view_get_snapshot_finish", false)
+  let cairo = loadLib("libcairo.so.2")
+  if cairo != nil:
+    cairo.get(cairo_surface_flush, "cairo_surface_flush", false)
+    cairo.get(cairo_surface_destroy, "cairo_surface_destroy", false)
+    cairo.get(cairo_image_surface_get_data, "cairo_image_surface_get_data", false)
+    cairo.get(cairo_image_surface_get_width, "cairo_image_surface_get_width", false)
+    cairo.get(cairo_image_surface_get_height, "cairo_image_surface_get_height", false)
+    cairo.get(cairo_image_surface_get_stride, "cairo_image_surface_get_stride", false)
   let gio = lib(["libgio-2.0.so.0", "libgio-2.0.so"])
   glib.get(g_malloc, "g_malloc")
   glib.get(g_quark_from_static_string, "g_quark_from_static_string")
@@ -549,6 +555,30 @@ proc onFilter(store, res, data: pointer) {.cdecl, gcsafe.} =
       webkit_user_content_manager_remove_all_filters(v.ucm)
       webkit_user_content_manager_add_filter(v.ucm, f)
 
+proc onSnap(view, res, data: pointer) {.cdecl, gcsafe.} =
+  ## (WebKit's picture of the page: for the app's next look)
+  {.cast(gcsafe).}:
+    var err: pointer
+    let surface = webkit_web_view_get_snapshot_finish(view, res, addr err)
+    if err != nil: g_error_free(err)
+    if surface == nil: return
+    cairo_surface_flush(surface)
+    let w = int(cairo_image_surface_get_width(surface))
+    let h = int(cairo_image_surface_get_height(surface))
+    let stride = int(cairo_image_surface_get_stride(surface))
+    let data = cairo_image_surface_get_data(surface)
+    let key = gtkKeyOf.getOrDefault(view)
+    if data != nil and w > 0 and h > 0 and key.len > 0:
+      # (cairo's ARGB32 is the kit's 0xAARRGGBB; a page is opaque)
+      let pic = newBitmap(w, h)
+      for y in 0 ..< h:
+        let row = cast[ptr UncheckedArray[uint32]](addr data[y * stride])
+        for x in 0 ..< w: pic.px[y * w + x] = row[x] or 0xFF000000'u32
+      pic.opaque = true
+      withLock gtkLock:
+        if gtkShared.hasKey(key): gtkShared[key].snapshot = pic
+    cairo_surface_destroy(surface)
+
 proc exec(c: GtkCmd) =
   {.cast(gcsafe).}:
     case c.kind
@@ -600,9 +630,13 @@ proc exec(c: GtkCmd) =
       if c.text != v.loaded: v.load(c.text)
       v.permit = c.permit
       gtkViews[c.key] = v
-      withLock gtkLock: gtkPlaces[c.key] = (v.xid, max(1, c.w), max(1, c.h))
     of gcHide:
       if gtkViews.hasKey(c.key): gtk_widget_hide(gtkViews[c.key].win)
+    of gcSnap:
+      # (the part of the page on screen, as WebKit draws it; it comes a moment later)
+      if gtkViews.hasKey(c.key) and webkit_web_view_get_snapshot != nil and
+         cairo_image_surface_get_data != nil:
+        webkit_web_view_get_snapshot(gtkViews[c.key].wv, 0, 0, nil, cast[pointer](onSnap), nil)
     of gcClose:
       if gtkViews.hasKey(c.key):
         let v = gtkViews[c.key]
@@ -611,7 +645,6 @@ proc exec(c: GtkCmd) =
         gtkKeyOf.del v.win
         gtk_widget_destroy(v.win)
         gtkViews.del c.key
-        withLock gtkLock: gtkPlaces.del c.key
     of gcNav:
       if gtkViews.hasKey(c.key):
         let wv = gtkViews[c.key].wv
@@ -735,24 +768,9 @@ proc webNativeShow*(key: string; r: Rect; url: string; zoom: float) =
               text: url, zoom: zoom, permit: permit, start: startScriptOf(key))
 
 proc webNativeSnap*(key: string) =
-  ## A picture of the page as it is on the screen now, taken from its
-  ## window (X11): in the next `webNativeTake`'s `snapshot`.
-  if gtkState != 2: return
-  var place: tuple[xid: culong; w, h: int]
-  withLock gtkLock: place = gtkPlaces.getOrDefault(key)
-  let dpy = x11Display()
-  if place.xid == 0 or dpy == nil: return
-  let img = XGetImage(dpy, place.xid, 0, 0, cuint(place.w), cuint(place.h), not culong(0), 2)  # ZPixmap
-  if img == nil: return
-  if img.bitsPerPixel == 32 and img.width > 0 and img.height > 0:
-    let pic = newBitmap(img.width, img.height)
-    for y in 0 ..< img.height:
-      let row = cast[ptr UncheckedArray[uint32]](addr img.data[y * img.bytesPerLine])
-      for x in 0 ..< img.width: pic.px[y * img.width + x] = row[x] or 0xFF000000'u32
-    pic.opaque = true
-    withLock gtkLock:
-      if gtkShared.hasKey(key): gtkShared[key].snapshot = pic
-  discard cast[proc (i: ptr XImage): cint {.cdecl, gcsafe.}](img.destroyImage)(img)
+  ## A picture of the page as it is on the screen now (WebKit's): in a
+  ## later `webNativeTake`'s `snapshot`.
+  if gtkState == 2: send GtkCmd(kind: gcSnap, key: key)
 
 proc webNativePermit*(key: string; allowed: set[WebPermission]) =
   ## What the page may use when it asks (the rest is refused).

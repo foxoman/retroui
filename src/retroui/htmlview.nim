@@ -1450,6 +1450,11 @@ type
     token: string        ## (the kit's calls carry it: not a frame's of the page)
     trusted: seq[string] ## other sites whose pages may call the app (`webTrust`)
     pageGen: int         ## (counts the pages shown: a call is closed with its page)
+    ownBars: bool        ## `webScrollBars`: the page's scroll bars are the kit's
+    sb: array[6, int]    ## (the page's scroll: x, y, its width, height, the view's
+                         ##  width, height -- in the page's pixels)
+    sbAt: int            ## (when they last changed: followed closely then)
+    changedAt: int       ## (when the page last did something: looked at often then)
 
 proc engineFromEnv(): WebEngine =
   case getEnv("RETRO_WEB").toLowerAscii
@@ -1485,6 +1490,7 @@ type
 var
   webHandlers: Table[string, WebHandler]
   appStarts: Table[string, string]     # (`webStartScript`'s, by key)
+  barKeys: seq[string]                 # (`webScrollBars`: the views with the kit's)
   tokenRng = initRand(int64(epochTime() * 1_000_000) xor int64(getCurrentProcessId()) * 7919)
 
 proc relayTake(key: string): WebNativeState =
@@ -1556,6 +1562,7 @@ proc engNav(w: WebState; key: string; what: WebNav): bool =
   of wmKit: false
 
 proc engRun(w: WebState; key, js: string) =
+  w.changedAt = ui.now                  # (its answer, its effect: looked for soon)
   case w.mode
   of wmRelay: discard systemCall("web.run", key & "\t" & js)
   of wmNative: webNativeRun(key, js)
@@ -1567,6 +1574,10 @@ proc engAllow(w: WebState; key: string) =
   of wmNative: webNativeAllow(key, w.hosts)
   of wmKit: discard
   w.hostsSent = true
+
+proc meets(a, b: Rect): bool =
+  let i = intersect(a, b)
+  i.w > 0 and i.h > 0
 
 proc engSnap(w: WebState; key: string) =
   ## A picture of the page now (some engines give it later).
@@ -1633,16 +1644,40 @@ proc callShim(token: string): string =
     "R.__e=function(name,v){(ev[name]||[]).slice().forEach(function(f){try{f(v)}catch(e){}})};" &
     "window.retro=R})();"
 
+const BarsScript = "(function(){var R=window.retro;if(window.top!==window||!R||window.__retroBars)return;" &
+  "window.__retroBars=1;var post=R.post,d=document,last='',q=0;" &
+  # (the page's own scroll bars hidden: a sheet not in the page, else a <style>)
+  "var css='html:root{scrollbar-width:none!important}html:root::-webkit-scrollbar{display:none!important;" &
+  "width:0!important;height:0!important}',sheet=null,el=null;" &
+  "var put=function(){try{if(!sheet){sheet=new CSSStyleSheet();sheet.replaceSync(css)}" &
+  "if(d.adoptedStyleSheets.indexOf(sheet)<0)d.adoptedStyleSheets=d.adoptedStyleSheets.concat([sheet]);" &
+  "return}catch(e){}if(!el){el=d.createElement('style');el.id='__retro_bars';el.textContent=css}" &
+  "var p=d.head||d.documentElement;if(p&&el.parentNode!==p)p.appendChild(el)};put();" &
+  # (where the page is scrolled, how big it is, how much shows: to the app)
+  # (a page that does not scroll -- overflow hidden -- as big as the view)
+  "var no=function(a,b){return /hidden|clip/.test(a)||/hidden|clip/.test(b)};" &
+  "var send=function(){q=0;var e=d.scrollingElement||d.documentElement;if(!e)return;" &
+  "var h=getComputedStyle(d.documentElement),b=d.body?getComputedStyle(d.body):h;" &
+  "var sw=no(h.overflowX,b.overflowX)?innerWidth:e.scrollWidth;" &
+  "var sh=no(h.overflowY,b.overflowY)?innerHeight:e.scrollHeight;" &
+  "var m=[Math.round(scrollX),Math.round(scrollY),sw,sh,innerWidth,innerHeight].join(',');" &
+  "if(m!==last){last=m;post('\\u0007'+m)}};" &
+  "var later=function(){if(!q)q=requestAnimationFrame(send)};" &
+  "addEventListener('scroll',later,{passive:true});addEventListener('resize',later);" &
+  "addEventListener('load',function(){put();later()});" &
+  "d.addEventListener('DOMContentLoaded',function(){put();later();try{var o=new ResizeObserver(later);" &
+  "o.observe(d.documentElement);if(d.body)o.observe(d.body)}catch(e){}});later()})();"
+
 proc sendStart(key: string; w: WebState) =
-  ## (the view's start script: the kit's calls, then the app's)
-  let js = callShim(w.token) & appStarts.getOrDefault(key)
+  ## (the view's start script: the kit's calls, its scroll bars, then the app's)
+  let js = callShim(w.token) & (if w.ownBars: BarsScript else: "") & appStarts.getOrDefault(key)
   webNativeStartScript(key, js)
   if useSystemWebView: discard systemCall("web.script", key & "\t" & js)
 
 proc webOf(key: string): WebState =
   result = webs.getOrDefault(key, nil)
   if result == nil:
-    result = WebState(progress: 100, zoom: 1.0)
+    result = WebState(progress: 100, zoom: 1.0, ownBars: key in barKeys)
     for _ in 0 ..< 4: result.token.add toHex(tokenRng.next() and 0xFFFF_FFFF'u64, 8).toLowerAscii
     webs[key] = result
     sendStart(key, result)
@@ -1853,6 +1888,22 @@ proc webStartScript*(key: string; js: string) =
     webNativeStartScript(key, js)
     if useSystemWebView: discard systemCall("web.script", key & "\t" & js)
 
+proc webScrollBars*(key: string; kit = true) =
+  ## The scroll bars of the pages of the `webView` with `key` drawn by the
+  ## kit beside the system's view, as the window's other scroll bars are
+  ## (3.1's), not the engine's. They appear where the page is bigger than
+  ## the view, follow it as it scrolls, and scroll it: the arrows, the
+  ## track, the thumb, the wheel over them. The page's inner boxes keep
+  ## their own. Set it before the view is first shown (`webClose` makes it
+  ## again).
+  if kit == (key in barKeys): return
+  if kit: barKeys.add key else: barKeys.delete barKeys.find(key)
+  let w = webs.getOrDefault(key, nil)
+  if w != nil:
+    w.ownBars = kit
+    w.sb = default(array[6, int])
+    sendStart(key, w)
+
 # ---- calls from the page ----------------------------------------------------------------------
 
 proc originOf(url: string): string =
@@ -1989,7 +2040,7 @@ proc webSnapshot*(key: string): Bitmap =
 
 proc webSnapshotNow*(key: string) =
   ## A new picture of the page asked for: `webSnapshot` gives it once the
-  ## engine has made it (at once on Linux; a frame or two later elsewhere).
+  ## engine has made it (a frame or a few later).
   let w = webOf(key)
   if w.shown: w.engSnap(key)
 
@@ -2034,12 +2085,94 @@ proc follow(w: WebState; link: string; ev: var WebEvent) =
     w.cur = path
     ui.redraw = true
 
+proc barIds(key: string): (Id, Id) =
+  ## (the ids of the page's two scroll bars: the same every frame)
+  let h = uint32(hash(key) and 0x0FFF_FFFF) shl 4
+  (Id(h xor 0x9b10_0000'u32), Id(h xor 0x9b20_0000'u32))
+
+proc barHeld(key: string): bool =
+  ## (a scroll bar of the page is being dragged or held: it says where the
+  ##  page is, not the page, which tells it a moment later)
+  let (v, h) = barIds(key)
+  ui.mouseDown and ui.active != 0 and
+    ((ui.active.uint32 > v.uint32 and ui.active.uint32 <= v.uint32 + 5) or
+     (ui.active.uint32 > h.uint32 and ui.active.uint32 <= h.uint32 + 5))
+
+proc takeNote(w: WebState; key, n: string) =
+  ## (what the page posted: a call to the app, its scroll, a script's answer,
+  ##  else a message for the app)
+  if n.len > 1 and n[0] == '\6':
+    w.takeCall(key, n)                  # (a call to the app: `webHandle`)
+    return
+  if n.len > 1 and n[0] == '\7':
+    # (where the page is scrolled, for the kit's scroll bars)
+    let f = n[1 .. ^1].split(',')
+    if f.len == 6:
+      let held = barHeld(key)
+      for i in 0 .. 5:
+        if i > 1 or not held: w.sb[i] = (try: parseInt(f[i]) except ValueError: 0)
+      w.sbAt = ui.now
+    return
+  if n.len > 2 and n[0] == '\1':
+    # (a script's answer: "\1id\1" and {"ok": value} or {"error": text})
+    let k = n.find('\1', 1)
+    if k > 1:
+      var res = WebResult(id: (try: parseInt(n[1 ..< k]) except ValueError: 0))
+      let body = n[k + 1 .. ^1]
+      if body.startsWith("{\"error\":"):
+        let a = body.find(':')
+        res.error = body[a + 1 .. ^2].strip(chars = {'"'})
+      elif body.startsWith("{\"ok\":"):
+        res.value = body[6 .. ^2]
+      w.results.add res
+      return
+  w.messages.add n
+
+proc pageBars(w: WebState; key: string; r: Rect): Rect =
+  ## The kit's scroll bars of the page (`webScrollBars`) at the right of `r`
+  ## and at its bottom, where the page is bigger than the view; the room
+  ## left for the view.
+  result = r
+  if not w.ownBars or w.sb[4] <= 0 or w.sb[5] <= 0: return
+  let needV = w.sb[3] > w.sb[5] + 1
+  let needH = w.sb[2] > w.sb[4] + 1
+  if needV: result.w -= SbW
+  if needH: result.h -= SbW
+  if result.w < SbW * 3 or result.h < SbW * 3: return r
+  let (vid, hid) = barIds(key)
+  var x = w.sb[0]
+  var y = w.sb[1]
+  if needV:
+    let bar = rect(result.x + result.w, result.y, SbW, result.h)
+    let hi = w.sb[3] - w.sb[5]
+    if mouseIn(bar) and ui.wheel != 0 and not ui.wheelUsed and canInput():
+      ui.wheelUsed = true
+      y = clamp(y - ui.wheel * 120, 0, hi)
+    discard scrollbarAt(vid, bar, true, y, 0, hi, max(40, w.sb[5] - 40), step = 40)
+  if needH:
+    let bar = rect(result.x, result.y + result.h, result.w, SbW)
+    discard scrollbarAt(hid, bar, false, x, 0, w.sb[2] - w.sb[4], max(40, w.sb[4] - 40),
+                        step = 40)
+  if needV and needH:
+    fill(rect(result.x + result.w, result.y + result.h, SbW, SbW), th.face)
+  if x != w.sb[0] or y != w.sb[1]:
+    w.sb[0] = x
+    w.sb[1] = y
+    w.sbAt = ui.now
+    w.engRun(key, "window.scrollTo(" & $x & "," & $y & ")")
+
 proc webPlaceholder(r: Rect; w: WebState) =
   ## What shows where the system's view goes, under it (and while it is
   ## hidden by a menu or a dialog): the page as it was last seen, else its
   ## title.
   if w.snapshot != nil and w.snapshot.w > 0:
-    drawBitmap(r, w.snapshot)
+    # (at the size the engine drew it: stretched, its letters would blur)
+    let s = max(1, pxScale)
+    fill(r, th.field)
+    pushClip(r)
+    drawBitmap(rect(r.x, r.y, (w.snapshot.w + s - 1) div s, (w.snapshot.h + s - 1) div s),
+               w.snapshot)
+    popClip()
     return
   fill(r, th.field)
   box(r, th.edge)
@@ -2137,12 +2270,14 @@ proc webView*(url: string; height = -1; key = ""; engine = webEngine): WebEvent 
     w.progress = if w.mode != wmKit: 0 else: 100
   w.drawn = ui.frameNo
   if w.mode != wmKit:
-    webPlaceholder(r, w)
+    let page = w.pageBars(key, r)
+    webPlaceholder(page, w)
     # only the part of it on screen; hidden under the app's menus and dialogs
-    let vis = intersect(r, clipRect())
+    let vis = intersect(page, clipRect())
     let covered = vis.w <= 0 or vis.h <= 0 or ui.inertDepth > 0 or
                   (ui.dialogTop != 0 and ui.curDialog != ui.dialogTop) or
-                  (ui.popup != 0 and intersect(ui.popupRect, vis).w > 0)
+                  (ui.popup != 0 and meets(ui.popupRect, vis)) or
+                  meets(ui.overlay, vis) or meets(ui.overlayNow, vis)   # (a drop-down)
     if covered:
       w.wasCovered = true
       if w.shown:
@@ -2150,7 +2285,7 @@ proc webView*(url: string; height = -1; key = ""; engine = webEngine): WebEvent 
         if ui.now - w.shownAt >= 300: w.engSnap(key)
         let st = w.engTake(key)
         if st.snapshot != nil: w.snapshot = st.snapshot
-        for n in st.notes: w.messages.add n
+        for n in st.notes: w.takeNote(key, n)
         w.engHide(key)
         w.shown = false
     elif w.wasCovered:
@@ -2176,13 +2311,24 @@ proc webView*(url: string; height = -1; key = ""; engine = webEngine): WebEvent 
       if w.permitSet and not w.permitSent: w.engPermit(key)
       # (a picture of the page now and then, for when it is hidden: engines
       #  that give it later)
-      if w.mode == wmNative and w.progress >= 100 and ui.now - w.snapAt > 2000 and
-         ui.now - w.shownAt >= 300: w.engSnap(key)
+      # (when it did something since the last; else every 10 seconds, for what
+      #  moves by itself)
+      if w.mode == wmNative and w.progress >= 100 and ui.now - w.shownAt >= 300 and
+         ((ui.now - w.snapAt > 2000 and w.changedAt > w.snapAt) or ui.now - w.snapAt > 10000):
+        w.engSnap(key)
       # what the page does by itself (links followed, its title, loading,
       # what its scripts post)
-      if ui.now - w.polledAt >= 100 or ui.now < w.polledAt:
+      # (closer while it scrolls -- the kit's scroll bar follows it -- and
+      #  while it loads or has just done something; a page at rest less often)
+      let every = if w.ownBars and ui.now - w.sbAt < 500: 30
+                  elif w.progress < 100 or ui.now - w.changedAt < 3000: 100
+                  else: 250
+      if ui.now - w.polledAt >= every or ui.now < w.polledAt:
         w.polledAt = ui.now
         let st = w.engTake(key)
+        if (st.url.len > 0 and st.url != w.cur) or st.title != w.title or
+           st.progress != w.progress or st.notes.len > 0:
+          w.changedAt = ui.now
         if st.url.len > 0 and st.url != w.cur:
           w.cur = st.url
           inc w.pageGen                      # (the calls of the page before: closed)
@@ -2193,24 +2339,7 @@ proc webView*(url: string; height = -1; key = ""; engine = webEngine): WebEvent 
         if st.backOut: w.backOut = true
         w.kept += st.kept
         w.fullscreen = st.fullscreen
-        for n in st.notes:
-          if n.len > 1 and n[0] == '\6':
-            w.takeCall(key, n)              # (a call to the app: `webHandle`)
-            continue
-          if n.len > 2 and n[0] == '\1':
-            # (a script's answer: "\1id\1" and {"ok": value} or {"error": text})
-            let k = n.find('\1', 1)
-            if k > 1:
-              var res = WebResult(id: (try: parseInt(n[1 ..< k]) except ValueError: 0))
-              let body = n[k + 1 .. ^1]
-              if body.startsWith("{\"error\":"):
-                let a = body.find(':')
-                res.error = body[a + 1 .. ^2].strip(chars = {'"'})
-              elif body.startsWith("{\"ok\":"):
-                res.value = body[6 .. ^2]
-              w.results.add res
-              continue
-          w.messages.add n
+        for n in st.notes: w.takeNote(key, n)
         for b in st.blocked:
           let l = b.toLowerAscii
           if l.startsWith("http:") or l.startsWith("https:"): w.blocked.add b
@@ -2219,7 +2348,9 @@ proc webView*(url: string; height = -1; key = ""; engine = webEngine): WebEvent 
           if p notin w.refused: w.refused.add p
         for d in st.downloads: w.downloads.add d
         if st.snapshot != nil: w.snapshot = st.snapshot
-      wakeIn(if w.progress < 100 or w.mode == wmNative: 100 else: 500)
+      wakeIn(if w.ownBars and ui.now - w.sbAt < 500: 30
+             elif w.progress < 100 or ui.now - w.changedAt < 3000: 100
+             else: 250)
     result.url = w.cur
     result.title = w.title
     result.progress = w.progress

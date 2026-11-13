@@ -2084,9 +2084,11 @@ an iPhone's and an iPad's with a profile of encrypted DNS
 **Retro Navigator** (`examples/navigator.nim`, `nimble navigator`) is a
 whole browser made this way: a 1995 window around the system's engine,
 with tabs, ads and trackers kept off the pages before they are fetched,
-pages in 1995's look, secure connections, videos full screen, screenshots
-marked up, and links loaded ahead
+pages in 1995's look, the window's own scroll bars, secure connections,
+videos full screen, screenshots marked up, and links loaded ahead
 ([the examples](examples/README.md#retro-navigator)).
+
+![Retro Navigator: its welcome page, the look switch on the tool bar, the Location box](docs/examples/navigator.png)
 
 The app's pages can call the app's procs, typed both ways
 (`retroui/webbind`, as Tauri's and MyGo's bound functions):
@@ -2162,6 +2164,16 @@ if button("&Clear Data"): webClearData()     # cookies, storage and cache of eve
 A view takes its start script when it is made: to change it, call
 `webStartScript` again and `webClose` the view, and the next draw makes it
 anew.
+
+The page's scroll bars can be the window's own, drawn by the kit beside
+the view as every other scroll bar of the app is, instead of the engine's;
+they follow the page as it scrolls and scroll it (the arrows, the track,
+the thumb, the wheel over them):
+
+```nim
+webScrollBars("page")                        # before its first draw
+let page = webView(url, key = "page", engine = weSystem)
+```
 
 The engine itself can be kept from fetching what an ad blocker's list
 names -- a site and those under it, or addresses with `*` in them -- but
@@ -2935,7 +2947,7 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_capture` | the camera and the microphone without either: a webcam's YUYV picture turned into pixels exactly, a recording's WAV header, the view and the recorder saying plainly there is nothing |
 | `test_mediasession` | the app's MPRIS player on a session bus of the test's own: its state and track as a desktop's applet reads them, the applet's buttons coming back in `mediaKeys` |
 | `test_view3d` | meshes, OBJ and STL (text and binary), the camera, picking, rendering |
-| `test_htmlview` | the HTML parser, entities, nesting, tables, pictures, links, `htmlToMarkdown`, the web view's fallbacks, its talk with the page (messages, scripts' answers, allowed hosts, zoom, Forward) through a fake system; the page's calls to the app (`webBind`: typed arguments and answers, defaults, failures, streams, events, a frame's and another site's refused, `webTrust`) and their TypeScript; the block list as WebKit's rules and Android's |
+| `test_htmlview` | the HTML parser, entities, nesting, tables, pictures, links, `htmlToMarkdown`, the web view's fallbacks, its talk with the page (messages, scripts' answers, allowed hosts, zoom, Forward) through a fake system; the page's calls to the app (`webBind`: typed arguments and answers, defaults, failures, streams, events, a frame's and another site's refused, `webTrust`) and their TypeScript; the block list as WebKit's rules and Android's; the kit's scroll bars of a page (`webScrollBars`: the view narrower, the arrow scrolling the page, the bar following it) |
 | `test_media` | WAV decoding and encoding, tones, GIF frames, the video and animation widgets without a device |
 | `test_native` | loading libraries and functions, the cross-platform calls, neutral answers where there is no such thing |
 | `test_photo` | the image engine: blend modes, layers, undo and cancelled steps, the selection and channels, Quick Mask, paths, every painting tool, transforms, color modes, every filter and adjustment, .rpd / PNG / JPEG / BMP files |
@@ -3012,6 +3024,7 @@ nim c -r -d:release examples/hrbook.nim
 |---|---|
 | ![Ledger](docs/ledger.png) | ![Ledger on a phone](docs/ledger-phone.png) |
 | ![Retro Files on a tablet](docs/filemanager-tablet.png) | ![Notepad](docs/notepad.png) |
+| ![Retro Navigator](docs/examples/navigator.png) | ![Retro DNS](docs/examples/retrodns.png) |
 
 ## FAQ
 

@@ -310,26 +310,28 @@ WebKit on macOS and iOS, WebKitGTK on Linux and BSD, Android's WebView.
 So today's web works in it -- sign-ins, maps, video -- in a window of 1995:
 
 - the tool bar with its labels (Back, Forward, Home, Reload, Open, Print,
-  Picture, Find, Stop) and, at its right, a logo of its own -- a planet in
-  the night -- with a comet going round it while a page loads (a click
-  goes home);
+  Picture, Find, Stop), the page's look as a switch (Modern, Classic,
+  Plain) and, at its right, a logo of its own -- a planet in the night --
+  with a comet going round it while a page loads (a click goes home);
 - the **Location** box: an address goes there, a host gets `https://`, a
   file on the computer opens, and anything else is searched for with the
   search engine of General Preferences (DuckDuckGo, Google, Bing,
   Wikipedia); as it is typed in it suggests the pages visited (the last
   400 are kept) and the bookmarks;
-- **page looks** (View > Page Look): Modern, as the site made it;
-  Classic, the site's layout and scripts in 1995's type and colors, with
-  3.1 buttons and fields and no shadows, rounding or animation; Plain, the
-  HTML alone -- none of the site's style sheets or scripts, its
-  `<noscript>` shown, its pictures loaded -- the lightest and the quickest
-  (`examples/navigator/look.nim`); and Windows 3.1's scroll bars on every
-  page, in the window's colors;
+- **page looks** (the switch, or View > Page Look): Modern, as the site
+  made it; Classic, the site's layout and scripts in 1995's type on white
+  paper, with 3.1 buttons and fields and no shadows, rounding or
+  animation; Plain, the HTML alone -- none of the site's style sheets or
+  scripts, its `<noscript>` shown, its pictures loaded -- the lightest and
+  the quickest (`examples/navigator/look.nim`);
+- the page's scroll bar is the window's own, drawn by the kit beside the
+  page (`webScrollBars`): it follows the page and scrolls it; the boxes
+  inside the page get Windows 3.1's, in the window's colors;
 - the directory buttons: Welcome, What's New, Net Search, Net Directory,
   Handbook, Software;
 - the status bar: what happens, the key (https) or a warning sign (http),
-  how much is loaded, downloads, and the page's **zoom** (a box with
-  arrows; Ctrl and +, -, 0 too);
+  how much is loaded, downloads, and the page's **zoom** (a slider, 50 to
+  300 %; Ctrl and +, -, 0 too);
 - **video full screen**: the page's video (or anything of it) fills the
   screen, the bars and the window's frame gone, Esc brings them back; Pop
   Out Video puts it in a window of its own where the engine has one; F11

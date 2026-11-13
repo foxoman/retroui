@@ -303,6 +303,56 @@ block webOnAndroid:
   doAssert calls == @["web.script and\twindow.x = 1;\tdone()", "web.clear "], $calls
   useSystemWebView = false
 
+block pageScrollBars:
+  # the page's own scroll bar drawn by the kit beside the view (3.1's): it
+  # follows the page and scrolls it
+  useSystemWebView = true
+  webScrollBars("bars")
+  var r: Rect
+  view = proc () =
+    discard webView("https://a.example/", height = 200, key = "bars")
+    r = ui.lastRect
+  calls.setLen(0)
+  info = "https://a.example/\tA\t100\t1\t0\t0"
+  run(3)
+  doAssert calls.len > 0 and calls[0].startsWith("web.script bars\t") and
+           "__retroBars" in calls[0], "the page's own scroll bars hidden: " & $calls
+  let shown = calls.filterIt(it.startsWith("web.show bars"))
+  doAssert shown.len == 1
+  let full = parseInt(shown[0].split('\t')[3])
+  # the page tells how big it is: a scroll bar at the right, the view narrower
+  notesOnce = "m\7" & "0,0,500,1000,500,200"
+  harness.ticks += 1000
+  calls.setLen(0)
+  run(3)
+  let moved = calls.filterIt(it.startsWith("web.show bars"))
+  doAssert moved.len == 1 and parseInt(moved[0].split('\t')[3]) == full - SbW * pxScale, $calls
+  # its down arrow scrolls the page
+  calls.setLen(0)
+  let ax = r.x + r.w - SbW div 2
+  let ay = r.y + r.h - SbW div 2
+  down(ax, ay)
+  run()
+  up(ax, ay)
+  run(2)
+  doAssert "web.run bars\twindow.scrollTo(0,40)" in calls, $calls
+  # the page scrolled by itself: the bar follows (no scroll sent back)
+  calls.setLen(0)
+  notesOnce = "m\7" & "0,600,500,1000,500,200"
+  harness.ticks += 1000
+  run(3)
+  doAssert not calls.anyIt(it.startsWith("web.run bars")), $calls
+  # a page that fits: no bar, the view whole again
+  notesOnce = "m\7" & "0,0,500,200,500,200"
+  harness.ticks += 1000
+  calls.setLen(0)
+  run(3)
+  let whole = calls.filterIt(it.startsWith("web.show bars"))
+  doAssert whole.len == 1 and parseInt(whole[0].split('\t')[3]) == full, $calls
+  webScrollBars("bars", false)
+  webClose("bars")
+  useSystemWebView = false
+
 block webTalksToThePage:
   # the page's scripts and the app: messages, a script's answer, an address
   # kept from it, the hosts it may open, its zoom, Forward

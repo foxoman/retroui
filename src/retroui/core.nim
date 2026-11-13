@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.44.0"
+const RetroVersion* = "0.45.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -1149,6 +1149,9 @@ proc focusInControls*(): bool =
   ## panels with it.
   ui.focus != 0 and (ui.focus in ui.tabOrder or ui.focus in ui.stopsBefore)
 
+var inBarNow* = false
+  ## (in a tool bar: its controls are stops of Tab the focus does not start at)
+
 proc tabStop*(id: Id; r: Rect; first = true): bool {.discardable.} =
   ## Makes `id` a stop of Tab: for a widget that takes the keyboard but
   ## handles its clicks itself (a tab strip, a chip row). True when it has
@@ -1160,7 +1163,7 @@ proc tabStop*(id: Id; r: Rect; first = true): bool {.discardable.} =
     ui.stopArea.add ui.areaNow
     ui.stopIndex.add int16(ui.nextTabIndex)
     ui.nextTabIndex = 0
-    if not first: ui.notFirst.add id
+    if not first or inBarNow: ui.notFirst.add id
     elif ui.focusWanted:
       ui.focusWanted = false
       ui.focus = id
@@ -1559,7 +1562,8 @@ proc interact*(id: Id; r: Rect; focusable = true; enabled = true): Hit =
     ui.stopArea.add ui.areaNow
     ui.stopIndex.add int16(ui.nextTabIndex)
     ui.nextTabIndex = 0
-    if ui.focusWanted:
+    if inBarNow: ui.notFirst.add id
+    elif ui.focusWanted:
       ui.focusWanted = false
       ui.focus = id
   if id == ui.focus and canInput(): ui.focusSeen = true
@@ -3755,6 +3759,7 @@ proc frameSetup(main: bool) =
   ui.nextTabIndex = 0
   ui.anyTabIndex = false
   ui.notFirst.setLen(0)
+  inBarNow = false
   ui.areaStack.setLen(0)
   ui.areaNow = 0
   ui.menuFirst = 0

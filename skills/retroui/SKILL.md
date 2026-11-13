@@ -325,7 +325,8 @@ before the view's first draw; to change it, set it and `webClose(key)`);
 `webClearData()` clears the engine's cookies, storage and cache.
 `webBlockList(hosts, patterns, spared)` keeps the engine from fetching an ad
 blocker's list (`WebEvent.kept` counts it on WebView2 and Android);
-`WebEvent.fullscreen` is true while a video of the page is full screen (then
+`webScrollBars(key)` (before the first draw) makes the page's scroll bars the
+kit's own, beside the view; `WebEvent.fullscreen` is true while a video of the page is full screen (then
 `fullScreenWindow(true)` and hide the app's bars); `webSnapshot(key)` is the
 page's last picture (`webSnapshotNow` asks for one). The app's own pages call
 its procs typed: `import retroui/webbind`, `webBind addNote` (the page:

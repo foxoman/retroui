@@ -1,5 +1,46 @@
 # Changes
 
+## 0.45.0
+
+Retro Navigator 0.4.0, from using it: the page's look on the tool bar, the
+window's own scroll bars on pages, white Classic pages, and three fixes.
+
+- **Retro Navigator 0.4.0:**
+  - **The page's look is a switch on the tool bar** (Modern, Classic,
+    Plain), as well as in View > Page Look.
+  - **The zoom is a slider** in the status bar, 50 to 300 %, with the
+    percent beside it.
+  - **The page's scroll bar is the window's own**, drawn by the kit beside
+    the page, not a style the page is given: it follows the page and
+    scrolls it. Boxes inside pages keep Windows 3.1's.
+  - **Classic pages are white** for reading; the buttons and fields stay
+    3.1's.
+  - **Fixed:** the Location box's suggestions were under the page.
+  - **Fixed:** Picture took no picture on some Linux desktops.
+- **The web view:**
+  - `webScrollBars(key)`: the page's scroll bars drawn by the kit beside
+    the view (the arrows, the track, the thumb, the wheel), the engine's
+    hidden; the page's inner boxes keep theirs.
+  - A drop-down over the view (a combo box's list, the Location box's
+    suggestions) hides it, as menus and dialogs did: the list was under the
+    page.
+  - The page's picture on Linux is WebKit's own (it was read from the X
+    server: nothing on some desktops, and the program could end on a
+    window partly off the screen). A picture the engine refuses no longer
+    stops the next ones (WebView2).
+  - The picture under a menu is drawn at its own size, not stretched.
+  - **Less work at rest:** a page that does nothing is looked at 4 times a
+    second (10 before), and its picture is taken again only when it changed
+    (every 10 seconds at most otherwise).
+- **Tool bars:** a control in one (a switch, a box) is a stop of Tab but
+  not where the window's focus starts: that stays on the content.
+- **7GUIs:** its timer wakes the window only while its tab is shown (20
+  times a second before, whatever the tab). Every example was run for real
+  (the kit's smoke run): the others do nothing at rest.
+- **CI:** the WebAssembly tests build again (the updates' pieces looked for
+  older downloads with a pattern; the web's C library has none), and
+  uirelays' own Cocoa test links Carbon (the hot keys).
+
 ## 0.44.0
 
 Retro Navigator 0.3.0 grows up, and the kit gets what it needed for it and

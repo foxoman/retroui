@@ -23,7 +23,7 @@ import retroui
 import navigator/[places, pages, markup]
 
 const
-  NavigatorVersion = "0.3.0"
+  NavigatorVersion = "0.4.0"
   SleepAfter = 5 * 60_000                          # a tab not seen this long sleeps (ms)
   IconPng = staticRead("assets/navigator-icon.png")
   Directory = [("&Welcome", "about:welcome"),
@@ -173,6 +173,7 @@ proc newTab(url: string; behind = false) =
   inc made
   var n = Tab(key: "page" & $made, zoom: 1.0, progress: 100, seen: ui.now)
   webStartScript(n.key, shieldJs)
+  webScrollBars(n.key, classicBars)       # (the page's own scroll bar: the kit's)
   n.go(url)
   tabList.add n
   if not behind: cur = tabList.high
@@ -204,6 +205,7 @@ proc applyShields() =
   for x in tabList.mitems:
     if not first: x.remake()
     webStartScript(x.key, js)
+    webScrollBars(x.key, classicBars)
 
 proc closeTab(i: int) =
   ## Closes tab `i` (not the last one).
@@ -214,6 +216,7 @@ proc closeTab(i: int) =
     if closedTabs.len > 20: closedTabs.delete(0)
   webClose(gone.key)
   webStartScript(gone.key, "")
+  webScrollBars(gone.key, false)
   tabList.delete(i)
   if i < cur or cur > tabList.high: dec cur
 
@@ -295,6 +298,10 @@ proc clearData() =
       x.remake()
   if clearSites: webClearData()
   status = "Browsing data cleared"
+
+proc lookBarW(): int =
+  ## (the width of the look switch in the tool bar)
+  for n in LookShort: result += labelWidth(n) + dp(20)
 
 proc setLook(l: PageLook) =
   ## Pages in look `l` from now on (the tabs made again).
@@ -480,8 +487,14 @@ app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = 
       if barButton(pxSearch, "Find", "Find on this page (Ctrl+F)"): finder.open = true
       toolSeparator()
       if barButton(pxStop, "Stop", "Stop loading (Esc)", enabled = t.loading): webStop(t.key)
-      # the logo, at the right: it moves while a page loads; a click goes home
+      # the page's look, a switch (where there is room: else View > Page Look)
       let lw = CtrlH + FontH + dp(5) - 6
+      if native and available() > lookBarW() + lw + dp(24):
+        toolSeparator()
+        var sel = ord(look)
+        if segmented(LookShort, sel): setLook(PageLook(sel))
+        tooltip(LookNames[look].replace("&", ""))
+      # the logo, at the right: it moves while a page loads; a click goes home
       if available() > lw + dp(8):
         space(available() - lw)
         let r = place(lw, lw)
@@ -576,7 +589,7 @@ app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = 
     parts.add(if t.loading: $t.progress & "%" else: "Ready")
     var ws = @[-1]
     for _ in parts: ws.add [0, 0]
-    ws.add [0, 0, 0]
+    ws.add [0, 0, 0, textWidth("300%")]
     statusRow:
       row(ws):
         label first
@@ -586,7 +599,10 @@ app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = 
         statusSep()
         label "&Zoom:"
         zoomPct = int(round(t.zoom * 100))
-        if spin(zoomPct, 50, 300, w = 64, step = 10, enabled = native): setZoom(zoomPct / 100)
+        if slider(zoomPct, 50, 300, w = dp(100), ticks = 0, enabled = native):
+          setZoom(zoomPct / 100)
+        tooltip("Ctrl and +, - or 0")
+        label $zoomPct & "%"
 
   # the page (its picture instead, while it is marked up)
   if mk.open: markupView(mk)

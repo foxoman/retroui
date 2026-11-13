@@ -6260,7 +6260,7 @@ left out.
 
 ### webView, webRun, webPost
 
-A web page in the window. With the system's engine (`engine = weSystem`; the default in an Android app) the page is the system's browser placed over the widget: scripts, forms, video, its own Back and Forward. Its scripts talk to the app: `retro.post(text)` in the page comes in `messages`, `webPost` sends a `retro` event to the page, `webRun` runs a script and its answer comes in `results`. `webAllow` keeps it to the hosts you trust, `webZoom` sizes it, `webStartScript` puts a script of yours in every page before its own (an ad blocker), `webBlockList` keeps the engine from fetching an ad blocker's list (`kept` counts it), `webClearData` clears the cookies and caches. `fullscreen` says the engine shows a video of the page full screen; `webSnapshot` is the page's last picture (`webSnapshotNow` asks for one). The app's own pages call its procs: `webHandle` (or `webBind`, typed, in `retroui/webbind`) answers `retro.call(name, ...args)`, `webEmit` and `webBroadcast` send events (`retro.on`), `webTrust` lets another site's pages call too. The picture is the kit's own engine (the system's view is drawn by the system, not here).
+A web page in the window. With the system's engine (`engine = weSystem`; the default in an Android app) the page is the system's browser placed over the widget: scripts, forms, video, its own Back and Forward. Its scripts talk to the app: `retro.post(text)` in the page comes in `messages`, `webPost` sends a `retro` event to the page, `webRun` runs a script and its answer comes in `results`. `webAllow` keeps it to the hosts you trust, `webZoom` sizes it, `webStartScript` puts a script of yours in every page before its own (an ad blocker), `webBlockList` keeps the engine from fetching an ad blocker's list (`kept` counts it), `webScrollBars` draws the page's scroll bars as the kit's own beside it, `webClearData` clears the cookies and caches. `fullscreen` says the engine shows a video of the page full screen; `webSnapshot` is the page's last picture (`webSnapshotNow` asks for one). The app's own pages call its procs: `webHandle` (or `webBind`, typed, in `retroui/webbind`) answers `retro.call(name, ...args)`, `webEmit` and `webBroadcast` send events (`retro.on`), `webTrust` lets another site's pages call too. The picture is the kit's own engine (the system's view is drawn by the system, not here).
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -6430,6 +6430,18 @@ refuse (`WebEvent.kept`); WebKit compiles the list into its content
 rules once. Views made after it get it: `webClose` the others.
 
 ```nim
+proc webScrollBars*(key: string; kit = true)
+```
+
+The scroll bars of the pages of the `webView` with `key` drawn by the
+kit beside the system's view, as the window's other scroll bars are
+(3.1's), not the engine's. They appear where the page is bigger than
+the view, follow it as it scrolls, and scroll it: the arrows, the
+track, the thumb, the wheel over them. The page's inner boxes keep
+their own. Set it before the view is first shown (`webClose` makes it
+again).
+
+```nim
 proc webClearData*()
 ```
 
@@ -6471,7 +6483,7 @@ proc webSnapshotNow*(key: string)
 ```
 
 A new picture of the page asked for: `webSnapshot` gives it once the
-engine has made it (at once on Linux; a frame or two later elsewhere).
+engine has made it (a frame or a few later).
 
 ```nim
 proc webHandle*(name: string; handler: WebHandler)

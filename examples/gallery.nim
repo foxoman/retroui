@@ -1535,7 +1535,9 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
             "for Nim on Windows, macOS, Linux, Android and iOS."],
            tagline = "Every control of Retro Nim UI",
            iconPng = GalleryIconPng, glyph = pxApp,
-           whatsNew = ["Retro Navigator 0.3.0: ads blocked by the engine, pages in 1995's look, " &
+           whatsNew = ["Retro Navigator 0.4.0: the page's look on the tool bar, the window's own " &
+                       "scroll bars on pages (webScrollBars), white Classic pages, a zoom slider",
+                       "Retro Navigator 0.3.0: ads blocked by the engine, pages in 1995's look, " &
                        "video full screen, screenshots marked up; webBind: typed calls from pages",
                        "Pictures on the clipboard, shortcuts of the whole desktop, metered networks, " &
                        "the system's settings followed; retrokit linux: .deb, .rpm, install.sh",

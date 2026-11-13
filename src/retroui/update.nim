@@ -337,7 +337,8 @@ proc downloadUpdate*(u: UpdateInfo; dir = ""; timeoutSec = 600): string =
     var have: seq[string]
     var bases = @[getEnv("APPIMAGE"), getAppFilename()]
     if dirExists(d):
-      for f in walkFiles(d / "*" & name.splitFile.ext): bases.add f
+      for k, f in walkDir(d):                  # (walkFiles: no glob on the web)
+        if k == pcFile and f.endsWith(name.splitFile.ext): bases.add f
     for b in bases:
       if b.len > 0 and fileExists(b) and have.len < 4:
         try: have.add readFile(b)
