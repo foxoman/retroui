@@ -48,6 +48,7 @@ proc rwCursor(kind: cint) {.importc: "rw_cursor", cdecl.}
 proc rwEvent(e: ptr WebEvent): cint {.importc: "rw_event", cdecl.}
 proc rwEventText(p: pointer; cap: cint): cint {.importc: "rw_event_text", cdecl.}
 proc rwClipPut(p: cstring; n: cint) {.importc: "rw_clip_put", cdecl.}
+proc rwClipPutPng(p: pointer; n: cint): cint {.importc: "rw_clip_put_png", cdecl.}
 proc rwClipGet(p: pointer; cap: cint): cint {.importc: "rw_clip_get", cdecl.}
 proc rwFontOpen(size, bold, italic, mono: cint): cint {.importc: "rw_font_open", cdecl.}
 proc rwFontMetrics(f: cint; out3: ptr array[3, int32]) {.importc: "rw_font_metrics", cdecl.}
@@ -358,6 +359,11 @@ proc webPutClip(text: string) =
   clipboardText = text
   rwClipPut(cstring(text), cint(text.len))
 
+proc webPutClipImage(png: string; w, h: int; px: seq[uint32]): bool =
+  ## (the browser's clipboard, as PNG; it is not read back: the page waits
+  ## for the browser's answer, the app does not)
+  png.len > 0 and rwClipPutPng(unsafeAddr png[0], cint(png.len)) != 0
+
 proc webCall(name, arg: string): string =
   ## The page's answer to a system call (`SystemRelays.call`); "\0" when
   ## the page has no such call.
@@ -427,7 +433,8 @@ proc initWebDriver*() =
                           blitRGBA: webBlit, drawRGBA: webDraw)
   inputRelays = InputRelays(pollEvent: webPollEvent, waitEvent: webWaitEvent,
                             getTicks: webTicks, sleep: webSleep, shutdown: webShutdown)
-  clipboardRelays = ClipboardRelays(getText: webGetClip, putText: webPutClip)
+  clipboardRelays = ClipboardRelays(getText: webGetClip, putText: webPutClip,
+                                    putImage: webPutClipImage)
   textCaretRelay = proc (x, y, w, h: int) = rwTextCaret(cint(x), cint(y), cint(w), cint(h))
   systemRelays.openUrl = proc (url: string): bool = rwOpenUrl(cstring(url)) != 0
   systemRelays.platform = proc (): string = "web"

@@ -561,6 +561,8 @@ proc onFocusLeave(ctrl: pointer; data: pointer) {.cdecl.} =
 proc gtk_window_set_decorated(win: pointer; setting: gboolean) {.importc, nodecl, cdecl.}
 proc gtk_window_set_resizable(win: pointer; setting: gboolean) {.importc, nodecl, cdecl.}
 proc gtk_window_unmaximize(win: pointer) {.importc, nodecl, cdecl.}
+proc gtk_window_fullscreen(win: pointer) {.importc, nodecl, cdecl.}
+proc gtk_window_unfullscreen(win: pointer) {.importc, nodecl, cdecl.}
 proc gtk_window_minimize(win: pointer) {.importc, nodecl, cdecl.}
 proc gtk_window_is_maximized(win: pointer): gboolean {.importc, nodecl, cdecl.}
 proc gtk_window_is_active(win: pointer): gboolean {.importc, nodecl, cdecl.}
@@ -644,6 +646,10 @@ proc gtkSetMaximized(on: bool) =
 
 proc gtkMaximized(): bool = win != nil and gtk_window_is_maximized(win) != G_FALSE
 
+proc gtkSetFullScreen(on: bool) =
+  if win != nil:
+    if on: gtk_window_fullscreen(win) else: gtk_window_unfullscreen(win)
+
 proc gtkActive(): bool = win == nil or gtk_window_is_active(win) != G_FALSE
 
 proc onMaximizedChanged(self, pspec, data: pointer) {.cdecl.} =
@@ -714,6 +720,61 @@ proc readClipboardSync(): string =
   g_main_loop_unref(loop)
   clipboardLoop = nil
   result = clipboardBuf
+
+# (pictures: as PNG bytes, GTK's content of "image/png"; taken back as a
+#  texture made PNG)
+proc g_bytes_new(data: pointer; size: csize_t): pointer {.importc, nodecl, cdecl.}
+proc g_bytes_unref(b: pointer) {.importc, nodecl, cdecl.}
+proc g_bytes_get_data(b: pointer; size: ptr csize_t): pointer {.importc, nodecl, cdecl.}
+proc gdk_content_provider_new_for_bytes(mime: cstring; bytes: pointer): pointer {.importc, nodecl, cdecl.}
+proc gdk_clipboard_set_content(clip, provider: pointer): cint {.importc, nodecl, cdecl.}
+proc gdk_clipboard_read_texture_async(clip, cancel: pointer;
+  cb: proc (s: ptr GObject; r: ptr GAsyncResult; u: pointer) {.cdecl.}; user: pointer) {.importc, nodecl, cdecl.}
+proc gdk_clipboard_read_texture_finish(clip, res: pointer; err: ptr ptr GError): pointer {.importc, nodecl, cdecl.}
+proc gdk_texture_save_to_png_bytes(t: pointer): pointer {.importc, nodecl, cdecl.}
+
+var clipboardPng: string
+
+proc clipboardTextureCb(sourceObj: ptr GObject; res: ptr GAsyncResult; user: pointer) {.cdecl.} =
+  var err: ptr GError
+  let tex = gdk_clipboard_read_texture_finish(cast[pointer](sourceObj), cast[pointer](res), addr err)
+  clipboardPng = ""
+  if tex != nil:
+    let b = gdk_texture_save_to_png_bytes(tex)
+    if b != nil:
+      var n: csize_t
+      let p = g_bytes_get_data(b, addr n)
+      if p != nil and n > 0:
+        clipboardPng = newString(n.int)
+        copyMem(addr clipboardPng[0], p, n.int)
+      g_bytes_unref(b)
+    g_object_unref(tex)
+  if err != nil: g_error_free(err)
+  if clipboardLoop != nil: g_main_loop_quit(clipboardLoop)
+
+proc gtkGetClipboardImage(): ClipImage =
+  let disp = gdk_display_get_default()
+  if disp == nil: return
+  let clip = gdk_display_get_clipboard(disp)
+  if clip == nil: return
+  let loop = g_main_loop_new(nil, G_FALSE)
+  clipboardLoop = loop
+  gdk_clipboard_read_texture_async(clip, nil, clipboardTextureCb, nil)
+  g_main_loop_run(loop)
+  g_main_loop_unref(loop)
+  clipboardLoop = nil
+  result.png = clipboardPng
+
+proc gtkPutClipboardImage(png: string; w, h: int; px: seq[uint32]): bool =
+  let disp = gdk_display_get_default()
+  if disp == nil or png.len == 0: return false
+  let clip = gdk_display_get_clipboard(disp)
+  if clip == nil: return false
+  let b = g_bytes_new(unsafeAddr png[0], csize_t(png.len))
+  let provider = gdk_content_provider_new_for_bytes("image/png", b)
+  g_bytes_unref(b)
+  result = gdk_clipboard_set_content(clip, provider) != 0
+  g_object_unref(provider)
 
 # --- Screen hooks ---
 
@@ -1206,11 +1267,12 @@ proc initGtk4Driver*() =
     getTicks: gtkGetTicks, sleep: gtkDelay,
     shutdown: gtkQuitRequest)
   clipboardRelays = ClipboardRelays(
-    getText: gtkGetClipboardText, putText: gtkPutClipboardText)
+    getText: gtkGetClipboardText, putText: gtkPutClipboardText,
+    getImage: gtkGetClipboardImage, putImage: gtkPutClipboardImage)
   frameRelays = FrameRelays(
     setSystemFrame: gtkSetSystemFrame, dragWindow: gtkDragWindow,
     setMaximized: gtkSetMaximized, maximized: gtkMaximized, active: gtkActive,
-    setResizable: gtkSetResizable)
+    setFullScreen: gtkSetFullScreen, setResizable: gtkSetResizable)
   systemRelays.minimize = proc (): bool =
     if win == nil: return false
     gtk_window_minimize(win)

@@ -335,6 +335,9 @@ proc initSiwinDriver*() =
           appWindow.maximized = on,
       maximized: proc(): bool =
         not appWindow.isNil and appWindow.maximized,
+      setFullScreen: proc(on: bool) =
+        if not appWindow.isNil:
+          appWindow.fullscreen = on,
       active: proc(): bool =
         appWindow.isNil or appWindow.focused,
     )

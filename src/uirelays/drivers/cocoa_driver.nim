@@ -5,7 +5,7 @@
 # Requires macOS 10.15+ (Catalina). No external dependencies.
 
 {.compile("cocoa_backend.m", "-fobjc-arc").}
-{.passL: "-framework Cocoa -framework CoreText -framework CoreGraphics -framework QuartzCore".}
+{.passL: "-framework Cocoa -framework CoreText -framework CoreGraphics -framework QuartzCore -framework Carbon".}
 
 {.emit: """
 typedef struct {
@@ -75,6 +75,7 @@ const
   neTextEdit = 14.cint
   neWindowHidden = 15.cint
   neWindowShown = 16.cint
+  neGlobalKey = 17.cint
 
   neModShift = 1.cint
   neModCtrl = 2.cint
@@ -124,6 +125,8 @@ proc cRestoreState() {.importc: "cocoa_restoreState", cdecl.}
 
 proc cGetClipboardText(): cstring {.importc: "cocoa_getClipboardText", cdecl.}
 proc cPutClipboardText(text: cstring) {.importc: "cocoa_putClipboardText", cdecl.}
+proc cPutClipboardPng(png: cstring; len: clong): cint {.importc: "cocoa_putClipboardPng", cdecl.}
+proc cGetClipboardPng(len: var clong): cstring {.importc: "cocoa_getClipboardPng", cdecl.}
 
 proc cGetModState(): cint {.importc: "cocoa_getModState", cdecl.}
 proc cGetTicks(): uint32 {.importc: "cocoa_getTicks", cdecl.}
@@ -138,6 +141,9 @@ proc cSetResizable(on: cint): cint {.importc: "cocoa_setResizable", cdecl.}
 proc cDragWindow(part, keyboard: cint): cint {.importc: "cocoa_dragWindow", cdecl.}
 proc cSetMaximized(on: cint) {.importc: "cocoa_setMaximized", cdecl.}
 proc cIsMaximized(): cint {.importc: "cocoa_isMaximized", cdecl.}
+proc cSetFullScreen(on: cint) {.importc: "cocoa_setFullScreen", cdecl.}
+proc cRegisterHotKey(id, key, mods: cint): cint {.importc: "cocoa_registerHotKey", cdecl.}
+proc cUnregisterHotKey(id: cint) {.importc: "cocoa_unregisterHotKey", cdecl.}
 proc cIsActive(): cint {.importc: "cocoa_isActive", cdecl.}
 proc cSetMenuItem(label: cstring; checked: cint) {.importc: "cocoa_setMenuItem", cdecl.}
 proc cMenuItemChosen(): cint {.importc: "cocoa_menuItemChosen", cdecl.}
@@ -317,6 +323,9 @@ proc translateNEEvent(ne: NEEvent; e: var input.Event) =
     e.kind = WindowHiddenEvent
   of neWindowShown:
     e.kind = WindowShownEvent
+  of neGlobalKey:
+    e.kind = GlobalKeyEvent
+    e.x = ne.x
   of neKeyDown:
     e.kind = KeyDownEvent
     e.key = KeyCode(ne.key)
@@ -400,6 +409,16 @@ proc cocoaGetClipboardText(): string =
 proc cocoaPutClipboardText(text: string) =
   cPutClipboardText(cstring(text))
 
+proc cocoaPutClipboardImage(png: string; w, h: int; px: seq[uint32]): bool =
+  png.len > 0 and cPutClipboardPng(cstring(png), clong(png.len)) != 0
+
+proc cocoaGetClipboardImage(): ClipImage =
+  var n: clong
+  let p = cGetClipboardPng(n)
+  if p != nil and n > 0:
+    result.png = newString(n.int)
+    copyMem(addr result.png[0], p, n.int)
+
 proc cocoaGetTicks(): int = cGetTicks().int
 proc cocoaDelay(ms: int) = cDelay(ms.uint32)
 proc cocoaShutdown() = cShutdown()
@@ -409,6 +428,15 @@ proc cocoaDragWindow(part: WindowPart; keyboard: bool): bool =
   cDragWindow(ord(part).cint, keyboard.cint) != 0
 proc cocoaSetMaximized(on: bool) = cSetMaximized(on.cint)
 proc cocoaMaximized(): bool = cIsMaximized() != 0
+proc cocoaSetFullScreen(on: bool) = cSetFullScreen(on.cint)
+proc cocoaRegisterGlobalKey(id: int; key: input.KeyCode; mods: set[Modifier]): bool =
+  var m = 0
+  if ShiftPressed in mods: m = m or 1
+  if CtrlPressed in mods: m = m or 2               # (Command)
+  if AltPressed in mods: m = m or 4
+  if GuiPressed in mods: m = m or 8                # (Control)
+  cRegisterHotKey(cint(id), cint(ord(key)), cint(m)) != 0
+proc cocoaUnregisterGlobalKey(id: int) = cUnregisterHotKey(cint(id))
 proc cocoaActive(): bool = cIsActive() != 0
 proc cocoaMinimize(): bool = cMinimize() != 0
 proc cocoaMenuItem(label: string; checked: bool) =
@@ -515,10 +543,14 @@ proc initCocoaDriver*() =
     getTicks: cocoaGetTicks, sleep: cocoaDelay,
     shutdown: cocoaShutdown)
   clipboardRelays = ClipboardRelays(
-    getText: cocoaGetClipboardText, putText: cocoaPutClipboardText)
+    getText: cocoaGetClipboardText, putText: cocoaPutClipboardText,
+    getImage: cocoaGetClipboardImage, putImage: cocoaPutClipboardImage)
+  globalKeyRelays = GlobalKeyRelays(register: cocoaRegisterGlobalKey,
+                                    unregister: cocoaUnregisterGlobalKey)
   frameRelays = FrameRelays(
     setSystemFrame: cocoaSetSystemFrame, dragWindow: cocoaDragWindow,
     setMaximized: cocoaSetMaximized, maximized: cocoaMaximized,
+    setFullScreen: cocoaSetFullScreen,
     active: cocoaActive,
     menuItem: cocoaMenuItem, menuItemChosen: cocoaMenuItemChosen,
     setResizable: proc (on: bool) = discard cSetResizable(on.cint))

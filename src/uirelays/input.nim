@@ -56,6 +56,8 @@ type
                       ## leave out drawing; its timers go on (a mobile app
                       ## sent to the background gets AppPauseEvent instead)
     WindowShownEvent  ## it is seen again: redraw everything
+    GlobalKeyEvent    ## a shortcut `registerGlobalKey` asked for was pressed --
+                      ## whichever program was in front: its number (`x`)
 
   GesturePhase* = enum
     gsBegin,         ## a second finger came down; the first one's press is
@@ -126,9 +128,22 @@ type
                            ## else one `windowsRelays.openWindow` made
 
   ClipboardRelays* = object
-    ## The system clipboard's text (UTF-8), filled by the driver.
+    ## The system clipboard's text (UTF-8) and pictures, filled by the driver.
     getText*: proc (): string {.nimcall.}       ## the text on the clipboard ("" none)
     putText*: proc (text: string) {.nimcall.}   ## puts `text` on the clipboard
+    getImage*: proc (): ClipImage {.nimcall.}
+      ## the picture on the clipboard, as the system keeps it: a PNG file's
+      ## bytes, or its pixels (none: both empty)
+    putImage*: proc (png: string; w, h: int; px: seq[uint32]): bool {.nimcall.}
+      ## puts a picture on the clipboard -- given both as a PNG file's bytes
+      ## and as `w` x `h` pixels (ARGB, rows from the top), for the driver to
+      ## take the one its system wants; false where it takes none
+
+  ClipImage* = object
+    ## A picture from the clipboard (`getClipboardImage`).
+    png*: string                ## a PNG file's bytes ("" when it came as pixels)
+    w*, h*: int
+    px*: seq[uint32]            ## its pixels, ARGB, rows from the top (when not `png`)
 
   InputRelays* = object
     ## Where events and time come from, filled by the driver.
@@ -145,10 +160,34 @@ const OutsideWindow* = -100_000
   ## Where a MouseMoveEvent puts the pointer that left the window, so that
   ## nothing in it is under the pointer any more (hover and tool tips end).
 
+type
+  GlobalKeyRelays* = object
+    ## Shortcuts the app takes from the whole desktop, filled by the driver
+    ## (Windows, X11, macOS; nil elsewhere: Wayland leaves that to the
+    ## desktop's own settings).
+    register*: proc (id: int; key: KeyCode; mods: set[Modifier]): bool {.nimcall.}
+      ## `key` with `mods` pressed anywhere comes as a GlobalKeyEvent with
+      ## `x` = `id`; false when the system refuses it (another program
+      ## has it)
+    unregister*: proc (id: int) {.nimcall.}   ## gives the shortcut `id` back
+
+var globalKeyRelays* = GlobalKeyRelays()
+  ## (nil until a driver that can fills them)
+
+proc registerGlobalKey*(id: int; key: KeyCode; mods: set[Modifier]): bool =
+  ## `key` with `mods` taken from the whole desktop: a GlobalKeyEvent with
+  ## `x` = `id` when it is pressed. False where the system cannot.
+  globalKeyRelays.register != nil and globalKeyRelays.register(id, key, mods)
+proc unregisterGlobalKey*(id: int) =
+  ## Gives back the shortcut `registerGlobalKey` took as `id`.
+  if globalKeyRelays.unregister != nil: globalKeyRelays.unregister(id)
+
 var clipboardRelays* = ClipboardRelays(
   ## The clipboard's relays (nothing until a driver fills them).
   getText: proc (): string = "",
-  putText: proc (text: string) = discard)
+  putText: proc (text: string) = discard,
+  getImage: proc (): ClipImage = ClipImage(),
+  putImage: proc (png: string; w, h: int; px: seq[uint32]): bool = false)
 
 var inputRelays* = InputRelays(
   ## The input relays (no events until a driver fills them).
@@ -172,6 +211,14 @@ proc getClipboardText*(): string = clipboardRelays.getText()
   ## The text on the system clipboard ("" when there is none).
 proc putClipboardText*(text: string) = clipboardRelays.putText(text)
   ## Puts `text` on the system clipboard.
+proc getClipboardImage*(): ClipImage =
+  ## The picture on the system clipboard (both empty: none, or a driver
+  ## without pictures).
+  if clipboardRelays.getImage != nil: clipboardRelays.getImage() else: ClipImage()
+proc putClipboardImage*(png: string; w, h: int; px: seq[uint32]): bool =
+  ## Puts a picture on the system clipboard (a PNG file's bytes and the same
+  ## picture's pixels, ARGB, rows from the top); false where it cannot.
+  clipboardRelays.putImage != nil and clipboardRelays.putImage(png, w, h, px)
 proc getTicks*(): int = inputRelays.getTicks()
   ## Milliseconds from a fixed start; never goes back.
 proc sleep*(ms: int) = inputRelays.sleep(ms)

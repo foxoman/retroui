@@ -111,6 +111,10 @@ proc sdlSetMaximized(on: bool) =
 proc sdlMaximized(): bool =
   window != nil and (window.getFlags() and SDL_WINDOW_MAXIMIZED) != 0
 
+proc sdlSetFullScreen(on: bool) =
+  if window != nil:
+    discard window.setFullscreen(if on: SDL_WINDOW_FULLSCREEN_DESKTOP else: 0'u32)
+
 proc sdlActive(): bool =
   window == nil or (window.getFlags() and SDL_WINDOW_INPUT_FOCUS) != 0
 
@@ -612,7 +616,8 @@ proc initSdl2Driver*() =
   when not (defined(android) or defined(ios)):
     frameRelays = FrameRelays(
       setSystemFrame: sdlSetSystemFrame, setMaximized: sdlSetMaximized,
-      maximized: sdlMaximized, active: sdlActive, setResizable: sdlSetResizable)
+      maximized: sdlMaximized, setFullScreen: sdlSetFullScreen,
+      active: sdlActive, setResizable: sdlSetResizable)
     systemRelays.minimize = proc (): bool =
       if window == nil: return false
       window.minimizeWindow()

@@ -661,6 +661,11 @@ proc XGrabKeyboard(dpy: pointer; w: XID; ownerEvents: XBool;
   {.cdecl, dynlib: libX11, importc.}
 proc XUngrabKeyboard(dpy: pointer; time: XTime): cint
   {.cdecl, dynlib: libX11, importc.}
+proc XGrabKey(dpy: pointer; keycode: cint; modifiers: cuint; grabWindow: XID; ownerEvents: XBool;
+  pointerMode, keyboardMode: cint): cint {.cdecl, dynlib: libX11, importc.}
+proc XUngrabKey(dpy: pointer; keycode: cint; modifiers: cuint; grabWindow: XID): cint
+  {.cdecl, dynlib: libX11, importc.}
+proc XKeysymToKeycode(dpy: pointer; ks: culong): uint8 {.cdecl, dynlib: libX11, importc.}
 proc XFreeCursor(dpy: pointer; cursor: XID): cint
   {.cdecl, dynlib: libX11, importc.}
 proc XFree(data: pointer): cint
@@ -759,6 +764,8 @@ var
   gUtf8String: Atom
   gTargets: Atom
   gClipboardText: string
+  gClipboardPng: string     ## a picture put on the clipboard ("" none: the text)
+  gImagePng: Atom           ## "image/png"
   gClipProperty: Atom
   gIncr: Atom          # a selection that comes in parts
   gUiScale: int = 100
@@ -1069,7 +1076,19 @@ proc handleSelectionRequest(req: XSelectionRequestEvent) =
   ev.xselection.target = req.target
   ev.xselection.time = req.time
 
-  if req.target == gUtf8String:
+  if gClipboardPng.len > 0 and (req.target == gImagePng or req.target == gTargets):
+    # (a picture: as PNG only)
+    if req.target == gImagePng:
+      discard XChangeProperty(gDisplay, req.requestor, req.property,
+        gImagePng, 8, PropModeReplace, cast[pointer](cstr(gClipboardPng)), gClipboardPng.len.cint)
+    else:
+      var targets = [gImagePng, gTargets]
+      discard XChangeProperty(gDisplay, req.requestor, req.property,
+        XA_ATOM, 32, PropModeReplace, addr targets[0], 2)
+    ev.xselection.property = req.property
+  elif gClipboardPng.len > 0:
+    ev.xselection.property = None
+  elif req.target == gUtf8String:
     discard XChangeProperty(gDisplay, req.requestor, req.property,
       gUtf8String, 8, PropModeReplace,
       cast[pointer](cstr(gClipboardText)), gClipboardText.len.cint)
@@ -1090,6 +1109,58 @@ proc handleSelectionRequest(req: XSelectionRequestEvent) =
     ev.xselection.property = None
 
   discard XSendEvent(gDisplay, req.requestor, 0, 0, addr ev)
+
+# ---- shortcuts from the whole desktop (XGrabKey on the root window) ----
+
+var gGlobalKeys: seq[tuple[id: int; keycode: cint; mods: cuint]]
+
+const LockMasks = [0'u32, 2'u32, 16'u32, 18'u32]   # (none, Caps Lock, Num Lock, both)
+
+proc x11RegisterGlobalKey(id: int; key: input.KeyCode; mods: set[Modifier]): bool =
+  if gDisplay == nil or key == KeyNone: return false
+  var ks = 0'u
+  for k in 0x20'u .. 0x7e'u:
+    if keyOfSym(k) == key:
+      ks = k
+      break
+  if ks == 0:
+    for k in 0xff00'u .. 0xffff'u:
+      if keyOfSym(k) == key:
+        ks = k
+        break
+  if ks == 0: return false
+  let kc = XKeysymToKeycode(gDisplay, culong(ks)).cint
+  if kc == 0: return false
+  var m = 0'u32
+  if ShiftPressed in mods: m = m or ShiftMask.uint32
+  if CtrlPressed in mods: m = m or ControlMask.uint32
+  if AltPressed in mods: m = m or Mod1Mask.uint32
+  if GuiPressed in mods: m = m or Mod4Mask.uint32
+  let root = XRootWindow(gDisplay, gScreen)
+  for lock in LockMasks:
+    discard XGrabKey(gDisplay, kc, cuint(m or lock), root, 1, GrabModeAsync, GrabModeAsync)
+  discard XFlush(gDisplay)
+  gGlobalKeys.add (id, kc, cuint(m))
+  true
+
+proc x11UnregisterGlobalKey(id: int) =
+  if gDisplay == nil: return
+  let root = XRootWindow(gDisplay, gScreen)
+  for i in countdown(gGlobalKeys.high, 0):
+    let g = gGlobalKeys[i]
+    if g.id == id:
+      for lock in LockMasks: discard XUngrabKey(gDisplay, g.keycode, cuint(g.mods.uint32 or lock), root)
+      gGlobalKeys.delete(i)
+  discard XFlush(gDisplay)
+
+proc globalHit(k: XKeyEvent): bool =
+  ## (a key on the root window, one of our shortcuts: told as such)
+  if gGlobalKeys.len == 0 or k.window == gWindow: return false
+  let m = k.state and cuint(ShiftMask or ControlMask or Mod1Mask or Mod4Mask)
+  for g in gGlobalKeys:
+    if g.keycode == k.keycode.cint and g.mods == m:
+      pushEvent(input.Event(kind: GlobalKeyEvent, x: g.id))
+      return true
 
 # ---- Event processing ----
 
@@ -2126,6 +2197,7 @@ proc processXEvent(xev: XEvent) =
       tellHidden()
 
   of KeyPress:
+    if globalHit(xev.xkey): return
     # The text a key types is UTF-8 from the input method, which is also what
     # composes dead keys and runs an IME. `XLookupString` is only the fallback
     # for a display without one: it speaks ISO 8859-1, so its byte for an 'ä'
@@ -2875,6 +2947,7 @@ proc x11CreateWindow(layout: var ScreenLayout; icon: pointer; iconLen: int) =
   gTargets = XInternAtom(gDisplay, "TARGETS", 0)
   gClipProperty = XInternAtom(gDisplay, "NIMEDIT_CLIP", 0)
   gIncr = XInternAtom(gDisplay, "INCR", 0)
+  gImagePng = XInternAtom(gDisplay, "image/png", 0)
 
   # Files dropped from a file manager (see "XDND")
   internXdnd()
@@ -3679,6 +3752,28 @@ proc x11DragWindow(part: WindowPart; keyboard: bool): bool =
                           mods: translateMods(mask)))
   true
 
+var gFullFrom: tuple[x, y, w, h: int]   ## (with no window manager: where full screen came from)
+
+proc x11SetFullScreen(on: bool) =
+  if gDisplay == nil or gWindow == None: return
+  if wmSupports("_NET_WM_STATE_FULLSCREEN"):
+    sendWmState(on, XInternAtom(gDisplay, "_NET_WM_STATE_FULLSCREEN", 0), Atom(0))
+    return
+  # No window manager that does it: the driver makes the window as large as
+  # the display, and puts it back.
+  if on == (gFullFrom.w > 0): return
+  if gHand.on: handEnd(true)
+  if on:
+    gFullFrom = windowRect()
+    discard XMoveResizeWindow(gDisplay, gWindow, 0, 0,
+      XDisplayWidth(gDisplay, gScreen).cuint, XDisplayHeight(gDisplay, gScreen).cuint)
+  else:
+    let r = gFullFrom
+    discard XMoveResizeWindow(gDisplay, gWindow, r.x.cint, r.y.cint, r.w.cuint, r.h.cuint)
+    gFullFrom.w = 0
+  discard XFlush(gDisplay)
+  pushEvent(input.Event(kind: WindowResizeEvent, x: gWidth.int, y: gHeight.int))
+
 proc x11SetMaximized(on: bool) =
   if gDisplay == nil or gWindow == None: return
   if wmSupports("_NET_WM_STATE_MAXIMIZED_VERT"):
@@ -3818,13 +3913,14 @@ proc takeClipProperty(kind: var Atom): string =
     if bytesAfter == 0 or actualFormat != 8: break
   discard XDeleteProperty(gDisplay, gWindow, gClipProperty)
 
-proc x11GetClipboardText(): string =
-  ## The clipboard's text: as UTF-8 (else as Latin-1, from an old program),
-  ## and all of it -- a large one comes in parts (INCR), each when the last
-  ## was read.
+proc fetchClip(targets: openArray[Atom]; kind: var Atom): string =
+  ## What the clipboard's owner gives as the first of `targets` it has, and
+  ## all of it -- a large one comes in parts (INCR), each when the last was
+  ## read.
   result = ""
+  kind = None
   if gDisplay == nil or gWindow == None: return
-  for target in [gUtf8String, XA_STRING]:
+  for target in targets:
     discard XConvertSelection(gDisplay, gClipboard, target,
       gClipProperty, gWindow, CurrentTime)
     discard XFlush(gDisplay)
@@ -3860,13 +3956,31 @@ proc x11GetClipboardText(): string =
         deadline = getTicks() + 500
       else:
         dispatchXEvent(xev)
-    if not refused:
-      if kind == XA_STRING: result = utf8OfLatin1(result)
-      return
+    if not refused: return
+
+proc x11GetClipboardText(): string =
+  ## The clipboard's text: as UTF-8 (else as Latin-1, from an old program).
+  var kind: Atom
+  result = fetchClip([gUtf8String, XA_STRING], kind)
+  if kind == XA_STRING: result = utf8OfLatin1(result)
 
 proc x11PutClipboardText(text: string) =
   gClipboardText = text
+  gClipboardPng = ""
   discard XSetSelectionOwner(gDisplay, gClipboard, gWindow, CurrentTime)
+
+proc x11GetClipboardImage(): ClipImage =
+  ## (as PNG, as the programs of X give a picture)
+  if gClipboardPng.len > 0: return ClipImage(png: gClipboardPng)   # (ours)
+  var kind: Atom
+  result.png = fetchClip([gImagePng], kind)
+
+proc x11PutClipboardImage(png: string; w, h: int; px: seq[uint32]): bool =
+  if gDisplay == nil or gWindow == None or png.len == 0: return false
+  gClipboardPng = png
+  gClipboardText = ""
+  discard XSetSelectionOwner(gDisplay, gClipboard, gWindow, CurrentTime)
+  true
 
 proc x11GetTicks(): int =
   # The monotonic clock: setting the time of day does not move it (its
@@ -4216,7 +4330,7 @@ proc initX11Driver*() =
     # and the frame's dirty tracking of this driver for free.
   frameRelays = FrameRelays(
     setSystemFrame: x11SetSystemFrame, dragWindow: x11DragWindow,
-    setMaximized: x11SetMaximized,
+    setMaximized: x11SetMaximized, setFullScreen: x11SetFullScreen,
     maximized: proc (): bool = gMaximized,
     active: proc (): bool = gFocused,
     setResizable: x11SetResizable)
@@ -4229,7 +4343,10 @@ proc initX11Driver*() =
     getTicks: x11GetTicks, sleep: x11Delay,
     shutdown: x11QuitRequest)
   clipboardRelays = ClipboardRelays(
-    getText: x11GetClipboardText, putText: x11PutClipboardText)
+    getText: x11GetClipboardText, putText: x11PutClipboardText,
+    getImage: x11GetClipboardImage, putImage: x11PutClipboardImage)
+  globalKeyRelays = GlobalKeyRelays(register: x11RegisterGlobalKey,
+                                    unregister: x11UnregisterGlobalKey)
 
 proc attachSiwinSurface*(display: pointer; window: uint64; width, height: int) =
   ## Borrow Siwin's X11 connection/window, retaining native Xft/XRender drawing.
