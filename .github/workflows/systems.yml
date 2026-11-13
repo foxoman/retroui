@@ -57,6 +57,8 @@ env:
     test_qrcode test_touchsizes test_scale test_hardening test_designer
     test_tilemap test_gltf test_store test_sysmon test_taskman
     test_inspect test_drive test_sevenguis test_navigator test_retrodns
+    test_feeds test_jobs test_undo test_pages test_typeforms test_uistrings test_codeedit
+    test_podcast
   # the live check: frames drawn by the CPU at 100 %, the browser engine
   # needed
   RETRO_GPU: cpu

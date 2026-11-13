@@ -211,18 +211,75 @@ or put several in a `row:` inside the `field`. `field("")` lines a control
 up under the others. When the row is narrower than the captions plus about
 200 pixels (a phone), each caption goes above its control.
 
-## 6. Controls (docs/controls.md has all 383, with pictures)
+## 6. Controls (docs/controls.md has all 397, with pictures)
 
 Text: `label`, `paragraph`, `heading`, `styledText`, `link`, `badge`, `icon`, `iconLabel`, `image`, `tooltip`.
 Buttons: `button`, `segmented`, `menuButton`, `splitButton`, `buttonRow`.
 Choices: `checkbox`, `radio`, `toggle`, `chips`, `tagInput`, `rating`.
-Text input: `edit`, `editArea`, `searchBox`, `autocomplete`, `maskedEdit`, `comboEdit`, `hotkeyEdit`, rich text (`richEdit`, `richToolbar`).
+Text input: `edit`, `editArea`, `searchBox`, `autocomplete`, `maskedEdit`, `comboEdit`, `hotkeyEdit`, code (`codeEdit(s, lang = clNim)`: colored, line numbers, indent, Ctrl+/, find), rich text (`richEdit`, `richToolbar`).
 Numbers, dates, colors: `spin`, `intEdit`, `numberEdit`, `slider`, `progress`, `datePicker`, `calendar`, `timePicker`, `colorPicker`, `colorWell`.
-Lists and data: `listbox`, `combo`, `grid` (the data grid with editing, sorting, totals), `tree`.
+Lists and data: `listbox`, `combo`, `grid` (the data grid with editing, sorting, totals), `gridOf(rows, sel)` (a grid of a seq of your object: a column a field, sorted for you), `tree`.
 Files: `fileDialog`, `fileList`, `folderTree`, `filePicker`, `filePreview`, `placesView`.
 Charts and more: `chart` (21 kinds, from your numbers or a CSV table), `barChart`, `lineChart`, `pieChart`, `liveGraph` (a task manager's graph that moves: a frame costs a copy), the world map (`retroui/mapview`), street maps (`tileMap`, `retroui/tilemap`; places and routes `retroui/geo`), 3D (`retroui/view3d`; Blender's models `retroui/gltf`),
 HTML and Markdown (`htmlView`: its CSS, flexible boxes and grids too), web pages (`webView`), canvas (`canvas`, `retroui/canvas2d`), reports and PDF (`retroui/report`),
 sound and video (`retroui/media`; the system's media controls `retroui/mediasession`; camera and microphone `retroui/capture`), spreadsheets (`retroui/xlsx`), more windows (`window`).
+
+**Parts most apps need** (all in `import retroui` but jobs, tray, feeds):
+
+```nim
+import retroui, retroui/jobs
+
+type Person = object
+  name {.caption: "Full name", required, maxLen: 40.}: string
+  age {.limits: (16, 70).}: int
+  notes {.multiline: 3, help: "Anything to know".}: string
+  id {.noForm.}: int
+
+var p = Person()
+var people: seq[Person]
+var sel = 0
+var history: UndoStack
+var nav = initPages("list")
+var load: Job[HttpResponse]
+
+app "Staff", 520, 420:
+  menubar:
+    menu "&Edit": undoMenuItems(history)            # "Undo Add", grayed when nothing
+  pageView(nav):                                    # pages over pages; Back: Esc, Alt+Left, the phone's
+    case nav.page
+    of "list":
+      pageHeader(nav, "Staff")
+      gridOf(people, sel, height = 8)               # a column a field; a header's click sorts
+      if button("&New..."): nav.push("edit")
+      if button("&Load"): load = fetch("https://example.com/staff.json")   # on a worker
+      if load != nil and load.done: discard          # load.value.body, read between frames
+    of "edit":
+      pageHeader(nav, "New person")
+      formOf(p)                                     # a field each; what is wrong said under it
+      if button("&Add", enabled = formValid(p)):
+        let before = people
+        people.add p
+        history.record("Add", people, before)
+        nav.pop()
+  undoKeys(history)                                 # Ctrl+Z, Ctrl+Y: after the text boxes
+```
+
+- `job(proc (c: JobCtl): T = ...)` runs on a worker; read `progress`,
+  `done`, `value`, `failed`, `error`, `cancel()` in the frames. The
+  closure must not touch the UI or the app's globals (copy what it needs
+  into locals first); in a loop, make each job in a proc of its own.
+- `listDetail(open, listW): list do: detail` -- a list beside its details,
+  one over the other on a phone.
+- `animated(target, ms)` glides a number (a panel's x, a bar's width).
+- `trayIcon(png, tip, ["&Show", "-", "E&xit"])` (`retroui/tray`) every
+  frame while wanted: `.clicked`, `.picked` (the item's index).
+- `retroui/feeds`: `parseFeed(xml)` (RSS, Atom), `parseOpml`, `toOpml`.
+- Translations: `retrokit strings app.nim --lang:ar` writes app-ar.txt;
+  `setUiLanguage("ar", loadUiStrings(path))`; numbers in text with
+  `trn(n, "{n} file", "{n} files")`.
+- Sound: `audioView(url, speed = 1.5, title = "...", key = "player")`,
+  `seekVideo("player", ms)`, `playVideo("player")`; it plays on in the
+  background on Android (retroapk adds the service) and iOS.
 
 **The system's features** (`import retroui/system`; docs/system.md has
 every system's answer and what the app declares): `notify`, `setBadge`,
@@ -583,6 +640,9 @@ with much less memory. Details per OS in BUILDING.md.
 - Keeping state in a local inside the frame block (it resets every frame).
 - The same control drawn twice in a loop without `withId` (they share state).
 - Blocking work (big files, network) in the frame code: the window freezes.
+  Use `job` / `fetch` (`retroui/jobs`).
+- A closure for `job` made in a `for` loop: every one sees the loop's last
+  values. Make each job in a proc that takes the values.
 - Calling controls outside the `app` block (or outside `beginFrame` ... `endFrame`).
 - Guessing a parameter name: check the signature in the source or docs.
 - A shortcut written only in `menuItem(..., "Ctrl+S")`: it is a label; handle it

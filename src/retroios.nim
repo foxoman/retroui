@@ -54,8 +54,11 @@ proc run(cmd, what: string): string =
 proc xmlEscape(s: string): string =
   s.multiReplace(("&", "&amp;"), ("<", "&lt;"), (">", "&gt;"), ("\"", "&quot;"))
 
-proc infoPlist(name, id, exe, version, code, minIos: string; simulator: bool): string =
+proc infoPlist(name, id, exe, version, code, minIos: string; simulator: bool;
+               audio = false): string =
   let platform = if simulator: "iPhoneSimulator" else: "iPhoneOS"
+  # (a sound of audioView plays on in the background)
+  let modes = if audio: "  <key>UIBackgroundModes</key><array><string>audio</string></array>\n" else: ""
   """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -74,7 +77,7 @@ proc infoPlist(name, id, exe, version, code, minIos: string; simulator: bool): s
   <key>NSCameraUsageDescription</key><string>$1 uses the camera when you ask it to.</string>
   <key>NSMicrophoneUsageDescription</key><string>$1 records sound when you ask it to.</string>
   <key>LSRequiresIPhoneOS</key><true/>
-  <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
+$8  <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
   <key>UIRequiredDeviceCapabilities</key><array><string>arm64</string></array>
   <key>UILaunchScreen</key><dict/>
   <key>UIRequiresFullScreen</key><false/>
@@ -103,7 +106,7 @@ proc infoPlist(name, id, exe, version, code, minIos: string; simulator: bool): s
 </dict>
 </plist>
 """ % [xmlEscape(name), xmlEscape(id), xmlEscape(exe), xmlEscape(version),
-       xmlEscape(code), xmlEscape(minIos), platform]
+       xmlEscape(code), xmlEscape(minIos), platform, modes]
 
 proc main() =
   var
@@ -177,8 +180,12 @@ proc main() =
   args.add nimFlags
   args.add src
   discard run(quoteShellCommand(args), "compiling")
+  # (the app plays sounds with audioView: they play on in the background)
+  var audio = false
+  for f in walkFiles(work / "nimcache" / "*media.nim.c"):
+    if "audioView__" in readFile(f): audio = true
   writeFile(outDir / "Info.plist",
-            infoPlist(name, id, exe, version, code, minIos, simulator))
+            infoPlist(name, id, exe, version, code, minIos, simulator, audio))
   writeFile(outDir / "PkgInfo", "APPL????")
   # icons: a given 1024 px PNG is copied for every size (iOS scales it)
   for (file, px) in [("AppIcon60x60@2x.png", 120), ("AppIcon60x60@3x.png", 180),

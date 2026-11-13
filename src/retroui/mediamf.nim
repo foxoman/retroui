@@ -191,6 +191,13 @@ proc setVolume*(p: MediaPlayer; v: float) =
   discard p.engine.call(37, proc (this: Com; v: float64): HRESULT {.stdcall, gcsafe.})(
     p.engine, min(1.0, p.volume))
 
+proc setRate*(p: MediaPlayer; rate: float) =
+  ## The speed it plays at (0.5 .. 3; 1 as recorded); a voice keeps its pitch.
+  if p == nil or p.engine == nil: return
+  let r = clamp(rate, 0.25, 4.0)
+  for slot in [22, 24]:                     # SetDefaultPlaybackRate, SetPlaybackRate
+    discard p.engine.call(slot, proc (this: Com; v: float64): HRESULT {.stdcall, gcsafe.})(p.engine, r)
+
 proc showFirstPicture*(p: MediaPlayer) =
   ## Its first picture without playing (taken when the engine has it).
   if p != nil: p.poster = true

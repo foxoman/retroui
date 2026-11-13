@@ -103,7 +103,7 @@ every module is in `docs/api/` (open `docs/api/retro.html`).
 
 [The syntax, studied](docs/syntax.md) · [Install](#install) · [Your first app](#your-first-app) ·
 [Retro Designer](#retro-designer) · [How it works](#how-it-works) · [Controls](#controls) · [Layout](#layout) ·
-[Text and icons](#text-and-icons) ·
+[Text and icons](#text-and-icons) · [Jobs, undo, pages and words](#jobs-undo-pages-and-words) ·
 [Screen readers and input methods](#screen-readers-and-input-methods) ·
 [The inspector and the driver](#the-inspector-and-the-driver) · [Business apps](#business-apps) ·
 [Charts](#charts) · [Reports, PDF and printing](#reports-pdf-and-printing) ·
@@ -508,18 +508,18 @@ each state, is **[docs/controls.md](docs/controls.md)**. In short:
 | Text | `label`, `paragraph`, `heading`, `styledText`, `link`, `badge`, `icon`, `iconLabel`, `tooltip` |
 | Buttons | `button` (also with a picture: icon only, text only, text below or beside the icon -- `ButtonLook`), `barButton` (tool bars; `setToolbarLook`), `buttonAt`, `toolButton`, `menuButton`, `splitButton`, `segmented`, `buttonRow` |
 | Choices | `checkbox`, `radio`, `toggle` (3.1 slide switch), `chips`, `tagInput`, `rating`, `knob` |
-| Text input | `edit`, `editArea`, `searchBox`, `autocomplete`, `maskedEdit`, `comboEdit`, `hotkeyEdit` |
+| Text input | `edit`, `editArea`, `searchBox`, `autocomplete`, `maskedEdit`, `comboEdit`, `hotkeyEdit`, `codeEdit` (code, colored) |
 | Numbers, dates, colours | `spin`, `intEdit`, `numberEdit`, `slider`, `rangeSlider`, `progress`, `datePicker`, `calendar`, `dateRange`, `timePicker`, `colorPicker` |
-| Lists | `listbox`, `combo`, `checkList`, `grid` (with cell kinds), `tree`, `treeGrid`, `iconView`, `lineView`, `dualList`, `propertyGrid` |
+| Lists | `listbox`, `combo`, `checkList`, `grid` (with cell kinds), `gridOf` (a seq of your type), `tree`, `treeGrid`, `iconView`, `lineView`, `dualList`, `propertyGrid` |
 | Status | `progressRing`, `spinner`, `sparkline`, `usageBar`, `banner`, `toast`, `led`, `pill`, `timeline`, `emptyState`, `busyState`, `statusbar` |
-| Containers | `group`, `card`, `tabs`, `tabStrip`, `expander`, `accordionHeader`, `form`/`field`, `split`, `vsplit`, `sidePane`, `scrollPanel`, `adaptive`, `row`, `col` |
-| Menus and bars | `menubar`, `menu`, `menuItem`, `submenu`, `contextMenu`, `popupMenu`, `toolbar`, `statusbar`, `breadcrumb`, `pathBar`, `driveBar`, `pager`, `stepper`, `recordNav`, `findBar` |
+| Containers | `group`, `card`, `tabs`, `tabStrip`, `expander`, `accordionHeader`, `form`/`field`, `formOf` (a form of your type), `pageView` (pages over pages), `listDetail`, `split`, `vsplit`, `sidePane`, `scrollPanel`, `adaptive`, `row`, `col` |
+| Menus and bars | `menubar`, `menu`, `menuItem`, `submenu`, `undoMenuItems`, `contextMenu`, `popupMenu`, `toolbar`, `statusbar`, `breadcrumb`, `pathBar`, `driveBar`, `pager`, `stepper`, `recordNav`, `findBar`, `trayIcon` (the system's tray) |
 | Dialogs | `dialog`, `msgBox`, `inputBox`, `progressBox`, `wizard`, `aboutBox`, `fileDialog` (3.1), `filePicker` (modern), `propertiesDialog` |
 | Desktop | `mdiArea` / `mdiWindow`, `mdiWindowMenu`, `hotkeyPressed`, `findIn`, `replaceAllIn` |
 | App parts | `settingToggle`, `settingChoice`, `settingSlider`, `settingButtons`, `settingCombo`, `settingLink`, `appearanceSettings`, `avatar`, `factList`, `bottomNav`, `fab`, `captionBar` |
 | Business views | `chart` (21 kinds), `gauge`, `kanbanBoard`, `ganttView`, `agendaView`, `kpiTile`, `statCard`, `orgChart`, `reportView` |
 | Files | `fileList`, `filePreview`, `folderTree`, `placesView`, `trashList`, `driveBar`, `pathBar`, `textFileView`, `hexFileView`, `runJobDialog` |
-| Media and more | `mapView`, `view3d`, `canvas2d`, `htmlView`, `webView`, `markdownView`, `imageView`, `animation`, `videoView` |
+| Media and more | `mapView`, `view3d`, `canvas2d`, `htmlView`, `webView`, `markdownView`, `imageView`, `animation`, `videoView`, `audioView` (any speed) |
 
 Buttons with a picture show it four ways -- icon only (the label becomes the
 tooltip), text only, the text below the icon, or beside it -- and a tool bar
@@ -605,6 +605,73 @@ kept with the look. `RETRO_TOUCH=1` is a finger on any screen: finger-sized
 controls, no hover, tooltips above the finger; `RETRO_CONTROLS=touch`,
 `desktop` or `auto` sets the sizes alone (`retrokit run --touch`,
 `--controls:touch`). Both win over what the user kept.
+
+## Jobs, undo, pages and words
+
+What most apps build for themselves, in the kit:
+
+```nim
+import retroui, retroui/jobs
+
+var feed: Job[HttpResponse]
+var history: UndoStack
+var nav = initPages("list")
+var note = "Draft"
+
+app "Notes", 420, 300:
+  menubar:
+    menu "&Edit": undoMenuItems(history)          # "Undo Typing", grayed when nothing
+  if button("&Refresh"): feed = fetch("https://example.com/notes.json")   # on a worker
+  if feed != nil and feed.done: label $feed.value.status   # read between frames, like a click
+  pageView(nav):                                  # pages over pages, sliding in
+    case nav.page
+    of "list":
+      pageHeader(nav, "Notes")
+      if button("&Open"): nav.push("note")
+    of "note":
+      pageHeader(nav, "Note")                     # Back: the button, Esc, the phone's
+      let before = note
+      if edit(note): history.record("Typing", note, before, merge = "note")
+  undoKeys(history)                               # Ctrl+Z, Ctrl+Y
+```
+
+- **Work off the screen's thread** (`retroui/jobs`): `job(proc (c: JobCtl): T = ...)`
+  runs on a worker and returns a `Job` at once; the frames read its
+  `progress`, `value` once `done`, `error` when it `failed`, and `cancel`
+  it. `fetch(url)` is a web request as a job. The kit draws a frame when
+  one ends; in a web page, without threads, a job runs between frames.
+- **Undo** (`UndoStack`): `record` keeps a value before and after a change
+  (`did` takes procs, for a big document); typing in a row is one step,
+  `undoMenuItems` says what Undo takes back, `changed` and `markClean`
+  track work not saved, and `revision` tells an app that saves as it goes.
+- **Pages** (`pageView`, `pageHeader`, `push`, `pop`, `goHome`): pages one
+  over another as phones go through an app; `listDetail(open, listW)` puts
+  a list beside the details of what is picked where there is room, and one
+  over the other on a phone.
+- **Forms and grids from your types** (`formOf`, `gridOf`): a field for
+  each field of an object, captioned from its name, with pragmas for the
+  rules (`caption`, `help`, `required`, `limits`, `maxLen`, `multiline`,
+  `decimals`, `readonly`, `noForm`) and what breaks one said under it;
+  `gridOf` shows a seq of them, sorted by a header's click.
+- **Movement** (`animated(target, ms)`): a number that glides to where it
+  is asked to be, a frame at a time; at once when the user asked for less.
+- **Words in other languages:** `retrokit strings app.nim --lang:ar`
+  writes every text the app shows into app-ar.txt for a translator (and
+  keeps the translations when run again); `loadUiStrings` reads it for
+  `setUiLanguage`. `trn(n, "{n} file", "{n} files")` takes the number's
+  form in each language (`pluralForm`: Arabic's six, Russian's and
+  Polish's three...).
+- **Code** (`codeEdit`): Nim, Python, C, JSON and shell colored as typed,
+  line numbers, indenting, Ctrl+/ comments, find, its own undo.
+- **The system's tray** (`retroui/tray`): `trayIcon(png, tip, menu)` --
+  the notification area on Windows, StatusNotifierItem on Linux, the menu
+  bar on macOS -- with its clicks and its menu's picks as events.
+- **Feeds** (`retroui/feeds`): RSS (with the iTunes and Podcasting 2.0
+  tags), Atom and OPML read and written, in pure Nim.
+
+[Retro Podcast](examples/README.md#retro-podcast) is built from all of
+them; the Gallery's Forms & Code page shows them, and its View, This
+Page's Code (Ctrl+U) shows how each page is made.
 
 ## Text and icons
 
@@ -2232,6 +2299,8 @@ discard playSound("music.mp3")                    # other formats: the system's 
 tone(880, 150)                                    # a sound made on the spot
 uiSound(usError)                                  # the toolkit's own sounds
 let v = videoView("intro.mp4", height = 240)      # play / pause, position, time
+audioView("https://example.com/ep12.mp3", speed = 1.5, title = "Episode 12")   # any speed
+seekVideo("https://example.com/ep12.mp3", 754_000)   # where it was left (a key or the path)
 discard videoView("https://example.com/live.m3u8")  # web addresses and streams (HLS)
 animation(spinner)        # spinner = loadGif(readFile("spinner.gif"))
 ```
@@ -2249,7 +2318,14 @@ the video's pictures in the window itself, under its menus and dialogs:
 | Android | MediaPlayer | MediaPlayer | in the window (VideoView) |
 
 Without a sound device, or a format the system cannot play, sounds are
-quietly not heard; nothing waits or crashes. `videoInfo`, `videoFrameAt`
+quietly not heard; nothing waits or crashes. A sound of `audioView` plays
+at any `speed` (0.5 to 3, a voice keeping its pitch: GStreamer's
+scaletempo, Media Foundation, AVFoundation, Android's MediaPlayer, the
+browser), and plays on when the app stops drawing it: in an Android app in
+the background too, with the system's notification (a foreground service
+retroapk declares for apps that use `audioView`), on iOS with
+`UIBackgroundModes` audio (`retroios` adds it); `seekVideo` and
+`playVideo` move and start it from the app. `videoInfo`, `videoFrameAt`
 and `videoFrames` read a video's pictures; `beginVideo`, `addFrame` and
 `finish` write an MP4.
 
@@ -2975,6 +3051,10 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_sevenguis` | the 7GUIs example driven by its controls' names: each task as its rules ask (the flight booked only when the dates allow, the timer stopping at its duration, CRUD's filter, the circles' undo, the cells' formulas and their cycles) |
 | `test_navigator` | Retro Navigator's places: what the Location box goes to (an address, a host, a file that is there, words searched for), the key, the bookmarks kept, the pages of a session, the history kept and what the Location box suggests; its shield: secure addresses (not on the local network), the ad and tracker hosts and patterns, a block list imported (hosts files, `||site^`), its settings and the sites ads are allowed on, its script; the pages' looks (Modern, Classic, Plain, the 3.1 scroll bars) |
 | `test_retrodns` | Retro DNS: its 47 servers well formed, the user's own kept as CSV, the VPN's settings, the scripts that change a computer's DNS (Windows, Linux, macOS) made of checked addresses only whatever a CSV holds, PowerShell's encoded command, the profile of encrypted DNS for macOS and iOS |
+| `test_jobs`, `test_undo`, `test_pages`, `test_typeforms` | jobs on workers (values, progress, failures, cancel, more jobs than workers); the undo stack (typing merged, the saved state, a change after an undo, Ctrl+Z / Ctrl+Y, the limit); pages pushed and popped by Esc and Alt+Left, sliding in, `listDetail` side by side, `animated`; forms of an object's fields with their pragmas' rules, captions from names, typing into one, a grid of them sorted by a header |
+| `test_uistrings`, `test_codeedit`, `test_feeds` | `retrokit strings`' scan of an app's texts (comments and long strings left out, `trn`'s two forms), the file written, filled and written again with the translations kept, Arabic's six forms; the code editor (indent kept, Tab, Ctrl+/, its undo, read only, Nim's colors); RSS with the iTunes and Podcasting 2.0 tags, Atom, OPML both ways, dates and lengths as feeds write them |
+| `test_tray` | the tray icon on Linux: the app's StatusNotifierItem on a bus of the test's own, registered with a stand-in tray, its title, picture and menu as a tray reads them, a click and a menu item coming back as events, the icon gone with a frame without it |
+| `test_podcast` | Retro Podcast without a window: a feed file followed (read by a job), an episode played from where it was left, the queue, Mark Played and Unfollow undone, OPML, the library saved and read back |
 | `test_scale` | fractional scales (125 % to 300 %): controls and text the size asked for, lines on whole pixels, a change of scale followed |
 | `test_touchsizes` | `RETRO_TOUCH` and `RETRO_CONTROLS`: finger-sized controls on a tablet's screen when asked, desktop and automatic sizes |
 | `test_shm` | the frame drawn into memory shared with the X server and what the window then shows, with and without it (`RETRO_SURFACE=0`) |
@@ -3005,6 +3085,7 @@ it is and how to run it.
 | `examples/sevenguis.nim` | 7GUIs: the seven tasks of the GUI benchmark -- a counter, a temperature converter, a flight booker, a timer, CRUD, a circle drawer with undo, a spreadsheet with formulas (also an APK: `RETRO_APP=sevenguis nimble appapk`; released with the apps) |
 | `examples/navigator.nim` | Retro Navigator: a web browser in the manner of 1995's -- the tool bar, the Location box, the directory buttons, a logo that moves while a page loads, the key, bookmarks, the Go menu, find, print, the source -- around the system's own engine (`webView`, `weSystem`), with tabs, ads and trackers blocked, secure connections, links loaded ahead, tabs that sleep, Clear Browsing Data |
 | `examples/retrodns.nim` | Retro DNS: a DNS changer with 47 public servers, what each is good for, speed tests and your own -- on Android a VPN of its own Java (`--java`), on Windows, Linux and macOS the computer's DNS as its administrator (`retroui/admin`), on macOS and iOS a profile of encrypted DNS |
+| `examples/podcast.nim` | Retro Podcast: a podcast player for every system and the web -- shows found by name or by feed, OPML, any speed, where you left off, downloads, a queue, a sleep timer, the system's media controls, the sound playing on in the background, a tray icon (also an APK: `RETRO_APP=podcast nimble appapk`; released with the apps) |
 | `examples/hrbook.nim` | HR Book: the staff records of a group of hotels, private on a tablet -- smart Excel import, letters and certificates, charts, expiry alerts, encrypted backups |
 
 `examples/hrbook.nim` is **HR Book**: every employee of your hotels in one
@@ -3028,6 +3109,7 @@ nim c -r -d:release examples/hrbook.nim
 | ![Ledger](docs/ledger.png) | ![Ledger on a phone](docs/ledger-phone.png) |
 | ![Retro Files on a tablet](docs/filemanager-tablet.png) | ![Notepad](docs/notepad.png) |
 | ![Retro Navigator](docs/examples/navigator.png) | ![Retro DNS](docs/examples/retrodns.png) |
+| ![Retro Podcast](docs/examples/podcast.png) | ![The Gallery's Forms & Code page](docs/examples/gallery-forms.png) |
 
 ## FAQ
 

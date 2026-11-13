@@ -24,14 +24,14 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 - **[Text](#text)**: [label, paragraph, heading](#label-paragraph-heading) · [styledText, link, badge](#styledtext-link-badge) · [icon, iconLabel, image](#icon-iconlabel-image) · [tooltip](#tooltip)
 - **[Buttons](#buttons)**: [button](#button) · [Buttons with a picture](#buttons-with-a-picture) · [segmented](#segmented) · [menuButton, splitButton](#menubutton-splitbutton) · [buttonRow](#buttonrow) · [buttonAt](#buttonat)
 - **[Choices](#choices)**: [checkbox](#checkbox) · [radio](#radio) · [toggle (a switch)](#toggle-a-switch) · [chips](#chips) · [tagInput](#taginput) · [rating](#rating)
-- **[Text input](#text-input)**: [edit](#edit) · [editArea](#editarea) · [searchBox](#searchbox) · [autocomplete](#autocomplete) · [maskedEdit](#maskededit) · [comboEdit](#comboedit) · [hotkeyEdit](#hotkeyedit)
+- **[Text input](#text-input)**: [edit](#edit) · [editArea](#editarea) · [searchBox](#searchbox) · [autocomplete](#autocomplete) · [maskedEdit](#maskededit) · [comboEdit](#comboedit) · [hotkeyEdit](#hotkeyedit) · [codeEdit](#codeedit)
 - **[Numbers, dates, colors](#numbers-dates-colors)**: [spin, intEdit, numberEdit](#spin-intedit-numberedit) · [slider, progress](#slider-progress) · [rangeSlider](#rangeslider) · [popupSlider](#popupslider) · [knob](#knob) · [datePicker](#datepicker) · [calendar](#calendar) · [dateRange, presetRange](#daterange-presetrange) · [timePicker](#timepicker) · [colorPicker](#colorpicker) · [colorWell and the Color dialog](#colorwell-and-the-color-dialog)
-- **[Lists and data](#lists-and-data)**: [listbox](#listbox) · [combo](#combo) · [checkList](#checklist) · [fontCombo, fontStyleCombo](#fontcombo-fontstylecombo) · [grid](#grid) · [grid with cell kinds](#grid-with-cell-kinds) · [tree, branch, leaf](#tree-branch-leaf) · [treeGrid](#treegrid) · [iconView](#iconview) · [lineView](#lineview) · [dualList](#duallist) · [propertyGrid](#propertygrid) · [imageView](#imageview)
+- **[Lists and data](#lists-and-data)**: [listbox](#listbox) · [combo](#combo) · [checkList](#checklist) · [fontCombo, fontStyleCombo](#fontcombo-fontstylecombo) · [grid](#grid) · [grid with cell kinds](#grid-with-cell-kinds) · [tree, branch, leaf](#tree-branch-leaf) · [treeGrid](#treegrid) · [iconView](#iconview) · [lineView](#lineview) · [dualList](#duallist) · [propertyGrid](#propertygrid) · [formOf, gridOf: forms and grids from your types](#formof-gridof-forms-and-grids-from-your-types) · [imageView](#imageview)
 - **[Progress and status](#progress-and-status)**: [progressRing, spinner, sparkline, usageBar](#progressring-spinner-sparkline-usagebar) · [banner](#banner) · [toast](#toast) · [showSnackbar, snackbar](#showsnackbar-snackbar) · [led, pill](#led-pill) · [timeline](#timeline) · [emptyState, busyState](#emptystate-busystate) · [statusbar](#statusbar) · [statusRow, statusSep](#statusrow-statussep)
-- **[Containers](#containers)**: [expander](#expander) · [accordionHeader](#accordionheader) · [tabStrip (document tabs)](#tabstrip-document-tabs)
-- **[Menus and bars](#menus-and-bars)**: [menubar, menu, menuItem, submenu](#menubar-menu-menuitem-submenu) · [contextMenu](#contextmenu) · [popupMenu, openPopupMenu](#popupmenu-openpopupmenu) · [breadcrumb](#breadcrumb) · [pager, stepper](#pager-stepper) · [recordNav](#recordnav) · [findBar, findIn, replaceAllIn](#findbar-findin-replaceallin)
+- **[Containers](#containers)**: [expander](#expander) · [accordionHeader](#accordionheader) · [tabStrip (document tabs)](#tabstrip-document-tabs) · [pageView, pageHeader: pages over pages](#pageview-pageheader-pages-over-pages) · [listDetail](#listdetail)
+- **[Menus and bars](#menus-and-bars)**: [menubar, menu, menuItem, submenu](#menubar-menu-menuitem-submenu) · [UndoStack, undoMenuItems, undoKeys](#undostack-undomenuitems-undokeys) · [contextMenu](#contextmenu) · [popupMenu, openPopupMenu](#popupmenu-openpopupmenu) · [breadcrumb](#breadcrumb) · [pager, stepper](#pager-stepper) · [recordNav](#recordnav) · [findBar, findIn, replaceAllIn](#findbar-findin-replaceallin)
 - **[Dialogs](#dialogs)**: [msgBox](#msgbox) · [inputBox](#inputbox) · [dialog](#dialog) · [progressBox](#progressbox) · [wizard, stepDone](#wizard-stepdone) · [aboutBox](#aboutbox) · [splashBox](#splashbox) · [problemBox, reportProblem](#problembox-reportproblem) · [stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen](#stoppedscreen-stoppedframe-stoppedpending-startfresh-showstoppedscreen) · [fileDialog (3.1)](#filedialog-31)
-- **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator](#toolbar-toolbutton-toolseparator) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
+- **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator](#toolbar-toolbutton-toolseparator) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [animated](#animated) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
 - **[Files](#files)**: [fileList](#filelist) · [fileList: large icons](#filelist-large-icons) · [folderTree](#foldertree) · [placesView](#placesview) · [filePreview](#filepreview) · [pathBar](#pathbar) · [driveBar](#drivebar) · [filePicker](#filepicker) · [trashList](#trashlist) · [propertiesDialog](#propertiesdialog) · [runJobDialog](#runjobdialog) · [textFileView, hexFileView](#textfileview-hexfileview) · [pictureBox](#picturebox) · [storageDialog](#storagedialog)
 - **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart) · [liveGraph](#livegraph)
 - **[Planning and dashboards](#planning-and-dashboards)**: [kpiTile, statCard, kpiRow](#kpitile-statcard-kpirow) · [kanbanBoard](#kanbanboard) · [ganttView](#ganttview) · [agendaView](#agendaview) · [orgChart](#orgchart)
@@ -39,7 +39,7 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 - **[HTML, Markdown and rich text](#html-markdown-and-rich-text)**: [htmlView, htmlBlock](#htmlview-htmlblock) · [webView, webRun, webPost](#webview-webrun-webpost) · [markdownView, markdown](#markdownview-markdown) · [richEdit, richToolbar](#richedit-richtoolbar)
 - **[Canvas and reports](#canvas-and-reports)**: [canvas: your own drawing](#canvas-your-own-drawing) · [canvas2d (the HTML5 Canvas 2D API)](#canvas2d-the-html5-canvas-2d-api) · [reportView (an HTML template: PDF, printing)](#reportview-an-html-template-pdf-printing) · [pdfView](#pdfview) · [QR codes](#qr-codes)
 - **[Sound and video](#sound-and-video)**: [animation (animated GIFs)](#animation-animated-gifs) · [videoView](#videoview) · [cameraView](#cameraview) · [setNowPlaying, mediaKeys](#setnowplaying-mediakeys) · [audioView](#audioview)
-- **[The system's features](#the-systems-features)**: [notify, share, haptic](#notify-share-haptic) · [location, speak](#location-speak) · [deviceInfo, setOpenAtLogin](#deviceinfo-setopenatlogin) · [saveSecret, loadSecret](#savesecret-loadsecret) · [checkForUpdate, downloadUpdate, installUpdate](#checkforupdate-downloadupdate-installupdate)
+- **[The system's features](#the-systems-features)**: [notify, share, haptic](#notify-share-haptic) · [location, speak](#location-speak) · [deviceInfo, setOpenAtLogin](#deviceinfo-setopenatlogin) · [saveSecret, loadSecret](#savesecret-loadsecret) · [checkForUpdate, downloadUpdate, installUpdate](#checkforupdate-downloadupdate-installupdate) · [job, fetch: work off the screen's thread](#job-fetch-work-off-the-screens-thread) · [trayIcon](#trayicon)
 - **[Looks](#looks)**: [Themes](#themes) · [Dark mode](#dark-mode) · [Size and text size](#size-and-text-size) · [Fonts](#fonts) · [The window's frame](#the-windows-frame)
 - **[Screen readers and input methods](#screen-readers-and-input-methods)**: [Screen readers: what an app draws itself](#screen-readers-what-an-app-draws-itself) · [The keyboard alone: Tab's order and F6](#the-keyboard-alone-tabs-order-and-f6) · [The inspector and the driver: controls found by their names](#the-inspector-and-the-driver-controls-found-by-their-names)
 
@@ -1564,6 +1564,27 @@ proc hotkeyPressed*(s: string): bool
 The shortcut `s` ("Ctrl+S") was pressed this frame (and not used yet);
 uses it. On a Mac "Ctrl+S" is Cmd+S, as `s` written either way.
 
+### codeEdit
+
+A code editor: Nim, Python, C, JSON or shell colored as you type (the colors follow the scheme, dark ones too), line numbers, Tab and Shift+Tab indent the lines picked, Enter keeps the indent (and adds one after `:` or `=`), Ctrl+/ comments lines, its own undo, and what `find` names shown and found with F3. `readOnly` for code to read and copy (the Gallery's View, This Page's Code).
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![codeEdit, normal](controls/codeedit-normal.png) | ![codeEdit, touch screen](controls/codeedit-touch-screen.png) | ![codeEdit, dark scheme](controls/codeedit-dark-scheme.png) |
+
+More states:
+
+| Keyboard focus | Disabled |
+|---|---|
+| ![codeEdit, keyboard focus](controls/codeedit-keyboard-focus.png) | ![codeEdit, disabled](controls/codeedit-disabled.png) |
+
+```nim
+var source = "import retroui\n\n# a counter\nvar count = 0\napp \"Counter\", 240, 90:\n  if button(\"&Add\"): inc count\n  label \"Count: \" & $count\n"
+
+codeEdit(source, lines = 9, lang = clNim, find = "count",
+         readOnly = not shotEnabled)
+```
+
 ## Numbers, dates, colors
 
 Numbers are typed and shown as the user reads them ("1,234.50";
@@ -2700,6 +2721,28 @@ proc valueText*(p: Prop): string
 
 A property's value as the grid shows it.
 
+### formOf, gridOf: forms and grids from your types
+
+A form made from an object's fields -- a text box for a string, a check box for a bool, a number field, a list of an enum's values, a date, a color -- with captions from the fields' names, and pragmas for the rest: `caption`, `help` (a line under it), `required`, `limits`, `maxLen`, `multiline`, `decimals`, `readonly`, `noForm`. What is wrong is said under the field; `formValid` and `formErrors` say it to the app. `gridOf` shows a seq of them, a column a field, sorted by a header's click.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![formOf, gridOf: forms and grids from your types, normal](controls/formof-normal.png) | ![formOf, gridOf: forms and grids from your types, touch screen](controls/formof-touch-screen.png) | ![formOf, gridOf: forms and grids from your types, dark scheme](controls/formof-dark-scheme.png) |
+
+```nim
+type
+  ShiftKind = enum
+    Morning, Evening, Night
+  Staff = object
+var staff = Staff(fullName: "Maryam Al Balushi", age: 15, shift: Evening)
+var staffRows = @[Staff(fullName: "Salim", age: 41),
+                  Staff(fullName: "Aisha", age: 35, shift: Night, remote: true)]
+var staffSel = 0
+
+formOf(staff, labelW = 90)
+gridOf(staffRows, staffSel, height = 3)
+```
+
 ### imageView
 
 A picture to look at: fitted while `zoom` is 0, else that many screen pixels per picture pixel. The wheel zooms, a double click goes between fitted and actual size, a drag moves it.
@@ -3143,6 +3186,50 @@ Keys: Ctrl+Tab / Ctrl+Shift+Tab anywhere; Left, Right, Home, End when
 the strip has the focus. The middle button closes a tab; a right click
 or a long press reports `menu` (show a menu with `contextMenu` after).
 
+### pageView, pageHeader: pages over pages
+
+Pages one over another, as phones go through an app (Qt's StackView, Flutter's Navigator): `push` opens a page over the one shown, sliding in, and Back goes back -- `pageHeader`'s Back, Esc, Alt+Left, the phone's Back. Pages are names, so `case nav.page` reads as the app's map.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![pageView, pageHeader: pages over pages, normal](controls/pageview-normal.png) | ![pageView, pageHeader: pages over pages, touch screen](controls/pageview-touch-screen.png) | ![pageView, pageHeader: pages over pages, dark scheme](controls/pageview-dark-scheme.png) |
+
+```nim
+var pageNav = initPages("inbox")
+pageNav.push("message")
+
+pageView(pageNav):
+  case pageNav.page
+  of "inbox":
+    pageHeader(pageNav, "Inbox")
+  of "message":
+    pageHeader(pageNav, "Lunch on Thursday?")
+    label "From: Aisha"
+    paragraph "The new place by the harbour, at one?"
+```
+
+### listDetail
+
+A list beside the details of what is picked in it -- side by side where the window has room, the list alone on a phone and the details over it (with Back) once one is picked. The second picture is a phone's, a person picked.
+
+| A wide window | A phone, one picked |
+|---|---|
+| ![listDetail: A wide window](controls/listdetail-a-wide-window.png) | ![listDetail: A phone, one picked](controls/listdetail-a-phone-one-picked.png) |
+
+```nim
+var people = ["Maryam", "Salim", "Aisha", "Khalid"]
+var personSel = 0
+var personOpen = false
+
+listDetail(personOpen, 140):
+  if listbox(people, personSel, rows = 6):
+    personOpen = true
+do:
+  label people[personSel], bold = true
+  label "Engineer, Sohar"
+  button("&Message")
+```
+
 ## Menus and bars
 
 ### menubar, menu, menuItem, submenu
@@ -3202,6 +3289,69 @@ proc menuSeparator*()
 ```
 
 A line between groups of menu items (none at the top of a column).
+
+### UndoStack, undoMenuItems, undoKeys
+
+Undo and redo for the app's own changes, as FOX's undo list and Qt's undo stack keep them: `record` keeps a value before and after a change (`did` takes procs that undo and redo it, for a big document), the Edit menu says what Undo will take back ("Undo Typing"), keystrokes in a row are one step (`merge`), and `changed` says whether there is work not saved. The last picture shows the Edit menu open.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![UndoStack, undoMenuItems, undoKeys, normal](controls/undo-normal.png) | ![UndoStack, undoMenuItems, undoKeys, touch screen](controls/undo-touch-screen.png) | ![UndoStack, undoMenuItems, undoKeys, dark scheme](controls/undo-dark-scheme.png) |
+
+More states:
+
+| Clicked / open |
+|---|
+| ![UndoStack, undoMenuItems, undoKeys, clicked / open](controls/undo-clicked-open.png) |
+
+```nim
+var docTitle = "Quarterly report"
+var history: UndoStack
+block:
+  let before = docTitle
+  docTitle = "Quarterly report 2026"
+  history.record("Typing", docTitle, before)
+
+menubar:
+  menu "&Edit":
+    undoMenuItems(history)
+undoKeys(history)
+```
+
+**API**
+
+```nim
+proc undo*(): tuple[error: string; touched: seq[string]]
+```
+
+Takes back the last step: names back, moves back, copies and new items
+to the trash, deleted items out of it. `touched`: the folders that
+changed (to list again).
+
+```nim
+proc canUndo*(): bool
+```
+
+There is a file operation to undo (see `undoLabel`).
+
+```nim
+proc undoLabel*(): string
+```
+
+"Undo Rename notes.txt" ("Undo" when there is nothing).
+
+```nim
+proc changed*(b: Bitmap)
+```
+
+Tell the screen that `b.px` changed.
+
+```nim
+proc changed*(b: Bitmap; r: Rect)
+```
+
+Tell the screen that `r` (bitmap pixels) of `b.px` changed: only the
+part of the screen it is drawn on is drawn and sent again.
 
 ### contextMenu
 
@@ -4382,6 +4532,53 @@ proc settingLink*(title: string; detail = ""; glyph = nfChevronRight;
 
 A settings row that leads somewhere (another page, a dialog): true
 when clicked.
+
+### animated
+
+A number that glides to where it is asked to be: when `target` changes, the value goes from where it was to it in `ms` (fast, then slowing), a frame at a time -- a panel sliding in, a bar growing, a glow fading. At once when the user asked for less movement. Each call is its own value, by where it is in the code (`key` for one in a loop).
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![animated, normal](controls/animated-normal.png) | ![animated, touch screen](controls/animated-touch-screen.png) | ![animated, dark scheme](controls/animated-dark-scheme.png) |
+
+```nim
+var barOn = true
+
+if button(if barOn:
+  "&Narrow"
+else:
+  "&Widen"):
+  barOn = not barOn
+let r = place(0, 14)
+fill(rect(r.x, r.y, int(r.w.float *
+    animated(if barOn:
+  0.8
+else:
+  0.2, 300)), r.h), ui.theme.select)
+```
+
+**API**
+
+```nim
+template animated*(target: float; ms = 200; key = ""): float
+```
+
+`target`, reached smoothly: when it changes, the value glides from
+where it was to it in `ms` milliseconds (fast at first, then slowing),
+a frame at a time; at once when the user asked for less movement
+(`smoothScrolling` off). Each call is its own value, by where it is in
+the code (and `key`, for one call in a loop):
+
+```nim
+let x = animated(if panelOpen: 0.0 else: -260.0)   # a panel sliding in
+let a = animated(if hovering: 1.0 else: 0.0, 120)  # a glow fading
+```
+
+```nim
+proc animatedAt*(id: Id; target: float; ms: int): float
+```
+
+`animated` for a value of your own id (`idOf`).
 
 ### appearanceSettings
 
@@ -7163,7 +7360,7 @@ videoView(movie, height = 260)
 
 ```nim
 proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = true;
-                key = ""; audio = false): VideoEvent {.discardable.}
+                key = ""; audio = false; speed = 1.0; title = ""): VideoEvent {.discardable.}
 ```
 
 A video in the window, with play / pause, a position bar and the time
@@ -7177,6 +7374,10 @@ and iOS, GStreamer on Linux; in an Android app the system's VideoView
 shows it (hidden while a menu or a dialog is over it). Where there is
 none it shows a button that opens the file in the system's player.
 `key` tells several apart. `audio`: a sound file (`audioView`).
+`speed`: how fast it plays (0.5 .. 3; a voice keeps its pitch) where
+the system's player plays it (Android's sounds, GStreamer, Media
+Foundation, AVFoundation, the browser). `title`: the name shown (and
+read by screen readers) instead of the file's.
 
 ```nim
 proc closeVideo*(key: string)
@@ -7329,7 +7530,7 @@ applet). Empty (and nothing made) when nothing was pressed.
 
 ### audioView
 
-A sound file to play: its name, play and pause, a position bar and the time (MP3, OGG, FLAC, WAV where the system plays them).
+A sound file or a web address to play: its name (or `title`), play and pause, a position bar and the time (MP3, AAC, OGG, FLAC, WAV where the system plays them), at any `speed` (0.5 to 3, a voice keeping its pitch). `seekVideo` and `playVideo` move and start it from the app -- where a podcast was left, the media keys. It plays on when the app stops drawing it, and on Android and iOS with the app in the background.
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -7338,20 +7539,49 @@ A sound file to play: its name, play and pause, a position bar and the time (MP3
 ```nim
 let song = getHomeDir() / "Music" / "Morning bell.ogg"
 
-audioView(song, height = 120)
+audioView(song, height = 120, speed = 1.5, title = "Morning bell")
 ```
 
 **API**
 
 ```nim
-proc audioView*(path: string; height = -1; autoplay = false; key = ""): VideoEvent {.discardable.}
+proc audioView*(path: string; height = -1; autoplay = false; key = ""; speed = 1.0;
+                title = ""): VideoEvent {.discardable.}
 ```
 
-A sound file to play: a panel with a note and its name, play / pause,
-a position bar and the time under it (MP3, OGG, FLAC, WAV... where the
-system plays them: Android; GStreamer on Linux; elsewhere it plays
-from the start with `playSound`, without the position). `closeVideo`
-stops it.
+A sound file or a web address to play: a panel with a note and its
+name, play / pause, a position bar and the time under it (MP3, AAC,
+OGG, FLAC, WAV... where the system plays them: Android, GStreamer on
+Linux, Media Foundation on Windows, AVFoundation on macOS and iOS, the
+browser; elsewhere it plays from the start with `playSound`, without
+the position). `speed`: as `videoView`'s. It plays on when the app
+stops drawing it (another page) -- in an Android app in the
+background too, with the system's notification that it plays; on iOS
+with the app's `UIBackgroundModes` audio (`retroios` adds it).
+`closeVideo` stops it. `title`: the name shown instead of the file's.
+
+```nim
+proc seekVideo*(key: string; ms: int)
+```
+
+Sends the `videoView` or `audioView` with this `key` (or path) to `ms`
+milliseconds, in its next frame: where a podcast was left, the media
+keys' seek.
+
+```nim
+proc playVideo*(key: string; play = true)
+```
+
+Plays (or with `play` false pauses) the `videoView` or `audioView` with
+this `key`, in its next frame: the media keys, a Play button of the
+app's own.
+
+```nim
+proc closeVideo*(key: string)
+```
+
+Lets the player of the `videoView` (or `audioView`) with this `key`
+(or path) go.
 
 ## The system's features
 
@@ -7494,6 +7724,68 @@ if button("Check for &updates"):
 label updateSaid
 ```
 
+### job, fetch: work off the screen's thread
+
+Work that takes a while -- a download, a search, a file read, a sum -- on a worker thread, with what it came to handed back between frames (`retroui/jobs`): `value` once `done`, `error` when it `failed`, `progress` while it runs, `cancel` to stop it, `onDone` called on the screen's thread. `fetch` is a web request as a job. In a web page, without threads, a job runs between frames.
+
+*A job is work, not a control: its progress shows in your own controls.*
+
+```nim
+var primes: Job[int]
+
+if button("&Count the primes", enabled = primes == nil or primes.ended):
+  primes = job(proc (c: JobCtl): int =
+    for n in 2 ..< 1000000:
+      if n mod 8192 == 0:
+        c.progress(n / 1000000)
+      var d = 2
+      while d * d <= n and n mod d != 0:
+        inc d
+      if d * d > n:
+        inc result)
+if primes != nil:
+  progress(primes.progress)
+  if primes.done:
+    label $primes.value & " primes"
+```
+
+**API**
+
+```nim
+proc progress*(value: float; w = 0; showText = true)
+```
+
+A progress bar, `value` from 0.0 to 1.0, with the percentage.
+
+```nim
+proc failed*(c: PictureCache; path: string; stamp = 0'i64): bool
+```
+
+The picture could not be decoded (show an icon instead).
+
+```nim
+proc cancel*(j: FileJob)
+```
+
+Stops the job; a half-copied file is removed.
+
+### trayIcon
+
+The app's icon where the system keeps icons of running programs, with a tip and a menu (Qt's QSystemTrayIcon): the notification area on Windows, the status area on Linux (StatusNotifierItem: KDE, XFCE, Cinnamon, GNOME with the AppIndicator extension), the menu bar on macOS. Call it every frame while it should be there; `clicked` is a click on it, `picked` the menu item chosen (`retroui/tray`).
+
+*The system draws it, outside the app.*
+
+```nim
+const
+  timerIcon = staticRead("../examples/assets/gallery-icon.png")
+var trayTimer = "4 minutes left"
+
+let t = trayIcon(timerIcon, "Timer: " & trayTimer,
+                 ["&Show", "&Pause", "-", "E&xit"])
+if t.clicked or t.picked == 0:
+  discard
+```
+
 ## Looks
 
 ### Themes
@@ -7545,7 +7837,8 @@ pick it in `appearanceSettings`. A `Theme` of your own is an object of colors
 
 Dark, OLED Black, High Contrast, Midnight, Amber and Green Screen are the
 dark schemes (`themeIsDark`); in them the pixel icons are drawn as their
-line twins, in the text's color (`setIconStyle`). High Contrast and High
+line twins, in the text's color (`setIconStyle`), and `codeEdit` colors
+code in brighter tones on its dark field. High Contrast and High
 Contrast White are for people who need every edge clear
 (`systemPrefs().highContrast` says the system asks for it).
 To follow the system: `if systemDarkMode(): ui.theme = Dark`. OLED Black is

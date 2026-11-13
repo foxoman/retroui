@@ -399,6 +399,9 @@ type
     pos, dur: int
     polledAt: int
     error: string
+    rate: float              # (the speed asked for: 1 as recorded)
+    askSeek: int             # (`seekVideo`: where to go next frame, -1 nowhere)
+    askPlay: int             # (`playVideo`: 1 play, 0 pause, -1 nothing)
 
 var videos: Table[string, VideoState]
 var videoHook = false
@@ -424,8 +427,8 @@ proc hideCovered() =
     if v.shown and (not drawn or covered):
       v.shown = false
       discard systemCall("media.videoHide", key)
-    if v.gst != nil and not drawn and v.playing:
-      v.gst.pause()
+    if v.gst != nil and not drawn and v.playing and not v.audio:
+      v.gst.pause()                  # (a sound plays on: `closeVideo` stops it)
       v.playing = false
 
 proc timeText(ms: int): string =
@@ -433,7 +436,7 @@ proc timeText(ms: int): string =
   $(s div 60) & ":" & align($(s mod 60), 2, '0')
 
 proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = true;
-                key = ""; audio = false): VideoEvent {.discardable.} =
+                key = ""; audio = false; speed = 1.0; title = ""): VideoEvent {.discardable.} =
   ## A video in the window, with play / pause, a position bar and the time
   ## under it (`controls`); Space plays and pauses, Left / Right go back
   ## and on 5 seconds, Home to the start, when it has the focus; a click on
@@ -445,12 +448,19 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
   ## shows it (hidden while a menu or a dialog is over it). Where there is
   ## none it shows a button that opens the file in the system's player.
   ## `key` tells several apart. `audio`: a sound file (`audioView`).
+  ## `speed`: how fast it plays (0.5 .. 3; a voice keeps its pitch) where
+  ## the system's player plays it (Android's sounds, GStreamer, Media
+  ## Foundation, AVFoundation, the browser). `title`: the name shown (and
+  ## read by screen readers) instead of the file's.
   let k = if key.len > 0: key else: path
+  let shownName = if title.len > 0: title else: path.extractFilename
   var v = videos.getOrDefault(k)
   if v == nil or v.path != path or v.audio != audio:
     if v != nil and v.gst != nil: v.gst.close()
     if v != nil and v.sound != NoSound: stopSound(v.sound)
-    v = VideoState(path: path, audio: audio, sound: NoSound)
+    let asked = if v != nil: (v.askSeek, v.askPlay) else: (-1, -1)
+    v = VideoState(path: path, audio: audio, sound: NoSound, rate: 1.0,
+                   askSeek: asked[0], askPlay: asked[1])
     videos[k] = v
   if not videoHook:
     videoHook = true
@@ -467,7 +477,10 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
   if not exists: v.error = "There is no file " & path.extractFilename & "."
   # the player
   var toggle, toStart = false
-  var seekTo = -1
+  var seekTo = v.askSeek
+  v.askSeek = -1
+  if v.askPlay >= 0 and (v.askPlay == 1) != v.playing: toggle = true
+  v.askPlay = -1
   if hit.clicked: toggle = true
   if hit.focused and canInput():
     if keyHit(KeySpace): toggle = true
@@ -487,7 +500,8 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
                   ((ui.dialogTopNow != 0 or ui.dialogTop != 0) and ui.curDialog == 0)
     if not covered and (not v.shown or dr != v.shownRect):
       if systemCall("media.videoShow", k & "\t" & $dr.x & "\t" & $dr.y & "\t" & $dr.w & "\t" &
-                    $dr.h & "\t" & path & "\t" & (if autoplay and not v.tried: "1" else: "0")) == "\0":
+                    $dr.h & "\t" & path & "\t" & (if autoplay and not v.tried: "1" else: "0") &
+                    (if audio: "\ta" else: "")) == "\0":
         v.error = "The system cannot show this video."
       else:
         v.shown = true
@@ -501,6 +515,9 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
     if seekTo >= 0:
       discard systemCall("media.videoSeek", k & "\t" & $seekTo)
       v.pos = seekTo
+    if speed != v.rate or (toggle and speed != 1.0):
+      v.rate = speed
+      discard systemCall("media.videoRate", k & "\t" & formatFloat(speed, ffDecimal, 2))
     if ui.now - v.polledAt >= 250 or ui.now < v.polledAt:
       v.polledAt = ui.now
       let s = systemCall("media.videoState", k).split('\t')
@@ -535,6 +552,9 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
       if seekTo >= 0:
         g.seekMs(seekTo)
         v.pos = seekTo
+      if speed != v.rate:
+        v.rate = speed
+        g.setRate(speed)
       discard g.poll()
       if g.failed:
         v.error = if audio: "This sound cannot be played here." else: "This video cannot be played here."
@@ -580,7 +600,7 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
       arrow(area.x + area.w div 2 + d div 6, area.y + area.h div 2 - FontH, dRight,
             color(255, 255, 255), d)
       endKeepSides()
-    let name = ellipsize(path.extractFilename, area.w - dp(16))
+    let name = ellipsize(shownName, area.w - dp(16))
     text(area.x + (area.w - textWidth(name)) div 2, area.y + area.h div 2 + d div 2,
          name, color(255, 255, 255))
     if exists and v.error.len == 0:
@@ -592,7 +612,7 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
     let big = style(size = clamp(area.h.float / FontH.float / 3.2, 1.0, 5.0))
     let g = pxMusic
     let gh = lineHeight(big)
-    let name = ellipsize(path.extractFilename, area.w - dp(16))
+    let name = ellipsize(shownName, area.w - dp(16))
     let total = gh + FontH + dp(6)
     var y = area.y + max(dp(4), (area.h - total) div 2)
     if area.h >= total:
@@ -670,17 +690,45 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
   result.durationMs = v.dur
   result.error = v.error
   if accessOn:
-    accessNode(arImage, path.extractFilename, id = id, r = r, help = (if audio: "sound" else: "video"))
+    accessNode(arImage, shownName, id = id, r = r, help = (if audio: "sound" else: "video"))
   ui.lastId = id
   ui.lastRect = r
 
-proc audioView*(path: string; height = -1; autoplay = false; key = ""): VideoEvent {.discardable.} =
-  ## A sound file to play: a panel with a note and its name, play / pause,
-  ## a position bar and the time under it (MP3, OGG, FLAC, WAV... where the
-  ## system plays them: Android; GStreamer on Linux; elsewhere it plays
-  ## from the start with `playSound`, without the position). `closeVideo`
-  ## stops it.
-  videoView(path, height, 0, autoplay, true, key, audio = true)
+proc audioView*(path: string; height = -1; autoplay = false; key = ""; speed = 1.0;
+                title = ""): VideoEvent {.discardable.} =
+  ## A sound file or a web address to play: a panel with a note and its
+  ## name, play / pause, a position bar and the time under it (MP3, AAC,
+  ## OGG, FLAC, WAV... where the system plays them: Android, GStreamer on
+  ## Linux, Media Foundation on Windows, AVFoundation on macOS and iOS, the
+  ## browser; elsewhere it plays from the start with `playSound`, without
+  ## the position). `speed`: as `videoView`'s. It plays on when the app
+  ## stops drawing it (another page) -- in an Android app in the
+  ## background too, with the system's notification that it plays; on iOS
+  ## with the app's `UIBackgroundModes` audio (`retroios` adds it).
+  ## `closeVideo` stops it. `title`: the name shown instead of the file's.
+  videoView(path, height, 0, autoplay, true, key, audio = true, speed = speed, title = title)
+
+proc seekVideo*(key: string; ms: int) =
+  ## Sends the `videoView` or `audioView` with this `key` (or path) to `ms`
+  ## milliseconds, in its next frame: where a podcast was left, the media
+  ## keys' seek.
+  var v = videos.getOrDefault(key)
+  if v == nil:
+    v = VideoState(path: "\0", rate: 1.0, askSeek: -1, askPlay: -1)
+    videos[key] = v
+  v.askSeek = max(0, ms)
+  ui.redraw = true
+
+proc playVideo*(key: string; play = true) =
+  ## Plays (or with `play` false pauses) the `videoView` or `audioView` with
+  ## this `key`, in its next frame: the media keys, a Play button of the
+  ## app's own.
+  var v = videos.getOrDefault(key)
+  if v == nil:
+    v = VideoState(path: "\0", rate: 1.0, askSeek: -1, askPlay: -1)
+    videos[key] = v
+  v.askPlay = ord(play)
+  ui.redraw = true
 
 proc closeVideo*(key: string) =
   ## Lets the player of the `videoView` (or `audioView`) with this `key`

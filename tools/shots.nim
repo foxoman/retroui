@@ -18,7 +18,7 @@ from std/times import fromUnix, epochTime
 from std/unicode import runes, toUTF8
 import retroui
 import retroui/[textwidgets, richedit, qrcode, pdfview, tilemap, mvt, capture, mediasession, system,
-                secrets, update]
+                secrets, update, jobs, tray]
 import retroui/uirelays/[coords, screen, input, services]
 include "../tests/carscene"
 
@@ -787,6 +787,14 @@ do:
     label "&Save as:"
     hotkeyEdit(hotkey, enabled = shotEnabled)
 
+example("codeedit", "codeEdit",
+        "A code editor: Nim, Python, C, JSON or shell colored as you type (the colors follow the scheme, dark ones too), line numbers, Tab and Shift+Tab indent the lines picked, Enter keeps the indent (and adds one after `:` or `=`), Ctrl+/ comments lines, its own undo, and what `find` names shown and found with F3. `readOnly` for code to read and copy (the Gallery's View, This Page's Code).",
+        420, 190, ["codeEdit", "CodeLang"], input4):
+  var source = "import retroui\n\n# a counter\nvar count = 0\napp \"Counter\", 240, 90:\n  if button(\"&Add\"): inc count\n  label \"Count: \" & $count\n"
+do:
+  codeEdit(source, lines = 9, lang = clNim, find = "count", readOnly = not shotEnabled)
+  aim()
+
 # ======================================================================================================
 # Numbers, dates, colors
 # ======================================================================================================
@@ -1037,6 +1045,24 @@ example("propertygrid", "propertyGrid",
 do:
   propertyGrid(props, propSel, height = 220)
 
+example("formof", "formOf, gridOf: forms and grids from your types",
+        "A form made from an object's fields -- a text box for a string, a check box for a bool, a number field, a list of an enum's values, a date, a color -- with captions from the fields' names, and pragmas for the rest: `caption`, `help` (a line under it), `required`, `limits`, `maxLen`, `multiline`, `decimals`, `readonly`, `noForm`. What is wrong is said under the field; `formValid` and `formErrors` say it to the app. `gridOf` shows a seq of them, a column a field, sorted by a header's click.",
+        440, 330, ["formOf", "gridOf", "formValid", "formErrors", "columnsOf", "cellOf", "niceCaption"], std3):
+  type
+    ShiftKind = enum Morning, Evening, Night
+    Staff = object
+      fullName {.required, maxLen: 40.}: string
+      age {.limits: (16, 70).}: int
+      shift: ShiftKind
+      remote {.caption: "Works from home".}: bool
+      remarks {.multiline: 2, help: "Anything the manager should know".}: string
+  var staff = Staff(fullName: "Maryam Al Balushi", age: 15, shift: Evening)
+  var staffRows = @[Staff(fullName: "Salim", age: 41), Staff(fullName: "Aisha", age: 35, shift: Night, remote: true)]
+  var staffSel = 0
+do:
+  formOf(staff, labelW = 90)
+  gridOf(staffRows, staffSel, height = 3)
+
 example("imageview", "imageView",
         "A picture to look at: fitted while `zoom` is 0, else that many screen pixels per picture pixel. The wheel zooms, a double click goes between fitted and actual size, a drag moves it.",
         340, 200, ["imageView"], focus4):
@@ -1159,6 +1185,39 @@ do:
   discard tabStrip(docTabs, docTab, [pxText, pxMarkdown, pxSheet])
   aimAt(0.45, 0.5)
 
+example("pageview", "pageView, pageHeader: pages over pages",
+        "Pages one over another, as phones go through an app (Qt's StackView, Flutter's Navigator): `push` opens a page over the one shown, sliding in, and Back goes back -- `pageHeader`'s Back, Esc, Alt+Left, the phone's Back. Pages are names, so `case nav.page` reads as the app's map.",
+        360, 150, ["pageView", "pageHeader", "initPages", "push", "pop", "goHome", "atHome", "PageStack"], std3):
+  var pageNav = initPages("inbox")
+  pageNav.push("message")
+do:
+  pageView(pageNav):
+    case pageNav.page
+    of "inbox":
+      pageHeader(pageNav, "Inbox")
+    of "message":
+      pageHeader(pageNav, "Lunch on Thursday?")
+      label "From: Aisha"
+      paragraph "The new place by the harbour, at one?"
+opts(settle = 400)
+
+example("listdetail", "listDetail",
+        "A list beside the details of what is picked in it -- side by side where the window has room, the list alone on a phone and the details over it (with Back) once one is picked. The second picture is a phone's, a person picked.",
+        440, 150, ["listDetail"], std3):
+  var people = ["Maryam", "Salim", "Aisha", "Khalid"]
+  var personSel = 0
+  var personOpen = false
+do:
+  listDetail(personOpen, 140):
+    if listbox(people, personSel, rows = 6): personOpen = true
+  do:
+    label people[personSel], bold = true
+    label "Engineer, Sohar"
+    button("&Message")
+opts(looks = @[look("A wide window", proc () = discard, proc () = discard, w = 640, h = 150),
+               look("A phone, one picked", proc () = personOpen = true, proc () = personOpen = false,
+                    w = 300, h = 160, touch = true)])
+
 # ======================================================================================================
 # Menus and bars
 # ======================================================================================================
@@ -1177,6 +1236,23 @@ example("menu", "menubar, menu, menuItem, submenu",
       discard menuItem("&Word wrap", checked = true)
     menu "&Edit":
       discard menuItem("&Undo", "Ctrl+Z")
+  target = rect(8, 2, 30, 14)
+  aimed = true
+
+example("undo", "UndoStack, undoMenuItems, undoKeys",
+        "Undo and redo for the app's own changes, as FOX's undo list and Qt's undo stack keep them: `record` keeps a value before and after a change (`did` takes procs that undo and redo it, for a big document), the Edit menu says what Undo will take back (\"Undo Typing\"), keystrokes in a row are one step (`merge`), and `changed` says whether there is work not saved. The last picture shows the Edit menu open.",
+        320, 120, ["UndoStack", "record", "did", "undo", "redo", "undoMenuItems", "undoKeys", "canUndo", "undoLabel", "markClean", "changed", "revision"], popup4):
+  var docTitle = "Quarterly report"
+  var history: UndoStack
+  block:
+    let before = docTitle
+    docTitle = "Quarterly report 2026"
+    history.record("Typing", docTitle, before)
+do:
+  menubar:
+    menu "&Edit":
+      undoMenuItems(history)
+  undoKeys(history)
   target = rect(8, 2, 30, 14)
   aimed = true
 
@@ -1509,6 +1585,15 @@ do:
   discard settingSlider("Brightness", setLevel, 0, 100, suffix = "%")
   discard settingCombo("Color scheme", ["Classic", "Ocean", "Desert"], setCombo)
   discard settingButtons("Cache", ["Clear"], "12 MB")
+
+example("animated", "animated",
+        "A number that glides to where it is asked to be: when `target` changes, the value goes from where it was to it in `ms` (fast, then slowing), a frame at a time -- a panel sliding in, a bar growing, a glow fading. At once when the user asked for less movement. Each call is its own value, by where it is in the code (`key` for one in a loop).",
+        320, 60, ["animated", "animatedAt"], std3):
+  var barOn = true
+do:
+  if button(if barOn: "&Narrow" else: "&Widen"): barOn = not barOn
+  let r = place(0, 14)
+  fill(rect(r.x, r.y, int(r.w.float * animated(if barOn: 0.8 else: 0.2, 300)), r.h), ui.theme.select)
 
 example("appearance", "appearanceSettings",
         "The look of every app in a few rows: the color scheme, the size of everything, the size of the text, controls for a mouse or fingers, the window's frame, the title bars' buttons and the font. `app`'s `look` keeps the user's choice by itself.",
@@ -2104,11 +2189,11 @@ example("nowplaying", "setNowPlaying, mediaKeys",
 opts(noPicture = "The system draws it, outside the app.")
 
 example("audioview", "audioView",
-        "A sound file to play: its name, play and pause, a position bar and the time (MP3, OGG, FLAC, WAV where the system plays them).",
-        420, 140, ["audioView"], std3):
+        "A sound file or a web address to play: its name (or `title`), play and pause, a position bar and the time (MP3, AAC, OGG, FLAC, WAV where the system plays them), at any `speed` (0.5 to 3, a voice keeping its pitch). `seekVideo` and `playVideo` move and start it from the app -- where a podcast was left, the media keys. It plays on when the app stops drawing it, and on Android and iOS with the app in the background.",
+        420, 140, ["audioView", "seekVideo", "playVideo", "closeVideo"], std3):
   let song = getHomeDir() / "Music" / "Morning bell.ogg"
 do:
-  audioView(song, height = 120)
+  audioView(song, height = 120, speed = 1.5, title = "Morning bell")
 opts(settle = 600)
 
 # ======================================================================================================
@@ -2191,6 +2276,34 @@ do:
     else: updateSaid = if u.error.len > 0: u.error else: "This is the newest."
   label updateSaid
 
+example("jobs", "job, fetch: work off the screen's thread",
+        "Work that takes a while -- a download, a search, a file read, a sum -- on a worker thread, with what it came to handed back between frames (`retroui/jobs`): `value` once `done`, `error` when it `failed`, `progress` while it runs, `cancel` to stop it, `onDone` called on the screen's thread. `fetch` is a web request as a job. In a web page, without threads, a job runs between frames.",
+        420, 70, ["job", "fetch", "JobCtl", "progress", "cancelled", "done", "failed", "value", "error", "cancel", "jobsRunning"], std3):
+  var primes: Job[int]
+do:
+  if button("&Count the primes", enabled = primes == nil or primes.ended):
+    primes = job(proc (c: JobCtl): int =
+      for n in 2 ..< 1_000_000:
+        if n mod 8192 == 0: c.progress(n / 1_000_000)
+        var d = 2
+        while d * d <= n and n mod d != 0: inc d
+        if d * d > n: inc result)
+  if primes != nil:
+    progress(primes.progress)
+    if primes.done: label $primes.value & " primes"
+opts(noPicture = "A job is work, not a control: its progress shows in your own controls.")
+
+example("tray", "trayIcon",
+        "The app's icon where the system keeps icons of running programs, with a tip and a menu (Qt's QSystemTrayIcon): the notification area on Windows, the status area on Linux (StatusNotifierItem: KDE, XFCE, Cinnamon, GNOME with the AppIndicator extension), the menu bar on macOS. Call it every frame while it should be there; `clicked` is a click on it, `picked` the menu item chosen (`retroui/tray`).",
+        420, 70, ["trayIcon", "TrayEvent", "trayIconShown", "removeTrayIcon"], std3):
+  const timerIcon = staticRead("../examples/assets/gallery-icon.png")
+  var trayTimer = "4 minutes left"
+do:
+  let t = trayIcon(timerIcon, "Timer: " & trayTimer,
+                   ["&Show", "&Pause", "-", "E&xit"])
+  if t.clicked or t.picked == 0: discard
+opts(noPicture = "The system draws it, outside the app.")
+
 # ======================================================================================================
 # Looks
 # ======================================================================================================
@@ -2242,7 +2355,8 @@ pick it in `appearanceSettings`. A `Theme` of your own is an object of colors
 
 Dark, OLED Black, High Contrast, Midnight, Amber and Green Screen are the
 dark schemes (`themeIsDark`); in them the pixel icons are drawn as their
-line twins, in the text's color (`setIconStyle`). High Contrast and High
+line twins, in the text's color (`setIconStyle`), and `codeEdit` colors
+code in brighter tones on its dark field. High Contrast and High
 Contrast White are for people who need every edge clear
 (`systemPrefs().highContrast` says the system asks for it).
 To follow the system: `if systemDarkMode(): ui.theme = Dark`. OLED Black is

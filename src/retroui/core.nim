@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.46.0"
+const RetroVersion* = "0.47.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -932,6 +932,55 @@ var smoothScrolling* = true
 proc setSmoothScrolling*(on: bool) =
   ## Turns gliding scrolls and flicks on or off (see `smoothScrolling`).
   smoothScrolling = on
+
+type AnimState = object
+  frm, to, cur: float
+  t0, ms, seen: int
+
+var anims: Table[Id, AnimState]   # (the values `animated` moves, by where they are asked)
+
+proc animatedAt*(id: Id; target: float; ms: int): float =
+  ## `animated` for a value of your own id (`idOf`).
+  let now = ui.now
+  if id notin anims:
+    anims[id] = AnimState(frm: target, to: target, cur: target, t0: now, ms: ms, seen: now)
+    return target
+  var a = anims[id]
+  if target != a.to:
+    a.frm = a.cur
+    a.to = target
+    a.t0 = now
+  a.ms = max(1, ms)
+  a.seen = now
+  let d = now - a.t0
+  if d >= a.ms or not smoothScrolling:
+    a.cur = a.to                 # (less movement asked: there at once)
+  else:
+    let t = 1.0 - d / a.ms
+    a.cur = a.frm + (a.to - a.frm) * (1.0 - t * t * t)     # (fast, then slowing)
+    wakeIn(16)
+  anims[id] = a
+  if anims.len > 256:
+    # (those not asked for a while are forgotten)
+    var old: seq[Id]
+    for k, v in anims:
+      if now - v.seen > 10_000: old.add k
+    for k in old: anims.del k
+  a.cur
+
+template animated*(target: float; ms = 200; key = ""): float =
+  ## `target`, reached smoothly: when it changes, the value glides from
+  ## where it was to it in `ms` milliseconds (fast at first, then slowing),
+  ## a frame at a time; at once when the user asked for less movement
+  ## (`smoothScrolling` off). Each call is its own value, by where it is in
+  ## the code (and `key`, for one call in a loop):
+  ##
+  ## .. code-block:: nim
+  ##   let x = animated(if panelOpen: 0.0 else: -260.0)   # a panel sliding in
+  ##   let a = animated(if hovering: 1.0 else: 0.0, 120)  # a glow fading
+  const at = instantiationInfo(-1, true)
+  const site = at.filename & ":" & $at.line & ":" & $at.column & ":"
+  animatedAt(idOf(site & key), target, ms)
 
 type CaptionButtons* = enum
   ## The buttons at the right of the title bars the toolkit draws: the 3.1
@@ -2563,6 +2612,49 @@ proc tr*(s: sink string): string =
   if uiPseudo: return pseudoText(s)
   if uiStrings.len == 0 or s.len == 0: return s     # (moved, not copied)
   uiStrings.getOrDefault(s, s)
+
+proc pluralForm*(lang: string; n: int): int =
+  ## Which form of a word goes with the number `n` in `lang`, as the
+  ## languages count them (CLDR's order): English and most of Europe 0 for
+  ## one, 1 for others; French 0 for 0 and 1; Arabic zero, one, two, few,
+  ## many, other (0 to 5); Russian, Ukrainian and Polish one, few, many;
+  ## Chinese, Japanese, Korean, Turkish, Persian, Indonesian one form.
+  let a = abs(n)
+  case lang
+  of "ar":
+    let h = a mod 100
+    if a == 0: 0 elif a == 1: 1 elif a == 2: 2
+    elif h in 3 .. 10: 3 elif h in 11 .. 99: 4 else: 5
+  of "fr":
+    if a <= 1: 0 else: 1
+  of "ru", "uk", "be":
+    let t = a mod 10
+    let h = a mod 100
+    if t == 1 and h != 11: 0 elif t in 2 .. 4 and h notin 12 .. 14: 1 else: 2
+  of "pl":
+    let t = a mod 10
+    let h = a mod 100
+    if a == 1: 0 elif t in 2 .. 4 and h notin 12 .. 14: 1 else: 2
+  of "zh", "ja", "ko", "tr", "fa", "id", "ms", "th", "vi":
+    0
+  else:
+    if a == 1: 0 else: 1
+
+proc trn*(n: int; one, many: string): string =
+  ## A text with a number in it, the word in the form the number takes:
+  ## `trn(n, "{n} file", "{n} files")` -- "1 file", "3 files" -- `{n}`
+  ## standing for the number. In another language its forms come from the
+  ## strings given to `setUiLanguage` under "one|many", between "|" in
+  ## the language's order (`pluralForm`).
+  var t = ""
+  let forms = if uiStrings.len > 0: uiStrings.getOrDefault(one & "|" & many) else: ""
+  if forms.len > 0:
+    let f = forms.split('|')
+    t = f[clamp(pluralForm(uiLanguage, n), 0, f.high)]
+  else:
+    t = if n == 1: one else: many
+  t = t.replace("{n}", $n)
+  if uiPseudo: pseudoText(t) else: t
 
 proc mirroredX(x: int): int {.inline.} =
   ## (a point across the screen, right to left when the interface is)

@@ -85,6 +85,8 @@ what it needs (see "What the app declares").
 | `openSettings` | ✓ | ✓ | ✓ | ✓ | ✓ | – |
 | camera, microphone (`retroui/capture`) | ✓ V4L2, PulseAudio | ✓ Media Foundation | ✓ AVFoundation | ✓ *permission* | ✓ *Info.plist* | ✓ *https, asks* |
 | media keys (`retroui/mediasession`) | ✓ MPRIS | ✓ SMTC | ✓ Now Playing | ✓ MediaSession | ✓ | ✓ Media Session |
+| a sound playing on in the background (`audioView`) | ✓ | ✓ | ✓ | ✓ *a foreground service* | ✓ *UIBackgroundModes* | ✓ while the tab is open |
+| an icon in the tray (`retroui/tray`) | ✓ StatusNotifierItem *(KDE, XFCE, Cinnamon; GNOME with AppIndicator)* | ✓ the notification area | ✓ the menu bar | – | – | – |
 | secrets (`retroui/secrets`) | ✓ keyring / sealed file | ✓ DPAPI | ✓ keychain | ✓ sealed file | ✓ | ✓ WebCrypto |
 | signing in (`retroui/oauth`) | ✓ the browser | ✓ | ✓ | ✓ | ✓ | ✓ *a pop-up* |
 | updates (`retroui/update`) | ✓ AppImage, packages | ✓ | ✓ *.dmg, .pkg* | ✓ *the installer* | – | ✓ the service worker |
@@ -114,6 +116,7 @@ required, so the app installs on a device without a camera or GPS.
 | camera, microphone | ✓ (`cameraView`, `recordSound`...) | `--permission:CAMERA`, `--permission:RECORD_AUDIO` |
 | the network | ✓ (`httpRequest`, downloads, chat, `webView`) | `--permission:INTERNET` |
 | background checks | | `--background` |
+| a sound playing on in the background (`audioView`) | ✓ (`FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, the playback service) | `--permission:FOREGROUND_SERVICE --permission:FOREGROUND_SERVICE_MEDIA_PLAYBACK` |
 | Java of the app's own (a service, a receiver) | | `--java:DIR` (its classes.dex, its manifest.txt) |
 | installing an update's APK | | `--permission:REQUEST_INSTALL_PACKAGES` |
 
@@ -123,7 +126,10 @@ the app goes on.
 
 **iOS and macOS**: the app's Info.plist says why it asks (`retroios` and
 `tools/macapp.sh` write them): `NSLocationWhenInUseUsageDescription`,
-`NSCameraUsageDescription`, `NSMicrophoneUsageDescription`.
+`NSCameraUsageDescription`, `NSMicrophoneUsageDescription`; and
+`UIBackgroundModes` audio when the app plays sounds with `audioView`
+(`retroios` sees it in the compiled code), so they play on in the
+background.
 
 **Web** (`retrokit web`): the page served over https (or from
 localhost); the browser asks the user the first time. Chat, and an

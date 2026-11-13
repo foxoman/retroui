@@ -2060,6 +2060,10 @@ registerProcessor("retro-sound", RetroSound);`;
         const pl = self.videos && self.videos.get(id);
         if (pl) pl.v.volume = Math.max(0, Math.min(1, vol));
       },
+      rw_video_rate: (id, rate) => {
+        const pl = self.videos && self.videos.get(id);
+        if (pl) { pl.v.defaultPlaybackRate = rate; pl.v.playbackRate = rate; pl.v.preservesPitch = true; }
+      },
       rw_access: (p, n, focus) => { self.accessTree(text(p, n), focus); },
       rw_gl: (op, a, b, c, d, e, f, g, h, i) => self.gl3(op, a, b, c, d, e, f, g, h, i),
       rw_camera_frame: (id, px, w, h) => {

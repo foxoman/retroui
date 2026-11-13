@@ -1560,6 +1560,7 @@ var gAtspi = false
 
 proc wlPollEvent(e: var input.Event; flags: set[InputFlag]): bool =
   if gAtspi: atspiProcess()
+  if waitSources.len > 0 and waitSourcesReady(): pushEvent(input.Event(kind: NoEvent))
   if conn != nil and not conn.failed:
     discard conn.flush()
     while conn.readSome(0): discard
@@ -1580,6 +1581,7 @@ proc wlWaitEvent(e: var input.Event; timeoutMs: int; flags: set[InputFlag]): boo
     var fds = @[TPollfd(fd: conn.fd, events: POLLIN)]
     if gAtspi:
       for fd in atspiFds(): fds.add TPollfd(fd: fd, events: POLLIN)
+    for fd in waitSourceFds(): fds.add TPollfd(fd: fd, events: POLLIN)
     discard poll(addr fds[0], Tnfds(fds.len), cint(wait))
     if wlPollEvent(e, flags): return true
     if conn.failed: return takeEvent(e)

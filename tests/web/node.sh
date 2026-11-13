@@ -17,7 +17,8 @@ tests=${*:-"test_widgets test_business test_text test_bidi test_input test_recor
   test_charts test_planning test_mapview test_view3d test_htmlview test_canvas2d test_pdf
   test_report test_scroll test_rows test_xlsx test_letters test_morecontrols test_dock test_toolcustom
   test_richedit test_qrcode test_touchsizes test_scale
-  test_tilemap test_gltf test_update"}
+  test_tilemap test_gltf test_update test_feeds test_undo test_pages test_typeforms
+  test_uistrings test_codeedit"}
 nim c -d:release --hints:off --warnings:off -o:"$OUT/retroweb" src/retroweb.nim || exit 1
 one() {
   t=$1

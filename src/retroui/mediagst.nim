@@ -36,6 +36,7 @@ type
     video: bool
     posterPending: bool
     volume: float
+    rate: float              # (the speed: 1 as recorded)
 
 var
   loaded = 0                 # 0 not tried, 1 there, -1 not there
@@ -45,6 +46,8 @@ var
   getState: proc (e: pointer; state, pending: ptr cint; timeout: uint64): cint {.cdecl, gcsafe.}
   queryPos, queryDur: proc (e: pointer; fmt: cint; v: ptr int64): cint {.cdecl, gcsafe.}
   seekSimple: proc (e: pointer; fmt, flags: cint; pos: int64): cint {.cdecl, gcsafe.}
+  seekFull: proc (e: pointer; rate: cdouble; fmt, flags, startType: cint; start: int64;
+                  stopType: cint; stop: int64): cint {.cdecl, gcsafe.}
   getBus: proc (e: pointer): pointer {.cdecl, gcsafe.}
   popFiltered: proc (bus: pointer; types: cint): pointer {.cdecl, gcsafe.}
   miniUnref, objUnref, gFree: proc (o: pointer) {.cdecl, gcsafe.}
@@ -92,6 +95,7 @@ proc loadGst(): bool =
     get(core, queryPos, "gst_element_query_position")
     get(core, queryDur, "gst_element_query_duration")
     get(core, seekSimple, "gst_element_seek_simple")
+    get(core, seekFull, "gst_element_seek")
     get(core, getBus, "gst_element_get_bus")
     get(core, popFiltered, "gst_bus_pop_filtered")
     get(core, miniUnref, "gst_mini_object_unref")
@@ -154,7 +158,7 @@ proc gstOpen*(path: string; video: bool; audioSink = ""): GstPlayer =
   if not gstAvailable() or not (stream or fileExists(path)): return nil
   let pipe = makeElement("playbin", nil)
   if pipe == nil: return nil
-  result = GstPlayer(pipe: pipe, video: video, volume: 1.0)
+  result = GstPlayer(pipe: pipe, video: video, volume: 1.0, rate: 1.0)
   if stream:
     # (a web address: playbin fetches it, HLS and DASH too where the
     #  plugins are there)
@@ -180,6 +184,9 @@ proc gstOpen*(path: string; video: bool; audioSink = ""): GstPlayer =
   else:
     let fake = makeElement("fakesink", nil)
     if fake != nil: objSet(pipe, "video-sink", fake, nil)
+    # (a voice faster or slower keeps its pitch: `setRate`)
+    let tempo = makeElement("scaletempo", nil)
+    if tempo != nil: objSet(pipe, "audio-filter", tempo, nil)
   let wanted = if audioSink.len > 0: audioSink else: systemAudioSink()
   var a = makeElement(wanted.cstring, nil)
   if a == nil and audioSink.len == 0 and wanted != "alsasink" and dirExists("/dev/snd"):
@@ -234,7 +241,21 @@ proc seekMs*(p: GstPlayer; ms: int) =
   ## Goes to `ms` milliseconds (the nearest key frame).
   if p != nil and p.pipe != nil:
     p.ended = false
-    discard seekSimple(p.pipe, FormatTime, 1 or 4, int64(max(0, ms)) * 1_000_000)  # flush, key unit
+    if p.rate == 1.0:
+      discard seekSimple(p.pipe, FormatTime, 1 or 4, int64(max(0, ms)) * 1_000_000)  # flush, key unit
+    else:
+      discard seekFull(p.pipe, p.rate, FormatTime, 1 or 4, 1, int64(max(0, ms)) * 1_000_000, 0, -1)
+
+proc setRate*(p: GstPlayer; rate: float) =
+  ## The speed it plays at (0.5 .. 3; 1 as recorded); a voice keeps its
+  ## pitch where GStreamer has scaletempo.
+  if p == nil or p.pipe == nil: return
+  let r = clamp(rate, 0.25, 4.0)
+  if r == p.rate: return
+  p.rate = r
+  var v: int64
+  let at = if queryPos(p.pipe, FormatTime, addr v) != 0 and v >= 0: v else: 0
+  discard seekFull(p.pipe, r, FormatTime, 1 or 2, 1, at, 0, -1)    # flush, accurate; from here on
 
 proc setVolume*(p: GstPlayer; v: float) =
   ## The volume (0..4; 1 is as recorded).

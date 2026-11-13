@@ -3833,6 +3833,7 @@ proc x11AccessStart(): bool =
 
 proc x11PollEvent(e: var input.Event; flags: set[InputFlag]): bool =
   if gAtspi: atspiProcess()
+  if waitSources.len > 0 and waitSourcesReady(): pushEvent(input.Event(kind: NoEvent))
   drainXEvents()
   if eventQueue.len > 0:
     e = eventQueue[0]
@@ -3867,6 +3868,10 @@ proc x11WaitEvent(e: var input.Event; timeoutMs: int;
       for fd in atspiFds():
         xFdSet(fd, addr fds)
         top = max(top, fd)
+    # (and the program's own sockets: `addWaitSource`)
+    for fd in waitSourceFds():
+      xFdSet(fd, addr fds)
+      top = max(top, fd)
 
     if timeoutMs < 0:
       discard xSelect(top + 1, addr fds, nil, nil, nil)
@@ -3878,6 +3883,7 @@ proc x11WaitEvent(e: var input.Event; timeoutMs: int;
 
     # select() returned -- drain whatever arrived
     if gAtspi: atspiProcess()
+    if waitSources.len > 0 and waitSourcesReady(): pushEvent(input.Event(kind: NoEvent))
     drainXEvents()
     if eventQueue.len > 0:
       e = eventQueue[0]

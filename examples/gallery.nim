@@ -6,7 +6,7 @@
 
 import std/[strutils, os, json, math, times]
 import retroui
-import retroui/[tilemap, system, capture, secrets]
+import retroui/[tilemap, system, capture, secrets, jobs, tray]
 
 const
   languages = ["English", "Deutsch", "Français", "Español", "Italiano",
@@ -1098,6 +1098,179 @@ var settings: array[40, tuple[on: bool, name: string]]
 for i in 0 ..< settings.len:
   settings[i] = (i mod 3 == 0, "Setting number " & $(i + 1))
 
+# ---- Forms & Code: forms and grids from types, undo, the code editor, pages, jobs ---------------
+
+type
+  Shift = enum Morning, Evening, Night
+  Staff = object
+    name {.caption: "Full name", required, maxLen: 40.}: string
+    age {.limits: (16, 70).}: int
+    shift: Shift
+    startDate: Date
+    hourly {.decimals: 2.}: float
+    remote: bool
+    notes {.multiline: 2, help: "Anything the manager should know".}: string
+
+const contacts = [("Maryam Al Balushi", "Designer", "Muscat"), ("Salim Al Harthy", "Engineer", "Sohar"),
+                  ("Aisha Al Said", "Manager", "Nizwa"), ("Khalid Al Rawahi", "Driver", "Sur"),
+                  ("Noor Al Hinai", "Nurse", "Salalah")]
+
+var
+  kTab = 0
+  staff = Staff(name: "Maryam Al Balushi", age: 29, shift: Evening,
+                startDate: Date(year: 2026, month: 9, day: 1), hourly: 6.5)
+  staffList = @[Staff(name: "Salim Al Harthy", age: 41, startDate: Date(year: 2025, month: 2, day: 15),
+                      hourly: 7.25),
+                Staff(name: "Aisha Al Said", age: 35, shift: Night,
+                      startDate: Date(year: 2026, month: 5, day: 3), hourly: 8.0, remote: true)]
+  staffSel = 0
+  history: UndoStack           # (Edit, Undo: the form's changes and the rows added)
+  codeText = "import retroui\n\n# A code editor: colors by language, line numbers, find (F3)\n" &
+             "var count = 0\n\napp \"Counter\", 240, 90:\n  row:\n" &
+             "    if button(\"&Add\"): inc count   # Ctrl+/ comments a line\n" &
+             "    label \"Count: \" & $count\n"
+  codeLang = 1
+  codeFind = ""
+  contactSel = 0
+  contactOpen = false
+  nav = initPages("contacts")
+  primeTo = 3_000_000
+  primeJob: Job[int]
+  wideBar = false
+  trayOn = false
+  showCode = false
+
+proc countPrimes(top: int): Job[int] =
+  ## (the primes below `top` counted on another thread: a job)
+  job(proc (c: JobCtl): int =
+    for n in 2 ..< top:
+      if n mod 8192 == 0:
+        c.progress(n / top)
+        if c.cancelled: return
+      var d = 2
+      var prime = true
+      while d * d <= n:
+        if n mod d == 0:
+          prime = false
+          break
+        inc d
+      if prime: inc result)
+
+proc kitTab() =
+  tabs kTab, ["F&orms", "Co&de", "&Pages", "&Jobs"]:
+    case kTab
+    of 0:
+      adaptive(300):
+        group "A form of a Nim object (formOf)":
+          let before = staff
+          if formOf(staff, labelW = dp(96)):
+            history.record("Typing", staff, before, merge = "staff")
+          if button("&Add to the grid", enabled = formValid(staff)):
+            let was = staffList
+            staffList.add staff
+            history.record("Add", staffList, was)
+            status = "Added " & staff.name
+        group "A grid of a seq of them (gridOf)":
+          gridOf(staffList, staffSel, height = 7)
+          label("A header's click sorts by it. Edit, Undo (Ctrl+Z) takes the changes and the " &
+                "rows added back.", color = ui.theme.gray)
+    of 1:
+      row:
+        label "&Language:"
+        combo(["Text", "Nim", "Python", "C", "JSON", "Shell"], codeLang, w = dp(90))
+        label "&Find:"
+        edit(codeFind, w = dp(120))
+      codeEdit(codeText, lines = 14, lang = CodeLang(codeLang), find = codeFind)
+      label("Ctrl+/ comments the lines, Tab and Shift+Tab indent them, F3 finds the next.",
+            color = ui.theme.gray)
+    of 2:
+      pageView(nav):
+        case nav.page
+        of "contacts":
+          pageHeader(nav, "Contacts")
+          var names: seq[string]
+          for c in contacts: names.add c[0]
+          listDetail(contactOpen, dp(190)):
+            if listbox(names, contactSel, rows = 8): contactOpen = true
+          do:
+            let c = contacts[contactSel]
+            label c[0], bold = true
+            label c[1] & ", " & c[2]
+            if button("&More about " & c[0].split(' ')[0] & "..."): nav.push("more")
+          label("Side by side where there is room, one at a time on a phone (listDetail); " &
+                "More opens a page over this one (pageView).", color = ui.theme.gray)
+        of "more":
+          pageHeader(nav, contacts[contactSel][0])
+          label "Works in " & contacts[contactSel][2] & " as a " & contacts[contactSel][1].toLowerAscii & "."
+          label("Back, Esc or Alt+Left goes back; the phone's Back too.", color = ui.theme.gray)
+    else:
+      adaptive(300):
+        group "A job on another thread (retroui/jobs)":
+          row:
+            label "Primes &below:"
+            intEdit(primeTo, w = dp(100), lo = 1000, hi = 50_000_000, thousands = true)
+          row:
+            if button("&Count", enabled = primeJob == nil or primeJob.ended):
+              primeJob = countPrimes(primeTo)
+            if button("C&ancel", enabled = primeJob != nil and primeJob.running): primeJob.cancel()
+          if primeJob != nil:
+            progress(primeJob.progress)
+            label(case primeJob.state
+                  of jsDone: $primeJob.value & " primes"
+                  of jsCancelled: "Cancelled"
+                  of jsFailed: primeJob.error
+                  else: "Counting... the window stays awake")
+        group "animated(value, ms)":
+          if button(if wideBar: "&Narrow" else: "&Widen"): wideBar = not wideBar
+          let r = place(0, dp(14))
+          fill(rect(r.x, r.y, int(r.w.float * animated(if wideBar: 1.0 else: 0.2, 300)), r.h),
+               ui.theme.select)
+        group "An icon in the tray (retroui/tray)":
+          checkbox "Show the gallery's &icon in the tray", trayOn
+          if trayOn and not trayIconShown():
+            label("No tray on this system", color = ui.theme.gray)
+
+const GallerySrc = staticRead("gallery.nim")   ## (View, Code: each page's code)
+
+proc tabCode(t: int): string =
+  ## The code of the gallery's page `t`, from its source: the branch of
+  ## `case tab`, or the proc it calls.
+  let ls = GallerySrc.splitLines
+  proc body(a, b: int): string =
+    var least = high(int)
+    for l in ls[a ..< b]:
+      if l.strip.len > 0: least = min(least, l.len - l.strip(trailing = false).len)
+    var e = b
+    while e > a and ls[e - 1].strip.len == 0: dec e
+    for l in ls[a ..< e]: result.add (if l.len >= least: l[least .. ^1] else: "") & "\n"
+  proc procOf(name: string): string =
+    for i, l in ls:
+      if l.startsWith("proc " & name & "("):
+        var j = i + 1
+        while j < ls.len and (ls[j].len == 0 or ls[j][0] == ' '): inc j
+        return body(i, j)
+  let start = ls.find("    case tab")
+  if start < 0: return ""
+  var i = start + 1
+  var fallback = ""
+  while i < ls.len and (ls[i].len == 0 or ls[i].startsWith("    ")):
+    let head = ls[i].strip
+    if ls[i].startsWith("    of ") or ls[i].startsWith("    else"):
+      let colon = head.find(':')
+      var hit = head.startsWith("else")
+      if head.startsWith("of "):
+        for n in head[3 ..< colon].split(','):
+          if n.strip == $t: hit = true
+      if hit:
+        let rest = head[colon + 1 .. ^1].strip
+        var j = i + 1
+        while j < ls.len and (ls[j].len == 0 or ls[j].startsWith("      ")): inc j
+        let code = if rest.len > 0: procOf(rest.split('(')[0]) else: body(i + 1, j)
+        if head.startsWith("else"): fallback = code
+        else: return code
+    inc i
+  fallback
+
 proc setScheme(i: int) =
   scheme = i
   ui.theme = [Classic, Gray, Dark][i]
@@ -1117,7 +1290,7 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
       menuSeparator()
       if menuItem("E&xit", "Alt+F4"): showConfirm = true
     menu "&Edit":
-      discard menuItem("&Undo", "Ctrl+Z", enabled = false)
+      undoMenuItems(history)
       menuSeparator()
       if menuItem("Cu&t", "Ctrl+X"): status = "Cut"
       if menuItem("&Copy", "Ctrl+C"): status = "Copy"
@@ -1132,6 +1305,7 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
         for lk in [blIconOnly, blTextBelow, blTextBeside, blTextOnly]:
           if menuItem($lk, checked = toolbarLook == lk): setToolbarLook(lk)
       menuSeparator()
+      if menuItem("This Page's &Code...", "Ctrl+U"): showCode = true
       if menuItem("&Appearance..."): showLook = true
     menu "&Insert":
       if menuItem("&Date and Time"): status = "Inserted " & $today()
@@ -1179,8 +1353,9 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
   # menus' (F, E, V, I, W, H) and the controls' of each page)
   tabs(tab, ["Controls", "Lists", "Business", "Charts", "Drawing", "Scrolling",
              "More", "Markdown", "Apps", "Files", "Records", "Windows", "Planning",
-             "Map && 3D", "Canvas", "HTML", "Reports", "System"]):
+             "Map && 3D", "Canvas", "HTML", "Reports", "System", "Forms && Code"]):
     case tab
+    of 18: kitTab()
     of 14: canvasTab()
     of 15: htmlTab()
     of 16: reportsTab()
@@ -1511,6 +1686,26 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
             accessName "Setting " & $(i + 1)
             edit settings[i].name
 
+  undoKeys(history)
+  if hotkeyPressed("Ctrl+U"): showCode = true
+  if trayOn:
+    let t = trayIcon(GalleryIconPng, "Control Gallery: " & status, ["&Show the Gallery", "-", "E&xit"])
+    if t.clicked or t.picked == 0: status = "The tray icon was clicked"
+    if t.picked == 2: showConfirm = true
+
+  # (View, This Page's Code: how the page shown is made, from the gallery's source)
+  var shownCode {.global.}: string
+  if showCode and shownCode.len == 0: shownCode = tabCode(tab)
+  dialog(showCode, "Code", 640):
+    codeEdit(shownCode, lines = 18, readOnly = true)
+    row:
+      spring()
+      if button("&Copy"):
+        putClipboardText(shownCode)
+        status = "The code is on the clipboard"
+      if button("Close", isDefault = true): showCode = false
+  if not showCode: shownCode = ""
+
   filesJob()
   if filePicker(pickOpen, picked, patterns = ["*.png", "*.jpg", "*.md", "*.nim"]):
     status = "Picked " & picked
@@ -1535,7 +1730,10 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
             "for Nim on Windows, macOS, Linux, Android and iOS."],
            tagline = "Every control of Retro Nim UI",
            iconPng = GalleryIconPng, glyph = pxApp,
-           whatsNew = ["Nine more color schemes: High Contrast and High Contrast White, Midnight, " &
+           whatsNew = ["Forms and grids from your types, Undo, pages, jobs on worker threads, a code " &
+                       "editor, translations with plurals, the tray; View, This Page's Code (Ctrl+U)",
+                       "Retro Podcast: a podcast player for every system and the web, built from them",
+                       "Nine more color schemes: High Contrast and High Contrast White, Midnight, " &
                        "Emerald, Rose, Slate, Mahogany, Amber, Green Screen; 7GUIs as an app",
                        "Retro Navigator 0.4.0: the page's look on the tool bar, the window's own " &
                        "scroll bars on pages (webScrollBars), white Classic pages, a zoom slider",

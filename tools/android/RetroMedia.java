@@ -48,6 +48,108 @@ public class RetroMedia {
     volatile int pos, dur;
   }
 
+  /** A sound of audioView: a MediaPlayer of its own, no view -- it plays on
+   *  with the app in the background (RetroPlayback keeps the app alive). */
+  static class Audio {
+    MediaPlayer p;
+    String path;
+    volatile boolean playing, ended, prepared, startWhenReady;
+    volatile int pos, dur, seekWhenReady = -1;
+    float rate = 1f;
+  }
+  static final ConcurrentHashMap<String, Audio> audios = new ConcurrentHashMap<String, Audio>();
+
+  static void anyPlaying(Activity a) {
+    boolean on = false;
+    for (Audio x : audios.values()) if (x.playing) on = true;
+    if (on) RetroPlayback.start(a); else RetroPlayback.stop(a);
+  }
+
+  static void applyRate(Audio x) {
+    // (setPlaybackParams starts a paused player: only while it plays)
+    if (x.p == null || !x.prepared || !x.playing) return;
+    try { x.p.setPlaybackParams(x.p.getPlaybackParams().setSpeed(x.rate)); } catch (Throwable t) { }
+  }
+
+  static String audio(final Activity a, final String what, final String[] args) {
+    final String key = args[0];
+    final Audio known = audios.get(key);
+    if (what.equals("State")) {
+      if (known == null) return "0\t0\t0\t0";
+      try {
+        if (known.prepared) {
+          known.pos = known.p.getCurrentPosition();
+          int d = known.p.getDuration();
+          if (d > 0) known.dur = d;
+        }
+      } catch (Throwable t) { }
+      return (known.playing ? "1" : "0") + "\t" + known.pos + "\t" + known.dur + "\t" +
+             (known.ended ? "1" : "0");
+    }
+    if (what.equals("Show")) {
+      String path = args[5];
+      if (known != null && path.equals(known.path)) return "1";
+      if (known != null) {
+        try { known.p.release(); } catch (Throwable t) { }
+        audios.remove(key);
+      }
+      final Audio x = new Audio();
+      x.path = path;
+      x.p = new MediaPlayer();
+      x.startWhenReady = args.length > 6 && args[6].equals("1");
+      try {
+        x.p.setDataSource(path);
+        x.p.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
+          public void onPrepared(MediaPlayer mp) {
+            x.prepared = true;
+            x.dur = Math.max(0, mp.getDuration());
+            if (x.seekWhenReady >= 0) { mp.seekTo(x.seekWhenReady); x.seekWhenReady = -1; }
+            if (x.startWhenReady) { mp.start(); x.playing = true; applyRate(x); anyPlaying(a); }
+          }
+        });
+        x.p.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+          public void onCompletion(MediaPlayer mp) { x.ended = true; x.playing = false; anyPlaying(a); }
+        });
+        x.p.setOnErrorListener(new MediaPlayer.OnErrorListener() {
+          public boolean onError(MediaPlayer mp, int w, int e) { x.playing = false; anyPlaying(a); return true; }
+        });
+        x.p.prepareAsync();
+      } catch (Throwable t) {
+        try { x.p.release(); } catch (Throwable u) { }
+        return null;
+      }
+      audios.put(key, x);
+      if (x.startWhenReady) x.playing = true;
+      return "1";
+    }
+    if (known == null) return "1";
+    try {
+      if (what.equals("Play")) {
+        known.ended = false;
+        known.playing = true;
+        if (known.prepared) { known.p.start(); applyRate(known); } else known.startWhenReady = true;
+      } else if (what.equals("Pause")) {
+        known.playing = false;
+        known.startWhenReady = false;
+        if (known.prepared) known.p.pause();
+      } else if (what.equals("Seek")) {
+        int ms = Integer.parseInt(args[1]);
+        known.ended = false;
+        if (known.prepared) known.p.seekTo(ms); else known.seekWhenReady = ms;
+        known.pos = ms;
+      } else if (what.equals("Rate")) {
+        known.rate = Float.parseFloat(args[1]);
+        applyRate(known);
+      } else if (what.equals("Close")) {
+        known.playing = false;
+        audios.remove(key);
+        known.p.release();
+      }
+    } catch (Throwable t) { }
+    anyPlaying(a);
+    return "1";
+  }
+
   public static String call(final Activity a, String what, final String[] args) throws Exception {
     if (what.equals("play")) return play(args);
     if (what.equals("stop")) {
@@ -705,6 +807,9 @@ public class RetroMedia {
 
   static String video(final Activity a, final String what, final String[] args) {
     final String key = args[0];
+    // (a sound: its own player, no view)
+    if (audios.containsKey(key) || (what.equals("Show") && args.length > 7 && args[7].equals("a")))
+      return audio(a, what, args);
     final Video known = videos.get(key);
     if (what.equals("State")) {
       if (known == null) return "0\t0\t0\t0";
@@ -777,6 +882,8 @@ public class RetroMedia {
           } else if (what.equals("Seek")) {
             v.view.seekTo(Integer.parseInt(args[1]));
             v.ended = false;
+          } else if (what.equals("Rate")) {
+            // (a VideoView keeps its MediaPlayer: not reached; videos play at 1)
           } else if (what.equals("Close")) {
             v.view.stopPlayback();
             if (layer != null) layer.removeView(v.view);

@@ -44,7 +44,7 @@ else:
     gstOpen(path, video, audioSink)
 
   export mediagst.close, mediagst.play, mediagst.pause, mediagst.playing,
-         mediagst.positionMs, mediagst.durationMs, mediagst.seekMs, mediagst.setVolume,
+         mediagst.positionMs, mediagst.durationMs, mediagst.seekMs, mediagst.setVolume, mediagst.setRate,
          mediagst.showFirstPicture, mediagst.poll
 
 proc isStream*(path: string): bool =

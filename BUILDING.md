@@ -603,8 +603,10 @@ the APKs a phone gets: `java -jar bundletool.jar build-apks
   starts again in the next one with the first run's cycles collected.
 - **Permissions:** `retroapk` reads what the app's compiled code uses --
   the camera, the microphone, notifications, the place, a buzz, the
-  network -- and lists those permissions in the manifest by itself (it says
-  which; `--no-auto-permissions` leaves them out). The app asks the user
+  network, a sound playing on in the background (`audioView`: the playback
+  service and its permissions) -- and lists those permissions in the
+  manifest by itself (it says which; `--no-auto-permissions` leaves them
+  out). The app asks the user
   the first time the feature is used (Android 6 and later), and goes on
   without it when the answer is no.
 - **Built for Android's emulator:** `nimble emuapks` (x86_64, debuggable);

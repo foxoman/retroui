@@ -13,6 +13,7 @@ proc rwVideoPlay(id: cint; on: cint) {.importc: "rw_video_play", cdecl.}
 proc rwVideoState(id: cint; out6: ptr array[6, int32]) {.importc: "rw_video_state", cdecl.}
 proc rwVideoSeek(id: cint; ms: cint) {.importc: "rw_video_seek", cdecl.}
 proc rwVideoVolume(id: cint; v: cdouble) {.importc: "rw_video_volume", cdecl.}
+proc rwVideoRate(id: cint; v: cdouble) {.importc: "rw_video_rate", cdecl.}
 proc rwVideoFrame(id: cint; px: pointer; w, h: cint): cint {.importc: "rw_video_frame", cdecl.}
 
 type
@@ -72,6 +73,10 @@ proc seekMs*(p: MediaPlayer; ms: int) =
 
 proc setVolume*(p: MediaPlayer; v: float) =
   if p != nil and p.id > 0: rwVideoVolume(p.id, cdouble(v))
+
+proc setRate*(p: MediaPlayer; rate: float) =
+  ## The speed it plays at (0.5 .. 3; 1 as recorded); a voice keeps its pitch.
+  if p != nil and p.id > 0: rwVideoRate(p.id, cdouble(clamp(rate, 0.25, 4.0)))
 
 proc showFirstPicture*(p: MediaPlayer) = discard
   ## (the browser shows the first picture once it has it)

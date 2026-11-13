@@ -46,7 +46,7 @@ import std/[os, osproc, strutils, sequtils, times, hashes]
 when not defined(windows):
   import std/dynlib
 import retroweb, retrostore
-import retroui/[buildjobs, symbolize, driveclient]
+import retroui/[buildjobs, symbolize, driveclient, uistrings]
 import std/json
 
 const usage = """
@@ -55,6 +55,11 @@ retrokit -- start, check and build Retro Nim UI apps
   retrokit new NAME [--kind:hello|form|business|files|charts]
       a folder NAME with NAME.nim, NAME.nimble (tasks: run, small, apk)
       and an icon
+  retrokit strings APP.nim [--lang:LL] [--out:FILE]
+      the app's texts -- its labels, buttons, menus, titles, tr and trn --
+      into APP-LL.txt for a translator ("English = translation" a line;
+      what is translated there is kept); setUiLanguage("LL",
+      loadUiStrings("APP-LL.txt")) shows the app in that language
   retrokit doctor
       checks Nim, the C compiler, the screen libraries and the Android tools
       (clang + lld or zig: APKs without the NDK)
@@ -338,6 +343,28 @@ proc found(cmd: string): string =
 proc sourceRoots(): seq[string]
 proc parserBuilds(root: string; why: var string): bool
 proc distMissing(root: string): seq[string]
+
+proc stringsCmd(args: seq[string]): int =
+  ## retrokit strings APP.nim [--lang:LL] [--out:FILE]: the app's texts into
+  ## a strings file for a translator (its translations kept when it is there)
+  var app, lang, outFile = ""
+  lang = "xx"
+  for a in args:
+    if a.startsWith("--lang:"): lang = a[7 .. ^1]
+    elif a.startsWith("--out:"): outFile = a[6 .. ^1]
+    elif app.len == 0: app = a
+  if app.len == 0 or not fileExists(app):
+    echo "retrokit strings APP.nim [--lang:LL] [--out:FILE]"
+    return 2
+  if outFile.len == 0: outFile = app.changeFileExt("") & "-" & lang & ".txt"
+  let keys = collectUiStrings(appSources(app))
+  let kept = loadUiStrings(outFile)
+  writeFile(outFile, writeUiStrings(keys, kept, lang))
+  var done = 0
+  for (k, v) in kept:
+    if v.len > 0 and k in keys: inc done
+  echo outFile, ": ", keys.len, " texts, ", done, " translated"
+  0
 
 proc doctor() =
   var ok = true
@@ -919,6 +946,7 @@ proc main() =
       elif name.len == 0: name = a
     newApp(name, kind)
   of "doctor": doctor()
+  of "strings": quit stringsCmd(args[1 .. ^1])
   of "web":
     var app = ""
     let o = parseWebOptions(args[1 .. ^1], app)

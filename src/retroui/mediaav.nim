@@ -27,6 +27,7 @@ type
     volume: float
     started: bool            ## asked to play at least once
     lastPos: int
+    rate: float32            ## (the speed: 1 as recorded)
 
 var
   avState = 0                ## 0 not tried, 1 there, -1 not
@@ -94,8 +95,17 @@ proc openPlayer*(path: string; video: bool; audioSink = ""): MediaPlayer =
     let player = objcSend(ObjcId, objcClass("AVPlayer"), "playerWithURL:", url)
     if player == nil: return nil
     objcSend(void, player, "retain")
-    result = MediaPlayer(player: player, video: video, volume: 1.0)
+    result = MediaPlayer(player: player, video: video, volume: 1.0, rate: 1.0)
     result.item = objcSend(ObjcId, player, "currentItem")
+    when defined(ios):
+      if not video:
+        # (a sound plays with the ring switch on silent, and on in the
+        # background with UIBackgroundModes audio)
+        let session = objcSend(ObjcId, objcClass("AVAudioSession"), "sharedInstance")
+        if session != nil:
+          discard objcSend(bool, session, "setCategory:error:",
+                           nsString("AVAudioSessionCategoryPlayback"), ObjcId(nil))
+          discard objcSend(bool, session, "setActive:error:", true, ObjcId(nil))
     if audioSink == "fakesink": objcSend(void, player, "setMuted:", true)
     if video and result.item != nil:
       # the pictures as BGRA, for the kit to draw
@@ -115,6 +125,7 @@ proc play*(p: MediaPlayer) =
   p.started = true
   objcSend(void, p.player, "setMuted:", false)
   objcSend(void, p.player, "play")
+  if p.rate != 1.0: objcSend(void, p.player, "setRate:", p.rate)
 
 proc pause*(p: MediaPlayer) =
   ## Pauses where it is.
@@ -131,6 +142,12 @@ proc positionMs*(p: MediaPlayer): int =
 proc durationMs*(p: MediaPlayer): int =
   ## How long it is, in milliseconds (0 when not known; a live stream).
   if p == nil or p.item == nil: 0 else: ms(objcSend(CMTime, p.item, "duration"))
+
+proc setRate*(p: MediaPlayer; rate: float) =
+  ## The speed it plays at (0.5 .. 3; 1 as recorded); a voice keeps its pitch.
+  if p == nil or p.player == nil: return
+  p.rate = float32(clamp(rate, 0.25, 4.0))
+  if objcSend(float32, p.player, "rate") != 0: objcSend(void, p.player, "setRate:", p.rate)
 
 proc seekMs*(p: MediaPlayer; ms: int) =
   ## Goes to `ms` milliseconds.

@@ -1,6 +1,6 @@
 # Retro Nim UI: a study of its syntax
 
-By Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)), for Retro Nim UI 0.38.0.
+By Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)), for Retro Nim UI 0.47.0.
 
 The syntax is immediate mode written as plain Nim: a window is a block that runs every frame, a control is a proc call, its result is the event, and your own variables are the state. That one choice removes callbacks, widget objects and data binding, the three things that make most UI code hard to follow.
 
@@ -468,7 +468,7 @@ app "Clock", 220, 70:
 
 ![The Clock window showing the time in bold](syntax/f-time.png)
 
-A frame runs only on input, so a clock asks for the next one: `wakeIn(1000)` runs the block again in a second. Without it the time would stop at the last key or click.
+A frame runs only on input, so a clock asks for the next one: `wakeIn(1000)` runs the block again in a second. Without it the time would stop at the last key or click. Movement asks the same way, done for you: `animated(target, ms)` returns a number that glides to `target` when it changes -- `let x = animated(if open: 0.0 else: -260.0)` slides a panel -- and asks for the frames until it is there.
 
 ### A web page, and its scripts
 
@@ -518,11 +518,128 @@ app "Where", 320, 110:
 
 The system's features (`retroui/system`: notifications, sharing, the place, speech...) keep the forms above, with two habits. **An answer that comes later is asked for again**: `location()` is called every frame while it is needed, and says `psWaiting` until the system knows (the user is asked to allow it the first time, so it is asked from a click); the kit draws a frame when the answer comes, as it does for a web page's messages. **"Not here" is an answer**: where a system has no such feature the call says so (false, `psNone`) instead of raising, and the app offers what it can -- here the picture is a desktop with no place to give, and `share` with no share sheet copies the text. The same lines run on every system and in a web page; [docs/system.md](system.md) says what each system answers.
 
+### Work off the screen's thread
+
+```nim
+import retroui
+import retroui/jobs
+
+var primes: Job[int]
+
+app "Job", 300, 120:
+  if button("&Count the primes"):
+    primes = job(proc (c: JobCtl): int =     # runs on a worker thread
+      for n in 2 ..< 200_000:
+        if n mod 4096 == 0: c.progress(n / 200_000)
+        var d = 2
+        while d * d <= n and n mod d != 0: inc d
+        if d * d > n: inc result)
+  if primes != nil:                          # read between frames, like a click
+    progress(primes.progress)
+    if primes.done: label $primes.value & " primes below 200,000"
+```
+
+![A Count the primes button, a full progress bar, and 17984 primes below 200,000](syntax/f-jobs.png)
+
+Work that takes a while -- a download, a search, a sum -- is one more event object: `job` runs the proc on a worker thread and returns a `Job` at once, and the frames read it as they read a click: `progress` while it runs, `value` once it is `done`, `error` when it `failed`. The worker never touches the screen; what it came to is handed over between frames, and the kit draws a frame when it ends. `fetch(url)` is a web request as a job. In a web page, without threads, the job runs between frames: the same lines work.
+
+### Pages, and a list beside its details
+
+```nim
+import retroui
+
+var nav = initPages("inbox")
+var mails = ["Lunch on Thursday?", "The quarterly report", "Photos from Sur"]
+var picked = 0
+
+app "Mail", 320, 150:
+  pageView(nav):                             # the page on top, sliding in
+    case nav.page
+    of "inbox":
+      pageHeader(nav, "Inbox")
+      for i, m in mails:
+        if button(m):
+          picked = i
+          nav.push("mail")                   # a page over this one
+    of "mail":
+      pageHeader(nav, mails[picked])         # with Back (and Esc, the phone's Back)
+      label "From: Aisha"
+      label "The new place by the harbour, at one?"
+```
+
+![The Mail window after the first mail was clicked: a Back button, the mail's subject, From: Aisha and its text](syntax/f-pages.png)
+
+A phone goes through an app page by page; `pageView` is that as a container. The pages are names in a `PageStack`, `case nav.page` draws the one on top, `push` opens one over it (sliding in), and Back -- `pageHeader`'s button, Esc, Alt+Left, the phone's -- goes back. Its sibling `listDetail(open, listW): list do: detail` shows a list beside the details of what is picked where the window has room, and on a phone the list, then the details over it.
+
+### A form from a type
+
+```nim
+import retroui
+
+type
+  Shift = enum Morning, Evening, Night
+  Person = object
+    name {.caption: "Full name", required.}: string
+    age {.limits: (16, 70).}: int
+    shift: Shift
+    remote: bool
+
+var person = Person(name: "Maryam", age: 15)
+
+app "Staff", 360, 205:
+  formOf(person)                             # a field for each field; what is wrong under it
+  if button("&Add", enabled = formValid(person)): discard
+```
+
+![The Staff window: Full name Maryam, Age 15 with From 16 to 70 in red under it, Shift Morning, a Remote check box and a grayed Add button](syntax/f-typeform.png)
+
+A form can come from the data's own type: `formOf` draws a field for each field of the object -- a text box for a string, a number field, a list of an enum's values, a check box, a date picker, a color -- captioned from the field's name (`remote` is Remote) unless `caption` says otherwise. The pragmas are the rules: `required`, `limits`, `maxLen`, `multiline`, `help`, `readonly`, `noForm`. What breaks a rule is said under the field, and `formValid` lets Add wait for a right one. `gridOf(rows, sel)` is the same for a seq: a column for each field, sorted by a header's click.
+
+### Undo
+
+```nim
+import retroui
+
+var title = "Quarterly report"
+var history: UndoStack
+
+app "Report", 320, 130:
+  menubar:
+    menu "&Edit": undoMenuItems(history)     # "Undo Typing"; grayed when nothing
+  let before = title
+  if edit(title):                            # changed this frame: recorded
+    history.record("Typing", title, before, merge = "title")
+  undoKeys(history)                          # Ctrl+Z, Ctrl+Y
+  label(if history.changed: "Not saved" else: "Saved")
+```
+
+![The Report window with its Edit menu open: Undo Typing, Ctrl+Z, and a grayed Redo](syntax/f-undo.png)
+
+The app keeps its own history in an `UndoStack`: `record` takes the value before a change and keeps both (`did` takes two procs instead, for a big document). Typing in a row is one step (`merge`), the Edit menu says what Undo will take back, `undoKeys` reads Ctrl+Z and Ctrl+Y, and `changed` says there is work not saved. It is a binding like the others: the stack is your variable, and the change is recorded on the frame the control reports it.
+
+### Words in other languages
+
+```nim
+import retroui
+
+setUiLanguage("ar", @[("Files", "الملفات"),
+                     ("{n} file|{n} files", "لا ملفات|ملف واحد|ملفان|{n} ملفات|{n} ملفًا|{n} ملف")])
+
+app "Files", 260, 160:
+  label "Files", bold = true                 # looked up: الملفات
+  for n in [1, 2, 5, 11]:
+    label trn(n, "{n} file", "{n} files")    # the form the number takes
+```
+
+![The Files window in Arabic, right to left: the title الملفات, then ملف واحد, ملفان, 5 ملفات and 11 ملفًا](syntax/f-words.png)
+
+Every text a control shows is looked up in the language set by `setUiLanguage`, and the window is mirrored for Arabic. A text with a number takes the number's form with `trn`: English has two, Arabic six (none, one, two, a few, many, others), Russian and Polish three, each language its own rule (`pluralForm`). The tables come from a file a translator fills in: `retrokit strings app.nim --lang:ar` writes every text the app shows -- its labels, buttons, menus, `tr` and `trn` -- into app-ar.txt, and keeps what was translated when run again; `loadUiStrings` reads it back.
+
 ### Sizes, and your own loop
 
 Every size in the code is design pixels: `row([80, -1])`, `dp(16)` for your own drawing, a dialog's width (see Widths in a row). An app that runs its own loop calls `openApp`, `while beginFrame(): ...`, `endFrame()` and `closeApp()` itself; How it is built shows the five calls, and they draw the same window as `app`.
 
-A new control almost never adds a shape: it is an action, a binding or an event object, so learning one control teaches the others. The reference documents 382 controls in [docs/controls.md](controls.md), each with its pictures; they all follow these forms.
+A new control almost never adds a shape: it is an action, a binding or an event object, so learning one control teaches the others. The reference documents 397 controls in [docs/controls.md](controls.md), each with its pictures; they all follow these forms.
 
 ## How it is built
 
@@ -633,7 +750,7 @@ The reasons, in the order they matter while reading someone else's app:
 - **Plain Nim does the rest.** Showing something only sometimes is an `if`; a list is a `for`; reuse is a `proc` that draws controls. There is no special syntax for any of them.
 - **Blocks instead of Begin/End pairs.** Nim templates close every container by indentation, so a forgotten `End()` cannot happen. Ids come from labels and variables, so `##` suffixes are rarely needed.
 - **Names over positions.** Options and parameters go by name, and a misspelled one is a compile error rather than a silent default.
-- **A small surface that does not grow.** Four shapes of call cover 382 controls, from Hello (16 lines) to Notepad (206 lines, with menus, dialogs and Print to PDF), Retro Communicator (1,640 lines) and Retro Photo (nearly 30,000 lines across its files).
+- **A small surface that does not grow.** Four shapes of call cover 397 controls, from Hello (16 lines) to Notepad (206 lines, with menus, dialogs and Print to PDF), Retro Communicator (1,640 lines) and Retro Photo (nearly 30,000 lines across its files).
 - **One code base, every screen.** The same lines run on Windows, macOS, Linux (X11, Wayland, a screen with no desktop), Android, iOS and in the browser; design pixels keep the sizes right on each.
 - **Testable without a screen.** A frame depends only on the input and your variables, so the fake driver can click, type and read pixels in a test.
 

@@ -226,6 +226,36 @@ proc sleep*(ms: int) = inputRelays.sleep(ms)
 proc shutdown*() = inputRelays.shutdown()
   ## Closes the window and the driver.
 
+type WaitSource* = object
+  ## Something else a driver's wait watches with the window's events: a
+  ## socket of the program's (a D-Bus connection, say).
+  fds*: proc (): seq[cint] {.nimcall, gcsafe.}   ## its sockets, to wait on
+  ready*: proc (): bool {.nimcall, gcsafe.}      ## what came, taken (also at
+                                                 ## each poll); true: a frame
+                                                 ## is wanted (a NoEvent comes)
+
+var waitSources*: seq[WaitSource]
+  ## The waits' other sources (`addWaitSource`). The X11 and Wayland drivers
+  ## watch them; with the others the program takes what they bring itself
+  ## (each frame, say).
+
+proc addWaitSource*(fds: proc (): seq[cint] {.nimcall, gcsafe.};
+                    ready: proc (): bool {.nimcall, gcsafe.}) =
+  ## Sockets the driver waits on too, and what takes what they bring.
+  waitSources.add WaitSource(fds: fds, ready: ready)
+
+proc waitSourcesReady*(): bool =
+  ## (the drivers: each source's `ready` run; true when one wants a frame)
+  {.cast(gcsafe).}:
+    for s in waitSources:
+      if s.ready != nil and s.ready(): result = true
+
+proc waitSourceFds*(): seq[cint] =
+  ## (the drivers: the sources' sockets)
+  {.cast(gcsafe).}:
+    for s in waitSources:
+      if s.fds != nil: result.add s.fds()
+
 proc wheelLines*(e: Event): int =
   ## How many lines a MouseWheelEvent scrolls (positive = up): the driver's
   ## precise count when it gives one, else 3 a wheel notch.

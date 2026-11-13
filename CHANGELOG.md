@@ -1,5 +1,81 @@
 # Changes
 
+## 0.47.0
+
+What most apps build for themselves is in the kit now -- work on worker
+threads, undo, pages, forms from your types, translations, a code editor,
+the system's tray -- and Retro Podcast, a podcast player for every system
+and the web, is built from them.
+
+- **Work off the screen's thread** (`retroui/jobs`): `job(proc (c: JobCtl): T)`
+  runs on a worker and returns a `Job` at once; the frames read its
+  `progress`, its `value` once `done`, its `error` when it `failed`, and
+  can `cancel` it; `onDone` runs on the screen's thread. `fetch(url)` is a
+  web request as a job. The kit draws a frame when one ends; in a web page
+  (no threads) a job runs between frames.
+- **Undo** (`UndoStack`): `record` keeps a value before and after a change,
+  `did` takes the procs that undo and redo one; typing in a row is one
+  step (`merge`); `undoMenuItems` names what Undo takes back ("Undo
+  Typing"), `undoKeys` reads Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z; `changed`,
+  `markClean` and `revision` for work not saved.
+- **Pages** (`pageView`, `pageHeader`, `PageStack`): pages over pages, as
+  phones go through an app, sliding in; Back is the header's button, Esc,
+  Alt+Left and the phone's. `listDetail` puts a list beside the details of
+  what is picked, and one over the other on a phone.
+- **Forms and grids from your types** (`formOf`, `gridOf`): a field for
+  each field of an object -- text, numbers, a bool, an enum's values, a
+  date, a color -- captioned from its name, the rules in pragmas
+  (`caption`, `help`, `required`, `limits`, `maxLen`, `multiline`,
+  `decimals`, `readonly`, `noForm`), what breaks one said under the field;
+  `formValid`, `formErrors`. `gridOf` shows a seq of them, sorted by a
+  header's click.
+- **`animated(target, ms)`:** a number that glides to where it is asked to
+  be, a frame at a time; at once when the user asked for less movement.
+- **Translations:** `retrokit strings app.nim --lang:ar` writes every text
+  the app shows (labels, buttons, menus, titles, `tr`, `trn`) into
+  app-ar.txt for a translator, and keeps the translations when run again;
+  `loadUiStrings` reads it for `setUiLanguage`. `trn(n, "{n} file", "{n}
+  files")` takes the number's form in each language (`pluralForm`:
+  Arabic's six, Russian's and Polish's three, French's, one for Chinese
+  and Japanese...).
+- **`codeEdit`:** a code editor -- Nim, Python, C, JSON and shell colored
+  as typed (the colors follow the scheme), line numbers, Tab and Shift+Tab
+  indent, Enter keeps the indent, Ctrl+/ comments lines, its own undo,
+  find with F3, read only.
+- **The system's tray** (`retroui/tray`): `trayIcon(png, tip, menu)` -- the
+  notification area on Windows, StatusNotifierItem with its menu on Linux
+  (KDE, XFCE, Cinnamon, GNOME with AppIndicator), the menu bar on macOS --
+  its clicks and its menu's picks as events. uirelays' X11 and Wayland
+  drivers wait on the descriptors of `addWaitSource` too.
+- **Feeds** (`retroui/feeds`): RSS with the iTunes and Podcasting 2.0
+  tags, Atom, OPML read and written, the dates and lengths feeds write.
+- **Sound:** `audioView` and `videoView` play at any `speed` (0.5 to 3, a
+  voice keeping its pitch: GStreamer's scaletempo, Media Foundation,
+  AVFoundation, Android's MediaPlayer, the browser) and take a `title`;
+  `seekVideo` and `playVideo` move and start them from the app. A sound
+  plays on when the app stops drawing it; in an Android app it plays its
+  own MediaPlayer, on with the app in the background, with a foreground
+  service of the media playback kind (retroapk declares it and its
+  permissions for apps that use `audioView`); on iOS with the audio
+  session's playback category and `UIBackgroundModes` audio (retroios
+  adds it for such apps).
+- **Retro Podcast 1.0.0** (`examples/podcast.nim`): shows found by name
+  (Apple's podcast directory) or by feed, OPML in and out, any speed, where
+  you left off, downloads, a queue, a sleep timer, the system's media
+  controls, the sound on in the background, a tray icon, Undo; on every
+  system, as an APK, and as a web page (a feed proxy in Settings: CORS).
+  Released with the apps.
+- **The Gallery** has a Forms & Code page (forms and grids from a type,
+  Undo in the Edit menu, the code editor, pages, a job, `animated`, the
+  tray icon), and View, This Page's Code (Ctrl+U) shows how the page in
+  front is made, from its own source.
+- **Docs:** the guide shows the new parts with pictures (397 controls);
+  the syntax study has work off the screen's thread, pages, a form from a
+  type, Undo, words in other languages and `animated`.
+- **Tests:** `test_jobs`, `test_undo`, `test_pages`, `test_typeforms`,
+  `test_uistrings`, `test_codeedit`, `test_feeds`, `test_tray` (on a D-Bus
+  of its own) and `test_podcast`; the portable ones under Node too.
+
 ## 0.46.0
 
 Nine more color schemes, 7GUIs as an app of its own, and fixes from using

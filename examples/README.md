@@ -34,9 +34,11 @@ hello, notepad, ledger, charts, invoice, then the apps.
 | [sevenguis](#7guis) | the seven tasks of the 7GUIs benchmark, a tab each |
 | [navigator](#retro-navigator) | Retro Navigator, a web browser in the manner of 1995's |
 | [retrodns](#retro-dns) | Retro DNS, a DNS changer for phones and computers |
+| [podcast](#retro-podcast) | Retro Podcast, a podcast player for every system and the web |
 
-The pictures of hello, the gallery, charts, native, HR Book, the magazine,
-7GUIs, Retro Navigator and Retro DNS are made by `sh tools/exampleshots.sh`;
+The pictures of hello, the gallery (and its Forms & Code page), charts,
+native, HR Book, the magazine, 7GUIs, Retro Navigator, Retro DNS and Retro
+Podcast are made by `sh tools/exampleshots.sh`;
 the others are the main README's.
 
 ## Hello
@@ -62,7 +64,18 @@ data grid, menus and tool bars, dialogs, charts, the calendar and the
 Gantt chart, maps, the 3D view, the canvas, windows inside the window.
 Open it to see what a control looks like and how it behaves -- with the
 mouse, the keyboard alone, a screen reader -- before you use it; the guide, [docs/controls.md](../docs/controls.md), has each
-one's code.
+one's code. View, This Page's Code (Ctrl+U) shows how the page in front
+is made, from the gallery's own source, in a read-only `codeEdit` with
+Copy.
+
+![The Gallery's Forms & Code page: a form made from a Nim object, and a grid of them](../docs/examples/gallery-forms.png)
+
+Its Forms & Code page shows the kit's newer parts: a form and a grid made
+from a Nim type (`formOf`, `gridOf`), the Edit menu's Undo taking back the
+form's changes (`UndoStack`), the code editor, pages over pages and a list
+beside its details (`pageView`, `listDetail`), a sum counted on a worker
+thread (`job`), a bar that glides (`animated`) and the gallery's icon in
+the system's tray (`trayIcon`).
 
 ```sh
 nimble gallery              # or: nim c -r examples/gallery.nim
@@ -429,3 +442,39 @@ sh examples/retrodns/build.sh dex           # its Java compiled again (javac, d8
 
 `tests/test_retrodns.nim` checks its servers, the CSV, the VPN's
 settings, the scripts and the profile.
+
+## Retro Podcast
+
+![Retro Podcast: a show followed, its episodes, the player at the bottom playing one, another queued](../docs/examples/podcast.png)
+
+`podcast.nim` is a podcast player for Windows, macOS, Linux, Android, iOS
+and web pages: shows found by name (Apple's podcast directory) or added by
+their feed's address (RSS or Atom), lists brought from another app and
+taken to one (OPML), episodes played at any speed from where they were
+left, downloads for the road, a queue, a sleep timer, the system's media
+controls (the lock screen, the notification, the media keys), and an icon
+in the tray on a desktop (Settings). The sound plays on when another page
+is shown, and with the app in the background: on Android with the
+system's notification that it plays, on iOS with the app's background
+audio. Unfollow, Mark Played and the queue's changes are undone from the
+Edit menu.
+
+It is the kit's newer parts put together: `retroui/feeds` reads the feeds
+and OPML, `retroui/jobs` reads them, asks the directory and downloads on
+worker threads, `audioView` plays (`speed`, `seekVideo`, `playVideo`),
+`pageView` and `listDetail` lay it out -- the shows beside their episodes
+on a desktop, one over the other on a phone -- `UndoStack` keeps its
+history and `retroui/tray` its icon. Its library (`podcast/library.nim`)
+is JSON in the app's data folder.
+
+```sh
+nimble podcast                              # or: nim c -r -d:release examples/podcast.nim
+RETRO_APP=podcast nimble appapk             # build/RetroPodcast.apk
+retrokit web examples/podcast.nim           # a web page (see below)
+```
+
+In a web page the browser asks each feed's site whether the page may read
+it (CORS), and most podcast hosts do not say yes: Settings has a proxy put
+before each feed's address. The sounds themselves play without it.
+`tests/test_podcast.nim` follows a feed file, plays, queues, undoes and
+saves the library without a window.

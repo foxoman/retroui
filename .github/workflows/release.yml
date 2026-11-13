@@ -34,7 +34,7 @@ on:
       apps:
         description: "The apps, by their keys in retroui.nimble"
         required: false
-        default: "gallery files photo board mail navigator dns sevenguis"
+        default: "gallery files photo board mail navigator dns sevenguis podcast"
 
 # Retro Mail's app registrations (examples/mail/appids.nim): repository
 # secrets, so the packages sign in with one click
@@ -54,7 +54,7 @@ jobs:
     steps:
       - id: plan
         env:
-          APPS: ${{ inputs.apps || 'gallery files photo board mail navigator dns sevenguis' }}
+          APPS: ${{ inputs.apps || 'gallery files photo board mail navigator dns sevenguis podcast' }}
           TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
         run: |
           echo "apps=$(printf '%s\n' $APPS | jq -R . | jq -cs .)" >> "$GITHUB_OUTPUT"

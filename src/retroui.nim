@@ -33,7 +33,12 @@
 ## `files`, `docfs`  folders, file jobs, the trash, other apps' documents
 ## `filewidgets`     file lists, previews, path and drive bars, the folder tree
 ## `imaging`, `zip`  PNG / JPEG / BMP pictures, zip archives
-## `background`      work on worker threads
+## `background`      work on worker threads (pictures, folders)
+## `undo`            undo and redo of the app's own changes, "Save changes?"
+## `pages`           pages one over another (Back), a list beside its details
+## `typeforms`       forms and grids made from your own types (`formOf`, `gridOf`)
+## `codeedit`        a code editor: line numbers, colors, find
+## `uistrings`       an app's texts for translators (`retrokit strings`)
 ## `memwatch`        the device's memory; caches that let go when it runs short
 ## `thumbcache`      thumbnails of slow files kept on disk
 ## `platform`        settings, places, open / share, the clipboard, storage
@@ -44,6 +49,8 @@
 ##
 ## ================  ==========================================================
 ## `http`            web requests from any thread: WinHTTP, libcurl, Java
+## `jobs`            any slow work on worker threads, its result in a later frame;
+##                   `fetch` (with `http`)
 ## `netconn`         connections to a server with the system's TLS (STARTTLS too)
 ## `imap`, `smtp`    a mail account's folders and messages; sending through its server
 ## `mailsetup`       where an address's mail is: its IMAP and SMTP servers
@@ -90,9 +97,10 @@ export core, widgets, business, extras, markdown, icons, nerdicons, pixelicons,
        memwatch, thumbcache
 import retroui/[records, desktop, planning, view3d, mapview, htmlview, native, media,
                 report, pdf, templates, canvas2d, morecontrols, dock, toolcustom, inspect,
-                drive]
+                drive, undo, pages, typeforms, codeedit, uistrings]
 export records, desktop, planning, view3d, mapview, htmlview, native, media,
-       report, pdf, templates, canvas2d, morecontrols, dock, toolcustom, inspect, drive
+       report, pdf, templates, canvas2d, morecontrols, dock, toolcustom, inspect, drive,
+       undo, pages, typeforms, codeedit, uistrings
 
 import std/macros
 

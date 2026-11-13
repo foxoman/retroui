@@ -15,12 +15,13 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   `retrostore.nim` (store packages, 3D models) are retrokit's commands.
 - `examples/` -- the example apps (Gallery, Retro Photo, Retro Files,
   Retro Mail, Retro Communicator, Retro Board, Retro Task Manager, HR
-  Book, Retro Navigator, Retro DNS, Notepad, Ledger, Charts...). They are
+  Book, Retro Navigator, Retro DNS, Retro Podcast, 7GUIs, Notepad,
+  Ledger, Charts...). They are
   built only when asked, one at a time (`nimble photo`, `nimble photoexe`,
   `RETRO_APP=photo nimble exe`...), never by `nimble install`. GitHub's
   Release workflow (`.github/workflows/release.yml`, on a `v...` tag or by
-  hand) builds Gallery, Files, Photo, Board and Mail for Linux, Windows,
-  Android and macOS onto the release.
+  hand) builds Gallery, Files, Photo, Board, Mail, Navigator, DNS, 7GUIs
+  and Podcast for Linux, Windows, Android and macOS onto the release.
 - `src/retrodesigner/` -- Retro Designer, the visual designer
   (`retrokit designer app.nim` builds it once per computer and runs it;
   docs/designer.md). It reads and changes the user's own `.nim` file with
@@ -34,6 +35,15 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   designer's alone. It is purely a designer: it never runs or compiles the
   user's app.
 - `tests/` -- headless tests on a fake screen driver (`tests/harness.nim`).
+- Jobs (`retroui/jobs`): a worker runs a closure made on the screen's
+  thread; the closure goes back to that thread to be let go of, and a
+  job's value is moved out, never shared (ORC counts a closure's
+  references on one thread only). A loop that makes jobs makes each in a
+  proc of its own (closures in a loop share the loop's variables).
+- uirelays' X11 and Wayland drivers also wait on the descriptors of
+  `addWaitSource` (the tray's D-Bus connection): a kit module that needs
+  the loop woken by a socket adds one there, generic, never a driver of
+  its own.
 - `docs/controls.md` -- every control with pictures, made by `tools/shots.nim`.
   Pictures that change only with the day (the calendar, the agenda, the
   Gantt chart, the About and splash boxes, the file pickers) are not

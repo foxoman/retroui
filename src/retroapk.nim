@@ -142,6 +142,10 @@ proc permissionsOfCode*(caches: openArray[string]): seq[tuple[name, why: string]
   if uses("system", ["location"]):
     need("ACCESS_COARSE_LOCATION", "the place (retroui/system's location)")
     need("ACCESS_FINE_LOCATION", "the place, precise (retroui/system's location)")
+  if uses("media", ["audioView"]):
+    # (a sound plays on with the app in the background: RetroPlayback)
+    need("FOREGROUND_SERVICE", "sounds playing on in the background (audioView)")
+    need("FOREGROUND_SERVICE_MEDIA_PLAYBACK", "sounds playing on in the background (audioView)")
   if uses("native", ["vibrate"]) or uses("system", ["haptic"]):
     need("VIBRATE", "a buzz (vibrate, haptic)")
   # (the network: every request of the kit goes through http's, a download,
@@ -1491,6 +1495,13 @@ proc main() =
     for p in ["android.permission.RECEIVE_BOOT_COMPLETED",
               "android.permission.ACCESS_NETWORK_STATE"]:
       if p notin permissions: permissions.add p
+  if "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" in permissions:
+    # a sound playing on in the background (audioView): a foreground
+    # service of the media playback kind while it plays
+    app.kids.add XNode(name: "service", attrs: @[
+      sAttr("name", 0x01010003, "org.retro.RetroPlayback"),
+      iAttr("foregroundServiceType", 0x01010599, 2, THex),     # mediaPlayback
+      bAttr("exported", 0x01010010, false)])
   if debuggable: app.attrs.add bAttr("debuggable", 0x0101000f, true)
   var manifest = XNode(name: "manifest", attrs: @[
     XAttr(name: "package", kind: TString, str: id),
