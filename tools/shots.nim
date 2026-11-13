@@ -2229,18 +2229,22 @@ proc themeLook(name: string; t: Theme): Look =
 part("Looks", """
 ### Themes
 
-Nine color schemes come with the kit (`builtinThemes`): Classic, Gray,
-Dark, OLED Black, Ocean, Desert, Plum, Hot Dog and Paper. Set one with
-`ui.theme = Ocean` or `app`'s `theme`, or let the user pick it in
-`appearanceSettings`. A `Theme` of your own is an object of colors
+Eighteen color schemes come with the kit (`builtinThemes`): Classic, Gray,
+Dark, OLED Black, Ocean, Desert, Plum, Hot Dog, Paper, High Contrast, High
+Contrast White, Midnight, Emerald, Rose, Slate, Mahogany, Amber and Green
+Screen. Set one with `ui.theme = Ocean` or `app`'s `theme`, or let the user
+pick it in `appearanceSettings`. A `Theme` of your own is an object of colors
 (`window`, `text`, `face`, `select`...).
 
 {{pictures:themes}}
 
 ### Dark mode
 
-Dark and OLED Black are the dark schemes (`themeIsDark`); in them the pixel
-icons are drawn as their line twins, in the text's color (`setIconStyle`).
+Dark, OLED Black, High Contrast, Midnight, Amber and Green Screen are the
+dark schemes (`themeIsDark`); in them the pixel icons are drawn as their
+line twins, in the text's color (`setIconStyle`). High Contrast and High
+Contrast White are for people who need every edge clear
+(`systemPrefs().highContrast` says the system asks for it).
 To follow the system: `if systemDarkMode(): ui.theme = Dark`. OLED Black is
 true black, for phones whose pixels are off where it is black.
 

@@ -2411,6 +2411,7 @@ proc filesStart*() =
   addPdfPreviews()                          # (PDFs' first pages as their pictures)
   addMorePictures()                         # (raw photos, PSD, SVG, JPEG XL, WebP...)
   reportedVersion = AppVersion
+  reportedVersion = AppVersion           # (for a fault's report)
   startApp(AppTitle, 1100, 700)
   addVideoPreviews()                        # (videos' pictures, where they can be had)
   let saved = loadSettings()

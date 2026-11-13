@@ -266,6 +266,16 @@ proc initSurfaceDriver*(keys: proc (code: int32): KeyCode {.nimcall.}) =
   systemRelays.dataDir = proc (app: string): string =
     result = $urDataDir()
     try: createDir(result) except OSError: discard
+  # a folder for temporary files: iOS gives one ($TMPDIR), Android none
+  # (getTempDir's /tmp is not there): the app's cache folder
+  if getEnv("TMPDIR").len == 0:
+    let files = $urDataDir()
+    if files.len > 0:
+      let tmp = files.parentDir / "cache"
+      try:
+        createDir(tmp)
+        putEnv("TMPDIR", tmp)
+      except OSError: discard
   systemRelays.openUrl = proc (url: string): bool =
     urOpenUrl(url.cstring, cint url.len) != 0
   systemRelays.openFile = proc (path: string; share: bool): bool =

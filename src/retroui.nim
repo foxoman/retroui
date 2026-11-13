@@ -107,7 +107,8 @@ proc keepLook*(name: string) =
 
 proc openApp*(title: string; w, h: int; theme = ui.theme; frame = wfAsBuilt;
               userFrame = true; gpu = gpuMode(); zoom = 0; scale = 0;
-              font = uiFont(); id = ""; icon = ""; look = ""; resizable = true) =
+              font = uiFont(); id = ""; icon = ""; look = ""; resizable = true;
+              version = "") =
   ## `app`'s start: opens the window with `app`'s options, which are the
   ## same by name (see `app` for each and its default). For an app that runs
   ## its own frame loop instead of `app`'s block:
@@ -122,6 +123,7 @@ proc openApp*(title: string; w, h: int; theme = ui.theme; frame = wfAsBuilt;
   ## closeApp()
   ## ```
   if id.len > 0: appIdent = id
+  if version.len > 0: reportedVersion = version
   userFrameChoice = userFrame
   case frame
   of wfSystem: setClassicFrame(false)
@@ -188,6 +190,8 @@ macro app*(args: varargs[untyped]): untyped =
   ## - `resizable`: the user may size and maximize the window (true, the
   ##   default); false keeps the size the app gave it -- no sizing border,
   ##   no maximize button, no size grip on the 3.1 frame (`setResizable`)
+  ## - `version`: the app's version, for the report of a fault (shown at the
+  ##   next start, before any About box gave it)
   ##
   ## $RETRO_FRAME, $RETRO_GPU, $RETRO_SCALE, $RETRO_THEME, $RETRO_SIZE and
   ## $RETRO_ZOOM win over them, for tests and screenshots. $RETRO_WINDOW=1

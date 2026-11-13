@@ -75,8 +75,9 @@ proc scrollBarCss*(c: LookColors): string =
 proc controlsCss(c: LookColors): string =
   ## (buttons and fields as 3.1's; check boxes, text selected and the
   ## engine's own pickers in the window's colors)
-  "html{accent-color:" & c.select & ";color-scheme:" & (if c.dark: "dark" else: "light") & "}" &
-    "::selection{background:" & c.select & ";color:" & c.selectText & "}" &
+  "html{accent-color:" & c.select & "!important;color-scheme:" & (if c.dark: "dark" else: "light") &
+    "!important}" &
+    "::selection{background:" & c.select & "!important;color:" & c.selectText & "!important}" &
     "button,input[type=button],input[type=submit],input[type=reset],select{background:" & c.face &
     "!important;color:" & c.text & "!important;border:1px solid " & c.frame &
     "!important;border-radius:0!important;box-shadow:inset 1px 1px " & c.light &
@@ -127,7 +128,11 @@ proc lookScript*(look: PageLook; c: LookColors; scrollBars: bool): string =
   if scrollBars: css.add scrollBarCss(c)
   case look
   of lkModern: discard
-  of lkClassic: css.add classicCss(c)
+  of lkClassic:
+    # (in a cascade layer: its !important then wins over the site's own
+    # !important, whatever their selectors -- a dark code box that kept its
+    # background under black letters)
+    css.add "@layer retro-look{" & classicCss(c) & "}"
   of lkPlain: css.add plainCss(c)
   if css.len == 0: return ""
   result = "(function(){if(window.__retroLook)return;window.__retroLook=1;" &

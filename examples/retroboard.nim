@@ -3464,6 +3464,7 @@ proc main() =
   useHandFonts()                # (the hands unpacked on a thread while the window opens)
   windowIcon = windowIconFromPng(iconPng)
   reportedVersion = BoardVersion
+  reportedVersion = BoardVersion         # (for a fault's report)
   startApp(AppName, 1100, 720)
   autoFocus = false             # (the keys are the board's until a panel's control is clicked)
   # (the last run stopped: its board waits for the "stopped" screen's Start)

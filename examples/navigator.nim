@@ -23,7 +23,7 @@ import retroui
 import navigator/[places, pages, markup]
 
 const
-  NavigatorVersion = "0.4.0"
+  NavigatorVersion = "0.4.1"
   SleepAfter = 5 * 60_000                          # a tab not seen this long sleeps (ms)
   IconPng = staticRead("assets/navigator-icon.png")
   Directory = [("&Welcome", "about:welcome"),
@@ -369,7 +369,8 @@ var zoomPct = 100                       # (the status bar's zoom box)
 
 setToolbarLook(blTextBelow)
 
-app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = IconPng:
+app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = IconPng,
+    version = NavigatorVersion:
   if themeColors() != colorsNow: applyShields()   # (the first frame, and a theme changed)
   if tabList.len == 0: newTab(homeOf(prefs))
   cur = clamp(cur, 0, tabList.high)

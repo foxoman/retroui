@@ -293,11 +293,16 @@ the tasks ask, in a tab of its own:
    every cell that reads it, a cycle says `#CYCLE`. F2 edits a cell's
    formula, not its value.
 
+As an app it has its own icon and a menu: the seven tasks (Ctrl+1 to
+Ctrl+7), Appearance (its color scheme and sizes, kept) and About. It is
+built with the released apps, for Linux, Windows, Android and macOS.
+
 `tests/test_sevenguis.nim` uses it as a person would, by its controls'
 names; the picture above was taken the same way (the driver, `RETRO_DRIVE`).
 
 ```sh
 nimble sevenguis            # or: nim c -r -d:release examples/sevenguis.nim
+RETRO_APP=sevenguis nimble appapk   # build/Retro7GUIs.apk
 ```
 
 ## Retro Navigator

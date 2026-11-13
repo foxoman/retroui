@@ -7498,10 +7498,11 @@ label updateSaid
 
 ### Themes
 
-Nine color schemes come with the kit (`builtinThemes`): Classic, Gray,
-Dark, OLED Black, Ocean, Desert, Plum, Hot Dog and Paper. Set one with
-`ui.theme = Ocean` or `app`'s `theme`, or let the user pick it in
-`appearanceSettings`. A `Theme` of your own is an object of colors
+Eighteen color schemes come with the kit (`builtinThemes`): Classic, Gray,
+Dark, OLED Black, Ocean, Desert, Plum, Hot Dog, Paper, High Contrast, High
+Contrast White, Midnight, Emerald, Rose, Slate, Mahogany, Amber and Green
+Screen. Set one with `ui.theme = Ocean` or `app`'s `theme`, or let the user
+pick it in `appearanceSettings`. A `Theme` of your own is an object of colors
 (`window`, `text`, `face`, `select`...).
 
 | Classic | Gray |
@@ -7520,14 +7521,33 @@ Dark, OLED Black, Ocean, Desert, Plum, Hot Dog and Paper. Set one with
 |---|---|
 | ![Themes: Plum](controls/themes-plum.png) | ![Themes: Hot Dog](controls/themes-hot-dog.png) |
 
-| Paper |
-|---|
-| ![Themes: Paper](controls/themes-paper.png) |
+| Paper | High Contrast |
+|---|---|
+| ![Themes: Paper](controls/themes-paper.png) | ![Themes: High Contrast](controls/themes-high-contrast.png) |
+
+| High Contrast White | Midnight |
+|---|---|
+| ![Themes: High Contrast White](controls/themes-high-contrast-white.png) | ![Themes: Midnight](controls/themes-midnight.png) |
+
+| Emerald | Rose |
+|---|---|
+| ![Themes: Emerald](controls/themes-emerald.png) | ![Themes: Rose](controls/themes-rose.png) |
+
+| Slate | Mahogany |
+|---|---|
+| ![Themes: Slate](controls/themes-slate.png) | ![Themes: Mahogany](controls/themes-mahogany.png) |
+
+| Amber | Green Screen |
+|---|---|
+| ![Themes: Amber](controls/themes-amber.png) | ![Themes: Green Screen](controls/themes-green-screen.png) |
 
 ### Dark mode
 
-Dark and OLED Black are the dark schemes (`themeIsDark`); in them the pixel
-icons are drawn as their line twins, in the text's color (`setIconStyle`).
+Dark, OLED Black, High Contrast, Midnight, Amber and Green Screen are the
+dark schemes (`themeIsDark`); in them the pixel icons are drawn as their
+line twins, in the text's color (`setIconStyle`). High Contrast and High
+Contrast White are for people who need every edge clear
+(`systemPrefs().highContrast` says the system asks for it).
 To follow the system: `if systemDarkMode(): ui.theme = Dark`. OLED Black is
 true black, for phones whose pixels are off where it is black.
 

@@ -269,7 +269,7 @@ proc main() =
   setupMode = not hasData(dir)
   # (the look chosen in Settings > Look is kept in the settings "HRBook")
   reportedVersion = AppVersion
-  openApp(AppTitle, 1280, 800, id = AppId, icon = AppIconPng, look = AppId)
+  openApp(AppTitle, 1280, 800, id = AppId, icon = AppIconPng, look = AppId, version = AppVersion)
   lastInput = nowT()
   while beginFrame():
     if stoppedFrame(): (endFrame(); continue)

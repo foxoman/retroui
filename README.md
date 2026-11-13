@@ -406,6 +406,7 @@ app "Ledger", 900, 600,
     id = "ledger",                   # the app's name for what the toolkit keeps
     icon = ledgerIcon,               # the window's picture (a PNG's bytes)
     resizable = true,                # false: the window keeps its size
+    version = "2.0",                 # what a fault's report says it is
     look = "ledger":                 # keep the look the user picks (appearanceSettings)
   label "Hello"
 ```
@@ -479,9 +480,10 @@ retrokit designer app.nim       # app.nim's windows (a new file when there is no
   lists and pages, a long press is the right click, and a held-then-moved
   finger drags items. Hover effects appear only for a real mouse.
 - **Looks.** The 3.1 look (bevels, X check boxes, navy selections, group
-  boxes, bold menus) in eight colour schemes (`builtinThemes`: Classic,
-  Gray, Dark, Ocean, Desert, Plum, Hot Dog, Paper), or your own `Theme`
-  (`ui.theme = Dark`).
+  boxes, bold menus) in eighteen color schemes (`builtinThemes`: Classic,
+  Gray, Dark, OLED Black, Ocean, Desert, Plum, Hot Dog, Paper, High
+  Contrast, High Contrast White, Midnight, Emerald, Rose, Slate, Mahogany,
+  Amber, Green Screen), or your own `Theme` (`ui.theme = Dark`).
   Text is FreeSans (the default), FreeSerif or FreeMono -- GNU FreeFont,
   built in, each in its four styles, Arabic everywhere -- or a font file
   (`setUiFont`, `loadUiFontFile`); icons are
@@ -2886,7 +2888,8 @@ time: an app at rest does next to nothing), then clicks, keys, the wheel
 and typing until the time is up (on X, xdotool's real input too). A
 fault, a crash, a hang or an app busy while untouched fails it; a line
 for each app goes to `build/smoke/results.txt`. The systems workflow runs
-it on Linux, Windows and macOS.
+it on Linux, Windows and macOS. `RETRO_SMOKE_SEED=n` drives an app another
+way (other clicks, other keys).
 
 **Every app driven by its controls' names:** `sh tests/drive/run.sh`
 starts the apps with `RETRO_DRIVE` and clicks every tab, opens and closes
@@ -2999,7 +3002,7 @@ it is and how to run it.
 | `examples/magazine.nim` | a three-page magazine made with Retro Photo's engine, tool by tool, saved as .rpd and PDF |
 | `examples/taskman.nim` | Retro Task Manager: the processes (end one or a tree, a priority), the processor, the memory, the disks and the network as graphs that move, what starts with the system, the connections, the last week (also an APK: `nimble taskmanapk`) |
 | `examples/retroboard.nim` | Retro Board: a whiteboard in the manner of tldraw -- ink, shapes, arrows, notes, frames, pages; PNG, SVG and PDF (also an APK: `nimble boardapk`) |
-| `examples/sevenguis.nim` | 7GUIs: the seven tasks of the GUI benchmark -- a counter, a temperature converter, a flight booker, a timer, CRUD, a circle drawer with undo, a spreadsheet with formulas |
+| `examples/sevenguis.nim` | 7GUIs: the seven tasks of the GUI benchmark -- a counter, a temperature converter, a flight booker, a timer, CRUD, a circle drawer with undo, a spreadsheet with formulas (also an APK: `RETRO_APP=sevenguis nimble appapk`; released with the apps) |
 | `examples/navigator.nim` | Retro Navigator: a web browser in the manner of 1995's -- the tool bar, the Location box, the directory buttons, a logo that moves while a page loads, the key, bookmarks, the Go menu, find, print, the source -- around the system's own engine (`webView`, `weSystem`), with tabs, ads and trackers blocked, secure connections, links loaded ahead, tabs that sleep, Clear Browsing Data |
 | `examples/retrodns.nim` | Retro DNS: a DNS changer with 47 public servers, what each is good for, speed tests and your own -- on Android a VPN of its own Java (`--java`), on Windows, Linux and macOS the computer's DNS as its administrator (`retroui/admin`), on macOS and iOS a profile of encrypted DNS |
 | `examples/hrbook.nim` | HR Book: the staff records of a group of hotels, private on a tablet -- smart Excel import, letters and certificates, charts, expiry alerts, encrypted backups |

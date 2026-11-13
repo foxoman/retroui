@@ -509,5 +509,34 @@ proc sevenGuisFrame*() =
     else: cellsTask()
 
 when isMainModule and not declared(sevenGuisUnderTest):
-  app "7GUIs", 760, 520:
+  const
+    SevenVersion = RetroVersion
+    IconPng = staticRead("assets/sevenguis-icon.png")
+  var lookOpen, aboutOpen = false
+  app "7GUIs", 760, 520, id = "sevenguis", look = "sevenguis", icon = IconPng,
+      version = SevenVersion:
+    menubar:
+      menu "&File":
+        if menuItem("E&xit"): quitApp()
+      menu "&Task":
+        for i, name in ["&Counter", "&Temperature Converter", "&Flight Booker", "T&imer",
+                        "C&RUD", "Circle &Drawer", "C&ells"]:
+          if menuItem(name, "Ctrl+" & $(i + 1), checked = page == i): page = i
+      menu "&View":
+        if menuItem("&Appearance..."): lookOpen = true
+      menu "&Help":
+        if menuItem("&About 7GUIs..."): aboutOpen = true
+    for i in 0 .. 6:
+      if hotkeyPressed("Ctrl+" & $(i + 1)): page = i
     sevenGuisFrame()
+    dialog(lookOpen, "Appearance", 460):
+      discard appearanceSettings()
+      row:
+        spring()
+        if button("OK", isDefault = true): lookOpen = false
+    aboutBox(aboutOpen, "7GUIs", SevenVersion,
+             ["The seven tasks of the GUI programming benchmark (7GUIs), made with " &
+              "Retro Nim UI: a counter, a temperature converter, a flight booker, a " &
+              "timer, CRUD, a circle drawer with undo, and a spreadsheet."],
+             tagline = "The GUI benchmark", iconPng = IconPng,
+             url = "https://github.com/foxoman/retroui")

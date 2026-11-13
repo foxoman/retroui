@@ -1,5 +1,47 @@
 # Changes
 
+## 0.46.0
+
+Nine more color schemes, 7GUIs as an app of its own, and fixes from using
+Retro Navigator on an Android tablet.
+
+- **Nine more color schemes** (eighteen in all, in every app's Appearance):
+  High Contrast and High Contrast White, for people who need every edge
+  clear; Midnight, a dark one in night blues; Emerald, Rose, Slate and
+  Mahogany; and two terminals of the 1980s, Amber and Green Screen. New
+  schemes go at the end of `builtinThemes`: the number a setting keeps
+  still names the same scheme.
+- **7GUIs is an app:** its own icon, a menu (the seven tasks, Ctrl+1 to
+  Ctrl+7; Appearance; About), its look kept; built with the released apps
+  (Linux, Windows, Android, macOS).
+- **Android apps have a folder for temporary files.** Android gives none
+  and `getTempDir()` said /tmp, which is not there: a page's picture in
+  Retro Navigator, downloads, Retro Photo's scratch files and pictures the
+  system decodes could not be written. The app's cache folder is
+  `$TMPDIR` now.
+- **Retro Navigator 0.4.1:**
+  - **Fixed: it stopped on Android** (HUAWEI's WebView, Android 12): the
+    page's window was taken away while the engine's handles of selected
+    text were over it, and the engine moved them after. A page hidden
+    under a menu or a list is now only out of sight (no touch reaches it),
+    and its window is let go a few seconds later if it stays hidden (a tab
+    behind) or a frame later when it is closed.
+  - **Classic:** a site's dark code box kept its background under
+    Classic's black letters (the site's `!important` won over Classic's).
+    Classic's rules are in a cascade layer now, which wins over the site's
+    `!important` whatever its selectors: the box is white with black text.
+  - **Picture works on Android** (the folder above).
+- **A fault's report says the app's version** at the next start too:
+  `app`'s and `openApp`'s `version` (Retro Navigator, 7GUIs, Retro DNS, HR
+  Book; Retro Files, Photo, Board and Task Manager set `reportedVersion`).
+  It said "Version: -" until an About box had been drawn.
+- **The smoke run** takes `RETRO_SMOKE_SEED`: the same app driven another
+  way (other clicks, other keys). `tests/smoke/run.sh` starts each app in
+  its own home folder, so what its clicks save or delete stays there (Ledger
+  saved a CSV into the repository's folder). Retro Files, Photo, Board,
+  Mail, the Gallery, Task Manager, Notepad and Ledger were each driven
+  with four more seeds, 20 seconds each: no fault.
+
 ## 0.45.0
 
 Retro Navigator 0.4.0, from using it: the page's look on the tool bar, the

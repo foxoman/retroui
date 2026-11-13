@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.app.DownloadManager;
@@ -64,6 +65,7 @@ public final class RetroWeb {
     Root root;
     WindowManager.LayoutParams lp;
     boolean added;
+    boolean hidden;                    // added, but out of sight and out of the touches' way
     String loaded = "";
     volatile String url = "", title = "";
     volatile int progress = 100;
@@ -298,7 +300,7 @@ public final class RetroWeb {
           }
           public void onActivityResumed(Activity x) {
             for (Web w : all(x)) {
-              try { if (w.added) w.view.onResume(); } catch (Throwable t) { }
+              try { if (w.added && !w.hidden) w.view.onResume(); } catch (Throwable t) { }
             }
           }
           public void onActivityDestroyed(Activity x) {
@@ -491,6 +493,29 @@ public final class RetroWeb {
     if (!w.added) return;
     try { w.act.getWindowManager().removeViewImmediate(w.root); } catch (Throwable t) { }
     w.added = false;
+    w.hidden = false;
+    // (as it was, for when it is shown again)
+    try {
+      w.root.setVisibility(View.VISIBLE);
+      w.lp.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+    } catch (Throwable t) { }
+  }
+
+  /** Out of sight, its window kept: the engine's own little windows over the
+   *  page -- the handles of text selected, the caret's -- go with the page
+   *  being hidden. (A window taken away under them stopped the app: the
+   *  engine moved them after their window was gone.) No touch or key goes
+   *  to it meanwhile. */
+  static void hide(Web w) {
+    if (!w.added || w.hidden) return;
+    w.hidden = true;
+    try {
+      w.view.clearFocus();
+      w.root.setVisibility(View.INVISIBLE);
+      w.lp.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+          | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+      w.act.getWindowManager().updateViewLayout(w.root, w.lp);
+    } catch (Throwable t) { }
   }
 
   /** show (key, x, y, w, h, url), hide, close, back, forward, reload, stop
@@ -564,7 +589,16 @@ public final class RetroWeb {
               act.getWindowManager().addView(wb.root, wb.lp);
               wb.added = true;
               wb.view.onResume();
-            } else act.getWindowManager().updateViewLayout(wb.root, wb.lp);
+            } else {
+              if (wb.hidden) {
+                // (back in sight: touches reach it again)
+                wb.hidden = false;
+                wb.lp.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+                wb.root.setVisibility(View.VISIBLE);
+                wb.view.onResume();
+              }
+              act.getWindowManager().updateViewLayout(wb.root, wb.lp);
+            }
             if (!url.equals(wb.loaded)) load(wb, url);
           } catch (Throwable t) { }
         }
@@ -706,10 +740,28 @@ public final class RetroWeb {
         public void run() {
           try {
             if (reload) { wb.view.reload(); return; }
-            remove(wb);
+            hide(wb);
+            if (!close && wb.added) {
+              // (hidden for a while -- a tab behind, not a menu over it: its
+              //  window let go, the memory with it; its little windows long gone)
+              wb.root.postDelayed(new Runnable() {
+                public void run() {
+                  try { if (wb.hidden) remove(wb); } catch (Throwable t) { }
+                }
+              }, 3000);
+            }
             if (close) {
               synchronized (webs) { webs.remove(key); }
-              wb.view.destroy();
+              // (taken away a frame later, its little windows gone first)
+              Runnable gone = new Runnable() {
+                public void run() {
+                  try {
+                    remove(wb);
+                    wb.view.destroy();
+                  } catch (Throwable t) { }
+                }
+              };
+              if (!wb.added || !wb.root.post(gone)) gone.run();
             } else wb.view.onPause();
           } catch (Throwable t) { }
         }

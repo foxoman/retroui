@@ -903,7 +903,7 @@ proc main() =
   createDir(appDir())
   for s in loadCustom(customPath()):
     if indexOfKey(s.key) < 0: servers.add s
-  openApp(AppTitle, 1180, 760, id = AppId, icon = AppIconPng, look = AppId)
+  openApp(AppTitle, 1180, 760, id = AppId, icon = AppIconPng, look = AppId, version = AppVersion)
   readNow()
   var lastPane = (paneW, paneH)
   while beginFrame():

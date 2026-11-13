@@ -74,7 +74,8 @@ app "Hello", 320, 120:                 # title, width, height, then the frame's 
 name after the size: `theme`, `frame` (wfAsBuilt, wfSystem, wfClassic),
 `userFrame`, `gpu` (gmAuto, gmGpu, gmCpu), `scale`, `font` (ufSans, ufSerif,
 ufMono), `zoom`, `id`, `icon` (PNG bytes, `staticRead`), `look` (keeps the
-look the user picks), `resizable` (false: the window keeps its size). A
+look the user picks), `resizable` (false: the window keeps its size),
+`version` (what a fault's report says). A
 misspelled option is a compile error. An app with its own loop uses
 `openApp(...)`, `while beginFrame(): ...; endFrame(); appFrameDone()`,
 `closeApp()` -- and first in each frame `if stoppedFrame(): (endFrame();

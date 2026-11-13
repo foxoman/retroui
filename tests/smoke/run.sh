@@ -30,11 +30,15 @@ for app in $apps; do
   fi
   home=$(mktemp -d)
   mkdir -p "$home/AppData/Roaming" "$home/AppData/Local"
-  # (a home of its own: settings, faults and anything the clicks delete are there)
-  HOME=$home USERPROFILE=$home APPDATA=$home/AppData/Roaming LOCALAPPDATA=$home/AppData/Local \
-  XDG_CONFIG_HOME=$home/.config XDG_DATA_HOME=$home/.local/share XDG_CACHE_HOME=$home/.cache \
-  RETRO_SMOKE=$secs RETRO_SMOKE_OUT=$results \
-    "$out/$app$exe" > "$out/$app-log.txt" 2>&1 &
+  # (a home of its own, and its folder the one the app starts in: settings,
+  # faults, what it saves and anything the clicks delete are there, not in
+  # this repository)
+  root=$(pwd)
+  ( cd "$home" && exec env HOME="$home" USERPROFILE="$home" APPDATA="$home/AppData/Roaming" \
+      LOCALAPPDATA="$home/AppData/Local" XDG_CONFIG_HOME="$home/.config" \
+      XDG_DATA_HOME="$home/.local/share" XDG_CACHE_HOME="$home/.cache" \
+      RETRO_SMOKE=$secs RETRO_SMOKE_OUT="$root/$results" \
+      "$root/$out/$app$exe" > "$root/$out/$app-log.txt" 2>&1 ) &
   pid=$!
   # real input on an X server, while the kit's own goes on
   if [ -n "${DISPLAY:-}" ] && command -v xdotool > /dev/null 2>&1; then

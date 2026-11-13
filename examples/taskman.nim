@@ -582,6 +582,7 @@ proc taskmanStart*() =
   startMonitor(interval())
   windowIcon = windowIconFromPng(IconPng)
   reportedVersion = AppVersion
+  reportedVersion = AppVersion           # (for a fault's report)
   startApp(AppTitle, 780, 560)
 
 proc taskmanStop*() =

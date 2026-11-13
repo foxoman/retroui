@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.45.0"
+const RetroVersion* = "0.46.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -209,12 +209,114 @@ const
     link: color(100, 160, 240))
     ## True black for OLED screens: their pixels are off where it is black
     ## (no glow, less power, nothing to burn in), bevels kept as faint lines.
+  HighContrast* = Theme(
+    window: color(0, 0, 0), text: color(255, 255, 255),
+    face: color(0, 0, 0), light: color(255, 255, 255),
+    shadow: color(128, 128, 128), frame: color(255, 255, 255),
+    select: color(0, 255, 255), selectText: color(0, 0, 0),
+    gray: color(0, 255, 0), field: color(0, 0, 0),
+    fieldText: color(255, 255, 255), scroll: color(0, 0, 0),
+    tip: color(0, 0, 0), tipText: color(255, 255, 0),
+    line: color(255, 255, 255), edge: color(255, 255, 255),
+    link: color(255, 255, 0))
+    ## White on black with yellow links and cyan selection, green for what
+    ## is off: for people who need every edge clear.
+  HighContrastWhite* = Theme(
+    window: color(255, 255, 255), text: color(0, 0, 0),
+    face: color(255, 255, 255), light: color(255, 255, 255),
+    shadow: color(0, 0, 0), frame: color(0, 0, 0),
+    select: color(55, 0, 110), selectText: color(255, 255, 255),
+    gray: color(96, 0, 0), field: color(255, 255, 255),
+    fieldText: color(0, 0, 0), scroll: color(255, 255, 255),
+    tip: color(255, 255, 255), tipText: color(0, 0, 0),
+    line: color(0, 0, 0), edge: color(0, 0, 0), link: color(0, 0, 159))
+    ## Black on white with a purple selection: the same clear edges, light.
+  Midnight* = Theme(
+    window: color(16, 20, 40), text: color(220, 226, 240),
+    face: color(36, 44, 78), light: color(78, 92, 140),
+    shadow: color(10, 12, 26), frame: color(0, 0, 0),
+    select: color(64, 96, 200), selectText: color(255, 255, 255),
+    gray: color(120, 130, 160), field: color(10, 12, 26),
+    fieldText: color(220, 226, 240), scroll: color(28, 34, 60),
+    tip: color(44, 52, 88), tipText: color(220, 226, 240),
+    line: color(96, 106, 146), edge: color(96, 106, 146),
+    link: color(120, 170, 255))
+    ## A dark scheme in night blues.
+  Emerald* = Theme(
+    window: color(240, 255, 244), text: color(0, 0, 0),
+    face: color(150, 200, 160), light: color(215, 245, 220),
+    shadow: color(40, 100, 56), frame: color(0, 0, 0),
+    select: color(0, 100, 40), selectText: color(255, 255, 255),
+    gray: color(64, 104, 74), field: color(255, 255, 255),
+    fieldText: color(0, 0, 0), scroll: color(190, 225, 195),
+    tip: color(255, 255, 225), tipText: color(0, 0, 0),
+    line: color(40, 100, 56), edge: color(0, 0, 0), link: color(0, 0, 192))
+    ## Greens, from leaf to bottle.
+  Rose* = Theme(
+    window: color(255, 245, 247), text: color(0, 0, 0),
+    face: color(224, 176, 188), light: color(255, 232, 238),
+    shadow: color(140, 60, 84), frame: color(0, 0, 0),
+    select: color(160, 24, 72), selectText: color(255, 255, 255),
+    gray: color(120, 80, 92), field: color(255, 255, 255),
+    fieldText: color(0, 0, 0), scroll: color(240, 208, 216),
+    tip: color(255, 255, 225), tipText: color(0, 0, 0),
+    line: color(140, 60, 84), edge: color(0, 0, 0), link: color(0, 0, 192))
+    ## Pink and wine.
+  Slate* = Theme(
+    window: color(244, 246, 250), text: color(0, 0, 0),
+    face: color(168, 180, 196), light: color(228, 234, 242),
+    shadow: color(72, 84, 104), frame: color(0, 0, 0),
+    select: color(40, 64, 112), selectText: color(255, 255, 255),
+    gray: color(88, 96, 112), field: color(255, 255, 255),
+    fieldText: color(0, 0, 0), scroll: color(204, 212, 224),
+    tip: color(255, 255, 225), tipText: color(0, 0, 0),
+    line: color(72, 84, 104), edge: color(0, 0, 0), link: color(0, 0, 192))
+    ## Blue grays, quiet for long days.
+  Mahogany* = Theme(
+    window: color(255, 250, 240), text: color(0, 0, 0),
+    face: color(196, 148, 124), light: color(236, 204, 186),
+    shadow: color(96, 48, 32), frame: color(0, 0, 0),
+    select: color(128, 32, 16), selectText: color(255, 255, 255),
+    gray: color(100, 70, 56), field: color(255, 255, 255),
+    fieldText: color(0, 0, 0), scroll: color(220, 190, 172),
+    tip: color(255, 255, 225), tipText: color(0, 0, 0),
+    line: color(96, 48, 32), edge: color(0, 0, 0), link: color(0, 0, 192))
+    ## Polished wood and cream.
+  Amber* = Theme(
+    window: color(0, 0, 0), text: color(255, 176, 0),
+    face: color(28, 19, 0), light: color(110, 74, 0),
+    shadow: color(0, 0, 0), frame: color(160, 110, 0),
+    select: color(255, 176, 0), selectText: color(0, 0, 0),
+    gray: color(192, 130, 0), field: color(0, 0, 0),
+    fieldText: color(255, 176, 0), scroll: color(18, 12, 0),
+    tip: color(36, 24, 0), tipText: color(255, 176, 0),
+    line: color(128, 88, 0), edge: color(160, 110, 0),
+    link: color(255, 220, 120))
+    ## An amber terminal of the 1980s: amber on black.
+  GreenScreen* = Theme(
+    window: color(0, 0, 0), text: color(64, 255, 64),
+    face: color(0, 26, 0), light: color(0, 104, 0),
+    shadow: color(0, 0, 0), frame: color(0, 150, 0),
+    select: color(64, 255, 64), selectText: color(0, 0, 0),
+    gray: color(0, 190, 0), field: color(0, 0, 0),
+    fieldText: color(64, 255, 64), scroll: color(0, 16, 0),
+    tip: color(0, 34, 0), tipText: color(64, 255, 64),
+    line: color(0, 120, 0), edge: color(0, 150, 0),
+    link: color(170, 255, 170))
+    ## A green phosphor terminal: green on black.
   builtinThemes* = [(name: "Classic", theme: Classic), (name: "Gray", theme: Gray),
                     (name: "Dark", theme: Dark), (name: "OLED Black", theme: Oled),
                     (name: "Ocean", theme: Ocean),
                     (name: "Desert", theme: Desert), (name: "Plum", theme: Plum),
-                    (name: "Hot Dog", theme: HotDog), (name: "Paper", theme: Paper)]
-    ## The color schemes that come with the toolkit, by name.
+                    (name: "Hot Dog", theme: HotDog), (name: "Paper", theme: Paper),
+                    (name: "High Contrast", theme: HighContrast),
+                    (name: "High Contrast White", theme: HighContrastWhite),
+                    (name: "Midnight", theme: Midnight), (name: "Emerald", theme: Emerald),
+                    (name: "Rose", theme: Rose), (name: "Slate", theme: Slate),
+                    (name: "Mahogany", theme: Mahogany), (name: "Amber", theme: Amber),
+                    (name: "Green Screen", theme: GreenScreen)]
+    ## The color schemes that come with the toolkit, by name (new ones go at
+    ## the end: settings keep a scheme's number).
 
   DesktopMetrics* = Metrics(pad: 8, gap: 6, ctrlH: 24, editH: 21,
                             itemH: 17, menuH: 21, sbW: 17)
@@ -3453,6 +3555,7 @@ proc firstFrameMs*(): int = firstShownMs
 # written to stderr and added to $RETRO_SMOKE_OUT (also when a click closed
 # the app before its time). Run it in a home of its
 # own: the clicks can delete what they reach (tests/smoke/run.sh does so).
+# RETRO_SMOKE_SEED=n drives it another way (other clicks, other keys).
 
 const
   smokeSettleMs = 4000            ## (the start: a splash, the first loads)
@@ -3462,10 +3565,15 @@ const
                                   ## that draws twice for each, X11's before 0.36, is caught)
   smokeIdleCpu = 1.0              ## (most processor seconds while left alone: a third of one core)
 
+proc smokeSeed(): uint32 =
+  ## ($RETRO_SMOKE_SEED, else the run of always)
+  let n = (try: parseUInt(getEnv("RETRO_SMOKE_SEED", "0")) except ValueError: 0'u)
+  if n == 0: 0x9E3779B9'u32 else: uint32(n and 0xFFFF_FFFF'u)
+
 var smoke = (secs: (try: parseInt(getEnv("RETRO_SMOKE", "0")) except ValueError: 0),
              start: getMonoTime(), idleFrom: MonoTime(), idleCpu0: 0.0,
              idleFrames: 0, idleShown: 0, idleCpu: 0.0, phase: 0, events: 0,
-             seed: 0x9E3779B9'u32, frames: 0, shown: -1, pressed: false)
+             seed: smokeSeed(), frames: 0, shown: -1, pressed: false)
 
 proc smokeOn*(): bool = smoke.secs > 0
   ## A smoke run (RETRO_SMOKE) is going on.

@@ -4540,6 +4540,7 @@ proc main() =
   const iconPng = staticRead("assets/photo-icon.png")
   windowIcon = windowIconFromPng(iconPng)   # (the taskbar's picture)
   reportedVersion = AppVersion
+  reportedVersion = AppVersion           # (for a fault's report)
   startApp(AppName & " " & AppVersion, 1280, 800)
   autoFocus = false             # (the keys are the picture's until a palette's control is clicked)
   restoreAppearance(loadSettings(AppName))      # (the look chosen in Preferences)
