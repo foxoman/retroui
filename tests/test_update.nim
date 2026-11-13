@@ -89,4 +89,39 @@ block fromAServer:
       server.close()
       removeDir(dir)
 
+block pieces:
+  # a file cut where its bytes say: a change in one place leaves the pieces
+  # after it as they were, so an update fetches little more than the change
+  var r = 12345'u32
+  proc rnd(n: int): string =
+    for _ in 0 ..< n:
+      r = r * 1103515245'u32 + 12345'u32
+      result.add char((r shr 16) and 255)
+  let old = rnd(900_000)
+  let newer = old[0 ..< 300_000] & rnd(5000) & old[300_000 .. ^1]   # (5 KB put in)
+  let cs = chunksOf(newer)
+  var total = 0
+  for c in cs:
+    total += c.size
+    doAssert c.size <= 256 * 1024 and c.hash.len == 32
+  doAssert total == newer.len and cs.len >= 4, $cs.len
+  doAssert chunksOf(newer) == cs, "the same cuts every time"
+  var asked: seq[(int, int)]
+  let made = assembleUpdate(cs, [old], proc (first, last: int): string =
+    asked.add (first, last)
+    newer[first .. last])
+  doAssert made.data == newer
+  doAssert made.fetched < 200_000 and asked.len == 1, $made.fetched & " " & $asked
+  # with nothing to start from: all of it, in one request
+  asked.setLen(0)
+  let all = assembleUpdate(cs, [], proc (first, last: int): string =
+    asked.add (first, last)
+    newer[first .. last])
+  doAssert all.data == newer and all.fetched == newer.len and asked == @[(0, newer.len - 1)]
+  # a part that is not what was asked: refused
+  try:
+    discard assembleUpdate(cs, [], proc (first, last: int): string = "short")
+    doAssert false
+  except UpdateError: discard
+
 echo "update tests passed"

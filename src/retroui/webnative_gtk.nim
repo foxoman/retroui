@@ -27,7 +27,8 @@ proc skipWebKitTeardown() {.noconv.} =
   exitnow(cint(getProgramResult()))
 
 type
-  GtkCmdKind = enum gcShow, gcHide, gcClose, gcNav, gcRun, gcAllow, gcQuit, gcPermit, gcClear
+  GtkCmdKind = enum gcShow, gcHide, gcClose, gcNav, gcRun, gcAllow, gcQuit, gcPermit, gcClear,
+                    gcBlock
   GtkCmd = object
     kind: GtkCmdKind
     key: string
@@ -69,6 +70,8 @@ var
   gtkPlaces: Table[string, tuple[xid: culong; w, h: int]]   # (under the lock) for pictures
   gtkDownloads: Table[pointer, string]       # (GTK's thread only) a download's page
   gtkPermits: Table[string, set[WebPermission]]   # (under the lock) what the app allows
+  gtkFilter: pointer                         # (GTK's thread only) the block list, compiled
+  gtkBlockSent = 0                           # (the app's thread) the block list given GTK
 
   # GTK, GDK, GLib, GObject
   gtk_init_check: proc (argc, argv: pointer): cint {.cdecl, gcsafe.}
@@ -139,6 +142,16 @@ var
   webkit_web_context_get_website_data_manager: proc (c: pointer): pointer {.cdecl, gcsafe.}
   webkit_website_data_manager_clear: proc (m: pointer; types: cint; timespan: int64;
       cancel, cb, data: pointer) {.cdecl, gcsafe.}
+  # the block list (2.24 and later): WebKit's content rules, compiled once
+  g_bytes_new: proc (data: pointer; n: csize_t): pointer {.cdecl, gcsafe.}
+  g_bytes_unref: proc (b: pointer) {.cdecl, gcsafe.}
+  webkit_user_content_filter_store_new: proc (path: cstring): pointer {.cdecl, gcsafe.}
+  webkit_user_content_filter_store_save: proc (st: pointer; id: cstring; source: pointer;
+      cancel, cb, data: pointer) {.cdecl, gcsafe.}
+  webkit_user_content_filter_store_save_finish: proc (st, res: pointer; err: ptr pointer): pointer {.cdecl, gcsafe.}
+  webkit_user_content_manager_add_filter: proc (m, f: pointer) {.cdecl, gcsafe.}
+  webkit_user_content_manager_remove_all_filters: proc (m: pointer) {.cdecl, gcsafe.}
+  webkit_user_content_filter_unref: proc (f: pointer) {.cdecl, gcsafe.}
   webkit_web_context_register_uri_scheme: proc (c: pointer; scheme: cstring; cb, data, destroy: pointer) {.cdecl, gcsafe.}
   webkit_web_context_get_security_manager: proc (c: pointer): pointer {.cdecl, gcsafe.}
   webkit_security_manager_register_uri_scheme_as_secure: proc (m: pointer; s: cstring) {.cdecl, gcsafe.}
@@ -227,6 +240,15 @@ proc loadGtk(): bool =
   gobj.get(g_object_unref, "g_object_unref")
   gobj.get(g_type_check_instance_is_a, "g_type_check_instance_is_a")
   gio.get(g_memory_input_stream_new_from_data, "g_memory_input_stream_new_from_data")
+  glib.get(g_bytes_new, "g_bytes_new")
+  glib.get(g_bytes_unref, "g_bytes_unref")
+  wk.get(webkit_user_content_filter_store_new, "webkit_user_content_filter_store_new", false)
+  wk.get(webkit_user_content_filter_store_save, "webkit_user_content_filter_store_save", false)
+  wk.get(webkit_user_content_filter_store_save_finish, "webkit_user_content_filter_store_save_finish", false)
+  wk.get(webkit_user_content_manager_add_filter, "webkit_user_content_manager_add_filter", false)
+  wk.get(webkit_user_content_manager_remove_all_filters,
+         "webkit_user_content_manager_remove_all_filters", false)
+  wk.get(webkit_user_content_filter_unref, "webkit_user_content_filter_unref", false)
   wk.get(webkit_user_content_manager_new, "webkit_user_content_manager_new")
   wk.get(webkit_user_content_manager_register_script_message_handler,
          "webkit_user_content_manager_register_script_message_handler")
@@ -481,6 +503,15 @@ proc onFocus(win, event, data: pointer): cint {.cdecl, gcsafe.} =
   shared(key): it.focused = true
   0
 
+proc onFullOn(wv, data: pointer): cint {.cdecl, gcsafe.} =
+  ## An element of the page goes full screen (WebKit goes on with it).
+  shared(keyOf(wv)): it.fullscreen = true
+  0
+
+proc onFullOff(wv, data: pointer): cint {.cdecl, gcsafe.} =
+  shared(keyOf(wv)): it.fullscreen = false
+  0
+
 proc onBlur(win, event, data: pointer): cint {.cdecl, gcsafe.} =
   let key = keyOf(win)
   shared(key): it.focused = false
@@ -501,6 +532,23 @@ proc runJs(wv: pointer; js: string) =
   else:
     webkit_web_view_run_javascript(wv, js.cstring, nil, nil, nil)
 
+proc onFilter(store, res, data: pointer) {.cdecl, gcsafe.} =
+  ## (the block list compiled: given to every view, and to those made after)
+  {.cast(gcsafe).}:
+    var err: pointer
+    let f = webkit_user_content_filter_store_save_finish(store, res, addr err)
+    g_object_unref(store)
+    if f == nil:
+      if err != nil:
+        stderr.writeLine "retroui: WebKit refused the block list"
+        g_error_free(err)
+      return
+    if gtkFilter != nil: webkit_user_content_filter_unref(gtkFilter)
+    gtkFilter = f
+    for v in gtkViews.values:
+      webkit_user_content_manager_remove_all_filters(v.ucm)
+      webkit_user_content_manager_add_filter(v.ucm, f)
+
 proc exec(c: GtkCmd) =
   {.cast(gcsafe).}:
     case c.kind
@@ -514,6 +562,7 @@ proc exec(c: GtkCmd) =
         webkit_user_content_manager_add_script(v.ucm, webkit_user_script_new(
           (shimFor("window.webkit.messageHandlers.retro.postMessage") & c.start).cstring,
           InjectTopFrame, InjectAtStart, nil, nil))
+        if gtkFilter != nil: webkit_user_content_manager_add_filter(v.ucm, gtkFilter)
         v.wv = webkit_web_view_new_with_user_content_manager(v.ucm)
         gtkKeyOf[v.wv] = c.key
         if not teardownSkipped:
@@ -529,6 +578,8 @@ proc exec(c: GtkCmd) =
         connect(v.wv, "decide-policy", onPolicy)
         connect(v.wv, "permission-request", onPermission)
         connect(v.wv, "button-press-event", onPress)
+        connect(v.wv, "enter-fullscreen", onFullOn)
+        connect(v.wv, "leave-fullscreen", onFullOff)
         v.win = gtk_window_new(GtkWindowPopup)
         gtkKeyOf[v.win] = c.key
         connect(v.win, "focus-in-event", onFocus)
@@ -579,6 +630,22 @@ proc exec(c: GtkCmd) =
       if gtkViews.hasKey(c.key): gtkViews[c.key].hosts = c.hosts
     of gcPermit:
       if gtkViews.hasKey(c.key): gtkViews[c.key].permit = c.permit
+    of gcBlock:
+      # (the block list as WebKit's content rules: compiled, kept on disk)
+      if webkit_user_content_filter_store_save == nil: return
+      if c.text == "[]":
+        if gtkFilter != nil:
+          for v in gtkViews.values: webkit_user_content_manager_remove_all_filters(v.ucm)
+          webkit_user_content_filter_unref(gtkFilter)
+          gtkFilter = nil
+        return
+      let dir = getCacheDir() / "retroui" / "webfilters"
+      try: createDir(dir) except OSError: discard
+      let store = webkit_user_content_filter_store_new(dir.cstring)
+      let bytes = g_bytes_new(unsafeAddr c.text[0], csize_t(c.text.len))
+      webkit_user_content_filter_store_save(store, "retro-blocked", bytes, nil,
+                                            cast[pointer](onFilter), nil)
+      g_bytes_unref(bytes)
     of gcClear:
       # (cookies, caches, the sites' storage: every kind WebKit keeps -- the
       #  bits of WebKitWebsiteDataTypes up to DOM_CACHE -- of all time)
@@ -659,6 +726,11 @@ proc webNativeShow*(key: string; r: Rect; url: string; zoom: float) =
   ## (> 0) the size of its text and pictures.
   var permit: set[WebPermission]
   withLock gtkLock: permit = gtkPermits.getOrDefault(key)
+  let blocks = blockListNow()
+  if blocks.gen != gtkBlockSent:
+    # (the block list first: views made from here on get it once it is compiled)
+    gtkBlockSent = blocks.gen
+    send GtkCmd(kind: gcBlock, text: contentRules(blocks.hosts, blocks.patterns, blocks.spared))
   send GtkCmd(kind: gcShow, key: key, x: r.x, y: r.y, w: r.w, h: r.h, parent: x11Window(),
               text: url, zoom: zoom, permit: permit, start: startScriptOf(key))
 
@@ -711,6 +783,9 @@ proc webNativeClearData*() =
   ## Clears what WebKit keeps of the pages: cookies, its caches, the sites'
   ## storage.
   if gtkState == 2: send GtkCmd(kind: gcClear)
+
+proc webNativeSuspend*(key: string) = discard
+  ## (WebKit slows a hidden page's timers by itself)
 
 proc webNativeHide*(key: string) = send GtkCmd(kind: gcHide, key: key)
   ## Hides the page (kept with its place in history).

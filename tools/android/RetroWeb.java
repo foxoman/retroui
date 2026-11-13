@@ -71,6 +71,8 @@ public final class RetroWeb {
     volatile String[] hosts = new String[0];
     volatile String permit = "";       // what the page may use: "camera,microphone,location"
     String start = "";                 // the app's script for each page ("web.script")
+    volatile int kept;                 // requests the block list refused since the last info
+    volatile boolean full;             // its video (or other element) full screen
     final ArrayList<String> notes = new ArrayList<String>();   // "m" text, "b" address,
                                        // "p" a permission refused, "d" a download
     final ArrayList<long[]> downloads = new ArrayList<long[]>();   // DownloadManager ids
@@ -100,6 +102,87 @@ public final class RetroWeb {
     try {
       return new WebResourceResponse(mime, "utf-8", new FileInputStream(f));
     } catch (Throwable t) { return null; }
+  }
+
+  /** What every page is kept from fetching (web.block): the sites of these
+   *  hosts and those under them, and the addresses the patterns match. */
+  static volatile java.util.HashSet<String> blockHosts = new java.util.HashSet<String>();
+  static volatile java.util.regex.Pattern[] blockPatterns = new java.util.regex.Pattern[0];
+  static volatile java.util.HashSet<String> blockSpared = new java.util.HashSet<String>();
+
+  static boolean under(String h, java.util.HashSet<String> sites) {
+    if (h == null || sites.isEmpty()) return false;
+    h = h.toLowerCase();
+    while (true) {                     // (the host, then each site it is under)
+      if (sites.contains(h)) return true;
+      int dot = h.indexOf('.');
+      if (dot < 0) return false;
+      h = h.substring(dot + 1);
+    }
+  }
+
+  static boolean blocked(Uri u, String page) {
+    if (!blockSpared.isEmpty() && under(Uri.parse(page).getHost(), blockSpared)) return false;
+    if (under(u.getHost(), blockHosts)) return true;
+    if (blockPatterns.length > 0) {
+      String s = u.toString();
+      for (java.util.regex.Pattern p : blockPatterns) if (p.matcher(s).find()) return true;
+    }
+    return false;
+  }
+
+  /** A page's video (or other element) in full screen: its view over the
+   *  whole screen, in a window of its own, until the page or Back ends it. */
+  static FrameLayout fullBox;
+  static WebChromeClient.CustomViewCallback fullDone;
+  static Web fullWeb;
+
+  static void endFull(Activity a) {
+    if (fullWeb != null) fullWeb.full = false;
+    fullWeb = null;
+    if (fullBox == null) return;
+    try { a.getWindowManager().removeView(fullBox); } catch (Throwable t) { }
+    fullBox = null;
+    WebChromeClient.CustomViewCallback cb = fullDone;
+    fullDone = null;
+    if (cb != null) try { cb.onCustomViewHidden(); } catch (Throwable t) { }
+  }
+
+  @SuppressWarnings("deprecation")
+  static void showFull(final Activity a, Web w, android.view.View view,
+                       WebChromeClient.CustomViewCallback cb) {
+    endFull(a);
+    fullWeb = w;
+    w.full = true;
+    FrameLayout box = new FrameLayout(a) {
+      @Override
+      public boolean dispatchKeyEvent(KeyEvent e) {
+        if (e.getKeyCode() == KeyEvent.KEYCODE_BACK) {
+          if (e.getAction() == KeyEvent.ACTION_UP) endFull(a);
+          return true;
+        }
+        return super.dispatchKeyEvent(e);
+      }
+    };
+    box.setBackgroundColor(0xFF000000);
+    box.addView(view, new FrameLayout.LayoutParams(-1, -1));
+    WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+        WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
+        WindowManager.LayoutParams.FLAG_FULLSCREEN | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+        PixelFormat.OPAQUE);
+    lp.token = a.getWindow().getDecorView().getWindowToken();
+    if (lp.token == null) { try { cb.onCustomViewHidden(); } catch (Throwable t) { } return; }
+    box.setSystemUiVisibility(android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
+        | android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+        | android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+    box.setFocusable(true);
+    box.setFocusableInTouchMode(true);
+    try {
+      a.getWindowManager().addView(box, lp);
+      fullBox = box;
+      fullDone = cb;
+      box.requestFocus();
+    } catch (Throwable t) { try { cb.onCustomViewHidden(); } catch (Throwable u) { } }
   }
 
   static boolean permitted(Web w, String what) {
@@ -265,7 +348,14 @@ public final class RetroWeb {
     v.setWebViewClient(new WebViewClient() {
       @Override
       public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest r) {
-        return appFile(r.getUrl().toString());
+        WebResourceResponse f = appFile(r.getUrl().toString());
+        if (f != null) return f;
+        if (blocked(r.getUrl(), nw.url)) {        // (the block list: refused, never fetched)
+          nw.kept++;
+          return new WebResourceResponse("text/plain", "utf-8", 403, "Blocked", null,
+              new java.io.ByteArrayInputStream(new byte[0]));
+        }
+        return null;
       }
       @Override
       public boolean shouldOverrideUrlLoading(WebView view, String url) {
@@ -307,6 +397,10 @@ public final class RetroWeb {
     v.setWebChromeClient(new WebChromeClient() {
       @Override
       public void onProgressChanged(WebView view, int p) { nw.progress = p; }
+      @Override
+      public void onShowCustomView(android.view.View view, CustomViewCallback cb) { showFull(a, nw, view, cb); }
+      @Override
+      public void onHideCustomView() { endFull(a); }
       @Override
       public void onReceivedTitle(WebView view, String t) { nw.title = t == null ? "" : t; }
       @Override
@@ -412,6 +506,31 @@ public final class RetroWeb {
       synchronized (starts) { starts.put(key, j.toString()); }
       return "";
     }
+    if (what.equals("block")) {
+      // (hosts, a line each; a tab, the patterns as Java's regular expressions;
+      // a tab, the sites spared)
+      StringBuilder j = new StringBuilder(a.length > 0 ? a[0] : "");
+      for (int i = 1; i < a.length; i++) j.append('\t').append(a[i]);
+      String[] part = j.toString().split("\t", -1);
+      java.util.HashSet<String> hs = new java.util.HashSet<String>();
+      for (String h : part[0].split("\n"))
+        if (h.trim().length() > 0) hs.add(h.trim().toLowerCase());
+      ArrayList<java.util.regex.Pattern> ps = new ArrayList<java.util.regex.Pattern>();
+      if (part.length > 1)
+        for (String p : part[1].split("\n")) {
+          if (p.length() == 0) continue;
+          try { ps.add(java.util.regex.Pattern.compile(p, java.util.regex.Pattern.CASE_INSENSITIVE)); }
+          catch (Throwable t) { }
+        }
+      java.util.HashSet<String> sp = new java.util.HashSet<String>();
+      if (part.length > 2)
+        for (String h : part[2].split("\n"))
+          if (h.trim().length() > 0) sp.add(h.trim().toLowerCase());
+      blockHosts = hs;
+      blockPatterns = ps.toArray(new java.util.regex.Pattern[0]);
+      blockSpared = sp;
+      return "";
+    }
     if (what.equals("clear")) {
       act.runOnUiThread(new Runnable() {
         public void run() {
@@ -459,6 +578,10 @@ public final class RetroWeb {
       boolean out = wb.backOut;
       wb.backOut = false;
       StringBuilder notes = new StringBuilder();
+      int kept = wb.kept;
+      wb.kept -= kept;
+      if (kept > 0) notes.append('k').append(kept).append('\u0002');
+      notes.append(wb.full ? "f1" : "f0").append('\u0002');
       synchronized (wb.notes) {
         for (String n : wb.notes) notes.append(n).append('\u0002');
         wb.notes.clear();

@@ -4422,7 +4422,7 @@ proc frameLayout*(): FrameLayout =
   ## `captionButtons`, no close button). All empty when the frame is not
   ## drawn. A window that keeps its size (`setResizable`) has no maximize
   ## button.
-  if not ui.ownFrame: return
+  if not ui.ownFrame or ui.captionH == 0: return
   let b = ui.frameBorder
   let h = max(1, ui.captionH - 1)
   result.border = b
@@ -4442,7 +4442,7 @@ proc framePartAt*(x, y: int): FramePart =
   ## Which part of the 3.1 frame is at `x`, `y` (`fpNone`: the content, or
   ## no such frame). A corner's part reaches as far along the border as
   ## the title bar is low, as in 3.1.
-  if not ui.ownFrame: return fpNone
+  if not ui.ownFrame or ui.captionH == 0: return fpNone
   let f = frameLayout()
   let p = point(x, y)
   if f.controlBox.contains(p): return fpControlBox
@@ -4507,7 +4507,7 @@ proc classicPartAt(x, y: int): WindowPart =
   ## window's pixels; none while a menu is open, which a press closes. The
   ## maximize button is `wpMaxButton`: Windows 11 shows its snap layouts
   ## over it, and the press still comes here)
-  if not ui.ownFrame or ui.popup != 0: return wpClient
+  if not ui.ownFrame or ui.captionH == 0 or ui.popup != 0: return wpClient
   let z = max(1, zoomLevel())
   let lx = x div z
   let p = framePartAt(if ui.rtl: ui.w - 1 - lx else: lx, y div z)
@@ -4687,7 +4687,7 @@ proc classicCaption() =
 proc classicFrameEnd() =
   ## (end of the frame: the sizing border over the bars and the content
   ## that reach the window's edges; the sizing arrows over it)
-  if not ui.ownFrame: return
+  if not ui.ownFrame or ui.captionH == 0: return
   # (an app whose own loop does not call `captionBar`: its title bar now)
   if classicDrawn != ui.frameNo: classicCaption()
   let f = frameLayout()
@@ -4721,7 +4721,7 @@ proc captionBar*() =
   ## and close buttons. `app` calls it every frame; with the system's frame
   ## it draws nothing.
   if ui.ownFrame:
-    classicCaption()
+    if ui.captionH > 0: classicCaption()
     return
   if ui.captionH == 0: return
   pushLayer(LayerBase)

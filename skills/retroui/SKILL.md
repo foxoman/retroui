@@ -323,6 +323,26 @@ a page use the camera; `webPrint(key)` prints it. `webStartScript(key, js)`
 puts a script in every page of the view before the page's own (set it
 before the view's first draw; to change it, set it and `webClose(key)`);
 `webClearData()` clears the engine's cookies, storage and cache.
+`webBlockList(hosts, patterns, spared)` keeps the engine from fetching an ad
+blocker's list (`WebEvent.kept` counts it on WebView2 and Android);
+`WebEvent.fullscreen` is true while a video of the page is full screen (then
+`fullScreenWindow(true)` and hide the app's bars); `webSnapshot(key)` is the
+page's last picture (`webSnapshotNow` asks for one). The app's own pages call
+its procs typed: `import retroui/webbind`, `webBind addNote` (the page:
+`await retro.call("addNote", n)`; `webClientTs()` its TypeScript), events with
+`webEmit(key, name, json)` (`retro.on`), other sites allowed with `webTrust`.
+
+**The system's other parts** (`retroui/system`, docs/system.md): `metered()`,
+`systemWoke()` (true the frame after the computer slept), `systemPrefs()`
+(less movement, high contrast, the text's size: the kit follows them),
+`keepScreenOn(true)` on every system; `copyPicture(bitmap)` and
+`pastePicture()` (the clipboard's pictures); `globalHotkey("Ctrl+Alt+N")` (a
+shortcut of the whole desktop: Windows, X11, macOS); `watchFolder(dir)` and
+`changes(w)` each frame (`retroui/files`); `retroui/install` (the app
+installs itself for the user: `installFlags`, `installForUser`).
+`retrokit linux PROGRAM` makes .deb, .rpm, PKGBUILD and a .tar.gz with
+install.sh; `RETRO_LANG=pseudo` shows every text stretched and marked, to try
+a layout for other languages.
 
 **Grid sorting:** the grid does not reorder your data. Keep the order in
 your own variables, pass it in for the header's arrow, and sort a list of

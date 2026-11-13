@@ -21,7 +21,7 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[strutils, uri, os, locks, tables]
+import std/[strutils, uri, os, locks, tables, json]
 import uirelays/target
 import uirelays/[coords, services]
 import gfx
@@ -52,6 +52,10 @@ type
     asked*: seq[WebPermission]  ## what it asked to use and was not allowed
     downloads*: seq[WebDownload]  ## files it downloads (the state of each, as it changes)
     snapshot*: Bitmap           ## a new picture of the page (`webNativeSnap`), else nil
+    kept*: int                  ## requests the block list kept it from since the last
+                                ## look (where the engine tells: WebView2, Android)
+    fullscreen*: bool           ## an element of the page is full screen now (the
+                                ## engine says so: the page cannot pretend it)
 
 const
   NoSystemDriver = defined(sdl2) or defined(sdl3) or defined(gtk4) or
@@ -112,6 +116,79 @@ proc startScriptOf(key: string): string {.used, gcsafe.} =
   ## (the view `key`'s start script, "" for none)
   {.cast(gcsafe).}:
     withLock startLock: result = startScripts.getOrDefault(key)
+
+var
+  blockLock: Lock
+  blockHosts {.guard: blockLock.}: seq[string]
+  blockPatterns {.guard: blockLock.}: seq[string]
+  blockSpared {.guard: blockLock.}: seq[string]
+  blockGen {.guard: blockLock.}: int      # (changed with each list)
+initLock blockLock
+
+proc hostsOf(list: openArray[string]): seq[string] =
+  for x in list:
+    let t = x.strip.toLowerAscii
+    if t.len > 0 and t.allCharsInSet({'a'..'z', '0'..'9', '-', '.', '_'}): result.add t
+
+proc webNativeBlock*(hosts, patterns: openArray[string]; spared: openArray[string] = []) =
+  ## What every view's engine refuses to fetch: the sites of `hosts` (and
+  ## those under them) and the addresses `patterns` match (`*` any run of
+  ## letters) -- but nothing on the pages of `spared` sites (and those
+  ## under them). Given to the views made after it.
+  var p: seq[string]
+  for x in patterns:
+    if x.strip.len > 0: p.add x.strip
+  let h = hostsOf(hosts)
+  let s = hostsOf(spared)
+  withLock blockLock:
+    blockHosts = h
+    blockPatterns = p
+    blockSpared = s
+    inc blockGen
+
+proc blockListNow(): tuple[hosts, patterns, spared: seq[string]; gen: int] {.used, gcsafe.} =
+  {.cast(gcsafe).}:
+    withLock blockLock: result = (blockHosts, blockPatterns, blockSpared, blockGen)
+
+proc isUnder*(host: string; sites: openArray[string]): bool =
+  ## `host` is one of `sites` or under one ("www.example.com", "example.com").
+  let h = host.toLowerAscii
+  for d in sites:
+    if h == d or h.endsWith("." & d): return true
+
+proc wildRegex*(pattern: string): string =
+  ## `pattern` (`*` any run of letters) as a regular expression from its
+  ## start, as WebKit's content rules and Java take it.
+  result = "^"
+  for c in pattern:
+    case c
+    of '*': result.add ".*"
+    of '.', '?', '+', '(', ')', '[', ']', '{', '}', '\\', '^', '$', '|': result.add '\\' & c
+    else: result.add c
+
+proc hostRegex*(host: string): string =
+  ## A regular expression for the addresses of `host` and the sites under it.
+  "^[a-z]+://([a-z0-9_-]+\\.)*" & host.replace(".", "\\.") & "[:/]"
+
+proc contentRules*(hosts, patterns: openArray[string]; spared: openArray[string] = []): string =
+  ## WebKit's content rules (JSON) that block `hosts` and `patterns`, not
+  ## on the pages of `spared`.
+  var rules: seq[string]
+  for h in hosts: rules.add hostRegex(h)
+  for p in patterns: rules.add wildRegex(p)
+  var unless = ""
+  if spared.len > 0:
+    unless = ",\"unless-top-url\":["
+    for i, s in spared:
+      if i > 0: unless.add ','
+      unless.add escapeJson(hostRegex(s))
+    unless.add ']'
+  result = "["
+  for i, r in rules:
+    if i > 0: result.add ','
+    result.add "{\"trigger\":{\"url-filter\":" & escapeJson(r) & unless &
+      "},\"action\":{\"type\":\"block\"}}"
+  result.add "]"
 
 proc webNativeAppFolder*(folder: string) =
   ## The folder whose files pages get at the app's own address
@@ -200,6 +277,7 @@ when androidApp:
   proc webNativePermit*(key: string; allowed: set[WebPermission]) = discard
   proc webNativeClearData*() = discard
     ## (the WebView's data: "web.clear", through `systemCall`)
+  proc webNativeSuspend*(key: string) = discard
   proc webNativeAppUrl*(path: string): string =
     ## (the WebView's own address for an app's files)
     "https://appassets.androidplatform.net/app/" & path.strip(chars = {'/'})
@@ -238,4 +316,5 @@ else:
   proc webNativeSnap*(key: string) = discard
   proc webNativePermit*(key: string; allowed: set[WebPermission]) = discard
   proc webNativeClearData*() = discard
+  proc webNativeSuspend*(key: string) = discard
   proc webNativeAppUrl*(path: string): string = "app://local/" & path.strip(chars = {'/'})

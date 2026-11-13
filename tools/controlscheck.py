@@ -94,6 +94,7 @@ NOT_CONTROLS = {
         "mdiIsActive", "mdiTitleDragged", "mdiAreaRect",     # MDI state
         "keyFor", "setKey", "commandsOf", "storeKeymap", "restoreKeymap",
         "systemName", "aboutInfo",                           # keymap and About data
+        "globalHotkey", "globalHotkeyTaken", "releaseGlobalHotkey",  # the system's (docs/system.md)
     },
     "dock": {  # (the dock's model; dockPanels draws it)
         "dockPanel", "newDock", "addColumn", "addGroup", "width", "hasPanel",
@@ -139,6 +140,8 @@ NOT_CONTROLS = {
     "htmlview": {
         "htmlTitle", "htmlImagesChanged", "htmlZoomStep", "htmlToText",
         "htmlPageInfo",
+        # a page's call to the app answered (`webHandle`'s `WebCall`)
+        "reply", "fail", "send", "finish", "closed",
     },
     "markdown": {
         "parseMarkdown", "cssColor", "toggleTask",

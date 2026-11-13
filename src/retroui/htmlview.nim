@@ -43,7 +43,7 @@
 ##   for m in w.messages: echo "the page says ", m   # retro.post(text) in its scripts
 ##   if w.back: requestClose()      # Back with no page before (Android)
 
-import std/[strutils, tables, os, hashes, times, base64, math]
+import std/[strutils, tables, os, hashes, times, base64, math, json, random]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 import core, widgets, markdown, pixelicons, nerdicons, imaging, htmldom, htmllayout, htmlcss
@@ -1408,6 +1408,10 @@ type
                                  ## (`webPermit`)
     downloads*: seq[WebDownload] ## files it downloads into the Downloads folder (each
                                  ## as it goes; a finished or failed one once)
+    kept*: int           ## requests `webBlockList` kept the page from since the last
+                         ## frame (where the engine tells: WebView2, Android)
+    fullscreen*: bool    ## the page has an element in full screen (a video's own
+                         ## button): the app may give the view the whole window
   WebMode = enum wmKit, wmRelay, wmNative
   WebState = ref object
     asked: string        ## the address the app gave last
@@ -1440,7 +1444,12 @@ type
     shownAt: int         ## when the view was shown (ms; a picture taken just after
                          ## may come before the engine drew it)
     wasCovered: bool     ## it was under a menu or dialog the frame before
+    kept: int            ## (requests the block list refused, for the event)
+    fullscreen: bool     ## the page has an element in full screen
     file: tuple[path, text: string; stamp: Time]
+    token: string        ## (the kit's calls carry it: not a frame's of the page)
+    trusted: seq[string] ## other sites whose pages may call the app (`webTrust`)
+    pageGen: int         ## (counts the pages shown: a call is closed with its page)
 
 proc engineFromEnv(): WebEngine =
   case getEnv("RETRO_WEB").toLowerAscii
@@ -1458,6 +1467,25 @@ var
   webs: Table[string, WebState]
   hooked = false
   webRunIds = 0
+
+type
+  WebCall* = ref object
+    ## A call of a page to a function of the app (`webBind`, `webHandle`):
+    ## answer it once (`reply`, `fail`), or `send` it values one by one --
+    ## the page's `retro.stream` -- and `finish`. Now or in a later frame.
+    key*: string          ## the `webView` whose page called
+    name*: string         ## the function it called
+    args*: JsonNode       ## its arguments (a JSON array)
+    id: int
+    gen: int
+    done: bool
+  WebHandler* = proc (c: WebCall) {.closure.}
+    ## What the app does when its pages call a function (`webHandle`).
+
+var
+  webHandlers: Table[string, WebHandler]
+  appStarts: Table[string, string]     # (`webStartScript`'s, by key)
+  tokenRng = initRand(int64(epochTime() * 1_000_000) xor int64(getCurrentProcessId()) * 7919)
 
 proc relayTake(key: string): WebNativeState =
   ## (the Android protocol: "web.info" -- url, title, progress, can go back,
@@ -1477,6 +1505,8 @@ proc relayTake(key: string): WebNativeState =
       if n.len == 0: continue
       case n[0]
       of 'b': result.blocked.add n[1 .. ^1]
+      of 'k': result.kept += (try: parseInt(n[1 .. ^1]) except ValueError: 0)
+      of 'f': result.fullscreen = n == "f1"
       of 'p':
         for p in WebPermission:
           if ($p)[2 .. ^1].toLowerAscii == n[1 .. ^1]: result.asked.add p
@@ -1574,6 +1604,9 @@ proc webFrameHook() {.nimcall.} =
     if w.shown and w.drawn < ui.frameNo - 1:
       w.engHide(k)
       w.shown = false
+      # (one not shown for good -- a tab behind -- uses less: WebView2 stops
+      #  it, Android pauses it; it goes on when it is shown again)
+      if w.mode == wmNative: webNativeSuspend(k)     # (Android's "web.hide" pauses it)
 
 proc webStopAll() {.nimcall.} =
   ## The app ends: every system view let go, the engine stopped.
@@ -1582,11 +1615,37 @@ proc webStopAll() {.nimcall.} =
   webs.clear()
   webNativeShutdown()
 
+proc callShim(token: string): string =
+  ## (in the top page only: `retro.call`, `retro.stream`, `retro.on` -- what
+  ## they post carries `token`, which a frame of another site cannot read)
+  "(function(){var B=window.retro;if(window.top!==window||!B||B.call)return;" &
+    "var post=B.post.bind(B),n=0,w={},ev={},R={post:function(m){post(String(m))}};" &
+    "var ask=function(name,a,item){return new Promise(function(ok,no){var id=++n;" &
+    "w[id]={ok:ok,no:no,item:item,m:String(name)};" &
+    "post('\\u0006" & token & "'+JSON.stringify({c:String(name),i:id,a:a,s:item?1:0}))})};" &
+    "R.call=function(name){return ask(name,[].slice.call(arguments,1))};" &
+    "R.stream=function(name,args,item){return ask(name,args||[],item||function(){})};" &
+    "R.on=function(name,f){(ev[name]=ev[name]||[]).push(f);" &
+    "return function(){ev[name]=(ev[name]||[]).filter(function(g){return g!==f})}};" &
+    "R.__r=function(id,k,v){var x=w[id];if(!x)return;if(k===2){try{x.item(v)}catch(e){}return}" &
+    "delete w[id];if(k===0)x.ok(v);else{var e=new Error(String(v));e.name='CallError';" &
+    "e.method=x.m;x.no(e)}};" &
+    "R.__e=function(name,v){(ev[name]||[]).slice().forEach(function(f){try{f(v)}catch(e){}})};" &
+    "window.retro=R})();"
+
+proc sendStart(key: string; w: WebState) =
+  ## (the view's start script: the kit's calls, then the app's)
+  let js = callShim(w.token) & appStarts.getOrDefault(key)
+  webNativeStartScript(key, js)
+  if useSystemWebView: discard systemCall("web.script", key & "\t" & js)
+
 proc webOf(key: string): WebState =
   result = webs.getOrDefault(key, nil)
   if result == nil:
     result = WebState(progress: 100, zoom: 1.0)
+    for _ in 0 ..< 4: result.token.add toHex(tokenRng.next() and 0xFFFF_FFFF'u64, 8).toLowerAscii
     webs[key] = result
+    sendStart(key, result)
   if not hooked:
     hooked = true
     beginFrameHooks.add webFrameHook
@@ -1787,8 +1846,152 @@ proc webStartScript*(key: string; js: string) =
   ## drawing, the page loaded afresh). WebView2 runs it in every frame of
   ## the page, WebKit in the top one; Android's WebView as the page starts
   ## loading, which may be after its first scripts.
-  webNativeStartScript(key, js)
-  if useSystemWebView: discard systemCall("web.script", key & "\t" & js)
+  if js.len == 0: appStarts.del key else: appStarts[key] = js
+  let w = webs.getOrDefault(key, nil)
+  if w != nil: sendStart(key, w)
+  else:
+    webNativeStartScript(key, js)
+    if useSystemWebView: discard systemCall("web.script", key & "\t" & js)
+
+# ---- calls from the page ----------------------------------------------------------------------
+
+proc originOf(url: string): string =
+  ## "https://example.com:8080" of an address ("" for none).
+  let i = url.find("://")
+  if i < 0: return ""
+  var e = url.find({'/', '?', '#'}, i + 3)
+  if e < 0: e = url.len
+  url[0 ..< e].toLowerAscii
+
+proc trustedPage(w: WebState): bool =
+  ## The page shown may call the app: one of the app's own -- its HTML, a
+  ## file, its folder's (`webAppUrl`) -- or of a site `webTrust` names.
+  let u = (if w.cur.len > 0: w.cur else: w.asked).toLowerAscii
+  for own in ["html:", "about:", "data:", "file:", "app:"]:
+    if u.startsWith(own): return true
+  let app = originOf(webNativeAppUrl("x"))
+  if app.len > 0 and originOf(u) == app: return true
+  originOf(u) in w.trusted
+
+proc webTrust*(key: string; origins: openArray[string]) =
+  ## The sites whose pages in the `webView` with `key` may call the app's
+  ## functions (`webBind`) and get its events (`webEmit`), besides its own
+  ## pages: "https://example.com", "http://localhost:5173" (a frame never
+  ## may, nor any other site's page).
+  let w = webOf(key)
+  w.trusted.setLen(0)
+  for o in origins: w.trusted.add originOf(o)
+
+proc runIn(key, js: string) =
+  let w = webs.getOrDefault(key, nil)
+  if w == nil: return
+  if w.shown: w.engRun(key, js) else: w.queue js
+
+proc jsonJs(v: JsonNode): string =
+  ## (JSON as a JavaScript value: no line ends it could not hold)
+  ($v).multiReplace(("\u2028", "\\u2028"), ("\u2029", "\\u2029"))
+
+proc answer(c: WebCall; kind: int; v: string) =
+  runIn(c.key, "window.retro&&window.retro.__r&&window.retro.__r(" & $c.id & "," & $kind & "," & v & ")")
+
+proc closed*(c: WebCall): bool =
+  ## The call is answered, or its page is gone (another one shown, the view
+  ## closed): nothing more reaches it.
+  let w = webs.getOrDefault(c.key, nil)
+  c.done or w == nil or w.pageGen != c.gen
+
+proc reply*(c: WebCall; value: JsonNode = newJNull()) =
+  ## The call's answer: its promise in the page is fulfilled with `value`.
+  if c.closed: return
+  c.done = true
+  c.answer(0, jsonJs(value))
+
+proc fail*(c: WebCall; message: string) =
+  ## The call failed: its promise is rejected with an Error named "CallError"
+  ## whose `message` is `message` and whose `method` is the function's name.
+  if c.closed: return
+  c.done = true
+  c.answer(1, jsonJs(%message))
+
+proc send*(c: WebCall; value: JsonNode) =
+  ## One value of a stream: the page's `retro.stream` gets it (its callback);
+  ## `finish` ends it.
+  if not c.closed: c.answer(2, jsonJs(value))
+
+proc finish*(c: WebCall) =
+  ## The end of a stream (its promise fulfilled).
+  c.reply()
+
+proc webHandle*(name: string; handler: WebHandler) =
+  ## What the app does when its pages call `name` (`retro.call(name,
+  ## ...args)` or `retro.stream(name, args, onValue)` in their scripts):
+  ## `handler` gets the call, answers it then or later. A handler that raises
+  ## fails the call with its message. `webBind` makes one of a Nim proc.
+  if handler == nil: webHandlers.del name else: webHandlers[name] = handler
+
+proc webEmit*(key, event: string; value: JsonNode = newJNull()) =
+  ## An event to the page of the `webView` with `key`, when it is one of the
+  ## app's own (or trusted, `webTrust`): its `retro.on(event, f)` calls `f`
+  ## with `value`.
+  let w = webs.getOrDefault(key, nil)
+  if w == nil or not trustedPage(w): return
+  runIn(key, "window.retro&&window.retro.__e&&window.retro.__e(" & jsString(event) & "," &
+             jsonJs(value) & ")")
+
+proc webBroadcast*(event: string; value: JsonNode = newJNull()) =
+  ## `webEmit` to every `webView`'s page.
+  var keys: seq[string]
+  for k in webs.keys: keys.add k
+  for k in keys: webEmit(k, event, value)
+
+proc takeCall(w: WebState; key, note: string) =
+  ## (a call the page posted: "\6", the token, then its JSON)
+  if w.token.len == 0 or not note.continuesWith(w.token, 1): return
+  var j: JsonNode
+  try: j = parseJson(note[1 + w.token.len .. ^1])
+  except CatchableError: return
+  if j.kind != JObject: return
+  let a = j{"a"}
+  let c = WebCall(key: key, name: j{"c"}.getStr, id: j{"i"}.getInt, gen: w.pageGen,
+                  args: (if a != nil and a.kind == JArray: a else: newJArray()))
+  if not trustedPage(w):
+    c.fail("this page may not call the app: " & originOf(w.cur))
+    return
+  let h = webHandlers.getOrDefault(c.name, nil)
+  if h == nil:
+    c.fail("the app has no function \"" & c.name & "\"")
+    return
+  try: h(c)
+  except CatchableError as e: c.fail(e.msg)
+
+proc webBlockList*(hosts: openArray[string]; patterns: openArray[string] = [];
+                   spared: openArray[string] = []) =
+  ## What the system's engine refuses to fetch for every page, before it
+  ## asks the network: the sites of `hosts` (and those under them:
+  ## "doubleclick.net" blocks "ad.doubleclick.net") and the addresses
+  ## `patterns` match, `*` any run of letters ("*://*.example.com/ads/*") --
+  ## an ad blocker's list -- but nothing on the pages of the `spared` sites
+  ## (and those under them). WebView2 and Android's WebView count what they
+  ## refuse (`WebEvent.kept`); WebKit compiles the list into its content
+  ## rules once. Views made after it get it: `webClose` the others.
+  webNativeBlock(hosts, patterns, spared)
+  if useSystemWebView:
+    var rx: seq[string]
+    for p in patterns: rx.add wildRegex(p)
+    discard systemCall("web.block", @hosts.join("\n") & "\t" & rx.join("\n") & "\t" &
+                                    @spared.join("\n"))
+
+proc webSnapshot*(key: string): Bitmap =
+  ## The latest picture of the page of the `webView` with `key`, as the
+  ## system's engine drew it (nil before the first): taken now and then while
+  ## it is shown, and by `webSnapshotNow`.
+  webOf(key).snapshot
+
+proc webSnapshotNow*(key: string) =
+  ## A new picture of the page asked for: `webSnapshot` gives it once the
+  ## engine has made it (at once on Linux; a frame or two later elsewhere).
+  let w = webOf(key)
+  if w.shown: w.engSnap(key)
 
 proc webClearData*() =
   ## Clears what the system's engine keeps of the pages it showed: cookies
@@ -1980,13 +2183,20 @@ proc webView*(url: string; height = -1; key = ""; engine = webEngine): WebEvent 
       if ui.now - w.polledAt >= 100 or ui.now < w.polledAt:
         w.polledAt = ui.now
         let st = w.engTake(key)
-        if st.url.len > 0: w.cur = st.url
+        if st.url.len > 0 and st.url != w.cur:
+          w.cur = st.url
+          inc w.pageGen                      # (the calls of the page before: closed)
         w.title = st.title
         w.progress = st.progress
         w.canBack = st.canBack
         w.canForward = st.canForward
         if st.backOut: w.backOut = true
+        w.kept += st.kept
+        w.fullscreen = st.fullscreen
         for n in st.notes:
+          if n.len > 1 and n[0] == '\6':
+            w.takeCall(key, n)              # (a call to the app: `webHandle`)
+            continue
           if n.len > 2 and n[0] == '\1':
             # (a script's answer: "\1id\1" and {"ok": value} or {"error": text})
             let k = n.find('\1', 1)
@@ -2023,6 +2233,9 @@ proc webView*(url: string; height = -1; key = ""; engine = webEngine): WebEvent 
     swap(result.blocked, w.blocked)
     swap(result.asked, w.refused)
     swap(result.downloads, w.downloads)
+    result.kept = w.kept
+    w.kept = 0
+    result.fullscreen = w.fullscreen
     w.backOut = false
     ui.lastRect = r
     return

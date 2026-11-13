@@ -6260,7 +6260,7 @@ left out.
 
 ### webView, webRun, webPost
 
-A web page in the window. With the system's engine (`engine = weSystem`; the default in an Android app) the page is the system's browser placed over the widget: scripts, forms, video, its own Back and Forward. Its scripts talk to the app: `retro.post(text)` in the page comes in `messages`, `webPost` sends a `retro` event to the page, `webRun` runs a script and its answer comes in `results`. `webAllow` keeps it to the hosts you trust, `webZoom` sizes it, `webStartScript` puts a script of yours in every page before its own (an ad blocker), `webClearData` clears the cookies and caches. The picture is the kit's own engine (the system's view is drawn by the system, not here).
+A web page in the window. With the system's engine (`engine = weSystem`; the default in an Android app) the page is the system's browser placed over the widget: scripts, forms, video, its own Back and Forward. Its scripts talk to the app: `retro.post(text)` in the page comes in `messages`, `webPost` sends a `retro` event to the page, `webRun` runs a script and its answer comes in `results`. `webAllow` keeps it to the hosts you trust, `webZoom` sizes it, `webStartScript` puts a script of yours in every page before its own (an ad blocker), `webBlockList` keeps the engine from fetching an ad blocker's list (`kept` counts it), `webClearData` clears the cookies and caches. `fullscreen` says the engine shows a video of the page full screen; `webSnapshot` is the page's last picture (`webSnapshotNow` asks for one). The app's own pages call its procs: `webHandle` (or `webBind`, typed, in `retroui/webbind`) answers `retro.call(name, ...args)`, `webEmit` and `webBroadcast` send events (`retro.on`), `webTrust` lets another site's pages call too. The picture is the kit's own engine (the system's view is drawn by the system, not here).
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -6416,6 +6416,20 @@ the page, WebKit in the top one; Android's WebView as the page starts
 loading, which may be after its first scripts.
 
 ```nim
+proc webBlockList*(hosts: openArray[string]; patterns: openArray[string] = [];
+                   spared: openArray[string] = [])
+```
+
+What the system's engine refuses to fetch for every page, before it
+asks the network: the sites of `hosts` (and those under them:
+"doubleclick.net" blocks "ad.doubleclick.net") and the addresses
+`patterns` match, `*` any run of letters ("*://*.example.com/ads/*") --
+an ad blocker's list -- but nothing on the pages of the `spared` sites
+(and those under them). WebView2 and Android's WebView count what they
+refuse (`WebEvent.kept`); WebKit compiles the list into its content
+rules once. Views made after it get it: `webClose` the others.
+
+```nim
 proc webClearData*()
 ```
 
@@ -6443,6 +6457,53 @@ The address of the file `path` of the app's folder (`webAppFolder`):
 webAppFolder(getAppDir() / "web")
 webView(webAppUrl("index.html"), key = "ui", engine = weSystem)
 ```
+
+```nim
+proc webSnapshot*(key: string): Bitmap
+```
+
+The latest picture of the page of the `webView` with `key`, as the
+system's engine drew it (nil before the first): taken now and then while
+it is shown, and by `webSnapshotNow`.
+
+```nim
+proc webSnapshotNow*(key: string)
+```
+
+A new picture of the page asked for: `webSnapshot` gives it once the
+engine has made it (at once on Linux; a frame or two later elsewhere).
+
+```nim
+proc webHandle*(name: string; handler: WebHandler)
+```
+
+What the app does when its pages call `name` (`retro.call(name,
+...args)` or `retro.stream(name, args, onValue)` in their scripts):
+`handler` gets the call, answers it then or later. A handler that raises
+fails the call with its message. `webBind` makes one of a Nim proc.
+
+```nim
+proc webEmit*(key, event: string; value: JsonNode = newJNull())
+```
+
+An event to the page of the `webView` with `key`, when it is one of the
+app's own (or trusted, `webTrust`): its `retro.on(event, f)` calls `f`
+with `value`.
+
+```nim
+proc webBroadcast*(event: string; value: JsonNode = newJNull())
+```
+
+`webEmit` to every `webView`'s page.
+
+```nim
+proc webTrust*(key: string; origins: openArray[string])
+```
+
+The sites whose pages in the `webView` with `key` may call the app's
+functions (`webBind`) and get its events (`webEmit`), besides its own
+pages: "https://example.com", "http://localhost:5173" (a frame never
+may, nor any other site's page).
 
 ### markdownView, markdown
 

@@ -310,16 +310,34 @@ WebKit on macOS and iOS, WebKitGTK on Linux and BSD, Android's WebView.
 So today's web works in it -- sign-ins, maps, video -- in a window of 1995:
 
 - the tool bar with its labels (Back, Forward, Home, Reload, Open, Print,
-  Find, Stop) and, at its right, a logo of its own -- a planet in the night
-  -- with a comet going round it while a page loads (a click goes home);
+  Picture, Find, Stop) and, at its right, a logo of its own -- a planet in
+  the night -- with a comet going round it while a page loads (a click
+  goes home);
 - the **Location** box: an address goes there, a host gets `https://`, a
   file on the computer opens, and anything else is searched for with the
   search engine of General Preferences (DuckDuckGo, Google, Bing,
-  Wikipedia);
+  Wikipedia); as it is typed in it suggests the pages visited (the last
+  400 are kept) and the bookmarks;
+- **page looks** (View > Page Look): Modern, as the site made it;
+  Classic, the site's layout and scripts in 1995's type and colors, with
+  3.1 buttons and fields and no shadows, rounding or animation; Plain, the
+  HTML alone -- none of the site's style sheets or scripts, its
+  `<noscript>` shown, its pictures loaded -- the lightest and the quickest
+  (`examples/navigator/look.nim`); and Windows 3.1's scroll bars on every
+  page, in the window's colors;
 - the directory buttons: Welcome, What's New, Net Search, Net Directory,
   Handbook, Software;
 - the status bar: what happens, the key (https) or a warning sign (http),
-  how much is loaded, downloads;
+  how much is loaded, downloads, and the page's **zoom** (a box with
+  arrows; Ctrl and +, -, 0 too);
+- **video full screen**: the page's video (or anything of it) fills the
+  screen, the bars and the window's frame gone, Esc brings them back; Pop
+  Out Video puts it in a window of its own where the engine has one; F11
+  gives the page the whole screen with the menus kept;
+- **screenshots** (Picture, Ctrl+Shift+S): the page's picture marked up
+  with Retro Board's tools -- the pen, the highlighter, boxes, ovals,
+  arrows and words, in its colors and sizes, undo and redo -- copied for
+  any program, or saved as PNG or as a board (`examples/navigator/markup.nim`);
 - **Bookmarks** (Add Bookmark, Ctrl+D; View Bookmarks to go to one or
   remove it), the **Go** menu with the pages of this session, find on the
   page (`window.find`), print, the document's source, larger and smaller
@@ -331,16 +349,21 @@ So today's web works in it -- sign-ins, maps, video -- in a window of 1995:
   Closed Tab (Ctrl+Shift+T), Ctrl+Tab; a link with Ctrl or the middle
   button opens in a tab behind, a link for a new window in a new tab; a
   tab's menu (Duplicate, Close Other Tabs), and tabs dragged into order;
-- **the shield**, a script it puts in every page before the page's own
-  (`webStartScript`, `examples/navigator/shield.nim`): ads and trackers
-  blocked -- the page's requests to them, their scripts, frames and
-  pictures, the usual ad boxes -- with the number kept off the page in the
-  status bar and Allow Ads on This Site; sites asked not to track (Global
+- **the shield** (`examples/navigator/shield.nim`): the engine never
+  fetches what comes from more than 250 ad and tracker sites and the ad
+  addresses of sites that serve their pages too (`webBlockList`), nor the
+  sites of a list the user imports (a hosts file, or an ad blocker's
+  `||site^` lines); and a script in every page before the page's own
+  (`webStartScript`) blocks what is left -- the page's requests to them,
+  their scripts, frames and pictures, the usual ad boxes, YouTube's ads in
+  its player -- with the number kept off the page in the status bar and
+  Allow Ads on This Site; sites asked not to track (Global
   Privacy Control); links to `http://` taken to `https://` (not on the
   local network; type `http://` to go anyway);
 - **faster**: a link of the site loaded ahead while the pointer rests on
-  it, videos kept from playing by themselves (a setting), and tabs not
-  looked at for ten minutes put to sleep to free their memory (a setting);
+  it, videos kept from playing by themselves (a setting), a tab behind
+  paused at once where the engine can, and tabs not looked at for five
+  minutes put to sleep to free their memory (on at first);
 - **Clear Browsing Data** (Ctrl+Shift+Delete): the pages visited, and the
   cookies, cache and site data (`webClearData`);
 - **Preferences** as Netscape had them, a tabbed dialog opened at its
@@ -352,7 +375,8 @@ So today's web works in it -- sign-ins, maps, video -- in a window of 1995:
 
 Where the system has no engine, it shows its own pages and opens the
 others in the browser. `tests/test_navigator.nim` checks its places
-(`examples/navigator/places.nim`) and its shield.
+(`examples/navigator/places.nim`), its history and suggestions, its shield
+and block lists, and its looks.
 
 ```sh
 nimble navigator            # or: nim c -r -d:release examples/navigator.nim

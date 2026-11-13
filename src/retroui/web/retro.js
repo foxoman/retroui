@@ -1004,6 +1004,14 @@ registerProcessor("retro-sound", RetroSound);`;
       return typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: dark)").matches ? "1" : "0";
     case "online":
       return nav.onLine === false ? "0" : "1";
+    case "metered": {
+      const c = nav.connection;
+      return c && (c.saveData || c.type === "cellular") ? "1" : "0";
+    }
+    case "prefs": {
+      const m = (q) => typeof matchMedia !== "undefined" && matchMedia(q).matches ? "1" : "0";
+      return m("(prefers-reduced-motion: reduce)") + " " + m("(prefers-contrast: more)");
+    }
     case "language":
       return nav.language || "en";
     case "device": {
@@ -1817,6 +1825,14 @@ registerProcessor("retro-sound", RetroSound);`;
         self.clip = text(p, n);
         if (navigator.clipboard && navigator.clipboard.writeText)
           navigator.clipboard.writeText(self.clip).catch(() => {});
+      },
+      rw_clip_put_png: (p, n) => {
+        // (a picture: the browser asks no question for a write the user started)
+        if (!navigator.clipboard || !navigator.clipboard.write || typeof ClipboardItem === "undefined")
+          return 0;
+        const blob = new Blob([rt.u8().slice(p, p + n)], { type: "image/png" });
+        navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]).catch(() => {});
+        return 1;
       },
       rw_clip_get: (p, cap) => {
         const b = textEncoder.encode(self.clip);

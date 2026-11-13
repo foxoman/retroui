@@ -32,6 +32,8 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[os, strutils, times]
+when not defined(windows):
+  import std/monotimes
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 when not defined(wasm):
   import std/osproc
@@ -44,7 +46,7 @@ export notify.notify, notify.notifyAvailable, notify.clearNotification, notify.s
        notify.badgeCount
 export native.vibrate, native.deviceName, native.osVersion, native.batteryLevel,
        native.systemDarkMode, native.beepSystem, native.userName, native.keepScreenOn,
-       native.openSettings
+       native.openSettings, native.systemPrefs, native.SystemPrefs
 export services.openUrl, services.openFile, services.shareFile, services.platformName,
        services.places, services.minimizeApp, services.dataDir, services.systemCall
 
@@ -583,6 +585,67 @@ proc online*(): bool =
     except IOError, OSError: true
   else:
     true
+
+var meteredCache: tuple[at: float; v: bool] = (-100.0, false)
+
+proc metered*(): bool =
+  ## The network costs by what is used -- a phone's data, a hotspot, one the
+  ## user marked metered: a time to fetch less (no pictures ahead, no
+  ## updates). Windows 10 and later, Linux with NetworkManager, Android, a
+  ## browser that tells (Data Saver, a phone's data); false elsewhere, and
+  ## when the system cannot tell. Asked at most every 30 seconds.
+  when defined(wasm):
+    systemCall("metered", "") == "1"
+  else:
+    let now = epochTime()
+    if now - meteredCache.at < 30: return meteredCache.v
+    var m = false
+    try:
+      when androidApp:
+        m = javaAvailable() and javaStatic("org.retro.RetroSystem", "metered", jactivity()) == "1"
+      elif defined(windows):
+        # (GetNetworkConnectivityHint: Windows 10 2004 and later; its cost
+        # fixed or variable is metered)
+        type Hint = object
+          level, cost: int32
+          approaching, over, roaming: uint8
+        let lib = nativeLib("iphlpapi.dll")
+        let f = nativeProc[proc (h: ptr Hint): uint32 {.stdcall.}](lib, "GetNetworkConnectivityHint")
+        if f != nil:
+          var h: Hint
+          if f(addr h) == 0: m = h.cost in [2'i32, 3]
+      elif defined(linux):
+        let exe = findExe("busctl")
+        if exe.len > 0:
+          let (o, code) = execCmdEx(exe & " get-property org.freedesktop.NetworkManager " &
+            "/org/freedesktop/NetworkManager org.freedesktop.NetworkManager Metered")
+          # (NM_METERED_YES 1, NM_METERED_GUESS_YES 3)
+          m = code == 0 and o.strip in ["u 1", "u 3"]
+    except CatchableError: discard
+    meteredCache = (now, m)
+    m
+
+var wokeAt: tuple[wall, mono: float] = (-1.0, -1.0)
+
+proc awakeClock(): float =
+  ## (seconds of a clock that stops while the computer sleeps)
+  when defined(windows):
+    proc QueryUnbiasedInterruptTime(t: ptr uint64): int32 {.stdcall, dynlib: "kernel32", importc.}
+    var t: uint64
+    discard QueryUnbiasedInterruptTime(addr t)
+    t.float / 10_000_000
+  else:
+    getMonoTime().ticks.float / 1e9
+
+proc systemWoke*(): bool =
+  ## The computer slept and woke (or its clock was set ahead) since the
+  ## last time this was asked: what the app shows may be old -- mail to
+  ## fetch, a connection to make again. Asked every frame, it is true in
+  ## the frame after waking.
+  let wall = epochTime()
+  let mono = awakeClock()
+  if wokeAt.wall >= 0 and (wall - wokeAt.wall) - (mono - wokeAt.mono) > 4.0: result = true
+  wokeAt = (wall, mono)
 
 proc systemLanguage*(): string =
   ## The user's language, as a tag: "en-US", "ar-OM", "fr".

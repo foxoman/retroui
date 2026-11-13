@@ -133,6 +133,11 @@ proc openApp*(title: string; w, h: int; theme = ui.theme; frame = wfAsBuilt;
   if not resizable: setResizable(false)
   if icon.len > 0: windowIcon = windowIconFromPng(icon)
   startApp(title, w, h, theme, zoom)
+  # (the system's settings for every app: less movement, larger text --
+  # what the user chose in the app's own look, below, comes over them)
+  let sp = systemPrefs()
+  if sp.reduceMotion: setSmoothScrolling(false)
+  if sp.textScale > 1.05: setTextScale(int(sp.textScale * 100 + 0.5))
   appLook = look
   if look.len > 0:
     restoreAppearance(loadSettings(look))

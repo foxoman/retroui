@@ -72,10 +72,13 @@ what it needs (see "What the app declares").
 | `setOpenAtLogin`, `openAtLogin` | ✓ autostart entry | ✓ Run key | ✓ launch agent | – | – | – |
 | `requestAttention` | ✓ X11 urgency | ✓ the taskbar flashes | ✓ the Dock bounces | – | – | ✓ the tab's title |
 | `online` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `metered` | ✓ NetworkManager | ✓ *Windows 10 2004* | – | ✓ | – | ✓ *Data Saver, a phone's data* |
+| `systemWoke` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `systemPrefs` (less movement, contrast, text size) | ✓ GNOME | ✓ | ✓ | ✓ | ✓ | ✓ *(no text size)* |
 | `systemLanguage` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `battery`, `batteryLevel` | ✓ | ✓ | – | ✓ | ✓ | ✓ *(Chrome)* |
 | `systemDarkMode` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `keepScreenOn` | – | ✓ | – | ✓ | ✓ | ✓ Wake Lock |
+| `keepScreenOn` | ✓ systemd-inhibit | ✓ | ✓ caffeinate | ✓ | ✓ | ✓ Wake Lock |
 | `revealFile`, `openFile` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ *a download* |
 | `deviceInfo`, `deviceName`, `osVersion` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ the browser |
 | `beepSystem` | ✓ X11 bell | ✓ | ✓ | ✓ | ✓ | ✓ a tone |
@@ -90,6 +93,10 @@ what it needs (see "What the app declares").
 | printing (`printPdf`) | ✓ CUPS | ✓ the PDF reader | ✓ CUPS | ✓ the print dialog | – | ✓ the browser's print |
 | chat (`retroui/xmpp`) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ *threads build*, WebSocket |
 | a command as the administrator (`retroui/admin`) | ✓ polkit's pkexec | ✓ UAC | ✓ the password dialog | – | – | – |
+| pictures on the clipboard (`copyPicture`, `pastePicture`) | ✓ X11, Wayland, GTK 4 | ✓ DIB and PNG | ✓ PNG, TIFF | – | – | ✓ copy *(not paste)* |
+| shortcuts of the whole desktop (`globalHotkey`) | ✓ X11 *(not Wayland)* | ✓ | ✓ | – | – | – |
+| a folder watched (`watchFolder`) | ✓ | ✓ | ✓ | ✓ the app's files | ✓ the app's files | – |
+| installed for the user alone (`retroui/install`) | ✓ ~/.local | ✓ %LOCALAPPDATA%, Start menu, Settings | ✓ ~/Applications | – | – | – |
 
 ### What the app declares
 
@@ -194,6 +201,69 @@ if not online(): label "Offline: the changes are kept until the network is back"
 keepScreenOn(true)      # a presentation
 ```
 
+## The network, sleep, the user's settings
+
+```nim
+if metered(): label "On a metered network: pictures load when you open them"
+if systemWoke(): fetchAgain = true      # (the computer slept: what is shown may be old)
+let p = systemPrefs()                   # less movement, high contrast, larger text
+if p.reduceMotion: animate = false
+```
+
+`metered` is true on a phone's data, a hotspot or a network the user marked
+metered (Windows, NetworkManager, Android, a browser's Data Saver). The kit
+follows `systemPrefs` as an app starts: no glides when the user wants less
+movement, larger text when the system's is larger (the app's own Appearance
+settings come over them).
+
+## Pictures on the clipboard, shortcuts of the whole desktop
+
+```nim
+if button("&Copy Picture"): discard copyPicture(chart)   # any program pastes it
+let pic = pastePicture()                                  # nil: none
+if globalHotkey("Ctrl+Alt+N"): showNote = true            # the app need not be in front
+```
+
+`copyPicture` puts a `Bitmap` on the clipboard as PNG (and as a DIB on
+Windows, TIFF on a Mac). `globalHotkey` asks the system for the shortcut
+the first time it is called -- `globalHotkeyTaken` says whether it got it:
+another program may have it -- and is true in the frame it was pressed,
+whichever program was in front. Wayland leaves such shortcuts to the
+desktop's own settings.
+
+## A folder watched
+
+```nim
+import retroui/files
+let w = watchFolder(getHomeDir() / "Notes", recursive = true)
+app "Notes", 600, 400:
+  for c in w.changes():                   # every frame: it looks once a second
+    echo c.kind, " ", c.path               # fcCreated, fcChanged, fcRemoved
+```
+
+It compares the files' sizes and times, the same on every system and over a
+network share, at most 8192 files.
+
+## Installed for the user alone
+
+```nim
+import retroui, retroui/install
+const me = InstallInfo(id: "notes", name: "Notes", version: "1.2", publisher: "Me",
+                       iconPng: staticRead("notes.png"))
+if installFlags(me): quit 0               # Notes.exe --install, --uninstall
+app "Notes", 600, 400:
+  if not runningInstalled(me) and button("&Install for Me"): discard installForUser(me)
+```
+
+The program puts itself in the user's own folders, with no administrator and
+no installer to make: Windows' %LOCALAPPDATA%\Programs, a Start menu entry
+and an entry in Settings > Apps that uninstalls it (`--uninstall`); Linux's
+~/.local/bin with its menu entry and icon; a Mac's ~/Applications. There it
+is the user's own file, so `retroui/update` replaces it with no question.
+`retrokit linux` makes the packages of the systems' own package managers
+(.deb, .rpm, Arch's PKGBUILD) and a .tar.gz with an `install.sh` that does
+the same as `installForUser`.
+
 ## The camera and the microphone
 
 ```nim
@@ -268,7 +338,11 @@ if u.available:                               # (say so: u.version, u.notes; on 
 You publish `update.json` (the newest version, its file for each system)
 and `update.json.sig`: `retrokit update-key` once, then `retrokit
 update-sign update.json` for each release. The app takes nothing that
-your key did not sign. `checkForUpdate` and `downloadUpdate` wait for the
+your key did not sign. `update-sign` lists each file's pieces too: an app
+downloads only the pieces its own file (and the updates it downloaded
+before) does not hold -- HTTP ranges, which GitHub's releases and most
+servers give; a server without them sends the whole file -- then checks the
+whole file's SHA-256 as before (`updateFetched` says how much came). `checkForUpdate` and `downloadUpdate` wait for the
 network: call them on a thread of your own (`retroui/background`) or at a
 moment the app may wait.
 

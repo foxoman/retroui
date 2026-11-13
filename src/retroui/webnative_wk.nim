@@ -330,6 +330,44 @@ proc loadInto(v: var WkView; url: string) =
     let req = objcSend(ObjcId, objcClass("NSURLRequest"), "requestWithURL:", u)
     discard objcSend(ObjcId, v.view, "loadRequest:", req)
 
+var
+  wkRules: ObjcId        ## the block list, compiled (a WKContentRuleList), or nil
+  wkRulesAsked = 0       ## the block list asked to be compiled
+
+proc rulesInto(view: ObjcId) =
+  ## (the compiled block list for `view`, in place of the one it had)
+  if view == nil: return
+  let ucc = objcSend(ObjcId, objcSend(ObjcId, view, "configuration"), "userContentController")
+  if ucc == nil or not respondsTo(ucc, "addContentRuleList:"): return
+  objcSend(void, ucc, "removeAllContentRuleLists")
+  if wkRules != nil: objcSend(void, ucc, "addContentRuleList:", wkRules)
+
+proc onRules(blk, list, error: pointer) {.cdecl.} =
+  ## compileContentRuleListForIdentifier:...'s answer: every view gets it.
+  if list == nil: return
+  if wkRules != nil: objcSend(void, wkRules, "release")
+  wkRules = cast[ObjcId](list)
+  objcSend(void, wkRules, "retain")
+  for v in wkViews: rulesInto(v.view)
+
+var rulesBlock = globalBlock(cast[pointer](onRules))
+
+proc askRules() =
+  ## (the block list compiled into WebKit's content rules, when it changed:
+  ## macOS 10.13, iOS 11)
+  let b = blockListNow()
+  if b.gen == wkRulesAsked: return
+  wkRulesAsked = b.gen
+  if b.hosts.len + b.patterns.len == 0:
+    if wkRules != nil: objcSend(void, wkRules, "release")
+    wkRules = nil
+    for v in wkViews: rulesInto(v.view)
+    return
+  let store = objcSend(ObjcId, objcClass("WKContentRuleListStore"), "defaultStore")
+  if store == nil: return
+  objcSend(void, store, "compileContentRuleListForIdentifier:encodedContentRuleList:completionHandler:",
+           nsString("retro-blocked"), nsString(contentRules(b.hosts, b.patterns, b.spared)), addr rulesBlock)
+
 proc makeView(host: ObjcId; frame: CGRect; key: string): ObjcId =
   let config = objcSend(ObjcId, objcSend(ObjcId, objcClass("WKWebViewConfiguration"), "alloc"), "init")
   let ucc = objcSend(ObjcId, config, "userContentController")
@@ -340,6 +378,13 @@ proc makeView(host: ObjcId; frame: CGRect; key: string): ObjcId =
                                  startScriptOf(key)), 0, true)
   objcSend(void, ucc, "addUserScript:", script)
   objcSend(void, script, "release")
+  if wkRules != nil and respondsTo(ucc, "addContentRuleList:"):
+    objcSend(void, ucc, "addContentRuleList:", wkRules)
+  # a page's element in full screen (a video's button): WebKit's own (macOS
+  # 12.3, iOS 16.4)
+  let prefs = objcSend(ObjcId, config, "preferences")
+  if prefs != nil and respondsTo(prefs, "setElementFullscreenEnabled:"):
+    objcSend(void, prefs, "setElementFullscreenEnabled:", true)
   # the app's own folder at app://local/ (macOS 10.13, iOS 11)
   if wkScheme != nil and respondsTo(config, "setURLSchemeHandler:forURLScheme:"):
     objcSend(void, config, "setURLSchemeHandler:forURLScheme:", wkScheme, nsString("app"))
@@ -366,6 +411,7 @@ proc webNativeShow*(key: string; r: Rect; url: string; zoom: float) =
   ## (> 0) the size of its text and pictures.
   if not webNativeAvailable(): return
   autoreleasePool:
+    askRules()
     let host = hostView()
     let frame = frameFor(host, r)
     var i = indexOf(key)
@@ -404,6 +450,9 @@ proc webNativeClose*(key: string) =
   objcSend(void, wkViews[i].view, "removeFromSuperview")
   objcSend(void, wkViews[i].view, "release")
   wkViews[i].view = nil
+
+proc webNativeSuspend*(key: string) = discard
+  ## (WebKit slows a hidden page's timers by itself)
 
 proc onDataRemoved(b: pointer) {.cdecl.} = discard
 var dataBlock = globalBlock(cast[pointer](onDataRemoved))
@@ -494,6 +543,9 @@ proc webNativeTake*(key: string): WebNativeState =
     if not objcSend(bool, v, "isLoading"): wkViews[i].st.progress = 100
     wkViews[i].st.canBack = objcSend(bool, v, "canGoBack")
     wkViews[i].st.canForward = objcSend(bool, v, "canGoForward")
+    # (macOS 13 and later: entering or in full screen)
+    if respondsTo(v, "fullscreenState"):
+      wkViews[i].st.fullscreen = objcSend(int, v, "fullscreenState") in [1, 2]
   result = wkViews[i].st
   wkViews[i].st.notes.setLen(0)
   wkViews[i].st.blocked.setLen(0)

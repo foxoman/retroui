@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.43.1"
+const RetroVersion* = "0.44.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -1635,6 +1635,8 @@ proc cancelDrag*() =
 var
   dropFiles: seq[string]       # the files dropped on the window this frame
   dropAt: Point                # ... where
+  globalHits*: seq[int]        ## (the shortcuts from the whole desktop pressed
+                               ## this frame: `globalHotkey`)
 
 proc droppedFiles*(): seq[string] = dropFiles
   ## The files dropped on the window this frame from the system's file
@@ -2397,15 +2399,49 @@ proc groupEnd*(): tuple[cell: Rect, title: string] =
 var
   uiStrings: Table[string, string]   # (the words on screen in another language: `setUiLanguage`)
   uiLanguage = ""
+  uiPseudo = false                   # (every text stretched and marked: "pseudo")
+
+const pseudoLetters = [
+  "\u00e5", "b", "\u00e7", "\u00f0", "\u00e9", "f", "\u011d", "\u0125", "\u00ee",
+  "\u0135", "\u0137", "\u013c", "m", "\u00f1", "\u00f6", "\u00fe", "q", "\u0155",
+  "\u0161", "\u0163", "\u00fb", "v", "\u0175", "x", "\u00fd", "\u017e"]
+  ## (a..z, most with a mark on them: Latin-1's and Latin Extended-A's,
+  ## which the interface's fonts have)
+
+proc pseudoText*(s: string): string =
+  ## `s` as the pseudo language shows it: its letters marked, a third
+  ## longer, in brackets ("Save" -> "[Šåvé ··]"): a
+  ## translation longer than English, and words left out of `tr`, found by
+  ## looking. The "&" of a mnemonic stays before its letter.
+  if s.len == 0 or (s[0] == '[' and s.endsWith("\u00b7]")): return s   # (made so already)
+  result = "["
+  var letters = 0
+  for c in s:
+    case c
+    of 'a'..'z':
+      result.add pseudoLetters[ord(c) - ord('a')]
+      inc letters
+    of 'A'..'Z':
+      result.add pseudoLetters[ord(c) - ord('A')].toUpper
+      inc letters
+    else: result.add c
+  if letters > 0:
+    result.add ' '
+    for _ in 0 ..< max(1, (letters + 2) div 3): result.add "\u00b7"
+  result.add ']'
 
 proc setUiLanguage*(lang: string; tables: varargs[seq[(string, string)]]) =
   ## The interface in another language: each label, button, menu, tab,
   ## title shown is looked up in `tables` (the English text, "&" taken out,
   ## and what it is in that language); right to left -- mirrored -- for
-  ## Arabic, Persian, Hebrew, Urdu. "" or "en": English again.
+  ## Arabic, Persian, Hebrew, Urdu. "" or "en": English again. "pseudo":
+  ## every text stretched and marked (`pseudoText`), to try a layout for
+  ## the longer words of other languages and find the words not translated
+  ## ($RETRO_LANG=pseudo does it as the app starts).
   uiStrings.clear()
   uiLanguage = lang
-  if lang notin ["", "en"]:
+  uiPseudo = lang == "pseudo"
+  if lang notin ["", "en", "pseudo"]:
     for t in tables:
       for (k, v) in t:
         if k.len > 0 and v.len > 0: uiStrings[k] = v
@@ -2418,6 +2454,7 @@ proc uiLanguageCode*(): string = uiLanguage
 
 proc tr*(s: sink string): string =
   ## `s` in the interface's language (as it is when it has no translation).
+  if uiPseudo: return pseudoText(s)
   if uiStrings.len == 0 or s.len == 0: return s     # (moved, not copied)
   uiStrings.getOrDefault(s, s)
 
@@ -2520,7 +2557,10 @@ proc splitMnemonic*(label: string): tuple[text: string, at: int] =
         inc i
       result.text.add label[i]
       inc i
-  if uiStrings.len > 0:
+  if uiPseudo:
+    result.text = pseudoText(result.text)
+    result.at = -1
+  elif uiStrings.len > 0:
     let t = uiStrings.getOrDefault(result.text, "")
     if t.len > 0:
       result.text = t
@@ -2546,7 +2586,7 @@ proc stripMnemonic(label: string): int =
 
 proc labelWidth*(label: string; bold = false): int =
   ## The width of a label as `drawLabel` draws it (without its '&').
-  if uiStrings.len == 0:
+  if uiStrings.len == 0 and not uiPseudo:
     if '&' notin label: return textWidth(label, bold)   # (as it is: no copy)
     discard stripMnemonic(label)
     return textWidth(mnText, bold)
@@ -2554,11 +2594,11 @@ proc labelWidth*(label: string; bold = false): int =
 
 proc drawLabel*(x, y: int; label: string; c: Color; bold = false) =
   ## Text with its mnemonic letter underlined, the 3.1 way.
-  if uiStrings.len == 0 and '&' notin label:
+  if uiStrings.len == 0 and not uiPseudo and '&' notin label:
     text(x, y, label, c, bold)           # (nothing to take out or underline: no copy)
     return
   var at: int
-  if uiStrings.len == 0:
+  if uiStrings.len == 0 and not uiPseudo:
     at = stripMnemonic(label)
   else:
     let (s, a) = splitMnemonic(label)
@@ -2817,6 +2857,9 @@ proc applyEvent(e: Event): bool =
   of WindowShownEvent:
     ui.hidden = false
     ui.force = true
+  of GlobalKeyEvent:
+    globalHits.add e.x
+    ui.redraw = true
   of QuitEvent, WindowCloseEvent:
     ui.closeAsked = true
     return true
@@ -3237,6 +3280,7 @@ proc startApp*(title: string; w, h: int; theme = ui.theme; zoom = 0) =
   ## Open the window. `zoom` forces whole-pixel magnification (0 = the
   ## display's own scale).
   if appIdent.len == 0: appIdent = appBaseName(title)
+  if getEnv("RETRO_LANG") == "pseudo": setUiLanguage("pseudo")
   ui.theme = theme
   ui.zoomWanted = zoom
   ui.active31 = true
@@ -3605,6 +3649,7 @@ proc frameReset() =
   ui.altTapped = false
   ui.typed.setLen(0)
   dropFiles.setLen(0)
+  globalHits.setLen(0)
   ui.closeCancelled = false
 
 proc frameSetup(main: bool) =
@@ -3726,13 +3771,14 @@ proc frameSetup(main: bool) =
   # a frame asked for (`wakeIn`) still comes when frames ran in between
   if ui.wakeAt <= ui.now: ui.wakeAt = 0
   # the 3.1 frame: its border is a margin all round (none while maximized),
-  # its title bar and the line under it are over the bars
-  ui.frameBorder = if ui.ownFrame and not windowMaximized(): dp(FrameDesignBorder) else: 0
+  # its title bar and the line under it are over the bars; full screen, none
+  let full = windowFullScreen()
+  ui.frameBorder = if ui.ownFrame and not full and not windowMaximized(): dp(FrameDesignBorder) else: 0
   let fb = ui.frameBorder
   ui.safe = (ui.layoutSafe.top + fb, ui.layoutSafe.left + fb,
              ui.layoutSafe.bottom + fb, ui.layoutSafe.right + fb)
   ui.bottom = ui.h - ui.safe.bottom
-  ui.captionH = if ui.ownFrame: MenuH + 1
+  ui.captionH = if ui.ownFrame: (if full: 0 else: MenuH + 1)
                 elif ui.ownCaption: (if fingers(): CtrlH else: MenuH)
                 else: 0
   ui.barY = ui.safe.top + ui.captionH

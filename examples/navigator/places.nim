@@ -1,13 +1,14 @@
 ## Retro Navigator's places: what the Location box takes to an address, the
-## bookmarks, the pages of this session, the shield's settings, and the
+## bookmarks, the pages visited (this session's and the history kept), what
+## the Location box suggests, the shield's and the look's settings, and the
 ## settings they are kept in.
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[os, strutils, uri, sequtils]
+import std/[os, strutils, uri, sequtils, sets]
 import retroui/platform
-import shield
-export shield
+import shield, look
+export shield, look
 
 type
   Place* = object
@@ -92,6 +93,34 @@ proc visit*(pages: var seq[Place]; p: Place; keep = 15) =
   pages.insert(p, 0)
   if pages.len > keep: pages.setLen(keep)
 
+const HistoryKept* = 400
+  ## How many pages the history keeps (the last visited first).
+
+proc readHistory*(text: string): seq[Place] =
+  ## The history kept in `text` (a page a line: its title, a tab, its
+  ## address; the last visited first).
+  for line in text.splitLines:
+    let tab = line.find('\t')
+    if tab >= 0 and tab + 1 < line.len:
+      result.add Place(title: line[0 ..< tab], url: line[tab + 1 .. ^1])
+      if result.len >= HistoryKept: break
+
+proc historyText*(pages: openArray[Place]): string =
+  ## `pages` as `readHistory` reads them.
+  for i, p in pages:
+    if i >= HistoryKept: break
+    result.add p.title.multiReplace(("\t", " "), ("\n", " "), ("\r", " ")) & "\t" &
+      p.url.multiReplace(("\t", "%09"), ("\n", "%0A"), ("\r", "%0D")) & "\n"
+
+proc suggestions*(history, marks: openArray[Place]): seq[string] =
+  ## What the Location box suggests as it is typed in: the addresses of the
+  ## pages visited, the last first, then the bookmarks' -- each once.
+  var seen: HashSet[string]
+  for list in [@history, @marks]:
+    for p in list:
+      if p.url.len > 0 and not p.url.startsWith("about:blank") and not seen.containsOrIncl(p.url):
+        result.add p.url
+
 proc bookmarks*(s: Settings): seq[Place] =
   ## The bookmarks kept in `s` (`StartBookmarks` when none were kept yet).
   if not s.hasKey("bookmarks"): return @StartBookmarks
@@ -128,6 +157,12 @@ proc searchOf*(s: Settings): int =
 proc homeOf*(s: Settings): string =
   ## The home page ("about:welcome": the welcome page).
   s.getOrDefault("home", "about:welcome")
+
+proc lookOf*(s: Settings): PageLook =
+  ## How pages look (Modern at first).
+  for x in PageLook:
+    if s.getOrDefault("look", "") == $x: return x
+  lkModern
 
 proc shieldsOf*(s: Settings): set[Shield] =
   ## What the shield does (`DefaultShields` for those not set yet).

@@ -359,6 +359,8 @@ proc sdlMaximizeWindow(window: sdl3.Window): bool
   {.importc: "SDL_MaximizeWindow", cdecl, dynlib: sdl3.LibName.}
 proc sdlRestoreWindow(window: sdl3.Window): bool
   {.importc: "SDL_RestoreWindow", cdecl, dynlib: sdl3.LibName.}
+proc sdlSetWindowFullscreen(window: sdl3.Window; on: bool): bool
+  {.importc: "SDL_SetWindowFullscreen", cdecl, dynlib: sdl3.LibName.}
 proc sdlMinimizeWindow(window: sdl3.Window): bool
   {.importc: "SDL_MinimizeWindow", cdecl, dynlib: sdl3.LibName.}
 proc sdlGetWindowFlags(window: sdl3.Window): uint64
@@ -425,6 +427,9 @@ proc sdlSetMaximized(on: bool) =
 
 proc sdlMaximized(): bool =
   win != nil and (sdlGetWindowFlags(win) and SdlWindowMaximized) != 0
+
+proc sdlSetFullScreen(on: bool) =
+  if win != nil: discard sdlSetWindowFullscreen(win, on)
 
 proc sdlActive(): bool =
   win == nil or (sdlGetWindowFlags(win) and SdlWindowInputFocus) != 0
@@ -751,6 +756,37 @@ proc sdlGetClipboardText(): string =
 proc sdlPutClipboardText(text: string) =
   discard setClipboardText(cstring(text))
 
+# (pictures: SDL 3 gives the clipboard what it has as "image/png")
+type SdlClipCb = proc (userdata: pointer; mime: cstring; size: ptr csize_t): pointer {.cdecl.}
+proc sdlSetClipboardData(cb: SdlClipCb; cleanup, userdata: pointer; mimes: ptr cstring;
+                         n: csize_t): bool {.importc: "SDL_SetClipboardData", cdecl, dynlib: sdl3.LibName.}
+proc sdlGetClipboardData(mime: cstring; size: ptr csize_t): pointer
+  {.importc: "SDL_GetClipboardData", cdecl, dynlib: sdl3.LibName.}
+
+var sdlClipPng: string
+
+proc sdlGivePng(userdata: pointer; mime: cstring; size: ptr csize_t): pointer {.cdecl.} =
+  if sdlClipPng.len == 0 or mime == nil or $mime != "image/png":
+    size[] = 0
+    return nil
+  size[] = csize_t(sdlClipPng.len)
+  addr sdlClipPng[0]
+
+proc sdlPutClipboardImage(png: string; w, h: int; px: seq[uint32]): bool =
+  if png.len == 0: return false
+  sdlClipPng = png
+  var mimes = [cstring"image/png"]
+  sdlSetClipboardData(sdlGivePng, nil, nil, addr mimes[0], 1)
+
+proc sdlGetClipboardImage(): ClipImage =
+  var n: csize_t
+  let p = sdlGetClipboardData("image/png", addr n)
+  if p != nil:
+    if n > 0:
+      result.png = newString(n.int)
+      copyMem(addr result.png[0], p, n.int)
+    sdlFree(p)
+
 proc translateScancode(sc: Scancode): input.KeyCode =
   case sc
   of SCANCODE_A: KeyA
@@ -1040,9 +1076,11 @@ proc initSdl3Driver*() =
     getTicks: sdlGetTicks, sleep: sdlDelay,
     shutdown: sdlQuitRequest)
   clipboardRelays = ClipboardRelays(
-    getText: sdlGetClipboardText, putText: sdlPutClipboardText)
+    getText: sdlGetClipboardText, putText: sdlPutClipboardText,
+    getImage: sdlGetClipboardImage, putImage: sdlPutClipboardImage)
   when not (defined(android) or defined(ios)):
     frameRelays = FrameRelays(
       setSystemFrame: sdlSetSystemFrame, setMaximized: sdlSetMaximized,
-      maximized: sdlMaximized, active: sdlActive, setResizable: sdlSetResizable)
+      maximized: sdlMaximized, setFullScreen: sdlSetFullScreen,
+      active: sdlActive, setResizable: sdlSetResizable)
     systemRelays.minimize = proc (): bool = win != nil and sdlMinimizeWindow(win)

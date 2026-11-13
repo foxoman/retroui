@@ -836,14 +836,38 @@ proc userName*(): string =
   except CatchableError:
     ""
 
+when (defined(linux) or defined(macosx) or defined(bsd)) and not (androidApp or defined(ios) or
+                                                               defined(wasm)):
+  var awake: Process   # (the system's own keeper: systemd-inhibit, caffeinate)
+
 proc keepScreenOn*(on: bool): bool {.discardable.} =
   ## Keeps the screen from dimming and the device from sleeping while `on`
-  ## (a presentation, a long job). Android, iOS, Windows and web pages (the
-  ## Wake Lock); false elsewhere.
+  ## (a presentation, a long job, a download). Android, iOS, Windows, macOS
+  ## (caffeinate), Linux (systemd's inhibitor) and web pages (the Wake
+  ## Lock); false where the system has none of them.
   when defined(wasm): return systemCall("wakelock", if on: "1" else: "0") == "1"
   else:
     try:
-      when defined(ios):
+      when (defined(linux) or defined(macosx) or defined(bsd)) and not (androidApp or defined(ios)):
+        if not on:
+          if awake != nil:
+            awake.terminate()
+            discard awake.waitForExit(500)
+            awake.close()
+            awake = nil
+          return true
+        if awake != nil and awake.running: return true
+        when defined(macosx):
+          awake = startProcess("/usr/bin/caffeinate", args = ["-di", "-w", $getCurrentProcessId()])
+          return true
+        else:
+          let exe = findExe("systemd-inhibit")
+          if exe.len == 0: return false
+          awake = startProcess(exe, args = ["--what=idle:sleep", "--who=" & getAppFilename().extractFilename,
+                                            "--why=Kept awake by the app", "--mode=block",
+                                            "sleep", "infinity"], options = {poStdErrToStdOut})
+          return true
+      elif defined(ios):
         let app = objcSend(ObjcId, objcClass("UIApplication"), "sharedApplication")
         objcSend(void, app, "setIdleTimerDisabled:", on)
         result = true
@@ -859,6 +883,102 @@ proc keepScreenOn*(on: bool): bool {.discardable.} =
           result = javaError().len == 0
     except CatchableError:
       result = false
+
+# ---- what the user asked of the system: less movement, more contrast, larger text --------------
+
+type
+  SystemPrefs* = object
+    ## What the user set in the system for every app (`systemPrefs`).
+    reduceMotion*: bool   ## less movement: no glides or animations
+    highContrast*: bool   ## strong contrast
+    textScale*: float     ## text this much larger (1: as it is)
+
+var prefsCache: tuple[at: float; v: SystemPrefs] = (-100.0, SystemPrefs(textScale: 1.0))
+when not (defined(windows) or defined(macosx) or defined(ios) or defined(wasm) or androidApp):
+  var prefsAsk: Process
+
+proc prefsOfGnome(o: string): SystemPrefs =
+  ## (gsettings' three answers: animations, the text's scale, high contrast)
+  result.textScale = 1.0
+  let l = o.splitLines
+  if l.len >= 1: result.reduceMotion = l[0].strip == "false"
+  if l.len >= 2: result.textScale = (try: clamp(parseFloat(l[1].strip), 0.5, 3.0) except ValueError: 1.0)
+  if l.len >= 3: result.highContrast = l[2].strip == "true"
+
+proc systemPrefs*(): SystemPrefs =
+  ## The user's settings for every app: less movement, high contrast,
+  ## larger text -- Windows' and macOS's accessibility settings, GNOME's,
+  ## Android's, iOS's, a browser's (`prefers-reduced-motion`,
+  ## `prefers-contrast`). Asked at most every 10 seconds; the kit's own
+  ## glides follow them when the app starts (`smoothScrolling`).
+  when defined(wasm):
+    let a = systemCall("prefs", "").split(' ')
+    var p = SystemPrefs(textScale: 1.0)
+    if a.len >= 2:
+      p.reduceMotion = a[0] == "1"
+      p.highContrast = a[1] == "1"
+    return p
+  else:
+    let now = epochTime()
+    if now - prefsCache.at < 10: return prefsCache.v
+    var p = SystemPrefs(textScale: 1.0)
+    try:
+      when defined(windows):
+        type HighContrast = object
+          size, flags: uint32
+          scheme: pointer
+        proc SystemParametersInfoW(action, uParam: uint32; pv: pointer; winIni: uint32): int32
+          {.stdcall, dynlib: "user32", importc.}
+        var anim: int32 = 1
+        if SystemParametersInfoW(0x1042, 0, addr anim, 0) != 0: p.reduceMotion = anim == 0
+        var hc = HighContrast(size: uint32(sizeof(HighContrast)))
+        if SystemParametersInfoW(0x0042, uint32(sizeof(HighContrast)), addr hc, 0) != 0:
+          p.highContrast = (hc.flags and 1) != 0
+        var data, size: uint32
+        size = 4
+        if RegGetValueW(0x80000001'u, newWideCString("Software\\Microsoft\\Accessibility"),
+                        newWideCString("TextScaleFactor"), 0x10, nil, addr data, addr size) == 0:
+          p.textScale = clamp(data.float / 100, 1.0, 2.25)
+      elif defined(ios):
+        proc UIAccessibilityIsReduceMotionEnabled(): bool {.importc, cdecl.}
+        proc UIAccessibilityDarkerSystemColorsEnabled(): bool {.importc, cdecl.}
+        p.reduceMotion = UIAccessibilityIsReduceMotionEnabled()
+        p.highContrast = UIAccessibilityDarkerSystemColorsEnabled()
+      elif defined(macosx):
+        autoreleasePool:
+          let ws = objcSend(ObjcId, objcClass("NSWorkspace"), "sharedWorkspace")
+          if ws != nil:
+            p.reduceMotion = objcSend(bool, ws, "accessibilityDisplayShouldReduceMotion")
+            p.highContrast = objcSend(bool, ws, "accessibilityDisplayShouldIncreaseContrast")
+      elif androidApp:
+        if javaAvailable():
+          let a = javaStatic("org.retro.RetroSystem", "prefs", jactivity()).split(' ')
+          if a.len >= 3:
+            p.reduceMotion = a[0] == "1"
+            p.highContrast = a[1] == "1"
+            p.textScale = (try: clamp(parseFloat(a[2]), 0.5, 3.0) except ValueError: 1.0)
+      else:
+        const keys = "gsettings get org.gnome.desktop.interface enable-animations; " &
+                     "gsettings get org.gnome.desktop.interface text-scaling-factor; " &
+                     "gsettings get org.gnome.desktop.a11y.interface high-contrast"
+        if findExe("gsettings").len == 0: discard
+        elif prefsAsk != nil:
+          # (asked before: taken when it has come)
+          if prefsAsk.peekExitCode() == -1: return prefsCache.v
+          let o = try: prefsAsk.outputStream.readAll() except CatchableError: ""
+          prefsAsk.close()
+          prefsAsk = nil
+          p = prefsOfGnome(o)
+        elif prefsCache.at < 0:
+          # (the first time: waited for, the app starts with them)
+          p = prefsOfGnome(execCmdEx("sh -c " & quoteShell(keys & " 2>/dev/null")).output)
+        else:
+          prefsAsk = startProcess("/bin/sh", args = ["-c", keys & " 2>/dev/null"])
+          return prefsCache.v
+    except CatchableError, Defect:
+      discard
+    prefsCache = (now, p)
+    p
 
 proc openSettings*(kind = ""): bool {.discardable.} =
   ## Opens the system's settings: `kind` "" (the main page), "wifi",

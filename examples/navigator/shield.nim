@@ -4,15 +4,17 @@
 ## links loaded ahead when the pointer rests on them, links opened in a new
 ## tab -- and the hosts it blocks.
 ##
-## The blocking is the page's own: requests the page's scripts make to an
-## ad or tracker host (fetch, XMLHttpRequest, beacons) fail, scripts,
-## frames and pictures from one are taken out as they are put in, and the
-## usual ad boxes are hidden. What the page asks for in its HTML before any
-## script runs can still be fetched; it is not shown.
+## The engine itself never fetches what comes from those hosts (and the
+## addresses of `AdPatterns`, and a list the user imports: `parseBlockList`):
+## Retro Navigator gives them to `webBlockList`. The page's script does the
+## rest: requests its scripts make to an ad or tracker host (fetch,
+## XMLHttpRequest, beacons) fail, scripts, frames and pictures from one are
+## taken out as they are put in, the usual ad boxes are hidden, and
+## YouTube's ads in its player are skipped.
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[json, strutils]
+import std/[json, strutils, sets]
 
 type
   Shield* = enum
@@ -26,35 +28,82 @@ type
 
 const
   AdHosts* = [
-    # ad networks
-    "doubleclick.net", "googlesyndication.com", "googleadservices.com",
-    "adservice.google.com", "googletagservices.com", "pagead2.googlesyndication.com",
-    "adnxs.com", "adsrvr.org", "amazon-adsystem.com", "criteo.com", "criteo.net",
-    "taboola.com", "outbrain.com", "pubmatic.com", "rubiconproject.com", "openx.net",
+    # ad networks and ad exchanges
+    "doubleclick.net", "googlesyndication.com", "googleadservices.com", "adservice.google.com",
+    "googletagservices.com", "imasdk.googleapis.com", "adnxs.com", "appnexus.com", "adsrvr.org",
+    "amazon-adsystem.com", "criteo.com", "criteo.net", "taboola.com", "taboolasyndication.com",
+    "outbrain.com", "outbrainimg.com", "pubmatic.com", "rubiconproject.com", "openx.net",
     "casalemedia.com", "indexww.com", "smartadserver.com", "adform.net", "media.net",
     "3lift.com", "sharethrough.com", "teads.tv", "yieldmo.com", "bidswitch.net",
     "contextweb.com", "advertising.com", "adroll.com", "revcontent.com", "mgid.com",
-    "zedo.com", "propellerads.com", "popads.net", "adcolony.com", "applovin.com",
-    "unityads.unity3d.com", "moatads.com", "serving-sys.com", "spotxchange.com",
+    "zedo.com", "propellerads.com", "popads.net", "popcash.net", "adcolony.com", "applovin.com",
+    "unityads.unity3d.com", "moatads.com", "serving-sys.com", "spotxchange.com", "spotx.tv",
     "springserve.com", "lijit.com", "sovrn.com", "gumgum.com", "33across.com",
     "adsafeprotected.com", "doubleverify.com", "ads.yahoo.com", "ads.linkedin.com",
-    "ads-twitter.com", "ads.reddit.com", "adsystem.com",
-    # trackers
-    "google-analytics.com", "googletagmanager.com", "analytics.google.com",
-    "scorecardresearch.com", "quantserve.com", "quantcount.com", "hotjar.com",
-    "mixpanel.com", "fullstory.com", "mouseflow.com", "crazyegg.com", "clarity.ms",
-    "chartbeat.com", "chartbeat.net", "newrelic.com", "nr-data.net", "bat.bing.com",
-    "connect.facebook.net", "analytics.twitter.com", "analytics.tiktok.com",
-    "branch.io", "app-measurement.com", "segment.io", "kissmetrics.com",
-    "parsely.com", "optimizely.com", "omtrdc.net", "demdex.net", "everesttech.net",
-    "krxd.net", "bluekai.com", "exelator.com", "rlcdn.com", "agkn.com", "tapad.com",
-    "adsymptotic.com", "imrworldwide.com", "mc.yandex.ru"]
+    "ads-twitter.com", "ads.reddit.com", "ads.tiktok.com", "adsystem.com", "yieldlab.net",
+    "adition.com", "adtechus.com", "adblade.com", "adkernel.com", "admixer.net", "adocean.pl",
+    "adotmob.com", "adpushup.com", "adthrive.com", "adzerk.net", "aniview.com", "bidr.io",
+    "betweendigital.com", "buysellads.com", "carbonads.net", "clickadu.com",
+    "conversantmedia.com", "cpmstar.com", "districtm.io", "dotomi.com", "e-planning.net",
+    "emxdgt.com", "exoclick.com", "ezoic.net", "ezojs.com", "flashtalking.com", "fwmrm.net",
+    "inmobi.com", "innovid.com", "juicyads.com", "kargo.com", "lkqd.net", "mathtag.com",
+    "mediavine.com", "mopub.com", "nativo.com", "onetag-sys.com", "primis.tech",
+    "pubnative.net", "quantcast.com", "rhythmone.com", "richaudience.com", "rtbhouse.com",
+    "seedtag.com", "smaato.net", "smartclip.net", "sonobi.com", "stickyadstv.com",
+    "tremorhub.com", "tribalfusion.com", "trafficjunky.net", "undertone.com",
+    "unrulymedia.com", "vidazoo.com", "viglink.com", "zemanta.com", "adskeeper.co.uk",
+    "adsterra.com", "hilltopads.net", "a-ads.com", "adcash.com", "mfadsrvr.com",
+    "mediaplex.com", "adhigh.net", "adlightning.com", "confiant-integrations.net",
+    "adlooxtracking.com", "zergnet.com", "dianomi.com", "ligatus.com", "plista.com",
+    "content.ad", "yieldlove.com", "adsnative.com", "adspirit.de", "avocet.io", "brealtime.com",
+    "gemius.pl", "smilewanted.com", "sascdn.com", "teads.com", "connatix.com", "playwire.com",
+    "freewheel.tv", "adition.net", "improvedigital.com", "360yield.com", "adscale.de",
+    "yandexadexchange.net", "an.yandex.ru", "ad.mail.ru", "adriver.ru", "begun.ru",
+    "pagead2.googlesyndication.com", "tpc.googlesyndication.com", "securepubads.g.doubleclick.net",
+    # trackers and analytics
+    "google-analytics.com", "googletagmanager.com", "analytics.google.com", "googleoptimize.com",
+    "scorecardresearch.com", "quantserve.com", "quantcount.com", "hotjar.com", "hotjar.io",
+    "mixpanel.com", "mxpnl.com", "fullstory.com", "mouseflow.com", "crazyegg.com", "clarity.ms",
+    "chartbeat.com", "chartbeat.net", "nr-data.net", "js-agent.newrelic.com", "bat.bing.com",
+    "connect.facebook.net", "analytics.twitter.com", "analytics.tiktok.com", "api2.branch.io",
+    "app-measurement.com", "segment.io", "cdn.segment.com", "kissmetrics.com", "parsely.com",
+    "optimizely.com", "omtrdc.net", "2o7.net", "demdex.net", "everesttech.net", "krxd.net",
+    "bluekai.com", "exelator.com", "rlcdn.com", "agkn.com", "tapad.com", "adsymptotic.com",
+    "imrworldwide.com", "mc.yandex.ru", "api.amplitude.com", "api2.amplitude.com",
+    "heapanalytics.com", "statcounter.com", "histats.com", "addthis.com", "sharethis.com",
+    "smartlook.com", "inspectlet.com", "luckyorange.com", "luckyorange.net",
+    "contentsquare.net", "clicktale.net", "sessioncam.com", "top-fwz1.mail.ru",
+    "tns-counter.ru", "counter.yadro.ru", "hm.baidu.com", "cnzz.com", "snap.licdn.com",
+    "ct.pinterest.com", "analytics.pinterest.com", "tr.snapchat.com", "bounceexchange.com",
+    "bouncex.net", "cquotient.com", "hs-analytics.net", "hsadspixel.net",
+    "munchkin.marketo.net", "assets.adobedtm.com", "tealiumiq.com", "ensighten.com",
+    "permutive.com", "permutive.app", "zeotap.com", "crwdcntrl.net", "id5-sync.com",
+    "browser-intake-datadoghq.com", "lr-ingest.io", "wzrkt.com", "onesignal.com",
+    "adobe-analytics.com", "sitescout.com", "mookie1.com", "bidtheatre.com", "w55c.net",
+    "turn.com", "eyeota.net", "liadm.com", "pippio.com", "addthisedge.com", "outbrain.org",
+    "doubleclick.com", "pixel.wp.com", "stats.wp.com", "pixel.facebook.com",
+    "an.facebook.com"]
     ## The hosts of ads and trackers blocked (a host under one too:
     ## "securepubads.g.doubleclick.net").
 
+  AdPatterns* = [
+    "*://*.youtube.com/api/stats/ads*", "*://*.youtube.com/pagead/*",
+    "*://*.youtube.com/ptracking*", "*://*.youtube.com/get_midroll_info*",
+    "*://www.google.com/pagead/*", "*://www.google.com/adsense/*",
+    "*://*.facebook.com/tr/*", "*://*.facebook.com/tr?*", "*://*.twitter.com/i/adsct*",
+    "*://*.x.com/i/adsct*", "*://*/gampad/ads*", "*://*/pubads_impl*", "*://*/prebid*.js*"]
+    ## The addresses of ads on sites that serve their pages too (`*` any
+    ## run of letters).
+
   AdBoxes = "ins.adsbygoogle,[id^=\"google_ads\"],[id^=\"div-gpt-ad\"],[id^=\"taboola-\"]," &
-    "[class^=\"taboola\"],.OUTBRAIN,[data-ad-slot],[data-ad-unit],iframe[src*=\"doubleclick\"]," &
-    "iframe[src*=\"googlesyndication\"],.adsbox,.ad-banner,.ad-container,.advert,#ad-banner"
+    "[class^=\"taboola\"],.OUTBRAIN,.ob-widget,.trc_rbox_container,[data-ad-slot],[data-ad-unit]," &
+    "iframe[src*=\"doubleclick\"],iframe[src*=\"googlesyndication\"],.adsbox,.ad-banner," &
+    ".ad-container,.advert,#ad-banner,.ad-slot,.ad-wrapper,.ad-unit,.adunit,.ad-placeholder," &
+    ".dfp-ad,.gpt-ad,amp-ad,amp-embed,[data-google-query-id],[aria-label=\"Advertisement\"]," &
+    "[data-testid=\"ad\"],ytd-ad-slot-renderer,ytd-promoted-sparkles-web-renderer," &
+    "ytd-display-ad-renderer,ytd-in-feed-ad-layout-renderer,ytd-banner-promo-renderer," &
+    "ytd-companion-slot-renderer,ytd-action-companion-ad-renderer,#player-ads,#masthead-ad," &
+    ".ytp-ad-overlay-container,shreddit-ad-post,.promotedlink"
     ## (the usual ad boxes, hidden)
 
   DefaultShields* = {shBlockAds, shNoTrack, shHttps, shPreload}
@@ -83,6 +132,36 @@ proc isAdHost*(host: string; hosts: openArray[string] = AdHosts): bool =
   for d in hosts:
     if h == d or h.endsWith("." & d): return true
   false
+
+proc parseBlockList*(text: string): seq[string] =
+  ## The hosts of a block list -- a hosts file's lines ("0.0.0.0
+  ## ads.example.com"), an ad blocker's ("||ads.example.com^"), or a host a
+  ## line -- each once. Comments ("#", "!"), sections ("[...]"), this
+  ## computer's names and the ad blocker's rules of other kinds are passed
+  ## over.
+  var seen: HashSet[string]
+  for raw in text.splitLines:
+    var l = raw.strip
+    let hash = l.find('#')
+    if hash >= 0: l = l[0 ..< hash].strip
+    if l.len == 0 or l[0] in {'!', '['}: continue
+    var found: seq[string]
+    if l.startsWith("||"):
+      let e = l.find({'^', '/', '$', '*'}, 2)
+      if e >= 0 and l[e] != '^': continue        # (a path or a pattern: not a whole site)
+      found.add l[2 ..< (if e < 0: l.len else: e)]
+    else:
+      let parts = l.splitWhitespace
+      if parts.len >= 2 and parts[0] in ["0.0.0.0", "127.0.0.1", "::", "::1", "0"]:
+        found.add parts[1 .. ^1]
+      elif parts.len == 1: found.add parts[0]
+    for x in found:
+      let h = x.toLowerAscii.strip(chars = {'.'})
+      if h in ["localhost", "localhost.localdomain", "broadcasthost", "local", "ip6-localhost",
+               "ip6-loopback", "0.0.0.0"]: continue
+      if h.len < 4 or '.' notin h or not h.allCharsInSet({'a'..'z', '0'..'9', '-', '.', '_'}):
+        continue
+      if not seen.containsOrIncl(h): result.add h
 
 proc startScript*(on: set[Shield]; adsAllowed: openArray[string] = []): string =
   ## The script for every page: what `on` asks for, the blocking left out on
@@ -146,7 +225,14 @@ proc startScript*(on: set[Shield]; adsAllowed: openArray[string] = []): string =
       # the usual ad boxes, hidden
       "var css=document.createElement('style');css.textContent=" & $(%(AdBoxes & "{display:none!important}")) & ";" &
       "var put=function(){(document.head||document.documentElement).appendChild(css)};" &
-      "if(document.documentElement)put();else document.addEventListener('DOMContentLoaded',put)}"
+      "if(document.documentElement)put();else document.addEventListener('DOMContentLoaded',put);" &
+      # YouTube's ads in the player (from the site itself): run to their end
+      # and skipped
+      "if(/(^|\\.)youtube\\.com$/.test(here)){var gone=null;setInterval(function(){" &
+      "var p=document.querySelector('.html5-video-player.ad-showing');if(!p){gone=null;return}" &
+      "var v=p.querySelector('video');if(v&&isFinite(v.duration)&&v.duration>0){v.muted=true;v.currentTime=v.duration}" &
+      "var b=document.querySelector('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button');" &
+      "if(b)b.click();if(v&&v!==gone){gone=v;count()}},300)}}"
   if shNoAutoplay in on:
     # (a sound or a video starts once the user has done something on the page)
     result.add "var play=HTMLMediaElement.prototype.play,did=false;" &

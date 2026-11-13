@@ -4,7 +4,8 @@
 
 import std/[sequtils, os, strutils, times, monotimes]
 import retroui
-import retroui/[htmlview, webnative]
+import std/options
+import retroui/[htmlview, webnative, webbind]
 import retroui/uirelays/services
 import harness
 
@@ -248,6 +249,10 @@ block webOnAndroid:
       label "A dialog"
   calls.setLen(0)
   run(3)
+  # (the kit's script for every page first: `retro.call`)
+  doAssert calls.len == 2 and calls[0].startsWith("web.script and\t(function(){var B=window.retro"),
+    $calls
+  calls.delete(0)
   doAssert calls.len == 1 and calls[0].startsWith("web.show and\t"), $calls
   let p = calls[0].split('\t')
   doAssert p[^1] == "https://a.example/" and parseInt(p[3]) > 0 and parseInt(p[4]) == 200 * pxScale,
@@ -432,5 +437,127 @@ block webNativeAllowedHosts:
   doAssert allowedBy(["nim-lang.org"], "file:///home/a.html")
   doAssert fileUrl("/tmp/a b.html") == "file:///tmp/a%20b.html"
   doAssert fileUrl("C:\\x\\y.html") == "file:///C:/x/y.html"
+
+# ---- the app's functions for its pages (webBind) ------------------------------------------------
+
+type
+  Mood = enum mHappy = "happy", mSad = "sad"
+  Note = object
+    title: string
+    stars: int
+    mood: Mood
+    tags: seq[string]
+
+var notesKept: seq[Note]
+var streamCall: WebCall
+
+proc addNote(n: Note; times = 1): int =
+  ## Keeps a note; how many there are.
+  for _ in 1 .. times: notesKept.add n
+  notesKept.len
+proc findNote(title: string): Option[Note] =
+  for n in notesKept:
+    if n.title == title: return some(n)
+proc fails(why: string) = raise newException(IOError, why)
+proc ticker(c: WebCall) = streamCall = c
+
+webBind addNote
+webBind findNote
+webBind fails, "mustFail"
+webBind ticker
+
+block webCallsTheApp:
+  useSystemWebView = true
+  info = "about:blank\tApp\t100\t0\t0\t0"
+  view = proc () = discard webView("html:<p>app</p>", height = 100, key = "calls")
+  calls.setLen(0)
+  run(2)
+  let script = calls.filterIt(it.startsWith("web.script calls\t"))
+  doAssert script.len == 1, $calls
+  let at = script[0].find("\\u0006")
+  doAssert at > 0, script[0]
+  let token = script[0][at + 6 ..< at + 6 + 32]
+  doAssert token.len == 32 and token.allCharsInSet(HexDigits), token
+  proc ask(json: string; tok = token) =
+    calls.setLen(0)
+    notesOnce = "m\6" & tok & json
+    harness.ticks += 1000
+    run(2)
+  proc answers(): seq[string] =
+    for c in calls:
+      if c.startsWith("web.run calls\t"): result.add c["web.run calls\t".len .. ^1]
+  ask("""{"c":"addNote","i":1,"a":[{"title":"A","stars":3,"mood":"sad","tags":["x"]},2]}""")
+  doAssert answers() == @["window.retro&&window.retro.__r&&window.retro.__r(1,0,2)"], $calls
+  doAssert notesKept.len == 2 and notesKept[0].mood == mSad and notesKept[0].tags == @["x"]
+  ask("""{"c":"addNote","i":2,"a":[{"title":"B"}]}""")         # (a default, a field left out)
+  doAssert answers() == @["window.retro&&window.retro.__r&&window.retro.__r(2,0,3)"], $calls
+  ask("""{"c":"findNote","i":3,"a":["A"]}""")
+  doAssert answers()[0].endsWith("(3,0,{\"title\":\"A\",\"stars\":3,\"mood\":\"sad\",\"tags\":[\"x\"]})"),
+    $answers()
+  ask("""{"c":"findNote","i":4,"a":["none"]}""")
+  doAssert answers()[0].endsWith("(4,0,null)"), $answers()
+  ask("""{"c":"mustFail","i":5,"a":["disk full"]}""")
+  doAssert answers()[0].endsWith("(5,1,\"disk full\")"), $answers()
+  ask("""{"c":"addNote","i":6,"a":[]}""")
+  doAssert answers()[0].endsWith("(6,1,\"the argument \\\"n\\\" is missing\")"), $answers()
+  ask("""{"c":"nothing","i":7,"a":[]}""")
+  doAssert answers()[0].endsWith("(7,1,\"the app has no function \\\"nothing\\\"\")"), $answers()
+  # a stream: values, then its end; nothing after
+  ask("""{"c":"ticker","i":8,"a":[],"s":1}""")
+  doAssert answers().len == 0 and streamCall != nil and streamCall.name == "ticker"
+  calls.setLen(0)
+  streamCall.send(%1)
+  streamCall.send(%*{"n": 2})
+  streamCall.finish()
+  streamCall.send(%3)
+  doAssert answers() == @["window.retro&&window.retro.__r&&window.retro.__r(8,2,1)",
+    "window.retro&&window.retro.__r&&window.retro.__r(8,2,{\"n\":2})",
+    "window.retro&&window.retro.__r&&window.retro.__r(8,0,null)"], $answers()
+  # without the token (a frame of another site): nothing; events to the app's page
+  ask("""{"c":"addNote","i":9,"a":[{"title":"C"}]}""", "0123456789abcdef0123456789abcdef")
+  doAssert answers().len == 0 and notesKept.len == 3, $calls
+  calls.setLen(0)
+  webEmit("calls", "saved", %*{"n": 3})
+  doAssert answers() == @["window.retro&&window.retro.__e&&window.retro.__e(\"saved\",{\"n\":3})"]
+  # a site's page: refused, and no events; one the app trusts may
+  info = "https://evil.example/x\tEvil\t100\t0\t0\t0"
+  ask("""{"c":"addNote","i":10,"a":[{"title":"D"}]}""")
+  doAssert answers()[0].endsWith("(10,1,\"this page may not call the app: https://evil.example\")") and
+           notesKept.len == 3, $answers()
+  calls.setLen(0)
+  webEmit("calls", "saved")
+  doAssert answers().len == 0
+  webTrust("calls", ["https://evil.example"])
+  ask("""{"c":"addNote","i":11,"a":[{"title":"D"}]}""")
+  doAssert answers()[0].endsWith("(11,0,4)"), $answers()
+  webClose("calls")
+  useSystemWebView = false
+  # the TypeScript the pages are checked with
+  let ts = webClientTs()
+  for want in ["declare global { interface Window { retro: RetroBridge } }",
+               "/** Keeps a note; how many there are. */",
+               "addNote: (n: { title: string; stars: number; mood: \"happy\" | \"sad\"; tags: Array<string> }, times?: number): Promise<number>",
+               "findNote: (title: string): Promise<{ title: string; stars: number; mood: \"happy\" | \"sad\"; tags: Array<string> } | null>",
+               "mustFail: (why: string): Promise<null>",
+               "window.retro.stream(\"ticker\", args, onValue)", "export function isCallError"]:
+    doAssert want in ts, want & "\n---\n" & ts
+
+block blockLists:
+  # the block list as WebKit's content rules and the patterns as expressions
+  doAssert wildRegex("*://*.example.com/ads/*") == "^.*://.*\\.example\\.com/ads/.*"
+  doAssert hostRegex("ads.example.com") == "^[a-z]+://([a-z0-9_-]+\\.)*ads\\.example\\.com[:/]"
+  let rules = parseJson(contentRules(["ads.example.com"], ["*://*/pagead/*"], ["news.org"]))
+  doAssert rules.len == 2 and rules[0]["action"]["type"].getStr == "block" and
+           rules[1]["trigger"]["url-filter"].getStr == "^.*://.*/pagead/.*" and
+           rules[0]["trigger"]["unless-top-url"][0].getStr == hostRegex("news.org"), $rules
+  doAssert parseJson(contentRules([], [])).len == 0
+  doAssert isUnder("www.News.org", ["news.org"]) and not isUnder("oldnews.org", ["news.org"])
+  # Android's list: hosts, patterns as Java's expressions, sites spared
+  useSystemWebView = true
+  calls.setLen(0)
+  webBlockList(["Ads.Example.com", "bad host!"], ["*://*/pagead/*"], ["news.org"])
+  doAssert calls == @["web.block Ads.Example.com\nbad host!\t^.*://.*/pagead/.*\tnews.org"], $calls
+  useSystemWebView = false
+  webBlockList([])
 
 echo "html view tests passed"

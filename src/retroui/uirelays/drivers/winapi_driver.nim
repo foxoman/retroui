@@ -324,6 +324,11 @@ type
     rcWork: WINAPIRECT
     dwFlags: DWORD
 
+  WINDOWPLACEMENT {.pure.} = object
+    length, flags, showCmd: UINT
+    ptMinPosition, ptMaxPosition: WINAPIPOINT
+    rcNormalPosition: WINAPIRECT
+
   MINMAXINFO {.pure.} = object
     ptReserved, ptMaxSize, ptMaxPosition, ptMinTrackSize, ptMaxTrackSize: WINAPIPOINT
 
@@ -559,6 +564,10 @@ proc MonitorFromWindow(hWnd: HWND; flags: DWORD): HANDLE
 proc GetMonitorInfoW(monitor: HANDLE; info: ptr MONITORINFO): BOOL
   {.stdcall, dynlib: "user32", importc.}
 proc SetWindowPos(hWnd, after: HWND; x, y, cx, cy: int32; flags: UINT): BOOL
+  {.stdcall, dynlib: "user32", importc.}
+proc GetWindowPlacement(hWnd: HWND; wp: ptr WINDOWPLACEMENT): BOOL
+  {.stdcall, dynlib: "user32", importc.}
+proc SetWindowPlacement(hWnd: HWND; wp: ptr WINDOWPLACEMENT): BOOL
   {.stdcall, dynlib: "user32", importc.}
 when sizeof(int) == 8:
   proc GetWindowLongPtrW(hWnd: HWND; index: int32): int
@@ -978,6 +987,8 @@ proc workArea(hwnd: HWND): tuple[monitor, work: WINAPIRECT] =
 proc styleWord(style: uint32): int {.inline.} = cast[int](uint(style))
 
 var gResizable = true     ## the user may size and maximize the window
+var gFull = false         ## full screen: no frame, all of the monitor
+var gFullFrom: WINDOWPLACEMENT  ## (where the window was before)
 var gAsked: tuple[w, h: int]  ## the inside's size the app asked for, scaled
 
 proc noteWindowPlace() =
@@ -996,6 +1007,7 @@ proc frameStyle(): uint32 =
   ## (the window's style: Windows' frame or the app's; without the sizing
   ## border and the maximize box when it is not to be sized -- the app's
   ## frame keeps the border, which its hit test answers, and refuses itself)
+  if gFull: return WS_POPUP
   result = if gSystemFrame: WS_OVERLAPPEDWINDOW else: WS_FRAMELESS
   if not gResizable:
     result = result and not WS_MAXIMIZEBOX
@@ -1265,7 +1277,7 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
       # rectangle as proposed (the first of NCCALCSIZE_PARAMS, or -- when the
       # window is made -- the RECT itself). Maximized, Windows makes a window
       # larger than its monitor by the frame it would have: that is cut off.
-      if IsZoomed(hwnd) != 0:
+      if IsZoomed(hwnd) != 0 and not gFull:
         let r = if wp != 0: addr cast[ptr NCCALCSIZE_PARAMS](lp).rgrc[0]
                 else: cast[ptr WINAPIRECT](lp)
         let w = workArea(hwnd).work
@@ -1413,6 +1425,10 @@ proc wndProc(hwnd: HWND; msg: UINT; wp: WPARAM; lp: LPARAM): LRESULT {.stdcall.}
         discard BitBlt(hdc, r.left, r.top, r.right - r.left, r.bottom - r.top,
                        gBackDC, r.left, r.top, SRCCOPY)
     discard EndPaint(hwnd, addr ps)
+    return 0
+
+  of 0x0312'u32:                                   # WM_HOTKEY: a global shortcut
+    pushEvent(input.Event(kind: GlobalKeyEvent, x: int(wp)))
     return 0
 
   of WM_KEYDOWN, WM_SYSKEYDOWN:
@@ -2248,6 +2264,22 @@ proc winSetMaximized(on: bool) =
 
 proc winMaximized(): bool = gHwnd != nil and IsZoomed(gHwnd) != 0
 
+proc winSetFullScreen(on: bool) =
+  ## (no frame and all of the monitor, over the taskbar; then back to the
+  ## place, size and state it had)
+  if gHwnd == nil or on == gFull: return
+  if on:
+    gFullFrom.length = UINT(sizeof(WINDOWPLACEMENT))
+    discard GetWindowPlacement(gHwnd, addr gFullFrom)
+  gFull = on
+  restyle()
+  if on:
+    let m = workArea(gHwnd).monitor
+    discard SetWindowPos(gHwnd, nil, m.left, m.top, m.right - m.left, m.bottom - m.top,
+                         SWP_FRAMECHANGED or SWP_NOOWNERZORDER)
+  else:
+    discard SetWindowPlacement(gHwnd, addr gFullFrom)
+
 proc winActive(): bool = gHwnd != nil and GetActiveWindow() == gHwnd
 
 proc winMinimize(): bool =
@@ -2682,6 +2714,111 @@ proc winPutClipboardText(text: string) =
       discard SetClipboardData(CF_UNICODETEXT, cast[HANDLE](hMem))
   discard CloseClipboard()
 
+var cfPng: UINT   # (the "PNG" format the browsers, Office and Paint.NET read)
+
+proc winPutClipboardImage(png: string; w, h: int; px: seq[uint32]): bool =
+  ## (as a DIB, which every program reads, rows from the bottom, and as PNG)
+  if w <= 0 or h <= 0 or px.len < w * h or OpenClipboard(gHwnd) == 0: return false
+  discard EmptyClipboard()
+  let size = 40 + w * h * 4
+  let hDib = GlobalAlloc(GMEM_MOVEABLE, size.uint)
+  if hDib != nil:
+    let p = cast[ptr UncheckedArray[uint8]](GlobalLock(hDib))
+    if p != nil:
+      zeroMem(p, 40)
+      let hdr = cast[ptr UncheckedArray[int32]](p)
+      hdr[0] = 40                                  # biSize
+      hdr[1] = int32(w)
+      hdr[2] = int32(h)                            # (from the bottom)
+      cast[ptr UncheckedArray[uint16]](p)[6] = 1   # biPlanes
+      cast[ptr UncheckedArray[uint16]](p)[7] = 32  # biBitCount; BI_RGB
+      hdr[5] = int32(w * h * 4)                    # biSizeImage
+      let dst = cast[ptr UncheckedArray[uint32]](addr p[40])
+      for y in 0 ..< h:
+        copyMem(addr dst[(h - 1 - y) * w], unsafeAddr px[y * w], w * 4)
+      discard GlobalUnlock(hDib)
+      result = SetClipboardData(8, cast[HANDLE](hDib)) != nil     # CF_DIB
+  if png.len > 0:
+    if cfPng == 0: cfPng = RegisterClipboardFormatW(newWideCString("PNG"))
+    let hPng = GlobalAlloc(GMEM_MOVEABLE, png.len.uint)
+    if hPng != nil:
+      let p = GlobalLock(hPng)
+      if p != nil:
+        copyMem(p, unsafeAddr png[0], png.len)
+        discard GlobalUnlock(hPng)
+        if SetClipboardData(cfPng, cast[HANDLE](hPng)) != nil: result = true
+  discard CloseClipboard()
+
+proc winGetClipboardImage(): ClipImage =
+  ## (PNG when a program put it so; else the DIB's pixels: 24 or 32 bits)
+  if OpenClipboard(gHwnd) == 0: return
+  if cfPng == 0: cfPng = RegisterClipboardFormatW(newWideCString("PNG"))
+  let hPng = GetClipboardData(cfPng)
+  if hPng != nil:
+    let p = GlobalLock(cast[HGLOBAL](hPng))
+    if p != nil:
+      let n = GlobalSize(cast[HGLOBAL](hPng)).int
+      result.png = newString(n)
+      if n > 0: copyMem(addr result.png[0], p, n)
+      discard GlobalUnlock(cast[HGLOBAL](hPng))
+  if result.png.len == 0:
+    let hDib = GetClipboardData(8)                  # CF_DIB
+    if hDib != nil:
+      let p = cast[ptr UncheckedArray[uint8]](GlobalLock(cast[HGLOBAL](hDib)))
+      if p != nil:
+        let hdr = cast[ptr UncheckedArray[int32]](p)
+        let hs = hdr[0].int
+        let w = hdr[1].int
+        let hh = hdr[2].int
+        let bits = cast[ptr UncheckedArray[uint16]](p)[7].int
+        let comp = hdr[4].int
+        let h = abs(hh)
+        let total = GlobalSize(cast[HGLOBAL](hDib)).int
+        let masks = if comp == 3: 12 else: 0       # (BI_BITFIELDS: three masks after it)
+        let stride = ((w * bits + 31) div 32) * 4
+        if w > 0 and h > 0 and bits in [24, 32] and comp in [0, 3] and
+           hs + masks + stride * h <= total:
+          result.w = w
+          result.h = h
+          result.px = newSeq[uint32](w * h)
+          var anyAlpha = false
+          for y in 0 ..< h:
+            let row = hs + masks + (if hh > 0: h - 1 - y else: y) * stride
+            for x in 0 ..< w:
+              let o = row + x * (bits div 8)
+              let a = if bits == 32: p[o + 3].uint32 else: 255'u32
+              if a != 0: anyAlpha = true
+              result.px[y * w + x] = (a shl 24) or (p[o + 2].uint32 shl 16) or
+                                     (p[o + 1].uint32 shl 8) or p[o].uint32
+          if not anyAlpha:                          # (32 bits with no alpha in it: opaque)
+            for c in result.px.mitems: c = c or 0xFF00_0000'u32
+        discard GlobalUnlock(cast[HGLOBAL](hDib))
+  discard CloseClipboard()
+
+proc RegisterHotKey(hWnd: HWND; id: int32; mods, vk: UINT): BOOL
+  {.stdcall, dynlib: "user32", importc.}
+proc UnregisterHotKey(hWnd: HWND; id: int32): BOOL {.stdcall, dynlib: "user32", importc.}
+
+proc winRegisterGlobalKey(id: int; key: input.KeyCode; mods: set[Modifier]): bool =
+  ## (RegisterHotKey: WM_HOTKEY to the window, whoever is in front)
+  if gHwnd == nil or key == KeyNone: return false
+  var vk = 0'u32
+  for v in 1'u32 .. 254'u32:
+    if translateVK(WPARAM(v)) == key:
+      vk = v
+      break
+  if vk == 0: return false
+  var m = 0x4000'u32                              # MOD_NOREPEAT
+  if AltPressed in mods: m = m or 1
+  if CtrlPressed in mods: m = m or 2
+  if ShiftPressed in mods: m = m or 4
+  if GuiPressed in mods: m = m or 8
+  discard UnregisterHotKey(gHwnd, int32(id))
+  RegisterHotKey(gHwnd, int32(id), m, vk) != 0
+
+proc winUnregisterGlobalKey(id: int) =
+  if gHwnd != nil: discard UnregisterHotKey(gHwnd, int32(id))
+
 proc winGetTicks(): int = GetTickCount64().int
   ## (64 bits: GetTickCount's 32 go round every 49.7 days)
 proc winDelay(ms: int) =
@@ -2762,7 +2899,8 @@ proc initWinapiDriver*() =
     setWindowTitle: winSetWindowTitle)
   frameRelays = FrameRelays(
     setSystemFrame: winSetSystemFrame, dragWindow: winDragWindow,
-    setMaximized: winSetMaximized, maximized: winMaximized, active: winActive,
+    setMaximized: winSetMaximized, maximized: winMaximized,
+    setFullScreen: winSetFullScreen, active: winActive,
     menuItem: winMenuItem, menuItemChosen: winMenuItemChosen,
     setResizable: winSetResizable)
   systemRelays.minimize = winMinimize
@@ -2779,7 +2917,10 @@ proc initWinapiDriver*() =
     getTicks: winGetTicks, sleep: winDelay,
     shutdown: winQuitRequest)
   clipboardRelays = ClipboardRelays(
-    getText: winGetClipboardText, putText: winPutClipboardText)
+    getText: winGetClipboardText, putText: winPutClipboardText,
+    getImage: winGetClipboardImage, putImage: winPutClipboardImage)
+  globalKeyRelays = GlobalKeyRelays(register: winRegisterGlobalKey,
+                                    unregister: winUnregisterGlobalKey)
 
 var siwinSurfaceOwned = false
 

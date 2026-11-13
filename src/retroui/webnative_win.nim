@@ -21,7 +21,7 @@ type
     vtbl: ptr UncheckedArray[pointer]
 
   HandlerKind = enum hkNone, hkEnv, hkController, hkNavStart, hkNavDone, hkMessage, hkNewWindow,
-                     hkCapture, hkPermission
+                     hkCapture, hkPermission, hkResource, hkFull
   Handler = object
     vtbl: ptr array[4, pointer]
     refs: int32
@@ -109,6 +109,8 @@ proc onMessage(view: int; args: Com)
 proc onNewWindow(view: int; args: Com)
 proc onCapture(view: int; err: HRESULT)
 proc onPermission(view: int; args: Com)
+proc onResource(view: int; args: Com)
+proc onFull(view: int)
 
 proc hQuery(this: ptr Handler; iid, obj: pointer): HRESULT {.stdcall.} =
   cast[ptr pointer](obj)[] = this
@@ -138,6 +140,8 @@ proc hInvoke(this: ptr Handler; a, b: pointer): HRESULT {.stdcall.} =
   of hkNewWindow: onNewWindow(this.view, cast[Com](b))
   of hkCapture: onCapture(this.view, cast[HRESULT](uint32(cast[uint](a) and 0xFFFF_FFFF'u)))
   of hkPermission: onPermission(this.view, cast[Com](b))
+  of hkResource: onResource(this.view, cast[Com](b))
+  of hkFull: onFull(this.view)
   0
 
 proc newHandler(kind: HandlerKind; view = -1): ptr Handler =
@@ -269,6 +273,16 @@ proc onController(view: int; err: HRESULT; c: Com) =
   discard wv.call(34, AddHandler)(wv, newHandler(hkMessage, view), addr token)
   discard wv.call(44, AddHandler)(wv, newHandler(hkNewWindow, view), addr token)
   discard wv.call(23, AddHandler)(wv, newHandler(hkPermission, view), addr token)
+  discard wv.call(52, AddHandler)(wv, newHandler(hkFull, view), addr token)   # (full screen)
+  # the block list: WebView2 asks for those addresses only, and is refused them
+  let blocks = blockListNow()
+  if blocks.hosts.len + blocks.patterns.len > 0:
+    type AddFilter = proc (this: Com; uri: WideCString; context: int32): HRESULT {.stdcall.}
+    for h in blocks.hosts:
+      discard wv.call(57, AddFilter)(wv, newWideCString("*://" & h & "/*"), 0)    # (all kinds)
+      discard wv.call(57, AddFilter)(wv, newWideCString("*://*." & h & "/*"), 0)
+    for p in blocks.patterns: discard wv.call(57, AddFilter)(wv, newWideCString(p), 0)
+    discard wv.call(55, AddHandler)(wv, newHandler(hkResource, view), addr token)
   # the app's own folder at https://app.local/ (ICoreWebView2_3)
   let folder = appFolderNow()
   if folder.len > 0:
@@ -369,6 +383,47 @@ proc onPermission(view: int; args: Com) =
   let ok = what.get in wvViews[view].permit
   discard args.call(7, proc (this: Com; s: int32): HRESULT {.stdcall.})(args, if ok: 1 else: 2)
   if not ok and what.get notin wvViews[view].st.asked: wvViews[view].st.asked.add what.get
+
+proc webNativeSuspend*(key: string) =
+  ## A page not shown for now (a tab behind): WebView2 stops its scripts
+  ## and timers and frees what it can, until it is shown again
+  ## (ICoreWebView2_3's TrySuspend; showing it resumes it).
+  let i = viewIndex(key)
+  if i < 0 or wvViews[i].webview == nil: return
+  var iid3 = Guid3
+  var wv3: Com
+  if wvViews[i].webview.call(0, proc (this: Com; iid: ptr WvGuid; r: ptr Com): HRESULT {.stdcall.})(
+       wvViews[i].webview, addr iid3, addr wv3) >= 0 and wv3 != nil:
+    discard wv3.call(68, proc (this: Com; h: pointer): HRESULT {.stdcall.})(wv3, newHandler(hkNone))
+    release(wv3)
+
+proc onFull(view: int) =
+  ## An element of the page went full screen, or came back (WebView2 then
+  ## fills the view with it: the app makes the view the window's size).
+  if view < 0 or view >= wvViews.len or wvViews[view].webview == nil: return
+  var on: WBOOL
+  if wvViews[view].webview.call(54, proc (this: Com; v: ptr WBOOL): HRESULT {.stdcall.})(
+       wvViews[view].webview, addr on) >= 0:
+    wvViews[view].st.fullscreen = on != 0
+
+proc onResource(view: int; args: Com) =
+  ## An address of the block list (only they come here: the filters): a
+  ## 403 for it, no request made.
+  if view < 0 or view >= wvViews.len or args == nil or wvEnv == nil: return
+  let spared = blockListNow().spared
+  if spared.len > 0 and wvViews[view].webview != nil:
+    var p: WideCString
+    if wvViews[view].webview.call(4, proc (this: Com; s: ptr WideCString): HRESULT {.stdcall.})(
+         wvViews[view].webview, addr p) >= 0:
+      let page = wstr(p)                       # (the page's own address: its site spared?)
+      if isUnder(parseUri(page).hostname, spared): return
+  var resp: Com
+  if wvEnv.call(4, proc (this: Com; content: pointer; status: int32; reason, headers: WideCString;
+                         r: ptr Com): HRESULT {.stdcall.})(
+       wvEnv, nil, 403, newWideCString("Blocked"), newWideCString(""), addr resp) >= 0 and resp != nil:
+    discard args.call(5, proc (this: Com; r: Com): HRESULT {.stdcall.})(args, resp)   # put_Response
+    release(resp)
+    inc wvViews[view].st.kept
 
 # ---- in the app's thread ------------------------------------------------------------------------
 
@@ -511,3 +566,4 @@ proc webNativeTake*(key: string): WebNativeState =
   v.st.blocked.setLen(0)
   v.st.asked.setLen(0)
   v.st.snapshot = nil
+  v.st.kept = 0

@@ -14,7 +14,7 @@
 
 import std/[os, osproc, strutils]
 import std/json
-import retroui/[sign, msix, macapp, rsa, http, view3d, gltf, update, sha2]
+import retroui/[sign, msix, macapp, rsa, http, view3d, gltf, update, sha2, linuxpkg]
 
 proc die(msg: string) {.noreturn.} =
   stderr.writeLine "retrokit: " & msg
@@ -214,6 +214,45 @@ proc run(cmd: openArray[string]; what: string) =
   p.close()
   if code != 0: die what & " failed (exit code " & $code & ")"
 
+proc linuxCmd*(args: seq[string]): int =
+  let (files, o) = options(args)
+  if files.len != 1 or o.has("help", "h"):
+    echo """retrokit linux PROGRAM [options]   Linux packages of an app, made here
+  PROGRAM            the app built for Linux (or its AppImage)
+  --name:TEXT        its name in menus (default: the program's)
+  --id:NAME          its command and package name (default: the program's)
+  --version:X.Y      the version (default 1.0)
+  --summary:TEXT     one line about it
+  --icon:FILE.png    its icon (256 px)
+  --maintainer:TEXT  "Name <mail@example.com>"
+  --license:NAME     MIT, GPL-3.0... ; --url:ADDRESS its home page
+  --categories:TEXT  the menu's ("Utility;", "Graphics;", "Network;")
+  --depends:A,B      Debian packages it needs (libwebkit2gtk-4.1-0...)
+  --arch:NAME        x86_64 or aarch64 (default: this machine's)
+  -o:DIR             where (default: build/linux beside the program)
+Writes the .deb, the .rpm, a .tar.gz with install.sh (the app for the user
+alone, no administrator: its updates can replace it; --uninstall takes it
+away) and Arch's PKGBUILD."""
+    return (if o.has("help", "h"): 0 else: 1)
+  let program = files[0]
+  if not fileExists(program): die "no such file: " & program
+  let base = program.splitFile.name
+  var clean = ""
+  for c in base.toLowerAscii:
+    if c in {'a'..'z', '0'..'9', '-'}: clean.add c
+  let icon = o.opt("icon")
+  if icon.len > 0 and not fileExists(icon): die "no such icon: " & icon
+  let a = LinuxApp(id: o.opt("id", default = if clean.len > 0: clean else: "app"),
+    name: o.opt("name", default = base.capitalizeAscii), version: o.opt("version", default = "1.0"),
+    summary: o.opt("summary", default = "An app made with Retro Nim UI"),
+    maintainer: o.opt("maintainer"), license: o.opt("license"), url: o.opt("url"),
+    categories: o.opt("categories", default = "Utility;"),
+    depends: (let d = o.opt("depends"); if d.len > 0: d.split(',') else: @[]),
+    arch: o.opt("arch"), program: program, icon: icon)
+  let outDir = o.opt("o", "out", "output", default = program.parentDir / "build" / "linux")
+  for p in makeLinuxPackages(a, outDir): echo "made: ", p
+  0
+
 proc macCmd*(args: seq[string]): int =
   let (files, o) = options(args)
   if files.len != 1 or o.has("help", "h"):
@@ -386,7 +425,8 @@ proc updateSignCmd*(args: seq[string]): int =
   let (files, o) = options(args)
   if o.has("help", "h") or files.len != 1:
     echo """retrokit update-sign update.json [--key:update-key.secret]
-  Fills in each file's "size" and "sha256" (from the files beside it, by
+  Fills in each file's "size", "sha256" and "chunks" -- its pieces, so an
+  app downloads only the ones it lacks -- (from the files beside it, by
   the name their address ends in), writes update.json again and signs it:
   update.json.sig. Publish both where the app's checkForUpdate looks.
   --key: the secret key file (or $RETRO_UPDATE_KEY, the key itself)."""
@@ -411,7 +451,11 @@ proc updateSignCmd*(args: seq[string]): int =
         let data = readFile(local)
         f["size"] = %data.len
         f["sha256"] = %sha256(data).toHex.toLowerAscii
-        echo platform, ": ", name, " ", data.len, " bytes"
+        # (its pieces: an app downloads only the ones its own file lacks)
+        var cs = newJArray()
+        for c in chunksOf(data): cs.add %*[c.size, c.hash]
+        f["chunks"] = cs
+        echo platform, ": ", name, " ", data.len, " bytes, ", cs.len, " pieces"
       elif f{"sha256"}.getStr.len != 64:
         die platform & ": " & name & " is not beside " & path & " and has no sha256"
   let text = j.pretty & "\n"

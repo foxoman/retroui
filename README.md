@@ -2083,8 +2083,34 @@ an iPhone's and an iPad's with a profile of encrypted DNS
 
 **Retro Navigator** (`examples/navigator.nim`, `nimble navigator`) is a
 whole browser made this way: a 1995 window around the system's engine,
-with tabs, ads and trackers kept off the pages, secure connections, and
-links loaded ahead ([the examples](examples/README.md#retro-navigator)).
+with tabs, ads and trackers kept off the pages before they are fetched,
+pages in 1995's look, secure connections, videos full screen, screenshots
+marked up, and links loaded ahead
+([the examples](examples/README.md#retro-navigator)).
+
+The app's pages can call the app's procs, typed both ways
+(`retroui/webbind`, as Tauri's and MyGo's bound functions):
+
+```nim
+import retroui, retroui/webbind
+type Note = object
+  title, text: string
+var notes: seq[Note]
+proc addNote(n: Note): int =
+  ## Keeps a note; how many there are.
+  notes.add n
+  notes.len
+webBind addNote                               # the page: await retro.call("addNote", {title, text})
+writeFile("web/app.ts", webClientTs())       # its TypeScript: app.addNote(n): Promise<number>
+webEmit("ui", "saved", %*{"count": notes.len})   # the page: retro.on("saved", f)
+```
+
+Arguments and answers go as JSON (`std/jsonutils`); a proc that raises
+rejects the page's promise with an Error named "CallError"; a proc that
+takes a `WebCall` answers later, or streams values (`send`, `finish`:
+`retro.stream` in the page). Only the app's own pages may call -- its
+HTML, a file, `webAppUrl` -- and the sites `webTrust` names; never a frame
+of another site.
 
 The system's engine talks to your app both ways, as Qt's web view does with
 its web channel, without a bridge object to set up:
@@ -2136,6 +2162,22 @@ if button("&Clear Data"): webClearData()     # cookies, storage and cache of eve
 A view takes its start script when it is made: to change it, call
 `webStartScript` again and `webClose` the view, and the next draw makes it
 anew.
+
+The engine itself can be kept from fetching what an ad blocker's list
+names -- a site and those under it, or addresses with `*` in them -- but
+nothing on the pages of the sites spared:
+
+```nim
+webBlockList(["doubleclick.net", "ads.example.com"], ["*://*/pagead/*"], spared = ["news.org"])
+let page = webView(url, key = "page", engine = weSystem)
+status = $page.kept & " requests kept off"   # WebView2 and Android count them
+showBars = not page.fullscreen               # a video's full-screen button (the engine says so)
+let pic = webSnapshot("page")                 # the page's last picture (webSnapshotNow asks one)
+```
+
+WebKit compiles the list into its content rules, WebView2 refuses the
+requests before they go, Android's WebView answers them itself. A tab not
+shown is paused (WebView2's TrySuspend) until it is shown again.
 
 `webAppUrl` gives the app's pages an address of their own
 (`app://local/`, `https://app.local/` on Windows,
@@ -2347,7 +2389,7 @@ when defined(windows):                              # Win32 and COM
 | macOS, iOS | `objcClass`, `sel`, `objcSend`, `nsString`, `toNim`, `autoreleasePool` |
 | Windows | typed Win32 helpers and COM (`taskbarProgress`); anything else through `nativeProc` |
 | Linux, Termux | `termuxApi` (Termux:API commands), any library through `nativeLib` |
-| everywhere | `vibrate`, `deviceName`, `osVersion`, `batteryLevel`, `systemDarkMode`, `beepSystem`, `userName`, `keepScreenOn`, `openSettings` — neutral answers where a system has no such thing; they never raise |
+| everywhere | `vibrate`, `deviceName`, `osVersion`, `batteryLevel`, `systemDarkMode`, `systemPrefs`, `beepSystem`, `userName`, `keepScreenOn`, `openSettings` — neutral answers where a system has no such thing; they never raise |
 
 Nim also compiles to C, so `{.importc.}` and C headers work as in any Nim
 program; `examples/native.nim` shows each platform.
@@ -2372,8 +2414,18 @@ if u.available:
 
 ```sh
 retrokit update-key                   # once: update-key.secret (yours alone) and the public key
-retrokit update-sign update.json      # each release: sizes and SHA-256s filled in, update.json.sig
+retrokit update-sign update.json      # each release: sizes, SHA-256s and pieces filled in, update.json.sig
 ```
+
+The update file lists each file's pieces (cut where its bytes say, 64 KB
+on average): the app downloads only the pieces its own file does not hold
+(HTTP ranges), so a small change is a small download, and checks the whole
+file as before. An app shipped outside packages can install itself for the
+user alone -- no administrator, so its updates replace it with no question:
+`retroui/install` (`installFlags`, `installForUser`; Windows' Start menu and
+Settings > Apps, Linux's menu, a Mac's ~/Applications). `retrokit linux`
+makes the Linux packages: .deb, .rpm, Arch's PKGBUILD, a .tar.gz with
+`install.sh`.
 
 ## Platform services
 
@@ -2727,6 +2779,14 @@ the GPU when the GPU is a real one. With a real graphics card the GPU paths
 of all four are faster than here, and the kit's CPU path is what it is
 here.
 
+**Busy.** `python3 tools/bench.py` measures the kit at rest and busy --
+a list of 100,000 rows scrolling, 600 cells changing every frame, a
+document wrapped anew every frame -- and writes
+[docs/benchmarks.md](docs/benchmarks.md). On a 2-core Xeon with no graphics
+card: a stripped program of 3.0 MB, its first frame 57 ms after it started,
+11 MB of memory and 0.01 % of a core at rest, and under 2.5 ms of the
+processor a frame for each scene.
+
 ## Safety
 
 - **Every decoder and parser checks what it reads:** PNG, BMP, JPEG and
@@ -2875,7 +2935,7 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_capture` | the camera and the microphone without either: a webcam's YUYV picture turned into pixels exactly, a recording's WAV header, the view and the recorder saying plainly there is nothing |
 | `test_mediasession` | the app's MPRIS player on a session bus of the test's own: its state and track as a desktop's applet reads them, the applet's buttons coming back in `mediaKeys` |
 | `test_view3d` | meshes, OBJ and STL (text and binary), the camera, picking, rendering |
-| `test_htmlview` | the HTML parser, entities, nesting, tables, pictures, links, `htmlToMarkdown`, the web view's fallbacks, its talk with the page (messages, scripts' answers, allowed hosts, zoom, Forward) through a fake system |
+| `test_htmlview` | the HTML parser, entities, nesting, tables, pictures, links, `htmlToMarkdown`, the web view's fallbacks, its talk with the page (messages, scripts' answers, allowed hosts, zoom, Forward) through a fake system; the page's calls to the app (`webBind`: typed arguments and answers, defaults, failures, streams, events, a frame's and another site's refused, `webTrust`) and their TypeScript; the block list as WebKit's rules and Android's |
 | `test_media` | WAV decoding and encoding, tones, GIF frames, the video and animation widgets without a device |
 | `test_native` | loading libraries and functions, the cross-platform calls, neutral answers where there is no such thing |
 | `test_photo` | the image engine: blend modes, layers, undo and cancelled steps, the selection and channels, Quick Mask, paths, every painting tool, transforms, color modes, every filter and adjustment, .rpd / PNG / JPEG / BMP files |
@@ -2884,8 +2944,8 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_apk` | the APK tool's SHA-256, CRC-32, deflate and PNG; the App Bundle's proto manifest and resources, its JAR signature (checked with `jarsigner` and `bundletool` when they are there); `--java`'s manifest.txt read, nested and merged into both manifests, a bad line refused |
 | `test_store` | DER, certificates and their subjects, JAR signatures, Authenticode (the digest, the checksum, signing again, a time stamp from an authority made with OpenSSL), MSIX (ZIP64 records, the block map's blocks one by one, the signed digests rebuilt by the test), macOS: the `.icns`, the code directory read back page by page (one architecture and universal), the sealed resources, the `.ipa`; `osslsigncode` and `rcodesign` when they are there |
 | `test_tilemap` | the street map: tiles of every kind of source, the cache, dragging, zooming, markers and shapes, the services' answers (places and routes of each), polylines, GCJ-02, GeoJSON, vector tiles decoded and drawn, PMTiles and MBTiles read and written |
-| `test_system` | `retroui/system` on Linux: what answers and what says false, the autostart entry made and taken away, the answers of a page and of phones read right, speech when a voice is installed; `retroui/admin`'s words for sh, Windows and AppleScript, and its answer with no polkit |
-| `test_update` | Ed25519 against RFC 8032, signatures checked (a byte changed, another key), versions compared, an update found, checked and downloaded from a small server, a changed file or update file refused |
+| `test_system` | `retroui/system` on Linux: what answers and what says false, the autostart entry made and taken away, the answers of a page and of phones read right, speech when a voice is installed; `retroui/admin`'s words for sh, Windows and AppleScript, and its answer with no polkit; GNOME's settings read, a folder watched (made, changed, removed), the clipboard's pictures and the desktop's shortcuts with no driver, the app installed for the user and taken away, the Linux packages |
+| `test_update` | Ed25519 against RFC 8032, signatures checked (a byte changed, another key), versions compared, an update found, checked and downloaded from a small server, a changed file or update file refused; a file's pieces, and an update made of the pieces the old file holds and of one request for the rest |
 | `test_fontsoption` | `-d:retroFonts`: the faces left out drawn with FreeSans, or read from a folder of their files |
 | `test_gltf` | glTF read and written, the car's parts moved, turned, hidden and tinted, its clips (linear, step, cubic), shapes and bones, a picture on a surface (unlit), damaged files refused, Blender's `.blend` when Blender is there |
 | `test_sysmon`, `test_taskman` | what the computer is doing: a sample's numbers in their ranges, this program among the processes with its start time, the reading thread, a child given another priority and ended, an id that is another process's left alone, the autostart entries turned off and on, a socket of its own among the connections, the history on disk, the live graph's frame with a new value; Retro Task Manager as a program -- the list and the selection kept on the same process as samples come, search and sort, the graphs, the other pages, paused |
@@ -2898,7 +2958,7 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_inspect` | the inspector: its panel over the app, why each frame ran (the input, the line that asked: `ui.redraw = true`, `wakeIn`), the control under the mouse and found by name, F12 |
 | `test_drive` | the driver: a client in the same program finds controls by name, clicks, types (Arabic too), presses keys, sets values, waits for a control and for its going, opens a drop-down past a default button with Enter, closes the window |
 | `test_sevenguis` | the 7GUIs example driven by its controls' names: each task as its rules ask (the flight booked only when the dates allow, the timer stopping at its duration, CRUD's filter, the circles' undo, the cells' formulas and their cycles) |
-| `test_navigator` | Retro Navigator's places: what the Location box goes to (an address, a host, a file that is there, words searched for), the key, the bookmarks kept, the pages of a session; its shield: secure addresses (not on the local network), the ad and tracker hosts, its settings and the sites ads are allowed on, its script |
+| `test_navigator` | Retro Navigator's places: what the Location box goes to (an address, a host, a file that is there, words searched for), the key, the bookmarks kept, the pages of a session, the history kept and what the Location box suggests; its shield: secure addresses (not on the local network), the ad and tracker hosts and patterns, a block list imported (hosts files, `||site^`), its settings and the sites ads are allowed on, its script; the pages' looks (Modern, Classic, Plain, the 3.1 scroll bars) |
 | `test_retrodns` | Retro DNS: its 47 servers well formed, the user's own kept as CSV, the VPN's settings, the scripts that change a computer's DNS (Windows, Linux, macOS) made of checked addresses only whatever a CSV holds, PowerShell's encoded command, the profile of encrypted DNS for macOS and iOS |
 | `test_scale` | fractional scales (125 % to 300 %): controls and text the size asked for, lines on whole pixels, a change of scale followed |
 | `test_touchsizes` | `RETRO_TOUCH` and `RETRO_CONTROLS`: finger-sized controls on a tablet's screen when asked, desktop and automatic sizes |

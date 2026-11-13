@@ -1535,7 +1535,11 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
             "for Nim on Windows, macOS, Linux, Android and iOS."],
            tagline = "Every control of Retro Nim UI",
            iconPng = GalleryIconPng, glyph = pxApp,
-           whatsNew = ["Retro DNS, a DNS changer for phones and computers; retroapk --java " &
+           whatsNew = ["Retro Navigator 0.3.0: ads blocked by the engine, pages in 1995's look, " &
+                       "video full screen, screenshots marked up; webBind: typed calls from pages",
+                       "Pictures on the clipboard, shortcuts of the whole desktop, metered networks, " &
+                       "the system's settings followed; retrokit linux: .deb, .rpm, install.sh",
+                       "Retro DNS, a DNS changer for phones and computers; retroapk --java " &
                        "for an app's own Java; retroui/admin, a command as the administrator",
                        "Retro Navigator gets tabs, keeps ads and trackers off the pages, takes " &
                        "links to secure addresses and loads them ahead; webStartScript, webClearData",

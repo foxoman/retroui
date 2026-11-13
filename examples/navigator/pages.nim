@@ -59,7 +59,8 @@ the <i>Bookmarks</i> menu (Ctrl+D).</p>
 <li><a href="https://github.com/foxoman/retroui">Retro Nim UI</a>, the toolkit it is made with</li>
 </ul>
 <p>The <i>Handbook</i> button tells the rest: tabs, the shield that keeps ads
-and trackers off, the keys, the bookmarks, the preferences.</p>
+and trackers off, pages in 1995's look, screenshots, the keys, the
+bookmarks, the preferences.</p>
 </div></body></html>
 """
 
@@ -70,8 +71,19 @@ const handbookHtml* = "<!doctype html><html><head><meta charset=\"utf-8\">" &
 <p>Type in the <b>Location</b> box and press Enter. An address goes there
 (<i>nim-lang.org</i> is <i>https://nim-lang.org</i>), a file on your computer
 opens, and anything else is searched for with the search engine of
-<i>Options &gt; General Preferences</i>. The logo at the right moves while a
-page loads; click it to go home.</p>
+<i>Options &gt; General Preferences</i>. As you type, the box lists the pages
+you visited and your bookmarks that have those letters: Down and Enter, or a
+click, go to one. The logo at the right moves while a page loads; click it to
+go home.</p>
+<h3>How pages look</h3>
+<p><i>View &gt; Page Look</i> chooses: <b>Modern</b>, the page as its site
+made it; <b>Classic</b>, the site's layout and its scripts (sign-ins, menus
+and forms work) but 1995's type and colors, flat buttons and fields, no
+shadows, rounded corners or animation; or <b>Plain</b>, the HTML alone, as a
+browser of 1995 showed it: none of the site's style sheets or scripts, its
+pictures, links and forms still there. Plain pages are the quickest and the
+lightest. <i>View &gt; 3.1 Scroll Bars on Pages</i> gives every page Windows
+3.1's scroll bars, in the window's colors.</p>
 <h3>Tabs</h3>
 <p><i>File &gt; New Tab</i> (Ctrl+T) opens another page beside this one, and
 the tabs show above the page while there are two or more. A link clicked with
@@ -84,18 +96,36 @@ Drag a tab to move it; right-click it for its menu.</p>
 sign: it did not, so what you type there can be read on its way.</p>
 <h3>The shield</h3>
 <p>Retro Navigator keeps ads and trackers off the pages, so they load faster
-and fewer sites follow you from one to the next; the status bar counts what
-it kept off this page. If a site does not work without them, choose
-<i>Options &gt; Allow Ads on This Site</i>. It also asks sites not to track
+and fewer sites follow you from one to the next: the engine never fetches
+what comes from more than 250 ad and tracker sites, the usual ad boxes are
+hidden, and YouTube's ads are skipped. The status bar counts what it kept off
+this page. In <i>Options &gt; Security Preferences</i> you can add a list of
+your own: a hosts file, or an ad blocker's list of <i>||site^</i> lines. If a
+site does not work without its ads, choose <i>Options &gt; Allow Ads on This
+Site</i>. It also asks sites not to track
 you, and goes to the secure (https) address of a link to an insecure one: to
 go to one that has no secure address, type <i>http://</i> before it. All of
 this is in <i>Options &gt; Security Preferences</i>.</p>
 <h3>Faster</h3>
 <p>A link of this site is loaded ahead while the pointer rests on it, so it
 opens at once when you click. In <i>Options &gt; Network Preferences</i> you
-can also keep videos and sounds from playing until you click, and let tabs
-you have not looked at for ten minutes sleep: they free their memory and
-load their page again when you go back to them.</p>
+can also keep videos and sounds from playing until you click. Tabs you have
+not looked at for five minutes sleep: they free their memory and load their
+page again when you go back to them (and a tab behind is paused at once,
+where the engine can).</p>
+<h3>Size, full screen, video</h3>
+<p>The <b>Zoom</b> box in the status bar makes the page larger or smaller
+(Ctrl and +, Ctrl and -, Ctrl+0 too). A video's full-screen button fills the
+screen with it, and Esc brings the window back; <i>View &gt; Full Screen</i>
+(F11) gives the page the whole screen with the menus still there.
+<i>View &gt; Pop Out Video</i> puts the page's video in a window of its own,
+where the system's engine has one.</p>
+<h3>Screenshots</h3>
+<p><b>Picture</b> on the tool bar (Ctrl+Shift+S) takes a picture of the page
+and opens it with Retro Board's tools: the pen, the highlighter, boxes, ovals,
+arrows and words, in its colors and sizes. <i>Copy</i> puts it on the
+clipboard for any program; <i>Save Picture</i> keeps it as PNG, and <i>Save
+as Board</i> as a board Retro Board opens.</p>
 <h3>Clear Browsing Data</h3>
 <p><i>Options &gt; Clear Browsing Data</i> (Ctrl+Shift+Delete) forgets the
 pages you visited (the Go menu, and Back in every tab) and what sites keep:
@@ -113,12 +143,17 @@ cookies, so you are signed out, their stored data and the cache.</p>
 <tr><td><kbd>Ctrl+F</kbd>, <kbd>F3</kbd></td><td>Find, Find Again</td></tr>
 <tr><td><kbd>Ctrl+O</kbd>, <kbd>Ctrl+P</kbd></td><td>Open a file, Print</td></tr>
 <tr><td><kbd>Ctrl+Shift+Delete</kbd></td><td>Clear Browsing Data</td></tr>
+<tr><td><kbd>Ctrl++</kbd>, <kbd>Ctrl+-</kbd>, <kbd>Ctrl+0</kbd></td><td>Larger, Smaller, Actual Size</td></tr>
+<tr><td><kbd>Ctrl+Shift+S</kbd></td><td>a screenshot to mark up</td></tr>
+<tr><td><kbd>F11</kbd></td><td>Full Screen</td></tr>
 </table>
 <p>While a page has the keyboard, its own keys come first: click the tool bar
 or the Location box for these.</p>
 <h3>Bookmarks and the Go menu</h3>
 <p><i>Bookmarks &gt; View Bookmarks</i> lists them: go to one, or remove it.
-The <i>Go</i> menu lists the pages of this session, the last first.</p>
+The <i>Go</i> menu lists the pages of this session, the last first; the
+Location box remembers the last 400 pages you visited, until you clear
+them (<i>Clear Browsing Data</i>).</p>
 <h3>Where the pages come from</h3>
 <p>Retro Navigator draws its window itself and leaves the pages to the
 system: WebView2 on Windows, WebKit on macOS and iOS, WebKitGTK on Linux

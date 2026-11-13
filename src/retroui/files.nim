@@ -1133,3 +1133,83 @@ proc makeShortcuts*(paths: openArray[string]; dir: string): tuple[made: seq[stri
   if result.made.len > 0:
     remember UndoStep(kind: ukCreate, paths: result.made,
                       what: tr("Paste Shortcut"))
+
+# ---- a folder watched -----------------------------------------------------------------------------
+
+type
+  FileChangeKind* = enum
+    ## What happened to a file in a folder watched (`changes`).
+    fcCreated = "created"    ## it is new (a file renamed: removed, then created)
+    fcChanged = "changed"    ## its contents or size changed
+    fcRemoved = "removed"    ## it is gone
+  FileChange* = object
+    kind*: FileChangeKind
+    path*: string            ## the file's whole path
+  FolderWatch* = ref object
+    ## A folder whose files are compared now and then (`watchFolder`).
+    root: string
+    recursive: bool
+    every: int               ## (ms between looks)
+    lookedAt: int
+    started: bool
+    seen: seq[tuple[path: string; size: int64; stamp: int64]]
+
+const WatchMost = 8192
+  ## (no more files than this are watched in one folder tree)
+
+proc watchFolder*(path: string; recursive = false; everyMs = 1000): FolderWatch =
+  ## Watches the files of the folder `path` (and of the folders in it,
+  ## `recursive`): `changes` tells what was made, changed or removed. It
+  ## looks every `everyMs` (one second), comparing sizes and times -- the
+  ## same on every system and over a network share -- at most 8192 files.
+  FolderWatch(root: path, recursive: recursive, every: max(100, everyMs))
+
+proc look(w: FolderWatch): seq[tuple[path: string; size: int64; stamp: int64]] =
+  ## (the files now, sorted by path)
+  var stack = @[w.root]
+  while stack.len > 0 and result.len < WatchMost:
+    let dir = stack.pop()
+    for kind, p in walkDir(dir):
+      if result.len >= WatchMost: break
+      case kind
+      of pcFile, pcLinkToFile:
+        try:
+          let i = getFileInfo(p)
+          result.add (p, int64(i.size), i.lastWriteTime.toUnix * 1_000_000_000 +
+                                        int64(i.lastWriteTime.nanosecond))
+        except OSError: discard
+      of pcDir:
+        if w.recursive: stack.add p
+      else: discard
+  result.sort(proc (a, b: auto): int = cmp(a.path, b.path))
+
+proc changes*(w: FolderWatch): seq[FileChange] =
+  ## What changed in the folder since the last time this was asked (nothing
+  ## the first time: what is there then is where it starts). Call it every
+  ## frame: it looks at the files only every `everyMs`, and asks for a frame
+  ## then.
+  let now = int(getMonoTime().ticks div 1_000_000)
+  if w.started and now - w.lookedAt < w.every:
+    wakeIn(w.every - (now - w.lookedAt))
+    return
+  w.lookedAt = now
+  wakeIn(w.every)
+  let files = w.look()
+  if not w.started:
+    w.started = true
+    w.seen = files
+    return
+  var i, j = 0
+  while i < w.seen.len or j < files.len:
+    if j >= files.len or (i < w.seen.len and w.seen[i].path < files[j].path):
+      result.add FileChange(kind: fcRemoved, path: w.seen[i].path)
+      inc i
+    elif i >= w.seen.len or files[j].path < w.seen[i].path:
+      result.add FileChange(kind: fcCreated, path: files[j].path)
+      inc j
+    else:
+      if files[j].size != w.seen[i].size or files[j].stamp != w.seen[i].stamp:
+        result.add FileChange(kind: fcChanged, path: files[j].path)
+      inc i
+      inc j
+  w.seen = files

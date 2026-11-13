@@ -1,6 +1,7 @@
 ## Retro Navigator's places (examples/navigator/places): what the Location
-## box goes to, the bookmarks kept, the pages of a session, the shield's
-## settings and its script.
+## box goes to, the bookmarks kept, the pages of a session and the history,
+## what the Location box suggests, the shield's settings, its script and
+## its block list, the looks of pages.
 
 import std/[os, strutils]
 import retroui/platform
@@ -112,5 +113,63 @@ block script:
   doAssert "HTMLMediaElement" in all and "prefetch" in all
   doAssert "HTMLMediaElement" notin none and "prefetch" notin none
   doAssert "</script" notin all.toLowerAscii, "nothing that ends a script tag"
+
+block historyKept:
+  var h: seq[Place]
+  for i in 1 .. 5: h.visit(Place(title: "P\t" & $i, url: "https://x.org/" & $i), HistoryKept)
+  let back = readHistory(historyText(h))
+  doAssert back.len == 5 and back[0] == Place(title: "P 5", url: "https://x.org/5"), $back
+  doAssert readHistory("no tab here\n\tjust an address\nT\thttps://a.org\n").len == 2
+  var many: seq[Place]
+  for i in 1 .. HistoryKept + 50: many.add Place(title: $i, url: "https://y.org/" & $i)
+  doAssert readHistory(historyText(many)).len == HistoryKept
+
+block suggested:
+  let s = suggestions([Place(url: "https://b.org"), Place(url: "https://a.org"),
+                       Place(url: "about:blank")],
+                      [Place(url: "https://a.org"), Place(url: "https://c.org")])
+  doAssert s == @["https://b.org", "https://a.org", "https://c.org"], $s
+
+block blockLists:
+  let hosts = parseBlockList("""
+# a hosts file
+0.0.0.0 ads.example.com
+127.0.0.1 localhost
+0.0.0.0 track.example.net more.example.net   # two on a line
+! an ad blocker's
+||cdn.adnet.io^
+||cdn.adnet.io^$third-party
+||example.org/ads/*
+[Adblock Plus 2.0]
+plain.example.com
+not a host
+""")
+  doAssert hosts == @["ads.example.com", "track.example.net", "more.example.net", "cdn.adnet.io",
+                      "plain.example.com"], $hosts
+  doAssert AdHosts.len > 200 and AdPatterns.len > 5
+  for p in AdPatterns: doAssert p.startsWith("*://"), p
+  doAssert "ytp-ad-skip-button" in startScript({shBlockAds}) and "ad-showing" in startScript({shBlockAds})
+
+block looks:
+  let c = ClassicColors
+  doAssert lookScript(lkModern, c, false) == ""
+  let bars = lookScript(lkModern, c, true)
+  doAssert "::-webkit-scrollbar" in bars and "scrollbar-color:auto" in bars and
+           "Times New Roman" notin bars
+  let classic = lookScript(lkClassic, c, false)
+  doAssert "Times New Roman" in classic and "border-radius:0" in classic and
+           "MutationObserver" notin classic, "Classic: the site's scripts run"
+  let plain = lookScript(lkPlain, c, true)
+  doAssert "MutationObserver" in plain and "SCRIPT" in plain and "NOSCRIPT" in plain and
+           "data-src" in plain
+  for js in [bars, classic, plain]:
+    doAssert js.startsWith("(function(){") and js.endsWith("})();") and
+             "</script" notin js.toLowerAscii
+  var s: Settings
+  doAssert lookOf(s) == lkModern
+  s["look"] = "plain"
+  doAssert lookOf(s) == lkPlain
+  s["look"] = "nonsense"
+  doAssert lookOf(s) == lkModern
 
 echo "test_navigator: ok"

@@ -138,6 +138,7 @@ var
   # the clipboard and drops
   ownSource: uint32               ## our selection's wl_data_source (0: not ours)
   clipText: string
+  clipPng: string                 ## a picture put on the clipboard ("" none: the text)
   offerMimes: Table[uint32, seq[string]]
   selectionOffer: uint32
   dndOffer: uint32
@@ -647,17 +648,35 @@ proc wlGetClipboardText(): string =
   if mime.len == 0: return ""
   receive(selectionOffer, mime)
 
-proc wlPutClipboardText(text: string) =
-  clipText = text
-  if conn == nil or dataManagerId == 0 or dataDeviceId == 0: return
+proc ownSelection(mimes: openArray[string]): bool =
+  ## (a data source of ours with `mimes`, the selection now)
+  if conn == nil or dataManagerId == 0 or dataDeviceId == 0: return false
   if ownSource != 0:
     conn.send(ownSource, 1)                                   # destroy
   ownSource = newObj(okDataSource)
   conn.send(dataManagerId, 0, wu(ownSource))                  # create_data_source
-  for m in ["text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "TEXT", "STRING"]:
+  for m in mimes:
     conn.send(ownSource, 0, ws(m))                            # offer
   conn.send(dataDeviceId, 1, wu(ownSource), wu(inputSerial))  # set_selection
   discard conn.flush()
+  true
+
+proc wlPutClipboardText(text: string) =
+  clipText = text
+  clipPng = ""
+  discard ownSelection(["text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "TEXT", "STRING"])
+
+proc wlGetClipboardImage(): ClipImage =
+  if ownSource != 0: return ClipImage(png: clipPng)
+  if conn == nil or selectionOffer == 0 or
+     "image/png" notin offerMimes.getOrDefault(selectionOffer): return
+  result.png = receive(selectionOffer, "image/png")
+
+proc wlPutClipboardImage(png: string; w, h: int; px: seq[uint32]): bool =
+  if png.len == 0: return false
+  clipPng = png
+  clipText = ""
+  ownSelection(["image/png"])
 
 proc fileUris(list: string): seq[string] =
   ## The files of a text/uri-list.
@@ -1048,9 +1067,10 @@ proc dataSourceEvent(m: var WlMsg) =
     if fd >= 0 and m.obj != ownSource:
       discard posix.close(fd)                                 # (a selection that is not ours now)
     elif fd >= 0:
+      let data = if clipPng.len > 0: clipPng else: clipText
       var at = 0
-      while at < clipText.len:
-        let n = posix.write(fd, unsafeAddr clipText[at], clipText.len - at)
+      while at < data.len:
+        let n = posix.write(fd, unsafeAddr data[at], data.len - at)
         if n <= 0:
           if errno == EINTR: continue
           break
@@ -1445,6 +1465,12 @@ proc wlSetMaximized(on: bool) =
   conn.send(wins[0].toplevel, if on: 9 else: 10)
   discard conn.flush()
 
+proc wlSetFullScreen(on: bool) =
+  if wins.len == 0: return
+  if on: conn.send(wins[0].toplevel, 11, wu(0))       # set_fullscreen (its output)
+  else: conn.send(wins[0].toplevel, 12)               # unset_fullscreen
+  discard conn.flush()
+
 proc wlMinimize(): bool =
   if wins.len == 0: return false
   conn.send(wins[0].toplevel, 13)                             # set_minimized
@@ -1596,11 +1622,12 @@ proc initWaylandDriver*() =
                           blitRGBA: wlBlitRGBA, drawRGBA: wlDrawRGBA)
   frameRelays = FrameRelays(
     setSystemFrame: wlSetSystemFrame, dragWindow: wlDragWindow,
-    setMaximized: wlSetMaximized,
+    setMaximized: wlSetMaximized, setFullScreen: wlSetFullScreen,
     maximized: proc (): bool = wins.len > 0 and wins[0].maximized,
     active: proc (): bool = wins.len == 0 or wins[0].activated,
     setResizable: wlSetResizable)
   systemRelays.minimize = wlMinimize
   inputRelays = InputRelays(pollEvent: wlPollEvent, waitEvent: wlWaitEvent,
                             getTicks: wlTicks, sleep: wlDelay, shutdown: wlShutdown)
-  clipboardRelays = ClipboardRelays(getText: wlGetClipboardText, putText: wlPutClipboardText)
+  clipboardRelays = ClipboardRelays(getText: wlGetClipboardText, putText: wlPutClipboardText,
+                                    getImage: wlGetClipboardImage, putImage: wlPutClipboardImage)

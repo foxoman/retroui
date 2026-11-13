@@ -12,7 +12,8 @@ from ttf import sfntOf
 export services.dataDir, services.openUrl, services.platformName,
        services.openFile, services.shareFile, services.places,
        services.storageAccess, services.requestStorageAccess,
-       services.minimizeApp
+       services.minimizeApp, services.maximizeWindow, services.windowMaximized,
+       services.fullScreenWindow, services.windowFullScreen
 export input.getClipboardText, input.putClipboardText
 export tables   # (Settings is a table: len, hasKey, [], []=, pairs...)
 

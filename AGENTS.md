@@ -112,8 +112,23 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   for App Bundles. Check a change with `sh tests/store/linux.sh`
   (osslsigncode, jarsigner, bundletool, rcodesign); Windows and macOS
   check theirs on GitHub (`tests/store/windows.ps1`, `mac.sh`).
+  `linuxpkg.nim` writes the .deb, .rpm, PKGBUILD and install.sh with no
+  tool installed (`retrokit linux`): check a change with `dpkg-deb -I -c`
+  and `rpm -qip`, `rpm -K` (both digests OK) and `rpm --root DIR -ivh`.
+  `install.nim` is the app installing itself for the user (no package).
+- **The web view's two ways:** `webbind.nim` makes a Nim proc a function
+  the app's pages call (`retro.call`; the macro reads its parameters, the
+  TypeScript is made at run time by `tsOf`); `htmlview.nim` carries the
+  calls (`takeCall`: the view's token, its page trusted -- the app's own
+  or `webTrust` -- then the handler). A page's script must never be able
+  to pretend what the engine says: full screen, the block list's count
+  come from the engines (`WebNativeState`), not from page messages.
 - `tools/compare/` -- Hello in egui, iced and Slint, and `compare.sh`
   measuring them and the kit the same way (memory, size, CPU).
+- `tools/bench.nim`, `tools/bench.py` -- the kit's own benchmark (start,
+  memory and processor at rest, a list, a dashboard, a document busy):
+  `python3 tools/bench.py` writes `docs/benchmarks.md`; run it again when a
+  change could cost speed or memory.
 - `docs/syntax.md` -- the study of the syntax: every form as a whole program
   with a picture of what it draws. The programs are `tools/syntaxshots/ex/`
   (the page's code plus `#>` script lines and `mark` lines it leaves out);

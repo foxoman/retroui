@@ -2,7 +2,7 @@
 ## answers as tools/android/RetroNative.java does), shared libraries, and
 ## the same-everywhere calls on the computer the test runs on.
 
-import std/[strutils, posix]
+import std/[strutils, posix, os]
 import retroui/native
 import retroui/uirelays/services
 
@@ -144,7 +144,9 @@ block everywhere:
   doAssert not vibrate(10) or inTermux()
   doAssert termuxApi("no-such-thing") == ""
   doAssert termuxApi("bad; rm -rf /") == "", "only plain command names"
-  doAssert not keepScreenOn(true) or defined(windows)
+  # (Linux: systemd's inhibitor kept while asked, where there is one)
+  doAssert keepScreenOn(true) == (findExe("systemd-inhibit").len > 0)
+  doAssert keepScreenOn(false)
   doAssert deviceModel() == "" and androidVersion() == ("", 0)
 
 echo "native tests passed"

@@ -1,5 +1,71 @@
 # Changes
 
+## 0.44.0
+
+Retro Navigator 0.3.0 grows up, and the kit gets what it needed for it and
+what other toolkits have that it did not: typed calls from pages, the
+clipboard's pictures, the desktop's shortcuts, packages and smaller updates.
+
+- **Retro Navigator 0.3.0:**
+  - **Ads blocked by the engine**: more than 250 ad and tracker sites and
+    the ad addresses of sites that serve their pages too are never fetched,
+    a list of the user's own can be imported (a hosts file, `||site^`
+    lines), more ad boxes are hidden, and YouTube's ads in its player are
+    skipped.
+  - **Page looks** (View > Page Look): Modern; Classic, the site's layout
+    and scripts in 1995's type and colors; Plain, the HTML alone, none of
+    the site's style sheets or scripts, its `<noscript>` shown. And Windows
+    3.1's scroll bars on every page, in the window's colors.
+  - **Video full screen**: the bars and the window's frame go, the window
+    fills the screen, Esc brings them back; Pop Out Video, and F11.
+  - **The Location box suggests** the pages visited (the last 400, kept)
+    and the bookmarks as it is typed in.
+  - **The zoom in the status bar** (Ctrl and +, -, 0 too).
+  - **Screenshots marked up** with Retro Board's tools -- pen, highlighter,
+    boxes, ovals, arrows, words, its colors and sizes, undo -- copied, or
+    saved as PNG or as a board.
+  - **Less memory**: a tab behind is paused at once (WebView2), and tabs
+    sleep after five minutes, on at first.
+- **The web view:**
+  - `webBlockList(hosts, patterns, spared)`: the engine never fetches what
+    an ad blocker's list names (WebKit's content rules, WebView2's resource
+    filter, Android's WebView); `WebEvent.kept` counts it.
+  - `WebEvent.fullscreen`, told by the engine, not by the page (a page
+    cannot make the window full screen by pretending); `fullScreenWindow`
+    for the window (a new relay in every driver).
+  - `webSnapshot`, `webSnapshotNow`: the page's picture.
+  - **Typed calls from the app's pages** (`retroui/webbind`): `webBind
+    addNote` makes a proc a function the pages call (`await
+    retro.call("addNote", note)`), its arguments and answer as JSON, its
+    errors a rejected promise, streams (`retro.stream`), events
+    (`webEmit`, `retro.on`); `webClientTs()` writes the pages' TypeScript.
+    Only the app's own pages may call, and sites `webTrust` names; never a
+    frame of another site.
+- **The system** (`retroui/system`, docs/system.md):
+  - pictures on the clipboard: `copyPicture`, `pastePicture` (Windows' DIB
+    and PNG, X11, Wayland, macOS, GTK 4, SDL 3; copy in a page);
+  - shortcuts of the whole desktop: `globalHotkey` (Windows, X11, macOS);
+  - `metered()`, `systemWoke()`, `systemPrefs()` (less movement, high
+    contrast, the text's size: the kit's glides and text follow them as an
+    app starts), `keepScreenOn` on Linux and macOS too;
+  - a folder watched: `watchFolder`, `changes` (`retroui/files`).
+- **Shipping:**
+  - `retrokit linux PROGRAM`: a .deb, an .rpm, Arch's PKGBUILD and a
+    .tar.gz with an `install.sh` that needs no administrator, made here
+    with nothing installed (`retroui/linuxpkg`).
+  - `retroui/install`: the app installs itself for the user alone
+    (Windows' Start menu and Settings > Apps, Linux's menu, a Mac's
+    ~/Applications), so its updates replace it with no question.
+  - **Smaller updates:** `update-sign` lists each file's pieces, and
+    `downloadUpdate` fetches only the pieces the app's own file does not
+    hold.
+- **Benchmarks:** `python3 tools/bench.py` measures the kit at rest and
+  busy, and writes docs/benchmarks.md.
+- **A pseudo language:** `RETRO_LANG=pseudo` shows every text stretched
+  and marked, to find layouts too tight for other languages and words not
+  translated.
+- The gallery and the small examples 0.44.0.
+
 ## 0.43.1
 
 The night's tests after 0.43.0, both green again.

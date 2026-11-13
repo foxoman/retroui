@@ -1067,6 +1067,31 @@ proc hotkeyPressed*(s: string): bool =
   ui.keyUsed = true
   true
 
+var globalIds: Table[string, int]   # (the desktop's shortcuts asked for: their numbers, -1 refused)
+
+proc globalHotkey*(keys: string): bool =
+  ## The shortcut `keys` ("Ctrl+Alt+N") taken from the whole desktop -- the
+  ## app need not be in front -- was pressed this frame. The first call asks
+  ## the system for it; Windows, X11 and macOS give it unless another
+  ## program has it (`globalHotkeyTaken`), Wayland and phones never.
+  var id = globalIds.getOrDefault(keys, 0)
+  if id == 0:
+    let (k, mods) = parseHotkey(keys)
+    id = 0x5200 + globalIds.len
+    if k == KeyNone or not registerGlobalKey(id, k, mods): id = -1
+    globalIds[keys] = id
+  id > 0 and id in globalHits
+
+proc globalHotkeyTaken*(keys: string): bool =
+  ## `globalHotkey(keys)` has the shortcut (the system gave it).
+  globalIds.getOrDefault(keys, 0) > 0
+
+proc releaseGlobalHotkey*(keys: string) =
+  ## Gives the shortcut `keys` back to the desktop.
+  let id = globalIds.getOrDefault(keys, 0)
+  if id > 0: unregisterGlobalKey(id)
+  globalIds.del keys
+
 proc hotkeyEdit*(keys: var string; w = 0; enabled = true): bool {.discardable.} =
   ## A box that takes the next key pressed, with its Ctrl, Alt and Shift,
   ## as a shortcut ("Ctrl+Shift+S"); Backspace or Delete alone clears it,

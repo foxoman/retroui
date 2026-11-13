@@ -51,6 +51,7 @@ proc webNativeAppUrl*(path: string): string =
   "app/" & path.strip(chars = {'/'})
 proc webNativeShutdown*() = discard
 proc webNativeClearData*() = discard
+proc webNativeSuspend*(key: string) = discard
   ## (a browser page's frames: the browser keeps their data)
 
 proc webNativeTake*(key: string): WebNativeState =

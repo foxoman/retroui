@@ -8,6 +8,7 @@
  *  Link:     -framework Cocoa -framework CoreText -framework CoreGraphics -framework QuartzCore
  */
 
+#import <Carbon/Carbon.h>   /* (the hot keys: RegisterEventHotKey) */
 #import <Cocoa/Cocoa.h>
 #import <CoreText/CoreText.h>
 #import <CoreGraphics/CoreGraphics.h>
@@ -27,7 +28,8 @@ enum {
   NE_FILE_DROP,       /* files dropped on the window: cocoa_dropPath */
   NE_TEXT_EDIT,       /* what an input method composes changed: cocoa_markedText */
   NE_WINDOW_HIDDEN,   /* minimized into the Dock, or covered all over */
-  NE_WINDOW_SHOWN     /* seen again */
+  NE_WINDOW_SHOWN,    /* seen again */
+  NE_GLOBAL_KEY       /* a shortcut taken from the whole desktop: its number (x) */
 };
 
 enum {
@@ -852,6 +854,98 @@ void cocoa_putClipboardText(const char *text) {
     [pb setString:[NSString stringWithUTF8String:text]
           forType:NSPasteboardTypeString];
   }
+}
+
+/* A picture on the clipboard as PNG (and TIFF, which older programs read);
+   taken back as PNG, or a TIFF made PNG. */
+int cocoa_putClipboardPng(const char *png, long len) {
+  @autoreleasepool {
+    NSData *d = [NSData dataWithBytes:png length:(NSUInteger)len];
+    NSBitmapImageRep *rep = [NSBitmapImageRep imageRepWithData:d];
+    NSPasteboard *pb = [NSPasteboard generalPasteboard];
+    [pb clearContents];
+    BOOL ok = [pb setData:d forType:NSPasteboardTypePNG];
+    NSData *tiff = rep ? [rep TIFFRepresentation] : nil;
+    if (tiff) [pb setData:tiff forType:NSPasteboardTypeTIFF];
+    return ok ? 1 : 0;
+  }
+}
+
+const char *cocoa_getClipboardPng(long *len) {
+  @autoreleasepool {
+    static char *buf = NULL;
+    free(buf);
+    buf = NULL;
+    *len = 0;
+    NSPasteboard *pb = [NSPasteboard generalPasteboard];
+    NSData *d = [pb dataForType:NSPasteboardTypePNG];
+    if (!d) {
+      NSData *tiff = [pb dataForType:NSPasteboardTypeTIFF];
+      NSBitmapImageRep *rep = tiff ? [NSBitmapImageRep imageRepWithData:tiff] : nil;
+      d = rep ? [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] : nil;
+    }
+    if (!d || [d length] == 0) return NULL;
+    buf = malloc([d length]);
+    if (!buf) return NULL;
+    memcpy(buf, [d bytes], [d length]);
+    *len = (long)[d length];
+    return buf;
+  }
+}
+
+/* ---- Shortcuts from the whole desktop (Carbon's hot keys) --------------- */
+
+static EventHandlerRef hotHandler = NULL;
+static EventHotKeyRef hotRefs[64];
+static int hotIds[64];
+static int hotCount = 0;
+
+static OSStatus onHotKey(EventHandlerCallRef next, EventRef ev, void *data) {
+  EventHotKeyID hk;
+  if (GetEventParameter(ev, kEventParamDirectObject, typeEventHotKeyID, NULL,
+                        sizeof(hk), NULL, &hk) != noErr) return eventNotHandledErr;
+  NEEvent e = {0};
+  e.kind = NE_GLOBAL_KEY;
+  e.x = (int)hk.id;
+  pushEvent(e);
+  return noErr;
+}
+
+void cocoa_unregisterHotKey(int id) {
+  for (int i = 0; i < hotCount; i++) {
+    if (hotIds[i] != id) continue;
+    UnregisterEventHotKey(hotRefs[i]);
+    hotRefs[i] = hotRefs[hotCount - 1];
+    hotIds[i] = hotIds[hotCount - 1];
+    hotCount--;
+    return;
+  }
+}
+
+/* key: the kit's KeyCode; mods: 1 Shift, 2 the kit's Ctrl (Command), 4 Option,
+   8 the kit's Gui (Control) */
+int cocoa_registerHotKey(int id, int key, int mods) {
+  int kc = -1;
+  for (int k = 0; k < 128; k++) if (translateKeyCode((unsigned short)k) == key) { kc = k; break; }
+  if (kc < 0 || hotCount >= 64) return 0;
+  if (!hotHandler) {
+    EventTypeSpec t = {kEventClassKeyboard, kEventHotKeyPressed};
+    InstallApplicationEventHandler(&onHotKey, 1, &t, NULL, &hotHandler);
+  }
+  cocoa_unregisterHotKey(id);
+  UInt32 m = 0;
+  if (mods & 1) m |= shiftKey;
+  if (mods & 2) m |= cmdKey;
+  if (mods & 4) m |= optionKey;
+  if (mods & 8) m |= controlKey;
+  EventHotKeyID hk = {'RtUI', (UInt32)id};
+  EventHotKeyRef ref;
+  if (RegisterEventHotKey((UInt32)kc, m, hk, GetApplicationEventTarget(), 0, &ref) != noErr)
+    return 0;
+  hotRefs[hotCount] = ref;
+  hotIds[hotCount] = id;
+  hotCount++;
+  return 1;
 }
 
 /* ---- Timing ----------------------------------------------------------- */
@@ -2085,6 +2179,19 @@ void cocoa_setMaximized(int on) {
         ? NSInsetRect(v, v.size.width / 8, v.size.height / 8) : unzoomedFrame;
       [mainWindow setFrame:back display:YES];
     }
+  }
+}
+
+/* Full screen: macOS's own, in a space of its own (the menu bar and the
+   Dock come back at the screen's edges), and back. */
+void cocoa_setFullScreen(int on) {
+  @autoreleasepool {
+    if (!mainWindow) return;
+    BOOL full = ([mainWindow styleMask] & NSWindowStyleMaskFullScreen) != 0;
+    if ((on != 0) == full) return;
+    [mainWindow setCollectionBehavior:[mainWindow collectionBehavior] |
+                                      NSWindowCollectionBehaviorFullScreenPrimary];
+    [mainWindow toggleFullScreen:nil];
   }
 }
 

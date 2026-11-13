@@ -47,7 +47,7 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[json, os, strutils, sysrand, base64]
+import std/[json, os, strutils, sysrand, base64, tables]
 import http, sha2, vault
 import uirelays/services
 from codec import unbase64
@@ -76,7 +76,13 @@ type
     url*: string            ## its file for this system
     size*: int64            ## ... its size in bytes (0: not said)
     sha256*: string         ## ... its SHA-256 (hex)
+    chunks*: seq[Chunk]     ## ... its pieces, when the update file lists them: what
+                            ## the file the app has holds of them is not downloaded
     error*: string          ## why nothing could be checked ("" when it was)
+
+  Chunk* = tuple[size: int; hash: string]
+    ## A piece of a file (`chunksOf`): its length, and the first 32 hex
+    ## digits of its SHA-256.
 
 # ---- signing (the publisher's side; retrokit uses these) ---------------------------------------
 
@@ -178,6 +184,95 @@ proc updatePlatform*(): string =
 
 # ---- the app's side --------------------------------------------------------------------------
 
+# ---- the pieces of a file: what changed between two versions -----------------------------------
+#
+# A file is cut where its bytes say so -- a rolling hash of the last 64 bytes
+# with its low 16 bits zero, so a piece is 64 KB on average (16 KB at least,
+# 256 KB at most) -- and not at fixed places: a change in one place leaves the
+# pieces after it as they were, at other offsets. The publisher lists the new
+# file's pieces in update.json (`retrokit update-sign`); the app cuts the file
+# it has the same way, keeps the pieces both have, and downloads only the
+# others (HTTP ranges), then checks the whole file's SHA-256 as before.
+
+const gear = block:
+  # (the rolling hash's 256 numbers: the same everywhere, from a fixed seed)
+  var t: array[256, uint64]
+  var x = 0x9E3779B97F4A7C15'u64
+  for i in 0 ..< 256:
+    x += 0x9E3779B97F4A7C15'u64
+    var z = x
+    z = (z xor (z shr 30)) * 0xBF58476D1CE4E5B9'u64
+    z = (z xor (z shr 27)) * 0x94D049BB133111EB'u64
+    t[i] = z xor (z shr 31)
+  t
+
+const
+  ChunkMin = 16 * 1024
+  ChunkMax = 256 * 1024
+  ChunkMask = (1'u64 shl 16) - 1
+
+proc cuts(data: string): seq[tuple[at, size: int]] =
+  ## (where `data` is cut)
+  var start = 0
+  var h = 0'u64
+  var i = 0
+  while i < data.len:
+    h = (h shl 1) + gear[ord(data[i])]
+    inc i
+    let n = i - start
+    if (n >= ChunkMin and (h and ChunkMask) == 0) or n >= ChunkMax or i == data.len:
+      result.add (start, n)
+      start = i
+      h = 0
+
+proc pieceHash(data: string; at, size: int): string =
+  var p = newString(size)
+  if size > 0: copyMem(addr p[0], unsafeAddr data[at], size)
+  sha256(p).toHex.toLowerAscii[0 ..< 32]
+
+proc chunksOf*(data: string): seq[Chunk] =
+  ## The pieces `data` is cut into (`retrokit update-sign` lists them).
+  for (at, size) in cuts(data): result.add (size, pieceHash(data, at, size))
+
+proc assembleUpdate*(chunks: openArray[Chunk]; have: openArray[string];
+                     fetch: proc (first, last: int): string): tuple[data: string; fetched: int] =
+  ## The new file of `chunks` made of the pieces the files `have` hold and
+  ## of the bytes `fetch` brings for the others (the bytes `first .. last`
+  ## of the new file, together where they follow each other). Raises
+  ## `UpdateError` when a fetch brings what was not asked.
+  var known: Table[string, tuple[file, at, size: int]]
+  for f, data in have:
+    for (at, size) in cuts(data):
+      let h = pieceHash(data, at, size)
+      if h notin known: known[h] = (f, at, size)
+  var total = 0
+  for c in chunks: total += c.size
+  result.data = newStringOfCap(total)
+  var i = 0
+  var offset = 0
+  while i < chunks.len:
+    let c = chunks[i]
+    if c.hash in known and known[c.hash].size == c.size:
+      let k = known[c.hash]
+      result.data.add have[k.file][k.at ..< k.at + k.size]
+      offset += c.size
+      inc i
+    else:
+      # (the pieces missing one after another: one request)
+      var last = offset + c.size - 1
+      var j = i + 1
+      while j < chunks.len and chunks[j].hash notin known:
+        last += chunks[j].size
+        inc j
+      let part = fetch(offset, last)
+      if part.len != last - offset + 1:
+        raise newException(UpdateError, "a part of the download is " & $part.len & " bytes, not " &
+                           $(last - offset + 1))
+      result.data.add part
+      result.fetched += part.len
+      offset = last + 1
+      i = j
+
 proc checkForUpdate*(manifestUrl, publicKey, current: string; platform = updatePlatform();
                      timeoutSec = 30): UpdateInfo =
   ## Reads the update file at `manifestUrl` and its signature (the same
@@ -208,31 +303,69 @@ proc checkForUpdate*(manifestUrl, publicKey, current: string; platform = updateP
     result.url = f{"url"}.getStr
     result.size = f{"size"}.getBiggestInt
     result.sha256 = f{"sha256"}.getStr.toLowerAscii
+    let cs = f{"chunks"}
+    if cs != nil and cs.kind == JArray:
+      for c in cs:
+        if c.kind == JArray and c.len == 2: result.chunks.add (c[0].getInt, c[1].getStr)
   elif platform == "web":
     result.url = "(the page)"
   result.available = result.version.len > 0 and newerVersion(result.version, current) and result.url.len > 0
 
+var updateFetched*: int
+  ## How many bytes the last `downloadUpdate` fetched (less than the file's
+  ## size when it kept pieces of the files the app has).
+
 proc downloadUpdate*(u: UpdateInfo; dir = ""; timeoutSec = 600): string =
   ## Downloads `u`'s file into `dir` (a folder for updates in the temporary
-  ## folder by default) and checks its size and SHA-256; its path. Raises
+  ## folder by default) and checks its size and SHA-256; its path. When the
+  ## update file lists its pieces (`chunks`), only the pieces the app's own
+  ## file -- and the updates downloaded before -- do not hold are fetched
+  ## (HTTP ranges; a server without them: the whole file). Raises
   ## `UpdateError` (and keeps nothing) when it is not the file that was signed.
   if not u.available or u.url.len == 0 or u.url.startsWith("("):
     raise newException(UpdateError, "no file to download")
   if u.sha256.len != 64:
     raise newException(UpdateError, "the update file gives no SHA-256 for it")
-  let r = httpRequest("GET", u.url, timeoutSec = timeoutSec)
-  if not r.ok:
-    raise newException(UpdateError, "the download failed: " & (if r.status == 0: r.error else: "HTTP " & $r.status))
-  if u.size > 0 and r.body.len != u.size:
-    raise newException(UpdateError, "the download is " & $r.body.len & " bytes, not " & $u.size)
-  if sha256(r.body).toHex.toLowerAscii != u.sha256:
-    raise newException(UpdateError, "the download is not the file that was signed (its SHA-256 differs)")
   let d = if dir.len > 0: dir else: getTempDir() / "retro-updates"
-  createDir(d)
   var name = u.url.split('?')[0].split('/')[^1]
   if name.len == 0: name = "update"
+  var body = ""
+  updateFetched = 0
+  if u.chunks.len > 0:
+    # (only what the files the app has do not hold: the program running --
+    # the AppImage, the .exe -- and the updates downloaded before)
+    var have: seq[string]
+    var bases = @[getEnv("APPIMAGE"), getAppFilename()]
+    if dirExists(d):
+      for f in walkFiles(d / "*" & name.splitFile.ext): bases.add f
+    for b in bases:
+      if b.len > 0 and fileExists(b) and have.len < 4:
+        try: have.add readFile(b)
+        except IOError, OSError: discard
+    if have.len > 0:
+      try:
+        let made = assembleUpdate(u.chunks, have, proc (first, last: int): string =
+          let r = httpRequest("GET", u.url, headers = [("Range", "bytes=" & $first & "-" & $last)],
+                              timeoutSec = timeoutSec)
+          if r.status != 206: raise newException(UpdateError, "no parts from the server")
+          r.body)
+        if sha256(made.data).toHex.toLowerAscii == u.sha256:
+          body = made.data
+          updateFetched = made.fetched
+      except CatchableError: body = ""      # (then the whole file, as before)
+  if body.len == 0:
+    let r = httpRequest("GET", u.url, timeoutSec = timeoutSec)
+    if not r.ok:
+      raise newException(UpdateError, "the download failed: " & (if r.status == 0: r.error else: "HTTP " & $r.status))
+    body = r.body
+    updateFetched = body.len
+  if u.size > 0 and body.len != u.size:
+    raise newException(UpdateError, "the download is " & $body.len & " bytes, not " & $u.size)
+  if sha256(body).toHex.toLowerAscii != u.sha256:
+    raise newException(UpdateError, "the download is not the file that was signed (its SHA-256 differs)")
+  createDir(d)
   result = d / name
-  writeFile(result, r.body)
+  writeFile(result, body)
 
 proc webUpdate*(): bool {.discardable.} =
   ## A web page: its service worker asked for the newest build, the page

@@ -764,6 +764,29 @@ you put on your site. `--entitlements:app.entitlements` adds what the app
 needs (the camera's and the microphone's usage texts are in its
 Info.plist already).
 
+### Linux: .deb, .rpm, PKGBUILD, and install.sh
+
+```sh
+retrokit linux build/linux/notes --name:"Notes" --version:1.2 --icon:notes.png \
+  --summary:"Notes in the manner of 1995" --maintainer:"Me <me@example.com>" --license:MIT \
+  --depends:libwebkit2gtk-4.1-0
+```
+
+writes, in `build/linux/linux` (`-o:DIR`), made here with nothing else
+installed:
+
+- `notes_1.2_amd64.deb` -- Debian, Ubuntu, Mint (`sudo apt install ./notes_1.2_amd64.deb`)
+- `notes-1.2-1.x86_64.rpm` -- Fedora, openSUSE, RHEL (`sudo dnf install ./notes-1.2-1.x86_64.rpm`)
+- `notes-1.2-x86_64.tar.gz` with `install.sh`: the app for the user alone,
+  in ~/.local, no administrator (so its updates can replace it);
+  `sh install.sh --uninstall` takes it away
+- `PKGBUILD` -- Arch (`makepkg -si` beside the .tar.gz)
+
+The packages put the program at /usr/bin/notes, its menu entry and its
+icon where the desktop finds them. An app can also install itself for the
+user, on Windows, Linux and macOS, with no package at all: `retroui/install`
+(docs/system.md).
+
 ### Android, iOS, the web
 
 Google Play: `retroapk --aab` (above, "For Google Play"). The App Store:
@@ -790,11 +813,12 @@ For each release, beside its files, write `update.json`:
 ```
 
 ```sh
-retrokit update-sign update.json     # each file's size and SHA-256 filled in; update.json.sig
+retrokit update-sign update.json     # each file's size, SHA-256 and pieces filled in; update.json.sig
 ```
 
 and publish `update.json`, `update.json.sig` and the files where the app
-looks. The systems' names: `linux-x86_64`, `linux-arm64`, `windows-x86_64`,
+looks. The pieces let an app download only what changed since the version
+it has (HTTP ranges: GitHub's releases give them). The systems' names: `linux-x86_64`, `linux-arm64`, `windows-x86_64`,
 `windows-arm64`, `macos-arm64`, `macos-x86_64`, `android-arm64`, `web`.
 
 ### Verified
@@ -862,6 +886,8 @@ environment of its own: `adb shell am start -n PACKAGE/org.retro.RetroActivity
 | `RETRO_ACCESS=1` | the screen readers' tree made with no screen reader |
 | `RETRO_SMOKE=SECONDS`, `RETRO_SMOKE_OUT=FILE` | the smoke run: the first frame timed, 3 s untouched measured, then clicks and keys |
 | `RETRO_STATS=1` | the frames' times and counts on stderr, every 2 seconds, and each frame of 250 ms or more (where the mouse was, the key) |
+| `RETRO_LANG=pseudo` | every text stretched a third and marked ("[Šåvé ··]"): the layouts too tight for longer words, and the words not translated, seen at once |
+| `RETRO_BENCH=SCENE`, `RETRO_BENCH_OUT=FILE` | tools/bench.nim's scene (rest, list, dashboard, document) and where its numbers go (`python3 tools/bench.py` runs them all) |
 | `RETRO_THREADS=N` | the worker threads (else one a processor, at most 16) |
 | `RETRO_WEB=system` | every `webView` in the system's browser engine |
 | `RETRO_WEB_TOOLS=1` | the system's web view with its developer tools |

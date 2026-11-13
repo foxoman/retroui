@@ -8,7 +8,7 @@
 ##   if photo != nil: drawBitmap(rect(10, 10, 160, 120), photo)
 
 import gfx, codec, jpeg, appicon, bigpicture
-import uirelays/services
+import uirelays/[services, input]
 
 export jpeg.decodeJpeg, jpeg.jpegSize, jpeg.JpegError
 
@@ -562,3 +562,23 @@ proc windowIconFromPng*(data: string; sizes: openArray[int] = [16, 24, 32, 48, 6
         else:
           result.add (uint32(a div cnt) shl 24) or (uint32(r div a) shl 16) or (uint32(g div a) shl 8) or
                      uint32(bl div a)
+
+# ---- pictures on the clipboard ------------------------------------------------------------------
+
+proc copyPicture*(b: Bitmap): bool {.discardable.} =
+  ## Puts `b` on the system's clipboard, for any program to paste: as PNG
+  ## and as pixels (Windows' DIB). False where the clipboard takes no
+  ## pictures (Android, SDL 2) or `b` is empty.
+  if b == nil or b.w <= 0 or b.h <= 0: return false
+  putClipboardImage(encodePng(b), b.w, b.h, b.px)
+
+proc pastePicture*(): Bitmap =
+  ## The picture on the system's clipboard (nil: none, or none this
+  ## system's clipboard gives).
+  let c = getClipboardImage()
+  if c.png.len > 0:
+    try: result = decodePng(c.png)
+    except CatchableError: result = nil
+  elif c.w > 0 and c.h > 0 and c.px.len >= c.w * c.h:
+    result = newBitmap(c.w, c.h)
+    for i in 0 ..< c.w * c.h: result.px[i] = c.px[i]

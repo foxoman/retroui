@@ -84,6 +84,10 @@ type
       ## panels -- or restore it.
     maximized*: proc (): bool {.nimcall.}
       ## The window is maximized now (by the app, the system's keys, a snap).
+    setFullScreen*: proc (on: bool) {.nimcall.}
+      ## The window fills its screen, over the taskbar, Dock or panels and
+      ## without the system's frame -- a video's, a slide show's -- or is put
+      ## back as it was.
     active*: proc (): bool {.nimcall.}
       ## The window is the one in front, taking the keyboard: its title bar
       ## is drawn in the active colors.
@@ -537,6 +541,16 @@ proc maximizeWindow*(on = true) =
 proc windowMaximized*(): bool =
   ## The window is maximized now.
   frameRelays.maximized != nil and frameRelays.maximized()
+var fullScreenOn: bool
+proc fullScreenWindow*(on = true) =
+  ## The window fills its screen without a frame (true), or is put back as
+  ## it was. Where the driver cannot, it is maximized instead.
+  if on == fullScreenOn: return
+  fullScreenOn = on
+  if frameRelays.setFullScreen != nil: frameRelays.setFullScreen(on)
+  else: maximizeWindow(on)
+proc windowFullScreen*(): bool = fullScreenOn
+  ## `fullScreenWindow` asked for the screen, and has not put it back.
 proc windowActive*(): bool =
   ## The window is the one in front (true where the driver cannot tell).
   frameRelays.active == nil or frameRelays.active()

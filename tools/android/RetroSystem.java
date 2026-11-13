@@ -162,6 +162,26 @@ public class RetroSystem {
     }
   }
 
+  /** The network costs by what is used (mobile data, a hotspot): "1". */
+  public static String metered(Activity a) {
+    ConnectivityManager cm = (ConnectivityManager) a.getSystemService(Context.CONNECTIVITY_SERVICE);
+    if (cm == null) return "0";
+    try { return cm.isActiveNetworkMetered() ? "1" : "0"; }
+    catch (SecurityException e) { return "0"; }
+  }
+
+  /** Less movement, high contrast, the text's scale: "1 0 1.15". */
+  public static String prefs(Activity a) {
+    float anim = 1f;
+    int contrast = 0;
+    try { anim = android.provider.Settings.Global.getFloat(a.getContentResolver(), "animator_duration_scale", 1f); }
+    catch (Throwable t) { }
+    try { contrast = android.provider.Settings.Secure.getInt(a.getContentResolver(), "high_text_contrast_enabled", 0); }
+    catch (Throwable t) { }
+    float scale = a.getResources().getConfiguration().fontScale;
+    return (anim == 0f ? "1" : "0") + " " + (contrast != 0 ? "1" : "0") + " " + scale;
+  }
+
   public static String language() {
     return Locale.getDefault().toLanguageTag();
   }

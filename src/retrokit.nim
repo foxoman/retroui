@@ -30,6 +30,8 @@
 ##                                    on a Mac; zipped
 ##   retrokit update-key              a key for updates inside apps
 ##   retrokit update-sign update.json the update file signed (retroui/update)
+##   retrokit linux PROGRAM           Linux packages: .deb, .rpm, a .tar.gz with
+##                                    install.sh (no administrator), a PKGBUILD
 ##   retrokit ipa APP.app             an iOS .ipa for TestFlight and the App Store
 ##   retrokit model FILE              a 3D model (.blend, .gltf, .obj, .stl) as .glb
 ##   retrokit designer [app.nim]      Retro Designer: the app's windows, designed
@@ -98,6 +100,9 @@ retrokit -- start, check and build Retro Nim UI apps
   retrokit mac PROGRAM [--name --id --version --icon] [--sign:ID --notarize:P]
       a macOS .app, zipped: signed ad hoc here (any system), or on a Mac with
       your Developer ID, notarized and stapled
+  retrokit linux PROGRAM [--name --id --version --icon --summary --depends]
+      Linux packages, made here: .deb, .rpm, a .tar.gz with install.sh (for
+      the user alone, no administrator) and Arch's PKGBUILD
   retrokit ipa APP.app         an iOS app (built by retroios) as an .ipa
   retrokit model FILE          a 3D model (.blend through Blender, .gltf, .obj, .stl)
       as the .glb an app carries; says its parts and clips by name
@@ -952,6 +957,7 @@ proc main() =
   of "sign": quit signCmd(args[1 .. ^1])
   of "msix": quit msixCmd(args[1 .. ^1])
   of "mac": quit macCmd(args[1 .. ^1])
+  of "linux": quit linuxCmd(args[1 .. ^1])
   of "ipa": quit ipaCmd(args[1 .. ^1])
   of "model": quit modelCmd(args[1 .. ^1])
   of "update-key": quit updateKeyCmd(args[1 .. ^1])
