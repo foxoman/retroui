@@ -125,6 +125,14 @@ app "Gauge", 220, 190:
 - `canvas` and the drawing calls; `idOf`, `interact`, `ui.mx`.
 - The keyboard: `canInput`, `keyHit`, `focusDots`; screen readers: `accessNode`.
 
+## More
+
+[docs/customizing.md](../../docs/customizing.md) has what comes before a
+control of your own -- the options that change a control of the kit's
+(colours, a text style, a height, a look), controls put together in a proc
+-- and what a control you draw owes its user, in one table; BMI Studio
+(`examples/bmi.nim`) is its worked example.
+
 ## Try it
 
 Make the wheel turn it: `ui.wheel` while `hit.hover`. Then read how the kit's own `knob` does it in [src/retroui/morecontrols.nim](../../src/retroui/morecontrols.nim).

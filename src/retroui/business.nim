@@ -2522,8 +2522,8 @@ proc parseNumber*(s: string; v: var float): bool =
     false
 
 proc numberAt(id: Id; v: var float; decimals, w: int; lo, hi: float;
-              thousands, enabled: bool): bool =
-  let r = place(w, EditH)
+              thousands, enabled: bool; h = 0; uiFontH = 0): bool =
+  let r = place(w, if h > 0: h else: EditH + (if uiFontH > 0: max(0, FontH - uiFontH) else: 0))
   let editId = id + 31
   var st = state(id)
   let decimals = clamp(decimals, 0, 12)
@@ -2559,25 +2559,32 @@ proc numberAt(id: Id; v: var float; decimals, w: int; lo, hi: float;
 
 proc numberEdit*(v: var float; decimals = 2; w = 110; lo = NegInf;
                  hi = Inf; thousands = true;
-                 enabled = true): bool {.discardable.} =
+                 enabled = true; h = 0; style = TextStyle()): bool {.discardable.} =
   ## A right-aligned number field; shows `decimals` places (0 to 12) and
   ## thousands separators when it does not have the focus. Only numbers
   ## from `lo` to `hi` are taken (true when `v` changed). Clicking or
-  ## tabbing into it selects the number, so typing replaces it.
-  numberAt(idOf(v, "number"), v, decimals, w, lo, hi, thousands, enabled)
+  ## tabbing into it selects the number, so typing replaces it. `style`:
+  ## its digits' (large, bold); the field grows with them, or to `h`.
+  let uiFontH = FontH
+  withTextStyle(style):
+    result = numberAt(idOf(v, "number"), v, decimals, w, lo, hi, thousands, enabled, h, uiFontH)
 
 proc intEdit*(v: var int; w = 80; lo = low(int); hi = high(int);
-              thousands = false; enabled = true): bool {.discardable.} =
+              thousands = false; enabled = true; h = 0;
+              style = TextStyle()): bool {.discardable.} =
   ## A right-aligned whole-number field. Only whole numbers from `lo` to
   ## `hi` are taken (true when `v` changed); clicking or tabbing into it
-  ## selects the number, so typing replaces it.
+  ## selects the number, so typing replaces it. `style` and `h` as
+  ## `numberEdit`'s.
   var f = v.float
+  let uiFontH = FontH
   # (a float as large as high(int) is past it: it would not convert)
-  if numberAt(idOf(v, "int"), f, 0, w, lo.float, hi.float, thousands,
-              enabled) and f == round(f) and f >= low(int).float and
-     f < high(int).float:
-    v = clamp(int(f), lo, hi)
-    result = true
+  withTextStyle(style):
+    if numberAt(idOf(v, "int"), f, 0, w, lo.float, hi.float, thousands,
+                enabled, h, uiFontH) and f == round(f) and f >= low(int).float and
+       f < high(int).float:
+      v = clamp(int(f), lo, hi)
+      result = true
 
 # ---- auto-complete combo ------------------------------------------------------------
 

@@ -96,6 +96,7 @@ const photoArabic* = [
   ("Clone Source", "مصدر النسخ"),
   ("Presets", "الإعدادات المسبقة"),
   ("New...", "جديد..."),
+  ("New SVG Drawing", "رسم SVG جديد"),
   ("Open...", "فتح..."),
   ("Close All", "إغلاق الكل"),
   ("Save As...", "حفظ باسم..."),

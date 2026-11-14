@@ -2310,3 +2310,216 @@ proc liveGraph*(key: string; values: openArray[float]; version: int; maxValue = 
   if accessOn:
     accessNode(arImage, label, (if n > 0: formatFloat(values[n - 1], ffDecimal, 1) else: ""),
                r = r, help = caption)
+
+# ---- a dial in bands, and a bar of ranges ----------------------------------------------------------
+
+type Band* = object
+  ## A range of a dial or of a bar of ranges (`gauge`, `rangeBar`): where
+  ## it ends, its colour and its name.
+  upTo*: float           ## the band ends here (it starts where the one before ends)
+  color*: Color          ## on the dial (alpha 0: the scheme's -- blue, green, amber, red by turn)
+  label*: string         ## "Healthy range"
+  range*: string         ## its numbers as shown ("18.5 – 24.9"; "": made from the bounds)
+  sweep*: float          ## degrees of the half circle it takes (0: in proportion)
+
+proc bandColor(bands: openArray[Band]; i: int): Color =
+  if bands[i].color.a != 0: return bands[i].color
+  case i mod 4
+  of 0: infoColor()
+  of 1: goodColor()
+  of 2: warnColor()
+  else: badColor()
+
+proc bandOf*(bands: openArray[Band]; value: float): int =
+  ## The band `value` is in (-1: `value` is not a number, or there is none).
+  if value != value or bands.len == 0: return -1
+  for i, b in bands:
+    if value < b.upTo: return i
+  bands.high
+
+proc bandAngle(bands: openArray[Band]; lo, v: float): float =
+  ## (where `v` is on the half circle: PI at the left to 2 PI at the right,
+  ## each band over its own sweep)
+  var given = 0.0
+  var free = 0.0                      # (the span of the bands with no sweep of their own)
+  var a = lo
+  for b in bands:
+    if b.sweep > 0: given += b.sweep
+    else: free += max(0.0, b.upTo - a)
+    a = b.upTo
+  let rest = max(0.0, 180.0 - given)
+  var deg = 0.0
+  a = lo
+  for i, b in bands:
+    let span = max(1e-9, b.upTo - a)
+    let sw = if b.sweep > 0: b.sweep * (if given > 180: 180 / given else: 1)
+             elif free > 0: rest * span / free
+             else: 0.0
+    if v <= b.upTo or i == bands.high:
+      deg += sw * clamp((v - a) / span, 0.0, 1.0)
+      break
+    deg += sw
+    a = b.upTo
+  PI + degToRad(deg)
+
+proc numText(v: float; decimals = -1): string =
+  ## (a bound as shown: whole, or to a decimal -- `decimals` 1 for all of a
+  ## dial's when one of them has a fraction)
+  if decimals > 0 or v != round(v): formatFloat(v, ffDecimal, max(1, decimals)) else: $int(v)
+
+proc fillTone(c: Color): Color =
+  ## (a state's colour as a large area of it: brighter on a light scheme,
+  ## where the colour itself is dark enough to be read as text)
+  if lumaOfColor(th.window) < 128: c else: mixColor(c, color(255, 255, 255), 0.2)
+
+proc boundDecimals(bands: openArray[Band]; lo: float): int =
+  result = -1
+  if lo != round(lo): result = 1
+  for b in bands:
+    if b.upTo != round(b.upTo): result = 1
+
+proc gauge*(title: string; value: float; lo, hi: float; bands: openArray[Band];
+            ticks = true; boundLabels = true; valueStyle = TextStyle();
+            height = 0; w = 0): ChartEvent {.discardable.} =
+  ## A dial in bands: a half circle from `lo` to `hi` in the bands'
+  ## colours, a needle at `value` (NaN: none yet; it glides when the value
+  ## changes), the number under it in `valueStyle` and the name of the band
+  ## it is in. `ticks`: small marks along the bands; `boundLabels`: the
+  ## bounds' numbers round the dial. A band's `sweep` gives it more of the
+  ## dial than its numbers would (a narrow range that matters). `title`
+  ## names it for screen readers.
+  result = ChartEvent(series: -1, index: -1, hidden: -1)
+  let r = place(if w > 0: w else: 0, if height > 0: height else: dp(200), fill = w <= 0)
+  ui.lastId = 0
+  ui.lastRect = r
+  if bands.len == 0 or hi <= lo: return
+  let vst = if valueStyle == TextStyle(): style(bold = true, size = 2.4) else: valueStyle
+  let lst = style(bold = true, size = 0.95)
+  let pst = style(bold = true)
+  let numH = lineHeight(vst) + dp(8)
+  let pillH = lineHeight(pst) + dp(8)
+  let labelH = if boundLabels: lineHeight(lst) + dp(6) else: dp(4)
+  # the half circle over the number and the band's name
+  let room = r.h - numH - pillH + dp(8) - labelH - dp(6)
+  let decimals = boundDecimals(bands, lo)
+  let side = if boundLabels: float(textWidth(numText(hi, decimals) & "0", lst) + dp(10))
+             else: float(dp(6))
+  let rad = max(float(dp(24)), min(float(r.w) / 2 - side, float(room)))
+  let cx = float(r.x + r.w div 2)
+  let cy = float(r.y + labelH) + rad
+  let bandW = rad * 0.27
+  let ground = mixColor(th.window, th.light, 0.35)
+  pieSlice(cx, cy, rad + 3, PI, 2 * PI, th.shadow)
+  pieSlice(cx, cy, rad + 2, PI, 2 * PI, ground)
+  var a = lo
+  for i, b in bands:
+    pieSlice(cx, cy, rad, bandAngle(bands, lo, a), bandAngle(bands, lo, b.upTo),
+             fillTone(bandColor(bands, i)))
+    a = b.upTo
+  disc(cx, cy, rad - bandW, ground)
+  fill(rect(int(cx - rad) - 4, int(cy), int(2 * rad) + 8, 4), ground)   # (the dial's foot, straight)
+  if ticks:
+    for i in 1 ..< 24:
+      let t = PI + degToRad(7.5 * float(i))
+      let r0 = rad - bandW + 2
+      let r1 = r0 + (if i mod 3 == 0: bandW * 0.55 else: bandW * 0.32)
+      thickLine(cx + r0 * cos(t), cy + r0 * sin(t), cx + r1 * cos(t), cy + r1 * sin(t),
+                1.6, color(255, 255, 255))
+  if boundLabels:
+    let lh = float(lineHeight(lst))
+    var bound = lo
+    for i in 0 .. bands.len:
+      let t = bandAngle(bands, lo, bound)
+      let s = numText(bound, decimals)
+      let tw = float(textWidth(s, lst))
+      if i == 0 or i == bands.len:               # the ends: beside the dial's foot
+        let x = if i == 0: cx - rad - 6 - tw else: cx + rad + 6
+        text(int(x), int(cy - lh), s, th.text, lst)
+      else:
+        let ro = rad + 8
+        line(int(cx + (rad + 3) * cos(t)), int(cy + (rad + 3) * sin(t)),
+             int(cx + ro * cos(t)), int(cy + ro * sin(t)), th.shadow)
+        let lx = cx + (ro + 3) * cos(t)
+        let ly = cy + (ro + 3) * sin(t)
+        let x = if cos(t) < -0.2: lx - tw elif cos(t) > 0.2: lx else: lx - tw / 2
+        text(int(x), int(ly - lh), s, th.text, lst)
+      if i < bands.len: bound = bands[i].upTo
+  # the needle, gliding to the value
+  let has = value == value
+  let v = clamp(if has: value else: lo, lo, hi)
+  let shown = animated(v, 450, "gauge:" & title)
+  if has:
+    let t = bandAngle(bands, lo, shown)
+    let tip = rad - 3
+    let nx = -sin(t)
+    let ny = cos(t)
+    let nw = max(3.0, rad * 0.045)
+    polygon([(cx + tip * cos(t), cy + tip * sin(t)),
+             (cx + nw * nx, cy + nw * ny), (cx - nw * nx, cy - nw * ny)], th.text)
+  let hub = max(4.0, rad * 0.09)
+  disc(cx, cy, hub + 1, th.frame)
+  disc(cx, cy, hub, th.face)
+  disc(cx - hub * 0.2, cy - hub * 0.2, hub * 0.45, th.light)
+  # the number, and the band it is in
+  let at = bandOf(bands, value)
+  let numS = if has: formatFloat(value, ffDecimal, 1) else: "--.-"
+  let bw = max(textWidth(numS, vst) + dp(28), dp(96))
+  let box = rect(int(cx) - bw div 2, int(cy) + int(hub) + dp(4), bw, numH)
+  fill(box, th.field)
+  fieldFrame(box)
+  text(box.x + (box.w - textWidth(numS, vst)) div 2, box.y + (box.h - lineHeight(vst)) div 2,
+       numS, th.fieldText, vst)
+  let name = if at >= 0: bands[at].label else: tr("No result yet")
+  if name.len > 0:
+    let pw = max(textWidth(name, pst) + dp(28), bw + dp(16))
+    let pr = rect(int(cx) - pw div 2, box.y + box.h - dp(4), pw, pillH)
+    let pc = if at >= 0: mixColor(th.field, fillTone(bandColor(bands, at)), 0.5) else: th.face
+    roundRect(pr, float(dp(7)), mixColor(pc, th.frame, 0.35))
+    roundRect(inset(pr, 1), float(dp(6)), pc)
+    text(pr.x + (pr.w - textWidth(name, pst)) div 2, pr.y + (pr.h - lineHeight(pst)) div 2, name,
+         contrastInk(pc, color(0, 0, 0), color(255, 255, 255)), pst)
+  if accessOn:
+    let k = accessNode(arProgressBar, title, (if has: numS & (if name.len > 0: ", " & name else: "") else: name),
+                       r = r)
+    accessRange(k, lo, hi, v, 0)
+
+proc rangeBar*(bands: openArray[Band]; value: float; lo: float; h = 0) =
+  ## A bar of ranges: a coloured cell a band with its name and its numbers,
+  ## and a marker over the one `value` is in (NaN: none). The cells are the
+  ## bands' colours made pale, so their text reads.
+  let st = style(bold = true)
+  let rst = style(size = 0.95)
+  let markH = dp(11)
+  let cellH = lineHeight(st) + lineHeight(rst) + dp(10)
+  let r = place(0, if h > 0: h else: markH + cellH, fill = true)
+  ui.lastId = 0
+  ui.lastRect = r
+  if bands.len == 0: return
+  let strip = rect(r.x, r.y + markH, r.w, r.h - markH)
+  let at = bandOf(bands, value)
+  var x = strip.x
+  var a = lo
+  for i, b in bands:
+    let cw = if i == bands.high: strip.x + strip.w - x else: strip.w div bands.len
+    let cr = rect(x, strip.y, cw, strip.h)
+    let c = mixColor(th.field, fillTone(bandColor(bands, i)), 0.45)
+    let ink = contrastInk(c, color(0, 0, 0), color(255, 255, 255))
+    fill(cr, c)
+    box(cr, mixColor(c, th.frame, 0.4))
+    let range = if b.range.len > 0: b.range
+                elif i == 0: "< " & numText(b.upTo)
+                elif i == bands.high: "≥ " & numText(a)
+                else: numText(a) & " – " & numText(b.upTo)
+    let y0 = cr.y + (cr.h - lineHeight(st) - lineHeight(rst)) div 2
+    pushClip(inset(cr, 1))
+    text(cr.x + (cr.w - textWidth(b.label, st)) div 2, y0, b.label, ink, st)
+    text(cr.x + (cr.w - textWidth(range, rst)) div 2, y0 + lineHeight(st), range, ink, rst)
+    popClip()
+    if i == at:
+      let mx = float(cr.x + cr.w div 2)
+      polygon([(mx - float(dp(9)), float(r.y)), (mx + float(dp(9)), float(r.y)),
+               (mx, float(strip.y + dp(3)))], th.text)
+    if accessOn:
+      accessNode(arListItem, b.label, range, r = cr, states = (if i == at: {asSelected} else: {}))
+    x += cw
+    a = b.upTo

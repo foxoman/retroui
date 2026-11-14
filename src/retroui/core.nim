@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.51.0"
+const RetroVersion* = "0.52.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -63,6 +63,17 @@ type
                                  ## (alpha 0: between `face` and `light`)
     inactiveTitle*, inactiveTitleText*: Color
       ## title bars of windows that are not in front (alpha 0: `window`, `text`)
+    accent*, accentText*: Color
+      ## the face and the text of the button that matters most
+      ## (`button(accent = true)`; alpha 0: `select`, `selectText`)
+    good*, warn*, bad*, info*: Color
+      ## what a state is said in: all is well, take care, something is
+      ## wrong, for your information -- bands, pills, banners, meters
+      ## (alpha 0: a green, an amber, a red and a blue that show on
+      ## `window`; see `goodColor`...)
+    goodBack*, warnBack*, badBack*, infoBack*: Color
+      ## ... and their pale ones, behind text: a cell, a strip (alpha 0:
+      ## `window` a fifth of the way to each)
 
   Hit* = object
     ## What happened to a widget this frame (`interact`).
@@ -307,6 +318,118 @@ const
     line: color(0, 120, 0), edge: color(0, 150, 0),
     link: color(170, 255, 170))
     ## A green phosphor terminal: green on black.
+  Notes* = Theme(
+    window: color(255, 251, 235), text: color(40, 34, 20),
+    face: color(250, 236, 190), light: color(255, 250, 225),
+    shadow: color(196, 170, 100), frame: color(120, 96, 40),
+    select: color(240, 180, 20), selectText: color(40, 30, 0),
+    gray: color(150, 134, 100), field: color(255, 255, 248),
+    fieldText: color(40, 34, 20), scroll: color(245, 232, 196),
+    tip: color(255, 244, 200), tipText: color(40, 34, 20),
+    line: color(200, 180, 120), edge: color(150, 124, 60),
+    link: color(170, 100, 0), face2: color(253, 244, 210),
+    accent: color(166, 94, 0), accentText: color(255, 255, 255))
+    ## A notepad's cream paper and amber marker: warm and light, for a phone.
+  Snow* = Theme(
+    window: color(255, 255, 255), text: color(28, 28, 30),
+    face: color(240, 240, 245), light: color(255, 255, 255),
+    shadow: color(174, 174, 184), frame: color(110, 110, 122),
+    select: color(0, 112, 224), selectText: color(255, 255, 255),
+    gray: color(142, 142, 150), field: color(255, 255, 255),
+    fieldText: color(28, 28, 30), scroll: color(236, 236, 242),
+    tip: color(245, 245, 250), tipText: color(28, 28, 30),
+    line: color(200, 200, 208), edge: color(150, 150, 162),
+    link: color(0, 100, 210), face2: color(248, 248, 252))
+    ## White with soft gray edges and a clear blue: a clean light scheme.
+  Mint* = Theme(
+    window: color(245, 253, 249), text: color(16, 44, 34),
+    face: color(214, 240, 228), light: color(244, 255, 250),
+    shadow: color(120, 176, 152), frame: color(40, 96, 74),
+    select: color(0, 128, 94), selectText: color(255, 255, 255),
+    gray: color(112, 146, 132), field: color(252, 255, 253),
+    fieldText: color(16, 44, 34), scroll: color(224, 244, 234),
+    tip: color(232, 250, 240), tipText: color(16, 44, 34),
+    line: color(150, 200, 178), edge: color(70, 130, 106),
+    link: color(0, 120, 90), face2: color(230, 248, 238))
+    ## Pale greens: fresh and light.
+  Sky* = Theme(
+    window: color(245, 250, 255), text: color(16, 36, 64),
+    face: color(214, 230, 250), light: color(244, 250, 255),
+    shadow: color(120, 150, 196), frame: color(44, 76, 130),
+    select: color(30, 110, 225), selectText: color(255, 255, 255),
+    gray: color(110, 130, 160), field: color(252, 254, 255),
+    fieldText: color(16, 36, 64), scroll: color(224, 236, 250),
+    tip: color(230, 242, 255), tipText: color(16, 36, 64),
+    line: color(150, 178, 216), edge: color(74, 110, 170),
+    link: color(20, 90, 200), face2: color(230, 240, 253))
+    ## Pale blues: a clear day.
+  Blossom* = Theme(
+    window: color(255, 247, 250), text: color(64, 20, 36),
+    face: color(252, 222, 232), light: color(255, 246, 250),
+    shadow: color(206, 140, 164), frame: color(140, 60, 90),
+    select: color(214, 56, 110), selectText: color(255, 255, 255),
+    gray: color(160, 116, 132), field: color(255, 253, 254),
+    fieldText: color(64, 20, 36), scroll: color(250, 230, 238),
+    tip: color(255, 236, 243), tipText: color(64, 20, 36),
+    line: color(224, 170, 190), edge: color(170, 90, 120),
+    link: color(190, 40, 100), face2: color(254, 236, 242))
+    ## Pale pinks with a deep rose highlight.
+  Lavender* = Theme(
+    window: color(250, 248, 255), text: color(36, 26, 70),
+    face: color(230, 224, 250), light: color(248, 246, 255),
+    shadow: color(150, 138, 204), frame: color(84, 64, 150),
+    select: color(112, 84, 214), selectText: color(255, 255, 255),
+    gray: color(128, 120, 160), field: color(254, 253, 255),
+    fieldText: color(36, 26, 70), scroll: color(236, 232, 250),
+    tip: color(240, 236, 255), tipText: color(36, 26, 70),
+    line: color(180, 170, 224), edge: color(110, 92, 180),
+    link: color(96, 66, 200), face2: color(240, 236, 253))
+    ## Pale purples.
+  Sunset* = Theme(
+    window: color(255, 245, 236), text: color(70, 26, 16),
+    face: color(255, 214, 178), light: color(255, 240, 222),
+    shadow: color(214, 140, 96), frame: color(140, 60, 30),
+    select: color(206, 62, 42), selectText: color(255, 255, 255),
+    gray: color(166, 122, 104), field: color(255, 252, 247),
+    fieldText: color(70, 26, 16), scroll: color(255, 226, 200),
+    tip: color(255, 236, 214), tipText: color(70, 26, 16),
+    line: color(230, 170, 130), edge: color(176, 90, 54),
+    link: color(200, 60, 40), face2: color(255, 228, 200),
+    accent: color(150, 56, 150), accentText: color(255, 255, 255))
+    ## Peach faces, a coral highlight and a plum accent: the colourful one.
+  Graphite* = Theme(
+    window: color(54, 57, 63), text: color(236, 238, 242),
+    face: color(78, 82, 90), light: color(118, 123, 134),
+    shadow: color(34, 36, 40), frame: color(20, 21, 24),
+    select: color(48, 110, 220), selectText: color(255, 255, 255),
+    gray: color(150, 154, 164), field: color(40, 42, 47),
+    fieldText: color(236, 238, 242), scroll: color(64, 67, 74),
+    tip: color(86, 90, 100), tipText: color(236, 238, 242),
+    line: color(120, 124, 134), edge: color(120, 124, 134),
+    link: color(130, 180, 255), face2: color(96, 100, 110))
+    ## Between the light schemes and the dark: mid grays, a blue highlight.
+  Dusk* = Theme(
+    window: color(30, 26, 48), text: color(232, 226, 248),
+    face: color(54, 46, 84), light: color(98, 86, 146),
+    shadow: color(16, 13, 28), frame: color(0, 0, 0),
+    select: color(120, 86, 224), selectText: color(255, 255, 255),
+    gray: color(140, 130, 172), field: color(20, 17, 34),
+    fieldText: color(232, 226, 248), scroll: color(42, 36, 66),
+    tip: color(64, 54, 100), tipText: color(232, 226, 248),
+    line: color(112, 100, 160), edge: color(112, 100, 160),
+    link: color(180, 160, 255), face2: color(72, 62, 110))
+    ## A dark scheme in evening purples.
+  NightNotes* = Theme(
+    window: color(28, 28, 30), text: color(240, 238, 230),
+    face: color(48, 48, 52), light: color(92, 92, 98),
+    shadow: color(14, 14, 16), frame: color(0, 0, 0),
+    select: color(255, 204, 0), selectText: color(30, 24, 0),
+    gray: color(132, 132, 138), field: color(18, 18, 20),
+    fieldText: color(240, 238, 230), scroll: color(38, 38, 42),
+    tip: color(60, 56, 36), tipText: color(240, 238, 230),
+    line: color(104, 104, 110), edge: color(104, 104, 110),
+    link: color(255, 214, 80), face2: color(62, 62, 68))
+    ## Notes at night: near black, with the marker's yellow.
   builtinThemes* = [(name: "Classic", theme: Classic), (name: "Gray", theme: Gray),
                     (name: "Dark", theme: Dark), (name: "OLED Black", theme: Oled),
                     (name: "Ocean", theme: Ocean),
@@ -317,7 +440,12 @@ const
                     (name: "Midnight", theme: Midnight), (name: "Emerald", theme: Emerald),
                     (name: "Rose", theme: Rose), (name: "Slate", theme: Slate),
                     (name: "Mahogany", theme: Mahogany), (name: "Amber", theme: Amber),
-                    (name: "Green Screen", theme: GreenScreen)]
+                    (name: "Green Screen", theme: GreenScreen),
+                    (name: "Notes", theme: Notes), (name: "Snow", theme: Snow),
+                    (name: "Mint", theme: Mint), (name: "Sky", theme: Sky),
+                    (name: "Blossom", theme: Blossom), (name: "Lavender", theme: Lavender),
+                    (name: "Sunset", theme: Sunset), (name: "Graphite", theme: Graphite),
+                    (name: "Dusk", theme: Dusk), (name: "Night Notes", theme: NightNotes)]
     ## The color schemes that come with the toolkit, by name (new ones go at
     ## the end: settings keep a scheme's number).
 
@@ -2334,6 +2462,21 @@ proc beginRow*(widths: openArray[int] = []; rowH = CtrlH) =
 var springTails, springTailsNow: Table[Hash, int]
   ## (columns: how tall what follows each `spring` was, last frame and now)
 
+proc barSpring*(tail: int) =
+  ## In a bar's row (`pushRow`): what is placed after this goes to the
+  ## row's right end, `tail` pixels wide in all (0: where it is -- it is
+  ## measured, `barTail`).
+  let f = top()
+  if f.kind != lkRow: return
+  if tail > 0: f.cx = max(f.cx, f.x + f.w - tail)
+  f.springX = f.cx
+  f.tailNow = 0
+
+proc barTail*(): int =
+  ## How wide what was placed in a bar's row since `barSpring` is.
+  let f = top()
+  if f.kind == lkRow: max(0, f.tailNow - Gap) else: 0
+
 proc spring*() =
   ## In a row: the widgets after it go to the row's right end. In a column
   ## (the window, a pane, a `col`, a group): those after it go to the
@@ -2449,6 +2592,10 @@ template adaptive*(minW: int; body: untyped) =
     beginRow(ws.toOpenArray(0, n - 1))
     body
     endRow()
+
+proc layoutDepth*(): int = ui.frames.len
+  ## How many rows, columns, groups and frames are open now (a control that
+  ## opens one and ends it later knows its own by this).
 
 proc rowHeight*(): int =
   ## In a row: the height the tallest cell of the current line needed last
@@ -2896,6 +3043,16 @@ proc labelWidth*(label: string; bold = false): int =
     discard stripMnemonic(label)
     return textWidth(mnText, bold)
   textWidth(splitMnemonic(label).text, bold)
+
+proc labelWidth*(label: string; st: TextStyle): int =
+  ## The width of a label drawn in style `st` (without its '&').
+  withTextStyle(st): result = labelWidth(label)
+
+proc drawLabel*(x, y: int; label: string; c: Color; bold = false)
+proc drawLabel*(x, y: int; label: string; c: Color; st: TextStyle) =
+  ## A label in style `st`, its mnemonic letter underlined: a control of
+  ## your own with a large or a serif label.
+  withTextStyle(st): drawLabel(x, y, label, c)
 
 proc drawLabel*(x, y: int; label: string; c: Color; bold = false) =
   ## Text with its mnemonic letter underlined, the 3.1 way.
@@ -3433,6 +3590,25 @@ var windowIcon*: seq[uint32]
   ## The window's picture on a desktop (its taskbar button, its title bar),
   ## set before `startApp`: `windowIconFromPng` makes it from an app icon.
   ## Empty: the desktop's own.
+
+type CaptionAlign* = enum
+  ## Where the title is in a title bar the app draws (`captionAlign`).
+  caCenter     ## in the middle, as 3.1 has it
+  caLeft       ## at the left, after the control-menu box (and the icon)
+
+var
+  captionIcon* = false
+    ## The title bar the app draws (the 3.1 frame's, a phone's) shows the
+    ## app's icon (`windowIcon`, `app`'s `icon`) before the title.
+  captionAlign* = caCenter
+    ## Where its title is.
+  captionStyle*: TextStyle
+    ## The title's style (the default: the UI's bold). A larger one makes
+    ## the bar taller.
+
+proc captionTitleStyle*(): TextStyle =
+  ## The style the title bar's title is drawn in.
+  if captionStyle == TextStyle(): style(bold = true) else: captionStyle
 
 const retroFrame* {.strdefine.} = "system"
   ## The window's frame on desktops, chosen when the app is built:
@@ -4110,8 +4286,10 @@ proc frameSetup(main: bool) =
   ui.safe = (ui.layoutSafe.top + fb, ui.layoutSafe.left + fb,
              ui.layoutSafe.bottom + fb, ui.layoutSafe.right + fb)
   ui.bottom = ui.h - ui.safe.bottom
-  ui.captionH = if ui.ownFrame: (if full: 0 else: MenuH + 1)
-                elif ui.ownCaption: (if fingers(): CtrlH else: MenuH)
+  # (a title in a larger style: a taller bar)
+  let titleH = if captionStyle == TextStyle(): 0 else: lineHeight(captionTitleStyle()) + dp(6)
+  ui.captionH = if ui.ownFrame: (if full: 0 else: max(MenuH, titleH) + 1)
+                elif ui.ownCaption: max(if fingers(): CtrlH else: MenuH, titleH)
                 else: 0
   ui.barY = ui.safe.top + ui.captionH
   ui.takesEnter = false

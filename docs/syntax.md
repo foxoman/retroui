@@ -1,6 +1,6 @@
 # Retro Nim UI: a study of its syntax
 
-By Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)), for Retro Nim UI 0.51.0.
+By Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)), for Retro Nim UI 0.52.0.
 
 The syntax is immediate mode written as plain Nim: a window is a block that runs every frame, a control is a proc call, its result is the event, and your own variables are the state. That one choice removes callbacks, widget objects and data binding, the three things that make most UI code hard to follow.
 
@@ -639,7 +639,7 @@ Every text a control shows is looked up in the language set by `setUiLanguage`, 
 
 Every size in the code is design pixels: `row([80, -1])`, `dp(16)` for your own drawing, a dialog's width (see Widths in a row). An app that runs its own loop calls `openApp`, `while beginFrame(): ...`, `endFrame()` and `closeApp()` itself; How it is built shows the five calls, and they draw the same window as `app`.
 
-A new control almost never adds a shape: it is an action, a binding or an event object, so learning one control teaches the others. The reference documents 397 controls in [docs/controls.md](controls.md), each with its pictures; they all follow these forms.
+A new control almost never adds a shape: it is an action, a binding or an event object, so learning one control teaches the others. The reference documents 421 controls in [docs/controls.md](controls.md), each with its pictures; they all follow these forms.
 
 ## How it is built
 

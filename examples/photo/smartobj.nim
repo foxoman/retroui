@@ -103,7 +103,7 @@ proc placeSmart(d: Doc; path: string) =
   ## fit, only as shown: what it holds stays whole). Place Into: over the
   ## current layer (type, a shape, a frame), as big as it needs to cover
   ## it, clipped to it -- the photo inside the letters. An SVG comes in as
-  ## shape layers (vectors), half the image's size.
+  ## layers (its shapes vectors, its text type), half the image's size.
   if path.toLowerAscii.endsWith(".svg") and not placeInto:
     try:
       let data = readFile(path)
@@ -112,9 +112,9 @@ proc placeSmart(d: Doc; path: string) =
                 else: rect(int((d.w.float - side) / 2), int((d.h.float - side) / 2), int(side), int(side))
       d.beginStep("Place SVG")
       d.touchLayers()
-      discard d.placeSvg(data, box)
+      discard d.placeSvg(data, box, base = path.parentDir)
       d.endStep()
-      status = path.extractFilename & ": shape layers (sharp at any size)"
+      status = path.extractFilename & ": shape and type layers (sharp at any size)"
     except CatchableError: status = "Could not place " & path.extractFilename & ": " & getCurrentExceptionMsg()
     return
   let into = placeInto

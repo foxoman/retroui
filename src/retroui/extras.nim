@@ -338,7 +338,12 @@ var cardStack: seq[tuple[cell: Rect; fillAt: int; title: string; minH: int]]
 
 proc beginCard*(title = "") =
   ## A panel holding widgets, drawn as a Windows 3.1 group box: a frame
-  ## with its title set into the top line.
+  ## with its title set into the top line (`groupLook = glCaption`: a
+  ## raised panel with a title strip).
+  if groupLook == glCaption:
+    beginGroup(title, glCaption)
+    cardStack.add (rect(0, 0, 0, 0), -1, title, 0)
+    return
   let cell = beginCell(0, fill = true)
   let minH = rowHeight()
   let titleH = if title.len > 0: FontH + dp(2) else: 0
@@ -348,6 +353,10 @@ proc beginCard*(title = "") =
 
 proc endCard*() =
   ## Ends a `beginCard`: draws its frame around what was placed in it.
+  if cardStack.len > 0 and cardStack[^1].fillAt < 0:
+    discard cardStack.pop()
+    endGroup()
+    return
   let h = popFrame()
   let (cell, fillAt, title, minH) = cardStack.pop()
   let titleH = if title.len > 0: FontH + dp(2) else: 0
@@ -1571,10 +1580,10 @@ proc banner*(msg: string; kind = bkInfo; actions: openArray[string] = [];
   ## the button clicked (1-based), 0 when closed with its x, -1 if none.
   result = -1
   let (glyph, accent) = case kind
-    of bkInfo: (retroOr(pxInfo, nfInfo), color(33, 110, 200))
-    of bkSuccess: (retroOr(pxCheck, nfCheckCircle), color(30, 140, 70))
-    of bkWarning: (retroOr(pxWarning, nfWarning), color(200, 140, 0))
-    of bkError: (retroOr(pxError, nfExclamation), color(200, 40, 40))
+    of bkInfo: (retroOr(pxInfo, nfInfo), infoColor())
+    of bkSuccess: (retroOr(pxCheck, nfCheckCircle), goodColor())
+    of bkWarning: (retroOr(pxWarning, nfWarning), warnColor())
+    of bkError: (retroOr(pxError, nfExclamation), badColor())
   let w = available()
   # (the text starts after the icon, however wide the icon is drawn)
   let tx = max(dp(34), dp(12) + textWidth(glyph) + dp(6))
@@ -1835,5 +1844,5 @@ proc usageBar*(used, total: int64; w = 0; h = 0) =
   box(r, th.shadow)
   if total > 0:
     let k = clamp(used.float / total.float, 0.0, 1.0)
-    let c = if k > 0.9: color(200, 40, 40) else: th.select
+    let c = if k > 0.9: badColor() else: th.select
     fill(rect(r.x + 1, r.y + 1, int(float(r.w - 2) * k), r.h - 2), c)

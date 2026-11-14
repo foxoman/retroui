@@ -36,10 +36,11 @@ hello, notepad, ledger, charts, invoice, then the apps.
 | [retrodns](#retro-dns) | Retro DNS, a DNS changer for phones and computers |
 | [podcast](#retro-podcast) | Retro Podcast, a podcast player for every system and the web |
 | [grow](#grow) | Grow, a savings goal planner for phones, its years as 3D bars |
+| [bmi](#bmi-studio) | BMI Studio, a window with a look of its own: the example of changing controls and making new ones |
 
 The pictures of hello, the gallery (and its Forms & Code page), charts,
 native, HR Book, the magazine, 7GUIs, Retro Navigator, Retro DNS, Retro
-Podcast and Grow are made by `sh tools/exampleshots.sh`;
+Podcast, Grow and BMI Studio are made by `sh tools/exampleshots.sh`;
 the others are the main README's.
 
 ## Hello
@@ -182,6 +183,16 @@ panoramas, raw photos, CMYK, Lab, duotones and Multichannel images, PDF
 for print, and many undos. On a phone held upright the picture fills the
 screen, the tools in rows under it and the panels sliding up; two fingers
 zoom. Its engine is in `retroui/photo`.
+
+**SVG** is one of its formats: an .svg opens as layers -- its shapes as
+shape layers, its text as type you can type in (fonts, sizes, colours,
+bold and italic runs, lines, text along a path), its pictures as layers
+of pixels, its named groups as groups -- File > New SVG Drawing starts
+one, and File > Save writes it back (`retroui/svgimport`,
+`retroui/photosvg`). For a picture of it, File > Export As (PNG, JPEG,
+WebP...); for print, File > Save as PDF, where the shapes stay vectors and
+the type stays type, or File > Print. Layer effects, adjustment layers and
+masks on shapes are not in an SVG: the status bar says what was not kept.
 
 ```sh
 nimble photo                # or: nim c -r -d:release examples/photo.nim [picture...]
@@ -525,3 +536,34 @@ RETRO_APP=grow nimble appapk                # build/Grow.apk (portrait)
 `tests/test_grow.nim` checks the plan's numbers, the button at the
 page's foot, and the result's timeline played to its end without a
 window.
+
+## BMI Studio
+
+![BMI Studio three times: in its own gray and navy, in the kit's Mint and in the kit's Dusk](../docs/examples/bmi.png)
+
+`bmi.nim` is a body mass index calculator, and the example of a window
+with a look of its own. Nothing in it is a control made from scratch but
+the banner: the title bar with the app's icon and a large title
+(`captionIcon`, `captionAlign`, `captionStyle`), the panels with a title
+strip (`group ..., glCaption`), the unit options in boxes (`radio(boxed =
+true)`), the number boxes with large digits (`spin(h = ..., style =
+...)`), the navy Calculate BMI (`button(accent = true, style = ...)`), the
+dial in four bands (`gauge` with `Band`s), the classes under it
+(`rangeBar`) and the tag with a tick (`pill`) are the kit's, by their
+options. Its colours are a `Theme` of its own; View > Colours puts any of
+the kit's 28 schemes on, and the bands, the tag and the accent button
+follow, because they name no colours (`goodColor()`, `warnColor()`...).
+The banner is drawn on a `canvas`. On a phone it is one column
+(`isCompact()`).
+
+[docs/customizing.md](../docs/customizing.md) goes through it part by
+part: changing a control by its options, putting controls together,
+drawing one yourself, and changing the kit.
+
+```sh
+nimble bmi                                  # or: nim c -r -d:release examples/bmi.nim
+RETRO_THEME=Mint nimble bmi                 # in another scheme
+RETRO_APP=bmi nimble appapk                 # build/BMIStudio.apk
+```
+
+`tests/test_bmi.nim` checks its numbers and runs its window without one.

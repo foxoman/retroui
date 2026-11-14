@@ -18,6 +18,7 @@ them where they differ from this file:
 
 1. https://github.com/foxoman/retroui/blob/main/README.md -- what is in the kit, how it works
 2. https://github.com/foxoman/retroui/blob/main/docs/controls.md -- every control: signature, example, pictures
+   (and docs/customizing.md beside it: making a control look different, making your own)
 3. https://github.com/foxoman/retroui/blob/main/CHANGELOG.md -- what changed (the top section is the newest)
 4. https://github.com/foxoman/retroui/blob/main/BUILDING.md -- desktop (Windows, macOS, Linux), Android and iOS builds, signing
 5. https://github.com/foxoman/retroui/blob/main/AGENTS.md -- rules for working on the kit itself
@@ -219,7 +220,7 @@ or put several in a `row:` inside the `field`. `field("")` lines a control
 up under the others. When the row is narrower than the captions plus about
 200 pixels (a phone), each caption goes above its control.
 
-## 6. Controls (docs/controls.md has all 397, with pictures)
+## 6. Controls (docs/controls.md has all 421, with pictures)
 
 Text: `label`, `paragraph`, `heading`, `styledText`, `link`, `badge`, `icon`, `iconLabel`, `image`, `tooltip`.
 Buttons: `button`, `segmented`, `menuButton`, `splitButton`, `buttonRow`.
@@ -515,7 +516,25 @@ costs what its visible rows cost.
 
 ## 8. Looks, text and the window
 
-- Themes: `ui.theme = Dark` (`builtinThemes`), or the `theme` option.
+- Themes: `ui.theme = Dark` (`builtinThemes`: 28, ten of them made for
+  phones -- Notes, Snow, Mint, Sky, Blossom, Lavender, Sunset, Graphite,
+  Dusk, Night Notes), or the `theme` option; a `Theme` of your own is an
+  object of colours. Never write a fixed colour for "good" or "bad":
+  `goodColor()`, `warnColor()`, `badColor()`, `infoColor()` (and
+  `goodBack()`... behind text) follow the scheme, dark ones too.
+- A look of your own is the kit's controls with options, not controls
+  drawn again (docs/customizing.md; `examples/bmi.nim`):
+  `button("Save", accent = true, style = style(bold = true, size = 1.3), h = 42)`,
+  `spin(n, 0, 99, w = 110, h = 44, style = style(size = 1.5))` (`edit`,
+  `intEdit`, `numberEdit` too), `group "Title", glCaption: ...`,
+  `radio("Metric", unit, 0, boxed = true)`, `withTheme(t): ...`,
+  `withTextStyle(style(size = 1.2)): ...`, `gauge(title, v, lo, hi, bands)`
+  and `rangeBar(bands, v, lo)` with `Band(upTo: 25, label: "Healthy")`,
+  `pill("Paid", goodColor(), nfCheck)`, `toolSeparator(line = true)`,
+  `toolSpace()` (what follows: at the bar's right end), and for the 3.1
+  frame `app(..., captionIcon = true, captionAlign = caLeft, captionStyle
+  = style(...))`. Only what no option gives is drawn on a `canvas` (its
+  sizes are real pixels: `canvas(dp(120), dp(40))`).
 - Text size: 12 pixels per em at 100 % on desktops and tablets, 15 on
   phones; controls grow with the text. `setTextScale(120)` (the user's text
   size), `setUiScale(125)` (everything), `setBaseTextSize(14)` (your app's
@@ -679,6 +698,9 @@ with much less memory. Details per OS in BUILDING.md.
   values. Make each job in a proc that takes the values.
 - Calling controls outside the `app` block (or outside `beginFrame` ... `endFrame`).
 - Guessing a parameter name: check the signature in the source or docs.
+- Drawing a button, a panel or a number box by hand to change its colour,
+  its text or its height: it loses the keyboard, the focus ring and the
+  screen reader. Use the control's options (section 8, docs/customizing.md).
 - A shortcut written only in `menuItem(..., "Ctrl+S")`: it is a label; handle it
   with `hotkeyPressed("Ctrl+S")`.
 - Passing `RetroCredit` to `aboutBox`: it is there already (it would show twice).

@@ -105,6 +105,7 @@ const
   nfBell* = "\uf0f3"  ## fa-bell
   nfBellSlash* = "\uf1f6"  ## fa-bell_slash
   nfCalendar* = "\uf073"  ## fa-calendar
+  nfCalculator* = "\uf1ec"  ## fa-calculator
   nfCalendarCheck* = "\uf274"  ## fa-calendar_check_o
   nfClock* = "\uf017"  ## fa-clock_o
   nfHistory* = "\uf1da"  ## fa-history
@@ -426,6 +427,7 @@ const
     ("Bell", nfBell),
     ("BellSlash", nfBellSlash),
     ("Calendar", nfCalendar),
+    ("Calculator", nfCalculator),
     ("CalendarCheck", nfCalendarCheck),
     ("Clock", nfClock),
     ("History", nfHistory),

@@ -84,6 +84,7 @@ proc psMenus() =
   bar:
     psMenu "&File":
       ci("&New...")
+      ci("New SVG &Drawing")
       ci("&Open...")
       ci("Open &As...")
       live:
@@ -865,6 +866,7 @@ proc psCommand(name: string): bool =
     scriptPath = scriptsDir() & "/"
     scriptPick = true
   of "SVG...": startSvgExport()
+  of "New SVG Drawing": startSvgDrawing()
   of "Styles": togglePanel("styles")
   of "Shapes": togglePanel("shapes")
   of "Tool Presets": togglePanel("toolpresets")

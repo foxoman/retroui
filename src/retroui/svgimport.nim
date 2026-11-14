@@ -18,11 +18,23 @@
 ## offset); opacity, fill-opacity, stroke-opacity; paint-order; clip paths
 ## (nested, on their parts); masks (`rasterizeSvg` draws them; a mask that
 ## only cuts out -- white shapes -- is a clip path for the shapes too);
-## XML namespaces, DOCTYPE entities, the root's background-color. What
-## lies outside the viewport is cut there. Skipped, and counted in
-## `SvgDoc.skipped`: text, images, filters (drawn unfiltered), patterns
-## (their fallback color), foreignObject; and as shapes, masks that are not
-## white shapes.
+## XML namespaces, DOCTYPE entities, the root's background-color; text
+## (text, tspan, textPath: font-family, font-size, font-weight,
+## font-style, the `font` shorthand, text-anchor, letter-spacing,
+## text-decoration, dominant-baseline, baseline-shift, xml:space; lines
+## from x, y, dx, dy) and images (PNG, JPEG, WebP: in the file as a data:
+## link, or a file beside it; preserveAspectRatio). What lies outside the
+## viewport is cut there. Skipped, and counted in `SvgDoc.skipped`:
+## filters (drawn unfiltered), patterns (their fallback color),
+## foreignObject, images that cannot be read; and as shapes, masks that
+## are not white shapes.
+##
+## A text is a text in the document (`svgPieces`, `placeSvg`: a type layer
+## that can be typed in, in the nearest font there is -- `svgFont`), and
+## letters drawn in `rasterizeSvg` -- there on the thread that draws only:
+## a picture decoded on another thread (a thumbnail) has its shapes and
+## pictures, not its text. Not kept: each letter's own place (x="1 2 3":
+## the first), a text's outline (stroke), text in a mask or a clip path.
 ##
 ## ```nim
 ## let layers = d.placeSvg(readFile("star.svg"), rect(10, 10, 200, 200), color = 0xFF3366CC'u32)
@@ -32,7 +44,11 @@
 import std/[math, strutils, tables, algorithm]
 from std/unicode import Rune, toUTF8
 from std/sequtils import keepItIf
-import gfx, photo, photoshapes
+import std/os
+import gfx, photo, photoshapes, imaging, jpeg, webp
+from codec import unbase64
+from textengine import TextData, TextSpan, CharStyle, ParaStyle, TextAlign, TextLayout, TextOutline, Script,
+                       layoutText, textOutlines, fontFamilies, fontStyles, defaultFamily
 
 type
   SvgMatrix* = object
@@ -68,8 +84,8 @@ type
   SvgItem* = object
     ## Something drawn: an element's outline (in user space: transformed)
     ## and how it is painted.
-    id*: string               ## the element's id ("" none)
-    kind*: string             ## the element: "path", "rect", "circle"...
+    id*: string               ## the element's id ("" none; its data-name when it has one: a layer's name)
+    kind*: string             ## the element: "path", "rect", "circle"..., "text", "image"
     path*: Path               ## its outline (user units)
     fill*, stroke*: SvgPaint  ## how it is filled and stroked
     fillOpacity*, strokeOpacity*: float  ## fill-opacity, stroke-opacity (0..1)
@@ -85,7 +101,51 @@ type
     clips*: seq[int]          ## clip paths (`SvgDoc.clips`) that cut it, all of them
     layers*: seq[int]         ## the groups it is drawn in (`SvgDoc.groups`), outermost first
     ctm*: SvgMatrix           ## its element's transform to user space (a stroke is drawn in that space)
+    named*: seq[int]          ## the named groups it is in (`SvgDoc.groupNames`), outermost first
+    strokeAlign*: int         ## data-stroke-align, as Retro Photo writes a stroke that is not on the
+                              ## middle of its outline -- twice as wide, half of it hidden: 1 inside
+                              ## (cut by its first clip path), 2 outside (cut by it), 3 outside (under
+                              ## its fill); 0: on the middle
+    extra*: int               ## 0: an outline; more: the text `SvgDoc.texts[extra - 1]`, less: the
+                              ## picture `SvgDoc.images[-extra - 1]` -- `path` is then its box, and
+                              ## `opacity` (and the groups') its own
     ghost: bool               # (not drawn: there for the boxes of the groups around it)
+
+  SvgTextRun* = object
+    ## A piece of a text in one look.
+    text*: string             ## what it says ("\n": the next line starts)
+    family*: string           ## font-family as written ("Arial, sans-serif"; see `svgFont`)
+    size*: float              ## font-size, in its element's units
+    weight*: int              ## font-weight: 100..900 (400 regular, 700 bold)
+    italic*: bool             ## font-style: italic or oblique
+    underline*, strike*: bool ## text-decoration: underline, line-through
+    spacing*: float           ## letter-spacing, in its element's units
+    script*: int              ## baseline-shift: 1 super, -1 sub (0: on the line)
+    fill*: SvgPaint           ## what it is painted with (its stroke's when it has no fill)
+    opacity*: float           ## fill-opacity (0..1)
+
+  SvgText* = object
+    ## A text: a `<text>`, or a part of one that stands by itself (a tspan
+    ## put somewhere else). Lines one under another from the same x are one
+    ## text.
+    id*: string               ## the element's id ("" none)
+    x*, y*: float             ## where its first baseline starts (its middle, its end: `anchor`), in
+                              ## its element's space
+    anchor*: int              ## text-anchor: 0 start, 1 middle, 2 end
+    runs*: seq[SvgTextRun]    ## what it says, look by look
+    leading*: float           ## from a baseline to the next (0: one line)
+    path*: Path               ## a textPath's line, in its element's space (no subpaths: straight)
+    pathOffset*: float        ## startOffset: where along the path it starts
+    offsetPercent*: bool      ## ... given in hundredths of the path's length
+    ctm*: SvgMatrix           ## its element's space to user space
+
+  SvgImage* = object
+    ## A picture: an `<image>` with its pixels (PNG, JPEG, WebP: in the file
+    ## as a data: link, or a file beside it).
+    id*: string               ## the element's id ("" none)
+    bitmap*: Bitmap           ## its pixels
+    m*: SvgMatrix             ## from its pixels to user space
+    crop*: (float, float, float, float)   ## the part of it shown, in its pixels: x0, y0, x1, y1
 
   SvgClipPart* = object
     ## An outline of a clip path.
@@ -123,6 +183,10 @@ type
     clips*: seq[SvgClip]      ## the clip paths the items name
     groups*: seq[SvgGroup]    ## the groups drawn by themselves the items name
     masks*: seq[SvgMask]      ## the masks the groups name
+    texts*: seq[SvgText]      ## its texts (an item's `extra` names one)
+    images*: seq[SvgImage]    ## its pictures (an item's `extra` names one)
+    groupNames*: seq[string]  ## its named groups: a `<g>` with a data-name or an inkscape:label, as
+                              ## drawing programs write their layers and groups (an item's `named`)
     skipped*: CountTable[string]   ## what was not drawn ("text", "image", "filter"...): how many
 
 const
@@ -131,6 +195,7 @@ const
   MaxDepth = 48               # elements in elements (and uses, clips, masks in them)
   MaxWork = 300_000           # elements looked at (uses of uses can multiply them)
   MaxItems = 150_000
+  MaxExtras = 20_000          # texts and pictures
   MaxXmlDepth = 400
   Kap = 0.5522847498307936
 
@@ -476,6 +541,12 @@ proc has(n: XNode; name: string): bool =
     if k == name: return true
   false
 
+proc nameOf(n: XNode): string =
+  ## (what an element is called: its data-name -- a layer's name, as
+  ## drawing programs write it -- or its id)
+  result = n.attr("data-name")
+  if result.len == 0: result = n.attr("id")
+
 proc hrefOf(n: XNode): string =
   for (k, v) in n.attrs:
     if k == "href": return v.strip
@@ -519,6 +590,21 @@ proc decode(s: string; ents: Table[string, string]): string =
 
 const SvgNs = "http://www.w3.org/2000/svg"
 
+proc wantsChars(stack: seq[XNode]): bool =
+  ## (character data here is kept: a style sheet's, a title's, a text's)
+  if stack.len <= 1: return false
+  if stack[^1].tag in ["style", "title"]: return true
+  for k in countdown(stack.high, 1):
+    if stack[k].tag == "text": return true
+
+proc chars(top: XNode; s: string) =
+  ## (... kept: a text's as a child "#text", so that it stays in its place
+  ## among the tspans)
+  if s.len == 0: return
+  if top.tag in ["style", "title"]: top.text.add s
+  elif top.kids.len > 0 and top.kids[^1].tag == "#text": top.kids[^1].text.add s
+  else: top.kids.add XNode(tag: "#text", text: s)
+
 proc parseXml(input: string): XNode =
   ## A forgiving reader: what is malformed is passed over. Elements of
   ## other namespaces than SVG's get a tag that is none of SVG's; entities
@@ -558,7 +644,7 @@ proc parseXml(input: string): XNode =
         if name in ents and '<' in ents[name] and s.len < 32_000_000:
           at = amp
           let top = stack[^1]
-          if stack.len > 1 and top.tag in ["style", "title"]: top.text.add decode(s[i ..< amp], ents)
+          if wantsChars(stack): chars(top, decode(s[i ..< amp], ents))
           s = s[0 ..< amp] & ents[name] & s[e + 1 .. ^1]
           inc expansions
           break
@@ -567,7 +653,7 @@ proc parseXml(input: string): XNode =
         i = at
         continue
       let top = stack[^1]
-      if stack.len > 1 and top.tag in ["style", "title"]: top.text.add decode(s[i ..< j], ents)
+      if wantsChars(stack): chars(top, decode(s[i ..< j], ents))
       i = j
       continue
     if s.continuesWith("<!--", i):
@@ -576,7 +662,7 @@ proc parseXml(input: string): XNode =
     elif s.continuesWith("<![CDATA[", i):
       let e = s.find("]]>", i + 9)
       let stop = if e < 0: n else: e
-      if stack.len > 1 and stack[^1].tag in ["style", "title"]: stack[^1].text.add s[i + 9 ..< stop]
+      if wantsChars(stack): chars(stack[^1], s[i + 9 ..< stop])
       i = if e < 0: n else: e + 3
     elif s.continuesWith("<!", i):
       # <!DOCTYPE svg ... [ <!ENTITY name "value"> ... ]>
@@ -845,7 +931,13 @@ proc matchOne(c: CssCompound; chain: openArray[XNode]; k: int): bool =
     if not n.has(name): return false
     if given and n.attr(name) != value: return false
   if c.firstChild:
-    if k == 0 or chain[k - 1].kids.len == 0 or chain[k - 1].kids[0] != n: return false
+    if k == 0: return false
+    var first: XNode = nil
+    for kid in chain[k - 1].kids:
+      if kid.tag != "#text":
+        first = kid
+        break
+    if first != n: return false
   true
 
 proc matches(r: CssRule; chain: openArray[XNode]): bool =
@@ -1018,12 +1110,21 @@ type
     colorSet: bool
     visible: bool
     fontSize: float
+    fontFamily: string
+    fontWeight: int
+    fontItalic: bool
+    anchor: int                   # text-anchor: 0 start, 1 middle, 2 end
+    letterSpacing: float
+    underline, strike: bool
+    baseline: int                 # dominant-baseline: 0 the letters', 1 middle, 2 hanging, 3 under the letters
+    preserve: bool                # white-space: pre
     strokeFirst: bool
     markerStart, markerMid, markerEnd: string
     # (not inherited)
     opacity: float
     display: bool
     clipPath, mask, filter: string
+    script: int                   # baseline-shift: 1 super, -1 sub
     stopColor: uint32
     stopCurrent: bool
     stopOpacity: float
@@ -1039,12 +1140,14 @@ const PropNames = ["fill", "fill-opacity", "fill-rule", "stroke", "stroke-width"
                    "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-dasharray",
                    "stroke-dashoffset", "color", "visibility", "display", "opacity", "clip-path", "clip-rule",
                    "mask", "filter", "stop-color", "stop-opacity", "font-size", "paint-order", "mask-type",
-                   "overflow", "transform-origin", "marker-start", "marker-mid", "marker-end"]
+                   "overflow", "transform-origin", "marker-start", "marker-mid", "marker-end", "font-family",
+                   "font-weight", "font-style", "text-anchor", "letter-spacing", "text-decoration",
+                   "dominant-baseline", "alignment-baseline", "baseline-shift", "white-space"]
 
 proc defaultStyle(): Style =
   Style(fill: PaintSpec(kind: spkColor, color: 0xFF000000'u32), stroke: PaintSpec(kind: spkNone),
         fillOpacity: 1, strokeOpacity: 1, strokeWidth: 1, cap: lcButt, join: ljMiter, miter: 4,
-        color: 0xFF000000'u32, visible: true, fontSize: 16, opacity: 1, display: true,
+        color: 0xFF000000'u32, visible: true, fontSize: 16, fontWeight: 400, opacity: 1, display: true,
         stopColor: 0xFF000000'u32, stopOpacity: 1)
 
 proc inherit(p: Style): Style =
@@ -1054,6 +1157,7 @@ proc inherit(p: Style): Style =
   result.clipPath = ""
   result.mask = ""
   result.filter = ""
+  result.script = 0
   result.stopColor = 0xFF000000'u32
   result.stopCurrent = false
   result.stopOpacity = 1
@@ -1112,6 +1216,10 @@ type
     busy: seq[XNode]              # what is being made (uses, clips, masks): no loops
     anc: seq[XNode]               # the elements around (for selectors)
     parents: Table[uint, XNode]   # (each element's parent)
+    base: string                  # the folder pictures named by a file are read from ("" none)
+    pics: Table[string, Bitmap]   # (pictures read: one named again is not read again)
+    noExtras: int                 # (in a mask, a marker: texts and pictures left out)
+    gstack: seq[int]              # (the named groups around)
 
 proc skip(c: var Ctx; what: string) = c.doc.skipped.inc(what)
 
@@ -1256,6 +1364,54 @@ proc applyProp(c: Ctx; st: var Style; parent: Style; name, value: string) =
       var i = 0
       if readNum(low, i, f): st.fontSize = parent.fontSize * f / 100
     elif c.parseLen(v, 2, f, parent.fontSize) and f > 0: st.fontSize = f
+  of "font-family": st.fontFamily = v
+  of "font-weight":
+    case low
+    of "normal": st.fontWeight = 400
+    of "bold": st.fontWeight = 700
+    of "bolder": st.fontWeight = min(900, parent.fontWeight + 300)
+    of "lighter": st.fontWeight = max(100, parent.fontWeight - 300)
+    else:
+      var f: float
+      if parseNumber(low, f) and f >= 1 and f <= 1000: st.fontWeight = toInt(f)
+  of "font-style": st.fontItalic = low == "italic" or low.startsWith("oblique")
+  of "font":
+    # (the shorthand: "italic bold 12px/14px Arial, sans-serif")
+    let w = v.splitWhitespace
+    var k = 0
+    st.fontItalic = false
+    st.fontWeight = 400
+    while k < w.len:
+      let t = w[k].toLowerAscii
+      var f: float
+      if t == "italic" or t == "oblique": st.fontItalic = true
+      elif t == "bold": st.fontWeight = 700
+      elif t in ["normal", "small-caps"]: discard
+      elif t.allCharsInSet(Digits) and parseNumber(t, f) and f >= 100 and f <= 900 and k + 1 < w.len:
+        st.fontWeight = toInt(f)
+      else:
+        let sl = w[k].find('/')
+        if c.parseLen((if sl >= 0: w[k][0 ..< sl] else: w[k]), 2, f, parent.fontSize) and f > 0:
+          st.fontSize = f
+          if k + 1 < w.len: st.fontFamily = w[k + 1 .. ^1].join(" ")
+        break
+      inc k
+  of "text-anchor": st.anchor = (if low == "middle": 1 elif low == "end": 2 else: 0)
+  of "letter-spacing":
+    var f: float
+    if low == "normal": st.letterSpacing = 0
+    elif c.parseLen(v, 2, f, st.fontSize): st.letterSpacing = f
+  of "text-decoration", "text-decoration-line":
+    st.underline = "underline" in low
+    st.strike = "line-through" in low
+  of "dominant-baseline", "alignment-baseline":
+    st.baseline = case low
+                  of "middle", "central": 1
+                  of "hanging", "text-before-edge", "text-top": 2
+                  of "text-after-edge", "ideographic", "text-bottom": 3
+                  else: 0
+  of "baseline-shift": st.script = (if low == "super": 1 elif low == "sub": -1 else: 0)
+  of "white-space": st.preserve = low.startsWith("pre") or low == "break-spaces"
   of "paint-order":
     let w = low.splitWhitespace
     if w.len > 0 and w[0] in ["stroke", "markers"]:
@@ -1728,7 +1884,7 @@ proc paintOf(c: var Ctx; p: PaintSpec; st: Style; bb: Box; m: SvgMatrix): SvgPai
 # ---- walking the document --------------------------------------------------------------------------------
 
 const Drawn = ["svg", "g", "a", "switch", "use", "path", "rect", "circle", "ellipse", "line", "polyline",
-               "polygon"]
+               "polygon", "text", "image"]
 const ShapeTags = ["path", "rect", "circle", "ellipse", "line", "polyline", "polygon"]
 
 proc walk(c: var Ctx; n: XNode; ps: Style; m: SvgMatrix)
@@ -1887,7 +2043,9 @@ proc maskOf(c: var Ctx; id: string; m: SvgMatrix; start: int; asClip: var int): 
   c.doc.items = @[]
   let savedAnc = c.anc
   c.anc = @[node]
+  inc c.noExtras
   for k in node.kids: c.walk(k, ms, cm)
+  dec c.noExtras
   if ms.mask.len > 0 and ms.mask != "\0":
     # (a mask on the mask)
     var only = defaultStyle()
@@ -1961,10 +2119,10 @@ proc hasArea(p: Path): bool =
 proc addItem(c: var Ctx; n: XNode; local: Path; st: Style; m: SvgMatrix) =
   if c.doc.items.len >= MaxItems: return
   if not st.visible:
-    c.doc.items.add SvgItem(id: n.attr("id"), kind: n.tag, path: local.transformed(m), ctm: m, ghost: true)
+    c.doc.items.add SvgItem(id: n.nameOf, kind: n.tag, path: local.transformed(m), ctm: m, ghost: true)
     return
   let bb = tightBounds(local)
-  var it = SvgItem(id: n.attr("id"), kind: n.tag, fillOpacity: st.fillOpacity, strokeOpacity: st.strokeOpacity,
+  var it = SvgItem(id: n.nameOf, kind: n.tag, fillOpacity: st.fillOpacity, strokeOpacity: st.strokeOpacity,
                    opacity: 1, evenOdd: st.fillEvenOdd, cap: st.cap, join: st.join, miterLimit: st.miter,
                    strokeFirst: st.strokeFirst, ctm: m)
   if n.tag != "line" and hasArea(local): it.fill = c.paintOf(st.fill, st, bb, m)
@@ -1981,6 +2139,379 @@ proc addItem(c: var Ctx; n: XNode; local: Path; st: Style; m: SvgMatrix) =
   it.path = local.transformed(m)
   if not fillOn and not strokeOn: it.ghost = true
   c.doc.items.add it
+
+# ---- texts and pictures ------------------------------------------------------------------------------------
+
+when compileOption("threads"):
+  let uiThread = getThreadId()
+
+proc onUiThread(): bool {.inline.} =
+  ## (the type engine keeps the fonts it found for the thread that draws:
+  ## texts are set on that thread alone)
+  when compileOption("threads"): getThreadId() == uiThread
+  else: true
+
+proc svgFont*(family: string; weight = 400; italic = false): tuple[family, style: string] =
+  ## The font a text of an SVG is set in: the first family of its
+  ## font-family list that there is here (any case), FreeSerif for the
+  ## serif ones it knows (Times, Georgia), FreeMono for the fixed (Courier,
+  ## Consolas), FreeSans for the rest; its style from the weight (600 and
+  ## more: bold) and the slant, by the family's own name for it.
+  var pick = ""
+  let have = fontFamilies()
+  for part in family.split(','):
+    let nm = part.strip(chars = Whitespace + {'"', '\''})
+    if nm.len == 0: continue
+    for f in have:
+      if cmpIgnoreCase(f, nm) == 0:
+        pick = f
+        break
+    if pick.len > 0: break
+    case nm.toLowerAscii
+    of "serif", "ui-serif", "times", "times new roman", "georgia", "garamond", "palatino", "cambria",
+       "book antiqua", "baskerville", "didot":
+      pick = "FreeSerif"
+    of "monospace", "ui-monospace", "courier", "courier new", "consolas", "menlo", "monaco", "lucida console",
+       "andale mono":
+      pick = "FreeMono"
+    of "sans-serif", "ui-sans-serif", "system-ui", "arial", "helvetica", "helvetica neue", "verdana", "tahoma",
+       "segoe ui", "roboto", "inter", "open sans", "trebuchet ms":
+      pick = defaultFamily
+    else: discard
+    if pick.len > 0: break
+  if pick.len == 0: pick = defaultFamily
+  let bold = weight >= 600
+  result = (pick, (if bold and italic: "Bold Italic" elif bold: "Bold" elif italic: "Italic" else: "Regular"))
+  for st in fontStyles(pick):
+    let low = st.toLowerAscii
+    let b = "bold" in low or "black" in low or "heavy" in low
+    let i = "italic" in low or "oblique" in low
+    if b == bold and i == italic:
+      if st == result.style: return
+      if result.style notin fontStyles(pick): result.style = st
+
+proc colorOf(p: SvgPaint; opacity: float; color: uint32): uint32 =
+  ## (a text's paint as one color: a gradient's middle)
+  var col = case p.kind
+            of spkNone: 0'u32
+            of spkColor: p.color
+            of spkCurrent: color
+            of spkLinear, spkRadial: (if p.stops.len > 0: p.stops[p.stops.len div 2].color else: 0xFF000000'u32)
+  let a = clamp(float(col shr 24) / 255 * opacity, 0, 1)
+  (col and 0xFFFFFF'u32) or (uint32(clamp(toInt(a * 255 + 0.5), 0, 255)) shl 24)
+
+proc textIn(t: SvgText; k, hs: float; color: uint32): TextData =
+  ## (the text set in its own space times `k`, `hs` times as wide: straight,
+  ## from its anchor)
+  result = TextData(x: float32(t.x * k), y: float32(t.y * k), antialias: true)
+  result.para.align = (if t.anchor == 1: textCenter elif t.anchor == 2: textRight else: textLeft)
+  for r in t.runs:
+    if r.text.len == 0: continue
+    let (fam, sty) = svgFont(r.family, r.weight, r.italic)
+    result.spans.add TextSpan(text: r.text, style: CharStyle(
+      family: fam, style: sty, size: float32(clamp(r.size * k, 0.01, 30000)), color: colorOf(r.fill, r.opacity, color),
+      hScale: float32(clamp(hs, 0.01, 100)), vScale: 1, underline: r.underline, strike: r.strike,
+      leading: float32(max(0, t.leading * k)),
+      tracking: (if r.size > 0: clamp(toInt(round(r.spacing / r.size * 1000)), -1000, 10000) else: 0),
+      script: (if r.script > 0: scSuper elif r.script < 0: scSub else: scNormal)))
+
+proc runeCount(s: string): int =
+  for ch in s:
+    if (ch.ord and 0xC0) != 0x80: inc result
+
+proc lineWidth(t: SvgText; k: float): float =
+  ## (how long its line is, times `k`: measured where the type engine may
+  ## be asked, else about)
+  if onUiThread():
+    var big = 0.0
+    for r in t.runs: big = max(big, r.size)
+    if big > 0:
+      let s = 100 / big                     # (measured at a size where a pixel is nothing)
+      var td = textIn(t, s, 1, 0xFF000000'u32)
+      td.para.align = textLeft
+      let l = layoutText(td)
+      if l.caretX.len >= 2:
+        var lo = Inf
+        var hi = -Inf
+        for x in l.caretX:
+          lo = min(lo, x.float)
+          hi = max(hi, x.float)
+        return (hi - lo) / s * k
+  for r in t.runs: result += float(runeCount(r.text)) * (r.size * 0.55 + r.spacing) * k
+
+type
+  TextChunk = object
+    x, y, dx: float
+    relX: bool                    # (its x follows the chunk before)
+    anchor: int
+    runs: seq[SvgTextRun]
+    path: Path
+    hasPath, pre: bool
+    pathOffset: float
+    offsetPercent: bool
+
+  TextBuild = object
+    chunks: seq[TextChunk]
+    penY: float
+    lastSpace: bool
+
+proc firstLen(c: Ctx; s: string; axis: int; fontSize: float; v: var float): bool =
+  ## (the first of a list of lengths: each letter's place is not kept)
+  let t = s.strip
+  if t.len == 0: return false
+  var e = 0
+  while e < t.len and t[e] notin Wsp + {','}: inc e
+  c.parseLen(t[0 ..< e], axis, v, fontSize)
+
+proc sameLook(a, b: SvgTextRun): bool =
+  a.family == b.family and a.size == b.size and a.weight == b.weight and a.italic == b.italic and
+    a.underline == b.underline and a.strike == b.strike and a.spacing == b.spacing and a.script == b.script and
+    a.fill == b.fill and a.opacity == b.opacity
+
+proc trimEnd(b: var TextBuild) =
+  ## (the spaces a line ends with: not part of it)
+  if b.chunks.len == 0 or b.chunks[^1].pre: return
+  for k in countdown(b.chunks[^1].runs.high, 0):
+    var t = b.chunks[^1].runs[k].text
+    while t.len > 0 and t[^1] == ' ': t.setLen(t.len - 1)
+    b.chunks[^1].runs[k].text = t
+    if t.len > 0: break
+
+proc baselineDrop(st: Style): float =
+  ## (dominant-baseline: how far under the point the letters' baseline is)
+  case st.baseline
+  of 1: st.fontSize * 0.35
+  of 2: st.fontSize * 0.8
+  of 3: -st.fontSize * 0.2
+  else: 0.0
+
+proc textSpans(c: var Ctx; n: XNode; st: Style; m: SvgMatrix; b: var TextBuild; preserve: bool; depth: int) =
+  ## (a text, a tspan, a link or a textPath: what it says into chunks --
+  ## one for each place a line is started from)
+  var pres = preserve
+  case n.attr("xml:space")
+  of "preserve": pres = true
+  of "default": pres = false
+  else: discard
+  if st.preserve: pres = true
+  let root = n.tag == "text"
+  var x, y, dx, dy: float
+  let hasX = c.firstLen(n.attr("x"), 0, st.fontSize, x)
+  let hasY = c.firstLen(n.attr("y"), 1, st.fontSize, y)
+  discard c.firstLen(n.attr("dx"), 0, st.fontSize, dx)
+  discard c.firstLen(n.attr("dy"), 1, st.fontSize, dy)
+  if n.tag == "textPath":
+    var ch = TextChunk(anchor: st.anchor, hasPath: true)
+    let h = n.hrefOf
+    let t = if h.startsWith("#"): c.ids.getOrDefault(h[1 .. ^1]) else: nil
+    if t != nil and t.tag in ShapeTags:
+      ch.path = c.shapePath(t, st.fontSize)
+      var tm: SvgMatrix
+      if t.attr("transform").len > 0 and parseTransform(t.attr("transform"), tm): ch.path = ch.path.transformed(tm)
+    elif n.has("path"): ch.path = parsePathData(n.attr("path"))
+    if ch.path.subs.len == 0: return        # (a path that is not there: nothing shown)
+    ch.path.subs.setLen(1)
+    let so = n.attr("startOffset").strip
+    if so.endsWith("%"):
+      var f: float
+      if parseNumber(so[0 ..< so.len - 1], f):
+        ch.pathOffset = f
+        ch.offsetPercent = true
+    elif so.len > 0:
+      var f: float
+      if c.parseLen(so, 2, f, st.fontSize): ch.pathOffset = f
+    b.trimEnd()
+    b.lastSpace = true
+    b.chunks.add ch
+  elif root or hasX or hasY or dx != 0 or dy != 0:
+    var ch = TextChunk(anchor: st.anchor, dx: dx)
+    if hasX or root or b.chunks.len == 0 or b.chunks[^1].hasPath: ch.x = x + dx
+    else: ch.relX = true
+    ch.y = (if hasY: y + baselineDrop(st) elif root: baselineDrop(st) else: b.penY) + dy
+    if not ch.relX:
+      b.trimEnd()
+      b.lastSpace = true
+    b.penY = ch.y
+    b.chunks.add ch
+  if not root: c.anc.add n
+  for k in n.kids:
+    if k.tag == "#text":
+      if b.chunks.len == 0: continue
+      var s = newStringOfCap(k.text.len)
+      for ch in k.text:
+        let cc = if ch in {'\t', '\n', '\r', '\f'}: ' ' else: ch
+        if cc == ' ':
+          if not pres and b.lastSpace: continue
+          b.lastSpace = true
+        else: b.lastSpace = false
+        s.add cc
+      if s.len == 0: continue
+      var run = SvgTextRun(text: s, family: st.fontFamily, size: st.fontSize, weight: st.fontWeight,
+                           italic: st.fontItalic, underline: st.underline, strike: st.strike,
+                           spacing: st.letterSpacing, script: st.script, opacity: st.fillOpacity)
+      let cx = b.chunks[^1].x
+      let cy = b.chunks[^1].y
+      let bb: Box = (cx, cy - st.fontSize, cx + st.fontSize * 4, cy + st.fontSize * 0.25)
+      if st.visible:
+        if st.fill.kind != spkNone or st.fill.isUrl: run.fill = c.paintOf(st.fill, st, bb, m)
+        if run.fill.kind == spkNone and (st.stroke.kind != spkNone or st.stroke.isUrl):
+          # (letters drawn as outlines alone: in the outline's color)
+          run.fill = c.paintOf(st.stroke, st, bb, m)
+          run.opacity = st.strokeOpacity
+      if pres: b.chunks[^1].pre = true
+      if b.chunks[^1].runs.len > 0 and sameLook(b.chunks[^1].runs[^1], run): b.chunks[^1].runs[^1].text.add s
+      else: b.chunks[^1].runs.add run
+    elif k.tag in ["tspan", "a", "textPath"] and depth < 24 and c.work < MaxWork:
+      inc c.work
+      let ks = c.styleOf(k, st)
+      if ks.display: c.textSpans(k, ks, m, b, pres, depth + 1)
+  if not root: discard c.anc.pop()
+
+proc addText(c: var Ctx; n: XNode; st: Style; m: SvgMatrix) =
+  ## A `<text>`: its texts (`SvgDoc.texts`), each with an item in its place
+  ## among what is drawn.
+  var b = TextBuild(lastSpace: true)
+  c.textSpans(n, st, m, b, false, 0)
+  b.trimEnd()
+  # (a chunk that goes on where the one before ended: there)
+  var penEnd = 0.0
+  for k in 0 ..< b.chunks.len:
+    if b.chunks[k].relX:
+      b.chunks[k].x = penEnd + b.chunks[k].dx
+      b.chunks[k].anchor = 0
+    if b.chunks[k].hasPath:
+      penEnd = 0
+      continue
+    penEnd = b.chunks[k].x
+    if k + 1 < b.chunks.len and b.chunks[k + 1].relX:
+      let w = lineWidth(SvgText(runs: b.chunks[k].runs), 1)
+      penEnd = b.chunks[k].x - w * [0.0, 0.5, 1.0][clamp(b.chunks[k].anchor, 0, 2)] + w
+  # lines one under another from the same x: one text
+  let straight = m.a > 0 and m.d > 0 and abs(m.b) <= 1e-9 * m.a and abs(m.c) <= 1e-9 * m.d
+  let first = c.doc.texts.len
+  var lastY = 0.0
+  var linesOf: seq[int]
+  for ch in b.chunks:
+    var any = false
+    for r in ch.runs:
+      if r.text.len > 0 and r.fill.kind != spkNone: any = true    # (something of it shows)
+    if not any: continue
+    let size = ch.runs[0].size
+    if c.doc.texts.len > first and straight and not ch.hasPath and not ch.relX:
+      let T = addr c.doc.texts[^1]
+      let dy = ch.y - lastY
+      if T.path.subs.len == 0 and ch.anchor == T.anchor and abs(ch.x - T.x) <= 0.02 * size and dy > 0.5 * size and
+         dy < 4 * size and (T.leading == 0 or abs(dy - T.leading) <= 0.03 * size):
+        T.runs[^1].text.add "\n"
+        T.runs.add ch.runs
+        T.leading = dy
+        lastY = ch.y
+        inc linesOf[^1]
+        continue
+    if c.doc.texts.len + c.doc.images.len >= MaxExtras:
+      c.skip("text")
+      break
+    c.doc.texts.add SvgText(id: n.nameOf, x: ch.x, y: ch.y, anchor: ch.anchor, runs: ch.runs, path: ch.path,
+                            pathOffset: ch.pathOffset, offsetPercent: ch.offsetPercent, ctm: m)
+    linesOf.add 1
+    lastY = ch.y
+  # each in its place among what is drawn: an item with about its box
+  for k in first ..< c.doc.texts.len:
+    let t = c.doc.texts[k]
+    var size = 0.0
+    var count = 0
+    for r in t.runs:
+      size = max(size, r.size)
+      count += runeCount(r.text)
+    var box: Box
+    if t.path.subs.len > 0:
+      box = tightBounds(t.path)
+      box = (box[0] - size, box[1] - size, box[2] + size, box[3] + size)
+    else:
+      let lines = linesOf[k - first]
+      let w = float(max(1, count div lines)) * size * 0.6
+      let x0 = t.x - w * [0.0, 0.5, 1.0][clamp(t.anchor, 0, 2)]
+      box = (x0, t.y - size, x0 + w, t.y + float(lines - 1) * t.leading + size * 0.3)
+    if empty(box): continue
+    c.doc.items.add SvgItem(id: t.id, kind: "text", path: rectPathM(box[0], box[1], box[2] - box[0], box[3] - box[1], m),
+                            fillOpacity: 1, strokeOpacity: 1, opacity: 1, ctm: m, extra: k + 1)
+
+proc pictureOf(c: var Ctx; href: string): Bitmap =
+  ## (an image's pixels: a data: link's, or a file's beside the SVG; nil
+  ## when they cannot be had)
+  if href.len == 0: return nil
+  if c.pics.hasKey(href): return c.pics[href]
+  var data = ""
+  if href.len > 5 and cmpIgnoreCase(href[0 .. 4], "data:") == 0:
+    let comma = href.find(',')
+    if comma > 0 and href[5 ..< comma].toLowerAscii.endsWith(";base64"):
+      try: data = unbase64(href[comma + 1 .. ^1])
+      except CatchableError: data = ""
+  elif c.base.len > 0 and "://" notin href and not href.isAbsolute and ':' notin href and '\\' notin href and
+       '\0' notin href:
+    # (a file under the SVG's folder, nowhere else)
+    var ok = true
+    var rel = ""
+    var i = 0
+    while i < href.len:
+      if href[i] == '%' and i + 2 < href.len and href[i + 1] in HexDigits and href[i + 2] in HexDigits:
+        rel.add chr(parseHexInt(href[i + 1 .. i + 2]))
+        i += 3
+      elif href[i] in {'?', '#'}: break
+      else:
+        rel.add href[i]
+        inc i
+    for part in rel.split('/'):
+      if part == ".." or '\\' in part or ':' in part or '\0' in part: ok = false
+    if ok and rel.len > 0:
+      try:
+        let path = c.base / rel
+        if getFileSize(path) <= 64 shl 20: data = readFile(path)
+      except CatchableError: data = ""
+  var b: Bitmap = nil
+  try:
+    if data.len >= 12:
+      if data.startsWith("\x89PNG"): b = decodePng(data)
+      elif data[0] == '\xFF' and data[1] == '\xD8': b = decodeJpeg(data)
+      elif data.startsWith("RIFF") and data[8 .. 11] == "WEBP": b = decodeWebp(data)
+  except CatchableError: b = nil
+  let good = b != nil and b.w > 0 and b.h > 0 and b.px.len == b.w * b.h
+  c.pics[href] = (if good: b else: nil)
+  c.pics[href]
+
+proc addImage(c: var Ctx; n: XNode; st: Style; m: SvgMatrix) =
+  ## An `<image>`: its picture (`SvgDoc.images`), with an item in its place.
+  if not st.visible: return
+  let b = c.pictureOf(n.hrefOf)
+  if b == nil or c.doc.texts.len + c.doc.images.len >= MaxExtras:
+    c.skip("image")
+    return
+  let x = c.lenAttr(n, "x", 0)
+  let y = c.lenAttr(n, "y", 1)
+  var w = c.lenAttr(n, "width", 0)
+  var h = c.lenAttr(n, "height", 1)
+  if not (w > 0) and not (h > 0):
+    w = b.w.float
+    h = b.h.float
+  elif not (w > 0): w = h * b.w.float / b.h.float
+  elif not (h > 0): h = w * b.h.float / b.w.float
+  if not (w > 0 and h > 0 and finite(w) and finite(h)): return
+  let (ax, ay, slice) = aspectOf(n.attr("preserveAspectRatio"))
+  var sx = w / b.w.float
+  var sy = h / b.h.float
+  var ox = x
+  var oy = y
+  var crop = (0.0, 0.0, b.w.float, b.h.float)
+  if ax >= 0:
+    let s = if slice: max(sx, sy) else: min(sx, sy)
+    ox = x + (w - b.w.float * s) * ax
+    oy = y + (h - b.h.float * s) * ay
+    sx = s
+    sy = s
+    if slice: crop = ((x - ox) / s, (y - oy) / s, (x + w - ox) / s, (y + h - oy) / s)
+  c.doc.images.add SvgImage(id: n.nameOf, bitmap: b, m: m * SvgMatrix(a: sx, d: sy, e: ox, f: oy), crop: crop)
+  c.doc.items.add SvgItem(id: n.nameOf, kind: "image", path: rectPathM(x, y, w, h, m), fillOpacity: 1,
+                          strokeOpacity: 1, opacity: 1, ctm: m, extra: -c.doc.images.len)
 
 proc passes(n: XNode): bool =
   ## (a `switch`'s child: its conditions hold)
@@ -2058,7 +2589,9 @@ proc markerAt(c: var Ctx; node: XNode; st: Style; m: SvgMatrix; v: Pt; angle: fl
   c.vw = if hasVb: vb[2] else: mw
   c.vh = if hasVb: vb[3] else: mh
   let start = c.doc.items.len
+  inc c.noExtras
   for k in node.kids: c.walk(k, ms, t)
+  dec c.noExtras
   c.vw = sw
   c.vh = sh
   c.anc = savedAnc
@@ -2132,7 +2665,7 @@ proc walk(c: var Ctx; n: XNode; ps: Style; m: SvgMatrix) =
   if c.depth >= MaxDepth or c.work >= MaxWork or c.doc.items.len >= MaxItems: return
   inc c.work
   let tag = n.tag
-  if tag in ["text", "image", "foreignObject"]:
+  if tag == "foreignObject" or (tag in ["text", "image"] and c.noExtras > 0):
     c.skip(tag)
     return
   if tag notin Drawn: return
@@ -2147,7 +2680,18 @@ proc walk(c: var Ctx; n: XNode; ps: Style; m: SvgMatrix) =
   let start = c.doc.items.len
   case tag
   of "g", "a":
+    # (a group with a name of its own -- a layer or a group of a drawing program: kept as one)
+    var label = n.attr("data-name")
+    if label.len == 0: label = n.attr("inkscape:label")
+    let named = tag == "g" and label.len > 0 and c.noExtras == 0 and c.doc.groupNames.len < MaxExtras and
+                c.gstack.len < 24
+    if named:
+      c.doc.groupNames.add label
+      c.gstack.add c.doc.groupNames.high
     for k in n.kids: c.walk(k, st, mm)
+    if named:
+      let gi = c.gstack.pop()
+      for k in start ..< c.doc.items.len: c.doc.items[k].named.insert(gi, 0)
   of "switch":
     for k in n.kids:
       if k.tag in Drawn and k.passes:
@@ -2156,6 +2700,8 @@ proc walk(c: var Ctx; n: XNode; ps: Style; m: SvgMatrix) =
   of "svg":
     c.viewport(n, st, mm, c.lenAttr(n, "x", 0), c.lenAttr(n, "y", 1), c.lenAttr(n, "width", 0, c.vw),
                c.lenAttr(n, "height", 1, c.vh), n.kids, n)
+  of "text": c.addText(n, st, mm)
+  of "image": c.addImage(n, st, mm)
   of "use":
     let h = n.hrefOf
     let t = if h.startsWith("#"): c.ids.getOrDefault(h[1 .. ^1]) else: nil
@@ -2191,6 +2737,12 @@ proc walk(c: var Ctx; n: XNode; ps: Style; m: SvgMatrix) =
     let p = c.shapePath(n, st.fontSize)
     if p.subs.len > 0:
       c.addItem(n, p, st, mm)
+      if c.doc.items.len > start and n.has("data-stroke-align"):
+        let own = st.clipPath.len > 0 and st.clipPath != "\0"
+        c.doc.items[^1].strokeAlign = case n.attr("data-stroke-align")
+                                      of "inside": (if own: 1 else: 0)
+                                      of "outside": (if own: 2 elif st.strokeFirst: 3 else: 0)
+                                      else: 0
       c.markers(n, p, st, mm)
   c.effects(start, st, mm)
   discard c.anc.pop()
@@ -2201,7 +2753,7 @@ proc strokeOutline(it: SvgItem; m: SvgMatrix; k: float): Path
 proc drawnBounds(it: SvgItem; within: Box): Box =
   ## The box of what an item draws (its stroke too) -- measured exactly
   ## when a rough guess goes past `within`.
-  result = if it.fill.kind != spkNone: tightBounds(it.path) else: NoBox
+  result = if it.fill.kind != spkNone or it.extra != 0: tightBounds(it.path) else: NoBox
   if it.stroke.kind != spkNone and it.strokeWidth > 0:
     let b = tightBounds(it.path)
     let r = it.strokeWidth / 2 * (if it.join == ljMiter: max(1.5, it.miterLimit) else: 1.5)
@@ -2214,9 +2766,11 @@ proc drawnBounds(it: SvgItem; within: Box): Box =
     if not empty(ob): result = union(result, (ob[0] / k, ob[1] / k, ob[2] / k, ob[3] / k))
     else: result = union(result, b)
 
-proc parseSvg*(data: string): SvgDoc =
+proc parseSvg*(data: string; base = ""): SvgDoc =
   ## An SVG file read: its size, its view box, what it draws (`items`, in
-  ## user space). Never raises: what cannot be read is passed over.
+  ## user space), its texts and pictures. `base`: the folder pictures named
+  ## by a file are read from (none: only the ones in the SVG itself). Never
+  ## raises: what cannot be read is passed over.
   result = SvgDoc(width: 0, height: 0, alignX: 0.5, alignY: 0.5)
   var root: XNode
   try:
@@ -2227,7 +2781,7 @@ proc parseSvg*(data: string): SvgDoc =
         break
   except CatchableError: return
   if root == nil: return
-  var c = Ctx()
+  var c = Ctx(base: base)
   # the ids, the style sheets
   var todo = @[root]
   var css = ""
@@ -3081,7 +3635,190 @@ proc grow(a: var IBox; b: IBox) =
     return
   a = (min(a.x0, b.x0), min(a.y0, b.y0), max(a.x1, b.x1), max(a.y1, b.y1))
 
+proc polylineOf(p: Path; m: SvgMatrix; tol: float): seq[(float32, float32)] =
+  ## (a path's first subpath as a line of points, under `m`)
+  if p.subs.len == 0: return
+  var poly: Poly
+  flatten(p.subs[0], m, tol, poly)
+  for v in poly.pts: result.add (float32(v[0]), float32(v[1]))
+  if p.subs[0].closed and result.len > 1 and result[0] != result[^1]: result.add result[0]
+
+proc svgTextData*(t: SvgText; m: SvgMatrix; color = 0xFF000000'u32): TextData =
+  ## A text of an SVG as the type engine sets it, under `m` (its element's
+  ## space to pixels: `svgMap(doc, ...) * t.ctm`): point text where it is
+  ## upright (stretched: its letters widened or narrowed), text on a path
+  ## where it is turned or runs along a textPath. currentColor: `color`; a
+  ## gradient: its middle color. To be called on the thread that draws.
+  let sx = hypot(m.a, m.b)
+  let sy = hypot(m.c, m.d)
+  if not (sx > 0 and sy > 0 and finite(sx) and finite(sy)): return
+  if t.path.subs.len == 0 and m.a > 0 and m.d > 0 and abs(m.b) <= 1e-6 * sx and abs(m.c) <= 1e-6 * sy:
+    result = textIn(t, sy, sx / sy, color)
+    let p = m.apply((t.x, t.y))
+    result.x = float32(p[0])
+    result.y = float32(p[1])
+    return
+  let k = sqrt(abs(det(m)))
+  if not (k > 0): return
+  result = textIn(t, k, 1, color)
+  result.para.align = textLeft
+  let w = lineWidth(t, k)
+  let af = [0.0, 0.5, 1.0][clamp(t.anchor, 0, 2)]
+  if t.path.subs.len > 0:
+    result.path = polylineOf(t.path, m, 0.25)
+    if result.path.len >= 2:
+      var total = 0.0
+      for i in 1 ..< result.path.len:
+        total += hypot(float(result.path[i][0] - result.path[i - 1][0]), float(result.path[i][1] - result.path[i - 1][1]))
+      let off = if t.offsetPercent: t.pathOffset / 100 * total else: t.pathOffset * k
+      result.pathOffset = float32(off - w * af)
+      result.x = result.path[0][0]
+      result.y = result.path[0][1]
+      return
+    result.path.setLen(0)
+  # (turned: along a straight line from where it starts)
+  let p = m.apply((t.x, t.y))
+  let dx = m.a / sx
+  let dy = m.b / sx
+  var big = 0.0
+  for r in t.runs: big = max(big, r.size)
+  let s0 = (p[0] - dx * w * af, p[1] - dy * w * af)
+  let len = w * 1.25 + big * k * 2 + 16
+  result.path = @[(float32(s0[0]), float32(s0[1])), (float32(s0[0] + dx * len), float32(s0[1] + dy * len))]
+  result.x = result.path[0][0]
+  result.y = result.path[0][1]
+
+proc textItems(doc: SvgDoc; it: SvgItem; color: uint32): seq[SvgItem] =
+  ## (a text as outlines to draw: its letters set a couple of hundred
+  ## pixels high in its own space, brought back under its transform)
+  if it.extra <= 0 or it.extra > doc.texts.len: return
+  let t = doc.texts[it.extra - 1]
+  var big = 0.0
+  for r in t.runs: big = max(big, r.size)
+  if not (big > 0 and finite(big)): return
+  let s = 200 / big
+  let td = svgTextData(t, scaleM(s, s), color)
+  if td.spans.len == 0: return
+  let back = t.ctm * scaleM(1 / s, 1 / s)
+  let wide = scaleOf(t.ctm) / s
+  for o in textOutlines(td, layoutText(td), fine = true):
+    if (o.color shr 24) == 0: continue
+    var p: Path
+    for poly in o.polys:
+      if poly.len < 3: continue
+      var sp = SubPath(closed: true)
+      for v in poly: sp.pts.add corner(back.apply((float(v[0]), float(v[1]))))
+      p.subs.add sp
+    if p.subs.len == 0: continue
+    var x = SvgItem(id: it.id, kind: "text", path: p, fill: SvgPaint(kind: spkColor, color: o.color or 0xFF000000'u32),
+                    fillOpacity: float(o.color shr 24) / 255, strokeOpacity: float(o.color shr 24) / 255,
+                    opacity: it.opacity, clips: it.clips, layers: it.layers, ctm: t.ctm, miterLimit: 4)
+    if o.embolden > 0:
+      x.stroke = x.fill
+      x.strokeWidth = 2 * o.embolden.float * wide
+      x.join = ljRound
+    result.add x
+
+proc sampleAt(b: Bitmap; u, v: float): (float, float, float, float) =
+  ## (a picture between its pixels: alpha 0..1, red, green, blue 0..255
+  ## times the alpha)
+  let fx = clamp(u - 0.5, -1.0, b.w.float)
+  let fy = clamp(v - 0.5, -1.0, b.h.float)
+  let x0 = toInt(floor(fx))
+  let y0 = toInt(floor(fy))
+  let tx = fx - x0.float
+  let ty = fy - y0.float
+  var a, r, g, bl: float
+  for k in 0 .. 3:
+    let wgt = (if (k and 1) == 0: 1 - tx else: tx) * (if k < 2: 1 - ty else: ty)
+    if wgt <= 0: continue
+    let p = b.px[clamp(y0 + k div 2, 0, b.h - 1) * b.w + clamp(x0 + (k and 1), 0, b.w - 1)]
+    let pa = float(p shr 24) / 255 * wgt
+    a += pa
+    r += float((p shr 16) and 255) * pa
+    g += float((p shr 8) and 255) * pa
+    bl += float(p and 255) * pa
+  (a, r, g, bl)
+
+proc imageBox(im: SvgImage; T: SvgMatrix; w, h: int): IBox =
+  ## (where a picture lands under `T`, in a `w` x `h` picture)
+  var bb = NoBox
+  for p in [(im.crop[0], im.crop[1]), (im.crop[2], im.crop[1]), (im.crop[2], im.crop[3]), (im.crop[0], im.crop[3])]:
+    bb.add T.apply(p)
+  if empty(bb) or not (finite(bb[0]) and finite(bb[1]) and finite(bb[2]) and finite(bb[3])): return (0, 0, 0, 0)
+  (clamp(toInt(floor(bb[0])), 0, w), clamp(toInt(floor(bb[1])), 0, h), clamp(toInt(ceil(bb[2])) + 1, 0, w),
+   clamp(toInt(ceil(bb[3])) + 1, 0, h))
+
+proc drawImage(r: var Rnd; doc: SvgDoc; it: SvgItem; dst: var seq[uint32]; drawn: var IBox) =
+  let k = -it.extra - 1
+  if k < 0 or k >= doc.images.len or it.opacity <= 0: return
+  let im = doc.images[k]
+  if im.bitmap == nil or im.bitmap.w <= 0 or im.bitmap.h <= 0: return
+  let T = r.m * im.m
+  if not (abs(det(T)) > 1e-18): return
+  let inv = invert(T)
+  var (x0, y0, x1, y1) = imageBox(im, T, r.w, r.h)
+  var clips: seq[ptr ClipCov]
+  for ci in it.clips:
+    if ci < 0 or ci >= doc.clips.len: continue
+    let cc = r.clipCovOf(doc, ci)
+    clips.add cc
+    x0 = max(x0, cc.x0)
+    y0 = max(y0, cc.y0)
+    x1 = min(x1, cc.x0 + cc.w)
+    y1 = min(y1, cc.y0 + cc.h)
+  if x1 <= x0 or y1 <= y0: return
+  for y in y0 ..< y1:
+    for x in x0 ..< x1:
+      let (u, v) = inv.apply((x.float + 0.5, y.float + 0.5))
+      if u < im.crop[0] or u >= im.crop[2] or v < im.crop[1] or v >= im.crop[3]: continue
+      var (oa, orr, og, ob) = sampleAt(im.bitmap, u, v)
+      var kk = it.opacity
+      for cc in clips: kk *= cc.a[(y - cc.y0) * cc.w + x - cc.x0]
+      oa *= kk
+      if oa <= 0.0005: continue
+      orr *= kk
+      og *= kk
+      ob *= kk
+      let i = y * r.w + x
+      let d = dst[i]
+      let rest = 1 - oa
+      let na = oa * 255 + float(d shr 24) * rest
+      let nr = orr + float((d shr 16) and 255) * rest
+      let ng = og + float((d shr 8) and 255) * rest
+      let nb = ob + float(d and 255) * rest
+      dst[i] = (uint32(clamp(toInt(na + 0.5), 0, 255)) shl 24) or (uint32(clamp(toInt(nr + 0.5), 0, 255)) shl 16) or
+               (uint32(clamp(toInt(ng + 0.5), 0, 255)) shl 8) or uint32(clamp(toInt(nb + 0.5), 0, 255))
+  drawn.grow((x0, y0, x1, y1))
+
+proc drawImageInto*(px: var seq[uint32]; w, h: int; im: SvgImage; m: SvgMatrix) =
+  ## A picture of an SVG drawn into the `w` x `h` pixels `px` (0xAARRGGBB,
+  ## what was there replaced), under `m` (user space to these pixels:
+  ## `svgMap(doc, ...)`).
+  if im.bitmap == nil or im.bitmap.w <= 0 or im.bitmap.h <= 0 or px.len != w * h: return
+  let T = m * im.m
+  if not (abs(det(T)) > 1e-18): return
+  let inv = invert(T)
+  let (x0, y0, x1, y1) = imageBox(im, T, w, h)
+  for y in y0 ..< y1:
+    for x in x0 ..< x1:
+      let (u, v) = inv.apply((x.float + 0.5, y.float + 0.5))
+      if u < im.crop[0] or u >= im.crop[2] or v < im.crop[1] or v >= im.crop[3]: continue
+      let (a, r, g, b) = sampleAt(im.bitmap, u, v)
+      if a <= 0.002: continue
+      px[y * w + x] = (uint32(clamp(toInt(a * 255 + 0.5), 0, 255)) shl 24) or
+                      (uint32(clamp(toInt(r / a + 0.5), 0, 255)) shl 16) or
+                      (uint32(clamp(toInt(g / a + 0.5), 0, 255)) shl 8) or uint32(clamp(toInt(b / a + 0.5), 0, 255))
+
 proc drawItem(r: var Rnd; doc: SvgDoc; it: SvgItem; dst: var seq[uint32]; drawn: var IBox) =
+  if it.extra > 0:
+    # (a text: its letters' outlines -- on the thread that draws alone)
+    if onUiThread():
+      for x in textItems(doc, it, r.color): r.drawItem(doc, x, dst, drawn)
+    return
+  if it.extra < 0:
+    r.drawImage(doc, it, dst, drawn)
+    return
   let sw = it.strokeWidth * r.k
   let fillOn = it.fill.kind != spkNone and it.fillOpacity * it.opacity > 0
   let strokeOn = it.stroke.kind != spkNone and sw > 0 and it.strokeOpacity * it.opacity > 0
@@ -3277,19 +4014,25 @@ proc tame(p: var Path): bool =
       q.outH = (clamp(q.outH[0], -far, far), clamp(q.outH[1], -far, far))
   true
 
-proc svgShapes*(doc: SvgDoc; box: (float, float, float, float); color = 0xFF000000'u32):
-               seq[tuple[name: string; shape: ShapeData]] =
-  ## What the SVG draws as shapes in document pixels, fitted into `box`
-  ## (x0, y0, x1, y1; its aspect kept), in order: currentColor taken as
-  ## `color`; elements one after another painted alike (one opaque color
-  ## and no stroke, or one opaque stroke and no fill) made one shape where
-  ## that does not change the look; a stroke without a fill a shape with no
-  ## fill; a stroke that is clipped, or under a skew or a stretch, an
-  ## outline filled. Approximated: gradients (a shape's go across its box:
-  ## a radial one from its middle, round, no focal point), the opacity of
-  ## groups (on each element), even-odd fills of outlines that cross
-  ## themselves (filled by winding), masks that are not white shapes and
-  ## clip paths on a clip path's parts (left out).
+type SvgPiece* = object
+  ## A piece of an SVG for a document: a shape, a text or a picture.
+  name*: string             ## its element's id ("" none)
+  shape*: ShapeData         ## a shape (`shape.path.subs.len > 0`): its outline and paint
+  text*: TextData           ## a text (`text.spans.len > 0`)
+  image*: Bitmap            ## a picture (not nil) ...
+  named*: seq[int]          ## the named groups it is in (`SvgDoc.groupNames`), outermost first
+  imageAt*: SvgImage        ## ... and where it goes (`drawImageInto` with `map`)
+  map*: SvgMatrix           ## ... user space to the document's pixels
+  opacity*: int             ## its own and its groups', for its layer: 1..100 (a shape's 0: all of it)
+
+proc svgPieces*(doc: SvgDoc; box: (float, float, float, float); color = 0xFF000000'u32): seq[SvgPiece] =
+  ## What the SVG draws for a document, fitted into `box` (x0, y0, x1, y1;
+  ## its aspect kept), back to front: its shapes (as `svgShapes` makes
+  ## them), its texts as texts that can be typed in (`svgTextData`) and its
+  ## pictures. To be called on the thread that draws. Shapes are made one
+  ## only where no text or picture lies between them. Left out: a text's
+  ## or a picture's clip path and mask; each letter's own place (x="1 2
+  ## 3": the first is taken); a text's outline (stroke).
   let M = svgMap(doc, box[0], box[1], box[2], box[3])
   let k = scaleOf(M)
   if not (k > 0) or not finite(k): return
@@ -3298,19 +4041,34 @@ proc svgShapes*(doc: SvgDoc; box: (float, float, float, float); color = 0xFF0000
     name: string
     fillP, strokeP: SvgPaint
     fa, sa, sw: float
+    op: float                     # (the element's own opacity, and its groups': the layer's)
     cap: LineCap
     join: LineJoin
     dashes: seq[float]
     clipComps: seq[SubPath]
     clipKey: string
+    align: int
+    extra: int
+    named: seq[int]
   var parts: seq[Part]
   for it in doc.items:
     var a = it.opacity
     for g in it.layers:
       if g >= 0 and g < doc.groups.len: a *= doc.groups[g].opacity
+    if it.extra != 0:
+      if a > 0.002: parts.add Part(name: it.id, extra: it.extra, fa: a, named: it.named)
+      continue
     let fa = it.fillOpacity * a
     let sa = it.strokeOpacity * a
-    let sw = it.strokeWidth * k
+    # (a stroke written twice as wide with half of it hidden: as wide as it is, where it is)
+    var itClips = it.clips
+    var half = 1.0
+    if it.strokeAlign != 0:
+      half = 0.5
+      if it.strokeAlign in [1, 2]:
+        if itClips.len > 0: itClips.delete(0) else: half = 1.0
+    let align = if half < 1: it.strokeAlign else: 0
+    let sw = it.strokeWidth * k * half
     let fillOn = it.fill.kind != spkNone and fa > 0.002
     let strokeOn = it.stroke.kind != spkNone and sw > 0 and sa > 0.002
     if not fillOn and not strokeOn: continue
@@ -3361,30 +4119,34 @@ proc svgShapes*(doc: SvgDoc; box: (float, float, float, float); color = 0xFF0000
             first = false
             clipComps.add t
       for inner in cl.clips: addClipComps(inner, clipComps, clipKey, hidden, depth + 1)
-    for ci in it.clips: addClipComps(ci, clipComps, clipKey, hidden, 0)
+    for ci in itClips: addClipComps(ci, clipComps, clipKey, hidden, 0)
     if hidden: continue
     if strokeOn and (clipComps.len > 0 or localStroke(it.ctm)):
       # (a stroke that is cut, or skewed: its outline, filled)
       var op = strokeOutline(it, M, k)
       if not op.tame: continue
-      let outline = Part(path: op, name: it.id, fillP: it.stroke, fa: sa,
-                         clipComps: clipComps, clipKey: clipKey)
+      let outline = Part(path: op, name: it.id, fillP: it.stroke, fa: it.strokeOpacity, op: a,
+                         clipComps: clipComps, clipKey: clipKey, named: it.named)
       if it.strokeFirst: parts.add outline
       if fillOn:
-        parts.add Part(path: path, name: it.id, fillP: it.fill, fa: fa, clipComps: clipComps, clipKey: clipKey)
+        parts.add Part(path: path, name: it.id, fillP: it.fill, fa: it.fillOpacity, op: a, clipComps: clipComps,
+                       clipKey: clipKey, named: it.named)
       if not it.strokeFirst: parts.add outline
     else:
       parts.add Part(path: path, name: it.id, fillP: (if fillOn: it.fill else: SvgPaint(kind: spkNone)),
-                     strokeP: (if strokeOn: it.stroke else: SvgPaint(kind: spkNone)), fa: fa, sa: sa,
+                     strokeP: (if strokeOn: it.stroke else: SvgPaint(kind: spkNone)), fa: it.fillOpacity,
+                     sa: it.strokeOpacity, op: a,
                      sw: (if strokeOn: min(sw, 1e6) else: 0.0), cap: it.cap, join: it.join,
-                     dashes: (if strokeOn: dashesFrom(it.dashes, it.dashOffset, it.strokeWidth) else: @[]),
-                     clipComps: clipComps, clipKey: clipKey)
-  # parts painted alike, one after another: one shape
+                     dashes: (if strokeOn: dashesFrom(it.dashes, it.dashOffset, it.strokeWidth * half) else: @[]),
+                     align: align,
+                     clipComps: clipComps, clipKey: clipKey, named: it.named)
+  # parts painted alike, one after another (in the same named group): one shape
   var cur: ShapeData
   var curName, curKey: string
   var curClips: seq[SubPath]
   var curFill, curStroke: SvgPaint
-  var curFa, curSa: float
+  var curFa, curSa, curOp: float
+  var curNamed: seq[int]
   var any = false
   template flush() =
     if any:
@@ -3395,24 +4157,41 @@ proc svgShapes*(doc: SvgDoc; box: (float, float, float, float); color = 0xFF0000
       if cur.stroke.kind == spNone:
         cur.strokeWidth = 0
         cur.dashes = @[]
-      if cur.fill.kind != spNone or cur.stroke.kind != spNone: result.add (curName, cur)
+      if cur.fill.kind != spNone or cur.stroke.kind != spNone:
+        result.add SvgPiece(name: curName, shape: cur, named: curNamed,
+                            opacity: (if curOp < 0.995: alphaPct(curOp) else: 0))
       any = false
   for p in parts:
+    if p.extra != 0:
+      flush()
+      curKey = ""
+      let pct = clamp(toInt(p.fa * 100 + 0.5), 1, 100)
+      if p.extra > 0 and p.extra <= doc.texts.len:
+        let t = doc.texts[p.extra - 1]
+        let td = svgTextData(t, M * t.ctm, color)
+        if td.spans.len > 0: result.add SvgPiece(name: p.name, text: td, opacity: pct, named: p.named)
+      elif p.extra < 0 and -p.extra <= doc.images.len:
+        let im = doc.images[-p.extra - 1]
+        if im.bitmap != nil:
+          result.add SvgPiece(name: p.name, image: im.bitmap, imageAt: im, map: M, opacity: pct, named: p.named)
+      continue
     let fillOn = p.fillP.kind != spkNone
     let strokeOn = p.strokeP.kind != spkNone
     let fillCol = if p.fillP.kind == spkCurrent: color else: p.fillP.color
     let strokeCol = if p.strokeP.kind == spkCurrent: color else: p.strokeP.color
     let fillOnly = fillOn and not strokeOn and p.fillP.kind in {spkColor, spkCurrent} and p.fa >= 0.999 and
-                   (fillCol shr 24) == 255
+                   p.op >= 0.999 and (fillCol shr 24) == 255
     let strokeOnly = strokeOn and not fillOn and p.strokeP.kind in {spkColor, spkCurrent} and p.sa >= 0.999 and
-                     (strokeCol shr 24) == 255 and p.clipComps.len == 0
+                     p.op >= 0.999 and (strokeCol shr 24) == 255 and p.clipComps.len == 0
     let key = if fillOnly: "f" & $fillCol & "|" & p.clipKey
-              elif strokeOnly: "s" & $strokeCol & "|" & $p.sw & "|" & $p.cap & "|" & $p.join & "|" & $p.dashes
+              elif strokeOnly: "s" & $strokeCol & "|" & $p.sw & "|" & $p.cap & "|" & $p.join & "|" & $p.dashes &
+                               "|" & $p.align
               else: ""
-    let merge = any and key.len > 0 and key == curKey
+    let merge = any and key.len > 0 and key == curKey and p.named == curNamed
     if not merge:
       flush()
       any = true
+      curNamed = p.named
       curKey = key
       curName = p.name
       curClips = p.clipComps
@@ -3420,7 +4199,9 @@ proc svgShapes*(doc: SvgDoc; box: (float, float, float, float); color = 0xFF0000
       curStroke = p.strokeP
       curFa = p.fa
       curSa = p.sa
-      cur = ShapeData(kind: "", align: saCenter, cap: p.cap, join: p.join, strokeWidth: p.sw, dashes: p.dashes)
+      curOp = p.op
+      cur = ShapeData(kind: "", align: (if p.align == 1: saInside elif p.align in [2, 3]: saOutside else: saCenter),
+                      cap: p.cap, join: p.join, strokeWidth: p.sw, dashes: p.dashes)
     elif curName.len == 0: curName = p.name
     # its subpaths: one part (the first not joined) -- a stroke's all one part
     for j, sp in p.path.subs:
@@ -3430,25 +4211,106 @@ proc svgShapes*(doc: SvgDoc; box: (float, float, float, float); color = 0xFF0000
       cur.path.subs.add t
   flush()
 
-proc placeSvg*(d: Doc; data: string; box: Rect; color = 0xFF000000'u32; asGroup = true): seq[Layer] =
-  ## The SVG as shape layers (`svgShapes`) fitted into `box`, above the
-  ## current layer -- in a group named after its title ("SVG" when it has
-  ## none) when there is more than one. Undoable in a step (one is begun
-  ## when none is open). The layers made: the group first.
-  let doc = parseSvg(data)
-  let shapes = doc.svgShapes((box.x.float, box.y.float, float(box.x + box.w), float(box.y + box.h)), color)
+proc svgShapes*(doc: SvgDoc; box: (float, float, float, float); color = 0xFF000000'u32):
+               seq[tuple[name: string; shape: ShapeData]] =
+  ## What the SVG draws as shapes in document pixels, fitted into `box`
+  ## (x0, y0, x1, y1; its aspect kept), in order -- its texts and pictures
+  ## left out (`svgPieces` gives those too): currentColor taken as `color`;
+  ## elements one after another painted alike (one opaque color and no
+  ## stroke, or one opaque stroke and no fill) made one shape where that
+  ## does not change the look; a stroke without a fill a shape with no
+  ## fill; a stroke that is clipped, or under a skew or a stretch, an
+  ## outline filled. Approximated: gradients (a shape's go across its box:
+  ## a radial one from its middle, round, no focal point), the opacity of
+  ## groups (on each element), even-odd fills of outlines that cross
+  ## themselves (filled by winding), masks that are not white shapes and
+  ## clip paths on a clip path's parts (left out).
+  var plain = doc
+  plain.items.keepItIf(it.extra == 0)
+  for p in plain.svgPieces(box, color):
+    if p.shape.path.subs.len == 0: continue
+    var sh = p.shape
+    if p.opacity in 1 .. 99:
+      # (its element's opacity: on its paints)
+      if sh.fill.kind != spNone:
+        sh.fill.opacity = max(1, (if sh.fill.opacity == 0: 100 else: sh.fill.opacity) * p.opacity div 100)
+      if sh.stroke.kind != spNone:
+        sh.stroke.opacity = max(1, (if sh.stroke.opacity == 0: 100 else: sh.stroke.opacity) * p.opacity div 100)
+    result.add (p.name, sh)
+
+proc placeSvg*(d: Doc; data: string; box: Rect; color = 0xFF000000'u32; asGroup = true; base = ""): seq[Layer] =
+  ## The SVG as layers (`svgPieces`) fitted into `box`, above the current
+  ## layer: its shapes shape layers, its texts type layers, its pictures
+  ## layers of pixels, its named groups (`SvgDoc.groupNames`) groups of
+  ## layers -- in a group named after its title ("SVG" when it has none)
+  ## when there is more than one and `asGroup`. `base`: the folder pictures
+  ## named by a file are read from. Undoable in a step (one is begun when
+  ## none is open). The layers made: the group first, its named groups
+  ## last.
+  let doc = parseSvg(data, base)
+  let pieces = doc.svgPieces((box.x.float, box.y.float, float(box.x + box.w), float(box.y + box.h)), color)
+  type Named = tuple[name: string; piece: SvgPiece]
+  var shapes: seq[Named]
+  for p in pieces: shapes.add (p.name, p)
   if shapes.len == 0: return
   let own = not d.stepOpen
   if own: d.beginStep("Place SVG")
   d.touchLayers()
   let title = if doc.title.len > 0: doc.title else: "SVG"
   var g: Layer = nil
+  var made: seq[Layer]
   if asGroup and shapes.len > 1:
     g = d.addGroup(title)
     result.add g
-  for (name, s) in shapes:
+  for (name, p) in shapes:
     let nm = if name.len > 0: name elif shapes.len == 1: title else: ""
-    result.add d.addShapeLayer(s, nm)
+    var L: Layer
+    if p.text.spans.len > 0:
+      L = d.addTextLayer(p.text)
+      if name.len > 0: L.name = name
+    elif p.image != nil:
+      L = d.addLayer(if nm.len > 0: nm else: "Picture")
+      drawImageInto(L.px, d.w, d.h, p.imageAt, p.map)
+      inc L.ver
+    else: L = d.addShapeLayer(p.shape, nm)
+    if p.opacity > 0 and p.opacity < 100: L.opacity = p.opacity
+    result.add L
+    made.add L
+  var anyNamed = false
+  for p in pieces:
+    if p.named.len > 0: anyNamed = true
+  if anyNamed and made.len > 0:
+    # (its named groups: the layers made taken out and put back in their order, each group's
+    # layer over what is in it, a depth deeper)
+    var mine = initTable[pointer, bool]()
+    for L in made: mine[cast[pointer](L)] = true
+    var lo = d.layers.len
+    for i, L in d.layers:
+      if mine.hasKey(cast[pointer](L)):
+        lo = min(lo, i)
+    let baseDepth = made[0].depth
+    d.layers.keepItIf(not mine.hasKey(cast[pointer](it)))
+    var ordered: seq[Layer]
+    var open: seq[int]
+    template closeTo(n: int) =
+      while open.len > n:
+        let gi = open.pop()
+        let G = d.newGroupLayer(if gi >= 0 and gi < doc.groupNames.len: doc.groupNames[gi] else: "")
+        G.depth = baseDepth + open.len
+        ordered.add G
+        result.add G
+    for i, p in pieces:
+      var common = 0
+      while common < open.len and common < p.named.len and open[common] == p.named[common]: inc common
+      closeTo(common)
+      for k in common ..< p.named.len: open.add p.named[k]
+      made[i].depth = baseDepth + open.len
+      ordered.add made[i]
+    closeTo(0)
+    lo = min(lo, d.layers.len)
+    for k, L in ordered: d.layers.insert(L, lo + k)
+    d.cur = min(d.layers.high, lo + ordered.high)
+    d.markAll()
   if g != nil:
     let i = d.layers.find(g)
     if i >= 0: d.cur = i

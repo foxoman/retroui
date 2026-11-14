@@ -53,7 +53,7 @@ ExternalLink=fa-external_link Link=fa-link Unlink=fa-unlink
 Paperclip=fa-paperclip Print=fa-print User=fa-user Users=fa-users
 UserPlus=fa-user_plus Lock=fa-lock Unlock=fa-unlock Key=fa-key
 Shield=fa-shield Eye=fa-eye EyeSlash=fa-eye_slash Bell=fa-bell
-BellSlash=fa-bell_slash Calendar=fa-calendar
+BellSlash=fa-bell_slash Calendar=fa-calendar Calculator=fa-calculator
 CalendarCheck=fa-calendar_check_o Clock=fa-clock_o History=fa-history
 Hourglass=fa-hourglass Envelope=fa-envelope Inbox=fa-inbox
 Send=fa-paper_plane Phone=fa-phone Comment=fa-comment Comments=fa-comments

@@ -44,6 +44,28 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   `addWaitSource` (the tray's D-Bus connection): a kit module that needs
   the loop woken by a socket adds one there, generic, never a driver of
   its own.
+- `docs/customizing.md` -- how a control is made to look different (its
+  options), how controls are put together, how one is drawn, and how the
+  kit itself is changed; `examples/bmi.nim` is its worked example, and
+  `tests/test_looks.nim` runs its samples. A new look is an option with a
+  default that draws what was drawn before (`accent = false`, `boxed =
+  false`, `h = 0`, `style = TextStyle()`, an enum such as `GroupLook`),
+  never a second control; a colour a scheme may want its own of is a
+  `Theme` field with alpha 0 meaning "made from the others", read through
+  a proc (`accentColor()`, `goodColor()`); a control that takes a `style`
+  is measured with it (`labelWidth(label, st)`, `lineHeight(st)`).
+  Every scheme in `builtinThemes` keeps its text readable -- 4.5 to 1 on
+  the window, the fields, the buttons, the highlight and the accent
+  (`tests/test_looks.nim` fails otherwise).
+- SVG in Retro Photo: `retroui/svgimport` reads (shapes, text, pictures,
+  named groups; `svgPieces`, `placeSvg`), `retroui/photosvg` writes
+  (`svgOf`, `svgLosses`). What one writes the other must read back the
+  same: `tests/test_photosvg.nim` opens what was written and compares the
+  layers, the type, the picture and the file written again. Text is set
+  with the type engine on the thread that draws only (its font tables are
+  that thread's): a picture decoded on a worker (`morepictures`, a
+  thumbnail) has an SVG's shapes and pictures, not its text. A picture an
+  SVG names by a file is read only under the SVG's own folder.
 - `docs/controls.md` -- every control with pictures, made by `tools/shots.nim`.
   Pictures that change only with the day (the calendar, the agenda, the
   Gantt chart, the About and splash boxes, the file pickers) are not
@@ -323,7 +345,8 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   (when the syntax or what a form draws changes: run
   `sh tools/syntaxshots/make.sh`), `tutorials/` (when what a lesson uses
   changes: `nimble tutorials`), `docs/designer.md` (Retro Designer),
-  `llms.txt`, `examples/README.md` (a new example, or one whose look or
+  `docs/customizing.md` (a new option that changes a control's look, a
+  new building block for controls), `llms.txt`, `examples/README.md` (a new example, or one whose look or
   purpose changed: its section and its picture -- `sh
   tools/exampleshots.sh NAME` for those the README has no picture of). A
   new or changed control: `python3 tools/gendesigner.py`

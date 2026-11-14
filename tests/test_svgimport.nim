@@ -1,8 +1,10 @@
 ## Tests of `retroui/svgimport`: SVG read (colors, transforms, path data,
 ## style sheets, uses, gradients, clips, masks, markers), made shapes
 ## (`svgShapes`, `placeSvg`: one shape for a one-color icon, undoable) and
-## drawn (`rasterizeSvg`) as resvg draws it; bad input never crashes
-## (fuzzed); 60 thumbnails timed.
+## drawn (`rasterizeSvg`) as resvg draws it; texts (runs, lines, along a
+## path, the font found) and pictures (in the file, beside it), read,
+## drawn and made type layers and layers of pixels; bad input never
+## crashes (fuzzed); 60 thumbnails timed.
 ##
 ## Fixtures (tests/data/svg): icons of Iconify's sets -- mdi (Apache-2.0),
 ## tabler (MIT), lucide (ISC), ph (MIT), fluent-emoji-flat (MIT), noto
@@ -11,8 +13,8 @@
 ## them), kitchen.svg (written for these tests); each with a .png of it as
 ## resvg 0.48 draws it 64 pixels wide.
 
-import std/[os, strutils, math, monotimes, times, random, tables]
-import retroui/[gfx, photo, photoshapes, imaging, svgimport]
+import std/[os, strutils, math, monotimes, times, random, tables, base64]
+import retroui/[gfx, photo, photoshapes, imaging, svgimport, textengine]
 
 let dir = currentSourcePath().parentDir / "data" / "svg"
 
@@ -165,8 +167,156 @@ block:
   # title; what is skipped is counted
   d = parseSvg(svg("<title> Star </title><text x='1' y='1'>Hi</text><image href='a.png'/>" &
                    "<rect width='1' height='1' filter='url(#f)'/>"))
-  doAssert d.title == "Star" and d.skipped["text"] == 1 and d.skipped["image"] == 1 and d.skipped["filter"] == 1
+  doAssert d.title == "Star" and d.texts.len == 1 and d.texts[0].runs[0].text == "Hi" and
+           d.skipped["image"] == 1 and d.skipped["filter"] == 1      # (a picture that is not there)
 echo "styles and uses ok"
+
+# ---- texts and pictures --------------------------------------------------------------------------------------
+
+block textsAndPictures:
+  proc shown(t: SvgText): string =
+    for r in t.runs: result.add r.text
+  # a text: its runs in their looks, where it starts
+  var d = parseSvg(svg("<style>.h { font: italic bold 20px Georgia, serif; fill: #203080 }</style>" &
+                       "<text class='h' x='10' y='30' data-name='Head line'>  Hello\n <tspan fill='red' " &
+                       "font-style='normal' font-weight='400'>big</tspan>   world </text>"))
+  doAssert d.texts.len == 1 and d.items.len == 1 and d.items[0].extra == 1 and d.items[0].kind == "text"
+  var t = d.texts[0]
+  doAssert t.shown == "Hello big world" and t.runs.len == 3      # (spaces made one, the ends' cut)
+  doAssert t.x == 10 and t.y == 30 and t.anchor == 0 and t.leading == 0 and t.id == "Head line"
+  doAssert t.runs[0].size == 20 and t.runs[0].weight == 700 and t.runs[0].italic and "Georgia" in t.runs[0].family
+  doAssert t.runs[0].fill.color == 0xFF203080'u32
+  doAssert t.runs[1].text == "big" and t.runs[1].fill.color == 0xFFFF0000'u32 and t.runs[1].weight == 400 and
+           not t.runs[1].italic
+  # lines from the same x: one text; a tspan put somewhere else: one of its own
+  d = parseSvg(svg("<text x='50' y='20' font-size='10' text-anchor='middle' letter-spacing='1' " &
+                   "text-decoration='underline'><tspan x='50' dy='0'>one</tspan><tspan x='50' dy='12'>two</tspan>" &
+                   "<tspan x='50' dy='12'>three</tspan><tspan x='5' y='90'>far</tspan></text>"))
+  doAssert d.texts.len == 2 and d.texts[0].shown == "one\ntwo\nthree" and d.texts[0].leading == 12
+  doAssert d.texts[0].anchor == 1 and d.texts[0].runs[0].underline and d.texts[0].runs[0].spacing == 1
+  doAssert d.texts[1].shown == "far" and d.texts[1].x == 5 and d.texts[1].y == 90
+  # what goes on in a line: after what was before it
+  d = parseSvg(svg("<text x='10' y='20' font-size='10'>x<tspan dy='-4' font-size='6'>2</tspan></text>"))
+  doAssert d.texts.len == 2 and d.texts[1].shown == "2" and d.texts[1].y == 16
+  doAssert d.texts[1].x > 12 and d.texts[1].x < 20             # (measured: an x wide)
+  # spaces kept when asked; entities; a baseline in the middle
+  d = parseSvg(svg("<text x='0' y='20' xml:space='preserve'> a  b &amp; &#169;</text>" &
+                   "<text x='0' y='50' font-size='20' dominant-baseline='middle'>m</text>"))
+  doAssert d.texts[0].shown == " a  b & \xC2\xA9" and abs(d.texts[1].y - 57) < 1e-9
+  # hidden, not displayed, with no fill: not there, or in no color
+  d = parseSvg(svg("<text x='0' y='20' display='none'>a</text><text x='0' y='20' visibility='hidden'>b</text>" &
+                   "<text x='0' y='20' opacity='0'>c</text><text x='0' y='20'></text>"))
+  doAssert d.items.len == 0
+  # along a path
+  d = parseSvg(svg("<defs><path id='p' d='M10 50 L90 50'/></defs><text font-size='10'><textPath href='#p' " &
+                   "startOffset='50%' text-anchor='middle'>on it</textPath></text>"))
+  doAssert d.texts.len == 1 and d.texts[0].path.subs.len == 1 and d.texts[0].offsetPercent and
+           d.texts[0].pathOffset == 50 and d.texts[0].anchor == 1
+  var td = svgTextData(d.texts[0], d.svgMap(0, 0, 200, 200) * d.texts[0].ctm)
+  doAssert td.path.len == 2 and td.path[0] == (20'f32, 100'f32) and td.spans[0].style.size == 20
+  doAssert td.pathOffset > 40 and td.pathOffset < 80          # (its middle at the path's)
+  # the font: the family there is, else by its kind
+  doAssert svgFont("Nothing Such, Times New Roman, serif").family == "FreeSerif"
+  doAssert svgFont("Courier New", 700, true) == ("FreeMono", "Bold Oblique") or
+           svgFont("Courier New", 700, true) == ("FreeMono", "Bold Italic")
+  doAssert svgFont("").family == "FreeSans" and svgFont("FREESERIF").family == "FreeSerif"
+  # a text in a mask is not one of the document's
+  d = parseSvg(svg("<mask id='m'><text x='0' y='20' fill='white'>cut</text></mask>" &
+                   "<rect width='50' height='50' mask='url(#m)'/>"))
+  doAssert d.texts.len == 0 and d.skipped["text"] == 1
+
+  # pictures: in the file, beside it; nowhere else
+  let pic = newBitmap(4, 2)
+  for i in 0 ..< 8: pic.px[i] = (if i mod 4 < 2: 0xFFFF0000'u32 else: 0xFF0000FF'u32)
+  let png = encodePng(pic)
+  let tmp = getTempDir() / "retro-svgtest"
+  createDir(tmp / "in")
+  writeFile(tmp / "in" / "pic one.png", png)
+  writeFile(tmp / "out.png", png)
+  let uri = "data:image/png;base64," & base64.encode(png)
+  d = parseSvg(svg("<image id='a' x='10' y='20' width='40' height='40' href='" & uri & "'/>" &
+                   "<image x='0' y='0' width='40' height='40' preserveAspectRatio='xMidYMid slice' " &
+                   "xlink:href='pic%20one.png'/><image width='8' height='8' preserveAspectRatio='none' " &
+                   "href='../out.png'/><image width='8' height='8' href='" & (tmp / "out.png") & "'/>"),
+               tmp / "in")
+  doAssert d.images.len == 2 and d.skipped["image"] == 2      # (a file above the folder, or named whole: not read)
+  doAssert d.images[0].bitmap.w == 4 and d.images[0].id == "a"
+  doAssert near(d.images[0].m.apply((0.0, 0.0)), (10.0, 30.0)) and near(d.images[0].m.apply((4.0, 2.0)), (50.0, 50.0))
+  doAssert d.images[1].crop == (1.0, 0.0, 3.0, 2.0)            # (sliced: its middle fills the square)
+  doAssert parseSvg(svg("<image width='8' height='8' href='pic%20one.png'/>")).images.len == 0   # (no folder given)
+  removeDir(tmp)
+
+  # drawn: the letters, the picture
+  d = parseSvg(svg("<rect width='100' height='100' fill='white'/><text x='10' y='80' font-size='80' " &
+                   "font-weight='bold' fill='#00a000'>I</text><image x='60' y='10' width='30' height='30' " &
+                   "preserveAspectRatio='none' opacity='0.5' href='" & uri & "'/>"))
+  let b = rasterizeSvg(d, 100, 100)
+  var green = 0
+  for p in b.px:
+    if p == 0xFF00A000'u32: inc green
+  doAssert green > 300 and green < 3000                         # (an I)
+  let left = b.px[25 * 100 + 65]
+  let right = b.px[25 * 100 + 85]
+  doAssert (left shr 16 and 255) == 255 and (left and 255) in 126'u32 .. 129'u32     # (red, half over white)
+  doAssert (right and 255) == 255 and (right shr 16 and 255) in 126'u32 .. 129'u32   # (blue, half)
+
+  # for a document: in their order, shapes not made one across a text
+  d = parseSvg(svg("<rect width='10' height='10' fill='red'/><text x='0' y='50' font-size='10'>mid</text>" &
+                   "<rect x='20' width='10' height='10' fill='red'/><rect x='40' width='10' height='10' fill='red'/>" &
+                   "<g opacity='0.5'><image x='60' y='10' width='30' height='30' href='" & uri & "'/></g>"))
+  let ps = d.svgPieces((0.0, 0.0, 200.0, 200.0))
+  doAssert ps.len == 4 and ps[0].shape.path.subs.len == 1 and ps[1].text.spans.len == 1 and
+           ps[2].shape.path.subs.len == 2 and ps[3].image != nil and ps[3].opacity == 50
+  doAssert ps[1].text.spans[0].style.size == 20 and ps[1].text.y == 100 and ps[1].text.path.len == 0
+  doAssert d.svgShapes((0.0, 0.0, 200.0, 200.0)).len == 1     # (the shapes alone: one, as before)
+  # in a document: type layers that can be typed in; a turned text along a line
+  let doc = newDoc(200, 200, 0'u32)
+  let made = doc.placeSvg(svg("<rect width='10' height='10' fill='red'/><text id='up' x='10' y='50' " &
+                              "font-size='10'>straight</text><text transform='translate(50 80) rotate(90)' " &
+                              "font-size='10' opacity='0.4'>turned</text><image id='im' x='60' y='10' width='30' " &
+                              "height='30' href='" & uri & "'/>"), rect(0, 0, 200, 200))
+  doAssert made.len == 5 and made[0].group and made[1].isShape and made[2].isText and made[3].isText and
+           not made[4].isText and not made[4].isShape
+  doAssert made[2].name == "up" and made[2].text.plainText == "straight" and made[2].text.x == 20
+  doAssert made[3].text.path.len == 2 and made[3].opacity == 40
+  doAssert abs(made[3].text.path[1][0] - made[3].text.path[0][0]) < 0.01 and
+           made[3].text.path[1][1] > made[3].text.path[0][1]    # (it runs down)
+  doAssert made[4].name == "im" and made[4].px[60 * 200 + 130] != 0 and made[4].px[10 * 200 + 10] == 0
+  doc.undo()
+  doAssert doc.layers.len == 1
+
+  # on another thread: the shapes and pictures, no text (the type engine is the drawing thread's)
+  when compileOption("threads"):
+    var other: Thread[void]
+    var seen {.global.}: int
+    proc work() {.thread.} =
+      {.cast(gcsafe).}:
+        let dd = parseSvg("<svg xmlns='http://www.w3.org/2000/svg' width='50' height='50'><text x='5' y='40' " &
+                          "font-size='40' fill='#00a000'>I</text><rect width='5' height='5' fill='#00a000'/></svg>")
+        let bb = rasterizeSvg(dd, 50, 50)
+        for p in bb.px:
+          if p == 0xFF00A000'u32: inc seen
+    createThread(other, work)
+    joinThread(other)
+    doAssert seen == 25
+
+  # damaged: never a crash
+  var rng = initRand(11)
+  let whole = svg("<style>text { font: 12px serif }</style><text x='10' y='20' text-anchor='end'>a<tspan dy='1em' " &
+                  "x='10 20 30'>b &lt; c</tspan><textPath href='#p'>d</textPath></text><path id='p' d='M0 0L9 9'/>" &
+                  "<image width='10' height='10' href='" & uri & "'/>")
+  for k in 0 ..< 400:
+    var s2 = whole
+    for j in 0 .. rng.rand(1 .. 4):
+      let at = rng.rand(s2.high)
+      case rng.rand(2)
+      of 0: s2 = s2[0 ..< at] & s2[min(s2.len, at + rng.rand(1 .. 30)) .. ^1]
+      of 1: s2[at] = char(rng.rand(255))
+      else: s2.insert(["<text>", "</tspan>", "<tspan x='1e99' dy='-1e308'>", "font-size='0'", "&#x110000;"][rng.rand(4)], at)
+    let dd = parseSvg(s2)
+    discard rasterizeSvg(dd, 24, 24)
+    discard dd.svgPieces((0.0, 0.0, 64.0, 64.0))
+echo "texts and pictures ok"
 
 # ---- gradients, clips, masks, markers ---------------------------------------------------------------------
 

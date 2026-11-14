@@ -463,14 +463,20 @@ proc timeline*(items: openArray[tuple[time, title, detail: string]]; current = -
 
 # ---- a pill ---------------------------------------------------------------------------------------------
 
-proc pill*(text: string; c = Color()) =
+proc pill*(text: string; c = Color(); glyph = "") =
   ## A short word in a colored, rounded tag ("Paid", "Overdue", "New").
-  let st = style(size = 0.85, bold = true)
+  ## `glyph`: an icon before the word (`pill("Healthy range", goodColor(),
+  ## nfCheck)`).
+  # (a little smaller than the text around it -- `withTextStyle`'s too)
+  let st = style(size = 0.85 * textScaleNow(), bold = true)
   let col = if c.a == 0: th.select else: c
+  let text = if glyph.len > 0: glyph & " " & text else: text
   let w = textWidth(text, st) + dp(12)
   let h = lineHeight(st) + dp(2)
   let r = place(w, max(h, FontH))
   let pr = rect(r.x, r.y + (r.h - h) div 2, w, h)
+  ui.lastId = 0
+  ui.lastRect = pr
   fill(rect(pr.x + 1, pr.y, pr.w - 2, pr.h), col)
   vline(pr.x, pr.y + 1, pr.h - 2, col)
   vline(pr.x + pr.w - 1, pr.y + 1, pr.h - 2, col)

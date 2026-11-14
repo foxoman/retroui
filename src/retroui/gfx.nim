@@ -117,6 +117,8 @@ var
   textEm = 12'f32       ## the UI's text size: logical pixels per em
   uiFontSel = ufSans
     ## the UI's font
+  baseStyle: TextStyle
+    ## the style plain text is drawn in (`withTextStyle`; the default: the UI's)
   FontH* = 15           ## height of a line of the UI's text, logical pixels
   FontAscent* = 12      ## from a line's top to its baseline
   textLut: array[256, uint8]
@@ -835,9 +837,15 @@ proc textWidth*(s: string; st: TextStyle): int =
   let em = widthEm(s, f, if st.rtl: 1 else: -1)
   int(ceil(em * emOf(st, f) - 0.01))
 
+proc plainStyle(bold: bool; mag: int): TextStyle {.inline.} =
+  ## (what plain text is in: the UI's, or `withTextStyle`'s)
+  result = baseStyle
+  result.bold = result.bold or bold
+  result.size = sizeOf(baseStyle) * float32(mag)
+
 proc textWidth*(s: string; bold = false; mag = 1): int =
   ## Width of `s` in logical pixels.
-  textWidth(s, TextStyle(bold: bold, size: float32(mag)))
+  textWidth(s, plainStyle(bold, mag))
 
 proc text*(x, y: int; s: string; c: Color; st: TextStyle)
   ## Draw `s` in style `st`, the top-left corner of its line at `x`, `y`.
@@ -896,7 +904,49 @@ proc text*(x, y: int; s: string; c: Color; st: TextStyle) =
 
 proc text*(x, y: int; s: string; c: Color; bold = false; mag = 1) =
   ## Draw `s` with its top-left corner at `x`, `y` (transparent background).
-  text(x, y, s, c, TextStyle(bold: bold, size: float32(mag)))
+  text(x, y, s, c, plainStyle(bold, mag))
+
+proc textScaleNow*(): float32 = sizeOf(baseStyle)
+  ## How many times the UI's size plain text is now (`withTextStyle`; else 1).
+
+proc textStyleNow*(): TextStyle = baseStyle
+  ## The style plain text is in now (`withTextStyle`; the default: the UI's).
+
+proc setTextStyleNow*(st: TextStyle; h, ascent: int) =
+  ## (what `withTextStyle` puts back)
+  baseStyle = st
+  FontH = h
+  FontAscent = ascent
+
+proc beginTextStyle*(st: TextStyle) =
+  ## Plain text in style `st` from here on (see `withTextStyle`): sizes
+  ## multiply, `FontH` and `FontAscent` follow.
+  if st == TextStyle(): return            # (the UI's own: as it is)
+  var n = st
+  n.size = sizeOf(st) * sizeOf(baseStyle)
+  n.bold = st.bold or baseStyle.bold
+  n.italic = st.italic or baseStyle.italic
+  n.serif = st.serif or baseStyle.serif
+  n.mono = st.mono or baseStyle.mono
+  baseStyle = n
+  let e = textEm * n.size
+  FontH = max(8, int(round(e * lineK())))
+  FontAscent = int(round((float32(FontH) - lineFactor(uiBase(), true) * e) / 2 +
+                         ascentFactor(uiBase(), true) * e))
+
+template withTextStyle*(st: TextStyle; body: untyped) =
+  ## Plain text -- what the controls draw their labels, their numbers and
+  ## what is typed in -- is in style `st` while `body` runs: a button with
+  ## a large bold label, a number box with large digits. `FontH` follows,
+  ## so the controls inside lay their text out by it.
+  let savedStyle = textStyleNow()
+  let savedH = FontH
+  let savedAscent = FontAscent
+  beginTextStyle(st)
+  try:
+    body
+  finally:
+    setTextStyleNow(savedStyle, savedH, savedAscent)
 
 # ---- Shapes -----------------------------------------------------------------
 #

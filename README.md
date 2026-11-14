@@ -487,10 +487,21 @@ retrokit designer app.nim       # app.nim's windows (a new file when there is no
   lists and pages, a long press is the right click, and a held-then-moved
   finger drags items. Hover effects appear only for a real mouse.
 - **Looks.** The 3.1 look (bevels, X check boxes, navy selections, group
-  boxes, bold menus) in eighteen color schemes (`builtinThemes`: Classic,
-  Gray, Dark, OLED Black, Ocean, Desert, Plum, Hot Dog, Paper, High
-  Contrast, High Contrast White, Midnight, Emerald, Rose, Slate, Mahogany,
-  Amber, Green Screen), or your own `Theme` (`ui.theme = Dark`).
+  boxes, bold menus) in twenty-eight color schemes (`builtinThemes`:
+  Classic, Gray, Dark, OLED Black, Ocean, Desert, Plum, Hot Dog, Paper,
+  High Contrast, High Contrast White, Midnight, Emerald, Rose, Slate,
+  Mahogany, Amber, Green Screen, and ten made for a phone's screen, from
+  white to dark: Notes, Snow, Mint, Sky, Blossom, Lavender, Sunset,
+  Graphite, Dusk, Night Notes), or your own `Theme` (`ui.theme = Dark`).
+  A window with a look of its own is still the kit's controls, by their
+  options: the accent button (`button("Save", accent = true)`), a text
+  style and a height for buttons and number boxes, groups with a title
+  strip (`glCaption`), options in boxes (`radio(boxed = true)`), a gauge
+  in bands, the state colours of the scheme (`goodColor()`...), colours
+  for a part (`withTheme`), the 3.1 title bar with the app's icon and a
+  large title -- [docs/customizing.md](docs/customizing.md) goes through
+  them, then through putting controls together and drawing your own, with
+  BMI Studio (`examples/bmi.nim`) as the worked example.
   Text is FreeSans (the default), FreeSerif or FreeMono -- GNU FreeFont,
   built in, each in its four styles, Arabic everywhere -- or a font file
   (`setUiFont`, `loadUiFontFile`); icons are
@@ -537,7 +548,10 @@ shows all of its `barButton`s one way, which the app can offer as a setting
 setToolbarLook(blTextBelow)            # labels under the icons; the bar grows
 toolbar:
   if barButton(pxBack, "Back"): goBack()
+  toolSeparator(line = true)           # an etched line between groups (plain: a gap)
   if barButton(pxCopy, "Copy", tip = "Copy (Ctrl+C)"): copy()
+  toolSpace()                          # all the room left: what follows is at the right end
+  if barButton(pxHelp, "Help"): help() # (toolSpace(20): 20 pixels of room)
 if button("Open", pxOpen, blTextBeside): openIt()
 if button("Save", glyphPic(nfSave), blIconOnly): saveIt()
 ```
@@ -2021,7 +2035,7 @@ s.dehaze = 10
 p.applyFilter(developMargin(s), develop(s))
 ```
 
-`examples/photo.nim` is **Retro Photo 4.10.0**, an image editor in the manner
+`examples/photo.nim` is **Retro Photo 4.11.0**, an image editor in the manner
 of the ones of 1994: the toolbox, the tabbed floating palettes (Brushes
 and Options; Picker, Swatches and Scratch; Layers, Channels and Paths;
 Info; Commands; Navigator, History and Actions; Properties), an options
@@ -2087,8 +2101,13 @@ Brush, the Adjustment Brush and Content-Aware Tracing (`retroui/edgetrace`), flo
 images kept on top, the panels' side sized from its edge. Since 4.9: lines with arrowheads and other
 ends that stay lines (their ends dragged with the Move tool), Image Size in pixels, percent, inches,
 centimeters, millimeters, points or picas with a link for the proportions, Esc letting go of what is
-under way, File > Save as PDF. `examples/magazine.nim` makes a three-page magazine with the
-engine, tool by tool.
+under way, File > Save as PDF. Since 4.11: SVG as a format of its own -- an .svg opens as
+layers (its shapes as shape layers, its text as type that can be typed in, in its fonts, sizes,
+colours and lines, along a path too; its pictures as layers of pixels; its named groups as
+groups), File > New SVG Drawing starts one, File > Save writes it back (and Save As, Export As
+and Save as PDF make a picture or a PDF of it, the vectors and the type kept in the PDF), and
+what an SVG does not hold is said when it is saved. `examples/magazine.nim` makes a three-page
+magazine with the engine, tool by tool.
 
 ```nim
 import retroui/[adobefiles, photobrushes]
@@ -2107,6 +2126,16 @@ let raw = readDng(readFile("IMG_0042.dng"))                  # light, white bala
 let img = developRaw(raw, Develop(exposure: 50))             # +0.5 stop, before 8 bits
 var px = img.px
 convertPixels(px, displayP3Profile(), srgbProfile())
+```
+
+```nim
+import retroui/[photo, photofiles, photosvg, svgimport]
+let d = openPicture("poster.svg")              # layers: its shapes, its text as type, its pictures, its groups
+for L in d.layers:
+  if L.isText: echo L.name, ": ", L.text.plainText
+writeFile("poster-2.svg", d.svgOf())           # and back: paths, text, pictures, groups
+echo d.svgLosses                               # what an SVG does not hold of it (layer effects...)
+let thumb = rasterizeSvg(readFile("poster.svg"), 256, 256)   # or just a picture of it
 ```
 
 ```nim
@@ -3136,6 +3165,9 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_uistrings`, `test_codeedit`, `test_feeds` | `retrokit strings`' scan of an app's texts (comments and long strings left out, `trn`'s two forms), the file written, filled and written again with the translations kept, Arabic's six forms; the code editor (indent kept, Tab, Ctrl+/, its undo, read only, Nim's colors); RSS with the iTunes and Podcasting 2.0 tags, Atom, OPML both ways, dates and lengths as feeds write them |
 | `test_tray` | the tray icon on Linux: the app's StatusNotifierItem on a bus of the test's own, registered with a stand-in tray, its title, picture and menu as a tray reads them, a click and a menu item coming back as events, the icon gone with a frame without it |
 | `test_grow` | Grow without a window: the plan's numbers, the main button at the page's foot, the result's timeline played to its end (every bar risen, the coin, the goal felt), Back |
+| `test_looks` | what a control takes to look different: the accent button, a text style and a height for buttons and number boxes, groups with a title strip, options in boxes, the gauge in bands and the range bar, a tool bar's line and space, `withTheme` and `withTextStyle` -- and the 28 colour schemes, each one's text readable (4.5 to 1) on its window, fields, buttons and highlight; docs/customizing.md's own samples |
+| `test_bmi` | BMI Studio without a window: the numbers in both unit systems (classed as shown), Calculate BMI the default button in the accent colour, another scheme taken by the bands and the button, a phone's layout |
+| `test_svgimport`, `test_photosvg` | SVG read as resvg draws it (60 icons and flags), its text (runs, lines, along a path, the font found) and pictures (in the file, beside it, nowhere else) read, drawn and made layers; damaged files never a crash; a document written as SVG and opened again: the same layers by name, the same type, the same picture, the same file written twice |
 | `test_podcast` | Retro Podcast without a window: a feed file followed (read by a job), an episode played from where it was left, the queue, Mark Played and Unfollow undone, OPML, the library saved and read back |
 | `test_scale` | fractional scales (125 % to 300 %): controls and text the size asked for, lines on whole pixels, a change of scale followed |
 | `test_touchsizes` | `RETRO_TOUCH` and `RETRO_CONTROLS`: finger-sized controls on a tablet's screen when asked, desktop and automatic sizes |
@@ -3169,6 +3201,7 @@ it is and how to run it.
 | `examples/retrodns.nim` | Retro DNS: a DNS changer with 47 public servers, what each is good for, speed tests and your own -- on Android a VPN of its own Java (`--java`), on Windows, Linux and macOS the computer's DNS as its administrator (`retroui/admin`), on macOS and iOS a profile of encrypted DNS |
 | `examples/podcast.nim` | Retro Podcast: a podcast player for every system and the web -- shows found by name or by feed, OPML, any speed, where you left off, downloads, a queue, a sleep timer, the system's media controls, the sound playing on in the background, a tray icon (also an APK: `RETRO_APP=podcast nimble appapk`; released with the apps) |
 | `examples/grow.nim` | Grow: a savings goal planner for phones -- the plan, then its result counted up, a ring, a 3D bar for each year rising one after another, a gold coin, Share (also an APK: `RETRO_APP=grow nimble appapk`) |
+| `examples/bmi.nim` | BMI Studio: a window with a look of its own made of the kit's controls -- a title bar with the app's icon, panels with title strips, options in boxes, large digits, an accent button, a dial in bands -- in its own colours or any of the kit's schemes; the worked example of docs/customizing.md (`nimble bmi`; also an APK: `RETRO_APP=bmi nimble appapk`) |
 | `examples/hrbook.nim` | HR Book: the staff records of a group of hotels, private on a tablet -- smart Excel import, letters and certificates, charts, expiry alerts, encrypted backups |
 
 `examples/hrbook.nim` is **HR Book**: every employee of your hotels in one
@@ -3193,7 +3226,7 @@ nim c -r -d:release examples/hrbook.nim
 | ![Retro Files on a tablet](docs/filemanager-tablet.png) | ![Notepad](docs/notepad.png) |
 | ![Retro Navigator](docs/examples/navigator.png) | ![Retro DNS](docs/examples/retrodns.png) |
 | ![Retro Podcast](docs/examples/podcast.png) | ![The Gallery's Forms & Code page](docs/examples/gallery-forms.png) |
-| ![Grow on a phone: the plan and its result](docs/examples/grow.png) | |
+| ![Grow on a phone: the plan and its result](docs/examples/grow.png) | ![BMI Studio in its own colours, in Mint and in Dusk](docs/examples/bmi.png) |
 
 ## FAQ
 

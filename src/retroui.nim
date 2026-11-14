@@ -116,7 +116,8 @@ proc keepLook*(name: string) =
 proc openApp*(title: string; w, h: int; theme = ui.theme; frame = wfAsBuilt;
               userFrame = true; gpu = gpuMode(); zoom = 0; scale = 0;
               font = uiFont(); id = ""; icon = ""; look = ""; resizable = true;
-              version = "") =
+              version = ""; captionIcon = false; captionAlign = caCenter;
+              captionStyle = TextStyle()) =
   ## `app`'s start: opens the window with `app`'s options, which are the
   ## same by name (see `app` for each and its default). For an app that runs
   ## its own frame loop instead of `app`'s block:
@@ -142,6 +143,9 @@ proc openApp*(title: string; w, h: int; theme = ui.theme; frame = wfAsBuilt;
   if scale > 0: setUiScale(scale)
   if not resizable: setResizable(false)
   if icon.len > 0: windowIcon = windowIconFromPng(icon)
+  core.captionIcon = captionIcon
+  core.captionAlign = captionAlign
+  core.captionStyle = captionStyle
   startApp(title, w, h, theme, zoom)
   # (the system's settings for every app: less movement, larger text --
   # what the user chose in the app's own look, below, comes over them)
@@ -200,6 +204,10 @@ macro app*(args: varargs[untyped]): untyped =
   ##   no maximize button, no size grip on the 3.1 frame (`setResizable`)
   ## - `version`: the app's version, for the report of a fault (shown at the
   ##   next start, before any About box gave it)
+  ## - `captionIcon`, `captionAlign`, `captionStyle`: the title bar the app
+  ##   draws (the 3.1 frame's, a phone's) with the app's `icon` before its
+  ##   title, the title at the left (`caLeft`), in a style of its own
+  ##   (`style(bold = true, serif = true, size = 1.4)`: the bar grows)
   ##
   ## $RETRO_FRAME, $RETRO_GPU, $RETRO_SCALE, $RETRO_THEME, $RETRO_SIZE and
   ## $RETRO_ZOOM win over them, for tests and screenshots. $RETRO_WINDOW=1

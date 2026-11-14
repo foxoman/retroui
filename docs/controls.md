@@ -31,16 +31,16 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 - **[Containers](#containers)**: [expander](#expander) · [accordionHeader](#accordionheader) · [tabStrip (document tabs)](#tabstrip-document-tabs) · [pageView, pageHeader: pages over pages](#pageview-pageheader-pages-over-pages) · [listDetail](#listdetail)
 - **[Menus and bars](#menus-and-bars)**: [menubar, menu, menuItem, submenu](#menubar-menu-menuitem-submenu) · [UndoStack, undoMenuItems, undoKeys](#undostack-undomenuitems-undokeys) · [contextMenu](#contextmenu) · [popupMenu, openPopupMenu](#popupmenu-openpopupmenu) · [breadcrumb](#breadcrumb) · [pager, stepper](#pager-stepper) · [recordNav](#recordnav) · [findBar, findIn, replaceAllIn](#findbar-findin-replaceallin)
 - **[Dialogs](#dialogs)**: [msgBox](#msgbox) · [inputBox](#inputbox) · [dialog](#dialog) · [progressBox](#progressbox) · [wizard, stepDone](#wizard-stepdone) · [aboutBox](#aboutbox) · [splashBox](#splashbox) · [problemBox, reportProblem](#problembox-reportproblem) · [stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen](#stoppedscreen-stoppedframe-stoppedpending-startfresh-showstoppedscreen) · [fileDialog (3.1)](#filedialog-31)
-- **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator](#toolbar-toolbutton-toolseparator) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [animated](#animated) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
+- **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator, toolSpace](#toolbar-toolbutton-toolseparator-toolspace) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [animated](#animated) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
 - **[Files](#files)**: [fileList](#filelist) · [fileList: large icons](#filelist-large-icons) · [folderTree](#foldertree) · [placesView](#placesview) · [filePreview](#filepreview) · [pathBar](#pathbar) · [driveBar](#drivebar) · [filePicker](#filepicker) · [trashList](#trashlist) · [propertiesDialog](#propertiesdialog) · [runJobDialog](#runjobdialog) · [textFileView, hexFileView](#textfileview-hexfileview) · [pictureBox](#picturebox) · [storageDialog](#storagedialog)
-- **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart) · [liveGraph](#livegraph)
+- **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [gauge in bands, rangeBar](#gauge-in-bands-rangebar) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart) · [liveGraph](#livegraph)
 - **[Planning and dashboards](#planning-and-dashboards)**: [kpiTile, statCard, kpiRow](#kpitile-statcard-kpirow) · [kanbanBoard](#kanbanboard) · [ganttView](#ganttview) · [agendaView](#agendaview) · [orgChart](#orgchart)
 - **[Maps and 3D](#maps-and-3d)**: [mapView](#mapview) · [tileMap](#tilemap) · [view3d](#view3d) · [Models: parts and clips](#models-parts-and-clips) · [bars3d](#bars3d)
 - **[HTML, Markdown and rich text](#html-markdown-and-rich-text)**: [htmlView, htmlBlock](#htmlview-htmlblock) · [webView, webRun, webPost](#webview-webrun-webpost) · [markdownView, markdown](#markdownview-markdown) · [richEdit, richToolbar](#richedit-richtoolbar)
 - **[Canvas and reports](#canvas-and-reports)**: [canvas: your own drawing](#canvas-your-own-drawing) · [canvas2d (the HTML5 Canvas 2D API)](#canvas2d-the-html5-canvas-2d-api) · [reportView (an HTML template: PDF, printing)](#reportview-an-html-template-pdf-printing) · [pdfView](#pdfview) · [QR codes](#qr-codes)
 - **[Sound and video](#sound-and-video)**: [animation (animated GIFs)](#animation-animated-gifs) · [videoView](#videoview) · [cameraView](#cameraview) · [setNowPlaying, mediaKeys](#setnowplaying-mediakeys) · [audioView](#audioview)
 - **[The system's features](#the-systems-features)**: [notify, share, haptic](#notify-share-haptic) · [location, speak](#location-speak) · [deviceInfo, setOpenAtLogin](#deviceinfo-setopenatlogin) · [saveSecret, loadSecret](#savesecret-loadsecret) · [checkForUpdate, downloadUpdate, installUpdate](#checkforupdate-downloadupdate-installupdate) · [job, fetch: work off the screen's thread](#job-fetch-work-off-the-screens-thread) · [trayIcon](#trayicon)
-- **[Looks](#looks)**: [Themes](#themes) · [Dark mode](#dark-mode) · [Size and text size](#size-and-text-size) · [Fonts](#fonts) · [The window's frame](#the-windows-frame)
+- **[Looks](#looks)**: [Themes](#themes) · [A look of your own](#a-look-of-your-own) · [Dark mode](#dark-mode) · [Size and text size](#size-and-text-size) · [Fonts](#fonts) · [The window's frame](#the-windows-frame) · [The accent button; a button's own text and height](#the-accent-button-a-buttons-own-text-and-height) · [The state colours](#the-state-colours) · [A group with a title strip; options in boxes; large digits](#a-group-with-a-title-strip-options-in-boxes-large-digits)
 - **[Screen readers and input methods](#screen-readers-and-input-methods)**: [Screen readers: what an app draws itself](#screen-readers-what-an-app-draws-itself) · [The keyboard alone: Tab's order and F6](#the-keyboard-alone-tabs-order-and-f6) · [The focus ring](#the-focus-ring) · [The inspector and the driver: controls found by their names](#the-inspector-and-the-driver-controls-found-by-their-names)
 
 ## Getting started
@@ -330,7 +330,14 @@ label "Under a separator"
 template group*(title: string; body: untyped)
 ```
 
-A group box: a frame with a title around `body`.
+A group box: a frame with a title around `body` (in the look
+`groupLook` says: 3.1's etched line, or a panel with a title strip).
+
+```nim
+template group*(title: string; look: GroupLook; body: untyped)
+```
+
+A group in a look of its own: `group "Your Measurements", glCaption:`.
 
 ```nim
 template card*(title: string; body: untyped)
@@ -883,22 +890,29 @@ row:
 
 ```nim
 proc button*(label: string; isDefault = false; enabled = true;
-             w = 0): bool {.discardable.}
+             w = 0; accent = false; style = TextStyle(); h = 0): bool {.discardable.}
 ```
 
 A push button; true when clicked. `isDefault` = Enter clicks it.
+`accent`: in the scheme's accent colours -- the button that matters
+most, one a window. `style`: its label's (`style(bold = true, size =
+1.3)`): the button grows with it; `h`: its height, else by its text.
 
 ```nim
 proc button*(label: string; pic: ButtonPic; look = blTextBeside; isDefault = false;
-             enabled = true; w = 0; h = 0): bool {.discardable.}
+             enabled = true; w = 0; h = 0; accent = false;
+             style = TextStyle()): bool {.discardable.}
 ```
 
 A push button with a picture: icon only (the label its tooltip), text
 only, the text below the icon, or beside it. True when clicked.
+`accent` and `style` as the plain button's: the picture of the icon
+font grows with the label.
 
 ```nim
 proc button*(label: string; glyph: string; look = blTextBeside; isDefault = false;
-             enabled = true; w = 0; h = 0): bool {.discardable.}
+             enabled = true; w = 0; h = 0; accent = false;
+             style = TextStyle()): bool {.discardable.}
 ```
 
 `button` with a glyph of the icon font as its picture (`pxSave`,
@@ -1125,12 +1139,14 @@ radio("&Large", size, 2)
 
 ```nim
 proc radio*(label: string; v: var int; value: int;
-            enabled = true): bool {.discardable.}
+            enabled = true; boxed = false): bool {.discardable.}
 ```
 
 One option of a group: selected when `v == value`; true when chosen.
 The options sharing `v` are a group: the arrow keys move the choice
-(and the focus) between them, as in 3.1.
+(and the focus) between them, as in 3.1. `boxed`: an option button --
+the option in a box of its own as wide as its cell, all of it taking
+the click, the chosen one tinted with the highlight.
 
 ### toggle (a switch)
 
@@ -1303,12 +1319,14 @@ form 0:
 
 ```nim
 proc edit*(s: var string; w = 0; password = false;
-           enabled = true; readOnly = false; invalid = false): bool {.discardable.}
+           enabled = true; readOnly = false; invalid = false;
+           h = 0; style = TextStyle()): bool {.discardable.}
 ```
 
 A one-line text box bound to `s`; true when the text changed.
 `readOnly`: selected and copied, not changed. `invalid`: red, what is
-typed is not right yet (a form says so as it is typed).
+typed is not right yet (a form says so as it is typed). `style`: its
+text's (large, bold, serif): the box grows with it; `h`: its height.
 
 ```nim
 proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
@@ -1626,32 +1644,37 @@ form 0:
 
 ```nim
 proc spin*(v: var int; lo, hi: int; w = 80; step = 1;
-           enabled = true): bool {.discardable.}
+           enabled = true; h = 0; style = TextStyle()): bool {.discardable.}
 ```
 
 A number box with up and down arrows bound to `v` in `lo..hi`: type a
 number, click or hold the arrows, or with the focus Up / Down (`step`),
-Page Up / Page Down (ten steps) and the wheel.
+Page Up / Page Down (ten steps) and the wheel. `style`: its digits'
+(`style(size = 1.6, bold = true)`); the box and its arrows grow with
+them, or to `h`.
 
 ```nim
 proc intEdit*(v: var int; w = 80; lo = low(int); hi = high(int);
-              thousands = false; enabled = true): bool {.discardable.}
+              thousands = false; enabled = true; h = 0;
+              style = TextStyle()): bool {.discardable.}
 ```
 
 A right-aligned whole-number field. Only whole numbers from `lo` to
 `hi` are taken (true when `v` changed); clicking or tabbing into it
-selects the number, so typing replaces it.
+selects the number, so typing replaces it. `style` and `h` as
+`numberEdit`'s.
 
 ```nim
 proc numberEdit*(v: var float; decimals = 2; w = 110; lo = NegInf;
                  hi = Inf; thousands = true;
-                 enabled = true): bool {.discardable.}
+                 enabled = true; h = 0; style = TextStyle()): bool {.discardable.}
 ```
 
 A right-aligned number field; shows `decimals` places (0 to 12) and
 thousands separators when it does not have the focus. Only numbers
 from `lo` to `hi` are taken (true when `v` changed). Clicking or
-tabbing into it selects the number, so typing replaces it.
+tabbing into it selects the number, so typing replaces it. `style`:
+its digits' (large, bold); the field grows with them, or to `h`.
 
 ### slider, progress
 
@@ -2967,10 +2990,12 @@ proc led*(on: bool; label = ""; c = Color())
 A small light: lit (in `c`, green when not given) or dark, with a label.
 
 ```nim
-proc pill*(text: string; c = Color())
+proc pill*(text: string; c = Color(); glyph = "")
 ```
 
 A short word in a colored, rounded tag ("Paid", "Overdue", "New").
+`glyph`: an icon before the word (`pill("Healthy range", goodColor(),
+nfCheck)`).
 
 ### timeline
 
@@ -3936,29 +3961,31 @@ What an app is made of around its content: tool bars, the status bar,
 windows in the window, docked panels, the shortcuts the user picks, the
 settings page and the parts of a phone app.
 
-### toolbar, toolButton, toolSeparator
+### toolbar, toolButton, toolSeparator, toolSpace
 
-A tool bar of small buttons; those that do not fit go into a "more" menu. `down` shows a button held in. Its buttons are one stop of Tab, as in Windows: the arrows go along them, Home and End to the ends, Space or Enter presses the one lit (any run of tool buttons is so: a palette's tools); a window starts at its first box, not at its tool bar. F6 goes to it from the other parts of the window.
+A tool bar of small buttons; those that do not fit go into a "more" menu. `down` shows a button held in. `toolSeparator()` is a gap between groups, `toolSeparator(line = true)` an etched line in it; `toolSpace(20)` is room of your own, and `toolSpace()` all the room the bar has left -- what follows it is at the bar's right end. Its buttons are one stop of Tab, as in Windows: the arrows go along them, Home and End to the ends, Space or Enter presses the one lit (any run of tool buttons is so: a palette's tools); a window starts at its first box, not at its tool bar. F6 goes to it from the other parts of the window.
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
-| ![toolbar, toolButton, toolSeparator, normal](controls/toolbar-normal.png) | ![toolbar, toolButton, toolSeparator, touch screen](controls/toolbar-touch-screen.png) | ![toolbar, toolButton, toolSeparator, dark scheme](controls/toolbar-dark-scheme.png) |
+| ![toolbar, toolButton, toolSeparator, toolSpace, normal](controls/toolbar-normal.png) | ![toolbar, toolButton, toolSeparator, toolSpace, touch screen](controls/toolbar-touch-screen.png) | ![toolbar, toolButton, toolSeparator, toolSpace, dark scheme](controls/toolbar-dark-scheme.png) |
 
 More states:
 
 | Mouse over | Pressed |
 |---|---|
-| ![toolbar, toolButton, toolSeparator, mouse over](controls/toolbar-mouse-over.png) | ![toolbar, toolButton, toolSeparator, pressed](controls/toolbar-pressed.png) |
+| ![toolbar, toolButton, toolSeparator, toolSpace, mouse over](controls/toolbar-mouse-over.png) | ![toolbar, toolButton, toolSeparator, toolSpace, pressed](controls/toolbar-pressed.png) |
 
 ```nim
 toolbar:
   toolButton(pxNew, "New")
   toolButton(pxOpen, "Open")
   toolButton(pxSave, "Save")
-  toolSeparator()
+  toolSeparator(line = true)
   toolButton(pxCut, "Cut")
   toolButton(pxCopy, "Copy")
   toolButton(pxPaste, "Paste", down = true)
+  toolSpace()
+  toolButton(pxHelp, "Help")
 ```
 
 **API**
@@ -3985,10 +4012,19 @@ A tool bar button showing a short text, or an icon of the icon font
 (`toolButton(nfCopy, "Copy", size = 1.3)`).
 
 ```nim
-proc toolSeparator*()
+proc toolSeparator*(line = false)
 ```
 
-A gap between groups of tool buttons.
+A gap between groups of tool buttons. `line`: an etched line in the
+gap, as the tool bars after 3.1 have between their groups.
+
+```nim
+proc toolSpace*(w = 0)
+```
+
+Room between tool buttons: `w` pixels of it, or -- 0 -- all the bar
+has left, so what comes after it is at the bar's right end (a search
+box, a Help button).
 
 ### window
 
@@ -5330,6 +5366,52 @@ proc gauge*(title: string; value: float; lo = 0.0; hi = NaN; target = NaN;
 ```
 
 A dial showing `value` (with a `target` mark) from `lo` to `hi`.
+
+```nim
+proc gauge*(title: string; value: float; lo, hi: float; bands: openArray[Band];
+            ticks = true; boundLabels = true; valueStyle = TextStyle();
+            height = 0; w = 0): ChartEvent {.discardable.}
+```
+
+A dial in bands: a half circle from `lo` to `hi` in the bands'
+colours, a needle at `value` (NaN: none yet; it glides when the value
+changes), the number under it in `valueStyle` and the name of the band
+it is in. `ticks`: small marks along the bands; `boundLabels`: the
+bounds' numbers round the dial. A band's `sweep` gives it more of the
+dial than its numbers would (a narrow range that matters). `title`
+names it for screen readers.
+
+### gauge in bands, rangeBar
+
+A dial in bands of your own, each with its name: the needle at the value, the number and the band it is in under it. The bands take the scheme's state colours by turn unless they name their own; `sweep` gives a band more of the dial than its numbers would. `rangeBar` is the same bands as a bar of cells, a marker over the value's; `bandOf` says which band a value is in.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![gauge in bands, rangeBar, normal](controls/gaugebands-normal.png) | ![gauge in bands, rangeBar, touch screen](controls/gaugebands-touch-screen.png) | ![gauge in bands, rangeBar, dark scheme](controls/gaugebands-dark-scheme.png) |
+
+```nim
+let air = [Band(upTo: 50, label: "Good"), Band(upTo: 100, label: "Moderate"),
+           Band(upTo: 150, label: "Poor"),
+           Band(upTo: 300, label: "Bad", sweep: 30)]
+gauge("Air quality", 72, 0, 300, air, height = 200)
+rangeBar(air, 72, 0)
+```
+
+**API**
+
+```nim
+proc bandOf*(bands: openArray[Band]; value: float): int
+```
+
+The band `value` is in (-1: `value` is not a number, or there is none).
+
+```nim
+proc rangeBar*(bands: openArray[Band]; value: float; lo: float; h = 0)
+```
+
+A bar of ranges: a coloured cell a band with its name and its numbers,
+and a marker over the one `value` is in (NaN: none). The cells are the
+bands' colours made pale, so their text reads.
 
 ### barChart, lineChart, pieChart
 
@@ -6908,7 +6990,10 @@ proc canvas*(w, h: int): Rect
 ```
 
 Room for your own drawing: draw into the returned rectangle with
-`fill`, `box`, `hline`, `vline`, `text` and `image`.
+`fill`, `box`, `hline`, `vline`, `text` and `image`. `w` and `h` are
+pixels as they are (0 or less for `w`: all the width there is): give
+`dp(74)` for a size that follows the UI's scale, as a row's widths do
+by themselves.
 
 ```nim
 proc fill*(r: Rect; c: Color)
@@ -7867,12 +7952,17 @@ if t.clicked or t.picked == 0:
 
 ### Themes
 
-Eighteen color schemes come with the kit (`builtinThemes`): Classic, Gray,
-Dark, OLED Black, Ocean, Desert, Plum, Hot Dog, Paper, High Contrast, High
-Contrast White, Midnight, Emerald, Rose, Slate, Mahogany, Amber and Green
-Screen. Set one with `ui.theme = Ocean` or `app`'s `theme`, or let the user
-pick it in `appearanceSettings`. A `Theme` of your own is an object of colors
-(`window`, `text`, `face`, `select`...).
+Twenty-eight color schemes come with the kit (`builtinThemes`): Classic,
+Gray, Dark, OLED Black, Ocean, Desert, Plum, Hot Dog, Paper, High Contrast,
+High Contrast White, Midnight, Emerald, Rose, Slate, Mahogany, Amber and
+Green Screen -- and ten made for a phone's screen, from white to dark:
+Notes (a notepad's cream paper and amber marker), Snow (white, a blue
+highlight), Mint, Sky, Blossom, Lavender and Sunset (pale, each with a
+colour of its own), and the dark Graphite, Dusk and Night Notes. Set one
+with `ui.theme = Ocean` or `app`'s `theme`, or let the user pick it in
+`appearanceSettings`. A `Theme` of your own is an object of colors
+(`window`, `text`, `face`, `select`...); in every scheme the text reads on
+the window, the fields, the buttons and the highlight (4.5 to 1 or more).
 
 | Classic | Gray |
 |---|---|
@@ -7910,10 +8000,63 @@ pick it in `appearanceSettings`. A `Theme` of your own is an object of colors
 |---|---|
 | ![Themes: Amber](controls/themes-amber.png) | ![Themes: Green Screen](controls/themes-green-screen.png) |
 
+| Notes | Snow |
+|---|---|
+| ![Themes: Notes](controls/themes-notes.png) | ![Themes: Snow](controls/themes-snow.png) |
+
+| Mint | Sky |
+|---|---|
+| ![Themes: Mint](controls/themes-mint.png) | ![Themes: Sky](controls/themes-sky.png) |
+
+| Blossom | Lavender |
+|---|---|
+| ![Themes: Blossom](controls/themes-blossom.png) | ![Themes: Lavender](controls/themes-lavender.png) |
+
+| Sunset | Graphite |
+|---|---|
+| ![Themes: Sunset](controls/themes-sunset.png) | ![Themes: Graphite](controls/themes-graphite.png) |
+
+| Dusk | Night Notes |
+|---|---|
+| ![Themes: Dusk](controls/themes-dusk.png) | ![Themes: Night Notes](controls/themes-night-notes.png) |
+
+### A look of your own
+
+A control takes what makes it look different as options, so a window with
+a look of its own is still made of the kit's controls -- the keyboard,
+screen readers, right-to-left and the phone's sizes stay as they are:
+
+- **the button that matters:** `button("Save", accent = true)` is drawn in
+  the scheme's accent (`Theme.accent` and `accentText`; the highlight's
+  where a scheme names none);
+- **a text style and a height** for `button`, `edit`, `spin`, `intEdit`
+  and `numberEdit`: `spin(n, 0, 99, h = 44, style = style(bold = true, size
+  = 1.5))` -- the box grows with its text, its arrows with the box;
+  `withTextStyle(style(size = 1.3)): ...` sets the text of everything
+  drawn in it;
+- **colours for a part:** `withTheme(t): ...` draws its controls in
+  another scheme, then puts the window's back;
+- **groups with a title strip:** `group "Title", glCaption: ...` (or
+  `groupLook = glCaption` for every group and card);
+- **options in boxes:** `radio("Metric", unit, 0, boxed = true)` -- the
+  whole box takes the press;
+- **the state colours** `goodColor()`, `warnColor()`, `badColor()`,
+  `infoColor()` and their pale backgrounds follow the scheme (a scheme may
+  name its own: `Theme.good`, `goodBack`...): `banner`, `usageBar`, the
+  bands of a `gauge` and a `rangeBar` are drawn in them;
+- **the 3.1 title bar:** `app(..., captionIcon = true, captionAlign =
+  caLeft, captionStyle = style(bold = true, serif = true, size = 1.35))`
+  puts the app's icon in it and the title large at its left.
+
+What no option gives is drawn on a `canvas` -- and made a control with
+`interact` when it is pressed ("Your own control", in the tutorials).
+[docs/customizing.md](customizing.md) goes through all of it with BMI
+Studio (`examples/bmi.nim`), a window made this way.
+
 ### Dark mode
 
-Dark, OLED Black, High Contrast, Midnight, Amber and Green Screen are the
-dark schemes (`themeIsDark`); in them the pixel icons are drawn as their
+Dark, OLED Black, High Contrast, Midnight, Amber, Green Screen, Graphite,
+Dusk and Night Notes are the dark schemes (`themeIsDark`); in them the pixel icons are drawn as their
 line twins, in the text's color (`setIconStyle`), and `codeEdit` colors
 code in brighter tones on its dark field. High Contrast and High
 Contrast White are for people who need every edge clear
@@ -8012,6 +8155,177 @@ their own.
 | Windows 3.1's buttons (captionButtons = cbWin31) |
 |---|
 | ![The window's frame: Windows 3.1's buttons (captionButtons = cbWin31)](controls/frame-windows-31s-buttons-captionbuttons-cbwin31.png) |
+
+### The accent button; a button's own text and height
+
+`accent = true`: the button in the scheme's accent colours. `style` and `h`: its label's text and its height. `withTheme` draws any controls in another scheme's colours -- `accentTheme()` is the one the accent button is drawn in.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![The accent button; a button's own text and height, normal](controls/accent-normal.png) | ![The accent button; a button's own text and height, touch screen](controls/accent-touch-screen.png) | ![The accent button; a button's own text and height, dark scheme](controls/accent-dark-scheme.png) |
+
+```nim
+row:
+  button("&Calculate", nfCalculator, isDefault = true, accent = true,
+         style = style(bold = true, size = 1.3), w = 170, h = 40)
+  button("&Reset", style = style(bold = true, size = 1.3), w = 110, h = 40)
+withTheme(accentTheme()):
+  row:
+    button("Drawn")
+    button("in the accent\'s")
+    button("colours")
+```
+
+**API**
+
+```nim
+proc accentColor*(): Color
+```
+
+The face of the button that matters most (`Theme.accent`, else the
+highlight's).
+
+```nim
+proc accentInk*(): Color
+```
+
+... and its text (`Theme.accentText`, else the highlight's text).
+
+```nim
+proc accentTheme*(): Theme
+```
+
+The scheme with a button's face, edges and text in the accent's
+colours: what `button(accent = true)` is drawn in (`withTheme`).
+
+```nim
+template withTheme*(t: Theme; body: untyped)
+```
+
+Draws `body` in the colours of `t`, then puts the window's own back:
+one control, or a part of the window, in colours of its own.
+
+### The state colours
+
+Good, warning, bad and for your information, in every scheme: the colour itself (text, a tag, a band) and a pale background that text reads on.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![The state colours, normal](controls/statecolors-normal.png) | ![The state colours, touch screen](controls/statecolors-touch-screen.png) | ![The state colours, dark scheme](controls/statecolors-dark-scheme.png) |
+
+```nim
+row:
+  pill("Paid", goodColor(), nfCheck)
+  pill("Due soon", warnColor())
+  pill("Overdue", badColor())
+  pill("Draft", infoColor())
+row:
+  for (name, c, back) in [("goodBack", goodColor(), goodBack()),
+                          ("warnBack", warnColor(), warnBack()),
+                          ("badBack", badColor(), badBack()),
+                          ("infoBack", infoColor(), infoBack())]:
+    let r = canvas(104, 28)
+    fill(r, back)
+    box(r, c)
+    text(r.x + 8, r.y + (r.h - lineHeight()) div 2, name, ui.theme.text)
+```
+
+**API**
+
+```nim
+proc goodColor*(): Color
+```
+
+The scheme's colour of "all is well" (`Theme.good`, else a green that
+shows on its window).
+
+```nim
+proc warnColor*(): Color
+```
+
+... of "take care" (`Theme.warn`, else an amber).
+
+```nim
+proc badColor*(): Color
+```
+
+... of "something is wrong" (`Theme.bad`, else a red).
+
+```nim
+proc infoColor*(): Color
+```
+
+... of "for your information" (`Theme.info`, else a blue).
+
+```nim
+proc goodBack*(): Color
+```
+
+The pale green behind text that says all is well: a cell, a strip
+(`Theme.goodBack`, else the window a fifth of the way to `goodColor`).
+
+```nim
+proc warnBack*(): Color
+```
+
+... behind "take care".
+
+```nim
+proc badBack*(): Color
+```
+
+... behind "something is wrong".
+
+```nim
+proc infoBack*(): Color
+```
+
+... behind "for your information".
+
+### A group with a title strip; options in boxes; large digits
+
+`group title, glCaption`: a raised panel under a strip in the highlight's colour (`beginGroup(title, look)` and `endGroup` are its two halves; `raisedPanel` and `captionStrip` its pieces, for a panel of your own). `radio(boxed = true)`: the option in a box that takes the press anywhere. `spin` with `h` and `style`: a tall box, large digits, arrows to match.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![A group with a title strip; options in boxes; large digits, normal](controls/captiongroup-normal.png) | ![A group with a title strip; options in boxes; large digits, touch screen](controls/captiongroup-touch-screen.png) | ![A group with a title strip; options in boxes; large digits, dark scheme](controls/captiongroup-dark-scheme.png) |
+
+```nim
+var lookUnit = 0
+var lookHeight = 175
+
+group "Your Measurements", glCaption:
+  row([-1, -1]):
+    radio("&Metric (cm, kg)", lookUnit, 0, boxed = true)
+    radio("&Imperial (in, lb)", lookUnit, 1, boxed = true)
+  row([70, 120, -1]):
+    label "Height:"
+    spin(lookHeight, 50, 250, w = 120, h = 40,
+         style = style(bold = true, size = 1.5))
+    label "cm"
+```
+
+**API**
+
+```nim
+proc beginGroup*(title: string; look: GroupLook)
+```
+
+Starts a group in the `look` way (see `group`); `endGroup` ends it.
+
+```nim
+proc raisedPanel*(r: Rect; c: Color)
+```
+
+A panel standing out of the window: `c` inside a gray line, lighter
+along its top and left, darker along its bottom and right.
+
+```nim
+proc captionStrip*(r: Rect; title: string)
+```
+
+A strip in the highlight colour with a bold title: the head of a
+panel (`glCaption`'s).
 
 ## Screen readers and input methods
 

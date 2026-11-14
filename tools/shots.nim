@@ -1434,18 +1434,21 @@ windows in the window, docked panels, the shortcuts the user picks, the
 settings page and the parts of a phone app.
 """)
 
-example("toolbar", "toolbar, toolButton, toolSeparator",
-        "A tool bar of small buttons; those that do not fit go into a \"more\" menu. `down` shows a button held in. Its buttons are one stop of Tab, as in Windows: the arrows go along them, Home and End to the ends, Space or Enter presses the one lit (any run of tool buttons is so: a palette's tools); a window starts at its first box, not at its tool bar. F6 goes to it from the other parts of the window.",
-        360, 70, ["toolbar", "toolButton", "toolSeparator"], @[ssNormal, ssTouch, ssDark, ssHover, ssPressed]):
+example("toolbar", "toolbar, toolButton, toolSeparator, toolSpace",
+        "A tool bar of small buttons; those that do not fit go into a \"more\" menu. `down` shows a button held in. `toolSeparator()` is a gap between groups, `toolSeparator(line = true)` an etched line in it; `toolSpace(20)` is room of your own, and `toolSpace()` all the room the bar has left -- what follows it is at the bar's right end. Its buttons are one stop of Tab, as in Windows: the arrows go along them, Home and End to the ends, Space or Enter presses the one lit (any run of tool buttons is so: a palette's tools); a window starts at its first box, not at its tool bar. F6 goes to it from the other parts of the window.",
+        360, 70, ["toolbar", "toolButton", "toolSeparator", "toolSpace"],
+        @[ssNormal, ssTouch, ssDark, ssHover, ssPressed]):
   toolbar:
     toolButton(pxNew, "New")
     aim()
     toolButton(pxOpen, "Open")
     toolButton(pxSave, "Save", enabled = shotEnabled)
-    toolSeparator()
+    toolSeparator(line = true)
     toolButton(pxCut, "Cut")
     toolButton(pxCopy, "Copy")
     toolButton(pxPaste, "Paste", down = true)
+    toolSpace()
+    toolButton(pxHelp, "Help")
 
 example("window", "window",
         "A window of the system's own beside the app's: a tool palette, a second view for another monitor, a preview. It is laid out and drawn as the app's window is, with its own menus and dialogs, at the place in the frame the app draws it; its close button sets the `bool` to false, and it closes when it is no longer drawn. X11, Wayland, Windows and macOS open real windows; on phones, in the browser and on a screen without a desktop it is a dialog over the app.",
@@ -1808,6 +1811,14 @@ example("gauge", "gauge",
         260, 200, ["gauge"], std3):
   gauge("Sales vs target", 78, hi = 100, target = 90, format = NumFormat(suffix: "%"),
         height = 180)
+
+example("gaugebands", "gauge in bands, rangeBar",
+        "A dial in bands of your own, each with its name: the needle at the value, the number and the band it is in under it. The bands take the scheme's state colours by turn unless they name their own; `sweep` gives a band more of the dial than its numbers would. `rangeBar` is the same bands as a bar of cells, a marker over the value's; `bandOf` says which band a value is in.",
+        400, 300, ["bandOf", "rangeBar"], std3):
+  let air = [Band(upTo: 50, label: "Good"), Band(upTo: 100, label: "Moderate"),
+             Band(upTo: 150, label: "Poor"), Band(upTo: 300, label: "Bad", sweep: 30)]
+  gauge("Air quality", 72, 0, 300, air, height = 200)
+  rangeBar(air, 72, 0)
 
 example("simplecharts", "barChart, lineChart, pieChart",
         "The quick ones: a list of numbers as bars, lines or slices, in one call.",
@@ -2344,19 +2355,57 @@ proc themeLook(name: string; t: Theme): Look =
 part("Looks", """
 ### Themes
 
-Eighteen color schemes come with the kit (`builtinThemes`): Classic, Gray,
-Dark, OLED Black, Ocean, Desert, Plum, Hot Dog, Paper, High Contrast, High
-Contrast White, Midnight, Emerald, Rose, Slate, Mahogany, Amber and Green
-Screen. Set one with `ui.theme = Ocean` or `app`'s `theme`, or let the user
-pick it in `appearanceSettings`. A `Theme` of your own is an object of colors
-(`window`, `text`, `face`, `select`...).
+Twenty-eight color schemes come with the kit (`builtinThemes`): Classic,
+Gray, Dark, OLED Black, Ocean, Desert, Plum, Hot Dog, Paper, High Contrast,
+High Contrast White, Midnight, Emerald, Rose, Slate, Mahogany, Amber and
+Green Screen -- and ten made for a phone's screen, from white to dark:
+Notes (a notepad's cream paper and amber marker), Snow (white, a blue
+highlight), Mint, Sky, Blossom, Lavender and Sunset (pale, each with a
+colour of its own), and the dark Graphite, Dusk and Night Notes. Set one
+with `ui.theme = Ocean` or `app`'s `theme`, or let the user pick it in
+`appearanceSettings`. A `Theme` of your own is an object of colors
+(`window`, `text`, `face`, `select`...); in every scheme the text reads on
+the window, the fields, the buttons and the highlight (4.5 to 1 or more).
 
 {{pictures:themes}}
 
+### A look of your own
+
+A control takes what makes it look different as options, so a window with
+a look of its own is still made of the kit's controls -- the keyboard,
+screen readers, right-to-left and the phone's sizes stay as they are:
+
+- **the button that matters:** `button("Save", accent = true)` is drawn in
+  the scheme's accent (`Theme.accent` and `accentText`; the highlight's
+  where a scheme names none);
+- **a text style and a height** for `button`, `edit`, `spin`, `intEdit`
+  and `numberEdit`: `spin(n, 0, 99, h = 44, style = style(bold = true, size
+  = 1.5))` -- the box grows with its text, its arrows with the box;
+  `withTextStyle(style(size = 1.3)): ...` sets the text of everything
+  drawn in it;
+- **colours for a part:** `withTheme(t): ...` draws its controls in
+  another scheme, then puts the window's back;
+- **groups with a title strip:** `group "Title", glCaption: ...` (or
+  `groupLook = glCaption` for every group and card);
+- **options in boxes:** `radio("Metric", unit, 0, boxed = true)` -- the
+  whole box takes the press;
+- **the state colours** `goodColor()`, `warnColor()`, `badColor()`,
+  `infoColor()` and their pale backgrounds follow the scheme (a scheme may
+  name its own: `Theme.good`, `goodBack`...): `banner`, `usageBar`, the
+  bands of a `gauge` and a `rangeBar` are drawn in them;
+- **the 3.1 title bar:** `app(..., captionIcon = true, captionAlign =
+  caLeft, captionStyle = style(bold = true, serif = true, size = 1.35))`
+  puts the app's icon in it and the title large at its left.
+
+What no option gives is drawn on a `canvas` -- and made a control with
+`interact` when it is pressed ("Your own control", in the tutorials).
+[docs/customizing.md](customizing.md) goes through all of it with BMI
+Studio (`examples/bmi.nim`), a window made this way.
+
 ### Dark mode
 
-Dark, OLED Black, High Contrast, Midnight, Amber and Green Screen are the
-dark schemes (`themeIsDark`); in them the pixel icons are drawn as their
+Dark, OLED Black, High Contrast, Midnight, Amber, Green Screen, Graphite,
+Dusk and Night Notes are the dark schemes (`themeIsDark`); in them the pixel icons are drawn as their
 line twins, in the text's color (`setIconStyle`), and `codeEdit` colors
 code in brighter tones on its dark field. High Contrast and High
 Contrast White are for people who need every edge clear
@@ -2442,6 +2491,52 @@ their own.
 example("themes", "Themes", "", 420, 200, ["builtinThemes"], @[ssNormal]):
   sampleUi()
 opts(inline = true, looks = builtinThemes.mapIt(themeLook(it.name, it.theme)))
+
+example("accent", "The accent button; a button's own text and height",
+        "`accent = true`: the button in the scheme's accent colours. `style` and `h`: its label's text and its height. `withTheme` draws any controls in another scheme's colours -- `accentTheme()` is the one the accent button is drawn in.",
+        440, 120, ["accentColor", "accentInk", "accentTheme", "withTheme"], std3):
+  row:
+    button("&Calculate", nfCalculator, isDefault = true, accent = true,
+           style = style(bold = true, size = 1.3), w = 170, h = 40)
+    aim()
+    button("&Reset", style = style(bold = true, size = 1.3), w = 110, h = 40)
+  withTheme(accentTheme()):
+    row:
+      button("Drawn")
+      button("in the accent's")
+      button("colours")
+
+example("statecolors", "The state colours",
+        "Good, warning, bad and for your information, in every scheme: the colour itself (text, a tag, a band) and a pale background that text reads on.",
+        470, 100, ["goodColor", "warnColor", "badColor", "infoColor", "goodBack", "warnBack", "badBack",
+                   "infoBack"], std3):
+  row:
+    pill("Paid", goodColor(), nfCheck)
+    pill("Due soon", warnColor())
+    pill("Overdue", badColor())
+    pill("Draft", infoColor())
+  row:
+    for (name, c, back) in [("goodBack", goodColor(), goodBack()), ("warnBack", warnColor(), warnBack()),
+                            ("badBack", badColor(), badBack()), ("infoBack", infoColor(), infoBack())]:
+      let r = canvas(104, 28)
+      fill(r, back)
+      box(r, c)
+      text(r.x + 8, r.y + (r.h - lineHeight()) div 2, name, ui.theme.text)
+
+example("captiongroup", "A group with a title strip; options in boxes; large digits",
+        "`group title, glCaption`: a raised panel under a strip in the highlight's colour (`beginGroup(title, look)` and `endGroup` are its two halves; `raisedPanel` and `captionStrip` its pieces, for a panel of your own). `radio(boxed = true)`: the option in a box that takes the press anywhere. `spin` with `h` and `style`: a tall box, large digits, arrows to match.",
+        420, 190, ["beginGroup", "raisedPanel", "captionStrip"], std3):
+  var lookUnit = 0
+  var lookHeight = 175
+do:
+  group "Your Measurements", glCaption:
+    row([-1, -1]):
+      radio("&Metric (cm, kg)", lookUnit, 0, boxed = true)
+      radio("&Imperial (in, lb)", lookUnit, 1, boxed = true)
+    row([70, 120, -1]):
+      label "Height:"
+      spin(lookHeight, 50, 250, w = 120, h = 40, style = style(bold = true, size = 1.5))
+      label "cm"
 
 example("sizes", "Sizes", "", 420, 200, [], @[ssNormal]):
   sampleUi()

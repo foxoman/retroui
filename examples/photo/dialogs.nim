@@ -126,8 +126,9 @@ const
                   "*.nef", "*.nrw", "*.arw", "*.cr2", "*.cr3", "*.orf", "*.rw2", "*.pef", "*.raf", "*.heic", "*.heif",
                   "*.avif", "*.jxl", "*.svg"]
   savePatterns = ["*.rpd", "*.psd", "*.pdf", "*.eps", "*.ps", "*.png", "*.jpg", "*.tif", "*.bmp", "*.gif", "*.tga",
-                  "*.hdr", "*.pfm", "*.exr", "*.webp", "*.jxl"]
+                  "*.hdr", "*.pfm", "*.exr", "*.webp", "*.jxl", "*.svg"]
   layeredFormats = ["rpd", "rp3", "psd", "psb"]
+  keepsLayers = ["rpd", "rp3", "psd", "psb", "svg"]   ## (an SVG: its shapes, type and pictures, each a layer)
 
 var bgSave: tuple[doc: Doc; copy: bool]   ## the document being saved in the background
 
@@ -152,7 +153,7 @@ proc writeDoc(dw: DocWin; path: string; quality = 85) =
   for L in d.layers:
     if not L.group: inc layered
   if not saveCopy: rememberFile(path)
-  if prefs.bgSave and d.w * d.h * max(1, layered) >= 3_000_000:
+  if prefs.bgSave and d.w * d.h * max(1, layered) >= 3_000_000 and ext != ".svg":
     try:
       var o = defaultExport(case ext
                             of ".rpd", ".rp3": efRpd
@@ -181,6 +182,7 @@ proc writeDoc(dw: DocWin; path: string; quality = 85) =
       case ext
       of ".rpd", ".rp3": d.saveRpd(path)
       of ".psd", ".psb": d.savePsd(path)
+      of ".svg": writeFile(path, d.svgOf())     # (its shapes as paths, its type as text, the rest pictures)
       else:
         var o = defaultExport(fmt)
         o.quality = quality
@@ -193,6 +195,10 @@ proc writeDoc(dw: DocWin; path: string; quality = 85) =
       d.name = path.splitFile.name
       d.modified = false
     status = "Saved " & path.extractFilename
+    if ext == ".svg":
+      let lost = d.svgLosses
+      status = "Saved " & path.extractFilename & ": shapes as paths, type as text" &
+               (if lost.len > 0: "; not kept: " & lost.join(", ") else: "")
     if not saveCopy: dw.dropRecovery()
   except CatchableError:
     status = "Could not save " & path.extractFilename & ": " & getCurrentExceptionMsg()
@@ -201,7 +207,7 @@ proc startSaveAs(dw: DocWin; copy = false) =
   saveDoc = dw
   saveCopy = copy
   let layered = dw.doc.layers.len > 1 or dw.doc.alphas.len > 0
-  let ext = if dw.doc.format in layeredFormats: "." & dw.doc.format
+  let ext = if dw.doc.format in keepsLayers: "." & dw.doc.format
             elif layered: ".rpd"
             elif dw.doc.format.len > 0: "." & dw.doc.format
             else: ".rpd"
@@ -230,7 +236,7 @@ proc startSavePdf(dw: DocWin) =
 
 proc save(dw: DocWin) =
   if saveSmartChild(dw): return
-  if dw.doc.path.len == 0 or (dw.doc.format notin layeredFormats and dw.doc.layers.len > 1):
+  if dw.doc.path.len == 0 or (dw.doc.format notin keepsLayers and dw.doc.layers.len > 1):
     dw.startSaveAs()
   else:
     saveCopy = false
@@ -700,7 +706,7 @@ proc fileDialogs() =
       elif ext in [".eps", ".ps"]:
         startEpsOptions(saveDoc, p)
       else:
-        if ext notin [".rpd", ".rp3", ".psd", ".psb"] and saveDoc.doc.layers.len > 1: flatWarn = true
+        if ext notin [".rpd", ".rp3", ".psd", ".psb", ".svg"] and saveDoc.doc.layers.len > 1: flatWarn = true
         saveDoc.writeDoc(p)
   if jpegOpen:
     dialog(jpegOpen, "JPEG Options", 340):

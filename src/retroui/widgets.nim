@@ -69,6 +69,75 @@ proc hoverColor*(): Color =
   ## The background of a row or item under the mouse.
   if th.hover.a != 0: th.hover else: mixColor(th.field, th.select, 0.13)
 
+proc onDark(): bool {.inline.} = (int(th.window.r) * 77 + int(th.window.g) * 151 + int(th.window.b) * 28) shr 8 < 128
+  ## (the scheme is a dark one: its states' colours lighter)
+
+proc goodColor*(): Color =
+  ## The scheme's colour of "all is well" (`Theme.good`, else a green that
+  ## shows on its window).
+  if th.good.a != 0: th.good elif onDark(): color(84, 200, 122) else: color(30, 140, 70)
+
+proc warnColor*(): Color =
+  ## ... of "take care" (`Theme.warn`, else an amber).
+  if th.warn.a != 0: th.warn elif onDark(): color(240, 190, 70) else: color(200, 140, 0)
+
+proc badColor*(): Color =
+  ## ... of "something is wrong" (`Theme.bad`, else a red).
+  if th.bad.a != 0: th.bad elif onDark(): color(244, 110, 110) else: color(200, 40, 40)
+
+proc infoColor*(): Color =
+  ## ... of "for your information" (`Theme.info`, else a blue).
+  if th.info.a != 0: th.info elif onDark(): color(110, 176, 250) else: color(33, 110, 200)
+
+proc goodBack*(): Color =
+  ## The pale green behind text that says all is well: a cell, a strip
+  ## (`Theme.goodBack`, else the window a fifth of the way to `goodColor`).
+  if th.goodBack.a != 0: th.goodBack else: mixColor(th.window, goodColor(), 0.22)
+
+proc warnBack*(): Color =
+  ## ... behind "take care".
+  if th.warnBack.a != 0: th.warnBack else: mixColor(th.window, warnColor(), 0.22)
+
+proc badBack*(): Color =
+  ## ... behind "something is wrong".
+  if th.badBack.a != 0: th.badBack else: mixColor(th.window, badColor(), 0.22)
+
+proc infoBack*(): Color =
+  ## ... behind "for your information".
+  if th.infoBack.a != 0: th.infoBack else: mixColor(th.window, infoColor(), 0.22)
+
+proc accentColor*(): Color =
+  ## The face of the button that matters most (`Theme.accent`, else the
+  ## highlight's).
+  if th.accent.a != 0: th.accent else: th.select
+
+proc accentInk*(): Color =
+  ## ... and its text (`Theme.accentText`, else the highlight's text).
+  if th.accentText.a != 0: th.accentText else: th.selectText
+
+proc accentTheme*(): Theme =
+  ## The scheme with a button's face, edges and text in the accent's
+  ## colours: what `button(accent = true)` is drawn in (`withTheme`).
+  result = th
+  let a = accentColor()
+  let ink = accentInk()
+  result.face = a
+  result.text = ink
+  result.light = mixColor(a, color(255, 255, 255), 0.45)
+  result.face2 = mixColor(a, color(255, 255, 255), 0.2)
+  result.shadow = mixColor(a, color(0, 0, 0), 0.55)
+  result.gray = mixColor(a, ink, 0.5)
+
+template withTheme*(t: Theme; body: untyped) =
+  ## Draws `body` in the colours of `t`, then puts the window's own back:
+  ## one control, or a part of the window, in colours of its own.
+  let savedTheme = ui.theme
+  ui.theme = t
+  try:
+    body
+  finally:
+    ui.theme = savedTheme
+
 proc hotFace*(): Color =
   ## A button face under the mouse: a little lighter.
   mixColor(th.face, th.light, 0.45)
@@ -601,7 +670,10 @@ proc image*(ic: Icon) =
 
 proc canvas*(w, h: int): Rect =
   ## Room for your own drawing: draw into the returned rectangle with
-  ## `fill`, `box`, `hline`, `vline`, `text` and `image`.
+  ## `fill`, `box`, `hline`, `vline`, `text` and `image`. `w` and `h` are
+  ## pixels as they are (0 or less for `w`: all the width there is): give
+  ## `dp(74)` for a size that follows the UI's scale, as a row's widths do
+  ## by themselves.
   result = place(w, h, fill = w <= 0)
   ui.lastId = 0
   ui.lastRect = result
@@ -612,12 +684,24 @@ proc buttonWidth*(label: string): int =
   ## How wide `button(label)` is.
   max(dp(72), labelWidth(label) + dp(24))
 
-proc button*(label: string; isDefault = false; enabled = true;
-             w = 0): bool {.discardable.} =
-  ## A push button; true when clicked. `isDefault` = Enter clicks it.
+template dressed(accent: bool; st: TextStyle; body: untyped) =
+  ## (`body` in the accent's colours and in the text style `st`)
+  let dressedTheme = ui.theme
+  if accent: ui.theme = accentTheme()
+  try:
+    withTextStyle(st):
+      body
+  finally:
+    ui.theme = dressedTheme
+
+proc styledH(h, plain, uiFontH: int): int {.inline.} =
+  ## (a control's height: `h`, else its usual one grown by the text's)
+  if h > 0: h else: plain + max(0, FontH - uiFontH)
+
+proc pushButton(label: string; isDefault, enabled: bool; w, h, uiFontH: int): bool =
   let id = idOf(label)
   let bw = if w > 0: w else: buttonWidth(label)
-  let r = place(bw, CtrlH)
+  let r = place(bw, styledH(h, CtrlH, uiFontH))
   var hit = interact(id, r, enabled = enabled)
   if enabled:
     spaceKey(id, hit)
@@ -640,6 +724,16 @@ proc button*(label: string; isDefault = false; enabled = true;
     accessNode(arButton, label, id = id, r = r,
                states = (if isDefault: {asDefault} else: {}) + offWhen(enabled))
   hit.clicked
+
+proc button*(label: string; isDefault = false; enabled = true;
+             w = 0; accent = false; style = TextStyle(); h = 0): bool {.discardable.} =
+  ## A push button; true when clicked. `isDefault` = Enter clicks it.
+  ## `accent`: in the scheme's accent colours -- the button that matters
+  ## most, one a window. `style`: its label's (`style(bold = true, size =
+  ## 1.3)`): the button grows with it; `h`: its height, else by its text.
+  let uiFontH = FontH
+  dressed(accent, style):
+    result = pushButton(label, isDefault, enabled, w, h, uiFontH)
 
 proc buttonAt*(key: string; r: Rect; label: string; st = TextStyle(); enabled = true;
                down = false): bool {.discardable.} =
@@ -711,16 +805,22 @@ proc radioGroup(key: uint): int =
   radioGroups.groups.high
 
 proc radio*(label: string; v: var int; value: int;
-            enabled = true): bool {.discardable.} =
+            enabled = true; boxed = false): bool {.discardable.} =
   ## One option of a group: selected when `v == value`; true when chosen.
   ## The options sharing `v` are a group: the arrow keys move the choice
-  ## (and the focus) between them, as in 3.1.
+  ## (and the focus) between them, as in 3.1. `boxed`: an option button --
+  ## the option in a box of its own as wide as its cell, all of it taking
+  ## the click, the chosen one tinted with the highlight.
   let id = idOf(v, label)
   let gk = cast[uint](addr v)
   let tw = labelWidth(label)
-  let r = place(dp(19) + tw + 2, boxH)
+  let whole = if boxed: place(dp(19) + tw + dp(22), boxH + dp(12), fill = true)
+              else: place(dp(19) + tw + 2, boxH)
+  # (the disc and the label: in the box, a little in from its left)
+  let r = if boxed: rect(whole.x + dp(9), whole.y + (whole.h - boxH) div 2, whole.w - dp(12), boxH)
+          else: whole
   let d = dp(12)
-  var hit = interact(id, r, enabled = enabled)
+  var hit = interact(id, whole, enabled = enabled)
   let gi = radioGroup(gk)
   if enabled:
     radioGroups.groups[gi].ids.add id
@@ -749,12 +849,20 @@ proc radio*(label: string; v: var int; value: int;
   if hit.clicked and v != value:
     v = value
     result = true
+  if boxed:
+    let on = v == value
+    let base = mixColor(th.face, th.light, 0.6)
+    let bg = if on: mixColor(base, th.select, 0.25)
+             elif enabled and hit.showsHover: mixColor(base, th.light, 0.5)
+             else: base
+    roundRect(whole, float(dp(4)), mixColor(bg, th.shadow, if on: 0.7 else: 0.5))
+    roundRect(inset(whole, 1), float(dp(3)), bg)
   radioDisc(r.x, r.y + (r.h - d) div 2, d, v == value, hit.down, enabled)
   let y0 = r.y + (r.h - FontH) div 2
   drawLabel(r.x + dp(19), y0, label, if enabled: th.text else: th.gray)
   if hit.focused: focusDots(rect(r.x + dp(17), y0 - 1, tw + 4, FontH + 2))
   if accessOn:
-    let k = accessNode(arRadioButton, label, id = id, r = r,
+    let k = accessNode(arRadioButton, label, id = id, r = whole,
                        states = (if v == value: {asChecked} else: {}) + offWhen(enabled))
     let at = radioGroups.groups[gi].ids.find(id)
     accessItem(k, at + 1, max(at + 1, radioGroups.groups[gi].prevIds.len))
@@ -1507,7 +1615,8 @@ proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
     let marked = focusedNow and (selA != selB and selA <= b and selB >= a or st.caret in a .. b)
     let g = lineGeo(s, a, b, pass, tx, inner.w - 6, runs = marked)
     let x0 = g.left - st.scrollX
-    let lst = TextStyle(size: 1, rtl: g.rtl)
+    var lst = textStyleNow()          # (the UI's text, or `withTextStyle`'s)
+    lst.rtl = g.rtl
     text(x0, y, shown(s, a, b, pass), fg, lst)
     if focusedNow and selA != selB and selA <= b and selB >= a and
        not (vl[k].soft and selA == b):
@@ -1617,13 +1726,17 @@ proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
   changed
 
 proc edit*(s: var string; w = 0; password = false;
-           enabled = true; readOnly = false; invalid = false): bool {.discardable.} =
+           enabled = true; readOnly = false; invalid = false;
+           h = 0; style = TextStyle()): bool {.discardable.} =
   ## A one-line text box bound to `s`; true when the text changed.
   ## `readOnly`: selected and copied, not changed. `invalid`: red, what is
-  ## typed is not right yet (a form says so as it is typed).
-  let r = place(if w > 0: w else: 0, EditH, fill = w <= 0)
-  editAt(idOf(s, "edit"), s, r, false, password, enabled, readOnly = readOnly,
-         invalid = invalid)
+  ## typed is not right yet (a form says so as it is typed). `style`: its
+  ## text's (large, bold, serif): the box grows with it; `h`: its height.
+  let uiFontH = FontH
+  withTextStyle(style):
+    let r = place(if w > 0: w else: 0, styledH(h, EditH, uiFontH), fill = w <= 0)
+    result = editAt(idOf(s, "edit"), s, r, false, password, enabled, readOnly = readOnly,
+                    invalid = invalid)
 
 proc editArea*(s: var string; lines = 6; w = 0;
                enabled = true; wrap = true; readOnly = false): bool {.discardable.} =
@@ -2112,12 +2225,8 @@ proc progress*(value: float; w = 0; showText = true) =
     text(tx, ty, s, th.selectText)
     popClip()
 
-proc spin*(v: var int; lo, hi: int; w = 80; step = 1;
-           enabled = true): bool {.discardable.} =
-  ## A number box with up and down arrows bound to `v` in `lo..hi`: type a
-  ## number, click or hold the arrows, or with the focus Up / Down (`step`),
-  ## Page Up / Page Down (ten steps) and the wheel.
-  let r = place(w, EditH)
+proc spinBox(v: var int; lo, hi, w, step: int; enabled: bool; h, uiFontH: int): bool =
+  let r = place(w, styledH(h, EditH, uiFontH))
   let id = idOf(v, "spin")
   var st: WState
   swap(st, state(id))         # (taken out and put back: no copy of its text)
@@ -2128,7 +2237,8 @@ proc spin*(v: var int; lo, hi: int; w = 80; step = 1;
     numBuf.addInt v
     if st.buf != numBuf: st.buf = numBuf
   var nv = v
-  let aw = if fingers(): dp(26) else: dp(16)            # the arrows: finger-sized on touch
+  # the arrows: finger-sized on touch, and as wide as a tall box asks
+  let aw = max(if fingers(): dp(26) else: dp(16), r.h * 2 div 3)
   let ups = rect(r.x + r.w - aw, r.y, aw, r.h div 2 + 1)
   let downs = rect(r.x + r.w - aw, r.y + r.h div 2, aw, r.h - r.h div 2)
   if editAt(editId, st.buf, rect(r.x, r.y, r.w - aw + 1, r.h), false, false,
@@ -2175,9 +2285,20 @@ proc spin*(v: var int; lo, hi: int; w = 80; step = 1;
     buttonFace(b, pr, rounded = false, bevel = 1)
     let o = if pr: 1 else: 0
     arrow(b.x + b.w div 2 + o, b.y + b.h div 2 + o, if i == 0: dUp else: dDown,
-          if enabled: th.frame else: th.gray, 3)
+          if enabled: th.frame else: th.gray, max(3, b.h div 4))
   ui.lastId = editId
   ui.lastRect = r
+
+proc spin*(v: var int; lo, hi: int; w = 80; step = 1;
+           enabled = true; h = 0; style = TextStyle()): bool {.discardable.} =
+  ## A number box with up and down arrows bound to `v` in `lo..hi`: type a
+  ## number, click or hold the arrows, or with the focus Up / Down (`step`),
+  ## Page Up / Page Down (ten steps) and the wheel. `style`: its digits'
+  ## (`style(size = 1.6, bold = true)`); the box and its arrows grow with
+  ## them, or to `h`.
+  let uiFontH = FontH
+  withTextStyle(style):
+    result = spinBox(v, lo, hi, w, step, enabled, h, uiFontH)
 
 proc popupSlider*(v: var int; lo, hi: int; w = 0; unit = "%";
                   enabled = true): bool {.discardable.} =
@@ -2282,8 +2403,70 @@ proc popupSlider*(v: var int; lo, hi: int; w = 0; unit = "%";
 
 # ---- containers ---------------------------------------------------------------
 
+type GroupLook* = enum
+  ## How a group of controls is framed (`group`, `card`).
+  glEtched     ## 3.1's: an etched line, the title set into it
+  glCaption    ## a raised panel, its title in a strip of the highlight colour
+
+var groupLook* = glEtched
+  ## The look of the groups and cards that do not say theirs.
+
+var captionGroups: seq[tuple[cell: Rect; fillAt: int; title: string; minH, depth: int]]
+
+proc captionStripH(): int = FontH + dp(10)
+
+proc beginGroup*(title: string; look: GroupLook) =
+  ## Starts a group in the `look` way (see `group`); `endGroup` ends it.
+  if look == glEtched:
+    beginGroup(title)
+    return
+  let cell = beginCell(0, fill = true)
+  if accessOn: accessBegin(arGroup, title, rect(cell.x, cell.y, cell.w, FontH))
+  let minH = rowHeight()
+  let head = if title.len > 0: captionStripH() + dp(4) else: 0
+  let fillAt = reserveFill()
+  pushFrame(rect(cell.x + Pad + 3, cell.y + Pad + 3 + head, cell.w - 2 * Pad - 6, 0),
+            reserve = Pad + 3, inPage = true)
+  captionGroups.add (cell, fillAt, title, minH, layoutDepth())
+
+proc raisedPanel*(r: Rect; c: Color) =
+  ## A panel standing out of the window: `c` inside a gray line, lighter
+  ## along its top and left, darker along its bottom and right.
+  fill(r, c)
+  box(r, th.shadow)
+  if r.w > 4 and r.h > 4:
+    hline(r.x + 1, r.y + 1, r.w - 2, th.light)
+    vline(r.x + 1, r.y + 1, r.h - 2, th.light)
+    hline(r.x + 1, r.y + r.h - 2, r.w - 2, mixColor(c, th.shadow, 0.3))
+    vline(r.x + r.w - 2, r.y + 1, r.h - 2, mixColor(c, th.shadow, 0.3))
+
+proc captionStrip*(r: Rect; title: string) =
+  ## A strip in the highlight colour with a bold title: the head of a
+  ## panel (`glCaption`'s).
+  fill(r, th.select)
+  hline(r.x, r.y, r.w, mixColor(th.select, th.selectText, 0.25))
+  pushClip(r)
+  drawLabel(r.x + dp(8), r.y + (r.h - FontH) div 2, title, th.selectText, true)
+  popClip()
+
 proc endGroup*() =
   ## Ends a `beginGroup`: draws the box and its title.
+  if captionGroups.len > 0 and captionGroups[^1].depth == layoutDepth():
+    let (cell, fillAt, title, minH, _) = captionGroups.pop()
+    let h = popFrame()
+    let head = if title.len > 0: captionStripH() + dp(4) else: 0
+    let natural = h + 2 * Pad + 6 + head
+    let r = rect(cell.x, cell.y, cell.w, max(natural, minH))
+    # (the panel under what was placed in it: its place kept, filled now)
+    patchFill(fillAt, r, mixColor(th.window, th.light, 0.35))
+    box(r, th.shadow)
+    hline(r.x + 1, r.y + 1, r.w - 2, th.light)
+    vline(r.x + 1, r.y + 1, r.h - 2, th.light)
+    if title.len > 0:
+      captionStrip(rect(r.x + dp(4), r.y + dp(4), r.w - dp(8), captionStripH()), title)
+    endCell(r, r.h, natural)
+    if accessOn: accessEnd(r)
+    return
   let (cell, title) = groupEnd()
   if accessOn: accessEnd(cell)
   let top = FontH div 2 - 1
@@ -2294,8 +2477,15 @@ proc endGroup*() =
     drawLabel(cell.x + 10, cell.y, title, th.text)
 
 template group*(title: string; body: untyped) =
-  ## A group box: a frame with a title around `body`.
-  beginGroup(title)
+  ## A group box: a frame with a title around `body` (in the look
+  ## `groupLook` says: 3.1's etched line, or a panel with a title strip).
+  beginGroup(title, groupLook)
+  body
+  endGroup()
+
+template group*(title: string; look: GroupLook; body: untyped) =
+  ## A group in a look of its own: `group "Your Measurements", glCaption:`.
+  beginGroup(title, look)
   body
   endGroup()
 
@@ -3693,9 +3883,14 @@ template ToolH: int =
   (if toolbarLook == blTextBelow: CtrlH + FontH + dp(5) else: CtrlH + 5)
 
 var tbar: tuple[on, full: bool; y, h: int; chosen: string;
-                items: seq[tuple[key, label: string; enabled, down: bool]]]
+                items: seq[tuple[key, label: string; enabled, down: bool]];
+                tailId: Id; sprung, jumped, again: bool]
   ## The tool bar being drawn: buttons that do not fit go into its "more"
   ## menu (`chosen`: the one picked there, which clicks next frame).
+  ## `toolSpace()`: what follows it is at the bar's right end (`sprung`),
+  ## as wide as it was measured the frame before (kept under `tailId`);
+  ## `jumped`: it was put there this frame; `again`: it did not fit there
+  ## -- measured again, where it falls.
 
 # A run of tool buttons -- a tool bar's, between its boxes; a palette's tools
 # -- is one stop of Tab, as Windows' tool bars are: the arrows go along it,
@@ -3806,9 +4001,14 @@ proc beginToolbar*() =
   tbar.full = false
   tbar.y = r.y
   tbar.items.setLen(0)
+  tbar.tailId = makeId(uint32(ui.barY) * 0x9E3779B1'u32 + 0x7C)
+  tbar.sprung = false
+  tbar.jumped = false
+  tbar.again = false
 
 proc overflowsNow(w: int): bool {.inline.} =
-  tbar.on and (tbar.full or available() < w + (CtrlH + 1) + Gap)
+  # (what was put at the bar's right end fits there as measured: no room kept for "more")
+  tbar.on and (tbar.full or available() < w + (if tbar.jumped: 0 else: (CtrlH + 1) + Gap))
 
 template overflows(w: int; key, label: string; enabled, down: bool; clicked: var bool): bool =
   ## In a tool bar too narrow for it: the button goes into the "more" menu
@@ -3817,6 +4017,7 @@ template overflows(w: int; key, label: string; enabled, down: bool; clicked: var
   (if overflowsNow(w): overflowItem(key, label, enabled, down, clicked) else: false)
 
 proc overflowItem(key, label: string; enabled, down: bool; clicked: var bool): bool =
+  if tbar.jumped: tbar.again = true      # (it grew since it was measured)
   tbar.full = true
   tbar.items.add (key, label, enabled, down)
   if tbar.chosen == key:
@@ -3826,6 +4027,14 @@ proc overflowItem(key, label: string; enabled, down: bool; clicked: var bool): b
 
 proc endToolbar*() =
   ## Ends the tool bar: the buttons that did not fit go into its "more" menu.
+  if tbar.sprung:
+    # (how wide what followed `toolSpace()` is, for the next frame to put it at the
+    # right end: kept as it was where the bar is too narrow to tell)
+    let st = addr state(tbar.tailId)
+    let tail = if tbar.again: 0 elif tbar.full and not tbar.jumped: st.aux2 else: barTail()
+    if tail != st.aux2:
+      st.aux2 = tail
+      ui.redraw = true
   tbar.on = false
   inBarNow = false
   if tbar.items.len > 0:
@@ -3939,15 +4148,19 @@ proc glyphPic*(glyph: string; size = 1.25): ButtonPic =
   ## An icon-font glyph as a button's picture (`glyphPic(nfCopy)`).
   ButtonPic(glyph: glyph, size: size)
 
+proc glyphStyle(p: ButtonPic): TextStyle =
+  ## (a glyph's size: its own times the text's -- `withTextStyle`)
+  style(size = (if p.size > 0: p.size else: 1.0) * textScaleNow())
+
 proc picSize(p: ButtonPic): (int, int) =
   if p.glyph.len > 0:
-    let st = style(size = if p.size > 0: p.size else: 1.0)
+    let st = glyphStyle(p)
     (textWidth(p.glyph, st), lineHeight(st))
   else: (p.icon.w, p.icon.h)
 
 proc drawPic(p: ButtonPic; x, y: int; enabled: bool) =
   if p.glyph.len > 0:
-    text(x, y, p.glyph, if enabled: th.text else: th.gray, style(size = if p.size > 0: p.size else: 1.0))
+    text(x, y, p.glyph, if enabled: th.text else: th.gray, glyphStyle(p))
   elif p.icon.w > 0:
     if enabled: image(x, y, p.icon) else: image(x, y, grayed(p.icon))
 
@@ -3984,10 +4197,8 @@ proc drawLabeled*(r: Rect; pic: ButtonPic; label: string; look: ButtonLook; enab
     pic.drawPic(x0, r.y + (r.h - ph) div 2 + o, enabled)
     lab(x0 + pw + dp(5), r.y + (r.h - FontH) div 2 + o)
 
-proc button*(label: string; pic: ButtonPic; look = blTextBeside; isDefault = false;
-             enabled = true; w = 0; h = 0): bool {.discardable.} =
-  ## A push button with a picture: icon only (the label its tooltip), text
-  ## only, the text below the icon, or beside it. True when clicked.
+proc picButton(label: string; pic: ButtonPic; look: ButtonLook; isDefault, enabled: bool;
+               w, h: int): bool =
   let id = idOf("picbutton:" & label)
   let lk = if look == blDefault: blTextBeside else: look
   let (nw, nh) = labeledSize(pic, label, lk)
@@ -4010,6 +4221,16 @@ proc button*(label: string; pic: ButtonPic; look = blTextBeside; isDefault = fal
   if hit.focused: focusDots(inset(r, 4))
   if lk == blIconOnly: tooltip(label.replace("&", ""))
   hit.clicked
+
+proc button*(label: string; pic: ButtonPic; look = blTextBeside; isDefault = false;
+             enabled = true; w = 0; h = 0; accent = false;
+             style = TextStyle()): bool {.discardable.} =
+  ## A push button with a picture: icon only (the label its tooltip), text
+  ## only, the text below the icon, or beside it. True when clicked.
+  ## `accent` and `style` as the plain button's: the picture of the icon
+  ## font grows with the label.
+  dressed(accent, style):
+    result = picButton(label, pic, look, isDefault, enabled, w, h)
 
 proc barButton*(pic: ButtonPic; label: string; tip = ""; down = false; enabled = true;
                 look = blDefault): bool {.discardable.} =
@@ -4051,10 +4272,11 @@ proc buttonAt*(key: string; r: Rect; label: string; pic: ButtonPic; look = blTex
   hit.clicked
 
 proc button*(label: string; glyph: string; look = blTextBeside; isDefault = false;
-             enabled = true; w = 0; h = 0): bool {.discardable.} =
+             enabled = true; w = 0; h = 0; accent = false;
+             style = TextStyle()): bool {.discardable.} =
   ## `button` with a glyph of the icon font as its picture (`pxSave`,
   ## `nfCopy`...).
-  button(label, glyphPic(glyph, 1.0), look, isDefault, enabled, w, h)
+  button(label, glyphPic(glyph, 1.0), look, isDefault, enabled, w, h, accent, style)
 
 proc barButton*(glyph: string; label: string; tip = ""; down = false; enabled = true;
                 look = blDefault): bool {.discardable.} =
@@ -4066,9 +4288,32 @@ proc buttonAt*(key: string; r: Rect; label: string; glyph: string; look = blText
   ## `buttonAt` with a glyph of the icon font as its picture.
   buttonAt(key, r, label, glyphPic(glyph, 1.0), look, enabled, down)
 
-proc toolSeparator*() =
-  ## A gap between groups of tool buttons.
-  if not (tbar.on and tbar.full): space(8)
+proc toolSeparator*(line = false) =
+  ## A gap between groups of tool buttons. `line`: an etched line in the
+  ## gap, as the tool bars after 3.1 have between their groups.
+  if tbar.on and tbar.full: return
+  if not line:
+    space(8)
+    return
+  let r = place(dp(9), if tbar.on: tbar.h - 6 else: CtrlH - 1)
+  let x = r.x + r.w div 2
+  vline(x - 1, r.y + 2, r.h - 4, th.shadow)
+  vline(x, r.y + 2, r.h - 4, th.light)
+  ui.lastId = 0
+  ui.lastRect = r
+
+proc toolSpace*(w = 0) =
+  ## Room between tool buttons: `w` pixels of it, or -- 0 -- all the bar
+  ## has left, so what comes after it is at the bar's right end (a search
+  ## box, a Help button).
+  if tbar.on and tbar.full: return
+  if w > 0: space(w)
+  elif not tbar.on: spring()
+  else:
+    let tail = state(tbar.tailId).aux2
+    tbar.sprung = true
+    tbar.jumped = tail > 0 and available() >= tail
+    barSpring(if tbar.jumped: tail else: 0)
 
 proc statusbar*(parts: varargs[string]) =
   ## The status bar at the bottom of the window: the first part takes the
@@ -4581,6 +4826,53 @@ proc openControlMenu() =
   ui.popupHi = -1
   ui.redraw = true
 
+var captionPic: tuple[bmp: Bitmap; size, source: int]
+
+proc captionPicture(want: int): Bitmap =
+  ## (the app's icon for a title bar `want` device pixels high: the window
+  ## icon's picture of that size, or the next larger)
+  if windowIcon.len < 3: return nil
+  if captionPic.bmp != nil and captionPic.size == want and captionPic.source == windowIcon.len:
+    return captionPic.bmp
+  var at = 0
+  var best = -1
+  var bestN = 0
+  while at + 2 <= windowIcon.len:
+    let n = int(windowIcon[at])
+    if n <= 0 or at + 2 + n * n > windowIcon.len: break
+    if best < 0 or (bestN < want and n > bestN) or (n >= want and n < bestN):
+      best = at
+      bestN = n
+    at += 2 + n * n
+  if best < 0: return nil
+  let b = newBitmap(bestN, bestN)
+  for i in 0 ..< bestN * bestN: b.px[i] = windowIcon[best + 2 + i]
+  b.changed()
+  captionPic = (b, want, windowIcon.len)
+  b
+
+proc captionTitle(left, right, y, h: int; fg: Color) =
+  ## (a title bar's icon and title between `left` and `right`: centred, or
+  ## at the left -- `captionAlign`, `captionIcon`, `captionStyle`)
+  let st = captionTitleStyle()
+  var x0 = left
+  var pic: Bitmap
+  var ps = 0
+  if captionIcon:
+    ps = max(8, h - dp(6))
+    pic = captionPicture(ps * pxScale)
+    if pic == nil: ps = 0
+  let room = right - x0 - dp(8) - (if ps > 0: ps + dp(6) else: 0)
+  let t = ellipsize(ui.title, room, st)
+  let tw = textWidth(t, st)
+  let whole = tw + (if ps > 0: ps + dp(6) else: 0)
+  var x = if captionAlign == caLeft: x0 + dp(6)
+          else: x0 + max(dp(4), (right - x0 - whole) div 2)
+  if ps > 0:
+    drawBitmap(rect(x, y + (h - ps) div 2, ps, ps), pic)
+    x += ps + dp(6)
+  text(x, y + (h - lineHeight(st)) div 2, t, fg, st)
+
 proc classicCaption() =
   ## (the 3.1 frame's title bar: drawn first in the frame, so its presses
   ## are its own; the border is drawn last, over the bars, by
@@ -4660,11 +4952,7 @@ proc classicCaption() =
                        of fpMinimize: cmMinimize
                        of fpClose: cmClose
                        else: (if maxed: cmRestore else: cmMaximize)), down)
-  let left = cb.x + cb.w + 1
-  let room = f.minimize.x - left - dp(8)
-  let t = ellipsize(ui.title, room, style(bold = true))
-  text(left + max(dp(4), (f.minimize.x - left - textWidth(t, true)) div 2),
-       cap.y + (cap.h - FontH) div 2, t, tfg, true)
+  captionTitle(cb.x + cb.w + 1, f.minimize.x, cap.y, cap.h, tfg)
   # (nothing under the frame answers the mouse)
   ui.blockers.add rect(0, 0, ui.w, f.border + ui.captionH)
   if f.border > 0:
@@ -4798,12 +5086,15 @@ proc captionBar*() =
   when not (defined(android) or defined(ios)):
     let barR = rect(boxR.x + boxR.w + 3, cap.y, right - (boxR.x + boxR.w + 3), ch)
     if canInput() and hover(barR) and takePress(): discard startWindowMove()
-  # the title, centered between them
-  let room = right - (boxR.x + boxR.w) - 12
-  let t = ellipsize(ui.title, room, style(bold = true))
-  let tw = textWidth(t, true)
-  text(max(boxR.x + boxR.w + 6, cap.x + (cap.w - tw) div 2),
-       cap.y + (ch - FontH) div 2, t, th.selectText, true)
+  # the title, centered between them (or as `captionAlign` says)
+  if captionAlign == caLeft or captionIcon or captionStyle != TextStyle():
+    captionTitle(boxR.x + boxR.w + 3, right - 3, cap.y, ch, th.selectText)
+  else:
+    let room = right - (boxR.x + boxR.w) - 12
+    let t = ellipsize(ui.title, room, style(bold = true))
+    let tw = textWidth(t, true)
+    text(max(boxR.x + boxR.w + 6, cap.x + (cap.w - tw) div 2),
+         cap.y + (ch - FontH) div 2, t, th.selectText, true)
   # its menu
   if ui.popup == menuId and inWindow() and beginPopupMenu(menuId, boxR.x, cap.y + ch):
     # (a window besides the app's: its size is the app's)

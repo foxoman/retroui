@@ -1443,18 +1443,21 @@ proc openPicture*(path: string): Doc =
     result.format = ext[1 .. ^1]
     result.modified = false
   of ".svg":
-    # (an SVG: its drawing as shape layers -- sharp at any size -- on a
-    # transparent canvas its size, at least 1024 pixels across)
+    # (an SVG: its drawing as layers -- shapes, sharp at any size; its
+    # text as type; its pictures -- on a transparent canvas its size (an
+    # icon's: 1024 pixels across))
     let data = try: readFile(path)
                except IOError, OSError: raise newException(IOError, "cannot read " & path.extractFilename)
-    let doc = parseSvg(data)
+    let doc = parseSvg(data, path.parentDir)
     var (sw, sh) = svgSize(doc)
     if sw <= 0 or sh <= 0: (sw, sh) = (1024.0, 1024.0)
-    let k = max(1.0, 1024 / max(sw, sh))
+    # (a small one -- an icon -- big enough to work on; a drawing at its own size, so
+    # that it is saved again the size it was)
+    let k = if max(sw, sh) >= 256: 1.0 else: 1024 / max(sw, sh)
     let w = clamp(int(round(sw * k)), 1, 16384)
     let h = clamp(int(round(sh * k)), 1, 16384)
     result = newDoc(w, h, 0'u32, 72, path.splitFile.name)
-    discard result.placeSvg(data, rect(0, 0, w, h))
+    discard result.placeSvg(data, rect(0, 0, w, h), asGroup = false, base = path.parentDir)
     if result.layers.len > 1 and result.layers[0].px.len > 0:
       # (the empty first layer the new document had: not needed)
       var empty = true

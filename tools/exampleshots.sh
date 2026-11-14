@@ -4,19 +4,20 @@
 # window saved once it is up (ImageMagick's import). The others' pictures
 # are the README's own (docs/*.png).
 #
-#   sh tools/exampleshots.sh                 hello charts native gallery gallery-forms hrbook magazine sevenguis navigator retrodns podcast grow
+#   sh tools/exampleshots.sh                 hello charts native gallery gallery-forms hrbook magazine sevenguis navigator retrodns podcast grow bmi
 #   sh tools/exampleshots.sh hello charts    these
 #
 # 7GUIs is driven to its spreadsheet first (RETRO_DRIVE, `retrokit drive`);
 # Retro Podcast follows a feed file of its own and plays an episode;
 # gallery-forms is the Gallery's Forms & Code page; Grow's two pages side
-# by side (the plan, then its result with the bars risen).
+# by side (the plan, then its result with the bars risen); BMI Studio in
+# its own colours and in two of the kit's schemes, a light and a dark.
 #
 # Needs Xvfb, xdotool and ImageMagick (Debian: xvfb xdotool imagemagick);
 # Retro Navigator's picture, WebKitGTK too (libwebkit2gtk-4.1-0).
 set -eu
 cd "$(dirname "$0")/.."
-apps=${*:-hello charts native gallery gallery-forms hrbook magazine sevenguis navigator retrodns podcast grow}
+apps=${*:-hello charts native gallery gallery-forms hrbook magazine sevenguis navigator retrodns podcast grow bmi}
 out=docs/examples
 mkdir -p "$out" build/shots
 case " $apps " in
@@ -36,6 +37,27 @@ for app in $apps; do
         "$home/mag/Retro-04-page3.png" -resize x700 +append -bordercolor white -border 12 \
         "$out/magazine.png"
       rm -rf "$home"
+      continue ;;
+    bmi)
+      # (its own colours, then two of the kit's schemes: nothing changed in the app)
+      nim c -d:release --hints:off -o:build/shots/bmi examples/bmi.nim > build/shots/bmi.txt 2>&1
+      for th in own Mint Dusk; do
+        [ "$th" = own ] && unset RETRO_THEME || export RETRO_THEME="$th"
+        xvfb-run -a -s "-screen 0 1280x860x24" sh -c '
+          "$1" > /dev/null 2>&1 &
+          pid=$!
+          sleep 5
+          w=$(xdotool search --onlyvisible --pid $pid 2>/dev/null | head -1)
+          [ -n "$w" ] || w=$(xdotool search --onlyvisible --name . 2>/dev/null | tail -1)
+          import -window "$w" "$2"
+          kill $pid 2>/dev/null || true' sh build/shots/bmi "build/shots/bmi-$th.png"
+      done
+      unset RETRO_THEME
+      convert build/shots/bmi-own.png build/shots/bmi-Mint.png build/shots/bmi-Dusk.png -resize 62% \
+        -bordercolor white -border 6 +append "$out/bmi.png"
+      rm -f build/shots/bmi-own.png build/shots/bmi-Mint.png build/shots/bmi-Dusk.png
+      rm -rf "$home"
+      ls -l "$out/bmi.png"
       continue ;;
     hrbook)
       # (its demo book, PIN 246810: invented people)

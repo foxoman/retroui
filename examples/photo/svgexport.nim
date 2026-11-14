@@ -1,10 +1,20 @@
 # Retro Photo -- included by photo.nim
 #
-# File > Export > SVG: the shapes as paths, the type as text, the rest as
-# a picture inside it (retroui/photosvg).
+# SVG: File > New SVG Drawing (an empty drawing that File > Save writes as
+# an SVG), File > Export > SVG -- the shapes as paths, the type as text,
+# the rest as pictures inside it (retroui/photosvg). An .svg opens as
+# layers (retroui/svgimport) and is saved again by File > Save.
 
 var
   svgSave: tuple[pick: bool; path: string]          ## File > Export > SVG: the file asked for
+
+proc startSvgDrawing() =
+  ## File > New SVG Drawing: an empty drawing, transparent, that is saved
+  ## as an SVG.
+  let d = newUntitled(1024, 768, 0'u32, 72, cmRGB, "Drawing-" & $(untitled + 1))
+  d.format = "svg"
+  addDoc(d)
+  status = "A drawing: its shapes, pen paths and type stay vectors; File > Save writes an SVG"
 
 proc startSvgExport() =
   let d = cur()
@@ -21,6 +31,8 @@ proc svgDialogs() =
       if p.splitFile.ext.toLowerAscii != ".svg": p.add ".svg"
       try:
         writeFile(p, d.svgOf())
-        status = "Saved " & p.extractFilename & ": shapes as paths, type as text"
+        let lost = d.svgLosses
+        status = "Saved " & p.extractFilename & ": shapes as paths, type as text" &
+                 (if lost.len > 0: "; not kept: " & lost.join(", ") else: "")
       except IOError, OSError:
         status = "Could not save " & p.extractFilename

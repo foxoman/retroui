@@ -1,5 +1,95 @@
 # Changes
 
+## 0.52.0
+
+A look of your own, by the controls' options; ten colour schemes for
+phones; SVG as a format of Retro Photo, read and written.
+
+- **Controls that take a look** (docs/customizing.md, new: changing a
+  control by its options, putting controls together, drawing one, changing
+  the kit):
+  - `button(..., accent = true)`: the button that matters, in the scheme's
+    accent (`Theme.accent`, `accentText`; the highlight's where a scheme
+    names none; `accentColor()`, `accentInk()`, `accentTheme()`).
+  - A text style and a height: `button(..., style = style(bold = true,
+    size = 1.3), h = 42)`, and `h`, `style` on `edit`, `spin`, `intEdit`
+    and `numberEdit` -- large digits in a tall box, the spin's arrows
+    grown with it. `labelWidth(label, st)` and `drawLabel(x, y, label, c,
+    st)` measure and draw a label with its underlined letter at any size.
+  - `withTheme(t): ...` draws a part in another scheme's colours;
+    `withTextStyle(st): ...` sets the text of everything drawn in it
+    (styles multiply; both put back what was, after an error too).
+  - `group "Title", glCaption: ...`: a raised panel under a title strip in
+    the highlight's colour (`GroupLook`; `groupLook = glCaption` for every
+    group and card; `beginGroup(title, look)`, `raisedPanel`,
+    `captionStrip`).
+  - `radio(label, v, value, boxed = true)`: the option in a box that takes
+    the press anywhere, tinted when it is the one chosen.
+  - `gauge(title, value, lo, hi, bands)`: a dial in bands of your own
+    (`Band`: where it ends, its name, its colour, its share of the dial),
+    the number in a style of your own; `rangeBar(bands, value, lo)`: the
+    bands as a bar of cells, a marker over the value's; `bandOf`.
+  - **State colours in every scheme**: `goodColor()`, `warnColor()`,
+    `badColor()`, `infoColor()` and `goodBack()`... behind text
+    (`Theme.good`... where a scheme names its own). `banner`, `usageBar`,
+    the gauge's bands and the range bar are drawn in them, so they follow
+    Dark and the rest.
+  - The 3.1 title bar: `app(..., captionIcon = true, captionAlign = caLeft,
+    captionStyle = style(bold = true, serif = true, size = 1.35))` -- the
+    app's icon in it, the title large at its left; the bar as tall as its
+    title.
+  - `pill(text, colour, glyph)`: a tag with an icon; it follows
+    `withTextStyle`. `nfCalculator` in the icon font.
+- **The tool bar**: `toolSeparator(line = true)` is an etched line between
+  groups (plain: the gap it was), `toolSpace(20)` room of your own, and
+  `toolSpace()` all the room the bar has left: what follows it is at the
+  bar's right end (a Help button, a search box). Too narrow a bar puts
+  them in its "more" menu as before.
+- **Ten colour schemes for a phone's screen**, from white to dark, in
+  `builtinThemes` (28 now) and so in `appearanceSettings` and every app's
+  theme menu: Notes (a notepad's cream paper, an amber marker), Snow,
+  Mint, Sky, Blossom, Lavender, Sunset, and the dark Graphite, Dusk and
+  Night Notes. Every scheme's text is tested readable (4.5 to 1) on its
+  window, fields, buttons, highlight and accent button.
+- **BMI Studio** (`examples/bmi.nim`, `nimble bmi`, `RETRO_APP=bmi nimble
+  appapk`): a body mass index calculator whose window has a look of its
+  own -- the title bar with its icon, panels with title strips, options in
+  boxes, large digits, the navy accent button, a dial in four bands, the
+  classes as a range bar -- made of the kit's controls by their options,
+  in its own colours or any of the kit's schemes (View > Colours). The
+  worked example of docs/customizing.md.
+- **Retro Photo 4.11.0: SVG, read and written.**
+  - An .svg opens as layers: its shapes as shape layers (as before), **its
+    text as type that can be typed in** -- font family (the one there is,
+    else FreeSans, FreeSerif or FreeMono by its kind), size, bold and
+    italic, colour, letter spacing, underline, each run in its own look;
+    lines one under another as one text with its leading; text-anchor;
+    turned text and `textPath` as text on a path -- **its pictures as
+    layers of pixels** (PNG, JPEG, WebP in the file, or a file beside it),
+    and **its named groups as groups** (a `<g>` with a `data-name` or an
+    `inkscape:label`). A drawing opens at its own size (an icon, 1024
+    pixels across, as before).
+  - **File > New SVG Drawing** starts one; **File > Save** writes an SVG
+    back (File > Save As has .svg): shapes as paths (a stroke inside or
+    outside its outline kept as one), type as text with a tspan a run, text
+    on a path as a `textPath`, groups as `<g>`, layers under their names,
+    opacity and the blending modes CSS has, a one-colour Background as a
+    rectangle. What an SVG does not hold -- adjustment layers, layer
+    effects, masks on shapes and type, clipping masks -- is said in the
+    status bar (`svgLosses`). What is written opens again as the same
+    layers.
+  - For a picture or for print: File > Export As (PNG, JPEG, WebP...),
+    File > Save as PDF (the shapes vectors, the type type) and File > Print,
+    as for any document.
+  - `retroui/svgimport`: `parseSvg(data, base)` gives `texts`, `images` and
+    `groupNames` beside the items; `svgPieces` (shapes, texts and pictures
+    in their order), `svgTextData`, `svgFont`, `drawImageInto`;
+    `rasterizeSvg` draws pictures, and text on the thread that draws (a
+    thumbnail decoded on a worker has an SVG's shapes and pictures, not its
+    text). `retroui/photosvg`: `svgLosses`.
+- **0.50.0's CI** (fixed in 0.51.0, which this release carries): the test
+  APK is in the commit, retroapk compiles as a 32-bit program.
+
 ## 0.51.0
 
 - **The focus ring of today's Windows, in 3.1's colours**: while the

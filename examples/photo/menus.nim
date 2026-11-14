@@ -1122,6 +1122,7 @@ proc classicMenus() =
   menubar:
     menu "&File":
       item("&New...", "Ctrl+N")
+      item("New SVG &Drawing")
       item("&Open...", "Ctrl+O")
       let recent = recentFiles(loadSettingsCached())
       submenu "Open &Recent":
@@ -1608,7 +1609,11 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["4.10.0: on a phone held upright, its own layout -- the picture filling the " &
+           whatsNew = ["4.11.0: SVG as a format of its own -- an .svg opens as layers (its shapes, its " &
+                       "text as type you can type in, its pictures, its named groups), File > New SVG " &
+                       "Drawing starts one and File > Save writes it back; File > Export As makes a " &
+                       "picture of it, File > Save as PDF a PDF for print",
+                       "4.10.0: on a phone held upright, its own layout -- the picture filling the " &
                        "screen, the tools in rows at the bottom, a panel slid up under the picture, " &
                        "the menus behind one button; two fingers zoom and move the picture; a picture " &
                        "shared from another app opens in it",
