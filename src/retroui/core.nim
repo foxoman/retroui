@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.50.0"
+const RetroVersion* = "0.51.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -467,6 +467,10 @@ type Ctx* = object
   seeAt: int                     # ... in this frame
   focusMoved*: int               ## frame the keyboard last moved focus
   focusByKeys*: bool             ## the focus came from the keyboard (Tab, arrows), not a click
+  focusCues*: bool               ## the keyboard is moving about (Tab, the arrows): the focused
+                                 ## control wears the focus ring, until the mouse is pressed
+  ringRect, ringClip: Rect       # (the focused control this frame, and what it was clipped to)
+  ringLayer, ringAt: int         # (... its layer, and the frame it was drawn in)
   tabOrder: seq[Id]
   stopsBefore: seq[Id]           # the last frame's stops of Tab
   stopArea: seq[Id]              # each stop's area (F6), beside `tabOrder`
@@ -482,6 +486,7 @@ type Ctx* = object
                                  ## or not: a list that takes keys but no Tab)
   takesEnter*, prevTakesEnter*: bool  ## the focused widget uses Enter itself (no default button)
   takesText*, prevTakesText: bool     ## the focused widget takes typing (keyboard on phones)
+  editsText*, prevEditsText: bool     ## ... and is a text box: the arrows move its caret
   focusWanted: bool
   textFocusWanted*: bool         ## the next text box takes the focus (`focusFirstText`)
   textFocusInDialog*: bool       ## ... the next one in a dialog
@@ -1286,6 +1291,24 @@ proc mnemonicOf*(label: string): char =
     inc i
   '\0'
 
+var focusRing* = true
+  ## The focus ring, as today's Windows has it: an outline in the highlight
+  ## colour round the control with the keyboard focus, while the keyboard
+  ## moves about (Tab, the arrows) -- a click takes the focus without one,
+  ## and takes the ring away.
+  ## The dotted rectangle of 3.1 stays inside it. False: 3.1's alone.
+
+const FocusRingW = 2             ## (the ring's thickness, logical pixels)
+
+proc focusAt*(r: Rect) =
+  ## The control with the keyboard focus is drawn at `r` (a control that
+  ## keeps the focus without `interact` says so: the ring goes round it).
+  ui.focusRect = r
+  ui.ringRect = r
+  ui.ringClip = clipRect()
+  ui.ringLayer = layer()
+  ui.ringAt = ui.frameNo
+
 proc focusNext*() =
   ## The next widget that can take the keyboard focus takes it.
   ui.focusWanted = true
@@ -1347,7 +1370,7 @@ proc tabStop*(id: Id; r: Rect; first = true): bool {.discardable.} =
       ui.focusWanted = false
       ui.focus = id
   result = ui.focus == id
-  if result: ui.focusRect = r
+  if result: focusAt(r)
 
 proc tabIndex*(n: int) =
   ## The next control's place in the order Tab goes, as HTML's tabindex:
@@ -1661,6 +1684,7 @@ proc accessFrameStart() =
       ui.focus = id
       ui.focusMoved = ui.frameNo
       ui.focusByKeys = true
+      ui.focusCues = true
       ui.redraw = true
     of aaSetValue:
       if accessSet.on:
@@ -1721,6 +1745,33 @@ proc accessFrameEnd() =
     accessSentFocus = accessFocusAt
     accessUpdate(accessTree, accessFocusAt)
 
+proc focusFrame*(r: Rect) =
+  ## The focus ring goes round `r`: the whole of a control whose part that
+  ## takes the clicks is smaller (a list beside its scroll bar: round
+  ## both). Called by the control that has the focus, after `interact`.
+  if ui.ringAt == ui.frameNo: ui.ringRect = r
+
+proc drawFocusRing() =
+  ## (at the frame's end, over what was drawn after the control: outside
+  ## it, or on its edge where a panel's clip would cut the ring off)
+  if not focusRing or not ui.focusCues or ui.focus == 0 or ui.ringAt != ui.frameNo or
+     ui.ringRect.w <= 0 or ui.ringRect.h <= 0 or not ui.active31: return
+  let r = ui.ringRect
+  let c = ui.ringClip
+  var x0 = r.x - FocusRingW
+  var y0 = r.y - FocusRingW
+  var x1 = r.x + r.w + FocusRingW
+  var y1 = r.y + r.h + FocusRingW
+  if x0 < c.x and r.x >= c.x: x0 = r.x
+  if y0 < c.y and r.y >= c.y: y0 = r.y
+  if x1 > c.x + c.w and r.x + r.w <= c.x + c.w: x1 = r.x + r.w
+  if y1 > c.y + c.h and r.y + r.h <= c.y + c.h: y1 = r.y + r.h
+  pushLayer(ui.ringLayer)
+  pushClip(c)
+  box(rect(x0, y0, x1 - x0, y1 - y0), ui.theme.select, FocusRingW)
+  popClip()
+  popLayer()
+
 proc interact*(id: Id; r: Rect; focusable = true; enabled = true): Hit =
   ## Mouse and focus handling shared by every clickable widget.
   ui.lastId = id
@@ -1747,7 +1798,7 @@ proc interact*(id: Id; r: Rect; focusable = true; enabled = true): Hit =
       ui.focus = id
   if id == ui.focus and canInput(): ui.focusSeen = true
   result.focused = ui.focus == id
-  if result.focused: ui.focusRect = r
+  if result.focused: focusAt(r)
   let over = hover(r)
   if over:
     ui.hot = id
@@ -1757,6 +1808,7 @@ proc interact*(id: Id; r: Rect; focusable = true; enabled = true): Hit =
       if focusable:
         ui.focus = id
         ui.focusByKeys = false
+        ui.focusCues = false               # (a click: the focus without its ring)
         result.focused = true
   if ui.active == id and not ui.spaceDown:
     if ui.released:
@@ -3118,6 +3170,7 @@ proc applyEvent(e: Event): bool =
     return true
   of MouseDownEvent:
     ui.altArmed = false
+    ui.focusCues = false           # (back to the mouse: the focus ring goes)
     if e.hasMods: ui.mods = e.mods
     ui.mx = mirroredX(e.x div zoom)
     ui.my = e.y div zoom
@@ -3165,6 +3218,11 @@ proc applyEvent(e: Event): bool =
     dropKeyText = false
     ui.key = e.key
     ui.mods = e.mods
+    # (the arrows on a control that is no text box -- a list clicked, then
+    # walked with the keys: the keyboard moves about, the ring shows)
+    if e.key in {KeyUp, KeyDown, KeyLeft, KeyRight, KeyHome, KeyEnd, KeyPageUp, KeyPageDown} and
+       ui.focus != 0 and not ui.prevEditsText and ui.popup == 0:
+      ui.focusCues = true                  # (not the arrows in an open menu)
     let ctrl = CtrlPressed in e.mods
     let alt = AltPressed in e.mods
     if defined(macosx) and not optionLetters:
@@ -4058,6 +4116,7 @@ proc frameSetup(main: bool) =
   ui.barY = ui.safe.top + ui.captionH
   ui.takesEnter = false
   ui.takesText = false
+  ui.editsText = false
   ui.tip.setLen(0)
   ui.idStack.setLen(0)
   ui.blockers.setLen(0)
@@ -4421,6 +4480,7 @@ proc areaKeys(at: int) =
     ui.focus = to
     ui.focusMoved = ui.frameNo
     ui.focusByKeys = true
+    ui.focusCues = true
     ui.spaceDown = false
 
 proc frameFinish(main: bool) =
@@ -4452,6 +4512,9 @@ proc frameFinish(main: bool) =
       drawDragGhost()
   endPage()
   orderStops()
+  # the focus ring, round the control the keyboard brought the focus to
+  # (before Tab moves it: the next frame draws it round the next one)
+  drawFocusRing()
   # Tab and Shift+Tab move the focus through the widgets of the top layer.
   if ui.tabOrder.len > 0:
     var at = -1
@@ -4465,6 +4528,7 @@ proc frameFinish(main: bool) =
       ui.focus = ui.tabOrder[next]
       ui.focusMoved = ui.frameNo
       ui.focusByKeys = true
+      ui.focusCues = true
       ui.spaceDown = false
       ui.redraw = true
     elif at < 0 and not ui.focusSeen and not ui.touch and
@@ -4528,6 +4592,7 @@ proc frameFinish(main: bool) =
   drawTip()
   ui.prevTakesEnter = ui.takesEnter
   ui.prevTakesText = ui.takesText
+  ui.prevEditsText = ui.editsText
   ui.prevBottom = ui.bottom
   if (ui.frameNo and 1023) == 0:
     var gone: seq[Id]

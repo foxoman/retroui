@@ -106,7 +106,7 @@ proc rangeSlider*(lo, hi: var int; minV, maxV: int; w = 0; ticks = 10;
   if hit.focused or hit2.focused:
     focusDots(rect(r.x, r.y - 1, r.w, r.h + 2))
     let v = if hit2.focused: hi else: lo
-    ui.focusRect = rect(xOf(v) - tw div 2, r.y, tw, tht)
+    focusAt(rect(xOf(v) - tw div 2, r.y, tw, tht))
   if accessOn:
     # (its two ends, as two sliders in a group)
     accessBegin(arGroup, "", r, accessSubId(id, 2), accessOff(enabled), takesLabel = true)

@@ -740,6 +740,7 @@ proc radio*(label: string; v: var int; value: int;
         ui.focus = prevIds[to]
         ui.focusMoved = ui.frameNo
         ui.focusByKeys = true
+        ui.focusCues = true
         if v != prevValues[to]:
           v = prevValues[to]
           result = true
@@ -1294,6 +1295,7 @@ proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
   let focusBefore = ui.focus
   beginKeepSides(area)           # (the text as it reads, the mouse with it)
   var hit = interact(id, area, enabled = enabled)
+  if hit.focused: focusFrame(r)
   if hit.hover and canHover(): ui.cursor = curIbeam
   if accessOn and enabled and not readOnly and accessValueFor(id):
     # (a screen reader put text in it)
@@ -1333,6 +1335,7 @@ proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
     hitOf(s, vl, ln, ui.mx - (g.left - st.scrollX), pass, g)
   if focusedNow:
     ui.takesText = true
+    ui.editsText = true
     if multi: ui.takesEnter = true
     # mouse; a tap puts the caret where the finger was
     if tapAt:
@@ -1688,6 +1691,7 @@ proc listbox*(items: openArray[string]; sel: var int; rows = 6; w = 0;
     scrollBarFor(id + 9, id, rect(r.x + r.w - SbW, r.y, SbW, r.h), true,
                  off, maxOff, max(ItemH, viewH - ItemH), ItemH, enabled)
   let hit = interact(id, area, enabled = enabled)
+  if hit.focused: focusFrame(r)
   var nsel = sel
   var follow = false
   if enabled and canInput():
@@ -3763,7 +3767,7 @@ proc toolRun(id: Id; r: Rect; enabled: bool): bool =
     trun.hot = i
     st.aux = i
   result = trun.on and i == trun.hot and enabled
-  if result: ui.focusRect = r
+  if result: focusAt(r)
 
 proc runClicked(hit: Hit) =
   ## (a button of the run clicked with the run focused: it is the one lit)

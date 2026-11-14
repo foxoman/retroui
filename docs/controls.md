@@ -41,7 +41,7 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 - **[Sound and video](#sound-and-video)**: [animation (animated GIFs)](#animation-animated-gifs) · [videoView](#videoview) · [cameraView](#cameraview) · [setNowPlaying, mediaKeys](#setnowplaying-mediakeys) · [audioView](#audioview)
 - **[The system's features](#the-systems-features)**: [notify, share, haptic](#notify-share-haptic) · [location, speak](#location-speak) · [deviceInfo, setOpenAtLogin](#deviceinfo-setopenatlogin) · [saveSecret, loadSecret](#savesecret-loadsecret) · [checkForUpdate, downloadUpdate, installUpdate](#checkforupdate-downloadupdate-installupdate) · [job, fetch: work off the screen's thread](#job-fetch-work-off-the-screens-thread) · [trayIcon](#trayicon)
 - **[Looks](#looks)**: [Themes](#themes) · [Dark mode](#dark-mode) · [Size and text size](#size-and-text-size) · [Fonts](#fonts) · [The window's frame](#the-windows-frame)
-- **[Screen readers and input methods](#screen-readers-and-input-methods)**: [Screen readers: what an app draws itself](#screen-readers-what-an-app-draws-itself) · [The keyboard alone: Tab's order and F6](#the-keyboard-alone-tabs-order-and-f6) · [The inspector and the driver: controls found by their names](#the-inspector-and-the-driver-controls-found-by-their-names)
+- **[Screen readers and input methods](#screen-readers-and-input-methods)**: [Screen readers: what an app draws itself](#screen-readers-what-an-app-draws-itself) · [The keyboard alone: Tab's order and F6](#the-keyboard-alone-tabs-order-and-f6) · [The focus ring](#the-focus-ring) · [The inspector and the driver: controls found by their names](#the-inspector-and-the-driver-controls-found-by-their-names)
 
 ## Getting started
 
@@ -8209,6 +8209,32 @@ proc endArea*()
 ```
 
 Ends the area `beginArea` started.
+
+### The focus ring
+
+While the keyboard moves about -- Tab, Shift+Tab, F6, the arrows -- the
+control with the focus wears a ring two pixels wide in the scheme's
+highlight colour, as today's Windows shows the focus, with 3.1's dotted
+rectangle still inside it. A click takes the focus without a ring (any
+press of the mouse takes the ring away), and an arrow pressed after it
+brings the ring back (not in a text box, where the arrows move the caret). The kit draws it round any control, at the frame's
+end; a control drawn by hand that keeps the focus itself says where it is.
+`focusRing = false` keeps 3.1's focus alone.
+
+```nim
+proc focusAt*(r: Rect)
+```
+
+The control with the keyboard focus is drawn at `r` (a control that
+keeps the focus without `interact` says so: the ring goes round it).
+
+```nim
+proc focusFrame*(r: Rect)
+```
+
+The focus ring goes round `r`: the whole of a control whose part that
+takes the clicks is smaller (a list beside its scroll bar: round
+both). Called by the control that has the focus, after `interact`.
 
 ### The inspector and the driver: controls found by their names
 

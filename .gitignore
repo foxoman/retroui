@@ -3,6 +3,7 @@ build/
 nimcache/
 *.exe
 *.apk
+!tests/data/apk/*.apk
 *.so
 *.dll
 *.dylib

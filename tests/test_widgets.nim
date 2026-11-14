@@ -226,4 +226,53 @@ block hoverAndBack:
   ui.touch = false
   run()
 
+block ringOfFocus:
+  # today's Windows' focus ring: round the control the keyboard brought the
+  # focus to (Tab, the arrows), in the highlight colour, two pixels
+  # outside it; a click takes the focus without one; `focusRing` off: none
+  proc sides(r: Rect): array[4, uint32] =
+    [px(r.x - 1, r.y + r.h div 2), px(r.x + r.w, r.y + r.h div 2),
+     px(r.x + r.w div 2, r.y - 1), px(r.x + r.w div 2, r.y + r.h)]
+  let paper = px(W - 4, H - 4)
+  proc ringed(): bool =
+    let s = sides(ui.focusRect)
+    s[0] != paper and s[1] == s[0] and s[2] == s[0] and s[3] == s[0] and
+      px(ui.focusRect.x - 2, ui.focusRect.y - 2) == s[0] and
+      px(ui.focusRect.x - 3, ui.focusRect.y - 3) == paper
+  proc bare(): bool =
+    let s = sides(ui.focusRect)
+    s[0] == paper and s[1] == paper and s[2] == paper and s[3] == paper
+  down(okRect.x + 5, okRect.y + 5); up(okRect.x + 5, okRect.y + 5)
+  run(2)
+  doAssert ui.focusRect == okRect and bare(), "a click: the focus, no ring"
+  key(KeyTab)
+  run(2)
+  doAssert ui.focusRect.y > okRect.y and ringed(), "Tab: the ring round the next control"
+  key(KeyTab)
+  run(2)
+  doAssert ringed(), "... and round the one after (a text box)"
+  let before = sides(ui.focusRect)
+  focusRing = false
+  ui.redraw = true
+  run(2)
+  doAssert bare(), "focusRing off: 3.1's focus alone"
+  focusRing = true
+  ui.redraw = true
+  run(2)
+  doAssert sides(ui.focusRect) == before
+  # a list clicked has none; walked with the arrows it has
+  down(editRect.x + 5, editRect.y + editRect.h + 20); up(editRect.x + 5, editRect.y + editRect.h + 20)
+  run(2)
+  doAssert bare(), "the list clicked"
+  key(KeyDown)
+  run(2)
+  doAssert ringed(), "... then an arrow: the keyboard moves about"
+  # a text box clicked, its caret moved with the arrows: still none
+  down(editRect.x + 5, editRect.y + 5); up(editRect.x + 5, editRect.y + 5)
+  run(2)
+  key(KeyLeft)
+  run(2)
+  doAssert ui.focusRect == editRect and bare(), "the arrows in a text box move its caret"
+  clicks = 0
+
 echo "all tests passed"

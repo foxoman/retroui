@@ -2535,6 +2535,21 @@ area "preview":     # (F6 comes here, to the list's selection)
 
 {{api:endArea}}
 
+### The focus ring
+
+While the keyboard moves about -- Tab, Shift+Tab, F6, the arrows -- the
+control with the focus wears a ring two pixels wide in the scheme's
+highlight colour, as today's Windows shows the focus, with 3.1's dotted
+rectangle still inside it. A click takes the focus without a ring (any
+press of the mouse takes the ring away), and an arrow pressed after it
+brings the ring back (not in a text box, where the arrows move the caret). The kit draws it round any control, at the frame's
+end; a control drawn by hand that keeps the focus itself says where it is.
+`focusRing = false` keeps 3.1's focus alone.
+
+{{api:focusAt}}
+
+{{api:focusFrame}}
+
 ### The inspector and the driver: controls found by their names
 
 The names screen readers read are how the inspector (F12; `RETRO_INSPECT=1`)
@@ -2783,6 +2798,7 @@ proc shoot(s: Shot; st: ShotState; outDir: string; lk: Look = Look()): string =
   resize(if lk.w > 0: lk.w else: s.w, (if touch and lk.h == 0: h * 3 div 2 else: h), touch)
   ui.popup = 0
   ui.focus = 0
+  ui.focusCues = false             # (the ring of the picture before, by Tab)
   queue.add Event(kind: MouseMoveEvent, x: W + 50, y: H + 50)
   view = proc () =
     # a focusable spot out of sight takes the focus first, so "Normal"

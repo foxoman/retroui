@@ -295,7 +295,11 @@ type
 proc sAttr(name: string; id: uint32; v: string): XAttr =
   XAttr(android: true, name: name, resId: id, kind: TString, str: v)
 proc iAttr(name: string; id: uint32; v: int; kind = TDec): XAttr =
-  XAttr(android: true, name: name, resId: id, kind: kind, data: uint32(v and 0xFFFFFFFF))
+  XAttr(android: true, name: name, resId: id, kind: kind,
+        data: uint32(cast[uint](v) and 0xFFFFFFFF'u))
+proc colorAttr(name: string; id: uint32; argb: uint32): XAttr =
+  ## (a colour, #AARRGGBB: as it is -- an int of 32 bits cannot hold it)
+  XAttr(android: true, name: name, resId: id, kind: TColor, data: argb)
 proc bAttr(name: string; id: uint32; v: bool): XAttr =
   XAttr(android: true, name: name, resId: id, kind: TBool,
         data: if v: 0xFFFFFFFF'u32 else: 0)
@@ -599,13 +603,13 @@ proc widgetLayout(): XNode =
   proc button(name: string): XNode =
     XNode(name: "TextView", attrs: @[
       a("id", 0x010100d0, widgetId(name), TRef),
-      a("background", 0x010100d4, int(0xFFDFDFDF'u32), TColor),
+      colorAttr("background", 0x010100d4, 0xFFDFDFDF'u32),
       a("gravity", 0x010100af, 0x11, THex),
       a("paddingLeft", 0x010100d6, dp(12), TDimen),
       a("paddingRight", 0x010100d8, dp(12), TDimen),
       a("layout_marginLeft", 0x010100f7, dp(6), TDimen),
       a("minHeight", 0x01010140, dp(36), TDimen),
-      a("textColor", 0x01010098, int(0xFF000000'u32), TColor),
+      colorAttr("textColor", 0x01010098, 0xFF000000'u32),
       a("textSize", 0x01010095, sp(13), TDimen),
       a("visibility", 0x010100dc, 2)] & size(Wrap, Wrap))  # (gone)
   proc label(name: string; textSize, maxLines: int; bold: bool): XNode =
@@ -613,15 +617,15 @@ proc widgetLayout(): XNode =
       a("id", 0x010100d0, widgetId(name), TRef),
       a("ellipsize", 0x010100ab, 3),               # end
       a("maxLines", 0x01010153, maxLines),
-      a("textColor", 0x01010098, int(0xFF000000'u32), TColor),
+      colorAttr("textColor", 0x01010098, 0xFF000000'u32),
       a("textSize", 0x01010095, sp(textSize), TDimen)] & size(Match, Wrap))
     if bold: result.attrs.add a("textStyle", 0x01010097, 1, THex)
   XNode(name: "FrameLayout", attrs: @[
-    a("background", 0x010100d4, int(0xFF000000'u32), TColor),
+    colorAttr("background", 0x010100d4, 0xFF000000'u32),
     a("padding", 0x010100d5, dp(1), TDimen)] & size(Match, Match),
     kids: @[XNode(name: "LinearLayout", attrs: @[
       a("id", 0x010100d0, widgetId("box"), TRef),
-      a("background", 0x010100d4, int(0xFFC0C0C0'u32), TColor),
+      colorAttr("background", 0x010100d4, 0xFFC0C0C0'u32),
       a("gravity", 0x010100af, 0x10, THex),                    # center_vertical
       a("orientation", 0x010100c4, 0),                         # horizontal
       a("padding", 0x010100d5, dp(8), TDimen)] & size(Match, Match),

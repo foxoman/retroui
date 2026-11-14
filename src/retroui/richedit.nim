@@ -1851,6 +1851,7 @@ proc richEdit*(d: var RichDoc; height = -1; key = ""; placeholder = "";
   d.box = area
   beginKeepSides(area)           # (the text as it reads, the mouse with it)
   var hit = interact(id, area, enabled = enabled)
+  if hit.focused: focusFrame(r)
   if hit.hover and canHover(): ui.cursor = curIbeam
   var tapAt = false
   if finger() and enabled:
@@ -1878,6 +1879,7 @@ proc richEdit*(d: var RichDoc; height = -1; key = ""; placeholder = "";
   d.dirty = false
   if focused:
     ui.takesText = true
+    ui.editsText = true
     ui.takesEnter = true
     let shift = ShiftPressed in ui.mods
     let ctrl = CtrlPressed in ui.mods

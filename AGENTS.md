@@ -205,7 +205,12 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
    (the return check, the warnings, the tests, a short fuzz, the fake
    Android, WebAssembly under Node, the tools, the programs in subfolders
    found from their config) -- all must pass; a release never goes out
-   with a CI step not run here. **No warnings:** `sh tools/warncheck.sh`
+   with a CI step not run here. **From a clean clone:** the commit cloned
+   into an empty folder, and the tests that read files of their own
+   (`tests/data`) run there, the new ones as 32-bit programs too
+   (`sh tests/run32.sh test_...`) -- a file `.gitignore` names is on this
+   machine and not in the commit (0.50.0's test APK was not, and failed
+   GitHub's tests on every system). **No warnings:** `sh tools/warncheck.sh`
    checks the kit's own files as every system builds them (Linux, Termux,
    an Android app, Windows, macOS, iOS, the web with threads and
    without), the examples and the tests. A module imported for what it
@@ -277,6 +282,13 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   `std/unicode` whole calls. A module that strips imports `std/unicode
   except strip` (strutils' `strip` then); `tests/test_hardening.nim`
   (`noRuneStrip`) keeps it so.
+- **The focus ring** is the kit's, drawn once at the frame's end round the
+  rectangle `interact` (or `tabStop`, `focusAt`) was given, while
+  `ui.focusCues` is on (Tab, F6, the arrows; a click turns it off). A new
+  control draws none itself. One whose `interact` takes a part of it only
+  (a list beside its scroll bar) calls `if hit.focused: focusFrame(r)`
+  with its whole rectangle; a text box of a new kind sets `ui.editsText`
+  when focused, so its arrows bring no ring.
 - **A control's ids:** a widget calls `idOf` once and uses that id for
   `interact`, its keys and its reader's node (a second `idOf` of the same
   label is another id: the node would not be the widget's --

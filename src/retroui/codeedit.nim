@@ -207,6 +207,7 @@ proc codeEdit*(s: var string; lines = 12; lang = clNim; w = 0; readOnly = false;
   var memo = memos.getOrDefault(id)
   let dark = themeIsDark(ui.theme)
   let hit = interact(id, r)
+  if hit.focused: ui.editsText = true     # (a caret in it: the arrows are its own)
   var starts = lineStarts(s)
   let cw = max(1, textWidth("M", mono))
   let gutter = if lineNumbers: textWidth($starts.len, mono) + dp(12) else: dp(4)

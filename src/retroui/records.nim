@@ -199,6 +199,7 @@ proc maskedEdit*(value: var string; mask: string; w = 0;
       maskCaretT = ui.now
     if hit.focused:
       ui.takesText = true                   # (the on-screen keyboard on phones)
+      ui.editsText = true
       let ctrl = CtrlPressed in ui.mods
       case ui.key
       of KeyLeft: caret = max(0, caret - 1); ui.keyUsed = true
@@ -622,6 +623,7 @@ proc propertyGrid*(props: var seq[Prop]; sel: var int; height = -1;
   nameW = clamp(nameW, dp(60), max(dp(60), area.w - dp(60)))
   var top = clamp(st.scrollY, 0, max(0, contentH - area.h))
   let hit = interact(id, area)
+  if hit.focused: focusFrame(gridR)
   let editId = id + 100
   let lineOfSel = block:
     var at = -1
@@ -1016,6 +1018,7 @@ proc treeGrid*(cols: var seq[Column]; rows: var seq[TreeRow]; sel: var int;
                  r.w - (if vBar: SbW - 1 else: 0), SbW), false, sx,
                  maxX, max(10, area.w - 20), dp(20))
   let hit = interact(id, body)
+  if hit.focused: focusFrame(r)
   let indentW = dp(16)
   let x0 = area.x - sx
   var at = -1                           # where `sel` is among the rows shown

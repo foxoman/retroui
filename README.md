@@ -476,7 +476,10 @@ retrokit designer app.nim       # app.nim's windows (a new file when there is no
 - **Input, the same everywhere.** Mouse: click, double-click, the wheel
   (Shift for sideways, Ctrl to zoom where it makes sense), drag, the right
   button for menus, the middle and side buttons. Keyboard: Tab and
-  Shift+Tab move the focus (shown as the dotted 3.1 rectangle), F6 and
+  Shift+Tab move the focus (shown as the dotted 3.1 rectangle, and while
+  the keyboard moves about by a ring in the highlight colour round the
+  control, as today's Windows has it: a click takes the focus without
+  one; `focusRing = false` keeps 3.1's alone), F6 and
   Shift+F6 from one part of the window to the next, Space and
   Enter activate, arrows/Home/End/PageUp/PageDown move, Esc closes,
   Alt+letter for `&` mnemonics, the menu key or Shift+F10 for context

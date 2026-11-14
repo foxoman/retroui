@@ -166,6 +166,10 @@ line.
   panels, as image editors do) does it only when `not focusInControls()`
   -- else Tab must go on to the next control -- and sets `autoFocus =
   false` when its keys are its canvas's until a control is clicked.
+  While the keyboard moves about, the focused control wears a ring in the
+  highlight colour (as today's Windows; a click shows none): the kit
+  draws it, round any control. A control drawn by hand that keeps the
+  focus itself calls `focusAt(rect)`; `focusRing = false` turns it off.
   Give each `&` letter once in a window and in a dialog: the tour
   (`tests/drive/run.sh`) finds one used twice (in a menu a shared letter
   lights the next item that has it, as in Windows).

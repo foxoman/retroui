@@ -691,6 +691,7 @@ proc gridImpl(colsIn: var seq[Column]; rows: int; cell: proc (row, col: int): st
     st.aux = sortColumn + 1
     st.aux2 = ord(sortDescending)
   let hit = interact(id, body, enabled = enabled)
+  if hit.focused: focusFrame(r)
   var curCol = clamp(st.caret, 0, max(0, cols.high))
   # (what an edit starts with: the cell's text, or `editText`'s -- a
   # spreadsheet's formula where the cell shows its value)
@@ -1458,6 +1459,7 @@ proc beginTree*(sel: var string; rows = 10; w = 0; enabled = true; padding = 0) 
                  off, maxOff, max(rowH, viewH - rowH), rowH, enabled)
   let area = if bar: rect(r.x, r.y, r.w - SbW + 1, r.h) else: r
   let hit = interact(id, area, enabled = enabled)
+  if hit.focused: focusFrame(r)
   if hit.focused and enabled and not ui.touch: ui.takesText = true   # type-ahead
   if enabled and canInput():
     scrollWheel(id, off, maxOff, r, 3 * rowH)
@@ -1748,6 +1750,7 @@ proc iconView*(count: int; label: proc (i: int): string;
       scrollBarFor(id + 9, id, rect(r.x + r.w - SbW, r.y, SbW, r.h), true,
                    top, maxTop, max(1, area.h - th2), max(1, th2 div 2), enabled)
   let hit = interact(id, area, enabled = enabled)
+  if hit.focused: focusFrame(r)
   var nsel = sel
   var follow = ex.anchor != sel + 1          # moved by the app: show it
   let appMoved = follow                      # (at once; moved here: it glides)
@@ -2418,6 +2421,7 @@ proc checkList*(items: openArray[string]; checked: var seq[bool]; rows = 6;
                  off, maxOff, max(rowH, viewH - rowH), rowH, enabled)
   let area = if bar: rect(r.x, r.y, r.w - SbW + 1, r.h) else: r
   let hit = interact(id, area, enabled = enabled)
+  if hit.focused: focusFrame(r)
   var cur = clamp(st.caret, 0, max(0, n - 1))
   if accessPress != 0 and enabled:
     # (a screen reader pressed an item: it flips)

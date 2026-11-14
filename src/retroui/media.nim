@@ -471,6 +471,7 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
   let area = rect(r.x, r.y, r.w, max(dp(20), r.h - barH))
   let id = idOf("video:" & k)
   let hit = interact(id, area)
+  if hit.focused: focusFrame(r)
   v.drawnFrame = ui.frameNo
   v.drawnDialog = ui.curDialog
   let exists = isStream(path) or fileExists(path)

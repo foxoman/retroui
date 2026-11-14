@@ -1,5 +1,31 @@
 # Changes
 
+## 0.51.0
+
+- **The focus ring of today's Windows, in 3.1's colours**: while the
+  keyboard moves about (Tab, Shift+Tab, F6, the arrows) the control with
+  the focus wears an outline two pixels wide in the scheme's highlight
+  colour -- navy in the classic one -- with 3.1's dotted rectangle still
+  inside it. A click takes the focus without a ring, and any press of the
+  mouse takes the ring away; an arrow pressed after it (a list clicked,
+  then walked) brings it back; the arrows in a text box move its caret
+  and bring none, nor do those in an open menu. It is drawn once, at the
+  frame's end, round whatever control has the focus -- buttons, text
+  boxes, lists, check boxes, radios, sliders, spin boxes, tabs, the grid,
+  an app's own (`tabStop`, `focusAt`) -- clipped as the control is, and on
+  the control's own edge where a panel would cut it off. Not in a window
+  that is not the active one. `focusRing = false` keeps 3.1's focus alone;
+  `ui.focusCues` says whether the keyboard is moving about. A list, a grid
+  or a text area with a scroll bar has it round the whole of it
+  (`focusFrame`).
+- **0.50.0's CI, fixed**: the APK the new tests read (`tests/data/apk/notes.apk`)
+  was not in the commit -- `.gitignore` leaves every `*.apk` out -- so
+  `test_apkinfo` and `test_filesapp` failed on Linux, Windows, macOS and
+  as 32-bit programs; it is in now (`!tests/data/apk/*.apk`). `retroapk`
+  did not compile where an `int` has 32 bits: the widget's colours
+  (#FFDFDFDF) do not fit one (`colorAttr`). A release is checked from a
+  clean clone from now on (AGENTS.md).
+
 ## 0.50.0
 
 Android, all the way: apps on the home screen (widgets) and in the quick
