@@ -1,0 +1,1 @@
+{"version": 1, "pages": [{"name": "Page 1", "shapes": [{"id": 1, "kind": "geo", "x": 10, "y": 10, "w": 100, "h": 60, "text": "Box"}, {"id": 2, "kind": "note", "x": 150, "y": 10, "w": 100, "h": 100, "text": "A note"}, {"id": 3, "kind": "arrow", "x": 0, "y": 0, "w": 50, "h": 50}]}]}

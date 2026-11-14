@@ -2,7 +2,7 @@ import std/strutils
 
 # Package
 
-version       = "0.48.0"
+version       = "0.49.0"
 author        = "Sultan Al Isaiee (@foxoman) <sultan@foxoman.net>"
 description   = "Retro Nim UI (retroui): a small, fast, dependency-free Windows 3.1 style UI toolkit for business and desktop apps on Windows, macOS, Linux, Android and iOS"
 license       = "MIT"
@@ -35,7 +35,10 @@ task charts, "Build and run Chart Viewer (a CSV file as charts)":
 task invoice, "Build and run the invoice example (HTML template, PDF, printing)":
   exec "nim c -r -d:release examples/invoice.nim"
 
-task test, "Run the headless tests":
+task test, "Run the headless tests (as many at once as there are cores: tests/runall.sh)":
+  if not defined(windows) and findExe("sh").len > 0:
+    exec "sh tests/runall.sh"
+    return
   for t in ["test_widgets", "test_business", "test_text", "test_bidi", "test_files", "test_apps",
             "test_explorer", "test_input", "test_docfs", "test_records", "test_desktop",
             "test_charts", "test_planning", "test_mapview", "test_view3d", "test_htmlview",
@@ -43,7 +46,7 @@ task test, "Run the headless tests":
             "test_scroll", "test_nestedscroll", "test_rows", "test_apk", "test_xlsx", "test_letters", "test_photo",
             "test_parallel", "test_textengine", "test_uifonts", "test_photomore", "test_photopro", "test_photoapp",
             "test_photomerge", "test_icc", "test_brushfiles", "test_raw", "test_brushes",
-            "test_adobefiles", "test_deep", "test_gpu", "test_rsa", "test_morecontrols", "test_neural", "test_photopdf", "test_pdfread", "test_googlefonts", "test_filecolumns", "test_blendfast", "test_dock", "test_presets", "test_photocc", "test_photoartistic", "test_photohdr", "test_channelspanel", "test_photodeep", "test_photoanim", "test_photovp", "test_photosvg", "test_otshape", "test_icccmyk", "test_webp", "test_exrgif", "test_rawformats", "test_rscript", "test_psdround", "test_phototemplates", "test_gpucomposite", "test_penmap", "test_systemimage", "test_qrcode", "test_videoenc", "test_jxl", "test_assetstore", "test_svgimport", "test_morepictures", "test_memcache", "test_memsoak", "test_filespeed", "test_filesapp", "test_bigpicture", "test_edgetrace", "test_board", "test_boardapp", "test_http", "test_oauth", "test_secrets", "test_db", "test_mime", "test_htmlmail", "test_richedit", "test_mail", "test_toolcustom", "test_mailextra", "test_calendar", "test_spell", "test_mailimport", "test_frame", "test_filedrop", "test_notify", "test_bgcheck", "test_fileout", "test_widgetfixes", "test_x11close", "test_hardening", "test_gpuparts", "test_busykeys", "test_drawalloc", "test_hrbook", "test_x11input", "test_xmpp", "test_omemo", "test_retrokit", "test_access", "test_scale", "test_touchsizes", "test_mediasession", "test_capture", "test_windows", "test_shm", "test_atspi", "test_designer", "test_tilemap", "test_gltf", "test_store", "test_system", "test_update", "test_fontsoption", "test_keys", "test_stopped", "test_buildjobs", "test_imap", "test_sysmon", "test_taskman", "test_inspect", "test_drive", "test_sevenguis", "test_navigator", "test_retrodns", "test_feeds", "test_jobs", "test_undo", "test_pages", "test_typeforms", "test_uistrings", "test_codeedit", "test_tray", "test_podcast", "test_grow"]:
+            "test_adobefiles", "test_deep", "test_gpu", "test_rsa", "test_morecontrols", "test_neural", "test_photopdf", "test_pdfread", "test_googlefonts", "test_filecolumns", "test_blendfast", "test_dock", "test_presets", "test_photocc", "test_photoartistic", "test_photohdr", "test_channelspanel", "test_photodeep", "test_photoanim", "test_photovp", "test_photosvg", "test_otshape", "test_icccmyk", "test_webp", "test_exrgif", "test_rawformats", "test_rscript", "test_psdround", "test_phototemplates", "test_gpucomposite", "test_penmap", "test_systemimage", "test_qrcode", "test_videoenc", "test_jxl", "test_assetstore", "test_svgimport", "test_morepictures", "test_memcache", "test_memsoak", "test_filespeed", "test_filesapp", "test_bigpicture", "test_edgetrace", "test_board", "test_boardapp", "test_http", "test_oauth", "test_secrets", "test_db", "test_mime", "test_htmlmail", "test_richedit", "test_mail", "test_toolcustom", "test_mailextra", "test_calendar", "test_spell", "test_mailimport", "test_frame", "test_filedrop", "test_notify", "test_bgcheck", "test_fileout", "test_widgetfixes", "test_x11close", "test_hardening", "test_gpuparts", "test_busykeys", "test_drawalloc", "test_hrbook", "test_x11input", "test_xmpp", "test_omemo", "test_retrokit", "test_access", "test_scale", "test_touchsizes", "test_mediasession", "test_capture", "test_windows", "test_shm", "test_atspi", "test_designer", "test_tilemap", "test_gltf", "test_store", "test_system", "test_update", "test_fontsoption", "test_keys", "test_stopped", "test_buildjobs", "test_imap", "test_sysmon", "test_taskman", "test_inspect", "test_drive", "test_sevenguis", "test_navigator", "test_retrodns", "test_feeds", "test_jobs", "test_undo", "test_pages", "test_typeforms", "test_uistrings", "test_codeedit", "test_tray", "test_podcast", "test_grow", "test_lzma"]:
     exec "nim c -r --hints:off tests/" & t & ".nim"
   # (fewer faces built in: the others drawn with FreeSans)
   exec "nim c -r --hints:off -d:retroFonts=ui tests/test_fontsoption.nim"
@@ -97,11 +100,11 @@ const RetroApps: seq[RetroApp] = @[
    id: "org.retro.photo", version: "4.9.12", icon: "examples/assets/photo-icon-512.png",
    apk: "--orientation:landscape --storage --permission:INTERNET --nim:-d:lto", code: 35, small: false),
   (key: "files", src: "examples/filemanager.nim", name: "Retro Files", stem: "RetroFiles",
-   id: "org.retro.files", version: "3.4.0", icon: "examples/assets/filemanager-icon.png",
-   apk: "--storage --nim:-d:lto", code: 44, small: true),
+   id: "org.retro.files", version: "3.4.1", icon: "examples/assets/filemanager-icon.png",
+   apk: "--storage --nim:-d:lto", code: 45, small: true),
   (key: "board", src: "examples/retroboard.nim", name: "Retro Board", stem: "RetroBoard",
-   id: "org.retro.board", version: "1.4.0", icon: "examples/assets/board-icon-512.png",
-   apk: "--storage --nim:-d:lto", code: 15, small: true),
+   id: "org.retro.board", version: "1.5.0", icon: "examples/assets/board-icon-512.png",
+   apk: "--storage --nim:-d:lto", code: 16, small: true),
   (key: "mail", src: "examples/mail.nim", name: "Retro Mail", stem: "RetroMail",
    id: "org.retro.mail", version: "1.1.5", icon: "examples/assets/mail-icon-512.png",
    apk: "--permission:INTERNET --permission:POST_NOTIFICATIONS --background --nim:-d:lto", code: 10, small: false),
@@ -120,33 +123,33 @@ const RetroApps: seq[RetroApp] = @[
    id: "org.retro.hrbook", version: "0.2.5", icon: "examples/assets/hrbook-icon-512.png",
    apk: "--storage --nim:-d:lto", code: 7, small: true),
   (key: "gallery", src: "examples/gallery.nim", name: "Retro Gallery", stem: "RetroGallery",
-   id: "org.retro.gallery", version: "0.48.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--permission:INTERNET --permission:VIBRATE --nim:-d:lto --nim:--opt:size", code: 236, small: true),
+   id: "org.retro.gallery", version: "0.49.0", icon: "examples/assets/gallery-icon.png",
+   apk: "--permission:INTERNET --permission:VIBRATE --nim:-d:lto --nim:--opt:size", code: 237, small: true),
   # the small examples (the gallery's icon)
   (key: "notepad", src: "examples/notepad.nim", name: "Retro Notepad", stem: "RetroNotepad",
-   id: "org.retro.notepad", version: "0.48.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--storage --nim:-d:lto --nim:--opt:size", code: 236, small: true),
+   id: "org.retro.notepad", version: "0.49.0", icon: "examples/assets/gallery-icon.png",
+   apk: "--storage --nim:-d:lto --nim:--opt:size", code: 237, small: true),
   (key: "ledger", src: "examples/ledger.nim", name: "Retro Ledger", stem: "RetroLedger",
-   id: "org.retro.ledger", version: "0.48.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--nim:-d:lto --nim:--opt:size", code: 236, small: true),
+   id: "org.retro.ledger", version: "0.49.0", icon: "examples/assets/gallery-icon.png",
+   apk: "--nim:-d:lto --nim:--opt:size", code: 237, small: true),
   (key: "charts", src: "examples/charts.nim", name: "Retro Charts", stem: "RetroCharts",
-   id: "org.retro.charts", version: "0.48.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--storage --nim:-d:lto --nim:--opt:size", code: 236, small: true),
+   id: "org.retro.charts", version: "0.49.0", icon: "examples/assets/gallery-icon.png",
+   apk: "--storage --nim:-d:lto --nim:--opt:size", code: 237, small: true),
   (key: "invoice", src: "examples/invoice.nim", name: "Retro Invoice", stem: "RetroInvoice",
-   id: "org.retro.invoice", version: "0.48.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--storage --nim:-d:lto --nim:--opt:size", code: 236, small: true),
+   id: "org.retro.invoice", version: "0.49.0", icon: "examples/assets/gallery-icon.png",
+   apk: "--storage --nim:-d:lto --nim:--opt:size", code: 237, small: true),
   (key: "native", src: "examples/native.nim", name: "Retro Native", stem: "RetroNative",
-   id: "org.retro.native", version: "0.48.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--permission:VIBRATE --nim:-d:lto --nim:--opt:size", code: 236, small: true),
+   id: "org.retro.native", version: "0.49.0", icon: "examples/assets/gallery-icon.png",
+   apk: "--permission:VIBRATE --nim:-d:lto --nim:--opt:size", code: 237, small: true),
   (key: "hello", src: "examples/hello.nim", name: "Retro Hello", stem: "RetroHello",
-   id: "org.retro.hello", version: "0.48.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--nim:-d:lto --nim:--opt:size", code: 236, small: true),
+   id: "org.retro.hello", version: "0.49.0", icon: "examples/assets/gallery-icon.png",
+   apk: "--nim:-d:lto --nim:--opt:size", code: 237, small: true),
   (key: "sevenguis", src: "examples/sevenguis.nim", name: "Retro 7GUIs", stem: "Retro7GUIs",
-   id: "org.retro.sevenguis", version: "0.48.0", icon: "examples/assets/sevenguis-icon-512.png",
-   apk: "--nim:-d:lto --nim:--opt:size", code: 236, small: true),
+   id: "org.retro.sevenguis", version: "0.49.0", icon: "examples/assets/sevenguis-icon-512.png",
+   apk: "--nim:-d:lto --nim:--opt:size", code: 237, small: true),
   (key: "podcast", src: "examples/podcast.nim", name: "Retro Podcast", stem: "RetroPodcast",
-   id: "org.retro.podcast", version: "1.1.0", icon: "examples/assets/podcast-icon-512.png",
-   apk: "--storage --cleartext --share-target:text/plain --nim:-d:lto --nim:--opt:size", code: 2, small: true),
+   id: "org.retro.podcast", version: "1.1.1", icon: "examples/assets/podcast-icon-512.png",
+   apk: "--storage --cleartext --share-target:text/plain --nim:-d:lto --nim:--opt:size", code: 3, small: true),
   (key: "grow", src: "examples/grow.nim", name: "Grow", stem: "Grow",
    id: "net.foxoman.grow", version: "1.0.0", icon: "examples/assets/grow-icon-512.png",
    apk: "--orientation:portrait --nim:-d:lto --nim:--opt:size", code: 1, small: true)]
@@ -324,7 +327,7 @@ task emuapks, "The main apps' APKs for Android's emulator (x86_64, debuggable): 
   mkDir "build/apps"
   var list = ""
   for a in RetroApps:
-    if a.key notin ["files", "photo", "board", "gallery", "mail", "hrbook", "notepad"]: continue
+    if a.key notin ["files", "photo", "board", "gallery", "mail", "hrbook", "notepad", "podcast", "grow"]: continue
     # (the network on: the emulator job drives each app on 127.0.0.1, RETRO_DRIVE)
     let net = if "INTERNET" in a.apk: "" else: " --permission:INTERNET"
     exec "nim c -r -d:release --hints:off src/retroapk.nim " & a.src &

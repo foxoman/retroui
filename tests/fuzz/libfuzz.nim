@@ -9,11 +9,14 @@
 ##     -d:fuzzTarget=png -o:tests/fuzz/lf_png tests/fuzz/libfuzz.nim
 ##   tests/fuzz/lf_png -max_total_time=300 corpus/ tests/fuzz/seeds
 ##
-## Targets: png, bmp, jpg, webp, inflate, md, html, pdf, gltf, mvt. A
+## Targets: png, bmp, jpg, webp, inflate, md, html, pdf, gltf, mvt, lzma
+## (the packed fonts), feed (RSS and Atom from any server), chapters,
+## transcript (a podcast's), board (a board file: what any program wrote). A
 ## Defect (an index, a range, an overflow) or a sanitizer's report is a
 ## bug: libFuzzer stops and saves the input (crash-...).
 
-import retroui/[imaging, jpeg, codec, markdown, webp, htmldom, pdfread, gltf, mvt]
+import std/json
+import retroui/[imaging, jpeg, codec, markdown, webp, htmldom, pdfread, gltf, mvt, lzma, feeds, board]
 
 const fuzzTarget {.strdefine.} = "png"
 
@@ -45,7 +48,19 @@ proc LLVMFuzzerTestOneInput(data: ptr UncheckedArray[byte]; len: csize_t): cint 
       discard p
     elif fuzzTarget == "gltf": discard readGltf(s)
     elif fuzzTarget == "mvt": discard decodeMvt(s)
-    else: {.error: "fuzzTarget: png, bmp, jpg, webp, inflate, md, html, pdf, gltf or mvt".}
+    elif fuzzTarget == "lzma": discard unlzma("RLZ1" & s)   # (the header given: the stream fuzzed)
+    elif fuzzTarget == "feed": discard parseFeed(s, "https://example.com/feed")
+    elif fuzzTarget == "chapters": discard parseChapters(s)
+    elif fuzzTarget == "transcript": discard transcriptText(s)
+    elif fuzzTarget == "board":
+      let b = boardFrom(parseJson(s))
+      if b != nil:
+        # (and drawn: every shape's drawing, its brief one, its bounds)
+        for sh in b.page.shapes:
+          discard b.drawingOf(sh)
+          discard b.drawingOf(sh, brief = true)
+          discard b.boundsOf(sh)
+    else: {.error: "fuzzTarget: png, bmp, jpg, webp, inflate, md, html, pdf, gltf, mvt, lzma, feed, chapters, transcript or board".}
   except CatchableError:
     discard                          # (bad input refused: as it should be)
   0

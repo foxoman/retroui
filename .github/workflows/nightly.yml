@@ -35,22 +35,67 @@ jobs:
       - name: Libraries the tests load
         run: sh tools/apt.sh clang libegl1 libgles2 libegl-mesa0
       - name: The headless tests under ASan and UBSan
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          RETRO_TEST_OUT: build/san
         run: |
-          mkdir -p build
-          tests=$(tr '\n' ' ' < retroui.nimble | sed -n 's/.*task test,[^[]*\[\([^]]*\)\].*/\1/p' | tr -d '",')
-          failed=0
-          for t in $tests; do
-            if ASAN_OPTIONS=detect_leaks=1 LSAN_OPTIONS=suppressions=$PWD/tests/lsan.supp \
-               nim c -r --hints:off --warnings:off --cc:clang -d:useMalloc -d:retroSanitized --debugger:native \
-                 --passC:"-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize=function" \
-                 --passL:"-fsanitize=address,undefined" -o:build/san_$t tests/$t.nim > build/san_$t.log 2>&1
-            then echo "ok   $t"
-            else echo "FAIL $t"; tail -40 build/san_$t.log; failed=$((failed + 1))
-            fi
-            rm -f build/san_$t
-          done
-          echo "$failed failed"
-          exit $failed
+          LSAN_OPTIONS=suppressions=$PWD/tests/lsan.supp \
+          RETRO_TEST_FLAGS="--warnings:off --cc:clang -d:useMalloc -d:retroSanitized --debugger:native --passC:-fsanitize=address,undefined --passC:-fno-omit-frame-pointer --passC:-fno-sanitize=function --passL:-fsanitize=address,undefined" \
+          sh tests/runall.sh
+
+  flaky:
+    # every headless test three times over, as many at once as there are
+    # cores: one that fails in a round and passes in another is named, and
+    # fails this job (tests/runall.sh)
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Libraries the tests load
+        run: sh tools/apt.sh libegl1 libgles2 libegl-mesa0
+      - name: Each test three times
+        env:
+          RETRO_REPEAT: "3"
+          RETRO_FLAKY_FAILS: "1"
+        run: sh tests/runall.sh
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: flaky-logs
+          path: build/tests/*.log
+
+  soak:
+    # each app worked for an hour by the kit's random input (clicks,
+    # keys, typing; an Exit clicked does not end it), its memory sampled:
+    # one that keeps growing once warm, or that faults, fails (tools/soak.sh;
+    # each app in a home of its own on a runner that is thrown away; not
+    # Retro Board nor Retro Navigator: the clicks keep adding shapes, or
+    # opening tabs, and their memory grows with what they hold)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [gallery, filemanager, photo, mail, retrodns, podcast, grow, taskman]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: X server
+        run: sh tools/apt.sh xvfb
+      - name: Soak
+        run: xvfb-run -a -s "-screen 0 1280x800x24" sh tools/soak.sh 60 ${{ matrix.app }}
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: soak-${{ matrix.app }}
+          path: build/soak/
 
   fuzz:
     runs-on: ubuntu-latest
@@ -83,7 +128,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [png, bmp, jpg, webp, inflate, md, html, pdf, gltf, mvt]
+        target: [png, bmp, jpg, webp, inflate, md, html, pdf, gltf, mvt, lzma, feed, chapters, transcript, board]
     steps:
       - uses: actions/checkout@v5
       - uses: jiro4989/setup-nim-action@v2

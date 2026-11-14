@@ -18,8 +18,16 @@ jobs:
         with:
           nim-version: "2.2.6"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Libraries the GPU tests load (Mesa's EGL)
-        run: sh tools/apt.sh libegl1 libgles2 libegl-mesa0
+      - name: Libraries the GPU tests load (Mesa's EGL), ccache
+        run: sh tools/apt.sh libegl1 libgles2 libegl-mesa0 ccache
+      - name: The C the last run built (ccache)
+        # (four fifths of a test's build is the C compiler's; most of the
+        # C is the same from one push to the next)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-tests-${{ github.sha }}
+          restore-keys: ccache-tests-
       - name: No return after result (Nim 2.2 leaks the old value)
         run: python3 tools/returncheck.py
       - name: No var given in a branch, then again (Nim 2.2 leaks the first)
@@ -30,7 +38,13 @@ jobs:
           python3 tools/controlscheck.py
           python3 tools/tutorialshots/gen.py --check
       - name: Tests
-        run: nimble test -y
+        # (as many at once as the runner has cores; one that fails among
+        # the others is run again alone: "flaky" when it passes then)
+        run: |
+          export PATH=/usr/lib/ccache:$PATH CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=1500M
+          ccache -z > /dev/null
+          sh tests/runall.sh
+          ccache -s | head -6
       - name: Fuzz (a short run)
         run: |
           nim c -r -d:release --hints:off tests/fuzz/fuzz.nim tests/fuzz/seeds 2000

@@ -432,7 +432,7 @@ proc presetsFromJson*(s: string): seq[BrushPreset] =
   let j = try: parseJson(s) except CatchableError: raise newException(ValueError, "not a brushes file")
   if j.kind != JObject or j{"presets"} == nil or j["presets"].kind != JArray:
     raise newException(ValueError, "not a brushes file")
-  for p in j["presets"]: result.add presetOf(p)
+  for p in j{"presets"}.getElems: result.add presetOf(p)
 
 # ---- a stroke that shows a brush -----------------------------------------------------------------------
 

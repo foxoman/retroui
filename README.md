@@ -31,7 +31,7 @@ change is written into the same `.nim` file.
 ## Why Retro
 
 - **Small and light.** A "hello" app is a single 2.1 MB file (Linux
-  x86-64, built with `retrokit small`; about 1 MB of it the fonts) that
+  x86-64, built with `retrokit small`; about 0.9 MB of it the fonts) that
   runs in 7 MB of memory on one thread -- the same Hello in egui, iced or
   Slint is a 15-22 MB file in 15-120 MB (see [Speed and size](#speed-and-size));
   the full file manager is 4.3 MB, and the gallery with every control, the
@@ -771,9 +771,11 @@ currency, arrows, mathematical operators, box drawing, geometric shapes
 and the symbols the kit's own text uses -- the bold and italic styles the
 letters, their symbols coming from the regular -- with their OpenType
 kerning, marks, ligatures and Arabic forms, without the TrueType hinting.
-The twelve files take 1.0 MB in every app (compressed, unpacked when a
-face is first used; the fonts before them took 0.96 MB, and apps with
-`retroui/textengine` carried Amiri's 0.21 MB more).
+The twelve files take 0.88 MB in every app (packed with LZMA by
+`tools/packlzma.py`, unpacked when a face is first used; the faces every
+program unpacks as it starts, the UI's text, its bold and the icons, with
+zlib, five times as fast to unpack; the fonts before them took 0.96 MB,
+and apps with `retroui/textengine` carried Amiri's 0.21 MB more).
 
 **Crisp at every scale.** Glyphs are drawn by the kit's own TrueType
 engine (`retroui/ttf`), at the screen's own resolution, on the CPU and the
@@ -1831,7 +1833,9 @@ b.saveBoard("flow.board")
   (`briefAt`: letters under 6 pixels) is drawn in brief
   (`drawingOf(s, brief = true)`) -- its box, fill and colors, its words as
   bars -- made in a fraction of the time: 5,000 shapes zoomed out in 9 ms a
-  frame, not a second.
+  frame, not a second. Zoomed in, making drawings takes 8 ms of a frame at
+  most (`startDrawing`, `drawingFor`; `behind`: ask for a frame more), the
+  rest drawn in brief until the next frames make them.
 - **Files:** `.board` (JSON, pictures inside), PNG (`renderBitmap`: any
   scale, transparent or on the canvas's color), SVG and PDF (vectors,
   text as outlines).
@@ -2921,7 +2925,8 @@ processor a frame for each scene.
   MSIX packages) do the same for their modules. They found real bugs, now
   fixed and kept as tests. Every night the decoders also run under
   libFuzzer (`tests/fuzz/libfuzz.nim`: coverage-guided, with the
-  sanitizers).
+  sanitizers): the pictures, zlib and LZMA, Markdown, HTML, PDF, glTF,
+  map tiles, podcast feeds, chapters and transcripts, board files.
 - **32-bit:** `tests/run32.sh` runs the tests as 32-bit programs, where an
   `int` is as small as WebAssembly's: a number that only fits in 64 bits
   (a checksum, a color's weighted sum, a file's size) shows up there.
@@ -2951,7 +2956,12 @@ processor a frame for each scene.
 
 The tests swap the screen for a fake driver that plays back scripted
 mouse, keyboard and touch input and keeps the pixels, so no window is
-needed. `nimble test` runs them all; `nimble fuzz` runs the fuzzers.
+needed. `nimble test` runs them all, as many at once as the machine has
+cores (`sh tests/runall.sh`: each in a temporary folder of its own, a log
+each in `build/tests`; one that fails among the others runs again alone,
+and is named "flaky" when it passes then; `RETRO_REPEAT=5` runs every
+test five times to find them, and the nightly workflow runs them three
+times); `nimble fuzz` runs the fuzzers.
 `sh tools/cicheck.sh` runs what GitHub's CI runs, here, and
 `sh tools/warncheck.sh` checks that the kit's own files build without a
 warning as every system builds them (Linux, Termux, an Android app,
@@ -2972,11 +2982,21 @@ a screen: `xvfb-run -a sh tests/smoke/run.sh`) builds the apps and starts
 each in a home of its own with `RETRO_SMOKE=14`: the kit measures the
 first frame, then 3 seconds untouched (the frames and the processor's
 time: an app at rest does next to nothing), then clicks, keys, the wheel
-and typing until the time is up (on X, xdotool's real input too). A
-fault, a crash, a hang or an app busy while untouched fails it; a line
+and typing until the time is up (on X, xdotool's real input too; it opens
+no other program: `openUrl` and `openFile` say false). A fault, a crash,
+a hang or an app busy while untouched fails it; a line
 for each app goes to `build/smoke/results.txt`. The systems workflow runs
 it on Linux, Windows and macOS. `RETRO_SMOKE_SEED=n` drives an app another
 way (other clicks, other keys).
+
+**Every app worked for an hour:** `sh tools/soak.sh [minutes] [apps]`
+(`xvfb-run -a` on Linux without a screen) gives each app the smoke run's
+random input for an hour (`RETRO_SMOKE_STAY=1`: an Exit or a close box
+clicked does not end it) and samples its memory every 20 seconds, as on a
+phone of 2 GB (`RETRO_DEVICE_MB`: the caches' budgets follow it): an app
+that holds more than 16 MB more at the end than half way in (a cache
+filled once does not count), or that faults, fails. The nightly workflow
+soaks eight apps for an hour each.
 
 **Every app driven by its controls' names:** `sh tests/drive/run.sh`
 starts the apps with `RETRO_DRIVE` and clicks every tab, opens and closes
@@ -3164,7 +3184,7 @@ video use the system's audio and, for compressed formats, GStreamer when
 it is there.
 
 **How big is an app?**
-About 2.1 MB for "hello" (`retrokit small`; 1 MB of it the fonts), 4.3 MB
+About 2.1 MB for "hello" (`retrokit small`; 0.9 MB of it the fonts), 4.3 MB
 for a full file manager, 1.6 MB as an APK. Only what the app calls is
 linked: an app without the map does not carry the map. With fewer fonts
 built in (`-d:retroFonts=ui`: FreeSans and its bold; `sans`; `none`) hello

@@ -49,9 +49,9 @@ var memFonts: seq[tuple[entry: FontEntry; ticket: int; face: Face]]
   ## Fonts an app (or a module) carries in itself (`addFontData`).
 
 proc addFontData*(family, style: string; data: string; packed = false; weight = 400; italic = false) =
-  ## Offers a font the program carries -- its bytes (`packed`: zlib
-  ## compressed, as `staticRead` of a ".ttf.z", unpacked on a thread from
-  ## now) -- as `family` / `style`, read the first time it is drawn. Again
+  ## Offers a font the program carries -- its bytes (`packed`: zlib or
+  ## LZMA compressed, as `staticRead` of a ".ttf.z", unpacked on a thread
+  ## from now) -- as `family` / `style`, read the first time it is drawn. Again
   ## with the same family and style: nothing.
   for m in memFonts:
     if m.entry.family == family and m.entry.style == style: return
@@ -1714,7 +1714,7 @@ proc textFrom*(j: JsonNode): TextData =
   result.antialias = true
   if j == nil or j.kind != JObject: return
   if j.hasKey("spans") and j["spans"].kind == JArray:
-    for s in j["spans"]:
+    for s in j{"spans"}.getElems:
       result.spans.add TextSpan(text: s.getS("text"), style: charStyleFrom(if s.hasKey("style"): s["style"] else: nil))
   if result.spans.len == 0: result.spans.add TextSpan(text: "", style: defaultStyle())
   result.x = float32(j.getF("x")); result.y = float32(j.getF("y"))

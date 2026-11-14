@@ -628,3 +628,18 @@ suite "thousands of shapes, zoomed out":
     discard b.drawingOf(b.page.shapes[^1])
     check b.drawingBytes == kept
     drawingBudget = before
+  test "a frame's time to make drawings: the rest in brief, made in the next frames":
+    let b = newBoard()
+    for i in 0 ..< 400:
+      var s = b.newShape(skNote, float(i mod 20) * 120, float(i div 20) * 120, 100, 100)
+      s.text = "A note, number " & $i
+      b.addShape(s)
+    var frames = 0
+    while true:
+      inc frames
+      b.startDrawing(2)                   # (2 ms: far too little for 400)
+      for s in b.page.shapes: discard b.drawingFor(s, 1.0)
+      if not b.behind or frames > 500: break
+    check frames > 1 and frames < 500     # (several frames, and then all in full)
+    for s in b.page.shapes:
+      check b.drawingFor(s, 1.0).pieces.len == b.drawingOf(s).pieces.len

@@ -1,5 +1,80 @@
 # Changes
 
+## 0.49.0
+
+Faster and steadier: the tests as many at once as there are cores (a
+flaky one named), apps soaked under random input every night (the soaks
+found a fault each in Retro Files and Retro Board), the fonts 12 %
+smaller, Retro Board moving zoomed in on thousands of notes, and JSON
+from outside that never stops a program.
+
+- **Retro Board 1.5.0 zoomed in on thousands of readable shapes**: making their
+  drawings takes 8 ms of a frame at most (`startDrawing`, `drawingFor`,
+  `behind`); the rest are drawn in brief for a frame or two and made in the
+  next ones -- 972 notes in view: the first frame in 28 ms, not 173, all of
+  them drawn in full by the 8th frame. A shape's brief drawing goes once its
+  full one is made (both kept could pass `drawingBudget` and be made again
+  each frame); a note's brief drawing no longer measures its words. Next
+  step (Ctrl+Right, Ctrl+Down) pressed while a text left empty was typed in
+  no longer stops the app (the soak found it).
+- **The fonts 12 % smaller, packed with LZMA** (`retroui/lzma`, the kit's
+  own decoder from the LZMA specification; `tools/packlzma.py`): every app
+  118 KB smaller (Hello 2.23 MB -> 2.11 MB). The faces every program
+  unpacks as it starts (the UI's text, its bold, the icons) stay zlib,
+  five times as fast to unpack, and so do Retro Board's handwriting fonts:
+  the apps start as fast as before, Retro Board 10 ms later (its Text
+  panel draws the serif and mono faces at once: `useHandFonts` has them
+  unpacked on a thread as the window opens). Packed files of either kind are read.
+- **Retro Files 3.4.1: the folder tree no longer stops the app** -- a
+  folder opened or closed below another while the tree was drawn moved
+  the lists the tree keeps, and the folder above went on reading its list
+  where it no longer was ("the length of the seq changed while iterating
+  over it"). The soak found it, in its first six minutes of random input.
+- **JSON from outside never stops a program**: a list or an object read
+  from a server or a file (a podcast's chapters -- Retro Podcast 1.1.1 --
+  the photo and icon services, GeoJSON, brush presets, saved settings)
+  that is missing or of another kind is skipped -- Nim's json stopped the
+  program with a nil read or a failed assertion (libFuzzer found it in the
+  chapters reader in its first minute).
+- **Fuzzed every night**: LZMA, podcast feeds, chapters, transcripts and
+  board files (drawn too) join the libFuzzer targets, with seeds.
+- **The CI**: Retro Files' test of jobs that wait starts from no job and
+  copies files of its own (random input before it could leave a job asking
+  "replace?", or move the files it copied) -- it failed 0.48.0's CI and
+  its 32-bit run.
+- **The tests, as many at once as there are cores** (`sh tests/runall.sh`,
+  what `nimble test` runs now but on Windows): each in a temporary folder
+  of its own, a log each in `build/tests`, the slowest named; one that
+  fails among the others runs again alone, and is named "flaky" when it
+  passes then (a warning on GitHub, not a red run). `RETRO_REPEAT=5`: every
+  test five times over, to find the flaky ones. The CI keeps the C
+  compiler's work between runs (ccache: four fifths of a test's build;
+  87 % of it found again after this release's changes). The 152 tests on
+  two cores: 34 minutes, where the CI took 45 one at a time on four.
+- **A flaky test**: `test_drawalloc` failed one time in six with other
+  tests running (0.48.0's too): one allocation in sixty frames, from a
+  thread of the kit. It measures up to three times now.
+- **The faces unpacked under one lock on every thread**: a worker thread
+  asking for a face's bytes and the window's thread loading it could
+  unpack it at the same moment.
+- **Nightly**: the tests three times over (a flaky one fails the night),
+  eight apps soaked for an hour each (`tools/soak.sh`: the kit's random
+  input, `RETRO_SMOKE_STAY=1` so an Exit clicked does not end it, the
+  memory sampled -- one that keeps growing once warm, or faults, fails),
+  and the sanitizers' run four tests at once.
+- **The smoke run opens no other program** (`RETRO_SMOKE`: `openUrl` and
+  `openFile` say false): its clicks opened the files and links they
+  reached in the system's programs, a word processor among them, and an
+  hour's soak left 5 GB of them running after the apps had ended.
+- **`RETRO_DEVICE_MB=2048`**: the device taken to have 2 GB, the program
+  alone on it (`retroui/memwatch`): the caches' budgets and the memory
+  pressure as on a small phone, on any computer. The soak runs so.
+- **Android's emulator**: the 3D view on Android's GPU against the CPU
+  (`tests/gpu3d/gpu3dcheck.nim` as an APK, its results fetched like the
+  live check's), Retro Podcast and Grow driven too, and a link shared
+  with an app in the share sheet, running and stopped; the desktop tour
+  drives Podcast and Grow too.
+
 ## 0.48.0
 
 Sixteen tutorials, step by step with pictures; Grow, a phone app made with

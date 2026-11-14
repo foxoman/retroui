@@ -27,7 +27,7 @@ from retroui/system import sharedIn
 import podcast/library
 
 const
-  PodcastVersion = "1.1.0"
+  PodcastVersion = "1.1.1"
   IconPng = staticRead("assets/podcast-icon.png")
   PlayerKey = "podcast-player"
   Speeds = [0.75, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
@@ -118,12 +118,12 @@ proc search(q: string; directory: int) =
       raise newException(IOError, if r.status == 0: r.error else: "the directory answered " & $r.status)
     let j = parseJson(r.body)
     if directory == 1:
-      for it in j{"data"}:
+      for it in j{"data"}.getElems:
         if it{"xmlURL"}.getStr.len > 0:
           result.add Found(title: it{"title"}.getStr, author: it{"author"}.getStr,
                            feed: it{"xmlURL"}.getStr, art: it{"imgURL"}.getStr)
     else:
-      for it in j{"results"}:
+      for it in j{"results"}.getElems:
         if it{"feedUrl"}.getStr.len > 0:
           result.add Found(title: it{"collectionName"}.getStr, author: it{"artistName"}.getStr,
                            feed: it{"feedUrl"}.getStr, art: it{"artworkUrl100"}.getStr))

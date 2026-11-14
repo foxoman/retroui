@@ -911,7 +911,7 @@ proc driveCmd(args: seq[string]): int =
     elif not r{"ok"}.getBool: echo "retrokit: ", r{"error"}.getStr
     elif r.hasKey("nodes"):
       var depth = newSeq[int]()
-      for n in r["nodes"]:
+      for n in r{"nodes"}.getElems:
         let p = n{"parent"}.getInt(-1)
         depth.add(if p >= 0 and p < depth.len: depth[p] + 1 else: 0)
         echo repeat("  ", depth[^1]), describe(n)

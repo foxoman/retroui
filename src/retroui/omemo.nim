@@ -812,15 +812,15 @@ proc omemoOpen*(dir, account: string): OmemoStore =
     if old != nil and old.len == 3:
       result.oldSignedId = old[0].getInt
       result.oldSigned = KeyPair(priv: unb64(old[1].getStr), pub: unb64(old[2].getStr))
-    for id, p in j{"prekeys"}.pairs:
+    for id, p in j{"prekeys"}.getFields.pairs:
       result.preKeys[parseInt(id)] = KeyPair(priv: unb64(p[0].getStr), pub: unb64(p[1].getStr))
     result.nextPreKey = j{"next"}.getInt
     result.registration = j{"reg"}.getInt
-    for k, r in j{"sessions"}.pairs:
+    for k, r in j{"sessions"}.getFields.pairs:
       var rec = SessionRecord(has: true, current: sessionOf(r{"cur"}))
       for s in r{"old"}.getElems: rec.old.add sessionOf(s)
       result.sessions[k] = rec
-    for jid, a in j{"devices"}.pairs:
+    for jid, a in j{"devices"}.getFields.pairs:
       var list: seq[Device]
       for d in a.getElems:
         list.add Device(id: d{"id"}.getInt, identity: unb64(d{"ik"}.getStr),

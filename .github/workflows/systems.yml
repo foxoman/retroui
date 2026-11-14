@@ -58,7 +58,7 @@ env:
     test_tilemap test_gltf test_store test_sysmon test_taskman
     test_inspect test_drive test_sevenguis test_navigator test_retrodns
     test_feeds test_jobs test_undo test_pages test_typeforms test_uistrings test_codeedit
-    test_podcast test_grow
+    test_podcast test_grow test_lzma
   # the live check: frames drawn by the CPU at 100 %, the browser engine
   # needed
   RETRO_GPU: cpu
@@ -323,6 +323,8 @@ jobs:
           nim c -d:release --hints:off -o:build/retroapk src/retroapk.nim
           build/retroapk tests/live/livecheck.nim --abi:x86_64 --debuggable \
             --id:org.retro.livecheck --name:Livecheck --nim:--path:src -o:build/livecheck.apk
+          build/retroapk tests/gpu3d/gpu3dcheck.nim --abi:x86_64 --debuggable \
+            --id:org.retro.gpu3dcheck --name:Gpu3dcheck --nim:--path:src -o:build/gpu3dcheck.apk
       - name: The apps' APKs (x86_64, for the emulator), and the tour that drives them
         run: |
           nimble emuapks -y

@@ -188,19 +188,32 @@ echo "random input: ", jobsRun, " file jobs, ", jobsRefused, " refused (outside)
      " times back home"
 # two copies asked for at once: the second waits for the first, then runs
 block jobQueue:
-  let qa = home / "qa"
-  let qb = home / "qb"
-  createDir(qa)
-  createDir(qb)
-  startJob(jkCopy, @[home / "Documents" / "readme.md"], qa, "Copying")
-  startJob(jkCopy, @[home / "Documents" / "Old" / "data.csv"], qb, "Copying")
-  doAssert jobRunning() and jobsWaiting() == 1, "the second copy waits"
+  # (what random input left -- a job, one asking "replace?" -- let go, and
+  # files of the test's own: random input may have moved the others)
+  cancelJobs()
   var n = 0
-  while (jobRunning() or jobsWaiting() > 0) and n < 3000:
+  while jobRunning() and n < 3000:
+    key(KeyEsc)
     run()
     os.sleep(1)
     inc n
-  doAssert fileExists(qa / "readme.md") and fileExists(qb / "data.csv"), "both copied, one after the other"
+  doAssert not jobRunning(), "random input's job ended"
+  let src = home / "qsrc"
+  let qa = home / "qa"
+  let qb = home / "qb"
+  for d in [src, qa, qb]: createDir(d)
+  writeFile(src / "one.txt", "one")
+  writeFile(src / "two.txt", "two")
+  startJob(jkCopy, @[src / "one.txt"], qa, "Copying")
+  startJob(jkCopy, @[src / "two.txt"], qb, "Copying")
+  doAssert jobRunning() and jobsWaiting() == 1, "the second copy waits"
+  n = 0
+  while (jobRunning() or jobsWaiting() > 0) and n < 5000:
+    run()
+    os.sleep(1)
+    inc n
+  doAssert readFile(qa / "one.txt") == "one" and readFile(qb / "two.txt") == "two",
+    "both copied, one after the other"
   noFault("jobs one after another")
 filesStop()
 removeDir(home)

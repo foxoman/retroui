@@ -668,7 +668,7 @@ proc fromJson*(j: JsonNode): Book =
                   signerAr: gs(h, "signerAr"), signerTitleAr: gs(h, "signerTitleAr"),
                   modified: gf(h, "modified"))
     if h.hasKey("nextRef") and h["nextRef"].kind == JObject:
-      for y, n in h["nextRef"].pairs:
+      for y, n in h{"nextRef"}.getFields.pairs:
         if n.kind == JInt: x.nextRef[y] = int(n.num)
     if x.id.len > 0: result.hotels.add x
   for f in ga(j, "fields"):
@@ -681,7 +681,7 @@ proc fromJson*(j: JsonNode): Book =
   for d in builtinFields():                 # (built-in fields a newer version added)
     if not result.hasField(d.key): result.fields.add d
   if j.hasKey("lists") and j["lists"].kind == JObject:
-    for k, v in j["lists"].pairs:
+    for k, v in j{"lists"}.getFields.pairs:
       var l: seq[string]
       if v.kind == JArray:
         for x in v.elems:
@@ -690,7 +690,7 @@ proc fromJson*(j: JsonNode): Book =
   for k, v in defaultLists():
     if not result.lists.hasKey(k): result.lists[k] = v
   if j.hasKey("arabic") and j["arabic"].kind == JObject:
-    for k, v in j["arabic"].pairs:
+    for k, v in j{"arabic"}.getFields.pairs:
       if v.kind == JString: result.arabic[k] = v.str
   else:
     result.arabic = defaultArabic()

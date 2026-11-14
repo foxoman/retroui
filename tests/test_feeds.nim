@@ -92,4 +92,10 @@ Today: Windows 3.1
 at thirty-four."""
 doAssert transcriptText(vtt) == "Sultan: Welcome to Retro Talk.\nToday: Windows 3.1 at thirty-four.", transcriptText(vtt)
 doAssert transcriptText("<p>Hello</p><p>World</p>") == "Hello\nWorld"
+# chapters files that are not one -- no list, a list of the wrong kind, a
+# list where an object was: empty, not a crash (the fuzzer's find)
+for bad in ["{}", """{"chapters": 5}""", """{"chapters": {"a": 1}}""", "[]", "[1, 2]",
+            """{"chapters": [1, "two", null, {"startTime": "x"}]}"""]:
+  let cs = parseChapters(bad)
+  doAssert cs.len <= 1, bad
 echo "feeds OK"

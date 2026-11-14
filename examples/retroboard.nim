@@ -22,7 +22,7 @@ import retroui/[board, freehand]
 
 const
   AppName = "Retro Board"
-  BoardVersion = "1.4.0"
+  BoardVersion = "1.5.0"
   iconPng = staticRead("assets/board-icon.png")
 
 type
@@ -1773,7 +1773,7 @@ proc drawShape(s: Shape; fade: float) =
     return
   # (too small to read at this zoom: in brief -- its box and colors, its
   # words as bars -- so a board of thousands of shapes, zoomed out, moves)
-  for piece in bd.drawingOf(s, bd.briefAt(s, k)).pieces:
+  for piece in bd.drawingFor(s, k).pieces:
     fillContours(piece.contours, tint(piece.color, fade), ox, oy, k)
 
 proc outlinePg(s: Shape; c: Color; w = 1.5) =
@@ -1890,11 +1890,14 @@ proc drawCanvas() =
   let tl = pageAt(view.x.float, view.y.float)
   let vis: Box = (tl.x - 50 / zoom(), tl.y - 50 / zoom(), view.w.float / zoom() + 100 / zoom(),
                   view.h.float / zoom() + 100 / zoom())
+  # (drawings made 8 ms a frame at most: the rest in brief, made next frame)
+  bd.startDrawing(8)
   for s in bd.page.shapes:
     if s.kind == skGroup: continue
     if not bd.boundsOf(s).overlaps(vis): continue
     let fade = if s.id in erasing or (s.parent != 0 and s.parent in erasing): 0.3 else: 1.0
     drawShape(s, fade)
+  if bd.behind: wakeIn(1)
   # (a shape with a link: a badge at its corner, a click opens it)
   for s in bd.page.shapes:
     if s.link.len == 0 or s.kind == skGroup: continue
@@ -2192,6 +2195,8 @@ proc nextStep(dx, dy: int) =
   ## an arrow to it.
   if sel.len != 1: return
   finishEdit()
+  # (the edit ended may take the shape away: a text left empty goes)
+  if sel.len != 1 or bd.find(sel[0]) == nil: return
   var n: tuple[shape, arrow: int]
   bd.change("Next Step"): n = bd.addConnected(sel[0], dx, dy)
   if n.shape != 0:
@@ -3353,7 +3358,12 @@ proc dialogs() =
             "on as many pages as you like.",
             "Made with Retro Nim UI " & RetroVersion & " (retroui/board, retroui/freehand)."],
            tagline = "Draw, sketch and think together", iconPng = iconPng,
-           whatsNew = ["1.3.10: a smooth line no longer keeps its points twice in memory each time it is drawn",
+           whatsNew = ["1.5.0: zoomed in on thousands of notes it keeps moving -- the drawings " &
+                       "still to make are drawn in brief for a frame or two, then in full; Next step " &
+                       "pressed while an empty text was typed in no longer closes it",
+                       "1.4.0: thousands of shapes zoomed out drawn at once (the ones too small to read " &
+                       "in brief); the frames presented as slides (F5); pictures dropped on the board",
+                       "1.3.10: a smooth line no longer keeps its points twice in memory each time it is drawn",
                        "1.3.9: it opens in a quarter of the time (its handwriting fonts unpacked while the " &
                        "window opens, the Text panel's samples made once); F6 goes from the board to the " &
                        "panels and the menu bar",

@@ -73,6 +73,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: The headless tests on ARM
+        # (two at once: four builds of the bigger tests want more memory
+        # than a Pi of 4 GB has)
+        env:
+          RETRO_JOBS: "2"
         run: nimble test -y
       - name: The live check on the Pi's screen (or Xvfb)
         run: |

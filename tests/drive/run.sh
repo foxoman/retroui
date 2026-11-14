@@ -11,7 +11,7 @@
 #
 # Linux without a screen: xvfb-run -a sh tests/drive/run.sh
 set -u
-apps=${*:-gallery notepad taskman hrbook sevenguis}
+apps=${*:-gallery notepad taskman hrbook sevenguis podcast grow}
 out=build/drive
 mkdir -p "$out"
 exe=""

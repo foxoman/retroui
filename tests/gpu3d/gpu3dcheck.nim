@@ -7,9 +7,12 @@
 ##
 ##   RETRO_GPU=gpu xvfb-run -a build/gpu3dcheck
 ##
-## Exit code: the failures (2: no GPU here).
+## Exit code: the failures (2: no GPU here). Its lines go to results.txt
+## too, in $RETRO_LIVE_OUT (else the app's data folder): on Android's
+## emulator, `sh tests/live/android.sh build/gpu3dcheck.apk
+## org.retro.gpu3dcheck live/gpu3d` fetches them.
 
-import std/[math, strutils]
+import std/[math, strutils, os, exitprocs]
 import retroui, retroui/[gfx, view3d]
 
 include "../carscene.nim"
@@ -20,15 +23,29 @@ fitView(car, cam)
 var step = 0
 var frames = 0
 var failed = 0
+var lines: seq[string]
+var outDir = getEnv("RETRO_LIVE_OUT")
+if outDir.len == 0: outDir = dataDir("gpu3dcheck")
+createDir(outDir)
+
+proc say(line: string) =
+  echo line
+  lines.add line
+
+proc finish(code: int) =
+  try: writeFile(outDir / "results.txt", lines.join("\n") & "\n")
+  except IOError: echo "gpu3dcheck: results.txt not written"
+  setProgramResult(code)
+  quitApp()
 
 proc compare(what: string) =
   if not view3dOnGpu():
-    echo "FAIL ", what, ": the view was not drawn by the GPU"
+    say "FAIL " & what & ": the view was not drawn by the GPU"
     inc failed
     return
   let g = view3dPicture()
   if g == nil:
-    echo "FAIL ", what, ": no picture from the view"
+    say "FAIL " & what & ": no picture from the view"
     inc failed
     return
   let c = render3d(car, cam, g.w, g.h)
@@ -44,16 +61,16 @@ proc compare(what: string) =
   let mean = total.float / float(g.w * g.h * 3)
   let farShare = far.float / float(g.w * g.h)
   let ok = mean < 4 and farShare < 0.02
-  echo (if ok: "PASS " else: "FAIL "), what, ": mean difference ", formatFloat(mean, ffDecimal, 2),
-       ", pixels far apart ", formatFloat(farShare * 100, ffDecimal, 2), " %"
+  say (if ok: "PASS " else: "FAIL ") & what & ": mean difference " & formatFloat(mean, ffDecimal, 2) &
+      ", pixels far apart " & formatFloat(farShare * 100, ffDecimal, 2) & " %"
   if not ok: inc failed
 
 app "gpu3d", 820, 560:
   discard view3d(car, cam, controls = false)
   inc frames
   if frames == 5 and not drawnWithGpu():
-    echo "no GPU here (frames drawn by the CPU)"
-    quit 2
+    say "SKIP no GPU here (frames drawn by the CPU)"
+    finish(2)
   if frames mod 6 == 0:
     case step
     of 0: compare("the car")
@@ -84,7 +101,7 @@ app "gpu3d", 820, 560:
       sceneChanged(car)
     of 8: compare("bars and a painted box, no materials, outlined")
     else:
-      echo "DONE ", failed
-      quit failed
+      say "DONE " & $failed
+      finish(failed)
     inc step
   wakeIn(16)

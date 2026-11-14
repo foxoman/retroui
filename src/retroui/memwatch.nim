@@ -17,6 +17,8 @@
 ##   cache (`retroui/filewidgets`) is one of them.
 ## - `memoryReport`: the numbers as a line of text (an About box, a status
 ##   bar).
+## - `RETRO_DEVICE_MB=2048`: the device taken to have 2 GB (the budgets and
+##   the pressure as on a small phone).
 ## - `trimHeap`: the memory the program let go of given back to the system
 ##   (malloc_trim, Android's M_PURGE). It is done by itself after the caches
 ##   let go, when the program goes to the background, and now and then while
@@ -40,7 +42,7 @@
 ##   onMemoryPressure(proc (level: MemoryPressure) =
 ##     if level == mpCritical: myCache.clear() else: myCache.trimHalf())
 
-import std/[strutils, monotimes, times]
+import std/[strutils, monotimes, times, envvars]
 import core
 
 when not defined(useMalloc) and not defined(retroNimAlloc) and not defined(nimscript):
@@ -148,12 +150,19 @@ var
   measured = false
   testLevel = -1                  # (`pretendMemoryPressure`)
 
+let pretendDevice = (try: parseBiggestInt(getEnv("RETRO_DEVICE_MB")) except ValueError: 0'i64) * MB
+  ## (RETRO_DEVICE_MB=2048: a device of 2 GB, the program alone on it -- the
+  ## caches' budgets and the pressure as on a small phone; `tools/soak.sh`)
+
 proc memoryNumbers*(): MemoryNumbers =
   ## The device's memory, what is free, what this program uses (measured
-  ## at most every two seconds).
+  ## at most every two seconds). `RETRO_DEVICE_MB=N`: a device of N MB.
   let now = getMonoTime()
   if not measured or (now - lastAt).inMilliseconds >= 2000:
     last = measure()
+    if pretendDevice > 0:
+      last.device = pretendDevice
+      last.free = max(0'i64, pretendDevice - last.program)
     lastAt = now
     measured = true
   last

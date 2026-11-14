@@ -295,7 +295,8 @@ proc parseChapters*(text: string): seq[Chapter] =
   ## it: Podcasting 2.0's JSON), in order; empty when it is not one.
   try:
     let j = parseJson(text)
-    for c in j{"chapters"}:
+    for c in j{"chapters"}.getElems:      # (no list, or not one: none)
+      if c.kind != JObject: continue
       if c{"toc"}.getBool(true):           # (a chapter kept out of the list: toc false)
         result.add Chapter(start: c{"startTime"}.getFloat(c{"startTime"}.getInt.float),
                            title: c{"title"}.getStr, url: c{"url"}.getStr, image: c{"img"}.getStr)

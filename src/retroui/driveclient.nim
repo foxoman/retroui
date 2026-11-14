@@ -180,5 +180,5 @@ proc describe*(n: JsonNode): string =
              $n{"h"}.getInt
   if n.hasKey("states"):
     var st: seq[string]
-    for s in n["states"]: st.add s.getStr
+    for s in n{"states"}.getElems: st.add s.getStr
     result.add " (" & st.join(", ") & ")"

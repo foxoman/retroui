@@ -34,12 +34,20 @@ run(4)
 for i in 0 ..< 6:          # (every state seen once: the buffers grown)
   lit = i mod 3
   run(1)
-let a0 = allocs()
 const N = 60
-for i in 0 ..< N:
-  lit = i mod 3
-  run(1)
-let per = (allocs() - a0) / N
+proc perFrame(): float =
+  let a0 = allocs()
+  for i in 0 ..< N:
+    lit = i mod 3
+    run(1)
+  (allocs() - a0) / N
+# (up to three times: on a busy machine one of the kit's threads, or a
+# timer, takes memory now and then while these frames are drawn -- one
+# allocation in sixty frames, a test in six failed with the others
+# running; a frame that allocates does it every time)
+var per = perFrame()
+for _ in 0 ..< 2:
+  if per > 0: per = min(per, perFrame())
 doAssert per == 0, "a frame takes " & $per & " allocations"
 
 # the caches let go of, then the frame drawn again: the same pixels

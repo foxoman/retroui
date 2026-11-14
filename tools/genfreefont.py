@@ -11,7 +11,8 @@ https://ftp.gnu.org/gnu/freefont/freefont-ttf-20120503.zip, or Debian's
     python3 tools/genfreefont.py /usr/share/fonts/truetype/freefont
 
 Writes src/retroui/fonts/Free*.ttf (the subsets, the sources of record) and
-Free*.ttf.z (the same, zlib-compressed: what typeset.nim builds into every
+Free*.ttf.z (the same, packed -- LZMA, or zlib for FreeSans and its bold
+which every program unpacks as it starts: what typeset.nim builds into every
 app and unpacks the first time a face is used).
 
     python3 tools/genfreefont.py --add /usr/share/fonts/truetype/freefont
@@ -61,6 +62,17 @@ these files is not made a derivative of them.
 import copy, io, os, sys, zlib
 from fontTools.ttLib import TTFont
 from fontTools import subset
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import packlzma
+
+
+def packed_font(dst, data):
+    """(what the programs carry: zlib for the faces unpacked as every
+    program starts, LZMA for the rest -- tools/packlzma.py)"""
+    if os.path.basename(dst) + ".z" in packlzma.KEEP_ZLIB:
+        return zlib.compress(data, 9)
+    return packlzma.pack(data)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -125,7 +137,7 @@ def cut(src, ranges, dst):
     data = out.getvalue()
     with open(dst, "wb") as f:
         f.write(data)
-    packed = zlib.compress(data, 9)
+    packed = packed_font(dst, data)
     with open(dst + ".z", "wb") as f:
         f.write(packed)
     return len(data), len(packed), font["maxp"].numGlyphs
@@ -202,7 +214,7 @@ def grow(dst, src):
     with open(dst, "wb") as f:
         f.write(data)
     with open(dst + ".z", "wb") as f:
-        f.write(zlib.compress(data, 9))
+        f.write(packed_font(dst, data))
     return len(new)
 
 

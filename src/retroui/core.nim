@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.48.0"
+const RetroVersion* = "0.49.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -3702,7 +3702,10 @@ proc firstFrameMs*(): int = firstShownMs
 # written to stderr and added to $RETRO_SMOKE_OUT (also when a click closed
 # the app before its time). Run it in a home of its
 # own: the clicks can delete what they reach (tests/smoke/run.sh does so).
-# RETRO_SMOKE_SEED=n drives it another way (other clicks, other keys).
+# RETRO_SMOKE_SEED=n drives it another way (other clicks, other keys);
+# RETRO_SMOKE_STAY=1 keeps it running when a click asks it to end, until
+# its time is up (tools/soak.sh: an hour, its memory watched). It opens no
+# other program: `openUrl` and `openFile` say false.
 
 const
   smokeSettleMs = 4000            ## (the start: a splash, the first loads)
@@ -3724,6 +3727,17 @@ var smoke = (secs: (try: parseInt(getEnv("RETRO_SMOKE", "0")) except ValueError:
 
 proc smokeOn*(): bool = smoke.secs > 0
   ## A smoke run (RETRO_SMOKE) is going on.
+
+let smokeStay = getEnv("RETRO_SMOKE_STAY") == "1"
+
+if smoke.secs > 0:
+  # (the clicks would open every file and link they reach in the system's
+  # programs -- a word processor, a browser -- and those stay after the
+  # app ends: a soak's hour left gigabytes of them. None is started.)
+  systemRelays.openUrl = proc (url: string): bool {.nimcall.} = false
+  systemRelays.openFile = proc (path: string; share: bool): bool {.nimcall.} = false
+  ## (a long run -- tools/soak.sh: a click on Exit or the close box does
+  ## not end it before its time)
 
 when defined(windows):
   type SmokeFileTime = object
@@ -4083,6 +4097,8 @@ proc frameSetup(main: bool) =
 
 proc beginFrame*(): bool =
   ## Wait for input (or a timer) and start a frame. False once the app ends.
+  if not ui.running and smokeStay and smoke.secs > 0 and smoke.phase < 3:
+    ui.running = true                   # (a long smoke run: ended by its time only)
   if not ui.running: return false
   applyIconStyle()
   frameReset()

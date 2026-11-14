@@ -19,10 +19,11 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[math, tables, json, strutils, algorithm, base64, hashes, sets, os]
+import std/[math, tables, json, strutils, algorithm, base64, hashes, sets, os, monotimes, times]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import gfx, freehand, textengine, raster, imaging, pdf, ttf
 from codec import unbase64
+from typeset import FaceId, unpackFacesSoon
 
 type
   BoardColor* = enum
@@ -162,6 +163,9 @@ type
     cache: Table[int, Drawing]
     briefs: Table[int, Drawing]   ## (shapes too small to read: their brief drawings)
     asked: int                    ## (drawings asked for so far: their age)
+    makeLeft: Duration            ## (this frame's time left to make drawings: `startDrawing`)
+    budgeted: bool                ## (a frame's time given: `startDrawing` was called)
+    behindNow: bool               ## (a shape drawn in brief for want of time)
     stamps: int
 
   Piece* = object
@@ -227,10 +231,14 @@ const
 var handsAdded = false
 
 proc useHandFonts*() =
-  ## The board's handwriting fonts offered to the text engine (once).
+  ## The board's handwriting fonts offered to the text engine (once), and
+  ## its serif and mono faces unpacked on the same thread meanwhile (the
+  ## Text panel's samples draw them at the start; LZMA's, unpacked when
+  ## first drawn, made the first frame 30 ms later).
   if handsAdded: return
   handsAdded = true
   for (family, data) in handFonts: addFontData(family, "Regular", data, packed = true)
+  unpackFacesSoon([FaceId.fSerif, FaceId.fSerifItalic, FaceId.fMono])
 
 proc familyOf*(f: BoardFont): string = fontFamilies[f]
   ## The font family a board font is.
@@ -1766,6 +1774,11 @@ proc drawingOf*(b: Board; s: Shape; brief = false): Drawing =
         t[].del id
   kept[][s.id] = result
   b.cacheCost += result.cost
+  if not brief:
+    # (drawn in full now: its brief one, of a frame short of time, goes)
+    b.briefs.withValue(s.id, d):
+      b.cacheCost -= d.cost
+    b.briefs.del s.id
 
 proc textBars(f: LabelFrame; text: string; color: uint32; dst: var seq[Piece]) =
   ## (words too small to read: a bar a line, where they stand -- no letters
@@ -1833,7 +1846,10 @@ proc buildBrief(b: Board; s: Shape): Drawing =
   of skNote:
     result.pieces.add Piece(contours: @[polyFill(s.pageOutline)], color: noteOf(s.color, dark).withAlpha(s.opacity))
     let tc = (if dark: 0xFFF2F2F2'u32 else: 0xFF1D1D1D'u32).withAlpha(s.opacity)
-    b.labelFrame(s).textBars(s.text, tc, result.pieces)
+    # (where its words stand, not measured to fit: bars need no more)
+    let f = LabelFrame(host: s, x: 16, y: 16, w: max(10.0, s.w - 32), h: max(10.0, s.h - 32),
+                       size: s.textSize, wrap: max(10.0, s.w - 32), valign: s.valign)
+    f.textBars(s.text, tc, result.pieces)
   of skText:
     b.labelFrame(s).textBars(s.text, ink, result.pieces)
   of skFrame:
@@ -1869,6 +1885,37 @@ proc forgetDrawings*(b: Board) =
 
 proc drawingBytes*(b: Board): int = b.cacheCost
   ## About how many bytes the drawings kept take.
+
+proc startDrawing*(b: Board; ms = 8) =
+  ## Before a frame's shapes: making their drawings may take `ms` of it
+  ## (only the making counts, not the drawing: a board zoomed in on
+  ## thousands of readable shapes, each made the first time). Past it,
+  ## `drawingFor` gives the brief one, and `behind` says another frame
+  ## should come to go on.
+  b.makeLeft = initDuration(milliseconds = ms)
+  b.budgeted = true
+  b.behindNow = false
+
+proc behind*(b: Board): bool = b.behindNow
+  ## A shape of this frame was drawn in brief for want of time: ask for a
+  ## frame more (`wakeIn(1)`), which makes the next ones.
+
+proc drawingFor*(b: Board; s: Shape; scale: float): Drawing =
+  ## What shape `s` looks like at `scale` pixels a page unit: in brief when
+  ## it is too small to read there (`briefAt`) -- and for a frame or two
+  ## when its drawing is still to make and this frame's time is up
+  ## (`startDrawing`): the board keeps moving while it fills in.
+  if b.briefAt(s, scale): return b.drawingOf(s, brief = true)
+  b.cache.withValue(s.id, d):
+    if d.key == b.drawKey(s): return b.drawingOf(s)
+  if not b.budgeted: return b.drawingOf(s)
+  if b.makeLeft > DurationZero:
+    let t0 = getMonoTime()
+    result = b.drawingOf(s)
+    b.makeLeft -= getMonoTime() - t0
+    return
+  b.behindNow = true
+  b.drawingOf(s, brief = true)
 
 # ---- where shapes are --------------------------------------------------------------------------
 

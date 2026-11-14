@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:podcast="https://podcastindex.org/namespace/1.0">
+<channel><title>A show</title><link>https://example.com</link><itunes:author>Someone</itunes:author>
+<item><title>One &amp; two</title><guid>1</guid><pubDate>Mon, 02 Nov 2026 10:00:00 GMT</pubDate>
+<enclosure url="https://example.com/1.mp3" length="1234" type="audio/mpeg"/><itunes:duration>01:02:03</itunes:duration>
+<podcast:chapters url="https://example.com/1.json" type="application/json+chapters"/>
+<podcast:transcript url="https://example.com/1.vtt" type="text/vtt"/></item>
+</channel></rss>

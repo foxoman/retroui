@@ -357,12 +357,12 @@ proc readGeoJson*(text: string): seq[GeoFeature] =
             res.add f
     of "GeometryCollection":
       if g{"geometries"} != nil:
-        for sub in g["geometries"]: geometry(sub, props)
+        for sub in g{"geometries"}.getElems: geometry(sub, props)
     else: discard
   case root{"type"}.getStr
   of "FeatureCollection":
     if root{"features"} != nil and root["features"].kind == JArray:
-      for f in root["features"]: geometry(f{"geometry"}, f{"properties"})
+      for f in root{"features"}.getElems: geometry(f{"geometry"}, f{"properties"})
   of "Feature": geometry(root{"geometry"}, root{"properties"})
   else: geometry(root, nil)
   res

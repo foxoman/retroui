@@ -1855,7 +1855,11 @@ proc folderNode(path, label: string; pic: Icon; hidden: bool; ev: var FolderTree
       tree.kids[path].sort(proc (a, b: string): int =
         cmpNatural(a.extractFilename, b.extractFilename))
     let k = if retroIcons: max(16, ItemH - 1) else: min(ItemH - 3, FontH + 3)
-    for sub in tree.kids[path]:
+    # (a copy: a folder below, opened or closed, adds its own list to the
+    # table or takes it away -- the table moves its lists, and this one
+    # walked in place would be read where it no longer is)
+    let kids = tree.kids[path]
+    for sub in kids:
       folderNode(sub, sub.extractFilename, glyphIcon(retroOr(pxFolder, nfFolder), folderColor, k), hidden, ev)
   endNode()
   if open != tree.open.getOrDefault(path, false):

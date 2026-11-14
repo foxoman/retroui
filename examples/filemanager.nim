@@ -38,7 +38,7 @@ const TermuxHome = "/data/data/com.termux/files/home"
 const
   AppTitle = "Retro Files"
   AppId = "RetroFiles"
-  AppVersion = "3.4.0"
+  AppVersion = "3.4.1"
 
 type
   ViewerKind = enum vkNone, vkText, vkMarkdown, vkImage, vkHex, vkZip, vkPdf, vkVideo, vkAudio
@@ -409,6 +409,12 @@ proc jobsWaiting*(): int = jobQueue.len
 
 proc jobRunning*(): bool = job != nil
   ## (the tests: a job runs)
+
+proc cancelJobs*() =
+  ## The job running cancelled, the ones waiting let go (the tests: a clean
+  ## start after random input).
+  jobQueue.setLen(0)
+  if job != nil: job.cancel()
 
 proc startJob*(kind: JobKind; sources: seq[string]; dest, title: string) =
   ## A file job (copy, move, the trash...): started now, or after the one
@@ -1739,7 +1745,11 @@ proc helpDialogs() =
             tr("Copyright (c) 2026 Sultan Al Isaiee. MIT licence.")],
            tagline = tr("Your files, as in 1994"),
            iconPng = FilesIconPng, glyph = pxFolderOpen,
-           whatsNew = [tr("3.3.10: Left pressed twice in the columns (or Up twice) before the folder " &
+           whatsNew = [tr("3.4.1: the folder tree no longer closes the app when a folder below " &
+                            "another is opened or closed as the tree is drawn"),
+                       tr("3.4.0: a copy, move or trash asked for while another runs waits for it " &
+                            "and starts after (it was refused)"),
+                       tr("3.3.10: Left pressed twice in the columns (or Up twice) before the folder " &
                             "above is listed goes up two folders, and Back comes back the same way"),
                        tr("3.3.9: Edit > Paste Shortcut -- a link here to each item copied; the tool " &
                             "bar one stop of Tab (the arrows along it), F6 from part to part; emptying the " &

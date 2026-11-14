@@ -9,11 +9,17 @@
 # own system UI now and then (then the app never draws: no pictures, no
 # results) -- and started once more when no results came. What the system
 # says of the app is printed when they do not come.
+#
+#   sh tests/live/android.sh                    the live check (build/livecheck.apk)
+#   sh tests/live/android.sh APK PACKAGE DIR    another check of its kind (its
+#                                               results.txt in its data folder)
 set -u
-pkg=org.retro.livecheck
-mkdir -p live
+apk=${1:-build/livecheck.apk}
+pkg=${2:-org.retro.livecheck}
+dir=${3:-live}
+mkdir -p "$dir"
 # (every adb reads from /dev/null: adb shell would eat the script's input)
-adb install -r build/livecheck.apk < /dev/null
+adb install -r "$apk" < /dev/null
 launch() {
   adb shell am force-stop $pkg < /dev/null
   adb shell input keyevent KEYCODE_WAKEUP < /dev/null > /dev/null 2>&1
@@ -46,13 +52,13 @@ for start in 1 2; do
   finished && break
   said $start
 done
-adb exec-out screencap -p > live/screen.png 2>/dev/null < /dev/null || true
+adb exec-out screencap -p > "$dir/screen.png" 2>/dev/null < /dev/null || true
 for f in $(adb shell run-as $pkg ls files < /dev/null 2>/dev/null | tr -d '\r'); do
   case "$f" in
-    *.png|*.txt) adb exec-out run-as $pkg cat "files/$f" < /dev/null > "live/$f" ;;
+    *.png|*.txt) adb exec-out run-as $pkg cat "files/$f" < /dev/null > "$dir/$f" ;;
   esac
 done
-adb logcat -d -s retro:* livecheck:* < /dev/null > live/logcat.txt 2>/dev/null || true
-[ -f live/results.txt ] || { echo "no results from the app"; exit 1; }
-cat live/results.txt
-! grep -q '^FAIL' live/results.txt
+adb logcat -d -s retro:* livecheck:* < /dev/null > "$dir/logcat.txt" 2>/dev/null || true
+[ -f "$dir/results.txt" ] || { echo "no results from the app"; exit 1; }
+cat "$dir/results.txt"
+! grep -q '^FAIL' "$dir/results.txt"

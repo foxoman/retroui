@@ -804,7 +804,7 @@ proc parseOpenverse(q: AssetQuery; j: JsonNode): AssetPage =
     return
   result.total = j.int0("result_count")
   result.hasMore = pageNo(q) < j.int0("page_count")
-  for r in j["results"]:
+  for r in j{"results"}.getElems:
     let lic = r.str("license").toLowerAscii
     if lic notin ["cc0", "pdm", "by", "by-sa"]: continue    # (no NC, ND, sampling)
     if r.getOrDefault("mature").getBool(false): continue
@@ -964,7 +964,7 @@ proc parsePixabay(q: AssetQuery; j: JsonNode): AssetPage =
   let hits = j.int0("totalHits")              # (those a search may page through)
   result.total = hits
   result.hasMore = pageNo(q) * perPageOf(q) < hits
-  for h in j["hits"]:
+  for h in j{"hits"}.getElems:
     var it = AssetItem(source: asPixabay, kind: q.kind, id: h.str("id"), category: q.category)
     let tags = h.str("tags")
     for t in tags.split(','): it.tags.addTag t
@@ -1009,7 +1009,7 @@ proc parsePexels(q: AssetQuery; j: JsonNode): AssetPage =
     return
   result.total = j.int0("total_results")
   result.hasMore = j.str("next_page").len > 0
-  for ph in j["photos"]:
+  for ph in j{"photos"}.getElems:
     var it = AssetItem(source: asPexels, kind: q.kind, id: ph.str("id"), category: q.category)
     let src = ph.getOrDefault("src")
     it.title = ph.str("alt")
@@ -1274,7 +1274,7 @@ proc parseAmbient(q: AssetQuery; j: JsonNode): AssetPage =
   result.total = j.int0("numberOfResults")
   let n = perPageOf(q)
   result.hasMore = j.str("nextPageHttp").len > 0 or pageNo(q) * n < result.total
-  for a in j["foundAssets"]:
+  for a in j{"foundAssets"}.getElems:
     let id = a.str("assetId")
     var it = AssetItem(source: asAmbientCG, kind: q.kind, id: id, category: q.category)
     it.title = a.str("displayName")

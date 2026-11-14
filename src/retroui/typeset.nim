@@ -18,7 +18,7 @@
 ## (`fauxStyle`).
 
 import std/[tables, unicode, locks, algorithm]
-import ttf, arabicdata, codec, unpacking
+import ttf, arabicdata, unpacking
 
 type
   FaceId* = enum
@@ -173,9 +173,10 @@ for t in soon.mitems: t = -1
 proc unpackFacesSoon*(ids: openArray[FaceId]) =
   ## Starts unpacking built-in faces on a thread of their own (`unpacking`),
   ## for the first frame to find them there: the bold of the UI, the icons.
-  for id in ids:
-    if (id == fIcons or builtinFace(id)) and fontFiles[id].len == 0 and soon[id] < 0:
-      soon[id] = unpackSoon(if id == fIcons: iconsPacked else: packedFont(id))
+  withLock unpackLock:
+    for id in ids:
+      if (id == fIcons or builtinFace(id)) and fontFiles[id].len == 0 and soon[id] < 0:
+        soon[id] = unpackSoon(if id == fIcons: iconsPacked else: packedFont(id))
 
 proc load(id: FaceId) =
   ## Face `id`'s font bytes into `fontFiles` (a stand-in's: none).
@@ -188,20 +189,27 @@ proc load(id: FaceId) =
       soon[id] = -1
       if fontFiles[id].len > 0: return
     let packed = if id == fIcons: iconsPacked else: packedFont(id)
-    let b = zlibDecompress(packed.toOpenArrayByte(0, packed.high))
-    var s = newString(b.len)
-    if b.len > 0: copyMem(addr s[0], unsafeAddr b[0], b.len)
-    fontFiles[id] = move s
+    fontFiles[id] = unpackBytes(packed)        # (zlib, or LZMA: `retroui/lzma`)
   elif given[id].len > 0:
     fontFiles[id] = given[id]
 
-proc dataOf(id: FaceId): FaceId =
-  ## The face whose font file face `id` is drawn from.
+proc dataOfLocked(id: FaceId): FaceId =
+  ## (`dataOf` with `unpackLock` held)
   result = id
   for _ in 0 .. 8:
     load(result)
     if standIn[result] == result: return
     result = standIn[result]
+
+proc dataOf(id: FaceId): FaceId =
+  ## The face whose font file face `id` is drawn from, its bytes loaded.
+  ## (Under the lock: a worker thread's `faceBytes` may load the same face
+  ## at the same moment -- both unpacking it, both writing `fontFiles`, one
+  ## string freed twice; an LZMA face takes long enough to unpack for it to
+  ## happen.)
+  {.cast(gcsafe).}:
+    withLock unpackLock:
+      result = dataOfLocked(id)
 
 proc fauxStyle*(id: FaceId): tuple[bold, italic: bool] =
   ## Face `id` is made from another (its family has no such style): to be
@@ -221,7 +229,7 @@ proc faceBytes*(id: FaceId): string =
   ## of its own (faces are not shared between threads; see `threadFace`).
   {.cast(gcsafe).}:
     withLock unpackLock:
-      result = fontFiles[dataOf(id)]
+      result = fontFiles[dataOfLocked(id)]
 
 proc threadFace*(id: FaceId): Face =
   ## Face `id` parsed anew, for a worker thread.
@@ -267,7 +275,7 @@ proc fontName*(id: FaceId): string =
 proc forgetFaces(ids: openArray[FaceId]) =
   for id in ids:
     faces[id] = nil
-    fontFiles[id] = ""
+    withLock unpackLock: fontFiles[id] = ""
     resolved[id] = false
     joinsArabic[id] = -1
   for id in FaceId:

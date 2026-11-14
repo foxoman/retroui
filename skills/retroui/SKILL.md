@@ -136,7 +136,10 @@ line.
   clicks and types until 14 s; it ends 0 (ok), 1 (a fault) or 2 (busy
   while untouched), with a line on stderr (and in `$RETRO_SMOKE_OUT`). Run
   it in a home of its own: the clicks reach anything. The kit's
-  `tests/smoke/run.sh` does it for its apps.
+  `tests/smoke/run.sh` does it for its apps. For a leak: `RETRO_SMOKE=3600
+  RETRO_SMOKE_STAY=1 RETRO_DEVICE_MB=2048 ./app` (an hour; an Exit clicked
+  does not end it; the caches sized as on a 2 GB phone) with its memory
+  watched -- the kit's `tools/soak.sh` does it and says which kept growing.
 - **See why it draws:** F12 in a debug build (`RETRO_INSPECT=1` in any)
   shows the inspector: each frame's time, **why it ran** (the input, or
   the line that asked: `ui.redraw = true at app.nim:42`, `wakeIn at

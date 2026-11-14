@@ -250,9 +250,10 @@ compileOption("threads")`. Other sites' pages in a frame need to allow
 being embedded (`Cross-Origin-Resource-Policy`) in a page with threads.
 
 **Fonts in programs:** `-d:retroFonts=all` (the default: twelve faces,
-1.0 MB), `sans`, `ui` (FreeSans and its bold) or `none`: the faces left
-out are read from `fonts/` beside the program (the `.ttf.z` files of
-`src/retroui/fonts`) or `$RETRO_FONTS`, else drawn with FreeSans.
+0.88 MB, packed with LZMA by `tools/packlzma.py`), `sans`, `ui` (FreeSans
+and its bold) or `none`: the faces left out are read from `fonts/`
+beside the program (the `.ttf.z` files of `src/retroui/fonts`) or
+`$RETRO_FONTS`, else drawn with FreeSans.
 
 **What CI checks, here:** `sh tools/cicheck.sh` runs the steps GitHub's CI
 runs -- the return check, the warnings on every system
@@ -263,7 +264,9 @@ tests, a short fuzz, the Android driver on a fake Android, the tests as
 WebAssembly, the tools -- and ends with the number that failed
 (`quick`: the longer ones left out).
 
-**Testing it all**, in a clone: `nimble test` (headless), `nimble fuzz`,
+**Testing it all**, in a clone: `nimble test` (headless, as many at once
+as there are cores: `sh tests/runall.sh`), `sh tools/soak.sh` (each app an
+hour under random input, its memory watched), `nimble fuzz`,
 `sh tests/run32.sh` (as 32-bit programs: `apt install gcc-multilib` and
 the i386 X11 libraries), `sh tests/web/run.sh` (Playwright's Chromium),
 `sh tests/wayland/run.sh` (sway), `sh tests/kiosk/run.sh`,
@@ -892,6 +895,8 @@ environment of its own: `adb shell am start -n PACKAGE/org.retro.RetroActivity
 | `RETRO_DRIVE=PORT` | the driver: a program on this machine uses the app by its controls' names (`retrokit drive`) |
 | `RETRO_ACCESS=1` | the screen readers' tree made with no screen reader |
 | `RETRO_SMOKE=SECONDS`, `RETRO_SMOKE_OUT=FILE` | the smoke run: the first frame timed, 3 s untouched measured, then clicks and keys |
+| `RETRO_DEVICE_MB=N` | the device taken to have N MB, the program alone on it: the caches' budgets and the memory pressure (`retroui/memwatch`) as on a small phone |
+| `RETRO_SMOKE_SEED=N`, `RETRO_SMOKE_STAY=1` | the smoke run's other clicks and keys; an Exit or a close box clicked does not end it (`tools/soak.sh`) |
 | `RETRO_STATS=1` | the frames' times and counts on stderr, every 2 seconds, and each frame of 250 ms or more (where the mouse was, the key) |
 | `RETRO_LANG=pseudo` | every text stretched a third and marked ("[Šåvé ··]"): the layouts too tight for longer words, and the words not translated, seen at once |
 | `RETRO_BENCH=SCENE`, `RETRO_BENCH_OUT=FILE` | tools/bench.nim's scene (rest, list, dashboard, document) and where its numbers go (`python3 tools/bench.py` runs them all) |

@@ -3,7 +3,8 @@
 # installed and opened without its permissions (nothing allowed yet), then
 # with them all; turned both ways, put away and brought back; driven by its
 # controls' names (RETRO_DRIVE given with its start, build/tour through adb
-# forward: every tab, every menu, the keyboard alone); then the monkey --
+# forward: every tab, every menu, the keyboard alone); a link shared with
+# it, for an app in the share sheet (running, then stopped); then the monkey --
 # random taps, swipes and keys, the same ones each time (a fixed seed) --
 # for a while. A crash anywhere, the Java side's or the native code's, fails
 # it. The screens and the logs go to live/apps/.
@@ -155,6 +156,27 @@ while read -r pkg apk; do
     adb forward --remove tcp:7000 < /dev/null > /dev/null 2>&1
     [ $tour -ne 0 ] && bad="its driven tour failed (see above)"
     [ -z "$bad" ] && ! alive "$pkg" && { bad="it closed while driven"; why "$pkg" "$bad"; }
+  fi
+  # 4c. something shared with it from another app (an app in the share
+  # sheet: retroapk --share-target): a link sent while it runs, then with
+  # it stopped (it starts with the link)
+  if [ -z "$bad" ] && adb shell dumpsys package "$pkg" < /dev/null 2>/dev/null | tr -d '\r' |
+       grep -q "android.intent.action.SEND"; then
+    link="https://podcasts.files.bbci.co.uk/p02nq0gn.rss"
+    adb shell am start -W -a android.intent.action.SEND -t text/plain \
+      --es android.intent.extra.TEXT "$link" "$pkg" < /dev/null > /dev/null 2>&1
+    sleep 4
+    adb exec-out screencap -p < /dev/null > "$out/$name-4c-shared.png" 2>/dev/null
+    alive "$pkg" || { bad="it closed when a link was shared with it"; why "$pkg" "$bad"; }
+    if [ -z "$bad" ]; then
+      adb shell am force-stop "$pkg" < /dev/null
+      adb shell am start -W -a android.intent.action.SEND -t text/plain \
+        --es android.intent.extra.TEXT "$link" "$pkg" < /dev/null > /dev/null 2>&1
+      for i in 1 2 3 4 5 6; do sleep 5; alive "$pkg" && break; done
+      sleep 3
+      adb exec-out screencap -p < /dev/null > "$out/$name-4d-shared-cold.png" 2>/dev/null
+      alive "$pkg" || { bad="it did not start with a link shared with it"; why "$pkg" "$bad"; }
+    fi
   fi
   # 5. the monkey: 600 events, the same each time
   adb shell monkey -p "$pkg" -s 4242 --throttle 120 --pct-syskeys 0 --pct-appswitch 0 \

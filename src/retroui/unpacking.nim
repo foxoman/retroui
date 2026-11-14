@@ -1,5 +1,5 @@
-## Unpacking what a program carries packed (zlib: the fonts, the pixel
-## icons) on a thread of its own, while the program starts: the window
+## Unpacking what a program carries packed (zlib or LZMA: the fonts, the
+## pixel icons) on a thread of its own, while the program starts: the window
 ## opens and the first frame is laid out meanwhile, and what it needs is
 ## there or nearly there when it asks for it.
 ##
@@ -16,7 +16,7 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/locks
-import codec
+import codec, lzma
 
 const Threads = compileOption("threads") and not defined(js) and not defined(emscripten)
 when Threads:
@@ -44,13 +44,18 @@ initCond(cv)
 when Threads:
   var worker: Thread[void]
 
-proc unzip(p: string): string =
-  ## (the bytes of zlib stream `p`; "" when it is damaged)
+proc unpackBytes*(p: string): string =
+  ## The bytes of `p`, packed with zlib or with LZMA behind the kit's
+  ## header (`retroui/lzma`: the fonts not needed at the start); "" when it
+  ## is damaged.
+  if isLzma(p): return unlzma(p)
   try:
     let b = zlibDecompress(p.toOpenArrayByte(0, p.high))
     result = newString(b.len)
     if b.len > 0: copyMem(addr result[0], unsafeAddr b[0], b.len)
   except CatchableError: result = ""
+
+proc unzip(p: string): string = unpackBytes(p)
 
 when Threads:
   proc work() {.thread.} =
@@ -75,7 +80,8 @@ when Threads:
           broadcast(cv)
 
 proc unpackSoon*(packed: string): int =
-  ## Starts unpacking `packed` (a zlib stream) now, on a thread; the ticket
+  ## Starts unpacking `packed` (zlib, or LZMA behind the kit's header:
+  ## `retroui/lzma`) now, on a thread; the ticket
   ## to ask `unpacked` for its bytes with.
   var start = false
   withLock lk:

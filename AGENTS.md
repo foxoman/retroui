@@ -162,7 +162,11 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
    (every exported symbol has a `##` doc comment).
 2. Build what you touch and run its tests:
    `nim c -r --hints:off tests/test_<name>.nim`; the whole suite is
-   `nimble test` (all must pass before a commit). A change to the
+   `nimble test` (all must pass before a commit; `sh tests/runall.sh`,
+   as many at once as there are cores, a log each in `build/tests`; a
+   test named "flaky" failed with the others running: find why -- a
+   fixed port, a shared file, a timing -- rather than leave it). A
+   change to the
    Android driver (`uirelays/drivers/android*`): `sh
    tests/android_mock/run.sh` too (the driver on a fake Android; a new
    NDK function needs its fake in `tests/android_mock/mock_android.c`).
@@ -180,8 +184,12 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
    changed: `tests/web/run.sh`, `tests/web/node.sh`, `tests/wayland/run.sh`,
    `tests/kiosk/run.sh`, `tests/store/linux.sh`. GitHub runs the long ones
    every night (`.github/workflows/nightly.yml`: sanitizers, long fuzzing,
-   libFuzzer on `tests/fuzz/libfuzz.nim`, 32-bit, WebAssembly); a crash's
-   input is in the run's artifacts. Built with `-d:retroSanitized` there, a
+   libFuzzer on `tests/fuzz/libfuzz.nim`, 32-bit, WebAssembly, the tests
+   three times over, eight apps soaked); a crash's input is in the run's
+   artifacts. An app changed: `sh tools/soak.sh 10 APP` (ten minutes of
+   random input, its memory watched; as a user of its own: the clicks
+   delete what they reach) -- a fault it finds has its stack in a build
+   with `--stackTrace:on --lineTrace:on` and the same `RETRO_SMOKE_SEED`. Built with `-d:retroSanitized` there, a
    test's limit of time or memory allows for the sanitizers (some 7 times
    slower, freed memory kept a while). A workflow installs Ubuntu packages
    with `sh tools/apt.sh PKGS` (never `apt-get` itself): it tries again
@@ -257,6 +265,12 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   string `result` set before a `raise` is never freed; Nim's base64
   `decode` raising on a wrong letter leaks, so the kit uses
   `codec.unbase64`.
+- **JSON from outside, a table's lists:** walk a JSON list or object with
+  `getElems` / `getFields` (`items` and `pairs` on a node that is missing
+  or of another kind stop the program); walk a table's seq in place
+  (`for x in t[k]`) only when nothing in the loop adds to the table or
+  takes from it -- it moves its entries, and the loop reads where the seq
+  no longer is (Retro Files' folder tree stopped so: walk a copy).
 - **Nim's `unicode.strip`** cuts the last letter of a line ending in a
   letter whose last byte is 0x85 or 0xA0 (Thai ภ, †, a Chinese character in
   32: `docs/nim-bugs.md`), and it is the `strip` a module that imports
