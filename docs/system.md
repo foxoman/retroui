@@ -116,6 +116,8 @@ required, so the app installs on a device without a camera or GPS.
 | camera, microphone | ✓ (`cameraView`, `recordSound`...) | `--permission:CAMERA`, `--permission:RECORD_AUDIO` |
 | the network | ✓ (`httpRequest`, downloads, chat, `webView`) | `--permission:INTERNET` |
 | background checks | | `--background` |
+| plain `http://` addresses (Android 9+ refuses them; the kit asks for https instead) | | `--cleartext` (a browser, a podcast player) |
+| in the other apps' share sheets (`sharedIn`) | | `--share-target:text/plain,image/*` |
 | a sound playing on in the background (`audioView`) | ✓ (`FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, the playback service) | `--permission:FOREGROUND_SERVICE --permission:FOREGROUND_SERVICE_MEDIA_PLAYBACK` |
 | Java of the app's own (a service, a receiver) | | `--java:DIR` (its classes.dex, its manifest.txt) |
 | installing an update's APK | | `--permission:REQUEST_INSTALL_PACKAGES` |
@@ -129,7 +131,8 @@ the app goes on.
 `NSCameraUsageDescription`, `NSMicrophoneUsageDescription`; and
 `UIBackgroundModes` audio when the app plays sounds with `audioView`
 (`retroios` sees it in the compiled code), so they play on in the
-background.
+background. `retroios --cleartext` lets the app use plain `http://`
+addresses (App Transport Security's `NSAllowsArbitraryLoads`).
 
 **Web** (`retrokit web`): the page served over https (or from
 localhost); the browser asks the user the first time. Chat, and an
@@ -158,6 +161,17 @@ setBadge(unread)                    # the count on the app's icon
 if not share(text = "The report", files = ["/home/me/report.pdf"], title = "Report"):
   revealFile("/home/me/report.pdf")   # no share sheet: show it in the file manager
 ```
+
+The other way, the app in the other apps' share sheets (Android: the APK
+made with `retroapk --share-target:text/plain,image/*`):
+
+```nim
+let came = sharedIn()                 # each frame: what came since, taken
+if came.text.len > 0: follow(came.text)
+for f in came.files: openPicture(f)   # copied into the app's cache
+```
+
+A desktop app gets files on its command line instead (`appArguments`).
 
 ## A tap felt, a buzz
 

@@ -30,7 +30,9 @@ import javax.net.ssl.X509TrustManager;
  *  url into the file dest (through dest + ".part", renamed when whole) and
  *  answers "1", or "e" and what went wrong. Headers ("Name: value", split
  *  by "\r": an API's key) go only to the address's own host. Redirects are followed by hand, also
- *  from http to https and back, which HttpURLConnection does not do.
+ *  from http to https and back, which HttpURLConnection does not do; an
+ *  http address the app may not use (Android 9 and later, unless the APK
+ *  was made with --cleartext) is asked for as https.
  *  "net.request" method, url, headers, timeout in ms, body file, answer
  *  file, follow ("1"/"0") sends one request of any method (PATCH too) with
  *  the bytes of the body file ("": none), writes the answer's body into the
@@ -81,6 +83,54 @@ public class RetroNet {
     return null;
   }
 
+  /** Whether the app may use plain http to host (null: any): Android 9 and
+   *  later say no unless the manifest allows it (retroapk --cleartext). */
+  static boolean cleartextAllowed(String host) {
+    try {
+      android.security.NetworkSecurityPolicy p = android.security.NetworkSecurityPolicy.getInstance();
+      if (host == null) return p.isCleartextTrafficPermitted();
+      // (by host from Android 7: by reflection, the stubs the dex is built with are older)
+      return (Boolean) p.getClass().getMethod("isCleartextTrafficPermitted", String.class).invoke(p, host);
+    } catch (Throwable t) { return true; }
+  }
+
+  /** u, or its https twin where plain http is not allowed: most servers
+   *  answer both, and a redirect to http would otherwise end the download. */
+  static URL secure(URL u) {
+    if (!u.getProtocol().equals("http") || cleartextAllowed(u.getHost())) return u;
+    try {
+      return new URL("https", u.getHost(), u.getPort() == 80 ? -1 : u.getPort(), u.getFile());
+    } catch (Throwable t) { return u; }
+  }
+
+  /** The address url's redirects end at (HEAD requests, followed by hand,
+   *  http asked for as https where it is not allowed): for the system's
+   *  player, which cannot change http to https itself. url as it was when
+   *  a server does not answer. Not on the UI thread. */
+  static String finalAddress(String url, String ua, int ms) {
+    try {
+      URL u = secure(new URL(url));
+      boolean head = true;
+      for (int hops = 0; hops < 12; hops++) {
+        HttpURLConnection c = (HttpURLConnection) u.openConnection();
+        try {
+          c.setInstanceFollowRedirects(false);
+          c.setConnectTimeout(ms);
+          c.setReadTimeout(ms);
+          c.setRequestProperty("User-Agent", ua);
+          // (HEAD, or the first two bytes where a server will not answer HEAD)
+          if (head) c.setRequestMethod("HEAD"); else c.setRequestProperty("Range", "bytes=0-1");
+          int code = c.getResponseCode();
+          if (head && (code == 405 || code == 501 || code == 403)) { head = false; continue; }
+          String loc = c.getHeaderField("Location");
+          if (code < 300 || code >= 400 || loc == null || loc.length() == 0) break;
+          u = secure(new URL(u, loc));
+        } finally { c.disconnect(); }
+      }
+      return u.toString();
+    } catch (Throwable t) { return url; }
+  }
+
   static String download(String url, String dest, String ua, int ms, String headers) {
     File out = new File(dest);
     File part = new File(dest + ".part");
@@ -92,6 +142,7 @@ public class RetroNet {
       String home = u.getHost();
       for (int hops = 0; ; hops++) {
         if (hops > 10) return "etoo many redirects";
+        u = secure(u);
         String p = u.getProtocol();
         if (!p.equals("http") && !p.equals("https")) return "eunsupported address: " + u;
         c = (HttpURLConnection) u.openConnection();
@@ -202,6 +253,7 @@ public class RetroNet {
       String home = u.getHost();
       for (int hops = 0; ; hops++) {
         if (hops > 10) return "etoo many redirects";
+        u = secure(u);
         String p = u.getProtocol();
         if (!p.equals("http") && !p.equals("https")) return "eunsupported address: " + u;
         c = (HttpURLConnection) u.openConnection();

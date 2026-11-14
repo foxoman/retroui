@@ -23,7 +23,7 @@ import retroui/[parallel, admin]
 import retrodns/[catalog, androidglue, tester, vpn, desktop]
 
 const
-  retrodnsVersion {.strdefine.} = "1.1"   # (build.sh passes its VERSION)
+  retrodnsVersion {.strdefine.} = "1.2"   # (build.sh passes its VERSION)
   AppTitle = "Retro DNS"
   AppVersion = retrodnsVersion
   AppId = "RetroDNS"
@@ -702,15 +702,15 @@ proc details(i: int) =
       let useLabel = if inUse: (if way == hwVpn: "Connected" else: "In Use")
                      elif way == hwVpn: "&Connect"
                      elif way == hwProfile: "&Install Profile"
-                     else: "&Use Here"
+                     else: "Use He&re"
       if button(useLabel, isDefault = not inUse,
                 enabled = not inUse and not vpnAsking and adminAsk.len == 0 and way != hwNone):
         useHere(s.key)
-    if button("&Test", enabled = s.key notin testing): testServer(s)
-    let favLabel = if s.key in favs: "Un&favourite" else: "&Favourite"
+    if button("T&est", enabled = s.key notin testing): testServer(s)
+    let favLabel = if s.key in favs: "Unfav&ourite" else: "Fav&ourite"
     if button(favLabel): toggleFav(s.key)
   row:
-    if s.dot.len > 0 and button("Copy &host"):
+    if s.dot.len > 0 and button("Cop&y host"):
       putClipboardText(s.dot)
       toast("Copied: Android's Settings, Private DNS takes it too")
     if s.doh.len > 0 and button("Copy &DoH"):
@@ -776,7 +776,7 @@ proc dialogs() =
       field "Do&H address:": edit eDoh
       field "IPv&4:": edit eV4
       field "IPv&6:": edit eV6
-      field "&Good for:": editArea(eNote, lines = 3)
+      field "Good fo&r:": editArea(eNote, lines = 3)
     paragraph("Fill at least one address. The VPN needs the DoH address or the " &
               "DNS-over-TLS host, such as dns.example.com. NextDNS: " &
               "your-id.dns.nextdns.io.")

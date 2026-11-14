@@ -15,14 +15,14 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[os, math, strutils, tables, sets, json, sequtils, hashes]
+import std/[os, math, strutils, tables, sets, json, sequtils, hashes, algorithm]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import retroui
 import retroui/[board, freehand]
 
 const
   AppName = "Retro Board"
-  BoardVersion = "1.3.10"
+  BoardVersion = "1.4.0"
   iconPng = staticRead("assets/board-icon.png")
 
 type
@@ -288,6 +288,43 @@ proc zoomToFit() =
   else: zoomToBox(bd.selectionBounds(ids), 1.0)
 
 proc resetZoom() = zoomAt(view.x.float + view.w / 2, view.y.float + view.h / 2, unitScale())
+
+# ---- presenting: the page's frames as slides, full screen ----------------------------------------
+
+var
+  presenting = false
+  slideIds: seq[int]                 # the frames, in the order they are shown
+  slideAt = 0
+
+proc frameSlides(): seq[int] =
+  ## (the page's frames, top to bottom, then left to right: the slides)
+  var fs: seq[(float, float, int)]
+  for s in bd.page.shapes:
+    if s.kind == skFrame: fs.add (s.y, s.x, s.id)
+  fs.sort(proc (a, b: (float, float, int)): int =
+    if abs(a[0] - b[0]) > 40: cmp(a[0], b[0]) else: cmp(a[1], b[1]))
+  for f in fs: result.add f[2]
+
+proc showSlide() =
+  let f = bd.find(slideIds[slideAt])
+  if f != nil: zoomToBox(bd.boundsOf(f[]), 8.0)
+
+proc startPresenting() =
+  slideIds = frameSlides()
+  if slideIds.len == 0:
+    status = "Nothing to present: draw frames (F) round what each slide shows"
+    return
+  presenting = true
+  viewMode = true
+  slideAt = 0
+  fullScreenWindow(true)
+  showSlide()
+
+proc stopPresenting() =
+  presenting = false
+  viewMode = false
+  fullScreenWindow(false)
+  zoomToFit()
 
 # ---- style -------------------------------------------------------------------------------------
 
@@ -1734,7 +1771,9 @@ proc drawShape(s: Shape; fade: float) =
     else: fill(r, Color(r: 128, g: 128, b: 128, a: 60))
     if fade < 1: fill(r, tint(paper(darkMode), 1 - fade))
     return
-  for piece in bd.drawingOf(s).pieces:
+  # (too small to read at this zoom: in brief -- its box and colors, its
+  # words as bars -- so a board of thousands of shapes, zoomed out, moves)
+  for piece in bd.drawingOf(s, bd.briefAt(s, k)).pieces:
     fillContours(piece.contours, tint(piece.color, fade), ox, oy, k)
 
 proc outlinePg(s: Shape; c: Color; w = 1.5) =
@@ -2927,6 +2966,8 @@ proc mainMenu() =
       if menuItem("Zoom to &Fit", "Shift+1"): zoomToFit()
       if menuItem("Zoom to &Selection", "Shift+2", enabled = sel.len > 0): zoomToBox(bd.selectionBounds(sel), 2.0)
       menuSeparator()
+      if menuItem("&Present the Frames", "F5"): startPresenting()
+      menuSeparator()
       if menuItem("&Grid", checked = showGrid):
         showGrid = not showGrid
         saveSettingsNow()
@@ -3420,7 +3461,29 @@ proc boardFrame() =
   if sideShown: blockers.add [topLeftRect(), zoomRect()]
   if moreOpen and barShown: blockers.add morePanel(l)
   if viewMode or zenMode: blockers.add leave
+  if presenting:
+    # (presenting: the keys and a tap go from slide to slide; Esc ends it)
+    var step = 0
+    if canInput() and not ui.keyUsed:
+      if keyHit(KeyRight) or keyHit(KeySpace) or keyHit(KeyPageDown) or keyHit(KeyDown): step = 1
+      elif keyHit(KeyLeft) or keyHit(KeyPageUp) or keyHit(KeyUp) or keyHit(KeyBackspace): step = -1
+      elif keyHit(KeyHome): (slideAt = 0; showSlide())
+      elif keyHit(KeyEnd): (slideAt = slideIds.high; showSlide())
+      elif keyHit(KeyEsc): stopPresenting()
+      if ui.key != KeyNone: ui.keyUsed = true
+    if presenting and ui.released and mouseIn(view) and not mouseIn(leave) and ui.popup == 0:
+      step = if ui.mx >= view.x + view.w div 3: 1 else: -1   # (a tap: on, or back at the left)
+    if step != 0 and presenting:
+      if slideAt + step in 0 .. slideIds.high:
+        slideAt += step
+        showSlide()
+      elif step > 0: stopPresenting()                       # (past the last: the board again)
+  elif hotkeyPressed("F5"): startPresenting()
   keys()
+  # (pictures dropped on the window from the file manager: onto the board)
+  for f in droppedFiles():
+    if f.splitFile.ext.toLowerAscii in [".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"]:
+      insertPicture(f)
   typing()
   canvasInput()
   drawCanvas()
@@ -3432,7 +3495,8 @@ proc boardFrame() =
     drawTopLeft()
     drawZoom()
   if viewMode or zenMode:
-    if buttonAt("leavemode", leave, if viewMode: "Edit" else: "Exit Zen"):
+    if buttonAt("leavemode", leave, if presenting: "End Show" elif viewMode: "Edit" else: "Exit Zen"):
+      if presenting: stopPresenting()
       viewMode = false
       zenMode = false
       saveSettingsNow()

@@ -31,6 +31,9 @@ Options:
   --device:NAME      device to install on with --run (devicectl)
   --run              install and start it
   --nim:FLAG         pass a flag to the Nim compiler (repeatable)
+  --cleartext        the app may use plain http:// addresses (App Transport
+                     Security's NSAllowsArbitraryLoads: a browser, a podcast
+                     player)
   --ipa              also the .ipa (Payload/<Name>.app, zipped) that TestFlight
                      and the App Store take, beside the bundle
   -o:DIR.app         output bundle (default: build/ios-<file>/<Name>.app)
@@ -55,10 +58,12 @@ proc xmlEscape(s: string): string =
   s.multiReplace(("&", "&amp;"), ("<", "&lt;"), (">", "&gt;"), ("\"", "&quot;"))
 
 proc infoPlist(name, id, exe, version, code, minIos: string; simulator: bool;
-               audio = false): string =
+               audio = false; cleartext = false): string =
   let platform = if simulator: "iPhoneSimulator" else: "iPhoneOS"
   # (a sound of audioView plays on in the background)
-  let modes = if audio: "  <key>UIBackgroundModes</key><array><string>audio</string></array>\n" else: ""
+  var modes = if audio: "  <key>UIBackgroundModes</key><array><string>audio</string></array>\n" else: ""
+  if cleartext:
+    modes.add "  <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>\n"
   """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -114,7 +119,7 @@ proc main() =
     version = "1.0"
     code = "1"
     minIos = "14.0"
-    simulator, runIt, makeIpa = false
+    simulator, runIt, makeIpa, cleartext = false
     nimFlags: seq[string]
   for kind, key, val in getopt(commandLineParams()):
     case kind
@@ -136,6 +141,7 @@ proc main() =
       of "nim": nimFlags.add val
       of "o", "out", "output": outDir = val
       of "ipa": makeIpa = true
+      of "cleartext": cleartext = true
       of "verbose", "v": verbose = true
       of "help", "h": echo Usage; quit 0
       else: die "unknown option --" & key & " (see --help)"
@@ -185,7 +191,7 @@ proc main() =
   for f in walkFiles(work / "nimcache" / "*media.nim.c"):
     if "audioView__" in readFile(f): audio = true
   writeFile(outDir / "Info.plist",
-            infoPlist(name, id, exe, version, code, minIos, simulator, audio))
+            infoPlist(name, id, exe, version, code, minIos, simulator, audio, cleartext))
   writeFile(outDir / "PkgInfo", "APPL????")
   # icons: a given 1024 px PNG is copied for every size (iOS scales it)
   for (file, px) in [("AppIcon60x60@2x.png", 120), ("AppIcon60x60@3x.png", 180),

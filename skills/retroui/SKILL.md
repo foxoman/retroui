@@ -89,7 +89,8 @@ named on the command line: `appArguments()` (none in a phone's app).
 The whole syntax, every form as a small program with a picture of what it
 draws (what each number in `row([50, -1, 0, -2])` gives, binding, events,
 containers, dialogs, ids in loops, the rules), is in `docs/syntax.md`
-(github.com/foxoman/retroui/blob/main/docs/syntax.md). Row widths, in short:
+(github.com/foxoman/retroui/blob/main/docs/syntax.md); step-by-step lessons,
+each step a whole program, in `tutorials/`. Row widths, in short:
 a number above 0 is that many design pixels, `0` the control's own width,
 `-1` one share of what is left, `-2` two shares; no list is each control at
 its own width; more controls than widths start the widths again on a new
@@ -196,7 +197,7 @@ line.
 
 `row:` / `row([w1, w2, -1]):` (left to right), plain statements stack top
 to bottom, `group "Title":`, `card`, `form(labelWidth): field("&Name:"): edit x`,
-`spring()` (pushes the rest to the far side), `space(n)`, `adaptive(minW): ...`
+`spring()` (pushes the rest to the far side: a row's right end, a column's bottom), `space(n)`, `adaptive(minW): ...`
 (columns that fold into one on a phone), `scrollPanel`/`panel(h)`/`pane`
 (a list or a carousel inside one passes a swipe on to it at its ends, as
 on Android: nothing to do),
@@ -270,7 +271,9 @@ app "Staff", 520, 420:
   into locals first); in a loop, make each job in a proc of its own.
 - `listDetail(open, listW): list do: detail` -- a list beside its details,
   one over the other on a phone.
-- `animated(target, ms)` glides a number (a panel's x, a bar's width).
+- `animated(target, ms)` glides a number (a panel's x, a bar's width);
+  `start = 0` counts up from there the first time (a score as its page opens);
+  `easedSince(shownAt, ms, delay)` a page's own timeline (bars rising one after another).
 - `trayIcon(png, tip, ["&Show", "-", "E&xit"])` (`retroui/tray`) every
   frame while wanted: `.clicked`, `.picked` (the item's index).
 - `retroui/feeds`: `parseFeed(xml)` (RSS, Atom), `parseOpml`, `toOpml`.
@@ -279,7 +282,13 @@ app "Staff", 520, 420:
   `trn(n, "{n} file", "{n} files")`.
 - Sound: `audioView(url, speed = 1.5, title = "...", key = "player")`,
   `seekVideo("player", ms)`, `playVideo("player")`; it plays on in the
-  background on Android (retroapk adds the service) and iOS.
+  background on Android (retroapk adds the service) and iOS. Its event's
+  `error` says why the system could not play it (show it). Plain
+  `http://` addresses need `retroapk --cleartext` / `retroios --cleartext`
+  (else the kit asks for https).
+- Shared in: `retroapk --share-target:text/plain,image/*` puts an Android
+  app in the other apps' share sheets; `sharedIn()` (`retroui/system`,
+  each frame) gives what came: `text`, `files` (copied into the cache).
 
 **The system's features** (`import retroui/system`; docs/system.md has
 every system's answer and what the app declares): `notify`, `setBadge`,
@@ -344,6 +353,14 @@ if ev.clicked: echo ev.nodeName                         # the part picked: "Door
 (`car.nodeNames`); `retrokit model car.blend` lists them. `car.addShadow()`
 lays its soft shadow on the ground (again after its pose changes).
 
+**A scene made in code**: `var s = Scene3()`, `s.materials.add
+material3("Gold", color(255, 196, 60), metallic = 0.7, glow = 0.4)`,
+`var b = box(0.7, 1, 0.7, name = "Year 1")`, `b.material = 0`,
+`b.pos = vec3(...)`, `b.scale = ...`, `s.add b`; `addLine`, `addLabel`;
+`fitView(s, cam)`. Meshes move each frame (`s.meshes[i].scale.y = h`);
+`view3d(s, cam).picked` is the mesh tapped. Drawn on the GPU where frames
+are, materials or not (examples/grow.nim).
+
 **More windows**: `window(toolsOpen, "Tools", 240, 360): body` -- a
 window of the system's own, drawn where the frame reaches it; its close
 button sets the `bool` to false; not drawn, it closes (a dialog on phones
@@ -374,7 +391,8 @@ Keep the `key` the same every frame; draw the view every frame it should
 show (a view not drawn is hidden). `webRun` and `webPost` are actions:
 call them on an event (a button, a message), not on every frame. `webGoBack`, `webGoForward`,
 `webReload`, `webStop`, `webZoom`, `webClose` take the key. Pages on the
-web need `retroapk --permission:INTERNET` in an APK. The app's own pages:
+web need `retroapk --permission:INTERNET` in an APK, and `--cleartext` for
+pages on plain http. The app's own pages:
 `webAppFolder(dir)` then `webView(webAppUrl("index.html"), ...)` (they
 fetch each other as a site's files do); `webPermit(key, {wpCamera})` lets
 a page use the camera; `webPrint(key)` prints it. `webStartScript(key, js)`

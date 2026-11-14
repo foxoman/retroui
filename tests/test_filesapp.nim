@@ -186,6 +186,22 @@ run(10)
 noFault("random input")
 echo "random input: ", jobsRun, " file jobs, ", jobsRefused, " refused (outside), ", resets,
      " times back home"
+# two copies asked for at once: the second waits for the first, then runs
+block jobQueue:
+  let qa = home / "qa"
+  let qb = home / "qb"
+  createDir(qa)
+  createDir(qb)
+  startJob(jkCopy, @[home / "Documents" / "readme.md"], qa, "Copying")
+  startJob(jkCopy, @[home / "Documents" / "Old" / "data.csv"], qb, "Copying")
+  doAssert jobRunning() and jobsWaiting() == 1, "the second copy waits"
+  var n = 0
+  while (jobRunning() or jobsWaiting() > 0) and n < 3000:
+    run()
+    os.sleep(1)
+    inc n
+  doAssert fileExists(qa / "readme.md") and fileExists(qb / "data.csv"), "both copied, one after the other"
+  noFault("jobs one after another")
 filesStop()
 removeDir(home)
 echo "Retro Files app tests passed"

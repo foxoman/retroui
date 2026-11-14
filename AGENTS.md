@@ -138,13 +138,23 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
 - `tools/bench.nim`, `tools/bench.py` -- the kit's own benchmark (start,
   memory and processor at rest, a list, a dashboard, a document busy):
   `python3 tools/bench.py` writes `docs/benchmarks.md`; run it again when a
-  change could cost speed or memory.
+  change could cost speed or memory. `sh tools/appbench.sh` measures the
+  apps themselves (size, first frame, memory at rest and at most, the
+  processor at rest) for the page's last table; its smoke run clicks at
+  random, so run it as a user of its own (`APPBENCH_PREBUILT=1` measures
+  programs built by another).
 - `docs/syntax.md` -- the study of the syntax: every form as a whole program
   with a picture of what it draws. The programs are `tools/syntaxshots/ex/`
   (the page's code plus `#>` script lines and `mark` lines it leaves out);
   `sh tools/syntaxshots/make.sh` remakes `docs/syntax/*.png` and checks the
   page's code is the programs' (needs Pillow). `docs/syntax/frame-loop.png`
   is drawn by hand.
+- `tutorials/` -- the lessons, easy to advanced. Each step is a whole
+  program (`tutorials/LESSON/stepN.nim`, with `#>` script lines the lesson
+  leaves out; `#> build-only` for those built, not pictured), shown in the
+  lesson's README.md as it is. `nimble tutorials` (`sh
+  tools/tutorialshots/make.sh`) remakes the pictures and builds every
+  step for every system; CI checks the lessons show their steps' code.
 
 ## Before you change anything
 
@@ -285,7 +295,8 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   kit), this file, `README.md`, `CHANGELOG.md` (the top section),
   `BUILDING.md` (builds), `docs/controls.md` (controls), `docs/syntax.md`
   (when the syntax or what a form draws changes: run
-  `sh tools/syntaxshots/make.sh`), `docs/designer.md` (Retro Designer),
+  `sh tools/syntaxshots/make.sh`), `tutorials/` (when what a lesson uses
+  changes: `nimble tutorials`), `docs/designer.md` (Retro Designer),
   `llms.txt`, `examples/README.md` (a new example, or one whose look or
   purpose changed: its section and its picture -- `sh
   tools/exampleshots.sh NAME` for those the README has no picture of). A

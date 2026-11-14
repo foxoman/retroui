@@ -122,7 +122,7 @@ proc markupView*(m: var Markup) =
     if button("&Copy"):
       m.status = if copyPicture(m.marked): "Copied: paste it in any program"
                  else: "This system's clipboard takes no pictures"
-    if button("Save as &Board..."):
+    if button("Save as Bo&ard..."):
       m.asBoard = true
       m.savePath = picturesDir() / ("Navigator " & now().format("yyyy-MM-dd HH.mm.ss") & ".board")
       m.saveOpen = true

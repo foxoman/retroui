@@ -71,6 +71,19 @@ type
     doubleSided*: bool              ## both its sides drawn
     unlit*: bool                    ## its color as it is, no light on it
 
+proc material3*(name: string; c: Color; metallic = 0.0; roughness = 0.5;
+                glow = 0.0): Material3 =
+  ## A material of one color: paint (`metallic` 0), metal (1); polished
+  ## (`roughness` 0) to chalky (1); `glow` 0..1, the light it gives in its
+  ## own color (a gold coin that shines). Its index in `scene.materials`
+  ## goes in a mesh's `material`.
+  let g = clamp(glow, 0.0, 1.0).float32
+  Material3(name: name, baseColor: [c.r.float32 / 255, c.g.float32 / 255, c.b.float32 / 255, 1],
+            metallic: clamp(metallic, 0.0, 1.0).float32, roughness: clamp(roughness, 0.0, 1.0).float32,
+            emissive: [c.r.float32 / 255 * g, c.g.float32 / 255 * g, c.b.float32 / 255 * g],
+            alphaCutoff: 0.5)
+
+type
   Node3* = object
     ## A part of a model: it carries meshes, is placed in its parent
     ## (moved, turned, scaled), and can be shown or hidden, tinted, turned
@@ -1831,12 +1844,9 @@ proc pickAt(ctx: RenderCtx; scene: Scene3; sx, sy: float32): tuple[mesh, tri: in
 include view3dgl
 
 var view3dGpu* = getEnv("RETRO_3D_GPU") != "0"
-  ## Scenes with materials drawn on the GPU when frames are (`drawnWithGpu`);
-  ## false (or RETRO_3D_GPU=0): always on the CPU.
-
-proc hasMaterials(scene: Scene3): bool =
-  for m in scene.meshes:
-    if m.material >= 0 and m.material < scene.materials.len: return true
+  ## Scenes drawn on the GPU when frames are (`drawnWithGpu`), with or
+  ## without materials (a wireframe on the CPU); false (or RETRO_3D_GPU=0):
+  ## always on the CPU.
 
 # ---- the widget ----------------------------------------------------------------------------------
 
@@ -2062,7 +2072,7 @@ proc view3d*(scene: var Scene3; cam: var Camera3; height = -1; w = 0; key = "";
   let hsh = sceneHash(scene, cam, dw, dh)
   var gpuNow = false
   block:
-    if view3dGpu and not scene.wireframe and scene.hasMaterials() and glReady3D():
+    if view3dGpu and not scene.wireframe and glReady3D():
       var gv = glViews.getOrDefault(id, nil)
       if gv == nil:
         gv = GlView(key: 0x3D3D000000000000'u64 or uint64(id))

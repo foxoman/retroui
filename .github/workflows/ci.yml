@@ -28,6 +28,7 @@ jobs:
         run: |
           python3 tools/docscheck.py
           python3 tools/controlscheck.py
+          python3 tools/tutorialshots/gen.py --check
       - name: Tests
         run: nimble test -y
       - name: Fuzz (a short run)

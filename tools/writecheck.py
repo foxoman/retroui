@@ -384,14 +384,16 @@ def files(args):
     out = []
     for a in args:
         if os.path.isdir(a):
-            out += glob.glob(os.path.join(a, '**', '*.nim'), recursive=True)
+            # (what builds made -- a build/ folder anywhere -- is not looked at)
+            out += [f for f in glob.glob(os.path.join(a, '**', '*.nim'), recursive=True)
+                    if os.sep + 'build' + os.sep not in f]
         else:
             out.append(a)
     return sorted(set(out))
 
 
 def main():
-    args = sys.argv[1:] or ['src', 'examples', 'tools', 'tests']
+    args = sys.argv[1:] or ['src', 'examples', 'tools', 'tests', 'tutorials']
     paths = files(args)
     here = os.path.dirname(os.path.abspath(__file__))
     kit = files([os.path.join(here, '..', 'src')])

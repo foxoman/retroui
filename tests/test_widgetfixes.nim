@@ -100,4 +100,35 @@ block spaceWithModifiers:
   run(3)
   doAssert pressed == 1, "Space does"
 
+block springInColumns:
+  # spring() in a column (learned building a game's result page): what
+  # follows it at the foot of the window, of a pane
+  var footY, paneY = 0
+  view = proc () =
+    label "Top"
+    spring()
+    discard button("Foot")
+    footY = ui.lastRect.y
+  run(4)
+  doAssert footY + CtrlH == ui.h - Pad, "at the window's foot: " & $footY
+  view = proc () =
+    pushFrame(rect(10, 40, 200, 300))
+    label "Top"
+    spring()
+    discard button("Foot")
+    paneY = ui.lastRect.y
+    discard popFrame()
+  run(4)
+  doAssert paneY + CtrlH == 340, "at the pane's foot: " & $paneY
+
+block animatedFrom:
+  # animated(..., start = x): the first time, from x to the target (a
+  # number that counts up when a page opens)
+  var v = -1.0
+  view = proc () = v = animated(100.0, 400, start = 0.0)
+  run(1)
+  doAssert v < 50, "it starts near its start: " & $v
+  run(40)
+  doAssert v == 100.0, "and reaches the target: " & $v
+
 echo "test_widgetfixes: ok"

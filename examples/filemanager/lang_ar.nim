@@ -26,7 +26,9 @@ const filesArabic* = [
   # messages
   ("The folder ", "المجلد "),
   (" does not exist.", " غير موجود."),
-  ("Another job is running; wait for it to end.", "هناك مهمة أخرى قيد التشغيل؛ انتظر حتى تنتهي."),
+  ("Waiting: ", "في الانتظار: "),
+  (" starts when the job running ends", " تبدأ عندما تنتهي المهمة الجارية"),
+  ("({n} more waiting)", "({n} أخرى في الانتظار)"),
   ("Duplicating", "جارٍ التكرار"),
   (" -- done.", " -- تم."),
   ("Cut ", "تم قص "),

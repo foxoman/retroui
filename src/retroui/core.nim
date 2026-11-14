@@ -9,7 +9,7 @@
 ## the drawing procs of `gfx`. An app usually only needs `app` (in `retroui`)
 ## and the widgets.
 
-import std/[tables, sets, os, math, strutils, monotimes, times]
+import std/[tables, sets, os, math, strutils, monotimes, times, hashes]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 from std/algorithm import sort
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy
 export busy
 
-const RetroVersion* = "0.47.0"
+const RetroVersion* = "0.48.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -104,6 +104,9 @@ type
     fixed: bool                    ## a bar's row: not in the scrolling page
     springX, tailPrev, tailNow: int ## rows: where `spring` jumped to; how
                                     ## wide what follows it is (last frame, now)
+    springOn: bool                 ## columns: a `spring` in it ...
+    springY: int                   ## ... where it went down to
+    springKey: Hash                ## ... which, to keep how tall what follows is
     id: Id
     widths: array[16, int]
     nw, idx: int
@@ -933,18 +936,29 @@ proc setSmoothScrolling*(on: bool) =
   ## Turns gliding scrolls and flicks on or off (see `smoothScrolling`).
   smoothScrolling = on
 
+proc easeOut*(t: float): float =
+  ## 0 .. 1 eased as `animated` moves: fast at first, then slowing (`t`
+  ## kept in 0 .. 1).
+  let t = clamp(t, 0.0, 1.0)
+  1 - (1 - t) * (1 - t) * (1 - t)
+
 type AnimState = object
   frm, to, cur: float
   t0, ms, seen: int
 
 var anims: Table[Id, AnimState]   # (the values `animated` moves, by where they are asked)
 
-proc animatedAt*(id: Id; target: float; ms: int): float =
+proc animatedAt*(id: Id; target: float; ms: int; start = NaN): float =
   ## `animated` for a value of your own id (`idOf`).
   let now = ui.now
   if id notin anims:
-    anims[id] = AnimState(frm: target, to: target, cur: target, t0: now, ms: ms, seen: now)
-    return target
+    if start.isNaN or start == target or not smoothScrolling:
+      anims[id] = AnimState(frm: target, to: target, cur: target, t0: now, ms: ms, seen: now)
+      return target
+    # (the first time, from `start`: a number counting up as a page opens)
+    anims[id] = AnimState(frm: start, to: target, cur: start, t0: now, ms: max(1, ms), seen: now)
+    wakeIn(16)
+    return start
   var a = anims[id]
   if target != a.to:
     a.frm = a.cur
@@ -956,8 +970,7 @@ proc animatedAt*(id: Id; target: float; ms: int): float =
   if d >= a.ms or not smoothScrolling:
     a.cur = a.to                 # (less movement asked: there at once)
   else:
-    let t = 1.0 - d / a.ms
-    a.cur = a.frm + (a.to - a.frm) * (1.0 - t * t * t)     # (fast, then slowing)
+    a.cur = a.frm + (a.to - a.frm) * easeOut(d / a.ms)     # (fast, then slowing)
     wakeIn(16)
   anims[id] = a
   if anims.len > 256:
@@ -968,19 +981,34 @@ proc animatedAt*(id: Id; target: float; ms: int): float =
     for k in old: anims.del k
   a.cur
 
-template animated*(target: float; ms = 200; key = ""): float =
+proc easedSince*(start: int; ms: int; delay = 0): float =
+  ## How far a movement that began at `start` (a `ui.now`: when a page
+  ## opened) is, 0 .. 1 eased (`easeOut`): 0 for `delay` milliseconds,
+  ## then 1 after `ms` more -- frames asked for until then. Things that
+  ## follow one another take delays of their own (a bar a year, each 140
+  ## ms after the one before). 1 at once when the user asked for less
+  ## movement (`smoothScrolling` off).
+  if not smoothScrolling: return 1.0
+  let el = ui.now - start - delay
+  if el < max(1, ms): wakeIn(16)
+  easeOut(el / max(1, ms))
+
+template animated*(target: float; ms = 200; key = ""; start = NaN): float =
   ## `target`, reached smoothly: when it changes, the value glides from
   ## where it was to it in `ms` milliseconds (fast at first, then slowing),
   ## a frame at a time; at once when the user asked for less movement
-  ## (`smoothScrolling` off). Each call is its own value, by where it is in
-  ## the code (and `key`, for one call in a loop):
+  ## (`smoothScrolling` off). The first time it is `target` at once -- or,
+  ## with `start`, glides there from `start` (a score counting up as its
+  ## page opens). Each call is its own value, by where it is in the code
+  ## (and `key`, for one call in a loop):
   ##
   ## .. code-block:: nim
   ##   let x = animated(if panelOpen: 0.0 else: -260.0)   # a panel sliding in
   ##   let a = animated(if hovering: 1.0 else: 0.0, 120)  # a glow fading
+  ##   let n = animated(score.float, 800, start = 0)      # counting up
   const at = instantiationInfo(-1, true)
   const site = at.filename & ":" & $at.line & ":" & $at.column & ":"
-  animatedAt(idOf(site & key), target, ms)
+  animatedAt(idOf(site & key), target, ms, start)
 
 type CaptionButtons* = enum
   ## The buttons at the right of the title bars the toolkit draws: the 3.1
@@ -2251,12 +2279,36 @@ proc beginRow*(widths: openArray[int] = []; rowH = CtrlH) =
   ## than widths wrap to new lines.
   beginRowPx(widths, rowH, scaled = true)
 
+var springTails, springTailsNow: Table[Hash, int]
+  ## (columns: how tall what follows each `spring` was, last frame and now)
+
 proc spring*() =
-  ## In a row: the widgets after it go to the row's right end.
+  ## In a row: the widgets after it go to the row's right end. In a column
+  ## (the window, a pane, a `col`, a group): those after it go to the
+  ## bottom of the room it has -- a button at a page's foot -- as tall as
+  ## they were last frame (the first frame, a frame more).
   let f = top()
-  if f.kind != lkRow: return
-  f.cx = max(f.cx, f.x + f.w - f.tailPrev)
-  f.springX = f.cx
+  if f.kind == lkRow:
+    f.cx = max(f.cx, f.x + f.w - f.tailPrev)
+    f.springX = f.cx
+    return
+  # (which spring: the column's place and how many there are above it)
+  let key = hash((ui.frames.len, f.x, f.y, f.springOn))   # (not its width: a scroll bar comes and goes)
+  let room = remainingH()
+  let tail = springTails.getOrDefault(key, 0)
+  if room > tail: f.cy += room - tail
+  f.bottom = max(f.bottom, f.cy)
+  f.springOn = true
+  f.springY = f.cy
+  f.springKey = key
+
+proc springEnd(f: LFrame) =
+  ## (a column ends: how tall what followed its spring was, for the next
+  ## frame -- one more frame when it changed)
+  if not f.springOn: return
+  let tail = max(0, f.bottom - f.springY)
+  springTailsNow[f.springKey] = tail
+  if springTails.getOrDefault(f.springKey, -1) != tail: ui.redraw = true
 
 proc endRow*() =
   ## Ends a `beginRow`.
@@ -2295,6 +2347,7 @@ proc beginCol*(w = 0) =
 proc endCol*() =
   ## Ends a `beginCol`.
   let f = ui.frames.pop()
+  springEnd(f)
   endCell(rect(f.x, f.y, f.w, 0), f.bottom - f.y)
 
 template row*(body: untyped) =
@@ -2394,6 +2447,7 @@ proc pushFrame*(r: Rect; reserve = 0; inPage = false) =
 proc popFrame*(): int =
   ## Pops a `pushFrame` column and returns the height its content used.
   let f = ui.frames.pop()
+  springEnd(f)
   f.bottom - f.y
 
 proc frameBottom*(): int = top().bottom
@@ -2542,6 +2596,7 @@ proc groupEnd*(): tuple[cell: Rect, title: string] =
   ## Ends a `beginGroup`: where the group box goes and its title (for
   ## `endGroup`, which draws it).
   let f = ui.frames.pop()
+  springEnd(f)
   let x = f.widths[0]
   let w = f.widths[1]
   let natural = f.bottom - f.y + 9
@@ -4357,6 +4412,11 @@ proc frameFinish(main: bool) =
   ## close asked; `main`: the program's own window)
   if main:
     for hook in endFrameHooks: hook()
+    # (the window's own column, and any left open: their springs measured)
+    for i in countdown(ui.frames.high, 0):
+      if ui.frames[i].kind != lkRow: springEnd(ui.frames[i])
+    swap(springTails, springTailsNow)
+    springTailsNow.clear()
   # What a key or a click changed late in the frame (after the widgets that
   # show it were drawn) appears on one more frame. (When nothing asked for
   # it -- a letter typed into a box, which shows it at once -- this frame is

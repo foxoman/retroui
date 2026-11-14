@@ -14,7 +14,8 @@
 ##   the curl command (a process per request).
 ## - **Android:** Java's HttpURLConnection (tools/android/RetroNet.java);
 ##   the APK needs the INTERNET permission: `retroapk --permission:INTERNET`.
-## - **iOS:** not done yet (an error comes back).
+## - **iOS:** NSURLSession (the system's TLS, proxies and cookies; redirects
+##   are always followed there).
 ##
 ## .. code-block:: nim
 ##   let r = httpRequest("GET", "https://graph.microsoft.com/v1.0/me",
@@ -34,7 +35,9 @@ when defined(windows):
   import std/[locks, widestrs]
 elif defined(wasm):
   discard
-elif not defined(ios):
+elif defined(ios):
+  import native
+else:
   import std/[dynlib, locks, os, sysrand]
   when androidApp:
     import uirelays/services
@@ -344,6 +347,115 @@ when androidApp:
     if nl >= 0: result.headerLines(r[nl + 1 .. ^1])
     try: result.body = readFile(outPath)
     except IOError: discard
+
+# ---- iOS: the system's NSURLSession ----------------------------------------------------------
+
+when defined(ios):
+  # (its completion handler is a block: made here by hand -- a global block,
+  # which the system never copies -- its invoke noting what came and waking
+  # the thread that waits; that thread reads the answer and lets it go)
+  type
+    BlockDescriptor = object
+      reserved, size: culong
+    Pending = object
+      sem: pointer
+      data, response, error: ObjcId
+    CompletionBlock = object
+      isa: pointer
+      flags, reserved: int32
+      invoke: pointer
+      descriptor: ptr BlockDescriptor
+      pending: ptr Pending               # (what the block "captured")
+
+  var concreteGlobalBlock {.importc: "_NSConcreteGlobalBlock".}: array[32, pointer]
+  proc dispatch_semaphore_create(value: clong): pointer {.importc, cdecl.}
+  proc dispatch_semaphore_wait(sem: pointer; timeout: uint64): clong {.importc, cdecl.}
+  proc dispatch_semaphore_signal(sem: pointer): clong {.importc, cdecl.}
+  proc dispatch_time(base: uint64; delta: int64): uint64 {.importc, cdecl.}
+  proc dispatch_release(o: pointer) {.importc, cdecl.}
+  proc objc_retain(o: ObjcId): ObjcId {.importc, cdecl.}
+  proc objc_release(o: ObjcId) {.importc, cdecl.}
+
+  var blockDescriptor = BlockDescriptor(size: culong(sizeof(CompletionBlock)))
+
+  proc onDone(b: ptr CompletionBlock; data, response, error: ObjcId) {.cdecl.} =
+    ## (on the session's own thread: nothing of Nim's made here)
+    let p = b.pending
+    if data != nil: p.data = objc_retain(data)
+    if response != nil: p.response = objc_retain(response)
+    if error != nil: p.error = objc_retain(error)
+    discard dispatch_semaphore_signal(p.sem)
+
+  proc iosRequest(meth, url: string; headers: openArray[(string, string)]; body: string;
+                  timeoutSec: int): HttpResponse =
+    ## Through NSURLSession's shared session (its redirects followed; the
+    ## system's TLS, proxies and cookies), the thread waiting for it.
+    result = HttpResponse()
+    let pending = cast[ptr Pending](allocShared0(sizeof(Pending)))
+    let blk = cast[ptr CompletionBlock](allocShared0(sizeof(CompletionBlock)))
+    pending.sem = dispatch_semaphore_create(0)
+    blk.isa = addr concreteGlobalBlock
+    blk.flags = 1'i32 shl 28                      # BLOCK_IS_GLOBAL
+    blk.invoke = cast[pointer](onDone)
+    blk.descriptor = addr blockDescriptor
+    blk.pending = pending
+    var started = false
+    autoreleasePool:
+      let u = objcSend(ObjcId, objcClass("NSURL"), "URLWithString:", nsString(url))
+      if u == nil:
+        result = failed("bad address: " & url)
+      else:
+        let req = objcSend(ObjcId, objcClass("NSMutableURLRequest"), "requestWithURL:cachePolicy:timeoutInterval:",
+                           u, 1, float(max(1, timeoutSec)))   # (reload, ignoring the cache)
+        objcSend(void, req, "setHTTPMethod:", nsString(meth))
+        var agent = false
+        for (k, v) in headers:
+          if cmpIgnoreCase(k, "User-Agent") == 0: agent = true
+          objcSend(void, req, "setValue:forHTTPHeaderField:", nsString(v), nsString(k))
+        if not agent:
+          objcSend(void, req, "setValue:forHTTPHeaderField:", nsString(defaultAgent), nsString("User-Agent"))
+        if body.len > 0:
+          let d = objcSend(ObjcId, objcClass("NSData"), "dataWithBytes:length:",
+                           cast[pointer](unsafeAddr body[0]), body.len)
+          objcSend(void, req, "setHTTPBody:", d)
+        let session = objcSend(ObjcId, objcClass("NSURLSession"), "sharedSession")
+        let task = objcSend(ObjcId, session, "dataTaskWithRequest:completionHandler:", req,
+                            cast[pointer](blk))
+        if task != nil:
+          objcSend(void, task, "resume")
+          started = true
+        else:
+          result = failed("the system made no request")
+    if started:
+      # (the session's own timeout ends it; a little more here, never forever)
+      let until = dispatch_time(0, int64(max(1, timeoutSec) + 10) * 1_000_000_000)
+      if dispatch_semaphore_wait(pending.sem, until) != 0:
+        result = failed("no answer in " & $timeoutSec & " s")
+        # (the block may still come: its memory is left to it)
+        return
+      autoreleasePool:
+        if pending.error != nil and pending.response == nil:
+          result = failed(toNim(objcSend(ObjcId, pending.error, "localizedDescription")))
+        else:
+          if pending.response != nil and respondsTo(pending.response, "statusCode"):
+            result.status = objcSend(int, pending.response, "statusCode")
+            let fields = objcSend(ObjcId, pending.response, "allHeaderFields")
+            let keys = objcSend(ObjcId, fields, "allKeys")
+            for i in 0 ..< objcSend(int, keys, "count"):
+              let k = objcSend(ObjcId, keys, "objectAtIndex:", i)
+              result.headers.add (toNim(k).toLowerAscii,
+                                  toNim(objcSend(ObjcId, fields, "objectForKey:", k)))
+          if pending.data != nil:
+            let n = objcSend(int, pending.data, "length")
+            if n > 0:
+              result.body = newString(n)
+              copyMem(addr result.body[0], objcSend(pointer, pending.data, "bytes"), n)
+          if result.status == 0: result.error = "no answer"
+        for o in [pending.data, pending.response, pending.error]:
+          if o != nil: objc_release(o)
+    dispatch_release(pending.sem)
+    deallocShared(pending)
+    deallocShared(blk)
 
 # ---- a browser page: the page's own requests ---------------------------------------------
 
@@ -688,7 +800,8 @@ proc httpRequest*(meth, url: string; headers: openArray[(string, string)] = [];
       url = cleanUrl(next)
     result = failed("too many redirects")
   elif defined(ios):
-    result = failed("HTTP requests are not done on iOS yet")
+    {.cast(gcsafe).}:
+      result = iosRequest(meth, url, hs, body, timeoutSec)
   elif defined(wasm):
     {.cast(gcsafe).}:
       result = webRequest(meth, url, hs, body, timeoutSec, followRedirects)

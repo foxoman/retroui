@@ -16,7 +16,7 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[xmlparser, xmltree, strutils, streams, times]
+import std/[xmlparser, xmltree, strutils, streams, times, json]
 from std/unicode import Rune, toUTF8
 
 type
@@ -41,6 +41,11 @@ type
     episodes*: seq[Episode]
   FeedLink* = tuple[title, url: string]
     ## A feed in an OPML list.
+  Chapter* = object
+    ## A chapter of an episode (Podcasting 2.0's chapters file).
+    start*: float            ## where it starts, in seconds
+    title*: string
+    url*, image*: string     ## a link and a picture it has ("": none)
 
 proc parseDuration*(s: string): int =
   ## A length as feeds write it -- "1:02:03", "62:03", "3723", "3723.5" --
@@ -284,3 +289,40 @@ proc plainText*(html: string): string =
     let s = l.strip
     if s.len > 0 or (lines.len > 0 and lines[^1].len > 0): lines.add s
   result = lines.join("\n").strip
+
+proc parseChapters*(text: string): seq[Chapter] =
+  ## The chapters of an episode's chapters file (`Episode.chapters` names
+  ## it: Podcasting 2.0's JSON), in order; empty when it is not one.
+  try:
+    let j = parseJson(text)
+    for c in j{"chapters"}:
+      if c{"toc"}.getBool(true):           # (a chapter kept out of the list: toc false)
+        result.add Chapter(start: c{"startTime"}.getFloat(c{"startTime"}.getInt.float),
+                           title: c{"title"}.getStr, url: c{"url"}.getStr, image: c{"img"}.getStr)
+  except CatchableError:
+    discard
+
+proc transcriptText*(text: string): string =
+  ## An episode's transcript as text to read: WebVTT's and SubRip's cue
+  ## numbers and times left out, the lines of a speaker joined; HTML as
+  ## `plainText`; anything else as it is.
+  let t = text.strip
+  if t.startsWith("<"): return plainText(t)
+  var o = ""
+  var para = ""
+  for raw in t.splitLines:
+    let l = raw.strip
+    if l.len == 0 or l == "WEBVTT" or l.startsWith("NOTE") or "-->" in l or
+       l.allCharsInSet(Digits):
+      if l.len == 0 and para.len > 0:
+        o.add para & "\n"
+        para = ""
+      continue
+    # (a voice tag: "<v Sultan>Hello" as "Sultan: Hello")
+    var line = l
+    if line.startsWith("<v ") and '>' in line:
+      let e = line.find('>')
+      line = line[3 ..< e] & ": " & line[e + 1 .. ^1]
+    para.add (if para.len > 0: " " else: "") & line.replace("</v>", "")
+  if para.len > 0: o.add para & "\n"
+  result = o.strip

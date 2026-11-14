@@ -160,6 +160,8 @@ type
     pending: Table[int, tuple[existed: bool; s: Shape]]
     orderBefore: seq[int]
     cache: Table[int, Drawing]
+    briefs: Table[int, Drawing]   ## (shapes too small to read: their brief drawings)
+    asked: int                    ## (drawings asked for so far: their age)
     stamps: int
 
   Piece* = object
@@ -172,6 +174,7 @@ type
     pieces*: seq[Piece]      ## filled in this order
     key: Hash
     cost: int
+    used: int                ## (when it was last asked for: the oldest go first)
 
   Box* = tuple[x, y, w, h: float]
     ## A rectangle of the page: its corner and size (page units).
@@ -1724,29 +1727,144 @@ proc buildDrawing(b: Board; s: Shape): Drawing =
   of skGroup: discard
   discard sw
 
-proc drawingOf*(b: Board; s: Shape): Drawing =
+proc buildBrief(b: Board; s: Shape): Drawing
+
+proc drawingOf*(b: Board; s: Shape; brief = false): Drawing =
   ## What shape `s` looks like (kept until it, or what it holds on to,
-  ## changes).
+  ## changes). `brief`: as it is drawn too small to read (`briefAt`) --
+  ## its box and colors, its words as bars -- made in a fraction of the
+  ## time and kept apart.
   let k = b.drawKey(s)
-  b.cache.withValue(s.id, d):
-    if d.key == k: return d[]
+  let kept = if brief: addr b.briefs else: addr b.cache
+  inc b.asked
+  kept[].withValue(s.id, d):
+    if d.key == k:
+      d.used = b.asked
+      return d[]
     b.cacheCost -= d.cost
-  result = b.buildDrawing(s)
+  result = if brief: b.buildBrief(s) else: b.buildDrawing(s)
   result.key = k
+  result.used = b.asked
   result.cost = 64
   for p in result.pieces:
     result.cost += 32
     for c in p.contours: result.cost += 32 + c.len * sizeof((float, float))
   if b.cacheCost + result.cost > drawingBudget:
-    b.cache.clear()
-    b.cacheCost = 0
-  b.cache[s.id] = result
+    # (full: the half asked for longest ago go -- those of a frame drawn
+    # now stay, so a board bigger than the budget is not made again whole)
+    var ages: seq[int]
+    for d in b.cache.values: ages.add d.used
+    for d in b.briefs.values: ages.add d.used
+    ages.sort()
+    let cut = if ages.len > 0: ages[ages.len div 2] else: 0
+    for t in [addr b.cache, addr b.briefs]:
+      var gone: seq[int]
+      for id, d in t[]:
+        if d.used <= cut: gone.add id
+      for id in gone:
+        b.cacheCost -= t[][id].cost
+        t[].del id
+  kept[][s.id] = result
   b.cacheCost += result.cost
+
+proc textBars(f: LabelFrame; text: string; color: uint32; dst: var seq[Piece]) =
+  ## (words too small to read: a bar a line, where they stand -- no letters
+  ## set, none of their outlines made)
+  if text.len == 0: return
+  let lineH = f.size * 1.25
+  let room = if f.wrap > 0 and f.wrap < 1e8: f.wrap else: max(f.w, f.size)
+  let perLine = max(1, int(room / max(1e-3, f.size * 0.55)))
+  var lens: seq[int]
+  for para in text.split('\n'):
+    var n = para.runeLen
+    if n == 0:
+      lens.add 0
+      continue
+    while n > 0:
+      lens.add min(n, perLine)
+      n -= perLine
+  let most = max(1, int(max(f.h, lineH) / lineH))
+  if lens.len > most: lens.setLen(most)
+  let total = lens.len.float * lineH
+  var y = case f.valign
+          of baStart: f.y
+          of baEnd: f.y + f.h - total
+          else: f.y + (f.h - total) / 2
+  var piece = Piece(color: color)
+  for n in lens:
+    if n > 0:
+      let w = min(room, n.float * f.size * 0.55)
+      let x = case f.host.align
+              of baStart: f.x
+              of baEnd: f.x + f.w - w
+              else: f.x + (f.w - w) / 2
+      let t = y + lineH * 0.35
+      var c: seq[(float, float)]
+      for (px, py) in [(x, t), (x + w, t), (x + w, t + f.size * 0.45), (x, t + f.size * 0.45)]:
+        let q = f.host.toPage(px, py)
+        c.add (q.x, q.y)
+      piece.contours.add c
+    y += lineH
+  if piece.contours.len > 0: dst.add piece
+
+proc buildBrief(b: Board; s: Shape): Drawing =
+  ## (a shape too small on the screen to read: its box, its fill and its
+  ## colors as they are, its line drawn plain, its words as bars)
+  let dark = b.dark
+  let ink = inkOf(s.color, dark).withAlpha(s.opacity)
+  let sw = strokeWidths[s.size]
+  case s.kind
+  of skGeo:
+    let ol = s.pageOutline
+    let fc = s.fillOf
+    var tc = ink
+    case s.fill
+    of bfNone: discard
+    of bfSolid:
+      let f = mixArgb(inkOf(fc, dark), b.paperOf, 0.12)
+      result.pieces.add Piece(contours: @[polyFill(ol)], color: f.withAlpha(s.opacity))
+      let lum = 0.3 * float((f shr 16) and 255) + 0.59 * float((f shr 8) and 255) + 0.11 * float(f and 255)
+      tc = (if lum > 150: 0xFF1D1D1D'u32 else: 0xFFFFFFFF'u32).withAlpha(s.opacity)
+    else: result.pieces.add Piece(contours: @[polyFill(ol)], color: semiOf(fc, dark).withAlpha(s.opacity))
+    var edge: seq[seq[(float, float)]]
+    solidStroke(ol, sw, true, edge)
+    result.pieces.add Piece(contours: edge, color: ink)
+    b.labelFrame(s).textBars(s.text, tc, result.pieces)
+  of skNote:
+    result.pieces.add Piece(contours: @[polyFill(s.pageOutline)], color: noteOf(s.color, dark).withAlpha(s.opacity))
+    let tc = (if dark: 0xFFF2F2F2'u32 else: 0xFF1D1D1D'u32).withAlpha(s.opacity)
+    b.labelFrame(s).textBars(s.text, tc, result.pieces)
+  of skText:
+    b.labelFrame(s).textBars(s.text, ink, result.pieces)
+  of skFrame:
+    let ol = s.pageOutline
+    result.pieces.add Piece(contours: @[polyFill(ol)], color: (if dark: 0xFF1A1A1C'u32 else: 0xFFFFFFFF'u32))
+    var edge: seq[seq[(float, float)]]
+    solidStroke(ol, 1.5, true, edge)
+    result.pieces.add Piece(contours: edge, color: (if dark: 0xFF4A4A4F'u32 else: 0xFFBDBDC4'u32))
+  else: result = b.buildDrawing(s)
+
+const BriefLetters = 6.0
+  ## (letters drawn smaller than this many pixels are not read: bars)
+
+proc briefAt*(b: Board; s: Shape; scale: float): bool =
+  ## Shape `s` is too small to read at `scale` pixels a page unit (its
+  ## letters under 6 pixels, or the whole of it under 16 when it has no
+  ## words): drawn in brief (`drawingOf(s, brief = true)`) -- a board of
+  ## thousands of shapes, zoomed out, drawn fast.
+  case s.kind
+  of skGeo, skNote, skText:
+    # (its letters' own size, not measured: a note's may be smaller still)
+    if s.text.len > 0: s.textSize * scale < BriefLetters
+    else: max(s.w, s.h) * scale < 16
+  of skFrame: max(s.w, s.h) * scale < 60
+  else: false
 
 proc forgetDrawings*(b: Board) =
   ## Everything drawn again when next asked (the colors changed; memory is
   ## short).
   b.cache.clear()
+  b.briefs.clear()
   b.cacheCost = 0
 
 proc drawingBytes*(b: Board): int = b.cacheCost
@@ -2485,10 +2603,12 @@ proc pictureOf*(b: Board; s: Shape): Bitmap =
   except CatchableError: result = nil
 
 proc renderBitmap*(b: Board; ids: openArray[int]; scale = 1.0; background = true; padding = 32.0;
-                   pictures: proc (s: Shape): Bitmap = nil): Bitmap =
+                   pictures: proc (s: Shape): Bitmap = nil; brief = false): Bitmap =
   ## Shapes `ids` (all of the page shown, when none) as a picture, `scale`
   ## pixels a page unit, on the canvas's color (or transparent), with
   ## `padding` round them. `pictures` gives a picture shape's picture.
+  ## `brief`: shapes too small to read drawn in brief (`briefAt`): a
+  ## page's small picture, fast.
   var list: seq[int]
   if ids.len == 0:
     for s in b.page.shapes:
@@ -2534,7 +2654,7 @@ proc renderBitmap*(b: Board; ids: openArray[int]; scale = 1.0; background = true
             let c = pic.px[py * pic.w + px]
             blend(result.px[yy * w + xx], c.withAlpha(s.opacity), 255)
       continue
-    for piece in b.drawingOf(s).pieces:
+    for piece in b.drawingOf(s, brief and b.briefAt(s, k)).pieces:
       if piece.contours.len == 0: continue
       var pts: seq[V]
       for c in piece.contours:

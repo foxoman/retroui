@@ -35,10 +35,11 @@ hello, notepad, ledger, charts, invoice, then the apps.
 | [navigator](#retro-navigator) | Retro Navigator, a web browser in the manner of 1995's |
 | [retrodns](#retro-dns) | Retro DNS, a DNS changer for phones and computers |
 | [podcast](#retro-podcast) | Retro Podcast, a podcast player for every system and the web |
+| [grow](#grow) | Grow, a savings goal planner for phones, its years as 3D bars |
 
 The pictures of hello, the gallery (and its Forms & Code page), charts,
-native, HR Book, the magazine, 7GUIs, Retro Navigator, Retro DNS and Retro
-Podcast are made by `sh tools/exampleshots.sh`;
+native, HR Book, the magazine, 7GUIs, Retro Navigator, Retro DNS, Retro
+Podcast and Grow are made by `sh tools/exampleshots.sh`;
 the others are the main README's.
 
 ## Hello
@@ -206,7 +207,10 @@ nimble magazine             # build/magazine: .rpd, .png, .pdf
 tldraw: ink with pen pressure, the highlighter and the laser pointer,
 nineteen shapes with labels, arrows that hold on to shapes, text, sticky
 notes, frames and pictures; select, move, turn, snap, group, align;
-pages, pinch to zoom, autosave, a dark mode; PNG, SVG and PDF export.
+pages, pinch to zoom, autosave, a dark mode; PNG, SVG and PDF export;
+**presenting** the frames as slides (View > Present the Frames, F5), and
+pictures dropped from other programs. Zoomed out on thousands of shapes it
+draws those too small to read in brief, and keeps moving.
 
 ```sh
 nimble board                # or: nim c -r -d:release examples/retroboard.nim
@@ -369,6 +373,11 @@ So today's web works in it -- sign-ins, maps, video -- in a window of 1995:
   Closed Tab (Ctrl+Shift+T), Ctrl+Tab; a link with Ctrl or the middle
   button opens in a tab behind, a link for a new window in a new tab; a
   tab's menu (Duplicate, Close Other Tabs), and tabs dragged into order;
+  **private tabs** (New Private Tab, Ctrl+Shift+N) kept out of the
+  history, the session and the closed tabs;
+- **History** (Ctrl+H: find, go to, remove, clear), **Downloads** (Ctrl+J:
+  open, show in the folder, clear the finished) and **Reader** (Ctrl+Alt+R:
+  the page's article alone, in large type);
 - **the shield** (`examples/navigator/shield.nim`): the engine never
   fetches what comes from more than 250 ad and tracker sites and the ad
   addresses of sites that serve their pages too (`webBlockList`), nor the
@@ -478,3 +487,30 @@ it (CORS), and most podcast hosts do not say yes: Settings has a proxy put
 before each feed's address. The sounds themselves play without it.
 `tests/test_podcast.nim` follows a feed file, plays, queues, undoes and
 saves the library without a window.
+
+## Grow
+
+![Grow: the plan -- a goal, the amount, a slider of years, the growth -- and its result: the total counted up, a ring, the years as 3D bars under the goal's line, a gold coin over the last](../docs/examples/grow.png)
+
+`grow.nim` is a phone app: a savings goal, how much each month, for how
+many years, growing how much a year -- and then what it comes to. Two
+pages (`pageView`, the phone's Back): the plan, its first look gliding as
+the numbers change (`animated`) and its button at the foot, where the
+thumb is (`spring()`); then the result, which counts up, fills a ring
+(`progressRing`) and raises a 3D bar for each year one after another
+(`easedSince`, each a little after the one before) under a camera that
+sways round them, a gold coin turning over the last. The bars turn green
+from the year the goal is reached; a tap on one says what it holds
+(`picked`), a finger turns them; Share opens the phone's share sheet
+(`share`), a goal reached is felt (`haptic`). The scene is made in code --
+boxes, a cylinder, lines and labels, materials of a color (`material3`) --
+and drawn on the GPU where frames are.
+
+```sh
+nimble grow                                 # or: nim c -r -d:release examples/grow.nim
+RETRO_APP=grow nimble appapk                # build/Grow.apk (portrait)
+```
+
+`tests/test_grow.nim` checks the plan's numbers, the button at the
+page's foot, and the result's timeline played to its end without a
+window.

@@ -92,6 +92,18 @@ Ctrl (Cmd on a Mac) or the middle button opens in a tab behind, which loads
 when you go to it; a link for a new window opens in a new tab. Close a tab
 with its x or Ctrl+W, and bring the last one closed back with Ctrl+Shift+T.
 Drag a tab to move it; right-click it for its menu.</p>
+<h3>Private tabs</h3>
+<p><i>File &gt; New Private Tab</i> (Ctrl+Shift+N) opens a tab whose pages are
+not kept: not in the history, not in the session brought back at the next
+start, and not among the tabs Ctrl+Shift+T reopens. Its name in the tab
+strip starts with <i>(Private)</i>.</p>
+<h3>History, downloads, reading</h3>
+<p><i>Go &gt; History</i> (Ctrl+H) lists the pages visited, newest first: type
+to find one, go to it, remove it, or clear them all. <i>Go &gt; Downloads</i>
+(Ctrl+J) lists what was downloaded: open a file, show it in its folder, or
+clear the finished ones from the list. <i>View &gt; Reader</i> (Ctrl+Alt+R)
+shows the page's article alone -- its title and its words, in large type
+without the site's menus and ads.</p>
 <h3>The key in the status bar</h3>
 <p>The key: the page came over an encrypted connection (https). A warning
 sign: it did not, so what you type there can be read on its way.</p>
@@ -137,6 +149,9 @@ cookies, so you are signed out, their stored data and the cache.</p>
 <tr><td><kbd>Ctrl+T</kbd>, <kbd>Ctrl+W</kbd></td><td>New Tab, Close Tab</td></tr>
 <tr><td><kbd>Ctrl+Tab</kbd>, <kbd>Ctrl+Shift+Tab</kbd></td><td>the next tab, the one before</td></tr>
 <tr><td><kbd>Ctrl+Shift+T</kbd></td><td>Reopen Closed Tab</td></tr>
+<tr><td><kbd>Ctrl+Shift+N</kbd></td><td>New Private Tab</td></tr>
+<tr><td><kbd>Ctrl+H</kbd>, <kbd>Ctrl+J</kbd></td><td>History, Downloads</td></tr>
+<tr><td><kbd>Ctrl+Alt+R</kbd></td><td>Reader</td></tr>
 <tr><td><kbd>Alt+Left</kbd>, <kbd>Alt+Right</kbd></td><td>Back, Forward</td></tr>
 <tr><td><kbd>Alt+Home</kbd></td><td>Home</td></tr>
 <tr><td><kbd>F5</kbd>, <kbd>Esc</kbd></td><td>Reload, Stop</td></tr>

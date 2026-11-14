@@ -1,6 +1,7 @@
 ## The 3D view drawn on the GPU (`view3dgl`) against the same scene drawn
 ## by the CPU (`render3d`): a car of materials (paint, tires, glass), its
-## parts tinted and hidden, a clip at a moment -- the two pictures alike
+## parts tinted and hidden, a clip at a moment; bars and a box with no
+## materials (outlined, a color a triangle) -- the two pictures alike
 ## (the GPU's own rounding apart). Run under a display with OpenGL
 ## (Xvfb and Mesa will do), frames on the GPU:
 ##
@@ -69,6 +70,19 @@ app "gpu3d", 820, 560:
       cam.yaw = 200
       cam.pitch = -10
     of 6: compare("from behind and below")
+    of 7:
+      # a scene without materials: bars with outlines, a box with a color a
+      # triangle -- shaded on the GPU as the CPU shades them
+      car = bars3d(@[@[3.0, 5, 2, 4], @[4.0, 1, 6, 2]], colLabels = ["Q1", "Q2", "Q3", "Q4"])
+      var bx = box(1.2, 1.2, 1.2, color(200, 200, 200), "Painted")
+      bx.pos = vec3(-1.5, 0.6, 0.5)
+      for i in 0 ..< bx.tris.len:
+        bx.colors.add color(uint8(60 + 30 * (i mod 6)), uint8(200 - 25 * (i mod 7)), uint8(90 + 20 * (i mod 5)))
+      car.add bx
+      cam = camera3(yaw = 35, pitch = 25)
+      fitView(car, cam)
+      sceneChanged(car)
+    of 8: compare("bars and a painted box, no materials, outlined")
     else:
       echo "DONE ", failed
       quit failed

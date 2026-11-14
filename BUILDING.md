@@ -516,6 +516,11 @@ retroapk app.nim --name:"My App" --id:com.me.myapp \
   -o:build/MyApp.apk
 ```
 
+Two more an app may need: `--cleartext` lets it use plain `http://`
+addresses (Android 9 and later refuse them; without it the kit asks for
+the https address instead), and `--share-target:text/plain,image/*` puts
+it in the other apps' share sheets (what comes is `sharedIn()`).
+
 `--aab` makes an Android App Bundle for Google Play instead (below).
 `retroapk --help` lists every option. The examples have tasks:
 `nimble galleryapk`, `nimble photoapk`, `nimble apk` (Retro Files),

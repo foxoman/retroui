@@ -209,6 +209,26 @@ proc share*(text = ""; url = ""; files: openArray[string] = []; title = ""): boo
   else:
     false
 
+type SharedIn* = object
+  ## What another app shared with this one (`sharedIn`).
+  text*: string          ## a text, a link
+  files*: seq[string]    ## files, copied into the app's cache
+
+proc sharedIn*(): SharedIn =
+  ## What the user shared with this app from another one since it was last
+  ## asked, taken: in an Android app made with `retroapk --share-target`
+  ## (it is then in the other apps' share sheet), a text or a link, and
+  ## files copied into the app's cache. Nothing elsewhere: a desktop app
+  ## gets files on its command line (`appArguments`). Cheap: ask it each
+  ## frame.
+  when androidApp:
+    let r = systemCall("sharedIn", "")
+    if r.len == 0: return
+    for e in r.split('\x01'):
+      if e.len < 2: continue
+      if e[0] == 't': result.text.add (if result.text.len > 0: "\n" else: "") & e[1 .. ^1]
+      elif e[0] == 'f': result.files.add e[1 .. ^1]
+
 # ---- a tap felt ------------------------------------------------------------------------------------
 
 proc haptic*(kind = hTap): bool {.discardable.} =

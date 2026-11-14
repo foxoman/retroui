@@ -4,22 +4,23 @@
 # window saved once it is up (ImageMagick's import). The others' pictures
 # are the README's own (docs/*.png).
 #
-#   sh tools/exampleshots.sh                 hello charts native gallery gallery-forms hrbook magazine sevenguis navigator retrodns podcast
+#   sh tools/exampleshots.sh                 hello charts native gallery gallery-forms hrbook magazine sevenguis navigator retrodns podcast grow
 #   sh tools/exampleshots.sh hello charts    these
 #
 # 7GUIs is driven to its spreadsheet first (RETRO_DRIVE, `retrokit drive`);
 # Retro Podcast follows a feed file of its own and plays an episode;
-# gallery-forms is the Gallery's Forms & Code page.
+# gallery-forms is the Gallery's Forms & Code page; Grow's two pages side
+# by side (the plan, then its result with the bars risen).
 #
 # Needs Xvfb, xdotool and ImageMagick (Debian: xvfb xdotool imagemagick);
 # Retro Navigator's picture, WebKitGTK too (libwebkit2gtk-4.1-0).
 set -eu
 cd "$(dirname "$0")/.."
-apps=${*:-hello charts native gallery gallery-forms hrbook magazine sevenguis navigator retrodns podcast}
+apps=${*:-hello charts native gallery gallery-forms hrbook magazine sevenguis navigator retrodns podcast grow}
 out=docs/examples
 mkdir -p "$out" build/shots
 case " $apps " in
-  *" sevenguis "*|*" podcast "*) nim c -d:release --hints:off -o:build/shots/retrokit src/retrokit.nim ;;
+  *" sevenguis "*|*" podcast "*|*" grow "*) nim c -d:release --hints:off -o:build/shots/retrokit src/retrokit.nim ;;
 esac
 for app in $apps; do
   echo "== $app"
@@ -72,7 +73,7 @@ PY
   [ "$app" = gallery-forms ] && src=gallery
   nim c -d:release --hints:off -o:"build/shots/$src" "examples/$src.nim" > "build/shots/$src.txt" 2>&1
   xvfb-run -a -s "-screen 0 1280x860x24" sh -c '
-    if [ "$2" = sevenguis ] || [ "$2" = podcast ]; then RETRO_DRIVE=7131 "$1" > /dev/null 2>&1 &
+    if [ "$2" = sevenguis ] || [ "$2" = podcast ] || [ "$2" = grow ]; then RETRO_DRIVE=7131 "$1" > /dev/null 2>&1 &
     elif [ "$2" = gallery-forms ]; then GALLERY_TAB=18 "$1" > /dev/null 2>&1 &
     else "$1" > /dev/null 2>&1 &
     fi
@@ -103,7 +104,17 @@ PY
       build/shots/retrokit drive 7131 click Play --role button --nth 1 > /dev/null
       sleep 4
     fi
-    import -window "$w" "$3"
+    if [ "$2" = grow ]; then
+      # (the plan, then its result once the bars have risen)
+      import -window "$w" "$3.plan.png"
+      build/shots/retrokit drive 7131 click "See my plan" --role button > /dev/null
+      sleep 4
+      import -window "$w" "$3.result.png"
+      convert "$3.plan.png" "$3.result.png" +append -bordercolor white -border 12 "$3"
+      rm -f "$3.plan.png" "$3.result.png"
+    else
+      import -window "$w" "$3"
+    fi
     kill $pid 2>/dev/null || true' sh "build/shots/$src" "$app" "$out/$app.png"
   if [ "$app" = podcast ]; then
     pkill -f "pulse.sock" 2> /dev/null || true

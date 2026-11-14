@@ -77,6 +77,7 @@ public class RetroActivity extends NativeActivity {
       }
     } catch (Throwable ignored) { }
     super.onCreate(state);
+    takeShared(getIntent());
     getWindow().getDecorView().setOnApplyWindowInsetsListener(
         new View.OnApplyWindowInsetsListener() {
           public WindowInsets onApplyWindowInsets(View v, WindowInsets in) {
@@ -295,6 +296,64 @@ public class RetroActivity extends NativeActivity {
 
   static final int PICK_TREE = 4242;
 
+  // What other apps shared with this one (their share sheet: an APK made
+  // with retroapk --share-target): "t" and a text, "f" and a file copied
+  // into the cache, taken by the native side with "sharedIn".
+  static final java.util.ArrayList<String> shared = new java.util.ArrayList<String>();
+
+  @Override protected void onNewIntent(Intent i) {
+    super.onNewIntent(i);
+    setIntent(i);
+    takeShared(i);
+  }
+
+  void takeShared(Intent i) {
+    if (i == null) return;
+    String act = i.getAction();
+    if (!Intent.ACTION_SEND.equals(act) && !Intent.ACTION_SEND_MULTIPLE.equals(act)) return;
+    try {
+      java.util.ArrayList<String> got = new java.util.ArrayList<String>();
+      CharSequence t = i.getCharSequenceExtra(Intent.EXTRA_TEXT);
+      if (t != null && t.length() > 0) got.add("t" + t);
+      java.util.ArrayList<Uri> uris = new java.util.ArrayList<Uri>();
+      if (Intent.ACTION_SEND_MULTIPLE.equals(act)) {
+        java.util.ArrayList<Uri> l = i.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+        if (l != null) uris.addAll(l);
+      } else {
+        Uri u = i.getParcelableExtra(Intent.EXTRA_STREAM);
+        if (u != null) uris.add(u);
+      }
+      java.io.File dir = new java.io.File(getCacheDir(), "shared");
+      dir.mkdirs();
+      for (Uri u : uris) {
+        String name = "shared";
+        try {
+          Cursor c = getContentResolver().query(u, new String[]{android.provider.OpenableColumns.DISPLAY_NAME},
+                                                null, null, null);
+          if (c != null) {
+            if (c.moveToFirst() && c.getString(0) != null) name = c.getString(0);
+            c.close();
+          }
+        } catch (Throwable ignored) { }
+        name = name.replace('/', '_');
+        java.io.File f = new java.io.File(dir, name);
+        for (int k = 2; f.exists(); k++) f = new java.io.File(dir, k + "-" + name);
+        java.io.InputStream in = getContentResolver().openInputStream(u);
+        if (in == null) continue;
+        java.io.OutputStream out = new java.io.FileOutputStream(f);
+        byte[] buf = new byte[65536];
+        int n;
+        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        out.close();
+        in.close();
+        got.add("f" + f.getAbsolutePath());
+      }
+      synchronized (shared) { shared.addAll(got); }
+    } catch (Throwable ignored) { }
+    // (taken once: not again when the activity is made again)
+    i.setAction(Intent.ACTION_MAIN);
+  }
+
   /** One entry point for the native side: `name` and tab-separated `arg`
    *  in, UTF-8 text out (null: failed). */
   public byte[] uirelaysCall(String name, String arg) {
@@ -320,6 +379,18 @@ public class RetroActivity extends NativeActivity {
           Character.toUpperCase(part.charAt(0)) + part.substring(1));
       Method m = c.getMethod("call", android.app.Activity.class, String.class, String[].class);
       return (String) m.invoke(null, this, name.substring(dot + 1), a);
+    }
+    if (name.equals("sharedIn")) {
+      // (what came, taken: entries apart by \u0001)
+      synchronized (shared) {
+        StringBuilder b = new StringBuilder();
+        for (String e : shared) {
+          if (b.length() > 0) b.append('\u0001');
+          b.append(e);
+        }
+        shared.clear();
+        return b.toString();
+      }
     }
     if (name.equals("installed")) {
       try {

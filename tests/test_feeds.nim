@@ -72,4 +72,24 @@ doAssertRaises(ValueError): discard parseFeed("not xml at all")
 # (a feed with an entity XML does not know: read anyway)
 let loose = parseFeed("""<rss><channel><title>Caf&eacute; &nbsp;Talk</title><item><title>x</title></item></channel></rss>""")
 doAssert loose.episodes.len == 1
+# chapters and transcripts (Podcasting 2.0)
+let ch = parseChapters("""{"version": "1.2.0", "chapters": [
+  {"startTime": 0, "title": "Intro"},
+  {"startTime": 65.5, "title": "News", "url": "https://example.com", "img": "https://example.com/n.png"},
+  {"startTime": 120, "title": "An ad", "toc": false},
+  {"startTime": 300, "title": "The end"}]}""")
+doAssert ch.len == 3 and ch[1].start == 65.5 and ch[1].title == "News" and ch[2].title == "The end", $ch
+doAssert parseChapters("not json").len == 0
+let vtt = """WEBVTT
+
+1
+00:00:00.000 --> 00:00:04.000
+<v Sultan>Welcome to Retro Talk.
+
+2
+00:00:04.000 --> 00:00:08.000
+Today: Windows 3.1
+at thirty-four."""
+doAssert transcriptText(vtt) == "Sultan: Welcome to Retro Talk.\nToday: Windows 3.1 at thirty-four.", transcriptText(vtt)
+doAssert transcriptText("<p>Hello</p><p>World</p>") == "Hello\nWorld"
 echo "feeds OK"

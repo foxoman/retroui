@@ -20,18 +20,19 @@
 
 import std/[os, strutils, json, math]
 import retroui
+from retroui/system import revealFile   # (Downloads: Show in Folder)
 import navigator/[places, pages, markup]
 
 const
-  NavigatorVersion = "0.4.1"
+  NavigatorVersion = "0.5.0"
   SleepAfter = 5 * 60_000                          # a tab not seen this long sleeps (ms)
   IconPng = staticRead("assets/navigator-icon.png")
   Directory = [("&Welcome", "about:welcome"),
-               ("What's &New", "https://github.com/foxoman/retroui/blob/main/CHANGELOG.md"),
+               ("Wh&at's New", "https://github.com/foxoman/retroui/blob/main/CHANGELOG.md"),
                ("Net &Search", ""),                # (the search engine's home)
-               ("Net &Directory", "https://www.wikipedia.org"),
-               ("Hand&book", "about:handbook"),
-               ("Soft&ware", "https://github.com/foxoman/retroui")]
+               ("Net Di&rectory", "https://www.wikipedia.org"),
+               ("Handboo&k", "about:handbook"),
+               ("Sof&tware", "https://github.com/foxoman/retroui")]
 
 type
   Tab = object
@@ -52,6 +53,7 @@ type
     kept: int                         # ... and by the engine, before they were fetched
     seen: int                         # (`ui.now` it was last shown)
     asleep: bool                      # its view was let go (`sleepTabs`)
+    private: bool                     # its pages kept out of the history and the session
 
 var
   prefs = loadSettings(SettingsName)
@@ -100,6 +102,13 @@ var
   sourceAsk, findAsk = 0
   finder = FindState()
   picked = ""
+  showHistory, showDownloads, showReader = false
+  historyFind = ""
+  historySel = 0
+  downloads: seq[WebDownload]         # this session's downloads, the last last (Ctrl+J)
+  downloadSel = 0
+  readerAsk = 0                       # (the Reader's script)
+  reader = ""                         # the page as the Reader shows it (HTML)
 
 proc historyFile(): string = dataDir(SettingsName) / "history.txt"
 proc blockFile(): string = dataDir(SettingsName) / "blocklist.txt"
@@ -167,11 +176,12 @@ proc goBack(t: var Tab) =
     t.go(p)
     t.trail.setLen(n)                         # (not this page on it again)
 
-proc newTab(url: string; behind = false) =
+proc newTab(url: string; behind = false; private = false) =
   ## A tab at the end with `url`, shown (or not: `behind`; it loads when it
-  ## is first shown).
+  ## is first shown). A `private` one keeps its pages out of the history,
+  ## the Go menu and the Location box's suggestions.
   inc made
-  var n = Tab(key: "page" & $made, zoom: 1.0, progress: 100, seen: ui.now)
+  var n = Tab(key: "page" & $made, zoom: 1.0, progress: 100, seen: ui.now, private: private)
   webStartScript(n.key, shieldJs)
   webScrollBars(n.key, classicBars)       # (the page's own scroll bar: the kit's)
   n.go(url)
@@ -211,7 +221,7 @@ proc closeTab(i: int) =
   ## Closes tab `i` (not the last one).
   if tabList.len < 2 or i notin 0 .. tabList.high: return
   let gone = tabList[i]
-  if gone.shown.len > 0 and gone.shown != "about:blank":
+  if gone.shown.len > 0 and gone.shown != "about:blank" and not gone.private:
     closedTabs.add gone.shown
     if closedTabs.len > 20: closedTabs.delete(0)
   webClose(gone.key)
@@ -221,9 +231,11 @@ proc closeTab(i: int) =
   if i < cur or cur > tabList.high: dec cur
 
 proc tabName(x: Tab): string =
-  ## A tab's label: its page's title, else its host.
+  ## A tab's label: its page's title, else its host (a private one marked).
   let u = if x.shown.len > 0 and x.shown != "about:blank": x.shown else: x.asked
-  if x.title.len > 0: x.title
+  if x.private: "(Private) " & (if x.title.len > 0: x.title elif hostOf(u).len > 0: hostOf(u)
+                                else: "New Tab")
+  elif x.title.len > 0: x.title
   elif x.loading and x.shown.len == 0: "Loading..."
   elif hostOf(u).len > 0: hostOf(u)
   elif u.len > 0 and u != "about:blank": u
@@ -310,6 +322,17 @@ proc setLook(l: PageLook) =
   keepPrefs()
   applyShields()
 
+# (the Reader: the page's article -- its headings, paragraphs, lists,
+# quotes, code -- as plain HTML, its own styles and scripts left behind)
+const ReaderJs =
+  "(function(){var r=document.querySelector('article')||document.querySelector('main')||" &
+  "document.querySelector('[role=main]');if(!r){var b=null,m=0;document.querySelectorAll('p')" &
+  ".forEach(function(p){var e=p.parentElement,n=e.innerText.length;if(n>m){m=n;b=e;}});" &
+  "r=b||document.body;}var x=function(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;');};" &
+  "var o='<h1>'+x(document.title)+'</h1>';r.querySelectorAll('h1,h2,h3,h4,p,li,blockquote,pre')" &
+  ".forEach(function(e){var t=e.tagName.toLowerCase(),s=e.innerText.trim();if(!s)return;" &
+  "if(t=='li')o+='<p>&bull; '+x(s)+'</p>';else o+='<'+t+'>'+x(s)+'</'+t+'>';});return o;})()"
+
 const PopOut = "(function(){var v=null,best=-1;document.querySelectorAll('video').forEach(function(x){" &
   "var s=(x.paused?0:1e9)+x.clientWidth*x.clientHeight;if(s>best){best=s;v=x}});if(!v)return 'none';" &
   "if(document.pictureInPictureElement){document.exitPictureInPicture();return 'back'}" &
@@ -387,6 +410,7 @@ app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = 
   if chrome: menubar:
     menu "&File":
       if menuItem("New &Tab", "Ctrl+T"): newTab(homeOf(prefs))
+      if menuItem("New &Private Tab", "Ctrl+Shift+N"): newTab(homeOf(prefs), private = true)
       if menuItem("Open &Location...", "Ctrl+L"): ui.focus = locId
       if menuItem("&Open File...", "Ctrl+O"): openDlg = true
       if menuItem("Take a &Screenshot...", "Ctrl+Shift+S", enabled = native and not mk.open):
@@ -422,6 +446,8 @@ app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = 
         userFull = not userFull
         fullScreenWindow(userFull or pageFull)
       if menuItem("&Pop Out Video", enabled = native): popAsk = webRun(t.key, PopOut)
+      if menuItem("&Reader", "Ctrl+Alt+R", enabled = native and t.shown.len > 0):
+        readerAsk = webRun(t.key, ReaderJs)
       menuSeparator()
       if menuItem("Document So&urce", enabled = native):
         sourceAsk = webRun(t.key, "document.documentElement.outerHTML")
@@ -430,6 +456,9 @@ app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = 
       if menuItem("&Forward", "Alt+Right", enabled = t.canForward): webGoForward(t.key)
       if menuItem("&Home", "Alt+Home"): t.go(homeOf(prefs))
       if menuItem("&Stop Loading", "Esc", enabled = t.loading): webStop(t.key)
+      menuSeparator()
+      if menuItem("&History...", "Ctrl+H"): (showHistory = true; historyFind = ""; historySel = 0)
+      if menuItem("&Downloads...", "Ctrl+J"): showDownloads = true
       if session.len > 0: menuSeparator()
       for i, p in session:
         let name = (if p.title.len > 0: p.title else: p.url).replace("&", "&&")
@@ -507,6 +536,10 @@ app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = 
 
   # (the window's own keys, before the Location box takes them)
   if hotkeyPressed("Ctrl+T"): newTab(homeOf(prefs))
+  if hotkeyPressed("Ctrl+Shift+N"): newTab(homeOf(prefs), private = true)
+  if hotkeyPressed("Ctrl+H"): (showHistory = true; historyFind = ""; historySel = 0)
+  if hotkeyPressed("Ctrl+J"): showDownloads = true
+  if hotkeyPressed("Ctrl+Alt+R") and native and t.shown.len > 0: readerAsk = webRun(t.key, ReaderJs)
   if hotkeyPressed("Ctrl+W"): closeTab(cur)
   if hotkeyPressed("Ctrl+Shift+T") and closedTabs.len > 0: newTab(closedTabs.pop())
   if hotkeyPressed("Ctrl+Shift+Delete"): showClear = true
@@ -520,7 +553,7 @@ app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = 
     let sugg = if ui.focus == locId: suggestions(history, marks) else: @[]
     var picked = false
     row([76, -1]):
-      label "&Location:"
+      label "Locat&ion:"
       # (Enter with no list open goes there: not the whole list opened)
       if ui.focus == locId and state(locId - 31).aux == 0 and keyHit(KeyEnter): picked = true
       if comboEdit(t.location, sugg):
@@ -635,7 +668,7 @@ app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = 
       pageFull = ev.fullscreen
       when not defined(macosx):                  # (WebKit's own window there)
         fullScreenWindow(pageFull or userFull)
-    if not t.loading and t.shown.len > 0 and t.shown != "about:blank" and
+    if not t.loading and t.shown.len > 0 and t.shown != "about:blank" and not t.private and
        (session.len == 0 or session[0].url != t.shown or session[0].title != t.title):
       session.visit(Place(title: t.title, url: t.shown))
       history.visit(Place(title: t.title, url: t.shown), HistoryKept)
@@ -644,12 +677,24 @@ app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = 
     if ev.opened: status = "Opened in your browser: " & t.asked
     if ev.back: quitApp()                        # (Android's Back with no page before)
     for d in ev.downloads:
+      # (kept for the Downloads window: the same download's news replaces its line)
+      var known = false
+      for k in downloads.mitems:
+        if k.url == d.url and not k.done and not k.failed:
+          k = d
+          known = true
+      if not known: downloads.add d
       let name = if d.file.len > 0: d.file.extractFilename else: d.url
       status = if d.failed: "Download failed: " & name
                elif d.done: "Saved in Downloads: " & name
                else: "Downloading " & name & " " & $d.progress & "%"
     for r in ev.results:
-      if r.id == sourceAsk:
+      if r.id == readerAsk and readerAsk != 0:
+        readerAsk = 0
+        reader = try: parseJson(r.value).getStr except CatchableError: ""
+        if reader.len > 0: showReader = true
+        else: status = "This page has nothing for the Reader"
+      elif r.id == sourceAsk:
         try: source = parseJson(r.value).getStr
         except CatchableError: source = r.error
         showSource = true
@@ -765,7 +810,7 @@ app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = 
       of 1:
         group "Pages":
           for l in PageLook: radio(LookNames[l], lookEdit, ord(l))
-          checkbox("Windows 3.1 s&croll bars on pages", barsEdit)
+          checkbox("Windows 3.1 scroll &bars on pages", barsEdit)
         discard appearanceSettings()         # (shown at once)
       of 2:
         shieldBox("&Block ads and trackers (pages load faster)", shBlockAds)
@@ -791,7 +836,7 @@ app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = 
       else:
         shieldBox("&Load a link ahead when the pointer rests on it", shPreload)
         shieldBox("Keep videos and sounds from &playing by themselves", shNoAutoplay)
-        discard checkbox("Let tabs not looked at for 5 minutes s&leep (frees memory)", sleepEdit)
+        discard checkbox("Let tabs not looked at for 5 minutes sleep (&frees memory)", sleepEdit)
     row:
       spring()
       if button("OK", isDefault = true):
@@ -817,6 +862,65 @@ app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = 
         clearData()
         showClear = false
       if button("Cancel"): showClear = false
+
+  # Go, History: the pages visited, newest first, found by a word of their title or address
+  dialog(showHistory, "History", 560):
+    searchBox(historyFind, "Find in the history")
+    var found: seq[int]
+    let words = historyFind.strip.toLowerAscii
+    for i, p in history:
+      if words.len == 0 or words in p.title.toLowerAscii or words in p.url.toLowerAscii: found.add i
+    var names: seq[string]
+    for i in found: names.add (if history[i].title.len > 0: history[i].title else: history[i].url) &
+                              "\t" & hostOf(history[i].url)
+    historySel = clamp(historySel, 0, max(0, found.high))
+    discard listbox(names, historySel, rows = 12, tabs = [dp(360)])
+    label($found.len & " of " & $history.len & " pages", color = ui.theme.gray)
+    row:
+      if button("&Remove", enabled = found.len > 0):
+        history.delete(found[historySel])
+        keepHistory()
+      if button("Clear &All", enabled = history.len > 0):
+        history.setLen(0)
+        keepHistory()
+      spring()
+      if button("&Go To", isDefault = true, enabled = found.len > 0):
+        showHistory = false
+        t.go(history[found[historySel]].url)
+      if button("Close"): showHistory = false
+
+  # Go, Downloads: what the pages downloaded this session, with their progress
+  dialog(showDownloads, "Downloads", 520):
+    if downloads.len == 0:
+      emptyState(pxDownloads, "No downloads yet", h = dp(160),
+                 detail = "Files a page downloads go to your Downloads folder.")
+    else:
+      var names: seq[string]
+      for d in downloads:
+        let name = if d.file.len > 0: d.file.extractFilename else: d.url
+        names.add name & "\t" & (if d.failed: "failed" elif d.done: "done" else: $d.progress & " %")
+      downloadSel = clamp(downloadSel, 0, downloads.high)
+      discard listbox(names, downloadSel, rows = 8, tabs = [dp(380)])
+      let d = downloads[downloadSel]
+      if not d.done and not d.failed: progress(d.progress / 100)
+    row:
+      let ok = downloads.len > 0 and downloads[downloadSel].done and downloads[downloadSel].file.len > 0
+      if button("&Open", enabled = ok): openFile(downloads[downloadSel].file)
+      if button("Show in &Folder", enabled = ok): revealFile(downloads[downloadSel].file)
+      if button("C&lear Finished", enabled = downloads.len > 0):
+        var kept: seq[WebDownload]
+        for d in downloads:
+          if not d.done and not d.failed: kept.add d
+        downloads = kept
+      spring()
+      if button("Close", isDefault = true): showDownloads = false
+
+  # View, Reader: the page's article alone, in the window's own look
+  dialog(showReader, "Reader", 680):
+    discard htmlView(reader, height = dp(440), key = "reader")
+    row:
+      spring()
+      if button("Close", isDefault = true): showReader = false
 
   dialog(showSource, "Document Source", 640):
     label t.shown

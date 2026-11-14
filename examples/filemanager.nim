@@ -38,7 +38,7 @@ const TermuxHome = "/data/data/com.termux/files/home"
 const
   AppTitle = "Retro Files"
   AppId = "RetroFiles"
-  AppVersion = "3.3.10"
+  AppVersion = "3.4.0"
 
 type
   ViewerKind = enum vkNone, vkText, vkMarkdown, vkImage, vkHex, vkZip, vkPdf, vkVideo, vkAudio
@@ -113,6 +113,8 @@ var
   clipCut = false
   job: FileJob
   jobTitle = ""
+  jobQueue: seq[tuple[kind: JobKind; sources: seq[string]; dest, title: string]]
+    ## (jobs asked for while one runs: started one after another)
   # dialogs
   nameOpen = false
   nameAction = naNone
@@ -399,14 +401,37 @@ proc currentFolder*(): tuple[dir: string; loading: bool] =
   ## The folder shown in the active tab, and whether it is still being read.
   if tab.special != spFolder: ("", false) else: (folder.dir, folder.loading)
 
-proc startJob(kind: JobKind; sources: seq[string]; dest, title: string) =
+proc waitingNote(): string =
+  if jobQueue.len == 0: "" else: " " & trn(jobQueue.len, "({n} more waiting)", "({n} more waiting)")
+
+proc jobsWaiting*(): int = jobQueue.len
+  ## (the tests: how many jobs wait for the one running)
+
+proc jobRunning*(): bool = job != nil
+  ## (the tests: a job runs)
+
+proc startJob*(kind: JobKind; sources: seq[string]; dest, title: string) =
+  ## A file job (copy, move, the trash...): started now, or after the one
+  ## running when there is one.
   if sources.len == 0: return
   if jobGuard != nil and not jobGuard(kind, sources, dest): return
   if job != nil:
-    showError("Another job is running; wait for it to end.")
+    # (one at a time, the disk not shared: this one starts when that ends)
+    jobQueue.add (kind, sources, dest, title)
+    jobTitle = jobTitle.split(" (")[0] & waitingNote()
+    toast(tr("Waiting: ") & tr(title) & tr(" starts when the job running ends"), glyph = pxClock,
+          title = AppTitle)
     return
   job = newJob(kind, sources, dest)
-  jobTitle = title
+  jobTitle = title & waitingNote()
+
+proc nextJob() =
+  ## (the job running ended: the next one waiting starts)
+  if job != nil or jobQueue.len == 0: return
+  let n = jobQueue[0]
+  jobQueue.delete(0)
+  job = newJob(n.kind, n.sources, n.dest)
+  jobTitle = n.title & waitingNote()
 
 proc dropFiles(d: FileDrop) =
   ## Files dragged somewhere: moved there (copied with Ctrl), or trashed.
@@ -455,6 +480,9 @@ proc runJob() =
     if j.errors.len > 0: showError(jobSummary(j))
     elif j.state == jsDone:
       toast(jobSummary(j), glyph = pxCheck, title = AppTitle)
+    # (a job cancelled lets the ones waiting go too; else the next starts)
+    if j.state == jsCancelled: jobQueue.setLen(0)
+    else: nextJob()
 
 proc undoLast() =
   if not canUndo(): return

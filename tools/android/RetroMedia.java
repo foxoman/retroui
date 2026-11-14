@@ -53,9 +53,56 @@ public class RetroMedia {
   static class Audio {
     MediaPlayer p;
     String path;
-    volatile boolean playing, ended, prepared, startWhenReady;
+    volatile boolean playing, ended, prepared, startWhenReady, closed;
     volatile int pos, dur, seekWhenReady = -1;
+    volatile String error = "";
     float rate = 1f;
+  }
+
+  /** What went wrong, in words, for the kit to show under the player. */
+  static String why(int what, int extra) {
+    switch (extra) {
+      case MediaPlayer.MEDIA_ERROR_IO:
+        return "The sound could not be read (the network, or the server said no).";
+      case MediaPlayer.MEDIA_ERROR_MALFORMED: return "The sound is damaged.";
+      case MediaPlayer.MEDIA_ERROR_UNSUPPORTED: return "Android does not play this kind of sound.";
+      case MediaPlayer.MEDIA_ERROR_TIMED_OUT: return "The server took too long to answer.";
+    }
+    if (what == MediaPlayer.MEDIA_ERROR_SERVER_DIED) return "Android's player stopped; press Play again.";
+    return "Android could not play this sound (" + what + ", " + extra + ").";
+  }
+
+  static void failed(Activity a, Audio x, String error) {
+    x.error = error.replace('\t', ' ').replace('\n', ' ');
+    x.playing = false;
+    x.startWhenReady = false;
+    anyPlaying(a);
+  }
+
+  /** Gives x's player its sound and has it get ready. A web address where
+   *  plain http is not allowed has its redirects followed first (off this
+   *  thread), with http asked for as https: the player would stop at an
+   *  http hop. */
+  static void open(final Activity a, final Audio x) {
+    final String path = x.path;
+    boolean web = path.startsWith("http://") || path.startsWith("https://");
+    if (!web || RetroNet.cleartextAllowed(null)) { prepare(a, x, path); return; }
+    new Thread(new Runnable() { public void run() {
+      prepare(a, x, RetroNet.finalAddress(path, "RetroApp", 15000));
+    }}).start();
+  }
+
+  static void prepare(Activity a, Audio x, String src) {
+    synchronized (x) {
+      if (x.closed) return;
+      try {
+        x.p.setDataSource(src);
+        x.p.prepareAsync();
+      } catch (Throwable t) {
+        String m = t.getMessage();
+        failed(a, x, "The sound could not be opened" + (m != null && m.length() > 0 ? ": " + m : "."));
+      }
+    }
   }
   static final ConcurrentHashMap<String, Audio> audios = new ConcurrentHashMap<String, Audio>();
 
@@ -84,13 +131,16 @@ public class RetroMedia {
         }
       } catch (Throwable t) { }
       return (known.playing ? "1" : "0") + "\t" + known.pos + "\t" + known.dur + "\t" +
-             (known.ended ? "1" : "0");
+             (known.ended ? "1" : "0") + "\t" + known.error;
     }
     if (what.equals("Show")) {
       String path = args[5];
       if (known != null && path.equals(known.path)) return "1";
       if (known != null) {
-        try { known.p.release(); } catch (Throwable t) { }
+        synchronized (known) {
+          known.closed = true;
+          try { known.p.release(); } catch (Throwable t) { }
+        }
         audios.remove(key);
       }
       final Audio x = new Audio();
@@ -98,7 +148,6 @@ public class RetroMedia {
       x.p = new MediaPlayer();
       x.startWhenReady = args.length > 6 && args[6].equals("1");
       try {
-        x.p.setDataSource(path);
         x.p.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
           public void onPrepared(MediaPlayer mp) {
             x.prepared = true;
@@ -111,15 +160,15 @@ public class RetroMedia {
           public void onCompletion(MediaPlayer mp) { x.ended = true; x.playing = false; anyPlaying(a); }
         });
         x.p.setOnErrorListener(new MediaPlayer.OnErrorListener() {
-          public boolean onError(MediaPlayer mp, int w, int e) { x.playing = false; anyPlaying(a); return true; }
+          public boolean onError(MediaPlayer mp, int w, int e) { failed(a, x, why(w, e)); return true; }
         });
-        x.p.prepareAsync();
       } catch (Throwable t) {
         try { x.p.release(); } catch (Throwable u) { }
         return null;
       }
       audios.put(key, x);
       if (x.startWhenReady) x.playing = true;
+      open(a, x);
       return "1";
     }
     if (known == null) return "1";
@@ -127,7 +176,16 @@ public class RetroMedia {
       if (what.equals("Play")) {
         known.ended = false;
         known.playing = true;
-        if (known.prepared) { known.p.start(); applyRate(known); } else known.startWhenReady = true;
+        if (known.error.length() > 0) {
+          // (it failed: Play tries again, from the start of getting ready)
+          known.error = "";
+          known.prepared = false;
+          known.startWhenReady = true;
+          if (known.pos > 0) known.seekWhenReady = known.pos;
+          synchronized (known) { known.p.reset(); }
+          open(a, known);
+        } else if (known.prepared) { known.p.start(); applyRate(known); }
+        else known.startWhenReady = true;
       } else if (what.equals("Pause")) {
         known.playing = false;
         known.startWhenReady = false;
@@ -143,7 +201,10 @@ public class RetroMedia {
       } else if (what.equals("Close")) {
         known.playing = false;
         audios.remove(key);
-        known.p.release();
+        synchronized (known) {
+          known.closed = true;
+          known.p.release();
+        }
       }
     } catch (Throwable t) { }
     anyPlaying(a);

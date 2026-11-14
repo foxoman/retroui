@@ -1,11 +1,12 @@
 # (included by view3d.nim) The 3D view drawn on the GPU: when frames are
-# drawn with it (`drawnWithGpu`) and the scene has materials, the posed
+# drawn with it (`drawnWithGpu`), the posed
 # points (worked out as for the CPU) are sent each time the picture changes,
 # and the GPU fills the triangles into a texture of the view's own -- the
 # same light (metal, paint, the sky in it), pictures, see-through parts --
-# which the frame then shows as any picture. A scene without materials, a
-# driver that cannot draw into a texture with a depth buffer, or a program
-# that fails to compile: the CPU draws it, as before.
+# which the frame then shows as any picture. Meshes without a material are
+# shaded as the CPU shades them (a color a triangle too), outlines where
+# they fold. A wireframe, a driver that cannot draw into a texture with a
+# depth buffer, or a program that fails to compile: the CPU draws it.
 
 import glapi
 
@@ -69,6 +70,19 @@ uniform vec3 uFill;
 uniform vec3 uUp;
 uniform vec2 uLight;
 void main() {
+  if (uMode > 1.5) {
+    // a mesh without a material, shaded as the CPU shades it
+    vec3 pn = normalize(vNrm);
+    bool pf = !gl_FrontFacing;
+    if (!pf && uTwoSided < 0.5) discard;
+    float d = dot(pf ? pn : -pn, uKey);
+    if (uTwoSided > 0.5) d = abs(d);
+    float amb = (uLight.y - 0.3) / 0.6;
+    float sh = amb + (1.0 - amb) * max(d, 0.0);
+    vec4 pc = uBase * vCol;
+    gl_FragColor = vec4(pc.b * sh, pc.g * sh, pc.r * sh, 1.0);
+    return;
+  }
   if (uMode > 0.5) {
     gl_FragColor = vec4(vCol.b, vCol.g, vCol.r, 1.0);
     return;
@@ -127,6 +141,8 @@ void main() {
 
 type
   GlMesh = object
+    plain: bool                    # no material: shaded as the CPU's plain meshes
+    perFace: bool                  # ... a color a triangle
     vbo, ibo: GLuint
     indexCount: int
     wide: bool                     # 32-bit indices
@@ -348,12 +364,21 @@ proc renderGpu(v: GlView; ctx: var RenderCtx; scene: Scene3; cam: Camera3; bg: C
     ctx.spheres[mi] = ((lo + hi) * 0.5'f32, len(hi - lo) * 0.5'f32)
     # normals: given (posed), or from the faces (a flat mesh: a point for each
     # corner, with its face's normal)
-    let flat = not hasN and not m.smooth
+    let plain = not (m.material >= 0 and m.material < scene.materials.len) and
+                m.uvs.len == 0 and m.vcolors.len == 0
+    let perFace = plain and m.colors.len > 0 and m.colors.len == m.tris.len
+    let flat = (not hasN and not m.smooth) or perFace
     var en = newSeq[Vec3](vv.len)
     var corners: seq[int32]
     var faceN: seq[Vec3]
     if hasN:
       for k in 0 ..< posedN.len: en[k] = Vec3(x: dot(posedN[k], b.right), y: dot(posedN[k], b.up), z: dot(posedN[k], b.fwd))
+      if flat:
+        # (a color a triangle: a point for each corner, the normals given)
+        for t in m.tris:
+          if t[0] < 0 or t[1] < 0 or t[2] < 0 or t[0] >= vv.len or t[1] >= vv.len or t[2] >= vv.len:
+            corners.add [0'i32, 0, 0]
+          else: corners.add [t[0], t[1], t[2]]
     else:
       for t in m.tris:
         if t[0] < 0 or t[1] < 0 or t[2] < 0 or t[0] >= vv.len or t[1] >= vv.len or t[2] >= vv.len:
@@ -372,7 +397,7 @@ proc renderGpu(v: GlView; ctx: var RenderCtx; scene: Scene3; cam: Camera3; bg: C
     for q in 0 ..< count:
       let k = if flat: int(corners[q]) else: q
       let o = q * 12
-      let nn = if flat: faceN[q div 3] else: unit(en[k])
+      let nn = if flat and not hasN: faceN[q div 3] else: unit(en[k])
       data[o] = vv[k].x
       data[o + 1] = vv[k].y
       data[o + 2] = vv[k].z
@@ -385,12 +410,20 @@ proc renderGpu(v: GlView; ctx: var RenderCtx; scene: Scene3; cam: Camera3; bg: C
       else:
         data[o + 6] = 0
         data[o + 7] = 0
-      if k < m.vcolors.len:
+      if perFace:
+        let c = m.colors[q div 3]
+        data[o + 8] = c.r.float32 / 255
+        data[o + 9] = c.g.float32 / 255
+        data[o + 10] = c.b.float32 / 255
+        data[o + 11] = 1
+      elif k < m.vcolors.len:
         for q in 0 .. 3: data[o + 8 + q] = m.vcolors[k][q]
       else:
         for q in 0 .. 3: data[o + 8 + q] = 1
     ctx.view[mi] = move vv
     var gm = addr v.meshes[mi]
+    gm.plain = plain
+    gm.perFace = perFace
     if gm.vbo == 0: gl.genBuffers(1, addr gm.vbo)
     gl.bindBuffer(GL_ARRAY_BUFFER, gm.vbo)
     gl.bufferData(GL_ARRAY_BUFFER, data.len * 4, addr data[0], GL_STREAM_DRAW)
@@ -448,7 +481,9 @@ proc renderGpu(v: GlView; ctx: var RenderCtx; scene: Scene3; cam: Camera3; bg: C
     let m = scene.meshes[mi]
     let gm = v.meshes[mi]
     let tint = if m.node >= 0 and m.node < scene.nodes.len: scene.nodes[m.node].tint else: Color()
-    var base = [m.color.r.float32 / 255, m.color.g.float32 / 255, m.color.b.float32 / 255, 1'f32]
+    var base = if gm.perFace: [1'f32, 1, 1, 1]
+               else: [m.color.r.float32 / 255, m.color.g.float32 / 255, m.color.b.float32 / 255, 1'f32]
+    gl.uniform1f(v.u("uMode"), if gm.plain: 2 else: 0)
     var mr = [0'f32, 0.9, 0]
     var emis = [0'f32, 0, 0]
     var alpha = [0'f32, 0.5]
@@ -489,17 +524,44 @@ proc renderGpu(v: GlView; ctx: var RenderCtx; scene: Scene3; cam: Camera3; bg: C
       gl.disable(GL_BLEND)
       gl.colorMask(1, 1, 1, 1)
       gl.depthMask(1)
-  # lines (grids, axes)
-  if scene.lines.len > 0:
-    var q: seq[float32]
+  # lines (grids, axes), and the outlines of meshes that ask for them --
+  # only where the surface folds, as the CPU draws them; a little toward
+  # the eye, so their own faces do not hide them
+  var q: seq[float32]
+  if not scene.wireframe:
+    for mi, m in scene.meshes:
+      if not m.edges or mi >= ctx.view.len or ctx.view[mi].len == 0: continue
+      let vv = ctx.view[mi]
+      var fold: Table[int64, tuple[n: Vec3; count: int]]
+      for t in m.tris:
+        if t[0] < 0 or t[1] < 0 or t[2] < 0 or t[0] >= vv.len or t[1] >= vv.len or t[2] >= vv.len: continue
+        let fn = unit(cross(vv[t[1]] - vv[t[0]], vv[t[2]] - vv[t[0]]))
+        for k in 0 .. 2:
+          let a = t[k]
+          let b2 = t[(k + 1) mod 3]
+          let ek = (min(a, b2).int64 shl 32) or max(a, b2).int64
+          let e = fold.getOrDefault(ek, (Vec3(), 0))
+          let keep = if e.count == 0: fn
+                     elif dot(e.n, fn) > 0.999: e.n
+                     else: Vec3()
+          fold[ek] = (keep, e.count + 1)
+      let ec = mixColor(m.color, color(0, 0, 0), 0.6)
+      let cc = [ec.r.float32 / 255, ec.g.float32 / 255, ec.b.float32 / 255, 1'f32]
+      for ek, e in fold:
+        if e.count >= 2 and not (e.n.x == 0 and e.n.y == 0 and e.n.z == 0): continue
+        let a = vv[int(ek shr 32)] * 0.997'f32
+        let c = vv[int(ek and 0xFFFFFFFF'i64)] * 0.997'f32
+        if not (finite(a) and finite(c)) or a.z < near or c.z < near: continue
+        for p in [a, c]: q.add [p.x, p.y, p.z, 0, 0, -1, 0, 0, cc[0], cc[1], cc[2], cc[3]]
+  if scene.lines.len > 0 or q.len > 0:
     for l in scene.lines:
       var a = toView(b, l.a)
       var c = toView(b, l.b)
       if not (finite(a) and finite(c)) or (a.z < near and c.z < near): continue
       if a.z < near: a = a + (c - a) * ((near - a.z) / (c.z - a.z))
       elif c.z < near: c = c + (a - c) * ((near - c.z) / (a.z - c.z))
-      let cc = [l.color.r.float32 / 255, l.color.g.float32 / 255, l.color.b.float32 / 255, 1'f32]
-      for p in [a, c]: q.add [p.x, p.y, p.z, 0, 0, -1, 0, 0, cc[0], cc[1], cc[2], cc[3]]
+      let lc = [l.color.r.float32 / 255, l.color.g.float32 / 255, l.color.b.float32 / 255, 1'f32]
+      for p in [a, c]: q.add [p.x, p.y, p.z, 0, 0, -1, 0, 0, lc[0], lc[1], lc[2], lc[3]]
     if q.len > 0:
       gl.bindBuffer(GL_ARRAY_BUFFER, v.lineVbo)
       gl.bufferData(GL_ARRAY_BUFFER, q.len * 4, addr q[0], GL_STREAM_DRAW)

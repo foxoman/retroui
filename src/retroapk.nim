@@ -65,6 +65,13 @@ Options:
   --manifest:FILE    entries for the manifest, as a manifest.txt is written
   --background       the app checks while it is closed (retroui/bgcheck): its
                      job service, kept across reboots
+  --share-target:TYPES  the app is in other apps' share sheets for these
+                     kinds (comma separated: text/plain, image/*, */*); what
+                     comes is retroui/system's sharedIn()
+  --cleartext        the app may use plain http:// addresses (a browser, a
+                     podcast player: feeds and sounds still on http); without
+                     it Android 9 and later refuse them, and the kit asks
+                     for https instead
   --min-sdk:N        lowest Android API level (default 24, Android 7)
   --target-sdk:N     API level the app is made for (default 35)
   --debuggable       allow debugging (run-as, logcat of the app); its library
@@ -1287,7 +1294,8 @@ proc main() =
     queries: seq[string]
     nimFlags: seq[string]
     javaDirs, manifestFiles: seq[string]
-    debuggable, install, runIt, storage, background, clean, aab = false
+    debuggable, install, runIt, storage, background, clean, aab, cleartext = false
+    shareTypes: seq[string]
     signer = "auto"
     workDir = ""
     toolchain = getEnv("RETRO_ANDROID_TOOLCHAIN", "auto").toLowerAscii
@@ -1308,6 +1316,10 @@ proc main() =
       of "query": queries.add val
       of "storage": storage = true
       of "background": background = true
+      of "cleartext": cleartext = true
+      of "sharetarget":
+        for t in val.split(','):
+          if t.strip.len > 0: shareTypes.add t.strip
       of "java": javaDirs.add val
       of "manifest": manifestFiles.add val
       of "minsdk": minSdk = parseInt(val)
@@ -1471,6 +1483,19 @@ proc main() =
           sAttr("name", 0x01010003, "android.intent.category.LAUNCHER")])])])
   if orient >= 0:
     activity.attrs.add iAttr("screenOrientation", 0x0101001e, orient)
+  if shareTypes.len > 0:
+    # (in the other apps' share sheets: one thing, or several when not text)
+    for action in ["android.intent.action.SEND", "android.intent.action.SEND_MULTIPLE"]:
+      var f = XNode(name: "intent-filter", kids: @[
+        XNode(name: "action", attrs: @[sAttr("name", 0x01010003, action)]),
+        XNode(name: "category", attrs: @[
+          sAttr("name", 0x01010003, "android.intent.category.DEFAULT")])])
+      var any = false
+      for t in shareTypes:
+        if action.endsWith("MULTIPLE") and t.startsWith("text/"): continue
+        f.kids.add XNode(name: "data", attrs: @[sAttr("mimeType", 0x01010026, t)])
+        any = true
+      if any: activity.kids.add f
   var app = XNode(name: "application", attrs: @[
     sAttr("label", 0x01010001, name),
     iAttr("icon", 0x01010002, int(IconRes), TRef),
@@ -1503,6 +1528,7 @@ proc main() =
       iAttr("foregroundServiceType", 0x01010599, 2, THex),     # mediaPlayback
       bAttr("exported", 0x01010010, false)])
   if debuggable: app.attrs.add bAttr("debuggable", 0x0101000f, true)
+  if cleartext: app.attrs.add bAttr("usesCleartextTraffic", 0x010104ec, true)
   var manifest = XNode(name: "manifest", attrs: @[
     XAttr(name: "package", kind: TString, str: id),
     iAttr("versionCode", 0x0101021b, code),

@@ -14,6 +14,10 @@ writing an app, every form of it as a small program with a picture of what
 it draws: what `row([50, -1])` does with the 50 and the -1, binding, events,
 containers, dialogs, how it is built and why it is easy to follow.
 
+**Step by step: [tutorials/](tutorials/)** -- sixteen lessons, from a first
+window to phone layouts, the web, your own controls and the stores: each
+step a whole program with a picture of what it draws.
+
 **Documentation: [docs/controls.md](docs/controls.md)** -- every control with
 pictures: getting started, layout, each control's example and API, the looks.
 
@@ -101,7 +105,7 @@ every module is in `docs/api/` (open `docs/api/retro.html`).
 
 ## Contents
 
-[The syntax, studied](docs/syntax.md) · [Install](#install) · [Your first app](#your-first-app) ·
+[The syntax, studied](docs/syntax.md) · [Tutorials](tutorials/) · [Install](#install) · [Your first app](#your-first-app) ·
 [Retro Designer](#retro-designer) · [How it works](#how-it-works) · [Controls](#controls) · [Layout](#layout) ·
 [Text and icons](#text-and-icons) · [Jobs, undo, pages and words](#jobs-undo-pages-and-words) ·
 [Screen readers and input methods](#screen-readers-and-input-methods) ·
@@ -654,7 +658,8 @@ app "Notes", 420, 300:
   `decimals`, `readonly`, `noForm`) and what breaks one said under it;
   `gridOf` shows a seq of them, sorted by a header's click.
 - **Movement** (`animated(target, ms)`): a number that glides to where it
-  is asked to be, a frame at a time; at once when the user asked for less.
+  is asked to be, a frame at a time; at once when the user asked for less;
+  `start = 0` counts up from there when its page first shows.
 - **Words in other languages:** `retrokit strings app.nim --lang:ar`
   writes every text the app shows into app-ar.txt for a translator (and
   keeps the translations when run again); `loadUiStrings` reads it for
@@ -1820,7 +1825,13 @@ b.saveBoard("flow.board")
   and middles up; `textCaret` / `textIndexAt` for typing in a shape.
 - **Memory:** a picture is kept once (`addAsset`), however often it is
   moved or undone; the steps to undo keep at most `undoBudget` bytes, the
-  drawings `drawingBudget` (`forgetDrawings` when memory is short).
+  drawings `drawingBudget` (the ones asked for longest ago go first;
+  `forgetDrawings` when memory is short).
+- **Thousands of shapes:** a shape too small to read at the zoom
+  (`briefAt`: letters under 6 pixels) is drawn in brief
+  (`drawingOf(s, brief = true)`) -- its box, fill and colors, its words as
+  bars -- made in a fraction of the time: 5,000 shapes zoomed out in 9 ms a
+  frame, not a second.
 - **Files:** `.board` (JSON, pictures inside), PNG (`renderBitmap`: any
   scale, transparent or on the canvas's color), SVG and PDF (vectors,
   text as outlines).
@@ -3054,6 +3065,7 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_jobs`, `test_undo`, `test_pages`, `test_typeforms` | jobs on workers (values, progress, failures, cancel, more jobs than workers); the undo stack (typing merged, the saved state, a change after an undo, Ctrl+Z / Ctrl+Y, the limit); pages pushed and popped by Esc and Alt+Left, sliding in, `listDetail` side by side, `animated`; forms of an object's fields with their pragmas' rules, captions from names, typing into one, a grid of them sorted by a header |
 | `test_uistrings`, `test_codeedit`, `test_feeds` | `retrokit strings`' scan of an app's texts (comments and long strings left out, `trn`'s two forms), the file written, filled and written again with the translations kept, Arabic's six forms; the code editor (indent kept, Tab, Ctrl+/, its undo, read only, Nim's colors); RSS with the iTunes and Podcasting 2.0 tags, Atom, OPML both ways, dates and lengths as feeds write them |
 | `test_tray` | the tray icon on Linux: the app's StatusNotifierItem on a bus of the test's own, registered with a stand-in tray, its title, picture and menu as a tray reads them, a click and a menu item coming back as events, the icon gone with a frame without it |
+| `test_grow` | Grow without a window: the plan's numbers, the main button at the page's foot, the result's timeline played to its end (every bar risen, the coin, the goal felt), Back |
 | `test_podcast` | Retro Podcast without a window: a feed file followed (read by a job), an episode played from where it was left, the queue, Mark Played and Unfollow undone, OPML, the library saved and read back |
 | `test_scale` | fractional scales (125 % to 300 %): controls and text the size asked for, lines on whole pixels, a change of scale followed |
 | `test_touchsizes` | `RETRO_TOUCH` and `RETRO_CONTROLS`: finger-sized controls on a tablet's screen when asked, desktop and automatic sizes |
@@ -3086,6 +3098,7 @@ it is and how to run it.
 | `examples/navigator.nim` | Retro Navigator: a web browser in the manner of 1995's -- the tool bar, the Location box, the directory buttons, a logo that moves while a page loads, the key, bookmarks, the Go menu, find, print, the source -- around the system's own engine (`webView`, `weSystem`), with tabs, ads and trackers blocked, secure connections, links loaded ahead, tabs that sleep, Clear Browsing Data |
 | `examples/retrodns.nim` | Retro DNS: a DNS changer with 47 public servers, what each is good for, speed tests and your own -- on Android a VPN of its own Java (`--java`), on Windows, Linux and macOS the computer's DNS as its administrator (`retroui/admin`), on macOS and iOS a profile of encrypted DNS |
 | `examples/podcast.nim` | Retro Podcast: a podcast player for every system and the web -- shows found by name or by feed, OPML, any speed, where you left off, downloads, a queue, a sleep timer, the system's media controls, the sound playing on in the background, a tray icon (also an APK: `RETRO_APP=podcast nimble appapk`; released with the apps) |
+| `examples/grow.nim` | Grow: a savings goal planner for phones -- the plan, then its result counted up, a ring, a 3D bar for each year rising one after another, a gold coin, Share (also an APK: `RETRO_APP=grow nimble appapk`) |
 | `examples/hrbook.nim` | HR Book: the staff records of a group of hotels, private on a tablet -- smart Excel import, letters and certificates, charts, expiry alerts, encrypted backups |
 
 `examples/hrbook.nim` is **HR Book**: every employee of your hotels in one
@@ -3110,6 +3123,7 @@ nim c -r -d:release examples/hrbook.nim
 | ![Retro Files on a tablet](docs/filemanager-tablet.png) | ![Notepad](docs/notepad.png) |
 | ![Retro Navigator](docs/examples/navigator.png) | ![Retro DNS](docs/examples/retrodns.png) |
 | ![Retro Podcast](docs/examples/podcast.png) | ![The Gallery's Forms & Code page](docs/examples/gallery-forms.png) |
+| ![Grow on a phone: the plan and its result](docs/examples/grow.png) | |
 
 ## FAQ
 

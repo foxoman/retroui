@@ -590,3 +590,41 @@ suite "the letters' sizes":
     let s = old.page.shapes[0]
     check abs(s.textSize - 24.0) < 1e-9 and abs(old.labelFrame(s).size - 24.0) < 1e-9
     check abs(boardFrom(old.toJson).page.shapes[0].textSize - 24.0) < 1e-9
+
+suite "thousands of shapes, zoomed out":
+  test "too small to read: drawn in brief, fast, its words as bars":
+    let b = newBoard()
+    for i in 0 ..< 300:
+      var s = b.newShape(skNote, float(i mod 20) * 120, float(i div 20) * 120, 100, 100)
+      s.text = "A note, number " & $i
+      b.addShape(s)
+    let s = b.page.shapes[0]
+    check b.briefAt(s, 0.1) and not b.briefAt(s, 1.0)
+    let full = b.drawingOf(s)
+    let brief = b.drawingOf(s, brief = true)
+    var fullPts, briefPts = 0
+    for p in full.pieces:
+      for c in p.contours: fullPts += c.len
+    for p in brief.pieces:
+      for c in p.contours: briefPts += c.len
+    # (the note and its words still there, but no letters' outlines: a few
+    # points, not hundreds)
+    check brief.pieces.len >= 2 and briefPts * 10 < fullPts
+    # a page's small picture drawn in brief is the same size, its colors there
+    let pic = b.renderBitmap([], scale = 0.1, brief = true)
+    check pic.w > 100 and pic.h > 100
+  test "the drawings kept: the oldest go when they are too many, not all":
+    let b = newBoard()
+    for i in 0 ..< 200:
+      var s = b.newShape(skGeo, float(i) * 120, 0, 100, 70)
+      s.text = "Box " & $i
+      b.addShape(s)
+    let before = drawingBudget
+    drawingBudget = 400 * 1024
+    for s in b.page.shapes: discard b.drawingOf(s)
+    check b.drawingBytes <= drawingBudget
+    # (the last ones asked for are still kept: drawn again, nothing is made)
+    let kept = b.drawingBytes
+    discard b.drawingOf(b.page.shapes[^1])
+    check b.drawingBytes == kept
+    drawingBudget = before

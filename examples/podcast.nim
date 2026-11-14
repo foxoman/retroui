@@ -23,10 +23,11 @@
 import std/[os, json, tables, strutils]
 import retroui
 import retroui/[jobs, tray, mediasession]
+from retroui/system import sharedIn
 import podcast/library
 
 const
-  PodcastVersion = "1.0.0"
+  PodcastVersion = "1.1.0"
   IconPng = staticRead("assets/podcast-icon.png")
   PlayerKey = "podcast-player"
   Speeds = [0.75, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
@@ -59,12 +60,18 @@ var
   sleepAt = 0                # (ui.now when the sleep timer pauses; 0 none)
   lastPos, lastDur = 0
   lastPlaying = false
+  lastError = ""
   dirty = false
   savedAt = 0
   addOpen, aboutOpen, lookOpen, settingsOpen = false
   importOpen, exportOpen = false
   opmlPath = ""
   lastSection = 0
+  epTab = 0                    # (the episode page's tab: Notes, Chapters, Transcript)
+  startedUp = false            # (the first frame: the feeds read again, if Settings says so)
+  chapterSel = 0
+  extras: Table[string, string]            # chapters and transcripts fetched, by address
+  fetchingExtra: Table[string, Job[string]]
   savedRevision = 0            # (history.revision when the library was saved)
   wasAdding = false
   epCols = @[Column(title: "Episode", width: 300), Column(title: "Date", width: 96),
@@ -97,32 +104,43 @@ proc follow(url: string) =
   refresh(u)
   status = "Reading " & u & "..."
 
-proc search(q: string) =
+proc search(q: string; directory: int) =
+  ## Asks a directory for shows: Apple's podcast directory, or fyyd (an
+  ## open one, of the shows' own feeds).
   let proxy = proxied()
   let term = q.strip
   if term.len == 0: return
   searching = job(proc (): seq[Found] =
-    let r = httpRequest("GET", proxy & "https://itunes.apple.com/search?media=podcast&limit=40&term=" &
-                        urlEncode(term), timeoutSec = 30)
+    let url = if directory == 1: "https://api.fyyd.de/0.2/search/podcast?count=40&title=" & urlEncode(term)
+              else: "https://itunes.apple.com/search?media=podcast&limit=40&term=" & urlEncode(term)
+    let r = httpRequest("GET", proxy & url, timeoutSec = 30)
     if not r.ok:
       raise newException(IOError, if r.status == 0: r.error else: "the directory answered " & $r.status)
-    for it in parseJson(r.body){"results"}:
-      if it{"feedUrl"}.getStr.len > 0:
-        result.add Found(title: it{"collectionName"}.getStr, author: it{"artistName"}.getStr,
-                         feed: it{"feedUrl"}.getStr, art: it{"artworkUrl100"}.getStr))
+    let j = parseJson(r.body)
+    if directory == 1:
+      for it in j{"data"}:
+        if it{"xmlURL"}.getStr.len > 0:
+          result.add Found(title: it{"title"}.getStr, author: it{"author"}.getStr,
+                           feed: it{"xmlURL"}.getStr, art: it{"imgURL"}.getStr)
+    else:
+      for it in j{"results"}:
+        if it{"feedUrl"}.getStr.len > 0:
+          result.add Found(title: it{"collectionName"}.getStr, author: it{"artistName"}.getStr,
+                           feed: it{"feedUrl"}.getStr, art: it{"artworkUrl100"}.getStr))
 
 proc download(audio, mime: string) =
+  ## The episode to the disk, on a worker (straight to its file: not through
+  ## memory).
   if audio in downloading and not downloading[audio].ended: return
-  let dest = fileFor(audio, mime)
-  downloading[audio] = job(proc (): string =
-    let r = httpRequest("GET", audio, {"User-Agent": "RetroPodcast/1.0"}, timeoutSec = 60)
-    if not r.ok:
-      raise newException(IOError, if r.status == 0: r.error else: "the server answered " & $r.status)
-    createDir(dest.parentDir)
-    writeFile(dest & ".part", r.body)
-    moveFile(dest & ".part", dest)
-    dest)
+  downloading[audio] = jobs.download(audio, fileFor(audio, mime),
+                                     {"User-Agent": "RetroPodcast/" & PodcastVersion})
   status = "Downloading..."
+
+proc downloadPart(e: Episode): float =
+  ## (how far its download is: the bytes there of those the feed said; -1
+  ## when the feed did not say)
+  if e.bytes <= 0: -1.0
+  else: clamp(downloadedSoFar(fileFor(e.audio, e.mime)).float / e.bytes.float, 0.0, 1.0)
 
 proc artOf(url: string): string =
   ## The show's picture as a file ("" until it is fetched).
@@ -147,9 +165,21 @@ proc jobsDone() =
     gone.add url
     let i = lib.showOf(url)
     if j.done and i >= 0:
+      var known: seq[string]
+      for e in lib.shows[i].episodes: known.add e.audio
+      let wasEmpty = known.len == 0
       let before = lib.shows[i].episodes.len
       lib.shows[i] = lib.shows[i].merge(j.value)
       let n = lib.shows[i].episodes.len - before
+      # (Settings: a show's new episodes downloaded as they come -- not a whole
+      # show just followed: its newest one alone then)
+      if lib.autoDownload and not defined(wasm):
+        var took = 0
+        for e in lib.shows[i].episodes:
+          if took >= 2 or (wasEmpty and took >= 1): break
+          if e.audio notin known and lib.heard.getOrDefault(e.audio).file.len == 0:
+            download(e.audio, e.mime)
+            inc took
       status = lib.shows[i].title & (if n > 0: ": " & $n & " new" else: ": up to date")
       dirty = true
     elif j.failed:
@@ -281,6 +311,9 @@ proc playerBar() =
   lastPos = e.positionMs
   lastDur = e.durationMs
   lastPlaying = e.playing
+  if e.error.len > 0 and e.error != lastError:
+    status = e.error & " Play tries again; Download keeps it on the device."
+  lastError = e.error
   if e.positionMs > 0:
     var h = lib.heard.getOrDefault(audio)
     if abs(h.posMs - e.positionMs) >= 5000:
@@ -331,7 +364,9 @@ proc episodeButtons(e: Episode) =
         lib.heard[e.audio].file = ""
         dirty = true
     elif e.audio in downloading:
-      label "Downloading...", color = ui.theme.gray
+      let part = downloadPart(e)
+      if part >= 0: progress(part, w = dp(110))
+      else: label "Downloading...", color = ui.theme.gray
     else:
       if button("&Download", pxDownloads, enabled = not defined(wasm)): download(e.audio, e.mime)
     if button(if h.played: "Mark &Unplayed" else: "Mark Pla&yed", pxCheck):
@@ -427,8 +462,10 @@ proc downloadsView() =
   dlSel = clamp(dlSel, 0, list.len - 1)
   var names: seq[string]
   for a in list:
-    names.add episodeOf(a).title & "\t" & (if a in downloading: "Downloading..." else:
-      $(getFileSize(lib.heard[a].file) div 1_000_000) & " MB")
+    let e = episodeOf(a)
+    let part = downloadPart(e)
+    names.add e.title & "\t" & (if a in downloading: (if part >= 0: $int(part * 100) & " %" else: "Downloading...")
+                                 else: $(getFileSize(lib.heard[a].file) div 1_000_000) & " MB")
   discard listbox(names, dlSel, rows = listRows(), tabs = [dp(380)])
   row:
     if button("&Play", pxPlay): play(list[dlSel])
@@ -440,14 +477,16 @@ proc downloadsView() =
 proc findView() =
   row:
     if searchBox(query, "A show's name", w = dp(260)): discard
-    if button("&Find", pxSearch, isDefault = true, enabled = query.strip.len > 0 and searching == nil):
-      search(query)
+    if combo(["Apple Podcasts", "fyyd"], lib.directory, w = dp(130)): dirty = true
+    tooltip "The directory to ask"
+    if button("&Search", pxSearch, isDefault = true, enabled = query.strip.len > 0 and searching == nil):
+      search(query, lib.directory)
   if searching != nil:
     spinner()
     return
   if found.len == 0:
     emptyState(pxSearch, "Find a podcast", h = remainingH(),
-               detail = "Shows come from Apple's podcast directory; following one reads its own feed.")
+               detail = "Shows come from Apple's podcast directory or fyyd; following one reads its own feed.")
     return
   foundSel = clamp(foundSel, 0, found.len - 1)
   var names: seq[string]
@@ -462,8 +501,26 @@ proc findView() =
       section = 0
       showOpen = true
 
+proc extraOf(url: string): string =
+  ## (a chapters or transcript file: fetched once, then its text; "" until then)
+  if url.len == 0: return ""
+  if url in extras: return extras[url]
+  if url notin fetchingExtra:
+    let proxy = proxied()
+    fetchingExtra[url] = job(proc (): string =
+      let r = httpRequest("GET", proxy & url, timeoutSec = 30)
+      if not r.ok: raise newException(IOError, if r.status == 0: r.error else: "answered " & $r.status)
+      r.body)
+  let j = fetchingExtra[url]
+  if j.ended:
+    extras[url] = if j.done: j.value else: ""
+    fetchingExtra.del url
+    return extras[url]
+  ""
+
 proc episodePage() =
-  ## An episode's page: its notes (HTML), its buttons.
+  ## An episode's page: its notes (HTML), its chapters and its transcript
+  ## when the feed has them (Podcasting 2.0), its buttons.
   var e = episodeOf(lib.nowPlaying)
   if showSel in 0 ..< lib.shows.len and epSel in 0 ..< lib.shows[showSel].episodes.len and section == 0:
     e = lib.shows[showSel].episodes[epSel]
@@ -471,9 +528,36 @@ proc episodePage() =
   label(dateText(e.published) & (if e.seconds > 0: "  ·  " & clockText(e.seconds) else: "") &
         (if e.number > 0: "  ·  Episode " & $e.number else: ""), color = ui.theme.gray)
   episodeButtons(e)
-  let ev = htmlView(if e.notes.len > 0: e.notes else: "<p>No notes.</p>", height = remainingH(),
-                    key = "notes:" & e.audio)
-  if ev.link.len > 0: openUrl(ev.link)
+  var names = @["N&otes"]
+  if e.chapters.len > 0: names.add "&Chapters"
+  if e.transcript.len > 0: names.add "&Transcript"
+  epTab = clamp(epTab, 0, names.high)
+  tabs(epTab, names):
+    case names[epTab]
+    of "&Chapters":
+      let chs = parseChapters(extraOf(e.chapters))
+      if chs.len == 0:
+        if e.chapters in fetchingExtra: spinner() else: label "No chapters could be read."
+      else:
+        var rows: seq[string]
+        for c in chs: rows.add clockText(int(c.start)) & "\t" & c.title
+        if chapterSel >= rows.len: chapterSel = 0
+        if listbox(rows, chapterSel, rows = listRows(), tabs = [dp(70)]):
+          # (a chapter picked: the episode played from it)
+          if lib.nowPlaying != e.audio: play(e.audio)
+          seekVideo(PlayerKey, int(chs[chapterSel].start * 1000))
+          playVideo(PlayerKey)
+    of "&Transcript":
+      let t = extraOf(e.transcript)
+      if t.len == 0:
+        if e.transcript in fetchingExtra: spinner() else: label "No transcript could be read."
+      else:
+        var text = transcriptText(t)
+        editArea(text, lines = -1, readOnly = true)
+    else:
+      let ev = htmlView(if e.notes.len > 0: e.notes else: "<p>No notes.</p>", height = remainingH(),
+                        key = "notes:" & e.audio)
+      if ev.link.len > 0: openUrl(ev.link)
 
 proc trayFrame() =
   ## (an icon in the tray with the player's buttons: Settings)
@@ -523,7 +607,7 @@ when isMainModule and not declared(podcastUnderTest):
               sleepIdx = i
               sleepAt = if SleepMinutes[i] > 0: ui.now + SleepMinutes[i] * 60_000 else: 0
       menu "&View":
-        for i, n in ["&Library", "&Queue", "&Downloads", "&Find"]:
+        for i, n in ["&Library", "&Queue", "&Downloads", "F&ind"]:
           if menuItem(n, "Ctrl+" & $(i + 1), checked = section == i):
             section = i
             nav.goHome()
@@ -556,8 +640,18 @@ when isMainModule and not declared(podcastUnderTest):
               if sleepAt > 0: "Sleep in " & $((sleepAt - ui.now) div 60_000 + 1) & " min" else: "")
 
     jobsDone()
+    if not startedUp:
+      startedUp = true
+      if lib.checkAtStart and lib.shows.len > 0: refreshAll()
+    # (a link shared from another app -- Android's share sheet: followed)
+    let came = sharedIn()
+    for word in came.text.splitWhitespace:
+      if word.startsWith("http://") or word.startsWith("https://"):
+        follow(word)
+        section = 0
+        break
     row:
-      if segmented(["&Library", "&Queue", "&Downloads", "&Find"], section): nav.goHome()
+      if segmented(["&Library", "&Queue", "&Downloads", "F&ind"], section): nav.goHome()
     # (Find, and Add's dialog: the keyboard in their text box at once)
     if section != lastSection and section == 3: focusFirstText()
     lastSection = section
@@ -615,6 +709,10 @@ when isMainModule and not declared(podcastUnderTest):
           if intEdit(lib.skipAhead, lo = 5, hi = 300): dirty = true
         field(""):
           if checkbox("An icon in the &tray (desktops)", lib.tray): dirty = true
+        field(""):
+          if checkbox("&Check for new episodes when it starts", lib.checkAtStart): dirty = true
+        field(""):
+          if checkbox("&Download new episodes as they come", lib.autoDownload): dirty = true
         when defined(wasm):
           field("Feed proxy:"):
             if edit(lib.proxy): dirty = true

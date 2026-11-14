@@ -270,7 +270,7 @@ row([80, 0, -1]):
 
 ### spring and space
 
-`spring()` pushes what comes after it to the row's right end: the place for OK and Cancel. `space(px)` leaves room, down in a column or right in a row.
+`spring()` pushes what comes after it to the row's right end: the place for OK and Cancel. In a column it pushes it to the bottom of the room there is: a button at a page's foot. `space(px)` leaves room, down in a column or right in a row.
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -295,7 +295,10 @@ row:
 proc spring*()
 ```
 
-In a row: the widgets after it go to the row's right end.
+In a row: the widgets after it go to the row's right end. In a column
+(the window, a pane, a `col`, a group): those after it go to the
+bottom of the room it has -- a button at a page's foot -- as tall as
+they were last frame (the first frame, a frame more).
 
 ```nim
 proc space*(px = Gap)
@@ -4535,7 +4538,7 @@ when clicked.
 
 ### animated
 
-A number that glides to where it is asked to be: when `target` changes, the value goes from where it was to it in `ms` (fast, then slowing), a frame at a time -- a panel sliding in, a bar growing, a glow fading. At once when the user asked for less movement. Each call is its own value, by where it is in the code (`key` for one in a loop).
+A number that glides to where it is asked to be: when `target` changes, the value goes from where it was to it in `ms` (fast, then slowing), a frame at a time -- a panel sliding in, a bar growing, a glow fading; `start` makes it glide from there the first time (a total counting up as its page opens). At once when the user asked for less movement. Each call is its own value, by where it is in the code (`key` for one in a loop). `easedSince(start, ms, delay)` is a timeline of a page's own: things that follow one another, each with its delay.
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -4560,25 +4563,46 @@ else:
 **API**
 
 ```nim
-template animated*(target: float; ms = 200; key = ""): float
+template animated*(target: float; ms = 200; key = ""; start = NaN): float
 ```
 
 `target`, reached smoothly: when it changes, the value glides from
 where it was to it in `ms` milliseconds (fast at first, then slowing),
 a frame at a time; at once when the user asked for less movement
-(`smoothScrolling` off). Each call is its own value, by where it is in
-the code (and `key`, for one call in a loop):
+(`smoothScrolling` off). The first time it is `target` at once -- or,
+with `start`, glides there from `start` (a score counting up as its
+page opens). Each call is its own value, by where it is in the code
+(and `key`, for one call in a loop):
 
 ```nim
 let x = animated(if panelOpen: 0.0 else: -260.0)   # a panel sliding in
 let a = animated(if hovering: 1.0 else: 0.0, 120)  # a glow fading
+let n = animated(score.float, 800, start = 0)      # counting up
 ```
 
 ```nim
-proc animatedAt*(id: Id; target: float; ms: int): float
+proc animatedAt*(id: Id; target: float; ms: int; start = NaN): float
 ```
 
 `animated` for a value of your own id (`idOf`).
+
+```nim
+proc easeOut*(t: float): float
+```
+
+0 .. 1 eased as `animated` moves: fast at first, then slowing (`t`
+kept in 0 .. 1).
+
+```nim
+proc easedSince*(start: int; ms: int; delay = 0): float
+```
+
+How far a movement that began at `start` (a `ui.now`: when a page
+opened) is, 0 .. 1 eased (`easeOut`): 0 for `delay` milliseconds,
+then 1 after `ms` more -- frames asked for until then. Things that
+follow one another take delays of their own (a bar a year, each 140
+ms after the one before). 1 at once when the user asked for less
+movement (`smoothScrolling` off).
 
 ### appearanceSettings
 
@@ -5326,24 +5350,28 @@ row([-1, -1, -1]):
 
 ```nim
 proc barChart*(values: openArray[float]; labels: openArray[string] = [];
-               title = ""; w = 0; h = 170; colors: openArray[Color] = [])
+               title = ""; w = 0; h = 0; colors: openArray[Color] = [])
 ```
 
 Vertical bars, one per value, with a labeled axis (see `chart` for more).
+`h`: its height in pixels (`dp(120)`: 120 design pixels); 0, 170
+design pixels.
 
 ```nim
 proc lineChart*(series: openArray[seq[float]]; labels: openArray[string] = [];
-                names: openArray[string] = []; title = ""; w = 0; h = 170)
+                names: openArray[string] = []; title = ""; w = 0; h = 0)
 ```
 
 One line per series over the same x points (see `chart` for more).
+`h`: as `barChart`'s.
 
 ```nim
 proc pieChart*(values: openArray[float]; labels: openArray[string] = [];
-               title = ""; w = 0; h = 170)
+               title = ""; w = 0; h = 0)
 ```
 
 Slices of a circle, with a legend of shares (see `chart` for more).
+`h`: as `barChart`'s.
 
 ### The 21 kinds of chart
 
@@ -6189,6 +6217,16 @@ proc camera3*(yaw = 35.0; pitch = 25.0; distance = 6.0; target = vec3(0, 0, 0);
 
 A camera looking at `target` (see `Camera3`); `resetView` comes back
 to it.
+
+```nim
+proc material3*(name: string; c: Color; metallic = 0.0; roughness = 0.5;
+                glow = 0.0): Material3
+```
+
+A material of one color: paint (`metallic` 0), metal (1); polished
+(`roughness` 0) to chalky (1); `glow` 0..1, the light it gives in its
+own color (a gold coin that shines). Its index in `scene.materials`
+goes in a mesh's `material`.
 
 ```nim
 proc render3d*(scene: Scene3; cam: Camera3; w, h: int; background = Color()): Bitmap

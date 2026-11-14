@@ -511,6 +511,7 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
     if toggle:
       discard systemCall(if v.playing: "media.videoPause" else: "media.videoPlay", k)
       v.playing = not v.playing
+      if v.playing: v.error = ""        # (Play tries again after an error)
     if toStart: seekTo = 0
     if seekTo >= 0:
       discard systemCall("media.videoSeek", k & "\t" & $seekTo)
@@ -527,6 +528,10 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
         v.dur = (try: parseInt(s[2]) except ValueError: v.dur)
         if s[3] == "1" and not v.ended: result.ended = true
         v.ended = s[3] == "1"
+        # (why the system's player could not play it: Android's sounds)
+        if s.len >= 5 and s[4].len > 0 and v.error != s[4]:
+          v.error = s[4]
+          v.playing = false
     if v.playing: wakeIn(250)
     fill(area, color(0, 0, 0))
   of 2:
@@ -657,6 +662,7 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
         elif mode == 1:
           discard systemCall(if v.playing: "media.videoPause" else: "media.videoPlay", k)
           v.playing = not v.playing
+          if v.playing: v.error = ""
         elif v.gst != nil:
           if v.playing: v.gst.pause()
           else:
@@ -665,7 +671,10 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
           v.playing = not v.playing
           v.ended = false
       # the position bar: a click or a drag goes there
-      let tt = timeText(v.pos) & " / " & timeText(v.dur)
+      # (a web address the player is still getting: "Loading...", not 0:00 / 0:00)
+      let tt = if mode in {1, 2} and v.playing and v.dur <= 0 and v.pos <= 0 and
+                  isStream(path): "Loading..."
+               else: timeText(v.pos) & " / " & timeText(v.dur)
       let tw = textWidth(tt)
       let track = rect(b.x + b.w + dp(8), bar.y + barH div 2 - dp(4),
                        max(dp(20), bar.x + bar.w - tw - dp(12) - (b.x + b.w + dp(8))), dp(8))

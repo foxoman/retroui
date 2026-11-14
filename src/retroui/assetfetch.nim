@@ -28,7 +28,7 @@ import uirelays/target   # (androidApp: an APK, not a program in Termux)
 import core
 when androidApp:
   import uirelays/services
-elif not defined(ios):
+else:
   import fetch
 
 var
@@ -250,8 +250,6 @@ proc downloadTo(whole, dest, agent: string; timeoutSec: int): string {.gcsafe.} 
     elif r.len > 1 and r[0] == 'e': r[1 .. ^1]
     elif r == "\0": "downloading is not available (the app's Java part is older than this program)"
     else: "the download failed"
-  elif defined(ios):
-    "downloading is not done on iOS yet"
   else:
     {.cast(gcsafe).}:
       downloadFile(url, dest, agent, timeoutSec, headers)

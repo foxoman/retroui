@@ -460,7 +460,7 @@ do:
     edit docPath
 
 example("spring", "spring and space",
-        "`spring()` pushes what comes after it to the row's right end: the place for OK and Cancel. `space(px)` leaves room, down in a column or right in a row.",
+        "`spring()` pushes what comes after it to the row's right end: the place for OK and Cancel. In a column it pushes it to the bottom of the room there is: a button at a page's foot. `space(px)` leaves room, down in a column or right in a row.",
         380, 90, ["spring", "space"], std3):
   row:
     label "Total: 120.000"
@@ -1587,8 +1587,8 @@ do:
   discard settingButtons("Cache", ["Clear"], "12 MB")
 
 example("animated", "animated",
-        "A number that glides to where it is asked to be: when `target` changes, the value goes from where it was to it in `ms` (fast, then slowing), a frame at a time -- a panel sliding in, a bar growing, a glow fading. At once when the user asked for less movement. Each call is its own value, by where it is in the code (`key` for one in a loop).",
-        320, 60, ["animated", "animatedAt"], std3):
+        "A number that glides to where it is asked to be: when `target` changes, the value goes from where it was to it in `ms` (fast, then slowing), a frame at a time -- a panel sliding in, a bar growing, a glow fading; `start` makes it glide from there the first time (a total counting up as its page opens). At once when the user asked for less movement. Each call is its own value, by where it is in the code (`key` for one in a loop). `easedSince(start, ms, delay)` is a timeline of a page's own: things that follow one another, each with its delay.",
+        320, 60, ["animated", "animatedAt", "easeOut", "easedSince"], std3):
   var barOn = true
 do:
   if button(if barOn: "&Narrow" else: "&Widen"): barOn = not barOn
@@ -1983,7 +1983,7 @@ opts(settle = 1500)
 
 example("view3d", "view3d",
         "A 3D view of meshes and models (OBJ, STL): boxes, spheres, cylinders, cones and planes, a grid and axes. Drag to turn it, the wheel to zoom.",
-        380, 260, ["view3d", "box", "sphere", "cylinder", "cone", "plane", "loadModel", "addGrid", "addAxes", "addShadow", "fitView", "camera3", "render3d"], focus4):
+        380, 260, ["view3d", "box", "sphere", "cylinder", "cone", "plane", "loadModel", "addGrid", "addAxes", "addShadow", "fitView", "camera3", "material3", "render3d"], focus4):
   view3d(modelScene, modelCam, height = 240)
 
 example("model3d", "Models: parts and clips",

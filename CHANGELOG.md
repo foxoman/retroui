@@ -1,5 +1,98 @@
 # Changes
 
+## 0.48.0
+
+Sixteen tutorials, step by step with pictures; Grow, a phone app made with
+the kit alone, and what it had to build itself now in the kit; Retro
+Navigator 0.5.0, Retro Board with thousands of shapes, Retro Podcast's
+sounds on Android; the 3D view on the GPU without materials.
+
+- **Tutorials** (`tutorials/`): sixteen lessons, step by step, each step a
+  whole program with a picture of what it draws -- easy (hello, a to-do
+  list, a tip calculator, Notepad), intermediate (contacts from a type, a
+  news reader on a worker, a dashboard, other languages), mobile (phone
+  layouts, Android and iOS), the web, and advanced (your own control,
+  your own loop and threads, the system's APIs, testing, shipping).
+  `nimble tutorials` makes the pictures again from the steps and builds
+  every step for every system; CI checks each lesson shows its steps' code.
+- **`spring()` in a column**: what follows it goes to the bottom of the
+  room there is -- a button at a page's foot -- in the window, a pane, a
+  `col` or a group (it did nothing outside a row).
+- **`animated(..., start = x)`**: the first time, the value glides from
+  `start` to its target -- a score counting up as its page opens (it was
+  the target at once).
+- **Grow** (`examples/grow.nim`), a savings goal planner for phones: the
+  plan, then its result -- the total counted up, a ring, a 3D bar for each
+  year rising one after another, a gold coin over the last; tap a bar,
+  turn them with a finger, share the plan. Made with the kit alone; what
+  it had to build itself is in the kit now:
+- **`easedSince(start, ms, delay)`** and **`easeOut(t)`**: a page's own
+  timeline, things that follow one another each with its delay (a bar a
+  year), frames asked for while it runs; at once when the user asked for
+  less movement.
+- **`material3(name, color, metallic, roughness, glow)`**: a 3D material
+  of one color, in a line.
+- **The 3D view on the GPU without materials**: a scene of plain meshes
+  (3D bar charts, shapes of one color, a color a triangle) is drawn by the
+  GPU where frames are, shaded as the CPU shades it, with its outlines;
+  before, only scenes with materials were.
+- **Retro Board with thousands of shapes**: a shape too small to read at
+  the zoom (`briefAt`: letters under 6 pixels) is drawn in brief -- its
+  box, fill and colors, its words as bars (`drawingOf(s, brief = true)`,
+  `renderBitmap(..., brief = true)`) -- so 5,000 shapes zoomed out take 9 ms
+  a frame instead of 1.2 s; the drawings kept past `drawingBudget` lose the
+  half asked for longest ago instead of all (they were all made again each
+  frame). Presenting the frames as slides (F5), and pictures dropped on the
+  board.
+- **The simple charts' height scales**: `barChart`, `lineChart` and
+  `pieChart` are 170 design pixels high when `h` is not given (they were
+  170 screen pixels: half as high at 200 %).
+- **Android's sounds say why they do not play**: when the system's player
+  cannot play an `audioView`'s sound (the network, the server, a kind of
+  sound Android does not play), the error is the `VideoEvent`'s `error`
+  and is shown under the player, Play tries again from where it was, and a
+  web address it is still getting reads "Loading..." instead of 0:00 / 0:00.
+  Before, the player kept its pause button and never started.
+- **Plain http on Android and iOS**: `retroapk --cleartext` and
+  `retroios --cleartext` let the app use `http://` addresses, which
+  Android 9 and later and iOS refuse by default. Without it, the kit's
+  downloads, web requests and Android's sound player ask for the https
+  address instead of an http one, also when a redirect goes to http.
+- **Shared in** (`sharedIn()` in `retroui/system`, `retroapk
+  --share-target:TYPES`): an Android app in the other apps' share sheets
+  for the kinds it names; a text, a link or files shared to it come to
+  `sharedIn()` (the files copied into its cache).
+- **Retro Podcast 1.1.0**: made with `--cleartext` (many feeds still send
+  their episodes from http addresses); a sound that cannot be played says
+  why in the status line; a link shared to it from another app (a
+  browser's Share) is followed.
+- **Retro Navigator 0.5.0**: private tabs (New Private Tab, Ctrl+Shift+N:
+  kept out of the history, the session and the closed tabs); History
+  (Ctrl+H: find, go to, remove, clear), Downloads (Ctrl+J: open, show in
+  the folder, clear the finished) and Reader (Ctrl+Alt+R: the page's
+  article alone); made with `--cleartext`, so pages on plain http open in
+  its Android app; no letter underlined twice.
+- **Retro Files 3.4.0**: a copy, move or trash asked for while another
+  runs waits for it and starts after (it was refused).
+- **Retro DNS 1.2**, **Retro Podcast**: no letter underlined twice (two
+  controls answered one Alt key).
+- **`chips` as tall as a finger** on a touch screen (they were 26 design
+  pixels: under the kit's own finger sizes).
+- **The tour** (`tests/drive/tour.nim`): an editable drop-down (a text box
+  with a list: a browser's Location box) is opened with Alt+Down -- Enter
+  takes what was typed, as on Windows -- and the on-screen keyboard check
+  taps a text box that takes the focus, not one under a dialog.
+- **The apps measured** (`tools/appbench.sh`, docs/benchmarks.md): each
+  app's size, first frame, memory at rest and at most, and the processor
+  at rest, under the kit's smoke run.
+- **The CI**: the live check in Android's emulator is started by its
+  launcher activity and waited for, as the apps are, and once more when no
+  results come, with what the system says of the app printed (the monkey's
+  one event stopped the emulator's system UI now and then: no pictures, no
+  results). Retro Mail's search box under its account wizard is no longer
+  a finding of the tour. `writecheck` reads the tutorials too, and none of
+  a build's own files.
+
 ## 0.47.0
 
 What most apps build for themselves is in the kit now -- work on worker

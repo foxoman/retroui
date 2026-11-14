@@ -35,10 +35,19 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[locks, atomics]
-import core, http
-export http
+import core, http, fetch
+export http, fetch.downloadedSoFar
 when compileOption("threads"):
   import std/typedthreads
+  # (a job's end wakes the window at once: a byte on a pipe the X11 and
+  # Wayland drivers wait on, a message to the window on Windows; elsewhere
+  # the frames look a few times a second)
+  when defined(windows):
+    import uirelays/drivers/winapi_driver
+    proc PostMessageW(h: pointer; msg: uint32; wp: uint; lp: int): int32 {.stdcall, dynlib: "user32", importc.}
+  elif (defined(linux) or defined(bsd)) and not defined(android):
+    import std/posix
+    import uirelays/input
 
 type
   JobState* = enum
@@ -85,6 +94,32 @@ var
 
 when compileOption("threads"):
   var workers: seq[Thread[void]]
+  when (defined(linux) or defined(bsd)) and not defined(android):
+    var wakePipe: array[2, cint] = [-1.cint, -1]
+
+    proc pipeFds(): seq[cint] {.nimcall, gcsafe.} =
+      {.cast(gcsafe).}:
+        if wakePipe[0] >= 0: result.add wakePipe[0]
+
+    proc pipeReady(): bool {.nimcall, gcsafe.} =
+      ## (the bytes taken: a job ended, a frame is wanted)
+      {.cast(gcsafe).}:
+        if wakePipe[0] < 0: return false
+        var buf: array[64, char]
+        while read(wakePipe[0], addr buf[0], buf.len) > 0: result = true
+
+  proc wakeUi() {.gcsafe.} =
+    ## (from a worker: the window's loop woken to see a job that ended)
+    {.cast(gcsafe).}:
+      when defined(windows):
+        let w = winWindow()
+        if w != nil: discard PostMessageW(w, 0, 0, 0)          # WM_NULL
+      elif (defined(linux) or defined(bsd)) and not defined(android):
+        if wakePipe[1] >= 0:
+          var b = 'j'
+          discard write(wakePipe[1], addr b, 1)
+
+  const wakesAtOnce = defined(windows) or ((defined(linux) or defined(bsd)) and not defined(android))
 
   proc work() {.thread.} =
     while true:
@@ -100,6 +135,7 @@ when compileOption("threads"):
         acquire(lock)
         ran.add move(r)
         release(lock)
+      wakeUi()
 
 proc progress*(c: JobCtl; f: float) =
   ## The work tells how far it is, 0.0 to 1.0 (`progress` on the UI's side).
@@ -166,7 +202,12 @@ proc checkJobs() {.nimcall.} =
     if pending[i]():
       pending.delete(i)
     else: inc i
-  if pending.len > 0: wakeIn(15)
+  # (more frames while some run: their progress drawn a few times a second;
+  # an end wakes the window itself where it can)
+  when compileOption("threads"):
+    if pending.len > 0: wakeIn(if wakesAtOnce: 250 else: 60)
+  else:
+    if pending.len > 0: wakeIn(15)
 
 proc submit(r: sink Runner) =
   if not started:
@@ -174,6 +215,11 @@ proc submit(r: sink Runner) =
     initLock(lock)
     initCond(cond)
     when compileOption("threads"):
+      when (defined(linux) or defined(bsd)) and not defined(android):
+        if pipe(wakePipe) == 0:
+          for fd in wakePipe:
+            discard fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) or O_NONBLOCK)
+          addWaitSource(pipeFds, pipeReady)
       workers.setLen(4)
       for i in 0 ..< workers.len: createThread(workers[i], work)
   if not hooked:
@@ -237,3 +283,15 @@ proc fetch*(url: string; meth = "GET"; headers: openArray[(string, string)] = []
   ## is the job's `value` (its `status` 0 and `error` when none came).
   let hs = @headers
   job(proc (): HttpResponse {.gcsafe.} = httpRequest(meth, url, hs, body, timeoutSec), onDone)
+
+proc download*(url, dest: string; headers: openArray[(string, string)] = [];
+               timeoutSec = 120; onDone: proc () {.closure.} = nil): Job[string] =
+  ## `downloadFile` as a job: `url` into the file `dest` on a worker thread,
+  ## straight to the disk (a podcast's episode, a big file: not through
+  ## memory); the job's `value` is `dest` once it is `done`, its `error` what
+  ## went wrong. `downloadedSoFar(dest)` says how far it is while it runs.
+  let hs = @headers
+  job(proc (): string {.gcsafe.} =
+    let err = downloadFile(url, dest, timeoutSec = timeoutSec, headers = hs)
+    if err.len > 0: raise newException(IOError, err)
+    dest, onDone)

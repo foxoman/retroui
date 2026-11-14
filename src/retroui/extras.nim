@@ -388,7 +388,8 @@ proc chips*(items: openArray[string]; selected: openArray[bool] = [];
   ## stop for Tab: Left / Right move between them, Space or Enter clicks
   ## one, Delete closes it (`closable`).
   result = ChipEvent(clicked: -1, closed: -1)
-  let h = FontH + dp(8)
+  # (as tall as a finger on a touch screen, as the other controls)
+  let h = if fingers(): max(FontH + dp(8), dp(32)) else: FontH + dp(8)
   let gid = makeId(fnv("chip-row"))
   var st = state(gid)
   let focused = enabled and ui.focus == gid and canInput()

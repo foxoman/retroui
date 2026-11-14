@@ -28,13 +28,18 @@ type
     skipBack*, skipAhead*: int     ## seconds
     tray*: bool                    ## an icon in the tray with the player's buttons
     proxy*: string                 ## (web pages: put before a feed's address -- CORS)
+    checkAtStart*: bool            ## the shows' feeds read again when the app starts
+    autoDownload*: bool            ## a show's new episodes downloaded when they come
+    directory*: int                ## where Find asks: 0 Apple's, 1 fyyd
+    started*: bool                 ## (the settings above were set once: a new library's
+                                   ## defaults are not taken again)
 
 proc folder*(): string = dataDir("RetroPodcast")
 proc downloadsFolder*(): string = folder() / "episodes"
 proc artFolder*(): string = folder() / "art"
 
 proc newLibrary*(): Library =
-  Library(speed: 1.0, skipBack: 15, skipAhead: 30)
+  Library(speed: 1.0, skipBack: 15, skipAhead: 30, checkAtStart: true, started: true)
 
 proc load*(): Library =
   ## The library saved last (a new one the first time).
@@ -45,6 +50,9 @@ proc load*(): Library =
     if result.speed <= 0: result.speed = 1.0
     if result.skipBack <= 0: result.skipBack = 15
     if result.skipAhead <= 0: result.skipAhead = 30
+    if not result.started:                  # (a library of 1.0.0: the new settings' defaults)
+      result.checkAtStart = true
+      result.started = true
   except CatchableError:
     discard
 

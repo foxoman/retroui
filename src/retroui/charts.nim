@@ -2166,28 +2166,37 @@ proc chart*(title: string; kind: ChartKind; t: DataTable; labelCol: string;
 
 # ---- the charts of before ----------------------------------------------------------------------------
 
+proc simpleH(h: int): int {.inline.} =
+  ## (the simple charts' height: 170 design pixels, scaled, when not given)
+  if h <= 0: dp(170) else: h
+
 proc barChart*(values: openArray[float]; labels: openArray[string] = [];
-               title = ""; w = 0; h = 170; colors: openArray[Color] = []) =
+               title = ""; w = 0; h = 0; colors: openArray[Color] = []) =
   ## Vertical bars, one per value, with a labeled axis (see `chart` for more).
+  ## `h`: its height in pixels (`dp(120)`: 120 design pixels); 0, 170
+  ## design pixels.
   var s = series("", values)
   if colors.len > 0:
     for i in 0 ..< values.len: s.colors.add colors[i mod colors.len]
-  discard chartImpl(chBar, labels, [s], ChartOpts(title: title, legend: laNone), h, w)
+  discard chartImpl(chBar, labels, [s], ChartOpts(title: title, legend: laNone), simpleH(h), w)
 
 proc lineChart*(series: openArray[seq[float]]; labels: openArray[string] = [];
-                names: openArray[string] = []; title = ""; w = 0; h = 170) =
+                names: openArray[string] = []; title = ""; w = 0; h = 0) =
   ## One line per series over the same x points (see `chart` for more).
+  ## `h`: as `barChart`'s.
   var ser: seq[Series]
   for k, s in series:
     ser.add Series(name: (if k < names.len: names[k] else: ""), values: s)
   discard chartImpl(chLine, labels, ser,
-                    ChartOpts(title: title, legend: if names.len > 0: laRight else: laNone), h, w)
+                    ChartOpts(title: title, legend: if names.len > 0: laRight else: laNone),
+                    simpleH(h), w)
 
 proc pieChart*(values: openArray[float]; labels: openArray[string] = [];
-               title = ""; w = 0; h = 170) =
+               title = ""; w = 0; h = 0) =
   ## Slices of a circle, with a legend of shares (see `chart` for more).
+  ## `h`: as `barChart`'s.
   discard chartImpl(chPie, labels, [series("", values)],
-                    ChartOpts(title: title, legend: laRight), h, w)
+                    ChartOpts(title: title, legend: laRight), simpleH(h), w)
 
 
 # ---- live graphs: a graph that moves as values come -----------------------------------------------

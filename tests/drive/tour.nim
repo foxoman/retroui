@@ -122,11 +122,14 @@ proc keyOn(t: var Tour; n: JsonNode) =
   ## (what the keyboard does on one control: a drop-down opened and
   ## closed, a check box ticked and back -- the focus kept)
   let id = n{"id"}.getBiggestInt
-  let role = if n.hasState("expandable") and n{"role"}.getStr == "textField": "comboBox"
+  let editable = n.hasState("expandable") and n{"role"}.getStr == "textField"
+  let role = if editable: "comboBox"
              else: n{"role"}.getStr        # (an editable drop-down: a box with a list)
   case role
   of "comboBox":
-    for k in ["Enter", "alt+Down"]:
+    # (Enter in an editable one takes what is typed -- the Location box
+    # goes there -- as on Windows: Alt+Down opens its list)
+    for k in (if editable: @["alt+Down"] else: @["Enter", "alt+Down"]):
       discard t.cmd("key", k)
       let opened = t.byId(id)
       if opened == nil:
@@ -382,7 +385,10 @@ proc keyboardCheck(t: var Tour) =
     let role = n{"role"}.getStr
     let y = n{"y"}.getInt
     if n.hasState("disabled") or n{"w"}.getInt <= 0 or y < 0 or y + n{"h"}.getInt > wh: continue
-    if box == nil and role in ["textField", "textArea"] and not n.hasState("readOnly"): box = n
+    # (one that takes the focus: not one under a dialog -- Mail opens with
+    # its account wizard over a search box)
+    if box == nil and role in ["textField", "textArea"] and not n.hasState("readOnly") and
+       n.hasState("focusable"): box = n
     elif other == nil and role in ["button", "checkBox", "list", "tree", "table"] and
          n.hasState("focusable"): other = n
   if box == nil: return
