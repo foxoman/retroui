@@ -292,6 +292,15 @@ app "Staff", 520, 420:
 - Shared in: `retroapk --share-target:text/plain,image/*` puts an Android
   app in the other apps' share sheets; `sharedIn()` (`retroui/system`,
   each frame) gives what came: `text`, `files` (copied into the cache).
+- Android extras (`retroui/system`): `notify(..., actions = ["Mark as
+  read"])` puts buttons on a notification and `notificationActions()`
+  (each frame) gives the presses as (tag, action); `retroapk --widget`
+  gives the app a home-screen widget that `homeWidget(title, text,
+  ["Pause"])` fills (its presses: the tag "widget"); `installApk(path)`
+  hands a package to the installer (`--permission:REQUEST_INSTALL_PACKAGES`),
+  `retroui/apkinfo`'s `readApk` reads one. The camera: `cameraCaps`,
+  `cameraZoom`, `cameraFlash`, `cameraFocus`, `cameraExposure`; on
+  Android `cameraPhoto` is full size and the view zooms with two fingers.
 
 **The system's features** (`import retroui/system`; docs/system.md has
 every system's answer and what the app declares): `notify`, `setBadge`,

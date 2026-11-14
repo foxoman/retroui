@@ -14,6 +14,7 @@ putEnv("XDG_CACHE_HOME", home / ".cache")
 
 import retroui
 import retroui/uirelays/input
+import retroui/xlsx
 import harness
 import ../examples/filemanager
 
@@ -122,6 +123,43 @@ language = 0
 applyLanguage()
 run(3)
 noFault("Arabic")
+
+# more kinds of file opened in Files itself: an app's package, a tar, a
+# page, a font, a 3D model, sheets, a message
+block kinds:
+  let k = home / "Documents" / "kinds"
+  createDir(k)
+  let data = currentSourcePath().parentDir / "data"
+  copyFile(data / "apk" / "notes.apk", k / "notes.apk")
+  copyFile(data / "3d" / "cube.obj", k / "cube.obj")
+  copyFile(currentSourcePath().parentDir / ".." / "src" / "retroui" / "fonts" / "FreeSerif.ttf", k / "serif.ttf")
+  writeFile(k / "page.html", "<h1>A page</h1><p>With a <a href=\"other.html\">link</a>.</p>")
+  writeFile(k / "other.html", "<p>The other page.</p>")
+  writeFile(k / "table.csv", "name,\"size, in KB\"\nOne,1\n\"Two \"\"2\"\"\",2\n")
+  writeFile(k / "note.eml", "From: A <a@example.org>\r\nTo: b@example.org\r\nSubject: Hello\r\n" &
+            "Date: Sat, 14 Nov 2026 10:00:00 +0400\r\nContent-Type: text/plain\r\n\r\nThe text.\r\n")
+  # (the system's tar makes it: on Windows 10 and later too)
+  let hasTar = execShellCmd("cd " & quoteShell(home / "Documents") & " && tar czf kinds/old.tar.gz Old") == 0
+  writeXlsx(k / "book.xlsx", [XlsxSheet(name: "First", rows: @[@["a", "b"], @["1", "2"]]),
+                              XlsxSheet(name: "Second", rows: @[@["x"]])])
+  for (name, want) in [("notes.apk", "vkApk"), ("cube.obj", "vkModel"), ("serif.ttf", "vkFont"),
+                       ("page.html", "vkHtml"), ("table.csv", "vkSheet"), ("note.eml", "vkMail"),
+                       ("old.tar.gz", "vkTar"), ("book.xlsx", "vkSheet")]:
+    if name == "old.tar.gz" and not hasTar: continue
+    openPath(k / name)
+    run(4)
+    doAssert viewerShown() == want, name & ": " & viewerShown()
+    key(KeyEsc)
+    run(2)
+    doAssert viewerShown() == "vkNone", name & " closed"
+  # the tar extracted as a zip is: Extract all here
+  if hasTar:
+    startJob(jkUnzip, @[k / "old.tar.gz"], k, "Extracting")
+    var n = 0
+    while jobRunning() and n < 2000:
+      run(); inc n
+    doAssert readFile(k / "Old" / "data.csv") == "a,b\n1,2\n", "the tar extracted"
+  noFault("kinds")
 
 # random input: taps, double taps, long presses, drags, wheel, keys
 var r = initRand(20261101)

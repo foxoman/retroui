@@ -17,13 +17,13 @@ cd "$(dirname "$0")"
 
 NAME="Retro DNS"
 ID="net.foxoman.retrodns"
-VERSION="1.2"
-CODE="4"
+VERSION="1.3"
+CODE="6"
 # Play needs 36 for new apps since 31 Aug 2026. x86_64 too (Chromebooks)
 # when lld is there: pkg install lld, then ABIS="arm64-v8a,x86_64".
 TARGET="36"
 ABIS="${ABIS:-arm64-v8a}"
-PERMS="--permission:INTERNET --permission:POST_NOTIFICATIONS"
+PERMS="--permission:INTERNET --permission:POST_NOTIFICATIONS --widget"
 # smaller code (-Os rather than -O3), and the version for the About box
 NIMOPTS="--nim:--opt:size --nim:-d:retrodnsVersion=$VERSION"
 RETROAPK="nim c -r -d:release --hints:off ../../src/retroapk.nim"

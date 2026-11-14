@@ -24,7 +24,7 @@ from retroui/system import revealFile   # (Downloads: Show in Folder)
 import navigator/[places, pages, markup]
 
 const
-  NavigatorVersion = "0.5.0"
+  NavigatorVersion = "0.5.1"
   SleepAfter = 5 * 60_000                          # a tab not seen this long sleeps (ms)
   IconPng = staticRead("assets/navigator-icon.png")
   Directory = [("&Welcome", "about:welcome"),
@@ -176,11 +176,16 @@ proc goBack(t: var Tab) =
     t.go(p)
     t.trail.setLen(n)                         # (not this page on it again)
 
+proc closeTab(i: int)
+
 proc newTab(url: string; behind = false; private = false) =
   ## A tab at the end with `url`, shown (or not: `behind`; it loads when it
   ## is first shown). A `private` one keeps its pages out of the history,
   ## the Go menu and the Location box's suggestions.
   inc made
+  # (the kit's random input -- tools/soak.sh -- keeps opening tabs: eight at
+  # most then, the first closed, so its memory says what a leak would)
+  if smokeOn() and tabList.len >= 8: closeTab(0)
   var n = Tab(key: "page" & $made, zoom: 1.0, progress: 100, seen: ui.now, private: private)
   webStartScript(n.key, shieldJs)
   webScrollBars(n.key, classicBars)       # (the page's own scroll bar: the kit's)
@@ -643,7 +648,10 @@ app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = 
   else:
     t.seen = ui.now
     t.asleep = false
-    let ev = webView(pageFor(t.asked), key = t.key, engine = weSystem)
+    # (the system's engine; the kit's when $RETRO_WEB says "kit": the soak's,
+    # whose random input WebKitGTK's own memory grows under)
+    let ev = webView(pageFor(t.asked), key = t.key,
+                     engine = if webEngine == weKit: weKit else: weSystem)
     if t.nextGo.len > 0 and t.asked == "about:blank":
       t.asked = t.nextGo
       t.nextGo = ""

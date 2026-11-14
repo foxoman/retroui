@@ -9,6 +9,8 @@
 
 type DroidCam = ref object of RootObj
   asked: float
+  caps: CameraCaps             ## (what the camera has)
+  capsAt: float
 
 proc sysCameras(): seq[CameraInfo] =
   for line in systemCall("camera.list", "").splitLines:
@@ -59,6 +61,34 @@ proc sysClose(c: CamState) =
 
 proc sysPlace(c: CamState; r: Rect; covered: bool) = discard
 proc sysPhoto(c: CamState; path: string): bool = false
+
+proc sysCaps(c: CamState): CameraCaps =
+  ## (what camera.caps says -- the zoom's range, the flash, focus, exposure,
+  ## a photo's size -- asked again once a second)
+  if c.sys == nil: return
+  let d = DroidCam(c.sys)
+  if epochTime() - d.capsAt > 1.0:
+    d.capsAt = epochTime()
+    let p = systemCall("camera.caps", "").split('\t')
+    if p.len >= 9:
+      try:
+        d.caps = CameraCaps(zoomMin: parseFloat(p[0]), zoomMax: parseFloat(p[1]),
+                            flash: p[2] == "1", focus: p[3] == "1",
+                            exposureMin: parseFloat(p[4]), exposureMax: parseFloat(p[5]),
+                            exposureStep: parseFloat(p[6]),
+                            photoW: parseInt(p[7]), photoH: parseInt(p[8]))
+      except ValueError: discard
+  d.caps
+
+proc sysSet(c: CamState; what, value: string): bool =
+  c.sys != nil and systemCall("camera.set", what & "\t" & value) == "1"
+
+proc sysStill(c: CamState; path: string): bool =
+  c.sys != nil and systemCall("camera.photo", path) == "1"
+
+proc sysStillDone(c: CamState): string =
+  let r = systemCall("camera.photoDone", "")
+  if r == "\0": "" else: r
 
 proc sysRecordStart(path: string): bool =
   systemCall("camera.recStart", path) == "1"

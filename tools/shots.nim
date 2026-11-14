@@ -1225,7 +1225,7 @@ opts(looks = @[look("A wide window", proc () = discard, proc () = discard, w = 6
 part("Menus and bars")
 
 example("menu", "menubar, menu, menuItem, submenu",
-        "The window's menu bar: `menuItem` is true when chosen, with its shortcut, a check mark or disabled. Alt, F10 and the letters work as in 3.1.",
+        "The window's menu bar: `menuItem` is true when chosen, with its shortcut, a check mark or disabled. Alt, F10 and the letters work as in 3.1. Menus that do not fit in the window's width go onto a second row (a phone held upright).",
         320, 180, ["menubar", "menu", "menuItem", "submenu", "menuSeparator"], popup4):
   menubar:
     menu "&File":
@@ -2169,9 +2169,11 @@ do:
 opts(settle = 1200)
 
 example("cameraview", "cameraView",
-        "The camera's live picture in the window, drawn by the kit under its menus and dialogs, through the system's own API (Video4Linux, Media Foundation, AVFoundation, Camera2; getUserMedia in a web page): photos, videos of it, and sound recorded from the microphone.",
+        "The camera's live picture in the window, drawn by the kit under its menus and dialogs, through the system's own API (Video4Linux, Media Foundation, AVFoundation, Camera2; getUserMedia in a web page): photos, videos of it, and sound recorded from the microphone. On an Android phone the picture stands up as the phone is held, a photo is the sensor's whole size, two fingers zoom and a tap focuses; `cameraCaps` says what the camera lets the app set.",
         420, 300, ["cameraView", "cameras", "cameraPhoto", "cameraRecord", "cameraStop", "cameraFrame",
-                   "cameraClose", "recordSound", "stopRecordingSound", "recordingSound", "soundLevel"], std3):
+                   "cameraClose", "cameraCaps", "cameraZoom", "cameraFlash", "cameraFocus",
+                   "cameraExposure", "recordSound", "stopRecordingSound", "recordingSound",
+                   "soundLevel"], std3):
   let cam = cameraView(height = 240)
   row:
     if button("&Photo"): cameraPhoto("", "photo.jpg")

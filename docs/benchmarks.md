@@ -46,20 +46,21 @@ seconds by the kit's smoke run (`RETRO_SMOKE`).
 
 | App | Program (stripped) | First frame | Memory at rest | Most memory in use | Processor at rest (3 s) |
 |---|---|---|---|---|---|
-| hello | 2.0 MB | 29 ms | 8.4 MB | 8.4 MB | 1 ms |
-| gallery | 6.2 MB | 53 ms | 13.3 MB | 20.0 MB | 0 ms |
-| filemanager | 4.4 MB | 33 ms | 14.1 MB | 14.5 MB | 0 ms |
-| photo | 14.7 MB | 51 ms | 21.7 MB | 22.0 MB | 0 ms |
-| retroboard | 3.9 MB | 54 ms | 18.6 MB | 19.6 MB | 1 ms |
-| mail | 8.3 MB | 49 ms | 17.5 MB | 18.0 MB | 5 ms |
-| navigator | 4.2 MB | 246 ms | 158.7 MB | 181.4 MB | 7 ms |
-| retrodns | 2.3 MB | 46 ms | 13.7 MB | 14.3 MB | 4 ms |
-| podcast | 3.3 MB | 54 ms | 12.0 MB | 19.8 MB | 0 ms |
-| grow | 2.2 MB | 43 ms | 10.3 MB | 13.2 MB | 2 ms |
-| taskman | 2.4 MB | 44 ms | 11.6 MB | 13.1 MB | 3 ms |
-| sevenguis | 2.2 MB | 40 ms | 10.4 MB | 10.9 MB | 0 ms |
+| hello | 2.0 MB | 34 ms | 8.6 MB | 8.6 MB | 1 ms |
+| gallery | 6.3 MB | 69 ms | 13.6 MB | 14.3 MB | 0 ms |
+| filemanager | 5.3 MB | 38 ms | 15.3 MB | 18.1 MB | 0 ms |
+| photo | 14.7 MB | 47 ms | 23.5 MB | 23.8 MB | 0 ms |
+| retroboard | 3.9 MB | 47 ms | 18.5 MB | 19.5 MB | 1 ms |
+| mail | 8.3 MB | 49 ms | 18.2 MB | 18.7 MB | 5 ms |
+| navigator | 4.3 MB | 223 ms | 159.4 MB | 181.8 MB | 7 ms |
+| retrodns | 2.3 MB | 69 ms | 13.8 MB | 14.4 MB | 4 ms |
+| podcast | 3.3 MB | 55 ms | 12.1 MB | 19.8 MB | 0 ms |
+| grow | 2.2 MB | 38 ms | 10.3 MB | 13.3 MB | 2 ms |
+| taskman | 2.4 MB | 39 ms | 12.0 MB | 13.5 MB | 3 ms |
+| sevenguis | 2.2 MB | 53 ms | 10.6 MB | 11.0 MB | 0 ms |
 
 Memory at rest is the resident memory 6 seconds after the start (3 seconds
 untouched); most in use, the peak while the smoke run worked it. Retro
 Navigator's numbers are mostly the system's web engine (WebKitGTK here),
-which runs beside the app.
+which runs beside the app. The first frames move by 10 to 25 ms from one
+run to the next here (Gallery took 69 ms in this run, 43 in the next).

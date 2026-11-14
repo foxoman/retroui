@@ -519,10 +519,14 @@ retroapk app.nim --name:"My App" --id:com.me.myapp \
   -o:build/MyApp.apk
 ```
 
-Two more an app may need: `--cleartext` lets it use plain `http://`
+Three more an app may need: `--cleartext` lets it use plain `http://`
 addresses (Android 9 and later refuse them; without it the kit asks for
-the https address instead), and `--share-target:text/plain,image/*` puts
-it in the other apps' share sheets (what comes is `sharedIn()`).
+the https address instead), `--share-target:text/plain,image/*` puts
+it in the other apps' share sheets (what comes is `sharedIn()`), and
+`--widget` gives it a widget for the home screen: its icon, a title, a
+line and two buttons, which the app sets with `homeWidget` (its buttons
+come as `notificationActions()` with the tag "widget"). Retro DNS and
+Retro Podcast have one.
 
 `--aab` makes an Android App Bundle for Google Play instead (below).
 `retroapk --help` lists every option. The examples have tasks:
@@ -556,6 +560,36 @@ Signing) and upload `app.aab`; register `upload.der` as the upload key the
 first time. To try a bundle before uploading it, Google's bundletool makes
 the APKs a phone gets: `java -jar bundletool.jar build-apks
 --bundle=app.aab --output=app.apks --mode=universal`.
+
+### Real phones on GitHub (Firebase Test Lab)
+
+`.github/workflows/devices.yml` runs the live check's APK on two real
+phones (a Pixel 6 and a Galaxy A51) at each push to main, once it has a
+project and a key. Once:
+
+1. At console.firebase.google.com, **Add project** (or pick a Google
+   Cloud project you have); Test Lab is in the free Spark plan (a few
+   runs a day on real phones).
+2. At console.cloud.google.com, in that project: **APIs & Services >
+   Enable APIs** -- turn on *Cloud Testing API* and *Cloud Tool Results
+   API*.
+3. **IAM & Admin > Service Accounts > Create service account**
+   (`retro-ci`), with the role *Editor* (the results go to the bucket
+   Test Lab makes for the project; with a bucket of your own,
+   `--results-bucket`, *Firebase Test Lab Admin* and *Firebase Analytics
+   Viewer* are enough); then its **Keys > Add key > JSON**: a file is
+   downloaded.
+4. In the GitHub repository, **Settings > Secrets and variables >
+   Actions**: a secret `FIREBASE_SA_KEY` with that file's whole text, and
+   a variable `FIREBASE_PROJECT` with the project's id (as
+   `my-project-12345`). Delete the file afterwards.
+5. **Actions > Real devices > Run workflow**: the screenshots, the video
+   and the logs are in the Firebase console (Test Lab), `devices.json`
+   in the run's artifacts.
+
+Without the secret the job says so and stops; nothing else needs it.
+Google stops Test Lab on 30 September 2027 (its place: the Developer
+Device Platform, on Google Cloud); the job moves there before then.
 
 ### Installing on the phone
 

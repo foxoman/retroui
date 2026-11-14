@@ -958,6 +958,7 @@ var
   sysDevice: DeviceInfo
   sysDeviceAt = -10.0
   sysCamera = false
+  sysTorch = false
   sysSecret = ""
   clipPath = ""
 let tune = joinSounds([makeTone(523, 140), makeTone(659, 140), makeTone(784, 260)])
@@ -1018,11 +1019,14 @@ proc systemTab() =
             let libc = nativeLib("libc.so.6", "libc.so", "libc.so.7")
             let getpid = nativeProc[proc (): cint {.cdecl.}](libc, "getpid")
             sysAnswer = if getpid != nil: "Process " & $getpid() else: "no libc"
+    for (tag, action) in notificationActions():   # (its button pressed, on Android)
+      if tag == "gallery": sysAnswer = "Pressed \"" & action & "\" in the notification."
     col:
       card("Tell the user"):
         row:
           if button("&Notify"):
-            sysAnswer = if notify("Retro Gallery", "A notification of the system.", tag = "gallery"): "Notified."
+            sysAnswer = if notify("Retro Gallery", "A notification of the system.", tag = "gallery",
+                                  actions = ["Thanks"]): "Notified."
                         else: "No notifications here: a toast instead."
             if sysAnswer.startsWith("No"): toast("A notification of the system.", title = "Retro Gallery")
           if button("&Badge"):
@@ -1075,6 +1079,18 @@ proc systemTab() =
         if sysCamera:
           let cam = cameraView(height = dp(150), key = "gallery")
           if cam.error.len > 0: label cam.error, color = ui.theme.gray
+          if cam.photo.len > 0: sysAnswer = "The photo: " & cam.photo
+          # (a phone's camera: zoom, the torch, a photo at the sensor's size)
+          let caps = cameraCaps("gallery")
+          row:
+            if button("Ph&oto"): cameraPhoto("gallery", getTempDir() / "gallery-photo.jpg")
+            if caps.zoomMax > caps.zoomMin:
+              if button("Zoom -", enabled = cam.zoom > caps.zoomMin): cameraZoom("gallery", cam.zoom / 1.5)
+              if button("Zoom +", enabled = cam.zoom < caps.zoomMax): cameraZoom("gallery", cam.zoom * 1.5)
+              label "x" & formatFloat(cam.zoom, ffDecimal, 1)
+            if caps.flash and checkbox("Torch", sysTorch):
+              cameraFlash("gallery", if sysTorch: cflTorch else: cflOff)
+            if caps.photoW > 0: label $caps.photoW & " x " & $caps.photoH, color = ui.theme.gray
         row([-1, 0, 0]):
           edit sysSecret
           if button("&Keep"):

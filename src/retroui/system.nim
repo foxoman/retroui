@@ -43,6 +43,7 @@ import uirelays/services
 import native, notify
 
 export notify.notify, notify.notifyAvailable, notify.clearNotification, notify.setBadge,
+       notify.notificationActions,
        notify.badgeCount
 export native.vibrate, native.deviceName, native.osVersion, native.batteryLevel,
        native.systemDarkMode, native.beepSystem, native.userName, native.keepScreenOn,
@@ -228,6 +229,47 @@ proc sharedIn*(): SharedIn =
       if e.len < 2: continue
       if e[0] == 't': result.text.add (if result.text.len > 0: "\n" else: "") & e[1 .. ^1]
       elif e[0] == 'f': result.files.add e[1 .. ^1]
+
+type ApkInstall* = enum
+  ## What `installApk` did.
+  aiInstaller     ## Android's installer opened, the app in it
+  aiAllowFirst    ## the "Install unknown apps" setting opened instead: once
+                  ## the user allows this app there, ask again
+  aiNotDeclared   ## this app may not install apps: built without
+                  ## `--permission:REQUEST_INSTALL_PACKAGES`
+  aiFailed        ## the system would not take it
+  aiNotHere       ## not an Android app: nothing installs an APK here
+
+proc installApk*(path: string): ApkInstall =
+  ## Hands the app's package `path` (.apk) to Android's installer, which
+  ## asks the user. The first time, Android wants the user to allow this
+  ## app to install others (`aiAllowFirst`: its setting is opened). The
+  ## app needs `retroapk --permission:REQUEST_INSTALL_PACKAGES` (Retro
+  ## Files has it; Google Play asks why an app does).
+  when androidApp:
+    case systemCall("installApk", path)
+    of "0": aiInstaller
+    of "1": aiAllowFirst
+    of "2": aiNotDeclared
+    else: aiFailed
+  else:
+    aiNotHere
+
+proc homeWidget*(title, text: string; buttons: openArray[string] = []): bool {.discardable.} =
+  ## What the app's widget on the home screen shows (Android, an APK made
+  ## with `retroapk --widget`): its icon, `title`, `text` (a line or two)
+  ## and at most two buttons. Kept while the app is closed. A tap on the
+  ## widget opens the app; a button opens it too, and its press comes as
+  ## `notificationActions()` with the tag "widget". False where there is
+  ## no widget.
+  when androidApp:
+    proc clean(s: string): string = s.multiReplace(("\t", " "), ("\u0001", " "))
+    var bs: seq[string]
+    for b in buttons: bs.add clean(b).replace("\n", " ")
+    systemCall("homeWidget", clean(title).replace("\n", " ") & "\t" & clean(text) & "\t" &
+                             bs.join("\u0001")) == "1"
+  else:
+    false
 
 # ---- a tap felt ------------------------------------------------------------------------------------
 

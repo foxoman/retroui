@@ -160,8 +160,9 @@ while read -r pkg apk; do
   # 4c. something shared with it from another app (an app in the share
   # sheet: retroapk --share-target): a link sent while it runs, then with
   # it stopped (it starts with the link)
-  if [ -z "$bad" ] && adb shell dumpsys package "$pkg" < /dev/null 2>/dev/null | tr -d '\r' |
-       grep -q "android.intent.action.SEND"; then
+  # (only an app that takes text: one that takes pictures only is left out)
+  if [ -z "$bad" ] && adb shell cmd package query-activities --brief -a android.intent.action.SEND \
+       -t text/plain < /dev/null 2>/dev/null | tr -d '\r' | grep -q "^$pkg/"; then
     link="https://podcasts.files.bbci.co.uk/p02nq0gn.rss"
     adb shell am start -W -a android.intent.action.SEND -t text/plain \
       --es android.intent.extra.TEXT "$link" "$pkg" < /dev/null > /dev/null 2>&1

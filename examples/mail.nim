@@ -92,7 +92,7 @@ proc handleEvents() =
       if n > 0 and prefBool("notify", true):
         let title = if n == 1: "New mail" else: $n & " new messages"
         # the system's notification (outside the window); a balloon where there is none
-        let told = notify(title, latest, appName, tag = "inbox")
+        let told = notify(title, latest, appName, tag = "inbox", actions = ["Mark as read"])
         if not told: toast(latest, title = title, glyph = pxMail)
         # the sound, as Outlook Express played it (a phone's notification has its own)
         if prefBool("newMailSound", true) and (not defined(android) or not told): newMailSound()
@@ -310,7 +310,7 @@ proc checkMail() {.nimcall, gcsafe.} =
     let (count, latest) = syncOnce(dbPath)
     if count > 0 and settings.getBool("notify", true):
       notify((if count == 1: "New mail" else: $count & " new messages"), latest, appName,
-             tag = "inbox")
+             tag = "inbox", actions = ["Mark as read"])
     if settings.getBool("badge", true):
       try:
         let db = openStore(dbPath)
@@ -325,6 +325,12 @@ reportedVersion = appVersion     # (what a fault's report says)
 app appName, 1280, 800:
   if not started: startup()
   handleEvents()
+  # (the new-mail notification's "Mark as read" pressed: the Inbox's unread read)
+  for (tag, action) in notificationActions():
+    if tag == "inbox" and action == "Mark as read":
+      markRead(store0.whereMessages("unread = 1 AND folder IN (SELECT id FROM folders WHERE role = 'inbox')",
+                                    @[], 5000))
+      status = "The new mail marked as read"
   reload()
   if prefBool("badge", true): setBadge(unreadAll())   # (the unread count on the app's icon)
   if isCompact():

@@ -1608,7 +1608,11 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["4.9.12: a layer made from a file no longer keeps that whole file in memory, " &
+           whatsNew = ["4.10.0: on a phone held upright, its own layout -- the picture filling the " &
+                       "screen, the tools in rows at the bottom, a panel slid up under the picture, " &
+                       "the menus behind one button; two fingers zoom and move the picture; a picture " &
+                       "shared from another app opens in it",
+                       "4.9.12: a layer made from a file no longer keeps that whole file in memory, " &
                        "nor Content-Aware Scale its masks, nor Edit Contents the smart object's picture",
                        "4.9.11: it opens in a third of the time -- its brushes' tips made thirty times " &
                        "quicker, its opening picture painted once the window shows, the type tool's fonts " &

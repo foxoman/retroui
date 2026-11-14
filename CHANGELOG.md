@@ -1,5 +1,86 @@
 # Changes
 
+## 0.50.0
+
+Android, all the way: apps on the home screen (widgets) and in the quick
+settings, in the other apps' share sheets, with buttons on their
+notifications; a camera that stands up and takes full-size photos with
+the zoom, the flash and the focus; Retro Files opening and installing
+APKs and much more inside; Retro Photo laid out for a phone.
+
+- **Retro Files 3.5.0 opens much more inside**: an app's package (.apk)
+  shows its icon, name, version, package, the Android versions it runs on,
+  its permissions, activities and services -- and on Android **Install**
+  hands it to the system's installer (the first time Android asks to allow
+  it: its setting opens); tar archives (.tar, .tar.gz, .tgz) open as zip
+  files do and Extract all; web pages, fonts (a sample sheet), 3D models
+  (glTF, GLB, OBJ, STL), spreadsheets (.xlsx, .csv, .tsv, a sheet at a
+  time) and mail (.eml: its header, text and attachments) open in the
+  viewer. **One details pane** (Alt+P) in place of the preview pane and
+  View as Web Page, which showed the same thing twice. Files shared from
+  another app wait in a bar until **Save here** copies them into the
+  folder open.
+- **`retroui/apkinfo`**: `readApk(path)` reads an APK without installing it
+  -- its binary manifest and resource table, the label in the user's
+  language, the densest icon (an adaptive one's foreground) -- every read
+  bounds-checked, no sum of sizes past a 32-bit int (`tests/test_apkinfo.nim`:
+  an APK made by aapt2, and 3,000 damaged copies of it, as a 32-bit program
+  too). **`retroui/tar`**: ustar, GNU long names and pax
+  headers, gzip members; `jkUnzip` extracts them, links left out.
+- **Home-screen widgets** (`retroapk --widget`, `homeWidget(title, text,
+  buttons)`): the app's icon, a title, a line or two and two buttons, in
+  3.1's colours, kept while the app is closed; a button's press comes as
+  `notificationActions()` with the tag "widget". retroapk writes the
+  layout, the ids and the widget's info into resources.arsc and, for
+  Google Play, into resources.pb (checked with aapt2 both ways). **Retro
+  DNS 1.3** turns the VPN on and off from it, **Retro Podcast 1.2.0**
+  plays, pauses and skips ahead.
+- **Retro DNS 1.3: a tile in the quick settings** that turns the VPN on
+  and off with the server last used, in the VPN's own process (the app
+  opens when Android's consent is still to give), and **a graph** of each
+  server's speed over its last 30 tests, and of the lookups while the VPN
+  is on.
+- **Notifications with buttons**: `notify(..., actions = ["Mark as
+  read"])` (Android: up to three) and `notificationActions()` for the
+  presses; Retro Mail 1.1.6 marks the new mail read from its notification.
+- **In the other apps' share sheets**: Retro Files (anything), Retro Photo
+  (pictures: "Edit in Retro Photo"), Retro Board 1.5.1 (a text comes as a
+  note, a picture as a picture) and Notepad (text: a new document, or at
+  the caret).
+- **The camera on Android** stands up as the phone is held (the
+  pictures came as the sensor lies, on their side in portrait); a photo is
+  a JPEG at the sensor's whole size; two fingers on `cameraView` zoom and
+  a tap focuses there; `cameraCaps`, `cameraZoom` (under 1: the wide lens
+  on Android 11+), `cameraFlash` (off, auto, on, the torch),
+  `cameraFocus`, `cameraExposure`; `cameras()` names each lens with its
+  focal length. Retro Gallery's camera card has them.
+- **Retro Photo 4.10.0 on a phone held upright**: the picture fills the
+  screen between a bar (the menus behind one button, Undo, Redo, Open,
+  Save, the pictures open) and the tools in rows at the bottom (held, a
+  group's others); the panels slide up under the picture; two fingers zoom
+  and move it (`photoView`); the phone may turn (a tablet, or the phone
+  turned, keeps the workspace).
+- **The menu bar goes onto a second row** when its menus do not fit the
+  window's width (they ran off its edge on a phone).
+- **A web page at rest costs a frame a second**, not four (`webView` with
+  the system's engine: four a second for ten seconds after the page last
+  changed, then one): Retro Navigator 0.5.1. Under the soak's random input
+  Navigator keeps eight tabs at most and Retro Board starts a new board
+  past 400 shapes, and both are soaked every night again, ten apps in all.
+  Navigator is soaked on the kit's engine (it follows `RETRO_WEB=kit` now):
+  on WebKitGTK its memory grows by some 20 MB a minute under random input,
+  the same with the GPU's compositing off, and levels off at 90 MB on the
+  kit's. A page closed on WebKitGTK no longer keeps its script and its
+  content manager (each was held once more than WebKit needs).
+- **Firebase Test Lab, step by step** (BUILDING.md): the project, the
+  service account and its role, the secret and the variable the real
+  phones' workflow needs -- and that Google ends Test Lab in September 2027.
+- **Tests**: `test_apkinfo`; `test_apk` builds the widget's resources both
+  ways and has aapt2 read them; `test_filesapp` opens each new kind of
+  file in its viewer (an APK, a tar.gz extracted, a page, a font, a model,
+  a CSV, an .xlsx, a message); the Android script shares text only with
+  apps that take it.
+
 ## 0.49.0
 
 Faster and steadier: the tests as many at once as there are cores (a

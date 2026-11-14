@@ -149,6 +149,9 @@ proc pbRead(b: string): seq[PbField] =
       let n = int(varint())
       result.add (f, w, b[i ..< i + n], 0'u64)
       i += n
+    of 5:
+      result.add (f, w, b[i ..< i + 4], 0'u64)
+      i += 4
     else: doAssert false, "wire type " & $w
 
 proc pbOne(b: string; field: int): string =
@@ -295,3 +298,47 @@ uses-permission android:name=android.permission.FOREGROUND_SERVICE
     doAssert failed, bad
 
 echo "apk tool tests passed"
+
+# ---- the widget (--widget): its ids, layout and info, in an APK and in a bundle -------------------
+
+block widget:
+  doAssert resourceTable("org.retro.t") != resourceTable("org.retro.t", true)
+  let wp = protoResources("org.retro.t", true).toStr.pbOne(2)
+  let ts = wp.pbAll(3)
+  doAssert ts.len == 4 and ts[1].pbOne(2) == "id" and ts[1].pbAll(3).len == WidgetIds.len
+  doAssert ts[2].pbOne(2) == "layout" and
+           ts[2].pbOne(3).pbOne(6).pbOne(2).pbOne(4).pbOne(5).pbInt(2) == 3, "a proto XML file"
+  doAssert protoXml(widgetLayout()).toStr.pbOne(1).pbOne(3) == "FrameLayout"
+  let aapt = findExe("aapt2")
+  if aapt.len > 0:
+    # aapt2 reads the APK's, and turns the bundle's into the same
+    let dir = getTempDir() / "retro-widget-" & $getCurrentProcessId()
+    createDir(dir)
+    let man = XNode(name: "manifest", attrs: @[
+      XAttr(name: "package", kind: TString, str: "org.retro.t"),
+      iAttr("versionCode", 0x0101021b, 1)],
+      kids: @[XNode(name: "application", attrs: @[iAttr("icon", 0x01010002, int(IconRes), TRef)])])
+    for proto in [false, true]:
+      var z: ZipFile
+      z.addFile("AndroidManifest.xml", if proto: protoXml(man) else: axml(man))
+      if proto: z.addFile("resources.pb", protoResources("org.retro.t", true))
+      else: z.addFile("resources.arsc", resourceTable("org.retro.t", true), compress = false)
+      z.addFile(IconPath, iconPng(48), compress = false)
+      for (path, x) in [(WidgetLayout, widgetLayout()), (WidgetInfo, widgetInfo())]:
+        z.addFile(path, if proto: protoXml(x) else: axml(x))
+      var apk = dir / (if proto: "proto.apk" else: "w.apk")
+      writeFile(apk, z.finish.toStr)
+      if proto:
+        let (o, code) = execCmdEx(quoteShellCommand([aapt, "convert", "--output-format", "binary",
+                                                     "-o", dir / "conv.apk", apk]))
+        doAssert code == 0, o
+        apk = dir / "conv.apk"
+      let (res, c1) = execCmdEx(quoteShellCommand([aapt, "dump", "resources", apk]))
+      doAssert c1 == 0 and "0x7f020005 id/button2" in res and
+               "0x7f030000 layout/retro_widget" in res and "0x7f040000 xml/retro_widget" in res, res
+      let (info, c2) = execCmdEx(quoteShellCommand([aapt, "dump", "xmltree", "--file", WidgetInfo, apk]))
+      doAssert c2 == 0 and "initialLayout(0x01010251)=@0x7f030000" in info, info
+      let (lay, c3) = execCmdEx(quoteShellCommand([aapt, "dump", "xmltree", "--file", WidgetLayout, apk]))
+      doAssert c3 == 0 and "layout_weight(0x01010181)=1" in lay and "#ffc0c0c0" in lay and
+               "textSize(0x01010095)=15.000000sp" in lay and "layout_width(0x010100f4)=-1" in lay, lay
+    removeDir(dir)

@@ -56,6 +56,7 @@ type
     angle*: float            ## the view turned so many degrees clockwise (Rotate View, R); the
                              ## image itself unchanged
     buf: Bitmap
+    pinchAt: float           # (two fingers: how far they pinched since the last zoom step)
     big: Bitmap              # (turned: the view drawn straight, bigger, then turned into `buf`)
     forced: bool             # (... `origin` given while it is drawn)
     forcedOrigin: (int, int)
@@ -855,6 +856,23 @@ proc photoView*(d: Doc; v: var PhotoView; height = -1; key = ""; drawAntsNow = t
     elif result.shift: v.offX -= ui.wheel * 48 * s
     else: v.offY -= ui.wheel * 48 * s
     v.clampScroll(d)
+  # two fingers (a touch screen): pinched, a zoom step at a time about their
+  # middle; moved together, the image scrolled with them
+  if ui.gesturing and area.contains(point(ui.pinchX, ui.pinchY)):
+    if v.pinchAt <= 0: v.pinchAt = 1.0
+    v.pinchAt *= ui.pinch
+    let (gx, gy) = v.toImage(d, ui.pinchX, ui.pinchY)
+    if v.pinchAt > 1.3:
+      v.zoomIn(d, gx, gy)
+      v.pinchAt = 1.0
+    elif v.pinchAt < 0.77:
+      v.zoomOut(d, gx, gy)
+      v.pinchAt = 1.0
+    v.offX -= int(ui.panDX * s.float)
+    v.offY -= int(ui.panDY * s.float)
+    v.clampScroll(d)
+    v.key = ""
+  elif not ui.gesturing: v.pinchAt = 0
   # what is shown: made again when something changed
   let bw = area.w * s
   let bh = area.h * s

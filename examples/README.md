@@ -160,7 +160,10 @@ panes, an address bar, a folder tree, details, tiles, icons and a list
 with picture thumbnails, a preview pane, drag and drop, copy and move in the
 background with "Replace or keep both?", Paste Shortcut, the trash, undo,
 zip, search, favorites, the disks and how full they are, and viewers for
-text, pictures, PDF, Markdown and more. It runs on phones and tablets too.
+text, pictures, PDF, Markdown, web pages, fonts, 3D models, spreadsheets,
+mail, zip and tar archives and Android packages (an .apk's icon, version
+and permissions; Install on Android). It runs on phones and tablets too,
+and takes files shared from other apps.
 
 ```sh
 nimble files                # or: nim c -r -d:release examples/filemanager.nim
@@ -176,8 +179,9 @@ the tools of today's: layers and groups with blend modes, masks and
 styles, Smart Objects, selections, channels and paths, sixty-two tools,
 filters and adjustments with previews, Neural Filters, Arabic type,
 panoramas, raw photos, CMYK, Lab, duotones and Multichannel images, PDF
-for print, and many undos. Its engine is in
-`retroui/photo`.
+for print, and many undos. On a phone held upright the picture fills the
+screen, the tools in rows under it and the panels sliding up; two fingers
+zoom. Its engine is in `retroui/photo`.
 
 ```sh
 nimble photo                # or: nim c -r -d:release examples/photo.nim [picture...]
@@ -429,6 +433,11 @@ own (CSV, imported and exported). Each system the way it allows:
   android.jar), the manifest lines (`manifest.txt`) and the compiled
   `classes.dex`; `retroapk --java:examples/retrodns/glue` puts them in the
   APK or bundle. Nim calls the Java by reflection (`retroui/native`).
+  A tile in the quick settings (`DnsTile.java`, in the VPN's process)
+  turns it on and off with the server last used, and so does the kit's
+  widget on the home screen (`--widget`, `homeWidget`); a graph shows
+  each server's speed over its last 30 tests, and the lookups while the
+  VPN is on.
 - **Windows, Linux, macOS:** Use on This Computer gives the computer the
   server's addresses as its administrator, the system asking first
   (`retroui/admin`: UAC, polkit, the password dialog): every adapter's
@@ -466,7 +475,9 @@ in the tray on a desktop (Settings). The sound plays on when another page
 is shown, and with the app in the background: on Android with the
 system's notification that it plays, on iOS with the app's background
 audio. Unfollow, Mark Played and the queue's changes are undone from the
-Edit menu.
+Edit menu. On Android a widget on the home screen shows what plays, with
+Play or Pause and Ahead (`--widget`, `homeWidget`), and a feed's address
+shared from another app is followed.
 
 It is the kit's newer parts put together: `retroui/feeds` reads the feeds
 and OPML, `retroui/jobs` reads them, asks the directory and downloads on

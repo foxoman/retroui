@@ -6,6 +6,7 @@ import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 when not defined(ios):
   import std/tables
   import uirelays/target   # (androidApp: an APK, not a program in Termux)
+  when androidApp: from uirelays/services import systemCall
 import native, bgcheck
 when defined(windows):
   import std/exitprocs
@@ -563,7 +564,7 @@ proc androidAllowed(nm: JObject): bool =
     return false
   javaCall(nm, "areNotificationsEnabled") != "false"
 
-proc androidNotify(title, body, icon, tag: string; badge: int): bool =
+proc androidNotify(title, body, icon, tag: string; badge: int; actions: openArray[string] = []): bool =
   let nm = javaActivityObj("getSystemService", "notification")
   if nm.isNil: return false
   if not androidAllowed(nm):
@@ -611,6 +612,10 @@ proc androidNotify(title, body, icon, tag: string; badge: int): bool =
     pi = javaStaticObj("android.app.PendingIntent", "getActivity", jactivity(), 0, launch,
                        0x04000000 or 0x08000000)                      # IMMUTABLE, UPDATE_CURRENT
     if not pi.isNil: discard javaCall(b, "setContentIntent", pi)
+  # its buttons: each opens the app with what was pressed (`notificationActions`)
+  if actions.len > 0:
+    discard javaStatic("org.retro.RetroActivity", "addNotifyActions", jactivity(), b, tag,
+                       actions.join("\x01"))
   let n = javaCallObj(b, "build")
   if n.isNil: result = false
   else:
@@ -694,13 +699,17 @@ proc notifyAvailable*(): bool =
         submit(Job(kind: jkProbe))            # (asked off the UI thread; known soon)
       result = s != 2
 
-proc notify*(title, body: string; app = ""; icon = ""; tag = ""): bool {.discardable.} =
+proc notify*(title, body: string; app = ""; icon = ""; tag = "";
+             actions: openArray[string] = []): bool {.discardable.} =
   ## A notification of the system (the bubble or banner outside the window):
   ## `title` ("New mail"), `body` (who and what), `app` (the app's name,
   ## where the system shows one), `icon` (a picture file: PNG on Android
   ## and Linux, .ico on Windows; "" the app's own). A `tag` replaces an
   ## earlier one with the same tag ("inbox": one card for the new mail,
-  ## not one each). False when the system has none here (the app then
+  ## not one each). `actions`: its buttons (at most three, on Android:
+  ## "Mark as read"), each opening the app with what was pressed --
+  ## `notificationActions` says (the notification needs a `tag`; elsewhere
+  ## they are left out). False when the system has none here (the app then
   ## shows a `toast`); it never waits for the system.
   let t = cleanText(title, MaxTitle)
   let b = cleanText(body, MaxBody)
@@ -709,7 +718,7 @@ proc notify*(title, body: string; app = ""; icon = ""; tag = ""): bool {.discard
   else:
     when androidApp:
       if javaAvailable():
-        try: return androidNotify(t, b, icon, tag, badgeNow)
+        try: return androidNotify(t, b, icon, tag, badgeNow, actions)
         except CatchableError: return false
     when defined(windows):
       if not windowsRoute() or stateNow() == 2: return false
@@ -717,6 +726,22 @@ proc notify*(title, body: string; app = ""; icon = ""; tag = ""): bool {.discard
       if not posixRoute() or stateNow() == 2: return false
     submit(Job(kind: jkShow, title: t, body: b, app: cleanText(app, 60), icon: icon, tag: tag))
     true
+
+proc notificationActions*(): seq[tuple[tag, action: string]] =
+  ## The buttons of the app's notifications pressed since it was last asked
+  ## (`notify`'s `actions`), taken: the notification's tag and the button's
+  ## text -- the home screen's widget's buttons too, with the tag "widget"
+  ## (retroui/system's `homeWidget`). The press opened the app (or brought
+  ## it up); ask each frame, the first frames too. Empty elsewhere than in
+  ## an Android app.
+  when defined(ios): discard
+  elif androidApp:
+    if javaAvailable():
+      let r = systemCall("notifyActions", "")
+      if r.len == 0 or r == "\0": return
+      for e in r.split('\x01'):
+        let tab = e.find('\t')
+        if tab > 0: result.add (e[0 ..< tab], e[tab + 1 .. ^1])
 
 proc clearNotification*(tag = "") =
   ## Takes the app's notification with `tag` away (the mail was read);

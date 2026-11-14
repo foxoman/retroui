@@ -16,7 +16,7 @@
 ## ```
 
 import std/[os, times, strutils, algorithm, monotimes]
-import gfx, icons, business, zip, docfs, core
+import gfx, icons, business, zip, tar, docfs, core
 
 when defined(windows):
   import std/widestrs
@@ -629,6 +629,7 @@ type
     top: bool               ## one of the job's own items (not inside one)
     decision: Conflict
     entry: ZipEntry
+    tarEntry: TarEntry      ## (unzip of a tar archive: the entry)
   FileJob* = ref object
     ## A long file operation, done a little at a time by `run`.
     kind*: JobKind               ## what it does
@@ -653,13 +654,15 @@ type
     copying: tuple[open: bool; f, g: File]
     zipw: ZipWriter
     zipBase: string
+    tarball: Tar            ## (unzip of a tar archive: read whole, its bytes)
 
 proc newJob*(kind: JobKind; sources: openArray[string]; dest = "";
              onConflict = cfAsk): FileJob =
   ## A job; call `run` every frame until its `state` is not `jsRunning`
   ## (`jsAsking`: answer with `resolve`). Copy and move put the `sources`
   ## into the folder `dest`; zip writes the archive `dest`; unzip extracts
-  ## the archive `sources[0]` into the folder `dest`.
+  ## the archive `sources[0]` -- a zip, or a tar (.tar, .tar.gz, .tgz) --
+  ## into the folder `dest`.
   FileJob(kind: kind, sources: @sources, dest: dest, onConflict: onConflict)
 
 proc progressOf*(j: FileJob): float =
@@ -702,6 +705,20 @@ proc plan(j: FileJob; deadline: MonoTime): bool =
     case j.kind
     of jkUnzip:
       try:
+        if isTarName(j.sources[0]):
+          # (a tar: read whole once, then a file each step; links and
+          # devices left out)
+          j.tarball = readTar(j.sources[0])
+          for e in j.tarball.entries:
+            if e.isLink: continue
+            let t = safeTarget(j.dest, e.name)
+            let top = '/' notin e.name.strip(chars = {'/'})
+            j.steps.add Step(kind: skUnzip, src: e.name, dst: t, size: e.size,
+                             entry: ZipEntry(name: e.name, size: int(e.size), time: e.time, isDir: e.isDir),
+                             tarEntry: e, top: top)
+            j.totalBytes += e.size
+          j.totalItems = j.steps.len
+          return true
         for e in zipEntries(j.sources[0]):
           let t = safeTarget(j.dest, e.name)
           let top = '/' notin e.name.strip(chars = {'/'})
@@ -919,7 +936,8 @@ proc run*(j: FileJob; budgetMs = 12) =
         if s.entry.isDir: vMkdir(s.dst)
         else:                            # straight to the name decided on
           vMkdir(s.dst.parentDir)
-          vWriteFile(s.dst, readEntry(j.sources[0], s.entry))
+          vWriteFile(s.dst, if s.tarEntry.name.len > 0: j.tarball.fileOf(s.tarEntry)
+                            else: readEntry(j.sources[0], s.entry))
           try: setLastModificationTime(s.dst, s.entry.time) except OSError: discard
         j.doneBytes += s.size
         if s.top: j.created.add s.dst
@@ -935,6 +953,7 @@ proc run*(j: FileJob; budgetMs = 12) =
       j.created.add j.dest
     except CatchableError as e: j.errors.add e.msg
   j.current = ""
+  j.tarball = Tar()            # (its bytes let go)
   j.state = jsDone
 
 proc bytesPerSecond*(j: FileJob): float =

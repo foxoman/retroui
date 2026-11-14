@@ -16,13 +16,14 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[os, math, strutils, tables, sets, json, sequtils, hashes, algorithm]
+from retroui/system import sharedIn
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import retroui
 import retroui/[board, freehand]
 
 const
   AppName = "Retro Board"
-  BoardVersion = "1.5.0"
+  BoardVersion = "1.5.1"
   iconPng = staticRead("assets/board-icon.png")
 
 type
@@ -920,6 +921,15 @@ proc insertPicture(path: string) =
   bd.change("Insert Picture"): sel = @[bd.addShape(s)]
   setTool(tSelect)
   sel = @[bd.page.shapes[^1].id]
+
+proc insertNote(text: string) =
+  ## A note saying `text`, in the middle of the board's view.
+  let c = viewCenterPg()
+  var s = bd.newShape(skNote, c.x - 120, c.y - 90, 240, 180)
+  s.color = bcYellow
+  s.text = text
+  bd.change("Add Note"): sel = @[bd.addShape(s)]
+  setTool(tSelect)
 
 proc exportIds(): seq[int] =
   if exportWhat == 1 and sel.len > 0:
@@ -3358,7 +3368,8 @@ proc dialogs() =
             "on as many pages as you like.",
             "Made with Retro Nim UI " & RetroVersion & " (retroui/board, retroui/freehand)."],
            tagline = "Draw, sketch and think together", iconPng = iconPng,
-           whatsNew = ["1.5.0: zoomed in on thousands of notes it keeps moving -- the drawings " &
+           whatsNew = ["1.5.1: text shared from another app comes as a note, a picture as a picture",
+                       "1.5.0: zoomed in on thousands of notes it keeps moving -- the drawings " &
                        "still to make are drawn in brief for a frame or two, then in full; Next step " &
                        "pressed while an empty text was typed in no longer closes it",
                        "1.4.0: thousands of shapes zoomed out drawn at once (the ones too small to read " &
@@ -3490,10 +3501,20 @@ proc boardFrame() =
       elif step > 0: stopPresenting()                       # (past the last: the board again)
   elif hotkeyPressed("F5"): startPresenting()
   keys()
-  # (pictures dropped on the window from the file manager: onto the board)
-  for f in droppedFiles():
+  # (the kit's random input -- tools/soak.sh -- keeps adding shapes: a new
+  # board past 400, so its memory says what a leak would)
+  if smokeOn():
+    var n = 0
+    for pg in bd.pages: n += pg.shapes.len
+    if n > 400: newBoardNow()
+  # (pictures dropped on the window from the file manager: onto the board;
+  # pictures and text shared from another app -- Android's share sheet:
+  # the pictures, and the text as a note)
+  let came = sharedIn()
+  for f in droppedFiles() & came.files:
     if f.splitFile.ext.toLowerAscii in [".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"]:
       insertPicture(f)
+  if came.text.len > 0: insertNote(came.text)
   typing()
   canvasInput()
   drawCanvas()

@@ -3237,7 +3237,7 @@ do:
 
 ### menubar, menu, menuItem, submenu
 
-The window's menu bar: `menuItem` is true when chosen, with its shortcut, a check mark or disabled. Alt, F10 and the letters work as in 3.1.
+The window's menu bar: `menuItem` is true when chosen, with its shortcut, a check mark or disabled. Alt, F10 and the letters work as in 3.1. Menus that do not fit in the window's width go onto a second row (a phone held upright).
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -5110,7 +5110,8 @@ proc newJob*(kind: JobKind; sources: openArray[string]; dest = "";
 A job; call `run` every frame until its `state` is not `jsRunning`
 (`jsAsking`: answer with `resolve`). Copy and move put the `sources`
 into the folder `dest`; zip writes the archive `dest`; unzip extracts
-the archive `sources[0]` into the folder `dest`.
+the archive `sources[0]` -- a zip, or a tar (.tar, .tar.gz, .tgz) --
+into the folder `dest`.
 
 ### textFileView, hexFileView
 
@@ -7426,7 +7427,7 @@ Lets the player of the `videoView` (or `audioView`) with this `key`
 
 ### cameraView
 
-The camera's live picture in the window, drawn by the kit under its menus and dialogs, through the system's own API (Video4Linux, Media Foundation, AVFoundation, Camera2; getUserMedia in a web page): photos, videos of it, and sound recorded from the microphone.
+The camera's live picture in the window, drawn by the kit under its menus and dialogs, through the system's own API (Video4Linux, Media Foundation, AVFoundation, Camera2; getUserMedia in a web page): photos, videos of it, and sound recorded from the microphone. On an Android phone the picture stands up as the phone is held, a photo is the sensor's whole size, two fingers zoom and a tap focuses; `cameraCaps` says what the camera lets the app set.
 
 *The picture is the camera's.*
 
@@ -7449,13 +7450,15 @@ row:
 
 ```nim
 proc cameraView*(key = ""; camera = ""; facing = cfAny; height = -1; w = 0;
-                 mirror = false): CameraEvent {.discardable.}
+                 mirror = false; touch = true): CameraEvent {.discardable.}
 ```
 
 The camera's live picture, as large as fits, `height` pixels high (-1:
 the room left). `camera`: one of `cameras()` (""): the first, or one
 that looks `facing`). `mirror`: shown as in a mirror (a front camera).
 The camera is on while the view is drawn, and off once it is not.
+`touch`: two fingers zoom, a tap focuses there (where the camera can:
+`cameraCaps`).
 
 ```nim
 proc cameras*(): seq[CameraInfo]
@@ -7467,8 +7470,10 @@ The cameras the system has.
 proc cameraPhoto*(key = ""; path: string)
 ```
 
-Saves the camera's next picture to `path` (JPEG; PNG by its
-extension); `CameraEvent.photo` says when it is there.
+Saves a photo to `path`: on a phone (Android) a JPEG at the sensor's
+whole size, with the flash and the zoom set; elsewhere the camera's
+next picture (JPEG; PNG by its extension). `CameraEvent.photo` says
+when it is there.
 
 ```nim
 proc cameraRecord*(key = ""; path: string): bool {.discardable.}
@@ -7497,6 +7502,40 @@ proc cameraClose*(key = "")
 ```
 
 Lets the camera go now (it goes by itself once its view is not drawn).
+
+```nim
+proc cameraCaps*(key = ""): CameraCaps
+```
+
+What the camera of the view `key` lets the app set (all 0 until it is
+open, and where nothing can be).
+
+```nim
+proc cameraZoom*(key = ""; zoom: float)
+```
+
+Zooms the camera: 1 none, 2 twice as near; under 1 a wider lens where
+the phone has one (kept in `cameraCaps`' range).
+
+```nim
+proc cameraFlash*(key = ""; flash: CameraFlash)
+```
+
+The flash, for the photos (`cflTorch`: on now, as a torch).
+
+```nim
+proc cameraFocus*(key = ""; x, y: float)
+```
+
+Focuses (and measures the light) at `x`, `y` in the picture (0..1 of
+`cameraFrame`'s width and height); a negative `x`: by itself again.
+(A tap on the view does it.)
+
+```nim
+proc cameraExposure*(key = ""; ev: float)
+```
+
+Brighter (more than 0) or darker, in EV (`cameraCaps`' range).
 
 ```nim
 proc recordSound*(path: string): bool

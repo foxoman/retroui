@@ -1296,7 +1296,10 @@ drawBitmap(rect(10, 10, 160, 120), pic)              # EXIF turned), BMP; more o
 
 File jobs work in slices so the window stays alive, never follow links
 out of a folder they delete, refuse to copy a folder into itself, and
-leave no half-written file when cancelled.
+leave no half-written file when cancelled. `jkUnzip` extracts tar
+archives too (.tar, .tar.gz, .tgz: `retroui/tar` reads them, links left
+out); `retroui/apkinfo`'s `readApk` reads an Android package's name,
+version, permissions and icon without installing it.
 
 Slow work goes to worker threads, and big files are read a window at a
 time:
@@ -1412,7 +1415,7 @@ toast("Copied 12 items", title = "Files")    # a yellow Windows 95 balloon
 ### Retro Files
 
 `examples/filemanager.nim` (about 2,100 lines: the rest is the toolkit's)
-is **Retro Files 3.3.9**, a complete file manager in the manner of the Windows 98
+is **Retro Files 3.5.0**, a complete file manager in the manner of the Windows 98
 Explorer -- the Standard Buttons with their labels under the icons (View >
 Toolbars > Text Labels), the Address bar, View as Web Page (the folder's
 name large and the selection described at the left), Large and Small icons,
@@ -1454,6 +1457,18 @@ Select Matching, Duplicate, Open Terminal Here, open with and share, a Settings 
 the font -- FreeSans, FreeSerif, FreeMono, the system's or a font file --, smooth scrolling, thumbnails,
 preview, single tap, confirm delete, start folder, Termux access), an
 About box that fits any screen, mouse hover, and settings that stick.
+
+New in 3.5: an app's package (.apk) opens to its icon, name, version,
+package, the Android versions it runs on, its permissions, activities and
+services (`retroui/apkinfo`), and on Android **Install** hands it to the
+system's installer; tar archives (.tar, .tar.gz, .tgz) open as zip files
+do and extract (`retroui/tar`); web pages, fonts (a sample sheet of the
+face), 3D models (glTF, GLB, OBJ, STL: turned with the mouse), spreadsheets
+(.xlsx, .csv, .tsv: a sheet at a time) and mail (.eml: its header, its
+text, its attachments) open inside; one **details pane** at the left
+(View > Explorer Bar > Details, Alt+P) in place of Preview and View as Web Page; and on
+Android, files shared from another app wait in a bar until **Save here**
+copies them into the folder open.
 
 New in 3.1: very big pictures (gigapixel scans, huge maps) are shown and
 thumbnailed a band at a time (`retroui/bigpicture`), and in Arabic a line
@@ -2003,7 +2018,7 @@ s.dehaze = 10
 p.applyFilter(developMargin(s), develop(s))
 ```
 
-`examples/photo.nim` is **Retro Photo 4.9.11**, an image editor in the manner
+`examples/photo.nim` is **Retro Photo 4.10.0**, an image editor in the manner
 of the ones of 1994: the toolbox, the tabbed floating palettes (Brushes
 and Options; Picker, Swatches and Scratch; Layers, Channels and Paths;
 Info; Commands; Navigator, History and Actions; Properties), an options
@@ -2118,6 +2133,16 @@ Transform keeps the proportions as it has since 2019. **Edit > Search**
 Bar** under the image offers the next steps. With the Retro Photo 1994 key
 set (Preferences > Tools) the menus are 1994's.
 
+On a phone held upright Retro Photo 4.10 is laid out for one hand: the
+picture fills the screen between a bar at the top (the menus behind one
+button, Undo, Redo, Open, Save, the pictures open) and the tools in rows
+at the bottom (held, a group's other tools); Layers, Options, Color,
+Adjust, Brushes and History slide up under the picture, two fingers zoom
+and move it, and a picture shared from another app opens in it ("Edit in
+Retro Photo"). A tablet, or the phone turned, keeps the desktop's
+workspace. The kit's menu bar goes onto a second row when its menus do
+not fit in one.
+
 ![Retro Photo 3.9: Histogram, Adjustments, Styles and Layer Comps panels, the Contextual Task Bar](docs/photo-cc.png)
 
 ## Web and HTML
@@ -2163,7 +2188,9 @@ page can run code or reach the network. `htmlToMarkdown` converts a page.
 server of a phone or a computer: Android's with a VPN of its own Java
 (`--java`), a computer's as its administrator (`retroui/admin`), a Mac's,
 an iPhone's and an iPad's with a profile of encrypted DNS
-([the examples](examples/README.md#retro-dns)).
+([the examples](examples/README.md#retro-dns)); on Android a tile in the
+quick settings and a widget on the home screen turn it on and off, and a
+graph shows each server's speed over its last tests.
 
 **Retro Navigator** (`examples/navigator.nim`, `nimble navigator`) is a
 whole browser made this way: a 1995 window around the system's engine,
@@ -2391,6 +2418,18 @@ Phones ask the user the first time: an Android app needs `retroapk
 --permission:CAMERA --permission:RECORD_AUDIO`; `retroios` and `retrokit
 mac` put the usage texts in Info.plist.
 
+On Android the picture stands up as the phone is held, `cameraPhoto` takes
+a JPEG at the sensor's whole size, two fingers on the view zoom and a tap
+focuses there. `cameraCaps` says what the camera has, and the app sets it:
+
+```nim
+let caps = cameraCaps()
+if caps.zoomMax > 1: cameraZoom("", 2.0)    # under 1: the wide lens, where there is one
+if caps.flash: cameraFlash("", cflAuto)     # cflOff, cflAuto, cflOn, cflTorch
+cameraExposure("", -0.7)                    # EV
+cameraFocus("", 0.5, 0.3)                   # a point of the picture, 0..1
+```
+
 ## More windows
 
 `window` opens a window of the system's own beside the app's -- a tool
@@ -2588,6 +2627,14 @@ and lists those permissions by itself (it says which; the hardware they
 imply is not required, so the app still installs where there is none).
 The app asks the user the first time the feature is used, and goes on
 without it when the answer is no.
+
+**The home screen, the share sheet, notifications' buttons:** `--widget`
+gives the app a widget (`homeWidget`: its icon, a title, a line, two
+buttons; Retro DNS and Retro Podcast have one), `--share-target` puts it
+in the other apps' share sheets (`sharedIn`: Files, Photo, Board, Notepad
+and Podcast are there), and `notify(..., actions = ["Mark as read"])`
+puts buttons on a notification (`notificationActions`). Retro DNS adds a
+tile to the quick settings with Java of its own (`--java`).
 
 **When an app stops:** a crash of its Nim code, of its native code (a
 signal) or of Java is written to its fault log; the next start shows it
@@ -2996,7 +3043,7 @@ clicked does not end it) and samples its memory every 20 seconds, as on a
 phone of 2 GB (`RETRO_DEVICE_MB`: the caches' budgets follow it): an app
 that holds more than 16 MB more at the end than half way in (a cache
 filled once does not count), or that faults, fails. The nightly workflow
-soaks eight apps for an hour each.
+soaks ten apps for an hour each.
 
 **Every app driven by its controls' names:** `sh tests/drive/run.sh`
 starts the apps with `RETRO_DRIVE` and clicks every tab, opens and closes

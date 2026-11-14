@@ -94,6 +94,7 @@ var
   webkit_user_content_manager_register_script_message_handler: proc (m: pointer; name: cstring): cint {.cdecl, gcsafe.}
   webkit_user_script_new: proc (src: cstring; frames, time: cint; allow, deny: pointer): pointer {.cdecl, gcsafe.}
   webkit_user_content_manager_add_script: proc (m, s: pointer) {.cdecl, gcsafe.}
+  webkit_user_script_unref: proc (s: pointer) {.cdecl, gcsafe.}
   webkit_web_view_new_with_user_content_manager: proc (m: pointer): pointer {.cdecl, gcsafe.}
   webkit_web_view_get_settings: proc (v: pointer): pointer {.cdecl, gcsafe.}
   webkit_settings_set_enable_developer_extras: proc (s: pointer; on: cint) {.cdecl, gcsafe.}
@@ -260,6 +261,7 @@ proc loadGtk(): bool =
          "webkit_user_content_manager_register_script_message_handler")
   wk.get(webkit_user_script_new, "webkit_user_script_new")
   wk.get(webkit_user_content_manager_add_script, "webkit_user_content_manager_add_script")
+  wk.get(webkit_user_script_unref, "webkit_user_script_unref", false)
   wk.get(webkit_web_view_new_with_user_content_manager, "webkit_web_view_new_with_user_content_manager")
   wk.get(webkit_web_view_get_settings, "webkit_web_view_get_settings")
   wk.get(webkit_settings_set_enable_developer_extras, "webkit_settings_set_enable_developer_extras")
@@ -589,11 +591,17 @@ proc exec(c: GtkCmd) =
         gtkKeyOf[v.ucm] = c.key
         connect(v.ucm, "script-message-received::retro", onMessage)
         discard webkit_user_content_manager_register_script_message_handler(v.ucm, "retro")
-        webkit_user_content_manager_add_script(v.ucm, webkit_user_script_new(
+        let script = webkit_user_script_new(
           (shimFor("window.webkit.messageHandlers.retro.postMessage") & c.start).cstring,
-          InjectTopFrame, InjectAtStart, nil, nil))
+          InjectTopFrame, InjectAtStart, nil, nil)
+        webkit_user_content_manager_add_script(v.ucm, script)
+        # (the manager keeps the script, the view the manager: each was kept
+        # once more here, and stayed when the page was closed -- a tab's
+        # script and manager each time one closed)
+        if webkit_user_script_unref != nil: webkit_user_script_unref(script)
         if gtkFilter != nil: webkit_user_content_manager_add_filter(v.ucm, gtkFilter)
         v.wv = webkit_web_view_new_with_user_content_manager(v.ucm)
+        g_object_unref(v.ucm)
         gtkKeyOf[v.wv] = c.key
         if not teardownSkipped:
           # (after WebKit registered its own end: this one runs before it)

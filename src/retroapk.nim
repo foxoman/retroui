@@ -68,6 +68,9 @@ Options:
   --share-target:TYPES  the app is in other apps' share sheets for these
                      kinds (comma separated: text/plain, image/*, */*); what
                      comes is retroui/system's sharedIn()
+  --widget           the app has a widget for the home screen: its icon, a
+                     title, a line and two buttons, which the app sets
+                     (retroui/system's homeWidget)
   --cleartext        the app may use plain http:// addresses (a browser, a
                      podcast player: feeds and sounds still on http); without
                      it Android 9 and later refuse them, and the kit asks
@@ -270,8 +273,11 @@ const
   THex = 0x11'u8
   TBool = 0x12'u8
   TDimen = 0x05'u8
+  TFloat = 0x04'u8
+  TColor = 0x1c'u8         ## (#AARRGGBB)
 
 proc dp(v: int): int = (v shl 8) or 1     ## a dimension in dp (complex: mantissa, unit 1)
+proc sp(v: int): int = (v shl 8) or 2     ## (a text size in sp: unit 2)
 
 type
   XAttr = object
@@ -289,7 +295,7 @@ type
 proc sAttr(name: string; id: uint32; v: string): XAttr =
   XAttr(android: true, name: name, resId: id, kind: TString, str: v)
 proc iAttr(name: string; id: uint32; v: int; kind = TDec): XAttr =
-  XAttr(android: true, name: name, resId: id, kind: kind, data: uint32(v))
+  XAttr(android: true, name: name, resId: id, kind: kind, data: uint32(v and 0xFFFFFFFF))
 proc bAttr(name: string; id: uint32; v: bool): XAttr =
   XAttr(android: true, name: name, resId: id, kind: TBool,
         data: if v: 0xFFFFFFFF'u32 else: 0)
@@ -498,49 +504,150 @@ proc axml(root: XNode): Bytes =
   result.add body
   result.add nsEnd
 
-# ---- resources.arsc: one entry, the icon -----------------------------------------------
+# ---- resources.arsc: the icon (and the widget's layout, ids and its info) ---------------
 
 const IconRes = 0x7f010000'u32
 const IconPath = "res/drawable/icon.png"
 
-proc resourceTable(pkg: string): Bytes =
+type ResEntry = object
+  key: string
+  kind: uint8           ## TString: a file, `path`; else the value `data`
+  path: string
+  data: uint32
+
+const
+  WidgetIds = ["box", "icon", "title", "text", "button1", "button2"]
+  WidgetLayout = "res/layout/retro_widget.xml"
+  WidgetInfo = "res/xml/retro_widget.xml"
+
+proc resTypes(widget: bool): seq[(string, seq[ResEntry])] =
+  ## The app's resources, a type at a time (ids 0x7f01..., 0x7f02...): the
+  ## icon; with the widget, its views' ids, its layout and its info.
+  result.add ("drawable", @[ResEntry(key: "icon", kind: TString, path: IconPath)])
+  if widget:
+    var ids: seq[ResEntry]
+    for k in WidgetIds: ids.add ResEntry(key: k, kind: TBool, data: 0)
+    result.add ("id", ids)
+    result.add ("layout", @[ResEntry(key: "retro_widget", kind: TString, path: WidgetLayout)])
+    result.add ("xml", @[ResEntry(key: "retro_widget", kind: TString, path: WidgetInfo)])
+
+proc widgetId(name: string): int = 0x7f020000 + WidgetIds.find(name)
+const WidgetLayoutRes = 0x7f030000
+const WidgetInfoRes = 0x7f040000
+
+proc resourceTable(pkg: string; widget = false): Bytes =
+  let types = resTypes(widget)
+  var typeNames, keys, values: seq[string]
+  for (t, es) in types:
+    typeNames.add t
+    for e in es:
+      if e.key notin keys: keys.add e.key
+      if e.kind == TString: values.add e.path
   var p: Bytes                                    # the package chunk
-  let typeStrings = stringPool(["drawable"], utf8 = true)
-  let keyStrings = stringPool(["icon"], utf8 = true)
-  var spec: Bytes
-  spec.u16(0x0202); spec.u16(16); spec.u32(20)
-  spec.u8(1); spec.u8(0); spec.u16(0); spec.u32(1)
-  spec.u32(0)
-  var typ: Bytes
-  let hdr = 20 + 64
-  typ.u16(0x0201); typ.u16(hdr); typ.u32(hdr + 4 + 16)
-  typ.u8(1); typ.u8(0); typ.u16(0); typ.u32(1); typ.u32(hdr + 4)
-  typ.u32(64)                                     # ResTable_config: any
-  for _ in 0 ..< 60: typ.add 0
-  typ.u32(0)                                      # offset of entry 0
-  typ.u16(8); typ.u16(0); typ.u32(0)              # entry: key "icon"
-  typ.u16(8); typ.u8(0); typ.u8(TString); typ.u32(0)
+  let typeStrings = stringPool(typeNames, utf8 = true)
+  let keyStrings = stringPool(keys, utf8 = true)
+  var chunks: Bytes
+  for ti, (t, es) in types:
+    let n = es.len
+    var spec: Bytes
+    spec.u16(0x0202); spec.u16(16); spec.u32(16 + 4 * n)
+    spec.u8(ti + 1); spec.u8(0); spec.u16(0); spec.u32(n)
+    for _ in 0 ..< n: spec.u32(0)
+    var typ: Bytes
+    let hdr = 20 + 64
+    typ.u16(0x0201); typ.u16(hdr); typ.u32(hdr + 4 * n + 16 * n)
+    typ.u8(ti + 1); typ.u8(0); typ.u16(0); typ.u32(n); typ.u32(hdr + 4 * n)
+    typ.u32(64)                                   # ResTable_config: any
+    for _ in 0 ..< 60: typ.add 0
+    for i in 0 ..< n: typ.u32(16 * i)             # offsets of the entries
+    for e in es:
+      typ.u16(8); typ.u16(0); typ.u32(keys.find(e.key))
+      typ.u16(8); typ.u8(0); typ.u8(e.kind)
+      typ.u32(if e.kind == TString: uint32(values.find(e.path)) else: e.data)
+    chunks.add spec
+    chunks.add typ
   const header = 288
   p.u16(0x0200); p.u16(header)
-  p.u32(header + typeStrings.len + keyStrings.len + spec.len + typ.len)
+  p.u32(header + typeStrings.len + keyStrings.len + chunks.len)
   p.u32(0x7f)
   let w = newWideCString(pkg)
   var n = 0
   while int(w[n]) != 0 and n < 127:
     p.u16(int(w[n])); inc n
   for _ in n ..< 128: p.u16(0)
-  p.u32(header); p.u32(1)
-  p.u32(header + typeStrings.len); p.u32(1)
+  p.u32(header); p.u32(typeNames.len)
+  p.u32(header + typeStrings.len); p.u32(keys.len)
   p.u32(0)
   p.add typeStrings
   p.add keyStrings
-  p.add spec
-  p.add typ
-  let values = stringPool([IconPath], utf8 = true)
-  result.u16(0x0002); result.u16(12); result.u32(12 + values.len + p.len)
+  p.add chunks
+  let valuePool = stringPool(values, utf8 = true)
+  result.u16(0x0002); result.u16(12); result.u32(12 + valuePool.len + p.len)
   result.u32(1)
-  result.add values
+  result.add valuePool
   result.add p
+
+proc widgetLayout(): XNode =
+  ## The widget (RemoteViews' views only): a dark line round a grey face,
+  ## the icon, the title over the text, two buttons -- 3.1's colours.
+  proc a(name: string; id: uint32; v: int; kind = TDec): XAttr = iAttr(name, id, v, kind)
+  proc size(w, h: int): seq[XAttr] =
+    @[a("layout_width", 0x010100f4, w, if w < 0: TDec else: TDimen),
+      a("layout_height", 0x010100f5, h, if h < 0: TDec else: TDimen)]
+  const Match = -1
+  const Wrap = -2
+  proc button(name: string): XNode =
+    XNode(name: "TextView", attrs: @[
+      a("id", 0x010100d0, widgetId(name), TRef),
+      a("background", 0x010100d4, int(0xFFDFDFDF'u32), TColor),
+      a("gravity", 0x010100af, 0x11, THex),
+      a("paddingLeft", 0x010100d6, dp(12), TDimen),
+      a("paddingRight", 0x010100d8, dp(12), TDimen),
+      a("layout_marginLeft", 0x010100f7, dp(6), TDimen),
+      a("minHeight", 0x01010140, dp(36), TDimen),
+      a("textColor", 0x01010098, int(0xFF000000'u32), TColor),
+      a("textSize", 0x01010095, sp(13), TDimen),
+      a("visibility", 0x010100dc, 2)] & size(Wrap, Wrap))  # (gone)
+  proc label(name: string; textSize, maxLines: int; bold: bool): XNode =
+    result = XNode(name: "TextView", attrs: @[
+      a("id", 0x010100d0, widgetId(name), TRef),
+      a("ellipsize", 0x010100ab, 3),               # end
+      a("maxLines", 0x01010153, maxLines),
+      a("textColor", 0x01010098, int(0xFF000000'u32), TColor),
+      a("textSize", 0x01010095, sp(textSize), TDimen)] & size(Match, Wrap))
+    if bold: result.attrs.add a("textStyle", 0x01010097, 1, THex)
+  XNode(name: "FrameLayout", attrs: @[
+    a("background", 0x010100d4, int(0xFF000000'u32), TColor),
+    a("padding", 0x010100d5, dp(1), TDimen)] & size(Match, Match),
+    kids: @[XNode(name: "LinearLayout", attrs: @[
+      a("id", 0x010100d0, widgetId("box"), TRef),
+      a("background", 0x010100d4, int(0xFFC0C0C0'u32), TColor),
+      a("gravity", 0x010100af, 0x10, THex),                    # center_vertical
+      a("orientation", 0x010100c4, 0),                         # horizontal
+      a("padding", 0x010100d5, dp(8), TDimen)] & size(Match, Match),
+      kids: @[
+        XNode(name: "ImageView", attrs: @[
+          a("id", 0x010100d0, widgetId("icon"), TRef),
+          a("src", 0x01010119, int(IconRes), TRef)] & size(dp(40), dp(40))),
+        XNode(name: "LinearLayout", attrs: @[
+          a("orientation", 0x010100c4, 1),                     # vertical
+          a("paddingLeft", 0x010100d6, dp(8), TDimen),
+          a("layout_weight", 0x01010181, int(0x3f800000'u32), TFloat)] & size(dp(0), Wrap),
+          kids: @[label("title", 15, 1, true), label("text", 13, 2, false)]),
+        button("button1"), button("button2")])])
+
+proc widgetInfo(): XNode =
+  ## (the widget for the launcher: four cells by one, sized as the user
+  ## likes; the app updates it, the launcher never asks)
+  XNode(name: "appwidget-provider", attrs: @[
+    iAttr("minWidth", 0x0101013f, dp(250), TDimen),
+    iAttr("minHeight", 0x01010140, dp(40), TDimen),
+    iAttr("updatePeriodMillis", 0x01010250, 0),
+    iAttr("initialLayout", 0x01010251, WidgetLayoutRes, TRef),
+    iAttr("resizeMode", 0x01010363, 3, THex),                 # horizontal|vertical
+    iAttr("minResizeWidth", 0x01010395, dp(110), TDimen),
+    iAttr("minResizeHeight", 0x01010396, dp(40), TDimen),
+    iAttr("widgetCategory", 0x010103c4, 1, THex)])            # home_screen
 
 # ---- an App Bundle's manifest and resources: protocol buffers (aapt2's) ----------------
 
@@ -594,8 +701,17 @@ proc protoXml(n: XNode; root = true): Bytes =
       inner.pbInt(7, uint64(a.data))
       item.pbBytes(7, inner)
     of TDimen:
-      at.pbStr(3, $(a.data shr 8) & "dp")
+      at.pbStr(3, $(a.data shr 8) & (if (a.data and 0xF) == 2: "sp" else: "dp"))
       inner.pbInt(13, uint64(a.data))
+      item.pbBytes(7, inner)
+    of TColor:
+      at.pbStr(3, "#" & toHex(a.data, 8).toLowerAscii)
+      inner.pbInt(9, uint64(a.data))
+      item.pbBytes(7, inner)                      # Primitive: #aarrggbb
+    of TFloat:
+      at.pbStr(3, $cast[float32](a.data))
+      inner.pbVarint(uint64((3 shl 3) or 5))      # (float: fixed 32 bits)
+      for i in 0 .. 3: inner.add byte((a.data shr (8 * i)) and 0xFF)
       item.pbBytes(7, inner)
     else:
       at.pbStr(3, $cast[int32](a.data))
@@ -607,20 +723,31 @@ proc protoXml(n: XNode; root = true): Bytes =
   for k in n.kids: el.pbBytes(5, protoXml(k, false))
   result.pbBytes(1, el)
 
-proc protoResources(pkg: string): Bytes =
-  ## resources.pb: the one resource, the icon (as resourceTable).
-  var file, item, value, config, entry, typ, package, id: Bytes
-  file.pbStr(1, IconPath); file.pbInt(2, 1)         # PNG
-  item.pbBytes(5, file)
-  value.pbBytes(4, item)
-  config.pbBytes(1, @[])                            # (any configuration)
-  config.pbBytes(2, value)
-  id.pbInt(1, 0)
-  entry.pbBytes(1, id); entry.pbStr(2, "icon"); entry.pbBytes(6, config)
-  id = @[]; id.pbInt(1, 1)
-  typ.pbBytes(1, id); typ.pbStr(2, "drawable"); typ.pbBytes(3, entry)
-  id = @[]; id.pbInt(1, 0x7f)
-  package.pbBytes(1, id); package.pbStr(2, pkg); package.pbBytes(3, typ)
+proc protoResources(pkg: string; widget = false): Bytes =
+  ## resources.pb: the resources of resourceTable, as aapt2 writes them.
+  var package, pid: Bytes
+  pid.pbInt(1, 0x7f)
+  package.pbBytes(1, pid); package.pbStr(2, pkg)
+  for ti, (t, es) in resTypes(widget):
+    var typ, tid: Bytes
+    tid.pbInt(1, uint64(ti + 1))
+    typ.pbBytes(1, tid); typ.pbStr(2, t)
+    for ei, e in es:
+      var item, value, config, entry, eid: Bytes
+      if e.kind == TString:
+        var file: Bytes
+        file.pbStr(1, e.path)
+        file.pbInt(2, if e.path.endsWith(".png"): 1 else: 3)   # PNG, proto XML
+        item.pbBytes(5, file)
+      else:
+        item.pbBytes(6, @[])                      # Id
+      value.pbBytes(4, item)
+      config.pbBytes(1, @[])                      # (any configuration)
+      config.pbBytes(2, value)
+      eid.pbInt(1, uint64(ei))
+      entry.pbBytes(1, eid); entry.pbStr(2, e.key); entry.pbBytes(6, config)
+      typ.pbBytes(3, entry)
+    package.pbBytes(3, typ)
   result.pbBytes(2, package)
 
 proc bundleConfig(): Bytes =
@@ -1294,7 +1421,7 @@ proc main() =
     queries: seq[string]
     nimFlags: seq[string]
     javaDirs, manifestFiles: seq[string]
-    debuggable, install, runIt, storage, background, clean, aab, cleartext = false
+    debuggable, install, runIt, storage, background, clean, aab, cleartext, widget = false
     shareTypes: seq[string]
     signer = "auto"
     workDir = ""
@@ -1317,6 +1444,7 @@ proc main() =
       of "storage": storage = true
       of "background": background = true
       of "cleartext": cleartext = true
+      of "widget": widget = true
       of "sharetarget":
         for t in val.split(','):
           if t.strip.len > 0: shareTypes.add t.strip
@@ -1527,6 +1655,19 @@ proc main() =
       sAttr("name", 0x01010003, "org.retro.RetroPlayback"),
       iAttr("foregroundServiceType", 0x01010599, 2, THex),     # mediaPlayback
       bAttr("exported", 0x01010010, false)])
+  if widget:
+    # the widget: the launcher asks the receiver to draw it (onUpdate); the
+    # app sets what it shows (homeWidget)
+    app.kids.add XNode(name: "receiver", attrs: @[
+      sAttr("label", 0x01010001, name),
+      sAttr("name", 0x01010003, "org.retro.RetroWidget"),
+      bAttr("exported", 0x01010010, false)],
+      kids: @[
+        XNode(name: "intent-filter", kids: @[XNode(name: "action", attrs: @[
+          sAttr("name", 0x01010003, "android.appwidget.action.APPWIDGET_UPDATE")])]),
+        XNode(name: "meta-data", attrs: @[
+          sAttr("name", 0x01010003, "android.appwidget.provider"),
+          iAttr("resource", 0x01010025, WidgetInfoRes, TRef)])])
   if debuggable: app.attrs.add bAttr("debuggable", 0x0101000f, true)
   if cleartext: app.attrs.add bAttr("usesCleartextTraffic", 0x010104ec, true)
   var manifest = XNode(name: "manifest", attrs: @[
@@ -1603,10 +1744,13 @@ proc main() =
                except IOError: die "cannot read the certificate " & certDer
     var files = @[("BundleConfig.pb", bundleConfig().toStr),
                   ("base/manifest/AndroidManifest.xml", protoXml(manifest).toStr),
-                  ("base/resources.pb", protoResources(id).toStr),
+                  ("base/resources.pb", protoResources(id, widget).toStr),
                   ("base/dex/classes.dex", classesDex)]
     for i, dex in dexes: files.add ("base/dex/classes" & $(i + 2) & ".dex", dex)
     files.add ("base/" & IconPath, icon.toStr)
+    if widget:
+      files.add ("base/" & WidgetLayout, protoXml(widgetLayout()).toStr)
+      files.add ("base/" & WidgetInfo, protoXml(widgetInfo()).toStr)
     for (inZip, path) in libs: files.add ("base/" & inZip, readFile(path))
     let meta = try: jarSign(files, key, cert)
                except SignError as e: die "signing the bundle: " & e.msg
@@ -1625,8 +1769,11 @@ proc main() =
   z.addFile("AndroidManifest.xml", axml(manifest))
   z.addFile("classes.dex", classesDex.toBytes)
   for i, dex in dexes: z.addFile("classes" & $(i + 2) & ".dex", dex.toBytes)
-  z.addFile("resources.arsc", resourceTable(id), compress = false)  # Android 11+
+  z.addFile("resources.arsc", resourceTable(id, widget), compress = false)  # Android 11+
   z.addFile(IconPath, icon, compress = false)
+  if widget:
+    z.addFile(WidgetLayout, axml(widgetLayout()))
+    z.addFile(WidgetInfo, axml(widgetInfo()))
   for (inZip, path) in libs: z.addFile(inZip, readFile(path).toBytes, 16384)
 
   # 4. sign

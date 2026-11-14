@@ -20,10 +20,11 @@
 import std/[strutils, sequtils, tables, os, algorithm, times]
 import retroui
 import retroui/[parallel, admin]
+from retroui/system import homeWidget, notificationActions
 import retrodns/[catalog, androidglue, tester, vpn, desktop]
 
 const
-  retrodnsVersion {.strdefine.} = "1.2"   # (build.sh passes its VERSION)
+  retrodnsVersion {.strdefine.} = "1.3"   # (build.sh passes its VERSION)
   AppTitle = "Retro DNS"
   AppVersion = retrodnsVersion
   AppId = "RetroDNS"
@@ -43,6 +44,10 @@ let
 var
   servers: seq[Server]
   timings: Table[string, int]           # key -> the last test's ms (-1 failed)
+  history: Table[string, seq[int]]      # key -> its tests' ms, the last 30 (-1 failed), kept
+  lookupMs: seq[float]                  # the VPN's lookups: their time on average, a sample every 2 s
+  lookupAt = 0                          # (when the last sample was taken)
+  lookupsBefore = 0                     # (... how many had been answered then)
   testing: Table[string, bool]          # keys being tested now
   favs: seq[string]
   query = ""
@@ -60,6 +65,8 @@ var
   vpnNow: VpnStatus
   vpnAsking = false                     # Android's consent dialog is up
   vpnKey = ""                           # the server the VPN was started for
+  lastVpnKey = ""                       # (the last one: the widget's Turn on)
+  widgetShown = ""                      # (what the home screen's widget shows)
   lastAsk = 0.0
   disclosed = false                     # the VPN notice was accepted once
   discloseOpen = false
@@ -121,6 +128,11 @@ proc saveState() =
   s["vpnNotice"] = $disclosed
   s["hereServer"] = hereKey
   s["hereProfile"] = $hereProfile
+  s["lastVpn"] = lastVpnKey
+  var h: seq[string]
+  for k, v in history:
+    h.add k & "=" & v.mapIt($it).join(" ")
+  s["history"] = h.join(";")
   discard saveSettings(AppId, s)
   stateDirty = false
   lastSave = epochTime()
@@ -139,6 +151,14 @@ proc loadState() =
   disclosed = s.getOrDefault("vpnNotice") == "true"
   hereKey = s.getOrDefault("hereServer")
   hereProfile = s.getOrDefault("hereProfile") == "true"
+  lastVpnKey = s.getOrDefault("lastVpn")
+  for e in s.getOrDefault("history").split(';'):
+    let eq = e.find('=')
+    if eq <= 0: continue
+    var v: seq[int]
+    for n in e[eq + 1 .. ^1].splitWhitespace:
+      try: v.add parseInt(n) except ValueError: discard
+    if v.len > 0: history[e[0 ..< eq]] = v
 
 proc saveCustomServers() =
   if not saveCustom(customPath(), servers.filterIt(it.custom)):
@@ -217,6 +237,12 @@ proc handleResults() =
   for d in finishedTests():
     testing.del d.key
     timings[d.key] = d.ms
+    # (its tests over time: the graph in its details)
+    var h = history.getOrDefault(d.key)
+    h.add d.ms
+    if h.len > 30: h.delete(0)
+    history[d.key] = h
+    stateDirty = true
   if fastestAsked and testing.len == 0:
     fastestAsked = false
     pickFastest()
@@ -253,6 +279,8 @@ proc vpnStart(key: string) =
     discloseOpen = true
     return
   vpnKey = key
+  lastVpnKey = key
+  stateDirty = true
   let r = vpnConnect(vpnConfig(s))
   if r == "asking":
     vpnAsking = true
@@ -270,6 +298,23 @@ proc vpnStop() =
   vpnKey = ""
   vpnNow = vpnStatus()
   toast("VPN off: your network's own DNS again")
+
+proc widgetWatch() =
+  ## The widget on the home screen (Android): on and the server, or off,
+  ## with a button for the other -- as the VPN's own Java writes it while
+  ## the app is closed; its buttons pressed come here.
+  if not onAndroid(): return
+  for (tag, action) in notificationActions():
+    if tag != "widget": continue
+    if action == "Turn off" and vpnNow.state in {vsOn, vsStarting}: vpnStop()
+    elif action == "Turn on" and vpnNow.state notin {vsOn, vsStarting}:
+      vpnStart(if indexOfKey(lastVpnKey) >= 0: lastVpnKey else: selKey)
+  let on = vpnNow.state in {vsOn, vsStarting}
+  let text = if on: "On: " & (if vpnNow.server.len > 0: vpnNow.server else: "a DNS server")
+             else: "Off"
+  if text != widgetShown:
+    widgetShown = text
+    homeWidget("Retro DNS", text, [if on: "Turn off" else: "Turn on"])
 
 proc vpnWatch() =
   ## While Android's consent dialog is up: once allowed, connect.
@@ -559,6 +604,39 @@ proc lookupLine(): string =
   if vpnNow.avgMs >= 0: result &= ", " & $vpnNow.avgMs & " ms on average"
   if vpnNow.failed > 0: result &= ", " & $vpnNow.failed & " failed"
 
+proc speedGraph(key: string) =
+  ## Its tests over time, a line (the last 30; one that did not answer, a
+  ## gap at the top), with the best and the usual.
+  let h = history.getOrDefault(key)
+  var ok: seq[int]
+  for v in h:
+    if v >= 0: ok.add v
+  if ok.len < 2: return
+  var vals: seq[float]
+  let worst = max(ok)
+  for v in h: vals.add(if v >= 0: v.float else: worst.float * 1.2)
+  var sorted = ok
+  sorted.sort()
+  row:
+    label("Its tests:", color = ui.theme.gray)
+    sparkline(vals, w = dp(160), h = FontH + dp(8), color = cNavy)
+    label("best " & $sorted[0] & " ms, usually " & $sorted[sorted.len div 2] & " ms",
+          color = ui.theme.gray)
+
+proc lookupGraph() =
+  ## The VPN's lookups: their time on average, a sample every 2 seconds while
+  ## lookups come (the last 4 minutes), as a line.
+  if ui.now - lookupAt >= 2000:
+    lookupAt = ui.now
+    if vpnNow.avgMs >= 0 and vpnNow.answered != lookupsBefore:
+      lookupMs.add vpnNow.avgMs.float
+      if lookupMs.len > 120: lookupMs.delete(0)
+    lookupsBefore = vpnNow.answered
+  if lookupMs.len >= 2:
+    row:
+      label("Lookups' time:", color = ui.theme.gray)
+      sparkline(lookupMs, w = dp(200), h = FontH + dp(10), color = cTeal)
+
 proc vpnPart() =
   if not vpnNow.present:
     paragraph("This build has no VPN in it: build it with sh build.sh, whose " &
@@ -568,7 +646,9 @@ proc vpnPart() =
   row:
     led(on, "")
     label(vpnLine(), bold = true)
-  if on: label(lookupLine())
+  if on:
+    label(lookupLine())
+    lookupGraph()
   if on and vpnNow.memKb > 0:
     label("The VPN's own process: " & $((vpnNow.memKb + 512) div 1024) & " MB of memory")
   if vpnNow.state == vsFailed and vpnNow.error.len > 0: label(vpnNow.error, color = cMaroon)
@@ -688,6 +768,7 @@ proc details(i: int) =
   if s.ipv6.len > 0: facts.add ("IPv6", s.ipv6.join(", "))
   facts.add ("Speed", timingText(s.key))
   factList(facts)
+  speedGraph(s.key)
   space(6)
   let wifiOnly = (way == hwVpn and not vpnReady(s)) or
                  (way == hwNone and defined(ios) and addrsOf(s).len > 0)
@@ -915,6 +996,7 @@ proc main() =
     wasPaused = ui.paused
     handleResults()
     vpnWatch()
+    widgetWatch()
     adminWatch()
     let every = if vpnAsking or vpnNow.state == vsStarting: 0.5 else: 2.5
     if onAndroid() and not ui.paused and epochTime() - lastRead > every: readNow()

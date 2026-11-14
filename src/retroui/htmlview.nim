@@ -2322,7 +2322,8 @@ proc webView*(url: string; height = -1; key = ""; engine = webEngine): WebEvent 
       #  while it loads or has just done something; a page at rest less often)
       let every = if w.ownBars and ui.now - w.sbAt < 500: 30
                   elif w.progress < 100 or ui.now - w.changedAt < 3000: 100
-                  else: 250
+                  elif ui.now - w.changedAt < 10_000: 250
+                  else: 1000
       if ui.now - w.polledAt >= every or ui.now < w.polledAt:
         w.polledAt = ui.now
         let st = w.engTake(key)
@@ -2348,9 +2349,12 @@ proc webView*(url: string; height = -1; key = ""; engine = webEngine): WebEvent 
           if p notin w.refused: w.refused.add p
         for d in st.downloads: w.downloads.add d
         if st.snapshot != nil: w.snapshot = st.snapshot
+      # (what the engine says is looked at often while the page moves, then
+      # once a second: a page at rest costs a frame a second, not four)
       wakeIn(if w.ownBars and ui.now - w.sbAt < 500: 30
              elif w.progress < 100 or ui.now - w.changedAt < 3000: 100
-             else: 250)
+             elif ui.now - w.changedAt < 10_000: 250
+             else: 1000)
     result.url = w.cur
     result.title = w.title
     result.progress = w.progress

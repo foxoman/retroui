@@ -23,11 +23,11 @@
 import std/[os, json, tables, strutils]
 import retroui
 import retroui/[jobs, tray, mediasession]
-from retroui/system import sharedIn
+from retroui/system import sharedIn, homeWidget, notificationActions
 import podcast/library
 
 const
-  PodcastVersion = "1.1.1"
+  PodcastVersion = "1.2.0"
   IconPng = staticRead("assets/podcast-icon.png")
   PlayerKey = "podcast-player"
   Speeds = [0.75, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
@@ -573,6 +573,27 @@ proc trayFrame() =
     of 4: quitApp()
     else: discard
 
+var widgetShown = ""   # (what the widget on the home screen shows)
+
+proc widgetFrame() =
+  ## The widget on a phone's home screen (Android): what plays, Play or
+  ## Pause and Ahead; its buttons pressed come here.
+  for (tag, action) in notificationActions():
+    if tag != "widget" or lib.nowPlaying.len == 0: continue
+    case action
+    of "Play", "Pause": playVideo(PlayerKey, action == "Play")
+    of "Ahead": skip(lib.skipAhead)
+    else: discard
+  let (s, _) = lib.find(lib.nowPlaying)
+  let title = if s >= 0: lib.shows[s].title else: "Retro Podcast"
+  let text = if lib.nowPlaying.len == 0: "Nothing playing"
+             else: (if lastPlaying: "" else: "Paused: ") & episodeOf(lib.nowPlaying).title
+  let shown = title & "\n" & text & "\n" & $lastPlaying
+  if shown != widgetShown:
+    widgetShown = shown
+    homeWidget(title, text, if lib.nowPlaying.len == 0: @[]
+                            else: @[if lastPlaying: "Pause" else: "Play", "Ahead"])
+
 # ---- the app --------------------------------------------------------------------------------------
 
 when isMainModule and not declared(podcastUnderTest):
@@ -672,6 +693,7 @@ when isMainModule and not declared(podcastUnderTest):
     undoKeys(history)
 
     trayFrame()
+    widgetFrame()
 
     # dialogs
     dialog(addOpen, "Add a Podcast", 440):

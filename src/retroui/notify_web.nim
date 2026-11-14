@@ -21,12 +21,19 @@ proc notifyAvailable*(): bool =
   ## The browser shows notifications and the user did not refuse them.
   systemCall("notify.allowed", "") notin ["no", "denied", "\0"]
 
-proc notify*(title, body: string; app = ""; icon = ""; tag = ""): bool {.discardable.} =
-  ## A notification of the browser (it asks the user the first time).
+proc notify*(title, body: string; app = ""; icon = ""; tag = "";
+             actions: openArray[string] = []): bool {.discardable.} =
+  ## A notification of the browser (it asks the user the first time; its
+  ## `actions` left out: a page's notifications have no buttons without a
+  ## service worker).
   if title.len == 0 and body.len == 0: return false
   systemCall("notify", "{\"title\":" & jsonText(title[0 ..< min(title.len, 120)]) &
              ",\"body\":" & jsonText(body[0 ..< min(body.len, 600)]) &
              ",\"tag\":" & jsonText(tag) & "}") == "1"
+
+proc notificationActions*(): seq[tuple[tag, action: string]] =
+  ## (none in a web page: `notify`'s actions are left out)
+  discard
 
 proc clearNotification*(tag = "") =
   ## Takes the notification with `tag` away.

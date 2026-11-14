@@ -446,6 +446,7 @@ public final class DnsVpn extends VpnService implements Runnable {
     state = 2;
     new File(getFilesDir(), ERROR_FILE).delete();
     showNotice();
+    DnsTile.changed(this);
   }
 
   private void fail(String why) {
@@ -457,6 +458,7 @@ public final class DnsVpn extends VpnService implements Runnable {
       o.write(clean(why).getBytes("UTF-8"));
       o.close();
     } catch (IOException e) { }
+    DnsTile.changed(this);
   }
 
   /** Off, from the app, the notification or Settings. */
@@ -464,6 +466,7 @@ public final class DnsVpn extends VpnService implements Runnable {
     shutdown();
     state = 0;
     error = "";
+    DnsTile.changed(this);
     stopSelf();
   }
 
@@ -494,6 +497,7 @@ public final class DnsVpn extends VpnService implements Runnable {
     shutdown();
     state = 0;
     error = "The VPN was turned off in Android's settings, or another VPN started";
+    DnsTile.changed(this);
     stopSelf();
   }
 
@@ -708,6 +712,12 @@ public final class DnsVpn extends VpnService implements Runnable {
     consent = 0;
     askNotices(c);
     new File(c.getFilesDir(), ERROR_FILE).delete();
+    // (the server, for the quick settings' tile: it connects to it again)
+    try {
+      java.io.FileOutputStream o = new java.io.FileOutputStream(new File(c.getFilesDir(), DnsTile.LAST));
+      o.write(config.getBytes("UTF-8"));
+      o.close();
+    } catch (Throwable e) { }
     try {
       c.startService(new Intent(c, DnsVpn.class).putExtra(CONFIG, config));
     } catch (Throwable e) {

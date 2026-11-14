@@ -3069,6 +3069,10 @@ var
     ## letter two items have lights the next of them, as Windows' menus do)
   barX: int
   barIds: seq[Id]
+  barRow: int                    # (the menu bar's row the next title goes on)
+  barRowsOf: array[bool, int] = [1, 1]
+    ## (its rows last frame, the app's window's and a window's of its own:
+    ## the menus wrap on a narrow screen)
   menuSwitch: int
   pms: seq[PopMenu]  ## the open menu, and its open submenu
   subId: Id          ## the open submenu
@@ -3098,21 +3102,27 @@ proc hiOf(level: int): var int =
 proc beginMenubar*() =
   ## Starts the menu bar (see `menubar`).
   pushLayer(LayerBase)              # above the scrolled content, unclipped
-  let r = rect(ui.winX, ui.barY, ui.w, MenuH)
+  # (as many rows as its menus took last frame: on a phone they wrap)
+  let barRows = barRowsOf[inWindow()]
+  let r = rect(ui.winX, ui.barY, ui.w, MenuH * barRows)
   fill(r, th.window)
   hline(ui.winX, r.y + r.h, ui.w, th.edge)
   notePlaced(rect(r.x, r.y, r.w, r.h + 1))
   barX = ui.winX + ui.safe.left
+  barRow = 0
   barIds.setLen(0)
   menuSwitch = 0
-  shiftContent(MenuH + 1)
+  shiftContent(MenuH * barRows + 1)
   if accessOn: accessBegin(arMenuBar, "", r)
 
 proc endMenubar*() =
   ## Ends the menu bar: F10 opens its first menu; Left / Right go along it.
   if accessOn: accessEnd()
   popLayer()
-  ui.barY += MenuH + 1
+  ui.barY += MenuH * barRowsOf[inWindow()] + 1
+  if barRow + 1 != barRowsOf[inWindow()]:
+    barRowsOf[inWindow()] = barRow + 1   # (the rows its menus took: the bar that tall next frame)
+    ui.redraw = true
   if ui.menuOpen and menuSwitch != 0 and barIds.len > 0:
     let i = barIds.find(ui.popup)
     if i >= 0:
@@ -3274,7 +3284,12 @@ proc beginMenu*(title: string): bool =
   ## A menu of the menu bar (see `menu`): true while it is open (draw its
   ## items, then `endMenu`).
   let id = idOfLabel("menu:", title)
-  let tr = rect(barX, ui.barY, labelWidth(title, boldMenus) + dp(16), MenuH)
+  let tw = labelWidth(title, boldMenus) + dp(16)
+  if barX + tw > ui.winX + ui.w - ui.safe.right and barX > ui.winX + ui.safe.left:
+    # (no room left on this row: the next one -- a phone's narrow screen)
+    barX = ui.winX + ui.safe.left
+    inc barRow
+  let tr = rect(barX, ui.barY + barRow * MenuH, tw, MenuH)
   notePlaced(tr)
   barX += tr.w
   barIds.add id

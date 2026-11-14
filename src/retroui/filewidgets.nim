@@ -25,7 +25,7 @@
 import std/[os, strutils, times, tables, sets, algorithm, monotimes, sequtils]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 import gfx, core, widgets, business, extras, nerdicons, pixelicons, platform, files,
-       imaging, background, textfile, docfs, memwatch
+       imaging, background, textfile, docfs, memwatch, apkinfo
 import uirelays/services
 
 template th: untyped = ui.theme
@@ -1489,7 +1489,8 @@ proc editName*(m: FolderModel) =
 
 # ---- facts and the preview --------------------------------------------------------------------
 
-var pv: tuple[key: string; text: string; job: FileJob; size: tuple[w, h: int]]
+var pv: tuple[key: string; text: string; job: FileJob; size: tuple[w, h: int]; apk: ApkInfo;
+              apkIcon: Bitmap]
 
 proc permissionsText*(path: string): string =
   ## "rwxr-xr-x" ("" on Windows or when it cannot be read).
@@ -1520,7 +1521,13 @@ proc filePreview*(items: openArray[FileItem]; folder = ""; folderStats =
     if pv.job != nil: pv.job.cancel()
     pv.job = nil
     pv.size = (0, 0)
+    pv.apk = ApkInfo()
+    pv.apkIcon = nil
     if one:
+      if extOf(f.name) == "apk" and f.size < 512 shl 20:
+        # (an app's package: what it says of itself, its icon)
+        pv.apk = readApk(f.path)
+        if pv.apk.icon.startsWith("\x89PNG"): pv.apkIcon = decodePng(pv.apk.icon)
       if isPicture(f): pv.size = pictureSize(f.path)
       elif isTextFile(f) and f.size > 0:
         try:
@@ -1564,7 +1571,11 @@ proc filePreview*(items: openArray[FileItem]; folder = ""; folderStats =
     y += pr.h + pad
   # the picture, the start of the text, or a big icon
   var shown = false
-  if one and isPicture(f):
+  if one and pv.apkIcon != nil:
+    let side = min(min(pr.w, pr.h), dp(96))
+    drawBitmap(rect(pr.x + (pr.w - side) div 2, pr.y + (pr.h - side) div 2, side, side), pv.apkIcon)
+    shown = true
+  elif one and isPicture(f):
     shown = drawPicture(pr, f.path, f.modified.toUnix, priority = 3)
     if not shown and not pictures().failed(f.path, f.modified.toUnix):
       drawSpinner(pr.x + pr.w div 2, pr.y + pr.h div 2, min(FontH * 2, pr.h div 2))
@@ -1603,6 +1614,10 @@ proc filePreview*(items: openArray[FileItem]; folder = ""; folderStats =
   y += dp(4)
   var facts: seq[(string, string)]
   if one:
+    if pv.apk.ok:
+      if pv.apk.label.len > 0: facts.add ("App", pv.apk.label)
+      if pv.apk.versionName.len > 0: facts.add ("Version", pv.apk.versionName)
+      facts.add ("Package", pv.apk.package)
     if not f.isDir: facts.add ("Size", sizeText(f.size))
     elif pv.job != nil:
       let busy = pv.job.state == jsRunning

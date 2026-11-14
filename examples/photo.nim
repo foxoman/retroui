@@ -11,6 +11,7 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[os, strutils, math, tables, times, algorithm, json, hashes, cpuinfo, sets, sequtils]
+from retroui/system import sharedIn
 import retroui
 import retroui/lang_ar as kitArabic
 import retroui/rscript except parseJson, toJson
@@ -27,7 +28,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 
 const
   AppName = "Retro Photo"
-  AppVersion = "4.9.12"
+  AppVersion = "4.10.0"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -3946,13 +3947,15 @@ proc taskBarDraw(dw: DocWin)
 
 proc docStatus(dw: DocWin)
 
+var docHeight = -1        # (the picture's height on a phone: its room above the panel and tools)
+
 proc docBody(dw: DocWin) =
   let d = dw.doc
   dw.view.allowGuideGrab = tool == tMove and not drag.on
   dw.taskBarPress()                # (its buttons before the image takes the mouse)
   # (the status under the image, left of its scroll bar: as today's editors)
   let stW = clamp(available() * 55 div 100, dp(170), dp(560))
-  var ev = photoView(d, dw.view, key = $cast[uint](dw), statusW = stW)
+  var ev = photoView(d, dw.view, height = docHeight, key = $cast[uint](dw), statusW = stW)
   beginKeepSides(dw.view.keepRect)     # (what is drawn over the image: as it is, right to left too)
   defer: endKeepSides()
   dw.docStatus()
@@ -4146,6 +4149,12 @@ include photo/pdfexport
 include photo/fontget
 include photo/optionsbar
 include photo/dockpanels
+
+proc phoneLayout(): bool =
+  ## A phone held upright (narrow): the phone's layout, not the workspace.
+  isCompact() and ui.h > ui.w
+
+include photo/phone
 include photo/ccfeatures
 
 # ---- the window -----------------------------------------------------------------------------------
@@ -4461,7 +4470,7 @@ proc photoFrame() =
   ## is taken back.
   saveWatch()
   autosaveTick()
-  if sessionPending and mdiAreaRect("ws").w > 0 and ui.now >= splashUntil: restoreSession()
+  if sessionPending and (mdiAreaRect("ws").w > 0 or phoneLayout()) and ui.now >= splashUntil: restoreSession()
   strokesMade = 0                # (the brushes' strokes: a few a frame)
   var open: seq[Doc]
   for dw in docs:
@@ -4469,7 +4478,7 @@ proc photoFrame() =
   beginBusy("", cancel = true)
   let mark = layoutMark()
   try:
-    frame()
+    if phoneLayout(): phoneFrame() else: frame()
   except BusyCancelled:
     for dw in docs:
       dw.doc.endLive()
@@ -4560,6 +4569,9 @@ proc main() =
       first = false
     # (the type tool's fonts looked for on a thread once the window shows)
     if framesShown() > 0: scanFontsSoon()
+    # (pictures shared from another app -- Android's share sheet, "Edit in
+    # Retro Photo": each opened)
+    for f in sharedIn().files: openFile(f)
     photoFrame()
     endFrame()
   if saving(): discard waitForSave()

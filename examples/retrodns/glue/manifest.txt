@@ -15,3 +15,9 @@ service android:name=net.foxoman.retrodns.DnsVpn android:permission=android.perm
   intent-filter
     action android:name=android.net.VpnService
 receiver android:name=net.foxoman.retrodns.VpnStop android:exported=false android:process=:vpn
+
+# The quick settings' tile (Android 7 and later): the VPN on and off with a
+# tap, in the VPN's process, where its state is.
+service android:name=net.foxoman.retrodns.DnsTile android:label=DNS android:icon=@0x7f010000 android:permission=android.permission.BIND_QUICK_SETTINGS_TILE android:exported=true android:process=:vpn
+  intent-filter
+    action android:name=android.service.quicksettings.action.QS_TILE

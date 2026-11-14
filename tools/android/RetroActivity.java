@@ -78,6 +78,7 @@ public class RetroActivity extends NativeActivity {
     } catch (Throwable ignored) { }
     super.onCreate(state);
     takeShared(getIntent());
+    takeAction(getIntent());
     getWindow().getDecorView().setOnApplyWindowInsetsListener(
         new View.OnApplyWindowInsetsListener() {
           public WindowInsets onApplyWindowInsets(View v, WindowInsets in) {
@@ -229,6 +230,47 @@ public class RetroActivity extends NativeActivity {
     }
   }
 
+  /** An app's package (.apk) to Android's installer: 0 the installer
+   *  opened; 1 the system's "Install unknown apps" setting opened instead
+   *  (this app is not allowed yet: allowed there, ask again); 2 this app
+   *  may not install apps (built without REQUEST_INSTALL_PACKAGES); 3 it
+   *  failed. */
+  int installApk(String path) {
+    try {
+      if (Build.VERSION.SDK_INT >= 26) {
+        boolean declared = false;
+        String[] req = getPackageManager().getPackageInfo(getPackageName(),
+            PackageManager.GET_PERMISSIONS).requestedPermissions;
+        if (req != null)
+          for (String r : req)
+            if ("android.permission.REQUEST_INSTALL_PACKAGES".equals(r)) declared = true;
+        if (!declared) return 2;
+        // (API 26's: called by name, the dex is built against API 23)
+        Object can = PackageManager.class.getMethod("canRequestPackageInstalls")
+            .invoke(getPackageManager());
+        if (!Boolean.TRUE.equals(can)) {
+          Intent s = new Intent("android.settings.MANAGE_UNKNOWN_APP_SOURCES",
+              Uri.parse("package:" + getPackageName()));
+          s.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+          startActivity(s);
+          return 1;
+        }
+      }
+      // (a document of another app: its own address; else this app's provider)
+      Uri doc = new java.io.File(path).canRead() ? null : docUriFor(path);
+      Uri uri = doc != null ? doc : new Uri.Builder().scheme("content")
+          .authority(getPackageName() + ".files").path(path).build();
+      Intent i = new Intent(Intent.ACTION_VIEW);
+      i.setDataAndType(uri, "application/vnd.android.package-archive");
+      i.setClipData(ClipData.newRawUri("", uri));
+      i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+      startActivity(i);
+      return 0;
+    } catch (Throwable t) {
+      return 3;
+    }
+  }
+
   /** A photo (JPEG, PNG, WebP, HEIC...) about maxW x maxH or a little
    *  larger, upright: [width, height, ARGB pixels...]; null if it cannot. */
   public int[] decodeImage(String path, int maxW, int maxH) {
@@ -305,6 +347,47 @@ public class RetroActivity extends NativeActivity {
     super.onNewIntent(i);
     setIntent(i);
     takeShared(i);
+    takeAction(i);
+  }
+
+  // A notification's button pressed (retroui/notify's actions): "tag\taction",
+  // taken by the native side with "notifyActions"; the notification goes.
+  static final java.util.ArrayList<String> notifyActions = new java.util.ArrayList<String>();
+  static final String ActionExtra = "org.retro.notifyAction";
+
+  void takeAction(Intent i) {
+    if (i == null) return;
+    String a = i.getStringExtra(ActionExtra);
+    if (a == null) return;
+    i.removeExtra(ActionExtra);
+    synchronized (notifyActions) { notifyActions.add(a); }
+    try {
+      int tab = a.indexOf('\t');
+      String tag = tab > 0 ? a.substring(0, tab) : null;
+      ((android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(tag, 1);
+    } catch (Throwable t) { }
+  }
+
+  /** Buttons on a notification being built (at most three, apart by
+   *  \u0001): each opens the app with "tag\taction". Static: a background
+   *  check posts notifications too, with no activity. */
+  public static void addNotifyActions(Context c, android.app.Notification.Builder b,
+                                      String tag, String actions) {
+    try {
+      Intent launch = c.getPackageManager().getLaunchIntentForPackage(c.getPackageName());
+      if (launch == null) return;
+      String[] as = actions.split("\u0001");
+      for (int k = 0; k < as.length && k < 3; k++) {
+        if (as[k].length() == 0) continue;
+        Intent it = new Intent(launch);
+        it.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        it.putExtra(ActionExtra, tag + "\t" + as[k]);
+        int code = (tag + "\t" + as[k]).hashCode() & 0x7fffffff;
+        android.app.PendingIntent pi = android.app.PendingIntent.getActivity(c, code, it,
+            0x04000000 | 0x08000000);         // IMMUTABLE, UPDATE_CURRENT
+        b.addAction(new android.app.Notification.Action(0, as[k], pi));
+      }
+    } catch (Throwable t) { }
   }
 
   void takeShared(Intent i) {
@@ -359,7 +442,7 @@ public class RetroActivity extends NativeActivity {
   public byte[] uirelaysCall(String name, String arg) {
     try {
       // (pictures go as bytes, not text)
-      if (name.equals("camera.frame")) return RetroCamera.frameBytes();
+      if (name.equals("camera.frame")) return RetroCamera.frameBytes(this);
       String r = call(name, arg);
       return r == null ? null : r.getBytes("UTF-8");
     } catch (Throwable t) {
@@ -389,6 +472,20 @@ public class RetroActivity extends NativeActivity {
           b.append(e);
         }
         shared.clear();
+        return b.toString();
+      }
+    }
+    if (name.equals("installApk")) return String.valueOf(installApk(a[0]));
+    if (name.equals("homeWidget"))
+      return RetroWidget.set(this, a[0], a.length > 1 ? a[1] : "", a.length > 2 ? a[2] : "") ? "1" : "0";
+    if (name.equals("notifyActions")) {
+      synchronized (notifyActions) {
+        StringBuilder b = new StringBuilder();
+        for (String e : notifyActions) {
+          if (b.length() > 0) b.append('\u0001');
+          b.append(e);
+        }
+        notifyActions.clear();
         return b.toString();
       }
     }

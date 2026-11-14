@@ -6,6 +6,7 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[os, strutils, times]
+from retroui/system import sharedIn
 import retroui
 import retroui/report
 
@@ -103,6 +104,18 @@ proc findNext(backwards = false) =
     select(at, at + finder.what.len)
 
 app "Notepad", 620, 420:
+  # (a text or a file shared from another app -- Android's share sheet: a
+  # file opened; a text a document of its own, or put at the caret when
+  # this one has changes)
+  let came = sharedIn()
+  if came.files.len > 0: load(came.files[0])
+  elif came.text.len > 0:
+    if text == saved:
+      text = came.text
+      saved = ""
+      path = ""
+      select(0, 0)
+    else: replaceSelection(came.text)
   let wanted = "Notepad - " & docName()
   if ui.title != wanted: setTitle(wanted)
   if closeRequested() and text != saved:

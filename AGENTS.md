@@ -185,7 +185,7 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
    `tests/kiosk/run.sh`, `tests/store/linux.sh`. GitHub runs the long ones
    every night (`.github/workflows/nightly.yml`: sanitizers, long fuzzing,
    libFuzzer on `tests/fuzz/libfuzz.nim`, 32-bit, WebAssembly, the tests
-   three times over, eight apps soaked); a crash's input is in the run's
+   three times over, ten apps soaked); a crash's input is in the run's
    artifacts. An app changed: `sh tools/soak.sh 10 APP` (ten minutes of
    random input, its memory watched; as a user of its own: the clicks
    delete what they reach) -- a fault it finds has its stack in a build

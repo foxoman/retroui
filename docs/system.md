@@ -63,6 +63,9 @@ what it needs (see "What the app declares").
 | Call | Linux, BSD | Windows | macOS | Android app | iOS | Web page |
 |---|---|---|---|---|---|---|
 | `notify`, `clearNotification` | ✓ D-Bus (GNOME, KDE, dunst...) | ✓ a toast | ✓ Notification Center | ✓ *permission* | – | ✓ *asks* |
+| a notification's buttons (`notificationActions`) | – | – | – | ✓ | – | – |
+| `homeWidget` | – | – | – | ✓ *`--widget`* | – | – |
+| `installApk` | – | – | – | ✓ *permission* | – | – |
 | `setBadge` | – | – | ✓ the Dock | ✓ launchers | – | ✓ installed app |
 | `share` (text, link, files) | – | – | ✓ share menu | ✓ share sheet | ✓ share sheet | ✓ Web Share *(not Firefox desktop)* |
 | `haptic` | – | – | ✓ trackpads | ✓ | ✓ | ✓ phones |
@@ -84,6 +87,7 @@ what it needs (see "What the app declares").
 | `beepSystem` | ✓ X11 bell | ✓ | ✓ | ✓ | ✓ | ✓ a tone |
 | `openSettings` | ✓ | ✓ | ✓ | ✓ | ✓ | – |
 | camera, microphone (`retroui/capture`) | ✓ V4L2, PulseAudio | ✓ Media Foundation | ✓ AVFoundation | ✓ *permission* | ✓ *Info.plist* | ✓ *https, asks* |
+| the camera's zoom, flash, focus, exposure; full-size photos (`cameraCaps`) | – | – | – | ✓ Camera2 | – | – |
 | media keys (`retroui/mediasession`) | ✓ MPRIS | ✓ SMTC | ✓ Now Playing | ✓ MediaSession | ✓ | ✓ Media Session |
 | a sound playing on in the background (`audioView`) | ✓ | ✓ | ✓ | ✓ *a foreground service* | ✓ *UIBackgroundModes* | ✓ while the tab is open |
 | an icon in the tray (`retroui/tray`) | ✓ StatusNotifierItem *(KDE, XFCE, Cinnamon; GNOME with AppIndicator)* | ✓ the notification area | ✓ the menu bar | – | – | – |
@@ -118,9 +122,10 @@ required, so the app installs on a device without a camera or GPS.
 | background checks | | `--background` |
 | plain `http://` addresses (Android 9+ refuses them; the kit asks for https instead) | | `--cleartext` (a browser, a podcast player) |
 | in the other apps' share sheets (`sharedIn`) | | `--share-target:text/plain,image/*` |
+| a widget on the home screen (`homeWidget`) | | `--widget` |
 | a sound playing on in the background (`audioView`) | ✓ (`FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, the playback service) | `--permission:FOREGROUND_SERVICE --permission:FOREGROUND_SERVICE_MEDIA_PLAYBACK` |
 | Java of the app's own (a service, a receiver) | | `--java:DIR` (its classes.dex, its manifest.txt) |
-| installing an update's APK | | `--permission:REQUEST_INSTALL_PACKAGES` |
+| installing an update's APK, or another app's (`installApk`) | | `--permission:REQUEST_INSTALL_PACKAGES` |
 
 The window asks the user the first time a feature is used (never a
 background check); a "no" makes the call answer false or `psDenied`, and
@@ -154,6 +159,47 @@ setBadge(unread)                    # the count on the app's icon
 
 `tag` replaces the notification shown before with the same tag. With
 `retroui/bgcheck` an Android app notifies while it is closed.
+
+Buttons on it (Android: at most three; elsewhere the notification
+without them):
+
+```nim
+discard notify("New mail", "3 new messages", tag = "inbox", actions = ["Mark as read"])
+for (tag, action) in notificationActions():   # each frame, the first ones too
+  if tag == "inbox" and action == "Mark as read": unread = 0
+```
+
+A press opens the app (or brings it up) and takes the notification away.
+
+## A widget on the home screen
+
+An Android app made with `retroapk --widget` has a widget the user puts
+on the home screen: its icon, a title, a line or two, two buttons. The
+app says what it shows, and it stays so while the app is closed:
+
+```nim
+homeWidget("Retro Podcast", "Now playing: Episode 12", ["Pause", "Ahead"])
+for (tag, action) in notificationActions():
+  if tag == "widget" and action == "Pause": playVideo("player", false)
+```
+
+A tap on the widget opens the app; a button opens it too and comes as an
+action with the tag "widget". False (nothing) elsewhere. Retro DNS's
+widget turns it on and off; Retro Podcast's plays and pauses.
+
+## Installing an app
+
+```nim
+case installApk("/sdcard/Download/notes.apk")   # Android's installer asks the user
+of aiInstaller: discard
+of aiAllowFirst: toast("Allow Retro Files to install apps, then press Install again")
+of aiNotDeclared: toast("Built without --permission:REQUEST_INSTALL_PACKAGES")
+of aiFailed, aiNotHere: toast("It cannot be installed here")
+```
+
+`retroui/apkinfo` reads a package without installing it: `readApk(path)`
+gives its name, version, package, the Android versions, its permissions,
+its activities and services, and its icon (Retro Files shows them).
 
 ## Sharing
 
@@ -299,6 +345,21 @@ app "Camera", 640, 520:
 
 In a web page the picture comes through getUserMedia; a recording is a
 16-bit WAV written where the app said.
+
+On an Android phone the picture stands up as the phone is held, a photo
+is a JPEG at the sensor's whole size, two fingers on the view zoom and a
+tap focuses there; the app sets the rest:
+
+```nim
+let caps = cameraCaps()                       # what this camera has (all 0 elsewhere)
+if caps.zoomMax > 1: cameraZoom("", 2.0)      # under 1: the wide lens, where there is one
+if caps.flash: cameraFlash("", cflAuto)       # cflOff, cflAuto, cflOn, cflTorch
+cameraExposure("", -0.7)                      # EV, in caps.exposureMin .. exposureMax
+cameraFocus("", 0.5, 0.3)                     # a point of the picture (0..1); -1: by itself
+```
+
+`cameras()` names each lens with its focal length (a wide one, a tele
+one); `CameraEvent.zoom` is the zoom now.
 
 ## The media keys and the lock screen
 

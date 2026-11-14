@@ -72,15 +72,16 @@ jobs:
     # each app worked for an hour by the kit's random input (clicks,
     # keys, typing; an Exit clicked does not end it), its memory sampled:
     # one that keeps growing once warm, or that faults, fails (tools/soak.sh;
-    # each app in a home of its own on a runner that is thrown away; not
-    # Retro Board nor Retro Navigator: the clicks keep adding shapes, or
-    # opening tabs, and their memory grows with what they hold)
+    # each app in a home of its own on a runner that is thrown away; Retro
+    # Board starts a new board past 400 shapes, Retro Navigator keeps 8 tabs
+    # at most, under it: what they hold does not grow without end; Navigator
+    # shows its pages with the kit's engine there)
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        app: [gallery, filemanager, photo, mail, retrodns, podcast, grow, taskman]
+        app: [gallery, filemanager, photo, retroboard, mail, navigator, retrodns, podcast, grow, taskman]
     steps:
       - uses: actions/checkout@v5
       - uses: jiro4989/setup-nim-action@v2

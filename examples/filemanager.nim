@@ -29,8 +29,10 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[os, strutils, times, algorithm, monotimes]
-import retroui, retroui/[pdfview, morepictures, lang_ar]
+import std/[os, strutils, times, algorithm, monotimes, hashes]
+import retroui, retroui/[pdfview, morepictures, lang_ar, apkinfo, tar, htmlview, view3d, gltf,
+                          xlsx, mime, textengine, imaging, webp]
+from retroui/system import installApk, ApkInstall, sharedIn
 import filemanager/lang_ar as filesLang
 
 const TermuxHome = "/data/data/com.termux/files/home"
@@ -38,10 +40,11 @@ const TermuxHome = "/data/data/com.termux/files/home"
 const
   AppTitle = "Retro Files"
   AppId = "RetroFiles"
-  AppVersion = "3.4.1"
+  AppVersion = "3.5.0"
 
 type
-  ViewerKind = enum vkNone, vkText, vkMarkdown, vkImage, vkHex, vkZip, vkPdf, vkVideo, vkAudio
+  ViewerKind = enum vkNone, vkText, vkMarkdown, vkImage, vkHex, vkZip, vkPdf, vkVideo, vkAudio,
+                    vkApk, vkTar, vkHtml, vkFont, vkModel, vkSheet, vkMail
   NameAction = enum naNone, naNewFolder, naNewFile, naRename, naZip
   StartIn = enum siLast, siHome, siStorage
   Special = enum spFolder, spDevice, spTrash
@@ -87,9 +90,10 @@ var
   showDrives = true                # the drive bar under the tool bar
   showToolbar = true               # View > Toolbars > Standard Buttons
   showStatus = true                # View > Status Bar
-  webView = true                   # View > as Web Page: the folder and the selection described at the left
-  webW = 190                       # (its width)
-  showPreview = true
+  webW = 190                       # (the details pane's width, at the left)
+  showPreview = true               # the details pane: as Explorer 98's Web page at the left of
+                                   # the files, else (a phone, a narrow window) under them
+  detailsLeft = false              # (this frame: it is at the left)
   followHover = true
   dual = false
   inWindows* = false               # the folders in windows of their own (MDI), not tabs
@@ -176,6 +180,16 @@ var
   viewEntries: seq[ZipEntry]
   viewEntrySel = 0
   mdSource = false
+  viewApk: ApkInfo                 # an app's package: what it says of itself
+  viewApkIcon: Bitmap
+  viewTar: Tar                     # a tar archive, read whole
+  viewSheets: seq[XlsxSheet]       # a spreadsheet's sheets (a CSV: one)
+  viewSheetAt = 0
+  viewSheetSel = 0
+  viewMail: MimePart               # a message (.eml)
+  viewMailBody: tuple[html, text: string]
+  viewModel: Scene3                # a 3D model
+  viewCam: Camera3
   # house-keeping
   savedDir = ""
   pausedSaved = false
@@ -268,7 +282,6 @@ proc saveSettings() =
   prefs.put "drives", showDrives
   prefs.put "toolbar", showToolbar
   prefs.put "statusbar", showStatus
-  prefs.put "webview", webView
   prefs.put "webw", webW
   prefs.put "barlook", ord(toolbarLook)
   prefs.put "preview", showPreview
@@ -333,11 +346,12 @@ proc loadSettings(): string =
   showDrives = prefs.getBool("drives", true)
   showToolbar = prefs.getBool("toolbar", true)
   showStatus = prefs.getBool("statusbar", true)
-  webView = prefs.getBool("webview", true)
   webW = clamp(prefs.getInt("webw", 190), 120, 600)
   # (the tool bar's labels: under the icons, as Explorer 98 had them)
   setToolbarLook(ButtonLook(clamp(prefs.getInt("barlook", ord(blTextBelow)), 0, ord(ButtonLook.high))))
-  showPreview = prefs.getBool("preview", true)
+  # (0.49's two panes, the Web page's and the Preview's, are one now: on
+  # when either was)
+  showPreview = prefs.getBool("preview", true) or prefs.getBool("webview", false)
   followHover = prefs.getBool("followhover", true)
   dual = prefs.getBool("dual")
   inWindows = prefs.getBool("windows")
@@ -639,6 +653,63 @@ proc dropBigCopy() =
 
 var focusBeforeViewer: Id       # (the list that opened the viewer: the focus goes back to it)
 
+proc fontSheet(path, name: string): Bitmap =
+  ## A font file's sample sheet: its name, the alphabet and the digits at
+  ## sizes from small to large, as a picture (drawn by `retroui/textengine`
+  ## from the file itself, not installed).
+  let data = readFile(path)
+  let family = "Files preview " & $hash(path)
+  addFontData(family, "Regular", data)
+  let f = fontFace(family, "Regular")
+  let shown = if f.face != nil and f.face.family.len > 0: f.face.family else: name
+  let W = max(dp(480), min(screenSize(), dp(1400)))
+  var lines: seq[(string, float32)] = @[(shown, 40'f32),
+    ("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 24'f32), ("abcdefghijklmnopqrstuvwxyz", 24'f32),
+    ("0123456789 .,;:!?()[]&%$#@", 24'f32)]
+  for size in [12, 18, 24, 36, 48, 72]:
+    lines.add ($size & "  " & tr("The quick brown fox jumps over the lazy dog"), float32(size))
+  var H = dp(16)
+  for (_, sz) in lines: H += dp(int(sz * 1.45)) + dp(4)
+  result = newBitmap(W, H, 0xFFFFFFFF'u32)
+  var y = float32(dp(12))
+  for (t, sz) in lines:
+    var st = defaultStyle()
+    st.family = family
+    st.size = float32(dp(int(sz)))
+    let td = newText(t, st, float32(dp(12)), y + st.size)
+    discard td.renderTextInto(result.px, W, H, layoutText(td))
+    y += float32(dp(int(sz * 1.45)) + dp(4))
+
+proc sheetsOf(path, name: string): seq[XlsxSheet] =
+  ## A workbook's sheets, or a CSV (TSV) file as one sheet.
+  if extOf(name) == "xlsx": return readXlsx(path)
+  let sep = if extOf(name) == "tsv": '\t' else: ','
+  var sh = XlsxSheet(name: name.splitFile.name)
+  for line in readFile(path).splitLines:
+    if line.len == 0 and sh.rows.len > 0: continue
+    var row: seq[string]
+    var cell = ""
+    var quoted = false
+    var i = 0
+    while i < line.len:
+      let c = line[i]
+      if quoted:
+        if c == '"' and i + 1 < line.len and line[i + 1] == '"':
+          cell.add '"'
+          inc i
+        elif c == '"': quoted = false
+        else: cell.add c
+      elif c == '"': quoted = true
+      elif c == sep:
+        row.add cell
+        cell = ""
+      else: cell.add c
+      inc i
+    row.add cell
+    sh.rows.add row
+    if sh.rows.len >= 200_000: break
+  @[sh]
+
 proc openViewer(f: FileItem; kind: ViewerKind) =
   focusBeforeViewer = ui.focus
   closeFiles()
@@ -678,6 +749,33 @@ proc openViewer(f: FileItem; kind: ViewerKind) =
     of vkPdf:
       viewPdf = openPdfView(viewSrc)
       pdfFocus = true
+    of vkApk:
+      viewApk = readApk(viewSrc)
+      viewApkIcon = nil
+      if viewApk.icon.startsWith("\x89PNG"): viewApkIcon = decodePng(viewApk.icon)
+      elif viewApk.icon.startsWith("RIFF"): viewApkIcon = decodeWebp(viewApk.icon)
+      if not viewApk.ok: raise newException(ValueError, viewApk.error)
+    of vkTar:
+      viewTar = readTar(viewSrc)
+      viewEntrySel = 0
+    of vkHtml:
+      if f.size > 8_000_000: raise newException(ValueError, tr("too big to show as a page"))
+      viewText = readFile(viewSrc)
+    of vkFont: viewPic = fontSheet(viewSrc, f.name)
+    of vkModel:
+      if extOf(f.name) in ["glb", "gltf"]: viewModel = loadGltf(viewSrc)
+      else:
+        viewModel = Scene3()
+        viewModel.add loadModel(viewSrc)
+      viewCam = camera3()
+      fitView(viewModel, viewCam)
+    of vkSheet:
+      viewSheets = sheetsOf(viewSrc, f.name)
+      viewSheetAt = 0
+      viewSheetSel = 0
+    of vkMail:
+      viewMail = parseMailFile(viewSrc)
+      viewMailBody = bodies(viewMail)
     of vkVideo, vkAudio, vkNone: discard
   except CatchableError as e:
     viewer = vkNone
@@ -694,6 +792,13 @@ proc openItem(f: FileItem) =
     elif fileExists(t): openItem(infoOf(t))
     else: showError(tr("What this shortcut leads to is not there:\n") & t)
   elif extOf(f.name) == "zip": openViewer(f, vkZip)
+  elif extOf(f.name) == "apk": openViewer(f, vkApk)
+  elif isTarName(f.name): openViewer(f, vkTar)
+  elif extOf(f.name) in ["html", "htm", "xhtml"]: openViewer(f, vkHtml)
+  elif extOf(f.name) in ["ttf", "otf"]: openViewer(f, vkFont)
+  elif extOf(f.name) in ["glb", "gltf", "obj", "stl"]: openViewer(f, vkModel)
+  elif extOf(f.name) in ["xlsx", "csv", "tsv"]: openViewer(f, vkSheet)
+  elif extOf(f.name) == "eml": openViewer(f, vkMail)
   elif isMarkdown(f): openViewer(f, vkMarkdown)
   elif extOf(f.name) in ["pdf", "ai"]: openViewer(f, vkPdf)
   elif kindOf(f) == fkVideo and videoPlaysInWindow(): openViewer(f, vkVideo)
@@ -701,6 +806,14 @@ proc openItem(f: FileItem) =
   elif isPicture(f) and kindOf(f) != fkVideo: openViewer(f, vkImage)
   elif isTextFile(f): openViewer(f, vkText)
   elif not openFile(f.path): openViewer(f, vkHex)
+
+proc openPath*(path: string) =
+  ## The file at `path` opened as a tap opens it (the tests).
+  openItem(infoOf(path))
+
+proc viewerShown*(): string =
+  ## The viewer open ("vkNone": none; the tests).
+  $viewer
 
 proc closeViewer(force = false) =
   if not force and editing and viewText != viewSaved:
@@ -713,6 +826,12 @@ proc closeViewer(force = false) =
   slideOn = false
   viewPic = nil
   viewText = ""
+  viewTar = Tar()
+  viewSheets.setLen(0)
+  viewModel = Scene3()
+  viewMail = nil
+  viewMailBody = ("", "")
+  viewApkIcon = nil
   editing = false
   folder.reload(viewInfo.name)
   # (back on the file that was opened, in the list it was opened from: the
@@ -770,6 +889,74 @@ proc siblingOf(step: int) =
     if p.path == viewInfo.path: at = i
   openViewer(list[(at + step + list.len) mod list.len], want)
 
+proc installThis() =
+  ## The app's package shown, to Android's installer.
+  case installApk(viewSrc)
+  of aiInstaller: discard
+  of aiAllowFirst:
+    toast(tr("Allow Retro Files to install apps, then tap Install again."), glyph = pxInfo)
+  of aiNotDeclared, aiNotHere:
+    showError(tr("This copy of Retro Files may not install apps."))
+  of aiFailed: showError(tr("Android would not install ") & viewInfo.name & ".")
+
+proc androidName(api: int): string =
+  ## "Android 8 (API 26)": the version of an API level.
+  const names = [(21, "5.0"), (23, "6"), (24, "7"), (26, "8"), (28, "9"), (29, "10"), (30, "11"),
+                 (31, "12"), (33, "13"), (34, "14"), (35, "15"), (36, "16")]
+  var v = ""
+  for (n, name) in names:
+    if api >= n: v = name
+  if v.len > 0: "Android " & v & " (API " & $api & ")" else: "API " & $api
+
+proc apkScreen() =
+  ## An app's package: its icon, name and version, what it runs on and what
+  ## it asks for -- and Install, on Android.
+  let a = viewApk
+  panel:
+    row:
+      if viewApkIcon != nil:
+        let r = canvas(dp(72), dp(72))
+        drawBitmap(r, viewApkIcon)
+      else: iconLabel(pxApp, "")
+      col:
+        label(if a.label.len > 0: a.label else: viewInfo.name.splitFile.name, bold = true)
+        label(a.package, color = ui.theme.gray)
+        label(tr("Version ") & a.versionName & "  (" & $a.versionCode & ")")
+    if platformName() == "android":
+      row:
+        if button(tr("&Install"), isDefault = true): installThis()
+        spring()
+    if a.minSdk > 0: label(tr("Runs on: ") & androidName(a.minSdk) & tr(" and later"))
+    if a.targetSdk > 0: label(tr("Made for: ") & androidName(a.targetSdk))
+    label(tr("Size: ") & sizeText(viewInfo.size))
+    label(tr("Its code for: ") & (if a.abis.len > 0: a.abis.join(", ") else: tr("any processor")))
+    label(countText(a.activities, "screen") & ", " & countText(a.services, "service"))
+    label(tr("It asks for:"), bold = true)
+    if a.permissions.len == 0: label(tr("nothing"), color = ui.theme.gray)
+    for p in a.permissions:
+      label("  " & p.replace("android.permission.", "").replace("_", " ").toLowerAscii)
+
+proc mailScreen() =
+  ## A message (.eml): who, when, what, its text, its files.
+  let m = viewMail
+  var lines = 2
+  for h in ["From", "To", "Cc", "Date"]:
+    if m.decodedHeader(h).len > 0: inc lines
+  panel(lines * (FontH + dp(6)) + dp(16)):
+    label(m.decodedHeader("Subject"), bold = true)
+    for (h, name) in [("From", tr("From: ")), ("To", tr("To: ")), ("Cc", tr("Cc: ")), ("Date", tr("Date: "))]:
+      let v = m.decodedHeader(h)
+      if v.len > 0: label(name & v, color = ui.theme.gray)
+    var names: seq[string]
+    for f in attachments(m):
+      if not f.inline: names.add f.filename
+    if names.len > 0:
+      label(countText(names.len, "file") & ": " & names.join(", "), color = ui.theme.gray)
+  if viewMailBody.html.len > 0: discard htmlView(viewMailBody.html, key = "viewer")
+  else:
+    let lines = viewMailBody.text.splitLines
+    discard lineView(lines.len, proc (i: int): string = lines[i], viewSel)
+
 proc viewerScreen() =
   ## The viewer takes the window: a bar with Back and the file's commands.
   let name = viewInfo.name
@@ -809,9 +996,19 @@ proc viewerScreen() =
         if not viewPicFull:
           viewPicFull = true
           askPicture(viewSrc, if ui.touch: 4096 else: 8192)
-    of vkZip:
+    of vkZip, vkTar:
       if toolButton(pxFolderOpen, "Extract all here", size = s):
         startJob(jkUnzip, @[viewSrc], viewInfo.path.parentDir, "Extracting")
+    of vkApk:
+      if platformName() == "android":
+        if toolButton(pxDownloads, "Install", size = s): installThis()
+      if toolButton(pxFolderOpen, "Show its files", size = s):
+        let f = viewInfo
+        openViewer(f, vkZip)
+    of vkHtml, vkSheet:
+      if toolButton(pxCode, "Show it as text", size = s):
+        let f = viewInfo
+        openViewer(f, vkText)
     of vkPdf:
       if viewPdf != nil:
         if toolButton(pxBack, "Previous page (Left)", size = s, enabled = viewPdf.page > 0):
@@ -842,6 +1039,11 @@ proc viewerScreen() =
     let info = case viewer
       of vkImage: (if viewPic != nil: $viewPic.w & " x " & $viewPic.h & tr(" pixels") else: "")
       of vkZip: countText(viewEntries.len, "entry", "entries")
+      of vkTar: countText(viewTar.entries.len, "entry", "entries")
+      of vkApk: (if viewApk.versionName.len > 0: tr("version ") & viewApk.versionName else: sizeText(viewInfo.size))
+      of vkSheet:
+        (if viewSheetAt < viewSheets.len: countText(viewSheets[viewSheetAt].rows.len, "row") else: "")
+      of vkModel: countText(viewModel.meshes.len, "mesh", "meshes")
       of vkText: (if editing: sizeText(viewText.len) else: textFileStatus(bigText))
       of vkHex: (if hexFile != nil: sizeText(hexFile.size) else: "")
       of vkPdf: (if viewPdf != nil: $viewPdf.zoomPercent & "%" else: "")
@@ -895,6 +1097,51 @@ proc viewerScreen() =
     , viewEntrySel, height = -1, icon = proc (r: int): Icon =
       fileIcon(FileItem(name: viewEntries[r].name, isDir: viewEntries[r].isDir),
                min(ItemH - 2, FontH + 8)))
+  of vkApk: apkScreen()
+  of vkTar:
+    var tc = @[column(tr("Name"), 360), column(tr("Size"), 90, alRight), column(tr("Modified"), 150)]
+    discard grid(tc, viewTar.entries.len, proc (r, c: int): string =
+      let e = viewTar.entries[r]
+      case c
+      of 0: e.name & (if e.isLink: tr("  (a link)") else: "")
+      of 1: (if e.isDir or e.isLink: "" else: sizeText(e.size))
+      else: timeText(e.time)
+    , viewEntrySel, height = -1, icon = proc (r: int): Icon =
+      fileIcon(FileItem(name: viewTar.entries[r].name.strip(chars = {'/'}), isDir: viewTar.entries[r].isDir),
+               min(ItemH - 2, FontH + 8)))
+  of vkHtml:
+    let ev = htmlView(viewText, baseDir = viewInfo.path.parentDir, key = "viewer")
+    if ev.link.len > 0:
+      let target = viewInfo.path.parentDir / ev.link.split('#')[0]
+      if ev.link.startsWith("#"): discard
+      elif fileExists(target): openItem(infoOf(target))
+      else: discard openUrl(ev.link)
+  of vkFont:
+    if viewPic != nil: imageView(viewPic, viewZoom)
+  of vkModel: discard view3d(viewModel, viewCam, key = "viewer")
+  of vkSheet:
+    if viewSheets.len > 1:
+      var names: seq[string]
+      for sh in viewSheets: names.add sh.name
+      let ev = tabStrip(names, viewSheetAt)
+      if ev.selected: viewSheetSel = 0
+    if viewSheetAt < viewSheets.len:
+      let sh = addr viewSheets[viewSheetAt]
+      var width = 0
+      for r in sh.rows: width = max(width, r.len)
+      var cols: seq[Column]
+      for c in 0 ..< max(1, min(width, 200)):
+        # (A, B... Z, AA, AB...: as a spreadsheet names them)
+        var n = ""
+        var k = c + 1
+        while k > 0:
+          n = $char(ord('A') + (k - 1) mod 26) & n
+          k = (k - 1) div 26
+        cols.add column(n, 120)
+      discard grid(cols, sh.rows.len, proc (r, c: int): string =
+        if c < sh.rows[r].len: sh.rows[r][c] else: ""
+      , viewSheetSel, height = -1, rowHeaders = true)
+  of vkMail: mailScreen()
   of vkPdf:
     if viewPdf != nil:
       if pdfFocus:
@@ -1153,12 +1400,21 @@ proc folderBody(p: int; t: Tab) =
     saveSettings()
   if p == active: contextMenu()
 
-proc webPanel(t: Tab) =
-  ## View > as Web Page, as Explorer 98 had it: at the left of the files,
-  ## the folder's name large over a rule in the title bar's color, then
-  ## what is selected described (its kind, size, date; a picture's preview).
+proc detailsRoom(): bool =
+  ## The details pane goes at the left of the files (there is room), not
+  ## under them.
+  showPreview and not isCompact() and not twoPanes() and available() > dp(560)
+
+proc preview()
+
+proc detailsPane(t: Tab) =
+  ## The details at the left of the files, as Explorer 98's Web page had
+  ## them: the folder's name large over a rule in the title bar's color,
+  ## then what is selected -- its picture or the start of its text, its
+  ## facts, Open / Share / Properties (an app's package: its icon, name and
+  ## version).
   let m = t.m
-  let r = canvas(0, remainingH())
+  let r = canvas(0, dp(46) + lineHeight(style(bold = true, size = 1.45)) + dp(22))
   accessBegin(arPane, "Folder", r)     # (a screen reader reads its texts inside)
   defer: accessEnd()
   fill(r, ui.theme.window)
@@ -1175,55 +1431,16 @@ proc webPanel(t: Tab) =
   # (the rule: the title bar's blue fading into the page)
   for i in 0 ..< w:
     vline(x + i, y, dp(3), mixColor(ui.theme.select, ui.theme.window, i / max(1, w)))
-  y += dp(12)
-  let sel = m.selectedItems
-  let small = style(size = 0.92)
-  template say(s: string; strong = false) =
-    accessNode(arLabel, s, id = 0, r = rect(x, y, w, FontH))
-    for line in wrapLines(s, w, strong):
-      if y + FontH > r.y + r.h - dp(4): break
-      drawLabel(x, y, line, ui.theme.text, strong)
-      y += FontH
-  template note(s: string) =
-    accessNode(arLabel, s, id = 0, r = rect(x, y, w, FontH))
-    for line in wrapLines(s, w):
-      if y + FontH > r.y + r.h - dp(4): break
-      text(x, y, line, ui.theme.gray, small)
-      y += lineHeight(small) + 1
-  if sel.len == 0:
-    let st = m.folderStats
-    note(tr("Select an item to view its description."))
-    y += dp(6)
-    note(countText(st.files, "file") & tr(", ") & countText(st.folders, "folder"))
-    if st.bytes > 0: note(sizeText(st.bytes))
-  elif sel.len == 1:
-    let f = sel[0]
-    say(f.name, strong = true)
-    note(kindName(f))
-    y += dp(4)
-    if not f.isDir: note(tr("Size: ") & sizeText(f.size))
-    note(tr("Modified: ") & timeText(f.modified))
-    if f.readOnly: note(tr("Attributes: Read-only"))
-    if isPicture(f) and y + dp(60) < r.y + r.h:
-      let pw = min(w, dp(160))
-      let pr = rect(x, y + dp(6), pw, min(pw * 3 div 4, r.y + r.h - y - dp(10)))
-      if not drawPicture(pr, f.path, f.modified.toUnix, priority = 1):
-        image(pr.x, pr.y, fileIcon(f, dp(48)))
-  else:
-    var bytes = 0'i64
-    for f in sel: bytes += f.size
-    say(countText(sel.len, "item") & tr(" selected."), strong = true)
-    note(tr("Total file size: ") & sizeText(bytes))
-  ui.lastRect = r
+  preview()
 
 proc paneBody(p: int) =
   ## What the tab of pane `p` shows: a folder, "This device" or the trash.
   let t = panes[p].tabs[panes[p].at]
-  if t.special == spFolder and webView and not isCompact() and not twoPanes() and available() > dp(560):
-    # (as a Web page: the description at the left)
+  if t.special == spFolder and detailsLeft:
+    # (the details at the left, as a Web page)
     let before = webW
     split(webW, -1):
-      webPanel(t)
+      detailsPane(t)
     do:
       folderBody(p, t)
     if webW != before: saveSettings()
@@ -1636,9 +1853,9 @@ proc settingsDialog() =
                            tr("At the lower right corner of each folder's window")):
             winGrip = g
             changed = true
-        if settingToggle("Preview pane", showPreview,
-                         tr("Beside the list, or under it on a phone (F3)")): changed = true
-        if settingToggle("Preview follows the mouse", followHover,
+        if settingToggle("Details pane", showPreview,
+                         tr("At the left of the list, or under it on a phone (Alt+P)")): changed = true
+        if settingToggle("Details follow the mouse", followHover,
                          tr("Shows the item the mouse rests on")): changed = true
         if settingToggle("Picture thumbnails", thumbsOn):
           applyThumbCache()
@@ -1745,7 +1962,11 @@ proc helpDialogs() =
             tr("Copyright (c) 2026 Sultan Al Isaiee. MIT licence.")],
            tagline = tr("Your files, as in 1994"),
            iconPng = FilesIconPng, glyph = pxFolderOpen,
-           whatsNew = [tr("3.4.1: the folder tree no longer closes the app when a folder below " &
+           whatsNew = [tr("3.5.0: an app's package (.apk) shows its icon, version and permissions, " &
+                            "and installs on Android; tar archives open and extract; web pages, fonts, " &
+                            "3D models, spreadsheets and mail open inside; one details pane in place " &
+                            "of Preview and Web view; files shared from other apps saved here"),
+                       tr("3.4.1: the folder tree no longer closes the app when a folder below " &
                             "another is opened or closed as the tree is drawn"),
                        tr("3.4.0: a copy, move or trash asked for while another runs waits for it " &
                             "and starts after (it was refused)"),
@@ -1934,15 +2155,12 @@ proc menus() =
           if menuItem("&Folders", checked = showTree):
             showTree = not showTree
             saveSettings()
-          if menuItem("&Preview", "Alt+P", checked = showPreview):
+          if menuItem("&Details", "Alt+P", checked = showPreview):
             showPreview = not showPreview
             saveSettings()
-          if menuItem("Preview &Follows the Mouse", checked = followHover):
+          if menuItem("Details &Follow the Mouse", checked = followHover):
             followHover = not followHover
             saveSettings()
-        if menuItem("As &Web Page", checked = webView):
-          webView = not webView
-          saveSettings()
         menuSeparator()
       viewsMenu()
       menuSeparator()
@@ -1956,7 +2174,7 @@ proc menus() =
         submenu "&Folders In":
           foldersInMenu()
       if isCompact():
-        if menuItem("&Preview pane", checked = showPreview):
+        if menuItem("&Details pane", checked = showPreview):
           showPreview = not showPreview
           saveSettings()
       if menuItem("File Name E&xtensions", checked = showExt):
@@ -2110,7 +2328,7 @@ proc tools() =
       if toolButton(pxUndo, undoLabel() & " (Ctrl+Z)", size = s, enabled = canUndo()): undoLast()
       if toolButton(if viewStep >= 2: pxDetails else: pxIcons, "View", size = s):
         setView(if viewStep >= 2: 0 else: 3)
-      if toolButton(pxPreview, "Preview pane", size = s, down = showPreview):
+      if toolButton(pxPreview, "Details pane (Alt+P)", size = s, down = showPreview):
         showPreview = not showPreview
         saveSettings()
       if ui.touch:
@@ -2151,7 +2369,7 @@ proc tools() =
                    "The folders in tabs, or in windows of their own"):
         openPopupMenu("foldersin", ui.lastRect.x, ui.lastRect.y + ui.lastRect.h)
       popupMenu("foldersin"): foldersInMenu()
-      if barButton(pxPreview, "Preview", "Preview pane (Alt+P)", down = showPreview):
+      if barButton(pxPreview, "Details", "Details pane (Alt+P)", down = showPreview):
         showPreview = not showPreview
         saveSettings()
       if barButton(pxSearch, "Search", "Find files or folders (F3)", enabled = tab.special == spFolder):
@@ -2250,6 +2468,34 @@ proc storageBanner(): bool =
   emptyState(pxLock, tr("No access to the files yet."))
   true
 
+var sharedFiles: seq[string]       # files shared with the app, waiting for a folder
+
+proc sharedBanner() =
+  ## Files shared with Retro Files from another app (Android's share
+  ## sheet): saved into the folder shown when the user says "Save here"
+  ## (the user goes to a folder first); a text shared, as a note.
+  let came = sharedIn()
+  for f in came.files:
+    if f notin sharedFiles: sharedFiles.add f
+  if came.text.len > 0:
+    let note = cacheDir() / ("Shared text " & format(now(), "yyyy-MM-dd HH-mm-ss") & ".txt")
+    try:
+      writeFile(note, came.text)
+      sharedFiles.add note
+    except IOError, OSError: discard
+  if sharedFiles.len == 0: return
+  let what = if sharedFiles.len == 1: sharedFiles[0].extractFilename
+             else: countText(sharedFiles.len, "file")
+  case banner(what & tr(" shared with Retro Files: go to a folder, then save it there."),
+              bkInfo, ["Save here"])
+  of 1:
+    if tab.special == spFolder:
+      startJob(jkCopy, sharedFiles, folder.dir, "Copying")
+      sharedFiles.setLen(0)
+    else: showError(tr("Go to a folder first."))
+  of 0: sharedFiles.setLen(0)
+  else: discard
+
 proc status() =
   var left = ""
   case tab.special
@@ -2335,8 +2581,9 @@ proc folderWindows() =
       mdiWindow(t.win):
         withId("win" & $cast[uint](t)):
           paneTop(0, strip = false, key = "w" & $cast[uint](t))
-          let show = showPreview and viewSteps[viewStep][0] != fvColumns and
-                     (paneBeside(previewW) or folder.markedCount > 0)
+          detailsLeft = detailsRoom()
+          let show = showPreview and not detailsLeft and viewSteps[viewStep][0] != fvColumns and
+                     folder.markedCount > 0
           sidePane(show, previewW, previewH):
             paneBody(0)
           do:
@@ -2366,15 +2613,16 @@ proc folderWindows() =
   else: syncQuery(0)
 
 proc content() =
-  ## The tree, the panes and the preview, as the room allows: the preview
-  ## beside the list when there is room, else under it (then only for what
-  ## is selected); two panes leave the preview out.
+  ## The tree, the panes and the details, as the room allows: the details
+  ## at the left of the list when there is room, else under it (then only
+  ## for what is selected); two panes leave the details out.
   driveStrip()
   let tree = showTree and not isCompact()
   template main() =
     if windowsShown():
       folderWindows()
     elif twoPanes():
+      detailsLeft = false
       if dualAt <= 0: dualAt = available() div 2
       split(dualAt, -1):
         pane(0)
@@ -2382,8 +2630,9 @@ proc content() =
         pane(1)
     else:
       paneTop(active)
-      let show = showPreview and viewSteps[viewStep][0] != fvColumns and
-                 (paneBeside(previewW) or folder.markedCount > 0)
+      detailsLeft = detailsRoom()
+      let show = showPreview and not detailsLeft and viewSteps[viewStep][0] != fvColumns and
+                 folder.markedCount > 0
       sidePane(show, previewW, previewH):
         paneBody(active)
       do:
@@ -2501,7 +2750,9 @@ proc filesFrame*() =
       menus()
       tools()
       status()
-      if not storageBanner(): content()
+      if not storageBanner():
+        sharedBanner()
+        content()
       keys()
   guarded("Retro Files dialogs"):
     nameDialog()

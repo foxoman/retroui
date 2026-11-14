@@ -66,6 +66,22 @@ type
     recording*: bool           ## `cameraRecord` records
     recordedMs*: int           ## for this long
     saved*: string             ## a video `cameraStop` ended was saved (its path), this frame
+    zoom*: float               ## the zoom (1: none), as `cameraZoom` or two fingers set it
+  CameraFlash* = enum
+    ## A camera's flash (`cameraFlash`).
+    cflOff     ## never
+    cflAuto    ## when it is dark, for a photo
+    cflOn      ## for every photo
+    cflTorch   ## on all the time (a torch)
+  CameraCaps* = object
+    ## What a camera lets the app set (`cameraCaps`): most of it on a
+    ## phone (Android: Camera2); nothing yet elsewhere (all 0).
+    zoomMin*, zoomMax*: float  ## the zoom's range (1, 1: none; under 1: a wider lens)
+    flash*: bool               ## it has a flash (`cameraFlash`)
+    focus*: bool               ## it focuses on a point (`cameraFocus`)
+    exposureMin*, exposureMax*: float  ## brighter or darker, in EV (0, 0: neither)
+    exposureStep*: float       ## (EV a step)
+    photoW*, photoH*: int      ## a photo's size (`cameraPhoto`): the sensor's whole; 0: the view's
 
 # ---- what every system's camera gives --------------------------------------------------------------
 
@@ -83,6 +99,10 @@ type
     recFrames: int
     drawn: int
     sys: RootRef               ## the system's part (each system's own type)
+    zoom: float                ## (as set; 0: never set)
+    stillPath: string          ## (a full-size photo the system is taking)
+    stillAt: float             ## (since when)
+    pinchAt: float             ## (two fingers: the zoom they make)
 
 var
   cams: Table[string, CamState]
@@ -500,6 +520,13 @@ else:
   proc sysPlace(c: CamState; r: Rect; covered: bool) = discard
   proc sysPhoto(c: CamState; path: string): bool = false
 
+# (a system that has no full-size photos and nothing to set)
+when not declared(sysCaps):
+  proc sysCaps(c: CamState): CameraCaps = CameraCaps()
+  proc sysSet(c: CamState; what, value: string): bool = false
+  proc sysStill(c: CamState; path: string): bool = false
+  proc sysStillDone(c: CamState): string = ""
+
 # ---- the camera, the same everywhere ----------------------------------------------------------------
 
 proc cameras*(): seq[CameraInfo] =
@@ -524,11 +551,13 @@ proc camFrame() {.nimcall.} =
     cams.del k
 
 proc cameraView*(key = ""; camera = ""; facing = cfAny; height = -1; w = 0;
-                 mirror = false): CameraEvent {.discardable.} =
+                 mirror = false; touch = true): CameraEvent {.discardable.} =
   ## The camera's live picture, as large as fits, `height` pixels high (-1:
   ## the room left). `camera`: one of `cameras()` (""): the first, or one
   ## that looks `facing`). `mirror`: shown as in a mirror (a front camera).
   ## The camera is on while the view is drawn, and off once it is not.
+  ## `touch`: two fingers zoom, a tap focuses there (where the camera can:
+  ## `cameraCaps`).
   let r = place(if w > 0: w else: 0, if height < 0: remainingH() else: height, fill = w <= 0)
   var c = cams.getOrDefault(key)
   if c == nil or c.camera != camera or c.facing != facing:
@@ -558,12 +587,48 @@ proc cameraView*(key = ""; camera = ""; facing = cfAny; height = -1; w = 0;
     else: drawBitmap(dst, f)
     result.width = f.w
     result.height = f.h
+    if touch:
+      # two fingers zoom (from the zoom they started at); a tap focuses
+      if ui.gesturing and dst.contains(point(ui.pinchX, ui.pinchY)):
+        let caps = sysCaps(c)
+        let now = if c.zoom > 0: c.zoom else: 1.0
+        if caps.zoomMax > caps.zoomMin:
+          if c.pinchAt <= 0: c.pinchAt = now
+          c.pinchAt = clamp(c.pinchAt * ui.pinch, caps.zoomMin, caps.zoomMax)
+          if abs(c.pinchAt - now) > 0.02:
+            c.zoom = c.pinchAt
+            discard sysSet(c, "zoom", $c.zoom)
+      elif not ui.gesturing:
+        c.pinchAt = 0
+        let th = interact(idOf("camera-touch:" & key), dst, focusable = false)
+        if th.clicked and sysCaps(c).focus:
+          var x = (ui.mx - dst.x) / max(1, dst.w)
+          let y = (ui.my - dst.y) / max(1, dst.h)
+          if mirror: x = 1 - x
+          discard sysSet(c, "focus", $clamp(x, 0.0, 1.0) & " " & $clamp(y, 0.0, 1.0))
   elif c.error.len > 0:
     let line = ellipsize(c.error, r.w - dp(16))
     text(r.x + (r.w - textWidth(line)) div 2, r.y + (r.h - FontH) div 2, line,
          color(255, 255, 255))
-  # a photo asked for: the next picture, saved
-  if c.photoAsked.len > 0 and c.frame != nil and c.ready:
+  # a photo asked for: the system's at the sensor's size (a phone), else
+  # the next picture, saved
+  if c.stillPath.len > 0:
+    let done = sysStillDone(c)
+    if done == c.stillPath:
+      result.photo = done
+      c.stillPath = ""
+    elif done.startsWith("\t") or epochTime() - c.stillAt > 5.0:
+      # (not written, or never came: the picture shown, saved instead)
+      if c.frame != nil and savePicture(c.frame, c.stillPath): result.photo = c.stillPath
+      c.stillPath = ""
+    else: wakeIn(50)
+  if c.stillPath.len > 0: discard          # (another photo waits for this one)
+  elif c.photoAsked.len > 0 and c.ready and sysStill(c, c.photoAsked):
+    c.stillPath = c.photoAsked
+    c.stillAt = epochTime()
+    c.photoAsked = ""
+    wakeIn(50)
+  elif c.photoAsked.len > 0 and c.frame != nil and c.ready:
     if savePicture(c.frame, c.photoAsked): result.photo = c.photoAsked
     c.photoAsked = ""
   elif c.photoAsked.len > 0 and c.error.len > 0:
@@ -577,6 +642,7 @@ proc cameraView*(key = ""; camera = ""; facing = cfAny; height = -1; w = 0;
       inc c.recFrames
   result.ready = c.ready
   result.error = c.error
+  result.zoom = if c.zoom > 0: c.zoom else: 1.0
   result.recording = c.rec != nil
   if c.rec != nil: result.recordedMs = int((epochTime() - c.recStart) * 1000)
   if c.saved.len > 0:
@@ -586,10 +652,50 @@ proc cameraView*(key = ""; camera = ""; facing = cfAny; height = -1; w = 0;
   ui.lastRect = r
 
 proc cameraPhoto*(key = ""; path: string) =
-  ## Saves the camera's next picture to `path` (JPEG; PNG by its
-  ## extension); `CameraEvent.photo` says when it is there.
+  ## Saves a photo to `path`: on a phone (Android) a JPEG at the sensor's
+  ## whole size, with the flash and the zoom set; elsewhere the camera's
+  ## next picture (JPEG; PNG by its extension). `CameraEvent.photo` says
+  ## when it is there.
   let c = cams.getOrDefault(key)
   if c != nil: c.photoAsked = path
+
+proc cameraCaps*(key = ""): CameraCaps =
+  ## What the camera of the view `key` lets the app set (all 0 until it is
+  ## open, and where nothing can be).
+  let c = cams.getOrDefault(key)
+  if c != nil: sysCaps(c) else: CameraCaps()
+
+proc cameraZoom*(key = ""; zoom: float) =
+  ## Zooms the camera: 1 none, 2 twice as near; under 1 a wider lens where
+  ## the phone has one (kept in `cameraCaps`' range).
+  let c = cams.getOrDefault(key)
+  if c == nil: return
+  let caps = sysCaps(c)
+  c.zoom = if caps.zoomMax > caps.zoomMin: clamp(zoom, caps.zoomMin, caps.zoomMax) else: 1.0
+  discard sysSet(c, "zoom", $c.zoom)
+
+proc cameraFlash*(key = ""; flash: CameraFlash) =
+  ## The flash, for the photos (`cflTorch`: on now, as a torch).
+  let c = cams.getOrDefault(key)
+  if c != nil:
+    discard sysSet(c, "flash", case flash
+                               of cflOff: "off"
+                               of cflAuto: "auto"
+                               of cflOn: "on"
+                               of cflTorch: "torch")
+
+proc cameraFocus*(key = ""; x, y: float) =
+  ## Focuses (and measures the light) at `x`, `y` in the picture (0..1 of
+  ## `cameraFrame`'s width and height); a negative `x`: by itself again.
+  ## (A tap on the view does it.)
+  let c = cams.getOrDefault(key)
+  if c != nil:
+    discard sysSet(c, "focus", if x < 0: "" else: $clamp(x, 0.0, 1.0) & " " & $clamp(y, 0.0, 1.0))
+
+proc cameraExposure*(key = ""; ev: float) =
+  ## Brighter (more than 0) or darker, in EV (`cameraCaps`' range).
+  let c = cams.getOrDefault(key)
+  if c != nil: discard sysSet(c, "exposure", $ev)
 
 proc cameraFrame*(key = ""): Bitmap =
   ## The camera's latest picture (nil: none yet), to read it: a barcode,
