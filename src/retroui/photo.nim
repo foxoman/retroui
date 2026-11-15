@@ -430,6 +430,7 @@ type
     lut1: seq[uint8]        # (... as a table for each channel, when each follows only itself)
     lutKey: string
     textBox: DrawnBox       # where its text was drawn (empty: anywhere)
+    textFull: tuple[x0, y0, x1, y1: float32]   # (... and where its letters are, those past the image's edges too)
     clipped*: bool          ## in a clipping mask: shows only where the layer under it does
     shape*: ShapeData       ## a shape layer: its outline and paint (no subpaths: not one);
                             ## its pixels are the shape drawn
@@ -458,9 +459,14 @@ type
                             ## its shape, row by row; 3 text goes under it (no line beside it).
                             ## A layer at Opacity 0 still wraps: a shape drawn only to wrap by
     wrapGap*: int           ## ... and stays this many pixels away from it
+    ignoreWrap*: bool       ## a type layer: its text does not keep out of layers with Text Wrap (a
+                            ## caption on a picture, a pull quote on its panel)
     wrapSide*: int          ## ... on both its sides (0), on its left only (1), on its right only (2), or
                             ## on the side with more room (3)
     wrapSig: string         # (what was in a type layer's way when it was last drawn: `rewrap`)
+    fromSpan*: int          ## a book's page: the part of an object of the facing page (the page that
+                            ## is this `id`) that lies on this one -- a copy, locked, made again
+                            ## when the object changes (0: the page's own)
     fromMaster*: int        ## a book's page: a copy of the master page's layer of this `uid`, put
                             ## on the page by the book and made again when the master changes
                             ## (0: the page's own)
@@ -740,6 +746,7 @@ type
     maskFeather: float
     smart: SmartData
     wrap, wrapGap, wrapSide: int
+    ignoreWrap: bool
 
   LayerSnap = object
     layer: Layer
@@ -1226,6 +1233,7 @@ proc wrapHoles*(d: Doc; L: Layer): seq[TextHole] =
   ## rectangles its lines keep out of -- its box, its shape row by row, or
   ## the whole width where it is (the text goes under it) -- grown by its
   ## gap. Not `L` itself, nor what is in a group that is hidden.
+  if L.ignoreWrap: return
   for M in d.layers:
     if M == L or M.wrap == 0 or M.group or not M.visible or M.px.len != d.w * d.h: continue
     let b = d.contentBounds(M)
@@ -1278,7 +1286,8 @@ proc effectiveText*(d: Doc; L: Layer; depth = 0): TextData =
     for s in result.spans.mitems:
       if "<#" in s.text:
         s.text = s.text.multiReplace(("<##>", d.pageTotal), ("<#>", d.pageLabel))
-  if result.boxW > 0 and result.path.len == 0: result.holes = d.wrapHoles(L)
+  # (the part of the facing page's text that lies here keeps the lines it has there)
+  if result.boxW > 0 and result.path.len == 0 and L.fromSpan == 0: result.holes = d.wrapHoles(L)
 
 proc flowedText(d: Doc; L: Layer; depth: int): TextData =
   if L.flowFrom == 0 or depth > 16: return L.text
@@ -1322,8 +1331,10 @@ proc drawText*(d: Doc; L: Layer) =
     zeroMem(addr L.px[0], L.px.len * 4)
   var t = d.effectiveText(L)
   if d.flowsOn(L): t.clipOverflow = true
-  let b = t.renderTextInto(L.px, d.w, d.h, layoutText(t))
+  let lay = layoutText(t)
+  let b = t.renderTextInto(L.px, d.w, d.h, lay)
   L.textBox = b
+  L.textFull = (lay.x0, lay.y0, lay.x1, lay.y1)
   L.wrapSig = holesSig(t.holes)
   inc L.ver
   if old.x1 > old.x0:
@@ -1348,7 +1359,7 @@ proc rewrap*(d: Doc) =
   if not any and not d.wrapped: return
   d.wrapped = any
   for L in d.layers:
-    if L.isText and L.text.boxW > 0 and L.px.len == d.w * d.h:
+    if L.isText and L.text.boxW > 0 and L.px.len == d.w * d.h and L.fromSpan == 0:
       if holesSig(d.wrapHoles(L)) != L.wrapSig: d.drawText(L)
 
 proc textArea*(L: Layer): Rect =
@@ -2862,7 +2873,8 @@ proc settingsOf(L: Layer): LayerSettings =
                 group: L.group, collapsed: L.collapsed, passThrough: L.passThrough, locked: L.locked,
                 lockPixels: L.lockPixels, lockPosition: L.lockPosition, link: L.link, board: L.board,
                 depth: L.depth, blendIf: L.blendIf, maskClear: L.maskClear, maskFeather: L.maskFeather,
-                smart: L.smart, wrap: L.wrap, wrapGap: L.wrapGap, wrapSide: L.wrapSide)
+                smart: L.smart, wrap: L.wrap, wrapGap: L.wrapGap, wrapSide: L.wrapSide,
+                ignoreWrap: L.ignoreWrap)
 
 proc setSettings(L: Layer; s: LayerSettings) =
   ## (not its text or shape: they are drawn again when changed)
@@ -2874,7 +2886,7 @@ proc setSettings(L: Layer; s: LayerSettings) =
   L.lockPixels = s.lockPixels; L.lockPosition = s.lockPosition; L.link = s.link; L.board = s.board
   L.depth = s.depth; L.blendIf = s.blendIf; L.maskClear = s.maskClear; L.maskFeather = s.maskFeather
   L.smart = s.smart
-  L.wrap = s.wrap; L.wrapGap = s.wrapGap; L.wrapSide = s.wrapSide
+  L.wrap = s.wrap; L.wrapGap = s.wrapGap; L.wrapSide = s.wrapSide; L.ignoreWrap = s.ignoreWrap
 
 proc snapOf(d: Doc): DocSnap =
   result = DocSnap(w: d.w, h: d.h, dpi: d.dpi, mode: d.mode, palette: d.palette, duotone: d.duotone, cur: d.cur,
@@ -5272,6 +5284,34 @@ proc compBox(d: Doc; L: Layer): Rect =
     if b.w > 0: return b
   d.contentBounds(L)
 
+proc fullBox*(d: Doc; L: Layer): tuple[ok: bool; x0, y0, x1, y1: float] =
+  ## Where all of a layer's object is, what lies past the image's edges
+  ## too -- for what keeps its shape there: type (its box, or its letters),
+  ## a shape (its outline, with its stroke), a Smart Object (its corners).
+  ## Not `ok` for a layer of pixels (nothing of it is past the edges), a
+  ## group, an adjustment.
+  if L.group or L.background or L.adjust.kind.len > 0: return
+  if L.smart != nil:
+    result = (true, 1e18, 1e18, -1e18, -1e18)
+    for c in L.smart.quad:
+      result.x0 = min(result.x0, c[0]); result.y0 = min(result.y0, c[1])
+      result.x1 = max(result.x1, c[0]); result.y1 = max(result.y1, c[1])
+  elif L.isText:
+    if L.text.boxW > 0 and L.text.path.len == 0 and L.text.warp.style == wsNone and not L.text.vertical:
+      result = (true, L.text.x.float, L.text.y.float, float(L.text.x + L.text.boxW), float(L.text.y + L.text.boxH))
+    elif L.textFull.x1 > L.textFull.x0:
+      result = (true, L.textFull.x0.float, L.textFull.y0.float, L.textFull.x1.float, L.textFull.y1.float)
+  elif L.isShape:
+    result = (false, 1e18, 1e18, -1e18, -1e18)
+    for s in L.shape.path.subs:
+      for q in s.pts:
+        result.ok = true
+        result.x0 = min(result.x0, q.p[0]); result.y0 = min(result.y0, q.p[1])
+        result.x1 = max(result.x1, q.p[0]); result.y1 = max(result.y1, q.p[1])
+    if result.ok:
+      let m = max(0.0, L.shape.strokeWidth.float) / 2
+      result.x0 -= m; result.y0 -= m; result.x1 += m; result.y1 += m
+
 proc layerBox*(d: Doc; L: Layer): Rect =
   ## Where a layer's content is (its text's box for type), as layer comps
   ## and frames keep its place.
@@ -7014,7 +7054,11 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
     if L.wrap != 0: lj["wrap"] = %L.wrap
     if L.wrapGap != 0: lj["wrapGap"] = %L.wrapGap
     if L.wrapSide != 0: lj["wrapSide"] = %L.wrapSide
+    if L.ignoreWrap: lj["ignoreWrap"] = %true
     if L.fromMaster != 0: lj["fromMaster"] = %L.fromMaster
+    if L.fromSpan != 0: lj["fromSpan"] = %L.fromSpan
+    if L.isText and L.textFull.x1 > L.textFull.x0:
+      lj["textFull"] = %*[L.textFull.x0, L.textFull.y0, L.textFull.x1, L.textFull.y1]
     if L.gray: lj["gray"] = %true
     if L.adjust.kind.len > 0:
       lj["adjust"] = %*{"kind": L.adjust.kind, "args": L.adjust.args}
@@ -7274,7 +7318,12 @@ proc loadRpd*(path: string): Doc =
     L.wrap = clamp(lj{"wrap"}.getInt(0), 0, 3)
     L.wrapGap = clamp(lj{"wrapGap"}.getInt(0), 0, 10000)
     L.wrapSide = clamp(lj{"wrapSide"}.getInt(0), 0, 3)
+    L.ignoreWrap = lj{"ignoreWrap"}.getBool(false)
     L.fromMaster = lj{"fromMaster"}.getInt(0)
+    L.fromSpan = lj{"fromSpan"}.getInt(0)
+    if lj{"textFull"} != nil and lj["textFull"].kind == JArray and lj["textFull"].len == 4:
+      let f = lj["textFull"]
+      L.textFull = (f[0].getFloat.float32, f[1].getFloat.float32, f[2].getFloat.float32, f[3].getFloat.float32)
     nextLayerUid = max(nextLayerUid, L.uid)
     if lj.hasKey("smart"):
       let sj = lj["smart"]

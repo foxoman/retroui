@@ -1,4 +1,4 @@
-# Retro Photo -- included by photo.nim
+# Retro Atelier -- included by photo.nim
 #
 # Character Styles and Paragraph Styles, as the usual: a text's look kept
 # by name in the document, given to text with a click, and changed in every

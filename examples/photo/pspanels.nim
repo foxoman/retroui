@@ -1,4 +1,4 @@
-# Retro Photo -- included by photo.nim
+# Retro Atelier -- included by photo.nim
 #
 # The panels editors have today that 1994 did not: Adjustments (with
 # Properties), Histogram (with the Navigator and the History), Gradients
@@ -897,7 +897,7 @@ var
   libThumbs: Table[string, Bitmap]       ## (graphics and styles: their pictures)
   libNew: tuple[open: bool; name: string]
 
-proc libDir(): string = dataDir(AppName) / "Libraries"
+proc libDir(): string = dataDir(AppData) / "Libraries"
 
 proc libFile(name: string): string =
   var safe = ""
@@ -1052,6 +1052,7 @@ proc librariesBody() =
   var used = -1
   for (kind, title) in [("color", "Colors"), ("char", "Character Styles"), ("style", "Layer Styles"),
                         ("graphic", "Graphics")]:
+    let kind = kind                # (its own copy: the tiles' proc below keeps it -- Nim 2.4 asks for it)
     var idx: seq[int]
     for i, it in items:
       if it.kind == kind: idx.add i

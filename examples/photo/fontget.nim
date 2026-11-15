@@ -1,6 +1,6 @@
-# Retro Photo -- included by photo.nim
+# Retro Atelier -- included by photo.nim
 #
-# Type > Get Google Fonts: free fonts fetched into Retro Photo's own folder
+# Type > Get Google Fonts: free fonts fetched into Retro Atelier's own folder
 # (Arabic ones first), or any Google Fonts family by its name; offered in
 # the font lists at once.
 
@@ -8,7 +8,7 @@ var gf: tuple[open: bool; search: string; cat: int; sel: int; name: string; msg:
 
 const gfCats = ["All", "Arabic", "Sans Serif", "Serif", "Display", "Handwriting", "Monospace"]
 
-proc fontsFolder(): string = dataDir(AppName) / "Fonts"
+proc fontsFolder(): string = dataDir(AppData) / "Fonts"
 
 proc startGetFonts() =
   gf.open = true

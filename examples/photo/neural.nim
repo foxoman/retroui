@@ -1,4 +1,4 @@
-# Retro Photo -- included by photo.nim
+# Retro Atelier -- included by photo.nim
 #
 # Filter > Neural Filters: the usual workspace for them -- the picture
 # large, the filters in a list beside it, each switched on with its own

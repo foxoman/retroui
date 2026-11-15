@@ -39,7 +39,7 @@ slowest frames are the time between frames as each starts.
 ## The apps
 
 The kit's own apps, built for release (`-d:release -d:strip -d:lto`,
-`--opt:size` for all but Retro Photo and Retro Mail), measured by
+`--opt:size` for all but Retro Atelier and Retro Mail), measured by
 `sh tools/appbench.sh` on the same machine: each started in a home of its
 own on Xvfb, left alone, then clicked, typed and scrolled through for 16
 seconds by the kit's smoke run (`RETRO_SMOKE`).

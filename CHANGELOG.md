@@ -1,5 +1,58 @@
 # Changes
 
+## 0.55.0
+
+Objects across the spine of a book, and Retro Photo's new name.
+
+- **Objects across the spine** (`retroui/photobook`): type, a shape or a
+  placed picture (a Smart Object) of a page that reaches past the spine
+  goes on, on the facing page -- as one object does on a spread.
+  `syncSpread(i)` keeps the two pages one spread: the object's other
+  part is made on the facing page (a copy the book keeps there, locked,
+  under that page's own layers: `Layer.fromSpan`), and made again when
+  the object moves or changes; an object moved wholly past the spine is
+  the facing page's own from then on. Each page, and each page of the
+  PDF, has its half; a text box across the spine has the same lines on
+  both. `fullBox(d, L)` (`retroui/photo`): where all of a layer's object
+  is, past the image's edges too. A layer of pixels has nothing past its
+  page's edge: place the picture (File > Place) to have it across.
+  `bookSmartFilter`: how a placed picture's Smart Filters are done there.
+- **Lists** (`retroui/textengine`): text in a box as a list
+  (`ParaStyle.list`): a mark before every paragraph that says something,
+  its lines standing in from it, at the right for right-to-left text.
+  Bullets of any letters the font has (`listMark`: "•", "–", "▪", "◆",
+  "★", "✓"), or numbers in any `NumberStyle` (digits, Arabic-Indic,
+  Persian, Roman, letters, abjad: `listNumbers`, `listStart`,
+  `listSuffix`), in a color of their own (`listColor`), kept with the
+  text, in columns and round holes, in the PDF. `NumberStyle` and
+  `formatNumber` are the type engine's now (`retroui/photobook` still
+  gives them).
+- **A text that ignores Text Wrap** (`Layer.ignoreWrap`): a caption on a
+  picture, a pull quote on its panel.
+- Fixed: a text of no spans in a box (a box that takes what did not fit
+  another, when all of it fit) stopped the type engine.
+- **Retro Photo is Retro Atelier** (5.1.0): photo, drawing and layout in
+  one. The app's name, its window, its package's label and its files'
+  names (`RetroAtelier.apk`, `RetroAtelier.exe`) change; its package id
+  (`org.retro.photo`: it installs over Retro Photo), its settings'
+  folder, its documents (.rpd, .rpb) and the kit's modules
+  (`retroui/photo...`) do not.
+- Retro Atelier: Paragraph > List (None, Bullets, Numbers; the mark, the
+  numbers' style, the first number, what follows it, the marks in the
+  foreground color); Layout > Text Wrap > This text ignores Text Wrap.
+- Retro Atelier: the spread is kept as you work (the part on the facing
+  page appears when the mouse is let go; the status bar says when an
+  object became the facing page's); the facing page beside the canvas
+  is drawn sharper; a click on a part or on a master's layer says where
+  it is from.
+- `examples/book.nim`: a band across a spread.
+- **Nim 2.4** builds the apps: it refuses a loop variable kept by a
+  nested proc, which Nim 2.2 allowed (Retro Atelier's web build stopped
+  at it; Retro Board had five). Each such loop has a copy of its own
+  now. `tools/lentfix.py` finds and fixes them: only a real build says
+  so, not `nim check`. Every example, tool and test is built to C with
+  Nim 2.4.2 as well as 2.2.6.
+
 ## 0.54.0
 
 Layout: books and magazines in Retro Photo, with the engine for them in

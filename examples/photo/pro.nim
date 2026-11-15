@@ -1,4 +1,4 @@
-# (included by photo.nim) The "pro" parts of Retro Photo: aligning and
+# (included by photo.nim) The "pro" parts of Retro Atelier: aligning and
 # distributing layers, Smart Objects, the History, Actions, Navigator and
 # Properties palettes, guides and the grid.
 
@@ -361,7 +361,7 @@ var
   batchSrc = ""
   batchDst = ""
   batchSubfolders = false
-  batchFormat = 0                ## JPEG, PNG, TIFF, PSD, Retro Photo
+  batchFormat = 0                ## JPEG, PNG, TIFF, PSD, Retro Atelier
   batchQuality = 85
   batchSuffix = ""
   batchPickSrc = false
@@ -428,7 +428,7 @@ proc actionsMenu() =
     if storageFor(go): go()
   if menuItem("Save Actions...", enabled = actions.len > 0):
     proc go() =
-      actFilePath = picturesDir() / "Retro Photo.actions"
+      actFilePath = picturesDir() / "Retro Atelier.actions"
       actFileSave = true
       actFilePick = true
     if storageFor(go): go()
@@ -706,7 +706,7 @@ proc batchDialog() =
             if storageFor(go): go()
         row:
           label "Save As:"
-          combo(["JPEG", "PNG", "TIFF", "PSD", "Retro Photo"], batchFormat, w = dp(120))
+          combo(["JPEG", "PNG", "TIFF", "PSD", "Retro Atelier"], batchFormat, w = dp(120))
           if batchFormat == 0:
             label "Quality:"
             spin(batchQuality, 1, 100, w = dp(60))

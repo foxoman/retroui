@@ -508,6 +508,78 @@ block rightToLeftLinesStayInTheirBox:
       doAssert abs(line.x1 - 300) < 0.6, $align & ": a line ends at " & $line.x1
     for g in l.glyphs: doAssert g.x + g.adv <= 300.6, "a letter past the box's right edge"
 
+block aTextOfNoSpans:
+  # nothing to set: no lines of letters, and no crash (a box that takes what did not fit
+  # another one, when all of it fit)
+  var t: TextData
+  t.boxW = 200
+  t.boxH = 100
+  doAssert layoutText(t).glyphs.len == 0
+  t.columns = 2
+  doAssert layoutText(t).glyphs.len == 0
+  t.holes = @[(50'f32, 0'f32, 80'f32, 40'f32)]
+  doAssert layoutText(t).glyphs.len == 0
+  var p: TextData
+  doAssert layoutText(p).glyphs.len == 0
+  doAssert renderText(t, 64, 64).len == 64 * 64
+
+block listsInABox:
+  # a mark before every paragraph that says something; the text stands in from it; marks
+  # are numbered in any style; right-to-left lists have theirs at the right
+  let st = CharStyle(family: "", size: 20, color: 0xFF000000'u32, hScale: 1, vScale: 1)
+  var t = newText("First point, long enough to go on to a second line of the box\nSecond\n\nThird", st, 10, 10)
+  t.boxW = 300
+  t.boxH = 300
+  let plain = layoutText(t)
+  t.para.list = lkBullet
+  let l = layoutText(t)
+  doAssert l.lines.len >= 5
+  # three marks (the empty paragraph has none), each at the box's left, on its line's baseline
+  var marks: seq[LaidGlyph]
+  for g in l.glyphs:
+    if g.x < 10 + 20: marks.add g
+  doAssert marks.len == 3, $marks.len
+  doAssert l.glyphs.len == plain.glyphs.len + 3
+  doAssert marks[0].y == l.lines[0].baseline and abs(marks[0].x - 10) < 4
+  # every line of the text stands in: the second line of the first point too
+  for line in l.lines:
+    if line.last > line.first: doAssert line.x0 >= 10 + 30, "a line under the marks: " & $line.x0
+  # numbers: 1. 2. 3.; from 4 in Roman numerals with a bracket; in a color of their own
+  t.para.list = lkNumber
+  doAssert layoutText(t).glyphs.len == plain.glyphs.len + 6
+  t.para.listNumbers = nsRomanLower
+  t.para.listStart = 4
+  t.para.listSuffix = ")"
+  t.para.listColor = 0xFFC02020'u32
+  var red = 0
+  for g in layoutText(t).glyphs:
+    if g.color == 0xFFC02020'u32: inc red
+  doAssert red == 3 + 2 + 3, "iv) v) vi): " & $red
+  # kept with the text
+  let back = textFrom(t.toJson)
+  doAssert back.para.list == lkNumber and back.para.listNumbers == nsRomanLower and back.para.listStart == 4 and
+           back.para.listSuffix == ")" and back.para.listColor == 0xFFC02020'u32
+  doAssert paraFrom(paraToJson(t.para)).list == lkNumber
+  doAssert textFrom(newText("x", st).toJson).para.list == lkNone
+  # right to left: the marks at the box's right edge, the lines standing in from it
+  var a = newText("البند الأول\nالبند الثاني", st, 10, 10)
+  a.boxW = 300
+  a.boxH = 200
+  a.para.rtl = 2
+  a.para.list = lkNumber
+  a.para.listNumbers = nsArabicIndic
+  let al = layoutText(a)
+  var right = 0
+  for g in al.glyphs:
+    if g.x > 310 - 30: inc right
+  doAssert right == 4, "two numbers and their periods at the right: " & $right
+  for line in al.lines: doAssert line.x1 <= 310 - 30
+  # point text has no list (it has no box to stand in from)
+  var pt = newText("One\nTwo", st, 10, 30)
+  pt.para.list = lkBullet
+  doAssert layoutText(pt).glyphs.len == 6
+  doAssert formatNumber(14, nsRomanLower) == "xiv" and formatNumber(3, nsArabicIndic) == "٣"
+
 block alternatesOfAWord:
   # the features of a font that draw a word otherwise; none that a script needs to be set
   let alts = alternatesFor("affine", CharStyle(family: "", size: 20))

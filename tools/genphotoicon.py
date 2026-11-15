@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Draws Retro Photo's app icon: a modern rounded tile (soft light, a
+"""Draws Retro Atelier's app icon: a modern rounded tile (soft light, a
 shadow) holding 1994 pixel art -- a 3.1 window with a dithered sunset in
 it, the selection's marching ants and a brush. Writes
 examples/assets/photo-icon.png (192 x 192, the launcher's) and

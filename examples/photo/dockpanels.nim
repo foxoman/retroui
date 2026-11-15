@@ -1,4 +1,4 @@
-# Retro Photo -- included by photo.nim
+# Retro Atelier -- included by photo.nim
 #
 # The panels in the dock (retroui/dock): what each draws, its menu, and what
 # a panel brought up does. The dock itself (where each is, collapsed to

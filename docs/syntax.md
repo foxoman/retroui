@@ -1,6 +1,6 @@
 # Retro Nim UI: a study of its syntax
 
-By Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)), for Retro Nim UI 0.54.0.
+By Sultan Al Isaiee ([@foxoman](https://github.com/foxoman)), for Retro Nim UI 0.55.0.
 
 The syntax is immediate mode written as plain Nim: a window is a block that runs every frame, a control is a proc call, its result is the event, and your own variables are the state. That one choice removes callbacks, widget objects and data binding, the three things that make most UI code hard to follow.
 
@@ -750,7 +750,7 @@ The reasons, in the order they matter while reading someone else's app:
 - **Plain Nim does the rest.** Showing something only sometimes is an `if`; a list is a `for`; reuse is a `proc` that draws controls. There is no special syntax for any of them.
 - **Blocks instead of Begin/End pairs.** Nim templates close every container by indentation, so a forgotten `End()` cannot happen. Ids come from labels and variables, so `##` suffixes are rarely needed.
 - **Names over positions.** Options and parameters go by name, and a misspelled one is a compile error rather than a silent default.
-- **A small surface that does not grow.** Four shapes of call cover 397 controls, from Hello (16 lines) to Notepad (206 lines, with menus, dialogs and Print to PDF), Retro Communicator (1,640 lines) and Retro Photo (nearly 30,000 lines across its files).
+- **A small surface that does not grow.** Four shapes of call cover 397 controls, from Hello (16 lines) to Notepad (206 lines, with menus, dialogs and Print to PDF), Retro Communicator (1,640 lines) and Retro Atelier (nearly 30,000 lines across its files).
 - **One code base, every screen.** The same lines run on Windows, macOS, Linux (X11, Wayland, a screen with no desktop), Android, iOS and in the browser; design pixels keep the sizes right on each.
 - **Testable without a screen.** A frame depends only on the input and your variables, so the fake driver can click, type and read pixels in a test.
 

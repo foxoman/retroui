@@ -988,7 +988,7 @@ proc doCommand(name: string) =
   of "Load Saved Workspace":
     if not loadWorkspace("saved"): status = "No workspace kept for a window this size"
   # ---- Help
-  of "About Retro Photo...": aboutOpen = true
+  of "About Retro Atelier...": aboutOpen = true
   of "Contents": helpOpen = true
   # ---- the Commands palette
   of "Flatten Image":
@@ -1112,7 +1112,7 @@ proc loadSettingsCached(): Settings =
   ## The settings file, read again at most once a second (the menus show
   ## the recent files from it).
   if settingsCache.at < 0 or ui.now - settingsCache.at > 1000:
-    settingsCache = (ui.now, loadSettings(AppName))
+    settingsCache = (ui.now, loadSettings(AppData))
   settingsCache.st
 
 proc classicMenus()
@@ -1144,9 +1144,9 @@ proc classicMenus() =
         if recent.len == 0: discard menuItem("(none)", enabled = false)
         menuSeparator()
         if menuItem("Clear Recent File List", enabled = recent.len > 0):
-          var st = loadSettings(AppName)
+          var st = loadSettings(AppData)
           st.addRecentFile("", 0)
-          discard saveSettings(AppName, st)
+          discard saveSettings(AppData, st)
           settingsCache.at = -1
       item("Open &As...")
       item("&Place...", enabled = some)
@@ -1559,7 +1559,7 @@ proc classicMenus() =
       item("&Search for Help on...", enabled = false)
       item("&How to Use Help", enabled = false)
       menuSeparator()
-      item("&About Retro Photo...")
+      item("&About Retro Atelier...")
       submenu "About Plug-&in":
         for n in ["Gaussian Blur", "Unsharp Mask", "Lens Flare", "Mezzotint", "Twirl"]:
           if menuItem(n & "..."): aboutOpen = true
@@ -1622,7 +1622,13 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.0.0: layout -- File > New Book makes a document of pages (single or facing, bound " &
+           whatsNew = ["5.1.0: a new name, Retro Atelier (photo, drawing and layout in one; it was Retro " &
+                       "Photo: its settings, its files and its place on your device are the same); in a " &
+                       "book, type, a shape or a placed picture that reaches past the spine goes on, on " &
+                       "the facing page -- one object on both pages, in the PDF too; moved wholly past " &
+                       "the spine it is that page's; the facing page is drawn sharper; lists (Paragraph > List: " &
+                       "bullets of any shape, numbers in any style); a text can ignore Text Wrap",
+                       "5.0.0: layout -- File > New Book makes a document of pages (single or facing, bound " &
                        "on the left or on the right), with the Layout menu and the Pages panel: master " &
                        "pages, page numbers (Insert Page Number), text that goes on from page to page " &
                        "(Autoflow adds the pages), Text Wrap round a layer's box or shape, the book as " &
@@ -1635,7 +1641,7 @@ proc aboutDialog() =
                        "masks as layer masks, blending modes, groups with their opacity, hidden layers; " &
                        "type with its outline, its gradient, outlined alone, running down, each letter " &
                        "where the file puts it; File > Save keeps every layer effect, blending mode and " &
-                       "adjustment layer for Retro Photo to open again; File > Export > SVG, Type as " &
+                       "adjustment layer for Retro Atelier to open again; File > Export > SVG, Type as " &
                        "Outlines for where the fonts are not",
                        "4.11.0: SVG as a format of its own -- an .svg opens as layers (its shapes, its " &
                        "text as type you can type in, its pictures, its named groups), File > New SVG " &
@@ -1715,7 +1721,7 @@ proc aboutDialog() =
                        "Assets (File > Browse Assets): free photos, icons, SVG, textures and backgrounds from " &
                        "Openverse, Wikimedia, Iconify, Poly Haven, ambientCG (and Pixabay with a key) -- " &
                        "inserted straight into the image",
-                       "The Retro Photo Library, offline and online: brushes, patterns (Islamic khatam, " &
+                       "The Retro Atelier Library, offline and online: brushes, patterns (Islamic khatam, " &
                        "arabesque), gradients, swatches, styles and designs",
                        "File > New as today's editors have it: presets by use (Photo, Print, Social, Web, Mobile, " &
                        "Art, Film), Recent and Saved sizes, 23 ready-made templates (flyer, certificate, " &
@@ -1768,7 +1774,7 @@ proc aboutDialog() =
                        "Artboards, the Frame tool, the Triangle, the Magnetic Lasso",
                        "Type: right-to-left and left-to-right, Arabic kashida, dynamic text",
                        "Google Fonts fixed; Spot Healing and Patch as they work today"],
-           credits = ["Retro Photo and Retro Nim UI: " & RetroCredit & " -- " & RetroWebsite & " -- " & RetroEmail,
+           credits = ["Retro Atelier and Retro Nim UI: " & RetroCredit & " -- " & RetroWebsite & " -- " & RetroEmail,
                       "Assets: Openverse, Wikimedia Commons, Iconify and its icon sets, Poly Haven (Powered by " &
                       "Poly Haven), ambientCG, Pixabay -- each item's own licence and credit kept with it.",
                       RetroFontCredit,
@@ -1794,14 +1800,14 @@ proc helpText(): string =
     "- the **Ruler** (I group) measures; **Straighten Layer** levels the photo along its line; the " &
     "**Color Sampler** keeps up to four points' colors; the **Magic Eraser** (E group) clears a color\n" &
     "- Preferences > Tools > **Use Legacy Free Transform** makes Shift keep the proportions, as before 2019\n" &
-    "- with Retro Photo 1994's keys (Preferences > Tools) the menus are 1994's\n\n" &
+    "- with Retro Atelier 1994's keys (Preferences > Tools) the menus are 1994's\n\n" &
     "## The toolbar\n\n" &
     "As in today's editors: the tools in groups, one column (the **>>** at its top: two). A group shows " &
     "the tool used last; the small triangle at its corner means it holds more -- **hold the button " &
     "down** (or right-click it, or long-press it) and they open beside it, each with its name and key. " &
     "**Alt+click** a group: its next tool. A letter picks a group; **Shift** and the letter, the next " &
     "tool in it. **...** at the bottom holds the groups taken off; **Edit > Toolbar...** chooses them. " &
-    "(With Retro Photo 1994's keys -- Preferences -- the letters are 1994's.)\n\n" &
+    "(With Retro Atelier 1994's keys -- Preferences -- the letters are 1994's.)\n\n" &
     "| Tools | Key |\n|---|---|\n"
   for grp in toolGroups:
     var names: seq[string]
@@ -1897,7 +1903,7 @@ proc helpText(): string =
     "(r, g, b, a, x, y, ctl(0)..., src(x, y, z), sin, mix, scl, rnd, ? :). **Save Plug-in** keeps " &
     "it and lists it in the menu with its sliders.\n\n" &
     "## Files\n\n" &
-    "Retro Photo files (.rpd) keep the layers, channels and paths; PSD and PSB files (.psd, .psb) " &
+    "Retro Atelier files (.rpd) keep the layers, channels and paths; PSD and PSB files (.psd, .psb) " &
     "keep the layers, groups, masks, shapes, clipping, adjustment layers and styles. PNG, JPEG, " &
     "TIFF, GIF, Targa and BMP keep the picture as it looks, its layers mixed into one: File > Export " &
     "> **Export As...** sets their options. Layer > **Layer from File...** puts a picture in as a " &

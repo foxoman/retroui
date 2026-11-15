@@ -629,10 +629,10 @@ block preferences:
   active.writeDoc(f1)
   addDoc(sample(20, 20))
   active.writeDoc(f2)
-  let rec = recentFiles(loadSettings(AppName))
+  let rec = recentFiles(loadSettings(AppData))
   doAssert rec.len >= 2 and rec[0] == f2 and rec[1] == f1
   openFile(f1)
-  doAssert recentFiles(loadSettings(AppName))[0] == f1
+  doAssert recentFiles(loadSettings(AppData))[0] == f1
   # smart quotes
   prefs.smartQuotes = true
   doAssert smartQuote("\"Hi\"", "") == "“Hi”" and smartQuote("it's", "") == "it’s"
@@ -861,7 +861,7 @@ block colorModesAndLibraries:
   presetReplace = false
   importPresets(home / "my.acb")
   doAssert colorBooks.len >= 5 and colorBooks[^1].title == "My Inks"
-  doAssert fileExists(dataDir(AppName) / "Color Books" / "my.acb")
+  doAssert fileExists(dataDir(AppData) / "Color Books" / "my.acb")
   # the picker: the libraries in its place, a color taken from them
   var c = 0xFF000000'u32
   var open = true
@@ -1850,7 +1850,7 @@ block sessionAndQuit:
   endFrame()
   quitConfirm = false
   writeSession()
-  let st = loadSettings(AppName)
+  let st = loadSettings(AppData)
   doAssert st.getInt("session.count") == 2
   doAssert st.get("session.0.path") == saved and st.get("session.0.file") == ""
   doAssert st.get("session.1.file").endsWith(".rpd") and fileExists(st.get("session.1.file"))

@@ -327,6 +327,48 @@ proc paragraphBody() =
       applyText("Insert Kashida", proc (t: var TextData) = (t.para.kashida = v; t.para.noKashida = false))
   label("(justified Arabic: a join in each word grows, where a scribe would lengthen it)",
         color = ui.theme.gray)
+  # a list: a mark before every paragraph of a text box
+  var lk = ord(p.list)
+  row:
+    label "List:"
+    if combo(["None", "Bullets", "Numbers"], lk, w = dp(100)):
+      let v = ListKind(clamp(lk, 0, 2))
+      typePara.list = v
+      applyText("List", proc (t: var TextData) = t.para.list = v)
+    if p.list == lkBullet:
+      const marks = ["•", "–", "▪", "◆", "★", "✓", "○", "►"]
+      var mi = max(0, marks.find(if p.listMark.len > 0: p.listMark else: "•"))
+      if combo(marks, mi, w = dp(56)):
+        let v = marks[clamp(mi, 0, marks.high)]
+        typePara.listMark = v
+        applyText("List Mark", proc (t: var TextData) = t.para.listMark = v)
+    elif p.list == lkNumber:
+      var names: seq[string]
+      for s in NumberStyle: names.add $s
+      var ni = ord(p.listNumbers)
+      if combo(names, ni, w = dp(90)):
+        let v = NumberStyle(clamp(ni, 0, ord(high(NumberStyle))))
+        typePara.listNumbers = v
+        applyText("List Numbers", proc (t: var TextData) = t.para.listNumbers = v)
+  if p.list != lkNone:
+    row:
+      if p.list == lkNumber:
+        label "From:"
+        var from0 = max(1, p.listStart)
+        if spin(from0, 1, 9999, w = dp(56)):
+          let v = from0
+          applyText("List Start", proc (t: var TextData) = t.para.listStart = v)
+        const ends = [".", ")", "-", ":"]
+        var ei = max(0, ends.find(if p.listSuffix.len > 0: p.listSuffix else: "."))
+        if combo(ends, ei, w = dp(44)):
+          let v = ends[clamp(ei, 0, ends.high)]
+          applyText("List Numbers", proc (t: var TextData) = t.para.listSuffix = v)
+      var own = p.listColor != 0
+      if checkbox("Marks in the foreground color", own):
+        let v = if own: (fg or 0xFF000000'u32) else: 0'u32
+        applyText("List Color", proc (t: var TextData) = t.para.listColor = v)
+    if L != nil and L.text.boxW <= 0:
+      label("(a list is text in a box: drag a box with the Type tool)", color = ui.theme.gray)
   if L != nil and L.text.boxW > 0:
     var fit = L.text.fit
     if checkbox("Dynamic Text: as big as fills the box", fit):

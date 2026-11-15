@@ -11,7 +11,7 @@ var
   cmykIntent = 1                 ## Color Settings: perceptual, relative colorimetric, saturation, absolute
   cmykBpc = true                 ## ... black point compensation
 
-proc cmykProfileFile(): string = dataDir(AppName) / "profiles" / "cmyk.icc"
+proc cmykProfileFile(): string = dataDir(AppData) / "profiles" / "cmyk.icc"
   ## (the CMYK profile in use, kept with the program's settings)
 
 proc useCmykProfile(data: string): bool {.discardable.} =
@@ -42,7 +42,7 @@ proc colorIndex(c: Color): int =
   -1
 
 proc applyMemory() =
-  ## The memory Retro Photo may use: the biggest image, the undo steps kept
+  ## The memory Retro Atelier may use: the biggest image, the undo steps kept
   ## in memory (the rest on the scratch disk).
   let budget = physicalMemory() * int64(clamp(prefs.memory, 20, 90)) div 100
   maxPixels = int(clamp(budget div 34, 16_000_000'i64, 400_000_000'i64))
@@ -67,7 +67,7 @@ proc applyPrefs() =
 
 proc loadPrefs() =
   ## Preferences from the settings file (the defaults for what is not there).
-  let st = loadSettings(AppName)
+  let st = loadSettings(AppData)
   var p = DefaultPrefs
   if st.getBool("pref.reset", false):
     prefs = p
@@ -77,7 +77,7 @@ proc loadPrefs() =
     var clean: Settings
     for k, v in st:
       if not (k.startsWith("pref.") or k.startsWith("look.") or k == "color.profiles"): clean[k] = v
-    discard saveSettings(AppName, clean)
+    discard saveSettings(AppData, clean)
     applyPrefs()
     return
   p.interp = st.getInt("pref.interp", p.interp)
@@ -147,7 +147,7 @@ proc loadPrefs() =
 
 proc savePrefs() =
   ## Preferences into the settings file (with the look).
-  var st = loadSettings(AppName)
+  var st = loadSettings(AppData)
   let p = prefs
   st["pref.interp"] = $p.interp
   st["pref.zoomResizes"] = $p.zoomResizes
@@ -201,7 +201,7 @@ proc savePrefs() =
   st["pref.guideColor"] = $rgb(viewPrefs.guideColor)
   st["pref.gamutColor"] = $(int(gamutColor and 0xFFFFFF))
   storeAppearance(st)
-  discard saveSettings(AppName, st)
+  discard saveSettings(AppData, st)
 
 # ---- the pages ---------------------------------------------------------------------------------------
 
@@ -248,7 +248,7 @@ proc pageGeneral() =
     checkbox("Reset Preferences on Quit", prefs.resetOnQuit)
     checkbox("Use Legacy \"New Document\" Interface", prefs.legacyNew)
   label("Preferences take effect at once; Reset Preferences on Quit brings back every default the " &
-        "next time Retro Photo starts.", color = ui.theme.gray)
+        "next time Retro Atelier starts.", color = ui.theme.gray)
 
 proc applyLanguage() =
   ## The menus, panels and dialogs in the language chosen (Arabic: right to
@@ -281,7 +281,7 @@ proc pageTools() =
   group("Keyboard Shortcuts"):
     row:
       label "Set:"
-      if combo(["Today's", "Retro Photo 1994"], prefs.keySet, w = dp(220)):
+      if combo(["Today's", "Retro Atelier 1994"], prefs.keySet, w = dp(220)):
         applyKeySet()
     label("(the menus follow: today's, or 1994's)", color = ui.theme.gray)
     if button("Keyboard Shortcuts...", w = dp(160)):
@@ -319,9 +319,9 @@ proc pageFiles() =
       spin(prefs.recent, 0, 30, w = dp(70))
       label "files"
     if button("Clear Recent File List", w = dp(170)):
-      var st = loadSettings(AppName)
+      var st = loadSettings(AppData)
       st.addRecentFile("", 0)
-      discard saveSettings(AppName, st)
+      discard saveSettings(AppData, st)
 
 proc pageMemory() =
   let phys = physicalMemory()
@@ -330,7 +330,7 @@ proc pageMemory() =
     label("Memory in this device: " & mb(phys))
     label("In use now: " & mb(int64(memoryUsed())))
     row:
-      label "Let Retro Photo Use:"
+      label "Let Retro Atelier Use:"
       if slider(prefs.memory, 20, 90, w = dp(160), ticks = 0): applyMemory()
       label($prefs.memory & "% (" & mb(phys * prefs.memory div 100) & ")")
     label("Largest image: " & $(maxPixels div 1_000_000) & " million pixels; undo steps kept in " &
@@ -347,7 +347,7 @@ proc pageMemory() =
     row:
       label "Use:"
       if combo(names, k, w = dp(170)): prefs.threads = if k == 0: 0 else: [1, 2, 4, 8, 16][k - 1]
-    label("(takes effect when Retro Photo starts again)", color = ui.theme.gray)
+    label("(takes effect when Retro Atelier starts again)", color = ui.theme.gray)
   group("Graphics Processor Settings"):
     label("Detected: " & gpuDescription())
     var useGpu = prefs.gpu != 2
@@ -490,7 +490,7 @@ proc keysDialog() =
   dialog(keysOpen, "Keyboard Shortcuts", 520):
     row:
       label "Set:"
-      if combo(["Today's", "Retro Photo 1994"], prefs.keySet, w = dp(240)):
+      if combo(["Today's", "Retro Atelier 1994"], prefs.keySet, w = dp(240)):
         applyKeySet()
     var cmds = keymap.commandsOf
     for c in ["Free", "Skew", "Perspective", "Distort", "Warp", "Duplicate Layer", "Delete Layer", "Flatten Image",
@@ -554,12 +554,12 @@ proc prefsDialog() =
       if button("Cancel", w = dp(80)):
         prefs = prefsWas.app
         viewPrefs = prefsWas.view
-        restoreAppearance(loadSettings(AppName))
+        restoreAppearance(loadSettings(AppData))
         prefsOpen = false
   if not open:                         # (closed by its box: as Cancel)
     prefs = prefsWas.app
     viewPrefs = prefsWas.view
-    restoreAppearance(loadSettings(AppName))
+    restoreAppearance(loadSettings(AppData))
     prefsOpen = false
   if prefsOpen: applyPrefs()           # (seen at once)
   if filePicker(scratchPick, scratchPicked, fmFolder, [], "Scratch Disk Folder"):

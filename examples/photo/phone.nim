@@ -1,4 +1,4 @@
-## Retro Photo on a phone (included by photo.nim): the picture fills the
+## Retro Atelier on a phone (included by photo.nim): the picture fills the
 ## screen between a bar at the top -- the menus behind one button, Undo,
 ## Redo, the pictures open -- and the tools in a strip at the bottom; a
 ## panel (Layers, Tool Options, Color, Adjustments, Brushes, History) slides

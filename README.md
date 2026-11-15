@@ -175,19 +175,19 @@ nimble files          # Retro Files, the file manager (a folder after it: opens 
 nimble ledger         # a small business app: invoices, customers, reports
 nimble invoice        # an invoice from an HTML template: preview, PDF, printing
 nimble charts         # Chart Viewer: a CSV file as charts, saved as PNG
-nimble photo          # Retro Photo, the image editor
+nimble photo          # Retro Atelier, the image editor
 nimble board          # Retro Board, the whiteboard
 nimble taskman        # Retro Task Manager: the programs, the processor, the memory, the network
 nimble mail           # Retro Mail: Microsoft 365, Outlook.com, Gmail, any IMAP (mailexe, mailapk)
 nimble hrbook         # HR Book: employee records of several hotels, sealed with a PIN
 nimble apk            # Retro Files as an Android APK (build/RetroFiles.apk)
-nimble photoapk       # Retro Photo as an APK (photoinstall: build and adb install)
+nimble photoapk       # Retro Atelier as an APK (photoinstall: build and adb install)
 nimble galleryapk     # the gallery as an APK
 nimble boardapk       # Retro Board as an APK (boardinstall: build and adb install)
 nimble taskmanapk     # Retro Task Manager as an APK (taskmanexe: for Windows)
-nimble photoexe       # Retro Photo for Windows, with its icon (from Linux or macOS: MinGW; build/win/)
+nimble photoexe       # Retro Atelier for Windows, with its icon (from Linux or macOS: MinGW; build/win/)
 nimble filesexe       # Retro Files for Windows (galleryexe, boardexe: the others)
-nimble photoappimage  # Retro Photo as a Linux AppImage, with its icon and menu entry (one file, runs anywhere:
+nimble photoappimage  # Retro Atelier as a Linux AppImage, with its icon and menu entry (one file, runs anywhere:
 nimble filesappimage  # Retro Files as an AppImage      built against glibc 2.31 with zig when it is there)
 RETRO_APP=hrbook nimble exe        # any one app of the table in retroui.nimble: exe, appapk,
 RETRO_APP=hrbook nimble appapk     #   appimage, macapp
@@ -217,7 +217,7 @@ Termux the compiler is installed with `pkg` the first time.
 GitHub builds them too: **CI** runs the tests on each push and compiles
 the tools on Linux, Windows and macOS (the examples when run by hand);
 **Release** -- a `v...` tag pushed, or by hand -- makes the apps I use
-every day, Retro Gallery, Retro Files, Retro Photo, Retro Board and Retro
+every day, Retro Gallery, Retro Files, Retro Atelier, Retro Board and Retro
 Mail, as an AppImage, a Windows .exe, an APK and a macOS .app, and puts
 them on the GitHub release of that tag. Its APKs are signed with the key in
 the secrets `ANDROID_KEY_PEM` and `ANDROID_CERT_DER` (base64 of the files in
@@ -915,7 +915,7 @@ layout one. In an app whose keys are its canvas's when nothing is focused
 meaning of its own -- an
 image editor hides its panels with it -- does so only when
 `not focusInControls()`, and sets `autoFocus = false` when its keys
-belong to its canvas until a control is clicked (Retro Photo and Retro
+belong to its canvas until a control is clicked (Retro Atelier and Retro
 Board do both). `tests/drive/run.sh` walks every page of the kit's apps
 with Tab alone: each control reached, each one named, no letter
 underlined twice where one Alt reaches both. In a menu, a letter two
@@ -1497,7 +1497,7 @@ copies them into the folder open.
 New in 3.1: very big pictures (gigapixel scans, huge maps) are shown and
 thumbnailed a band at a time (`retroui/bigpicture`), and in Arabic a line
 that mixes Arabic with numbers reads right to left. New in 3.0: thumbnails of almost every picture (camera raw photos by
-their own previews, PSD and Retro Photo documents, SVG, JPEG XL,
+their own previews, PSD and Retro Atelier documents, SVG, JPEG XL,
 WebP, TIFF, EXR, HEIC/AVIF) **kept on disk**, so a folder of photos opens
 at once the second time; **smart memory** -- the pictures kept are a share
 of the device's memory and are let go when it runs short or the app goes
@@ -1890,7 +1890,7 @@ it: the 3.1 title bar on phones and tablets, a status bar (the tool's
 hint, page, shapes, zoom, memory), the color schemes and Appearance, a
 floating tool bar (select, hand, draw, highlighter, eraser, laser,
 shapes, arrow, line, text, note, frame, picture), pages, zoom; Excalidraw's
-options in Retro Photo's docked panels (`retroui/dock`), tabs grouped by
+options in Retro Atelier's docked panels (`retroui/dock`), tabs grouped by
 what they are about -- **Color, Stroke, Fill** (stroke and background
 colors, opacity; stroke style, width, sloppiness, edges; hachure,
 cross-hatch, zigzag, dots), **Text, Arrow, Shapes** (fonts, size, align;
@@ -2028,7 +2028,7 @@ the curves and levels editors, brush and swatch grids, layer rows.
 All of it runs on every core (`retroui/parallel`): a 24 megapixel photo
 opens, blurs, sharpens and develops in about a second.
 
-![examples/photo.nim: Retro Photo, an elliptical selection colorized with Hue/Saturation](docs/photo.png)
+![examples/photo.nim: Retro Atelier, an elliptical selection colorized with Hue/Saturation](docs/photo.png)
 
 ```nim
 import retroui/[photo, photopaint, photofx, photodevelop]
@@ -2048,7 +2048,7 @@ s.dehaze = 10
 p.applyFilter(developMargin(s), develop(s))
 ```
 
-`examples/photo.nim` is **Retro Photo 5.0.0**, an image editor in the manner
+`examples/photo.nim` is **Retro Atelier 5.1.0** (Retro Photo until 5.0: its modules, documents and package id keep that name), an image editor in the manner
 of the ones of 1994: the toolbox, the tabbed floating palettes (Brushes
 and Options; Picker, Swatches and Scratch; Layers, Channels and Paths;
 Info; Commands; Navigator, History and Actions; Properties), an options
@@ -2100,7 +2100,7 @@ raw (NEF, ARW, CR2, ORF, RW2, PEF, RAF), HEIC/AVIF, SVG export; the Timeline (fr
 animation, animated GIF and WebP); Rotate View, the Art History Brush, Vanishing Point;
 scripts (File > Scripts); a pen's pressure and tilt; filters on the GPU; the interface
 in Arabic, right to left. Since 4.5: File > New with presets and 23 templates, the
-Assets window (free photos, icons, SVG, textures from open sources; the Retro Photo
+Assets window (free photos, icons, SVG, textures from open sources; the Retro Atelier
 Library of brushes, patterns, gradients, styles and designs), Quick Actions, Share,
 Image Processor, Contact Sheet, Crop and Straighten Photos, Match Color, Focus Area,
 Before & After, QR codes, JPEG XL, SVG, CR3, layers composited on the GPU (the
@@ -2124,7 +2124,7 @@ plain shadow the layer's Drop Shadow, any other drawn as pixels), patterns as pa
 masks and clip paths as layer masks, blending modes, groups with their opacity, hidden layers;
 type with its outline (a Stroke; alone, with Fill at 0), its gradient, running down, each
 letter where the file puts it; every layer effect, blending mode and adjustment layer kept in
-the saved SVG for Retro Photo to open again; File > Export > SVG, Type as Outlines. `examples/magazine.nim` makes a three-page
+the saved SVG for Retro Atelier to open again; File > Export > SVG, Type as Outlines. `examples/magazine.nim` makes a three-page
 magazine with the engine, tool by tool.
 
 Since 5.0 it lays out too: **File > New Book** makes a document of pages in one window -- single
@@ -2134,9 +2134,11 @@ Roman, letters, abjad), text that **goes on from page to page** (Flow Onto the N
 Autoflow adds the pages a long text needs) and **keeps out of pictures** (Layout > Text Wrap:
 round a layer's box or its shape, on both sides or one; a shape drawn with the Pen at Opacity 0
 is a wrap of any outline). The **Pages** panel turns, adds, copies and removes pages; the book
-is one file (.rpb) and one PDF, type as type. **Window > Workspace** sets the panels and tools
+is one file (.rpb) and one PDF, type as type. Type, a shape or a placed picture drawn out
+past the spine **goes on, on the facing page** (one object on both pages). **Window > Workspace** sets the panels and tools
 out for Photo, Drawing or Layout. Arabic is set finer: the room between words, the tashkeel in
-a colour of its own, raised or hidden, and **Type > Word Shapes** -- the font's other shapes of
+a colour of its own, raised or hidden, **lists** (Paragraph > List: bullets of any shape, numbers
+in digits, Arabic-Indic, Roman, letters or abjad) and **Type > Word Shapes** -- the font's other shapes of
 the word selected, each drawn, a click to have it. The engine for all of it is the kit's
 (`retroui/photobook`, `retroui/textengine`), for any app:
 
@@ -2153,6 +2155,7 @@ let picture = d.addLayer("Picture")                               # ... paint on
 picture.wrap = 2                                                  # text keeps out of its shape
 d.rewrap()
 echo b.autoflow(0, story), " pages added"                         # until all of it is set
+discard b.syncSpread(1)                                           # what reaches past the spine: on the facing page too
 b.saveBook("novel.rpb")
 b.saveBookPdf("novel.pdf", pdfPreset(ppPress))
 b.close()
@@ -2184,7 +2187,7 @@ for L in d.layers:
   if L.isText: echo L.name, ": ", L.text.plainText
 writeFile("poster-2.svg", d.svgOf())           # and back: paths, text, pictures, groups, masks, filters
 writeFile("poster-print.svg", d.svgOf(outlines = true))      # the type as paths: no fonts needed
-echo d.svgOwn                                  # kept for Retro Photo alone (a bevel, an adjustment layer...)
+echo d.svgOwn                                  # kept for Retro Atelier alone (a bevel, an adjustment layer...)
 echo d.svgLosses                               # what the SVG does not hold at all
 let thumb = rasterizeSvg(readFile("poster.svg"), 256, 256)   # or just a picture of it: filters, patterns, text
 ```
@@ -2200,7 +2203,7 @@ setUiLanguage("ar", @toolkitArabic)                           # the toolkit in A
 
 ### Following a tutorial
 
-Retro Photo 4.9 is laid out as today's image editors are, so their tutorials
+Retro Atelier 4.9 is laid out as today's image editors are, so their tutorials
 work step by step, in a 1994 window: the menus have today's names and
 places (Image > Adjustments > Curves, Edit > Free Transform, Edit >
 Transform > Flip Horizontal, Layer > New > Layer, Select > Modify > Feather,
@@ -2213,20 +2216,20 @@ Layer, the Color Sampler, the Magic Eraser among them), the keys are
 today's (Ctrl+T, Ctrl+J, Ctrl+Shift+N, Shift+F6, Ctrl+Alt+F...), and Free
 Transform keeps the proportions as it has since 2019. **Edit > Search**
 (Ctrl+F) finds any command, panel or tool by name; the **Contextual Task
-Bar** under the image offers the next steps. With the Retro Photo 1994 key
+Bar** under the image offers the next steps. With the Retro Atelier 1994 key
 set (Preferences > Tools) the menus are 1994's.
 
-On a phone held upright Retro Photo 4.10 is laid out for one hand: the
+On a phone held upright Retro Atelier 4.10 is laid out for one hand: the
 picture fills the screen between a bar at the top (the menus behind one
 button, Undo, Redo, Open, Save, the pictures open) and the tools in rows
 at the bottom (held, a group's other tools); Layers, Options, Color,
 Adjust, Brushes and History slide up under the picture, two fingers zoom
 and move it, and a picture shared from another app opens in it ("Edit in
-Retro Photo"). A tablet, or the phone turned, keeps the desktop's
+Retro Atelier"). A tablet, or the phone turned, keeps the desktop's
 workspace. The kit's menu bar goes onto a second row when its menus do
 not fit in one.
 
-![Retro Photo 3.9: Histogram, Adjustments, Styles and Layer Comps panels, the Contextual Task Bar](docs/photo-cc.png)
+![Retro Atelier 3.9: Histogram, Adjustments, Styles and Layer Comps panels, the Contextual Task Bar](docs/photo-cc.png)
 
 ## Web and HTML
 
@@ -2729,9 +2732,9 @@ that screen's Start.
 
 **A crash's report with its functions' names:** without `--debuggable`
 the library in the APK is stripped and a copy with its names is kept
-beside it (`RetroPhoto-symbols/arm64-v8a/libmain.so`; the Release has it
-as `RetroPhoto-symbols.zip`). `retrokit symbolize report.txt
-build/RetroPhoto-symbols` names each frame of a report -- the "stopped"
+beside it (`RetroAtelier-symbols/arm64-v8a/libmain.so`; the Release has it
+as `RetroAtelier-symbols.zip`). `retrokit symbolize report.txt
+build/RetroAtelier-symbols` names each frame of a report -- the "stopped"
 screen's (`libmain.so+0x386786`) or logcat's (`#00 pc 0000000000386786
 .../libmain.so`) -- and `retroui/symbolize` does it from Nim.
 
@@ -2926,10 +2929,10 @@ font the program carries is found without looking through the system's
 font folders (`scanFontsSoon()` looks through them on a thread, for an app
 that will list them); the tables a codec needs are made when the program
 is built or when it first needs them. What the first frame can do without
-waits for `framesShown() > 0` (Retro Photo paints its splash then). A
+waits for `framesShown() > 0` (Retro Atelier paints its splash then). A
 frame after an input that nothing asked to draw again -- a letter typed --
 is shown at once, the next one only if it differs. The first frame on the
-screen, release builds on the 2-core machine below: Retro Photo 30 ms,
+screen, release builds on the 2-core machine below: Retro Atelier 30 ms,
 Retro Board 25-30 ms, Mail 22, Files 21, the gallery and HR Book 17,
 Communicator 15, Chart Viewer 10.
 
@@ -2982,7 +2985,7 @@ stripped):
 | `examples/filemanager.nim` (Retro Files) | 4.3 MB |
 | `examples/gallery.nim` (everything: street map, 3D models, canvas, PDF, HTML, media) | 5.7 MB |
 | `examples/mail.nim` (Retro Mail) | 6.0 MB |
-| `examples/photo.nim` (Retro Photo) | 10.6 MB |
+| `examples/photo.nim` (Retro Atelier) | 10.6 MB |
 
 Only what an app calls is linked: an app without the map, the 3D view or
 PDF does not carry them. The fonts (FreeSans, FreeSerif and FreeMono in
@@ -3219,7 +3222,7 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_looks` | what a control takes to look different: the accent button, a text style and a height for buttons and number boxes, groups with a title strip, options in boxes, the gauge in bands and the range bar, a tool bar's line and space, `withTheme` and `withTextStyle` -- and the 28 colour schemes, each one's text readable (4.5 to 1) on its window, fields, buttons and highlight; docs/customizing.md's own samples |
 | `test_bmi` | BMI Studio without a window: the numbers in both unit systems (classed as shown), Calculate BMI the default button in the accent colour, another scheme taken by the bands and the button, a phone's layout |
 | `test_hangwatch` | the table of a program's procs read and a place in the program named by it (a Windows window that stops answering writes the procs its thread is in); no watch elsewhere |
-| `test_photobook`, `test_photobookapp` | text that keeps out of holes (lines on both sides on one baseline, columns), Text Wrap in a document (box, shape, jump, sides, undo, saved), page numbers in text, books: sides and margins bound either way, numbers in every style, master pages that follow, text through added pages (every word once), the book's file and PDF, damaged books refused; Retro Photo's books headless: pages turned, masters, a number typed in, Autoflow, Text Wrap, save and open, the workspaces, the Move tool's box |
+| `test_photobook`, `test_photobookapp` | text that keeps out of holes (lines on both sides on one baseline, columns), Text Wrap in a document (box, shape, jump, sides, undo, saved), page numbers in text, books: sides and margins bound either way, numbers in every style, master pages that follow, text through added pages (every word once), the book's file and PDF, damaged books refused; Retro Atelier's books headless: pages turned, masters, a number typed in, Autoflow, Text Wrap, save and open, the workspaces, the Move tool's box |
 | `test_systemfiles` | the system's own file picker behind the kit's file dialogs, with a made-up system: a document opened as a copy and written back when the app saves it, Save As where the picker said (asked before, or after the file is there), what cannot be written told |
 | `test_svgimport`, `test_photosvg` | SVG drawn as resvg draws it (65 drawings: icons, flags, and one for each filter step, pattern, blending mode, mask and way of placing type), its text (runs, lines, along a path, the font found, letters in their own places, outlined, hollow, running down) and pictures (in the file, beside it, nowhere else) read, drawn -- on worker threads too -- and made layers; filters by numbers (linear light, a step's rectangle, noise, displacement, lighting); damaged files never a crash; a document written as SVG and opened again: the same layers by name, the same type, masks, effects, pattern fills, adjustment layers and blending modes, the same picture, the same file written twice; type as outlines |
 | `test_podcast` | Retro Podcast without a window: a feed file followed (read by a job), an episode played from where it was left, the queue, Mark Played and Unfollow undone, OPML, the library saved and read back |
@@ -3246,8 +3249,8 @@ it is and how to run it.
 | `examples/charts.nim` | Chart Viewer: open a CSV, pick a chart, save a PNG |
 | `examples/invoice.nim` | an invoice from an HTML template: preview, PDF, print |
 | `examples/native.nim` | calling the system's own APIs on each platform |
-| `examples/photo.nim` | Retro Photo 5: an image editor of 1994 that also lays out books and magazines, laid out as today's image editors -- layers and groups, Smart Objects, 62 tools, filters, Neural Filters, PDF for print, Arabic type, panoramas, raw photos |
-| `examples/magazine.nim` | a three-page magazine made with Retro Photo's engine, tool by tool, saved as .rpd and PDF |
+| `examples/photo.nim` | Retro Atelier 5: an image editor of 1994 that also lays out books and magazines, laid out as today's image editors -- layers and groups, Smart Objects, 62 tools, filters, Neural Filters, PDF for print, Arabic type, panoramas, raw photos |
+| `examples/magazine.nim` | a three-page magazine made with Retro Atelier's engine, tool by tool, saved as .rpd and PDF |
 | `examples/book.nim` | a small Arabic book made with the layout engine (`retroui/photobook`): bound on the right, facing pages, masters with a running head and page numbers, a story through as many pages as it needs, round a picture; saved as .rpb, PDF and pictures of its spreads |
 | `examples/taskman.nim` | Retro Task Manager: the processes (end one or a tree, a priority), the processor, the memory, the disks and the network as graphs that move, what starts with the system, the connections, the last week (also an APK: `nimble taskmanapk`) |
 | `examples/retroboard.nim` | Retro Board: a whiteboard in the manner of tldraw -- ink, shapes, arrows, notes, frames, pages; PNG, SVG and PDF (also an APK: `nimble boardapk`) |
@@ -3414,7 +3417,7 @@ says how.
   Screen readers were tried end to end with AT-SPI's own client (what Orca
   uses) and with UI Automation under Wine; VoiceOver and TalkBack build and pass the tests of their parts, but
   have not been run on a device in this release.
-- Retro Photo's own picture controls (curves, levels, gradients, the
+- Retro Atelier's own picture controls (curves, levels, gradients, the
   brushes and swatches, the color field) and a canvas an app draws itself
   are read only as what they are (a picture) until the app says more with
   `accessNode`; the panels' tabs, buttons, boxes and the layer list around
@@ -3476,7 +3479,7 @@ says how.
   on itself or on other models; no Draco or meshopt compression in glTF
   (export without them); cameras and lights of a model are not read (the
   view has its own).
-- Retro Photo: no Generative Fill; a Multichannel image made from CMYK
+- Retro Atelier: no Generative Fill; a Multichannel image made from CMYK
   keeps its four inks (one deleted would come back, separated again from
   the picture: delete inks from RGB's three). PostScript and EPS files open by the picture they hold (or their
   preview): there is no PostScript interpreter. Get Google Fonts has not
@@ -3511,7 +3514,7 @@ the map.
 
 ## Developer
 
-Retro Nim UI, Retro Photo, Retro Files and the examples are developed by
+Retro Nim UI, Retro Atelier, Retro Files and the examples are developed by
 **Sultan Al Isaiee (@foxoman)** -- [www.foxoman.net](https://www.foxoman.net),
 [sultan@foxoman.net](mailto:sultan@foxoman.net). Co-author: Claude, Anthropic's AI. Every app made with the kit
 says so in its About box (`RetroCredit`, `RetroWebsite`, `RetroEmail` in

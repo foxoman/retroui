@@ -1,4 +1,4 @@
-## Retro Photo 3 -- an image editor in the manner of the paint programs of
+## Retro Atelier 3 -- an image editor in the manner of the paint programs of
 ## 1994: a toolbox and floating, tabbed palettes (Brushes and Options;
 ## Picker, Swatches and Scratch; Layers, Channels and Paths; Info;
 ## Commands) over document windows; layers with blend modes, selections
@@ -27,8 +27,9 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 {.pop.}
 
 const
-  AppName = "Retro Photo"
-  AppVersion = "5.0.0"
+  AppName = "Retro Atelier"         # (Retro Photo until 5.0)
+  AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
+  AppVersion = "5.1.0"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -342,7 +343,7 @@ var
   info: tuple[x, y: float; c: uint32; inside: bool; w, h: float; angle, dist: float; sized: bool]
   screenMode = 0
   quitAsked = false
-  quitConfirm = false            ## "Quit Retro Photo?" (documents are open)
+  quitConfirm = false            ## "Quit Retro Atelier?" (documents are open)
   wasPaused = false
   sessionPending = true          ## (at the start) the last session's documents to open again
   splashUntil = 0
@@ -413,7 +414,7 @@ var
                      files: seq[string]; err: string]
 let builtinAdj = builtinPresets()
 
-proc presetsFile(): string = dataDir(AppName) / "Presets" / "Adjustment Presets.radj"
+proc presetsFile(): string = dataDir(AppData) / "Presets" / "Adjustment Presets.radj"
 
 proc loadMyPresets() =
   try: myPresets = loadPresetFile(presetsFile())
@@ -479,7 +480,7 @@ type AppPrefs = object
   recent: int                  ## files in File › Open Recent
   lowerExt: bool               ## file extensions in lower case
   psdComposite: bool           ## PSD: the merged picture too (Maximize Compatibility)
-  memory: int                  ## percent of the device's memory Retro Photo may use
+  memory: int                  ## percent of the device's memory Retro Atelier may use
   threads: int                 ## 0: one a core
   gpu: int                     ## drawing: 0 automatic, 1 the GPU, 2 the CPU
   scratch: string              ## the scratch disk's folder ("": the default)
@@ -490,7 +491,7 @@ type AppPrefs = object
   smartQuotes: bool
   workingSpace: int            ## the profile of new documents: none, then the built-in ones
   embedProfile: bool           ## the profile in exported files
-  keySet: int                  ## the shortcuts: the usual (0) or Retro Photo 1994's (1)
+  keySet: int                  ## the shortcuts: the usual (0) or Retro Atelier 1994's (1)
   toolCols: int                ## the toolbar: 0 as fits, 1 one column, 2 two
   toolHidden: string           ## the toolbar's groups taken off (under "..."), by name
   taskBar: bool                ## the Contextual Task Bar under the image
@@ -576,7 +577,7 @@ const
     ("Ctrl+0", "Fit on Screen"), ("Ctrl+Alt+0", "Actual Pixels"), ("F1", "Contents"),
     ("Ctrl+Alt+Shift+W", "Export As..."), ("Ctrl+Alt+G", "Toggle Clipping Mask"),
     ("Ctrl+Alt+Y", "CMYK Preview"), ("Ctrl+Shift+Y", "Gamut Warning")]
-    ## Retro Photo 1994's (1994's, where it had them)
+    ## Retro Atelier 1994's (1994's, where it had them)
 
 var
   keymap: Keymap                 ## the shortcuts in use (Edit > Keyboard Shortcuts)
@@ -2653,7 +2654,11 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
         status = "Picked the layer " & d.layers[i].name & " (Auto-Select: what you click is picked)"
     if not d.hasSelection and not d.editMask and not d.quickMask and
        (d.current.locked or d.current.lockPosition) and d.movedLayers.len == 1:
-      status = "\"" & d.current.name & "\" is locked in place (the lock of Position in Layers)."
+      status = if d.current.fromSpan != 0: "This is the part of an object of the facing page that lies on this one: " &
+                                           "click the facing page to turn to it, and move or change it there."
+               elif d.current.fromMaster != 0: "This is on the page's master: Layout > Masters > Edit Master to change it " &
+                                               "(on every page that has it)."
+               else: "\"" & d.current.name & "\" is locked in place (the lock of Position in Layers)."
       drag.on = false
       return
     if ev.alt and not d.editMask and not d.quickMask and not d.current.background:
@@ -4468,7 +4473,7 @@ proc setup() =
   # from before cleared away)
   systemFiles(true)              # (a phone: Open and Save As through the system's own file picker)
   try:
-    scratchDir = dataDir("Retro Photo") / "scratch"
+    scratchDir = dataDir(AppData) / "scratch"
     createDir(scratchDir)
     # (walkDir: Android before 9 has no glob)
     for kind, f in walkDir(scratchDir):
@@ -4483,7 +4488,7 @@ proc setup() =
   # (the thumbnails of slow files kept on disk: the Open dialog, the Assets
   # window; and when the device runs short of memory, what is only kept to
   # be quick let go)
-  useThumbCache(thumbCacheFolder(AppName), 64 * 1024 * 1024)
+  useThumbCache(thumbCacheFolder(AppData), 64 * 1024 * 1024)
   onMemoryPressure(proc (level: MemoryPressure) =
     if level == mpCritical:
       for dw in docs: dw.doc.purgeCaches()
@@ -4495,7 +4500,7 @@ proc setup() =
   # kinds the system may not read: raw photos, SVG, JPEG XL, WebP, TIFF...;
   # after the documents' own readers, which come first)
   addMorePictures()
-  addFontDir(dataDir(AppName) / "Fonts")   # (fonts got from Google Fonts)
+  addFontDir(dataDir(AppData) / "Fonts")   # (fonts got from Google Fonts)
   findRecovery()
   loadPresets()
   loadMyPresets()
@@ -4532,7 +4537,7 @@ proc faultReport() =
   ## The faults of the last run (it stopped, or something went wrong in
   ## it), told once at the next start, and Help > Report a Problem: the
   ## toolkit's box (copy the report, or send it by email).
-  if ui.now >= splashUntil: problemBox("Retro Photo", AppVersion)
+  if ui.now >= splashUntil: problemBox("Retro Atelier", AppVersion)
 
 proc photoFrame() =
   ## One frame of the program (the tests run it too). Long work shows a box
@@ -4562,7 +4567,7 @@ proc photoFrame() =
     # (a fault of the program: written in its fault log, the frame put back
     # -- it goes on rather than closing with the work in it)
     layoutRestore(mark)
-    noteFault("Retro Photo " & AppVersion, e.msg & "\n" & e.getStackTrace())
+    noteFault("Retro Atelier " & AppVersion, e.msg & "\n" & e.getStackTrace())
     drag = Drag()
     status = "Something went wrong (" & e.msg & ") -- kept in the fault log: Help > Report a Problem"
     ui.redraw = true
@@ -4622,7 +4627,7 @@ proc main() =
   reportedVersion = AppVersion           # (for a fault's report)
   startApp(AppName & " " & AppVersion, 1280, 800)
   autoFocus = false             # (the keys are the picture's until a palette's control is clicked)
-  restoreAppearance(loadSettings(AppName))      # (the look chosen in Preferences)
+  restoreAppearance(loadSettings(AppData))      # (the look chosen in Preferences)
   let splashMs = (try: parseInt(getEnv("RETRO_PHOTO_SPLASH", "1800")) except ValueError: 1800)
   var first = true
   for a in appArguments(): openFile(a)                         # (none in a phone's app)
@@ -4640,7 +4645,7 @@ proc main() =
     # (the type tool's fonts looked for on a thread once the window shows)
     if framesShown() > 0: scanFontsSoon()
     # (pictures shared from another app -- Android's share sheet, "Edit in
-    # Retro Photo": each opened)
+    # Retro Atelier": each opened)
     for f in sharedIn().files: openFile(f)
     photoFrame()
     endFrame()

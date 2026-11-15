@@ -1,4 +1,4 @@
-# Retro Photo -- included by photo.nim
+# Retro Atelier -- included by photo.nim
 #
 # Scripts (File > Scripts): Retro Script, a JavaScript like the usual own
 # scripting, runs here -- the plug-ins of a phone, where the usual .8bf
@@ -35,7 +35,7 @@ const scriptExamples = [
   ("Title text", "// a line of text in the middle, in Arabic and English\nlet d = app.activeDocument;\n" &
     "d.addText(\"مرحبا Hello\", d.width / 2, d.height / 2, Math.round(d.height / 10), \"#ff3300\");\n")]
 
-proc scriptsDir(): string = dataDir(AppName) / "Scripts"
+proc scriptsDir(): string = dataDir(AppData) / "Scripts"
   ## (the folder the Scripts menu lists)
 
 proc scriptFiles(): seq[string] =

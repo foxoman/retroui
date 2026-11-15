@@ -94,6 +94,7 @@ proc editMaster(bw: BookWin; id: int; side: PageSide) =
     status = "Could not read the master: " & getCurrentExceptionMsg()
 
 proc addBook(b: Book) =
+  bookSmartFilter = smartFilterFn      # (a placed picture's part on the facing page: with its Smart Filters)
   let d = b.doc(0)
   addDoc(d)
   let bw = BookWin(book: b, dw: active, page: 0)
@@ -302,6 +303,15 @@ proc textWrapDialog() =
       label "Stays away:"
       spin(gap, 0, 2000, w = dp(64))
       label "pixels"
+    if L.isText:
+      var ig = L.ignoreWrap
+      if checkbox("This text ignores Text Wrap (a caption on a picture, a quote on its panel)", ig):
+        d.beginStep("Ignore Text Wrap")
+        d.touchLayers()
+        L.ignoreWrap = ig
+        d.endStep()
+        d.drawText(L)
+        d.markAll()
     paragraph("Text in a box keeps out of this layer. To wrap round a shape of your own, draw it with the Pen " &
               "or a shape tool on a layer, give that layer Round its shape, and set its Opacity to 0: it does " &
               "not show, the text still keeps out of it.", color = ui.theme.gray)
@@ -754,7 +764,7 @@ proc bookOverlay(dw: DocWin) =
           line(sx, ay, sx, by, color(150, 90, 230))
   let g = bw.ghostRect()
   if g.page >= 0 and g.r.w > 4:
-    let t = (try: b.thumb(g.page, 512) except CatchableError: nil)
+    let t = (try: b.thumb(g.page, 1024) except CatchableError: nil)
     fill(g.r, color(255, 255, 255))
     if t != nil and t.w > 0: drawBitmap(g.r, t)
     box(g.r, ui.theme.shadow)
@@ -829,6 +839,21 @@ proc bookFrame() =
     if bw.dw.doc != nil and not bw.dw.doc.stepOpen:
       bw.dw.doc.modified = bw.book.changed
   let bw = curBook()
+  # (the spread kept one: what reaches past the spine goes on, on the facing page -- looked
+  # at when nothing is under way)
+  if bw != nil and bw.master == 0 and not ui.mouseDown and not te.on and not xf.on and wm.kind == wkNone and
+     not drag.on and not bw.dw.doc.stepOpen:
+    try:
+      let r = bw.book.syncSpread(bw.page)
+      if r.moved > 0:
+        let j = bw.book.partner(bw.page)
+        status = (if r.moved == 1: "The object is" else: $r.moved & " objects are") & " on page " &
+                 bw.book.label(j) & " now (wholly past the spine): click that page to work on " &
+                 (if r.moved == 1: "it" else: "them")
+      elif r.changed:
+        status = "What reaches past the spine goes on, on the facing page"
+    except CatchableError:
+      status = "Could not read the facing page: " & getCurrentExceptionMsg()
   if bw != nil and bw.master == 0 and canInput() and not ui.keyUsed and not te.on and
      ShiftPressed in ui.mods and CtrlPressed notin ui.mods:
     if ui.key == KeyPageDown and bw.page < bw.book.pages.high:

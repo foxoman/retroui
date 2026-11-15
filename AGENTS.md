@@ -13,7 +13,7 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   uirelays, kept generic: see below); `src/retroapk.nim`, `retroios.nim`,
   `retrokit.nim` -- the command-line tools; `retroweb.nim` (web pages) and
   `retrostore.nim` (store packages, 3D models) are retrokit's commands.
-- `examples/` -- the example apps (Gallery, Retro Photo, Retro Files,
+- `examples/` -- the example apps (Gallery, Retro Atelier, Retro Files,
   Retro Mail, Retro Communicator, Retro Board, Retro Task Manager, HR
   Book, Retro Navigator, Retro DNS, Retro Podcast, 7GUIs, Notepad,
   Ledger, Charts...). They are
@@ -57,21 +57,24 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   Every scheme in `builtinThemes` keeps its text readable -- 4.5 to 1 on
   the window, the fields, the buttons, the highlight and the accent
   (`tests/test_looks.nim` fails otherwise).
-- Layout in Retro Photo is the kit's: `retroui/photobook` (a `Book` of
+- Layout in Retro Atelier is the kit's: `retroui/photobook` (a `Book` of
   page `Doc`s: facing pages, masters, numbers, text from page to page,
   ".rpb", PDF), Text Wrap in `retroui/photo` and `retroui/textengine`
   (`Layer.wrap`, `TextData.holes`). The app (`examples/photo/book.nim`)
   only shows them. A page's document is an ordinary `Doc`; the book sees
   changes by `Doc.ver`. Pages not shown are parked: never keep a page's
   `Doc` across a call that parks (`park`, `reflow`, `saveBook`,
-  `saveBookPdf`, `autoflow`) unless it is in `keep`.
+  `saveBookPdf`, `autoflow`) unless it is in `keep`. An object across the
+  spine is its page's; its part on the facing page is a copy
+  (`Layer.fromSpan`) that `syncSpread` and `doc` make again -- never
+  edit a copy, change the object.
   `tests/test_photobook.nim` and `tests/test_photobookapp.nim`.
 - Open and Save As on a phone: `retroui/systemfiles` behind `fileDialog`
   and `filePicker` (Android: `tools/android/RetroActivity.java`, then
   `sh tools/android/build_dex.sh`; iOS: through the Objective-C runtime).
   Its logic is tested with a made-up system (`tests/test_systemfiles.nim`);
   the two real ones are not run by any test.
-- SVG in Retro Photo: `retroui/svgimport` reads (shapes, text, pictures,
+- SVG in Retro Atelier: `retroui/svgimport` reads (shapes, text, pictures,
   groups, patterns, filters, masks, blending; `svgPieces`, `placeSvg`),
   `retroui/photosvg` writes (`svgOf`, `svgLosses`, `svgOwn`). What one
   writes the other must read back the same: `tests/test_photosvg.nim`
@@ -317,6 +320,12 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
 
 ## Rules
 
+- **Nim 2.4 refuses a loop variable kept by a nested proc**
+  (`for (kind, title) in [...]: grid(..., proc () = use(kind))`: "'kind'
+  is of type <lent string> which cannot be captured"). Give the loop a
+  copy as its first line (`let kind = kind`). Only a real build says so,
+  not `nim check`, so the warning check misses it:
+  `python3 tools/lentfix.py FILE.nim` with Nim 2.4 finds and fixes them.
 - **Nim 2.2 leaks** in three shapes, worked around in the kit: `return x`
   after `result` was already set, `return nil` too (write `result = x;
   return`, or keep the value in a local until it is whole;

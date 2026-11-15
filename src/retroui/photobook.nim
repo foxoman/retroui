@@ -21,6 +21,12 @@
 ## - one file (".rpb": a zip of the pages as ".rpd" documents and a
 ##   description), and a PDF of all pages (`saveBookPdf`).
 ##
+## **Objects across the spine**: type, a shape or a placed picture (a
+## Smart Object) of a page that reaches past the spine goes on, on the
+## facing page (`syncSpread`): its part there is a copy the book keeps
+## (`Layer.fromSpan`), so each page, and each page of the PDF, has its
+## half.
+##
 ## A page's document is worked on as any document is. The book sees what
 ## changed by the document's `ver` (it goes up with `markDirty`,
 ## `markAll`, a step that ends: whatever draws it again); a change that
@@ -53,17 +59,15 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[os, json, tables, strutils, hashes]
-import gfx, imaging, photo, photopdf, pdf, textengine, zip
+import gfx, imaging, photo, photofx, photopdf, photowarp, pdf, textengine, zip
+
+export textengine.NumberStyle, textengine.formatNumber      # (how page numbers are written: the type engine's)
 
 type
   Binding* = enum
     ## The side a book is bound on.
     bindLeft = "Left to Right"       ## bound on the left: its first page is a right page
     bindRight = "Right to Left"      ## bound on the right (Arabic, Hebrew): its first page is a left page
-  NumberStyle* = enum
-    ## How page numbers are written.
-    nsDigits = "1, 2, 3", nsArabicIndic = "١, ٢, ٣", nsPersian = "۱, ۲, ۳", nsRomanLower = "i, ii, iii",
-    nsRomanUpper = "I, II, III", nsLetterLower = "a, b, c", nsLetterUpper = "A, B, C", nsAbjad = "أ, ب, ج"
   PageSide* = enum
     ## Where a page is in its spread.
     psSingle,                        ## pages that do not face each other
@@ -93,6 +97,8 @@ type
     settledVer: int                  # (... when what leaves it was last worked out; -1: not yet)
     fresh: bool                      # (just read back from its file)
     storedWith: Hash                 # (the number, master and incoming text its file was drawn with)
+    spanOut: Hash                    # (what of it lies on its facing page, as last looked at; 0: nothing)
+    spanApplied: Hash                # (what of its facing page lies on it, as its copies were made)
     applied: string                  # (the master, side and version its master layers are of)
     outText: Table[int, TextData]    # (what does not fit each box that goes on to another page)
     outSig: Table[int, Hash]
@@ -116,6 +122,7 @@ type
     masters*: seq[Master]
     nextId: int
     dir: string                      # (where parked pages are)
+    looks: Table[(int, int), (int, Hash)]   # (a page's layer: its `ver`, and what it looked like then)
 
 const
   BookPapers* = [("A4", 210.0, 297.0), ("A5", 148.0, 210.0), ("A3", 297.0, 420.0), ("B5", 176.0, 250.0),
@@ -126,46 +133,9 @@ const
 
 var bookCount = 0
 
-# ---- numbers -----------------------------------------------------------------------------
-
-proc roman(n: int): string =
-  const parts = [(1000, "m"), (900, "cm"), (500, "d"), (400, "cd"), (100, "c"), (90, "xc"), (50, "l"),
-                 (40, "xl"), (10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i")]
-  var n = n
-  for (v, s) in parts:
-    while n >= v:
-      result.add s
-      n -= v
-
-proc formatNumber*(n: int; style: NumberStyle): string =
-  ## A page number written in a style: 7 is "7", "٧", "vii", "g"... (Roman
-  ## numerals and letters from 1 on; below 1, and Roman above 3999: digits.)
-  const abjad = ["أ", "ب", "ج", "د", "ه", "و", "ز", "ح", "ط", "ي", "ك", "ل", "م", "ن", "س", "ع", "ف", "ص",
-                 "ق", "ر", "ش", "ت", "ث", "خ", "ذ", "ض", "ظ", "غ"]
-  # (what counts from 1 -- and Roman numerals, to 3999 -- written as digits past that)
-  let asDigits = style in {nsRomanLower, nsRomanUpper, nsLetterLower, nsLetterUpper, nsAbjad} and
-                 (n < 1 or (style in {nsRomanLower, nsRomanUpper} and n > 3999))
-  case (if asDigits: nsDigits else: style)
-  of nsDigits: result = $n
-  of nsArabicIndic, nsPersian:
-    let zero = if style == nsPersian: 0x06F0 else: 0x0660
-    for c in $n:
-      if c in '0' .. '9':
-        let cp = zero + ord(c) - ord('0')
-        result.add char(0xC0 or (cp shr 6))
-        result.add char(0x80 or (cp and 0x3F))
-      else: result.add c
-  of nsRomanLower: result = roman(n)
-  of nsRomanUpper: result = roman(n).toUpperAscii
-  of nsLetterLower, nsLetterUpper:
-    var k = n
-    while k > 0:
-      dec k
-      result.insert($char(ord(if style == nsLetterUpper: 'A' else: 'a') + k mod 26), 0)
-      k = k div 26
-  of nsAbjad:
-    # (past the 28 letters: the letter again, as often as it has come round)
-    for _ in 0 .. (n - 1) div 28: result.add abjad[(n - 1) mod 28]
+var bookSmartFilter*: proc (f: SmartFilter): FilterFn
+  ## How a Smart Object's Smart Filters are done when its part on the
+  ## facing page is drawn (an app that has them sets it; nil: without).
 
 # ---- the setup ---------------------------------------------------------------------------
 
@@ -356,6 +326,127 @@ proc hasMarker(t: TextData): bool =
 proc emptyText(): TextData =
   result.antialias = true
 
+# ---- objects across the spine --------------------------------------------------------------
+#
+# A page is a document of its own; an object of it that reaches past the spine -- type, a
+# shape, a Smart Object: what keeps its shape past a document's edge -- has its other part
+# on the facing page as a copy there (`Layer.fromSpan`), locked, made again when the object
+# changes. An object wholly past the spine is the facing page's from then on.
+
+proc spineSide(b: Book; i: int): int =
+  ## (where page `i`'s facing page lies: a page's width to its right, or to its left (negative); 0: none)
+  let j = b.partner(i)
+  if j < 0: 0 elif b.spreadOf(i)[0] == i: b.setup.w else: -b.setup.w
+
+proc crosses(d: Doc; L: Layer; side: int): int =
+  ## (0: not past the spine; 1: across it; 2: all of it past it)
+  if L.fromMaster != 0 or L.fromSpan != 0 or not L.visible or side == 0: return 0
+  let f = d.fullBox(L)
+  if not f.ok: return 0
+  if side > 0: (if f.x0 >= d.w.float: 2 elif f.x1 > d.w.float + 0.5: 1 else: 0)
+  else: (if f.x1 <= 0: 2 elif f.x0 < -0.5: 1 else: 0)
+
+proc lookOf(b: Book; pg: BookPage; L: Layer): Hash =
+  ## (what an object is and looks like, the same when its page is read back from its file
+  ## -- a layer's `ver` counts from the start again then: worked out when `ver` changed)
+  let key = (pg.id, uidOf(L))
+  let known = b.looks.getOrDefault(key, (-1, Hash(0)))
+  if known[0] == L.ver: return known[1]
+  let d = pg.doc
+  var h: Hash
+  if L.isText:
+    h = h !& hash($d.effectiveText(L).toJson)
+  elif L.smart != nil:
+    let s = L.smart
+    h = h !& hash((s.w, s.h, s.src.len, s.filters.len, s.warp.len, s.name))
+    var k = 0
+    while k < s.src.len:
+      h = h !& hash(s.src[k])
+      k += 97
+  elif L.isShape:
+    let s = L.shape
+    h = h !& hash((ord(s.fill.kind), s.fill.color, s.fill.color2, s.fill.stops.len, s.fill.angle, s.fill.style,
+                   ord(s.stroke.kind), s.stroke.color, int(s.strokeWidth * 16)))
+    for sub in s.path.subs:
+      for q in sub.pts: h = h !& hash((q.p, q.inH, q.outH))
+  # (... and its pixels on its page: any change that shows)
+  if L.px.len == d.w * d.h:
+    var x = 2166136261'u32
+    var k = 0
+    while k < L.px.len:
+      # (what is not seen does not count: a file need not keep its colors)
+      x = (x xor (if (L.px[k] shr 24) != 0: L.px[k] else: 0'u32)) * 16777619'u32
+      k += 3
+    h = h !& hash(x)
+  result = !$h
+  b.looks[key] = (L.ver, result)
+
+proc spanSig(b: Book; i: int): Hash =
+  ## (what of page `i`, in memory, lies on its facing page; 0: nothing)
+  let pg = b.pages[i]
+  let side = b.spineSide(i)
+  if side == 0 or pg.doc == nil: return 0
+  var h: Hash
+  var any = false
+  for L in pg.doc.layers:
+    if crosses(pg.doc, L, side) == 0: continue
+    any = true
+    let f = pg.doc.fullBox(L)
+    h = h !& hash((uidOf(L), b.lookOf(pg, L), L.opacity, ord(L.mode), int(f.x0), int(f.y0), int(f.x1), int(f.y1)))
+  if not any: return 0
+  result = !$(h !& hash((b.pages[b.partner(i)].id, side)))
+  if result == 0: result = 1
+
+proc acrossCopy(sd: Doc; S: Layer; d: Doc; dx: int; owner: int): Layer =
+  ## (the layer `S` of `sd` as a layer for `d`, `dx` to the side: its part there as a copy
+  ## of the page `owner`'s, or -- `owner` 0 -- the object itself, moved; type and shapes
+  ## are drawn once it is among `d`'s layers)
+  result = cloneLayer(S)
+  result.fromSpan = owner
+  result.fromMaster = 0
+  result.uid = 0
+  result.flowFrom = 0
+  result.flowPage = 0
+  result.flowOut = false
+  result.depth = 0
+  result.clipped = false
+  result.picked = false
+  result.locked = owner != 0 or S.locked
+  if result.mask != nil and result.mask.px.len == d.w * d.h:
+    # (its mask with it; past what the mask knew, shown)
+    let src = result.mask.px
+    var m = newSeq[uint32](src.len)
+    for y in 0 ..< d.h:
+      for x in 0 ..< d.w:
+        let sx = x - dx
+        m[y * d.w + x] = if sx >= 0 and sx < d.w: src[y * d.w + sx] else: 0xFFFFFFFF'u32
+    result.mask.px = m
+    inc result.mask.ver
+  if S.smart != nil:
+    var q = S.smart.quad
+    for c in q.mitems: c = (c[0] + dx.float, c[1])
+    result.smart = S.smart.withQuad(q)
+    result.px = renderSmart(result.smart, d.w, d.h, bookSmartFilter)
+    inc result.ver
+  elif S.isText:
+    # (a copy: the text as its page shows it -- its number, what flowed to it, its lines
+    # round what is in their way there)
+    var t = if owner != 0: sd.effectiveText(S) else: S.text
+    t = t.moved(dx.float32, 0)
+    for h in t.holes.mitems:
+      h.x0 += dx.float32
+      h.x1 += dx.float32
+    result.text = t
+  elif S.isShape:
+    var s = S.shape
+    let off = dx.float
+    s.path.mapPoints(proc (x, y: float): (float, float) = (x + off, y))
+    result.shape = s
+
+proc drawAcross(d: Doc; c: Layer) =
+  if c.isText: d.drawText(c)
+  elif c.isShape: d.drawShape(c)
+
 proc dress(b: Book; i: int) =
   ## (a page's document made what its place in the book makes it: its
   ## master's layers, its number, the text that comes to it)
@@ -400,6 +491,41 @@ proc dress(b: Book; i: int) =
     remastered = true
     d.clearHistory()
     d.markAll()
+  # what of the facing page's objects lies on this one
+  block:
+    let j = b.partner(i)
+    var want: Hash = 0
+    if j >= 0: want = if b.pages[j].doc != nil: b.spanSig(j) else: b.pages[j].spanOut
+    var has = false
+    for L in d.layers:
+      if L.fromSpan != 0: has = true
+    if pg.spanApplied != want or (want == 0 and has):
+      var curL = if d.cur >= 0 and d.cur < d.layers.len: d.layers[d.cur] else: nil
+      for k in countdown(d.layers.high, 0):
+        if d.layers[k].fromSpan != 0: d.layers.delete(k)
+      if want != 0:
+        let pj = b.pages[j]
+        let wasOpen = pj.doc != nil
+        let sd = b.load(pj, "Page " & $(j + 1))
+        let side = b.spineSide(j)
+        # (under the page's own, over its paper and its master's)
+        var at = 0
+        while at < d.layers.len and (d.layers[at].background or d.layers[at].fromMaster != 0): inc at
+        for S in sd.layers:
+          if crosses(sd, S, side) == 0: continue
+          let c = acrossCopy(sd, S, d, -side, pj.id)
+          d.layers.insert(c, at)
+          inc at
+          d.drawAcross(c)
+        # (read only for this: let go of again)
+        if not wasOpen and pj.file.len > 0 and not pj.dirty: pj.doc = nil
+      if curL != nil and curL.fromSpan != 0: curL = nil
+      d.cur = max(0, if curL != nil: d.layers.find(curL) else: d.layers.high)
+      pg.spanApplied = want
+      pg.dirty = true
+      pg.thumbStale = true
+      d.clearHistory()
+      d.markAll()
   # its number
   let lab = b.label(i)
   let total = formatNumber(b.pages.len, b.setup.numbers)
@@ -464,6 +590,7 @@ proc settle*(b: Book; i: int): bool =
   let pg = b.pages[i]
   let d = b.doc(i)
   var keep: seq[int]
+  pg.spanOut = b.spanSig(i)
   # (nothing of it drawn again since, the same boxes go on: as it was)
   var outs = 0
   var known = true
@@ -496,6 +623,45 @@ proc settle*(b: Book; i: int): bool =
     pg.outSig.del uid
     result = true
   pg.settledVer = d.ver
+
+proc syncSpread*(b: Book; i: int): tuple[changed: bool; moved: int] =
+  ## Page `i` (in memory: the one worked on) and its facing page kept one
+  ## spread. An object of page `i` that reaches past the spine -- type, a
+  ## shape, a Smart Object (a placed picture) -- has its other part on
+  ## the facing page: made there, and made again when the object changed
+  ## (`changed`; the facing page is then in memory). An object wholly
+  ## past the spine is the facing page's from then on (`moved`: how
+  ## many; page `i`'s undo steps are let go of). Call it when the mouse
+  ## is up: it looks at little when nothing changed. A layer of pixels
+  ## has nothing past its page's edge to show there.
+  let pg = b.pages[i]
+  let j = b.partner(i)
+  if j < 0 or pg.doc == nil: return
+  let d = pg.doc
+  let side = b.spineSide(i)
+  var gone: seq[Layer]
+  for L in d.layers:
+    if crosses(d, L, side) == 2 and L.flowFrom == 0 and not L.flowOut and not L.locked: gone.add L
+  if gone.len > 0:
+    let d2 = b.doc(j)
+    for L in gone:
+      let c = acrossCopy(d, L, d2, -side, 0)
+      d2.layers.add c
+      d2.drawAcross(c)
+      d.layers.delete(d.layers.find(L))
+    d2.cur = d2.layers.high
+    d.cur = clamp(d.cur, 0, d.layers.high)
+    d.clearHistory()
+    d.markAll()
+    d2.markAll()
+    b.touch(i)
+    b.touch(j)
+    result.moved = gone.len
+  let sig = b.spanSig(i)
+  pg.spanOut = sig
+  if b.pages[j].spanApplied != sig or result.moved > 0:
+    discard b.doc(j)
+    result.changed = true
 
 proc stow(b: Book; pg: BookPage) =
   ## (a page in memory written to its file when it changed)
@@ -811,7 +977,8 @@ proc setupJson(s: BookSetup): JsonNode =
 
 proc pageJson(pg: BookPage): JsonNode =
   result = %*{"id": pg.id, "master": pg.master, "restart": pg.restart, "applied": pg.applied,
-              "storedWith": int64(pg.storedWith), "inSig": int64(pg.inSig)}
+              "storedWith": int64(pg.storedWith), "inSig": int64(pg.inSig),
+              "spanOut": int64(pg.spanOut), "spanApplied": int64(pg.spanApplied)}
   if pg.outText.len > 0:
     var o = newJObject()
     for uid, t in pg.outText: o[$uid] = t.toJson
@@ -907,6 +1074,8 @@ proc loadBook*(path: string): Book =
     pg.restart = pj{"restart"}.getInt(0)
     pg.applied = pj{"applied"}.getStr("")
     pg.storedWith = hashOf(pj{"storedWith"}.getBiggestInt(0))
+    pg.spanOut = hashOf(pj{"spanOut"}.getBiggestInt(0))
+    pg.spanApplied = hashOf(pj{"spanApplied"}.getBiggestInt(0))
     if pj{"out"} != nil and pj["out"].kind == JObject:
       for k, v in pj["out"]:
         let uid = try: parseInt(k) except ValueError: 0

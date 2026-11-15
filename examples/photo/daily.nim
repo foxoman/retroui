@@ -1,4 +1,4 @@
-# Retro Photo -- included by photo.nim
+# Retro Atelier -- included by photo.nim
 #
 # Everyday work, in one place: the Quick Actions panel (Remove Background,
 # Blur Background, Black & White Background, Enhance, Smooth Skin, Restore
@@ -95,7 +95,7 @@ proc shareDoc(d: Doc) =
     if (p shr 24) < 255:
       clear = true
       break
-  let dir = dataDir(AppName) / "share"
+  let dir = dataDir(AppData) / "share"
   try: createDir(dir)
   except OSError: discard
   let base = (if d.path.len > 0: d.path.splitFile.name else: d.name).multiReplace(("/", "-"), ("\\", "-"))

@@ -3,8 +3,9 @@
 ## on the right, with facing pages -- a title page; master pages with a
 ## running head, a rule and the page number at the outer edge; a story
 ## that goes on through as many pages as it needs, in two columns; a
-## picture the text keeps out of, round its shape; the tashkeel in a color
-## of its own. Saved as a book (.rpb: every page opens in Retro Photo),
+## picture the text keeps out of, round its shape; a band across a spread
+## (one shape, on both pages); the tashkeel in a color of its own. Saved as
+## a book (.rpb: every page opens in Retro Photo),
 ## as a PDF with the type as type, and its spreads as pictures.
 ##
 ##   nim c -r -d:release examples/book.nim [output folder]
@@ -12,7 +13,7 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[os, math, strutils]
-import retroui/[imaging, photo, photobook, photopdf, textengine]
+import retroui/[imaging, photo, photobook, photopdf, photoshapes, textengine]
 {.push warning[UnusedImport]: off.}
 import retroui/[photostyles, photodevelop]      # (for what they set up in retroui/photo)
 {.pop.}
@@ -141,6 +142,12 @@ block:
   d.rewrap()
   let added = b.autoflow(1, L)
   echo "the story took ", added, " more pages: ", b.pages.len, " in all"
+  # a band under the spread: one shape of this page that reaches across the spine -- its
+  # other part is on the facing page
+  discard d.addShapeLayer(ShapeData(path: rectPath(float(box.x - d.w), float(d.h - 46), float(box.x + box.w),
+                                                   float(d.h - 40)), fill: solidPaint(teal)), "Band")
+  d.markAll()
+  discard b.syncSpread(1)
 
 # ---- saved: the book, its PDF, its spreads ---------------------------------------------------
 

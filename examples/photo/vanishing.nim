@@ -1,4 +1,4 @@
-# Retro Photo -- included by photo.nim
+# Retro Atelier -- included by photo.nim
 #
 # Filter > Vanishing Point, as the usual: a plane drawn in perspective on
 # the picture (four clicks: its corners), then what was copied (Edit >

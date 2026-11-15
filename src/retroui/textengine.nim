@@ -364,6 +364,13 @@ type
     noMarks*: bool             ## ... not drawn (Arabic without its tashkeel)
     styleName*: string         ## the Character Style it has (Character Styles; "" none)
 
+  NumberStyle* = enum
+    ## How numbers are written: a list's, a book's page numbers.
+    nsDigits = "1, 2, 3", nsArabicIndic = "١, ٢, ٣", nsPersian = "۱, ۲, ۳", nsRomanLower = "i, ii, iii",
+    nsRomanUpper = "I, II, III", nsLetterLower = "a, b, c", nsLetterUpper = "A, B, C", nsAbjad = "أ, ب, ج"
+  ListKind* = enum
+    ## A list's marks.
+    lkNone = "None", lkBullet = "Bullets", lkNumber = "Numbers"
   TextAlign* = enum
     ## How a paragraph's lines stand: left, centered, right, or justified
     ## (both edges straight) with the last line left, centered, right or
@@ -386,6 +393,17 @@ type
     kashida*: KashidaLength    ## justified Arabic: how long its kashidas may be (Photoshop's
                                ## Insert Kashida)
     styleName*: string         ## the Paragraph Style it has (Paragraph Styles; "" none)
+    list*: ListKind            ## text in a box as a list: a mark before every paragraph, its lines
+                               ## standing in from it (at the right for right-to-left text)
+    listMark*: string          ## `lkBullet`: the mark -- any letters the font has: "–", "▪", "◆",
+                               ## "★", "✓" ("": a bullet, "•")
+    listNumbers*: NumberStyle  ## `lkNumber`: how its numbers are written (digits, Arabic-Indic,
+                               ## Persian, Roman, letters, abjad)
+    listStart*: int            ## ... its first number (0: 1)
+    listSuffix*: string        ## ... what follows a number: ")", "-" ("": a period)
+    listColor*: uint32         ## the marks' color, ARGB (0: the text's)
+    listIndent*: float32       ## how far the text stands in from the marks' edge, in pixels (0:
+                               ## by the type's size)
 
   KashidaLength* = enum
     ## How much justified Arabic is lengthened at its joins (tatweel) -- one
@@ -440,6 +458,45 @@ type
                                ## widest room a hole leaves it, and goes under the hole when
                                ## that is too little. Not kept with the text: whoever lays it
                                ## out says what is in its way then
+
+proc roman(n: int): string =
+  const parts = [(1000, "m"), (900, "cm"), (500, "d"), (400, "cd"), (100, "c"), (90, "xc"), (50, "l"),
+                 (40, "xl"), (10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i")]
+  var n = n
+  for (v, s) in parts:
+    while n >= v:
+      result.add s
+      n -= v
+
+proc formatNumber*(n: int; style: NumberStyle): string =
+  ## A page number written in a style: 7 is "7", "٧", "vii", "g"... (Roman
+  ## numerals and letters from 1 on; below 1, and Roman above 3999: digits.)
+  const abjad = ["أ", "ب", "ج", "د", "ه", "و", "ز", "ح", "ط", "ي", "ك", "ل", "م", "ن", "س", "ع", "ف", "ص",
+                 "ق", "ر", "ش", "ت", "ث", "خ", "ذ", "ض", "ظ", "غ"]
+  # (what counts from 1 -- and Roman numerals, to 3999 -- written as digits past that)
+  let asDigits = style in {nsRomanLower, nsRomanUpper, nsLetterLower, nsLetterUpper, nsAbjad} and
+                 (n < 1 or (style in {nsRomanLower, nsRomanUpper} and n > 3999))
+  case (if asDigits: nsDigits else: style)
+  of nsDigits: result = $n
+  of nsArabicIndic, nsPersian:
+    let zero = if style == nsPersian: 0x06F0 else: 0x0660
+    for c in $n:
+      if c in '0' .. '9':
+        let cp = zero + ord(c) - ord('0')
+        result.add char(0xC0 or (cp shr 6))
+        result.add char(0x80 or (cp and 0x3F))
+      else: result.add c
+  of nsRomanLower: result = roman(n)
+  of nsRomanUpper: result = roman(n).toUpperAscii
+  of nsLetterLower, nsLetterUpper:
+    var k = n
+    while k > 0:
+      dec k
+      result.insert($char(ord(if style == nsLetterUpper: 'A' else: 'a') + k mod 26), 0)
+      k = k div 26
+  of nsAbjad:
+    # (past the 28 letters: the letter again, as often as it has come round)
+    for _ in 0 .. (n - 1) div 28: result.add abjad[(n - 1) mod 28]
 
 const shapingOwn = ["init", "medi", "med2", "fina", "fin2", "fin3", "isol", "rlig", "ccmp", "locl", "mark", "mkmk",
                     "kern", "curs", "rvrn", "frac", "numr", "dnom", "abvm", "blwm", "dist", "rtlm", "ltrm", "rtla",
@@ -932,7 +989,56 @@ proc remainder*(t: TextData; first: int): TextData =
   if result.spans.len > 0 and result.spans[0].text.startsWith("\n"):
     result.spans[0].text = result.spans[0].text[1 .. ^1]
 
+proc listMarks(t: TextData; lay: var TextLayout; rtl: bool) =
+  ## (a list's marks, each set where its paragraph's first line starts: on that line's
+  ## baseline, at the edge the text stands in from)
+  var cps: seq[int]
+  for s in t.spans:
+    for r in s.text.runes: cps.add int(r)
+  var n = (if t.para.listStart > 0: t.para.listStart else: 1) - 1
+  for k in 0 ..< lay.lines.len:
+    let a = lay.lines[k].first
+    # (a paragraph's first line, of a paragraph that says something)
+    if a >= cps.len or cps[a] == 10 or (a > 0 and cps[a - 1] != 10): continue
+    inc n
+    var st = t.styleAt(a)
+    if t.para.listColor != 0: st.color = t.para.listColor
+    st.baselineShift = 0
+    st.underline = false
+    st.strike = false
+    let mark = if t.para.list == lkBullet: (if t.para.listMark.len > 0: t.para.listMark else: "•")
+               else: formatNumber(n, t.para.listNumbers) & (if t.para.listSuffix.len > 0: t.para.listSuffix else: ".")
+    var mt = newText(mark, st, 0, 0)
+    mt.para.rtl = if rtl: 2 else: 1
+    let ml = layoutPlain(mt)
+    let x = if rtl: t.x + t.boxW - t.para.indentRight - (ml.x1 - ml.x0) else: t.x + t.para.indentLeft
+    for g in ml.glyphs:
+      var g2 = g
+      g2.x += x - ml.x0
+      g2.y += lay.lines[k].baseline
+      g2.index = a
+      lay.glyphs.add g2
+
 proc layoutPlain(t: TextData): TextLayout =
+  if t.para.list != lkNone and t.boxW > 0 and t.path.len == 0 and t.spans.len > 0:
+    # a list: the text set standing in from one edge, then a mark before each paragraph
+    var rtl = t.para.rtl == 2
+    if t.para.rtl == 0:
+      block strong:
+        for s in t.spans:
+          for r in s.text.runes:
+            let c = int(r)
+            if c in 0x0590 .. 0x08FF or c in 0xFB1D .. 0xFDFF or c in 0xFE70 .. 0xFEFF:
+              rtl = true
+              break strong
+            if c in int('A') .. int('Z') or c in int('a') .. int('z') or c in 0xC0 .. 0x24F: break strong
+    var u = t
+    u.para.list = lkNone
+    let room = if t.para.listIndent > 0: t.para.listIndent else: max(8'f32, t.spans[0].style.size * 1.7)
+    if rtl: u.para.indentRight += room else: u.para.indentLeft += room
+    result = layoutPlain(u)
+    listMarks(t, result, rtl)
+    return
   var styles: seq[CharStyle]
   var faces: seq[tuple[face: Face; fauxBold, fauxItalic: bool]]
   var chars: seq[CharInfo]
@@ -1134,7 +1240,8 @@ proc layoutPlain(t: TextData): TextLayout =
         if li > 0 and ls >= paraEnd: break
         # (where the line will lie, by its first letter: the room the holes leave it there;
         # too little, it goes down a line at a time until it has room)
-        let st0 = styles[if ls < total: chars[ls].style elif total > 0: chars[total - 1].style else: 0]
+        let st0 = if styles.len > 0: styles[if ls < total: chars[ls].style elif total > 0: chars[total - 1].style else: 0]
+                  else: CharStyle()
         let size0 = if styles.len > 0: st0.size else: 36'f32
         let lead0 = max(1'f32, if styles.len > 0 and st0.leading > 0: st0.leading else: size0 * 1.2)
         let asc0 = size0 * 0.93'f32
@@ -1183,7 +1290,10 @@ proc layoutPlain(t: TextData): TextLayout =
         lead = max(lead, if st.leading > 0: st.leading else: st.size * 1.2)
         any = true
       if not any:
-        let st = styles[if a < total: chars[a].style elif total > 0: chars[total - 1].style else: 0]
+        # (a text of no spans at all has no style either: a box that takes what did not
+        # fit another, when all of it fit)
+        let st = if styles.len > 0: styles[if a < total: chars[a].style elif total > 0: chars[total - 1].style else: 0]
+                 else: CharStyle()
         let size = if styles.len > 0: st.size else: 36'f32
         lead = if styles.len > 0 and st.leading > 0: st.leading else: size * 1.2
         asc = size * 0.93
@@ -1914,6 +2024,9 @@ proc charStyleFrom*(j: JsonNode): CharStyle =
   result.variation = j.getS("variation")
   result.styleName = j.getS("styleName")
 
+proc listToJson(p: ParaStyle; j: JsonNode)
+proc listFrom(p: var ParaStyle; j: JsonNode)
+
 proc toJson*(t: TextData): JsonNode =
   ## The text as JSON (saved in a document).
   var spans = newJArray()
@@ -1924,6 +2037,7 @@ proc toJson*(t: TextData): JsonNode =
                        "spaceBefore": t.para.spaceBefore, "spaceAfter": t.para.spaceAfter,
                        "rtl": t.para.rtl, "noKashida": t.para.noKashida, "kashida": $t.para.kashida}}
   if t.para.styleName.len > 0: result["para"]["styleName"] = %t.para.styleName
+  listToJson(t.para, result["para"])
   if t.boxW > 0:
     result["boxW"] = %t.boxW
     result["boxH"] = %t.boxH
@@ -1969,6 +2083,7 @@ proc textFrom*(j: JsonNode): TextData =
     result.para.styleName = p.getS("styleName")
     result.para.spaceAfter = float32(p.getF("spaceAfter"))
     result.para.rtl = int(p.getF("rtl"))
+    listFrom(result.para, p)
     result.para.noKashida = p.getB("noKashida")
     result.para.kashida = enumOf(p.getS("kashida"), kaMedium)
   if j.hasKey("warp"):
@@ -1994,11 +2109,34 @@ proc textSlice*(t: TextData; a, b: int): string =
   let r = t.plainText.toRunes
   $r[clamp(a, 0, r.len) ..< clamp(b, 0, r.len)]
 
+proc listToJson(p: ParaStyle; j: JsonNode) =
+  ## (a list's settings into a paragraph's JSON: there only for a list)
+  if p.list == lkNone: return
+  j["list"] = %ord(p.list)
+  if p.listMark.len > 0: j["listMark"] = %p.listMark
+  if p.listNumbers != nsDigits: j["listNumbers"] = %ord(p.listNumbers)
+  if p.listStart != 0: j["listStart"] = %p.listStart
+  if p.listSuffix.len > 0: j["listSuffix"] = %p.listSuffix
+  if p.listColor != 0: j["listColor"] = %int64(p.listColor)
+  if p.listIndent != 0: j["listIndent"] = %p.listIndent
+
+proc listFrom(p: var ParaStyle; j: JsonNode) =
+  p.list = ListKind(clamp(int(j.getF("list")), 0, ord(high(ListKind))))
+  p.listMark = j.getS("listMark")
+  if p.listMark.len > 64: p.listMark.setLen(0)
+  p.listNumbers = NumberStyle(clamp(int(j.getF("listNumbers")), 0, ord(high(NumberStyle))))
+  p.listStart = clamp(int(j.getF("listStart")), 0, 1_000_000)
+  p.listSuffix = j.getS("listSuffix")
+  if p.listSuffix.len > 16: p.listSuffix.setLen(0)
+  p.listColor = uint32(int64(j.getF("listColor")) and 0xFFFFFFFF'i64)
+  p.listIndent = clamp(float32(j.getF("listIndent")), 0, 4000)
+
 proc paraToJson*(p: ParaStyle): JsonNode =
   ## A paragraph style as JSON (Paragraph Styles kept in a document).
-  %*{"align": $p.align, "indentLeft": p.indentLeft, "indentRight": p.indentRight,
-     "indentFirst": p.indentFirst, "spaceBefore": p.spaceBefore, "spaceAfter": p.spaceAfter,
-     "rtl": p.rtl, "noKashida": p.noKashida, "kashida": $p.kashida, "styleName": p.styleName}
+  result = %*{"align": $p.align, "indentLeft": p.indentLeft, "indentRight": p.indentRight,
+              "indentFirst": p.indentFirst, "spaceBefore": p.spaceBefore, "spaceAfter": p.spaceAfter,
+              "rtl": p.rtl, "noKashida": p.noKashida, "kashida": $p.kashida, "styleName": p.styleName}
+  listToJson(p, result)
 
 proc paraFrom*(j: JsonNode): ParaStyle =
   ## A paragraph style from its JSON (`paraToJson`).
@@ -2013,3 +2151,4 @@ proc paraFrom*(j: JsonNode): ParaStyle =
   result.noKashida = j.getB("noKashida")
   result.kashida = enumOf(j.getS("kashida"), kaMedium)
   result.styleName = j.getS("styleName")
+  listFrom(result, j)

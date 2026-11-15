@@ -8,9 +8,9 @@
 ##
 ## .. code-block:: nim
 ##   import retroui/symbolize
-##   echo symbolizeReport(readFile("report.txt"), "build/RetroPhoto-symbols")
+##   echo symbolizeReport(readFile("report.txt"), "build/RetroAtelier-symbols")
 ##
-## `retrokit symbolize report.txt build/RetroPhoto-symbols` does it from the
+## `retrokit symbolize report.txt build/RetroAtelier-symbols` does it from the
 ## command line.
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net

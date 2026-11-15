@@ -243,6 +243,48 @@ block workspaces:
   run(3)
   doAssert prefs.toolHidden == "" and panelShown("layers")
 
+block acrossTheSpine:
+  # a shape of a page drawn out past the spine: its other part is on the facing page by
+  # itself, once the mouse is up; turned to, it is there, locked
+  addBook(newBook(bookSetup(100, 140, dpi = 72, facing = true), 4, "Spread"))
+  run(3)
+  let bw = curBook()
+  bw.showPage(1)
+  let d = active.doc
+  d.beginStep("Rectangle")
+  d.touchLayers()
+  let band = d.addShapeLayer(ShapeData(path: rectPath(float(d.w - 40), 50, float(d.w + 70), 90),
+                                       fill: solidPaint(0xFF20A040'u32)), "Band")
+  d.endStep()
+  run(3)
+  doAssert bw.book.isOpen(2), "the facing page was made to follow"
+  proc parts(dd: Doc): int =
+    for L in dd.layers:
+      if L.fromSpan != 0: inc result
+  doAssert bw.book.doc(2).parts == 1
+  doAssert active.doc == d and band in d.layers
+  bw.showPage(2)
+  run(3)
+  doAssert active.doc.parts == 1
+  var part: Layer
+  for L in active.doc.layers:
+    if L.fromSpan != 0: part = L
+  doAssert part.locked and (part.px[70 * active.doc.w + 30] and 0xFFFFFF'u32) == 0x20A040'u32
+  # the window shows it at the page's left edge
+  block:
+    run(2)
+    let v = active.view
+    let (sx, sy) = v.toScreen(active.doc, 30, 70)
+    doAssert px(sx, sy) == 0x20A040'u32, toHex(px(sx, sy).int, 6)
+  active.win.open = false
+  run(2)
+  closeAsk.on = false
+  var mine: seq[DocWin]
+  for dw in docs:
+    if isBookWin(dw): mine.add dw
+  for dw in mine: closeDoc(dw)
+  run(2)
+
 block theMoveToolsBox:
   # dragged from where nothing is: the layers the box touches are picked
   let d = newDoc(300, 200, white, name = "pick")

@@ -1,11 +1,11 @@
-# Retro Photo -- included by photo.nim
+# Retro Atelier -- included by photo.nim
 #
 # today's editors as it is today, so that its tutorials can be followed step by
 # step: the menus as today's editors has them (Image > Adjustments, Edit >
 # Transform, Layer > New, the panels A to Z in Window...), Edit > Search
 # (Ctrl+F) over every command and tool, the commands editors added since
 # 1994, and the Contextual Task Bar under the image. Drawn as 1994 drew
-# things. (With the Retro Photo 1994 key set, Preferences > Tools, the
+# things. (With the Retro Atelier 1994 key set, Preferences > Tools, the
 # menus are 1994's: `classicMenus`.)
 
 # ---- the menus as data and as menus --------------------------------------------------------------------
@@ -98,9 +98,9 @@ proc psMenus() =
           if recent.len == 0: discard menuItem("(none)", enabled = false)
           menuSeparator()
           if menuItem("Clear Recent File List", enabled = recent.len > 0):
-            var st = loadSettings(AppName)
+            var st = loadSettings(AppData)
             st.addRecentFile("", 0)
-            discard saveSettings(AppName, st)
+            discard saveSettings(AppData, st)
             settingsCache.at = -1
       sep()
       ci("&Close", enabled = some)
@@ -636,11 +636,11 @@ proc psMenus() =
           if menuItem("&" & $(i + 1) & " " & w.doc.name.replace("&", "&&"), checked = w == active):
             w.showDoc()
     psMenu "&Help":
-      ci("Retro Photo &Help...", "Contents")
+      ci("Retro Atelier &Help...", "Contents")
       ci("&Keyboard Shortcuts...")
       ci("&Report a Problem...", "Report a Problem")
       sep()
-      ci("&About Retro Photo...")
+      ci("&About Retro Atelier...")
       live:
         submenu "About Plug-&in":
           for n in ["Gaussian Blur", "Unsharp Mask", "Lens Flare", "Mezzotint", "Twirl"]:

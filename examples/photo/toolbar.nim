@@ -1,4 +1,4 @@
-# Retro Photo -- included by photo.nim
+# Retro Atelier -- included by photo.nim
 #
 # The toolbar as today's editors have it today: one column (two with the arrows at
 # its top), the tools in groups -- a group shows the one last used, a small

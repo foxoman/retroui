@@ -1,4 +1,4 @@
-# Retro Photo -- included by photo.nim
+# Retro Atelier -- included by photo.nim
 #
 # Today's today's editors features made offline (retroui/photocc): Layer Cleanup,
 # Harmonize with a shadow, Artboards to Files.

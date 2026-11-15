@@ -1,4 +1,4 @@
-# Retro Photo -- included by photo.nim
+# Retro Atelier -- included by photo.nim
 #
 # File > New as today's editors has it, kept simple: tabs of what the
 # document is for (Recent, Saved, Photo, Print, Social, Web, Mobile, Art &
@@ -46,7 +46,7 @@ proc ndPresetsFrom(s: string): seq[DocPreset] =
       except ValueError: discard
 
 proc ndLoad() =
-  let st = loadSettings(AppName)
+  let st = loadSettings(AppData)
   ndRecent = ndPresetsFrom(st.getOrDefault("new.recent"))
   ndSaved = ndPresetsFrom(st.getOrDefault("new.saved"))
   ndRecentFiles = @[]
@@ -58,11 +58,11 @@ proc ndLoad() =
     except ValueError: discard
 
 proc ndStore() =
-  var st = loadSettings(AppName)
+  var st = loadSettings(AppData)
   st["new.recent"] = ndRecent.mapIt(ndPresetLine(it)).join("\n")
   st["new.saved"] = ndSaved.mapIt(ndPresetLine(it)).join("\n")
   st["new.tab"] = $ndTab
-  discard saveSettings(AppName, st)
+  discard saveSettings(AppData, st)
 
 proc ndPick(key: string; p: DocPreset; tmpl = -1) =
   ## A card picked: its size in the details.

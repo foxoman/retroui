@@ -5,7 +5,7 @@
 ## PHOTO_DUMP set to a folder, pages are written there as pictures.
 
 import std/[os, strutils]
-import retroui/[imaging, photo, photobook, photopdf, textengine, zip]
+import retroui/[imaging, photo, photobook, photopdf, photoshapes, photowarp, textengine, zip]
 
 let dump = getEnv("PHOTO_DUMP")
 if dump.len > 0: createDir(dump)
@@ -114,6 +114,18 @@ block textWrapInADocument:
   doAssert B.wrap == 0 and d.ink(T, 200, 100, 400, 220) > 0, "the wrap undone: text under the picture again"
   d.redo()
   doAssert B.wrap == 1 and d.ink(T, 196, 100, 404, 220) == 0
+  # a text that ignores Text Wrap: a caption on the picture
+  let cap = d.addTextLayer(block:
+    var c = newText(words(8), style(14), 210, 110)
+    c.boxW = 180
+    c.boxH = 100
+    c)
+  doAssert d.ink(cap, 200, 100, 400, 220) == 0, "kept out, as any text"
+  cap.ignoreWrap = true
+  d.drawText(cap)
+  doAssert d.ink(cap, 200, 100, 400, 220) > 0 and d.wrapHoles(cap).len == 0, "on the picture"
+  d.layers.delete(d.layers.find(cap))
+  d.cur = d.layers.find(T)
   # jump: nothing beside it
   B.wrap = 3
   B.wrapGap = 0
@@ -369,6 +381,128 @@ block textFromPageToPage:
   doAssert odd.doc(0).w == 50
   odd.close()
   removeFile(path)
+
+block objectsAcrossTheSpine:
+  # a shape, a placed picture and a text box of a left page that reach past the spine go
+  # on, on the right page; they follow when they move; wholly past it they are that page's
+  var s = bookSetup(100, 140, dpi = 72, facing = true)        # (283 x 397 pixels)
+  let b = newBook(s, pages = 3)
+  let w = s.w
+  doAssert b.spreadOf(1) == @[1, 2]
+  let d = b.doc(1)                                             # (the left page of the spread)
+  proc spans(dd: Doc): seq[Layer] =
+    for L in dd.layers:
+      if L.fromSpan != 0: result.add L
+  doAssert not b.syncSpread(1).changed, "nothing across: nothing done"
+  # a shape: 50 pixels on this page, 60 past its edge
+  let shape = d.addShapeLayer(ShapeData(path: rectPath(float(w - 50), 40, float(w + 60), 80),
+                                        fill: solidPaint(0xFFC02020'u32)), "Band")
+  # a placed picture (a Smart Object): 200 wide, half of it past the edge
+  var pic = newSeq[uint32](200 * 60)
+  for k in 0 ..< pic.len: pic[k] = if k mod 200 < 100: 0xFF2040C0'u32 else: 0xFF20A040'u32
+  let photo = d.addLayer("Photo")
+  photo.smart = SmartData(src: pic, w: 200, h: 60, quad: quadOf(rect(w - 100, 120, 200, 60)), name: "photo")
+  photo.px = renderSmart(photo.smart, d.w, d.h)
+  inc photo.ver
+  # a text box across the spine
+  var t = newText(words(60), style(14), float32(w - 120), 200)
+  t.boxW = 240
+  t.boxH = 120
+  let text = d.addTextLayer(t)
+  d.markAll()
+  doAssert d.ink(shape, w - 50, 40, w, 80) == 50 * 40, "its part on its own page"
+  let r = b.syncSpread(1)
+  doAssert r.changed and r.moved == 0
+  doAssert b.isOpen(2), "the facing page is in memory with its parts"
+  let f = b.doc(2)
+  doAssert f.spans.len == 3, $f.spans.len
+  var fs, fp, ft: Layer
+  for L in f.spans:
+    doAssert L.locked and L.fromSpan == b.pages[1].id
+    if L.isShape: fs = L
+    elif L.smart != nil: fp = L
+    elif L.isText: ft = L
+  doAssert fs != nil and fp != nil and ft != nil
+  # the shape goes on from the facing page's edge: 60 pixels, and no further
+  doAssert f.ink(fs, 0, 40, 60, 80) == 60 * 40 and f.ink(fs, 60, 0, w, f.h) == 0
+  # the picture: its green half is there (its blue half is on the first page)
+  doAssert (fp.px[150 * w + 50] and 0xFFFFFF'u32) == 0x20A040'u32 and f.ink(fp, 100, 0, w, f.h) == 0
+  doAssert (photo.px[150 * w + w - 50] and 0xFFFFFF'u32) == 0x2040C0'u32
+  # the text: the same lines, cut at the spine -- a letter's row on both pages
+  doAssert f.ink(ft, 0, 200, 120, 320) > 0 and d.ink(text, w - 120, 200, w, 320) > 0
+  let whole = layoutText(d.effectiveText(text))
+  let part = layoutText(f.effectiveText(ft))
+  doAssert whole.lines.len == part.lines.len and abs(whole.lines[0].x0 - w.float32 - part.lines[0].x0) < 0.01
+  # under the page's own layers
+  discard f.addLayer("Own")
+  doAssert f.layers.find(fs) < f.layers.high
+  # nothing more to do; and the first page has no parts of its own objects
+  doAssert not b.syncSpread(1).changed
+  doAssert d.spans.len == 0
+  if dump.len > 0: discard b.spreadPicture(1, [1, 2]).savePng(dump / "across-spine.png")
+  # the shape moved 20 further: its part follows
+  d.beginStep("Move")
+  d.shiftLayers(@[shape], 20, 0)
+  d.endStep()
+  doAssert b.syncSpread(1).changed
+  var fs2: Layer
+  for L in b.doc(2).spans:
+    if L.isShape: fs2 = L
+  doAssert b.doc(2).ink(fs2, 0, 40, 80, 80) == 80 * 40 and b.doc(2).spans.len == 3
+  # moved wholly past the spine: it is the facing page's own now, to pick and to move there
+  d.beginStep("Move")
+  d.shiftLayers(@[shape], 60, 0)
+  d.endStep()
+  let m = b.syncSpread(1)
+  doAssert m.moved == 1 and shape notin d.layers
+  var own: Layer
+  for L in b.doc(2).layers:
+    if L.isShape and L.fromSpan == 0: own = L
+  doAssert own != nil and not own.locked and b.doc(2).spans.len == 2
+  doAssert b.doc(2).ink(own, 30, 40, 140, 80) == 110 * 40
+  # an object of the right page that reaches back over the spine: its part on the left page
+  d.beginStep("x")
+  d.endStep()
+  let f2 = b.doc(2)
+  f2.beginStep("Move")
+  f2.shiftLayers(@[own], -60, 0)
+  f2.endStep()
+  doAssert b.syncSpread(2).changed
+  var back: Layer
+  for L in b.doc(1).spans:
+    if L.isShape: back = L
+  doAssert back != nil and b.doc(1).ink(back, w - 30, 40, w, 80) == 30 * 40
+  # saved, opened: each page has its parts, and they are not made again
+  let path = getTempDir() / "retro-test-across.rpb"
+  b.saveBook(path)
+  b.close()
+  let c = loadBook(path)
+  doAssert c.doc(2).spans.len == 2 and c.doc(1).spans.len == 1
+  doAssert not c.changed, "read back as it was"
+  doAssert not c.syncSpread(1).changed and not c.syncSpread(2).changed, "nothing to make again"
+  c.park()
+  discard c.doc(1)
+  doAssert not c.syncSpread(1).changed, "a page turned to: its facing page is not made again"
+  doAssert not c.isOpen(2), "... nor read"
+  # the picture taken off its page: its part goes from the facing page
+  let d1 = c.doc(1)
+  for k in countdown(d1.layers.high, 0):
+    if d1.layers[k].smart != nil and d1.layers[k].fromSpan == 0: d1.layers.delete(k)
+  d1.cur = 0
+  d1.markAll()
+  doAssert c.syncSpread(1).changed
+  doAssert c.doc(2).spans.len == 1
+  # a page put in before them: the pages no longer face each other, the parts go
+  discard c.insertPage(1)
+  doAssert c.partner(2) == 1 and c.doc(3).spans.len == 0, $c.doc(3).spans.len
+  c.close()
+  removeFile(path)
+  # pages that do not face have none
+  let single = newBook(bookSetup(100, 140, dpi = 72, facing = false), pages = 2)
+  let sd = single.doc(0)
+  discard sd.addShapeLayer(ShapeData(path: rectPath(250, 40, 400, 80), fill: solidPaint(0xFFC02020'u32)))
+  doAssert not single.syncSpread(0).changed
+  single.close()
 
 block aBoxThatHoldsNothingEnds:
   # a letter bigger than the page: pages are not added for ever

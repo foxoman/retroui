@@ -27,10 +27,10 @@ proc startPresetFile(f: PresetFor; save = false; replace = false) =
   presetReplace = replace
   proc go() =
     let name = case f
-               of pfSwatches: "Retro Photo Swatches.aco"
+               of pfSwatches: "Retro Atelier Swatches.aco"
                of pfCurves: "Curves.acv"
                of pfLevels: "Levels.alv"
-               of pfAdjust: "Retro Photo Presets.radj"
+               of pfAdjust: "Retro Atelier Presets.radj"
                else: ""
     presetPath = if save: picturesDir() / name else: picturesDir()
     presetPick = true
@@ -40,11 +40,11 @@ var booksLoaded = false
 
 proc ensureBooksLoaded() =
   ## Color Libraries: the kit's own books, then the user's (.acb files
-  ## imported before, kept in Retro Photo's folder).
+  ## imported before, kept in Retro Atelier's folder).
   if booksLoaded: return
   booksLoaded = true
   if colorBooks.len == 0: colorBooks = builtinBooks()
-  let dir = dataDir(AppName) / "Color Books"
+  let dir = dataDir(AppData) / "Color Books"
   if not dirExists(dir): return
   var files: seq[string]
   for kind, f in walkDir(dir):
@@ -78,7 +78,7 @@ proc importPresets(path: string) =
     ensureBooksLoaded()
     colorBooks.add b
     try:
-      let dir = dataDir(AppName) / "Color Books"
+      let dir = dataDir(AppData) / "Color Books"
       createDir(dir)
       writeFile(dir / path.extractFilename, data)
     except CatchableError: discard
@@ -119,7 +119,7 @@ proc importPresets(path: string) =
       savePresets()
       status = $tips.len & " brushes from " & path.extractFilename
     else:
-      raise newException(ValueError, "not a preset file Retro Photo reads")
+      raise newException(ValueError, "not a preset file Retro Atelier reads")
 
 proc exportPresets(path: string) =
   var p = path

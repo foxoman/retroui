@@ -1,4 +1,4 @@
-## Arabic for Retro Photo: the words on screen, as `retroui/core`'s `tr` finds them.
+## Arabic for Retro Atelier: the words on screen, as `retroui/core`'s `tr` finds them.
 ##
 ## Keys: the text of the label exactly as the code literal has it, with the
 ## mnemonic marks taken out the way `splitMnemonic` (retroui/core) and `bare`
@@ -7,7 +7,7 @@
 ## -> "Black & White..."). A literal whose `&` stands before a space
 ## ("Dust & Scratches") or in "B&W" is plain text and is kept as written.
 ## Keyboard shortcuts are never part of a key: `menuItem(label, shortcut)` takes
-## them as a separate argument, and Retro Photo's `ci` (photo/pscc) and `item`
+## them as a separate argument, and Retro Atelier's `ci` (photo/pscc) and `item`
 ## (photo/menus) fill it from the key map (`modernKeys` in photo.nim, pairs
 ## such as ("Ctrl+N", "New...") looked up by the command name), so a key is
 ## the label alone. "...", ":" and the case are kept; so are the leading
@@ -17,12 +17,12 @@
 ##
 ## Words the toolkit itself shows (OK, Cancel, Open, Save, Close, Copy, Paste,
 ## Name, Size, Type, Color, Normal, ...) are in src/retroui/lang_ar.nim and are
-## not repeated here. Names from Retro Photo's engine (blend modes, layer
+## not repeated here. Names from Retro Atelier's engine (blend modes, layer
 ## styles, presets, custom shapes in retroui/photo*.nim) are here.
 
 const photoArabic* = [
   # examples/photo.nim
-  ("Retro Photo opens and saves your pictures (the Pictures and DCIM folders). Without the access it keeps them in its own folder.", "يفتح Retro Photo صورك ويحفظها (مجلدا Pictures وDCIM). وبدون هذا الوصول يحفظها في مجلده الخاص."),
+  ("Retro Atelier opens and saves your pictures (the Pictures and DCIM folders). Without the access it keeps them in its own folder.", "يفتح Retro Atelier صورك ويحفظها (مجلدا Pictures وDCIM). وبدون هذا الوصول يحفظها في مجلده الخاص."),
   ("Marquee", "التحديد"),
   ("Lasso", "الحبل"),
   ("Move", "نقل"),
@@ -322,7 +322,7 @@ const photoArabic* = [
   ("Could not save ", "تعذر حفظ "),
   ("Saved ", "تم حفظ "),
   ("Report a Problem", "الإبلاغ عن مشكلة"),
-  ("Something went wrong in Retro Photo (the last time it ran, or now). What it said is below: Copy puts it on the clipboard to send with what you were doing.", "حدث خطأ في Retro Photo (في آخر تشغيل أو الآن). ما ذكره موجود أدناه: نسخ يضعه في الحافظة لترسله مع وصف ما كنت تفعله."),
+  ("Something went wrong in Retro Atelier (the last time it ran, or now). What it said is below: Copy puts it on the clipboard to send with what you were doing.", "حدث خطأ في Retro Atelier (في آخر تشغيل أو الآن). ما ذكره موجود أدناه: نسخ يضعه في الحافظة لترسله مع وصف ما كنت تفعله."),
   ("Cancelled", "تم الإلغاء"),
   ("Something went wrong (", "حدث خطأ ("),
   (") -- kept in the fault log: Help > Report a Problem", ") -- حُفظ في سجل الأعطال: تعليمات > الإبلاغ عن مشكلة"),
@@ -630,7 +630,7 @@ const photoArabic* = [
   ("Quality ", "الجودة "),
   ("Medium", "متوسطة"),
   ("High", "عالية"),
-  ("The layers were mixed into one picture in that file. Save as Retro Photo (.rpd) or PSD (.psd) to keep them.", "دُمجت الطبقات في صورة واحدة في ذلك الملف. احفظ بتنسيق Retro Photo ‏(.rpd) أو PSD ‏(.psd) للاحتفاظ بها."),
+  ("The layers were mixed into one picture in that file. Save as Retro Atelier (.rpd) or PSD (.psd) to keep them.", "دُمجت الطبقات في صورة واحدة في ذلك الملف. احفظ بتنسيق Retro Atelier ‏(.rpd) أو PSD ‏(.psd) للاحتفاظ بها."),
   ("File Info", "معلومات الملف"),
   ("Caption:", "التسمية التوضيحية:"),
   ("Author:", "المؤلف:"),
@@ -1420,7 +1420,7 @@ const photoArabic* = [
   ("The workspace is kept (Window > Workspace > Load Saved Workspace)", "تم الاحتفاظ بمساحة العمل (نافذة > مساحة العمل > تحميل مساحة العمل المحفوظة)"),
   ("Load Saved Workspace", "تحميل مساحة العمل المحفوظة"),
   ("No workspace kept for a window this size", "لا توجد مساحة عمل محفوظة لنافذة بهذا الحجم"),
-  ("About Retro Photo...", "حول Retro Photo..."),
+  ("About Retro Atelier...", "حول Retro Atelier..."),
   ("New Group...", "مجموعة جديدة..."),
   ("The Background cannot be in a group.", "لا يمكن أن تكون الخلفية في مجموعة."),
   ("Layer Options...", "خيارات الطبقة..."),
@@ -1945,7 +1945,7 @@ const photoArabic* = [
   ("EPS Options", "خيارات EPS"),
   ("CMYK (printing inks)", "CMYK (أحبار الطباعة)"),
   ("Type and shapes as vectors", "النص والأشكال كمتجهات"),
-  ("Level 2 PostScript, its picture run-length coded; image editors and Retro Photo read the picture back.", "PostScript المستوى 2، وصورته مرمّزة بطول التشغيل؛ تقرأ محررات الصور وRetro Photo الصورة مرة أخرى."),
+  ("Level 2 PostScript, its picture run-length coded; image editors and Retro Atelier read the picture back.", "PostScript المستوى 2، وصورته مرمّزة بطول التشغيل؛ تقرأ محررات الصور وRetro Atelier الصورة مرة أخرى."),
   # examples/photo/prefs.nim
   ("General", "عام"),
   ("Interface", "الواجهة"),
@@ -1971,7 +1971,7 @@ const photoArabic* = [
   ("Zoom Clicked Point to Center", "تكبير النقطة المنقورة إلى المركز"),
   ("Zoom with Scroll Wheel", "التكبير بعجلة التمرير"),
   ("Reset Preferences on Quit", "إعادة تعيين التفضيلات عند الإنهاء"),
-  ("Preferences take effect at once; Reset Preferences on Quit brings back every default the next time Retro Photo starts.", "تسري التفضيلات فورًا؛ إعادة تعيين التفضيلات عند الإنهاء تعيد كل الافتراضيات في المرة القادمة التي يبدأ فيها Retro Photo."),
+  ("Preferences take effect at once; Reset Preferences on Quit brings back every default the next time Retro Atelier starts.", "تسري التفضيلات فورًا؛ إعادة تعيين التفضيلات عند الإنهاء تعيد كل الافتراضيات في المرة القادمة التي يبدأ فيها Retro Atelier."),
   ("Tabs, in all the room between the toolbar and the panels", "علامات تبويب، في كل المساحة بين شريط الأدوات واللوحات"),
   ("Windows of their own (MDI), as in 1994", "نوافذ مستقلة (MDI)، كما في 1994"),
   ("Panels", "اللوحات"),
@@ -1981,7 +1981,7 @@ const photoArabic* = [
   ("Keyboard Shortcuts", "اختصارات لوحة المفاتيح"),
   ("Set:", "المجموعة:"),
   ("Today's", "الحالية"),
-  ("Retro Photo 1994", "Retro Photo 1994"),
+  ("Retro Atelier 1994", "Retro Atelier 1994"),
   ("(the menus follow: today's, or 1994's)", "(القوائم تتبعها: الحالية أو قوائم 1994)"),
   ("Use Legacy Free Transform (Shift keeps the proportions)", "استخدام التحويل الحر القديم (Shift يحافظ على النسب)"),
   ("Zoom with Scroll Wheel (Ctrl or Alt + the wheel: scroll)", "التكبير بعجلة التمرير (Ctrl أو Alt + العجلة: تمرير)"),
@@ -2009,7 +2009,7 @@ const photoArabic* = [
   ("Memory Usage", "استخدام الذاكرة"),
   ("Memory in this device: ", "الذاكرة في هذا الجهاز: "),
   ("In use now: ", "المستخدمة الآن: "),
-  ("Let Retro Photo Use:", "السماح لـ Retro Photo باستخدام:"),
+  ("Let Retro Atelier Use:", "السماح لـ Retro Atelier باستخدام:"),
   ("Largest image: ", "أكبر صورة: "),
   (" million pixels; undo steps kept in ", " مليون بكسل؛ خطوات التراجع محفوظة في "),
   ("memory: ", "الذاكرة: "),
@@ -2021,7 +2021,7 @@ const photoArabic* = [
   (" cores)", " أنوية)"),
   (" thread", " مسار تنفيذ"),
   (" threads", " مسارات تنفيذ"),
-  ("(takes effect when Retro Photo starts again)", "(يسري عند بدء Retro Photo مرة أخرى)"),
+  ("(takes effect when Retro Atelier starts again)", "(يسري عند بدء Retro Atelier مرة أخرى)"),
   ("Graphics Processor Settings", "إعدادات معالج الرسومات"),
   ("Detected: ", "المكتشف: "),
   ("Use Graphics Processor", "استخدام معالج الرسومات"),
@@ -2080,7 +2080,7 @@ const photoArabic* = [
   (" patterns from ", " نقوش من "),
   ("; the pattern is now \"", "؛ النقش الآن \""),
   (" brushes from ", " فرش من "),
-  ("not a preset file Retro Photo reads", "ليس ملف إعدادات مسبقة يقرؤه Retro Photo"),
+  ("not a preset file Retro Atelier reads", "ليس ملف إعدادات مسبقة يقرؤه Retro Atelier"),
   ("Swatch ", "عينة "),
   (" swatches saved in ", " عينات محفوظة في "),
   ("Curves saved in ", "المنحنيات محفوظة في "),
@@ -2307,7 +2307,7 @@ const photoArabic* = [
   ("Contextual Task Bar", "شريط المهام السياقي"),
   ("Show Panels", "إظهار اللوحات"),
   ("Hide Panels", "إخفاء اللوحات"),
-  ("Retro Photo Help...", "تعليمات Retro Photo..."),
+  ("Retro Atelier Help...", "تعليمات Retro Atelier..."),
   ("Report a Problem...", "الإبلاغ عن مشكلة..."),
   ("Offset Path", "إزاحة المسار"),
   ("Simplify Path", "تبسيط المسار"),
@@ -3552,7 +3552,7 @@ const photoArabic* = [
   ("A smaller copy of ", "نسخة أصغر من "),
   ("A part of ", "جزء من "),
   # Help > About: new in 4.8
-  ("New in Retro Photo 4.8:", "الجديد في Retro Photo 4.8:"),
+  ("New in Retro Atelier 4.8:", "الجديد في Retro Atelier 4.8:"),
   ("The panels: drag the bar between the image and the panels to make the whole side wider or narrower",
    "اللوحات: اسحب الشريط بين الصورة واللوحات لتوسيع الجانب كله أو تضييقه"),
   ("Always on Top (the pin in a floating image's title bar, Window > Arrange): an image kept over the others",
@@ -3751,4 +3751,11 @@ const photoArabic* = [
   ("This box does not go on from another page.", "هذا المربع لا يتابع من صفحة أخرى."),
   ("Select a word (or pick a type layer) first.", "حدد كلمة (أو اختر طبقة نص) أولًا."),
   ("The Photo workspace: every panel and tool", "مساحة عمل الصور: كل اللوحات والأدوات"),
+  ("List:", "قائمة:"),
+  ("Bullets", "نقاط"),
+  ("Numbers", "أرقام"),
+  ("From:", "من:"),
+  ("Marks in the foreground color", "العلامات بلون المقدمة"),
+  ("(a list is text in a box: drag a box with the Type tool)", "(القائمة نص في مربع: اسحب مربعًا بأداة الكتابة)"),
+  ("This text ignores Text Wrap (a caption on a picture, a quote on its panel)", "هذا النص يتجاهل التفاف النص (تعليق على صورة، اقتباس على لوحته)"),
 ]

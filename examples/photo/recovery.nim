@@ -1,5 +1,5 @@
 # (included by photo.nim) Recovery: every few minutes (Preferences > History
-# & Saving), each document changed since is kept aside in Retro Photo's own
+# & Saving), each document changed since is kept aside in Retro Atelier's own
 # folder, written in the background; saved or closed, its copy goes. When
 # the program did not end well (a crash, a phone that closed it to free
 # memory), the next start offers the copies back.
@@ -60,7 +60,7 @@ proc autosaveTick() =
 
 proc findRecovery() =
   ## (at the start) Copies left by a run that did not end well.
-  recoveryDir = dataDir(AppName) / "Recovery"
+  recoveryDir = dataDir(AppData) / "Recovery"
   recoverFound.setLen(0)
   if not dirExists(recoveryDir): return
   let mine = "doc-" & $getCurrentProcessId() & "-"
@@ -128,18 +128,18 @@ proc recoverDialog() =
 proc saveWorkspace(name = "last") =
   ## Where the toolbar is, the panels as they are docked, floating, closed:
   ## kept (Window > Workspace > Save Workspace; and at the end of each run).
-  var st = loadSettings(AppName)
+  var st = loadSettings(AppData)
   let a = mdiAreaRect("ws")
   st["ws." & name & ".area"] = $a.w & "x" & $a.h
   st["ws." & name & ".tools"] = $toolbox.r.x & "," & $toolbox.r.y & "," & $ord(toolbox.open)
   st["ws." & name & ".dock"] = $dock.toJson
   st["ws." & name & ".optionsBar"] = $optionsBarOn
-  discard saveSettings(AppName, st)
+  discard saveSettings(AppData, st)
 
 proc loadWorkspace(name = "last"): bool =
   ## The panels as a workspace had them (false: none kept); the toolbar
   ## where it was when the window is as big as it was then.
-  let st = loadSettings(AppName)
+  let st = loadSettings(AppData)
   let a = mdiAreaRect("ws")
   if a.w <= 0: return false
   let dj = st.getOrDefault("ws." & name & ".dock")
@@ -170,7 +170,7 @@ proc loadWorkspace(name = "last"): bool =
 
 # ---- the session: the documents open at the end, open again at the next start ------------------------------
 
-proc sessionDir(): string = dataDir(AppName) / "Session"
+proc sessionDir(): string = dataDir(AppData) / "Session"
 
 proc writeSession() =
   ## The documents open now kept for the next start (Preferences > File
@@ -179,7 +179,7 @@ proc writeSession() =
   ## kept. Written at the end and whenever the phone puts the program away
   ## (it may be closed then to free memory).
   if not prefs.session: return
-  var st = loadSettings(AppName)
+  var st = loadSettings(AppData)
   for i in 0 ..< st.getInt("session.count", 0):
     for k in ["file", "path", "name", "format", "modified", "floating", "win", "zoom", "off"]:
       st.del("session." & $i & "." & k)
@@ -218,7 +218,7 @@ proc writeSession() =
     inc n
   st["session.count"] = $n
   st["session.active"] = $docs.find(active)
-  discard saveSettings(AppName, st)
+  discard saveSettings(AppData, st)
   # (copies no document needs any more)
   if dirExists(dir):
     for kind, f in walkDir(dir):
@@ -232,7 +232,7 @@ proc restoreSession() =
   # (the last run stopped and the user chose to start without what was
   # open: the pictures stay closed this once -- their copies are kept)
   if not prefs.session or startFresh(): return
-  let st = loadSettings(AppName)
+  let st = loadSettings(AppData)
   let n = st.getInt("session.count", 0)
   var back: seq[DocWin]
   var activeAt = -1

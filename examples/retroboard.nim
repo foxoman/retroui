@@ -2338,6 +2338,7 @@ proc strokeSection(f: var Flow) =
         s.size = z)
   f.heading("Sloppiness")
   for (lv, name) in [(-1, "Architect"), (0, "Artist"), (1, "Cartoonist")]:
+    let lv = lv                    # (its own copy: the proc below keeps it -- Nim 2.4 asks for it)
     let (clicked, r) = f.cell("slop" & $lv, cur.roughness == lv, "Sloppiness: " & name, W div 3)
     if not f.measure: slopIcon(r, lv)
     if clicked:
@@ -2345,6 +2346,7 @@ proc strokeSection(f: var Flow) =
       restyle("Sloppiness", proc (s: var Shape) = (if s.kind in {skGeo, skArrow, skLine}: s.roughness = lv))
   f.heading("Edges")
   for (rd, name) in [(false, "Sharp"), (true, "Round")]:
+    let rd = rd   # (its own copy: a proc below keeps it -- Nim 2.4 asks for it)
     let (clicked, r) = f.cell("edge" & $rd, cur.round == rd, "Edges: " & name, W div 2)
     if not f.measure: edgeIcon(r, rd)
     if clicked:
@@ -2399,6 +2401,7 @@ proc textSection(f: var Flow) =
         s.size = z)
   f.heading("Align")
   for (al, g) in [(baStart, nfAlignLeft), (baMiddle, nfAlignCenter), (baEnd, nfAlignRight)]:
+    let al = al   # (its own copy: a proc below keeps it -- Nim 2.4 asks for it)
     let down = if singleKind() == skText: cur.textAlign == al else: cur.align == al
     let (clicked, r) = f.cell("al" & $al, down, "Align " & (case al
                                                            of baStart: "left"
@@ -2410,6 +2413,7 @@ proc textSection(f: var Flow) =
       cur.align = al
       restyle("Align Text", proc (s: var Shape) = s.align = al)
   for al in [baStart, baMiddle, baEnd]:
+    let al = al   # (its own copy: a proc below keeps it -- Nim 2.4 asks for it)
     let (clicked, r) = f.cell("va" & $al, cur.valign == al, "In a shape or a note: at the " & (case al
                                                                                          of baStart: "top"
                                                                                          of baMiddle: "middle"
@@ -2459,6 +2463,7 @@ proc arrowSection(f: var Flow) =
             if w == 0: s.head0 = hh else: s.head1 = hh)
   f.heading("Lines")
   for (sp, name) in [(false, "Straight"), (true, "Curved")]:
+    let sp = sp   # (its own copy: a proc below keeps it -- Nim 2.4 asks for it)
     let (clicked, r) = f.cell("spline" & $sp, cur.spline == sp, "A line through its points: " & name, W div 2)
     if not f.measure: text(r.x + (r.w - textWidth(name)) div 2, r.y + (r.h - FontH) div 2, name, th.text)
     if clicked:

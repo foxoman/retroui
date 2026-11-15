@@ -1,4 +1,4 @@
-# Retro Photo -- included by photo.nim
+# Retro Atelier -- included by photo.nim
 #
 # Save As > layered PDF and File > Automate > PDF Presentation: the
 # "Save PDF" dialog -- a preset (the web, quality print, a press),
@@ -268,7 +268,7 @@ proc importDialogs() =
         var c = if epsDlg.cmyk: 1 else: 0
         if radio("RGB", c, 0) or radio("CMYK (printing inks)", c, 1): epsDlg.cmyk = c == 1
       checkbox("Type and shapes as vectors", epsDlg.vectors)
-      paragraph("Level 2 PostScript, its picture run-length coded; image editors and Retro Photo read the " &
+      paragraph("Level 2 PostScript, its picture run-length coded; image editors and Retro Atelier read the " &
                 "picture back.", color = ui.theme.gray)
       row:
         spring()

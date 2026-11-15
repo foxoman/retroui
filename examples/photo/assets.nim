@@ -1,9 +1,9 @@
-# Retro Photo -- included by photo.nim
+# Retro Atelier -- included by photo.nim
 #
 # File > Browse Assets (Window > Assets): free photos, illustrations,
 # vectors, icons, textures and backgrounds from the open sources on the
 # web (Openverse, Wikimedia Commons, Pixabay, Pexels and Unsplash with a key, Iconify, Poly
-# Haven, ambientCG) and the Retro Photo Library (brushes, patterns,
+# Haven, ambientCG) and the Retro Atelier Library (brushes, patterns,
 # gradients, swatches, styles, designs -- carried in the app, more online),
 # by kind and category, with a search. A click shows one; Insert puts it in
 # the image (a photo as a Smart Object, an icon as shapes, a pattern as a
@@ -51,9 +51,9 @@ proc bundledFor(url: string): string =
 
 proc assetsSetup() =
   ## (where things are kept; the keys; the carried library)
-  assetCacheDir = dataDir(AppName) / "Asset Cache"
+  assetCacheDir = dataDir(AppData) / "Asset Cache"
   assetUserAgent = AppName & "/" & AppVersion & " (https://github.com/foxoman)"
-  let st = loadSettings(AppName)
+  let st = loadSettings(AppData)
   pixabayKey = st.getOrDefault("assets.pixabay")
   pexelsKey = st.getOrDefault("assets.pexels")
   unsplashKey = st.getOrDefault("assets.unsplash")
@@ -63,12 +63,12 @@ proc assetsSetup() =
     setLibrary(asLib)
 
 proc assetsSave() =
-  var st = loadSettings(AppName)
+  var st = loadSettings(AppData)
   st["assets.pixabay"] = pixabayKey
   st["assets.pexels"] = pexelsKey
   st["assets.unsplash"] = unsplashKey
   st["assets.library"] = libraryCatalogUrl
-  discard saveSettings(AppName, st)
+  discard saveSettings(AppData, st)
 
 proc kindIcon(k: AssetKind): string =
   case k
@@ -372,7 +372,7 @@ proc insertAsset(it: var AssetItem; asDocument = false) =
     status = tr("Could not use it:") & " " & getCurrentExceptionMsg()
 
 proc downloadAsset(it: var AssetItem) =
-  ## Download: the file kept in Pictures/Retro Photo Assets, its credit in
+  ## Download: the file kept in Pictures/Retro Atelier Assets, its credit in
   ## CREDITS.txt there.
   if it.fullUrl.startsWith("template:"):
     status = tr("Designs open as documents: use Open as Document, then save")
@@ -382,14 +382,14 @@ proc downloadAsset(it: var AssetItem) =
   try: path = assetFile(it)
   finally: endBusy()
   if path.len == 0: return
-  let dir = picturesDir() / "Retro Photo Assets" / $it.kind
+  let dir = picturesDir() / "Retro Atelier Assets" / $it.kind
   try:
     createDir(dir)
     var name = it.title.multiReplace(("/", "-"), ("\\", "-"), (":", " "), ("\"", ""), ("*", ""), ("?", ""))
     if name.len == 0: name = it.id
     let dest = dir / name & path.splitFile.ext
     copyFile(path, dest)
-    let credits = picturesDir() / "Retro Photo Assets" / "CREDITS.txt"
+    let credits = picturesDir() / "Retro Atelier Assets" / "CREDITS.txt"
     let f = open(credits, fmAppend)
     f.writeLine(dest.extractFilename & " -- " & it.licenseNote & (if it.pageUrl.len > 0: " <" & it.pageUrl & ">" else: ""))
     f.close()
@@ -567,7 +567,7 @@ proc assetsDialog() =
           label "Access Key:"
           edit(asUnsplashKey, w = dp(260))
         if button(tr("Get a Free Key..."), w = dp(150)): discard openUrl("https://unsplash.com/oauth/applications")
-      group("Retro Photo Library"):
+      group("Retro Atelier Library"):
         label(tr("The online catalog (catalog.json) added to the library the app carries:"), color = ui.theme.gray)
         edit(asLibUrl)
         if button(tr("Default"), w = dp(80)): asLibUrl = defaultLibraryUrl

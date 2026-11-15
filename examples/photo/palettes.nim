@@ -653,7 +653,7 @@ proc brushMenuItems() =
     if storageFor(go): go()
   if menuItem("Export Selected Brushes..."):
     proc go() =
-      brushFilePath = picturesDir() / "Retro Photo Brushes.abr"
+      brushFilePath = picturesDir() / "Retro Atelier Brushes.abr"
       brushFileSave = true
       brushFilePick = true
     if storageFor(go): go()

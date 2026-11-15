@@ -134,12 +134,12 @@ var bgSave: tuple[doc: Doc; copy: bool]   ## the document being saved in the bac
 
 proc rememberFile(path: string) =
   ## `path` first in File › Open Recent.
-  var st = loadSettings(AppName)
+  var st = loadSettings(AppData)
   st.addRecentFile(path, prefs.recent)
-  discard saveSettings(AppName, st)
+  discard saveSettings(AppData, st)
 
 proc writeDoc(dw: DocWin; path: string; quality = 85) =
-  ## Saves the document: with its layers as Retro Photo or PSD, mixed
+  ## Saves the document: with its layers as Retro Atelier or PSD, mixed
   ## in the other formats. A big one is saved in the background: what it
   ## holds is copied, the program goes on while it is written.
   let d = dw.doc
@@ -199,7 +199,7 @@ proc writeDoc(dw: DocWin; path: string; quality = 85) =
       let lost = d.svgLosses
       let own = d.svgOwn
       status = "Saved " & path.extractFilename & ": shapes as paths, type as text" &
-               (if own.len > 0: "; for Retro Photo alone (other programs do not show them): " & own.join(", ")
+               (if own.len > 0: "; for Retro Atelier alone (other programs do not show them): " & own.join(", ")
                 else: "") &
                (if lost.len > 0: "; not kept: " & lost.join(", ") else: "")
     if not saveCopy: dw.dropRecovery()
@@ -733,7 +733,7 @@ proc fileDialogs() =
           if saveDoc != nil: saveDoc.writeDoc(savePath, 10 + jpegQuality * 9)
         if button("Cancel", w = dp(80)): jpegOpen = false
   case msgBox(flatWarn, AppName, "The layers were mixed into one picture in that file. Save as " &
-              "Retro Photo (.rpd) or PSD (.psd) to keep them.", ["OK"], miInfo)
+              "Retro Atelier (.rpd) or PSD (.psd) to keep them.", ["OK"], miInfo)
   else: discard
   if infoOpen:
     dialog(infoOpen, "File Info", 420):
@@ -1944,7 +1944,7 @@ var
   ffLoadPick = false
   ffLoadPath = ""
 
-proc pluginsDir(): string = dataDir(AppName) / "Plug-ins"
+proc pluginsDir(): string = dataDir(AppData) / "Plug-ins"
 
 proc registerPlugin(f: FactoryFilter) =
   ## A Filter Factory filter in the Filter menu (its sliders as the filter's
@@ -2286,13 +2286,13 @@ const dvFirstPresets = ["Custom", "Default", "Auto"]
 proc loadDevelopPresets() =
   dvLoaded = true
   dvUser.setLen(0)
-  for k, v in loadSettings(AppName):
+  for k, v in loadSettings(AppData):
     if k.startsWith("develop.preset."): dvUser.add (k[15 .. ^1], parseDevelop(v))
 
 proc saveDevelopPreset(name: string; s: Develop) =
-  var st = loadSettings(AppName)
+  var st = loadSettings(AppData)
   st["develop.preset." & name] = $s
-  if not saveSettings(AppName, st): status = "The preset could not be saved"
+  if not saveSettings(AppData, st): status = "The preset could not be saved"
   loadDevelopPresets()
 
 proc dvAuto(): Develop =

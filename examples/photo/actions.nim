@@ -94,7 +94,7 @@ proc unesc(s: string): string =
 
 proc actionsText(acts: openArray[Action]): string =
   ## The actions as text (kept in the settings; a .actions file).
-  result = "Retro Photo actions 1\n"
+  result = "Retro Atelier actions 1\n"
   for a in acts:
     result.add "action|" & esc(a.name) & "\n"
     for s in a.steps:
@@ -141,13 +141,13 @@ proc defaultActions(): seq[Action] =
   result.add Action(name: "Flip and Turn", steps: @[cmd("Horizontal"), cmd("90° CW")])
 
 proc saveActions() =
-  var st = loadSettings(AppName)
+  var st = loadSettings(AppData)
   st["actions"] = actionsText(actions)
-  discard saveSettings(AppName, st)
+  discard saveSettings(AppData, st)
 
 proc loadActions() =
   actionsLoaded = true
-  let st = loadSettings(AppName)
+  let st = loadSettings(AppData)
   if st.hasKey("actions"): actions = parseActions(st["actions"])
   else: actions = defaultActions()
   actSel = clamp(actSel, 0, max(0, actions.high))

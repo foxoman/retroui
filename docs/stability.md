@@ -35,7 +35,7 @@ their parameters in a minor version.
 | `update` | new in 0.30 (the update file's fields are settled; the procs may grow options) |
 | `capture`, `mediasession` | the camera's and the media keys' events may gain fields |
 | `view3d`, `gltf`, `tilemap`, `geo`, `mvt` | the 3D view and the maps grow with each release |
-| `photo*`, `dock`, `toolcustom` | Retro Photo's parts, shared with apps as they settle |
+| `photo*`, `dock`, `toolcustom` | Retro Atelier's parts, shared with apps as they settle |
 | `xmpp`, `omemo`, `mime`, `mailimport`, `richedit`, `spell` | Retro Mail and the communicator's parts |
 | `designer` and the designer's file format | Retro Designer is young |
 | the web build (`retroweb` options, `Retro.boot` options) | the page's side grows with the browsers |

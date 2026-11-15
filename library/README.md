@@ -1,9 +1,9 @@
-# Retro Photo Library
+# Retro Atelier Library
 
 Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 Brushes, patterns, gradients, swatches, layer styles and designs for
-Retro Photo's **Assets** window (File > Browse Assets). Everything here is
+Retro Atelier's **Assets** window (File > Browse Assets). Everything here is
 CC0: free to use for anything, no credit needed.
 
 The app carries this folder inside it, so the library works offline. Put
@@ -14,7 +14,7 @@ what you add there shows up in every copy of the app, with no new version.
 
 ## Adding an item
 
-1. Put the file in its folder: `brushes/` (Retro Photo brush presets,
+1. Put the file in its folder: `brushes/` (Retro Atelier brush presets,
    `.json`, saved from the Brushes panel), `patterns/` (a `.png` tile),
    `gradients/` (`.json`, as the ones here), `swatches/` (`.ase` or `.aco`),
    `styles/` (`.json`, as the ones here), `designs/` (a `.rpd` or `.psd`

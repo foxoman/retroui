@@ -26,7 +26,7 @@ Thanks for helping. A few things keep the toolkit what it is:
 | `src/retroui/` | the modules (see the table at the top of `retro.nim`) |
 | `src/retroui/uirelays/` | the screen drivers: X11, Win32, Cocoa, Android, iOS -- the `uirelays` branch's code (`tools/uirelays.sh`, `RETRO.md` there) |
 | `src/retroapk.nim`, `src/retroios.nim`, `src/retrokit.nim` | the APK and iOS builders, the helper |
-| `examples/` | the apps: gallery, Retro Files, Retro Photo, Ledger, Notepad, Charts... |
+| `examples/` | the apps: gallery, Retro Files, Retro Atelier, Ledger, Notepad, Charts... |
 | `tests/` | the tests, the fuzzers, benchmarks |
 | `tools/` | maintainers' generators (fonts, icons, world data) and the screenshot tool |
 | `docs/` | the controls reference and screenshots; `docs/api` is generated |

@@ -275,6 +275,11 @@ WebAssembly under Node), `python3 tools/returncheck.py` (no `return x`
 after `result` was set: Nim 2.2 leaks the old value) and `python3
 tools/writecheck.py` (no `var` or `result` given a value in a branch or a
 loop and then another: Nim 2.2 leaks the first; `docs/nim-bugs.md`).
+With Nim 2.4 too: `NIM=/path/to/nim-2.4 python3 tools/lentfix.py
+examples/photo.nim` (and each app and test changed) builds it to C and
+gives a loop whose variable a nested proc keeps a copy of its own -- Nim
+2.4 refuses that capture, Nim 2.2 allowed it, and `nim check` says
+nothing.
 The decoders under libFuzzer (clang):
 
 ```sh
@@ -635,7 +640,7 @@ Device Platform, on Google Cloud); the job moves there before then.
   the APK, in `APP-symbols/ABI/libmain.so` (llvm-strip: the NDK's, LLVM's,
   or on the PATH; without one the library is linked stripped and no copy
   is kept). Keep that folder with each APK you hand out (the Release has
-  `APP-symbols.zip`); `retrokit symbolize report.txt build/RetroPhoto-symbols`
+  `APP-symbols.zip`); `retrokit symbolize report.txt build/RetroAtelier-symbols`
   names the frames.
 - **One activity:** the manifest makes the activity its task's only one
   (`singleTask`), so starting the app again -- its icon, an intent,
@@ -942,7 +947,7 @@ environment of its own: `adb shell am start -n PACKAGE/org.retro.RetroActivity
 | `RETRO_HTTP_CURL_COMMAND=1` | `httpRequest` runs the `curl` program, not libcurl |
 | `RETRO_MAIL_ISPDB=URL`, `RETRO_MAIL_DOH=URL` | where Retro Mail's setup looks a mail server up |
 | `RETRO_BLENDER=PATH` | the Blender that turns `.blend` models into glTF |
-| `RETRO_GPU_COMPOSITE=0` | Retro Photo's layers put together on the CPU |
+| `RETRO_GPU_COMPOSITE=0` | Retro Atelier's layers put together on the CPU |
 | `RETRO_GPU_DEBUG=1`, `RETRO_3D_DEBUG=1`, `RETRO_WAYLAND_DEBUG=1` | what the GPU, the 3D view, the Wayland driver find, on stderr |
 
 **The tools** (`retrokit`, `retroapk`, `retroweb`)

@@ -25,7 +25,7 @@ MODULES = [
     "capture", "mediasession",
 ]
 # Not in the list: calendar (there is no calendar.nim: `calendar` is in
-# business), photowidgets (Retro Photo's own panels, not for other apps),
+# business), photowidgets (Retro Atelier's own panels, not for other apps),
 # core (the frame loop and layout: shown in the guide's Layout part, and
 # checked below as LAYOUT).
 

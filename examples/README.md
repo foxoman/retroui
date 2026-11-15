@@ -24,8 +24,8 @@ hello, notepad, ledger, charts, invoice, then the apps.
 | [invoice](#invoice) | an HTML template made into PDF pages |
 | [native](#native) | the system's own APIs, called from Nim |
 | [filemanager](#retro-files) | Retro Files, a file manager |
-| [photo](#retro-photo) | Retro Photo, an image editor |
-| [magazine](#the-magazine) | three magazine pages made with Retro Photo's engine |
+| [photo](#retro-photo) | Retro Atelier, an image editor |
+| [magazine](#the-magazine) | three magazine pages made with Retro Atelier's engine |
 | [retroboard](#retro-board) | Retro Board, a whiteboard |
 | [mail](#retro-mail) | Retro Mail, for Microsoft 365, Outlook.com and Gmail |
 | [communicator](#retro-communicator) | Retro Communicator, chat on XMPP |
@@ -171,11 +171,11 @@ nimble files                # or: nim c -r -d:release examples/filemanager.nim
 nimble apk                  # an Android APK
 ```
 
-## Retro Photo
+## Retro Atelier
 
-![Retro Photo: a picture, its layers and the tools](../docs/photo.png)
+![Retro Atelier: a picture, its layers and the tools](../docs/photo.png)
 
-`photo.nim` is Retro Photo, an image editor with the look of 1994 and
+`photo.nim` is Retro Atelier, an image editor with the look of 1994 and
 the tools of today's: layers and groups with blend modes, masks and
 styles, Smart Objects, selections, channels and paths, sixty-two tools,
 filters and adjustments with previews, Neural Filters, Arabic type,
@@ -209,10 +209,12 @@ remove pages; master pages put a running head or a page number
 a text box goes on onto the next page, and Autoflow adds the pages a long
 text needs; Layout > Text Wrap makes text keep out of a layer -- round its
 box, round its shape, on both sides or one (a shape drawn with the Pen,
-at Opacity 0, is a wrap of your own outline). The book is one file
+at Opacity 0, is a wrap of your own outline). Type, a shape or a placed
+picture dragged past the spine goes on, on the facing page. The book is one file
 (.rpb), and File > Export Book as PDF writes all its pages with the type
 as type. Window > Workspace sets the panels and tools out for Photo,
-Drawing or Layout. In Character: the room between words and the tashkeel
+Drawing or Layout. In Paragraph: a text box as a list, with bullets of
+any shape or numbers in any style. In Character: the room between words and the tashkeel
 (coloured, raised, hidden); Type > Word Shapes shows the other shapes a
 font has for the word selected. The engine is `retroui/photobook`.
 
@@ -225,13 +227,13 @@ nimble photoapk             # an Android APK
 
 ## The magazine
 
-![Three A4 magazine pages made with Retro Photo's engine](../docs/examples/magazine.png)
+![Three A4 magazine pages made with Retro Atelier's engine](../docs/examples/magazine.png)
 
 `magazine.nim` has no window: it makes three A4 magazine pages with
-Retro Photo's engine, tool by tool, as the app's tools would -- gradients,
+Retro Atelier's engine, tool by tool, as the app's tools would -- gradients,
 clouds and a lens flare, shape and type layers (Arabic set right to
 left), layer styles, masks, a Smart Object, adjustment layers, a Neural
-Filter -- and saves them as Retro Photo documents (each layer still
+Filter -- and saves them as Retro Atelier documents (each layer still
 editable in the app), PNG pictures and a PDF.
 
 ```sh
@@ -246,7 +248,7 @@ pages; master pages with a running head, a rule and the page number at
 the outer edge in Arabic-Indic digits; a story in two columns that goes
 on through as many pages as it needs and keeps out of a picture, round
 its shape; the tashkeel of the title in a colour of its own. It writes
-the book (.rpb: open it in Retro Photo), a PDF with the type as type, and
+the book (.rpb: open it in Retro Atelier), a PDF with the type as type, and
 its spreads as pictures.
 
 ```sh

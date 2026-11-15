@@ -1,4 +1,4 @@
-# Retro Photo -- included by photo.nim
+# Retro Atelier -- included by photo.nim
 #
 # SVG: File > New SVG Drawing (an empty drawing that File > Save writes as
 # an SVG), File > Export > SVG -- the shapes as paths, the type as text,
@@ -40,7 +40,7 @@ proc svgDialogs() =
         let own = d.svgOwn
         status = "Saved " & p.extractFilename & ": shapes as paths, type as " &
                  (if svgOutlines: "outlines" else: "text") &
-                 (if own.len > 0: "; for Retro Photo alone (other programs do not show them): " & own.join(", ")
+                 (if own.len > 0: "; for Retro Atelier alone (other programs do not show them): " & own.join(", ")
                   else: "") &
                  (if lost.len > 0: "; not kept: " & lost.join(", ") else: "")
       except IOError, OSError:
