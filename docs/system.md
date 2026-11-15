@@ -465,6 +465,25 @@ In a web page Open is the browser's file chooser, and Save As writes in
 `/downloads`, which the page hands to the user (the browser's Save As, or
 a download).
 
+On Android and iOS an app may have the system's own picker instead of the
+kit's dialog -- the phone's storage, an SD card, Drive, Files, any app
+that offers its documents -- with one line at its start:
+
+```nim
+systemFiles(true)          # nothing happens on a desktop or in a web page
+```
+
+The same `fileDialog` and `filePicker` calls then show it (opening a
+file, naming one to save; picking a folder stays the kit's). The systems
+give documents, not paths, so the app is given a copy in its cache: the
+document picked to open, and the file to save. What the app writes there
+is handed back by itself, a moment after it was written: on Android into
+the document it came from or the one "save to" made (a later Save goes
+there without asking); on iOS Files asks where it goes. The app needs no
+access to the storage for it. `systemFilesNote()` says what could not be
+written back; an app that does not call its dialogs every frame calls
+`pumpSystemFiles()` (`retroui/systemfiles`).
+
 ## Anything else: the system's own API
 
 `retroui/native` calls any C library, Java on Android, Objective-C on

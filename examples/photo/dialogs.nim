@@ -118,10 +118,10 @@ proc startOpen() =
   proc go() =
     if openPath.len == 0 or not dirExists(openPath.parentDir): openPath = picturesDir()
     openPick = true
-  if askStorage(AppName, filesWhy, go): go()
+  if storageFor(go): go()
 
 const
-  openPatterns = ["*.rpd", "*.rp3", "*.psd", "*.psb", "*.png", "*.jpg", "*.jpeg", "*.tif", "*.tiff", "*.bmp", "*.gif",
+  openPatterns = ["*.rpd", "*.rpb", "*.rp3", "*.psd", "*.psb", "*.png", "*.jpg", "*.jpeg", "*.tif", "*.tiff", "*.bmp", "*.gif",
                   "*.tga", "*.dng", "*.pdf", "*.ai", "*.eps", "*.ps", "*.hdr", "*.pfm", "*.exr", "*.webp",
                   "*.nef", "*.nrw", "*.arw", "*.cr2", "*.cr3", "*.orf", "*.rw2", "*.pef", "*.raf", "*.heic", "*.heif",
                   "*.avif", "*.jxl", "*.svg"]
@@ -207,6 +207,7 @@ proc writeDoc(dw: DocWin; path: string; quality = 85) =
     status = "Could not save " & path.extractFilename & ": " & getCurrentExceptionMsg()
 
 proc startSaveAs(dw: DocWin; copy = false) =
+  if not copy and bookSave(dw, saveAs = true): return      # (a book: all its pages, one file)
   saveDoc = dw
   saveCopy = copy
   let layered = dw.doc.layers.len > 1 or dw.doc.alphas.len > 0
@@ -219,7 +220,7 @@ proc startSaveAs(dw: DocWin; copy = false) =
               else: picturesDir()
     savePath = dir / dw.doc.name & ext
     savePick = true
-  if askStorage(AppName, filesWhy, go): go()
+  if storageFor(go): go()
 
 var
   pdfPick = false              ## File > Save as PDF: where
@@ -235,10 +236,11 @@ proc startSavePdf(dw: DocWin) =
               else: picturesDir()
     pdfPath = dir / dw.doc.name.changeFileExt("") & ".pdf"
     pdfPick = true
-  if askStorage(AppName, filesWhy, go): go()
+  if storageFor(go): go()
 
 proc save(dw: DocWin) =
   if saveSmartChild(dw): return
+  if bookSave(dw): return
   if dw.doc.path.len == 0 or (dw.doc.format notin keepsLayers and dw.doc.layers.len > 1):
     dw.startSaveAs()
   else:
@@ -431,7 +433,7 @@ proc exportDialog() =
           let dir = if d.path.len > 0 and dirExists(d.path.parentDir): d.path.parentDir else: picturesDir()
           exportPath = dir / d.name & formatExts[f]
           exportPick = true
-        if askStorage(AppName, filesWhy, go): go()
+        if storageFor(go): go()
       if button("Cancel", w = dp(80)): exportOpen = false
 
 proc exportTo(dw: DocWin; path: string) =
@@ -461,7 +463,7 @@ proc quickExport(dw: DocWin; f: ExportFormat) =
       status = "Exported " & p
     except CatchableError:
       status = "Could not export " & p.extractFilename & ": " & getCurrentExceptionMsg()
-  if askStorage(AppName, filesWhy, go): go()
+  if storageFor(go): go()
 
 # ---- Layer from File --------------------------------------------------------------------------------
 
@@ -471,7 +473,7 @@ proc startLayerFromFile() =
   proc go() =
     if openPath.len == 0 or not dirExists(openPath.parentDir): openPath = picturesDir()
     layerFilePick = true
-  if askStorage(AppName, filesWhy, go): go()
+  if storageFor(go): go()
 
 proc layerFromFile(d: Doc; path: string) =
   ## Layer > New > Layer from File: the picture (all its layers mixed) as a
@@ -632,6 +634,9 @@ proc openFile(path: string) =
   ## Opens a picture in a window (a raw photo in Camera Raw first); it is
   ## first in File › Open Recent. A picture too big to edit whole asks
   ## first: a smaller copy of it, or a part?
+  if path.toLowerAscii.endsWith(".rpb"):
+    openBook(path)                      # (a book: its pages in one window)
+    return
   for o in docs:
     if o.doc.path == path and path.len > 0:
       o.showDoc()                       # (open already: brought forward)

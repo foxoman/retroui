@@ -397,7 +397,7 @@ proc layersToFilesDialog() =
             proc go() =
               if ltfDir.len == 0: ltfDir = if d.path.len > 0: d.path.parentDir else: picturesDir()
               ltfPick = true
-            if askStorage(AppName, filesWhy, go): go()
+            if storageFor(go): go()
         row:
           label "File Name Prefix:"
           edit(ltfPrefix, w = dp(200))
@@ -500,7 +500,7 @@ proc contactSheetDialog() =
             proc go() =
               if csheetSrc.len == 0: csheetSrc = picturesDir()
               csheetPick = true
-            if askStorage(AppName, filesWhy, go): go()
+            if storageFor(go): go()
         checkbox("Include All Subfolders", csheetSub)
         if csheetSrc.len > 0: label($batchFiles(csheetSrc, csheetSub).len & " " & tr("pictures"), color = ui.theme.gray)
       group("Document"):
@@ -591,7 +591,7 @@ proc imageProcessorDialog() =
             proc go() =
               if ipSrc.len == 0: ipSrc = picturesDir()
               ipPickSrc = true
-            if askStorage(AppName, filesWhy, go): go()
+            if storageFor(go): go()
         checkbox("Include All Subfolders", ipSub)
         if ipSrc.len > 0: label($batchFiles(ipSrc, ipSub).len & " " & tr("pictures"), color = ui.theme.gray)
       group("2  Select location to save processed images"):
@@ -603,7 +603,7 @@ proc imageProcessorDialog() =
             proc go() =
               if ipDst.len == 0: ipDst = if ipSrc.len > 0: ipSrc else: picturesDir()
               ipPickDst = true
-            if askStorage(AppName, filesWhy, go): go()
+            if storageFor(go): go()
       group("3  File Type"):
         row:
           combo(["JPEG", "PNG", "WebP"], ipFormat, w = dp(90))

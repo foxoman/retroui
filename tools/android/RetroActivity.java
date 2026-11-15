@@ -337,6 +337,74 @@ public class RetroActivity extends NativeActivity {
   // uirelaysCall from any thread.
 
   static final int PICK_TREE = 4242;
+  static final int PICK_OPEN = 4243;
+  static final int PICK_SAVE = 4244;
+
+  // The system's own file picker (retroui/systemfiles): what the user
+  // picked to open -- copied into the cache, "path\turi" a line -- and
+  // where to save ("" while the picker is up, "\u0001" when it was left).
+  static String pickedOpen = "";
+  static String pickedSave = "";
+
+  /** A document copied into the cache's folder `sub` under its own name;
+   *  its path (null: it could not be read). */
+  String copyIn(Uri u, String sub) {
+    try {
+      String name = "document";
+      try {
+        Cursor c = getContentResolver().query(u, new String[]{android.provider.OpenableColumns.DISPLAY_NAME},
+                                              null, null, null);
+        if (c != null) {
+          if (c.moveToFirst() && c.getString(0) != null) name = c.getString(0);
+          c.close();
+        }
+      } catch (Throwable ignored) { }
+      name = name.replace('/', '_').replace('\t', ' ').replace('\n', ' ');
+      java.io.File dir = new java.io.File(getCacheDir(), sub);
+      dir.mkdirs();
+      java.io.File f = new java.io.File(dir, name);
+      for (int k = 2; f.exists(); k++) {
+        java.io.File d2 = new java.io.File(dir, String.valueOf(k));
+        d2.mkdirs();
+        f = new java.io.File(d2, name);
+      }
+      java.io.InputStream in = getContentResolver().openInputStream(u);
+      if (in == null) return null;
+      java.io.OutputStream out = new java.io.FileOutputStream(f);
+      byte[] buf = new byte[65536];
+      int n;
+      while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+      out.close();
+      in.close();
+      return f.getAbsolutePath();
+    } catch (Throwable t) {
+      return null;
+    }
+  }
+
+  /** The file at `path` written into the document `uri`. */
+  boolean copyOut(String path, String uri) {
+    try {
+      java.io.OutputStream out = getContentResolver().openOutputStream(Uri.parse(uri), "wt");
+      if (out == null) return false;
+      java.io.InputStream in = new java.io.FileInputStream(path);
+      byte[] buf = new byte[65536];
+      int n;
+      while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+      in.close();
+      out.close();
+      return true;
+    } catch (Throwable t) {
+      return false;
+    }
+  }
+
+  void keepUri(Uri u, Intent data) {
+    // (kept for as long as the app is installed, to write to when it can be)
+    int rw = Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
+    try { getContentResolver().takePersistableUriPermission(u, data.getFlags() & rw); }
+    catch (Throwable t) { }
+  }
 
   // What other apps shared with this one (their share sheet: an APK made
   // with retroapk --share-target): "t" and a text, "f" and a file copied
@@ -497,6 +565,57 @@ public class RetroActivity extends NativeActivity {
         return "0";
       }
     }
+    if (name.equals("cacheDir")) return getCacheDir().getAbsolutePath();
+    if (name.equals("pickOpen")) {         // "1" for several, then the MIME types wanted (none: any)
+      final Intent i = new Intent("android.intent.action.OPEN_DOCUMENT");
+      i.addCategory("android.intent.category.OPENABLE");
+      i.setType("*/*");
+      if (a.length > 0 && a[0].equals("1")) i.putExtra("android.intent.extra.ALLOW_MULTIPLE", true);
+      java.util.ArrayList<String> types = new java.util.ArrayList<String>();
+      for (int k = 1; k < a.length; k++) if (a[k].length() > 0) types.add(a[k]);
+      if (types.size() == 1) i.setType(types.get(0));
+      else if (types.size() > 1) i.putExtra("android.intent.extra.MIME_TYPES", types.toArray(new String[0]));
+      i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                 0x00000040);              // FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+      synchronized (shared) { pickedOpen = ""; }
+      runOnUiThread(new Runnable() {
+        public void run() {
+          try { startActivityForResult(i, PICK_OPEN); }
+          catch (Throwable t) { synchronized (shared) { pickedOpen = "\u0001"; } }
+        }
+      });
+      return "1";
+    }
+    if (name.equals("picked")) {           // what was picked, taken ("": not yet)
+      synchronized (shared) {
+        String r = pickedOpen;
+        pickedOpen = "";
+        return r;
+      }
+    }
+    if (name.equals("pickSave")) {         // the name offered, its MIME type
+      final Intent i = new Intent("android.intent.action.CREATE_DOCUMENT");
+      i.addCategory("android.intent.category.OPENABLE");
+      i.setType(a.length > 1 && a[1].length() > 0 ? a[1] : "application/octet-stream");
+      i.putExtra("android.intent.extra.TITLE", a[0]);
+      i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | 0x00000040);
+      synchronized (shared) { pickedSave = ""; }
+      runOnUiThread(new Runnable() {
+        public void run() {
+          try { startActivityForResult(i, PICK_SAVE); }
+          catch (Throwable t) { synchronized (shared) { pickedSave = "\u0001"; } }
+        }
+      });
+      return "1";
+    }
+    if (name.equals("pickSaved")) {        // the document to write to, taken ("": not yet)
+      synchronized (shared) {
+        String r = pickedSave;
+        pickedSave = "";
+        return r;
+      }
+    }
+    if (name.equals("uriWrite")) return copyOut(a[1], a[0]) ? "1" : "0";     // uri, the file
     if (name.equals("treeAsk")) {          // authority, document id to start in
       final Intent i = new Intent("android.intent.action.OPEN_DOCUMENT_TREE");
       if (a.length >= 2 && Build.VERSION.SDK_INT >= 26)
@@ -614,6 +733,44 @@ public class RetroActivity extends NativeActivity {
               Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         } catch (Throwable t) { }
       }
+      return;
+    }
+    if (request == PICK_OPEN) {
+      final java.util.ArrayList<Uri> uris = new java.util.ArrayList<Uri>();
+      if (result == RESULT_OK && data != null) {
+        if (data.getClipData() != null)
+          for (int k = 0; k < data.getClipData().getItemCount(); k++) uris.add(data.getClipData().getItemAt(k).getUri());
+        else if (data.getData() != null) uris.add(data.getData());
+      }
+      if (uris.isEmpty()) {
+        synchronized (shared) { pickedOpen = "\u0001"; }
+        return;
+      }
+      final Intent got = data;
+      // (a big file takes its time: not on the thread that draws)
+      new Thread(new Runnable() {
+        public void run() {
+          StringBuilder b = new StringBuilder();
+          for (Uri u : uris) {
+            if (u == null) continue;
+            keepUri(u, got);
+            String p = copyIn(u, "opened");
+            if (p == null) continue;
+            if (b.length() > 0) b.append('\n');
+            b.append(p).append('\t').append(u.toString());
+          }
+          synchronized (shared) { pickedOpen = b.length() > 0 ? b.toString() : "\u0001"; }
+        }
+      }).start();
+      return;
+    }
+    if (request == PICK_SAVE) {
+      String r = "\u0001";
+      if (result == RESULT_OK && data != null && data.getData() != null) {
+        keepUri(data.getData(), data);
+        r = data.getData().toString();
+      }
+      synchronized (shared) { pickedSave = r; }
       return;
     }
     super.onActivityResult(request, result, data);

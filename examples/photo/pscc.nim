@@ -85,6 +85,7 @@ proc psMenus() =
     psMenu "&File":
       ci("&New...")
       ci("New SVG &Drawing")
+      ci("New &Book...", "New Book...")
       ci("&Open...")
       ci("Open &As...")
       live:
@@ -424,9 +425,13 @@ proc psMenus() =
       ci("Flow Into a &New Box", enabled = some and d.current.isText and d.current.text.boxW > 0)
       ci("Unlink Text Bo&x", "Unlink Text Box", enabled = some and d.current.flowFrom != 0)
       ci("Paste &Lorem Ipsum", "Paste Lorem Ipsum", enabled = some)
+      ci("Word &Shapes...", "Word Shapes...", enabled = some)
+      ci("Insert Page N&umber", "Insert Page Number", enabled = some)
       sep()
       live: typeMenu(d)
       if mIndex.on: ci("Rasterize Type Layer", "Rasterize Type")
+    psMenu "La&yout":
+      layoutMenu()
     psMenu "&Select":
       ci("&All", enabled = some)
       ci("&Deselect", "None", enabled = sel)
@@ -575,7 +580,10 @@ proc psMenus() =
         ci("Pre&vious Document", enabled = docs.len > 1)
         ci("Close &All", enabled = docs.len > 0)
       psSub "&Workspace":
-        ci("&Essentials (Default)", "Reset Workspace")
+        ci("&Photo (Essentials)", "Workspace: Photo")
+        ci("&Drawing", "Workspace: Drawing")
+        ci("&Layout", "Workspace: Layout")
+        sep()
         ci("&Reset Essentials", "Reset Workspace")
         sep()
         ci("&New Workspace...", "Save Workspace")
@@ -604,6 +612,7 @@ proc psMenus() =
       ci("Paragraph", checked = panelShown("paragraph"))
       ci("Paragraph Styles", checked = panelShown("parastyles"))
       ci("OpenType", checked = panelShown("opentype"))
+      ci("Pages", checked = panelShown("pages"))
       ci("Paths", checked = panelShown("paths"))
       ci("Patterns", checked = panelShown("patterns"))
       ci("Properties", checked = panelShown("properties"))

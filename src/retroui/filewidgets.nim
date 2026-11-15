@@ -27,6 +27,7 @@ import uirelays/target   # (androidApp: an APK, not a program in Termux)
 import gfx, core, widgets, business, extras, nerdicons, pixelicons, platform, files,
        imaging, background, textfile, docfs, memwatch, apkinfo
 import uirelays/services
+when not defined(wasm): import systemfiles   # (a web page has the browser's chooser)
 
 template th: untyped = ui.theme
 
@@ -2414,6 +2415,10 @@ proc filePicker*(open: var bool; path: var string; mode = fmOpen;
   when defined(wasm):
     # (a web page: the browser's file chooser; saving through /downloads)
     if mode != fmFolder: return webFileDialog(open, path, mode, patterns, key)
+  else:
+    # (a phone, when the app asked for it: the system's own picker)
+    if mode != fmFolder and systemFilesOn(): return systemFileDialog(open, path, mode == fmSave, key)
+    pumpSystemFiles()
   if not open:
     if picker.key == key: picker.opened = false
     return false

@@ -206,12 +206,12 @@ proc mergeDialog() =
             proc go() =
               if mgAddPath.len == 0: mgAddPath = picturesDir()
               mgAddPick = true
-            if askStorage(AppName, filesWhy, go): go()
+            if storageFor(go): go()
           if button("Add Folder...", w = dp(126)):
             proc go() =
               if mgFolder.len == 0: mgFolder = picturesDir()
               mgFolderPick = true
-            if askStorage(AppName, filesWhy, go): go()
+            if storageFor(go): go()
           if button("Remove", w = dp(126), enabled = mgPick in 0 .. mgFiles.high):
             mgFiles.delete(mgPick)
             mgPick = min(mgPick, mgFiles.high)

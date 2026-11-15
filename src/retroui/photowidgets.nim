@@ -62,6 +62,7 @@ type
     forcedOrigin: (int, int)
     key: string
     shownVer: int            # the document's version the view shows
+    shownDoc: Doc            # ... and the document (another one given: all of it is drawn)
     shownOff: (int, int)     # (and its origin then)
     gpuKey: uint64           # (with the GPU) its textures: the image, and its smaller copies
     gpuDoc: pointer
@@ -789,6 +790,13 @@ proc photoView*(d: Doc; v: var PhotoView; height = -1; key = ""; drawAntsNow = t
   ## Ctrl: zoom). `statusW` > 0: so much room at the left of the bottom
   ## scroll bar for a status (`v.statusRect`: draw it after), the strip as
   ## tall as a box.
+  if v.shownDoc != d:
+    # (another document in this view -- a book's page turned, a file reverted: nothing
+    # the view holds is of it, whatever its version says)
+    v.shownDoc = d
+    v.shownVer = int.high
+    v.antsVer = -1
+    for k in 0 .. v.gpuVers.high: v.gpuVers[k] = 0
   let r = place(0, if height < 0: remainingH() else: height, fill = true)
   v.keepRect = r
   beginKeepSides(r)              # (the image as it is, in a right-to-left interface too)

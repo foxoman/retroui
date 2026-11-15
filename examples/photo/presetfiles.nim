@@ -34,7 +34,7 @@ proc startPresetFile(f: PresetFor; save = false; replace = false) =
                else: ""
     presetPath = if save: picturesDir() / name else: picturesDir()
     presetPick = true
-  if askStorage(AppName, filesWhy, go): go()
+  if storageFor(go): go()
 
 var booksLoaded = false
 

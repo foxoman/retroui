@@ -32,7 +32,7 @@ proc autosaveTick() =
   if lastAutosave == 0: lastAutosave = ui.now
   var due: DocWin
   for dw in docs:
-    if dw.doc.modified and dw.doc.ver != dw.autoVer and not dw.doc.stepOpen:
+    if dw.doc.modified and dw.doc.ver != dw.autoVer and not dw.doc.stepOpen and not isBookWin(dw):
       due = dw
       break
   if due == nil:
@@ -187,6 +187,7 @@ proc writeSession() =
   var keep: seq[string]
   var n = 0
   for dw in docs:
+    if isBookWin(dw): continue          # (a book is a file of its own: saved as one, not kept here)
     let d = dw.doc
     var file = ""
     if d.modified or d.path.len == 0 or not fileExists(d.path):

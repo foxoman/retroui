@@ -2048,7 +2048,7 @@ s.dehaze = 10
 p.applyFilter(developMargin(s), develop(s))
 ```
 
-`examples/photo.nim` is **Retro Photo 4.11.0**, an image editor in the manner
+`examples/photo.nim` is **Retro Photo 5.0.0**, an image editor in the manner
 of the ones of 1994: the toolbox, the tabbed floating palettes (Brushes
 and Options; Picker, Swatches and Scratch; Layers, Channels and Paths;
 Info; Commands; Navigator, History and Actions; Properties), an options
@@ -2126,6 +2126,37 @@ type with its outline (a Stroke; alone, with Fill at 0), its gradient, running d
 letter where the file puts it; every layer effect, blending mode and adjustment layer kept in
 the saved SVG for Retro Photo to open again; File > Export > SVG, Type as Outlines. `examples/magazine.nim` makes a three-page
 magazine with the engine, tool by tool.
+
+Since 5.0 it lays out too: **File > New Book** makes a document of pages in one window -- single
+or facing, bound on the left or (Arabic) on the right, with margins and columns, **master
+pages**, **page numbers** (Layout > Page Numbers > Insert Page Number: digits, Arabic-Indic,
+Roman, letters, abjad), text that **goes on from page to page** (Flow Onto the Next Page;
+Autoflow adds the pages a long text needs) and **keeps out of pictures** (Layout > Text Wrap:
+round a layer's box or its shape, on both sides or one; a shape drawn with the Pen at Opacity 0
+is a wrap of any outline). The **Pages** panel turns, adds, copies and removes pages; the book
+is one file (.rpb) and one PDF, type as type. **Window > Workspace** sets the panels and tools
+out for Photo, Drawing or Layout. Arabic is set finer: the room between words, the tashkeel in
+a colour of its own, raised or hidden, and **Type > Word Shapes** -- the font's other shapes of
+the word selected, each drawn, a click to have it. The engine for all of it is the kit's
+(`retroui/photobook`, `retroui/textengine`), for any app:
+
+```nim
+import retroui/[photo, photobook, photopdf, textengine]
+let b = newBook(bookSetup(148, 210, dpi = 150, facing = true))    # A5, facing pages
+let m = b.addMaster("A")
+var folio = newText("<#>", defaultStyle(), 0, 0)                  # the page's number
+discard b.masterDoc(m, psRight).addTextLayer(folio)
+b.setMaster(0, m.id)
+let d = b.doc(0)                                                  # a page: a document
+let story = d.addTextLayer(b.boxed(newText(longText), 0))         # in its margins
+let picture = d.addLayer("Picture")                               # ... paint on it, then:
+picture.wrap = 2                                                  # text keeps out of its shape
+d.rewrap()
+echo b.autoflow(0, story), " pages added"                         # until all of it is set
+b.saveBook("novel.rpb")
+b.saveBookPdf("novel.pdf", pdfPreset(ppPress))
+b.close()
+```
 
 ```nim
 import retroui/[adobefiles, photobrushes]
@@ -3188,6 +3219,8 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_looks` | what a control takes to look different: the accent button, a text style and a height for buttons and number boxes, groups with a title strip, options in boxes, the gauge in bands and the range bar, a tool bar's line and space, `withTheme` and `withTextStyle` -- and the 28 colour schemes, each one's text readable (4.5 to 1) on its window, fields, buttons and highlight; docs/customizing.md's own samples |
 | `test_bmi` | BMI Studio without a window: the numbers in both unit systems (classed as shown), Calculate BMI the default button in the accent colour, another scheme taken by the bands and the button, a phone's layout |
 | `test_hangwatch` | the table of a program's procs read and a place in the program named by it (a Windows window that stops answering writes the procs its thread is in); no watch elsewhere |
+| `test_photobook`, `test_photobookapp` | text that keeps out of holes (lines on both sides on one baseline, columns), Text Wrap in a document (box, shape, jump, sides, undo, saved), page numbers in text, books: sides and margins bound either way, numbers in every style, master pages that follow, text through added pages (every word once), the book's file and PDF, damaged books refused; Retro Photo's books headless: pages turned, masters, a number typed in, Autoflow, Text Wrap, save and open, the workspaces, the Move tool's box |
+| `test_systemfiles` | the system's own file picker behind the kit's file dialogs, with a made-up system: a document opened as a copy and written back when the app saves it, Save As where the picker said (asked before, or after the file is there), what cannot be written told |
 | `test_svgimport`, `test_photosvg` | SVG drawn as resvg draws it (65 drawings: icons, flags, and one for each filter step, pattern, blending mode, mask and way of placing type), its text (runs, lines, along a path, the font found, letters in their own places, outlined, hollow, running down) and pictures (in the file, beside it, nowhere else) read, drawn -- on worker threads too -- and made layers; filters by numbers (linear light, a step's rectangle, noise, displacement, lighting); damaged files never a crash; a document written as SVG and opened again: the same layers by name, the same type, masks, effects, pattern fills, adjustment layers and blending modes, the same picture, the same file written twice; type as outlines |
 | `test_podcast` | Retro Podcast without a window: a feed file followed (read by a job), an episode played from where it was left, the queue, Mark Played and Unfollow undone, OPML, the library saved and read back |
 | `test_scale` | fractional scales (125 % to 300 %): controls and text the size asked for, lines on whole pixels, a change of scale followed |
@@ -3213,8 +3246,9 @@ it is and how to run it.
 | `examples/charts.nim` | Chart Viewer: open a CSV, pick a chart, save a PNG |
 | `examples/invoice.nim` | an invoice from an HTML template: preview, PDF, print |
 | `examples/native.nim` | calling the system's own APIs on each platform |
-| `examples/photo.nim` | Retro Photo 4: an image editor of 1994 laid out as today's image editors -- layers and groups, Smart Objects, 62 tools, filters, Neural Filters, PDF for print, Arabic type, panoramas, raw photos |
+| `examples/photo.nim` | Retro Photo 5: an image editor of 1994 that also lays out books and magazines, laid out as today's image editors -- layers and groups, Smart Objects, 62 tools, filters, Neural Filters, PDF for print, Arabic type, panoramas, raw photos |
 | `examples/magazine.nim` | a three-page magazine made with Retro Photo's engine, tool by tool, saved as .rpd and PDF |
+| `examples/book.nim` | a small Arabic book made with the layout engine (`retroui/photobook`): bound on the right, facing pages, masters with a running head and page numbers, a story through as many pages as it needs, round a picture; saved as .rpb, PDF and pictures of its spreads |
 | `examples/taskman.nim` | Retro Task Manager: the processes (end one or a tree, a priority), the processor, the memory, the disks and the network as graphs that move, what starts with the system, the connections, the last week (also an APK: `nimble taskmanapk`) |
 | `examples/retroboard.nim` | Retro Board: a whiteboard in the manner of tldraw -- ink, shapes, arrows, notes, frames, pages; PNG, SVG and PDF (also an APK: `nimble boardapk`) |
 | `examples/sevenguis.nim` | 7GUIs: the seven tasks of the GUI benchmark -- a counter, a temperature converter, a flight booker, a timer, CRUD, a circle drawer with undo, a spreadsheet with formulas (also an APK: `RETRO_APP=sevenguis nimble appapk`; released with the apps) |

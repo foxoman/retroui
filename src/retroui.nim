@@ -91,10 +91,10 @@
 
 import retroui/[core, widgets, business, extras, markdown, icons, nerdicons,
                 pixelicons, platform, files, docfs, imaging, zip, background,
-                textfile, filewidgets, charts, memwatch, thumbcache]
+                textfile, filewidgets, charts, memwatch, thumbcache, systemfiles]
 export core, widgets, business, extras, markdown, icons, nerdicons, pixelicons,
        platform, files, docfs, imaging, zip, background, textfile, filewidgets, charts,
-       memwatch, thumbcache
+       memwatch, thumbcache, systemfiles
 import retroui/[records, desktop, planning, view3d, mapview, htmlview, native, media,
                 report, pdf, templates, canvas2d, morecontrols, dock, toolcustom, inspect,
                 drive, undo, pages, typeforms, codeedit, uistrings]

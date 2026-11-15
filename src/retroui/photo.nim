@@ -454,6 +454,20 @@ type
     link*: int              ## linked layers share a number (0: not linked): they move together
     board*: Rect            ## (a group) an artboard's page: what is in it shown only there
     uid*: int               ## who it is, for what refers to it (layer comps; 0: not asked yet)
+    wrap*: int              ## text keeps out of it (Text Wrap): 0 not; 1 out of its box; 2 out of
+                            ## its shape, row by row; 3 text goes under it (no line beside it).
+                            ## A layer at Opacity 0 still wraps: a shape drawn only to wrap by
+    wrapGap*: int           ## ... and stays this many pixels away from it
+    wrapSide*: int          ## ... on both its sides (0), on its left only (1), on its right only (2), or
+                            ## on the side with more room (3)
+    wrapSig: string         # (what was in a type layer's way when it was last drawn: `rewrap`)
+    fromMaster*: int        ## a book's page: a copy of the master page's layer of this `uid`, put
+                            ## on the page by the book and made again when the master changes
+                            ## (0: the page's own)
+    flowPage*: int          ## a book: this type layer's box shows what did not fit a box on
+                            ## another page (the page of this id; `flowFrom`: the box's `uid`
+                            ## there). The book gives it the text (`Doc.flowIn`). 0: this page
+    flowOut*: bool          ## a book: a box on another page shows what does not fit this one
     flowFrom*: int          ## a type layer whose box shows what did not fit the box of the type layer
                             ## of this `uid` (threaded text frames); 0: its own text
 
@@ -725,6 +739,7 @@ type
     maskClear: int
     maskFeather: float
     smart: SmartData
+    wrap, wrapGap, wrapSide: int
 
   LayerSnap = object
     layer: Layer
@@ -889,6 +904,14 @@ type
     liveSel*: tuple[dx, dy: int; hidden: bool]   ## the selection's outline shown moved, or not
                                                  ## shown, while `live` is
     selBox: tuple[ver, w, h: int; r: Rect]   # (`selBounds`, kept while the selection stays)
+    pageLabel*: string             ## a book's page: its number as it is printed ("7", "vii", "٧");
+                                   ## what `<#>` in a type layer shows ("": not a page: `<#>` stays)
+    pageTotal*: string             ## ... and how many pages the book has, so written: `<##>`
+    flowIn*: Table[int, TextData]  ## a book's page: for a type layer (`uid`) whose box goes on from
+                                   ## another page (`Layer.flowPage`), the text that did not fit there
+    rawText*: int                  ## the type layer (`uid`) shown as it is written -- its `<#>` not
+                                   ## replaced -- while it is being typed in (0: none)
+    wrapped: bool                  # (some layer had Text Wrap when `rewrap` last looked)
 
 when defined(linux) and not defined(android):
   proc mallocTrim(pad: csize_t): cint {.importc: "malloc_trim", header: "<malloc.h>".}
@@ -1188,21 +1211,90 @@ proc layerOfUid*(d: Doc; uid: int): Layer
   ## The layer whose `uid` that is (nil: none).
 
 proc flowsOn*(d: Doc; L: Layer): bool =
-  ## Another type layer's box shows what does not fit this one's.
+  ## Another type layer's box shows what does not fit this one's (on this
+  ## page, or -- a book -- on another: `flowOut`).
+  if L.flowOut: return true
   if L.uid == 0: return false
   for M in d.layers:
-    if M != L and M.flowFrom == L.uid: return true
+    if M != L and M.flowFrom == L.uid and M.flowPage == 0: return true
+
+proc contentBounds*(d: Doc; L: Layer): Rect
+
+proc wrapHoles*(d: Doc; L: Layer): seq[TextHole] =
+  ## What is in the way of the type layer `L`'s lines: the layers with Text
+  ## Wrap (`Layer.wrap`) that are shown (or at Opacity 0), each as
+  ## rectangles its lines keep out of -- its box, its shape row by row, or
+  ## the whole width where it is (the text goes under it) -- grown by its
+  ## gap. Not `L` itself, nor what is in a group that is hidden.
+  for M in d.layers:
+    if M == L or M.wrap == 0 or M.group or not M.visible or M.px.len != d.w * d.h: continue
+    let b = d.contentBounds(M)
+    if b.w <= 0 or b.h <= 0: continue
+    let g = float32(max(0, M.wrapGap))
+    # (on one side only: the hole reaches past the box's other edge)
+    let side = if M.wrapSide == 3: (if b.x.float32 - L.text.x >= L.text.x + L.text.boxW - float32(b.x + b.w): 1 else: 2)
+               else: M.wrapSide
+    let first = result.len
+    case M.wrap
+    of 3: result.add (-1e7'f32, b.y.float32 - g, 1e7'f32, float32(b.y + b.h) + g)
+    of 2:
+      # (its shape: every four rows, from its first pixel across to its last)
+      const band = 4
+      var y = b.y
+      while y < b.y + b.h:
+        var x0 = high(int)
+        var x1 = -1
+        for yy in y ..< min(b.y + b.h, y + band):
+          let row = yy * d.w
+          var xa = b.x
+          while xa < b.x + b.w and (M.px[row + xa] shr 24) <= 8: inc xa
+          if xa >= b.x + b.w: continue
+          var xb = b.x + b.w - 1
+          while xb > xa and (M.px[row + xb] shr 24) <= 8: dec xb
+          x0 = min(x0, xa)
+          x1 = max(x1, xb + 1)
+        if x1 > x0:
+          result.add (x0.float32 - g, y.float32 - g, x1.float32 + g, float32(min(b.y + b.h, y + band)) + g)
+        y += band
+    else: result.add (b.x.float32 - g, b.y.float32 - g, float32(b.x + b.w) + g, float32(b.y + b.h) + g)
+    if side != 0 and M.wrap != 3:
+      for k in first ..< result.len:
+        if side == 1: result[k].x1 = 1e7'f32 else: result[k].x0 = -1e7'f32
+
+proc holesSig(holes: seq[TextHole]): string =
+  for h in holes:
+    result.add $int(h.x0) & "," & $int(h.y0) & "," & $int(h.x1) & "," & $int(h.y1) & ";"
+
+proc flowedText(d: Doc; L: Layer; depth: int): TextData
 
 proc effectiveText*(d: Doc; L: Layer; depth = 0): TextData =
   ## The text a type layer shows: its own; or, flowing on from another box
-  ## (`flowFrom`), what did not fit that one, set in this one's box.
+  ## (`flowFrom`; a book: from another page, `flowPage`), what did not fit
+  ## that one, set in this one's box. A page of a book: `<#>` is its number
+  ## and `<##>` the number of pages (not while it is typed in: `rawText`).
+  ## Text in a box keeps out of what has Text Wrap (`wrapHoles`).
+  result = d.flowedText(L, depth)
+  if d.pageLabel.len > 0 and (L.uid == 0 or d.rawText != L.uid):
+    for s in result.spans.mitems:
+      if "<#" in s.text:
+        s.text = s.text.multiReplace(("<##>", d.pageTotal), ("<#>", d.pageLabel))
+  if result.boxW > 0 and result.path.len == 0: result.holes = d.wrapHoles(L)
+
+proc flowedText(d: Doc; L: Layer; depth: int): TextData =
   if L.flowFrom == 0 or depth > 16: return L.text
-  let S = d.layerOfUid(L.flowFrom)
-  if S == nil or S == L or not S.isText: return L.text
-  var st = d.effectiveText(S, depth + 1)
-  st.clipOverflow = true
-  let lay = layoutText(st)
-  result = if lay.overflow >= 0: st.remainder(lay.overflow) else: st.remainder(int.high)
+  # (from another page: what did not fit there, as the book gave it; else from a box of this one)
+  let S = if L.flowPage != 0: nil else: d.layerOfUid(L.flowFrom)
+  if L.flowPage != 0:
+    if not d.flowIn.hasKey(L.uid): return L.text
+  elif S == nil or S == L or not S.isText: return L.text
+  if L.flowPage != 0:
+    result = d.flowIn[L.uid]
+  else:
+    var st = d.effectiveText(S, depth + 1)
+    st.clipOverflow = true
+    let lay = layoutText(st)
+    result = if lay.overflow >= 0: st.remainder(lay.overflow) else: st.remainder(int.high)
+  result.holes = @[]
   result.x = L.text.x
   result.y = L.text.y
   result.boxW = L.text.boxW
@@ -1232,6 +1324,7 @@ proc drawText*(d: Doc; L: Layer) =
   if d.flowsOn(L): t.clipOverflow = true
   let b = t.renderTextInto(L.px, d.w, d.h, layoutText(t))
   L.textBox = b
+  L.wrapSig = holesSig(t.holes)
   inc L.ver
   if old.x1 > old.x0:
     d.markDirty(rect(old.x0, old.y0, old.x1 - old.x0, old.y1 - old.y0))
@@ -1241,8 +1334,22 @@ proc drawText*(d: Doc; L: Layer) =
     inc flowDepth
     try:
       for M in d.layers:
-        if M != L and M.flowFrom == L.uid: d.drawText(M)
+        if M != L and M.flowFrom == L.uid and M.flowPage == 0: d.drawText(M)
     finally: dec flowDepth
+
+proc rewrap*(d: Doc) =
+  ## The type layers whose lines keep out of other layers (Text Wrap)
+  ## drawn again where what is in their way has changed: a layer with wrap
+  ## moved, shown, hidden, painted. Called when a step ends and after an
+  ## undo; an app calls it after it moved a layer itself.
+  var any = false
+  for M in d.layers:
+    if M.wrap != 0: any = true
+  if not any and not d.wrapped: return
+  d.wrapped = any
+  for L in d.layers:
+    if L.isText and L.text.boxW > 0 and L.px.len == d.w * d.h:
+      if holesSig(d.wrapHoles(L)) != L.wrapSig: d.drawText(L)
 
 proc textArea*(L: Layer): Rect =
   ## Where a type layer's pixels are (empty when not known: anywhere).
@@ -2755,7 +2862,7 @@ proc settingsOf(L: Layer): LayerSettings =
                 group: L.group, collapsed: L.collapsed, passThrough: L.passThrough, locked: L.locked,
                 lockPixels: L.lockPixels, lockPosition: L.lockPosition, link: L.link, board: L.board,
                 depth: L.depth, blendIf: L.blendIf, maskClear: L.maskClear, maskFeather: L.maskFeather,
-                smart: L.smart)
+                smart: L.smart, wrap: L.wrap, wrapGap: L.wrapGap, wrapSide: L.wrapSide)
 
 proc setSettings(L: Layer; s: LayerSettings) =
   ## (not its text or shape: they are drawn again when changed)
@@ -2767,6 +2874,7 @@ proc setSettings(L: Layer; s: LayerSettings) =
   L.lockPixels = s.lockPixels; L.lockPosition = s.lockPosition; L.link = s.link; L.board = s.board
   L.depth = s.depth; L.blendIf = s.blendIf; L.maskClear = s.maskClear; L.maskFeather = s.maskFeather
   L.smart = s.smart
+  L.wrap = s.wrap; L.wrapGap = s.wrapGap; L.wrapSide = s.wrapSide
 
 proc snapOf(d: Doc): DocSnap =
   result = DocSnap(w: d.w, h: d.h, dpi: d.dpi, mode: d.mode, palette: d.palette, duotone: d.duotone, cur: d.cur,
@@ -3424,6 +3532,7 @@ proc endStep*(d: Doc) =
   if s.tiles.len > 0 or s.hasSnap or s.pathsSaved or s.layersSaved: d.modified = true   # (a new selection alone is no change to save)
   d.trimHistory()
   d.collectSpills()
+  d.rewrap()
 
 proc cancelStep*(d: Doc) =
   ## Undoes the change begun (its tiles go back), as if it never happened:
@@ -3553,6 +3662,7 @@ proc undo*(d: Doc) =
   d.swapStep(s, true)
   d.redoSteps.add s
   d.collectSpills()
+  d.rewrap()
 
 proc redo*(d: Doc) =
   ## Does again the last change undone.
@@ -3562,6 +3672,7 @@ proc redo*(d: Doc) =
   d.swapStep(s, false)
   d.undoSteps.add s
   d.collectSpills()
+  d.rewrap()
 
 proc clearHistory*(d: Doc) =
   ## Forgets the undo and redo steps (a step being made stays).
@@ -4314,6 +4425,21 @@ proc copyLayer(L: Layer; name: string): Layer =
   result.background = false
   if L.mask != nil:
     result.mask = Layer(name: "Layer Mask", px: L.mask.px, opacity: 100, visible: true, gray: true)
+
+proc cloneLayer*(L: Layer): Layer =
+  ## A copy of a layer with all it is and has -- its pixels, its mask, its
+  ## text or shape, its style, who it is (`uid`) and what it flows on from
+  ## -- for a document of the same size (a page of a book copied, a master
+  ## page's layer put on a page).
+  result = copyLayer(L, L.name)
+  result.background = L.background
+  result.uid = L.uid
+  result.flowFrom = L.flowFrom
+  result.flowPage = L.flowPage
+  result.flowOut = L.flowOut
+  result.fromMaster = L.fromMaster
+  result.hi = L.hi
+  result.hdr = L.hdr
 
 proc duplicateLayer*(d: Doc; i = -1): Layer =
   ## A copy of the layer (a group: with all in it) above it; the copy
@@ -6883,6 +7009,12 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
                 "preserve": L.lockAlpha, "background": L.background, "file": file}
     if L.uid != 0: lj["uid"] = %L.uid
     if L.flowFrom != 0: lj["flowFrom"] = %L.flowFrom
+    if L.flowPage != 0: lj["flowPage"] = %L.flowPage
+    if L.flowOut: lj["flowOut"] = %true
+    if L.wrap != 0: lj["wrap"] = %L.wrap
+    if L.wrapGap != 0: lj["wrapGap"] = %L.wrapGap
+    if L.wrapSide != 0: lj["wrapSide"] = %L.wrapSide
+    if L.fromMaster != 0: lj["fromMaster"] = %L.fromMaster
     if L.gray: lj["gray"] = %true
     if L.adjust.kind.len > 0:
       lj["adjust"] = %*{"kind": L.adjust.kind, "args": L.adjust.args}
@@ -7137,6 +7269,12 @@ proc loadRpd*(path: string): Doc =
     L.fill = lj{"fill"}.getInt(100)
     L.uid = lj{"uid"}.getInt(0)
     L.flowFrom = lj{"flowFrom"}.getInt(0)
+    L.flowPage = lj{"flowPage"}.getInt(0)
+    L.flowOut = lj{"flowOut"}.getBool
+    L.wrap = clamp(lj{"wrap"}.getInt(0), 0, 3)
+    L.wrapGap = clamp(lj{"wrapGap"}.getInt(0), 0, 10000)
+    L.wrapSide = clamp(lj{"wrapSide"}.getInt(0), 0, 3)
+    L.fromMaster = lj{"fromMaster"}.getInt(0)
     nextLayerUid = max(nextLayerUid, L.uid)
     if lj.hasKey("smart"):
       let sj = lj["smart"]

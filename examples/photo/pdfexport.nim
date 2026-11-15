@@ -26,15 +26,18 @@ proc writePdfNow() =
   let path = pdfDlg.path
   var o = pdfDlg.o
   if o.ppi <= 0: o.ppi = 0
+  var book = false
   try:
     beginBusy("Saving " & path.extractFilename, cancel = true)
     try:
-      if pdfDlg.docs.len == 1: pdfDlg.docs[0].savePdf(path, o)
+      if bookPdfWrite(path, o): book = true      # (a book: all its pages, each read as it is written)
+      elif pdfDlg.docs.len == 1: pdfDlg.docs[0].savePdf(path, o)
       else: savePdfPresentation(pdfDlg.docs, path, o, o.title)
     finally: endBusy(cancel = true)
     rememberFile(path)
-    status = "Saved " & path.extractFilename & " (" & $pdfDlg.docs.len &
-             (if pdfDlg.docs.len == 1: " page)" else: " pages)")
+    if not book:
+      status = "Saved " & path.extractFilename & " (" & $pdfDlg.docs.len &
+               (if pdfDlg.docs.len == 1: " page)" else: " pages)")
   except BusyCancelled:
     status = "Cancelled"
   except CatchableError:

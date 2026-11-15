@@ -230,13 +230,13 @@ proc smartCommand(d: Doc; name: string): bool =
       proc go() =
         if replacePath.len == 0: replacePath = picturesDir()
         replacePick = true
-      if askStorage(AppName, filesWhy, go): go()
+      if storageFor(go): go()
   of "Export Contents...":
     if d.current.isSmart:
       proc go() =
         exportSmartPath = picturesDir() / d.current.name & ".png"
         exportSmartPick = true
-      if askStorage(AppName, filesWhy, go): go()
+      if storageFor(go): go()
   else: result = false
 
 proc smartObjectItems(d: Doc) =

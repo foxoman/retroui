@@ -283,7 +283,17 @@ proc doCommand(name: string) =
   ## Does what menu item `name` (without its "&") says.
   if xf.on: finishTransform(true)          # (another command: the transform is done)
   if wm.kind != wkNone and name notin ["OK", "Cancel"]: modeFinish(true)
+  if name in ["Insert Page Number", "Insert Number of Pages"]:
+    # (into the text being typed: a marker the page's number is shown for)
+    if te.on: insertTyped(if name == "Insert Page Number": "<#>" else: "<##>")
+    else: status = "Click in a text with the Type tool first: the number goes where the caret is. " &
+                   "On a master page it is on every page."
+    return
+  if te.on and name == "Word Shapes...":   # (for the letters selected: the text stays as it is typed)
+    discard bookCommand(name)
+    return
   if te.on: commitType()                   # (and the text being typed)
+  if bookCommand(name): return             # (books, the Layout menu: photo/book)
   if psCommand(name): return               # (the modern menus' own: photo/pscc)
   if dailyCommand(name): return            # (everyday work: photo/daily)
   if assetsCommand(name): return           # (the Assets window: photo/assets)
@@ -301,7 +311,7 @@ proc doCommand(name: string) =
       proc go() =
         if openPath.len == 0: openPath = picturesDir()
         placePick = true
-      if askStorage(AppName, filesWhy, go): go()
+      if storageFor(go): go()
   of "Close":
     if dw != nil: dw.win.open = false
   of "Save":
@@ -367,7 +377,7 @@ proc doCommand(name: string) =
       proc go() =
         if texturePath.len == 0: texturePath = picturesDir()
         texturePick = true
-      if askStorage(AppName, filesWhy, go): go()
+      if storageFor(go): go()
   of "Exit":
     if docs.len == 0 and not saving(): quitApp() else: quitConfirm = true
   # ---- Edit
@@ -1123,6 +1133,7 @@ proc classicMenus() =
     menu "&File":
       item("&New...", "Ctrl+N")
       item("New SVG &Drawing")
+      item("New &Book...")
       item("&Open...", "Ctrl+O")
       let recent = recentFiles(loadSettingsCached())
       submenu "Open &Recent":
@@ -1440,6 +1451,8 @@ proc classicMenus() =
               if f.category != cat: continue
               let nm = f.name.replace("&", "&&") & (if f.sliders != default(array[8, string]): "..." else: "")
               if menuItem(nm, enabled = edits): runCommand(f.name & (if nm.endsWith("..."): "..." else: ""))
+    menu "La&yout":
+      layoutMenu()
     menu "&Select":
       item("&All", "Ctrl+A", some)
       item("&None", "Ctrl+D", sel)
@@ -1609,7 +1622,15 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["4.12.0: SVG, the rest of it -- filters (shadows, blurs, textures, lighting; a plain " &
+           whatsNew = ["5.0.0: layout -- File > New Book makes a document of pages (single or facing, bound " &
+                       "on the left or on the right), with the Layout menu and the Pages panel: master " &
+                       "pages, page numbers (Insert Page Number), text that goes on from page to page " &
+                       "(Autoflow adds the pages), Text Wrap round a layer's box or shape, the book as " &
+                       "one file and one PDF; Window > Workspace: Photo, Drawing, Layout; the Move tool " &
+                       "dragged from where nothing is picks the layers its box touches; Arabic: the room " &
+                       "between words, the tashkeel coloured, raised or hidden, Type > Word Shapes; on a " &
+                       "phone, Open and Save As are the system's own file picker",
+                       "4.12.0: SVG, the rest of it -- filters (shadows, blurs, textures, lighting; a plain " &
                        "shadow is the layer's Drop Shadow, the others pixels), patterns as pattern fills, " &
                        "masks as layer masks, blending modes, groups with their opacity, hidden layers; " &
                        "type with its outline, its gradient, outlined alone, running down, each letter " &
@@ -1907,6 +1928,7 @@ proc moreDialogs() =
   helpDialog()
   customDialog()
   duplicateDialog()
+  bookDialogs()
   aboutDialog()
 
 # ---- the splash --------------------------------------------------------------------------------------------

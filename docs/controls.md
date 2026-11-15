@@ -3953,7 +3953,9 @@ proc fileDialog*(open: var bool; path: var string; mode = fmOpen;
 
 The 3.1 Open / Save As dialog while `open`. Returns true once, with
 `path` set, when the user confirms a file. (In a web page: the
-browser's file chooser, and Save As through `/downloads`.)
+browser's file chooser, and Save As through `/downloads`. On Android
+and iOS after `systemFiles(true)`: the system's own file picker --
+`retroui/systemfiles`.)
 
 ## App parts
 

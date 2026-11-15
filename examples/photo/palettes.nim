@@ -650,13 +650,13 @@ proc brushMenuItems() =
       if brushFilePath.len == 0: brushFilePath = picturesDir()
       brushFileSave = false
       brushFilePick = true
-    if askStorage(AppName, filesWhy, go): go()
+    if storageFor(go): go()
   if menuItem("Export Selected Brushes..."):
     proc go() =
       brushFilePath = picturesDir() / "Retro Photo Brushes.abr"
       brushFileSave = true
       brushFilePick = true
-    if askStorage(AppName, filesWhy, go): go()
+    if storageFor(go): go()
 
 
 # ---- Picker, Swatches, Scratch ------------------------------------------------------------------------

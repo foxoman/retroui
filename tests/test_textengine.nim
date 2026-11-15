@@ -456,4 +456,72 @@ block thai:
     let normal = layoutText(newText("กั", st))
     doAssert tall.glyphs[1].x - tall.glyphs[0].x < normal.glyphs[1].x - normal.glyphs[0].x - 2, fam
 
+block arabicSetFiner:
+  # the room between words; the tashkeel in a color of its own, raised, left out
+  var st = CharStyle(family: "", size: 40, color: 0xFF000000'u32, hScale: 1, vScale: 1)
+  var t = newText("كِتَابٌ جَدِيدٌ", st, 10, 60)
+  let plain = layoutText(t)
+  t.spans[0].style.wordSpace = 500
+  let wide = layoutText(t)
+  doAssert abs((wide.x1 - wide.x0) - (plain.x1 - plain.x0) - 20) < 0.5, "half an em more at the one space"
+  t.spans[0].style.wordSpace = 0
+  t.spans[0].style.markColor = 0xFFC00000'u32
+  t.spans[0].style.markRaise = 4
+  let marked = layoutText(t)
+  doAssert marked.glyphs.len == plain.glyphs.len
+  var marks = 0
+  for i, g in marked.glyphs:
+    if g.color == 0xFFC00000'u32:
+      inc marks
+      doAssert abs(plain.glyphs[i].y - g.y - 4) < 0.01, "raised"
+    else:
+      doAssert g.color == 0xFF000000'u32 and g.y == plain.glyphs[i].y, "the letters as they were"
+  doAssert marks == 6, "six tashkeel: " & $marks
+  t.spans[0].style.noMarks = true
+  let bare = layoutText(t)
+  doAssert bare.glyphs.len == plain.glyphs.len - 6
+  doAssert abs((bare.x1 - bare.x0) - (plain.x1 - plain.x0)) < 2, "as wide without them"
+  # kept in a document
+  let back = charStyleFrom(t.spans[0].style.toJson)
+  doAssert back.markColor == 0xFFC00000'u32 and back.markRaise == 4 and back.noMarks and back.wordSpace == 0
+  # Latin accents typed as marks are marks too
+  var l = newText("e\u0301", st, 0, 50)
+  l.spans[0].style.markColor = 0xFF0000FF'u32
+  var blue = 0
+  for g in layoutText(l).glyphs:
+    if g.color == 0xFF0000FF'u32: inc blue
+  doAssert blue <= 1
+
+block rightToLeftLinesStayInTheirBox:
+  # a line broken at a space: the space hangs out at the line's end (its left), the letters
+  # start at the box's right edge -- every line, not only the last
+  var t = newText("كان يا ما كان في قديم الزمان بحار يحب البحر ويعرف نجومه واحدة واحدة كل صباح يرفع شراعه",
+                  CharStyle(family: "", size: 21, color: 0xFF000000'u32, hScale: 1, vScale: 1), 0, 0)
+  t.boxW = 300
+  t.boxH = 400
+  t.para.rtl = 2
+  for align in [textLeft, justifyLeft]:
+    t.para.align = align
+    let l = layoutText(t)
+    doAssert l.lines.len >= 3
+    for line in l.lines:
+      doAssert abs(line.x1 - 300) < 0.6, $align & ": a line ends at " & $line.x1
+    for g in l.glyphs: doAssert g.x + g.adv <= 300.6, "a letter past the box's right edge"
+
+block alternatesOfAWord:
+  # the features of a font that draw a word otherwise; none that a script needs to be set
+  let alts = alternatesFor("affine", CharStyle(family: "", size: 20))
+  var liga = false
+  for a in alts:
+    doAssert a.tag notin ["kern", "mark", "init", "ccmp"]
+    if a.tag == "liga":
+      liga = true
+      doAssert a.on and a.name == "Standard Ligatures"
+  doAssert liga, "FreeSans has an fi ligature"
+  var st = CharStyle(family: "", size: 20, features: "-liga")
+  for a in alternatesFor("affine", st):
+    if a.tag == "liga": doAssert not a.on, "turned off by the style"
+  doAssert alternatesFor("xyz", CharStyle(family: "", size: 20)).len == 0, "nothing to choose for these letters"
+  doAssert alternatesFor("", st).len == 0
+
 echo "textengine ok"

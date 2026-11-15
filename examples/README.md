@@ -201,6 +201,23 @@ layer, a blending mode CSS does not have -- is kept in the file for Retro
 Photo, which opens it again as it was; other programs do not show it, and
 the status bar says so.
 
+**Layout** (5.0): File > New Book makes a document of pages -- single or
+facing, bound on the left or on the right (Arabic), with margins and
+columns. The Layout menu and the Pages panel turn, add, copy, move and
+remove pages; master pages put a running head or a page number
+(Layout > Page Numbers > Insert Page Number) on every page that has them;
+a text box goes on onto the next page, and Autoflow adds the pages a long
+text needs; Layout > Text Wrap makes text keep out of a layer -- round its
+box, round its shape, on both sides or one (a shape drawn with the Pen,
+at Opacity 0, is a wrap of your own outline). The book is one file
+(.rpb), and File > Export Book as PDF writes all its pages with the type
+as type. Window > Workspace sets the panels and tools out for Photo,
+Drawing or Layout. In Character: the room between words and the tashkeel
+(coloured, raised, hidden); Type > Word Shapes shows the other shapes a
+font has for the word selected. The engine is `retroui/photobook`.
+
+On Android and iOS, Open and Save As are the phone's own file picker.
+
 ```sh
 nimble photo                # or: nim c -r -d:release examples/photo.nim [picture...]
 nimble photoapk             # an Android APK
@@ -219,6 +236,21 @@ editable in the app), PNG pictures and a PDF.
 
 ```sh
 nimble magazine             # build/magazine: .rpd, .png, .pdf
+```
+
+## The book
+
+`examples/book.nim` makes a small book with the kit's layout engine alone
+(`retroui/photobook`), no window: in Arabic, bound on the right, facing
+pages; master pages with a running head, a rule and the page number at
+the outer edge in Arabic-Indic digits; a story in two columns that goes
+on through as many pages as it needs and keeps out of a picture, round
+its shape; the tashkeel of the title in a colour of its own. It writes
+the book (.rpb: open it in Retro Photo), a PDF with the type as type, and
+its spreads as pictures.
+
+```sh
+nimble book                 # build/book: book.rpb, book.pdf, spread-01.png...
 ```
 
 ## Retro Board

@@ -216,6 +216,31 @@ proc characterBody() =
     if combo(["As typed (123)", "Arabic (١٢٣)", "Persian (۱۲۳)"], dg, w = dp(130)):
       let v = dg
       applyChar("Digits", proc (x: var CharStyle) = x.digits = v)
+  # the room between words; the tashkeel (the marks over and under letters) set apart
+  var ws = s.wordSpace
+  row:
+    label "Word space:"
+    if spin(ws, -500, 5000, w = dp(64), step = 10):
+      let v = ws
+      applyChar("Word Spacing", proc (x: var CharStyle) = x.wordSpace = v)
+    label "/1000 em"
+  var mk = if s.noMarks: 2 elif s.markColor != 0: 1 else: 0
+  var raise0 = int(s.markRaise)
+  row:
+    label "Tashkeel:"
+    if combo(["As the letters", "In the foreground color", "Hidden"], mk, w = dp(150)):
+      let v = mk
+      let c = fg or 0xFF000000'u32
+      applyChar("Tashkeel", proc (x: var CharStyle) =
+        x.noMarks = v == 2
+        x.markColor = if v == 1: c else: 0'u32)
+  row:
+    label "... raised:"
+    if spin(raise0, -200, 200, w = dp(64)):
+      let v = raise0.float32
+      applyChar("Raise Tashkeel", proc (x: var CharStyle) = x.markRaise = v)
+    label "px"
+    if button("Word Shapes...", w = dp(110)): runCommand("Word Shapes...")
 
 proc textIsRtl(): bool =
   ## (the type being set runs right to left: its first line, or the direction chosen)

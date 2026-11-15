@@ -425,13 +425,13 @@ proc actionsMenu() =
       if actFilePath.len == 0: actFilePath = picturesDir()
       actFileSave = false
       actFilePick = true
-    if askStorage(AppName, filesWhy, go): go()
+    if storageFor(go): go()
   if menuItem("Save Actions...", enabled = actions.len > 0):
     proc go() =
       actFilePath = picturesDir() / "Retro Photo.actions"
       actFileSave = true
       actFilePick = true
-    if askStorage(AppName, filesWhy, go): go()
+    if storageFor(go): go()
   if menuItem("Reset Actions"):
     actions = defaultActions()
     actSel = 0
@@ -691,7 +691,7 @@ proc batchDialog() =
             proc go() =
               if batchSrc.len == 0: batchSrc = picturesDir()
               batchPickSrc = true
-            if askStorage(AppName, filesWhy, go): go()
+            if storageFor(go): go()
         checkbox("Include All Subfolders", batchSubfolders)
         if batchSrc.len > 0:
           label($batchFiles(batchSrc, batchSubfolders).len & " pictures", color = ui.theme.gray)
@@ -703,7 +703,7 @@ proc batchDialog() =
             proc go() =
               if batchDst.len == 0: batchDst = if batchSrc.len > 0: batchSrc else: picturesDir()
               batchPickDst = true
-            if askStorage(AppName, filesWhy, go): go()
+            if storageFor(go): go()
         row:
           label "Save As:"
           combo(["JPEG", "PNG", "TIFF", "PSD", "Retro Photo"], batchFormat, w = dp(120))

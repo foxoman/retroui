@@ -1,5 +1,89 @@
 # Changes
 
+## 0.54.0
+
+Layout: books and magazines in Retro Photo, with the engine for them in
+the kit -- pages, facing pages bound on either side, master pages, page
+numbers, text that goes on from page to page and keeps out of pictures.
+Arabic set finer. And on a phone, the system's own file picker.
+
+- **Books** (`retroui/photobook`, new): a `Book` is its pages, each a
+  `Doc` of the image editor's engine, and what makes them a book.
+  - Pages added, taken out, moved, copied (`insertPage`, `deletePage`,
+    `movePage`, `duplicatePage`); single or **facing** (`sideOf`,
+    `partner`, `spreadOf`), bound on the left or, for Arabic and Hebrew,
+    on the right (`bindRight`: the first page is a left page, a spread
+    reads from the right). Margins, inside and outside swapping on facing
+    pages (`marginBox`, `columnBoxes`); `bookSetup` from millimeters,
+    `BookPapers`.
+  - **Master pages** (`addMaster`, `masterDoc`, `setMaster`): what is on
+    a master is on every page that has it, locked, under the page's own;
+    a left and a right one for facing pages; change the master and the
+    pages follow when they are next turned to.
+  - **Page numbers**: `<#>` in any text is the page's number, `<##>` the
+    number of pages (`Doc.pageLabel`, `pageTotal`; shown as written while
+    typed: `Doc.rawText`). From a first number, started again at a page
+    (`restart`), as digits, Arabic-Indic or Persian digits, Roman
+    numerals, letters or abjad (`formatNumber`, `label`).
+  - **Text from page to page**: `flowOnto` makes a box on another page
+    that takes what does not fit a box; `autoflow` adds pages until a
+    long text is all set; `reflow` sets it again through the book;
+    `unlinkPages`.
+  - Only the pages looked at are in memory; the others are parked as
+    files (`park`), so a book may be long. `thumb`, `pagePicture`,
+    `spreadPicture` for pictures of pages.
+  - One file (".rpb", `saveBook`, `loadBook`: a zip of the pages as
+    ".rpd" documents; a damaged one is refused) and a PDF of all pages,
+    type as type (`saveBookPdf`; `newPressPdf` in `retroui/photopdf` for
+    documents made a PDF one after another).
+- **Text Wrap** (`retroui/textengine`, `retroui/photo`): text in a box
+  keeps out of what is in its way. `TextData.holes` (rectangles its
+  lines keep out of): a line beside a hole goes on at its other side on
+  the same baseline, a word is not broken to fit beside one, columns keep
+  out too. A layer has `wrap` (round its box, round its shape row by row,
+  or jumped over), `wrapSide` (both sides, its left, its right, the side
+  with more room) and `wrapGap`; `wrapHoles`, `rewrap` (after a step, an
+  undo). A layer at Opacity 0 still wraps: a shape drawn with the Pen is
+  a wrap of any outline.
+- **Arabic set finer** (`retroui/textengine`), after what Tasmeem gave
+  InDesign: the room between words (`CharStyle.wordSpace`); the tashkeel
+  in a color of its own, raised or lowered, or left out (`markColor`,
+  `markRaise`, `noMarks`); and `alternatesFor(word, style)`: the shapes a
+  font has for a word -- its stylistic sets, swashes, the other forms of
+  a letter and of its joins -- each to turn on. (Kashida lengths, digits
+  and OpenType features were there.)
+- **The system's own file picker on Android and iOS**
+  (`retroui/systemfiles`, new): after `systemFiles(true)` the kit's
+  `fileDialog` and `filePicker` show the phone's picker to open a file
+  and to name one to save -- the storage, an SD card, Drive, any app
+  that offers its files -- and an app's code stays as it is. The
+  document picked is given as a copy in the app's cache; what the app
+  writes there is written back into the document by itself (Android: a
+  later Save goes to the same document without asking; iOS: Files asks
+  where). No access to the storage is asked for. Nothing changes on a
+  desktop, in a web page (the browser's chooser was there) or for an app
+  that does not ask for it.
+- **Retro Photo 5.0.0**
+  - **File > New Book**, the **Layout** menu and the **Pages** panel: a
+    book in one window, its pages turned (Shift+Page Down and Up, a click
+    on a page in the panel or on the facing page beside the canvas),
+    added, copied, moved, taken out; Document Setup; masters worked on
+    like pages; Insert Page Number; Start Page Numbers Again Here; Flow
+    Onto the Next Page and Autoflow Through New Pages; the margins and
+    columns drawn over the page. Save writes the book (".rpb"), Export
+    Book as PDF all its pages; File > Open opens one.
+  - **Layout > Text Wrap** for any layer.
+  - **Window > Workspace: Photo, Drawing, Layout**: the panels and the
+    toolbar set out for the work (the tools not needed are under "...").
+  - **The Move tool dragged from where nothing is** draws a box: the
+    layers it touches are picked, to move, align and group together
+    (Shift: with those picked before).
+  - **Character**: Word space, Tashkeel (as the letters, in the
+    foreground color, hidden; raised). **Type > Word Shapes**: the font's
+    other shapes of the word selected, each drawn, a click to have it.
+  - On Android and iOS, Open and Save As are the system's picker.
+  - The caret of text beside a wrapped picture is where the letters are.
+
 ## 0.53.0
 
 SVG, the rest of it: filters, patterns, masks, blending, every way of

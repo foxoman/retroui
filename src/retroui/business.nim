@@ -28,6 +28,7 @@ import std/[strutils, os, algorithm, math, times, hashes]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 import core, widgets, pixelicons
+when not defined(wasm): import systemfiles   # (a web page has the browser's chooser)
 import uirelays/services
 
 template th: untyped = ui.theme
@@ -2982,12 +2983,19 @@ proc fileDialog*(open: var bool; path: var string; mode = fmOpen;
                  title = ""): bool =
   ## The 3.1 Open / Save As dialog while `open`. Returns true once, with
   ## `path` set, when the user confirms a file. (In a web page: the
-  ## browser's file chooser, and Save As through `/downloads`.)
+  ## browser's file chooser, and Save As through `/downloads`. On Android
+  ## and iOS after `systemFiles(true)`: the system's own file picker --
+  ## `retroui/systemfiles`.)
   when defined(wasm):
     if mode != fmFolder:
       var pats: seq[string]
       for f in filters: pats.add patternsOf(f)
       return webFileDialog(open, path, mode, pats, "fileDialog")
+  else:
+    # (a phone, when the app asked for it: the system's own picker)
+    if mode != fmFolder and systemFilesOn():
+      return systemFileDialog(open, path, mode == fmSave, "fileDialog:" & title)
+    pumpSystemFiles()
   if not open:
     fdlg.opened = false
     return false

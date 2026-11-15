@@ -20,7 +20,7 @@ import retroui/[photo, photopaint, photofx, photoartistic, photohdr, otshape, tt
               photopresets, photocc, phototemplates, photoquick, photogpu, qrcode, systemimage, assetstore,
               svgimport, morepictures, edgetrace,
               photofiles, photosave, photoshapes, photomerge, photopdf, photoimport, pdfread, googlefonts, photovector, iccprofile, icclut, abr, rawphoto, imageformats, filterfactory,
-              photobrushes, adobefiles,
+              photobrushes, adobefiles, photobook,
               imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files]
 {.push warning[UnusedImport]: off.}
 import retroui/photodeep   # (imported for what it sets up: filters, flattening and gradients at 16 and 32 bits)
@@ -28,9 +28,15 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 
 const
   AppName = "Retro Photo"
-  AppVersion = "4.12.0"
+  AppVersion = "5.0.0"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
+
+proc storageFor(then: proc ()): bool =
+  ## Whether Open and Save As may go ahead now: at once where the system's
+  ## own file picker is used (a phone: it needs no access to the storage),
+  ## else when the access to the user's files is there (asked for first).
+  systemFilesOn() or askStorage(AppName, filesWhy, then)
 
 # ---- tools ---------------------------------------------------------------------------------------
 
@@ -124,6 +130,8 @@ type
     sel0: seq[uint8]               ## ... the outline as it was
     selStepped: bool               ## ... moved (an undo step begun)
     center: bool                   ## the Marquee: drawn from its middle (Alt)
+    band: bool                     ## the Move tool dragged from where nothing is: a box that picks the
+                                   ## layers it touches
 
 var
   docs: seq[DocWin]
@@ -358,7 +366,8 @@ const panelList = [
   ("info", "Info", pxInfo), ("commands", "Commands", pxCommands),
   ("styles", "Styles", pxLayerStyle), ("shapes", "Shapes", pxCustomShape), ("toolpresets", "Tool Presets", pxToolPresets),
   ("layercomps", "Layer Comps", pxLayerComps), ("clonesource", "Clone Source", pxStamp),
-  ("quickactions", "Quick Actions", pxQuickActions), ("colorthemes", "Color Themes", pxColorThemes)]
+  ("quickactions", "Quick Actions", pxQuickActions), ("colorthemes", "Color Themes", pxColorThemes),
+  ("pages", "Pages", pxNew)]
   ## (each panel: its key, its title, its icon in a column collapsed to icons)
 
 var dock = newDock()             ## the panels down the right (Window shows and hides them)
@@ -390,6 +399,7 @@ proc defaultDock() =
   grp(1, 100, ["layercomps", "clonesource"])
   grp(1, 100, ["quickactions", "colorthemes"])
   for k in ["scratch", "commands"]: dock.closed.add (pdef(k), 0, 0)
+  dock.closed.add (pdef("pages"), 0, 2)      # (shown: with Layers, where there is room for pages)
 
 defaultDock()
 
@@ -427,6 +437,17 @@ var ccDlg: tuple[cleanup, harmonize: bool; cEmpty, cHidden, cGroups, cRename: bo
   ## (Layer Cleanup and Harmonize: their dialogs)
 
 proc ccDialogs()
+# (books: photo/book)
+proc isBookWin(dw: DocWin): bool
+proc bookCommand(name: string): bool
+proc bookSave(dw: DocWin; saveAs = false): bool
+proc openBook(path: string)
+proc bookOverlay(dw: DocWin)
+proc bookGhostPress(dw: DocWin): bool
+proc bookPdfWrite(path: string; o: PdfOptions): bool
+proc layoutMenu()
+proc bookFrame()
+proc bookDialogs()
 proc exportArtboards(d: Doc)
 proc exportSlices(d: Doc)
 proc slicesFromGuides(d: Doc)
@@ -2416,6 +2437,9 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
   # come onto it -- the Hand and the Zoom work anywhere, and what is already
   # under way still takes it (a box's handles, the crop's, a lasso's corners)
   if not d.inImage(ev):
+    if bookGhostPress(dw):           # (a book's facing page, beside this one: turned to)
+      drag.on = false
+      return
     var takes = tool in {tHand, tZoom} or springing or dw.polyLassoOn
     if tool == tCrop and pendingCrop.on and pendingCrop.dw == dw: takes = true
     if tool == tMove and d.current.isLine and dw.lineEndAt(d.current, ui.mx, ui.my) >= 0: takes = true
@@ -2603,6 +2627,16 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
       # Ctrl+click when it is off, as the usual; Shift+click: picked with
       # the one picked before, they move together)
       let i = d.autoPicked(d.layerAt(xi, yi, dw.pickRadius))
+      # (not on the current layer's own box: a layer picked by its box -- type off the
+      # image's edge -- is moved by it)
+      let cb = d.layerBox(d.current)
+      let onCur = not d.current.background and cb.w > 0 and xi >= cb.x and xi < cb.x + cb.w and
+                  yi >= cb.y and yi < cb.y + cb.h
+      if (i < 0 or d.layers[i].background or d.layers[i].fromMaster != 0) and not onCur and
+         not d.hasSelection and not d.editMask and not d.quickMask and moveAutoSelect:
+        # (where nothing is: a box is dragged, and what it touches is picked)
+        drag.band = true
+        return
       if i >= 0 and i != d.cur and ev.shift:
         d.current.picked = true
         d.layers[i].picked = true
@@ -3243,6 +3277,34 @@ proc releaseOn(ev: PhotoEvent) =
   let dw = drag.dw
   let d = dw.doc
   sg.on = false                    # (the Smart Guides of a move: gone with it)
+  if drag.band:
+    # the Move tool's box: the layers it touches are picked (they move, align and group together)
+    let x0 = int(floor(min(drag.x0, drag.x1)))
+    let y0 = int(floor(min(drag.y0, drag.y1)))
+    let r = rect(x0, y0, int(ceil(max(drag.x0, drag.x1))) - x0, int(ceil(max(drag.y0, drag.y1))) - y0)
+    if r.w >= 3 or r.h >= 3:
+      var got: seq[int]
+      for i, L in d.layers:
+        if L.background or L.group or not L.visible or L.fromMaster != 0 or L.locked: continue
+        let b = d.layerBox(L)
+        if b.w > 0 and b.h > 0 and b.x < r.x + r.w and b.x + b.w > r.x and b.y < r.y + r.h and b.y + b.h > r.y:
+          got.add i
+      if got.len > 0:
+        if not ev.shift: d.clearPicks()
+        for i in got: d.layers[i].picked = got.len > 1 or ev.shift
+        if ev.shift: d.current.picked = true
+        d.cur = got[^1]
+        inc d.ver
+        status = if got.len == 1: "Picked the layer " & d.layers[got[0]].name
+                 else: $got.len & " layers picked: they move, align and group together"
+      elif not ev.shift:
+        d.clearPicks()
+        inc d.ver
+    elif not ev.shift:
+      d.clearPicks()
+      inc d.ver
+    drag = Drag()
+    return
   if drag.selMove:
     if drag.selStepped: d.endStep()
     elif drag.tool == tWand and wandMode == 0:
@@ -3580,6 +3642,11 @@ proc overlays(dw: DocWin; ev: PhotoEvent) =
   let d = dw.doc
   let v = dw.view
   pushClip(v.view)
+  bookOverlay(dw)
+  if drag.on and drag.dw == dw and drag.band:
+    let (x0, y0) = v.toScreen(d, min(drag.x0, drag.x1), min(drag.y0, drag.y1))
+    let (x1, y1) = v.toScreen(d, max(drag.x0, drag.x1), max(drag.y0, drag.y1))
+    box(rect(x0, y0, max(1, x1 - x0), max(1, y1 - y0)), color(0, 120, 255))
   polyLassoOverlay(dw, ev)
   if tool == tWand and wandMode == 3 and selBrushOverlay: dw.drawSelOverlay()
   if tool == tPen and penMode == 8: dw.traceOverlay(ev)
@@ -4148,6 +4215,7 @@ include photo/neural
 include photo/pdfexport
 include photo/fontget
 include photo/optionsbar
+include photo/book
 include photo/dockpanels
 
 proc phoneLayout(): bool =
@@ -4295,6 +4363,7 @@ proc docStatus(dw: DocWin) =
 proc frame() =
   springTool()
   typeWatch()
+  bookFrame()
   captionBar()
   if screenMode != 2: menus()       # (Full Screen: no menu bar; F brings it back)
   optionsBar()
@@ -4397,6 +4466,7 @@ proc setup() =
   autoFocus = false              # (the keys go to the image, not to a palette's box)
   # the scratch disk: old undo steps of big images go there (left over ones
   # from before cleared away)
+  systemFiles(true)              # (a phone: Open and Save As through the system's own file picker)
   try:
     scratchDir = dataDir("Retro Photo") / "scratch"
     createDir(scratchDir)

@@ -57,6 +57,20 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   Every scheme in `builtinThemes` keeps its text readable -- 4.5 to 1 on
   the window, the fields, the buttons, the highlight and the accent
   (`tests/test_looks.nim` fails otherwise).
+- Layout in Retro Photo is the kit's: `retroui/photobook` (a `Book` of
+  page `Doc`s: facing pages, masters, numbers, text from page to page,
+  ".rpb", PDF), Text Wrap in `retroui/photo` and `retroui/textengine`
+  (`Layer.wrap`, `TextData.holes`). The app (`examples/photo/book.nim`)
+  only shows them. A page's document is an ordinary `Doc`; the book sees
+  changes by `Doc.ver`. Pages not shown are parked: never keep a page's
+  `Doc` across a call that parks (`park`, `reflow`, `saveBook`,
+  `saveBookPdf`, `autoflow`) unless it is in `keep`.
+  `tests/test_photobook.nim` and `tests/test_photobookapp.nim`.
+- Open and Save As on a phone: `retroui/systemfiles` behind `fileDialog`
+  and `filePicker` (Android: `tools/android/RetroActivity.java`, then
+  `sh tools/android/build_dex.sh`; iOS: through the Objective-C runtime).
+  Its logic is tested with a made-up system (`tests/test_systemfiles.nim`);
+  the two real ones are not run by any test.
 - SVG in Retro Photo: `retroui/svgimport` reads (shapes, text, pictures,
   groups, patterns, filters, masks, blending; `svgPieces`, `placeSvg`),
   `retroui/photosvg` writes (`svgOf`, `svgLosses`, `svgOwn`). What one

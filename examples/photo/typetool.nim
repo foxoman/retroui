@@ -24,7 +24,8 @@ proc typeLayout(): TextLayout =
   ## The layout of the text being edited (made again when it changed).
   let L = te.layer
   if teLayout.layer != L or teLayout.ver != L.ver:
-    teLayout = (L.ver, L, layoutText(L.text))
+    # (as it is drawn: its lines keep out of what has Text Wrap)
+    teLayout = (L.ver, L, layoutText(if L.flowFrom == 0 and te.dw != nil: te.dw.doc.effectiveText(L) else: L.text))
   teLayout.l
 
 proc selRange(): (int, int) = (min(te.caret, te.anchor), max(te.caret, te.anchor))
@@ -56,6 +57,9 @@ proc startTypeEdit(dw: DocWin; L: Layer; isNew: bool; caret: int) =
     d.beginStep("Edit Type Layer")
     d.touchLayers()
   let n = L.text.runeLen
+  # (a page's number is shown as it is written while it is typed in: <#>)
+  d.rawText = uidOf(L)
+  if "<#" in L.text.plainText: d.drawText(L)
   te = (true, dw, L, clamp(caret, 0, n), clamp(caret, 0, n), L.text.styleAt(max(0, caret - 1)), isNew,
         isNew or L.name == L.text.layerName, ui.focus, false, ui.now, -1, (0.0, 0.0),
         (0'f32, 0'f32, 0'f32, 0'f32))
@@ -72,6 +76,9 @@ proc commitType() =
   te.on = false
   let d = te.dw.doc
   let L = te.layer
+  d.rawText = 0
+  defer:
+    if L in d.layers and "<#" in L.text.plainText: d.drawText(L)     # (its page number shown again)
   if not d.stepOpen:
     status = ""
     return
@@ -104,7 +111,9 @@ proc cancelType() =
   if not te.on: return
   te.on = false
   let d = te.dw.doc
+  d.rawText = 0
   if d.stepOpen: d.cancelStep()
+  if te.layer in d.layers and "<#" in te.layer.text.plainText: d.drawText(te.layer)
   status = ""
 
 proc editText(change: proc (t: var TextData)) =

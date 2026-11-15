@@ -196,9 +196,10 @@ block noCommandLineInApps:
   # Retro Files 3.3.x closed at once as an APK: it asked `paramCount`, which
   # raises in an Android app (no command line). The apps and the kit's
   # modules ask `appArguments` (none there); only it, the update's restart
-  # on a desktop and the Magazine example (a command-line tool) may ask Nim.
+  # on a desktop and the Magazine and Book examples (command-line tools) may
+  # ask Nim.
   doAssert appArguments() == commandLineParams()
-  let allowed = ["src/retroui/core.nim", "src/retroui/update.nim", "examples/magazine.nim"]
+  let allowed = ["src/retroui/core.nim", "src/retroui/update.nim", "examples/magazine.nim", "examples/book.nim"]
   let root = currentSourcePath().parentDir.parentDir
   var bad: seq[string]
   for dir in ["src/retroui", "examples"]:

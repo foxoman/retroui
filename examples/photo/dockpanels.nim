@@ -49,6 +49,7 @@ proc panelBody(key: string) =
   of "clonesource": cloneSourceBody()
   of "quickactions": quickActionsBody()
   of "colorthemes": colorThemesBody()
+  of "pages": pagesBody()
   else: label("(" & key & ")", color = ui.theme.gray)
 
 proc panelMenu(key: string) =

@@ -92,13 +92,27 @@ proc addRasterPx(p: PdfPage; px: seq[uint32]; pw, ph: int; dpi: float; ox, oy, k
   var y0 = ph
   var x1 = -1
   var y1 = -1
+  var one = 0'u32                    # (its color, while all of it is one)
+  var flat = true
+  var count = 0
   for y in 0 ..< ph:
     for x in 0 ..< pw:
-      if (px[y * pw + x] shr 24) != 0:
+      let c = px[y * pw + x]
+      if (c shr 24) != 0:
         x0 = min(x0, x); y0 = min(y0, y); x1 = max(x1, x); y1 = max(y1, y)
+        if count == 0: one = c
+        elif c != one: flat = false
+        inc count
   if x1 < x0: return
   let cw = x1 - x0 + 1
   let ch = y1 - y0 + 1
+  if flat and (one shr 24) == 255 and count == cw * ch:
+    # (a rectangle of one color -- a page's paper, a rule, a panel: drawn
+    # as one, not kept as a picture of it)
+    p.paintOf(one, o.cmyk, false)
+    p.rect(ox + x0.float * k, oy + y0.float * k, cw.float * k, ch.float * k)
+    p.fill()
+    return
   var crop = newSeq[uint32](cw * ch)
   for y in 0 ..< ch:
     for x in 0 ..< cw: crop[y * cw + x] = px[(y0 + y) * pw + x0 + x]
@@ -276,6 +290,8 @@ proc addDocPage*(pdf: PdfDoc; d: Doc; o: PdfOptions): PdfPage {.discardable.} =
   try:
     while i < d.layers.len:
       if asVector[i]:
+        # (the layers shown as they are: type keeps out of those with Text Wrap that are)
+        for n, L in d.layers: L.visible = visible[n]
         p.addVector(d, d.layers[i], room, room, k, o)
         inc i
         continue
@@ -376,6 +392,14 @@ proc savePdf*(d: Doc; path: string; o: PdfOptions) =
   pdf.forPress(o)
   pdf.addDocPage(d, o)
   pdf.save(path)
+
+proc newPressPdf*(o: PdfOptions; title = ""): PdfDoc =
+  ## An empty PDF that pages are added to with `addDocPage` and that is
+  ## then saved (`save`): as `o` asks (PDF/X, its printing condition).
+  ## For documents made a PDF one after another, without all of them in
+  ## memory (a book: `retroui/photobook`).
+  result = newPdf(title, author = o.author, creator = "Retro Photo")
+  result.forPress(o)
 
 proc savePdfPresentation*(docs: openArray[Doc]; path: string; o: PdfOptions; title = "") =
   ## File > Automate > PDF Presentation: the documents as one PDF, a page

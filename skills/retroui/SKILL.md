@@ -232,7 +232,7 @@ Choices: `checkbox`, `radio`, `toggle`, `chips`, `tagInput`, `rating`.
 Text input: `edit`, `editArea`, `searchBox`, `autocomplete`, `maskedEdit`, `comboEdit`, `hotkeyEdit`, code (`codeEdit(s, lang = clNim)`: colored, line numbers, indent, Ctrl+/, find), rich text (`richEdit`, `richToolbar`).
 Numbers, dates, colors: `spin`, `intEdit`, `numberEdit`, `slider`, `progress`, `datePicker`, `calendar`, `timePicker`, `colorPicker`, `colorWell`.
 Lists and data: `listbox`, `combo`, `grid` (the data grid with editing, sorting, totals), `gridOf(rows, sel)` (a grid of a seq of your object: a column a field, sorted for you), `tree`.
-Files: `fileDialog`, `fileList`, `folderTree`, `filePicker`, `filePreview`, `placesView`.
+Files: `fileDialog`, `fileList`, `folderTree`, `filePicker`, `filePreview`, `placesView`. On a phone, `systemFiles(true)` at the start makes `fileDialog` and `filePicker` the system's own picker (Android, iOS; what the app saves goes back into the document by itself).
 Charts and more: `chart` (21 kinds, from your numbers or a CSV table), `barChart`, `lineChart`, `pieChart`, `liveGraph` (a task manager's graph that moves: a frame costs a copy), the world map (`retroui/mapview`), street maps (`tileMap`, `retroui/tilemap`; places and routes `retroui/geo`), 3D (`retroui/view3d`; Blender's models `retroui/gltf`),
 HTML and Markdown (`htmlView`: its CSS, flexible boxes and grids too), web pages (`webView`), canvas (`canvas`, `retroui/canvas2d`), reports and PDF (`retroui/report`),
 sound and video (`retroui/media`; the system's media controls `retroui/mediasession`; camera and microphone `retroui/capture`), spreadsheets (`retroui/xlsx`), more windows (`window`).

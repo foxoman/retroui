@@ -356,6 +356,12 @@ type
     features*: string          ## OpenType features changed from the font's own, "+ss01 -liga dlig"
                                ## (the OpenType palette); "" as the font sets
     variation*: string         ## a variable font's axes, "wght=650 wdth=90" ("" its default)
+    wordSpace*: int            ## thousandths of an em more (less: negative) between words
+    markColor*: uint32         ## the marks over and under letters (Arabic tashkeel, accents set
+                               ## as marks) in a color of their own, ARGB (0: the letters')
+    markRaise*: float32        ## ... raised by this many pixels from where the font puts them
+                               ## (negative: lowered)
+    noMarks*: bool             ## ... not drawn (Arabic without its tashkeel)
     styleName*: string         ## the Character Style it has (Character Styles; "" none)
 
   TextAlign* = enum
@@ -405,6 +411,9 @@ type
     hDistort*, vDistort*: int  ## -100..100
     vertical*: bool            ## bent up and down instead of across
 
+  TextHole* = tuple[x0, y0, x1, y1: float32]
+    ## A rectangle a text's lines keep out of (`TextData.holes`).
+
   TextData* = object
     ## A text: what it says and how it is set and where.
     spans*: seq[TextSpan]      ## what it says, span by span
@@ -426,6 +435,55 @@ type
     gutter*: float32           ## ... the room between them (0: 12 pixels)
     clipOverflow*: bool        ## text in a box: what does not fit not drawn (it flows on into
                                ## another box -- `remainder`)
+    holes*: seq[TextHole]      ## text in a box: places its lines keep out of (what the text is
+                               ## wrapped round: `x`, `y`'s own coordinates). A line takes the
+                               ## widest room a hole leaves it, and goes under the hole when
+                               ## that is too little. Not kept with the text: whoever lays it
+                               ## out says what is in its way then
+
+const shapingOwn = ["init", "medi", "med2", "fina", "fin2", "fin3", "isol", "rlig", "ccmp", "locl", "mark", "mkmk",
+                    "kern", "curs", "rvrn", "frac", "numr", "dnom", "abvm", "blwm", "dist", "rtlm", "ltrm", "rtla",
+                    "ltra", "rclt", "aalt", "size", "vert", "vrt2", "vkrn", "valt", "vhal", "vpal"]
+  ## (what a script needs to be set at all, and what is not a choice of shapes)
+
+proc alternatesFor*(text: string; st: CharStyle): seq[tuple[tag, name: string; on: bool]] =
+  ## The choices a font gives for how `text` (a word, a few letters) is
+  ## shaped: its OpenType features that draw it with other glyphs than
+  ## with them off -- stylistic sets, swashes, alternate and historical
+  ## forms, ligatures (Arabic: the other shapes of its letters and their
+  ## joins) -- each with its tag ("ss02"), the name the font gives it (or
+  ## the tag) and whether `st` has it on (as `CharStyle.features`, or by
+  ## the font's own default). To have one, add "+tag" to the style's
+  ## `features`; "-tag" to be without it. Empty for a font without
+  ## OpenType tables.
+  let face = fontFace(st.family, st.style).face
+  if face == nil or not face.hasLayout: return
+  var cps: seq[int]
+  var rtl = false
+  for r in text.runes:
+    cps.add int(r)
+    if int(r) in 0x0590 .. 0x08FF or int(r) in 0xFB1D .. 0xFDFF or int(r) in 0xFE70 .. 0xFEFF: rtl = true
+  if cps.len == 0: return
+  var asked: seq[Feature]
+  for w in strutils.splitWhitespace(st.features):
+    if w.startsWith("-"): asked.add (w[1 .. ^1], false)
+    elif w.startsWith("+"): asked.add (w[1 .. ^1], true)
+    else: asked.add (w, true)
+  proc gids(feats: openArray[Feature]): seq[int] =
+    try:
+      for g in shape(face, cps, rtl, features = feats): result.add g.gid
+    except CatchableError: discard
+  for tag in face.featureTags:
+    if tag in shapingOwn: continue
+    let withIt = gids([(tag, true)])
+    let without = gids([(tag, false)])
+    if withIt == without or withIt.len == 0: continue
+    # (on: as the style asks, else as the font shapes by itself)
+    var on = gids([]) == withIt
+    for (t, v) in asked:
+      if t == tag: on = v
+    let name = face.featureName(tag)
+    result.add (tag, (if name.len > 0: name else: tag), on)
 
 proc defaultStyle*(): CharStyle =
   ## The style of a new text: FreeSans Regular, 36 pixels, black.
@@ -568,6 +626,7 @@ type
 
   GlyphPart = object
     gid: int
+    mark: bool                 # (a mark over or under its letter)
     dx, dy, adv: float32       # (pixels: drawn so far from the pen, the pen moved on so far)
 
   CharInfo = object
@@ -666,6 +725,20 @@ proc joinsForward(chars: seq[CharInfo]; k, e: int): bool =
   if chars[k].cp == 0x0644 and n.cp in [0x0622, 0x0623, 0x0625, 0x0627]: return false
   joiningType(n.cp) in {'D', 'R'}
 
+proc freeRooms(holes: seq[TextHole]; ya, yb, bx0, bx1, least: float32): seq[tuple[x0, x1: float32]] =
+  ## (the rooms between `bx0` and `bx1` that the holes leave a line lying
+  ## from `ya` down to `yb`, from left to right: those `least` wide or more)
+  var cuts: seq[(float32, float32)]
+  for h in holes:
+    if h.y0 < yb and h.y1 > ya and h.x1 > bx0 and h.x0 < bx1: cuts.add (max(bx0, h.x0), min(bx1, h.x1))
+  if cuts.len == 0: return @[(bx0, bx1)]
+  cuts.sort(proc (p, q: (float32, float32)): int = cmp(p[0], q[0]))
+  var at = bx0
+  for (c0, c1) in cuts:
+    if c0 - at >= least: result.add (at, c0)
+    at = max(at, c1)
+  if bx1 - at >= least: result.add (at, bx1)
+
 proc layoutPlain(t: TextData): TextLayout
 
 proc sizesScaled*(t: TextData; k: float32): TextData =
@@ -696,10 +769,13 @@ proc fitScale*(t: TextData): float32 =
     if fits(mid): lo = mid else: hi = mid
   lo
 
-proc columnize(l: var TextLayout; t: TextData; colW, gutter: float32) =
+proc columnize(l: var TextLayout; t: TextData; colW, gutter: float32; starts: var seq[float32]) =
   ## (the lines laid out a column wide moved into the columns side by side,
-  ## each from the box's top; what does not fit the last one let go)
+  ## each from the box's top; what does not fit the last one let go.
+  ## `starts`: how far down the one long column each column began)
   let n = max(1, t.columns)
+  starts = newSeq[float32](n)
+  for c in 1 ..< n: starts[c] = -1
   let bottom = t.y + t.boxH + 0.5'f32
   var col = 0
   var yOff = 0'f32
@@ -715,6 +791,7 @@ proc columnize(l: var TextLayout; t: TextData; colW, gutter: float32) =
         keep = i
         break
       yOff = ln.baseline - ln.ascent - t.y
+      starts[col] = yOff
     if ln.baseline + ln.descent - yOff > bottom and col == n - 1 and inCol == 0 and i > 0:
       keep = i                    # (a line taller than the whole box: not drawn)
       break
@@ -776,6 +853,46 @@ proc columnize(l: var TextLayout; t: TextData; colW, gutter: float32) =
   if l.lines.len == 0:
     l.x0 = t.x; l.x1 = t.x; l.y0 = t.y; l.y1 = t.y
 
+proc holedColumns(t, single: TextData; cols: int; colW, gutter: float32): TextLayout =
+  ## Holes and columns: a hole is in a column's way where that column lies
+  ## in the one long column the lines are broken in -- known once the
+  ## columns are made. Laid out without the holes first, then with them,
+  ## until the columns begin where they were taken to.
+  var u = single
+  u.holes = @[]
+  var lay = layoutPlain(u)
+  lay.overflow = -1
+  var starts: seq[float32]
+  var probe = lay
+  probe.columnize(t, colW, gutter, starts)
+  let rtl = lay.lines.len > 0 and lay.lines[0].rtl
+  for pass in 0 ..< 5:
+    for c in 1 ..< cols:
+      if starts[c] < 0: starts[c] = starts[c - 1] + t.boxH       # (a column not reached yet)
+    u.holes = @[]
+    for c in 0 ..< cols:
+      let vc = if rtl: cols - 1 - c else: c                    # (where the column is, from the left)
+      let cx0 = t.x + float32(vc) * (colW + gutter)
+      for h in t.holes:
+        let x0 = max(h.x0, cx0)
+        let x1 = min(h.x1, cx0 + colW)
+        let y0 = max(h.y0, t.y)
+        let y1 = min(h.y1, t.y + t.boxH)
+        if x1 > x0 and y1 > y0:
+          u.holes.add (x0 - float32(vc) * (colW + gutter), y0 + starts[c],
+                       x1 - float32(vc) * (colW + gutter), y1 + starts[c])
+    lay = layoutPlain(u)
+    lay.overflow = -1
+    var again: seq[float32]
+    probe = lay
+    probe.columnize(t, colW, gutter, again)
+    var same = true
+    for c in 0 ..< cols:
+      if again[c] >= 0 and abs(again[c] - starts[c]) > 0.5: same = false
+    starts = again
+    if same: break
+  probe
+
 proc layoutText*(t: TextData): TextLayout =
   ## Where each glyph of the text goes (straight: warps and paths are made
   ## from this when drawn). Dynamic Text: as big as fills its box. In
@@ -788,10 +905,12 @@ proc layoutText*(t: TextData): TextLayout =
   let gutter = if t.gutter > 0: t.gutter else: 12'f32
   let colW = if boxedCols: max(8'f32, (t.boxW - gutter * float32(cols - 1)) / float32(cols)) else: t.boxW
   if boxedCols: u.boxW = colW
+  var starts: seq[float32]
+  if boxedCols and cols > 1 and t.holes.len > 0: return holedColumns(t, u, cols, colW, gutter)
   result = if t.fit and t.boxW > 0 and t.boxH > 0 and t.path.len == 0: layoutPlain(u.sizesScaled(u.fitScale))
            else: layoutPlain(u)
   result.overflow = -1
-  if boxedCols: result.columnize(t, colW, gutter)
+  if boxedCols: result.columnize(t, colW, gutter, starts)
 
 proc remainder*(t: TextData; first: int): TextData =
   ## What is left of the text from character `first` on (what did not fit
@@ -877,7 +996,8 @@ proc layoutPlain(t: TextData): TextLayout =
       c.space = c.cp == 32 or c.cp == 9 or c.cp == 0x3000
       c.adv = if shown < 0: 0'f32
               else: float32(f.advance(g)) / float32(f.unitsPerEm) * size * st.hScale +
-                    float32(st.tracking) / 1000 * st.size
+                    float32(st.tracking) / 1000 * st.size +
+                    (if c.space: float32(st.wordSpace) / 1000 * st.size else: 0'f32)
       if c.cp == 9: c.adv = st.size * 2
     # OpenType: runs of one style and direction in a font with layout tables,
     # set as the font says -- its joined forms, ligatures, marks placed,
@@ -928,12 +1048,17 @@ proc layoutPlain(t: TextData): TextLayout =
         for g in sh:
           let j = k + clamp(g.cluster, 0, e - k - 1)
           let sc = chars[j].size / em
-          chars[j].parts.add GlyphPart(gid: g.gid, dx: float32(g.xOff) * sc * st.hScale,
+          chars[j].parts.add GlyphPart(gid: g.gid,
+                                       mark: fc.placesMark(g.gid) or
+                                             (g.xAdv == 0 and j + 1 < e and isMark(chars[j + 1].cp)),
+                                       dx: float32(g.xOff) * sc * st.hScale,
                                        dy: float32(g.yOff) * sc * st.vScale, adv: float32(g.xAdv) * sc * st.hScale)
         for j in k ..< e:
           var a = 0'f32
           for p in chars[j].parts: a += p.adv
-          if chars[j].parts.len > 0: a += float32(st.tracking) / 1000 * st.size
+          if chars[j].parts.len > 0:
+            a += float32(st.tracking) / 1000 * st.size
+            if chars[j].space: a += float32(st.wordSpace) / 1000 * st.size
           chars[j].adv = (if chars[j].cp == 9: st.size * 2 else: a)
           if chars[j].parts.len > 0: chars[j].gid = chars[j].parts[0].gid
         k = e
@@ -970,26 +1095,83 @@ proc layoutPlain(t: TextData): TextLayout =
                             styles[a.style].hScale
     # lines: broken at spaces to fit the box
     let avail = if boxed: max(1'f32, t.boxW - t.para.indentLeft - t.para.indentRight) else: 1e9'f32
-    var lines: seq[(int, int)]
-    var ls = paraStart
-    while true:
+    # (round holes: each line broken when it is known where it lies, and how much room the
+    # holes leave it there)
+    let holed = boxed and t.holes.len > 0
+    template breakLine(ls: int; room: float32; whole = false): int =
+      ## (where the line that starts at `ls` ends, `room` wide; `whole`:
+      ## nothing of it when not a word of it fits)
       var w = (if ls == paraStart: t.para.indentFirst else: 0'f32)
       var k = ls
       var lastBreak = -1
       while k < paraEnd:
         if chars[k].space: lastBreak = k
-        if w + chars[k].adv > avail and k > ls and not chars[k].space:
+        if w + chars[k].adv > room and k > ls and not chars[k].space:
           break
         w += chars[k].adv
         inc k
-      if k >= paraEnd:
-        lines.add (ls, paraEnd)
-        break
-      let cut = if lastBreak >= ls: lastBreak + 1 else: k
-      lines.add (ls, cut)
-      ls = cut
+      (if k >= paraEnd: paraEnd elif lastBreak >= ls: lastBreak + 1 elif whole: ls else: k)
+    var lines: seq[(int, int)]
+    var ls = paraStart
+    if not holed:
+      while true:
+        let cut = breakLine(ls, avail)
+        lines.add (ls, cut)
+        if cut >= paraEnd: break
+        ls = cut
     if paraStart != 0: penY += t.para.spaceBefore
-    for li, (a, b) in lines:
+    var li = -1
+    var segs: seq[tuple[x0, x1: float32]]     # (the rooms left of the line being filled, beside holes)
+    while true:
+      inc li
+      var a, b: int
+      var winL, winR, jump = 0'f32
+      var sameBand = false                    # (it lies beside the line before it: a hole between them)
+      if not holed:
+        if li >= lines.len: break
+        (a, b) = lines[li]
+      else:
+        if li > 0 and ls >= paraEnd: break
+        # (where the line will lie, by its first letter: the room the holes leave it there;
+        # too little, it goes down a line at a time until it has room)
+        let st0 = styles[if ls < total: chars[ls].style elif total > 0: chars[total - 1].style else: 0]
+        let size0 = if styles.len > 0: st0.size else: 36'f32
+        let lead0 = max(1'f32, if styles.len > 0 and st0.leading > 0: st0.leading else: size0 * 1.2)
+        let asc0 = size0 * 0.93'f32
+        let desc0 = size0 * 0.24'f32
+        let bx0 = t.x + t.para.indentLeft
+        let bx1 = t.x + t.boxW - t.para.indentRight
+        let least = min(bx1 - bx0, max(24'f32, size0 * 2))
+        var y = 0'f32
+        var haveY = false
+        a = ls
+        b = ls
+        sameBand = segs.len > 0
+        for attempt in 0 ..< 4000:
+          if segs.len == 0:
+            # (a line further down: the first, or the one before had no room for a word)
+            if not haveY:
+              y = if firstLine: t.y + asc0 else: penY + lead0
+              haveY = true
+            else:
+              y += lead0
+              jump += lead0
+            sameBand = false
+            segs = freeRooms(t.holes, y - asc0, y + desc0, bx0, bx1, least)
+            if rtlPara: segs.reverse()
+            if segs.len == 0: continue
+          let seg = segs[0]
+          segs.delete(0)
+          winL = max(0'f32, seg.x0 - bx0)
+          winR = max(0'f32, bx1 - seg.x1)
+          # (beside a hole a word is not broken to fit: it goes to the next room)
+          b = breakLine(ls, max(1'f32, avail - winL - winR), seg.x1 - seg.x0 < bx1 - bx0 - 0.5)
+          if b > ls or ls >= paraEnd: break
+        if b <= ls and ls < paraEnd:
+          winL = 0
+          winR = 0
+          b = breakLine(ls, avail)
+        ls = b
       var asc, desc, lead = 0'f32
       var any = false
       for k in a ..< b:
@@ -1007,24 +1189,26 @@ proc layoutPlain(t: TextData): TextLayout =
         asc = size * 0.93
         desc = size * 0.24
       # the first baseline: at y (point text) or under the box's top
-      if firstLine:
-        penY = if boxed: t.y + asc else: t.y
+      if sameBand: discard                  # (on the baseline of the line it lies beside)
+      elif firstLine:
+        penY = (if boxed: t.y + asc else: t.y) + jump
         firstLine = false
-      else: penY += lead
+      else: penY += lead + jump             # (`jump`: moved down past a hole)
       # the width (spaces at the end not counted)
       var e = b
       while e > a and (chars[e - 1].space or chars[e - 1].cp == 10): dec e
       var width = 0'f32
       for k in a ..< e: width += chars[k].adv
       let indent = t.para.indentLeft + (if a == paraStart: t.para.indentFirst else: 0'f32)
-      let lastOfPara = li == lines.high
+      let lastOfPara = if holed: b >= paraEnd else: li == lines.high
       let align = t.para.align
       var extraPerSpace = 0'f32
       var startX: float32
       let firstInd = if a == paraStart: t.para.indentFirst else: 0'f32
       # (right to left: the first line's indent is at the right, where lines start)
-      let boxL = t.x + t.para.indentLeft + (if rtlPara: 0'f32 else: firstInd)
-      let boxR = t.x + (if boxed: t.boxW - t.para.indentRight - (if rtlPara: firstInd else: 0'f32) else: 0'f32)
+      let boxL = t.x + t.para.indentLeft + (if rtlPara: 0'f32 else: firstInd) + winL
+      let boxR = t.x + (if boxed: t.boxW - t.para.indentRight - (if rtlPara: firstInd else: 0'f32) else: 0'f32) - winR
+      let avail = avail - winL - winR       # (the room a hole leaves this line)
       let justify = boxed and (align == justifyAll or (align in {justifyLeft, justifyCenter, justifyRight} and
                                                         not lastOfPara))
       var spaces = 0
@@ -1100,6 +1284,11 @@ proc layoutPlain(t: TextData): TextLayout =
         order = newSeq[int](b - a)
         for k in 0 ..< order.len: order[k] = k
       var x = startX
+      # (right to left: the space the line was broken at is shown at its left end -- before
+      # its letters, which start where the line does: the space hangs out of it there)
+      for o in order:
+        if a + o < e: break
+        if chars[a + o].cp != 10: x -= chars[a + o].adv
       for o in order:
         let k = a + o
         let c = chars[k]
@@ -1130,14 +1319,16 @@ proc layoutPlain(t: TextData): TextLayout =
           let fb = faces[c.style]
           var px = x
           for p in c.parts:
-            if not c.space:
-              result.glyphs.add LaidGlyph(face: c.face, gid: p.gid, x: px + p.dx, y: y - p.dy, size: c.size,
+            if not c.space and not (p.mark and st.noMarks):
+              result.glyphs.add LaidGlyph(face: c.face, gid: p.gid, x: px + p.dx,
+                                          y: y - p.dy - (if p.mark: st.markRaise else: 0'f32), size: c.size,
                                           hScale: st.hScale, vScale: st.vScale,
                                           embolden: (if st.fauxBold or fb.fauxBold: max(0.6'f32, c.size / 28) else: 0'f32),
                                           shear: (if st.fauxItalic or fb.fauxItalic: 0.21'f32 else: 0'f32),
-                                          color: st.color, index: k, adv: p.adv)
+                                          color: (if p.mark and st.markColor != 0: st.markColor else: st.color),
+                                          index: k, adv: p.adv)
             px += p.adv
-        elif c.shown >= 0 and not c.space:
+        elif c.shown >= 0 and not c.space and not (st.noMarks and isMark(c.cp)):
           var shown = c.shown
           if rtlChar: shown = mirrored(shown)
           let (f, g) = if shown != c.shown: pickGlyph(c.face, shown) else: (c.face, c.gid)
@@ -1145,12 +1336,15 @@ proc layoutPlain(t: TextData): TextLayout =
           if st.script == scSuper: y -= st.size * 0.333
           elif st.script == scSub: y += st.size * 0.15
           let fb = faces[c.style]
-          result.glyphs.add LaidGlyph(face: f, gid: g, x: x + c.markDx, y: y - c.markDy, size: c.size,
+          let mk = isMark(c.cp)
+          result.glyphs.add LaidGlyph(face: f, gid: g, x: x + c.markDx,
+                                      y: y - c.markDy - (if mk: st.markRaise else: 0'f32), size: c.size,
                                       hScale: st.hScale,
                                       vScale: st.vScale,
                                       embolden: (if st.fauxBold or fb.fauxBold: max(0.6'f32, c.size / 28) else: 0'f32),
                                       shear: (if st.fauxItalic or fb.fauxItalic: 0.21'f32 else: 0'f32),
-                                      color: st.color, index: k, adv: adv)
+                                      color: (if mk and st.markColor != 0: st.markColor else: st.color),
+                                      index: k, adv: adv)
         if (st.underline or st.strike) and k < e:
           let f = c.face
           let em = float32(f.unitsPerEm)
@@ -1671,6 +1865,10 @@ proc toJson*(st: CharStyle): JsonNode =
   if st.script != d.script: result["script"] = %($st.script)
   if st.digits != 0: result["digits"] = %st.digits
   if st.features.len > 0: result["features"] = %st.features
+  if st.wordSpace != 0: result["wordSpace"] = %st.wordSpace
+  if st.markColor != 0: result["markColor"] = %int64(st.markColor)
+  if st.markRaise != 0: result["markRaise"] = %st.markRaise
+  if st.noMarks: result["noMarks"] = %true
   if st.variation.len > 0: result["variation"] = %st.variation
   if st.styleName.len > 0: result["styleName"] = %st.styleName
 
@@ -1709,6 +1907,10 @@ proc charStyleFrom*(j: JsonNode): CharStyle =
   result.script = enumOf(j.getS("script"), scNormal)
   result.digits = int(j.getF("digits"))
   result.features = j.getS("features")
+  result.wordSpace = clamp(int(j.getF("wordSpace")), -1000, 10_000)
+  result.markColor = uint32(int64(j.getF("markColor")) and 0xFFFFFFFF'i64)
+  result.markRaise = float32(j.getF("markRaise"))
+  result.noMarks = j.getB("noMarks")
   result.variation = j.getS("variation")
   result.styleName = j.getS("styleName")
 
