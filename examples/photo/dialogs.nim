@@ -197,7 +197,10 @@ proc writeDoc(dw: DocWin; path: string; quality = 85) =
     status = "Saved " & path.extractFilename
     if ext == ".svg":
       let lost = d.svgLosses
+      let own = d.svgOwn
       status = "Saved " & path.extractFilename & ": shapes as paths, type as text" &
+               (if own.len > 0: "; for Retro Photo alone (other programs do not show them): " & own.join(", ")
+                else: "") &
                (if lost.len > 0: "; not kept: " & lost.join(", ") else: "")
     if not saveCopy: dw.dropRecovery()
   except CatchableError:

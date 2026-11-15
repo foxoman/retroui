@@ -19,10 +19,10 @@ import uirelays/access
 export access
 when (defined(linux) or defined(bsd)) and not defined(android):
   import uirelays/atspi           # (screen readers told the toolkit's and the app's name)
-import gfx, busy
+import gfx, busy, hangwatch
 export busy
 
-const RetroVersion* = "0.52.0"
+const RetroVersion* = "0.53.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -3838,6 +3838,8 @@ proc startApp*(title: string; w, h: int; theme = ui.theme; zoom = 0) =
   except CatchableError: startMark = ""
   markStarting()
   errorMessageWriter = writeFault
+  # (a window that stops answering: what its thread is in goes to the fault log)
+  startHangWatch(writeFault)
   when androidApp:
     if faultPath.len > 0: retroCrashLog(faultPath.cstring)
   case getEnv("RETRO_GPU").toLowerAscii
@@ -4249,6 +4251,7 @@ proc frameSetup(main: bool) =
     ui.panning = false
     ui.dragsActive = false
   inc ui.frameNo
+  if ui.frameNo == 3: hangUp()          # (past its start: a window that stops answering is told)
   inc ui.gen
   ui.popupOpened = false
   ui.inputLayer =
@@ -5000,8 +5003,10 @@ proc stopApp*() =
     # fault or a busy rest still its exit code)
     let code = smokeReport(closed = true)
     if code != 0:
+      hangStopping(code)
       for h in stopAppHooks: h()
       shutdown()
       quit(code)
+  hangStopping()
   for h in stopAppHooks: h()
   shutdown()

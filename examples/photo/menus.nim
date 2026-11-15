@@ -1609,7 +1609,14 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["4.11.0: SVG as a format of its own -- an .svg opens as layers (its shapes, its " &
+           whatsNew = ["4.12.0: SVG, the rest of it -- filters (shadows, blurs, textures, lighting; a plain " &
+                       "shadow is the layer's Drop Shadow, the others pixels), patterns as pattern fills, " &
+                       "masks as layer masks, blending modes, groups with their opacity, hidden layers; " &
+                       "type with its outline, its gradient, outlined alone, running down, each letter " &
+                       "where the file puts it; File > Save keeps every layer effect, blending mode and " &
+                       "adjustment layer for Retro Photo to open again; File > Export > SVG, Type as " &
+                       "Outlines for where the fonts are not",
+                       "4.11.0: SVG as a format of its own -- an .svg opens as layers (its shapes, its " &
                        "text as type you can type in, its pictures, its named groups), File > New SVG " &
                        "Drawing starts one and File > Save writes it back; File > Export As makes a " &
                        "picture of it, File > Save as PDF a PDF for print",

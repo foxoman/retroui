@@ -33,6 +33,12 @@ type
     size*: int64            ## bytes (folders: 0)
     modified*: Time         ## when it last changed
     stub*: bool             ## from a quick listing: size and date not read yet
+    special*: bool          ## not a file to read: a device, a pipe, a socket (reading one may
+                            ## never end; `specialFile` asks the system now)
+    offline*: bool          ## its contents are not on this disk: a cloud file not fetched yet
+                            ## (OneDrive's Files On-Demand), an archived one -- reading it
+                            ## fetches it first, for as long as that takes (Windows; see
+                            ## `offlineFile`). Shown as it is, and read only when it is opened
 
   FileKind* = enum
     ## The kind of a file, by its extension (`kindOf`): for its icon
@@ -49,6 +55,41 @@ type
 when defined(windows):
   proc getFileAttributesW(path: WideCString): uint32
     {.stdcall, dynlib: "kernel32", importc: "GetFileAttributesW".}
+  type WinFileData = object
+    attrs: uint32
+    created, accessed, written: array[2, uint32]     # (FILETIME: its low half, its high half)
+    sizeHigh, sizeLow: uint32
+  proc getFileAttributesExW(path: WideCString; level: int32; data: ptr WinFileData): int32
+    {.stdcall, dynlib: "kernel32", importc: "GetFileAttributesExW".}
+  const
+    WinNone = 0xFFFFFFFF'u32
+    WinReadOnly = 0x1'u32
+    WinHidden = 0x2'u32 or 0x4'u32         # FILE_ATTRIBUTE_HIDDEN, _SYSTEM
+    WinDir = 0x10'u32
+    WinReparse = 0x400'u32                 # (a link, a junction)
+    WinAway = 0x1000'u32 or 0x40000'u32 or 0x400000'u32
+      # FILE_ATTRIBUTE_OFFLINE, _RECALL_ON_OPEN, _RECALL_ON_DATA_ACCESS: its contents (or the
+      # folder's list) are with a cloud provider, fetched when it is opened or read
+
+  proc winInfo(path: string; f: var FileItem): bool =
+    ## What Windows says of `path` without opening it (opening a cloud
+    ## file that is not here may fetch it): a folder or not, its size, its
+    ## date, hidden, read only, away. False when it cannot be said so (a
+    ## link, which is followed by opening it -- hidden and away are told
+    ## all the same; a path that is not there).
+    var d: WinFileData
+    if getFileAttributesExW(newWideCString(path), 0, addr d) == 0: return false
+    f.offline = (d.attrs and WinAway) != 0
+    f.hidden = path.len > 3 and (d.attrs and WinHidden) != 0      # (a drive, C:\, is marked so itself)
+    if (d.attrs and WinReparse) != 0 and not f.offline: return false
+    f.isDir = (d.attrs and WinDir) != 0
+    f.readOnly = (d.attrs and WinReadOnly) != 0
+    f.size = if f.isDir: 0'i64 else: (int64(d.sizeHigh) shl 32) or int64(d.sizeLow)
+    # (100 ns since 1601, as Nim's own `getFileInfo` turns it)
+    let t = (int64(d.written[1]) shl 32) or int64(d.written[0])
+    let since = t - 116444736000000000'i64
+    f.modified = initTime(since div 10_000_000, int(since mod 10_000_000) * 100)
+    true
 elif defined(macosx) and not defined(ios):
   type MacStat {.importc: "struct stat", header: "<sys/stat.h>", pure, final.} = object
     st_flags: uint32
@@ -64,7 +105,7 @@ proc hiddenFile*(path: string; name = path.extractFilename): bool =
   when defined(windows):
     if path.len <= 3: return false      # (a drive: C:\ is marked so itself)
     let a = getFileAttributesW(newWideCString(path))
-    a != 0xFFFFFFFF'u32 and (a and 0x6'u32) != 0   # FILE_ATTRIBUTE_HIDDEN, _SYSTEM
+    a != WinNone and (a and WinHidden) != 0
   elif defined(macosx) and not defined(ios):
     var st: MacStat
     if macLstat(path.cstring, st) == 0 and (st.st_flags and 0x8000'u32) != 0:
@@ -79,9 +120,24 @@ proc infoOf*(path: string): FileItem =
   result.name = path.extractFilename
   if result.name.len == 0: result.name = path
   result.hidden = hiddenFile(path, result.name)
+  when defined(windows):
+    # (without opening it: a cloud file that is not here would be fetched)
+    if not isDocPath(path):
+      var w = FileItem()
+      if winInfo(path, w):
+        result.isDir = w.isDir
+        result.size = w.size
+        result.modified = w.modified
+        result.readOnly = w.readOnly
+        result.offline = w.offline
+        result.isLink = false
+        if result.isDir and path.len <= 3: result.name = path   # "C:\"
+        return
+      result.offline = w.offline
   try:
     let i = getFileInfo(path, followSymlink = true)
     result.isDir = i.kind in {pcDir, pcLinkToDir}
+    result.special = i.isSpecial
     result.size = if result.isDir: 0 else: i.size
     result.modified = i.lastWriteTime
     result.readOnly = fpUserWrite notin i.permissions
@@ -90,6 +146,29 @@ proc infoOf*(path: string): FileItem =
       if result.isDir and path.len <= 3: result.name = path   # "C:\"
   except OSError:
     result.isLink = symlinkExists(path)
+
+proc offlineFile*(path: string): bool =
+  ## `path`'s contents are not on this disk: a cloud file that was not
+  ## fetched (OneDrive's Files On-Demand and its like), an archived one.
+  ## Reading it fetches it first -- for as long as the network takes, for
+  ## ever without one -- so a file manager shows it and reads nothing of
+  ## it until the user opens it. Windows says so of a file; false elsewhere,
+  ## and for what is not there.
+  when defined(windows):
+    if isDocPath(path): return false
+    let a = getFileAttributesW(newWideCString(path))
+    a != WinNone and (a and WinAway) != 0
+  else: false
+
+proc specialFile*(path: string): bool =
+  ## `path` is not a file to read: a device, a pipe or a socket (/dev/tty,
+  ## a FIFO, /proc/self/fd/0). Opening or reading one may wait for ever, so
+  ## a file manager shows it and reads nothing of it. Asked of the system
+  ## now (a link: of what it leads to); false for what is not there, and
+  ## for another app's documents.
+  if isDocPath(path): return false
+  try: getFileInfo(path, followSymlink = true).isSpecial
+  except OSError: false
 
 proc listFolder*(dir: string; showHidden = false; quick = false): seq[FileItem] =
   ## The files and folders in `dir`. Raises `OSError` if it cannot be read.
@@ -107,17 +186,39 @@ proc listFolder*(dir: string; showHidden = false; quick = false): seq[FileItem] 
     return
   for kind, p in walkDir(dir, checkDir = true):
     let n = p.extractFilename
-    let hidden = hiddenFile(p, n)
-    if not showHidden and hidden: continue
-    var f = FileItem(path: p, name: n, hidden: hidden,
-                     isLink: kind in {pcLinkToFile, pcLinkToDir},
-                     isDir: kind in {pcDir, pcLinkToDir}, stub: quick)
-    if quick:
-      result.add f
-      continue
+    when defined(windows):
+      # (asked of Windows once, by the path: hidden, a cloud file not here, and -- unless
+      # it is a link -- all the rest, without opening the file)
+      var w = FileItem()
+      let known = winInfo(p, w)
+      let hidden = n.startsWith(".") or w.hidden
+      if not showHidden and hidden: continue
+      var f = FileItem(path: p, name: n, hidden: hidden,
+                       isLink: kind in {pcLinkToFile, pcLinkToDir},
+                       isDir: kind in {pcDir, pcLinkToDir}, stub: quick, offline: w.offline)
+      if quick:
+        result.add f
+        continue
+      if known:
+        f.isDir = w.isDir
+        f.size = w.size
+        f.modified = w.modified
+        f.readOnly = w.readOnly
+        result.add f
+        continue
+    else:
+      let hidden = hiddenFile(p, n)
+      if not showHidden and hidden: continue
+      var f = FileItem(path: p, name: n, hidden: hidden,
+                       isLink: kind in {pcLinkToFile, pcLinkToDir},
+                       isDir: kind in {pcDir, pcLinkToDir}, stub: quick)
+      if quick:
+        result.add f
+        continue
     try:
       let i = getFileInfo(p, followSymlink = true)
       f.isDir = i.kind in {pcDir, pcLinkToDir}
+      f.special = i.isSpecial
       f.size = if f.isDir: 0 else: i.size
       f.modified = i.lastWriteTime
       f.readOnly = fpUserWrite notin i.permissions
@@ -317,13 +418,15 @@ proc sortFiles*(items: var seq[FileItem]; by = byName; descending = false;
   items = move sorted
 
 proc isPicture*(f: FileItem): bool =
-  ## A picture `loadPicture` may read (by its extension).
-  not f.isDir and (extOf(f.name) in ["png", "bmp", "jpg", "jpeg", "gif", "webp", "heic", "heif", "ico"] or
+  ## A picture `loadPicture` may read (by its extension; a device or a
+  ## pipe is none, whatever it is called, nor a cloud file that is not on
+  ## this disk: nothing fetches it for a thumbnail).
+  not f.isDir and not f.special and not f.offline and (extOf(f.name) in ["png", "bmp", "jpg", "jpeg", "gif", "webp", "heic", "heif", "ico"] or
                    pictureReaderFor(f.name) != nil)
 
 proc isTextFile*(f: FileItem): bool =
   ## A file that is text (by its kind or extension): shown as lines.
-  not f.isDir and (kindOf(f) in {fkText, fkCode} or extOf(f.name) in
+  not f.isDir and not f.special and not f.offline and (kindOf(f) in {fkText, fkCode} or extOf(f.name) in
     ["txt", "log", "ini", "cfg", "conf", "csv", "tsv", "json", "xml", "yml",
      "yaml", "toml", "nim", "nims", "nimble", "sh", "md", "markdown", "html",
      "htm", "css", "js", "ts", "c", "h", "cpp", "py", "java", "kt", "go", "rs"])
@@ -1206,7 +1309,10 @@ proc changes*(w: FolderWatch): seq[FileChange] =
   ## What changed in the folder since the last time this was asked (nothing
   ## the first time: what is there then is where it starts). Call it every
   ## frame: it looks at the files only every `everyMs`, and asks for a frame
-  ## then.
+  ## then. It looks on the thread that calls it -- a walk of the folder:
+  ## for a folder on a network drive, or one of thousands of files, give
+  ## it a longer `everyMs`, or call it from a job (`retroui/jobs`), so that
+  ## the window does not wait for the disk.
   let now = int(getMonoTime().ticks div 1_000_000)
   if w.started and now - w.lookedAt < w.every:
     wakeIn(w.every - (now - w.lookedAt))

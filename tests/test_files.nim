@@ -269,6 +269,98 @@ block workInTheBackground:
       doAssert r.ticket == bad and r.error.len > 0 and toBitmap(r) == nil
   doAssert not busy()
 
+block askedLaterNeverWaitedFor:
+  # what the window wants to know of a disk is asked on a thread: `later` answers at once
+  # with what is known, and the answer is there a moment after
+  mk("ask/sub/one/x.txt")
+  mk("ask/sub/two/x.txt")
+  mk("ask/flat/x.txt")
+  mk("ask/note.txt", "hello there")
+  proc answered(what: AskKind; path: string; flag = false): seq[string] =
+    let until = epochTime() + 10
+    while epochTime() < until:
+      let a = later(what, path, flag)
+      if a.known: return a.value
+      discard finished()
+      sleep(2)
+    doAssert false, "no answer: " & $what & " " & path
+  doAssert not later(akFolders, root / "ask" / "sub").known                 # (asked now: not known yet)
+  doAssert answered(akFolders, root / "ask" / "sub") == @[root / "ask" / "sub" / "one", root / "ask" / "sub" / "two"]
+  doAssert answered(akHasFolders, root / "ask" / "sub") == @["1"]
+  doAssert answered(akHasFolders, root / "ask" / "flat").len == 0
+  doAssert answered(akExists, root / "ask") == @["d"] and answered(akExists, root / "ask" / "note.txt") == @["f"] and
+           answered(akExists, root / "ask" / "none").len == 0
+  doAssert answered(akHead, root / "ask" / "note.txt") == @["hello there"]
+  doAssert answered(akPictureSize, root / "bg" / "blue.png") == @["40", "30"]
+  let sp = answered(akDiskSpace, root)
+  doAssert sp.len == 2 and parseBiggestInt(sp[1]) >= parseBiggestInt(sp[0]) and parseBiggestInt(sp[1]) > 0
+  doAssert answered(akModTime, root / "ask").len == 2 and answered(akModTime, root / "ask" / "none").len == 0
+  # a moment's wait the first time: a disk that is there has answered by then
+  doAssert later(akFolders, root / "ask", waitMs = 60).known
+  doAssert askNow(akExists, root / "ask" / "flat").value == @["d"]
+  # known is kept; forgotten, it is asked again; told, it is known at once
+  mk("ask/sub/three/x.txt")
+  doAssert later(akFolders, root / "ask" / "sub").value.len == 2
+  forgetLater(akFolders, root / "ask")
+  doAssert not later(akFolders, root / "ask" / "sub").known
+  doAssert answered(akFolders, root / "ask" / "sub").len == 3
+  tellLater(akModTime, root / "ask" / "told", @["5", "6"])
+  doAssert later(akModTime, root / "ask" / "told") == (true, @["5", "6"])
+  # a folder listed says its date as it was then
+  block:
+    let t = folderAsync(root / "ask")
+    var seen = false
+    let until = epochTime() + 10
+    while not seen and epochTime() < until:
+      for r in finished():
+        if r.ticket == t:
+          doAssert r.modified == getLastModificationTime(root / "ask")
+          seen = true
+      sleep(2)
+    doAssert seen
+  when defined(posix):
+    # a disk that does not answer: here, pipes nobody writes to -- opening one waits for a
+    # writer. Six questions wait on them; the window is answered at once all the same,
+    # folders are still listed and other questions answered (threads are added), and the
+    # six answer when the pipes are written to
+    proc mkfifo(path: cstring; mode: cuint): cint {.importc, header: "<sys/stat.h>".}
+    var pipes: seq[string]
+    for i in 0 ..< 6:
+      pipes.add root / "ask" / ("pipe" & $i)
+      doAssert mkfifo(pipes[^1].cstring, 0o600) == 0
+    let t0 = epochTime()
+    for p in pipes: doAssert not later(akHead, p).known
+    doAssert not later(akHead, pipes[0], waitMs = 50).known
+    doAssert epochTime() - t0 < 1.0                       # (asked, not waited for)
+    doAssert askNow(akExists, root / "ask", waitMs = 5000).value == @["d"]
+    doAssert askNow(akFolders, root / "ask" / "sub", waitMs = 5000).value.len == 3
+    let t = folderAsync(root / "bg")
+    var listed = false
+    let until = epochTime() + 10
+    while not listed and epochTime() < until:
+      for r in finished():
+        if r.ticket == t: listed = r.items.len == 31
+      sleep(2)
+    doAssert listed, "a folder was not listed while questions waited on a disk"
+    for p in pipes: doAssert not later(akHead, p).known
+    for p in pipes: writeFile(p, "now")                 # (a writer: the questions go on)
+    for p in pipes: doAssert answered(akHead, p) == @["now"]
+    for p in pipes: removeFile(p)
+  when defined(windows):
+    # what Windows says of a file without opening it is what opening it says
+    let viaList = listFolder(root / "ask")
+    for f in viaList:
+      let one = infoOf(f.path)
+      let nimsOwn = getFileInfo(f.path)
+      doAssert f.isDir == one.isDir and f.size == one.size and f.modified == one.modified, f.path
+      doAssert f.isDir == (nimsOwn.kind == pcDir) and (f.isDir or f.size == nimsOwn.size) and
+               f.modified == nimsOwn.lastWriteTime, f.path & " " & $f.modified & " " & $nimsOwn.lastWriteTime
+      doAssert not f.offline and not offlineFile(f.path) and not f.hidden
+  doAssert not offlineFile(root / "ask" / "none")
+  while busy():
+    discard finished()
+    sleep(2)
+
 block damagedFilesAreRefusedNotCrashing:
   # every decoder fed thousands of damaged copies of good files: an error
   # (CatchableError) is fine, a crash (Defect) is a bug

@@ -1,5 +1,122 @@
 # Changes
 
+## 0.53.0
+
+SVG, the rest of it: filters, patterns, masks, blending, every way of
+placing type -- read, drawn, made layers, written back; and what an SVG
+has no word for kept in it for Retro Photo. A window that never waits for
+a disk, and says where it waited when it does.
+
+- **The window never asks a disk anything itself** (Retro Files stuck in
+  some folders on Windows, and on Exit). The file widgets asked the disk
+  on the window's own thread, again and again: every drive letter probed
+  every five seconds, the free space every three, the folder's date every
+  second and a half, each folder of the tree looked into, the start of a
+  text and a picture's size read for the details pane. A disk that is
+  slow to answer -- a mapped network drive that is not connected, a cloud
+  folder, a card being read -- held the window for as long as it took,
+  Exit with it. Now:
+  - `later(what, path)` (`retroui/background`): what the file system says
+    -- has a folder folders, which, a disk's free space, a folder's date,
+    is a path there, the start of a file, a picture's size (`AskKind`) --
+    answered at once with what is known and asked on a thread; a frame is
+    drawn when the answer comes. `askNow` for what the user asked for (a
+    folder to go to): waited for a second and a half at most. `tellLater`,
+    `forgetLater`.
+  - Folders are listed and questions answered on threads of their own
+    (two; more, up to eight, when those are held up), not on the ones
+    that decode pictures: a folder shows while thumbnails are still being
+    made, and a question no disk answers holds up nothing else.
+  - `folderTree`, `driveBar`, `placesView`, `pathBar`, `filePreview`,
+    `diskSpaceCached` and the folder model (`fileList`, `filePicker`) ask
+    so. On Windows the drives are those Windows lists
+    (`GetLogicalDrives`): none is probed.
+  - **Cloud files that are not on the disk** (OneDrive's Files On-Demand)
+    are known (`FileItem.offline`, `offlineFile`): no thumbnail, no
+    preview fetches one; opened, it goes to the system, which fetches it
+    and opens its program. A Windows folder is listed without opening
+    each file (`GetFileAttributesEx`): faster, and nothing is fetched.
+  - Retro Files goes to a folder, and opens its saved tabs at the start,
+    without waiting on a disk longer than a second and a half.
+- **A window that does not answer says where it waited** (Windows,
+  `retroui/hangwatch`, started with every app): when the window has not
+  taken its messages for five seconds, the procs its thread is in go to
+  the fault log -- by name: `nimble exe` puts the table of the program's
+  procs at its end (tools/winsym.py) -- and the next start's "Report a
+  Problem" box shows them, to copy or send. A program still there thirty
+  seconds after its window closed is ended.
+
+- **Drawn as other programs draw it.** `rasterizeSvg` is compared with
+  resvg on 53 new drawings (tests/data/svg/fx-*.svg: each with a .png of
+  it as resvg draws it), beside the 12 icons and flags it was compared on.
+  - **Filters**: every step of them -- feGaussianBlur, feOffset, feFlood,
+    feComposite (arithmetic too), feMerge, feBlend, feColorMatrix,
+    feComponentTransfer, feDropShadow, feMorphology, feTile, feImage (a
+    picture, or something else in the drawing), feConvolveMatrix,
+    feTurbulence (the specification's own noise, stitched too),
+    feDisplacementMap, feDiffuseLighting and feSpecularLighting (a far
+    light, a point of light, a spot) -- in linear light as a filter is
+    unless it says sRGB (`color-interpolation-filters`, on the filter or a
+    step), each step in its own rectangle (x, y, width, height), a filter
+    that goes on from another (href); CSS's `blur()` and `drop-shadow()`.
+    A blur is the specification's three box blurs, or the bell itself when
+    it is small.
+  - **Patterns** (units, patternTransform, viewBox, href; a pattern in a
+    pattern), as a fill or a line; a turned one drawn between its tile's
+    pixels.
+  - **Blending modes** (`mix-blend-mode`, feBlend): the sixteen, hue,
+    saturation, color and luminosity among them.
+  - **Type**: a letter where the file puts it -- x, y, dx, dy and rotate
+    as lists, on the text or its tspans; `textLength`; `word-spacing`; an
+    outline (stroke) over its fill, or alone (fill: none); a gradient or a
+    pattern as its fill; `direction: rtl`; `writing-mode` running down,
+    the letters on their side about the middle of their height;
+    `font-variant: small-caps`, `text-transform`. Text is set on any
+    thread now (a thread other than the first has the kit's three fonts):
+    **an SVG's thumbnail in Retro Files has its text**.
+  - Pictures that are SVGs themselves; `display: none` and `visibility:
+    hidden`.
+- **Retro Photo 4.12.0: an SVG opens as it looks, and as layers.**
+  - A filter that is a plain drop shadow (feDropShadow, or the blur,
+    offset, flood and merge drawing programs write for one) is the layer's
+    **Drop Shadow**; any other filter makes its layer pixels, drawn as the
+    filter draws it. A pattern is a **pattern fill** (a turned one on a
+    tile the size of its shape). A mask or a clip path is the **layer's
+    mask**. A blending mode is the layer's. A group with a name, or of
+    several things under one opacity, mask or mode, is a **group** with
+    them. What is hidden is a layer that is off.
+  - Type: an outline is the layer's **Stroke**, outlined alone it is the
+    Stroke with Fill at 0; a gradient is a **Gradient Overlay**; letters
+    with places of their own are one text spaced to fit; a turned letter
+    is a text of its own; running down is vertical type.
+  - **File > Save** writes all of it back: masks and clipping masks as
+    masks, Drop Shadow and Outer Glow as a filter, a type layer's Stroke
+    and Gradient Overlay as its stroke and fill, pattern fills as
+    patterns, layers that are off as hidden. **What an SVG has no word
+    for is kept in it for Retro Photo** -- every layer effect (Bevel and
+    Emboss, Inner Shadow, Satin...) with the layer's Fill, the blending
+    modes CSS has no name for, adjustment layers -- in attributes of its
+    own (`data-retro-fx`, `data-retro-mode`, `data-retro-adjust`): Retro
+    Photo opens them again as they were; other programs do not show them,
+    and the status bar says which those are (`svgOwn`).
+  - **File > Export > SVG, Type as Outlines**: the letters as paths, for
+    where the fonts are not (`svgOf(outlines = true)`).
+  - `retroui/svgimport`: `SvgDoc.patterns`, `filters`, `groups` (their
+    opacity, mask, filter, blending, name); `SvgFilterPrim`; `SvgText`'s
+    `places`, `hollow`, `stroke`, `fitChars`, `vertical`, `rtl`;
+    `svgShadow`, `svgRaster`, `svgMask`; `parseSvg(data, base, hidden =
+    true)` and `placeSvg(..., hidden = true)` keep what is not shown.
+    `retroui/photosvg`: `svgOwn`. `retroui/textengine`: `typeWorker()`.
+- **Retro Files 3.6.0**: it no longer waits on a disk (above); cloud
+  files that are not on the disk are left there until they are opened;
+  an SVG's thumbnail and preview show its text, patterns and filters. A
+  device or a pipe (`/dev/...`, a FIFO) is said to be one and is not
+  opened: reading it would never end (`FileItem.special`, `specialFile`).
+- **The nightly soak** (0.51.0's failed for three apps): Retro Task
+  Manager no longer ends or reprioritizes a process under random input
+  (it ended the soak's own shell); Retro Files does not read devices and
+  pipes; Retro Podcast keeps eight shows at most under random input.
+
 ## 0.52.0
 
 A look of your own, by the controls' options; ten colour schemes for

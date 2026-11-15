@@ -12,7 +12,7 @@
 ## writeFile("logo.svg", d.svgOf())
 ## ```
 
-import std/[strutils, math, base64]
+import std/[strutils, math, base64, json]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import gfx, photo, photoshapes, textengine, imaging
 
@@ -72,21 +72,100 @@ proc paintOf(p: ShapePaint; id: string; box: Rect; defs: var string): string =
                "/>"
     defs.add (if p.style == 1: "</radialGradient>" else: "</linearGradient>")
     "url(#" & id & ")"
-  else: hexColor(p.color)
+  of spPattern:
+    # (a pattern: its tile a picture, repeated from the document's corner)
+    if p.pw <= 0 or p.ph <= 0 or p.pattern.len != p.pw * p.ph: return hexColor(p.color)
+    let b = newBitmap(p.pw, p.ph)
+    b.px = p.pattern
+    b.opaque = false
+    let k = (if p.scale > 0: p.scale else: 100).float / 100
+    defs.add "<pattern id=\"" & id & "\" patternUnits=\"userSpaceOnUse\" width=\"" & num(p.pw.float * k) &
+             "\" height=\"" & num(p.ph.float * k) & "\"><image width=\"" & num(p.pw.float * k) & "\" height=\"" &
+             num(p.ph.float * k) & "\" preserveAspectRatio=\"none\" href=\"data:image/png;base64," &
+             encode(encodePng(b)) & "\"/></pattern>"
+    "url(#" & id & ")"
 
-proc pngData(px: seq[uint32]; w, h: int; r: Rect; mask: Layer): string =
-  ## (part of a layer as a PNG, base64: what its mask hides left out)
+proc pngData(px: seq[uint32]; w, h: int; r: Rect): string =
+  ## (part of a layer as a PNG, base64)
   let b = newBitmap(r.w, r.h)
-  let masked = mask != nil and mask.px.len == px.len
   for y in 0 ..< r.h:
-    for x in 0 ..< r.w:
-      var p = px[(r.y + y) * w + r.x + x]
-      if masked:
-        let m = mask.px[(r.y + y) * w + r.x + x] and 255
-        p = (p and 0xFFFFFF'u32) or ((((p shr 24) * m + 127) div 255) shl 24)
-      b.px[y * r.w + x] = p
+    for x in 0 ..< r.w: b.px[y * r.w + x] = px[(r.y + y) * w + r.x + x]
   b.opaque = false
   "data:image/png;base64," & encode(encodePng(b))
+
+proc clipBase(d: Doc; i: int): Layer =
+  ## (the layer a clipped layer is clipped to: the first under it, as deep,
+  ## that is not clipped itself; nil when there is none it can be written by)
+  if not d.layers[i].clipped: return nil
+  for k in countdown(i - 1, 0):
+    let B = d.layers[k]
+    if B.depth < d.layers[i].depth: return nil
+    if B.depth > d.layers[i].depth: continue
+    if not B.clipped: return (if B.group or B.px.len != d.w * d.h: nil else: B)
+  nil
+
+proc maskDef(d: Doc; i: int; id: string; defs: var string): string =
+  ## (a layer's mask and what it is clipped to, as one mask in `defs`:
+  ## white where it shows; "" when it has neither)
+  let L = d.layers[i]
+  let own = if L.mask != nil and not L.maskOff and L.mask.px.len == d.w * d.h: L.mask else: nil
+  let base = d.clipBase(i)
+  if own == nil and base == nil: return ""
+  var x0 = d.w
+  var y0 = d.h
+  var x1 = -1
+  var y1 = -1
+  var v = newSeq[uint8](d.w * d.h)
+  for y in 0 ..< d.h:
+    for x in 0 ..< d.w:
+      let k = y * d.w + x
+      var g = 255'u32
+      if own != nil: g = own.px[k] and 255
+      if base != nil:
+        var a = base.px[k] shr 24
+        if base.mask != nil and not base.maskOff and base.mask.px.len == d.w * d.h:
+          a = (a * (base.mask.px[k] and 255) + 127) div 255
+        g = (g * a + 127) div 255
+      v[k] = uint8(g)
+      if g > 0:
+        x0 = min(x0, x)
+        y0 = min(y0, y)
+        x1 = max(x1, x)
+        y1 = max(y1, y)
+  if x1 < x0:
+    # (nothing shows: a mask of nothing)
+    defs.add "<mask id=\"" & id & "\" maskUnits=\"userSpaceOnUse\" x=\"0\" y=\"0\" width=\"" & $d.w &
+             "\" height=\"" & $d.h & "\"/>"
+    return " mask=\"url(#" & id & ")\""
+  let b = newBitmap(x1 - x0 + 1, y1 - y0 + 1)
+  for y in y0 .. y1:
+    for x in x0 .. x1:
+      let g = uint32(v[y * d.w + x])
+      b.px[(y - y0) * b.w + x - x0] = 0xFF000000'u32 or (g shl 16) or (g shl 8) or g
+  defs.add "<mask id=\"" & id & "\" maskUnits=\"userSpaceOnUse\" x=\"0\" y=\"0\" width=\"" & $d.w &
+           "\" height=\"" & $d.h & "\"><image x=\"" & $x0 & "\" y=\"" & $y0 & "\" width=\"" & $b.w &
+           "\" height=\"" & $b.h & "\" href=\"data:image/png;base64," & encode(encodePng(b)) & "\"/></mask>"
+  " mask=\"url(#" & id & ")\""
+
+proc shadowDef(d: Doc; L: Layer; id: string; defs: var string): string =
+  ## (a layer's Drop Shadow -- or its Outer Glow, a shadow that lies under
+  ## it -- as a filter in `defs`; "" when it has neither)
+  if L.fx.hidden: return ""
+  var e = L.fx.fx[fxDropShadow]
+  var glow = false
+  if not e.on:
+    e = L.fx.fx[fxOuterGlow]
+    glow = true
+  if not e.on: return ""
+  let a = degToRad(e.angle.float)
+  let dx = if glow: 0.0 else: -cos(a) * e.distance.float
+  let dy = if glow: 0.0 else: sin(a) * e.distance.float
+  let alpha = (e.color shr 24).float / 255 * clamp(e.opacity, 0, 100).float / 100
+  defs.add "<filter id=\"" & id & "\" filterUnits=\"userSpaceOnUse\" x=\"0\" y=\"0\" width=\"" & $d.w &
+           "\" height=\"" & $d.h & "\"><feDropShadow dx=\"" & num(dx) & "\" dy=\"" & num(dy) &
+           "\" stdDeviation=\"" & num(e.size.float / 2) & "\" flood-color=\"" & hexColor(e.color) &
+           "\" flood-opacity=\"" & num(alpha) & "\"/></filter>"
+  " filter=\"url(#" & id & ")\""
 
 proc cssFamily(f: string): string =
   ## (a family as font-family names it: a kind of font after it, for where
@@ -121,11 +200,20 @@ proc styleAttrs(st: CharStyle; base: CharStyle; all: bool): string =
                                         else: "none") & "\""
   if st.tracking != base.tracking or (all and st.tracking != 0):
     result.add " letter-spacing=\"" & num(st.tracking.float / 1000 * st.size) & "\""
+  if not all and (st.allCaps != base.allCaps or st.smallCaps != base.smallCaps):
+    # (a run's own; the whole text's goes with its element's other styles: `capsCss`)
+    result.add " style=\"text-transform:" & (if st.allCaps: "uppercase" else: "none") & ";font-variant:" &
+               (if st.smallCaps: "small-caps" else: "normal") & "\""
   if st.script != base.script or (all and st.script != scNormal):
     result.add " baseline-shift=\"" & (case st.script
                                        of scSuper: "super"
                                        of scSub: "sub"
                                        else: "baseline") & "\""
+
+proc capsCss(st: CharStyle): string =
+  ## (all capitals, small capitals: as CSS says them)
+  if st.allCaps: result.add "text-transform:uppercase;"
+  if st.smallCaps: result.add "font-variant:small-caps;"
 
 proc runsOf(td: TextData; runes: seq[string]; a, b: int; base: CharStyle): string =
   ## (the characters `a` ..< `b`: each run that looks other than `base` in
@@ -164,30 +252,57 @@ proc cssBlend(m: BlendMode): string =
   of bmLuminosity: "luminosity"
   else: ""
 
+proc svgOwn*(d: Doc): seq[string] =
+  ## What of the document its SVG holds for Retro Photo alone: written in
+  ## attributes of its own (data-retro-fx, data-retro-mode,
+  ## data-retro-adjust), read back as it was, and not shown by other
+  ## programs -- adjustment layers, the layer effects SVG has nothing for,
+  ## the blending modes CSS has no name for. To say when it is saved.
+  var adjust, modes: bool
+  var fx: seq[string]
+  for i, L in d.layers:
+    if L.adjust.kind.len > 0: adjust = true
+    if not L.fx.hidden:
+      for kind, e in L.fx.fx:
+        if not e.on: continue
+        let shown = kind == fxDropShadow or (kind == fxOuterGlow and not L.fx.fx[fxDropShadow].on) or
+                    (L.isText and kind in {fxStroke, fxGradientOverlay})
+        if not shown and $kind notin fx: fx.add $kind
+    if L.mode != bmNormal and cssBlend(L.mode).len == 0 and not (L.group and L.passThrough): modes = true
+  if adjust: result.add "adjustment layers"
+  if fx.len > 0: result.add "layer effects (" & fx.join(", ") & ")"
+  if modes: result.add "some blending modes"
+
 proc svgLosses*(d: Doc): seq[string] =
   ## What of the document an SVG does not hold (`svgOf` leaves it out, or
-  ## writes pixels for it): to say when it is saved as one.
-  var adjust, fx, masks, clipped, modes, smart: bool
-  for L in d.layers:
-    if L.adjust.kind.len > 0: adjust = true
-    if L.hasFx: fx = true
-    if L.mask != nil and not L.maskOff and (L.isShape or L.isText or L.group): masks = true
-    if L.clipped: clipped = true
-    if L.mode != bmNormal and cssBlend(L.mode).len == 0 and not (L.group and L.passThrough): modes = true
+  ## writes pixels for it): to say when it is saved as one. Kept, and so
+  ## not named: layer masks and clipping masks (as masks), Drop Shadow and
+  ## Outer Glow (as a filter), a type layer's Stroke and Gradient Overlay,
+  ## and what is kept for Retro Photo alone (`svgOwn`).
+  var smart, clipGroup, adjustMask: bool
+  for i, L in d.layers:
+    if L.adjust.kind.len > 0:
+      # (an adjustment layer's own mask: not written)
+      for p in L.px:
+        if (p and 255) != 255:
+          adjustMask = true
+          break
+      continue
+    if L.clipped and d.clipBase(i) == nil: clipGroup = true
     if L.isSmart: smart = true
-  if adjust: result.add "adjustment layers"
-  if fx: result.add "layer effects"
-  if masks: result.add "masks on shapes, type and groups"
-  if clipped: result.add "clipping masks"
-  if modes: result.add "some blending modes"
+  if adjustMask: result.add "the masks of adjustment layers"
+  if clipGroup: result.add "clipping to a group"
   if smart: result.add "Smart Objects (kept as pictures)"
   if d.depth > 8: result.add "more than 8 bits a channel"
 
 
-proc svgOf*(d: Doc; pixels = true): string =
+proc svgOf*(d: Doc; pixels = true; outlines = false): string =
   ## The document as an SVG file (`pixels`: its pixel layers too, as
   ## pictures; else only its shapes and text). Each layer under its name
-  ## (`data-name`; its id the name without spaces), groups as `<g>`.
+  ## (`data-name`; its id the name without spaces), groups as `<g>`; layer
+  ## masks and clipping masks as masks; Drop Shadow as a filter; a pattern
+  ## fill as a pattern. `outlines`: type as its letters' outlines (paths)
+  ## -- it looks the same where its fonts are not, and is no longer text.
   var defs = ""
   var n = 0
   var ids: seq[string]
@@ -200,21 +315,51 @@ proc svgOf*(d: Doc; pixels = true): string =
     if id in ids: id.add "_" & $n
     ids.add id
     " id=\"" & xmlText(id) & "\" data-name=\"" & xmlText(L.name) & "\""
-  for L in d.layers:
-    if L.adjust.kind.len > 0: continue
+  proc quoted(s: string): string =
+    ## (JSON as an attribute's value, in single quotes)
+    "'" & s.multiReplace(("&", "&amp;"), ("<", "&lt;"), (">", "&gt;"), ("'", "&apos;")) & "'"
+  for li, L in d.layers:
     let dp = max(0, L.depth)
     while bufs.len <= dp: bufs.add ""
     let vis = if L.visible: "" else: " visibility=\"hidden\""
+    if L.adjust.kind.len > 0:
+      # (an adjustment layer: nothing an SVG can show -- an empty group that says what it is, for
+      # Retro Photo to make it again)
+      var aj = %*{"kind": L.adjust.kind, "args": L.adjust.args}
+      if L.adjust.data.len > 0: aj["data"] = %L.adjust.data
+      bufs[dp].add "<g" & naming(L, ids, n) & " data-retro-adjust=" & quoted($aj) &
+                   (if L.clipped: " data-retro-clipped=\"1\"" else: "") & vis &
+                   (if L.opacity < 100: " opacity=\"" & num(L.opacity / 100) & "\"" else: "") & "/>\n"
+      inc n
+      continue
     let blend = if L.group and L.passThrough: "" else: cssBlend(L.mode)
     let op = (if L.opacity < 100: " opacity=\"" & num(L.opacity / 100) & "\"" else: "") &
-             (if blend.len > 0: " style=\"mix-blend-mode:" & blend & "\"" else: "")
-    let name = naming(L, ids, n)
+             d.maskDef(li, "mk" & $n, defs) & d.shadowDef(L, "fx" & $n, defs)
+    # (what CSS alone says: the blending mode -- with a text's capitals, in one style)
+    let css = if blend.len > 0: "mix-blend-mode:" & blend & ";" else: ""
+    let sty = if css.len > 0: " style=\"" & css & "\"" else: ""
+    # (for Retro Photo itself: the layer's effects as they are, a blending mode CSS has no name for)
+    var own = ""
+    var kept = L.fx
+    # (type written as outlines: its Stroke is the outlines' own line)
+    if L.isText and outlines: kept.fx[fxStroke].on = false
+    var anyFx = false
+    for e in kept.fx:
+      if e.on: anyFx = true
+    if anyFx:
+      var fj = toJson(kept)
+      if L.fill < 100: fj["fill"] = %L.fill          # (its Fill, which the effects are not under)
+      own.add " data-retro-fx=" & quoted($fj)
+    if L.mode != bmNormal and blend.len == 0 and not (L.group and L.passThrough):
+      own.add " data-retro-mode=\"" & xmlText($L.mode) & "\""
+    let name = naming(L, ids, n) & own
     inc n
     if L.group:
       # (a group: what is in it was written before it, a depth deeper)
       var inner = ""
       while bufs.len > dp + 1: inner = bufs.pop() & inner
-      bufs[dp].add "<g" & name & (if L.visible: "" else: " display=\"none\"") & op & ">\n" & inner & "</g>\n"
+      bufs[dp].add "<g" & name & (if L.visible: "" else: " display=\"none\"") & op & sty & ">\n" & inner &
+                   "</g>\n"
       continue
     while bufs.len > dp + 1:
       # (layers deeper than this one with no group over them: where they are)
@@ -225,7 +370,7 @@ proc svgOf*(d: Doc; pixels = true): string =
       let sh = L.shape
       let box = d.layerBox(L)
       # (a line with arrowheads: cut back where they cover it; they follow, filled)
-      var a = "<path" & name & vis & op & " d=\"" & sh.trimmedPath.pathData & "\" fill=\"" &
+      var a = "<path" & name & vis & op & sty & " d=\"" & sh.trimmedPath.pathData & "\" fill=\"" &
               paintOf(sh.fill, "g" & $n & "f", box, defs) & "\" fill-rule=\"nonzero\""
       if sh.fill.opacity in 1 .. 99: a.add " fill-opacity=\"" & num(sh.fill.opacity / 100) & "\""
       if sh.stroke.kind != spNone and sh.strokeWidth > 0:
@@ -271,6 +416,39 @@ proc svgOf*(d: Doc; pixels = true): string =
       if sh.hasEnds and sh.stroke.kind == spColor and sh.strokeWidth > 0:
         body.add "<path" & vis & op & " d=\"" & sh.endsPath.pathData & "\" fill=\"" &
                  paintOf(sh.stroke, "g" & $n & "e", box, defs) & "\" fill-rule=\"nonzero\"/>\n"
+    elif L.isText and outlines:
+      # (the text as its letters' outlines: one path a color)
+      let td = d.effectiveText(L)
+      var col = 0'u32
+      var pd = ""
+      var first = true
+      # (its Stroke: the outlines' own; Fill at 0: nothing but it)
+      var line = ""
+      var hollow = false
+      if not L.fx.hidden:
+        let sk = L.fx.fx[fxStroke]
+        if sk.on and sk.size > 0:
+          hollow = L.fill == 0
+          line = " stroke=\"" & hexColor(sk.color) & "\" stroke-width=\"" &
+                 num(sk.size.float * (if sk.style == 0: 2 else: 1)) & "\" stroke-linejoin=\"round\"" &
+                 (if sk.opacity in 1 .. 99: " stroke-opacity=\"" & num(sk.opacity / 100) & "\"" else: "") &
+                 (if sk.style == 0 and not hollow: " paint-order=\"stroke\"" else: "")
+      template flushPath() =
+        if pd.len > 0:
+          body.add "<path" & (if first: name else: "") & vis & op & sty & " d=\"" & pd & "\" fill=\"" &
+                   (if hollow: "none" else: hexColor(col)) & "\"" &
+                   (if (col shr 24) < 255 and not hollow: " fill-opacity=\"" & num((col shr 24).float / 255) & "\""
+                    else: "") & " fill-rule=\"nonzero\"" & line & "/>\n"
+          first = false
+          pd = ""
+      for o in textOutlines(td, layoutText(td), fine = true):
+        if o.color != col: flushPath()
+        col = o.color
+        for poly in o.polys:
+          if poly.len < 3: continue
+          for k, v in poly: pd.add (if k == 0: "M" else: "L") & num(v[0]) & " " & num(v[1])
+          pd.add "Z"
+      flushPath()
     elif L.isText:
       # (the text as text: each line where it is laid out, each run in its look)
       let td = d.effectiveText(L)
@@ -279,6 +457,32 @@ proc svgOf*(d: Doc; pixels = true): string =
       var runes = newSeq[string]()
       for r in td.plainText.runes: runes.add $r
       var t = "<text" & name & vis & op & " xml:space=\"preserve\"" & styleAttrs(st, st, true)
+      if css.len > 0 or capsCss(st).len > 0: t.add " style=\"" & css & capsCss(st) & "\""
+      if td.vertical: t.add " writing-mode=\"vertical-rl\""
+      if not L.fx.hidden:
+        # (its Stroke: its letters' outline -- outside them: under them, twice as wide; its
+        # Gradient Overlay: its fill)
+        let sk = L.fx.fx[fxStroke]
+        if sk.on and sk.size > 0:
+          t.add " stroke=\"" & hexColor(sk.color) & "\" stroke-width=\"" &
+                num(sk.size.float * (if sk.style == 0: 2 else: 1)) & "\" stroke-linejoin=\"round\"" &
+                (if sk.opacity in 1 .. 99: " stroke-opacity=\"" & num(sk.opacity / 100) & "\"" else: "") &
+                (if sk.style == 0: " paint-order=\"stroke\"" else: "")
+          # (Fill at 0: the outline alone)
+          if L.fill == 0: t.add " fill-opacity=\"0\""
+        let go = L.fx.fx[fxGradientOverlay]
+        if go.on:
+          let a = degToRad(go.angle.float)
+          let (c0, c1) = if go.down: (go.color2, go.color) else: (go.color, go.color2)
+          if go.style == 1:
+            defs.add "<radialGradient id=\"tg" & $n & "\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\">"
+          else:
+            defs.add "<linearGradient id=\"tg" & $n & "\" x1=\"" & num(0.5 - cos(a) / 2) & "\" y1=\"" &
+                     num(0.5 + sin(a) / 2) & "\" x2=\"" & num(0.5 + cos(a) / 2) & "\" y2=\"" & num(0.5 - sin(a) / 2) &
+                     "\">"
+          defs.add "<stop offset=\"0\" stop-color=\"" & hexColor(c0) & "\"/><stop offset=\"1\" stop-color=\"" &
+                   hexColor(c1) & "\"/>" & (if go.style == 1: "</radialGradient>" else: "</linearGradient>")
+          t.add " fill=\"url(#tg" & $n & ")\""
       if td.onPath and not td.vertical:
         # (along its path: the path in the defs, the text on it)
         var pd = ""
@@ -303,16 +507,17 @@ proc svgOf*(d: Doc; pixels = true): string =
         for ln in lay.lines:
           let s = runsOf(td, runes, ln.first, ln.last, st)
           if s.strip.len == 0: continue
-          let x = if ln.rtl: ln.x1 elif anchor > 0 and not rtl: td.x else: ln.x0
+          # (running down: an SVG's x is the middle of the letters' height, they lie on their side)
+          let x = (if ln.rtl: ln.x1 elif anchor > 0 and not rtl: td.x else: ln.x0) +
+                  (if td.vertical: 0.35'f32 * st.size else: 0'f32)
           t.add "<tspan x=\"" & num(x) & "\" y=\"" & num(ln.baseline) & "\"" &
                 (if ln.rtl: " direction=\"rtl\" text-anchor=\"start\"" else: "") & ">" & s & "</tspan>"
       body.add t & "</text>\n"
     elif pixels and L.px.len == d.w * d.h:
       let r = d.contentBounds(L)
       if r.w <= 0 or r.h <= 0: continue
-      let mask = if L.mask != nil and not L.maskOff: L.mask else: nil
       # (one opaque color all over, as a Background is: a rectangle)
-      var flat = mask == nil and r.w == d.w and r.h == d.h and (L.px[0] shr 24) == 255
+      var flat = r.w == d.w and r.h == d.h and (L.px[0] shr 24) == 255
       if flat:
         let c = L.px[0]
         for p in L.px:
@@ -320,11 +525,11 @@ proc svgOf*(d: Doc; pixels = true): string =
             flat = false
             break
       if flat:
-        body.add "<rect" & name & vis & op & " width=\"" & $d.w & "\" height=\"" & $d.h & "\" fill=\"" &
+        body.add "<rect" & name & vis & op & sty & " width=\"" & $d.w & "\" height=\"" & $d.h & "\" fill=\"" &
                  hexColor(L.px[0]) & "\"/>\n"
       else:
-        body.add "<image" & name & vis & op & " x=\"" & $r.x & "\" y=\"" & $r.y & "\" width=\"" & $r.w &
-                 "\" height=\"" & $r.h & "\" href=\"" & pngData(L.px, d.w, d.h, r, mask) & "\"/>\n"
+        body.add "<image" & name & vis & op & sty & " x=\"" & $r.x & "\" y=\"" & $r.y & "\" width=\"" & $r.w &
+                 "\" height=\"" & $r.h & "\" href=\"" & pngData(L.px, d.w, d.h, r) & "\"/>\n"
     bufs[^1].add body
   var all = ""
   for b in bufs: all.add b

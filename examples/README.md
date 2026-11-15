@@ -186,13 +186,20 @@ zoom. Its engine is in `retroui/photo`.
 
 **SVG** is one of its formats: an .svg opens as layers -- its shapes as
 shape layers, its text as type you can type in (fonts, sizes, colours,
-bold and italic runs, lines, text along a path), its pictures as layers
-of pixels, its named groups as groups -- File > New SVG Drawing starts
-one, and File > Save writes it back (`retroui/svgimport`,
-`retroui/photosvg`). For a picture of it, File > Export As (PNG, JPEG,
-WebP...); for print, File > Save as PDF, where the shapes stay vectors and
-the type stays type, or File > Print. Layer effects, adjustment layers and
-masks on shapes are not in an SVG: the status bar says what was not kept.
+bold and italic runs, lines, text along a path, an outline, a gradient,
+letters each in their place), its pictures as layers of pixels, its
+groups as groups with their opacity and blending, its masks and clip
+paths as layer masks, a drop shadow as the layer's Drop Shadow, a pattern
+as a pattern fill, any other filter as pixels drawn the way the filter
+draws -- File > New SVG Drawing starts one, and File > Save writes it
+back (`retroui/svgimport`, `retroui/photosvg`). For a picture of it,
+File > Export As (PNG, JPEG, WebP...); for print, File > Save as PDF,
+where the shapes stay vectors and the type stays type, or File > Print;
+for a program without your fonts, File > Export > SVG, Type as Outlines.
+What an SVG has no word for -- a bevel, an inner shadow, an adjustment
+layer, a blending mode CSS does not have -- is kept in the file for Retro
+Photo, which opens it again as it was; other programs do not show it, and
+the status bar says so.
 
 ```sh
 nimble photo                # or: nim c -r -d:release examples/photo.nim [picture...]

@@ -44,6 +44,30 @@ var
   loaded: Table[string, Face]
   unreadable: Table[string, string]   ## family -> why its file could not be read
 
+when compileOption("threads"):
+  let engineThread = getThreadId()
+
+proc typeWorker*(): bool {.inline.} =
+  ## This is not the thread the type engine was started on (the one that
+  ## draws) but a worker -- a picture decoded in the background. Text is
+  ## set there too (`layoutText`, `textOutlines`), in the program's own
+  ## three families alone: FreeSans, FreeSerif and FreeMono, each parsed
+  ## again for that thread (faces are not shared between threads). The
+  ## system's fonts and those an app carries are the first thread's:
+  ## `fontFamilies`, `fontStyles`, `scanFonts` and `addFontData` are to be
+  ## called there.
+  when compileOption("threads"): getThreadId() != engineThread
+  else: false
+
+var workerFaces {.threadvar.}: Table[int, Face]
+
+proc ownFace(id: FaceId): Face =
+  ## (a face of the program's for this thread: the one all drawing shares
+  ## on the first, one parsed for the thread on a worker)
+  if not typeWorker(): return face(id)
+  if not workerFaces.hasKey(ord(id)): workerFaces[ord(id)] = threadFace(id)
+  workerFaces[ord(id)]
+
 var memFonts: seq[tuple[entry: FontEntry; ticket: int; face: Face]]
   ## (a packed one: unpacked on a thread from when it is offered, `unpacking`)
   ## Fonts an app (or a module) carries in itself (`addFontData`).
@@ -271,6 +295,13 @@ proc fontFace*(family, style: string): tuple[face: Face; fauxBold, fauxItalic: b
   ## The face for a family and style; a style it lacks is made from the
   ## one it has (faux bold, faux italic); an unknown family is FreeSans (a
   ## font the kit had before, FreeFont's like of it: "Amiri" is FreeSerif).
+  if typeWorker():
+    # (on a worker thread: the program's own families, a face of the thread's own)
+    let low = family.toLowerAscii
+    let sl = style.toLowerAscii
+    let base = if "serif" in low and "sans" notin low: fSerif elif "mono" in low: fMono else: fSans
+    let id = styled(base, "bold" in sl or "black" in sl or "heavy" in sl, "italic" in sl or "oblique" in sl)
+    return (ownFace(id), fauxStyle(id).bold, fauxStyle(id).italic)
   # (FreeFont and the fonts the program carries: found without looking
   # through the font folders)
   let own = not scanned and carriedEntries(family)
@@ -564,7 +595,7 @@ proc pickGlyph(f: Face; cp: int): (Face, int) =
   let g = f.glyphOf(cp)
   if g != 0: return (f, g)
   for id in [fSans, arabicSource(false), fSerif, fIcons]:
-    let ff = face(id)
+    let ff = ownFace(id)
     let gg = ff.glyphOf(cp)
     if gg != 0: return (ff, gg)
   (f, 0)
@@ -1356,7 +1387,8 @@ proc fillPolys(px: var seq[uint32]; w, h: int; polys: seq[seq[(float32, float32)
       px[i] = (uint32(oa) shl 24) or ch(16) or ch(8) or ch(0)
   box.grow(bx0, by0, bx1 + 1, by1 + 1)
 
-var outlineCache: Table[(pointer, int, int), seq[seq[(float32, float32)]]]
+var outlineCache {.threadvar.}: Table[(pointer, int, int), seq[seq[(float32, float32)]]]
+  # (each thread its own: a worker's faces are its own too)
 
 proc outlineOf(f: Face; gid, steps: int): seq[seq[(float32, float32)]] =
   ## A glyph's contours (kept: text is drawn again on each key typed).

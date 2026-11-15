@@ -441,16 +441,14 @@ proc matchesAny*(name: string; patterns: openArray[string]): bool =
       if n.endsWith(p[1 .. ^1]): return true
     elif n == p or globMatch(n, p): return true
 
-var spaces: Table[string, tuple[at: int; v: tuple[free, total: int64]]]
-
 proc diskSpaceCached*(dir: string): tuple[free, total: int64] =
-  ## `diskSpace(dir)`, asked at most every 3 seconds for each folder.
-  let c = spaces.getOrDefault(dir, (-100_000, (0'i64, 0'i64)))
-  if ui.now - c.at > 3000 or ui.now < c.at:
-    let v = diskSpace(dir)
-    spaces[dir] = (ui.now, v)
-    return v
-  c.v
+  ## `diskSpace(dir)` as it was last known, asked again every 3 seconds --
+  ## on a thread (`later`): a disk that does not answer (a network drive
+  ## that is not there) holds up nothing. (0, 0) until it is known.
+  let a = later(akDiskSpace, dir, freshMs = 3000, waitMs = 20)
+  if a.known and a.value.len == 2:
+    try: result = (parseBiggestInt(a.value[0]), parseBiggestInt(a.value[1]))
+    except ValueError: discard
 
 proc searching*(m: FolderModel): bool = m.deep and m.searchFor.len > 0
   ## Showing what a search through the subfolders found.
@@ -492,7 +490,9 @@ proc took(m: FolderModel; r: var TaskResult) =
     m.todo.setLen(0)
   m.dir = r.path
   m.all = move r.items
-  m.stamp = vModTime(m.dir)
+  # (its date as it was when it was listed, read there: the window asks no disk)
+  m.stamp = r.modified
+  tellLater(akModTime, m.dir, (if r.modified == Time(): @[] else: @[$r.modified.toUnix, $r.modified.nanosecond]))
   m.checkedAt = ui.now
   m.applyView(m.keepName)
   if other and m.keepName.len == 0: m.sel = 0
@@ -708,8 +708,14 @@ proc update*(m: FolderModel) =
     return
   m.step()
   if m.dir.len == 0 or m.ticket != 0 or m.deep or ui.now - m.checkedAt < 1500: return
+  # (its date, asked on a thread every second and a half: `later`)
+  let a = later(akModTime, m.dir, freshMs = 1500)
+  if not a.known: return
   m.checkedAt = ui.now
-  let t = vModTime(m.dir)
+  var t = Time()
+  if a.value.len == 2:
+    try: t = initTime(parseBiggestInt(a.value[0]), parseInt(a.value[1]))
+    except ValueError: discard
   if t != m.stamp:
     m.stamp = t
     m.reload()
@@ -1524,21 +1530,22 @@ proc filePreview*(items: openArray[FileItem]; folder = ""; folderStats =
     pv.apk = ApkInfo()
     pv.apkIcon = nil
     if one:
-      if extOf(f.name) == "apk" and f.size < 512 shl 20:
+      if extOf(f.name) == "apk" and f.size < 512 shl 20 and not f.special and not f.offline:
         # (an app's package: what it says of itself, its icon)
         pv.apk = readApk(f.path)
         if pv.apk.icon.startsWith("\x89PNG"): pv.apkIcon = decodePng(pv.apk.icon)
-      if isPicture(f): pv.size = pictureSize(f.path)
-      elif isTextFile(f) and f.size > 0:
-        try:
-          var fh = vOpen(f.path, fmRead)         # (another app's documents too)
-          var buf = newString(4096)
-          buf.setLen(fh.readBuffer(addr buf[0], 4096))
-          fh.close()
-          pv.text = buf
-        except IOError, OSError: discard
-      elif f.isDir:
-        pv.job = newJob(jkMeasure, @[f.path])
+      if f.isDir: pv.job = newJob(jkMeasure, @[f.path])
+  if one and not f.isDir:
+    # (a picture's size, the start of a text: read on a thread, here when they are)
+    if isPicture(f):
+      if pv.size.w == 0:
+        let a = later(akPictureSize, f.path & "\0" & $f.modified.toUnix, waitMs = 40)
+        if a.known and a.value.len == 2:
+          try: pv.size = (parseInt(a.value[0]), parseInt(a.value[1]))
+          except ValueError: discard
+    elif isTextFile(f) and f.size > 0 and pv.text.len == 0:
+      let a = later(akHead, f.path & "\0" & $f.modified.toUnix, waitMs = 40)
+      if a.known and a.value.len == 1: pv.text = a.value[0]
   if pv.job != nil and pv.job.state == jsRunning:
     pv.job.run(4)
     wakeIn(1)
@@ -1628,7 +1635,9 @@ proc filePreview*(items: openArray[FileItem]; folder = ""; folderStats =
     if pv.size.w > 0:
       facts.add ("Picture", $pv.size.w & " x " & $pv.size.h & tr(" pixels"))
     if f.readOnly: facts.add ("Access", tr("read only"))
-    if f.isLink: facts.add ("Link to", (let t = linkTarget(f.path); if t.len > 0: t else: "?"))
+    if f.isLink:
+      let t = later(akLinkTarget, f.path, waitMs = 20)
+      facts.add ("Link to", (if t.known and t.value.len > 0: t.value[0] elif t.known: "?" else: "..."))
     if not wide: facts.add ("Location", f.path.parentDir)
   elif n > 1:
     var bytes = 0'i64
@@ -1722,11 +1731,44 @@ proc forgetFolderTree*() =
   ## The tree reads the folders again (after folders were made or removed).
   tree.kids.clear()
   tree.hasKids.clear()
+  forgetLater(akFolders)
+  forgetLater(akHasFolders)
+
+when defined(windows):
+  proc logicalDrives(): uint32 {.stdcall, dynlib: "kernel32", importc: "GetLogicalDrives".}
+
+  proc drivePlaces(): seq[tuple[name, path: string]] =
+    ## (the drives there are, by their letters: asked of Windows' own list,
+    ## no drive itself -- one that is mapped and not there would not answer)
+    let mask = logicalDrives()
+    for i in 0 .. 25:
+      if (mask and (1'u32 shl i)) != 0:
+        let c = char(ord('A') + i)
+        result.add ($c & ":", $c & ":\\")
 
 proc placeList*(): seq[tuple[name, path: string]] =
-  ## `places()`, asked at most every 5 seconds (it can be slow).
+  ## `places()`, asked at most every 5 seconds (it can be slow). On
+  ## Windows the drives are those Windows lists (a network drive that is
+  ## not connected is among them, and is not asked whether it is there).
   if ui.now - tree.placesAt > 5000:
-    tree.places = places()
+    when defined(windows):
+      # (the user's folders, found on a thread -- `places()` asks every drive letter
+      # whether it is there -- and waited for a moment the first time; the drives,
+      # from Windows' own list)
+      let a = later(akPlaces, "", waitMs = 400)
+      var kept: seq[tuple[name, path: string]]
+      if a.known:
+        for line in a.value:
+          let tab = line.find('\t')
+          if tab > 0 and not (line.len - tab - 1 == 3 and line[tab + 2] == ':'):
+            kept.add (line[0 ..< tab], line[tab + 1 .. ^1])
+      if kept.len == 0: kept.add ("Home", getHomeDir().normalizedPath)
+      tree.places = kept & drivePlaces()
+      if not a.known:
+        tree.placesAt = ui.now - 4900          # (not there yet: looked for again in a moment)
+        return tree.places
+    else:
+      tree.places = places()
     when androidApp:
       # Termux's home, given through its documents provider (docfs)
       if systemCall("installed", "com.termux") == "1":
@@ -1844,8 +1886,10 @@ proc folderNode(path, label: string; pic: Icon; hidden: bool; ev: var FolderTree
                 id = "") =
   var open = tree.open.getOrDefault(path, false)
   if not tree.hasKids.hasKey(path):
-    tree.hasKids[path] = try: hasSubFolders(path, hidden) except OSError: false
-  let has = open or tree.hasKids[path]
+    # (asked on a thread: until it answers the folder may have folders)
+    let a = later(akHasFolders, path, hidden, waitMs = 30)
+    if a.known: tree.hasKids[path] = a.value.len > 0
+  let has = open or tree.hasKids.getOrDefault(path, true)
   let shown = beginNode(label, open, pic = pic, id = (if id.len > 0: id else: path),
                         hasKids = has)
   # files dragged onto the folder
@@ -1866,14 +1910,17 @@ proc folderNode(path, label: string; pic: Icon; hidden: bool; ev: var FolderTree
       else: discard
   if shown:
     if not tree.kids.hasKey(path):
-      tree.kids[path] = try: subFolders(path, hidden) except OSError: @[]
-      tree.kids[path].sort(proc (a, b: string): int =
-        cmpNatural(a.extractFilename, b.extractFilename))
+      # (its folders, read on a thread: here when they are)
+      let a = later(akFolders, path, hidden, waitMs = 60)
+      if a.known:
+        var found = a.value
+        found.sort(proc (a, b: string): int = cmpNatural(a.extractFilename, b.extractFilename))
+        tree.kids[path] = found
     let k = if retroIcons: max(16, ItemH - 1) else: min(ItemH - 3, FontH + 3)
     # (a copy: a folder below, opened or closed, adds its own list to the
     # table or takes it away -- the table moves its lists, and this one
     # walked in place would be read where it no longer is)
-    let kids = tree.kids[path]
+    let kids = tree.kids.getOrDefault(path)
     for sub in kids:
       folderNode(sub, sub.extractFilename, glyphIcon(retroOr(pxFolder, nfFolder), folderColor, k), hidden, ev)
   endNode()
@@ -1882,6 +1929,8 @@ proc folderNode(path, label: string; pic: Icon; hidden: bool; ev: var FolderTree
     if not open:
       tree.kids.del path
       tree.hasKids.del path
+      forgetLater(akFolders, path)       # (read again when it is next opened)
+      forgetLater(akHasFolders, path)
 
 proc folderTree*(selected: var string; favorites: openArray[string] = [];
                  showHidden = false; rows = -1;
@@ -1987,7 +2036,8 @@ proc pathBar*(path: string; key = ""; editNow = false; w = 0): PathBarEvent =
                  else: st.buf.parentDir
     if parent != st.suggestFor:
       st.suggestFor = parent
-      st.suggestions = try: subFolders(parent) except OSError: @[]
+      # (asked on a thread, waited for a moment: a disk that does not answer suggests nothing)
+      st.suggestions = askNow(akFolders, parent, waitMs = 250).value
     var shown: seq[string]
     let part = if parent == st.buf: "" else: st.buf.extractFilename.toLowerAscii
     for f in st.suggestions:
@@ -2010,8 +2060,10 @@ proc pathBar*(path: string; key = ""; editNow = false; w = 0): PathBarEvent =
       if keyHit(KeyEnter) or (changed and ui.key == KeyEnter):
         let p = st.buf.strip.expandTilde
         st.editing = false
-        if vIsDir(p) or dirExists(p): result.go = cleanPath(p)
-        elif vExists(p): result.go = cleanPath(p.parentDir)
+        # (asked on a thread, waited for a second and a half; no answer: gone to all the same)
+        let there = askNow(akExists, p, waitMs = 1500)
+        if not there.known or there.value == @["d"]: result.go = cleanPath(p)
+        elif there.value == @["f"] or vExists(p): result.go = cleanPath(p.parentDir)
         else: result.error = "There is no folder " & p & "."
       elif keyHit(KeyEsc): st.editing = false
     elif ui.focus != editId and ui.focus != 0 and not focusNow:
@@ -2098,7 +2150,7 @@ proc pathBar*(path: string; key = ""; editNow = false; w = 0): PathBarEvent =
          if open: nfChevronDown else: sep, if ah.showsHover or open: th.text else: th.gray)
     if ah.clicked:
       st.menuFor = i
-      st.menuItems = subFolders(parts[i].path)
+      st.menuItems = askNow(akFolders, parts[i].path, waitMs = 700).value
       openPopupMenu(menuKey, ar.x, ar.y + ar.h + 1)
     x += ar.w
   popClip()
@@ -2288,7 +2340,9 @@ proc propertiesDialog*(open: var bool; items: openArray[FileItem]): bool {.disca
         if perms.len > 0:
           field "Permissions:": label perms
         if f.isLink:
-          field "Link to:": label((let t = linkTarget(f.path); if t.len > 0: t else: "?"))
+          field "Link to:":
+            let t = later(akLinkTarget, f.path, waitMs = 20)
+            label(if t.known and t.value.len > 0: t.value[0] elif t.known: "?" else: "...")
     row:
       spring()
       if button("OK", isDefault = true): open = false

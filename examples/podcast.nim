@@ -100,6 +100,10 @@ proc follow(url: string) =
   if lib.showOf(u) < 0:
     lib.shows.add Show(url: u, title: u)
     dirty = true
+    # (a smoke run's random input follows show after show: eight are kept,
+    # so that what the library holds does not grow for as long as it runs)
+    if smokeOn() and lib.shows.len > 8:
+      if lib.nowPlaying.len == 0 or lib.find(lib.nowPlaying)[0] != 0: lib.shows.delete(0)
   showSel = lib.showOf(u)
   refresh(u)
   status = "Reading " & u & "..."

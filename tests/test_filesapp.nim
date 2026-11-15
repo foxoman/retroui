@@ -152,6 +152,21 @@ block kinds:
     key(KeyEsc)
     run(2)
     doAssert viewerShown() == "vkNone", name & " closed"
+  # a pipe is no file to open, whatever it is called: reading one would never end
+  # (a night's random input opened one, and the app never came back)
+  when defined(posix):
+    for name in ["pipe", "pipe.png", "pipe.txt", "pipe.apk"]:
+      if execShellCmd("mkfifo " & quoteShell(k / name)) != 0: continue
+      doAssert infoOf(k / name).special and specialFile(k / name), name
+      doAssert not isPicture(infoOf(k / name)) and not isTextFile(infoOf(k / name))
+      openPath(k / name)                       # (says so; shows nothing)
+      run(3)
+      doAssert viewerShown() == "vkNone", name
+      key(KeyEsc)
+      run(2)
+      removeFile(k / name)
+    doAssert not infoOf(k / "note.eml").special and not specialFile(k / "nothing-here")
+    when defined(linux): doAssert specialFile("/dev/null")
   # the tar extracted as a zip is: Extract all here
   if hasTar:
     startJob(jkUnzip, @[k / "old.tar.gz"], k, "Extracting")

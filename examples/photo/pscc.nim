@@ -122,6 +122,7 @@ proc psMenus() =
         ci("&Slices to Files...", "Slices to Files", enabled = some and slicesOf(d).len > 0)
         sep()
         ci("S&VG...", "SVG...", enabled = some)
+        ci("SVG, Type as &Outlines...", "SVG, Type as Outlines...", enabled = some)
       sep()
       ci("Place &Embedded...", "Place...", enabled = some)
       ci("Place as &Layer...", "Layer from File...", enabled = some)
@@ -866,6 +867,7 @@ proc psCommand(name: string): bool =
     scriptPath = scriptsDir() & "/"
     scriptPick = true
   of "SVG...": startSvgExport()
+  of "SVG, Type as Outlines...": startSvgExport(outlines = true)
   of "New SVG Drawing": startSvgDrawing()
   of "Styles": togglePanel("styles")
   of "Shapes": togglePanel("shapes")

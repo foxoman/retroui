@@ -1302,6 +1302,7 @@ scroll bars.
 
 ```nim
 for f in listFolder(dir): echo f.name, " ", sizeText(f.size), " ", kindName(f)
+if specialFile("/dev/ttyS0"): echo "a device or a pipe: not a file to read (also f.special)"
 let job = newJob(jkCopy, @["a.txt", "photos"], "/backup")   # also jkMove, jkDelete,
 while job.state == jsRunning: job.run(12)                   # jkZip, jkUnzip, jkMeasure
 # job.progressOf, job.conflict + resolve(cfReplace / cfSkip / cfKeepBoth), cancel()
@@ -1327,6 +1328,12 @@ for r in finished():                      # every frame: what is done
   if r.ticket == t: items = r.items       # (pictures: r.toBitmap)
 discard pictureAsync(path, 800, 800, onDone = proc (r: var TaskResult) =
   photo = r.toBitmap)                     # or a callback, on the UI thread
+
+# what is drawn every frame never asks a disk itself: a network drive that is not
+# connected, a cloud folder, would hold the window for as long as it took to answer
+let space = later(akDiskSpace, dir, freshMs = 3000)       # known at once, asked on a thread
+if space.known and space.value.len == 2: label space.value[0] & " bytes free"
+if askNow(akExists, typed, waitMs = 1500).value == @["d"]: go(typed)   # the user asked: a short wait
 
 var log = openTextFile("huge.log")        # opens at once, any size
 textFileView(log, sel)                    # lines counted a few ms a frame
@@ -1497,7 +1504,13 @@ of the device's memory and are let go when it runs short or the app goes
 to the background (`retroui/memwatch`, `retroui/thumbcache`); an **Arabic
 interface** mirrored right to left; Tools > **Folder Sizes**; Copy To /
 Move To Folder, Send To, Share; Help > **Report a Problem** (a fault no
-longer closes the app).
+longer closes the app). Its window does not wait for a disk: the tree, the
+drives, the free space and the details pane are asked for on threads
+(`later`), so a network drive that is not connected or a cloud folder
+holds nothing up; a cloud file that is not on the disk (OneDrive's Files
+On-Demand) is not fetched for a thumbnail or a preview. On Windows a
+window that stops answering for five seconds writes which procs it was in
+to the fault log (`retroui/hangwatch`), for Report a Problem to show.
 
 Fast with big folders and big files: lists glide when scrolled (a flick
 goes on, a tap stops it), folders are listed and pictures
@@ -2106,7 +2119,12 @@ layers (its shapes as shape layers, its text as type that can be typed in, in it
 colours and lines, along a path too; its pictures as layers of pixels; its named groups as
 groups), File > New SVG Drawing starts one, File > Save writes it back (and Save As, Export As
 and Save as PDF make a picture or a PDF of it, the vectors and the type kept in the PDF), and
-what an SVG does not hold is said when it is saved. `examples/magazine.nim` makes a three-page
+what an SVG does not hold is said when it is saved. Since 4.12: the rest of SVG -- filters (a
+plain shadow the layer's Drop Shadow, any other drawn as pixels), patterns as pattern fills,
+masks and clip paths as layer masks, blending modes, groups with their opacity, hidden layers;
+type with its outline (a Stroke; alone, with Fill at 0), its gradient, running down, each
+letter where the file puts it; every layer effect, blending mode and adjustment layer kept in
+the saved SVG for Retro Photo to open again; File > Export > SVG, Type as Outlines. `examples/magazine.nim` makes a three-page
 magazine with the engine, tool by tool.
 
 ```nim
@@ -2130,12 +2148,14 @@ convertPixels(px, displayP3Profile(), srgbProfile())
 
 ```nim
 import retroui/[photo, photofiles, photosvg, svgimport]
-let d = openPicture("poster.svg")              # layers: its shapes, its text as type, its pictures, its groups
+let d = openPicture("poster.svg")              # layers: shapes, type, pictures, groups, masks, shadows
 for L in d.layers:
   if L.isText: echo L.name, ": ", L.text.plainText
-writeFile("poster-2.svg", d.svgOf())           # and back: paths, text, pictures, groups
-echo d.svgLosses                               # what an SVG does not hold of it (layer effects...)
-let thumb = rasterizeSvg(readFile("poster.svg"), 256, 256)   # or just a picture of it
+writeFile("poster-2.svg", d.svgOf())           # and back: paths, text, pictures, groups, masks, filters
+writeFile("poster-print.svg", d.svgOf(outlines = true))      # the type as paths: no fonts needed
+echo d.svgOwn                                  # kept for Retro Photo alone (a bevel, an adjustment layer...)
+echo d.svgLosses                               # what the SVG does not hold at all
+let thumb = rasterizeSvg(readFile("poster.svg"), 256, 256)   # or just a picture of it: filters, patterns, text
 ```
 
 ```nim
@@ -3123,7 +3143,7 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_bidi` | the bidi algorithm against Unicode's (a corpus of Arabic, Persian and mixed lines, explicit embeddings and isolates, conformance lines), the joiners, Arabic in text boxes and the rich editor (caret, marks, Backspace and Delete, selections, the clipboard), PDF read back in reading order, right-to-left Excel sheets, the Arabic interface's text boxes and charts |
 | `test_uifonts` | the font choices and their settings words, a .ttc collection read and used as the UI's font, the canvas's font names, every character of the kit's strings and the Arabic translations in the fonts |
 | `test_input` | every kind of input on the widgets that take it: the slide switch, the tab strip, chips, the bottom bar, the menu key, the mouse's side buttons, a tall dialog on a touch screen |
-| `test_files` | listings (quick and full), natural sorting, copy / move / delete / zip / unzip jobs with conflicts, links and cancelling, JPEG decoding, big text and hex files, worker threads, thousands of damaged files, zip bombs, names that climb out |
+| `test_files` | listings (quick and full), natural sorting, copy / move / delete / zip / unzip jobs with conflicts, links and cancelling, JPEG decoding, big text and hex files, worker threads, what the window asks of a disk answered on a thread (`later`: six questions held up by pipes nobody writes to hold up neither the window nor a folder's listing), thousands of damaged files, zip bombs, names that climb out |
 | `test_apps` | settings rows, appearance, avatars, steps, pages, banners, the bottom bar, the folder model, the file list, thumbnails, the preview, text and hex views, properties, file jobs |
 | `test_explorer` | drag and drop (mouse, Ctrl, Esc, a finger held then moved), drops and the jobs and undo they lead to, the tab strip, the path bar (clicks on folders, the folder menus, typing, suggestions), names first and then sizes, balloons |
 | `test_docfs` | another app's folder through a fake documents provider: "Allow access", listing, reading and writing, renames, every file job in and out of it, undo |
@@ -3167,7 +3187,8 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_grow` | Grow without a window: the plan's numbers, the main button at the page's foot, the result's timeline played to its end (every bar risen, the coin, the goal felt), Back |
 | `test_looks` | what a control takes to look different: the accent button, a text style and a height for buttons and number boxes, groups with a title strip, options in boxes, the gauge in bands and the range bar, a tool bar's line and space, `withTheme` and `withTextStyle` -- and the 28 colour schemes, each one's text readable (4.5 to 1) on its window, fields, buttons and highlight; docs/customizing.md's own samples |
 | `test_bmi` | BMI Studio without a window: the numbers in both unit systems (classed as shown), Calculate BMI the default button in the accent colour, another scheme taken by the bands and the button, a phone's layout |
-| `test_svgimport`, `test_photosvg` | SVG read as resvg draws it (60 icons and flags), its text (runs, lines, along a path, the font found) and pictures (in the file, beside it, nowhere else) read, drawn and made layers; damaged files never a crash; a document written as SVG and opened again: the same layers by name, the same type, the same picture, the same file written twice |
+| `test_hangwatch` | the table of a program's procs read and a place in the program named by it (a Windows window that stops answering writes the procs its thread is in); no watch elsewhere |
+| `test_svgimport`, `test_photosvg` | SVG drawn as resvg draws it (65 drawings: icons, flags, and one for each filter step, pattern, blending mode, mask and way of placing type), its text (runs, lines, along a path, the font found, letters in their own places, outlined, hollow, running down) and pictures (in the file, beside it, nowhere else) read, drawn -- on worker threads too -- and made layers; filters by numbers (linear light, a step's rectangle, noise, displacement, lighting); damaged files never a crash; a document written as SVG and opened again: the same layers by name, the same type, masks, effects, pattern fills, adjustment layers and blending modes, the same picture, the same file written twice; type as outlines |
 | `test_podcast` | Retro Podcast without a window: a feed file followed (read by a job), an episode played from where it was left, the queue, Mark Played and Unfollow undone, OPML, the library saved and read back |
 | `test_scale` | fractional scales (125 % to 300 %): controls and text the size asked for, lines on whole pixels, a change of scale followed |
 | `test_touchsizes` | `RETRO_TOUCH` and `RETRO_CONTROLS`: finger-sized controls on a tablet's screen when asked, desktop and automatic sizes |

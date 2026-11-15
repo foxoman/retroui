@@ -4577,7 +4577,11 @@ type MaskFill* = enum
   mfRevealAll = "Reveal All", mfHideAll = "Hide All", mfRevealSelection = "Reveal Selection",
   mfHideSelection = "Hide Selection"
 
-proc grayLayer(d: Doc; name: string; f: proc (i: int): int): Layer =
+proc grayLayer*(d: Doc; name: string; f: proc (i: int): int): Layer =
+  ## A layer of grays the document's size -- a layer mask (white shows,
+  ## black hides), an adjustment layer's -- each pixel `f` of its place
+  ## (0..255). Not in the document: set it as a layer's `mask` (in a step,
+  ## after `touchLayers`).
   result = Layer(name: name, opacity: 100, mode: bmNormal, visible: true, gray: true,
                  px: newSeqUninit[uint32](d.w * d.h))
   for i in 0 ..< d.w * d.h: result.px[i] = grayPx(f(i))

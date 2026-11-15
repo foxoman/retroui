@@ -2,16 +2,22 @@
 ## style sheets, uses, gradients, clips, masks, markers), made shapes
 ## (`svgShapes`, `placeSvg`: one shape for a one-color icon, undoable) and
 ## drawn (`rasterizeSvg`) as resvg draws it; texts (runs, lines, along a
-## path, the font found) and pictures (in the file, beside it), read,
-## drawn and made type layers and layers of pixels; bad input never
-## crashes (fuzzed); 60 thumbnails timed.
+## path, the font found, letters given places, outlines, gradients,
+## directions) and pictures (in the file, beside it, an SVG), read, drawn
+## -- on worker threads too -- and made type layers and layers of pixels;
+## patterns, filters (and the drop shadows among them), blending modes,
+## masks, groups kept as groups, and what is hidden kept hidden; bad input
+## never crashes (fuzzed); 60 thumbnails timed.
 ##
 ## Fixtures (tests/data/svg): icons of Iconify's sets -- mdi (Apache-2.0),
 ## tabler (MIT), lucide (ISC), ph (MIT), fluent-emoji-flat (MIT), noto
 ## (Apache-2.0), logos (CC0), flag-icons (MIT), circle-flags (MIT) -- two
 ## Wikimedia Commons flags (public domain, as hjnilsson/country-flags has
 ## them), kitchen.svg (written for these tests); each with a .png of it as
-## resvg 0.48 draws it 64 pixels wide.
+## resvg 0.48 draws it 64 pixels wide. fx-*.svg (written for these tests:
+## patterns, every filter step, blending modes, masks, text with its
+## outline, its gradient, its letters' own places): each as resvg draws it
+## 96 pixels wide (resvg_py 0.5.0, FreeSans given for the text).
 
 import std/[os, strutils, math, monotimes, times, random, tables, base64]
 import retroui/[gfx, photo, photoshapes, imaging, svgimport, textengine]
@@ -220,10 +226,16 @@ block textsAndPictures:
   doAssert svgFont("Courier New", 700, true) == ("FreeMono", "Bold Oblique") or
            svgFont("Courier New", 700, true) == ("FreeMono", "Bold Italic")
   doAssert svgFont("").family == "FreeSans" and svgFont("FREESERIF").family == "FreeSerif"
-  # a text in a mask is not one of the document's
-  d = parseSvg(svg("<mask id='m'><text x='0' y='20' fill='white'>cut</text></mask>" &
-                   "<rect width='50' height='50' mask='url(#m)'/>"))
-  doAssert d.texts.len == 0 and d.skipped["text"] == 1
+  # a text in a mask masks: what is under shows through its letters
+  d = parseSvg(svg("<mask id='m'><text x='5' y='80' font-size='90' font-weight='bold' fill='white'>I</text></mask>" &
+                   "<rect width='100' height='100' fill='#0000ff' mask='url(#m)'/>"))
+  doAssert d.texts.len == 1 and d.masks.len == 1 and d.skipped.getOrDefault("text") == 0
+  block:
+    let b = rasterizeSvg(d, 100, 100)
+    var blue = 0
+    for p in b.px:
+      if p == 0xFF0000FF'u32: inc blue
+    doAssert blue > 300 and blue < 4000 and b.px[0] == 0          # (an I of blue, nothing round it)
 
   # pictures: in the file, beside it; nowhere else
   let pic = newBitmap(4, 2)
@@ -285,20 +297,32 @@ block textsAndPictures:
   doc.undo()
   doAssert doc.layers.len == 1
 
-  # on another thread: the shapes and pictures, no text (the type engine is the drawing thread's)
+  # on another thread (a thumbnail made in the background): its text too, in the
+  # program's own fonts -- each thread with faces of its own
   when compileOption("threads"):
     var other: Thread[void]
     var seen {.global.}: int
     proc work() {.thread.} =
       {.cast(gcsafe).}:
-        let dd = parseSvg("<svg xmlns='http://www.w3.org/2000/svg' width='50' height='50'><text x='5' y='40' " &
-                          "font-size='40' fill='#00a000'>I</text><rect width='5' height='5' fill='#00a000'/></svg>")
-        let bb = rasterizeSvg(dd, 50, 50)
-        for p in bb.px:
-          if p == 0xFF00A000'u32: inc seen
-    createThread(other, work)
-    joinThread(other)
-    doAssert seen == 25
+        var mine = 0
+        for round in 0 ..< 8:
+          let dd = parseSvg("<svg xmlns='http://www.w3.org/2000/svg' width='50' height='50'><text x='5' y='40' " &
+                            "font-size='40' font-weight='bold' fill='#00a000'>I</text><text x='30' y='20' " &
+                            "font-size='9' font-family='monospace'>" & $round & "</text>" &
+                            "<rect width='5' height='5' fill='#00a000'/></svg>")
+          let bb = rasterizeSvg(dd, 50, 50)
+          mine = 0
+          for p in bb.px:
+            if p == 0xFF00A000'u32: inc mine
+        discard atomicInc(seen, mine)
+    var others: array[3, Thread[void]]
+    for t in others.mitems: createThread(t, work)
+    # (and here at the same time)
+    for k in 0 ..< 20:
+      discard rasterizeSvg(parseSvg(svg("<text x='5' y='40' font-size='40' font-family='serif'>Aa " & $k &
+                                        "</text>")), 60, 60)
+    for t in others.mitems: joinThread(t)
+    doAssert seen > 3 * 150 and seen mod 3 == 0, $seen           # (three I's, alike, and the squares)
 
   # damaged: never a crash
   var rng = initRand(11)
@@ -317,6 +341,471 @@ block textsAndPictures:
     discard rasterizeSvg(dd, 24, 24)
     discard dd.svgPieces((0.0, 0.0, 64.0, 64.0))
 echo "texts and pictures ok"
+
+# ---- patterns, filters, groups, masks, blending, what is hidden ----------------------------------------
+
+block looks:
+  proc count(b: Bitmap; c: uint32): int =
+    for p in b.px:
+      if p == c: inc result
+  # a pattern: its tile drawn, repeated; a pattern fill in a document
+  var d = parseSvg(svg("<pattern id='p' width='10' height='10' patternUnits='userSpaceOnUse'>" &
+                       "<rect width='10' height='10' fill='#ffffff'/><rect width='5' height='10' fill='#ff0000'/>" &
+                       "</pattern><rect x='10' y='10' width='80' height='80' fill='url(#p)'/>"))
+  doAssert d.patterns.len == 1 and d.items.len == 1 and d.items[0].fill.kind == spkPattern and
+           d.skipped.getOrDefault("pattern") == 0
+  doAssert d.patterns[0].w == 10 and d.patterns[0].items.len == 2
+  var b = rasterizeSvg(d, 100, 100)
+  doAssert b.count(0xFFFF0000'u32) == 3200 and b.count(0xFFFFFFFF'u32) == 3200 and b.px[0] == 0   # (stripes)
+  doAssert b.px[50 * 100 + 12] == 0xFFFF0000'u32 and b.px[50 * 100 + 17] == 0xFFFFFFFF'u32
+  var ps = d.svgPieces((0.0, 0.0, 200.0, 200.0))
+  doAssert ps.len == 1 and ps[0].shape.fill.kind == spPattern and ps[0].shape.fill.pw == 20 and
+           ps[0].shape.fill.pattern.len == 400 and ps[0].shape.fill.pattern[0] == 0xFFFF0000'u32
+  # ... in parts of the shape's box, after another pattern, moved
+  d = parseSvg(svg("<pattern id='a' width='0.5' height='1'><rect width='20' height='80' fill='#00ff00'/></pattern>" &
+                   "<pattern id='b' href='#a' patternTransform='translate(20 0)'/>" &
+                   "<rect x='10' y='10' width='80' height='80' fill='url(#b)'/>"))
+  b = rasterizeSvg(d, 100, 100)
+  doAssert b.px[50 * 100 + 15] == 0 and b.px[50 * 100 + 35] == 0xFF00FF00'u32 and b.px[50 * 100 + 55] == 0 and
+           b.px[50 * 100 + 75] == 0xFF00FF00'u32
+  # ... turned a quarter: as a shape's fill, one tile the size of the shape's box, the stripes lying
+  # across on it as they do in the picture (a pattern fill itself is never turned)
+  d = parseSvg(svg("<pattern id='p' width='10' height='10' patternUnits='userSpaceOnUse' " &
+                   "patternTransform='rotate(90)'><rect width='10' height='10' fill='#ffffff'/>" &
+                   "<rect width='5' height='10' fill='#ff0000'/></pattern>" &
+                   "<rect x='10' y='10' width='80' height='60' fill='url(#p)'/>"))
+  b = rasterizeSvg(d, 100, 100)
+  doAssert b.px[12 * 100 + 50] == 0xFFFF0000'u32 and b.px[17 * 100 + 50] == 0xFFFFFFFF'u32 and
+           b.px[12 * 100 + 20] == 0xFFFF0000'u32                     # (the stripes run across now)
+  ps = d.svgPieces((0.0, 0.0, 100.0, 100.0))
+  doAssert ps.len == 1 and ps[0].shape.fill.kind == spPattern and ps[0].shape.fill.pw == 81 and
+           ps[0].shape.fill.ph == 61
+  block:
+    let doc = newDoc(100, 100, 0'u32)
+    discard doc.placeSvg(svg("<pattern id='p' width='10' height='10' patternUnits='userSpaceOnUse' " &
+                             "patternTransform='rotate(90)'><rect width='10' height='10' fill='#ffffff'/>" &
+                             "<rect width='5' height='10' fill='#ff0000'/></pattern>" &
+                             "<rect x='10' y='10' width='80' height='60' fill='url(#p)'/>"), rect(0, 0, 100, 100))
+    let flat = doc.toBitmap()
+    var apart = 0
+    for i in 0 ..< flat.px.len:
+      if flat.px[i] != b.px[i]: inc apart
+    doAssert apart < 300, $apart                                  # (the same picture, but for its edge)
+  # a pattern that is not there: its fallback color, and counted
+  d = parseSvg(svg("<rect width='10' height='10' fill='url(#none) #123456'/><pattern id='e' width='4' height='4'/>" &
+                   "<rect width='10' height='10' fill='url(#e) blue'/>"))
+  doAssert d.items[0].fill.color == 0xFF123456'u32 and d.items[1].fill.color == 0xFF0000FF'u32 and
+           d.skipped["pattern"] == 1
+
+  # filters: a blur spreads, a shadow lies where it is put, in its color
+  d = parseSvg(svg("<filter id='f' x='-50%' y='-50%' width='200%' height='200%'><feGaussianBlur stdDeviation='4'/>" &
+                   "</filter><rect x='40' y='40' width='20' height='20' fill='#ff0000' filter='url(#f)'/>"))
+  doAssert d.filters.len == 1 and d.groups.len == 1 and d.groups[0].filter == 1 and
+           d.skipped.getOrDefault("filter") == 0
+  b = rasterizeSvg(d, 100, 100)
+  doAssert (b.px[50 * 100 + 50] shr 24) > 150 and (b.px[50 * 100 + 50] shr 24) < 255   # (its middle paler)
+  doAssert (b.px[50 * 100 + 34] shr 24) in 10'u32 .. 120'u32 and b.px[50 * 100 + 10] == 0   # (past its edge; not far)
+  d = parseSvg(svg("<filter id='f' x='-50%' y='-50%' width='200%' height='200%'><feDropShadow dx='10' dy='20' " &
+                   "stdDeviation='0' flood-color='#0000ff' flood-opacity='0.5'/></filter>" &
+                   "<rect x='20' y='20' width='30' height='30' fill='#ff0000' filter='url(#f)'/>"))
+  b = rasterizeSvg(d, 100, 100)
+  doAssert b.px[30 * 100 + 30] == 0xFFFF0000'u32                 # (itself, over its shadow)
+  let sh = b.px[60 * 100 + 55]
+  doAssert (sh shr 24) in 126'u32 .. 129'u32 and (sh and 255) == 255 and ((sh shr 16) and 255) == 0, toHex(sh)
+  doAssert b.px[15 * 100 + 15] == 0 and b.px[80 * 100 + 80] == 0
+  let s1 = svgShadow(d.filters[0])
+  doAssert s1.on and s1.dx == 10 and s1.dy == 20 and s1.blur == 0 and s1.color == 0x800000FF'u32
+  # ... the steps drawing programs write for one: seen as one, and drawn the same
+  d = parseSvg(svg("<filter id='f' x='-50%' y='-50%' width='200%' height='200%'><feGaussianBlur in='SourceAlpha' " &
+                   "stdDeviation='0'/><feOffset dx='10' dy='20' result='o'/><feFlood flood-color='#0000ff' " &
+                   "flood-opacity='0.5'/><feComposite in2='o' operator='in'/><feMerge><feMergeNode/>" &
+                   "<feMergeNode in='SourceGraphic'/></feMerge></filter>" &
+                   "<rect x='20' y='20' width='30' height='30' fill='#ff0000' filter='url(#f)'/>"))
+  let s2 = svgShadow(d.filters[0])
+  doAssert s2.on and s2.dx == 10 and s2.dy == 20 and s2.color == 0x800000FF'u32
+  let b2 = rasterizeSvg(d, 100, 100)
+  doAssert b2.px == b.px
+  # ... CSS's own: drop-shadow(), blur()
+  d = parseSvg(svg("<rect x='20' y='20' width='30' height='30' fill='#ff0000' " &
+                   "style='filter: drop-shadow(10px 20px 0px rgb(0, 0, 255))'/>"))
+  doAssert d.filters.len == 1 and svgShadow(d.filters[0]).dx == 10 and
+           svgShadow(d.filters[0]).color == 0xFF0000FF'u32
+  # ... colors: gray; turned round; a table; grown and shrunk; added up
+  proc one(filter: string; fill = "#ff0000"; space = "sRGB"): uint32 =
+    let dd = parseSvg(svg("<filter id='f' x='-50%' y='-50%' width='200%' height='200%' " &
+                          "color-interpolation-filters='" & space & "'>" & filter & "</filter>" &
+                          "<rect x='40' y='40' width='20' height='20' fill='" & fill & "' filter='url(#f)'/>"))
+    doAssert dd.skipped.getOrDefault("filter") == 0, filter
+    rasterizeSvg(dd, 100, 100).px[50 * 100 + 50]
+  doAssert one("<feColorMatrix type='saturate' values='0'/>") == 0xFF363636'u32
+  doAssert one("<feColorMatrix type='matrix' values='0 0 0 0 0  0 0 0 0 1  0 0 0 0 0  0 0 0 1 0'/>") == 0xFF00FF00'u32
+  doAssert ((one("<feColorMatrix type='hueRotate' values='120'/>") shr 8) and 255) > 100   # (red toward green)
+  doAssert one("<feComponentTransfer><feFuncR type='linear' slope='0.5'/><feFuncA type='table' " &
+               "tableValues='0 0.5'/></feComponentTransfer>") == 0x80800000'u32
+  doAssert one("<feFlood flood-color='#00ff00'/><feComposite in2='SourceGraphic' operator='arithmetic' " &
+               "k2='0.5' k3='0.5'/>") == 0xFF808000'u32
+  doAssert one("<feFlood flood-color='#0000ff'/><feBlend in='SourceGraphic' mode='screen'/>") == 0xFFFF00FF'u32
+  # ... in linear light, as a filter is unless it says sRGB: red's gray is lighter, half of red is not 128
+  doAssert one("<feColorMatrix type='saturate' values='0'/>", space = "linearRGB") == 0xFF7F7F7F'u32
+  doAssert one("<feColorMatrix type='saturate' values='0'/>", space = "auto") == 0xFF7F7F7F'u32
+  doAssert one("<feFlood flood-color='#00ff00'/><feComposite in2='SourceGraphic' operator='arithmetic' " &
+               "k2='0.5' k3='0.5'/>", space = "linearRGB") == 0xFFBCBC00'u32
+  doAssert one("<feFlood flood-color='#0000ff' color-interpolation-filters='sRGB'/><feComposite in2='SourceGraphic' " &
+               "operator='arithmetic' k2='0.5' k3='0.5' color-interpolation-filters='sRGB'/>",
+               space = "linearRGB") == 0xFF800080'u32          # (a step's own word)
+  # ... the blending modes that take the three colors together
+  # (red over gray. color: red's hue as light as the gray -- 1, 0.29, 0.29; luminosity: a gray as light as red, 0.3)
+  let asColor = one("<feFlood flood-color='#808080'/><feBlend in='SourceGraphic' mode='color'/>")
+  doAssert asColor == 0xFFFF4A4A'u32 or asColor == 0xFFFF4949'u32, toHex(asColor)
+  let asLight = one("<feFlood flood-color='#808080'/><feBlend in='SourceGraphic' mode='luminosity'/>")
+  doAssert asLight == 0xFF4D4D4D'u32 or asLight == 0xFF4C4C4C'u32, toHex(asLight)
+  # ... a step's own rectangle: nothing of it outside
+  d = parseSvg(svg("<filter id='f' filterUnits='userSpaceOnUse' x='0' y='0' width='100' height='100'>" &
+                   "<feFlood flood-color='#00ff00' x='10' y='20' width='30' height='40'/></filter>" &
+                   "<rect x='40' y='40' width='20' height='20' fill='#ff0000' filter='url(#f)'/>"))
+  b = rasterizeSvg(d, 100, 100)
+  doAssert b.count(0xFF00FF00'u32) == 1200 and b.px[20 * 100 + 10] == 0xFF00FF00'u32 and b.px[50 * 100 + 50] == 0
+  # ... tiles: that rectangle side by side
+  d = parseSvg(svg("<filter id='f' filterUnits='userSpaceOnUse' x='0' y='0' width='100' height='100'>" &
+                   "<feFlood flood-color='#00ff00' x='0' y='0' width='10' height='10' result='a'/>" &
+                   "<feOffset in='SourceGraphic' dx='0' dy='0' x='0' y='0' width='20' height='20' result='b'/>" &
+                   "<feMerge x='0' y='0' width='20' height='20'><feMergeNode in='a'/></feMerge><feTile/></filter>" &
+                   "<rect x='40' y='40' width='20' height='20' fill='#ff0000' filter='url(#f)'/>"))
+  b = rasterizeSvg(d, 100, 100)
+  doAssert b.count(0xFF00FF00'u32) == 2500 and b.px[45 * 100 + 45] == 0xFF00FF00'u32 and b.px[55 * 100 + 45] == 0
+  # ... noise: the same each time, another with another seed, not one color; stitched, the same at
+  # both ends of its tile (next to each other across the seam: no jump)
+  block:
+    proc noise(extra: string): seq[uint32] =
+      let dd = parseSvg(svg("<filter id='f' x='0' y='0' width='1' height='1'><feTurbulence " & extra &
+                            "/></filter><rect width='100' height='100' filter='url(#f)'/>"))
+      doAssert dd.skipped.getOrDefault("filter") == 0 and dd.filters[0].prims[0].kind == "feTurbulence"
+      rasterizeSvg(dd, 100, 100).px
+    let n1 = noise("type='fractalNoise' baseFrequency='0.05' numOctaves='2' seed='3'")
+    doAssert n1 == noise("type='fractalNoise' baseFrequency='0.05' numOctaves='2' seed='3'")
+    doAssert n1 != noise("type='fractalNoise' baseFrequency='0.05' numOctaves='2' seed='4'")
+    var kinds = 0
+    for i in 1 ..< n1.len:
+      if n1[i] != n1[i - 1]: inc kinds
+    doAssert kinds > 5000
+    proc seam(px: seq[uint32]): int =
+      for y in 0 ..< 50:
+        for sh in [0, 8, 16, 24]:
+          result = max(result, abs(int((px[y * 100] shr sh) and 255) - int((px[y * 100 + 49] shr sh) and 255)))
+    let args = "type='fractalNoise' baseFrequency='0.07' numOctaves='2' seed='5' x='0' y='0' width='50' height='50' " &
+               "color-interpolation-filters='sRGB'"
+    doAssert seam(noise(args & " stitchTiles='stitch'")) < 30 and seam(noise(args)) > 50
+  # ... displacement: a map of one color moves all of it (red 1: ten to the left; green 0.25: five down)
+  d = parseSvg(svg("<filter id='f' filterUnits='userSpaceOnUse' x='0' y='0' width='100' height='100' " &
+                   "color-interpolation-filters='sRGB'>" &
+                   "<feFlood flood-color='#ff4080' result='n'/><feDisplacementMap in='SourceGraphic' in2='n' " &
+                   "scale='20' xChannelSelector='R' yChannelSelector='G'/></filter>" &
+                   "<rect x='40' y='40' width='20' height='20' fill='#ff0000' filter='url(#f)'/>"))
+  b = rasterizeSvg(d, 100, 100)
+  doAssert b.count(0xFFFF0000'u32) == 400 and b.px[45 * 100 + 30] == 0xFFFF0000'u32 and
+           b.px[64 * 100 + 49] == 0xFFFF0000'u32 and b.px[44 * 100 + 30] == 0 and b.px[45 * 100 + 50] == 0
+  # ... light: a flat surface under a far light straight above is the light's color; from the side, darker
+  doAssert one("<feDiffuseLighting lighting-color='#ffcc00'><feDistantLight elevation='90'/></feDiffuseLighting>") ==
+           0xFFFFCC00'u32
+  doAssert one("<feDiffuseLighting lighting-color='#ffffff'><feDistantLight elevation='30'/></feDiffuseLighting>") ==
+           0xFF808080'u32
+  doAssert one("<feSpecularLighting specularExponent='4'><fePointLight x='50' y='50' z='50'/></feSpecularLighting>") ==
+           0xFFFFFFFF'u32
+  # ... a picture of something else in the drawing; a kernel (a pixel and its neighbor: red, twice)
+  d = parseSvg(svg("<defs><circle id='dot' cx='10' cy='10' r='10' fill='#0000ff'/></defs>" &
+                   "<filter id='f' filterUnits='userSpaceOnUse' x='0' y='0' width='100' height='100'>" &
+                   "<feImage href='#dot' x='60' y='60'/></filter>" &
+                   "<rect x='40' y='40' width='20' height='20' fill='#ff0000' filter='url(#f)'/>"))
+  doAssert d.filters[0].prims[0].items.len == 1
+  b = rasterizeSvg(d, 100, 100)
+  doAssert b.px[70 * 100 + 70] == 0xFF0000FF'u32 and b.px[50 * 100 + 50] == 0 and b.px[10 * 100 + 10] == 0
+  doAssert one("<feConvolveMatrix order='3 1' kernelMatrix='1 1 0' divisor='4' preserveAlpha='true'/>") ==
+           0xFF800000'u32
+  doAssert parseSvg(svg("<filter id='f'><feConvolveMatrix order='3' kernelMatrix='1 2 3'/></filter>" &
+                        "<rect width='9' height='9' filter='url(#f)'/>")).skipped["filter"] == 1   # (not a 3 by 3)
+  d = parseSvg(svg("<filter id='f' x='-50%' y='-50%' width='200%' height='200%'><feMorphology operator='dilate' " &
+                   "radius='5'/></filter><rect x='40' y='40' width='20' height='20' fill='#ff0000' filter='url(#f)'/>"))
+  b = rasterizeSvg(d, 100, 100)
+  doAssert b.px[50 * 100 + 37] == 0xFFFF0000'u32 and b.px[50 * 100 + 33] == 0     # (five more each way)
+  # ... a step that is not made: drawn without the filter, and counted
+  d = parseSvg(svg("<filter id='f'><feGaussianBlur stdDeviation='2'/><feSomethingNew/></filter>" &
+                   "<rect x='40' y='40' width='20' height='20' fill='#ff0000' filter='url(#f)'/>"))
+  doAssert d.filters.len == 0 and d.skipped["filter"] == 1 and
+           rasterizeSvg(d, 100, 100).px[50 * 100 + 50] == 0xFFFF0000'u32
+
+  # blending: multiplied with what is under it; a group's opacity its own
+  d = parseSvg(svg("<rect width='100' height='100' fill='#808080'/>" &
+                   "<rect x='20' y='20' width='60' height='60' fill='#ff8000' style='mix-blend-mode:multiply'/>"))
+  doAssert d.groups.len == 1 and d.groups[0].blend == "multiply"
+  doAssert rasterizeSvg(d, 100, 100).px[50 * 100 + 50] == 0xFF804000'u32
+  # groups: one with a name, one with an opacity over several things -- kept; a thing's own folded in
+  d = parseSvg(svg("<g data-name='Layer 1'><rect width='10' height='10' fill='red'/>" &
+                   "<g opacity='0.5'><rect x='20' width='10' height='10' fill='red'/>" &
+                   "<rect x='25' width='10' height='10' fill='red'/></g></g>" &
+                   "<g opacity='0.5'><rect x='60' width='10' height='10' fill='red'/></g>" &
+                   "<g inkscape:label='Empty'/>"))
+  doAssert d.groups.len == 2 and d.groups[1].name == "Layer 1" and d.groups[1].count == 3 and
+           d.groups[0].name == "" and d.groups[0].count == 2 and d.groups[0].opacity == 0.5
+  doAssert d.items[3].opacity == 0.5 and d.items[3].layers.len == 0
+  ps = d.svgPieces((0.0, 0.0, 200.0, 200.0))
+  doAssert ps.len == 3 and ps[0].groups == @[1] and ps[1].groups == @[1, 0] and ps[1].shape.path.subs.len == 2 and
+           ps[2].groups.len == 0 and ps[2].opacity == 50 and ps[1].opacity == 0   # (the group's half is the group's)
+  doAssert d.svgShapes((0.0, 0.0, 200.0, 200.0)).len == 4        # (the shapes alone: no groups, each its opacity)
+  block:
+    let doc = newDoc(200, 200, 0'u32)
+    let made = doc.placeSvg(svg("<g data-name='Layer 1' style='mix-blend-mode:screen'><rect width='10' height='10' " &
+                                "fill='red'/><g opacity='0.5'><rect x='20' width='10' height='10' fill='red'/>" &
+                                "<rect x='25' width='10' height='10' fill='blue'/></g></g>"), rect(0, 0, 200, 200),
+                            asGroup = false)
+    var seen: seq[string]
+    for L in doc.layers:
+      seen.add L.name & (if L.group: "/group" else: "") & "/" & $L.depth & "/" & $L.opacity
+    doAssert seen[1 .. ^1] == @["Shape 1/1/100", "Shape 2/2/100", "Shape 3/2/100", "Group/group/1/50",
+                                "Layer 1/group/0/100"], $seen       # (after the document's own first layer)
+    doAssert doc.layers[^1].mode == bmScreen and made.len == 5
+    # (half of the two together: where they overlap, the one over shows alone)
+    let flat = doc.toBitmap()
+    doAssert (flat.px[10 * 200 + 55] shr 24) in 126'u32 .. 129'u32 and (flat.px[10 * 200 + 55] and 255) > 200
+
+  # masks: a gradient's lets less and less through; in a document the layer's mask
+  d = parseSvg(svg("<linearGradient id='g'><stop offset='0' stop-color='white'/><stop offset='1' " &
+                   "stop-color='black'/></linearGradient><mask id='m'><rect width='100' height='100' fill='url(#g)'/>" &
+                   "</mask><rect width='100' height='100' fill='#ff0000' mask='url(#m)'/>"))
+  doAssert d.masks.len == 1 and d.skipped.getOrDefault("mask") == 0
+  b = rasterizeSvg(d, 100, 100)
+  doAssert (b.px[50 * 100 + 5] shr 24) > 220 and (b.px[50 * 100 + 50] shr 24) in 90'u32 .. 160'u32 and
+           (b.px[50 * 100 + 95] shr 24) < 30
+  ps = d.svgPieces((0.0, 0.0, 100.0, 100.0))
+  doAssert ps.len == 1 and ps[0].masks == @[0]
+  let mv = svgMask(d, ps[0].masks, ps[0].clips, ps[0].map, 100, 100)
+  doAssert mv.len == 10000 and mv[50 * 100 + 5] > 220'u8 and mv[50 * 100 + 95] < 30'u8
+  block:
+    let doc = newDoc(100, 100, 0'u32)
+    let made = doc.placeSvg(svg("<linearGradient id='g'><stop offset='0' stop-color='white'/><stop offset='1' " &
+                                "stop-color='black'/></linearGradient><mask id='m'><rect width='100' height='100' " &
+                                "fill='url(#g)'/></mask><rect width='100' height='100' fill='#ff0000' " &
+                                "mask='url(#m)'/><clipPath id='c'><circle cx='50' cy='50' r='20'/></clipPath>" &
+                                "<text x='30' y='60' font-size='30' clip-path='url(#c)'>Hey</text>"),
+                            rect(0, 0, 100, 100), asGroup = false)
+    doAssert made.len == 2 and made[0].isShape and made[0].mask != nil and made[1].isText and made[1].mask != nil
+    doAssert (made[0].mask.px[50 * 100 + 5] and 255) > 220 and (made[0].mask.px[50 * 100 + 95] and 255) < 30
+    doAssert (made[1].mask.px[50 * 100 + 50] and 255) == 255 and (made[1].mask.px[50 * 100 + 5] and 255) == 0
+    let flat = doc.toBitmap()
+    doAssert (flat.px[50 * 100 + 5] shr 24) > 220 and (flat.px[50 * 100 + 95] shr 24) < 30
+
+  # a shadow in a document: the layer's Drop Shadow; any other filter: pixels, as it is drawn
+  block:
+    let doc = newDoc(100, 100, 0'u32)
+    let made = doc.placeSvg(svg("<filter id='s'><feDropShadow dx='3' dy='4' stdDeviation='2' flood-color='#000080' " &
+                                "flood-opacity='0.5'/></filter><filter id='b' x='-50%' y='-50%' width='200%' " &
+                                "height='200%'><feGaussianBlur stdDeviation='3'/></filter>" &
+                                "<rect id='lit' x='10' y='10' width='20' height='20' fill='#ff0000' " &
+                                "filter='url(#s)'/><g id='soft' filter='url(#b)'><rect x='60' y='60' width='20' " &
+                                "height='20' fill='#00ff00'/><rect x='70' y='70' width='20' height='20' " &
+                                "fill='#0000ff'/></g>"), rect(0, 0, 100, 100), asGroup = false)
+    doAssert made.len == 2 and made[0].isShape and made[0].name == "lit" and not made[1].isShape
+    let e = made[0].fx.fx[fxDropShadow]
+    doAssert e.on and e.distance == 5 and e.size == 4 and e.opacity == 50 and e.color == 0xFF000080'u32 and
+             e.angle in 125 .. 128, $e.angle
+    doAssert (made[1].px[57 * 100 + 70] shr 24) in 5'u32 .. 200'u32 and (made[1].px[75 * 100 + 75] shr 24) > 200
+
+  # what is hidden: left out -- or kept, hidden, when it is asked for
+  let off = svg("<rect id='a' width='10' height='10' fill='red'/><rect id='b' x='20' width='10' height='10' " &
+                "fill='blue' visibility='hidden'/><g display='none' data-name='Off'><rect x='40' width='10' " &
+                "height='10' fill='lime'/><text x='40' y='30' font-size='10'>t</text></g>" &
+                "<rect id='c' x='60' width='10' height='10' fill='lime' display='none'/>")
+  d = parseSvg(off)
+  doAssert d.items.len == 1 and d.groups.len == 0
+  d = parseSvg(off, hidden = true)
+  doAssert d.items.len == 5 and not d.items[0].hidden and d.items[1].hidden and not d.items[2].hidden and
+           d.items[4].hidden and d.groups.len == 1 and d.groups[0].hidden and d.groups[0].name == "Off"
+  b = rasterizeSvg(d, 100, 100)
+  doAssert b.count(0xFFFF0000'u32) == 100 and b.count(0xFF0000FF'u32) == 0 and b.count(0xFF00FF00'u32) == 0
+  doAssert d.svgShapes((0.0, 0.0, 100.0, 100.0)).len == 1
+  block:
+    let doc = newDoc(100, 100, 0'u32)
+    let made = doc.placeSvg(off, rect(0, 0, 100, 100), asGroup = false, hidden = true)
+    var seen: seq[string]
+    for L in doc.layers: seen.add L.name & (if L.visible: "" else: " off") & "/" & $L.depth
+    doAssert seen[1 .. ^1] == @["a/0", "b off/0", "Shape 1/1", "t/1", "Off off/0", "c off/0"], $seen
+    doAssert made.len == 6
+    let flat = doc.toBitmap()
+    doAssert flat.count(0xFFFF0000'u32) == 100 and flat.count(0xFF0000FF'u32) == 0 and flat.count(0xFF00FF00'u32) == 0
+
+  # text: letters given places, a length to fill -- spaced to take as much
+  d = parseSvg(svg("<text y='20' font-size='10' x='10 30 50 70'>ABCD</text>" &
+                   "<text x='10' y='40' font-size='10' textLength='80'>ABCD</text>" &
+                   "<text x='10' y='60' font-size='10'>ABCD</text>"))
+  doAssert d.texts[0].fitChars == 4 and d.texts[0].fitWidth == 60 and d.texts[1].fitChars == -1 and
+           d.texts[1].fitWidth == 80 and d.texts[2].fitChars == 0
+  block:
+    proc wide(t: SvgText): float =
+      let td = svgTextData(t, SvgMatrix(a: 1, d: 1))
+      let l = layoutText(td)
+      l.caretX[^1] - l.caretX[0]
+    let nat = wide(d.texts[2])
+    doAssert nat > 20 and nat < 40
+    # (the last letter 60 on from the first; the caret after it one more space on)
+    let w0 = wide(d.texts[0])
+    doAssert abs(w0 - (60 + nat / 4 + (60 - nat * 0.75) / 3)) < 6, $w0
+    doAssert abs(wide(d.texts[1]) - (80 + (80 - nat) / 3)) < 6, $wide(d.texts[1])
+    doAssert svgTextData(d.texts[0], SvgMatrix(a: 1, d: 1)).spans[0].style.tracking > 1000
+  # ... each at its place when drawn: the same letter four times, twenty apart
+  doAssert d.texts[0].places == @[(1, 30.0), (2, 50.0), (3, 70.0)]
+  block:
+    let dd = parseSvg(svg("<text y='25' font-size='20' x='10 30 50 70' font-weight='bold'>AAAA</text>"))
+    doAssert dd.texts.len == 1 and dd.texts[0].places.len == 3
+    let px = rasterizeSvg(dd, 100, 100).px
+    proc column(px: seq[uint32]; x: int): int =
+      for y in 0 ..< 30:
+        if (px[y * 100 + x] shr 24) > 60: inc result
+    var inked = 0
+    for x in 10 ..< 30:
+      doAssert abs(column(px, x) - column(px, x + 20)) <= 1 and abs(column(px, x) - column(px, x + 60)) <= 1, $x
+      inked += column(px, x)
+    doAssert inked > 60, $inked
+  # ... letters moved on, moved down and turned: a text each, where it is put
+  d = parseSvg(svg("<text x='10' y='20' font-size='10' dx='0 5 5' dy='0 3 -3'>abc</text>" &
+                   "<text x='10 30' y='50 60' font-size='10' rotate='0 90'>de</text>" &
+                   "<text x='10' y='80' font-size='10'>a<tspan dx='4 2'>bc</tspan>d</text>"))
+  doAssert d.texts.len == 7, $d.texts.len
+  doAssert d.texts[0].runs[0].text == "a" and d.texts[1].runs[0].text == "b" and d.texts[1].y == 23 and
+           d.texts[1].x > 19 and d.texts[1].x < 23 and d.texts[2].runs[0].text == "c" and d.texts[2].y == 20
+  doAssert d.texts[3].runs[0].text == "d" and d.texts[4].runs[0].text == "e" and d.texts[4].x == 30 and
+           d.texts[4].y == 60 and abs(d.texts[4].ctm.b - 1) < 1e-9 and abs(d.texts[4].ctm.a) < 1e-9   # (a quarter turn)
+  doAssert near(d.texts[4].ctm.apply((30.0, 60.0)), (30.0, 60.0))             # (about where it starts)
+  # (a tspan moved on is a text of its own, four past the "a"; in it, the "c" two on from where
+  # the "b" ends -- a place in the same text)
+  doAssert d.texts[5].runs[0].text == "a" and d.texts[6].runs[0].text == "bcd" and d.texts[6].places.len == 1 and
+           d.texts[6].places[0][0] == 1 and d.texts[6].x > d.texts[5].x + 8 and
+           d.texts[6].places[0][1] > d.texts[6].x + 6
+  # ... more room between words; letters that are their outline alone
+  d = parseSvg(svg("<text x='10' y='20' font-size='10' word-spacing='7'>a b</text>" &
+                   "<text x='10' y='80' font-size='60' fill='none' stroke='#0000ff' stroke-width='2'>O</text>"))
+  doAssert d.texts[0].runs.len == 3 and d.texts[0].runs[1].text == " " and d.texts[0].runs[1].spacing == 7 and
+           d.texts[0].runs[0].spacing == 0
+  doAssert d.texts[1].hollow and d.texts[1].strokeWidth == 2 and d.texts[1].stroke.kind == spkNone and
+           d.texts[1].runs[0].fill.color == 0xFF0000FF'u32 and d.texts.len == 2
+  b = rasterizeSvg(d, 100, 100)
+  block:
+    # (the same letter filled, to tell by: the middle of its line is clear in the hollow one, and
+    # the hollow one's outline reaches past it)
+    let f = rasterizeSvg(svg("<text x='10' y='20' font-size='10' word-spacing='7'>a b</text>" &
+                             "<text x='10' y='80' font-size='60' fill='#0000ff'>O</text>"), 100, 100)
+    var clear, past = 0
+    for i in 0 ..< b.px.len:
+      if f.px[i] == 0xFF0000FF'u32 and b.px[i] == 0: inc clear
+      if (b.px[i] shr 24) > 128 and (f.px[i] shr 24) < 128: inc past
+    doAssert clear > 100 and past > 50, $clear & " " & $past
+    let doc = newDoc(100, 100, 0'u32)
+    let made = doc.placeSvg(svg("<text x='10' y='80' font-size='60' fill='none' stroke='#0000ff' " &
+                                "stroke-width='2'>O</text>"), rect(0, 0, 100, 100))
+    doAssert made.len == 1 and made[0].isText and made[0].fill == 0 and made[0].fx.fx[fxStroke].on and
+             made[0].fx.fx[fxStroke].size == 2 and made[0].fx.fx[fxStroke].color == 0xFF0000FF'u32
+    let flat = doc.toBitmap()
+    var kept = 0
+    for i in 0 ..< flat.px.len:
+      if f.px[i] == 0xFF0000FF'u32 and (flat.px[i] shr 24) < 40: inc kept
+    doAssert kept > 100, $kept                                     # (the Stroke shows, the letter does not)
+  # ... its outline, its gradient, its direction, its case
+  d = parseSvg(svg("<linearGradient id='g'><stop offset='0' stop-color='#ff0000'/><stop offset='1' " &
+                   "stop-color='#0000ff'/></linearGradient><text x='10' y='40' font-size='30' fill='url(#g)' " &
+                   "stroke='#000000' stroke-width='2'>Go</text><text x='90' y='70' font-size='10' direction='rtl'>" &
+                   "abc</text><text x='10' y='90' font-size='10' style='text-transform:uppercase'>up" &
+                   "<tspan style='font-variant:small-caps;text-transform:lowercase'>LOW</tspan></text>" &
+                   "<text x='50' y='10' font-size='10' writing-mode='vertical-rl'>down</text>"))
+  doAssert d.texts[0].stroke.kind == spkColor and d.texts[0].strokeWidth == 2 and
+           d.texts[0].runs[0].fill.kind == spkLinear
+  doAssert d.texts[1].rtl and svgTextData(d.texts[1], SvgMatrix(a: 1, d: 1)).para.rtl == 2
+  doAssert d.texts[2].runs[0].allCaps and d.texts[2].runs[0].text == "up" and d.texts[2].runs[1].smallCaps and
+           d.texts[2].runs[1].text == "low"
+  doAssert d.texts[3].vertical and svgTextData(d.texts[3], SvgMatrix(a: 1, d: 1)).vertical
+  # (running down, its letters lie on their side, the middle of their height on its x)
+  doAssert abs(svgTextData(d.texts[3], SvgMatrix(a: 1, d: 1)).x - 46.5) < 0.01
+  b = rasterizeSvg(d, 200, 200)
+  doAssert b.count(0xFF000000'u32) > 150                         # (the outline, and the texts)
+  var reds, blues = 0
+  for y in 30 ..< 90:
+    for x in 20 ..< 110:
+      let p = b.px[y * 200 + x]
+      let red = (p shr 24) == 255 and ((p shr 16) and 255) > 160 and (p and 255) < 90
+      let blue = (p shr 24) == 255 and (p and 255) > 160 and ((p shr 16) and 255) < 90
+      if (red and x < 60) or (blue and x >= 60): inc reds          # (as the gradient goes)
+      elif red or blue: inc blues
+  doAssert reds > 40 and blues < reds div 6, $reds & " " & $blues     # (red at its left, blue at its right)
+  ps = d.svgPieces((0.0, 0.0, 200.0, 200.0))
+  doAssert ps[0].outline == 4 and ps[0].outlineColor == 0xFF000000'u32 and ps[0].gradient.kind == spkLinear
+  block:
+    let doc = newDoc(200, 200, 0'u32)
+    let made = doc.placeSvg(svg("<linearGradient id='g'><stop offset='0' stop-color='#ff0000'/><stop offset='1' " &
+                                "stop-color='#0000ff'/></linearGradient><text x='10' y='40' font-size='30' " &
+                                "fill='url(#g)' stroke='#000000' stroke-width='2'>Go</text>"), rect(0, 0, 200, 200))
+    doAssert made.len == 1 and made[0].fx.fx[fxStroke].on and made[0].fx.fx[fxStroke].size == 4 and
+             made[0].fx.fx[fxStroke].style == 2
+    let go = made[0].fx.fx[fxGradientOverlay]
+    doAssert go.on and go.color == 0xFFFF0000'u32 and go.color2 == 0xFF0000FF'u32 and go.angle == 0
+
+  # what Retro Photo writes for itself: effects, a blending mode by its name, an adjustment layer --
+  # read by `placeSvg`; damaged, left out
+  block:
+    let doc = newDoc(100, 100, 0'u32)
+    let made = doc.placeSvg(svg(
+      "<rect width='40' height='40' fill='#ff0000' data-name='Plate' data-retro-mode='Linear Burn' " &
+      "data-retro-fx='{\"Bevel and Emboss\":{\"mode\":\"Screen\",\"opacity\":75,\"size\":7},\"fill\":50}'/>" &
+      "<g data-name='Warmer' data-retro-adjust='{\"kind\":\"Hue/Saturation\",\"args\":[30,-20,10,0]}' opacity='0.5'/>" &
+      "<g data-name='Pair' data-retro-mode='Linear Dodge (Add)'><rect x='50' width='10' height='10' fill='#00ff00'/>" &
+      "<rect x='70' width='10' height='10' fill='#0000ff'/></g>" &
+      "<rect y='50' width='10' height='10' fill='#000000' data-retro-fx='" & repeat("[", 5000) & "'/>" &
+      "<rect y='70' width='10' height='10' fill='#000000' data-retro-fx='{\"Stroke\":7' data-retro-mode='No such'/>" &
+      "<g data-retro-adjust='[1,2'/><g data-retro-adjust='{\"args\":[1]}'/>"), rect(0, 0, 100, 100), asGroup = false)
+    var seen: seq[string]
+    for L in made: seen.add L.name & "/" & $L.mode & "/" & $L.opacity & "/" & L.adjust.kind
+    doAssert seen == @["Plate/Linear Burn/100/", "Warmer/Normal/50/Hue/Saturation", "Shape 1/Normal/100/",
+                       "Shape 2/Normal/100/", "Shape 3/Normal/100/", "Shape 4/Normal/100/",
+                       "Pair/Linear Dodge (Add)/100/"], $seen
+    doAssert made[0].fx.fx[fxBevel].on and made[0].fx.fx[fxBevel].size == 7 and made[0].fx.fx[fxBevel].mode == bmScreen and
+             made[0].fill == 50 and made[1].adjust.args == @[30.0, -20, 10, 0] and not made[4].hasFx
+    # (drawn as a picture, they are nothing: the red square alone where it is)
+    doAssert rasterizeSvg(svg("<rect width='40' height='40' fill='#ff0000' data-retro-fx='{}'/>" &
+                              "<g data-retro-adjust='{\"kind\":\"Invert\"}'/>"), 100, 100).count(0xFFFF0000'u32) == 1600
+
+  # a picture that is an SVG, written out in the link or in base64
+  d = parseSvg(svg("<image x='10' y='10' width='40' height='40' href=\"data:image/svg+xml,%3Csvg xmlns='http://www." &
+                   "w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Crect width='10' height='10' fill='%23008000'/%3E%3C/svg" &
+                   "%3E\"/><image x='50' y='50' width='40' height='40' href='data:image/svg+xml;base64," &
+                   base64.encode("<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'><rect width='4' " &
+                                 "height='4' fill='#800000'/></svg>") & "'/>"))
+  doAssert d.images.len == 2 and d.images[0].bitmap.w == 20 and d.images[1].bitmap.w == 8
+  b = rasterizeSvg(d, 100, 100)
+  doAssert b.px[30 * 100 + 30] == 0xFF008000'u32 and b.px[70 * 100 + 70] == 0xFF800000'u32
+
+  # damaged: never a crash
+  var rng = initRand(23)
+  let whole = svg("<pattern id='p' width='8' height='8' patternUnits='userSpaceOnUse'><circle cx='4' cy='4' r='3'/>" &
+                  "</pattern><filter id='f'><feGaussianBlur stdDeviation='2'/><feOffset dx='2' dy='2' result='o'/>" &
+                  "<feFlood flood-color='red'/><feComposite in2='o' operator='in'/><feMerge><feMergeNode/>" &
+                  "<feMergeNode in='SourceGraphic'/></feMerge><feColorMatrix type='saturate' values='0.5'/>" &
+                  "<feMorphology radius='1'/><feComponentTransfer><feFuncA type='table' tableValues='0 1'/>" &
+                  "</feComponentTransfer></filter><mask id='m'><rect width='50' height='50' fill='url(#p)'/></mask>" &
+                  "<g data-name='G' opacity='0.5' filter='url(#f)' mask='url(#m)' style='mix-blend-mode:multiply'>" &
+                  "<rect width='40' height='40' fill='url(#p)'/><text x='5' y='30' textLength='30' stroke='blue'>ab" &
+                  "</text></g><rect width='9' height='9' display='none'/>")
+  for k in 0 ..< 400:
+    var s2 = whole
+    for j in 0 .. rng.rand(1 .. 4):
+      let at = rng.rand(s2.high)
+      case rng.rand(2)
+      of 0: s2 = s2[0 ..< at] & s2[min(s2.len, at + rng.rand(1 .. 30)) .. ^1]
+      of 1: s2[at] = char(rng.rand(255))
+      else: s2.insert(["<g filter='url(#f)'>", "stdDeviation='1e9'", "width='1e-9'", "radius='9999'",
+                       "values='1e308 nan'", "<pattern id='p' href='#p'>", "tableValues=''"][rng.rand(6)], at)
+    let dd = parseSvg(s2, hidden = k mod 2 == 0)
+    discard rasterizeSvg(dd, 24, 24)
+    let pp = dd.svgPieces((0.0, 0.0, 48.0, 48.0))
+    for piece in pp:
+      discard svgMask(dd, piece.masks, piece.clips, piece.map, 48, 48)
+      if piece.raster.len > 0: discard svgRaster(dd, piece.raster, piece.map, 48, 48)
+echo "looks ok"
 
 # ---- gradients, clips, masks, markers ---------------------------------------------------------------------
 
@@ -507,7 +996,8 @@ echo "bad input ok"
 
 block:
   var datas: seq[string]
-  for f in walkFiles(dir / "*.svg"): datas.add readFile(f)
+  for f in walkFiles(dir / "*.svg"):
+    if not f.extractFilename.startsWith("fx-"): datas.add readFile(f)      # (the icons)
   var best = 1e9
   for rep in 0 .. 2:
     let t = getMonoTime()

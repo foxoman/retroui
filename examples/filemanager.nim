@@ -40,7 +40,7 @@ const TermuxHome = "/data/data/com.termux/files/home"
 const
   AppTitle = "Retro Files"
   AppId = "RetroFiles"
-  AppVersion = "3.5.0"
+  AppVersion = "3.6.0"
 
 type
   ViewerKind = enum vkNone, vkText, vkMarkdown, vkImage, vkHex, vkZip, vkPdf, vkVideo, vkAudio,
@@ -225,13 +225,22 @@ proc configure(m: FolderModel) =
   m.showHidden = showHidden
   m.showExtensions = showExt
 
+proc folderThere(path: string): bool =
+  ## `path` is a folder -- asked on a thread and waited for a second and a
+  ## half: a disk that does not answer in that time (a network drive that
+  ## is not connected) is taken for there, and the folder says what is
+  ## wrong when it does answer. The window never waits longer for a disk.
+  if path.len == 0: return false
+  let a = askNow(akExists, path, waitMs = 1500)
+  not a.known or a.value == @["d"]
+
 proc newTab(where: string): Tab =
   result = Tab(m: newFolderModel(), win: MdiWindow(open: true, flush: true))
   configure(result.m)
   case where
   of deviceId: result.special = spDevice
   of trashId: result.special = spTrash
-  else: result.m.open(if where.len > 0 and dirExists(where): where else: getHomeDir())
+  else: result.m.open(if folderThere(where): where else: getHomeDir())
 
 proc tabKey(t: Tab): string =
   case t.special
@@ -391,9 +400,13 @@ proc go*(path: string) =
     tab.special = if path == deviceId: spDevice else: spTrash
     if path == trashId: trashBox.reload()
     return
-  if not (dirExists(path) or vIsDir(path) or needsDocAccess(path)):
-    showError(tr("The folder ") & path & tr(" does not exist."))
-    return
+  if not needsDocAccess(path):
+    # (asked on a thread, waited for a second and a half: a disk that does not answer
+    # in that time is gone to anyway -- the folder says what is wrong when it does)
+    let there = askNow(akExists, path, waitMs = 1500)
+    if there.known and there.value != @["d"]:
+      showError(tr("The folder ") & path & tr(" does not exist."))
+      return
   tab.special = spFolder
   folder.open(path)
   panes[active].query = ""
@@ -711,6 +724,7 @@ proc sheetsOf(path, name: string): seq[XlsxSheet] =
   @[sh]
 
 proc openViewer(f: FileItem; kind: ViewerKind) =
+  if specialFile(f.path) or offlineFile(f.path): return
   focusBeforeViewer = ui.focus
   closeFiles()
   stopMedia()
@@ -785,6 +799,14 @@ proc openItem(f: FileItem) =
   ## Enter, a double click or a tap: into a folder, or the file in a viewer
   ## (or the app the system has for it); a shortcut, what it leads to.
   if f.isDir: go(f.path)
+  elif f.special or specialFile(f.path):
+    # (a device, a pipe, a socket: reading one may never end -- /dev/tty, a FIFO)
+    showError(f.name & tr(" is a device or a pipe, not a file: there is nothing in it to show."))
+  elif f.offline or offlineFile(f.path):
+    # (a cloud file that is not on this disk: the system fetches it and opens it in its
+    # program -- read here, the window would wait for the whole of it)
+    if not openFile(f.path):
+      showError(f.name & tr(" is in the cloud, not on this disk, and no program opened it."))
   elif extOf(f.name) == "url" and shortcutTarget(f.path).len > 0:
     # (Windows' Internet shortcut to a file or a folder: Paste Shortcut's)
     let t = shortcutTarget(f.path)
@@ -1962,7 +1984,13 @@ proc helpDialogs() =
             tr("Copyright (c) 2026 Sultan Al Isaiee. MIT licence.")],
            tagline = tr("Your files, as in 1994"),
            iconPng = FilesIconPng, glyph = pxFolderOpen,
-           whatsNew = [tr("3.5.0: an app's package (.apk) shows its icon, version and permissions, " &
+           whatsNew = [tr("3.6.0: the window no longer waits on a disk that is slow to answer -- a " &
+                            "network drive that is not connected, a cloud folder: the tree, the drives, " &
+                            "the free space and the details are asked for behind it; cloud files that " &
+                            "are not on this disk are not fetched for a thumbnail or a preview; an " &
+                            "SVG's thumbnail shows its text, patterns and filters; a device or a pipe " &
+                            "is said to be one and not opened"),
+                       tr("3.5.0: an app's package (.apk) shows its icon, version and permissions, " &
                             "and installs on Android; tar archives open and extract; web pages, fonts, " &
                             "3D models, spreadsheets and mail open inside; one details pane in place " &
                             "of Preview and Web view; files shared from other apps saved here"),
@@ -2658,7 +2686,7 @@ proc startFolder(saved: string): string =
   let android = platformName() == "android"
   case startIn
   of siLast:
-    if saved.len > 0 and dirExists(saved): return saved
+    if folderThere(saved): return saved
   of siHome:
     if not android: return getHomeDir()
   of siStorage: discard
@@ -2675,7 +2703,7 @@ proc restoreTabs(saved: string; fresh = false) =
     if fresh: break
     for key in prefs.get("tabs" & $p).split('\n'):
       if key.len == 0: continue
-      if key == deviceId or key == trashId or (startIn == siLast and (dirExists(key) or isDocPath(key))):
+      if key == deviceId or key == trashId or (startIn == siLast and (isDocPath(key) or folderThere(key))):
         panes[p].tabs.add newTab(key)
     panes[p].at = clamp(prefs.getInt("tab" & $p, 0), 0, max(0, panes[p].tabs.high))
   if panes[0].tabs.len == 0: panes[0].tabs.add newTab(startFolder(if fresh: "" else: saved))

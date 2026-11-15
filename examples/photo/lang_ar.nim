@@ -97,6 +97,7 @@ const photoArabic* = [
   ("Presets", "الإعدادات المسبقة"),
   ("New...", "جديد..."),
   ("New SVG Drawing", "رسم SVG جديد"),
+  ("SVG, Type as Outlines...", "SVG، النص كخطوط خارجية..."),
   ("Open...", "فتح..."),
   ("Close All", "إغلاق الكل"),
   ("Save As...", "حفظ باسم..."),

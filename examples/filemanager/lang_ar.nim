@@ -36,6 +36,8 @@ const filesArabic* = [
   (". Paste them in another folder.", ". الصقها في مجلد آخر."),
   ("Clipboard", "الحافظة"),
   ("Cannot read ", "تعذرت قراءة "),
+  (" is in the cloud, not on this disk, and no program opened it.", " في السحابة وليس على هذا القرص، ولم يفتحه أي برنامج."),
+  (" is a device or a pipe, not a file: there is nothing in it to show.", " جهاز أو قناة وليس ملفًا: لا يوجد فيه ما يُعرض."),
   (" (it may be too big to show here).", " (قد يكون أكبر من أن يُعرض هنا)."),
   ("Saved ", "تم حفظ "),
   ("Cannot save:\n", "تعذر الحفظ:\n"),

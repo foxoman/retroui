@@ -109,7 +109,11 @@ line.
   `pushId(i)` / `popId()`, or a control's `key` parameter).
 - **Never block the frame.** Long work goes off the UI thread:
   `retroui/background` (`pictureAsync`, `folderAsync`, results by
-  callback or `finished()`), `retroui/parallel` (`parallelFor`,
+  callback or `finished()`; `later(akDiskSpace, dir)`, `later(akFolders,
+  dir)`... for what a frame wants to know of a disk -- never `dirExists`,
+  `walkDir` or a file read in what is drawn every frame: a network drive
+  that is not connected holds the window for half a minute),
+  `retroui/parallel` (`parallelFor`,
   `parallelRows`), `httpRequest` from a thread; `busy("Saving..."): ...`
   shows a busy box for work that must run on the UI thread. Ask for a
   frame later with `wakeIn(ms)`; for something that moves by itself where

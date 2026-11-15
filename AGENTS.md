@@ -58,14 +58,40 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   the window, the fields, the buttons, the highlight and the accent
   (`tests/test_looks.nim` fails otherwise).
 - SVG in Retro Photo: `retroui/svgimport` reads (shapes, text, pictures,
-  named groups; `svgPieces`, `placeSvg`), `retroui/photosvg` writes
-  (`svgOf`, `svgLosses`). What one writes the other must read back the
-  same: `tests/test_photosvg.nim` opens what was written and compares the
-  layers, the type, the picture and the file written again. Text is set
-  with the type engine on the thread that draws only (its font tables are
-  that thread's): a picture decoded on a worker (`morepictures`, a
-  thumbnail) has an SVG's shapes and pictures, not its text. A picture an
-  SVG names by a file is read only under the SVG's own folder.
+  groups, patterns, filters, masks, blending; `svgPieces`, `placeSvg`),
+  `retroui/photosvg` writes (`svgOf`, `svgLosses`, `svgOwn`). What one
+  writes the other must read back the same: `tests/test_photosvg.nim`
+  opens what was written and compares the layers, the type, the picture
+  and the file written again. How it is drawn is compared with resvg:
+  `tests/data/svg/*.svg`, each with a .png of it as resvg draws it; a new
+  thing read gets a drawing there (`fx-*.svg`: made with resvg_py, 96
+  pixels wide, FreeSans given for the text), and where resvg and the
+  specification differ (feMorphology's size, feDisplacementMap, an
+  feOffset's own rectangle, `direction: rtl`'s start, `text-transform`)
+  the specification is followed and tested by numbers instead. What an
+  SVG has no word for is written in `data-retro-*` attributes and read
+  back by `placeSvg` alone; JSON from a file is read through `ownJson`
+  (its length and depth bounded). Text is set on any thread: a thread
+  other than the first has faces of its own (`typeWorker`, FreeSans,
+  FreeSerif, FreeMono only) -- nothing of the type engine's tables is
+  shared between threads. A picture an SVG names by a file is read only
+  under the SVG's own folder.
+- **The window's thread never asks a disk anything.** A disk may take
+  as long as it likes -- a network drive that is not connected, a cloud
+  folder -- and the window, its Exit too, would wait with it. What a
+  widget needs of the file system each frame it asks with `later`
+  (`retroui/background`: answered with what is known, asked on a thread);
+  what the user asked for, with `askNow` (waited for a second and a half
+  at most). No `dirExists`, `walkDir`, `getFileInfo`, `diskSpace` or read
+  of a file in what is drawn every frame; a cloud file that is not on the
+  disk (`FileItem.offline`) is read only when it is opened. On Windows a
+  window that stops answering writes where (`retroui/hangwatch`): a
+  report of one names the proc to move off the thread.
+- A file that is a device or a pipe is never read (`specialFile`,
+  `FileItem.special`): a read of one may never end. What an app does that
+  reaches outside itself -- ending a process, following feeds without
+  end -- is not done under random input (`smokeOn()`): the soak runs for
+  an hour on GitHub with a real network and real processes.
 - `docs/controls.md` -- every control with pictures, made by `tools/shots.nim`.
   Pictures that change only with the day (the calendar, the agenda, the
   Gantt chart, the About and splash boxes, the file pickers) are not

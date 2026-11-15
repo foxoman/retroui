@@ -1448,7 +1448,7 @@ proc openPicture*(path: string): Doc =
     # icon's: 1024 pixels across))
     let data = try: readFile(path)
                except IOError, OSError: raise newException(IOError, "cannot read " & path.extractFilename)
-    let doc = parseSvg(data, path.parentDir)
+    let doc = parseSvg(data, path.parentDir, hidden = true)
     var (sw, sh) = svgSize(doc)
     if sw <= 0 or sh <= 0: (sw, sh) = (1024.0, 1024.0)
     # (a small one -- an icon -- big enough to work on; a drawing at its own size, so
@@ -1457,7 +1457,7 @@ proc openPicture*(path: string): Doc =
     let w = clamp(int(round(sw * k)), 1, 16384)
     let h = clamp(int(round(sh * k)), 1, 16384)
     result = newDoc(w, h, 0'u32, 72, path.splitFile.name)
-    discard result.placeSvg(data, rect(0, 0, w, h), asGroup = false, base = path.parentDir)
+    discard result.placeSvg(data, rect(0, 0, w, h), asGroup = false, base = path.parentDir, hidden = true)
     if result.layers.len > 1 and result.layers[0].px.len > 0:
       # (the empty first layer the new document had: not needed)
       var empty = true

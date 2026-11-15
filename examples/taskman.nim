@@ -163,6 +163,10 @@ proc selected(): ProcInfo =
 proc endSelected(tree: bool) =
   let p = selected()
   if p.pid < 0: return
+  if smokeOn():
+    # (random input ends nothing: one night it ended the shell that ran it)
+    say("A smoke run: " & p.name & " is left running")
+    return
   let err = if tree: endProcessTree(p) else: endProcess(p)
   say(if err.len == 0: (if tree: "Ended " & p.name & " and what it started" else: "Ended " & p.name)
       else: "Could not end " & p.name & ": " & err)
@@ -170,6 +174,9 @@ proc endSelected(tree: bool) =
 proc prioritize(nice: int) =
   let p = selected()
   if p.pid < 0: return
+  if smokeOn():
+    say("A smoke run: " & p.name & " keeps its priority")
+    return
   let err = setPriority(p, nice)
   say(if err.len == 0: p.name & ": its priority changed" else: "Could not: " & err)
 

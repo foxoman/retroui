@@ -308,7 +308,31 @@ app "Notes", 600, 400:
 ```
 
 It compares the files' sizes and times, the same on every system and over a
-network share, at most 8192 files.
+network share, at most 8192 files. It looks on the thread that calls it:
+for a folder on a network drive, or one of thousands of files, look less
+often (`everyMs`) or call `changes` from a job (`retroui/jobs`) -- the
+window should not wait for a disk.
+
+## A window that stops answering
+
+On Windows every app has a watch on its own window (`retroui/hangwatch`,
+nothing to call): when the window has not taken its messages for five
+seconds -- Windows would write "Not responding" on it -- the procs its
+thread is in go to the fault log, the innermost first, and the next
+start's Report a Problem box (`problemBox`) shows them:
+
+```
+--- the window did not answer for 5 seconds: its thread was in
+  ntdll.dll+054084
+  kernelbase.dll+074202
+  hasSubFolders@files  (RetroFiles.exe+21c6a4)
+  folderNode@filewidgets  (RetroFiles.exe+24e41b)
+```
+
+The names come from the table of the program's procs that `nimble exe`
+puts at the program's end (tools/winsym.py). What such a report names is
+what to move off the window's thread: a disk asked (`later`, `askNow` of
+`retroui/background`), a long piece of work (`retroui/jobs`, `busy`).
 
 ## Installed for the user alone
 
