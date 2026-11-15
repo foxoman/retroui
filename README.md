@@ -2048,7 +2048,7 @@ s.dehaze = 10
 p.applyFilter(developMargin(s), develop(s))
 ```
 
-`examples/photo.nim` is **Retro Atelier 5.1.0** (Retro Photo until 5.0: its modules, documents and package id keep that name), an image editor in the manner
+`examples/photo.nim` is **Retro Atelier 5.2.0** (Retro Photo until 5.0: its modules, documents and package id keep that name), an image editor in the manner
 of the ones of 1994: the toolbox, the tabbed floating palettes (Brushes
 and Options; Picker, Swatches and Scratch; Layers, Channels and Paths;
 Info; Commands; Navigator, History and Actions; Properties), an options
@@ -2139,8 +2139,27 @@ past the spine **goes on, on the facing page** (one object on both pages). **Win
 out for Photo, Drawing or Layout. Arabic is set finer: the room between words, the tashkeel in
 a colour of its own, raised or hidden, **lists** (Paragraph > List: bullets of any shape, numbers
 in digits, Arabic-Indic, Roman, letters or abjad) and **Type > Word Shapes** -- the font's other shapes of
-the word selected, each drawn, a click to have it. The engine for all of it is the kit's
-(`retroui/photobook`, `retroui/textengine`), for any app:
+the word selected, each drawn, a click to have it. **Drop caps** (Paragraph: so many lines,
+so many letters) and a **baseline grid** (Document Setup; Paragraph > Align to baseline grid)
+set a page as a magazine is set, and boxes snap to a page's margins, columns and grid. **File >
+New Book** and **New Drawing (SVG)** open with presets and templates by kind: a novel, an Arabic
+book, a magazine, infographic cards; a logo, a poster, a business card, an app icon.
+**Image > Image Trace** makes a picture vector shapes (presets, a preview, Save as SVG), **Type
+> Convert to Shape** makes type shapes, and **Make Blend** puts the shapes between two (their
+steps and colors eased apart). **Type > Insert Table** sets a text box as a table (nine themes,
+header rows, stripes, lines, padding, widths; Tab goes from cell to cell); **Layout > Insert
+Chart** and **Insert Map** place charts (columns to radar, nine themes) and maps (ten regions,
+three projections, seven themes) as shapes and type, made again by **Edit Chart or Map**.
+Character gives **Arabic and Latin each a font** of its own (style, size, raise, color,
+tracking). **Layer > More Shapes** has twenty shapes that keep their settings (**Shape
+Options**); **Layer > Fitting** fits a picture to the shape or type it is clipped to; **Path
+Operations > Shape Builder** joins and takes away regions, **Freeform Gradient** puts colors at
+points. **Layout** also has **Photo Grid**, **Resize for** (a design at many sizes), **Brand
+Kit**, **Recolor Design**, **Check Document**, **Export** (PDF, JPEG or PNG; pages or spreads;
+a range) and **Save Book as IDML**; an .idml opens as a book, and Save As writes .ai. **Type >
+Text Effects** has eight looks. The engine for all of it is the kit's (`retroui/photobook`,
+`retroui/textengine`, `retroui/imagetrace`, `retroui/photovector`, `retroui/layouttemplates`,
+`retroui/infographics`, `retroui/liveshapes`, `retroui/idml`, `retroui/preflight`), for any app:
 
 ```nim
 import retroui/[photo, photobook, photopdf, textengine]
@@ -2159,6 +2178,37 @@ discard b.syncSpread(1)                                           # what reaches
 b.saveBook("novel.rpb")
 b.saveBookPdf("novel.pdf", pdfPreset(ppPress))
 b.close()
+```
+
+```nim
+import retroui/[photo, photoshapes, photovector, imagetrace, textengine]
+let r = traceImage(pic.px, pic.w, pic.h, tracePreset(tp6Colors))  # a picture as vector shapes
+for s in r.shapes: discard d.addShapeLayer(ShapeData(path: s.path, fill: solidPaint(s.color)))
+writeFile("traced.svg", tracedSvg(r))
+for s in textShapes(title.text): discard d.addShapeLayer(s)       # type made shapes
+for s in blendShapes(a.shape, b.shape, colorSteps(a.shape, b.shape)): discard d.addShapeLayer(s)
+var t = newText(story, defaultStyle(), 40, 40)
+t.boxW = 400; t.boxH = 600
+t.para.dropLines = 3                                               # a drop cap three lines tall
+t.gridStep = 14; t.gridStart = 40                                  # its lines on a baseline grid
+```
+
+```nim
+import retroui/[photo, photoshapes, photobook, textengine, infographics, liveshapes, idml, preflight, svgimport]
+var t = newText("Name\tQ1\tQ2\nNorth\t120\t140\nSouth\t90\t95", defaultStyle(), 40, 40)
+t.boxW = 500; t.boxH = 200
+t.table = tableTheme("Striped Blue")                               # a table: rows, tabs between cells
+t.spans[0].style.arabicFont = ScriptFont(family: "Amiri", scale: 1.1)   # Arabic in a font of its own
+discard d.addTextLayer(t)
+let (labels, series) = chartData("Name,Q1,Q2\nNorth,120,140\nSouth,90,95")
+let c = ChartSpec(kind: ckColumn, title: "Sales", labels: labels, series: series, theme: "Ocean")
+discard d.placeSvg(chartSvg(c), rect(40, 300, 600, 400))          # shapes and type layers
+let m = MapSpec(region: "Gulf", theme: "Sand", projection: "Mercator", values: mapValues("OM, 5\nQA, 3"))
+discard d.placeSvg(mapSvg(m), rect(40, 750, 600, 400))
+discard d.addShapeLayer(ShapeData(path: liveShapePath(defaultParams(lsStar), 0, 0, 200, 200)))
+discard b.exportBook("book.pdf", BookExport(kind: exPdf, pages: "1-4", spreads: true))
+b.saveBookIdml("book.idml")                                        # for the page layout program
+for it in b.preflight(300): echo it.page + 1, ": ", it.message    # Check Document
 ```
 
 ```nim
@@ -3222,7 +3272,12 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_looks` | what a control takes to look different: the accent button, a text style and a height for buttons and number boxes, groups with a title strip, options in boxes, the gauge in bands and the range bar, a tool bar's line and space, `withTheme` and `withTextStyle` -- and the 28 colour schemes, each one's text readable (4.5 to 1) on its window, fields, buttons and highlight; docs/customizing.md's own samples |
 | `test_bmi` | BMI Studio without a window: the numbers in both unit systems (classed as shown), Calculate BMI the default button in the accent colour, another scheme taken by the bands and the button, a phone's layout |
 | `test_hangwatch` | the table of a program's procs read and a place in the program named by it (a Windows window that stops answering writes the procs its thread is in); no watch elsewhere |
-| `test_photobook`, `test_photobookapp` | text that keeps out of holes (lines on both sides on one baseline, columns), Text Wrap in a document (box, shape, jump, sides, undo, saved), page numbers in text, books: sides and margins bound either way, numbers in every style, master pages that follow, text through added pages (every word once), the book's file and PDF, damaged books refused; Retro Atelier's books headless: pages turned, masters, a number typed in, Autoflow, Text Wrap, save and open, the workspaces, the Move tool's box |
+| `test_photobook`, `test_photobookapp` | text that keeps out of holes (lines on both sides on one baseline, columns), Text Wrap in a document (box, shape, jump, sides, undo, saved), page numbers in text, books: sides and margins bound either way, numbers in every style, master pages that follow, text through added pages (every word once), the book's file and PDF, damaged books refused; Retro Atelier's books headless: pages turned, masters, a number typed in, Autoflow, Text Wrap, save and open, the workspaces, the Move tool's box; snapping to a page's margins, columns and baseline grid, text on the grid following Document Setup; New Drawing and New Book, Image Trace, Convert to Shape and Make Blend in the app; export by pages and spreads (PDF, JPEG, PNG, a range); tables, charts, maps, Fitting and Frame Options, More Shapes and Shape Options, Resize for, Brand Kit, Photo Grid, Text Effects, Recolor, Shape Builder, Freeform Gradient (Cancel leaves it as it was), Check Document and the command list in the app |
+| `test_imagetrace` | Image Trace: a picture traced looks like it (under 2 % of it differs; holes and corners kept, specks left out, curves not stairs), black and white, grays, side by side, transparency, a big picture traced smaller and scaled back, noise in under 8 s, the SVG read back the same; Pencil Sketch; every preset and template of a new drawing or book made |
+| `test_outlines` | type made shapes (at 120, 36 and 14 px they draw what the type drew; colors, faux bold), blends (point by point, walked along, a hole shrinking away, Smooth Color's steps, eased), the twenty live shapes (in their box, closed, their numbers kept), Shape Builder's regions joined and taken away, freeform gradients (each color at its point, saved) |
+| `test_infographics` | charts of every kind as SVG (bars where their numbers say, stacked, pies adding to a turn, radar, legends, labels with decimals and Arabic digits, right to left, themes), placed as shapes and type; maps (regions, projections, values on a scale, names, themes), their settings back from JSON, the numbers from a table |
+| `test_idml` | IDML: a book as the package (its parts, well-formed XML, spreads, masters with the page number, stories, shapes, linked pictures) and read back; one document; a damaged package refused; Check Document's findings (text that does not fit, a missing font, a coarse picture, an empty frame, hidden layers) |
+| `test_photospeed` | shape and type layers light: thirty of them on an A4 page at 300 ppi under 200 MB; the composite the same with and without mixing each only where it drew (modes, opacity, masks, clipping, groups, effects, the sampled view) |
 | `test_systemfiles` | the system's own file picker behind the kit's file dialogs, with a made-up system: a document opened as a copy and written back when the app saves it, Save As where the picker said (asked before, or after the file is there), what cannot be written told |
 | `test_svgimport`, `test_photosvg` | SVG drawn as resvg draws it (65 drawings: icons, flags, and one for each filter step, pattern, blending mode, mask and way of placing type), its text (runs, lines, along a path, the font found, letters in their own places, outlined, hollow, running down) and pictures (in the file, beside it, nowhere else) read, drawn -- on worker threads too -- and made layers; filters by numbers (linear light, a step's rectangle, noise, displacement, lighting); damaged files never a crash; a document written as SVG and opened again: the same layers by name, the same type, masks, effects, pattern fills, adjustment layers and blending modes, the same picture, the same file written twice; type as outlines |
 | `test_podcast` | Retro Podcast without a window: a feed file followed (read by a job), an episode played from where it was left, the queue, Mark Played and Unfollow undone, OPML, the library saved and read back |

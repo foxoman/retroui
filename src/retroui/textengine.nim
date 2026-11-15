@@ -337,6 +337,17 @@ type
     ## Characters on the line, raised and smaller, or lowered and smaller.
     scNormal = "Normal", scSuper = "Superscript", scSub = "Subscript"
 
+  ScriptFont* = object
+    ## A font of its own for the letters of one script in a text -- its
+    ## Arabic, or its Latin (English) -- and the spaces, digits and marks
+    ## between them: as Arabic and English are set together.
+    family*: string            ## "" the text's own font
+    style*: string             ## "" the text's own style ("Bold", "Regular"...)
+    scale*: float32            ## its size times this (0: 1) -- an Arabic font often wants 110 %
+    shift*: float32            ## its baseline raised by so many pixels (negative: lowered)
+    color*: uint32             ## its color, ARGB (0: the text's)
+    tracking*: int             ## more (less) room between its letters, thousandths of an em
+
   CharStyle* = object
     ## How characters look (the Character palette).
     family*: string            ## "" is FreeSans
@@ -363,6 +374,8 @@ type
                                ## (negative: lowered)
     noMarks*: bool             ## ... not drawn (Arabic without its tashkeel)
     styleName*: string         ## the Character Style it has (Character Styles; "" none)
+    arabicFont*: ScriptFont    ## its Arabic letters in a font of their own ("" family: the text's)
+    latinFont*: ScriptFont     ## its Latin (English) letters in a font of their own
 
   NumberStyle* = enum
     ## How numbers are written: a list's, a book's page numbers.
@@ -404,6 +417,9 @@ type
     listColor*: uint32         ## the marks' color, ARGB (0: the text's)
     listIndent*: float32       ## how far the text stands in from the marks' edge, in pixels (0:
                                ## by the type's size)
+    dropLines*: int            ## text in a box: a drop cap -- its first letters as tall as so many
+                               ## lines (2 and more), the lines beside them standing in (0: none)
+    dropChars*: int            ## ... how many letters (0: one)
 
   KashidaLength* = enum
     ## How much justified Arabic is lengthened at its joins (tatweel) -- one
@@ -429,6 +445,27 @@ type
     hDistort*, vDistort*: int  ## -100..100
     vertical*: bool            ## bent up and down instead of across
 
+  TableStyle* = object
+    ## Text in a box as a table: each paragraph a row, tabs between its
+    ## cells, each cell's text set in its column; the look of a theme
+    ## (`tableThemes`) or one's own.
+    on*: bool                  ## the text is a table
+    headerRows*: int           ## the first rows a header
+    headerFill*: uint32        ## ... their fill, ARGB (0: none)
+    headerColor*: uint32       ## ... their text's color (0: as typed)
+    headerBold*: bool          ## ... their text made bold (faux bold where the font has none)
+    bodyColor*: uint32         ## the other rows' text color (0: as typed)
+    fill*: uint32              ## the rows' fill (0: none)
+    altFill*: uint32           ## every other row's (0: as `fill`): stripes
+    border*: uint32            ## the lines' color (0: no lines)
+    borderW*: float32          ## ... their width in pixels (0: 1)
+    inner*: bool               ## lines between all the cells (else round the table and under the header)
+    rowLines*: bool            ## lines between the rows only (with `inner` false)
+    pad*: float32              ## room inside a cell, pixels (0: a third of the type's size)
+    widths*: seq[float32]      ## the columns' widths, as parts of the box (empty: even)
+    numbersRight*: bool        ## a cell that is a number set at its right
+    theme*: string             ## the theme it came from ("" its own)
+
   TextHole* = tuple[x0, y0, x1, y1: float32]
     ## A rectangle a text's lines keep out of (`TextData.holes`).
 
@@ -453,6 +490,10 @@ type
     gutter*: float32           ## ... the room between them (0: 12 pixels)
     clipOverflow*: bool        ## text in a box: what does not fit not drawn (it flows on into
                                ## another box -- `remainder`)
+    gridStep*, gridStart*: float32  ## text in a box: its baselines on a grid of lines `gridStep`
+                               ## apart from `gridStart` (y) -- each line on the next one down
+                               ## (Align to Baseline Grid; 0: as the leading puts them)
+    table*: TableStyle         ## text in a box: a table (each paragraph a row, tabs between cells)
     holes*: seq[TextHole]      ## text in a box: places its lines keep out of (what the text is
                                ## wrapped round: `x`, `y`'s own coordinates). A line takes the
                                ## widest room a hole leaves it, and goes under the hole when
@@ -674,7 +715,8 @@ type
     ## draw or to place a caret in.
     glyphs*: seq[LaidGlyph]        ## in the order they are drawn
     lines*: seq[LaidLine]          ## top to bottom
-    decorations*: seq[Decoration]  ## its underlines and strikes
+    decorations*: seq[Decoration]  ## its underlines and strikes (a table's lines too)
+    backs*: seq[Decoration]        ## what is drawn under the letters: a table's fills
     caretX*: seq[float32]      ## per character (and the end): where the caret goes before it
     caretLine*: seq[int]       ## ... on which line
     x0*, y0*, x1*, y1*: float32    ## the bounds of the letters
@@ -797,6 +839,8 @@ proc freeRooms(holes: seq[TextHole]; ya, yb, bx0, bx1, least: float32): seq[tupl
   if bx1 - at >= least: result.add (at, bx1)
 
 proc layoutPlain(t: TextData): TextLayout
+proc dropCapped(t: TextData): TextLayout
+proc tableLaid(t: TextData): TextLayout
 
 proc sizesScaled*(t: TextData; k: float32): TextData =
   ## The text with its sizes (and leading, baseline shifts) times `k`, its
@@ -958,7 +1002,7 @@ proc layoutText*(t: TextData): TextLayout =
   var u = t
   let cols = max(1, t.columns)
   let boxedCols = t.boxW > 0 and t.boxH > 0 and t.path.len == 0 and not t.vertical and
-                  (cols > 1 or t.clipOverflow)
+                  (cols > 1 or t.clipOverflow) and not t.table.on
   let gutter = if t.gutter > 0: t.gutter else: 12'f32
   let colW = if boxedCols: max(8'f32, (t.boxW - gutter * float32(cols - 1)) / float32(cols)) else: t.boxW
   if boxedCols: u.boxW = colW
@@ -985,6 +1029,7 @@ proc remainder*(t: TextData; first: int): TextData =
     if first > at: piece.text = sp.text.runeSubStr(first - at)
     if piece.text.len > 0: result.spans.add piece
     at += n
+  if first > 0: result.para.dropLines = 0         # (the drop cap is the first paragraph's)
   # (a new line it begins with: not a blank first line)
   if result.spans.len > 0 and result.spans[0].text.startsWith("\n"):
     result.spans[0].text = result.spans[0].text[1 .. ^1]
@@ -1019,7 +1064,74 @@ proc listMarks(t: TextData; lay: var TextLayout; rtl: bool) =
       g2.index = a
       lay.glyphs.add g2
 
+proc scriptOf(c: int): int =
+  ## (1 Arabic, 2 Latin, 0 neither: spaces, digits, signs -- they go with the letters about them)
+  if c in 0x0600 .. 0x06FF or c in 0x0750 .. 0x077F or c in 0x08A0 .. 0x08FF or c in 0xFB50 .. 0xFDFF or
+     c in 0xFE70 .. 0xFEFF: 1
+  elif c in int('A') .. int('Z') or c in int('a') .. int('z') or c in 0xC0 .. 0x24F or c in 0x1E00 .. 0x1EFF: 2
+  else: 0
+
+proc withScriptFont(st: CharStyle; f: ScriptFont): CharStyle =
+  result = st
+  if f.family.len > 0: result.family = f.family
+  if f.style.len > 0: result.style = f.style
+  elif f.family.len > 0 and fontStyles(f.family).find(st.style) < 0: result.style = "Regular"
+  if f.scale > 0 and f.scale != 1:
+    result.size *= f.scale
+    if result.leading > 0: discard              # (the line's distance stays the text's)
+  result.baselineShift += f.shift
+  if f.color != 0: result.color = f.color
+  result.tracking += f.tracking
+  result.arabicFont = ScriptFont()
+  result.latinFont = ScriptFont()
+
+proc scriptFontsApplied*(t: TextData): TextData =
+  ## The text with its spans cut where its script changes, each Arabic and
+  ## each Latin run in the font its style names for it (`arabicFont`,
+  ## `latinFont`), the spaces and digits with the letters before them: as
+  ## it is drawn -- for a program that knows one font a run (a PSD, IDML).
+  result = t
+  result.spans = @[]
+  var last = 0
+  for sp in t.spans:
+    if sp.style.arabicFont == ScriptFont() and sp.style.latinFont == ScriptFont():
+      result.spans.add sp
+      continue
+    # (the script of each character: a neutral one takes the one before it, else the one after)
+    var rs: seq[Rune]
+    var sc: seq[int]
+    for r in sp.text.runes:
+      rs.add r
+      sc.add scriptOf(int(r))
+    var prev = last
+    for i in 0 ..< sc.len:
+      if sc[i] == 0: sc[i] = prev else: prev = sc[i]
+    var next = 0
+    for i in countdown(sc.high, 0):
+      if sc[i] == 0: sc[i] = next else: next = sc[i]
+    if sc.len > 0: last = sc[^1]
+    var i = 0
+    while i < rs.len:
+      var j = i
+      while j < rs.len and sc[j] == sc[i]: inc j
+      var piece = ""
+      for k in i ..< j: piece.add rs[k]
+      let st = case sc[i]
+               of 1: sp.style.withScriptFont(sp.style.arabicFont)
+               of 2: sp.style.withScriptFont(sp.style.latinFont)
+               else: sp.style
+      result.spans.add TextSpan(text: piece, style: st)
+      i = j
+
 proc layoutPlain(t: TextData): TextLayout =
+  for sp in t.spans:
+    if sp.style.arabicFont != ScriptFont() or sp.style.latinFont != ScriptFont():
+      return layoutPlain(scriptFontsApplied(t))
+  if t.table.on and t.boxW > 0 and t.path.len == 0 and not t.vertical and t.spans.len > 0:
+    return tableLaid(t)
+  if t.para.dropLines >= 2 and t.para.list == lkNone and t.boxW > 0 and t.path.len == 0 and not t.vertical and
+     t.spans.len > 0:
+    return dropCapped(t)
   if t.para.list != lkNone and t.boxW > 0 and t.path.len == 0 and t.spans.len > 0:
     # a list: the text set standing in from one edge, then a mark before each paragraph
     var rtl = t.para.rtl == 2
@@ -1304,6 +1416,9 @@ proc layoutPlain(t: TextData): TextLayout =
         penY = (if boxed: t.y + asc else: t.y) + jump
         firstLine = false
       else: penY += lead + jump             # (`jump`: moved down past a hole)
+      if boxed and t.gridStep >= 2 and not sameBand:
+        # (on the baseline grid: down to its next line)
+        penY = t.gridStart + ceil((penY - t.gridStart - 0.01'f32) / t.gridStep) * t.gridStep
       # the width (spaces at the end not counted)
       var e = b
       while e > a and (chars[e - 1].space or chars[e - 1].cp == 10): dec e
@@ -1497,12 +1612,16 @@ proc charAt*(l: TextLayout; x, y: float32): int =
   if l.lines.len == 0: return 0
   var li = 0
   var best = 1e9'f32
+  var bestX = 1e9'f32
   for k, ln in l.lines:
     let d = if y < ln.baseline - ln.ascent: ln.baseline - ln.ascent - y
             elif y > ln.baseline + ln.descent: y - ln.baseline - ln.descent
             else: 0'f32
-    if d < best:
+    # (lines side by side -- a table's cells, beside a hole: the one under x)
+    let dx = if x < ln.x0: ln.x0 - x elif x > ln.x1: x - ln.x1 else: 0'f32
+    if d < best - 0.01 or (abs(d - best) <= 0.01 and dx < bestX):
       best = d
+      bestX = dx
       li = k
   let ln = l.lines[li]
   result = ln.first
@@ -1777,6 +1896,11 @@ proc textOutlines*(t: TextData; layout: TextLayout; fine = false): seq[TextOutli
   let pp = if onPath: pathPos(t.path) else: PathPos()
   let total = if onPath: pp.acc[^1] else: 0'f32
   let base0 = if l.lines.len > 0: l.lines[0].baseline else: t.y
+  for dcr in l.backs:
+    # (a table's fills, under its letters)
+    let poly = @[(dcr.x0, dcr.y - dcr.thick / 2), (dcr.x1, dcr.y - dcr.thick / 2),
+                 (dcr.x1, dcr.y + dcr.thick / 2), (dcr.x0, dcr.y + dcr.thick / 2)]
+    result.add TextOutline(polys: @[poly], color: dcr.color)
   for g in l.glyphs:
     var polys = glyphPolys(g, fine)
     if onPath:
@@ -1822,6 +1946,321 @@ proc renderTextInto*(t: TextData; px: var seq[uint32]; w, h: int; layout: TextLa
   ## touched.
   for o in textOutlines(t, layout):
     fillPolys(px, w, h, o.polys, o.color, o.embolden, t.antialias, result)
+
+proc inkTop(s: string; st: CharStyle): float32 =
+  ## (how far the letters of `s` reach above their baseline)
+  let t = newText(s, st, 0, 0)
+  var top = 0'f32
+  for o in textOutlines(t, layoutPlain(t)):
+    for poly in o.polys:
+      for p in poly: top = min(top, p[1])
+  -top
+
+proc dropCapped(t: TextData): TextLayout =
+  ## (a drop cap: the first paragraph's first letters as tall as `dropLines` lines -- from the
+  ## first line's capitals to the last one's baseline -- and the lines beside them standing in
+  ## from them, at the right for right-to-left text)
+  var u = t
+  u.para.dropLines = 0
+  result = layoutPlain(u)
+  var cps: seq[int]
+  for sp in t.spans:
+    for r in sp.text.runes:
+      cps.add int(r)
+      if cps.len > 20: break
+  var n = min(max(1, t.para.dropChars), cps.len)
+  for k in 0 ..< n:
+    if cps[k] == 10:
+      n = k
+      break
+  if n == 0 or result.lines.len == 0 or cps[0] == 32: return
+  let lines = clamp(t.para.dropLines, 2, 20)
+  let b0 = result.lines[0].baseline
+  let lead = if result.lines.len > 1: result.lines[1].baseline - b0
+             else: (let s0 = t.styleAt(0); if s0.leading > 0: s0.leading else: max(1'f32, s0.size) * 1.2)
+  let bN = b0 + lead * float32(lines - 1)
+  let rtl = result.lines[0].rtl
+  var st = t.styleAt(0)
+  st.underline = false
+  st.strike = false
+  st.baselineShift = 0
+  st.script = scNormal
+  var dropS = ""
+  for k in 0 ..< n: dropS.add Rune(cps[k])
+  let capBody = inkTop("H", st)
+  let ink1 = inkTop(dropS, st)
+  if ink1 <= 0 or capBody <= 0: return
+  let size = clamp(st.size * (bN - b0 + capBody) / ink1, st.size, st.size * 30)
+  var big = st
+  big.size = size
+  big.leading = 0
+  var dt = newText(dropS, big, 0, 0)
+  dt.para.rtl = if rtl: 2 else: 1
+  let ml = layoutPlain(dt)
+  if ml.lines.len == 0: return
+  let w = ml.x1 - ml.x0
+  let gap = max(2'f32, st.size * 0.3)
+  let bx0 = t.x + t.para.indentLeft
+  let bx1 = t.x + t.boxW - t.para.indentRight
+  let top = b0 - result.lines[0].ascent - 1
+  # (the letters kept in the text, as wide as nothing; the lines keeping out of where they are drawn)
+  var v = u
+  v.splitAt(n)
+  var at = 0
+  for sp in v.spans.mitems:
+    if at < n:
+      sp.style.hScale = 0.0001
+      sp.style.tracking = 0
+      sp.style.underline = false
+      sp.style.strike = false
+    at += sp.text.runeLen
+  let hole: TextHole = if rtl: (x0: bx1 - w - gap, y0: top, x1: bx1 + 1, y1: bN + 1)
+                       else: (x0: bx0 - 1, y0: top, x1: bx0 + w + gap, y1: bN + 1)
+  v.holes.add hole
+  var lay = layoutPlain(v)
+  var kept: seq[LaidGlyph]
+  for g in lay.glyphs:
+    if g.index >= n: kept.add g
+  let dx = if rtl: bx1 - ml.x1 else: bx0 - ml.x0
+  for g in ml.glyphs:
+    var g2 = g
+    g2.x += dx
+    g2.y += bN
+    kept.add g2
+  lay.glyphs = move kept
+  lay.x0 = min(lay.x0, ml.x0 + dx)
+  lay.x1 = max(lay.x1, ml.x1 + dx)
+  lay.y0 = min(lay.y0, bN - (ml.lines[0].ascent))
+  result = lay
+
+
+# ---- tables --------------------------------------------------------------------------------------------------
+
+proc tableTheme*(name: string): TableStyle =
+  ## A table's look by its theme's name (`tableThemes`); "" or one not
+  ## known: lines round every cell, nothing filled.
+  result = TableStyle(on: true, headerRows: 1, headerBold: true, border: 0xFF333333'u32, borderW: 1,
+                      inner: true, theme: name)
+  case name
+  of "Striped Blue":
+    result.headerFill = 0xFF1F4E79'u32
+    result.headerColor = 0xFFFFFFFF'u32
+    result.altFill = 0xFFDDEBF7'u32
+    result.border = 0xFF9DC3E6'u32
+    result.inner = false
+    result.rowLines = true
+  of "Dark Header":
+    result.headerFill = 0xFF222222'u32
+    result.headerColor = 0xFFFFFFFF'u32
+    result.border = 0xFFBBBBBB'u32
+  of "Minimal":
+    result.border = 0xFF999999'u32
+    result.inner = false
+    result.rowLines = true
+  of "Warm Paper":
+    result.headerFill = 0xFFE9C46A'u32
+    result.headerColor = 0xFF264653'u32
+    result.fill = 0xFFFFF8E7'u32
+    result.altFill = 0xFFF4E9CF'u32
+    result.border = 0xFFC9A66B'u32
+  of "Green Ledger":
+    result.headerFill = 0xFF2A9D8F'u32
+    result.headerColor = 0xFFFFFFFF'u32
+    result.altFill = 0xFFE3F4F1'u32
+    result.border = 0xFF2A9D8F'u32
+    result.inner = false
+    result.rowLines = true
+    result.numbersRight = true
+  of "Gold":
+    result.headerFill = 0xFF8C6D1F'u32
+    result.headerColor = 0xFFFFF4D6'u32
+    result.fill = 0xFFFFFBF0'u32
+    result.border = 0xFFC8A951'u32
+    result.borderW = 1.5
+  of "Red Accent":
+    result.headerFill = 0xFFC0392B'u32
+    result.headerColor = 0xFFFFFFFF'u32
+    result.altFill = 0xFFFBEAE8'u32
+    result.border = 0
+    result.inner = false
+  of "Night":
+    result.headerFill = 0xFF0B132B'u32
+    result.headerColor = 0xFF5BC0BE'u32
+    result.fill = 0xFF1C2541'u32
+    result.altFill = 0xFF3A506B'u32
+    result.border = 0xFF5BC0BE'u32
+    result.bodyColor = 0xFFE8EEF5'u32
+  else:
+    result.theme = if name.len > 0: "Plain Grid" else: ""
+
+const tableThemes* = ["Plain Grid", "Striped Blue", "Dark Header", "Minimal", "Warm Paper", "Green Ledger",
+                      "Gold", "Red Accent", "Night"]
+  ## The themes a table can have (`tableTheme`).
+
+proc cellOf(t: TextData; a, b: int): TextData =
+  ## (characters `a` ..< `b` of the text, with their styles, as a text of its own)
+  result = t
+  result.spans = @[]
+  var at = 0
+  for sp in t.spans:
+    let n = sp.text.runeLen
+    let lo = max(a, at)
+    let hi = min(b, at + n)
+    if hi > lo: result.spans.add TextSpan(text: sp.text.runeSubStr(lo - at, hi - lo), style: sp.style)
+    at += n
+  if result.spans.len == 0: result.spans.add TextSpan(text: "", style: t.styleAt(a))
+
+proc looksNumeric(t: TextData): bool =
+  ## (a cell that says a number: digits, with signs, separators, a currency or %)
+  var digits = 0
+  for sp in t.spans:
+    for r in sp.text.runes:
+      let c = int(r)
+      if c in int('0') .. int('9') or c in 0x0660 .. 0x0669 or c in 0x06F0 .. 0x06F9: inc digits
+      elif c in [int(' '), int(','), int('.'), int('-'), int('+'), int('%'), int('$'), 0x066B, 0x066C,
+                 0x20AC, 0x00A3, 0x00A5]: discard
+      else: return false
+  digits > 0
+
+proc tableLaid(t: TextData): TextLayout =
+  ## (a table: each paragraph a row, tabs between cells, each cell's text laid out in its
+  ## column; the rows as tall as their tallest cell; fills under the letters, lines over)
+  var cps: seq[int]
+  for sp in t.spans:
+    for r in sp.text.runes: cps.add int(r)
+  let total = cps.len
+  var rows: seq[seq[(int, int)]]
+  var cur: seq[(int, int)]
+  var cs = 0
+  for i in 0 .. total:
+    if i == total or cps[i] == 10 or cps[i] == 9:
+      cur.add (cs, i)
+      cs = i + 1
+      if i == total or cps[i] == 10:
+        rows.add cur
+        cur = @[]
+  # (a text ending with a new line: no empty row after it)
+  if rows.len > 1 and total > 0 and cps[^1] == 10 and rows[^1].len == 1: rows.setLen(rows.len - 1)
+  var ncol = 1
+  for r in rows: ncol = max(ncol, r.len)
+  let ts = t.table
+  let st0 = effective(t.styleAt(0))
+  let pad = if ts.pad > 0: ts.pad else: max(2'f32, st0.size / 3)
+  let bw = if ts.borderW > 0: ts.borderW else: 1'f32
+  # (right to left: the first column at the right)
+  var rtl = t.para.rtl == 2
+  if t.para.rtl == 0:
+    block strong:
+      for c in cps:
+        if c in 0x0590 .. 0x08FF or c in 0xFB1D .. 0xFDFF or c in 0xFE70 .. 0xFEFF:
+          rtl = true
+          break strong
+        if c in int('A') .. int('Z') or c in int('a') .. int('z') or c in 0xC0 .. 0x24F: break strong
+  var parts = newSeq[float32](ncol)
+  var sum = 0'f32
+  for c in 0 ..< ncol:
+    parts[c] = if c < ts.widths.len and ts.widths[c] > 0: ts.widths[c] else: 0'f32
+    sum += parts[c]
+  var known = 0
+  for p in parts:
+    if p > 0: inc known
+  let avg = if known > 0: sum / known.float32 else: 1'f32
+  sum = 0
+  for p in parts.mitems:
+    if p <= 0: p = avg
+    sum += p
+  let tx0 = t.x + t.para.indentLeft
+  let tw = max(8'f32, t.boxW - t.para.indentLeft - t.para.indentRight)
+  var colX = newSeq[float32](ncol + 1)
+  colX[0] = tx0
+  for c in 0 ..< ncol: colX[c + 1] = colX[c] + tw * parts[c] / sum
+  result.caretX = newSeq[float32](total + 1)
+  result.caretLine = newSeq[int](total + 1)
+  result.overflow = -1
+  var y = t.y
+  var rowYs = @[y]
+  for r, row in rows:
+    let header = r < ts.headerRows
+    var lays: seq[(TextLayout, int, int)]
+    var rowH = st0.size * 1.2'f32 + 2 * pad
+    for c in 0 ..< row.len:
+      let (a, b) = row[c]
+      var u = cellOf(t, a, b)
+      u.table = TableStyle()
+      u.para.dropLines = 0
+      u.para.list = lkNone
+      u.holes = @[]
+      u.columns = 1
+      u.fit = false
+      u.clipOverflow = false
+      u.gridStep = 0
+      u.para.indentLeft = 0
+      u.para.indentRight = 0
+      u.para.spaceBefore = 0
+      u.para.spaceAfter = 0
+      if header:
+        for sp in u.spans.mitems:
+          if ts.headerColor != 0: sp.style.color = ts.headerColor
+          if ts.headerBold: sp.style.fauxBold = true
+      elif ts.bodyColor != 0:
+        for sp in u.spans.mitems: sp.style.color = ts.bodyColor
+      if rtl: u.para.rtl = 2                  # (every cell right to left: its numbers too)
+      let vc = if rtl: ncol - 1 - c else: c
+      u.x = colX[vc] + pad
+      u.y = y + pad
+      u.boxW = max(4'f32, colX[vc + 1] - colX[vc] - 2 * pad)
+      u.boxH = 1e6
+      if ts.numbersRight and not header and looksNumeric(u): u.para.align = (if rtl: textLeft else: textRight)
+      let l = layoutPlain(u)
+      if l.lines.len > 0: rowH = max(rowH, l.y1 - y + pad)
+      lays.add (l, a, b)
+    let f = if header and ts.headerFill != 0: ts.headerFill
+            elif ts.altFill != 0 and (r - ts.headerRows) mod 2 == 1: ts.altFill
+            else: ts.fill
+    if f != 0:
+      result.backs.add Decoration(x0: colX[0], x1: colX[ncol], y: y + rowH / 2, thick: rowH, color: f)
+    for (l, a, b) in lays:
+      let base = result.lines.len
+      for g in l.glyphs:
+        var g2 = g
+        g2.index += a
+        result.glyphs.add g2
+      for d in l.decorations: result.decorations.add d
+      for ln in l.lines:
+        var l2 = ln
+        l2.first += a
+        l2.last += a
+        result.lines.add l2
+      for k in 0 .. b - a:
+        if k < l.caretX.len:
+          result.caretX[a + k] = l.caretX[k]
+          result.caretLine[a + k] = base + (if k < l.caretLine.len: l.caretLine[k] else: 0)
+    y += rowH
+    rowYs.add y
+  # the lines: round the table, under the header, between the rows or all the cells
+  if ts.border != 0:
+    proc hline(res: var TextLayout; yy: float32) =
+      res.decorations.add Decoration(x0: colX[0] - bw / 2, x1: colX[ncol] + bw / 2, y: yy, thick: bw,
+                                     color: ts.border)
+    proc vline(res: var TextLayout; xx: float32) =
+      res.decorations.add Decoration(x0: xx - bw / 2, x1: xx + bw / 2, y: (rowYs[0] + rowYs[^1]) / 2,
+                                     thick: rowYs[^1] - rowYs[0] + bw, color: ts.border)
+    result.hline(rowYs[0])
+    result.hline(rowYs[^1])
+    for k in 1 ..< rowYs.high:
+      if ts.inner or ts.rowLines or k == ts.headerRows: result.hline(rowYs[k])
+    if ts.inner or not ts.rowLines:
+      result.vline(colX[0])
+      result.vline(colX[ncol])
+    if ts.inner:
+      for c in 1 ..< ncol: result.vline(colX[c])
+  result.x0 = colX[0]
+  result.x1 = colX[ncol]
+  result.y0 = t.y
+  result.y1 = y
+  if result.lines.len == 0:
+    result.lines.add LaidLine(baseline: t.y + st0.size, ascent: st0.size, descent: st0.size / 4,
+                              x0: colX[0], x1: colX[0])
 
 proc renderText*(t: TextData; w, h: int; layout: TextLayout): seq[uint32] =
   ## The text drawn on a transparent picture `w` x `h` (straight ARGB).
@@ -1979,6 +2418,10 @@ proc toJson*(st: CharStyle): JsonNode =
   if st.markColor != 0: result["markColor"] = %int64(st.markColor)
   if st.markRaise != 0: result["markRaise"] = %st.markRaise
   if st.noMarks: result["noMarks"] = %true
+  for (k, f) in [("arabicFont", st.arabicFont), ("latinFont", st.latinFont)]:
+    if f != ScriptFont():
+      result[k] = %*{"family": f.family, "style": f.style, "scale": f.scale, "shift": f.shift,
+                     "color": int64(f.color), "tracking": f.tracking}
   if st.variation.len > 0: result["variation"] = %st.variation
   if st.styleName.len > 0: result["styleName"] = %st.styleName
 
@@ -2023,8 +2466,18 @@ proc charStyleFrom*(j: JsonNode): CharStyle =
   result.noMarks = j.getB("noMarks")
   result.variation = j.getS("variation")
   result.styleName = j.getS("styleName")
+  for (k, f) in [("arabicFont", addr result.arabicFont), ("latinFont", addr result.latinFont)]:
+    if j.hasKey(k) and j[k].kind == JObject:
+      let o = j[k]
+      f[] = ScriptFont(family: o.getS("family"), style: o.getS("style"),
+                       scale: clamp(float32(o.getF("scale")), 0, 10), shift: clamp(float32(o.getF("shift")), -1000, 1000),
+                       color: uint32(int64(o.getF("color")) and 0xFFFFFFFF'i64),
+                       tracking: clamp(int(o.getF("tracking")), -1000, 10_000))
 
 proc listToJson(p: ParaStyle; j: JsonNode)
+proc dropToJson(p: ParaStyle; j: JsonNode)
+proc tableToJson(ts: TableStyle): JsonNode
+proc tableFrom(j: JsonNode): TableStyle
 proc listFrom(p: var ParaStyle; j: JsonNode)
 
 proc toJson*(t: TextData): JsonNode =
@@ -2038,6 +2491,7 @@ proc toJson*(t: TextData): JsonNode =
                        "rtl": t.para.rtl, "noKashida": t.para.noKashida, "kashida": $t.para.kashida}}
   if t.para.styleName.len > 0: result["para"]["styleName"] = %t.para.styleName
   listToJson(t.para, result["para"])
+  dropToJson(t.para, result["para"])
   if t.boxW > 0:
     result["boxW"] = %t.boxW
     result["boxH"] = %t.boxH
@@ -2046,6 +2500,10 @@ proc toJson*(t: TextData): JsonNode =
   if t.columns > 1: result["columns"] = %t.columns
   if t.gutter > 0: result["gutter"] = %t.gutter
   if t.clipOverflow: result["clipOverflow"] = %true
+  if t.table.on: result["table"] = tableToJson(t.table)
+  if t.gridStep > 0:
+    result["gridStep"] = %t.gridStep
+    result["gridStart"] = %t.gridStart
   if t.warp.style != wsNone:
     result["warp"] = %*{"style": $t.warp.style, "bend": t.warp.bend, "hDistort": t.warp.hDistort,
                         "vDistort": t.warp.vDistort, "vertical": t.warp.vertical}
@@ -2073,6 +2531,9 @@ proc textFrom*(j: JsonNode): TextData =
   result.columns = j{"columns"}.getInt(0)
   result.gutter = j{"gutter"}.getFloat(0).float32
   result.clipOverflow = j.getB("clipOverflow")
+  result.gridStep = clamp(float32(j.getF("gridStep")), 0, 10_000)
+  if j.hasKey("table"): result.table = tableFrom(j["table"])
+  result.gridStart = clamp(float32(j.getF("gridStart")), -100_000, 100_000)
   if j.hasKey("para"):
     let p = j["para"]
     result.para.align = enumOf(p.getS("align"), textLeft)
@@ -2120,6 +2581,36 @@ proc listToJson(p: ParaStyle; j: JsonNode) =
   if p.listColor != 0: j["listColor"] = %int64(p.listColor)
   if p.listIndent != 0: j["listIndent"] = %p.listIndent
 
+proc tableToJson(ts: TableStyle): JsonNode =
+  result = %*{"headerRows": ts.headerRows, "headerFill": int64(ts.headerFill),
+              "headerColor": int64(ts.headerColor), "headerBold": ts.headerBold, "fill": int64(ts.fill),
+              "bodyColor": int64(ts.bodyColor),
+              "altFill": int64(ts.altFill), "border": int64(ts.border), "borderW": ts.borderW,
+              "inner": ts.inner, "rowLines": ts.rowLines, "pad": ts.pad, "numbersRight": ts.numbersRight,
+              "theme": ts.theme}
+  var ws = newJArray()
+  for w in ts.widths: ws.add %w
+  result["widths"] = ws
+
+proc tableFrom(j: JsonNode): TableStyle =
+  if j == nil or j.kind != JObject: return
+  template c(k: string): uint32 = uint32(int64(j.getF(k)) and 0xFFFFFFFF'i64)
+  result = TableStyle(on: true, headerRows: clamp(int(j.getF("headerRows")), 0, 100), headerFill: c("headerFill"),
+                      headerColor: c("headerColor"), headerBold: j.getB("headerBold"), fill: c("fill"),
+                      bodyColor: c("bodyColor"),
+                      altFill: c("altFill"), border: c("border"), borderW: clamp(float32(j.getF("borderW")), 0, 100),
+                      inner: j.getB("inner"), rowLines: j.getB("rowLines"),
+                      pad: clamp(float32(j.getF("pad")), 0, 1000), numbersRight: j.getB("numbersRight"),
+                      theme: j.getS("theme"))
+  if j.hasKey("widths") and j["widths"].kind == JArray:
+    for w in j["widths"].elems:
+      if result.widths.len < 200 and w.kind in {JInt, JFloat}: result.widths.add clamp(float32(w.getFloat), 0, 1000)
+
+proc dropToJson(p: ParaStyle; j: JsonNode) =
+  if p.dropLines < 2: return
+  j["dropLines"] = %p.dropLines
+  if p.dropChars > 1: j["dropChars"] = %p.dropChars
+
 proc listFrom(p: var ParaStyle; j: JsonNode) =
   p.list = ListKind(clamp(int(j.getF("list")), 0, ord(high(ListKind))))
   p.listMark = j.getS("listMark")
@@ -2130,6 +2621,8 @@ proc listFrom(p: var ParaStyle; j: JsonNode) =
   if p.listSuffix.len > 16: p.listSuffix.setLen(0)
   p.listColor = uint32(int64(j.getF("listColor")) and 0xFFFFFFFF'i64)
   p.listIndent = clamp(float32(j.getF("listIndent")), 0, 4000)
+  p.dropLines = clamp(int(j.getF("dropLines")), 0, 20)
+  p.dropChars = clamp(int(j.getF("dropChars")), 0, 20)
 
 proc paraToJson*(p: ParaStyle): JsonNode =
   ## A paragraph style as JSON (Paragraph Styles kept in a document).
@@ -2137,6 +2630,7 @@ proc paraToJson*(p: ParaStyle): JsonNode =
               "indentFirst": p.indentFirst, "spaceBefore": p.spaceBefore, "spaceAfter": p.spaceAfter,
               "rtl": p.rtl, "noKashida": p.noKashida, "kashida": $p.kashida, "styleName": p.styleName}
   listToJson(p, result)
+  dropToJson(p, result)
 
 proc paraFrom*(j: JsonNode): ParaStyle =
   ## A paragraph style from its JSON (`paraToJson`).

@@ -415,6 +415,8 @@ type
     lockAlpha*: bool        ## Preserve Transparency: painting keeps its alpha
     background*: bool       ## the Background: opaque, always at the bottom
     ver*: int               ## changes with its pixels (for thumbnails)
+    zeroVer: int            ## (`ver` + 1 while the pixels at `zeroPx` are all still as
+    zeroPx: pointer         ## `zeroPixels` gave them: `freshPixels`)
     boxVer*: int            ## (for an app: `ver` + 1 when `box` was measured --
     box*: Rect              ## where its pixels are, kept on the layer: a cache
                             ## by its address goes wrong when a new layer gets it)
@@ -459,6 +461,8 @@ type
                             ## its shape, row by row; 3 text goes under it (no line beside it).
                             ## A layer at Opacity 0 still wraps: a shape drawn only to wrap by
     wrapGap*: int           ## ... and stays this many pixels away from it
+    meta*: string           ## what an app keeps with the layer (a chart's or a map's settings, as
+                            ## JSON, to make it again): saved with it, kept by undo
     ignoreWrap*: bool       ## a type layer: its text does not keep out of layers with Text Wrap (a
                             ## caption on a picture, a pull quote on its panel)
     wrapSide*: int          ## ... on both its sides (0), on its left only (1), on its right only (2), or
@@ -634,6 +638,10 @@ type
     opacity*: int               ## 0..100 (0 taken as 100)
     pattern*: seq[uint32]       ## a pattern's pixels (`pw` x `ph`), tiled (`scale` %)
     pw*, ph*: int               ## the pattern's size
+    points*: seq[tuple[x, y: float; color: uint32]]
+                                ## a freeform gradient's (`style` 5) colors and where they are in the
+                                ## shape's box (0..1 across and down): blended smoothly between
+                                ## them, each strongest where it is (as a gradient mesh looks)
 
   StrokeAlign* = enum
     ## Where a shape's stroke is: inside its outline, centered on it, outside.
@@ -747,6 +755,7 @@ type
     smart: SmartData
     wrap, wrapGap, wrapSide: int
     ignoreWrap: bool
+    meta: string
 
   LayerSnap = object
     layer: Layer
@@ -1056,6 +1065,24 @@ proc chanOf(p: uint32; ch: int): int {.inline.} =
 when defined(useMalloc) and not defined(js):
   proc cCalloc(n, size: csize_t): pointer {.importc: "calloc", header: "<stdlib.h>".}
 
+proc clearSet*(px: var seq[uint32]) =
+  ## `px` all transparent, written only where it is not already: a layer
+  ## whose memory came zeroed from the system (`zeroPixels`) keeps not
+  ## taking it where nothing was ever drawn. (A layer of type or a shape
+  ## drawn the first time: its pixels may be anything, or nothing yet.)
+  if px.len == 0: return
+  let p = cast[ptr UncheckedArray[uint64]](addr px[0])
+  let words = px.len div 2
+  const run = 512                          # (4 KB: a page of memory)
+  var i = 0
+  while i < words:
+    let e = min(words, i + run)
+    var any = 0'u64
+    for k in i ..< e: any = any or p[k]
+    if any != 0: zeroMem(addr p[i], (e - i) * 8)
+    i = e
+  if (px.len and 1) == 1: px[^1] = 0
+
 proc zeroPixels*(n: int): seq[uint32] =
   ## `n` transparent pixels. A big buffer comes zeroed from the system
   ## (`calloc`): its memory is only really taken where it is written -- an
@@ -1083,6 +1110,13 @@ proc newLayer*(d: Doc; name: string; fill = 0'u32): Layer =
     let p = pixPtr(result.px)
     parallelFor(n, proc (lo, hi: int) =
       for i in lo ..< hi: p[i] = fill, grain = 65536)
+
+proc freshPixels*(L: Layer): bool {.inline.} =
+  ## The layer was made by `addLayer(fresh = true)` and nothing was drawn
+  ## on it yet: its pixels are the zeros `newLayer` gave, so its first
+  ## shape or text clears nothing (and is mixed again only where it drew).
+  ## False once its version changed or its pixels were replaced.
+  L.zeroVer == L.ver + 1 and L.px.len > 0 and L.zeroPx == addr L.px[0]
 
 var maxHistoryStates* = 100
   ## The most undo steps a document keeps (the oldest go first).
@@ -1322,13 +1356,14 @@ proc drawText*(d: Doc; L: Layer) =
   ## the boxes its text flows on into, again too.
   if not L.isText or L.px.len != d.w * d.h: return
   let old = L.textBox
+  let wasZero = L.freshPixels           # (a new layer: nothing on it to clear or to mix again)
   if old.x1 > old.x0:
     for y in max(0, old.y0) ..< min(d.h, old.y1):
       let x0 = max(0, old.x0)
       let x1 = min(d.w, old.x1)
       if x1 > x0: zeroMem(addr L.px[y * d.w + x0], (x1 - x0) * 4)
-  else:
-    zeroMem(addr L.px[0], L.px.len * 4)
+  elif not wasZero:
+    clearSet(L.px)                       # (not drawn yet: only where something is)
   var t = d.effectiveText(L)
   if d.flowsOn(L): t.clipOverflow = true
   let lay = layoutText(t)
@@ -1339,7 +1374,7 @@ proc drawText*(d: Doc; L: Layer) =
   inc L.ver
   if old.x1 > old.x0:
     d.markDirty(rect(old.x0, old.y0, old.x1 - old.x0, old.y1 - old.y0))
-  else: d.markDirty(d.bounds)
+  elif not wasZero: d.markDirty(d.bounds)
   if b.x1 > b.x0: d.markDirty(rect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0))
   if L.uid != 0 and flowDepth < 16:
     inc flowDepth
@@ -1549,12 +1584,13 @@ proc drawShape*(d: Doc; L: Layer) =
   if not L.isShape or L.px.len != d.w * d.h or shapeRender == nil: return
   if L.isFill: L.shape.path = canvasPath(d.w, d.h)     # (a fill layer: all of the canvas)
   let old = L.shapeBox
+  let wasZero = L.freshPixels           # (a new layer: nothing on it to mix again)
   let b = shapeRender(d.w, d.h, L)
   L.shapeBox = b
   inc L.ver
   if old.x1 > old.x0 and old.y1 > old.y0:
     d.markDirty(rect(old.x0, old.y0, old.x1 - old.x0, old.y1 - old.y0))
-  else: d.markDirty(d.bounds)
+  elif not wasZero: d.markDirty(d.bounds)
   if b.x1 > b.x0: d.markDirty(rect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0))
 
 proc drawVector*(d: Doc; L: Layer) =
@@ -1835,6 +1871,9 @@ type
     pair: int                   # (a group's end) its beginning
     live, maskLive: int         # (a sampled composite) the live part it and its mask are shown by, -1 none
     fxDx, fxDy: int             # (... ) its effects moved along with it
+    spanned: bool               # (a layer of type or a shape) its pixels are all inside `span`: the
+    span: Rect                  # rows and columns outside it are left out
+    isBase: bool                # (a layer) others are clipped to it: all of it is read
 
 proc parentsOf*(layers: seq[Layer]): seq[int] =
   ## For each layer the group it is in (an index; -1 none) -- by their
@@ -1853,6 +1892,11 @@ proc liveIndex(d: Doc; L: Layer): int =
     for i in 0 ..< d.live.len:
       if d.live[i].layer == L: return i
   -1
+
+var compositeSpans* = true
+  ## Type and shapes mixed only where they drew (the rest of their rows and
+  ## columns left out: a page of many small shapes mixes as fast as one).
+  ## False: every layer over all of the image (for a test, a comparison).
 
 proc compositeItems(d: Doc; layers: seq[Layer]; sampled: bool): tuple[items: seq[CItem]; maxDepth: int] =
   ## (the visible `layers` as the steps of the composite: plain data for the
@@ -1936,11 +1980,18 @@ proc compositeItems(d: Doc; layers: seq[Layer]; sampled: bool): tuple[items: seq
                    op: L.opacity * 255 div 100, fill: L.fill * 255 div 100, mode: L.mode,
                    live: (if sampled: d.liveIndex(L) else: -1),
                    maskLive: (if sampled and not L.maskOff: d.liveIndex(L.mask) else: -1))
+    # (type and shapes: where they drew is known, and nothing of them is outside it)
+    if lut == nil and not filt and it.live < 0 and compositeSpans:
+      let bx = if L.isShape: L.shapeBox elif L.isText: L.textBox else: (0, 0, 0, 0)
+      if bx.x1 > bx.x0 and bx.y1 > bx.y0:
+        it.spanned = true
+        it.span = rect(bx.x0, bx.y0, bx.x1 - bx.x0, bx.y1 - bx.y0)
     if L.clipped and base >= 0:
       it.base = base
       if items[base].kind == ckPop:
         items[base].cov = true
         items[items[base].pair].cov = true
+      else: items[base].isBase = true
     else:
       it.base = -1
       base = items.len
@@ -2155,6 +2206,8 @@ proc mixLayers[S: static bool](items: var seq[CItem]; maxDepth: int; c: Rect; w,
           let it = addr ip[k]
           if it.kind == ckPush: continue
           if it.kind == ckLayer:
+            # (a row of type or a shape it drew nothing in: not read -- it is left out below)
+            if it.spanned and not it.isBase and (iy < it.span.y or iy >= it.span.y + it.span.h): continue
             if it.live >= 0: liveRow(addr lives[it.live], w, h, iy, y, c.w, xs, it.src, at(gsp, k * c.w))
             else: gatherRow(it.src, w, iy, xs, c.w, at(gsp, k * c.w))
           if it.mask != nil:
@@ -2275,6 +2328,20 @@ proc mixLayers[S: static bool](items: var seq[CItem]; maxDepth: int; c: Rect; w,
           else:
             for pl in list: drawPlane(tp, y, c, fxr, pl, op0, bp, bm, blut, brow)
         if styled: planes(it.below)
+        # (type or a shape: a row it drew nothing in is left out, and a row it did is mixed
+        # where it drew only)
+        var xa = c.x
+        var xb = c.x + c.w
+        if it.spanned and not it.isBase:
+          if IY < it.span.y or IY >= it.span.y + it.span.h:
+            if styled: planes(it.above)
+            continue
+          when not S:
+            xa = max(xa, it.span.x)
+            xb = min(xb, it.span.x + it.span.w)
+            if xb <= xa:
+              if styled: planes(it.above)
+              continue
         if lp != nil:
           # an adjustment layer: what is under it, changed (where its mask lets)
           for x in c.x ..< c.x + c.w:
@@ -2319,7 +2386,7 @@ proc mixLayers[S: static bool](items: var seq[CItem]; maxDepth: int; c: Rect; w,
         if lvl == 0: bare = false
         let quick = m == bmNormal or m in SepModes
         let sl = lutp[k]
-        for x in c.x ..< c.x + c.w:
+        for x in xa ..< xb:
           let s = spr[x]
           if (s shr 24) == 0: continue
           if fast and (s shr 24) == 255:
@@ -2874,7 +2941,7 @@ proc settingsOf(L: Layer): LayerSettings =
                 lockPixels: L.lockPixels, lockPosition: L.lockPosition, link: L.link, board: L.board,
                 depth: L.depth, blendIf: L.blendIf, maskClear: L.maskClear, maskFeather: L.maskFeather,
                 smart: L.smart, wrap: L.wrap, wrapGap: L.wrapGap, wrapSide: L.wrapSide,
-                ignoreWrap: L.ignoreWrap)
+                ignoreWrap: L.ignoreWrap, meta: L.meta)
 
 proc setSettings(L: Layer; s: LayerSettings) =
   ## (not its text or shape: they are drawn again when changed)
@@ -2887,6 +2954,7 @@ proc setSettings(L: Layer; s: LayerSettings) =
   L.depth = s.depth; L.blendIf = s.blendIf; L.maskClear = s.maskClear; L.maskFeather = s.maskFeather
   L.smart = s.smart
   L.wrap = s.wrap; L.wrapGap = s.wrapGap; L.wrapSide = s.wrapSide; L.ignoreWrap = s.ignoreWrap
+  L.meta = s.meta
 
 proc snapOf(d: Doc): DocSnap =
   result = DocSnap(w: d.w, h: d.h, dpi: d.dpi, mode: d.mode, palette: d.palette, duotone: d.duotone, cur: d.cur,
@@ -4343,15 +4411,21 @@ proc insertLayer*(d: Doc; L: Layer; above = -1) =
   d.fixDepths()
   d.markAll()
 
-proc addLayer*(d: Doc; name = ""; above = -1): Layer =
+proc addLayer*(d: Doc; name = ""; above = -1; fresh = false): Layer =
   ## A new empty layer above layer `above` (-1: the current one); it
   ## becomes the current layer. (An undoable change: `snapStep` first.)
+  ## `fresh`: a shape or text is drawn on it at once, before anything
+  ## else writes its pixels -- that drawing takes them as the zeros they
+  ## are (`freshPixels`).
   var n = 1
   for L in d.layers:
     if L.name.startsWith("Layer "):
       try: n = max(n, parseInt(L.name[6 .. ^1]) + 1)
       except ValueError: discard
   result = d.newLayer(if name.len > 0: name else: "Layer " & $n)
+  if fresh and result.px.len > 0:
+    result.zeroVer = result.ver + 1
+    result.zeroPx = addr result.px[0]
   d.insertLayer(result, above)
 
 proc addGroup*(d: Doc; name = ""): Layer =
@@ -4579,7 +4653,7 @@ proc arrange*(d: Doc; how: Arrange; i = -1): bool {.discardable.} =
 proc addTextLayer*(d: Doc; t: TextData; above = -1): Layer =
   ## A new type layer showing `t` (named after what it says), the current
   ## one. (Undoable in a step: `touchLayers` first.)
-  result = d.addLayer(t.layerName, above)
+  result = d.addLayer(t.layerName, above, fresh = true)
   result.text = t
   if result.text.spans.len == 0: result.text.spans.add TextSpan(text: "", style: defaultStyle())
   d.drawText(result)
@@ -6930,6 +7004,10 @@ proc toJson*(p: ShapePaint): JsonNode =
       if st.mid > 0 and abs(st.mid - 0.5) > 1e-6: a.add %*[st.at, int64(st.color), st.mid]
       else: a.add %*[st.at, int64(st.color)]
     result["stops"] = a
+  if p.points.len > 0:
+    var a = newJArray()
+    for q in p.points: a.add %*[q.x, q.y, int64(q.color)]
+    result["points"] = a
   if p.pattern.len > 0 and p.pattern.len == p.pw * p.ph:
     let b = newBitmap(p.pw, p.ph)
     b.px = p.pattern
@@ -6942,7 +7020,7 @@ proc paintFrom(j: JsonNode): ShapePaint =
   result.color = uint32(j{"color"}.getBiggestInt(0xFF000000) and 0xFFFFFFFF)
   result.color2 = uint32(j{"color2"}.getBiggestInt(0xFFFFFFFF) and 0xFFFFFFFF)
   result.angle = j{"angle"}.getInt(90)
-  result.style = clamp(j{"style"}.getInt(0), 0, 4)
+  result.style = clamp(j{"style"}.getInt(0), 0, 5)
   result.reverse = j{"reverse"}.getBool
   result.opacity = clamp(j{"opacity"}.getInt(100), 0, 100)
   result.scale = clamp(j{"scale"}.getInt(100), 10, 1000)
@@ -6952,6 +7030,11 @@ proc paintFrom(j: JsonNode): ShapePaint =
       result.stops.add GradientStop(at: clamp(e[0].getFloat, 0.0, 1.0),
                                     color: uint32(e[1].getBiggestInt(0) and 0xFFFFFFFF),
                                     mid: (if e.len == 3: clamp(e[2].getFloat, 0.0, 1.0) else: 0.0))
+  for q in j{"points"}.getElems:
+    let e = q.getElems
+    if e.len == 3 and result.points.len < 64:
+      result.points.add (clamp(e[0].getFloat, -1.0, 2.0), clamp(e[1].getFloat, -1.0, 2.0),
+                         uint32(e[2].getBiggestInt(0) and 0xFFFFFFFF))
   if j.hasKey("pattern"):
     try:
       let b = decodePng(unbase64(j["pattern"].getStr))
@@ -7055,6 +7138,7 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
     if L.wrapGap != 0: lj["wrapGap"] = %L.wrapGap
     if L.wrapSide != 0: lj["wrapSide"] = %L.wrapSide
     if L.ignoreWrap: lj["ignoreWrap"] = %true
+    if L.meta.len > 0: lj["meta"] = %L.meta
     if L.fromMaster != 0: lj["fromMaster"] = %L.fromMaster
     if L.fromSpan != 0: lj["fromSpan"] = %L.fromSpan
     if L.isText and L.textFull.x1 > L.textFull.x0:
@@ -7319,6 +7403,8 @@ proc loadRpd*(path: string): Doc =
     L.wrapGap = clamp(lj{"wrapGap"}.getInt(0), 0, 10000)
     L.wrapSide = clamp(lj{"wrapSide"}.getInt(0), 0, 3)
     L.ignoreWrap = lj{"ignoreWrap"}.getBool(false)
+    L.meta = lj{"meta"}.getStr("")
+    if L.meta.len > 1_000_000: L.meta = ""
     L.fromMaster = lj{"fromMaster"}.getInt(0)
     L.fromSpan = lj{"fromSpan"}.getInt(0)
     if lj{"textFull"} != nil and lj["textFull"].kind == JArray and lj["textFull"].len == 4:

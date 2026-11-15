@@ -1,7 +1,9 @@
 ## Illustrator's path tools for shape layers and paths: Merge Shape
 ## Components (the Pathfinder: what Combine, Subtract, Intersect and
 ## Exclude make, as plain outlines), Offset Path, Outline Stroke, Simplify,
-## Reverse Path Direction, Join, and the Star and Spiral shapes.
+## Reverse Path Direction, Join, and the Star and Spiral shapes; type made
+## shapes (Convert to Shape: `textShapes`) and the shapes between two
+## (Make Blend: `blendShapes`).
 ##
 ## The outlines are worked out on pixels as big as the image (finer:
 ## `scale`), then traced and fitted with curves -- smooth, few points.
@@ -14,7 +16,7 @@
 ## ```
 
 import std/[math, algorithm]
-import photo, photopaint, photoshapes
+import photo, photopaint, photoshapes, textengine
 
 proc tracedPath*(m: seq[uint8]; w, h: int; tolerance = 0.8; scale = 1.0): Path =
   ## The outlines of a mask (`w` x `h`, 128 and over inside) as a path of
@@ -194,6 +196,208 @@ proc joinPaths*(p: Path; tolerance = 6.0): Path =
           break
       if changed: break
 
+proc textShapes*(t: TextData; tolerance = 0.2): seq[ShapeData] =
+  ## Convert to Shape (Create Outlines): the text as shapes, one a color --
+  ## its letters (and underlines) outlines of curves, fitted within
+  ## `tolerance` pixels of the letters, placed as they are drawn (on a path,
+  ## warped, vertical). Faux bold: a stroke of the same color.
+  const k = 4.0   # (fitted four times bigger: small letters keep their shape)
+  var colors: seq[(uint32, float32)]
+  var shapes: seq[ShapeData]
+  for o in textOutlines(t, layoutText(t), fine = true):
+    if (o.color shr 24) == 0: continue
+    var at = colors.find((o.color, o.embolden))
+    if at < 0:
+      colors.add (o.color, o.embolden)
+      var s = ShapeData(fill: solidPaint(o.color), kind: "Type")
+      if o.embolden > 0:
+        # (as the type draws it: widened `embolden` to the right, half that up)
+        let kx = ceil(o.embolden.float)
+        let ky = float(int(kx) div 2)
+        s.stroke = solidPaint(o.color)
+        s.strokeWidth = (kx + ky) / 2
+        s.align = saCenter
+        s.join = ljRound
+      shapes.add s
+      at = shapes.high
+    for poly in o.polys:
+      if poly.len < 3: continue
+      var pts: seq[(float, float)]
+      let (dx, dy) = if o.embolden > 0: (ceil(o.embolden.float) / 2, -float(int(ceil(o.embolden)) div 2) / 2)
+                     else: (0.0, 0.0)
+      for v in poly: pts.add ((v[0].float + dx) * k, (v[1].float + dy) * k)
+      var sp = fitPath(pts, tolerance * k, closed = true, cornerAngle = 45)
+      if sp.pts.len < 3: continue
+      for q in sp.pts.mitems:
+        q.p = (q.p[0] / k, q.p[1] / k)
+        q.inH = (q.inH[0] / k, q.inH[1] / k)
+        q.outH = (q.outH[0] / k, q.outH[1] / k)
+      sp.joined = shapes[at].path.subs.len > 0   # (a color's letters filled as one, nonzero)
+      shapes[at].path.subs.add sp
+  for s in shapes:
+    if s.path.subs.len > 0: result.add s
+
+proc resampled(sp: SubPath; n: int): seq[(float, float)] =
+  ## (n points evenly along the subpath)
+  var pts: seq[(float, float)]
+  for poly in Path(subs: @[sp]).flatten(24): pts.add poly
+  if pts.len == 0: return
+  if sp.closed and pts[^1] != pts[0]: pts.add pts[0]
+  var acc = @[0.0]
+  for i in 1 ..< pts.len: acc.add acc[^1] + hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+  let total = acc[^1]
+  if total <= 1e-9:
+    for i in 0 ..< n: result.add pts[0]
+    return
+  var j = 0
+  let last = if sp.closed: n else: n - 1
+  for i in 0 ..< n:
+    let s = total * i.float / max(1, last).float
+    while j < acc.high - 1 and acc[j + 1] < s: inc j
+    let seg = acc[j + 1] - acc[j]
+    let u = if seg > 1e-12: clamp((s - acc[j]) / seg, 0.0, 1.0) else: 0.0
+    result.add (pts[j][0] + (pts[j + 1][0] - pts[j][0]) * u, pts[j][1] + (pts[j + 1][1] - pts[j][1]) * u)
+
+proc signedArea(p: seq[(float, float)]): float =
+  for i in 0 ..< p.len:
+    let a = p[i]
+    let b = p[(i + 1) mod p.len]
+    result += a[0] * b[1] - b[0] * a[1]
+
+proc mixColor(a, b: uint32; t: float): uint32 =
+  for sh in [24, 16, 8, 0]:
+    let x = float((a shr sh) and 255)
+    let y = float((b shr sh) and 255)
+    result = result or (uint32(clamp(round(x + (y - x) * t), 0.0, 255.0)) shl sh)
+
+proc mixPaint(a, b: ShapePaint; t: float): ShapePaint =
+  # (a solid color to another mixed; a color from none faded in; anything else the nearer one)
+  if a.kind == spColor and b.kind == spColor:
+    result = a
+    result.color = mixColor(a.color, b.color, t)
+    let oa = if a.opacity == 0: 100 else: a.opacity
+    let ob = if b.opacity == 0: 100 else: b.opacity
+    result.opacity = int(round(oa.float + (ob - oa).float * t))
+  elif a.kind == spColor and b.kind == spNone:
+    result = a
+    result.color = mixColor(a.color, a.color and 0xFFFFFF'u32, t)
+  elif a.kind == spNone and b.kind == spColor:
+    result = b
+    result.color = mixColor(b.color and 0xFFFFFF'u32, b.color, t)
+  else: result = if t < 0.5: a else: b
+
+proc colorSteps*(a, b: ShapeData): int =
+  ## Smooth Color: as many steps between the two shapes as their colors
+  ## need to look smooth (a step a few levels of color), 1 for the same color.
+  var most = 0
+  for (p, q) in [(a.fill, b.fill), (a.stroke, b.stroke)]:
+    if p.kind == spColor and q.kind == spColor:
+      for sh in [24, 16, 8, 0]:
+        most = max(most, abs(int((p.color shr sh) and 255) - int((q.color shr sh) and 255)))
+  clamp(most div 4, 1, 256)
+
+type
+  BlendEase* = enum
+    ## How a blend's steps are spaced: evenly, bunched toward its start, its
+    ## end, or both ends.
+    beEven = "Even", beIn = "Ease In", beOut = "Ease Out", beInOut = "Ease In and Out"
+
+proc eased*(t: float; e: BlendEase; strength = 0.5): float =
+  ## `t` (0..1) as the ease spaces it; `strength` 0..1 how much.
+  let k = 1 + clamp(strength, 0.0, 1.0) * 3
+  case e
+  of beEven: t
+  of beIn: pow(t, k)
+  of beOut: 1 - pow(1 - t, k)
+  of beInOut: (if t < 0.5: pow(2 * t, k) / 2 else: 1 - pow(2 * (1 - t), k) / 2)
+
+proc blendShapes*(a, b: ShapeData; steps: int; ease = beEven; strength = 0.5; colorEase = beEven;
+                  colorStrength = 0.5): seq[ShapeData] =
+  ## Make Blend: `steps` shapes between `a` and `b` -- their outlines, fills,
+  ## strokes and stroke widths going from the one to the other, in even
+  ## steps or eased (`ease`, `strength`: the shapes bunched toward an end);
+  ## the colors on their own ease (`colorEase`). Outlines of as many points of the same kinds are mixed point by
+  ## point (their curves kept); others are walked along at even distances.
+  ## Subpaths are paired in order (one with no partner shrinks to a point).
+  let n = clamp(steps, 1, 1000)
+  var same = a.path.subs.len == b.path.subs.len
+  if same:
+    for i in 0 ..< a.path.subs.len:
+      if a.path.subs[i].pts.len != b.path.subs[i].pts.len or a.path.subs[i].closed != b.path.subs[i].closed:
+        same = false
+  var pa, pb: seq[seq[(float, float)]]   # (the walked-along outlines)
+  var closed: seq[bool]
+  if not same:
+    let m = max(a.path.subs.len, b.path.subs.len)
+    for i in 0 ..< m:
+      let sa = if i < a.path.subs.len: a.path.subs[i] else: SubPath()
+      let sb = if i < b.path.subs.len: b.path.subs[i] else: SubPath()
+      let c = (if sa.pts.len > 0: sa.closed else: true) and (if sb.pts.len > 0: sb.closed else: true)
+      let cnt = clamp(max(sa.pts.len, sb.pts.len) * 12, 64, 512)
+      var ra = if sa.pts.len > 0: resampled(sa, cnt) else: @[]
+      var rb = if sb.pts.len > 0: resampled(sb, cnt) else: @[]
+      # (a missing one: a point at the middle of the other)
+      proc middle(r: seq[(float, float)]): (float, float) =
+        var sx, sy = 0.0
+        for q in r:
+          sx += q[0]
+          sy += q[1]
+        let n = max(1, r.len).float
+        (sx / n, sy / n)
+      if ra.len == 0:
+        let c0 = middle(rb)
+        for q in rb: ra.add c0
+      if rb.len == 0:
+        let c0 = middle(ra)
+        for q in ra: rb.add c0
+      if ra.len == 0: continue
+      if c:
+        # (both the same way round, from the points nearest each other)
+        if signedArea(ra) * signedArea(rb) < 0: rb.reverse()
+        var best = 0
+        var bd = Inf
+        for off in 0 ..< rb.len:
+          var s = 0.0
+          for j in countup(0, ra.high, max(1, ra.len div 32)):
+            let q = rb[(j + off) mod rb.len]
+            s += (ra[j][0] - q[0]) ^ 2 + (ra[j][1] - q[1]) ^ 2
+          if s < bd:
+            bd = s
+            best = off
+        if best != 0: rb = rb[best .. ^1] & rb[0 ..< best]
+      pa.add ra
+      pb.add rb
+      closed.add c
+  for s in 1 .. n:
+    let t = eased(s.float / float(n + 1), ease, strength)
+    let tc = eased(s.float / float(n + 1), colorEase, colorStrength)
+    var o = if t < 0.5: a else: b
+    o.kind = ""
+    o.fill = mixPaint(a.fill, b.fill, tc)
+    o.stroke = mixPaint(a.stroke, b.stroke, tc)
+    o.strokeWidth = a.strokeWidth + (b.strokeWidth - a.strokeWidth) * t
+    o.radius = 0
+    o.path = Path()
+    template lerp(p, q: (float, float)): (float, float) = (p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t)
+    if same:
+      for i in 0 ..< a.path.subs.len:
+        var sp = a.path.subs[i]
+        let q = b.path.subs[i]
+        for j in 0 ..< sp.pts.len:
+          sp.pts[j].p = lerp(sp.pts[j].p, q.pts[j].p)
+          sp.pts[j].inH = lerp(sp.pts[j].inH, q.pts[j].inH)
+          sp.pts[j].outH = lerp(sp.pts[j].outH, q.pts[j].outH)
+        o.path.subs.add sp
+    else:
+      for i in 0 ..< pa.len:
+        let own = if i < a.path.subs.len: a.path.subs[i] else: b.path.subs[i]
+        var sp = SubPath(closed: closed[i], op: own.op, joined: i > 0 and own.joined)
+        for j in 0 ..< pa[i].len:
+          let p = lerp(pa[i][j], pb[i][j])
+          sp.pts.add PathPoint(p: p, inH: p, outH: p)
+        o.path.subs.add sp
+    result.add o
+
 proc starPath*(x0, y0, x1, y1: float; points = 5; indent = 50; roundness = 0): Path =
   ## The Star tool: `points` points, its inner corners `indent` % in;
   ## `roundness` % rounds them.
@@ -217,3 +421,55 @@ proc spiralPath*(x0, y0, x1, y1: float; turns = 3.0; decay = 80): Path =
   var sp = fitPath(pts, 0.4, false)
   sp.closed = false
   result.subs.add sp
+
+# ---- Shape Builder ------------------------------------------------------------------------------------------
+
+proc shapeRegions*(shapes: openArray[ShapeData]; w, h: int): seq[uint64] =
+  ## Shape Builder's regions: for each pixel (`w` x `h`) the set of shapes
+  ## over it, a bit a shape (the first 64), 0 none -- where shapes overlap a
+  ## region of its own.
+  result = newSeq[uint64](w * h)
+  for i, s in shapes:
+    if i >= 64: break
+    var fillOnly = s
+    fillOnly.stroke = ShapePaint()
+    fillOnly.strokeWidth = 0
+    fillOnly.fill = solidPaint(0xFF000000'u32)
+    var px = newSeq[uint32](w * h)
+    discard renderShape(fillOnly, px, w, h)
+    let bit = 1'u64 shl i
+    for k in 0 ..< px.len:
+      if (px[k] shr 24) >= 128: result[k] = result[k] or bit
+
+proc buildShapes*(shapes: openArray[ShapeData]; w, h: int; merge, remove: openArray[(float, float)];
+                  tolerance = 0.8): tuple[merged: Path; rest: seq[Path]] =
+  ## Shape Builder: the regions under the `merge` points (where the shapes
+  ## overlap, each a region) made one shape (`merged`), those under the
+  ## `remove` points taken away; each shape what is left of it (`rest`, an
+  ## empty path where nothing is). The outlines traced and fitted with
+  ## curves within `tolerance` pixels.
+  let regions = shapeRegions(shapes, w, h)
+  var mk, rk: seq[uint64]
+  for (x, y) in merge:
+    let xi = int(x)
+    let yi = int(y)
+    if xi >= 0 and yi >= 0 and xi < w and yi < h and regions[yi * w + xi] != 0 and regions[yi * w + xi] notin mk:
+      mk.add regions[yi * w + xi]
+  for (x, y) in remove:
+    let xi = int(x)
+    let yi = int(y)
+    if xi >= 0 and yi >= 0 and xi < w and yi < h and regions[yi * w + xi] != 0 and regions[yi * w + xi] notin rk:
+      rk.add regions[yi * w + xi]
+  var m = newSeq[uint8](w * h)
+  for k, r in regions:
+    if r != 0 and r in mk: m[k] = 255
+  if mk.len > 0: result.merged = tracedPath(m, w, h, tolerance)
+  for i in 0 ..< min(64, shapes.len):
+    let bit = 1'u64 shl i
+    var own = newSeq[uint8](w * h)
+    var any = false
+    for k, r in regions:
+      if (r and bit) != 0 and r notin mk and r notin rk:
+        own[k] = 255
+        any = true
+    result.rest.add(if any: tracedPath(own, w, h, tolerance) else: Path())

@@ -67,8 +67,38 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   `saveBookPdf`, `autoflow`) unless it is in `keep`. An object across the
   spine is its page's; its part on the facing page is a copy
   (`Layer.fromSpan`) that `syncSpread` and `doc` make again -- never
-  edit a copy, change the object.
+  edit a copy, change the object. The baseline grid is the book's
+  (`BookSetup.baseline`); a text on it carries the grid's step and start
+  (`TextData.gridStep`, `gridStart`, set by `alignToGrid`), and
+  `setSetup` moves them when the grid changes. Drop caps are the type
+  engine's (`ParaStyle.dropLines`): the big letters are drawn apart, the
+  same letters stay in the text as wide as nothing (carets and indexes
+  as they were).
   `tests/test_photobook.nim` and `tests/test_photobookapp.nim`.
+- Vectors from pictures and type: `retroui/imagetrace` (`traceImage`),
+  `retroui/photovector` (`textShapes`, `blendShapes`); templates for new
+  drawings and books: `retroui/layouttemplates` (no app code in them --
+  each template builds a `Book` or is SVG). A new layer's pixels must
+  stay memory the system gives as zeros: clear a layer with `clearSet`,
+  never by writing zeros over all of it (a layer a shape or text is
+  drawn on at once: `addLayer(fresh = true)`, and its first drawing
+  clears nothing -- never for a layer whose pixels something else
+  writes first), and keep the composite equal
+  with `compositeSpans` on and off (`tests/test_photospeed.nim`).
+  `tests/test_imagetrace.nim`, `tests/test_outlines.nim`.
+- Tables, a font for each script, charts, maps, live shapes, IDML and
+  Check Document are the kit's: `retroui/textengine` (`TableStyle`,
+  `tableTheme`, `ScriptFont`, `scriptFontsApplied` -- anything that reads
+  runs of one font, as the PSD writer and IDML do, takes the text through
+  it), `retroui/infographics` (`chartSvg`, `mapSvg`: SVG placed with
+  `placeSvg`, so a chart is shapes and type), `retroui/liveshapes`,
+  `retroui/idml`, `retroui/preflight`. What an app keeps with a layer
+  (a chart's or a live shape's settings, as JSON) goes in `Layer.meta`,
+  which undo and the file keep. A dialog that changes the document live
+  opens one step when it opens, applies when its settings differ from the
+  ones last applied, ends the step on OK, and cancels it on Cancel -- or
+  when it is closed any other way (a `pending` flag, checked before the
+  dialog is drawn). `tests/test_infographics.nim`, `tests/test_idml.nim`.
 - Open and Save As on a phone: `retroui/systemfiles` behind `fileDialog`
   and `filePicker` (Android: `tools/android/RetroActivity.java`, then
   `sh tools/android/build_dex.sh`; iOS: through the Objective-C runtime).

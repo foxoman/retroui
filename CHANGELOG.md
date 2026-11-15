@@ -1,5 +1,180 @@
 # Changes
 
+## 0.56.0
+
+Drawing and layout nearer the photo side: pictures made vectors, type
+made shapes, blends, Shape Builder, live shapes, tables, charts and maps,
+pictures in shapes and type, a font for Arabic and one for Latin, drop
+caps, a baseline grid, export by pages or spreads, IDML, Check Document,
+new drawings and books from templates -- and shape and type layers that
+take memory only where they draw.
+
+- **Tables** (`retroui/textengine`, `TextData.table`, `TableStyle`): text
+  in a box as a table -- each paragraph a row, tabs between its cells,
+  each cell's text set in its column (wrapped, aligned, Arabic from the
+  right, numbers at the right if asked), the rows as tall as their
+  tallest cell; header rows (fill, text color, bold), the rows' fill and
+  stripes, lines round it, under the header, between the rows or round
+  every cell, their color and width, padding, the columns' widths as
+  parts; nine themes (`tableTheme`, `tableThemes`). Fills go under the
+  letters (`TextLayout.backs`); a click lands in the cell under it. In a
+  PDF with live text, and in SVG (as outlines).
+- **A font for Arabic and one for Latin** (`CharStyle.arabicFont`,
+  `latinFont`: `ScriptFont`): each script's letters -- and the spaces and
+  digits between them -- in a font, style, size, raise, color and
+  tracking of their own, as Arabic and English are set together.
+  `scriptFontsApplied` gives the text as runs of one font each (the PSD
+  writer and IDML use it).
+- **Charts and maps for pages** (`retroui/infographics`): `chartSvg` --
+  columns, bars, stacked, lines, areas, pies, donuts, radar -- in nine
+  themes, every part set (title, subtitle, legend, grid, axes' names,
+  value labels, decimals, before and after the numbers, Arabic digits,
+  fonts and sizes, corners, gaps, line widths, dots, smooth lines, a
+  donut's hole, a card behind, right to left); `mapSvg` -- the world or a
+  part of it (ten regions, or the countries named) in three projections
+  (Equal Earth, Mercator, Plate Carrée), countries colored on a scale by
+  their values or as chosen, names, numbers, cities, a scale, a
+  graticule, in seven themes. Placed (`placeSvg`), their parts are shape
+  and type layers. Their settings as JSON (`toJson`, `chartFrom`,
+  `mapFrom`); the numbers from a table (`chartData`, `mapValues`).
+  `retroui/mapview`: `countryRings`, `countryLabelAt`, `countryCodeAt`.
+- **Pictures in shapes and type** (`retroui/photowarp`, `contentQuad`,
+  `FrameFit`): a placed picture fitted to its frame -- Fill Frame
+  Proportionally, Fit Content Proportionally, Fit Content to Frame,
+  Center Content, Original Size -- then scaled, turned, moved, flipped.
+- **Live shapes** (`retroui/liveshapes`): twenty shapes drawn from a few
+  numbers that can be changed again (arrows, chevrons, speech and thought
+  bubbles, badges, ribbons, hearts, gears, polygons and stars with round
+  corners, rectangles with each corner its own, crosses, rings,
+  triangles, parallelograms, trapezoids, tags, pies, blobs):
+  `liveShapePath`, `paramsOf`, `defaultParams`.
+- **Shape Builder** (`shapeRegions`, `buildShapes`): where shapes overlap,
+  each a region; the regions picked made one shape, others taken away,
+  each shape what is left (traced and fitted with curves).
+- **Freeform gradients** (`ShapePaint.points`, style 5, `freeformPaint`,
+  `freeformAt`): colors at points of a shape, blended smoothly between --
+  the look of a gradient mesh (the points do not bend a grid).
+- **Blends** ease their steps and their colors apart (`BlendEase`,
+  `eased`).
+- **Export by pages or spreads** (`retroui/photobook`, `exportBook`,
+  `BookExport`, `pageList`, `exportSheets`): a book's pages, all or a
+  range ("1-3, 5, 8-"), as pages or as spreads (facing pages one sheet),
+  into one PDF -- `retroui/photopdf`'s `addSpreadPage` puts pages side by
+  side, the marks round the spread, each page's bleed only past its outer
+  edges -- or a JPEG or PNG a sheet, at a resolution of its own.
+- **IDML** (`retroui/idml`): a book as the exchange package the page
+  layout program opens -- spreads, masters (the page number as its own),
+  text frames and their stories (fonts, sizes, colors, alignment,
+  indents, direction, drop caps), rectangles, ovals and polygons, a layer
+  of one color as a filled frame (white paper left out), the rest as
+  linked pictures (`saveBookIdml`, `saveDocIdml`) -- and read back
+  as a book (`readIdml`: pages, text frames, shapes, linked pictures).
+- **Check Document** (`retroui/preflight`): text that does not fit and
+  goes nowhere, fonts not here, pictures too coarse as placed, empty
+  frames, type too near the edge, hidden and empty layers, a resolution
+  under the print's -- for a document or every page of a book.
+- `Layer.meta`: what an app keeps with a layer (kept by undo and in the
+  file).
+- Vibrance takes Temperature and Tint (`vibranceFn`; the adjustment
+  layer's third and fourth numbers).
+
+- **Image Trace** (`retroui/imagetrace`): a picture made filled vector
+  shapes that look like it -- `traceImage(px, w, h, options)`, one shape
+  a color, from the biggest up, each with its holes; in color (k-means++
+  colors), grays or black and white; stacked (no gaps between shapes) or
+  side by side; specks under `noise` pixels left out, the outlines
+  fitted with curves (`paths`, `corners`), white left out (`ignoreWhite`)
+  or softened first (`blur`). Ten presets (`tracePreset`: 3, 6 and 16
+  colors, photos, grays, a logo, sketched art, silhouettes). A big
+  picture is traced smaller and the shapes scaled back (`maxSide`).
+  `tracedSvg` writes them as SVG. A 1080 x 1350 flat illustration in 6
+  colors: 0.14 s.
+- **Pencil Sketch** (`retroui/photoartistic`, `pencilSketch`): a photo
+  as pencil lines on paper (its edges drawn, its flat parts paper), its
+  colors kept as much as asked.
+- **Type made shapes** (`retroui/photovector`, `textShapes`): Convert to
+  Shape / Create Outlines -- one shape a color, its letters outlines of
+  curves fitted within a fifth of a pixel, placed as drawn (on a path,
+  warped, vertical); faux bold a stroke.
+- **Blends** (`blendShapes`, `colorSteps`): the shapes between two --
+  outlines, fills, strokes and their widths in even steps; outlines of
+  the same points mixed point by point (their curves kept), others
+  walked along at even distances, a hole shrinking away; Smooth Color
+  works out the steps the colors need.
+- **Drop caps** (`ParaStyle.dropLines`, `dropChars`): the first
+  paragraph's first letters as tall as so many lines, from the first
+  line's capitals to the last one's baseline, the lines beside them
+  standing in -- at the right for Arabic. Not where the text goes on in
+  another box.
+- **The baseline grid** (`TextData.gridStep`, `gridStart`): Align to
+  Baseline Grid puts every line of a text on the next grid line down.
+  A book has one (`BookSetup.baseline`, `baselineStart`; `gridLines`,
+  `alignToGrid`); Document Setup changing it moves the text on it.
+- **Snapping in a book** (`snapLines`): boxes snap to a page's margins,
+  its columns' edges and its baseline grid.
+- **New drawings and books from templates** (`retroui/layouttemplates`):
+  blank presets by kind (icons, logos, web, social, print, illustration;
+  books, magazines, brochures, social cards) and ready-made ones --
+  `drawingTemplates` (a badge logo, a flat landscape, an app icon, an
+  event poster, a business card, a quote post: SVG whose parts open as
+  layers) and `bookTemplates` (a novel, an Arabic book, a magazine with
+  a band across a spread and text through its pages, infographic cards
+  in English and Arabic: each a book with masters and page numbers).
+- **Shape and type layers are light** (`retroui/photo`): a new layer's
+  pixels are memory the system gives as zeros, and drawing a shape or
+  text clears only what is not zero already (`clearSet`) -- so a layer
+  takes memory only where it draws. Twenty shapes and ten captions on an
+  A4 page at 300 ppi: 700 and 1,030 MB before, 59 and 63 MB now. The
+  composite mixes such a layer only in the box it drew
+  (`compositeSpans`): 330 ms before, 52 ms now for twenty small shapes;
+  the same picture, every way a layer is mixed (modes, opacity, masks,
+  clipping, groups, effects, the sampled view; `tests/test_photospeed`).
+  A shape or type layer just made is known to be all zeros
+  (`addLayer(fresh = true)`, `freshPixels`): its first drawing clears
+  nothing and is mixed again only where it drew -- a chart of 45 shape
+  and type layers placed on that page in 24 ms instead of 458.
+- Books: a new layer goes over the master's layers and the facing
+  page's parts, not under them.
+- Retro Atelier 5.2.0: Image > Image Trace (presets, a preview that
+  follows the settings, the colors, Save as SVG; the shapes in a group,
+  the picture hidden under them, one step). Filter > Sketch > Pencil
+  Sketch. File > New Drawing (SVG) and File > New Book as today's New
+  dialog: tabs by kind, presets, templates with their pictures. Type >
+  Convert to Shape (Layer > Rasterize > Type to Shapes; its opacity,
+  mode, style and mask kept). Layer > Path Operations > Make Blend
+  (between two picked shape layers, or the current one and the shape
+  under it; Smooth Color or so many steps; in a group with them).
+  Paragraph: drop cap lines and letters; Align to baseline grid (on a
+  book's page). Document Setup: the baseline grid. Layout > Baseline
+  Grid shows it. Boxes drawn on a page snap to its margins, columns and
+  grid. Shortcuts as the usual apps have them: Ctrl+Shift+O Convert to
+  Shape, Ctrl+Alt+B Make Blend, Ctrl+7 Create Clipping Mask,
+  Ctrl+Shift+P Add Page, Ctrl+Alt+Shift+N Insert Page Number. The new
+  words in Arabic.
+- Retro Atelier 5.2.0, more: Layout > Export (PDF, JPEG or PNG; all or a
+  range; pages or spreads; the PDF's General, Compression, Marks and
+  Bleeds, Output and Summary under a preset), Save Book as IDML, Open an
+  .idml; Save As .ai (a PDF its drawing program edits) and .idml; Type >
+  Insert Table, Table Options (a theme gallery, header, fills, stripes,
+  lines, padding, widths), Convert Text to Table and back, Tab from cell
+  to cell (a new row after the last); Character: fonts for Arabic and
+  Latin; Layout > Insert Chart and Insert Map (a dialog with a preview;
+  Edit Chart or Map makes them again); Layer > Fitting (and Frame
+  Options); Layer > More Shapes and Shape Options (live); Path Operations
+  > Shape Builder and Freeform Gradient; Blend Options' easing; Layout >
+  Photo Grid, Resize for (a design at many sizes, each a document),
+  Brand Kit (colors, fonts, logo), Recolor Design (eight palettes), Check
+  Document; Type > Text Effects (shadow, lift, hollow, outline, neon,
+  echo, glow, curve); Vibrance: Temperature and Tint. The command line:
+  `--run "Command"`, `--script file.rs`, `--list-commands` -- the same list
+  of commands as the menus, Edit > Search and scripts (`app.commands`).
+- `tools/benchphoto.nim` times the new work too. On a 12-megapixel
+  image, two cores: sixty small shape and type layers take 86 MB (a
+  layer of all of it would be 48 MB each) and are mixed in 12.5 ms;
+  Image Trace of a 1200 x 900 picture, 0.13 s in 6 colors, 0.18 s in
+  16; Pencil Sketch of a layer, 0.33 s; a line of type made shapes,
+  0.5 ms; a blend of 64 steps, 0.2 ms.
+
 ## 0.55.0
 
 Objects across the spine of a book, and Retro Photo's new name.

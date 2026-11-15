@@ -186,6 +186,27 @@ proc projectWorld(p: MapProjection) =
     world.boxUV[4*c + 2] = u1
     world.boxUV[4*c + 3] = v1
 
+proc countryRings*(i: int): seq[seq[(float, float)]] =
+  ## Country `i`'s outlines (`countryCount`, `countryIndex`): rings of
+  ## (longitude, latitude) in degrees.
+  decodeWorld()
+  if i < 0 or i >= WorldCount: return
+  for r in int(worldRingStart[i]) ..< int(worldRingStart[i + 1]):
+    var ring: seq[(float, float)]
+    for k in world.ringFirst[r] ..< world.ringFirst[r + 1]:
+      ring.add (float(world.pts[2 * k]), float(world.pts[2 * k + 1]))
+    result.add ring
+
+proc countryLabelAt*(i: int): tuple[lon, lat: float] =
+  ## Where country `i`'s name goes (longitude, latitude).
+  if i < 0 or i >= WorldCount: return
+  (worldLabel[2 * i].float / WorldScale, worldLabel[2 * i + 1].float / WorldScale)
+
+proc countryCodeAt*(i: int): string =
+  ## Country `i`'s two-letter code ("--" none).
+  if i < 0 or i >= WorldCount: return "--"
+  worldA2[2 * i .. 2 * i + 1]
+
 proc countryCount*(): int = WorldCount
   ## How many countries the map has.
 

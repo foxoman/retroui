@@ -223,6 +223,85 @@ block sidesAndMargins:
   doAssert b.label(5) == "iv"
   b.close()
 
+block snapLinesAndTheBaselineGrid:
+  # boxes snap to the margins, the columns' edges and the baseline grid; text on the grid
+  # follows it when Document Setup changes it
+  var s = bookSetup(100, 150, dpi = 72, facing = true)
+  s.columns = 2
+  s.gutter = 10
+  s.baseline = 14
+  let b = newBook(s, pages = 3)
+  let m = b.marginBox(1)
+  let (xs, ys) = b.snapLines(psLeft)
+  doAssert m.x.float in xs and float(m.x + m.w) in xs and xs.len == 4, $xs
+  doAssert m.y.float in ys and float(m.y + m.h) in ys
+  let g = b.gridLines
+  doAssert g.len > 10 and g[0] == m.y.float and abs(g[1] - g[0] - 14) < 1e-9 and g[^1] <= float(m.y + m.h)
+  doAssert g[0] in ys and g[^1] in ys
+  # a text on the grid
+  let d = b.doc(1)
+  var t = b.boxed(newText("Lines on the grid of the book, long enough for a few of them.", style(11), 0, 0), 1)
+  b.alignToGrid(t)
+  doAssert t.gridStep == 14 and t.gridStart == m.y.float32
+  let L = d.addTextLayer(t)
+  # the grid made wider: the text follows
+  s.baseline = 20
+  b.setSetup(s)
+  let L2 = b.doc(1).layers[^1]
+  doAssert L2.isText and L2.text.gridStep == 20
+  for ln in layoutText(L2.text).lines:
+    let k = (ln.baseline - L2.text.gridStart) / 20
+    doAssert abs(k - float32(int(k + 0.5))) < 0.01, "on the wider grid: " & $ln.baseline
+  # no grid: none to snap to, the text as its leading puts it
+  s.baseline = 0
+  b.setSetup(s)
+  doAssert b.gridLines.len == 0 and b.doc(1).layers[^1].text.gridStep == 0
+  discard L
+  b.close()
+
+block exportPagesAndSpreads:
+  # File > Export: a range of pages, as pages or as spreads, a PDF or a picture a sheet
+  var s = bookSetup(100, 140, dpi = 72, facing = true)
+  let b = newBook(s, pages = 5)
+  for i in 0 ..< 5:
+    discard b.doc(i).addShapeLayer(ShapeData(path: rectPath(0, 200, float(s.w), 260), fill: solidPaint(0xFFC02020'u32)))
+  b.park()
+  b.saveBook(getTempDir() / "retro-export-test.rpb")
+  doAssert not b.changed
+  doAssert b.pageList("") == @[0, 1, 2, 3, 4] and b.pageList("all") == @[0, 1, 2, 3, 4]
+  doAssert b.pageList("2-3, 5") == @[1, 2, 4] and b.pageList("4-") == @[3, 4] and b.pageList("-2") == @[0, 1]
+  doAssert b.pageList("9, x, 3, 3") == @[2] and b.pageList("3-1") == @[0, 1, 2]
+  doAssert b.exportSheets(@[0, 1, 2, 3, 4], true) == @[@[0], @[1, 2], @[3, 4]]
+  doAssert b.exportSheets(@[0, 2, 3], true) == @[@[0], @[2], @[3]], "a spread's page alone when its partner is not asked for"
+  doAssert b.exportSheets(@[1, 2], false) == @[@[1], @[2]]
+  let dir = getTempDir() / "retro-export-test"
+  createDir(dir)
+  var e = BookExport(kind: exPdf, spreads: true, pdf: pdfPreset(ppPress))
+  let pdf = b.exportBook(dir / "book.pdf", e)
+  doAssert pdf == @[dir / "book.pdf"]
+  let data = readFile(pdf[0])
+  doAssert data.count("/Type /Page\n") + data.count("/Type /Page ") + data.count("/Type/Page\n") >= 3 or
+           data.count("/MediaBox") == 3, "three sheets: " & $data.count("/MediaBox")
+  e.spreads = false
+  e.pages = "2-3"
+  discard b.exportBook(dir / "two.pdf", e)
+  doAssert readFile(dir / "two.pdf").count("/MediaBox") == 2
+  # pictures: a file a sheet, named by its pages; a spread twice as wide; at the resolution asked
+  e = BookExport(kind: exPng, spreads: true, ppi: 144)
+  let pics = b.exportBook(dir / "p.png", e)
+  doAssert pics == @[dir / "p-1.png", dir / "p-2-3.png", dir / "p-4-5.png"], $pics
+  let sp = decodePng(readFile(pics[1]))
+  doAssert sp.w == s.w * 4 and sp.h == s.h * 2, $sp.w & "x" & $sp.h
+  e = BookExport(kind: exJpeg, pages: "1", quality: 80)
+  let one = b.exportBook(dir / "cover.jpg", e)
+  doAssert one == @[dir / "cover.jpg"] and readFile(one[0]).startsWith("\xFF\xD8")
+  doAssert b.exportBook(dir / "none.pdf", BookExport(kind: exPdf, pages: "40-50", pdf: pdfPreset(ppWeb))).len == 0
+  # nothing of it is a change to the book
+  doAssert not b.changed
+  b.close()
+  removeDir(dir)
+  removeFile(getTempDir() / "retro-export-test.rpb")
+
 block mastersAndNumbers:
   var s = bookSetup(120, 160, dpi = 72, facing = true)
   let b = newBook(s, pages = 3)
@@ -245,6 +324,11 @@ block mastersAndNumbers:
   for L in d0.layers:
     if L.fromMaster == m.id: folio = L
   doAssert folio != nil and folio.locked, "the master's layer is on the page, locked"
+  # what is added to the page goes over the master's layers
+  let own = d0.addLayer("Own")
+  doAssert d0.layers.find(own) > d0.layers.find(folio), "a new layer is over the master's"
+  d0.layers.delete(d0.layers.find(own))
+  d0.cur = 0
   doAssert d0.effectiveText(folio).plainText == "1"
   # a right page: its number at the right; a left page: at the left
   let half = s.w div 2
@@ -436,6 +520,11 @@ block objectsAcrossTheSpine:
   # under the page's own layers
   discard f.addLayer("Own")
   doAssert f.layers.find(fs) < f.layers.high
+  # a box flowed onto the facing page goes over the parts there
+  let flowed = b.flowOnto(1, text, 2)
+  doAssert flowed != nil and f.layers.find(flowed) > f.layers.find(fp), "over the facing page's parts"
+  b.unlinkPages(2, flowed)
+  f.layers.delete(f.layers.find(flowed))
   # nothing more to do; and the first page has no parts of its own objects
   doAssert not b.syncSpread(1).changed
   doAssert d.spans.len == 0

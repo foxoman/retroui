@@ -216,7 +216,27 @@ as type. Window > Workspace sets the panels and tools out for Photo,
 Drawing or Layout. In Paragraph: a text box as a list, with bullets of
 any shape or numbers in any style. In Character: the room between words and the tashkeel
 (coloured, raised, hidden); Type > Word Shapes shows the other shapes a
-font has for the word selected. The engine is `retroui/photobook`.
+font has for the word selected. Drop caps and a baseline grid (Document
+Setup) set a page as a magazine is; boxes snap to a page's margins,
+columns and grid. File > New Book and New Drawing (SVG) open with presets
+and templates by kind. The engine is `retroui/photobook`.
+
+**Vectors** (5.2): Image > Image Trace makes a picture shapes (presets,
+a preview, Save as SVG); Filter > Sketch > Pencil Sketch draws it in
+pencil; Type > Convert to Shape makes type shapes; Layer > Path
+Operations > Make Blend puts the shapes between two, Shape Builder joins
+and takes away where shapes overlap, Freeform Gradient puts colors at
+points.
+
+**Pages** (5.2): Type > Insert Table and Table Options (themes, header,
+stripes, lines); Layout > Insert Chart and Insert Map (themes, every
+part set; Edit Chart or Map); Character: a font for Arabic and one for
+Latin; Layer > More Shapes (twenty that keep their settings) and Fitting
+(a picture in a shape or in type); Layout > Photo Grid, Resize for,
+Brand Kit, Recolor Design, Check Document, Export (PDF, JPEG or PNG,
+pages or spreads, a range) and Save Book as IDML; Type > Text Effects.
+`--run "Command"`, `--script file.rs` and `--list-commands` on the
+command line.
 
 On Android and iOS, Open and Save As are the phone's own file picker.
 

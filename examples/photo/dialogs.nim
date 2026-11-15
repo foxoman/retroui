@@ -124,8 +124,8 @@ const
   openPatterns = ["*.rpd", "*.rpb", "*.rp3", "*.psd", "*.psb", "*.png", "*.jpg", "*.jpeg", "*.tif", "*.tiff", "*.bmp", "*.gif",
                   "*.tga", "*.dng", "*.pdf", "*.ai", "*.eps", "*.ps", "*.hdr", "*.pfm", "*.exr", "*.webp",
                   "*.nef", "*.nrw", "*.arw", "*.cr2", "*.cr3", "*.orf", "*.rw2", "*.pef", "*.raf", "*.heic", "*.heif",
-                  "*.avif", "*.jxl", "*.svg"]
-  savePatterns = ["*.rpd", "*.psd", "*.pdf", "*.eps", "*.ps", "*.png", "*.jpg", "*.tif", "*.bmp", "*.gif", "*.tga",
+                  "*.avif", "*.jxl", "*.svg", "*.rpb", "*.idml"]
+  savePatterns = ["*.rpd", "*.psd", "*.pdf", "*.ai", "*.idml", "*.eps", "*.ps", "*.png", "*.jpg", "*.tif", "*.bmp", "*.gif", "*.tga",
                   "*.hdr", "*.pfm", "*.exr", "*.webp", "*.jxl", "*.svg"]
   layeredFormats = ["rpd", "rp3", "psd", "psb"]
   keepsLayers = ["rpd", "rp3", "psd", "psb", "svg"]   ## (an SVG: its shapes, type and pictures, each a layer)
@@ -634,8 +634,8 @@ proc openFile(path: string) =
   ## Opens a picture in a window (a raw photo in Camera Raw first); it is
   ## first in File › Open Recent. A picture too big to edit whole asks
   ## first: a smaller copy of it, or a part?
-  if path.toLowerAscii.endsWith(".rpb"):
-    openBook(path)                      # (a book: its pages in one window)
+  if path.toLowerAscii.endsWith(".rpb") or path.toLowerAscii.endsWith(".idml"):
+    openBook(path)                      # (a book: its pages in one window; IDML read as one)
     return
   for o in docs:
     if o.doc.path == path and path.len > 0:
@@ -709,10 +709,17 @@ proc fileDialogs() =
       let ext = p.splitFile.ext.toLowerAscii
       if ext in [".jpg", ".jpeg"]:
         jpegOpen = true
-      elif ext == ".pdf":
-        startPdfOptions(@[saveDoc.doc], p)
+      elif ext in [".pdf", ".ai"]:
+        # (.ai: a PDF its drawing program opens -- its paths and its type still to edit)
+        startPdfOptions(@[saveDoc.doc], p, drawing = ext == ".ai")
       elif ext in [".eps", ".ps"]:
         startEpsOptions(saveDoc, p)
+      elif ext == ".idml":
+        try:
+          saveDocIdml(saveDoc.doc, p)
+          rememberFile(p)
+          status = "Saved " & p.extractFilename & " (IDML: the layout program opens it; pictures beside it)"
+        except CatchableError: status = "Could not save " & p.extractFilename & ": " & getCurrentExceptionMsg()
       else:
         if ext notin [".rpd", ".rp3", ".psd", ".psb", ".svg"] and saveDoc.doc.layers.len > 1: flatWarn = true
         saveDoc.writeDoc(p)
@@ -881,7 +888,7 @@ var
   shAmount = 35
   hlAmount = 0
   # vibrance
-  vibV, vibS = 0
+  vibV, vibS, vibT, vibTint = 0
   # exposure (hundredths of a stop; ten-thousandths; hundredths)
   exE, exOff = 0
   exGamma = 100
@@ -929,7 +936,7 @@ proc adjFn(): FilterFn =
   of akReplace: hueSaturation(hsH, hsS, hsL)
   of akSelective: selectiveColor(scAdj, scRelative == 0)
   of akShadows: shadowsHighlights(shAmount, hlAmount)
-  of akVibrance: vibranceFn(vibV, vibS)
+  of akVibrance: vibranceFn(vibV, vibS, vibT, vibTint)
   of akExposure: exposureFn(exE / 100, exOff / 10000, exGamma / 100)
   of akPhotoFilter: photoFilter((if pfUse == 0: photoFilters[pfKind][1] else: pfColor), pfDensity, pfLum)
   of akBlackWhite: blackAndWhite(bwW, bwTint, bwHue, bwSat)
@@ -951,7 +958,7 @@ proc adjSignature(): string =
   of akReplace: $hsH & "," & $hsS & "," & $hsL & "," & $rcFuzz & "," & $rcSample
   of akSelective: $scAdj & $scRelative
   of akShadows: $shAmount & "," & $hlAmount
-  of akVibrance: $vibV & "," & $vibS
+  of akVibrance: $vibV & "," & $vibS & "," & $vibT & "," & $vibTint
   of akExposure: $exE & "," & $exOff & "," & $exGamma
   of akPhotoFilter: $pfUse & "," & $pfKind & "," & $pfColor & "," & $pfDensity & $pfLum
   of akBlackWhite: $bwW & $bwTint & $bwHue & "," & $bwSat
@@ -1042,7 +1049,7 @@ proc resetAdjust(k: AdjKind; d: Doc) =
   of akShadows:
     shAmount = 35; hlAmount = 0
   of akVibrance:
-    vibV = 0; vibS = 0
+    vibV = 0; vibS = 0; vibT = 0; vibTint = 0
   of akExposure:
     exE = 0; exOff = 0; exGamma = 100
   of akPhotoFilter:
@@ -1092,7 +1099,9 @@ proc adjArgs(): seq[float] =
     result = @[(if scRelative == 0: 1.0 else: 0.0)]
     for r in 0 .. 8:
       for k in 0 .. 3: result.add scAdj[r][k].float
-  of akVibrance: result = @[vibV.float, vibS.float]
+  of akVibrance:
+    result = @[vibV.float, vibS.float]
+    if vibT != 0 or vibTint != 0: result.add @[vibT.float, vibTint.float]
   of akExposure: result = @[exE / 100, exOff / 10000, exGamma / 100]
   of akPhotoFilter:
     let c = if pfUse == 0: photoFilters[pfKind][1] else: pfColor
@@ -1149,7 +1158,7 @@ proc loadAdjArgs(a: seq[float]) =
     for r in 0 .. 8:
       for k in 0 .. 3: scAdj[r][k] = ai(1 + r * 4 + k)
   of akVibrance:
-    vibV = ai(0); vibS = ai(1)
+    vibV = ai(0); vibS = ai(1); vibT = ai(2); vibTint = ai(3)
   of akExposure:
     exE = int(round(at(0) * 100)); exOff = int(round(at(1) * 10000)); exGamma = int(round(at(2) * 100))
   of akPhotoFilter:
@@ -1482,6 +1491,8 @@ proc vibranceBody() =
     col:
       optSlider("Vibrance:", vibV, -100, 100, "")
       optSlider("Saturation:", vibS, -100, 100, "")
+      optSlider("Temperature:", vibT, -100, 100, "")
+      optSlider("Tint:", vibTint, -100, 100, "")
     discard adjButtons()
 
 proc exposureBody() =
@@ -1702,7 +1713,7 @@ const
   galleryArtistic = ["Colored Pencil", "Cutout", "Dry Brush", "Film Grain", "Paint Daubs", "Plastic Wrap",
                      "Poster Edges", "Sponge", "Watercolor"]
   galleryBrush = ["Accented Edges", "Angled Strokes", "Crosshatch", "Ink Outlines", "Spatter", "Sumi-e"]
-  gallerySketch = ["Bas Relief", "Charcoal", "Chrome", "Graphic Pen", "Halftone Pattern", "Photocopy",
+  gallerySketch = ["Bas Relief", "Charcoal", "Chrome", "Graphic Pen", "Halftone Pattern", "Pencil Sketch", "Photocopy",
                    "Reticulation", "Stamp", "Torn Edges"]
   galleryTexture = ["Craquelure", "Grain", "Mosaic Tiles", "Patchwork", "Stained Glass", "Texturizer"]
 
@@ -1767,6 +1778,10 @@ proc initGallery() =
   defFilter("Halftone Pattern", @[num("Size:", 1, 12, 1), num("Contrast:", 0, 50, 5),
                                   pick("Pattern Type:", ["Dot", "Circle", "Line"])],
             proc (v: seq[float]): FilterFn = halftonePattern(int(v[0]), int(v[1]), int(v[2]), fg, bg))
+  defFilter("Pencil Sketch", @[num("Stroke Width:", 1, 40, 8), num("Darkness:", 0, 100, 50),
+                               num("Color:", 0, 100, 0)],
+            proc (v: seq[float]): FilterFn = pencilSketch(int(v[0]), int(v[1]), int(v[2]), fg, bg),
+            proc (v: seq[float]): int = int(v[0]) * 2 + 2)
   defFilter("Photocopy", @[num("Detail:", 1, 24, 7), num("Darkness:", 1, 50, 8)],
             proc (v: seq[float]): FilterFn = photocopy(int(v[0]), int(v[1]), fg, bg), m(40))
   defFilter("Reticulation", @[num("Density:", 0, 50, 12), num("Foreground Level:", 0, 50, 40),

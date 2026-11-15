@@ -723,6 +723,23 @@ proc doCommand(name: string) =
   of "Perspective": startTransform(xkPerspective)
   of "Distort": startTransform(xkDistort)
   of "Image Size...": startImageSize()
+  of "Image Trace...": startImageTrace()
+  of "Convert to Shape", "Create Outlines": convertTypeToShape()
+  of "Insert Table...", "Table Options...", "Convert Text to Table", "Convert Table to Text":
+    discard tableCommand(name)
+  of "More Shapes...": startMoreShapes()
+  of "Resize for...", "Brand Kit...", "Photo Grid...", "Text Effects...", "Recolor Design...", "Check Document...",
+     "Preflight...":
+    discard quickCommand(name)
+  of "Shape Options...": startShapeOptions()
+  of "Chart...", "Insert Chart...", "Map...", "Insert Map...", "Edit Chart or Map...":
+    discard infographicCommand(name)
+  of "Fill Frame Proportionally", "Fit Content Proportionally", "Fit Content to Frame", "Center Content",
+     "Original Size", "Frame Options...", "Remove Content":
+    discard framesCommand(name)
+  of "Make Blend...", "Make Blend": startMakeBlend()
+  of "Shape Builder...": startShapeBuilder()
+  of "Freeform Gradient...", "Gradient Mesh...": startFreeform()
   of "Trim":
     if d != nil:
       let r = d.trimRect()
@@ -1132,7 +1149,7 @@ proc classicMenus() =
   menubar:
     menu "&File":
       item("&New...", "Ctrl+N")
-      item("New SVG &Drawing")
+      item("New &Drawing (SVG)...")
       item("New &Book...")
       item("&Open...", "Ctrl+O")
       let recent = recentFiles(loadSettingsCached())
@@ -1325,6 +1342,7 @@ proc classicMenus() =
       item("Image &Size...", enabled = some)
       item("Ca&nvas Size...", enabled = some)
       item("Tri&m", enabled = some)
+      item("Image Tra&ce...", enabled = some)
       menuSeparator()
       item("&Histogram...", enabled = some)
       item("&Trap...", enabled = false)
@@ -1622,7 +1640,21 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.1.0: a new name, Retro Atelier (photo, drawing and layout in one; it was Retro " &
+           whatsNew = ["5.2.0: Image > Image Trace (a picture made vector shapes: presets, a preview, " &
+                       "Save as SVG); Filter > Sketch > Pencil Sketch; File > New Drawing and New Book " &
+                       "with presets and templates (a logo, a poster, a business card; a novel, an Arabic " &
+                       "book, a magazine, infographic cards); Type > Convert to Shape; Make Blend; drop " &
+                       "caps; a baseline grid, and boxes that snap to a page's margins, columns and grid; " &
+                       "Type > Insert Table and Table Options (themes, header, stripes, lines); Layout > " &
+                       "Insert Chart and Insert Map (themes, every part set); a font for Arabic and one for " &
+                       "Latin (Character); Layer > More Shapes and Shape Options; Layer > Fitting (a picture " &
+                       "in a shape or in type); Shape Builder; Freeform Gradient; Blend easing; Layout > " &
+                       "Photo Grid, Resize for, Brand Kit, Recolor Design, Check Document; Type > Text " &
+                       "Effects; Layout > Export (PDF, JPEG or PNG; pages or spreads; a range); IDML saved " &
+                       "and opened; Save As .ai; Vibrance: Temperature and Tint; --run, --script and " &
+                       "--list-commands; shape and type layers take memory only where they draw, and are " &
+                       "mixed faster",
+                       "5.1.0: a new name, Retro Atelier (photo, drawing and layout in one; it was Retro " &
                        "Photo: its settings, its files and its place on your device are the same); in a " &
                        "book, type, a shape or a placed picture that reaches past the spine goes on, on " &
                        "the facing page -- one object on both pages, in the PDF too; moved wholly past " &
@@ -1935,6 +1967,17 @@ proc moreDialogs() =
   customDialog()
   duplicateDialog()
   bookDialogs()
+  imageTraceDialog()
+  makeBlendDialog()
+  shapeBuilderDialog()
+  freeformDialog()
+  tableDialogs()
+  quickDialogs()
+  moreShapesDialogs()
+  infographicDialogs()
+  frameDialogs()
+  newDrawingDialog()
+  newBookDialog()
   aboutDialog()
 
 # ---- the splash --------------------------------------------------------------------------------------------

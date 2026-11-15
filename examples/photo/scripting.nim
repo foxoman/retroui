@@ -330,6 +330,12 @@ proc makeScriptVm(): Vm =
       for k in filters.keys: a.add toValue(k)
       toValue(a)
     of "language": toValue(if prefs.language == 1: "ar" else: "en")
+    of "commands":
+      # (every command of the menus and every tool: what app.runCommand takes -- the list the
+      # menus, Edit > Search and the command line share)
+      var a: seq[Value]
+      for (path, label, cmd) in searchIndex(): a.add toValue(cmd)
+      toValue(a)
     of "gpu": toValue(gpuDescription())
     of "gpuFilters": toValue(gpuFiltersReady())
     else: undefinedValue()

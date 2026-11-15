@@ -416,8 +416,8 @@ proc svgOf*(d: Doc; pixels = true; outlines = false): string =
       if sh.hasEnds and sh.stroke.kind == spColor and sh.strokeWidth > 0:
         body.add "<path" & vis & op & " d=\"" & sh.endsPath.pathData & "\" fill=\"" &
                  paintOf(sh.stroke, "g" & $n & "e", box, defs) & "\" fill-rule=\"nonzero\"/>\n"
-    elif L.isText and outlines:
-      # (the text as its letters' outlines: one path a color)
+    elif L.isText and (outlines or L.text.table.on):
+      # (the text as its letters' outlines: one path a color; a table so too, its fills and lines with it)
       let td = d.effectiveText(L)
       var col = 0'u32
       var pd = ""

@@ -235,7 +235,8 @@ Lists and data: `listbox`, `combo`, `grid` (the data grid with editing, sorting,
 Files: `fileDialog`, `fileList`, `folderTree`, `filePicker`, `filePreview`, `placesView`. On a phone, `systemFiles(true)` at the start makes `fileDialog` and `filePicker` the system's own picker (Android, iOS; what the app saves goes back into the document by itself).
 Charts and more: `chart` (21 kinds, from your numbers or a CSV table), `barChart`, `lineChart`, `pieChart`, `liveGraph` (a task manager's graph that moves: a frame costs a copy), the world map (`retroui/mapview`), street maps (`tileMap`, `retroui/tilemap`; places and routes `retroui/geo`), 3D (`retroui/view3d`; Blender's models `retroui/gltf`),
 HTML and Markdown (`htmlView`: its CSS, flexible boxes and grids too), web pages (`webView`), canvas (`canvas`, `retroui/canvas2d`), reports and PDF (`retroui/report`),
-sound and video (`retroui/media`; the system's media controls `retroui/mediasession`; camera and microphone `retroui/capture`), spreadsheets (`retroui/xlsx`), more windows (`window`).
+sound and video (`retroui/media`; the system's media controls `retroui/mediasession`; camera and microphone `retroui/capture`), spreadsheets (`retroui/xlsx`), more windows (`window`),
+an image editor's engine (`retroui/photo`: layers, masks, styles, type, shapes; books of pages `retroui/photobook`; a picture as vector shapes `retroui/imagetrace`; type as shapes and blends `retroui/photovector`; presets and templates for new drawings and books `retroui/layouttemplates`; charts and maps as SVG `retroui/infographics`; shapes from a few numbers `retroui/liveshapes`; IDML `retroui/idml`; Check Document `retroui/preflight`; tables and a font for each script in `retroui/textengine`).
 
 **Parts most apps need** (all in `import retroui` but jobs, tray, feeds):
 

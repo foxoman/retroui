@@ -832,6 +832,31 @@ proc gradientT*(style: int; angle, scale: float; x, y: float; box: (float, float
           else: 0.5 * (cos(th) * X - sin(th) * Y + 1)
   clamp(z, 0.0, 1.0)
 
+proc freeformAt*(points: openArray[tuple[x, y: float; color: uint32]]; u, v: float): uint32 =
+  ## A freeform gradient's color at (`u`, `v`) of its box (0..1): its
+  ## points' colors, each weighed by how near it is (the square of the
+  ## distance, inverted): smooth between them, each point's own at it.
+  if points.len == 0: return 0
+  if points.len == 1: return points[0].color
+  var a, r, g, b, wsum = 0.0
+  for p in points:
+    let d2 = (u - p.x) * (u - p.x) + (v - p.y) * (v - p.y)
+    if d2 < 1e-10: return p.color
+    let w = 1 / (d2 * d2)
+    wsum += w
+    a += w * float((p.color shr 24) and 255)
+    r += w * float((p.color shr 16) and 255)
+    g += w * float((p.color shr 8) and 255)
+    b += w * float(p.color and 255)
+  (uint32(a / wsum + 0.5) shl 24) or (uint32(r / wsum + 0.5) shl 16) or (uint32(g / wsum + 0.5) shl 8) or
+    uint32(b / wsum + 0.5)
+
+proc freeformPaint*(points: openArray[tuple[x, y: float; color: uint32]]): ShapePaint =
+  ## A freeform gradient (Gradient Mesh's look): colors at points of the
+  ## shape's box, blended smoothly.
+  ShapePaint(kind: spGradient, style: 5, color: (if points.len > 0: points[0].color else: 0'u32),
+             color2: (if points.len > 1: points[^1].color else: 0'u32), points: @points, opacity: 100)
+
 proc stopsColor*(stops: openArray[GradientStop]; t: float): uint32 =
   ## The color at `t` of a gradient through `stops` (in order).
   gradientColor(stops, t)
@@ -845,6 +870,8 @@ proc paintAt(p: ShapePaint; x, y: float; box: (float, float, float, float)): uin
     let ty = floorMod(int(floor(y / sc)), p.ph)
     p.pattern[ty * p.pw + tx]
   of spGradient:
+    if p.style == 5 and p.points.len > 0:
+      return freeformAt(p.points, (x - box[0]) / max(1.0, box[2] - box[0]), (y - box[1]) / max(1.0, box[3] - box[1]))
     var t = gradientT(p.style, p.angle.float, (if p.scale <= 0: 1.0 else: p.scale / 100), x, y, box)
     if p.reverse: t = 1 - t
     if p.stops.len > 0: gradientColor(p.stops, t) else: mix(p.color, p.color2, t)
@@ -1169,8 +1196,11 @@ proc shapeMask*(p: Path; w, h: int; fillAll = false): seq[uint8] =
 
 proc drawShapeLayer(w, h: int; L: Layer): DrawnBox =
   let old = L.shapeArea
-  let clearR = if old.w > 0: old else: rect(0, 0, w, h)
-  renderShape(L.shape, L.px, w, h, clearR)
+  if old.w > 0: return renderShape(L.shape, L.px, w, h, old)
+  # (not drawn yet: cleared only where something is -- a new layer's memory, never written,
+  # stays not taken; a layer just made is all zeros already)
+  if not L.freshPixels: clearSet(L.px)
+  renderShape(L.shape, L.px, w, h)
 
 shapeRender = drawShapeLayer
 
@@ -1182,7 +1212,7 @@ proc addShapeLayer*(d: Doc; s: ShapeData; name = ""; above = -1): Layer =
     if L.name.startsWith("Shape "):
       try: n = max(n, parseInt(L.name[6 .. ^1]) + 1)
       except ValueError: discard
-  result = d.addLayer(if name.len > 0: name else: "Shape " & $n, above)
+  result = d.addLayer(if name.len > 0: name else: "Shape " & $n, above, fresh = true)
   result.shape = s
   d.drawShape(result)
 

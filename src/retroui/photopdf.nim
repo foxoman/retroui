@@ -185,6 +185,13 @@ proc addVector(p: PdfPage; d: Doc; L: Layer; ox, oy, k: float; o: PdfOptions) =
     for g in lay.glyphs:
       if not canEmbed(g.face): allOk = false
     if allOk:
+      template bars(list: seq[Decoration]) =
+        # (a table's fills under the letters; underlines, strikes and a table's lines over them)
+        for dcr in list:
+          p.paintOf(dcr.color, o.cmyk, false)
+          p.rect(X(dcr.x0.float), Y(float(dcr.y - dcr.thick / 2)), float(dcr.x1 - dcr.x0) * k, dcr.thick.float * k)
+          p.fill()
+      bars(lay.backs)
       var i = 0
       while i < lay.glyphs.len:
         let g0 = lay.glyphs[i]
@@ -206,6 +213,7 @@ proc addVector(p: PdfPage; d: Doc; L: Layer; ox, oy, k: float; o: PdfOptions) =
                     shear = g0.shear.float)
         if g0.embolden > 0: p.textRender(0)
         i = j
+      bars(lay.decorations)
       if L.opacity < 100: p.restoreState()
       return
   if L.isText:
@@ -266,20 +274,9 @@ proc addVector(p: PdfPage; d: Doc; L: Layer; ox, oy, k: float; o: PdfOptions) =
       if s.dashes.len > 0: p.dash()
   if L.opacity < 100: p.restoreState()
 
-proc addDocPage*(pdf: PdfDoc; d: Doc; o: PdfOptions): PdfPage {.discardable.} =
-  ## `d` as a page at the end of `pdf`: its size the document's (its pixels
-  ## at its resolution), with crop marks round it when asked.
-  let dpi = if d.dpi > 0: d.dpi else: 72.0
-  let k = 72 / dpi                        # (points a pixel)
-  let pw = d.w.float * k
-  let ph = d.h.float * k
-  let room = if o.marks or o.regMarks or o.colorBars or o.pageInfo: MarkRoom else: 0.0
-  result = pdf.addPage((pw + 2 * room, ph + 2 * room))
-  let p = result
-  if room > 0:
-    let b = if o.marks: o.bleedMm * 72 / 25.4 else: 0.0
-    p.trim = (room, room, pw, ph)
-    p.bleed = (room - b, room - b, pw + 2 * b, ph + 2 * b)
+proc drawDocAt(p: PdfPage; d: Doc; ox, oy, k: float; o: PdfOptions; bleed: bool) =
+  ## (the document's layers on the page from `ox`, `oy`; `bleed`: its pictures drawn out past
+  ## its edges by the bleed)
   # the layers, bottom first: runs of pixel layers as one picture each,
   # type and shapes as outlines between them
   var visible, asVector: seq[bool]
@@ -292,7 +289,7 @@ proc addDocPage*(pdf: PdfDoc; d: Doc; o: PdfOptions): PdfPage {.discardable.} =
       if asVector[i]:
         # (the layers shown as they are: type keeps out of those with Text Wrap that are)
         for n, L in d.layers: L.visible = visible[n]
-        p.addVector(d, d.layers[i], room, room, k, o)
+        p.addVector(d, d.layers[i], ox, oy, k, o)
         inc i
         continue
       var j = i
@@ -302,13 +299,48 @@ proc addDocPage*(pdf: PdfDoc; d: Doc; o: PdfOptions): PdfPage {.discardable.} =
         if not L.group: L.visible = visible[n] and n >= i and n < j
       d.markAll()
       d.updateComposite()
-      let bleedPx = if o.marks and o.bleedMm > 0 and i == 0: int(ceil(o.bleedMm * 72 / 25.4 / k)) else: 0
-      p.addRaster(d, d.compCopy, room, room, k, o, bleedPx)
+      let bleedPx = if bleed and o.marks and o.bleedMm > 0 and i == 0: int(ceil(o.bleedMm * 72 / 25.4 / k)) else: 0
+      p.addRaster(d, d.compCopy, ox, oy, k, o, bleedPx)
       i = j
   finally:
     for n, L in d.layers: L.visible = visible[n]
     d.markAll()
     d.updateComposite()
+
+proc addSpreadPage*(pdf: PdfDoc; docs: openArray[Doc]; o: PdfOptions): PdfPage {.discardable.} =
+  ## `docs` side by side as one page at the end of `pdf`, the first at the
+  ## left: a spread (facing pages as one sheet) -- its size theirs together
+  ## (each document's pixels at its resolution), the crop marks round all of
+  ## it when asked, each page's bleed only past the spread's outer edges.
+  if docs.len == 0: return
+  let d = docs[0]
+  let dpi = if d.dpi > 0: d.dpi else: 72.0
+  let k = 72 / dpi                        # (points a pixel)
+  var pw = 0.0
+  var ph = 0.0
+  for x in docs:
+    pw += x.w.float * k
+    ph = max(ph, x.h.float * k)
+  let room = if o.marks or o.regMarks or o.colorBars or o.pageInfo: MarkRoom else: 0.0
+  result = pdf.addPage((pw + 2 * room, ph + 2 * room))
+  let p = result
+  let b = if o.marks: o.bleedMm * 72 / 25.4 else: 0.0
+  if room > 0:
+    p.trim = (room, room, pw, ph)
+    p.bleed = (room - b, room - b, pw + 2 * b, ph + 2 * b)
+  var x = room
+  for j, dd in docs:
+    let w = dd.w.float * k
+    if docs.len > 1:
+      # (each page shows only on its side of the spine; the bleed past the outer edges)
+      p.saveState()
+      let x0 = if j == 0: x - b else: x
+      let x1 = if j == docs.high: x + w + b else: x + w
+      p.rect(x0, room - b, x1 - x0, dd.h.float * k + 2 * b)
+      p.clip()
+    p.drawDocAt(dd, x, room, k, o, bleed = true)
+    if docs.len > 1: p.restoreState()
+    x += w
   if o.marks:
     # crop marks: short lines out from the corners, in registration black
     # (all four inks: on every plate)
@@ -373,6 +405,12 @@ proc addDocPage*(pdf: PdfDoc; d: Doc; o: PdfOptions): PdfPage {.discardable.} =
                (if o.standard.len > 0: "   " & o.standard & (if o.condition.len > 0: " (" & o.condition & ")" else: "")
                 else: "")
     discard p.text(room, room + ph + room - 12, info, size = 6, color = color(0, 0, 0))
+
+
+proc addDocPage*(pdf: PdfDoc; d: Doc; o: PdfOptions): PdfPage {.discardable.} =
+  ## `d` as a page at the end of `pdf`: its size the document's (its pixels
+  ## at its resolution), with crop marks round it when asked.
+  pdf.addSpreadPage([d], o)
 
 proc forPress(pdf: PdfDoc; o: PdfOptions) =
   ## (PDF/X: the standard claimed, the printing condition the colors are for)

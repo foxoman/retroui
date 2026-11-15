@@ -580,6 +580,170 @@ block listsInABox:
   doAssert layoutText(pt).glyphs.len == 6
   doAssert formatNumber(14, nsRomanLower) == "xiv" and formatNumber(3, nsArabicIndic) == "٣"
 
+block dropCaps:
+  # the first letters as tall as three lines: from the first line's capitals to the third
+  # one's baseline; those lines stand in from them, the fourth does not; Arabic at the right
+  let st = CharStyle(family: "", size: 20, color: 0xFF000000'u32, hScale: 1, vScale: 1)
+  var t = newText("Once upon a time there was a long paragraph that went on for many lines in its " &
+                  "narrow box, so that the drop cap has lines beside it and lines under it as well.\nNext",
+                  st, 10, 10)
+  t.boxW = 260
+  t.boxH = 400
+  let plain = layoutText(t)
+  t.para.dropLines = 3
+  let l = layoutText(t)
+  doAssert l.glyphs.len == plain.glyphs.len, "the same letters, one of them big"
+  var big: LaidGlyph
+  for g in l.glyphs:
+    if g.index == 0: big = g
+  doAssert big.size > 50, "three lines tall: " & $big.size
+  doAssert abs(big.y - l.lines[2].baseline) < 0.5, "on the third line's baseline"
+  doAssert abs(big.x - 10) < 4
+  for i in 0 .. 2: doAssert l.lines[i].x0 > 10 + big.adv * 0.7, "line " & $i & " beside it: " & $l.lines[i].x0
+  doAssert l.lines[3].x0 < 14, "the fourth under it"
+  for i in 0 .. 3: doAssert abs(l.lines[i].baseline - plain.lines[i].baseline) < 0.5, "the lines where they were"
+  # two letters; kept with the text; the remainder that flows on has none
+  t.para.dropChars = 2
+  var two = 0
+  for g in layoutText(t).glyphs:
+    if g.size > 50: inc two
+  doAssert two == 2
+  let back = textFrom(t.toJson)
+  doAssert back.para.dropLines == 3 and back.para.dropChars == 2
+  doAssert t.remainder(40).para.dropLines == 0 and t.remainder(0).para.dropLines == 3
+  # point text, a list, an empty text: none
+  var pt = newText("Point", st, 10, 30)
+  pt.para.dropLines = 3
+  doAssert layoutText(pt).glyphs.len == 5
+  var e = newText("", st, 10, 30)
+  e.boxW = 100
+  e.para.dropLines = 3
+  discard layoutText(e)
+  # right to left: at the right
+  var a = newText("كان يا ما كان في قديم الزمان نص طويل يملأ عدة أسطر في مربعه الضيق حتى يكون للحرف الكبير أسطر بجانبه",
+                  st, 10, 10)
+  a.boxW = 260
+  a.boxH = 400
+  a.para.dropLines = 2
+  let al = layoutText(a)
+  var ab: LaidGlyph
+  for g in al.glyphs:
+    if g.index == 0: ab = g
+  doAssert ab.size > 30 and ab.x > 10 + 260 - 80, "at the right: " & $ab.x
+  for i in 0 .. 1: doAssert al.lines[i].x1 < 10 + 260 - ab.adv * 0.7
+
+block baselineGrid:
+  # Align to Baseline Grid: every line on the next grid line down -- a bigger heading too, so
+  # the lines under it are back on the grid
+  let st = CharStyle(family: "", size: 16, color: 0xFF000000'u32, hScale: 1, vScale: 1)
+  var t = newText("A heading\n", CharStyle(family: "", size: 30, color: 0xFF000000'u32, hScale: 1, vScale: 1),
+                  10, 37)
+  t.spans.add TextSpan(text: "and the text under it, in lines long enough to make a few of them in the box.", style: st)
+  t.boxW = 200
+  t.boxH = 400
+  t.gridStep = 24
+  t.gridStart = 30
+  let l = layoutText(t)
+  doAssert l.lines.len >= 3
+  for ln in l.lines:
+    let k = (ln.baseline - 30) / 24
+    doAssert abs(k - round(k)) < 0.01, "on the grid: " & $ln.baseline
+  for i in 1 ..< l.lines.len: doAssert l.lines[i].baseline > l.lines[i - 1].baseline
+  # kept with the text; off: as the leading puts them
+  doAssert textFrom(t.toJson).gridStep == 24 and textFrom(t.toJson).gridStart == 30
+  t.gridStep = 0
+  let free = layoutText(t)
+  doAssert abs((free.lines[2].baseline - free.lines[1].baseline) - 16 * 1.2) < 0.5
+
+proc runeOffsetOf(s, sub: string): int = s[0 ..< s.find(sub)].runeLen
+
+block tables:
+  # each paragraph a row, tabs between cells; every cell's text in its column; the rows as tall
+  # as their tallest cell; fills under the letters, lines over; kept with the text
+  let st = CharStyle(family: "", size: 16, color: 0xFF000000'u32, hScale: 1, vScale: 1)
+  var t = newText("Item\tQty\tPrice\nA long name that wraps in its narrow column\t12\t4.50\nPens\t3\t1.20", st, 10, 10)
+  t.boxW = 300
+  t.boxH = 400
+  let plain = layoutText(t)
+  t.table = tableTheme("Striped Blue")
+  t.table.widths = @[2'f32, 1, 1]
+  let l = layoutText(t)
+  doAssert l.glyphs.len > 0 and l.backs.len >= 2, "the header and a stripe filled"
+  doAssert l.decorations.len >= 3, "lines"
+  # the columns: Qty's "12" starts at the second column (half the box in), the name wraps in the first
+  var x12 = -1'f32
+  let plainText = t.plainText
+  let i12 = plainText.runeOffsetOf("12")
+  for g in l.glyphs:
+    if g.index == i12: x12 = g.x
+  doAssert x12 > 10 + 150 - 1 and x12 < 10 + 225, "in the second column: " & $x12
+  var nameLines = 0
+  for ln in l.lines:
+    if ln.first >= plainText.runeOffsetOf("A long") and ln.last <= plainText.runeOffsetOf("\t12"): inc nameLines
+  doAssert nameLines >= 2, "the name wraps in its column"
+  doAssert l.y1 > plain.lines[0].baseline + 60
+  # the caret: every character has a place, a click in a cell lands in it
+  doAssert l.caretX.len == plainText.runeLen + 1
+  let c = l.charAt(x12 + 2, l.caretAt(i12).top + 4)
+  doAssert c in i12 .. i12 + 2, $c
+  # themes; saved with the text; off: the text as it was
+  for th in tableThemes: doAssert tableTheme(th).theme == th
+  let back = textFrom(t.toJson)
+  doAssert back.table.on and back.table.theme == "Striped Blue" and back.table.widths == @[2'f32, 1, 1]
+  t.table = TableStyle()
+  doAssert layoutText(t).glyphs.len == plain.glyphs.len
+  # drawn: the header's fill under its white letters
+  t.table = tableTheme("Dark Header")
+  var px = newSeq[uint32](340 * 200)
+  discard t.renderTextInto(px, 340, 200, layoutText(t))
+  doAssert (px[(10 + 3) * 340 + 290] and 0xFFFFFF'u32) == 0x222222'u32, "the header's fill"
+  # Arabic: the first column at the right
+  var a = newText("البند\tالعدد\nورق\t١٢", st, 10, 10)
+  a.boxW = 300
+  a.boxH = 200
+  a.table = tableTheme("Gold")
+  var first = 1e9'f32
+  for g in layoutText(a).glyphs:
+    if g.index == 0: first = g.x
+  doAssert first > 10 + 150, "the first cell at the right: " & $first
+  # an empty table, a table of one cell
+  var e = newText("", st, 0, 0)
+  e.boxW = 100
+  e.table = tableTheme("Minimal")
+  discard layoutText(e)
+  var one = newText("x", st, 0, 0)
+  one.boxW = 100
+  one.table = tableTheme("")
+  doAssert layoutText(one).glyphs.len == 1
+
+block scriptFonts:
+  # a font for the Arabic letters and one for the Latin: each run in its own, its size, raise,
+  # color; the spaces and digits with the letters about them; kept with the text
+  var st = CharStyle(family: "FreeSans", size: 30, color: 0xFF000000'u32, hScale: 1, vScale: 1)
+  st.latinFont = ScriptFont(family: "FreeSerif", style: "Bold", color: 0xFF0000FF'u32)
+  st.arabicFont = ScriptFont(scale: 1.5, shift: 3, color: 0xFFFF0000'u32)
+  let t = newText("Hello مرحبا 2026 world", st, 10, 50)
+  let l = layoutText(t)
+  var red, blue = 0
+  var bigSize = 0'f32
+  for g in l.glyphs:
+    if g.color == 0xFFFF0000'u32:
+      inc red
+      bigSize = max(bigSize, g.size)
+    if g.color == 0xFF0000FF'u32: inc blue
+  doAssert red >= 5 and blue >= 10, $red & " " & $blue
+  doAssert abs(bigSize - 45) < 0.5, "Arabic at 150 %: " & $bigSize
+  let sp = scriptFontsApplied(t)
+  doAssert sp.spans.len >= 3 and sp.spans[0].style.family == "FreeSerif" and sp.spans[0].style.style == "Bold"
+  doAssert sp.plainText == t.plainText, "the same text, cut where its script changes"
+  let back = textFrom(t.toJson)
+  doAssert back.spans[0].style.latinFont.family == "FreeSerif" and back.spans[0].style.arabicFont.scale == 1.5
+  # none set: nothing changes
+  var plain = st
+  plain.arabicFont = ScriptFont()
+  plain.latinFont = ScriptFont()
+  doAssert scriptFontsApplied(newText("abc", plain)).spans.len == 1
+
 block alternatesOfAWord:
   # the features of a font that draw a word otherwise; none that a script needs to be set
   let alts = alternatesFor("affine", CharStyle(family: "", size: 20))

@@ -18,11 +18,14 @@ var
   books: seq[BookWin]
   showMargins = true             ## the margins and columns drawn over a page
   showFacing = true              ## the facing page drawn beside it
+  showBaseline = false           ## the baseline grid drawn over a page
   bookDlg: tuple[open, setup: bool; paper, dpi, pages: int; w, h: int; facing: bool; binding: int;
-                 top, bottom, inside, outside: int; columns, gutter: int; numbers, first: int] =
-    (false, false, 0, 1, 8, 210, 297, true, 0, 15, 15, 20, 15, 1, 5, 0, 1)
+                 top, bottom, inside, outside: int; columns, gutter: int; numbers, first: int;
+                 grid: int] =
+    (false, false, 0, 1, 8, 210, 297, true, 0, 15, 15, 20, 15, 1, 5, 0, 1, 0)
     ## New Book and Document Setup (sizes in millimeters)
   bookSavePick = false
+  bookIdmlPick = false
   bookPdfPick = false
   bookPath = ""
   bookPdf: BookWin               ## the book the Save PDF dialog is for
@@ -110,7 +113,7 @@ proc openBook(path: string) =
       return
   try:
     beginBusy("Opening " & path.extractFilename)
-    try: addBook(loadBook(path))
+    try: addBook(if path.toLowerAscii.endsWith(".idml"): readIdml(path) else: loadBook(path))
     finally: endBusy()
     rememberFile(path)
     status = ""
@@ -166,7 +169,7 @@ proc setupOf(): BookSetup =
             bottom: px(bookDlg.bottom), inside: px(bookDlg.inside), outside: px(bookDlg.outside),
             columns: clamp(bookDlg.columns, 1, 12), gutter: px(bookDlg.gutter),
             firstNumber: max(1, bookDlg.first), numbers: NumberStyle(clamp(bookDlg.numbers, 0, ord(high(NumberStyle)))),
-            paper: 0xFFFFFFFF'u32)
+            paper: 0xFFFFFFFF'u32, baseline: bookDlg.grid.float / 72 * dpi)
 
 proc startBookSetup(bw: BookWin) =
   let s = bw.book.setup
@@ -187,12 +190,28 @@ proc startBookSetup(bw: BookWin) =
   bookDlg.gutter = mm(s.gutter)
   bookDlg.numbers = ord(s.numbers)
   bookDlg.first = max(1, s.firstNumber)
+  bookDlg.grid = int(s.baseline * 72 / s.dpi + 0.5)
 
-proc bookSetupDialog() =
-  if not bookDlg.open: return
-  let setup = bookDlg.setup
-  dialog(bookDlg.open, (if setup: "Document Setup" else: "New Book"), 430):
-    if not setup:
+proc bookGrid(dw: DocWin): tuple[step, start: float32] =
+  ## (the baseline grid of the book page in `dw`: its step and first line; 0: none)
+  let bw = bookOf(dw)
+  if bw != nil and bw.book.setup.baseline >= 2:
+    result = (bw.book.setup.baseline.float32, float32(bw.book.setup.top.float + bw.book.setup.baselineStart))
+
+proc bookSnapLines(dw: DocWin): tuple[xs, ys: seq[float]] =
+  ## (where boxes on the book page in `dw` snap: margins, columns, the baseline grid)
+  let bw = bookOf(dw)
+  if bw == nil: return
+  let b = bw.book
+  let side = if bw.master > 0: (if b.setup.facing: bw.side else: psSingle) else: b.sideOf(bw.page)
+  b.snapLines(side)
+
+proc bookFields(setup: bool; withPaper = true) =
+  ## (the book's setup as fields: its size, resolution and pages when it is new -- with a
+  ## list of page sizes unless `withPaper` is false -- then facing, binding, margins, columns,
+  ## numbers)
+  if not setup:
+    if withPaper:
       var names: seq[string]
       for (n, w, h) in BookPapers: names.add n & "  (" & $int(w) & " x " & $int(h) & " mm)"
       names.add "Custom"
@@ -201,46 +220,56 @@ proc bookSetupDialog() =
         if combo(names, bookDlg.paper, w = dp(230)) and bookDlg.paper < BookPapers.len:
           bookDlg.w = int(BookPapers[bookDlg.paper][1] + 0.5)
           bookDlg.h = int(BookPapers[bookDlg.paper][2] + 0.5)
-      row:
-        label "Width:"
-        if spin(bookDlg.w, 20, 2000, w = dp(70)): bookDlg.paper = BookPapers.len
-        label "Height:"
-        if spin(bookDlg.h, 20, 2000, w = dp(70)): bookDlg.paper = BookPapers.len
-        label "mm"
-      row:
-        label "Resolution:"
-        combo(["96 ppi (screen)", "150 ppi (proofs, e-books)", "200 ppi", "300 ppi (print)"], bookDlg.dpi, w = dp(190))
-      row:
-        label "Pages:"
-        spin(bookDlg.pages, 1, 500, w = dp(70))
     row:
-      checkbox("Facing pages", bookDlg.facing)
-      label "Binding:"
-      combo(["Left to right", "Right to left (Arabic)"], bookDlg.binding, w = dp(170))
-    label("Margins (mm):", bold = true)
-    row:
-      label "Top:"
-      spin(bookDlg.top, 0, 500, w = dp(56))
-      label "Bottom:"
-      spin(bookDlg.bottom, 0, 500, w = dp(56))
-    row:
-      label(if bookDlg.facing: "Inside:" else: "Left:")
-      spin(bookDlg.inside, 0, 500, w = dp(56))
-      label(if bookDlg.facing: "Outside:" else: "Right:")
-      spin(bookDlg.outside, 0, 500, w = dp(56))
-    row:
-      label "Columns:"
-      spin(bookDlg.columns, 1, 12, w = dp(56))
-      label "Gutter:"
-      spin(bookDlg.gutter, 0, 100, w = dp(56))
+      label "Width:"
+      if spin(bookDlg.w, 20, 2000, w = dp(70)): bookDlg.paper = BookPapers.len
+      label "Height:"
+      if spin(bookDlg.h, 20, 2000, w = dp(70)): bookDlg.paper = BookPapers.len
       label "mm"
     row:
-      label "Page numbers:"
-      var styles: seq[string]
-      for s in NumberStyle: styles.add $s
-      combo(styles, bookDlg.numbers, w = dp(110))
-      label "from"
-      spin(bookDlg.first, 1, 99999, w = dp(64))
+      label "Resolution:"
+      combo(["96 ppi (screen)", "150 ppi (proofs, e-books)", "200 ppi", "300 ppi (print)"], bookDlg.dpi, w = dp(190))
+    row:
+      label "Pages:"
+      spin(bookDlg.pages, 1, 500, w = dp(70))
+  row:
+    checkbox("Facing pages", bookDlg.facing)
+    label "Binding:"
+    combo(["Left to right", "Right to left (Arabic)"], bookDlg.binding, w = dp(170))
+  label("Margins (mm):", bold = true)
+  row:
+    label "Top:"
+    spin(bookDlg.top, 0, 500, w = dp(56))
+    label "Bottom:"
+    spin(bookDlg.bottom, 0, 500, w = dp(56))
+  row:
+    label(if bookDlg.facing: "Inside:" else: "Left:")
+    spin(bookDlg.inside, 0, 500, w = dp(56))
+    label(if bookDlg.facing: "Outside:" else: "Right:")
+    spin(bookDlg.outside, 0, 500, w = dp(56))
+  row:
+    label "Columns:"
+    spin(bookDlg.columns, 1, 12, w = dp(56))
+    label "Gutter:"
+    spin(bookDlg.gutter, 0, 100, w = dp(56))
+    label "mm"
+  row:
+    label "Baseline grid:"
+    spin(bookDlg.grid, 0, 200, w = dp(56))
+    label(if bookDlg.grid == 0: "pt (0: none)" else: "pt apart, from the top margin")
+  row:
+    label "Page numbers:"
+    var styles: seq[string]
+    for s in NumberStyle: styles.add $s
+    combo(styles, bookDlg.numbers, w = dp(110))
+    label "from"
+    spin(bookDlg.first, 1, 99999, w = dp(64))
+
+proc bookSetupDialog() =
+  if not bookDlg.open: return
+  let setup = bookDlg.setup
+  dialog(bookDlg.open, (if setup: "Document Setup" else: "New Book"), 430):
+    bookFields(setup)
     if not setup:
       let s = setupOf()
       let mb = s.w.float * s.h.float * 4 / 1e6
@@ -452,19 +481,22 @@ proc bookCommand(name: string): bool =
     if bw == nil: status = "This is for a book: File > New Book..."
     else: body
   case name
-  of "New Book...":
-    bookDlg.setup = false
-    bookDlg.open = true
+  of "New Book...": startNewBook()
   of "Save Book As...":
     need:
       discard bookSave(bw.dw, saveAs = true)
-  of "Export Book as PDF...":
+  of "Save Book as IDML...":
     need:
       proc go() =
         let dir = if bw.book.path.len > 0 and dirExists(bw.book.path.parentDir): bw.book.path.parentDir
                   else: picturesDir()
-        bookPath = dir / bw.book.name & ".pdf"
-        bookPdfPick = true
+        bookPath = dir / bw.book.name & ".idml"
+        bookIdmlPick = true
+      if storageFor(go): go()
+  of "Export Book as PDF...", "Export...", "Export Book...":
+    need:
+      let asBefore = name != "Export Book as PDF..."
+      proc go() = startBookExport(exPdf, asBefore)
       if storageFor(go): go()
   of "Document Setup...":
     need:
@@ -567,6 +599,7 @@ proc bookCommand(name: string): bool =
       shapesDlg.open = true
   of "Margins and Columns": showMargins = not showMargins
   of "Facing Page": showFacing = not showFacing
+  of "Baseline Grid": showBaseline = not showBaseline
   of "Pages": togglePanel("pages")
   of "Workspace: Photo": setWorkspace(0)
   of "Workspace: Drawing": setWorkspace(1)
@@ -596,6 +629,17 @@ proc layoutMenu() =
   let box = some and d.current.isText and d.current.text.boxW > 0
   ci("&New Book...", "New Book...")
   ci("Document &Setup...", "Document Setup...", enabled = isBook)
+  sep()
+  ci("Insert &Table...", "Insert Table...", enabled = some)
+  ci("Insert C&hart...", "Insert Chart...", enabled = some)
+  ci("Insert Ma&p...", "Insert Map...", enabled = some)
+  ci("Edit Chart or Ma&p...", "Edit Chart or Map...", enabled = some and igOf(d) != nil)
+  ci("Photo &Grid...", "Photo Grid...", enabled = some)
+  sep()
+  ci("Resi&ze for...", "Resize for...", enabled = some)
+  ci("&Brand Kit...", "Brand Kit...")
+  ci("&Recolor Design...", "Recolor Design...", enabled = some)
+  ci("Chec&k Document...", "Check Document...", enabled = some)
   sep()
   ci("&Add Page", "Add Page", enabled = isBook)
   ci("&Duplicate Page", "Duplicate Page", enabled = onPage)
@@ -638,10 +682,13 @@ proc layoutMenu() =
   sep()
   ci("Mar&gins and Columns", "Margins and Columns", checked = showMargins)
   ci("Fa&cing Page", "Facing Page", checked = showFacing)
+  ci("&Baseline Grid", "Baseline Grid", checked = showBaseline, enabled = isBook and bw.book.setup.baseline >= 2)
   ci("Pages Pane&l", "Pages", checked = panelShown("pages"))
   sep()
   ci("Save Boo&k As...", "Save Book As...", enabled = isBook)
+  ci("&Export...", "Export Book...", enabled = isBook)
   ci("Export Book as &PDF...", "Export Book as PDF...", enabled = isBook)
+  ci("Save Book as &IDML...", "Save Book as IDML...", enabled = isBook)
 
 # ---- the Pages panel --------------------------------------------------------------------------------------
 
@@ -762,6 +809,16 @@ proc bookOverlay(dw: DocWin) =
         for x in [m.x + c * (cwid + b.setup.gutter) - b.setup.gutter, m.x + c * (cwid + b.setup.gutter)]:
           let (sx, _) = v.toScreen(d, x.float, 0)
           line(sx, ay, sx, by, color(150, 90, 230))
+  if showBaseline:
+    let m = b.marginBox(side)
+    let (ax, _) = v.toScreen(d, m.x.float, 0)
+    let (bx, _) = v.toScreen(d, float(m.x + m.w), 0)
+    var last = -100
+    for y in b.gridLines:
+      let (_, sy) = v.toScreen(d, 0, y)
+      if sy - last < dp(3): continue          # (too close together to show at this zoom)
+      last = sy
+      line(ax, sy, bx, sy, color(120, 190, 235))
   let g = bw.ghostRect()
   if g.page >= 0 and g.r.w > 4:
     let t = (try: b.thumb(g.page, 1024) except CatchableError: nil)
@@ -867,6 +924,7 @@ proc bookFrame() =
 
 proc bookDialogs() =
   bookSetupDialog()
+  bookExportDialog()
   textWrapDialog()
   wordShapesDialog()
   if filePicker(bookSavePick, bookPath, fmSave, ["*.rpb"], "Save Book As"):
@@ -875,6 +933,19 @@ proc bookDialogs() =
       var p = bookPath
       if p.splitFile.ext.toLowerAscii != ".rpb": p.add ".rpb"
       bw.writeBook(p)
+  if filePicker(bookIdmlPick, bookPath, fmSave, ["*.idml"], "Save Book as IDML"):
+    let bw = curBook()
+    if bw != nil:
+      var p = bookPath
+      if p.splitFile.ext.toLowerAscii != ".idml": p.add ".idml"
+      try:
+        beginBusy("Saving " & p.extractFilename)
+        try: bw.book.saveBookIdml(p, bw.keepOf)
+        finally: endBusy()
+        rememberFile(p)
+        status = "Saved " & p.extractFilename & " (IDML: the layout program opens it; pictures in " &
+                 p.changeFileExt("").extractFilename & "-links)"
+      except CatchableError: status = "Could not save " & p.extractFilename & ": " & getCurrentExceptionMsg()
   if filePicker(bookPdfPick, bookPath, fmSave, ["*.pdf"], "Export Book as PDF"):
     let bw = curBook()
     if bw != nil:

@@ -11,8 +11,10 @@ var
   presPick = false
   presPath = ""
 
-proc startPdfOptions(docs: seq[Doc]; path: string) =
+proc startPdfOptions(docs: seq[Doc]; path: string; drawing = false) =
   ## The Save PDF dialog for `docs` (one: Save As; more: a presentation).
+  ## `drawing`: for a drawing program (.ai) -- type and shapes as vectors,
+  ## the type as text.
   pdfDlg.open = true
   pdfDlg.docs = docs
   pdfDlg.path = path
@@ -20,6 +22,9 @@ proc startPdfOptions(docs: seq[Doc]; path: string) =
     pdfDlg.preset = 1
     pdfDlg.o = pdfPreset(ppPrint)
   pdfDlg.o.title = if docs.len == 1: docs[0].name else: "Presentation"
+  if drawing:
+    pdfDlg.o.vectors = true
+    pdfDlg.o.liveText = true
   pdfDlg.o.author = if docs.len > 0: docs[0].info.author else: ""
 
 proc writePdfNow() =

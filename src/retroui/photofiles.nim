@@ -2148,7 +2148,7 @@ proc typeLayerData*(t: TextData; drawn: Rect): string =
   ## ours, for what Photoshop has no word for (columns, text on a path,
   ## Persian digits...).
   let tr = [1.0, 0, 0, 1, t.x.float, t.y.float]
-  let eng = engineDataText(engineDataOf(t))
+  let eng = engineDataText(engineDataOf(scriptFontsApplied(t)))   # (Arabic and Latin each in its font)
   var b = (0.0, -t.styleAt(0).size.float, 0.0, 0.0)
   if drawn.w > 0 and drawn.h > 0:
     b = (drawn.x.float - t.x, drawn.y.float - t.y, float(drawn.x + drawn.w) - t.x, float(drawn.y + drawn.h) - t.y)

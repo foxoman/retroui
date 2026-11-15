@@ -1,0 +1,413 @@
+# (included by photo.nim) Type > Convert to Shape (the type layer made shape
+# layers: its letters outlines of curves, with retroui/photovector's
+# textShapes) and Layer > Path Operations > Make Blend (the shapes between
+# two shape layers: blendShapes).
+
+var
+  blendDlg = false
+  blendSpacing = 0          ## 0 Smooth Color, 1 Specified Steps
+  blendSteps = 6
+  blendPair: (Layer, Layer)
+  blendEase = 0             ## the steps' spacing (`BlendEase`)
+  blendColorEase = 0        ## the colors'
+  blendStrength = 50        ## how much, %
+
+proc convertTypeToShape() =
+  ## Type > Convert to Shape: the current type layer made shape layers --
+  ## one a color, in a group named as the layer when there are more -- its
+  ## opacity, mode, style and mask kept; one step.
+  let d = cur()
+  if d == nil or not d.current.isText: return
+  if te.on: commitType()
+  let T = d.current
+  if T.locked or T.fromMaster != 0 or T.fromSpan != 0:
+    status = "The type layer is locked."
+    return
+  let shapes = textShapes(T.text)
+  if shapes.len == 0:
+    status = "Nothing to convert: the type layer says nothing."
+    return
+  d.beginStep("Convert to Shape")
+  d.touchLayers()
+  var at = d.layers.find(T)
+  var idxs: seq[int]
+  for k, s in shapes:
+    let L = d.addShapeLayer(s, (if shapes.len == 1: T.name else: T.name & " " & $(k + 1)), above = at)
+    at = d.layers.find(L)
+    idxs.add at
+  var top = d.layers[at]
+  if shapes.len > 1:
+    let g = d.groupLayers(idxs, T.name)
+    if g != nil: top = g
+  top.opacity = T.opacity
+  top.mode = T.mode
+  top.fx = T.fx
+  top.clipped = T.clipped
+  top.mask = if T.mask != nil: cloneLayer(T.mask) else: nil   # (its own: the type layer's stays with undo)
+  top.maskOff = T.maskOff
+  top.link = T.link
+  top.wrap = T.wrap
+  top.wrapGap = T.wrapGap
+  if not top.group: top.fill = T.fill
+  d.deleteLayer(d.layers.find(T))
+  d.cur = d.layers.find(top)
+  d.endStep()
+  d.markAll()
+  var pts = 0
+  for s in shapes:
+    for sp in s.path.subs: pts += sp.pts.len
+  status = "Converted to shape: " & $shapes.len & (if shapes.len == 1: " shape, " else: " shapes, ") &
+           $pts & " points"
+
+proc blendLayers(d: Doc): (Layer, Layer) =
+  ## (the two shape layers to blend: those picked, else the current one and the shape layer
+  ## under it)
+  var two: seq[Layer]
+  for i in d.pickedLayers:
+    if d.layers[i].isShape: two.add d.layers[i]
+  if two.len == 2: return (two[0], two[1])
+  let c = d.cur
+  if c >= 0 and c < d.layers.len and d.layers[c].isShape:
+    for i in countdown(c - 1, 0):
+      if d.layers[i].isShape and d.layers[i].depth == d.layers[c].depth: return (d.layers[i], d.layers[c])
+      if d.layers[i].depth < d.layers[c].depth: break
+
+proc startMakeBlend() =
+  let d = cur()
+  if d == nil: return
+  blendPair = blendLayers(d)
+  if blendPair[0] == nil:
+    status = "Make Blend: pick two shape layers (Ctrl+click in the Layers palette)."
+    return
+  blendDlg = true
+
+proc makeBlend() =
+  let d = cur()
+  if d == nil: return
+  let (a, b) = blendPair
+  let ia = d.layers.find(a)
+  let ib = d.layers.find(b)
+  if ia < 0 or ib < 0: return
+  let n = if blendSpacing == 0: colorSteps(a.shape, b.shape) else: blendSteps
+  let made = blendShapes(a.shape, b.shape, n, BlendEase(blendEase), blendStrength / 100,
+                         BlendEase(blendColorEase), blendStrength / 100)
+  d.beginStep("Make Blend")
+  d.touchLayers()
+  # (the steps between the two in the stack, from the lower one up; the two and they in a group)
+  let lo = min(ia, ib)
+  let lower = d.layers[lo]
+  var ordered = made
+  if lower != a: ordered.reverse()
+  var at = lo
+  var idxs = @[lo]
+  for k, s in ordered:
+    let L = d.addShapeLayer(s, "Blend " & $(k + 1), above = at)
+    L.opacity = (if lower == a: a.opacity + (b.opacity - a.opacity) * (k + 1) div (n + 1)
+                 else: b.opacity + (a.opacity - b.opacity) * (k + 1) div (n + 1))
+    at = d.layers.find(L)
+    idxs.add at
+  idxs.add d.layers.find(if lower == a: b else: a)
+  let g = d.groupLayers(idxs, "Blend")
+  if g != nil: d.cur = d.layers.find(g)
+  d.endStep()
+  d.markAll()
+  status = "Blend: " & $n & (if n == 1: " step" else: " steps") & " between the two, in the group \"Blend\""
+
+proc makeBlendDialog() =
+  if not blendDlg: return
+  var ok = false
+  dialog(blendDlg, "Blend Options", 320):
+    row:
+      label "Spacing:"
+      discard combo(["Smooth Color", "Specified Steps"], blendSpacing, w = dp(150))
+    if blendSpacing == 1:
+      row:
+        label "Steps:"
+        discard spin(blendSteps, 1, 1000, w = dp(70))
+    else:
+      let d = cur()
+      if d != nil and blendPair[0] != nil:
+        label($colorSteps(blendPair[0].shape, blendPair[1].shape) & " steps, as many as the colors need",
+              color = ui.theme.gray)
+    row:
+      label "Steps:"
+      discard combo(["Even", "Ease In", "Ease Out", "Ease In and Out"], blendEase, w = dp(150))
+    row:
+      label "Colors:"
+      discard combo(["Even", "Ease In", "Ease Out", "Ease In and Out"], blendColorEase, w = dp(150))
+    if blendEase != 0 or blendColorEase != 0:
+      row([90, -1, 40]):
+        label "Strength:"
+        discard slider(blendStrength, 0, 100, ticks = 0)
+        label $blendStrength & "%"
+    row:
+      spring()
+      if button("OK", isDefault = true, w = dp(80)): ok = true
+      if button("Cancel", w = dp(80)): blendDlg = false
+  if ok:
+    blendDlg = false
+    makeBlend()
+
+# ---- Shape Builder ------------------------------------------------------------------------------------------
+
+var
+  sbDlg: tuple[open: bool; layers: seq[Layer]; merge, remove: seq[(float, float)]; removing: bool;
+               key: string; pic: Bitmap; k: float; box: Rect]
+
+proc scaledShape(s: ShapeData; k, ox, oy: float): ShapeData =
+  result = s
+  for sp in result.path.subs.mitems:
+    for q in sp.pts.mitems:
+      q.p = ((q.p[0] - ox) * k, (q.p[1] - oy) * k)
+      q.inH = ((q.inH[0] - ox) * k, (q.inH[1] - oy) * k)
+      q.outH = ((q.outH[0] - ox) * k, (q.outH[1] - oy) * k)
+
+proc startShapeBuilder() =
+  let d = cur()
+  if d == nil: return
+  var ls: seq[Layer]
+  for i in d.pickedLayers:
+    if d.layers[i].isShape and not d.layers[i].locked: ls.add d.layers[i]
+  if ls.len < 2:
+    status = "Shape Builder: pick two or more shape layers (Ctrl+click in the Layers palette)."
+    return
+  var x0, y0 = Inf
+  var x1, y1 = -Inf
+  for L in ls:
+    let (a, b, c, e) = pathBounds(L.shape.path)
+    x0 = min(x0, a); y0 = min(y0, b); x1 = max(x1, c); y1 = max(y1, e)
+  sbDlg = (true, ls, @[], @[], false, "", nil, 1.0,
+           rect(int(floor(x0)) - 2, int(floor(y0)) - 2, int(ceil(x1 - x0)) + 4, int(ceil(y1 - y0)) + 4))
+
+proc sbShapes(k: float): seq[ShapeData] =
+  for L in sbDlg.layers: result.add scaledShape(L.shape, k, sbDlg.box.x.float, sbDlg.box.y.float)
+
+proc shapeBuilderNow() =
+  ## (the regions picked made one shape, those taken away gone, each shape what is left of it)
+  let d = cur()
+  if d == nil or sbDlg.merge.len == 0 and sbDlg.remove.len == 0: return
+  let b = sbDlg.box
+  let shapes = sbShapes(1.0)
+  var mg, rm: seq[(float, float)]
+  for p in sbDlg.merge: mg.add (p[0] - b.x.float, p[1] - b.y.float)
+  for p in sbDlg.remove: rm.add (p[0] - b.x.float, p[1] - b.y.float)
+  var r: tuple[merged: Path; rest: seq[Path]]
+  beginBusy("Shape Builder")
+  try: r = buildShapes(shapes, b.w, b.h, mg, rm)
+  finally: endBusy()
+  proc back(p: Path): Path =
+    result = p
+    for sp in result.subs.mitems:
+      for q in sp.pts.mitems:
+        q.p = (q.p[0] + b.x.float, q.p[1] + b.y.float)
+        q.inH = (q.inH[0] + b.x.float, q.inH[1] + b.y.float)
+        q.outH = (q.outH[0] + b.x.float, q.outH[1] + b.y.float)
+  d.beginStep("Shape Builder")
+  d.touchLayers()
+  var top = -1
+  for L in sbDlg.layers: top = max(top, d.layers.find(L))
+  if r.merged.subs.len > 0:
+    # (the merged shape in the look of the first shape that had a merged region)
+    var look = sbDlg.layers[0].shape
+    let regs = shapeRegions(shapes, b.w, b.h)
+    for (x, y) in mg:
+      let key = regs[clamp(int(y), 0, b.h - 1) * b.w + clamp(int(x), 0, b.w - 1)]
+      for i in countdown(min(63, sbDlg.layers.high), 0):
+        if (key and (1'u64 shl i)) != 0:
+          look = sbDlg.layers[i].shape
+          break
+      break
+    look.path = back(r.merged)
+    look.kind = ""
+    let M = d.addShapeLayer(look, "Built Shape", above = top)
+    d.cur = d.layers.find(M)
+  for i, L in sbDlg.layers:
+    if i >= r.rest.len: break
+    if r.rest[i].subs.len == 0:
+      let j = d.layers.find(L)
+      if j >= 0: d.deleteLayer(j)
+    else:
+      var s = L.shape
+      s.path = back(r.rest[i])
+      s.kind = ""
+      d.setShape(L, s)
+  d.endStep()
+  d.markAll()
+  status = "Shape Builder: " & $sbDlg.merge.len & " regions merged, " & $sbDlg.remove.len & " taken away"
+
+proc shapeBuilderDialog() =
+  if not sbDlg.open: return
+  let d = cur()
+  if d == nil:
+    sbDlg.open = false
+    return
+  var ok = false
+  dialog(sbDlg.open, "Shape Builder", 560):
+    label("Click the parts to make one shape; with Remove on (or Alt), the parts to take away.",
+          color = ui.theme.gray)
+    row:
+      checkbox("Remove", sbDlg.removing)
+      if button("Clear", w = dp(70)):
+        sbDlg.merge.setLen(0)
+        sbDlg.remove.setLen(0)
+    let pr = place(dp(520), dp(360))
+    let k = min(pr.w / sbDlg.box.w, pr.h / sbDlg.box.h)
+    let pw = max(1, int(sbDlg.box.w.float * k))
+    let ph = max(1, int(sbDlg.box.h.float * k))
+    let key = $sbDlg.merge & $sbDlg.remove & $pw
+    if key != sbDlg.key:
+      # (each region a color: those merged blue, those taken away red, the others light)
+      sbDlg.key = key
+      sbDlg.k = k
+      let regs = shapeRegions(sbShapes(k), pw, ph)
+      var mk, rk: seq[uint64]
+      for p in sbDlg.merge:
+        let x = int((p[0] - sbDlg.box.x.float) * k)
+        let y = int((p[1] - sbDlg.box.y.float) * k)
+        if x in 0 ..< pw and y in 0 ..< ph: mk.add regs[y * pw + x]
+      for p in sbDlg.remove:
+        let x = int((p[0] - sbDlg.box.x.float) * k)
+        let y = int((p[1] - sbDlg.box.y.float) * k)
+        if x in 0 ..< pw and y in 0 ..< ph: rk.add regs[y * pw + x]
+      var pic = newBitmap(pw, ph)
+      for i, r in regs:
+        pic.px[i] = if r == 0: 0xFFFFFFFF'u32
+                    elif r in mk: 0xFF3A86FF'u32
+                    elif r in rk: 0xFFE63946'u32
+                    else: 0xFFD8D8D8'u32 - uint32((r * 0x9E3779B1'u64) and 0x1F1F1F'u64)
+      # (the regions' edges)
+      for y in 0 ..< ph:
+        for x in 0 ..< pw:
+          let r = regs[y * pw + x]
+          if (x + 1 < pw and regs[y * pw + x + 1] != r) or (y + 1 < ph and regs[(y + 1) * pw + x] != r):
+            pic.px[y * pw + x] = 0xFF333333'u32
+      sbDlg.pic = pic
+    let r0 = rect(pr.x + (pr.w - pw) div 2, pr.y + (pr.h - ph) div 2, pw, ph)
+    if sbDlg.pic != nil: drawBitmap(r0, sbDlg.pic)
+    box(pr, ui.theme.edge)
+    let hit = interact(idOf("sbcanvas"), r0, focusable = false)
+    if hit.clicked:
+      let p = (sbDlg.box.x.float + (ui.mx - r0.x).float / k, sbDlg.box.y.float + (ui.my - r0.y).float / k)
+      if sbDlg.removing or AltPressed in ui.mods: sbDlg.remove.add p else: sbDlg.merge.add p
+    row:
+      spring()
+      if button("OK", isDefault = true, w = dp(80), enabled = sbDlg.merge.len + sbDlg.remove.len > 0): ok = true
+      if button("Cancel", w = dp(80)): sbDlg.open = false
+  if ok:
+    sbDlg.open = false
+    shapeBuilderNow()
+
+# ---- Freeform Gradient ---------------------------------------------------------------------------------------
+
+var
+  ffDlg: tuple[open: bool; layer: Layer; pts: seq[tuple[x, y: float; color: uint32]]; sel: int; was: ShapeData]
+  ffPending = false
+  ffApplied = ""                 ## (the points last put on the shape)
+
+proc startFreeform() =
+  let d = cur()
+  if d == nil or not d.current.isShape:
+    status = "Freeform Gradient: pick a shape layer."
+    return
+  let L = d.current
+  var pts = L.shape.fill.points
+  if pts.len == 0 or L.shape.fill.style != 5:
+    let c = if L.shape.fill.kind == spColor: L.shape.fill.color else: 0xFF3A86FF'u32
+    pts = @[(0.2, 0.2, c), (0.8, 0.3, fg or 0xFF000000'u32), (0.5, 0.85, bg or 0xFF000000'u32)]
+  ffDlg = (true, L, pts, 0, L.shape)
+  ffApplied = $pts
+  d.beginStep("Freeform Gradient")
+  d.touchLayers()
+  d.touch(L, d.bounds)
+  ffPending = true
+
+proc freeformDialog() =
+  let d = cur()
+  if not ffDlg.open:
+    if ffPending:
+      ffPending = false
+      if d != nil and d.stepOpen:
+        d.cancelStep()
+        d.markAll()
+    return
+  if d == nil or d.layers.find(ffDlg.layer) < 0:
+    ffDlg.open = false
+    return
+  let L = ffDlg.layer
+  let before = ffDlg.pts
+  var ok, cancel = false
+  dialog(ffDlg.open, "Freeform Gradient", 420):
+    label("Click to add a color point (the foreground color); a point: pick it, then its color.",
+          color = ui.theme.gray)
+    let pr = place(dp(380), dp(260))
+    let (x0, y0, x1, y1) = pathBounds(L.shape.path)
+    fill(pr, color(240, 240, 240))
+    # (the gradient as it is, small)
+    let k = min(pr.w.float / max(1.0, x1 - x0), pr.h.float / max(1.0, y1 - y0))
+    let gw = max(1, int((x1 - x0) * k))
+    let gh = max(1, int((y1 - y0) * k))
+    let gr = rect(pr.x + (pr.w - gw) div 2, pr.y + (pr.h - gh) div 2, gw, gh)
+    let step = max(4, dp(6))
+    var yy = 0
+    while yy < gh:
+      var xx = 0
+      while xx < gw:
+        let c = freeformAt(ffDlg.pts, (xx.float + 0.5) / gw.float, (yy.float + 0.5) / gh.float)
+        fill(rect(gr.x + xx, gr.y + yy, min(step, gw - xx), min(step, gh - yy)),
+             color(uint8((c shr 16) and 255), uint8((c shr 8) and 255), uint8(c and 255)))
+        xx += step
+      yy += step
+    box(gr, ui.theme.edge)
+    for i, p in ffDlg.pts:
+      let cx = gr.x + int(p.x * gw.float)
+      let cy = gr.y + int(p.y * gh.float)
+      let r = rect(cx - dp(5), cy - dp(5), dp(10), dp(10))
+      fill(r, color(uint8((p.color shr 16) and 255), uint8((p.color shr 8) and 255), uint8(p.color and 255)))
+      box(r, if i == ffDlg.sel: ui.theme.select else: color(0, 0, 0), (if i == ffDlg.sel: 2 else: 1))
+    let hit = interact(idOf("ffcanvas"), gr, focusable = false)
+    if hit.clicked:
+      let u = (ui.mx - gr.x).float / gw.float
+      let v = (ui.my - gr.y).float / gh.float
+      var near = -1
+      for i, p in ffDlg.pts:
+        if abs(p.x - u) * gw.float < dp(8).float and abs(p.y - v) * gh.float < dp(8).float: near = i
+      if near >= 0: ffDlg.sel = near
+      elif ffDlg.pts.len < 32:
+        ffDlg.pts.add (clamp(u, 0.0, 1.0), clamp(v, 0.0, 1.0), fg or 0xFF000000'u32)
+        ffDlg.sel = ffDlg.pts.high
+    if ffDlg.sel in 0 .. ffDlg.pts.high:
+      row:
+        label "Point " & $(ffDlg.sel + 1) & ":"
+        var c = ffDlg.pts[ffDlg.sel].color
+        if colorWell(c, "ffpoint", dp(40)): ffDlg.pts[ffDlg.sel].color = c or 0xFF000000'u32
+        var xi = int(round(ffDlg.pts[ffDlg.sel].x * 100))
+        var yi = int(round(ffDlg.pts[ffDlg.sel].y * 100))
+        label "Across:"
+        if spin(xi, 0, 100, w = dp(56)): ffDlg.pts[ffDlg.sel].x = xi / 100
+        label "Down:"
+        if spin(yi, 0, 100, w = dp(56)): ffDlg.pts[ffDlg.sel].y = yi / 100
+        if button("Delete", w = dp(70), enabled = ffDlg.pts.len > 1):
+          ffDlg.pts.delete(ffDlg.sel)
+          ffDlg.sel = min(ffDlg.sel, ffDlg.pts.high)
+    row:
+      spring()
+      if button("OK", isDefault = true, w = dp(80)): ok = true
+      if button("Cancel", w = dp(80)): cancel = true
+  discard before
+  if ($ffDlg.pts != ffApplied or (ok and L.shape.fill.style != 5)) and not cancel and (ffDlg.open or ok):
+    ffApplied = $ffDlg.pts
+    var s = L.shape
+    s.fill = freeformPaint(ffDlg.pts)
+    d.setShape(L, s)
+  if cancel or (not ffDlg.open and not ok):
+    ffDlg.open = false
+    ffPending = false
+    if d.stepOpen: d.cancelStep()
+    d.markAll()
+  elif ok:
+    ffDlg.open = false
+    ffPending = false
+    var s = L.shape
+    s.fill = freeformPaint(ffDlg.pts)
+    d.setShape(L, s)
+    if d.stepOpen: d.endStep()

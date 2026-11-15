@@ -127,6 +127,7 @@ NOT_CONTROLS = {
     "mapview": {  # (the world's data)
         "countryCount", "countryIndex", "countryNameAt", "countryA2At",
         "countryA3At", "cityLatLon", "mapPoint", "mapLatLonAt", "countryAtLatLon",
+        "countryRings", "countryLabelAt", "countryCodeAt",
     },
     "capture": {  # (a webcam's pixels, a WAV header: helpers of the recorder)
         "yuyvToBitmap", "wavHeader",

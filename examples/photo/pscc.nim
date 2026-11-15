@@ -84,7 +84,7 @@ proc psMenus() =
   bar:
     psMenu "&File":
       ci("&New...")
-      ci("New SVG &Drawing")
+      ci("New &Drawing (SVG)...")
       ci("New &Book...", "New Book...")
       ci("&Open...")
       ci("Open &As...")
@@ -292,6 +292,7 @@ proc psMenus() =
       sep()
       ci("Image &Size...", enabled = some)
       ci("&Canvas Size...", enabled = some)
+      ci("Image Tra&ce...", enabled = some)
       psSub "Image &Rotation":
         ci("&180°", enabled = some)
         ci("90° &Clockwise", "90° CW", enabled = some)
@@ -359,9 +360,12 @@ proc psMenus() =
           ci("Edit Contents")
       psSub "Rasteri&ze":
         ci("&Type", "Rasterize Type", enabled = some and d.current.isText)
+        ci("Type to Sha&pes", "Convert to Shape", enabled = some and d.current.isText)
         ci("&Shape", "Rasterize Shape", enabled = some and d.current.isShape)
         ci("&Smart Object", "Rasterize Smart Object", enabled = some and d.current.isSmart)
         ci("Layer St&yle", "Rasterize Layer Style", enabled = some and d.current.hasStyle)
+      ci("More S&hapes...", "More Shapes...", enabled = some)
+      ci("Shape Op&tions...", "Shape Options...", enabled = some and liveOf(d.current).ok)
       psSub "Pat&h Operations":
         let pathOk = some and (d.current.isShape or (d.curPath >= 0 and d.curPath < d.paths.len))
         ci("&Merge Shape Components (Pathfinder)", "Merge Shape Components", enabled = pathOk)
@@ -371,6 +375,10 @@ proc psMenus() =
         ci("Si&mplify Path...", enabled = pathOk)
         ci("&Reverse Path Direction", enabled = pathOk)
         ci("&Join Paths", enabled = pathOk)
+        sep()
+        ci("Make &Blend...", enabled = some and (d.current.isShape or d.pickedLayers.len == 2))
+        ci("Shape B&uilder...", "Shape Builder...", enabled = some and d.pickedLayers.len >= 2)
+        ci("&Freeform Gradient...", "Freeform Gradient...", enabled = some and d.current.isShape)
       sep()
       ci("Group Layers", enabled = some and not bgl)
       ci("&Ungroup Layers", enabled = grp)
@@ -392,6 +400,16 @@ proc psMenus() =
          if some and d.current.locked: "Unlock Layer" else: "Lock Layer", enabled = some and not bgl)
       sep()
       ci("&Place Into...", enabled = some and not bgl)
+      psSub "Fitti&ng":
+        let fc = frameAndContent(d).content != nil
+        ci("&Fill Frame Proportionally", enabled = fc)
+        ci("Fit &Content Proportionally", enabled = fc)
+        ci("Fit Content to &Frame", enabled = fc)
+        ci("C&enter Content", enabled = fc)
+        ci("&Original Size", enabled = fc)
+        sep()
+        ci("Frame &Options...", enabled = fc)
+        ci("&Remove Content", enabled = fc)
       ci("New &Frame", enabled = some)
       ci("New &QR Code...", "New QR Code...", enabled = some)
       ci("Har&monize...", "Harmonize...", enabled = some and d.cur > 0 and not bgl and not grp and
@@ -877,7 +895,7 @@ proc psCommand(name: string): bool =
     scriptPick = true
   of "SVG...": startSvgExport()
   of "SVG, Type as Outlines...": startSvgExport(outlines = true)
-  of "New SVG Drawing": startSvgDrawing()
+  of "New SVG Drawing", "New Drawing...", "New Drawing (SVG)...": startNewDrawing()
   of "Styles": togglePanel("styles")
   of "Shapes": togglePanel("shapes")
   of "Tool Presets": togglePanel("toolpresets")

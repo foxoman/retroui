@@ -139,6 +139,50 @@ proc fontRows(compact: bool) =
 
 proc directionButtons()
 
+var scriptFontsOpen = false        ## (Character: the Arabic and Latin fonts shown)
+
+proc scriptFontRows(s: CharStyle) =
+  ## (Character: a font for the Arabic letters and one for the Latin, each with its style, size,
+  ## raise, color and tracking -- the spaces and digits between go with the letters about them)
+  let on = s.arabicFont != ScriptFont() or s.latinFont != ScriptFont()
+  if not checkbox("Fonts for Arabic and Latin" & (if on: " (set)" else: ""), scriptFontsOpen): discard
+  if not scriptFontsOpen: return
+  for which in 0 .. 1:
+    var f = if which == 0: s.arabicFont else: s.latinFont
+    let f0 = f
+    label((if which == 0: "Arabic letters:" else: "Latin (English) letters:"), bold = true)
+    var fam = if f.family.len > 0: f.family else: "(the text's font)"
+    let w = available()
+    rowPx([w * 3 div 5, -1]):
+      if fontCombo(fam, w = w * 3 div 5 - dp(2)): f.family = fam
+      var sts = @["(as the text)"]
+      if f.family.len > 0: sts.add fontStyles(f.family)
+      var si = max(0, sts.find(if f.style.len > 0: f.style else: "(as the text)"))
+      if combo(sts, si, w = available()): f.style = if si == 0: "" else: sts[si]
+    var sc = int(round((if f.scale > 0: f.scale else: 1'f32) * 100))
+    var sh = int(round(f.shift))
+    var tr = f.tracking
+    row:
+      label "Size:"
+      if spin(sc, 25, 400, w = dp(56), step = 5): f.scale = sc.float32 / 100
+      label "%"
+      label "Raise:"
+      if spin(sh, -500, 500, w = dp(56)): f.shift = sh.float32
+      label "px"
+    row:
+      label "Track:"
+      if spin(tr, -500, 5000, w = dp(56), step = 10): f.tracking = tr
+      var own = f.color != 0
+      if checkbox("Color:", own): f.color = if own: (fg or 0xFF000000'u32) else: 0'u32
+      if own:
+        var c = f.color
+        if colorWell(c, "scriptcolor" & $which, dp(36)): f.color = c or 0xFF000000'u32
+      if button("Reset", w = dp(56)): f = ScriptFont()
+    if f != f0:
+      let v = f
+      if which == 0: applyChar("Arabic Font", proc (x: var CharStyle) = x.arabicFont = v)
+      else: applyChar("Latin Font", proc (x: var CharStyle) = x.latinFont = v)
+
 proc characterBody() =
   fontRows(false)
   row:
@@ -241,6 +285,7 @@ proc characterBody() =
       applyChar("Raise Tashkeel", proc (x: var CharStyle) = x.markRaise = v)
     label "px"
     if button("Word Shapes...", w = dp(110)): runCommand("Word Shapes...")
+  scriptFontRows(s)
 
 proc textIsRtl(): bool =
   ## (the type being set runs right to left: its first line, or the direction chosen)
@@ -369,6 +414,29 @@ proc paragraphBody() =
         applyText("List Color", proc (t: var TextData) = t.para.listColor = v)
     if L != nil and L.text.boxW <= 0:
       label("(a list is text in a box: drag a box with the Type tool)", color = ui.theme.gray)
+  # a drop cap: the first letters as tall as so many lines
+  var dl = p.dropLines
+  var dc = max(1, p.dropChars)
+  row([96, -1]):
+    label "Drop cap lines:"
+    if spin(dl, 0, 20, w = dp(64)):
+      let v = if dl == 1: (if p.dropLines >= 2: 0 else: 2) else: dl   # (one line is no drop cap)
+      typePara.dropLines = v
+      applyText("Drop Cap", proc (t: var TextData) = t.para.dropLines = v)
+  if p.dropLines >= 2:
+    row([96, -1]):
+      label "Letters:"
+      if spin(dc, 1, 20, w = dp(64)):
+        let v = dc
+        typePara.dropChars = v
+        applyText("Drop Cap", proc (t: var TextData) = t.para.dropChars = v)
+  # (a book's page with a baseline grid: the lines on it)
+  let grid = if active != nil: bookGrid(active) else: (0'f32, 0'f32)
+  if L != nil and L.text.boxW > 0 and grid.step > 0:
+    var on = L.text.gridStep > 0
+    if checkbox("Align to baseline grid", on):
+      let g = if on: grid else: (0'f32, 0'f32)
+      applyText("Align to Baseline Grid", proc (t: var TextData) = (t.gridStep = g.step; t.gridStart = g.start))
   if L != nil and L.text.boxW > 0:
     var fit = L.text.fit
     if checkbox("Dynamic Text: as big as fills the box", fit):
@@ -871,6 +939,15 @@ proc typeMenu(d: Doc) =
         t.x = t.path[0][0]
         t.y = t.path[0][1]
       t.path = @[])
+  menuSeparator()
+  if menuItem("Convert to Shape", enabled = isT): runCommand("Convert to Shape")
+  menuSeparator()
+  if menuItem("Text Effects...", enabled = isT): runCommand("Text Effects...")
+  if menuItem("Insert Table...", enabled = d != nil): runCommand("Insert Table...")
+  if menuItem("Table Options...", enabled = isT and L.text.boxW > 0): runCommand("Table Options...")
+  if menuItem(if isT and L.text.table.on: "Convert Table to Text" else: "Convert Text to Table",
+              enabled = isT and L.text.boxW > 0):
+    runCommand(if L.text.table.on: "Convert Table to Text" else: "Convert Text to Table")
   menuSeparator()
   if menuItem("Rasterize Type", enabled = isT):
     if te.on: commitType()

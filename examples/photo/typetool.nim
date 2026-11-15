@@ -358,6 +358,31 @@ proc typeKeys() =
     of KeyEnter:
       if ctrl: commitType()
       else: insertTyped("\n")
+    of KeyTab:
+      if not t.table.on: insertTyped("\t")
+      else:
+        # (a table: to the next cell -- a new row after the last -- or with Shift the one before)
+        let rs = t.plainText.toRunes
+        if shift:
+          var i = te.caret - 1
+          while i > 0 and rs[i - 1] != Rune('\t') and rs[i - 1] != Rune('\n'): dec i   # (this cell's start)
+          var j = max(0, i - 1)
+          while j > 0 and rs[j - 1] != Rune('\t') and rs[j - 1] != Rune('\n'): dec j   # (the one before)
+          moveTo(if i > 0: j else: 0)
+        else:
+          var i = te.caret
+          while i < rs.len and rs[i] != Rune('\t') and rs[i] != Rune('\n'): inc i
+          if i < rs.len: moveTo(i + 1)
+          else:
+            # (a row as many cells wide as the first)
+            var cols = 1
+            for r in rs:
+              if r == Rune('\n'): break
+              if r == Rune('\t'): inc cols
+            moveTo(rs.len)
+            insertTyped("\n" & repeat('\t', cols - 1))
+            te.caret = rs.len + 1
+            te.anchor = te.caret
     of KeyLeft, KeyRight:
       # (in a right-to-left line the arrows go the way the eye does: Left
       # is on through the text, Right back)

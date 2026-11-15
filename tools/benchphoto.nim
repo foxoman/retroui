@@ -1,6 +1,8 @@
 ## Times the photo engine's everyday work on a 12-megapixel image (4000 x
 ## 3000): compositing many layers, a brush stroke, filters, an adjustment
-## layer, a layer style, type, the views made smaller, saving and opening.
+## layer, a layer style, type, the views made smaller, saving and opening;
+## then a page of many small shapes and captions (the memory they take, and
+## the composite), Image Trace, Pencil Sketch, type made shapes, a blend.
 ##
 ##   nim c -r -d:release tools/benchphoto.nim
 ##
@@ -8,7 +10,15 @@
 ## the steps whose names hold one of those, e.g. to profile them.)
 
 import std/[monotimes, times, strutils, os]
-import retroui/[gfx, photo, photopaint, photofx, photoshapes, photostyles, photodevelop, textengine, photofiles, parallel]
+import retroui/[gfx, photo, photopaint, photofx, photoshapes, photostyles, photodevelop, textengine, photofiles, parallel,
+                imagetrace, photoartistic, photovector]
+
+proc rssMb(): int =
+  ## (the memory in use, MB; 0 where it cannot be read)
+  try:
+    for l in lines("/proc/self/status"):
+      if l.startsWith("VmRSS:"): return parseInt(l.splitWhitespace()[1]) div 1024
+  except CatchableError: discard
 
 proc ms(t: MonoTime): float = (getMonoTime() - t).inMicroseconds.float / 1000
 
@@ -110,3 +120,43 @@ bench("open .rpd", 1):
 bench("flattened copy", 3):
   discard d.flattened()
 removeFile(tmp)
+
+# ---- a page of many small vector layers; Image Trace, Pencil Sketch, outlines, blends ----
+
+block vectors:
+  let before = rssMb()
+  let p = newDoc(W, H, 0xFFFFFFFF'u32, dpi = 300)
+  for k in 0 ..< 40:
+    let x = float((k mod 8) * W div 8 + 20)
+    let y = float((k div 8) * H div 5 + 20)
+    discard p.addShapeLayer(ShapeData(path: ellipsePath(x, y, x + W.float / 10, y + H.float / 8),
+                                      fill: solidPaint(0xFF2040C0'u32 + uint32(k * 3))))
+  for k in 0 ..< 20:
+    discard p.addTextLayer(newText("Caption " & $k, CharStyle(family: "", size: 40 * K, color: 0xFF202020'u32,
+                                   hScale: 1, vScale: 1), 40 * K, float32(H div 21 * (k + 1))))
+  echo alignLeft("60 shape and type layers: memory", 46), align($(rssMb() - before), 9), " MB"
+  bench("composite, 60 small vector layers", 3):
+    p.markAll()
+    p.updateComposite()
+  let small = d.flattened(0xFFFFFFFF'u32)
+  let tw = min(W, 1200)
+  let th = tw * 3 div 4
+  var px = newSeq[uint32](tw * th)
+  for y in 0 ..< th:
+    for x in 0 ..< tw: px[y * tw + x] = small[(y * H div th) * W + x * W div tw]
+  bench("Image Trace, 6 colors (1200 x 900)", 2):
+    discard traceImage(px, tw, th, tracePreset(tp6Colors))
+  bench("Image Trace, 16 colors (1200 x 900)", 1):
+    discard traceImage(px, tw, th, tracePreset(tp16Colors))
+  bench("Pencil Sketch, a layer", 2):
+    d.beginStep("Sketch")
+    d.applyFilter(0, pencilSketch(8, 50, 0, 0xFF000000'u32, 0xFFFFFFFF'u32))
+    d.endStep()
+  let tx = newText("Type made shapes, a line of it", CharStyle(family: "", size: 120 * K, color: 0xFF000000'u32,
+                   hScale: 1, vScale: 1), 100, 300)
+  bench("Convert to Shape, a line of type", 3):
+    discard textShapes(tx)
+  let a = ShapeData(path: ellipsePath(0, 0, 400, 400), fill: solidPaint(0xFFFF0000'u32))
+  let b = ShapeData(path: starPath(2000, 0, 2400, 400), fill: solidPaint(0xFF0000FF'u32))
+  bench("Make Blend, 64 steps (curves to corners)", 3):
+    discard blendShapes(a, b, 64)

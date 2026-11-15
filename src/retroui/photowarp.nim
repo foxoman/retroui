@@ -656,6 +656,62 @@ proc quadGrid*(src: Img; q: Quad; mesh: seq[MeshPt]; n = 24): tuple[pos, tex: se
     for k in 0 .. 15: wm[k] = mesh[k]
   wm.meshGrid(place, src.w, src.h, n)
 
+type
+  FrameFit* = enum
+    ## How a picture sits in its frame (a shape, type, a frame it is
+    ## clipped to): the usual layout app's Fitting.
+    ffFill = "Fill Frame Proportionally"       ## covers the frame, its sides cut off
+    ffFit = "Fit Content Proportionally"       ## all of it in the frame, room left beside it
+    ffStretch = "Fit Content to Frame"         ## as big as the frame, its proportions changed
+    ffCenter = "Center Content"                ## its size kept, in the middle of the frame
+    ffOriginal = "Original Size"               ## at 100 %, in the middle
+
+proc contentQuad*(frame: Rect; w, h: int; fit: FrameFit; scale = 100.0; angle = 0.0; dx = 0.0; dy = 0.0;
+                  flipH = false; flipV = false; current: Quad = default(Quad)): Quad =
+  ## Where a picture `w` x `h` goes in `frame` -- its corners (top left,
+  ## top right, bottom right, bottom left): fitted as `fit` says, then
+  ## scaled (`scale` %), turned (`angle` degrees, about the frame's
+  ## middle), moved (`dx`, `dy` pixels), flipped. `ffCenter` keeps the size
+  ## of `current` (where it is now).
+  let fw = max(1, frame.w).float
+  let fh = max(1, frame.h).float
+  var pw, ph: float
+  case fit
+  of ffFill:
+    let k = max(fw / w.float, fh / h.float)
+    pw = w.float * k
+    ph = h.float * k
+  of ffFit:
+    let k = min(fw / w.float, fh / h.float)
+    pw = w.float * k
+    ph = h.float * k
+  of ffStretch:
+    pw = fw
+    ph = fh
+  of ffCenter:
+    pw = hypot(current[1][0] - current[0][0], current[1][1] - current[0][1])
+    ph = hypot(current[3][0] - current[0][0], current[3][1] - current[0][1])
+    if pw <= 0 or ph <= 0:
+      pw = w.float
+      ph = h.float
+  of ffOriginal:
+    pw = w.float
+    ph = h.float
+  pw *= scale / 100
+  ph *= scale / 100
+  let cx = frame.x.float + fw / 2 + dx
+  let cy = frame.y.float + fh / 2 + dy
+  let a = angle * PI / 180
+  let (ca, sa) = (cos(a), sin(a))
+  var corners = [(-pw / 2, -ph / 2), (pw / 2, -ph / 2), (pw / 2, ph / 2), (-pw / 2, ph / 2)]
+  if flipH:
+    swap(corners[0], corners[1])
+    swap(corners[2], corners[3])
+  if flipV:
+    swap(corners[0], corners[3])
+    swap(corners[1], corners[2])
+  for i, (x, y) in corners: result[i] = (cx + x * ca - y * sa, cy + x * sa + y * ca)
+
 proc renderSmart*(s: SmartData; w, h: int; filterOf: proc (f: SmartFilter): FilterFn = nil): seq[uint32] =
   ## A Smart Object's pixels in a `w` x `h` image: its picture put in its
   ## corners (and warp), its Smart Filters done on that in order.

@@ -801,10 +801,11 @@ proc autoColor*(im: Img): array[3, Levels] =
 
 # ---- newer adjustments ------------------------------------------------------------------------------------
 
-proc vibranceFn*(vibrance, saturation: int): FilterFn =
+proc vibranceFn*(vibrance, saturation: int; temperature = 0; tint = 0): FilterFn =
   ## Vibrance: dull colors more saturated than vivid ones (skin spared);
-  ## Saturation: all alike.
-  develop(Develop(vibrance: vibrance, saturation: saturation))
+  ## Saturation: all alike; Temperature (-100 bluer .. 100 yellower) and
+  ## Tint (-100 greener .. 100 more magenta).
+  develop(Develop(vibrance: vibrance, saturation: saturation, temperature: temperature, tint: tint))
 
 proc shadowsHighlights*(shadows, highlights: int): FilterFn =
   ## Shadows/Highlights: dark parts lighter, light parts darker, by the
@@ -946,7 +947,7 @@ proc adjustmentFn*(a: Adjustment): FilterFn =
   ##   colorizing, else those three for each of master, reds, yellows,
   ##   greens, cyans, blues, magentas (21)
   ## - "Selective Color": relative (0/1), then c, m, y, k for each of 9 ranges
-  ## - "Vibrance": vibrance, saturation
+  ## - "Vibrance": vibrance, saturation (, temperature, tint)
   ## - "Exposure": exposure (stops), offset, gamma
   ## - "Photo Filter": r, g, b, density, preserve luminosity (0/1)
   ## - "Black & White": the 6 weights, tint (0/1), hue, saturation
@@ -997,7 +998,7 @@ proc adjustmentFn*(a: Adjustment): FilterFn =
     for r in 0 .. 8:
       for k in 0 .. 3: sc[r][k] = ai(1 + r * 4 + k)
     selectiveColor(sc, ai(0) != 0)
-  of "Vibrance": vibranceFn(ai(0), ai(1))
+  of "Vibrance": vibranceFn(ai(0), ai(1), ai(2), ai(3))
   of "Exposure": exposureFn(at(0), at(1), (if v.len >= 3: at(2) else: 1.0))
   of "Photo Filter":
     photoFilter(argb(255, ai(0), ai(1), ai(2)), ai(3), ai(4) != 0)

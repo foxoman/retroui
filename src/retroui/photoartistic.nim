@@ -502,6 +502,44 @@ proc charcoal*(thickness = 1; detail = 5; balance = 50; fg = 0xFF000000'u32; bg 
         lp[i] = clamp((lp[i] - (1 - t)) * 3'f32 + 0.5'f32 + n * 0.5'f32 - ep[i] * dt, 0'f32, 1'f32)
     twoTone(src, l, fg, bg)
 
+proc pencilSketch*(width = 8; darkness = 50; colored = 0; fg = 0xFF000000'u32; bg = 0xFFFFFFFF'u32): FilterFn =
+  ## Sketch > Pencil Sketch: the picture as drawn with a pencil -- its edges
+  ## and shading as strokes (the foreground color) on paper (the
+  ## background): the lightness divided by its blurred negative, as a
+  ## dodge. `width` 1 .. 40: how broad the strokes are; `darkness` 0 .. 100;
+  ## `colored` 0 .. 100: the picture's own colors kept in its strokes.
+  result = proc (src: Img; inner: Rect): Img =
+    let w = src.w
+    let l = lumPlane(src)
+    var inv = newSeqUninit[float32](l.len)
+    let lp = pf(l)
+    let ip = pf(inv)
+    for i in 0 ..< l.len: ip[i] = 1'f32 - lp[i]
+    blurPlane(inv, w, src.h, max(0.5, width.float))
+    let ip2 = pf(inv)
+    let g = 1'f32 + float32(darkness) / 25'f32          # (how far the strokes are deepened)
+    var v = newSeqUninit[float32](l.len)
+    let vp = pf(v)
+    parallelRows(src.h, y):
+      for x in 0 ..< w:
+        let i = y * w + x
+        # (a color dodge of the lightness by its blurred negative: flat areas go to paper,
+        # where it changes a line is left)
+        let d = min(1'f32, lp[i] / max(0.001'f32, 1'f32 - ip2[i]))
+        vp[i] = pow(d, g)
+    if colored <= 0:
+      twoTone(src, v, fg, bg)
+    else:
+      let k = float32(colored) / 100'f32
+      let s = pu(src.px)
+      mapPixels(src, proc (p: uint32; i, x, y: int): uint32 =
+        let t = vp[i]
+        let gray = mixc(fg, bg, t.float)
+        # (the picture's own color, lightened as the paper shows through)
+        let c = s[i]
+        let own = mixc(c, bg, t.float * 0.85)
+        (mixc(gray, own, k.float) and 0x00FFFFFF'u32) or (aOf(p).uint32 shl 24))
+
 proc graphicPen*(length = 15; balance = 50; direction = 0; fg = 0xFF000000'u32; bg = 0xFFFFFFFF'u32): FilterFn =
   ## Sketch > Graphic Pen: fine straight ink strokes (the foreground color)
   ## along a direction (0 right diagonal, 1 left, 2 across, 3 down).

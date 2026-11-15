@@ -2,7 +2,8 @@
 ## window, pages turned, added, copied and taken out, master pages, page
 ## numbers typed in, text that goes on through new pages, Text Wrap, the
 ## book's file and PDF, the workspaces, the Move tool's box that picks
-## layers.
+## layers; New Drawing and New Book, Image Trace, Convert to Shape, Make
+## Blend, drop caps and the baseline grid.
 
 import std/[strutils, os]
 import retroui/uirelays/input
@@ -309,5 +310,335 @@ block theMoveToolsBox:
   pressOn(active, PhotoEvent(over: true, x: 5, y: 150, down: true, pressed: true))
   releaseOn(PhotoEvent(over: true, x: 5, y: 150))
   doAssert d.pickedLayers.len <= 1
+
+block newDrawingBookTraceShapesBlend:
+  # File > New Drawing and New Book with their templates; Image Trace; Convert to Shape; Make
+  # Blend; drop caps and the baseline grid in the Paragraph palette's book
+  let n0 = docs.len
+  startNewDrawing()
+  doAssert nlDraw.open
+  run(2)
+  setUiLanguage("ar", @toolkitArabic, @photoArabic)
+  run(2)
+  setUiLanguage("")
+  nlDraw.open = false
+  startNewBook()
+  doAssert nlBook.open
+  run(2)
+  nlBook.open = false
+  # a picture traced: shape layers in a group, the picture hidden
+  let d = newDoc(160, 120, 0xFFFFFFFF'u32)
+  for y in 30 ..< 90:
+    for x in 40 ..< 120: d.layers[0].px[y * 160 + x] = 0xFF2040C0'u32
+  inc d.layers[0].ver
+  addDoc(d)
+  run(2)
+  runCommand("Image Trace...")
+  doAssert itDlg
+  run(3)
+  itMake()
+  itDlg = false
+  doAssert d.current.group and d.current.name == "Image Trace"
+  var traced = 0
+  for L in d.layers:
+    if L.isShape: inc traced
+  doAssert traced >= 2
+  d.undo()
+  doAssert d.layers.len == 1, "one step"
+  # type made shapes: one layer a color, the type layer gone, one step
+  let T = d.addTextLayer(newText("Shape", CharStyle(family: "", size: 40, color: 0xFFC02020'u32, hScale: 1,
+                                 vScale: 1), 10, 60))
+  T.opacity = 70
+  d.cur = d.layers.find(T)
+  runCommand("Convert to Shape")
+  doAssert d.current.isShape and d.current.opacity == 70 and d.current.name == "Shape"
+  for L in d.layers: doAssert not L.isText
+  d.undo()
+  doAssert d.current.isText
+  # a blend between two shapes, in a group with them
+  let A = d.addShapeLayer(ShapeData(path: rectPath(5, 5, 25, 25), fill: solidPaint(0xFFFF0000'u32)), "A")
+  let B = d.addShapeLayer(ShapeData(path: ellipsePath(120, 80, 150, 110), fill: solidPaint(0xFF0000FF'u32)), "B")
+  d.cur = d.layers.find(B)
+  blendSpacing = 1
+  blendSteps = 4
+  runCommand("Make Blend...")
+  doAssert blendDlg and blendPair[0] == A and blendPair[1] == B
+  run(2)
+  makeBlend()
+  blendDlg = false
+  doAssert d.current.group and d.current.name == "Blend"
+  var steps = 0
+  for L in d.layers:
+    if L.isShape and L.name.startsWith("Blend "): inc steps
+  doAssert steps == 4
+  # Smooth Color: as many as the colors need
+  d.undo()
+  blendSpacing = 0
+  runCommand("Make Blend...")
+  makeBlend()
+  blendDlg = false
+  steps = 0
+  for L in d.layers:
+    if L.isShape and L.name.startsWith("Blend "): inc steps
+  doAssert steps == colorSteps(A.shape, B.shape) and steps > 10
+  # one shape alone: nothing to blend with
+  let lone = newDoc(50, 50, 0xFFFFFFFF'u32)
+  discard lone.addShapeLayer(ShapeData(path: rectPath(5, 5, 25, 25), fill: solidPaint(0xFFFF0000'u32)))
+  addDoc(lone)
+  runCommand("Make Blend...")
+  doAssert not blendDlg
+  doAssert docs.len >= n0
+
+block dropCapAndGridInABook:
+  var s = bookSetup(100, 140, dpi = 72, facing = false)
+  s.baseline = 12
+  addBook(newBook(s, 1, "Grid Book"))
+  run(3)
+  let d = active.doc
+  doAssert bookGrid(active).step == 12
+  let (xs, ys) = bookSnapLines(active)
+  doAssert xs.len >= 2 and ys.len > 10
+  # a box drawn snaps to a margin
+  snapOn = true
+  snapGuides = true
+  tool = tShape
+  let ev = snapped(active, PhotoEvent(x: float(s.inside) + 2, y: 50.3))
+  doAssert ev.x == float(s.inside), $ev.x
+  var t = curBook().book.boxed(newText("Lines of a book on its grid, long enough to make several of them here.",
+                               CharStyle(family: "", size: 10, color: 0xFF000000'u32, hScale: 1, vScale: 1), 0, 0), 0)
+  let L = d.addTextLayer(t)
+  d.cur = d.layers.find(L)
+  showBaseline = true
+  run(2)
+  showBaseline = false
+  doAssert L.text.gridStep == 0
+  # the Paragraph palette's settings, as its controls set them
+  applyText("Align to Baseline Grid", proc (t: var TextData) = (t.gridStep = 12; t.gridStart = float32(s.top)))
+  applyText("Drop Cap", proc (t: var TextData) = t.para.dropLines = 3)
+  doAssert L.text.gridStep == 12 and L.text.para.dropLines == 3
+  var big = false
+  for g in layoutText(L.text).glyphs:
+    if g.size > 25: big = true
+  doAssert big
+
+block tablesChartsMapsFramesExport:
+  # Insert Table (Tab to the next cell, a new row after the last), Table Options; a chart and a
+  # map inserted, then changed from their dialog; a picture in a shape fitted; Export of a book
+  let d = newDoc(800, 600, 0xFFFFFFFF'u32)
+  addDoc(d)
+  run(2)
+  tblIns = (true, 3, 2, 1, 1)
+  run(2)
+  setUiLanguage("ar", @toolkitArabic, @photoArabic)
+  run(2)
+  setUiLanguage("")
+  tblIns.open = false
+  insertTableNow()
+  let T = d.current
+  doAssert T.isText and T.text.table.on and T.text.table.theme == tableThemes[1]
+  doAssert T.text.plainText.count('\n') == 2 and T.text.plainText.count('\t') == 3
+  runCommand("Table Options...")
+  doAssert tblDlg
+  run(3)
+  applyText("Table Options", proc (t: var TextData) = t.table.headerRows = 2)
+  doAssert T.text.table.headerRows == 2
+  tblDlg = false
+  # typing: Tab goes from cell to cell, after the last a new row
+  run(2)
+  let tb = d.layerBox(T)
+  tool = tMove
+  moveKind = 0
+  pressOn(active, PhotoEvent(over: true, x: float(tb.x + 10), y: float(tb.y + 10), pressed: true, down: true,
+                             clicks: 2))
+  doAssert te.on and te.layer == T, "editing the table"
+  te.caret = 0
+  te.anchor = 0
+  let n0 = T.text.plainText.count('\n')
+  for _ in 0 ..< 6: key(KeyTab)
+  run(2)
+  doAssert T.text.plainText.count('\n') == n0 + 1, "a new row after the last cell"
+  commitType()
+  # a chart: its group of shape and type layers, its settings kept; changed from its dialog
+  startInfographic(false)
+  doAssert igDlg.open and not igDlg.isMap
+  run(3)
+  igDlg.open = false
+  igMake()
+  let C = d.current
+  doAssert C.group and C.name == "Chart" and C.meta.startsWith("{\"chart\"")
+  let before = d.layers.len
+  startInfographic(false, edit = true)
+  doAssert igDlg.editing == C
+  igDlg.chart.kind = ckDonut
+  igDlg.chart.title = "Share"
+  run(2)
+  igDlg.open = false
+  igMake()
+  doAssert d.current.group and d.current.meta.contains("Donut") and d.layers.len < before + 5
+  d.undo()
+  doAssert d.layers.find(C) >= 0, "undo: the chart as it was"
+  # a map
+  startInfographic(true)
+  run(3)
+  igDlg.open = false
+  igMake()
+  doAssert d.current.name == "Map" and d.current.meta.startsWith("{\"map\"")
+  # a picture in a shape: fitted, filled, centered; Frame Options and its Cancel
+  let F = d.addShapeLayer(ShapeData(path: ellipsePath(100, 100, 300, 260), fill: solidPaint(0xFFCCCCCC'u32)), "Frame")
+  let P = d.newLayer("Photo")
+  var src = newSeq[uint32](400 * 100)
+  for p in src.mitems: p = 0xFF2040C0'u32
+  P.smart = SmartData(src: src, w: 400, h: 100, quad: [(0.0, 0.0), (400.0, 0.0), (400.0, 100.0), (0.0, 100.0)])
+  d.cur = d.layers.find(F)
+  d.insertLayer(P)
+  P.clipped = true
+  d.renderSmartLayer(P)
+  d.cur = d.layers.find(P)
+  doAssert frameAndContent(d).frame == F
+  runCommand("Fill Frame Proportionally")
+  doAssert abs(P.smart.quad[2][1] - P.smart.quad[0][1] - 160) < 0.5, "as tall as the frame"
+  runCommand("Fit Content Proportionally")
+  doAssert abs(P.smart.quad[1][0] - P.smart.quad[0][0] - 200) < 0.5, "as wide as the frame"
+  let q = P.smart.quad
+  runCommand("Frame Options...")
+  doAssert frDlg.open
+  frDlg.scale = 150
+  run(2)
+  doAssert P.smart.quad != q
+  frDlg.open = false
+  run(2)
+  doAssert P.smart.quad == q, "Cancel: as it was"
+  # a book exported as spreads through its dialog's settings
+  addBook(newBook(bookSetup(100, 140, dpi = 72, facing = true), 4, "Export Book"))
+  run(3)
+  startBookExport(exPng)
+  doAssert exDlg.open and exDlg.e.kind == exPng
+  exDlg.e.spreads = true
+  run(3)
+  setUiLanguage("ar", @toolkitArabic, @photoArabic)
+  for sec in 0 ..< exSections.len:
+    exDlg.e.kind = exPdf
+    exDlg.section = sec
+    run(1)
+  setUiLanguage("")
+  exDlg.open = false
+  let files = curBook().book.exportBook(home / "eb.png", BookExport(kind: exPng, spreads: true))
+  doAssert files.len == 3 and files[1].endsWith("eb-2-3.png")
+  # the Character palette's fonts for Arabic and Latin
+  let A = d.addTextLayer(newText("Hello مرحبا", CharStyle(family: "", size: 30, color: 0xFF000000'u32, hScale: 1,
+                                 vScale: 1), 10, 400))
+  discard A
+
+block shapesAndQuickDesign:
+  # More Shapes: a live shape, its Shape Options live, Cancel puts it back; Resize for; a photo
+  # grid; text effects; Recolor Design; the Brand Kit's fonts
+  let d = newDoc(600, 400, 0xFFFFFFFF'u32)
+  addDoc(d)
+  run(2)
+  runCommand("More Shapes...")
+  run(3)
+  msDlg = false
+  insertLiveShape(lsStar)
+  let S = d.current
+  doAssert S.isShape and liveOf(S).ok and liveOf(S).p.kind == lsStar
+  let pts0 = S.shape.path.subs[0].pts.len
+  runCommand("Shape Options...")
+  doAssert lsOpt
+  run(2)
+  lsOpt = false
+  run(2)
+  doAssert S.shape.path.subs[0].pts.len == pts0
+  # its points changed through the kit's redraw, after the layer was moved: it stays where it went
+  d.shiftLayers(@[S], 40, 10)
+  var p = liveOf(S).p
+  p.v[0] = 8
+  d.redrawLive(S, p)
+  doAssert S.shape.path.subs[0].pts.len == 16
+  let (bx0, _, _, _) = pathBounds(S.shape.path)
+  doAssert bx0 > d.w.float * 0.3, "drawn where it was moved to"
+  # Resize for: two sizes, two documents
+  let n0 = docs.len
+  rsDlg.open = true
+  rsDlg.picks = newSeq[bool](resizeTargets.len)
+  rsDlg.picks[0] = true
+  rsDlg.picks[2] = true
+  run(2)
+  let made = resizedCopy(d, 1080, 1920, false)
+  doAssert made.w == 1080 and made.h == 1920 and made.layers.len == d.layers.len
+  rsDlg.open = false
+  doAssert docs.len == n0
+  # a photo grid of five frames, in a group
+  active = docs[n0 - 1]
+  gridDlg.layout = 7
+  makePhotoGrid()
+  doAssert d.current.group and d.current.name == "Photo Grid"
+  doAssert gridCells(2, rect(0, 0, 210, 210), 10).len == 4 and gridCells(4, rect(0, 0, 300, 200), 10).len == 3
+  # text effects and a palette
+  let T = d.addTextLayer(newText("Look", CharStyle(family: "", size: 40, color: 0xFF000000'u32, hScale: 1,
+                                 vScale: 1), 20, 300))
+  d.cur = d.layers.find(T)
+  applyTextLook("Neon")
+  doAssert T.fx.fx[fxOuterGlow].on
+  applyTextLook("Hollow")
+  doAssert T.fill == 0 and T.fx.fx[fxStroke].on
+  applyTextLook("Curve")
+  doAssert T.text.warp.style == wsArc
+  recolorDlg.open = true
+  run(2)
+  recolorDlg.open = false
+  d.recolor(palettes[0][1], "Sea")
+  doAssert S.shape.fill.color in palettes[0][1] or (S.shape.fill.color or 0xFF000000'u32) in palettes[0][1]
+  brand = BrandKit(colors: @[0xFFFF0000'u32], heading: "FreeSerif", body: "FreeMono")
+  brandLoaded = true
+  d.applyBrandFonts()
+  doAssert T.text.spans[0].style.family == "FreeSerif"
+  brandDlg = true
+  fxDlg = true
+  run(2)
+  brandDlg = false
+  fxDlg = false
+
+block builderFreeformCheckCommands:
+  # Shape Builder from its dialog's picks; a freeform gradient; Check Document; the one list of
+  # commands the menus, Search, scripts and the command line share
+  let d = newDoc(400, 300, 0xFFFFFFFF'u32)
+  addDoc(d)
+  let A = d.addShapeLayer(ShapeData(path: rectPath(20, 20, 160, 160), fill: solidPaint(0xFFFF0000'u32)), "A")
+  let B = d.addShapeLayer(ShapeData(path: rectPath(100, 100, 240, 240), fill: solidPaint(0xFF0000FF'u32)), "B")
+  A.picked = true
+  B.picked = true
+  runCommand("Shape Builder...")
+  doAssert sbDlg.open and sbDlg.layers.len == 2
+  run(3)
+  sbDlg.merge = @[(130.0, 130.0), (50.0, 50.0)]
+  run(2)
+  sbDlg.open = false
+  shapeBuilderNow()
+  doAssert d.current.name == "Built Shape" and d.layers.find(A) < 0, "A all merged: gone"
+  doAssert d.layers.find(B) >= 0
+  d.undo()
+  doAssert d.layers.find(A) >= 0
+  # a freeform gradient on B, its points from the dialog; Cancel puts it back
+  d.cur = d.layers.find(B)
+  runCommand("Freeform Gradient...")
+  doAssert ffDlg.open and ffDlg.pts.len == 3
+  run(2)
+  ffDlg.pts.add (0.9, 0.9, 0xFF00FF00'u32)
+  run(2)
+  doAssert B.shape.fill.style == 5 and B.shape.fill.points.len == 4
+  ffDlg.open = false
+  run(2)
+  doAssert B.shape.fill.kind == spColor, "Cancel: as it was"
+  # Check Document
+  runCommand("Check Document...")
+  doAssert pfDlg.open
+  run(2)
+  pfDlg.open = false
+  # the commands
+  var cmds: seq[string]
+  for (path, label, cmd) in searchIndex(): cmds.add cmd
+  for c in ["Image Trace...", "Make Blend...", "Shape Builder...", "Insert Table...", "Insert Chart...",
+            "Fill Frame Proportionally", "Check Document...", "Export Book..."]:
+    doAssert c in cmds, c
 
 echo "photo book app tests passed"

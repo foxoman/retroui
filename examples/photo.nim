@@ -14,13 +14,14 @@ import std/[os, strutils, math, tables, times, algorithm, json, hashes, cpuinfo,
 from retroui/system import sharedIn
 import retroui
 import retroui/lang_ar as kitArabic
+from std/unicode import Rune, toRunes, `==`
 import retroui/rscript except parseJson, toJson
 import photo/lang_ar as photoLang
 import retroui/[photo, photopaint, photofx, photoartistic, photohdr, otshape, ttf, photosvg, photovp, photodevelop, photosmart, photowarp, photostyles, photowidgets, photoneural,
               photopresets, photocc, phototemplates, photoquick, photogpu, qrcode, systemimage, assetstore,
               svgimport, morepictures, edgetrace,
               photofiles, photosave, photoshapes, photomerge, photopdf, photoimport, pdfread, googlefonts, photovector, iccprofile, icclut, abr, rawphoto, imageformats, filterfactory,
-              photobrushes, adobefiles, photobook,
+              photobrushes, adobefiles, photobook, imagetrace, layouttemplates, liveshapes, idml, preflight,
               imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files]
 {.push warning[UnusedImport]: off.}
 import retroui/photodeep   # (imported for what it sets up: filters, flattening and gradients at 16 and 32 bits)
@@ -29,7 +30,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 const
   AppName = "Retro Atelier"         # (Retro Photo until 5.0)
   AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
-  AppVersion = "5.1.0"
+  AppVersion = "5.2.0"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -449,6 +450,39 @@ proc bookPdfWrite(path: string; o: PdfOptions): bool
 proc layoutMenu()
 proc bookFrame()
 proc bookDialogs()
+# (Image Trace and the New Drawing and New Book dialogs: photo/trace, photo/newlayout;
+# Convert to Shape and Make Blend: photo/vectorcmds)
+proc convertTypeToShape()
+proc tableCommand(name: string): bool
+proc infographicCommand(name: string): bool
+proc moreShapesDialogs()
+proc quickCommand(name: string): bool
+proc quickDialogs()
+proc startMoreShapes()
+proc startShapeOptions()
+proc liveOf(L: Layer): tuple[ok: bool; p: ShapeParams; box, drawn: array[4, float]]
+proc igOf(d: Doc): Layer
+proc infographicDialogs()
+proc framesCommand(name: string): bool
+proc frameAndContent(d: Doc): tuple[frame, content: Layer]
+proc frameDialogs()
+proc tableDialogs()
+proc startBookExport(kind: ExportKind; asBefore = false)
+proc bookExportDialog()
+proc bookGrid(dw: DocWin): tuple[step, start: float32]
+proc bookSnapLines(dw: DocWin): tuple[xs, ys: seq[float]]
+proc startMakeBlend()
+proc startShapeBuilder()
+proc startFreeform()
+proc freeformDialog()
+proc shapeBuilderDialog()
+proc makeBlendDialog()
+proc startImageTrace()
+proc imageTraceDialog()
+proc startNewDrawing()
+proc startNewBook()
+proc newDrawingDialog()
+proc newBookDialog()
 proc exportArtboards(d: Doc)
 proc exportSlices(d: Doc)
 proc slicesFromGuides(d: Doc)
@@ -536,6 +570,9 @@ const
     ("Ctrl+Shift+[", "Send to Back"), ("Ctrl+,", "Hide Layers"), ("Ctrl+Alt+A", "All Layers"),
     ("Alt+]", "Select Layer Above"), ("Alt+[", "Select Layer Below"),
     ("Ctrl+Alt+Shift+E", "Stamp Visible"), ("Alt+Backspace", "Fill with Foreground Color"),
+    ("Ctrl+7", "Create Clipping Mask"), ("Ctrl+Shift+O", "Convert to Shape"), ("Ctrl+Alt+B", "Make Blend..."),
+    # Layout (a book's pages)
+    ("Ctrl+Shift+P", "Add Page"), ("Ctrl+Alt+Shift+N", "Insert Page Number"),
     ("Ctrl+Backspace", "Fill with Background Color"), ("Ctrl+Shift+D", "Reselect"),
     # Select
     ("Ctrl+A", "All"), ("Ctrl+D", "None"), ("Ctrl+Shift+I", "Inverse"), ("Shift+F6", "Feather..."),
@@ -834,7 +871,7 @@ proc startNeural()
 
 # (in photo/pdfexport)
 proc pdfDialogs()
-proc startPdfOptions(docs: seq[Doc]; path: string)
+proc startPdfOptions(docs: seq[Doc]; path: string; drawing = false)
 proc startPdfPresentation()
 proc importDialogs()
 proc startPdfImport(path: string)
@@ -3997,6 +4034,19 @@ proc snapped(dw: DocWin; ev: PhotoEvent): PhotoEvent =
   let g = snapGuides and dw.view.showGuides
   result.x = d.snapCoord(ev.x, true, tol, grid, g, snapBounds)
   result.y = d.snapCoord(ev.y, false, tol, grid, g, snapBounds)
+  if snapGuides:
+    # (a book's page: its margins, columns and baseline grid too)
+    let (xs, ys) = bookSnapLines(dw)
+    var bx = if result.x != ev.x: abs(ev.x - result.x) else: tol   # (nearer than what it snapped to)
+    for x in xs:
+      if abs(ev.x - x) <= bx:
+        bx = abs(ev.x - x)
+        result.x = x
+    var by = if result.y != ev.y: abs(ev.y - result.y) else: tol
+    for y in ys:
+      if abs(ev.y - y) <= by:
+        by = abs(ev.y - y)
+        result.y = y
 
 # (the panels of photo/pspanels and the commands of photo/pscc, used before them)
 proc adjustmentsBody()
@@ -4007,6 +4057,8 @@ proc glyphsBody()
 proc psMenus()
 proc psCommand(name: string): bool
 proc runCommand(name: string)
+proc searchIndex(): seq[tuple[path, label, cmd: string]]
+proc runScript(src, name: string)
 proc dailyCommand(name: string): bool
 proc assetsCommand(name: string): bool
 proc assetsDialog()
@@ -4221,6 +4273,15 @@ include photo/pdfexport
 include photo/fontget
 include photo/optionsbar
 include photo/book
+include photo/bookexport
+include photo/tables
+include photo/frames
+include photo/infographics
+include photo/moreshapes
+include photo/quick
+include photo/trace
+include photo/newlayout
+include photo/vectorcmds
 include photo/dockpanels
 
 proc phoneLayout(): bool =
@@ -4630,7 +4691,22 @@ proc main() =
   restoreAppearance(loadSettings(AppData))      # (the look chosen in Preferences)
   let splashMs = (try: parseInt(getEnv("RETRO_PHOTO_SPLASH", "1800")) except ValueError: 1800)
   var first = true
-  for a in appArguments(): openFile(a)                         # (none in a phone's app)
+  # the command line: pictures to open; --run "Command" (as the menus name it), --script file.rs,
+  # --list-commands (every command and tool: the list the menus, scripts and Search share)
+  var toRun, toScript: seq[string]
+  let args = appArguments()
+  var ai = 0
+  while ai < args.len:
+    let a = args[ai]
+    if a == "--list-commands":
+      for (path, label, cmd) in searchIndex(): echo cmd, "\t", path
+      stopApp()
+      return
+    elif a in ["--run", "--script"] and ai + 1 < args.len:
+      if a == "--run": toRun.add args[ai + 1] else: toScript.add args[ai + 1]
+      inc ai
+    else: openFile(a)                                           # (none in a phone's app)
+    inc ai
   # (a picture to start with: $RETRO_PHOTO_OPEN)
   let atStart = getEnv("RETRO_PHOTO_OPEN")
   if atStart.len > 0:
@@ -4642,6 +4718,10 @@ proc main() =
       splashUntil = ui.now + splashMs
       splashStart = ui.now
       first = false
+      for c in toRun: runCommand(c)
+      for f in toScript:
+        try: runScript(readFile(f), f.extractFilename)
+        except CatchableError: status = "Could not run " & f & ": " & getCurrentExceptionMsg()
     # (the type tool's fonts looked for on a thread once the window shows)
     if framesShown() > 0: scanFontsSoon()
     # (pictures shared from another app -- Android's share sheet, "Edit in

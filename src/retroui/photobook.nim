@@ -59,7 +59,7 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[os, json, tables, strutils, hashes]
-import gfx, imaging, photo, photofx, photopdf, photowarp, pdf, textengine, zip
+import gfx, imaging, jpeg, photo, photofx, photopdf, photowarp, pdf, textengine, zip
 
 export textengine.NumberStyle, textengine.formatNumber      # (how page numbers are written: the type engine's)
 
@@ -85,6 +85,8 @@ type
     firstNumber*: int                ## the first page's number (0: 1)
     numbers*: NumberStyle
     paper*: uint32                   ## the paper's color (0: white)
+    baseline*: float                 ## the baseline grid: its lines this many pixels apart (0: none)
+    baselineStart*: float            ## ... its first line so far under the top margin
   BookPage* = ref object
     ## A page of a book (or a side of a master).
     id*: int                         ## who it is, wherever it is moved to
@@ -188,6 +190,41 @@ proc columnBoxes*(b: Book; i: int): seq[Rect] =
   let g = if n > 1: b.setup.gutter else: 0
   let cw = (m.w - g * (n - 1)) div n
   for c in 0 ..< n: result.add rect(m.x + c * (cw + g), m.y, cw, m.h)
+
+proc gridLines*(b: Book): seq[float] =
+  ## The baseline grid's lines (y, in a page's pixels) from the top margin
+  ## down to the bottom one (none without a grid).
+  let s = b.setup
+  if s.baseline < 2: return
+  var y = s.top.float + s.baselineStart
+  while y <= float(s.h - s.bottom) + 0.01 and result.len < 20_000:
+    result.add y
+    y += s.baseline
+
+proc snapLines*(b: Book; side: PageSide): tuple[xs, ys: seq[float]] =
+  ## Where boxes on a page of that side snap to: its margins and the edges
+  ## of its columns (x), its margins and the baseline grid's lines (y).
+  let m = b.marginBox(side)
+  result.xs = @[m.x.float, float(m.x + m.w)]
+  result.ys = @[m.y.float, float(m.y + m.h)]
+  let n = max(1, b.setup.columns)
+  if n > 1:
+    let g = b.setup.gutter
+    let cw = (m.w - g * (n - 1)) div n
+    for c in 1 ..< n:
+      result.xs.add float(m.x + c * (cw + g) - g)
+      result.xs.add float(m.x + c * (cw + g))
+  for y in b.gridLines: result.ys.add y
+
+proc alignToGrid*(b: Book; t: var TextData; on = true) =
+  ## Align to Baseline Grid: the text's lines on the book's baseline grid
+  ## (`on` false: as their leading puts them).
+  if on and b.setup.baseline >= 2:
+    t.gridStep = b.setup.baseline.float32
+    t.gridStart = float32(b.setup.top.float + b.setup.baselineStart)
+  else:
+    t.gridStep = 0
+    t.gridStart = 0
 
 proc label*(b: Book; i: int): string =
   ## Page `i`'s number as it is printed.
@@ -482,7 +519,8 @@ proc dress(b: Book; i: int) =
         c.locked = true
         d.layers.insert(c, at)
         inc at
-    if curL != nil and curL.fromMaster != 0: curL = nil
+    # (the page's paper current -- a new page: what is added goes on top, over the master's)
+    if curL != nil and (curL.fromMaster != 0 or curL.background): curL = nil
     d.cur = max(0, if curL != nil: d.layers.find(curL) else: d.layers.high)
     pg.applied = want
     pg.dirty = true
@@ -519,7 +557,7 @@ proc dress(b: Book; i: int) =
           d.drawAcross(c)
         # (read only for this: let go of again)
         if not wasOpen and pj.file.len > 0 and not pj.dirty: pj.doc = nil
-      if curL != nil and curL.fromSpan != 0: curL = nil
+      if curL != nil and (curL.fromSpan != 0 or curL.fromMaster != 0 or curL.background): curL = nil
       d.cur = max(0, if curL != nil: d.layers.find(curL) else: d.layers.high)
       pg.spanApplied = want
       pg.dirty = true
@@ -768,8 +806,26 @@ proc setSetup*(b: Book; s: BookSetup) =
   s.w = b.setup.w
   s.h = b.setup.h
   s.dpi = b.setup.dpi
+  let regrid = s.baseline != b.setup.baseline or s.baselineStart != b.setup.baselineStart or s.top != b.setup.top
   b.setup = s
   b.modified = true
+  if regrid:
+    # (the text set on the baseline grid follows it; the pages not open let go of again)
+    var open: seq[int]
+    for i, pg in b.pages:
+      if pg.doc != nil: open.add i
+    for i in 0 ..< b.pages.len:
+      let d = try: b.doc(i) except IOError: nil
+      if d == nil: continue
+      var changed = false
+      for L in d.layers:
+        if L.isText and L.text.gridStep > 0 and L.fromMaster == 0 and L.fromSpan == 0:
+          var t = L.text
+          b.alignToGrid(t, s.baseline >= 2)
+          d.setText(L, t)
+          changed = true
+      if changed: inc d.ver
+    b.park(open, masters = false)
 
 # ---- text from page to page ----------------------------------------------------------------
 
@@ -973,7 +1029,8 @@ proc hashOf(v: BiggestInt): Hash =
 proc setupJson(s: BookSetup): JsonNode =
   %*{"w": s.w, "h": s.h, "dpi": s.dpi, "facing": s.facing, "binding": ord(s.binding), "top": s.top,
      "bottom": s.bottom, "inside": s.inside, "outside": s.outside, "columns": s.columns, "gutter": s.gutter,
-     "firstNumber": s.firstNumber, "numbers": ord(s.numbers), "paper": int64(s.paper)}
+     "firstNumber": s.firstNumber, "numbers": ord(s.numbers), "paper": int64(s.paper),
+     "baseline": s.baseline, "baselineStart": s.baselineStart}
 
 proc pageJson(pg: BookPage): JsonNode =
   result = %*{"id": pg.id, "master": pg.master, "restart": pg.restart, "applied": pg.applied,
@@ -1047,7 +1104,9 @@ proc loadBook*(path: string): Book =
                     columns: clamp(sj{"columns"}.getInt(1), 1, 12), gutter: clamp(sj{"gutter"}.getInt(0), 0, 10_000),
                     firstNumber: sj{"firstNumber"}.getInt(1),
                     numbers: NumberStyle(clamp(sj{"numbers"}.getInt(0), 0, ord(high(NumberStyle)))),
-                    paper: uint32(sj{"paper"}.getBiggestInt(0xFFFFFFFF'i64) and 0xFFFFFFFF'i64))
+                    paper: uint32(sj{"paper"}.getBiggestInt(0xFFFFFFFF'i64) and 0xFFFFFFFF'i64),
+                    baseline: clamp(sj{"baseline"}.getFloat(0), 0, 10_000),
+                    baselineStart: clamp(sj{"baselineStart"}.getFloat(0), 0, 10_000))
   if not sizeOk(s.w, s.h): raise newException(IOError, "damaged book")
   if s.dpi < 1 or s.dpi > 10_000: s.dpi = 72
   result = Book(setup: s, name: path.splitFile.name, path: path)
@@ -1110,6 +1169,127 @@ proc loadBook*(path: string): Book =
   for pg in b.pages:
     if pg.master != 0 and b.masterOf(pg.master) == nil: pg.master = 0
   b.modified = false
+
+type
+  ExportKind* = enum
+    ## What File > Export writes of a book.
+    exPdf = "PDF", exJpeg = "JPEG", exPng = "PNG"
+  BookExport* = object
+    ## File > Export's choices for a book: which pages, as pages or as
+    ## spreads, and how (a PDF's options; a picture's resolution, quality).
+    kind*: ExportKind
+    pages*: string        ## which pages: "" every one, or a range -- "3", "2-5", "7-" (to the end),
+                          ## "-4" (from the first), commas between -- by their place in the book, from 1
+    spreads*: bool        ## facing pages together, as one sheet (the spread's left page first)
+    pdf*: PdfOptions      ## a PDF's: compression, marks and bleed, colors, PDF/X (all zero:
+                          ## `pdfPreset(ppPrint)`, type as type and shapes as shapes)
+    quality*: int         ## a JPEG's quality, 1..100 (0: 90)
+    ppi*: int             ## a picture's resolution (0: the book's own; more is the page resampled)
+
+proc pageList*(b: Book; range: string): seq[int] =
+  ## The pages (0-based) a range names, in the book's order, each once:
+  ## "" or "all" every page; "3", "2-5", "7-" (to the end), "-4" (from the
+  ## first), commas or spaces between; by their place in the book, from 1.
+  ## What is past the book's pages is left out.
+  let n = b.pages.len
+  var want = newSeq[bool](n)
+  let r = range.strip.toLowerAscii
+  if r.len == 0 or r == "all":
+    for i in 0 ..< n: want[i] = true
+  else:
+    for part0 in r.replace(" ", ",").split(','):
+      let part = part0.strip
+      if part.len == 0: continue
+      var a, z: int
+      try:
+        let dash = part.find('-')
+        if dash < 0:
+          a = parseInt(part)
+          z = a
+        else:
+          a = if dash == 0: 1 else: parseInt(part[0 ..< dash].strip)
+          z = if dash == part.high: n else: parseInt(part[dash + 1 .. ^1].strip)
+      except ValueError: continue
+      if a > z: swap(a, z)
+      for i in max(1, a) .. min(n, z): want[i - 1] = true
+  for i in 0 ..< n:
+    if want[i]: result.add i
+
+proc exportSheets*(b: Book; pages: seq[int]; spreads: bool): seq[seq[int]] =
+  ## The sheets File > Export makes of `pages`: each alone, or with
+  ## `spreads` the pages of each spread that are asked for, together, the
+  ## left one first (a page whose partner is not asked for, alone).
+  var done = newSeq[bool](b.pages.len)
+  for i in pages:
+    if i < 0 or i >= b.pages.len or done[i]: continue
+    var sheet: seq[int]
+    if spreads:
+      for j in b.spreadOf(i):
+        if j in pages and not done[j]: sheet.add j
+    else: sheet = @[i]
+    for j in sheet: done[j] = true
+    result.add sheet
+
+proc sheetName*(path: string; b: Book; sheet: seq[int]; many: bool): string =
+  ## Where a sheet's picture goes: `path` itself when it is the only one,
+  ## else its name with the sheet's page numbers ("cover.png" -> "cover-1.png",
+  ## "cover-2-3.png" for a spread).
+  if not many: return path
+  let (dir, name, ext) = path.splitFile
+  var tag = ""
+  for j in sheet: tag.add "-" & $(j + 1)
+  dir / (name & tag & ext)
+
+proc exportBook*(b: Book; path: string; e: BookExport; keep: openArray[int] = []): seq[string] =
+  ## File > Export of a book: its pages (`e.pages`), as pages or spreads,
+  ## into one PDF at `path`, or each sheet a JPEG or PNG (`sheetName`). The
+  ## files written; the pages opened for it parked again, but for those at
+  ## `keep`. Raises `IOError` when a file cannot be written.
+  b.reflow(keep)
+  let sheets = b.exportSheets(b.pageList(e.pages), e.spreads)
+  if sheets.len == 0: return
+  var e = e
+  if e.pdf == default(PdfOptions): e.pdf = pdfPreset(ppPrint)
+  let pdf = if e.kind == exPdf: newPressPdf(e.pdf, b.name) else: nil
+  for sheet in sheets:
+    var opened: seq[int]
+    for j in sheet:
+      if b.pages[j].doc == nil: opened.add j
+    if e.kind == exPdf:
+      var docs: seq[Doc]
+      for j in sheet: docs.add b.doc(j)
+      # (making the PDF is not a change to the pages)
+      if sheet.len == 1:
+        b.quietly(b.pages[sheet[0]]): pdf.addSpreadPage(docs, e.pdf)
+      else:
+        b.quietly(b.pages[sheet[0]]):
+          b.quietly(b.pages[sheet[1]]): pdf.addSpreadPage(docs, e.pdf)
+    else:
+      var pic = newBitmap(b.setup.w * sheet.len, b.setup.h)
+      for k, j in sheet:
+        let one = b.pagePicture(j)
+        for y in 0 ..< b.setup.h:
+          copyMem(addr pic.px[y * pic.w + k * b.setup.w], addr one.px[y * one.w], b.setup.w * 4)
+      let dpi = if e.ppi > 0: e.ppi.float else: b.setup.dpi
+      if e.ppi > 0 and abs(e.ppi.float - b.setup.dpi) > 0.5:
+        let k = e.ppi.float / b.setup.dpi
+        let nw = max(1, int(pic.w.float * k + 0.5))
+        let nh = max(1, int(pic.h.float * k + 0.5))
+        if not sizeOk(nw, nh): raise newException(IOError, "the picture would be too big at " & $e.ppi & " ppi")
+        pic = Bitmap(w: nw, h: nh, px: resample(pic.px, pic.w, pic.h, nw, nh, rsBicubic))
+      let f = sheetName(path, b, sheet, sheets.len > 1)
+      let data = if e.kind == exJpeg: encodeJpeg(pic, quality = (if e.quality > 0: clamp(e.quality, 1, 100) else: 90),
+                                                 dpi = int(dpi + 0.5))
+                 else: encodePng(pic, dpi = int(dpi + 0.5))
+      writeFile(f, data)
+      result.add f
+    for j in opened:
+      if j notin keep:
+        b.stow(b.pages[j])
+        b.pages[j].doc = nil
+  if pdf != nil:
+    pdf.save(path)
+    result.add path
 
 proc saveBookPdf*(b: Book; path: string; o: PdfOptions; keep: openArray[int] = []; first = 0; last = -1) =
   ## The book as a PDF, a page each, in order (pages `first` to `last`;
