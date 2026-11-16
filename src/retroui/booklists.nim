@@ -53,6 +53,20 @@ proc tocEntries*(b: Book; styles: seq[string] = @[]; minSize = 0'f32; keep: open
     var here: seq[tuple[y: float32; e: TocEntry]]
     for L in d.layers:
       if not L.isText or not L.visible or L.fromMaster != 0: continue
+      if styles.len > 0 and L.text.paraFmts.len > 0:
+        # (paragraphs in formats of their own: each in a style named, an entry where it is)
+        let lay = layoutText(L.text)
+        var at = 0
+        for ptxt in L.text.plainText.split('\n'):
+          let level = styles.find(L.text.paraFmtAt(at).styleName)
+          let tx = ptxt.strip
+          if level >= 0 and tx.len > 0 and not tx.contains("<#"):
+            var y = L.text.y
+            for ln in lay.lines:
+              if ln.first == at: y = ln.baseline
+            here.add (y, TocEntry(text: tx, page: i, label: b.label(i), level: level))
+          at += ptxt.runeLen + 1
+        continue
       let txt = firstLine(L.text.plainText)
       if txt.len == 0 or txt.contains("<#"): continue
       var level = -1

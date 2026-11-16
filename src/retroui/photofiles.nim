@@ -19,11 +19,11 @@
 ##   let d = openPicture("poster.psd")
 ##   d.exportPicture("poster.jpg", ExportOptions(format: efJpeg, quality: 90, scale: 0.5))
 
-import std/[os, strutils, math, tables, algorithm, json]
+import std/[os, strutils, math, tables, algorithm, json, hashes]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import gfx, imaging, jpeg, imageformats, psd, photo, parallel, photoshapes, mediagif, iccprofile, rawphoto,
        photoimport, pdfview, photohdr, textengine, ttf, exr, gifanim, photoanim, webp, rawformats, systemimage, jxl, svgimport,
-       bigpicture
+       bigpicture, photodevelop
 export bigpicture.readScaled, bigpicture.readRegion, bigpicture.BigProgress, bigpicture.BigPictureError
 export pdfview.pdfPreview, pdfview.pdfPage, pdfview.addPdfPreviews
 
@@ -323,6 +323,18 @@ proc adjustmentOf(L: PsdLayer; gray = false): Adjustment =
 
 proc adjustmentData(a: Adjustment): tuple[key, data: string] =
   ## One of our adjustment layers as Photoshop's ("" when it has no equal).
+  if a.kind == "Light":
+    # (one curve for every channel: written as Curves, the master's, a point each 15 levels)
+    let v = a.args
+    template at(i: int): float = (if i < v.len: v[i] else: 0.0)
+    template ai(i: int): int = int(round(at(i)))
+    let lut = lightLut(at(0), ai(1), ai(2), ai(3), ai(4), ai(5))
+    var args = @[18.0]
+    for k in 0 .. 17:
+      let x = min(255, k * 15)
+      args.add [x.float, lut[x].float]
+    for _ in 1 .. 3: args.add [2.0, 0, 0, 255, 255]
+    return adjustmentData(Adjustment(kind: "Curves", args: args))
   var o = ""
   proc w16(v: int) =
     let x = v and 0xFFFF
@@ -424,8 +436,13 @@ proc adjustmentData(a: Adjustment): tuple[key, data: string] =
 
 # ---- layer effects ----------------------------------------------------------------------------------
 
-proc fxOf(e: PsdValue; globalAngle, globalAltitude: int): LayerFx =
-  ## Photoshop's layer effects (lfx2) as a layer style.
+proc patternId(e: Effect): string =
+  ## (a Pattern Overlay's pattern, as the file names it: the same pattern, the same id)
+  "retro-" & toHex(uint32(hash(e.pattern) !& hash(e.patternW)))
+
+proc fxOf(e: PsdValue; globalAngle, globalAltitude: int; patterns: seq[PsdPattern] = @[]): LayerFx =
+  ## Photoshop's layer effects (lfx2) as a layer style (`patterns`: the
+  ## file's, for its Pattern Overlay).
   if e == nil or e.kind != pkObject: return
   if e["masterFXSwitch"] != nil and not e["masterFXSwitch"].flag(true): result.hidden = true
   let scale = e["Scl "].num(100) / 100
@@ -436,11 +453,11 @@ proc fxOf(e: PsdValue; globalAngle, globalAltitude: int): LayerFx =
     result = Effect(on: x["enab"].flag(true), mode: blendOfEnum(x["Md  "].enumValue),
                     opacity: int(round(x["Opct"].num(75))), color: x["Clr "].rgbOf)
     if x["Md  "] == nil: result.mode = if k in {fxOuterGlow, fxInnerGlow}: bmScreen
-                                       elif k in {fxColorOverlay, fxGradientOverlay, fxStroke}: bmNormal
+                                       elif k in {fxColorOverlay, fxGradientOverlay, fxStroke, fxPatternOverlay}: bmNormal
                                        else: bmMultiply
   for (key, k) in [("DrSh", fxDropShadow), ("IrSh", fxInnerShadow), ("OrGl", fxOuterGlow), ("IrGl", fxInnerGlow),
                    ("ChFX", fxSatin), ("SoFi", fxColorOverlay), ("GrFl", fxGradientOverlay), ("FrFX", fxStroke),
-                   ("ebbl", fxBevel)]:
+                   ("ebbl", fxBevel), ("patternFill", fxPatternOverlay)]:
     let x = e[key]
     if x == nil or x.kind != pkObject: continue
     var f = common(x, k)
@@ -499,6 +516,21 @@ proc fxOf(e: PsdValue; globalAngle, globalAltitude: int): LayerFx =
                 else: 0
       f.down = x["Rvrs"].flag
       f.scale = int(round(x["Scl "].num(100)))
+    of fxPatternOverlay:
+      f.opacity = int(round(x["Opct"].num(100)))
+      f.scale = int(round(x["Scl "].num(100)))
+      f.angle = int(round(x["Angl"].num(0)))
+      let pt = x["Ptrn"]
+      if pt != nil and pt.kind == pkObject:
+        template str(v: PsdValue): string = (if v != nil and v.kind == pkText: v.s else: "")
+        let id = str(pt["Idnt"])
+        f.patternName = str(pt["Nm  "])
+        for q in patterns:
+          if q.id == id and q.px.len == q.w * q.h:
+            f.pattern = q.px
+            f.patternW = q.w
+            f.patternH = q.h
+      if f.pattern.len == 0: continue          # (its pattern is not in the file: left off)
     else: discard
     result.fx[k] = f
 
@@ -931,7 +963,7 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
         for k in 0 ..< n: L.mask.px[k] = grayPx(int(vm[k]))
     L.clipped = P.clipping
     # its effects
-    if P.effects != nil: L.fx = fxOf(P.effects, p.globalAngle, p.globalAltitude)
+    if P.effects != nil: L.fx = fxOf(P.effects, p.globalAngle, p.globalAltitude, p.patterns)
     # Blend If: the first channel that leaves something out
     for ch in 0 .. 3:
       if 2 * ch + 1 >= P.ranges.len: break
@@ -975,7 +1007,7 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
         if m.len == n:
           L.mask = Layer(name: "Layer Mask", px: m, opacity: 100, visible: true, gray: true)
           L.maskOff = G.hasMask and G.mask.disabled
-        L.fx = fxOf(G.effects, p.globalAngle, p.globalAltitude)
+        L.fx = fxOf(G.effects, p.globalAngle, p.globalAltitude, p.patterns)
         L.clipped = G.clipping and k > 0
         L.depth = depth
         result.add L
@@ -1118,6 +1150,14 @@ proc lfx2Of(fx: LayerFx): PsdValue =
                                                        ("blur", pxl(e.size)), ("MpgS", contour)]))
     of fxColorOverlay:
       result.items.add ("SoFi", psdObj("SoFi", base))
+    of fxPatternOverlay:
+      if e.pattern.len == 0: continue
+      result.items.add ("patternFill", psdObj("patternFill", @[("enab", psdBool(true)), ("present", psdBool(true)),
+        ("showInDialog", psdBool(true)), ("Md  ", md(e.mode)), ("Opct", pct(e.opacity)),
+        ("Ptrn", psdObj("Ptrn", ("Nm  ", psdText(if e.patternName.len > 0: e.patternName else: "Pattern")),
+                        ("Idnt", psdText(patternId(e))))),
+        ("Angl", ang(e.angle)), ("Scl ", pct(if e.scale <= 0: 100 else: e.scale)), ("Algn", psdBool(true)),
+        ("phase", psdObj("Pnt ", ("Hrzn", psdNum(0)), ("Vrtc", psdNum(0))))]))
     of fxGradientOverlay:
       var g = ShapePaint(kind: spGradient, color: e.color, color2: e.color2, angle: e.angle, style: e.style,
                          reverse: e.down, scale: e.scale)
@@ -1167,6 +1207,16 @@ proc psdOf*(d: Doc; composite = true): PsdDoc =
       result.spots.add plate
       result.spotNames.add s.name
     return
+  for L in d.layers:
+    let e = L.fx.fx[fxPatternOverlay]
+    if e.on and e.pattern.len > 0 and e.pattern.len == e.patternW * e.patternH:
+      let id = patternId(e)
+      var known = false
+      for q in result.patterns:
+        if q.id == id: known = true
+      if not known:
+        result.patterns.add PsdPattern(id: id, name: (if e.patternName.len > 0: e.patternName else: "Pattern"),
+                                       w: e.patternW, h: e.patternH, px: e.pattern)
   for i, L in d.layers:
     # a group's end (before its layers)
     for g in i .. d.layers.high:

@@ -238,6 +238,24 @@ pages or spreads, a range) and Save Book as IDML; Type > Text Effects.
 `--run "Command"`, `--script file.rs` and `--list-commands` on the
 command line.
 
+**The three programs side by side** (5.4): Filter > Blur > Average, Box
+Blur, Shape Blur, Smart Blur and Lens Blur, and the Filter Gallery's
+Fresco, Neon Glow, Glass, Chalk & Charcoal, Glowing Edges and the rest;
+the Light adjustment layer, Pattern Overlay, Layer > Matting, View >
+Pattern Preview and Pixel Grid. The toolbar's Vector group holds the
+drawing program's tools -- Group Selection, the Magic Wand and Lasso for
+shapes, the Paintbrush with calligraphic and art brushes, the Blob
+Brush, Smooth, Path Eraser, Join, Eraser, Scissors, Knife, Width, Arc,
+the grids, Flare, Mesh, Perspective Selection; Window > Appearance gives
+a shape more fills and strokes and live effects (Distort & Transform,
+Warp, Repeat). The Paragraph panel sets the paragraphs the caret is in:
+the composer, Justification, Keep Options, Span Columns, nested and GREP
+styles; Text Frame Options balances columns, insets the text and
+justifies it up and down; a paragraph style's double-click opens its
+options (Next Style...); Window > Object Styles, Bookmarks and Links;
+Edit > Spelling; Type > Text Variables and Hyperlinks &
+Cross-References; File > Place Linked and Package.
+
 **The layout program's ways** (5.3): Type > Insert Footnote and Insert
 Endnote; Layout > Table of Contents and Index; Paragraph > Hyphenate;
 Layer > Anchor to Text; Edit > Find/Change (words or GREP patterns) and

@@ -11,7 +11,7 @@ var
   pgCache: tuple[d: Doc; s: string; g: PerspectiveGrid]
   pgDrag: tuple[on: bool; dw: DocWin; handle: int; x0, y0: float; g0: PerspectiveGrid]
   pgDlg: tuple[open, live: bool; orig: string; kind, horizon, leftX, rightX, nearX, nearW, top, ground,
-               depth, cells, opacity: int]
+               depth, cells, opacity, vertY: int]
 
 const
   pgColors = [ppLeft: (40, 90, 230), ppRight: (230, 110, 30), ppFloor: (40, 160, 70),
@@ -79,14 +79,16 @@ proc pgLine(dw: DocWin; a, b: (float, float); c: Color) =
 proc pgHandles(g: PerspectiveGrid): seq[tuple[id: int; p: (float, float); tip: string]] =
   ## (the grid's handles, in the image's pixels: what each moves)
   result.add (0, (g.leftX, g.horizon), "The vanishing point: drag along the horizon")
-  if g.kind == pkTwoPoint: result.add (1, (g.rightX, g.horizon), "The right vanishing point: drag along the horizon")
-  let mid = if g.kind == pkTwoPoint: g.nearX else: g.nearX + g.nearW / 2
+  if g.kind != pkOnePoint: result.add (1, (g.rightX, g.horizon), "The right vanishing point: drag along the horizon")
+  let mid = if g.kind != pkOnePoint: g.nearX else: g.nearX + g.nearW / 2
   result.add (2, (mid, g.horizon), "The horizon: drag it up or down")
   result.add (3, (g.nearX, g.ground), "The ground: drag to move the whole grid")
   result.add (4, (g.nearX, g.top), "The grid's height: drag up or down")
   let fl = g.planeQuad(ppFloor)
-  result.add (5, (if g.kind == pkTwoPoint: fl[3] else: fl[0]), "How far the planes reach: drag toward the point")
+  result.add (5, (if g.kind != pkOnePoint: fl[3] else: fl[0]), "How far the planes reach: drag toward the point")
   if g.kind == pkOnePoint: result.add (6, (g.nearX + g.nearW, g.ground), "The facing wall's width: drag sideways")
+  if g.kind == pkThreePoint:
+    result.add (7, (g.nearX, g.vertY), "The third vanishing point: drag up or down (the walls' uprights meet there)")
 
 proc pgWidget(dw: DocWin): seq[tuple[r: Rect; plane: int; label: string]] =
   ## (the Plane Switching Widget: a button a plane, and No Active Grid)
@@ -151,6 +153,8 @@ proc canvasExtras(dw: DocWin; ev: PhotoEvent): bool =
   ## What a press on the image takes before the tools: a text frame's ports and the loaded text
   ## (textframes), the perspective grid's widget and handles. True when it took it.
   if dw.threadPress(ev): return true
+  if dw.vectorEvents(ev): return true
+  if dw.appearancePick(ev): return true
   let d = dw.doc
   let g = d.pgOf
   if pgDrag.on and pgDrag.dw == dw:
@@ -176,6 +180,7 @@ proc canvasExtras(dw: DocWin; ev: PhotoEvent): bool =
         let l2 = max(1e-9, lx * lx + ly * ly)
         n.depth = clamp(((ev.x - a[0]) * lx + (ev.y - a[1]) * ly) / l2, 0.05, 0.98)
       of 6: n.nearW = max(4.0, pgDrag.g0.nearW + dx)
+      of 7: n.vertY = pgDrag.g0.vertY + dy
       else: discard
       d.pgSet(n)
     if ev.released or not ui.mouseDown: pgDrag.on = false
@@ -247,7 +252,7 @@ proc startDefineGrid() =
   if d == nil: return
   let g = d.pgOf
   pgDlg = (true, true, d.perspective, ord(g.kind), int(g.horizon), int(g.leftX), int(g.rightX), int(g.nearX),
-           int(g.nearW), int(g.top), int(g.ground), int(g.depth * 100), g.cells, g.opacity)
+           int(g.nearW), int(g.top), int(g.ground), int(g.depth * 100), g.cells, g.opacity, int(g.vertY))
 
 proc perspectiveCommand(name: string): bool =
   result = true
@@ -266,10 +271,12 @@ proc perspectiveCommand(name: string): bool =
       var g = d.pgOf
       g.locked = not g.locked
       d.pgSet(g)
-  of "One Point Perspective", "Two Point Perspective":
+  of "One Point Perspective", "Two Point Perspective", "Three Point Perspective":
     if d != nil:
       let was = d.pgOf
-      var g = if name.startsWith("One"): onePoint(d.w, d.h) else: defaultGrid(d.w, d.h)
+      var g = if name.startsWith("One"): onePoint(d.w, d.h)
+              elif name.startsWith("Three"): threePoint(d.w, d.h)
+              else: defaultGrid(d.w, d.h)
       g.shown = true
       g.locked = was.locked
       g.opacity = was.opacity
@@ -304,7 +311,7 @@ proc perspectiveDialog() =
   dialog(pgDlg.open, "Define Perspective Grid", 420):
     row([150, -1]):
       label "Type:"
-      combo(["One-Point Perspective", "Two-Point Perspective"], pgDlg.kind, w = dp(200))
+      combo(["One-Point Perspective", "Two-Point Perspective", "Three-Point Perspective"], pgDlg.kind, w = dp(200))
     template num(lab: string; v: untyped; lo, hi: int; unit = "px") =
       row([150, 110, -1]):
         label lab
@@ -312,10 +319,11 @@ proc perspectiveDialog() =
         label unit
     let big = 4 * max(d.w, d.h)
     num("Horizon height:", pgDlg.horizon, -big, big)
-    if pgDlg.kind == 1:
+    if pgDlg.kind >= 1:
       num("Left vanishing point:", pgDlg.leftX, -big, big)
       num("Right vanishing point:", pgDlg.rightX, -big, big)
       num("Corner (x):", pgDlg.nearX, -big, big)
+      if pgDlg.kind == 2: num("Third vanishing point:", pgDlg.vertY, -big, big)
     else:
       num("Vanishing point:", pgDlg.leftX, -big, big)
       num("Facing wall (x):", pgDlg.nearX, -big, big)
@@ -331,7 +339,10 @@ proc perspectiveDialog() =
       if button("Cancel", w = dp(80)): cancel = true
   # (live: the grid as the box says, while it is open)
   var g = d.pgOf
-  g.kind = if pgDlg.kind == 0: pkOnePoint else: pkTwoPoint
+  g.kind = PerspectiveKind(clamp(pgDlg.kind, 0, 2))
+  if g.kind == pkThreePoint:
+    if pgDlg.vertY == 0: pgDlg.vertY = int(d.h.float * 2.6)
+    g.vertY = pgDlg.vertY.float
   g.horizon = pgDlg.horizon.float
   g.leftX = pgDlg.leftX.float
   g.rightX = pgDlg.rightX.float

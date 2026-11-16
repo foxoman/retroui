@@ -22,9 +22,8 @@ proc styleTargetRange(): tuple[L: Layer; a, b: int] =
 
 proc currentLook(): tuple[c: CharStyle; p: ParaStyle] =
   ## (the look a new style is made from: the text's where the caret is)
-  let L = typeTarget()
   result.c = shownStyle()
-  result.p = if L != nil: L.text.para else: typePara
+  result.p = curPara()
   result.c.styleName = ""
   result.p.styleName = ""
 
@@ -53,10 +52,12 @@ proc stylesPanel(paragraph: bool) =
   # the style the text has (where the caret is)
   var current = ""
   if L != nil:
-    if paragraph: current = L.text.para.styleName
+    if paragraph: current = curPara().styleName
     elif te.on: current = te.style.styleName
     else: current = L.text.styleAt(0).styleName
-  let over = L != nil and d.styleOverridden(L, paragraph)
+  let at = if te.on and te.layer == L: te.caret else: 0
+  let over = L != nil and d.styleOverridden(L, paragraph, at)
+  let (pa, pb) = if te.on and te.layer == L: (a, b) else: (0, -1)
   let none = if paragraph: "[Basic Paragraph]" else: "[No Character Style]"
   let kind = if paragraph: "Paragraph Style" else: "Character Style"
   template give(name: string) =
@@ -75,15 +76,16 @@ proc stylesPanel(paragraph: bool) =
       d.beginStep(kind)
       d.touchLayers()
       if paragraph:
-        d.applyParaStyle(L, name)
+        d.applyParaStyle(L, name, pa, pb)
         # (a style that keeps its lines on the baseline grid: on the page's grid, or off it)
         let g = if active != nil: bookGrid(active) else: (0'f32, 0'f32)
-        if L.text.boxW > 0 and (L.text.para.gridAlign != (L.text.gridStep > 0)):
+        let ga = L.text.paraFmtAt(max(0, pa)).gridAlign
+        if L.text.boxW > 0 and (ga != (L.text.gridStep > 0)):
           var t = L.text
-          if t.para.gridAlign and g.step > 0:
+          if ga and g.step > 0:
             t.gridStep = g.step
             t.gridStart = g.start
-          elif not t.para.gridAlign:
+          elif not ga:
             t.gridStep = 0
           d.setText(L, t)
       else: d.applyCharStyle(L, a, b, name)
@@ -102,7 +104,9 @@ proc stylesPanel(paragraph: bool) =
     let sel = st.name == current
     let r = styleRow(st.name, sel, sel and over, st.name & $paragraph)
     if r.double:
-      styleRename = (true, paragraph, st.name, st.name)
+      # (a paragraph style: its Style Options, as the layout program's; a character style renamed)
+      if paragraph: startStyleOptions(st.name)
+      else: styleRename = (true, paragraph, st.name, st.name)
     elif r.clicked: give(st.name)
   endScroll()
   if styleRename.on and styleRename.paragraph == paragraph:
@@ -121,7 +125,7 @@ proc stylesPanel(paragraph: bool) =
       d.touchLayers()
       d.redefineStyle(paragraph, name, c, p)
       if L != nil:
-        if paragraph: d.applyParaStyle(L, name)
+        if paragraph: d.applyParaStyle(L, name, pa, pb)
         else: d.applyCharStyle(L, a, b, name)
       d.endStep()
     if panelIcon(pxRefresh, "Redefine " & kind & " by Merging Overrides",
@@ -134,9 +138,11 @@ proc stylesPanel(paragraph: bool) =
     if panelIcon(pxUndo, "Clear Override", enabled = over):
       d.beginStep("Clear Override")
       d.touchLayers()
-      if paragraph: d.applyParaStyle(L, current)
+      if paragraph: d.applyParaStyle(L, current, pa, pb)
       else: d.applyCharStyle(L, a, b, current)
       d.endStep()
+    if paragraph and panelIcon(pxSettings, "Paragraph Style Options...", enabled = current.len > 0):
+      startStyleOptions(current)
     if panelIcon(pxDelete, "Delete " & kind, enabled = current.len > 0):
       d.beginStep("Delete " & kind)
       d.touchLayers()
@@ -146,6 +152,73 @@ proc stylesPanel(paragraph: bool) =
     label("For the next text", color = ui.theme.gray)
   elif over:
     label("+: the text differs from its style", color = ui.theme.gray)
+
+proc objectStylesBody() =
+  ## Object Styles, as the layout program's: how a shape or a text frame looks, kept by name; a
+  ## click gives it to the layers picked, "+" where a layer differs from it.
+  let d = cur()
+  if d == nil:
+    label("No image open", color = ui.theme.gray)
+    return
+  let L = d.current
+  let current = if L != nil: L.objectStyle else: ""
+  let over = L != nil and d.objectStyleOverridden(L)
+  proc give(name: string) =
+    d.beginStep("Apply Object Style")
+    d.touchLayers()
+    for i in d.pickedLayers: d.applyObjectStyle(d.layers[i], name)
+    d.endStep()
+    d.markAll()
+  let lh = max(ItemH * 4, min(ItemH * 12, remainingH() - ItemH * 4))
+  beginScroll(lh, "objstylelist")
+  let r0 = styleRow("[None]", current.len == 0, false, "objnone")
+  if r0.clicked and L != nil: give("")
+  for st in d.objectStyles:
+    let sel = st.name == current
+    let r = styleRow(st.name, sel, sel and over, "obj:" & st.name)
+    if r.double: startObjectStyleOptions(st.name)
+    elif r.clicked and L != nil: give(st.name)
+  endScroll()
+  row:
+    if panelIcon(pxNew, "New Object Style (from the layer's look)", enabled = L != nil):
+      var n = d.objectStyles.len + 1
+      while d.objectStyleIndex("Object Style " & $n) >= 0: inc n
+      let def = objectStyleOf(L, "Object Style " & $n)
+      d.beginStep("New Object Style")
+      d.touchLayers()
+      d.redefineObjectStyle(def)
+      d.applyObjectStyle(L, def.name)
+      d.endStep()
+    if panelIcon(pxRefresh, "Redefine Object Style (from the layer's look)", enabled = current.len > 0 and L != nil):
+      let k = d.objectStyleIndex(current)
+      var def = objectStyleOf(L, current)
+      let was = d.objectStyles[k]
+      # (what it sets, as it was)
+      def.useFill = was.useFill and def.useFill
+      def.useStroke = was.useStroke and def.useStroke
+      def.useEffects = was.useEffects
+      def.useFrame = was.useFrame and def.useFrame
+      def.useParagraph = was.useParagraph
+      if not def.useFrame:
+        def.columns = was.columns; def.gutter = was.gutter; def.inset = was.inset
+        def.vjust = was.vjust; def.balance = was.balance; def.autoSize = was.autoSize
+      if def.paraStyle.len == 0: def.paraStyle = was.paraStyle
+      if not L.isShape: def.shape = was.shape
+      d.beginStep("Redefine Object Style")
+      d.touchLayers()
+      d.redefineObjectStyle(def)
+      d.endStep()
+      d.markAll()
+    if panelIcon(pxUndo, "Clear Overrides", enabled = over): give(current)
+    if panelIcon(pxSettings, "Object Style Options...", enabled = current.len > 0):
+      startObjectStyleOptions(current)
+    if panelIcon(pxDelete, "Delete Object Style", enabled = current.len > 0):
+      d.beginStep("Delete Object Style")
+      d.touchLayers()
+      d.deleteObjectStyle(current)
+      d.endStep()
+  if L == nil: label("Pick a layer to give it a style", color = ui.theme.gray)
+  elif over: label("+: the layer differs from its style", color = ui.theme.gray)
 
 proc charStylesBody() = stylesPanel(false)
 proc paraStylesBody() = stylesPanel(true)
@@ -157,6 +230,10 @@ proc stylesMenuItems(paragraph: bool) =
     let (c, p) = currentLook()
     let list = if paragraph: d.paraStyles else: d.charStyles
     d.redefineStyle(paragraph, uniqueStyleName(list, kind), c, p)
+  if paragraph:
+    let L = typeTarget()
+    let curName = if L != nil: curPara().styleName else: ""
+    if menuItem("Style Options...", enabled = d != nil and curName.len > 0): startStyleOptions(curName)
   if menuItem("Load " & (if paragraph: "Paragraph" else: "Character") & " Styles from the other images",
               enabled = d != nil and docs.len > 1):
     # (the usual Load Styles: from the documents open)

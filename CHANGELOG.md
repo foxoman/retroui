@@ -1,5 +1,157 @@
 # Changes
 
+## 0.58.0
+
+The three programs side by side: the photo program's missing filters and
+looks, the drawing program's tools on shapes and paths, and the layout
+program's text -- paragraphs in formats of their own set by the
+Paragraph Composer, kept together, across or split in columns, nested
+and GREP styles, object styles, spelling, hyperlinks, cross-references,
+text variables, bookmarks, linked pictures and packaging; the layers
+mixed, blurs and resizing four pixels at a time; the phone's own folder
+picker.
+
+- **Filters** (`retroui/photoblurs`: `averageBlur`, `boxBlur`,
+  `shapeBlur`, `smartBlur`, `lensBlur`, `LensBlur`, `runsOf`,
+  `irisRuns`): Average; Box Blur (running sums: any radius the same
+  cost); Shape Blur (any shape as the kernel); Smart Blur (Normal, Edge
+  Only, Overlay Edge, its threshold and quality); Lens Blur (a depth map
+  from the transparency, a layer mask or a channel, the iris's shape,
+  blade curvature and rotation, specular highlights, noise). The Filter
+  Gallery's own (`retroui/photoartistic`): Fresco, Neon Glow, Palette
+  Knife, Rough Pastels, Smudge Stick, Underpainting, Dark Strokes,
+  Sprayed Strokes, Diffuse Glow, Glass (its textures), Ocean Ripple,
+  Chalk & Charcoal, Conté Crayon, Note Paper, Plaster, Water Paper,
+  Glowing Edges, and HSB/HSL. `filterOrigin`: where the part filtered is.
+- **Light** (`retroui/photodevelop`: `lightLut`, `lightFn`): an
+  adjustment layer of exposure, contrast, highlights, shadows, whites and
+  blacks; PSD keeps it as Curves.
+- **Pattern Overlay** (`fxPatternOverlay`, `Effect.pattern`, `scale`;
+  `retroui/photostyles`: `patternTile`, `PatternNames`): a layer style of
+  a tile repeated from the layer's corner, scaled and turned; PSD reads and writes it and its
+  patterns (`PsdPattern`). Gradients drawn dithered (no bands).
+- **Matting** (`removeMatte`, `defringe`): Defringe, Remove Black Matte,
+  Remove White Matte.
+- **Pattern Preview** (`Doc.patternPreview`, `PaintOpts.wrap`): the image
+  shown tiled round itself; a dab past an edge goes on at the other.
+- **The drawing program's tools** (`retroui/pathtools`: `erasePath`,
+  `smoothPath`, `cutAt`, `knifeCut`, `joinEnds`, `openEnds`, `eraseShape`,
+  `blobMerge`, `similarShapes`, `groupOfLayer`, `anchorsIn`, `arcPath`,
+  `rectGridPath`, `polarGridPath`, `flareShapes`, `meshAddLines`,
+  `meshNearest`, `meshRemoveAt`): Group Selection, the Magic Wand and the
+  Lasso for shapes and points, Smooth, Path Eraser, Join, Eraser,
+  Scissors, Knife, Blob Brush, Arc, Rectangular and Polar Grids, Flare,
+  Mesh; Ellipse and Polygon frames.
+- **Strokes drawn with a brush** (`StrokeBrush`: Calligraphic, Art,
+  Pattern, Scatter; `retroui/pathbrush`: `strokeBrushOf`) and **variable
+  widths** (`WidthPoint`, `widthAt`, `varStrokeOutline`): the Paintbrush's
+  strokes stay paths; the Width tool's points and profiles.
+- **Appearance** (`Appearance`, `ShapeData.appearance`, `expanded`,
+  `exportParts`, `isPlain`): more fills and strokes on a shape, each with
+  its opacity, blend mode, effects, above or below; SVG and PDF draw each
+  part.
+- **Live effects** (`retroui/liveeffects`: `LiveEffect`, `puckerBloat`,
+  `roughen`, `transformEffect`, `tweak`, `twist`, `zigZag`, `freeDistort`,
+  `warpEffect`, `offsetEffect`, `repeatRadial`, `repeatGrid`,
+  `repeatMirror`, `applyEffects`): Distort & Transform, Warp, Offset Path,
+  and Repeat (radial, grid, mirror) done to the path each time it is
+  drawn; Expand Appearance makes them real.
+- **Three-point perspective** (`pkThreePoint`, `vertY`, `threePoint`).
+- **The layout program's text** (`retroui/textengine`): each paragraph a
+  format of its own (`CharStyle.para`, `TextData.paraFmts`, `tailFmt`,
+  `fmtOf`, `paraFmtAt`, `paraBounds`, `setParaFmt`, `changeParas`) --
+  joined, a paragraph takes the first's; split, both halves keep it. The
+  **Paragraph Composer** (`ParaStyle.composer`, `Composer`: every way of
+  breaking a paragraph weighed at once, Knuth and Plass's; Auto for
+  justified text, the Single-line Composer for the rest).
+  **Justification** (`wordSpacing`, `letterSpacing`, `glyphScaling`: the
+  least, wanted and most). **Keep Options** (`keepWithNext`,
+  `keepTogether`, `keepStart`, `keepEnd`, `startAt`: in the next column,
+  frame or page). **Span Columns** (`spanAll`: a heading across the
+  columns, the columns above it balanced; `splitColumns`). **Balance
+  Columns**, **Inset Spacing** and **Vertical Justification**
+  (`TextData.balance`, `inset`, `vjust`, `VertJust`). **Nested and GREP
+  styles** (`NestedStyle`, `NestedUnit`, `GrepStyle`, `grepHook` -- set
+  by `retroui/textsearch`). **Next Style** (`nextStyle`). Saved in the
+  document; IDML writes and reads each paragraph's range with its keeps,
+  spans, composer and spacing, and the frame's inset, vertical
+  justification and balance. A table of contents finds each paragraph in
+  its style.
+- **Hyperlinks, destinations and cross-references**
+  (`CharStyle.link`: a web or mail address, `#name`, `page:N`, `=name`;
+  `linkRuns`): text variables shown in place (`withVariables`:
+  `<file>`, `<date>`, `<modified>`, `<head:Style>` -- `runningHead` --
+  and `<ref:name>`, the page a destination is on: `Doc.refPages`, a book
+  keeping where each is). The PDF (`retroui/photopdf`: `linkRects`,
+  `docDests`, `addBookmarks`; `PdfOptions.noLinks`, `noBookmarks`,
+  `dests`, `pageMap`) makes them links -- to an address, a page, a
+  destination -- and **bookmarks** (`DocBookmark`, `Doc.bookmarks`;
+  `retroui/pdf`: `PdfBookmark`, `PdfDoc.bookmarks`, `linkToPage`) its
+  outline, entries under entries.
+- **Object Styles** (`ObjectStyleDef`, `Doc.objectStyles`,
+  `Layer.objectStyle`, `objectStyleOf`, `applyObjectStyle`,
+  `redefineObjectStyle`, `renameObjectStyle`, `deleteObjectStyle`,
+  `objectStyleOverridden`): a shape's fill and stroke, the layer's
+  effects, a text frame's options and its paragraph style, kept by name;
+  each layer that has one changes when it is redefined. Paragraph styles
+  go to the paragraphs picked (`applyParaStyle(..., a, b)`); a character
+  style redefined changes the nested and GREP styles that use it.
+- **Linked pictures** (`SmartData.link`, `linkStamp`) and
+  `fontFileOf`: what Package needs.
+- **The phone's own folder picker** (`retroui/systemfiles`:
+  `systemFolderDialog`, `systemFoldersOn`, `hasSystemFolders`,
+  `flushSystemFolders`; `SystemFilesBackend.askFolder`, `folderPicked`,
+  `putInto`): `fileDialog` and `filePicker` picking a folder show
+  Android's; what the app writes into the folder it is given goes into
+  the one picked, its folders as folders.
+- **Four pixels at a time** (`retroui/simd`, `simdkern.h`: the compilers'
+  own vectors -- SSE2 or AVX on x86, NEON on ARM, SIMD128 in a web page
+  built with it, lane by lane elsewhere; `-d:retroNoSimd` for the plain
+  loops): the layers mixed over opaque pixels (Normal and the separable
+  modes, exactly as before), a gaussian blur's passes, Box Blur, and
+  resampling across then down. At 4000 x 3000 on two cores (best of
+  three, `-d:useMalloc`):
+
+  | | before | now | |
+  |---|---|---|---|
+  | five layers mixed | 212 ms | 117 ms | 1.81x |
+  | Gaussian Blur 5 px | 390 ms | 320 ms | 1.22x |
+  | Gaussian Blur 10 px | 267 ms | 181 ms | 1.47x |
+  | Gaussian Blur 40 px | 126 ms | 68 ms | 1.86x |
+  | Box Blur 10 px | 305 ms | 135 ms | 2.26x |
+  | bicubic to 6000 x 4500 | 654 ms | 246 ms | 2.67x |
+
+- **Google Fonts** (`FontFetchHooks.progress`, `stop`): a download says
+  how far it has come and can be stopped.
+- **Tests**: `test_photoparity` (every new filter, tool, panel and dialog
+  of Retro Atelier through its menus and its window's input),
+  `test_textcompose`, `test_hyperlinks`, `test_simd`, `test_photoblurs`,
+  `test_pathtools`; the IDML, system files, book and perspective tests
+  grow.
+
+Retro Atelier 5.4.0: **Filter > Blur > Average, Box Blur, Shape Blur,
+Smart Blur, Lens Blur** and the new Filter Gallery filters;
+**Layer > New Adjustment Layer > Light**; **Layer Style > Pattern
+Overlay**; **Layer > Matting**; **View > Pattern Preview** and **Pixel
+Grid**; the drawing program's tools in the toolbar's Vector group (with
+their options in the bar), **Window > Brushes (Vector)** and
+**Appearance**, **Effect > Distort & Transform, Warp, Repeat**, **Object
+> Transform Each**, the Eyedropper taking a shape's whole look, the
+three-point perspective grid and the Perspective Selection tool; the
+Paragraph panel's **Composer**, **Justification**, **Keep Options**,
+**Span Columns**, **Nested Styles** and **GREP Styles** for the
+paragraphs the selection is in; **Type > Text Frame Options** with
+Balance Columns, Inset Spacing and Vertical Justification; **Paragraph
+Style Options** (a double-click on a style: its name, Next Style, keeps,
+justification, drop caps and nested styles, GREP styles); **Window >
+Object Styles**; **Edit > Spelling > Check Spelling, Dynamic Spelling**
+(the system's checker, English and Arabic); **Type > Text Variables**
+and **Hyperlinks & Cross-References**; **Window > Bookmarks** and
+**Links**; **File > Place Linked** and **Package** (the document or the
+book, its linked pictures and fonts, IDML, PDF and a report, in a folder
+-- on a phone, the system's folder picker); Google Fonts' progress and
+Cancel; every new word in Arabic.
+
 ## 0.57.0
 
 Layout and drawing as the layout and drawing programs work them:

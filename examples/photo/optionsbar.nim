@@ -95,7 +95,7 @@ proc barType() =
     applyChar("Text Color", proc (x: var CharStyle) = x.color = cc)
   toolSeparator()
   let L = typeTarget()
-  alignButtons(if L != nil: L.text.para.align else: typePara.align, false)
+  alignButtons(curPara().align, false)
   directionButtons()
   if barIcon(pxWarpText, "Warp Text", enabled = L != nil and not L.text.onPath): startWarp()
   if barIcon(pxCharacter, "Character and Paragraph palettes", down = panelShown("character") or panelShown("paragraph") or panelShown("glyphs")): showTypePal(typeTab)
@@ -106,7 +106,7 @@ proc barType() =
 
 proc barShape() =
   for k, g in [pxRectShape, pxRoundRectShape, pxEllipseShape, pxPolygonShape, pxLineTool, pxCustomShape,
-               pxStarShape, pxSpiral, pxPolygonShape]:
+               pxStarShape, pxSpiral, pxPolygonShape, pxSpiral, pxGrid, pxEllipseShape, pxStar]:
     if barIcon(g, shapeNames[k], down = shapeKind == k): shapeKind = k
   toolSeparator()
   let d = cur()
@@ -155,6 +155,24 @@ proc barShape() =
     label "Decay:"
     spin(spiralDecay, 5, 99, w = dp(52))
     label "%"
+  of 9:
+    barCheck("Concave", arcConcave)
+    barCheck("Closed", arcClosed)
+  of 10:
+    label "Columns:"
+    spin(gridCols, 1, 200, w = dp(52))
+    label "Rows:"
+    spin(gridRows, 1, 200, w = dp(52))
+  of 11:
+    label "Rings:"
+    spin(polarRings, 0, 100, w = dp(52))
+    label "Dividers:"
+    spin(polarDividers, 0, 100, w = dp(52))
+  of 12:
+    label "Rays:"
+    spin(flareRays, 3, 100, w = dp(52))
+    label "Rings:"
+    spin(flareRings, 0, 50, w = dp(52))
   else: discard
 
 proc barGradient() =
@@ -336,8 +354,12 @@ proc optionsBar() =
             sliceSel = -1
           if toolButton("Export...", "Save each slice as a PNG", enabled = n > 0): runCommand("Slices to Files")
         elif cropKind == 2:
-          if barIcon(pxMarqueeRect, "Rectangular frame", down = not frameEllipse): frameEllipse = false
-          if barIcon(pxMarqueeEllipse, "Elliptical frame", down = frameEllipse): frameEllipse = true
+          if barIcon(pxMarqueeRect, "Rectangular frame", down = frameShape == 0): frameShape = 0
+          if barIcon(pxMarqueeEllipse, "Elliptical frame", down = frameShape == 1): frameShape = 1
+          if barIcon(pxPolygonShape, "Polygon frame", down = frameShape == 2): frameShape = 2
+          if frameShape == 2:
+            label "Sides:"
+            spin(frameSides, 3, 100, w = dp(52))
           toolSeparator()
           label("Drag a frame (Shift: square); place a picture into it with Layer > Place Into",
                 color = ui.theme.gray)
@@ -368,6 +390,7 @@ proc optionsBar() =
         barCheck("All Layers", bucketAll)
       of tGradient: barGradient()
       of tShape: barShape()
+      of tVector: vectorBar()
       of tEyedropper:
         case dropKind
         of 1:
@@ -416,8 +439,15 @@ proc optionsBar() =
               if counts[k].d == cur(): counts.delete(k) else: inc k
           label("Click each thing to count it; Alt+click takes a number away", color = ui.theme.gray)
         else:
-          label "Sample Size:"
-          combo(["Point Sample", "3 by 3 Average", "5 by 5 Average"], dropperSize, w = dp(120))
+          label "Sample:"
+          var sm = ord(eyeAppearance)
+          if combo(["Color", "Appearance"], sm, w = dp(110)): eyeAppearance = sm == 1
+          if eyeAppearance:
+            label("Click a shape: the picked shapes take its look (fill, stroke, brush, effects, style)",
+                  color = ui.theme.gray)
+          else:
+            label "Sample Size:"
+            combo(["Point Sample", "3 by 3 Average", "5 by 5 Average"], dropperSize, w = dp(120))
       of tEraser:
         if eraseKind == 2:
           barBrush(tEraser)

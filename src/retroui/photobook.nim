@@ -58,7 +58,8 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[os, json, tables, strutils, hashes]
+import std/[os, json, tables, strutils, hashes, algorithm]
+import std/unicode except strip
 import gfx, imaging, jpeg, photo, photofx, photopdf, photowarp, pdf, textengine, zip
 
 export textengine.NumberStyle, textengine.formatNumber      # (how page numbers are written: the type engine's)
@@ -109,6 +110,8 @@ type
     flowsOut: bool
     thumb: Bitmap
     thumbStale: bool
+    dests: seq[string]               # (the text destinations on it: cross-references go there)
+    lastHeads: seq[(string, string)] # (each Paragraph Style's last paragraph on it: running headers)
   Master* = ref object
     ## A master page: what is on it is on every page that has it.
     id*: int
@@ -357,8 +360,9 @@ proc setMaster*(b: Book; i, masterId: int) =
     b.modified = true
 
 proc hasMarker(t: TextData): bool =
+  ## (it says what the page it is on gives: its number, a cross-reference, a running header)
   for s in t.spans:
-    if "<#" in s.text: return true
+    if "<#" in s.text or "<ref:" in s.text or "<head:" in s.text: return true
 
 proc emptyText(): TextData =
   result.antialias = true
@@ -571,9 +575,47 @@ proc dress(b: Book; i: int) =
     d.pageLabel = lab
     d.pageTotal = total
     relabel = true
+  # its text destinations and running headers -- for the cross-references and running headers
+  # of the pages (each page's as it was when last open)
+  var dests: seq[string]
+  var lastHeads: seq[(string, string)]
+  for L in d.layers:
+    if not L.isText or L.fromMaster != 0 or L.fromSpan != 0: continue
+    for sp in L.text.spans:
+      if sp.style.link.len > 1 and sp.style.link[0] == '=' and sp.style.link[1 .. ^1] notin dests:
+        dests.add sp.style.link[1 .. ^1]
+    if L.text.paraFmts.len > 0 or L.text.para.styleName.len > 0:
+      var at = 0
+      for ptxt in L.text.plainText.split('\n'):
+        let sn = L.text.paraFmtAt(at).styleName
+        if sn.len > 0 and ptxt.strip.len > 0 and "<head:" notin ptxt:
+          var found = false
+          for h in lastHeads.mitems:
+            if h[0] == sn:
+              h[1] = ptxt.strip
+              found = true
+          if not found: lastHeads.add (sn, ptxt.strip)
+        at += ptxt.runeLen + 1
+  pg.dests = dests
+  pg.lastHeads = lastHeads
+  var refs: Table[string, string]
+  var heads: Table[string, string]
+  for k, p in b.pages:
+    for dn in p.dests:
+      if dn notin refs: refs[dn] = b.label(k)
+    if k < i:
+      for (sn, tx) in p.lastHeads: heads[sn] = tx
+  if refs != d.refPages or heads != d.heads:
+    d.refPages = refs
+    d.heads = heads
+    relabel = true
+  var varSig: seq[string]
+  for k, v in refs: varSig.add k & "\x1F" & v
+  for k, v in heads: varSig.add "\x1E" & k & "\x1F" & v
+  varSig.sort()
   # the text that comes to it from other pages
   pg.ins = @[]
-  var sig: Hash
+  var sig: Hash = (if varSig.len > 0: hash(varSig) else: Hash(0))
   for L in d.layers:
     if L.isText and L.flowFrom != 0 and L.flowPage != 0:
       pg.ins.add (L.flowPage, L.flowFrom)
@@ -1121,6 +1163,11 @@ proc pageJson(pg: BookPage): JsonNode =
     var a = newJArray()
     for (p, u) in pg.ins: a.add %*[p, u]
     result["ins"] = a
+  if pg.dests.len > 0: result["dests"] = %pg.dests
+  if pg.lastHeads.len > 0:
+    var a = newJArray()
+    for (sn, tx) in pg.lastHeads: a.add %*[sn, tx]
+    result["heads"] = a
 
 proc saveBook*(b: Book; path: string; keep: openArray[int] = []) =
   ## The book saved as one file (".rpb"): its text set through its pages
@@ -1212,6 +1259,10 @@ proc loadBook*(path: string): Book =
     pg.storedWith = hashOf(pj{"storedWith"}.getBiggestInt(0))
     pg.spanOut = hashOf(pj{"spanOut"}.getBiggestInt(0))
     pg.spanApplied = hashOf(pj{"spanApplied"}.getBiggestInt(0))
+    for dn in pj{"dests"}.getElems:
+      if pg.dests.len < 10_000: pg.dests.add dn.getStr
+    for h in pj{"heads"}.getElems:
+      if h.kind == JArray and h.len == 2 and pg.lastHeads.len < 1000: pg.lastHeads.add (h[0].getStr, h[1].getStr)
     if pj{"out"} != nil and pj["out"].kind == JObject:
       for k, v in pj["out"]:
         let uid = try: parseInt(k) except ValueError: 0
@@ -1317,6 +1368,17 @@ proc sheetName*(path: string; b: Book; sheet: seq[int]; many: bool): string =
   for j in sheet: tag.add "-" & $(j + 1)
   dir / (name & tag & ext)
 
+proc pdfDests(b: Book; map: seq[int]; o: PdfOptions): Table[string, tuple[page: int; top: float]] =
+  ## (each text destination of the book: its page in the PDF -- where on it, for the pages open)
+  let k = 72 / (if b.setup.dpi > 0: b.setup.dpi else: 72.0)
+  for j, pg in b.pages:
+    if j >= map.len or map[j] == 0: continue
+    if pg.doc != nil:
+      pg.doc.docDests(map[j], k, result)
+    else:
+      for dn in pg.dests:
+        if dn notin result: result[dn] = (map[j], 0.0)
+
 proc exportBook*(b: Book; path: string; e: BookExport; keep: openArray[int] = []): seq[string] =
   ## File > Export of a book: its pages (`e.pages`), as pages or spreads,
   ## into one PDF at `path`, or each sheet a JPEG or PNG (`sheetName`). The
@@ -1327,6 +1389,13 @@ proc exportBook*(b: Book; path: string; e: BookExport; keep: openArray[int] = []
   if sheets.len == 0: return
   var e = e
   if e.pdf == default(PdfOptions): e.pdf = pdfPreset(ppPrint)
+  if e.kind == exPdf:
+    # (where each page and each text destination is in the PDF: links and cross-references go there)
+    var map = newSeq[int](b.pages.len)
+    for n, sheet in sheets:
+      for j in sheet: map[j] = n + 1
+    e.pdf.pageMap = map
+    e.pdf.dests = b.pdfDests(map, e.pdf)
   let pdf = if e.kind == exPdf: newPressPdf(e.pdf, b.name) else: nil
   for sheet in sheets:
     var opened: seq[int]
@@ -1373,8 +1442,13 @@ proc saveBookPdf*(b: Book; path: string; o: PdfOptions; keep: openArray[int] = [
   ## -1: the last): type as type, shapes as shapes. The pages opened for
   ## it are parked again, but for those at `keep`.
   b.reflow(keep)
-  let pdf = newPressPdf(o, b.name)
   let hi = if last < 0: b.pages.high else: min(last, b.pages.high)
+  var o = o
+  var map = newSeq[int](b.pages.len)
+  for i in max(0, first) .. hi: map[i] = i - max(0, first) + 1
+  o.pageMap = map
+  o.dests = b.pdfDests(map, o)
+  let pdf = newPressPdf(o, b.name)
   for i in max(0, first) .. hi:
     let was = b.pages[i].doc != nil
     let d = b.doc(i)

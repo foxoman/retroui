@@ -797,36 +797,39 @@ type TextureKind* = enum
   ## Texture > Texturizer's textures.
   tkCanvas = "Canvas", tkBrick = "Brick", tkBurlap = "Burlap", tkSandstone = "Sandstone"
 
+proc textureHeight(kind: TextureKind; scaling, w, h: int): seq[float32] =
+  ## The heights of a texture (0 .. 1) over a picture `w` x `h`, `scaling` 50 .. 200 %.
+  let k = float(clamp(scaling, 50, 200)) / 100
+  result = newSeqUninit[float32](w * h)
+  let hp = pf(result)
+  parallelRows(h, y):
+    for x in 0 ..< w:
+      let fx = x.float / k
+      let fy = y.float / k
+      let v = case kind
+              of tkBrick:
+                let row = int(fy / 18)
+                let bx = (fx + (if row mod 2 == 1: 21.0 else: 0.0)) mod 42
+                let by = fy mod 18
+                (if bx < 2 or by < 2: 0.0 else: 0.8 + smoothNoise(fx, fy, 4, 83).float * 0.2)
+              of tkBurlap:
+                let a = sin(fx * 1.1) * 0.5 + 0.5
+                let b = sin(fy * 1.1) * 0.5 + 0.5
+                (if (int(fx / 3) + int(fy / 3)) mod 2 == 0: a else: b) * 0.7 + hash01(int(fx), int(fy), 89).float * 0.3
+              of tkSandstone:
+                smoothNoise(fx, fy, 2, 97).float * 0.5 + hash01(int(fx), int(fy), 101).float * 0.5
+              else:
+                let a = sin(fx * 1.6) * 0.5 + 0.5
+                let b = sin(fy * 1.6) * 0.5 + 0.5
+                (if (int(fx / 2) + int(fy / 2)) mod 2 == 0: a else: b) * 0.85 + hash01(int(fx), int(fy), 103).float * 0.15
+      hp[y * w + x] = float32(v)
+
 proc texturizer*(kind = tkCanvas; scaling = 100; relief = 4; angle = 135.0): FilterFn =
   ## Texture > Texturizer: the picture on canvas, brick, burlap or
   ## sandstone, lit from `angle` degrees (`scaling` 50 .. 200 %,
   ## `relief` 0 .. 50).
   result = proc (src: Img; inner: Rect): Img =
-    let k = float(clamp(scaling, 50, 200)) / 100
-    var hgt = newSeqUninit[float32](src.w * src.h)
-    let hp = pf(hgt)
-    let w = src.w
-    parallelRows(src.h, y):
-      for x in 0 ..< w:
-        let fx = x.float / k
-        let fy = y.float / k
-        let v = case kind
-                of tkBrick:
-                  let row = int(fy / 18)
-                  let bx = (fx + (if row mod 2 == 1: 21.0 else: 0.0)) mod 42
-                  let by = fy mod 18
-                  (if bx < 2 or by < 2: 0.0 else: 0.8 + smoothNoise(fx, fy, 4, 83).float * 0.2)
-                of tkBurlap:
-                  let a = sin(fx * 1.1) * 0.5 + 0.5
-                  let b = sin(fy * 1.1) * 0.5 + 0.5
-                  (if (int(fx / 3) + int(fy / 3)) mod 2 == 0: a else: b) * 0.7 + hash01(int(fx), int(fy), 89).float * 0.3
-                of tkSandstone:
-                  smoothNoise(fx, fy, 2, 97).float * 0.5 + hash01(int(fx), int(fy), 101).float * 0.5
-                else:
-                  let a = sin(fx * 1.6) * 0.5 + 0.5
-                  let b = sin(fy * 1.6) * 0.5 + 0.5
-                  (if (int(fx / 2) + int(fy / 2)) mod 2 == 0: a else: b) * 0.85 + hash01(int(fx), int(fy), 103).float * 0.15
-        hp[y * w + x] = float32(v)
+    let hgt = textureHeight(kind, scaling, src.w, src.h)
     let s = shade(hgt, src.w, src.h, angle, float(relief) / 50 * 3)
     lit(src, s, 1.0)
 
@@ -972,5 +975,455 @@ proc smartSharpen*(amount = 150; radius = 1.0; reduceNoise = 10): FilterFn =
       let gate = if quiet <= 0: 1.0 else: clamp((edge - quiet * 0.3) / max(0.01, quiet), 0.0, 1.0)
       let d = (lp[i] - bp[i]).float * 255 * k * gate
       argb(int(aOf(p)), c255(rOf(p).float + d), c255(gOf(p).float + d), c255(bOf(p).float + d)))
+
+# ---- the Filter Gallery's others: Artistic, Brush Strokes, Distort, Sketch, Stylize -----------------
+
+proc chanPlane(im: Img; shift: int): seq[float32] =
+  ## One channel of the picture (16 red, 8 green, 0 blue), 0 .. 1.
+  result = newSeqUninit[float32](im.w * im.h)
+  let o = pf(result)
+  let s = pu(im.px)
+  let w = im.w
+  parallelRows(im.h, y):
+    for x in 0 ..< w:
+      o[y * w + x] = float32((s[y * w + x] shr shift) and 255) / 255'f32
+
+proc screenc(a, b: uint32; t: float): uint32 {.inline.} =
+  ## (`b` screened over `a` by `t`, alpha kept from `a`)
+  let u = clamp(t, 0.0, 1.0)
+  template sc(x, y: float): int = c255(x + (255 - (255 - x) * (255 - y) / 255 - x) * u)
+  argb(int(aOf(a)), sc(rOf(a).float, rOf(b).float), sc(gOf(a).float, gOf(b).float), sc(bOf(a).float, bOf(b).float))
+
+proc fresco*(size = 2; detail = 8; texture = 1): FilterFn =
+  ## Artistic > Fresco: coarse, round dabs of paint, dark at their edges,
+  ## the colors strong (`size` 0 .. 10, `detail` 0 .. 10, `texture` 1 .. 3).
+  result = proc (src: Img; inner: Rect): Img =
+    let k = kuwahara(src, 1 + size)
+    var e = edgePlane(lumPlane(k), k.w, k.h)
+    blurPlane(e, k.w, k.h, 0.8 + float(10 - clamp(detail, 0, 10)) * 0.12)
+    let ep = pf(e)
+    let tex = float(clamp(texture, 1, 3)) * 9
+    let dk = 0.9 + float(10 - clamp(detail, 0, 10)) * 0.06
+    mapPixels(k, proc (p: uint32; i, x, y: int): uint32 =
+      let n = (smoothNoise(x.float, y.float, 1.8, 149).float - 0.5) * tex
+      let f = max(0.0, 1 - ep[i].float * dk * 1.6)
+      template c(v: float): int = c255(((v - 128) * 1.35 + 128) * f + n)
+      argb(int(aOf(p)), c(rOf(p).float), c(gOf(p).float), c(bOf(p).float)))
+
+proc neonGlow*(size = 5; brightness = 15; glowColor = 0xFF3C5AFF'u32; fg = 0xFF000000'u32;
+               bg = 0xFFFFFFFF'u32): FilterFn =
+  ## Artistic > Neon Glow: the picture toned from the foreground color (its
+  ## darks) to the background (its lights), glowing in `glowColor` --
+  ## `size` -24 .. 24 (more: the glow spreads from the darks; less: from
+  ## the lights), `brightness` 0 .. 50.
+  result = proc (src: Img; inner: Rect): Img =
+    let w = src.w
+    let h = src.h
+    let l = lumPlane(src)
+    var g = newSeqUninit[float32](w * h)
+    let lp = pf(l)
+    let gp = pf(g)
+    let outward = size >= 0
+    for i in 0 ..< w * h: gp[i] = if outward: 1'f32 - lp[i] else: lp[i]
+    blurPlane(g, w, h, abs(size).float * 0.9 + 0.6)
+    let b = float(brightness) / 50
+    mapPixels(src, proc (p: uint32; i, x, y: int): uint32 =
+      let base = mixc(fg, bg, lp[i].float)
+      let own = if outward: 1 - lp[i].float else: lp[i].float
+      # (the glow: where the blurred darks reach past their own pixels, and in them a little)
+      let halo = clamp(max(0.0, gp[i].float - own) * 3 + gp[i].float * 1.1, 0.0, 1.0) * min(1.0, b * 2.4)
+      (screenc(base, glowColor, halo) and 0x00FFFFFF'u32) or (aOf(p).uint32 shl 24))
+
+proc paletteKnife*(size = 25; detail = 3; softness = 0): FilterFn =
+  ## Artistic > Palette Knife: paint laid on thinly with a knife, flat
+  ## planes of color (`size` 1 .. 50, `detail` 1 .. 3, `softness` 0 .. 10).
+  result = proc (src: Img; inner: Rect): Img =
+    var k = kuwahara(src, max(1, size div 4))
+    k = kuwahara(k, max(1, size div 9))
+    let lv = 3 + clamp(detail, 1, 3) * 3
+    var res = mapPixels(k, proc (p: uint32; i, x, y: int): uint32 =
+      argb(int(aOf(p)), posterized(int(rOf(p)), lv), posterized(int(gOf(p)), lv), posterized(int(bOf(p)), lv)))
+    if softness > 0: res = gaussianBlurImg(res, float(softness) * 0.35)
+    res
+
+proc roughPastels*(length = 6; detail = 4; kind = tkCanvas; scaling = 100; relief = 20; angle = 135.0): FilterFn =
+  ## Artistic > Rough Pastels: chalk pastel stroked over a texture --
+  ## strokes `length` 0 .. 40 long, `detail` 1 .. 20 kept, the texture
+  ## `scaling` 50 .. 200 %, `relief` 0 .. 50, lit from `angle` degrees.
+  result = proc (src: Img; inner: Rect): Img =
+    let st = directional(src, 45, max(1, length + 1))
+    let sp = pu(st.px)
+    let d = float(clamp(detail, 1, 20)) / 20
+    let mixed = mapPixels(src, proc (p: uint32; i, x, y: int): uint32 =
+      let q = mixc(sp[i], p, d * 0.6)
+      # (pastel: the colors a little lighter and stronger)
+      let l = lumaOf(q).float
+      argb(int(aOf(p)), c255(l + (rOf(q).float - l) * 1.2 + 10), c255(l + (gOf(q).float - l) * 1.2 + 10),
+           c255(l + (bOf(q).float - l) * 1.2 + 10)))
+    let hgt = textureHeight(kind, scaling, src.w, src.h)
+    lit(mixed, shade(hgt, src.w, src.h, angle, float(relief) / 50 * 0.6), 1.0)
+
+proc smudgeStick*(length = 2; highlight = 0; intensity = 10): FilterFn =
+  ## Artistic > Smudge Stick: the darks smudged in short diagonal strokes,
+  ## the lights brighter and their detail lost (`length` 0 .. 10,
+  ## `highlight` 0 .. 20, `intensity` 0 .. 10).
+  result = proc (src: Img; inner: Rect): Img =
+    let st = directional(src, 45, 2 + length * 2)
+    let sp = pu(st.px)
+    let hl = float(highlight) / 20 * float(intensity) / 10
+    mapPixels(src, proc (p: uint32; i, x, y: int): uint32 =
+      let q = sp[i]
+      let l = lumaOf(p).float / 255
+      let t = clamp(1.2 - l, 0.35, 1.0)
+      let c = mixc(p, q, t)
+      # (the smudge darkens: the darker of the two in the shadows)
+      let r = if l < 0.5: min(rOf(c), rOf(q)) else: rOf(c)
+      let g = if l < 0.5: min(gOf(c), gOf(q)) else: gOf(c)
+      let b = if l < 0.5: min(bOf(c), bOf(q)) else: bOf(c)
+      let lift = hl * max(0.0, l - 0.45) * 230
+      argb(int(aOf(p)), c255(r.float + lift), c255(g.float + lift), c255(b.float + lift)))
+
+proc underpainting*(size = 6; coverage = 16; kind = tkCanvas; scaling = 100; relief = 4; angle = 135.0): FilterFn =
+  ## Artistic > Underpainting: painted first on a textured ground, then
+  ## painted over -- soft, broad color (`size` 0 .. 40), the texture
+  ## showing through (`coverage` 0 .. 40; `scaling`, `relief`, `angle` as
+  ## Texturizer's).
+  result = proc (src: Img; inner: Rect): Img =
+    let soft = gaussianBlurImg(src, float(size) * 0.35 + 0.5)
+    let k = kuwahara(soft, 1 + size div 6)
+    let hgt = textureHeight(kind, scaling, src.w, src.h)
+    let cov = float(clamp(coverage, 0, 40)) / 40
+    let s = shade(hgt, src.w, src.h, angle, float(relief) / 50 * 1.5 * (0.3 + cov))
+    let base = mapPixels(k, proc (p: uint32; i, x, y: int): uint32 =
+      # (a thin wash: the colors a little paler)
+      mixc(p, 0xFFFFFFFF'u32, 0.08 + cov * 0.12))
+    lit(base, s, 0.25 + cov * 0.5)
+
+proc darkStrokes*(balance = 5; black = 6; white = 2): FilterFn =
+  ## Brush Strokes > Dark Strokes: the darks painted with short, tight dark
+  ## strokes, the lights with long white ones (`balance` 0 .. 10, `black`
+  ## and `white` 0 .. 10 their intensity).
+  result = proc (src: Img; inner: Rect): Img =
+    let short = directional(src, -45, 4)
+    let long = directional(src, 45, 14)
+    let sp = pu(short.px)
+    let lp = pu(long.px)
+    let edge = 0.3 + float(clamp(balance, 0, 10)) / 10 * 0.4
+    let bk = float(black) / 10
+    let wt = float(white) / 10
+    mapPixels(src, proc (p: uint32; i, x, y: int): uint32 =
+      let l = lumaOf(p).float / 255
+      if l < edge:
+        let q = sp[i]
+        let f = 1 - bk * 0.75 * (1 - l / edge)
+        argb(int(aOf(p)), c255(rOf(q).float * f), c255(gOf(q).float * f), c255(bOf(q).float * f))
+      else:
+        let q = lp[i]
+        let a = wt * (l - edge) / max(0.01, 1 - edge) * 120
+        argb(int(aOf(p)), c255(rOf(q).float + a), c255(gOf(q).float + a), c255(bOf(q).float + a)))
+
+proc sprayedStrokes*(length = 12; radius = 7; direction = 0): FilterFn =
+  ## Brush Strokes > Sprayed Strokes: the picture sprayed on in angled
+  ## strokes -- `length` 0 .. 20, `radius` 0 .. 25 of the spray,
+  ## `direction` 0 right diagonal, 1 across, 2 left diagonal, 3 down.
+  result = proc (src: Img; inner: Rect): Img =
+    let ang = [45.0, 0.0, -45.0, 90.0][clamp(direction, 0, 3)]
+    let st = directional(src, ang, max(1, length))
+    spatter(radius, 4)(st, rect(0, 0, st.w, st.h))
+
+type GlassTexture* = enum
+  ## Distort > Glass's textures.
+  gtBlocks = "Blocks", gtCanvas = "Canvas", gtFrosted = "Frosted", gtTinyLens = "Tiny Lens"
+
+proc glassHeight(kind: GlassTexture; scaling, w, h: int): seq[float32] =
+  let k = float(clamp(scaling, 50, 200)) / 100
+  result = newSeqUninit[float32](w * h)
+  let hp = pf(result)
+  parallelRows(h, y):
+    for x in 0 ..< w:
+      let fx = x.float / k
+      let fy = y.float / k
+      let v = case kind
+              of gtBlocks:
+                let u = (fx mod 24) / 24 - 0.5
+                let t = (fy mod 24) / 24 - 0.5
+                1 - max(abs(u), abs(t)) * 2
+              of gtCanvas:
+                let a = sin(fx * 1.6) * 0.5 + 0.5
+                let b = sin(fy * 1.6) * 0.5 + 0.5
+                (if (int(fx / 2) + int(fy / 2)) mod 2 == 0: a else: b)
+              of gtTinyLens:
+                let u = (fx mod 10) / 10 - 0.5
+                let t = (fy mod 10) / 10 - 0.5
+                max(0.0, 1 - (u * u + t * t) * 4)
+              of gtFrosted:
+                smoothNoise(fx, fy, 2.5, 113).float * 0.7 + smoothNoise(fx, fy, 6, 127).float * 0.3
+      hp[y * w + x] = float32(v)
+
+proc displaced(src: Img; dx, dy: seq[float32]): Img =
+  ## (each pixel read from where `dx`, `dy` send it, between pixels)
+  result = newImgUninit(src.w, src.h)
+  let o = pu(result.px)
+  let ap = pf(dx)
+  let bp = pf(dy)
+  let w = src.w
+  parallelRows(src.h, y):
+    for x in 0 ..< w:
+      let i = y * w + x
+      o[i] = src.sample(x.float + ap[i].float, y.float + bp[i].float)
+
+proc glass*(distortion = 5; smoothness = 3; texture = gtFrosted; scaling = 100; invert = false): FilterFn =
+  ## Distort > Glass: the picture seen through glass of a texture (Blocks,
+  ## Canvas, Frosted, Tiny Lens; `scaling` 50 .. 200 %), bent
+  ## `distortion` 0 .. 20, the glass smoothed `smoothness` 1 .. 15;
+  ## `invert`: its bumps the other way.
+  result = proc (src: Img; inner: Rect): Img =
+    let w = src.w
+    let h = src.h
+    var hgt = glassHeight(texture, scaling, w, h)
+    blurPlane(hgt, w, h, float(clamp(smoothness, 1, 15)) * 0.4)
+    var (gx, gy) = gradients(hgt, w, h)
+    let k = float32(distortion) * 2.5'f32 * (if invert: -1'f32 else: 1'f32)
+    let ax = pf(gx)
+    let ay = pf(gy)
+    for i in 0 ..< w * h:
+      ax[i] *= k
+      ay[i] *= k
+    displaced(src, gx, gy)
+
+proc oceanRipple*(size = 9; magnitude = 9): FilterFn =
+  ## Distort > Ocean Ripple: as if under rippling water -- ripples `size`
+  ## 1 .. 15 apart, `magnitude` 0 .. 20 strong.
+  result = proc (src: Img; inner: Rect): Img =
+    let w = src.w
+    let h = src.h
+    let cell = 2.5 + float(clamp(size, 1, 15)) * 1.3
+    let amp = float32(magnitude) * 0.9'f32
+    var hgt = newSeqUninit[float32](w * h)
+    let hp = pf(hgt)
+    parallelRows(h, y):
+      for x in 0 ..< w:
+        # (a water surface: its waves sharpened at their crests)
+        let n = smoothNoise(x.float, y.float, cell, 131) * 0.65'f32 + smoothNoise(x.float, y.float, cell * 0.5, 137) * 0.35'f32
+        hp[y * w + x] = abs(n - 0.5'f32) * 2
+    var (gx, gy) = gradients(hgt, w, h)
+    let ax = pf(gx)
+    let ay = pf(gy)
+    let k = amp * float32(cell) * 0.12'f32
+    for i in 0 ..< w * h:
+      ax[i] = clamp(ax[i] * k, -amp * 0.7'f32, amp * 0.7'f32)
+      ay[i] = clamp(ay[i] * k, -amp * 0.7'f32, amp * 0.7'f32)
+    displaced(src, gx, gy)
+
+proc diffuseGlow*(graininess = 6; glow = 10; clear = 15; glowColor = 0xFFFFFFFF'u32): FilterFn =
+  ## Distort > Diffuse Glow: as through a soft diffusion filter -- the
+  ## lights glow in `glowColor` (the background color), with grain of it
+  ## (`graininess` 0 .. 10); `glow` 0 .. 20 how much, `clear` 0 .. 20 how
+  ## much of the picture is left clear of it.
+  result = proc (src: Img; inner: Rect): Img =
+    let w = src.w
+    let h = src.h
+    var l = lumPlane(src)
+    let lp = pf(l)
+    let th = float32(clamp(clear, 0, 20)) / 20 * 0.75'f32
+    for i in 0 ..< w * h: lp[i] = clamp((lp[i] - th) / max(0.08'f32, 1 - th), 0'f32, 1'f32)
+    blurPlane(l, w, h, 2.0 + float(glow) * 0.5)
+    let g = float(clamp(glow, 0, 20)) / 20
+    let gr = float(clamp(graininess, 0, 10)) / 10
+    mapPixels(src, proc (p: uint32; i, x, y: int): uint32 =
+      var t = lp[i].float * g * 1.5
+      if hash01(x, y, 139).float < gr * 0.45 * (0.25 + lp[i].float): t += 0.35 + gr * 0.3
+      (mixc(p, glowColor, t) and 0x00FFFFFF'u32) or (aOf(p).uint32 shl 24))
+
+proc chalkCharcoal*(charcoal = 6; chalk = 6; pressure = 1; fg = 0xFF000000'u32; bg = 0xFFFFFFFF'u32): FilterFn =
+  ## Sketch > Chalk & Charcoal: the lights and mids in coarse chalk (the
+  ## background color) on a mid gray, the darks in diagonal lines of
+  ## charcoal (the foreground color); `charcoal`, `chalk` 0 .. 20 how far
+  ## each reaches, `pressure` 0 .. 5.
+  result = proc (src: Img; inner: Rect): Img =
+    var l = lumPlane(src)
+    let lp = pf(l)
+    let darkEdge = 0.2'f32 + float32(clamp(charcoal, 0, 20)) / 20 * 0.4'f32
+    let lightEdge = 0.75'f32 - float32(clamp(chalk, 0, 20)) / 20 * 0.45'f32
+    let pr = float32(clamp(pressure, 0, 5)) / 5
+    parallelRows(src.h, y):
+      for x in 0 ..< src.w:
+        let i = y * src.w + x
+        let v = lp[i]
+        var o = 0.5'f32
+        if v < darkEdge:
+          let line = hash01((x + y) div 2, (x - y + 1_000_000) div 7, 157)
+          if line > v / darkEdge * (0.7'f32 - pr * 0.3'f32): o = 0'f32
+        elif v > lightEdge:
+          let grain = hash01((x - y + 1_000_000) div 2, (x + y) div 5, 151) * 0.6'f32 + hash01(x, y, 163) * 0.4'f32
+          if grain < (v - lightEdge) / max(0.01'f32, 1 - lightEdge) * (0.7'f32 + pr * 0.3'f32) + 0.15'f32: o = 1'f32
+        lp[i] = o
+    twoTone(src, l, fg, bg)
+
+proc conteCrayon*(fgLevel = 11; bgLevel = 7; kind = tkCanvas; scaling = 100; relief = 4; angle = 45.0;
+                  invert = false; fg = 0xFF000000'u32; bg = 0xFFFFFFFF'u32): FilterFn =
+  ## Sketch > Conté Crayon: the dense darks and pure whites of a Conté
+  ## crayon -- the foreground color for the darks, the background for the
+  ## lights (`fgLevel`, `bgLevel` 1 .. 15), on a texture (as Texturizer's;
+  ## `invert`: its bumps the other way).
+  result = proc (src: Img; inner: Rect): Img =
+    var l = lumPlane(src)
+    let lp = pf(l)
+    let hgt = textureHeight(kind, scaling, src.w, src.h)
+    let s = shade(hgt, src.w, src.h, angle + (if invert: 180.0 else: 0.0), float(relief) / 50 * 3)
+    let sp = pf(s)
+    let fl = float32(clamp(fgLevel, 1, 15)) / 15
+    let bl = float32(clamp(bgLevel, 1, 15)) / 15
+    parallelRows(src.h, y):
+      for x in 0 ..< src.w:
+        let i = y * src.w + x
+        let v = (lp[i] - 0.5'f32) * (1.6'f32 + fl + bl) + 0.5'f32 + (bl - fl) * 0.25'f32
+        lp[i] = clamp(v + (sp[i] - 1'f32) * 0.45'f32, 0'f32, 1'f32)
+    twoTone(src, l, fg, bg)
+
+proc notePaper*(balance = 25; graininess = 10; relief = 11; fg = 0xFF000000'u32; bg = 0xFFFFFFFF'u32): FilterFn =
+  ## Sketch > Note Paper: as if made of handmade paper -- the darks raised
+  ## in the foreground color, the rest the background's, grained
+  ## (`balance` 0 .. 50, `graininess` 0 .. 20, `relief` 0 .. 25).
+  result = proc (src: Img; inner: Rect): Img =
+    let w = src.w
+    let h = src.h
+    var l = lumPlane(src)
+    blurPlane(l, w, h, 1.0)
+    let lp = pf(l)
+    let th = float32(clamp(balance, 0, 50)) / 50
+    let gr = float32(clamp(graininess, 0, 20)) / 20
+    for i in 0 ..< w * h: lp[i] = clamp((th - lp[i]) * 14 + 0.5'f32, 0'f32, 1'f32)   # (1: raised)
+    var hgt = l
+    blurPlane(hgt, w, h, 0.8)
+    let s = shade(hgt, w, h, 135, float(relief) / 25 * 2.5)
+    let sp = pf(s)
+    var v = newSeqUninit[float32](w * h)
+    let vp = pf(v)
+    parallelRows(h, y):
+      for x in 0 ..< w:
+        let i = y * w + x
+        let n = (hash01(x, y, 167) - 0.5'f32) * gr * 0.5'f32
+        vp[i] = clamp(1 - lp[i] * 0.85'f32 + (sp[i] - 1) * 0.6'f32 + n, 0'f32, 1'f32)
+    twoTone(src, v, fg, bg)
+
+proc plaster*(balance = 20; smoothness = 2; angle = 90.0; fg = 0xFF000000'u32; bg = 0xFFFFFFFF'u32): FilterFn =
+  ## Sketch > Plaster: molded in plaster, colored in the foreground and
+  ## background colors -- the darks raised, the lights sunk (`balance`
+  ## 0 .. 50, `smoothness` 1 .. 15), lit from `angle` degrees.
+  result = proc (src: Img; inner: Rect): Img =
+    let w = src.w
+    let h = src.h
+    var l = lumPlane(src)
+    blurPlane(l, w, h, float(clamp(smoothness, 1, 15)) * 0.6)
+    let lp = pf(l)
+    let th = float32(clamp(balance, 0, 50)) / 50
+    for i in 0 ..< w * h: lp[i] = clamp((th - lp[i]) * 10 + 0.5'f32, 0'f32, 1'f32)
+    var m = l
+    blurPlane(m, w, h, 1.0 + float(smoothness) * 0.3)
+    let s = shade(m, w, h, angle, 4.0)
+    let sp = pf(s)
+    var v = newSeqUninit[float32](w * h)
+    let vp = pf(v)
+    for i in 0 ..< w * h: vp[i] = clamp(0.88'f32 - lp[i] * 0.4'f32 + (sp[i] - 1) * 0.7'f32, 0'f32, 1'f32)
+    twoTone(src, v, fg, bg)
+
+proc waterPaper*(fiber = 15; brightness = 60; contrast = 80): FilterFn =
+  ## Sketch > Water Paper: as if painted on damp, fibrous paper: the
+  ## colors run along its fibers (`fiber` 3 .. 50 how long) and blend
+  ## (`brightness`, `contrast` 0 .. 100).
+  result = proc (src: Img; inner: Rect): Img =
+    let w = src.w
+    let h = src.h
+    let ln = float32(clamp(fiber, 3, 50)) * 0.5'f32
+    var dx = newSeqUninit[float32](w * h)
+    var dy = newSeqUninit[float32](w * h)
+    let ap = pf(dx)
+    let bp = pf(dy)
+    parallelRows(h, y):
+      for x in 0 ..< w:
+        let i = y * w + x
+        # (each pixel's fiber: a direction and a reach, from noise that stays put)
+        let t = smoothNoise(x.float, y.float, 5, 173) * 6.2832'f32
+        let r = (hash01(x, y, 179) - 0.5'f32) * ln
+        ap[i] = cos(t) * r
+        bp[i] = sin(t) * r
+    let run = displaced(src, dx, dy)
+    let ct = float(clamp(contrast, 0, 100)) / 50
+    let br = (float(clamp(brightness, 0, 100)) - 50) * 2
+    mapPixels(gaussianBlurImg(run, 0.8), proc (p: uint32; i, x, y: int): uint32 =
+      template c(v: float): int = c255((v - 128) * ct + 128 + br)
+      argb(int(aOf(p)), c(rOf(p).float), c(gOf(p).float), c(bOf(p).float)))
+
+proc glowingEdges*(width = 2; brightness = 6; smoothness = 5): FilterFn =
+  ## Stylize > Glowing Edges: the edges glowing like neon on black, in
+  ## their own colors (`width` 1 .. 14, `brightness` 0 .. 20, `smoothness`
+  ## 1 .. 15).
+  result = proc (src: Img; inner: Rect): Img =
+    let w = src.w
+    let h = src.h
+    var planes: array[3, seq[float32]]
+    for c, sh in [16, 8, 0]:
+      var pl = chanPlane(src, sh)
+      blurPlane(pl, w, h, float(clamp(smoothness, 1, 15)) * 0.2)
+      var e = edgePlane(pl, w, h)
+      blurPlane(e, w, h, float(clamp(width, 1, 14)) * 0.35)
+      planes[c] = move e
+    let r = pf(planes[0])
+    let g = pf(planes[1])
+    let b = pf(planes[2])
+    let k = 0.6 + float(clamp(brightness, 0, 20)) / 20 * 2.6
+    mapPixels(src, proc (p: uint32; i, x, y: int): uint32 =
+      argb(int(aOf(p)), c255(r[i].float * 255 * k), c255(g[i].float * 255 * k), c255(b[i].float * 255 * k)))
+
+# ---- Other > HSB/HSL ---------------------------------------------------------------------------------
+
+proc toModel(r, g, b: float; model: int): (float, float, float) =
+  ## (RGB, 0 .. 1, as HSB (1) or HSL (2), each 0 .. 1)
+  let mx = max(r, max(g, b))
+  let mn = min(r, min(g, b))
+  let d = mx - mn
+  var hue = 0.0
+  if d > 1e-9:
+    hue = if mx == r: (g - b) / d
+          elif mx == g: (b - r) / d + 2
+          else: (r - g) / d + 4
+    hue = hue / 6
+    if hue < 0: hue += 1
+  if model == 1:
+    (hue, (if mx > 0: d / mx else: 0.0), mx)
+  else:
+    let li = (mx + mn) / 2
+    (hue, (if d <= 1e-9: 0.0 else: d / (1 - abs(2 * li - 1))), li)
+
+proc fromModel(hue, s, v: float; model: int): (float, float, float) =
+  ## (HSB (1) or HSL (2) back to RGB)
+  let c = if model == 1: v * s else: (1 - abs(2 * v - 1)) * s
+  let hp = hue * 6
+  let x = c * (1 - abs(hp mod 2 - 1))
+  let (r, g, b) = if hp < 1: (c, x, 0.0)
+                  elif hp < 2: (x, c, 0.0)
+                  elif hp < 3: (0.0, c, x)
+                  elif hp < 4: (0.0, x, c)
+                  elif hp < 5: (x, 0.0, c)
+                  else: (c, 0.0, x)
+  let m = if model == 1: v - c else: v - c / 2
+  (r + m, g + m, b + m)
+
+proc hsbHsl*(input = 0; rows = 1): FilterFn =
+  ## Other > HSB/HSL: the color channels read in one model and written in
+  ## another -- 0 RGB, 1 HSB, 2 HSL (`input`: what the channels hold;
+  ## `rows`: what they are made to hold). RGB to HSB puts the hue in red,
+  ## the saturation in green and the brightness in blue; HSB to RGB takes
+  ## them back.
+  let i = clamp(input, 0, 2)
+  let o = clamp(rows, 0, 2)
+  mapFn(proc (p: uint32): uint32 =
+    var r = rOf(p).float / 255
+    var g = gOf(p).float / 255
+    var b = bOf(p).float / 255
+    if i != 0: (r, g, b) = fromModel(r, g, b, i)
+    if o != 0: (r, g, b) = toModel(r, g, b, o)
+    argb(int(aOf(p)), c255(r * 255), c255(g * 255), c255(b * 255)))
 
 {.pop.}

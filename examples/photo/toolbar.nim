@@ -13,7 +13,7 @@ type
   ModeVar = enum
     ## (which of a tool's settings an item of a group sets)
     mvNone, mvMarquee, mvLasso, mvWand, mvHeal, mvBrush, mvStamp, mvPattern, mvHistory, mvBlur,
-    mvDodge, mvPen, mvType, mvShape, mvDrop, mvErase, mvCrop, mvMove, mvHand
+    mvDodge, mvPen, mvType, mvShape, mvDrop, mvErase, mvCrop, mvMove, mvHand, mvVector, mvFrame
   ToolItem = object
     name: string             ## "Rectangular Marquee Tool"
     tool: Tool
@@ -50,7 +50,9 @@ let toolGroups = @[
     ti("Perspective Crop Tool", tCrop, pxPerspCrop, mvCrop, 1),
     ti("Slice Tool", tCrop, pxSlice, mvCrop, 3),
     ti("Slice Select Tool", tCrop, pxSlice, mvCrop, 4)]),
-  ToolGroup(name: "Frame", key: 'K', items: @[ti("Frame Tool", tCrop, pxMarqueeRect, mvCrop, 2)]),
+  ToolGroup(name: "Frame", key: 'K', items: @[ti("Rectangle Frame Tool", tCrop, pxMarqueeRect, mvFrame, 0),
+                                               ti("Ellipse Frame Tool", tCrop, pxMarqueeEllipse, mvFrame, 1),
+                                               ti("Polygon Frame Tool", tCrop, pxPolygonShape, mvFrame, 2)]),
   ToolGroup(name: "Eyedropper", key: 'I', items: @[
     ti("Eyedropper Tool", tEyedropper, pxEyedropper, mvDrop, 0),
     ti("Color Sampler Tool", tEyedropper, pxSelect, mvDrop, 1),
@@ -80,7 +82,10 @@ let toolGroups = @[
   ToolGroup(name: "Eraser", key: 'E', items: @[
     ti("Eraser Tool", tEraser, pxEraser, mvErase, 0),
     ti("Background Eraser Tool", tEraser, pxBgEraser, mvErase, 2),
-    ti("Magic Eraser Tool", tEraser, pxMagicWand, mvErase, 1)]),
+    ti("Magic Eraser Tool", tEraser, pxMagicWand, mvErase, 1),
+    ti("Eraser Tool (Shapes)", tVector, pxBgEraser, mvVector, 8),
+    ti("Scissors Tool", tVector, pxCut, mvVector, 9),
+    ti("Knife Tool", tVector, pxSlice, mvVector, 10)]),
   ToolGroup(name: "Gradient", key: 'G', items: @[
     ti("Gradient Tool", tGradient, pxGradient),
     ti("Paint Bucket Tool", tBucket, pxBucket)]),
@@ -107,7 +112,20 @@ let toolGroups = @[
     ti("Horizontal Type Mask Tool", tType, pxTypeMask, mvType, 1)]),
   ToolGroup(name: "Path Selection", key: 'A', items: @[
     ti("Path Selection Tool", tPen, pxPathSelect, mvPen, 5),
-    ti("Direct Selection Tool", tPen, pxPathArrow, mvPen, 0)]),
+    ti("Direct Selection Tool", tPen, pxPathArrow, mvPen, 0),
+    ti("Group Selection Tool", tVector, pxPathSelect, mvVector, 0),
+    ti("Magic Wand Tool (Shapes)", tVector, pxMagicWand, mvVector, 1),
+    ti("Lasso Tool (Points)", tVector, pxPolyLasso, mvVector, 2)]),
+  ToolGroup(name: "Paintbrush (Vector)", key: 'N', items: @[
+    ti("Paintbrush Tool (Vector)", tVector, pxBrush, mvVector, 3),
+    ti("Blob Brush Tool", tVector, pxPaint, mvVector, 4),
+    ti("Smooth Tool", tVector, pxCurvaturePen, mvVector, 5),
+    ti("Path Eraser Tool", tVector, pxEraser, mvVector, 6),
+    ti("Join Tool", tVector, pxConvertPoint, mvVector, 7)]),
+  ToolGroup(name: "Width", key: ' ', items: @[
+    ti("Width Tool", tVector, pxWarp, mvVector, 11),
+    ti("Mesh Tool", tVector, pxGrid, mvVector, 12),
+    ti("Perspective Selection Tool", tVector, pxPerspCrop, mvVector, 13)]),
   ToolGroup(name: "Shape", key: 'U', items: @[
     ti("Rectangle Tool", tShape, pxRectShape, mvShape, 0),
     ti("Rounded Rectangle Tool", tShape, pxRoundRectShape, mvShape, 1),
@@ -117,6 +135,10 @@ let toolGroups = @[
     ti("Line Tool", tShape, pxLineTool, mvShape, 4),
     ti("Star Tool", tShape, pxStarShape, mvShape, 6),
     ti("Spiral Tool", tShape, pxSpiral, mvShape, 7),
+    ti("Arc Tool", tShape, pxSpiral, mvShape, 9),
+    ti("Rectangular Grid Tool", tShape, pxGrid, mvShape, 10),
+    ti("Polar Grid Tool", tShape, pxEllipseShape, mvShape, 11),
+    ti("Flare Tool", tShape, pxStar, mvShape, 12),
     ti("Custom Shape Tool", tShape, pxCustomShape, mvShape, 5)]),
   ToolGroup(name: "Hand", key: 'H', items: @[ti("Hand Tool", tHand, pxHandTool, mvHand, 0),
                                               ti("Rotate View Tool", tHand, pxRotateView, mvHand, 1)]),
@@ -151,6 +173,8 @@ proc modeOf(mv: ModeVar): int =
   of mvCrop: cropKind
   of mvMove: moveKind
   of mvHand: handKind
+  of mvVector: vecMode
+  of mvFrame: (if cropKind == 2: frameShape else: -1)
 
 proc itemOn(it: ToolItem): bool =
   ## (the tool in use is this one)
@@ -202,6 +226,11 @@ proc pickTool(g, k: int) =
   of mvCrop:
     if cropKind != it.mode: pendingCrop.on = false
     cropKind = it.mode
+  of mvVector: vecMode = it.mode
+  of mvFrame:
+    if cropKind != 2: pendingCrop.on = false
+    cropKind = 2
+    frameShape = it.mode
   status = ""
 
 proc groupHidden(g: int): bool = ("," & toolGroups[g].name & ",") in ("," & prefs.toolHidden & ",")
@@ -217,7 +246,7 @@ proc toolKeyPressed(k: KeyCode; shift: bool): bool =
         pickTool(g, 1)
         return true
   for g, grp in toolGroups:
-    if k == KeyCode(ord(KeyA) + ord(grp.key) - ord('A')):
+    if grp.key in {'A' .. 'Z'} and k == KeyCode(ord(KeyA) + ord(grp.key) - ord('A')):
       let cur = shownItem(g)
       if shift and grp.items.len > 1 and groupOf(tool) == g:
         pickTool(g, (cur + 1) mod grp.items.len)
@@ -431,7 +460,7 @@ proc toolboxContent() =
     let hit = interact(idOf("tool:" & grp.name), cr, focusable = false)
     toolFace(cr, it.glyph, hit.down, cur == g, grp.items.len > 1)
     # the usual tooltip: the tool's name and its key
-    tooltip(it.name & " (" & grp.key & ")")
+    tooltip(it.name & (if grp.key in {'A' .. 'Z'}: " (" & grp.key & ")" else: ""))
     if hit.down and ui.pressed:
       toolPress = (g, ui.now, false)
       if AltPressed in ui.mods and grp.items.len > 1:
@@ -467,14 +496,14 @@ proc toolboxContent() =
     if toolFly >= 0 and toolFly < toolGroups.len:
       let grp = toolGroups[toolFly]
       for k, it in grp.items:
-        if menuItem(it.glyph & "  " & it.name, $grp.key, checked = itemOn(it)): pickTool(toolFly, k)
+        if menuItem(it.glyph & "  " & it.name, (if grp.key in {'A' .. 'Z'}: $grp.key else: ""), checked = itemOn(it)): pickTool(toolFly, k)
     elif toolFly == -2:
       var any = false
       for g, grp in toolGroups:
         if not groupHidden(g): continue
         for k, it in grp.items:
           any = true
-          if menuItem(it.glyph & "  " & it.name, $grp.key, checked = itemOn(it)): pickTool(g, k)
+          if menuItem(it.glyph & "  " & it.name, (if grp.key in {'A' .. 'Z'}: $grp.key else: ""), checked = itemOn(it)): pickTool(g, k)
       if any: menuSeparator()
       if menuItem("Edit Toolbar..."): editToolbarOpen = true
       if menuItem("One Column", checked = cols == 1):
@@ -556,7 +585,7 @@ proc editToolbarDialog() =
     for g, grp in toolGroups:
       var showIt = not groupHidden(g)
       row:
-        if checkbox(grp.items[shownItem(g)].glyph & "  " & grp.name & " (" & grp.key & ")", showIt):
+        if checkbox(grp.items[shownItem(g)].glyph & "  " & grp.name & (if grp.key in {'A' .. 'Z'}: " (" & grp.key & ")" else: ""), showIt):
           discard
       if not showIt: hidden.add grp.name
     let now = hidden.join(",")

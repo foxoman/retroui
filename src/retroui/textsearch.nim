@@ -403,3 +403,15 @@ proc editPlain*(t: var TextData; words: string) =
   var mid = ""
   for k in pre ..< b.len - suf: mid.add $Rune(b[k])
   if mid.len > 0: t.insertText(pre, mid, st)
+
+proc grepMatches(pattern: string; cps: seq[int]): seq[(int, int)] =
+  ## (where a GREP style's pattern matches in a paragraph: `textengine.grepHook`)
+  let p = try: compilePattern(pattern) except CatchableError: return
+  var at = 0
+  while at <= cps.len:
+    let m = p.find(cps, at)
+    if m.a < 0: break
+    result.add (m.a, m.b)
+    at = if m.b > m.a: m.b else: m.a + 1
+
+grepHook = grepMatches

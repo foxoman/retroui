@@ -97,6 +97,29 @@ proc applyText(name: string; change: proc (t: var TextData)) =
     change(t)
     d.setText(L, t))
 
+proc applyPara(name: string; change: proc (p: var ParaStyle)) =
+  ## A paragraph setting changed: of the paragraphs the selection is in while typing (each keeps
+  ## the rest of its own format), else of all of them -- as the layout program's Paragraph panel.
+  let L = typeTarget()
+  if L == nil: return
+  if te.on and te.layer == L:
+    let (a, b) = (min(te.caret, te.anchor), max(te.caret, te.anchor))
+    editText(proc (t: var TextData) = t.changeParas(a, b, change))
+    return
+  applyText(name, proc (t: var TextData) = t.changeParas(0, t.runeLen, change))
+
+proc applyAllParas(name: string; change: proc (p: var ParaStyle)) =
+  ## A setting the whole text has, as one (a list, a drop cap): in every paragraph of it.
+  applyText(name, proc (t: var TextData) = t.changeParas(0, t.runeLen, change))
+
+proc curPara(): ParaStyle =
+  ## The format of the paragraph being typed in (the first's, of a text picked; the next
+  ## text's).
+  let L = typeTarget()
+  if L == nil: typePara
+  elif te.on and te.layer == L: L.text.paraFmtAt(te.caret)
+  else: L.text.paraFmtAt(0)
+
 proc fontRows(compact: bool) =
   ## The font, its style, the size, the color (the Options palette and the
   ## Character palette share them).
@@ -316,23 +339,22 @@ proc alignButtons(cur: TextAlign; all: bool) =
     if toolButton(glyphIcon(icons[ord(a)], ui.theme.text, dp(16)), $a, down = shownCur == a):
       let v = if rtl: mirroredAlign(a) else: a
       typePara.align = v
-      applyText("Paragraph Alignment", proc (t: var TextData) = t.para.align = v)
+      applyPara("Paragraph Alignment", proc (p: var ParaStyle) = p.align = v)
 
 proc directionButtons() =
   ## Left-to-right / right-to-left text, as buttons (the text being typed or
   ## picked, else the next one); a click on the one pressed: by the text.
-  let L = typeTarget()
-  let cur = if L != nil: L.text.para.rtl else: typePara.rtl
+  let cur = curPara().rtl
   for (v, cap, tip) in [(1, "LTR", "Left-to-right text (again: as the text runs)"),
                         (2, "RTL", "Right-to-left text, as Arabic (again: as the text runs)")]:
     if toolButton(cap, tip, down = cur == v):
       let nv = if cur == v: 0 else: v
       typePara.rtl = nv
-      applyText("Text Direction", proc (t: var TextData) = t.para.rtl = nv)
+      applyPara("Text Direction", proc (p: var ParaStyle) = p.rtl = nv)
 
 proc paragraphBody() =
   let L = typeTarget()
-  let p = if L != nil: L.text.para else: typePara
+  let p = curPara()
   row:
     alignButtons(p.align, true)
     directionButtons()
@@ -348,7 +370,7 @@ proc paragraphBody() =
       if spin(v, lo, hi, w = dp(64)):
         let x = float32(v)
         typePara.field = x
-        applyText(name, proc (t: var TextData) = t.para.field = x)
+        applyPara(name, proc (p: var ParaStyle) = p.field = x)
   num("Indent left:", cpIndL, -2000, 2000, "Indent", indentLeft)
   num("Indent right:", cpIndR, -2000, 2000, "Indent", indentRight)
   num("First line:", cpIndF, -2000, 2000, "Indent", indentFirst)
@@ -359,7 +381,7 @@ proc paragraphBody() =
     if combo(["Of the text", "Left to right", "Right to left"], cpDir, w = dp(120)):
       typePara.rtl = cpDir
       let v = cpDir
-      applyText("Text Direction", proc (t: var TextData) = t.para.rtl = v)
+      applyPara("Text Direction", proc (p: var ParaStyle) = p.rtl = v)
   # (the usual Insert Kashida: how long justified Arabic's joins may grow)
   const kOrder = [kaNone, kaShort, kaMedium, kaLong, kaStylistic]
   var ki = kOrder.find(if p.noKashida: kaNone else: p.kashida)
@@ -369,15 +391,32 @@ proc paragraphBody() =
       let v = kOrder[clamp(ki, 0, 4)]
       typePara.kashida = v
       typePara.noKashida = false
-      applyText("Insert Kashida", proc (t: var TextData) = (t.para.kashida = v; t.para.noKashida = false))
+      applyPara("Insert Kashida", proc (p: var ParaStyle) = (p.kashida = v; p.noKashida = false))
   label("(justified Arabic: a join in each word grows, where a scribe would lengthen it)",
         color = ui.theme.gray)
+  # (the composer; Justification, Keep Options, Span Columns: the layout program's dialogs)
+  row:
+    label "Composer:"
+    var ci = ord(p.composer)
+    var cn: seq[string]
+    for e in Composer: cn.add tr($e)
+    if combo(cn, ci, w = dp(170)):
+      let v = Composer(clamp(ci, 0, ord(high(Composer))))
+      typePara.composer = v
+      applyPara("Composer", proc (p: var ParaStyle) = p.composer = v)
+  row:
+    if button("Justification...", w = dp(104)): runCommand("Justification...")
+    if button("Keep Options...", w = dp(104)): runCommand("Keep Options...")
+    if button("Span Columns...", w = dp(104)): runCommand("Span Columns...")
+  row:
+    if button("Nested Styles...", w = dp(104)): runCommand("Drop Caps and Nested Styles...")
+    if button("GREP Styles...", w = dp(104)): runCommand("GREP Styles...")
   row:
     var hy = p.hyphenate
     if checkbox("Hyphenate", hy):
       typePara.hyphenate = hy
       let v = hy
-      applyText("Hyphenate", proc (t: var TextData) = t.para.hyphenate = v)
+      applyPara("Hyphenate", proc (p: var ParaStyle) = p.hyphenate = v)
     label("(English words broken at a line's end, in a box)", color = ui.theme.gray)
   # a list: a mark before every paragraph of a text box
   var lk = ord(p.list)
@@ -386,14 +425,14 @@ proc paragraphBody() =
     if combo(["None", "Bullets", "Numbers"], lk, w = dp(100)):
       let v = ListKind(clamp(lk, 0, 2))
       typePara.list = v
-      applyText("List", proc (t: var TextData) = t.para.list = v)
+      applyAllParas("List", proc (p: var ParaStyle) = p.list = v)
     if p.list == lkBullet:
       const marks = ["•", "–", "▪", "◆", "★", "✓", "○", "►"]
       var mi = max(0, marks.find(if p.listMark.len > 0: p.listMark else: "•"))
       if combo(marks, mi, w = dp(56)):
         let v = marks[clamp(mi, 0, marks.high)]
         typePara.listMark = v
-        applyText("List Mark", proc (t: var TextData) = t.para.listMark = v)
+        applyAllParas("List Mark", proc (p: var ParaStyle) = p.listMark = v)
     elif p.list == lkNumber:
       var names: seq[string]
       for s in NumberStyle: names.add $s
@@ -401,7 +440,7 @@ proc paragraphBody() =
       if combo(names, ni, w = dp(90)):
         let v = NumberStyle(clamp(ni, 0, ord(high(NumberStyle))))
         typePara.listNumbers = v
-        applyText("List Numbers", proc (t: var TextData) = t.para.listNumbers = v)
+        applyAllParas("List Numbers", proc (p: var ParaStyle) = p.listNumbers = v)
   if p.list != lkNone:
     row:
       if p.list == lkNumber:
@@ -409,16 +448,16 @@ proc paragraphBody() =
         var from0 = max(1, p.listStart)
         if spin(from0, 1, 9999, w = dp(56)):
           let v = from0
-          applyText("List Start", proc (t: var TextData) = t.para.listStart = v)
+          applyAllParas("List Start", proc (p: var ParaStyle) = p.listStart = v)
         const ends = [".", ")", "-", ":"]
         var ei = max(0, ends.find(if p.listSuffix.len > 0: p.listSuffix else: "."))
         if combo(ends, ei, w = dp(44)):
           let v = ends[clamp(ei, 0, ends.high)]
-          applyText("List Numbers", proc (t: var TextData) = t.para.listSuffix = v)
+          applyAllParas("List Numbers", proc (p: var ParaStyle) = p.listSuffix = v)
       var own = p.listColor != 0
       if checkbox("Marks in the foreground color", own):
         let v = if own: (fg or 0xFF000000'u32) else: 0'u32
-        applyText("List Color", proc (t: var TextData) = t.para.listColor = v)
+        applyAllParas("List Color", proc (p: var ParaStyle) = p.listColor = v)
     if L != nil and L.text.boxW <= 0:
       label("(a list is text in a box: drag a box with the Type tool)", color = ui.theme.gray)
   # a drop cap: the first letters as tall as so many lines
@@ -429,14 +468,14 @@ proc paragraphBody() =
     if spin(dl, 0, 20, w = dp(64)):
       let v = if dl == 1: (if p.dropLines >= 2: 0 else: 2) else: dl   # (one line is no drop cap)
       typePara.dropLines = v
-      applyText("Drop Cap", proc (t: var TextData) = t.para.dropLines = v)
+      applyAllParas("Drop Cap", proc (p: var ParaStyle) = p.dropLines = v)
   if p.dropLines >= 2:
     row([96, -1]):
       label "Letters:"
       if spin(dc, 1, 20, w = dp(64)):
         let v = dc
         typePara.dropChars = v
-        applyText("Drop Cap", proc (t: var TextData) = t.para.dropChars = v)
+        applyAllParas("Drop Cap", proc (p: var ParaStyle) = p.dropChars = v)
   # (a book's page with a baseline grid: the lines on it)
   let grid = if active != nil: bookGrid(active) else: (0'f32, 0'f32)
   if L != nil and L.text.boxW > 0 and grid.step > 0:
@@ -448,7 +487,7 @@ proc paragraphBody() =
       applyText("Align to Baseline Grid", proc (t: var TextData) =
         t.gridStep = g.step
         t.gridStart = g.start
-        t.para.gridAlign = v)
+        t.changeParas(0, t.runeLen, proc (p: var ParaStyle) = p.gridAlign = v))
   if L != nil and L.text.boxW > 0:
     var fit = L.text.fit
     if checkbox("Dynamic Text: as big as fills the box", fit):
@@ -544,7 +583,7 @@ proc typeOptions() =
   fontRows(true)
   let L = typeTarget()
   row:
-    alignButtons(if L != nil: L.text.para.align else: typePara.align, false)
+    alignButtons(curPara().align, false)
     if toolButton(glyphIcon(pxWarpText, ui.theme.text, dp(16)), "Warp Text", enabled = L != nil and
                   not L.text.onPath):
       startWarp()
@@ -657,6 +696,8 @@ proc fxSlider(lab: string; v: var int; lo, hi: int; unit = ""): bool =
     result = slider(v, lo, hi, ticks = 0)
     label $v & unit
 
+var patSwatch: tuple[key: Hash; b: Bitmap]   ## (Pattern Overlay's swatch)
+
 proc effectPage(e: var Effect; k: FxKind): bool =
   ## The settings of effect `k`; true when one changed.
   template ch(x: untyped) =
@@ -741,6 +782,45 @@ proc effectPage(e: var Effect; k: FxKind): bool =
     ch fxSlider("Angle:", e.angle, -180, 180, "°")
     if e.scale <= 0: e.scale = 100
     ch fxSlider("Scale:", e.scale, 10, 150, "%")
+  of fxPatternOverlay:
+    row:
+      label "Blend Mode:"
+      ch modeCombo(e.mode, "m1")
+    ch fxSlider("Opacity:", e.opacity, 0, 100, "%")
+    # the pattern: one of those it comes with, or the one of Edit > Define Pattern
+    var names = @PatternNames
+    if pattern.len > 0 and patternW > 0: names.add "Defined Pattern"
+    var shown: seq[string]
+    for n in names: shown.add tr(n)
+    var k = max(0, names.find(e.patternName))
+    row:
+      label "Pattern:"
+      if e.pattern.len == e.patternW * e.patternH and e.patternW > 0:
+        # (a swatch of it, made again only when it changes)
+        let r = place(dp(28), dp(28))
+        let key = hash(e.pattern) !& hash(e.patternW)
+        if patSwatch.b == nil or patSwatch.key != key:
+          let b = newBitmap(min(e.patternW, 64), min(e.patternH, 64))
+          for y in 0 ..< b.h:
+            for x in 0 ..< b.w: b.px[y * b.w + x] = e.pattern[y * e.patternW + x]
+          patSwatch = (key, b)
+        drawBitmap(r, patSwatch.b)
+        box(r, ui.theme.frame)
+      if combo(shown, k, w = dp(150)):
+        if names[k] == "Defined Pattern":
+          e.pattern = pattern
+          e.patternW = patternW
+          e.patternH = patternH
+        else:
+          let t = patternTile(names[k])
+          e.pattern = t.px
+          e.patternW = t.w
+          e.patternH = t.h
+        e.patternName = names[k]
+        result = true
+    ch fxSlider("Angle:", e.angle, -180, 180, "°")
+    if e.scale <= 0: e.scale = 100
+    ch fxSlider("Scale:", e.scale, 1, 1000, "%")
   of fxStroke:
     ch fxSlider("Size:", e.size, 1, 250, " px")
     row:

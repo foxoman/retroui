@@ -841,7 +841,7 @@ proc textureDialogs() =
 
 type AdjKind = enum akLevels, akCurves, akBC, akBalance, akHS, akThreshold, akPosterize, akReplace,
                    akSelective, akShadows, akVibrance, akExposure, akPhotoFilter, akBlackWhite, akMixer,
-                   akGradMap, akLookup
+                   akGradMap, akLookup, akLight
 
 var
   adjOpen = false
@@ -892,6 +892,8 @@ var
   # exposure (hundredths of a stop; ten-thousandths; hundredths)
   exE, exOff = 0
   exGamma = 100
+  # light (hundredths of a stop; the five tones -100 .. 100)
+  lgE, lgC, lgH, lgS, lgW, lgB = 0
   # photo filter
   pfUse = 0                   ## a filter (0) or a color (1)
   pfKind = 0
@@ -915,7 +917,7 @@ const adjNames: array[AdjKind, string] = ["Levels", "Curves", "Brightness/Contra
                                           "Hue/Saturation", "Threshold", "Posterize", "Replace Color",
                                           "Selective Color", "Shadows/Highlights", "Vibrance", "Exposure",
                                           "Photo Filter", "Black & White", "Channel Mixer", "Gradient Map",
-                                          "Color Lookup"]
+                                          "Color Lookup", "Light"]
 
 proc adjFn(): FilterFn =
   case adjKind
@@ -945,6 +947,7 @@ proc adjFn(): FilterFn =
   of akLookup:
     let f = colorLookup(luData)
     if f == nil: (proc (src: Img; inner: Rect): Img = src) else: f
+  of akLight: lightFn(lgE / 100, lgC, lgH, lgS, lgW, lgB)
 
 proc adjSignature(): string =
   case adjKind
@@ -965,6 +968,7 @@ proc adjSignature(): string =
   of akMixer: $cm & $cmMono
   of akGradMap: $gmStops & $gmReverse & $gmDither
   of akLookup: $luData.len & "/" & $hash(luData)
+  of akLight: $[lgE, lgC, lgH, lgS, lgW, lgB]
 
 proc adjArgs(): seq[float]
 proc adjData(): string = (if adjKind == akLookup: luData else: "")
@@ -1067,9 +1071,11 @@ proc resetAdjust(k: AdjKind; d: Doc) =
     gmDither = false
   of akLookup:
     if luData.len == 0: luData = "look:Film Stock"
+  of akLight:
+    lgE = 0; lgC = 0; lgH = 0; lgS = 0; lgW = 0; lgB = 0
 
 const layerKinds = {akLevels, akCurves, akBC, akBalance, akHS, akThreshold, akPosterize, akSelective,
-                    akVibrance, akExposure, akPhotoFilter, akBlackWhite, akMixer, akGradMap, akLookup}
+                    akVibrance, akExposure, akPhotoFilter, akBlackWhite, akMixer, akGradMap, akLookup, akLight}
   ## (the adjustments that can be adjustment layers)
 
 proc adjArgs(): seq[float] =
@@ -1116,6 +1122,7 @@ proc adjArgs(): seq[float] =
   of akThreshold: result = @[thLevel.float]
   of akPosterize: result = @[postLevels.float]
   of akGradMap: result = gradientMapArgs(gmStops, gmReverse, gmDither)
+  of akLight: result = @[lgE / 100, lgC.float, lgH.float, lgS.float, lgW.float, lgB.float]
   else: discard
 
 proc loadAdjArgs(a: seq[float]) =
@@ -1186,6 +1193,8 @@ proc loadAdjArgs(a: seq[float]) =
     gmStops = g.stops
     gmReverse = g.reverse
     gmDither = g.dither
+  of akLight:
+    lgE = int(round(at(0) * 100)); lgC = ai(1); lgH = ai(2); lgS = ai(3); lgW = ai(4); lgB = ai(5)
   else: discard
 
 proc startAdjustLayer(k: AdjKind; L: Layer = nil) =
@@ -1241,7 +1250,7 @@ proc newAreaAdjustment(d: Doc; kind: string) =
 
 proc adjustLayerMenu(d: Doc) =
   ## The kinds of adjustment layer, to make one.
-  for k in [akLevels, akCurves, akBC, akBalance, akHS, akSelective, akVibrance, akExposure,
+  for k in [akLevels, akCurves, akBC, akBalance, akHS, akSelective, akVibrance, akExposure, akLight,
             akPhotoFilter, akBlackWhite, akMixer, akGradMap, akLookup, akThreshold, akPosterize]:
     if menuItem(adjNames[k].replace("&", "&&") & "...", enabled = d.mode in colorModes or k notin {akBalance, akHS, akSelective,
                                                                            akVibrance, akPhotoFilter,
@@ -1512,6 +1521,24 @@ proc exposureBody() =
         label(formatFloat(exGamma / 100, ffDecimal, 2))
     discard adjButtons()
 
+proc lightBody() =
+  ## Light: exposure and the tones, as Camera Raw's Light panel (one adjustment layer for all six).
+  row([-1, 92]):
+    col:
+      row([86, -1, 56]):
+        label "Exposure:"
+        slider(lgE, -500, 500, ticks = 0)
+        label((if lgE > 0: "+" else: "") & formatFloat(lgE / 100, ffDecimal, 2))
+      for (name, v) in [("Contrast:", addr lgC), ("Highlights:", addr lgH), ("Shadows:", addr lgS),
+                        ("Whites:", addr lgW), ("Blacks:", addr lgB)]:
+        row([86, -1, 56]):
+          label name
+          pushId(name)
+          slider(v[], -100, 100, ticks = 0)
+          popId()
+          label((if v[] > 0: "+" else: "") & $v[])
+    discard adjButtons()
+
 proc photoFilterBody() =
   row([-1, 92]):
     col:
@@ -1609,7 +1636,7 @@ proc adjustDialog() =
                                          of akPosterize: 340
                                          of akHS: 560
                                          of akSelective, akShadows, akVibrance: 400
-                                         of akExposure, akBlackWhite, akMixer: 430
+                                         of akExposure, akBlackWhite, akMixer, akLight: 430
                                          of akPhotoFilter: 470
                                          else: 470)):
     case adjKind
@@ -1624,6 +1651,7 @@ proc adjustDialog() =
     of akShadows: shadowsBody()
     of akVibrance: vibranceBody()
     of akExposure: exposureBody()
+    of akLight: lightBody()
     of akPhotoFilter: photoFilterBody()
     of akBlackWhite: blackWhiteBody()
     of akMixer: mixerBody()
@@ -1677,6 +1705,7 @@ type
     lo, hi, val: float
     dec: int
     choices: seq[string]
+    check: bool                ## a checkbox (0 off, 1 on)
   FSpec = object
     name: string
     params: seq[FParam]
@@ -1688,6 +1717,9 @@ proc num(label: string; lo, hi, val: float; unit = ""; dec = 0): FParam =
 
 proc pick(label: string; choices: openArray[string]; val = 0): FParam =
   FParam(label: label, choices: @choices, val: val.float, hi: (choices.len - 1).float)
+
+proc flag(label: string; val = false): FParam =
+  FParam(label: label, check: true, val: (if val: 1.0 else: 0.0), hi: 1)
 
 proc noMargin(v: seq[float]): int = 0
 
@@ -1710,16 +1742,162 @@ proc defFilter(name: string; params: seq[FParam]; make: proc (v: seq[float]): Fi
   filters[name] = FSpec(name: name, params: params, make: make, margin: margin)
 
 const
-  galleryArtistic = ["Colored Pencil", "Cutout", "Dry Brush", "Film Grain", "Paint Daubs", "Plastic Wrap",
-                     "Poster Edges", "Sponge", "Watercolor"]
-  galleryBrush = ["Accented Edges", "Angled Strokes", "Crosshatch", "Ink Outlines", "Spatter", "Sumi-e"]
-  gallerySketch = ["Bas Relief", "Charcoal", "Chrome", "Graphic Pen", "Halftone Pattern", "Pencil Sketch", "Photocopy",
-                   "Reticulation", "Stamp", "Torn Edges"]
+  galleryArtistic = ["Colored Pencil", "Cutout", "Dry Brush", "Film Grain", "Fresco", "Neon Glow", "Paint Daubs",
+                     "Palette Knife", "Plastic Wrap", "Poster Edges", "Rough Pastels", "Smudge Stick", "Sponge",
+                     "Underpainting", "Watercolor"]
+  galleryBrush = ["Accented Edges", "Angled Strokes", "Crosshatch", "Dark Strokes", "Ink Outlines", "Spatter",
+                  "Sprayed Strokes", "Sumi-e"]
+  galleryDistort = ["Diffuse Glow", "Glass", "Ocean Ripple"]
+  gallerySketch = ["Bas Relief", "Chalk & Charcoal", "Charcoal", "Chrome", "Conté Crayon", "Graphic Pen",
+                   "Halftone Pattern", "Note Paper", "Pencil Sketch", "Photocopy", "Plaster", "Reticulation", "Stamp",
+                   "Torn Edges", "Water Paper"]
+  galleryStylize = ["Glowing Edges"]
   galleryTexture = ["Craquelure", "Grain", "Mosaic Tiles", "Patchwork", "Stained Glass", "Texturizer"]
+  lightAngles = ["Bottom", "Bottom Left", "Left", "Top Left", "Top", "Top Right", "Right", "Bottom Right"]
+  lightDegrees = [270.0, 225, 180, 135, 90, 45, 0, 315]
+
+var lensDepthCache: tuple[doc: Doc; layer: Layer; ver: int; depth: seq[uint8]]
+
+proc lensDepth(src: int): seq[uint8] =
+  ## Lens Blur's depth map, the whole layer's: from its transparency, its mask, an estimate of the
+  ## photo's depth, or a saved selection (as Photoshop's Source list; white far, black near).
+  let d = cur()
+  if d == nil or src <= 0: return
+  let L = d.layer
+  case src
+  of 1:
+    result = newSeq[uint8](d.w * d.h)
+    for i in 0 ..< min(L.px.len, result.len): result[i] = 255'u8 - uint8(L.px[i] shr 24)
+  of 2:
+    if L.mask != nil and L.mask.px.len == d.w * d.h:
+      result = newSeq[uint8](d.w * d.h)
+      for i in 0 ..< result.len: result[i] = uint8(L.mask.px[i] and 255)
+  of 3:
+    if lensDepthCache.doc == d and lensDepthCache.layer == L and lensDepthCache.ver == L.ver:
+      result = lensDepthCache.depth
+      return
+    if L.px.len == d.w * d.h:
+      result = depthMapOf(Img(w: d.w, h: d.h, px: L.px))
+      lensDepthCache = (d, L, L.ver, result)
+  else:
+    let k = src - 4
+    if k < d.alphas.len and d.alphas[k].m.len == d.w * d.h: result = d.alphas[k].m
+
+proc defLensBlur() =
+  ## (its Source list holds the document's saved selections, so it is made again as it opens)
+  var sources = @["None", "Transparency", "Layer Mask", "Estimated Depth"]
+  let d = cur()
+  if d != nil:
+    for a in d.alphas: sources.add a.name
+  defFilter("Lens Blur", @[pick("Source:", sources), num("Blur Focal Distance:", 0, 255, 0), flag("Invert"),
+                           pick("Shape:", ["Triangle (3)", "Square (4)", "Pentagon (5)", "Hexagon (6)",
+                                           "Heptagon (7)", "Octagon (8)"], 3),
+                           num("Radius:", 0, 100, 15), num("Blade Curvature:", 0, 100, 0),
+                           num("Rotation:", 0, 360, 0, "°"), num("Brightness:", 0, 100, 0),
+                           num("Threshold:", 0, 255, 255), num("Amount:", 0, 100, 0),
+                           pick("Distribution:", ["Uniform", "Gaussian"]), flag("Monochromatic")],
+            proc (v: seq[float]): FilterFn =
+              let o = LensBlur(focal: int(v[1]), invert: v[2] > 0.5, blades: 3 + int(v[3]), radius: int(v[4]),
+                               curvature: int(v[5]), rotation: v[6], brightness: int(v[7]), threshold: int(v[8]),
+                               noise: int(v[9]), gaussian: v[10] > 0.5, mono: v[11] > 0.5)
+              let dm = lensDepth(int(v[0]))
+              let dd = cur()
+              if dm.len > 0 and dd != nil: lensBlur(o, dm, dd.w, dd.h) else: lensBlur(o),
+            proc (v: seq[float]): int = int(v[4]) + 2)
 
 proc initGallery() =
   ## The Filter Gallery's filters and the others of photoartistic.
   template m(n: int): proc (v: seq[float]): int = (proc (v: seq[float]): int = n)
+  # ---- the Gallery's others (Photoshop's names, ranges and first settings)
+  defFilter("Fresco", @[num("Brush Size:", 0, 10, 2), num("Brush Detail:", 0, 10, 8), num("Texture:", 1, 3, 1)],
+            proc (v: seq[float]): FilterFn = fresco(int(v[0]), int(v[1]), int(v[2])), m(16))
+  defFilter("Neon Glow", @[num("Glow Size:", -24, 24, 5), num("Glow Brightness:", 0, 50, 15)],
+            proc (v: seq[float]): FilterFn = neonGlow(int(v[0]), int(v[1]), 0xFF3C5AFF'u32, fg, bg),
+            proc (v: seq[float]): int = abs(int(v[0])) * 2 + 4)
+  defFilter("Palette Knife", @[num("Stroke Size:", 1, 50, 25), num("Stroke Detail:", 1, 3, 3),
+                               num("Softness:", 0, 10, 0)],
+            proc (v: seq[float]): FilterFn = paletteKnife(int(v[0]), int(v[1]), int(v[2])),
+            proc (v: seq[float]): int = int(v[0]) div 2 + 6)
+  defFilter("Rough Pastels", @[num("Stroke Length:", 0, 40, 6), num("Stroke Detail:", 1, 20, 4),
+                               pick("Texture:", ["Canvas", "Brick", "Burlap", "Sandstone"]),
+                               num("Scaling:", 50, 200, 100, "%"), num("Relief:", 0, 50, 20), pick("Light:", lightAngles, 4)],
+            proc (v: seq[float]): FilterFn =
+              roughPastels(int(v[0]), int(v[1]), TextureKind(int(v[2])), int(v[3]), int(v[4]), lightDegrees[int(v[5])]),
+            proc (v: seq[float]): int = int(v[0]) + 4)
+  defFilter("Smudge Stick", @[num("Stroke Length:", 0, 10, 2), num("Highlight Area:", 0, 20, 0),
+                              num("Intensity:", 0, 10, 10)],
+            proc (v: seq[float]): FilterFn = smudgeStick(int(v[0]), int(v[1]), int(v[2])),
+            proc (v: seq[float]): int = int(v[0]) * 2 + 4)
+  defFilter("Underpainting", @[num("Brush Size:", 0, 40, 6), num("Texture Coverage:", 0, 40, 16),
+                               pick("Texture:", ["Canvas", "Brick", "Burlap", "Sandstone"]),
+                               num("Scaling:", 50, 200, 100, "%"), num("Relief:", 0, 50, 4), pick("Light:", lightAngles, 4)],
+            proc (v: seq[float]): FilterFn =
+              underpainting(int(v[0]), int(v[1]), TextureKind(int(v[2])), int(v[3]), int(v[4]), lightDegrees[int(v[5])]),
+            proc (v: seq[float]): int = int(v[0]) + 6)
+  defFilter("Dark Strokes", @[num("Balance:", 0, 10, 5), num("Black Intensity:", 0, 10, 6),
+                              num("White Intensity:", 0, 10, 2)],
+            proc (v: seq[float]): FilterFn = darkStrokes(int(v[0]), int(v[1]), int(v[2])), m(16))
+  defFilter("Sprayed Strokes", @[num("Stroke Length:", 0, 20, 12), num("Spray Radius:", 0, 25, 7),
+                                 pick("Stroke Direction:", ["Right Diagonal", "Horizontal", "Left Diagonal", "Vertical"])],
+            proc (v: seq[float]): FilterFn = sprayedStrokes(int(v[0]), int(v[1]), int(v[2])),
+            proc (v: seq[float]): int = int(v[0] + v[1]) + 2)
+  defFilter("Diffuse Glow", @[num("Graininess:", 0, 10, 6), num("Glow Amount:", 0, 20, 10),
+                              num("Clear Amount:", 0, 20, 15)],
+            proc (v: seq[float]): FilterFn = diffuseGlow(int(v[0]), int(v[1]), int(v[2]), bg), m(20))
+  defFilter("Glass", @[num("Distortion:", 0, 20, 5), num("Smoothness:", 1, 15, 3),
+                       pick("Texture:", ["Blocks", "Canvas", "Frosted", "Tiny Lens"], 2),
+                       num("Scaling:", 50, 200, 100, "%"), flag("Invert")],
+            proc (v: seq[float]): FilterFn = glass(int(v[0]), int(v[1]), GlassTexture(int(v[2])), int(v[3]), v[4] > 0.5),
+            proc (v: seq[float]): int = int(v[0]) * 3 + 4)
+  defFilter("Ocean Ripple", @[num("Ripple Size:", 1, 15, 9), num("Ripple Magnitude:", 0, 20, 9)],
+            proc (v: seq[float]): FilterFn = oceanRipple(int(v[0]), int(v[1])),
+            proc (v: seq[float]): int = int(v[1]) + 4)
+  defFilter("Chalk & Charcoal", @[num("Charcoal Area:", 0, 20, 6), num("Chalk Area:", 0, 20, 6),
+                                  num("Stroke Pressure:", 0, 5, 1)],
+            proc (v: seq[float]): FilterFn = chalkCharcoal(int(v[0]), int(v[1]), int(v[2]), fg, bg))
+  defFilter("Conté Crayon", @[num("Foreground Level:", 1, 15, 11), num("Background Level:", 1, 15, 7),
+                              pick("Texture:", ["Canvas", "Brick", "Burlap", "Sandstone"]),
+                              num("Scaling:", 50, 200, 100, "%"), num("Relief:", 0, 50, 4),
+                              pick("Light:", lightAngles, 4), flag("Invert")],
+            proc (v: seq[float]): FilterFn =
+              conteCrayon(int(v[0]), int(v[1]), TextureKind(int(v[2])), int(v[3]), int(v[4]), lightDegrees[int(v[5])],
+                          v[6] > 0.5, fg, bg), m(4))
+  defFilter("Note Paper", @[num("Image Balance:", 0, 50, 25), num("Graininess:", 0, 20, 10), num("Relief:", 0, 25, 11)],
+            proc (v: seq[float]): FilterFn = notePaper(int(v[0]), int(v[1]), int(v[2]), fg, bg), m(6))
+  defFilter("Plaster", @[num("Image Balance:", 0, 50, 20), num("Smoothness:", 1, 15, 2), pick("Light:", lightAngles, 4)],
+            proc (v: seq[float]): FilterFn = plaster(int(v[0]), int(v[1]), lightDegrees[int(v[2])], fg, bg),
+            proc (v: seq[float]): int = int(v[1]) * 2 + 6)
+  defFilter("Water Paper", @[num("Fiber Length:", 3, 50, 15), num("Brightness:", 0, 100, 60),
+                             num("Contrast:", 0, 100, 80)],
+            proc (v: seq[float]): FilterFn = waterPaper(int(v[0]), int(v[1]), int(v[2])),
+            proc (v: seq[float]): int = int(v[0]) div 2 + 4)
+  defFilter("Glowing Edges", @[num("Edge Width:", 1, 14, 2), num("Edge Brightness:", 0, 20, 6),
+                               num("Smoothness:", 1, 15, 5)],
+            proc (v: seq[float]): FilterFn = glowingEdges(int(v[0]), int(v[1]), int(v[2])), m(12))
+  defFilter("HSB/HSL", @[pick("Input Mode:", ["RGB", "HSB", "HSL"]), pick("Row Order:", ["RGB", "HSB", "HSL"], 1)],
+            proc (v: seq[float]): FilterFn = hsbHsl(int(v[0]), int(v[1])))
+  # ---- Blur's others
+  defFilter("Average", @[], proc (v: seq[float]): FilterFn = averageBlur())
+  defFilter("Box Blur", @[num("Radius:", 1, 2000, 10, "pixels")],
+            proc (v: seq[float]): FilterFn = boxBlur(int(v[0])), proc (v: seq[float]): int = int(v[0]) + 2)
+  var shapeNames: seq[string]
+  for s in CustomShapes: shapeNames.add s.name
+  defFilter("Shape Blur", @[num("Radius:", 5, 1000, 10, "pixels"), pick("Shape:", shapeNames)],
+            proc (v: seq[float]): FilterFn =
+              let side = 64
+              shapeBlur(int(v[0]), shapeMask(customPath(int(v[1]), 0, 0, side.float, side.float), side, side), side),
+            proc (v: seq[float]): int = int(v[0]) + 2)
+  defFilter("Smart Blur", @[num("Radius:", 0.1, 100, 3.0, "", 1), num("Threshold:", 0.1, 100, 25.0, "", 1),
+                            pick("Quality:", ["Low", "Medium", "High"], 2),
+                            pick("Mode:", ["Normal", "Edge Only", "Overlay Edge"])],
+            proc (v: seq[float]): FilterFn = smartBlur(v[0], v[1], int(v[2]), int(v[3])),
+            proc (v: seq[float]): int = int(v[0]) + 2)
+  defLensBlur()
+  # ---- Layer > Matting
+  defFilter("Defringe", @[num("Width:", 1, 200, 1, "pixels")],
+            proc (v: seq[float]): FilterFn = defringe(int(v[0])), proc (v: seq[float]): int = int(v[0]) + 2)
+  defFilter("Remove Black Matte", @[], proc (v: seq[float]): FilterFn = removeMatte(false))
+  defFilter("Remove White Matte", @[], proc (v: seq[float]): FilterFn = removeMatte(true))
   defFilter("Colored Pencil", @[num("Pencil Width:", 1, 24, 4), num("Stroke Pressure:", 0, 15, 8),
                                 num("Paper Brightness:", 0, 50, 25)],
             proc (v: seq[float]): FilterFn = coloredPencil(int(v[0]), int(v[1]), int(v[2]), bg), m(40))
@@ -2116,6 +2294,7 @@ proc runFilter(name: string; vals: seq[float]) =
 
 proc startFilter(name: string) =
   if not filters.hasKey(name) or cur() == nil: return
+  if name == "Lens Blur": defLensBlur()     # (its Source list: this document's saved selections)
   let s = filters[name]
   if s.params.len == 0:
     runFilter(name, @[])
@@ -2206,7 +2385,20 @@ proc filterDialog() =
                     else: (if fZoom >= 1: fZoom + 1 else: fZoom div 2)
       col:
         for i, p in fSpec.params:
-          if p.choices.len > 0:
+          if p.check:
+            var on = fVals[i] > 0.5
+            pushId("check" & $i)
+            if checkbox(p.label, on): fVals[i] = (if on: 1.0 else: 0.0)
+            popId()
+          elif p.choices.len > 4:
+            # (a long list: a drop-down)
+            row:
+              label p.label
+              var k = clamp(int(fVals[i]), 0, p.choices.high)
+              pushId("combo" & $i)
+              if combo(p.choices, k, w = dp(170)): fVals[i] = k.float
+              popId()
+          elif p.choices.len > 0:
             if p.label.len > 0: label(p.label, bold = true)
             var k = int(fVals[i])
             pushId("choice" & $i)

@@ -1159,7 +1159,7 @@ proc propertiesBody(d: Doc) =
     group("Character"):
       fontRows(true)
     group("Paragraph"):
-      row: alignButtons(L.text.para.align, true)
+      row: alignButtons(curPara().align, true)
   elif L.isLine:
     group("Line"):
       # (its color, weight and ends; its ends dragged with the Move tool)

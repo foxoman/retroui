@@ -137,6 +137,13 @@ type
     fileType*: string           ## 4 letters: "png ", "JPEG", "8BPB" (.psb), "8BPS"...
     data*: string               ## the file's bytes
 
+  PsdPattern* = object
+    ## A pattern kept in the document ('Patt'): a Pattern Overlay finds it by `id`.
+    id*: string                 ## its unique id (Photoshop's is a UUID)
+    name*: string               ## as the patterns are listed
+    w*, h*: int                 ## its size
+    px*: seq[uint32]            ## ARGB, row by row
+
   PsdDoc* = object
     ## A Photoshop document as the file has it (`readPsd`, `writePsd`).
     w*, h*: int                 ## its size in pixels
@@ -156,6 +163,7 @@ type
     globalAltitude*: int        ## ... and its altitude (degrees)
     icc*: string                ## its color profile (ICC), "" none
     linked*: seq[PsdLinkedFile] ## the files its Smart Objects show (embedded: 'lnk2')
+    patterns*: seq[PsdPattern]  ## the patterns its layer styles use (Pattern Overlay: 'Patt')
 
 proc fail(msg: string) {.noreturn.} = raise newException(PsdError, msg)
 
@@ -1178,6 +1186,78 @@ proc readLinked(r: var Reader; stop: int): seq[PsdLinkedFile] =
     while n mod 4 != 0: inc n
     r.pos = min(stop, start + n)
 
+proc readPatterns(r: var Reader; stop: int): seq[PsdPattern] =
+  ## The patterns of 'Patt': each a length, its version, mode, size, name,
+  ## id and its channels as a virtual memory array list (raw or RLE).
+  while r.pos + 4 <= stop:
+    let size = r.u32
+    let start = r.pos
+    if size <= 0 or start + size > stop: break
+    try:
+      discard r.u32                         # (its version: 1)
+      let mode = r.u32
+      let h = r.u16
+      let w = r.u16
+      var p = PsdPattern(w: w, h: h)
+      p.name = r.unicodeStr
+      p.id = r.pascal(1)
+      if mode == 2: r.skip(256 * 3)         # (indexed: its colors -- not read)
+      discard r.u32                         # (the list's version: 3)
+      let listLen = r.u32
+      let listEnd = r.pos + listLen
+      r.skip(16)                            # (its rectangle)
+      let nch = r.u32
+      var planes: seq[seq[byte]]
+      for c in 0 ..< nch + 2:
+        if r.pos + 8 > listEnd: break
+        let written = r.u32
+        if written == 0:
+          planes.add @[]
+          continue
+        let n = r.u32
+        if n == 0:
+          planes.add @[]
+          continue
+        let at = r.pos
+        discard r.u32                       # (its depth)
+        let top = r.u32
+        let left = r.u32
+        let bottom = r.u32
+        let right = r.u32
+        let depth = r.u16
+        let comp = r.u8
+        let cw = right - left
+        let chh = bottom - top
+        var plane = newSeq[byte](max(0, cw * chh))
+        if depth == 8 and cw > 0 and chh > 0:
+          if comp == 1:
+            var counts = newSeq[int](chh)
+            for y in 0 ..< chh: counts[y] = r.u16
+            for y in 0 ..< chh:
+              r.need(counts[y])
+              discard unpack(cast[ptr UncheckedArray[char]](addr r.s[r.pos]), counts[y], plane, y * cw, cw)
+              r.pos += counts[y]
+          else:
+            r.need(cw * chh)
+            copyMem(addr plane[0], addr r.s[r.pos], cw * chh)
+        planes.add (if cw == w and chh == h: plane else: newSeq[byte]())
+        r.pos = at + n
+      if w > 0 and h > 0:
+        p.px = newSeq[uint32](w * h)
+        let gray = mode == 1
+        let user = if planes.len > nch and planes[nch].len == w * h: nch else: -1
+        for i in 0 ..< w * h:
+          template ch(c: int): uint32 =
+            (if c < planes.len and planes[c].len == w * h: uint32(planes[c][i]) else: 0'u32)
+          let a = if user >= 0: uint32(planes[user][i]) else: 255'u32
+          p.px[i] = if gray: (a shl 24) or (ch(0) shl 16) or (ch(0) shl 8) or ch(0)
+                    else: (a shl 24) or (ch(0) shl 16) or (ch(1) shl 8) or ch(2)
+        result.add p
+    except PsdError: discard
+    var n = size
+    while n mod 4 != 0: inc n
+    r.pos = min(stop, start + n)
+
 proc readPsd*(data: string): PsdDoc =
   ## A Photoshop document (.psd or .psb). Raises `PsdError`.
   if data.len < 26 or data[0 .. 3] != "8BPS": fail("not a PSD document")
@@ -1264,6 +1344,8 @@ proc readPsd*(data: string): PsdDoc =
         r.readLayers(result, at + n)
       elif key in ["lnk2", "lnk3", "lnkD"] and at + n <= lmEnd:
         result.linked.add r.readLinked(at + n)
+      elif key in ["Patt", "Pat2", "Pat3"] and at + n <= lmEnd:
+        result.patterns.add r.readPatterns(at + n)
       r.pos = at + n
       while (r.pos - at) mod 4 != 0 and r.pos < lmEnd: inc r.pos
   r.pos = lmEnd
@@ -1829,6 +1911,58 @@ proc writeMultichannelPsd(doc: PsdDoc): string =
       for k in at ..< at + n: o[k] = '\xFF'
   o
 
+proc patternData*(ps: seq[PsdPattern]): string =
+  ## Patterns as 'Patt' keeps them: RGB, each channel RLE in a virtual
+  ## memory array; the alpha as its user mask when it has one.
+  for p in ps:
+    if p.w <= 0 or p.h <= 0 or p.px.len != p.w * p.h: continue
+    var b = ""
+    b.be32(1)
+    b.be32(3)                                # (RGB)
+    b.be16(p.h); b.be16(p.w)
+    b.wUni(p.name)
+    b.add char(p.id.len)
+    b.add p.id
+    var alpha = false
+    for c in p.px:
+      if c shr 24 != 255: alpha = true
+    var list = ""
+    list.be32(0); list.be32(0); list.be32(p.h); list.be32(p.w)
+    list.be32(3)
+    for c in 0 .. 4:
+      if c == 4 or (c == 3 and not alpha):
+        list.be32(0)                         # (the sheet mask, or no user mask: not written)
+        continue
+      var plane = newSeq[byte](p.w * p.h)
+      let sh = case c
+               of 0: 16
+               of 1: 8
+               of 2: 0
+               else: 24
+      for i, v in p.px: plane[i] = byte((v shr sh) and 255)
+      var data = ""
+      data.be32(8)
+      data.be32(0); data.be32(0); data.be32(p.h); data.be32(p.w)
+      data.be16(8)
+      data.add char(1)
+      let countsAt = data.len
+      for _ in 0 ..< p.h: data.be16(0)
+      for y in 0 ..< p.h:
+        let before = data.len
+        packRow(plane.toOpenArray(y * p.w, y * p.w + p.w - 1), data)
+        let n = data.len - before
+        data[countsAt + 2 * y] = char((n shr 8) and 255)
+        data[countsAt + 2 * y + 1] = char(n and 255)
+      list.be32(1)
+      list.be32(data.len)
+      list.add data
+    b.be32(3)
+    b.be32(list.len)
+    b.add list
+    result.be32(b.len)
+    result.add b
+    while result.len mod 4 != 0: result.add '\0'
+
 proc writePsd*(doc: PsdDoc): string =
   ## `doc` as a Photoshop document (8 bits; RGB, grayscale or CMYK as its
   ## `mode` says; .psb when it is bigger than 30000 pixels across or down
@@ -1885,6 +2019,12 @@ proc writePsd*(doc: PsdDoc): string =
   o.writeLen(li.len)
   o.add li
   o.be32(0)                                  # the global mask
+  if doc.patterns.len > 0:
+    # the patterns its layer styles use
+    let pd = patternData(doc.patterns)
+    o.add "8BIMPatt"
+    o.writeLen(pd.len)
+    o.add pd
   if doc.linked.len > 0:
     # the files its Smart Objects show
     let ld = linkedData(doc.linked)

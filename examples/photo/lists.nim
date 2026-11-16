@@ -15,8 +15,9 @@ proc bookStyles(b: Book): seq[string] =
     let was = b.isOpen(i)
     let d = b.doc(i)
     for L in d.layers:
-      if L.isText and L.text.para.styleName.len > 0 and L.text.para.styleName notin result:
-        result.add L.text.para.styleName
+      if not L.isText: continue
+      for f in @[L.text.para] & L.text.paraFmts:
+        if f.styleName.len > 0 and f.styleName notin result: result.add f.styleName
     if not was: b.park([curBook().page])
 
 proc arabicBook(b: Book): bool =

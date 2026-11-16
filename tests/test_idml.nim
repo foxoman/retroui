@@ -241,5 +241,53 @@ block threadedFrames:
   b.close()
   back.close()
 
+block paragraphFormats:
+  # each paragraph's format a range of its own -- Keep Options, Span Columns, the composer,
+  # Justification's spacing -- and the frame's Inset Spacing, Vertical Justification, Balance
+  # Columns: the layout program's own, and back
+  let d = newDoc(800, 600, 0xFFFFFFFF'u32)
+  var t = newText("Heading\nBody text in two columns under it.", st(20), 20, 40)
+  t.boxW = 600
+  t.boxH = 400
+  t.columns = 2
+  var h = t.para
+  h.align = textCenter
+  h.spanAll = true
+  h.keepWithNext = 2
+  h.keepTogether = true
+  h.startAt = psNextColumn
+  h.composer = cpSingle
+  h.wordSpacing = [70'i16, 90, 150]
+  t.setParaFmt(0, 0, h)
+  t.inset = [6'f32, 8, 10, 12]
+  t.vjust = vjBottom
+  t.balance = true
+  discard d.addTextLayer(t)
+  d.saveDocIdml(dir / "pf.idml")
+  var all = ""
+  for e in zipEntries(dir / "pf.idml"): all.add readEntry(dir / "pf.idml", e)
+  doAssert all.count("<ParagraphStyleRange AppliedParagraphStyle=\"ParagraphStyle/$ID/NormalParagraphStyle\" Justification") == 2
+  doAssert "SpanColumnType=\"SpanColumns\"" in all and "KeepWithNext=\"2\"" in all and
+           "KeepAllLinesTogether=\"true\"" in all and "StartParagraph=\"NextColumn\"" in all and
+           "Composer=\"HL Single\"" in all and "MinimumWordSpacing=\"70\"" in all
+  doAssert "VerticalJustification=\"BottomAlign\"" in all and "VerticalBalanceColumns=\"true\"" in all and
+           "<InsetSpacing type=\"list\">" in all
+  let r = readIdml(dir / "pf.idml")
+  var ok = false
+  for L in r.doc(0).layers:
+    if L.isText and L.text.plainText.startsWith("Heading"):
+      let u = L.text
+      let f0 = u.paraFmtAt(0)
+      doAssert f0.align == textCenter and f0.spanAll and f0.keepWithNext == 2 and f0.keepTogether and
+               f0.startAt == psNextColumn and f0.composer == cpSingle and f0.wordSpacing == [70'i16, 90, 150]
+      let f1 = u.paraFmtAt(10)
+      doAssert f1.align == textLeft and not f1.spanAll
+      doAssert u.vjust == vjBottom and u.balance
+      # (in the package's points: back at the reading's resolution, each side as it was)
+      for q in 0 .. 3: doAssert abs(u.inset[q] / u.inset[0] - t.inset[q] / t.inset[0]) < 0.01, $u.inset
+      ok = true
+  doAssert ok
+  r.close()
+
 removeDir(dir)
 echo "test_idml: ok"

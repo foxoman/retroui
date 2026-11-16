@@ -64,6 +64,19 @@ const googleFontList*: seq[GoogleFont] = @[
   ("Special Elite", "Monospace", false)]
   ## Families worth having, by kind.
 
+type
+  FontFetchHooks* = object
+    ## What `installGoogleFont` tells as it goes, and asks: how far it is (`step` of about `steps`,
+    ## the file it is fetching) and whether to stop (it stops before the next file, and takes away
+    ## what it fetched of the family).
+    progress*: proc (step, steps: int; what: string) {.closure, gcsafe.}
+    stop*: proc (): bool {.closure, gcsafe.}
+
+proc tell(h: FontFetchHooks; step, steps: int; what: string) =
+  if h.progress != nil: h.progress(step, steps, what)
+
+proc stopped(h: FontFetchHooks): bool = h.stop != nil and h.stop()
+
 proc familyDir*(dir, family: string): string = dir / family.replace(" ", "")
   ## Where a family's files go in `dir`.
 
@@ -146,14 +159,16 @@ proc styleOfFile(name: string): string =
     if n.endsWith(suffix): return st
   ""
 
-proc fromGithub(fam, d, base: string; needArabic: bool; why: var string): int =
+proc fromGithub(fam, d, base: string; needArabic: bool; why: var string; h: FontFetchHooks): int =
   ## The family's files from Google's repository: its static styles
   ## (regular, bold, their italics) when it has them, else its variable
   ## files. How many were saved and draw.
   let slug = slugOf(fam)
   let tmp = d / "listing.json"
   var files: seq[tuple[name, kind, url: string]]
-  for lic in ["ofl", "apache", "ufl"]:
+  for k, lic in ["ofl", "apache", "ufl"]:
+    if h.stopped: return 0
+    h.tell(k, 8, "the list of " & fam & "'s files")
     files = listing(base & lic & "/" & slug, tmp)
     if files.len > 0: break
   if files.len == 0:
@@ -167,6 +182,8 @@ proc fromGithub(fam, d, base: string; needArabic: bool; why: var string): int =
         if st.len > 0: picked.add (f.url, fam.replace(" ", "") & "-" & st & ".ttf")
   for f in files:
     if f.kind == "dir" and f.name == "static":
+      if h.stopped: return 0
+      h.tell(3, 8, "the list of " & fam & "'s styles")
       pick(listing(f.url, tmp))
   if picked.len == 0: pick(files)
   if picked.len == 0:
@@ -175,7 +192,9 @@ proc fromGithub(fam, d, base: string; needArabic: bool; why: var string): int =
       if f.kind == "file" and f.name.toLowerAscii.endsWith(".ttf") and picked.len < 2:
         let it = "italic" in f.name.toLowerAscii
         picked.add (f.url, fam.replace(" ", "") & (if it: "-Italic.ttf" else: "-Regular.ttf"))
-  for (url, name) in picked:
+  for k, (url, name) in picked:
+    if h.stopped: return result
+    h.tell(4 + k, 4 + picked.len, name)
     let dest = d / name
     let e = downloadFile(url, dest)
     if e.len > 0:
@@ -187,7 +206,7 @@ proc fromGithub(fam, d, base: string; needArabic: bool; why: var string): int =
       try: removeFile(dest) except OSError: discard
     else: inc result
 
-proc installFromCss(fam, d: string; needArabic: bool): tuple[files: int; error: string] =
+proc installFromCss(fam, d: string; needArabic: bool; h: FontFetchHooks): tuple[files: int; error: string] =
   ## (the files Google's web CSS names: regular, bold and their italics)
   let tmp = d / "styles.css"
   let q = fam.replace(" ", "+")
@@ -202,7 +221,9 @@ proc installFromCss(fam, d: string; needArabic: bool): tuple[files: int; error: 
   let faces = fontFaces(css)
   if faces.len == 0: return (0, "Google Fonts gave no files for \"" & fam & "\"")
   var seen: seq[string]
-  for f in faces:
+  for k, f in faces:
+    if h.stopped: return
+    h.tell(k, faces.len, fam)
     if not f.url.endsWith(".ttf"):
       continue                                          # (WOFF2 for browsers: not for us)
     let style = (if f.style == "italic": "Italic" else: "") 
@@ -225,21 +246,29 @@ proc installFromCss(fam, d: string; needArabic: bool): tuple[files: int; error: 
   elif result.error.len == 0: result.error = "Google Fonts gave web fonts only (WOFF2) for \"" & fam & "\""
 
 proc installGoogleFont*(family, dir: string; needArabic = false;
-                        github = githubContents): tuple[files: int; error: string] =
+                        github = githubContents; hooks = FontFetchHooks()): tuple[files: int; error: string] =
   ## Fetches `family` from Google Fonts into `dir` (a folder of its own in
   ## it): the whole font files from Google's repository (every letter of
   ## every script the family has), else the files its web CSS names. Each
   ## file is checked -- that it is a TrueType font that draws, with the
   ## Arabic letters when `needArabic` -- and taken out when it is not. The
-  ## files that came, or why none did.
+  ## files that came, or why none did. `hooks`: how far it is, and a stop
+  ## (asked, the family's folder is taken away; error "stopped") -- for
+  ## running it on a worker (`retroui/jobs`) while a box shows it.
   let fam = family.strip
   if fam.len == 0: return (0, "no family named")
   let d = familyDir(dir, fam)
   try: createDir(d) except OSError: discard
   var why = ""
-  result.files = fromGithub(fam, d, github, needArabic, why)
+  template giveUp() =
+    if hooks.stopped:
+      try: removeDir(d) except OSError: discard
+      return (0, "stopped")
+  result.files = fromGithub(fam, d, github, needArabic, why, hooks)
+  giveUp()
   if result.files > 0: return
-  let viaCss = installFromCss(fam, d, needArabic)
+  let viaCss = installFromCss(fam, d, needArabic, hooks)
+  giveUp()
   if viaCss.files > 0: result = (viaCss.files, ""); return
   # (why the repository's files were not taken says more than a web error)
   let notThere = why.len == 0 or why == "not in Google's font repository"

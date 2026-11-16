@@ -50,6 +50,11 @@ proc panelBody(key: string) =
   of "quickactions": quickActionsBody()
   of "colorthemes": colorThemesBody()
   of "pages": pagesBody()
+  of "vbrushes": vectorBrushesBody()
+  of "appearance": appearanceBody()
+  of "objectstyles": objectStylesBody()
+  of "bookmarks": bookmarksBody()
+  of "links": linksBody()
   else: label("(" & key & ")", color = ui.theme.gray)
 
 proc panelMenu(key: string) =

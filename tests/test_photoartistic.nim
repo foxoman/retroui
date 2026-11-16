@@ -1,7 +1,8 @@
 ## Tests of `retroui/photoartistic`: the Filter Gallery and the other new
 ## filters -- each gives a picture as big, keeps transparency where it
 ## should, changes the picture, stays the same run after run; the Sketch
-## ones draw in the two colors given; the custom shapes' sets.
+## ones draw in the two colors given; the custom shapes' sets; HSB/HSL
+## there and back.
 
 import retroui/[gfx, photo, photofx, photoartistic, photoshapes]
 
@@ -25,7 +26,13 @@ let all = [("Cutout", cutout()), ("Dry Brush", dryBrush()), ("Film Grain", filmG
            ("Mosaic Tiles", mosaicTiles()), ("Patchwork", patchwork()), ("Stained Glass", stainedGlass()),
            ("Texturizer", texturizer()), ("Oil Paint", oilPaint()), ("Fibers", fibers()),
            ("Lighting Effects", lightingEffects(height = 30)), ("Displace", displace()),
-           ("Smart Sharpen", smartSharpen())]
+           ("Smart Sharpen", smartSharpen()), ("Fresco", fresco()), ("Neon Glow", neonGlow()),
+           ("Palette Knife", paletteKnife()), ("Rough Pastels", roughPastels()), ("Smudge Stick", smudgeStick()),
+           ("Underpainting", underpainting()), ("Dark Strokes", darkStrokes()), ("Sprayed Strokes", sprayedStrokes()),
+           ("Glass", glass()), ("Ocean Ripple", oceanRipple()), ("Diffuse Glow", diffuseGlow()),
+           ("Chalk & Charcoal", chalkCharcoal()), ("Conté Crayon", conteCrayon()), ("Note Paper", notePaper()),
+           ("Plaster", plaster()), ("Water Paper", waterPaper()), ("Glowing Edges", glowingEdges()),
+           ("HSB/HSL", hsbHsl())]
 
 block everyFilter:
   for (name, f) in all:
@@ -40,7 +47,9 @@ block sketchColors:
   # the Sketch filters: only the colors between the foreground and the background
   let fg = 0xFF800000'u32
   let bg = 0xFFFFFF00'u32
-  for f in [stamp(25, 5, fg, bg), photocopy(7, 8, fg, bg), graphicPen(15, 50, 0, fg, bg)]:
+  for f in [stamp(25, 5, fg, bg), photocopy(7, 8, fg, bg), graphicPen(15, 50, 0, fg, bg),
+            chalkCharcoal(6, 6, 1, fg, bg), conteCrayon(fg = fg, bg = bg), notePaper(fg = fg, bg = bg),
+            plaster(fg = fg, bg = bg)]:
     let o = f(im, whole)
     for p in o.px:
       doAssert rOf(p) >= 128 and bOf(p) == 0, "between dark red and yellow"
@@ -80,5 +89,28 @@ block shapes:
       if s.category == c: inc n
     doAssert n >= 2, c
   for s in CustomShapes: doAssert s.category in ShapeCategories, s.name
+
+block hsbThereAndBack:
+  # RGB to HSB puts hue, saturation and brightness in the channels; HSB to RGB takes them back
+  var px = newImg(4, 1)
+  px.px = @[argb(255, 255, 0, 0), argb(255, 0, 255, 0), argb(255, 40, 80, 200), argb(255, 128, 128, 128)]
+  let h = hsbHsl(0, 1)(px, rect(0, 0, 4, 1))
+  doAssert rOf(h.px[0]) == 0 and gOf(h.px[0]) == 255 and bOf(h.px[0]) == 255, "red: hue 0, full"
+  doAssert abs(int(rOf(h.px[1])) - 85) <= 1, "green: a third of the way round"
+  doAssert gOf(h.px[3]) == 0 and bOf(h.px[3]) == 128, "gray: no saturation"
+  for model in [1, 2]:
+    let there = hsbHsl(0, model)(px, rect(0, 0, 4, 1))
+    let back = hsbHsl(model, 0)(there, rect(0, 0, 4, 1))
+    for k in 0 ..< 4:
+      for sh in [16, 8, 0]:
+        doAssert abs(int((back.px[k] shr sh) and 255) - int((px.px[k] shr sh) and 255)) <= 3, $model & " " & $k
+
+block glowingEdgesOnBlack:
+  # flat color has no edges: black; an edge glows
+  var flat = newImg(32, 32)
+  for i in 0 ..< flat.px.len: flat.px[i] = if i mod 32 < 16: 0xFF2040C0'u32 else: 0xFFE0E040'u32
+  let o = glowingEdges()(flat, rect(0, 0, 32, 32))
+  doAssert (o.px[16 * 32 + 2] and 0xFFFFFF'u32) == 0, "far from the edge: black"
+  doAssert lumaOf(o.px[16 * 32 + 16]) > 60, "at the edge: it glows"
 
 echo "test_photoartistic: ok"

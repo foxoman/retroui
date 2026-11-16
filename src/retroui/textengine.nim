@@ -297,6 +297,17 @@ proc entryFace(e: FontEntry): Face =
     unreadable[e.family] = e.path.extractFilename & ": " & x.msg
   loaded[key] = result
 
+proc fontFileOf*(family, style: string): string =
+  ## The file a family's style is read from ("" built in, or not found) -- File > Package
+  ## copies it.
+  scanFonts()
+  var any = ""
+  for e in catalog:
+    if e.family != family or e.path.len == 0 or e.path.startsWith("<"): continue
+    if e.style == style: return e.path
+    if any.len == 0: any = e.path
+  any
+
 proc fontProblem*(family: string): string =
   ## Why `family` is drawn in another font ("" when it is not): its file
   ## cannot be read, or it is not one of the fonts there are.
@@ -394,6 +405,11 @@ type
     styleName*: string         ## the Character Style it has (Character Styles; "" none)
     arabicFont*: ScriptFont    ## its Arabic letters in a font of their own ("" family: the text's)
     latinFont*: ScriptFont     ## its Latin (English) letters in a font of their own
+    para*: int                 ## the format of the paragraph it is in: 0 the text's own (`para`),
+                               ## else `TextData.paraFmts[para - 1]` (a paragraph's first letter says)
+    link*: string              ## a hyperlink: a web or mail address ("https://...", "mailto:..."),
+                               ## "#name" a destination's, "page:N" the book's page N; "=name": the
+                               ## text is the destination "name" (cross-references go to it)
 
   NumberStyle* = enum
     ## How numbers are written: a list's, a book's page numbers.
@@ -442,6 +458,57 @@ type
                                ## broken where it may be, with a hyphen (`retroui/hyphenate`)
     gridAlign*: bool           ## its lines on the page's baseline grid (a paragraph style that says
                                ## so: whoever applies it sets the text's `gridStep`, `gridStart`)
+    composer*: Composer        ## how its lines are broken (the Paragraph Composer weighs the whole
+                               ## paragraph: even spacing, fewer rivers; the Single-line, a line at a time)
+    wordSpacing*: array[3, int16]   ## justified: its spaces' least, wanted and most widths, % of their
+                                    ## own ([0, 0, 0]: 80, 100, 133, as the layout program sets them)
+    letterSpacing*: array[3, int16] ## ... room between its letters, least, wanted, most, % of a space
+    glyphScaling*: array[3, int16]  ## ... its letters made narrower or wider, % ([0, 0, 0]: 100, 100, 100)
+    keepWithNext*: int         ## so many lines of the next paragraph in the same column as its end
+    keepTogether*: bool        ## all its lines in one column
+    keepStart*, keepEnd*: int  ## at least so many lines at its start (orphans) and its end (widows)
+                               ## together in a column (0: one)
+    startAt*: ParaStart        ## where it starts: anywhere, the next column, the next frame or page
+    spanAll*: bool             ## text in columns: it goes across them all (a heading over them)
+    splitColumns*: int         ## split into so many columns of its own within its column (2 and more)
+    nextStyle*: string         ## the Paragraph Style a paragraph typed after it takes ("" its own)
+    nested*: seq[NestedStyle]  ## character styles through the start of it, one after another
+    grepStyles*: seq[GrepStyle]  ## character styles wherever a pattern matches in it
+
+  Composer* = enum
+    ## How a paragraph's lines are broken.
+    cpAuto = "Auto",                   ## the Paragraph Composer for justified text, else Single-line
+    cpParagraph = "Paragraph Composer", ## the whole paragraph weighed: its spaces as even as they can be
+    cpSingle = "Single-line Composer"   ## a line at a time, as many words as fit
+
+  ParaStart* = enum
+    ## Where a paragraph starts (Keep Options).
+    psAnywhere = "Anywhere", psNextColumn = "In Next Column", psNextFrame = "In Next Frame",
+    psNextPage = "On Next Page"
+
+  NestedUnit* = enum
+    ## How far a nested style goes.
+    nuWords = "Words", nuChars = "Characters", nuSentences = "Sentences", nuUpTo = "Up To"
+
+  NestedStyle* = object
+    ## A character style through the start of a paragraph (Drop Caps and Nested Styles): `count`
+    ## words, characters, sentences -- or up to the `count`th `upTo` (`through`: it too).
+    name*: string               ## the character style's name ("": [None], the text as it is up to there)
+    look*: CharStyle            ## ... how it looks
+    count*: int                 ## (0: 1)
+    unit*: NestedUnit
+    upTo*: string               ## `nuUpTo`: the character
+    through*: bool
+
+  GrepStyle* = object
+    ## A character style wherever `pattern` (a GREP pattern: `retroui/textsearch`) matches.
+    name*: string               ## the character style's name ("": none, the pattern does nothing)
+    look*: CharStyle
+    pattern*: string
+
+  VertJust* = enum
+    ## Where a box's lines are put up and down (Text Frame Options).
+    vjTop = "Top", vjCenter = "Center", vjBottom = "Bottom", vjJustify = "Justify"
 
   KashidaLength* = enum
     ## How much justified Arabic is lengthened at its joins (tatweel) -- one
@@ -553,6 +620,14 @@ type
     autoSize*: TextAutoSize    ## text in a box: the box made as big as its text (`autoSized`)...
     autoRef*: int              ## ... from this point of it, staying where it is: 0 top left, 1 top
                                ## middle, 2 top right, 3 left middle ... 8 bottom right
+    paraFmts*: seq[ParaStyle]  ## the paragraphs' formats other than `para` (`CharStyle.para`)
+    tailFmt*: int              ## an empty paragraph at the end: its format's number, as
+                               ## `CharStyle.para`, + 1 (0: the paragraph before's)
+    inset*: array[4, float32]  ## text in a box: room kept inside it, top, right, bottom, left (Inset
+                               ## Spacing)
+    vjust*: VertJust           ## ... where its lines stand up and down
+    balance*: bool             ## ... its columns made as even as they can be
+    spanW: float32             # (laid out in columns: the box's whole width, for a paragraph across them)
     holes*: seq[TextHole]      ## text in a box: places its lines keep out of (what the text is
                                ## wrapped round: `x`, `y`'s own coordinates). A line takes the
                                ## widest room a hole leaves it, and goes under the hole when
@@ -733,9 +808,27 @@ proc splitAt(t: var TextData; i: int) =
       return
     at += n
 
+proc fmtOf*(t: TextData; k: int): ParaStyle =
+  ## The paragraph format `CharStyle.para` `k` names (0: the text's own, `para`).
+  if k > 0 and k <= t.paraFmts.len: t.paraFmts[k - 1] else: t.para
+
+proc evenParas(t: var TextData)
+proc tidyParaFmts(t: var TextData)
+
 proc insertText*(t: var TextData; i: int; s: string; style: CharStyle) =
-  ## `s` put in at character `i` in `style`.
+  ## `s` put in at character `i` in `style` -- in the format of the paragraph it goes into (new
+  ## paragraphs it starts too: `setParaFmt` to change them).
   if s.len == 0: return
+  var style = style
+  if t.paraFmts.len > 0:
+    let r = t.plainText.toRunes
+    let at = clamp(i, 0, r.len)
+    style.para = if at < r.len and (at == 0 or int(r[at - 1]) == 10): t.styleAt(at).para
+                 elif at > 0 and at == r.len and int(r[at - 1]) == 10 and t.tailFmt > 0: t.tailFmt - 1
+                 elif at > 0: t.styleAt(at - 1).para
+                 else: 0
+    if at == r.len: t.tailFmt = 0           # (the paragraph at the end has letters now)
+  else: style.para = 0
   t.splitAt(i)
   var at = 0
   var k = 0
@@ -746,6 +839,7 @@ proc insertText*(t: var TextData; i: int; s: string; style: CharStyle) =
   if k > 0 and t.spans[k - 1].style == style: t.spans[k - 1].text.add s
   else: t.spans.insert(TextSpan(text: s, style: style), k)
   t.normalize()
+  t.evenParas()
 
 proc deleteText*(t: var TextData; a, b: int) =
   ## Characters `a` ..< `b` taken out.
@@ -762,6 +856,8 @@ proc deleteText*(t: var TextData; a, b: int) =
   t.spans = o
   if t.spans.len == 0: t.spans.add TextSpan(text: "", style: first)
   t.normalize()
+  t.evenParas()
+  t.tidyParaFmts()
 
 proc restyle*(t: var TextData; a, b: int; change: proc (s: var CharStyle)) =
   ## The style of characters `a` ..< `b` changed by `change` (all of them
@@ -779,6 +875,176 @@ proc restyle*(t: var TextData; a, b: int; change: proc (s: var CharStyle)) =
     at += n
   if t.runeLen == 0 and t.spans.len > 0: change(t.spans[0].style)
   t.normalize()
+
+proc evenParas(t: var TextData) =
+  ## (every character of a paragraph in its first one's format -- as the layout program keeps
+  ## them when paragraphs are joined or split)
+  var cur = 0
+  var atStart = true
+  var odd = false
+  for sp in t.spans:
+    for c in sp.text:
+      if atStart:
+        cur = sp.style.para
+        atStart = false
+      elif sp.style.para != cur:
+        odd = true
+      if c == '\n': atStart = true
+  if not odd: return
+  var o: seq[TextSpan]
+  atStart = true
+  for sp in t.spans:
+    var piece = ""
+    for c in sp.text:
+      if atStart:
+        if piece.len > 0:
+          var st = sp.style
+          st.para = cur
+          o.add TextSpan(text: piece, style: st)
+          piece = ""
+        cur = sp.style.para
+        atStart = false
+      piece.add c
+      if c == '\n': atStart = true
+    if piece.len > 0:
+      var st = sp.style
+      st.para = cur
+      o.add TextSpan(text: piece, style: st)
+  if o.len > 0: t.spans = o
+  t.normalize()
+
+proc paraBounds*(t: TextData; pos: int): tuple[a, b: int] =
+  ## The paragraph character `pos` is in: from its first character to its end (the "\n" that
+  ## ends it, or the text's end).
+  let r = t.plainText.toRunes
+  let p = clamp(pos, 0, r.len)
+  var a = p
+  while a > 0 and int(r[a - 1]) != 10: dec a
+  var b = p
+  while b < r.len and int(r[b]) != 10: inc b
+  (a, b)
+
+proc paraFmtAt*(t: TextData; pos: int): ParaStyle =
+  ## The format of the paragraph character `pos` is in (`para`, or one of `paraFmts`).
+  let (a, b) = t.paraBounds(pos)
+  let k = if a < b or a < t.runeLen: t.styleAt(a).para
+          elif a > 0: (if t.tailFmt > 0: t.tailFmt - 1 else: t.styleAt(a - 1).para)
+          else: 0
+  if k > 0 and k <= t.paraFmts.len: t.paraFmts[k - 1] else: t.para
+
+proc tidyParaFmts(t: var TextData) =
+  ## (formats no paragraph has let go, the rest numbered again; the first paragraph's the text's
+  ## own -- what the whole text keeps, a list, a drop cap, is its)
+  if t.paraFmts.len == 0:
+    t.tailFmt = 0
+    return
+  let nf = t.paraFmts.len
+  proc fmtNo(k: int): int = (if k in 1 .. nf: k else: 0)
+  var used: seq[int]                   # (the formats in the paragraphs' order, each once)
+  var atStart = true
+  var any = false
+  for sp in t.spans:
+    for c in sp.text:
+      any = true
+      if atStart:
+        let k = fmtNo(sp.style.para)
+        if k notin used: used.add k
+        atStart = false
+      if c == '\n': atStart = true
+  if t.tailFmt > 0:
+    if atStart and any:
+      let k = fmtNo(t.tailFmt - 1)
+      if k notin used: used.add k
+    else: t.tailFmt = 0
+  if used.len == 0: used.add 0
+  let first = t.fmtOf(used[0])
+  var map = newSeq[int](nf + 1)
+  var kept: seq[ParaStyle]
+  for k in used:
+    let f = t.fmtOf(k)
+    if f == first: map[k] = 0
+    else:
+      let q = kept.find(f)
+      if q >= 0: map[k] = q + 1
+      else:
+        kept.add f
+        map[k] = kept.len
+  t.para = first
+  t.paraFmts = kept
+  for sp in t.spans.mitems: sp.style.para = map[fmtNo(sp.style.para)]
+  if t.tailFmt > 0: t.tailFmt = map[fmtNo(t.tailFmt - 1)] + 1
+  if t.tailFmt == 1 and t.paraFmts.len == 0: t.tailFmt = 0
+  t.normalize()
+
+proc setParaFmt*(t: var TextData; a, b: int; p: ParaStyle) =
+  ## The paragraphs characters `a` .. `b` are in (the one `a` is in when `a` = `b`) set in format
+  ## `p` -- as the Paragraph panel does with paragraphs selected; all of them: the text's own.
+  let n = t.runeLen
+  let (a0, _) = t.paraBounds(min(a, b))
+  let (_, b1) = t.paraBounds(max(a, b))
+  if a0 == 0 and b1 >= n:
+    t.para = p
+    t.paraFmts.setLen(0)
+    t.tailFmt = 0
+    for sp in t.spans.mitems: sp.style.para = 0
+    t.normalize()
+    return
+  var k = 0
+  if p != t.para:
+    k = t.paraFmts.find(p) + 1
+    if k == 0:
+      t.paraFmts.add p
+      k = t.paraFmts.len
+  if a0 >= n:
+    # (an empty paragraph at the end: its format kept for what is typed in it)
+    t.tailFmt = k + 1
+    t.tidyParaFmts()
+    return
+  let kk = k
+  t.restyle(a0, min(n, b1 + 1), proc (s: var CharStyle) = s.para = kk)
+  t.tidyParaFmts()
+
+proc linkRuns*(t: TextData): seq[tuple[a, b: int; link: string]] =
+  ## The text's hyperlinks and destinations, as characters `a` ..< `b` and their `CharStyle.link`
+  ## (neighbours with the same one joined).
+  var at = 0
+  for sp in t.spans:
+    let n = sp.text.runeLen
+    if sp.style.link.len > 0:
+      if result.len > 0 and result[^1].b == at and result[^1].link == sp.style.link: result[^1].b = at + n
+      else: result.add (at, at + n, sp.style.link)
+    at += n
+
+proc changeParas*(t: var TextData; a, b: int; change: proc (p: var ParaStyle)) =
+  ## Each paragraph characters `a` .. `b` are in changed by `change` (its own format: paragraphs
+  ## in different ones keep what else they have); `a` = 0, `b` = `runeLen`: all of them.
+  let r = t.plainText.toRunes
+  var starts: seq[int]
+  let (a0, _) = t.paraBounds(min(a, b))
+  let (_, b1) = t.paraBounds(max(a, b))
+  var k = a0
+  starts.add a0
+  while k < b1:
+    if int(r[k]) == 10 and k + 1 <= b1: starts.add k + 1
+    inc k
+  if starts.len > 0 and starts[^1] >= r.len and starts.len > 1 and r.len > 0:
+    starts.setLen(starts.len - 1)          # (an empty last paragraph: the one before's format)
+  if starts.len == 1 or (a0 == 0 and b1 >= r.len and t.paraFmts.len == 0):
+    if a0 == 0 and b1 >= r.len:
+      # (one format for all of it: the text's own)
+      if t.paraFmts.len == 0:
+        change(t.para)
+        return
+    var f = t.paraFmtAt(a0)
+    change(f)
+    t.setParaFmt(a0, a0, f)
+    return
+  var fmts: seq[ParaStyle]
+  for st in starts:
+    var f = t.paraFmtAt(st)
+    change(f)
+    fmts.add f
+  for q, st in starts: t.setParaFmt(st, st, fmts[q])
 
 # ---- layout -----------------------------------------------------------------------------------------------
 
@@ -802,6 +1068,7 @@ type
     x0*, x1*: float32          ## where its letters begin and end
     first*, last*: int         ## its characters (`first` ..< `last`)
     rtl*: bool                 ## a right-to-left line
+    para*: int                 ## the paragraph it is in (0 the first)
 
   Decoration* = object
     ## An underline or a strike: a bar from `x0` to `x1` at `y`, `thick` thick.
@@ -820,6 +1087,7 @@ type
     x0*, y0*, x1*, y1*: float32    ## the bounds of the letters
     overflow*: int             ## text in a box, columns: the first character that did not fit
                                ## (it flows on into the next box); -1: all of it fits
+    paras*: seq[ParaStyle]     ## each paragraph's format (`LaidLine.para` says which a line is in)
 
   GlyphPart = object
     gid: int
@@ -971,34 +1239,195 @@ proc fitScale*(t: TextData): float32 =
 proc columnize(l: var TextLayout; t: TextData; colW, gutter: float32; starts: var seq[float32]) =
   ## (the lines laid out a column wide moved into the columns side by side,
   ## each from the box's top; what does not fit the last one let go.
-  ## `starts`: how far down the one long column each column began)
+  ## `starts`: how far down the one long column each column began. As the
+  ## layout programs set columns: a paragraph's Keep Options -- its lines
+  ## together, so many at its start and its end, with the next one, in the
+  ## next column or frame -- a paragraph across them all (the columns over
+  ## it balanced), one split in columns of its own, Balance Columns, and
+  ## the box's Vertical Justification)
   let n = max(1, t.columns)
-  starts = newSeq[float32](n)
-  for c in 1 ..< n: starts[c] = -1
+  var colStarts = newSeq[float32](n)
+  for c in 1 ..< n: colStarts[c] = -1
+  let lines = l.lines
+  let paras = l.paras
   let bottom = t.y + t.boxH + 0.5'f32
-  var col = 0
-  var yOff = 0'f32
-  var inCol = 0
-  var keep = l.lines.len
-  var dxs = newSeq[float32](l.lines.len)
-  var dys = newSeq[float32](l.lines.len)
-  for i, ln in l.lines:
-    if ln.baseline + ln.descent - yOff > bottom and inCol > 0:
-      inc col
-      inCol = 0
-      if col >= n:
-        keep = i
-        break
-      yOff = ln.baseline - ln.ascent - t.y
-      starts[col] = yOff
-    if ln.baseline + ln.descent - yOff > bottom and col == n - 1 and inCol == 0:
-      keep = i                    # (a line taller than the whole box: not drawn -- overset)
-      break
-    let rtl = ln.rtl
-    let c = if rtl: n - 1 - col else: col      # (right to left: the first column at the right)
-    dxs[i] = float32(c) * (colW + gutter)
-    dys[i] = -yOff
-    inc inCol
+  let nl = lines.len
+  var keep = nl
+  var dxs = newSeq[float32](nl)
+  var dys = newSeq[float32](nl)
+  var colOf = newSeq[int](nl)
+  # the paragraphs' lines
+  let np = max(paras.len, (if nl > 0: lines[^1].para + 1 else: 0))
+  var pfirst = newSeq[int](np)
+  var plast = newSeq[int](np)
+  for p in 0 ..< np:
+    pfirst[p] = -1
+    plast[p] = -1
+  for i, ln in lines:
+    let p = clamp(ln.para, 0, np - 1)
+    if pfirst[p] < 0: pfirst[p] = i
+    plast[p] = i
+  proc fmt(p: int): ParaStyle = (if p >= 0 and p < paras.len: paras[p] else: t.para)
+  # (a paragraph split in columns of its own: its lines side by side in its column -- each line's
+  # place in the one long column then, and how far across)
+  var vshift = newSeq[float32](nl)
+  var vdx = newSeq[float32](nl)
+  var lift = 0'f32
+  for p in 0 ..< np:
+    if pfirst[p] < 0: continue
+    for i in pfirst[p] .. plast[p]: vshift[i] = -lift
+    let k = fmt(p).splitColumns
+    if k >= 2 and plast[p] > pfirst[p]:
+      let m = plast[p] - pfirst[p] + 1
+      let rows = (m + k - 1) div k
+      let subW = max(8'f32, (colW - gutter * float32(k - 1)) / float32(k))
+      let top0 = lines[pfirst[p]].baseline - lines[pfirst[p]].ascent
+      var tallest = 0'f32
+      for q in 0 ..< m:
+        let i = pfirst[p] + q
+        let s = q div rows
+        let first = pfirst[p] + s * rows
+        let ln = lines[i]
+        # (each sub-column from the paragraph's top)
+        let up = (lines[first].baseline - lines[first].ascent) - top0
+        vshift[i] = -lift - up
+        vdx[i] = float32(s) * (subW + gutter)
+        tallest = max(tallest, ln.baseline + ln.descent - up - top0)
+      let whole = lines[plast[p]].baseline + lines[plast[p]].descent - top0
+      lift += max(0'f32, whole - tallest)
+  proc vtop(i: int): float32 = lines[i].baseline - lines[i].ascent + vshift[i]
+  proc vbot(i: int): float32 = lines[i].baseline + lines[i].descent + vshift[i]
+  proc paraOf(i: int): int = clamp(lines[i].para, 0, np - 1)
+  proc gapBefore(i: int): float32 =
+    ## (the room over line `i` in the one long column: from the box's top, or the line before)
+    if i == 0: vtop(0) - t.y else: max(0'f32, vtop(i) - vbot(i - 1))
+  proc kept(j: int): int =
+    ## (where the column breaks for line `j`, by its paragraph's Keep Lines Together)
+    let p = paraOf(j)
+    let pp = fmt(p)
+    result = j
+    if pp.keepTogether or pp.splitColumns >= 2: return pfirst[p]
+    if plast[p] - j + 1 < max(1, pp.keepEnd): result = max(pfirst[p], plast[p] - max(1, pp.keepEnd) + 1)
+    if result - pfirst[p] < max(1, pp.keepStart): result = pfirst[p]
+  proc breakBefore(j, colStart: int): int =
+    ## (where the column breaks when line `j` does not fit: the paragraphs' Keep Options)
+    var b = kept(j)
+    # (the end of the paragraph before kept with so many lines of this one: it goes along)
+    for _ in 0 ..< 16:
+      let pb = paraOf(b)
+      if pb == 0 or plast[pb - 1] < 0: break
+      let w = fmt(pb - 1).keepWithNext
+      if w <= 0 or b - pfirst[pb] >= w: break
+      let nb = kept(plast[pb - 1])
+      if nb <= colStart: break
+      b = nb
+    if b <= colStart: j else: b
+  # the bands: runs of lines in columns, a paragraph across them between
+  var bandTop = t.y
+  var i = 0
+  block placing:
+    while i < nl:
+      let p = paraOf(i)
+      if fmt(p).spanAll and n > 1:
+        # a paragraph across all the columns: under the band before, the next band under it
+        let shift = bandTop + gapBefore(i) - vtop(i)
+        var bot = bandTop
+        for j in i .. plast[p]:
+          if vbot(j) + shift > bottom:
+            keep = j
+            break placing
+          dxs[j] = 0
+          dys[j] = shift + vshift[j]
+          colOf[j] = -1
+          bot = max(bot, vbot(j) + shift)
+        bandTop = bot
+        i = plast[p] + 1
+        continue
+      var runEnd = i
+      while runEnd < nl and not (fmt(paraOf(runEnd)).spanAll and n > 1): inc runEnd
+      let balanced = n > 1 and (runEnd < nl or t.balance)
+      var ends = newSeq[float32](n)
+      var stopAt = -1
+      proc place(h: float32; real: bool): bool =
+        ## (the lines `i` ..< `runEnd` in columns `h` tall: false when they do not all fit;
+        ## where they go when `real`)
+        var col = 0
+        var colStart = i
+        var yOff = vtop(i) - bandTop - gapBefore(i)
+        var j = i
+        for c in 0 ..< n: ends[c] = 0
+        stopAt = -1
+        while j < runEnd:
+          let pj = paraOf(j)
+          let st = fmt(pj).startAt
+          let forced = j == pfirst[pj] and j > colStart and st != psAnywhere
+          if forced and st in {psNextFrame, psNextPage}:
+            stopAt = j                            # (on in the next frame: the rest overset here)
+            return true
+          if forced or (vbot(j) - yOff > bandTop + h + 0.5'f32 and j > colStart):
+            let b = if forced: j else: breakBefore(j, colStart)
+            inc col
+            if col >= n:
+              stopAt = b
+              return false
+            colStart = b
+            yOff = vtop(b) - bandTop
+            if real and colStarts[col] < 0: colStarts[col] = bandTop + yOff - t.y
+            j = b
+            continue
+          if vbot(j) - yOff > bottom and col == n - 1 and j == colStart:
+            stopAt = j                            # (a line taller than the whole box: overset)
+            return false
+          if real:
+            let rtl = lines[j].rtl
+            let c = if rtl: n - 1 - col else: col   # (right to left: the first column at the right)
+            dxs[j] = float32(c) * (colW + gutter) + (if rtl: -vdx[j] else: vdx[j])
+            dys[j] = vshift[j] - yOff
+            colOf[j] = col
+          ends[col] = max(ends[col], vbot(j) - yOff)
+          inc j
+        true
+      var h = t.y + t.boxH - bandTop
+      if balanced and place(h, false):
+        # (as short as they all still fit: the columns even)
+        var lo = 0'f32
+        var hi = h
+        for _ in 0 ..< 18:
+          let mid = (lo + hi) / 2
+          if place(mid, false): hi = mid else: lo = mid
+        h = hi + 0.01'f32
+      let fits = place(h, true)
+      if stopAt >= 0:
+        keep = stopAt
+        break placing
+      if not fits:
+        keep = runEnd
+        break placing
+      for c in 0 ..< n: bandTop = max(bandTop, ends[c])
+      i = runEnd
+  if colStarts[0] < 0: colStarts[0] = 0
+  starts = colStarts
+  # Vertical Justification: each column's lines moved down (center, bottom) or spread (justify)
+  if t.vjust != vjTop and keep > 0:
+    for c in 0 ..< n:
+      var idx: seq[int]
+      var used = -1e9'f32
+      for j in 0 ..< keep:
+        if colOf[j] == c:
+          idx.add j
+          used = max(used, lines[j].baseline + lines[j].descent + dys[j])
+      if idx.len == 0: continue
+      let room = t.y + t.boxH - used
+      if room <= 0: continue
+      case t.vjust
+      of vjCenter:
+        for j in idx: dys[j] += room / 2
+      of vjBottom:
+        for j in idx: dys[j] += room
+      of vjJustify:
+        if idx.len > 1:
+          for q, j in idx: dys[j] += room * float32(q) / float32(idx.len - 1)
+      else: discard
   l.overflow = if keep < l.lines.len: l.lines[keep].first else: -1
   # each character moved with its line
   let nch = l.caretX.len
@@ -1409,6 +1838,15 @@ proc layoutText*(t: TextData): TextLayout =
       for r in sp.text.runes:
         let c = int(r)
         if (isNoteMark(c) and t.notes.len > 0) or isAnchorMark(c): return notesLaid(t)
+  var t = t
+  if t.boxW > 0 and t.path.len == 0 and (t.inset[0] != 0 or t.inset[1] != 0 or t.inset[2] != 0 or
+                                         t.inset[3] != 0):
+    # (Inset Spacing: the text kept so far in from the box's sides)
+    t.x += t.inset[3]
+    t.boxW = max(4'f32, t.boxW - t.inset[1] - t.inset[3])
+    t.y += t.inset[0]
+    if t.boxH > 0: t.boxH = max(4'f32, t.boxH - t.inset[0] - t.inset[2])
+    t.inset = [0'f32, 0, 0, 0]
   var u = t
   let cols = max(1, t.columns)
   # (text in a box keeps to it, as the layout programs have it: what does not fit is overset --
@@ -1416,7 +1854,9 @@ proc layoutText*(t: TextData): TextLayout =
   let boxedCols = t.boxW > 0 and t.boxH > 0 and t.path.len == 0 and not t.vertical and not t.table.on
   let gutter = if t.gutter > 0: t.gutter else: 12'f32
   let colW = if boxedCols: max(8'f32, (t.boxW - gutter * float32(cols - 1)) / float32(cols)) else: t.boxW
-  if boxedCols: u.boxW = colW
+  if boxedCols:
+    u.boxW = colW
+    u.spanW = t.boxW
   var starts: seq[float32]
   if boxedCols and cols > 1 and t.holes.len > 0: return holedColumns(t, u, cols, colW, gutter)
   result = if t.fit and t.boxW > 0 and t.boxH > 0 and t.path.len == 0: layoutPlain(u.sizesScaled(u.fitScale))
@@ -1455,7 +1895,7 @@ proc autoSized*(t: TextData): TextData =
     if lay.lines.len > 0:
       let gutter = if t.gutter > 0: t.gutter else: 12'f32
       w = (widest + t.para.indentLeft + t.para.indentRight + max(0'f32, t.para.indentFirst) + 1) *
-          float32(cols) + gutter * float32(cols - 1)
+          float32(cols) + gutter * float32(cols - 1) + t.inset[1] + t.inset[3]
       w = max(w, 4)
   if t.autoSize in {asHeight, asBoth}:
     if cols == 1 and t.notes.len == 0:
@@ -1466,7 +1906,7 @@ proc autoSized*(t: TextData): TextData =
       if lay.lines.len > 0:
         var bottom = t.y
         for ln in lay.lines: bottom = max(bottom, ln.baseline + ln.descent)
-        h = max(4'f32, bottom - t.y + 1)
+        h = max(4'f32, bottom - t.y + 1 + t.inset[2])
     else:
       # (columns share it, notes at its foot: as short as all of it still fits)
       var lo = 4'f32
@@ -1612,6 +2052,52 @@ proc scriptFontsApplied*(t: TextData): TextData =
       result.spans.add TextSpan(text: piece, style: st)
       i = j
 
+var grepHook*: proc (pattern: string; cps: seq[int]): seq[(int, int)] {.nimcall.}
+  ## Where a GREP pattern matches in a paragraph's characters (set by `retroui/textsearch`: GREP
+  ## styles are found with it).
+
+proc charStylesIn(cps: seq[int]; pp: ParaStyle): seq[tuple[a, b: int; look: CharStyle]] =
+  ## (where a paragraph's nested styles reach, one after another from its start, then where its
+  ## GREP styles match -- each a run of characters and the look it takes)
+  var at = 0
+  for ns in pp.nested:
+    if at >= cps.len: break
+    let count = max(1, ns.count)
+    var e = at
+    case ns.unit
+    of nuChars: e = min(cps.len, at + count)
+    of nuWords:
+      var words = 0
+      while e < cps.len and words < count:
+        while e < cps.len and cps[e] in [32, 9]: inc e
+        while e < cps.len and cps[e] notin [32, 9]: inc e
+        inc words
+    of nuSentences:
+      var n = 0
+      while e < cps.len and n < count:
+        if cps[e] in [int('.'), int('!'), int('?'), 0x061F, 0x06D4]:
+          inc n
+          inc e
+          while e < cps.len and cps[e] in [32, 9]: inc e
+        else: inc e
+    of nuUpTo:
+      let target = if ns.upTo.len > 0: int(ns.upTo.runeAt(0)) else: 9
+      var n = 0
+      while e < cps.len:
+        if cps[e] == target:
+          inc n
+          if n >= count:
+            if ns.through: inc e
+            break
+        inc e
+    if e > at and ns.name.len > 0: result.add (at, e, ns.look)   # ([None]: as the text is, up to there)
+    at = e
+  if grepHook != nil:
+    for g in pp.grepStyles:
+      if g.pattern.len == 0 or g.name.len == 0: continue
+      for (a, b) in grepHook(g.pattern, cps):
+        if b > a: result.add (a, b, g.look)
+
 proc layoutPlain(t: TextData): TextLayout =
   for sp in t.spans:
     if sp.style.arabicFont != ScriptFont() or sp.style.latinFont != ScriptFont():
@@ -1643,6 +2129,7 @@ proc layoutPlain(t: TextData): TextLayout =
   var styles: seq[CharStyle]
   var faces: seq[tuple[face: Face; fauxBold, fauxItalic: bool]]
   var chars: seq[CharInfo]
+  var spanFmt: seq[int]          # (each span's paragraph format)
   for sp in t.spans:
     let st = effective(sp.style)
     styles.add st
@@ -1656,6 +2143,7 @@ proc layoutPlain(t: TextData): TextLayout =
           try: coords.add (p[0], parseFloat(p[1])) except ValueError: discard
       if coords.len > 0 and ff.face.axes.len > 0: ff.face = ff.face.variation(coords)
     faces.add ff
+    spanFmt.add sp.style.para
     for r in sp.text.runes:
       chars.add CharInfo(cp: int(r), style: styles.high)
   let total = chars.len
@@ -1667,13 +2155,45 @@ proc layoutPlain(t: TextData): TextLayout =
   let boxed = t.boxW > 0
   var firstLine = true
   var lineNo = 0
+  var paraNo = 0
+  let spanW = if t.spanW > 0: t.spanW else: t.boxW
   while paraStart <= total:
     var paraEnd = paraStart
     while paraEnd < total and chars[paraEnd].cp != 10: inc paraEnd
+    # (its format: its first letter's -- an empty paragraph's, its end's)
+    let fmtAt = if paraStart < total: chars[paraStart].style elif total > 0: chars[total - 1].style else: -1
+    var pp = if fmtAt >= 0 and fmtAt < spanFmt.len: t.fmtOf(spanFmt[fmtAt]) else: t.para
+    if pp.styleName.len == 0 and fmtAt < 0: pp = t.para
+    if paraStart >= total and total > 0 and t.tailFmt > 0: pp = t.fmtOf(t.tailFmt - 1)
+    result.paras.add pp
+    # (a paragraph across the columns: broken at the box's whole width; one split in columns of
+    # its own: at theirs)
+    let gutterW = if t.gutter > 0: t.gutter else: 12'f32
+    let ownW = if pp.spanAll and t.columns > 1: spanW
+               elif pp.splitColumns >= 2 and t.boxW > 0:
+                 max(8'f32, (t.boxW - gutterW * float32(pp.splitColumns - 1)) / float32(pp.splitColumns))
+               else: t.boxW
+    # (its nested styles, then its GREP styles: the letters they reach take their looks)
+    if (pp.nested.len > 0 or pp.grepStyles.len > 0) and paraEnd > paraStart:
+      var cps = newSeq[int](paraEnd - paraStart)
+      for k in paraStart ..< paraEnd: cps[k - paraStart] = chars[k].cp
+      proc styleWith(look: CharStyle): int =
+        var st = effective(look)
+        st.para = 0
+        for i, o in styles:
+          if o == st: return i
+        styles.add st
+        var ff = fontFace(st.family, st.style)
+        faces.add ff
+        spanFmt.add 0
+        styles.high
+      for (a, b, look) in charStylesIn(cps, pp):
+        let si = styleWith(look)
+        for k in paraStart + a ..< paraStart + b: chars[k].style = si
     # the paragraph's characters: joined forms, bidi levels, glyphs, advances
     var s = ""
     for k in paraStart ..< paraEnd: s.add Rune(chars[k].cp).toUTF8
-    let bi = bidiInfo(s, (if t.para.rtl == 1: 0 elif t.para.rtl == 2: 1 else: -1))
+    let bi = bidiInfo(s, (if pp.rtl == 1: 0 elif pp.rtl == 2: 1 else: -1))
     let rtlPara = bi.rtlPara
     for k in paraStart ..< paraEnd:
       let c = addr chars[k]
@@ -1800,8 +2320,15 @@ proc layoutPlain(t: TextData): TextLayout =
          a.level == 0 and b.level == 0 and a.shown >= 0 and b.shown >= 0:
         chars[k - 1].adv += float32(a.face.kerning(a.gid, b.gid)) / float32(a.face.unitsPerEm) * a.size *
                             styles[a.style].hScale
+    # (Justification: the spaces as wide as Word Spacing's "desired" says)
+    let wsMin = if pp.wordSpacing == [0'i16, 0, 0]: 80'f32 else: float32(pp.wordSpacing[0])
+    let wsDes = if pp.wordSpacing == [0'i16, 0, 0]: 100'f32 else: max(1'f32, float32(pp.wordSpacing[1]))
+    let wsMax = if pp.wordSpacing == [0'i16, 0, 0]: 133'f32 else: float32(pp.wordSpacing[2])
+    if wsDes != 100:
+      for k in paraStart ..< paraEnd:
+        if chars[k].space and chars[k].cp != 9: chars[k].adv *= wsDes / 100
     # lines: broken at spaces to fit the box
-    let avail = if boxed: max(1'f32, t.boxW - t.para.indentLeft - t.para.indentRight) else: 1e9'f32
+    let avail = if boxed: max(1'f32, ownW - pp.indentLeft - pp.indentRight) else: 1e9'f32
     # (round holes: each line broken when it is known where it lies, and how much room the
     # holes leave it there)
     let holed = boxed and t.holes.len > 0
@@ -1815,7 +2342,7 @@ proc layoutPlain(t: TextData): TextLayout =
       ## (where the line that starts at `ls` ends, `room` wide; `whole`:
       ## nothing of it when not a word of it fits; Hyphenate: the word that
       ## does not fit broken where it may be, a hyphen after it -- `hyphenAt`)
-      var w = (if ls == paraStart: t.para.indentFirst else: 0'f32)
+      var w = (if ls == paraStart: pp.indentFirst else: 0'f32)
       var k = ls
       var lastBreak = -1
       var wAtWord = w
@@ -1828,7 +2355,7 @@ proc layoutPlain(t: TextData): TextLayout =
         w += chars[k].adv
         inc k
       var cut = (if k >= paraEnd: paraEnd elif lastBreak >= ls: lastBreak + 1 elif whole: ls else: k)
-      if t.para.hyphenate and boxed and k < paraEnd and not rtlPara:
+      if pp.hyphenate and boxed and k < paraEnd and not rtlPara:
         # (the word at the break: its letters, a place in it that fits with a hyphen)
         let ws = if lastBreak >= ls: lastBreak + 1 else: ls
         var we = ws
@@ -1847,7 +2374,7 @@ proc layoutPlain(t: TextData): TextLayout =
           var best = -1
           for p in pts:
             let at = ws + w0 + p
-            var ww = (if lastBreak >= ls: wAtWord else: (if ls == paraStart: t.para.indentFirst else: 0'f32))
+            var ww = (if lastBreak >= ls: wAtWord else: (if ls == paraStart: pp.indentFirst else: 0'f32))
             for q in ws ..< at: ww += chars[q].adv
             if ww + hyphenAdv(at - 1) <= room and at > ls: best = at
           if best > 0:
@@ -1857,13 +2384,115 @@ proc layoutPlain(t: TextData): TextLayout =
     var hyphenAt = newSeq[bool](paraEnd + 1)
     var lines: seq[(int, int)]
     var ls = paraStart
-    if not holed:
+    let justified = pp.align in {justifyLeft, justifyCenter, justifyRight, justifyAll}
+    let composed = boxed and not holed and paraEnd - paraStart > 1 and
+                   (pp.composer == cpParagraph or (pp.composer == cpAuto and justified))
+    if composed:
+      # the Paragraph Composer: every way of breaking the paragraph weighed at once (Knuth and
+      # Plass's): each line's spaces as near the wanted width as they can be, the lines alike,
+      # few hyphens -- for Arabic, its kashidas counted as room too
+      let kashidaRoom = rtlPara and not pp.noKashida and pp.kashida != kaNone
+      var cands = @[(paraStart, false)]
+      var k = paraStart
+      while k < paraEnd:
+        if chars[k].space:
+          while k < paraEnd and chars[k].space: inc k
+          if k < paraEnd: cands.add (k, false)
+          continue
+        # (a word: where it may be hyphenated)
+        var we = k
+        var word = ""
+        while we < paraEnd and not chars[we].space:
+          let cp = chars[we].cp
+          if cp < 128: word.add char(cp) else: word.add '?'
+          inc we
+        if pp.hyphenate and not rtlPara:
+          var w0 = 0
+          var w1 = word.len
+          while w0 < w1 and word[w0] notin {'a' .. 'z', 'A' .. 'Z'}: inc w0
+          while w1 > w0 and word[w1 - 1] notin {'a' .. 'z', 'A' .. 'Z'}: dec w1
+          if w1 - w0 >= 5:
+            for hp in hyphenPoints(word[w0 ..< w1]): cands.add (k + w0 + hp, true)
+        k = we
+      cands.add (paraEnd, false)
+      let nc = cands.len
+      # (running sums: widths, the spaces' stretch and shrink, words)
+      let n = paraEnd - paraStart
+      var pw = newSeq[float32](n + 1)
+      var pst = newSeq[float32](n + 1)
+      var psh = newSeq[float32](n + 1)
+      var pwd = newSeq[int](n + 1)
+      for i in 0 ..< n:
+        let c = chars[paraStart + i]
+        pw[i + 1] = pw[i] + c.adv
+        pst[i + 1] = pst[i]
+        psh[i + 1] = psh[i]
+        pwd[i + 1] = pwd[i]
+        if c.space and c.cp != 9:
+          pst[i + 1] += c.adv * max(0'f32, wsMax - wsDes) / wsDes
+          psh[i + 1] += c.adv * max(0'f32, wsDes - wsMin) / wsDes
+          inc pwd[i + 1]
+      let em = if chars.len > paraStart: chars[paraStart].size else: 12'f32
+      var best = newSeq[float](nc)
+      var prev = newSeq[int](nc)
+      var hyph = newSeq[bool](nc)
+      for i in 1 ..< nc: best[i] = Inf
+      for i in 0 ..< nc: hyph[i] = cands[i][1]
+      for tol in [3.0, 12.0, 1e9]:
+        for j in 1 ..< nc:
+          best[j] = Inf
+          prev[j] = -1
+          let (bj, hj) = cands[j]
+          # (the line ends before the spaces it was broken at)
+          var e = bj
+          while e > paraStart and chars[e - 1].space: dec e
+          for i in countdown(j - 1, 0):
+            if best[i] == Inf: continue
+            let a0 = cands[i][0]
+            if a0 >= e and bj < paraEnd: continue
+            let first = a0 == paraStart
+            var natural = pw[e - paraStart] - pw[a0 - paraStart] + (if first: pp.indentFirst else: 0'f32)
+            if hj: natural += hyphenAdv(bj - 1)
+            var stretch = pst[e - paraStart] - pst[a0 - paraStart]
+            let shrink = psh[e - paraStart] - psh[a0 - paraStart]
+            if kashidaRoom: stretch += em * 0.8'f32 * float32(pwd[e - paraStart] - pwd[a0 - paraStart] + 1)
+            if natural - shrink > avail + 0.01: break       # (longer still from further back)
+            let last = bj >= paraEnd
+            var r = 0.0
+            if natural < avail:
+              r = if last and pp.align != justifyAll: 0.0
+                  elif stretch > 1e-6: float(avail - natural) / stretch
+                  else: (if justified: 50.0 else: float(avail - natural) / max(1'f32, avail) * 10)
+            elif natural > avail: r = if shrink > 1e-6: float(avail - natural) / shrink else: -1e9
+            if r < -1 or r > tol: continue
+            var dm = (10 + 100 * pow(abs(r), 3)) ^ 2
+            if hj: dm += 2500
+            if hj and hyph[i]: dm += 3000                    # (two hyphens running)
+            if best[i] + dm < best[j]:
+              best[j] = best[i] + dm
+              prev[j] = i
+        if best[nc - 1] < Inf: break
+      if best[nc - 1] < Inf:
+        var path: seq[int]
+        var j = nc - 1
+        while j > 0:
+          path.add j
+          j = prev[j]
+          if j < 0: break
+        if j == 0:
+          var a0 = paraStart
+          for q in countdown(path.high, 0):
+            let (bj, hj) = cands[path[q]]
+            lines.add (a0, bj)
+            if hj: hyphenAt[bj] = true
+            a0 = bj
+    if not holed and lines.len == 0:
       while true:
         let cut = breakLine(ls, avail)
         lines.add (ls, cut)
         if cut >= paraEnd: break
         ls = cut
-    if paraStart != 0: penY += t.para.spaceBefore
+    if paraStart != 0: penY += pp.spaceBefore
     var li = -1
     var segs: seq[tuple[x0, x1: float32]]     # (the rooms left of the line being filled, beside holes)
     while true:
@@ -1884,8 +2513,8 @@ proc layoutPlain(t: TextData): TextLayout =
         let lead0 = max(1'f32, if styles.len > 0 and st0.leading > 0: st0.leading else: size0 * 1.2)
         let asc0 = size0 * 0.93'f32
         let desc0 = size0 * 0.24'f32
-        let bx0 = t.x + t.para.indentLeft
-        let bx1 = t.x + t.boxW - t.para.indentRight
+        let bx0 = t.x + pp.indentLeft
+        let bx1 = t.x + ownW - pp.indentRight
         let least = min(bx1 - bx0, max(24'f32, size0 * 2))
         var y = 0'f32
         var haveY = false
@@ -1952,27 +2581,61 @@ proc layoutPlain(t: TextData): TextLayout =
       for k in a ..< e: width += chars[k].adv
       let hyphenated = b > a and b < hyphenAt.len and hyphenAt[b] and e == b
       if hyphenated: width += hyphenAdv(b - 1)
-      let indent = t.para.indentLeft + (if a == paraStart: t.para.indentFirst else: 0'f32)
+      let indent = pp.indentLeft + (if a == paraStart: pp.indentFirst else: 0'f32)
       let lastOfPara = if holed: b >= paraEnd else: li == lines.high
-      let align = t.para.align
+      let align = pp.align
       var extraPerSpace = 0'f32
       var startX: float32
-      let firstInd = if a == paraStart: t.para.indentFirst else: 0'f32
+      let firstInd = if a == paraStart: pp.indentFirst else: 0'f32
       # (right to left: the first line's indent is at the right, where lines start)
-      let boxL = t.x + t.para.indentLeft + (if rtlPara: 0'f32 else: firstInd) + winL
-      let boxR = t.x + (if boxed: t.boxW - t.para.indentRight - (if rtlPara: firstInd else: 0'f32) else: 0'f32) - winR
+      let boxL = t.x + pp.indentLeft + (if rtlPara: 0'f32 else: firstInd) + winL
+      let boxR = t.x + (if boxed: ownW - pp.indentRight - (if rtlPara: firstInd else: 0'f32) else: 0'f32) - winR
       let avail = avail - winL - winR       # (the room a hole leaves this line)
       let justify = boxed and (align == justifyAll or (align in {justifyLeft, justifyCenter, justifyRight} and
                                                         not lastOfPara))
       var spaces = 0
+      var extraPerLetter = 0'f32
+      var gScale = 1'f32
       if justify:
+        var spaceW = 0'f32
+        var letters = 0
         for k in a ..< e:
-          if chars[k].space: inc spaces
-        if spaces > 0: extraPerSpace = max(0'f32, (avail - (indent - t.para.indentLeft) - width) / spaces.float32)
+          if chars[k].space:
+            inc spaces
+            spaceW += chars[k].adv
+          elif chars[k].cp != 10: inc letters
+        let need = avail - (indent - pp.indentLeft) - width
+        if spaces > 0:
+          # (the spaces first, as far as Word Spacing's most -- less, as far as its least)
+          let most = spaceW * max(0'f32, wsMax - wsDes) / wsDes
+          let least = -spaceW * max(0'f32, wsDes - wsMin) / wsDes
+          var fromSpaces = clamp(need, least, max(most, 0'f32))
+          var left = need - fromSpaces
+          if left > 0.01 and letters > 1:
+            # (then between the letters, as far as Letter Spacing's most: % of a space)
+            let lsMax = float32(pp.letterSpacing[2]) / 100 * (spaceW / spaces.float32)
+            if lsMax > 0:
+              extraPerLetter = min(left / float32(letters - 1), lsMax)
+              left -= extraPerLetter * float32(letters - 1)
+          if left > 0.01 and pp.glyphScaling[2] > 100:
+            # (then the letters a little wider, as far as Glyph Scaling's most)
+            let gmax = float32(pp.glyphScaling[2]) / 100
+            var lw = 0'f32
+            for k in a ..< e:
+              if not chars[k].space and chars[k].cp != 10: lw += chars[k].adv
+            if lw > 0:
+              gScale = min(gmax, 1 + left / lw)
+              left -= lw * (gScale - 1)
+          if left > 0.01: fromSpaces += left      # (what is left: the spaces take it, past their most)
+          extraPerSpace = fromSpaces / spaces.float32
+          width += extraPerLetter * float32(max(0, letters - 1))
+          if gScale != 1:
+            for k in a ..< e:
+              if not chars[k].space and chars[k].cp != 10: width += chars[k].adv * (gScale - 1)
       # (justified Arabic: lengthened at its joins first, with tatweel -- one
       # join a word, the best place in it; as long as Insert Kashida lets)
       var kashidaAt = newSeq[float32](b - a)
-      let kl = if t.para.noKashida: kaNone else: t.para.kashida
+      let kl = if pp.noKashida: kaNone else: pp.kashida
       if justify and rtlPara and kl != kaNone:
         var points: seq[int]
         var wbest = -1
@@ -1992,7 +2655,7 @@ proc layoutPlain(t: TextData): TextLayout =
               wrank = rk
         if wbest >= 0: points.add wbest
         if points.len > 0:
-          let room = max(0'f32, avail - (indent - t.para.indentLeft) - width)
+          let room = max(0'f32, avail - (indent - pp.indentLeft) - width)
           let em = styles[chars[points[0]].style].size
           let most = case kl
                      of kaShort: 0.35'f32
@@ -2027,7 +2690,7 @@ proc layoutPlain(t: TextData): TextLayout =
       else:
         startX = case effAlign
                  of textCenter: t.x - lineW / 2
-                 of textRight: t.x - lineW - (if rtlPara: t.para.indentRight + firstInd else: 0'f32)
+                 of textRight: t.x - lineW - (if rtlPara: pp.indentRight + firstInd else: 0'f32)
                  else: t.x + indent
       # the characters in the order shown
       var levels = newSeq[int8](b - a)
@@ -2049,6 +2712,8 @@ proc layoutPlain(t: TextData): TextLayout =
         if c.cp == 10: continue
         var adv = c.adv
         if c.space and k < e: adv += extraPerSpace
+        elif gScale != 1 and k < e: adv *= gScale
+        if not c.space and k < e - 1: adv += extraPerLetter
         let kas = kashidaAt[k - a]
         adv += kas
         let rtlChar = (c.level and 1) == 1
@@ -2071,16 +2736,17 @@ proc layoutPlain(t: TextData): TextLayout =
           elif st.script == scSub: y += st.size * 0.15
           let fb = faces[c.style]
           var px = x
+          let gs = if c.space: 1'f32 else: gScale
           for p in c.parts:
             if not c.space and not (p.mark and st.noMarks):
-              result.glyphs.add LaidGlyph(face: c.face, gid: p.gid, x: px + p.dx,
+              result.glyphs.add LaidGlyph(face: c.face, gid: p.gid, x: px + p.dx * gs,
                                           y: y - p.dy - (if p.mark: st.markRaise else: 0'f32), size: c.size,
-                                          hScale: st.hScale, vScale: st.vScale,
+                                          hScale: st.hScale * gs, vScale: st.vScale,
                                           embolden: (if st.fauxBold or fb.fauxBold: max(0.6'f32, c.size / 28) else: 0'f32),
                                           shear: (if st.fauxItalic or fb.fauxItalic: 0.21'f32 else: 0'f32),
                                           color: (if p.mark and st.markColor != 0: st.markColor else: st.color),
-                                          index: k, adv: p.adv)
-            px += p.adv
+                                          index: k, adv: p.adv * gs)
+            px += p.adv * gs
         elif c.shown >= 0 and not c.space and not (st.noMarks and isMark(c.cp)):
           var shown = c.shown
           if rtlChar: shown = mirrored(shown)
@@ -2092,7 +2758,7 @@ proc layoutPlain(t: TextData): TextLayout =
           let mk = isMark(c.cp)
           result.glyphs.add LaidGlyph(face: f, gid: g, x: x + c.markDx,
                                       y: y - c.markDy - (if mk: st.markRaise else: 0'f32), size: c.size,
-                                      hScale: st.hScale,
+                                      hScale: st.hScale * gScale,
                                       vScale: st.vScale,
                                       embolden: (if st.fauxBold or fb.fauxBold: max(0.6'f32, c.size / 28) else: 0'f32),
                                       shear: (if st.fauxItalic or fb.fauxItalic: 0.21'f32 else: 0'f32),
@@ -2118,13 +2784,14 @@ proc layoutPlain(t: TextData): TextLayout =
                                       hScale: st.hScale, vScale: st.vScale, color: st.color, index: b - 1,
                                       adv: hyphenAdv(b - 1))
       result.lines.add LaidLine(baseline: penY, ascent: asc, descent: desc, x0: startX, x1: startX + lineW,
-                                first: a, last: b, rtl: rtlPara)
+                                first: a, last: b, rtl: rtlPara, para: paraNo)
       inc lineNo
     # the caret at the paragraph's end (before its new line, or the text's end)
     let ll = result.lines[^1]
     result.caretX[paraEnd] = if ll.rtl: ll.x0 else: ll.x1
     result.caretLine[paraEnd] = result.lines.high
-    penY += t.para.spaceAfter
+    penY += pp.spaceAfter
+    inc paraNo
     if paraEnd >= total: break
     paraStart = paraEnd + 1
   # the bounds
@@ -2960,6 +3627,8 @@ proc toJson*(st: CharStyle): JsonNode =
                      "color": int64(f.color), "tracking": f.tracking}
   if st.variation.len > 0: result["variation"] = %st.variation
   if st.styleName.len > 0: result["styleName"] = %st.styleName
+  if st.para != 0: result["para"] = %st.para
+  if st.link.len > 0: result["link"] = %st.link
 
 proc getF(j: JsonNode; k: string; d = 0.0): float =
   if j != nil and j.hasKey(k) and j[k].kind in {JInt, JFloat}: j[k].getFloat else: d
@@ -3002,6 +3671,9 @@ proc charStyleFrom*(j: JsonNode): CharStyle =
   result.noMarks = j.getB("noMarks")
   result.variation = j.getS("variation")
   result.styleName = j.getS("styleName")
+  result.para = clamp(int(j.getF("para")), 0, 100_000)
+  result.link = j.getS("link")
+  if result.link.len > 4096: result.link.setLen(0)
   for (k, f) in [("arabicFont", addr result.arabicFont), ("latinFont", addr result.latinFont)]:
     if j.hasKey(k) and j[k].kind == JObject:
       let o = j[k]
@@ -3015,6 +3687,8 @@ proc dropToJson(p: ParaStyle; j: JsonNode)
 proc tableToJson(ts: TableStyle): JsonNode
 proc tableFrom(j: JsonNode): TableStyle
 proc listFrom(p: var ParaStyle; j: JsonNode)
+proc paraToJson*(p: ParaStyle): JsonNode
+proc paraFrom*(j: JsonNode): ParaStyle
 
 proc toJson*(t: TextData): JsonNode =
   ## The text as JSON (saved in a document).
@@ -3036,6 +3710,14 @@ proc toJson*(t: TextData): JsonNode =
   if t.columns > 1: result["columns"] = %t.columns
   if t.gutter > 0: result["gutter"] = %t.gutter
   if t.clipOverflow: result["clipOverflow"] = %true
+  if t.paraFmts.len > 0:
+    var a = newJArray()
+    for f in t.paraFmts: a.add paraToJson(f)
+    result["paraFmts"] = a
+  if t.tailFmt > 0: result["tailFmt"] = %t.tailFmt
+  if t.inset != [0'f32, 0, 0, 0]: result["inset"] = %[t.inset[0], t.inset[1], t.inset[2], t.inset[3]]
+  if t.vjust != vjTop: result["vjust"] = %($t.vjust)
+  if t.balance: result["balance"] = %true
   if t.autoSize != asOff:
     result["autoSize"] = %($t.autoSize)
     result["autoRef"] = %t.autoRef
@@ -3080,6 +3762,15 @@ proc textFrom*(j: JsonNode): TextData =
   result.columns = j{"columns"}.getInt(0)
   result.gutter = j{"gutter"}.getFloat(0).float32
   result.clipOverflow = j.getB("clipOverflow")
+  for f in j{"paraFmts"}.getElems:
+    if result.paraFmts.len >= 100_000: break
+    result.paraFmts.add paraFrom(f)
+  let ins = j{"inset"}
+  if ins != nil and ins.kind == JArray and ins.len == 4:
+    for q in 0 .. 3: result.inset[q] = clamp(float32(ins[q].getFloat), 0, 10_000)
+  result.tailFmt = clamp(int(j.getF("tailFmt")), 0, result.paraFmts.len + 1)
+  result.vjust = enumOf(j.getS("vjust"), vjTop)
+  result.balance = j.getB("balance")
   for a in TextAutoSize:
     if j{"autoSize"}.getStr == $a: result.autoSize = a
   result.autoRef = clamp(j{"autoRef"}.getInt(0), 0, 8)
@@ -3181,9 +3872,60 @@ proc tableFrom(j: JsonNode): TableStyle =
     for w in j["widths"].elems:
       if result.widths.len < 200 and w.kind in {JInt, JFloat}: result.widths.add clamp(float32(w.getFloat), 0, 1000)
 
+proc composeToJson(p: ParaStyle; j: JsonNode) =
+  ## (the composer, justification, keep options, columns, next style, nested and GREP styles:
+  ## there only when they are not their defaults)
+  if p.composer != cpAuto: j["composer"] = %($p.composer)
+  for (k, a) in [("wordSpacing", p.wordSpacing), ("letterSpacing", p.letterSpacing),
+                 ("glyphScaling", p.glyphScaling)]:
+    if a != [0'i16, 0, 0]: j[k] = %[int(a[0]), int(a[1]), int(a[2])]
+  if p.keepWithNext > 0: j["keepWithNext"] = %p.keepWithNext
+  if p.keepTogether: j["keepTogether"] = %true
+  if p.keepStart > 0: j["keepStart"] = %p.keepStart
+  if p.keepEnd > 0: j["keepEnd"] = %p.keepEnd
+  if p.startAt != psAnywhere: j["startAt"] = %($p.startAt)
+  if p.spanAll: j["spanAll"] = %true
+  if p.splitColumns >= 2: j["splitColumns"] = %p.splitColumns
+  if p.nextStyle.len > 0: j["nextStyle"] = %p.nextStyle
+  if p.nested.len > 0:
+    var a = newJArray()
+    for n in p.nested:
+      a.add %*{"name": n.name, "look": n.look.toJson, "count": n.count, "unit": $n.unit, "upTo": n.upTo,
+               "through": n.through}
+    j["nested"] = a
+  if p.grepStyles.len > 0:
+    var a = newJArray()
+    for g in p.grepStyles: a.add %*{"name": g.name, "look": g.look.toJson, "pattern": g.pattern}
+    j["grep"] = a
+
+proc composeFrom(p: var ParaStyle; j: JsonNode) =
+  p.composer = enumOf(j.getS("composer"), cpAuto)
+  for (k, a) in [("wordSpacing", addr p.wordSpacing), ("letterSpacing", addr p.letterSpacing),
+                 ("glyphScaling", addr p.glyphScaling)]:
+    let e = j{k}
+    if e != nil and e.kind == JArray and e.len == 3:
+      for q in 0 .. 2: a[][q] = int16(clamp(e[q].getInt(0), -1000, 1000))
+  p.keepWithNext = clamp(int(j.getF("keepWithNext")), 0, 50)
+  p.keepTogether = j.getB("keepTogether")
+  p.keepStart = clamp(int(j.getF("keepStart")), 0, 50)
+  p.keepEnd = clamp(int(j.getF("keepEnd")), 0, 50)
+  p.startAt = enumOf(j.getS("startAt"), psAnywhere)
+  p.spanAll = j.getB("spanAll")
+  p.splitColumns = clamp(int(j.getF("splitColumns")), 0, 20)
+  p.nextStyle = j.getS("nextStyle")
+  for n in j{"nested"}.getElems:
+    if p.nested.len >= 50: break
+    p.nested.add NestedStyle(name: n.getS("name"), look: charStyleFrom(n{"look"}),
+                             count: clamp(int(n.getF("count")), 0, 10_000), unit: enumOf(n.getS("unit"), nuWords),
+                             upTo: n.getS("upTo"), through: n.getB("through"))
+  for g in j{"grep"}.getElems:
+    if p.grepStyles.len >= 50: break
+    p.grepStyles.add GrepStyle(name: g.getS("name"), look: charStyleFrom(g{"look"}), pattern: g.getS("pattern"))
+
 proc dropToJson(p: ParaStyle; j: JsonNode) =
   if p.hyphenate: j["hyphenate"] = %true
   if p.gridAlign: j["gridAlign"] = %true
+  composeToJson(p, j)
   if p.dropLines < 2: return
   j["dropLines"] = %p.dropLines
   if p.dropChars > 1: j["dropChars"] = %p.dropChars
@@ -3202,6 +3944,7 @@ proc listFrom(p: var ParaStyle; j: JsonNode) =
   p.dropChars = clamp(int(j.getF("dropChars")), 0, 20)
   p.hyphenate = j{"hyphenate"}.getBool
   p.gridAlign = j{"gridAlign"}.getBool
+  composeFrom(p, j)
 
 proc paraToJson*(p: ParaStyle): JsonNode =
   ## A paragraph style as JSON (Paragraph Styles kept in a document).

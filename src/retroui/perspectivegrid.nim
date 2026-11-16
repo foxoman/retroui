@@ -1,7 +1,8 @@
-## A perspective grid, as a drawing program has one: a horizon, one or two
-## vanishing points, and the planes they make -- a wall to the left, a wall
-## to the right, the floor (and, with one point, the wall facing) -- with
-## lines on them to draw by. A flat shape is put on a plane where it is:
+## A perspective grid, as a drawing program has one: a horizon, one, two or
+## three vanishing points (the third the walls' uprights meet at, above or
+## below), and the planes they make -- a wall to the left, a wall to the
+## right, the floor (and, with one point, the wall facing) -- with lines on
+## them to draw by. A flat shape is put on a plane where it is:
 ## the corners of its box stay, the rest follows the plane -- smaller as it
 ## goes back.
 ##
@@ -27,7 +28,7 @@ import gfx, photo, photoshapes, photovp
 type
   PerspectiveKind* = enum
     ## How many vanishing points.
-    pkOnePoint = "One-Point", pkTwoPoint = "Two-Point"
+    pkOnePoint = "One-Point", pkTwoPoint = "Two-Point", pkThreePoint = "Three-Point"
 
   PerspectivePlane* = enum
     ## The planes of a grid.
@@ -43,6 +44,8 @@ type
     nearW*: float                ## one point: the facing wall's width
     ground*, top*: float         ## the near corner's (the facing wall's) foot and top (y)
     depth*: float                ## how far the planes reach toward their points (0..1)
+    vertY*: float                ## three points: where the walls' uprights meet (y, under the near
+                                 ## corner: below the ground looking down, above the top looking up)
     cells*: int                  ## lines on a plane, each way
     shown*: bool                 ## shown over the picture (View > Perspective Grid > Show Grid)
     locked*: bool                ## its handles do not move it
@@ -64,10 +67,17 @@ proc onePoint*(w, h: int): PerspectiveGrid =
                   nearX: w.float * 0.18, nearW: w.float * 0.64, ground: h.float * 0.92, top: h.float * 0.08,
                   depth: 0.55, cells: 8, opacity: 50)
 
+proc threePoint*(w, h: int): PerspectiveGrid =
+  ## A three-point grid for an image `w` x `h`: as `defaultGrid`, the walls' uprights meeting at a
+  ## point far below (looking down on what is drawn).
+  result = defaultGrid(w, h)
+  result.kind = pkThreePoint
+  result.vertY = h.float * 2.6
+
 proc gridToJson*(g: PerspectiveGrid): string =
   ## The grid as JSON (what a document keeps of it).
   $(%*{"kind": $g.kind, "horizon": g.horizon, "leftX": g.leftX, "rightX": g.rightX, "nearX": g.nearX,
-       "nearW": g.nearW, "ground": g.ground, "top": g.top, "depth": g.depth, "cells": g.cells,
+       "nearW": g.nearW, "ground": g.ground, "top": g.top, "depth": g.depth, "vertY": g.vertY, "cells": g.cells,
        "shown": g.shown, "locked": g.locked, "active": $g.active, "noActive": g.noActive,
        "opacity": g.opacity})
 
@@ -77,7 +87,9 @@ proc gridFrom*(s: string; w, h: int): PerspectiveGrid =
   if s.len == 0: return
   try:
     let j = parseJson(s)
-    result.kind = if j{"kind"}.getStr == $pkOnePoint: pkOnePoint else: pkTwoPoint
+    result.kind = if j{"kind"}.getStr == $pkOnePoint: pkOnePoint
+                  elif j{"kind"}.getStr == $pkThreePoint: pkThreePoint
+                  else: pkTwoPoint
     template f(name: string; field: untyped) =
       if j.hasKey(name): field = j[name].getFloat(field)
     f("horizon", result.horizon)
@@ -88,6 +100,8 @@ proc gridFrom*(s: string; w, h: int): PerspectiveGrid =
     f("ground", result.ground)
     f("top", result.top)
     f("depth", result.depth)
+    f("vertY", result.vertY)
+    if result.kind == pkThreePoint and abs(result.vertY - result.ground) < 1: result.vertY = h.float * 2.6
     result.cells = clamp(j{"cells"}.getInt(8), 1, 64)
     result.shown = j{"shown"}.getBool
     result.locked = j{"locked"}.getBool
@@ -111,6 +125,25 @@ proc planeQuad*(g: PerspectiveGrid; plane: PerspectivePlane): Quad =
   ## side first for the walls).
   let f = clamp(g.depth, 0.05, 0.98)
   case g.kind
+  of pkThreePoint:
+    # (as two points, but the walls' far sides go up to the third point: their uprights meet there)
+    let vl = (g.leftX, g.horizon)
+    let vr = (g.rightX, g.horizon)
+    let v3 = (g.nearX, g.vertY)
+    let nt = (g.nearX, g.top)
+    let nb = (g.nearX, g.ground)
+    case plane
+    of ppLeft, ppFacing:
+      let ft = along(nt, vl, f)
+      [ft, nt, nb, crossing(nb, vl, ft, v3)]
+    of ppRight:
+      let ft = along(nt, vr, f)
+      [nt, ft, crossing(nb, vr, ft, v3), nb]
+    of ppFloor:
+      let l = along(nb, vl, f)
+      let r = along(nb, vr, f)
+      let far = crossing(l, vr, r, vl)
+      [far, r, nb, l]
   of pkTwoPoint:
     let vl = (g.leftX, g.horizon)
     let vr = (g.rightX, g.horizon)
@@ -139,7 +172,7 @@ proc planeQuad*(g: PerspectiveGrid; plane: PerspectivePlane): Quad =
 
 proc planes*(g: PerspectiveGrid): seq[PerspectivePlane] =
   ## The planes the grid has.
-  if g.kind == pkTwoPoint: @[ppLeft, ppRight, ppFloor] else: @[ppFacing, ppLeft, ppRight, ppFloor]
+  if g.kind == pkOnePoint: @[ppFacing, ppLeft, ppRight, ppFloor] else: @[ppLeft, ppRight, ppFloor]
 
 proc gridLines*(g: PerspectiveGrid; w, h: int): seq[tuple[a, b: (float, float); plane: int]] =
   ## The lines to show: the horizon (plane -1) and each plane's (its index in `planes`).

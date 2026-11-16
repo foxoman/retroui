@@ -9,7 +9,7 @@
 ##                                   fill: solidPaint(0xFFCC3333'u32)))
 ## ```
 
-import std/[math, strutils, hashes, locks]
+import std/[math, strutils, hashes, locks, algorithm]
 import gfx, photo, raster, parallel, textengine, photostyles
 
 type Pt* = (float, float)
@@ -761,6 +761,116 @@ proc strokeEdges(poly: seq[Pt]; closed: bool; r: float; cap: LineCap; join: Line
     edges.addConvex(circle(poly[0], r))
     edges.addConvex(circle(poly[^1], r))
 
+proc varStrokePolys(poly: seq[Pt]; closed: bool; radii: seq[float]; cap: LineCap): seq[seq[Pt]] =
+  ## The outline of a line whose half width at each point of `poly` is
+  ## `radii`'s, as convex pieces that make it together: a trapezoid a
+  ## piece of the line, round where it turns (a variable width, a
+  ## calligraphic nib).
+  let n = poly.len
+  if n == 0 or radii.len != n: return
+  if n == 1:
+    result.add circle(poly[0], radii[0])
+    return
+  let segs = if closed: n else: n - 1
+  var dirs = newSeq[Pt](segs)
+  for k in 0 ..< segs:
+    let a = poly[k]
+    let b = poly[(k + 1) mod n]
+    let dx = b[0] - a[0]
+    let dy = b[1] - a[1]
+    let l = max(1e-12, sqrt(dx * dx + dy * dy))
+    dirs[k] = (dx / l, dy / l)
+  for k in 0 ..< segs:
+    let a = poly[k]
+    let b = poly[(k + 1) mod n]
+    let ra = radii[k]
+    let rb = radii[(k + 1) mod n]
+    let u = dirs[k]
+    var a0 = a
+    var b0 = b
+    if not closed and cap == lcSquare:
+      if k == 0: a0 = (a[0] - u[0] * ra, a[1] - u[1] * ra)
+      if k == segs - 1: b0 = (b[0] + u[0] * rb, b[1] + u[1] * rb)
+    result.add @[(a0[0] - u[1] * ra, a0[1] + u[0] * ra), (b0[0] - u[1] * rb, b0[1] + u[0] * rb),
+                 (b0[0] + u[1] * rb, b0[1] - u[0] * rb), (a0[0] + u[1] * ra, a0[1] - u[0] * ra)]
+  # (where it turns, a round join -- a straight run needs none)
+  let first = if closed: 0 else: 1
+  let last = if closed: n - 1 else: n - 2
+  for k in first .. last:
+    let d1 = dirs[(k - 1 + segs) mod segs]
+    let d2 = dirs[k mod segs]
+    if d1[0] * d2[0] + d1[1] * d2[1] < 0.9995 and radii[k] > 0.05: result.add circle(poly[k], radii[k])
+  if not closed and cap == lcRound:
+    if radii[0] > 0.05: result.add circle(poly[0], radii[0])
+    if radii[^1] > 0.05: result.add circle(poly[^1], radii[^1])
+
+proc strokeEdgesVar(poly: seq[Pt]; closed: bool; radii: seq[float]; cap: LineCap; edges: var seq[Edge]) =
+  for q in varStrokePolys(poly, closed, radii, cap): edges.addConvex(q)
+
+proc widthAt*(ws: seq[WidthPoint]; t: float): float =
+  ## A width profile's width (times the stroke's) at `t` (0..1 along the
+  ## subpath): between its points, in between; past its ends, as they are.
+  if ws.len == 0: return 1
+  var a = ws[0]
+  if t <= a.t: return a.w
+  for k in 1 .. ws.high:
+    let b = ws[k]
+    if t <= b.t:
+      return if b.t - a.t <= 1e-9: b.w else: a.w + (b.w - a.w) * (t - a.t) / (b.t - a.t)
+    a = b
+  ws[^1].w
+
+proc nibRadius*(b: StrokeBrush; r: float; dirX, dirY: float): float =
+  ## A calligraphic nib's half width (`r`: half its size) across a line
+  ## going (`dirX`, `dirY`): wide across its angle, thin along it.
+  let al = degToRad(b.angle)
+  let ro = clamp(b.roundness, 1.0, 100.0) / 100
+  # (the ellipse's reach along the line's normal)
+  let nx = -dirY
+  let ny = dirX
+  let u = nx * cos(al) + ny * sin(al)
+  let v = -nx * sin(al) + ny * cos(al)
+  r * sqrt(u * u + ro * ro * v * v)
+
+proc strokeRadii(poly: seq[Pt]; closed: bool; r: float; s: ShapeData): seq[float] =
+  ## (each point's half width: the width profile times the nib's)
+  let n = poly.len
+  result = newSeq[float](n)
+  var lens = newSeq[float](n)
+  for k in 1 ..< n:
+    lens[k] = lens[k - 1] + hypot(poly[k][0] - poly[k - 1][0], poly[k][1] - poly[k - 1][1])
+  let total = max(1e-9, lens[^1] + (if closed and n > 1: hypot(poly[0][0] - poly[^1][0], poly[0][1] - poly[^1][1]) else: 0.0))
+  for k in 0 ..< n:
+    var rr = r * (if s.widths.len > 0: widthAt(s.widths, lens[k] / total) else: 1.0)
+    if s.brush.kind == sbCalligraphic and n > 1:
+      # (the nib across the line here: the mean of the pieces either side)
+      var dx, dy = 0.0
+      for j in [k - 1, k]:
+        let i0 = if closed: (j + n) mod n else: clamp(j, 0, n - 2)
+        let i1 = if closed: (i0 + 1) mod n else: i0 + 1
+        dx += poly[i1][0] - poly[i0][0]
+        dy += poly[i1][1] - poly[i0][1]
+      let l = max(1e-12, hypot(dx, dy))
+      rr = nibRadius(s.brush, rr, dx / l, dy / l)
+    result[k] = max(0.0, rr)
+
+proc varStrokeOutline*(s: ShapeData): Path =
+  ## A stroke of varying width (a width profile, a calligraphic nib) as an
+  ## outline to fill: pieces turned the one way, so that filled with the
+  ## non-zero rule they make it together (SVG, PDF).
+  let r = s.strokeWidth / 2
+  for sp in s.path.subs:
+    let poly = flat(sp)
+    if poly.len == 0: continue
+    let closed = sp.closed and poly.len > 2
+    for q in varStrokePolys(poly, closed, strokeRadii(poly, closed, r, s), s.cap):
+      if q.len < 3: continue
+      var pts = q
+      if area(pts) < 0: pts.reverse()
+      var o = SubPath(closed: true)
+      for v in pts: o.pts.add PathPoint(p: v, inH: v, outH: v)
+      result.subs.add o
+
 proc dashed(poly: seq[Pt]; closed: bool; pattern: seq[float]): seq[seq[Pt]] =
   ## The pieces of `poly` that the dashes draw (`pattern`: dash, gap...).
   var total = 0.0
@@ -999,7 +1109,23 @@ proc paintAt(p: ShapePaint; x, y: float; box: (float, float, float, float);
       return mesh[my * MeshRes + mx]
     var t = gradientT(p.style, p.angle.float, (if p.scale <= 0: 1.0 else: p.scale / 100), x, y, box)
     if p.reverse: t = 1 - t
-    if p.stops.len > 0: gradientColor(p.stops, t) else: mix(p.color, p.color2, t)
+    # (dithered: the color worked out between levels, then rounded up or down by a pattern that
+    # stays put -- a smooth gradient, no bands)
+    let f = if p.stops.len > 0: gradientColorF(p.stops, t)
+            else:
+              block:
+                let c0 = p.color
+                let c1 = p.color2
+                template ch(c: uint32; sh: int): float32 = float32((c shr sh) and 255) / 255
+                let u = float32(t)
+                [ch(c0, 16) + (ch(c1, 16) - ch(c0, 16)) * u, ch(c0, 8) + (ch(c1, 8) - ch(c0, 8)) * u,
+                 ch(c0, 0) + (ch(c1, 0) - ch(c0, 0)) * u, ch(c0, 24) + (ch(c1, 24) - ch(c0, 24)) * u]
+    let ix = int(floor(x)) and 3
+    let iy = int(floor(y)) and 3
+    const bayer = [0'f32, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
+    let dth = (bayer[iy * 4 + ix] + 0.5'f32) / 16 - 0.5'f32
+    template q(v: float32): uint32 = uint32(clamp(int(floor(v * 255 + 0.5'f32 + dth)), 0, 255))
+    (q(f[3]) shl 24) or (q(f[0]) shl 16) or (q(f[1]) shl 8) or q(f[2])
   else: p.color
 
 proc hasEnds*(s: ShapeData): bool = s.startEnd != leNone or s.endEnd != leNone
@@ -1156,7 +1282,8 @@ proc trimmedPath*(s: ShapeData): Path =
 
 proc reachOf(s: ShapeData): float =
   if s.stroke.kind == spNone or s.strokeWidth <= 0: return 0
-  let w = s.strokeWidth
+  var w = s.strokeWidth
+  for wp in s.widths: w = max(w, s.strokeWidth * wp.w)
   let mult = if s.join == ljMiter: 4.0 else: 1.0
   result = (if s.align == saCenter: w / 2 elif s.align == saOutside: w else: 0.0) * mult + w * 0.5
   if s.hasEnds:
@@ -1166,9 +1293,136 @@ proc reachOf(s: ShapeData): float =
 proc shapeReach*(s: ShapeData): float = reachOf(s)
   ## How far past its path's points a shape draws (its stroke, a line's ends).
 
+var
+  liveEffectsHook*: proc (p: Path; es: seq[LiveEffect]): Path {.nimcall.}
+    ## Does a shape's live effects to its path (set by `retroui/liveeffects`).
+  brushOutlineHook*: proc (p: Path; b: StrokeBrush; width: float): Path {.nimcall.}
+    ## The outline an Art, Pattern or Scatter brush draws along a path (set
+    ## by `retroui/pathbrush`).
+
+proc translated*(p: Path; dx, dy: float): Path =
+  ## The path moved by (`dx`, `dy`).
+  result = p
+  for sp in result.subs.mitems:
+    for q in sp.pts.mitems:
+      q.p = (q.p[0] + dx, q.p[1] + dy)
+      q.inH = (q.inH[0] + dx, q.inH[1] + dy)
+      q.outH = (q.outH[0] + dx, q.outH[1] + dy)
+
+proc withEffects*(p: Path; es: seq[LiveEffect]): Path =
+  ## The path as its live effects make it (as it is without any, or
+  ## without `retroui/liveeffects`).
+  var on = false
+  for e in es:
+    if not e.off: on = true
+  if not on or liveEffectsHook == nil: p else: liveEffectsHook(p, es)
+
+proc isStacked(s: ShapeData): bool =
+  ## (drawn in parts: effects, an artwork brush, more fills and strokes)
+  if s.appearance.len > 0 or s.brush.kind in {sbArt, sbPattern, sbScatter}: return true
+  for e in s.effects:
+    if not e.off: return true
+
+proc expanded*(s: ShapeData): seq[tuple[shape: ShapeData; opacity: int; mode: BlendMode]] =
+  ## What a shape draws, bottom first, each a plain shape (no effects, no
+  ## artwork brush, no more fills or strokes): the Appearance panel's
+  ## items under it, its own fill and stroke, the items over it. (Exports
+  ## draw these; `renderShape` draws them.)
+  var base = s
+  base.appearance = @[]
+  base.effects = @[]
+  base.path = withEffects(s.path, s.effects)
+  proc item(a: Appearance): ShapeData =
+    result = ShapeData(path: withEffects(base.path, a.effects), cap: s.cap, join: s.join)
+    if a.kind == apFill:
+      result.fill = a.paint
+      result.stroke = ShapePaint(kind: spNone)
+    else:
+      result.fill = ShapePaint(kind: spNone)
+      result.stroke = a.paint
+      result.strokeWidth = a.width
+      result.align = a.align
+  for a in s.appearance:
+    if a.below and not a.off: result.add (item(a), clamp(a.opacity, 0, 100), a.mode)
+  if base.brush.kind in {sbArt, sbPattern, sbScatter} and base.stroke.kind != spNone and base.strokeWidth > 0:
+    # (an artwork brush: its outline filled with the stroke's paint, over the fill)
+    var fillOnly = base
+    fillOnly.stroke = ShapePaint(kind: spNone)
+    fillOnly.brush = StrokeBrush()
+    result.add (fillOnly, 100, bmNormal)
+    if brushOutlineHook != nil:
+      let o = brushOutlineHook(base.path, base.brush, base.strokeWidth)
+      result.add (ShapeData(path: o, fill: base.stroke, stroke: ShapePaint(kind: spNone)), 100, bmNormal)
+  else:
+    result.add (base, 100, bmNormal)
+  for a in s.appearance:
+    if not a.below and not a.off: result.add (item(a), clamp(a.opacity, 0, 100), a.mode)
+
+proc exportParts*(s: ShapeData): seq[tuple[shape: ShapeData; opacity: int; mode: BlendMode]] =
+  ## What a shape draws, for a file that holds plain paths (SVG, PDF): its
+  ## `expanded` parts, a stroke of varying width (a width profile, a
+  ## calligraphic nib) made an outline filled with the stroke's paint.
+  for (part, op, mode) in expanded(s):
+    if part.stroke.kind != spNone and part.strokeWidth > 0 and (part.widths.len > 0 or part.brush.kind == sbCalligraphic):
+      var fillOnly = part
+      fillOnly.stroke = ShapePaint(kind: spNone)
+      fillOnly.widths = @[]
+      fillOnly.brush = StrokeBrush()
+      if fillOnly.fill.kind != spNone: result.add (fillOnly, op, mode)
+      result.add (ShapeData(path: varStrokeOutline(part), fill: part.stroke, stroke: ShapePaint(kind: spNone)), op, mode)
+    else: result.add (part, op, mode)
+
+proc isPlain*(s: ShapeData): bool =
+  ## Nothing more than a fill and a stroke of one width (no effects, brush,
+  ## width profile or more fills and strokes): a file's path holds it as it is.
+  not s.isStacked and s.widths.len == 0 and s.brush.kind == sbNone
+
+proc renderPlain(s: ShapeData; px: var seq[uint32]; w, h: int; clearFirst = Rect(); fillAll = false): DrawnBox
+
 proc renderShape*(s: ShapeData; px: var seq[uint32]; w, h: int; clearFirst = Rect(); fillAll = false): DrawnBox =
   ## Draws the shape into `px` (`w` x `h`), over what is cleared there
-  ## first (`clearFirst`), saying where it drew.
+  ## first (`clearFirst`), saying where it drew: its live effects, its
+  ## brush and the Appearance panel's fills and strokes too.
+  if not s.isStacked: return renderPlain(s, px, w, h, clearFirst, fillAll)
+  if px.len != w * h: return
+  let cl = intersect(clearFirst, rect(0, 0, w, h))
+  if cl.w > 0 and cl.h > 0:
+    let pp = cast[ptr UncheckedArray[uint32]](addr px[0])
+    parallelRows(cl.h, yy):
+      zeroMem(addr pp[(cl.y + yy) * w + cl.x], cl.w * 4)
+  let parts = expanded(s)
+  # (each part drawn into a picture of its own box, then laid over what is there)
+  var all = (int.high, int.high, int.low, int.low)
+  for (part, op, mode) in parts:
+    let b0 = pathBounds(part.path)
+    let reach = min(reachOf(part) + 2, 1e6)
+    if b0[0] > b0[2] or b0[0] != b0[0]: continue
+    let box = intersect(rect(int(floor(b0[0] - reach)), int(floor(b0[1] - reach)),
+                             int(ceil(b0[2] + reach)) - int(floor(b0[0] - reach)),
+                             int(ceil(b0[3] + reach)) - int(floor(b0[1] - reach))), rect(0, 0, w, h))
+    if box.w <= 0 or box.h <= 0: continue
+    var tmp = newSeq[uint32](box.w * box.h)
+    var moved = part
+    moved.path = translated(part.path, -box.x.float, -box.y.float)
+    let drawn = renderPlain(moved, tmp, box.w, box.h, Rect(), fillAll)
+    if drawn[2] <= drawn[0]: continue
+    let a = op * 255 div 100
+    let m = mode
+    let tp = cast[ptr UncheckedArray[uint32]](addr tmp[0])
+    let pp = cast[ptr UncheckedArray[uint32]](addr px[0])
+    parallelRows(box.h, yy):
+      let row = (box.y + yy) * w + box.x
+      for xx in 0 ..< box.w:
+        let c = tp[yy * box.w + xx]
+        if c shr 24 == 0: continue
+        pp[row + xx] = blendPx(pp[row + xx], c, a, m, box.x + xx, box.y + yy)
+    all = (min(all[0], box.x + drawn[0]), min(all[1], box.y + drawn[1]), max(all[2], box.x + drawn[2]),
+           max(all[3], box.y + drawn[3]))
+  if all[0] > all[2]: return (0, 0, 0, 0)
+  all
+
+proc renderPlain(s: ShapeData; px: var seq[uint32]; w, h: int; clearFirst = Rect(); fillAll = false): DrawnBox =
+  ## (one fill and one stroke: the shape as it was always drawn)
   if px.len != w * h: return
   let comps = components(s.path)
   proc tame(v: float): float = (if v != v: 0.0 else: clamp(v, -1e7, 1e7))  # (wild coordinates: kept to what an int holds)
@@ -1212,7 +1466,9 @@ proc renderShape*(s: ShapeData; px: var seq[uint32]; w, h: int; clearFirst = Rec
         let e = lineEnds(poly, s)
         poly = e.line
         for q in e.polys: strokeE.addConvex(q)
-      if s.dashes.len > 0:
+      if s.widths.len > 0 or s.brush.kind == sbCalligraphic:
+        strokeEdgesVar(poly, closed, strokeRadii(poly, closed, r, s), s.cap, strokeE)
+      elif s.dashes.len > 0:
         var pat: seq[float]
         for v in s.dashes: pat.add max(0.0, v) * s.strokeWidth
         for piece in dashed(poly, closed, pat): strokeEdges(piece, false, r, s.cap, s.join, strokeE)

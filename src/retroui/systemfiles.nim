@@ -30,7 +30,7 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[os, times, monotimes, strutils]
+import std/[os, times, monotimes, strutils, algorithm, tables]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 
 type
@@ -54,6 +54,20 @@ type
       ## (a system that asks after the file is written: iOS).
     cache*: proc (): string
       ## A folder of the app's own for the copies.
+    askFolder*: proc (): bool
+      ## Shows the picker to choose a folder (Android's: a folder of any app that offers its
+      ## files); nil: the system has none.
+    folderPicked*: proc (): string
+      ## Its answer, taken: "" not yet; "\1" left; else the folder: its tree, a tab, its document.
+    putInto*: proc (tree, folder, name, mime, path: string): string
+      ## The file at `path` written into the folder `folder` of `tree` as `name` (over the one so
+      ## named there); `path` "": a folder made there (or the one so named). Its document ("":
+      ## it could not be).
+  WatchedFolder = object
+    path, tree, root: string
+    sent: seq[(string, (int64, Time))]   # (each file as it was last handed over)
+    seen: string                         # (what is in it, as last looked at)
+    since: MonoTime
   Watched = object
     path, origin: string
     given: (int64, Time)               # (its size and date when it was last handed over, or opened)
@@ -64,6 +78,7 @@ var
   backend: SystemFilesBackend
   wanted = false
   watched: seq[Watched]
+  folders: seq[WatchedFolder]
   picking = ""                         # (the dialog waiting for the picker)
   lastLook: MonoTime
   saves = 0
@@ -74,10 +89,14 @@ proc setSystemFilesBackend*(b: SystemFilesBackend) =
   ## not know).
   backend = b
   watched.setLen(0)
+  folders.setLen(0)
   picking = ""
 
 proc hasSystemFiles*(): bool = backend.askOpen != nil
   ## This system has a file picker of its own (Android, iOS).
+
+proc hasSystemFolders*(): bool = backend.askFolder != nil
+  ## This system has a folder picker of its own that apps write into (Android's).
 
 proc systemFiles*(on: bool) = wanted = on
   ## The kit's Open and Save As dialogs are the system's own picker from
@@ -85,6 +104,9 @@ proc systemFiles*(on: bool) = wanted = on
 
 proc systemFilesOn*(): bool = wanted and hasSystemFiles()
   ## The system's picker is what `fileDialog` and `filePicker` show.
+
+proc systemFoldersOn*(): bool = wanted and hasSystemFolders()
+  ## ... and, picking a folder, the system's folder picker.
 
 proc systemFilesNote*(): string =
   ## What went wrong handing a file to the system since this was last
@@ -118,15 +140,77 @@ proc watch(path, origin: string; fresh: bool) =
   let s = if fresh: (-1'i64, Time()) else: stampOf(path)
   watched.add Watched(path: path, origin: origin, given: s, seen: s, since: getMonoTime())
 
+proc folderLook(dir: string): string =
+  ## (what is in a folder: each file's place in it, size and date)
+  var items: seq[string]
+  try:
+    for p in walkDirRec(dir, relative = true):
+      let s = stampOf(dir / p)
+      items.add p & "\t" & $s[0] & "\t" & $s[1].toUnix & "." & $s[1].nanosecond
+  except OSError: discard
+  items.sort()
+  items.join("\n")
+
+proc relParent(rel: string): string =
+  ## (the folder a file is in, within the folder: "" its top)
+  let i = max(rel.rfind('/'), rel.rfind(DirSep))
+  if i < 0: "" else: rel[0 ..< i]
+
+proc relName(rel: string): string =
+  let i = max(rel.rfind('/'), rel.rfind(DirSep))
+  rel[i + 1 .. ^1]
+
+proc sendFolder(f: var WatchedFolder): bool =
+  ## (the files of the folder the app wrote into, new or changed since, written into the folder
+  ## the system's picker gave -- its folders as folders there)
+  result = true
+  var ids = initTable[string, string]()     # (a folder in it: its document there)
+  ids[""] = f.root
+  let tree = f.tree
+  proc folderId(rel: string): string =
+    if rel in ids: return ids[rel]
+    let up = folderId(rel.relParent)
+    if up.len == 0: return ""
+    result = backend.putInto(tree, up, rel.relName, "vnd.android.document/directory", "")
+    ids[rel] = result
+  var files: seq[string]
+  try:
+    for p in walkDirRec(f.path, relative = true): files.add p
+  except OSError: return false
+  files.sort()
+  for rel in files:
+    let st = stampOf(f.path / rel)
+    var sent = false
+    for (p, s) in f.sent:
+      if p == rel and s == st: sent = true
+    if sent: continue
+    let parent = folderId(rel.relParent)
+    if parent.len == 0 or backend.putInto(f.tree, parent, rel.relName, mimeOf(rel), f.path / rel).len == 0:
+      result = false
+      continue
+    for k in countdown(f.sent.high, 0):
+      if f.sent[k][0] == rel: f.sent.delete(k)
+    f.sent.add (rel, st)
+
 proc pumpSystemFiles*() =
   ## The files the app was given through the system's picker looked at:
   ## one that changed and has been left alone since (a second and more)
-  ## is handed back to the system. `fileDialog` and `filePicker` call it;
-  ## it looks a few times a second at most.
-  if watched.len == 0 or backend.askOpen == nil: return
+  ## is handed back to the system; so are the files the app wrote into a
+  ## folder the system's folder picker gave. `fileDialog` and `filePicker`
+  ## call it; it looks a few times a second at most.
+  if (watched.len == 0 and folders.len == 0) or (backend.askOpen == nil and backend.askFolder == nil): return
   let now = getMonoTime()
   if (now - lastLook).inMilliseconds < 300: return
   lastLook = now
+  for f in folders.mitems:
+    let look = folderLook(f.path)
+    if look == f.seen:
+      if look.len > 0 and (now - f.since).inMilliseconds >= 1200 and f.since != MonoTime():
+        if not sendFolder(f): note = "Could not write everything into \"" & f.path.extractFilename & "\"."
+        f.since = MonoTime()
+      continue
+    f.seen = look
+    f.since = now
   for w in watched.mitems:
     let s = stampOf(w.path)
     if s[0] < 0 or s == w.given: continue
@@ -205,6 +289,48 @@ proc systemFileDialog*(open: var bool; path: var string; save: bool; key: string
   watch(path, r, fresh = true)
   true
 
+proc systemFolderDialog*(open: var bool; path: var string; key: string): bool =
+  ## Picking a folder through the system's folder picker while `open`: true once, with `path` a
+  ## folder of the app's own to write into -- what the app writes there is written into the
+  ## folder picked by itself when it is left alone for a moment (`pumpSystemFiles`). `fileDialog`
+  ## and `filePicker` call it when `systemFoldersOn`.
+  pumpSystemFiles()
+  if not open:
+    if picking == key: picking = ""
+    return false
+  if backend.askFolder == nil:
+    open = false
+    return false
+  if picking != key:
+    picking = key
+    if not backend.askFolder():
+      picking = ""
+      open = false
+    return false
+  let r = backend.folderPicked()
+  if r.len == 0: return false
+  picking = ""
+  open = false
+  if r == "\1": return false
+  let p = r.split('\t')
+  if p.len < 2: return false
+  inc saves
+  try:
+    path = backend.cache() / "folders" / $saves
+    removeDir(path)
+    createDir(path)
+  except CatchableError: return false
+  if folders.len >= 8: folders.delete(0)
+  folders.add WatchedFolder(path: path, tree: p[0], root: p[1])
+  true
+
+proc flushSystemFolders*() =
+  ## What the app wrote into folders the system's folder picker gave, written there now (not
+  ## waiting for it to be left alone: as the app is closing, or a job is done).
+  for f in folders.mitems:
+    f.seen = folderLook(f.path)
+    if not sendFolder(f): note = "Could not write everything into the folder picked."
+
 # ---- Android ---------------------------------------------------------------------------
 
 when androidApp:
@@ -222,8 +348,40 @@ when androidApp:
     let d = systemCall("cacheDir", "")
     (if d.len > 0 and d != "\0": d else: getTempDir())
 
+  proc droidAskFolder(): bool =
+    discard systemCall("treeAsk", "")
+    true
+  proc droidFolderPicked(): string = gave(systemCall("treePicked", ""))
+  proc droidPutInto(tree, folder, name, mime, path: string): string =
+    # (the one so named there: written over; else made)
+    var id = ""
+    let kids = systemCall("list", tree & "\t" & folder)
+    if kids != "\0":
+      for line in kids.splitLines:
+        let q = line.split('\t')
+        if q.len >= 3 and q[1] == name and ((path.len == 0) == (q[2] == "vnd.android.document/directory")):
+          id = q[0]
+    if id.len == 0:
+      let made = systemCall("create", tree & "\t" & folder & "\t" & mime & "\t" & name)
+      if made == "\0" or made.len == 0: return ""
+      id = made
+    if path.len == 0: return id
+    let fdS = systemCall("open", tree & "\t" & id & "\twt")
+    var fd = -1
+    try: fd = parseInt(fdS) except ValueError: discard
+    var f: File
+    if fd < 0 or not open(f, FileHandle(fd), fmWrite): return ""
+    try:
+      let data = readFile(path)
+      if data.len > 0 and f.writeBuffer(unsafeAddr data[0], data.len) != data.len: id = ""
+    except IOError, OSError: id = ""
+    finally: f.close()
+    id
+
   setSystemFilesBackend SystemFilesBackend(askOpen: droidAskOpen, opened: droidOpened, askSave: droidAskSave,
-                                           saveTo: droidSaveTo, write: droidWrite, cache: droidCache)
+                                           saveTo: droidSaveTo, write: droidWrite, cache: droidCache,
+                                           askFolder: droidAskFolder, folderPicked: droidFolderPicked,
+                                           putInto: droidPutInto)
 
 # ---- iOS -------------------------------------------------------------------------------
 

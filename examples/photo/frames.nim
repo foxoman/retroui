@@ -34,7 +34,7 @@ proc fitContent(d: Doc; fit: FrameFit; scale = 100.0; angle = 0.0; dx = 0.0; dy 
   let s = content.smart
   let q = contentQuad(box, s.w, s.h, fit, scale, angle, dx, dy, flipH, flipV, s.quad)
   let ns = SmartData(src: s.src, w: s.w, h: s.h, quad: q, filters: s.filters, name: s.name, file: s.file,
-                     warp: s.warp)
+                     warp: s.warp, link: s.link, linkStamp: s.linkStamp)
   if step:
     d.beginStep($fit)
     d.touchLayers()

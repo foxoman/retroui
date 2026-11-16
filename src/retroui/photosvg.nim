@@ -382,7 +382,24 @@ proc svgOf*(d: Doc; pixels = true; outlines = false): string =
       let x = bufs.pop()
       bufs[^1].add x
     var body = ""
-    if L.isShape and not L.isFill:
+    if L.isShape and not L.isFill and not L.shape.isPlain:
+      # (drawn in parts -- live effects done, a brush or a width profile as its outline, more fills
+      # and strokes: each part a path of its own, in a group that is the layer)
+      let box = d.layerBox(L)
+      var inner = ""
+      for k, (part, pop, pmode) in exportParts(L.shape):
+        let key = "g" & $n & "p" & $k
+        inner.add "<path d=\"" & part.trimmedPath.pathData & "\" fill=\"" & paintOf(part.fill, key & "f", box, defs) &
+                  "\" fill-rule=\"nonzero\""
+        if part.stroke.kind != spNone and part.strokeWidth > 0:
+          inner.add " stroke=\"" & paintOf(part.stroke, key & "s", box, defs) & "\" stroke-width=\"" &
+                    num(part.strokeWidth) & "\" stroke-linejoin=\"round\""
+        if pop < 100: inner.add " opacity=\"" & num(pop / 100) & "\""
+        let bl = cssBlend(pmode)
+        if bl.len > 0: inner.add " style=\"mix-blend-mode:" & bl & "\""
+        inner.add "/>\n"
+      body.add "<g" & name & vis & op & sty & ">\n" & inner & "</g>\n"
+    elif L.isShape and not L.isFill:
       let sh = L.shape
       let box = d.layerBox(L)
       # (a line with arrowheads: cut back where they cover it; they follow, filled)

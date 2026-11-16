@@ -588,6 +588,9 @@ proc optionsBody() =
   of tRedEye:
     optSlider("Darken:", redEyeDarken, 1, 100)
     paragraph("Click a red pupil, or drag a box around the eye.", color = ui.theme.gray)
+  of tVector:
+    row:
+      vectorBar()
   of tPen:
     case penMode
     of 8:

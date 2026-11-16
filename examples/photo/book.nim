@@ -867,14 +867,14 @@ proc setWorkspace(kind: int) =
   of 2:
     grp(0, 34, ["pages", "layers"])
     grp(0, 36, ["character", "paragraph", "opentype"])
-    grp(0, 30, ["charstyles", "parastyles", "swatches"])
+    grp(0, 30, ["charstyles", "parastyles", "objectstyles", "swatches"])
     discard dock.addColumn(iconic = true)
     grp(1, 100, ["properties", "glyphs"])
     grp(1, 100, ["color", "gradients"])
     grp(1, 100, ["history", "navigator"])
     grp(1, 100, ["libraries", "shapes", "styles"])
-    shown = @["pages", "layers", "character", "paragraph", "opentype", "charstyles", "parastyles", "swatches",
-              "properties", "glyphs", "color", "gradients", "history", "navigator", "libraries", "shapes", "styles"]
+    shown = @["pages", "layers", "character", "paragraph", "opentype", "charstyles", "parastyles", "objectstyles",
+              "swatches", "properties", "glyphs", "color", "gradients", "history", "navigator", "libraries", "shapes", "styles"]
     prefs.toolHidden = "Lasso,Selection,Healing,Brush,Stamp,History Brush,Eraser,Blur,Dodge"
     for dwin in docs: dwin.view.rulers = true
   else:

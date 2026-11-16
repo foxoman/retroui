@@ -17,6 +17,7 @@ import std/[math, algorithm, strutils, tables, random]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import parallel
 import gfx, photo, canvas2d
+export photo.gradientColorF
 
 # ---- brush tips --------------------------------------------------------------------------------------
 
@@ -378,6 +379,8 @@ type
   PaintOpts* = object
     ## How a stroke paints.
     dyn*: BrushDynamics         ## how the dabs vary along it
+    wrap*: bool                 ## a dab past an edge goes on at the other side too (Pattern
+                                ## Preview: the picture tiles without a seam)
     tool*: ToolKind             ## the tool
     color*, bg*: uint32         ## the foreground and background colors
     opacity*: int               ## 1..100: opacity, pressure (airbrush, smudge,
@@ -984,7 +987,18 @@ proc place(s: var Stroke; x, y: float) =
         let off2 = (s.rng.rand(2.0) - 1) * amt
         px += s.dirX * off2
         py += s.dirY * off2
-    for (qx, qy) in s.o.symmetric(s.d.w, s.d.h, px, py): s.dab(qx, qy)
+    for (qx, qy) in s.o.symmetric(s.d.w, s.d.h, px, py):
+      s.dab(qx, qy)
+      if s.o.wrap:
+        # (Pattern Preview: what goes past an edge comes in at the other)
+        let rad = dia / 2 + 2
+        let w = s.d.w.float
+        let h = s.d.h.float
+        let ox = if qx - rad < 0: w elif qx + rad > w: -w else: 0.0
+        let oy = if qy - rad < 0: h elif qy + rad > h: -h else: 0.0
+        if ox != 0: s.dab(qx + ox, qy)
+        if oy != 0: s.dab(qx, qy + oy)
+        if ox != 0 and oy != 0: s.dab(qx + ox, qy + oy)     # (a corner: the one across it too)
 
 proc penPose*(s: var Stroke; tilt, azimuth, twist: float) =
   ## The pen as it is now (a stylus's tilt 0 upright .. 1 flat, the way it
@@ -1296,33 +1310,6 @@ type
 var deepGradientHook*: proc (d: Doc; L: Layer; r: Rect; opacity: float32;
                              colorAt: proc (x, y: int): array[4, float32]) {.nimcall.}
   ## Draws a gradient at 16 or 32 bits (set by `retroui/photodeep`).
-
-proc gradientColorF*(stops: openArray[GradientStop]; t: float): array[4, float32] =
-  ## `gradientColor` in floats (R G B A 0 .. 1): no steps between levels.
-  template f(c: uint32): array[4, float32] =
-    [float32((c shr 16) and 255) / 255, float32((c shr 8) and 255) / 255, float32(c and 255) / 255,
-     float32(c shr 24) / 255]
-  if stops.len == 0: return
-  if t <= stops[0].at: return f(stops[0].color)
-  for k in 1 .. stops.high:
-    if t <= stops[k].at:
-      let a = stops[k - 1]
-      let b = stops[k]
-      let span = b.at - a.at
-      if span <= 1e-9: result = f(b.color); return
-      var u = (t - a.at) / span
-      let m = if a.mid <= 0.001 or a.mid >= 0.999: 0.5 else: a.mid
-      if abs(m - 0.5) > 1e-6 and u > 0: u = pow(u, ln(0.5) / ln(m))
-      let ca = f(a.color)
-      let cb = f(b.color)
-      let wa = ca[3] * float32(1 - u)
-      let wb = cb[3] * float32(u)
-      let al = wa + wb
-      result[3] = ca[3] + (cb[3] - ca[3]) * float32(u)
-      for c in 0 .. 2:
-        result[c] = if al > 1e-9: (ca[c] * wa + cb[c] * wb) / al else: ca[c] + (cb[c] - ca[c]) * float32(u)
-      return
-  f(stops[^1].color)
 
 {.push boundChecks: off, overflowChecks: off.}
 

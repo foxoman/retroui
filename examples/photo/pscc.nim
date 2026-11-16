@@ -110,6 +110,7 @@ proc psMenus() =
       ci("Save &As...", enabled = some)
       ci("Save a Cop&y...", enabled = some)
       ci("Save as P&DF...", enabled = some)
+      ci("Pac&kage...", "Package...", enabled = some)
       ci("Re&vert", enabled = some and d.path.len > 0 and d.modified)
       sep()
       ci("Browse &Assets...", "Browse Assets...")
@@ -126,6 +127,7 @@ proc psMenus() =
         ci("SVG, Type as &Outlines...", "SVG, Type as Outlines...", enabled = some)
       sep()
       ci("Place &Embedded...", "Place...", enabled = some)
+      ci("Place Lin&ked...", "Place Linked...", enabled = some)
       ci("Place as &Layer...", "Layer from File...", enabled = some)
       sep()
       psSub "Au&tomate":
@@ -178,6 +180,9 @@ proc psMenus() =
       sep()
       ci("Searc&h...", "Search...")
       ci("&Find/Change...", "Find/Change...")
+      psSub "Spe&lling":
+        ci("&Check Spelling...", "Check Spelling...", enabled = some)
+        ci("&Dynamic Spelling", "Dynamic Spelling", checked = dynamicSpelling)
       sep()
       ci("&Fill...", enabled = some)
       ci("&Stroke...", enabled = sel)
@@ -263,6 +268,7 @@ proc psMenus() =
         ci("&Levels...", enabled = edits)
         ci("&Curves...", enabled = edits)
         ci("&Exposure...", enabled = edits)
+        ci("Li&ght...", enabled = edits)
         sep()
         ci("&Vibrance...", enabled = rgb)
         ci("&Hue/Saturation...", enabled = rgb)
@@ -382,6 +388,7 @@ proc psMenus() =
         ci("&Freeform Gradient...", "Freeform Gradient...", enabled = some and d.current.isShape)
         ci("Gradient &Mesh...", "Gradient Mesh...", enabled = some and d.current.isShape)
         ci("Apply &Brush to Path...", "Apply Brush to Path...", enabled = pathOk)
+        ci("&Transform Each...", "Transform Each...", enabled = some)
       sep()
       ci("Group Layers", enabled = some and not bgl)
       ci("&Ungroup Layers", enabled = grp)
@@ -427,6 +434,30 @@ proc psMenus() =
          enabled = some and canMergeDown(d))
       ci("Merge &Visible", enabled = some and d.layers.len > 1)
       ci("&Flatten Image", enabled = some and d.layers.len > 1)
+      sep()
+      psSub "Ma&tting":
+        psFilters(["&Defringe...", "Remove &Black Matte", "Remove &White Matte"])
+      psSub "Live &Effects":
+        let shp = some and d.current.isShape
+        psSub "&Distort && Transform":
+          ci("&Free Distort...", enabled = shp)
+          ci("&Pucker && Bloat...", enabled = shp)
+          ci("&Roughen...", enabled = shp)
+          ci("&Transform Effect...", enabled = shp)
+          ci("T&weak...", enabled = shp)
+          ci("T&wist...", enabled = shp)
+          ci("&Zig Zag...", enabled = shp)
+        psSub "&Warp":
+          live:
+            for n in WarpStyles:
+              if menuItem(tr(n) & "...", enabled = shp): runCommand("Warp: " & n & "...")
+        ci("&Offset Path Effect...", enabled = shp)
+        psSub "Re&peat":
+          ci("&Radial Repeat...", enabled = shp)
+          ci("&Grid Repeat...", enabled = shp)
+          ci("&Mirror Repeat...", enabled = shp)
+        sep()
+        ci("E&xpand Appearance", enabled = shp)
       if mIndex.on:
         # (no item in the usual menus, but keys: found by Search too)
         ci("Stamp Visible")
@@ -454,6 +485,23 @@ proc psMenus() =
       ci("Paste &Lorem Ipsum", "Paste Lorem Ipsum", enabled = some)
       ci("Word &Shapes...", "Word Shapes...", enabled = some)
       ci("Insert Page N&umber", "Insert Page Number", enabled = some)
+      psSub "Text &Variables":
+        ci("Insert &Page Number", "Insert Page Number", enabled = some)
+        ci("Insert &Number of Pages", "Insert Number of Pages", enabled = some)
+        ci("Insert &File Name", "Insert File Name", enabled = some)
+        ci("Insert &Output Date", "Insert Output Date", enabled = some)
+        ci("Insert &Modification Date", "Insert Modification Date", enabled = some)
+        psSub "Insert &Running Header":
+          if some and d.paraStyles.len > 0:
+            for st in d.paraStyles: ci(st.name, "Insert Running Header: " & st.name)
+          else: ci("(no paragraph styles)", enabled = false)
+      psSub "&Hyperlinks && Cross-References":
+        ci("New &Hyperlink...", "New Hyperlink...", enabled = some)
+        ci("New Hyperlink &Destination...", "New Hyperlink Destination...", enabled = some)
+        ci("Insert &Cross-Reference...", "Insert Cross-Reference...", enabled = some and te.on)
+        ci("&Remove Hyperlink", "Remove Hyperlink", enabled = some)
+        sep()
+        ci("New &Bookmark", "New Bookmark", enabled = some)
       ci("Insert &Footnote", "Insert Footnote", enabled = some)
       ci("Insert &Endnote", "Insert Endnote", enabled = some)
       ci("Footnotes and Endnot&es...", "Footnotes...", enabled = some and (te.on or d.current.isText))
@@ -510,7 +558,9 @@ proc psMenus() =
       psSub "Filter &Gallery":
         psSub "&Artistic": psFilters(galleryArtistic.mapIt(it & "..."))
         psSub "&Brush Strokes": psFilters(galleryBrush.mapIt(it & "..."))
-        psSub "&Sketch": psFilters(gallerySketch.mapIt(it & "..."))
+        psSub "&Distort": psFilters(galleryDistort.mapIt(it & "..."))
+        psSub "&Sketch": psFilters(gallerySketch.mapIt(it.replace("&", "&&") & "..."))
+        psSub "St&ylize": psFilters(galleryStylize.mapIt(it & "..."))
         psSub "&Texture": psFilters(galleryTexture.mapIt(it & "..."))
       ci("&Neural Filters...", "Neural Filters...", enabled = edits and d.mode in {cmRGB, cmGray, cmCMYK})
       ci("&Camera Raw Filter...", "Develop...", enabled = edits and rgb)
@@ -519,8 +569,8 @@ proc psMenus() =
       ci("&Vanishing Point...", "Vanishing Point...", enabled = edits)
       sep()
       psSub "&Blur":
-        psFilters(["&Blur", "Blur &More", "&Gaussian Blur...", "M&otion Blur...", "&Radial Blur...",
-                   "&Surface Blur..."])
+        psFilters(["&Average", "&Blur", "Blur &More", "Bo&x Blur...", "&Gaussian Blur...", "&Lens Blur...",
+                   "M&otion Blur...", "&Radial Blur...", "S&hape Blur...", "Smar&t Blur...", "&Surface Blur..."])
       psSub "Blur &Gallery":
         ci("&Field Blur...", enabled = edits)
         ci("&Iris Blur...", enabled = edits)
@@ -547,7 +597,7 @@ proc psMenus() =
         psFilters(["&De-Interlace...", "&NTSC Colors"])
       psSub "&Other":
         ci("&Custom...", enabled = edits)
-        psFilters(["&High Pass...", "Ma&ximum...", "M&inimum...", "&Offset..."])
+        psFilters(["&High Pass...", "HSB/H&SL...", "Ma&ximum...", "M&inimum...", "&Offset..."])
         ci("&Frequency Separation", "Frequency Separation", enabled = edits)
     psMenu "Pl&ugins":
       ci("Filter &Factory...", enabled = edits)
@@ -586,8 +636,10 @@ proc psMenus() =
         ci("&Guides", "Show Guides", enabled = some, checked = dw != nil and dw.view.showGuides)
         ci("G&rid", "Show Grid", enabled = some, checked = dw != nil and dw.view.showGrid)
         ci("S&mart Guides", "Smart Guides", checked = smartGuidesOn)
+        ci("&Pixel Grid", "Pixel Grid", checked = pixelGridOn)
         ci("&Text Threads", "Show Text Threads", checked = showThreads)
       ci("&Rulers", "Show Rulers", enabled = some, checked = dw != nil and dw.view.rulers)
+      ci("Pattern Pre&view", "Pattern Preview", enabled = some, checked = some and d.patternPreview)
       sep()
       ci("Sn&ap", "Snap", checked = snapOn)
       psSub "Snap &To":
@@ -605,6 +657,8 @@ proc psMenus() =
            checked = pg.shown and pg.kind == pkOnePoint)
         ci("&Two Point Perspective", "Two Point Perspective", enabled = some,
            checked = pg.shown and pg.kind == pkTwoPoint)
+        ci("T&hree Point Perspective", "Three Point Perspective", enabled = some,
+           checked = pg.shown and pg.kind == pkThreePoint)
         ci("&Define Grid...", "Define Perspective Grid...", enabled = some)
         sep()
         ci("&Left Wall", "Perspective Plane: Left Wall", enabled = some and pg.shown,
@@ -652,8 +706,11 @@ proc psMenus() =
       # (the panels, A to Z, as editors list them)
       ci("Actions", checked = panelShown("actions"))
       ci("Adjustments", checked = panelShown("adjustments"))
+      ci("Appearance", checked = panelShown("appearance"))
       ci("Brush Settings", checked = panelShown("brushsettings"), shortcut = "F5")
       ci("Brushes", checked = panelShown("brushes"))
+      ci("Brushes (Vector)", checked = panelShown("vbrushes"))
+      ci("Bookmarks", checked = panelShown("bookmarks"))
       ci("Channels", checked = panelShown("channels"))
       ci("Character", checked = panelShown("character"))
       ci("Character Styles", checked = panelShown("charstyles"))
@@ -668,7 +725,9 @@ proc psMenus() =
       ci("Layer Comps", checked = panelShown("layercomps"))
       ci("Layers", checked = panelShown("layers"))
       ci("Libraries", checked = panelShown("libraries"))
+      ci("Links", checked = panelShown("links"))
       ci("Navigator", checked = panelShown("navigator"))
+      ci("Object Styles", checked = panelShown("objectstyles"))
       ci("Paragraph", checked = panelShown("paragraph"))
       ci("Paragraph Styles", checked = panelShown("parastyles"))
       ci("OpenType", checked = panelShown("opentype"))
@@ -929,6 +988,9 @@ proc psCommand(name: string): bool =
   of "Glyphs": showTypePal(2)
   of "Character Styles": togglePanel("charstyles")
   of "Paragraph Styles": togglePanel("parastyles")
+  of "Object Styles": togglePanel("objectstyles")
+  of "Links": togglePanel("links")
+  of "Bookmarks": togglePanel("bookmarks")
   of "OpenType": togglePanel("opentype")
   of "Vanishing Point...": startVanishingPoint()
   of "Script Editor...": scriptOpen = true

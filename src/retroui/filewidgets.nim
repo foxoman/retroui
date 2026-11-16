@@ -2418,6 +2418,7 @@ proc filePicker*(open: var bool; path: var string; mode = fmOpen;
   else:
     # (a phone, when the app asked for it: the system's own picker)
     if mode != fmFolder and systemFilesOn(): return systemFileDialog(open, path, mode == fmSave, key)
+    if mode == fmFolder and systemFoldersOn(): return systemFolderDialog(open, path, key)
     pumpSystemFiles()
   if not open:
     if picker.key == key: picker.opened = false

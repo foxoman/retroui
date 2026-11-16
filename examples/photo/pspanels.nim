@@ -24,7 +24,7 @@ from std/unicode import runes, runeAt, toUTF8
 # ---- Adjustments -------------------------------------------------------------------------------------------
 
 const adjPanelButtons = [
-  ("Brightness/Contrast", akBC), ("Levels", akLevels), ("Curves", akCurves), ("Exposure", akExposure),
+  ("Brightness/Contrast", akBC), ("Levels", akLevels), ("Curves", akCurves), ("Exposure", akExposure), ("Light", akLight),
   ("Vibrance", akVibrance), ("Hue/Saturation", akHS), ("Color Balance", akBalance), ("Black & White", akBlackWhite),
   ("Photo Filter", akPhotoFilter), ("Channel Mixer", akMixer), ("Color Lookup", akLookup), ("Invert", akLevels),
   ("Posterize", akPosterize), ("Threshold", akThreshold), ("Gradient Map", akGradMap),

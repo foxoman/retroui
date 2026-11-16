@@ -16,13 +16,15 @@ import retroui
 import retroui/lang_ar as kitArabic
 from std/unicode import Rune, toRunes, `==`
 import retroui/rscript except parseJson, toJson
+import retroui/jobs
 import photo/lang_ar as photoLang
 import retroui/[photo, photopaint, photofx, photoartistic, photohdr, otshape, ttf, photosvg, photovp, photodevelop, photosmart, photowarp, photostyles, photowidgets, photoneural,
               photopresets, photocc, phototemplates, photoquick, photogpu, qrcode, systemimage, assetstore,
               svgimport, morepictures, edgetrace,
               photofiles, photosave, photoshapes, photomerge, photopdf, photoimport, pdfread, googlefonts, photovector, iccprofile, icclut, abr, rawphoto, imageformats, filterfactory,
               photobrushes, adobefiles, photobook, imagetrace, layouttemplates, liveshapes, idml, preflight,
-              booklists, datamerge, textsearch, headless, perspectivegrid, pathbrush,
+              booklists, datamerge, textsearch, headless, perspectivegrid, pathbrush, photoblurs, pathtools,
+              liveeffects,
               imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files]
 {.push warning[UnusedImport]: off.}
 import retroui/photodeep   # (imported for what it sets up: filters, flattening and gradients at 16 and 32 bits)
@@ -31,7 +33,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 const
   AppName = "Retro Atelier"         # (Retro Photo until 5.0)
   AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
-  AppVersion = "5.3.0"
+  AppVersion = "5.4.0"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -50,7 +52,7 @@ type
     tBucket = "Paint Bucket", tGradient = "Gradient", tShape = "Shape", tEyedropper = "Eyedropper",
     tEraser = "Eraser", tPencil = "Pencil", tAirbrush = "Airbrush", tBrush = "Paintbrush",
     tStamp = "Rubber Stamp", tSmudge = "Smudge", tBlur = "Blur/Sharpen", tDodge = "Dodge/Burn/Sponge",
-    tPen = "Pen", tHeal = "Healing", tRedEye = "Red Eye"
+    tPen = "Pen", tHeal = "Healing", tRedEye = "Red Eye", tVector = "Vector"
 
   ToolOpts = object
     mode: int                  ## index into PaintModes
@@ -65,7 +67,7 @@ type
 
 const
   toolKeys: array[Tool, char] = ['M', 'L', 'V', 'W', 'H', 'Z', 'C', 'T', 'K', 'G', 'N', 'I',
-                                 'E', 'Y', 'A', 'B', 'S', 'U', 'R', 'O', 'P', 'J', 'J']
+                                 'E', 'Y', 'A', 'B', 'S', 'U', 'R', 'O', 'P', 'J', 'J', 'N']
   toolHints: array[Tool, string] = [
     "Drag to select (then Shift: square, Alt: from the middle); Shift adds, Alt takes away; drag inside moves the outline",
     "Drag to select freehand; Alt+click for straight sides; Shift adds, Alt takes away",
@@ -90,11 +92,12 @@ const
     "Click to add corner points, drag for curves; click the first point to close",
     "Paint over a spot to heal it (Spot Healing); Alt+click a source, then paint (Healing Brush); " &
       "drag a selection to the texture to take (Patch)",
-    "Click a red pupil, or drag a box around the eye"]
+    "Click a red pupil, or drag a box around the eye",
+    "The drawing program's tools on shapes and paths: pick one in its group (its options in the bar)"]
   toolIcons: array[Tool, string] = [pxMarqueeRect, pxLasso, pxMoveTool, pxMagicWand, pxHandTool,
                                     pxZoomTool, pxCrop, pxTypeTool, pxBucket, pxGradient, pxRectShape,
                                     pxEyedropper, pxEraser, pxPencil, pxAirbrush, pxBrush, pxStamp,
-                                    pxSmudge, pxBlur, pxDodge, pxPen, pxSpotHeal, pxRedEye]
+                                    pxSmudge, pxBlur, pxDodge, pxPen, pxSpotHeal, pxRedEye, pxPathSelect]
   paintTools = {tEraser, tPencil, tAirbrush, tBrush, tStamp, tSmudge, tBlur, tDodge}
   brushTools = paintTools + {tHeal}    ## (the tools with a brush of their own)
   black = 0xFF000000'u32
@@ -201,7 +204,16 @@ var
   lineEndW = 400                 ## ... how wide and long those are, % of the line's weight
   lineEndL = 400
   # the shape tools
-  shapeKind = 0                  ## Rectangle, Rounded Rectangle, Ellipse, Polygon, Line, Custom Shape
+  shapeKind = 0                  ## Rectangle, Rounded Rectangle, Ellipse, Polygon, Line, Custom Shape...
+  arcConcave = false             ## the Arc tool: bulging in
+  arcClosed = false              ## ... closed, a slice
+  gridCols = 5                   ## the Rectangular Grid tool's columns and rows
+  gridRows = 5
+  polarRings = 5                 ## the Polar Grid tool's rings and lines
+  polarDividers = 5
+  flareRays = 15                 ## the Flare tool's rays and rings
+  flareRings = 10
+  vecMode = 0                    ## the drawing program's tool picked (photo/vectortools: `vecToolNames`)
   shapeMode = 0                  ## Shape layer, Path, Pixels
   shapeOp = 0                    ## New layer, Combine, Subtract, Intersect, Exclude (on a shape layer)
   shapeRadius = 10
@@ -302,7 +314,9 @@ var
   drag: Drag
   pendingCrop: tuple[on: bool; dw: DocWin; r: Rect; persp: bool; q: Quad]
   cropFill = 0                   ## the room the Crop tool adds past the image: Background, Content-Aware
-  frameEllipse = false           ## the Frame tool draws ellipses (else rectangles)
+  eyeAppearance = false          ## the Eyedropper copies a shape's look to the picked shapes (else a color)
+  frameShape = 0                 ## the Frame tool draws rectangles (0), ellipses (1), polygons (2)
+  frameSides = 6                 ## ... a polygon's sides
     ## the crop box waiting (the Perspective Crop: its four corners)
   cropGrab: tuple[on: bool; part: int; x, y: float; r0: Rect; q0: Quad; moved: bool]
     ## a handle of the crop box held (0..3 corners, 4..7 sides, 8 inside)
@@ -370,7 +384,8 @@ const panelList = [
   ("styles", "Styles", pxLayerStyle), ("shapes", "Shapes", pxCustomShape), ("toolpresets", "Tool Presets", pxToolPresets),
   ("layercomps", "Layer Comps", pxLayerComps), ("clonesource", "Clone Source", pxStamp),
   ("quickactions", "Quick Actions", pxQuickActions), ("colorthemes", "Color Themes", pxColorThemes),
-  ("pages", "Pages", pxNew)]
+  ("pages", "Pages", pxNew), ("vbrushes", "Brushes (Vector)", pxBrush), ("appearance", "Appearance", pxLayerStyle),
+  ("objectstyles", "Object Styles", pxCustomShape), ("bookmarks", "Bookmarks", pxNew), ("links", "Links", pxOpen)]
   ## (each panel: its key, its title, its icon in a column collapsed to icons)
 
 var dock = newDock()             ## the panels down the right (Window shows and hides them)
@@ -403,6 +418,7 @@ proc defaultDock() =
   grp(1, 100, ["quickactions", "colorthemes"])
   for k in ["scratch", "commands"]: dock.closed.add (pdef(k), 0, 0)
   dock.closed.add (pdef("pages"), 0, 2)      # (shown: with Layers, where there is room for pages)
+  for k in ["vbrushes", "appearance", "objectstyles", "bookmarks", "links"]: dock.closed.add (pdef(k), 0, 1)
 
 defaultDock()
 
@@ -499,7 +515,34 @@ proc threadOverlay(dw: DocWin; ev: PhotoEvent)
 proc threadEscape(): bool
 proc textFrameCommand(name: string): bool
 proc textFrameDialog()
+proc startParaOptions(name: string)
+proc paraOptionsDialog()
+proc startStyleOptions(name: string)
+proc styleOptionsDialog()
+proc startObjectStyleOptions(name: string)
+proc objectStyleOptionsDialog()
+proc spellingCommand(name: string): bool
+proc hyperlinkCommand(name: string): bool
+proc packageCommand(name: string): bool
+proc packageDialog()
+proc linksBody()
+proc hyperlinkDialog()
+proc bookmarksBody()
+proc checkSpellingDialog()
+proc spellOverlay(dw: DocWin)
 proc pathBrushCommand(name: string): bool
+proc vectorEvents(dw: DocWin; ev: PhotoEvent): bool
+proc vectorOverlay(dw: DocWin; ev: PhotoEvent)
+proc vectorBar()
+proc deletePickedPoints(): bool
+proc startLiveEffect(k: LiveEffectKind; idx = -1)
+proc liveEffectCommand(name: string): bool
+proc liveEffectDialog()
+proc startTransformEach()
+proc appearancePick(dw: DocWin; ev: PhotoEvent): bool
+proc transformEachDialog()
+proc vectorBrushesBody()
+proc appearanceBody()
 proc pathBrushDialog()
 proc makeBlendDialog()
 proc startImageTrace()
@@ -1090,7 +1133,8 @@ proc paintOpts(t: Tool; d: Doc): PaintOpts =
                      fade: o.fade, fadeToBg: o.fadeToBg, wet: o.wet, autoErase: o.autoErase,
                      finger: o.finger, pattern: pattern, pw: patternW, ph: patternH,
                      sizeByPressure: o.sizeByPressure, opacityByPressure: o.opacityByPressure, dyn: o.dyn,
-                     blockSize: max(4, int(16 / (if active != nil: active.view.scaleOf else: 1.0))))
+                     blockSize: max(4, int(16 / (if active != nil: active.view.scaleOf else: 1.0))),
+                     wrap: d != nil and d.patternPreview)
   result.tool = case t
                 of tBrush: (if brushTool == 1: tkMixer else: tkBrush)
                 of tEraser: tkEraser
@@ -1392,12 +1436,18 @@ proc inImage(d: Doc; ev: PhotoEvent): bool =
 
 # ---- the tools at work ------------------------------------------------------------------------------
 
-const shapeNames = ["Rectangle", "Rounded Rectangle", "Ellipse", "Polygon", "Line", "Custom Shape", "Star",
-                    "Spiral", "Triangle"]
+const
+  shapeNames = ["Rectangle", "Rounded Rectangle", "Ellipse", "Polygon", "Line", "Custom Shape", "Star",
+                "Spiral", "Triangle", "Arc", "Rectangular Grid", "Polar Grid", "Flare"]
+  vecToolNames = ["Group Selection", "Magic Wand (Shapes)", "Lasso (Points)", "Paintbrush (Vector)", "Blob Brush",
+                  "Smooth", "Path Eraser", "Join", "Eraser (Shapes)", "Scissors", "Knife", "Width", "Mesh",
+                  "Perspective Selection"]
+  vecToolGlyphs = [pxPathSelect, pxMagicWand, pxPolyLasso, pxBrush, pxPaint, pxCurvaturePen, pxEraser, pxConvertPoint,
+                   pxBgEraser, pxCut, pxSlice, pxWarp, pxGrid, pxPerspCrop]
 
 proc toolName(t: Tool): string =
   case t
-  of tShape: shapeNames[clamp(shapeKind, 0, 8)]
+  of tShape: shapeNames[clamp(shapeKind, 0, shapeNames.high)]
   of tMarquee: ["Rectangular Marquee", "Elliptical Marquee", "Single Row", "Single Column"][marqueeShape]
   of tLasso: ["Lasso", "Polygonal Lasso", "Magnetic Lasso"][clamp(lassoMode, 0, 2)]
   of tBlur: ["Blur", "Sharpen"][blurMode]
@@ -1413,12 +1463,15 @@ proc toolName(t: Tool): string =
   of tHand: ["Hand", "Rotate View"][clamp(handKind, 0, 1)]
   of tPen: ["Direct Selection", "Pen", "Add Anchor Point", "Delete Anchor Point", "Convert Point",
             "Path Selection", "Freeform Pen", "Curvature Pen", "Content-Aware Tracing"][clamp(penMode, 0, 8)]
+  of tVector: vecToolNames[clamp(vecMode, 0, vecToolNames.high)]
   else: $t
 
 proc toolGlyph(t: Tool): string =
   case t
   of tShape: [pxRectShape, pxRoundRectShape, pxEllipseShape, pxPolygonShape, pxLineTool,
-              pxCustomShape, pxStarShape, pxSpiral, pxPolygonShape][clamp(shapeKind, 0, 8)]
+              pxCustomShape, pxStarShape, pxSpiral, pxPolygonShape, pxSpiral, pxGrid, pxEllipseShape,
+              pxStar][clamp(shapeKind, 0, 12)]
+  of tVector: vecToolGlyphs[clamp(vecMode, 0, vecToolGlyphs.high)]
   of tMarquee: (if marqueeShape == 1: pxMarqueeEllipse else: pxMarqueeRect)
   of tBlur: (if blurMode == 1: pxSharpen else: pxBlur)
   of tDodge: [pxDodge, pxBurn, pxSponge][dodgeMode]
@@ -1546,6 +1599,16 @@ proc flatShapePath(ev: PhotoEvent): Path =
     for (x, y) in [((x0 + x1) / 2, y0), (x1, y1), (x0, y1)]:
       sp.pts.add PathPoint(p: (x, y), inH: (x, y), outH: (x, y))
     Path(subs: @[sp])
+  of 9:
+    # (the Arc: from where the drag began to where it is)
+    if hypot(drag.x1 - drag.x0, drag.y1 - drag.y0) < 1: return
+    arcPath(drag.x0, drag.y0, drag.x1, drag.y1, arcConcave, arcClosed)
+  of 10: rectGridPath(x0, y0, x1, y1, gridCols, gridRows)
+  of 11: polarGridPath(x0, y0, x1, y1, polarRings, polarDividers)
+  of 12:
+    # (the Flare: its middle where the drag began, its size by the drag; the outline shown is its halo)
+    let r = max(4.0, hypot(drag.x1 - drag.x0, drag.y1 - drag.y0) / 3)
+    ellipsePath(drag.x0 - r, drag.y0 - r, drag.x0 + r, drag.y0 + r)
   else: customPath(customShape, x0, y0, x1, y1)
 
 proc shapePath(ev: PhotoEvent): Path =
@@ -1570,7 +1633,7 @@ proc shapeSettings(): ShapeData =
                   of 1: @[4.0, 2.0]
                   of 2: @[0.01, 2.0]
                   else: @[]
-  result.kind = shapeNames[clamp(shapeKind, 0, 8)]
+  result.kind = shapeNames[clamp(shapeKind, 0, shapeNames.high)]
   if shapeKind == 1: result.radius = shapeRadius.float
 
 proc finishShape(dw: DocWin; ev: PhotoEvent) =
@@ -1579,7 +1642,7 @@ proc finishShape(dw: DocWin; ev: PhotoEvent) =
   let d = dw.doc
   var p = shapePath(ev)
   if p.subs.len == 0: return
-  let name = shapeNames[clamp(shapeKind, 0, 8)]
+  let name = shapeNames[clamp(shapeKind, 0, shapeNames.high)]
   if shapeKind == 4 and shapeMode != 1:
     # the Line tool: a line layer (its ends and arrowheads kept: dragged, they
     # follow), or its pixels
@@ -1635,12 +1698,29 @@ proc finishShape(dw: DocWin; ev: PhotoEvent) =
       s.path = p
       if shapeKind == 4 and s.fill.kind == spNone and s.stroke.kind == spNone:
         s.fill = solidPaint(shapeFill)
-      if shapeKind == 7:
-        # (a spiral is a line: stroked, not filled)
+      if shapeKind in {7, 9, 10, 11} and not (shapeKind == 9 and arcClosed):
+        # (a spiral, an arc, a grid are lines: stroked, not filled)
         s.fill = ShapePaint(kind: spNone)
         s.stroke = solidPaint(if shapeStrokeKind == 1: shapeStroke else: shapeFill)
-        s.strokeWidth = max(2.0, s.strokeWidth)
+        s.strokeWidth = max(if shapeKind in {10, 11}: 1.0 else: 2.0, s.strokeWidth)
         s.align = saCenter
+      if shapeKind == 12:
+        # the Flare: its halo, rays, middle and rings, shapes of their own in a group
+        let r = max(4.0, hypot(drag.x1 - drag.x0, drag.y1 - drag.y0) / 3)
+        let ex = drag.x0 + (drag.x1 - drag.x0) * 3
+        let ey = drag.y0 + (drag.y1 - drag.y0) * 3
+        d.beginStep(name)
+        d.touchLayers()
+        d.editMask = false
+        var made: seq[int]
+        for fs in flareShapes(drag.x0, drag.y0, ex, ey, r, flareRays, flareRings, white):
+          discard d.addShapeLayer(fs, name = "Flare")
+          made.add d.cur
+        d.clearPicks()
+        for i in made: d.layers[i].picked = true
+        discard d.groupLayers(made, "Flare")
+        d.endStep()
+        return
       d.beginStep(name)
       d.touchLayers()
       d.editMask = false
@@ -2299,6 +2379,8 @@ type
 
 var
   smartGuidesOn = true             ## View > Show > Smart Guides
+  pixelGridOn = true               ## View > Show > Pixel Grid (past 600 %)
+  dynamicSpelling = false          ## Edit > Spelling > Dynamic Spelling (photo/spelling)
   sg: tuple[on: bool; d: Doc; box: (float, float, float, float); xs, ys: seq[GuideMark];
             boxes: seq[Rect]; hitX, hitY: seq[GuideMark]; dx, dy: float]
     ## (a move under way: the box of what moves at its start, the edges and
@@ -3505,8 +3587,11 @@ proc releaseOn(ev: PhotoEvent) =
       for L in d.layers:
         if L.name.startsWith("Frame "): inc n
       var sd = ShapeData(fill: solidPaint(0xFFC8C8C8'u32), stroke: solidPaint(0xFF808080'u32), strokeWidth: 1,
-                         kind: if frameEllipse: "Ellipse" else: "Rectangle")
-      sd.path = if frameEllipse: ellipsePath(x0, y0, x1, y1) else: rectPath(x0, y0, x1, y1)
+                         kind: ["Rectangle", "Ellipse", "Polygon"][clamp(frameShape, 0, 2)])
+      sd.path = case frameShape
+                of 1: ellipsePath(x0, y0, x1, y1)
+                of 2: polygonPath(x0, y0, x1, y1, max(3, frameSides), false, 50, false)
+                else: rectPath(x0, y0, x1, y1)
       d.beginStep("New Frame")
       d.touchLayers()
       discard d.addShapeLayer(sd, "Frame " & $n)
@@ -3772,14 +3857,76 @@ proc drawSelOverlay(dw: DocWin) =
   let (bx, by) = dw.view.toScreen(d, d.w.float, d.h.float)
   drawBitmap(rect(ax, ay, bx - ax, by - ay), selOverlay.b)
 
+var tileView: tuple[d: Doc; ver, step: int; b: Bitmap]
+  ## (Pattern Preview's copy of the image, at most 2048 pixels across, made again as it changes)
+
+proc patternPreviewOverlay(dw: DocWin) =
+  ## View > Pattern Preview: the image repeated round itself, as a pattern made of it tiles.
+  let d = dw.doc
+  if not d.patternPreview: return
+  let step = max(1, (max(d.w, d.h) + 2047) div 2048)
+  if tileView.d != d or tileView.ver != d.ver or tileView.step != step or tileView.b == nil:
+    if tileView.b != nil and tileView.d == d and ui.mouseDown: return   # (painting: the copy kept till let go)
+    d.updateComposite()
+    let src = d.compPtr
+    let w = (d.w + step - 1) div step
+    let h = (d.h + step - 1) div step
+    let b = newBitmap(w, h)
+    for y in 0 ..< h:
+      let row = min(d.h - 1, y * step) * d.w
+      for x in 0 ..< w: b.px[y * w + x] = src[row + min(d.w - 1, x * step)]
+    b.changed()
+    tileView = (d, d.ver, step, b)
+  let v = dw.view
+  let (ax, ay) = v.toScreen(d, 0, 0)
+  let (bx, by) = v.toScreen(d, d.w.float, d.h.float)
+  let tw = bx - ax
+  let th = by - ay
+  if tw <= 0 or th <= 0: return
+  for j in -2 .. 2:
+    for i in -2 .. 2:
+      if i == 0 and j == 0: continue
+      let r = rect(ax + i * tw, ay + j * th, tw, th)
+      if r.x > v.view.x + v.view.w or r.y > v.view.y + v.view.h or r.x + r.w < v.view.x or r.y + r.h < v.view.y:
+        continue
+      drawBitmap(r, tileView.b)
+  # (the image's own edge, faintly)
+  box(rect(ax, ay, tw, th), color(128, 128, 128, 90))
+
+proc pixelGridOverlay(dw: DocWin) =
+  ## View > Show > Pixel Grid: past 600 %, a fine line round each pixel.
+  if not pixelGridOn: return
+  let d = dw.doc
+  let v = dw.view
+  if v.angle != 0 or v.scaleOf < 6: return
+  let (fx0, fy0) = v.toImage(d, v.view.x, v.view.y)
+  let (fx1, fy1) = v.toImage(d, v.view.x + v.view.w, v.view.y + v.view.h)
+  let vx0 = int(floor(fx0))
+  let vy0 = int(floor(fy0))
+  let vx1 = int(ceil(fx1))
+  let vy1 = int(ceil(fy1))
+  let c = color(160, 160, 160, 110)
+  for x in max(0, vx0) .. min(d.w, vx1 + 1):
+    let (sx, sy0) = v.toScreen(d, x.float, max(0, vy0).float)
+    let (_, sy1) = v.toScreen(d, x.float, min(d.h, vy1 + 1).float)
+    vline(sx, sy0, sy1 - sy0, c)
+  for y in max(0, vy0) .. min(d.h, vy1 + 1):
+    let (sx0, sy) = v.toScreen(d, max(0, vx0).float, y.float)
+    let (sx1, _) = v.toScreen(d, min(d.w, vx1 + 1).float, y.float)
+    hline(sx0, sy, sx1 - sx0, c)
+
 proc overlays(dw: DocWin; ev: PhotoEvent) =
   ## The rubber bands, the crop box, the path, the brush's size.
   let d = dw.doc
   let v = dw.view
   pushClip(v.view)
+  dw.patternPreviewOverlay()
+  dw.pixelGridOverlay()
+  dw.spellOverlay()
   bookOverlay(dw)
   dw.pgOverlay(ev)
   dw.threadOverlay(ev)
+  dw.vectorOverlay(ev)
   if drag.on and drag.dw == dw and drag.band:
     let (x0, y0) = v.toScreen(d, min(drag.x0, drag.x1), min(drag.y0, drag.y1))
     let (x1, y1) = v.toScreen(d, max(drag.x0, drag.x1), max(drag.y0, drag.y1))
@@ -3831,7 +3978,15 @@ proc overlays(dw: DocWin; ev: PhotoEvent) =
   if drag.on and drag.dw == dw and tool == tCrop and cropKind == 2:
     let (x0, y0) = v.toScreen(d, min(drag.x0, drag.x1), min(drag.y0, drag.y1))
     let (x1, y1) = v.toScreen(d, max(drag.x0, drag.x1), max(drag.y0, drag.y1))
-    if frameEllipse: ellipseOnScreen(x0, y0, x1, y1, ui.theme.select)
+    if frameShape == 1: ellipseOnScreen(x0, y0, x1, y1, ui.theme.select)
+    elif frameShape == 2:
+      let pp = polygonPath(min(drag.x0, drag.x1), min(drag.y0, drag.y1), max(drag.x0, drag.x1),
+                           max(drag.y0, drag.y1), max(3, frameSides), false, 50, false)
+      let pts = pp.subs[0].pts
+      for k in 0 ..< pts.len:
+        let (ax, ay) = v.toScreen(d, pts[k].p[0], pts[k].p[1])
+        let (bx, by) = v.toScreen(d, pts[(k + 1) mod pts.len].p[0], pts[(k + 1) mod pts.len].p[1])
+        line(ax, ay, bx, by, ui.theme.select)
     else:
       let sr = rect(x0, y0, max(1, x1 - x0), max(1, y1 - y0))
       box(sr, ui.theme.select)
@@ -4389,7 +4544,12 @@ include photo/merge
 include photo/findchange
 include photo/perspective
 include photo/textframes
+include photo/paraoptions
+include photo/spelling
+include photo/hyperlinks
+include photo/package
 include photo/pathbrushes
+include photo/vectortools
 include photo/dockpanels
 
 proc phoneLayout(): bool =

@@ -752,20 +752,24 @@ proc smartOf*(px: seq[uint32]; w, h: int; r: Rect; name = ""): SmartData =
 proc withQuad*(s: SmartData; q: Quad): SmartData =
   ## The same Smart Object with its corners elsewhere (a new one: they are
   ## never changed).
-  SmartData(src: s.src, w: s.w, h: s.h, quad: q, filters: s.filters, name: s.name, file: s.file, warp: s.warp)
+  SmartData(src: s.src, w: s.w, h: s.h, quad: q, filters: s.filters, name: s.name, file: s.file, warp: s.warp,
+           link: s.link, linkStamp: s.linkStamp)
 
 proc withFilters*(s: SmartData; f: seq[SmartFilter]): SmartData =
   ## The same Smart Object with the Smart Filters `f` (a new one).
-  SmartData(src: s.src, w: s.w, h: s.h, quad: s.quad, filters: f, name: s.name, file: s.file, warp: s.warp)
+  SmartData(src: s.src, w: s.w, h: s.h, quad: s.quad, filters: f, name: s.name, file: s.file, warp: s.warp,
+           link: s.link, linkStamp: s.linkStamp)
 
 proc withWarp*(s: SmartData; m: seq[MeshPt]): SmartData =
   ## The same Smart Object warped by `m` (a new one).
-  SmartData(src: s.src, w: s.w, h: s.h, quad: s.quad, filters: s.filters, name: s.name, file: s.file, warp: m)
+  SmartData(src: s.src, w: s.w, h: s.h, quad: s.quad, filters: s.filters, name: s.name, file: s.file, warp: m,
+           link: s.link, linkStamp: s.linkStamp)
 
 proc withSource*(s: SmartData; src: seq[uint32]; w, h: int; file = ""): SmartData =
   ## The same Smart Object holding another picture (Edit Contents, Replace
   ## Contents): in the same corners.
-  SmartData(src: src, w: w, h: h, quad: s.quad, filters: s.filters, name: s.name, file: file, warp: s.warp)
+  SmartData(src: src, w: w, h: h, quad: s.quad, filters: s.filters, name: s.name, file: file, warp: s.warp, link: s.link,
+           linkStamp: s.linkStamp)
 
 # ---- the Blur Gallery -------------------------------------------------------------------------------------------
 

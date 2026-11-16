@@ -118,5 +118,58 @@ block savingAfter:
   frames(18)
   doAssert handed == @["one"]
 
+# ---- a folder picked in the system's folder picker (Android's): what the app writes into the
+# folder it is given goes into the one picked, its folders as folders
+block folders:
+  var tree: seq[(string, string, string, string)]    # (folder, name, mime, what it holds)
+  var folderAnswer = ""
+  var made = 0
+  setSystemFilesBackend SystemFilesBackend(
+    askOpen: (proc (): bool = true), opened: (proc (): string = ""),
+    cache: (proc (): string = dir),
+    askFolder: (proc (): bool = (asked.add "folder"; true)),
+    folderPicked: (proc (): string = (result = folderAnswer; folderAnswer = "")),
+    putInto: (proc (t, folder, name, mime, path: string): string =
+      doAssert t == "tree:1"
+      for i, e in tree:
+        if e[0] == folder and e[1] == name:
+          tree[i][3] = (if path.len > 0: readFile(path) else: "")
+          return folder & "/" & name
+      inc made
+      tree.add (folder, name, mime, (if path.len > 0: readFile(path) else: ""))
+      folder & "/" & name))
+  doAssert hasSystemFolders() and systemFoldersOn()
+  var open = true
+  var path = ""
+  asked.setLen(0)
+  doAssert not systemFolderDialog(open, path, "pkg") and open and asked == @["folder"]
+  folderAnswer = "tree:1\troot"
+  doAssert systemFolderDialog(open, path, "pkg") and not open and dirExists(path)
+  createDir(path / "Links")
+  writeFile(path / "Book.rpb", "book")
+  writeFile(path / "Links" / "photo.jpg", "jpeg")
+  proc pump(n: int) =
+    for _ in 0 ..< n:
+      var closed = false
+      var p = ""
+      discard systemFolderDialog(closed, p, "idle")
+      sleep(110)
+  pump(20)
+  var names: seq[string]
+  for e in tree: names.add e[0] & "|" & e[1]
+  doAssert "root|Book.rpb" in names and "root|Links" in names and "root/Links|photo.jpg" in names, $names
+  # (written again: over the one there, not a second)
+  let before = made
+  writeFile(path / "Book.rpb", "book 2")
+  pump(20)
+  doAssert made == before
+  for e in tree:
+    if e[1] == "Book.rpb": doAssert e[3] == "book 2"
+  # (left: nothing)
+  open = true
+  doAssert not systemFolderDialog(open, path, "pkg2")
+  folderAnswer = "\1"
+  doAssert not systemFolderDialog(open, path, "pkg2") and not open
+
 removeDir(dir)
 echo "test_systemfiles: ok"

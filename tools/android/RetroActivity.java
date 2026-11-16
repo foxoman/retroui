@@ -344,6 +344,7 @@ public class RetroActivity extends NativeActivity {
   // picked to open -- copied into the cache, "path\turi" a line -- and
   // where to save ("" while the picker is up, "\u0001" when it was left).
   static String pickedOpen = "";
+  static String pickedTree = "";        // (a folder picked for the app: its tree, its document id)
   static String pickedSave = "";
 
   /** A document copied into the cache's folder `sub` under its own name;
@@ -616,17 +617,27 @@ public class RetroActivity extends NativeActivity {
       }
     }
     if (name.equals("uriWrite")) return copyOut(a[1], a[0]) ? "1" : "0";     // uri, the file
-    if (name.equals("treeAsk")) {          // authority, document id to start in
+    if (name.equals("treeAsk")) {          // authority, document id to start in (none: anywhere)
       final Intent i = new Intent("android.intent.action.OPEN_DOCUMENT_TREE");
       if (a.length >= 2 && Build.VERSION.SDK_INT >= 26)
         i.putExtra("android.provider.extra.INITIAL_URI",
                    DocumentsContract.buildDocumentUri(a[0], a[1]));
+      i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | 0x00000040);
+      synchronized (shared) { pickedTree = ""; }
       runOnUiThread(new Runnable() {
         public void run() {
-          try { startActivityForResult(i, PICK_TREE); } catch (Throwable t) { }
+          try { startActivityForResult(i, PICK_TREE); }
+          catch (Throwable t) { synchronized (shared) { pickedTree = "\u0001"; } }
         }
       });
       return "";
+    }
+    if (name.equals("treePicked")) {       // the folder picked, taken ("": not yet; \u0001 none)
+      synchronized (shared) {
+        String r = pickedTree;
+        pickedTree = "";
+        return r;
+      }
     }
     if (name.equals("trees")) {            // the folders granted: tree uri, its document id
       StringBuilder b = new StringBuilder();
@@ -727,12 +738,17 @@ public class RetroActivity extends NativeActivity {
     // (a page's file picker)
     if (RetroWeb.onResult(request, result, data)) return;
     if (request == PICK_TREE) {
+      String r = "\u0001";
       if (result == RESULT_OK && data != null && data.getData() != null) {
         try {
           getContentResolver().takePersistableUriPermission(data.getData(),
               Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         } catch (Throwable t) { }
+        try {
+          r = data.getData().toString() + "\t" + DocumentsContract.getTreeDocumentId(data.getData());
+        } catch (Throwable t) { }
       }
+      synchronized (shared) { pickedTree = r; }
       return;
     }
     if (request == PICK_OPEN) {

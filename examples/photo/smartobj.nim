@@ -97,6 +97,11 @@ proc smartViaCopy(d: Doc) =
     d.insertLayer(n)
 
 var placeInto = false   ## the next Place goes into the current layer (clipped to it, covering it)
+var placeLinking = false ## the next Place keeps the file it came from: Place Linked (Window > Links)
+
+proc fileStamp(path: string): int64 =
+  ## (when a file was last changed, Unix milliseconds; 0: it is not there)
+  try: int64(getLastModificationTime(path).toUnixFloat * 1000) except OSError: 0
 
 proc placeSmart(d: Doc; path: string) =
   ## File > Place: the picture as a Smart Object in the middle (smaller to
@@ -119,6 +124,8 @@ proc placeSmart(d: Doc; path: string) =
     return
   let into = placeInto
   placeInto = false
+  let linking = placeLinking
+  placeLinking = false
   let base = d.current
   let target = if into: d.layerBox(base) else: rect(0, 0, 0, 0)
   try:
@@ -141,7 +148,9 @@ proc placeSmart(d: Doc; path: string) =
       d.layersChange("Place"):
         let L = d.newLayer(path.splitFile.name)
         L.smart = SmartData(src: px, w: src.w, h: src.h, name: path.extractFilename, file: file,
-                            quad: [(x, y), (x + w, y), (x + w, y + h), (x, y + h)])
+                            quad: [(x, y), (x + w, y), (x + w, y + h), (x, y + h)],
+                            link: (if linking: path.absolutePath else: ""),
+                            linkStamp: (if linking: fileStamp(path) else: 0))
         d.insertLayer(L)
         d.renderSmartLayer(L)
         if target.w > 0 and not base.background:

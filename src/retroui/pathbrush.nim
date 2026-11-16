@@ -233,3 +233,30 @@ proc builtinBrush*(name: string; width = 12.0): PathBrush =
 
 const BuiltinBrushes* = ["Taper", "Brush Stroke", "Arrow", "Zigzag", "Chain", "Dots", "Leaves", "Stars"]
   ## The names `builtinBrush` knows, in the order a Brushes panel shows them.
+
+proc strokeBrushOutline(p: Path; b: StrokeBrush; width: float): Path =
+  ## (a shape's stroke brush, live: `photoshapes.brushOutlineHook`)
+  var pb = if b.art.subs.len > 0: PathBrush(art: b.art)
+           else: builtinBrush(if b.name in BuiltinBrushes: b.name else: "Taper", width)
+  pb.kind = case b.kind
+            of sbPattern: pbPattern
+            of sbScatter: pbScatter
+            else: pbArt
+  pb.width = width
+  if b.kind != sbArt: pb.spacing = b.spacing / 100
+  pb.flip = b.flip
+  brushedPath(p, pb)
+
+proc strokeBrushOf*(name: string; kind = sbNone): StrokeBrush =
+  ## One of the brushes that come with it (`BuiltinBrushes`) as a shape's
+  ## stroke brush, its own way along the path unless `kind` says.
+  let b = builtinBrush(name)
+  result = StrokeBrush(name: name, art: b.art, spacing: b.spacing * 100,
+                       kind: (if kind != sbNone: kind
+                              else:
+                                case b.kind
+                                of pbPattern: sbPattern
+                                of pbScatter: sbScatter
+                                else: sbArt))
+
+brushOutlineHook = strokeBrushOutline

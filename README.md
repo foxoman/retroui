@@ -2169,11 +2169,47 @@ Grid** draws one or two vanishing points with their walls and floor: the Shape t
 plane picked in its widget, and **Layer > Perspective > Attach to Active Plane** lays a shape or
 what is painted on it. **Path Operations > Apply Brush to Path** draws a path with artwork (Art,
 Pattern, Scatter) and **Gradient Mesh** bends colors over a grid; the Character panel has
-**Ligatures** and Type has **OpenType**. The engine for all of it is the kit's (`retroui/photobook`,
-`retroui/textengine`, `retroui/imagetrace`, `retroui/photovector`, `retroui/layouttemplates`,
-`retroui/infographics`, `retroui/liveshapes`, `retroui/idml`, `retroui/preflight`,
-`retroui/booklists`, `retroui/hyphenate`, `retroui/textsearch`, `retroui/datamerge`,
-`retroui/perspectivegrid`, `retroui/pathbrush`), for any app:
+**Ligatures** and Type has **OpenType**. Since 5.4 the three programs stand side by side: the
+photo program's **Average, Box, Shape, Smart and Lens Blur**, the Filter Gallery's Fresco, Neon
+Glow, Glass, Chalk & Charcoal, Glowing Edges and the rest, the **Light** adjustment layer,
+**Pattern Overlay**, **Matting**, **Pattern Preview** and the **Pixel Grid**; the drawing
+program's tools in the toolbar's Vector group (Group Selection, the Magic Wand and Lasso for
+shapes, the **Paintbrush** with calligraphic and art brushes, the **Blob Brush**, Smooth, Path
+Eraser, Join, Eraser, Scissors, Knife, the **Width** tool, Arc, grids, Flare, **Mesh**,
+Perspective Selection), the **Appearance** panel's fills and strokes and live **Distort &
+Transform**, **Warp** and **Repeat**; and the layout program's text -- the **Paragraph
+Composer**, **Justification**, **Keep Options**, **Span Columns**, Balance Columns, Inset
+Spacing and Vertical Justification, each paragraph in a format of its own, **Next Style**,
+**nested and GREP styles**, **Object Styles**, **Check Spelling** and Dynamic Spelling, **text
+variables**, **hyperlinks and cross-references**, **bookmarks**, **Place Linked**, the **Links**
+panel and **File > Package**. The layers are mixed, blurred and resized four pixels at a time
+(`retroui/simd`: up to 2.7 times sooner). The engine for all of it is the kit's
+(`retroui/photobook`, `retroui/textengine`, `retroui/imagetrace`, `retroui/photovector`,
+`retroui/layouttemplates`, `retroui/infographics`, `retroui/liveshapes`, `retroui/idml`,
+`retroui/preflight`, `retroui/booklists`, `retroui/hyphenate`, `retroui/textsearch`,
+`retroui/datamerge`, `retroui/perspectivegrid`, `retroui/pathbrush`, `retroui/photoblurs`,
+`retroui/pathtools`, `retroui/liveeffects`, `retroui/simd`), for any app:
+
+```nim
+import retroui/[photo, photopdf, textengine]
+let d = newDoc(800, 1000, 0xFFFFFFFF'u32)
+var t = newText("Results\nThe year in numbers ...\nSee page <ref:results>.", defaultStyle())
+t.boxW = 600; t.boxH = 800; t.columns = 2
+var head = t.para
+head.spanAll = true                                             # across both columns
+head.keepWithNext = 2                                           # never alone at a column's foot
+head.styleName = "Heading"
+t.setParaFmt(0, 0, head)                                        # this paragraph only
+t.changeParas(8, 8, proc (p: var ParaStyle) =                  # justified, the whole paragraph weighed
+  p.align = justifyLeft
+  p.composer = cpParagraph)
+t.restyle(0, 7, proc (s: var CharStyle) = s.link = "=results")  # a destination
+t.vjust = vjCenter                                              # up and down in the box
+let L = d.addTextLayer(t)
+d.objectStyles.add objectStyleOf(L, "Report box")               # an Object Style from its look
+d.bookmarks.add DocBookmark(title: "Results", dest: "results")  # the PDF's outline
+d.savePdf("report.pdf", pdfPreset(ppPrint))                     # links and bookmarks in it
+```
 
 ```nim
 import retroui/[photo, photobook, photopdf, textengine]
@@ -3319,6 +3355,11 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_headless` | a program without a window: frames drawn in memory, a click given as a person would, the picture of what it drew |
 | `test_perspectivegrid` | the perspective grid: the planes meet where they should (two points and one), go back to their points, a path laid on a plane (its corners kept, the far side shorter, a curve cut and still on it), refused over the horizon; a painted layer laid on a plane and undone |
 | `test_pathbrush` | brushes along a path: Art from end to end as wide as asked, round a corner, Pattern and Scatter copies counted and turned, a closed path, drawn |
+| `test_photoparity` | Retro Atelier's 5.4 additions through its menus and its window's input: every new filter by its menu name (changing the picture, undone), Lens Blur's depth sources, Light, Pattern Overlay, Matting, Pattern Preview and the Pixel Grid; the drawing program's tools (Group Selection, the shape Magic Wand and Lasso, Smooth, Path Eraser, Join, Eraser, Scissors, Knife, the Paintbrush, the Blob Brush, Width, Arc, grids, Flare, Mesh, Perspective Selection), Appearance, live effects, Repeat, Transform Each and the Eyedropper's look; paragraphs in formats of their own while typing, the Justification, Keep Options and Span Columns dialogs (Preview, Cancel, OK), Text Frame Options' inset, vertical justification and balance; Next Style, nested and GREP styles, Paragraph Style Options, Object Styles; Check Spelling and Dynamic Spelling; hyperlinks, destinations, cross-references, text variables and bookmarks; Place Linked, the Links panel's states and File > Package (the document, its pictures, fonts, IDML, PDF and report) |
+| `test_textcompose` | each paragraph its own format (kept when paragraphs are split and joined, an empty last one's, saved), the Paragraph Composer's even spaces, glyph scaling and letter spacing, Keep Lines Together, Keep with Next and Start Paragraph, Span Columns (the columns above balanced) and Split Column, Balance Columns, Inset Spacing, Vertical Justification, nested styles (words, up to a letter) and GREP styles |
+| `test_hyperlinks` | hyperlinks kept with the text; text variables (the file's name, the date, a running header, a cross-reference in a document and across a book's pages, saved and read back); the PDF's links to an address, a page and a destination, and its bookmarks under bookmarks |
+| `test_simd` | the four-lanes kernels give the plain loops' pixels: the mix over opaque pixels exactly (every separable mode, every opacity, a pixel left for the caller), resampling a flat color and keeping transparent colors out, Box Blur's means, a gaussian blur of a flat color |
+| `test_photoblurs`, `test_pathtools` | Average, Box, Shape, Smart and Lens Blur; the drawing program's path operations (erase, smooth, cut, knife, join, blob, arcs, grids, flare, the mesh's points) |
 | `test_handpass` | the hand pass: every tool of Retro Atelier's toolbar used through the window's input -- a click, Alt+click, a drag, Shift, Alt and Ctrl, a double click, the arrows, a finger's tap, drag and long press, a pen and its eraser -- nothing failing, and everything undone to the picture it began with (975 tries) |
 | `test_systemfiles` | the system's own file picker behind the kit's file dialogs, with a made-up system: a document opened as a copy and written back when the app saves it, Save As where the picker said (asked before, or after the file is there), what cannot be written told |
 | `test_svgimport`, `test_photosvg` | SVG drawn as resvg draws it (65 drawings: icons, flags, and one for each filter step, pattern, blending mode, mask and way of placing type), its text (runs, lines, along a path, the font found, letters in their own places, outlined, hollow, running down) and pictures (in the file, beside it, nowhere else) read, drawn -- on worker threads too -- and made layers; filters by numbers (linear light, a step's rectangle, noise, displacement, lighting); damaged files never a crash; a document written as SVG and opened again: the same layers by name, the same type, masks, effects, pattern fills, adjustment layers and blending modes, the same picture, the same file written twice; type as outlines |

@@ -10,8 +10,8 @@
 ##   o.marks = true
 ##   doc.savePdf("cover.pdf", o)
 
-import std/[math, unicode]
-import gfx, pdf, photo, photoinks, textengine, parallel
+import std/[math, unicode, tables, strutils]
+import gfx, pdf, photo, photoinks, textengine, parallel, photoshapes
 
 type
   PdfPresetKind* = enum
@@ -42,6 +42,12 @@ type
     profile*: string         ## ... its ICC profile, when there is one (embedded)
     maxPixels*: int          ## a picture never larger than this (0: 160 million)
     title*, author*: string  ## the PDF's title and author ("" title: the document's name)
+    noLinks*: bool           ## the text's hyperlinks and cross-references not made links
+    noBookmarks*: bool       ## the documents' bookmarks not made the PDF's
+    dests*: Table[string, tuple[page: int; top: float]]
+      ## (a book: where each text destination is -- its page in the PDF, 1 the first, and points
+      ## down from its top; links to one go there. Made by whoever adds the pages)
+    pageMap*: seq[int]       ## (a book: each of its pages' page in the PDF, 1 the first, 0 not in it)
 
 proc pdfPreset*(k: PdfPresetKind): PdfOptions =
   ## Photoshop's presets, more or less.
@@ -64,6 +70,13 @@ proc vectorOk(d: Doc; i: int): bool =
   if L.mask != nil and not L.maskOff: return false
   if L.isShape:
     let s = L.shape
+    if not s.isPlain:
+      # (drawn in parts: as outlines when every part is plain color, at full opacity, normal)
+      for (part, pop, pmode) in exportParts(s):
+        if part.fill.kind notin {spNone, spColor} or part.stroke.kind notin {spNone, spColor} or
+           pop != 100 or pmode != bmNormal or (part.stroke.kind == spColor and part.align != saCenter):
+          return false
+      return true
     if s.fill.kind notin {spNone, spColor} or s.stroke.kind notin {spNone, spColor}: return false
     if s.stroke.kind == spColor and s.strokeWidth > 0 and s.align != saCenter: return false
     if s.startEnd != leNone or s.endEnd != leNone: return false   # (a line's arrowheads: as pixels)
@@ -232,47 +245,109 @@ proc addVector(p: PdfPage; d: Doc; L: Layer; ox, oy, k: float; o: PdfOptions) =
         p.fillStroke()
       else: p.fill()
   else:
-    let s = L.shape
-    template path() =
-      for sp in s.path.subs:
-        if sp.pts.len == 0: continue
-        p.moveTo(X(sp.pts[0].p[0]), Y(sp.pts[0].p[1]))
-        let n = sp.pts.len
-        let segs = if sp.closed: n else: n - 1
-        for i in 0 ..< segs:
-          let a = sp.pts[i]
-          let b = sp.pts[(i + 1) mod n]
-          if a.outH == a.p and b.inH == b.p: p.lineTo(X(b.p[0]), Y(b.p[1]))
-          else: p.curveTo(X(a.outH[0]), Y(a.outH[1]), X(b.inH[0]), Y(b.inH[1]), X(b.p[0]), Y(b.p[1]))
-        if sp.closed: p.closePath()
-    if s.fill.kind == spColor:
-      let fo = if s.fill.opacity in 1 .. 99: s.fill.opacity / 100 else: 1.0
-      if fo < 1:
-        p.saveState()
-        p.opacity(fo * L.opacity.float / 100)
-      path()
-      p.paintOf(s.fill.color, o.cmyk, false)
-      p.fill()
-      if fo < 1: p.restoreState()
-    if s.stroke.kind == spColor and s.strokeWidth > 0:
-      path()
-      p.paintOf(s.stroke.color, o.cmyk, true)
-      p.lineWidth(s.strokeWidth * k)
-      p.lineCap(case s.cap
-                of lcRound: capRound
-                of lcSquare: capSquare
-                else: capButt)
-      p.lineJoin(case s.join
-                 of ljRound: joinRound
-                 of ljBevel: joinBevel
-                 else: joinMiter)
-      if s.dashes.len > 0:
-        var ds: seq[float]
-        for v in s.dashes: ds.add v * s.strokeWidth * k
-        p.dash(ds)
-      p.stroke()
-      if s.dashes.len > 0: p.dash()
+    for (s, _, _) in (if L.shape.isPlain: @[(L.shape, 100, bmNormal)] else: exportParts(L.shape)):
+      template path() =
+        for sp in s.path.subs:
+          if sp.pts.len == 0: continue
+          p.moveTo(X(sp.pts[0].p[0]), Y(sp.pts[0].p[1]))
+          let n = sp.pts.len
+          let segs = if sp.closed: n else: n - 1
+          for i in 0 ..< segs:
+            let a = sp.pts[i]
+            let b = sp.pts[(i + 1) mod n]
+            if a.outH == a.p and b.inH == b.p: p.lineTo(X(b.p[0]), Y(b.p[1]))
+            else: p.curveTo(X(a.outH[0]), Y(a.outH[1]), X(b.inH[0]), Y(b.inH[1]), X(b.p[0]), Y(b.p[1]))
+          if sp.closed: p.closePath()
+      if s.fill.kind == spColor:
+        let fo = if s.fill.opacity in 1 .. 99: s.fill.opacity / 100 else: 1.0
+        if fo < 1:
+          p.saveState()
+          p.opacity(fo * L.opacity.float / 100)
+        path()
+        p.paintOf(s.fill.color, o.cmyk, false)
+        p.fill()
+        if fo < 1: p.restoreState()
+      if s.stroke.kind == spColor and s.strokeWidth > 0:
+        path()
+        p.paintOf(s.stroke.color, o.cmyk, true)
+        p.lineWidth(s.strokeWidth * k)
+        p.lineCap(case s.cap
+                  of lcRound: capRound
+                  of lcSquare: capSquare
+                  else: capButt)
+        p.lineJoin(case s.join
+                   of ljRound: joinRound
+                   of ljBevel: joinBevel
+                   else: joinMiter)
+        if s.dashes.len > 0:
+          var ds: seq[float]
+          for v in s.dashes: ds.add v * s.strokeWidth * k
+          p.dash(ds)
+        p.stroke()
+        if s.dashes.len > 0: p.dash()
   if L.opacity < 100: p.restoreState()
+
+proc linkRects*(d: Doc; L: Layer): seq[tuple[x0, y0, x1, y1: float32; link: string]] =
+  ## Where a type layer's hyperlinks and destinations are (`CharStyle.link`): a box round their
+  ## letters on each line they are on, in the image's pixels.
+  if not L.isText: return
+  let t = d.effectiveText(L)
+  if t.path.len > 0 or t.warp.style != wsNone or t.vertical: return
+  let runs = t.linkRuns
+  if runs.len == 0: return
+  let lay = layoutText(t)
+  for (a, b, link) in runs:
+    for ln in lay.lines:
+      if ln.last <= a or ln.first >= b: continue
+      var x0 = 1e9'f32
+      var x1 = -1e9'f32
+      for g in lay.glyphs:
+        if g.index >= max(a, ln.first) and g.index < min(b, ln.last):
+          x0 = min(x0, g.x)
+          x1 = max(x1, g.x + g.adv)
+      if x1 > x0: result.add (x0, ln.baseline - ln.ascent, x1, ln.baseline + ln.descent, link)
+
+proc docDests*(d: Doc; page: int; k: float; into: var Table[string, tuple[page: int; top: float]]) =
+  ## (the text destinations of a document that is page `page` of a PDF: where each is, points
+  ## from the page's top at `k` points a pixel)
+  for L in d.layers:
+    if not L.isText or not L.visible: continue
+    for (_, y0, _, _, link) in d.linkRects(L):
+      if link.len > 1 and link[0] == '=' and link[1 .. ^1] notin into:
+        into[link[1 .. ^1]] = (page, max(0.0, y0.float * k - 12))
+
+proc addLinks(p: PdfPage; d: Doc; page: int; ox, oy, k: float; o: PdfOptions) =
+  ## (the hyperlinks of the document's text: a click opens a web or mail address, goes to a
+  ## destination or a page of the book)
+  if o.noLinks: return
+  for L in d.layers:
+    if not L.isText or not L.visible: continue
+    for (x0, y0, x1, y1, link) in d.linkRects(L):
+      let (x, y, w, h) = (ox + x0.float * k, oy + y0.float * k, float(x1 - x0) * k, float(y1 - y0) * k)
+      if link.startsWith("="): continue
+      if link.startsWith("#"):
+        let dn = link[1 .. ^1]
+        if dn in o.dests: p.linkToPage(x, y, w, h, o.dests[dn].page, o.dests[dn].top)
+        else:
+          # (in this document)
+          var here: Table[string, tuple[page: int; top: float]]
+          d.docDests(page, k, here)
+          if dn in here: p.linkToPage(x, y, w, h, here[dn].page, oy + here[dn].top)
+      elif link.startsWith("page:"):
+        let n = try: parseInt(link[5 .. ^1]) except ValueError: 0
+        let to = if n >= 1 and n <= o.pageMap.len: o.pageMap[n - 1] elif o.pageMap.len == 0: n else: 0
+        if to >= 1: p.linkToPage(x, y, w, h, to)
+      else: p.link(x, y, w, h, link)
+
+proc addBookmarks*(pdf: PdfDoc; d: Doc; page: int; k: float; o: PdfOptions) =
+  ## (a document's bookmarks, `Doc.bookmarks`, as the PDF's: going to page `page` -- to their
+  ## destination on it)
+  if o.noBookmarks: return
+  var here: Table[string, tuple[page: int; top: float]]
+  for bm in d.bookmarks:
+    if here.len == 0 and bm.dest.len > 0: d.docDests(page, k, here)
+    let top = if bm.dest.len > 0 and bm.dest in here: here[bm.dest].top else: 0.0
+    pdf.bookmarks.add PdfBookmark(title: bm.title, page: page, top: top, level: bm.level)
 
 proc drawDocAt(p: PdfPage; d: Doc; ox, oy, k: float; o: PdfOptions; bleed: bool) =
   ## (the document's layers on the page from `ox`, `oy`; `bleed`: its pictures drawn out past
@@ -340,6 +415,8 @@ proc addSpreadPage*(pdf: PdfDoc; docs: openArray[Doc]; o: PdfOptions): PdfPage {
       p.clip()
     p.drawDocAt(dd, x, room, k, o, bleed = true)
     if docs.len > 1: p.restoreState()
+    p.addLinks(dd, pdf.pages.len, x, room, k, o)
+    pdf.addBookmarks(dd, pdf.pages.len, k, o)
     x += w
   if o.marks:
     # crop marks: short lines out from the corners, in registration black

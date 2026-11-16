@@ -119,6 +119,32 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   tool through the window's input and undoes it all: a tool that changes
   the picture without an undo step, or a step that does not take back
   what it did, fails it.
+- The three programs' ways are the kit's too: new blurs in
+  `retroui/photoblurs`, the drawing program's path tools in
+  `retroui/pathtools`, live effects (Distort & Transform, Warp, Repeat)
+  in `retroui/liveeffects` -- set as `liveEffectsHook` and drawn each
+  time the shape is, never baked into its path until Expand Appearance;
+  more fills and strokes are `ShapeData.appearance`, brushes and widths
+  `StrokeBrush` and `WidthPoint`. A paragraph's format is its own:
+  `CharStyle.para` names one of `TextData.paraFmts` (0 the text's
+  `para`), the paragraph's first letter says which; change paragraphs
+  with `setParaFmt` and `changeParas`, never by setting `para` while the
+  text has others, and let `insertText` and `deleteText` keep them even
+  (`evenParas`, `tidyParaFmts`: the first paragraph's format is always
+  `para`, what lists and drop caps read). The Paragraph Composer is used
+  for justified text only (Auto), so text set before keeps its lines.
+  Text variables (`<file>`, `<date>`, `<head:Style>`, `<ref:name>`) are
+  shown by `effectiveText`, written as they are while typed; a book knows
+  each page's destinations and running heads (saved with the page) so a
+  cross-reference needs no page opened. Links and bookmarks reach the
+  PDF through `PdfOptions.dests` and `pageMap`, filled by the book's
+  export. Object Styles set only what their `use` flags say. The hot
+  loops of mixing, blurring and resampling are in `retroui/simd`
+  (`simdkern.h`, the compilers' vectors): a change there keeps the plain
+  loop's result -- `tests/test_simd.nim` checks it both ways
+  (`-d:retroNoSimd`) -- and is measured with `-d:useMalloc` before it
+  stays. `tests/test_photoparity.nim` drives the new tools, panels and
+  dialogs of Retro Atelier through its menus and its window's input.
 - Open and Save As on a phone: `retroui/systemfiles` behind `fileDialog`
   and `filePicker` (Android: `tools/android/RetroActivity.java`, then
   `sh tools/android/build_dex.sh`; iOS: through the Objective-C runtime).

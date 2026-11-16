@@ -2,7 +2,8 @@
 ## documents in and out (layers, masks, shapes, clipping, styles,
 ## adjustments), exports to every format, shape layers, clipping masks,
 ## the printing inks (CMYK), Lab and duotones, brush dynamics and symmetry,
-## and Filter Factory plug-ins. With PHOTO_DUMP set to a folder, results
+## and Filter Factory plug-ins. The Light adjustment, Pattern Overlay (in
+## files and PSDs), Matting and painting that wraps round (Pattern Preview). With PHOTO_DUMP set to a folder, results
 ## are written there as pictures to look at.
 
 import std/[os, math, strutils, json]
@@ -623,5 +624,127 @@ block textFlowsOnIntoAnotherBox:
     if L.flowFrom != 0 and e.layerOfUid(L.flowFrom) != nil: inc flow
   doAssert flow == 1
   removeFile(path)
+
+# ---- Light, Pattern Overlay, Matting, Pattern Preview ---------------------------------------------------------
+
+block lightAdjustment:
+  # each slider moves its own tones: exposure all, highlights the lights more than the darks, shadows
+  # the darks more than the lights; nothing set: as it was
+  let same0 = lightLut(0, 0, 0, 0, 0, 0)
+  for i in 0 .. 255: doAssert abs(int(same0[i]) - i) <= 1, $i
+  let up = lightLut(1, 0, 0, 0, 0, 0)
+  doAssert up[64] > 64 and up[128] > 128 and up[255] == 255
+  let hl = lightLut(0, 0, -100, 0, 0, 0)
+  doAssert int(hl[200]) < 200 - 15 and abs(int(hl[40]) - 40) <= 2, "highlights down: the lights, not the darks"
+  let sh = lightLut(0, 0, 0, 100, 0, 0)
+  doAssert int(sh[60]) > 60 + 15 and abs(int(sh[230]) - 230) <= 3, "shadows up: the darks, not the lights"
+  let ct = lightLut(0, 100, 0, 0, 0, 0)
+  doAssert ct[50] < 50 and ct[200] > 200
+  let wb = lightLut(0, 0, 0, 0, 100, -100)
+  doAssert wb[240] > 240 and wb[20] < 20
+  # as an adjustment layer, and in a PSD as Curves (which Photoshop reads)
+  let d = picture()
+  discard d.newAdjustmentLayer(Adjustment(kind: "Light", args: @[0.5, 20, -30, 40, 10, -10]))
+  let flat = d.flattened()
+  let path = tmp / "light.psd"
+  d.savePsd(path)
+  let back = loadPsd(path)
+  doAssert back.layers[^1].adjust.kind == "Curves"
+  doAssert maxDiff(back.flattened(), flat) <= 4, "Light as Curves: " & $maxDiff(back.flattened(), flat)
+
+block patternOverlay:
+  var d = newDoc(80, 60, 0xFFFFFFFF'u32)
+  let L = d.addLayer("Square")
+  for y in 10 ..< 50:
+    for x in 10 ..< 70: L.px[y * 80 + x] = 0xFF2040C0'u32
+  d.markAll()
+  L.fx.fx[fxPatternOverlay] = defaultEffect(fxPatternOverlay)
+  let t = patternTile("Stripes")
+  L.fx.fx[fxPatternOverlay].pattern = t.px
+  L.fx.fx[fxPatternOverlay].patternW = t.w
+  L.fx.fx[fxPatternOverlay].patternH = t.h
+  L.fx.fx[fxPatternOverlay].patternName = "Stripes"
+  d.markAll()
+  d.updateComposite()
+  let shown = d.compCopy
+  # inside the square: the pattern's grays, from the layer's corner; outside: white
+  doAssert shown[5 * 80 + 5] == 0xFFFFFFFF'u32
+  var grays = 0
+  for y in 10 ..< 50:
+    for x in 10 ..< 70:
+      let p = shown[y * 80 + x]
+      if rOf(p) == gOf(p) and gOf(p) == bOf(p): inc grays
+  doAssert grays == 40 * 60, "all of it the pattern"
+  doAssert shown[10 * 80 + 10] == (t.px[0] or 0xFF000000'u32), "linked with the layer: its corner the tile's"
+  # scaled 200 %: the stripes twice as wide
+  L.fx.fx[fxPatternOverlay].scale = 200
+  d.markAll()
+  d.updateComposite()
+  doAssert d.compCopy[10 * 80 + 10] == shown[10 * 80 + 10] and d.compCopy != shown
+  L.fx.fx[fxPatternOverlay].scale = 100
+  # in our file and back, its tile with it
+  let j = toJson(L.fx)
+  let fx2 = layerFxFrom(j)
+  doAssert fx2.fx[fxPatternOverlay].on and fx2.fx[fxPatternOverlay].pattern == t.px and
+           fx2.fx[fxPatternOverlay].patternName == "Stripes"
+  # in a PSD and back: the pattern goes in the file ('Patt'), the effect finds it
+  let path = tmp / "pattern.psd"
+  d.markAll()
+  d.savePsd(path)
+  let raw = readPsd(readFile(path))
+  doAssert raw.patterns.len == 1 and raw.patterns[0].w == t.w and raw.patterns[0].px == t.px
+  let back = loadPsd(path)
+  let e = back.layers[^1].fx.fx[fxPatternOverlay]
+  doAssert e.on and e.pattern == t.px and e.patternW == t.w and e.patternName == "Stripes"
+  doAssert maxDiff(back.flattened(), d.flattened()) <= 2
+
+block matting:
+  # cut from black: the edge pixels dark; Remove Black Matte brings back their color
+  var im = newImg(3, 1)
+  im.px = @[0xFFFF0000'u32, argb(128, 128, 0, 0), 0x00000000'u32]
+  let o = removeMatte(false)(im, rect(0, 0, 3, 1))
+  doAssert o.px[0] == im.px[0] and o.px[2] == 0 and rOf(o.px[1]) >= 254 and aOf(o.px[1]) == 128
+  # cut from white: the edge pixels pale
+  im.px = @[0xFFFF0000'u32, argb(128, 255, 127, 127), 0x00000000'u32]
+  let w = removeMatte(true)(im, rect(0, 0, 3, 1))
+  doAssert rOf(w.px[1]) >= 254 and gOf(w.px[1]) <= 2
+  # Defringe: a fringe of white round a red square takes the red
+  var f = newImg(20, 20)
+  for y in 0 ..< 20:
+    for x in 0 ..< 20:
+      f.px[y * 20 + x] = if x in 5 .. 14 and y in 5 .. 14: 0xFFFF0000'u32
+                         elif x in 4 .. 15 and y in 4 .. 15: 0x80FFFFFF'u32
+                         else: 0'u32
+  let g = defringe(1)(f, rect(0, 0, 20, 20))
+  doAssert g.px[4 * 20 + 10] == 0x80FF0000'u32, "the fringe red, its alpha kept"
+  doAssert g.px[0] == 0 and g.px[10 * 20 + 10] == 0xFFFF0000'u32
+
+block patternPreviewWraps:
+  # Pattern Preview: a dab past the right edge comes in at the left (and a corner at the other three)
+  let d = newDoc(60, 40)
+  var o = PaintOpts(tool: tkBrush, color: 0xFF000000'u32, bg: 0xFFFFFFFF'u32, opacity: 100, wrap: true)
+  d.beginStep("Paint")
+  var s = d.beginStroke(o, hardTip(9), 58, 20)
+  s.startStroke()
+  s.endStroke()
+  d.endStep()
+  doAssert lumaOf(d.layer.px[20 * 60 + 58]) < 30 and lumaOf(d.layer.px[20 * 60 + 1]) < 30
+  doAssert lumaOf(d.layer.px[20 * 60 + 30]) > 200
+  d.beginStep("Corner")
+  var c = d.beginStroke(o, hardTip(9), 1, 1)
+  c.startStroke()
+  c.endStroke()
+  d.endStep()
+  for (x, y) in [(1, 1), (58, 1), (1, 38), (58, 38)]:
+    doAssert lumaOf(d.layer.px[y * 60 + x]) < 30, $(x, y)
+  # off: not wrapped
+  let e = newDoc(60, 40)
+  o.wrap = false
+  e.beginStep("Paint")
+  var s2 = e.beginStroke(o, hardTip(9), 58, 20)
+  s2.startStroke()
+  s2.endStroke()
+  e.endStep()
+  doAssert lumaOf(e.layer.px[20 * 60 + 1]) > 200
 
 echo "test_photomore: ok"

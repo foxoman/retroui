@@ -30,6 +30,7 @@ const
   AutoSizing = [asOff: "Off", asHeight: "HeightOnly", asWidth: "WidthOnly", asBoth: "HeightAndWidth",
                 asProportional: "HeightAndWidthProportionally"]
     ## (Auto-Size as the layout program writes it)
+  VertJusts = [vjTop: "TopAlign", vjCenter: "CenterAlign", vjBottom: "BottomAlign", vjJustify: "JustifyAlign"]
   RefPoints = ["TopLeftPoint", "TopCenterPoint", "TopRightPoint", "LeftCenterPoint", "CenterPoint",
                "RightCenterPoint", "BottomLeftPoint", "BottomCenterPoint", "BottomRightPoint"]
 
@@ -112,15 +113,58 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): s
             rtl = true
             break strong
           if c in {'A' .. 'Z', 'a' .. 'z'}: break strong
-  let p = t.para
-  var body = "<ParagraphStyleRange AppliedParagraphStyle=\"ParagraphStyle/$ID/NormalParagraphStyle\" Justification=\"" &
+  proc psrOpen(p: ParaStyle): string =
+    ## (a ParagraphStyleRange's opening, in paragraph format `p`)
+    let composer = if rtl: "$ID/HL Composer Optyca"
+                   elif p.composer == cpSingle: "HL Single"
+                   elif p.composer == cpParagraph: "HL Composer"
+                   else: ""
+    result = "<ParagraphStyleRange AppliedParagraphStyle=\"ParagraphStyle/$ID/NormalParagraphStyle\" Justification=\"" &
              alignOf(p.align, rtl) & "\" LeftIndent=\"" & f(p.indentLeft * k) & "\" RightIndent=\"" &
              f(p.indentRight * k) & "\" FirstLineIndent=\"" & f(p.indentFirst * k) & "\" SpaceBefore=\"" &
              f(p.spaceBefore * k) & "\" SpaceAfter=\"" & f(p.spaceAfter * k) & "\"" &
-             (if rtl: " ParagraphDirection=\"RightToLeftDirection\" Composer=\"$ID/HL Composer Optyca\"" else: "") &
+             (if rtl: " ParagraphDirection=\"RightToLeftDirection\"" else: "") &
+             (if composer.len > 0: " Composer=\"" & composer & "\"" else: "") &
              " Hyphenation=\"" & $p.hyphenate & "\"" &
              (if p.dropLines >= 2: " DropCapLines=\"" & $p.dropLines & "\" DropCapCharacters=\"" &
-                                   $max(1, p.dropChars) & "\"" else: "") & ">\n"
+                                   $max(1, p.dropChars) & "\"" else: "")
+    # (Justification's spacing, Keep Options, Span Columns: the layout program's own)
+    for (names, a, d) in [(["MinimumWordSpacing", "DesiredWordSpacing", "MaximumWordSpacing"], p.wordSpacing,
+                           [80'i16, 100, 133]),
+                          (["MinimumLetterSpacing", "DesiredLetterSpacing", "MaximumLetterSpacing"], p.letterSpacing,
+                           [0'i16, 0, 0]),
+                          (["MinimumGlyphScaling", "DesiredGlyphScaling", "MaximumGlyphScaling"], p.glyphScaling,
+                           [100'i16, 100, 100])]:
+      if a != [0'i16, 0, 0]:
+        for q in 0 .. 2: result.add " " & names[q] & "=\"" & $(if a[q] == 0 and d[q] != 0: d[q] else: a[q]) & "\""
+    if p.keepTogether or p.keepStart > 1 or p.keepEnd > 1:
+      result.add " KeepLinesTogether=\"true\" KeepAllLinesTogether=\"" & $p.keepTogether & "\" KeepFirstLines=\"" &
+                 $max(1, p.keepStart) & "\" KeepLastLines=\"" & $max(1, p.keepEnd) & "\""
+    if p.keepWithNext > 0: result.add " KeepWithNext=\"" & $p.keepWithNext & "\""
+    if p.startAt != psAnywhere:
+      result.add " StartParagraph=\"" &
+                 (case p.startAt
+                  of psNextColumn: "NextColumn"
+                  of psNextFrame: "NextFrame"
+                  of psNextPage: "NextPage"
+                  else: "Anywhere") & "\""
+    if p.spanAll: result.add " SpanColumnType=\"SpanColumns\" SpanSplitColumnCount=\"All\""
+    elif p.splitColumns >= 2:
+      result.add " SpanColumnType=\"SplitColumns\" SpanSplitColumnCount=\"" & $p.splitColumns & "\""
+    result.add ">\n"
+  # (each paragraph's format: where they change, a range of their own)
+  var paraFmt: seq[int]
+  block:
+    var atStart = true
+    for sp in t.spans:
+      for c in sp.text:
+        if atStart:
+          paraFmt.add sp.style.para
+          atStart = false
+        if c == '\n': atStart = true
+    if atStart: paraFmt.add (if t.spans.len > 0: t.spans[^1].style.para else: 0)
+  var paraNo = 0
+  var body = psrOpen(t.fmtOf(if paraFmt.len > 0: paraFmt[0] else: 0))
   proc csrOpen(o: var IdmlOut; st: CharStyle): string =
     ## (a CharacterStyleRange's opening, in `st`'s look)
     let fam = if st.family.len > 0: st.family else: "FreeSans"
@@ -219,6 +263,12 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): s
         flush(body, piece)
         body.add "<Br/>\n"
         inc i
+        inc paraNo
+        if paraNo < paraFmt.len and paraFmt[paraNo] != paraFmt[paraNo - 1] and
+           t.fmtOf(paraFmt[paraNo]) != t.fmtOf(paraFmt[paraNo - 1]):
+          # (the next paragraph in a format of its own)
+          body.add "</CharacterStyleRange>\n</ParagraphStyleRange>\n" & psrOpen(t.fmtOf(paraFmt[paraNo])) &
+                   csrOpen(o, st)
       elif master and s.continuesWith("<##>", i):
         flush(body, piece)
         body.add "<Content><?ACE 18?></Content>\n"
@@ -307,9 +357,15 @@ proc itemsOf(o: var IdmlOut; d: Doc; ox, oy, k: float; master: bool; name: strin
                  "\" ItemTransform=\"1 0 0 1 0 0\">\n" &
                  boxGeometry(a[0], a[1], b[0], b[1]) & op &
                  "<TextFramePreference TextColumnCount=\"" & $max(1, t.columns) & "\" TextColumnGutter=\"" &
-                 f((if t.gutter > 0: t.gutter else: 12'f32) * k) & "\" VerticalJustification=\"TopAlign\"" &
+                 f((if t.gutter > 0: t.gutter else: 12'f32) * k) & "\" VerticalJustification=\"" &
+                 VertJusts[t.vjust] & "\"" & (if t.balance: " VerticalBalanceColumns=\"true\"" else: "") &
                  (if t.autoSize != asOff: " AutoSizingType=\"" & AutoSizing[t.autoSize] & "\" AutoSizingReferencePoint=\"" &
-                                         RefPoints[clamp(t.autoRef, 0, 8)] & "\"" else: "") & "/>\n" &
+                                         RefPoints[clamp(t.autoRef, 0, 8)] & "\"" else: "") &
+                 (if t.inset == [0'f32, 0, 0, 0]: "/>\n"
+                  else: "><Properties><InsetSpacing type=\"list\"><ListItem type=\"unit\">" & f(t.inset[0] * k) &
+                        "</ListItem><ListItem type=\"unit\">" & f(t.inset[3] * k) & "</ListItem><ListItem type=\"unit\">" &
+                        f(t.inset[2] * k) & "</ListItem><ListItem type=\"unit\">" & f(t.inset[1] * k) &
+                        "</ListItem></InsetSpacing></Properties></TextFramePreference>\n") &
                  "</TextFrame>\n"
     elif L.isShape and plain and L.shape.fill.kind in {spNone, spColor, spGradient}:
       let s = L.shape
@@ -799,21 +855,72 @@ proc readIdml*(file: string; dpi = 150.0): Book =
         if c.tag == "ParagraphStyleRange": acc.add c
         elif c.tag notin ["Table", "Cell", "Footnote", "Note", "Endnote"]: paraRanges(c, acc)
     paraRanges(stories[id], psrs)
+    proc paraOf(psr: XmlNode): ParaStyle =
+      ## (a ParagraphStyleRange's format)
+      case psr.attr("Justification")
+      of "CenterAlign": result.align = textCenter
+      of "RightAlign": result.align = textRight
+      of "LeftJustified": result.align = justifyLeft
+      of "RightJustified": result.align = justifyRight
+      of "CenterJustified": result.align = justifyCenter
+      of "FullyJustified": result.align = justifyAll
+      else: discard
+      if psr.attr("ParagraphDirection") == "RightToLeftDirection": result.rtl = 2
+      if psr.attr("Hyphenation") == "true": result.hyphenate = true
+      proc num(a: string; lo, hi: float): float =
+        try: clamp(parseFloat(psr.attr(a)), lo, hi) except ValueError: 0.0
+      result.indentLeft = float32(num("LeftIndent", -1e5, 1e5) * k)
+      result.indentRight = float32(num("RightIndent", -1e5, 1e5) * k)
+      result.indentFirst = float32(num("FirstLineIndent", -1e5, 1e5) * k)
+      result.spaceBefore = float32(num("SpaceBefore", 0, 1e5) * k)
+      result.spaceAfter = float32(num("SpaceAfter", 0, 1e5) * k)
+      let dl = int(num("DropCapLines", 0, 20))
+      if dl >= 2:
+        result.dropLines = dl
+        result.dropChars = int(num("DropCapCharacters", 0, 20))
+      case psr.attr("Composer")
+      of "HL Single", "$ID/HL Single", "Adobe Single-line Composer": result.composer = cpSingle
+      of "HL Composer", "$ID/HL Composer", "Adobe Paragraph Composer": result.composer = cpParagraph
+      else: discard
+      for (names, a, d) in [(["MinimumWordSpacing", "DesiredWordSpacing", "MaximumWordSpacing"],
+                             addr result.wordSpacing, [80'i16, 100, 133]),
+                            (["MinimumLetterSpacing", "DesiredLetterSpacing", "MaximumLetterSpacing"],
+                             addr result.letterSpacing, [0'i16, 0, 0]),
+                            (["MinimumGlyphScaling", "DesiredGlyphScaling", "MaximumGlyphScaling"],
+                             addr result.glyphScaling, [100'i16, 100, 100])]:
+        var v: array[3, int16]
+        for q in 0 .. 2:
+          v[q] = if psr.attr(names[q]).len > 0: int16(num(names[q], -100, 1000)) else: d[q]
+        if v != d: a[] = v
+      if psr.attr("KeepLinesTogether") == "true":
+        result.keepTogether = psr.attr("KeepAllLinesTogether") == "true"
+        result.keepStart = int(num("KeepFirstLines", 0, 50))
+        result.keepEnd = int(num("KeepLastLines", 0, 50))
+      result.keepWithNext = int(num("KeepWithNext", 0, 50))
+      case psr.attr("StartParagraph")
+      of "NextColumn": result.startAt = psNextColumn
+      of "NextFrame": result.startAt = psNextFrame
+      of "NextPage", "NextOddPage", "NextEvenPage": result.startAt = psNextPage
+      else: discard
+      case psr.attr("SpanColumnType")
+      of "SpanColumns": result.spanAll = true
+      of "SplitColumns": result.splitColumns = max(2, int(num("SpanSplitColumnCount", 0, 20)))
+      else: discard
+    var fmtNo = 0
     for pi, psr in psrs:
-      if pi == 0:
-        case psr.attr("Justification")
-        of "CenterAlign": result.para.align = textCenter
-        of "RightAlign": result.para.align = textRight
-        of "LeftJustified": result.para.align = justifyLeft
-        of "RightJustified": result.para.align = justifyRight
-        of "CenterJustified": result.para.align = justifyCenter
-        of "FullyJustified": result.para.align = justifyAll
-        else: discard
-        if psr.attr("ParagraphDirection") == "RightToLeftDirection": result.para.rtl = 2
-        if psr.attr("Hyphenation") == "true": result.para.hyphenate = true
-      elif result.spans.len > 0: result.spans[^1].text.add "\n"
+      let pf = paraOf(psr)
+      if pi == 0: result.para = pf
+      else:
+        if result.spans.len > 0 and not result.spans[^1].text.endsWith("\n"): result.spans[^1].text.add "\n"
+        fmtNo = 0
+        if pf != result.para:
+          fmtNo = result.paraFmts.find(pf) + 1
+          if fmtNo == 0 and result.paraFmts.len < 10_000:
+            result.paraFmts.add pf
+            fmtNo = result.paraFmts.len
       for csr in psr.childrenNamed("CharacterStyleRange"):
         var st = defaultStyle()
+        st.para = fmtNo
         try:
           if csr.attr("PointSize").len > 0: st.size = float32(parseFloat(csr.attr("PointSize")) * k)
         except ValueError: discard
@@ -968,6 +1075,23 @@ proc readIdml*(file: string; dpi = 150.0): Book =
             if pref.attr("AutoSizingType") == AutoSizing[a]: t.autoSize = a
           let rp = RefPoints.find(pref.attr("AutoSizingReferencePoint"))
           if rp >= 0: t.autoRef = rp
+          # (Inset Spacing -- top, left, bottom, right --, Vertical Justification, Balance Columns)
+          for e in VertJust:
+            if pref.attr("VerticalJustification") == VertJusts[e]: t.vjust = e
+          t.balance = pref.attr("VerticalBalanceColumns") == "true"
+          var ins: seq[float32]
+          for pp in pref.childrenNamed("Properties"):
+            for il in pp.childrenNamed("InsetSpacing"):
+              for li in il.childrenNamed("ListItem"):
+                try: ins.add clamp(float32(parseFloat(li.innerText) * k), 0, 10_000) except ValueError: ins.add 0
+          if ins.len == 4: t.inset = [ins[0], ins[3], ins[2], ins[1]]
+          else:
+            # (one number for all four sides: an attribute)
+            let a = pref.attr("InsetSpacing")
+            if a.len > 0:
+              let v = nums(a)
+              if v.len == 1: t.inset = [float32(v[0] * k), float32(v[0] * k), float32(v[0] * k), float32(v[0] * k)]
+              elif v.len == 4: t.inset = [float32(v[0] * k), float32(v[3] * k), float32(v[2] * k), float32(v[1] * k)]
         let prev = it.attr("PreviousTextFrame")
         let follows = prev.len > 0 and prev != "n"
         if follows and t.spans.len > 0:

@@ -75,7 +75,7 @@ proc createShapeDialog() =
   ## (Ellipse, Polygon...) -- the size typed, the shape made where clicked.
   if not shapeDlg.on: return
   let radial = shapeKind in {3, 6, 7}
-  let name = shapeNames[clamp(shapeKind, 0, 8)]
+  let name = shapeNames[clamp(shapeKind, 0, shapeNames.high)]
   var made = false
   dialog(shapeDlg.on, "Create " & name, 320):
     form 0:

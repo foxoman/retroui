@@ -2995,6 +2995,8 @@ proc fileDialog*(open: var bool; path: var string; mode = fmOpen;
     # (a phone, when the app asked for it: the system's own picker)
     if mode != fmFolder and systemFilesOn():
       return systemFileDialog(open, path, mode == fmSave, "fileDialog:" & title)
+    if mode == fmFolder and systemFoldersOn():
+      return systemFolderDialog(open, path, "fileDialog:" & title)
     pumpSystemFiles()
   if not open:
     fdlg.opened = false

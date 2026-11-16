@@ -15,7 +15,8 @@ var
     ## (the loaded text: its box -- `uid`, on `page` of a book, else in `doc` -- and what a click
     ## does: 0 thread, 1 the out port of a threaded box (its thread broken at the next box), 2 the
     ## in port of one (broken at the box before))
-  tfDlg: tuple[open: bool; layer: Layer; cols, gutter, auto, refPt: int]
+  tfDlg: tuple[open: bool; layer: Layer; cols, gutter, auto, refPt: int; inset: array[4, int]; vjust: int;
+               balance: bool]
   tfApplied = ""
   tfPending = false
   tlOverset: tuple[layer: Layer; ver, dver: int; overset: bool]   ## (the picked box's overset, as last laid out)
@@ -353,9 +354,12 @@ proc startTextFrameOptions() =
   if d == nil or not L.isFrame:
     status = "Text Frame Options: pick a box of type (drag one with the Type tool)."
     return
+  let ins = L.text.inset
   tfDlg = (true, L, max(1, L.text.columns), int(if L.text.gutter > 0: L.text.gutter else: 12'f32),
-           ord(L.text.autoSize), L.text.autoRef)
-  tfApplied = $(tfDlg.cols, tfDlg.gutter, tfDlg.auto, tfDlg.refPt)
+           ord(L.text.autoSize), L.text.autoRef,
+           [int(round(ins[0])), int(round(ins[1])), int(round(ins[2])), int(round(ins[3]))], ord(L.text.vjust),
+           L.text.balance)
+  tfApplied = $(tfDlg.cols, tfDlg.gutter, tfDlg.auto, tfDlg.refPt, tfDlg.inset, tfDlg.vjust, tfDlg.balance)
   tfPending = true
   d.beginStep("Text Frame Options")
   d.touchLayers()
@@ -392,6 +396,27 @@ proc textFrameDialog() =
       spin(tfDlg.gutter, 0, 2000, w = dp(80))
       label "px"
     row([130, -1]):
+      label ""
+      checkbox("Balance Columns", tfDlg.balance)
+    # (Inset Spacing: room kept inside the box's sides)
+    row([130, 90, 40, 90, -1]):
+      label "Inset: top"
+      spin(tfDlg.inset[0], 0, 2000, w = dp(80))
+      label "left"
+      spin(tfDlg.inset[3], 0, 2000, w = dp(80))
+      label "px"
+    row([130, 90, 40, 90, -1]):
+      label "bottom"
+      spin(tfDlg.inset[2], 0, 2000, w = dp(80))
+      label "right"
+      spin(tfDlg.inset[1], 0, 2000, w = dp(80))
+      label "px"
+    row([130, -1]):
+      label "Vertical Justification:"
+      var vn: seq[string]
+      for v in VertJust: vn.add tr($v)
+      combo(vn, tfDlg.vjust, w = dp(120))
+    row([130, -1]):
       label "Auto-Size:"
       var names: seq[string]
       for a in TextAutoSize: names.add tr($a)
@@ -420,7 +445,7 @@ proc textFrameDialog() =
       if button("OK", isDefault = true, w = dp(80)): ok = true
       if button("Cancel", w = dp(80)): cancel = true
   let L = tfDlg.layer
-  let key = $(tfDlg.cols, tfDlg.gutter, tfDlg.auto, tfDlg.refPt)
+  let key = $(tfDlg.cols, tfDlg.gutter, tfDlg.auto, tfDlg.refPt, tfDlg.inset, tfDlg.vjust, tfDlg.balance)
   if key != tfApplied and not cancel:
     tfApplied = key
     var t = L.text
@@ -428,6 +453,9 @@ proc textFrameDialog() =
     t.gutter = max(0.01'f32, tfDlg.gutter.float32)
     t.autoSize = TextAutoSize(tfDlg.auto)
     t.autoRef = tfDlg.refPt
+    for q in 0 .. 3: t.inset[q] = float32(tfDlg.inset[q])
+    t.vjust = VertJust(clamp(tfDlg.vjust, 0, ord(high(VertJust))))
+    t.balance = tfDlg.balance
     d.setText(L, t)
   if ok:
     tfDlg.open = false

@@ -825,6 +825,38 @@ proc exposureFn*(exposure, offset, gamma: float): FilterFn =
     (p and 0xFF000000'u32) or (uint32(lut[(p shr 16) and 255]) shl 16) or
       (uint32(lut[(p shr 8) and 255]) shl 8) or uint32(lut[p and 255]))
 
+proc lightLut*(exposure: float; contrast, highlights, shadows, whites, blacks: int): array[256, uint8] =
+  ## The Light adjustment as a table of levels: `exposure` stops on light
+  ## (what goes past white rolled off), then the tones as Camera Raw's
+  ## Light panel moves them -- `contrast`, `highlights`, `shadows`,
+  ## `whites`, `blacks`, each -100 .. 100.
+  let k = pow(2.0, clamp(exposure, -5.0, 5.0))
+  let co = clamp(contrast, -100, 100) / 100
+  let hl = clamp(highlights, -100, 100) / 100
+  let sh = clamp(shadows, -100, 100) / 100
+  let wh = clamp(whites, -100, 100) / 100
+  let bl = clamp(blacks, -100, 100) / 100
+  for i in 0 .. 255:
+    var v = linOf[i].float * k
+    if k > 1 and v > 0.75: v = 0.75 + 0.25 * (1 - exp(-(v - 0.75) / 0.25))
+    var y = toGam(float32(clamp(v, 0.0, 1.0))).float
+    if co != 0: y = y + co * 0.4 * (y * y * (3 - 2 * y) - y)
+    # (highlights: the upper tones, most at three quarters; shadows: the lower, most at a quarter)
+    if hl != 0: y = y + hl * 0.22 * sin(PI * clamp((y - 0.35) / 0.65, 0.0, 1.0))
+    if sh != 0: y = y + sh * 0.22 * sin(PI * clamp(y / 0.65, 0.0, 1.0))
+    if wh != 0: y = y + wh * 0.25 * pow(y, 4)
+    if bl != 0: y = y + bl * 0.25 * pow(1 - y, 4)
+    result[i] = uint8(clamp(int(y * 255 + 0.5), 0, 255))
+
+proc lightFn*(exposure: float; contrast, highlights, shadows, whites, blacks: int): FilterFn =
+  ## The Light adjustment (Image > Adjustments > Light): exposure and the
+  ## five tones of Camera Raw's Light panel in one, for an adjustment
+  ## layer (`lightLut`).
+  let lut = lightLut(exposure, contrast, highlights, shadows, whites, blacks)
+  mapFn(proc (p: uint32): uint32 =
+    (p and 0xFF000000'u32) or (uint32(lut[(p shr 16) and 255]) shl 16) or
+      (uint32(lut[(p shr 8) and 255]) shl 8) or uint32(lut[p and 255]))
+
 const photoFilters* = [
   ("Warming Filter (85)", 0xFFEC8A00'u32), ("Warming Filter (LBA)", 0xFFFA9600'u32),
   ("Warming Filter (81)", 0xFFEBB113'u32), ("Cooling Filter (80)", 0xFF006DFF'u32),
@@ -949,6 +981,7 @@ proc adjustmentFn*(a: Adjustment): FilterFn =
   ## - "Selective Color": relative (0/1), then c, m, y, k for each of 9 ranges
   ## - "Vibrance": vibrance, saturation (, temperature, tint)
   ## - "Exposure": exposure (stops), offset, gamma
+  ## - "Light": exposure (stops), contrast, highlights, shadows, whites, blacks
   ## - "Photo Filter": r, g, b, density, preserve luminosity (0/1)
   ## - "Black & White": the 6 weights, tint (0/1), hue, saturation
   ## - "Channel Mixer": the 12 numbers (r, g, b, constant for each output), monochrome (0/1)
@@ -1000,6 +1033,7 @@ proc adjustmentFn*(a: Adjustment): FilterFn =
     selectiveColor(sc, ai(0) != 0)
   of "Vibrance": vibranceFn(ai(0), ai(1), ai(2), ai(3))
   of "Exposure": exposureFn(at(0), at(1), (if v.len >= 3: at(2) else: 1.0))
+  of "Light": lightFn(at(0), ai(1), ai(2), ai(3), ai(4), ai(5))
   of "Photo Filter":
     photoFilter(argb(255, ai(0), ai(1), ai(2)), ai(3), ai(4) != 0)
   of "Black & White":

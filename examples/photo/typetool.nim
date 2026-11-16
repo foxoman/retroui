@@ -146,11 +146,24 @@ proc insertTyped(s: string) =
     let before = if a > 0 and te.layer != nil: te.layer.text.textSlice(a - 1, a) else: ""
     clean = smartQuote(clean, before)
   let st = te.style
+  # (Enter at a paragraph's end: the next paragraph in its style's Next Style, as the layout program)
+  let L = te.layer
+  let atEnd = clean == "\n" and L != nil and a == b and a == L.text.paraBounds(a).b
+  let before = if L != nil: L.text.paraFmtAt(a).styleName else: ""
   editText(proc (t: var TextData) =
     t.deleteText(a, b)
     t.insertText(a, clean, st))
   te.caret = a + clean.runeCount
   te.anchor = te.caret
+  if atEnd and before.len > 0:
+    let d = te.dw.doc
+    let k = d.paraStyles.styleIndex(before)
+    let nxt = if k >= 0: d.paraStyles[k].para.nextStyle else: ""
+    let k2 = d.paraStyles.styleIndex(nxt)
+    if nxt.len > 0 and nxt != before and k2 >= 0:
+      d.applyParaStyle(L, nxt, te.caret, te.caret)
+      te.style = d.paraStyles[k2].char
+      te.style.styleName = ""
 
 proc deleteSel(): bool =
   let (a, b) = selRange()
@@ -447,7 +460,8 @@ proc typeKeys() =
     of KeyL, KeyR:
       if ctrl and shift:
         let al = if ui.key == KeyL: textLeft else: textRight
-        editText(proc (t: var TextData) = t.para.align = al)
+        let (a, b) = selRange()
+        editText(proc (t: var TextData) = t.changeParas(a, b, proc (p: var ParaStyle) = p.align = al))
       else: ui.keyUsed = false
     else:
       ui.keyUsed = ctrl or alt

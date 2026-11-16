@@ -72,6 +72,15 @@ type
   PdfLink = object
     x0, y0, x1, y1: float
     uri: string
+    page: int                         # (a link within the document: its page, 1 the first; 0: `uri`)
+    top: float                        # (... where on it, points from its top)
+
+  PdfBookmark* = object
+    ## An entry of the document's bookmarks (its outline, as readers list it beside the pages).
+    title*: string
+    page*: int                        ## the page it goes to, 1 the first
+    top*: float                       ## where on it, in points from its top
+    level*: int                       ## 0 at the outside; 1 under the entry before of level 0...
 
   PdfPage* = ref object
     ## A page: draw on it with the procs below. Made by `addPage`.
@@ -106,6 +115,7 @@ type
       ## screen readers, search and copying; "" -- "ar" when the first text
       ## with letters is Arabic, "he" Hebrew, none for the others
     firstLang: string                 ## (what the first text with letters says: "-" none yet)
+    bookmarks*: seq[PdfBookmark]      ## its bookmarks, in order ("": none)
 
 proc newPdf*(title = ""; author = ""; creator = "Retro Nim UI"): PdfDoc =
   ## A new, empty document; add pages with `addPage`.
@@ -349,6 +359,12 @@ proc link*(p: PdfPage; x, y, w, h: float; uri: string) =
   ## A link: a click on that part of the page opens `uri`.
   if uri.len == 0 or uri.len > 4096: return
   p.links.add PdfLink(x0: x, y0: p.py(y + h), x1: x + w, y1: p.py(y), uri: uri)
+
+proc linkToPage*(p: PdfPage; x, y, w, h: float; page: int; top = 0.0) =
+  ## A link within the document: a click on that part of the page goes to page `page` (1 the
+  ## first), `top` points down from its top.
+  if page < 1: return
+  p.links.add PdfLink(x0: x, y0: p.py(y + h), x1: x + w, y1: p.py(y), page: page, top: top)
 
 # ---- pictures --------------------------------------------------------------------------------------
 
@@ -1096,7 +1112,14 @@ proc render*(d: PdfDoc): string =
       result.add " >>"
     result.add " >>"
   var kids: seq[int]
-  for p in d.pages:
+  # (each page's object, known before: links and bookmarks go to them)
+  for p in d.pages: kids.add objs.put("")
+  proc dest(page: int; top: float): string =
+    let k = clamp(page, 1, max(1, kids.len)) - 1
+    var y = ""
+    y.num(max(0.0, d.pages[k].h - top))
+    "[" & $kids[k] & " 0 R /XYZ 0 " & y & " null]"
+  for pi, p in d.pages:
     let content = objs.put(stream("", p.ops))
     var annots = ""
     if p.links.len > 0:
@@ -1104,8 +1127,12 @@ proc render*(d: PdfDoc): string =
       for l in p.links:
         var r = ""
         r.nums(l.x0, l.y0, l.x1, l.y1)
-        let a = objs.put("<< /Type /Annot /Subtype /Link /Rect [" & r &
-                         "] /Border [0 0 0] /A << /S /URI /URI " & pdfString(l.uri) & " >> >>")
+        let a = if l.page > 0 and l.page <= kids.len:
+                  objs.put("<< /Type /Annot /Subtype /Link /Rect [" & r & "] /Border [0 0 0] /Dest " &
+                           dest(l.page, l.top) & " >>")
+                else:
+                  objs.put("<< /Type /Annot /Subtype /Link /Rect [" & r &
+                           "] /Border [0 0 0] /A << /S /URI /URI " & pdfString(l.uri) & " >> >>")
         annots.add " " & $a & " 0 R"
       annots.add " ]"
     var box = ""
@@ -1116,8 +1143,8 @@ proc render*(d: PdfDoc): string =
         var r = ""
         r.nums(b.x, p.h - b.y - b.h, b.x + b.w, p.h - b.y)
         boxes.add " /" & name & " [" & r & "]"
-    kids.add objs.put("<< /Type /Page /Parent 2 0 R /MediaBox [" & box & "]" & boxes &
-                      " /Resources " & resources(p) & " /Contents " & $content & " 0 R" & annots & " >>")
+    objs[kids[pi] - 1] = "<< /Type /Page /Parent 2 0 R /MediaBox [" & box & "]" & boxes &
+                         " /Resources " & resources(p) & " /Contents " & $content & " 0 R" & annots & " >>"
   var intents = ""
   if d.outputIntent.icc.len > 0 or d.outputIntent.name.len > 0:
     # (PDF/X: the printing condition the colors are for -- its profile
@@ -1139,6 +1166,41 @@ proc render*(d: PdfDoc): string =
   if lang.len > 0: cat.add " /Lang " & pdfString(lang)
   if lang.len > 0 and lang.toLowerAscii.split('-')[0] in ["ar", "fa", "ur", "he", "yi", "ps", "sd", "ug", "ku", "dv"]:
     cat.add " /ViewerPreferences << /Direction /R2L >>"
+  # the bookmarks: the outline readers list beside the pages, entries under entries by level
+  if d.bookmarks.len > 0 and kids.len > 0:
+    let root = objs.put("")
+    let n = d.bookmarks.len
+    var ids = newSeq[int](n)
+    for k in 0 ..< n: ids[k] = objs.put("")
+    var parent = newSeq[int](n)
+    var levels = newSeq[int](n)
+    var stack: seq[int]
+    for k, bm in d.bookmarks:
+      let lv = clamp(bm.level, 0, stack.len)
+      stack.setLen(lv)
+      levels[k] = lv
+      parent[k] = if lv == 0: -1 else: stack[^1]
+      stack.add k
+    proc children(of0: int): seq[int] =
+      for k in 0 ..< n:
+        if parent[k] == of0: result.add k
+    proc count(of0: int): int =
+      for c in children(of0): result += 1 + count(c)
+    for k, bm in d.bookmarks:
+      let sibs = children(parent[k])
+      let at = sibs.find(k)
+      var e = "<< /Title " & pdfString(bm.title) & " /Parent " &
+              $(if parent[k] < 0: root else: ids[parent[k]]) & " 0 R /Dest " & dest(bm.page, bm.top)
+      if at > 0: e.add " /Prev " & $ids[sibs[at - 1]] & " 0 R"
+      if at < sibs.high: e.add " /Next " & $ids[sibs[at + 1]] & " 0 R"
+      let kidsOf = children(k)
+      if kidsOf.len > 0:
+        e.add " /First " & $ids[kidsOf[0]] & " 0 R /Last " & $ids[kidsOf[^1]] & " 0 R /Count " & $count(k)
+      objs[ids[k] - 1] = e & " >>"
+    let top = children(-1)
+    objs[root - 1] = "<< /Type /Outlines /First " & $ids[top[0]] & " 0 R /Last " & $ids[top[^1]] &
+                     " 0 R /Count " & $count(-1) & " >>"
+    cat.add " /Outlines " & $root & " 0 R /PageMode /UseOutlines"
   objs[0] = "<< /Type /Catalog /Pages 2 0 R" & intents & cat & " >>"
   objs[1] = "<< /Type /Pages /Kids [" & kids.mapIt($it & " 0 R").join(" ") & "] /Count " &
             $kids.len & " >>"

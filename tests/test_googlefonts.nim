@@ -67,8 +67,23 @@ block fromTheRepository:
               entry("Kufiya-Thin.ttf", "file", u & "Kufiya-Regular.ttf") & "]")
     # (a copy of the folder's listing at the path GitHub's API gives it as)
     let base = "file://" & repo & "/"
-    let r = installGoogleFont("Kufiya", fonts, needArabic = true, github = base)
+    # (how far it is, told as it goes; asked to stop, nothing of it kept)
+    var steps: seq[string]
+    let stopNow = installGoogleFont("Kufiya", fonts, needArabic = true, github = base,
+                                    hooks = FontFetchHooks(stop: proc (): bool = true))
+    doAssert stopNow == (0, "stopped") and not dirExists(familyDir(fonts, "Kufiya")), $stopNow
+    var calls = 0
+    proc told(step, of0: int; what: string) {.gcsafe.} =
+      {.cast(gcsafe).}:
+        steps.add what
+        doAssert step <= of0
+    proc asked(): bool {.gcsafe.} =
+      {.cast(gcsafe).}: inc calls
+      false
+    let r = installGoogleFont("Kufiya", fonts, needArabic = true, github = base,
+                              hooks = FontFetchHooks(progress: told, stop: asked))
     doAssert r.error == "" and r.files == 2, $r
+    doAssert "Kufiya-Regular.ttf" in steps and "Kufiya-Bold.ttf" in steps and calls >= 3, $steps
     doAssert fileExists(familyDir(fonts, "Kufiya") / "Kufiya-Regular.ttf")
     doAssert fileExists(familyDir(fonts, "Kufiya") / "Kufiya-Bold.ttf")
     doAssert fontCheck(familyDir(fonts, "Kufiya") / "Kufiya-Regular.ttf", needArabic = true) == ""

@@ -1,6 +1,6 @@
 ## Layer styles (Layer > Layer Style), made from a layer's pixels: Drop
-## Shadow, Outer Glow, Gradient and Color Overlay, Satin, Inner Glow, Inner
-## Shadow, Stroke, Bevel and Emboss. Importing this module turns them on
+## Shadow, Outer Glow, Pattern, Gradient and Color Overlay, Satin, Inner
+## Glow, Inner Shadow, Stroke, Bevel and Emboss. Importing this module turns them on
 ## (`photo.layerFxRender`); a layer's style is in `Layer.fx`:
 ##
 ## ```nim
@@ -15,8 +15,9 @@ import gfx, photo, parallel
 {.push boundChecks: off, overflowChecks: off.}
 
 const
-  StyleNames*: array[FxKind, string] = ["Drop Shadow", "Outer Glow", "Gradient Overlay", "Color Overlay",
-                                        "Satin", "Inner Glow", "Inner Shadow", "Stroke", "Bevel and Emboss"]
+  StyleNames*: array[FxKind, string] = ["Drop Shadow", "Outer Glow", "Pattern Overlay", "Gradient Overlay",
+                                        "Color Overlay", "Satin", "Inner Glow", "Inner Shadow", "Stroke",
+                                        "Bevel and Emboss"]
     ## Each effect's name, as the Layer Style dialog shows it.
   BevelStyles* = ["Inner Bevel", "Outer Bevel", "Emboss", "Pillow Emboss"]
     ## Bevel and Emboss's styles, by `Effect.style`.
@@ -26,9 +27,41 @@ const
     ## Gradient Overlay's styles, by `Effect.style`.
   GlowSources* = ["Edge", "Center"]
     ## Inner Glow's sources, by `Effect.style`.
-  DialogOrder*: array[9, FxKind] = [fxBevel, fxStroke, fxInnerShadow, fxInnerGlow, fxSatin,
-                                    fxColorOverlay, fxGradientOverlay, fxOuterGlow, fxDropShadow]
+  DialogOrder*: array[10, FxKind] = [fxBevel, fxStroke, fxInnerShadow, fxInnerGlow, fxSatin,
+                                     fxColorOverlay, fxGradientOverlay, fxPatternOverlay, fxOuterGlow,
+                                     fxDropShadow]
     ## The effects as the Layer Style dialog lists them.
+
+proc patternTile*(name: string): tuple[px: seq[uint32]; w, h: int] =
+  ## One of the patterns that come with it, by name (`PatternNames`): small
+  ## tiles that repeat without a seam.
+  const n = 32
+  var px = newSeq[uint32](n * n)
+  for y in 0 ..< n:
+    for x in 0 ..< n:
+      let g = case name
+              of "Dots":
+                let dx = (x mod 16) - 8
+                let dy = (y mod 16) - 8
+                (if dx * dx + dy * dy < 16: 90 else: 235)
+              of "Stripes": (if (x + y) mod 16 < 8: 110 else: 230)
+              of "Grid": (if x mod 16 == 0 or y mod 16 == 0: 120 else: 240)
+              of "Bricks":
+                let row = y div 8
+                let bx = (x + (if row mod 2 == 1: 8 else: 0)) mod 16
+                (if y mod 8 == 0 or bx == 0: 200 else: 160 + ((x * 7 + y * 13) mod 11))
+              of "Weave":
+                let a = (x div 8 + y div 8) mod 2 == 0
+                let t = if a: x mod 8 else: y mod 8
+                150 + int(60 * sin(PI * t.float / 8))
+              of "Canvas": 200 + ((x * 37 + y * 91) mod 7) * 4 - (if (x + y) mod 2 == 0: 10 else: 0)
+              else: (if (x div 8 + y div 8) mod 2 == 0: 120 else: 230)     # Checkerboard
+      let v = clamp(g, 0, 255)
+      px[y * n + x] = 0xFF000000'u32 or (uint32(v) shl 16) or (uint32(v) shl 8) or uint32(v)
+  (px, n, n)
+
+const PatternNames* = ["Checkerboard", "Dots", "Stripes", "Grid", "Bricks", "Weave", "Canvas"]
+  ## The patterns that come with it (`patternTile`).
 
 proc defaultEffect*(k: FxKind): Effect =
   ## An effect turned on with the settings it starts with.
@@ -47,6 +80,10 @@ proc defaultEffect*(k: FxKind): Effect =
   of fxGradientOverlay: Effect(on: true, mode: bmNormal, opacity: 100, color: black, color2: 0xFFFFFFFF'u32,
                                angle: 90, scale: 100)
   of fxStroke: Effect(on: true, mode: bmNormal, opacity: 100, color: black, size: 3)
+  of fxPatternOverlay:
+    let t = patternTile("Checkerboard")
+    Effect(on: true, mode: bmNormal, opacity: 100, scale: 100, pattern: t.px, patternW: t.w, patternH: t.h,
+           patternName: "Checkerboard")
 
 proc reach*(e: Effect; k: FxKind): int =
   ## How far past the layer's pixels an effect goes.
@@ -354,6 +391,38 @@ proc renderFx*(w, h: int; L: Layer): FxRender =
       if knock: mm[i] *= 1 - ap[i]
     result.below.add m.toPlane(e, e.color, e.mode, e.opacity)
   # -- over it (inside its shape)
+  if fx[fxPatternOverlay].on and fx[fxPatternOverlay].pattern.len > 0 and
+     fx[fxPatternOverlay].pattern.len == fx[fxPatternOverlay].patternW * fx[fxPatternOverlay].patternH:
+    # the tile repeated from the layer's corner (Link with Layer), scaled and turned
+    let e = fx[fxPatternOverlay]
+    var pl = FxPlane(mode: e.mode, opacity: clamp(e.opacity, 0, 100) * 255 div 100,
+                     a: newSeq[uint8](n), colors: newSeq[uint32](n))
+    let pw = e.patternW
+    let ph = e.patternH
+    let k = 100 / max(1, (if e.scale <= 0: 100 else: e.scale)).float
+    let ang = degToRad(e.angle.float)
+    let ca = cos(ang) * k
+    let sa = sin(ang) * k
+    let ox = float(x0 - r.x)
+    let oy = float(y0 - r.y)
+    let tp = cast[ptr UncheckedArray[uint32]](unsafeAddr e.pattern[0])
+    let cp = cast[ptr UncheckedArray[uint32]](addr pl.colors[0])
+    let aq = cast[ptr UncheckedArray[uint8]](addr pl.a[0])
+    let rw = r.w
+    parallelChunks(r.h, lo, hi):
+      for y in lo ..< hi:
+        for x in 0 ..< rw:
+          let i = y * rw + x
+          let fx0 = x.float - ox
+          let fy0 = y.float - oy
+          let u = fx0 * ca + fy0 * sa
+          let v = -fx0 * sa + fy0 * ca
+          let tx = ((int(floor(u)) mod pw) + pw) mod pw
+          let ty = ((int(floor(v)) mod ph) + ph) mod ph
+          let c = tp[ty * pw + tx]
+          cp[i] = c or 0xFF000000'u32
+          aq[i] = uint8(clamp01(ap[i]) * float32(c shr 24) + 0.5'f32)
+    result.above.add pl
   if fx[fxGradientOverlay].on:
     let e = fx[fxGradientOverlay]
     var pl = FxPlane(mode: e.mode, opacity: clamp(e.opacity, 0, 100) * 255 div 100,
@@ -384,8 +453,11 @@ proc renderFx*(w, h: int; L: Layer): FxRender =
         if e.down: t = 1 - t
         let c1 = e.color
         let c2 = e.color2
+        # (dithered: rounded up or down by a pattern that stays put -- no bands)
+        const bayer = [0.0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
+        let dth = (bayer[(y and 3) * 4 + (x and 3)] + 0.5) / 16
         template mix(sh: int): uint32 =
-          uint32(float((c1 shr sh) and 255) * (1 - t) + float((c2 shr sh) and 255) * t + 0.5) shl sh
+          uint32(clamp(floor(float((c1 shr sh) and 255) * (1 - t) + float((c2 shr sh) and 255) * t + dth), 0.0, 255.0)) shl sh
         pl.colors[i] = 0xFF000000'u32 or mix(16) or mix(8) or mix(0)
         pl.a[i] = uint8(clamp01(ap[i]) * 255 + 0.5)
     result.above.add pl

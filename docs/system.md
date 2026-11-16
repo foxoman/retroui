@@ -474,9 +474,12 @@ systemFiles(true)          # nothing happens on a desktop or in a web page
 ```
 
 The same `fileDialog` and `filePicker` calls then show it (opening a
-file, naming one to save; picking a folder stays the kit's). The systems
-give documents, not paths, so the app is given a copy in its cache: the
-document picked to open, and the file to save. What the app writes there
+file, naming one to save; on Android picking a folder too -- `fmFolder`
+shows its folder picker). The systems give documents, not paths, so the
+app is given a copy in its cache: the document picked to open, the file
+to save, and for a folder an empty folder of its own -- what the app
+writes into it goes into the folder picked, its folders as folders, a
+moment after it is written (`flushSystemFolders()` sends it at once). What the app writes there
 is handed back by itself, a moment after it was written: on Android into
 the document it came from or the one "save to" made (a later Save goes
 there without asking); on iOS Files asks where it goes. The app needs no

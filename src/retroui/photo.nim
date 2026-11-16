@@ -14,10 +14,10 @@
 ##   d.updateComposite()          # d.comp: what the document looks like
 ##   d.undo()
 
-import std/[math, tables, strutils, json, os, base64, algorithm, locks, atomics, hashes]
+import std/[math, tables, strutils, json, os, base64, algorithm, locks, atomics, hashes, times]
 when compileOption("threads"):
   import std/typedthreads
-import gfx, imaging, zip, jpeg, parallel, textengine, busy, photoinks
+import gfx, imaging, zip, jpeg, parallel, textengine, busy, photoinks, simd
 from codec import unbase64
 export photoinks
 
@@ -463,6 +463,7 @@ type
     wrapGap*: int           ## ... and stays this many pixels away from it
     meta*: string           ## what an app keeps with the layer (a chart's or a map's settings, as
                             ## JSON, to make it again): saved with it, kept by undo
+    objectStyle*: string    ## the Object Style it has (`applyObjectStyle`; "" none)
     anchorTo*: int          ## anchored to a text: that type layer's `uid` (0: not anchored); the
                             ## layer moves with its anchor's line as the text flows (`followAnchors`)
     anchorAt*: int          ## ... the anchor's id in that text (`insertAnchor`)
@@ -533,12 +534,14 @@ type
     name*: string           ## what it was made from (a file's name)
     file*: string           ## the document it holds, when it is one with layers (.rpd bytes)
     warp*: seq[(float, float)]  ## a warp's mesh (4 x 4 points of the picture, 0..1), empty none
+    link*: string           ## placed linked: the file it shows ("" embedded: Window > Links)
+    linkStamp*: int64       ## ... when that file was last changed, as it was read (Unix ms)
 
   FxKind* = enum
     ## The effects of a layer style (Layer > Layer Style), bottom to top.
-    fxDropShadow = "Drop Shadow", fxOuterGlow = "Outer Glow", fxGradientOverlay = "Gradient Overlay",
-    fxColorOverlay = "Color Overlay", fxSatin = "Satin", fxInnerGlow = "Inner Glow",
-    fxInnerShadow = "Inner Shadow", fxStroke = "Stroke", fxBevel = "Bevel and Emboss"
+    fxDropShadow = "Drop Shadow", fxOuterGlow = "Outer Glow", fxPatternOverlay = "Pattern Overlay",
+    fxGradientOverlay = "Gradient Overlay", fxColorOverlay = "Color Overlay", fxSatin = "Satin",
+    fxInnerGlow = "Inner Glow", fxInnerShadow = "Inner Shadow", fxStroke = "Stroke", fxBevel = "Bevel and Emboss"
 
   Effect* = object
     ## One effect and its settings (which ones it reads: `retroui/photostyles`).
@@ -560,7 +563,10 @@ type
                                ## 1 Inside, 2 Center; Gradient 0 Linear, 1 Radial, 2 Angle,
                                ## 3 Reflected, 4 Diamond; Inner Glow 0 Edge, 1 Center
     down*: bool                ## Bevel: lit from below; Gradient: reversed; Satin: inverted
-    scale*: int                ## Gradient Overlay: % (0: 100)
+    scale*: int                ## Gradient and Pattern Overlay: % (0: 100)
+    pattern*: seq[uint32]      ## Pattern Overlay: its tile (ARGB), `patternW` x `patternH`
+    patternW*, patternH*: int
+    patternName*: string       ## ... its name, as the patterns are listed
 
   LayerFx* = object
     ## A layer style: its effects.
@@ -670,6 +676,68 @@ type
     leNone = "None", leArrow = "Arrow", leOpenArrow = "Open Arrow", leStealth = "Stealth Arrow",
     leCircle = "Circle", leSquare = "Square", leDiamond = "Diamond", leBar = "Bar"
 
+  StrokeBrushKind* = enum
+    ## What a shape's stroke is drawn with (Illustrator's Brushes).
+    sbNone = "Basic", sbCalligraphic = "Calligraphic", sbArt = "Art", sbPattern = "Pattern",
+    sbScatter = "Scatter"
+
+  StrokeBrush* = object
+    ## A brush a stroke is drawn with: its outline made from the path each
+    ## time it is drawn, so the path stays editable.
+    kind*: StrokeBrushKind
+    name*: string               ## as the Brushes panel lists it
+    angle*: float               ## Calligraphic: the nib's angle, degrees
+    roundness*: float           ## ... % (100: round)
+    art*: Path                  ## Art, Pattern, Scatter: the artwork (any size: fitted to the stroke)
+    spacing*: float             ## Pattern, Scatter: % of the art's length between copies
+    flip*: bool                 ## the artwork flipped across the path
+
+  WidthPoint* = object
+    ## A width the stroke has at a place (the Width tool): `t` 0..1 along a
+    ## subpath, `w` times the stroke's width (between them: in between).
+    t*, w*: float
+
+  LiveEffectKind* = enum
+    ## Effects done to a shape's path each time it is drawn (Effect >
+    ## Distort & Transform, Warp): the path itself is left as it is.
+    lePuckerBloat = "Pucker & Bloat", leRoughen = "Roughen", leTransform = "Transform", leTweak = "Tweak",
+    leTwist = "Twist", leZigZag = "Zig Zag", leFreeDistort = "Free Distort", leWarp = "Warp",
+    leOffset = "Offset Path", leRepeatRadial = "Repeat: Radial", leRepeatGrid = "Repeat: Grid",
+    leRepeatMirror = "Repeat: Mirror"
+
+  LiveEffect* = object
+    ## One live effect and its settings (which it reads: `retroui/liveeffects`).
+    kind*: LiveEffectKind
+    off*: bool                  ## turned off (kept)
+    amount*: float              ## Pucker & Bloat %, Roughen and Zig Zag size, Twist degrees, Warp bend %,
+                                ## Offset Path pixels, Repeat: Radial its radius
+    detail*: float              ## Roughen: points an inch; Zig Zag: ridges a segment
+    sx*, sy*: float             ## Transform: scale %; Tweak: % across, down; Warp: distortion % across, down
+    dx*, dy*: float             ## Transform: move, pixels; Repeat: Grid the room between copies,
+                                ## Mirror the axis's place past the shape's right edge
+    angle*: float               ## Transform: degrees; Repeat: Radial where it starts, Mirror the axis's turn
+    copies*: int                ## Transform: copies; Repeat: Radial instances, Grid columns (`detail` rows)
+    style*: int                 ## Warp: its style (0 Arc .. 14 Twist)
+    seed*: int                  ## Roughen, Tweak: their randomness
+    smooth*: bool               ## Roughen, Zig Zag: smooth points (else corners)
+    vertical*: bool             ## Warp: bent up and down (else across)
+    corners*: array[4, (float, float)]  ## Free Distort: each corner of the box moved by (pixels)
+
+  AppearanceKind* = enum apFill = "Fill", apStroke = "Stroke"
+
+  Appearance* = object
+    ## A fill or stroke more (the Appearance panel), drawn under the shape's
+    ## own (`below`) or over it, each with its opacity, mode and effects.
+    kind*: AppearanceKind
+    paint*: ShapePaint
+    width*: float               ## a stroke's
+    align*: StrokeAlign         ## ... where it is
+    opacity*: int               ## 0..100
+    mode*: BlendMode
+    effects*: seq[LiveEffect]   ## done to the path for this one alone
+    below*: bool                ## under the shape's own fill and stroke
+    off*: bool                  ## hidden (kept)
+
   ShapeData* = object
     ## A shape layer: its outline (a path) filled and stroked, drawn again
     ## sharp when it changes size or turns.
@@ -685,6 +753,10 @@ type
     startEnd*, endEnd*: LineEnd ## (its open subpaths -- a line) an arrowhead or another
                                 ## shape at their start and end
     endW*, endL*: float         ## ... how wide and long, times the stroke's width (0: 4)
+    brush*: StrokeBrush         ## the stroke drawn with a brush (Illustrator's Brushes)
+    widths*: seq[WidthPoint]    ## a variable width (the Width tool), by place along each subpath
+    appearance*: seq[Appearance]  ## more fills and strokes (the Appearance panel)
+    effects*: seq[LiveEffect]   ## live effects on the path (Distort & Transform, Warp), in order
 
   FrameLayer* = object
     ## A layer in a frame of an animation: shown or not, how opaque, where.
@@ -706,6 +778,36 @@ type
     name*: string               ## shown in the Styles palettes
     char*: CharStyle            ## the letters (a Paragraph Style's too, as Photoshop's)
     para*: ParaStyle            ## (a Paragraph Style's) its paragraphs
+
+  DocBookmark* = object
+    ## A bookmark (Window > Bookmarks): an entry of the PDF's outline, going to the page or to a
+    ## text destination on it.
+    title*: string
+    dest*: string               ## the text destination ("=name" links) it goes to ("": the page)
+    level*: int                 ## 0 at the outside, 1 under the one before...
+
+  ObjectStyleDef* = object
+    ## An Object Style: how a shape or a text frame looks, kept by name in the document and given
+    ## to layers with a click (`applyObjectStyle`) -- each layer that has it changes when it is
+    ## redefined (`redefineObjectStyle`). The `use` flags: what it sets (the layout program's
+    ## Basic Attributes checked); what it does not, a layer keeps.
+    name*: string
+    useFill*, useStroke*: bool  ## a shape's fill; its stroke (width, ends, corners, dashes)
+    useEffects*: bool           ## the layer's style (effects), opacity, fill opacity, blend mode
+    useFrame*: bool             ## a text frame's options: columns, gutter, inset, vertical
+                                ## justification, Balance Columns, Auto-Size
+    useParagraph*: bool         ## a text frame's paragraphs: in Paragraph Style `paraStyle`
+    shape*: ShapeData           ## the fill and stroke (no outline)
+    fx*: LayerFx
+    opacity*, fillOpacity*: int
+    mode*: BlendMode
+    columns*: int
+    gutter*: float32
+    inset*: array[4, float32]
+    vjust*: VertJust
+    balance*: bool
+    autoSize*: TextAutoSize
+    paraStyle*: string
 
   ImageInfo* = object
     ## What File Info keeps with the image.
@@ -751,6 +853,7 @@ type
     clearFill: int
     shape: ShapeData
     clipped: bool
+    objectStyle: string
     lockPixels, lockPosition: bool
     link: int
     board: Rect
@@ -892,6 +995,7 @@ type
     icc*: string                   ## its color profile (ICC); "": sRGB, the working space
     gamutWarning*: bool            ## View > Gamut Warning: what cannot be printed in gray
     quickMask*: bool               ## the selection shown and painted as a red mask
+    patternPreview*: bool          ## View > Pattern Preview: shown tiled, painting wraps round
     editMask*: bool                ## painting goes on the current layer's mask
     maskLayer*: Layer              ## the mask painted in Quick Mask mode
     comp*: seq[uint32]             ## what it looks like, all layers mixed
@@ -923,6 +1027,8 @@ type
     animLoop*: int                 ## ... played so many times (0: forever)
     charStyles*: seq[TextStyleDef] ## its Character Styles
     paraStyles*: seq[TextStyleDef] ## its Paragraph Styles
+    objectStyles*: seq[ObjectStyleDef] ## its Object Styles
+    bookmarks*: seq[DocBookmark]   ## its bookmarks (a PDF's outline)
     live*: seq[LivePart]           ## what is being moved, turned, adjusted: shown, not done yet
                                    ## (see `LivePart`; `setLive`, `endLive`)
     liveVer*: int                  ## changes with `live`
@@ -938,6 +1044,10 @@ type
                                    ## "": none set), saved with it
     rawText*: int                  ## the type layer (`uid`) shown as it is written -- its `<#>` not
                                    ## replaced -- while it is being typed in (0: none)
+    refPages*: Table[string, string]  ## a book's page: where each text destination ("=name" links)
+                                   ## of the book is, its page's number as printed (`<ref:name>`)
+    heads*: Table[string, string]  ## ... a Paragraph Style's running header coming from the pages
+                                   ## before (its last paragraph there: `<head:name>`, when none here)
     wrapped: bool                  # (some layer had Text Wrap when `rewrap` last looked)
 
 when defined(linux) and not defined(android):
@@ -1354,6 +1464,64 @@ proc holesSig(holes: seq[TextHole]): string =
 
 proc flowedText(d: Doc; L: Layer; depth: int): TextData
 
+proc runningHead*(d: Doc; style: string): string =
+  ## Running Header (Paragraph Style): the first paragraph on the page in Paragraph Style `style`
+  ## -- the type layers top to bottom --, else the last one the pages before had (`heads`).
+  var best = (1e18'f32, "")
+  for L in d.layers:
+    if not L.isText or L.text.paraFmts.len == 0 and L.text.para.styleName != style: continue
+    let t = L.text
+    var at = 0
+    var k = 0
+    for ptxt in t.plainText.split('\n'):
+      if t.paraFmtAt(at).styleName == style and ptxt.strip.len > 0 and "<head:" notin ptxt:
+        let y = t.y + float32(k) * 0.001'f32
+        if y < best[0]: best = (y, ptxt.strip)
+        break
+      at += ptxt.runeCount + 1
+      inc k
+  if best[1].len > 0: best[1] else: d.heads.getOrDefault(style, "")
+
+proc withVariables*(d: Doc; s: string): string =
+  ## Text Variables in a text: `<file>` the document's name, `<date>` today's (Output Date),
+  ## `<modified>` its file's (Modification Date), `<head:Style>` a running header, `<ref:name>` the
+  ## page a text destination is on (a cross-reference) -- the rest as they are.
+  if "<" notin s: return s
+  result = newStringOfCap(s.len)
+  var i = 0
+  while i < s.len:
+    if s[i] == '<':
+      let e = s.find('>', i + 1)
+      if e > i and e - i < 200:
+        let name = s[i + 1 ..< e]
+        var v = ""
+        var known = true
+        if name == "file": v = d.name.changeFileExt("")
+        elif name == "date": v = now().format("d MMMM yyyy")
+        elif name == "modified":
+          v = try: (if d.path.len > 0 and fileExists(d.path): getLastModificationTime(d.path).local.format("d MMMM yyyy")
+                    else: now().format("d MMMM yyyy"))
+              except OSError: now().format("d MMMM yyyy")
+        elif name.startsWith("head:"): v = d.runningHead(name[5 .. ^1])
+        elif name.startsWith("ref:"):
+          let dest = name[4 .. ^1]
+          v = d.refPages.getOrDefault(dest, "")
+          if v.len == 0:
+            # (in this document: its page)
+            var here = false
+            for L in d.layers:
+              if L.isText:
+                for sp in L.text.spans:
+                  if sp.style.link == "=" & dest: here = true
+            v = if here: (if d.pageLabel.len > 0: d.pageLabel else: "1") else: "??"
+        else: known = false
+        if known:
+          result.add v
+          i = e + 1
+          continue
+    result.add s[i]
+    inc i
+
 proc effectiveText*(d: Doc; L: Layer; depth = 0): TextData =
   ## The text a type layer shows: its own; or, flowing on from another box
   ## (`flowFrom`; a book: from another page, `flowPage`), what did not fit
@@ -1365,6 +1533,9 @@ proc effectiveText*(d: Doc; L: Layer; depth = 0): TextData =
     for s in result.spans.mitems:
       if "<#" in s.text:
         s.text = s.text.multiReplace(("<##>", d.pageTotal), ("<#>", d.pageLabel))
+  if L.uid == 0 or d.rawText != L.uid:
+    for s in result.spans.mitems:
+      if '<' in s.text and ('>' in s.text): s.text = d.withVariables(s.text)
   # (the part of the facing page's text that lies here keeps the lines it has there)
   if result.boxW > 0 and result.path.len == 0 and L.fromSpan == 0: result.holes = d.wrapHoles(L)
 
@@ -1563,27 +1734,40 @@ proc applyCharStyle*(d: Doc; L: Layer; a, b: int; name: string) =
     else: s.withLook(look, name))
   d.setText(L, t)
 
-proc applyParaStyle*(d: Doc; L: Layer; name: string) =
-  ## Paragraph Styles: the style `name` given to a type layer's paragraphs
-  ## -- and its letters to the text that has no Character Style; "" takes
-  ## it away. Undoable in a step (`touchLayers`).
+proc paraStyled(t: var TextData; a, b: int; name: string; def: TextStyleDef) =
+  ## (the paragraphs `a` .. `b` are in given Paragraph Style `name` -- its letters to their text
+  ## that has no Character Style; "" takes it away)
+  if name.len == 0:
+    t.changeParas(a, b, proc (p: var ParaStyle) = p.styleName = "")
+    return
+  var np = def.para
+  np.styleName = name
+  t.changeParas(a, b, proc (p: var ParaStyle) = p = np)
+  let pa = t.paraBounds(min(a, b)).a
+  let pb = t.paraBounds(max(a, b)).b
+  let look = def.char
+  if pb > pa or t.runeLen == 0:
+    t.restyle(pa, (if pb > pa: min(t.runeLen, pb + 1) else: 0), proc (s: var CharStyle) =
+      if s.styleName.len == 0:
+        let keep = s.styleName
+        let para = s.para
+        s = look
+        s.styleName = keep
+        s.para = para)
+
+proc applyParaStyle*(d: Doc; L: Layer; name: string; a = 0; b = -1) =
+  ## Paragraph Styles: the style `name` given to a type layer's paragraphs -- those characters
+  ## `a` .. `b` are in, all of them when `b` < 0 -- and its letters to their text that has no
+  ## Character Style; "" takes it away. Undoable in a step (`touchLayers`).
   if not L.isText: return
   var t = L.text
-  if name.len == 0:
-    t.para.styleName = ""
-    d.setText(L, t)
-    return
-  let k = d.paraStyles.styleIndex(name)
-  if k < 0: return
-  let def = d.paraStyles[k]
-  t.para = def.para
-  t.para.styleName = name
-  let look = def.char
-  t.restyle(0, 0, proc (s: var CharStyle) =
-    if s.styleName.len == 0:
-      let keep = s.styleName
-      s = look
-      s.styleName = keep)
+  let (a, b) = if b < 0: (0, t.runeLen) else: (a, b)
+  var def: TextStyleDef
+  if name.len > 0:
+    let k = d.paraStyles.styleIndex(name)
+    if k < 0: return
+    def = d.paraStyles[k]
+  t.paraStyled(a, b, name, def)
   d.setText(L, t)
 
 proc redefineStyle*(d: Doc; paragraph: bool; name: string; char: CharStyle; para = ParaStyle()) =
@@ -1606,17 +1790,51 @@ proc redefineStyle*(d: Doc; paragraph: bool; name: string; char: CharStyle; para
   for L in d.layers:
     if not L.isText: continue
     var used = false
-    if paragraph and L.text.para.styleName == name: used = true
+    if paragraph:
+      used = L.text.para.styleName == name
+      for f in L.text.paraFmts:
+        if f.styleName == name: used = true
     for sp in L.text.spans:
-      if (not paragraph and sp.style.styleName == name) or (paragraph and used and sp.style.styleName.len == 0):
-        used = true
+      if not paragraph and sp.style.styleName == name: used = true
     if not used: continue
-    if paragraph: d.applyParaStyle(L, name)
+    if paragraph:
+      # (each paragraph that has it, made again)
+      var t = L.text
+      let k = d.paraStyles.styleIndex(name)
+      let n = t.runeLen
+      var starts = @[0]
+      var q = 0
+      for c in t.plainText:
+        if (ord(c) and 0xC0) == 0x80: continue
+        if c == '\n' and q + 1 < n: starts.add q + 1
+        inc q
+      for st in starts:
+        if t.paraFmtAt(st).styleName == name: t.paraStyled(st, st, name, d.paraStyles[k])
+      d.setText(L, t)
     else:
       var t = L.text
       for sp in t.spans.mitems:
         if sp.style.styleName == name: sp.style.withLook(c, name)
       d.setText(L, t)
+  if not paragraph:
+    # (the nested and GREP styles that have it, in the paragraph styles and the texts: its new look)
+    proc relook(p: var ParaStyle): bool =
+      for n in p.nested.mitems:
+        if n.name == name and n.look != c:
+          n.look = c
+          result = true
+      for g in p.grepStyles.mitems:
+        if g.name == name and g.look != c:
+          g.look = c
+          result = true
+    for st in d.paraStyles.mitems: discard relook(st.para)
+    for L in d.layers:
+      if not L.isText: continue
+      var t = L.text
+      var changed = relook(t.para)
+      for f in t.paraFmts.mitems:
+        if relook(f): changed = true
+      if changed: d.setText(L, t)
 
 proc renameStyle*(d: Doc; paragraph: bool; old, name: string) =
   ## A style called `name` now, in the list and in every text that has it.
@@ -1629,10 +1847,21 @@ proc renameStyle*(d: Doc; paragraph: bool; old, name: string) =
     let k = d.charStyles.styleIndex(old)
     if k < 0 or d.charStyles.styleIndex(name) >= 0: return
     d.charStyles[k].name = name
+  proc renamed(p: var ParaStyle) =
+    if paragraph:
+      if p.styleName == old: p.styleName = name
+      if p.nextStyle == old: p.nextStyle = name
+    else:
+      for n in p.nested.mitems:
+        if n.name == old: n.name = name
+      for g in p.grepStyles.mitems:
+        if g.name == old: g.name = name
+  for st in d.paraStyles.mitems: renamed(st.para)
   for L in d.layers:
     if not L.isText: continue
-    if paragraph and L.text.para.styleName == old: L.text.para.styleName = name
-    elif not paragraph:
+    renamed(L.text.para)
+    for f in L.text.paraFmts.mitems: renamed(f)
+    if not paragraph:
       for sp in L.text.spans.mitems:
         if sp.style.styleName == old: sp.style.styleName = name
 
@@ -1646,18 +1875,24 @@ proc deleteStyle*(d: Doc; paragraph: bool; name: string) =
     if k >= 0: d.charStyles.delete(k)
   for L in d.layers:
     if not L.isText: continue
-    if paragraph and L.text.para.styleName == name: L.text.para.styleName = ""
-    elif not paragraph:
+    if paragraph:
+      if L.text.para.styleName == name: L.text.para.styleName = ""
+      for f in L.text.paraFmts.mitems:
+        if f.styleName == name: f.styleName = ""
+    else:
       for sp in L.text.spans.mitems:
         if sp.style.styleName == name: sp.style.styleName = ""
+  for st in d.paraStyles.mitems:
+    if paragraph and st.para.nextStyle == name: st.para.nextStyle = ""
 
-proc styleOverridden*(d: Doc; L: Layer; paragraph: bool): bool =
-  ## The text differs from the style it has (shown with a "+").
+proc styleOverridden*(d: Doc; L: Layer; paragraph: bool; at = 0): bool =
+  ## The text differs from the style it has (shown with a "+"): for a Paragraph Style, the
+  ## paragraph character `at` is in.
   if not L.isText: return false
   if paragraph:
-    let k = d.paraStyles.styleIndex(L.text.para.styleName)
+    var p = L.text.paraFmtAt(at)
+    let k = d.paraStyles.styleIndex(p.styleName)
     if k < 0: return false
-    var p = L.text.para
     p.styleName = ""
     return p != d.paraStyles[k].para
   for sp in L.text.spans:
@@ -1700,6 +1935,33 @@ proc gradientColor*(stops: openArray[GradientStop]; t: float): uint32 =
       if abs(m - 0.5) > 1e-6 and u > 0: u = pow(u, ln(0.5) / ln(m))
       return mix(a.color, b.color, u)
   stops[^1].color
+
+proc gradientColorF*(stops: openArray[GradientStop]; t: float): array[4, float32] =
+  ## `gradientColor` in floats (R G B A 0 .. 1): no steps between levels.
+  template f(c: uint32): array[4, float32] =
+    [float32((c shr 16) and 255) / 255, float32((c shr 8) and 255) / 255, float32(c and 255) / 255,
+     float32(c shr 24) / 255]
+  if stops.len == 0: return
+  if t <= stops[0].at: return f(stops[0].color)
+  for k in 1 .. stops.high:
+    if t <= stops[k].at:
+      let a = stops[k - 1]
+      let b = stops[k]
+      let span = b.at - a.at
+      if span <= 1e-9: result = f(b.color); return
+      var u = (t - a.at) / span
+      let m = if a.mid <= 0.001 or a.mid >= 0.999: 0.5 else: a.mid
+      if abs(m - 0.5) > 1e-6 and u > 0: u = pow(u, ln(0.5) / ln(m))
+      let ca = f(a.color)
+      let cb = f(b.color)
+      let wa = ca[3] * float32(1 - u)
+      let wb = cb[3] * float32(u)
+      let al = wa + wb
+      result[3] = ca[3] + (cb[3] - ca[3]) * float32(u)
+      for c in 0 .. 2:
+        result[c] = if al > 1e-9: (ca[c] * wa + cb[c] * wb) / al else: ca[c] + (cb[c] - ca[c]) * float32(u)
+      return
+  f(stops[^1].color)
 
 proc isFill*(L: Layer): bool {.inline.} =
   ## A fill layer (Layer > New Fill Layer): a color, gradient or pattern
@@ -2513,6 +2775,18 @@ proc mixLayers[S: static bool](items: var seq[CItem]; maxDepth: int; c: Rect; w,
         if lvl == 0: bare = false
         let quick = m == bmNormal or m in SepModes
         let sl = lutp[k]
+        when simdOn:
+          if quick and spr != nil and mpr == nil and bp == nil and brow == nil and not bif and covers == 0:
+            # (four pixels at a time over what is opaque under them; a pixel over one that is
+            # not, mixed the whole way)
+            var x = xa
+            while x < xb:
+              x = mixOpaque(tp, spr, x, xb, op, sl)
+              if x >= xb: break
+              tp[x] = blendPx(tp[x], spr[x], op, m, IX(x), IY)
+              inc x
+            if styled: planes(it.above)
+            continue
         for x in xa ..< xb:
           let s = spr[x]
           if (s shr 24) == 0: continue
@@ -3069,14 +3343,14 @@ proc settingsOf(L: Layer): LayerSettings =
                 depth: L.depth, blendIf: L.blendIf, maskClear: L.maskClear, maskFeather: L.maskFeather,
                 smart: L.smart, wrap: L.wrap, wrapGap: L.wrapGap, wrapSide: L.wrapSide,
                 ignoreWrap: L.ignoreWrap, meta: L.meta, anchorTo: L.anchorTo, anchorAt: L.anchorAt,
-                anchorDx: L.anchorDx, anchorDy: L.anchorDy)
+                anchorDx: L.anchorDx, anchorDy: L.anchorDy, objectStyle: L.objectStyle)
 
 proc setSettings(L: Layer; s: LayerSettings) =
   ## (not its text or shape: they are drawn again when changed)
   L.name = s.name; L.opacity = s.opacity; L.mode = s.mode; L.visible = s.visible
   L.lockAlpha = s.lockAlpha; L.background = s.background; L.maskOff = s.maskOff
   L.gray = s.gray; L.mask = s.mask; L.adjust = s.adjust
-  L.fx = s.fx; L.clearFill = s.clearFill; L.clipped = s.clipped
+  L.fx = s.fx; L.clearFill = s.clearFill; L.clipped = s.clipped; L.objectStyle = s.objectStyle
   L.group = s.group; L.collapsed = s.collapsed; L.passThrough = s.passThrough; L.locked = s.locked
   L.lockPixels = s.lockPixels; L.lockPosition = s.lockPosition; L.link = s.link; L.board = s.board
   L.depth = s.depth; L.blendIf = s.blendIf; L.maskClear = s.maskClear; L.maskFeather = s.maskFeather
@@ -5425,7 +5699,8 @@ proc shiftLayers*(d: Doc; layers: seq[Layer]; dx, dy: int) =
       var q = L.smart.quad
       for c in q.mitems: c = (c[0] + dx.float, c[1] + dy.float)
       L.smart = SmartData(src: L.smart.src, w: L.smart.w, h: L.smart.h, quad: q, filters: L.smart.filters,
-                          name: L.smart.name, file: L.smart.file, warp: L.smart.warp)
+                          name: L.smart.name, file: L.smart.file, warp: L.smart.warp, link: L.smart.link,
+                          linkStamp: L.smart.linkStamp)
   d.markAll()
 
 proc anchorOrigin*(d: Doc; L: Layer): tuple[x, y: float32] =
@@ -5800,34 +6075,46 @@ proc resample*(px: seq[uint32]; w, h, nw, nh: int; how = rsBicubic): seq[uint32]
   let yip = cast[ptr UncheckedArray[int32]](unsafeAddr yi[0])
   let ywp = cast[ptr UncheckedArray[float32]](unsafeAddr yw[0])
   # (the number of taps fixed for each, so the loops are laid out flat)
-  template run(T: static int) =
-    parallelRows(nh, y):
-      var rows: array[T, int]
-      var wys: array[T, float32]
-      for j in 0 ..< T:
-        rows[j] = int(yip[y * T + j]) * w
-        wys[j] = ywp[y * T + j]
-      for x in 0 ..< nw:
-        var a, r, g, b: float32
+  when simdOn:
+    # (across, then down: each source row resampled across once, kept while the rows near it
+    # need it)
+    let T = taps
+    parallelFor(nh, proc (lo, hi: int) =
+      let rn = T + 2
+      var ring = newSeqUninit[float32](rn * nw * 4)
+      var ringRow = newSeq[cint](rn)
+      resampleRows(sp, w, nw, lo, hi, T, yip, ywp, xip, xwp, dp,
+                   cast[ptr UncheckedArray[float32]](addr ring[0]), cast[ptr UncheckedArray[cint]](addr ringRow[0]), rn),
+      grain = 16)
+  else:
+    template run(T: static int) =
+      parallelRows(nh, y):
+        var rows: array[T, int]
+        var wys: array[T, float32]
         for j in 0 ..< T:
-          let wy = wys[j]
-          let row = rows[j]
-          for i in 0 ..< T:
-            let wt = xwp[x * T + i] * wy
-            let p = sp[row + int(xip[x * T + i])]
-            let pa = float32(p shr 24) * wt
-            a += pa
-            r += float32((p shr 16) and 255) * pa
-            g += float32((p shr 8) and 255) * pa
-            b += float32(p and 255) * pa
-        if a <= 0.001: dp[y * nw + x] = 0'u32
-        else:
-          let ia = 1'f32 / a
-          dp[y * nw + x] = argb(int(a + 0.5), int(r * ia + 0.5), int(g * ia + 0.5), int(b * ia + 0.5))
-  case taps
-  of 2: run(2)
-  of 6: run(6)
-  else: run(4)
+          rows[j] = int(yip[y * T + j]) * w
+          wys[j] = ywp[y * T + j]
+        for x in 0 ..< nw:
+          var a, r, g, b: float32
+          for j in 0 ..< T:
+            let wy = wys[j]
+            let row = rows[j]
+            for i in 0 ..< T:
+              let wt = xwp[x * T + i] * wy
+              let p = sp[row + int(xip[x * T + i])]
+              let pa = float32(p shr 24) * wt
+              a += pa
+              r += float32((p shr 16) and 255) * pa
+              g += float32((p shr 8) and 255) * pa
+              b += float32(p and 255) * pa
+          if a <= 0.001: dp[y * nw + x] = 0'u32
+          else:
+            let ia = 1'f32 / a
+            dp[y * nw + x] = argb(int(a + 0.5), int(r * ia + 0.5), int(g * ia + 0.5), int(b * ia + 0.5))
+    case taps
+    of 2: run(2)
+    of 6: run(6)
+    else: run(4)
   res
 
 {.pop.}
@@ -7156,6 +7443,11 @@ proc toJson*(fx: LayerFx): JsonNode =
                     "mode2": $e.mode2, "opacity2": e.opacity2, "angle": e.angle, "altitude": e.altitude,
                     "distance": e.distance, "size": e.size, "spread": e.spread, "depth": e.depth,
                     "soften": e.soften, "style": e.style, "down": e.down, "scale": e.scale}
+    if e.pattern.len > 0 and e.pattern.len == e.patternW * e.patternH:
+      let b = newBitmap(e.patternW, e.patternH)
+      b.px = e.pattern
+      result[$k]["pattern"] = %encode(encodePng(b))
+      result[$k]["patternName"] = %e.patternName
 
 proc layerFxFrom*(j: JsonNode): LayerFx =
   ## A layer style saved with `toJson`.
@@ -7181,7 +7473,16 @@ proc layerFxFrom*(j: JsonNode): LayerFx =
     e.soften = clamp(ej{"soften"}.getInt(0), 0, 16)
     e.style = clamp(ej{"style"}.getInt(0), 0, 4)
     e.down = ej{"down"}.getBool
-    e.scale = clamp(ej{"scale"}.getInt(100), 0, 150)
+    e.scale = clamp(ej{"scale"}.getInt(100), 0, (if k == fxPatternOverlay: 1000 else: 150))
+    if ej{"pattern"} != nil:
+      try:
+        let b = decodePng(decode(ej{"pattern"}.getStr))
+        if b != nil and b.w > 0 and b.h > 0:
+          e.pattern = b.px
+          e.patternW = b.w
+          e.patternH = b.h
+      except CatchableError: discard
+      e.patternName = ej{"patternName"}.getStr
     result.fx[k] = e
 
 proc toJson*(p: Path): JsonNode =
@@ -7263,6 +7564,47 @@ proc paintFrom(j: JsonNode): ShapePaint =
         result.ph = b.h
     except CatchableError: discard
 
+proc liveEffectsJson*(es: seq[LiveEffect]): JsonNode =
+  ## Live effects as JSON.
+  result = newJArray()
+  for e in es:
+    var c = newJArray()
+    for (x, y) in e.corners: c.add %*[x, y]
+    result.add %*{"kind": $e.kind, "off": e.off, "amount": e.amount, "detail": e.detail, "sx": e.sx, "sy": e.sy,
+                  "dx": e.dx, "dy": e.dy, "angle": e.angle, "copies": e.copies, "style": e.style, "seed": e.seed,
+                  "smooth": e.smooth, "vertical": e.vertical, "corners": c}
+
+proc liveEffectsFrom*(j: JsonNode): seq[LiveEffect] =
+  ## Live effects saved with `liveEffectsJson`.
+  for ej in j.getElems:
+    if ej.kind != JObject or result.len >= 32: continue
+    var e = LiveEffect()
+    var known = false
+    for k in LiveEffectKind:
+      if $k == ej{"kind"}.getStr:
+        e.kind = k
+        known = true
+    if not known: continue
+    e.off = ej{"off"}.getBool
+    template f(n: string; lo, hi: float): float = clamp(ej{n}.getFloat(0), lo, hi)
+    e.amount = f("amount", -10000, 10000)
+    e.detail = f("detail", 0, 1000)
+    e.sx = f("sx", -10000, 10000)
+    e.sy = f("sy", -10000, 10000)
+    e.dx = f("dx", -1e6, 1e6)
+    e.dy = f("dy", -1e6, 1e6)
+    e.angle = f("angle", -3600, 3600)
+    e.copies = clamp(ej{"copies"}.getInt(0), 0, 1000)
+    e.style = clamp(ej{"style"}.getInt(0), 0, 14)
+    e.seed = ej{"seed"}.getInt(0)
+    e.smooth = ej{"smooth"}.getBool
+    e.vertical = ej{"vertical"}.getBool
+    let cs = ej{"corners"}.getElems
+    for i in 0 .. min(3, cs.high):
+      if cs[i].kind == JArray and cs[i].len == 2:
+        e.corners[i] = (clamp(cs[i][0].getFloat, -1e6, 1e6), clamp(cs[i][1].getFloat, -1e6, 1e6))
+    result.add e
+
 proc toJson*(s: ShapeData): JsonNode =
   ## A shape layer's shape as JSON.
   result = %*{"path": s.path.toJson, "fill": s.fill.toJson, "stroke": s.stroke.toJson,
@@ -7273,6 +7615,23 @@ proc toJson*(s: ShapeData): JsonNode =
     result["endEnd"] = %($s.endEnd)
     result["endW"] = %s.endW
     result["endL"] = %s.endL
+  if s.brush.kind != sbNone:
+    result["brush"] = %*{"kind": $s.brush.kind, "name": s.brush.name, "angle": s.brush.angle,
+                         "roundness": s.brush.roundness, "spacing": s.brush.spacing, "flip": s.brush.flip}
+    if s.brush.art.subs.len > 0: result["brush"]["art"] = s.brush.art.toJson
+  if s.widths.len > 0:
+    var a = newJArray()
+    for wp in s.widths: a.add %*[wp.t, wp.w]
+    result["widths"] = a
+  if s.effects.len > 0: result["effects"] = liveEffectsJson(s.effects)
+  if s.appearance.len > 0:
+    var a = newJArray()
+    for ap in s.appearance:
+      var j = %*{"kind": $ap.kind, "paint": ap.paint.toJson, "width": ap.width, "align": $ap.align,
+                 "opacity": ap.opacity, "mode": $ap.mode, "below": ap.below, "off": ap.off}
+      if ap.effects.len > 0: j["effects"] = liveEffectsJson(ap.effects)
+      a.add j
+    result["appearance"] = a
 
 proc shapeFrom*(j: JsonNode): ShapeData =
   ## A shape saved with `toJson`.
@@ -7296,6 +7655,31 @@ proc shapeFrom*(j: JsonNode): ShapeData =
     if $e == j{"endEnd"}.getStr: result.endEnd = e
   result.endW = clamp(j{"endW"}.getFloat(0), 0.0, 100.0)
   result.endL = clamp(j{"endL"}.getFloat(0), 0.0, 100.0)
+  let bj = j{"brush"}
+  if bj != nil and bj.kind == JObject:
+    for k in StrokeBrushKind:
+      if $k == bj{"kind"}.getStr: result.brush.kind = k
+    result.brush.name = bj{"name"}.getStr
+    result.brush.angle = bj{"angle"}.getFloat(0)
+    result.brush.roundness = clamp(bj{"roundness"}.getFloat(100), 1.0, 100.0)
+    result.brush.spacing = clamp(bj{"spacing"}.getFloat(0), -90.0, 1000.0)
+    result.brush.flip = bj{"flip"}.getBool
+    if bj{"art"} != nil: result.brush.art = pathFrom(bj{"art"})
+  for v in j{"widths"}.getElems:
+    if v.kind == JArray and v.len == 2 and result.widths.len < 1000:
+      result.widths.add WidthPoint(t: clamp(v[0].getFloat, 0.0, 1.0), w: clamp(v[1].getFloat, 0.0, 100.0))
+  result.effects = liveEffectsFrom(j{"effects"})
+  for aj in j{"appearance"}.getElems:
+    if aj.kind != JObject or result.appearance.len >= 64: continue
+    var ap = Appearance(paint: paintFrom(aj{"paint"}), width: clamp(aj{"width"}.getFloat(1), 0.0, 1000.0),
+                        opacity: clamp(aj{"opacity"}.getInt(100), 0, 100), below: aj{"below"}.getBool,
+                        off: aj{"off"}.getBool, effects: liveEffectsFrom(aj{"effects"}))
+    if aj{"kind"}.getStr == $apStroke: ap.kind = apStroke
+    for a in StrokeAlign:
+      if $a == aj{"align"}.getStr: ap.align = a
+    for m in BlendMode:
+      if $m == aj{"mode"}.getStr: ap.mode = m
+    result.appearance.add ap
 
 type RpdPart* = object
   ## A file of a ".rpd" document, before it is written: bytes as they are,
@@ -7305,6 +7689,155 @@ type RpdPart* = object
   px*: seq[uint32]         ## ... or its pixels, made a PNG
   gray*: seq[uint8]        ## ... or a gray mask, made a PNG
   w*, h*: int              ## the size of `px` or `gray`
+
+# ---- Object Styles ----------------------------------------------------------------------------------------
+
+proc objectStyleIndex*(d: Doc; name: string): int =
+  for i, s in d.objectStyles:
+    if s.name == name: return i
+  -1
+
+proc objectStyleOf*(L: Layer; name = ""): ObjectStyleDef =
+  ## An Object Style made from how layer `L` looks (New Object Style): a shape's fill and stroke,
+  ## the layer's effects, a text frame's options and its Paragraph Style.
+  result = ObjectStyleDef(name: name, useEffects: true, fx: L.fx, opacity: L.opacity, fillOpacity: L.fill,
+                          mode: L.mode)
+  if L.isShape:
+    result.useFill = true
+    result.useStroke = true
+    var sh = L.shape
+    sh.path = Path()
+    sh.kind = ""
+    sh.widths = @[]
+    sh.effects = @[]
+    result.shape = sh
+  if L.isText and L.text.boxW > 0:
+    let t = L.text
+    result.useFrame = true
+    result.columns = max(1, t.columns)
+    result.gutter = t.gutter
+    result.inset = t.inset
+    result.vjust = t.vjust
+    result.balance = t.balance
+    result.autoSize = t.autoSize
+    if t.para.styleName.len > 0:
+      result.useParagraph = true
+      result.paraStyle = t.para.styleName
+
+proc objectStyled(d: Doc; L: Layer; def: ObjectStyleDef) =
+  ## (the layer in the Object Style's looks, what it sets)
+  if def.useEffects:
+    L.fx = def.fx
+    L.opacity = clamp(def.opacity, 0, 100)
+    L.fill = clamp(def.fillOpacity, 0, 100)
+    L.mode = def.mode
+    inc L.ver
+  if L.isShape and (def.useFill or def.useStroke):
+    var s = L.shape
+    if def.useFill: s.fill = def.shape.fill
+    if def.useStroke:
+      s.stroke = def.shape.stroke
+      s.strokeWidth = def.shape.strokeWidth
+      s.align = def.shape.align
+      s.cap = def.shape.cap
+      s.join = def.shape.join
+      s.dashes = def.shape.dashes
+      s.brush = def.shape.brush
+    if def.useFill and def.useStroke: s.appearance = def.shape.appearance
+    d.setShape(L, s)
+  if L.isText and L.text.boxW > 0 and def.useFrame:
+    var t = L.text
+    t.columns = max(1, def.columns)
+    t.gutter = def.gutter
+    t.inset = def.inset
+    t.vjust = def.vjust
+    t.balance = def.balance
+    t.autoSize = def.autoSize
+    d.setText(L, t)
+  if L.isText and def.useParagraph and def.paraStyle.len > 0: d.applyParaStyle(L, def.paraStyle)
+
+proc applyObjectStyle*(d: Doc; L: Layer; name: string) =
+  ## Object Styles: the style `name` given to layer `L` ("": [None], the layer keeps how it looks).
+  ## Undoable in a step (`touchLayers`).
+  L.objectStyle = name
+  let k = d.objectStyleIndex(name)
+  if k >= 0: d.objectStyled(L, d.objectStyles[k])
+  inc L.ver
+
+proc redefineObjectStyle*(d: Doc; def: ObjectStyleDef) =
+  ## An Object Style made as `def` (made when there is none so named): every layer that has it
+  ## changes. Undoable in a step (`touchLayers`).
+  let k = d.objectStyleIndex(def.name)
+  if k < 0: d.objectStyles.add def else: d.objectStyles[k] = def
+  for L in d.layers:
+    if L.objectStyle == def.name: d.objectStyled(L, def)
+
+proc renameObjectStyle*(d: Doc; old, name: string) =
+  let k = d.objectStyleIndex(old)
+  if k < 0 or name.len == 0 or d.objectStyleIndex(name) >= 0: return
+  d.objectStyles[k].name = name
+  for L in d.layers:
+    if L.objectStyle == old: L.objectStyle = name
+
+proc deleteObjectStyle*(d: Doc; name: string) =
+  ## An Object Style taken away: the layers that had it keep how they look.
+  let k = d.objectStyleIndex(name)
+  if k >= 0: d.objectStyles.delete(k)
+  for L in d.layers:
+    if L.objectStyle == name: L.objectStyle = ""
+
+proc objectStyleOverridden*(d: Doc; L: Layer): bool =
+  ## The layer differs from its Object Style (shown with a "+": Clear Overrides puts it back).
+  let k = d.objectStyleIndex(L.objectStyle)
+  if k < 0: return false
+  let def = d.objectStyles[k]
+  let now = objectStyleOf(L, def.name)
+  if def.useEffects and (now.fx != def.fx or now.opacity != def.opacity or now.fillOpacity != def.fillOpacity or
+                         now.mode != def.mode): return true
+  if L.isShape:
+    if def.useFill and now.shape.fill != def.shape.fill: return true
+    if def.useStroke and (now.shape.stroke != def.shape.stroke or now.shape.strokeWidth != def.shape.strokeWidth or
+                          now.shape.dashes != def.shape.dashes or now.shape.cap != def.shape.cap or
+                          now.shape.join != def.shape.join): return true
+  if L.isText and def.useFrame and now.useFrame:
+    if now.columns != def.columns or now.gutter != def.gutter or now.inset != def.inset or now.vjust != def.vjust or
+       now.balance != def.balance or now.autoSize != def.autoSize: return true
+  false
+
+proc objectStyleToJson*(s: ObjectStyleDef): JsonNode =
+  result = %*{"name": s.name, "useFill": s.useFill, "useStroke": s.useStroke, "useEffects": s.useEffects,
+              "useFrame": s.useFrame, "useParagraph": s.useParagraph, "shape": s.shape.toJson,
+              "fx": s.fx.toJson, "opacity": s.opacity, "fillOpacity": s.fillOpacity, "mode": $s.mode,
+              "columns": s.columns, "gutter": s.gutter,
+              "inset": [s.inset[0], s.inset[1], s.inset[2], s.inset[3]], "vjust": $s.vjust,
+              "balance": s.balance, "autoSize": $s.autoSize, "paraStyle": s.paraStyle}
+
+proc objectStyleFromJson*(j: JsonNode): ObjectStyleDef =
+  if j == nil or j.kind != JObject: return
+  result.name = j{"name"}.getStr
+  result.useFill = j{"useFill"}.getBool
+  result.useStroke = j{"useStroke"}.getBool
+  result.useEffects = j{"useEffects"}.getBool
+  result.useFrame = j{"useFrame"}.getBool
+  result.useParagraph = j{"useParagraph"}.getBool
+  if j.hasKey("shape"): result.shape = shapeFrom(j["shape"])
+  if j.hasKey("fx"): result.fx = layerFxFrom(j["fx"])
+  result.opacity = clamp(j{"opacity"}.getInt(100), 0, 100)
+  result.fillOpacity = clamp(j{"fillOpacity"}.getInt(100), 0, 100)
+  result.mode = bmNormal
+  for m in BlendMode:
+    if $m == j{"mode"}.getStr: result.mode = m
+  result.columns = clamp(j{"columns"}.getInt(1), 1, 40)
+  result.gutter = clamp(float32(j{"gutter"}.getFloat(0)), 0, 10_000)
+  let ins = j{"inset"}
+  if ins != nil and ins.kind == JArray and ins.len == 4:
+    for q in 0 .. 3: result.inset[q] = clamp(float32(ins[q].getFloat), 0, 10_000)
+  for v in VertJust:
+    if $v == j{"vjust"}.getStr: result.vjust = v
+  result.balance = j{"balance"}.getBool
+  for a in TextAutoSize:
+    if $a == j{"autoSize"}.getStr: result.autoSize = a
+  result.paraStyle = j{"paraStyle"}.getStr
 
 proc compToJson(c: LayerComp): JsonNode =
   result = %*{"name": c.name, "comment": c.comment, "visibility": c.visibility, "position": c.position,
@@ -7358,6 +7891,7 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
     if L.wrapSide != 0: lj["wrapSide"] = %L.wrapSide
     if L.ignoreWrap: lj["ignoreWrap"] = %true
     if L.meta.len > 0: lj["meta"] = %L.meta
+    if L.objectStyle.len > 0: lj["objectStyle"] = %L.objectStyle
     if L.anchorTo != 0: lj["anchor"] = %*[L.anchorTo, L.anchorAt, L.anchorDx, L.anchorDy]
     if L.fromMaster != 0: lj["fromMaster"] = %L.fromMaster
     if L.fromSpan != 0: lj["fromSpan"] = %L.fromSpan
@@ -7402,6 +7936,9 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
                   "off": f.off}
       var sj = %*{"file": sf, "width": L.smart.w, "height": L.smart.h, "quad": q, "filters": fs,
                   "name": L.smart.name}
+      if L.smart.link.len > 0:
+        sj["link"] = %L.smart.link
+        sj["linkStamp"] = %L.smart.linkStamp
       if L.smart.warp.len > 0:
         var wa = newJArray()
         for c in L.smart.warp: wa.add %*[c[0], c[1]]
@@ -7459,6 +7996,14 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
       var a = newJArray()
       for st in list: a.add %*{"name": st.name, "char": st.char.toJson, "para": st.para.paraToJson}
       j[key] = a
+  if d.objectStyles.len > 0:
+    var a = newJArray()
+    for st in d.objectStyles: a.add objectStyleToJson(st)
+    j["objectStyles"] = a
+  if d.bookmarks.len > 0:
+    var a = newJArray()
+    for bm in d.bookmarks: a.add %*{"title": bm.title, "dest": bm.dest, "level": bm.level}
+    j["bookmarks"] = a
   var cs = newJArray()
   for i, a in d.alphas:
     let file = "channel" & $i & ".png"
@@ -7626,6 +8171,7 @@ proc loadRpd*(path: string): Doc =
     L.wrapSide = clamp(lj{"wrapSide"}.getInt(0), 0, 3)
     L.ignoreWrap = lj{"ignoreWrap"}.getBool(false)
     L.meta = lj{"meta"}.getStr("")
+    L.objectStyle = lj{"objectStyle"}.getStr("")
     if L.meta.len > 1_000_000: L.meta = ""
     let an = lj{"anchor"}.getElems
     if an.len == 4:
@@ -7650,7 +8196,8 @@ proc loadRpd*(path: string): Doc =
           if qa.len == 4:
             for k in 0 .. 3:
               q[k] = (qa[k]{0}.getFloat, qa[k]{1}.getFloat)
-            var s2 = SmartData(src: sb.px, w: sb.w, h: sb.h, quad: q, name: sj{"name"}.getStr)
+            var s2 = SmartData(src: sb.px, w: sb.w, h: sb.h, quad: q, name: sj{"name"}.getStr,
+                               link: sj{"link"}.getStr, linkStamp: sj{"linkStamp"}.getBiggestInt(0))
             for fj in sj{"filters"}.getElems:
               var f = SmartFilter(name: fj{"name"}.getStr, text: fj{"text"}.getStr,
                                   opacity: clamp(fj{"opacity"}.getInt(100), 0, 100), off: fj{"off"}.getBool)
@@ -7720,6 +8267,12 @@ proc loadRpd*(path: string): Doc =
   for sj in j{"paraStyles"}.getElems:
     result.paraStyles.add TextStyleDef(name: sj{"name"}.getStr, char: charStyleFrom(sj{"char"}),
                                        para: paraFrom(sj{"para"}))
+  for sj in j{"objectStyles"}.getElems:
+    if result.objectStyles.len < 10_000: result.objectStyles.add objectStyleFromJson(sj)
+  for bj in j{"bookmarks"}.getElems:
+    if result.bookmarks.len < 10_000:
+      result.bookmarks.add DocBookmark(title: bj{"title"}.getStr, dest: bj{"dest"}.getStr,
+                                       level: clamp(bj{"level"}.getInt(0), 0, 20))
   let inf = j{"info"}
   result.info = ImageInfo(caption: inf{"caption"}.getStr, author: inf{"author"}.getStr,
                          title: inf{"title"}.getStr, keywords: inf{"keywords"}.getStr,

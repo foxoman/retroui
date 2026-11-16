@@ -17,7 +17,7 @@
 ## ```
 
 import std/[math, algorithm, random, strutils]
-import gfx, photo, photopaint, parallel
+import gfx, photo, photopaint, parallel, simd
 
 template pixPtr(s: seq[uint32]): ptr UncheckedArray[uint32] =
   ## The pixels, for the cores to share (each writes its own rows).
@@ -111,10 +111,16 @@ proc workRect*(d: Doc): Rect =
   ## The part a filter works on: the selection's rectangle.
   d.clip(d.selBounds)
 
+var filterOrigin*: tuple[x, y: int]
+  ## Where the picture a filter is given starts in its layer, set as each
+  ## is run (`filterImg`): a filter that reads a map of the whole image (as
+  ## Lens Blur its depth) finds its part by it.
+
 proc filterImg*(d: Doc; L: Layer; margin: int; f: FilterFn; r: Rect): Img =
   ## `f` applied to `r` of `L` (with `margin` pixels around it); the result
   ## is `r`'s size.
   let ext = d.clip(rect(r.x - margin, r.y - margin, r.w + 2 * margin, r.h + 2 * margin))
+  filterOrigin = (ext.x, ext.y)
   let inner = rect(r.x - ext.x, r.y - ext.y, r.w, r.h)
   var o: Img
   if ext == d.bounds and L.px.len == d.w * d.h:
@@ -337,15 +343,39 @@ proc blurKernel(im: Img; radius: float): Img =
   let kp = cast[ptr UncheckedArray[int32]](addr k[0])
   const strip = 32
   let nStrips = (h + strip - 1) div strip
+  var kf32 = newSeq[float32](kf.len)
+  block:
+    var t = 0.0
+    for v in kf: t += v
+    for i, v in kf: kf32[i] = float32(v / t)
+  let kfp = cast[ptr UncheckedArray[float32]](addr kf32[0])
   parallelFor(nStrips, proc (lo, hi: int) =
     var pre = newSeq[int32](w * 4)              # a row, premultiplied
+    var pref = newSeq[float32](w * 4)           # (... as floats, for the kernels)
     var buf = newSeq[uint16]((strip + 2 * kr) * w * 4)
     var acc = newSeq[uint32](w * 4)
     for s in lo ..< hi:
       let y0 = s * strip
       let y1 = min(h, y0 + strip)
       # across: the strip's rows and `kr` more above and below (the edges repeated)
-      for j in 0 ..< (y1 - y0) + 2 * kr:
+      when simdOn:
+        for j in 0 ..< (y1 - y0) + 2 * kr:
+          let srow = clamp(y0 - kr + j, 0, h - 1) * w
+          for x in 0 ..< w:
+            let p = sp[srow + x]
+            let a = int32(p shr 24)
+            let q = x * 4
+            if a == 255:
+              pref[q] = 255; pref[q + 1] = float32((p shr 16) and 255)
+              pref[q + 2] = float32((p shr 8) and 255); pref[q + 3] = float32(p and 255)
+            else:
+              pref[q] = float32(a)
+              pref[q + 1] = float32((int32((p shr 16) and 255) * a + 127) div 255)
+              pref[q + 2] = float32((int32((p shr 8) and 255) * a + 127) div 255)
+              pref[q + 3] = float32((int32(p and 255) * a + 127) div 255)
+          blurAcross(cast[ptr UncheckedArray[float32]](addr pref[0]), w, kfp, kr,
+                     cast[ptr UncheckedArray[uint16]](addr buf[j * w * 4]))
+      for j in 0 ..< (when simdOn: 0 else: (y1 - y0) + 2 * kr):
         let srow = clamp(y0 - kr + j, 0, h - 1) * w
         for x in 0 ..< w:
           let p = sp[srow + x]
@@ -384,7 +414,11 @@ proc blurKernel(im: Img; radius: float): Img =
         for i in 0 .. 2 * kr:
           let kw = uint32(kp[i])
           let brow = (y - y0 + i) * w * 4
-          for t in 0 ..< w * 4: acc[t] += kw * uint32(buf[brow + t])
+          when simdOn:
+            maddU16(cast[ptr UncheckedArray[uint32]](addr acc[0]), cast[ptr UncheckedArray[uint16]](addr buf[brow]),
+                    w * 4, kw)
+          else:
+            for t in 0 ..< w * 4: acc[t] += kw * uint32(buf[brow + t])
         let orow = y * w
         for x in 0 ..< w:
           let q = x * 4
@@ -1497,6 +1531,92 @@ proc maximum*(radius: int): FilterFn =
 proc minimum*(radius: int): FilterFn =
   ## The darkest pixel around each one (black parts grow).
   result = proc (src: Img; inner: Rect): Img = maxMin(src, radius, false)
+
+proc removeMatte*(white: bool): FilterFn =
+  ## Layer > Matting > Remove Black Matte (or White): the edge pixels of
+  ## something cut from black (or white) made as if cut from nothing -- the
+  ## color the matte darkened (or lightened) them by taken out.
+  result = proc (src: Img; inner: Rect): Img =
+    var o = newImgUninit(src.w, src.h)
+    let sp = pixPtr(src.px)
+    let dp = pixPtr(o.px)
+    parallelFor(src.px.len, proc (lo, hi: int) =
+      for i in lo ..< hi:
+        let p = sp[i]
+        let a = int(p shr 24)
+        if a == 0 or a == 255:
+          dp[i] = p
+          continue
+        template un(c: int): uint32 =
+          uint32(if white: clamp(((c - (255 - a)) * 255 + a div 2) div a, 0, 255)
+                 else: clamp((c * 255 + a div 2) div a, 0, 255))
+        dp[i] = (p and 0xFF000000'u32) or (un(int((p shr 16) and 255)) shl 16) or
+                (un(int((p shr 8) and 255)) shl 8) or un(int(p and 255)), grain = 8192)
+    o
+
+proc defringe*(width = 1): FilterFn =
+  ## Layer > Matting > Defringe: the edge's pixels -- those not quite
+  ## opaque, and the opaque ones within `width` (1 .. 200) of them -- take
+  ## the colors of the solid pixels further in (the fringe of the
+  ## background they were cut from goes); their alpha is kept.
+  result = proc (src: Img; inner: Rect): Img =
+    let w = src.w
+    let h = src.h
+    var o = Img(w: w, h: h, px: src.px)
+    if w == 0 or h == 0:
+      result = o
+      return
+    # how far each pixel is from one not quite opaque (8 ways, in steps), up to `width` + 1
+    let wd = clamp(width, 1, 200)
+    var dist = newSeq[int16](w * h)
+    for i in 0 ..< w * h: dist[i] = if (src.px[i] shr 24) < 255: 0'i16 else: int16(wd + 1)
+    for pass in 0 .. 1:
+      for yy in 0 ..< h:
+        let y = if pass == 0: yy else: h - 1 - yy
+        for xx in 0 ..< w:
+          let x = if pass == 0: xx else: w - 1 - xx
+          let i = y * w + x
+          if dist[i] == 0: continue
+          var m = int(dist[i])
+          for (dx, dy) in (if pass == 0: [(-1, 0), (-1, -1), (0, -1), (1, -1)] else: [(1, 0), (1, 1), (0, 1), (-1, 1)]):
+            let nx = x + dx
+            let ny = y + dy
+            if nx < 0 or ny < 0 or nx >= w or ny >= h: continue
+            m = min(m, int(dist[ny * w + nx]) + 1)
+          dist[i] = int16(m)
+    # the colors from the solid pixels outward, a ring at a time (the not quite opaque ones last, as
+    # often as they are deep)
+    var known = newSeq[bool](w * h)
+    for i in 0 ..< w * h: known[i] = dist[i] > wd
+    var rings: seq[int]
+    for r in countdown(wd, 1): rings.add r
+    for _ in 0 .. wd + 1: rings.add 0
+    for ring in rings:
+      var next = known
+      var any = false
+      for y in 0 ..< h:
+        for x in 0 ..< w:
+          let i = y * w + x
+          if known[i] or dist[i] != ring or (src.px[i] shr 24) == 0: continue
+          var r, g, b, n = 0
+          for dy in -1 .. 1:
+            for dx in -1 .. 1:
+              let nx = x + dx
+              let ny = y + dy
+              if nx < 0 or ny < 0 or nx >= w or ny >= h: continue
+              let j = ny * w + nx
+              if not known[j]: continue
+              let q = o.px[j]
+              r += int((q shr 16) and 255); g += int((q shr 8) and 255); b += int(q and 255)
+              inc n
+          if n > 0:
+            o.px[i] = (src.px[i] and 0xFF000000'u32) or (uint32(r div n) shl 16) or (uint32(g div n) shl 8) or
+                      uint32(b div n)
+            next[i] = true
+            any = true
+      known = next
+      if ring == 0 and not any: break
+    o
 
 proc offsetFilter*(dx, dy: int; how = 0; bg = 0'u32): FilterFn =
   ## Moves the pixels by `dx`, `dy`: what is uncovered is `bg` (0),

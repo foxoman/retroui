@@ -105,3 +105,23 @@ block pixelsOnAPlane:
   d.undo()
   doAssert L.px[int(y0 + 2) * d.w + int(x1) - 3] == 0xFFCC2020'u32, "undone"
   echo "perspectivegrid: ok"
+
+block threePoint:
+  # the walls' uprights meet at the third point: their far sides lean toward it
+  let g = threePoint(800, 600)
+  doAssert g.kind == pkThreePoint and g.planes == @[ppLeft, ppRight, ppFloor] and g.vertY > 600
+  let l = g.planeQuad(ppLeft)
+  let r = g.planeQuad(ppRight)
+  let v3 = (g.nearX, g.vertY)
+  proc onLine(p, a, b: (float, float)): bool =
+    abs((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) < 1e-3 * hypot(b[0] - a[0], b[1] - a[1])
+  doAssert onLine(l[3], l[0], v3) and onLine(r[2], r[1], v3), "the far sides on lines to the third point"
+  doAssert abs(l[3][0] - l[0][0]) > 1e-3, "no longer upright"
+  doAssert near(l[1], r[0]) and near(l[2], r[3])
+  for pl in g.planes: doAssert vpPlane(g.planeQuad(pl)).ok, $pl
+  # kept in a document's JSON
+  let back = gridFrom(gridToJson(g), 800, 600)
+  doAssert back.kind == pkThreePoint and abs(back.vertY - g.vertY) < 1e-9
+  # a shape laid on its wall
+  let sq = rectPath(380, 200, 400, 240)
+  doAssert ontoPlane(sq, g, ppLeft) != sq

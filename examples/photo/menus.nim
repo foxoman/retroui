@@ -115,7 +115,7 @@ const pixelCommands = ["Cut", "Clear", "Fill...", "Stroke...", "Erase Image", "I
                        "Threshold...", "Posterize...", "Levels...", "Curves...", "Brightness/Contrast...",
                        "Color Balance...", "Hue/Saturation...", "Replace Color...", "Auto Levels", "Auto Tone",
                        "Auto Contrast", "Auto Color", "Content-Aware Fill", "Shadows/Highlights...",
-                       "Vibrance...", "Exposure...", "Photo Filter...", "Black & White...", "Channel Mixer...",
+                       "Vibrance...", "Exposure...", "Light...", "Photo Filter...", "Black & White...", "Channel Mixer...",
                        "Develop...", "Liquify...", "Lens Correction...", "Desaturate", "Variations...",
                        "Selective Color...", "Apply Image...", "Flip Layer Horizontal", "Flip Layer Vertical",
                        "Free", "Scale", "Skew", "Perspective", "Distort", "Last Filter", "Custom...",
@@ -292,16 +292,26 @@ proc doCommand(name: string) =
   if te.on and name == "Word Shapes...":   # (for the letters selected: the text stays as it is typed)
     discard bookCommand(name)
     return
+  if name in ["New Hyperlink...", "New Hyperlink Destination...", "Insert Cross-Reference...", "Remove Hyperlink",
+              "Insert File Name", "Insert Output Date", "Insert Modification Date", "New Bookmark"] or
+     name.startsWith("Insert Running Header: "):
+    discard hyperlinkCommand(name)        # (the text selected: the text stays as it is typed)
+    return
   if name in ["Insert Footnote", "Insert Endnote"]:   # (at the caret: the text stays as it is typed)
     discard notesCommand(name)
     return
   if name == "Ligatures":                  # (the letters selected, the layer, or the next text)
     toggleLigatures()
     return
+  if name in ["Justification...", "Keep Options...", "Span Columns...", "Drop Caps and Nested Styles...",
+              "GREP Styles..."]:
+    startParaOptions(name)                 # (the paragraphs the selection is in: the text stays as it is typed)
+    return
   if name.startsWith("OpenType: "):
     toggleOpenType(name["OpenType: ".len .. ^1])
     return
   if te.on: commitType()                   # (and the text being typed)
+  if name == "Clear" and deletePickedPoints(): return   # (points the Lasso (Points) picked: they go)
   if bookCommand(name): return             # (books, the Layout menu: photo/book)
   if psCommand(name): return               # (the modern menus' own: photo/pscc)
   if dailyCommand(name): return            # (everyday work: photo/daily)
@@ -488,6 +498,15 @@ proc doCommand(name: string) =
   of "Smart Guides":
     smartGuidesOn = not smartGuidesOn
     savePrefs()
+  of "Pixel Grid":
+    pixelGridOn = not pixelGridOn
+    savePrefs()
+  of "Pattern Preview":
+    if d != nil:
+      d.patternPreview = not d.patternPreview
+      d.markAll()
+      status = if d.patternPreview: "Pattern Preview: the image tiled round itself; painting past an edge comes in at the other"
+               else: "Pattern Preview off"
   of "Lock Guides":
     for o in docs: o.view.lockGuides = not o.view.lockGuides
   of "Clear Guides":
@@ -667,6 +686,7 @@ proc doCommand(name: string) =
   of "Shadows/Highlights...": startAdjust(akShadows)
   of "Vibrance...": startAdjust(akVibrance)
   of "Exposure...": startAdjust(akExposure)
+  of "Light...": startAdjust(akLight)
   of "Photo Filter...": startAdjust(akPhotoFilter)
   of "Black & White...": startAdjust(akBlackWhite)
   of "Channel Mixer...": startAdjust(akMixer)
@@ -742,12 +762,18 @@ proc doCommand(name: string) =
   of "Data Merge...": discard mergeCommand(name)
   of "Find/Change...", "Story Editor...": discard findCommand(name)
   of "Show Perspective Grid", "Hide Perspective Grid", "Lock Perspective Grid", "One Point Perspective",
-     "Two Point Perspective", "Define Perspective Grid...", "Attach to Active Plane",
+     "Two Point Perspective", "Three Point Perspective", "Define Perspective Grid...", "Attach to Active Plane",
      "Perspective Plane: Left Wall", "Perspective Plane: Right Wall", "Perspective Plane: Floor",
      "Perspective Plane: Facing Wall", "Perspective Plane: None":
     discard perspectiveCommand(name)
   of "Text Frame Options...", "Show Text Threads": discard textFrameCommand(name)
+  of "Check Spelling...", "Dynamic Spelling": discard spellingCommand(name)
+  of "Package...", "Place Linked...": discard packageCommand(name)
   of "Apply Brush to Path...": discard pathBrushCommand(name)
+  of "Free Distort...", "Pucker & Bloat...", "Roughen...", "Transform Effect...", "Tweak...", "Twist...",
+     "Zig Zag...", "Offset Path Effect...", "Expand Appearance", "Brushes (Vector)", "Appearance",
+     "Radial Repeat...", "Grid Repeat...", "Mirror Repeat...", "Transform Each...":
+    discard liveEffectCommand(name)
   of "Resize for...", "Brand Kit...", "Photo Grid...", "Text Effects...", "Recolor Design...", "Check Document...",
      "Preflight...":
     discard quickCommand(name)
@@ -1118,7 +1144,8 @@ proc doCommand(name: string) =
   of "Paragraph": showTypePal(1)
   of "Select All": runCommand("All")
   else:
-    if filters.hasKey(name.strip(chars = {'.'})):
+    if name.startsWith("Warp: "): discard liveEffectCommand(name)
+    elif filters.hasKey(name.strip(chars = {'.'})):
       startFilter(name.strip(chars = {'.'}))
 
 proc runCommand(name: string) =
@@ -1321,6 +1348,7 @@ proc classicMenus() =
         item("&Selective Color...", enabled = rgb)
         menuSeparator()
         item("E&xposure...", enabled = edits)
+        item("Li&ght...", enabled = edits)
         item("V&ibrance...", enabled = rgb)
         item("Shadows/Hi&ghlights...", enabled = edits)
         item("&Photo Filter...", enabled = rgb)
@@ -1435,6 +1463,25 @@ proc classicMenus() =
       item(if grp: "Merge Grou&p" else: "Merge Do&wn", "Ctrl+E", some and canMergeDown(d))
       item("Merge &Visible", "Ctrl+Shift+E", some and d.layers.len > 1)
       item("&Flatten Image", enabled = some and d.layers.len > 1)
+      menuSeparator()
+      submenu "Ma&tting":
+        filterItems(["&Defringe...", "Remove &Black Matte", "Remove &White Matte"])
+      submenu "Live &Effects":
+        let shp = some and d.current.isShape
+        submenu "&Distort && Transform":
+          for n in ["&Free Distort...", "&Pucker && Bloat...", "&Roughen...", "&Transform Effect...", "T&weak...",
+                    "T&wist...", "&Zig Zag..."]:
+            item(n, enabled = shp)
+        submenu "&Warp":
+          for n in WarpStyles: item("Warp: " & n & "...", enabled = shp)
+        item("&Offset Path Effect...", enabled = shp)
+        submenu "Re&peat":
+          item("&Radial Repeat...", enabled = shp)
+          item("&Grid Repeat...", enabled = shp)
+          item("&Mirror Repeat...", enabled = shp)
+        menuSeparator()
+        item("E&xpand Appearance", enabled = shp)
+        item("Transform &Each...", enabled = some)
     menu "Filte&r":
       if menuItem("Last Filter" & (if lastFilter.set: " (" & lastFilter.name & ")" else: ""), "Ctrl+F",
                   enabled = edits and lastFilter.set): runCommand("Last Filter")
@@ -1444,8 +1491,8 @@ proc classicMenus() =
       item("Li&quify...", "Ctrl+Shift+X", edits)
       menuSeparator()
       submenu "Blur":
-        filterItems(["&Blur", "Blur &More", "&Gaussian Blur...", "M&otion Blur...", "&Radial Blur...",
-                     "&Surface Blur..."])
+        filterItems(["&Average", "&Blur", "Blur &More", "Bo&x Blur...", "&Gaussian Blur...", "&Lens Blur...",
+                     "M&otion Blur...", "&Radial Blur...", "S&hape Blur...", "Smar&t Blur...", "&Surface Blur..."])
       submenu "Blur Gallery":
         item("&Field Blur...", enabled = edits)
         item("&Iris Blur...", enabled = edits)
@@ -1461,7 +1508,9 @@ proc classicMenus() =
       submenu "Gallery":
         submenu "Artistic": filterItems(galleryArtistic.mapIt(it & "..."))
         submenu "Brush Strokes": filterItems(galleryBrush.mapIt(it & "..."))
-        submenu "Sketch": filterItems(gallerySketch.mapIt(it & "..."))
+        submenu "Distort": filterItems(galleryDistort.mapIt(it & "..."))
+        submenu "Sketch": filterItems(gallerySketch.mapIt(it.replace("&", "&&") & "..."))
+        submenu "Stylize": filterItems(galleryStylize.mapIt(it & "..."))
         submenu "Texture": filterItems(galleryTexture.mapIt(it & "..."))
       submenu "Pixelate":
         filterItems(["Color &Halftone...", "&Crystallize...", "&Facet", "F&ragment", "M&ezzotint...",
@@ -1479,7 +1528,7 @@ proc classicMenus() =
         filterItems(["&De-Interlace...", "&NTSC Colors"])
       submenu "Other":
         item("&Custom...", enabled = edits)
-        filterItems(["&High Pass...", "Ma&ximum...", "M&inimum...", "&Offset..."])
+        filterItems(["&High Pass...", "HSB/H&SL...", "Ma&ximum...", "M&inimum...", "&Offset..."])
       menuSeparator()
       submenu "&Plug-ins":
         item("Filter &Factory...", enabled = edits)
@@ -1536,6 +1585,8 @@ proc classicMenus() =
         item("G&rid", checked = snapGrid)
         item("&Document Bounds", checked = snapBounds)
       item("S&mart Guides", checked = smartGuidesOn)
+      item("&Pixel Grid", checked = pixelGridOn)
+      item("Pattern Pre&view", enabled = some, checked = some and d.patternPreview)
       menuSeparator()
       item("&Lock Guides", "Ctrl+Alt+;", some, checked = dw != nil and dw.view.lockGuides)
       item("&Clear Guides", enabled = some and d.guides.len > 0)
@@ -1662,7 +1713,23 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.3.0: footnotes and endnotes (Type > Insert Footnote, Insert Endnote, Footnotes and " &
+           whatsNew = ["5.4.0: new filters -- Blur > Average, Box Blur, Shape Blur, Smart Blur, Lens Blur; " &
+                       "Filter Gallery's Artistic, Brush Strokes, Distort, Sketch, Stylize and Texture filters " &
+                       "(Fresco, Neon Glow, Palette Knife, Glass, Ocean Ripple, Chalk & Charcoal, Glowing Edges " &
+                       "and more); Adjustments > Light; Layer Style > Pattern Overlay; Layer > Matting; " &
+                       "View > Pixel Grid; the drawing program's tools -- Group Selection, Magic Wand and Lasso " &
+                       "for shapes, Smooth, Path Eraser, Join, Eraser, Scissors, Knife, Paintbrush with " &
+                       "calligraphic brushes, Blob Brush, Width tool, Arc, grids, Flare, Mesh, Perspective " &
+                       "Selection -- the Appearance panel, live Distort & Transform and Warp effects, Repeat, " &
+                       "Transform Each, three-point perspective; the layout program's text -- the Paragraph " &
+                       "Composer, Justification, Keep Options, Span Columns, Balance Columns, Inset Spacing and " &
+                       "Vertical Justification, each paragraph its own format, Next Style, nested and GREP " &
+                       "styles, Paragraph Style Options, Object Styles; Edit > Spelling (Check Spelling, " &
+                       "Dynamic Spelling); Type > Text Variables and Hyperlinks & Cross-References; Window > " &
+                       "Bookmarks and Links; File > Place Linked and Package; the phone's own folder picker; " &
+                       "the layers mixed, blurs and resizing four pixels at a time (up to 2.7 times sooner); " &
+                       "Google Fonts downloads show their progress and can be cancelled",
+                       "5.3.0: footnotes and endnotes (Type > Insert Footnote, Insert Endnote, Footnotes and " &
                        "Endnotes); Layout > Table of Contents and Index; Paragraph > Hyphenate; Layer > Anchor to " &
                        "Text; Edit > Find/Change (words or GREP patterns; this text, the page, the book) and Type > " &
                        "Story Editor; Layout > Data Merge; text frames as in the layout program -- what does not " &
@@ -1878,7 +1945,7 @@ proc helpText(): string =
   for grp in toolGroups:
     var names: seq[string]
     for it in grp.items: names.add it.name
-    result.add "| " & names.join(", ") & " | " & grp.key & " |\n"
+    result.add "| " & names.join(", ") & " | " & (if grp.key in {'A' .. 'Z'}: $grp.key else: "") & " |\n"
   result.add "\n## The tools\n\n| Tool | Use |\n|---|---|\n"
   for t in Tool: result.add "| " & $t & " | " & toolHints[t] & " |\n"
   result.add "\n## Keys\n\n" &
@@ -2012,7 +2079,15 @@ proc moreDialogs() =
   findDialogs()
   perspectiveDialog()
   textFrameDialog()
+  paraOptionsDialog()
+  styleOptionsDialog()
+  objectStyleOptionsDialog()
+  checkSpellingDialog()
+  hyperlinkDialog()
+  packageDialog()
   pathBrushDialog()
+  liveEffectDialog()
+  transformEachDialog()
   tableDialogs()
   quickDialogs()
   moreShapesDialogs()

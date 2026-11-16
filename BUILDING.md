@@ -32,6 +32,15 @@ nim c -r -d:release -d:useMalloc app.nim     # build and run on this computer (o
 retrokit small app.nim                       # the smallest: --opt:size, LTO, stripped
 ```
 
+The photo engine's hottest loops (`retroui/simd`: the layers mixed,
+blurs, resampling) are C written with GCC's and Clang's own vectors --
+SSE2 on any x86-64, NEON on ARM; nothing to add. A computer you build
+for alone can have more: `--passC:-march=native` lets the compiler use
+AVX2 there (that program then runs only on such processors).
+`-d:retroNoSimd` keeps the plain Nim loops, to compare. A web page uses
+SIMD128 when built with `--passC:-msimd128` (every browser of the last
+years runs it).
+
 **Windows, on Windows:** the Nim zip for Windows comes with MinGW;
 `nim c -d:release -d:useMalloc --app:gui app.nim` makes `app.exe`
 (`--app:gui`: no console window).
