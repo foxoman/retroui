@@ -11,6 +11,10 @@
 # when the thread ends (Nim 2.2: lib/system/orc.nim, registerCycle)
 leak:registerCycle
 
+# The thread's list of what to do when it ends is itself kept: a few bytes,
+# once a thread (lib/system/threadimpl.nim, onThreadDestruction)
+leak:onThreadDestruction
+
 # std/times keeps the UTC time zone of each thread in a threadvar, never
 # freed (lib/pure/times.nim, utc)
 leak:newTimezone

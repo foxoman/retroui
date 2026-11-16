@@ -11,7 +11,9 @@
 # samples in build/soak/APP.mem. The apps run as on a phone of 2 GB
 # (RETRO_DEVICE_MB, SOAK_DEVICE_MB=0 for this machine's own): their caches'
 # budgets follow the device's memory, and filled up to a big machine's
-# they would look like growth for a long while.
+# they would look like growth for a long while. RETRO_MEMLOG=1: an app that
+# keeps a log of what holds its memory writes it in APP-run.txt (Retro
+# Atelier: each open image, its undo steps, the last commands).
 #
 #   sh tools/soak.sh                          60 minutes, the apps below
 #   sh tools/soak.sh 10 filemanager mail      10 minutes, these
@@ -23,9 +25,9 @@
 set -u
 mins=${1:-60}
 [ $# -gt 0 ] && shift
-# (Retro Board starts a new board past 400 shapes and Retro Navigator keeps
-# 8 tabs at most under the random input: what they hold does not grow
-# without end -- `smokeOn`. Navigator shows its pages with the kit's engine
+# (Retro Board starts a new board past 400 shapes, Retro Navigator keeps
+# 8 tabs at most and Retro Atelier 4 images of 40 layers at most under the
+# random input: what they hold does not grow without end -- `smokeOn`. Navigator shows its pages with the kit's engine
 # here, RETRO_WEB=kit: under random input WebKitGTK's own memory grows,
 # 20 MB a minute in the app's process, with or without the kit)
 apps=${*:-gallery filemanager photo retroboard mail navigator retrodns podcast grow taskman}
@@ -49,7 +51,7 @@ for app in $apps; do
   [ "$app" = navigator ] && web="RETRO_WEB=kit"
   ( cd "$home" && exec env HOME="$home" XDG_CONFIG_HOME="$home/.config" \
       XDG_DATA_HOME="$home/.local/share" XDG_CACHE_HOME="$home/.cache" \
-      RETRO_SMOKE=$secs RETRO_SMOKE_STAY=1 RETRO_SMOKE_SEED=$$ RETRO_DEVICE_MB=${SOAK_DEVICE_MB:-2048} \
+      RETRO_SMOKE=$secs RETRO_SMOKE_STAY=1 RETRO_SMOKE_SEED=$$ RETRO_DEVICE_MB=${SOAK_DEVICE_MB:-2048} RETRO_MEMLOG=1 \
       $web "$root/$out/$app" > "$root/$out/$app-run.txt" 2>&1 ) &
   pid=$!
   : > "$out/$app.mem"

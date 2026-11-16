@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy, hangwatch
 export busy
 
-const RetroVersion* = "0.56.0"
+const RetroVersion* = "0.57.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -3568,12 +3568,15 @@ proc drawBusyBox(elapsed: int) =
     else:
       busyCancelRect = rect(0, 0, 0, 0))
 
+proc smokeBusy()
+
 proc busyTickNow() =
   ## (`busyTick`: the events read now and then; the box drawn once the
   ## work has gone on a moment)
   let t = getTicks()
   if t - busyLastPump < 25: return
   busyLastPump = t
+  smokeBusy()
   # (the box is up once it was drawn in this frame's work)
   busyPump(boxShown = busyLastDraw > 0 and busyLastDraw >= ui.now)
   let since = t - ui.now
@@ -4028,6 +4031,47 @@ proc smokeReport(closed = false): int =
 proc smokeFinish() =
   quit(smokeReport())
 
+when compileOption("threads"):
+  import std/atomics
+  var smokeAlive: Atomic[int64]       # (ms into the run of the last frame or busy tick)
+  proc smokeWatch() {.thread.} =
+    ## (a run whose program stopped answering -- a call that never comes back: a pipe read, a
+    ## lock -- ended past its time with a line that says so, not killed from outside unseen)
+    {.cast(gcsafe).}:
+      while true:
+        os.sleep(5000)
+        let now = int((getMonoTime() - smoke.start).inMilliseconds)
+        let quiet = now - smokeAlive.load
+        if now > smoke.secs * 1000 + 75_000 and quiet > 60_000:
+          try: stderr.writeLine "smoke: no frame for " & $(quiet div 1000) & " s, past its time: stuck " &
+                                "in a call that does not come back"
+          except IOError: discard
+          quit(4)
+  var smokeWatcher: Thread[void]
+  if smoke.secs > 0: createThread(smokeWatcher, smokeWatch)
+
+proc smokeAliveNow() {.inline.} =
+  when compileOption("threads"):
+    smokeAlive.store(int64((getMonoTime() - smoke.start).inMilliseconds))
+
+var smokeBusyNoted = false
+
+proc smokeBusy() =
+  ## (a smoke run whose time is up while long work goes on -- a copy of a big folder, a search
+  ## through the disk: the work told to stop, as Cancel does; still at it a minute on, the run
+  ## ends here, its line saying so)
+  if smoke.secs <= 0: return
+  smokeAliveNow()                     # (long work: the program is not stuck)
+  let over = int((getMonoTime() - smoke.start).inMilliseconds) - smoke.secs * 1000
+  if over < 0: return
+  if busyCancelDepth > 0: busyCancelAsked = true
+  if over > 60_000 and not smokeBusyNoted:
+    smokeBusyNoted = true
+    stderr.writeLine "smoke: still busy a minute after its time: ", (if busyLabel.len > 0: busyLabel else: "work"),
+                     (if busyCancelDepth > 0: " (told to stop)" else: " (that cannot be stopped)")
+    discard smokeReport()
+    quit(2)
+
 proc smokeEvent(): Event =
   ## (something a person does: a move, a press or a let-go, the wheel, a key, a letter)
   let x = smokeRand(max(1, ui.w))
@@ -4054,6 +4098,7 @@ proc smokeFrame() =
   ## (each frame of a smoke run: where it is, what it does now)
   if smoke.secs <= 0: return
   inc smoke.frames
+  smokeAliveNow()
   let ms = int((getMonoTime() - smoke.start).inMilliseconds)
   case smoke.phase
   of 0:

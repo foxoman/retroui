@@ -2157,9 +2157,23 @@ Operations > Shape Builder** joins and takes away regions, **Freeform Gradient**
 points. **Layout** also has **Photo Grid**, **Resize for** (a design at many sizes), **Brand
 Kit**, **Recolor Design**, **Check Document**, **Export** (PDF, JPEG or PNG; pages or spreads;
 a range) and **Save Book as IDML**; an .idml opens as a book, and Save As writes .ai. **Type >
-Text Effects** has eight looks. The engine for all of it is the kit's (`retroui/photobook`,
+Text Effects** has eight looks. Since 5.3 a page is set as the layout program sets it:
+**footnotes and endnotes**, a **table of contents** and an **index** (Layout), English
+**hyphenation**, objects **anchored to text**, **Edit > Find/Change** (words or GREP patterns, in
+a text, the page or the book) and the **Story Editor**, **Layout > Data Merge** (a design and a
+CSV: a page a row), and text frames as there: text that does not fit is overset, **Type > Text
+Frame Options** sizes a box to its text (**Auto-Size**), and a box picked shows its **in and out
+ports** -- click the out port, then another box (or where there is none), and the text goes on
+there; a threaded port, then the box at the other end, breaks the thread. **View > Perspective
+Grid** draws one or two vanishing points with their walls and floor: the Shape tools draw on the
+plane picked in its widget, and **Layer > Perspective > Attach to Active Plane** lays a shape or
+what is painted on it. **Path Operations > Apply Brush to Path** draws a path with artwork (Art,
+Pattern, Scatter) and **Gradient Mesh** bends colors over a grid; the Character panel has
+**Ligatures** and Type has **OpenType**. The engine for all of it is the kit's (`retroui/photobook`,
 `retroui/textengine`, `retroui/imagetrace`, `retroui/photovector`, `retroui/layouttemplates`,
-`retroui/infographics`, `retroui/liveshapes`, `retroui/idml`, `retroui/preflight`), for any app:
+`retroui/infographics`, `retroui/liveshapes`, `retroui/idml`, `retroui/preflight`,
+`retroui/booklists`, `retroui/hyphenate`, `retroui/textsearch`, `retroui/datamerge`,
+`retroui/perspectivegrid`, `retroui/pathbrush`), for any app:
 
 ```nim
 import retroui/[photo, photobook, photopdf, textengine]
@@ -2209,6 +2223,27 @@ discard d.addShapeLayer(ShapeData(path: liveShapePath(defaultParams(lsStar), 0, 
 discard b.exportBook("book.pdf", BookExport(kind: exPdf, pages: "1-4", spreads: true))
 b.saveBookIdml("book.idml")                                        # for the page layout program
 for it in b.preflight(300): echo it.page + 1, ": ", it.message    # Check Document
+```
+
+```nim
+import retroui/[photo, photobook, photoshapes, textengine, booklists, textsearch, datamerge, charts, perspectivegrid, pathbrush]
+var t = b.boxed(newText(story, defaultStyle()), 1)
+t.insertNote(120, "Where the number came from.")                  # a footnote at the box's foot
+t.para.hyphenate = true                                            # English words broken at a line's end
+t.autoSize = asHeight                                              # the box as tall as its text
+let s = d.addTextLayer(t)
+discard d.threadText(s, d.addTextLayer(nextBox))                   # what does not fit goes on there
+discard b.threadPages(1, s, 4, laterBox)                           # ... or on another page
+discard d.addTextLayer(tocText(b.tocEntries(@["Chapter"]), "Contents", defaultStyle(), 400))
+discard d.addTextLayer(indexText(b.indexEntries(@["Muscat", "Sohar"]), "Index", defaultStyle(), 400))
+echo t.changeIn("(\\d+) km", "$1 kilometres", patterns = true), " changed"   # GREP
+let card = merged(design, readCsv("people.csv"), row = 0, pictures = loadIt)   # Data Merge
+let g = defaultGrid(d.w, d.h)                                      # two vanishing points
+var sh = d.current.shape
+sh.path = sh.path.ontoPlane(g, ppLeft)                             # laid on the left wall
+d.setShape(d.current, sh)
+let rope = brushedPath(line, builtinBrush("Chain", width = 16))    # a path drawn with artwork
+discard d.addShapeLayer(ShapeData(path: rope, fill: solidPaint(ink)))
 ```
 
 ```nim
@@ -3272,12 +3307,19 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_looks` | what a control takes to look different: the accent button, a text style and a height for buttons and number boxes, groups with a title strip, options in boxes, the gauge in bands and the range bar, a tool bar's line and space, `withTheme` and `withTextStyle` -- and the 28 colour schemes, each one's text readable (4.5 to 1) on its window, fields, buttons and highlight; docs/customizing.md's own samples |
 | `test_bmi` | BMI Studio without a window: the numbers in both unit systems (classed as shown), Calculate BMI the default button in the accent colour, another scheme taken by the bands and the button, a phone's layout |
 | `test_hangwatch` | the table of a program's procs read and a place in the program named by it (a Windows window that stops answering writes the procs its thread is in); no watch elsewhere |
-| `test_photobook`, `test_photobookapp` | text that keeps out of holes (lines on both sides on one baseline, columns), Text Wrap in a document (box, shape, jump, sides, undo, saved), page numbers in text, books: sides and margins bound either way, numbers in every style, master pages that follow, text through added pages (every word once), the book's file and PDF, damaged books refused; Retro Atelier's books headless: pages turned, masters, a number typed in, Autoflow, Text Wrap, save and open, the workspaces, the Move tool's box; snapping to a page's margins, columns and baseline grid, text on the grid following Document Setup; New Drawing and New Book, Image Trace, Convert to Shape and Make Blend in the app; export by pages and spreads (PDF, JPEG, PNG, a range); tables, charts, maps, Fitting and Frame Options, More Shapes and Shape Options, Resize for, Brand Kit, Photo Grid, Text Effects, Recolor, Shape Builder, Freeform Gradient (Cancel leaves it as it was), Check Document and the command list in the app |
+| `test_photobook`, `test_photobookapp` | text that keeps out of holes (lines on both sides on one baseline, columns), Text Wrap in a document (box, shape, jump, sides, undo, saved), page numbers in text, books: sides and margins bound either way, numbers in every style, master pages that follow, text through added pages (every word once), the book's file and PDF, damaged books refused; Retro Atelier's books headless: pages turned, masters, a number typed in, Autoflow, Text Wrap, save and open, the workspaces, the Move tool's box; snapping to a page's margins, columns and baseline grid, text on the grid following Document Setup; New Drawing and New Book, Image Trace, Convert to Shape and Make Blend in the app; export by pages and spreads (PDF, JPEG, PNG, a range); tables, charts, maps, Fitting and Frame Options, More Shapes and Shape Options, Resize for, Brand Kit, Photo Grid, Text Effects, Recolor, Shape Builder, Freeform Gradient (Cancel leaves it as it was), Check Document and the command list in the app; anchored objects; threaded frames on a page and across pages (a box's own words to the story's end, one put in between, the thread broken); in the app: footnotes, ligatures, the table of contents and the index, Data Merge, Find/Change and the Story Editor, the gradient mesh and anchors, the perspective grid (drawing on a plane, a handle dragged, Attach to Active Plane, Define Grid live), threading by the ports (loaded text, a new box, a double-click breaking it, Esc), Text Frame Options and Auto-Size (a template's heading growing with its size), Apply Brush to Path |
 | `test_imagetrace` | Image Trace: a picture traced looks like it (under 2 % of it differs; holes and corners kept, specks left out, curves not stairs), black and white, grays, side by side, transparency, a big picture traced smaller and scaled back, noise in under 8 s, the SVG read back the same; Pencil Sketch; every preset and template of a new drawing or book made |
-| `test_outlines` | type made shapes (at 120, 36 and 14 px they draw what the type drew; colors, faux bold), blends (point by point, walked along, a hole shrinking away, Smooth Color's steps, eased), the twenty live shapes (in their box, closed, their numbers kept), Shape Builder's regions joined and taken away, freeform gradients (each color at its point, saved) |
+| `test_outlines` | type made shapes (at 120, 36 and 14 px they draw what the type drew; colors, faux bold), blends (point by point, walked along, a hole shrinking away, Smooth Color's steps, eased), the twenty live shapes (in their box, closed, their numbers kept), Shape Builder's regions joined and taken away, freeform gradients (each color at its point, saved); the gradient mesh (each color at its point, a point moved bending the colors) |
 | `test_infographics` | charts of every kind as SVG (bars where their numbers say, stacked, pies adding to a turn, radar, legends, labels with decimals and Arabic digits, right to left, themes), placed as shapes and type; maps (regions, projections, values on a scale, names, themes), their settings back from JSON, the numbers from a table |
-| `test_idml` | IDML: a book as the package (its parts, well-formed XML, spreads, masters with the page number, stories, shapes, linked pictures) and read back; one document; a damaged package refused; Check Document's findings (text that does not fit, a missing font, a coarse picture, an empty frame, hidden layers) |
-| `test_photospeed` | shape and type layers light: thirty of them on an A4 page at 300 ppi under 200 MB; the composite the same with and without mixing each only where it drew (modes, opacity, masks, clipping, groups, effects, the sampled view) |
+| `test_idml` | IDML: a book as the package (its parts, well-formed XML, spreads, masters with the page number, stories, shapes, linked pictures) and read back; one document; a damaged package refused; Check Document's findings (text that does not fit, a missing font, a coarse picture, an empty frame, hidden layers); ligatures, footnotes, real tables, Auto-Size and columns, threaded frames written as one story and read back threaded |
+| `test_photospeed` | shape and type layers light: thirty of them on an A4 page at 300 ppi under 200 MB; the composite the same with and without mixing each only where it drew (modes, opacity, masks, clipping, groups, effects, the sampled view); five copies of a layer painted in a corner of a 4000 x 3000 picture under 60 MB |
+| `test_booklists` | a book's table of contents from its paragraph styles (each a level) or its type's size, in the pages' order, a master's text left out; the index's words on their pages (whole words, any case, Arabic with or without its marks), sorted; both as text boxes; hyphenation's own words |
+| `test_datamerge` | Data Merge: the fields a design asks for, a row's values in its text, a picture in each frame named for it, the design left as it was |
+| `test_textsearch` | Find/Change: GREP patterns (digits Arabic-Indic too, classes, groups, either-or, counts, the fewest, line and word edges) in characters, changes with their groups keeping the styles, plain words in any case or whole, the story editor's edit keeping the styles, a pattern that cannot be read refused |
+| `test_headless` | a program without a window: frames drawn in memory, a click given as a person would, the picture of what it drew |
+| `test_perspectivegrid` | the perspective grid: the planes meet where they should (two points and one), go back to their points, a path laid on a plane (its corners kept, the far side shorter, a curve cut and still on it), refused over the horizon; a painted layer laid on a plane and undone |
+| `test_pathbrush` | brushes along a path: Art from end to end as wide as asked, round a corner, Pattern and Scatter copies counted and turned, a closed path, drawn |
+| `test_handpass` | the hand pass: every tool of Retro Atelier's toolbar used through the window's input -- a click, Alt+click, a drag, Shift, Alt and Ctrl, a double click, the arrows, a finger's tap, drag and long press, a pen and its eraser -- nothing failing, and everything undone to the picture it began with (975 tries) |
 | `test_systemfiles` | the system's own file picker behind the kit's file dialogs, with a made-up system: a document opened as a copy and written back when the app saves it, Save As where the picker said (asked before, or after the file is there), what cannot be written told |
 | `test_svgimport`, `test_photosvg` | SVG drawn as resvg draws it (65 drawings: icons, flags, and one for each filter step, pattern, blending mode, mask and way of placing type), its text (runs, lines, along a path, the font found, letters in their own places, outlined, hollow, running down) and pictures (in the file, beside it, nowhere else) read, drawn -- on worker threads too -- and made layers; filters by numbers (linear light, a step's rectangle, noise, displacement, lighting); damaged files never a crash; a document written as SVG and opened again: the same layers by name, the same type, masks, effects, pattern fills, adjustment layers and blending modes, the same picture, the same file written twice; type as outlines |
 | `test_podcast` | Retro Podcast without a window: a feed file followed (read by a job), an episode played from where it was left, the queue, Mark Played and Unfollow undone, OPML, the library saved and read back |

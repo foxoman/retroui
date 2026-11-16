@@ -68,6 +68,7 @@ proc showPage(bw: BookWin; i: int) =
   let k = clamp(i, 0, b.pages.high)
   try:
     let d = b.doc(k)
+    forgetDoc(bw.dw)                 # (what the program kept of the page before: let go)
     bw.master = 0
     bw.page = k
     bw.dw.doc = d
@@ -85,6 +86,7 @@ proc editMaster(bw: BookWin; id: int; side: PageSide) =
   if m == nil: return
   try:
     let d = b.masterDoc(m, side)
+    forgetDoc(bw.dw)
     bw.dw.doc = d
     bw.master = id
     bw.side = if b.setup.facing: side else: psRight
@@ -640,6 +642,12 @@ proc layoutMenu() =
   ci("&Brand Kit...", "Brand Kit...")
   ci("&Recolor Design...", "Recolor Design...", enabled = some)
   ci("Chec&k Document...", "Check Document...", enabled = some)
+  sep()
+  ci("&Table of Contents...", "Table of Contents...", enabled = isBook)
+  ci("Update Table of Co&ntents", "Update Table of Contents", enabled = isBook)
+  ci("&Index...", "Index...", enabled = isBook)
+  ci("Update In&dex", "Update Index", enabled = isBook)
+  ci("Data &Merge...", "Data Merge...", enabled = some)
   sep()
   ci("&Add Page", "Add Page", enabled = isBook)
   ci("&Duplicate Page", "Duplicate Page", enabled = onPage)

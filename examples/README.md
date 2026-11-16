@@ -238,6 +238,21 @@ pages or spreads, a range) and Save Book as IDML; Type > Text Effects.
 `--run "Command"`, `--script file.rs` and `--list-commands` on the
 command line.
 
+**The layout program's ways** (5.3): Type > Insert Footnote and Insert
+Endnote; Layout > Table of Contents and Index; Paragraph > Hyphenate;
+Layer > Anchor to Text; Edit > Find/Change (words or GREP patterns) and
+Type > Story Editor; Layout > Data Merge. Text that does not fit its box
+is overset; Type > Text Frame Options sizes a box to its text
+(Auto-Size); a box picked with the Move tool shows its in and out ports --
+click the out port, then another box (or where there is none), and the
+text goes on there; a threaded port, then the box at the other end,
+breaks it. View > Perspective Grid: the Shape tools draw on the plane
+picked in its widget, Layer > Perspective > Attach to Active Plane lays a
+shape or a painted layer on it. Path Operations > Apply Brush to Path
+(Art, Pattern, Scatter) and Gradient Mesh; Character > Ligatures and Type
+> OpenType. `--headless` runs it without a window (`--shot OUT.png`: a
+picture of the window).
+
 On Android and iOS, Open and Save As are the phone's own file picker.
 
 ```sh

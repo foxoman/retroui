@@ -46,6 +46,14 @@ proc toImage*(p: VpPlane; u, v: float): (float, float) {.inline.} = project(p.to
 proc toPlane*(p: VpPlane; x, y: float): (float, float) {.inline.} = project(p.toUnit, x, y)
   ## A point of the picture on the plane (0..1 inside it).
 
+proc onFront*(p: VpPlane; x, y: float): bool =
+  ## The picture's point is on the plane's side of its horizon (the plane, made as big as it
+  ## goes, reaches it; past the horizon it would be behind the eye).
+  let (cx, cy) = p.toImage(0.5, 0.5)
+  let a = p.toUnit[6] * cx + p.toUnit[7] * cy + p.toUnit[8]
+  let b = p.toUnit[6] * x + p.toUnit[7] * y + p.toUnit[8]
+  a * b > 0
+
 proc inside*(p: VpPlane; x, y: float): bool =
   ## The picture's point is on the plane.
   let (u, v) = p.toPlane(x, y)

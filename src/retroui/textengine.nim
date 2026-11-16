@@ -20,7 +20,7 @@
 
 import std/[math, os, strutils, tables, algorithm, json]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
-import ttf, typeset, raster, otshape, unpacking
+import ttf, typeset, raster, otshape, unpacking, hyphenate
 
 const defaultFamily* = "FreeSans"
   ## The family of new text
@@ -60,12 +60,30 @@ proc typeWorker*(): bool {.inline.} =
   else: false
 
 var workerFaces {.threadvar.}: Table[int, Face]
+var outlineCache {.threadvar.}: Table[(pointer, int, int), seq[seq[(float32, float32)]]]
+  # (each thread its own: a worker's faces are its own too)
+
+when compileOption("threads"):
+  var letGoAtEnd {.threadvar.}: bool
+
+proc workerCaches() =
+  ## (a worker's faces and glyph outlines let go when its thread ends: a
+  ## thread's own variables are not)
+  when compileOption("threads"):
+    if letGoAtEnd or not typeWorker(): return
+    letGoAtEnd = true
+    onThreadDestruction(proc () {.closure, gcsafe, raises: [].} =
+      {.cast(gcsafe).}:
+        reset(workerFaces)
+        reset(outlineCache))
 
 proc ownFace(id: FaceId): Face =
   ## (a face of the program's for this thread: the one all drawing shares
   ## on the first, one parsed for the thread on a worker)
   if not typeWorker(): return face(id)
-  if not workerFaces.hasKey(ord(id)): workerFaces[ord(id)] = threadFace(id)
+  if not workerFaces.hasKey(ord(id)):
+    workerCaches()
+    workerFaces[ord(id)] = threadFace(id)
   workerFaces[ord(id)]
 
 var memFonts: seq[tuple[entry: FontEntry; ticket: int; face: Face]]
@@ -420,11 +438,41 @@ type
     dropLines*: int            ## text in a box: a drop cap -- its first letters as tall as so many
                                ## lines (2 and more), the lines beside them standing in (0: none)
     dropChars*: int            ## ... how many letters (0: one)
+    hyphenate*: bool           ## text in a box: an English word that does not fit at a line's end
+                               ## broken where it may be, with a hyphen (`retroui/hyphenate`)
+    gridAlign*: bool           ## its lines on the page's baseline grid (a paragraph style that says
+                               ## so: whoever applies it sets the text's `gridStep`, `gridStart`)
 
   KashidaLength* = enum
     ## How much justified Arabic is lengthened at its joins (tatweel) -- one
     ## join a word, where a scribe would put it -- before its spaces.
     kaMedium = "Medium", kaNone = "None", kaShort = "Short", kaLong = "Long", kaStylistic = "Stylistic"
+
+  NoteKind* = enum
+    ## Where a text's notes are set.
+    nkFootnotes = "Footnotes",   ## at the foot of the box their references are in
+    nkEndnotes = "Endnotes"      ## after the text's end, under a heading
+
+  Footnote* = object
+    ## A note: its reference in the text is the character `noteMark(id)`.
+    id*: int                     ## (1..65533)
+    text*: string                ## what it says ("\n": a paragraph of it)
+
+  NoteOptions* = object
+    ## How a text's notes are numbered and set (Footnote Options).
+    kind*: NoteKind
+    numbers*: NumberStyle        ## 1, 2, 3; ١, ٢, ٣; i, ii; a, b; أ, ب, ج
+    start*: int                  ## the first number (0: 1)
+    prefix*, suffix*: string     ## round the reference in the text ("[", "]")
+    separator*: string           ## between a note's number and its text ("": ". ")
+    scale*: float32              ## the notes' size, a share of the text's (0: 0.8)
+    refScale*: float32           ## the reference's size, a share of its text's (0: 0.6), raised
+    noRule*: bool                ## no line above the footnotes
+    ruleWidth*: float32          ## the line's thickness, pixels (0: 1)
+    ruleLength*: float32         ## its length, a share of the box's width (0: 0.33)
+    ruleColor*: uint32           ## its color, ARGB (0: the text's)
+    gap*: float32                ## the room above the notes, pixels (0: half the text's size)
+    heading*: string             ## the endnotes' heading ("": "Notes", "الحواشي" for Arabic)
 
   TextSpan* = object
     ## Text in one character style.
@@ -437,6 +485,11 @@ type
     wsBulge = "Bulge", wsShellLower = "Shell Lower", wsShellUpper = "Shell Upper", wsFlag = "Flag",
     wsWave = "Wave", wsFish = "Fish", wsRise = "Rise", wsFisheye = "Fisheye", wsInflate = "Inflate",
     wsSqueeze = "Squeeze", wsTwist = "Twist"
+
+  TextAutoSize* = enum
+    ## How a text box follows its text (Text Frame Options > Auto-Size, as the layout program's).
+    asOff = "Off", asHeight = "Height Only", asWidth = "Width Only", asBoth = "Height and Width",
+    asProportional = "Height and Width (Keep Proportions)"
 
   TextWarp* = object
     ## How a text is bent (Warp Text).
@@ -494,6 +547,12 @@ type
                                ## apart from `gridStart` (y) -- each line on the next one down
                                ## (Align to Baseline Grid; 0: as the leading puts them)
     table*: TableStyle         ## text in a box: a table (each paragraph a row, tabs between cells)
+    notes*: seq[Footnote]      ## its footnotes or endnotes, in the order of their references
+                               ## (`insertNote`, `tidyNotes`); a box it flows on into keeps them all
+    noteOpts*: NoteOptions     ## how they are numbered and set
+    autoSize*: TextAutoSize    ## text in a box: the box made as big as its text (`autoSized`)...
+    autoRef*: int              ## ... from this point of it, staying where it is: 0 top left, 1 top
+                               ## middle, 2 top right, 3 left middle ... 8 bottom right
     holes*: seq[TextHole]      ## text in a box: places its lines keep out of (what the text is
                                ## wrapped round: `x`, `y`'s own coordinates). A line takes the
                                ## widest room a hole leaves it, and goes under the hole when
@@ -586,6 +645,45 @@ proc alternatesFor*(text: string; st: CharStyle): seq[tuple[tag, name: string; o
 proc defaultStyle*(): CharStyle =
   ## The style of a new text: FreeSans Regular, 36 pixels, black.
   CharStyle(family: defaultFamily, style: "Regular", size: 36, color: 0xFF000000'u32, hScale: 1, vScale: 1)
+
+const DefaultFeatures* = ["liga", "clig", "calt", "kern"]
+  ## The OpenType features on when a style's `features` do not say: the
+  ## font's standard and contextual ligatures, contextual alternates and
+  ## kerning. Those a script needs -- Arabic's joined forms and its
+  ## required ligatures (lam + alef: `rlig`), marks placed -- are always on.
+
+proc featureOn*(features, tag: string): bool =
+  ## Whether OpenType feature `tag` is on in a style's list ("+ss01
+  ## -liga"): as the list says, else as `DefaultFeatures`.
+  result = tag in DefaultFeatures
+  for w in strutils.splitWhitespace(features):
+    if w == "+" & tag or w == tag: result = true
+    elif w == "-" & tag: result = false
+
+proc withFeature*(features, tag: string; on: bool): string =
+  ## The list with `tag` on or off (left out when that is its default).
+  var ws: seq[string]
+  for w in strutils.splitWhitespace(features):
+    if w notin ["+" & tag, "-" & tag, tag]: ws.add w
+  if on != (tag in DefaultFeatures): ws.add (if on: "+" else: "-") & tag
+  ws.join(" ")
+
+proc ligaturesOn*(s: CharStyle): bool = featureOn(s.features, "liga")
+  ## Ligatures (the Character panel's): the font's standard ligatures --
+  ## fi, fl; an Arabic font's optional ones -- are on.
+
+proc withLigatures*(features: string; on: bool): string =
+  ## The list with the standard and contextual ligatures (`liga`, `clig`)
+  ## on or off. Arabic's required ligatures stay.
+  withFeature(withFeature(features, "liga", on), "clig", on)
+
+const OpenTypeMenu* = [("Discretionary Ligatures", "dlig"), ("Fractions", "frac"), ("Ordinal", "ordn"),
+                       ("Swash", "swsh"), ("Titling Alternates", "titl"), ("Contextual Alternates", "calt"),
+                       ("All Small Caps", "c2sc"), ("Slashed Zero", "zero"), ("Superscript", "sups"),
+                       ("Subscript", "subs"), ("Oldstyle Figures", "onum"), ("Tabular Figures", "tnum"),
+                       ("Stylistic Alternates", "salt"), ("Historical Forms", "hist")]
+  ## The OpenType features a layout program's Character panel names in its
+  ## OpenType menu, and their tags (a font without one shows it in [brackets]).
 
 proc newText*(s: string; style = defaultStyle(); x = 0'f32; y = 0'f32): TextData =
   ## A point text saying `s` in one style.
@@ -893,8 +991,8 @@ proc columnize(l: var TextLayout; t: TextData; colW, gutter: float32; starts: va
         break
       yOff = ln.baseline - ln.ascent - t.y
       starts[col] = yOff
-    if ln.baseline + ln.descent - yOff > bottom and col == n - 1 and inCol == 0 and i > 0:
-      keep = i                    # (a line taller than the whole box: not drawn)
+    if ln.baseline + ln.descent - yOff > bottom and col == n - 1 and inCol == 0:
+      keep = i                    # (a line taller than the whole box: not drawn -- overset)
       break
     let rtl = ln.rtl
     let c = if rtl: n - 1 - col else: col      # (right to left: the first column at the right)
@@ -994,15 +1092,328 @@ proc holedColumns(t, single: TextData; cols: int; colW, gutter: float32): TextLa
     if same: break
   probe
 
+# ---- footnotes and endnotes -------------------------------------------------------------------------------
+
+const NoteBase = 0xF0000
+  # (a note's reference: one character of the Supplementary Private Use Area-A, its id after this)
+
+proc noteMark*(id: int): string =
+  ## The character that stands for note `id` in the text: its number is shown there.
+  $Rune(NoteBase + clamp(id, 1, 65533))
+
+proc isNoteMark*(cp: int): bool {.inline.} = cp > NoteBase and cp < NoteBase + 65534
+  ## Character `cp` is a note's reference.
+
+proc noteMarks*(t: TextData): seq[tuple[at, id: int]] =
+  ## The notes' references in the text: before which character, which note.
+  var i = 0
+  for sp in t.spans:
+    for r in sp.text.runes:
+      if isNoteMark(int(r)): result.add (i, int(r) - NoteBase)
+      inc i
+
+proc tidyNotes*(t: var TextData) =
+  ## The notes put in the order of their references; a note whose reference is gone goes too,
+  ## a reference without a note gets an empty one. (After the text was edited; never on a
+  ## `remainder`: it keeps the notes of the boxes before it.)
+  var byId: Table[int, string]
+  for n in t.notes: byId[n.id] = n.text
+  var notes: seq[Footnote]
+  var seen: seq[int]
+  for (at, id) in t.noteMarks:
+    if id in seen: continue
+    seen.add id
+    notes.add Footnote(id: id, text: byId.getOrDefault(id))
+  t.notes = notes
+
+proc insertNote*(t: var TextData; at: int; text = ""): int =
+  ## A new note saying `text`, its reference put before character `at` (in the style of the
+  ## character before it); its id (0: no room for one more).
+  var id = 1
+  for n in t.notes: id = max(id, n.id + 1)
+  for (_, k) in t.noteMarks: id = max(id, k + 1)
+  if id > 65533: return 0
+  var i = 0
+  var done = false
+  for s in t.spans.mitems:
+    let n = s.text.runeLen
+    if at <= i + n:
+      let off = max(0, at - i)
+      let b = if off >= n: s.text.len else: s.text.runeOffset(off)
+      s.text.insert(noteMark(id), b)
+      done = true
+      break
+    i += n
+  if not done:
+    if t.spans.len == 0: t.spans.add TextSpan(text: "", style: defaultStyle())
+    t.spans[^1].text.add noteMark(id)
+  t.notes.add Footnote(id: id, text: text)
+  t.tidyNotes()
+  id
+
+const AnchorBase = 0x100000
+  # (an anchored object's place in the text: one character of the Supplementary Private Use
+  # Area-B, its id after this -- laid out as nothing)
+
+proc anchorMark*(id: int): string =
+  ## The character that marks where anchored object `id` is in the text (it takes no room).
+  $Rune(AnchorBase + clamp(id, 1, 65533))
+
+proc isAnchorMark*(cp: int): bool {.inline.} = cp > AnchorBase and cp < AnchorBase + 65534
+  ## Character `cp` is an anchored object's place.
+
+proc anchorMarks*(t: TextData): seq[tuple[at, id: int]] =
+  ## The anchored objects' places in the text: at which character, which anchor.
+  var i = 0
+  for sp in t.spans:
+    for r in sp.text.runes:
+      if isAnchorMark(int(r)): result.add (i, int(r) - AnchorBase)
+      inc i
+
+proc insertAnchor*(t: var TextData; at: int): int =
+  ## A new anchor put before character `at`; its id (0: no room for one more).
+  var id = 1
+  for (_, k) in t.anchorMarks: id = max(id, k + 1)
+  if id > 65533: return 0
+  var i = 0
+  for s in t.spans.mitems:
+    let n = s.text.runeLen
+    if at <= i + n:
+      let off = max(0, at - i)
+      s.text.insert(anchorMark(id), if off >= n: s.text.len else: s.text.runeOffset(off))
+      return id
+    i += n
+  if t.spans.len == 0: t.spans.add TextSpan(text: "", style: defaultStyle())
+  t.spans[^1].text.add anchorMark(id)
+  id
+
+proc noteNumber*(t: TextData; id: int): string =
+  ## Note `id`'s number as it is written: its place among the notes, counted from
+  ## `noteOpts.start`, in `noteOpts.numbers`.
+  var k = -1
+  for i, n in t.notes:
+    if n.id == id:
+      k = i
+      break
+  if k < 0: return "?"
+  formatNumber((if t.noteOpts.start > 0: t.noteOpts.start else: 1) + k, t.noteOpts.numbers)
+
+proc noteHeading*(t: TextData): string =
+  ## The endnotes' heading: `noteOpts.heading`, else "Notes" -- "الحواشي" for an Arabic text.
+  if t.noteOpts.heading.len > 0: return t.noteOpts.heading
+  for sp in t.spans:
+    for r in sp.text.runes:
+      let c = int(r)
+      if c in 0x0600 .. 0x06FF: return "الحواشي"
+      if c in int('A') .. int('Z') or c in int('a') .. int('z'): return "Notes"
+  "Notes"
+
+proc refStyle(st: CharStyle; o: NoteOptions): CharStyle =
+  ## (a reference's number: smaller, raised)
+  result = st
+  let k = if o.refScale > 0: o.refScale else: 0.6'f32
+  result.baselineShift = st.baselineShift + st.size * 0.36
+  result.size = st.size * k
+  result.underline = false
+  result.strike = false
+
+proc noteStyle(t: TextData): CharStyle =
+  ## (the notes' own style: the text's first, smaller)
+  result = if t.spans.len > 0: t.spans[0].style else: defaultStyle()
+  result.size = result.size * (if t.noteOpts.scale > 0: t.noteOpts.scale else: 0.8'f32)
+  result.baselineShift = 0
+  result.underline = false
+  result.strike = false
+
+proc noteSpans(t: TextData; ids: seq[int]): seq[TextSpan] =
+  ## (the notes `ids`, a paragraph each: the number, then what it says)
+  let ns = t.noteStyle
+  let sep = if t.noteOpts.separator.len > 0: t.noteOpts.separator else: ". "
+  for q, id in ids:
+    var text = ""
+    for n in t.notes:
+      if n.id == id: text = n.text
+    result.add TextSpan(text: (if q > 0: "\n" else: "") & t.noteNumber(id) & sep, style: ns)
+    if text.len > 0: result.add TextSpan(text: text, style: ns)
+
+proc expandRefs(t: TextData): tuple[u: TextData; map: seq[int]; refs: seq[tuple[at, id: int]]] =
+  ## (the references written as their numbers; `map`: each character of `u` -> the one of `t`
+  ## it shows, and the end; `refs`: where each number begins in `u`)
+  result.u = t
+  result.u.spans = @[]
+  result.u.notes = @[]
+  var i = 0
+  for sp in t.spans:
+    var piece = ""
+    for r in sp.text.runes:
+      let cp = int(r)
+      if isAnchorMark(cp):
+        discard                      # (an anchor: no room, nothing drawn -- its place the next letter's)
+      elif isNoteMark(cp) and t.notes.len > 0:
+        if piece.len > 0:
+          result.u.spans.add TextSpan(text: piece, style: sp.style)
+          piece = ""
+        let num = t.noteOpts.prefix & t.noteNumber(cp - NoteBase) & t.noteOpts.suffix
+        result.refs.add (result.map.len, cp - NoteBase)
+        result.u.spans.add TextSpan(text: num, style: refStyle(sp.style, t.noteOpts))
+        for _ in 0 ..< max(1, num.runeLen): result.map.add i
+      else:
+        piece.add $r
+        result.map.add i
+      inc i
+    if piece.len > 0: result.u.spans.add TextSpan(text: piece, style: sp.style)
+  result.map.add i
+
+proc remapLayout(lay: var TextLayout; map: seq[int]) =
+  ## (a layout of the text with its numbers made the text's own again: each glyph's character,
+  ## the caret's places, the lines; what is past the text -- the notes -- is no character's)
+  let mainEnd = map.high
+  let n = map[^1]
+  for g in lay.glyphs.mitems:
+    g.index = if g.index < 0 or g.index >= mainEnd: -1 else: map[g.index]
+  if lay.caretX.len > 0:
+    var cx = newSeq[float32](n + 1)
+    var cl = newSeq[int](n + 1)
+    var seen = newSeq[bool](n + 1)
+    for j in 0 ..< min(mainEnd, lay.caretX.len):
+      let i = map[j]
+      if not seen[i]:
+        seen[i] = true
+        cx[i] = lay.caretX[j]
+        cl[i] = lay.caretLine[min(j, lay.caretLine.high)]
+    let e = min(mainEnd, lay.caretX.high)
+    cx[n] = lay.caretX[e]
+    cl[n] = lay.caretLine[min(e, lay.caretLine.high)]
+    # (a character not laid out -- an anchor --: where the next one is)
+    for i in countdown(n - 1, 0):
+      if not seen[i]:
+        cx[i] = cx[i + 1]
+        cl[i] = cl[i + 1]
+    lay.caretX = cx
+    lay.caretLine = cl
+  var lines: seq[LaidLine]
+  for ln in lay.lines:
+    if ln.first >= mainEnd and lines.len > 0: continue     # (a note's line)
+    var l2 = ln
+    l2.first = map[min(ln.first, mainEnd)]
+    l2.last = if ln.last >= mainEnd: n else: map[ln.last]
+    lines.add l2
+  lay.lines = lines
+  if lay.overflow >= 0: lay.overflow = if lay.overflow >= mainEnd: -1 else: map[lay.overflow]
+
+proc notesAsText*(t: TextData): TextData =
+  ## The text with its notes as plain text: the references' numbers in it (smaller, raised),
+  ## the notes after it, a paragraph each -- for what has no notes of its own (a PSD's type, an
+  ## SVG's text).
+  if t.notes.len == 0: return t
+  let (u, _, _) = expandRefs(t)
+  result = u
+  result.spans.add TextSpan(text: "\n", style: t.noteStyle)
+  if t.noteOpts.kind == nkEndnotes:
+    var hs = if t.spans.len > 0: t.spans[0].style else: defaultStyle()
+    hs.fauxBold = true
+    result.spans.add TextSpan(text: t.noteHeading & "\n",
+                              style: hs)
+  var ids: seq[int]
+  for n in t.notes: ids.add n.id
+  result.spans.add t.noteSpans(ids)
+
+proc layoutText*(t: TextData): TextLayout
+
+proc notesLaid(t: TextData): TextLayout =
+  ## (a text with notes: the references' numbers in it; footnotes at the foot of its box --
+  ## the text kept above them, the notes of the references that are in the box, under a line;
+  ## endnotes, and the notes of text not in a box, after it)
+  var (u, map, refs) = expandRefs(t)
+  if t.notes.len == 0:
+    # (anchors only: the text without them, the caret's places theirs too)
+    result = layoutText(u)
+    remapLayout(result, map)
+    return
+  let o = t.noteOpts
+  let base = if t.spans.len > 0: t.spans[0].style else: defaultStyle()
+  if o.kind == nkEndnotes or t.boxW <= 0 or t.boxH <= 0:
+    var ids: seq[int]
+    for n in t.notes: ids.add n.id
+    let gapLine = TextSpan(text: "\n", style: t.noteStyle)
+    u.spans.add gapLine
+    if o.kind == nkEndnotes:
+      var hs = base
+      hs.fauxBold = true
+      u.spans.add TextSpan(text: t.noteHeading & "\n", style: hs)
+    u.spans.add t.noteSpans(ids)
+    result = layoutText(u)
+    remapLayout(result, map)
+    return
+  let gap = if o.gap > 0: o.gap else: base.size * 0.5
+  var reserve = 0'f32
+  var blk: TextLayout
+  var blkH = 0'f32
+  for round in 0 ..< 8:
+    var m = u
+    m.boxH = max(1'f32, t.boxH - reserve)
+    m.clipOverflow = true
+    result = layoutText(m)
+    let upTo = if result.overflow >= 0: result.overflow else: map.high
+    var ids: seq[int]
+    for (at, id) in refs:
+      if at < upTo and id notin ids: ids.add id
+    if ids.len == 0:
+      blk = TextLayout()
+      blkH = 0
+      break
+    var nt = newText("", t.noteStyle, t.x, 0)
+    nt.spans = t.noteSpans(ids)
+    nt.boxW = t.boxW
+    nt.boxH = 1e6
+    nt.para.rtl = t.para.rtl
+    nt.para.align = t.para.align
+    if nt.para.align == justifyAll: nt.para.align = justifyLeft
+    blk = layoutText(nt)
+    blkH = if blk.lines.len > 0: blk.lines[^1].baseline + blk.lines[^1].descent else: 0'f32
+    let need = blkH + gap
+    if need <= reserve + 0.5 or reserve >= t.boxH * 0.9: break
+    reserve = min(need, t.boxH * 0.9)
+  if blkH > 0:
+    let top = t.y + t.boxH - blkH
+    for g in blk.glyphs:
+      var g2 = g
+      g2.y += top
+      g2.index = -1
+      if g2.y - g2.size * 0.8 >= t.y: result.glyphs.add g2       # (a note taller than the box: cut)
+    for dcr in blk.decorations:
+      var d2 = dcr
+      d2.y += top
+      result.decorations.add d2
+    if not o.noRule:
+      let rtl = (t.para.rtl == 2) or (t.para.rtl == 0 and blk.lines.len > 0 and blk.lines[0].rtl)
+      let len = t.boxW * (if o.ruleLength > 0: o.ruleLength else: 0.33'f32)
+      let x0 = if rtl: t.x + t.boxW - len else: t.x
+      result.decorations.add Decoration(x0: x0, x1: x0 + len, y: top - gap * 0.5,
+                                        thick: (if o.ruleWidth > 0: o.ruleWidth else: 1'f32),
+                                        color: (if o.ruleColor != 0: o.ruleColor else: base.color))
+    result.y1 = max(result.y1, t.y + t.boxH)
+    result.x0 = min(result.x0, t.x)
+    result.x1 = max(result.x1, t.x + t.boxW)
+  remapLayout(result, map)
+
 proc layoutText*(t: TextData): TextLayout =
   ## Where each glyph of the text goes (straight: warps and paths are made
-  ## from this when drawn). Dynamic Text: as big as fills its box. In
-  ## columns (`columns`), or kept in its box (`clipOverflow`): what does
-  ## not fit is let go, `overflow` says from where.
+  ## from this when drawn). Dynamic Text: as big as fills its box. Text in
+  ## a box, in its columns (`columns`): what does not fit is overset, not
+  ## drawn -- `overflow` says from where. Notes: their
+  ## references' numbers in the text, footnotes at the foot of the box
+  ## (endnotes after the text), the text kept above them.
+  if t.path.len == 0:
+    for sp in t.spans:
+      for r in sp.text.runes:
+        let c = int(r)
+        if (isNoteMark(c) and t.notes.len > 0) or isAnchorMark(c): return notesLaid(t)
   var u = t
   let cols = max(1, t.columns)
-  let boxedCols = t.boxW > 0 and t.boxH > 0 and t.path.len == 0 and not t.vertical and
-                  (cols > 1 or t.clipOverflow) and not t.table.on
+  # (text in a box keeps to it, as the layout programs have it: what does not fit is overset --
+  # not drawn, `overflow` says from where -- a line too tall for the box too)
+  let boxedCols = t.boxW > 0 and t.boxH > 0 and t.path.len == 0 and not t.vertical and not t.table.on
   let gutter = if t.gutter > 0: t.gutter else: 12'f32
   let colW = if boxedCols: max(8'f32, (t.boxW - gutter * float32(cols - 1)) / float32(cols)) else: t.boxW
   if boxedCols: u.boxW = colW
@@ -1012,6 +1423,84 @@ proc layoutText*(t: TextData): TextLayout =
            else: layoutPlain(u)
   result.overflow = -1
   if boxedCols: result.columnize(t, colW, gutter, starts)
+
+proc fitsBox(t: TextData; w, h: float32): bool =
+  var u = t
+  u.boxW = w
+  u.boxH = h
+  layoutText(u).overflow < 0
+
+proc autoSized*(t: TextData): TextData =
+  ## Text in a box with Auto-Size: the box as big as its text needs -- taller or shorter (Height
+  ## Only), as wide as its longest line (Width Only: its lines broken only where they end), both,
+  ## or both kept in proportion -- the point `autoRef` names staying where it is. `t` itself when
+  ## it has none (or is not in a box, on a path, vertical, Dynamic Text).
+  result = t
+  if t.autoSize == asOff or t.boxW <= 0 or t.boxH <= 0 or t.path.len > 0 or t.vertical or t.fit or
+     t.table.on:
+    return
+  var w = t.boxW
+  var h = t.boxH
+  let cols = max(1, t.columns)
+  if t.autoSize in {asWidth, asBoth}:
+    # (as wide as the longest line, laid out with room to spare)
+    var u = t
+    u.boxW = 1e5
+    u.boxH = 1e6
+    u.columns = 1
+    u.holes = @[]
+    let lay = layoutText(u)
+    var widest = 0'f32
+    for ln in lay.lines: widest = max(widest, ln.x1 - ln.x0)
+    if lay.lines.len > 0:
+      let gutter = if t.gutter > 0: t.gutter else: 12'f32
+      w = (widest + t.para.indentLeft + t.para.indentRight + max(0'f32, t.para.indentFirst) + 1) *
+          float32(cols) + gutter * float32(cols - 1)
+      w = max(w, 4)
+  if t.autoSize in {asHeight, asBoth}:
+    if cols == 1 and t.notes.len == 0:
+      var u = t
+      u.boxW = w
+      u.boxH = 1e6
+      let lay = layoutText(u)
+      if lay.lines.len > 0:
+        var bottom = t.y
+        for ln in lay.lines: bottom = max(bottom, ln.baseline + ln.descent)
+        h = max(4'f32, bottom - t.y + 1)
+    else:
+      # (columns share it, notes at its foot: as short as all of it still fits)
+      var lo = 4'f32
+      var hi = max(t.boxH, 8'f32)
+      while not fitsBox(t, w, hi) and hi < 1e5: hi *= 2
+      for k in 0 ..< 16:
+        let mid = (lo + hi) / 2
+        if fitsBox(t, w, mid): hi = mid else: lo = mid
+      h = hi + 1
+  if t.autoSize == asProportional:
+    # (both, in the box's proportion: the smallest that holds it)
+    let k0 = t.boxH / max(1'f32, t.boxW)
+    var lo = 0.05'f32
+    var hi = 1'f32
+    while not fitsBox(t, t.boxW * hi, t.boxH * hi) and hi < 64: hi *= 2
+    for k in 0 ..< 16:
+      let mid = (lo + hi) / 2
+      if fitsBox(t, t.boxW * mid, t.boxH * mid): hi = mid else: lo = mid
+    w = t.boxW * hi
+    h = w * k0
+  let col = t.autoRef mod 3
+  let row = t.autoRef div 3
+  result.x = t.x - (w - t.boxW) * float32(col) / 2
+  result.y = t.y - (h - t.boxH) * float32(row) / 2
+  result.boxW = w
+  result.boxH = h
+
+proc anchorPlaces*(t: TextData; lay: TextLayout): seq[tuple[id: int; x, y: float32; shown: bool]] =
+  ## Where each anchor of the text is, laid out as `lay`: at its line's baseline, where the
+  ## caret before it goes (`shown` false: past what the box holds).
+  for (at, id) in t.anchorMarks:
+    if at >= lay.caretX.len or lay.lines.len == 0: continue
+    let li = clamp(lay.caretLine[at], 0, lay.lines.high)
+    result.add (id, lay.caretX[at], lay.lines[li].baseline, lay.overflow < 0 or at < lay.overflow)
 
 proc remainder*(t: TextData; first: int): TextData =
   ## What is left of the text from character `first` on (what did not fit
@@ -1316,19 +1805,56 @@ proc layoutPlain(t: TextData): TextLayout =
     # (round holes: each line broken when it is known where it lies, and how much room the
     # holes leave it there)
     let holed = boxed and t.holes.len > 0
+    proc hyphenAdv(k: int): float32 =
+      ## (a hyphen's width after character `k`, in its font)
+      let c = chars[k]
+      let (f, g) = pickGlyph(c.face, 0x2D)
+      if g == 0: c.size * 0.33'f32
+      else: float32(f.advance(g)) / float32(f.unitsPerEm) * c.size * styles[c.style].hScale
     template breakLine(ls: int; room: float32; whole = false): int =
       ## (where the line that starts at `ls` ends, `room` wide; `whole`:
-      ## nothing of it when not a word of it fits)
+      ## nothing of it when not a word of it fits; Hyphenate: the word that
+      ## does not fit broken where it may be, a hyphen after it -- `hyphenAt`)
       var w = (if ls == paraStart: t.para.indentFirst else: 0'f32)
       var k = ls
       var lastBreak = -1
+      var wAtWord = w
       while k < paraEnd:
-        if chars[k].space: lastBreak = k
+        if chars[k].space:
+          lastBreak = k
+          wAtWord = w + chars[k].adv
         if w + chars[k].adv > room and k > ls and not chars[k].space:
           break
         w += chars[k].adv
         inc k
-      (if k >= paraEnd: paraEnd elif lastBreak >= ls: lastBreak + 1 elif whole: ls else: k)
+      var cut = (if k >= paraEnd: paraEnd elif lastBreak >= ls: lastBreak + 1 elif whole: ls else: k)
+      if t.para.hyphenate and boxed and k < paraEnd and not rtlPara:
+        # (the word at the break: its letters, a place in it that fits with a hyphen)
+        let ws = if lastBreak >= ls: lastBreak + 1 else: ls
+        var we = ws
+        var word = ""
+        while we < paraEnd and not chars[we].space and chars[we].cp != 10:
+          let cp = chars[we].cp
+          if cp < 128: word.add char(cp) else: word.add '?'
+          inc we
+        # (the word's letters without what is round them: "word," "(word")
+        var w0 = 0
+        var w1 = word.len
+        while w0 < w1 and word[w0] notin {'a' .. 'z', 'A' .. 'Z'}: inc w0
+        while w1 > w0 and word[w1 - 1] notin {'a' .. 'z', 'A' .. 'Z'}: dec w1
+        if w1 - w0 >= 5:
+          let pts = hyphenPoints(word[w0 ..< w1])
+          var best = -1
+          for p in pts:
+            let at = ws + w0 + p
+            var ww = (if lastBreak >= ls: wAtWord else: (if ls == paraStart: t.para.indentFirst else: 0'f32))
+            for q in ws ..< at: ww += chars[q].adv
+            if ww + hyphenAdv(at - 1) <= room and at > ls: best = at
+          if best > 0:
+            cut = best
+            hyphenAt[cut] = true
+      cut
+    var hyphenAt = newSeq[bool](paraEnd + 1)
     var lines: seq[(int, int)]
     var ls = paraStart
     if not holed:
@@ -1424,6 +1950,8 @@ proc layoutPlain(t: TextData): TextLayout =
       while e > a and (chars[e - 1].space or chars[e - 1].cp == 10): dec e
       var width = 0'f32
       for k in a ..< e: width += chars[k].adv
+      let hyphenated = b > a and b < hyphenAt.len and hyphenAt[b] and e == b
+      if hyphenated: width += hyphenAdv(b - 1)
       let indent = t.para.indentLeft + (if a == paraStart: t.para.indentFirst else: 0'f32)
       let lastOfPara = if holed: b >= paraEnd else: li == lines.high
       let align = t.para.align
@@ -1580,6 +2108,15 @@ proc layoutPlain(t: TextData): TextLayout =
           if st.strike:
             result.decorations.add Decoration(x0: x, x1: x + adv, y: penY - c.size * 0.3, thick: th, color: st.color)
         x += adv
+      if hyphenated:
+        # (the word broken here: its hyphen after it)
+        let c = chars[b - 1]
+        let st = styles[c.style]
+        let (hf, hg) = pickGlyph(c.face, 0x2D)
+        if hg != 0:
+          result.glyphs.add LaidGlyph(face: hf, gid: hg, x: x, y: penY - st.baselineShift, size: c.size,
+                                      hScale: st.hScale, vScale: st.vScale, color: st.color, index: b - 1,
+                                      adv: hyphenAdv(b - 1))
       result.lines.add LaidLine(baseline: penY, ascent: asc, descent: desc, x0: startX, x1: startX + lineW,
                                 first: a, last: b, rtl: rtlPara)
       inc lineNo
@@ -1810,14 +2347,12 @@ proc fillPolys(px: var seq[uint32]; w, h: int; polys: seq[seq[(float32, float32)
       px[i] = (uint32(oa) shl 24) or ch(16) or ch(8) or ch(0)
   box.grow(bx0, by0, bx1 + 1, by1 + 1)
 
-var outlineCache {.threadvar.}: Table[(pointer, int, int), seq[seq[(float32, float32)]]]
-  # (each thread its own: a worker's faces are its own too)
-
 proc outlineOf(f: Face; gid, steps: int): seq[seq[(float32, float32)]] =
   ## A glyph's contours (kept: text is drawn again on each key typed).
   let key = (cast[pointer](f), gid, steps)
   if outlineCache.hasKey(key): return outlineCache[key]
   if outlineCache.len > 6000: outlineCache.clear()
+  workerCaches()
   result = f.contours(gid, steps)
   outlineCache[key] = result
 
@@ -2110,8 +2645,9 @@ proc cellOf(t: TextData; a, b: int): TextData =
     at += n
   if result.spans.len == 0: result.spans.add TextSpan(text: "", style: t.styleAt(a))
 
-proc looksNumeric(t: TextData): bool =
-  ## (a cell that says a number: digits, with signs, separators, a currency or %)
+proc looksNumeric*(t: TextData): bool =
+  ## A table's cell that says a number: digits (Arabic-Indic too), with signs, separators, a
+  ## currency or % -- set at its right when the table says so.
   var digits = 0
   for sp in t.spans:
     for r in sp.text.runes:
@@ -2500,7 +3036,20 @@ proc toJson*(t: TextData): JsonNode =
   if t.columns > 1: result["columns"] = %t.columns
   if t.gutter > 0: result["gutter"] = %t.gutter
   if t.clipOverflow: result["clipOverflow"] = %true
+  if t.autoSize != asOff:
+    result["autoSize"] = %($t.autoSize)
+    result["autoRef"] = %t.autoRef
   if t.table.on: result["table"] = tableToJson(t.table)
+  if t.notes.len > 0:
+    var ns = newJArray()
+    for n in t.notes: ns.add %*{"id": n.id, "text": n.text}
+    result["notes"] = ns
+    let o = t.noteOpts
+    result["noteOpts"] = %*{"kind": $o.kind, "numbers": $o.numbers, "start": o.start, "prefix": o.prefix,
+                            "suffix": o.suffix, "separator": o.separator, "scale": o.scale,
+                            "refScale": o.refScale, "noRule": o.noRule, "ruleWidth": o.ruleWidth,
+                            "ruleLength": o.ruleLength, "ruleColor": o.ruleColor, "gap": o.gap,
+                            "heading": o.heading}
   if t.gridStep > 0:
     result["gridStep"] = %t.gridStep
     result["gridStart"] = %t.gridStart
@@ -2531,9 +3080,35 @@ proc textFrom*(j: JsonNode): TextData =
   result.columns = j{"columns"}.getInt(0)
   result.gutter = j{"gutter"}.getFloat(0).float32
   result.clipOverflow = j.getB("clipOverflow")
+  for a in TextAutoSize:
+    if j{"autoSize"}.getStr == $a: result.autoSize = a
+  result.autoRef = clamp(j{"autoRef"}.getInt(0), 0, 8)
   result.gridStep = clamp(float32(j.getF("gridStep")), 0, 10_000)
   if j.hasKey("table"): result.table = tableFrom(j["table"])
   result.gridStart = clamp(float32(j.getF("gridStart")), -100_000, 100_000)
+  for nj in j{"notes"}.getElems:
+    if result.notes.len >= 65533: break
+    let id = nj{"id"}.getInt(0)
+    if id in 1 .. 65533: result.notes.add Footnote(id: id, text: nj{"text"}.getStr)
+  if j.hasKey("noteOpts") and j["noteOpts"].kind == JObject:
+    let o = j["noteOpts"]
+    template en(T: typedesc; k: string; v: untyped) =
+      for e in T:
+        if $e == o{k}.getStr: v = e
+    en(NoteKind, "kind", result.noteOpts.kind)
+    en(NumberStyle, "numbers", result.noteOpts.numbers)
+    result.noteOpts.start = clamp(o{"start"}.getInt(0), 0, 100_000)
+    result.noteOpts.prefix = o{"prefix"}.getStr
+    result.noteOpts.suffix = o{"suffix"}.getStr
+    result.noteOpts.separator = o{"separator"}.getStr
+    result.noteOpts.scale = clamp(float32(o.getF("scale")), 0, 4)
+    result.noteOpts.refScale = clamp(float32(o.getF("refScale")), 0, 4)
+    result.noteOpts.noRule = o{"noRule"}.getBool
+    result.noteOpts.ruleWidth = clamp(float32(o.getF("ruleWidth")), 0, 100)
+    result.noteOpts.ruleLength = clamp(float32(o.getF("ruleLength")), 0, 1)
+    result.noteOpts.ruleColor = uint32(clamp(o{"ruleColor"}.getBiggestInt(0), 0, 0xFFFFFFFF'i64))
+    result.noteOpts.gap = clamp(float32(o.getF("gap")), 0, 10_000)
+    result.noteOpts.heading = o{"heading"}.getStr
   if j.hasKey("para"):
     let p = j["para"]
     result.para.align = enumOf(p.getS("align"), textLeft)
@@ -2607,6 +3182,8 @@ proc tableFrom(j: JsonNode): TableStyle =
       if result.widths.len < 200 and w.kind in {JInt, JFloat}: result.widths.add clamp(float32(w.getFloat), 0, 1000)
 
 proc dropToJson(p: ParaStyle; j: JsonNode) =
+  if p.hyphenate: j["hyphenate"] = %true
+  if p.gridAlign: j["gridAlign"] = %true
   if p.dropLines < 2: return
   j["dropLines"] = %p.dropLines
   if p.dropChars > 1: j["dropChars"] = %p.dropChars
@@ -2623,6 +3200,8 @@ proc listFrom(p: var ParaStyle; j: JsonNode) =
   p.listIndent = clamp(float32(j.getF("listIndent")), 0, 4000)
   p.dropLines = clamp(int(j.getF("dropLines")), 0, 20)
   p.dropChars = clamp(int(j.getF("dropChars")), 0, 20)
+  p.hyphenate = j{"hyphenate"}.getBool
+  p.gridAlign = j{"gridAlign"}.getBool
 
 proc paraToJson*(p: ParaStyle): JsonNode =
   ## A paragraph style as JSON (Paragraph Styles kept in a document).

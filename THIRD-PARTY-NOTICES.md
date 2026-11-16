@@ -16,6 +16,7 @@ you ship one. Every license text is in the repository beside the part.
 | uirelays | `src/retroui/uirelays/`, `LICENSE.md`, my changes in `RETRO.md` | MIT | the drivers' interface |
 | SQLite | `src/retroui/vendor/sqlite/` | public domain | `retroui/db` |
 | Monocypher (and its Ed25519) | `src/retroui/vendor/monocypher.c`, `monocypher-ed25519.c`, `LICENCE-Monocypher.md` | 2-clause BSD or CC0 | `retroui/vault`, the chat's end-to-end encryption, `retroui/update`'s signatures |
+| Hyphenation patterns for American English (Gerard D. C. Kuiken, from hyph-utf8) | `src/retroui/vendor/hyph-en-us.tex` (its notice at its top) | permissive: copying and changing it allowed, its copyright notice and this notice kept | `retroui/hyphenate`: English words broken at a line's end |
 
 The font exception of FreeFont means a document or an app that embeds
 the fonts is not covered by the GPL because of them; the fonts themselves

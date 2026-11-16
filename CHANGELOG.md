@@ -1,5 +1,133 @@
 # Changes
 
+## 0.57.0
+
+Layout and drawing as the layout and drawing programs work them:
+footnotes and endnotes, a table of contents and an index, English
+hyphenation, objects anchored in text, Find/Change with patterns and the
+Story Editor, Data Merge, text frames threaded by their ports and sized by
+Auto-Size, a perspective grid, brushes along a path, a real gradient mesh,
+ligatures as the Arabic edition sets them; IDML with real tables, notes and
+threads; a program run without a window; and painted layers that take
+memory only where they are painted.
+
+- **Footnotes and endnotes** (`retroui/textengine`: `Footnote`,
+  `NoteOptions`, `insertNote`, `noteMarks`, `tidyNotes`, `noteNumber`,
+  `notesAsText`): a reference in the text, numbered (digits, Arabic-Indic,
+  Roman, letters, abjad; a first number, before and after it, its size),
+  its note at the foot of the box -- the text kept above them, a rule over
+  them (its width, length and color) -- or after the text under a heading
+  ("Notes", "الحواشي"). A note whose reference is deleted goes with it.
+  PSD and SVG carry them as text; IDML as the layout program's own
+  footnotes, both ways.
+- **A table of contents and an index** (`retroui/booklists`: `tocEntries`,
+  `indexEntries`, `tocText`, `indexText`): the headings of a book -- the
+  paragraph styles picked, each a level, or the type at a size and over --
+  in the pages' order with their page numbers; the words and phrases
+  asked for found on their pages as whole words, in any case, Arabic with
+  or without its marks, sorted, a heading for each first letter if asked;
+  each as a text box (a table of two columns, the numbers at the edge),
+  made again when the pages change.
+- **Hyphenation** (`retroui/hyphenate`: `hyphenPoints`, `hyphenated`;
+  `ParaStyle.hyphenate`): English words broken at a line's end in a box,
+  by Liang's patterns (the TeX patterns for American English, Gerard D. C.
+  Kuiken's, vendored as `vendor/hyph-en-us.tex`). PSD and IDML keep it.
+- **Paragraph styles carry drop caps and the baseline grid**
+  (`ParaStyle.gridAlign`): a style put on a paragraph sets them too.
+- **Objects anchored in text** (`Layer.anchorTo`, `anchorAt`,
+  `anchorToText`, `releaseAnchor`, `anchorOrigin`, `anchorPlaces`): a
+  shape, a picture or a frame keeps its place by a character of a text
+  and moves with its line as the text changes; kept in the file.
+- **Find and change** (`retroui/textsearch`: `compilePattern`, `find`,
+  `findAll`, `expand`, `findIn`, `changeIn`): words, or patterns as GREP
+  writes them -- digits (Arabic-Indic too), letters, spaces, classes,
+  groups, either-or, counts, the fewest, a line's start and end, word
+  edges -- found in characters, not bytes; the change with the groups
+  ($1), each text keeping its styles. `editPlain`: a text's words changed
+  as plain text, the styles kept for what did not change (a story editor).
+- **Data Merge** (`retroui/datamerge`: `fieldsOf`, `merged`): a design
+  whose text says «Field» (or <<Field>>) and whose frames are named for a
+  column with an @ (@Photo), and a table (CSV): each row a copy with the
+  fields filled and the pictures the row names placed to fill their
+  frames.
+- **Text frames as the layout program has them**: text in a box keeps to
+  it -- what does not fit is overset, not drawn below it, a line too tall
+  for the box too (`TextLayout.overflow`). **Auto-Size**
+  (`TextData.autoSize`, `autoRef`, `TextAutoSize`, `autoSized`): the box
+  as tall as its text, as wide as its longest line, both, or both in
+  proportion, the reference point picked staying; drawn so by `drawText`.
+  **Threads** (`followerOf`, `storyHead`, `canThread`, `threadText`,
+  `unthreadText`; a book: `storyStart`, `threadPages`, `unlinkPages(...,
+  keepText = false)`): a box threaded after another, its own words added
+  to the story's end, one put in between; the thread broken, the boxes
+  after it empty and the text overset in the box before -- on one page or
+  from page to page.
+- **IDML**: real tables both ways; footnotes; ligatures, OpenType features
+  and hyphenation; columns and Auto-Size read; threaded frames written as
+  one story (each frame's previous and next) and read back threaded, on a
+  page and from page to page.
+- **A perspective grid** (`retroui/perspectivegrid`: `PerspectiveGrid`,
+  `defaultGrid`, `onePoint`, `planeQuad`, `gridLines`, `ontoPlane`,
+  `pixelsOntoPlane`, `gridToJson`, `gridFrom`; `Doc.perspective`): one or
+  two vanishing points, the walls and the floor; a path or a painted
+  layer laid on a plane where it is (the corners of its box stay, the
+  rest follows the plane). `retroui/photovp`: `onFront`.
+- **Brushes along a path** (`retroui/pathbrush`: `PathBrush`,
+  `brushedPath`, `builtinBrush`, `BuiltinBrushes`): artwork laid along a
+  path -- Art (stretched and bent along all of it), Pattern (copies one
+  after another, each bent), Scatter (copies turned with it) -- as
+  outlines to fill; eight brushes come with it, any shape's outline is one.
+- **A gradient mesh** (`ShapePaint` style 6, `meshCols`, `meshPaint`,
+  `meshAt`): a grid of colored points over a shape, each point movable --
+  the colors bend with it; in SVG as a picture.
+- **Ligatures as the Arabic edition sets them** (`ligaturesOn`,
+  `withLigatures`, `featureOn`, `withFeature`, `OpenTypeMenu`): standard
+  ligatures on or off (Arabic's required ones stay), and the OpenType
+  features a font has; PSD and IDML both ways.
+- **A program without a window** (`retroui/headless`: `useHeadless`,
+  `headlessInput`, `headlessShot`, `headlessPixels`): its frames drawn in
+  memory, the input it is given used -- for a command line, a server,
+  tests.
+- **Memory**: a painted layer, its copies (Duplicate Layer, a page
+  copied) and a layer read back from its file take memory only where
+  something is painted (`sparseCopy`; `zeroPixels` gets pages never used);
+  the undo history's room shared by the open documents; a closed
+  document's last references let go; the heap trimmed while input keeps
+  coming; `RETRO_DEVICE_MB` sets the memory a program takes the device to
+  have.
+- **Tests**: `test_handpass` uses every tool of Retro Atelier's toolbar
+  as a person would -- a click, a drag, Shift, Alt and Ctrl, a double
+  click, the arrows, a finger's tap, drag and long press, a pen and its
+  eraser end -- and undoes it all to the picture it began with; and
+  `test_booklists`, `test_datamerge`, `test_textsearch`, `test_headless`,
+  `test_perspectivegrid`, `test_pathbrush`.
+
+Retro Atelier 5.3.0: **Type > Insert Footnote, Insert Endnote, Footnotes
+and Endnotes**; **Layout > Table of Contents, Index** (and Update);
+**Paragraph > Hyphenate**; **Layer > Anchor to Text, Release Anchor**;
+**Edit > Find/Change** (patterns, this text, the page or the book) and
+**Type > Story Editor**; **Layout > Data Merge** (a preview row, Create
+Merged Document); **Type > Text Frame Options** (columns, gutter,
+Auto-Size and its reference point) -- the template's titles and headings
+grow with their size; a text box picked with the Move tool shows its **in
+and out ports** (a triangle when threaded, a red plus when overset): the
+out port clicked loads the text, a box clicked takes it, a click or drag
+where there is none makes one (on another page of a book too), the port
+of a threaded box then the box at the thread's other end -- or a
+double-click on the port -- breaks it, Esc lets the text go; the
+thread's lines show (View > Show > Text Threads); **View > Perspective
+Grid** (Show, Lock, One and Two Point, Define Grid, the planes) with the
+plane widget at the view's corner and handles to move the points, the
+horizon, the ground, the height and the depth -- the Shape tools draw on
+the active plane, **Layer > Perspective > Attach to Active Plane**;
+**Path Operations > Apply Brush to Path** and **Gradient Mesh**; the
+Character panel's menu **Ligatures** and **Type > OpenType**; **Check
+Document** counts the notes; `--headless` (with `--shot OUT.png` for the
+window's picture), `--help`; every new word in Arabic. Fixed: the
+Channels panel of a page-shaped picture (it failed); the memory of long
+sessions (a closed document's pictures kept, each document's undo room
+taken as all of the device's).
+
 ## 0.56.0
 
 Drawing and layout nearer the photo side: pictures made vectors, type

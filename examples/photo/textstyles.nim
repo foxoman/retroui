@@ -74,7 +74,18 @@ proc stylesPanel(paragraph: bool) =
     else:
       d.beginStep(kind)
       d.touchLayers()
-      if paragraph: d.applyParaStyle(L, name)
+      if paragraph:
+        d.applyParaStyle(L, name)
+        # (a style that keeps its lines on the baseline grid: on the page's grid, or off it)
+        let g = if active != nil: bookGrid(active) else: (0'f32, 0'f32)
+        if L.text.boxW > 0 and (L.text.para.gridAlign != (L.text.gridStep > 0)):
+          var t = L.text
+          if t.para.gridAlign and g.step > 0:
+            t.gridStep = g.step
+            t.gridStart = g.start
+          elif not t.para.gridAlign:
+            t.gridStep = 0
+          d.setText(L, t)
       else: d.applyCharStyle(L, a, b, name)
       d.endStep()
       if te.on and not paragraph:
@@ -163,23 +174,6 @@ const
                       "mark", "mkmk", "curs", "mset", "abvm", "blwm", "abvs", "blws", "pres", "psts",
                       "nukt", "akhn", "rphf", "blwf", "half", "pstf", "vatu", "cjct", "ljmo", "vjmo", "tjmo",
                       "stch", "dist", "rvrn", "aalt", "ltra", "ltrm", "rtla", "rtlm", "vert", "vrt2"]
-  OnByDefault = ["liga", "clig", "calt", "kern"]
-
-proc featureState*(features, tag: string): bool =
-  ## Whether `tag` is on in a style's feature list ("+ss01 -liga"), the
-  ## font's own default when the list does not say.
-  result = tag in OnByDefault
-  for w in features.splitWhitespace:
-    if w == "+" & tag or w == tag: result = true
-    elif w == "-" & tag: result = false
-
-proc withFeature*(features, tag: string; on: bool): string =
-  ## The feature list with `tag` set (left out when that is its default).
-  var ws: seq[string]
-  for w in features.splitWhitespace:
-    if w notin ["+" & tag, "-" & tag, tag]: ws.add w
-  if on != (tag in OnByDefault): ws.add (if on: "+" else: "-") & tag
-  ws.join(" ")
 
 proc axisValue*(variation, tag: string; default: float): float =
   ## A variable font axis's value in a style ("wght=650 wdth=90").
@@ -215,7 +209,7 @@ proc openTypeBody() =
       let lh = min(ItemH * 12, max(ItemH * 4, remainingH() div 2))
       beginScroll(lh, "otfeatures")
       for t in tags:
-        var on = featureState(s.features, t)
+        var on = featureOn(s.features, t)
         if checkbox(f.featureName(t) & "  (" & t & ")", on):
           let tag = t
           let v = on

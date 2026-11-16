@@ -4,7 +4,7 @@
 ## that goes on from page to page, the book's file and its PDF. With
 ## PHOTO_DUMP set to a folder, pages are written there as pictures.
 
-import std/[os, strutils]
+import std/[os, strutils, json]
 import retroui/[imaging, photo, photobook, photopdf, photoshapes, photowarp, textengine, zip]
 
 let dump = getEnv("PHOTO_DUMP")
@@ -600,5 +600,154 @@ block aBoxThatHoldsNothingEnds:
   let L = d.addTextLayer(b.boxed(newText("WWWW", style(300), 0, 0), 0))
   doAssert b.autoflow(0, L) <= 4
   b.close()
+
+block anchoredObjects:
+  # a shape anchored to a line of text: it moves with the line as text comes before it, stays
+  # beside it as the text after it changes; the anchor takes no room in the text, the caret's
+  # places stay one a character; saved and read back; released, it stays where it is
+  let d = newDoc(600, 500, 0xFFFFFFFF'u32)
+  var st = defaultStyle()
+  st.size = 20
+  var t = newText("First paragraph.\nThe line the picture goes with.\nThe end.", st, 20, 20)
+  t.boxW = 400
+  t.boxH = 400
+  let T = d.addTextLayer(t)
+  let plainGlyphs = layoutText(T.text).glyphs.len
+  let S = d.addShapeLayer(ShapeData(path: rectPath(450, 60, 520, 100), fill: solidPaint(0xFFFF0000'u32)), "Box")
+  let o0 = d.anchorOrigin(S)
+  doAssert d.anchorToText(S, T)
+  doAssert T.text.anchorMarks.len == 1 and S.anchorTo == T.uid
+  doAssert layoutText(T.text).glyphs.len == plainGlyphs, "the anchor draws nothing"
+  doAssert layoutText(T.text).caretX.len == T.text.runeLen + 1
+  doAssert d.anchorOrigin(S) == o0, "anchored where it is"
+  # two lines before it: it goes down with its line
+  var t2 = T.text
+  t2.insertText(0, "A new first line.\nAnother.\n", st)
+  d.setText(T, t2)
+  let o1 = d.anchorOrigin(S)
+  doAssert o1.x == o0.x and o1.y > o0.y + 30, $o1
+  # text after it: it stays
+  var t3 = T.text
+  t3.insertText(T.text.runeLen, " More at the end.", st)
+  d.setText(T, t3)
+  doAssert d.anchorOrigin(S) == o1
+  # saved and read back
+  let path = getTempDir() / "retro-anchor-test.rpd"
+  d.saveRpd(path)
+  let back = loadRpd(path)
+  removeFile(path)
+  var S2, T2: Layer
+  for L in back.layers:
+    if L.name == "Box": S2 = L
+    if L.isText: T2 = L
+  doAssert S2.anchorTo == T2.uid and S2.anchorAt == S.anchorAt
+  var t4 = T2.text
+  t4.insertText(0, "One more.\n", st)
+  back.setText(T2, t4)
+  doAssert back.anchorOrigin(S2).y > o1.y + 15, "still following after it was opened"
+  # released: the anchor out of the text, the shape where it was
+  d.releaseAnchor(S)
+  doAssert T.text.anchorMarks.len == 0 and S.anchorTo == 0
+  var t5 = T.text
+  t5.insertText(0, "And another.\n", st)
+  d.setText(T, t5)
+  doAssert d.anchorOrigin(S) == o1
+
+block threadedFrames:
+  # text frames threaded as the layout program does it: the text goes on from the first box into
+  # the next; a box with its own text, threaded, adds it to the story's end; one threaded in
+  # between; a box already in the thread before cannot be next; the thread broken: the box empty,
+  # its text overset in the box before
+  let d = newDoc(600, 400, 0xFFFFFFFF'u32)
+  var t = newText(words(80), style(), 10, 10)
+  t.boxW = 180
+  t.boxH = 120
+  let A = d.addTextLayer(t)
+  var tb = newText("", style(), 210, 10)
+  tb.boxW = 180
+  tb.boxH = 120
+  let B = d.addTextLayer(tb)
+  var tc = newText("Own words.", style(), 410, 10)
+  tc.boxW = 180
+  tc.boxH = 120
+  let C = d.addTextLayer(tc)
+  doAssert layoutText(A.text).overflow > 0, "overset"
+  d.beginStep("Thread")
+  d.touchLayers()
+  doAssert d.threadText(A, B)
+  d.endStep()
+  doAssert B.flowFrom == A.uid and d.followerOf(A) == B and d.flowsOn(A)
+  let shownB = d.effectiveText(B).plainText
+  doAssert shownB.startsWith("word") and "word0 " notin shownB, "B goes on where A stops"
+  # C has its own text: added to the end of A's story, C after B
+  doAssert d.threadText(B, C)
+  doAssert C.flowFrom == B.uid and A.text.plainText.endsWith("Own words.")
+  doAssert C.text.plainText.len == 0
+  # not before itself, not twice
+  doAssert not d.canThread(C, A) and not d.canThread(A, C)
+  # a box between A and B
+  var tx = newText("", style(), 10, 200)
+  tx.boxW = 180
+  tx.boxH = 120
+  let X = d.addTextLayer(tx)
+  doAssert d.threadText(A, X)
+  doAssert X.flowFrom == A.uid and B.flowFrom == X.uid and d.storyHead(C) == A
+  # broken between X and B: B and C empty, A and X keep theirs
+  d.unthreadText(B)
+  doAssert B.flowFrom == 0 and C.flowFrom == B.uid
+  doAssert d.effectiveText(B).plainText.len == 0 and d.effectiveText(C).plainText.len == 0
+  doAssert d.effectiveText(X).plainText.len > 0
+  doAssert layoutText(d.effectiveText(X)).overflow >= 0, "the rest overset in X"
+  # undone: as it was before the first thread
+  d.undo()
+  doAssert B.flowFrom == 0 and B.text.plainText.len == 0
+
+block threadedAcrossPages:
+  # a box on one page threaded into a box on another: the text goes on there; broken: empty
+  let b = newBook(bookSetup(148, 210, dpi = 72, facing = false), pages = 3, name = "Thread")
+  let d0 = b.doc(0)
+  let S = d0.addTextLayer(b.boxed(newText(words(400), style(14)), 0))
+  let d2 = b.doc(2)
+  var mt = b.boxed(newText("The end.", style(14)), 2)
+  mt.boxH = 80
+  let M = d2.addTextLayer(mt)
+  doAssert b.threadPages(0, S, 2, M)
+  doAssert M.flowPage == b.pages[0].id and M.flowFrom == S.uid and S.flowOut
+  let shown = b.doc(2).effectiveText(M).plainText
+  doAssert shown.startsWith("word") and "word0 " notin shown, shown[0 ..< min(40, shown.len)]
+  doAssert S.text.plainText.endsWith("The end."), "its own words at the story's end"
+  doAssert b.storyStart(2, M) == (0, S)
+  b.unlinkPages(2, M, keepText = false)
+  doAssert M.flowFrom == 0 and b.doc(2).effectiveText(M).plainText.len == 0
+  b.close()
+
+block olderFilesKeepTheirText:
+  # a box from before text kept to its box -- its text drawn below it then -- opened: made as tall
+  # as its text (Auto-Size), so it shows what it showed; saved now, nothing changes when opened
+  let d = newDoc(400, 300, 0xFFFFFFFF'u32)
+  var t = newText(words(60), style(), 10, 10)
+  t.boxW = 200
+  t.boxH = 40
+  let L = d.addTextLayer(t)
+  doAssert layoutText(L.text).overflow > 0
+  var parts = d.rpdParts
+  for p in parts.mitems:
+    if p.name == "document.json":
+      let j = parseJson(p.data)
+      j.delete("overset")
+      p.data = $j
+  let path = getTempDir() / "older-text.rpd"
+  writeRpd(parts, path)
+  let back = loadRpd(path)
+  var B: Layer
+  for X in back.layers:
+    if X.isText: B = X
+  doAssert B.text.autoSize == asHeight and B.text.boxH > 100 and layoutText(B.text).overflow < 0
+  # saved by this version: as it is
+  d.saveRpd(path)
+  let now = loadRpd(path)
+  for X in now.layers:
+    if X.isText: doAssert X.text.autoSize == asOff and X.text.boxH == 40
+  removeFile(path)
 
 echo "test_photobook: ok"

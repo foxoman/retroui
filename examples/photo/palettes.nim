@@ -44,7 +44,8 @@ proc channelThumb(d: Doc; ch: int; size: int): Bitmap =
     let tw = max(1, int(d.w.float / k))
     let th = max(1, int(d.h.float / k))
     let comp = d.compCopy
-    var small = thumbnailOf(comp, d.w, d.h, tw, th).px
+    let sm = thumbnailOf(comp, d.w, d.h, tw, th)    # (its own size: fitted, it can be a pixel less)
+    var small = sm.px
     let mode = d.mode
     if ch < 0:
       if mode == cmDuotone:
@@ -54,7 +55,7 @@ proc channelThumb(d: Doc; ch: int; size: int): Bitmap =
         for p in small.mitems: p = proofOf(p)
     else:
       for p in small.mitems: p = grayPx(d.channelGrayOf(p, ch))
-    result = thumbnailOf(small, tw, th, size, size)
+    result = thumbnailOf(small, sm.w, sm.h, size, size)
     if chanThumbs.len > 256: chanThumbs.clear()
     chanThumbs[key] = (d.ver, result)
     return

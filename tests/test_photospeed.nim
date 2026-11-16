@@ -45,6 +45,24 @@ block memoryOfVectorLayers:
   doAssert left == 0, "the shape is no longer where it was"
   echo "thirty layers of type and shapes on an A4 page at 300 ppi: ", grown, " MB"
 
+block memoryOfPaintedLayers:
+  # a layer painted in a corner takes the corner's memory: copied (Duplicate Layer) or read back
+  # from its file, the copy too
+  let d = newDoc(4000, 3000, 0xFFFFFFFF'u32)         # (48 MB a layer)
+  let L = d.addLayer("Corner", fresh = true)
+  for y in 0 ..< 200:
+    for x in 0 ..< 200: L.px[y * d.w + x] = 0xFF2060C0'u32
+  let before = rss()
+  var copies: seq[Layer]
+  for k in 0 ..< 5:
+    d.cur = d.layers.find(L)
+    copies.add d.duplicateLayer()
+  let grown = rss() - before
+  when defined(useMalloc) and defined(linux):
+    doAssert grown < 60, "five copies of a painted corner took " & $grown & " MB (48 MB a full layer)"
+  doAssert copies[^1].px[100 * d.w + 100] == 0xFF2060C0'u32 and copies[^1].px[2000 * d.w + 3000] == 0
+  echo "five copies of a layer painted in a corner (4000 x 3000): ", grown, " MB"
+
 proc mixed(d: Doc; spans: bool): seq[uint32] =
   compositeSpans = spans
   d.markAll()

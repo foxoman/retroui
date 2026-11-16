@@ -67,6 +67,41 @@ proc framesCommand(name: string): bool =
   of "Center Content": d.fitContent(ffCenter)
   of "Original Size": d.fitContent(ffOriginal)
   of "Frame Options...": startFrameOptions()
+  of "Anchor to Text":
+    # (the current layer anchored to a type layer: the one picked with it, else the nearest)
+    let A = d.current
+    var T: Layer = nil
+    for L in d.layers:
+      if L.picked and L.isText and L != A: T = L
+    if T == nil:
+      let o = d.anchorOrigin(A)
+      var best = 1e18
+      for L in d.layers:
+        if not L.isText or L == A or L.text.path.len > 0: continue
+        let r = L.textArea
+        let cx = clamp(o.x.float, r.x.float, float(r.x + r.w))
+        let cy = clamp(o.y.float, r.y.float, float(r.y + r.h))
+        let dd = (cx - o.x) * (cx - o.x) + (cy - o.y) * (cy - o.y)
+        if dd < best:
+          best = dd
+          T = L
+    if T == nil:
+      status = "Anchor to Text: there is no text on this page to anchor it to."
+      return
+    d.beginStep("Anchor to Text")
+    d.touchLayers()
+    d.touch(T, d.bounds)
+    if d.anchorToText(A, T):
+      d.endStep()
+      status = A.name & " moves with its line of " & T.name & " now (Layer > Release Anchor lets it stay)"
+    else: d.cancelStep()
+  of "Release Anchor":
+    d.beginStep("Release Anchor")
+    d.touchLayers()
+    for T in d.layers:
+      if T.isText and T.uid == d.current.anchorTo: d.touch(T, d.bounds)
+    d.releaseAnchor(d.current)
+    d.endStep()
   of "Remove Content":
     let (_, content) = frameAndContent(d)
     if content != nil:

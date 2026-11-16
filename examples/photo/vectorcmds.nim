@@ -411,3 +411,160 @@ proc freeformDialog() =
     s.fill = freeformPaint(ffDlg.pts)
     d.setShape(L, s)
     if d.stepOpen: d.endStep()
+
+# ---- Gradient Mesh -------------------------------------------------------------------------------------------
+
+var
+  gmDlg: tuple[open: bool; layer: Layer; cols, rows: int; pts: seq[tuple[x, y: float; color: uint32]];
+               sel: int; drag: bool]
+  gmPending = false
+  gmApplied = ""                 ## (the mesh last put on the shape)
+
+proc startGradientMesh() =
+  let d = cur()
+  if d == nil or not d.current.isShape:
+    status = "Gradient Mesh: pick a shape layer."
+    return
+  let L = d.current
+  let f = L.shape.fill
+  if f.style == 6 and f.meshCols >= 2 and f.points.len >= 4:
+    gmDlg = (true, L, f.meshCols - 1, f.points.len div f.meshCols - 1, f.points, 0, false)
+  else:
+    let c = if f.kind == spColor: f.color else: 0xFF3A86FF'u32
+    let m = meshPaint(2, 2, [c, 0xFFFFFFFF'u32, fg or 0xFF000000'u32])
+    gmDlg = (true, L, 2, 2, m.points, 4, false)
+  gmApplied = ""
+  d.beginStep("Gradient Mesh")
+  d.touchLayers()
+  d.touch(L, d.bounds)
+  gmPending = true
+
+proc gradientMeshDialog() =
+  let d = cur()
+  if not gmDlg.open:
+    if gmPending:
+      gmPending = false
+      if d != nil and d.stepOpen:
+        d.cancelStep()
+        d.markAll()
+    return
+  if d == nil or d.layers.find(gmDlg.layer) < 0:
+    gmDlg.open = false
+    gmPending = false
+    return
+  let L = gmDlg.layer
+  var ok, cancel = false
+  dialog(gmDlg.open, "Gradient Mesh", 440):
+    label("A grid of color points: drag a point to bend the colors after it; pick one for its color.",
+          color = ui.theme.gray)
+    row:
+      label "Columns:"
+      var c = gmDlg.cols
+      var r = gmDlg.rows
+      let cc = spin(c, 1, 8, w = dp(56))
+      label "Rows:"
+      let rc = spin(r, 1, 8, w = dp(56))
+      if cc or rc:
+        # (a grid of another size: even again, the colors the corners had)
+        let nc = gmDlg.cols + 1
+        let corners = [gmDlg.pts[0].color, gmDlg.pts[nc - 1].color, gmDlg.pts[^nc].color, gmDlg.pts[^1].color]
+        gmDlg.cols = c
+        gmDlg.rows = r
+        var m = meshPaint(c, r, [0xFFFFFFFF'u32])
+        let w = c + 1
+        m.points[0].color = corners[0]
+        m.points[w - 1].color = corners[1]
+        m.points[^w].color = corners[2]
+        m.points[^1].color = corners[3]
+        gmDlg.pts = m.points
+        gmDlg.sel = 0
+      if button("Even", w = dp(70)):
+        let w = gmDlg.cols + 1
+        for i in 0 ..< gmDlg.pts.len:
+          gmDlg.pts[i].x = (i mod w) / gmDlg.cols
+          gmDlg.pts[i].y = (i div w) / gmDlg.rows
+    let pr = place(dp(400), dp(260))
+    let (x0, y0, x1, y1) = pathBounds(L.shape.path)
+    fill(pr, color(240, 240, 240))
+    let k = min(pr.w.float / max(1.0, x1 - x0), pr.h.float / max(1.0, y1 - y0))
+    let gw = max(1, int((x1 - x0) * k))
+    let gh = max(1, int((y1 - y0) * k))
+    let gr = rect(pr.x + (pr.w - gw) div 2, pr.y + (pr.h - gh) div 2, gw, gh)
+    let step = max(4, dp(6))
+    let cols = gmDlg.cols + 1
+    var yy = 0
+    while yy < gh:
+      var xx = 0
+      while xx < gw:
+        let c = meshAt(gmDlg.pts, cols, (xx.float + 0.5) / gw.float, (yy.float + 0.5) / gh.float)
+        fill(rect(gr.x + xx, gr.y + yy, min(step, gw - xx), min(step, gh - yy)),
+             color(uint8((c shr 16) and 255), uint8((c shr 8) and 255), uint8(c and 255)))
+        xx += step
+      yy += step
+    box(gr, ui.theme.edge)
+    # (the grid's lines, then its points)
+    for i, p in gmDlg.pts:
+      let ax = gr.x + int(p.x * gw.float)
+      let ay = gr.y + int(p.y * gh.float)
+      if i mod cols < cols - 1:
+        let q = gmDlg.pts[i + 1]
+        line(ax, ay, gr.x + int(q.x * gw.float), gr.y + int(q.y * gh.float), color(60, 60, 60))
+      if i + cols < gmDlg.pts.len:
+        let q = gmDlg.pts[i + cols]
+        line(ax, ay, gr.x + int(q.x * gw.float), gr.y + int(q.y * gh.float), color(60, 60, 60))
+    for i, p in gmDlg.pts:
+      let cx = gr.x + int(p.x * gw.float)
+      let cy = gr.y + int(p.y * gh.float)
+      let r = rect(cx - dp(5), cy - dp(5), dp(10), dp(10))
+      fill(r, color(uint8((p.color shr 16) and 255), uint8((p.color shr 8) and 255), uint8(p.color and 255)))
+      box(r, if i == gmDlg.sel: ui.theme.select else: color(0, 0, 0), (if i == gmDlg.sel: 2 else: 1))
+    let hit = interact(idOf("gmcanvas"), gr, focusable = false)
+    if hit.down and ui.pressed and not gmDlg.drag:
+      let u = (ui.mx - gr.x).float / gw.float
+      let v = (ui.my - gr.y).float / gh.float
+      var near = -1
+      var best = 1e9
+      for i, p in gmDlg.pts:
+        let dd = abs(p.x - u) * gw.float + abs(p.y - v) * gh.float
+        if dd < best and dd < dp(14).float:
+          best = dd
+          near = i
+      if near >= 0:
+        gmDlg.sel = near
+        gmDlg.drag = true
+    if gmDlg.drag:
+      if ui.mouseDown:
+        gmDlg.pts[gmDlg.sel].x = clamp((ui.mx - gr.x).float / gw.float, 0.0, 1.0)
+        gmDlg.pts[gmDlg.sel].y = clamp((ui.my - gr.y).float / gh.float, 0.0, 1.0)
+      else: gmDlg.drag = false
+    if gmDlg.sel in 0 .. gmDlg.pts.high:
+      row:
+        label "Point " & $(gmDlg.sel + 1) & ":"
+        var c = gmDlg.pts[gmDlg.sel].color
+        if colorWell(c, "gmpoint", dp(40)): gmDlg.pts[gmDlg.sel].color = c or 0xFF000000'u32
+        var xi = int(round(gmDlg.pts[gmDlg.sel].x * 100))
+        var yi = int(round(gmDlg.pts[gmDlg.sel].y * 100))
+        label "Across:"
+        if spin(xi, 0, 100, w = dp(56)): gmDlg.pts[gmDlg.sel].x = xi / 100
+        label "Down:"
+        if spin(yi, 0, 100, w = dp(56)): gmDlg.pts[gmDlg.sel].y = yi / 100
+    row:
+      spring()
+      if button("OK", isDefault = true, w = dp(80)): ok = true
+      if button("Cancel", w = dp(80)): cancel = true
+  let now = $gmDlg.cols & $gmDlg.pts
+  if now != gmApplied and not cancel and (gmDlg.open or ok):
+    gmApplied = now
+    var s = L.shape
+    s.fill = ShapePaint(kind: spGradient, style: 6, meshCols: gmDlg.cols + 1, points: gmDlg.pts, opacity: 100,
+                        color: gmDlg.pts[0].color, color2: gmDlg.pts[^1].color)
+    d.setShape(L, s)
+  if cancel or (not gmDlg.open and not ok):
+    gmDlg.open = false
+    gmPending = false
+    if d.stepOpen: d.cancelStep()
+    d.markAll()
+  elif ok:
+    gmDlg.open = false
+    gmPending = false
+    if d.stepOpen: d.endStep()

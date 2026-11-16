@@ -9,7 +9,7 @@
 ##                                   fill: solidPaint(0xFFCC3333'u32)))
 ## ```
 
-import std/[math, strutils]
+import std/[math, strutils, hashes, locks]
 import gfx, photo, raster, parallel, textengine, photostyles
 
 type Pt* = (float, float)
@@ -857,11 +857,129 @@ proc freeformPaint*(points: openArray[tuple[x, y: float; color: uint32]]): Shape
   ShapePaint(kind: spGradient, style: 5, color: (if points.len > 0: points[0].color else: 0'u32),
              color2: (if points.len > 1: points[^1].color else: 0'u32), points: @points, opacity: 100)
 
+const MeshRes = 256      # (a mesh's colors made once, on a grid this fine, then read between)
+
+var
+  meshCache: seq[tuple[key: Hash; px: ptr UncheckedArray[uint32]]]
+  meshLock: Lock
+initLock(meshLock)
+
+proc meshRaster(pts: openArray[tuple[x, y: float; color: uint32]]; cols: int): seq[uint32] =
+  ## (a gradient mesh's colors over its box, `MeshRes` square: each cell of points cut in small
+  ## pieces, each piece's corners where the cell bends them, colored between its corners)
+  let points = @pts
+  let rows = points.len div max(1, cols)
+  result = newSeq[uint32](MeshRes * MeshRes)
+  if cols < 2 or rows < 2: return
+  const sub = 10
+  proc lerpC(a, b: uint32; t: float): array[4, float] =
+    for k in 0 .. 3:
+      let sh = 24 - 8 * k
+      result[k] = float((a shr sh) and 255) * (1 - t) + float((b shr sh) and 255) * t
+  proc node(r, c: int): tuple[x, y: float; col: array[4, float]] =
+    let p = points[r * cols + c]
+    (p.x, p.y, lerpC(p.color, p.color, 0))
+  # (a point of a cell, s and t across it: where it is, its color)
+  proc at(r, c: int; s, t: float): tuple[x, y: float; col: array[4, float]] =
+    let a = node(r, c)
+    let b = node(r, c + 1)
+    let cc = node(r + 1, c)
+    let d = node(r + 1, c + 1)
+    result.x = (a.x * (1 - s) + b.x * s) * (1 - t) + (cc.x * (1 - s) + d.x * s) * t
+    result.y = (a.y * (1 - s) + b.y * s) * (1 - t) + (cc.y * (1 - s) + d.y * s) * t
+    for k in 0 .. 3:
+      result.col[k] = (a.col[k] * (1 - s) + b.col[k] * s) * (1 - t) + (cc.col[k] * (1 - s) + d.col[k] * s) * t
+  proc tri(buf: var seq[uint32]; p0, p1, p2: tuple[x, y: float; col: array[4, float]]) =
+    let s = float(MeshRes - 1)
+    let (x0, y0, x1, y1, x2, y2) = (p0.x * s, p0.y * s, p1.x * s, p1.y * s, p2.x * s, p2.y * s)
+    let area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)
+    if abs(area) < 1e-9: return
+    let minX = max(0, int(floor(min(x0, min(x1, x2)))))
+    let maxX = min(MeshRes - 1, int(ceil(max(x0, max(x1, x2)))))
+    let minY = max(0, int(floor(min(y0, min(y1, y2)))))
+    let maxY = min(MeshRes - 1, int(ceil(max(y0, max(y1, y2)))))
+    for py in minY .. maxY:
+      for qx in minX .. maxX:
+        let (fx, fy) = (qx.float, py.float)
+        let w0 = ((x1 - fx) * (y2 - fy) - (x2 - fx) * (y1 - fy)) / area
+        let w1 = ((x2 - fx) * (y0 - fy) - (x0 - fx) * (y2 - fy)) / area
+        let w2 = 1 - w0 - w1
+        if w0 < -0.02 or w1 < -0.02 or w2 < -0.02: continue
+        var c = 0'u32
+        for k in 0 .. 3:
+          let v = clamp(p0.col[k] * w0 + p1.col[k] * w1 + p2.col[k] * w2, 0.0, 255.0)
+          c = c or (uint32(v + 0.5) shl (24 - 8 * k))
+        buf[py * MeshRes + qx] = c
+  for r in 0 ..< rows - 1:
+    for c in 0 ..< cols - 1:
+      for i in 0 ..< sub:
+        for j in 0 ..< sub:
+          let s0 = i / sub
+          let s1 = (i + 1) / sub
+          let t0 = j / sub
+          let t1 = (j + 1) / sub
+          let a = at(r, c, s0, t0)
+          let b = at(r, c, s1, t0)
+          let cc = at(r, c, s0, t1)
+          let d = at(r, c, s1, t1)
+          tri(result, a, b, d)
+          tri(result, a, d, cc)
+
+proc meshKey(points: openArray[tuple[x, y: float; color: uint32]]; cols: int): Hash =
+  result = hash(cols)
+  for p in points: result = result !& hash(p.x) !& hash(p.y) !& hash(p.color)
+  result = !$result
+
+proc meshRasterOf(points: openArray[tuple[x, y: float; color: uint32]]; cols: int): ptr UncheckedArray[uint32] =
+  ## (the mesh's colors, made once and kept -- the last 16 -- for every pixel to read; a
+  ## shape drawn on another thread at the same time waits its turn here)
+  let h = meshKey(points, cols)
+  {.cast(gcsafe).}:
+    acquire(meshLock)
+    try:
+      for e in meshCache:
+        if e.key == h: result = e.px
+      if result == nil:
+        result = cast[ptr UncheckedArray[uint32]](allocShared(MeshRes * MeshRes * 4))
+        let r = meshRaster(points, cols)
+        copyMem(result, unsafeAddr r[0], MeshRes * MeshRes * 4)
+        meshCache.add (h, result)
+        if meshCache.len > 16:
+          # (the oldest let go: no shape of it is being drawn by now -- 16 drawn since)
+          deallocShared(meshCache[0].px)
+          meshCache.delete(0)
+    finally: release(meshLock)
+
+proc meshAt*(points: openArray[tuple[x, y: float; color: uint32]]; cols: int; u, v: float): uint32 =
+  ## A gradient mesh's color at (`u`, `v`) of its box (0..1): its grid of points, `cols` a row,
+  ## each with its color, the colors between them bent where the points were moved.
+  let px = meshRasterOf(points, cols)
+  let x = clamp(int(u * float(MeshRes - 1) + 0.5), 0, MeshRes - 1)
+  let y = clamp(int(v * float(MeshRes - 1) + 0.5), 0, MeshRes - 1)
+  px[y * MeshRes + x]
+
+proc meshPaint*(cols, rows: int; colors: openArray[uint32] = []): ShapePaint =
+  ## A gradient mesh of `cols` x `rows` cells, its points even over the box (to be moved), each
+  ## a color of `colors` in turn (none: white, the corners of a light blue).
+  let nc = clamp(cols, 1, 15) + 1
+  let nr = clamp(rows, 1, 15) + 1
+  result = ShapePaint(kind: spGradient, style: 6, meshCols: nc, opacity: 100)
+  for r in 0 ..< nr:
+    for c in 0 ..< nc:
+      let k = r * nc + c
+      let col = if colors.len > 0: colors[k mod colors.len]
+                elif (r == 0 or r == nr - 1) and (c == 0 or c == nc - 1): 0xFF8EC5FF'u32
+                else: 0xFFFFFFFF'u32
+      result.points.add (c / (nc - 1), r / (nr - 1), col)
+  result.color = result.points[0].color
+  result.color2 = result.points[^1].color
+
 proc stopsColor*(stops: openArray[GradientStop]; t: float): uint32 =
   ## The color at `t` of a gradient through `stops` (in order).
   gradientColor(stops, t)
 
-proc paintAt(p: ShapePaint; x, y: float; box: (float, float, float, float)): uint32 {.inline.} =
+proc paintAt(p: ShapePaint; x, y: float; box: (float, float, float, float);
+             mesh: ptr UncheckedArray[uint32] = nil): uint32 {.inline.} =
   case p.kind
   of spPattern:
     if p.pw <= 0 or p.ph <= 0 or p.pattern.len != p.pw * p.ph: return 0
@@ -872,6 +990,13 @@ proc paintAt(p: ShapePaint; x, y: float; box: (float, float, float, float)): uin
   of spGradient:
     if p.style == 5 and p.points.len > 0:
       return freeformAt(p.points, (x - box[0]) / max(1.0, box[2] - box[0]), (y - box[1]) / max(1.0, box[3] - box[1]))
+    if p.style == 6 and p.meshCols >= 2 and p.points.len >= 4:
+      let u = (x - box[0]) / max(1.0, box[2] - box[0])
+      let v = (y - box[1]) / max(1.0, box[3] - box[1])
+      if mesh == nil: return meshAt(p.points, p.meshCols, u, v)
+      let mx = clamp(int(u * float(MeshRes - 1) + 0.5), 0, MeshRes - 1)
+      let my = clamp(int(v * float(MeshRes - 1) + 0.5), 0, MeshRes - 1)
+      return mesh[my * MeshRes + mx]
     var t = gradientT(p.style, p.angle.float, (if p.scale <= 0: 1.0 else: p.scale / 100), x, y, box)
     if p.reverse: t = 1 - t
     if p.stops.len > 0: gradientColor(p.stops, t) else: mix(p.color, p.color2, t)
@@ -1062,6 +1187,11 @@ proc renderShape*(s: ShapeData; px: var seq[uint32]; w, h: int; clearFirst = Rec
     parallelRows(cl.h, yy):
       zeroMem(addr pp[(cl.y + yy) * w + cl.x], cl.w * 4)
   if box.w <= 0 or box.h <= 0 or comps.len == 0: return (0, 0, 0, 0)
+  # (a gradient mesh's colors made once, here: every pixel reads them)
+  let fillMesh = if s.fill.kind == spGradient and s.fill.style == 6 and s.fill.meshCols >= 2 and s.fill.points.len >= 4:
+                   meshRasterOf(s.fill.points, s.fill.meshCols) else: nil
+  let strokeMesh = if s.stroke.kind == spGradient and s.stroke.style == 6 and s.stroke.meshCols >= 2 and
+                      s.stroke.points.len >= 4: meshRasterOf(s.stroke.points, s.stroke.meshCols) else: nil
   # the stroke's outline
   var strokeE: seq[Edge]
   let stroking = s.stroke.kind != spNone and s.strokeWidth > 0
@@ -1117,11 +1247,11 @@ proc renderShape*(s: ShapeData; px: var seq[uint32]; w, h: int; clearFirst = Rec
     let fa = if filling: fcov * fillOp else: 0.0
     let sa = scov * strokeOp
     if fa > 0.001 or sa > 0.001:
-      let fc = if filling: paintAt(sP[].fill, x.float, y.float, bb) else: 0'u32
+      let fc = if filling: paintAt(sP[].fill, x.float, y.float, bb, fillMesh) else: 0'u32
       if sa <= 0.001 and fa >= 0.999 and aOf(fc) == 255:
         pp[y * w + x] = fc
       else:
-        let sc = if stroking: paintAt(sP[].stroke, x.float, y.float, bb) else: 0'u32
+        let sc = if stroking: paintAt(sP[].stroke, x.float, y.float, bb, strokeMesh) else: 0'u32
         let fa2 = fa * aOf(fc).float / 255
         let sa2 = sa * aOf(sc).float / 255
         let oa = sa2 + fa2 * (1 - sa2)

@@ -103,6 +103,11 @@ proc commitType() =
     return
   else:
     if te.autoName: L.name = L.text.layerName
+    if L.text.notes.len > 0 or L.text.noteMarks.len > 0:
+      # (notes whose references were deleted go; the rest in the order of their references)
+      var t = L.text
+      t.tidyNotes()
+      if t.notes != L.text.notes: d.setText(L, t)
     d.endStep()
   status = ""
 

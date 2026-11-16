@@ -60,7 +60,8 @@ env:
     test_feeds test_jobs test_undo test_pages test_typeforms test_uistrings test_codeedit
     test_podcast test_grow test_lzma test_apkinfo test_looks test_bmi test_hangwatch
     test_systemfiles test_photobook test_imagetrace test_outlines test_photospeed
-    test_infographics test_idml
+    test_infographics test_idml test_booklists test_datamerge test_textsearch
+    test_headless test_perspectivegrid test_pathbrush
   # the live check: frames drawn by the CPU at 100 %, the browser engine
   # needed
   RETRO_GPU: cpu

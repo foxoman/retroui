@@ -372,6 +372,13 @@ proc paragraphBody() =
       applyText("Insert Kashida", proc (t: var TextData) = (t.para.kashida = v; t.para.noKashida = false))
   label("(justified Arabic: a join in each word grows, where a scribe would lengthen it)",
         color = ui.theme.gray)
+  row:
+    var hy = p.hyphenate
+    if checkbox("Hyphenate", hy):
+      typePara.hyphenate = hy
+      let v = hy
+      applyText("Hyphenate", proc (t: var TextData) = t.para.hyphenate = v)
+    label("(English words broken at a line's end, in a box)", color = ui.theme.gray)
   # a list: a mark before every paragraph of a text box
   var lk = ord(p.list)
   row:
@@ -436,7 +443,12 @@ proc paragraphBody() =
     var on = L.text.gridStep > 0
     if checkbox("Align to baseline grid", on):
       let g = if on: grid else: (0'f32, 0'f32)
-      applyText("Align to Baseline Grid", proc (t: var TextData) = (t.gridStep = g.step; t.gridStart = g.start))
+      let v = on
+      typePara.gridAlign = v
+      applyText("Align to Baseline Grid", proc (t: var TextData) =
+        t.gridStep = g.step
+        t.gridStart = g.start
+        t.para.gridAlign = v)
   if L != nil and L.text.boxW > 0:
     var fit = L.text.fit
     if checkbox("Dynamic Text: as big as fills the box", fit):
@@ -471,8 +483,46 @@ proc paragraphBody() =
       label("Overset: some of the text does not fit -- size the box, add columns or flow it on.",
             color = color(200, 0, 0))
 
+proc fontHasFeature(s: CharStyle; tag: string): bool =
+  ## (the style's font has OpenType feature `tag`)
+  when declared(featureTags):
+    let f = fontFace(s.family, s.style).face
+    f != nil and tag in f.featureTags
+  else: false
+
+proc otLabel(name, tag: string; s: CharStyle): string =
+  ## (an OpenType menu item: in [brackets] when the font has not the feature, as the layout
+  ## program shows it -- it can be set all the same, for the next font)
+  if fontHasFeature(s, tag): name else: "[" & tr(name) & "]"
+
+proc toggleLigatures() =
+  ## Character panel menu > Ligatures: the font's standard ligatures on or off (Arabic's
+  ## lam + alef and its joins stay: required).
+  let on = not shownStyle().ligaturesOn
+  applyChar("Ligatures", proc (x: var CharStyle) = x.features = withLigatures(x.features, on))
+
+proc toggleOpenType(name: string) =
+  ## Character panel menu > OpenType > `name`: its feature on or off.
+  for (nm, tag) in OpenTypeMenu:
+    if nm == name:
+      let t = tag
+      let on = not featureOn(shownStyle().features, t)
+      applyChar(nm, proc (x: var CharStyle) =
+        x.features = withFeature(x.features, t, on)
+        if t == "c2sc": x.features = withFeature(x.features, "smcp", on))   # (All Small Caps: both)
+
+proc openTypeItems() =
+  ## Ligatures and the OpenType menu (the Character panel's, Type's).
+  let s = shownStyle()
+  if menuItem("Ligatures", checked = s.ligaturesOn): toggleLigatures()
+  submenu("OpenType"):
+    for (nm, tag) in OpenTypeMenu:
+      if menuItem(otLabel(nm, tag, s), checked = featureOn(s.features, tag)): toggleOpenType(nm)
+
 proc typeMenuItems() =
   ## The menu of Character, Paragraph, Glyphs.
+  openTypeItems()
+  menuSeparator()
   if menuItem("Reset Character"):
     typeStyle = CharStyle(family: defaultFamily, style: "Regular", size: 48, color: fg, hScale: 1, vScale: 1)
   if menuItem("Reset Paragraph"): typePara = ParaStyle()

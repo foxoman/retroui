@@ -21,9 +21,10 @@
 ##   the pressure as on a small phone).
 ## - `trimHeap`: the memory the program let go of given back to the system
 ##   (malloc_trim, Android's M_PURGE). It is done by itself after the caches
-##   let go, when the program goes to the background, and now and then while
-##   it waits for input after its memory grew -- what the system shows as the
-##   program's memory follows what it really keeps.
+##   let go, when the program goes to the background, now and then while it
+##   waits for input after its memory grew, and every half minute at most
+##   while it is worked without a rest after it grew by 128 MB -- what the
+##   system shows as the program's memory follows what it really keeps.
 ## - `programBudget`: how much the program may hold before its caches are
 ##   told to let go even with the device far from short (a share of the
 ##   device's memory, 384 MB to 1.5 GB).
@@ -285,8 +286,15 @@ proc watchTick() {.nimcall.} =
       trimmedSize = memoryNumbers().program
       return
     if prog < programBudget() * 3 div 4: overToldAt = 0
-    # (resting: what was let go of given back, when the program grew since)
-    if memoryNumbers().program > trimmedSize + 32 * MB:
+    # (resting: what was let go of given back, when the program grew since; worked without
+    # a rest -- a long session, a soak's clicks -- when it grew much, every half minute at most)
+    let grown = memoryNumbers().program - trimmedSize
+    if grown > 128 * MB and (now - trimmedAt).inSeconds >= 30:
+      trimHeap()
+      trimmedAt = now
+      trimmedSize = memoryNumbers().program
+      return
+    if grown > 32 * MB:
       if (now - lastInput).inMilliseconds >= 1500 and (now - trimmedAt).inSeconds >= 15:
         trimHeap()
         trimmedAt = now

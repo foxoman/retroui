@@ -177,6 +177,7 @@ proc psMenus() =
       ci("Cl&ear", "Clear", enabled = some)
       sep()
       ci("Searc&h...", "Search...")
+      ci("&Find/Change...", "Find/Change...")
       sep()
       ci("&Fill...", enabled = some)
       ci("&Stroke...", enabled = sel)
@@ -379,6 +380,8 @@ proc psMenus() =
         ci("Make &Blend...", enabled = some and (d.current.isShape or d.pickedLayers.len == 2))
         ci("Shape B&uilder...", "Shape Builder...", enabled = some and d.pickedLayers.len >= 2)
         ci("&Freeform Gradient...", "Freeform Gradient...", enabled = some and d.current.isShape)
+        ci("Gradient &Mesh...", "Gradient Mesh...", enabled = some and d.current.isShape)
+        ci("Apply &Brush to Path...", "Apply Brush to Path...", enabled = pathOk)
       sep()
       ci("Group Layers", enabled = some and not bgl)
       ci("&Ungroup Layers", enabled = grp)
@@ -410,6 +413,10 @@ proc psMenus() =
         sep()
         ci("Frame &Options...", enabled = fc)
         ci("&Remove Content", enabled = fc)
+      psSub "Pe&rspective":
+        ci("&Attach to Active Plane", "Attach to Active Plane", enabled = some and not bgl and d.pgOf.shown)
+      ci("Anc&hor to Text", "Anchor to Text", enabled = some and not bgl and d.current.anchorTo == 0)
+      ci("Release Anc&hor", "Release Anchor", enabled = some and d.current.anchorTo != 0)
       ci("New &Frame", enabled = some)
       ci("New &QR Code...", "New QR Code...", enabled = some)
       ci("Har&monize...", "Harmonize...", enabled = some and d.cur > 0 and not bgl and not grp and
@@ -440,11 +447,23 @@ proc psMenus() =
       sep()
       ci("Get Google &Fonts...", "Get Google Fonts...")
       sep()
+      ci("Text Frame &Options...", "Text Frame Options...", enabled = some and (te.on or (d.current.isText and
+                                                                                    d.current.text.boxW > 0)))
       ci("Flow Into a &New Box", enabled = some and d.current.isText and d.current.text.boxW > 0)
       ci("Unlink Text Bo&x", "Unlink Text Box", enabled = some and d.current.flowFrom != 0)
       ci("Paste &Lorem Ipsum", "Paste Lorem Ipsum", enabled = some)
       ci("Word &Shapes...", "Word Shapes...", enabled = some)
       ci("Insert Page N&umber", "Insert Page Number", enabled = some)
+      ci("Insert &Footnote", "Insert Footnote", enabled = some)
+      ci("Insert &Endnote", "Insert Endnote", enabled = some)
+      ci("Footnotes and Endnot&es...", "Footnotes...", enabled = some and (te.on or d.current.isText))
+      ci("Story Edi&tor...", "Story Editor...", enabled = some and (te.on or d.current.isText))
+      sep()
+      let ts = shownStyle()
+      ci("Li&gatures", "Ligatures", checked = ts.ligaturesOn)
+      psSub "Open&Type":
+        for (nm, tag) in OpenTypeMenu:
+          ci(otLabel(nm, tag, ts), "OpenType: " & nm, checked = featureOn(ts.features, tag))
       sep()
       live: typeMenu(d)
       if mIndex.on: ci("Rasterize Type Layer", "Rasterize Type")
@@ -567,6 +586,7 @@ proc psMenus() =
         ci("&Guides", "Show Guides", enabled = some, checked = dw != nil and dw.view.showGuides)
         ci("G&rid", "Show Grid", enabled = some, checked = dw != nil and dw.view.showGrid)
         ci("S&mart Guides", "Smart Guides", checked = smartGuidesOn)
+        ci("&Text Threads", "Show Text Threads", checked = showThreads)
       ci("&Rulers", "Show Rulers", enabled = some, checked = dw != nil and dw.view.rulers)
       sep()
       ci("Sn&ap", "Snap", checked = snapOn)
@@ -574,6 +594,28 @@ proc psMenus() =
         ci("&Guides", checked = snapGuides)
         ci("G&rid", checked = snapGrid)
         ci("&Document Bounds", checked = snapBounds)
+      sep()
+      psSub "&Perspective Grid":
+        let pg = if some: d.pgOf else: PerspectiveGrid()
+        ci(if pg.shown: "&Hide Grid" else: "&Show Grid", if pg.shown: "Hide Perspective Grid" else: "Show Perspective Grid",
+           enabled = some, checked = pg.shown)
+        ci("&Lock Grid", "Lock Perspective Grid", enabled = some, checked = pg.locked)
+        sep()
+        ci("&One Point Perspective", "One Point Perspective", enabled = some,
+           checked = pg.shown and pg.kind == pkOnePoint)
+        ci("&Two Point Perspective", "Two Point Perspective", enabled = some,
+           checked = pg.shown and pg.kind == pkTwoPoint)
+        ci("&Define Grid...", "Define Perspective Grid...", enabled = some)
+        sep()
+        ci("&Left Wall", "Perspective Plane: Left Wall", enabled = some and pg.shown,
+           checked = pg.shown and not pg.noActive and pg.active == ppLeft)
+        ci("&Right Wall", "Perspective Plane: Right Wall", enabled = some and pg.shown,
+           checked = pg.shown and not pg.noActive and pg.active == ppRight)
+        ci("&Floor", "Perspective Plane: Floor", enabled = some and pg.shown,
+           checked = pg.shown and not pg.noActive and pg.active == ppFloor)
+        ci("Fa&cing Wall", "Perspective Plane: Facing Wall", enabled = some and pg.shown and pg.kind == pkOnePoint,
+           checked = pg.shown and not pg.noActive and pg.active == ppFacing)
+        ci("&No Active Plane", "Perspective Plane: None", enabled = some and pg.shown, checked = pg.shown and pg.noActive)
       sep()
       ci("Loc&k Guides", "Lock Guides", enabled = some, checked = dw != nil and dw.view.lockGuides)
       ci("C&lear Guides", "Clear Guides", enabled = some and d.guides.len > 0)

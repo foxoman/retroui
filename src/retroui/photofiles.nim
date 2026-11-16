@@ -2018,8 +2018,8 @@ proc styleSheetOf(st: CharStyle; font: int): EngineValue =
         ("Tracking", eInt(st.tracking)), ("AutoKerning", eBool(not st.noKerning)), ("Kerning", eInt(0)),
         ("BaselineShift", eFloat(st.baselineShift.float)),
         ("FontCaps", eInt(if st.allCaps: 2 elif st.smallCaps: 1 else: 0)), ("FontBaseline", eInt(baseline)),
-        ("Underline", eBool(st.underline)), ("Strikethrough", eBool(st.strike)), ("Ligatures", eBool(true)),
-        ("DLigatures", eBool(false)), ("BaselineDirection", eInt(2)), ("Tsume", eFloat(0)),
+        ("Underline", eBool(st.underline)), ("Strikethrough", eBool(st.strike)), ("Ligatures", eBool(st.ligaturesOn)),
+        ("DLigatures", eBool(featureOn(st.features, "dlig"))), ("BaselineDirection", eInt(2)), ("Tsume", eFloat(0)),
         ("StyleRunAlignment", eInt(2)), ("Language", eInt(0)), ("NoBreak", eBool(false)),
         ("FillColor", engineColor(st.color)), ("StrokeColor", engineColor(0xFF000000'u32)),
         ("FillFlag", eBool(true)), ("StrokeFlag", eBool(false)), ("FillFirst", eBool(true)),
@@ -2034,7 +2034,7 @@ proc paraPropsOf(p: ParaStyle; rtl: bool): EngineValue =
   result = eDict(("Justification", eInt(psAlignOf[lookAlign(p.align, rtl)])),
                  ("FirstLineIndent", eFloat(p.indentFirst.float)), ("StartIndent", eFloat(startI.float)),
                  ("EndIndent", eFloat(endI.float)), ("SpaceBefore", eFloat(p.spaceBefore.float)),
-                 ("SpaceAfter", eFloat(p.spaceAfter.float)), ("AutoHyphenate", eBool(false)),
+                 ("SpaceAfter", eFloat(p.spaceAfter.float)), ("AutoHyphenate", eBool(p.hyphenate)),
                  ("HyphenatedWordSize", eInt(6)), ("PreHyphen", eInt(2)), ("PostHyphen", eInt(2)),
                  ("ConsecutiveHyphens", eInt(8)), ("Zone", eFloat(36)), ("WordSpacing", eFloats(0.8, 1.0, 1.33)),
                  ("LetterSpacing", eFloats(0.0, 0.0, 0.0)), ("GlyphSpacing", eFloats(1.0, 1.0, 1.0)),
@@ -2148,7 +2148,7 @@ proc typeLayerData*(t: TextData; drawn: Rect): string =
   ## ours, for what Photoshop has no word for (columns, text on a path,
   ## Persian digits...).
   let tr = [1.0, 0, 0, 1, t.x.float, t.y.float]
-  let eng = engineDataText(engineDataOf(scriptFontsApplied(t)))   # (Arabic and Latin each in its font)
+  let eng = engineDataText(engineDataOf(scriptFontsApplied(notesAsText(t))))   # (Arabic and Latin each in its font)
   var b = (0.0, -t.styleAt(0).size.float, 0.0, 0.0)
   if drawn.w > 0 and drawn.h > 0:
     b = (drawn.x.float - t.x, drawn.y.float - t.y, float(drawn.x + drawn.w) - t.x, float(drawn.y + drawn.h) - t.y)
@@ -2247,6 +2247,9 @@ proc textOfEngine*(e: EngineValue; tr: array[6, float]; desc, warp: PsdValue): T
     st.smallCaps = caps == 1
     st.underline = get("Underline").flag
     st.strike = get("Strikethrough").flag
+    let lig = get("Ligatures")
+    if lig != nil and not lig.flag: st.features = withLigatures(st.features, false)
+    if get("DLigatures").flag: st.features = withFeature(st.features, "dlig", true)
     let fb = int(get("FontBaseline").num(0))
     st.script = if fb == 1: scSuper elif fb == 2: scSub else: scNormal
     st.digits = ord(get("HindiNumbers").flag)
@@ -2278,6 +2281,7 @@ proc textOfEngine*(e: EngineValue; tr: array[6, float]; desc, warp: PsdValue): T
   result.para.indentFirst = float32(pget("FirstLineIndent").num(0) * sx)
   result.para.spaceBefore = float32(pget("SpaceBefore").num(0) * sy)
   result.para.spaceAfter = float32(pget("SpaceAfter").num(0) * sy)
+  result.para.hyphenate = pget("AutoHyphenate").flag
   # where: a box, or a point
   let ph = ed["Rendered"]["Shapes"]["Children"][0]["Cookie"]["Photoshop"]
   let bb = ph["BoxBounds"]

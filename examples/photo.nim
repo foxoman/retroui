@@ -22,6 +22,7 @@ import retroui/[photo, photopaint, photofx, photoartistic, photohdr, otshape, tt
               svgimport, morepictures, edgetrace,
               photofiles, photosave, photoshapes, photomerge, photopdf, photoimport, pdfread, googlefonts, photovector, iccprofile, icclut, abr, rawphoto, imageformats, filterfactory,
               photobrushes, adobefiles, photobook, imagetrace, layouttemplates, liveshapes, idml, preflight,
+              booklists, datamerge, textsearch, headless, perspectivegrid, pathbrush,
               imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files]
 {.push warning[UnusedImport]: off.}
 import retroui/photodeep   # (imported for what it sets up: filters, flattening and gradients at 16 and 32 bits)
@@ -30,7 +31,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 const
   AppName = "Retro Atelier"         # (Retro Photo until 5.0)
   AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
-  AppVersion = "5.2.0"
+  AppVersion = "5.3.0"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -476,6 +477,30 @@ proc startShapeBuilder()
 proc startFreeform()
 proc freeformDialog()
 proc shapeBuilderDialog()
+proc startGradientMesh()
+proc gradientMeshDialog()
+proc notesCommand(name: string): bool
+proc footnotesDialog()
+proc listsCommand(name: string): bool
+proc listsDialog()
+proc mergeCommand(name: string): bool
+proc dataMergeDialog()
+proc findCommand(name: string): bool
+proc findDialogs()
+proc pgOf(d: Doc): PerspectiveGrid
+proc pgShape(d: Doc; p: Path): Path
+proc pgOverlay(dw: DocWin; ev: PhotoEvent)
+proc canvasExtras(dw: DocWin; ev: PhotoEvent): bool
+proc perspectiveCommand(name: string): bool
+proc perspectiveDialog()
+var showThreads = true             ## View > Show > Text Threads (photo/textframes)
+proc threadPress(dw: DocWin; ev: PhotoEvent): bool
+proc threadOverlay(dw: DocWin; ev: PhotoEvent)
+proc threadEscape(): bool
+proc textFrameCommand(name: string): bool
+proc textFrameDialog()
+proc pathBrushCommand(name: string): bool
+proc pathBrushDialog()
 proc makeBlendDialog()
 proc startImageTrace()
 proc imageTraceDialog()
@@ -853,6 +878,49 @@ proc newUntitled(w, h: int; contents: uint32; dpi = 72.0; mode = cmRGB; name = "
 
 proc cur(): Doc = (if active != nil: active.doc else: nil)
 
+# ---- memory: the undo steps' room shared by the open images; a log for soak runs ----------------------
+
+var
+  undoRamAll = undoRamBudget     ## (the room for undo steps in memory, all images together: Preferences)
+  undoShared = -1                ## (the images it was last shared between)
+  memLogOn = getEnv("RETRO_MEMLOG") == "1"
+  memLogAt = 0
+  lastRuns: seq[string]          ## (the last commands run, for the log)
+
+proc noteRun(name: string) =
+  if not memLogOn: return
+  lastRuns.add name
+  if lastRuns.len > 16: lastRuns.delete(0)
+
+proc shareUndoRoom() =
+  ## The undo steps kept in memory: one room for all the open images (each
+  ## its share; the rest of its steps go to the scratch disk), so ten open
+  ## images take no more than one.
+  if docs.len == undoShared: return
+  undoShared = docs.len
+  undoRamBudget = max(32 shl 20, undoRamAll div max(1, docs.len))
+  for dw in docs:
+    if not dw.doc.stepOpen: dw.doc.collectSpills()
+
+proc memLogTick() =
+  ## RETRO_MEMLOG=1 (tools/soak.sh): every 30 seconds a line on stderr --
+  ## the memory held, each open image (size, layers, its history in
+  ## memory and in all), the last commands.
+  if not memLogOn or ui.now < memLogAt: return
+  memLogAt = ui.now + 30_000
+  let before = memoryUsed() shr 20
+  trimMemory()                     # (what was let go of, back: what is left is what is held)
+  var s = "memlog: " & $(memoryUsed() shr 20) & " MB held (" & $before & " before the heap was trimmed); " &
+          $docs.len & " images"
+  for dw in docs:
+    let d = dw.doc
+    let (all, ram) = d.historyBytes
+    s.add "; " & d.name & " " & $d.w & "x" & $d.h & " " & $d.layers.len & " layers, undo " & $(ram shr 20) &
+          "/" & $(all shr 20) & " MB, " & $d.undoSteps.len & " steps"
+  s.add "; last: " & lastRuns.join(", ")
+  try: stderr.writeLine s
+  except IOError: discard
+
 # (in photo/dialogs)
 proc startCameraRaw(raw: RawImage)
 
@@ -941,8 +1009,11 @@ proc toolStops(): seq[GradientStop]
 
 proc dropRecovery(dw: DocWin)
 
+proc forgetDoc(dw: DocWin)
+
 proc closeDoc(dw: DocWin) =
   dw.dropRecovery()
+  forgetDoc(dw)
   let i = docs.find(dw)
   if i >= 0: docs.delete(i)
   if tabCur == dw:
@@ -959,6 +1030,22 @@ proc closeDoc(dw: DocWin) =
           break
   if active == dw: active = (if tabCur != nil: tabCur elif docs.len > 0: docs[^1] else: nil)
   if docs.len == 0: releaseGpuComposite()   # (the layers' textures let go)
+  trimMemory()                               # (its memory back to the system: now, not when the program rests)
+
+proc smokeBound() =
+  ## (the kit's random input -- RETRO_SMOKE, tools/soak.sh -- keeps opening images and adding
+  ## layers: past four images the oldest is closed, an image past 40 layers is closed and a new
+  ## one begun, as a person would -- so the program's memory over an hour says what a leak
+  ## would, not how much it was made to pile up)
+  if not smokeOn(): return
+  while docs.len > 4: closeDoc(docs[0])
+  for i in countdown(docs.high, 0):
+    let d = docs[i].doc
+    if d != nil and d.layers.len > 40 and not d.stepOpen:
+      let (w, h) = (min(d.w, 1600), min(d.h, 1600))
+      closeDoc(docs[i])
+      if docs.len == 0: addDoc(newUntitled(w, h, white, 72, cmRGB, "Untitled"))
+      break
 
 # ---- colors -------------------------------------------------------------------------------------------
 
@@ -1428,8 +1515,8 @@ proc lineDragEnd(ev: PhotoEvent): (float, float) =
     y1 = drag.y0 + sin(a) * l
   (x1, y1)
 
-proc shapePath(ev: PhotoEvent): Path =
-  ## The outline the shape tool draws for the drag so far.
+proc flatShapePath(ev: PhotoEvent): Path =
+  ## (the outline the shape tool draws for the drag so far, flat)
   if shapeKind == 4:
     let (x1, y1) = lineDragEnd(ev)
     if hypot(x1 - drag.x0, y1 - drag.y0) < 1: return
@@ -1460,6 +1547,12 @@ proc shapePath(ev: PhotoEvent): Path =
       sp.pts.add PathPoint(p: (x, y), inH: (x, y), outH: (x, y))
     Path(subs: @[sp])
   else: customPath(customShape, x0, y0, x1, y1)
+
+proc shapePath(ev: PhotoEvent): Path =
+  ## The outline the shape tool draws for the drag so far: on the perspective grid's active
+  ## plane, when one is (but a line: it goes where it is dragged).
+  result = flatShapePath(ev)
+  if shapeKind != 4 and drag.dw != nil: result = drag.dw.doc.pgShape(result)
 
 proc shapeSettings(): ShapeData =
   ## A new shape's paint and stroke, from the tool's options.
@@ -3685,6 +3778,8 @@ proc overlays(dw: DocWin; ev: PhotoEvent) =
   let v = dw.view
   pushClip(v.view)
   bookOverlay(dw)
+  dw.pgOverlay(ev)
+  dw.threadOverlay(ev)
   if drag.on and drag.dw == dw and drag.band:
     let (x0, y0) = v.toScreen(d, min(drag.x0, drag.x1), min(drag.y0, drag.y1))
     let (x1, y1) = v.toScreen(d, max(drag.x0, drag.x1), max(drag.y0, drag.y1))
@@ -4117,6 +4212,12 @@ proc docBody(dw: DocWin) =
     # (Alt + the right button: the brush's size and hardness)
     dw.win.title = dw.title()
     return
+  if not drag.on and dw.canvasExtras(ev):
+    # (the perspective grid's widget and handles, a text frame's ports: the press is theirs)
+    ev.pressed = false
+    ev.down = false
+    ev.released = false
+    ev.clicks = 0
   # the Move tool's right click: the layers under the pointer, to pick one (as the usual)
   if tool == tMove and ev.right and ev.over and not drag.on and AltPressed notin ui.mods:
     let xi = int(floor(ev.x))
@@ -4282,6 +4383,13 @@ include photo/quick
 include photo/trace
 include photo/newlayout
 include photo/vectorcmds
+include photo/notes
+include photo/lists
+include photo/merge
+include photo/findchange
+include photo/perspective
+include photo/textframes
+include photo/pathbrushes
 include photo/dockpanels
 
 proc phoneLayout(): bool =
@@ -4606,6 +4714,9 @@ proc photoFrame() =
   ## is taken back.
   saveWatch()
   autosaveTick()
+  smokeBound()
+  shareUndoRoom()
+  memLogTick()
   if sessionPending and (mdiAreaRect("ws").w > 0 or phoneLayout()) and ui.now >= splashUntil: restoreSession()
   strokesMade = 0                # (the brushes' strokes: a few a frame)
   var open: seq[Doc]
@@ -4680,7 +4791,147 @@ proc photoFrame() =
     writeSession()
   wasPaused = ui.paused
 
+proc forgetDoc(dw: DocWin) =
+  ## What the program kept of an image being closed let go of -- Reselect's selection, a
+  ## transform or a text being edited, the edges the Magnetic Lasso follows, the History's
+  ## snapshot, the dialogs' layers, the marks on it -- so its memory goes with it.
+  let d = dw.doc
+  if d == nil: return
+  proc mine(L: Layer): bool = L != nil and L in d.layers
+  template drop(v: untyped) = v = default(typeof(v))
+  if reselect.d == d: drop(reselect)
+  if xf.dw == dw or mine(xf.layer): drop(xf)
+  if te.dw == dw or mine(te.layer): drop(te)
+  if mine(teLayout.layer): drop(teLayout)
+  if shapeDlg.dw == dw: drop(shapeDlg)
+  if pendingCrop.dw == dw: drop(pendingCrop)
+  if traceMap.d == d: drop(traceMap)
+  if traceLast.d == d: drop(traceLast)
+  if ruler.d == d: drop(ruler)
+  if snapshot.doc == d or mine(snapshot.layer): drop(snapshot)
+  if scratch == d: scratch = nil
+  if showNext == dw: showNext = nil
+  if tabMenuDoc == dw: tabMenuDoc = nil
+  if underMenu.dw == dw: drop(underMenu)
+  if pdfDoc == dw: pdfDoc = nil
+  if exportDoc == dw: exportDoc = nil
+  if adjDoc == d: adjDoc = nil
+  if mine(adjLayer): adjLayer = nil
+  if mine(adjOnLayer): adjOnLayer = nil
+  if fCanvasOn.doc == d: drop(fCanvasOn)
+  if duoDoc == d: duoDoc = nil
+  if skDoc == d: skDoc = nil
+  if mcDoc == d: mcDoc = nil
+  if nf.doc == d: nf.doc = nil
+  if baShot.d == d: drop(baShot)
+  if mine(spEdit.layer): drop(spEdit)
+  if mine(dvLayer): dvLayer = nil
+  if mine(lqLayer): lqLayer = nil
+  if mine(lcLayer): lcLayer = nil
+  if mine(flLayer): flLayer = nil
+  if mine(shapeSynced): shapeSynced = nil
+  if wm.dw == dw or mine(wm.layer): drop(wm)
+  if mine(warpDlg.layer): drop(warpDlg)
+  if mine(lsDlg.layer): drop(lsDlg)
+  if mine(vpLayer): vpLayer = nil
+  if mine(igDlg.editing): igDlg.editing = nil
+  if mine(fnDlg.layer): drop(fnDlg)
+  samplers.keepItIf(it.d != d)
+  notes.keepItIf(it.d != d)
+  counts.keepItIf(it.d != d)
+  slices.keepItIf(it.d != d)
+  smartEdits.keepItIf(it.child != d and it.parent != d)
+  chanThumbs.clear()               # (keyed by where the image was: a new one may come there)
+  GC_fullCollect()                 # (an image's parts that point at each other: let go now)
+
+proc headlessRun(args: seq[string]) =
+  ## The command line without a window (--headless): the files opened, the commands and scripts
+  ## run in order, the picture in front saved (--save FILE: by its extension -- .rpd, .psd keep
+  ## the layers, the others are flattened); what each did written out. Nothing of the last
+  ## session opened, nothing of this one kept.
+  sessionPending = false
+  template frames(n: int) =
+    for k in 0 ..< n:
+      discard beginFrame()
+      photoFrame()
+      endFrame()
+  frames(2)
+  var ai = 0
+  var failed = false
+  while ai < args.len:
+    let a = args[ai]
+    let v = if ai + 1 < args.len: args[ai + 1] else: ""
+    case a
+    of "--headless": discard
+    of "--run":
+      status = ""
+      runCommand(v)
+      frames(3)
+      echo v, ": ", (if status.len > 0: status else: "done")
+      inc ai
+    of "--script":
+      try:
+        runScript(readFile(v), v.extractFilename)
+        echo v, ": ", (if status.len > 0: status else: "done")
+      except CatchableError:
+        echo v, ": ", getCurrentExceptionMsg()
+        failed = true
+      frames(3)
+      inc ai
+    of "--shot":
+      # (the window as it is now, a picture: what the program shows)
+      frames(2)
+      try:
+        writeFile(v, encodePng(headlessShot()))
+        echo "shot ", v
+      except CatchableError:
+        echo "--shot ", v, ": ", getCurrentExceptionMsg()
+        failed = true
+      inc ai
+    of "--save":
+      if active == nil:
+        echo "--save ", v, ": no picture open"
+        failed = true
+      else:
+        try:
+          writeDoc(active, v)
+          if saving(): discard waitForSave()
+          echo "saved ", v
+        except CatchableError:
+          echo "--save ", v, ": ", getCurrentExceptionMsg()
+          failed = true
+      inc ai
+    else:
+      if a.startsWith("--"):
+        echo "unknown: ", a
+        failed = true
+      else:
+        openFile(a)
+        frames(2)
+        echo "opened ", a, (if active != nil: " (" & $active.doc.w & " x " & $active.doc.h & ")" else: "")
+    inc ai
+  if saving(): discard waitForSave()
+  stopApp()
+  if failed: quit(1)
+
 proc main() =
+  if "--help" in appArguments() or "-h" in appArguments():
+    echo AppName & " " & AppVersion & """
+
+  photo [FILE...] [--run "Command"]... [--script FILE.rs]...
+  photo --headless FILE... [--run "Command"]... [--script FILE.rs]... [--save OUT]... [--shot OUT.png]
+  photo --list-commands
+
+  --run "Command"    a command as the menus name it ("Invert", "Flatten Image")
+  --script FILE.rs   a script (Help > Scripting)
+  --headless         no window: the files opened, the commands and scripts run in
+                     order, --save OUT writes the picture in front (.rpd and .psd
+                     keep its layers; .png, .jpg, .pdf... are flattened)
+  --shot OUT.png     (with --headless) the window as it is then, a picture
+  --list-commands    every command, and where it is in the menus"""
+    return
+  let headlessAsked = "--headless" in appArguments()
+  if headlessAsked: useHeadless(1280, 800)
   setup()
   const iconPng = staticRead("assets/photo-icon.png")
   windowIcon = windowIconFromPng(iconPng)   # (the taskbar's picture)
@@ -4689,6 +4940,9 @@ proc main() =
   startApp(AppName & " " & AppVersion, 1280, 800)
   autoFocus = false             # (the keys are the picture's until a palette's control is clicked)
   restoreAppearance(loadSettings(AppData))      # (the look chosen in Preferences)
+  if headlessAsked:
+    headlessRun(appArguments())
+    return
   let splashMs = (try: parseInt(getEnv("RETRO_PHOTO_SPLASH", "1800")) except ValueError: 1800)
   var first = true
   # the command line: pictures to open; --run "Command" (as the menus name it), --script file.rs,

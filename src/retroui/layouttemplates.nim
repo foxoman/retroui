@@ -183,6 +183,7 @@ proc words(d: Doc; s: string; style: CharStyle; x, y, w, h: int; align = textLef
   var t = newText(s, style, x.float32, y.float32)
   t.boxW = w.float32
   t.boxH = h.float32
+  t.autoSize = asHeight          # (titles and headings: the box follows a size changed, as the layout program's)
   t.para.align = align
   t.para.rtl = rtl
   if leading > 0:

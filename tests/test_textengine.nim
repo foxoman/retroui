@@ -3,7 +3,7 @@
 
 import std/[math, json, strutils, os]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
-import retroui/[textengine, ttf, typeset]
+import retroui/[textengine, ttf, typeset, hyphenate]
 
 proc style(size = 40'f32): CharStyle =
   result = defaultStyle()
@@ -759,5 +759,177 @@ block alternatesOfAWord:
     if a.tag == "liga": doAssert not a.on, "turned off by the style"
   doAssert alternatesFor("xyz", CharStyle(family: "", size: 20)).len == 0, "nothing to choose for these letters"
   doAssert alternatesFor("", st).len == 0
+
+block footnotes:
+  # a reference's number in the text, the note at the foot of the box under a line, the text
+  # kept above it; numbered in order, in Arabic digits too; deleted with its reference; flowing
+  # on with the text, its numbers going on; endnotes after the text; saved
+  var st = defaultStyle()
+  st.size = 20
+  var t = newText(repeat("Words that fill the box line after line. ", 14), st, 10, 10)
+  t.boxW = 300
+  t.boxH = 260
+  let a = t.insertNote(5, "The first note.")
+  let b = t.insertNote(t.runeLen, "The second, at the end.")
+  doAssert a == 1 and b == 2 and t.notes.len == 2 and t.noteMarks.len == 2
+  doAssert t.noteNumber(a) == "1" and t.noteNumber(b) == "2"
+  let c = t.insertNote(2, "Before them both.")         # (put first: the others numbered after it)
+  doAssert t.noteNumber(c) == "1" and t.noteNumber(a) == "2" and t.notes[0].id == c
+  let lay = layoutText(t)
+  doAssert lay.caretX.len == t.runeLen + 1, "the caret's places: the text's characters"
+  var mainBottom, noteTop = 0'f32
+  noteTop = 1e9
+  for g in lay.glyphs:
+    if g.index >= 0: mainBottom = max(mainBottom, g.y)
+    else: noteTop = min(noteTop, g.y - g.size * 0.8)
+  doAssert noteTop < 1e9, "the notes drawn"
+  doAssert mainBottom < noteTop, "the text above the notes"
+  doAssert noteTop > t.y + t.boxH * 0.5 and noteTop < t.y + t.boxH, "at the foot of the box"
+  doAssert lay.decorations.len >= 1, "the line above them"
+  # the text past the box: flows on, the notes' numbers going on
+  doAssert lay.overflow > 0, "not all of it fits above the notes"
+  let rest = t.remainder(lay.overflow)
+  doAssert rest.notes.len == 3, "the box it flows into keeps the notes"
+  doAssert rest.noteNumber(b) == "3"
+  # deleted with its reference
+  var t2 = t
+  for sp in t2.spans.mitems: sp.text = sp.text.replace(noteMark(a), "")
+  t2.tidyNotes()
+  doAssert t2.notes.len == 2 and t2.noteNumber(b) == "2"
+  # Arabic digits, round the reference
+  var t3 = t
+  t3.noteOpts.numbers = nsArabicIndic
+  t3.noteOpts.prefix = "("
+  t3.noteOpts.suffix = ")"
+  doAssert t3.noteNumber(b) == "٣"
+  doAssert layoutText(t3).caretX.len == t3.runeLen + 1
+  # endnotes: after the text, under a heading
+  var e = t
+  e.boxH = 2000
+  e.noteOpts.kind = nkEndnotes
+  let el = layoutText(e)
+  var lastMain, firstNote = 0'f32
+  firstNote = 1e9
+  for g in el.glyphs:
+    if g.index >= 0: lastMain = max(lastMain, g.y)
+    else: firstNote = min(firstNote, g.y)
+  doAssert firstNote > lastMain, "after the text"
+  doAssert el.overflow == -1
+  # saved and read back
+  let back = textFrom(t3.toJson)
+  doAssert back.notes == t3.notes and back.noteOpts.numbers == nsArabicIndic and back.noteOpts.prefix == "("
+  doAssert layoutText(back).glyphs.len == layoutText(t3).glyphs.len
+
+block hyphenation:
+  # Liang's patterns: where English words break; a paragraph that hyphenates breaks the word
+  # that does not fit at a line's end, a hyphen after it, and fills its lines better
+  doAssert hyphenated("typesetting") == "type-set-ting"
+  doAssert hyphenated("hyphenation") == "hy-phen-ation"
+  doAssert hyphenated("table") == "ta-ble", "the patterns' own exceptions"
+  doAssert hyphenated("project") == "project"
+  doAssert hyphenPoints("cat").len == 0 and hyphenPoints("don't").len == 0
+  var st = defaultStyle()
+  st.size = 19
+  var t = newText("Typesetting with hyphenation gives justified paragraphs an even texture: international " &
+                  "organizations, extraordinary considerations and characteristically long words.", st, 0, 0)
+  t.boxW = 290
+  t.boxH = 400
+  t.para.align = justifyLeft
+  let plain = layoutText(t)
+  t.para.hyphenate = true
+  let hy = layoutText(t)
+  var hyphens = 0
+  for ln in hy.lines:
+    let txt = t.textSlice(ln.first, ln.last)
+    if ln.last < t.runeLen and txt.len > 0 and txt[^1] notin {' ', ','}: inc hyphens
+  doAssert hyphens >= 1, "a word broken"
+  doAssert hy.glyphs.len > plain.glyphs.len, "its hyphen drawn"
+  doAssert hy.caretX.len == plain.caretX.len
+  # Arabic is never hyphenated; nor point text
+  var a = newText("كلمات عربية طويلة جدا في سطر قصير", st, 0, 0)
+  a.boxW = 120
+  a.boxH = 400
+  a.para.hyphenate = true
+  var a2 = a
+  a2.para.hyphenate = false
+  doAssert layoutText(a).glyphs.len == layoutText(a2).glyphs.len
+  doAssert textFrom(t.toJson).para.hyphenate
+
+block ligatures:
+  # Ligatures off: the font's standard ones apart (fi, ffi); Arabic's lam + alef stays joined
+  # (a required ligature), Hebrew's marks stay placed
+  doAssert featureOn("", "liga") and featureOn("", "kern") and not featureOn("", "dlig")
+  doAssert featureOn("+dlig", "dlig") and not featureOn("-liga", "liga")
+  doAssert withLigatures("", false) == "-liga -clig" and withLigatures("-liga -clig", true) == ""
+  doAssert withFeature("+ss01", "dlig", true) == "+ss01 +dlig" and withFeature("+dlig", "dlig", false) == ""
+  let st = defaultStyle()
+  proc count(s, feats: string): int =
+    var x = st
+    x.features = feats
+    layoutText(newText(s, x)).glyphs.len
+  doAssert count("office fi fl", "") < count("office fi fl", withLigatures("", false)), "fi, ffi, fl apart"
+  doAssert count("لا الله", "") == count("لا الله", withLigatures("", false)), "lam + alef: required"
+  doAssert count("لا", withLigatures("", false)) == 1, "lam + alef one"
+  doAssert count("שָׁלוֹם", "") == count("שָׁלוֹם", withLigatures("", false))
+  var s2 = st
+  s2.features = withLigatures("", false)
+  doAssert not s2.ligaturesOn
+
+block oversetAndAutoSize:
+  # text in a box keeps to it as the layout programs have it: a line too tall for the box is
+  # overset, not drawn below it; Auto-Size makes the box as big as the text, its reference point
+  # staying; kept with the text
+  var t = newText("A heading", style(40), 50, 60)
+  t.boxW = 400
+  t.boxH = 20
+  let lay = layoutText(t)
+  doAssert lay.overflow == 0, "too tall for its box: overset (" & $lay.overflow & ")"
+  for g in lay.glyphs: doAssert false, "nothing drawn of it"
+  t.autoSize = asHeight
+  var a = t.autoSized
+  doAssert a.boxW == 400 and a.y == 60 and a.boxH > 40 and a.boxH < 80, $a.boxH
+  doAssert layoutText(a).overflow < 0
+  # smaller again: the box shorter too
+  var t2 = a
+  for sp in t2.spans.mitems: sp.style.size = 20
+  let a2 = t2.autoSized
+  doAssert a2.boxH < a.boxH * 0.7, $(a2.boxH, a.boxH)
+  # its bottom middle stays
+  t.autoRef = 7
+  a = t.autoSized
+  doAssert abs((a.y + a.boxH) - (t.y + t.boxH)) < 1e-3 and a.x == t.x
+  # Width Only: one line as long as it is, its left side staying
+  var w = newText("A line that is long enough to wrap in a narrow box", style(20), 50, 60)
+  w.boxW = 120
+  w.boxH = 300
+  doAssert layoutText(w).lines.len > 1
+  w.autoSize = asWidth
+  let aw = w.autoSized
+  doAssert aw.boxH == 300 and aw.x == 50 and aw.boxW > 300
+  doAssert layoutText(aw).lines.len == 1
+  # its right side staying
+  w.autoRef = 2
+  let ar = w.autoSized
+  doAssert abs((ar.x + ar.boxW) - (w.x + w.boxW)) < 1e-3
+  # Height and Width: the longest line wide, as tall as its lines
+  var hw = newText("First\nThe second, longer", style(24), 10, 10)
+  hw.boxW = 30
+  hw.boxH = 500
+  hw.autoSize = asBoth
+  let ab = hw.autoSized
+  doAssert layoutText(ab).lines.len == 2 and ab.boxH < 120 and ab.boxW > 100
+  # Keep Proportions: as the box was, the smallest that holds it
+  var kp = newText("Some words to hold in a box of its own shape here", style(20), 0, 0)
+  kp.boxW = 100
+  kp.boxH = 50
+  kp.autoSize = asProportional
+  let ak = kp.autoSized
+  doAssert abs(ak.boxH / ak.boxW - 0.5) < 1e-3 and layoutText(ak).overflow < 0
+  # kept with the text
+  let back = textFrom(toJson(kp))
+  doAssert back.autoSize == asProportional and back.autoRef == 0
+  var none = newText("Point text", style(20), 0, 40)
+  none.autoSize = asHeight
+  doAssert none.autoSized.boxW == 0, "not in a box: as it is"
 
 echo "textengine ok"

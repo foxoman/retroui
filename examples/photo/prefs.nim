@@ -46,7 +46,9 @@ proc applyMemory() =
   ## in memory (the rest on the scratch disk).
   let budget = physicalMemory() * int64(clamp(prefs.memory, 20, 90)) div 100
   maxPixels = int(clamp(budget div 34, 16_000_000'i64, 400_000_000'i64))
-  undoRamBudget = int(clamp(budget div 11, 64'i64 shl 20, 2048'i64 shl 20))
+  undoRamAll = int(clamp(budget div 11, 64'i64 shl 20, 2048'i64 shl 20))
+  undoRamBudget = undoRamAll
+  undoShared = -1                  # (shared again between the open images: the next frame)
   imaging.maxPicturePixels = maxPixels
 
 proc applyLanguage()
@@ -334,7 +336,8 @@ proc pageMemory() =
       if slider(prefs.memory, 20, 90, w = dp(160), ticks = 0): applyMemory()
       label($prefs.memory & "% (" & mb(phys * prefs.memory div 100) & ")")
     label("Largest image: " & $(maxPixels div 1_000_000) & " million pixels; undo steps kept in " &
-          "memory: " & mb(undoRamBudget.int64) & " (the rest go to the scratch disk).", color = ui.theme.gray)
+          "memory: " & mb(undoRamAll.int64) & ", all open images together (the rest go to the scratch " &
+          "disk).", color = ui.theme.gray)
   group("History && Cache"):
     row:
       label "History States:"

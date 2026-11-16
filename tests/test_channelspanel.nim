@@ -69,4 +69,20 @@ for (k, m) in [(2, cmRGB), (3, cmCMYK), (4, cmLab), (1, cmGray), (0, cmBitmap)]:
     run(2)
   echo "ok ", m
 
+block aPageShapedImage:
+  # an image whose thumbnail, fitted, is a pixel shorter than asked (a book's page, 874 x 1240:
+  # the panel once read past the small copy of it -- a fault each frame)
+  docs.setLen(0)
+  active = nil
+  run(2)
+  let d = newUntitled(874, 1240, white, 150, newModeOf(2), "page", 8)
+  addDoc(d)
+  showPanel("channels")
+  ui.lastFault = ""
+  run(3)
+  for ch in [-1, 0, 1, 2]:
+    doAssert channelThumb(d, ch, dp(24)).w > 0
+  doAssert ui.lastFault == "", ui.lastFault
+  echo "ok a page-shaped image"
+
 echo "test_channelspanel: ok"

@@ -463,6 +463,10 @@ type
     wrapGap*: int           ## ... and stays this many pixels away from it
     meta*: string           ## what an app keeps with the layer (a chart's or a map's settings, as
                             ## JSON, to make it again): saved with it, kept by undo
+    anchorTo*: int          ## anchored to a text: that type layer's `uid` (0: not anchored); the
+                            ## layer moves with its anchor's line as the text flows (`followAnchors`)
+    anchorAt*: int          ## ... the anchor's id in that text (`insertAnchor`)
+    anchorDx*, anchorDy*: float32  ## ... where the layer's top left is from the anchor's place
     ignoreWrap*: bool       ## a type layer: its text does not keep out of layers with Text Wrap (a
                             ## caption on a picture, a pull quote on its panel)
     wrapSide*: int          ## ... on both its sides (0), on its left only (1), on its right only (2), or
@@ -641,7 +645,10 @@ type
     points*: seq[tuple[x, y: float; color: uint32]]
                                 ## a freeform gradient's (`style` 5) colors and where they are in the
                                 ## shape's box (0..1 across and down): blended smoothly between
-                                ## them, each strongest where it is (as a gradient mesh looks)
+                                ## them, each strongest where it is; a gradient mesh's (`style` 6)
+                                ## points, row by row, `meshCols` a row
+    meshCols*: int              ## a gradient mesh: its points in a row (its columns + 1); the points
+                                ## move where they are and the colors between them bend with them
 
   StrokeAlign* = enum
     ## Where a shape's stroke is: inside its outline, centered on it, outside.
@@ -756,6 +763,8 @@ type
     wrap, wrapGap, wrapSide: int
     ignoreWrap: bool
     meta: string
+    anchorTo, anchorAt: int
+    anchorDx, anchorDy: float32
 
   LayerSnap = object
     layer: Layer
@@ -925,6 +934,8 @@ type
     pageTotal*: string             ## ... and how many pages the book has, so written: `<##>`
     flowIn*: Table[int, TextData]  ## a book's page: for a type layer (`uid`) whose box goes on from
                                    ## another page (`Layer.flowPage`), the text that did not fit there
+    perspective*: string           ## its perspective grid (`retroui/perspectivegrid`'s `gridToJson`;
+                                   ## "": none set), saved with it
     rawText*: int                  ## the type layer (`uid`) shown as it is written -- its `<#>` not
                                    ## replaced -- while it is being typed in (0: none)
     wrapped: bool                  # (some layer had Text Wrap when `rewrap` last looked)
@@ -1083,6 +1094,13 @@ proc clearSet*(px: var seq[uint32]) =
     i = e
   if (px.len and 1) == 1: px[^1] = 0
 
+when defined(useMalloc) and defined(linux) and not defined(android):
+  proc mallocOpt(param, value: cint): cint {.importc: "mallopt", header: "<malloc.h>".}
+  # (a picture's buffer always mapped on its own -- as retroui/memwatch sets it for a program --
+  # so `zeroPixels` gets pages never used, that take no memory until written; glibc's threshold
+  # would otherwise rise and hand back a freed one, cleared by writing every page)
+  discard mallocOpt(-3, 4 * 1024 * 1024)      # M_MMAP_THRESHOLD
+
 proc zeroPixels*(n: int): seq[uint32] =
   ## `n` transparent pixels. A big buffer comes zeroed from the system
   ## (`calloc`): its memory is only really taken where it is written -- an
@@ -1098,6 +1116,27 @@ proc zeroPixels*(n: int): seq[uint32] =
       cast[ptr Raw](addr result)[] = Raw(len: n, p: p)
       return
   newSeq[uint32](n)
+
+proc sparseCopy*(px: seq[uint32]): seq[uint32] =
+  ## A copy of a layer's pixels that takes memory only where something is: copied a page (4 KB)
+  ## at a time where it is not empty, into `zeroPixels` -- a layer painted in a corner, copied,
+  ## costs the corner (a small one: just copied).
+  when defined(useMalloc) and not defined(js):
+    let n = px.len
+    if n < 65536: return px
+    result = zeroPixels(n)
+    const page = 1024
+    var i = 0
+    while i < n:
+      let e = min(n, i + page)
+      var any = false
+      for k in i ..< e:
+        if px[k] != 0:
+          any = true
+          break
+      if any: copyMem(addr result[i], unsafeAddr px[i], (e - i) * 4)
+      i = e
+  else: px
 
 proc newLayer*(d: Doc; name: string; fill = 0'u32): Layer =
   ## A layer as big as `d` (not added to it).
@@ -1135,7 +1174,11 @@ when defined(posix):
   proc sysconf(name: cint): clong {.importc, header: "<unistd.h>".}
 
 proc physicalMemory*(): int64 =
-  ## The device's memory in bytes (4 GB when it cannot be told).
+  ## The device's memory in bytes (4 GB when it cannot be told;
+  ## `RETRO_DEVICE_MB=N`: N MB, as `retroui/memwatch` takes it -- a soak
+  ## run on a big machine budgets as on a small phone).
+  let pretend = (try: parseBiggestInt(getEnv("RETRO_DEVICE_MB")) except ValueError: 0'i64)
+  if pretend > 0: return pretend * 1024 * 1024
   when defined(posix):
     let n = sysconf(scPhysPages)
     let p = sysconf(scPageSize)
@@ -1251,6 +1294,8 @@ proc textBounds*(L: Layer): Rect =
 proc layerOfUid*(d: Doc; uid: int): Layer
   ## The layer whose `uid` that is (nil: none).
 
+proc uidOf*(L: Layer): int
+
 proc flowsOn*(d: Doc; L: Layer): bool =
   ## Another type layer's box shows what does not fit this one's (on this
   ## page, or -- a book -- on another: `flowOut`).
@@ -1351,9 +1396,12 @@ proc flowedText(d: Doc; L: Layer; depth: int): TextData =
 
 var flowDepth = 0                  ## (boxes drawn again down a chain of them)
 
+proc followAnchors*(d: Doc; T: Layer)
+
 proc drawText*(d: Doc; L: Layer) =
   ## A type layer's pixels made again from its text (after it changed);
-  ## the boxes its text flows on into, again too.
+  ## the boxes its text flows on into, again too; the layers anchored to it
+  ## moved with their lines.
   if not L.isText or L.px.len != d.w * d.h: return
   let old = L.textBox
   let wasZero = L.freshPixels           # (a new layer: nothing on it to clear or to mix again)
@@ -1364,6 +1412,10 @@ proc drawText*(d: Doc; L: Layer) =
       if x1 > x0: zeroMem(addr L.px[y * d.w + x0], (x1 - x0) * 4)
   elif not wasZero:
     clearSet(L.px)                       # (not drawn yet: only where something is)
+  if L.text.autoSize != asOff and L.flowFrom == 0 and not d.flowsOn(L):
+    # (Auto-Size: the box as big as its text, its reference point where it was)
+    let a = L.text.autoSized
+    if a.boxW != L.text.boxW or a.boxH != L.text.boxH or a.x != L.text.x or a.y != L.text.y: L.text = a
   var t = d.effectiveText(L)
   if d.flowsOn(L): t.clipOverflow = true
   let lay = layoutText(t)
@@ -1382,6 +1434,81 @@ proc drawText*(d: Doc; L: Layer) =
       for M in d.layers:
         if M != L and M.flowFrom == L.uid and M.flowPage == 0: d.drawText(M)
     finally: dec flowDepth
+  if L.uid != 0: d.followAnchors(L)
+
+proc followerOf*(d: Doc; L: Layer): Layer =
+  ## The box on this page that shows what does not fit `L`'s (threaded text frames); nil: none
+  ## here.
+  if L.uid == 0: return nil
+  for M in d.layers:
+    if M != L and M.isText and M.flowFrom == L.uid and M.flowPage == 0: return M
+
+proc storyHead*(d: Doc; L: Layer): Layer =
+  ## The first of the boxes on this page that `L` is threaded with: its text is theirs (it is
+  ## `L` when `L` takes nothing from another box here).
+  result = L
+  var n = 0
+  while result.flowFrom != 0 and result.flowPage == 0 and n < 64:
+    let S = d.layerOfUid(result.flowFrom)
+    if S == nil or S == result: break
+    result = S
+    inc n
+
+proc canThread*(d: Doc; S, M: Layer): bool =
+  ## `M` can take what does not fit `S` (`threadText`): two boxes of type, `M` not already
+  ## taking text from another box, nor before `S` in its thread.
+  if S == nil or M == nil or S == M or not S.isText or not M.isText: return false
+  if S.text.boxW <= 0 or M.text.boxW <= 0 or S.text.path.len > 0 or M.text.path.len > 0: return false
+  if M.flowFrom != 0 or M.fromMaster != 0 or M.locked: return false
+  var x = S
+  var n = 0
+  while x.flowFrom != 0 and x.flowPage == 0 and n < 64:
+    if x.flowFrom == M.uid: return false
+    x = d.layerOfUid(x.flowFrom)
+    if x == nil: break
+    inc n
+  M.uid == 0 or d.storyHead(S) != M
+
+proc threadText*(d: Doc; S, M: Layer): bool =
+  ## Text frames threaded, as the layout program does it: what does not fit `S` goes on into
+  ## `M` (and from it into the box `S` went on into before, if any). `M`'s own text, when it has
+  ## some, is added to the end of the story. False when `canThread` says no. (Undoable in a
+  ## step: `touchLayers` first.)
+  if not d.canThread(S, M): return false
+  let H = d.storyHead(S)
+  if M.text.plainText.len > 0:
+    if H.flowFrom != 0: return false      # (the story begins on another page: there it is added)
+    var t = H.text
+    let st = if t.spans.len > 0: t.spans[^1].style else: M.text.spans[0].style
+    t.spans.add TextSpan(text: "\n", style: st)
+    for sp in M.text.spans: t.spans.add sp
+    H.text = t
+  let next = d.followerOf(S)
+  let first = if M.text.spans.len > 0: M.text.spans[0].style else: defaultStyle()
+  M.text.spans = @[TextSpan(text: "", style: first)]
+  M.flowFrom = uidOf(S)
+  M.flowPage = 0
+  if next != nil and next != M: next.flowFrom = uidOf(M)
+  d.drawText(H)
+  d.drawText(M)
+  true
+
+proc unthreadText*(d: Doc; M: Layer) =
+  ## The thread into `M` broken, as the layout program does it: `M`, and the boxes after it, take
+  ## nothing more -- empty, still threaded to each other -- and what they showed is overset in
+  ## the box before. (Undoable in a step: `touchLayers` first.)
+  if M.flowFrom == 0: return
+  let S = if M.flowPage == 0: d.layerOfUid(M.flowFrom) else: nil
+  let et = d.effectiveText(M)
+  let first = if M.text.spans.len > 0: M.text.spans[0].style
+              elif et.spans.len > 0: et.spans[0].style
+              else: defaultStyle()
+  M.flowFrom = 0
+  M.flowPage = 0
+  M.text.spans = @[TextSpan(text: "", style: first)]
+  d.flowIn.del M.uid
+  if S != nil: d.drawText(S)
+  d.drawText(M)
 
 proc rewrap*(d: Doc) =
   ## The type layers whose lines keep out of other layers (Text Wrap)
@@ -2941,7 +3068,8 @@ proc settingsOf(L: Layer): LayerSettings =
                 lockPixels: L.lockPixels, lockPosition: L.lockPosition, link: L.link, board: L.board,
                 depth: L.depth, blendIf: L.blendIf, maskClear: L.maskClear, maskFeather: L.maskFeather,
                 smart: L.smart, wrap: L.wrap, wrapGap: L.wrapGap, wrapSide: L.wrapSide,
-                ignoreWrap: L.ignoreWrap, meta: L.meta)
+                ignoreWrap: L.ignoreWrap, meta: L.meta, anchorTo: L.anchorTo, anchorAt: L.anchorAt,
+                anchorDx: L.anchorDx, anchorDy: L.anchorDy)
 
 proc setSettings(L: Layer; s: LayerSettings) =
   ## (not its text or shape: they are drawn again when changed)
@@ -2955,6 +3083,10 @@ proc setSettings(L: Layer; s: LayerSettings) =
   L.smart = s.smart
   L.wrap = s.wrap; L.wrapGap = s.wrapGap; L.wrapSide = s.wrapSide; L.ignoreWrap = s.ignoreWrap
   L.meta = s.meta
+  L.anchorTo = s.anchorTo
+  L.anchorAt = s.anchorAt
+  L.anchorDx = s.anchorDx
+  L.anchorDy = s.anchorDy
 
 proc snapOf(d: Doc): DocSnap =
   result = DocSnap(w: d.w, h: d.h, dpi: d.dpi, mode: d.mode, palette: d.palette, duotone: d.duotone, cur: d.cur,
@@ -3361,6 +3493,20 @@ proc flattened16*(d: Doc): seq[uint16] =
     result[4 * i + 1] = uint16((p shr 8) and 255) * 257
     result[4 * i + 2] = uint16(p and 255) * 257
     result[4 * i + 3] = uint16(p shr 24) * 257
+
+proc historyBytes*(d: Doc): tuple[total, ram: int] =
+  ## What the undo history (its steps to undo and redo, the History
+  ## palette's snapshots) takes, all of it and in memory (the rest on the
+  ## scratch disk), bytes.
+  for st in d.undoSteps:
+    result.total += st.bytes
+    result.ram += st.ramBytes
+  for st in d.redoSteps:
+    result.total += st.bytes
+    result.ram += st.ramBytes
+  for sn in d.snapshots:
+    result.total += sn.step.bytes
+    result.ram += sn.step.ramBytes
 
 proc historyInMemory*(d: Doc): float =
   ## How much of the undo history is in memory (0..1; the rest is on the
@@ -4500,7 +4646,7 @@ proc ungroup*(d: Doc; i = -1) =
   d.markAll()
 
 proc copyLayer(L: Layer; name: string): Layer =
-  result = Layer(name: name, px: L.px, ver: L.ver)
+  result = Layer(name: name, px: sparseCopy(L.px), ver: L.ver)
   result.setSettings(settingsOf(L))
   result.name = name
   result.text = L.text
@@ -5281,6 +5427,77 @@ proc shiftLayers*(d: Doc; layers: seq[Layer]; dx, dy: int) =
       L.smart = SmartData(src: L.smart.src, w: L.smart.w, h: L.smart.h, quad: q, filters: L.smart.filters,
                           name: L.smart.name, file: L.smart.file, warp: L.smart.warp)
   d.markAll()
+
+proc anchorOrigin*(d: Doc; L: Layer): tuple[x, y: float32] =
+  ## The point of a layer its anchor keeps in place: a text's place, a shape's or a placed
+  ## picture's top left, else the top left of what it has.
+  if L.isText: return (L.text.x, L.text.y)
+  if L.isShape and L.shapeBox.x1 > L.shapeBox.x0: return (L.shapeBox.x0.float32, L.shapeBox.y0.float32)
+  if L.smart != nil:
+    var x, y = 1e9'f32
+    for c in L.smart.quad:
+      x = min(x, c[0].float32)
+      y = min(y, c[1].float32)
+    return (x, y)
+  let r = d.contentBounds(L)
+  (r.x.float32, r.y.float32)
+
+var anchorDepth = 0
+
+proc followAnchors*(d: Doc; T: Layer) =
+  ## The layers anchored to type layer `T` (`Layer.anchorTo`) moved with their anchors' lines,
+  ## as its text flowed: each kept where it was from its anchor.
+  if T.uid == 0 or not T.isText or anchorDepth > 4: return
+  var any = false
+  for A in d.layers:
+    if A.anchorTo == T.uid and A != T: any = true
+  if not any: return
+  inc anchorDepth
+  try:
+    let t = d.effectiveText(T)
+    for (id, x, y, shown) in anchorPlaces(t, layoutText(t)):
+      for A in d.layers:
+        if A.anchorTo != T.uid or A.anchorAt != id or A == T: continue
+        let o = d.anchorOrigin(A)
+        let dx = int(round(x + A.anchorDx - o.x))
+        let dy = int(round(y + A.anchorDy - o.y))
+        if dx != 0 or dy != 0: d.shiftLayers(@[A], dx, dy)
+  finally: dec anchorDepth
+
+proc anchorToText*(d: Doc; A, T: Layer): bool =
+  ## Layer `A` anchored to type layer `T` at the character nearest its top left: from now on it
+  ## moves with that line as the text flows. False when `A` cannot be (a type layer to itself).
+  if A == nil or T == nil or A == T or not T.isText or T.text.path.len > 0: return false
+  let o = d.anchorOrigin(A)
+  let t = d.effectiveText(T)
+  let lay = layoutText(t)
+  # (the character nearest: of the line nearest the layer's top, the place nearest its left)
+  var at = if lay.lines.len > 0: lay.charAt(o.x, o.y) else: 0
+  var tt = T.text
+  let id = tt.insertAnchor(at)
+  if id == 0: return false
+  d.setText(T, tt)
+  let t2 = d.effectiveText(T)
+  for (aid, x, y, shown) in anchorPlaces(t2, layoutText(t2)):
+    if aid == id:
+      A.anchorTo = uidOf(T)
+      A.anchorAt = id
+      A.anchorDx = o.x - x
+      A.anchorDy = o.y - y
+      return true
+  false
+
+proc releaseAnchor*(d: Doc; A: Layer) =
+  ## Layer `A` no longer anchored: its anchor taken out of the text, the layer left where it is.
+  if A == nil or A.anchorTo == 0: return
+  for T in d.layers:
+    if T.isText and T.uid == A.anchorTo:
+      var t = T.text
+      let mark = anchorMark(A.anchorAt)
+      for sp in t.spans.mitems: sp.text = sp.text.replace(mark, "")
+      d.setText(T, t)
+  A.anchorTo = 0
+  A.anchorAt = 0
 
 proc contentBounds*(d: Doc; L: Layer): Rect =
   ## Where a layer has something (its alpha), a group's layers together; an
@@ -7008,6 +7225,7 @@ proc toJson*(p: ShapePaint): JsonNode =
     var a = newJArray()
     for q in p.points: a.add %*[q.x, q.y, int64(q.color)]
     result["points"] = a
+    if p.meshCols > 0: result["meshCols"] = %p.meshCols
   if p.pattern.len > 0 and p.pattern.len == p.pw * p.ph:
     let b = newBitmap(p.pw, p.ph)
     b.px = p.pattern
@@ -7020,8 +7238,9 @@ proc paintFrom(j: JsonNode): ShapePaint =
   result.color = uint32(j{"color"}.getBiggestInt(0xFF000000) and 0xFFFFFFFF)
   result.color2 = uint32(j{"color2"}.getBiggestInt(0xFFFFFFFF) and 0xFFFFFFFF)
   result.angle = j{"angle"}.getInt(90)
-  result.style = clamp(j{"style"}.getInt(0), 0, 5)
+  result.style = clamp(j{"style"}.getInt(0), 0, 6)
   result.reverse = j{"reverse"}.getBool
+  result.meshCols = clamp(j{"meshCols"}.getInt(0), 0, 16)
   result.opacity = clamp(j{"opacity"}.getInt(100), 0, 100)
   result.scale = clamp(j{"scale"}.getInt(100), 10, 1000)
   for st in j{"stops"}.getElems:
@@ -7032,7 +7251,7 @@ proc paintFrom(j: JsonNode): ShapePaint =
                                     mid: (if e.len == 3: clamp(e[2].getFloat, 0.0, 1.0) else: 0.0))
   for q in j{"points"}.getElems:
     let e = q.getElems
-    if e.len == 3 and result.points.len < 64:
+    if e.len == 3 and result.points.len < 289:
       result.points.add (clamp(e[0].getFloat, -1.0, 2.0), clamp(e[1].getFloat, -1.0, 2.0),
                          uint32(e[2].getBiggestInt(0) and 0xFFFFFFFF))
   if j.hasKey("pattern"):
@@ -7139,6 +7358,7 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
     if L.wrapSide != 0: lj["wrapSide"] = %L.wrapSide
     if L.ignoreWrap: lj["ignoreWrap"] = %true
     if L.meta.len > 0: lj["meta"] = %L.meta
+    if L.anchorTo != 0: lj["anchor"] = %*[L.anchorTo, L.anchorAt, L.anchorDx, L.anchorDy]
     if L.fromMaster != 0: lj["fromMaster"] = %L.fromMaster
     if L.fromSpan != 0: lj["fromSpan"] = %L.fromSpan
     if L.isText and L.textFull.x1 > L.textFull.x0:
@@ -7223,6 +7443,8 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
     var cs = newJArray()
     for c in d.comps: cs.add c.compToJson
     j["comps"] = cs
+  if d.perspective.len > 0: j["perspective"] = %d.perspective
+  j["overset"] = %true          # (text in a box keeps to it: what does not fit is not drawn)
   if d.frames.len > 0:
     var fa = newJArray()
     for f in d.frames:
@@ -7344,7 +7566,7 @@ proc loadRpd*(path: string): Doc =
     let L = Layer(name: lj{"name"}.getStr("Layer"), opacity: clamp(lj{"opacity"}.getInt(100), 0, 100),
                   visible: lj{"visible"}.getBool(true), lockAlpha: lj{"preserve"}.getBool,
                   background: lj{"background"}.getBool)
-    L.px = if b != nil: b.px else: zeroPixels(w * h)
+    L.px = if b != nil: sparseCopy(b.px) else: zeroPixels(w * h)   # (memory only where it is painted)
     L.group = lj{"group"}.getBool
     L.passThrough = lj{"passThrough"}.getBool(true)
     L.collapsed = lj{"collapsed"}.getBool
@@ -7405,6 +7627,12 @@ proc loadRpd*(path: string): Doc =
     L.ignoreWrap = lj{"ignoreWrap"}.getBool(false)
     L.meta = lj{"meta"}.getStr("")
     if L.meta.len > 1_000_000: L.meta = ""
+    let an = lj{"anchor"}.getElems
+    if an.len == 4:
+      L.anchorTo = an[0].getInt
+      L.anchorAt = an[1].getInt
+      L.anchorDx = an[2].getFloat.float32
+      L.anchorDy = an[3].getFloat.float32
     L.fromMaster = lj{"fromMaster"}.getInt(0)
     L.fromSpan = lj{"fromSpan"}.getInt(0)
     if lj{"textFull"} != nil and lj["textFull"].kind == JArray and lj["textFull"].len == 4:
@@ -7475,6 +7703,7 @@ proc loadRpd*(path: string): Doc =
     if result.spots.len == 0 or result.spotBase notin {cmRGB, cmCMYK, cmGray}: result.mode = cmRGB
   result.cur = clamp(j{"current"}.getInt(0), 0, result.layers.high)
   for cj in j{"comps"}.getElems: result.comps.add compFrom(cj)
+  result.perspective = j{"perspective"}.getStr
   for fj in j{"frames"}.getElems:
     var f = AnimFrame(delay: fj{"delay"}.getInt(100))
     for lj in fj{"layers"}.getElems:
@@ -7503,6 +7732,17 @@ proc loadRpd*(path: string): Doc =
   result.viewGamma = j{"viewGamma"}.getFloat(1)
   for L in result.layers:
     if L.hdr.len == w * h * 4: L.hdrVer = L.ver      # (the light read is what it shows)
+  if not j.hasKey("overset"):
+    # (a file from before text kept to its box: a box of one column that did not hold its text --
+    # drawn below it then -- made as tall as its text, Auto-Size, so it shows what it showed)
+    for L in result.layers:
+      if not L.isText or L.text.boxW <= 0 or L.text.boxH <= 0 or L.text.autoSize != asOff or
+         L.text.path.len > 0 or L.text.vertical or L.text.fit or L.text.columns > 1 or L.text.table.on or
+         L.flowFrom != 0 or result.flowsOn(L) or L.px.len != w * h:
+        continue
+      if L.text.plainText.strip.len > 0 and layoutText(L.text).overflow >= 0:
+        L.text.autoSize = asHeight
+        result.drawText(L)
   result.markAll()
   result.modified = false
 

@@ -48,6 +48,22 @@ proc paintOf(p: ShapePaint; id: string; box: Rect; defs: var string): string =
   of spNone: "none"
   of spColor: hexColor(p.color)
   of spGradient:
+    if (p.style == 5 and p.points.len > 0) or (p.style == 6 and p.meshCols >= 2 and p.points.len >= 4):
+      # (a freeform gradient, a gradient mesh: SVG has neither -- its colors as a picture over the box)
+      let bw = clamp(box.w, 1, 512)
+      let bh = clamp(box.h, 1, 512)
+      let b = newBitmap(bw, bh)
+      for y in 0 ..< bh:
+        for x in 0 ..< bw:
+          let u = (x.float + 0.5) / bw.float
+          let v = (y.float + 0.5) / bh.float
+          b.px[y * bw + x] = if p.style == 5: freeformAt(p.points, u, v) else: meshAt(p.points, p.meshCols, u, v)
+      b.opaque = false
+      defs.add "<pattern id=\"" & id & "\" patternUnits=\"userSpaceOnUse\" x=\"" & num(box.x.float) & "\" y=\"" &
+               num(box.y.float) & "\" width=\"" & num(max(1, box.w).float) & "\" height=\"" & num(max(1, box.h).float) &
+               "\"><image width=\"" & num(max(1, box.w).float) & "\" height=\"" & num(max(1, box.h).float) &
+               "\" preserveAspectRatio=\"none\" href=\"data:image/png;base64," & encode(encodePng(b)) & "\"/></pattern>"
+      return "url(#" & id & ")"
     var stops = p.stops
     if stops.len == 0:
       stops = @[GradientStop(at: 0, color: p.color, mid: 0.5), GradientStop(at: 1, color: p.color2, mid: 0.5)]
@@ -416,8 +432,8 @@ proc svgOf*(d: Doc; pixels = true; outlines = false): string =
       if sh.hasEnds and sh.stroke.kind == spColor and sh.strokeWidth > 0:
         body.add "<path" & vis & op & " d=\"" & sh.endsPath.pathData & "\" fill=\"" &
                  paintOf(sh.stroke, "g" & $n & "e", box, defs) & "\" fill-rule=\"nonzero\"/>\n"
-    elif L.isText and (outlines or L.text.table.on):
-      # (the text as its letters' outlines: one path a color; a table so too, its fills and lines with it)
+    elif L.isText and (outlines or L.text.table.on or L.text.notes.len > 0):
+      # (the text as its letters' outlines: one path a color; a table, notes so too, their lines with them)
       let td = d.effectiveText(L)
       var col = 0'u32
       var pd = ""

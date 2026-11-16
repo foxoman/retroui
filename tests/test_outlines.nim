@@ -2,8 +2,8 @@
 ## between two (Make Blend: `blendShapes`, `colorSteps`) -- retroui/photovector.
 
 import std/math
-import std/[json, os]
-import retroui/[photo, photoshapes, photovector, textengine, liveshapes]
+import std/[json, os, strutils]
+import retroui/[photo, photoshapes, photovector, textengine, liveshapes, photosvg]
 
 proc st(size: float; color = 0xFF202060'u32): CharStyle =
   CharStyle(family: "", size: size, color: color, hScale: 1, vScale: 1)
@@ -190,5 +190,38 @@ block freeformGradient:
   for L in back.layers:
     if L.isShape: found = L.shape.fill.style == 5 and L.shape.fill.points.len == 3
   doAssert found
+
+block gradientMesh:
+  # a grid of color points: each point's own color at it, smooth between; a point moved bends
+  # the colors with it; saved and read back; to SVG as a picture of its colors
+  proc near(a, b: uint32; tol = 8): bool =
+    for sh in [0, 8, 16, 24]:
+      if abs(int((a shr sh) and 255) - int((b shr sh) and 255)) > tol: return false
+    true
+  var m = meshPaint(2, 2, [0xFFFF0000'u32, 0xFF00FF00'u32, 0xFF0000FF'u32])
+  doAssert m.style == 6 and m.meshCols == 3 and m.points.len == 9
+  doAssert near(meshAt(m.points, 3, 0, 0), 0xFFFF0000'u32)
+  doAssert near(meshAt(m.points, 3, 1, 1), m.points[8].color)
+  let mid = meshAt(m.points, 3, 0.5, 0.5)
+  doAssert near(mid, m.points[4].color, 12), "the middle point's own color at it"
+  var bent = m
+  bent.points[4].x = 0.8
+  bent.points[4].y = 0.2
+  doAssert near(meshAt(bent.points, 3, 0.8, 0.2), m.points[4].color, 12), "its color moved with it"
+  doAssert not near(meshAt(bent.points, 3, 0.5, 0.5), mid, 12), "the colors between bent"
+  let s = ShapeData(path: rectPath(0, 0, 100, 100), fill: bent)
+  let px = drawnShapes(@[s], 100, 100)
+  doAssert near(px[20 * 100 + 80], m.points[4].color, 16), "drawn so"
+  let d = newDoc(100, 100, 0xFFFFFFFF'u32)
+  discard d.addShapeLayer(s)
+  let tmp = getTempDir() / "retro-mesh.rpd"
+  d.saveRpd(tmp)
+  let back = loadRpd(tmp)
+  removeFile(tmp)
+  var found = false
+  for L in back.layers:
+    if L.isShape: found = L.shape.fill.style == 6 and L.shape.fill.meshCols == 3 and L.shape.fill.points == bent.points
+  doAssert found
+  doAssert "<pattern" in d.svgOf(), "SVG: its colors as a picture"
 
 echo "test_outlines: ok"

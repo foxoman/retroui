@@ -99,6 +99,26 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   ones last applied, ends the step on OK, and cancels it on Cancel -- or
   when it is closed any other way (a `pending` flag, checked before the
   dialog is drawn). `tests/test_infographics.nim`, `tests/test_idml.nim`.
+- Notes, lists, search, merge, frames, the grid and brushes are the
+  kit's too: footnotes and endnotes and Auto-Size in `retroui/textengine`
+  (`insertNote`, `tidyNotes`, `autoSized`: `drawText` sizes the box, so
+  undo keeps it), `retroui/booklists` (table of contents, index),
+  `retroui/hyphenate` (Liang's patterns; `vendor/hyph-en-us.tex` keeps
+  its notice), `retroui/textsearch` (GREP patterns over characters),
+  `retroui/datamerge`, `retroui/perspectivegrid` (`ontoPlane`,
+  `pixelsOntoPlane`; the grid is `Doc.perspective`, saved),
+  `retroui/pathbrush`. Text in a box keeps to it: what does not fit is
+  overset (`TextLayout.overflow`), never drawn below the box. Threaded
+  frames: `threadText` and `unthreadText` on a page, `threadPages` and
+  `unlinkPages(keepText = false)` across a book's pages, as the layout
+  program does it (a box's own words go to the story's end; a broken
+  thread empties the boxes after it). IDML writes a thread as one story,
+  each frame naming the one before and after it, and reads it back so.
+  A painted layer copied keeps its memory sparse: `sparseCopy`, never a
+  plain `seq` copy of a big layer. `tests/test_handpass.nim` uses every
+  tool through the window's input and undoes it all: a tool that changes
+  the picture without an undo step, or a step that does not take back
+  what it did, fails it.
 - Open and Save As on a phone: `retroui/systemfiles` behind `fileDialog`
   and `filePicker` (Android: `tools/android/RetroActivity.java`, then
   `sh tools/android/build_dex.sh`; iOS: through the Objective-C runtime).

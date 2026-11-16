@@ -8,10 +8,13 @@
 ## beside it. `saveBookIdml`, `saveDocIdml`.
 ##
 ## What it has no word for is drawn to pixels (layer styles, blend modes:
-## the layer as a picture) or kept simpler: a table goes as text with tabs
-## between its cells, text that flows on from box to box as a story each.
+## the layer as a picture) or kept simpler: text that flows on from box to
+## box as a story each. Tables go as the program's own tables (rows,
+## columns, cells' text, fills and lines), footnotes as its footnotes,
+## endnotes as text after the story.
 
 import std/[strutils, os, tables, hashes]
+from std/unicode import runeAt, runeLenAt, runeLen
 import gfx, imaging, jpeg, photo, photobook, photoshapes, textengine, zip
 
 type
@@ -22,6 +25,13 @@ type
     links: seq[(string, string)]            ## (file name, PNG bytes)
     linksDir: string
     next: int
+
+const
+  AutoSizing = [asOff: "Off", asHeight: "HeightOnly", asWidth: "WidthOnly", asBoth: "HeightAndWidth",
+                asProportional: "HeightAndWidthProportionally"]
+    ## (Auto-Size as the layout program writes it)
+  RefPoints = ["TopLeftPoint", "TopCenterPoint", "TopRightPoint", "LeftCenterPoint", "CenterPoint",
+               "RightCenterPoint", "BottomLeftPoint", "BottomCenterPoint", "BottomRightPoint"]
 
 proc x(s: string): string =
   ## (XML's text)
@@ -75,10 +85,24 @@ proc alignOf(a: TextAlign; rtl: bool): string =
   of justifyRight: (if rtl: "LeftJustified" else: "RightJustified")
   of justifyAll: "FullyJustified"
 
-proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool): string =
-  ## (a text's story: its paragraphs, each run in its look; on a master, "<#>" the page number)
-  let t = scriptFontsApplied(t0)
-  let id = o.uid("s")
+const OtfAttrs = [("dlig", "OTFDiscretionaryLigature"), ("frac", "OTFFraction"), ("ordn", "OTFOrdinal"),
+                 ("swsh", "OTFSwash"), ("titl", "OTFTitling"), ("zero", "OTFSlashedZero"),
+                 ("hist", "OTFHistorical")]
+  # (OpenType features and the layout program's names for them; Ligatures and Contextual
+  # Alternates apart: on unless said)
+
+proc otfOut(features: string): string =
+  ## (a style's OpenType features as the attributes of a CharacterStyleRange)
+  if not featureOn(features, "liga"): result.add " Ligatures=\"false\""
+  if not featureOn(features, "calt"): result.add " OTFContextualAlternate=\"false\""
+  for (tag, attr) in OtfAttrs:
+    if featureOn(features, tag): result.add " " & attr & "=\"true\""
+
+proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): string =
+  ## (a text's story: its paragraphs, each run in its look; on a master, "<#>" the page number;
+  ## footnotes the layout program's own, endnotes as text after it)
+  let t = scriptFontsApplied(if t0.noteOpts.kind == nkEndnotes: notesAsText(t0) else: t0)
+  let id = if self.len > 0: self else: o.uid("s")
   var rtl = t.para.rtl == 2
   if t.para.rtl == 0:
     block strong:
@@ -94,24 +118,94 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool): string =
              f(p.indentRight * k) & "\" FirstLineIndent=\"" & f(p.indentFirst * k) & "\" SpaceBefore=\"" &
              f(p.spaceBefore * k) & "\" SpaceAfter=\"" & f(p.spaceAfter * k) & "\"" &
              (if rtl: " ParagraphDirection=\"RightToLeftDirection\" Composer=\"$ID/HL Composer Optyca\"" else: "") &
+             " Hyphenation=\"" & $p.hyphenate & "\"" &
              (if p.dropLines >= 2: " DropCapLines=\"" & $p.dropLines & "\" DropCapCharacters=\"" &
                                    $max(1, p.dropChars) & "\"" else: "") & ">\n"
-  for sp in t.spans:
-    let st = sp.style
+  proc csrOpen(o: var IdmlOut; st: CharStyle): string =
+    ## (a CharacterStyleRange's opening, in `st`'s look)
     let fam = if st.family.len > 0: st.family else: "FreeSans"
     let sty = if st.style.len > 0: st.style elif st.fauxBold: "Bold" else: "Regular"
     o.fontRef(fam, sty)
-    body.add "<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/$ID/[No character style]\" FontStyle=\"" &
-             x(sty) & "\" PointSize=\"" & f(max(0.1, st.size * k)) & "\" FillColor=\"" & o.colorRef(st.color) & "\"" &
-             (if st.tracking != 0: " Tracking=\"" & $st.tracking & "\"" else: "") &
-             (if st.baselineShift != 0: " BaselineShift=\"" & f(st.baselineShift * k) & "\"" else: "") &
-             (if st.underline: " Underline=\"true\"" else: "") & (if st.strike: " StrikeThru=\"true\"" else: "") &
-             (if st.hScale > 0 and st.hScale != 1: " HorizontalScale=\"" & f(st.hScale * 100) & "\"" else: "") &
-             (if st.vScale > 0 and st.vScale != 1: " VerticalScale=\"" & f(st.vScale * 100) & "\"" else: "") &
-             (if st.allCaps: " Capitalization=\"AllCaps\"" elif st.smallCaps: " Capitalization=\"SmallCaps\"" else: "") &
-             ">\n<Properties><AppliedFont type=\"string\">" & x(fam) & "</AppliedFont>" &
-             (if st.leading > 0: "<Leading type=\"unit\">" & f(st.leading * k) & "</Leading>" else: "") &
-             "</Properties>\n"
+    "<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/$ID/[No character style]\" FontStyle=\"" &
+      x(sty) & "\" PointSize=\"" & f(max(0.1, st.size * k)) & "\" FillColor=\"" & o.colorRef(st.color) & "\"" &
+      (if st.tracking != 0: " Tracking=\"" & $st.tracking & "\"" else: "") &
+      (if st.baselineShift != 0: " BaselineShift=\"" & f(st.baselineShift * k) & "\"" else: "") &
+      (if st.underline: " Underline=\"true\"" else: "") & (if st.strike: " StrikeThru=\"true\"" else: "") &
+      (if st.hScale > 0 and st.hScale != 1: " HorizontalScale=\"" & f(st.hScale * 100) & "\"" else: "") &
+      (if st.vScale > 0 and st.vScale != 1: " VerticalScale=\"" & f(st.vScale * 100) & "\"" else: "") &
+      (if st.allCaps: " Capitalization=\"AllCaps\"" elif st.smallCaps: " Capitalization=\"SmallCaps\"" else: "") &
+      otfOut(st.features) & ">\n<Properties><AppliedFont type=\"string\">" & x(fam) & "</AppliedFont>" &
+      (if st.leading > 0: "<Leading type=\"unit\">" & f(st.leading * k) & "</Leading>" else: "") &
+      "</Properties>\n"
+  if t.table.on:
+    # (a table: the layout program's own -- its rows and columns, each cell's text and fill, its lines)
+    let tb = t.table
+    let all = t.plainText
+    var rows: seq[seq[tuple[text: string; at: int]]]
+    var at = 0
+    for line in all.split('\n'):
+      var cells: seq[tuple[text: string; at: int]]
+      var a = at
+      for c in line.split('\t'):
+        cells.add (c, a)
+        a += c.runeLen + 1
+      rows.add cells
+      at += line.runeLen + 1
+    var ncol = 1
+    for r in rows: ncol = max(ncol, r.len)
+    let tid = o.uid("t")
+    let w = max(1.0, t.boxW.float * k)
+    var widths: seq[float]
+    var sum = 0.0
+    for c in 0 ..< ncol:
+      let wv = if c < tb.widths.len and tb.widths[c] > 0: tb.widths[c].float else: 1.0
+      widths.add wv
+      sum += wv
+    let base = t.styleAt(0)
+    let rowH = max(1.0, base.size.float * k * 1.6)
+    let lineW = (if tb.borderW > 0: tb.borderW.float else: 1.0) * k
+    body.add csrOpen(o, base)
+    body.add "<Table Self=\"" & tid & "\" HeaderRowCount=\"" & $min(tb.headerRows, rows.len) & "\" FooterRowCount=\"0\" " &
+             "BodyRowCount=\"" & $(rows.len - min(tb.headerRows, rows.len)) & "\" ColumnCount=\"" & $ncol &
+             "\" AppliedTableStyle=\"TableStyle/$ID/[Basic Table]\" TableDirection=\"" &
+             (if rtl: "RightToLeftDirection" else: "LeftToRightDirection") & "\">\n"
+    for r in 0 ..< rows.len:
+      body.add "<Row Self=\"" & tid & "Row" & $r & "\" Name=\"" & $r & "\" MinimumHeight=\"" & f(rowH) &
+               "\" AutoGrow=\"true\"/>\n"
+    for c in 0 ..< ncol:
+      body.add "<Column Self=\"" & tid & "Column" & $c & "\" Name=\"" & $c & "\" SingleColumnWidth=\"" &
+               f(w * widths[c] / sum) & "\"/>\n"
+    for r in 0 ..< rows.len:
+      let header = r < tb.headerRows
+      let fillC = if header: tb.headerFill
+                  elif tb.altFill != 0 and (r - tb.headerRows) mod 2 == 1: tb.altFill
+                  else: tb.fill
+      for c in 0 ..< ncol:
+        let cell = if c < rows[r].len: rows[r][c] else: ("", 0)
+        var st = t.styleAt(cell.at)
+        if header and tb.headerColor != 0: st.color = tb.headerColor
+        elif not header and tb.bodyColor != 0: st.color = tb.bodyColor
+        if header and tb.headerBold: st.fauxBold = true
+        var edges = ""
+        if tb.border != 0:
+          let top = tb.inner or r == 0 or (tb.rowLines and r > 0) or (r == tb.headerRows and r > 0)
+          let bottom = tb.inner or r == rows.high or tb.rowLines or (r == tb.headerRows - 1)
+          let left = tb.inner or c == 0
+          let right = tb.inner or c == ncol - 1
+          for (name, on) in [("Top", top), ("Bottom", bottom), ("Left", left), ("Right", right)]:
+            edges.add " " & name & "EdgeStrokeWeight=\"" & (if on: f(lineW) else: "0") & "\""
+            if on: edges.add " " & name & "EdgeStrokeColor=\"" & o.colorRef(tb.border) & "\""
+        body.add "<Cell Self=\"" & tid & "i" & $r & "_" & $c & "\" Name=\"" & $c & ":" & $r &
+                 "\" RowSpan=\"1\" ColumnSpan=\"1\" AppliedCellStyle=\"CellStyle/$ID/[None]\"" &
+                 (if fillC != 0: " FillColor=\"" & o.colorRef(fillC) & "\"" else: "") & edges & ">\n" &
+                 "<ParagraphStyleRange AppliedParagraphStyle=\"ParagraphStyle/$ID/NormalParagraphStyle\"" &
+                 (if tb.numbersRight and looksNumeric(newText(cell.text)): " Justification=\"RightAlign\"" else: "") & ">\n" &
+                 csrOpen(o, st) & "<Content>" & x(cell.text) & "</Content>\n</CharacterStyleRange>\n" &
+                 "</ParagraphStyleRange>\n</Cell>\n"
+    body.add "</Table>\n</CharacterStyleRange>\n"
+  for sp in (if t.table.on: @[] else: t.spans):
+    let st = sp.style
+    body.add csrOpen(o, st)
     # its text: paragraphs apart (<Br/>), the page number the program's own on a master
     var piece = ""
     proc flush(body: var string; piece: var string) =
@@ -133,6 +227,18 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool): string =
         flush(body, piece)
         body.add "<Content><?ACE 18?></Content>\n"
         i += 3
+      elif s[i] == '\xF3' and isNoteMark(int(s.runeAt(i))):
+        # (a footnote: its number the program's own, its text in it)
+        flush(body, piece)
+        let nid = int(s.runeAt(i)) - 0xF0000
+        var nt = ""
+        for n in t.notes:
+          if n.id == nid: nt = n.text
+        body.add "<Footnote><ParagraphStyleRange AppliedParagraphStyle=\"ParagraphStyle/$ID/NormalParagraphStyle\">" &
+                 "<CharacterStyleRange AppliedCharacterStyle=\"CharacterStyle/$ID/[No character style]\">" &
+                 "<Content><?ACE 4?></Content><Content>" & x(" " & nt) & "</Content></CharacterStyleRange>" &
+                 "</ParagraphStyleRange></Footnote>\n"
+        i += s.runeLenAt(i)
       else:
         piece.add s[i]
         inc i
@@ -159,8 +265,23 @@ proc boxGeometry(x0, y0, x1, y1: float): string =
   geometry(@[((x0, y0), (x0, y0), (x0, y0)), ((x0, y1), (x0, y1), (x0, y1)), ((x1, y1), (x1, y1), (x1, y1)),
              ((x1, y0), (x1, y0), (x1, y0))])
 
-proc itemsOf(o: var IdmlOut; d: Doc; ox, oy, k: float; master: bool; name: string): string =
-  ## (a page's layers as the spread's items: from `ox`, `oy` points, `k` points a pixel)
+type Thread = tuple[self, prev, next, story: string; own: bool]
+  ## (a text frame's place in its thread: its Self, the frames before and after it ("n": none),
+  ## its story's Self, and whether the story is written with it -- the first frame's)
+
+proc writtenFrame(L: Layer): bool =
+  ## (the layer is written as a text frame of its own)
+  L.isText and L.visible and not L.group and L.fromMaster == 0 and L.fromSpan == 0 and L.mode == bmNormal and
+    not L.hasStyle and not L.clipped and (L.mask == nil or L.maskOff) and L.text.boxW > 0 and
+    L.text.path.len == 0
+
+proc frameSelf(page, uid: int): string = "tf" & $page & "x" & $uid
+proc storySelf(page, uid: int): string = "st" & $page & "x" & $uid
+
+proc itemsOf(o: var IdmlOut; d: Doc; ox, oy, k: float; master: bool; name: string;
+             threads: proc (L: Layer; fresh: string): Thread = nil): string =
+  ## (a page's layers as the spread's items: from `ox`, `oy` points, `k` points a pixel; text
+  ## frames threaded as `threads` says)
   template P(px, py: float): (float, float) = (ox + px * k, oy + py * k)
   for n, L in d.layers:
     if not L.visible or L.group or L.adjust.kind.len > 0: continue
@@ -178,16 +299,17 @@ proc itemsOf(o: var IdmlOut; d: Doc; ox, oy, k: float; master: bool; name: strin
         y0 = lay.y0.float - 2
         x1 = lay.x1.float + 6
         y1 = lay.y1.float + 4
-      var tt = t
-      if tt.table.on:
-        tt.table = TableStyle()          # (a table as text: tabs between its cells)
-      let sid = o.storyOf(tt, k, master)
+      let th: Thread = if threads != nil and not master: threads(L, o.uid("t")) else: (o.uid("t"), "n", "n", "", true)
+      let sid = if th.own: o.storyOf(t, k, master, th.story) else: th.story
       let (a, b) = (P(x0, y0), P(x1, y1))
-      result.add "<TextFrame Self=\"" & o.uid("t") & "\" ParentStory=\"" & sid & "\" PreviousTextFrame=\"n\" " &
-                 "NextTextFrame=\"n\" ContentType=\"TextType\" Name=\"" & x(L.name) & "\" ItemTransform=\"1 0 0 1 0 0\">\n" &
+      result.add "<TextFrame Self=\"" & th.self & "\" ParentStory=\"" & sid & "\" PreviousTextFrame=\"" & th.prev &
+                 "\" NextTextFrame=\"" & th.next & "\" ContentType=\"TextType\" Name=\"" & x(L.name) &
+                 "\" ItemTransform=\"1 0 0 1 0 0\">\n" &
                  boxGeometry(a[0], a[1], b[0], b[1]) & op &
                  "<TextFramePreference TextColumnCount=\"" & $max(1, t.columns) & "\" TextColumnGutter=\"" &
-                 f((if t.gutter > 0: t.gutter else: 12'f32) * k) & "\" VerticalJustification=\"TopAlign\"/>\n" &
+                 f((if t.gutter > 0: t.gutter else: 12'f32) * k) & "\" VerticalJustification=\"TopAlign\"" &
+                 (if t.autoSize != asOff: " AutoSizingType=\"" & AutoSizing[t.autoSize] & "\" AutoSizingReferencePoint=\"" &
+                                         RefPoints[clamp(t.autoRef, 0, 8)] & "\"" else: "") & "/>\n" &
                  "</TextFrame>\n"
     elif L.isShape and plain and L.shape.fill.kind in {spNone, spColor, spGradient}:
       let s = L.shape
@@ -398,6 +520,64 @@ proc pageXml(self, name, master: string; w, h, tx, ty: float; margins: array[4, 
     f(margins[2]) & "\" Right=\"" & f(margins[3]) & "\" ColumnDirection=\"Horizontal\" ColumnsPositions=\"0 " &
     f(w - margins[2] - margins[3]) & "\"/>\n</Page>\n"
 
+proc threadOf(d: Doc; L: Layer; fresh: string): Thread =
+  ## (a frame of one document: threaded to the frames of the same page)
+  if not L.writtenFrame: return (fresh, "n", "n", "", true)
+  # (the whole thread written, or none of it threaded)
+  let H = d.storyHead(L)
+  if H.flowFrom != 0 or not H.writtenFrame: return (fresh, "n", "n", "", true)
+  var B = H
+  var n = 0
+  while n < 64:
+    inc n
+    let C = d.followerOf(B)
+    if C == nil: break
+    if not C.writtenFrame: return (fresh, "n", "n", "", true)
+    B = C
+  if n == 1: return (fresh, "n", "n", "", true)          # (alone)
+  let N = d.followerOf(L)
+  result.self = frameSelf(0, uidOf(L))
+  result.prev = if L.flowFrom != 0: frameSelf(0, L.flowFrom) else: "n"
+  result.next = if N != nil: frameSelf(0, uidOf(N)) else: "n"
+  result.story = storySelf(0, uidOf(H))
+  result.own = L == H
+
+proc threadOf(b: Book; i: int; L: Layer; fresh: string): Thread =
+  ## (a frame of page `i`: threaded to the frames of its thread, on this page and the others)
+  if not L.writtenFrame or (L.flowFrom == 0 and not b.doc(i).flowsOn(L)): return (fresh, "n", "n", "", true)
+  let (hp, H) = b.storyStart(i, L)
+  if H.flowFrom != 0 or not H.writtenFrame: return (fresh, "n", "n", "", true)
+  # (every frame of the thread written, from the first)
+  var at = (hp, H)
+  var n = 0
+  while n < MaxBookPages:
+    inc n
+    let d = b.doc(at[0])
+    var nx = d.followerOf(at[1])
+    var np = at[0]
+    if nx == nil and at[1].flowOut:
+      let f = b.follower(at[0], at[1])
+      np = f.page
+      nx = f.layer
+    if nx == nil: break
+    if not nx.writtenFrame: return (fresh, "n", "n", "", true)
+    at = (np, nx)
+  let d = b.doc(i)
+  var N = d.followerOf(L)
+  var np = i
+  if N == nil and L.flowOut:
+    let f = b.follower(i, L)
+    np = f.page
+    N = f.layer
+  let pid = b.pages[i].id
+  result.self = frameSelf(pid, uidOf(L))
+  result.prev = if L.flowFrom == 0: "n"
+                elif L.flowPage != 0: frameSelf(L.flowPage, L.flowFrom)
+                else: frameSelf(pid, L.flowFrom)
+  result.next = if N != nil: frameSelf(b.pages[np].id, uidOf(N)) else: "n"
+  result.story = storySelf(b.pages[hp].id, uidOf(H))
+  result.own = L == H and hp == i
+
 proc saveBookIdml*(b: Book; path: string; keep: openArray[int] = []) =
   ## The book as IDML at `path`, its pictures as PNG files in a folder
   ## beside it ("name-links"). The pages opened for it are parked again,
@@ -452,7 +632,10 @@ proc saveBookIdml*(b: Book; path: string; keep: openArray[int] = []) =
       let ms = if b.pages[pi].master != 0 and b.pages[pi].master in masterSelf: masterSelf[b.pages[pi].master] else: "n"
       pagesXml.add pageXml(pself, b.label(pi), ms, pw, ph, tx, ty, marginsOf(if side == psLeft: mL else: mR),
                            s.columns, gut)
-      items.add o.itemsOf(d, tx, ty, k, master = false, name = path.splitFile.name & "-p" & $(pi + 1))
+      let here = pi
+      let threads = proc (L: Layer; fresh: string): Thread = b.threadOf(here, L, fresh)
+      items.add o.itemsOf(d, tx, ty, k, master = false, name = path.splitFile.name & "-p" & $(pi + 1),
+                          threads = threads)
       if not was and pi notin keep: b.park(keep)
     spreads.add ("Spreads/Spread_" & self & ".xml", spreadXml(self, items, pagesXml, sheet.len, master = false))
   let res = o.resources(pw, ph, b.pages.len, s.facing, rtl, marginsOf(mR), s.columns, gut)
@@ -470,7 +653,8 @@ proc saveDocIdml*(d: Doc; path: string) =
   let ph = d.h.float * k
   let first = o.uid("pg")
   let self = o.uid("sp")
-  let items = o.itemsOf(d, 0, -ph / 2, k, master = false, name = path.splitFile.name)
+  let threads = proc (L: Layer; fresh: string): Thread = d.threadOf(L, fresh)
+  let items = o.itemsOf(d, 0, -ph / 2, k, master = false, name = path.splitFile.name, threads = threads)
   let spread = spreadXml(self, items, pageXml(first, "1", "n", pw, ph, 0, -ph / 2, [0.0, 0, 0, 0], 1, 12), 1,
                          master = false)
   let res = o.resources(pw, ph, 1, false, false, [0.0, 0, 0, 0], 1, 12)
@@ -540,8 +724,9 @@ proc readIdml*(file: string; dpi = 150.0): Book =
   ## either way), each text frame a text box with its story's runs (fonts,
   ## sizes, colors, paragraphs), each rectangle, oval and polygon a shape
   ## with its fill and stroke, each linked picture found where its link
-  ## says (or beside the package) a layer of its own. Master pages, tables
-  ## and effects are not read. Raises `IdmlError`.
+  ## says (or beside the package) a layer of its own; tables and footnotes
+  ## as the type engine's own. Master pages and effects are not read.
+  ## Raises `IdmlError`.
   var entries: seq[ZipEntry]
   try: entries = zipEntries(file)
   except CatchableError: raise newException(IdmlError, "not an IDML package")
@@ -607,7 +792,13 @@ proc readIdml*(file: string; dpi = 150.0): Book =
     result = TextData(x: float32(at[0]), y: float32(at[1]), boxW: float32(w), boxH: float32(h), antialias: true)
     if id notin stories: return
     var psrs: seq[XmlNode]
-    findAll(stories[id], "ParagraphStyleRange", psrs)
+    proc paraRanges(n: XmlNode; acc: var seq[XmlNode]) =
+      ## (the story's own paragraphs: not those in a table's cells or a footnote)
+      for c in n:
+        if c.kind != xnElement: continue
+        if c.tag == "ParagraphStyleRange": acc.add c
+        elif c.tag notin ["Table", "Cell", "Footnote", "Note", "Endnote"]: paraRanges(c, acc)
+    paraRanges(stories[id], psrs)
     for pi, psr in psrs:
       if pi == 0:
         case psr.attr("Justification")
@@ -619,6 +810,7 @@ proc readIdml*(file: string; dpi = 150.0): Book =
         of "FullyJustified": result.para.align = justifyAll
         else: discard
         if psr.attr("ParagraphDirection") == "RightToLeftDirection": result.para.rtl = 2
+        if psr.attr("Hyphenation") == "true": result.para.hyphenate = true
       elif result.spans.len > 0: result.spans[^1].text.add "\n"
       for csr in psr.childrenNamed("CharacterStyleRange"):
         var st = defaultStyle()
@@ -641,11 +833,63 @@ proc readIdml*(file: string; dpi = 150.0): Book =
         except ValueError: discard
         st.underline = csr.attr("Underline") == "true"
         st.strike = csr.attr("StrikeThru") == "true"
+        if csr.attr("Ligatures") == "false": st.features = withLigatures(st.features, false)
+        if csr.attr("OTFContextualAlternate") == "false": st.features = withFeature(st.features, "calt", false)
+        for (tag, attr) in OtfAttrs:
+          if csr.attr(attr) == "true": st.features = withFeature(st.features, tag, true)
         var txt = ""
         for c in csr:
           if c.kind != xnElement: continue
           if c.tag == "Content": txt.add c.innerText
           elif c.tag == "Br": txt.add "\n"
+          elif c.tag == "Table":
+            # (a table: its cells back as text -- tabs between them, a paragraph a row -- and its look)
+            var ncol = 1
+            var nrow = 0
+            try:
+              ncol = max(1, parseInt(c.attr("ColumnCount")))
+              nrow = parseInt(c.attr("HeaderRowCount")) + parseInt(c.attr("BodyRowCount"))
+            except ValueError: discard
+            var grid = newSeq[seq[string]](max(0, min(nrow, 10_000)))
+            for row in grid.mitems: row = newSeq[string](min(ncol, 1000))
+            var ts = TableStyle(on: true)
+            try: ts.headerRows = parseInt(c.attr("HeaderRowCount")) except ValueError: discard
+            var widths: seq[float32]
+            for col in c.childrenNamed("Column"):
+              try: widths.add float32(parseFloat(col.attr("SingleColumnWidth"))) except ValueError: widths.add 1
+            ts.widths = widths
+            for cell in c.childrenNamed("Cell"):
+              let nm = cell.attr("Name").split(':')
+              if nm.len != 2: continue
+              var cc, rr = -1
+              try:
+                cc = parseInt(nm[0])
+                rr = parseInt(nm[1])
+              except ValueError: continue
+              if rr < 0 or rr >= grid.len or cc < 0 or cc >= grid[rr].len: continue
+              var ct = ""
+              for e in cell.findAll("Content"): ct.add e.innerText
+              grid[rr][cc] = ct.replace("\t", " ").replace("\n", " ")
+              let fc = colorOf(cell.attr("FillColor"), 0)
+              if fc != 0:
+                if rr < ts.headerRows: ts.headerFill = fc
+                elif ts.fill == 0: ts.fill = fc
+                elif fc != ts.fill and ts.altFill == 0: ts.altFill = fc
+              let bc = colorOf(cell.attr("TopEdgeStrokeColor"), 0)
+              if bc != 0 and ts.border == 0: ts.border = bc
+            for i, row in grid:
+              if i > 0: txt.add "\n"
+              txt.add row.join("\t")
+            result.table = ts
+          elif c.tag == "Footnote":
+            # (a footnote: a reference here, its text the note's)
+            var nt = ""
+            for e in c.findAll("Content"): nt.add e.innerText
+            var nid = 1
+            for n in result.notes: nid = max(nid, n.id + 1)
+            if nid <= 65533:
+              txt.add noteMark(nid)
+              result.notes.add Footnote(id: nid, text: nt.strip)
         if txt.len > 0: result.spans.add TextSpan(text: txt, style: st)
   # spreads: their pages in order, each page's items
   var pagesOut: seq[tuple[items: seq[XmlNode]; m: seq[seq[float]]; page: seq[float]]]
@@ -690,6 +934,8 @@ proc readIdml*(file: string; dpi = 150.0): Book =
   if pagesOut.len == 0: raise newException(IdmlError, "the package has no pages")
   result = newBook(s, pages = pagesOut.len, name = file.splitFile.name)
   let b = result
+  var frameAt = initTable[string, (int, int)]()     # (a text frame's Self: its page, its layer)
+  var threaded: seq[(int, int, string)]             # (a frame that goes on from another)
   for i, pg in pagesOut:
     let d = b.doc(i)
     let ox = if pg.page.len >= 6: pg.page[4] else: 0.0
@@ -710,10 +956,29 @@ proc readIdml*(file: string; dpi = 150.0): Book =
       if x1 <= x0 or y1 <= y0: continue
       case it.tag
       of "TextFrame":
-        let t = textOf(it.attr("ParentStory"), (x0, y0), x1 - x0, y1 - y0)
+        var t = textOf(it.attr("ParentStory"), (x0, y0), x1 - x0, y1 - y0)
+        for pref in it.childrenNamed("TextFramePreference"):
+          # (its columns, and Auto-Size)
+          let cols = (try: parseInt(pref.attr("TextColumnCount")) except ValueError: 0)
+          if cols > 1:
+            t.columns = min(cols, 12)
+            let g = (try: parseFloat(pref.attr("TextColumnGutter")) except ValueError: 0.0)
+            if g > 0: t.gutter = float32(g * k)
+          for a in TextAutoSize:
+            if pref.attr("AutoSizingType") == AutoSizing[a]: t.autoSize = a
+          let rp = RefPoints.find(pref.attr("AutoSizingReferencePoint"))
+          if rp >= 0: t.autoRef = rp
+        let prev = it.attr("PreviousTextFrame")
+        let follows = prev.len > 0 and prev != "n"
+        if follows and t.spans.len > 0:
+          # (a frame the story goes on into: it shows what did not fit the one before)
+          t.spans = @[TextSpan(text: "", style: t.spans[0].style)]
+          t.notes = @[]
         if t.spans.len > 0:
           let L = d.addTextLayer(t)
           if it.attr("Name").len > 0 and it.attr("Name") != "$ID/": L.name = it.attr("Name")
+          frameAt[it.attr("Self")] = (i, uidOf(L))
+          if follows: threaded.add (i, uidOf(L), prev)
       else:
         # a picture in it: its link, where it says or beside the package
         var imgs: seq[XmlNode]
@@ -775,5 +1040,23 @@ proc readIdml*(file: string; dpi = 150.0): Book =
             for sub in sd.path.subs.mitems: sub.closed = false
           discard d.addShapeLayer(sd, if it.attr("Name").len > 0 and it.attr("Name") != "$ID/": it.attr("Name") else: "")
     d.markAll()
+    b.park()
+  # the threads: each frame takes what did not fit the one before it, on its page or another
+  for (i, uid, prev) in threaded:
+    if prev notin frameAt: continue
+    let (pp, puid) = frameAt[prev]
+    let L = b.doc(i).layerOfUid(uid)
+    if L == nil: continue
+    L.flowFrom = puid
+    if pp != i:
+      L.flowPage = b.pages[pp].id
+      let P = b.doc(pp).layerOfUid(puid)
+      if P != nil: P.flowOut = true
+    b.touch(i)
+    b.touch(pp)
+  if threaded.len > 0:
+    # (in the pages' order: what each takes is known when it is reached)
+    for i in 0 ..< b.pages.len: discard b.settle(i)
+    for i in 0 ..< b.pages.len: b.doc(i).markAll()
     b.park()
   b.modified = false

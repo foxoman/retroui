@@ -879,9 +879,11 @@ proc flowOnto*(b: Book; i: int; L: Layer; j: int): Layer =
   discard b.settle(i)
   b.dress(j)
 
-proc unlinkPages*(b: Book; i: int; L: Layer) =
+proc unlinkPages*(b: Book; i: int; L: Layer; keepText = true) =
   ## The box `L` of page `i` no longer takes text from another page: it
   ## keeps what it showed as its own (and the box before it stops there).
+  ## `keepText` false: as the layout program breaks a thread -- `L`, and the
+  ## boxes after it, empty; what they showed overset in the box before.
   if L.flowPage == 0: return
   let d = b.doc(i)
   let shown = d.effectiveText(L)
@@ -889,7 +891,12 @@ proc unlinkPages*(b: Book; i: int; L: Layer) =
   let from0 = L.flowFrom
   L.flowFrom = 0
   L.flowPage = 0
-  L.text.spans = shown.spans
+  if keepText: L.text.spans = shown.spans
+  else:
+    let first = if L.text.spans.len > 0: L.text.spans[0].style
+                elif shown.spans.len > 0: shown.spans[0].style
+                else: defaultStyle()
+    L.text.spans = @[TextSpan(text: "", style: first)]
   d.flowIn.del L.uid
   d.drawText(L)
   b.touch(i)
@@ -901,6 +908,76 @@ proc unlinkPages*(b: Book; i: int; L: Layer) =
       sd.drawText(S)
       b.touch(src)
     discard b.settle(src)
+
+proc storyStart*(b: Book; i: int; L: Layer): tuple[page: int; layer: Layer] =
+  ## Where the text the box `L` of page `i` shows begins: the first box of its thread, and its
+  ## page (pages before are opened).
+  result = (i, L)
+  var n = 0
+  while result.layer.flowFrom != 0 and n < MaxBookPages:
+    inc n
+    let L = result.layer
+    if L.flowPage == 0:
+      let S = b.doc(result.page).layerOfUid(L.flowFrom)
+      if S == nil or S == L: break
+      result.layer = S
+    else:
+      let j = b.indexOfId(L.flowPage)
+      if j < 0: break
+      let S = b.doc(j).layerOfUid(L.flowFrom)
+      if S == nil: break
+      result = (j, S)
+
+proc threadPages*(b: Book; i: int; S: Layer; j: int; M: Layer): bool =
+  ## Text frames on two pages threaded, as the layout program does it: what does not fit the
+  ## box `S` of page `i` goes on into the box `M` of page `j` (and from it into the box `S` went
+  ## on into before, if any). `M`'s own text, when it has some, is added to the end of the
+  ## story. False when they cannot be: not boxes of type, `M` already taking text, or before
+  ## `S` in its thread.
+  if i == j: return b.doc(i).threadText(S, M)
+  if S == nil or M == nil or not S.isText or not M.isText or S.text.boxW <= 0 or M.text.boxW <= 0 or
+     M.flowFrom != 0 or M.fromMaster != 0 or M.locked or S.text.path.len > 0 or M.text.path.len > 0:
+    return false
+  let head = b.storyStart(i, S)
+  if head.layer == M and head.page == j: return false        # (M is where the story begins)
+  let pidI = b.pages[i].id
+  let pidJ = b.pages[j].id
+  let di = b.doc(i)
+  let dj = b.doc(j)
+  if M.text.plainText.len > 0:
+    let hd = b.doc(head.page)
+    var t = head.layer.text
+    let st = if t.spans.len > 0: t.spans[^1].style else: M.text.spans[0].style
+    t.spans.add TextSpan(text: "\n", style: st)
+    for sp in M.text.spans: t.spans.add sp
+    head.layer.text = t
+    hd.drawText(head.layer)
+    b.touch(head.page)
+  # (what `S` went on into before: now from `M`)
+  let here = di.followerOf(S)
+  let (k, there) = if here == nil: b.follower(i, S) else: (-1, nil)
+  let first = if M.text.spans.len > 0: M.text.spans[0].style else: defaultStyle()
+  M.text.spans = @[TextSpan(text: "", style: first)]
+  M.flowFrom = uidOf(S)
+  M.flowPage = pidI
+  S.flowOut = true
+  if here != nil:
+    here.flowFrom = uidOf(M)
+    here.flowPage = pidJ
+    M.flowOut = true
+  elif there != nil and there != M:
+    there.flowFrom = uidOf(M)
+    there.flowPage = if k == j: 0 else: pidJ
+    if k != j: M.flowOut = true
+    b.touch(k)
+  b.touch(i)
+  b.touch(j)
+  discard b.settle(i)
+  discard b.settle(j)
+  if k >= 0 and k != i and k != j: discard b.settle(k)
+  discard b.doc(j)                     # (dressed again: the text that now comes to it)
+  dj.drawText(M)
+  true
 
 proc autoflow*(b: Book; i: int; L: Layer; most = 500; keep: openArray[int] = []): int =
   ## The text box `L` of page `i` goes on through the pages after it until

@@ -292,6 +292,15 @@ proc doCommand(name: string) =
   if te.on and name == "Word Shapes...":   # (for the letters selected: the text stays as it is typed)
     discard bookCommand(name)
     return
+  if name in ["Insert Footnote", "Insert Endnote"]:   # (at the caret: the text stays as it is typed)
+    discard notesCommand(name)
+    return
+  if name == "Ligatures":                  # (the letters selected, the layer, or the next text)
+    toggleLigatures()
+    return
+  if name.startsWith("OpenType: "):
+    toggleOpenType(name["OpenType: ".len .. ^1])
+    return
   if te.on: commitType()                   # (and the text being typed)
   if bookCommand(name): return             # (books, the Layout menu: photo/book)
   if psCommand(name): return               # (the modern menus' own: photo/pscc)
@@ -728,6 +737,17 @@ proc doCommand(name: string) =
   of "Insert Table...", "Table Options...", "Convert Text to Table", "Convert Table to Text":
     discard tableCommand(name)
   of "More Shapes...": startMoreShapes()
+  of "Footnotes...": discard notesCommand(name)
+  of "Table of Contents...", "Index...", "Update Table of Contents", "Update Index": discard listsCommand(name)
+  of "Data Merge...": discard mergeCommand(name)
+  of "Find/Change...", "Story Editor...": discard findCommand(name)
+  of "Show Perspective Grid", "Hide Perspective Grid", "Lock Perspective Grid", "One Point Perspective",
+     "Two Point Perspective", "Define Perspective Grid...", "Attach to Active Plane",
+     "Perspective Plane: Left Wall", "Perspective Plane: Right Wall", "Perspective Plane: Floor",
+     "Perspective Plane: Facing Wall", "Perspective Plane: None":
+    discard perspectiveCommand(name)
+  of "Text Frame Options...", "Show Text Threads": discard textFrameCommand(name)
+  of "Apply Brush to Path...": discard pathBrushCommand(name)
   of "Resize for...", "Brand Kit...", "Photo Grid...", "Text Effects...", "Recolor Design...", "Check Document...",
      "Preflight...":
     discard quickCommand(name)
@@ -735,11 +755,12 @@ proc doCommand(name: string) =
   of "Chart...", "Insert Chart...", "Map...", "Insert Map...", "Edit Chart or Map...":
     discard infographicCommand(name)
   of "Fill Frame Proportionally", "Fit Content Proportionally", "Fit Content to Frame", "Center Content",
-     "Original Size", "Frame Options...", "Remove Content":
+     "Original Size", "Frame Options...", "Remove Content", "Anchor to Text", "Release Anchor":
     discard framesCommand(name)
   of "Make Blend...", "Make Blend": startMakeBlend()
   of "Shape Builder...": startShapeBuilder()
-  of "Freeform Gradient...", "Gradient Mesh...": startFreeform()
+  of "Freeform Gradient...": startFreeform()
+  of "Gradient Mesh...": startGradientMesh()
   of "Trim":
     if d != nil:
       let r = d.trimRect()
@@ -1103,6 +1124,7 @@ proc doCommand(name: string) =
 proc runCommand(name: string) =
   ## Does what menu item `name` says, named in the box that comes up when
   ## it takes a while.
+  noteRun(name)
   beginBusy(name.strip(chars = {'.'}))
   try: doCommand(name)
   finally: endBusy()
@@ -1640,7 +1662,19 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.2.0: Image > Image Trace (a picture made vector shapes: presets, a preview, " &
+           whatsNew = ["5.3.0: footnotes and endnotes (Type > Insert Footnote, Insert Endnote, Footnotes and " &
+                       "Endnotes); Layout > Table of Contents and Index; Paragraph > Hyphenate; Layer > Anchor to " &
+                       "Text; Edit > Find/Change (words or GREP patterns; this text, the page, the book) and Type > " &
+                       "Story Editor; Layout > Data Merge; text frames as in the layout program -- what does not " &
+                       "fit is overset, Type > Text Frame Options sizes a box to its text (Auto-Size), and a box " &
+                       "picked shows its in and out ports: click the out port, then another box, to thread the " &
+                       "text on (or where there is none, for a new box); the thread's lines show; View > " &
+                       "Perspective Grid (one or two points, the plane widget, handles; the Shape tools draw on " &
+                       "the plane; Layer > Perspective > Attach to Active Plane); Path Operations > Apply Brush " &
+                       "to Path and Gradient Mesh; Character > Ligatures and Type > OpenType; IDML with real " &
+                       "tables, footnotes and threads; --headless and --shot; painted layers and their copies " &
+                       "take memory only where they are painted",
+                       "5.2.0: Image > Image Trace (a picture made vector shapes: presets, a preview, " &
                        "Save as SVG); Filter > Sketch > Pencil Sketch; File > New Drawing and New Book " &
                        "with presets and templates (a logo, a poster, a business card; a novel, an Arabic " &
                        "book, a magazine, infographic cards); Type > Convert to Shape; Make Blend; drop " &
@@ -1971,6 +2005,14 @@ proc moreDialogs() =
   makeBlendDialog()
   shapeBuilderDialog()
   freeformDialog()
+  gradientMeshDialog()
+  footnotesDialog()
+  listsDialog()
+  dataMergeDialog()
+  findDialogs()
+  perspectiveDialog()
+  textFrameDialog()
+  pathBrushDialog()
   tableDialogs()
   quickDialogs()
   moreShapesDialogs()
@@ -2115,6 +2157,7 @@ proc escapeKey(): bool =
   ## (ended: the next click starts another), the Ruler's line; else the
   ## selection goes (Deselect). True when it did something.
   let d = cur()
+  if threadEscape(): return true
   if drag.on:
     cancelDrag()
     return true
