@@ -1552,26 +1552,17 @@ proc fxTarget(tex: GLuint): GLuint =
     gl.deleteFramebuffers(1, addr result)
     result = 0
 
-proc gpuBlur*(px: openArray[uint32]; w, h: int; radius: float): seq[uint32] =
-  ## A Gaussian blur of `radius` pixels worked out by the GPU (its colors
-  ## weighed by their alpha); empty when it cannot be (no GPU, too big, a
-  ## radius past 40 pixels): the CPU does it then.
+proc gpuSeparable(px: openArray[uint32]; w, h: int; wts: array[64, GLf32]; r: int): seq[uint32] =
+  ## (a blur by a kernel the same both ways and on both sides -- `wts[0]` the middle, `wts[i]`
+  ## `i` away, `r` a side -- across then down, its colors weighed by their alpha; empty when
+  ## the GPU cannot)
   result = @[]         # (a value at once: see tools/writecheck.py)
   {.cast(gcsafe).}:
-    if not gpuFiltersReady() or w <= 0 or h <= 0 or px.len != w * h or radius <= 0.05 or radius > 40: return
+    if not gpuFiltersReady() or w <= 0 or h <= 0 or px.len != w * h or r < 0 or r > 63: return
     if w > maxTexture() or h > maxTexture(): return
     let p = fxProgram(0)
     if p == 0: return
-    # the kernel: as the CPU's (sigma = radius / 2), at most 63 a side
-    let sigma = max(0.1, radius / 2)
-    let r = min(63, int(ceil(sigma * 3)))
-    var wts: array[64, GLf32]
-    var tot = 0.0
-    for i in 0 .. r:
-      let v = exp(-(i * i).float / (2 * sigma * sigma))
-      wts[i] = GLf32(v)
-      tot += (if i == 0: v else: 2 * v)
-    for i in 0 .. r: wts[i] = GLf32(wts[i].float / tot)
+    var wts = wts
     var texIn = newTexture(w, h, GL_RGBA, GL_NEAREST, unsafeAddr px[0])
     var texMid = newTexture(w, h, GL_RGBA, GL_NEAREST)
     var texOut = newTexture(w, h, GL_RGBA, GL_NEAREST)
@@ -1602,7 +1593,7 @@ proc gpuBlur*(px: openArray[uint32]; w, h: int; radius: float): seq[uint32] =
         gl.pixelStorei(GL_PACK_ALIGNMENT, 4)
         gl.readPixels(0, 0, GLsizei(w), GLsizei(h), GL_RGBA, GL_UNSIGNED_BYTE, addr result[0])
         let err = gl.getError()
-        gpuDebug("blur " & $w & "x" & $h & " r" & $radius & ": error " & $err & ", first " & $result[0] &
+        gpuDebug("blur " & $w & "x" & $h & " r" & $r & ": error " & $err & ", first " & $result[0] &
                  ", middle " & $result[(h div 2) * w + w div 2] & " from " & $px[(h div 2) * w + w div 2])
         if err != GL_NO_ERROR: result = @[]
       else: gpuDebug("blur: no framebuffer")
@@ -1613,6 +1604,33 @@ proc gpuBlur*(px: openArray[uint32]; w, h: int; radius: float): seq[uint32] =
     for t in [texIn, texMid, texOut]:
       var tt = t
       gl.deleteTextures(1, addr tt)
+
+proc gpuBlur*(px: openArray[uint32]; w, h: int; radius: float): seq[uint32] =
+  ## A Gaussian blur of `radius` pixels worked out by the GPU (its colors
+  ## weighed by their alpha); empty when it cannot be (no GPU, too big, a
+  ## radius past 40 pixels): the CPU does it then.
+  result = @[]
+  if radius <= 0.05 or radius > 40: return
+  # the kernel: as the CPU's (sigma = radius / 2), at most 63 a side
+  let sigma = max(0.1, radius / 2)
+  let r = min(63, int(ceil(sigma * 3)))
+  var wts: array[64, GLf32]
+  var tot = 0.0
+  for i in 0 .. r:
+    let v = exp(-(i * i).float / (2 * sigma * sigma))
+    wts[i] = GLf32(v)
+    tot += (if i == 0: v else: 2 * v)
+  for i in 0 .. r: wts[i] = GLf32(wts[i].float / tot)
+  result = gpuSeparable(px, w, h, wts, r)
+
+proc gpuBoxBlur*(px: openArray[uint32]; w, h, r: int): seq[uint32] =
+  ## A box blur (each pixel the mean of the 2 `r` + 1 a side round it, its colors weighed by
+  ## their alpha) on the GPU; empty when it cannot be (no GPU, too big, `r` past 63).
+  result = @[]
+  if r < 1 or r > 63: return
+  var wts: array[64, GLf32]
+  for i in 0 .. r: wts[i] = GLf32(1 / float(2 * r + 1))
+  result = gpuSeparable(px, w, h, wts, r)
 
 proc gpuColorTable*(px: openArray[uint32]; w, h: int; lut: openArray[uint32]; n: int): seq[uint32] =
   ## Each pixel through a table of `n` x `n` x `n` colors (0xRRGGBB, red

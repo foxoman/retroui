@@ -341,7 +341,8 @@ proc blurKernel(im: Img; radius: float): Img =
   let sp = pixPtr(im.px)
   let dp = pixPtr(o.px)
   let kp = cast[ptr UncheckedArray[int32]](addr k[0])
-  const strip = 32
+  # (taller strips for a tall picture: each strip blurs `2 kr` rows more across than it gives)
+  let strip = clamp(h div 16, 32, 128)
   let nStrips = (h + strip - 1) div strip
   var kf32 = newSeq[float32](kf.len)
   block:
@@ -361,18 +362,7 @@ proc blurKernel(im: Img; radius: float): Img =
       when simdOn:
         for j in 0 ..< (y1 - y0) + 2 * kr:
           let srow = clamp(y0 - kr + j, 0, h - 1) * w
-          for x in 0 ..< w:
-            let p = sp[srow + x]
-            let a = int32(p shr 24)
-            let q = x * 4
-            if a == 255:
-              pref[q] = 255; pref[q + 1] = float32((p shr 16) and 255)
-              pref[q + 2] = float32((p shr 8) and 255); pref[q + 3] = float32(p and 255)
-            else:
-              pref[q] = float32(a)
-              pref[q + 1] = float32((int32((p shr 16) and 255) * a + 127) div 255)
-              pref[q + 2] = float32((int32((p shr 8) and 255) * a + 127) div 255)
-              pref[q + 3] = float32((int32(p and 255) * a + 127) div 255)
+          preRow(cast[ptr UncheckedArray[uint32]](addr sp[srow]), w, cast[ptr UncheckedArray[float32]](addr pref[0]))
           blurAcross(cast[ptr UncheckedArray[float32]](addr pref[0]), w, kfp, kr,
                      cast[ptr UncheckedArray[uint16]](addr buf[j * w * 4]))
       for j in 0 ..< (when simdOn: 0 else: (y1 - y0) + 2 * kr):

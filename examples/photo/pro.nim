@@ -903,7 +903,7 @@ proc selectAndMaskDialog() =
             for i in 0 ..< m.len: L.px[i] = withAlpha(src.px[i], aOf(src.px[i]) * int(m[i]) div 255)
           else:
             L.px = src.px
-            L.mask = Layer(name: "Layer Mask", px: newSeq[uint32](m.len), opacity: 100, visible: true, gray: true)
+            L.mask = Layer(name: "Layer Mask", pxRaw: newSeq[uint32](m.len), opacity: 100, visible: true, gray: true)
             for i in 0 ..< m.len: L.mask.px[i] = grayPx(int(m[i]))
           d.insertLayer(L)
           d.touchSel()

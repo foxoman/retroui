@@ -18,6 +18,7 @@ var
   gridDlg: tuple[open: bool; layout, gap, radius, margin: int] = (false, 2, 12, 16, 24)
   fxDlg = false
   recolorDlg: tuple[open: bool; palette: int]
+  recolorFrom: tuple[doc: int; name: string; cols: seq[uint32]]   ## (a palette taken from a picture)
 
 const
   resizeTargets = [("Square Post", 1080, 1080), ("Portrait Post", 1080, 1350), ("Story", 1080, 1920),
@@ -389,14 +390,38 @@ proc recolorDialog() =
         for c in cols:
           let r = place(dp(26), dp(18))
           fill(r, color(uint8((c shr 16) and 255), uint8((c shr 8) and 255), uint8(c and 255)))
+    # (a palette from a picture: the colors that stand for an open image, as the drawing program
+    # takes a palette from a photo)
+    var names: seq[string]
+    for dw in docs: names.add dw.doc.name
+    if names.len > 0:
+      row([90, 150, -1]):
+        label "From:"
+        recolorFrom.doc = clamp(recolorFrom.doc, 0, names.high)
+        discard combo(names, recolorFrom.doc, w = dp(144))
+        if button("Take Its Colors", w = dp(120)):
+          let src = docs[recolorFrom.doc].doc
+          recolorFrom.cols = medianCut(src.compCopy(), 5)
+          recolorFrom.name = src.name
+          recolorDlg.palette = palettes.len
+      if recolorFrom.cols.len > 0:
+        row:
+          var p = recolorDlg.palette
+          if radio(tr("From ") & recolorFrom.name, p, palettes.len): recolorDlg.palette = palettes.len
+          for c in recolorFrom.cols:
+            let r = place(dp(26), dp(18))
+            fill(r, color(uint8((c shr 16) and 255), uint8((c shr 8) and 255), uint8(c and 255)))
     row:
       spring()
       if button("Recolor", isDefault = true, w = dp(90)): ok = true
       if button("Cancel", w = dp(80)): recolorDlg.open = false
   if ok:
     recolorDlg.open = false
-    let (name, cols) = palettes[clamp(recolorDlg.palette, 0, palettes.high)]
-    cur().recolor(cols, name)
+    if recolorDlg.palette == palettes.len and recolorFrom.cols.len > 0:
+      cur().recolor(recolorFrom.cols, "the colors of " & recolorFrom.name)
+    else:
+      let (name, cols) = palettes[clamp(recolorDlg.palette, 0, palettes.high)]
+      cur().recolor(cols, name)
 
 # ---- Check Document -------------------------------------------------------------------------------------
 

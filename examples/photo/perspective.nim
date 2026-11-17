@@ -220,7 +220,14 @@ proc attachToPlane() =
     status = "Attach to Active Plane: pick a shape, or a layer with something painted on it."
     return
   if L.isText:
-    status = "Attach to Active Plane: type is laid on a plane as a shape -- Type > Convert to Shape first."
+    # (type stays type: set flat, drawn through the plane -- double-click it to type in it)
+    d.beginStep("Attach to Active Plane")
+    if not d.textOntoPlane(L, g, g.active):
+      d.cancelStep()
+      status = tr("Attach to Active Plane: move it onto the ") & tr($g.active) & tr(" first (it reaches over its horizon).")
+      return
+    d.endStep()
+    status = "\"" & L.name & tr("\" lies on the ") & tr($g.active) & tr(" (still type: double-click it to edit)")
     return
   if L.isShape:
     let p = L.shape.path.ontoPlane(g, g.active)
@@ -286,6 +293,14 @@ proc perspectiveCommand(name: string): bool =
     startDefineGrid()
   of "Attach to Active Plane":
     attachToPlane()
+  of "Release with Perspective":
+    # (type on a plane set flat again, where it was)
+    if d != nil and d.current.isText and d.current.text.perspOn:
+      let L = d.current
+      d.beginStep("Release with Perspective")
+      discard d.textOffPlane(L)
+      d.endStep()
+      status = "\"" & L.name & tr("\" is flat again")
   of "Perspective Plane: Left Wall", "Perspective Plane: Right Wall", "Perspective Plane: Floor",
      "Perspective Plane: Facing Wall", "Perspective Plane: None":
     if d != nil:

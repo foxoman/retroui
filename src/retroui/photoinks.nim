@@ -14,7 +14,7 @@
 ## ```
 
 import std/[math, locks]
-import parallel, iccprofile, icclut
+import parallel, iccprofile, icclut, simd
 
 export RenderingIntent
 
@@ -361,29 +361,32 @@ proc inkProfileName*(): string =
 
 proc lookup(t: ptr UncheckedArray[uint32]; p: uint32): uint32 {.inline.} =
   ## A table read between its grid colors (each byte apart).
-  const n = N - 1
-  let r = int((p shr 16) and 255) * n
-  let g = int((p shr 8) and 255) * n
-  let b = int(p and 255) * n
-  let ri = min(r div 255, n - 1)
-  let gi = min(g div 255, n - 1)
-  let bi = min(b div 255, n - 1)
-  let rf = r - ri * 255
-  let gf = g - gi * 255
-  let bf = b - bi * 255
-  let i000 = (ri * N + gi) * N + bi
-  var o = 0'u32
-  for sh in [24, 16, 8, 0]:
-    template v(i: int): int = int((t[i] shr sh) and 255)
-    let c00 = v(i000) * (255 - bf) + v(i000 + 1) * bf
-    let c01 = v(i000 + N) * (255 - bf) + v(i000 + N + 1) * bf
-    let c10 = v(i000 + N * N) * (255 - bf) + v(i000 + N * N + 1) * bf
-    let c11 = v(i000 + N * N + N) * (255 - bf) + v(i000 + N * N + N + 1) * bf
-    let c0 = c00 * (255 - gf) + c01 * gf
-    let c1 = c10 * (255 - gf) + c11 * gf
-    let c = (c0 div 255 * (255 - rf) + c1 div 255 * rf + 255 * 127) div (255 * 255)
-    o = o or (uint32(clamp(c, 0, 255)) shl sh)
-  o
+  when simdOn:
+    lutInk(t, N, p)
+  else:
+    const n = N - 1
+    let r = int((p shr 16) and 255) * n
+    let g = int((p shr 8) and 255) * n
+    let b = int(p and 255) * n
+    let ri = min(r div 255, n - 1)
+    let gi = min(g div 255, n - 1)
+    let bi = min(b div 255, n - 1)
+    let rf = r - ri * 255
+    let gf = g - gi * 255
+    let bf = b - bi * 255
+    let i000 = (ri * N + gi) * N + bi
+    var o = 0'u32
+    for sh in [24, 16, 8, 0]:
+      template v(i: int): int = int((t[i] shr sh) and 255)
+      let c00 = v(i000) * (255 - bf) + v(i000 + 1) * bf
+      let c01 = v(i000 + N) * (255 - bf) + v(i000 + N + 1) * bf
+      let c10 = v(i000 + N * N) * (255 - bf) + v(i000 + N * N + 1) * bf
+      let c11 = v(i000 + N * N + N) * (255 - bf) + v(i000 + N * N + N + 1) * bf
+      let c0 = c00 * (255 - gf) + c01 * gf
+      let c1 = c10 * (255 - gf) + c11 * gf
+      let c = (c0 div 255 * (255 - rf) + c1 div 255 * rf + 255 * 127) div (255 * 255)
+      o = o or (uint32(clamp(c, 0, 255)) shl sh)
+    o
 
 {.pop.}
 

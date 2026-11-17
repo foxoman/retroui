@@ -260,9 +260,16 @@ static void releaseChars(JNIEnv *env, jstring s, const jchar *c) { (void)env; (v
 #define BARS_METHOD ((jmethodID)0x51)
 static volatile int barsCalls;
 static volatile uint32_t barsTop, barsBottom;
+#define CHANGING_METHOD ((jmethodID)0x52)
+static volatile int changingConfig;    /* what isChangingConfigurations answers */
 static jmethodID methodId(JNIEnv *env, jclass c, const char *name, const char *sig) {
   (void)env; (void)c; (void)sig;
+  if (strcmp(name, "isChangingConfigurations") == 0) return CHANGING_METHOD;
   return strcmp(name, "systemBars") == 0 ? BARS_METHOD : NULL;
+}
+static jboolean callBoolean(JNIEnv *env, jobject o, jmethodID m, ...) {
+  (void)env; (void)o;
+  return m == CHANGING_METHOD && changingConfig;
 }
 static void callVoid(JNIEnv *env, jobject o, jmethodID m, ...) {
   (void)env; (void)o;
@@ -330,6 +337,7 @@ int main(void) {
   envTable[SLOT(ReleaseStringChars)] = (void *)releaseChars;
   envTable[SLOT(GetMethodID)] = (void *)methodId;
   envTable[SLOT(CallVoidMethod)] = (void *)callVoid;
+  envTable[SLOT(CallBooleanMethod)] = (void *)callBoolean;
   setenv("RETRO_CAPTION", "1", 1);   /* the title bar, as on a phone */
   envPtr = (const struct JNINativeInterface *)envTable;
   memset(&vmTable, 0, sizeof vmTable);
@@ -359,6 +367,7 @@ int main(void) {
   cb.onContentRectChanged(&act, &content);
   cb.onWindowFocusChanged(&act, 1);
   ms(400);
+  for (int i = 0; i < 50 && win.posts == 0; i++) ms(100);   /* (a cold start: its fonts read) */
   check(win.posts > 0, "frames reach the window");
   uint32_t bg = win.px[(size_t)700 * (win.w + 16) + 590];
   check(bg == 0xFFFFFFFFu, "the window is white (Windows 3.1 background)");
@@ -484,10 +493,40 @@ int main(void) {
   cb2.onNativeWindowRedrawNeeded(&act2, &win2);
   ms(300);
   check(win2.posts > p, "the app goes on drawing");
+  /* the system makes the activity again (a change it cannot hand it, such
+   * as new paths for its resources): the app waits for the new one */
+  cb2.onWindowFocusChanged(&act2, 0);
+  cb2.onNativeWindowDestroyed(&act2, &win2);
+  cb2.onInputQueueDestroyed(&act2, q2);
+  static int fakeObject;
+  act2.clazz = (jobject)&fakeObject;
+  changingConfig = 1;
+  finishedAct = NULL;
   finished = 0;
-  key(q2, AKEYCODE_BACK);
+  cb2.onDestroy(&act2);                          /* (a plain end would end the process here) */
+  changingConfig = 0;
+  check(1, "the activity made again leaves the app running");
+  ms(200);
+  ANativeActivityCallbacks cbR;
+  memset(&cbR, 0, sizeof cbR);
+  ANativeActivity actR = act;
+  actR.callbacks = &cbR;
+  ANativeActivity_onCreate(&actR, NULL, 0);
+  check(cbR.onDestroy && cbR.onNativeWindowCreated, "the new activity takes the app");
+  check(finishedAct == NULL, "... nothing is finished");
+  check(starts == 1, "... and the app's start does not run again");
+  AInputQueue *qR = newQueue();
+  cbR.onInputQueueCreated(&actR, qR);
+  ANativeWindow winR = { 600, 800, 0, 0, 0, NULL };
+  winR.px = calloc((size_t)(winR.w + 16) * winR.h, 4);
+  cbR.onNativeWindowCreated(&actR, &winR);
+  cbR.onWindowFocusChanged(&actR, 1);
+  ms(600);
+  check(winR.posts > 0, "the app draws in the activity made again");
+  finished = 0;
+  key(qR, AKEYCODE_BACK);
   ms(300);
-  check(finished && finishedAct == &act2, "Back closes the app, which finishes its activity");
+  check(finished && finishedAct == &actR, "Back closes the app, which finishes its activity");
   {                                             /* a new activity before the old one's end */
     ANativeActivityCallbacks cb3;
     memset(&cb3, 0, sizeof cb3);
@@ -495,7 +534,7 @@ int main(void) {
     act3.callbacks = &cb3;
     ANativeActivity_onCreate(&act3, NULL, 0);
     check(cb3.onDestroy && cb3.onNativeWindowCreated, "an activity after the app ended takes it");
-    cb2.onDestroy(&act2);                        /* (the old one's: the process is the new one's) */
+    cbR.onDestroy(&actR);                        /* (the old one's: the process is the new one's) */
     check(1, "the old activity's end leaves the process to the new one");
     AInputQueue *q3 = newQueue();
     cb3.onInputQueueCreated(&act3, q3);

@@ -4,7 +4,7 @@
 ## (web addresses, pages, destinations) and its outline.
 
 import std/[os, strutils, json, times]
-import retroui/[photo, photobook, photopdf, pdf, textengine]
+import retroui/[photo, photobook, photopdf, pdf, textengine, hijri]
 
 let dir = getTempDir() / "retro-hyperlinks-test"
 removeDir(dir)
@@ -54,6 +54,19 @@ block textVariables:
   discard d.addTextLayer(dst)
   let X = d.addTextLayer(newText("see page <ref:results>, not <ref:nowhere>", st(), 10, 250))
   doAssert d.effectiveText(X).plainText == "see page 1, not ??", d.effectiveText(X).plainText
+  # dates: the Hijri calendar's (Umm al-Qura), in Arabic, as numbers, in a format of its own
+  let today = now()
+  let hd = toHijri(today.year, ord(today.month), today.monthday)
+  let V = d.addTextLayer(newText("<hijri:num>|<hijri:en>|<date:dd/MM/yyyy>|<date:ar-latn>|<hijri>", st(), 10, 280))
+  let parts = d.effectiveText(V).plainText.split('|')
+  doAssert parts[0] == $hd.year & "/" & align($hd.month, 2, '0') & "/" & align($hd.day, 2, '0'), parts[0]
+  doAssert parts[1].endsWith(" AH") and hijriMonthName(hd.month, false) in parts[1], parts[1]
+  doAssert parts[2] == today.format("dd/MM/yyyy")
+  doAssert parts[3] == $today.monthday & " " & arabicMonthName(ord(today.month)) & " " & $today.year
+  doAssert parts[4].endsWith(" \u0647\u0640") and arabicDigits($hd.year) in parts[4], parts[4]
+  doAssert toHijri(2026, 11, 17) == (1448, 6, 7) and fromHijri(hd.year, hd.month, hd.day) == (today.year, ord(today.month), today.monthday)
+  doAssert hijriDate(dateTime(2026, mNov, 17)) == "\u0667 \u062C\u0645\u0627\u062F\u0649 \u0627\u0644\u0622\u062E\u0631\u0629 \u0661\u0664\u0664\u0668 \u0647\u0640"
+  doAssert arabicDate(dateTime(2026, mNov, 17), "ar-sy") == "\u0661\u0667 \u062A\u0634\u0631\u064A\u0646 \u0627\u0644\u062B\u0627\u0646\u064A \u0662\u0660\u0662\u0666"
 
 block bookCrossReferences:
   # a destination on page 3, a cross-reference to it on page 1, a running header from page 2 on 3

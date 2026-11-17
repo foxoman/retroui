@@ -371,6 +371,64 @@ block mastersAndNumbers:
   doAssert b.changed
   b.close()
 
+block mastersBasedOnMasters:
+  # a master based on another (Based on Master): the other's layers on its pages too, under its
+  # own -- and on it, as it is edited; never round; kept in the book's file
+  var s = bookSetup(120, 160, dpi = 72, facing = false)
+  let b = newBook(s, pages = 2)
+  let a = b.addMaster()
+  let c = b.addMaster()
+  doAssert c.name == "B"
+  let ra = b.masterDoc(a, psRight).block0("Frame", 5, 5, 115, 10)
+  doAssert ra != nil
+  b.masterDoc(a, psRight).markAll()
+  discard b.masterDoc(c, psRight).block0("Logo", 50, 140, 70, 155)
+  b.masterDoc(c, psRight).markAll()
+  doAssert b.setBasedOn(c.id, a.id)
+  doAssert not b.setBasedOn(a.id, c.id), "never round"
+  doAssert not b.setBasedOn(c.id, c.id)
+  doAssert b.masterChain(c) == @[a, c]
+  b.setMaster(0, c.id)
+  let d0 = b.doc(0)
+  var names: seq[string]
+  for L in d0.layers:
+    if L.fromMaster != 0: names.add L.name
+  doAssert names == @["Frame", "Logo"], $names           # (A's under B's)
+  # on B as it is edited: A's layer, locked
+  var onB = 0
+  for L in b.masterDoc(c, psRight).layers:
+    if L.fromMaster == a.id:
+      inc onB
+      doAssert L.locked
+  doAssert onB == 1
+  # A changed: B's pages follow
+  b.park()
+  discard b.masterDoc(a, psRight).block0("Band", 5, 60, 115, 70)
+  b.masterDoc(a, psRight).markAll()
+  var n = 0
+  for L in b.doc(0).layers:
+    if L.fromMaster != 0: inc n
+  doAssert n == 3, $n
+  # kept with the book; based on none: A's go
+  let path = getTempDir() / "retro-based-on.rpb"
+  b.saveBook(path)
+  let b2 = loadBook(path)
+  doAssert b2.masterOf(c.id).basedOn == a.id
+  n = 0
+  for L in b2.doc(0).layers:
+    if L.fromMaster != 0: inc n
+  doAssert n == 3, "after loading: " & $n
+  doAssert b2.setBasedOn(c.id, 0)
+  n = 0
+  for L in b2.doc(0).layers:
+    if L.fromMaster != 0: inc n
+  doAssert n == 1, $n
+  b.removeMaster(a.id)
+  doAssert c.basedOn == 0
+  b.close()
+  b2.close()
+  removeFile(path)
+
 block textFromPageToPage:
   var s = bookSetup(120, 170, dpi = 72, facing = true)        # (340 x 482 pixels)
   s.top = 30

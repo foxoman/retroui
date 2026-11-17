@@ -75,11 +75,21 @@ proc hyperlinkCommand(name: string): bool =
     let ds = d.knownDests
     hlDlg = (true, 0, "", (if ds.len > 0: ds[0] else: ""), 1, "", name)
   of "Remove Hyperlink": setLink(name, "")
-  of "Insert File Name", "Insert Output Date", "Insert Modification Date":
+  of "Insert File Name", "Insert Output Date", "Insert Modification Date", "Insert Hijri Date",
+     "Insert Hijri Date in English", "Insert Hijri Date in Numbers", "Insert Arabic Date",
+     "Insert Arabic Date (Levant)", "Insert Arabic Date with the Day", "Insert Date dd/MM/yyyy":
+    # (Text Variables: today's date in the Hijri calendar, in Arabic, as numbers too)
     if te.on:
       insertTyped(case name
                   of "Insert File Name": "<file>"
                   of "Insert Output Date": "<date>"
+                  of "Insert Hijri Date": "<hijri>"
+                  of "Insert Hijri Date in English": "<hijri:en>"
+                  of "Insert Hijri Date in Numbers": "<hijri:num>"
+                  of "Insert Arabic Date": "<date:ar>"
+                  of "Insert Arabic Date (Levant)": "<date:ar-sy>"
+                  of "Insert Arabic Date with the Day": "<date:ar-full>"
+                  of "Insert Date dd/MM/yyyy": "<date:dd/MM/yyyy>"
                   else: "<modified>")
     else: status = tr("Text Variables: click in a text with the Type tool first")
   of "Bookmarks": togglePanel("bookmarks")

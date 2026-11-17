@@ -1,7 +1,8 @@
 ## Live effects on a shape's path, as a drawing program's Effect menu has
 ## them: Distort & Transform (Free Distort, Pucker & Bloat, Roughen,
 ## Transform, Tweak, Twist, Zig Zag), Warp (its 15 styles), Offset Path,
-## and Repeat (Radial, Grid, Mirror: change the one, all follow).
+## and Repeat (Radial, Grid, Mirror: change the one, all follow); Stylize's
+## Round Corners and Scribble.
 ## A shape keeps its path as it was drawn and its effects in
 ## `ShapeData.effects`; each time it is drawn they are done to the path, in
 ## order (importing this module turns that on: `photoshapes.liveEffectsHook`).
@@ -337,6 +338,94 @@ proc repeatMirror*(p: Path; axisAngle, offset: float): Path =
     for q in r.pts.mitems: swap(q.inH, q.outH)
     result.subs.add r
 
+proc roundCorners*(p: Path; radius: float): Path =
+  ## Stylize > Round Corners on any path: each corner (a point with no handles) cut back along its
+  ## two sides by `radius` (at most half of each) and a curve put in between -- smooth points
+  ## and curves as they are.
+  result = p
+  if radius <= 0: return
+  const Kappa = 0.5522847498
+  for s in result.subs.mitems:
+    let n = s.pts.len
+    if n < 3: continue
+    var o: seq[PathPoint]
+    for i in 0 ..< n:
+      let q = s.pts[i]
+      let atEnd = not s.closed and (i == 0 or i == n - 1)
+      if atEnd or q.inH != q.p or q.outH != q.p:
+        o.add q
+        continue
+      let a = s.pts[(i + n - 1) mod n].p
+      let b = s.pts[(i + 1) mod n].p
+      let la = hypot(a[0] - q.p[0], a[1] - q.p[1])
+      let lb = hypot(b[0] - q.p[0], b[1] - q.p[1])
+      if la < 1e-6 or lb < 1e-6:
+        o.add q
+        continue
+      let r = min(radius, min(la, lb) / 2)
+      let ua = ((a[0] - q.p[0]) / la, (a[1] - q.p[1]) / la)
+      let ub = ((b[0] - q.p[0]) / lb, (b[1] - q.p[1]) / lb)
+      let p1 = (q.p[0] + ua[0] * r, q.p[1] + ua[1] * r)
+      let p2 = (q.p[0] + ub[0] * r, q.p[1] + ub[1] * r)
+      let k = r * (1 - Kappa)
+      o.add PathPoint(p: p1, inH: p1, outH: (p1[0] - ua[0] * k, p1[1] - ua[1] * k))
+      o.add PathPoint(p: p2, inH: (p2[0] - ub[0] * k, p2[1] - ub[1] * k), outH: p2)
+    s.pts = o
+
+proc scribble*(p: Path; spacing, width, angle, variation: float; seed = 1): Path =
+  ## Stylize > Scribble: the shape's inside as lines drawn back and forth across it at `angle`
+  ## degrees, `spacing` apart, each `width` wide (`variation` %: their spacing and ends loose),
+  ## as a filled outline -- the fill's color draws them, as the drawing program's scribbled fill.
+  result = Path()
+  let polys = flatten(p, 12)
+  if polys.len == 0 or spacing <= 0.2: return
+  let a = degToRad(angle)
+  let (ux, uy) = (cos(a), sin(a))          # (along the lines)
+  let (vx, vy) = (-uy, ux)                 # (across them)
+  var lo = Inf
+  var hi = -Inf
+  var alo = Inf
+  var ahi = -Inf
+  for poly in polys:
+    for q in poly:
+      lo = min(lo, q[0] * vx + q[1] * vy)
+      hi = max(hi, q[0] * vx + q[1] * vy)
+      alo = min(alo, q[0] * ux + q[1] * uy)
+      ahi = max(ahi, q[0] * ux + q[1] * uy)
+  if hi - lo > 1e5: return
+  var rnd = uint32(seed) * 2654435761'u32 + 1
+  proc jitter(): float =
+    rnd = rnd xor (rnd shl 13); rnd = rnd xor (rnd shr 17); rnd = rnd xor (rnd shl 5)
+    float(rnd and 0xFFFF) / 65535 - 0.5
+  let hw = max(0.25, width / 2)
+  var c = lo + spacing / 2
+  while c < hi:
+    let cc = c + jitter() * spacing * variation / 100
+    # (where the line across at `cc` is inside: its crossings with the outline, paired)
+    var xs: seq[float]
+    for poly in polys:
+      for i in 0 ..< poly.len:
+        let p0 = poly[i]
+        let p1 = poly[(i + 1) mod poly.len]
+        let s0 = p0[0] * vx + p0[1] * vy - cc
+        let s1 = p1[0] * vx + p1[1] * vy - cc
+        if (s0 < 0) != (s1 < 0):
+          let t = s0 / (s0 - s1)
+          xs.add (p0[0] + (p1[0] - p0[0]) * t) * ux + (p0[1] + (p1[1] - p0[1]) * t) * uy
+    xs.sort()
+    var k = 0
+    while k + 1 < xs.len:
+      let e = spacing * variation / 200
+      let t0 = xs[k] - jitter() * e
+      let t1 = xs[k + 1] + jitter() * e
+      if t1 - t0 > 0.5:
+        proc pt(t, off: float): (float, float) = (ux * t + vx * (cc + off), uy * t + vy * (cc + off))
+        var sp = SubPath(closed: true)
+        for q in [pt(t0, -hw), pt(t1, -hw), pt(t1, hw), pt(t0, hw)]: sp.pts.add PathPoint(p: q, inH: q, outH: q)
+        result.subs.add sp
+      k += 2
+    c += spacing
+
 proc applyEffects*(p: Path; es: seq[LiveEffect]): Path =
   ## A path with live effects done to it, in order (those turned off skipped).
   result = p
@@ -355,6 +444,8 @@ proc applyEffects*(p: Path; es: seq[LiveEffect]): Path =
              of leRepeatRadial: repeatRadial(result, e.copies, e.amount, e.angle)
              of leRepeatGrid: repeatGrid(result, e.copies, int(e.detail), e.dx, e.dy)
              of leRepeatMirror: repeatMirror(result, e.angle, e.dx)
+             of leRoundCorners: roundCorners(result, e.amount)
+             of leScribble: scribble(result, e.amount, e.detail, e.angle, e.sx, e.seed)
 
 proc defaultLiveEffect*(k: LiveEffectKind): LiveEffect =
   ## An effect with the settings it starts with (as the drawing program's boxes open).
@@ -371,5 +462,7 @@ proc defaultLiveEffect*(k: LiveEffectKind): LiveEffect =
   of leRepeatRadial: LiveEffect(kind: k, copies: 8, amount: 100)
   of leRepeatGrid: LiveEffect(kind: k, copies: 3, detail: 3, dx: 10, dy: 10)
   of leRepeatMirror: LiveEffect(kind: k, dx: 10)
+  of leRoundCorners: LiveEffect(kind: k, amount: 10)
+  of leScribble: LiveEffect(kind: k, amount: 6, detail: 2, angle: 30, sx: 20, seed: 1)
 
 liveEffectsHook = applyEffects

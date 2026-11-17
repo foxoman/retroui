@@ -14,7 +14,7 @@ import std/[os, strutils, math, tables, times, algorithm, json, hashes, cpuinfo,
 from retroui/system import sharedIn
 import retroui
 import retroui/lang_ar as kitArabic
-from std/unicode import Rune, toRunes, `==`
+from std/unicode import Rune, toRunes, `==`, toUTF8
 import retroui/rscript except parseJson, toJson
 import retroui/jobs
 import photo/lang_ar as photoLang
@@ -33,7 +33,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 const
   AppName = "Retro Atelier"         # (Retro Photo until 5.0)
   AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
-  AppVersion = "5.4.0"
+  AppVersion = "5.5.0"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -116,6 +116,8 @@ type
     sessionFile: string            ## its copy kept for the next start (the session; "" none)
     sessionVer: int                ## (the document's `ver` when that copy was written)
     autoVer: int                   ## (the document's `ver` when it was last kept aside)
+    parkVer: int                   ## (the document's `ver` when it was last looked at to be kept
+                                   ## small while idle: `parkTick`)
 
   Drag = object
     ## What the mouse is doing on a document.
@@ -385,7 +387,8 @@ const panelList = [
   ("layercomps", "Layer Comps", pxLayerComps), ("clonesource", "Clone Source", pxStamp),
   ("quickactions", "Quick Actions", pxQuickActions), ("colorthemes", "Color Themes", pxColorThemes),
   ("pages", "Pages", pxNew), ("vbrushes", "Brushes (Vector)", pxBrush), ("appearance", "Appearance", pxLayerStyle),
-  ("objectstyles", "Object Styles", pxCustomShape), ("bookmarks", "Bookmarks", pxNew), ("links", "Links", pxOpen)]
+  ("objectstyles", "Object Styles", pxCustomShape), ("bookmarks", "Bookmarks", pxNew), ("links", "Links", pxOpen),
+  ("graphicstyles", "Graphic Styles", pxSwatches)]
   ## (each panel: its key, its title, its icon in a column collapsed to icons)
 
 var dock = newDock()             ## the panels down the right (Window shows and hides them)
@@ -418,7 +421,8 @@ proc defaultDock() =
   grp(1, 100, ["quickactions", "colorthemes"])
   for k in ["scratch", "commands"]: dock.closed.add (pdef(k), 0, 0)
   dock.closed.add (pdef("pages"), 0, 2)      # (shown: with Layers, where there is room for pages)
-  for k in ["vbrushes", "appearance", "objectstyles", "bookmarks", "links"]: dock.closed.add (pdef(k), 0, 1)
+  for k in ["vbrushes", "appearance", "objectstyles", "bookmarks", "links", "graphicstyles"]:
+    dock.closed.add (pdef(k), 0, 1)
 
 defaultDock()
 
@@ -489,7 +493,10 @@ proc bookExportDialog()
 proc bookGrid(dw: DocWin): tuple[step, start: float32]
 proc bookSnapLines(dw: DocWin): tuple[xs, ys: seq[float]]
 proc startMakeBlend()
+proc startArtboardOptions()
+proc startGradientFeather()
 proc startShapeBuilder()
+proc replaceSpine(orient: bool)
 proc startFreeform()
 proc freeformDialog()
 proc shapeBuilderDialog()
@@ -1441,9 +1448,9 @@ const
                 "Spiral", "Triangle", "Arc", "Rectangular Grid", "Polar Grid", "Flare"]
   vecToolNames = ["Group Selection", "Magic Wand (Shapes)", "Lasso (Points)", "Paintbrush (Vector)", "Blob Brush",
                   "Smooth", "Path Eraser", "Join", "Eraser (Shapes)", "Scissors", "Knife", "Width", "Mesh",
-                  "Perspective Selection"]
+                  "Perspective Selection", "Shape Builder"]
   vecToolGlyphs = [pxPathSelect, pxMagicWand, pxPolyLasso, pxBrush, pxPaint, pxCurvaturePen, pxEraser, pxConvertPoint,
-                   pxBgEraser, pxCut, pxSlice, pxWarp, pxGrid, pxPerspCrop]
+                   pxBgEraser, pxCut, pxSlice, pxWarp, pxGrid, pxPerspCrop, pxBucket]
 
 proc toolName(t: Tool): string =
   case t
@@ -4284,6 +4291,27 @@ proc snapped(dw: DocWin; ev: PhotoEvent): PhotoEvent =
   let g = snapGuides and dw.view.showGuides
   result.x = d.snapCoord(ev.x, true, tol, grid, g, snapBounds)
   result.y = d.snapCoord(ev.y, false, tol, grid, g, snapBounds)
+  if smartGuidesOn and CtrlPressed notin ui.mods and
+     ((tool == tShape and shapeKind == 4 and drag.on and drag.dw == dw) or tool == tPen):
+    # (Smart Guides: a line's end to where it meets a path at a right angle, or touches it)
+    var anchor = (drag.x0, drag.y0)
+    var ok = tool == tShape
+    if tool == tPen and d.curPath >= 0 and d.curPath < d.paths.len and d.paths[d.curPath].subs.len > 0 and
+       not d.paths[d.curPath].subs[^1].closed and d.paths[d.curPath].subs[^1].pts.len > 0 and not penDrag.on:
+      anchor = d.paths[d.curPath].subs[^1].pts[^1].p
+      ok = true
+    if ok:
+      var paths: seq[Path]
+      for L in d.layers:
+        if L.isShape and L.visible: paths.add L.shape.path
+      for i, pth in d.paths:
+        if i != d.curPath: paths.add pth
+      let sn = snapTangentPerp(paths, anchor, (ev.x, ev.y), tol)
+      if sn.kind.len > 0:
+        result.x = sn.p[0]
+        result.y = sn.p[1]
+        status = tr(if sn.kind == "tangent": "Tangent" else: "Perpendicular")
+        return
   if snapGuides:
     # (a book's page: its margins, columns and baseline grid too)
     let (xs, ys) = bookSnapLines(dw)
@@ -4819,9 +4847,15 @@ proc setup() =
   # be quick let go)
   useThumbCache(thumbCacheFolder(AppData), 64 * 1024 * 1024)
   onMemoryPressure(proc (level: MemoryPressure) =
+    # (short of memory: the documents not shown kept small, the hidden layers of the one that
+    # is -- on the scratch disk when it is critical)
+    if level >= mpLow:
+      for dw in docs:
+        if dw == active or dw.floating: discard dw.doc.parkHidden(toDisk = level == mpCritical)
+        else: discard dw.doc.parkAll(toDisk = level == mpCritical)
     if level == mpCritical:
       for dw in docs: dw.doc.purgeCaches()
-      trimMemory())
+    trimMemory())
   loadPrefs()
   setThreadCount(prefs.threads)
   addDocumentPreviews()          # (.rpd and .psd pictures in the Open dialog's preview)
@@ -4874,6 +4908,7 @@ proc photoFrame() =
   ## is taken back.
   saveWatch()
   autosaveTick()
+  parkTick()
   smokeBound()
   shareUndoRoom()
   memLogTick()

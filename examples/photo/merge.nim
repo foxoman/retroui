@@ -1,10 +1,13 @@
 # (included by photo.nim) Layout > Data Merge (retroui/datamerge): a design whose text says
 # «Name» -- and frames named @Photo -- and a table of rows (CSV); each row a page of a new
 # book, the fields filled in, the frames' pictures placed to fill them. The box shows the
-# fields the design asks for, the table's columns, and a row as it will be.
+# fields the design asks for, the table's columns, and a row as it will be. Or a file a row
+# instead (Photoshop's Export > Data Sets as Files): PNG or JPEG, each named by a column or
+# numbered, in a folder picked.
 
 var
-  dmDlg: tuple[open, pick: bool; path: string; table: DataTable; row: int; preview: Bitmap; key: string]
+  dmDlg: tuple[open, pick: bool; path: string; table: DataTable; row: int; preview: Bitmap; key: string;
+               pickDir: bool; dir: string; fmt, nameCol: int]
 
 proc startDataMerge() =
   let d = cur()
@@ -58,6 +61,29 @@ proc mergeNow() =
   status = tr("Data Merge: ") & $n & tr(" pages, one a row of ") & dmDlg.path.extractFilename &
            (if dmDlg.table.rows.len > n: tr(" (a book has ") & $MaxBookPages & tr(" pages at most)") else: "")
 
+proc mergeToFiles() =
+  ## Export a File a Row: the design with each row's values in it, saved flat in the folder picked.
+  let d = cur()
+  if d == nil or dmDlg.table.rows.len == 0 or dmDlg.dir.len == 0: return
+  let column = if dmDlg.nameCol > 0 and dmDlg.nameCol <= dmDlg.table.headers.len:
+                 dmDlg.table.headers[dmDlg.nameCol - 1] else: ""
+  beginBusy("Data Merge", cancel = true)
+  var files: seq[string]
+  try:
+    files = d.exportRows(dmDlg.table, dmDlg.dir, (if dmDlg.fmt == 1: "jpg" else: "png"), mergePicture,
+                         dmDlg.path.parentDir, column,
+                         progress = proc (done, total: int) =
+                           busyFraction = done / max(1, total)
+                           busyTickCheck())
+  except BusyCancelled:
+    status = "Data Merge stopped"
+    return
+  except CatchableError as e:
+    status = tr("Data Merge: ") & e.msg
+    return
+  finally: endBusy()
+  status = tr("Data Merge: ") & $files.len & tr(" files, one a row, in ") & dmDlg.dir
+
 proc mergeCommand(name: string): bool =
   result = true
   case name
@@ -70,6 +96,8 @@ proc dataMergeDialog() =
     dmDlg.row = 0
     dmDlg.key = ""
     if dmDlg.table.error.len > 0: status = tr("Data Merge: ") & dmDlg.table.error
+  if filePicker(dmDlg.pickDir, dmDlg.dir, fmFolder, [], "Data Merge: a File a Row Into"):
+    mergeToFiles()
   if not dmDlg.open: return
   let d = cur()
   if d == nil:
@@ -114,8 +142,20 @@ proc dataMergeDialog() =
       if dmDlg.preview != nil:
         let r = place(dp(dmDlg.preview.w), dp(dmDlg.preview.h))
         drawBitmap(r, dmDlg.preview)
+      # (or a file a row: its format, what names it)
+      row([110, 90, 70, -1]):
+        label "A file a row:"
+        discard combo(["PNG", "JPEG"], dmDlg.fmt, w = dp(86))
+        label "Named by:"
+        var names = @["Numbers"]
+        for h in dmDlg.table.headers: names.add h
+        dmDlg.nameCol = clamp(dmDlg.nameCol, 0, names.high)
+        discard combo(names, dmDlg.nameCol, w = dp(150))
     row:
       spring()
+      if button("Export a File a Row...", w = dp(170), enabled = dmDlg.table.rows.len > 0 and fields.len > 0):
+        dmDlg.open = false
+        dmDlg.pickDir = true
       if button("Create Merged Document", isDefault = true, w = dp(180),
                 enabled = dmDlg.table.rows.len > 0 and fields.len > 0):
         create = true

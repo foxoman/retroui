@@ -205,10 +205,143 @@ proc hdrDialogs() =
         status = $toningDlg.bits & " bits a channel"
       finally: endBusy()
 
+var abDlg: tuple[open: bool; board: Layer; name: string; color: int; locked: bool]
+var gfDlg: tuple[open: bool; layer: Layer; g: GradientFeather; was: GradientFeather; shown: string]
+var gfPending = false
+
+proc startGradientFeather() =
+  ## Layer > Gradient Feather...: the layer picked fading across itself (the layout program's
+  ## effect), live while the box is open.
+  let d = cur()
+  if d == nil or d.current.group or d.current.background:
+    status = "Gradient Feather: pick a layer (not the Background)"
+    return
+  let L = d.current
+  var g = L.gradFeather
+  if not g.on: g = GradientFeather(on: true, angle: 0, startOpacity: 100, endOpacity: 0, startAt: 0, endAt: 100)
+  gfDlg = (true, L, g, L.gradFeather, "")
+  d.beginStep("Gradient Feather")
+  d.touchLayers()
+  gfPending = true
+
+proc gradientFeatherDialog() =
+  let d = cur()
+  if not gfDlg.open:
+    if gfPending:
+      # (closed from outside: as Cancel)
+      gfPending = false
+      if d != nil and d.stepOpen: d.cancelStep()
+    return
+  if d == nil or gfDlg.layer notin d.layers:
+    gfDlg.open = false
+    return
+  var ok, cancel = false
+  var g = gfDlg.g
+  dialog(gfDlg.open, "Gradient Feather", 360):
+    row([110, -1]):
+      label "Type:"
+      var k = ord(g.radial)
+      if combo(["Linear", "Radial"], k, w = dp(120)): g.radial = k == 1
+    template num(lab: string; v: var int; lo, hi: int; unit: string) =
+      row([110, -1, 50]):
+        label lab
+        discard slider(v, lo, hi, ticks = 0)
+        label $v & unit
+    var ang = int(g.angle)
+    if not g.radial: num("Angle:", ang, -180, 180, "°")
+    g.angle = ang.float
+    num("Start Opacity:", g.startOpacity, 0, 100, "%")
+    num("End Opacity:", g.endOpacity, 0, 100, "%")
+    num("Start At:", g.startAt, 0, 100, "%")
+    num("End At:", g.endAt, 0, 100, "%")
+    paragraph("The layer fades across where it is drawn; its mask, if it has one, stays.", color = ui.theme.gray)
+    row:
+      if button("Remove", w = dp(80)):
+        g.on = false
+        ok = true
+      spring()
+      if button("OK", isDefault = true, w = dp(80)): ok = true
+      if button("Cancel", w = dp(80)): cancel = true
+  gfDlg.g = g
+  let key = $g
+  if key != gfDlg.shown and not cancel:
+    gfDlg.shown = key
+    gfDlg.layer.gradFeather = g
+    inc gfDlg.layer.ver
+    d.markAll()
+  if ok:
+    gfDlg.open = false
+    gfPending = false
+    gfDlg.layer.gradFeather = g
+    d.markAll()
+    if d.stepOpen: d.endStep()
+  elif cancel:
+    gfDlg.open = false
+    gfPending = false
+    if d.stepOpen: d.cancelStep()
+    gfDlg.layer.gradFeather = gfDlg.was
+    d.markAll()
+
+proc startArtboardOptions() =
+  ## Artboard Options: the artboard picked (or the one the layer picked is in).
+  let d = cur()
+  if d == nil: return
+  var i = -1
+  if d.current.isArtboard: i = d.cur
+  else:
+    for a in d.artboards:
+      if d.cur >= d.blockStart(a) and d.cur <= a: i = a
+  if i < 0:
+    status = "Artboard Options: pick an artboard (or a layer in one)"
+    return
+  let c = d.artboardColor(i)
+  let k = if c == 0: 2 elif (c and 0xFFFFFF'u32) == 0xFFFFFF'u32: 0 elif (c and 0xFFFFFF'u32) == 0: 1 else: 3
+  abDlg = (true, d.layers[i], d.layers[i].name, k, d.layers[i].locked)
+
+proc artboardOptionsDialog() =
+  ## (Artboard Options, as the photo and drawing programs have them: its name, the color of its
+  ## page -- white, black, transparent or the foreground color --, locked)
+  if not abDlg.open: return
+  let d = cur()
+  if d == nil or abDlg.board notin d.layers:
+    abDlg.open = false
+    return
+  var ok = false
+  dialog(abDlg.open, "Artboard Options", 340):
+    row([100, -1]):
+      label "Name:"
+      edit(abDlg.name)
+    row([100, -1]):
+      label "Background:"
+      discard combo(["White", "Black", "Transparent", "Foreground Color"], abDlg.color, w = dp(170))
+    checkbox("Lock (not moved, resized or painted on)", abDlg.locked)
+    row:
+      spring()
+      if button("OK", isDefault = true, w = dp(80)): ok = true
+      if button("Cancel", w = dp(80)): abDlg.open = false
+  if ok:
+    abDlg.open = false
+    let i = d.layers.find(abDlg.board)
+    if i < 0: return
+    d.beginStep("Artboard Options")
+    d.touchLayers()
+    if abDlg.name.strip.len > 0: d.layers[i].name = abDlg.name.strip
+    let c = case abDlg.color
+            of 0: 0xFFFFFFFF'u32
+            of 1: 0xFF000000'u32
+            of 2: 0'u32
+            else: fg or 0xFF000000'u32
+    d.setArtboardColor(i, c)
+    d.lockArtboard(d.layers.find(abDlg.board), abDlg.locked)
+    d.endStep()
+    d.markAll()
+
 proc ccDialogs() =
   ## Layer > Layer Cleanup; Layer > Harmonize; Create Rectangle (a click
-  ## with a shape tool).
+  ## with a shape tool); Artboard Options.
   createShapeDialog()
+  artboardOptionsDialog()
+  gradientFeatherDialog()
   noteDialog()
   hdrDialogs()
   let d = cur()
@@ -260,9 +393,14 @@ proc exportArtboards(d: Doc) =
   let base = if d.path.len > 0: d.path.parentDir else: picturesDir()
   let dir = base / (d.name & " Artboards")
   var n = 0
+  # (the artboards picked in the Layers palette, when some are: those alone)
+  var which: seq[int]
+  for i in d.artboards:
+    if d.layers[i].picked or (i == d.cur and d.pickedLayers.len > 0 and i in d.pickedLayers): which.add i
+  if which.len == 0: which = d.artboards
   try:
     createDir(dir)
-    for i in d.artboards:
+    for i in which:
       let b = d.artboardPicture(i)
       if b == nil: continue
       var nm = d.layers[i].name

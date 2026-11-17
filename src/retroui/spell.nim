@@ -10,8 +10,12 @@
 ##   through COM) -- the one Office and Edge use, with the user's own
 ##   dictionary.
 ## - **macOS:** `NSSpellChecker`.
-## - **Android and iOS apps:** none (the phone's keyboard corrects what is
-##   typed): `spellAvailable` is false; AutoCorrect's lists still work.
+## - **Android apps:** the phone's own (its keyboard's -- Gboard's,
+##   Samsung's: `SpellCheckerSession`, through `tools/android/RetroSpell.java`),
+##   in the languages it has.
+## - **iOS apps:** `UITextChecker`.
+##
+## Where there is none, `spellAvailable` is false; AutoCorrect's lists still work.
 ##
 ## Each word is checked in the language of its script: an Arabic word with
 ## the Arabic dictionary, a Latin one with the user's language (or English),
@@ -39,10 +43,10 @@
 
 import std/[os, strutils, tables, sets, algorithm, sequtils]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
-when not defined(ios):
+import uirelays/[services, target]
+when not defined(ios) and not androidApp:
   import std/dynlib
-import uirelays/services
-when defined(macosx) and not defined(ios):
+when defined(macosx) or defined(ios):
   import native
 
 type
@@ -50,7 +54,7 @@ type
     scNone, scLatin, scArabic, scHebrew, scCyrillic, scGreek, scArmenian,
     scGeorgian, scDevanagari, scBengali, scTamil, scThai, scHangul, scOther, scMixed
 
-  Engine = enum enNone, enHunspell, enEnchant, enWindows, enMac
+  Engine = enum enNone, enHunspell, enEnchant, enWindows, enMac, enAndroid, enIos
 
   Checker = ref object
     tag: string            ## the language, "en-US"
@@ -349,7 +353,7 @@ proc pickTag(want: string; have: openArray[string]): string =
 
 # ---- Hunspell and Enchant (Linux, BSD, Termux) --------------------------------------------------------
 
-when not defined(windows) and not defined(macosx) and not defined(ios):
+when not defined(windows) and not defined(macosx) and not defined(ios) and not androidApp:
   type
     HunCreate = proc (aff, dic: cstring): pointer {.cdecl, gcsafe.}
     HunSpell = proc (h: pointer; w: cstring): cint {.cdecl, gcsafe.}
@@ -687,18 +691,80 @@ when defined(windows):
 
 # ---- macOS: NSSpellChecker -----------------------------------------------------------------------------
 
-when defined(macosx) and not defined(ios):
+when defined(macosx) or defined(ios):
   type NSRange = object
     location, length: uint
   const NSNotFound = uint(high(int))
-  var
-    macChecker: ObjcId
-    macDocTag: int
 
   proc nsArrayStrings(a: ObjcId): seq[string] =
     if a == nil: return
     let n = objcSend(int, a, "count")
     for i in 0 ..< n: result.add toNim(objcSend(ObjcId, a, "objectAtIndex:", i))
+
+  proc macLang(c: Checker): string = c.tag.replace('-', '_')
+
+  proc systemLanguage(): string =
+    autoreleasePool:
+      let langs = objcSend(ObjcId, objcClass("NSLocale"), "preferredLanguages")
+      let all = nsArrayStrings(langs)
+      if all.len > 0: result = normTag(all[0])
+
+when defined(ios):
+  var iosChecker: ObjcId
+
+  proc loadIos(): bool =
+    ## (UITextChecker: its languages)
+    let cls = objcClass("UITextChecker")
+    if cls == nil: return false
+    autoreleasePool:
+      iosChecker = objcSend(ObjcId, objcSend(ObjcId, cls, "alloc"), "init")
+      if iosChecker == nil: return false
+      for t in nsArrayStrings(objcSend(ObjcId, cls, "availableLanguages")):
+        let n = normTag(t)
+        if n.len > 0 and n notin dictTags: dictTags.add n
+    dictTags.sort()
+    shownTags = dictTags
+    dictTags.len > 0
+
+  proc iosCheck(c: Checker; w: string): bool =
+    autoreleasePool:
+      let s = nsString(w)
+      let n = objcSend(int, s, "length")
+      let r = objcSend(NSRange, iosChecker, "rangeOfMisspelledWordInString:range:startingAt:wrap:language:",
+                       s, NSRange(location: 0, length: uint(n)), 0, false, nsString(c.macLang))
+      result = r.location == NSNotFound or r.length == 0
+
+  proc iosSuggest(c: Checker; w: string): seq[string] =
+    autoreleasePool:
+      let s = nsString(w)
+      let n = objcSend(int, s, "length")
+      result = nsArrayStrings(objcSend(ObjcId, iosChecker, "guessesForWordRange:inString:language:",
+                                       NSRange(location: 0, length: uint(n)), s, nsString(c.macLang)))
+
+when androidApp:
+  proc loadAndroid(): bool =
+    ## (the phone's checker: there is one when a session can be made)
+    if systemCall("spell.available", "") != "1": return false
+    let lang = normTag(systemCall("spell.language", ""))
+    for t in [lang, "en-US", "ar"]:
+      if t.len > 0 and t notin dictTags: dictTags.add t
+    dictTags.sort()
+    shownTags = dictTags
+    true
+
+  proc androidCheck(c: Checker; w: string): bool =
+    systemCall("spell.check", w & "\t" & c.tag) != "0"
+
+  proc androidSuggest(c: Checker; w: string): seq[string] =
+    for s in systemCall("spell.suggest", w & "\t" & c.tag).split('\t'):
+      if s.len > 0: result.add s
+
+  proc systemLanguage(): string = normTag(systemCall("spell.language", ""))
+
+when defined(macosx) and not defined(ios):
+  var
+    macChecker: ObjcId
+    macDocTag: int
 
   proc loadMac(): bool =
     discard loadLib("/System/Library/Frameworks/AppKit.framework/AppKit")
@@ -715,8 +781,6 @@ when defined(macosx) and not defined(ios):
     shownTags = dictTags
     true
 
-  proc macLang(c: Checker): string = c.tag.replace('-', '_')
-
   proc macCheck(c: Checker; w: string): bool =
     autoreleasePool:
       let r = objcSend(NSRange, macChecker,
@@ -732,15 +796,6 @@ when defined(macosx) and not defined(ios):
                        NSRange(location: 0, length: uint(n)), s, nsString(c.macLang), macDocTag)
       result = nsArrayStrings(a)
 
-  proc systemLanguage(): string =
-    autoreleasePool:
-      let langs = objcSend(ObjcId, objcClass("NSLocale"), "preferredLanguages")
-      let all = nsArrayStrings(langs)
-      if all.len > 0: result = normTag(all[0])
-
-when defined(ios):
-  proc systemLanguage(): string = ""
-
 # ---- the engine ------------------------------------------------------------------------------------
 
 proc start() =
@@ -754,7 +809,9 @@ proc start() =
   when defined(windows):
     if loadWindows(): engine = enWindows
   elif defined(ios):
-    discard
+    if loadIos(): engine = enIos
+  elif androidApp:
+    if loadAndroid(): engine = enAndroid
   elif defined(macosx):
     if loadMac(): engine = enMac
   else:
@@ -793,6 +850,7 @@ proc checkerFor(tag: string): Checker =
         when declared(openWindows): c = openWindows(t)
       of enMac:
         when declared(loadMac): c = Checker(tag: t, script: scriptOfLang(t))
+      of enIos, enAndroid: c = Checker(tag: t, script: scriptOfLang(t))
       of enNone: discard
       checkers[t] = c
   checkers[tag] = c
@@ -816,6 +874,12 @@ proc engineSpells(c: Checker; w: string): bool =
     else: true
   of enMac:
     when declared(macCheck): macCheck(c, w)
+    else: true
+  of enIos:
+    when declared(iosCheck): iosCheck(c, w)
+    else: true
+  of enAndroid:
+    when declared(androidCheck): androidCheck(c, w)
     else: true
   of enNone: true
 
@@ -844,6 +908,10 @@ proc engineSuggest(c: Checker; w: string): seq[string] =
     when declared(winSuggest): result = winSuggest(c, w)
   of enMac:
     when declared(macSuggest): result = macSuggest(c, w)
+  of enIos:
+    when declared(iosSuggest): result = iosSuggest(c, w)
+  of enAndroid:
+    when declared(androidSuggest): result = androidSuggest(c, w)
   of enNone: discard
 
 proc forget() =
@@ -854,7 +922,7 @@ proc forget() =
 # ---- the API ---------------------------------------------------------------------------------------
 
 proc spellBackend*(): string =
-  ## Which checker answers: "hunspell", "enchant", "windows", "macos", or ""
+  ## Which checker answers: "hunspell", "enchant", "windows", "macos", "android", "ios", or ""
   ## when there is none.
   start()
   case engine
@@ -862,6 +930,8 @@ proc spellBackend*(): string =
   of enEnchant: "enchant"
   of enWindows: "windows"
   of enMac: "macos"
+  of enIos: "ios"
+  of enAndroid: "android"
   of enNone: ""
 
 proc spellLanguages*(): seq[string] =
@@ -1010,7 +1080,12 @@ proc spellAdd*(word: string) =
         autoreleasePool:
           objcSend(void, macChecker, "learnWord:", nsString(w))
       else: discard
-    of enNone: discard
+    of enIos:
+      when declared(iosChecker):
+        autoreleasePool:
+          objcSend(void, objcClass("UITextChecker"), "learnWord:", nsString(w))
+      else: discard
+    of enAndroid, enNone: discard    # (Android's: the user's own words are the module's, above)
   forget()
 
 proc spellWordsFile*(): string =

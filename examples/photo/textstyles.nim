@@ -153,6 +153,85 @@ proc stylesPanel(paragraph: bool) =
   elif over:
     label("+: the text differs from its style", color = ui.theme.gray)
 
+var gsThumbs: tuple[key: string; bmps: seq[Bitmap]]
+var gsPick = -1                    ## (the Graphic Style last clicked: Delete takes it away)
+
+proc graphicStylesBody() =
+  ## Graphic Styles, as the drawing program's: all of how a shape looks, kept by name -- each a
+  ## swatch of it; a click gives it to the shapes picked (their outlines kept).
+  let d = cur()
+  if d == nil:
+    label("No image open", color = ui.theme.gray)
+    return
+  let L = d.current
+  # (the swatches: a rounded square in each style, made again when the styles change)
+  let side = dp(36)
+  var key = $side
+  for g in d.graphicStyles: key.add g.name & $hash($g.look.toJson & $g.opacity & $g.mode)
+  if key != gsThumbs.key:
+    gsThumbs.key = key
+    gsThumbs.bmps = @[]
+    for g in d.graphicStyles:
+      var s = g.look
+      let m = float(side) * 0.18
+      s.path = rectPath(m, m, float(side) - m, float(side) - m, float(side) * 0.15)
+      var px = newSeq[uint32](side * side)
+      for i in 0 ..< px.len: px[i] = (if ((i mod side) div 6 + (i div side) div 6) mod 2 == 0: 0xFFFFFFFF'u32 else: 0xFFE0E0E0'u32)
+      var over = newSeq[uint32](side * side)
+      discard renderShape(s, over, side, side)
+      for i in 0 ..< px.len: px[i] = blendPx(px[i], over[i], g.opacity * 255 div 100, bmNormal)
+      var b = newBitmap(side, side)
+      b.px = px
+      gsThumbs.bmps.add b
+  let cols = max(1, (available() - dp(8)) div (side + dp(6)))
+  var gone = -1
+  if d.graphicStyles.len == 0:
+    paragraph("No graphic styles yet: pick a shape and press New to keep its look.", color = ui.theme.gray)
+  var i = 0
+  while i < d.graphicStyles.len:
+    row:
+      for c in 0 ..< cols:
+        if i >= d.graphicStyles.len: break
+        let g = d.graphicStyles[i]
+        let r = place(side, side)
+        if i < gsThumbs.bmps.len: drawBitmap(r, gsThumbs.bmps[i])
+        box(r, if i == gsPick: ui.theme.select else: ui.theme.edge)
+        let h = interact(idOf("gs:" & g.name), r)
+        if mouseIn(r) and canHover(): ui.tip = g.name
+        if h.clicked: gsPick = i
+        if h.clicked and L != nil:
+          d.beginStep("Apply Graphic Style")
+          d.touchLayers()
+          var n = 0
+          for k in d.pickedLayers & @[d.cur]:
+            if k >= 0 and k < d.layers.len and d.layers[k].isShape:
+              d.applyGraphicStyle(d.layers[k], g.name)
+              inc n
+          if n > 0:
+            d.endStep()
+            d.markAll()
+            status = "Graphic Style \"" & g.name & "\""
+          else:
+            d.cancelStep()
+            status = "Graphic Styles: pick a shape layer"
+        inc i
+  row:
+    if panelIcon(pxNew, "New Graphic Style (from the shape's look)", enabled = L != nil and L.isShape):
+      var n = d.graphicStyles.len + 1
+      while d.graphicStyleIndex("Graphic Style " & $n) >= 0: inc n
+      d.beginStep("New Graphic Style")
+      d.touchLayers()
+      d.graphicStyles.add graphicStyleOf(L, "Graphic Style " & $n)
+      d.endStep()
+    if panelIcon(pxDelete, "Delete Graphic Style", enabled = gsPick >= 0 and gsPick < d.graphicStyles.len):
+      gone = gsPick
+      gsPick = -1
+  if gone >= 0:
+    d.beginStep("Delete Graphic Style")
+    d.touchLayers()
+    d.graphicStyles.delete(gone)
+    d.endStep()
+
 proc objectStylesBody() =
   ## Object Styles, as the layout program's: how a shape or a text frame looks, kept by name; a
   ## click gives it to the layers picked, "+" where a layer differs from it.

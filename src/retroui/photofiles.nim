@@ -940,7 +940,7 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
       if L.adjust.kind.len > 0:
         L.px = m                            # (an adjustment layer's pixels are its mask)
       else:
-        L.mask = Layer(name: "Layer Mask", px: m, opacity: 100, visible: true, gray: true)
+        L.mask = Layer(name: "Layer Mask", pxRaw: m, opacity: 100, visible: true, gray: true)
         L.maskOff = P.mask.disabled
       # (its Properties: density and feather, kept as they are -- not applied)
       if P.mask.density in 0 .. 254: L.maskDensity = (P.mask.density * 100 + 127) div 255
@@ -959,7 +959,7 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
       elif L.mask != nil:
         for k in 0 ..< n: L.mask.px[k] = grayPx(int(L.mask.px[k] and 255) * int(vm[k]) div 255)
       else:
-        L.mask = Layer(name: "Layer Mask", px: newSeq[uint32](n), opacity: 100, visible: true, gray: true)
+        L.mask = Layer(name: "Layer Mask", pxRaw: newSeq[uint32](n), opacity: 100, visible: true, gray: true)
         for k in 0 ..< n: L.mask.px[k] = grayPx(int(vm[k]))
     L.clipped = P.clipping
     # its effects
@@ -1005,7 +1005,7 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
         L.visible = G.visible
         let m = groupMask(G)
         if m.len == n:
-          L.mask = Layer(name: "Layer Mask", px: m, opacity: 100, visible: true, gray: true)
+          L.mask = Layer(name: "Layer Mask", pxRaw: m, opacity: 100, visible: true, gray: true)
           L.maskOff = G.hasMask and G.mask.disabled
         L.fx = fxOf(G.effects, p.globalAngle, p.globalAltitude, p.patterns)
         L.clipped = G.clipping and k > 0
@@ -1024,7 +1024,7 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
       L.collapsed = G.section == psGroupClosed
       let m = groupMask(G)
       if m.len == n:
-        L.mask = Layer(name: "Layer Mask", px: m, opacity: 100, visible: true, gray: true)
+        L.mask = Layer(name: "Layer Mask", pxRaw: m, opacity: 100, visible: true, gray: true)
         L.maskOff = G.hasMask and G.mask.disabled
       result.add L
   d.layers = emit(frames[0], 0)
@@ -2088,7 +2088,7 @@ proc paraPropsOf(p: ParaStyle; rtl: bool): EngineValue =
                  ("HyphenatedWordSize", eInt(6)), ("PreHyphen", eInt(2)), ("PostHyphen", eInt(2)),
                  ("ConsecutiveHyphens", eInt(8)), ("Zone", eFloat(36)), ("WordSpacing", eFloats(0.8, 1.0, 1.33)),
                  ("LetterSpacing", eFloats(0.0, 0.0, 0.0)), ("GlyphSpacing", eFloats(1.0, 1.0, 1.0)),
-                 ("AutoLeading", eFloat(1.2)), ("LeadingType", eInt(0)), ("Hanging", eBool(false)),
+                 ("AutoLeading", eFloat(1.2)), ("LeadingType", eInt(0)), ("Hanging", eBool(p.hanging)),
                  ("Burasagari", eBool(false)), ("KinsokuOrder", eInt(0)), ("EveryLineComposer", eBool(false)))
   if rtl: result["ParagraphDirection"] = eInt(1)
 
@@ -2332,6 +2332,7 @@ proc textOfEngine*(e: EngineValue; tr: array[6, float]; desc, warp: PsdValue): T
   result.para.spaceBefore = float32(pget("SpaceBefore").num(0) * sy)
   result.para.spaceAfter = float32(pget("SpaceAfter").num(0) * sy)
   result.para.hyphenate = pget("AutoHyphenate").flag
+  result.para.hanging = pget("Hanging").flag
   # where: a box, or a point
   let ph = ed["Rendered"]["Shapes"]["Children"][0]["Cookie"]["Photoshop"]
   let bb = ph["BoxBounds"]

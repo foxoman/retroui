@@ -15,6 +15,7 @@ frame 60 ms later. 13 % smaller than zlib's best for the faces packed.
 
     python3 tools/packlzma.py              (src/retroui/fonts)
     python3 tools/packlzma.py FILE.ttf...  (those, into FILE.ttf.z)
+    python3 tools/packlzma.py src/retroui/vendor/hyph-*.tex   (the hyphenation patterns)
 """
 
 import glob, lzma, os, struct, sys, zlib
@@ -72,7 +73,10 @@ def main():
         before += old
         after += len(out)
         print('%-28s %8d -> %8d' % (os.path.basename(z), old, len(out)))
-    print('%d -> %d bytes (%.1f %% smaller)' % (before, after, 100 * (1 - after / max(1, before))))
+    if before > 0:
+        print('%d -> %d bytes (%.1f %% smaller)' % (before, after, 100 * (1 - after / before)))
+    else:
+        print('%d bytes' % after)
 
 
 def unpacked_bytes(b):

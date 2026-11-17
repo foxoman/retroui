@@ -2,7 +2,11 @@
 ## book is printed or sent on -- text that does not fit its box and goes
 ## nowhere, pictures too coarse for print, fonts that are not here, frames
 ## with nothing in them, type too near the edge, hidden or empty layers --
-## each with where it is, before the press finds it.
+## each with where it is, before the press finds it. And Arabic's own: Arabic
+## in a font that has no Arabic letters, set left to right, slanted (Arabic
+## has no italic), tracked apart (its joins break), typed in presentation
+## forms (copied from a PDF), lengthened by tatweel typed by hand, its digits
+## of two kinds.
 ##
 ## ```nim
 ## for p in preflight(d, ppi = 300): echo p.severity, " ", p.layer, ": ", p.message
@@ -10,8 +14,8 @@
 ## ```
 
 import std/[strutils, math]
-from std/unicode import runeLen
-import gfx, photo, photobook, textengine
+from std/unicode import runeLen, runes
+import gfx, photo, photobook, textengine, ttf, typeset
 
 type
   PreflightKind* = enum
@@ -22,6 +26,57 @@ type
     layer*: string            ## the layer it is about ("" the document)
     uid*: int                 ## ... who it is (`uidOf`), to go to it
     message*: string
+
+proc arabicChecks(t: TextData): seq[(PreflightKind, string)] =
+  ## (what will print wrong in a text's Arabic)
+  var noArabic: seq[string]
+  var slanted, tracked, forms, tatweel, any = false
+  var latinDigits, indicDigits = false
+  for sp in t.spans:
+    var ar = false
+    for r in sp.text.runes:
+      let c = int(r)
+      if c in 0x0600 .. 0x06FF or c in 0x0750 .. 0x077F or c in 0x08A0 .. 0x08FF:
+        if c notin 0x0660 .. 0x0669 and c notin 0x06F0 .. 0x06F9 and c != 0x060C and c != 0x061B and
+           c != 0x061F: ar = true
+      if c in 0xFB50 .. 0xFDFF or c in 0xFE70 .. 0xFEFC: forms = true
+      if c == 0x0640: tatweel = true
+      if c in 0x30 .. 0x39:
+        if sp.style.digits == 0: latinDigits = true else: indicDigits = true
+      if c in 0x0660 .. 0x0669 or c in 0x06F0 .. 0x06F9: indicDigits = true
+    if not ar: continue
+    any = true
+    if sp.style.fauxItalic or "italic" in sp.style.style.toLowerAscii or "oblique" in sp.style.style.toLowerAscii:
+      slanted = true
+    if sp.style.tracking > 0 and sp.style.arabicFont.tracking >= 0: tracked = true
+    # (a font picked for it that has no Arabic -- not the kit's own FreeSans, FreeSerif, FreeMono,
+    # which hand their Arabic to its Arabic face, as they should)
+    let fam = if sp.style.arabicFont.family.len > 0: sp.style.arabicFont.family else: sp.style.family
+    if fam.len > 0 and fam notin ["FreeSans", "FreeSerif", "FreeMono"]:
+      let f = fontFace(fam, if sp.style.arabicFont.style.len > 0: sp.style.arabicFont.style else: sp.style.style).face
+      if f != nil and not f.hasGlyph(0x0628) and fam notin noArabic: noArabic.add fam
+  for f in noArabic:
+    result.add (pkWarning, "Arabic in a font with no Arabic letters (" & f & "): drawn in another font -- give " &
+                           "it an Arabic font (Character: Arabic font)")
+  if not any and not forms: return
+  if any and t.para.rtl == 1 and strongDir(t.plainText) == 1:
+    result.add (pkWarning, "Arabic set left to right: its lines start at the left and its punctuation goes to " &
+                           "the wrong end -- Paragraph: Direction Right to left")
+  if slanted:
+    result.add (pkWarning, "Arabic slanted (italic): Arabic has no italic; the press shows it leaning -- " &
+                           "a font of its own style instead")
+  if tracked:
+    result.add (pkWarning, "Arabic tracked apart: the joins between its letters break -- tracking 0, and " &
+                           "Insert Kashida to lengthen a line")
+  if forms:
+    result.add (pkWarning, "Arabic typed as presentation forms (copied from a PDF?): it is not searched, " &
+                           "spell-checked or lengthened with kashidas -- type it again, or paste it as text")
+  if tatweel and t.boxW > 0 and t.para.align in {justifyLeft, justifyCenter, justifyRight, justifyAll}:
+    result.add (pkInfo, "tatweel (\u0640) typed by hand in justified Arabic: it does not grow with the line -- " &
+                        "Insert Kashida lengthens the joins as the line needs")
+  if any and latinDigits and indicDigits:
+    result.add (pkInfo, "digits of two kinds in the Arabic text (123 and \u0661\u0662\u0663): " &
+                        "Character: Digits makes them one")
 
 proc preflight*(d: Doc; ppi = 300; safe = 0; page = -1): seq[PreflightItem] =
   ## The document's problems: text that does not fit (and goes on nowhere),
@@ -50,6 +105,7 @@ proc preflight*(d: Doc; ppi = 300; safe = 0; page = -1): seq[PreflightItem] =
         let f = sp.style.family
         if f.len > 0 and f notin families and f notin missing: missing.add f
       for f in missing: add(pkError, "font not here: " & f & " (drawn in another)")
+      for (sev, msg) in arabicChecks(t): add(sev, msg)
       if safe > 0:
         let b = d.layerBox(L)
         if b.w > 0 and (b.x < safe or b.y < safe or b.x + b.w > d.w - safe or b.y + b.h > d.h - safe):

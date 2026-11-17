@@ -113,6 +113,44 @@ proc makeBlend() =
   d.markAll()
   status = "Blend: " & $n & (if n == 1: " step" else: " steps") & " between the two, in the group \"Blend\""
 
+proc replaceSpine(orient: bool) =
+  ## Blend > Replace Spine: a blend (its group) and a path picked -- the blend's shapes along the
+  ## path, as the drawing program has it; the path goes into it (Align to Path: each turned with it).
+  let d = cur()
+  if d == nil: return
+  var blendG: Layer = nil
+  var spineL: Layer = nil
+  for i in d.pickedLayers & @[d.cur]:
+    if i < 0 or i >= d.layers.len: continue
+    let L = d.layers[i]
+    if L.group and blendG == nil: blendG = L
+    elif L.isShape and spineL == nil: spineL = L
+  if blendG == nil or spineL == nil:
+    status = "Replace Spine: pick a blend (its group) and a path (Ctrl+click both in the Layers palette)."
+    return
+  let gi = d.layers.find(blendG)
+  var members: seq[Layer]
+  for i in countdown(gi - 1, 0):
+    let M = d.layers[i]
+    if M.depth <= blendG.depth: break
+    if M.isShape and M != spineL: members.add M
+  if members.len < 2:
+    status = "Replace Spine: the group picked holds no blend (Make Blend makes one)."
+    return
+  members.reverse()                      # (bottom first: the blend's order)
+  var shapes: seq[ShapeData]
+  for M in members: shapes.add M.shape
+  let moved = alongSpine(shapes, spineL.shape.path, orient)
+  d.beginStep("Replace Spine")
+  d.touchLayers()
+  for k, M in members: d.setShape(M, moved[k])
+  let si = d.layers.find(spineL)
+  if si >= 0: d.deleteLayer(si)
+  d.cur = d.layers.find(blendG)
+  d.endStep()
+  d.markAll()
+  status = "Replace Spine: the blend follows the path (" & $members.len & " shapes)"
+
 proc makeBlendDialog() =
   if not blendDlg: return
   var ok = false
@@ -182,10 +220,13 @@ proc startShapeBuilder() =
 proc sbShapes(k: float): seq[ShapeData] =
   for L in sbDlg.layers: result.add scaledShape(L.shape, k, sbDlg.box.x.float, sbDlg.box.y.float)
 
-proc shapeBuilderNow() =
-  ## (the regions picked made one shape, those taken away gone, each shape what is left of it)
-  let d = cur()
-  if d == nil or sbDlg.merge.len == 0 and sbDlg.remove.len == 0: return
+proc shapeBuilderOn(d: Doc; layers: seq[Layer]; merge, remove: seq[(float, float)]; box: Rect) =
+  ## (Shape Builder: the regions under `merge` made one shape, those under `remove` gone, each of
+  ## `layers` what is left of it -- one step)
+  sbDlg.layers = layers
+  sbDlg.merge = merge
+  sbDlg.remove = remove
+  sbDlg.box = box
   let b = sbDlg.box
   let shapes = sbShapes(1.0)
   var mg, rm: seq[(float, float)]
@@ -233,7 +274,48 @@ proc shapeBuilderNow() =
       d.setShape(L, s)
   d.endStep()
   d.markAll()
+
+proc shapeBuilderNow() =
+  ## (the dialog's regions picked made one shape, those taken away gone)
+  let d = cur()
+  if d == nil or sbDlg.merge.len == 0 and sbDlg.remove.len == 0: return
+  d.shapeBuilderOn(sbDlg.layers, sbDlg.merge, sbDlg.remove, sbDlg.box)
   status = "Shape Builder: " & $sbDlg.merge.len & " regions merged, " & $sbDlg.remove.len & " taken away"
+
+proc shapeBuilderDrag(d: Doc; pts: seq[(float, float)]; remove: bool): bool =
+  ## The Shape Builder Tool, as the drawing program has it: a drag across the regions of the
+  ## shapes picked (or of those it goes over) makes them one shape; with Alt, takes them away.
+  var picked: seq[Layer]
+  for i in d.pickedLayers:
+    if d.layers[i].isShape and not d.layers[i].locked and d.layers[i].visible: picked.add d.layers[i]
+  var ls = if picked.len >= 2: picked else: @[]
+  if picked.len < 2:
+    # (none picked: the filled shapes under the drag)
+    for L in d.layers:
+      if not L.isShape or not L.visible or L.locked or L.shape.fill.kind == spNone: continue
+      let (a, b, c, e) = pathBounds(L.shape.path)
+      for p in pts:
+        if p[0] >= a and p[0] <= c and p[1] >= b and p[1] <= e:
+          ls.add L
+          break
+  if ls.len < 1 or pts.len == 0: return false
+  var x0, y0 = Inf
+  var x1, y1 = -Inf
+  for L in ls:
+    let (a, b, c, e) = pathBounds(L.shape.path)
+    x0 = min(x0, a); y0 = min(y0, b); x1 = max(x1, c); y1 = max(y1, e)
+  let box = rect(int(floor(x0)) - 2, int(floor(y0)) - 2, int(ceil(x1 - x0)) + 4, int(ceil(y1 - y0)) + 4)
+  # (the drag's points a pixel or so apart: each region it crossed)
+  var along: seq[(float, float)]
+  for i, p in pts:
+    if i == 0:
+      along.add p
+      continue
+    let q = pts[i - 1]
+    let n = max(1, int(hypot(p[0] - q[0], p[1] - q[1])))
+    for k in 1 .. n: along.add (q[0] + (p[0] - q[0]) * k.float / n.float, q[1] + (p[1] - q[1]) * k.float / n.float)
+  if remove: d.shapeBuilderOn(ls, @[], along, box) else: d.shapeBuilderOn(ls, along, @[], box)
+  true
 
 proc shapeBuilderDialog() =
   if not sbDlg.open: return

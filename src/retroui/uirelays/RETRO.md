@@ -39,6 +39,10 @@ is in `docs/uirelays-pr.md`.
   optional activity for text without key codes, the keyboard, insets and the
   system bars; retro's own is `tools/android/RetroActivity.java`, which also
   answers `uirelaysCall` (documents of other apps, media, printing...).
+  When the system makes the activity again for a change of the phone's
+  look (`isChangingConfigurations`: a new theme, its resources), the app
+  goes on and takes the new one over -- its thread, its state, the calls
+  waiting for it -- instead of ending (`tests/android_mock`).
 - `drivers/uikit_driver.nim`, `drivers/uikit_backend.m` -- iOS with UIKit.
 - `drivers/surface_driver.nim` -- the relays both phone drivers share.
 - `services.nim` -- `systemRelays`: data folder, links, files, places,

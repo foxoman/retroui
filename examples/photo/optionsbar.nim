@@ -305,7 +305,10 @@ proc optionsBar() =
                 d.resizeArtboard(ab, rect(b.x, b.y, w, h))
                 d.endStep()
             toolSeparator()
-          if toolButton("Export...", "File > Export > Artboards to Files", enabled = d != nil and d.artboards.len > 0):
+          if toolButton("Options...", "Artboard Options: its name, background, lock", enabled = ab >= 0):
+            runCommand("Artboard Options...")
+          if toolButton("Export...", "File > Export > Artboards to Files (the picked ones, when some are)",
+                        enabled = d != nil and d.artboards.len > 0):
             runCommand("Artboards to Files")
           label("Drag a box: a new artboard; drag one (or its name) to move it", color = ui.theme.gray)
         else:

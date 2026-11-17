@@ -3,7 +3,7 @@
 
 import std/[math, json, strutils, os]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
-import retroui/[textengine, ttf, typeset, hyphenate]
+import retroui/[textengine, ttf, typeset, hyphenate, unpacking]
 
 proc style(size = 40'f32): CharStyle =
   result = defaultStyle()
@@ -854,6 +854,38 @@ block hyphenation:
   a2.para.hyphenate = false
   doAssert layoutText(a).glyphs.len == layoutText(a2).glyphs.len
   doAssert textFrom(t.toJson).para.hyphenate
+  # other languages' patterns: French, German, Spanish, Italian, Portuguese, Dutch -- accented
+  # letters, an apostrophe in a French word, each language's own least letters at the ends
+  doAssert "fr" in hyphenLanguages and hasPatterns("de-DE") and not hasPatterns("ar")
+  doAssert hyphenated("Silbentrennung", lang = "de") == "Sil-ben-tren-nung", hyphenated("Silbentrennung", lang = "de")
+  doAssert hyphenated("hyphénation", lang = "fr") == "hy-phé-na-tion", hyphenated("hyphénation", lang = "fr")
+  doAssert hyphenated("separación", lang = "es") == "se-pa-ra-ción", hyphenated("separación", lang = "es")
+  doAssert hyphenated("divisione", lang = "it") == "di-vi-sio-ne", hyphenated("divisione", lang = "it")
+  doAssert hyphenated("lettergreep", lang = "nl") == "let-ter-greep", hyphenated("lettergreep", lang = "nl")
+  doAssert hyphenated("hifenização", lang = "pt") == "hi-fe-ni-za-ção", hyphenated("hifenização", lang = "pt")
+  doAssert hyphenPoints("l'homme", lang = "fr").len >= 0 and hyphenPoints("l'avertissement", lang = "fr").len > 0
+  doAssert hyphenated("typesetting", lang = "xx") == "type-set-ting", "a language with none: English's"
+  # (the packed patterns the programs carry: the same as the files beside them)
+  let vendor = currentSourcePath().parentDir.parentDir / "src" / "retroui" / "vendor"
+  for f in ["en-us", "fr", "de-1996", "es", "it", "pt", "nl"]:
+    doAssert unpackBytes(readFile(vendor / ("hyph-" & f & ".tex.z"))) == readFile(vendor / ("hyph-" & f & ".tex")), f
+  # a paragraph in German: its words broken by German's patterns (the Character panel's Language)
+  var g = defaultStyle()
+  g.size = 19
+  g.lang = "de"
+  var tg = newText("Die Silbentrennung macht Blocksatz gleichmäßiger: Donaudampfschifffahrtsgesellschaft " &
+                   "und Rechtsschutzversicherungsgesellschaften sind lange Wörter.", g, 0, 0)
+  tg.boxW = 260
+  tg.boxH = 600
+  tg.para.align = justifyLeft
+  tg.para.hyphenate = true
+  let lg = layoutText(tg)
+  var broken = 0
+  for ln in lg.lines:
+    let txt = tg.textSlice(ln.first, ln.last)
+    if ln.last < tg.runeLen and txt.len > 0 and txt[^1] notin {' ', ',', ':'}: inc broken
+  doAssert broken >= 1, "a German word broken"
+  doAssert textFrom(tg.toJson).spans[0].style.lang == "de"
 
 block ligatures:
   # Ligatures off: the font's standard ones apart (fi, ffi); Arabic's lam + alef stays joined

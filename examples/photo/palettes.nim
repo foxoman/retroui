@@ -1036,6 +1036,7 @@ proc layersBody(d: Doc) =
       d.layersChange(if d.current.group: "Delete Group" else: "Delete Layer"): d.deleteLayer()
     if menuItem(if d.current.group: "Merge Grou&p" else: "Merge Do&wn", "Ctrl+E"):
       runCommand(if d.current.group: "Merge Group" else: "Merge Down")
+    if menuItem("Rename by Co&ntent", enabled = not d.current.background): runCommand("Rename Layers by Content")
     menuSeparator()
     if menuItem("&Blending Options...", enabled = not d.current.background): runCommand("Blending Options...")
   endScroll()

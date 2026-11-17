@@ -7,6 +7,9 @@
 
 import std/[os, strutils, xmlparser]
 import retroui/[photo, photobook, photoshapes, textengine, idml, zip, preflight]
+{.push warning[UnusedImport]: off.}
+import retroui/textsearch   # (imported for what it sets up: GREP styles find their matches with it)
+{.pop.}
 
 let dir = getTempDir() / "retro-idml-test"
 removeDir(dir)
@@ -206,6 +209,26 @@ block checkDocument:
     if it.page == 1 and "does not fit" in it.message: onPage1 = true
   doAssert onPage1
   b.close()
+  # Arabic's own: set left to right, slanted, tracked apart, presentation forms, hand tatweel in
+  # justified text, two kinds of digits -- and well-set Arabic: nothing
+  let ad = newDoc(800, 600, 0xFFFFFFFF'u32, dpi = 300)
+  var a1 = newText("\u0645\u0631\u062D\u0628\u0627 \u0628\u0627\u0644\u0639\u0627\u0644\u0645 123 \u0661\u0662", st(30), 100, 100)
+  a1.para.rtl = 1
+  a1.spans[0].style.fauxItalic = true
+  a1.spans[0].style.tracking = 80
+  discard ad.addTextLayer(a1)
+  var a2 = newText("\uFEE3\uFEAE\uFEA3\uFE92\uFE8E \u0645\u0640\u0640\u0640\u0631\u062D\u0628\u0627", st(30), 100, 300)
+  a2.boxW = 400
+  a2.boxH = 200
+  a2.para.align = justifyRight
+  discard ad.addTextLayer(a2)
+  var am = ""
+  for it in preflight(ad, 300): am.add $it.severity & ": " & it.message & "\n"
+  doAssert "Arabic set left to right" in am and "Arabic slanted" in am and "tracked apart" in am and
+           "presentation forms" in am and "tatweel" in am and "digits of two kinds" in am, am
+  let good = newDoc(800, 600, 0xFFFFFFFF'u32, dpi = 300)
+  discard good.addTextLayer(newText("\u0645\u0631\u062D\u0628\u0627 \u0628\u0627\u0644\u0639\u0627\u0644\u0645", st(30), 100, 100))
+  doAssert preflight(good, 300).len == 0, $preflight(good, 300)
 
 block threadedFrames:
   # threaded frames written as one story -- the first frame's, the others going on from it, on
@@ -288,6 +311,114 @@ block paragraphFormats:
       ok = true
   doAssert ok
   r.close()
+
+
+block stylesLinksBookmarks:
+  # nested, line and GREP styles (the character styles they name, in Styles.xml), an Object Style
+  # on a frame and a shape, hyperlinks (an address, a destination, a page), the destination, the
+  # bookmarks: the layout program's own, and back
+  let d = newDoc(800, 600, 0xFFFFFFFF'u32)
+  var lead = st(26, 0xFFC02020'u32)
+  lead.styleName = "Lead"
+  var year = st(20, 0xFF2080C0'u32)
+  year.styleName = "Year"
+  var t = newText("Chapter one began in 2026 and went on for many lines of text here.", st(20), 20, 40)
+  t.boxW = 300
+  t.boxH = 400
+  t.para.nested = @[NestedStyle(name: "Lead", look: lead, count: 2, unit: nuWords, through: true)]
+  t.para.grepStyles = @[GrepStyle(name: "Year", look: year, pattern: "\\d+")]
+  t.para.lineStyles = @[NestedLine(name: "Year", look: year, lines: 1), NestedLine(name: "", look: st(20), lines: 1)]
+  t.para.repeatLast = 1
+  let T = d.addTextLayer(t)
+  # (links: on separate words)
+  var u = newText("Visit the site, see Notes, or page one.", st(18), 20, 300)
+  u.spans = @[TextSpan(text: "Visit ", style: st(18)), TextSpan(text: "the site", style: st(18)),
+              TextSpan(text: ", see ", style: st(18)), TextSpan(text: "Notes", style: st(18)),
+              TextSpan(text: ", or ", style: st(18)), TextSpan(text: "page one", style: st(18)),
+              TextSpan(text: ".", style: st(18))]
+  u.spans[1].style.link = "https://example.org/"
+  u.spans[3].style.link = "#notes"
+  u.spans[5].style.link = "page:1"
+  discard d.addTextLayer(u)
+  var nt = newText("Notes", st(18), 20, 500)
+  nt.spans[0].style.link = "=notes"
+  discard d.addTextLayer(nt)
+  let S = d.addShapeLayer(ShapeData(path: rectPath(400, 100, 600, 300), fill: solidPaint(0xFF40A040'u32)), "Box")
+  d.objectStyles.add ObjectStyleDef(name: "Green Box", useFill: true,
+                                    shape: ShapeData(fill: solidPaint(0xFF40A040'u32)))
+  S.objectStyle = "Green Box"
+  T.objectStyle = "Green Box"
+  d.bookmarks = @[DocBookmark(title: "Start", dest: "", level: 0), DocBookmark(title: "The notes", dest: "notes", level: 1)]
+  d.saveDocIdml(dir / "sl.idml")
+  var all = ""
+  for e in zipEntries(dir / "sl.idml"): all.add readEntry(dir / "sl.idml", e)
+  doAssert "<AllNestedStyles type=\"list\">" in all and "<AllLineStyles type=\"list\">" in all and
+           "<AllGREPStyles type=\"list\">" in all and "CharacterStyle Self=\"CharacterStyle/Lead\"" in all
+  doAssert "AppliedObjectStyle=\"ObjectStyle/Green Box\"" in all and "<ObjectStyle Self=\"ObjectStyle/Green Box\"" in all
+  doAssert "HyperlinkURLDestination" in all and "HyperlinkTextSource" in all and
+           "HyperlinkTextDestination" in all and "HyperlinkPageDestination" in all and "<Bookmark " in all
+  # (each part well-formed)
+  for e in zipEntries(dir / "sl.idml"):
+    if e.name.endsWith(".xml"): discard parseXml(readEntry(dir / "sl.idml", e))
+  let r = readIdml(dir / "sl.idml")
+  let rd = r.doc(0)
+  var sawStyles, sawLinks, sawDest = false
+  for L in rd.layers:
+    if not L.isText: continue
+    let pt = L.text.plainText
+    if pt.startsWith("Chapter"):
+      let p = L.text.para
+      doAssert p.nested.len == 1 and p.nested[0].name == "Lead" and p.nested[0].count == 2 and p.nested[0].unit == nuWords
+      doAssert p.nested[0].look.color == 0xFFC02020'u32
+      doAssert p.grepStyles.len == 1 and p.grepStyles[0].pattern == "\\d+" and p.grepStyles[0].name == "Year"
+      doAssert p.lineStyles.len == 2 and p.lineStyles[0].name == "Year" and p.repeatLast == 1
+      doAssert L.objectStyle == "Green Box"
+      sawStyles = true
+    elif pt.startsWith("Visit"):
+      var links: seq[string]
+      for sp in L.text.spans:
+        if sp.style.link.len > 0: links.add sp.style.link
+      doAssert links == @["https://example.org/", "#notes", "page:1"], $links
+      sawLinks = true
+    elif pt.startsWith("Notes"):
+      doAssert L.text.spans[0].style.link == "=notes"
+      sawDest = true
+  doAssert sawStyles and sawLinks and sawDest
+  doAssert rd.objectStyleIndex("Green Box") >= 0
+  doAssert rd.bookmarks.len == 2 and rd.bookmarks[0].title == "Start" and rd.bookmarks[1].dest == "notes" and
+           rd.bookmarks[1].level == 1, $rd.bookmarks
+  var shapeStyled = false
+  for L in rd.layers:
+    if L.isShape and L.objectStyle == "Green Box": shapeStyled = true
+  doAssert shapeStyled
+  echo "nested, line and GREP styles, Object Styles, hyperlinks, bookmarks: in IDML and back"
+
+block opticalMarginAndLanguage:
+  # Optical Margin Alignment (the story's), Ignore Optical Margin (a paragraph's), a word's
+  # language: the layout program's own, and back
+  let d = newDoc(600, 400, 0xFFFFFFFF'u32)
+  var de = st(20)
+  de.lang = "de"
+  var t = newText("Silbentrennung im Blocksatz.", de, 20, 40)
+  t.boxW = 300
+  t.boxH = 200
+  t.opticalMargin = true
+  t.para.ignoreOptical = true
+  discard d.addTextLayer(t)
+  d.saveDocIdml(dir / "om.idml")
+  var all = ""
+  for e in zipEntries(dir / "om.idml"): all.add readEntry(dir / "om.idml", e)
+  doAssert "OpticalMarginAlignment=\"true\"" in all and "IgnoreEdgeAlignment=\"true\"" in all and
+           "AppliedLanguage=\"$ID/German: 2006 Reform\"" in all
+  let rd = readIdml(dir / "om.idml").doc(0)
+  var seen = false
+  for L in rd.layers:
+    if L.isText and L.text.plainText.startsWith("Silben"):
+      doAssert L.text.opticalMargin and L.text.para.ignoreOptical
+      doAssert L.text.spans[0].style.lang == "de"
+      seen = true
+  doAssert seen
+  echo "Optical Margin Alignment, a word's language: in IDML and back"
 
 removeDir(dir)
 echo "test_idml: ok"

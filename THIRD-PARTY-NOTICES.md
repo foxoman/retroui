@@ -17,6 +17,8 @@ you ship one. Every license text is in the repository beside the part.
 | SQLite | `src/retroui/vendor/sqlite/` | public domain | `retroui/db` |
 | Monocypher (and its Ed25519) | `src/retroui/vendor/monocypher.c`, `monocypher-ed25519.c`, `LICENCE-Monocypher.md` | 2-clause BSD or CC0 | `retroui/vault`, the chat's end-to-end encryption, `retroui/update`'s signatures |
 | Hyphenation patterns for American English (Gerard D. C. Kuiken, from hyph-utf8) | `src/retroui/vendor/hyph-en-us.tex` (its notice at its top) | permissive: copying and changing it allowed, its copyright notice and this notice kept | `retroui/hyphenate`: English words broken at a line's end |
+| Hyphenation patterns for French (Daniel Flipo, Bernard Gaulle, Arthur Reutenauer), German's reformed spelling, 2006 (the German-speaking Trennmuster team: Stephan Hennig, Werner Lemberg and others), Spanish (Javier Bezos, CervanTeX), Italian (Claudio Beccari), Portuguese (Pedro J. de Rezende, J. Joao Dias Almeida, Leonardo Araujo, Aline Benevides) and Dutch (Piet Tutelaers), from hyph-utf8 | `src/retroui/vendor/hyph-fr.tex`, `hyph-de-1996.tex`, `hyph-es.tex`, `hyph-it.tex`, `hyph-pt.tex`, `hyph-nl.tex` (each its notice at its top) | MIT (French, German, Spanish, Dutch), MIT or LPPL 1.3 (Italian), 3-clause BSD (Portuguese) | `retroui/hyphenate`: words broken in their language |
+| The Umm al-Qura calendar's month starts (Mohammed Alshehri's hijridate package) | the table in `src/retroui/hijri.nim`, `src/retroui/vendor/LICENSE-hijridate.txt` | MIT | `retroui/hijri`: Hijri dates, the Text Variables' `<hijri>` |
 
 The font exception of FreeFont means a document or an app that embeds
 the fonts is not covered by the GPL because of them; the fonts themselves

@@ -24,9 +24,9 @@ one() {
   t=$1
   # (built again once when it fails: four big builds at once can run the
   # runner out of memory, and the compiler is stopped without a word)
-  if ! "$OUT/retroweb" "tests/$t.nim" --out:"$OUT/$t" --path:src --path:tests --warnings:off \
+  if ! "$OUT/retroweb" "tests/$t.nim" --no-threads --out:"$OUT/$t" --path:src --path:tests --warnings:off \
        > "$OUT/$t.build" 2>&1 &&
-     ! "$OUT/retroweb" "tests/$t.nim" --out:"$OUT/$t" --path:src --path:tests --warnings:off \
+     ! "$OUT/retroweb" "tests/$t.nim" --no-threads --out:"$OUT/$t" --path:src --path:tests --warnings:off \
        > "$OUT/$t.build" 2>&1; then
     echo "FAIL $t (it did not build: $OUT/$t.build)"
     tail -8 "$OUT/$t.build" | sed 's/^/       /'

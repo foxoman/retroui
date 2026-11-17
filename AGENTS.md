@@ -103,8 +103,14 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   kit's too: footnotes and endnotes and Auto-Size in `retroui/textengine`
   (`insertNote`, `tidyNotes`, `autoSized`: `drawText` sizes the box, so
   undo keeps it), `retroui/booklists` (table of contents, index),
-  `retroui/hyphenate` (Liang's patterns; `vendor/hyph-en-us.tex` keeps
-  its notice), `retroui/textsearch` (GREP patterns over characters),
+  `retroui/hyphenate` (Liang's patterns, a word in its `CharStyle.lang`:
+  `vendor/hyph-*.tex` keep their notices; the programs build in the
+  `.tex.z` beside each -- after changing a `.tex`, pack it again with
+  `python3 tools/packlzma.py src/retroui/vendor/hyph-*.tex`, which
+  `test_textengine` checks), `retroui/textsearch` (GREP patterns over
+  characters; glyphs and saved queries), `retroui/hijri` (the Hijri
+  dates of the Text Variables: Umm al-Qura's table, its MIT notice in
+  `vendor/LICENSE-hijridate.txt`),
   `retroui/datamerge`, `retroui/perspectivegrid` (`ontoPlane`,
   `pixelsOntoPlane`; the grid is `Doc.perspective`, saved),
   `retroui/pathbrush`. Text in a box keeps to it: what does not fit is
@@ -145,6 +151,18 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   (`-d:retroNoSimd`) -- and is measured with `-d:useMalloc` before it
   stays. `tests/test_photoparity.nim` drives the new tools, panels and
   dialogs of Retro Atelier through its menus and its window's input.
+  A layer's pixels are `L.px` (a proc: it opens a parked layer out
+  again) over the field `pxRaw`; a layer made in code sets `pxRaw` in
+  its constructor, and nothing else reads the field. The layers under
+  the current one are kept mixed in tiles (`compositeBelow`), known
+  fresh by those layers' settings and their `ver`: whatever changes a
+  layer's pixels raises its `ver` (and calls `markAll`), or the tiles
+  show what was. A new
+  kernel in `simdkern.h`/`simdmix.h` gives the very pixels of the plain
+  loop, with AVX2 (`forceAvx2`) and without -- `test_simd` checks both.
+  Masters based on masters: `setBasedOn` refuses a ring, and a master's
+  own copy of its parent's layers (`fromMaster` set) is never copied on
+  again nor written to IDML as its own.
 - Open and Save As on a phone: `retroui/systemfiles` behind `fileDialog`
   and `filePicker` (Android: `tools/android/RetroActivity.java`, then
   `sh tools/android/build_dex.sh`; iOS: through the Objective-C runtime).

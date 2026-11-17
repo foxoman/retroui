@@ -17,7 +17,7 @@
 import std/[math, tables, strutils, json, os, base64, algorithm, locks, atomics, hashes, times]
 when compileOption("threads"):
   import std/typedthreads
-import gfx, imaging, zip, jpeg, parallel, textengine, busy, photoinks, simd
+import gfx, imaging, zip, jpeg, parallel, textengine, busy, photoinks, simd, codec, hijri
 from codec import unbase64
 export photoinks
 
@@ -202,6 +202,8 @@ const
                  bmHue, bmSaturation, bmColor, bmLuminosity]
     ## The modes of the painting tools.
 
+{.push boundChecks: off, overflowChecks: off.}   # (the modes' arithmetic: every value in range)
+
 proc hash2*(x, y: int): uint32 {.inline.} =
   ## A fixed pseudo-random number for a place (Dissolve, noise, dither).
   var h = uint32(x) * 374761393'u32 + uint32(y) * 668265263'u32
@@ -270,9 +272,14 @@ proc satF(r, g, b: float): float = max(r, max(g, b)) - min(r, min(g, b))
 
 proc setSat(r, g, b: var float; s: float) =
   var c = [r, g, b]
-  var idx = [0, 1, 2]
-  idx.sort(proc (i, j: int): int = cmp(c[i], c[j]))
-  let (mn, md, mx) = (idx[0], idx[1], idx[2])
+  # (the channels by value, the least first -- ties in their order, as a stable sort leaves them)
+  var mn = 0
+  var md = 1
+  var mx = 2
+  if c[md] < c[mn]: swap(mn, md)
+  if c[mx] < c[md]:
+    swap(md, mx)
+    if c[md] < c[mn] or (c[md] == c[mn] and md < mn): swap(mn, md)
   if c[mx] > c[mn]:
     c[md] = (c[md] - c[mn]) * s / (c[mx] - c[mn])
     c[mx] = s
@@ -303,7 +310,9 @@ proc nonSepBlend(m: BlendMode; db, ds: uint32): tuple[r, g, b: int] =
   else:
     (r, g, b) = (br, bg, bb)
     setLum(r, g, b, lumF(sr, sg, sb))
-  (int(round(r * 255)), int(round(g * 255)), int(round(b * 255)))
+  # (rounded half up: each is 0..1 here, give or take a rounding -- as `round` but no call)
+  template r255(v: float): int = int(v * 255 + 0.5)
+  (r255(r), r255(g), r255(b))
 
 proc blendPx*(dst, src: uint32; alpha: int; m: BlendMode; x = 0; y = 0): uint32 =
   ## `src` over `dst` in mode `m`, `src`'s alpha times `alpha` (0..255).
@@ -338,6 +347,12 @@ proc blendPx*(dst, src: uint32; alpha: int; m: BlendMode; x = 0; y = 0): uint32 
     cr = (rOf(src) * (255 - da) + sepBlend(m, rOf(dst), rOf(src)) * da) div 255
     cg = (gOf(src) * (255 - da) + sepBlend(m, gOf(dst), gOf(src)) * da) div 255
     cb = (bOf(src) * (255 - da) + sepBlend(m, bOf(dst), bOf(src)) * da) div 255
+  if da == 255:
+    # (over an opaque pixel the result is opaque and each division is by 255: known, so the
+    # compiler multiplies -- the same numbers as below)
+    let ia = 255 - sa
+    return argb(255, (cr * sa + rOf(dst) * ia) div 255, (cg * sa + gOf(dst) * ia) div 255,
+                (cb * sa + bOf(dst) * ia) div 255)
   let oa = sa + da * (255 - sa) div 255
   if oa <= 0: return 0
   let wd = da * (255 - sa) div 255
@@ -381,6 +396,8 @@ proc overOpaque(d, s: uint32; ea: int; lut: ptr UncheckedArray[uint8]): uint32 {
   0xFF000000'u32 or (uint32((sr * ea + dr * ia) div 255) shl 16) or
     (uint32((sg * ea + dg * ia) div 255) shl 8) or uint32((sb * ea + db * ia) div 255)
 
+{.pop.}
+
 # ---- documents -------------------------------------------------------------------------------------
 
 type
@@ -395,11 +412,32 @@ type
     name*: string           ## "Cyan", "Magenta"...
     ch*: int                ## which channel of `spotBase` it is (0..3)
 
+  GradientFeather* = object
+    ## Gradient Feather (the layout program's effect): a layer fading across where it is drawn,
+    ## from `startOpacity` to `endOpacity` -- along `angle` (linear) or out from its middle
+    ## (radial) -- with its mask, if it has one; undone by turning it off.
+    on*: bool
+    radial*: bool
+    angle*: float               ## degrees (linear): 0 left to right, 90 bottom to top
+    startOpacity*, endOpacity*: int  ## 0..100
+    startAt*, endAt*: int       ## where the fade begins and ends, % of the way (0, 100)
+
+  ParkedPx = ref object
+    ## (a layer's pixels kept small while it is idle: `ParkTile` x `ParkTile` tiles, each
+    ## deflated, "" all transparent -- or written to the scratch disk, `file`)
+    w, h: int
+    tiles: seq[string]
+    bytes: int                ## (what the tiles take)
+    file: string              ## (on the scratch disk: the tiles one after the other there,
+    offs: seq[int]            ## ... each at its offset; `tiles` let go)
+
   Layer* = ref object
     ## A layer: as big as the document, pixels 0xAARRGGBB. An adjustment
     ## layer (`adjust`) changes what is under it; its pixels are its mask.
     name*: string           ## shown in the Layers palette
-    px*: seq[uint32]        ## its pixels, `Doc.w` x `Doc.h`, row by row
+    pxRaw*: seq[uint32]     ## (what `px` reads: for a constructor -- `Layer(pxRaw: ...)`;
+                            ## everything else `px`, which opens a parked layer out first)
+    parkedPx: ParkedPx      # (its pixels kept small while it is idle: `parkLayer`)
     hi*: seq[uint16]        ## a 16-bit document's layer at 16 bits (R G B A for each pixel);
                             ## `px` is it at 8 bits. A channel a tool changed at 8 bits no
                             ## longer matches: it is taken at 8 bits there (see `hiPixels`)
@@ -448,6 +486,7 @@ type
     blendIf*: BlendIf       ## Blending Options: shown only where it and what is under are in ranges
     maskClear: int          # 100 - its mask's Density
     maskFeather*: float     ## its mask softened by so many pixels (Properties)
+    gradFeather*: GradientFeather  ## Effects > Gradient Feather: it fades out across itself
     maskEff: seq[uint32]    # (its mask as used: feathered, less dense)
     maskEffKey: string
     smart*: SmartData       ## a Smart Object: the picture its pixels are made from (nil: not one)
@@ -703,14 +742,15 @@ type
     lePuckerBloat = "Pucker & Bloat", leRoughen = "Roughen", leTransform = "Transform", leTweak = "Tweak",
     leTwist = "Twist", leZigZag = "Zig Zag", leFreeDistort = "Free Distort", leWarp = "Warp",
     leOffset = "Offset Path", leRepeatRadial = "Repeat: Radial", leRepeatGrid = "Repeat: Grid",
-    leRepeatMirror = "Repeat: Mirror"
+    leRepeatMirror = "Repeat: Mirror", leRoundCorners = "Round Corners", leScribble = "Scribble"
 
   LiveEffect* = object
     ## One live effect and its settings (which it reads: `retroui/liveeffects`).
     kind*: LiveEffectKind
     off*: bool                  ## turned off (kept)
     amount*: float              ## Pucker & Bloat %, Roughen and Zig Zag size, Twist degrees, Warp bend %,
-                                ## Offset Path pixels, Repeat: Radial its radius
+                                ## Offset Path pixels, Repeat: Radial its radius, Round Corners the
+                                ## radius, Scribble the spacing between its lines (pixels)
     detail*: float              ## Roughen: points an inch; Zig Zag: ridges a segment
     sx*, sy*: float             ## Transform: scale %; Tweak: % across, down; Warp: distortion % across, down
     dx*, dy*: float             ## Transform: move, pixels; Repeat: Grid the room between copies,
@@ -785,6 +825,16 @@ type
     title*: string
     dest*: string               ## the text destination ("=name" links) it goes to ("": the page)
     level*: int                 ## 0 at the outside, 1 under the one before...
+
+  GraphicStyleDef* = object
+    ## A Graphic Style (Window > Graphic Styles): all of how a shape looks -- its fills and
+    ## strokes (Appearance), its brush, its live effects, the layer's style, opacity and mode --
+    ## kept by name and given to shapes with a click, their outlines kept.
+    name*: string
+    look*: ShapeData            ## (no outline)
+    fx*: LayerFx
+    opacity*: int
+    mode*: BlendMode
 
   ObjectStyleDef* = object
     ## An Object Style: how a shape or a text frame looks, kept by name in the document and given
@@ -862,6 +912,7 @@ type
     blendIf: BlendIf
     maskClear: int
     maskFeather: float
+    gradFeather: GradientFeather
     smart: SmartData
     wrap, wrapGap, wrapSide: int
     ignoreWrap: bool
@@ -1003,6 +1054,9 @@ type
     mips: seq[seq[uint32]]         # `comp` at 1/2, 1/4, 1/8... (zoomed-out views)
     mipSize: seq[(int, int)]
     mipDirty: seq[Rect]            # where each is out of date (in `comp`'s pixels)
+    below: seq[uint32]             # the layers under the current one mixed (`compositeOverBelow`):
+    belowOk: seq[bool]             # ... which of its 256 x 256 tiles are up to date
+    belowSig: Hash                 # ... for these layers as they are
     ver*: int                      ## changes with what it looks like
     changeLog: array[64, tuple[ver: int; r: Rect]]   ## the last changes (`changedSince`)
     name*: string                  ## "Untitled-1"
@@ -1028,6 +1082,7 @@ type
     charStyles*: seq[TextStyleDef] ## its Character Styles
     paraStyles*: seq[TextStyleDef] ## its Paragraph Styles
     objectStyles*: seq[ObjectStyleDef] ## its Object Styles
+    graphicStyles*: seq[GraphicStyleDef] ## its Graphic Styles
     bookmarks*: seq[DocBookmark]   ## its bookmarks (a PDF's outline)
     live*: seq[LivePart]           ## what is being moved, turned, adjusted: shown, not done yet
                                    ## (see `LivePart`; `setLive`, `endLive`)
@@ -1059,6 +1114,8 @@ proc purgeCaches*(d: Doc) =
   d.mips = @[]
   d.mipSize = @[]
   d.mipDirty = @[]
+  d.below = @[]
+  d.belowOk = @[]
   for L in d.layers:
     L.maskEff = @[]
     L.maskEffKey = ""
@@ -1129,6 +1186,25 @@ proc fill*(L: Layer): int {.inline.} = 100 - L.clearFill
 proc `fill=`*(L: Layer; v: int) {.inline.} = L.clearFill = 100 - clamp(v, 0, 100)
   ## Sets its Fill Opacity, 0..100.
 
+proc unparkLayer(L: Layer) {.gcsafe.}
+
+proc px*(L: Layer): var seq[uint32] {.inline.} =
+  ## Its pixels, `Doc.w` x `Doc.h`, row by row. A layer parked (`parkLayer`: kept small
+  ## while it is idle) is opened out first.
+  if L.parkedPx != nil:
+    {.cast(noSideEffect).}:
+      unparkLayer(L)
+  L.pxRaw
+
+proc `px=`*(L: Layer; v: sink seq[uint32]) {.inline.} =
+  ## Its pixels set (a parked layer's let go).
+  L.parkedPx = nil
+  L.pxRaw = v
+
+proc parked*(L: Layer): bool {.inline.} =
+  ## Its pixels are kept small (`parkLayer`) till they are next read.
+  L.parkedPx != nil
+
 proc isText*(L: Layer): bool {.inline.} =
   ## A type layer (its text can still be edited).
   L != nil and L.text.spans.len > 0
@@ -1175,6 +1251,11 @@ proc rangeAmt(r: array[4, int]; v: int): int {.inline.} =
   elif v < r[1]: (v - r[0]) * 255 div max(1, r[1] - r[0])
   elif v > r[2]: (r[3] - v) * 255 div max(1, r[3] - r[2])
   else: 255
+
+proc blendIfAmount*(r: array[4, int]; v: int): int =
+  ## How much (0..255) a value `v` lets a layer show by a Blend If range `r` (as `rangeOf`
+  ## gives it) -- for a GPU mixing the layers as the CPU does.
+  rangeAmt(r, v)
 
 proc chanOf(p: uint32; ch: int): int {.inline.} =
   case ch
@@ -1385,7 +1466,9 @@ proc fitQuickMask(d: Doc) =
   inc d.maskLayer.ver
 
 proc markAll*(d: Doc) =
-  ## All of the image changed: the composite is made again everywhere.
+  ## All of the image changed: the composite is made again everywhere (the layers kept mixed
+  ## under the current one too).
+  d.belowOk.setLen(0)
   d.fitQuickMask()
   for L in d.layers:
     if L.group and L.px.len != d.w * d.h: L.px = zeroPixels(d.w * d.h)
@@ -1482,10 +1565,26 @@ proc runningHead*(d: Doc; style: string): string =
       inc k
   if best[1].len > 0: best[1] else: d.heads.getOrDefault(style, "")
 
+proc dayIn*(t: DateTime; style: string): string =
+  ## A Text Variable's date written as `style` says: "" "17 November 2026"; "ar" "١٧ نوفمبر ٢٠٢٦",
+  ## "ar-latn" its digits Latin, "ar-sy" the Levant's month names, "ar-full" its weekday too;
+  ## "hijri" the Hijri date, "٧ جمادى الآخرة ١٤٤٨ هـ" ("hijri-latn", "hijri-full", "hijri-en" "7
+  ## Jumada al-Akhirah 1448 AH", "hijri-num" "1448/06/07"); else a date format, "dd/MM/yyyy".
+  case style
+  of "": t.format("d MMMM yyyy")
+  of "ar", "ar-latn", "ar-sy", "ar-full": arabicDate(t, style)
+  of "hijri", "hijri-ar": hijriDate(t)
+  of "hijri-latn": hijriDate(t, "ar-latn")
+  of "hijri-full", "hijri-en", "hijri-num": hijriDate(t, style[6 .. ^1])
+  else:
+    try: t.format(style) except CatchableError: t.format("d MMMM yyyy")
+
 proc withVariables*(d: Doc; s: string): string =
   ## Text Variables in a text: `<file>` the document's name, `<date>` today's (Output Date),
-  ## `<modified>` its file's (Modification Date), `<head:Style>` a running header, `<ref:name>` the
-  ## page a text destination is on (a cross-reference) -- the rest as they are.
+  ## `<modified>` its file's (Modification Date) -- each `<date:style>` written as `dayIn` says,
+  ## in Arabic, as the Hijri date --, `<hijri>` today's Hijri date (`<hijri:en>`, `<hijri:num>`,
+  ## `<hijri:full>`, `<hijri:latn>`), `<head:Style>` a running header, `<ref:name>` the page a text
+  ## destination is on (a cross-reference) -- the rest as they are.
   if "<" notin s: return s
   result = newStringOfCap(s.len)
   var i = 0
@@ -1496,12 +1595,16 @@ proc withVariables*(d: Doc; s: string): string =
         let name = s[i + 1 ..< e]
         var v = ""
         var known = true
+        let colon = name.find(':')
+        let base = if colon > 0: name[0 ..< colon] else: name
+        let opt = if colon > 0: name[colon + 1 .. ^1] else: ""
         if name == "file": v = d.name.changeFileExt("")
-        elif name == "date": v = now().format("d MMMM yyyy")
-        elif name == "modified":
-          v = try: (if d.path.len > 0 and fileExists(d.path): getLastModificationTime(d.path).local.format("d MMMM yyyy")
-                    else: now().format("d MMMM yyyy"))
-              except OSError: now().format("d MMMM yyyy")
+        elif base == "date": v = now().dayIn(opt)
+        elif base == "hijri": v = now().dayIn(if opt.len > 0: "hijri-" & opt else: "hijri")
+        elif base == "modified":
+          let t = try: (if d.path.len > 0 and fileExists(d.path): getLastModificationTime(d.path).local else: now())
+                  except OSError: now()
+          v = t.dayIn(opt)
         elif name.startsWith("head:"): v = d.runningHead(name[5 .. ^1])
         elif name.startsWith("ref:"):
           let dest = name[4 .. ^1]
@@ -1567,6 +1670,82 @@ proc flowedText(d: Doc; L: Layer; depth: int): TextData =
 
 var flowDepth = 0                  ## (boxes drawn again down a chain of them)
 
+var flatTextLayer*: Layer
+  ## The type layer on a perspective plane being typed in: drawn flat meanwhile (as the drawing
+  ## program shows such text to edit), on its plane again once it is set to nil and drawn.
+
+proc squareToQuad*(q: Quad): array[9, float]
+  ## The projective map of the unit square onto `q` (Heckbert's).
+proc inverse3*(m: array[9, float]): array[9, float]
+  ## The inverse of a 3x3 matrix (row by row; identity when it has none).
+
+proc perspectiveInto(flat: seq[uint32]; fb: DrawnBox; w, h: int; box: array[4, float32];
+                     quad: array[4, (float32, float32)]; dst: var seq[uint32]): DrawnBox =
+  ## (pixels set flat -- `fb` where they are -- drawn into `dst` through the projective map of
+  ## `box` onto `quad`, read between them, their colors weighed by their alpha; where they went)
+  result = (0, 0, 0, 0)
+  if fb.x1 <= fb.x0 or fb.y1 <= fb.y0: return
+  let bw = float(box[2] - box[0])
+  let bh = float(box[3] - box[1])
+  if bw <= 0 or bh <= 0: return
+  let hm = squareToQuad([(quad[0][0].float, quad[0][1].float), (quad[1][0].float, quad[1][1].float),
+                         (quad[2][0].float, quad[2][1].float), (quad[3][0].float, quad[3][1].float)])
+  let inv = inverse3(hm)
+  # (where the flat pixels go: their corners through the map)
+  var x0, y0 = 1e18
+  var x1, y1 = -1e18
+  for (fx, fy) in [(fb.x0, fb.y0), (fb.x1, fb.y0), (fb.x1, fb.y1), (fb.x0, fb.y1)]:
+    let u = (fx.float - box[0].float) / bw
+    let v = (fy.float - box[1].float) / bh
+    let wz = hm[6] * u + hm[7] * v + hm[8]
+    if abs(wz) < 1e-12: return
+    let X = (hm[0] * u + hm[1] * v + hm[2]) / wz
+    let Y = (hm[3] * u + hm[4] * v + hm[5]) / wz
+    x0 = min(x0, X); y0 = min(y0, Y); x1 = max(x1, X); y1 = max(y1, Y)
+  let tx0 = clamp(int(floor(x0)) - 1, 0, w)
+  let ty0 = clamp(int(floor(y0)) - 1, 0, h)
+  let tx1 = clamp(int(ceil(x1)) + 1, 0, w)
+  let ty1 = clamp(int(ceil(y1)) + 1, 0, h)
+  if tx1 <= tx0 or ty1 <= ty0: return
+  let sp = cast[ptr UncheckedArray[uint32]](unsafeAddr flat[0])
+  let dp = cast[ptr UncheckedArray[uint32]](addr dst[0])
+  parallelFor(ty1 - ty0, proc (lo, hi: int) =
+    for yy in lo ..< hi:
+      let y = ty0 + yy
+      for x in tx0 ..< tx1:
+        let X = x.float + 0.5
+        let Y = y.float + 0.5
+        let wz = inv[6] * X + inv[7] * Y + inv[8]
+        if abs(wz) < 1e-12: continue
+        let u = (inv[0] * X + inv[1] * Y + inv[2]) / wz
+        let v = (inv[3] * X + inv[4] * Y + inv[5]) / wz
+        let fx = box[0].float + u * bw - 0.5
+        let fy = box[1].float + v * bh - 0.5
+        if fx < fb.x0.float - 1 or fy < fb.y0.float - 1 or fx > fb.x1.float or fy > fb.y1.float: continue
+        let ix = int(floor(fx))
+        let iy = int(floor(fy))
+        let ax = fx - ix.float
+        let ay = fy - iy.float
+        var acc = [0.0, 0.0, 0.0, 0.0]
+        for (ddx, ddy, wt) in [(0, 0, (1 - ax) * (1 - ay)), (1, 0, ax * (1 - ay)), (0, 1, (1 - ax) * ay),
+                               (1, 1, ax * ay)]:
+          let sx = ix + ddx
+          let sy = iy + ddy
+          if wt <= 0 or sx < 0 or sy < 0 or sx >= w or sy >= h: continue
+          let c = sp[sy * w + sx]
+          let a = float(c shr 24) * wt
+          acc[0] += a
+          acc[1] += float((c shr 16) and 255) * a
+          acc[2] += float((c shr 8) and 255) * a
+          acc[3] += float(c and 255) * a
+        if acc[0] <= 0.5: continue
+        dp[y * w + x] = (uint32(clamp(acc[0] + 0.5, 0, 255)) shl 24) or
+                        (uint32(clamp(acc[1] / acc[0] + 0.5, 0, 255)) shl 16) or
+                        (uint32(clamp(acc[2] / acc[0] + 0.5, 0, 255)) shl 8) or
+                        uint32(clamp(acc[3] / acc[0] + 0.5, 0, 255))
+  )
+  result = (tx0, ty0, tx1, ty1)
+
 proc followAnchors*(d: Doc; T: Layer)
 
 proc drawText*(d: Doc; L: Layer) =
@@ -1590,7 +1769,14 @@ proc drawText*(d: Doc; L: Layer) =
   var t = d.effectiveText(L)
   if d.flowsOn(L): t.clipOverflow = true
   let lay = layoutText(t)
-  let b = t.renderTextInto(L.px, d.w, d.h, lay)
+  var b: DrawnBox
+  if t.perspOn and L != flatTextLayer:
+    # (on a perspective plane: set flat, then drawn through the plane's quad)
+    var flat = zeroPixels(d.w * d.h)
+    let fb = t.renderTextInto(flat, d.w, d.h, lay)
+    b = perspectiveInto(flat, fb, d.w, d.h, t.perspBox, t.persp, L.px)
+  else:
+    b = t.renderTextInto(L.px, d.w, d.h, lay)
   L.textBox = b
   L.textFull = (lay.x0, lay.y0, lay.x1, lay.y1)
   L.wrapSig = holesSig(t.holes)
@@ -1827,6 +2013,10 @@ proc redefineStyle*(d: Doc; paragraph: bool; name: string; char: CharStyle; para
         if g.name == name and g.look != c:
           g.look = c
           result = true
+      for n in p.lineStyles.mitems:
+        if n.name == name and n.look != c:
+          n.look = c
+          result = true
     for st in d.paraStyles.mitems: discard relook(st.para)
     for L in d.layers:
       if not L.isText: continue
@@ -1856,6 +2046,8 @@ proc renameStyle*(d: Doc; paragraph: bool; old, name: string) =
         if n.name == old: n.name = name
       for g in p.grepStyles.mitems:
         if g.name == old: g.name = name
+      for n in p.lineStyles.mitems:
+        if n.name == old: n.name = name
   for st in d.paraStyles.mitems: renamed(st.para)
   for L in d.layers:
     if not L.isText: continue
@@ -2071,32 +2263,35 @@ proc lutOf*(L: Layer): ptr seq[uint32] =
 
 proc lutAt(lut: ptr UncheckedArray[uint32]; p: uint32): uint32 {.inline.} =
   ## The color `p` becomes by the table (read between its colors).
-  const n = LutN - 1
-  let r = int((p shr 16) and 255) * n
-  let g = int((p shr 8) and 255) * n
-  let b = int(p and 255) * n
-  let ri = r div 255
-  let gi = g div 255
-  let bi = b div 255
-  let rf = r - ri * 255
-  let gf = g - gi * 255
-  let bf = b - bi * 255
-  let r1 = min(ri + 1, n)
-  let g1 = min(gi + 1, n)
-  let b1 = min(bi + 1, n)
-  template at(i, j, k: int): uint32 = lut[(i * LutN + j) * LutN + k]
-  var o: array[3, int]
-  for c in 0 .. 2:
-    let sh = 16 - 8 * c
-    template v(i, j, k: int): int = int((at(i, j, k) shr sh) and 255)
-    let c00 = v(ri, gi, bi) * (255 - bf) + v(ri, gi, b1) * bf
-    let c01 = v(ri, g1, bi) * (255 - bf) + v(ri, g1, b1) * bf
-    let c10 = v(r1, gi, bi) * (255 - bf) + v(r1, gi, b1) * bf
-    let c11 = v(r1, g1, bi) * (255 - bf) + v(r1, g1, b1) * bf
-    let c0 = c00 * (255 - gf) + c01 * gf
-    let c1 = c10 * (255 - gf) + c11 * gf
-    o[c] = int((int64(c0) * (255 - rf) + int64(c1) * rf + 255 * 255 * 255 div 2) div (255 * 255 * 255))
-  (p and 0xFF000000'u32) or (uint32(o[0]) shl 16) or (uint32(o[1]) shl 8) or uint32(o[2])
+  when simdOn:
+    lutAdj(lut, LutN, p)
+  else:
+    const n = LutN - 1
+    let r = int((p shr 16) and 255) * n
+    let g = int((p shr 8) and 255) * n
+    let b = int(p and 255) * n
+    let ri = r div 255
+    let gi = g div 255
+    let bi = b div 255
+    let rf = r - ri * 255
+    let gf = g - gi * 255
+    let bf = b - bi * 255
+    let r1 = min(ri + 1, n)
+    let g1 = min(gi + 1, n)
+    let b1 = min(bi + 1, n)
+    template at(i, j, k: int): uint32 = lut[(i * LutN + j) * LutN + k]
+    var o: array[3, int]
+    for c in 0 .. 2:
+      let sh = 16 - 8 * c
+      template v(i, j, k: int): int = int((at(i, j, k) shr sh) and 255)
+      let c00 = v(ri, gi, bi) * (255 - bf) + v(ri, gi, b1) * bf
+      let c01 = v(ri, g1, bi) * (255 - bf) + v(ri, g1, b1) * bf
+      let c10 = v(r1, gi, bi) * (255 - bf) + v(r1, gi, b1) * bf
+      let c11 = v(r1, g1, bi) * (255 - bf) + v(r1, g1, b1) * bf
+      let c0 = c00 * (255 - gf) + c01 * gf
+      let c1 = c10 * (255 - gf) + c11 * gf
+      o[c] = int((int64(c0) * (255 - rf) + int64(c1) * rf + 255 * 255 * 255 div 2) div (255 * 255 * 255))
+    (p and 0xFF000000'u32) or (uint32(o[0]) shl 16) or (uint32(o[1]) shl 8) or uint32(o[2])
 
 type PlanePtr = object
   a: ptr UncheckedArray[uint8]
@@ -2190,15 +2385,23 @@ proc maskOf(L: Layer; w, h: int): ptr UncheckedArray[uint32] =
   ## A layer's mask as it is used -- feathered, less dense (made again when
   ## it changed) -- or nil.
   let m = L.mask
-  if m == nil or L.maskOff or m.px.len != L.px.len: return nil
-  if L.maskClear == 0 and L.maskFeather <= 0.05:
+  let gf = L.gradFeather.on and L.px.len == w * h and w * h > 0
+  let hasMask = not (m == nil or L.maskOff or m.px.len != L.px.len)
+  if not hasMask and not gf: return nil
+  if hasMask and L.maskClear == 0 and L.maskFeather <= 0.05 and not gf:
     if L.maskEff.len > 0:
       L.maskEff = @[]
       L.maskEffKey = ""
     return pixPtr(m.px)
-  let key = $m.ver & "/" & $cast[int](m) & "/" & $L.maskClear & "/" & $L.maskFeather & "/" & $m.px.len
-  if L.maskEffKey != key or L.maskEff.len != m.px.len:
-    L.maskEff = m.px
+  let key = (if hasMask: $m.ver & "/" & $cast[int](m) & "/" & $L.maskClear & "/" & $L.maskFeather & "/" & $m.px.len
+             else: "none") & (if gf: "/gf" & $L.gradFeather & "/" & $L.ver else: "")
+  if L.maskEffKey != key or L.maskEff.len != L.px.len:
+    if hasMask: L.maskEff = m.px
+    else:
+      L.maskEff = newSeqUninit[uint32](L.px.len)
+      let ep0 = pixPtr(L.maskEff)
+      parallelFor(L.maskEff.len, proc (a, b: int) =
+        for i in a ..< b: ep0[i] = 0xFFFFFFFF'u32, grain = 65536)
     if L.maskFeather > 0.05 and w * h == m.px.len:
       var g = newSeqUninit[uint8](m.px.len)
       let ep = pixPtr(L.maskEff)
@@ -2218,6 +2421,47 @@ proc maskOf(L: Layer; w, h: int): ptr UncheckedArray[uint32] =
           let v = int((ep[i] shr 16) and 255)
           let o = lo + v * (255 - lo) div 255
           ep[i] = 0xFF000000'u32 or (uint32(o) shl 16) or (uint32(o) shl 8) or uint32(o), grain = 65536)
+    if gf:
+      # (Gradient Feather: across where the layer has pixels, from its start to its end opacity)
+      let g = L.gradFeather
+      let sp = pixPtr(L.px)
+      var x0 = w
+      var y0 = h
+      var x1 = -1
+      var y1 = -1
+      for y in 0 ..< h:
+        for x in 0 ..< w:
+          if (sp[y * w + x] shr 24) != 0:
+            x0 = min(x0, x); x1 = max(x1, x); y0 = min(y0, y); y1 = max(y1, y)
+      if x1 >= x0:
+        let cx = (x0 + x1) / 2
+        let cy = (y0 + y1) / 2
+        let a = degToRad(g.angle)
+        let ux = cos(a)
+        let uy = -sin(a)
+        # (the box's reach along the direction: where 0 % and 100 % are)
+        var lo = Inf
+        var hi = -Inf
+        for (px0, py0) in [(x0.float, y0.float), (x1.float, y0.float), (x0.float, y1.float), (x1.float, y1.float)]:
+          let t = (px0 - cx) * ux + (py0 - cy) * uy
+          lo = min(lo, t); hi = max(hi, t)
+        let rmax = max(1.0, hypot(float(x1 - x0) / 2, float(y1 - y0) / 2))
+        let sa = float(g.startAt) / 100
+        let ea = max(sa + 1e-6, float(g.endAt) / 100)
+        let o0 = float(g.startOpacity) / 100
+        let o1 = float(g.endOpacity) / 100
+        let ep = pixPtr(L.maskEff)
+        parallelFor(h, proc (lo2, hi2: int) =
+          for y in lo2 ..< hi2:
+            for x in 0 ..< w:
+              let f = if g.radial: hypot(x.float - cx, y.float - cy) / rmax
+                      else: ((x.float - cx) * ux + (y.float - cy) * uy - lo) / max(1e-6, hi - lo)
+              let t = clamp((f - sa) / (ea - sa), 0.0, 1.0)
+              let k = o0 + (o1 - o0) * t
+              let i = y * w + x
+              let v = int(float((ep[i] shr 16) and 255) * k + 0.5)
+              ep[i] = 0xFF000000'u32 or (uint32(v) shl 16) or (uint32(v) shl 8) or uint32(v)
+        , grain = 16)
     L.maskEffKey = key
   pixPtr(L.maskEff)
 
@@ -2254,6 +2498,7 @@ type
     bif: bool
     ch: int
     this, under: array[4, int]
+    thisT, underT: array[256, uint8]  # (Blend If: `rangeAmt` of each value, for the kernels)
     isolated: bool              # a group mixed on its own, then onto what is under it
     level: int                  # (a group's) the level of its layers
     cov: bool                   # (a group's) how much it covers is kept: layers are clipped to it
@@ -2389,6 +2634,9 @@ proc compositeItems(d: Doc; layers: seq[Layer]; sampled: bool): tuple[items: seq
       it.ch = L.blendIf.channel
       it.this = rangeOf(L.blendIf.this)
       it.under = rangeOf(L.blendIf.under)
+      for v in 0 .. 255:
+        it.thisT[v] = uint8(rangeAmt(it.this, v))
+        it.underT[v] = uint8(rangeAmt(it.under, v))
     if lut == nil and not filt and L.hasFx and not (it.live >= 0 and d.live[it.live].kind == lkWarp):
       if it.live >= 0 and d.live[it.live].kind == lkShift:
         it.fxDx = d.live[it.live].dx      # (its effects go with it)
@@ -2775,44 +3023,59 @@ proc mixLayers[S: static bool](items: var seq[CItem]; maxDepth: int; c: Rect; w,
         if lvl == 0: bare = false
         let quick = m == bmNormal or m in SepModes
         let sl = lutp[k]
+        template mixAt(x: int) =
+          ## (one pixel of the layer mixed in, the whole way)
+          block one:
+            let s = spr[x]
+            if (s shr 24) == 0: break one
+            if fast and (s shr 24) == 255:
+              tp[x] = s
+              cover(x, 255)
+            else:
+              var a = op
+              if mpr != nil:
+                let mk = mpr[x]
+                a = a * int((mk shr 16) and 255) div 255
+                if a <= 0: break one
+              if bp != nil or brow != nil:
+                a = clipAmt(a, x)
+                if a <= 0: break one
+              if bif:
+                a = a * rangeAmt(it.this, chanOf(s, it.ch)) div 255 *
+                    rangeAmt(it.under, chanOf(tp[x], it.ch)) div 255
+                if a <= 0: break one
+              let d0 = tp[x]
+              if quick and (d0 shr 24) == 255:
+                let ea = a * int(s shr 24) div 255
+                if ea > 0: tp[x] = overOpaque(d0, s, ea, sl)
+              else:
+                tp[x] = blendPx(d0, s, a, m, IX(x), IY)
+              cover(x, a * int(s shr 24) div 255)
         when simdOn:
-          if quick and spr != nil and mpr == nil and bp == nil and brow == nil and not bif and covers == 0:
-            # (four pixels at a time over what is opaque under them; a pixel over one that is
-            # not, mixed the whole way)
+          if quick and spr != nil and covers == 0:
+            # (four pixels at a time -- eight with AVX2 -- over what is opaque under them; a
+            # pixel over one that is not, mixed the whole way)
             var x = xa
-            while x < xb:
-              x = mixOpaque(tp, spr, x, xb, op, sl)
-              if x >= xb: break
-              tp[x] = blendPx(tp[x], spr[x], op, m, IX(x), IY)
-              inc x
+            if mpr == nil and bp == nil and brow == nil and not bif:
+              while x < xb:
+                x = mixOpaque(tp, spr, x, xb, op, sl)
+                if x >= xb: break
+                tp[x] = blendPx(tp[x], spr[x], op, m, IX(x), IY)
+                inc x
+            else:
+              # (its mask, what it is clipped to, Blend If: each pixel's amount in the kernel too)
+              var mo = MixOpt(mask: mpr, cover: brow, base: bp, bmask: (if bp != nil: bm else: nil),
+                              blut: cint(ord(blut)), bif: cint(ord(bif)), ch: cint(it.ch),
+                              thisT: cast[ptr UncheckedArray[uint8]](addr it.thisT[0]),
+                              underT: cast[ptr UncheckedArray[uint8]](addr it.underT[0]))
+              while x < xb:
+                x = mixOpt(tp, spr, x, xb, op, sl, addr mo)
+                if x >= xb: break
+                mixAt(x)
+                inc x
             if styled: planes(it.above)
             continue
-        for x in xa ..< xb:
-          let s = spr[x]
-          if (s shr 24) == 0: continue
-          if fast and (s shr 24) == 255:
-            tp[x] = s
-            cover(x, 255)
-          else:
-            var a = op
-            if mpr != nil:
-              let mk = mpr[x]
-              a = a * int((mk shr 16) and 255) div 255
-              if a <= 0: continue
-            if bp != nil or brow != nil:
-              a = clipAmt(a, x)
-              if a <= 0: continue
-            if bif:
-              a = a * rangeAmt(it.this, chanOf(s, it.ch)) div 255 *
-                  rangeAmt(it.under, chanOf(tp[x], it.ch)) div 255
-              if a <= 0: continue
-            let d0 = tp[x]
-            if quick and (d0 shr 24) == 255:
-              let ea = a * int(s shr 24) div 255
-              if ea > 0: tp[x] = overOpaque(d0, s, ea, sl)
-            else:
-              tp[x] = blendPx(d0, s, a, m, IX(x), IY)
-            cover(x, a * int(s shr 24) div 255)
+        for x in xa ..< xb: mixAt(x)
         if styled: planes(it.above)
   parallelFor(c.h, work, keepAlive = not S)
 
@@ -3013,10 +3276,6 @@ proc compositeInto*(d: Doc; dst: var seq[uint32]; r: Rect; layers: seq[Layer]) =
     at = k + 1
   mixLayers[false](items, maxDepth, c2, d.w, d.h, pixPtr(dst), nil, nil, nil, at, -1, keep = true)
 
-proc squareToQuad*(q: Quad): array[9, float]
-  ## The projective map of the unit square onto `q` (Heckbert's).
-proc inverse3*(m: array[9, float]): array[9, float]
-  ## The inverse of a 3x3 matrix (row by row; identity when it has none).
 
 proc compositeSampled*(d: Doc; xs, ys: seq[int32]; o: var seq[uint32]) =
   ## What the image looks like -- its `live` parts as they are being moved,
@@ -3094,6 +3353,103 @@ var gpuCompositeHook*: proc (d: Doc; r: Rect): bool {.nimcall.}
   ## Makes `comp` in `r` some other way -- the layers mixed on the GPU (set
   ## by `retroui/photogpu`); false: not done there, the CPU does it.
 
+var compositeBelow* = true
+  ## While one layer is changed (painted, filtered, moved), the layers under it are mixed once
+  ## and kept, a tile at a time as they are needed (`Doc.below`): each change mixes that layer
+  ## and those over it only. False: every layer each time (for a test, a comparison).
+
+const BelowTile = 256
+
+proc belowSignature(d: Doc): Hash =
+  ## (the layers under the current one as they are mixed: when it changes, `below` is old)
+  var h: Hash = hash(d.cur) !& hash(d.w) !& hash(d.h) !& hash(compositeSpans)
+  h = h !& hash(cast[int](d.layers[d.cur]))
+  for i in 0 ..< d.cur:
+    let L = d.layers[i]
+    h = h !& hash(cast[int](L)) !& hash(L.ver) !& hash(L.visible) !& hash(L.opacity) !&
+        hash(L.clearFill) !& hash(ord(L.mode)) !& hash(L.px.len) !& hash(L.clipped) !&
+        hash(L.depth) !& hash(L.group) !& hash(L.passThrough) !& hash(L.maskOff) !&
+        hash(L.maskClear) !& hash(L.maskFeather) !& hash(L.adjust.kind) !& hash(L.adjust.args) !&
+        hash(L.adjust.data) !& hash(L.fxKey) !& hash(cast[int](L.fxCache)) !&
+        hash(L.blendIf.channel) !& hash(L.blendIf.this) !& hash(L.blendIf.under) !&
+        hash(L.board.x) !& hash(L.board.y) !& hash(L.board.w) !& hash(L.board.h)
+    if L.mask != nil: h = h !& hash(cast[int](L.mask)) !& hash(L.mask.ver) !& hash(L.mask.px.len)
+  !$h
+
+proc compositeOverBelow(d: Doc; r: Rect): bool =
+  ## `r` mixed from the layers under the current one as kept (`below`, its tiles made where they
+  ## are not yet), then the current layer and those over it -- the same pixels as mixing them
+  ## all. False when it cannot be done so (the current layer in a group or clipped, Clarity or
+  ## Grain, not enough under it) or would not pay (most of `r` not kept yet): mix them all.
+  if not compositeBelow or d.cur <= 0 or d.cur >= d.layers.len: return false
+  let L = d.layers[d.cur]
+  if not L.visible or L.depth != 0 or L.clipped or L.group or L.px.len != d.w * d.h: return false
+  let c = d.clip(r)
+  if c.w <= 0 or c.h <= 0: return false
+  var shownBelow = 0
+  for i in 0 ..< d.cur:
+    if d.layers[i].visible: inc shownBelow
+  if shownBelow < 2: return false
+  var (items, maxDepth) = d.compositeItems(d.layers, false)
+  # (the current layer's step, at the top level; nothing that looks around; the first step a
+  # layer of pixels -- so each row starts as it would)
+  let want = pixPtr(L.px)
+  var kCur = -1
+  var lvl = 0
+  var firstPlain = false
+  var seen = false
+  for k, it in items:
+    case it.kind
+    of ckPush: inc lvl
+    of ckPop: dec lvl
+    of ckLayer:
+      if it.filt: return false
+      if not seen:
+        seen = true
+        firstPlain = lvl == 0 and it.lut == nil and not it.spanned and it.mask == nil and
+                     it.op == 255 and it.fill == 255 and it.mode == bmNormal and it.base < 0
+      if it.src == want and lvl == 0 and kCur < 0: kCur = k
+  if kCur <= 0 or not firstPlain: return false
+  # (the tiles of `below`: made again, all, when the layers under changed)
+  let tw = (d.w + BelowTile - 1) div BelowTile
+  let th = (d.h + BelowTile - 1) div BelowTile
+  let sig = d.belowSignature()
+  if sig != d.belowSig or d.belowOk.len != tw * th or d.below.len != d.w * d.h:
+    d.belowSig = sig
+    d.belowOk = newSeq[bool](tw * th)
+    if d.below.len != d.w * d.h: d.below = newSeq[uint32](d.w * d.h)
+  let tx0 = c.x div BelowTile
+  let ty0 = c.y div BelowTile
+  let tx1 = (c.x + c.w - 1) div BelowTile
+  let ty1 = (c.y + c.h - 1) div BelowTile
+  var missing = 0
+  var total = 0
+  for ty in ty0 .. ty1:
+    for tx in tx0 .. tx1:
+      inc total
+      if not d.belowOk[ty * tw + tx]: inc missing
+  # (most of it to be made: not worth it this time -- a whole new picture, say)
+  if missing * 4 > total * 3 and c.w * c.h * 4 > d.w * d.h: return false
+  if missing > 0:
+    # (the missing tiles, a row of tiles at a time: the union of those in it)
+    for ty in ty0 .. ty1:
+      var a = -1
+      var b = -1
+      for tx in tx0 .. tx1:
+        if not d.belowOk[ty * tw + tx]:
+          if a < 0: a = tx
+          b = tx
+      if a < 0: continue
+      let tr = d.clip(rect(a * BelowTile, ty * BelowTile, (b - a + 1) * BelowTile, BelowTile))
+      mixLayers[false](items, maxDepth, tr, d.w, d.h, pixPtr(d.below), nil, nil, nil, 0, kCur)
+      for tx in a .. b: d.belowOk[ty * tw + tx] = true
+  let bp = pixPtr(d.below)
+  let cp = pixPtr(d.comp)
+  for y in c.y ..< c.y + c.h:
+    copyMem(addr cp[y * d.w + c.x], addr bp[y * d.w + c.x], c.w * 4)
+  mixLayers[false](items, maxDepth, c, d.w, d.h, cp, nil, nil, nil, kCur, -1, keep = true)
+  true
+
 proc updateComposite*(d: Doc) =
   ## Makes what the image looks like again where it is out of date (`comp`;
   ## nothing for an image of one plain layer: see `simpleLayer`).
@@ -3132,7 +3488,8 @@ proc updateComposite*(d: Doc) =
   d.modified = wasModified
   if d.dirty.w <= 0 or d.dirty.h <= 0: return
   if gpuCompositeHook == nil or not gpuCompositeHook(d, d.dirty):
-    d.compositeInto(d.comp, d.dirty, d.layers)
+    if not d.compositeOverBelow(d.dirty):
+      d.compositeInto(d.comp, d.dirty, d.layers)
   for r in d.mipDirty.mitems:
     r = if r.w <= 0: d.dirty else: union(r, d.dirty)
   d.dirty = rect(0, 0, 0, 0)
@@ -3341,7 +3698,7 @@ proc settingsOf(L: Layer): LayerSettings =
                 group: L.group, collapsed: L.collapsed, passThrough: L.passThrough, locked: L.locked,
                 lockPixels: L.lockPixels, lockPosition: L.lockPosition, link: L.link, board: L.board,
                 depth: L.depth, blendIf: L.blendIf, maskClear: L.maskClear, maskFeather: L.maskFeather,
-                smart: L.smart, wrap: L.wrap, wrapGap: L.wrapGap, wrapSide: L.wrapSide,
+                gradFeather: L.gradFeather, smart: L.smart, wrap: L.wrap, wrapGap: L.wrapGap, wrapSide: L.wrapSide,
                 ignoreWrap: L.ignoreWrap, meta: L.meta, anchorTo: L.anchorTo, anchorAt: L.anchorAt,
                 anchorDx: L.anchorDx, anchorDy: L.anchorDy, objectStyle: L.objectStyle)
 
@@ -3354,6 +3711,7 @@ proc setSettings(L: Layer; s: LayerSettings) =
   L.group = s.group; L.collapsed = s.collapsed; L.passThrough = s.passThrough; L.locked = s.locked
   L.lockPixels = s.lockPixels; L.lockPosition = s.lockPosition; L.link = s.link; L.board = s.board
   L.depth = s.depth; L.blendIf = s.blendIf; L.maskClear = s.maskClear; L.maskFeather = s.maskFeather
+  L.gradFeather = s.gradFeather
   L.smart = s.smart
   L.wrap = s.wrap; L.wrapGap = s.wrapGap; L.wrapSide = s.wrapSide; L.ignoreWrap = s.ignoreWrap
   L.meta = s.meta
@@ -3612,6 +3970,151 @@ proc loadStep(s: var Step) =
 
 proc ramBytes(s: Step): int =
   if s.spill != nil and s.spill.freed: 0 else: s.bytes
+
+# ---- idle layers kept small ------------------------------------------------------------------------
+
+const ParkTile = 256
+  ## (a parked layer's tiles: `ParkTile` x `ParkTile` pixels)
+
+var
+  parkLock: Lock
+  parkSerial: Atomic[int]
+initLock(parkLock)
+
+proc canPark*(L: Layer; w, h: int): bool =
+  ## Whether `parkLayer` would keep it small: a layer of 8 bits, `w` x `h`, not tiny, not a
+  ## group, not parked yet.
+  L != nil and L.parkedPx == nil and not L.group and L.pxRaw.len == w * h and w * h >= 65536 and
+    L.hi.len == 0 and L.hdr.len == 0
+
+proc parkLayer*(L: Layer; w, h: int; toDisk = false): int =
+  ## Keeps an idle layer small: its pixels (`w` x `h`) as tiles of 256 x 256, each deflated --
+  ## a tile all transparent takes nothing -- and, `toDisk`, written to the scratch disk
+  ## (`scratchDir`) with only where each is kept. The first time its `px` is read again it is
+  ## opened out, as it was (`unparkLayer`). What it gives back, in bytes (0: not parked -- a
+  ## layer of 16 or 32 bits, one already parked, a small one, one of another size). Its mask
+  ## is parked with it.
+  result = 0
+  if not canPark(L, w, h): return
+  let gx = (w + ParkTile - 1) div ParkTile
+  let gy = (h + ParkTile - 1) div ParkTile
+  var tiles = newSeq[seq[byte]](gx * gy)
+  let src = cast[ptr UncheckedArray[uint32]](addr L.pxRaw[0])
+  let tp = cast[ptr UncheckedArray[seq[byte]]](addr tiles[0])
+  parallelFor(gx * gy, proc (lo, hi: int) =
+    var buf = newSeqUninit[byte](ParkTile * ParkTile * 4)
+    for t in lo ..< hi:
+      let x0 = (t mod gx) * ParkTile
+      let y0 = (t div gx) * ParkTile
+      let tw = min(ParkTile, w - x0)
+      let th = min(ParkTile, h - y0)
+      var any = 0'u32
+      for y in 0 ..< th:
+        let row = cast[ptr UncheckedArray[uint32]](addr src[(y0 + y) * w + x0])
+        for x in 0 ..< tw: any = any or row[x]
+        copyMem(addr buf[y * tw * 4], row, tw * 4)
+      if any != 0: tp[t] = deflateLevel(toOpenArray(buf, 0, tw * th * 4 - 1), 1)
+  , grain = 1)
+  var pk = ParkedPx(w: w, h: h)
+  var bytes = 0
+  for t in tiles: bytes += t.len
+  if toDisk:
+    let f = scratchFolder() / ("layer-" & $getCurrentProcessId() & "-" & $parkSerial.fetchAdd(1) & ".park")
+    var all = newStringOfCap(bytes)
+    pk.offs = newSeq[int](tiles.len + 1)
+    for i, t in tiles:
+      pk.offs[i] = all.len
+      if t.len > 0:
+        let at = all.len
+        all.setLen(at + t.len)
+        copyMem(addr all[at], unsafeAddr t[0], t.len)
+    pk.offs[tiles.len] = all.len
+    try:
+      writeFile(f, all)
+      pk.file = f
+      pk.tiles = newSeq[string](tiles.len)
+    except CatchableError:
+      pk.offs = @[]
+  if pk.file.len == 0:
+    pk.tiles = newSeq[string](tiles.len)
+    for i, t in tiles:
+      if t.len > 0:
+        pk.tiles[i] = newString(t.len)
+        copyMem(addr pk.tiles[i][0], unsafeAddr t[0], t.len)
+  pk.bytes = (if pk.file.len > 0: 0 else: bytes)
+  result = w * h * 4 - pk.bytes
+  L.pxRaw = @[]
+  L.parkedPx = pk
+  if L.mask != nil: result += parkLayer(L.mask, w, h, toDisk)
+
+proc unparkLayer(L: Layer) =
+  ## (a parked layer's pixels opened out, as they were: the tiles not transparent inflated into
+  ## pixels the system gives as zeros -- what was empty still takes no memory)
+  {.cast(gcsafe).}:
+    withLock parkLock:
+      let pk = L.parkedPx
+      if pk == nil: return
+      let w = pk.w
+      let h = pk.h
+      var px = zeroPixels(w * h)
+      var tiles = pk.tiles
+      if pk.file.len > 0:
+        var all = ""
+        try: all = readFile(pk.file)
+        except CatchableError: all = ""
+        for i in 0 ..< tiles.len:
+          let a = pk.offs[i]
+          let b = pk.offs[i + 1]
+          if b > a and b <= all.len: tiles[i] = all[a ..< b]
+        try: removeFile(pk.file)
+        except CatchableError: discard
+      let gx = (w + ParkTile - 1) div ParkTile
+      let dp = cast[ptr UncheckedArray[uint32]](addr px[0])
+      let tp = cast[ptr UncheckedArray[string]](addr tiles[0])
+      parallelFor(tiles.len, proc (lo, hi: int) =
+        for t in lo ..< hi:
+          if tp[t].len == 0: continue
+          let x0 = (t mod gx) * ParkTile
+          let y0 = (t div gx) * ParkTile
+          let tw = min(ParkTile, w - x0)
+          let th = min(ParkTile, h - y0)
+          var raw: seq[byte]
+          try: raw = inflate(toOpenArray(cast[ptr UncheckedArray[byte]](addr tp[t][0]), 0, tp[t].len - 1),
+                             maxOut = tw * th * 4)
+          except CatchableError: raw = @[]
+          if raw.len != tw * th * 4: continue
+          for y in 0 ..< th:
+            copyMem(addr dp[(y0 + y) * w + x0], addr raw[y * tw * 4], tw * 4)
+      , grain = 1)
+      L.pxRaw = move(px)
+      L.parkedPx = nil
+
+proc parkedBytes*(L: Layer): int =
+  ## What a parked layer (and its mask) takes in memory, bytes (0 when it is not parked, or is
+  ## on the scratch disk).
+  if L == nil: return 0
+  result = (if L.parkedPx != nil: L.parkedPx.bytes else: 0)
+  if L.mask != nil: result += parkedBytes(L.mask)
+
+proc parkHidden*(d: Doc; toDisk = false): int =
+  ## The hidden layers kept small (`parkLayer`) -- but the one painted on: what it gave back,
+  ## bytes. An app calls it when it has been idle a while, or when memory is short.
+  result = 0
+  for i, L in d.layers:
+    if i == d.cur or L.visible or L.group: continue
+    result += parkLayer(L, d.w, d.h, toDisk)
+
+proc parkAll*(d: Doc; toDisk = false): int =
+  ## Every layer of a document not shown kept small (another tab, say), and what is only kept
+  ## to be quick let go (`purgeCaches`, the composite): made again when it is shown.
+  result = 0
+  for L in d.layers:
+    if L.group: continue
+    result += parkLayer(L, d.w, d.h, toDisk)
+  result += (d.comp.len + d.below.len) * 4
+  d.purgeCaches()
+  d.comp = @[]
+  d.dirty = d.bounds
 
 proc collectSpills*(d: Doc) =
   ## Gives back the memory of the steps written to the scratch disk, and
@@ -4159,6 +4662,7 @@ proc undo*(d: Doc) =
   if not d.canUndo: return
   var s = d.undoSteps.pop()
   s.loadStep()
+  d.belowOk.setLen(0)        # (what is kept mixed under the current layer: made again)
   d.swapStep(s, true)
   d.redoSteps.add s
   d.collectSpills()
@@ -4169,6 +4673,7 @@ proc redo*(d: Doc) =
   if not d.canRedo: return
   var s = d.redoSteps.pop()
   s.loadStep()
+  d.belowOk.setLen(0)
   d.swapStep(s, false)
   d.undoSteps.add s
   d.collectSpills()
@@ -4804,7 +5309,7 @@ proc newGroupLayer*(d: Doc; name = ""): Layer =
       try: n = max(n, parseInt(L.name[6 .. ^1]) + 1)
       except ValueError: discard
   Layer(name: (if name.len > 0: name else: "Group " & $n), opacity: 100, mode: bmNormal, visible: true,
-        group: true, passThrough: true, px: zeroPixels(d.w * d.h))
+        group: true, passThrough: true, pxRaw: zeroPixels(d.w * d.h))
 
 proc insertLayer*(d: Doc; L: Layer; above = -1) =
   ## `L` put above layer `above` (-1: the current one) -- into the top of
@@ -4920,7 +5425,7 @@ proc ungroup*(d: Doc; i = -1) =
   d.markAll()
 
 proc copyLayer(L: Layer; name: string): Layer =
-  result = Layer(name: name, px: sparseCopy(L.px), ver: L.ver)
+  result = Layer(name: name, pxRaw: sparseCopy(L.px), ver: L.ver)
   result.setSettings(settingsOf(L))
   result.name = name
   result.text = L.text
@@ -4930,7 +5435,7 @@ proc copyLayer(L: Layer; name: string): Layer =
   result.picked = false
   result.background = false
   if L.mask != nil:
-    result.mask = Layer(name: "Layer Mask", px: L.mask.px, opacity: 100, visible: true, gray: true)
+    result.mask = Layer(name: "Layer Mask", pxRaw: L.mask.px, opacity: 100, visible: true, gray: true)
 
 proc cloneLayer*(L: Layer): Layer =
   ## A copy of a layer with all it is and has -- its pixels, its mask, its
@@ -5101,7 +5606,7 @@ proc mergeGroup*(d: Doc; i = -1) =
   for L in kids: L.depth -= G.depth + 1
   d.compositeInto(px, d.bounds, kids)
   for L in kids: L.depth += G.depth + 1
-  let L = Layer(name: G.name, px: px, opacity: G.opacity, mode: (if G.passThrough: bmNormal else: G.mode),
+  let L = Layer(name: G.name, pxRaw: px, opacity: G.opacity, mode: (if G.passThrough: bmNormal else: G.mode),
                 visible: G.visible, mask: G.mask, maskOff: G.maskOff, depth: G.depth)
   L.maskClear = G.maskClear
   L.maskFeather = G.maskFeather
@@ -5132,7 +5637,7 @@ proc mergeDown*(d: Doc) =
   let under = d.layers[d.cur - 1]
   if under.adjust.kind.len > 0 or under.group or under.depth != top.depth: return
   var px = zeroPixels(d.w * d.h)
-  let base = Layer(px: under.px, opacity: 100, mode: bmNormal, visible: true, mask: under.mask,
+  let base = Layer(pxRaw: under.px, opacity: 100, mode: bmNormal, visible: true, mask: under.mask,
                    maskOff: under.maskOff, fx: under.fx, clearFill: under.clearFill, ver: under.ver)
   base.maskClear = under.maskClear
   base.maskFeather = under.maskFeather
@@ -5215,7 +5720,7 @@ proc grayLayer*(d: Doc; name: string; f: proc (i: int): int): Layer =
   ## (0..255). Not in the document: set it as a layer's `mask` (in a step,
   ## after `touchLayers`).
   result = Layer(name: name, opacity: 100, mode: bmNormal, visible: true, gray: true,
-                 px: newSeqUninit[uint32](d.w * d.h))
+                 pxRaw: newSeqUninit[uint32](d.w * d.h))
   for i in 0 ..< d.w * d.h: result.px[i] = grayPx(f(i))
 
 proc addLayerMask*(d: Doc; how = mfRevealAll; i = -1) =
@@ -7690,6 +8195,38 @@ type RpdPart* = object
   gray*: seq[uint8]        ## ... or a gray mask, made a PNG
   w*, h*: int              ## the size of `px` or `gray`
 
+# ---- Graphic Styles ---------------------------------------------------------------------------------------
+
+proc graphicStyleIndex*(d: Doc; name: string): int =
+  for i, s in d.graphicStyles:
+    if s.name == name: return i
+  -1
+
+proc graphicStyleOf*(L: Layer; name = ""): GraphicStyleDef =
+  ## A Graphic Style made from how shape layer `L` looks (New Graphic Style): its paint, its
+  ## fills and strokes more, its brush and widths, its live effects; the layer's style, opacity, mode.
+  var sh = L.shape
+  sh.path = Path()
+  sh.kind = ""
+  GraphicStyleDef(name: name, look: sh, fx: L.fx, opacity: L.opacity, mode: L.mode)
+
+proc applyGraphicStyle*(d: Doc; L: Layer; name: string) =
+  ## The Graphic Style `name` given to shape layer `L`: its look, its outline kept. Undoable in a
+  ## step (`touchLayers`).
+  let k = d.graphicStyleIndex(name)
+  if k < 0 or not L.isShape: return
+  let g = d.graphicStyles[k]
+  var s = g.look
+  s.path = L.shape.path
+  s.kind = L.shape.kind
+  s.radius = L.shape.radius
+  if s.widths.len == 0: s.widths = L.shape.widths
+  L.fx = g.fx
+  L.opacity = clamp(g.opacity, 0, 100)
+  L.mode = g.mode
+  d.setShape(L, s)
+  inc L.ver
+
 # ---- Object Styles ----------------------------------------------------------------------------------------
 
 proc objectStyleIndex*(d: Doc; name: string): int =
@@ -7786,6 +8323,107 @@ proc deleteObjectStyle*(d: Doc; name: string) =
   for L in d.layers:
     if L.objectStyle == name: L.objectStyle = ""
 
+type
+  ObjectKind* = enum
+    ## Find/Change's Object search: which kind of layer.
+    okAny = "All Frames", okShape = "Graphic Frames", okText = "Text Frames", okPicture = "Pictures",
+    okGroup = "Groups"
+  ObjectQuery* = object
+    ## Find/Change's Object search: the layers whose formats are these (each `by` flag a test
+    ## made; none: every layer of the kind).
+    kind*: ObjectKind
+    byFill*, byStroke*, byWidth*, byOpacity*: bool
+    fill*: uint32               ## a shape's fill, a text's color (its first letter's), ARGB
+    stroke*: uint32             ## a shape's stroke color
+    strokeWidth*: float         ## ... its width, pixels
+    opacity*: int               ## the layer's opacity, 0..100
+    objectStyle*: string        ## its Object Style ("": any; "[None]": none)
+    name*: string               ## in its name, any case ("": any)
+  ObjectChange* = object
+    ## Find/Change's Object search: what found layers are changed to (each `set` flag a change).
+    setFill*, setStroke*, setWidth*, setOpacity*: bool
+    fill*, stroke*: uint32
+    strokeWidth*: float
+    opacity*: int
+    objectStyle*: string        ## an Object Style given them ("": kept; "[None]": theirs taken away)
+
+proc sameColor(a, b: uint32): bool {.inline.} =
+  ## (two colors alike, a step or two apart in each channel: as picked from a swatch)
+  for sh in [0, 8, 16, 24]:
+    if abs(int((a shr sh) and 255) - int((b shr sh) and 255)) > 2: return false
+  true
+
+proc matchesObject*(d: Doc; L: Layer; q: ObjectQuery): bool =
+  ## The layer is what `q` asks for.
+  if L.background: return false
+  case q.kind
+  of okShape:
+    if not L.isShape: return false
+  of okText:
+    if not L.isText: return false
+  of okPicture:
+    if L.isShape or L.isText or L.group or L.adjust.kind.len > 0: return false
+  of okGroup:
+    if not L.group: return false
+  of okAny: discard
+  if q.name.len > 0 and q.name.toLowerAscii notin L.name.toLowerAscii: return false
+  if q.objectStyle.len > 0:
+    if q.objectStyle == "[None]":
+      if L.objectStyle.len > 0: return false
+    elif L.objectStyle != q.objectStyle: return false
+  if q.byOpacity and L.opacity != q.opacity: return false
+  if q.byFill:
+    let c = if L.isShape and L.shape.fill.kind == spColor: L.shape.fill.color
+            elif L.isText and L.text.spans.len > 0: L.text.spans[0].style.color
+            else: return false
+    if not sameColor(c, q.fill): return false
+  if q.byStroke:
+    if not L.isShape or L.shape.strokeWidth <= 0 or L.shape.stroke.kind != spColor or
+       not sameColor(L.shape.stroke.color, q.stroke): return false
+  if q.byWidth:
+    if not L.isShape or abs(L.shape.strokeWidth - q.strokeWidth) > 0.01: return false
+  true
+
+proc findObjects*(d: Doc; q: ObjectQuery): seq[int] =
+  ## Find/Change's Object search: the layers that are what `q` asks for, the bottom one first.
+  for i, L in d.layers:
+    if d.matchesObject(L, q): result.add i
+
+proc changeObjects*(d: Doc; q: ObjectQuery; c: ObjectChange; only: seq[int] = @[]): int =
+  ## Find/Change's Object search, Change All: each layer that is what `q` asks for (of `only`,
+  ## when given) changed as `c` says -- its fill (a text's color), stroke, width, opacity,
+  ## Object Style. How many changed; undoable in a step (`touchLayers` is done here).
+  d.touchLayers()
+  for i in (if only.len > 0: only else: d.findObjects(q)):
+    if i < 0 or i >= d.layers.len: continue
+    let L = d.layers[i]
+    if not d.matchesObject(L, q): continue
+    var changed = false
+    if c.objectStyle.len > 0:
+      d.applyObjectStyle(L, if c.objectStyle == "[None]": "" else: c.objectStyle)
+      changed = true
+    if L.isShape and (c.setFill or c.setStroke or c.setWidth):
+      var sh = L.shape
+      if c.setFill: sh.fill = ShapePaint(kind: spColor, color: c.fill, color2: c.fill, angle: 90, opacity: 100)
+      if c.setStroke:
+        sh.stroke = ShapePaint(kind: spColor, color: c.stroke, color2: c.stroke, angle: 90, opacity: 100)
+        if sh.strokeWidth <= 0 and not c.setWidth: sh.strokeWidth = 1
+      if c.setWidth: sh.strokeWidth = max(0.0, c.strokeWidth)
+      d.setShape(L, sh)
+      changed = true
+    elif L.isText and c.setFill:
+      var t = L.text
+      for sp in t.spans.mitems: sp.style.color = c.fill
+      d.setText(L, t)
+      changed = true
+    if c.setOpacity:
+      L.opacity = clamp(c.opacity, 0, 100)
+      changed = true
+    if changed:
+      inc L.ver
+      inc result
+  if result > 0: d.markAll()
+
 proc objectStyleOverridden*(d: Doc; L: Layer): bool =
   ## The layer differs from its Object Style (shown with a "+": Clear Overrides puts it back).
   let k = d.objectStyleIndex(L.objectStyle)
@@ -7838,6 +8476,19 @@ proc objectStyleFromJson*(j: JsonNode): ObjectStyleDef =
   for a in TextAutoSize:
     if $a == j{"autoSize"}.getStr: result.autoSize = a
   result.paraStyle = j{"paraStyle"}.getStr
+
+proc graphicStyleToJson*(g: GraphicStyleDef): JsonNode =
+  %*{"name": g.name, "look": g.look.toJson, "fx": g.fx.toJson, "opacity": g.opacity, "mode": $g.mode}
+
+proc graphicStyleFromJson*(j: JsonNode): GraphicStyleDef =
+  if j == nil or j.kind != JObject: return
+  result.name = j{"name"}.getStr
+  if j.hasKey("look"): result.look = shapeFrom(j["look"])
+  if j.hasKey("fx"): result.fx = layerFxFrom(j["fx"])
+  result.opacity = clamp(j{"opacity"}.getInt(100), 0, 100)
+  result.mode = bmNormal
+  for m in BlendMode:
+    if $m == j{"mode"}.getStr: result.mode = m
 
 proc compToJson(c: LayerComp): JsonNode =
   result = %*{"name": c.name, "comment": c.comment, "visibility": c.visibility, "position": c.position,
@@ -7917,6 +8568,10 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
                          "under": rangeOf(L.blendIf.under)}
     if L.maskDensity != 100: lj["maskDensity"] = %L.maskDensity
     if L.maskFeather > 0: lj["maskFeather"] = %L.maskFeather
+    if L.gradFeather.on:
+      let g = L.gradFeather
+      lj["gradFeather"] = %*{"radial": g.radial, "angle": g.angle, "start": g.startOpacity, "end": g.endOpacity,
+                             "startAt": g.startAt, "endAt": g.endAt}
     if L.group:
       lj["group"] = %true
       lj["passThrough"] = %L.passThrough
@@ -8000,6 +8655,10 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
     var a = newJArray()
     for st in d.objectStyles: a.add objectStyleToJson(st)
     j["objectStyles"] = a
+  if d.graphicStyles.len > 0:
+    var a = newJArray()
+    for st in d.graphicStyles: a.add graphicStyleToJson(st)
+    j["graphicStyles"] = a
   if d.bookmarks.len > 0:
     var a = newJArray()
     for bm in d.bookmarks: a.add %*{"title": bm.title, "dest": bm.dest, "level": bm.level}
@@ -8147,6 +8806,13 @@ proc loadRpd*(path: string): Doc =
       if L.blendIf.under == [0, 0, 255, 255]: L.blendIf.under = [0, 0, 0, 0]
     L.maskDensity = lj{"maskDensity"}.getInt(100)
     L.maskFeather = max(0.0, lj{"maskFeather"}.getFloat(0))
+    let gf = lj{"gradFeather"}
+    if gf != nil and gf.kind == JObject:
+      L.gradFeather = GradientFeather(on: true, radial: gf{"radial"}.getBool, angle: gf{"angle"}.getFloat(0),
+                                      startOpacity: clamp(gf{"start"}.getInt(100), 0, 100),
+                                      endOpacity: clamp(gf{"end"}.getInt(0), 0, 100),
+                                      startAt: clamp(gf{"startAt"}.getInt(0), 0, 100),
+                                      endAt: clamp(gf{"endAt"}.getInt(100), 0, 100))
     for m in BlendMode:
       if $m == lj{"mode"}.getStr: L.mode = m
     L.gray = lj{"gray"}.getBool
@@ -8213,7 +8879,7 @@ proc loadRpd*(path: string): Doc =
             L.smart = s2
     let mb = pic(lj{"mask"}.getStr)
     if mb != nil:
-      L.mask = Layer(name: "Layer Mask", opacity: 100, visible: true, gray: true, px: mb.px)
+      L.mask = Layer(name: "Layer Mask", opacity: 100, visible: true, gray: true, pxRaw: mb.px)
       for p in L.mask.px.mitems: p = grayPx(rOf(p))
       L.maskOff = lj{"maskOff"}.getBool
     result.layers.add L
@@ -8269,6 +8935,8 @@ proc loadRpd*(path: string): Doc =
                                        para: paraFrom(sj{"para"}))
   for sj in j{"objectStyles"}.getElems:
     if result.objectStyles.len < 10_000: result.objectStyles.add objectStyleFromJson(sj)
+  for sj in j{"graphicStyles"}.getElems:
+    if result.graphicStyles.len < 10_000: result.graphicStyles.add graphicStyleFromJson(sj)
   for bj in j{"bookmarks"}.getElems:
     if result.bookmarks.len < 10_000:
       result.bookmarks.add DocBookmark(title: bj{"title"}.getStr, dest: bj{"dest"}.getStr,

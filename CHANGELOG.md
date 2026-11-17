@@ -1,5 +1,186 @@
 # Changes
 
+## 0.59.0
+
+What was still missing from the three programs, all in one: nested line
+styles, type on a perspective plane, the phone's own spell checker,
+graphic styles, Round Corners and Scribble, Replace Spine, the Shape
+Builder tool, artboard options, Gradient Feather, tangent and
+perpendicular Smart Guides, layers renamed by what they hold, Data Merge
+into files, hanging punctuation and Optical Margin Alignment, hyphenation
+in six more languages, Find/Change for glyphs and objects with saved
+queries, masters based on masters, the Hijri date, Check Document's
+Arabic checks, IDML keeping styles, links and bookmarks; and the speed
+work's rest -- the hot loops eight lanes at a time where the processor
+has AVX2, the layers under the one painted on kept mixed, idle layers
+kept small, Blend If and Box Blur on the GPU, threads in a web page by
+default, an Android app that stays open when the phone changes its look.
+
+- **Nested Line Styles** (`retroui/textengine`: `NestedLine`,
+  `ParaStyle.lineStyles`, `repeatLast`): a paragraph's first lines in
+  character styles of their own (small caps for the first line, as a
+  chapter opens), the last ones repeated; laid out again until the lines
+  stand still, a nested style over them as the layout program has it.
+  IDML writes and reads them (`AllLineStyles`), with the nested and GREP
+  styles (`AllNestedStyles`, `AllGREPStyles`) and the character and
+  object styles they name, in `Styles.xml`.
+- **Type on a perspective plane** (`TextData.persp`, `perspBox`,
+  `perspOn`; `retroui/perspectivegrid`: `textOntoPlane`, `textOffPlane`;
+  `flatTextLayer`): the text set flat and drawn through the plane, still
+  text -- typed in flat, put back on the plane when done; Release with
+  Perspective lets it go.
+- **The phone's own spell checker** (`retroui/spell`,
+  `tools/android/RetroSpell.java`): Android's (its keyboard's:
+  Gboard's, Samsung's) and iOS's `UITextChecker`, words checked and
+  suggestions, in the text's language.
+- **Graphic Styles** (`GraphicStyleDef`, `Doc.graphicStyles`,
+  `graphicStyleIndex`, `graphicStyleOf`, `applyGraphicStyle`,
+  `graphicStyleToJson`, `graphicStyleFromJson`): all of how a shape looks
+  -- its fills and strokes, brush, widths, live effects, the layer's
+  style, opacity and mode -- kept by name and given to other shapes,
+  their outlines kept; saved in the document.
+- **Live effects** (`retroui/liveeffects`: `roundCorners`, `scribble`;
+  `leRoundCorners`, `leScribble`): Stylize > Round Corners (each corner
+  cut back and curved, smooth points as they are) and Scribble (the
+  inside as lines drawn back and forth, their spacing, width, angle and
+  looseness).
+- **Replace Spine** (`retroui/photovector`: `alongSpine`): a
+  blend's shapes along a path, evenly apart, turned with it when asked
+  (Align to Path).
+- **Smart Guides for lines** (`retroui/pathtools`: `snapTangentPerp`):
+  the end of a line drawn snaps where it would meet a shape's outline at
+  a right angle, or just touch it.
+- **Artboards** (`retroui/photocc`: `artboardColor`, `setArtboardColor`,
+  `lockArtboard`): an artboard's color (transparent: none) and its lock.
+- **Gradient Feather** (`GradientFeather`, `Layer.gradFeather`): a layer
+  fading across itself, linear at an angle or radial, from one opacity
+  to another, with its mask if it has one; saved; the GPU leaves such a
+  layer to the CPU.
+- **Layers renamed by what they hold** (`retroui/photocc`: `autoRename`;
+  `contentName` knows more): a shape by its color and kind ("Red
+  Rectangle"), a small thing by where it is ("Red Shape, Bottom Right"),
+  a band of blue at the top "Sky", of green at the bottom "Grass", a
+  group by its layers ("Title and 2 more").
+- **Data Merge into files** (`retroui/datamerge`: `exportRows`,
+  `fileNameFor`): a PNG or JPEG a row, each named by a column (made safe
+  for a file name, made unique) or numbered -- for a single picture, as
+  Photoshop's Data Sets as Files.
+- **Hanging punctuation** (`ParaStyle.hanging`, `ignoreOptical`;
+  `TextData.opticalMargin`; `hangOf`): Roman Hanging Punctuation (quotes,
+  periods, commas, hyphens all out of the line; dashes, colons,
+  semicolons, ellipses half) and Optical Margin Alignment (some letters'
+  edges too: A, T, V, W, Y); the room they leave counted when the lines
+  are broken, by both composers; Arabic's comma and full stop hang too.
+  PSD keeps Roman Hanging Punctuation; IDML Optical Margin Alignment
+  (`StoryPreference`) and Ignore Optical Margin (`IgnoreEdgeAlignment`).
+- **Hyphenation in its language** (`retroui/hyphenate`:
+  `hyphenLanguages`, `hasPatterns`, `hyphenPoints(..., lang)`,
+  `hyphenated(..., lang)`; `CharStyle.lang`): French, German (the reformed
+  spelling, 2006), Spanish, Italian, Portuguese and Dutch besides English --
+  hyph-utf8's patterns, each with its notice (`vendor/hyph-*.tex`; the
+  programs carry them packed with LZMA, `tools/packlzma.py`: 175 KB for
+  all seven, each unpacked the first time its language is hyphenated) --
+  accented letters, an apostrophe in a French or Italian word, each
+  language's own least letters at a word's ends; the five-letter least
+  word of the layout program. IDML keeps each word's language
+  (`AppliedLanguage`).
+- **Find/Change** (`retroui/textsearch`: `glyphOf`, `findGlyph`,
+  `changeGlyph`, `QueryKind`, `SavedQuery`, `builtInQueries`,
+  `queriesToJson`, `queriesFrom`; `retroui/photo`: `ObjectKind`,
+  `ObjectQuery`, `ObjectChange`, `matchesObject`, `findObjects`,
+  `changeObjects`): a glyph in a font (or any) changed to another in a
+  font of its own; frames by their fill, stroke, weight, opacity, Object
+  Style, kind and name, changed to others in a step; searches kept by
+  name, and the ones it comes with (spaces and returns made single,
+  whitespace at the ends of lines, dashes, quotes, phone numbers; Arabic's
+  tatweel taken away, its comma and question mark).
+- **Masters based on masters** (`retroui/photobook`: `Master.basedOn`,
+  `masterChain`, `setBasedOn`): a master's pages show the master it is
+  based on too, under its own -- and so does the master, as it is edited;
+  never round; saved with the book; IDML as the layout program writes it
+  (the master's pages with the other applied).
+- **The Hijri calendar** (new `retroui/hijri`: `toHijri`, `fromHijri`,
+  `hijriMonthName`, `arabicMonthName`, `arabicDayName`, `arabicDigits`,
+  `hijriDate`, `arabicDate`): Umm al-Qura's (1924 to 2077; its months'
+  first days from the hijridate package's table, MIT -- checked against
+  its 840 dates both ways), the arithmetical calendar outside it; dates in
+  Arabic, the Gulf's and Egypt's month names or the Levant's, Arabic-Indic
+  digits. **Text Variables** (`dayIn`, `withVariables`): `<hijri>`,
+  `<hijri:en>`, `<hijri:num>`, `<hijri:full>`, `<date:ar>`,
+  `<date:ar-sy>`, `<date:ar-full>`, `<date:dd/MM/yyyy>` (any format), and
+  `<modified:...>` the same.
+- **Check Document's Arabic** (`retroui/preflight`): Arabic in a font
+  picked for it that has no Arabic letters, set left to right, slanted, tracked apart, typed as
+  presentation forms (copied from a PDF), lengthened by tatweel typed by
+  hand in justified text, its digits of two kinds.
+- **IDML** (`retroui/idml`): hyperlinks (`HyperlinkTextSource`, to an
+  address, a destination, a page), destinations and bookmarks, written
+  and read; Object Styles on frames and shapes.
+- **Eight lanes, and fewer passes** (`retroui/simd`, `simdkern.h`,
+  `simdmix.h`: `mixOpt`, `lutAdj`, `lutInk`, `preRow`, `hasAvx2`,
+  `forceAvx2`): the layers mixed four or eight pixels at a time over any
+  pixels now -- masks, clipping, Blend If, opacity, fill -- AVX2 picked
+  when the processor has it, the same pixels either way; Hue/Saturation,
+  Curves and the other tables, and a CMYK proof, looked up with exact
+  arithmetic four at a time; a gaussian blur's strips sized to the cache.
+  **The layers under the one painted on kept mixed** (`compositeBelow`):
+  in tiles, the painted layer and those over it mixed on them -- the same
+  pixels, six times sooner over nine layers. **Idle layers kept small**
+  (`Layer.pxRaw`, `px`, `parked`; `canPark`, `parkLayer`, `parkHidden`,
+  `parkAll`, `parkedBytes`): their pixels deflated in tiles, or on the
+  scratch disk, until they are next read -- the app parks, after a
+  minute unchanged, the layers of the documents not shown and the hidden
+  ones of those shown, and all it can when the system is short of memory.
+  At 4000 x 3000 on two cores (best of three, `-d:useMalloc`):
+
+  | | 0.58.0 | now | |
+  |---|---|---|---|
+  | 300 dabs painted over nine layers | 95.3 ms | 15.7 ms | 6.1x |
+  | three masked layers mixed | 198.8 ms | 35.0 ms | 5.7x |
+  | two clipped layers | 150.3 ms | 33.7 ms | 4.5x |
+  | two Blend If layers | 242.0 ms | 74.9 ms | 3.2x |
+  | five layers mixed | 121.2 ms | 64.5 ms | 1.9x |
+  | Hue, Color, Luminosity layers | 1491.1 ms | 762.0 ms | 2.0x |
+  | two Hue/Saturation adjustment layers | 500.1 ms | 278.9 ms | 1.8x |
+  | a CMYK proof (one core) | 499.9 ms | 291.3 ms | 1.7x |
+  | Gaussian Blur 5 px | 308.3 ms | 181.7 ms | 1.7x |
+  | Gaussian Blur 8 px | 436.7 ms | 232.8 ms | 1.9x |
+  | bicubic to 6000 x 4500 | 280.9 ms | 194.5 ms | 1.4x |
+
+- **On the GPU** (`retroui/photogpu`, `retroui/gfxgpu`: `gpuBoxBlur`):
+  Blend If mixed on the GPU (the same pixels as the CPU's), Box Blur
+  there for big pictures.
+- **Web pages** (`retroweb`, `retro.js`): built with threads by default
+  (`--no-threads` for one build without), the page falling back to the
+  build without them where the browser will not give the memory; SIMD128
+  was already on.
+- **Android** (`uirelays/drivers/android_glue.c`): an app stays open when
+  the phone changes its look (a new theme, its fonts): the activity made
+  again is taken over, nothing lost; the mock tests drive it.
+- **Tests**: `test_simd`, `test_photospeed`, `test_gpucomposite`,
+  `test_textcompose`, `test_idml`, `test_perspectivegrid`,
+  `test_photocc`, `test_pathtools`, `test_datamerge`, `test_textsearch`,
+  `test_textengine`, `test_photobook`, `test_hyperlinks` grow; the
+  Android mock tests a relaunch.
+
+Retro Atelier 5.5.0: Paragraph > **Drop Caps and Nested Styles** with
+Nested Line Styles; **Layer > Perspective > Release with Perspective**,
+type staying type on a plane; the phone's spell checker; **Window >
+Graphic Styles**; **Layer > Live Effects > Stylize > Round Corners,
+Scribble**; the **Shape Builder tool** (drag across the parts of
+overlapping shapes; Alt+drag takes them away); **Layer > Path Operations
+> Replace Spine**; **Artboard Options** (the options bar); **Layer >
+Gradient Feather**; tangent and perpendicular Smart Guides; **Recolor
+Design** from another open picture's colors; **Layer > Rename Layers by
+Content** (and in the Layers palette's menu); **Data Merge: Export a File
+a Row**; the Paragraph panel's **Roman Hanging Punctuation**, **Optical
+Margin Alignment**, **Ignore Optical Margin**; the Character panel's
+**Language**; **Find/Change** with Text, GREP, Glyph and Object searches
+and its Query menu; **Layout > Masters > Master Options** (Based on
+Master); **Type > Text Variables > Insert Date As** (the Hijri date, the
+Arabic date); Check Document's Arabic checks; painting over many layers
+much sooner; idle layers kept small; every new word in Arabic.
+
 ## 0.58.0
 
 The three programs side by side: the photo program's missing filters and

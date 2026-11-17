@@ -30,6 +30,8 @@ proc poCopy(dst: var ParaStyle; src: ParaStyle; kind: string) =
     dst.dropLines = src.dropLines
     dst.dropChars = src.dropChars
     dst.nested = src.nested
+    dst.lineStyles = src.lineStyles
+    dst.repeatLast = src.repeatLast
   of "GREP Styles...":
     dst.grepStyles = src.grepStyles
   else: discard
@@ -74,6 +76,36 @@ proc nestedRows(d: Doc; list: var seq[NestedStyle]) =
     if button("New Nested Style", w = dp(130)) and list.len < 50:
       let nm = if d.charStyles.len > 0: d.charStyles[0].name else: ""
       list.add NestedStyle(name: nm, look: d.lookOf(nm), count: 1, unit: nuWords, through: true)
+
+proc lineRows(d: Doc; list: var seq[NestedLine]; repeatLast: var int) =
+  ## Nested Line Styles, as the layout program lists them: a character style for so many lines,
+  ## one after another from the paragraph's first line; then, if asked, the last styles again
+  ## ([Repeat])
+  let names = charStyleChoices(d)
+  if list.len == 0: label("(none: New Line Style adds one)", color = ui.theme.gray)
+  var gone = -1
+  for i in 0 ..< list.len:
+    row([110, 40, 54, 50, -1]):
+      var k = max(0, names.find(list[i].name))
+      if list[i].name.len == 0: k = 0
+      if combo(names, k, w = dp(104)):
+        list[i].name = if k <= 0: "" else: names[k]
+        list[i].look = d.lookOf(list[i].name)
+      label "for"
+      var n = max(1, list[i].lines)
+      if spin(n, 1, 999, w = dp(50)): list[i].lines = n
+      label "Lines"
+      if button("-", w = dp(24)): gone = i
+  if gone >= 0: list.delete(gone)
+  row([130, 130, 54, 44]):
+    if button("New Line Style", w = dp(124)) and list.len < 50:
+      let nm = if d.charStyles.len > 0: d.charStyles[0].name else: ""
+      list.add NestedLine(name: nm, look: d.lookOf(nm), lines: 1)
+    var rp = repeatLast > 0
+    if checkbox("Repeat the Last", rp): repeatLast = (if rp: 1 else: 0)
+    var rn = max(1, repeatLast)
+    if spin(rn, 1, 999, w = dp(50)) and repeatLast > 0: repeatLast = rn
+    label "Styles"
 
 proc grepRows(d: Doc; list: var seq[GrepStyle]) =
   ## GREP Styles: a character style wherever a pattern matches in the paragraph
@@ -253,6 +285,8 @@ proc paraOptionsDialog() =
         label ""
       label("Nested Styles:")
       nestedRows(d, poDlg.f.nested)
+      label("Nested Line Styles:")
+      lineRows(d, poDlg.f.lineStyles, poDlg.f.repeatLast)
     of "GREP Styles...":
       grepRows(d, poDlg.f.grepStyles)
     else: discard
@@ -389,6 +423,8 @@ proc styleOptionsDialog() =
         if spin(dc, 1, 20, w = dp(62)): psoDlg.f.dropChars = dc
         label ""
       nestedRows(d, psoDlg.f.nested)
+      label("Nested Line Styles:")
+      lineRows(d, psoDlg.f.lineStyles, psoDlg.f.repeatLast)
     else:
       grepRows(d, psoDlg.f.grepStyles)
     row:

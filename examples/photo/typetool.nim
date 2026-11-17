@@ -60,6 +60,10 @@ proc startTypeEdit(dw: DocWin; L: Layer; isNew: bool; caret: int) =
   # (a page's number is shown as it is written while it is typed in: <#>)
   d.rawText = uidOf(L)
   if "<#" in L.text.plainText: d.drawText(L)
+  if L.text.perspOn:
+    # (type on a perspective plane: typed in flat, put on its plane again when done)
+    flatTextLayer = L
+    d.drawText(L)
   te = (true, dw, L, clamp(caret, 0, n), clamp(caret, 0, n), L.text.styleAt(max(0, caret - 1)), isNew,
         isNew or L.name == L.text.layerName, ui.focus, false, ui.now, -1, (0.0, 0.0),
         (0'f32, 0'f32, 0'f32, 0'f32))
@@ -77,8 +81,10 @@ proc commitType() =
   let d = te.dw.doc
   let L = te.layer
   d.rawText = 0
+  let wasFlat = flatTextLayer == L
+  if wasFlat: flatTextLayer = nil
   defer:
-    if L in d.layers and "<#" in L.text.plainText: d.drawText(L)     # (its page number shown again)
+    if L in d.layers and ("<#" in L.text.plainText or wasFlat): d.drawText(L)     # (its page number shown again)
   if not d.stepOpen:
     status = ""
     return
@@ -117,8 +123,10 @@ proc cancelType() =
   te.on = false
   let d = te.dw.doc
   d.rawText = 0
+  let wasFlat = flatTextLayer == te.layer
+  if wasFlat: flatTextLayer = nil
   if d.stepOpen: d.cancelStep()
-  if te.layer in d.layers and "<#" in te.layer.text.plainText: d.drawText(te.layer)
+  if te.layer in d.layers and ("<#" in te.layer.text.plainText or wasFlat): d.drawText(te.layer)
   status = ""
 
 proc editText(change: proc (t: var TextData)) =

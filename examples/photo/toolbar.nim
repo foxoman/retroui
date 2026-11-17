@@ -125,7 +125,8 @@ let toolGroups = @[
   ToolGroup(name: "Width", key: ' ', items: @[
     ti("Width Tool", tVector, pxWarp, mvVector, 11),
     ti("Mesh Tool", tVector, pxGrid, mvVector, 12),
-    ti("Perspective Selection Tool", tVector, pxPerspCrop, mvVector, 13)]),
+    ti("Perspective Selection Tool", tVector, pxPerspCrop, mvVector, 13),
+    ti("Shape Builder Tool", tVector, pxBucket, mvVector, 14)]),
   ToolGroup(name: "Shape", key: 'U', items: @[
     ti("Rectangle Tool", tShape, pxRectShape, mvShape, 0),
     ti("Rounded Rectangle Tool", tShape, pxRoundRectShape, mvShape, 1),

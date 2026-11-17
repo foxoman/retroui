@@ -17,8 +17,11 @@
 ## falls (within the GPU's rounding) on a half -- the CPU's choice there is
 ## its 64-bit rounding. So the pixels are the CPU's, exactly.
 ##
-## Not done here (the CPU does them, unchanged): layer styles, Blend If,
-## Dissolve (and Behind / Clear), Clarity and Grain at the top level, 16-
+## Blend If too: each value's amount a table, as the CPU works it out.
+##
+## Not done here (the CPU does them, unchanged): layer styles, Blend If on
+## an adjustment layer or under a group clipped to, Dissolve (and Behind /
+## Clear), Clarity and Grain at the top level, 16-
 ## and 32-bit documents, a GPU without 32-bit floats in its fragment shaders
 ## or that fails a first check against the CPU, a document too big for
 ## `gpuCompositeBudget`.
@@ -450,6 +453,25 @@ vec3 lutApply(vec3 p) {
 #endif
 #endif
 
+#if BIF
+/* Blend If: the channel it goes by, and how much each value lets the layer show (the CPU's
+ * rangeAmt as a table: row 0 the layer's, row 1 what is under it) */
+float chanOf(vec4 p) {
+#if BIF_CH == 1
+  return p.r;
+#elif BIF_CH == 2
+  return p.g;
+#elif BIF_CH == 3
+  return p.b;
+#else
+  return floor((p.r * 77.0 + p.g * 151.0 + p.b * 28.0) / 256.0);
+#endif
+}
+float bifAmt(float v, float row) {
+  return floor(texture2D(uLut, vec2((v + 0.5) / 256.0, (row + 0.5) / 2.0)).a * 255.0 + 0.5);
+}
+#endif
+
 #if KIND == K_LAYER || KIND == K_COVER_LAYER
 float layerAmt() {
   float a = uOp;
@@ -468,6 +490,9 @@ vec4 compute() {
   if (s.a == 0.0) return d0;
   if (uFast > 0.5 && s.a == 255.0) return s;
   float a = layerAmt();
+#if BIF
+  if (a > 0.0) a = d255(d255(a * bifAmt(chanOf(s), 0.0)) * bifAmt(chanOf(d0), 1.0));
+#endif
   if (a <= 0.0) return d0;
 #if QUICK
   if (d0.a == 255.0) {
@@ -573,6 +598,8 @@ type
     baseMask: bool
     lut3: bool
     flags: bool
+    bif: bool                  # Blend If (its table where an adjustment's would be)
+    bifCh: int                 # ... by this channel (0 gray, 1 red, 2 green, 3 blue)
     tex: array[8, GLuint]      # acc, src, mask, base, base mask, cover, mode table, adjustment table
     op, fast, maskLo, baseMaskLo, baseLut: float32
 
@@ -717,7 +744,8 @@ proc cachedBytes(): int =
 
 proc progKey(s: PassSpec): int =
   ord(s.kind) or (ord(s.mode) shl 4) or (ord(s.mask) shl 9) or (s.clip shl 10) or
-    (ord(s.baseMask) shl 12) or (ord(s.lut3) shl 13) or (ord(s.flags) shl 14)
+    (ord(s.baseMask) shl 12) or (ord(s.lut3) shl 13) or (ord(s.flags) shl 14) or
+    (ord(s.bif) shl 15) or (s.bifCh shl 16)
 
 proc defines(s: PassSpec): string =
   template d(name: string; v: int) = result.add "#define " & name & " " & $v & "\n"
@@ -737,6 +765,8 @@ proc defines(s: PassSpec): string =
   d("BASE_MASK", ord(s.baseMask))
   d("LUT3", ord(s.lut3))
   d("FLAGS", ord(s.flags))
+  d("BIF", ord(s.bif))
+  d("BIF_CH", s.bifCh)
   result.add "#define NEAR_HALF " & $nearHalf & "\n"
 
 proc getProg(s: PassSpec): Prog =
@@ -809,6 +839,17 @@ proc lutTexture(lut: ptr seq[uint32]): LutTex =
     for k in old:
       delTex(lutCache[k].tex)
       lutCache.del k
+  lutCache[h] = result
+
+proc bifTexture(t: seq[uint8]): LutTex =
+  ## A Blend If's table on the GPU: 256 x 2, how much each value lets the layer show (row 0)
+  ## and each value of what is under it (row 1).
+  let h = hash(t) !& 0x5B1F
+  lutCache.withValue(h, e):
+    e.used = stamp
+    return e[]
+  var px = t
+  result = LutTex(tex: newTex(256, 2, GL_ALPHA, addr px[0]), lut3: false, used: stamp)
   lutCache[h] = result
 
 proc tileRectOf(e: LayerTex; i: int): Rect =
@@ -917,6 +958,9 @@ type
     level: int
     cov: bool
     pair: int
+    bif: bool                  # Blend If: its channel, and its table (the layer's, then what is under)
+    bifCh: int
+    bifT: seq[uint8]
 
   Plan = object
     items: seq[GItem]
@@ -1021,7 +1065,18 @@ proc planOf(d: Doc): Plan =
     else:
       it.base = -1
       base = items.len
-    if L.blendIf.isOn: why = "Blend If"
+    if L.gradFeather.on: why = "Gradient Feather"
+    if L.blendIf.isOn:
+      # (Blend If: a table of each value's amount, as the CPU works it out)
+      it.bif = true
+      it.bifCh = clamp(L.blendIf.channel, 0, 3)
+      it.bifT = newSeq[uint8](512)
+      let this = rangeOf(L.blendIf.this)
+      let under = rangeOf(L.blendIf.under)
+      for v in 0 .. 255:
+        it.bifT[v] = uint8(blendIfAmount(this, v))
+        it.bifT[256 + v] = uint8(blendIfAmount(under, v))
+      if lut != nil: why = "Blend If on an adjustment layer"
     if lut == nil and not filt:
       if L.mode in BadModes: why = $L.mode
       if L.hasFx and layerFxRender != nil: why = "a layer style"
@@ -1153,6 +1208,7 @@ proc runTile(d: Doc; plan: Plan; c: Rect; tx, ty, ts: int): bool =
       let e = entryFor(it.src, false, d, ts)
       srcTex[k] = syncTile(e, ty * e.gx + tx, it.src, d)
       if it.lut != nil: lutTex[k] = lutTexture(it.lut)
+      elif it.bif: lutTex[k] = bifTexture(it.bifT)
     if it.maskL != nil:
       if it.feather:
         let e = entryFor(it.maskOwner, true, d, ts)
@@ -1307,7 +1363,7 @@ proc runTile(d: Doc; plan: Plan; c: Rect; tx, ty, ts: int): bool =
         let t = fresh()
         if ok and draw(s, t): setSlot(phys[p], t) else: ok = false
         continue
-      let fast = it.mode == bmNormal and op == 255 and it.maskL == nil and it.base < 0
+      let fast = it.mode == bmNormal and op == 255 and it.maskL == nil and it.base < 0 and not it.bif
       if fast and bare and lvl == 0:
         # (the first layer as it is: its pixels, transparent ones too)
         var s = PassSpec(kind: pkCopy, mode: bmNormal)
@@ -1322,6 +1378,13 @@ proc runTile(d: Doc; plan: Plan; c: Rect; tx, ty, ts: int): bool =
       s.fast = float32(ord(fast))
       s.tex[USrc] = srcTex[k]
       s.withClip(it)
+      if it.bif:
+        # (Blend If: what is under is the colour mixed so far -- not there in a group's cover)
+        if covers > 0: ok = false
+        s.bif = true
+        s.bifCh = it.bifCh
+        s.fast = 0
+        s.tex[ULut] = lutTex[k].tex
       if covers > 0:
         for l in 1 .. lvl:
           if covOn[l] and ok:
@@ -1495,7 +1558,7 @@ proc checkDoc(): Doc =
   # a group mixing through (its cover kept: a layer clipped to it), one mixed on its own
   d.layers.add pixLayer("h", bmScreen, 100, 9, 1)
   var G = Layer(name: "pass", group: true, passThrough: true, opacity: 70, visible: true, mode: bmNormal,
-                px: newSeq[uint32](w * h))
+                pxRaw: newSeq[uint32](w * h))
   G.mask = maskOf(10)
   d.layers.add G
   L = pixLayer("i", bmNormal, 100, 11)
@@ -1503,7 +1566,7 @@ proc checkDoc(): Doc =
   d.layers.add L
   d.layers.add pixLayer("j", bmDifference, 100, 12, 1)
   d.layers.add pixLayer("k", bmNormal, 50, 13, 1)
-  G = Layer(name: "iso", group: true, opacity: 80, visible: true, mode: bmSoftLight, px: newSeq[uint32](w * h))
+  G = Layer(name: "iso", group: true, opacity: 80, visible: true, mode: bmSoftLight, pxRaw: newSeq[uint32](w * h))
   d.layers.add G
   d.markAll()
   d

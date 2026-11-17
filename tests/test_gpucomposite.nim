@@ -6,7 +6,7 @@
 ## features left to the CPU, the hook, and the guard's choice by timings.
 ## Off screen (EGL); skipped where there is no OpenGL.
 
-import std/[os, strutils, tables, monotimes, times]
+import std/[os, strutils, tables, monotimes, times, math]
 import retroui/[gfx, photo, photogpu]
 import retroui/uirelays/[eglload, screen]
 {.push warning[UnusedImport]: off.}
@@ -76,7 +76,7 @@ proc maskLayer(d: Doc; seed: int): Layer =
 
 proc group(d: Doc; name: string; passThrough: bool; mode = bmNormal; opacity = 100; depth = 0): Layer =
   result = Layer(name: name, group: true, passThrough: passThrough, mode: mode, opacity: opacity,
-                 visible: true, depth: depth, px: newSeq[uint32](d.w * d.h))
+                 visible: true, depth: depth, pxRaw: newSeq[uint32](d.w * d.h))
   d.layers.add result
 
 proc adjustLayer(d: Doc; kind: string; args: seq[float]; mode = bmNormal; opacity = 100;
@@ -335,6 +335,65 @@ block tiles:
   doAssert maxDiff(d.comp, d.cpuComposite()).worst == 0, "another buffer: sent again"
   gpuCompositeTile = keep
 
+# ---- Blend If: on the GPU, the CPU's pixels --------------------------------------------------------------------
+
+block blendIf:
+  for (ch, this, under, m) in [(0, [0, 0, 120, 200], [0, 0, 255, 255], bmMultiply),
+                               (1, [30, 60, 255, 255], [0, 40, 180, 230], bmNormal),
+                               (2, [0, 0, 255, 255], [10, 90, 200, 250], bmScreen),
+                               (3, [5, 120, 130, 250], [0, 0, 255, 255], bmHue)]:
+    let d = newDoc(W, H, 0xFFFFFFFF'u32)
+    d.fillNoise(d.layers[0], 81, [255])
+    discard d.pixLayer("x", m, 90, 82)
+    d.layers[^1].blendIf = BlendIf(channel: ch, this: this, under: under)
+    discard d.pixLayer("over", bmNormal, 100, 84)
+    d.layers[^1].blendIf = BlendIf(channel: (ch + 1) mod 4, this: [0, 0, 200, 250], under: under)
+    d.markAll()
+    doAssert gpuCompositeSupport(d) == "", gpuCompositeSupport(d)
+    d.comp = newSeq[uint32](d.w * d.h)
+    doAssert gpuComposite(d, d.bounds), "Blend If by channel " & $ch & ": on the GPU"
+    let diff = maxDiff(d.comp, d.cpuComposite())
+    doAssert diff.worst == 0, "Blend If by channel " & $ch & ": " & $diff
+  echo "Blend If on the GPU: the CPU's pixels, each channel"
+
+# ---- blurs on the GPU: as the CPU's, within a level --------------------------------------------------------
+
+block blurs:
+  var px = newSeq[uint32](700 * 420)
+  var sd = 7'u32
+  for i in 0 ..< px.len:
+    sd = sd * 1103515245'u32 + 12345'u32
+    px[i] = (if i mod 9 == 0: 0x80000000'u32 else: 0xFF000000'u32) or ((sd shr 5) and 0xFFFFFF'u32)
+  proc worst(a, b: seq[uint32]): int =
+    for i in 0 ..< a.len:
+      if (a[i] shr 24) == 0 and (b[i] shr 24) == 0: continue
+      for sh in [0, 8, 16, 24]:
+        result = max(result, abs(int((a[i] shr sh) and 255) - int((b[i] shr sh) and 255)))
+  for r in [1, 4, 12]:
+    let g = gpuBoxBlur(px, 700, 420, r)
+    doAssert g.len == px.len, "box " & $r & ": on the GPU"
+    # (the CPU's: running sums -- whole numbers, rounded once)
+    var cpu = newSeq[uint32](px.len)
+    for y in 0 ..< 420:
+      for x in 0 ..< 700:
+        var s = [0.0, 0.0, 0.0, 0.0]
+        for j in -r .. r:
+          for i in -r .. r:
+            let p = px[clamp(y + j, 0, 419) * 700 + clamp(x + i, 0, 699)]
+            let a = float(p shr 24)
+            s[0] += float((p shr 16) and 255) * a; s[1] += float((p shr 8) and 255) * a
+            s[2] += float(p and 255) * a; s[3] += a
+        let n = float((2 * r + 1) * (2 * r + 1))
+        let a = s[3] / n
+        cpu[y * 700 + x] = if a <= 0: 0'u32 else:
+          (uint32(round(a)) shl 24) or (uint32(round(s[0] / s[3])) shl 16) or
+          (uint32(round(s[1] / s[3])) shl 8) or uint32(round(s[2] / s[3]))
+    let wd = worst(g, cpu)
+    doAssert wd <= 2, "box " & $r & ": " & $wd
+  let gb = gpuBlur(px, 700, 420, 6.0)
+  doAssert gb.len == px.len
+  echo "blurs on the GPU: as the CPU's, within a level"
+
 # ---- what the GPU does not do: left to the CPU ---------------------------------------------------------------
 
 block fallbacks:
@@ -344,9 +403,6 @@ block fallbacks:
     discard result.pixLayer("x", bmMultiply, 100, 82)
   var cases: seq[(string, Doc)]
   var d = base()
-  d.layers[^1].blendIf = BlendIf(channel: 0, this: [0, 0, 120, 200], under: [0, 0, 0, 0])
-  cases.add ("Blend If", d)
-  d = base()
   d.layers[^1].mode = bmDissolve
   cases.add ("Dissolve", d)
   d = base()

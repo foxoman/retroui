@@ -422,6 +422,51 @@ proc spiralPath*(x0, y0, x1, y1: float; turns = 3.0; decay = 80): Path =
   sp.closed = false
   result.subs.add sp
 
+proc moveShape(s: ShapeData; dx, dy: float; turn = 0.0; cx = 0.0; cy = 0.0): ShapeData =
+  ## (a shape moved by `dx`, `dy` -- turned by `turn` radians round `cx`, `cy` first)
+  result = s
+  let c = cos(turn)
+  let sn = sin(turn)
+  proc f(p: (float, float)): (float, float) =
+    let x = p[0] - cx
+    let y = p[1] - cy
+    (cx + x * c - y * sn + dx, cy + x * sn + y * c + dy)
+  for sp in result.path.subs.mitems:
+    for q in sp.pts.mitems:
+      q.p = f(q.p)
+      q.inH = f(q.inH)
+      q.outH = f(q.outH)
+
+proc alongSpine*(shapes: seq[ShapeData]; spine: Path; orient = false): seq[ShapeData] =
+  ## Replace Spine: a blend's shapes (the first and last its ends) moved along `spine` (its first
+  ## subpath), their middles evenly apart by its length, as the drawing program puts a blend on a
+  ## path; `orient` (Align to Path): each turned with the path where it is.
+  result = shapes
+  if shapes.len == 0 or spine.subs.len == 0: return
+  let poly = flatten(Path(subs: @[spine.subs[0]]), 24)
+  if poly.len == 0 or poly[0].len < 2: return
+  let pts = poly[0]
+  var cum = @[0.0]
+  for i in 1 ..< pts.len: cum.add cum[^1] + hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+  let total = cum[^1]
+  if total <= 0: return
+  proc at(d: float): tuple[p: (float, float); angle: float] =
+    var i = 1
+    while i < pts.high and cum[i] < d: inc i
+    let seg = max(1e-9, cum[i] - cum[i - 1])
+    let t = clamp((d - cum[i - 1]) / seg, 0.0, 1.0)
+    let a = pts[i - 1]
+    let b = pts[i]
+    ((a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t), arctan2(b[1] - a[1], b[0] - a[0]))
+  let n = shapes.len
+  let a0 = at(0).angle
+  for k, sh in shapes:
+    let (x0, y0, x1, y1) = pathBounds(sh.path)
+    let cx = (x0 + x1) / 2
+    let cy = (y0 + y1) / 2
+    let here = at(if n == 1: total / 2 else: total * k.float / float(n - 1))
+    result[k] = moveShape(sh, here.p[0] - cx, here.p[1] - cy, (if orient: here.angle - a0 else: 0.0), cx, cy)
+
 # ---- Shape Builder ------------------------------------------------------------------------------------------
 
 proc shapeRegions*(shapes: openArray[ShapeData]; w, h: int): seq[uint64] =

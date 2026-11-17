@@ -294,7 +294,8 @@ proc doCommand(name: string) =
     return
   if name in ["New Hyperlink...", "New Hyperlink Destination...", "Insert Cross-Reference...", "Remove Hyperlink",
               "Insert File Name", "Insert Output Date", "Insert Modification Date", "New Bookmark"] or
-     name.startsWith("Insert Running Header: "):
+     name.startsWith("Insert Running Header: ") or name.startsWith("Insert Hijri Date") or
+     name.startsWith("Insert Arabic Date") or name.startsWith("Insert Date "):
     discard hyperlinkCommand(name)        # (the text selected: the text stays as it is typed)
     return
   if name in ["Insert Footnote", "Insert Endnote"]:   # (at the caret: the text stays as it is typed)
@@ -762,7 +763,7 @@ proc doCommand(name: string) =
   of "Data Merge...": discard mergeCommand(name)
   of "Find/Change...", "Story Editor...": discard findCommand(name)
   of "Show Perspective Grid", "Hide Perspective Grid", "Lock Perspective Grid", "One Point Perspective",
-     "Two Point Perspective", "Three Point Perspective", "Define Perspective Grid...", "Attach to Active Plane",
+     "Two Point Perspective", "Three Point Perspective", "Define Perspective Grid...", "Attach to Active Plane", "Release with Perspective",
      "Perspective Plane: Left Wall", "Perspective Plane: Right Wall", "Perspective Plane: Floor",
      "Perspective Plane: Facing Wall", "Perspective Plane: None":
     discard perspectiveCommand(name)
@@ -772,7 +773,8 @@ proc doCommand(name: string) =
   of "Apply Brush to Path...": discard pathBrushCommand(name)
   of "Free Distort...", "Pucker & Bloat...", "Roughen...", "Transform Effect...", "Tweak...", "Twist...",
      "Zig Zag...", "Offset Path Effect...", "Expand Appearance", "Brushes (Vector)", "Appearance",
-     "Radial Repeat...", "Grid Repeat...", "Mirror Repeat...", "Transform Each...":
+     "Radial Repeat...", "Grid Repeat...", "Mirror Repeat...", "Transform Each...", "Round Corners...",
+     "Scribble...":
     discard liveEffectCommand(name)
   of "Resize for...", "Brand Kit...", "Photo Grid...", "Text Effects...", "Recolor Design...", "Check Document...",
      "Preflight...":
@@ -784,6 +786,8 @@ proc doCommand(name: string) =
      "Original Size", "Frame Options...", "Remove Content", "Anchor to Text", "Release Anchor":
     discard framesCommand(name)
   of "Make Blend...", "Make Blend": startMakeBlend()
+  of "Replace Spine": replaceSpine(false)
+  of "Replace Spine (Align to Path)": replaceSpine(true)
   of "Shape Builder...": startShapeBuilder()
   of "Freeform Gradient...": startFreeform()
   of "Gradient Mesh...": startGradientMesh()
@@ -1120,7 +1124,7 @@ proc doCommand(name: string) =
       d.layersChange("Rasterize Layer Style"):
         d.touch(L, d.bounds)
         var px = newSeq[uint32](d.w * d.h)
-        let tmp = Layer(px: L.px, opacity: 100, mode: bmNormal, visible: true, fx: L.fx, mask: L.mask,
+        let tmp = Layer(pxRaw: L.px, opacity: 100, mode: bmNormal, visible: true, fx: L.fx, mask: L.mask,
                         maskOff: L.maskOff)
         tmp.fill = L.fill
         d.compositeInto(px, d.bounds, @[tmp])
@@ -1479,6 +1483,9 @@ proc classicMenus() =
           item("&Radial Repeat...", enabled = shp)
           item("&Grid Repeat...", enabled = shp)
           item("&Mirror Repeat...", enabled = shp)
+        submenu "&Stylize":
+          item("Round &Corners...", enabled = shp)
+          item("&Scribble...", enabled = shp)
         menuSeparator()
         item("E&xpand Appearance", enabled = shp)
         item("Transform &Each...", enabled = some)
@@ -1713,7 +1720,24 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.4.0: new filters -- Blur > Average, Box Blur, Shape Blur, Smart Blur, Lens Blur; " &
+           whatsNew = ["5.5.0: Nested Line Styles (Paragraph: Drop Caps and Nested Styles); type on a " &
+                       "perspective plane, still type (Layer > Perspective > Release with Perspective); the " &
+                       "phone's own spell checker on Android and iOS; Window > Graphic Styles; Layer > Live " &
+                       "Effects > Stylize > Round Corners and Scribble; the Shape Builder tool; Layer > Path " &
+                       "Operations > Replace Spine; " &
+                       "Artboard Options (its color, its lock); Layer > Gradient Feather; Smart Guides for " &
+                       "tangent and perpendicular lines; Recolor from another open picture's colors; Layer > " &
+                       "Rename Layers by Content; Data Merge: a PNG or JPEG a row; Paragraph: Roman Hanging " &
+                       "Punctuation, Optical Margin Alignment; Character > Language: words hyphenated in " &
+                       "French, German, Spanish, Italian, Portuguese and Dutch too; Find/Change: Glyph and " &
+                       "Object searches, saved queries and the ones it comes with (Arabic's among them); " &
+                       "Layout > Masters > Master Options (Based on Master); Text Variables: the Hijri date " &
+                       "(Umm al-Qura) and dates in Arabic; Check Document's Arabic checks; IDML keeps styles, " &
+                       "links, bookmarks, nested line styles, Optical Margin and each word's language; " &
+                       "painting over many layers six times sooner, layers mixed up to five times sooner, " &
+                       "blurs and the GPU's Blend If; idle layers kept small in memory; on Android it stays " &
+                       "open when the phone changes its look",
+                       "5.4.0: new filters -- Blur > Average, Box Blur, Shape Blur, Smart Blur, Lens Blur; " &
                        "Filter Gallery's Artistic, Brush Strokes, Distort, Sketch, Stylize and Texture filters " &
                        "(Fresco, Neon Glow, Palette Knife, Glass, Ocean Ripple, Chalk & Charcoal, Glowing Edges " &
                        "and more); Adjustments > Light; Layer Style > Pattern Overlay; Layer > Matting; " &

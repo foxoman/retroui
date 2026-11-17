@@ -32,6 +32,7 @@ var
   bookGo: tuple[open: bool; n: int; what: int]     ## Go to Page / Move Page / Start Numbering
   wrapDlg = false
   shapesDlg: tuple[open: bool; word: string; key: string; pics: seq[Bitmap]]
+  masterDlg: tuple[open: bool; id: int; name: string; based: int]   ## Master Options
 
 const bookDpis = [96, 150, 200, 300]
 
@@ -572,6 +573,11 @@ proc bookCommand(name: string): bool =
       if bw.master == 0:
         bw.book.setMaster(bw.page, 0)
         bw.showPage(bw.page)
+  of "Master Options...":
+    need:
+      let id = if bw.master > 0: bw.master else: bw.book.pages[bw.page].master
+      let m = bw.book.masterOf(id)
+      if m != nil: masterDlg = (true, m.id, m.name, m.basedOn)
   of "Delete Master":
     need:
       let id = if bw.master > 0: bw.master else: bw.book.pages[bw.page].master
@@ -665,6 +671,8 @@ proc layoutMenu() =
     ci("Edit Master: &Left Page", "Edit Master: Left Page", enabled = isBook and bw.book.setup.facing)
     ci("Edit Master: &Right Page", "Edit Master: Right Page", enabled = isBook)
     ci("&Back to the Page", "Back to the Page", enabled = isBook and bw.master > 0)
+    ci("Master &Options...", "Master Options...",
+       enabled = isBook and (bw.master > 0 or bw.book.pages[bw.page].master != 0))
     ci("&Delete Master", "Delete Master",
        enabled = isBook and (bw.master > 0 or bw.book.pages[bw.page].master != 0))
     sep()
@@ -962,6 +970,39 @@ proc bookDialogs() =
       bookPdf = bw
       startPdfOptions(@[bw.dw.doc], p)
       pdfDlg.o.title = bw.book.name
+  if masterDlg.open:
+    # Master Options: its name, and the master it is based on (its layers on this one's pages
+    # too, under its own)
+    let bw = curBook()
+    let m = if bw != nil: bw.book.masterOf(masterDlg.id) else: nil
+    if m == nil:
+      masterDlg.open = false
+      return
+    dialog(masterDlg.open, "Master Options", 360):
+      row([120, -1]):
+        label "Name:"
+        edit(masterDlg.name)
+      row([120, -1]):
+        label "Based on Master:"
+        var names = @["[None]"]
+        var ids = @[0]
+        for o in bw.book.masters:
+          if o.id != m.id and m notin bw.book.masterChain(o):
+            names.add o.name
+            ids.add o.id
+        var k = max(0, ids.find(masterDlg.based))
+        if combo(names, k, w = dp(140)): masterDlg.based = ids[clamp(k, 0, ids.high)]
+      row:
+        spring()
+        if button("OK", isDefault = true, w = dp(80)):
+          masterDlg.open = false
+          if masterDlg.name.strip.len > 0 and masterDlg.name.strip != m.name:
+            m.name = masterDlg.name.strip
+            bw.book.modified = true
+          if not bw.book.setBasedOn(m.id, masterDlg.based):
+            status = "A master cannot be based on one that is based on it."
+          if bw.master > 0: bw.editMaster(bw.master, bw.side) else: bw.showPage(bw.page)
+        if button("Cancel", w = dp(80)): masterDlg.open = false
   if bookGo.open:
     let bw = curBook()
     if bw == nil:

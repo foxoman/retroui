@@ -33,13 +33,14 @@ retrokit small app.nim                       # the smallest: --opt:size, LTO, st
 ```
 
 The photo engine's hottest loops (`retroui/simd`: the layers mixed,
-blurs, resampling) are C written with GCC's and Clang's own vectors --
-SSE2 on any x86-64, NEON on ARM; nothing to add. A computer you build
-for alone can have more: `--passC:-march=native` lets the compiler use
-AVX2 there (that program then runs only on such processors).
-`-d:retroNoSimd` keeps the plain Nim loops, to compare. A web page uses
-SIMD128 when built with `--passC:-msimd128` (every browser of the last
-years runs it).
+the tables looked up, blurs, resampling) are C written with GCC's and
+Clang's own vectors -- SSE2 on any x86-64, and AVX2 besides, eight lanes,
+picked as the program starts where the processor has it (the same
+program runs on every x86-64, the same pixels either way); NEON on ARM;
+nothing to add.
+`-d:retroNoSimd` keeps the plain Nim loops, to compare. A web page is
+built with SIMD128 (`retrokit web` passes `-msimd128` itself; every
+browser of the last years runs it).
 
 **Windows, on Windows:** the Nim zip for Windows comes with MinGW;
 `nim c -d:release -d:useMalloc --app:gui app.nim` makes `app.exe`
@@ -243,7 +244,9 @@ kit's fonts, fetched when a face is first used), `app/` (`--files`),
 `oauth.html` (where a sign-in comes back to, `retroui/oauth`), the
 manifest, the icons and `sw.js` (the service worker).
 
-**Threads:** `--threads` builds the app twice, `app.wasm` and
+**Threads:** a page built (`retrokit web`) has threads unless it is
+told `--no-threads` (one build, without them); `retrokit run --web`,
+built to try, has none unless it is told `--threads`. `--threads` builds the app twice, `app.wasm` and
 `app-threads.wasm` (`--threads:on`, WebAssembly's atomics, one shared
 memory of up to 1 GB) -- `retrokit run --web --threads` once, with
 threads only (its server lets the page use them); the page takes the second where the browser lets
@@ -253,7 +256,9 @@ it share memory with Web Workers (crossOriginIsolated: the server sends
 adds them on any server, the page loading once more the first time;
 `retrokit run --web` sends them itself). `--threads:N` starts N workers
 with the page (the cores, at most 8, else); `--threads-only` builds only
-with threads (an app that needs them; elsewhere the page says so). Code
+with threads (an app that needs them; elsewhere the page says so). A
+browser that will not give the shared memory up front (a phone short of
+it) gets the build without threads. Code
 that starts threads itself compiles both ways: `when
 compileOption("threads")`. Other sites' pages in a frame need to allow
 being embedded (`Cross-Origin-Resource-Policy`) in a page with threads.

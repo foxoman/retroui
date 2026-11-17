@@ -116,6 +116,9 @@ type
     ## A master page: what is on it is on every page that has it.
     id*: int
     name*: string                    ## "A"
+    basedOn*: int                    ## the master it is based on (Based on Master): what is on that
+                                     ## one is on this one's pages too, under its own (0: none;
+                                     ## `setBasedOn`)
     sides: array[2, BookPage]        # (left, right; not facing: the right one only)
     ver: int
   Book* = ref object
@@ -253,6 +256,29 @@ proc masterOf*(b: Book; id: int): Master =
   for m in b.masters:
     if m.id == id: return m
 
+proc masterChain*(b: Book; m: Master): seq[Master] =
+  ## A master and those it is based on, the first it is based on first (it last): what its
+  ## pages show, from the bottom up. A master based, round, on itself stops there.
+  var at = m
+  while at != nil and at notin result and result.len < 16:
+    result.insert(at, 0)
+    at = b.masterOf(at.basedOn)
+
+proc setBasedOn*(b: Book; id, parent: int): bool {.discardable.} =
+  ## Master `id` based on master `parent` (0: on none), as Master Options' Based on Master: its
+  ## pages show `parent`'s layers too, under its own. Refused (false) when that would go round
+  ## (`parent` based on it, or it itself).
+  let m = b.masterOf(id)
+  if m == nil: return false
+  if parent != 0:
+    let p = b.masterOf(parent)
+    if p == nil or m in b.masterChain(p): return false
+  if m.basedOn != parent:
+    m.basedOn = parent
+    inc m.ver
+    b.modified = true
+  true
+
 proc isOpen*(b: Book; i: int): bool = b.pages[i].doc != nil
   ## Page `i` is in memory.
 
@@ -333,6 +359,36 @@ proc masterDoc*(b: Book; m: Master; side: PageSide): Doc =
                                          else: "-Master, right"), paper = false)
   result.pageLabel = "#"
   result.pageTotal = "#"
+  # (based on another master: its layers on this one too, under its own, locked -- as its
+  # pages show them)
+  let sp = m.sides[k]
+  let parents = b.masterChain(m)
+  var want = ""
+  for i in 0 ..< parents.len - 1:
+    want.add (if want.len > 0: "/" else: "") & $parents[i].id & ":" & $ord(side) & ":" & $parents[i].ver
+  if sp.applied != want:
+    let d = result
+    var curL = if d.cur >= 0 and d.cur < d.layers.len: d.layers[d.cur] else: nil
+    for q in countdown(d.layers.high, 0):
+      if d.layers[q].fromMaster != 0: d.layers.delete(q)
+    var at = if d.layers.len > 0 and d.layers[0].background: 1 else: 0
+    for i in 0 ..< parents.len - 1:
+      let pd = b.masterDoc(parents[i], side)
+      for L in pd.layers:
+        if L.background or L.px.len != d.w * d.h or L.fromMaster != 0: continue
+        if not L.isText and pd.contentBounds(L).w <= 0: continue
+        let c = cloneLayer(L)
+        c.depth = 0
+        c.fromMaster = parents[i].id
+        c.uid = 0
+        c.locked = true
+        d.layers.insert(c, at)
+        inc at
+    if curL != nil and curL.fromMaster != 0: curL = nil
+    d.cur = max(0, if curL != nil: d.layers.find(curL) else: d.layers.high)
+    sp.applied = want
+    d.clearHistory()
+    d.markAll()
 
 proc addMaster*(b: Book; name = ""): Master =
   ## A new, empty master ("A", "B"... when it is given no name).
@@ -350,6 +406,10 @@ proc removeMaster*(b: Book; id: int) =
       b.masters.delete(i)
   for pg in b.pages:
     if pg.master == id: pg.master = 0
+  for m in b.masters:
+    if m.basedOn == id:
+      m.basedOn = 0
+      inc m.ver
   b.modified = true
 
 proc setMaster*(b: Book; i, masterId: int) =
@@ -499,18 +559,21 @@ proc dress(b: Book; i: int) =
   # its master's layers, under its own
   let side = b.sideOf(i)
   let m = b.masterOf(pg.master)
-  let want = if m == nil: "" else: $m.id & ":" & $ord(side) & ":" & $m.ver
+  let chain = if m == nil: @[] else: b.masterChain(m)
+  var want = ""
+  for cm in chain: want.add (if want.len > 0: "/" else: "") & $cm.id & ":" & $ord(side) & ":" & $cm.ver
   var relabel = false
   var remastered = false
   if pg.applied != want:
     var curL = if d.cur >= 0 and d.cur < d.layers.len: d.layers[d.cur] else: nil
     for k in countdown(d.layers.high, 0):
       if d.layers[k].fromMaster != 0: d.layers.delete(k)
-    if m != nil:
-      let md = b.masterDoc(m, side)
-      var at = if d.layers.len > 0 and d.layers[0].background: 1 else: 0
+    var at = if d.layers.len > 0 and d.layers[0].background: 1 else: 0
+    for cm in chain:
+      # (the master it is based on first, under: then its own)
+      let md = b.masterDoc(cm, side)
       for L in md.layers:
-        if L.background or L.px.len != d.w * d.h: continue
+        if L.background or L.px.len != d.w * d.h or L.fromMaster != 0: continue
         # (a layer with nothing on it -- a new master's "Layer 1" -- stays there)
         if not L.isText and md.contentBounds(L).w <= 0: continue
         let c = cloneLayer(L)
@@ -1198,6 +1261,7 @@ proc saveBook*(b: Book; path: string; keep: openArray[int] = []) =
         put(s, "masters/" & $s.id & ".rpd")
         sides.add %s.id
     masters.add %*{"id": m.id, "name": m.name, "ver": m.ver, "sides": sides}
+    if m.basedOn != 0: masters[^1]["basedOn"] = %m.basedOn
   let j = %*{"retroBook": 1, "name": b.name, "setup": setupJson(b.setup), "pages": pages, "masters": masters,
              "nextId": b.nextId}
   z.addFile("book.json", $j)
@@ -1286,7 +1350,8 @@ proc loadBook*(path: string): Book =
     let id = mj{"id"}.getInt(0)
     if id <= 0 or id in seen: continue
     seen.add id
-    let m = Master(id: id, name: mj{"name"}.getStr("A"), ver: max(1, mj{"ver"}.getInt(1)))
+    let m = Master(id: id, name: mj{"name"}.getStr("A"), ver: max(1, mj{"ver"}.getInt(1)),
+                   basedOn: max(0, mj{"basedOn"}.getInt(0)))
     let sides = mj{"sides"}.getElems
     for k in 0 ..< min(2, sides.len):
       let sid = sides[k].getInt(0)
@@ -1296,6 +1361,11 @@ proc loadBook*(path: string): Book =
   b.nextId = max(b.nextId, j{"nextId"}.getInt(0))
   for pg in b.pages:
     if pg.master != 0 and b.masterOf(pg.master) == nil: pg.master = 0
+  for m in b.masters:
+    # (one it was based on and is not there, or one that goes round: none)
+    if m.basedOn != 0:
+      let p = b.masterOf(m.basedOn)
+      if p == nil or m in b.masterChain(p): m.basedOn = 0
   b.modified = false
 
 type

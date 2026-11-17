@@ -25,13 +25,25 @@ typedef float rui_f4 __attribute__((vector_size(16)));
 #endif
 
 #if RUI_VEC
-typedef uint8_t rui_b4 __attribute__((vector_size(4)));
-/* a pixel's four bytes (b, g, r, a in memory) as four floats */
-static inline rui_f4 rui_px4(uint32_t p) {
-  rui_b4 b;
-  memcpy(&b, &p, 4);
-  return __builtin_convertvector(b, rui_f4);
+typedef int32_t rui_i4v __attribute__((vector_size(16)));
+typedef uint8_t rui_b16 __attribute__((vector_size(16)));
+typedef uint16_t rui_h8 __attribute__((vector_size(16)));
+#if defined(__clang__) || __GNUC__ >= 12
+#define RUI_SHUF(T, a, b, ...) __builtin_shufflevector(a, b, __VA_ARGS__)
+#else
+#define RUI_SHUF(T, a, b, ...) __builtin_shuffle(a, b, (T){__VA_ARGS__})
+#endif
+/* a pixel's four bytes (b, g, r, a in memory) as four whole numbers: two interleavings with
+ * zeros (punpcklbw, punpcklwd on x86; a byte at a time would be a dozen instructions) */
+static inline rui_u4 rui_bytes4(uint32_t p) {
+  rui_u4 v = {p, 0, 0, 0};
+  rui_b16 b = (rui_b16)v, z = {0};
+  rui_h8 h = (rui_h8)RUI_SHUF(rui_b16, b, z, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  rui_h8 hz = {0};
+  return (rui_u4)RUI_SHUF(rui_h8, h, hz, 0, 8, 1, 9, 2, 10, 3, 11);
 }
+/* ... as four floats */
+static inline rui_f4 rui_px4(uint32_t p) { return __builtin_convertvector((rui_i4v)rui_bytes4(p), rui_f4); }
 #endif
 
 static inline uint32_t rui_c255(int v) { return v < 0 ? 0u : (v > 255 ? 255u : (uint32_t)v); }
@@ -48,95 +60,159 @@ static inline uint32_t rui_over1(uint32_t d, uint32_t s, uint32_t ea, const uint
          RUI_DIV255(sb * ea + db * ia);
 }
 
+/* What a layer's pixel is mixed by besides its opacity (retroui/photo's clipAmt and Blend If):
+ * each pointer indexed by the document's column, NULL when it has none. */
+typedef struct {
+  const uint32_t* mask;      /* its layer mask (gray: the red byte) */
+  const uint32_t* cover;     /* clipped to a group: how much the group covers (0..255 a pixel) */
+  const uint32_t* base;      /* clipped to a layer: that layer's pixels (its alpha) ... */
+  const uint32_t* bmask;     /* ... and its mask */
+  int blut;                  /* ... an adjustment layer: its alpha times its mask's red */
+  int bif, ch;               /* Blend If, by channel `ch` (0 gray, 1 red, 2 green, 3 blue) */
+  const uint8_t* thisT;      /* ... how much each value of this layer lets it show (256) */
+  const uint8_t* underT;     /* ... and each value of what is under it */
+} rui_mixopt;
+
+static inline uint32_t rui_chan(uint32_t p, int ch) {
+  switch (ch) {
+  case 1: return (p >> 16) & 255;
+  case 2: return (p >> 8) & 255;
+  case 3: return p & 255;
+  default: return (((p >> 16) & 255) * 77 + ((p >> 8) & 255) * 151 + (p & 255) * 28) >> 8;
+  }
+}
+
+/* (one pixel's amount, 0..255, as the plain loop works it out: each step rounded down) */
+static inline uint32_t rui_amt1(const rui_mixopt* o, int x, uint32_t op, uint32_t s, uint32_t d) {
+  uint32_t a = op;
+  if (o->mask) a = RUI_DIV255(a * ((o->mask[x] >> 16) & 255));
+  if (o->cover) a = RUI_DIV255(a * o->cover[x]);
+  else if (o->base) {
+    uint32_t b = o->base[x], ba = b >> 24;
+    if (o->blut) ba = RUI_DIV255(((b >> 16) & 255) * ba);
+    if (o->bmask) ba = RUI_DIV255(ba * ((o->bmask[x] >> 16) & 255));
+    a = RUI_DIV255(a * ba);
+  }
+  if (o->bif) a = RUI_DIV255(RUI_DIV255(a * o->thisT[rui_chan(s, o->ch)]) * o->underT[rui_chan(d, o->ch)]);
+  return a;
+}
+
+#define RUI_CAT2(a, b) a##b
+#define RUI_CAT(a, b) RUI_CAT2(a, b)
+
+/* (the mixing kernels, four pixels at a time -- and eight with AVX2 where the processor has
+ * it: simdmix.h is the same code for both) */
+#define RUI_N 4
+#define RUI_SFX _4
+#define RUI_ATTR
+#include "simdmix.h"
+#undef RUI_N
+#undef RUI_SFX
+#undef RUI_ATTR
+
+#if RUI_VEC && (defined(__x86_64__) || defined(__i386__)) && !defined(RUI_NO_AVX2)
+#include <cpuid.h>
+#define RUI_AVX2 1
+#define RUI_N 8
+#define RUI_SFX _8
+#define RUI_ATTR __attribute__((target("avx2")))
+#include "simdmix.h"
+#undef RUI_N
+#undef RUI_SFX
+#undef RUI_ATTR
+/* Whether the processor (and the system: its registers saved) has AVX2 -- asked once;
+ * `rui_force_avx2` (0 or 1) settles it for a test. */
+static volatile int rui_avx2_state = -1;
+static inline int rui_has_avx2(void) {
+  int v = rui_avx2_state;
+  if (v >= 0) return v;
+  unsigned a = 0, b = 0, c = 0, d = 0;
+  v = 0;
+  if (__get_cpuid(1, &a, &b, &c, &d) && (c & (1u << 27)) && (c & (1u << 28))) {
+    unsigned lo, hi;
+    __asm__ volatile("xgetbv" : "=a"(lo), "=d"(hi) : "c"(0));
+    (void)hi;
+    if ((lo & 6) == 6 && __get_cpuid_count(7, 0, &a, &b, &c, &d) && (b & (1u << 5))) v = 1;
+  }
+  rui_avx2_state = v;
+  return v;
+}
+#else
+#define RUI_AVX2 0
+static inline int rui_has_avx2(void) { return 0; }
+#endif
+
+static inline void rui_force_avx2(int on) {
+#if RUI_AVX2
+  rui_avx2_state = on < 0 ? -1 : on;
+#else
+  (void)on;
+#endif
+}
+
 /* `src` over the opaque pixels of `dst`, x .. xb-1: each `op` (0..255) of it times its own
  * alpha, mixed by `lut` (a separable blend mode's table, [under*256 + over]; NULL Normal) --
  * what overOpaque gives. Stops at the first pixel whose `dst` is not opaque and `src` shows
  * there (the caller mixes that one): its index, or xb. */
 static inline int rui_mix_opaque(uint32_t* dst, const uint32_t* src, int x, int xb, uint32_t op,
                                  const uint8_t* lut) {
-#if RUI_VEC
-  const rui_u4 k255 = {255, 255, 255, 255}, kdiv = {0x8081, 0x8081, 0x8081, 0x8081};
-  const rui_u4 kopq = {0xFF000000u, 0xFF000000u, 0xFF000000u, 0xFF000000u};
-  const rui_u4 vop = {op, op, op, op}, m8 = {255, 255, 255, 255};
-  while (x + 4 <= xb) {
-    rui_u4 d, s;
-    memcpy(&d, dst + x, 16);
-    memcpy(&s, src + x, 16);
-    if ((d[0] & d[1] & d[2] & d[3]) < 0xFF000000u) break;   /* (one under is not opaque) */
-    if (lut) {
-      /* (the mode's mix of each channel: looked up, then mixed as Normal) */
-      uint32_t t[4];
-      for (int i = 0; i < 4; i++) {
-        uint32_t dd = d[i], ss = s[i];
-        t[i] = (ss & 0xFF000000u) | ((uint32_t)lut[((dd >> 16) & 255) << 8 | ((ss >> 16) & 255)] << 16) |
-               ((uint32_t)lut[((dd >> 8) & 255) << 8 | ((ss >> 8) & 255)] << 8) |
-               (uint32_t)lut[(dd & 255) << 8 | (ss & 255)];
-      }
-      memcpy(&s, t, 16);
-    }
-    rui_u4 ea = ((vop * (s >> 24)) * kdiv) >> 23;
-    rui_u4 ia = k255 - ea;
-    rui_u4 r = (((((s >> 16) & m8) * ea + ((d >> 16) & m8) * ia) * kdiv) >> 23) << 16;
-    rui_u4 g = (((((s >> 8) & m8) * ea + ((d >> 8) & m8) * ia) * kdiv) >> 23) << 8;
-    rui_u4 b = ((((s & m8) * ea + (d & m8) * ia) * kdiv) >> 23);
-    rui_u4 o = kopq | r | g | b;
-    memcpy(dst + x, &o, 16);
-    x += 4;
-  }
+#if RUI_AVX2
+  if (rui_has_avx2()) return rui_mix_opaque_8(dst, src, x, xb, op, lut);
 #endif
-  for (; x < xb; x++) {
-    uint32_t s = src[x];
-    uint32_t sa = s >> 24;
-    if (sa == 0) continue;
-    uint32_t d = dst[x];
-    if ((d >> 24) != 255) return x;
-    uint32_t ea = RUI_DIV255(op * sa);
-    if (ea > 0) dst[x] = rui_over1(d, s, ea, lut);
-  }
-  return xb;
+  return rui_mix_opaque_4(dst, src, x, xb, op, lut);
 }
 
-/* acc[t] += kw * buf[t], t < n (a blur's pass down its rows, in whole numbers: the compiler
- * makes this loop its vectors by itself) */
+/* ... and with a mask, clipped, by Blend If (`o`): each pixel's amount as `rui_amt1`. */
+static inline int rui_mix_opt(uint32_t* dst, const uint32_t* src, int x, int xb, uint32_t op,
+                              const uint8_t* lut, const rui_mixopt* o) {
+#if RUI_AVX2
+  if (rui_has_avx2()) return rui_mix_opt_8(dst, src, x, xb, op, lut, o);
+#endif
+  return rui_mix_opt_4(dst, src, x, xb, op, lut, o);
+}
+
+/* acc[t] += kw * buf[t], t < n (a blur's pass down its rows, in whole numbers) */
 static inline void rui_madd_u16(uint32_t* acc, const uint16_t* buf, int n, uint32_t kw) {
-  for (int t = 0; t < n; t++) acc[t] += kw * buf[t];
+#if RUI_AVX2
+  if (rui_has_avx2()) { rui_madd_u16_8(acc, buf, n, kw); return; }
+#endif
+  rui_madd_u16_4(acc, buf, n, kw);
 }
 
 /* A row of a gaussian blur across: `pre` the row's pixels premultiplied (b, g, r, a as floats,
  * four a pixel), `k` the kernel (2*kr+1 weights, summing to 1), written to `out` as 16-bit
  * (8 bits of fraction, rounded). */
 static inline void rui_blur_across(const float* pre, int w, const float* k, int kr, uint16_t* out) {
-  for (int x = 0; x < w; x++) {
-#if RUI_VEC
-    rui_f4 acc = {0, 0, 0, 0};
-    if (x >= kr && x + kr < w) {
-      const float* q = pre + (x - kr) * 4;
-      for (int i = 0; i <= 2 * kr; i++) {
-        rui_f4 p;
-        memcpy(&p, q + i * 4, 16);
-        acc += p * k[i];
-      }
-    } else {
-      for (int i = -kr; i <= kr; i++) {
-        int xx = x + i < 0 ? 0 : (x + i >= w ? w - 1 : x + i);
-        rui_f4 p;
-        memcpy(&p, pre + xx * 4, 16);
-        acc += p * k[i + kr];
-      }
-    }
-    for (int c = 0; c < 4; c++) out[x * 4 + c] = (uint16_t)(acc[c] * 256.0f + 0.5f);
-#else
-    float a0 = 0, a1 = 0, a2 = 0, a3 = 0;
-    for (int i = -kr; i <= kr; i++) {
-      int xx = x + i < 0 ? 0 : (x + i >= w ? w - 1 : x + i);
-      const float* p = pre + xx * 4;
-      float kw = k[i + kr];
-      a0 += p[0] * kw; a1 += p[1] * kw; a2 += p[2] * kw; a3 += p[3] * kw;
-    }
-    out[x * 4] = (uint16_t)(a0 * 256.0f + 0.5f); out[x * 4 + 1] = (uint16_t)(a1 * 256.0f + 0.5f);
-    out[x * 4 + 2] = (uint16_t)(a2 * 256.0f + 0.5f); out[x * 4 + 3] = (uint16_t)(a3 * 256.0f + 0.5f);
+#if RUI_AVX2
+  if (rui_has_avx2()) { rui_blur_across_8(pre, w, k, kr, out); return; }
 #endif
+  rui_blur_across_4(pre, w, k, kr, out);
+}
+
+/* A row of pixels as a gaussian blur takes them: four floats a pixel, alpha then red, green and
+ * blue premultiplied ((c * a + 127) / 255, rounded down) -- photofx's loop. */
+static inline void rui_pre_row(const uint32_t* src, int w, float* pre) {
+#if RUI_VEC
+  const rui_u4 k127 = {127, 127, 127, 0}, keepA = {0, 0, 0, 0xFFFFFFFFu};
+  for (int x = 0; x < w; x++) {
+    uint32_t p = src[x];
+    rui_u4 v = rui_bytes4(p);                     /* b, g, r, a */
+    rui_u4 a = (rui_u4){0, 0, 0, 0} + (p >> 24);
+    rui_u4 m = (((v * a + k127) * 0x8081u) >> 23) & ~keepA;
+    m |= v & keepA;                               /* (the alpha as it is) */
+    rui_u4 o = RUI_SHUF(rui_u4, m, m, 3, 2, 1, 0); /* a, r, g, b */
+    rui_f4 f = __builtin_convertvector((rui_i4v)o, rui_f4);
+    memcpy(pre + x * 4, &f, 16);
   }
+#else
+  for (int x = 0; x < w; x++) {
+    uint32_t p = src[x], a = p >> 24;
+    pre[x * 4] = (float)a;
+    pre[x * 4 + 1] = (float)RUI_DIV255(((p >> 16) & 255) * a + 127);
+    pre[x * 4 + 2] = (float)RUI_DIV255(((p >> 8) & 255) * a + 127);
+    pre[x * 4 + 3] = (float)RUI_DIV255((p & 255) * a + 127);
+  }
+#endif
 }
 
 /* Rows y0 .. y1-1 of a picture resampled, the two ways one after the other: each source row
@@ -285,6 +361,98 @@ static inline void rui_box_down(const uint16_t* mid, int w, int h, int x0, int x
     const uint16_t* add = mid + ((size_t)(yb >= h ? h - 1 : yb) * w + x0) * 4;
     for (int t = 0; t < m * 4; t++) acc[t] += (uint32_t)add[t] - (uint32_t)sub[t];
   }
+}
+
+/* A color through a table of N x N x N colors (red, green, blue the indexes), read between
+ * them -- retroui/photo's lutAt (an adjustment layer's table: red, green and blue, the alpha
+ * kept) and retroui/photoinks' lookup (the proof's table: its four bytes), the four channels
+ * side by side; the same whole numbers as theirs. */
+#if RUI_VEC
+typedef double rui_d4 __attribute__((vector_size(32)));
+#endif
+
+static inline uint32_t rui_lut3_adj(const uint32_t* lut, int N, uint32_t p) {
+  const uint32_t n = (uint32_t)N - 1;
+  uint32_t r = ((p >> 16) & 255) * n, g = ((p >> 8) & 255) * n, b = (p & 255) * n;
+  uint32_t ri = RUI_DIV255(r), gi = RUI_DIV255(g), bi = RUI_DIV255(b);
+  uint32_t rf = r - ri * 255, gf = g - gi * 255, bf = b - bi * 255;
+  uint32_t r1 = ri + 1 < n ? ri + 1 : n, g1 = gi + 1 < n ? gi + 1 : n, b1 = bi + 1 < n ? bi + 1 : n;
+#define RUI_AT(i, j, k) lut[((size_t)(i) * N + (j)) * N + (k)]
+#if RUI_VEC
+  /* (in floats: every product and sum below 2^24 is a whole number in one exactly -- x86's
+   * four-lane whole-number multiply is SSE4's, a float's is everyone's) */
+#define RUI_F(i, j, k) __builtin_convertvector((rui_i4v)rui_bytes4(RUI_AT(i, j, k)), rui_f4)
+  const float fb = (float)bf, fb1 = (float)(255 - bf), fg = (float)gf, fg1 = (float)(255 - gf);
+  rui_f4 c00 = RUI_F(ri, gi, bi) * fb1 + RUI_F(ri, gi, b1) * fb;
+  rui_f4 c01 = RUI_F(ri, g1, bi) * fb1 + RUI_F(ri, g1, b1) * fb;
+  rui_f4 c10 = RUI_F(r1, gi, bi) * fb1 + RUI_F(r1, gi, b1) * fb;
+  rui_f4 c11 = RUI_F(r1, g1, bi) * fb1 + RUI_F(r1, g1, b1) * fb;
+#undef RUI_F
+  rui_f4 c0 = c00 * fg1 + c01 * fg, c1 = c10 * fg1 + c11 * fg;
+  /* (then in doubles: up to 4,236,541,312, exactly) */
+  rui_d4 num = __builtin_convertvector(c0, rui_d4) * (double)(255 - rf) +
+               __builtin_convertvector(c1, rui_d4) * (double)rf + 8290687.0;
+  rui_i4v o = __builtin_convertvector(num / 16581375.0, rui_i4v);
+  return (p & 0xFF000000u) | ((uint32_t)o[2] << 16) | ((uint32_t)o[1] << 8) | (uint32_t)o[0];
+#else
+  uint32_t out = p & 0xFF000000u;
+  for (int c = 0; c < 3; c++) {
+    int sh = 16 - 8 * c;
+#define RUI_V(i, j, k) ((RUI_AT(i, j, k) >> sh) & 255)
+    uint64_t c00 = RUI_V(ri, gi, bi) * (255 - bf) + RUI_V(ri, gi, b1) * bf;
+    uint64_t c01 = RUI_V(ri, g1, bi) * (255 - bf) + RUI_V(ri, g1, b1) * bf;
+    uint64_t c10 = RUI_V(r1, gi, bi) * (255 - bf) + RUI_V(r1, gi, b1) * bf;
+    uint64_t c11 = RUI_V(r1, g1, bi) * (255 - bf) + RUI_V(r1, g1, b1) * bf;
+#undef RUI_V
+    uint64_t c0 = c00 * (255 - gf) + c01 * gf, c1 = c10 * (255 - gf) + c11 * gf;
+    out |= (uint32_t)((c0 * (255 - rf) + c1 * rf + 8290687u) / 16581375u) << sh;
+  }
+  return out;
+#endif
+#undef RUI_AT
+}
+
+static inline uint32_t rui_lut3_ink(const uint32_t* t, int N, uint32_t p) {
+  const uint32_t n = (uint32_t)N - 1;
+  uint32_t r = ((p >> 16) & 255) * n, g = ((p >> 8) & 255) * n, b = (p & 255) * n;
+  uint32_t ri = RUI_DIV255(r), gi = RUI_DIV255(g), bi = RUI_DIV255(b);
+  if (ri > n - 1) ri = n - 1;
+  if (gi > n - 1) gi = n - 1;
+  if (bi > n - 1) bi = n - 1;
+  uint32_t rf = r - ri * 255, gf = g - gi * 255, bf = b - bi * 255;
+  size_t i000 = ((size_t)ri * N + gi) * N + bi, NN = (size_t)N * N;
+#if RUI_VEC
+  /* (in floats, every number a whole one below 2^24: exact; each division rounded down after) */
+#define RUI_F(i) __builtin_convertvector((rui_i4v)rui_bytes4(t[i]), rui_f4)
+  const float fb = (float)bf, fb1 = (float)(255 - bf), fg = (float)gf, fg1 = (float)(255 - gf);
+  rui_f4 c00 = RUI_F(i000) * fb1 + RUI_F(i000 + 1) * fb;
+  rui_f4 c01 = RUI_F(i000 + N) * fb1 + RUI_F(i000 + N + 1) * fb;
+  rui_f4 c10 = RUI_F(i000 + NN) * fb1 + RUI_F(i000 + NN + 1) * fb;
+  rui_f4 c11 = RUI_F(i000 + NN + N) * fb1 + RUI_F(i000 + NN + N + 1) * fb;
+#undef RUI_F
+  rui_f4 c0 = c00 * fg1 + c01 * fg, c1 = c10 * fg1 + c11 * fg;
+  rui_f4 q0 = __builtin_convertvector(__builtin_convertvector(c0 / 255.0f, rui_i4v), rui_f4);
+  rui_f4 q1 = __builtin_convertvector(__builtin_convertvector(c1 / 255.0f, rui_i4v), rui_f4);
+  rui_f4 num = q0 * (float)(255 - rf) + q1 * (float)rf + 32385.0f;
+  rui_f4 q = __builtin_convertvector(__builtin_convertvector(num / 255.0f, rui_i4v), rui_f4);
+  rui_u4 c = (rui_u4)__builtin_convertvector(q / 255.0f, rui_i4v);
+  return ((c[3] > 255 ? 255 : c[3]) << 24) | ((c[2] > 255 ? 255 : c[2]) << 16) |
+         ((c[1] > 255 ? 255 : c[1]) << 8) | (c[0] > 255 ? 255 : c[0]);
+#else
+  uint32_t out = 0;
+  for (int sh = 24; sh >= 0; sh -= 8) {
+#define RUI_V(i) ((t[i] >> sh) & 255)
+    uint32_t c00 = RUI_V(i000) * (255 - bf) + RUI_V(i000 + 1) * bf;
+    uint32_t c01 = RUI_V(i000 + N) * (255 - bf) + RUI_V(i000 + N + 1) * bf;
+    uint32_t c10 = RUI_V(i000 + NN) * (255 - bf) + RUI_V(i000 + NN + 1) * bf;
+    uint32_t c11 = RUI_V(i000 + NN + N) * (255 - bf) + RUI_V(i000 + NN + N + 1) * bf;
+#undef RUI_V
+    uint32_t c0 = c00 * (255 - gf) + c01 * gf, c1 = c10 * (255 - gf) + c11 * gf;
+    uint32_t c = (c0 / 255 * (255 - rf) + c1 / 255 * rf + 255 * 127) / (255 * 255);
+    out |= (c > 255 ? 255 : c) << sh;
+  }
+  return out;
+#endif
 }
 
 #ifdef RUI_POP

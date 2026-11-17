@@ -9,7 +9,7 @@
 ## d.endStep()
 ## ```
 
-import std/[math, strutils]
+import std/[algorithm, math, strutils]
 import photo, photofx, photosmart, photoneural, photoshapes, gfx, textengine
 
 # ---- Layer Cleanup -------------------------------------------------------------------------------------------------
@@ -78,9 +78,37 @@ proc contentName*(d: Doc; L: Layer): string =
            of spPattern: "Pattern Fill"
            else: colorName(rOf(L.shape.fill.color), gOf(L.shape.fill.color), bOf(L.shape.fill.color)) & " Fill"
   if L.isSmart: return (if L.smart.name.len > 0: L.smart.name else: "Smart Object")
-  if L.group: return "Group"
-  # pixels: the mean color of what is there, and how much of the image
+  if L.group:
+    # (a group: after what is in it -- its own layers' names, the first ones)
+    let i = d.layers.find(L)
+    if i < 0: return "Group"
+    var names: seq[string]
+    var n = 0
+    var j = i - 1
+    let lo = d.blockStart(i)
+    while j >= lo:
+      let M = d.layers[j]
+      if d.blockStart(j) < j: j = d.blockStart(j)   # (a group in it: counted as one)
+      inc n
+      if names.len < 2 and M.name.len > 0 and M.name notin names: names.add M.name
+      dec j
+    if names.len == 0: return "Group"
+    return (if n <= 1: names[0]
+            elif n == 2 and names.len == 2: names[0] & " and " & names[1]
+            else: names.join(", ") & " and " & $(n - names.len) & " more")
+  if L.isShape and L.shape.fill.kind == spColor or (L.isShape and L.shape.strokeWidth > 0):
+    # (a shape: its color and what drew it)
+    let solid = L.shape.fill.kind == spColor and (L.shape.fill.color shr 24) > 0
+    let c = if solid: L.shape.fill.color else: L.shape.stroke.color
+    let what = if L.shape.kind.len > 0: L.shape.kind
+               elif not solid: "Outline"
+               else: "Shape"
+    return colorName(rOf(c), gOf(c), bOf(c)) & " " & what
+  # pixels: the mean color of what is there, how much of the image, and where
   var r, g, b, n = 0
+  var x0 = d.w
+  var y0 = d.h
+  var x1, y1 = -1
   let step = max(1, int(sqrt(d.w.float * d.h.float / 40000)))
   var y = 0
   while y < d.h:
@@ -90,13 +118,46 @@ proc contentName*(d: Doc; L: Layer): string =
       if (p shr 24) > 32:
         r += rOf(p); g += gOf(p); b += bOf(p)
         inc n
+        x0 = min(x0, x); x1 = max(x1, x)
+        y0 = min(y0, y); y1 = max(y1, y)
       x += step
     y += step
   if n == 0: return "Empty"
   let cover = n.float / ((d.w div step + 1) * (d.h div step + 1)).float
   let c = colorName(r div n, g div n, b div n)
-  let shape = if L.isShape: "Shape" elif cover > 0.85: "Picture" elif cover > 0.3: "Area" else: "Shape"
-  c & " " & shape
+  let wide = (x1 - x0 + step).float >= d.w.float * 0.8
+  # (a wide band of blue or white at the top: the sky; of green at the bottom: grass)
+  if wide and y0 <= d.h div 20 and y1 < d.h * 3 div 4 and cover > 0.15 and c in ["Blue", "Cyan", "White", "Gray"]:
+    return "Sky"
+  if wide and y1 >= d.h - d.h div 20 and y0 > d.h div 3 and cover > 0.15 and c == "Green": return "Grass"
+  if cover > 0.85: return c & " Picture"
+  if cover > 0.3: return c & " Area"
+  # (a small thing: where it is)
+  let cx = (x0 + x1) div 2
+  let cy = (y0 + y1) div 2
+  let v = if cy < d.h div 3: "Top" elif cy >= d.h * 2 div 3: "Bottom" else: ""
+  let h = if cx < d.w div 3: "Left" elif cx >= d.w * 2 div 3: "Right" else: ""
+  let where = if v.len > 0 and h.len > 0: v & " " & h
+              elif v.len > 0 or h.len > 0: v & h
+              else: "Middle"
+  c & " Shape, " & where
+
+proc autoRename*(d: Doc; which: seq[int]): int =
+  ## Rename Layers: the layers `which` (indexes; the picked ones, say) named after what they
+  ## hold -- whatever names they had -- a group after what is in it (its layers named first).
+  ## How many were renamed; undoable in a step (`touchLayers` is done here).
+  d.touchLayers()
+  var order = which
+  order.sort()
+  for i in order:
+    if i < 0 or i >= d.layers.len: continue
+    let L = d.layers[i]
+    if L.background: continue
+    let nm = d.contentName(L)
+    if nm.len > 0 and nm != "Empty" and nm != L.name:
+      L.name = nm
+      inc result
+  inc d.ver
 
 proc cleanupLayers*(d: Doc; removeEmpty = true; removeHidden = false; removeEmptyGroups = true;
                     rename = true): CleanupReport =
@@ -445,7 +506,7 @@ proc artboards*(d: Doc): seq[int] =
     if d.layers[i].isArtboard: result.add i
 
 proc boardMask(d: Doc; r: Rect): Layer =
-  result = Layer(name: "Layer Mask", opacity: 100, visible: true, gray: true, px: newSeq[uint32](d.w * d.h))
+  result = Layer(name: "Layer Mask", opacity: 100, visible: true, gray: true, pxRaw: newSeq[uint32](d.w * d.h))
   let c = d.clip(r)
   for i in 0 ..< result.px.len: result.px[i] = grayPx(0)
   for y in c.y ..< c.y + c.h:
@@ -477,6 +538,40 @@ proc addArtboard*(d: Doc; r: Rect; name = ""; color = 0xFFFFFFFF'u32): Layer =
   result.collapsed = false
   d.cur = d.layers.find(fillL)
   d.markAll()
+
+proc artboardPage(d: Doc; i: int): Layer =
+  ## (an artboard's page: the shape named "Page" at the bottom of it, nil none)
+  if i < 0 or i >= d.layers.len or not d.layers[i].isArtboard: return nil
+  let lo = d.blockStart(i)
+  if lo < i and d.layers[lo].isShape and d.layers[lo].name == "Page": d.layers[lo] else: nil
+
+proc artboardColor*(d: Doc; i: int): uint32 =
+  ## Artboard Options: the color of artboard `i`'s page (0: transparent, none shown).
+  let P = d.artboardPage(i)
+  if P == nil or not P.visible or P.shape.fill.kind != spColor: 0'u32 else: P.shape.fill.color
+
+proc setArtboardColor*(d: Doc; i: int; color: uint32) =
+  ## Artboard Options: artboard `i`'s page in `color` (alpha 0: transparent -- its page hidden),
+  ## made when it has none. Undoable in a step (`touchLayers`).
+  if i < 0 or i >= d.layers.len or not d.layers[i].isArtboard: return
+  var P = d.artboardPage(i)
+  let b = d.layers[i].board
+  if P == nil:
+    if (color shr 24) == 0: return
+    let G = d.layers[i]
+    P = d.addShapeLayer(ShapeData(path: rectPath(b.x.float, b.y.float, (b.x + b.w).float, (b.y + b.h).float),
+                                  fill: solidPaint(color)), "Page", above = d.blockStart(i) - 1)
+    P.depth = G.depth + 1
+  P.visible = (color shr 24) > 0
+  if P.visible:
+    var s = P.shape
+    s.fill = solidPaint(color or 0xFF000000'u32)
+    d.setShape(P, s)
+  d.markAll()
+
+proc lockArtboard*(d: Doc; i: int; on: bool) =
+  ## Artboard Options: artboard `i` locked (Lock All: not moved, resized, painted on) or not.
+  if i >= 0 and i < d.layers.len and d.layers[i].isArtboard: d.layers[i].locked = on
 
 proc artboardAt*(d: Doc; x, y: int): int =
   ## The artboard at a point (its place in the layers; -1 none): the top one.

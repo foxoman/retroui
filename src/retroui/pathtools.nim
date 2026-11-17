@@ -707,3 +707,54 @@ proc meshRemoveAt*(p: var ShapePaint; idx: int) =
       if c != c0: res.add p.points[r * nc + c]
   p.points = res
   p.meshCols = nc - 1
+
+# ---- snapping to tangent and perpendicular --------------------------------------------------------------
+
+proc snapTangentPerp*(paths: openArray[Path]; anchor, p: (float, float);
+                      reach: float): tuple[p: (float, float); kind: string] =
+  ## Smart Guides for a line drawn from `anchor` (the Line tool, the Pen's next segment), as the
+  ## drawing program snaps one: where the pointer `p` is within `reach` of a place on one of
+  ## `paths` that the line would meet at a right angle ("perpendicular") or just touch
+  ## ("tangent"), the end taken there. `kind` "" (and `p` as it was) when there is none.
+  result = (p, "")
+  var best = reach
+  for path in paths:
+    for poly0 in flatten(path, 24):
+      let poly = poly0
+      let n = poly.len
+      if n < 2: continue
+      # (perpendicular: the foot of the line from the anchor on each straight piece)
+      for i in 0 ..< n - 1:
+        let a = poly[i]
+        let b = poly[i + 1]
+        let ux = b[0] - a[0]
+        let uy = b[1] - a[1]
+        let ll = ux * ux + uy * uy
+        if ll < 1e-9: continue
+        let t = ((anchor[0] - a[0]) * ux + (anchor[1] - a[1]) * uy) / ll
+        if t < 0 or t > 1: continue
+        let f = (a[0] + ux * t, a[1] + uy * t)
+        if hypot(f[0] - anchor[0], f[1] - anchor[1]) < 1e-3: continue
+        let dd = hypot(f[0] - p[0], f[1] - p[1])
+        if dd <= best:
+          best = dd
+          result = (f, "perpendicular")
+      # (tangent: where the direction from the anchor turns from one side of the outline to the
+      # other -- between two of its points, the crossing found)
+      if n >= 3:
+        proc side(i: int): float =
+          let a = poly[max(0, i - 1)]
+          let b = poly[min(n - 1, i + 1)]
+          let tx = b[0] - a[0]
+          let ty = b[1] - a[1]
+          (poly[i][0] - anchor[0]) * ty - (poly[i][1] - anchor[1]) * tx
+        for i in 1 ..< n - 2:
+          let s0 = side(i)
+          let s1 = side(i + 1)
+          if (s0 < 0) == (s1 < 0) or abs(s0 - s1) < 1e-12: continue
+          let t = s0 / (s0 - s1)
+          let q = (poly[i][0] + (poly[i + 1][0] - poly[i][0]) * t, poly[i][1] + (poly[i + 1][1] - poly[i][1]) * t)
+          let dd = hypot(q[0] - p[0], q[1] - p[1])
+          if dd <= best:
+            best = dd
+            result = (q, "tangent")

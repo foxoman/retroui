@@ -364,4 +364,94 @@ block nestedAndGrep:
     if g.index < 16: su[g.index] = g.size
   doAssert su[0] > su[8] + 5 and su[4] > su[8] + 5 and su[7] < su[0]
 
+block nestedLineStyles:
+  # the first line in a style of its own (Nested Line Styles): where the line breaks, as laid out
+  # with it; then two lines each way, repeated; a nested style wins where both reach
+  var small = style(14)
+  small.color = 0xFF0000FF'u32
+  var t = boxText(words(60), 260, 600)
+  t.para.lineStyles = @[NestedLine(name: "Small caps", look: small, lines: 1)]
+  let lay = layoutText(t)
+  doAssert lay.lines.len >= 4
+  var firstSmall = true
+  var restPlain = true
+  for g in lay.glyphs:
+    if g.index >= lay.lines[0].first and g.index < lay.lines[0].last:
+      if g.color != 0xFF0000FF'u32 or abs(g.size - 14) > 0.01: firstSmall = false
+    elif g.index >= lay.lines[1].first:
+      if g.color == 0xFF0000FF'u32: restPlain = false
+  doAssert firstSmall and restPlain
+  # (the first line, smaller, holds more than it did at 20 pixels)
+  var plain = t
+  plain.para.lineStyles = @[]
+  doAssert lay.lines[0].last > layoutText(plain).lines[0].last
+  # repeated: two lines blue, one plain, then the last two styles again ([Repeat]): the same
+  var r = t
+  var blue = style(20)
+  blue.color = 0xFF0000FF'u32
+  r.para.lineStyles = @[NestedLine(name: "Blue", look: blue, lines: 2), NestedLine(name: "", look: style(), lines: 1)]
+  r.para.repeatLast = 2
+  let lr = layoutText(r)
+  proc lineBlue(l: TextLayout; i: int): bool =
+    for g in l.glyphs:
+      if g.index >= l.lines[i].first and g.index < l.lines[i].last and g.color == 0xFF0000FF'u32: return true
+  doAssert lr.lines.len >= 6
+  doAssert lineBlue(lr, 0) and lineBlue(lr, 1) and not lineBlue(lr, 2)
+  doAssert lineBlue(lr, 3) and lineBlue(lr, 4) and not lineBlue(lr, 5)
+  # a nested style wins
+  var n = t
+  var big = style(20)
+  big.color = 0xFFFF0000'u32
+  n.para.nested = @[NestedStyle(name: "Lead", look: big, count: 1, unit: nuWords)]
+  let ln = layoutText(n)
+  for g in ln.glyphs:
+    if g.index == 0: doAssert g.color == 0xFFFF0000'u32
+    if g.index == ln.lines[0].last - 2: doAssert g.color == 0xFF0000FF'u32
+  # kept with the text
+  let back = textFrom(t.toJson).para
+  doAssert back.lineStyles.len == 1 and back.lineStyles[0].lines == 1 and back.lineStyles[0].name == "Small caps"
+  doAssert textFrom(r.toJson).para.repeatLast == 2
+  # [Repeat] of the last one alone: blue twice, plain, then plain on
+  r.para.repeatLast = 1
+  let l1 = layoutText(r)
+  doAssert lineBlue(l1, 0) and lineBlue(l1, 1) and not lineBlue(l1, 2) and not lineBlue(l1, 3) and not lineBlue(l1, 4)
+
+block opticalMargin:
+  # quotes and punctuation hung out of the box's edges; the letters' edges too, optically
+  proc firstX(l: TextLayout; i: int): float32 =
+    result = 1e9
+    for g in l.glyphs:
+      if g.index == l.lines[i].first: result = min(result, g.x)
+  var t = boxText("\u201CQuoted words\u201D start this line. " & words(40), 300, 1000)
+  let plain = layoutText(t)
+  doAssert abs(firstX(plain, 0) - 10) < 0.01                 # (the box's left edge)
+  t.para.hanging = true
+  let hung = layoutText(t)
+  doAssert firstX(hung, 0) < 10 - 4                          # (the quote out of the box, all of it)
+  doAssert hangOf(0x201C, false) == 1 and hangOf(0x2014, false) == 0.5 and hangOf(ord('A'), false) == 0
+  doAssert hangOf(ord('A'), true) > 0 and hangOf(ord('a'), true) == 0
+  # justified: the line runs out of the right edge by its period
+  var j = boxText(words(30) & ".", 260, 1000)
+  j.para.align = justifyLeft
+  j.opticalMargin = true
+  let lj = layoutText(j)
+  for i in 0 ..< lj.lines.len - 1:
+    doAssert lj.lines[i].x1 >= 10 + 260 - 0.5
+  # Ignore Optical Margin: as it was
+  j.para.ignoreOptical = true
+  let lk = layoutText(j)
+  for i in 0 ..< lk.lines.len - 1:
+    doAssert abs(lk.lines[i].x1 - (10 + 260)) < 0.5
+  # kept with the text
+  let back = textFrom(t.toJson)
+  doAssert back.para.hanging and not back.opticalMargin
+  doAssert textFrom(j.toJson).opticalMargin and textFrom(j.toJson).para.ignoreOptical
+  # right aligned: the period hangs out at the right
+  var r = boxText("Short line.", 300, 100)
+  r.para.align = textRight
+  let r0 = layoutText(r)
+  r.para.hanging = true
+  let r1 = layoutText(r)
+  doAssert r1.lines[0].x0 > r0.lines[0].x0 + 1
+
 echo "test_textcompose: ok"

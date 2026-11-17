@@ -6,7 +6,7 @@
 ## Appearance items as they are drawn, saved and exported (SVG, PDF parts).
 
 import std/[math, strutils]
-import retroui/[photo, photoshapes, pathtools, liveeffects, pathbrush, photosvg]
+import retroui/[photo, photoshapes, pathtools, liveeffects, pathbrush, photosvg, photovector]
 
 proc openLine(x0, y0, x1, y1: float): Path =
   var sp = SubPath()
@@ -205,5 +205,42 @@ block meshTool:
   discard renderShape(s, px, 100, 100)
   doAssert ((px[50 * 100 + 50] shr 16) and 255) > 200 and ((px[50 * 100 + 50] shr 8) and 255) < 80
   doAssert ((px[1 * 100 + 1] shr 8) and 255) > 200, "its corner still white"
+
+block snapsSpineCornersScribble:
+  # Smart Guides' tangent and perpendicular; Replace Spine; Stylize > Round Corners, Scribble
+  let circle = ellipsePath(100, 100, 200, 200)
+  let sq = rectPath(300, 100, 400, 200)
+  # (from (250, 300): the foot on the square's bottom side, straight up)
+  let perp = snapTangentPerp([sq], (350.0, 300.0), (352.0, 203.0), 8)
+  doAssert perp.kind == "perpendicular" and abs(perp.p[0] - 350) < 0.5 and abs(perp.p[1] - 200) < 0.5, $perp
+  # (from far left of the circle: its top touching point)
+  let anchor = (150.0 - 300.0, 150.0)
+  let tan = snapTangentPerp([circle], anchor, (140.0, 101.0), 10)
+  doAssert tan.kind == "tangent", $tan
+  let dx = tan.p[0] - 150
+  let dy = tan.p[1] - 150
+  let rx = tan.p[0] - anchor[0]
+  let ry = tan.p[1] - anchor[1]
+  doAssert abs(dx * rx + dy * ry) / (hypot(dx, dy) * hypot(rx, ry)) < 0.06, "the radius at a right angle to the line"
+  doAssert snapTangentPerp([sq], (350.0, 300.0), (10.0, 10.0), 8).kind == "", "nothing near"
+  # Replace Spine: three shapes along a straight spine, evenly apart, the ends at its ends
+  var spine = Path(subs: @[SubPath(pts: @[PathPoint(p: (0.0, 500.0), inH: (0.0, 500.0), outH: (0.0, 500.0)),
+                                          PathPoint(p: (400.0, 500.0), inH: (400.0, 500.0), outH: (400.0, 500.0))])])
+  let dots = @[ShapeData(path: ellipsePath(0, 0, 20, 20)), ShapeData(path: ellipsePath(50, 50, 70, 70)),
+               ShapeData(path: ellipsePath(90, 0, 110, 20))]
+  let along = alongSpine(dots, spine)
+  for k, sh in along:
+    let (x0, y0, x1, y1) = pathBounds(sh.path)
+    doAssert abs((x0 + x1) / 2 - 200.0 * k.float) < 0.5 and abs((y0 + y1) / 2 - 500) < 0.5, $k
+  # Round Corners: a square's corners curved, its size kept within
+  let rc = roundCorners(rectPath(0, 0, 100, 100), 20)
+  doAssert rc.subs[0].pts.len == 8, $rc.subs[0].pts.len
+  let (bx0, by0, bx1, by1) = pathBounds(rc)
+  doAssert bx0 >= -0.01 and by0 >= -0.01 and bx1 <= 100.01 and by1 <= 100.01
+  # Scribble: the inside as lines across it, within the shape
+  let sc = scribble(rectPath(0, 0, 200, 100), spacing = 10, width = 2, angle = 30, variation = 0)
+  doAssert sc.subs.len > 0
+  let (sx0, sy0, sx1, sy1) = pathBounds(sc)
+  doAssert sx0 > -15 and sy0 > -15 and sx1 < 215 and sy1 < 115, $(sx0, sy0, sx1, sy1)
 
 echo "test_pathtools: ok"

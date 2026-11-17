@@ -120,6 +120,7 @@ proc psMenus() =
         ci("Quick Export as &JPEG", enabled = some)
         ci("&Export As...", enabled = some)
         ci("Art&boards to Files...", "Artboards to Files", enabled = some and d.artboards.len > 0)
+        ci("Artboard &Options...", enabled = some and d.artboards.len > 0)
         ci("&Layers to Files...", "Layers to Files...", enabled = some)
         ci("&Slices to Files...", "Slices to Files", enabled = some and slicesOf(d).len > 0)
         sep()
@@ -384,6 +385,8 @@ proc psMenus() =
         ci("&Join Paths", enabled = pathOk)
         sep()
         ci("Make &Blend...", enabled = some and (d.current.isShape or d.pickedLayers.len == 2))
+        ci("Replace S&pine", "Replace Spine", enabled = some and d.pickedLayers.len >= 2)
+        ci("Replace Spine (Align to Path)", enabled = some and d.pickedLayers.len >= 2)
         ci("Shape B&uilder...", "Shape Builder...", enabled = some and d.pickedLayers.len >= 2)
         ci("&Freeform Gradient...", "Freeform Gradient...", enabled = some and d.current.isShape)
         ci("Gradient &Mesh...", "Gradient Mesh...", enabled = some and d.current.isShape)
@@ -422,6 +425,8 @@ proc psMenus() =
         ci("&Remove Content", enabled = fc)
       psSub "Pe&rspective":
         ci("&Attach to Active Plane", "Attach to Active Plane", enabled = some and not bgl and d.pgOf.shown)
+        ci("&Release with Perspective", "Release with Perspective", enabled = some and d.current.isText and
+                                                                   d.current.text.perspOn)
       ci("Anc&hor to Text", "Anchor to Text", enabled = some and not bgl and d.current.anchorTo == 0)
       ci("Release Anc&hor", "Release Anchor", enabled = some and d.current.anchorTo != 0)
       ci("New &Frame", enabled = some)
@@ -429,12 +434,14 @@ proc psMenus() =
       ci("Har&monize...", "Harmonize...", enabled = some and d.cur > 0 and not bgl and not grp and
                                                   d.current.adjust.kind.len == 0)
       ci("Layer &Cleanup...", "Layer Cleanup...", enabled = some)
+      ci("Rename Layers by Co&ntent", "Rename Layers by Content", enabled = some and not bgl)
       sep()
       ci(if grp: "Merge Grou&p" else: "Merge Do&wn", if grp: "Merge Group" else: "Merge Down",
          enabled = some and canMergeDown(d))
       ci("Merge &Visible", enabled = some and d.layers.len > 1)
       ci("&Flatten Image", enabled = some and d.layers.len > 1)
       sep()
+      ci("Gradient &Feather...", "Gradient Feather...", enabled = some and not bgl and not grp)
       psSub "Ma&tting":
         psFilters(["&Defringe...", "Remove &Black Matte", "Remove &White Matte"])
       psSub "Live &Effects":
@@ -456,6 +463,9 @@ proc psMenus() =
           ci("&Radial Repeat...", enabled = shp)
           ci("&Grid Repeat...", enabled = shp)
           ci("&Mirror Repeat...", enabled = shp)
+        psSub "&Stylize":
+          ci("Round &Corners...", enabled = shp)
+          ci("&Scribble...", enabled = shp)
         sep()
         ci("E&xpand Appearance", enabled = shp)
       if mIndex.on:
@@ -491,6 +501,14 @@ proc psMenus() =
         ci("Insert &File Name", "Insert File Name", enabled = some)
         ci("Insert &Output Date", "Insert Output Date", enabled = some)
         ci("Insert &Modification Date", "Insert Modification Date", enabled = some)
+        psSub "Insert Date &As":
+          ci("&Hijri Date (١٧ جمادى الآخرة)", "Insert Hijri Date", enabled = some)
+          ci("Hijri Date in &English", "Insert Hijri Date in English", enabled = some)
+          ci("Hijri Date in &Numbers", "Insert Hijri Date in Numbers", enabled = some)
+          ci("&Arabic Date (١٧ نوفمبر)", "Insert Arabic Date", enabled = some)
+          ci("Arabic Date, the &Levant's Months", "Insert Arabic Date (Levant)", enabled = some)
+          ci("Arabic Date with the &Day", "Insert Arabic Date with the Day", enabled = some)
+          ci("&Day/Month/Year", "Insert Date dd/MM/yyyy", enabled = some)
         psSub "Insert &Running Header":
           if some and d.paraStyles.len > 0:
             for st in d.paraStyles: ci(st.name, "Insert Running Header: " & st.name)
@@ -728,6 +746,7 @@ proc psMenus() =
       ci("Links", checked = panelShown("links"))
       ci("Navigator", checked = panelShown("navigator"))
       ci("Object Styles", checked = panelShown("objectstyles"))
+      ci("Graphic Styles", checked = panelShown("graphicstyles"))
       ci("Paragraph", checked = panelShown("paragraph"))
       ci("Paragraph Styles", checked = panelShown("parastyles"))
       ci("OpenType", checked = panelShown("opentype"))
@@ -989,6 +1008,7 @@ proc psCommand(name: string): bool =
   of "Character Styles": togglePanel("charstyles")
   of "Paragraph Styles": togglePanel("parastyles")
   of "Object Styles": togglePanel("objectstyles")
+  of "Graphic Styles": togglePanel("graphicstyles")
   of "Links": togglePanel("links")
   of "Bookmarks": togglePanel("bookmarks")
   of "OpenType": togglePanel("opentype")
@@ -1009,6 +1029,14 @@ proc psCommand(name: string): bool =
   of "Get Google Fonts...": startGetFonts()
   of "Layer Comps": togglePanel("layercomps")
   of "Layer Cleanup...": ccDlg.cleanup = true
+  of "Rename Layers by Content":
+    # (the picked layers named after what they hold, whatever their names: a group after
+    # what is in it)
+    if d != nil:
+      d.beginStep("Rename Layers")
+      let n = d.autoRename(d.pickedLayers())
+      d.endStep()
+      status = $n & (if n == 1: " layer" else: " layers") & " named after what they hold"
   of "Harmonize...":
     if d != nil and d.cur > 0:
       ccDlg.harmonize = true
@@ -1053,6 +1081,8 @@ proc psCommand(name: string): bool =
       d.endStep()
   of "Report a Problem":
     reportProblem()
+  of "Artboard Options...": startArtboardOptions()
+  of "Gradient Feather...": startGradientFeather()
   of "Artboards to Files":
     if d != nil: exportArtboards(d)
   of "Slices to Files":

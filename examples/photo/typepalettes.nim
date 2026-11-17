@@ -283,6 +283,15 @@ proc characterBody() =
     if combo(["As typed (123)", "Arabic (١٢٣)", "Persian (۱۲۳)"], dg, w = dp(130)):
       let v = dg
       applyChar("Digits", proc (x: var CharStyle) = x.digits = v)
+  # (the language: as its words are hyphenated)
+  const langs = ["", "fr", "de", "es", "it", "pt", "nl", "ar"]
+  var lg = max(0, langs.find(if s.lang == "en": "" else: s.lang))
+  row:
+    label "Language:"
+    if combo(["English: USA", "French", "German: 2006 Reform", "Spanish", "Italian", "Portuguese",
+              "Dutch: 2005 Reform", "Arabic"], lg, w = dp(150)):
+      let v = langs[clamp(lg, 0, langs.high)]
+      applyChar("Language", proc (x: var CharStyle) = x.lang = v)
   # the room between words; the tashkeel (the marks over and under letters) set apart
   var ws = s.wordSpace
   row:
@@ -417,7 +426,25 @@ proc paragraphBody() =
       typePara.hyphenate = hy
       let v = hy
       applyPara("Hyphenate", proc (p: var ParaStyle) = p.hyphenate = v)
-    label("(English words broken at a line's end, in a box)", color = ui.theme.gray)
+    label("(words broken at a line's end, in a box, in their language)", color = ui.theme.gray)
+  # (punctuation hung out of the lines' edges: the paragraph's own, Photoshop's -- the whole
+  # story's, letters' edges too, the layout program's Story panel)
+  row:
+    var hg = p.hanging
+    if checkbox("Roman Hanging Punctuation", hg):
+      typePara.hanging = hg
+      let v = hg
+      applyPara("Roman Hanging Punctuation", proc (p: var ParaStyle) = p.hanging = v)
+  row:
+    var om = L != nil and L.text.opticalMargin
+    if checkbox("Optical Margin Alignment", om):
+      let v = om
+      applyText("Optical Margin Alignment", proc (t: var TextData) = t.opticalMargin = v)
+    var ig = p.ignoreOptical
+    if checkbox("Ignore Optical Margin", ig):
+      typePara.ignoreOptical = ig
+      let v = ig
+      applyPara("Ignore Optical Margin", proc (p: var ParaStyle) = p.ignoreOptical = v)
   # a list: a mark before every paragraph of a text box
   var lk = ord(p.list)
   row:

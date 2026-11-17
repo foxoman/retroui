@@ -20,7 +20,7 @@ mkdir -p "$OUT/files"
 cp tests/web/files/* "$OUT/files/"
 cp tests/data/media/live.mp4 "$OUT/files/"
 nim c -d:release --hints:off --warnings:off -o:"$OUT/retroweb" src/retroweb.nim || exit 1
-"$OUT/retroweb" tests/web/webcheck.nim --out:"$OUT/page" --files:"$OUT/files" --path:src || exit 1
+"$OUT/retroweb" tests/web/webcheck.nim --no-threads --out:"$OUT/page" --files:"$OUT/files" --path:src || exit 1
 PORT=${RETRO_WEB_PORT:-8766}
 ( cd "$OUT/page" && python3 -m http.server "$PORT" --bind 127.0.0.1 > "$OUT/http.log" 2>&1 ) &
 server=$!

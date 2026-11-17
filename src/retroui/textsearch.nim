@@ -19,6 +19,10 @@
 ##   it changes.
 ## - `editPlain`: a text's words made another's (a story editor's): only
 ##   what changed changes, the styles of the rest kept.
+## - `findGlyph`, `changeGlyph`: Find/Change's Glyph search -- a character
+##   in a font (or any), changed to another, in a font of its own.
+## - `SavedQuery`, `builtInQueries`, `queriesToJson`, `queriesFrom`:
+##   Find/Change's saved queries, and the ones it comes with.
 ##
 ## .. code-block:: nim
 ##   import retroui/[textengine, textsearch]
@@ -27,7 +31,7 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[strutils]
+import std/[strutils, json]
 import std/unicode except strip
 import textengine
 
@@ -403,6 +407,119 @@ proc editPlain*(t: var TextData; words: string) =
   var mid = ""
   for k in pre ..< b.len - suf: mid.add $Rune(b[k])
   if mid.len > 0: t.insertText(pre, mid, st)
+
+# ---- glyphs --------------------------------------------------------------------------------------------
+
+proc glyphOf*(s: string): int =
+  ## A glyph as Find/Change's Glyph search is told it: the character itself ("é"), or its code
+  ## point -- "U+00E9", "0xE9", "\u00e9" (-1: neither).
+  let t = s.strip
+  if t.len == 0: return -1
+  for pre in ["U+", "u+", "0x", "0X", "\\u", "\\U"]:
+    if t.startsWith(pre) and t.len > pre.len:
+      try: return clamp(parseHexInt(t[pre.len .. ^1]), 0, 0x10FFFF) except ValueError: return -1
+  let rs = t.toRunes
+  if rs.len == 1: int(rs[0]) else: -1
+
+proc sameFamily(a, b: string): bool =
+  ## (a font family as a text names it: "" is FreeSans)
+  cmpIgnoreCase(if a.len > 0: a else: "FreeSans", if b.len > 0: b else: "FreeSans") == 0
+
+proc findGlyph*(t: TextData; cp: int; family = ""): seq[Match] =
+  ## Find/Change's Glyph search: each place character `cp` is in the text, in font `family`
+  ## ("": in any font), as characters.
+  var at = 0
+  for sp in t.spans:
+    for r in sp.text.runes:
+      if int(r) == cp and (family.len == 0 or sameFamily(sp.style.family, family)):
+        result.add Match(a: at, b: at + 1, groups: @[(at, at + 1)])
+      inc at
+
+proc changeGlyph*(t: var TextData; cp: int; family: string; toCp: int; toFamily = ""; toStyle = ""): int =
+  ## Find/Change's Glyph search, Change All: each `cp` (in font `family`; "": any) made `toCp`,
+  ## in font `toFamily` and its style `toStyle` ("": the letter's own) -- the rest of its look
+  ## kept. How many changed.
+  if toCp < 0: return 0
+  var spans: seq[TextSpan]
+  for sp in t.spans:
+    if family.len > 0 and not sameFamily(sp.style.family, family):
+      spans.add sp
+      continue
+    var st2 = sp.style
+    if toFamily.len > 0: st2.family = toFamily
+    if toStyle.len > 0: st2.style = toStyle
+    let own = st2 != sp.style
+    var run = ""
+    for r in sp.text.runes:
+      if int(r) == cp:
+        inc result
+        if own:
+          if run.len > 0: spans.add TextSpan(text: run, style: sp.style)
+          run = ""
+          if spans.len > 0 and spans[^1].style == st2: spans[^1].text.add $Rune(toCp)
+          else: spans.add TextSpan(text: $Rune(toCp), style: st2)
+        else: run.add $Rune(toCp)
+      else: run.add $r
+    if run.len > 0: spans.add TextSpan(text: run, style: sp.style)
+  if result > 0: t.spans = spans
+
+# ---- saved queries ---------------------------------------------------------------------------------------
+
+type
+  QueryKind* = enum
+    ## Find/Change's searches (its tabs).
+    qkText = "Text", qkGrep = "GREP", qkGlyph = "Glyph", qkObject = "Object"
+  SavedQuery* = object
+    ## A Find/Change search kept by name (the Query menu): what it finds and changes it to.
+    name*: string
+    kind*: QueryKind
+    what*, change*: string     ## text, GREP: the words or the pattern; Glyph: the glyphs (`glyphOf`)
+    matchCase*, wholeWord*: bool
+    font*, toFont*: string     ## Glyph: the fonts ("": any; the letter's own)
+    extra*: JsonNode           ## Object: the formats found and changed to (the program's own), nil
+
+const builtInQueryList = [
+  ("Multiple Space to Single Space", qkGrep, " {2,}", " "),
+  ("Multiple Return to Single Return", qkGrep, "\\n{2,}", "\\n"),
+  ("Remove Trailing Whitespace", qkGrep, "[ \\t]+$", ""),
+  ("Remove Leading Whitespace", qkGrep, "^[ \\t]+", ""),
+  ("Dash to En Dash (between numbers)", qkGrep, "(\\d) ?- ?(\\d)", "$1\u2013$2"),
+  ("Straight Quotes to Typographer's", qkGrep, "\"([^\"\\n]*)\"", "\u201C$1\u201D"),
+  ("Phone Number Conversion", qkGrep, "\\(?(\\d\\d\\d)\\)?[-. ]?(\\d\\d\\d)[-. ]?(\\d\\d\\d\\d)", "$1.$2.$3"),
+  ("Remove Tatweel (Kashida)", qkGrep, "\u0640+", ""),
+  ("Latin Comma to Arabic Comma (after Arabic)", qkGrep, "([\u0600-\u06FF]),", "$1\u060C"),
+  ("Latin Question Mark to Arabic (after Arabic)", qkGrep, "([\u0600-\u06FF]) ?\\?", "$1\u061F")]
+
+proc builtInQueries*(): seq[SavedQuery] =
+  ## The queries Find/Change comes with: spaces and returns made single, whitespace at the lines'
+  ## ends taken away, dashes, quotes, phone numbers -- and Arabic's: tatweel taken away, its comma
+  ## and question mark.
+  for (n, k, w, c) in builtInQueryList:
+    result.add SavedQuery(name: n, kind: k, what: w, change: c)
+
+proc queriesToJson*(qs: seq[SavedQuery]): JsonNode =
+  ## Saved queries as JSON (kept with the program's settings).
+  result = newJArray()
+  for q in qs:
+    var o = %*{"name": q.name, "kind": $q.kind, "what": q.what, "change": q.change}
+    if q.matchCase: o["matchCase"] = %true
+    if q.wholeWord: o["wholeWord"] = %true
+    if q.font.len > 0: o["font"] = %q.font
+    if q.toFont.len > 0: o["toFont"] = %q.toFont
+    if q.extra != nil: o["extra"] = q.extra
+    result.add o
+
+proc queriesFrom*(j: JsonNode): seq[SavedQuery] =
+  ## Saved queries from their JSON (`queriesToJson`); what cannot be read left out.
+  if j == nil or j.kind != JArray: return
+  for o in j.elems:
+    if o.kind != JObject or o{"name"}.getStr.len == 0: continue
+    var q = SavedQuery(name: o{"name"}.getStr, what: o{"what"}.getStr, change: o{"change"}.getStr,
+                       matchCase: o{"matchCase"}.getBool, wholeWord: o{"wholeWord"}.getBool,
+                       font: o{"font"}.getStr, toFont: o{"toFont"}.getStr, extra: o{"extra"})
+    for k in QueryKind:
+      if o{"kind"}.getStr == $k: q.kind = k
+    if result.len < 500: result.add q
 
 proc grepMatches(pattern: string; cps: seq[int]): seq[(int, int)] =
   ## (where a GREP style's pattern matches in a paragraph: `textengine.grepHook`)

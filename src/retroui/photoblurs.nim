@@ -247,6 +247,10 @@ proc boxBlurImg*(src: Img; radius: int): Img =
   let h = src.h
   if radius <= 0 or w == 0 or h == 0: return src
   let r = radius
+  if w * h >= 250_000 and r <= 24 and gpuFiltersReady():
+    # (on the GPU when frames are drawn with it -- a radius it does in a few taps)
+    let g = gpuBoxBlur(src.px, w, h, r)
+    if g.len == src.px.len: return Img(w: w, h: h, px: g)
   when simdOn:
     # (the sums four lanes at a time: retroui/simd)
     var mid16 = newSeqUninit[uint16](w * h * 4)

@@ -238,6 +238,25 @@ pages or spreads, a range) and Save Book as IDML; Type > Text Effects.
 `--run "Command"`, `--script file.rs` and `--list-commands` on the
 command line.
 
+**What was still missing** (5.5): Paragraph's Drop Caps and Nested
+Styles has Nested Line Styles; type attached to a perspective plane stays
+type (Layer > Perspective > Release with Perspective lets it go); on a
+phone, the phone's own spell checker; Window > Graphic Styles; Layer >
+Live Effects > Stylize > Round Corners and Scribble; the Shape Builder
+tool (drag across the parts of overlapping shapes, Alt+drag to take them
+away); Layer > Path Operations > Replace Spine; the options bar's
+Artboard Options (a color, a lock); Layer > Gradient Feather; Smart
+Guides for tangent and perpendicular lines; Recolor Design from another
+open picture; Layer > Rename Layers by Content; Data Merge's Export a
+File a Row; the Paragraph panel's Roman Hanging Punctuation and Optical
+Margin Alignment; the Character panel's Language (words hyphenated in
+French, German, Spanish, Italian, Portuguese and Dutch too);
+Find/Change's Glyph and Object searches and its Query menu; Layout >
+Masters > Master Options (Based on Master); Type > Text Variables >
+Insert Date As (the Hijri date, the Arabic date); Check Document's
+Arabic checks. Painting over many layers is six times sooner, the layers
+mixed up to five times sooner, and idle layers are kept small.
+
 **The three programs side by side** (5.4): Filter > Blur > Average, Box
 Blur, Shape Blur, Smart Blur and Lens Blur, and the Filter Gallery's
 Fresco, Neon Glow, Glass, Chalk & Charcoal, Glowing Edges and the rest;

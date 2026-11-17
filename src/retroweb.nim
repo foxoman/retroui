@@ -20,7 +20,10 @@
 ##                    the page takes where the browser allows them -- the
 ##                    kit's drawing, pictures and maps on every core, the
 ##                    app's own `createThread` -- N Web Workers started with
-##                    the page (the computer's cores, at most 8, else)
+##                    the page (the computer's cores, at most 8, else). The
+##                    default for a page built (`retrokit web`); one build
+##                    without them for `run --web`, quick to try
+##   --no-threads     one build, without threads (quicker to build)
 ##   --threads-only   with threads alone: no build without them (an app that
 ##                    cannot do without, Retro Mail); a browser that will not
 ##                    keep the page apart from other sites gets a message
@@ -215,7 +218,9 @@ const webThreadsMaxMemory = 1 shl 30
 type WebOptions* = object
   outDir*, filesDir*, icon*, name*: string
   small*, debug*, dev*, noOpen*, threadsOnly*: bool
-  jobs*: int                ## C compilers at once (0: as the memory allows, see buildjobs)
+  threadsSet*: bool         ## --threads, --threads-only or --no-threads given (else: threads for
+                            ## a page built, none for one tried with `run --web`)
+  jobs*: int               ## C compilers at once (0: as the memory allows, see buildjobs)
   lto*: string              ## "full", "thin", "none"; "": full, thin where memory is short,
                             ## none for `run --web` (built to try, quickly)
   threads*: int             ## -1: one thread; 0: threads, as many workers as cores; N: N workers
@@ -236,10 +241,17 @@ proc parseWebOptions*(args: openArray[string]; app: var string): WebOptions =
     of "icon": result.icon = value
     of "name": result.name = value
     of "small": result.small = true
-    of "threads": result.threads = (if value.len == 0: 0 else: (try: max(1, parseInt(value)) except ValueError: 0))
+    of "threads":
+      result.threads = (if value.len == 0: 0 else: (try: max(1, parseInt(value)) except ValueError: 0))
+      result.threadsSet = true
     of "threads-only":
       result.threadsOnly = true
+      result.threadsSet = true
       if result.threads < 0: result.threads = 0
+    of "no-threads":
+      result.threads = -1
+      result.threadsOnly = false
+      result.threadsSet = true
     of "debug": result.debug = true
     of "jobs": result.jobs = (try: max(1, parseInt(value)) except ValueError: 0)
     of "lto":
@@ -255,6 +267,10 @@ proc parseWebOptions*(args: openArray[string]; app: var string): WebOptions =
 proc buildWeb*(app: string; o: WebOptions): int =
   ## The page of `app` in `o.outDir` (build/web): index.html, retro.js,
   ## app.wasm, the manifest, the icons, the service worker, app/... .
+  var o = o
+  # (threads too, unless asked otherwise: the page takes them where the browser gives them,
+  # the build without them elsewhere; a page only tried, one quick build)
+  if not o.threadsSet and not o.dev: o.threads = 0
   if not fileExists(app):
     say "no file " & app
     return 1

@@ -154,4 +154,114 @@ block sameLookEveryWay:
   doAssert d.mixed(true) == a, "undone: as it was"
   echo "the composite with spans is the same as without, every way"
 
+block belowKeptIsTheSame:
+  # painted on, one layer at a time: the layers under it kept mixed (`compositeBelow`) give the
+  # same pixels as all of them mixed, every kind of layer under and over -- and after a change
+  # under it (made again), a mode, a mask, hidden, moved
+  let d = newDoc(530, 300, 0xFFFFFFFF'u32)
+  let P = d.layer
+  for y in 0 ..< d.h:
+    for x in 0 ..< d.w: P.px[y * d.w + x] = 0xFF000000'u32 or uint32((x * 3) and 255) shl 16 or uint32(y and 255)
+  inc P.ver
+  for k, m in [bmNormal, bmMultiply, bmScreen, bmHue, bmOverlay, bmNormal]:
+    let L = d.addLayer("L" & $k)
+    for y in 0 ..< d.h:
+      for x in 0 ..< d.w:
+        if (x + y * k) mod 7 != 0: L.px[y * d.w + x] = uint32(0x40 + k * 30) shl 24 or uint32(x * 977 + y * 131 + k)
+    L.mode = m
+    L.opacity = 100 - k * 7
+    inc L.ver
+  d.cur = 3
+  d.addLayerMask()
+  for i in 0 ..< d.layers[3].mask.px.len: d.layers[3].mask.px[i] = 0xFF000000'u32 or uint32(i mod 255) * 0x010101'u32
+  inc d.layers[3].mask.ver
+  d.layers[5].clipped = true
+  discard d.addShapeLayer(ShapeData(path: ellipsePath(60, 40, 300, 260), fill: solidPaint(0xA0E04020'u32)), "S")
+  discard d.newAdjustmentLayer(Adjustment(kind: "Levels", args: @[20.0, 1.2, 230.0, 0.0, 255.0]))
+  proc full(d: Doc): seq[uint32] =
+    compositeBelow = false
+    d.markAll()
+    d.updateComposite()
+    result = d.comp
+    compositeBelow = true
+  proc dab(d: Doc; L: Layer; x, y: int; c: uint32) =
+    for yy in y ..< min(d.h, y + 37):
+      for xx in x ..< min(d.w, x + 41): L.px[yy * d.w + xx] = c
+    inc L.ver
+    d.markDirty(rect(x, y, 41, 37))
+    d.updateComposite()
+  var checked = 0
+  for cur in 1 ..< d.layers.len:
+    let L = d.layers[cur]
+    if L.adjust.kind.len > 0 or L.isShape: continue
+    d.cur = cur
+    d.markAll()
+    d.updateComposite()
+    for k in 0 ..< 12:
+      d.dab(L, (k * 97 + cur * 13) mod (d.w - 20), (k * 61 + cur * 29) mod (d.h - 20),
+            uint32(0x90 + k * 5) shl 24 or uint32(k * 0x0F1F2F))
+    let kept = d.comp
+    doAssert kept == d.full(), "painted on layer " & $cur
+    inc checked
+  doAssert checked >= 5
+  # a change under the current layer: what was kept is made again
+  d.cur = 6
+  d.markAll()
+  d.updateComposite()
+  d.dab(d.layers[6], 10, 10, 0xFF00FF00'u32)
+  d.layers[2].mode = bmDifference
+  d.dab(d.layers[6], 200, 100, 0xFF0000FF'u32)
+  doAssert d.comp == d.full(), "a mode changed under it"
+  d.layers[1].visible = false
+  d.dab(d.layers[6], 300, 150, 0xFF0000FF'u32)
+  doAssert d.comp == d.full(), "a layer hidden under it"
+  for i in 0 ..< 5000: d.layers[2].px[i] = 0xFFFF0000'u32
+  inc d.layers[2].ver
+  d.dab(d.layers[6], 20, 0, 0xFF0000FF'u32)
+  doAssert d.comp == d.full(), "a layer under it painted"
+  echo "painting on a layer over the others kept mixed: the same pixels, ", checked, " layers"
+
+block parkedLayers:
+  # an idle layer kept small: its tiles deflated, the empty ones nothing -- in memory or on the
+  # scratch disk -- and opened out the first time it is read, as it was
+  let d = newDoc(1500, 1100, 0xFFFFFFFF'u32)
+  let L = d.addLayer("painted")
+  for y in 100 ..< 400:
+    for x in 200 ..< 900: L.px[y * d.w + x] = 0xFF000000'u32 or uint32((x * 7 + y * 3) and 0xFFFF)
+  for i in 0 ..< 5000: L.px[d.w * d.h - 1 - i] = 0x80FF00FF'u32
+  inc L.ver
+  let M = d.addLayer("noise")
+  var sd = 1'u32
+  for i in 0 ..< M.px.len:
+    sd = sd * 1103515245'u32 + 12345'u32
+    M.px[i] = sd
+  inc M.ver
+  d.cur = d.layers.find(M)
+  d.addLayerMask()
+  for i in 0 ..< M.mask.px.len: M.mask.px[i] = 0xFF000000'u32 or uint32(i mod 251) * 0x010101'u32
+  let want = L.px
+  let wantM = M.px
+  let wantMask = M.mask.px
+  let ver = L.ver
+  d.updateComposite()
+  let comp = d.comp
+  # in memory
+  let gave = parkLayer(L, d.w, d.h)
+  doAssert L.parked and gave > d.w * d.h * 4 * 9 div 10, "a layer painted in a corner: " & $gave
+  doAssert parkedBytes(L) < d.w * d.h * 4 div 10
+  doAssert L.px == want and not L.parked and L.ver == ver, "opened out as it was"
+  # on the scratch disk, a layer of noise and its mask
+  let gaveM = parkLayer(M, d.w, d.h, toDisk = true)
+  doAssert M.parked and M.mask.parked and gaveM > 0 and parkedBytes(M) == 0
+  doAssert M.mask.px == wantMask and M.px == wantM, "from the scratch disk, as it was"
+  # hidden layers, and a whole document not shown: the composite is the same after
+  L.visible = false
+  doAssert d.parkHidden() > 0 and L.parked
+  L.visible = true
+  doAssert d.parkAll() > 0 and d.comp.len == 0
+  d.updateComposite()
+  doAssert d.comp == comp, "the composite made again from parked layers"
+  doAssert not L.parked and not M.parked
+  echo "idle layers kept small: ", gave div 1024, " KB of a layer painted in a corner, given back"
+
 echo "test_photospeed: ok"

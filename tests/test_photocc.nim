@@ -3,7 +3,7 @@
 ## Expand, artboards, the Patch's options, Dynamic Text, the Clarity,
 ## Dehaze and Grain adjustment layers, the locks and linked layers.
 
-import std/[os, math]
+import std/[os, math, sequtils]
 import retroui/[gfx, photo, photosmart, photocc, textengine]
 {.push warning[UnusedImport]: off.}
 import retroui/photoshapes   # (imported for what it sets up in retroui/photo: how shape layers are drawn)
@@ -45,12 +45,130 @@ block cleanup:
   doAssert rep.emptyRemoved == 1 and rep.groupsRemoved == 1 and rep.hiddenRemoved == 1, $rep
   doAssert d.layers.len == n0 - 3
   doAssert a notin d.layers and hid notin d.layers
-  doAssert b.name == "Blue Shape", b.name
+  doAssert b.name == "Blue Shape, Top Left", b.name
   doAssert c.name == "Kept"
   doAssert genericName("Layer 12") and genericName("Layer 3 copy 2") and genericName("Group 1") and
            not genericName("Sky")
   d.undo()
   doAssert d.layers.len == n0, "undone"
+
+block renameByContent:
+  # Rename Layers by Content: the picked layers, whatever their names; a group after its layers
+  let d = newDoc(80, 60)
+  let sky = d.addLayer("My layer")
+  for y in 0 ..< 25:
+    for x in 0 ..< 80: sky.px[y * 80 + x] = argb(255, 90, 150, 230)
+  inc sky.ver
+  let grass = d.addLayer("Another")
+  for y in 40 ..< 60:
+    for x in 0 ..< 80: grass.px[y * 80 + x] = argb(255, 40, 160, 50)
+  inc grass.ver
+  let dot = d.addLayer("Dot")
+  for y in 45 ..< 50:
+    for x in 70 ..< 75: dot.px[y * 80 + x] = argb(255, 230, 30, 30)
+  inc dot.ver
+  d.beginStep("Rename Layers")
+  let n = d.autoRename(@[d.layers.find(sky), d.layers.find(grass), d.layers.find(dot), 0])
+  d.endStep()
+  doAssert n == 3, $n
+  doAssert sky.name == "Sky" and grass.name == "Grass", sky.name & " / " & grass.name
+  doAssert dot.name == "Red Shape, Bottom Right", dot.name
+  doAssert d.layers[0].name == "Background"
+  let g = d.groupLayers(@[d.layers.find(dot), d.layers.find(grass)])
+  doAssert g != nil
+  discard d.autoRename(@[d.layers.find(g)])
+  doAssert g.name == "Red Shape, Bottom Right and Grass", g.name
+  d.undo()
+  d.undo()
+  doAssert d.layers.anyIt(it.name == "My layer"), "undone"
+
+block objectFindChange:
+  # Find/Change's Object search: shapes by their fill, stroke and width, texts by their color,
+  # by kind, name, opacity, Object Style -- and changed all at once, in one step
+  let d = newDoc(100, 80)
+  let red1 = d.addShapeLayer(ShapeData(path: rectPath(5, 5, 30, 30), fill: solidPaint(0xFFE02020'u32)), "Box A")
+  let red2 = d.addShapeLayer(ShapeData(path: rectPath(40, 5, 70, 30), fill: solidPaint(0xFFE12121'u32),
+                                       stroke: solidPaint(0xFF000000'u32), strokeWidth: 3), "Box B")
+  let blue = d.addShapeLayer(ShapeData(path: rectPath(5, 40, 30, 70), fill: solidPaint(0xFF2020E0'u32)), "Other")
+  var st = defaultStyle()
+  st.color = 0xFFE02020'u32
+  let txt = d.addTextLayer(newText("Red words", st, 40, 60))
+  let q = ObjectQuery(kind: okAny, byFill: true, fill: 0xFFE02020'u32)
+  doAssert d.findObjects(q) == @[d.layers.find(red1), d.layers.find(red2), d.layers.find(txt)], $d.findObjects(q)
+  doAssert d.findObjects(ObjectQuery(kind: okShape, byFill: true, fill: 0xFFE02020'u32)).len == 2
+  doAssert d.findObjects(ObjectQuery(kind: okShape, byWidth: true, strokeWidth: 3)) == @[d.layers.find(red2)]
+  doAssert d.findObjects(ObjectQuery(kind: okShape, byStroke: true, stroke: 0xFF000000'u32)).len == 1
+  doAssert d.findObjects(ObjectQuery(kind: okText)) == @[d.layers.find(txt)]
+  doAssert d.findObjects(ObjectQuery(name: "box")).len == 2
+  doAssert d.findObjects(ObjectQuery(byOpacity: true, opacity: 100)).len == 4
+  d.beginStep("Change All")
+  let n = d.changeObjects(q, ObjectChange(setFill: true, fill: 0xFF20A040'u32, setOpacity: true, opacity: 60))
+  d.endStep()
+  doAssert n == 3
+  doAssert red1.shape.fill.color == 0xFF20A040'u32 and red2.shape.fill.color == 0xFF20A040'u32
+  doAssert txt.text.spans[0].style.color == 0xFF20A040'u32 and txt.opacity == 60
+  doAssert blue.shape.fill.color == 0xFF2020E0'u32 and blue.opacity == 100
+  doAssert red1.px[15 * 100 + 15] == 0xFF20A040'u32, "drawn again"
+  d.undo()
+  doAssert red1.shape.fill.color == 0xFFE02020'u32 and txt.opacity == 100, "undone"
+  # by Object Style; and one given
+  d.objectStyles.add ObjectStyleDef(name: "Thick", useStroke: true,
+                                    shape: ShapeData(stroke: solidPaint(0xFF0000FF'u32), strokeWidth: 6))
+  doAssert d.changeObjects(ObjectQuery(kind: okShape, name: "Other"), ObjectChange(objectStyle: "Thick")) == 1
+  doAssert blue.objectStyle == "Thick" and blue.shape.strokeWidth == 6
+  doAssert d.findObjects(ObjectQuery(objectStyle: "Thick")) == @[d.layers.find(blue)]
+  doAssert d.findObjects(ObjectQuery(kind: okShape, objectStyle: "[None]")).len == 2
+
+block graphicStylesArtboardsFeather:
+  # Graphic Styles: a shape's look kept by name, given to another (its outline kept), saved;
+  # Artboard Options: its color and lock; Gradient Feather: the layer fading across
+  let d = newDoc(200, 100, 0xFFFFFFFF'u32)
+  let a = d.addShapeLayer(ShapeData(path: rectPath(10, 10, 60, 60), fill: solidPaint(0xFFC03030'u32),
+                                    stroke: solidPaint(0xFF000000'u32), strokeWidth: 4), "A")
+  a.opacity = 70
+  let b = d.addShapeLayer(ShapeData(path: rectPath(100, 10, 190, 90), fill: solidPaint(0xFF3030C0'u32)), "B")
+  var g = graphicStyleOf(a, "Red Box")
+  d.graphicStyles.add g
+  d.beginStep("Graphic Style")
+  d.touchLayers()
+  d.applyGraphicStyle(b, "Red Box")
+  d.endStep()
+  doAssert b.shape.fill.color == 0xFFC03030'u32 and b.shape.strokeWidth == 4 and b.opacity == 70
+  let (x0, y0, x1, y1) = pathBounds(b.shape.path)
+  doAssert x0 == 100 and y0 == 10 and x1 == 190 and y1 == 90, "its outline kept"
+  let back = graphicStyleFromJson(graphicStyleToJson(g))
+  doAssert back.name == "Red Box" and back.look.fill.color == 0xFFC03030'u32 and back.opacity == 70
+  d.undo()
+  doAssert b.shape.fill.color == 0xFF3030C0'u32, "undone"
+  # an artboard's color, and its lock
+  let ab = d.addArtboard(rect(0, 0, 100, 100), "Board")
+  let i = d.layers.find(ab)
+  doAssert d.artboardColor(i) == 0xFFFFFFFF'u32
+  d.setArtboardColor(i, 0xFFEEDDCC'u32)
+  doAssert d.artboardColor(d.layers.find(ab)) == 0xFFEEDDCC'u32
+  d.setArtboardColor(d.layers.find(ab), 0)
+  doAssert d.artboardColor(d.layers.find(ab)) == 0, "transparent: no page shown"
+  d.lockArtboard(d.layers.find(ab), true)
+  doAssert ab.locked
+  d.lockArtboard(d.layers.find(ab), false)
+  doAssert not ab.locked
+  # Gradient Feather: opaque at its start, gone at its end
+  let e = newDoc(200, 50, 0xFFFFFFFF'u32)
+  let L = e.addLayer("Fade")
+  for k in 0 ..< L.px.len: L.px[k] = 0xFFFF0000'u32
+  L.gradFeather = GradientFeather(on: true, angle: 0, startOpacity: 100, endOpacity: 0, startAt: 0, endAt: 100)
+  inc L.ver
+  e.markAll()
+  let f = e.flattened(0xFFFFFFFF'u32)
+  let left = f[25 * 200 + 2]
+  let right = f[25 * 200 + 197]
+  doAssert gOf(left) < 20 and gOf(right) > 235, $(gOf(left), gOf(right))
+  let mid = gOf(f[25 * 200 + 100])
+  doAssert mid in 90 .. 165, $mid
+  L.gradFeather.on = false
+  inc L.ver
+  e.markAll()
+  doAssert gOf(e.flattened(0xFFFFFFFF'u32)[25 * 200 + 197]) < 5, "off: as it was"
 
 block harmonizeWithShadow:
   let d = scene(120, 90)

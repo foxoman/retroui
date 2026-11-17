@@ -457,9 +457,10 @@ class Retro {
   async start(wasm, threads) {
     await this.fs.open();
     if (threads) {
-      // one memory for the page and its workers, made here at its largest
+      // one memory for the page and its workers, made at its largest (by the loader, which
+      // knows then it could be had)
       const [initial, maximum] = threads.memory || [512, 16384];
-      this.memory = new WebAssembly.Memory({ initial, maximum, shared: true });
+      this.memory = threads.made || new WebAssembly.Memory({ initial, maximum, shared: true });
     }
     const imports = this.imports();
     let module;
@@ -2238,6 +2239,17 @@ async function boot(opts) {
       location.reload();
       return new Promise(() => {});
     } catch (e) { console.warn("retro: no threads (the service worker)", e); }
+  }
+  if (threads) {
+    // (the memory a build with threads shares, made at its largest up front: a phone may not
+    // give it -- then the build without threads, one thread)
+    try {
+      const [initial, maximum] = threads.memory || [512, 16384];
+      threads = Object.assign({}, threads, { made: new WebAssembly.Memory({ initial, maximum, shared: true }) });
+    } catch (e) {
+      console.warn("retro: no threads (no memory for them)", e);
+      if (!threads.only) threads = null;
+    }
   }
   if (sw && !threads) navigator.serviceWorker.register(opts.serviceWorker).catch(() => {});
   if (!threads && opts.threads && opts.threads.only) {

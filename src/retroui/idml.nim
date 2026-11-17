@@ -25,6 +25,13 @@ type
     links: seq[(string, string)]            ## (file name, PNG bytes)
     linksDir: string
     next: int
+    charStyles: OrderedTable[string, CharStyle]  ## the character styles nested, GREP and line styles name
+    objStyles: OrderedTable[string, string]      ## Object Styles: name -> their attributes, written
+    hyper: string                           ## the hyperlinks, their destinations, the bookmarks (designmap)
+    dests: Table[string, string]            ## a text destination's name -> its Self
+    pageSelf: seq[string]                   ## (a book's) each page's Self, for links to a page
+    pageDest: Table[int, string]            ## page number -> its HyperlinkPageDestination
+    k: float                                ## points a pixel
 
 const
   AutoSizing = [asOff: "Off", asHeight: "HeightOnly", asWidth: "WidthOnly", asBoth: "HeightAndWidth",
@@ -76,6 +83,23 @@ proc fontRef(o: var IdmlOut; family, style: string) =
   if fam notin o.fonts: o.fonts[fam] = @[]
   if st notin o.fonts[fam]: o.fonts[fam].add st
 
+const languageNames = [("en", "English: USA"), ("fr", "French"), ("de", "German: 2006 Reform"),
+                       ("es", "Spanish"), ("it", "Italian"), ("pt", "Portuguese"),
+                       ("nl", "Dutch: 2005 Reform"), ("ar", "Arabic")]
+  # (a language's tag and the layout program's name for it: AppliedLanguage="$ID/French")
+
+proc languageOut(lang: string): string =
+  ## (a CharacterStyleRange's AppliedLanguage: "" for English, the program's default)
+  if lang.len < 2 or lang.startsWith("en"): return ""
+  for (tag, name) in languageNames:
+    if lang.startsWith(tag): return " AppliedLanguage=\"$ID/" & name & "\""
+
+proc languageIn(s: string): string =
+  ## (a language's tag from an AppliedLanguage: "$ID/German: Swiss" -> "de")
+  let n = (if s.startsWith("$ID/"): s[4 .. ^1] else: s).toLowerAscii
+  for (tag, name) in languageNames:
+    if n.startsWith(name.toLowerAscii.split(':')[0]): return (if tag == "en": "" else: tag)
+
 proc alignOf(a: TextAlign; rtl: bool): string =
   case a
   of textLeft: (if rtl: "RightAlign" else: "LeftAlign")
@@ -99,6 +123,79 @@ proc otfOut(features: string): string =
   for (tag, attr) in OtfAttrs:
     if featureOn(features, tag): result.add " " & attr & "=\"true\""
 
+proc charStyleRef(o: var IdmlOut; name: string; look: CharStyle): string =
+  ## (a character style nested, GREP or line styles name: written in Styles.xml with its look)
+  if name.len == 0: return "CharacterStyle/$ID/[No character style]"
+  if name notin o.charStyles: o.charStyles[name] = look
+  "CharacterStyle/" & x(name)
+
+proc styleProps(o: var IdmlOut; p: ParaStyle): string =
+  ## (a paragraph's nested, GREP and line styles: the layout program's Properties lists)
+  var items = ""
+  if p.nested.len > 0:
+    items.add "<AllNestedStyles type=\"list\">"
+    for n in p.nested:
+      let delim = case n.unit
+                  of nuWords: "<Delimiter type=\"enumeration\">AnyWord</Delimiter>"
+                  of nuChars: "<Delimiter type=\"enumeration\">AnyCharacter</Delimiter>"
+                  of nuSentences: "<Delimiter type=\"enumeration\">Sentence</Delimiter>"
+                  of nuUpTo: "<Delimiter type=\"string\">" & x(if n.upTo.len > 0: n.upTo else: ":") & "</Delimiter>"
+      items.add "<ListItem type=\"record\"><AppliedCharacterStyle type=\"object\">" & o.charStyleRef(n.name, n.look) &
+                 "</AppliedCharacterStyle>" & delim & "<Repetition type=\"long\">" & $max(1, n.count) &
+                 "</Repetition><Inclusive type=\"boolean\">" & $(n.through or n.unit != nuUpTo) & "</Inclusive></ListItem>"
+    items.add "</AllNestedStyles>"
+  if p.lineStyles.len > 0:
+    items.add "<AllLineStyles type=\"list\">"
+    for n in p.lineStyles:
+      items.add "<ListItem type=\"record\"><AppliedCharacterStyle type=\"object\">" & o.charStyleRef(n.name, n.look) &
+                 "</AppliedCharacterStyle><LineCount type=\"long\">" & $max(1, n.lines) &
+                 "</LineCount><RepeatLast type=\"long\">0</RepeatLast></ListItem>"
+    if p.repeatLast > 0:
+      items.add "<ListItem type=\"record\"><AppliedCharacterStyle type=\"object\">CharacterStyle/$ID/[Repeat]" &
+                 "</AppliedCharacterStyle><LineCount type=\"long\">1</LineCount><RepeatLast type=\"long\">" &
+                 $p.repeatLast & "</RepeatLast></ListItem>"
+    items.add "</AllLineStyles>"
+  if p.grepStyles.len > 0:
+    items.add "<AllGREPStyles type=\"list\">"
+    for g in p.grepStyles:
+      if g.pattern.len == 0: continue
+      items.add "<ListItem type=\"record\"><AppliedCharacterStyle type=\"object\">" & o.charStyleRef(g.name, g.look) &
+                 "</AppliedCharacterStyle><GrepExpression type=\"string\">" & x(g.pattern) & "</GrepExpression></ListItem>"
+    items.add "</AllGREPStyles>"
+  if items.len > 0: result = "<Properties>" & items & "</Properties>\n"
+
+proc pageDestOf(o: var IdmlOut; n: int): string
+
+proc destSelf(o: var IdmlOut; name: string): string =
+  ## (a text destination's Self, by its name)
+  if name notin o.dests: o.dests[name] = "HyperlinkTextDestination/" & x(name)
+  o.dests[name]
+
+proc linkOpen(o: var IdmlOut; link: string): string =
+  ## (a span's hyperlink: its source's opening, the link and where it goes put in the designmap;
+  ## "" when it is a destination, written where it starts)
+  if link.len == 0: return ""
+  if link[0] == '=':
+    return "<HyperlinkTextDestination Self=\"" & o.destSelf(link[1 .. ^1]) & "\" Name=\"" & x(link[1 .. ^1]) &
+           "\" Hidden=\"false\" DestinationUniqueKey=\"" & $(o.dests.len + 100) & "\"/>\n"
+  let src = o.uid("hs")
+  let hl = o.uid("hl")
+  var dest = ""
+  if link[0] == '#':
+    dest = o.destSelf(link[1 .. ^1])
+  elif link.startsWith("page:"):
+    let n = (try: parseInt(link[5 .. ^1]) except ValueError: 1)
+    dest = o.pageDestOf(n)
+  else:
+    dest = o.uid("hud")
+    o.hyper.add "<HyperlinkURLDestination Self=\"" & dest & "\" Name=\"" & x(link) & "\" DestinationURL=\"" & x(link) &
+                "\" Hidden=\"false\" DestinationUniqueKey=\"" & $(2000 + o.next) & "\"/>\n"
+  o.hyper.add "<Hyperlink Self=\"" & hl & "\" Name=\"" & x(link) & "\" Source=\"" & src &
+              "\" Visible=\"false\" Highlight=\"None\" Width=\"Thin\" BorderStyle=\"Solid\" Hidden=\"false\" " &
+              "DestinationUniqueKey=\"" & $(3000 + o.next) & "\"><Properties><BorderColor type=\"enumeration\">Black" &
+              "</BorderColor><Destination type=\"object\">" & dest & "</Destination></Properties></Hyperlink>\n"
+  "<HyperlinkTextSource Self=\"" & src & "\" Name=\"" & x(link) & "\" Hidden=\"false\">\n"
+
 proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): string =
   ## (a text's story: its paragraphs, each run in its look; on a master, "<#>" the page number;
   ## footnotes the layout program's own, endnotes as text after it)
@@ -113,7 +210,7 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): s
             rtl = true
             break strong
           if c in {'A' .. 'Z', 'a' .. 'z'}: break strong
-  proc psrOpen(p: ParaStyle): string =
+  proc psrOpen(o: var IdmlOut; p: ParaStyle): string =
     ## (a ParagraphStyleRange's opening, in paragraph format `p`)
     let composer = if rtl: "$ID/HL Composer Optyca"
                    elif p.composer == cpSingle: "HL Single"
@@ -141,6 +238,7 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): s
       result.add " KeepLinesTogether=\"true\" KeepAllLinesTogether=\"" & $p.keepTogether & "\" KeepFirstLines=\"" &
                  $max(1, p.keepStart) & "\" KeepLastLines=\"" & $max(1, p.keepEnd) & "\""
     if p.keepWithNext > 0: result.add " KeepWithNext=\"" & $p.keepWithNext & "\""
+    if p.ignoreOptical: result.add " IgnoreEdgeAlignment=\"true\""
     if p.startAt != psAnywhere:
       result.add " StartParagraph=\"" &
                  (case p.startAt
@@ -151,7 +249,7 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): s
     if p.spanAll: result.add " SpanColumnType=\"SpanColumns\" SpanSplitColumnCount=\"All\""
     elif p.splitColumns >= 2:
       result.add " SpanColumnType=\"SplitColumns\" SpanSplitColumnCount=\"" & $p.splitColumns & "\""
-    result.add ">\n"
+    result.add ">\n" & o.styleProps(p)
   # (each paragraph's format: where they change, a range of their own)
   var paraFmt: seq[int]
   block:
@@ -164,7 +262,7 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): s
         if c == '\n': atStart = true
     if atStart: paraFmt.add (if t.spans.len > 0: t.spans[^1].style.para else: 0)
   var paraNo = 0
-  var body = psrOpen(t.fmtOf(if paraFmt.len > 0: paraFmt[0] else: 0))
+  var body = psrOpen(o, t.fmtOf(if paraFmt.len > 0: paraFmt[0] else: 0))
   proc csrOpen(o: var IdmlOut; st: CharStyle): string =
     ## (a CharacterStyleRange's opening, in `st`'s look)
     let fam = if st.family.len > 0: st.family else: "FreeSans"
@@ -178,6 +276,7 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): s
       (if st.hScale > 0 and st.hScale != 1: " HorizontalScale=\"" & f(st.hScale * 100) & "\"" else: "") &
       (if st.vScale > 0 and st.vScale != 1: " VerticalScale=\"" & f(st.vScale * 100) & "\"" else: "") &
       (if st.allCaps: " Capitalization=\"AllCaps\"" elif st.smallCaps: " Capitalization=\"SmallCaps\"" else: "") &
+      languageOut(st.lang) &
       otfOut(st.features) & ">\n<Properties><AppliedFont type=\"string\">" & x(fam) & "</AppliedFont>" &
       (if st.leading > 0: "<Leading type=\"unit\">" & f(st.leading * k) & "</Leading>" else: "") &
       "</Properties>\n"
@@ -250,6 +349,12 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): s
   for sp in (if t.table.on: @[] else: t.spans):
     let st = sp.style
     body.add csrOpen(o, st)
+    # (a hyperlink: its text a source of it; a destination: written where it starts)
+    var linkSrc = ""
+    if not master and st.link.len > 0:
+      let lo = o.linkOpen(st.link)
+      if lo.startsWith("<HyperlinkTextSource"): linkSrc = lo
+      body.add lo
     # its text: paragraphs apart (<Br/>), the page number the program's own on a master
     var piece = ""
     proc flush(body: var string; piece: var string) =
@@ -267,8 +372,12 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): s
         if paraNo < paraFmt.len and paraFmt[paraNo] != paraFmt[paraNo - 1] and
            t.fmtOf(paraFmt[paraNo]) != t.fmtOf(paraFmt[paraNo - 1]):
           # (the next paragraph in a format of its own)
-          body.add "</CharacterStyleRange>\n</ParagraphStyleRange>\n" & psrOpen(t.fmtOf(paraFmt[paraNo])) &
+          body.add (if linkSrc.len > 0: "</HyperlinkTextSource>\n" else: "") &
+                   "</CharacterStyleRange>\n</ParagraphStyleRange>\n" & psrOpen(o, t.fmtOf(paraFmt[paraNo])) &
                    csrOpen(o, st)
+          if linkSrc.len > 0:
+            linkSrc = o.linkOpen(st.link)
+            body.add linkSrc
       elif master and s.continuesWith("<##>", i):
         flush(body, piece)
         body.add "<Content><?ACE 18?></Content>\n"
@@ -293,12 +402,14 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): s
         piece.add s[i]
         inc i
     flush(body, piece)
+    if linkSrc.len > 0: body.add "</HyperlinkTextSource>\n"
     body.add "</CharacterStyleRange>\n"
   body.add "</ParagraphStyleRange>\n"
   o.stories.add (id, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n" &
     "<idPkg:Story xmlns:idPkg=\"http://ns.adobe.com/AdobeInDesign/idml/1.0/packaging\" DOMVersion=\"8.0\">\n" &
     "<Story Self=\"" & id & "\" AppliedTOCStyle=\"n\" TrackChanges=\"false\" StoryTitle=\"$ID/\" " &
-    "AppliedNamedGrid=\"n\">\n<StoryPreference OpticalMarginAlignment=\"false\" OpticalMarginSize=\"12\" " &
+    "AppliedNamedGrid=\"n\">\n<StoryPreference OpticalMarginAlignment=\"" & $t0.opticalMargin & "\" OpticalMarginSize=\"" &
+    f(float(if t0.spans.len > 0: t0.spans[0].style.size else: 12'f32) * k) & "\" " &
     "FrameType=\"TextFrameType\" StoryOrientation=\"Horizontal\" StoryDirection=\"" &
     (if rtl: "RightToLeftDirection" else: "LeftToRightDirection") & "\"/>\n" & body & "</Story>\n</idPkg:Story>\n")
   id
@@ -328,6 +439,28 @@ proc writtenFrame(L: Layer): bool =
 proc frameSelf(page, uid: int): string = "tf" & $page & "x" & $uid
 proc storySelf(page, uid: int): string = "st" & $page & "x" & $uid
 
+proc objRef(o: var IdmlOut; d: Doc; name: string; k: float): string =
+  ## (a frame's Object Style: its name on the frame, its fill and stroke in Styles.xml)
+  if name.len == 0: return ""
+  if name notin o.objStyles:
+    var attrs = ""
+    let i = d.objectStyleIndex(name)
+    if i >= 0:
+      let os = d.objectStyles[i]
+      if os.useFill:
+        attrs.add " EnableFill=\"true\" FillColor=\"" &
+                  (if os.shape.fill.kind == spColor: o.colorRef(os.shape.fill.color) else: "Swatch/None") & "\""
+      if os.useStroke:
+        attrs.add " EnableStroke=\"true\" StrokeColor=\"" &
+                  (if os.shape.stroke.kind == spColor and os.shape.strokeWidth > 0: o.colorRef(os.shape.stroke.color)
+                   else: "Swatch/None") & "\" StrokeWeight=\"" & f(os.shape.strokeWidth * k) & "\""
+      if os.useFrame:
+        attrs.add " EnableTextFrameGeneralOptions=\"true\""
+      if os.useParagraph and os.paraStyle.len > 0:
+        attrs.add " EnableParagraphStyle=\"true\""
+    o.objStyles[name] = attrs
+  " AppliedObjectStyle=\"ObjectStyle/" & x(name) & "\""
+
 proc itemsOf(o: var IdmlOut; d: Doc; ox, oy, k: float; master: bool; name: string;
              threads: proc (L: Layer; fresh: string): Thread = nil): string =
   ## (a page's layers as the spread's items: from `ox`, `oy` points, `k` points a pixel; text
@@ -335,7 +468,8 @@ proc itemsOf(o: var IdmlOut; d: Doc; ox, oy, k: float; master: bool; name: strin
   template P(px, py: float): (float, float) = (ox + px * k, oy + py * k)
   for n, L in d.layers:
     if not L.visible or L.group or L.adjust.kind.len > 0: continue
-    if not master and (L.fromMaster != 0 or L.fromSpan != 0): continue
+    if L.fromMaster != 0 or (not master and L.fromSpan != 0): continue
+      # (a master's layers on a page, a parent master's on a master: written with that master)
     let plain = L.mode == bmNormal and not L.hasStyle and not L.clipped and (L.mask == nil or L.maskOff)
     let op = if L.opacity < 100: "<TransparencySetting><BlendingSetting Opacity=\"" & $L.opacity &
                                  "\"/></TransparencySetting>\n" else: ""
@@ -354,7 +488,7 @@ proc itemsOf(o: var IdmlOut; d: Doc; ox, oy, k: float; master: bool; name: strin
       let (a, b) = (P(x0, y0), P(x1, y1))
       result.add "<TextFrame Self=\"" & th.self & "\" ParentStory=\"" & sid & "\" PreviousTextFrame=\"" & th.prev &
                  "\" NextTextFrame=\"" & th.next & "\" ContentType=\"TextType\" Name=\"" & x(L.name) &
-                 "\" ItemTransform=\"1 0 0 1 0 0\">\n" &
+                 "\"" & o.objRef(d, L.objectStyle, k) & " ItemTransform=\"1 0 0 1 0 0\">\n" &
                  boxGeometry(a[0], a[1], b[0], b[1]) & op &
                  "<TextFramePreference TextColumnCount=\"" & $max(1, t.columns) & "\" TextColumnGutter=\"" &
                  f((if t.gutter > 0: t.gutter else: 12'f32) * k) & "\" VerticalJustification=\"" &
@@ -388,7 +522,7 @@ proc itemsOf(o: var IdmlOut; d: Doc; ox, oy, k: float; master: bool; name: strin
       let stroke = if s.stroke.kind == spColor and s.strokeWidth > 0: o.colorRef(s.stroke.color) else: "Swatch/None"
       let tag = if s.kind == "Ellipse": "Oval" elif s.kind == "Rectangle": "Rectangle" else: "Polygon"
       result.add "<" & tag & " Self=\"" & o.uid("p") & "\" ContentType=\"Unassigned\" Name=\"" & x(L.name) &
-                 "\" FillColor=\"" & fill & "\" StrokeColor=\"" & stroke & "\" StrokeWeight=\"" &
+                 "\"" & o.objRef(d, L.objectStyle, k) & " FillColor=\"" & fill & "\" StrokeColor=\"" & stroke & "\" StrokeWeight=\"" &
                  f(s.strokeWidth * k) & "\" ItemTransform=\"1 0 0 1 0 0\">\n" &
                  "<Properties><PathGeometry>" & geo & "</PathGeometry></Properties>\n" & op & "</" & tag & ">\n"
     else:
@@ -449,6 +583,20 @@ proc resources(o: var IdmlOut; pageW, pageH: float; pages: int; facing, rtl: boo
                cols: int; gutter: float): seq[(string, string)] =
   const head = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
   const ns = "xmlns:idPkg=\"http://ns.adobe.com/AdobeInDesign/idml/1.0/packaging\" DOMVersion=\"8.0\""
+  # (the character styles nested, GREP and line styles name, and the Object Styles, first: their
+  # colors and fonts go into the lists below)
+  var charXml, objXml = ""
+  for name, st in o.charStyles:
+    let fam = if st.family.len > 0: st.family else: "FreeSans"
+    let sty = if st.style.len > 0: st.style elif st.fauxBold: "Bold" else: "Regular"
+    o.fontRef(fam, sty)
+    charXml.add "<CharacterStyle Self=\"CharacterStyle/" & x(name) & "\" Imported=\"false\" Name=\"" & x(name) &
+                "\" FontStyle=\"" & x(sty) & "\" PointSize=\"" & f(max(0.1, st.size * o.k)) & "\" FillColor=\"" &
+                o.colorRef(st.color) & "\"" & (if st.underline: " Underline=\"true\"" else: "") &
+                (if st.allCaps: " Capitalization=\"AllCaps\"" elif st.smallCaps: " Capitalization=\"SmallCaps\"" else: "") &
+                "><Properties><AppliedFont type=\"string\">" & x(fam) & "</AppliedFont></Properties></CharacterStyle>\n"
+  for name, attrs in o.objStyles:
+    objXml.add "<ObjectStyle Self=\"ObjectStyle/" & x(name) & "\" Name=\"" & x(name) & "\"" & attrs & "/>\n"
   var g = head & "<idPkg:Graphic " & ns & ">\n" &
     "<Color Self=\"Color/Black\" Model=\"Process\" Space=\"CMYK\" ColorValue=\"0 0 0 100\" ColorOverride=\"Specialblack\" " &
     "AlternateSpace=\"NoAlternateColor\" AlternateColorValue=\"\" Name=\"Black\" ColorEditable=\"false\" " &
@@ -480,7 +628,7 @@ proc resources(o: var IdmlOut; pageW, pageH: float; pages: int; facing, rtl: boo
   fo.add "</idPkg:Fonts>\n"
   let st = head & "<idPkg:Styles " & ns & ">\n" &
     "<RootCharacterStyleGroup Self=\"u79\">\n<CharacterStyle Self=\"CharacterStyle/$ID/[No character style]\" " &
-    "Imported=\"false\" Name=\"$ID/[No character style]\"/>\n</RootCharacterStyleGroup>\n" &
+    "Imported=\"false\" Name=\"$ID/[No character style]\"/>\n" & charXml & "</RootCharacterStyleGroup>\n" &
     "<RootParagraphStyleGroup Self=\"u78\">\n<ParagraphStyle Self=\"ParagraphStyle/$ID/[No paragraph style]\" " &
     "Name=\"$ID/[No paragraph style]\" Imported=\"false\" PointSize=\"12\"/>\n" &
     "<ParagraphStyle Self=\"ParagraphStyle/$ID/NormalParagraphStyle\" Name=\"$ID/NormalParagraphStyle\" " &
@@ -492,7 +640,7 @@ proc resources(o: var IdmlOut; pageW, pageH: float; pages: int; facing, rtl: boo
     "<TableStyle Self=\"TableStyle/$ID/[Basic Table]\" Name=\"$ID/[Basic Table]\"/>\n</RootTableStyleGroup>\n" &
     "<RootObjectStyleGroup Self=\"u98\">\n<ObjectStyle Self=\"ObjectStyle/$ID/[None]\" Name=\"$ID/[None]\"/>\n" &
     "<ObjectStyle Self=\"ObjectStyle/$ID/[Normal Graphics Frame]\" Name=\"$ID/[Normal Graphics Frame]\"/>\n" &
-    "<ObjectStyle Self=\"ObjectStyle/$ID/[Normal Text Frame]\" Name=\"$ID/[Normal Text Frame]\"/>\n" &
+    "<ObjectStyle Self=\"ObjectStyle/$ID/[Normal Text Frame]\" Name=\"$ID/[Normal Text Frame]\"/>\n" & objXml &
     "</RootObjectStyleGroup>\n</idPkg:Styles>\n"
   let pr = head & "<idPkg:Preferences " & ns & ">\n" &
     "<DocumentPreference PageHeight=\"" & f(pageH) & "\" PageWidth=\"" & f(pageW) & "\" PagesPerDocument=\"" & $pages &
@@ -531,6 +679,7 @@ proc package(o: var IdmlOut; spreads, masters: seq[(string, string)]; res: seq[(
          "PageNumberStyle=\"Arabic\" PageStart=\"" & firstPage & "\" SectionPrefix=\"\"/>\n" &
          "<idPkg:BackingStory src=\"XML/BackingStory.xml\"/>\n"
   for (id, _) in o.stories: dm.add "<idPkg:Story src=\"Stories/Story_" & id & ".xml\"/>\n"
+  dm.add o.hyper                       # (hyperlinks, where they go, bookmarks)
   dm.add "</Document>\n"
   var z = newZipWriter()
   z.addFile("mimetype", "application/vnd.adobe.indesign-idml-package", compress = false)
@@ -634,6 +783,33 @@ proc threadOf(b: Book; i: int; L: Layer; fresh: string): Thread =
   result.story = storySelf(b.pages[hp].id, uidOf(H))
   result.own = L == H and hp == i
 
+proc pageDestOf(o: var IdmlOut; n: int): string =
+  ## (page `n`'s HyperlinkPageDestination, made the first time)
+  if n notin o.pageDest:
+    let pd = o.uid("hpd")
+    o.pageDest[n] = pd
+    let pg = if n >= 1 and n <= o.pageSelf.len: o.pageSelf[n - 1] else: (if o.pageSelf.len > 0: o.pageSelf[0] else: "n")
+    o.hyper.add "<HyperlinkPageDestination Self=\"" & pd & "\" Name=\"Page " & $n & "\" DestinationPage=\"" & pg &
+                "\" ViewSetting=\"FitWindow\" Hidden=\"false\" DestinationUniqueKey=\"" & $(1000 + n) & "\"/>\n"
+  o.pageDest[n]
+
+proc bookmarksOut(o: var IdmlOut; bms: seq[tuple[b: DocBookmark; page: int]]) =
+  ## (the bookmarks, entries under entries as their levels say, each to its text destination or
+  ## its page)
+  var depth = 0
+  for (bm, page) in bms:
+    let lvl = clamp(bm.level, 0, depth)
+    while depth > lvl:
+      o.hyper.add "</Bookmark>\n"
+      dec depth
+    let dest = if bm.dest.len > 0: o.destSelf(bm.dest) else: o.pageDestOf(page)
+    o.hyper.add "<Bookmark Self=\"" & o.uid("bm") & "\" Name=\"" & x(bm.title) & "\" Destination=\"" & dest &
+                "\" IndentLevel=\"" & $lvl & "\">\n"
+    inc depth
+  while depth > 0:
+    o.hyper.add "</Bookmark>\n"
+    dec depth
+
 proc saveBookIdml*(b: Book; path: string; keep: openArray[int] = []) =
   ## The book as IDML at `path`, its pictures as PNG files in a folder
   ## beside it ("name-links"). The pages opened for it are parked again,
@@ -642,6 +818,9 @@ proc saveBookIdml*(b: Book; path: string; keep: openArray[int] = []) =
   var o = IdmlOut(linksDir: path.changeFileExt("").absolutePath & "-links")
   let s = b.setup
   let k = 72 / max(1.0, s.dpi)
+  o.k = k
+  for i in 0 ..< b.pages.len: o.pageSelf.add o.uid("pg")      # (known before the links to them)
+  var bms: seq[tuple[b: DocBookmark; page: int]]
   let pw = s.w.float * k
   let ph = s.h.float * k
   let rtl = s.binding == bindRight
@@ -653,16 +832,18 @@ proc saveBookIdml*(b: Book; path: string; keep: openArray[int] = []) =
   # masters
   var masters: seq[(string, string)]
   var masterSelf = initTable[int, string]()
+  for m in b.masters: masterSelf[m.id] = o.uid("m")
   for m in b.masters:
-    let self = o.uid("m")
-    masterSelf[m.id] = self
+    let self = masterSelf[m.id]
+    # (based on another master: its pages have that one applied, as the layout program does it)
+    let parent = masterSelf.getOrDefault(m.basedOn, "n")
     var items, pagesXml = ""
     let sides = if s.facing: @[psLeft, psRight] else: @[psSingle]
     for j, side in sides:
       let tx = if s.facing: (if j == 0: -pw else: 0.0) else: 0.0
       let ty = -ph / 2
       let md = b.masterDoc(m, side)
-      pagesXml.add pageXml(o.uid("mp"), m.name, "n", pw, ph, tx, ty, marginsOf(if side == psLeft: mL else: mR),
+      pagesXml.add pageXml(o.uid("mp"), m.name, parent, pw, ph, tx, ty, marginsOf(if side == psLeft: mL else: mR),
                            s.columns, gut)
       items.add o.itemsOf(md, tx, ty, k, master = true, name = path.splitFile.name & "-master-" & m.name)
     masters.add ("MasterSpreads/MasterSpread_" & self & ".xml",
@@ -683,7 +864,7 @@ proc saveBookIdml*(b: Book; path: string; keep: openArray[int] = []) =
       let side = b.sideOf(pi)
       let tx = if sheet.len == 2: (if j == 0: -pw else: 0.0) elif side == psLeft: -pw else: 0.0
       let ty = -ph / 2
-      let pself = o.uid("pg")
+      let pself = o.pageSelf[pi]
       if firstPage.len == 0: firstPage = pself
       let ms = if b.pages[pi].master != 0 and b.pages[pi].master in masterSelf: masterSelf[b.pages[pi].master] else: "n"
       pagesXml.add pageXml(pself, b.label(pi), ms, pw, ph, tx, ty, marginsOf(if side == psLeft: mL else: mR),
@@ -692,8 +873,10 @@ proc saveBookIdml*(b: Book; path: string; keep: openArray[int] = []) =
       let threads = proc (L: Layer; fresh: string): Thread = b.threadOf(here, L, fresh)
       items.add o.itemsOf(d, tx, ty, k, master = false, name = path.splitFile.name & "-p" & $(pi + 1),
                           threads = threads)
+      for bm in d.bookmarks: bms.add (bm, pi + 1)
       if not was and pi notin keep: b.park(keep)
     spreads.add ("Spreads/Spread_" & self & ".xml", spreadXml(self, items, pagesXml, sheet.len, master = false))
+  o.bookmarksOut(bms)
   let res = o.resources(pw, ph, b.pages.len, s.facing, rtl, marginsOf(mR), s.columns, gut)
   let data = o.package(spreads, masters, res, b.pages.len, firstPage)
   if o.links.len > 0:
@@ -705,14 +888,19 @@ proc saveDocIdml*(d: Doc; path: string) =
   ## One document as a one-page IDML, its pictures as PNG files beside it.
   var o = IdmlOut(linksDir: path.changeFileExt("").absolutePath & "-links")
   let k = 72 / max(1.0, d.dpi)
+  o.k = k
   let pw = d.w.float * k
   let ph = d.h.float * k
   let first = o.uid("pg")
+  o.pageSelf = @[first]
   let self = o.uid("sp")
   let threads = proc (L: Layer; fresh: string): Thread = d.threadOf(L, fresh)
   let items = o.itemsOf(d, 0, -ph / 2, k, master = false, name = path.splitFile.name, threads = threads)
   let spread = spreadXml(self, items, pageXml(first, "1", "n", pw, ph, 0, -ph / 2, [0.0, 0, 0, 0], 1, 12), 1,
                          master = false)
+  var bms: seq[tuple[b: DocBookmark; page: int]]
+  for bm in d.bookmarks: bms.add (bm, 1)
+  o.bookmarksOut(bms)
   let res = o.resources(pw, ph, 1, false, false, [0.0, 0, 0, 0], 1, 12)
   let data = o.package(@[("Spreads/Spread_" & self & ".xml", spread)], @[], res, 1, first)
   if o.links.len > 0:
@@ -817,6 +1005,81 @@ proc readIdml*(file: string; dpi = 150.0): Book =
       argb = 0xFF000000'u32 or (g shl 16) or (g shl 8) or g
     colors[c.attr("Self")] = argb
   proc colorOf(s: string; d = 0'u32): uint32 = colors.getOrDefault(s, d)
+  let k0 = dpi / 72
+  # (the character styles -- what nested, GREP and line styles name -- and the Object Styles)
+  let sx = get("Resources/Styles.xml")
+  var charLooks = initTable[string, (string, CharStyle)]()   # (Self -> its name, its look)
+  var objDefs = initTable[string, ObjectStyleDef]()          # (Self -> it)
+  block:
+    var css: seq[XmlNode]
+    findAll(sx, "CharacterStyle", css)
+    for c in css:
+      let self = c.attr("Self")
+      let name = c.attr("Name")
+      if name.len == 0 or name.startsWith("$ID/"): continue
+      var st = defaultStyle()
+      try:
+        if c.attr("PointSize").len > 0: st.size = float32(parseFloat(c.attr("PointSize")) * k0)
+      except ValueError: discard
+      if c.attr("FillColor").len > 0: st.color = colorOf(c.attr("FillColor"), 0xFF000000'u32)
+      var fam = ""
+      for pp in c.childrenNamed("Properties"):
+        for af in pp.childrenNamed("AppliedFont"): fam = af.innerText
+      if fam.len > 0 and fam in fontFamilies(): st.family = fam
+      let fsn = c.attr("FontStyle")
+      if fsn.len > 0:
+        if st.family.len > 0 and fsn in fontStyles(st.family): st.style = fsn
+        elif "Bold" in fsn: st.fauxBold = true
+      st.underline = c.attr("Underline") == "true"
+      case c.attr("Capitalization")
+      of "AllCaps": st.allCaps = true
+      of "SmallCaps": st.smallCaps = true
+      else: discard
+      st.styleName = name
+      charLooks[self] = (name, st)
+    var oss: seq[XmlNode]
+    findAll(sx, "ObjectStyle", oss)
+    for c in oss:
+      let name = c.attr("Name")
+      if name.len == 0 or name.startsWith("$ID/"): continue
+      var os = ObjectStyleDef(name: name, opacity: 100, fillOpacity: 100)
+      if c.attr("EnableFill") == "true" or c.attr("FillColor").len > 0:
+        os.useFill = true
+        let fc = c.attr("FillColor")
+        if fc.len > 0 and fc != "Swatch/None": os.shape.fill = ShapePaint(kind: spColor, color: colorOf(fc, 0xFF000000'u32))
+      if c.attr("EnableStroke") == "true" or c.attr("StrokeColor").len > 0:
+        os.useStroke = true
+        let sc = c.attr("StrokeColor")
+        if sc.len > 0 and sc != "Swatch/None":
+          os.shape.stroke = ShapePaint(kind: spColor, color: colorOf(sc, 0xFF000000'u32))
+          os.shape.strokeWidth = (try: parseFloat(c.attr("StrokeWeight")) * k0 except ValueError: 1.0)
+      objDefs[c.attr("Self")] = os
+  # (hyperlinks: each source's link -- an address, "page:N", "#name" -- and the text destinations'
+  # names; the bookmarks)
+  var destNames = initTable[string, string]()     # (a HyperlinkTextDestination's Self -> its name)
+  for name in files.keys:
+    if name.startsWith("Stories/") and name.endsWith(".xml"):
+      var ds: seq[XmlNode]
+      findAll(get(name), "HyperlinkTextDestination", ds)
+      for dn in ds: destNames[dn.attr("Self")] = dn.attr("Name")
+  var urlDests = initTable[string, string]()
+  var pageDests = initTable[string, string]()      # (Self -> the page's Self)
+  for e in dm:
+    if e.kind != xnElement: continue
+    case e.tag
+    of "HyperlinkURLDestination": urlDests[e.attr("Self")] = e.attr("DestinationURL")
+    of "HyperlinkPageDestination": pageDests[e.attr("Self")] = e.attr("DestinationPage")
+    of "HyperlinkTextDestination": destNames[e.attr("Self")] = e.attr("Name")
+    else: discard
+  var pageSelfs: seq[string]                       # (the pages' Selfs, in order: filled with the spreads)
+  var sourceLink = initTable[string, string]()     # (a HyperlinkTextSource's Self -> its link)
+  var sourceDest = initTable[string, string]()     # (... -> its destination's Self, to settle)
+  for e in dm.childrenNamed("Hyperlink"):
+    var dest = ""
+    for pp in e.childrenNamed("Properties"):
+      for dd in pp.childrenNamed("Destination"): dest = dd.innerText
+    if dest.len == 0: dest = e.attr("Destination")
+    sourceDest[e.attr("Source")] = dest
   # the page's size and binding
   let pr = get("Resources/Preferences.xml")
   var dps: seq[XmlNode]
@@ -855,6 +1118,8 @@ proc readIdml*(file: string; dpi = 150.0): Book =
         if c.tag == "ParagraphStyleRange": acc.add c
         elif c.tag notin ["Table", "Cell", "Footnote", "Note", "Endnote"]: paraRanges(c, acc)
     paraRanges(stories[id], psrs)
+    for sp in stories[id].childrenNamed("StoryPreference"):
+      result.opticalMargin = sp.attr("OpticalMarginAlignment") == "true"
     proc paraOf(psr: XmlNode): ParaStyle =
       ## (a ParagraphStyleRange's format)
       case psr.attr("Justification")
@@ -897,6 +1162,7 @@ proc readIdml*(file: string; dpi = 150.0): Book =
         result.keepStart = int(num("KeepFirstLines", 0, 50))
         result.keepEnd = int(num("KeepLastLines", 0, 50))
       result.keepWithNext = int(num("KeepWithNext", 0, 50))
+      result.ignoreOptical = psr.attr("IgnoreEdgeAlignment") == "true"
       case psr.attr("StartParagraph")
       of "NextColumn": result.startAt = psNextColumn
       of "NextFrame": result.startAt = psNextFrame
@@ -906,6 +1172,51 @@ proc readIdml*(file: string; dpi = 150.0): Book =
       of "SpanColumns": result.spanAll = true
       of "SplitColumns": result.splitColumns = max(2, int(num("SpanSplitColumnCount", 0, 20)))
       else: discard
+      # (nested, line and GREP styles: the character styles they name, their looks from Styles.xml)
+      proc lookOf(ref0: string): (string, CharStyle) =
+        if ref0 in charLooks: charLooks[ref0] else: ("", defaultStyle())
+      proc field(li: XmlNode; tag: string): string =
+        for e in li.childrenNamed(tag): return e.innerText
+      for pp in psr.childrenNamed("Properties"):
+        for lst in pp.childrenNamed("AllNestedStyles"):
+          for li in lst.childrenNamed("ListItem"):
+            if result.nested.len >= 50: break
+            let (nm, look) = lookOf(li.field("AppliedCharacterStyle"))
+            var ns = NestedStyle(name: nm, look: look, through: li.field("Inclusive") != "false")
+            ns.count = (try: clamp(parseInt(li.field("Repetition")), 1, 10_000) except ValueError: 1)
+            var dl: XmlNode = nil
+            for e in li.childrenNamed("Delimiter"): dl = e
+            if dl != nil:
+              if dl.attr("type") == "string":
+                ns.unit = nuUpTo
+                ns.upTo = dl.innerText
+              else:
+                case dl.innerText
+                of "AnyCharacter", "Letters": ns.unit = nuChars
+                of "Sentence": ns.unit = nuSentences
+                of "Tabs":
+                  ns.unit = nuUpTo
+                  ns.upTo = "\t"
+                else: ns.unit = nuWords
+            result.nested.add ns
+        for lst in pp.childrenNamed("AllLineStyles"):
+          for li in lst.childrenNamed("ListItem"):
+            if result.lineStyles.len >= 50: break
+            let cref = li.field("AppliedCharacterStyle")
+            if cref.endsWith("[Repeat]"):
+              result.repeatLast = (try: clamp(parseInt(li.field("RepeatLast")), 0, 1000) except ValueError: 1)
+              continue
+            let (nm, look) = lookOf(cref)
+            let lines = (try: clamp(parseInt(li.field("LineCount")), 1, 1000) except ValueError: 1)
+            result.lineStyles.add NestedLine(name: nm, look: look, lines: lines)
+            let rl = (try: parseInt(li.field("RepeatLast")) except ValueError: 0)
+            if rl > 0: result.repeatLast = clamp(rl, 0, 1000)
+        for lst in pp.childrenNamed("AllGREPStyles"):
+          for li in lst.childrenNamed("ListItem"):
+            if result.grepStyles.len >= 50: break
+            let (nm, look) = lookOf(li.field("AppliedCharacterStyle"))
+            let pat = li.field("GrepExpression")
+            if pat.len > 0: result.grepStyles.add GrepStyle(name: nm, look: look, pattern: pat)
     var fmtNo = 0
     for pi, psr in psrs:
       let pf = paraOf(psr)
@@ -925,6 +1236,7 @@ proc readIdml*(file: string; dpi = 150.0): Book =
           if csr.attr("PointSize").len > 0: st.size = float32(parseFloat(csr.attr("PointSize")) * k)
         except ValueError: discard
         st.color = colorOf(csr.attr("FillColor"), 0xFF000000'u32)
+        st.lang = languageIn(csr.attr("AppliedLanguage"))
         var fam = ""
         for pp in csr.childrenNamed("Properties"):
           for af in pp.childrenNamed("AppliedFont"): fam = af.innerText
@@ -945,10 +1257,33 @@ proc readIdml*(file: string; dpi = 150.0): Book =
         for (tag, attr) in OtfAttrs:
           if csr.attr(attr) == "true": st.features = withFeature(st.features, tag, true)
         var txt = ""
+        var linkNow = ""                  # (a text destination: the text after it is it)
+        template flushRun() =
+          if txt.len > 0:
+            var st2 = st
+            st2.link = linkNow
+            result.spans.add TextSpan(text: txt, style: st2)
+            txt = ""
         for c in csr:
           if c.kind != xnElement: continue
           if c.tag == "Content": txt.add c.innerText
           elif c.tag == "Br": txt.add "\n"
+          elif c.tag == "HyperlinkTextDestination":
+            flushRun()
+            let nm = c.attr("Name")
+            linkNow = if nm.len > 0: "=" & nm else: ""
+          elif c.tag == "HyperlinkTextSource":
+            # (a hyperlink's text: in a span of its own, with where it goes)
+            flushRun()
+            var lt = ""
+            for e in c:
+              if e.kind != xnElement: continue
+              if e.tag == "Content": lt.add e.innerText
+              elif e.tag == "Br": lt.add "\n"
+            if lt.len > 0:
+              var st2 = st
+              st2.link = sourceLink.getOrDefault(c.attr("Self"), "")
+              result.spans.add TextSpan(text: lt, style: st2)
           elif c.tag == "Table":
             # (a table: its cells back as text -- tabs between them, a paragraph a row -- and its look)
             var ncol = 1
@@ -997,7 +1332,7 @@ proc readIdml*(file: string; dpi = 150.0): Book =
             if nid <= 65533:
               txt.add noteMark(nid)
               result.notes.add Footnote(id: nid, text: nt.strip)
-        if txt.len > 0: result.spans.add TextSpan(text: txt, style: st)
+        flushRun()
   # spreads: their pages in order, each page's items
   var pagesOut: seq[tuple[items: seq[XmlNode]; m: seq[seq[float]]; page: seq[float]]]
   for sp in dm.childrenNamed("idPkg:Spread"):
@@ -1038,7 +1373,14 @@ proc readIdml*(file: string; dpi = 150.0): Book =
           mats[best].add m
       for pi, p in pages:
         pagesOut.add (items[pi], mats[pi], pageMats[pi])
+        pageSelfs.add p.attr("Self")
   if pagesOut.len == 0: raise newException(IdmlError, "the package has no pages")
+  for src, dest in sourceDest:
+    if dest in urlDests: sourceLink[src] = urlDests[dest]
+    elif dest in pageDests:
+      let n = pageSelfs.find(pageDests[dest])
+      sourceLink[src] = "page:" & $(max(0, n) + 1)
+    elif dest in destNames: sourceLink[src] = "#" & destNames[dest]
   result = newBook(s, pages = pagesOut.len, name = file.splitFile.name)
   let b = result
   var frameAt = initTable[string, (int, int)]()     # (a text frame's Self: its page, its layer)
@@ -1101,6 +1443,10 @@ proc readIdml*(file: string; dpi = 150.0): Book =
         if t.spans.len > 0:
           let L = d.addTextLayer(t)
           if it.attr("Name").len > 0 and it.attr("Name") != "$ID/": L.name = it.attr("Name")
+          let osr = it.attr("AppliedObjectStyle")
+          if osr in objDefs:
+            L.objectStyle = objDefs[osr].name
+            if d.objectStyleIndex(L.objectStyle) < 0: d.objectStyles.add objDefs[osr]
           frameAt[it.attr("Self")] = (i, uidOf(L))
           if follows: threaded.add (i, uidOf(L), prev)
       else:
@@ -1162,9 +1508,27 @@ proc readIdml*(file: string; dpi = 150.0): Book =
                              kind: (if it.tag == "Oval": "Ellipse" elif it.tag == "Rectangle": "Rectangle" else: ""))
           if it.tag == "GraphicLine":
             for sub in sd.path.subs.mitems: sub.closed = false
-          discard d.addShapeLayer(sd, if it.attr("Name").len > 0 and it.attr("Name") != "$ID/": it.attr("Name") else: "")
+          let SL = d.addShapeLayer(sd, if it.attr("Name").len > 0 and it.attr("Name") != "$ID/": it.attr("Name") else: "")
+          let osr = it.attr("AppliedObjectStyle")
+          if osr in objDefs and SL != nil:
+            SL.objectStyle = objDefs[osr].name
+            if d.objectStyleIndex(SL.objectStyle) < 0: d.objectStyles.add objDefs[osr]
     d.markAll()
     b.park()
+  # (the bookmarks: entries under entries; each to its text destination -- kept with the first
+  # page -- or to its page)
+  proc bookmarksIn(n: XmlNode; level: int) =
+    for e in n.childrenNamed("Bookmark"):
+      let dest = e.attr("Destination")
+      var bm = DocBookmark(title: e.attr("Name"), level: level)
+      var page = 0
+      if dest in destNames: bm.dest = destNames[dest]
+      elif dest in pageDests: page = max(0, pageSelfs.find(pageDests[dest]))
+      if bm.title.len > 0 and page < b.pages.len:
+        b.doc(page).bookmarks.add bm
+        b.touch(page)
+      bookmarksIn(e, level + 1)
+  bookmarksIn(dm, 0)
   # the threads: each frame takes what did not fit the one before it, on its page or another
   for (i, uid, prev) in threaded:
     if prev notin frameAt: continue

@@ -8,6 +8,9 @@
 ## - `merged`: a copy of a document with one row's values in it -- its text
 ##   filled in, each in the style of its field, and its frames' pictures
 ##   (`pictures`: a proc that opens a file as pixels).
+## - `exportRows`: a file a row instead (PNG or JPEG), each named by a column
+##   or numbered (`fileNameFor`) -- for a single image, Photoshop's Data Sets
+##   as Files.
 ##
 ## .. code-block:: nim
 ##   import retroui/[photo, charts, datamerge]
@@ -100,3 +103,40 @@ proc merged*(design: Doc; table: DataTable; row: int; pictures: PictureOpener; f
     P.clipped = true                # (in the frame: a clipping mask of it)
     result.insertLayer(P, result.layers.find(F))
   result.markAll()
+
+proc fileNameFor*(table: DataTable; row: int; base: string; column = ""): string =
+  ## A file's name, without its extension, for row `row` of `table`: the value in its column
+  ## `column` when one is named (and not empty), else `base` and the row's number, three digits
+  ## ("Card 001"). Made safe for a file name: no slashes, colons, quotes...
+  var s = if column.len > 0: valueOf(table, row, column).strip else: ""
+  if s.len == 0: s = (if base.len > 0: base else: "Row") & " " & align($(row + 1), 3, '0')
+  for c in s.mitems:
+    if c in {'/', '\\', ':', '*', '?', '"', '<', '>', '|'} or c < ' ': c = '_'
+  s = s.strip(chars = {' ', '.'})
+  if s.len > 120: s.setLen(120)
+  if s.len == 0: s = "Row " & align($(row + 1), 3, '0')
+  s
+
+proc exportRows*(design: Doc; table: DataTable; folder: string; format = "png"; pictures: PictureOpener = nil;
+                 source = ""; column = ""; base = ""; quality = 90;
+                 progress: proc (done, total: int) {.closure.} = nil): seq[string] =
+  ## Data Merge into files: a file a row of `table` -- the design with that row's values in it
+  ## (`merged`) saved flat in `folder` as "png" or "jpg" (Photoshop's Export > Data Sets as Files);
+  ## each named by `fileNameFor`, made unique ("Name 2"). `source`: the folder the pictures'
+  ## files are named from. The files written, in the rows' order.
+  createDir(folder)
+  let ext = if format in ["jpg", "jpeg"]: ".jpg" else: ".png"
+  var used: seq[string]
+  for i in 0 ..< table.rows.len:
+    let m = merged(design, table, i, pictures, source)
+    var name = fileNameFor(table, i, if base.len > 0: base else: design.name.splitFile.name, column)
+    var k = 2
+    let stem = name
+    while name.toLowerAscii in used:
+      name = stem & " " & $k
+      inc k
+    used.add name.toLowerAscii
+    let path = folder / (name & ext)
+    m.saveFlat(path, if ext == ".jpg": "jpg" else: "png", quality)
+    result.add path
+    if progress != nil: progress(i + 1, table.rows.len)

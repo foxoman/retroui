@@ -229,7 +229,7 @@ proc vectorEvents(dw: DocWin; ev: PhotoEvent): bool =
         d.touchLayers()
         vd.shapes0 = @[(vecPts.layer, vecPts.layer.shape)]
         vd.moving = true
-  of 3, 4, 5, 6, 7, 8, 10:
+  of 3, 4, 5, 6, 7, 8, 10, 14:
     discard                                     # (the line drawn: made when it ends)
   of 9:
     # Scissors: the path cut where it is clicked
@@ -553,6 +553,13 @@ proc vecRelease(dw: DocWin; ev: PhotoEvent) =
     else:
       d.cancelStep()
       status = "Knife: drag right across a filled shape"
+  of 14:
+    # the Shape Builder Tool: the regions dragged across one shape (Alt: taken away)
+    if pts.len < 1: return
+    if d.shapeBuilderDrag(pts, ev.alt):
+      status = if ev.alt: "Shape Builder: the regions taken away" else: "Shape Builder: the regions made one shape"
+    else:
+      status = "Shape Builder: drag across the parts of overlapping shapes (Alt+drag takes them away)"
   else: discard
 
 proc deletePickedPoints(): bool =
@@ -705,6 +712,7 @@ proc vectorBar() =
                "Shift+click: its color; Alt+click: it goes", color = ui.theme.gray)
   of 13: label("Drag a shape along the perspective grid's active plane", color = ui.theme.gray)
   of 10: label("Drag right across filled shapes to cut them", color = ui.theme.gray)
+  of 14: label("Drag across the parts of overlapping shapes: one shape; Alt+drag: they go", color = ui.theme.gray)
   of 11:
     let d = cur()
     var names: seq[string]
@@ -933,6 +941,8 @@ proc liveEffectCommand(name: string): bool =
   of "Radial Repeat...": startLiveEffect(leRepeatRadial)
   of "Grid Repeat...": startLiveEffect(leRepeatGrid)
   of "Mirror Repeat...": startLiveEffect(leRepeatMirror)
+  of "Round Corners...": startLiveEffect(leRoundCorners)
+  of "Scribble...": startLiveEffect(leScribble)
   of "Transform Each...": startTransformEach()
   of "Expand Appearance":
     let d = cur()
@@ -1050,6 +1060,15 @@ proc liveEffectDialog() =
     of leRepeatMirror:
       num("Axis Angle:", e.angle, -90, 90, "°")
       num("Axis Offset:", e.dx, -500, 500, " px")
+    of leRoundCorners: num("Radius:", e.amount, 0, 1000, " px")
+    of leScribble:
+      num("Angle:", e.angle, -180, 180, "°")
+      num("Stroke Width:", e.detail, 0.1, 100, " px")
+      num("Spacing:", e.amount, 0.5, 200, " px")
+      num("Variation:", e.sx, 0, 100, "%")
+      var sd = float(e.seed)
+      num("Seed:", sd, 1, 1000)
+      e.seed = int(sd)
     paragraph("The path stays as it was drawn: the effect is done each time it is drawn (the Appearance panel " &
               "keeps it, to change or take away).", color = ui.theme.gray)
     row:

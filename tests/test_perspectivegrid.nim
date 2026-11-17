@@ -4,7 +4,7 @@
 ## the grid's lines.
 
 import std/[math]
-import retroui/[photo, photoshapes, photovp, perspectivegrid]
+import retroui/[photo, photoshapes, photovp, perspectivegrid, textengine]
 
 proc near(a, b: (float, float); e = 1e-6): bool = abs(a[0] - b[0]) < e and abs(a[1] - b[1]) < e
 
@@ -105,6 +105,54 @@ block pixelsOnAPlane:
   d.undo()
   doAssert L.px[int(y0 + 2) * d.w + int(x1) - 3] == 0xFFCC2020'u32, "undone"
   echo "perspectivegrid: ok"
+
+block typeOnAPlane:
+  # type laid on a plane stays type: set flat and drawn through the plane, its letters inside the
+  # plane's quad; typed in flat; kept with the text; released flat again
+  let d = newDoc(800, 600)
+  let g = defaultGrid(800, 600)
+  let p = vpPlane(g.planeQuad(ppLeft))
+  let (x0, y0) = p.toImage(0.25, 0.3)
+  let (x1, y1) = p.toImage(0.75, 0.6)
+  var t = newText("PERSPECTIVE", CharStyle(family: "", size: 40, color: 0xFF2040A0'u32, hScale: 1, vScale: 1),
+                  float32(x0), float32(y0))
+  t.boxW = float32(x1 - x0)
+  t.boxH = float32(y1 - y0)
+  let L = d.addTextLayer(t)
+  let flat = L.px
+  d.beginStep("Attach")
+  doAssert d.textOntoPlane(L, g, ppLeft)
+  d.endStep()
+  doAssert L.isText and L.text.plainText == "PERSPECTIVE" and L.text.perspOn
+  # (its letters inside its quad on the plane; changed from flat)
+  var inside, outside = 0
+  for y in 0 ..< d.h:
+    for x in 0 ..< d.w:
+      if (L.px[y * d.w + x] shr 24) > 40:
+        let (u, v) = p.toPlane(x.float + 0.5, y.float + 0.5)
+        if u >= 0.24 and u <= 0.76 and v >= 0.29 and v <= 0.61: inc inside else: inc outside
+  doAssert inside > 200 and outside == 0, $(inside, outside)
+  doAssert L.px != flat
+  # (typed in: flat meanwhile)
+  flatTextLayer = L
+  d.drawText(L)
+  doAssert L.px == flat
+  flatTextLayer = nil
+  d.drawText(L)
+  doAssert L.px != flat
+  # (kept with the text; moved with it)
+  let back = textFrom(L.text.toJson)
+  doAssert back.perspOn and back.persp == L.text.persp and back.perspBox == L.text.perspBox
+  let mv = L.text.moved(10, 5)
+  doAssert abs(mv.persp[0][0] - L.text.persp[0][0] - 10) < 1e-4 and abs(mv.perspBox[1] - L.text.perspBox[1] - 5) < 1e-4
+  # (released: flat again, where it was)
+  d.beginStep("Release")
+  doAssert d.textOffPlane(L)
+  d.endStep()
+  doAssert not L.text.perspOn and L.px == flat
+  d.undo()
+  doAssert L.text.perspOn
+  echo "type on a plane: still type"
 
 block threePoint:
   # the walls' uprights meet at the third point: their far sides lean toward it

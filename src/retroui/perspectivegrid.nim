@@ -23,7 +23,7 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[math, json]
-import gfx, photo, photoshapes, photovp
+import gfx, photo, photoshapes, photovp, textengine
 
 type
   PerspectiveKind* = enum
@@ -248,6 +248,50 @@ proc ontoPlane*(path: Path; g: PerspectiveGrid; plane: PerspectivePlane): Path =
   result = splitCurves(path)
   result.mapPoints(proc (x, y: float): (float, float) =
     p.toImage(sp.u0 + (x - bx0) / bw * (sp.u1 - sp.u0), sp.v0 + (y - by0) / bh * (sp.v1 - sp.v0)))
+
+proc textOntoPlane*(d: Doc; L: Layer; g: PerspectiveGrid; plane: PerspectivePlane): bool =
+  ## A type layer laid on `plane` where it is, as the drawing program puts type on its grid: the
+  ## corners of its box (a box's, or where its letters are) stay, the rest follows the plane --
+  ## and it stays type: set flat and drawn through the plane (`TextData.persp`), editable. False
+  ## when the plane cannot hold it there. Undoable in a step.
+  if not L.isText: return false
+  var t = L.text
+  var box: array[4, float32]
+  if t.boxW > 0 and t.boxH > 0:
+    box = [t.x, t.y, t.x + t.boxW, t.y + t.boxH]
+  else:
+    let lay = layoutText(d.effectiveText(L))
+    if lay.x1 <= lay.x0 or lay.y1 <= lay.y0: return false
+    box = [lay.x0 - 2, lay.y0 - 2, lay.x1 + 2, lay.y1 + 2]
+  if t.perspOn:
+    # (on a plane already: from where it was, flat)
+    box = t.perspBox
+  let flatPath = rectPath(box[0].float, box[1].float, box[2].float, box[3].float)
+  let on = flatPath.ontoPlane(g, plane)
+  if on == flatPath or on.subs.len == 0 or on.subs[0].pts.len < 4: return false
+  # (the box's corners, as rectPath has them: top left, top right, bottom right, bottom left)
+  var corners: array[4, (float32, float32)]
+  let pts = on.subs[0].pts
+  for i in 0 .. 3:
+    corners[i] = (float32(pts[i].p[0]), float32(pts[i].p[1]))
+  t.perspOn = true
+  t.persp = corners
+  t.perspBox = box
+  d.touchLayers()
+  d.touch(L, d.bounds)
+  d.setText(L, t)
+  true
+
+proc textOffPlane*(d: Doc; L: Layer): bool =
+  ## Release with Perspective: a type layer on a plane set flat again where it was. Undoable in a
+  ## step.
+  if not L.isText or not L.text.perspOn: return false
+  var t = L.text
+  t.perspOn = false
+  d.touchLayers()
+  d.touch(L, d.bounds)
+  d.setText(L, t)
+  true
 
 proc pixelsOntoPlane*(d: Doc; L: Layer; g: PerspectiveGrid; plane: PerspectivePlane): bool =
   ## A painted layer's pixels laid on `plane` where they are, as `ontoPlane` lays a path:

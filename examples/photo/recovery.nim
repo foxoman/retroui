@@ -25,6 +25,36 @@ proc dropRecovery(dw: DocWin) =
   dw.recovery = ""
   dw.autoVer = -1
 
+var lastParkLook = 0'i64
+
+proc parkTick() =
+  ## (each frame) What stood idle for a minute kept small (`parkLayer`): every layer of a
+  ## document not shown -- a tab behind -- and the hidden layers of those shown, each
+  ## unchanged since the last look; opened out again the moment it is read.
+  if docs.len == 0: return
+  if lastParkLook == 0:
+    lastParkLook = ui.now
+    for dw in docs: dw.parkVer = dw.doc.ver
+  let wait = lastParkLook + 60_000 - ui.now
+  if wait > 0:
+    var any = false
+    for dw in docs:
+      if dw.doc.ver == dw.parkVer and not dw.doc.stepOpen:
+        for L in dw.doc.layers:
+          if canPark(L, dw.doc.w, dw.doc.h) and (not L.visible or (dw != active and not dw.floating)):
+            any = true
+            break
+      if any: break
+    if any: wakeIn(int(wait))
+    return
+  lastParkLook = ui.now
+  var gave = 0
+  for dw in docs:
+    if dw.doc.ver == dw.parkVer and not dw.doc.stepOpen and not isBookWin(dw):
+      gave += (if dw == active or dw.floating: dw.doc.parkHidden() else: dw.doc.parkAll())
+    dw.parkVer = dw.doc.ver
+  if gave > 0: trimMemory()
+
 proc autosaveTick() =
   ## (each frame) A changed document's copy written when it is time; the
   ## next frame woken for then.

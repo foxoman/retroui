@@ -132,6 +132,7 @@ proc fontsOf(docs: seq[Doc]): seq[tuple[family, style, file: string]] =
       for f in @[L.text.para] & L.text.paraFmts:
         for n in f.nested: result.add(n.look.family, n.look.style)
         for g in f.grepStyles: result.add(g.look.family, g.look.style)
+        for n in f.lineStyles: result.add(n.look.family, n.look.style)
 
 proc startPackage() =
   let what = docsToPackage()

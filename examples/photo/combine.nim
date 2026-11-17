@@ -71,7 +71,7 @@ proc mergeImages(): (seq[Img], seq[string]) =
 
 proc maskLayer(m: seq[uint8]): Layer =
   ## A layer mask from 0..255.
-  result = Layer(name: "Layer Mask", px: newSeq[uint32](m.len), opacity: 100, visible: true, gray: true)
+  result = Layer(name: "Layer Mask", pxRaw: newSeq[uint32](m.len), opacity: 100, visible: true, gray: true)
   for i, v in m: result.px[i] = grayPx(int(v))
 
 proc alignedToFirst(imgs: seq[Img]; model: AlignModel): seq[Img] =

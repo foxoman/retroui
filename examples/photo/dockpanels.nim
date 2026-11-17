@@ -53,6 +53,7 @@ proc panelBody(key: string) =
   of "vbrushes": vectorBrushesBody()
   of "appearance": appearanceBody()
   of "objectstyles": objectStylesBody()
+  of "graphicstyles": graphicStylesBody()
   of "bookmarks": bookmarksBody()
   of "links": linksBody()
   else: label("(" & key & ")", color = ui.theme.gray)
