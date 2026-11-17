@@ -124,6 +124,18 @@ static struct {
   jmethodID intentInit, addFlags, uriParse, startActivity;
   jobject paint;                     /* reused Paint */
   int paintSize;
+  /* An activity the system makes again (a change it cannot hand the old
+   * one, such as new paths for its resources: Activity.isChangingConfigurations):
+   * from the old one's end to the new one's start the app goes on, with no
+   * window, and `activity` points at `gone`, a copy of the old one's fields
+   * (its own is freed when its end returns). Calls to the activity wait for
+   * the new one meanwhile (`liveActivity`). */
+  int relaunching;
+  ANativeActivity gone;
+  jobject goneObj;                   /* (`gone.clazz`: a global reference of the glue's own) */
+  char *goneData;                    /* (`gone.internalDataPath`, copied) */
+  jmethodID changingMethod;          /* Activity.isChangingConfigurations */
+  pthread_t uiThread;
 } g;
 
 /* ---- the background check -------------------------------------------------
@@ -333,6 +345,8 @@ static void initJni(JNIEnv *env, jobject activity) {
                                          "(Ljava/lang/String;)Ljava/lang/Object;");
   g.startActivity = (*env)->GetMethodID(env, actCls, "startActivity",
                                         "(Landroid/content/Intent;)V");
+  g.changingMethod = (*env)->GetMethodID(env, actCls, "isChangingConfigurations", "()Z");
+  if (!g.changingMethod) jniFailed(env);
   jstring name = (*env)->NewStringUTF(env, "clipboard");
   jobject cm = (*env)->CallObjectMethod(env, activity, getSvc, name);
   (*env)->DeleteLocalRef(env, name);
@@ -604,6 +618,25 @@ static void registerNatives(JNIEnv *env, jobject activity) {
   (*env)->DeleteLocalRef(env, cls);
 }
 
+/* ---- the activity now ------------------------------------------------------ */
+
+/* The activity the app's calls go to: while the system makes it again
+ * (`relaunching`), NULL at once (`wait` 0) or once the new one has come --
+ * waited for up to 5 seconds, never on the UI thread, which makes it. */
+static ANativeActivity *liveActivity(int wait) {
+  if (!__atomic_load_n(&g.relaunching, __ATOMIC_ACQUIRE)) return g.activity;
+  if (!wait || pthread_equal(pthread_self(), g.uiThread)) return NULL;
+  pthread_mutex_lock(&g.mu);
+  struct timespec until;
+  clock_gettime(CLOCK_REALTIME, &until);
+  until.tv_sec += 5;
+  while (g.relaunching && !g.finished)
+    if (pthread_cond_timedwait(&g.cond, &g.mu, &until) != 0) break;
+  ANativeActivity *a = g.relaunching ? NULL : g.activity;
+  pthread_mutex_unlock(&g.mu);
+  return a;
+}
+
 /* ---- services for the Nim side ------------------------------------------- */
 
 char *uirelays_clipboard_get(int *len) {
@@ -616,9 +649,9 @@ char *uirelays_clipboard_get(int *len) {
   if (!jniFailed(env) && clip &&
       (*env)->CallIntMethod(env, clip, g.getItemCount) > 0) {
     jobject item = (*env)->CallObjectMethod(env, clip, g.getItemAt, 0);
-    if (!jniFailed(env) && item) {
-      jobject cs = (*env)->CallObjectMethod(env, item, g.coerceToText,
-                                            g.activity->clazz);
+    ANativeActivity *act = liveActivity(1);
+    if (!jniFailed(env) && item && act) {
+      jobject cs = (*env)->CallObjectMethod(env, item, g.coerceToText, act->clazz);
       if (!jniFailed(env) && cs) {
         jstring s = (jstring)(*env)->CallObjectMethod(env, cs, g.toString);
         if (!jniFailed(env) && s) r = utf8String(env, s, len);
@@ -647,6 +680,8 @@ void uirelays_clipboard_put(const char *s, int n) {
 int uirelays_open_url(const char *s, int n) {
   JNIEnv *env = g.env;
   if (!env || !g.intentInit || !g.startActivity) return 0;
+  ANativeActivity *act = liveActivity(1);
+  if (!act) return 0;
   int ok = 0;
   (*env)->PushLocalFrame(env, 8);
   jstring us = newString(env, s, n);
@@ -656,7 +691,7 @@ int uirelays_open_url(const char *s, int n) {
     jobject intent = (*env)->NewObject(env, g.intentCls, g.intentInit, action, uri);
     if (!jniFailed(env) && intent) {
       (*env)->CallObjectMethod(env, intent, g.addFlags, (jint)0x10000000);
-      (*env)->CallVoidMethod(env, g.activity->clazz, g.startActivity, intent);
+      (*env)->CallVoidMethod(env, act->clazz, g.startActivity, intent);
       ok = !jniFailed(env);   /* ActivityNotFoundException: nothing opens it */
     }
   }
@@ -677,44 +712,50 @@ void uirelays_keyboard(int show) {
    * have closed the keyboard (Back, its own key) without the app knowing */
   int again = show && g.reshow;
   g.reshow = 0;
-  if (!g.activity || (show == g.keyboardShown && !again)) return;
+  ANativeActivity *act = liveActivity(0);   /* (none while it is made again: a touch asks again) */
+  if (!act || (show == g.keyboardShown && !again)) return;
   g.keyboardShown = show;
   if (g.keyboardMethod && g.env) {         /* UiRelaysActivity.keyboard */
-    (*g.env)->CallVoidMethod(g.env, g.activity->clazz, g.keyboardMethod,
+    (*g.env)->CallVoidMethod(g.env, act->clazz, g.keyboardMethod,
                              (jboolean)(show != 0));
     if (!jniFailed(g.env)) return;
   }
-  if (show) ANativeActivity_showSoftInput(g.activity, 0);
-  else ANativeActivity_hideSoftInput(g.activity, 0);
+  if (show) ANativeActivity_showSoftInput(act, 0);
+  else ANativeActivity_hideSoftInput(act, 0);
 }
 
 /* ---- UiRelaysActivity's services (app thread) ------------------------------- */
 
 int uirelays_minimize(void) {
-  if (!g.env || !g.minimizeMethod) return 0;
-  (*g.env)->CallVoidMethod(g.env, g.activity->clazz, g.minimizeMethod);
+  ANativeActivity *act = liveActivity(1);
+  if (!g.env || !g.minimizeMethod || !act) return 0;
+  (*g.env)->CallVoidMethod(g.env, act->clazz, g.minimizeMethod);
   return !jniFailed(g.env);
 }
 
 int uirelays_has_storage(void) {
   if (!g.env || !g.hasStorageMethod) return 1;   /* nothing to ask then */
-  jboolean b = (*g.env)->CallBooleanMethod(g.env, g.activity->clazz, g.hasStorageMethod);
+  ANativeActivity *act = liveActivity(1);
+  if (!act) return 0;
+  jboolean b = (*g.env)->CallBooleanMethod(g.env, act->clazz, g.hasStorageMethod);
   return jniFailed(g.env) ? 0 : b != 0;
 }
 
 void uirelays_ask_storage(void) {
-  if (!g.env || !g.askStorageMethod) return;
-  (*g.env)->CallVoidMethod(g.env, g.activity->clazz, g.askStorageMethod);
+  ANativeActivity *act = liveActivity(1);
+  if (!g.env || !g.askStorageMethod || !act) return;
+  (*g.env)->CallVoidMethod(g.env, act->clazz, g.askStorageMethod);
   jniFailed(g.env);
 }
 
 /* mode 0: open in its app, 1: choose the app, 2: share */
 int uirelays_open_file(const char *path, int n, int mode) {
   JNIEnv *env = g.env;
-  if (!env || !g.openFileMethod) return 0;
+  ANativeActivity *act = liveActivity(1);
+  if (!env || !g.openFileMethod || !act) return 0;
   (*env)->PushLocalFrame(env, 4);
   jstring js = newString(env, path, n);
-  jboolean ok = (*env)->CallBooleanMethod(env, g.activity->clazz, g.openFileMethod,
+  jboolean ok = (*env)->CallBooleanMethod(env, act->clazz, g.openFileMethod,
                                          js, (jint)mode);
   if (jniFailed(env)) ok = 0;
   (*env)->PopLocalFrame(env, NULL);
@@ -742,11 +783,12 @@ uint32_t *uirelays_decode_image(const char *path, int n, int maxW, int maxH,
                            int *w, int *h) {
   JNIEnv *env = threadEnv();
   *w = *h = 0;
-  if (!env || !g.decodeImageMethod || !g.activity) return NULL;
+  ANativeActivity *act = env && g.decodeImageMethod && g.activity ? liveActivity(1) : NULL;
+  if (!act) return NULL;
   uint32_t *px = NULL;
   (*env)->PushLocalFrame(env, 4);
   jstring js = newString(env, path, n);
-  jintArray arr = (jintArray)(*env)->CallObjectMethod(env, g.activity->clazz,
+  jintArray arr = (jintArray)(*env)->CallObjectMethod(env, act->clazz,
       g.decodeImageMethod, js, (jint)maxW, (jint)maxH);
   if (!jniFailed(env) && arr) {
     jsize len = (*env)->GetArrayLength(env, arr);
@@ -776,14 +818,15 @@ char *uirelays_call(const char *name, int nn, const char *arg, int na, int *len)
   /* no activity (a background check), or one not set up yet:
    * the job class's static uirelaysCall */
   int viaJob = bg.cls && bg.call && (!g.activity || !g.callMethod);
-  if (!env || (!viaJob && (!g.callMethod || !g.activity))) return NULL;
+  ANativeActivity *act = viaJob || !env ? NULL : liveActivity(1);
+  if (!env || (!viaJob && (!g.callMethod || !act))) return NULL;
   char *out = NULL;
   (*env)->PushLocalFrame(env, 4);
   jstring jn = newString(env, name, nn);
   jstring ja = newString(env, arg, na);
   jbyteArray r = viaJob
       ? (jbyteArray)(*env)->CallStaticObjectMethod(env, bg.cls, bg.call, jn, ja)
-      : (jbyteArray)(*env)->CallObjectMethod(env, g.activity->clazz, g.callMethod, jn, ja);
+      : (jbyteArray)(*env)->CallObjectMethod(env, act->clazz, g.callMethod, jn, ja);
   if (!jniFailed(env) && r) {
     jsize n = (*env)->GetArrayLength(env, r);
     out = (char *)malloc((size_t)n + 1);
@@ -800,7 +843,8 @@ char *uirelays_call(const char *name, int nn, const char *arg, int na, int *len)
 
 /* The status and navigation bars take the colors drawn under them. */
 static void syncSystemBars(void) {
-  if (!g.shadow || !g.env || !g.barsMethod || g.shH < 2) return;
+  ANativeActivity *act = liveActivity(0);
+  if (!g.shadow || !g.env || !g.barsMethod || g.shH < 2 || !act) return;
   int top = g.haveInsets ? g.insets[0] : g.rect.top;
   int bottom = g.haveInsets ? g.insets[2] : (g.winH - g.rect.bottom);
   int yt = top > 0 ? top / 2 : 0;
@@ -814,12 +858,13 @@ static void syncSystemBars(void) {
   g.barsKnown = 1;
   g.barTop = t;
   g.barBottom = b;
-  (*g.env)->CallVoidMethod(g.env, g.activity->clazz, g.barsMethod, (jint)t, (jint)b);
+  (*g.env)->CallVoidMethod(g.env, act->clazz, g.barsMethod, (jint)t, (jint)b);
   jniFailed(g.env);
 }
 
 void uirelays_finish(void) {
-  if (g.activity && !g.destroyRequested) ANativeActivity_finish(g.activity);
+  ANativeActivity *act = liveActivity(1);
+  if (act && !g.destroyRequested) ANativeActivity_finish(act);
 }
 
 void uirelays_layout(int *w, int *h, int *density, int *top, int *left,
@@ -1093,8 +1138,10 @@ int uirelays_text_render(const char *s, int n, int size, uint32_t fg, uint32_t *
 /* ---- commands from the UI thread, run on the app thread ---------------------- */
 
 static void readDensity(void) {
+  ANativeActivity *act = liveActivity(0);   /* (made again: its start sends CMD_CONFIG) */
+  if (!act) return;
   if (!g.config) g.config = AConfiguration_new();
-  AConfiguration_fromAssetManager(g.config, g.activity->assetManager);
+  AConfiguration_fromAssetManager(g.config, act->assetManager);
   int d = AConfiguration_getDensity(g.config);
   g.density = (d <= 0 || d == ACONFIGURATION_DENSITY_ANY ||
                d == ACONFIGURATION_DENSITY_NONE) ? 160 : d;
@@ -1683,7 +1730,7 @@ static void appEnd(void) {
   if (g.queue) AInputQueue_detachLooper(g.queue);
   g.queue = NULL;
   g.window = NULL;
-  ANativeActivity *act = g.destroyRequested ? NULL : g.activity;
+  ANativeActivity *act = g.destroyRequested || g.relaunching ? NULL : g.activity;
   g.finished = 1;
   pthread_cond_broadcast(&g.cond);
   pthread_mutex_unlock(&g.mu);
@@ -1914,10 +1961,67 @@ static void onConfigurationChanged(ANativeActivity *a) {
 static void onStart(ANativeActivity *a) { if (a == g.activity) writeCmd(CMD_START); }
 static void onStop(ANativeActivity *a) { if (a == g.activity) writeCmd(CMD_STOP); }
 
+/* (a relaunch's new activity came in time, or the app ended: nothing to do) */
+static void *relaunchWatch(void *arg) {
+  (void)arg;
+  struct timespec until;
+  clock_gettime(CLOCK_REALTIME, &until);
+  until.tv_sec += 10;
+  pthread_mutex_lock(&g.mu);
+  while (g.relaunching && !g.finished)
+    if (pthread_cond_timedwait(&g.cond, &g.mu, &until) != 0) break;
+  int lost = g.relaunching && !g.finished;
+  pthread_mutex_unlock(&g.mu);
+  if (!lost) return NULL;
+  /* No new activity: the app ends as at a plain end. */
+  LOGI("the activity made again did not come: the app ends");
+  writeCmd(CMD_DESTROY);
+  clock_gettime(CLOCK_REALTIME, &until);
+  until.tv_sec += 3;
+  pthread_mutex_lock(&g.mu);
+  while (!g.finished)
+    if (pthread_cond_timedwait(&g.cond, &g.mu, &until) != 0) break;
+  pthread_mutex_unlock(&g.mu);
+  fflush(NULL);
+  _exit(0);
+  return NULL;
+}
+
+/* The system ends this activity to make it again at once (a change of its
+ * configuration it could not hand it): the app goes on, without a window,
+ * till the new one comes (ANativeActivity_onCreate). */
+static int relaunchStarts(ANativeActivity *a) {
+  if (!g.changingMethod || !a->env || !a->clazz) return 0;
+  jboolean changing = (*a->env)->CallBooleanMethod(a->env, a->clazz, g.changingMethod);
+  if (jniFailed(a->env) || !changing) return 0;
+  pthread_mutex_lock(&g.mu);
+  int ended = g.finished;
+  if (!ended) {
+    g.gone = *a;
+    g.goneObj = (*a->env)->NewGlobalRef(a->env, a->clazz);
+    g.gone.clazz = g.goneObj;
+    g.goneData = a->internalDataPath ? strdup(a->internalDataPath) : NULL;
+    g.gone.internalDataPath = g.goneData;
+    g.gone.externalDataPath = NULL;
+    g.gone.obbPath = NULL;
+    g.gone.assetManager = NULL;     /* (the old one's: let go with it -- see readDensity) */
+    g.gone.callbacks = NULL;
+    g.activity = &g.gone;
+    __atomic_store_n(&g.relaunching, 1, __ATOMIC_RELEASE);
+  }
+  pthread_mutex_unlock(&g.mu);
+  if (ended) return 0;
+  LOGI("the activity is made again: the app waits for the new one");
+  pthread_t t;
+  if (pthread_create(&t, NULL, relaunchWatch, NULL) == 0) pthread_detach(t);
+  return 1;
+}
+
 static void onDestroy(ANativeActivity *a) {
   /* (an activity whose app ended and was started again in a newer one: the
    * process is the newer one's now) */
   if (a != g.activity) return;
+  if (relaunchStarts(a)) return;
   writeCmd(CMD_DESTROY);
   /* Give the app a moment to finish (it gets a QuitEvent); then end the
    * process, so the next start runs NimMain in a fresh one. */
@@ -1966,6 +2070,27 @@ void ANativeActivity_onCreate(ANativeActivity *activity, void *savedState,
   }
   if (!hosted) bg.nim = 1;
   pthread_mutex_unlock(&bg.mu);
+  pthread_mutex_lock(&g.mu);
+  int relaunched = g.activity && g.relaunching && !g.finished;
+  if (relaunched) {
+    /* The activity the system made again: the app goes on in it. */
+    g.activity = activity;
+    g.uiThread = pthread_self();
+    __atomic_store_n(&g.relaunching, 0, __ATOMIC_RELEASE);
+    pthread_cond_broadcast(&g.cond);
+  }
+  pthread_mutex_unlock(&g.mu);
+  if (relaunched) {
+    LOGI("the activity made again: the app goes on in it");
+    setCallbacks(activity);
+    if (g.goneObj) (*activity->env)->DeleteGlobalRef(activity->env, g.goneObj);
+    g.goneObj = NULL;
+    /* (g.goneData stays: the app may hold the path it gave) */
+    onNativeWindowDestroyed(activity, NULL);   /* (gone with the old one, if not yet) */
+    onInputQueueDestroyed(activity, NULL);
+    writeCmd(CMD_CONFIG);                      /* its resources, its density */
+    return;
+  }
   if (g.activity) {
     /* One more activity while this process has one (made beside it or in
      * its place: the system's, an intent's -- the manifest's singleTask
@@ -1993,6 +2118,7 @@ void ANativeActivity_onCreate(ANativeActivity *activity, void *savedState,
   }
   memset(&g, 0, sizeof g);
   g.activity = activity;
+  g.uiThread = pthread_self();
   g.pointerId = -1;
   setCallbacks(activity);
   pthread_mutex_init(&g.mu, NULL);
