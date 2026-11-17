@@ -413,6 +413,11 @@ type
     link*: string              ## a hyperlink: a web or mail address ("https://...", "mailto:..."),
                                ## "#name" a destination's, "page:N" the book's page N; "=name": the
                                ## text is the destination "name" (cross-references go to it)
+    condition*: string         ## Conditional Text: the conditions it is under, ", " between them --
+                               ## hidden when all of them are (`withConditions`)
+    added*, deleted*: string   ## Track Changes: typed (`added`) or deleted (`deleted`) by whom, "who|when"
+                               ## (deleted text stays until the change is accepted: `acceptChanges`)
+    memo*: string              ## a note on it (Notes): what it says, "who|when|text" -- not drawn
 
   NumberStyle* = enum
     ## How numbers are written: a list's, a book's page numbers.
@@ -486,6 +491,14 @@ type
                                ## (Nested Line Styles: a nested style wins where both reach)
     repeatLast*: int           ## ... then the last so many of them again, and again ([Repeat]; 0 not)
     grepStyles*: seq[GrepStyle]  ## character styles wherever a pattern matches in it
+    shading*: uint32           ## Paragraph Shading: a color behind it (ARGB; 0 none) -- as wide as its
+                               ## column (`shadeToText`: as its text), from the top of its first line
+                               ## to the foot of its last
+    shadeOffsets*: array[4, float32]  ## ... how much further it reaches, top, right, bottom, left
+    shadeToText*: bool         ## ... as wide as the text, not the column
+    border*: uint32            ## Paragraph Border: its color (ARGB; 0 none)
+    borderWidths*: array[4, float32]  ## ... its lines' widths, top, right, bottom, left (all 0: 1 all round)
+    borderOffsets*: array[4, float32] ## ... how far out from the text
 
   Composer* = enum
     ## How a paragraph's lines are broken.
@@ -652,6 +665,8 @@ type
                                ## Spacing)
     vjust*: VertJust           ## ... where its lines stand up and down
     balance*: bool             ## ... its columns made as even as they can be
+    track*: bool               ## Track Changes: what is typed and deleted kept as changes (`trackedInsert`,
+                               ## `trackedDelete`), accepted or rejected later
     opticalMargin*: bool       ## Optical Margin Alignment (the Story panel): punctuation and the
                                ## edges of some letters (A, T, V, W, Y...) hung out of its lines'
                                ## edges, as far as they look in (paragraphs with `ignoreOptical` not)
@@ -925,6 +940,211 @@ proc restyle*(t: var TextData; a, b: int; change: proc (s: var CharStyle)) =
     at += n
   if t.runeLen == 0 and t.spans.len > 0: change(t.spans[0].style)
   t.normalize()
+
+# ---- Conditional Text, Track Changes, Notes ------------------------------------------------------------
+
+proc condNames(c: string): seq[string] =
+  for n in c.split(','):
+    let x = n.strip
+    if x.len > 0: result.add x
+
+proc hiddenBy(c: string; hidden: openArray[string]): bool =
+  ## (under conditions, all of them hidden)
+  let ns = condNames(c)
+  if ns.len == 0: return false
+  for n in ns:
+    if n notin hidden: return false
+  true
+
+proc withConditions*(t: TextData; hidden: openArray[string]): TextData =
+  ## The text as it shows with conditions `hidden` hidden: what is under them all left out
+  ## (Conditional Text).
+  result = t
+  if hidden.len == 0: return
+  var any = false
+  for sp in t.spans:
+    if sp.style.condition.len > 0 and sp.style.condition.hiddenBy(hidden): any = true
+  if not any: return
+  result.spans = @[]
+  for sp in t.spans:
+    if sp.style.condition.len == 0 or not sp.style.condition.hiddenBy(hidden): result.spans.add sp
+  if result.spans.len == 0: result.spans.add TextSpan(text: "", style: t.spans[0].style)
+  result.normalize()
+
+proc conditionsOf*(t: TextData): seq[string] =
+  ## The conditions its text is under.
+  for sp in t.spans:
+    for n in condNames(sp.style.condition):
+      if n notin result: result.add n
+
+proc applyCondition*(t: var TextData; a, b: int; cond: string; on = true) =
+  ## Characters `a` ..< `b` under condition `cond` (`on`), or no longer.
+  t.restyle(a, b, proc (st: var CharStyle) =
+    var ns = condNames(st.condition)
+    if on:
+      if cond notin ns: ns.add cond
+    else:
+      let k = ns.find(cond)
+      if k >= 0: ns.delete(k)
+    st.condition = ns.join(", "))
+
+proc trackedInsert*(t: var TextData; i: int; s: string; style: CharStyle; who: string) =
+  ## `s` typed at `i` with Track Changes on: marked added by `who` ("who|when").
+  var st = style
+  st.added = who
+  st.deleted = ""
+  t.insertText(i, s, st)
+
+proc trackedDelete*(t: var TextData; a, b: int; who: string) =
+  ## Characters `a` ..< `b` deleted with Track Changes on: what was itself added by a change
+  ## goes, the rest is marked deleted by `who` -- it stays, struck, until accepted.
+  if b <= a: return
+  t.splitAt(a)
+  t.splitAt(b)
+  var at = 0
+  var o: seq[TextSpan]
+  for sp in t.spans:
+    let n = sp.text.runeLen
+    if at >= a and at + n <= b:
+      if sp.style.added.len == 0:
+        var q = sp
+        if q.style.deleted.len == 0: q.style.deleted = who
+        o.add q
+    else: o.add sp
+    at += n
+  let first = if t.spans.len > 0: t.spans[0].style else: defaultStyle()
+  t.spans = o
+  if t.spans.len == 0: t.spans.add TextSpan(text: "", style: first)
+  t.normalize()
+
+proc withoutDeleted*(t: TextData): TextData =
+  ## The text as it will be once its changes are accepted: deleted text left out.
+  result = t
+  var any = false
+  for sp in t.spans:
+    if sp.style.deleted.len > 0: any = true
+  if not any: return
+  result.spans = @[]
+  for sp in t.spans:
+    if sp.style.deleted.len == 0: result.spans.add sp
+  if result.spans.len == 0: result.spans.add TextSpan(text: "", style: t.spans[0].style)
+  result.normalize()
+
+proc showingChanges*(t: TextData; addColor = 0xFF0060D0'u32; delColor = 0xFFD02020'u32): TextData =
+  ## The text with its changes shown: what was added underlined in `addColor`, what was deleted
+  ## struck through in `delColor`.
+  result = t
+  for sp in result.spans.mitems:
+    if sp.style.deleted.len > 0:
+      sp.style.strike = true
+      sp.style.color = delColor
+    elif sp.style.added.len > 0:
+      sp.style.underline = true
+      sp.style.color = addColor
+
+type
+  TextCondition* = object
+    ## A condition text can be under (the Conditional Text panel): shown or hidden all at once.
+    name*: string
+    color*: uint32             ## its mark's color, as the panel shows it
+    visible*: bool             ## shown (else what is under it alone is left out)
+
+  TextChange* = object
+    ## A change kept by Track Changes (`changesOf`).
+    added*: bool               ## added (else deleted)
+    a*, b*: int                ## its characters
+    who*, at*: string          ## by whom, when ("who|when" split)
+    text*: string              ## what it is
+
+  TextMemo* = object
+    ## A note on a text (`memosOf`).
+    a*, b*: int                ## the characters it is on
+    who*, at*, text*: string   ## who wrote it, when, what it says
+
+proc splitWho(s: string): (string, string) =
+  let k = s.find('|')
+  if k < 0: (s, "") else: (s[0 ..< k], s[k + 1 .. ^1])
+
+proc changesOf*(t: TextData): seq[TextChange] =
+  ## Its changes, in order (neighbouring characters of one change together).
+  var at = 0
+  for sp in t.spans:
+    let n = sp.text.runeLen
+    let mark = if sp.style.deleted.len > 0: sp.style.deleted else: sp.style.added
+    if mark.len > 0 and n > 0:
+      let added = sp.style.deleted.len == 0
+      if result.len > 0 and result[^1].b == at and result[^1].added == added and
+         (result[^1].who & "|" & result[^1].at) == mark:
+        result[^1].b = at + n
+        result[^1].text.add sp.text
+      else:
+        let (w, wn) = splitWho(mark)
+        result.add TextChange(added: added, a: at, b: at + n, who: w, at: wn, text: sp.text)
+    at += n
+
+proc settleChanges(t: var TextData; a, b: int; accept: bool) =
+  var (a, b) = (a, b)
+  if b <= a:
+    a = 0
+    b = t.runeLen
+  t.splitAt(a)
+  t.splitAt(b)
+  var at = 0
+  var o: seq[TextSpan]
+  for sp in t.spans:
+    let n = sp.text.runeLen
+    var q = sp
+    var keep = true
+    if at >= a and at + n <= b:
+      if q.style.deleted.len > 0:
+        if accept: keep = false
+        q.style.deleted = ""
+      elif q.style.added.len > 0:
+        if not accept: keep = false
+        q.style.added = ""
+    if keep: o.add q
+    at += n
+  let first = if t.spans.len > 0: t.spans[0].style else: defaultStyle()
+  t.spans = o
+  if t.spans.len == 0:
+    var f = first
+    f.added = ""; f.deleted = ""
+    t.spans.add TextSpan(text: "", style: f)
+  t.normalize()
+  t.evenParas()
+
+proc acceptChanges*(t: var TextData; a = 0; b = 0) =
+  ## Its changes in `a` ..< `b` (all when `b` <= `a`) accepted: deleted text goes, added text
+  ## stays as any other.
+  t.settleChanges(a, b, true)
+
+proc rejectChanges*(t: var TextData; a = 0; b = 0) =
+  ## ... rejected: added text goes, deleted text comes back.
+  t.settleChanges(a, b, false)
+
+proc addMemo*(t: var TextData; a, b: int; who, text: string) =
+  ## A note on characters `a` ..< `b` (the word at `a` when `a` = `b`): `who|when|text`.
+  t.restyle(a, max(b, a + 1), proc (st: var CharStyle) = st.memo = who & "|" & text)
+
+proc removeMemo*(t: var TextData; a, b: int) =
+  ## The notes on characters `a` ..< `b` taken off.
+  t.restyle(a, max(b, a + 1), proc (st: var CharStyle) = st.memo = "")
+
+proc memosOf*(t: TextData): seq[TextMemo] =
+  ## Its notes, in order.
+  var at = 0
+  for sp in t.spans:
+    let n = sp.text.runeLen
+    if sp.style.memo.len > 0 and n > 0:
+      if result.len > 0 and result[^1].b == at and t.styleAt(at - 1).memo == sp.style.memo:
+        result[^1].b = at + n
+      else:
+        let parts = sp.style.memo.split('|', 2)
+        let who = if parts.len >= 1: parts[0] else: ""
+        let wn = if parts.len >= 3: parts[1] else: ""
+        let tx = if parts.len >= 3: parts[2] elif parts.len == 2: parts[1] else: ""
+        result.add TextMemo(a: at, b: at + n, who: who, at: wn, text: tx)
+    at += n
 
 proc evenParas(t: var TextData) =
   ## (every character of a paragraph in its first one's format -- as the layout program keeps
@@ -1935,6 +2155,68 @@ proc layoutText*(t: TextData): TextLayout =
     u.lineRuns = runs
     result = layoutOnce(u)
 
+proc paraFrames(lay: var TextLayout; t: TextData; colW, gutter: float32) =
+  ## (Paragraph Shading and Borders: a fill behind each paragraph that has one, from the top of
+  ## its first line to the foot of its last in each column it is in, as wide as the column --
+  ## or its text -- and the offsets; its border's four lines round that)
+  if lay.lines.len == 0 or lay.paras.len == 0: return
+  var any = false
+  for p in lay.paras:
+    if p.shading != 0 or p.border != 0: any = true
+  if not any: return
+  var i = 0
+  var nb = 0                       # (the fills go under a table's, in order)
+  while i < lay.lines.len:
+    let pi = lay.lines[i].para
+    let ps = if pi in 0 .. lay.paras.high: lay.paras[pi] else: ParaStyle()
+    # (the run of its lines in one column: they go on down)
+    var j = i + 1
+    while j < lay.lines.len and lay.lines[j].para == pi and lay.lines[j].baseline > lay.lines[j - 1].baseline:
+      inc j
+    if ps.shading != 0 or ps.border != 0:
+      var top = 1e9'f32
+      var bot = -1e9'f32
+      var tx0 = 1e9'f32
+      var tx1 = -1e9'f32
+      for k in i ..< j:
+        let ln = lay.lines[k]
+        top = min(top, ln.baseline - ln.ascent)
+        bot = max(bot, ln.baseline + ln.descent)
+        tx0 = min(tx0, ln.x0)
+        tx1 = max(tx1, ln.x1)
+      var x0 = tx0
+      var x1 = tx1
+      if not ps.shadeToText and t.boxW > 0 and colW > 0 and t.path.len == 0:
+        # (as wide as the column the lines are in, less the indents)
+        let col = clamp(int((tx0 - t.x) / (colW + gutter)), 0, max(0, t.columns - 1))
+        x0 = t.x + float32(col) * (colW + gutter) + ps.indentLeft
+        x1 = t.x + float32(col) * (colW + gutter) + colW - ps.indentRight
+      if x1 > x0 and bot > top:
+        if ps.shading != 0:
+          let o = ps.shadeOffsets
+          let y0 = top - o[0]
+          let y1 = bot + o[2]
+          lay.backs.insert(Decoration(x0: x0 - o[3], x1: x1 + o[1], y: (y0 + y1) / 2, thick: y1 - y0,
+                                      color: ps.shading), nb)
+          inc nb
+        if ps.border != 0:
+          let o = ps.borderOffsets
+          var w = ps.borderWidths
+          if w == [0'f32, 0, 0, 0]: w = [1'f32, 1, 1, 1]
+          let bx0 = x0 - o[3]
+          let bx1 = x1 + o[1]
+          let by0 = top - o[0]
+          let by1 = bot + o[2]
+          if w[0] > 0: lay.decorations.add Decoration(x0: bx0 - w[3], x1: bx1 + w[1], y: by0 - w[0] / 2, thick: w[0],
+                                                      color: ps.border)
+          if w[2] > 0: lay.decorations.add Decoration(x0: bx0 - w[3], x1: bx1 + w[1], y: by1 + w[2] / 2, thick: w[2],
+                                                      color: ps.border)
+          if w[3] > 0: lay.decorations.add Decoration(x0: bx0 - w[3], x1: bx0, y: (by0 + by1) / 2, thick: by1 - by0,
+                                                      color: ps.border)
+          if w[1] > 0: lay.decorations.add Decoration(x0: bx1, x1: bx1 + w[1], y: (by0 + by1) / 2, thick: by1 - by0,
+                                                      color: ps.border)
+    i = j
+
 proc layoutOnce(t: TextData): TextLayout =
   if t.path.len == 0:
     for sp in t.spans:
@@ -1966,6 +2248,7 @@ proc layoutOnce(t: TextData): TextLayout =
            else: layoutPlain(u)
   result.overflow = -1
   if boxedCols: result.columnize(t, colW, gutter, starts)
+  result.paraFrames(t, if boxedCols: colW else: t.boxW, gutter)
 
 proc fitsBox(t: TextData; w, h: float32): bool =
   var u = t
@@ -3765,6 +4048,10 @@ proc toJson*(st: CharStyle): JsonNode =
   if st.styleName.len > 0: result["styleName"] = %st.styleName
   if st.para != 0: result["para"] = %st.para
   if st.link.len > 0: result["link"] = %st.link
+  if st.condition.len > 0: result["condition"] = %st.condition
+  if st.added.len > 0: result["added"] = %st.added
+  if st.deleted.len > 0: result["deleted"] = %st.deleted
+  if st.memo.len > 0: result["memo"] = %st.memo
 
 proc getF(j: JsonNode; k: string; d = 0.0): float =
   if j != nil and j.hasKey(k) and j[k].kind in {JInt, JFloat}: j[k].getFloat else: d
@@ -3812,6 +4099,11 @@ proc charStyleFrom*(j: JsonNode): CharStyle =
   result.para = clamp(int(j.getF("para")), 0, 100_000)
   result.link = j.getS("link")
   if result.link.len > 4096: result.link.setLen(0)
+  result.condition = j.getS("condition")
+  result.added = j.getS("added")
+  result.deleted = j.getS("deleted")
+  result.memo = j.getS("memo")
+  if result.memo.len > 100_000: result.memo.setLen(0)
   for (k, f) in [("arabicFont", addr result.arabicFont), ("latinFont", addr result.latinFont)]:
     if j.hasKey(k) and j[k].kind == JObject:
       let o = j[k]
@@ -3857,6 +4149,7 @@ proc toJson*(t: TextData): JsonNode =
   if t.vjust != vjTop: result["vjust"] = %($t.vjust)
   if t.balance: result["balance"] = %true
   if t.opticalMargin: result["opticalMargin"] = %true
+  if t.track: result["track"] = %true
   if t.autoSize != asOff:
     result["autoSize"] = %($t.autoSize)
     result["autoRef"] = %t.autoRef
@@ -3918,6 +4211,7 @@ proc textFrom*(j: JsonNode): TextData =
   result.vjust = enumOf(j.getS("vjust"), vjTop)
   result.balance = j.getB("balance")
   result.opticalMargin = j.getB("opticalMargin")
+  result.track = j.getB("track")
   for a in TextAutoSize:
     if j{"autoSize"}.getStr == $a: result.autoSize = a
   result.autoRef = clamp(j{"autoRef"}.getInt(0), 0, 8)
@@ -4032,6 +4326,14 @@ proc composeToJson(p: ParaStyle; j: JsonNode) =
   if p.composer != cpAuto: j["composer"] = %($p.composer)
   if p.hanging: j["hanging"] = %true
   if p.ignoreOptical: j["ignoreOptical"] = %true
+  if p.shading != 0:
+    j["shading"] = %int64(p.shading)
+    if p.shadeOffsets != [0'f32, 0, 0, 0]: j["shadeOffsets"] = %p.shadeOffsets
+    if p.shadeToText: j["shadeToText"] = %true
+  if p.border != 0:
+    j["border"] = %int64(p.border)
+    if p.borderWidths != [0'f32, 0, 0, 0]: j["borderWidths"] = %p.borderWidths
+    if p.borderOffsets != [0'f32, 0, 0, 0]: j["borderOffsets"] = %p.borderOffsets
   for (k, a) in [("wordSpacing", p.wordSpacing), ("letterSpacing", p.letterSpacing),
                  ("glyphScaling", p.glyphScaling)]:
     if a != [0'i16, 0, 0]: j[k] = %[int(a[0]), int(a[1]), int(a[2])]
@@ -4063,6 +4365,14 @@ proc composeFrom(p: var ParaStyle; j: JsonNode) =
   p.composer = enumOf(j.getS("composer"), cpAuto)
   p.hanging = j.getB("hanging")
   p.ignoreOptical = j.getB("ignoreOptical")
+  p.shading = uint32(int64(j.getF("shading")) and 0xFFFFFFFF'i64)
+  p.shadeToText = j.getB("shadeToText")
+  p.border = uint32(int64(j.getF("border")) and 0xFFFFFFFF'i64)
+  for (k, a) in [("shadeOffsets", addr p.shadeOffsets), ("borderWidths", addr p.borderWidths),
+                 ("borderOffsets", addr p.borderOffsets)]:
+    let e = j{k}
+    if e != nil and e.kind == JArray and e.len == 4:
+      for q in 0 .. 3: a[][q] = clamp(float32(e[q].getFloat(0)), -1000, 1000)
   for (k, a) in [("wordSpacing", addr p.wordSpacing), ("letterSpacing", addr p.letterSpacing),
                  ("glyphScaling", addr p.glyphScaling)]:
     let e = j{k}

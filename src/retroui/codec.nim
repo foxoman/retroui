@@ -11,7 +11,7 @@
 ## ```
 
 import std/[algorithm, bitops, base64]
-import busy
+import busy, simdkit
 
 type Bytes* = seq[byte]
   ## Bytes, as the codecs take and give them (`toBytes` makes them of a string).
@@ -51,11 +51,43 @@ proc crcStep*(c: uint32; b: byte): uint32 {.inline.} =
   ## The CRC-32 register after one more byte (start 0xFFFFFFFF, end xor it).
   crcTable[(c xor b) and 0xFF] xor (c shr 8)
 
+proc makeCrcTables(): array[8, array[256, uint32]] =
+  # (table k: a byte's CRC with k zero bytes after it -- eight bytes a step)
+  result[0] = makeCrcTable()
+  for i in 0 .. 255:
+    var c = result[0][i]
+    for k in 1 .. 7:
+      c = result[0][c and 0xFF] xor (c shr 8)
+      result[k][i] = c
+
+const crcTables = makeCrcTables()
+
+{.push boundChecks: off, overflowChecks: off.}
+proc crcUpdate*(c: uint32; p: ptr UncheckedArray[byte]; n: int): uint32 =
+  ## The CRC-32 register (`crcStep`'s) after `n` more bytes from `p`, eight
+  ## at a time.
+  result = c
+  var i = 0
+  while i + 8 <= n:
+    let lo = result xor (uint32(p[i]) or (uint32(p[i + 1]) shl 8) or (uint32(p[i + 2]) shl 16) or
+                         (uint32(p[i + 3]) shl 24))
+    let hi = uint32(p[i + 4]) or (uint32(p[i + 5]) shl 8) or (uint32(p[i + 6]) shl 16) or
+             (uint32(p[i + 7]) shl 24)
+    result = crcTables[7][lo and 0xFF] xor crcTables[6][(lo shr 8) and 0xFF] xor
+             crcTables[5][(lo shr 16) and 0xFF] xor crcTables[4][lo shr 24] xor
+             crcTables[3][hi and 0xFF] xor crcTables[2][(hi shr 8) and 0xFF] xor
+             crcTables[1][(hi shr 16) and 0xFF] xor crcTables[0][hi shr 24]
+    i += 8
+  while i < n:
+    result = crcTable[(result xor p[i]) and 0xFF] xor (result shr 8)
+    inc i
+{.pop.}
+
 proc crc32*(data: openArray[byte]): uint32 =
   ## The CRC-32 of `data` (as zip and PNG use it).
-  var c = 0xFFFFFFFF'u32
-  for x in data: c = crcTable[(c xor x) and 0xFF] xor (c shr 8)
-  c xor 0xFFFFFFFF'u32
+  if data.len == 0: return 0
+  crcUpdate(0xFFFFFFFF'u32, cast[ptr UncheckedArray[byte]](unsafeAddr data[0]), data.len) xor
+    0xFFFFFFFF'u32
 
 # ---- deflate: LZ77 matches and the fixed Huffman codes ------------------------
 
@@ -188,18 +220,22 @@ proc deflate*(data: openArray[byte]): Bytes =
 
 proc adler32*(data: openArray[byte]): uint32 =
   ## The Adler-32 checksum of `data` (the zlib trailer).
-  var s1 = 1'u32
-  var s2 = 0'u32
-  var i = 0
-  while i < data.len:
-    let e = min(data.len, i + 5552)          # no overflow before the modulo
-    while i < e:
-      s1 += data[i]
-      s2 += s1
-      inc i
-    s1 = s1 mod 65521
-    s2 = s2 mod 65521
-  (s2 shl 16) or s1
+  when kitSimd:
+    # (sixteen bytes a step: the same number)
+    if data.len == 0: 1'u32 else: adlerUpdate(1, unsafeAddr data[0], data.len)
+  else:
+    var s1 = 1'u32
+    var s2 = 0'u32
+    var i = 0
+    while i < data.len:
+      let e = min(data.len, i + 5552)          # no overflow before the modulo
+      while i < e:
+        s1 += data[i]
+        s2 += s1
+        inc i
+      s1 = s1 mod 65521
+      s2 = s2 mod 65521
+    (s2 shl 16) or s1
 
 # ---- deflate with codes of its own: smaller, and on all the cores -----------
 
@@ -819,16 +855,19 @@ proc inflate*(data: openArray[byte]; start = 0;
           let dst = distBase[di] + br.take(data, distExtra[di])
           if dst > n: fail("distance too far back")
           room(length)
-          var src = n - dst
+          let src = n - dst
           if dst >= length:
             copyMem(addr result[n], addr result[src], length)
             n += length
           else:
-            # (bytes repeat what this very copy writes: one at a time)
-            for k in 0 ..< length:
-              result[n] = result[src]
-              inc n
-              inc src
+            # (bytes repeat what this very copy writes -- the last `dst` again and again: copied
+            # from where it starts, what is there doubling each time, a whole number of repeats)
+            var left = length
+            while left > 0:
+              let k = min(left, n - src)
+              copyMem(addr result[n], addr result[src], k)
+              n += k
+              left -= k
     if kind == 1: codes(fixedLit, fixedDist)
     else: codes(dynLit, dynDist)
   # what the stream used: the bytes loaded, less the whole bytes not used

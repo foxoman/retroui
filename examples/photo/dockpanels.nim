@@ -56,6 +56,13 @@ proc panelBody(key: string) =
   of "graphicstyles": graphicStylesBody()
   of "bookmarks": bookmarksBody()
   of "links": linksBody()
+  of "separations": separationsBody(d)
+  of "attributes": attributesBody(d)
+  of "buttons": buttonsBody(d)
+  of "conditions": conditionsBody(d)
+  of "review": reviewBody(d)
+  of "designstyles": designStylesBody(d)
+  of "patternoptions": patternOptionsBody(d)
   else: label("(" & key & ")", color = ui.theme.gray)
 
 proc panelMenu(key: string) =

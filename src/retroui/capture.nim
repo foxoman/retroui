@@ -42,7 +42,7 @@ when androidApp or defined(wasm):
   import uirelays/services
 when not (androidApp or defined(windows) or defined(macosx) or defined(wasm)):
   import std/algorithm                    # (the cameras listed in order)
-import gfx, core, widgets, imaging, jpeg
+import gfx, core, widgets, imaging, jpeg, simdkit
 import media
 
 type
@@ -116,6 +116,12 @@ proc yuyvToBitmap*(data: openArray[uint8]; w, h: int; into: var Bitmap) =
   if into == nil or into.w != w or into.h != h: into = newBitmap(w, h)
   template clip(v: int): uint32 = uint32(max(0, min(255, v)))
   for y in 0 ..< h:
+    when kitSimd:
+      # (eight pixels at a time: the same colors)
+      let i0 = y * w * 2
+      if i0 + (w div 2) * 4 <= data.len:
+        if w >= 2: yuyvRow(addr into.px[y * w], unsafeAddr data[i0], w div 2)
+        continue
     for x2 in 0 ..< w div 2:
       let i = (y * w + x2 * 2) * 2
       if i + 3 >= data.len: return

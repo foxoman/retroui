@@ -7,7 +7,7 @@
 ##   let photo = loadPicture("/sdcard/DCIM/Camera/IMG_0001.jpg", 1600, 1600)
 ##   if photo != nil: drawBitmap(rect(10, 10, 160, 120), photo)
 
-import gfx, codec, jpeg, appicon, bigpicture
+import gfx, codec, jpeg, appicon, bigpicture, simdkit
 import uirelays/[services, input]
 
 export jpeg.decodeJpeg, jpeg.jpegSize, jpeg.JpegError
@@ -318,8 +318,9 @@ proc encodePng*(b: Bitmap; level = 6; dpi = 0; alpha = -1; gray = -1): string =
     let rw = w * ch
     var cur = newSeqUninit[byte](rw)
     var up = newSeqUninit[byte](rw)
-    var best = newSeqUninit[byte](rw)
-    var trial = newSeqUninit[byte](rw)
+    when not kitSimd:
+      var best = newSeqUninit[byte](rw)
+      var trial = newSeqUninit[byte](rw)
     # (a template: a proc in here would be a closure of its own, its
     # environment let go on a worker thread)
     template bytesOf(y: int; o: var seq[byte]) =
@@ -373,39 +374,53 @@ proc encodePng*(b: Bitmap; level = 6; dpi = 0; alpha = -1; gray = -1): string =
           for i in 0 ..< rw: op[i] = byte((int(cp[i]) - int(up0[i])) and 255)
         else:
           rp[at] = 4
-          for i in 0 ..< ch: op[i] = byte((int(cp[i]) - paeth(0, int(up0[i]), 0)) and 255)
-          for i in ch ..< rw:
-            op[i] = byte((int(cp[i]) - paeth(int(cp[i - ch]), int(up0[i]), int(up0[i - ch]))) and 255)
+          when kitSimd:
+            pngFilterRow(addr op[0], addr cp[0], addr up0[0], rw, cint(ch), 4)
+          else:
+            for i in 0 ..< ch: op[i] = byte((int(cp[i]) - paeth(0, int(up0[i]), 0)) and 255)
+            for i in ch ..< rw:
+              op[i] = byte((int(cp[i]) - paeth(int(cp[i - ch]), int(up0[i]), int(up0[i - ch]))) and 255)
         continue
-      var bestSum = high(int)
-      var bestKind = 0
-      for kind in 0 .. 4:
-        var sum = 0
-        let tp = cast[ptr UncheckedArray[byte]](addr trial[0])
-        template run(expr: untyped) =
-          var i = 0
-          while i < rw:
-            let x {.inject.} = int(cp[i])
-            let a {.inject.} = if i >= ch: int(cp[i - ch]) else: 0
-            let bb {.inject.} = int(up0[i])
-            let c {.inject.} = if i >= ch: int(up0[i - ch]) else: 0
-            let f = byte(expr and 255)
-            tp[i] = f
-            sum += mag(f)
-            if sum >= bestSum: break
-            inc i
-        case kind
-        of 0: run(x)
-        of 1: run(x - a)
-        of 2: run(x - bb)
-        of 3: run(x - (a + bb) div 2)
-        else: run(x - paeth(a, bb, c))
-        if sum < bestSum:
-          bestSum = sum
-          bestKind = kind
-          swap(best, trial)
-      rp[at] = byte(bestKind)
-      if rw > 0: copyMem(addr rp[at + 1], addr best[0], rw)
+      when kitSimd:
+        # (all five filters weighed at once, eight bytes at a time: the one the loop below
+        # picks -- the smallest sum, the first of equal ones)
+        var sums: array[5, int64]
+        pngFilterSums(addr cp[0], addr up0[0], rw, cint(ch), addr sums[0])
+        var kind = 0
+        for k in 1 .. 4:
+          if sums[k] < sums[kind]: kind = k
+        rp[at] = byte(kind)
+        pngFilterRow(addr op[0], addr cp[0], addr up0[0], rw, cint(ch), cint(kind))
+      else:
+        var bestSum = high(int)
+        var bestKind = 0
+        for kind in 0 .. 4:
+          var sum = 0
+          let tp = cast[ptr UncheckedArray[byte]](addr trial[0])
+          template run(expr: untyped) =
+            var i = 0
+            while i < rw:
+              let x {.inject.} = int(cp[i])
+              let a {.inject.} = if i >= ch: int(cp[i - ch]) else: 0
+              let bb {.inject.} = int(up0[i])
+              let c {.inject.} = if i >= ch: int(up0[i - ch]) else: 0
+              let f = byte(expr and 255)
+              tp[i] = f
+              sum += mag(f)
+              if sum >= bestSum: break
+              inc i
+          case kind
+          of 0: run(x)
+          of 1: run(x - a)
+          of 2: run(x - bb)
+          of 3: run(x - (a + bb) div 2)
+          else: run(x - paeth(a, bb, c))
+          if sum < bestSum:
+            bestSum = sum
+            bestKind = kind
+            swap(best, trial)
+        rp[at] = byte(bestKind)
+        if rw > 0: copyMem(addr rp[at + 1], addr best[0], rw)
     {.pop.}
   if compressPieces != nil and h > 64: compressPieces(h, rows) else: rows(0, h)
   let z = zlibCompressLevel(raw, level)
@@ -451,7 +466,8 @@ proc encodePng*(b: Bitmap; level = 6; dpi = 0; alpha = -1; gray = -1): string =
       for k in lo ..< hi:
         var c = 0xFFFFFFFF'u32
         for ch in "IDAT": c = crcStep(c, byte(ch))
-        for i in k * Piece ..< min(zl, (k + 1) * Piece): c = crcStep(c, zp[i])
+        let a0 = k * Piece
+        c = crcUpdate(c, cast[ptr UncheckedArray[byte]](addr zp[a0]), min(zl, a0 + Piece) - a0)
         cp[k] = c xor 0xFFFFFFFF'u32
     if compressPieces != nil and np > 1: compressPieces(np, crcBody) else: crcBody(0, np)
   for k in 0 ..< np:

@@ -72,6 +72,10 @@ const loremIpsum = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed
   "dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui " &
   "officia deserunt mollit anim id est laborum."
 
+proc placeholderText(): string =
+  ## (Paste Lorem Ipsum's words: your own, Preferences > Type, else the Latin)
+  if prefs.lorem.strip.len > 0: prefs.lorem else: loremIpsum
+
 proc pixelLayerOk(d: Doc): bool =
   d != nil and d.current.px.len == d.w * d.h and not d.current.group and d.current.adjust.kind.len == 0
 
@@ -878,7 +882,7 @@ proc dailyCommand(name: string): bool =
         d.layersChange(name):
           var t = L.text
           let st = if t.spans.len > 0: t.spans[0].style else: defaultStyle()
-          t.spans = @[TextSpan(text: loremIpsum, style: st)]
+          t.spans = @[TextSpan(text: placeholderText(), style: st)]
           L.text = t
           d.drawText(L)
           d.markAll()
@@ -886,7 +890,7 @@ proc dailyCommand(name: string): bool =
         var st = defaultStyle()
         st.size = float32(max(8.0, min(d.w, d.h).float / 32))
         st.color = fg
-        var t = newText(loremIpsum, st, float32(d.w.float * 0.1), float32(d.h.float * 0.1))
+        var t = newText(placeholderText(), st, float32(d.w.float * 0.1), float32(d.h.float * 0.1))
         t.boxW = float32(d.w.float * 0.8)
         t.boxH = float32(d.h.float * 0.8)
         d.layersChange(name): discard d.addTextLayer(t)

@@ -1182,6 +1182,156 @@
         "web banner",
         "web"
       ]
+    },
+    {
+      "id": "product-launch",
+      "title": "Product Launch",
+      "kind": "design",
+      "category": "Social",
+      "thumb": "thumbs/design-product-launch.png",
+      "file": "template:Product Launch",
+      "ext": "template",
+      "author": "Sultan Al Isaiee (@foxoman)",
+      "license": "CC0",
+      "tags": [
+        "product launch",
+        "social"
+      ]
+    },
+    {
+      "id": "real-estate-listing",
+      "title": "Real Estate Listing",
+      "kind": "design",
+      "category": "Social",
+      "thumb": "thumbs/design-real-estate-listing.png",
+      "file": "template:Real Estate Listing",
+      "ext": "template",
+      "author": "Sultan Al Isaiee (@foxoman)",
+      "license": "CC0",
+      "tags": [
+        "real estate listing",
+        "social"
+      ]
+    },
+    {
+      "id": "sale-post",
+      "title": "Sale Post",
+      "kind": "design",
+      "category": "Social",
+      "thumb": "thumbs/design-sale-post.png",
+      "file": "template:Sale Post",
+      "ext": "template",
+      "author": "Sultan Al Isaiee (@foxoman)",
+      "license": "CC0",
+      "tags": [
+        "sale post",
+        "social"
+      ]
+    },
+    {
+      "id": "team-member",
+      "title": "Team Member",
+      "kind": "design",
+      "category": "Social",
+      "thumb": "thumbs/design-team-member.png",
+      "file": "template:Team Member",
+      "ext": "template",
+      "author": "Sultan Al Isaiee (@foxoman)",
+      "license": "CC0",
+      "tags": [
+        "team member",
+        "social"
+      ]
+    },
+    {
+      "id": "photo-story",
+      "title": "Photo Story",
+      "kind": "design",
+      "category": "Social",
+      "thumb": "thumbs/design-photo-story.png",
+      "file": "template:Photo Story",
+      "ext": "template",
+      "author": "Sultan Al Isaiee (@foxoman)",
+      "license": "CC0",
+      "tags": [
+        "photo story",
+        "social"
+      ]
+    },
+    {
+      "id": "travel-postcard",
+      "title": "Travel Postcard",
+      "kind": "design",
+      "category": "Print",
+      "thumb": "thumbs/design-travel-postcard.png",
+      "file": "template:Travel Postcard",
+      "ext": "template",
+      "author": "Sultan Al Isaiee (@foxoman)",
+      "license": "CC0",
+      "tags": [
+        "travel postcard",
+        "print"
+      ]
+    },
+    {
+      "id": "magazine-cover",
+      "title": "Magazine Cover",
+      "kind": "design",
+      "category": "Print",
+      "thumb": "thumbs/design-magazine-cover.png",
+      "file": "template:Magazine Cover",
+      "ext": "template",
+      "author": "Sultan Al Isaiee (@foxoman)",
+      "license": "CC0",
+      "tags": [
+        "magazine cover",
+        "print"
+      ]
+    },
+    {
+      "id": "recipe-card",
+      "title": "Recipe Card",
+      "kind": "design",
+      "category": "Print",
+      "thumb": "thumbs/design-recipe-card.png",
+      "file": "template:Recipe Card",
+      "ext": "template",
+      "author": "Sultan Al Isaiee (@foxoman)",
+      "license": "CC0",
+      "tags": [
+        "recipe card",
+        "print"
+      ]
+    },
+    {
+      "id": "wedding-invitation",
+      "title": "Wedding Invitation",
+      "kind": "design",
+      "category": "Print",
+      "thumb": "thumbs/design-wedding-invitation.png",
+      "file": "template:Wedding Invitation",
+      "ext": "template",
+      "author": "Sultan Al Isaiee (@foxoman)",
+      "license": "CC0",
+      "tags": [
+        "wedding invitation",
+        "print"
+      ]
+    },
+    {
+      "id": "portfolio-page",
+      "title": "Portfolio Page",
+      "kind": "design",
+      "category": "Web",
+      "thumb": "thumbs/design-portfolio-page.png",
+      "file": "template:Portfolio Page",
+      "ext": "template",
+      "author": "Sultan Al Isaiee (@foxoman)",
+      "license": "CC0",
+      "tags": [
+        "portfolio page",
+        "web"
+      ]
     }
   ]
 }

@@ -5,7 +5,7 @@
 ## tools are there, they read the files back.)
 
 import std/[os, osproc, strutils]
-import retroui/[photo, photopdf, photoimport, textengine, photoshapes, pdfread, pdf, ttf]
+import retroui/[photo, photopdf, photoimport, textengine, photoshapes, pdfread, pdf, ttf, codec]
 
 let dir = getTempDir() / "retro-photopdf-test"
 removeDir(dir)
@@ -132,5 +132,93 @@ block pressAndLiveText:
   let sub = subsetTtf(fontData(face), [36, 37, 38])
   doAssert sub.len < fontData(face).len div 4
   doAssert sub[0 .. 3] == fontData(face)[0 .. 3]
+
+block taggedInksAndForms:
+  # Create Tagged PDF: headings and paragraphs, pictures with their alt text, decorations left
+  # out; a spot ink on its plate (unless the Ink Manager prints it in process), overprint;
+  # layers made form fields and buttons, the page's transition; a nonprinting layer left out
+  var d = newDoc(600, 800, 0xFFFFFFFF'u32, dpi = 72, name = "Form")
+  let ph = d.addLayer("photo")
+  for y in 100 ..< 300:
+    for x in 50 ..< 550: ph.px[y * 600 + x] = argb(255, x * 255 div 600, 90, 160)
+  inc ph.ver
+  ph.attrs.alt = "A sunset over the sea"
+  var st = CharStyle(family: "", size: 30, color: 0xFF000000'u32, hScale: 1, vScale: 1)
+  var title = newText("Order form", st, 60, 40)
+  title.para.styleName = "Heading 1"
+  discard d.addTextLayer(title)
+  discard d.addTextLayer(newText("Fill in your name below.", st, 60, 340))
+  d.spotInks.add spotInk("Retro Red", 0xFFC8102E'u32)
+  var s = ShapeData(kind: "Rectangle")
+  s.path = rectPath(60, 400, 540, 440)
+  s.fill = ShapePaint(kind: spColor, color: 0xFFC8102E'u32, spot: "Retro Red", tint: 60)
+  let band = d.addShapeLayer(s, "band")
+  band.attrs.overprintFill = true
+  var f = ShapeData(kind: "Rectangle")
+  f.path = rectPath(60, 460, 400, 500)
+  f.fill = ShapePaint(kind: spColor, color: 0xFFEEEEEE'u32)
+  let field = d.addShapeLayer(f, "name field")
+  field.attrs.field = FieldSpec(kind: "text", name: "name", tooltip: "Your name")
+  var b = ShapeData(kind: "Rectangle")
+  b.path = rectPath(420, 700, 540, 740)
+  b.fill = ShapePaint(kind: spColor, color: 0xFF2050A0'u32)
+  let btn = d.addShapeLayer(b, "next")
+  btn.attrs.field = FieldSpec(kind: "button", caption: "Next", action: "next")
+  var g = ShapeData(kind: "Rectangle")
+  g.path = rectPath(0, 0, 20, 20)
+  g.fill = ShapePaint(kind: spColor, color: 0xFF00FF00'u32)
+  let guide = d.addShapeLayer(g, "a note to self")
+  guide.attrs.nonprinting = true
+  d.transition = ("Dissolve", 0.8, 0, 0.0)
+  d.markAll()
+  var o = pdfPreset(ppPress)
+  o.tagged = true
+  o.interactive = true
+  o.marks = false; o.regMarks = false; o.colorBars = false; o.pageInfo = false
+  let path = dir / "form.pdf"
+  d.savePdf(path, o)
+  let raw = readFile(path)
+  var all = raw
+  var at = raw.find("/FlateDecode >>\nstream\n")
+  while at >= 0:
+    let a0 = at + "/FlateDecode >>\nstream\n".len
+    let e = raw.find("\nendstream", a0)
+    try: all.add "\n" & cast[string](zlibDecompress(toBytes(raw[a0 ..< e])))
+    except CatchableError: discard
+    at = raw.find("/FlateDecode >>\nstream\n", e)
+  for k in ["/StructTreeRoot", "/S /H1", "/S /P", "/S /Figure", "/Alt (A sunset over the sea)",
+            "/Separation /Retro#20Red", "/OPM 1", "/AcroForm", "/T (name)", "/TU (Your name)",
+            "/S /Named /N /NextPage", "/Trans << /Type /Trans /S /Dissolve /D 0.8"]:
+    doAssert k in all, k
+  doAssert " scn" in all and "0.6 scn" in all
+  doAssert "0 1 0 rg" notin all and "0 0 1 0 k" notin all       # (the nonprinting green: not there)
+  doAssert guide.visible                                         # (still seen here)
+  # the Ink Manager: the spot in process inks -- no plate of its own
+  d.inkSettings.toProcess.add "Retro Red"
+  d.savePdf(path, o)
+  doAssert "/Separation" notin readFile(path)
+  if findExe("qpdf").len > 0:
+    let (q, code) = execCmdEx("qpdf --check " & quoteShell(path))
+    doAssert code == 0, q
+  # saved and read back with the document
+  d.inkSettings.aliases.add ("Retro Red", "Black")
+  let rp = dir / "form.rpd"
+  d.saveRpd(rp)
+  let back = openImage(rp)
+  doAssert back.spotInks.len == 1 and back.spotInks[0].name == "Retro Red"
+  doAssert back.inkSettings.toProcess == @["Retro Red"] and back.inkSettings.aliases.len == 1
+  doAssert back.transition.style == "Dissolve"
+  var found = 0
+  for L in back.layers:
+    if L.name == "band":
+      doAssert L.attrs.overprintFill and L.shape.fill.spot == "Retro Red" and L.shape.fill.tint == 60
+      inc found
+    if L.name == "name field":
+      doAssert L.attrs.field.kind == "text" and L.attrs.field.tooltip == "Your name"
+      inc found
+    if L.name == "photo":
+      doAssert L.attrs.alt == "A sunset over the sea"
+      inc found
+  doAssert found == 3
 
 echo "photo pdf tests passed"

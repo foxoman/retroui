@@ -28,7 +28,7 @@
 ##   writeFile("copy.psd", writePsd(doc))
 
 import std/[strutils, math, tables, unicode]
-import codec, busy, photoinks
+import codec, busy, photoinks, parallel
 
 type
   PsdError* = object of CatchableError
@@ -856,6 +856,23 @@ proc pixelsOf(mode: PsdColorMode; chans: seq[seq[byte]]; alpha: seq[byte]; n: in
               palette: seq[uint32]): seq[uint32] =
   ## Channels of a mode to 0xAARRGGBB.
   result = newSeq[uint32](n)
+  if mode in {pmCMYK, pmMultichannel} and n > 0 and alpha.len in [0, n]:
+    var ok = chans.len >= 4
+    for k in 0 ..< min(4, chans.len):
+      if chans[k].len < n: ok = false
+    if ok:
+      # (the inks' colors on all the cores)
+      var c: array[4, ptr UncheckedArray[byte]]
+      for k in 0 .. 3: c[k] = cast[ptr UncheckedArray[byte]](unsafeAddr chans[k][0])
+      let ap = if alpha.len > 0: cast[ptr UncheckedArray[byte]](unsafeAddr alpha[0]) else: nil
+      let rp = cast[ptr UncheckedArray[uint32]](addr result[0])
+      parallelFor(n, proc (lo, hi: int) =
+        for i in lo ..< hi:
+          let a = if ap != nil: uint32(ap[i]) else: 255'u32
+          let v = printedFast(255 - int(c[0][i]), 255 - int(c[1][i]), 255 - int(c[2][i]), 255 - int(c[3][i]))
+          rp[i] = (a shl 24) or (v and 0xFFFFFF'u32)
+      , grain = 16384)
+      return
   template ch(k, i: int): int = (if k < chans.len and i < chans[k].len: int(chans[k][i]) else: 0)
   for i in 0 ..< n:
     let a = if alpha.len > 0: int(alpha[i]) else: 255
@@ -1510,13 +1527,22 @@ proc planesOf(mode: PsdColorMode; px: openArray[uint32]; cmyk: openArray[uint8])
       result[0][i] = byte((int((p shr 16) and 255) * 299 + int((p shr 8) and 255) * 587 + int(p and 255) * 114 + 500) div 1000)
   of pmCMYK:
     result = @[newSeq[byte](n), newSeq[byte](n), newSeq[byte](n), newSeq[byte](n)]
-    for i, p in px:
-      if cmyk.len == n * 4:
-        for c in 0 .. 3: result[c][i] = 255'u8 - cmyk[i * 4 + c]
-      else:
-        # (separated as the printing setup says)
-        let v = inkOf(p)
-        for c in 0 .. 3: result[c][i] = 255'u8 - v[c]
+    if n == 0: return
+    # (separated on all the cores)
+    var o: array[4, ptr UncheckedArray[byte]]
+    for c in 0 .. 3: o[c] = cast[ptr UncheckedArray[byte]](addr result[c][0])
+    let pp = cast[ptr UncheckedArray[uint32]](unsafeAddr px[0])
+    let given = cmyk.len == n * 4
+    let cp = if given: cast[ptr UncheckedArray[uint8]](unsafeAddr cmyk[0]) else: nil
+    parallelFor(n, proc (lo, hi: int) =
+      for i in lo ..< hi:
+        if given:
+          for c in 0 .. 3: o[c][i] = 255'u8 - cp[i * 4 + c]
+        else:
+          # (separated as the printing setup says)
+          let v = inkOf(pp[i])
+          for c in 0 .. 3: o[c][i] = 255'u8 - v[c]
+    , grain = 16384)
   else:
     result = @[newSeq[byte](n), newSeq[byte](n), newSeq[byte](n)]
     for i, p in px:

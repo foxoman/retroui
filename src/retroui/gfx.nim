@@ -17,7 +17,7 @@ when (defined(gcc) or defined(clang)) and not defined(retroSizeOnly):
   {.localPassC: "-O3".}
 from std/strutils import toLowerAscii, contains
 import uirelays/[coords, screen]
-import ttf, typeset, raster, parallel
+import ttf, typeset, raster, parallel, simdkit
 
 proc hashF*(x: float): Hash {.inline.} =
   ## A float's hash from all its bits. (Nim's `hash(float)` keeps only the
@@ -1374,7 +1374,9 @@ proc rfill(x, y, w, h: int; c: uint32; clip: Rect) {.inline.} =
   let stride = fbW
   for yy in y0 ..< y1:
     let row = yy * stride
-    for xx in x0 ..< x1: p[row + xx] = c
+    when kitSimd: fill32(addr p[row + x0], x1 - x0, c)
+    else:
+      for xx in x0 ..< x1: p[row + xx] = c
 
 type
   PrepGlyph = object
@@ -1465,12 +1467,16 @@ proc blendMask(m: Mask; x0, y0: int; col: uint32; clip: Rect; lut: ptr array[256
   for y in ya ..< yb:
     let src = (y - y0) * m.w - x0
     let row = y * fbW
-    for x in xa ..< xb:
-      var a = uint32(mp[src + x])
-      if a == 0: continue
-      if lut != nil: a = uint32(lut[a])
-      if a >= 255: fp[row + x] = col
-      else: fp[row + x] = blend(fp[row + x], col, a)
+    when kitSimd:
+      blendMaskRow(addr fp[row + xa], addr mp[src + xa], xb - xa, col,
+                   if lut == nil: nil else: cast[ptr uint8](lut))
+    else:
+      for x in xa ..< xb:
+        var a = uint32(mp[src + x])
+        if a == 0: continue
+        if lut != nil: a = uint32(lut[a])
+        if a >= 255: fp[row + x] = col
+        else: fp[row + x] = blend(fp[row + x], col, a)
 
 const LcdFilter = [0, 85, 86, 85, 0]
   ## (FreeType's light filter, near ClearType's: a strip's coverage shared
@@ -1823,13 +1829,33 @@ proc rasterBitmap(c: Cmd) =
     for y in cl.y ..< cl.y + cl.h:
       copyMem(addr fp0[y * fbW + cl.x], unsafeAddr b.px[(y - dy) * b.w + (cl.x - dx)], cl.w * 4)
     return
+  let fp = fbPtr()
+  let bp = cast[ptr UncheckedArray[uint32]](unsafeAddr b.px[0])
+  when kitSimd:
+    if dw == b.w and dh == b.h:
+      # (one to one, with alpha: each row mixed in)
+      for y in cl.y ..< cl.y + cl.h:
+        overRow(addr fp[y * fbW + cl.x], addr bp[(y - dy) * b.w + (cl.x - dx)], cl.w)
+      return
+    if b.opaque and dw == 2 * b.w and dh == 2 * b.h and ((cl.x - dx) and 1) == 0 and (cl.w and 1) == 0:
+      # (an opaque picture at twice its size, the screen's scale: each row widened once, then
+      # copied to the rows below it that show the same row)
+      var y = cl.y
+      while y < cl.y + cl.h:
+        let sy = (y - dy) * b.h div dh
+        let row = addr fp[y * fbW + cl.x]
+        widenRow(row, addr bp[sy * b.w + (cl.x - dx) div 2], cl.w div 2, 2)
+        var y2 = y + 1
+        while y2 < cl.y + cl.h and (y2 - dy) * b.h div dh == sy:
+          copyMem(addr fp[y2 * fbW + cl.x], row, cl.w * 4)
+          inc y2
+        y = y2
+      return
   # the source column of each screen column, worked out once (in the
   # drawing thread's own table)
   bitmapCols.setLen(cl.w)
   template xs: untyped = bitmapCols
   for i in 0 ..< cl.w: xs[i] = int32((cl.x + i - dx) * b.w div dw)
-  let fp = fbPtr()
-  let bp = cast[ptr UncheckedArray[uint32]](unsafeAddr b.px[0])
   for y in cl.y ..< cl.y + cl.h:
     let src = ((y - dy) * b.h div dh) * b.w
     let row = y * fbW + cl.x
@@ -1979,18 +2005,126 @@ var
     ## index), in the order they are drawn: a band looks only at its own
   bandWanted: seq[bool]           ## (the rows of tiles drawn this frame)
 
+var hiddenCmds {.threadvar.}: seq[bool]
+var fillParts {.threadvar.}: seq[Rect]            ## (the parts of fills left showing)
+var fillSpan {.threadvar.}: seq[tuple[a, n: int32]]  ## (each command's in `fillParts`; n < 0 whole)
+
+proc minusRect(parts: var seq[Rect]; from0: int; cv: Rect) =
+  ## (the rectangles `parts[from0 ..]` less `cv`: each one it overlaps cut in up to four)
+  let e = parts.len
+  for i in from0 ..< e:
+    let r = parts[i]
+    if r.w <= 0 or r.x >= cv.x + cv.w or r.x + r.w <= cv.x or r.y >= cv.y + cv.h or r.y + r.h <= cv.y:
+      continue
+    # (what is left: above, below, then left and right of it between them; the old one emptied)
+    parts[i].w = 0
+    let y0 = max(r.y, cv.y)
+    let y1 = min(r.y + r.h, cv.y + cv.h)
+    if cv.y > r.y: parts.add rect(r.x, r.y, r.w, cv.y - r.y)
+    if cv.y + cv.h < r.y + r.h: parts.add rect(r.x, cv.y + cv.h, r.w, r.y + r.h - cv.y - cv.h)
+    if cv.x > r.x: parts.add rect(r.x, y0, cv.x - r.x, y1 - y0)
+    if cv.x + cv.w < r.x + r.w: parts.add rect(cv.x + cv.w, y0, r.x + r.w - cv.x - cv.w, y1 - y0)
+  # (the emptied ones taken out)
+  var k = from0
+  for i in from0 ..< parts.len:
+    if parts[i].w > 0:
+      parts[k] = parts[i]
+      inc k
+  parts.setLen(k)
+
+proc coverOf(c: Cmd): Rect =
+  ## (the device pixels command `c` paints whole, each of them: a fill's, an opaque picture's;
+  ## none for the others)
+  case c.kind
+  of ckFill:
+    let s = pxScale
+    rect(c.r.x * s, c.r.y * s, c.r.w * s, c.r.h * s)
+  of ckBitmap:
+    let b = unsafeAddr frameBitmaps[c.a]
+    if not b[].opaque or b[].w <= 0 or b[].h <= 0 or b[].px.len < b[].w * b[].h: return
+    let s = pxScale
+    intersect(devClip(c.clip), rect(c.r.x * s, c.r.y * s, c.r.w * s, c.r.h * s))
+  else: Rect()
+
 proc drawRegion(d: Rect; band: int): bool =
   ## Rasterizes the device rectangle `d` (in row of tiles `band`); true if
   ## a system-font text is there.
   bandClip = d
   let p = fbPtr()
   let cc = clearColor
-  for y in d.y ..< d.y + d.h:
-    let row = y * fbW
-    for x in d.x ..< d.x + d.w: p[row + x] = cc
-  for k in bandCmds[band]:
+  # (what a later fill or opaque picture paints over is not drawn: going back from the last
+  # command, each fill or picture hidden whole by one after it is left out, a big fill drawn
+  # only where it shows -- and the clearing, when one paints all of `d`; the same pixels)
+  let cmds = addr bandCmds[band]
+  hiddenCmds.setLen(cmds[].len)
+  fillSpan.setLen(cmds[].len)
+  fillParts.setLen(0)
+  var covers: array[16, Rect]
+  var ncov = 0
+  var all = false
+  for j in countdown(cmds[].high, 0):
+    let k = cmds[][j]
     let l = int(k shr 28)
     let i = int(k and 0xFFFFFFF'u32)
+    let box = intersect(cmdDev[l][i], d)
+    hiddenCmds[j] = false
+    fillSpan[j] = (0'i32, -1'i32)
+    if box.w <= 0 or box.h <= 0: continue
+    var under = false
+    # (only what paints inside its own box is left out: a fill, a picture -- a text's glyphs or
+    # a line's ends may reach past theirs)
+    let kind = layers[l][i].kind
+    for q in 0 ..< (if kind in {ckFill, ckBitmap, ckChecker}: ncov else: 0):
+      let cv = covers[q]
+      if cv.x <= box.x and cv.y <= box.y and cv.x + cv.w >= box.x + box.w and cv.y + cv.h >= box.y + box.h:
+        under = true
+        break
+    if under:
+      hiddenCmds[j] = true
+      continue
+    if layers[l][i].kind == ckFill and ncov > 0 and box.w * box.h >= 1024:
+      # (a big fill: only its parts the later ones leave showing)
+      let a = fillParts.len
+      fillParts.add box
+      for q in 0 ..< ncov:
+        fillParts.minusRect(a, covers[q])
+        if fillParts.len - a > 24: break
+      if fillParts.len - a <= 24: fillSpan[j] = (int32(a), int32(fillParts.len - a))
+      else: fillParts.setLen(a)
+    let cv = intersect(coverOf(layers[l][i]), d)
+    if cv.w > 0 and cv.h > 0 and cv.w * cv.h >= 256:
+      if cv == d: all = true
+      if ncov < covers.len:
+        covers[ncov] = cv
+        inc ncov
+      else:
+        # (room for the biggest)
+        var small = 0
+        for q in 1 ..< ncov:
+          if covers[q].w * covers[q].h < covers[small].w * covers[small].h: small = q
+        if covers[small].w * covers[small].h < cv.w * cv.h: covers[small] = cv
+  if not all:
+    for y in d.y ..< d.y + d.h:
+      when kitSimd: fill32(addr p[y * fbW + d.x], d.w, cc)
+      else:
+        let row = y * fbW
+        for x in d.x ..< d.x + d.w: p[row + x] = cc
+  for j in 0 ..< cmds[].len:
+    let k = cmds[][j]
+    let l = int(k shr 28)
+    let i = int(k and 0xFFFFFFF'u32)
+    if hiddenCmds[j]:
+      # (hidden: a system-font text still says so, as it did when drawn)
+      if layers[l][i].kind == ckSysText and sysRunOf(arena[layers[l][i].a ..< layers[l][i].a + layers[l][i].b],
+                                                      make = false) == nil:
+        result = true
+      continue
+    if fillSpan[j].n >= 0:
+      let c = layers[l][i]
+      for q in fillSpan[j].a ..< fillSpan[j].a + fillSpan[j].n:
+        let r = fillParts[q]
+        rfill(r.x, r.y, r.w, r.h, c.color, bandClip)
+      continue
     let b = cmdDev[l][i]
     if b.y + b.h <= d.y or b.y >= d.y + d.h or b.x + b.w <= d.x or b.x >= d.x + d.w:
       continue

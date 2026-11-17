@@ -2189,15 +2189,30 @@ options, **Gradient Feather**, tangent and perpendicular Smart Guides, layers re
 they hold, Data Merge into files, **Roman Hanging Punctuation** and **Optical Margin
 Alignment**, hyphenation in English, French, German, Spanish, Italian, Portuguese and Dutch,
 **Find/Change** for glyphs and objects with saved queries, masters based on masters, the
-**Hijri date** and dates in Arabic as text variables, and Check Document's Arabic checks. The
+**Hijri date** and dates in Arabic as text variables, and Check Document's Arabic checks. Since
+5.6 it prints and publishes as the layout program does -- **Separations Preview**, **Overprint
+Preview**, spot inks and the **Ink Manager**, a **tagged PDF** with each picture's alt text, PDF
+**forms, buttons and page transitions**, **EPUB** and **Publish as Web Page** -- with **Flex
+Layout**, paragraph shading and borders, **conditional text**, **track changes** and notes, and
+**equations**; it has the drawing program's **Global Edit**, **Envelope Distort**, **Live
+Paint**, **Intertwine** and **Pattern Options**, the photo program's **Relight** (its lights
+dragged on the image, no AI), **Remove with its shadow**, **Upscale** and each layer's size, and
+the quick-design programs' **Mockups**, **Styles** and font pairs, **Tidy Up**, **Lift
+Subject**, templates with photo placeholders and an **AI service of your own** that runs the
+app's commands (shown first, nothing sent before you set one). The
 layers are mixed, blurred and resized four or eight pixels at a time (`retroui/simd`, AVX2
 where the processor has it), the layers under the one painted on kept mixed (painting over nine
-layers six times sooner), idle layers kept small in memory. The engine for all of it is the kit's
-(`retroui/photobook`, `retroui/textengine`, `retroui/imagetrace`, `retroui/photovector`,
+layers six times sooner), idle layers kept small in memory; the kit draws the screen, opens
+JPEGs and saves PNGs eight or sixteen pixels at a time (`retroui/simdkit`: a JPEG opened 1.6
+times sooner, a PNG saved 1.4 times sooner, the same bytes). The engine for all of it is the
+kit's (`retroui/photobook`, `retroui/textengine`, `retroui/imagetrace`, `retroui/photovector`,
 `retroui/layouttemplates`, `retroui/infographics`, `retroui/liveshapes`, `retroui/idml`,
 `retroui/preflight`, `retroui/booklists`, `retroui/hyphenate`, `retroui/textsearch`,
 `retroui/datamerge`, `retroui/perspectivegrid`, `retroui/pathbrush`, `retroui/photoblurs`,
-`retroui/pathtools`, `retroui/liveeffects`, `retroui/hijri`, `retroui/simd`), for any app:
+`retroui/pathtools`, `retroui/liveeffects`, `retroui/hijri`, `retroui/simd`, `retroui/inks`,
+`retroui/photoseps`, `retroui/mathtype`, `retroui/flexlayout`, `retroui/publish`,
+`retroui/photopublish`, `retroui/vectormake`, `retroui/photorelight`, `retroui/mockups`,
+`retroui/designstyles`, `retroui/aiconnect`), for any app:
 
 ```nim
 import retroui/[photo, photopdf, textengine]
@@ -2293,6 +2308,30 @@ sh.path = sh.path.ontoPlane(g, ppLeft)                             # laid on the
 d.setShape(d.current, sh)
 let rope = brushedPath(line, builtinBrush("Chain", width = 16))    # a path drawn with artwork
 discard d.addShapeLayer(ShapeData(path: rope, fill: solidPaint(ink)))
+```
+
+```nim
+import retroui/[photo, photoshapes, photopdf, textengine, inks, mathtype, publish, photopublish, vectormake, photorelight, mockups, designstyles]
+d.spotInks.add spotInk("Gold", 0xFFD4AF37'u32)                   # a spot ink: a plate of its own
+var gold = solidPaint(0xFFD4AF37'u32)
+gold.spot = "Gold"
+let logo = d.addShapeLayer(ShapeData(path: rectPath(40, 40, 240, 120), fill: gold))
+logo.attrs.alt = "The company's logo"                              # for screen readers
+var o = pdfPreset(ppPress)
+o.tagged = true                                                    # its parts in reading order
+d.savePdf("card.pdf", o)
+var t = d.current.text
+t.track = true
+t.trackedInsert(5, " new", t.styleAt(5), "Sultan")                 # kept as a change, by who
+t.acceptChanges()
+d.setText(d.current, t)
+let m = setMath("x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}", 48)  # an equation: shapes
+writeFile("book.epub", epubOf(pubDocOf(@[d])))                     # an e-book
+publishSite(pubDocOf(@[d]), "site")                                # a web page that fits a phone
+d.updateComposite()
+let mug = makeMockup(mkMug, d.compCopy, d.w, d.h)                  # the design on a mug
+discard d.applyStyle(builtInStyles()[0])                           # a palette and a font pair
+d.upscaleDoc(2)                                                    # twice as big, its edges sharp
 ```
 
 ```nim
@@ -3373,6 +3412,16 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_textcompose` | each paragraph its own format (kept when paragraphs are split and joined, an empty last one's, saved), the Paragraph Composer's even spaces, glyph scaling and letter spacing, Keep Lines Together, Keep with Next and Start Paragraph, Span Columns (the columns above balanced) and Split Column, Balance Columns, Inset Spacing, Vertical Justification, nested styles (words, up to a letter) and GREP styles; nested line styles (repeated, a nested style over them); Roman Hanging Punctuation and Optical Margin Alignment (a quote out of the box's edge, a justified line out by its period, Ignore Optical Margin, a right-aligned line, saved) |
 | `test_hyperlinks` | hyperlinks kept with the text; text variables (the file's name, the date, a running header, a cross-reference in a document and across a book's pages, saved and read back; the Hijri date as Umm al-Qura has it, in English, in numbers, the Arabic date with the Levant's months, a date format of its own); the PDF's links to an address, a page and a destination, and its bookmarks under bookmarks |
 | `test_simd` | the four- and eight-lane kernels give the plain loops' pixels, with AVX2 and without: the mix over opaque pixels and over any pixels (masks, clipping, Blend If, opacity, fill; every separable mode), the tables' lookups and a CMYK proof exactly, resampling a flat color and keeping transparent colors out, Box Blur's means, a gaussian blur of a flat color |
+| `test_simdkit` | the kit's own kernels give the plain loops' very bytes, with AVX2 and without: the UI renderer's fills, blends, masks and opaque runs; JPEG's inverse DCT (big values left to the loop, a block of its DC alone), its colors and 4:2:0 upsampling; PNG's five filters and the sums that choose them, Adler-32 and CRC-32; the camera's YUYV and video's luma |
+| `test_textchanges` | paragraph shading (the column's width or the text's) and borders, saved; conditional text (hidden, shown, under several conditions, saved, hidden as the document prints); track changes (typed and deleted, shown underlined and struck, accepted and rejected), notes on words |
+| `test_mathtype` | equations as TeX writes them: variables in italic, sub- and superscripts, fractions, roots (a cube root's index), sums and limits with what goes over and under them, Greek letters, brackets as tall as what they hold, words; a source that cannot be read told |
+| `test_flexlayout` | Flex Layout: rows and columns, reversed, justified, aligned and stretched, growing and shrinking, wrapping, gaps and padding, a box that hugs what it holds, saved |
+| `test_publish` | EPUB 3 (the mimetype first and stored, the package, navigation, accessibility, a cover, fixed layout, right to left; a zip any reader opens) and web pages (each page as laid out, its text text, pictures with their alt text, one under another on a phone) of documents and books |
+| `test_vectormake` | Global Edit (the shapes alike, each kept where it is, as big as asked), Live Paint's faces filled and kept as the shapes move, Intertwine's crossing, Pattern Options' tiles (grid, bricks, hexagons) repeating without a seam, Tidy Up's rows, columns and grids, Flex Layout on a group, Envelope Distort by a mesh and by an outline |
+| `test_relight` | Relight's point, spot and sun lights (bright by the light, dim far off, warm where a warm one falls, the side of a mound toward the sun lit), Upscale (made smaller again: the picture it came from; its edges as sharp as the picture's), an object's shadow found and not the floor, the object or what is far off |
+| `test_mockups` | each mockup a document: the design a Smart Object where it goes (bent round the mug), the light and shade over it mixed by Multiply, the scene round it |
+| `test_designstyles` | a style on a design: colors to the palette by their lightness, big type in the heading font, the rest in the body font, locked layers left as they are; font pairs of the fonts there are |
+| `test_aiconnect` | an AI service's requests (OpenAI's chat completions, Anthropic's Messages), its answers read, only the app's own commands taken, errors told; a service on this computer the whole way round; nothing asked with no service set |
 | `test_photoblurs`, `test_pathtools` | Average, Box, Shape, Smart and Lens Blur; the drawing program's path operations (erase, smooth, cut, knife, join, blob, arcs, grids, flare, the mesh's points); tangent and perpendicular Smart Guides, Replace Spine, Round Corners and Scribble |
 | `test_handpass` | the hand pass: every tool of Retro Atelier's toolbar used through the window's input -- a click, Alt+click, a drag, Shift, Alt and Ctrl, a double click, the arrows, a finger's tap, drag and long press, a pen and its eraser -- nothing failing, and everything undone to the picture it began with (975 tries) |
 | `test_systemfiles` | the system's own file picker behind the kit's file dialogs, with a made-up system: a document opened as a copy and written back when the app saves it, Save As where the picker said (asked before, or after the file is there), what cannot be written told |

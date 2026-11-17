@@ -19,6 +19,16 @@ var
   teLayout: tuple[ver: int; layer: Layer; l: TextLayout]
   textMove: tuple[on: bool; orig: TextData]   ## the Move tool on a type layer
   rasterAsk: tuple[open: bool; then: string]  ## "rasterize the type first?"
+  reviewer = ""                     ## Track Changes and Notes: who the changes and notes are by ("" the
+                                    ## computer's user)
+
+proc whoAmI(): string =
+  ## (the name changes and notes are kept by)
+  if reviewer.strip.len > 0: return reviewer.strip
+  let u = getEnv("USER", getEnv("USERNAME"))
+  if u.len > 0: u else: "Editor"
+
+proc trackWho(): string = whoAmI() & "|" & format(now(), "yyyy-MM-dd HH:mm")
 
 proc typeLayout(): TextLayout =
   ## The layout of the text being edited (made again when it changed).
@@ -158,10 +168,22 @@ proc insertTyped(s: string) =
   let L = te.layer
   let atEnd = clean == "\n" and L != nil and a == b and a == L.text.paraBounds(a).b
   let before = if L != nil: L.text.paraFmtAt(a).styleName else: ""
-  editText(proc (t: var TextData) =
-    t.deleteText(a, b)
-    t.insertText(a, clean, st))
-  te.caret = a + clean.runeCount
+  if L != nil and L.text.track:
+    # (Track Changes: what is typed kept as added -- after what it replaces, which stays,
+    # struck, as deleted)
+    let who = trackWho()
+    var caret = b + clean.runeCount
+    editText(proc (t: var TextData) =
+      t.trackedInsert(b, clean, st, who)
+      let n0 = t.runeLen
+      t.trackedDelete(a, b, who)
+      caret -= n0 - t.runeLen)
+    te.caret = caret
+  else:
+    editText(proc (t: var TextData) =
+      t.deleteText(a, b)
+      t.insertText(a, clean, st))
+    te.caret = a + clean.runeCount
   te.anchor = te.caret
   if atEnd and before.len > 0:
     let d = te.dw.doc
@@ -176,7 +198,10 @@ proc insertTyped(s: string) =
 proc deleteSel(): bool =
   let (a, b) = selRange()
   if a == b: return false
-  editText(proc (t: var TextData) = t.deleteText(a, b))
+  if te.layer != nil and te.layer.text.track:
+    let who = trackWho()
+    editText(proc (t: var TextData) = t.trackedDelete(a, b, who))
+  else: editText(proc (t: var TextData) = t.deleteText(a, b))
   te.caret = a
   te.anchor = a
   true
@@ -426,14 +451,27 @@ proc typeKeys() =
       if not deleteSel() and te.caret > 0:
         let from0 = if ctrl: t.wordLeft(te.caret) else: te.caret - 1
         let c0 = te.caret
-        editText(proc (t: var TextData) = t.deleteText(from0, c0))
+        if t.track:
+          let who = trackWho()
+          editText(proc (t: var TextData) = t.trackedDelete(from0, c0, who))
+        else: editText(proc (t: var TextData) = t.deleteText(from0, c0))
         te.caret = from0
         te.anchor = from0
     of KeyDelete:
       if not deleteSel() and te.caret < n:
         let to = if ctrl: t.wordRight(te.caret) else: te.caret + 1
         let c0 = te.caret
-        editText(proc (t: var TextData) = t.deleteText(c0, to))
+        if t.track:
+          # (struck, kept: the caret goes past it)
+          let who = trackWho()
+          var past = to
+          editText(proc (t: var TextData) =
+            let n0 = t.runeLen
+            t.trackedDelete(c0, to, who)
+            past -= n0 - t.runeLen)
+          te.caret = past
+          te.anchor = past
+        else: editText(proc (t: var TextData) = t.deleteText(c0, to))
     of KeyA:
       if ctrl:
         te.anchor = 0

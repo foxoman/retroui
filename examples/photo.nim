@@ -24,7 +24,8 @@ import retroui/[photo, photopaint, photofx, photoartistic, photohdr, otshape, tt
               photofiles, photosave, photoshapes, photomerge, photopdf, photoimport, pdfread, googlefonts, photovector, iccprofile, icclut, abr, rawphoto, imageformats, filterfactory,
               photobrushes, adobefiles, photobook, imagetrace, layouttemplates, liveshapes, idml, preflight,
               booklists, datamerge, textsearch, headless, perspectivegrid, pathbrush, photoblurs, pathtools,
-              liveeffects,
+              liveeffects, photoseps, mathtype, flexlayout, vectormake, photorelight, mockups, designstyles,
+              aiconnect, photopublish,
               imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files]
 {.push warning[UnusedImport]: off.}
 import retroui/photodeep   # (imported for what it sets up: filters, flattening and gradients at 16 and 32 bits)
@@ -33,7 +34,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 const
   AppName = "Retro Atelier"         # (Retro Photo until 5.0)
   AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
-  AppVersion = "5.5.0"
+  AppVersion = "5.6.0"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -388,7 +389,10 @@ const panelList = [
   ("quickactions", "Quick Actions", pxQuickActions), ("colorthemes", "Color Themes", pxColorThemes),
   ("pages", "Pages", pxNew), ("vbrushes", "Brushes (Vector)", pxBrush), ("appearance", "Appearance", pxLayerStyle),
   ("objectstyles", "Object Styles", pxCustomShape), ("bookmarks", "Bookmarks", pxNew), ("links", "Links", pxOpen),
-  ("graphicstyles", "Graphic Styles", pxSwatches)]
+  ("graphicstyles", "Graphic Styles", pxSwatches), ("separations", "Separations Preview", pxChannels),
+  ("attributes", "Attributes", pxProperties), ("buttons", "Buttons and Forms", pxProperties),
+  ("conditions", "Conditional Text", pxParagraph), ("review", "Track Changes and Notes", pxParagraph),
+  ("designstyles", "Styles and Fonts", pxColorThemes), ("patternoptions", "Pattern Options", pxPatterns)]
   ## (each panel: its key, its title, its icon in a column collapsed to icons)
 
 var dock = newDock()             ## the panels down the right (Window shows and hides them)
@@ -543,6 +547,21 @@ proc vectorOverlay(dw: DocWin; ev: PhotoEvent)
 proc vectorBar()
 proc deletePickedPoints(): bool
 proc startLiveEffect(k: LiveEffectKind; idx = -1)
+# (print, PDF and the screen: photo/output; making: photo/makers)
+proc outputCommand(name: string): bool
+proc outputDialogs()
+proc makersCommand(name: string): bool
+proc makersDialogs()
+proc makersCanvas(dw: DocWin; ev: PhotoEvent): bool
+proc makersOverlay(dw: DocWin; ev: PhotoEvent)
+proc keepLive(d: Doc)
+proc storyLayer(d: Doc): Layer
+proc livePaintOf(L: Layer): tuple[on: bool; lp: LivePaint]
+var
+  gEdit: tuple[on: bool; doc: Doc; src: Layer; others: seq[Layer]; last: ShapeData; sameSize: bool]
+    ## Select > Start Global Edit: the shapes like `src` that follow what is done to it
+  lpBucket = false                ## the Live Paint Bucket: a click fills a face
+  intertwineOn = false            ## Intertwine: a click where two cross brings the one under over
 proc liveEffectCommand(name: string): bool
 proc liveEffectDialog()
 proc startTransformEach()
@@ -608,6 +627,8 @@ type AppPrefs = object
   session: bool                ## the documents open at the end opened again at the next start
   language: int                ## the interface: 0 English, 1 Arabic (right to left)
   legacyNew: bool              ## File > New: the 1994 dialog (not today's, with presets and templates)
+  lorem: string                ## Type > Paste Lorem Ipsum: your own placeholder text ("" the Latin)
+  layerSizes: bool             ## the Layers panel shows how much memory each layer takes
 
 const DefaultPrefs = AppPrefs(interp: 2, zoomResizes: false, zoomCenter: false, docTabs: true,
                               optionsBar: true, history: 100, autosave: 10, bgSave: true, recent: 10,
@@ -3934,6 +3955,7 @@ proc overlays(dw: DocWin; ev: PhotoEvent) =
   dw.pgOverlay(ev)
   dw.threadOverlay(ev)
   dw.vectorOverlay(ev)
+  dw.makersOverlay(ev)
   if drag.on and drag.dw == dw and drag.band:
     let (x0, y0) = v.toScreen(d, min(drag.x0, drag.x1), min(drag.y0, drag.y1))
     let (x1, y1) = v.toScreen(d, max(drag.x0, drag.x1), max(drag.y0, drag.y1))
@@ -4578,6 +4600,8 @@ include photo/hyperlinks
 include photo/package
 include photo/pathbrushes
 include photo/vectortools
+include photo/output
+include photo/makers
 include photo/dockpanels
 
 proc phoneLayout(): bool =
@@ -4726,6 +4750,7 @@ proc frame() =
   springTool()
   typeWatch()
   bookFrame()
+  if cur() != nil and not te.on: keepLive(cur())   # (Flex Layouts, Live Paint, Global Edit kept up)
   captionBar()
   if screenMode != 2: menus()       # (Full Screen: no menu bar; F brings it back)
   optionsBar()

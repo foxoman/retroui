@@ -9,6 +9,7 @@ import std/[os, osproc, strutils, times, json]
 import std/unicode except splitWhitespace, strip   # (its strip cuts letters: docs/nim-bugs.md)
 import retroui/gfx
 import retroui/pdf
+import retroui/codec
 
 let outDir = getTempDir() / "retro-test-pdf"
 createDir(outDir)
@@ -216,6 +217,85 @@ if findExe("qpdf").len > 0:
   echo "qpdf --check: ok"
 else:
   echo "qpdf not found: its check skipped"
+
+block printAndInteractive:
+  # spot inks, overprint, a tagged PDF with alt text, form fields and buttons, page transitions
+  let d = newPdf("Form and inks")
+  let p = d.addPage(A4)
+  let pms = d.spotInk("PANTONE 185 C", 0, 0.91, 0.76, 0)
+  doAssert d.spotInk("PANTONE 185 C", 0, 0, 0, 0) == pms          # (the same ink again)
+  let varnish = d.spotInk("Gloss Varnish", 0, 0, 0, 0)
+  p.beginTag("H1")
+  p.text(mm(20), mm(20), "Order form", size = 20, bold = true)
+  p.endTag()
+  p.beginTag("Figure", alt = "A red band across the page")
+  p.fillSpot(pms, 0.8)
+  p.rect(mm(20), mm(30), mm(170), mm(10))
+  p.fill()
+  p.endTag()
+  p.beginTag("Artifact")
+  p.saveState()
+  p.overprint(true, false)
+  p.fillSpot(varnish)
+  p.rect(mm(20), mm(30), mm(40), mm(10))
+  p.fill()
+  p.restoreState()
+  p.endTag()
+  p.formField(PdfField(kind: pfText, name: "name", value: "Sultan", tooltip: "Your name", required: true),
+              mm(20), mm(50), mm(80), mm(8))
+  p.formField(PdfField(kind: pfText, name: "notes", multiline: true), mm(20), mm(60), mm(80), mm(20))
+  p.formField(PdfField(kind: pfCheck, name: "agree", value: "on"), mm(20), mm(85), mm(5), mm(5))
+  for i, c in ["Small", "Large"]:
+    p.formField(PdfField(kind: pfRadio, name: "size", exportValue: c, value: (if i == 1: "on" else: "")),
+                mm(20 + i.float * 20), mm(95), mm(5), mm(5))
+  p.formField(PdfField(kind: pfCombo, name: "city", choices: @["Muscat", "Sohar", "صلالة"], value: "Muscat"),
+              mm(20), mm(105), mm(50), mm(8))
+  p.formField(PdfField(kind: pfList, name: "colors", choices: @["Red", "Green"]), mm(80), mm(105), mm(40), mm(16))
+  p.formField(PdfField(kind: pfButton, caption: "Next", action: "next", back: color(40, 90, 160),
+                       color: color(255, 255, 255)), mm(150), mm(270), mm(30), mm(10))
+  p.formField(PdfField(kind: pfButton, name: "web", caption: "Site", action: "https://www.foxoman.net"),
+              mm(110), mm(270), mm(30), mm(10))
+  p.transition = PageTransition(style: "Push", duration: 0.5, direction: 270)
+  let p2 = d.addPage(A5)
+  p2.text(mm(20), mm(20), "Second page")
+  p2.formField(PdfField(kind: pfButton, caption: "Back", action: "page:1"), mm(20), mm(40), mm(30), mm(10))
+  p2.formField(PdfField(kind: pfButton, caption: "Hide", action: "hide:notes"), mm(60), mm(40), mm(30), mm(10))
+  p2.transition = PageTransition(style: "Split", vertical: true, inward: true, advance: 5)
+  let raw = d.render()
+  discard checkXref(raw)
+  # (the file with its streams inflated: what the pages draw, readable)
+  var s = raw
+  var at = raw.find("/FlateDecode >>\nstream\n")
+  while at >= 0:
+    let a0 = at + "/FlateDecode >>\nstream\n".len
+    let e = raw.find("\nendstream", a0)
+    try: s.add "\n" & cast[string](zlibDecompress(toBytes(raw[a0 ..< e])))
+    except CatchableError: discard
+    at = raw.find("/FlateDecode >>\nstream\n", e)
+  doAssert "/Separation /PANTONE#20185#20C /DeviceCMYK" in s
+  doAssert "/Separation /Gloss#20Varnish" in s
+  doAssert "/C1 [0 0.91 0.76 0]" in s
+  doAssert "/CS0 cs 0.8 scn" in s and "/CS1 cs 1 scn" in s
+  doAssert "/op true /OP false /OPM 1" in s and "/OP1 gs" in s
+  doAssert "/StructTreeRoot" in s and "/MarkInfo << /Marked true >>" in s
+  doAssert "/S /H1" in s and "/S /Figure" in s and "/Alt (A red band across the page)" in s
+  doAssert "/Artifact BMC" in s and "/H1 <</MCID 0>> BDC" in s and "/StructParents 0" in s
+  doAssert "/AcroForm << /Fields [" in s and "/NeedAppearances true" in s
+  doAssert "/FT /Tx" in s and "/T (name)" in s and "/V (Sultan)" in s and "/TU (Your name)" in s
+  doAssert "/Ff 4096" in s                                   # (multiline)
+  doAssert "/FT /Btn" in s and "/AS /Yes" in s and "/Yes " in s
+  doAssert "/Ff 49152" in s and "/V /Large" in s and "/AS /Small" notin s and "/AS /Off" in s
+  doAssert "/FT /Ch" in s and "/Ff 131072" in s and "/Opt [ (Muscat) (Sohar) <FEFF" in s
+  doAssert "/S /Named /N /NextPage" in s and "/S /URI /URI (https://www.foxoman.net)" in s
+  doAssert "/S /GoTo /D [" in s and "/S /Hide /T (notes) /H true" in s
+  doAssert "/Trans << /Type /Trans /S /Push /D 0.5 /Di 270 >>" in s
+  doAssert "/S /Split /D 1 /Dm /V /M /I >> /Dur 5" in s
+  writeFile(outDir / "form.pdf", raw)
+  let qpdf = findExe("qpdf")
+  if qpdf.len > 0:
+    let (o, code) = execCmdEx(quoteShell(qpdf) & " --check " & quoteShell(outDir / "form.pdf"))
+    doAssert code == 0 and "No syntax or stream encoding errors" in o, o
+    echo "qpdf: the form, the inks and the tags check out"
 
 let py = findExe("python3")
 if py.len > 0 and execCmdEx(py & " -c 'import pypdf'").exitCode == 0:

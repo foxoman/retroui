@@ -17,9 +17,9 @@
 import std/[math, tables, strutils, json, os, base64, algorithm, locks, atomics, hashes, times]
 when compileOption("threads"):
   import std/typedthreads
-import gfx, imaging, zip, jpeg, parallel, textengine, busy, photoinks, simd, codec, hijri
+import gfx, imaging, zip, jpeg, parallel, textengine, busy, photoinks, simd, codec, hijri, inks
 from codec import unbase64
-export photoinks
+export photoinks, inks
 
 template pixPtr(s: seq[uint32]): ptr UncheckedArray[uint32] =
   ## The pixels, for the cores to share (each writes its own rows).
@@ -431,6 +431,34 @@ type
     file: string              ## (on the scratch disk: the tiles one after the other there,
     offs: seq[int]            ## ... each at its offset; `tiles` let go)
 
+  FieldSpec* = object
+    ## A layer made a form field or a button of an interactive PDF (Window > Interactive >
+    ## Buttons and Forms): drawn as it is, the field over it.
+    kind*: string               ## "" none; "text", "check", "radio", "combo", "list", "button", "signature"
+    name*: string               ## its name (radio buttons: their group's)
+    value*: string              ## text: what it holds; check box, radio: "on" when on; a choice
+    exportValue*: string        ## a radio button: what its group gets when it is on
+    choices*: seq[string]       ## combo, list: what can be chosen
+    tooltip*: string            ## what readers say of it
+    multiline*, required*, readOnly*, password*: bool
+    caption*: string            ## a button: what it says (else its art alone)
+    action*: string             ## a button: "next", "prev", "first", "last", "page:N", a web address,
+                                ## "show:NAME", "hide:NAME", "print", "reset", "submit:URL"
+
+  LayerAttrs* = object
+    ## What a layer is in print, in a PDF and for readers (Attributes, Object Export Options).
+    overprintFill*, overprintStroke*: bool  ## its inks print over what is under it (not knocking it
+                                            ## out: Overprint Preview shows it)
+    nonprinting*: bool          ## seen here, left out of what is printed and exported
+    alt*: string                ## alt text: what it shows, for screen readers (a tagged PDF, an
+                                ## EPUB, a web page)
+    artifact*: bool             ## a decoration: readers leave it out
+    tag*: string                ## what it is for readers: "" from its kind; "H1" .. "H6", "P",
+                                ## "Figure", "Formula", "Table"
+    field*: FieldSpec           ## a form field or a button made of it
+    placeholder*: int           ## a frame a photo goes into (a template's): 0 not, 1 filling it
+                                ## (cropped), 2 fitting it whole
+
   Layer* = ref object
     ## A layer: as big as the document, pixels 0xAARRGGBB. An adjustment
     ## layer (`adjust`) changes what is under it; its pixels are its mask.
@@ -524,6 +552,8 @@ type
     flowOut*: bool          ## a book: a box on another page shows what does not fit this one
     flowFrom*: int          ## a type layer whose box shows what did not fit the box of the type layer
                             ## of this `uid` (threaded text frames); 0: its own text
+    attrs*: LayerAttrs      ## what it is in print, in a PDF, for readers (overprint, alt text, a
+                            ## form field, a photo placeholder)
 
   CompState* = object
     ## A layer as a layer comp keeps it.
@@ -694,6 +724,9 @@ type
                                 ## points, row by row, `meshCols` a row
     meshCols*: int              ## a gradient mesh: its points in a row (its columns + 1); the points
                                 ## move where they are and the colors between them bend with them
+    spot*: string               ## a spot ink's name (`Doc.spotInks`): printed with it, `color` how it
+                                ## looks ("" process inks)
+    tint*: int                  ## ... so much of it, % (0: 100)
 
   StrokeAlign* = enum
     ## Where a shape's stroke is: inside its outline, centered on it, outside.
@@ -742,7 +775,8 @@ type
     lePuckerBloat = "Pucker & Bloat", leRoughen = "Roughen", leTransform = "Transform", leTweak = "Tweak",
     leTwist = "Twist", leZigZag = "Zig Zag", leFreeDistort = "Free Distort", leWarp = "Warp",
     leOffset = "Offset Path", leRepeatRadial = "Repeat: Radial", leRepeatGrid = "Repeat: Grid",
-    leRepeatMirror = "Repeat: Mirror", leRoundCorners = "Round Corners", leScribble = "Scribble"
+    leRepeatMirror = "Repeat: Mirror", leRoundCorners = "Round Corners", leScribble = "Scribble",
+    leEnvelope = "Envelope"
 
   LiveEffect* = object
     ## One live effect and its settings (which it reads: `retroui/liveeffects`).
@@ -762,6 +796,10 @@ type
     smooth*: bool               ## Roughen, Zig Zag: smooth points (else corners)
     vertical*: bool             ## Warp: bent up and down (else across)
     corners*: array[4, (float, float)]  ## Free Distort: each corner of the box moved by (pixels)
+    mesh*: seq[(float, float)]  ## Envelope (Make with Mesh): how far each point of its grid moved -- `copies`
+                                ## columns, `detail` rows, (columns + 1) x (rows + 1) points, row by row
+    envelope*: seq[(float, float)]  ## Envelope (Make with Top Object): the outline it is fitted into, a
+                                ## closed polygon (empty: the mesh)
 
   AppearanceKind* = enum apFill = "Fill", apStroke = "Stroke"
 
@@ -919,6 +957,7 @@ type
     meta: string
     anchorTo, anchorAt: int
     anchorDx, anchorDy: float32
+    attrs: LayerAttrs
 
   LayerSnap = object
     layer: Layer
@@ -1084,6 +1123,20 @@ type
     objectStyles*: seq[ObjectStyleDef] ## its Object Styles
     graphicStyles*: seq[GraphicStyleDef] ## its Graphic Styles
     bookmarks*: seq[DocBookmark]   ## its bookmarks (a PDF's outline)
+    spotInks*: seq[SpotInk]        ## its spot colors (Swatches: New Spot Ink) -- an ink of their own
+    inkSettings*: InkSettings      ## the Ink Manager's say over its inks
+    sepView*: tuple[on: bool; hidden: seq[string]; black: bool]
+                                   ## Separations Preview: its plates shown -- all but `hidden`; one
+                                   ## alone in black (`black`)
+    overprintView*: bool           ## View > Overprint Preview: what overprints shown printed over
+    conditions*: seq[TextCondition]  ## Conditional Text: its conditions (text under the hidden ones
+                                   ## all left out)
+    sepCache*: tuple[ver: int; planes: seq[seq[uint8]]]
+                                   ## (Separations Preview: each spot ink's amounts, worked out)
+    opCache*: tuple[ver: int; px: seq[uint32]]
+                                   ## (Overprint Preview: the picture, worked out)
+    transition*: tuple[style: string; duration: float; direction: int; advance: float]
+                                   ## a page's transition, full screen in a PDF ("" none: Page Transitions)
     live*: seq[LivePart]           ## what is being moved, turned, adjusted: shown, not done yet
                                    ## (see `LivePart`; `setLive`, `endLive`)
     liveVer*: int                  ## changes with `live`
@@ -1180,6 +1233,12 @@ var layerFxRender*: proc (w, h: int; L: Layer): FxRender {.nimcall.}
   ## Makes a layer's effects (its layer style) from its pixels and mask.
   ## Set by `retroui/photostyles`; without it layer styles show nothing.
 
+var stepEndHook*: proc (d: Doc) {.nimcall.}
+  ## Called as each step ends, while it is open still (an app's): what follows a change -- the
+  ## other frames of a Flex Layout moved, the shapes of a Global Edit changed -- done in the
+  ## same step and undone with it (`touch`, `touchLayers` in it, no `endStep`).
+var inStepEnd = false
+
 proc fill*(L: Layer): int {.inline.} = 100 - L.clearFill
   ## Its Fill Opacity: how much of its own pixels show (its effects all
   ## the same), 0..100.
@@ -1195,6 +1254,26 @@ proc px*(L: Layer): var seq[uint32] {.inline.} =
     {.cast(noSideEffect).}:
       unparkLayer(L)
   L.pxRaw
+
+proc layerBytes*(L: Layer): int =
+  ## How much memory a layer takes now: its pixels (kept small while it is idle: as small as
+  ## that), its 16- and 32-bit ones, its mask, its Smart Object's picture -- what the Layers
+  ## panel shows by it.
+  if L.parkedPx != nil:
+    result = L.parkedPx.bytes
+    if L.parkedPx.file.len > 0: result = 0             # (on the scratch disk)
+  else:
+    result = L.pxRaw.len * 4
+  result += L.hi.len * 2 + L.hdr.len * 4
+  if L.mask != nil and L.mask != L: result += layerBytes(L.mask)
+  if L.smart != nil: result += L.smart.src.len * 4
+
+proc bytesText*(n: int): string =
+  ## A size in bytes as people read it: "820 KB", "12.4 MB", "1.2 GB".
+  if n < 1024: $n & " B"
+  elif n < 1024 * 1024: $((n + 512) div 1024) & " KB"
+  elif n < 1024 * 1024 * 1024: formatFloat(n / (1024 * 1024), ffDecimal, 1) & " MB"
+  else: formatFloat(n / (1024 * 1024 * 1024), ffDecimal, 1) & " GB"
 
 proc `px=`*(L: Layer; v: sink seq[uint32]) {.inline.} =
   ## Its pixels set (a parked layer's let go).
@@ -1639,6 +1718,18 @@ proc effectiveText*(d: Doc; L: Layer; depth = 0): TextData =
   if L.uid == 0 or d.rawText != L.uid:
     for s in result.spans.mitems:
       if '<' in s.text and ('>' in s.text): s.text = d.withVariables(s.text)
+  if L.uid != 0 and d.rawText == L.uid:
+    # (being typed in: its changes shown -- added underlined, deleted struck -- its characters
+    # all there, where the caret counts them)
+    result = result.showingChanges
+  else:
+    # (as it prints: deleted text left out, and what is under hidden conditions)
+    result = result.withoutDeleted
+    if d.conditions.len > 0:
+      var hidden: seq[string]
+      for c in d.conditions:
+        if not c.visible: hidden.add c.name
+      if hidden.len > 0: result = result.withConditions(hidden)
   # (the part of the facing page's text that lies here keeps the lines it has there)
   if result.boxW > 0 and result.path.len == 0 and L.fromSpan == 0: result.holes = d.wrapHoles(L)
 
@@ -3700,7 +3791,7 @@ proc settingsOf(L: Layer): LayerSettings =
                 depth: L.depth, blendIf: L.blendIf, maskClear: L.maskClear, maskFeather: L.maskFeather,
                 gradFeather: L.gradFeather, smart: L.smart, wrap: L.wrap, wrapGap: L.wrapGap, wrapSide: L.wrapSide,
                 ignoreWrap: L.ignoreWrap, meta: L.meta, anchorTo: L.anchorTo, anchorAt: L.anchorAt,
-                anchorDx: L.anchorDx, anchorDy: L.anchorDy, objectStyle: L.objectStyle)
+                anchorDx: L.anchorDx, anchorDy: L.anchorDy, objectStyle: L.objectStyle, attrs: L.attrs)
 
 proc setSettings(L: Layer; s: LayerSettings) =
   ## (not its text or shape: they are drawn again when changed)
@@ -3719,6 +3810,7 @@ proc setSettings(L: Layer; s: LayerSettings) =
   L.anchorAt = s.anchorAt
   L.anchorDx = s.anchorDx
   L.anchorDy = s.anchorDy
+  L.attrs = s.attrs
 
 proc snapOf(d: Doc): DocSnap =
   result = DocSnap(w: d.w, h: d.h, dpi: d.dpi, mode: d.mode, palette: d.palette, duotone: d.duotone, cur: d.cur,
@@ -4519,8 +4611,13 @@ proc snapStep*(d: Doc; name: string) =
     d.undoSteps[^1].bytes += snapBytes(d.undoSteps[^1].snap)
 
 proc endStep*(d: Doc) =
-  ## Ends the change begun with `beginStep` (or `snapStep`).
+  ## Ends the change begun with `beginStep` (or `snapStep`) -- `stepEndHook` first.
   if not d.stepOpen: return
+  if stepEndHook != nil and not inStepEnd:
+    inStepEnd = true
+    try: stepEndHook(d)
+    finally: inStepEnd = false
+    if not d.stepOpen: return
   d.stepOpen = false
   d.stepIndex.clear()
   d.stepWhole.setLen(0)
@@ -8036,6 +8133,9 @@ proc toJson*(p: ShapePaint): JsonNode =
     let b = newBitmap(p.pw, p.ph)
     b.px = p.pattern
     result["pattern"] = %encode(encodePng(b))
+  if p.spot.len > 0:
+    result["spot"] = %p.spot
+    if p.tint in 1 .. 99: result["tint"] = %p.tint
 
 proc paintFrom(j: JsonNode): ShapePaint =
   if j == nil or j.kind != JObject: return
@@ -8049,6 +8149,8 @@ proc paintFrom(j: JsonNode): ShapePaint =
   result.meshCols = clamp(j{"meshCols"}.getInt(0), 0, 16)
   result.opacity = clamp(j{"opacity"}.getInt(100), 0, 100)
   result.scale = clamp(j{"scale"}.getInt(100), 10, 1000)
+  result.spot = j{"spot"}.getStr
+  result.tint = clamp(j{"tint"}.getInt(0), 0, 100)
   for st in j{"stops"}.getElems:
     let e = st.getElems
     if e.len in 2 .. 3 and result.stops.len < 64:
@@ -8078,6 +8180,14 @@ proc liveEffectsJson*(es: seq[LiveEffect]): JsonNode =
     result.add %*{"kind": $e.kind, "off": e.off, "amount": e.amount, "detail": e.detail, "sx": e.sx, "sy": e.sy,
                   "dx": e.dx, "dy": e.dy, "angle": e.angle, "copies": e.copies, "style": e.style, "seed": e.seed,
                   "smooth": e.smooth, "vertical": e.vertical, "corners": c}
+    if e.mesh.len > 0:
+      var m = newJArray()
+      for (x, y) in e.mesh: m.add %*[x, y]
+      result[^1]["mesh"] = m
+    if e.envelope.len > 0:
+      var m = newJArray()
+      for (x, y) in e.envelope: m.add %*[x, y]
+      result[^1]["envelope"] = m
 
 proc liveEffectsFrom*(j: JsonNode): seq[LiveEffect] =
   ## Live effects saved with `liveEffectsJson`.
@@ -8104,6 +8214,12 @@ proc liveEffectsFrom*(j: JsonNode): seq[LiveEffect] =
     e.seed = ej{"seed"}.getInt(0)
     e.smooth = ej{"smooth"}.getBool
     e.vertical = ej{"vertical"}.getBool
+    for q in ej{"mesh"}.getElems:
+      if q.kind == JArray and q.len == 2 and e.mesh.len < 4096:
+        e.mesh.add (clamp(q[0].getFloat, -1e6, 1e6), clamp(q[1].getFloat, -1e6, 1e6))
+    for q in ej{"envelope"}.getElems:
+      if q.kind == JArray and q.len == 2 and e.envelope.len < 100_000:
+        e.envelope.add (clamp(q[0].getFloat, -1e7, 1e7), clamp(q[1].getFloat, -1e7, 1e7))
     let cs = ej{"corners"}.getElems
     for i in 0 .. min(3, cs.high):
       if cs[i].kind == JArray and cs[i].len == 2:
@@ -8511,6 +8627,52 @@ proc compFrom(j: JsonNode): LayerComp =
     if sj.hasKey("style"): st.fx = layerFxFrom(sj["style"])
     result.states.add st
 
+proc attrsToJson*(a: LayerAttrs): JsonNode =
+  ## A layer's attributes as JSON (empty: none set).
+  result = newJObject()
+  if a.overprintFill: result["overprintFill"] = %true
+  if a.overprintStroke: result["overprintStroke"] = %true
+  if a.nonprinting: result["nonprinting"] = %true
+  if a.alt.len > 0: result["alt"] = %a.alt
+  if a.artifact: result["artifact"] = %true
+  if a.tag.len > 0: result["tag"] = %a.tag
+  if a.placeholder != 0: result["placeholder"] = %a.placeholder
+  let f = a.field
+  if f.kind.len > 0:
+    var fj = %*{"kind": f.kind, "name": f.name}
+    if f.value.len > 0: fj["value"] = %f.value
+    if f.exportValue.len > 0: fj["export"] = %f.exportValue
+    if f.choices.len > 0: fj["choices"] = %f.choices
+    if f.tooltip.len > 0: fj["tooltip"] = %f.tooltip
+    if f.multiline: fj["multiline"] = %true
+    if f.required: fj["required"] = %true
+    if f.readOnly: fj["readOnly"] = %true
+    if f.password: fj["password"] = %true
+    if f.caption.len > 0: fj["caption"] = %f.caption
+    if f.action.len > 0: fj["action"] = %f.action
+    result["field"] = fj
+
+proc attrsFrom*(j: JsonNode): LayerAttrs =
+  ## (`attrsToJson` read back)
+  if j == nil or j.kind != JObject: return
+  result.overprintFill = j{"overprintFill"}.getBool
+  result.overprintStroke = j{"overprintStroke"}.getBool
+  result.nonprinting = j{"nonprinting"}.getBool
+  result.alt = j{"alt"}.getStr
+  result.artifact = j{"artifact"}.getBool
+  result.tag = j{"tag"}.getStr
+  result.placeholder = clamp(j{"placeholder"}.getInt(0), 0, 2)
+  let fj = j{"field"}
+  if fj != nil and fj.kind == JObject:
+    var f = FieldSpec(kind: fj{"kind"}.getStr, name: fj{"name"}.getStr, value: fj{"value"}.getStr,
+                      exportValue: fj{"export"}.getStr, tooltip: fj{"tooltip"}.getStr,
+                      multiline: fj{"multiline"}.getBool, required: fj{"required"}.getBool,
+                      readOnly: fj{"readOnly"}.getBool, password: fj{"password"}.getBool,
+                      caption: fj{"caption"}.getStr, action: fj{"action"}.getStr)
+    for c in fj{"choices"}.getElems:
+      if f.choices.len < 1000: f.choices.add c.getStr
+    result.field = f
+
 proc rpdParts*(d: Doc): seq[RpdPart] =
   ## What a ".rpd" of the document holds (its pixels copied, not yet
   ## compressed: `writeRpd` does that, on any thread).
@@ -8543,6 +8705,8 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
     if L.ignoreWrap: lj["ignoreWrap"] = %true
     if L.meta.len > 0: lj["meta"] = %L.meta
     if L.objectStyle.len > 0: lj["objectStyle"] = %L.objectStyle
+    let aj = L.attrs.attrsToJson
+    if aj.len > 0: lj["attrs"] = aj
     if L.anchorTo != 0: lj["anchor"] = %*[L.anchorTo, L.anchorAt, L.anchorDx, L.anchorDy]
     if L.fromMaster != 0: lj["fromMaster"] = %L.fromMaster
     if L.fromSpan != 0: lj["fromSpan"] = %L.fromSpan
@@ -8636,6 +8800,19 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
     for c in d.comps: cs.add c.compToJson
     j["comps"] = cs
   if d.perspective.len > 0: j["perspective"] = %d.perspective
+  if d.spotInks.len > 0:
+    var a = newJArray()
+    for sp in d.spotInks: a.add sp.toJson
+    j["spotInks"] = a
+  if d.conditions.len > 0:
+    var a = newJArray()
+    for c in d.conditions: a.add %*{"name": c.name, "color": int64(c.color), "visible": c.visible}
+    j["conditions"] = a
+  let isj = d.inkSettings.toJson
+  if isj.len > 0: j["inkSettings"] = isj
+  if d.transition.style.len > 0:
+    j["transition"] = %*{"style": d.transition.style, "duration": d.transition.duration,
+                         "direction": d.transition.direction, "advance": d.transition.advance}
   j["overset"] = %true          # (text in a box keeps to it: what does not fit is not drawn)
   if d.frames.len > 0:
     var fa = newJArray()
@@ -8838,6 +9015,7 @@ proc loadRpd*(path: string): Doc =
     L.ignoreWrap = lj{"ignoreWrap"}.getBool(false)
     L.meta = lj{"meta"}.getStr("")
     L.objectStyle = lj{"objectStyle"}.getStr("")
+    L.attrs = attrsFrom(lj{"attrs"})
     if L.meta.len > 1_000_000: L.meta = ""
     let an = lj{"anchor"}.getElems
     if an.len == 4:
@@ -8937,6 +9115,17 @@ proc loadRpd*(path: string): Doc =
     if result.objectStyles.len < 10_000: result.objectStyles.add objectStyleFromJson(sj)
   for sj in j{"graphicStyles"}.getElems:
     if result.graphicStyles.len < 10_000: result.graphicStyles.add graphicStyleFromJson(sj)
+  for sj in j{"spotInks"}.getElems:
+    if result.spotInks.len < 1000: result.spotInks.add spotFrom(sj)
+  for cj in j{"conditions"}.getElems:
+    if result.conditions.len < 1000:
+      result.conditions.add TextCondition(name: cj{"name"}.getStr, color: uint32(cj{"color"}.getBiggestInt(0) and
+                                          0xFFFFFFFF), visible: cj{"visible"}.getBool(true))
+  result.inkSettings = inkSettingsFrom(j{"inkSettings"})
+  let tj = j{"transition"}
+  if tj != nil and tj.kind == JObject:
+    result.transition = (tj{"style"}.getStr, clamp(tj{"duration"}.getFloat(1), 0.0, 60.0),
+                         tj{"direction"}.getInt(0), clamp(tj{"advance"}.getFloat(0), 0.0, 3600.0))
   for bj in j{"bookmarks"}.getElems:
     if result.bookmarks.len < 10_000:
       result.bookmarks.add DocBookmark(title: bj{"title"}.getStr, dest: bj{"dest"}.getStr,

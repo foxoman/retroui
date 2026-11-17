@@ -20,7 +20,8 @@
 ##   p.text(mm(20), mm(38), "مرحبا بالعالم -- Hello", size = 12)
 ##   doc.save("invoice.pdf")
 
-import std/[tables, math, strutils, unicode, sequtils, os, algorithm]
+import std/[tables, math, strutils, sequtils, os, algorithm]
+import std/unicode except strip
 import gfx, typeset, ttf, codec, jpeg
 
 type
@@ -75,6 +76,49 @@ type
     page: int                         # (a link within the document: its page, 1 the first; 0: `uri`)
     top: float                        # (... where on it, points from its top)
 
+  PdfSpot = object
+    name: string
+    cmyk: array[4, float]             ## (how it is printed in process inks: the alternate)
+
+  PdfTag = object
+    ## (a part of a page as readers read it: its kind, its alt text, the marked content it is)
+    kind: string                      ## P, H1 .. H6, Figure, Table, L, LI, Link...
+    alt, actual: string
+    mcid: int
+    lang: string
+
+  PdfFieldKind* = enum
+    ## The kinds of interactive form field (`formField`).
+    pfText = "Text Field", pfCheck = "Check Box", pfRadio = "Radio Button", pfCombo = "Combo Box",
+    pfList = "List Box", pfButton = "Button", pfSignature = "Signature"
+
+  PdfField* = object
+    ## A form field or a button of an interactive PDF, on a page.
+    kind*: PdfFieldKind
+    name*: string                     ## its name (radio buttons: the group's, the same for each)
+    value*: string                    ## text: what it holds; check box, radio: "on" when it is;
+                                      ## combo, list: the choice made
+    exportValue*: string              ## a radio button: the value it gives its group ("" its number)
+    choices*: seq[string]             ## combo, list: what can be chosen
+    tooltip*: string                  ## what readers say of it (and show on hover)
+    multiline*, required*, readOnly*, password*: bool
+    size*: float                      ## its text's size, points (0: as it fits)
+    caption*: string                  ## a button: what it says
+    action*: string                   ## a button: "next", "prev", "first", "last", "page:N", a web
+                                      ## address, "show:NAME", "hide:NAME", "print", "reset", "submit:URL"
+    color*, back*: Color              ## its text's color, its fill (`back.a` 0: none)
+    x0, y0, x1, y1: float
+
+  PageTransition* = object
+    ## How a page comes when it is shown full screen (a presentation): `style` "Split", "Blinds",
+    ## "Box", "Wipe", "Dissolve", "Glitter", "Fly", "Push", "Cover", "Uncover", "Fade" ("" none).
+    style*: string
+    duration*: float                  ## seconds (0: 1)
+    direction*: int                   ## degrees: 0 left to right, 90 bottom to top, 180, 270, 315
+    vertical*: bool                   ## Split, Blinds: across (else down)
+    inward*: bool                     ## Split, Box: in from the edges (else out from the middle)
+    advance*: float                   ## seconds before the next page comes by itself (0: a click)
+
   PdfBookmark* = object
     ## An entry of the document's bookmarks (its outline, as readers list it beside the pages).
     title*: string
@@ -93,6 +137,12 @@ type
     links: seq[PdfLink]
     fontsUsed, imagesUsed, alphasUsed: seq[int]   ## what its resources list
     embUsed: seq[int]                 ## the embedded fonts it uses
+    spotsUsed: seq[int]               ## the spot inks it uses
+    opUsed: set[0 .. 3]               ## the overprints it sets (fill 1, stroke 2)
+    tags: seq[PdfTag]                 ## its parts as readers read them (a tagged PDF)
+    open: seq[int]                    ## (the tags begun and not yet ended)
+    fields*: seq[PdfField]            ## its form fields and buttons
+    transition*: PageTransition       ## how it comes, full screen
 
   PdfDoc* = ref object
     ## A PDF document: its pages, and what they share (fonts, pictures).
@@ -116,6 +166,10 @@ type
       ## with letters is Arabic, "he" Hebrew, none for the others
     firstLang: string                 ## (what the first text with letters says: "-" none yet)
     bookmarks*: seq[PdfBookmark]      ## its bookmarks, in order ("": none)
+    spots: seq[PdfSpot]               ## the spot inks (separations of their own)
+    tagged*: bool                     ## a tagged PDF: its pages' parts in reading order for screen
+                                      ## readers, pictures with their alt text (`beginTag`)
+    displayTitle*: bool               ## readers show the title, not the file's name
 
 proc newPdf*(title = ""; author = ""; creator = "Retro Nim UI"): PdfDoc =
   ## A new, empty document; add pages with `addPage`.
@@ -249,6 +303,76 @@ proc opacity*(p: PdfPage; a: float) =
           else: 255
   if k notin p.alphasUsed: p.alphasUsed.add k
   p.ops.add "/GA" & $k & " gs\n"
+
+proc spotInk*(d: PdfDoc; name: string; c, m, y, k: float): int =
+  ## A spot color -- an ink of its own, its own separation (a Pantone, a varnish): its number
+  ## for `fillSpot` and `strokeSpot`; `c`, `m`, `y`, `k` (0..1) how it is printed when there is
+  ## no plate for it. The same name again: the same ink.
+  for i, sp in d.spots:
+    if sp.name == name: return i
+  d.spots.add PdfSpot(name: name, cmyk: [clamp(c, 0.0, 1.0), clamp(m, 0.0, 1.0), clamp(y, 0.0, 1.0),
+                                         clamp(k, 0.0, 1.0)])
+  d.spots.high
+
+proc spotInk*(p: PdfPage; name: string; c, m, y, k: float): int =
+  ## `spotInk` of the page's document.
+  p.doc.spotInk(name, c, m, y, k)
+
+proc spotOps(p: PdfPage; ink: int; tint: float; stroke: bool) =
+  if ink notin 0 .. p.doc.spots.high: return
+  if ink notin p.spotsUsed: p.spotsUsed.add ink
+  p.ops.add "/CS" & $ink & (if stroke: " CS " else: " cs ")
+  p.ops.num(clamp(tint, 0.0, 1.0))
+  p.ops.add(if stroke: " SCN\n" else: " scn\n")
+
+proc fillSpot*(p: PdfPage; ink: int; tint = 1.0) =
+  ## Fill with spot ink `ink` (`spotInk`) from now on, `tint` of it (0..1).
+  p.spotOps(ink, tint, false)
+
+proc strokeSpot*(p: PdfPage; ink: int; tint = 1.0) =
+  ## Lines in spot ink `ink` from now on.
+  p.spotOps(ink, tint, true)
+
+proc overprint*(p: PdfPage; fill, stroke: bool) =
+  ## From now on the inks of what is filled (`fill`), stroked (`stroke`) print over the inks
+  ## under them instead of knocking them out -- an ink at 0 leaves the one under it (the
+  ## nonzero overprint mode, as the layout programs set it).
+  let k = (if fill: 1 else: 0) + (if stroke: 2 else: 0)
+  p.opUsed.incl k
+  p.ops.add "/OP" & $k & " gs\n"
+
+proc beginTag*(p: PdfPage; kind: string; alt = ""; actual = ""; lang = "") =
+  ## What is drawn until `endTag` is one part of the page for readers (a tagged PDF): `kind`
+  ## "P" a paragraph, "H1" .. "H6" a heading, "Figure" a picture (`alt` what it shows),
+  ## "Table", "L", "LI", "Link", "Formula"...; `actual` the words it stands for (an icon, an
+  ## equation), `lang` its language. "Artifact": a decoration readers leave out.
+  if kind == "Artifact":
+    p.ops.add "/Artifact BMC\n"
+    p.open.add -1
+    return
+  p.doc.tagged = true
+  let mcid = p.tags.len
+  p.tags.add PdfTag(kind: (if kind.len > 0: kind else: "P"), alt: alt, actual: actual, mcid: mcid, lang: lang)
+  p.ops.add "/" & p.tags[^1].kind.multiReplace((" ", ""), ("/", "")) & " <</MCID " & $mcid & ">> BDC\n"
+  p.open.add mcid
+
+proc endTag*(p: PdfPage) =
+  ## The end of the part `beginTag` began.
+  if p.open.len == 0: return
+  discard p.open.pop()
+  p.ops.add "EMC\n"
+
+proc formField*(p: PdfPage; f: PdfField; x, y, w, h: float) =
+  ## A form field or a button of an interactive PDF (`PdfField`) in the rectangle.
+  if f.name.len == 0 and f.kind != pfButton: return
+  var g = f
+  g.x0 = x; g.y0 = p.py(y + h); g.x1 = x + w; g.y1 = p.py(y)
+  if g.name.len == 0:
+    # (a name of its own in the whole document: the same name is the same field)
+    var n = 1
+    for q in p.doc.pages: n += q.fields.len
+    g.name = "Button" & $n
+  p.fields.add g
 
 proc saveState*(p: PdfPage) =
   ## Remember colors, line styles, clipping and opacity (`restoreState`).
@@ -1091,6 +1215,18 @@ proc render*(d: PdfDoc): string =
                       im.filter & smask & " /Length " & $im.data.len & " >>\nstream\n" &
                       im.data & "\nendstream")
     imageObj.add io
+  # spot inks: a Separation of their own each, printed in process inks where there is no plate
+  var spotObj: seq[int]
+  for sp in d.spots:
+    var c1 = ""
+    c1.nums(sp.cmyk[0], sp.cmyk[1], sp.cmyk[2], sp.cmyk[3])
+    let fn = objs.put("<< /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [" & c1 & "] /N 1 >>")
+    var nm = ""
+    for ch in sp.name:
+      if ch in {'A'..'Z', 'a'..'z', '0'..'9', '-', '_', '.'}: nm.add ch
+      else: nm.add "#" & toHex(ord(ch), 2)
+    if nm.len == 0: nm = "Spot"
+    spotObj.add objs.put("[/Separation /" & nm & " /DeviceCMYK " & $fn & " 0 R]")
   # pages, each with the fonts, pictures and opacities it uses
   proc resources(p: PdfPage): string =
     result = "<< /ProcSet [/PDF /Text /ImageB /ImageC]"
@@ -1103,12 +1239,19 @@ proc render*(d: PdfDoc): string =
       result.add " /XObject <<"
       for i in p.imagesUsed: result.add " /Im" & $i & " " & $imageObj[i] & " 0 R"
       result.add " >>"
-    if p.alphasUsed.len > 0:
+    if p.alphasUsed.len > 0 or p.opUsed.card > 0:
       result.add " /ExtGState <<"
       for a in p.alphasUsed:
         var v = ""
         v.num(float(a) / 255)
         result.add " /GA" & $a & " << /Type /ExtGState /ca " & v & " /CA " & v & " >>"
+      for k in p.opUsed:
+        result.add " /OP" & $k & " << /Type /ExtGState /op " & $((k and 1) != 0) & " /OP " &
+                   $((k and 2) != 0) & " /OPM 1 >>"
+      result.add " >>"
+    if p.spotsUsed.len > 0:
+      result.add " /ColorSpace <<"
+      for i in p.spotsUsed: result.add " /CS" & $i & " " & $spotObj[i] & " 0 R"
       result.add " >>"
     result.add " >>"
   var kids: seq[int]
@@ -1119,6 +1262,140 @@ proc render*(d: PdfDoc): string =
     var y = ""
     y.num(max(0.0, d.pages[k].h - top))
     "[" & $kids[k] & " 0 R /XYZ 0 " & y & " null]"
+  # (an interactive PDF: its fields, the fonts their text is in)
+  var formFields: seq[int]
+  var helv, zadb = 0
+  var radioParent: Table[string, int]
+  var radioKids: Table[string, seq[int]]
+  var radioOn: Table[string, string]
+  var radioFlags: Table[string, int]
+  proc pdfName(s: string): string =
+    for ch in s:
+      if ch in {'A'..'Z', 'a'..'z', '0'..'9', '-', '_', '.'}: result.add ch
+      else: result.add "#" & toHex(ord(ch), 2)
+    if result.len == 0: result = "On"
+  proc rgbOf(c: Color): string =
+    result = ""
+    result.nums(float(c.r) / 255, float(c.g) / 255, float(c.b) / 255)
+  proc fieldWidget(objs: var seq[string]; f: PdfField; pageObj, pi: int): int =
+    if helv == 0:
+      helv = objs.put("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
+      zadb = objs.put("<< /Type /Font /Subtype /Type1 /BaseFont /ZapfDingbats >>")
+    var r = ""
+    r.nums(f.x0, f.y0, f.x1, f.y1)
+    let w = f.x1 - f.x0
+    let h = f.y1 - f.y0
+    var bb = ""
+    bb.nums(0.0, 0.0, w, h)
+    let size = if f.size > 0: f.size else: 0.0
+    var da = "/Helv "
+    da.num(size)
+    da.add " Tf " & rgbOf(f.color) & " rg"
+    var flags = 0
+    if f.readOnly: flags = flags or 1
+    if f.required: flags = flags or 2
+    var e = "<< /Type /Annot /Subtype /Widget /Rect [" & r & "] /P " & $pageObj & " 0 R /F 4"
+    if f.tooltip.len > 0: e.add " /TU " & pdfString(f.tooltip)
+    var mk = ""
+    if f.back.a > 0: mk.add " /BG [" & rgbOf(f.back) & "]"
+    mk.add " /BC [0.5 0.5 0.5]"
+    template ap(body: string; font = 0): int =
+      objs.put(stream("/Type /XObject /Subtype /Form /BBox [" & bb & "]" &
+                      (if font > 0: " /Resources << /Font << /F " & $font & " 0 R >> >>" else: ""), body, false))
+    var back = ""
+    if f.back.a > 0:
+      back = rgbOf(f.back) & " rg 0 0 "
+      back.nums(w, h)
+      back.add " re f\n"
+    case f.kind
+    of pfText, pfSignature:
+      if f.kind == pfText:
+        if f.multiline: flags = flags or 4096
+        if f.password: flags = flags or 8192
+        e.add " /FT /Tx /DA " & pdfString(da) & " /V " & pdfString(f.value)
+      else: e.add " /FT /Sig"
+      e.add " /MK <<" & mk & " >> /AP << /N " & $ap(back) & " 0 R >>"
+    of pfCheck:
+      let on = f.value.len > 0 and f.value.toLowerAscii notin ["off", "no", "false", "0"]
+      let dac = "/ZaDb 0 Tf " & rgbOf(f.color) & " rg"
+      var tick = back & "q BT /F "
+      tick.num(max(4.0, h * 0.8))
+      tick.add " Tf " & rgbOf(f.color) & " rg "
+      tick.nums(w * 0.15, h * 0.2)
+      tick.add " Td (4) Tj ET Q\n"
+      let yes = ap(tick, zadb)
+      let off = ap(back)
+      e.add " /FT /Btn /DA " & pdfString(dac) & " /V /" & (if on: "Yes" else: "Off") & " /AS /" &
+            (if on: "Yes" else: "Off") & " /MK <<" & mk & " /CA (4) >> /AP << /N << /Yes " & $yes &
+            " 0 R /Off " & $off & " 0 R >> >>"
+    of pfRadio:
+      let ex = pdfName(if f.exportValue.len > 0: f.exportValue else: $(radioKids.getOrDefault(f.name).len + 1))
+      let on = f.value.len > 0 and f.value.toLowerAscii notin ["off", "no", "false", "0"]
+      var dot = back & "q BT /F "
+      dot.num(max(4.0, h * 0.7))
+      dot.add " Tf " & rgbOf(f.color) & " rg "
+      dot.nums(w * 0.18, h * 0.22)
+      dot.add " Td (l) Tj ET Q\n"
+      let yes = ap(dot, zadb)
+      let off = ap(back)
+      if f.name notin radioParent:
+        radioParent[f.name] = objs.put("")
+        radioKids[f.name] = @[]
+        formFields.add radioParent[f.name]
+        radioFlags[f.name] = flags
+      if on: radioOn[f.name] = ex
+      e.add " /Parent " & $radioParent[f.name] & " 0 R /AS /" & (if on: ex else: "Off") & " /MK <<" & mk &
+            " /CA (l) >> /AP << /N << /" & ex & " " & $yes & " 0 R /Off " & $off & " 0 R >> >>"
+      let wo = objs.put(e & " >>")
+      radioKids[f.name].add wo
+      return wo
+    of pfCombo, pfList:
+      if f.kind == pfCombo: flags = flags or 131072
+      var opt = ""
+      for c in f.choices: opt.add " " & pdfString(c)
+      e.add " /FT /Ch /DA " & pdfString(da) & " /Opt [" & opt & " ] /V " & pdfString(f.value) &
+            " /MK <<" & mk & " >> /AP << /N " & $ap(back) & " 0 R >>"
+    of pfButton:
+      flags = flags or 65536
+      var cap = back & "q BT /F "
+      let cs = if size > 0: size else: max(6.0, min(h * 0.6, 14.0))
+      cap.num(cs)
+      cap.add " Tf " & rgbOf(f.color) & " rg "
+      # (the caption in the middle, Helvetica's widths roughly)
+      var tw = 0.0
+      for ch in f.caption: tw += (if ch in {'i', 'l', 'j', 't', 'f', 'I', '.', ',', ' '}: 0.3 elif ch in {'m', 'w', 'M', 'W'}: 0.85 else: 0.56) * cs
+      cap.nums(max(1.0, (w - tw) / 2), max(1.0, (h - cs * 0.7) / 2))
+      var asc = ""
+      for ch in f.caption:
+        if ord(ch) < 128: asc.add ch
+      cap.add " Td " & pdfString(asc) & " Tj ET Q\n"
+      e.add " /FT /Btn /DA " & pdfString(da) & " /MK <<" & mk & " /CA " & pdfString(f.caption) &
+            " >> /AP << /N " & $ap(cap, helv) & " 0 R >>"
+      let act = f.action
+      let low = act.toLowerAscii
+      var a = ""
+      if low in ["next", "prev", "previous", "first", "last", "print"]:
+        let n = case low
+                of "next": "NextPage"
+                of "prev", "previous": "PrevPage"
+                of "first": "FirstPage"
+                of "last": "LastPage"
+                else: "Print"
+        a = "<< /S /Named /N /" & n & " >>"
+      elif low.startsWith("page:"):
+        let n = try: parseInt(act[5 .. ^1].strip) except ValueError: 0
+        if n >= 1 and n <= kids.len: a = "<< /S /GoTo /D " & dest(n, 0) & " >>"
+      elif low.startsWith("show:") or low.startsWith("hide:"):
+        a = "<< /S /Hide /T " & pdfString(act[5 .. ^1]) & " /H " & $(low.startsWith("hide:")) & " >>"
+      elif low == "reset": a = "<< /S /ResetForm >>"
+      elif low.startsWith("submit:"):
+        a = "<< /S /SubmitForm /F << /FS /URL /F " & pdfString(act[7 .. ^1]) & " >> /Flags 4 >>"
+      elif act.len > 0 and act.len <= 4096: a = "<< /S /URI /URI " & pdfString(act) & " >>"
+      if a.len > 0: e.add " /A " & a
+    e.add " /T " & pdfString(f.name)
+    if flags != 0: e.add " /Ff " & $flags
+    result = objs.put(e & " >>")
+    formFields.add result
   for pi, p in d.pages:
     let content = objs.put(stream("", p.ops))
     var annots = ""
@@ -1135,6 +1412,12 @@ proc render*(d: PdfDoc): string =
                            "] /Border [0 0 0] /A << /S /URI /URI " & pdfString(l.uri) & " >> >>")
         annots.add " " & $a & " 0 R"
       annots.add " ]"
+    # its form fields and buttons: widgets (one object a field; radio buttons: a group's)
+    for f in p.fields:
+      let w = fieldWidget(objs, f, kids[pi], pi)
+      if w > 0:
+        if annots.len == 0: annots = " /Annots [ ]"
+        annots.insert(" " & $w & " 0 R", annots.len - 2)
     var box = ""
     box.nums(0.0, 0.0, p.w, p.h)
     var boxes = ""
@@ -1143,8 +1426,40 @@ proc render*(d: PdfDoc): string =
         var r = ""
         r.nums(b.x, p.h - b.y - b.h, b.x + b.w, p.h - b.y)
         boxes.add " /" & name & " [" & r & "]"
+    var more = ""
+    if p.tags.len > 0: more.add " /StructParents " & $pi & " /Tabs /S"
+    let t = p.transition
+    if t.style.len > 0:
+      let st = case t.style.toLowerAscii
+               of "split": "Split"
+               of "blinds": "Blinds"
+               of "box": "Box"
+               of "wipe": "Wipe"
+               of "dissolve": "Dissolve"
+               of "glitter": "Glitter"
+               of "fly": "Fly"
+               of "push": "Push"
+               of "cover": "Cover"
+               of "uncover": "Uncover"
+               of "fade": "Fade"
+               else: "R"
+      var dur = ""
+      dur.num(if t.duration > 0: min(t.duration, 60.0) else: 1.0)
+      more.add " /Trans << /Type /Trans /S /" & st & " /D " & dur
+      if st in ["Split", "Blinds"]: more.add " /Dm /" & (if t.vertical: "V" else: "H")
+      if st in ["Split", "Box"]: more.add " /M /" & (if t.inward: "I" else: "O")
+      if st in ["Wipe", "Glitter", "Fly", "Cover", "Uncover", "Push"]:
+        let di = ((t.direction mod 360) + 360) mod 360
+        let ok = if st == "Glitter": (if di in [0, 270, 315]: di else: 0)
+                 else: (if di in [0, 90, 180, 270]: di else: 0)
+        more.add " /Di " & $ok
+      more.add " >>"
+      if t.advance > 0:
+        var a = ""
+        a.num(min(t.advance, 3600.0))
+        more.add " /Dur " & a
     objs[kids[pi] - 1] = "<< /Type /Page /Parent 2 0 R /MediaBox [" & box & "]" & boxes &
-                         " /Resources " & resources(p) & " /Contents " & $content & " 0 R" & annots & " >>"
+                         " /Resources " & resources(p) & " /Contents " & $content & " 0 R" & annots & more & " >>"
   var intents = ""
   if d.outputIntent.icc.len > 0 or d.outputIntent.name.len > 0:
     # (PDF/X: the printing condition the colors are for -- its profile
@@ -1201,6 +1516,44 @@ proc render*(d: PdfDoc): string =
     objs[root - 1] = "<< /Type /Outlines /First " & $ids[top[0]] & " 0 R /Last " & $ids[top[^1]] &
                      " 0 R /Count " & $count(-1) & " >>"
     cat.add " /Outlines " & $root & " 0 R /PageMode /UseOutlines"
+  # a tagged PDF: the structure -- each page's parts, in order, under the document's
+  var anyTags = false
+  for p in d.pages:
+    if p.tags.len > 0: anyTags = true
+  if anyTags:
+    let root = objs.put("")
+    let docElem = objs.put("")
+    var kidsOf: seq[string]
+    var parentTree = ""
+    for pi, p in d.pages:
+      if p.tags.len == 0: continue
+      var arr = ""
+      for t in p.tags:
+        var e = "<< /Type /StructElem /S /" & t.kind.multiReplace((" ", ""), ("/", "")) & " /P " & $docElem &
+                " 0 R /Pg " & $kids[pi] & " 0 R /K " & $t.mcid
+        if t.alt.len > 0: e.add " /Alt " & pdfString(t.alt)
+        if t.actual.len > 0: e.add " /ActualText " & pdfString(t.actual)
+        if t.lang.len > 0: e.add " /Lang " & pdfString(t.lang)
+        let eo = objs.put(e & " >>")
+        kidsOf.add $eo & " 0 R"
+        arr.add " " & $eo & " 0 R"
+      parentTree.add " " & $pi & " [" & arr & " ]"
+    objs[docElem - 1] = "<< /Type /StructElem /S /Document /P " & $root & " 0 R /K [" & kidsOf.join(" ") & "] >>"
+    objs[root - 1] = "<< /Type /StructTreeRoot /K [" & $docElem & " 0 R] /ParentTree << /Nums [" & parentTree &
+                     " ] >> /ParentTreeNextKey " & $d.pages.len & " >>"
+    cat.add " /MarkInfo << /Marked true >> /StructTreeRoot " & $root & " 0 R"
+  if d.displayTitle or anyTags:
+    if "/ViewerPreferences" in cat: cat = cat.replace("/ViewerPreferences <<", "/ViewerPreferences << /DisplayDocTitle true")
+    else: cat.add " /ViewerPreferences << /DisplayDocTitle true >>"
+  # an interactive PDF: its form (a group of radio buttons: one field, its buttons its widgets)
+  for name, parent in radioParent:
+    objs[parent - 1] = "<< /FT /Btn /T " & pdfString(name) & " /Ff " & $(radioFlags[name] or 49152) &
+                       " /V /" & radioOn.getOrDefault(name, "Off") & " /Kids [" &
+                       radioKids[name].mapIt($it & " 0 R").join(" ") & "] >>"
+  if formFields.len > 0:
+    cat.add " /AcroForm << /Fields [" & formFields.mapIt($it & " 0 R").join(" ") &
+            "] /NeedAppearances true /DA (/Helv 0 Tf 0 g) /DR << /Font << /Helv " & $helv &
+            " 0 R /ZaDb " & $zadb & " 0 R >> >> >>"
   objs[0] = "<< /Type /Catalog /Pages 2 0 R" & intents & cat & " >>"
   objs[1] = "<< /Type /Pages /Kids [" & kids.mapIt($it & " 0 R").join(" ") & "] /Count " &
             $kids.len & " >>"

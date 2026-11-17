@@ -314,6 +314,8 @@ proc doCommand(name: string) =
   if te.on: commitType()                   # (and the text being typed)
   if name == "Clear" and deletePickedPoints(): return   # (points the Lasso (Points) picked: they go)
   if bookCommand(name): return             # (books, the Layout menu: photo/book)
+  if outputCommand(name): return           # (print, PDF and the screen: photo/output)
+  if makersCommand(name): return           # (drawing, design and photo makers: photo/makers)
   if psCommand(name): return               # (the modern menus' own: photo/pscc)
   if dailyCommand(name): return            # (everyday work: photo/daily)
   if assetsCommand(name): return           # (the Assets window: photo/assets)
@@ -1720,7 +1722,21 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.5.0: Nested Line Styles (Paragraph: Drop Caps and Nested Styles); type on a " &
+           whatsNew = ["5.6.0: print and output -- View > Separations Preview and Overprint Preview, spot " &
+                       "inks and the Ink Manager, a tagged PDF with each picture's alt text (Layer > Object " &
+                       "Export Options), PDF forms and buttons (Window > Buttons and Forms), page transitions, " &
+                       "EPUB and Publish as Web Page; Layout > Flex Layout and Tidy Up; Type > Paragraph " &
+                       "Shading and Borders, Insert Equation, Track Changes and notes, Conditional Text; " &
+                       "Select > Start Global Edit; Layer > Envelope Distort, Live Paint, Intertwine; Window > " &
+                       "Pattern Options; Filter > Render > Relight with its lights on the image (Lighting " &
+                       "Effects' light too), worked out here without AI; Edit > Remove with Its Shadow; Image " &
+                       "> Upscale; each layer's size in the Layers panel; your own placeholder text; File > " &
+                       "Mockups; Window > Styles and Fonts; Layer > New > Layer by Lifting the Subject; ten new " &
+                       "templates, their frames photo placeholders (double-click one: a photo in it); Edit > " &
+                       "AI Connector and Ask AI: an AI service of your own runs Retro Atelier's commands, shown " &
+                       "first; JPEGs opened up to 1.6 times sooner, PNGs saved 1.4 times sooner, the screen " &
+                       "drawn eight pixels at a time, Liquify's preview on the GPU",
+                       "5.5.0: Nested Line Styles (Paragraph: Drop Caps and Nested Styles); type on a " &
                        "perspective plane, still type (Layer > Perspective > Release with Perspective); the " &
                        "phone's own spell checker on Android and iOS; Window > Graphic Styles; Layer > Live " &
                        "Effects > Stylize > Round Corners and Scribble; the Shape Builder tool; Layer > Path " &
@@ -2119,6 +2135,8 @@ proc moreDialogs() =
   frameDialogs()
   newDrawingDialog()
   newBookDialog()
+  outputDialogs()
+  makersDialogs()
   aboutDialog()
 
 # ---- the splash --------------------------------------------------------------------------------------------

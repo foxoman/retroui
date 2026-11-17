@@ -1735,6 +1735,8 @@ var
   fDragFrom: (int, int, int, int)
   fCanvas = true               ## Preview: the filter seen on the image itself, as it is set
   fCanvasOn: tuple[doc: Doc; key: string]   ## (the step holding what the image shows: open)
+  fDraft: tuple[doc: Doc; key: string]      ## (a setting being dragged: shown live, worked out on
+                                            ## the view's points)
   lastFilter: tuple[set: bool; name: string; vals: seq[float]]
 
 proc defFilter(name: string; params: seq[FParam]; make: proc (v: seq[float]): FilterFn;
@@ -2320,20 +2322,60 @@ proc dropCanvasPreview() =
   if pd != nil and pd.stepOpen: pd.cancelStep()
   fCanvasOn = (nil, "")
 
+proc dropDraft() =
+  ## (the setting dragged, shown live: back to the image)
+  if fDraft.doc != nil and fDraft.doc.live.len > 0: fDraft.doc.endLive()
+  fDraft = (nil, "")
+
 proc filterDialog() =
   if not fOpen:
     if fCanvasOn.doc != nil: dropCanvasPreview()
+    if fDraft.doc != nil: dropDraft()
     return
   let d = cur()
   if d == nil:
     fOpen = false
     dropCanvasPreview()
+    dropDraft()
     return
   # Preview: the image shows the filter -- done for real in an open step,
   # taken back when a setting changes (once the slider is let go), kept by
   # OK, taken back by Cancel. (Not on a Smart Object: its filters show anyway.)
   let ck = $fVals & fSpec.name
   let canvasOk = fCanvas and not d.current.isSmart
+  # (a setting being dragged: the image shows it at once, worked out on the view's own points --
+  # its sizes in pixels made the view's -- near what it will be; done for real once let go)
+  let L = d.layer
+  let draftOk = canvasOk and active != nil and active.doc == d and L.px.len == d.w * d.h and
+                L != d.maskLayer and not L.gray and d.colorChannelsAll
+  if draftOk and ui.mouseDown and fCanvasOn.key != ck and (fDraft.doc != d or fDraft.key != ck):
+    dropCanvasPreview()
+    let z = active.view.zoom
+    let s = if z >= 1: z.float elif z <= -2: 1 / (-z).float else: 1.0
+    var vals = fVals
+    for i, p in fSpec.params:
+      if p.unit == "pixels" and p.choices.len == 0 and not p.check:
+        vals[i] = clamp(vals[i] * s, p.lo, p.hi)
+        if p.dec == 0: vals[i] = round(vals[i])
+    let fn = fSpec.make(vals)
+    let margin = fSpec.margin(vals)
+    d.setLive(@[LivePart(layer: L, kind: lkMap, keepAlpha: L.background or L.lockAlpha,
+                         map: proc (px: var seq[uint32]; w, h: int) =
+                           # (the edges carried on past the points, as the margin of the real one)
+                           let m = clamp(margin, 0, 64)
+                           var src = Img(w: w + 2 * m, h: h + 2 * m)
+                           src.px = newSeqUninit[uint32](src.w * src.h)
+                           for y in 0 ..< src.h:
+                             let sy = clamp(y - m, 0, h - 1)
+                             for x in 0 ..< src.w: src.px[y * src.w + x] = px[sy * w + clamp(x - m, 0, w - 1)]
+                           let o = fn(src, rect(m, m, w, h))
+                           if o.w == w and o.h == h and o.px.len == px.len: px = o.px
+                           elif o.w == src.w and o.h == src.h:
+                             for y in 0 ..< h:
+                               for x in 0 ..< w: px[y * w + x] = o.px[(y + m) * src.w + x + m])])
+    fDraft = (d, ck)
+  elif fDraft.doc != nil and (not ui.mouseDown or not draftOk or fDraft.doc != d):
+    dropDraft()
   if canvasOk and (fCanvasOn.doc != d or fCanvasOn.key != ck) and not ui.mouseDown:
     dropCanvasPreview()
     d.beginStep(fSpec.name)
@@ -2828,7 +2870,7 @@ proc liquifyDialog() =
           lqDirty = true
       col:
         if lqDirty:
-          let im = liquifyImg(lqSmall, lqMesh, 0, 0, lqScale)
+          let im = liquifyImg(lqSmall, lqMesh, 0, 0, lqScale, preview = true)
           lqBmp = newBitmap(im.w, im.h)
           for i in 0 ..< im.px.len: lqBmp.px[i] = blendPx(0xFFFFFFFF'u32, im.px[i], 255, bmNormal)
           if lqMesh.frozen.len > 0:

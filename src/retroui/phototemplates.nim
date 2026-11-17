@@ -161,7 +161,9 @@ proc frame(p: Page; x0, y0, x1, y1: float; ellipse = false; round = 0.0) =
   var sd = ShapeData(fill: solidPaint(0xFFC8C8C8'u32), stroke: solidPaint(0xFF808080'u32), strokeWidth: 1,
                      kind: if ellipse: "Ellipse" else: "Rectangle")
   sd.path = if ellipse: ellipsePath(a, b, c, e) else: rectPath(a, b, c, e, p.S(round))
-  discard p.d.addShapeLayer(sd, "Frame " & $n)
+  let L = p.d.addShapeLayer(sd, "Frame " & $n)
+  L.attrs.placeholder = 1          # (a photo placeholder: a double-click puts a photo in)
+  L.attrs.alt = p.say("Photo")
 
 proc circleFrame(p: Page; cx, cy, r: float) =
   ## A round frame: its middle by fractions of the page, its radius of the
@@ -480,6 +482,122 @@ proc welcomeCard(d: Doc; say: proc (s: string): string) =
   p.words("Manager Name", 0.44, 0.8, 0.055, rgb(0x14213D), family = "FreeSerif", align = textLeft)
   p.words("General Manager", 0.44, 0.87, 0.04, rgb(0x7B8794), align = textLeft)
 
+# (remixable: their photos in placeholders, their colors and fonts to a Style in one click)
+
+proc productLaunch(d: Doc; say: proc (s: string): string) =
+  let p = Page(d: d, say: say)
+  p.box("Background", 0, 0, 1, 1, solidPaint(rgb(0xF4EFE6)))
+  p.frame(0.07, 0.06, 0.93, 0.62, round = 0.03)
+  p.words("NEW", 0.12, 0.13, 0.05, rgb(0xFFFFFF), bold = true, align = textLeft)
+  p.words("Product Name", 0.5, 0.71, 0.09, rgb(0x2B2B2B), bold = true)
+  p.words("A line about what makes it special", 0.5, 0.765, 0.038, rgb(0x6B6B6B))
+  p.box("Price Tag", 0.34, 0.8, 0.66, 0.875, solidPaint(rgb(0xC1440E)), radius = 0.05)
+  p.words("OMR 12.500", 0.5, 0.851, 0.045, rgb(0xFFFFFF), bold = true)
+  p.words("Order now  ·  www.yourshop.com", 0.5, 0.94, 0.03, rgb(0x2B2B2B))
+
+proc realEstate(d: Doc; say: proc (s: string): string) =
+  let p = Page(d: d, say: say)
+  p.box("Background", 0, 0, 1, 1, solidPaint(rgb(0xFFFFFF)))
+  p.frame(0, 0, 1, 0.58)
+  p.frame(0.04, 0.61, 0.33, 0.8)
+  p.frame(0.355, 0.61, 0.645, 0.8)
+  p.frame(0.67, 0.61, 0.96, 0.8)
+  p.box("Banner", 0, 0.5, 0.52, 0.58, solidPaint(rgb(0x0B2545)))
+  p.words("FOR SALE", 0.04, 0.555, 0.05, rgb(0xFFFFFF), bold = true, align = textLeft, tracking = 200)
+  p.words("Villa in Al Mouj", 0.04, 0.875, 0.06, rgb(0x0B2545), bold = true, align = textLeft)
+  p.words("4 Bedrooms  ·  5 Bathrooms  ·  450 m²", 0.04, 0.925, 0.032, rgb(0x5C677D), align = textLeft)
+  p.words("OMR 185,000", 0.96, 0.9, 0.05, rgb(0x13315C), bold = true, align = textRight)
+
+proc travelPostcard(d: Doc; say: proc (s: string): string) =
+  let p = Page(d: d, say: say)
+  p.frame(0, 0, 1, 1)
+  var shade = solidPaint(0xFF000000'u32)
+  shade.opacity = 30
+  p.box("Shade", 0, 0.62, 1, 1, shade)
+  p.words("Greetings from", 0.06, 0.76, 0.07, rgb(0xFFFFFF), align = textLeft, family = "FreeSerif")
+  p.words("MUSCAT", 0.06, 0.92, 0.2, rgb(0xFFFFFF), bold = true, align = textLeft, tracking = 100)
+  p.box("Stamp", 0.82, 0.06, 0.95, 0.27, solidPaint(rgb(0xFFFFFF)), stroke = 0.008, strokeColor = rgb(0xC1440E))
+  p.star("Stamp Star", 0.885, 0.165, 0.05, rgb(0xC1440E))
+
+proc magazineCover(d: Doc; say: proc (s: string): string) =
+  let p = Page(d: d, say: say)
+  p.frame(0, 0, 1, 1)
+  p.words("ATELIER", 0.5, 0.12, 0.2, rgb(0xFFFFFF), bold = true, tracking = 80)
+  p.words("ISSUE 12  ·  NOVEMBER 2026", 0.5, 0.155, 0.025, rgb(0xFFFFFF), tracking = 300)
+  p.words("The Light of the Coast", 0.06, 0.74, 0.07, rgb(0xFFFFFF), bold = true, align = textLeft,
+          boxW = 0.55, boxH = 0.14)
+  p.words("Ten places to see this winter, and how to photograph them", 0.06, 0.86, 0.032, rgb(0xFFFFFF),
+          align = textLeft, boxW = 0.5, boxH = 0.08)
+  p.box("Badge", 0.74, 0.62, 0.94, 0.72, solidPaint(rgb(0xE9B44C)), radius = 0.05)
+  p.words("SPECIAL", 0.84, 0.68, 0.035, rgb(0x0D0D1A), bold = true)
+
+proc recipeCard(d: Doc; say: proc (s: string): string) =
+  let p = Page(d: d, say: say)
+  p.box("Paper", 0, 0, 1, 1, solidPaint(rgb(0xFFF9EB)))
+  p.frame(0.06, 0.04, 0.94, 0.42, round = 0.04)
+  p.words("Saffron Rice Pudding", 0.5, 0.5, 0.075, rgb(0x3A2E1F), bold = true, family = "FreeSerif")
+  p.words("Serves 4  ·  40 minutes", 0.5, 0.54, 0.032, rgb(0xC1440E))
+  p.words("INGREDIENTS", 0.06, 0.6, 0.032, rgb(0x3A2E1F), bold = true, align = textLeft, tracking = 200)
+  p.words("1 cup rice\n4 cups milk\n½ cup sugar\nA pinch of saffron\nCardamom, rose water", 0.06, 0.63,
+          0.03, rgb(0x3A2E1F), align = textLeft, boxW = 0.36, boxH = 0.3)
+  p.words("METHOD", 0.47, 0.6, 0.032, rgb(0x3A2E1F), bold = true, align = textLeft, tracking = 200)
+  p.words("Simmer the rice in the milk until soft. Stir in the sugar, the saffron and the cardamom; cook " &
+          "a little more. Finish with rose water and serve warm or cold.", 0.47, 0.63, 0.03, rgb(0x3A2E1F),
+          align = textLeft, boxW = 0.47, boxH = 0.3)
+
+proc teamMember(d: Doc; say: proc (s: string): string) =
+  let p = Page(d: d, say: say)
+  p.box("Background", 0, 0, 1, 1, gradientPaint(rgb(0x1B3A2F), rgb(0x3E6B48), angle = 90))
+  p.words("MEET THE TEAM", 0.5, 0.1, 0.05, rgb(0xC9A227), bold = true, tracking = 300)
+  p.circle("Ring", 0.5, 0.4, 0.3, ShapePaint(kind: spNone), stroke = 0.012, strokeColor = rgb(0xC9A227))
+  p.circleFrame(0.5, 0.4, 0.28)
+  p.words("Team Member", 0.5, 0.78, 0.075, rgb(0xFFFFFF), bold = true)
+  p.words("Position  ·  Department", 0.5, 0.83, 0.04, rgb(0xF4EFE1))
+  p.words("A sentence about what they bring to the team.", 0.5, 0.9, 0.032, rgb(0xF4EFE1))
+
+proc salePost(d: Doc; say: proc (s: string): string) =
+  let p = Page(d: d, say: say)
+  p.box("Background", 0, 0, 1, 1, solidPaint(rgb(0xEF476F)))
+  p.frame(0.5, 0, 1, 1)
+  p.words("SALE", 0.25, 0.4, 0.17, rgb(0xFFFFFF), bold = true)
+  p.words("50%", 0.25, 0.58, 0.16, rgb(0xFFF6EC), bold = true)
+  p.words("OFF EVERYTHING", 0.25, 0.65, 0.04, rgb(0xFFFFFF), tracking = 200)
+  p.box("Button", 0.07, 0.72, 0.43, 0.8, solidPaint(rgb(0x073B4C)), radius = 0.04)
+  p.words("Shop now", 0.25, 0.775, 0.045, rgb(0xFFFFFF), bold = true)
+
+proc photoStory(d: Doc; say: proc (s: string): string) =
+  let p = Page(d: d, say: say)
+  p.box("Background", 0, 0, 1, 1, solidPaint(rgb(0xFAFAF7)))
+  p.words("A DAY IN NIZWA", 0.5, 0.06, 0.07, rgb(0x111111), bold = true, tracking = 150)
+  for k, cap in ["Morning at the souq", "The fort at noon", "Sunset over the date palms"]:
+    let y = 0.09 + k.float * 0.3
+    p.frame(0.06, y, 0.94, y + 0.24, round = 0.03)
+    p.words(cap, 0.06, y + 0.27, 0.035, rgb(0x444444), align = textLeft)
+
+proc weddingInvite(d: Doc; say: proc (s: string): string) =
+  let p = Page(d: d, say: say)
+  p.box("Paper", 0, 0, 1, 1, solidPaint(rgb(0xF8F5FF)))
+  p.box("Border", 0.04, 0.03, 0.96, 0.97, ShapePaint(kind: spNone), stroke = 0.006, strokeColor = rgb(0x6C5B9E))
+  p.circleFrame(0.5, 0.27, 0.22)
+  p.words("Together with their families", 0.5, 0.53, 0.035, rgb(0x6C5B9E), family = "FreeSerif")
+  p.words("Name & Name", 0.5, 0.63, 0.1, rgb(0x2D2342), family = "FreeSerif")
+  p.words("invite you to celebrate their wedding", 0.5, 0.69, 0.035, rgb(0x6C5B9E), family = "FreeSerif")
+  p.box("Line", 0.35, 0.73, 0.65, 0.732, solidPaint(rgb(0xC7B8EA)))
+  p.words("THURSDAY 18 DECEMBER 2026  ·  7 PM", 0.5, 0.79, 0.032, rgb(0x2D2342), tracking = 150)
+  p.words("The Venue, Muscat", 0.5, 0.84, 0.032, rgb(0x2D2342))
+
+proc portfolioPage(d: Doc; say: proc (s: string): string) =
+  let p = Page(d: d, say: say)
+  p.box("Background", 0, 0, 1, 1, solidPaint(rgb(0x1E252B)))
+  p.words("Your Name", 0.05, 0.12, 0.08, rgb(0xFFFFFF), bold = true, align = textLeft)
+  p.words("Photographer  ·  Designer", 0.05, 0.18, 0.035, rgb(0xB5E61D), align = textLeft)
+  for j in 0 .. 1:
+    for i in 0 .. 2:
+      let x = 0.05 + i.float * 0.31
+      let y = 0.25 + j.float * 0.36
+      p.frame(x, y, x + 0.28, y + 0.33)
+  p.words("www.yoursite.com", 0.95, 0.12, 0.03, rgb(0xF4F6F7), align = textRight)
+
 proc tmpl(name: string; c: PresetCategory; w, h, dpi: int;
           build: proc (d: Doc; say: proc (s: string): string)): DocTemplate =
   DocTemplate(name: name, category: c, w: w, h: h, dpi: dpi, build: build)
@@ -508,7 +626,17 @@ proc docTemplates*(): seq[DocTemplate] =
     tmpl("Thank You Card", pcPrint, mmPx(148, 300), mmPx(105, 300), 300, thankYou),
     tmpl("Restaurant Menu", pcPrint, mmPx(210, 300), mmPx(297, 300), 300, menuBoard),
     tmpl("Welcome Card", pcPrint, mmPx(210, 300), mmPx(148, 300), 300, welcomeCard),
-    tmpl("Web Banner", pcWeb, 1640, 624, 72, facebookCover)]
+    tmpl("Web Banner", pcWeb, 1640, 624, 72, facebookCover),
+    tmpl("Product Launch", pcSocial, 1080, 1350, 72, productLaunch),
+    tmpl("Real Estate Listing", pcSocial, 1080, 1080, 72, realEstate),
+    tmpl("Sale Post", pcSocial, 1080, 1080, 72, salePost),
+    tmpl("Team Member", pcSocial, 1080, 1350, 72, teamMember),
+    tmpl("Photo Story", pcSocial, 1080, 1920, 72, photoStory),
+    tmpl("Travel Postcard", pcPrint, mmPx(148, 300), mmPx(105, 300), 300, travelPostcard),
+    tmpl("Magazine Cover", pcPrint, mmPx(210, 300), mmPx(297, 300), 300, magazineCover),
+    tmpl("Recipe Card", pcPrint, mmPx(148, 300), mmPx(210, 300), 300, recipeCard),
+    tmpl("Wedding Invitation", pcPrint, 1500, 2100, 300, weddingInvite),
+    tmpl("Portfolio Page", pcWeb, 1920, 1080, 72, portfolioPage)]
 
 proc templatesOf*(c: PresetCategory): seq[DocTemplate] =
   ## The templates of a tab.

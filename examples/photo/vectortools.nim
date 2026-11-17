@@ -1069,6 +1069,9 @@ proc liveEffectDialog() =
       var sd = float(e.seed)
       num("Seed:", sd, 1, 1000)
       e.seed = int(sd)
+    of leEnvelope:
+      paragraph("An envelope: Layer > Envelope Distort > Make with Mesh changes its grid; Release takes it " &
+                "away.", color = ui.theme.gray)
     paragraph("The path stays as it was drawn: the effect is done each time it is drawn (the Appearance panel " &
               "keeps it, to change or take away).", color = ui.theme.gray)
     row:

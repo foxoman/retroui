@@ -230,18 +230,23 @@ proc frozenAt*(m: LiquifyMesh; x, y: float): float32 =
   let gy = clamp(int(round(y / m.step)), 0, m.h - 1)
   m.frozen[gy * m.w + gx]
 
-proc liquifyImg*(src: Img; m: LiquifyMesh; ox = 0.0; oy = 0.0; scale = 1.0): Img =
+proc liquifyImg*(src: Img; m: LiquifyMesh; ox = 0.0; oy = 0.0; scale = 1.0; preview = false): Img =
   ## `src` moved by the mesh. `src` is the picture, or a part of it (its
   ## top left at `ox`, `oy` in the picture) or a smaller copy (`scale`
-  ## picture pixels per pixel: a preview). On all the cores.
+  ## picture pixels per pixel: a preview). On all the cores -- a `preview`
+  ## on the GPU when frames are drawn with it (`gpuWarpMesh`: as near as a
+  ## preview needs; the picture itself always the CPU's).
   let w = src.w
   let h = src.h
+  if w <= 0 or h <= 0: return newImg(w, h)
+  let full = ox == 0 and oy == 0
+  if preview and w * h >= 40_000 and gpuFiltersReady():
+    let g = gpuWarpMesh(src.px, w, h, m.dx, m.dy, m.w, m.h, m.step, ox, oy, scale, full)
+    if g.len == w * h: return Img(w: w, h: h, px: g)
   result = newImg(w, h)
-  if w <= 0 or h <= 0: return
   let sp = pptr(src.px)
   let dp = pptr(result.px)
   let mp = addr m
-  let full = ox == 0 and oy == 0
   parallelRows(h, y):
     for x in 0 ..< w:
       let fx = ox + (x.float + 0.5) * scale

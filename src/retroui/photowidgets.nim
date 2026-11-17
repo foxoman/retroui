@@ -26,7 +26,8 @@
 
 import std/[math, strutils, tables, algorithm]
 import uirelays/input
-import core, gfx, widgets, photo, photopaint, pixelicons, nerdicons, parallel, iccprofile, photoinks, adobefiles
+import core, gfx, widgets, photo, photopaint, pixelicons, nerdicons, parallel, iccprofile, photoinks, adobefiles, simdkit
+import photoseps
 
 template th: untyped = ui.theme
 
@@ -487,7 +488,12 @@ proc renderView(v: var PhotoView; d: Doc; bw, bh: int; bg: uint32; part = rect(0
   var level = 0
   if z <= -2:
     while (1 shl (level + 1)) <= -z: inc level
-  let (src, lw, lh) = if liveOn: (nil, 1, 1) else: d.mipLevel(level)
+  # (Overprint Preview: the inks as they print, from its own picture -- not made smaller)
+  let opPic = if not liveOn and d.overprintView: d.overprintPicture() else: nil
+  if opPic != nil: level = 0
+  let (src, lw, lh) = if liveOn: (nil, 1, 1)
+                      elif opPic != nil: (cast[ptr UncheckedArray[uint32]](addr opPic[][0]), d.w, d.h)
+                      else: d.mipLevel(level)
   var livePx: seq[uint32]
   if liveOn:
     # (something being moved, turned, adjusted: the view's points made
@@ -529,9 +535,14 @@ proc renderView(v: var PhotoView; d: Doc; bw, bh: int; bg: uint32; part = rect(0
     mode = d.spotBase
   # (how the colors are shown: as they print in CMYK or with Proof Colors,
   # in the inks of a Duotone, what cannot print in gray)
-  let proofT = if ch < 0 and (mode == cmCMYK or d.proof or d.gamutWarning): proofTablePtr() else: nil
+  # (Separations Preview: each point as the plates shown print it)
+  var sep = if ch < 0 and opPic == nil: sepContext(d) else: SepCtx()
+  let sepP = addr sep
+  let proofT = if ch < 0 and not sep.on and opPic == nil and (mode == cmCMYK or d.proof or d.gamutWarning): proofTablePtr()
+               else: nil
   # (a picture in another color profile: shown as it looks)
-  let iccT = if ch < 0 and proofT == nil and d.icc.len > 0 and mode in {cmRGB, cmIndexed, cmGray}: iccDisplayPtr(d.icc)
+  let iccT = if ch < 0 and proofT == nil and not sep.on and opPic == nil and d.icc.len > 0 and
+                mode in {cmRGB, cmIndexed, cmGray}: iccDisplayPtr(d.icc)
              else: nil
   let reproof = mode == cmCMYK or d.proof
   let warn = d.gamutWarning and ch < 0
@@ -546,6 +557,10 @@ proc renderView(v: var PhotoView; d: Doc; bw, bh: int; bg: uint32; part = rect(0
   let qColor = quickMaskColor or 0xFF000000'u32
   let qOpacity = quickMaskOpacity
   let qSel = quickMaskOnSelected
+  # (nothing done to a pixel but the checkerboard under what is not opaque: the opaque ones
+  # copied as they are)
+  let plain = lpp == nil and src != nil and ch < 0 and duoP == nil and proofT == nil and iccT == nil and
+              mask == nil and not sep.on
   let (ck0, ck1) = checkerPair(viewPrefs.checkerColors)
   let cks = if viewPrefs.checkerSize == ckNone: 0
             else: checkerShift(viewPrefs.checkerSize) + (if pxScale >= 4: 2 elif pxScale >= 2: 1 else: 0)
@@ -559,12 +574,22 @@ proc renderView(v: var PhotoView; d: Doc; bw, bh: int; bg: uint32; part = rect(0
     else:
       let lrow = min(lh - 1, iy0 shr level) * lw
       let irow0 = iy0 * dw
-      for bx in px0 ..< px1:
+      var bx = px0
+      var run = plain
+      while bx < px1:
+        when kitSimd:
+          if run:
+            # (the opaque pixels as they are, a run at a time)
+            bx += gatherOpaque(addr px[row + bx], addr src[lrow], addr xp[bx], px1 - bx)
+            if bx >= px1: break
         let ix = xp[bx]
         if ix < 0:
           px[row + bx] = bg
+          run = false
+          inc bx
           continue
         var p = if lpp != nil: lpp[ry * lpw + bx - px0] else: src[lrow + int(ix)]
+        run = plain and p >= 0xFF000000'u32
         if ch >= 0 and ch <= 3:
           let v2 = if mode in {cmCMYK, cmLab}: uint32(channelGray(mode, p, ch))
                    else: (p shr (16 - 8 * min(ch, 2))) and 255
@@ -580,6 +605,8 @@ proc renderView(v: var PhotoView; d: Doc; bw, bh: int; bg: uint32; part = rect(0
           elif reproof: p = q
         elif iccT != nil:
           p = lookupProof(iccT, p)
+        elif sepP.on:
+          p = (p and 0xFF000000'u32) or (sepPixel(sepP, p, irow0 + int(xp0[bx])) and 0xFFFFFF'u32)
         let a = p shr 24
         var o: uint32
         if a == 255: o = p
@@ -594,6 +621,7 @@ proc renderView(v: var PhotoView; d: Doc; bw, bh: int; bg: uint32; part = rect(0
           if qSel: m = 255 - m
           if m > 0: o = blendPx(o, qColor, m * qOpacity div 100, bmNormal)
         px[row + bx] = o or 0xFF000000'u32
+        inc bx
 
 proc viewRect(v: PhotoView; d: Doc; r: Rect; bw, bh: int): Rect =
   ## Where image rectangle `r` is in the view (device pixels), a pixel

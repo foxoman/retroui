@@ -115,6 +115,7 @@ proc psMenus() =
       sep()
       ci("Browse &Assets...", "Browse Assets...")
       ci("S&hare...", "Share...", enabled = some)
+      ci("&Mockups...", "Mockups...", enabled = some)
       psSub "&Export":
         ci("&Quick Export as PNG", enabled = some)
         ci("Quick Export as &JPEG", enabled = some)
@@ -126,6 +127,9 @@ proc psMenus() =
         sep()
         ci("S&VG...", "SVG...", enabled = some)
         ci("SVG, Type as &Outlines...", "SVG, Type as Outlines...", enabled = some)
+        sep()
+        ci("E&PUB...", "Export EPUB...", enabled = some)
+        ci("Publish as &Web Page...", "Publish as Web Page...", enabled = some)
       sep()
       ci("Place &Embedded...", "Place...", enabled = some)
       ci("Place Lin&ked...", "Place Linked...", enabled = some)
@@ -181,6 +185,7 @@ proc psMenus() =
       sep()
       ci("Searc&h...", "Search...")
       ci("&Find/Change...", "Find/Change...")
+      ci("As&k AI...", "Ask AI...")
       psSub "Spe&lling":
         ci("&Check Spelling...", "Check Spelling...", enabled = some)
         ci("&Dynamic Spelling", "Dynamic Spelling", checked = dynamicSpelling)
@@ -188,6 +193,7 @@ proc psMenus() =
       ci("&Fill...", enabled = some)
       ci("&Stroke...", enabled = sel)
       ci("Content-A&ware Fill...", "Content-Aware Fill", enabled = sel and d.mode in editModes)
+      ci("Remove with Its Shado&w", "Remove with Its Shadow", enabled = sel and d.mode in editModes)
       sep()
       ci("Content-Aware Sc&ale", "Content-Aware Scale...", enabled = some and d.mode in editModes)
       ci("Pu&ppet Warp", "Puppet Warp", enabled = some)
@@ -228,9 +234,12 @@ proc psMenus() =
       ci("Color Se&ttings...")
       ci("Assign Profile...", enabled = some and d.mode in {cmRGB, cmIndexed})
       ci("Convert to Profile...", enabled = some and d.mode in {cmRGB, cmIndexed})
+      ci("&Ink Manager...", "Ink Manager...", enabled = some)
+      ci("New Spot In&k...", "New Spot Ink...", enabled = some)
       sep()
       ci("&Keyboard Shortcuts...")
       ci("Tool&bar...")
+      ci("AI Co&nnector...", "AI Connector...")
       psSub "Pre&ferences":
         ci("&General...")
         ci("&Interface...")
@@ -300,6 +309,7 @@ proc psMenus() =
       sep()
       ci("Image &Size...", enabled = some)
       ci("&Canvas Size...", enabled = some)
+      ci("&Upscale...", "Upscale...", enabled = edits)
       ci("Image Tra&ce...", enabled = some)
       psSub "Image &Rotation":
         ci("&180°", enabled = some)
@@ -325,12 +335,14 @@ proc psMenus() =
         sep()
         ci("Layer via &Copy", enabled = some)
         ci("Layer via Cu&t", enabled = sel)
+        ci("Layer by Lifting the &Subject", "Lift Subject", enabled = edits)
       ci(if grp: "&Duplicate Group..." else: "&Duplicate Layer...",
          if grp: "Duplicate Group" else: "Duplicate Layer", enabled = some)
       psSub "De&lete":
         ci(if grp: "&Group" else: "&Layer", if grp: "Delete Group" else: "Delete Layer",
            enabled = some and d.layers.len > 1)
       ci("Rena&me Layer...", if grp: "Group Properties..." else: "Layer Options...", enabled = some)
+      ci("Object E&xport Options...", "Object Export Options...", enabled = some)
       psSub "Layer St&yle":
         live: layerStyleMenu(d)
         if mIndex.on: ci("Blending Options...")
@@ -392,6 +404,18 @@ proc psMenus() =
         ci("Gradient &Mesh...", "Gradient Mesh...", enabled = some and d.current.isShape)
         ci("Apply &Brush to Path...", "Apply Brush to Path...", enabled = pathOk)
         ci("&Transform Each...", "Transform Each...", enabled = some)
+      psSub "En&velope Distort":
+        let shp1 = some and d.current.isShape
+        ci("Make with &Warp...", "Envelope: Make with Warp...", enabled = shp1)
+        ci("Make with &Mesh...", "Envelope: Make with Mesh...", enabled = shp1)
+        ci("Make with &Top Object", "Envelope: Make with Top Object", enabled = shp1)
+        sep()
+        ci("&Release", "Envelope: Release", enabled = shp1)
+      psSub "Live Pa&int":
+        ci("&Make", "Live Paint: Make", enabled = some and (d.current.isShape or d.pickedLayers.len > 0))
+        ci("Live Paint &Bucket", "Live Paint Bucket", enabled = some, checked = lpBucket)
+        ci("&Expand", "Live Paint: Expand", enabled = some and d.current.livePaintOf.on)
+      ci("Inter&twine", "Intertwine: Make", enabled = some and d.pickedLayers.len >= 2, checked = intertwineOn)
       sep()
       ci("Group Layers", enabled = some and not bgl)
       ci("&Ungroup Layers", enabled = grp)
@@ -430,10 +454,12 @@ proc psMenus() =
       ci("Anc&hor to Text", "Anchor to Text", enabled = some and not bgl and d.current.anchorTo == 0)
       ci("Release Anc&hor", "Release Anchor", enabled = some and d.current.anchorTo != 0)
       ci("New &Frame", enabled = some)
+      ci("Make Photo Place&holder", "Make Photo Placeholder", enabled = some)
       ci("New &QR Code...", "New QR Code...", enabled = some)
       ci("Har&monize...", "Harmonize...", enabled = some and d.cur > 0 and not bgl and not grp and
                                                   d.current.adjust.kind.len == 0)
       ci("Layer &Cleanup...", "Layer Cleanup...", enabled = some)
+      ci("Show Layer Si&zes", "Show Layer Sizes", checked = prefs.layerSizes)
       ci("Rename Layers by Co&ntent", "Rename Layers by Content", enabled = some and not bgl)
       sep()
       ci(if grp: "Merge Grou&p" else: "Merge Do&wn", if grp: "Merge Group" else: "Merge Down",
@@ -524,6 +550,18 @@ proc psMenus() =
       ci("Insert &Endnote", "Insert Endnote", enabled = some)
       ci("Footnotes and Endnot&es...", "Footnotes...", enabled = some and (te.on or d.current.isText))
       ci("Story Edi&tor...", "Story Editor...", enabled = some and (te.on or d.current.isText))
+      ci("Paragraph Shading and &Borders...", "Paragraph Shading and Borders...",
+         enabled = some and (te.on or d.current.isText))
+      ci("Insert E&quation...", "Insert Equation...", enabled = some)
+      psSub "Trac&k Changes":
+        let tl = if some: d.storyLayer else: nil
+        ci("&Track Changes in This Story", "Track Changes", enabled = tl != nil, checked = tl != nil and tl.text.track)
+        ci("&Accept All Changes", "Accept All Changes", enabled = tl != nil)
+        ci("&Reject All Changes", "Reject All Changes", enabled = tl != nil)
+        sep()
+        ci("New &Note", "New Note", enabled = tl != nil)
+        ci("Track Changes and Notes &Panel", "Track Changes and Notes", checked = panelShown("review"))
+      ci("Con&ditional Text", "Conditional Text", checked = panelShown("conditions"))
       sep()
       let ts = shownStyle()
       ci("Li&gatures", "Ligatures", checked = ts.ligaturesOn)
@@ -566,6 +604,9 @@ proc psMenus() =
       ci("&Load Selection...", "Load Selection", enabled = some and d.alphas.len > 0)
       ci("&Save Selection...", "Save Selection", enabled = sel)
       ci("Make &Work Path", enabled = sel)
+      sep()
+      ci("Start &Global Edit", "Start Global Edit", enabled = some and d.current.isShape and not gEdit.on)
+      ci("Stop Global Edi&t", "Stop Global Edit", enabled = gEdit.on)
     psMenu "Filte&r":
       ci("&Last Filter" & (if lastFilter.set: " (" & lastFilter.name & ")" else: ""), "Last Filter",
          enabled = edits and lastFilter.set)
@@ -605,6 +646,7 @@ proc psMenus() =
       psSub "&Render":
         psFilters(["&Clouds", "&Difference Clouds", "F&ibers...", "&Lens Flare...", "Lighting &Effects..."])
         ci("&Texture Fill...", enabled = edits)
+        ci("&Relight...", "Relight...", enabled = edits)
       psSub "&Sharpen":
         psFilters(["&Sharpen", "Sharpen &Edges", "Sharpen &More", "S&mart Sharpen...", "&Unsharp Mask..."])
       psSub "St&ylize":
@@ -636,6 +678,8 @@ proc psMenus() =
       ci("Gamut Wa&rning", "Gamut Warning", enabled = some and d.mode in colorModes,
          checked = some and d.gamutWarning)
       ci("32-bit &Preview Options...", enabled = some and d.depth == 32)
+      ci("O&verprint Preview", "Overprint Preview", enabled = some, checked = some and d.overprintView)
+      ci("Separations Pre&view", "Separations Preview", enabled = some, checked = some and d.sepView.on)
       sep()
       ci("Zoom &In", enabled = some)
       ci("Zoom &Out", enabled = some)
@@ -725,9 +769,11 @@ proc psMenus() =
       ci("Actions", checked = panelShown("actions"))
       ci("Adjustments", checked = panelShown("adjustments"))
       ci("Appearance", checked = panelShown("appearance"))
+      ci("Attributes", checked = panelShown("attributes"))
       ci("Brush Settings", checked = panelShown("brushsettings"), shortcut = "F5")
       ci("Brushes", checked = panelShown("brushes"))
       ci("Brushes (Vector)", checked = panelShown("vbrushes"))
+      ci("Buttons and Forms", checked = panelShown("buttons"))
       ci("Bookmarks", checked = panelShown("bookmarks"))
       ci("Channels", checked = panelShown("channels"))
       ci("Character", checked = panelShown("character"))
@@ -735,6 +781,7 @@ proc psMenus() =
       ci("Clone Source", checked = panelShown("clonesource"))
       ci("Color", "Picker", checked = panelShown("color"))
       ci("Commands", checked = panelShown("commands"))
+      ci("Conditional Text", checked = panelShown("conditions"))
       ci("Glyphs", checked = panelShown("glyphs"))
       ci("Gradients", checked = panelShown("gradients"))
       ci("Histogram", checked = panelShown("histogram"))
@@ -752,13 +799,17 @@ proc psMenus() =
       ci("OpenType", checked = panelShown("opentype"))
       ci("Pages", checked = panelShown("pages"))
       ci("Paths", checked = panelShown("paths"))
+      ci("Pattern Options", checked = panelShown("patternoptions"))
       ci("Patterns", checked = panelShown("patterns"))
       ci("Properties", checked = panelShown("properties"))
       ci("Scratch", checked = panelShown("scratch"))
+      ci("Separations Preview", "Separations Preview Panel", checked = panelShown("separations"))
       ci("Shapes", checked = panelShown("shapes"))
       ci("Styles", checked = panelShown("styles"))
+      ci("Styles and Fonts", checked = panelShown("designstyles"))
       ci("Swatches", checked = panelShown("swatches"))
       ci("Tool Presets", checked = panelShown("toolpresets"))
+      ci("Track Changes and Notes", checked = panelShown("review"))
       ci("Assets", "Browse Assets...")
       ci("Quick Actions", checked = panelShown("quickactions"))
       ci("Color Themes", checked = panelShown("colorthemes"))

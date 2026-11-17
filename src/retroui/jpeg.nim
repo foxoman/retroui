@@ -8,7 +8,7 @@
 ##   let thumb = decodeJpeg(readFile("IMG_0001.jpg"), scale = 8)
 
 import std/bitops
-import gfx, parallel, busy
+import gfx, parallel, busy, simdkit
 
 type JpegError* = object of CatchableError
   ## A JPEG that cannot be decoded: damaged, of a kind not read (lossless,
@@ -27,6 +27,9 @@ const zigzag = [
 type
   Huffman = object
     lookup: array[512, uint16]     ## 9-bit fast path: (length shl 8) or symbol
+    fastAc: array[512, int32]      ## 9-bit fast path of an AC code and the value after it:
+                                   ## value shl 12, run shl 8, code length shl 4, value bits; 0
+                                   ## when longer
     maxCode: array[18, int32]
     valPtr: array[17, int32]
     minCode: array[17, int32]
@@ -97,6 +100,19 @@ proc build(t: var Huffman; counts: openArray[int]; syms: seq[uint8]) =
     t.maxCode[len] = int32(if counts[len - 1] > 0: code - 1 else: -1)
     code = code shl 1
   t.maxCode[17] = int32.high
+  # (an AC code and its value's bits together in 9: both at once, as stb_image does)
+  for i in 0 ..< 512:
+    t.fastAc[i] = 0
+    let e = t.lookup[i]
+    if e == 0: continue
+    let len = int(e shr 8)
+    let rs = int(e and 0xFF)
+    let run = rs shr 4
+    let size = rs and 15
+    if size == 0 or len + size > 9: continue
+    var v = (i shr (9 - len - size)) and ((1 shl size) - 1)
+    if v < (1 shl (size - 1)): v = v - (1 shl size) + 1
+    t.fastAc[i] = int32((v shl 12) or (run shl 8) or (len shl 4) or size)
 
 {.push boundChecks: off, overflowChecks: off.}
 # (the hot loops: their indexes are checked by hand -- the data's end, the
@@ -233,6 +249,9 @@ template clampByte(v: int64): uint8 =
 {.push boundChecks: off, overflowChecks: off.}
 proc idct(blk: array[64, int32]; outp: var seq[uint8]; at, stride: int) =
   ## Dequantized coefficients (natural order) -> 8x8 pixels at `at`.
+  when kitSimd:
+    # (eight at a time in 32 bits, the same bytes; not a block that could pass 32 bits)
+    if idctBlock(addr blk[0], addr outp[at], stride) != 0: return
   var v: array[64, int64]
   for i in 0 .. 7:                               # columns
     if blk[8 + i] == 0 and blk[16 + i] == 0 and blk[24 + i] == 0 and
@@ -388,8 +407,28 @@ proc baselineCoefs(d: var Decoder; c: var Component; blk: var array[64, int32]) 
   c.pred = clamp(c.pred + extend(d.bits(t), t), -65536, 65536)
   blk[0] = int32(clamp(c.pred * q[0], -1_000_000, 1_000_000))
   var k = 1
+  let ta = addr d.ac[c.ta]
+  if not ta.present: fail("a Huffman table is missing")
   while k < 64:
-    let rs = d.decodeSym(d.ac[c.ta])
+    if d.bitCnt < 16: d.fill()
+    let fe = int(ta.fastAc[int(d.bitBuf shr 23)])
+    if fe != 0:
+      # (the code and its value in the next 9 bits; past the block's end, as below, only the
+      # code taken)
+      let len = (fe shr 4) and 15
+      k += (fe shr 8) and 15
+      if k > 63:
+        d.bitBuf = d.bitBuf shl len
+        d.bitCnt -= len
+        break
+      let used = len + (fe and 15)
+      d.bitBuf = d.bitBuf shl used
+      d.bitCnt -= used
+      let z = zigzag[k]
+      blk[z] = int32(clamp((fe shr 12) * q[z], -1_000_000, 1_000_000))
+      inc k
+      continue
+    let rs = d.decodeSym(ta[])
     let r = rs shr 4
     let s = rs and 15
     if s == 0:
@@ -617,19 +656,25 @@ proc upsampleRow(d: var Decoder; ci, y: int; outp: var seq[uint8]) =
   if (hs == 1 or hs == 2) and (vs == 1 or vs == 2) and hs * c.h == d.hmax and
      vs * c.v == d.vmax:
     if hs == 1:
-      for x in 0 ..< w: outp[x] = uint8((t(x) + 2) shr 2)
+      # (the row as it is; at half the height, 3/4 of it and 1/4 of the next)
+      if vs == 1: copyMem(addr outp[0], addr p[][near], w)
+      else:
+        for x in 0 ..< w: outp[x] = uint8((3 * int(p[][near + x]) + int(p[][far + x]) + 2) shr 2)
     elif validW == 1:
       let v = uint8((t(0) + 2) shr 2)
       for x in 0 ..< w: outp[x] = v
     else:
-      var t1 = t(0)
-      outp[0] = uint8((t1 + 2) shr 2)
-      for i in 1 ..< validW:
-        let t0 = t1
-        t1 = t(i)
-        if 2 * i - 1 < w: outp[2 * i - 1] = uint8((3 * t0 + t1 + 8) shr 4)
-        if 2 * i < w: outp[2 * i] = uint8((3 * t1 + t0 + 8) shr 4)
-      if 2 * validW - 1 < w: outp[2 * validW - 1] = uint8((t1 + 2) shr 2)
+      when kitSimd:
+        fancyRow(addr outp[0], addr p[][near], addr p[][far], validW, w, cint(vs))
+      else:
+        var t1 = t(0)
+        outp[0] = uint8((t1 + 2) shr 2)
+        for i in 1 ..< validW:
+          let t0 = t1
+          t1 = t(i)
+          if 2 * i - 1 < w: outp[2 * i - 1] = uint8((3 * t0 + t1 + 8) shr 4)
+          if 2 * i < w: outp[2 * i] = uint8((3 * t1 + t0 + 8) shr 4)
+        if 2 * validW - 1 < w: outp[2 * validW - 1] = uint8((t1 + 2) shr 2)
   else:
     # other samplings: the nearest sample
     for x in 0 ..< w: outp[x] = p[][near + x * c.h div d.hmax]
@@ -670,9 +715,25 @@ proc colorRow(d: ptr Decoder; y, k: int; xm: ptr array[4, seq[int32]]; cbRow, cr
       smooth and hs in 1 .. 2 and vs in 1 .. 2 and hs * c.h == d.hmax and vs * c.v == d.vmax
     let sb = fancy(d.comps[1])
     let sr = fancy(d.comps[2])
-    if sb: d[].upsampleRow(1, y, cbRow)
-    if sr: d[].upsampleRow(2, y, crRow)
-    for x in x0 ..< x1:
+    var x = x0
+    when kitSimd:
+      if sb and sr and d.comps[0].h == d.hmax and x1 > x0:
+        # (the luma at full size, both color planes made smooth -- a plane at full size read as
+        # it is: all three rows at hand)
+        template rowOf(ci: int; tmp: var seq[uint8]): ptr UncheckedArray[uint8] =
+          if d.comps[ci].h == d.hmax and d.comps[ci].v == d.vmax:
+            cast[ptr UncheckedArray[uint8]](addr pl[ci][rows[ci]])
+          else:
+            d[].upsampleRow(ci, y, tmp)
+            cast[ptr UncheckedArray[uint8]](addr tmp[0])
+        let cbp = rowOf(1, cbRow)
+        let crp = rowOf(2, crRow)
+        yccRow(addr o[x0], addr pl[0][rows[0] + x0], addr cbp[x0], addr crp[x0], x1 - x0)
+        x = x1
+    if x < x1:
+      if sb: d[].upsampleRow(1, y, cbRow)
+      if sr: d[].upsampleRow(2, y, crRow)
+    while x < x1:
       let yy = int(pl[0][rows[0] + int(xs[0][x])]) shl 16 + 32768
       let cb = (if sb: int(cbRow[x]) else: int(pl[1][rows[1] + int(xs[1][x])])) - 128
       let cr = (if sr: int(crRow[x]) else: int(pl[2][rows[2] + int(xs[2][x])])) - 128
@@ -680,6 +741,7 @@ proc colorRow(d: ptr Decoder; y, k: int; xm: ptr array[4, seq[int32]]; cbRow, cr
       let g = clampByte((yy - 22554 * cb - 46802 * cr) shr 16)
       let b = clampByte((yy + 116130 * cb) shr 16)
       o[x] = 0xFF000000'u32 or (uint32(r) shl 16) or (uint32(g) shl 8) or uint32(b)
+      inc x
   else:
     for x in x0 ..< x1:
       var s: array[4, int]

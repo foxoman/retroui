@@ -1008,7 +1008,8 @@ proc layersBody(d: Doc) =
                       thumbGlyph: (if l.isText: pxTypeTool else: ""), fx: l.hasStyle, fxOff: l.fx.hidden,
                       indent: l.depth, group: l.group, collapsed: l.collapsed,
                       picked: l.picked and i != d.cur, locked: l.locked,
-                      linked: l.link != 0)
+                      linked: l.link != 0,
+                      note: (if prefs.layerSizes and not l.group: bytesText(layerBytes(l)) else: ""))
   let listH = max(rowH, remainingH() - (CtrlH + 1) - Gap - 1)   # (the buttons under it)
   if layerListFollow != (cast[pointer](d), d.cur):
     # (another layer current -- picked on the canvas, a new one: its row in view)
@@ -1039,6 +1040,7 @@ proc layersBody(d: Doc) =
     if menuItem("Rename by Co&ntent", enabled = not d.current.background): runCommand("Rename Layers by Content")
     menuSeparator()
     if menuItem("&Blending Options...", enabled = not d.current.background): runCommand("Blending Options...")
+    if menuItem("Show Layer &Sizes", checked = prefs.layerSizes): runCommand("Show Layer Sizes")
   endScroll()
   if te.on and (ev.eyeToggled >= 0 or ev.fxClicked >= 0 or ev.clicked >= 0 or ev.moved[0] >= 0 or
                 ev.activated >= 0 or ev.thumbClicked >= 0 or ev.maskClicked >= 0 or ev.toggled >= 0):

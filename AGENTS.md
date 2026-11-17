@@ -163,6 +163,24 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   Masters based on masters: `setBasedOn` refuses a ring, and a master's
   own copy of its parent's layers (`fromMaster` set) is never copied on
   again nor written to IDML as its own.
+  The kit's own kernels (`retroui/simdkit`, `simdkit.h`: the UI
+  renderer's rows, JPEG, PNG, zlib, the camera and video) keep the plain
+  loop's very bytes, on x86 with AVX2 (`kitForceAvx2`) and without, on
+  32-bit and on ARM -- `test_simdkit` checks each against its loop; one
+  that cannot be sure (JPEG's IDCT past its bounds) hands the work back to
+  the loop. Helpers taking 32-byte vectors are macros in `simdkit.h` (as
+  parameters they make GCC's ABI notes). What follows a change in another
+  layer -- a Flex Layout's frames, a Global Edit's shapes -- is done in the
+  same step through `stepEndHook` (`touch`, `touchLayers` there, never
+  `endStep`), so one undo takes both back and an undo is not followed. A
+  layer's print and reader settings are `L.attrs` (`LayerAttrs`: saved
+  only when set); text that is changed while tracked carries who and when
+  in its `CharStyle` (`added`, `deleted`, `memo`, `condition`), and
+  `effectiveText` leaves out what is deleted or hidden as it prints.
+  `retroui/aiconnect` sends nothing until the user has set a service, and
+  Retro Atelier shows the commands before running them; keys stay in the
+  app's own settings. Spot inks are named on `ShapePaint.spot`; a name
+  `Doc.spotInks` does not hold prints in process inks.
 - Open and Save As on a phone: `retroui/systemfiles` behind `fileDialog`
   and `filePicker` (Android: `tools/android/RetroActivity.java`, then
   `sh tools/android/build_dex.sh`; iOS: through the Objective-C runtime).

@@ -806,8 +806,8 @@ proc syncSpread*(b: Book; i: int): tuple[changed: bool; moved: int] =
     discard b.doc(j)
     result.changed = true
 
-proc stow(b: Book; pg: BookPage) =
-  ## (a page in memory written to its file when it changed)
+proc stow*(b: Book; pg: BookPage) =
+  ## A page in memory written to its file when it changed (before its document is let go).
   if pg.doc == nil: return
   discard b.noted(pg)
   if pg.dirty or pg.file.len == 0 or not fileExists(pg.file):
@@ -1134,9 +1134,19 @@ proc autoflow*(b: Book; i: int; L: Layer; most = 500; keep: openArray[int] = [])
 
 # ---- pictures of pages ---------------------------------------------------------------------
 
-template quietly(b: Book; pg: BookPage; body: untyped) =
-  ## (what only looks at a page's document may still count its `ver` up --
-  ## making its picture, its PDF: that is not a change to the page)
+proc pageOpen*(b: Book; i: int): bool =
+  ## Page `i`'s document is in memory.
+  i in 0 .. b.pages.high and b.pages[i].doc != nil
+
+proc letGoPage*(b: Book; i: int) =
+  ## Page `i`, opened only to be read, let go again (written to its file when it changed).
+  if i notin 0 .. b.pages.high: return
+  b.stow(b.pages[i])
+  b.pages[i].doc = nil
+
+template quietly*(b: Book; pg: BookPage; body: untyped) =
+  ## What only looks at a page's document (making its picture, its PDF, its e-book page), which
+  ## may still count its `ver` up: not a change to the page.
   let was = pg.doc != nil and pg.doc.ver == pg.seenVer
   let wasModified = pg.doc != nil and pg.doc.modified
   body

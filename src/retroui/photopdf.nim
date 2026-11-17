@@ -48,12 +48,19 @@ type
       ## (a book: where each text destination is -- its page in the PDF, 1 the first, and points
       ## down from its top; links to one go there. Made by whoever adds the pages)
     pageMap*: seq[int]       ## (a book: each of its pages' page in the PDF, 1 the first, 0 not in it)
+    tagged*: bool            ## Create Tagged PDF: its parts in reading order for screen readers, its
+                             ## pictures with their alt text (`LayerAttrs.alt`), headings as headings
+    interactive*: bool       ## an interactive PDF: the layers made form fields and buttons as
+                             ## such (`LayerAttrs.field`), its pages' transitions (`Doc.transition`)
+    noSpots*: bool           ## spot inks printed in process inks (else each on a plate of its own,
+                             ## as the Ink Manager says)
 
 proc pdfPreset*(k: PdfPresetKind): PdfOptions =
   ## Photoshop's presets, more or less.
   case k
-  of ppWeb: PdfOptions(ppi: 150, jpeg: true, quality: 72, vectors: true, liveText: true)
-  of ppPrint: PdfOptions(ppi: 300, jpeg: true, quality: 94, vectors: true, liveText: true)
+  of ppWeb: PdfOptions(ppi: 150, jpeg: true, quality: 72, vectors: true, liveText: true, tagged: true,
+                       interactive: true)
+  of ppPrint: PdfOptions(ppi: 300, jpeg: true, quality: 94, vectors: true, liveText: true, tagged: true)
   of ppPress: PdfOptions(ppi: 300, cmyk: true, vectors: true, liveText: true, marks: true, regMarks: true,
                          colorBars: true, pageInfo: true, bleedMm: 3, standard: "PDF/X-4", condition: "FOGRA39")
   of ppCustom: PdfOptions(ppi: 300, vectors: true, quality: 90, liveText: true)
@@ -87,6 +94,19 @@ proc vectorOk(d: Doc; i: int): bool =
     let A = d.layers[j]
     if not A.visible: continue
     if A.adjust.kind.len > 0 or A.mode != bmNormal or (A.clipped and j == i + 1): return false
+  true
+
+proc spotPaint(p: PdfPage; d: Doc; paint: ShapePaint; o: PdfOptions; stroke: bool): bool =
+  ## (a fill or stroke in a spot ink: on its plate -- the one the Ink Manager prints it on --
+  ## unless it is printed in process inks; false: it is not one)
+  if paint.spot.len == 0 or o.noSpots or not o.cmyk: return false
+  if d.inkSettings.toProcessOn(paint.spot): return false
+  let name = d.inkSettings.resolved(paint.spot)
+  let k = d.spotInks.findSpot(name)
+  let ink = if k >= 0: d.spotInks[k].cmyk else: inkOf(paint.color)
+  let n = p.spotInk(name, ink[0].float / 255, ink[1].float / 255, ink[2].float / 255, ink[3].float / 255)
+  let t = if paint.tint in 1 .. 99: paint.tint / 100 else: 1.0
+  if stroke: p.strokeSpot(n, t) else: p.fillSpot(n, t)
   true
 
 proc paintOf(p: PdfPage; c: uint32; cmyk, stroke: bool) =
@@ -264,12 +284,12 @@ proc addVector(p: PdfPage; d: Doc; L: Layer; ox, oy, k: float; o: PdfOptions) =
           p.saveState()
           p.opacity(fo * L.opacity.float / 100)
         path()
-        p.paintOf(s.fill.color, o.cmyk, false)
+        if not p.spotPaint(d, s.fill, o, false): p.paintOf(s.fill.color, o.cmyk, false)
         p.fill()
         if fo < 1: p.restoreState()
       if s.stroke.kind == spColor and s.strokeWidth > 0:
         path()
-        p.paintOf(s.stroke.color, o.cmyk, true)
+        if not p.spotPaint(d, s.stroke, o, true): p.paintOf(s.stroke.color, o.cmyk, true)
         p.lineWidth(s.strokeWidth * k)
         p.lineCap(case s.cap
                   of lcRound: capRound
@@ -349,38 +369,108 @@ proc addBookmarks*(pdf: PdfDoc; d: Doc; page: int; k: float; o: PdfOptions) =
     let top = if bm.dest.len > 0 and bm.dest in here: here[bm.dest].top else: 0.0
     pdf.bookmarks.add PdfBookmark(title: bm.title, page: page, top: top, level: bm.level)
 
+proc tagFor*(L: Layer; d: Doc): string =
+  ## What a layer is for screen readers in a tagged PDF: its own tag (`LayerAttrs.tag`); a
+  ## decoration (`artifact`) "Artifact"; type a paragraph -- a heading when its paragraph style
+  ## says so ("Heading 1", "Title"...) --; a picture or a shape with alt text a figure; a
+  ## shape without "Artifact".
+  if L.attrs.artifact: return "Artifact"
+  if L.attrs.tag.len > 0: return L.attrs.tag
+  if L.isText:
+    let st = L.text.para.styleName.toLowerAscii
+    if st.startsWith("title"): return "H1"
+    if st.startsWith("head"):
+      for ch in st:
+        if ch in {'1' .. '6'}: return "H" & ch
+      return "H2"
+    if st.len == 2 and st[0] == 'h' and st[1] in {'1' .. '6'}: return "H" & st[1]
+    return "P"
+  if L.attrs.alt.len > 0: "Figure" else: "Artifact"
+
+proc pdfFieldOf*(f: FieldSpec): PdfField =
+  ## A layer's form field (`LayerAttrs.field`) as the PDF writer takes it.
+  let kind = case f.kind
+             of "check": pfCheck
+             of "radio": pfRadio
+             of "combo": pfCombo
+             of "list": pfList
+             of "button": pfButton
+             of "signature": pfSignature
+             else: pfText
+  PdfField(kind: kind, name: f.name, value: f.value, exportValue: f.exportValue, choices: f.choices,
+           tooltip: f.tooltip, multiline: f.multiline, required: f.required, readOnly: f.readOnly,
+           password: f.password, caption: f.caption, action: f.action)
+
+proc addFields*(p: PdfPage; d: Doc; ox, oy, k: float) =
+  ## (an interactive PDF: the layers made form fields and buttons, each over where it is; the
+  ## page's transition)
+  for L in d.layers:
+    if L.attrs.field.kind.len == 0 or not L.visible: continue
+    let r = d.layerBox(L)
+    if r.w <= 0 or r.h <= 0: continue
+    p.formField(pdfFieldOf(L.attrs.field), ox + r.x.float * k, oy + r.y.float * k, r.w.float * k, r.h.float * k)
+  if d.transition.style.len > 0:
+    p.transition = PageTransition(style: d.transition.style, duration: d.transition.duration,
+                                  direction: d.transition.direction, advance: d.transition.advance)
+
 proc drawDocAt(p: PdfPage; d: Doc; ox, oy, k: float; o: PdfOptions; bleed: bool) =
   ## (the document's layers on the page from `ox`, `oy`; `bleed`: its pictures drawn out past
   ## its edges by the bleed)
   # the layers, bottom first: runs of pixel layers as one picture each,
   # type and shapes as outlines between them
   var visible, asVector: seq[bool]
+  var hid: seq[int]
   for n, L in d.layers:
     visible.add L.visible
+    if L.attrs.nonprinting and L.visible:
+      # (seen on the screen, not printed)
+      L.visible = false
+      hid.add n
     asVector.add o.vectors and d.vectorOk(n)
+  for n in hid: visible[n] = false
   var i = 0
   try:
     while i < d.layers.len:
       if asVector[i]:
         # (the layers shown as they are: type keeps out of those with Text Wrap that are)
         for n, L in d.layers: L.visible = visible[n]
-        p.addVector(d, d.layers[i], ox, oy, k, o)
+        let L = d.layers[i]
+        if o.tagged: p.beginTag(L.tagFor(d), alt = L.attrs.alt)
+        let op = o.cmyk and (L.attrs.overprintFill or L.attrs.overprintStroke)
+        if op:
+          p.saveState()
+          p.overprint(L.attrs.overprintFill, L.attrs.overprintStroke)
+        p.addVector(d, L, ox, oy, k, o)
+        if op: p.restoreState()
+        if o.tagged: p.endTag()
         inc i
         continue
       var j = i
       while j < d.layers.len and not asVector[j]: inc j
       # (just layers i ..< j shown: their picture)
+      var alts: seq[string]
+      var shown = 0
       for n, L in d.layers:
         if not L.group: L.visible = visible[n] and n >= i and n < j
+        if L.visible and not L.group:
+          inc shown
+          if L.attrs.alt.len > 0: alts.add L.attrs.alt
       d.markAll()
       d.updateComposite()
       let bleedPx = if bleed and o.marks and o.bleedMm > 0 and i == 0: int(ceil(o.bleedMm * 72 / 25.4 / k)) else: 0
+      if o.tagged:
+        # (a picture: what its layers show, said; nothing said of it -- a background -- left out)
+        if alts.len > 0: p.beginTag("Figure", alt = alts.join(". "))
+        else: p.beginTag("Artifact")
       p.addRaster(d, d.compCopy, ox, oy, k, o, bleedPx)
+      if o.tagged: p.endTag()
       i = j
   finally:
     for n, L in d.layers: L.visible = visible[n]
+    for n in hid: d.layers[n].visible = true
     d.markAll()
     d.updateComposite()
+  if o.interactive: p.addFields(d, ox, oy, k)
 
 proc addSpreadPage*(pdf: PdfDoc; docs: openArray[Doc]; o: PdfOptions): PdfPage {.discardable.} =
   ## `docs` side by side as one page at the end of `pdf`, the first at the

@@ -2,7 +2,8 @@
 ## them: Distort & Transform (Free Distort, Pucker & Bloat, Roughen,
 ## Transform, Tweak, Twist, Zig Zag), Warp (its 15 styles), Offset Path,
 ## and Repeat (Radial, Grid, Mirror: change the one, all follow); Stylize's
-## Round Corners and Scribble.
+## Round Corners and Scribble; Envelope Distort (a mesh of points, or the outline of the object
+## on top -- Make with Warp is Warp).
 ## A shape keeps its path as it was drawn and its effects in
 ## `ShapeData.effects`; each time it is drawn they are done to the path, in
 ## order (importing this module turns that on: `photoshapes.liveEffectsHook`).
@@ -426,6 +427,111 @@ proc scribble*(p: Path; spacing, width, angle, variation: float; seed = 1): Path
       k += 2
     c += spacing
 
+proc envelopeMesh*(p: Path; cols, rows: int; moved: openArray[(float, float)]): Path =
+  ## Envelope Distort, Make with Mesh: its box cut in `cols` x `rows`, each point of that grid
+  ## moved by `moved` ((cols + 1) x (rows + 1), row by row), everything in a cell with its corners.
+  let (x0, y0, x1, y1) = bounds(p)
+  let w = max(1e-9, x1 - x0)
+  let h = max(1e-9, y1 - y0)
+  let c = max(1, cols)
+  let r = max(1, rows)
+  if moved.len != (c + 1) * (r + 1): return p
+  var pts = newSeq[Pt](moved.len)
+  for j in 0 .. r:
+    for i in 0 .. c:
+      let k = j * (c + 1) + i
+      pts[k] = (x0 + w * float(i) / float(c) + moved[k][0], y0 + h * float(j) / float(r) + moved[k][1])
+  mapped(subdivided(straightHandles(p), max(3, 2 * max(c, r))), proc (x, y: float): Pt =
+    let u = clamp((x - x0) / w, 0.0, 1.0) * float(c)
+    let v = clamp((y - y0) / h, 0.0, 1.0) * float(r)
+    let i = min(c - 1, int(u))
+    let j = min(r - 1, int(v))
+    let fu = u - float(i)
+    let fv = v - float(j)
+    let a = pts[j * (c + 1) + i]
+    let b = pts[j * (c + 1) + i + 1]
+    let cc = pts[(j + 1) * (c + 1) + i + 1]
+    let d = pts[(j + 1) * (c + 1) + i]
+    lerp(lerp(a, b, fu), lerp(d, cc, fu), fv))
+
+proc envelopeTop*(p: Path; outlinePts: openArray[(float, float)]): Path =
+  ## Envelope Distort, Make with Top Object: everything in its box fitted into `outlinePts` (a
+  ## closed polygon) -- the box's top edge along the outline's top, its sides down its sides
+  ## (a Coons patch between the four).
+  if outlinePts.len < 3: return p
+  let outline = @outlinePts
+  let (x0, y0, x1, y1) = bounds(p)
+  let w = max(1e-9, x1 - x0)
+  let h = max(1e-9, y1 - y0)
+  # (the outline's corners: its points nearest the corners of its own box)
+  var ox0, oy0 = 1e18
+  var ox1, oy1 = -1e18
+  for q in outline:
+    ox0 = min(ox0, q[0]); oy0 = min(oy0, q[1]); ox1 = max(ox1, q[0]); oy1 = max(oy1, q[1])
+  let n = outline.len
+  proc nearest(cx, cy: float): int =
+    var best = 1e30
+    for k, q in outline:
+      let dd = (q[0] - cx) * (q[0] - cx) + (q[1] - cy) * (q[1] - cy)
+      if dd < best:
+        best = dd
+        result = k
+  let ktl = nearest(ox0, oy0)
+  let ktr = nearest(ox1, oy0)
+  let kbr = nearest(ox1, oy1)
+  let kbl = nearest(ox0, oy1)
+  # (a chain of the outline from one corner to another, going round as its points are ordered,
+  # whichever way round the corner after reaches first)
+  var dirSign = 1
+  block:
+    var k = ktl
+    var steps = 0
+    while k != ktr and k != kbl and steps < n:
+      k = (k + 1) mod n
+      inc steps
+    if k == kbl: dirSign = -1
+  proc chain(a, b: int): seq[Pt] =
+    var k = a
+    result.add outline[k]
+    var guard = 0
+    while k != b and guard <= n:
+      k = (k + dirSign + n) mod n
+      result.add outline[k]
+      inc guard
+  proc along(c: seq[Pt]; t: float): Pt =
+    ## (the point `t` of the way along a chain, by length)
+    if c.len == 1: return c[0]
+    var total = 0.0
+    for k in 1 ..< c.len: total += hypot(c[k][0] - c[k - 1][0], c[k][1] - c[k - 1][1])
+    var want = clamp(t, 0.0, 1.0) * total
+    for k in 1 ..< c.len:
+      let seg = hypot(c[k][0] - c[k - 1][0], c[k][1] - c[k - 1][1])
+      if want <= seg or k == c.high:
+        return lerp(c[k - 1], c[k], if seg > 0: clamp(want / seg, 0.0, 1.0) else: 0.0)
+      want -= seg
+    c[^1]
+  let top = chain(ktl, ktr)
+  let right = chain(ktr, kbr)
+  var bottom = chain(kbr, kbl)
+  bottom.reverse()
+  var left = chain(kbl, ktl)
+  left.reverse()
+  let p00 = outline[ktl]
+  let p10 = outline[ktr]
+  let p11 = outline[kbr]
+  let p01 = outline[kbl]
+  mapped(subdivided(straightHandles(p), 6), proc (x, y: float): Pt =
+    let u = clamp((x - x0) / w, 0.0, 1.0)
+    let v = clamp((y - y0) / h, 0.0, 1.0)
+    let c0 = along(top, u)
+    let c1 = along(bottom, u)
+    let d0 = along(left, v)
+    let d1 = along(right, v)
+    (((1 - v) * c0[0] + v * c1[0]) + ((1 - u) * d0[0] + u * d1[0]) -
+       ((1 - u) * (1 - v) * p00[0] + u * (1 - v) * p10[0] + (1 - u) * v * p01[0] + u * v * p11[0]),
+     ((1 - v) * c0[1] + v * c1[1]) + ((1 - u) * d0[1] + u * d1[1]) -
+       ((1 - u) * (1 - v) * p00[1] + u * (1 - v) * p10[1] + (1 - u) * v * p01[1] + u * v * p11[1])))
+
 proc applyEffects*(p: Path; es: seq[LiveEffect]): Path =
   ## A path with live effects done to it, in order (those turned off skipped).
   result = p
@@ -446,6 +552,9 @@ proc applyEffects*(p: Path; es: seq[LiveEffect]): Path =
              of leRepeatMirror: repeatMirror(result, e.angle, e.dx)
              of leRoundCorners: roundCorners(result, e.amount)
              of leScribble: scribble(result, e.amount, e.detail, e.angle, e.sx, e.seed)
+             of leEnvelope:
+               if e.envelope.len >= 3: envelopeTop(result, e.envelope)
+               else: envelopeMesh(result, e.copies, int(e.detail), e.mesh)
 
 proc defaultLiveEffect*(k: LiveEffectKind): LiveEffect =
   ## An effect with the settings it starts with (as the drawing program's boxes open).
@@ -464,5 +573,6 @@ proc defaultLiveEffect*(k: LiveEffectKind): LiveEffect =
   of leRepeatMirror: LiveEffect(kind: k, dx: 10)
   of leRoundCorners: LiveEffect(kind: k, amount: 10)
   of leScribble: LiveEffect(kind: k, amount: 6, detail: 2, angle: 30, sx: 20, seed: 1)
+  of leEnvelope: LiveEffect(kind: k, copies: 4, detail: 4, mesh: newSeq[(float, float)](25))
 
 liveEffectsHook = applyEffects

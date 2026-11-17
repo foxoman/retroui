@@ -33,11 +33,13 @@ retrokit small app.nim                       # the smallest: --opt:size, LTO, st
 ```
 
 The photo engine's hottest loops (`retroui/simd`: the layers mixed,
-the tables looked up, blurs, resampling) are C written with GCC's and
-Clang's own vectors -- SSE2 on any x86-64, and AVX2 besides, eight lanes,
-picked as the program starts where the processor has it (the same
-program runs on every x86-64, the same pixels either way); NEON on ARM;
-nothing to add.
+the tables looked up, blurs, resampling) and the kit's own
+(`retroui/simdkit`: the UI renderer's fills and blends, JPEG's inverse
+DCT, colors and upsampling, PNG's filters, Adler-32, the camera's and
+video's rows) are C written with GCC's and Clang's own vectors -- SSE2 on
+any x86-64, and AVX2 besides, eight lanes, picked as the program starts
+where the processor has it (the same program runs on every x86-64, the
+same pixels and bytes either way); NEON on ARM; nothing to add.
 `-d:retroNoSimd` keeps the plain Nim loops, to compare. A web page is
 built with SIMD128 (`retrokit web` passes `-msimd128` itself; every
 browser of the last years runs it).

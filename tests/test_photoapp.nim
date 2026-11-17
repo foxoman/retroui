@@ -2425,4 +2425,210 @@ block lineWithEnds:
   doAssert escapeKey()
   doAssert d.current.shape.path.subs[0].pts[^1].p == (180.0, 60.0), "Esc: as it was"
 
+proc okDialog() =
+  ## (a dialog's OK: Enter, nothing focused -- its first box would take it: as a touch screen
+  ## focuses nothing of its own)
+  run(2)
+  ui.touch = true
+  ui.focus = 0
+  run(1)
+  key(KeyEnter)
+  run(1)
+  ui.touch = false
+  run(2)
+
+block release56:
+  # Retro Atelier 5.6: print and output (spot inks, the previews of separations and overprints,
+  # track changes, equations, Flex Layout), the drawing program's makers (Global Edit,
+  # Envelope Distort, Live Paint, Tidy Up), Relight, Remove with its shadow, Lift Subject,
+  # Mockups, Styles, placeholders, the AI connector's commands
+  docs.setLen(0)
+  active = nil
+  tabCur = nil
+  run(2)
+  let d = newDoc(200, 150, white, name = "r56")
+  addDoc(d)
+  run(2)
+  let dw = active
+  # a spot ink, a shape printed with it; Separations Preview and Overprint Preview drawn
+  d.spotInks.add SpotInk(name: "Gold", color: 0xFFD4AF37'u32)
+  var gold = solidPaint(0xFFD4AF37'u32)
+  gold.spot = "Gold"
+  d.layersChange("Shapes"):
+    discard d.addShapeLayer(ShapeData(path: rectPath(20, 20, 60, 60), fill: gold, kind: "Rectangle"), "A")
+    discard d.addShapeLayer(ShapeData(path: rectPath(100, 20, 140, 60), fill: solidPaint(0xFF2060C0'u32),
+                                      kind: "Rectangle"), "B")
+  let A = d.layers[1]
+  let B = d.layers[2]
+  runCommand("Separations Preview")
+  doAssert d.sepView.on and panelShown("separations")
+  run(2)
+  runCommand("Overprint Preview")
+  doAssert d.overprintView and not d.sepView.on
+  run(2)
+  runCommand("Overprint Preview")
+  run(2)
+  # Global Edit: B like A (the same size) follows what is done to A, in the same step
+  d.cur = 1
+  runCommand("Start Global Edit")
+  doAssert gEdit.on and gEdit.others == @[B]
+  d.layersChange("Fill"):
+    var sa = A.shape
+    sa.fill = solidPaint(0xFFC02020'u32)
+    d.setShape(A, sa)
+  doAssert B.shape.fill.color == 0xFFC02020'u32, "Global Edit: the other one too"
+  doAssert pathBounds(B.shape.path)[0] == 100.0, "each where it is"
+  run(2)
+  d.undo()
+  doAssert A.shape.fill.spot == "Gold" and B.shape.fill.color == 0xFF2060C0'u32, "undone together"
+  run(2)
+  doAssert d.canRedo, "an undo is not a change to follow"
+  d.redo()
+  doAssert B.shape.fill.color == 0xFFC02020'u32
+  runCommand("Stop Global Edit")
+  doAssert not gEdit.on
+  # Tidy Up: in a neat row, even room between
+  d.clearPicks()
+  A.picked = true
+  B.picked = true
+  d.layersChange("Move"): d.shiftLayers(@[B], 0, 17)
+  runCommand("Tidy Up")
+  doAssert d.layerBox(A).y == d.layerBox(B).y, "in a row"
+  # Flex Layout: the two a row, one made wider, the other moves (in the same step)
+  flexDlg = (true, 0, 0, 0, false, true, true, 10, 0)
+  d.cur = 2
+  okDialog()
+  doAssert not flexDlg.open
+  let gi = d.cur
+  doAssert d.layers[gi].group and d.layers[gi].flexOf.on
+  let before = d.layerBox(d.layers[gi - 2]).x
+  let first = d.layers[gi - 1]
+  d.layersChange("Wider"):
+    var sw = first.shape
+    sw.path = rectPath(pathBounds(sw.path)[0], 20, pathBounds(sw.path)[0] + 80, 60)
+    d.setShape(first, sw)
+  doAssert d.layerBox(d.layers[gi - 2]).x != before, "the other frame moved"
+  d.undo()
+  doAssert d.layerBox(d.layers[gi - 2]).x == before, "undone with it"
+  # Envelope Distort: Make with Mesh, the grid's point moved, Release
+  d.cur = gi - 1
+  runCommand("Envelope: Make with Mesh...")
+  doAssert meshDlg.open
+  meshDlg.moved[0] = (-10.0, -10.0)
+  okDialog()
+  doAssert not meshDlg.open
+  doAssert d.current.shape.effects.anyIt(it.kind == leEnvelope)
+  runCommand("Envelope: Release")
+  doAssert not d.current.shape.effects.anyIt(it.kind == leEnvelope)
+  # Live Paint: the two shapes make faces; the bucket fills one
+  let d2 = newDoc(120, 80, white, name = "paint")
+  addDoc(d2)
+  run(2)
+  d2.layersChange("Shapes"):
+    discard d2.addShapeLayer(ShapeData(path: rectPath(10, 10, 60, 60), stroke: solidPaint(0xFF000000'u32),
+                                       strokeWidth: 2, kind: "Rectangle"), "R1")
+    discard d2.addShapeLayer(ShapeData(path: rectPath(40, 30, 100, 70), stroke: solidPaint(0xFF000000'u32),
+                                       strokeWidth: 2, kind: "Rectangle"), "R2")
+  d2.clearPicks()
+  d2.layers[1].picked = true
+  d2.layers[2].picked = true
+  runCommand("Live Paint: Make")
+  let P = d2.current
+  doAssert P.livePaintOf.on and lpBucket
+  fg = 0xFFE03030'u32
+  doAssert active.makersCanvas(PhotoEvent(over: true, x: 50, y: 45, pressed: true, down: true, clicks: 1))
+  run(2)
+  doAssert (P.px[45 * 120 + 50] and 0xFFFFFF'u32) == 0xE03030'u32, "the face where both are"
+  doAssert (P.px[20 * 120 + 20] shr 24) == 0, "the face of the first alone: not painted"
+  runCommand("Live Paint Bucket")
+  doAssert not lpBucket
+  # Relight: lights on the layer, shown before OK; Cancel takes them away
+  let d3 = sample(80, 60)
+  addDoc(d3)
+  run(2)
+  let was = d3.layer.px
+  runCommand("Relight...")
+  doAssert rlDlg.open and d3.stepOpen
+  run(3)
+  doAssert d3.layer.px != was, "the lights shown on the image"
+  rlDlg.open = false
+  run(2)
+  doAssert d3.layer.px == was and not d3.stepOpen, "cancelled: as it was"
+  # Upscale: twice as big
+  runCommand("Upscale...")
+  okDialog()
+  doAssert d3.w == 160 and d3.h == 120
+  d3.undo()
+  doAssert d3.w == 80
+  # Lift Subject and Remove with Its Shadow, on a dark disc on white
+  let d4 = newDoc(120, 90, white, name = "subject")
+  for y in 0 ..< 90:
+    for x in 0 ..< 120:
+      if (x - 60) * (x - 60) + (y - 45) * (y - 45) < 400: d4.layer.px[y * 120 + x] = 0xFF202020'u32
+  inc d4.layer.ver
+  addDoc(d4)
+  run(2)
+  runCommand("Lift Subject")
+  doAssert d4.layers.len == 2 and d4.current.name == "Subject"
+  doAssert (d4.current.px[45 * 120 + 60] shr 24) > 200, "the subject on its layer"
+  doAssert (d4.layers[0].px[45 * 120 + 60] and 0xFF) > 150, "its place filled from round it"
+  d4.undo()
+  doAssert d4.layers.len == 1
+  d4.sel = newSeq[uint8](120 * 90)
+  for y in 0 ..< 90:
+    for x in 0 ..< 120:
+      if (x - 60) * (x - 60) + (y - 45) * (y - 45) < 484: d4.sel[y * 120 + x] = 255
+  inc d4.selVer
+  runCommand("Remove with Its Shadow")
+  doAssert (d4.layer.px[45 * 120 + 60] and 0xFF) > 150, "removed"
+  # Mockups: a new document, the design in it
+  let n = docs.len
+  runCommand("Mockups...")
+  run(2)
+  doAssert mockDlg.thumbs.len == ord(high(MockupKind)) + 1
+  okDialog()
+  doAssert docs.len == n + 1 and cur().w == 1200
+  # Styles and Fonts, Pattern Options: drawn
+  showPanel("designstyles")
+  showPanel("patternoptions")
+  run(2)
+  # a photo placeholder
+  runCommand("Make Photo Placeholder")
+  doAssert cur().current.attrs.placeholder == 1
+  # Track Changes and a note on a type layer
+  let d5 = newDoc(200, 100, white, name = "type")
+  addDoc(d5)
+  run(2)
+  d5.layersChange("Type"):
+    discard d5.addTextLayer(newText("Hello", CharStyle(family: "DejaVu Sans", style: "Book", size: 20,
+                                                       color: 0xFF000000'u32, hScale: 1, vScale: 1), 5, 25))
+  runCommand("Track Changes")
+  doAssert d5.current.text.track
+  runCommand("New Note")
+  run(2)
+  # an equation, a shape tagged a formula with its source as its alt text
+  runCommand("Insert Equation...")
+  run(2)
+  okDialog()
+  doAssert d5.current.attrs.tag == "Formula" and d5.current.isShape and "frac" in d5.current.attrs.alt
+  # the Save PDF dialog's Create Tagged PDF: the structure tree, the equation's alt text
+  let tagged = home / "tagged.pdf"
+  startPdfOptions(@[d5], tagged)
+  run(2)
+  doAssert pdfDlg.open
+  pdfDlg.o.tagged = true
+  pdfDlg.o.interactive = true
+  run(2)
+  pdfDlg.open = false
+  writePdfNow()
+  doAssert "/StructTreeRoot" in readFile(tagged)
+  # the AI connector: off, and what it may ask for -- the menus' commands
+  let cmds = appCommands()
+  doAssert "Invert" in cmds and "Tidy Up" in cmds and "Relight..." in cmds and "Quit" notin cmds
+  doAssert commandsOf("""{"commands": ["invert", "Nope"], "note": "x"}""", cmds).commands == @["Invert"]
+  runCommand("Ask AI...")
+  run(2)
+  askDlg.open = false
+  run(2)
+
 echo "photo app tests passed"

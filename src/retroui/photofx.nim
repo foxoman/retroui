@@ -115,12 +115,15 @@ var filterOrigin*: tuple[x, y: int]
   ## Where the picture a filter is given starts in its layer, set as each
   ## is run (`filterImg`): a filter that reads a map of the whole image (as
   ## Lens Blur its depth) finds its part by it.
+var filterSize*: tuple[w, h: int]
+  ## ... and how big the whole layer is (0, 0: the picture given is all of it).
 
 proc filterImg*(d: Doc; L: Layer; margin: int; f: FilterFn; r: Rect): Img =
   ## `f` applied to `r` of `L` (with `margin` pixels around it); the result
   ## is `r`'s size.
   let ext = d.clip(rect(r.x - margin, r.y - margin, r.w + 2 * margin, r.h + 2 * margin))
   filterOrigin = (ext.x, ext.y)
+  filterSize = (d.w, d.h)
   let inner = rect(r.x - ext.x, r.y - ext.y, r.w, r.h)
   var o: Img
   if ext == d.bounds and L.px.len == d.w * d.h:

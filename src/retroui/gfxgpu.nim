@@ -1422,15 +1422,16 @@ proc gpuHasImage*(key: uint64): bool =
 #
 # A picture's filter worked out by the GPU when frames are drawn with it:
 # the picture sent as a texture, drawn through a shader into another, read
-# back. The Gaussian blur (two passes, its colors weighed by alpha) and a
+# back. The Gaussian blur (two passes, its colors weighed by alpha), a
 # table of colors (every change of each pixel by itself: Levels, Curves,
-# Hue/Saturation... read between the table's colors). Where there is no
-# GPU, or the picture is too big for its textures: nil, the CPU does it.
+# Hue/Saturation... read between the table's colors) and a picture moved by
+# a mesh of moves (Liquify's preview). Where there is no GPU, or the picture
+# is too big for its textures: nil, the CPU does it.
 
 var
-  fxProgs: array[2, GLuint]
+  fxProgs: array[3, GLuint]
   fxVbo: GLuint
-  fxFailed: array[2, bool]
+  fxFailed: array[3, bool]
 
 const FxVertex = """
 attribute vec2 aPos;
@@ -1483,6 +1484,59 @@ void main() {
 }
 """
 
+const FxWarp = """
+uniform sampler2D uTex;
+uniform sampler2D uMeshX;
+uniform sampler2D uMeshY;
+uniform vec2 uSize;
+uniform vec2 uMeshSize;
+uniform float uStep;
+uniform vec2 uOrigin;
+uniform float uScale;
+uniform float uMax;
+uniform float uFull;
+float part(vec4 t) {
+  vec3 b = floor(t.rgb * 255.0 + 0.5);
+  return ((b.r * 65536.0 + b.g * 256.0 + b.b) / 16777215.0 * 2.0 - 1.0) * uMax;
+}
+vec2 moveAt(vec2 g) {
+  vec2 uv = (g + 0.5) / uMeshSize;
+  return vec2(part(texture2D(uMeshX, uv)), part(texture2D(uMeshY, uv)));
+}
+vec4 pix(vec2 q) {
+  if (uFull < 0.5 && (q.x < 0.0 || q.y < 0.0 || q.x >= uSize.x || q.y >= uSize.y)) return vec4(0.0);
+  return texture2D(uTex, (clamp(q, vec2(0.0), uSize - 1.0) + 0.5) / uSize);
+}
+void main() {
+  vec2 f = uOrigin + gl_FragCoord.xy * uScale;
+  vec2 g = clamp(f / uStep, vec2(0.0), uMeshSize - 1.0);
+  vec2 g0 = max(min(floor(g), uMeshSize - 2.0), vec2(0.0));
+  vec2 g1 = min(g0 + 1.0, uMeshSize - 1.0);
+  vec2 t = g - g0;
+  vec2 o = mix(mix(moveAt(g0), moveAt(vec2(g1.x, g0.y)), t.x),
+               mix(moveAt(vec2(g0.x, g1.y)), moveAt(g1), t.x), t.y);
+  vec2 s = (f + o - uOrigin) / uScale - 0.5;
+  if (uFull < 0.5 && (s.x < -1.0 || s.y < -1.0 || s.x > uSize.x || s.y > uSize.y)) {
+    gl_FragColor = vec4(0.0);
+    return;
+  }
+  vec2 q = floor(s);
+  vec2 k = s - q;
+  vec4 a = pix(q);
+  vec4 b = pix(q + vec2(1.0, 0.0));
+  vec4 c = pix(q + vec2(0.0, 1.0));
+  vec4 d = pix(q + vec2(1.0, 1.0));
+  float wa = (1.0 - k.x) * (1.0 - k.y);
+  float wb = k.x * (1.0 - k.y);
+  float wc = (1.0 - k.x) * k.y;
+  float wd = k.x * k.y;
+  float al = a.a * wa + b.a * wb + c.a * wc + d.a * wd;
+  vec3 rgb = a.rgb * (a.a * wa) + b.rgb * (b.a * wb) + c.rgb * (c.a * wc) + d.rgb * (d.a * wd);
+  if (al * 255.0 <= 0.01) gl_FragColor = vec4(0.0);
+  else gl_FragColor = vec4(clamp(rgb / al, 0.0, 1.0), clamp(al, 0.0, 1.0));
+}
+"""
+
 proc gpuFiltersReady*(): bool =
   ## Filters can be worked out on the GPU now (frames drawn with it, on
   ## this thread, the driver able to draw into a texture).
@@ -1494,7 +1548,8 @@ proc gpuFiltersReady*(): bool =
 proc fxProgram(k: int): GLuint =
   if fxProgs[k] != 0 or fxFailed[k]: return fxProgs[k]
   let vs = compile(GL_VERTEX_SHADER, FxVertex)
-  let fs = compile(GL_FRAGMENT_SHADER, if k == 0: FxBlur else: FxLut)
+  # (the warp's coordinates want 32-bit floats: without them, the CPU)
+  let fs = compile(GL_FRAGMENT_SHADER, if k == 0: FxBlur elif k == 1: FxLut else: FxWarp, needHigh = k == 2)
   if vs == 0 or fs == 0:
     fxFailed[k] = true
     return 0
@@ -1668,6 +1723,70 @@ proc gpuColorTable*(px: openArray[uint32]; w, h: int; lut: openArray[uint32]; n:
         if gl.getError() != GL_NO_ERROR: result = @[]
     if fb != 0: gl.deleteFramebuffers(1, addr fb)
     for t in [texIn, texLut, texOut]:
+      var tt = t
+      gl.deleteTextures(1, addr tt)
+
+proc gpuWarpMesh*(px: openArray[uint32]; w, h: int; dx, dy: openArray[float32]; meshW, meshH: int;
+                  step: float; ox = 0.0; oy = 0.0; scale = 1.0; extend = true): seq[uint32] =
+  ## `px` (`w` x `h`: a picture, or a part of it from `ox`, `oy`, or a smaller copy, `scale`
+  ## picture pixels a pixel) moved by a mesh of moves -- at each of its `meshW` x `meshH`
+  ## points, `step` picture pixels apart, where the picture shown there comes from -- read
+  ## between its points and between pixels (its colors weighed by their alpha), on the GPU:
+  ## Liquify's preview as it is brushed: within a level of the CPU's `liquifyImg` (its rounding
+  ## the GPU's); empty when it cannot be.
+  result = @[]         # (a value at once: see tools/writecheck.py)
+  {.cast(gcsafe).}:
+    if not gpuFiltersReady() or w <= 0 or h <= 0 or px.len != w * h or meshW < 2 or meshH < 2 or
+       dx.len != meshW * meshH or dy.len != meshW * meshH: return
+    if w > maxTexture() or h > maxTexture() or meshW > maxTexture() or meshH > maxTexture(): return
+    let p = fxProgram(2)
+    if p == 0: return
+    # (the moves 24 bits each, as far either way as the farthest one: a texture across, one down)
+    var most = 1.0'f32
+    for v in dx: most = max(most, abs(v))
+    for v in dy: most = max(most, abs(v))
+    var mx = newSeq[uint32](meshW * meshH)
+    var my = newSeq[uint32](meshW * meshH)
+    proc bytes(v: float32): uint32 =
+      let q = uint32(clamp(int(round((v.float / most.float + 1) / 2 * 16777215)), 0, 16777215))
+      # (bytes r g b: high, middle, low)
+      (q shr 16) or (((q shr 8) and 255) shl 8) or ((q and 255) shl 16) or 0xFF000000'u32
+    for i in 0 ..< mx.len:
+      mx[i] = bytes(dx[i])
+      my[i] = bytes(dy[i])
+    var texIn = newTexture(w, h, GL_RGBA, GL_NEAREST, unsafeAddr px[0])
+    var texMesh = newTexture(meshW, meshH, GL_RGBA, GL_NEAREST, addr mx[0])
+    var texMeshY = newTexture(meshW, meshH, GL_RGBA, GL_NEAREST, addr my[0])
+    var texOut = newTexture(w, h, GL_RGBA, GL_NEAREST)
+    var fb: GLuint
+    withFx(w, h):
+      fb = fxTarget(texOut)
+      if fb != 0:
+        gl.useProgram(p)
+        gl.uniform1i(gl.getUniformLocation(p, "uTex"), 0)
+        gl.uniform1i(gl.getUniformLocation(p, "uMeshX"), 1)
+        gl.uniform1i(gl.getUniformLocation(p, "uMeshY"), 2)
+        gl.uniform2f(gl.getUniformLocation(p, "uSize"), GLf32(w), GLf32(h))
+        gl.uniform2f(gl.getUniformLocation(p, "uMeshSize"), GLf32(meshW), GLf32(meshH))
+        gl.uniform1f(gl.getUniformLocation(p, "uStep"), GLf32(step))
+        gl.uniform2f(gl.getUniformLocation(p, "uOrigin"), GLf32(ox), GLf32(oy))
+        gl.uniform1f(gl.getUniformLocation(p, "uScale"), GLf32(scale))
+        gl.uniform1f(gl.getUniformLocation(p, "uMax"), GLf32(most))
+        gl.uniform1f(gl.getUniformLocation(p, "uFull"), GLf32(if extend: 1 else: 0))
+        gl.activeTexture(GL_TEXTURE0 + 2)
+        gl.bindTexture(GL_TEXTURE_2D, texMeshY)
+        gl.activeTexture(GL_TEXTURE0 + 1)
+        gl.bindTexture(GL_TEXTURE_2D, texMesh)
+        gl.activeTexture(GL_TEXTURE0)
+        gl.bindTexture(GL_TEXTURE_2D, texIn)
+        gl.bindFramebuffer(GL_FRAMEBUFFER, fb)
+        gl.drawArrays(GL_TRIANGLES, 0, 6)
+        result = newSeq[uint32](w * h)
+        gl.pixelStorei(GL_PACK_ALIGNMENT, 4)
+        gl.readPixels(0, 0, GLsizei(w), GLsizei(h), GL_RGBA, GL_UNSIGNED_BYTE, addr result[0])
+        if gl.getError() != GL_NO_ERROR: result = @[]
+    if fb != 0: gl.deleteFramebuffers(1, addr fb)
+    for t in [texIn, texMesh, texMeshY, texOut]:
       var tt = t
       gl.deleteTextures(1, addr tt)
 

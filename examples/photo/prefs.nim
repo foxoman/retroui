@@ -117,6 +117,8 @@ proc loadPrefs() =
   p.legacyXf = st.getBool("pref.legacyxf", p.legacyXf)
   p.legacyNew = st.getBool("pref.legacynew", p.legacyNew)
   p.language = if st.getOrDefault("pref.language") == "ar": 1 else: 0
+  p.lorem = st.getOrDefault("pref.lorem", "")
+  p.layerSizes = st.getBool("pref.layerSizes", p.layerSizes)
   prefs = p
   restoreKeymap(st, keymap)
   applyKeySet()
@@ -179,6 +181,8 @@ proc savePrefs() =
   st["pref.printRes"] = $p.printRes
   st["pref.screenRes"] = $p.screenRes
   st["pref.smartQuotes"] = $p.smartQuotes
+  st["pref.lorem"] = p.lorem
+  st["pref.layerSizes"] = $p.layerSizes
   st["pref.workingSpace"] = $p.workingSpace
   st["pref.embed"] = $p.embedProfile
   st["pref.keyset"] = $p.keySet
@@ -346,6 +350,7 @@ proc pageMemory() =
     row:
       label "History States:"
       spin(prefs.history, 1, 1000, w = dp(80))
+    checkbox("Show Each Layer's Size in the Layers Panel", prefs.layerSizes)
   group("Processor"):
     var t = prefs.threads
     var names = @["Automatic (" & $countProcessors() & " cores)"]
@@ -474,6 +479,9 @@ proc pageType() =
   group("Type Options"):
     checkbox("Use Smart Quotes", prefs.smartQuotes)
     label("Typed \" and ' become “ ” and ‘ ’ (and ’ inside a word).", color = ui.theme.gray)
+  group("Placeholder Text"):
+    editArea(prefs.lorem, lines = 3)
+    label("Type > Paste Lorem Ipsum puts this in (empty: the Latin of Lorem Ipsum).", color = ui.theme.gray)
 
 proc pageColor() =
   group("Working Space"):

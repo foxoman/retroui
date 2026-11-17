@@ -7,7 +7,7 @@
 ## Off screen (EGL); skipped where there is no OpenGL.
 
 import std/[os, strutils, tables, monotimes, times, math]
-import retroui/[gfx, photo, photogpu]
+import retroui/[gfx, photo, photogpu, photowarp, photofx]
 import retroui/uirelays/[eglload, screen]
 {.push warning[UnusedImport]: off.}
 import retroui/photodevelop   # (imported for what it sets up in retroui/photo: the adjustment layers' tables)
@@ -393,6 +393,33 @@ block blurs:
   let gb = gpuBlur(px, 700, 420, 6.0)
   doAssert gb.len == px.len
   echo "blurs on the GPU: as the CPU's, within a level"
+
+block liquifyPreview:
+  # Liquify's preview on the GPU: the picture moved by the mesh as the CPU moves it, within a
+  # level or two (the picture itself is always the CPU's)
+  var px = newSeq[uint32](700 * 420)
+  for y in 0 ..< 420:
+    for x in 0 ..< 700:
+      px[y * 700 + x] = 0xFF000000'u32 or uint32((x * 3) and 255) shl 16 or uint32((y * 5) and 255) shl 8 or
+                        uint32(((x xor y) * 7) and 255)
+  var m = newLiquifyMesh(700, 420, 128)
+  for k in 0 ..< 12: m.push(200.0 + k.float * 10, 200, 210.0 + k.float * 10, 190, 90, 0.8)
+  m.twirl(500, 150, 120, 0.9)
+  m.pucker(350, 300, 80, 0.7, bloat = true)
+  let cpu = liquifyImg(Img(w: 700, h: 420, px: px), m)
+  let g = gpuWarpMesh(px, 700, 420, m.dx, m.dy, m.w, m.h, m.step)
+  doAssert g.len == px.len, "on the GPU"
+  var worst, off = 0
+  for i in 0 ..< px.len:
+    var dd = 0
+    for sh in [0, 8, 16, 24]: dd = max(dd, abs(int((g[i] shr sh) and 255) - int((cpu.px[i] shr sh) and 255)))
+    worst = max(worst, dd)
+    if dd > 2: inc off
+  doAssert off * 1000 < px.len, "Liquify's preview: " & $off & " pixels off (worst " & $worst & ")"
+  # through liquifyImg, a preview: the GPU's
+  let pv = liquifyImg(Img(w: 700, h: 420, px: px), m, preview = true)
+  doAssert pv.px == g
+  echo "Liquify's preview on the GPU: as the CPU's, within two levels (", off, " pixels past, worst ", worst, ")"
 
 # ---- what the GPU does not do: left to the CPU ---------------------------------------------------------------
 

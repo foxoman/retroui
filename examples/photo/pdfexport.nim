@@ -131,6 +131,15 @@ proc pdfDialogs() =
             pdfDlg.preset = ord(ppCustom)
           if not o.liveText:
             label("Type as outlines: looks the same anywhere, but is not text any more.", color = ui.theme.gray)
+      group("Accessibility and Interactivity"):
+        if checkbox("Create Tagged PDF (reading order, alt text: for screen readers)", o.tagged):
+          pdfDlg.preset = ord(ppCustom)
+        if checkbox("Interactive (form fields, buttons, page transitions)", o.interactive):
+          pdfDlg.preset = ord(ppCustom)
+        var spots = not o.noSpots
+        if checkbox("Spot Inks on Plates of Their Own (else in process inks)", spots):
+          o.noSpots = not spots
+          pdfDlg.preset = ord(ppCustom)
       pdfDlg.o = o
       row:
         label(if pdfDlg.docs.len == 1: "1 page" else: $pdfDlg.docs.len & " pages", color = ui.theme.gray)

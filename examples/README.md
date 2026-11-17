@@ -238,6 +238,30 @@ pages or spreads, a range) and Save Book as IDML; Type > Text Effects.
 `--run "Command"`, `--script file.rs` and `--list-commands` on the
 command line.
 
+**Print, output and making** (5.6): View > Separations Preview (the
+plates, each on or off, the ink at the pointer) and Overprint Preview;
+Edit > Ink Manager and New Spot Ink (a shape's fill on a plate of its
+own); Window > Attributes (overprint, nonprinting) and Layer > Object
+Export Options (alt text, a decoration, a tag) for a tagged PDF; Window >
+Buttons and Forms and Layout > Page Transitions for an interactive PDF;
+File > Export > EPUB and Publish as Web Page; Layout > Flex Layout (a row
+or a column of frames that keeps itself as one grows) and Tidy Up; Type >
+Paragraph Shading and Borders, Insert Equation (TeX), Track Changes (who
+typed and deleted what, accepted or rejected) and notes, Window >
+Conditional Text; Select > Start Global Edit; Layer > Envelope Distort
+(Warp, a mesh, the top object), Live Paint (the bucket fills where shapes
+overlap), Intertwine; Window > Pattern Options; Filter > Render > Relight
+(lights dragged on the image, no AI), Lighting Effects' light dragged on
+the image too; Edit > Remove with Its Shadow; Image > Upscale; File >
+Mockups; Window > Styles and Fonts; Layer > New > Layer by Lifting the
+Subject; Layer > Make Photo Placeholder, every template's frames
+placeholders (double-click: a photo in it) and ten new templates; Edit >
+AI Connector and Ask AI (a service of your own, local or online, turns
+words into Retro Atelier's commands, shown before they run);
+Preferences: your own placeholder text, each layer's size in the Layers
+panel. JPEGs open up to 1.6 times sooner and PNGs save 1.4 times sooner;
+Liquify's preview is drawn by the GPU.
+
 **What was still missing** (5.5): Paragraph's Drop Caps and Nested
 Styles has Nested Line Styles; type attached to a perspective plane stays
 type (Layer > Perspective > Release with Perspective lets it go); on a

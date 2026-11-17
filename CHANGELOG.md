@@ -1,5 +1,156 @@
 # Changes
 
+## 0.60.0
+
+The rest of what the four programs have that Retro Atelier had not, in one
+release (animation and version history left for another): the layout
+program's print and output -- Separations Preview, Overprint Preview, spot
+inks and the Ink Manager, tagged PDF with alt text, Flex Layout, paragraph
+shading and borders, conditional text, track changes and notes, PDF forms,
+buttons and page transitions, EPUB, equations; the drawing program's Global
+Edit, Envelope Distort, Live Paint, Intertwine and Pattern Options; the photo
+editor's Relight with its lights on the canvas, Remove with its shadow,
+Upscale, each layer's size and your own placeholder text; the quick-design
+programs' Mockups, Styles and font pairs, Tidy Up, Lift Subject, remixable
+templates with photo placeholders, Publish as a web page and an AI service of
+your own driving the app's commands. And the kit eight or sixteen pixels at a
+time where the processor can (AVX2 found at run time, NEON, WebAssembly's
+SIMD128) -- the same pixels to the last bit.
+
+- **SIMD in the kit** (`retroui/simdkit`, `simdkit.h`: GCC and Clang
+  vector extensions; AVX2 found at run time, NEON on ARM, SIMD128 in a web
+  page; `-d:retroNoSimd` for none): the UI renderer's fills, blends, masks
+  and the opaque runs it copies (`blendMaskRow`, `overRow`, `widenRow`,
+  `gatherOpaque`); JPEG's inverse DCT (`idctBlock`: whole numbers, a block
+  with only its DC filled at once, the plain loop where a value could
+  overflow), its colors (`yccRow`) and 4:2:0 upsampling (`fancyRow`), its
+  Huffman codes read with their run and value at once; PNG's filters
+  (`pngFilterSums`, `pngFilterRow`) and zlib's Adler-32 (`adlerUpdate`)
+  and CRC-32 (`crcUpdate`, a table of slices); the camera's YUYV
+  (`yuyvRow`) and video's luma (`lumaRow`); the CMYK planes of a PSD on all
+  the cores. Each kernel tested against the plain loop (`test_simdkit`), on
+  x86 with and without AVX2, 32-bit and ARM64. 12 megapixels on two cores:
+  a JPEG decoded in 185 ms (301 before), 4:2:0 in 101 ms (149), at 1/8 in
+  89 ms (113); a PNG saved in 1.13 s (1.57).
+- **Spot inks and separations** (`retroui/inks`: `SpotInk`, `InkSettings`
+  -- aliases, all spots to process --, `plates`, `inkAmounts`, `coverage`,
+  `separationPx`, `overprinted`; `retroui/photoseps`: `docPlates`,
+  `spotPlanes`, `inkAmountsAt`, `overprintPicture`, `sepContext`,
+  `sepPixel`; `Doc.spotInks`, `inkSettings`, `sepView`, `overprintView`;
+  `ShapePaint.spot`, `tint`): a shape filled with a spot ink prints on a
+  plate of its own; View > Separations Preview shows the plates, each on
+  or off (alone in black), and the ink at the pointer; View > Overprint
+  Preview shows what overprints printed over what is under it; the Ink
+  Manager aliases inks and sends spots to process.
+- **The PDF for a press and for readers** (`retroui/pdf`: `spotInk`,
+  `fillSpot`, `strokeSpot`, `overprint`, `beginTag`, `endTag`, `PdfDoc.tagged`,
+  `displayTitle`; `retroui/photopdf`: `PdfOptions.tagged`, `interactive`,
+  `noSpots`, `tagFor`; the Save PDF dialog's Accessibility and
+  Interactivity): spot inks as Separation color spaces with their
+  tints, overprint as the press wants it (`OPM 1`); a tagged PDF -- its
+  parts in reading order in a structure tree, headings by their paragraph
+  styles, each picture's alt text, decorations left out, its language.
+- **Interactive PDF** (`PdfField`, `PdfFieldKind`, `formField`,
+  `PageTransition`; `LayerAttrs.field`, `FieldSpec`, `pdfFieldOf`,
+  `addFields`; Window > Buttons and Forms, Layout > Page Transitions): text
+  fields, check boxes, radio buttons, combo and list boxes, signature
+  fields and buttons that go to a page, a web address, show or hide a field,
+  print, clear or submit -- each drawn as its layer looks; transitions when
+  the PDF is shown full screen (Split, Blinds, Box, Wipe, Dissolve,
+  Glitter, Fly, Push, Cover, Uncover, Fade).
+- **What a layer is in print and for readers** (`LayerAttrs`: overprint
+  fill and stroke, nonprinting, alt text, a decoration, its tag, a form
+  field, a photo placeholder; `attrsToJson`, `attrsFrom`; Window >
+  Attributes, Layer > Object Export Options), saved in the document.
+- **Conditional text, track changes and notes** (`retroui/textengine`:
+  `CharStyle.condition`, `added`, `deleted`, `memo`; `withConditions`,
+  `applyCondition`, `trackedInsert`, `trackedDelete`, `withoutDeleted`,
+  `showingChanges`, `changesOf`, `acceptChanges`, `rejectChanges`,
+  `addMemo`, `memosOf`; `Doc.conditions`): text under a hidden condition
+  left out as the document shows, prints and exports; what is typed and
+  deleted kept as changes, by who and when, shown in color, accepted or
+  rejected; notes on the words (Window > Conditional Text, Track Changes
+  and Notes).
+- **Paragraph shading and borders** (`ParaStyle.shading`, `shadeToText`,
+  `shadeOffsets`, `border`, `borderWidths`): a color behind a paragraph,
+  as wide as its column or its text, and lines round it.
+- **Equations** (`retroui/mathtype`: `setMath`, `mathPolys`): math as TeX
+  writes it -- fractions, roots, sub- and superscripts, sums, integrals,
+  Greek letters, brackets that grow, words -- set as a shape, its source its
+  alt text, tagged a formula (Type > Insert Equation).
+- **Flex Layout** (`retroui/flexlayout`: `FlexBox`, `flexArrange`;
+  `retroui/vectormake`: `flexOf`, `setFlex`, `arrangeFlex`): a group's
+  frames in a row or a column, justified, aligned, wrapping, with a gap and
+  padding, hugging what they hold; change one -- a text frame that grows
+  -- and the others move, in the same step.
+- **`stepEndHook`** (`retroui/photo`): an app's work as each step ends,
+  while it is open still -- what follows a change done in that step and
+  undone with it (Flex Layout's frames, Global Edit's shapes).
+- **E-books and web pages** (`retroui/publish`: `PubDoc`, `epubOf`,
+  `webPage`, `publishSite`; `retroui/photopublish`: `pubDocOf` of
+  documents and books): EPUB 3, reflowable or fixed layout, its text text,
+  its headings headings, each picture with its alt text, its cover, its
+  table of contents, right to left for Arabic; a web page that keeps the
+  layout on a computer and puts the text and pictures one under another on
+  a phone (File > Export > EPUB, Publish as Web Page).
+- **The drawing program's makers** (`retroui/vectormake`): Global Edit
+  (`similarLayers`, `globalEdit`: the shapes like the one picked follow
+  what is done to it); Live Paint (`LivePaint`, `faceMask`, `paintFaces`,
+  `fillFace`: the faces where shapes overlap filled with the bucket, kept
+  as the shapes move); Intertwine (`crossing`: where two cross, the one
+  under brought over); Pattern Options (`PatternSpec`, `patternTile`: grid,
+  bricks by row or column, hexagons, spacing, which overlaps in front);
+  Tidy Up (`tidyUp`: a row, a column or a grid, the room between even).
+- **Envelope Distort** (`retroui/liveeffects`: `leEnvelope`,
+  `envelopeMesh`, `envelopeTop`): a shape bent by a mesh whose points are
+  dragged, or fitted into the outline of the object over it (a Coons patch
+  between its sides) -- live, released at any time.
+- **Relight, without AI** (`retroui/photorelight`: `RelightLight` -- point,
+  spot, sun --, `relight`): lights put on a photo by its own relief (its
+  depth map, smoothed in proportion to the picture), their color, reach,
+  height, angle and cone -- a spot's pool of light an ellipse where it
+  points --, dragged on the image; Lighting Effects' light dragged on the
+  image too.
+- **Upscale and Remove with its shadow** (`upscaleDetail`, `upscaleDoc`,
+  `shadowOf`): a picture two to four times as big, its edges kept sharp
+  along their lines and its detail made again from the picture itself;
+  the shadow an object casts found and removed with it.
+- **Mockups** (`retroui/mockups`: `MockupKind`, `scene`, `makeMockup`): a
+  design on a T-shirt, a mug, a phone, a laptop, a poster on a wall, a book
+  cover, business cards, a tote bag -- a new document, the design a Smart
+  Object in its place, the light and shade over it.
+- **Styles and font pairs** (`retroui/designstyles`: `DesignStyle`,
+  `builtInStyles`, `applyStyle`, `fontPairs`, `paletteMap`): a palette and
+  a heading and body font on a whole design at once, each color to the
+  palette's of its lightness (photo placeholders left as they are).
+- **An AI service of your own** (`retroui/aiconnect`: `AiSettings`,
+  `askAi`, `commandsOf`, `requestOf`): one that speaks OpenAI's chat
+  completions (a local Ollama or LM Studio too) or Anthropic's Messages
+  turns what you ask into the app's own commands, shown before they run;
+  off until you set one, nothing sent before.
+- **Liquify's preview on the GPU** (`gpuWarpMesh`; `liquifyImg`'s
+  `preview`): the picture moved by the mesh as it is brushed, within a
+  level of the CPU's; the picture itself always the CPU's.
+- **Templates** (`retroui/phototemplates`): ten more (Product Launch, Real
+  Estate Listing, Sale Post, Team Member, Photo Story, Travel Postcard,
+  Magazine Cover, Recipe Card, Wedding Invitation, Portfolio Page), in the
+  Assets store too; every template's frames photo placeholders
+  (`LayerAttrs.placeholder`) -- a double-click puts a photo in.
+- **`layerBytes`, `bytesText`**: how much memory a layer takes, as people
+  read it.
+- **Retro Atelier 5.6.0** (code 45): all of the above in its menus and
+  panels (View, Window > Separations Preview, Attributes, Buttons and
+  Forms, Conditional Text, Track Changes and Notes, Styles and Fonts,
+  Pattern Options; Type > Track Changes, Insert Equation, Paragraph
+  Shading and Borders; Layout > Flex Layout, Tidy Up, Page Transitions;
+  Layer > Envelope Distort, Live Paint, Intertwine, Make Photo Placeholder;
+  Select > Start Global Edit; Filter > Render > Relight; Image > Upscale;
+  Edit > Remove with Its Shadow, Ink Manager, AI Connector, Ask AI; File >
+  Mockups, Export > EPUB, Publish as Web Page), in Arabic too; previews
+  while a dialog's slider is dragged made at the size shown and without
+  the proof's colors, the picture itself when it is let go; Preferences:
+  your own placeholder text, each layer's size in the Layers panel.
+
 ## 0.59.0
 
 What was still missing from the three programs, all in one: nested line

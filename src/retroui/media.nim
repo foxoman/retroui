@@ -52,7 +52,7 @@
 import std/[os, strutils, tables, hashes, times, osproc, streams, locks]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 from std/math import round
-import gfx, core, widgets, platform, pixelicons, imaging
+import gfx, core, widgets, platform, pixelicons, imaging, simdkit
 import uirelays/services
 import mediaaudio, mediagif, mediagst, mediaplayer
 from thumbcache import cacheFolder
@@ -1939,12 +1939,18 @@ proc i420Of(px: openArray[uint32]; w, h: int; bt709: bool): string =
   let uOff = w * h
   let vOff = uOff + (w div 2) * (h div 2)
   for y in 0 ..< h:
-    for x in 0 ..< w:
-      let p = px[y * w + x]
-      let r = int((p shr 16) and 255)
-      let g = int((p shr 8) and 255)
-      let b = int(p and 255)
-      result[y * w + x] = char(clamp((cyr * r + cyg * g + cyb * b + 32768) shr 16 + 16, 16, 235))
+    when kitSimd:
+      # (eight at a time: the same bytes)
+      if w > 0:
+        lumaRow(cast[ptr uint8](addr result[y * w]), unsafeAddr px[y * w], w,
+                int32(cyr), int32(cyg), int32(cyb))
+    else:
+      for x in 0 ..< w:
+        let p = px[y * w + x]
+        let r = int((p shr 16) and 255)
+        let g = int((p shr 8) and 255)
+        let b = int(p and 255)
+        result[y * w + x] = char(clamp((cyr * r + cyg * g + cyb * b + 32768) shr 16 + 16, 16, 235))
   for y in 0 ..< h div 2:
     for x in 0 ..< w div 2:
       var r, g, b = 0
