@@ -640,6 +640,130 @@ proc blockSender(ms: seq[Msg]) =
   moveMsgs(all, "junk")
   status = "Blocked " & senders.join(", ") & ": their mail goes to Junk"
 
+# ---- safety: who it is from, links, tracking (retroui/mailauth, retroui/mailsafety) ---------
+
+var
+  safeCache: Table[int, MailSafety]      ## a message's HTML made safe, and what was found
+  safetyClosed: HashSet[int]             ## the banners closed (by message)
+  knownDoms: seq[string]                 ## the domains of those written to (look-alikes of them)
+  knownAt = 0.0
+  linkAsk = false
+  linkAskUrl, linkAskWhy = ""
+
+proc safeOf(m: Msg): MailSafety =
+  ## The message's HTML as the reading pane shows it: tracking pictures out,
+  ## tracking codes off the links, the links that are not what they look like.
+  let key = m.id * 4 + ord(prefBool("plainRead", false)) + 2 * ord(prefBool("noTrackers", true))
+  if key notin safeCache:
+    if safeCache.len > 64: safeCache.clear()
+    var s = cleanMail(readHtml(m))
+    if not prefBool("noTrackers", true):
+      s.html = readHtml(m)          # (as sent: the links' problems still found)
+      s.trackers = 0
+      s.codes = 0
+    safeCache[key] = s
+  safeCache[key]
+
+proc knownDomains(): seq[string] =
+  if epochTime() - knownAt > 300:
+    knownDoms.setLen(0)
+    for c in store0.contacts("", 400):
+      if c.saved or c.uses >= 2:
+        let at = c.email.rfind('@')
+        if at > 0:
+          let d = registrableDomain(c.email[at + 1 .. ^1])
+          if d.len > 0 and d notin knownDoms: knownDoms.add d
+    knownAt = epochTime()
+  knownDoms
+
+proc safetyBanners(m: Msg) =
+  ## Over a message: a sender who is not who they say (their provider's
+  ## checks, DKIM checked here), a name or domain made to fool, links that
+  ## go somewhere other than they say; and, quietly, the sender checked and
+  ## the tracking taken out.
+  if m.mine: return
+  let c = store0.senderCheckOf(m.id)
+  let closed = m.id in safetyClosed or not prefBool("phishWarn", true)
+  if c.state == ord(senderFailed) and not closed:
+    case banner("This message may not be from " & c.domain & ": " & c.detail & ". Do not open its " &
+                "links or files, or answer it, before you are sure.", bkError,
+                ["Block Sender", "Move to Junk"])
+    of 0: safetyClosed.incl m.id
+    of 1: blockSender(@[m])
+    of 2: moveMsgs(@[m], "junk")
+    else: discard
+  elif c.state == ord(senderUnverified) and not closed:
+    if banner("Retro Mail could not confirm this came from " & c.domain & " (" & c.detail & ").",
+              bkWarning) == 0: safetyClosed.incl m.id
+  let warns = senderWarnings(m.fromName, m.fromEmail, knownDomains())
+  if warns.len > 0 and not closed:
+    case banner("Look again before you answer: " & warns[0] & ".", bkWarning, ["Block Sender"])
+    of 0: safetyClosed.incl m.id
+    of 1: blockSender(@[m])
+    else: discard
+  let s = safeOf(m)
+  var tricks = 0
+  var first = ""
+  for l in s.links:
+    if l.deceptive:
+      inc tricks
+      if first.len == 0: first = l.why
+  if tricks > 0 and not closed:
+    if banner((if tricks == 1: "A link in this message is" else: $tricks & " links in this message are") &
+              " not what it looks like: " & first & ".", bkWarning) == 0: safetyClosed.incl m.id
+  var notes: seq[string]
+  if c.state == ord(senderVerified):
+    notes.add "From " & c.domain & ", checked (" & c.detail & (if c.by.len > 0: ", " & c.by else: "") & ")"
+  if s.trackers > 0:
+    notes.add $s.trackers & (if s.trackers == 1: " tracking picture" else: " tracking pictures") & " taken out"
+  if s.codes > 0:
+    notes.add "tracking codes taken off " & $s.codes & (if s.codes == 1: " link" else: " links")
+  if notes.len > 0: label notes.join(";  "), color = ui.theme.gray
+
+proc openLinkSafely(m: Msg; url: string) =
+  ## A link clicked in a message: opened without its tracking codes; one that
+  ## is not what it looks like (or runs a script) asked about first.
+  var words = ""
+  for l in safeOf(m).links:
+    if l.href == url: words = l.text
+  let why = linkWarning(url, words)
+  let scripted = url.toLowerAscii.strip.startsWith("javascript:") or url.toLowerAscii.strip.startsWith("data:")
+  if why.len > 0 and (prefBool("phishWarn", true) or scripted):
+    linkAsk = true
+    linkAskUrl = url
+    linkAskWhy = why
+  else: discard openUrl(if prefBool("noTrackers", true): stripTracking(url) else: url)
+
+var storeNoteOpen = true
+
+proc storeNoteDialog() =
+  ## What happened to the mail kept here as the app started (its key gone,
+  ## or it could not be encrypted): told once.
+  if storeNote.len == 0: return
+  dialog storeNoteOpen, "The Mail on This Device", dp(460):
+    paragraph storeNote
+    separator()
+    row:
+      space available() - dp(96)
+      if button("OK", isDefault = true, w = dp(96)): storeNoteOpen = false
+  if not storeNoteOpen: storeNote = ""
+
+proc linkAskDialog() =
+  dialog linkAsk, "Open This Link?", dp(460):
+    label "This link may not be what it looks like", bold = true
+    paragraph "Retro Mail found that " & linkAskWhy & "."
+    paragraph "It goes to: " & linkAskUrl, color = ui.theme.gray
+    separator()
+    row:
+      space available() - 2 * (dp(96) + Gap) + Gap
+      let script = linkAskUrl.toLowerAscii.strip.startsWith("javascript:") or
+                   linkAskUrl.toLowerAscii.strip.startsWith("data:") or
+                   linkAskUrl.toLowerAscii.strip.startsWith("vbscript:")
+      if button("&Open It", w = dp(96), enabled = not script):
+        linkAsk = false
+        discard openUrl(stripTracking(linkAskUrl))
+      if button("Cancel", isDefault = true, w = dp(96)): linkAsk = false
+
 proc gotUnsub(id: int; data: string) =
   let j = try: parseJson(data) except CatchableError: newJObject()
   let m = store0.message(id)

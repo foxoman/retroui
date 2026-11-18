@@ -216,6 +216,29 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   disk (`FileItem.offline`) is read only when it is opened. On Windows a
   window that stops answering writes where (`retroui/hangwatch`): a
   report of one names the proc to move off the thread.
+- Mail's checks (`retroui/mailauth`, `retroui/mailsafety`,
+  `retroui/domains`, `retroui/dnsquery`) believe a provider's
+  Authentication-Results only from its own servers and only the topmost
+  (`providerAuthservs`, or one learned from 50 messages and 80 in a
+  hundred); a DKIM signature counts only when its domain is the From
+  address's own or its organization's, and one that proves nothing (SHA-1,
+  `l=`, a testing key, a key under 1024 bits) is never counted as proof.
+  `tests/test_mailauth.nim` holds RFC 8463's example and messages another
+  program signed: a change to canonicalization keeps them verifying. The
+  names kept for examples (.test, .example, example.com...) are never asked
+  of DNS. The Public Suffix List and the confusables are vendored data
+  (`THIRD-PARTY-NOTICES.md`): fetched again from publicsuffix.org and
+  Unicode's own files, packed with `tools/packlzma.py`.
+- An encrypted database (`openDb(path, key = ...)`, `src/retroui/cryptvfs.c`):
+  4096-byte pages with 40 kept free for each page's nonce and tag, made so
+  when the file is new (`SQLITE_FCNTL_RESERVE_BYTES`); the VFS refuses to
+  write a page whose last 40 bytes are not zero or a first page that does
+  not say so, rather than lose data. SQLite's temporary data stays in
+  memory; a rollback journal and temporary files are encrypted too.
+  `tests/test_dbcrypt.nim` kills a writer part way: run it after any change
+  there. Retro Mail's store is encrypted by default (its key in
+  `retroui/secrets`); `secureStore` runs before anything opens it.
+  Sending over SMTP never writes the Bcc header (`withoutBcc`).
 - A file that is a device or a pipe is never read (`specialFile`,
   `FileItem.special`): a read of one may never end. What an app does that
   reaches outside itself -- ending a process, following feeds without

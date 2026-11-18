@@ -20,6 +20,9 @@ proc askAssistant(kind: string; m: Msg)
 proc assistBox(ids: seq[int])
 proc forwardAsAttachment()
 proc unsubscribeBar(m: Msg)
+proc safetyBanners(m: Msg)
+proc safeOf(m: Msg): MailSafety
+proc openLinkSafely(m: Msg; url: string)
 proc blockSender(ms: seq[Msg])
 proc printMessage()
 proc showProperties(source = false)
@@ -1358,8 +1361,9 @@ proc messageBody(m: Msg; fill: bool) =
   case m.bodyState
   of 2:
     inviteBanner(m)
+    safetyBanners(m)
     unsubscribeBar(m)
-    let html = readHtml(m)
+    let html = safeOf(m).html
     let pics = remoteImages(html)
     if pics > 0 and not picturesTrusted(m):
       let sender = m.fromEmail.toLowerAscii
@@ -1389,7 +1393,7 @@ proc messageBody(m: Msg; fill: bool) =
     if ev.link.len > 0:
       if ev.link.startsWith("mailto:"):
         openCompose("new", to = ev.link[7 .. ^1].split('?')[0])
-      else: discard openUrl(ev.link)
+      else: openLinkSafely(m, ev.link)
   of 3:
     paragraph "This message could not be downloaded. It may have been deleted or moved."
   else:

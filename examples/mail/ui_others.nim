@@ -107,7 +107,7 @@ let halfHours = (0 ..< 48).toSeq.mapIt(align($(it div 2), 2, '0') & (if it mod 2
 proc calAccounts(): seq[Account] =
   ## The accounts with a calendar (not Local Folders, not IMAP's).
   for a in accountsC:
-    if not isLocal(a) and a.kind != akImap: result.add a
+    if not isLocal(a) and a.kind in {akGraph, akGmail}: result.add a
 
 proc clockText(t: float): string = fromUnixFloat(t).local.format("HH:mm")
 

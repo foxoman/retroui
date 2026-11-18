@@ -153,6 +153,10 @@ if haveTls:
   let t = imapConnect("localhost", tlsPort, secTls, insecure = true)
   t.login("me@example.test", "secret")
   check t.listFolders().len > 0, "IMAP over TLS"
+  discard t.select("INBOX")
+  let ti = epochTime()
+  check t.idle(1).len == 0 and epochTime() - ti < 3 and t.uidSearch("ALL").len > 0,
+        "IDLE over TLS: a quiet second, and on"
   t.logout()
   let s = imapConnect("localhost", imapPort, secStartTls, insecure = true)
   s.login("me@example.test", "secret")
@@ -220,6 +224,7 @@ discard store0.queueAction(accId, "read", %*{"id": omar.id, "unread": false})
 discard store0.queueAction(accId, "flag", %*{"id": omar.id, "flagged": false})
 discard store0.queueAction(accId, "tags", %*{"id": omar.id, "tags": ["Retro"], "removed": ["Work"]})
 discard store0.queueAction(accId, "send", %*{"mode": "new", "to": [{"name": "Sara", "email": "sara@example.test"}],
+                                            "bcc": [{"name": "", "email": "hidden@example.test"}],
                                             "subject": "From Retro Mail", "text": "Hello Sara", "html": "<p>Hello Sara</p>"})
 discard syncOnce(mailDir() / "mail.db")
 stt = mockState()
@@ -232,6 +237,11 @@ var sentHere = false
 for s in stt["_sent"].getElems:
   if "From Retro Mail" in s.getStr and "RCPT sara@example.test" in s.getStr: sentHere = true
 check sentHere, "sent through SMTP"
+var bccHidden = false
+for s in stt["_sent"].getElems:
+  let t = s.getStr
+  if "From Retro Mail" in t and "hidden@example.test" in t.splitLines[0] and "\nBcc:" notin t: bccHidden = true
+check bccHidden, "the Bcc given to the server, not written in the message (all would see it)"
 var inSent = false
 for k, v in stt["Sent"].pairs:
   if v["subject"].getStr == "From Retro Mail": inSent = true
@@ -251,6 +261,60 @@ discard ad.command("ADMIN NEWMAIL")
 ad.logout()
 let r2 = syncOnce(mailDir() / "mail.db")
 check r2.count == 1 and "Brand new" in r2.latest, "new mail told: " & $r2
+
+echo "push: the server says when mail comes (IDLE)"
+proc newMailSoon(port: int) {.thread.} =
+  {.gcsafe.}:
+    sleep(400)
+    let a = imapConnect("127.0.0.1", port, secNone)
+    discard a.command("ADMIN NEWMAIL")
+    a.logout()
+let idler = imapConnect("127.0.0.1", imapPort, secNone)
+idler.login("me@example.test", "secret")
+discard idler.select("INBOX", readOnly = true)
+check idler.has("IDLE"), "the server can"
+var th: Thread[int]
+createThread(th, newMailSoon, imapPort)
+let t0 = epochTime()
+let news = idler.idle(20)
+joinThread(th)
+var exists = false
+for n in news:
+  if n.toUpperAscii.endsWith("EXISTS"): exists = true
+check exists and epochTime() - t0 < 3, "new mail told at once: " & $news & " (" &
+      $int((epochTime() - t0) * 1000) & " ms)"
+let t1 = epochTime()
+let quiet = idler.idle(20, proc (): bool = epochTime() - t1 > 0.7)
+check quiet.len == 0 and epochTime() - t1 < 2.5, "stopped when asked, nothing told"
+check idler.uidSearch("ALL").len > 0, "the connection goes on after it"
+idler.logout()
+# Retro Mail's sync thread: the new message fetched with no check asked for
+var link: SyncLink
+link.cmds.open()
+link.events.open()
+link.dbPath = mailDir() / "mail.db"
+var syncTh: Thread[ptr SyncLink]
+createThread(syncTh, syncMain, addr link)
+link.cmds.send(SyncCmd(kind: scSettings, count: 60))       # (checks an hour apart)
+let before = store0.folderMessages(inboxF.id).len
+sleep(2500)                                                 # (the first sync, the watcher waiting)
+let pushStart = epochTime()
+var t2: Thread[int]
+createThread(t2, newMailSoon, imapPort)
+joinThread(t2)
+var arrived = false
+while epochTime() - pushStart < 10:
+  if store0.folderMessages(inboxF.id).len > before + 0:
+    var brand = 0
+    for m in store0.folderMessages(inboxF.id):
+      if m.subject == "Brand new": inc brand
+    if brand >= 3:
+      arrived = true
+      break
+  sleep(100)
+check arrived, "Retro Mail fetched it as the server told (" & $int((epochTime() - pushStart) * 1000) & " ms)"
+link.cmds.send(SyncCmd(kind: scQuit))
+joinThread(syncTh)
 
 store0.close()             # (Windows: an open database cannot be removed)
 removeDir(home)

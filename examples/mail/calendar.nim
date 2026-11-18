@@ -521,7 +521,7 @@ proc calendarEvents*(acc: Account; token: string; fromT, toT: float): seq[Event]
           pats[e.series] = googleRepeat(m{"recurrence"})
         except ApiError: discard
       e.repeat = pats.getOrDefault(e.series)
-  of akImap: discard                      # (IMAP has no calendar)
+  of akImap, akPop, akJmap, akEws: discard   # (no calendar through them)
 
 proc noCalendar(): ref ApiError =
   result = newException(ApiError, "an IMAP account has no calendar here")
@@ -535,7 +535,7 @@ proc eventTimes(acc: Account; token, id: string): tuple[start, finish: float] =
                                 token, extra = [graphPrefer], what = "the series"), acc.id)
           of akGmail:
             googleEvent(callJson("GET", gcalEvents(id), token, what = "the series"), acc.id)
-          of akImap: raise noCalendar()
+          of akImap, akPop, akJmap, akEws: raise noCalendar()
   (e.start, e.finish)
 
 proc createEvent*(acc: Account; token: string; e: EventDraft): string =
@@ -551,7 +551,7 @@ proc createEvent*(acc: Account; token: string; e: EventDraft): string =
     let body = googleEventJson(e, AllParts, requestId())
     callJson("POST", gcalEvents() & "?sendUpdates=all" & (if e.online: "&conferenceDataVersion=1" else: ""),
              token, body, what = "the new event"){"id"}.getStr
-  of akImap: raise noCalendar()
+  of akImap, akPop, akJmap, akEws: raise noCalendar()
 
 proc updateEvent*(acc: Account; token, id: string; e: EventDraft; parts = AllParts;
                   occurrence = 0.0) =
@@ -575,7 +575,7 @@ proc updateEvent*(acc: Account; token, id: string; e: EventDraft; parts = AllPar
     discard callJson("PATCH", gcalEvents(id) & "?sendUpdates=all" &
                      (if dpOnline in parts: "&conferenceDataVersion=1" else: ""), token,
                      googleEventJson(e, parts, requestId(), patch = true), what = "the event")
-  of akImap: raise noCalendar()
+  of akImap, akPop, akJmap, akEws: raise noCalendar()
 
 proc deleteEvent*(acc: Account; token, id: string; cancel = true; comment = "") =
   ## Takes event `id` out of the calendar. `cancel`: a meeting the account
@@ -592,4 +592,4 @@ proc deleteEvent*(acc: Account; token, id: string; cancel = true; comment = "") 
   of akGmail:
     let r = call("DELETE", gcalEvents(id) & "?sendUpdates=" & (if cancel: "all" else: "none"), token)
     if not r.ok and r.status notin [404, 410]: fail(r, "the delete")
-  of akImap: raise noCalendar()
+  of akImap, akPop, akJmap, akEws: raise noCalendar()

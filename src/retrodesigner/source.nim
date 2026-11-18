@@ -465,6 +465,41 @@ proc deleteStmt*(s: Src; n: PNode; list: PNode): string =
     return apply(s.text, [(a, b, repeat(' ', ln.indent) & "discard\n")])
   apply(s.text, [(a, b, "")])
 
+proc deleteStmts*(s: Src; its: openArray[tuple[n, list: PNode]]): string =
+  ## Several statements taken away in one change (a body left with none of
+  ## its own gets `discard`). One inside another: the outer one goes.
+  var spans: seq[tuple[a, b: int; n, list: PNode; indent: int]]
+  for (n, list) in its:
+    let ln = s.stmtLines(n)
+    if not ln.whole: fail "it shares its line with other code"
+    let (a, b) = s.lineSpan(ln.first, ln.last)
+    spans.add (a, b, n, list, ln.indent)
+  # (one within another: only the outer)
+  var keep: seq[int]
+  for i, x in spans:
+    var inner = false
+    for j, y in spans:
+      if i != j and y.a <= x.a and x.b <= y.b and (y.a < x.a or x.b < y.b or j < i): inner = true
+    if not inner: keep.add i
+  var edits: seq[Edit]
+  var emptied: seq[PNode]
+  for i in keep:
+    let x = spans[i]
+    var others = 0
+    if x.list != nil:
+      for st in x.list.stmts:
+        if st.kind == nkCommentStmt: continue
+        var going = false
+        for k in keep:
+          if spans[k].n == st: going = true
+        if not going: inc others
+    if x.list != nil and others == 0 and x.list notin emptied:
+      emptied.add x.list
+      edits.add (x.a, x.b, repeat(' ', x.indent) & "discard\n")
+    else:
+      edits.add (x.a, x.b, "")
+  apply(s.text, edits)
+
 proc writeTabIndexes*(s: Src; drop: openArray[PNode]; add: openArray[tuple[n: PNode; k: int]]): string =
   ## The statements `drop` (the `tabIndex` lines there were) taken away and
   ## `tabIndex k` written before each statement of `add`, in one change.
@@ -522,6 +557,21 @@ proc moveStmt*(s: Src; n, fromList: PNode; toList, toOwner: PNode; index: int): 
     if at > 0 and s.text[at - 1] != '\n': pre = "\n"
     edits.add (at, at, pre & moved)
   apply(s.text, edits)
+
+proc moveStmts*(s: Src; nodes: seq[PNode]; list, owner: PNode; d: int): string =
+  ## Statements side by side in one body (in order) moved together one place
+  ## up (-1) or down (+1): the neighbour goes to their other side.
+  if nodes.len == 0: fail "nothing chosen"
+  let ss = list.stmts
+  let i0 = ss.find(nodes[0])
+  let i1 = ss.find(nodes[^1])
+  if i0 < 0 or i1 < 0: fail "not in this body"
+  if d < 0:
+    if i0 == 0: fail "it is at the top already"
+    s.moveStmt(ss[i0 - 1], list, list, owner, i1 + 1)
+  else:
+    if i1 + 1 >= ss.len: fail "it is at the bottom already"
+    s.moveStmt(ss[i1 + 1], list, list, owner, i0)
 
 proc wrapStmts*(s: Src; nodes: seq[PNode]; header: string): string =
   ## The statements (siblings, in order) put under a new `header` line
@@ -628,9 +678,9 @@ proc callParens(s: Src; n: PNode): tuple[open, close: int] =
     k = tokenEnd(s.text, k)
   (ta, -1)
 
-proc setArg*(s: Src; call: PNode; index: int; name, value: string; target: PNode = nil): string =
-  ## Argument `name` (parameter `index`) of `call` set to `value` (Nim
-  ## source text): changed where it is, else added by its name.
+proc argEdit*(s: Src; call: PNode; index: int; name, value: string; target: PNode = nil): Edit =
+  ## The edit that sets argument `name` (parameter `index`) of `call` to
+  ## `value` (Nim source text): where it is, else added by its name.
   var at = target
   if at == nil:
     at = call.namedArg(name)
@@ -640,21 +690,26 @@ proc setArg*(s: Src; call: PNode; index: int; name, value: string; target: PNode
   if at != nil:
     let node = if at.kind == nkExprEqExpr: at[1] else: at
     let (a, b) = s.span(node)
-    return apply(s.text, [(a, b, value)])
+    return (a, b, value)
   let piece = name & " = " & value
   if call.kind == nkIdent:
     let (a, b) = s.span(call)
-    return apply(s.text, [(a, b, s.text[a ..< b] & "(" & piece & ")")])
+    return (a, b, s.text[a ..< b] & "(" & piece & ")")
   let (po, pc) = s.callParens(call)
   let existing = call.args
   if po >= 0 and pc >= 0:
-    return apply(s.text, [(pc, pc, (if existing.len > 0: ", " else: "") & piece)])
+    return (pc, pc, (if existing.len > 0: ", " else: "") & piece)
   if existing.len > 0:
     let b = s.endOff(existing[^1])
-    return apply(s.text, [(b, b, ", " & piece)])
+    return (b, b, ", " & piece)
   # (a command or a call with only a body: `row:`)
   let b = s.endOff(call[0])
-  apply(s.text, [(b, b, "(" & piece & ")")])
+  (b, b, "(" & piece & ")")
+
+proc setArg*(s: Src; call: PNode; index: int; name, value: string; target: PNode = nil): string =
+  ## Argument `name` (parameter `index`) of `call` set to `value` (Nim
+  ## source text): changed where it is, else added by its name.
+  apply(s.text, [s.argEdit(call, index, name, value, target)])
 
 proc removeArg*(s: Src; call: PNode; arg: PNode): string =
   ## Argument `arg` taken out of `call` (with its comma).

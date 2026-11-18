@@ -173,6 +173,7 @@ when (defined(macosx) or defined(ios)) and not defined(wasm):
   proc SSLWrite(ctx: pointer; data: pointer; len: csize_t; done: ptr csize_t): int32 {.importc, cdecl.}
   proc SSLRead(ctx: pointer; data: pointer; len: csize_t; done: ptr csize_t): int32 {.importc, cdecl.}
   proc SSLClose(ctx: pointer): int32 {.importc, cdecl.}
+  proc SSLGetBufferedReadSize(ctx: pointer; size: ptr csize_t): int32 {.importc, cdecl.}
   proc CFRelease(p: pointer) {.importc, cdecl.}
   const
     errSSLWouldBlock = -9803'i32
@@ -768,6 +769,29 @@ proc readLine*(c: NetConn): string =
         c.pos = c.buf.len
         return
       fail(c.host & " closed the connection")
+
+proc waitRead*(c: NetConn; ms: int): bool =
+  ## Something came to read within `ms` milliseconds (or was already
+  ## here): the next read will not wait long -- for a client that waits for
+  ## the server to speak first (IMAP's IDLE) and does something else
+  ## meanwhile. An Android app and a web page cannot tell: true at once (a
+  ## read then waits as it always does).
+  if c.pos < c.buf.len: return true
+  when defined(wasm) or androidApp:
+    true
+  else:
+    if c.closed: return false
+    when defined(windows):
+      if c.encrypted and c.raw.len > 0: return true
+    elif defined(macosx) or defined(ios):
+      if c.st != nil:
+        var n: csize_t
+        if SSLGetBufferedReadSize(c.st, addr n) == 0 and n > 0: return true
+    else:
+      {.cast(gcsafe).}:
+        if c.ssl != nil and ossl.pending != nil and ossl.pending(c.ssl) > 0: return true
+    var fds = @[c.sock.getFd]
+    selectRead(fds, max(0, ms)) > 0
 
 proc readBytes*(c: NetConn; n: int): string =
   ## Exactly `n` bytes (an IMAP literal). Raises `NetError` as `readLine`.

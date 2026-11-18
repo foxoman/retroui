@@ -502,8 +502,27 @@ costs what its visible rows cost.
   (`imapConnect`, `login`, `listFolders`, `select`, `uidSearch`,
   `fetchHeaders`, `fetchMessage`, `addFlags`, `move`, `append`),
   `retroui/smtp` (`smtpSend(host, port, security, user, password, from,
-  rcpts, rawMessage)`: "" when sent), `retroui/mailsetup`
-  (`findMailServers(email)`); blocking: on a thread of their own. `import
+  rcpts, rawMessage)`: "" when sent; a Bcc header is never sent),
+  `retroui/mailsetup` (`findMailServers(email)`: IMAP, SMTP, POP3, a JMAP
+  session, `appPassword` -- where the provider wants one); IMAP's `idle(c,
+  seconds, stop)` waits for new mail (push); `retroui/pop3`
+  (`pop3Connect`, `uidl`, `retr`, `dele`, `quit`), `retroui/jmap`
+  (`jmapConnect(url, jmapBearer(token))`, `mailboxes`, `queryEmails`,
+  `getEmails`, `emailChanges`, `download`, `sendRaw`), `retroui/ews`
+  (Exchange: `ewsConnect(url, "DOMAIN\\user", password)` -- Basic, else NTLM
+  by `retroui/ntlm` -- `folders`, `syncItems`, `getItems`, `mimeOf`,
+  `sendMime`); blocking: on a thread of their own. Who a message is from:
+  `retroui/mailauth` (`checkSender(raw, providerAuthservs(host))`: DKIM
+  verified here, the provider's Authentication-Results from its own servers
+  only, DMARC policy) and `retroui/mailsafety` (`cleanMail(html)`: tracking
+  pictures out, tracking codes off links, links that are not what they say;
+  `senderWarnings(name, address, knownDomains)`; `linkWarning(href, text)`
+  before opening one); `retroui/domains` (the Public Suffix List's
+  `registrableDomain`, IDN `toAsciiHost`/`toUnicodeHost`, look-alikes:
+  `skeleton`, `looksLike`, `mixedScripts`); `retroui/dnsquery` (`dnsQuery(name,
+  "TXT")`: the system's resolver, DNS over HTTPS where there is none). An
+  encrypted database: `openDb(path, key = key32)` (`encryptDb`, `decryptDb`
+  for a file made without one). `import
   retroui/xmpp` -- chat: `xmppStart(jid, password)`, take `xmppEvents()`
   every frame (with `wakeIn(250)` while `xmppRunning()`), `sendChat(to,
   text)`; the server's history: when xeServices says "archive",

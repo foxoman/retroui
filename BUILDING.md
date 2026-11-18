@@ -36,7 +36,8 @@ The photo engine's hottest loops (`retroui/simd`: the layers mixed,
 the tables looked up, blurs, resampling) and the kit's own
 (`retroui/simdkit`: the UI renderer's fills and blends, JPEG's inverse
 DCT, colors and upsampling, PNG's filters, Adler-32, the camera's and
-video's rows) are C written with GCC's and Clang's own vectors -- SSE2 on
+video's rows; `simdtext.h`: mail's base64, quoted-printable and charsets)
+are C written with GCC's and Clang's own vectors -- SSE2 on
 any x86-64, and AVX2 besides, eight lanes, picked as the program starts
 where the processor has it (the same program runs on every x86-64, the
 same pixels and bytes either way); NEON on ARM; nothing to add.
@@ -961,7 +962,8 @@ environment of its own: `adb shell am start -n PACKAGE/org.retro.RetroActivity
 | `RETRO_SPELL=none` | no spell checking (else the system's checker, or Hunspell) |
 | `RETRO_SECRETS_DIR=FOLDER` | `saveSecret` keeps secrets in files there, not in the system's keychain |
 | `RETRO_HTTP_CURL_COMMAND=1` | `httpRequest` runs the `curl` program, not libcurl |
-| `RETRO_MAIL_ISPDB=URL`, `RETRO_MAIL_DOH=URL` | where Retro Mail's setup looks a mail server up |
+| `RETRO_MAIL_ISPDB=URL`, `RETRO_MAIL_DOH=URL` | where Retro Mail's setup looks a mail server up (`RETRO_MAIL_DOH`: DNS over HTTPS there, not the system's resolver) |
+| `RETRO_DNS=HOST:PORT` | `retroui/dnsquery` asks that DNS server only (the tests' own) |
 | `RETRO_BLENDER=PATH` | the Blender that turns `.blend` models into glTF |
 | `RETRO_GPU_COMPOSITE=0` | Retro Atelier's layers put together on the CPU |
 | `RETRO_GPU_DEBUG=1`, `RETRO_3D_DEBUG=1`, `RETRO_WAYLAND_DEBUG=1` | what the GPU, the 3D view, the Wayland driver find, on stderr |

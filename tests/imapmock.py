@@ -152,6 +152,8 @@ class Conn:
             l = l[:m.start()] + b'"' + self.read(n).replace(b"\\", b"\\\\").replace(b'"', b'\\"') + b'"' + self.line()
         return l.decode("latin-1")
 
+IDLERS = set()
+
 def caps(c):
     base = "IMAP4rev1 LITERAL+ SASL-IR UIDPLUS MOVE SPECIAL-USE CONDSTORE ENABLE IDLE NAMESPACE"
     if c.ctx and not isinstance(c.s, ssl.SSLSocket): base += " STARTTLS"
@@ -211,6 +213,16 @@ def imap_session(sock, tls_ctx, implicit):
         while True:
             l = c.full()
             if not l: continue
+            if getattr(c, "idle_tag", None):
+                # (IDLE: the client's DONE ends it)
+                with LOCK:
+                    if l.strip().upper() == "DONE":
+                        c.send("%s OK idle done\r\n" % c.idle_tag)
+                    else:
+                        c.send("%s BAD DONE expected\r\n" % c.idle_tag)
+                    c.idle_tag = None
+                    IDLERS.discard(c)
+                continue
             sp = l.split(" ", 2)
             tag, cmd = sp[0], sp[1].upper() if len(sp) > 1 else ""
             rest = sp[2] if len(sp) > 2 else ""
@@ -259,9 +271,17 @@ def handle(c, tag, cmd, rest):
         elif w[0].upper() == "NEWMAIL":
             inbox.add(msg(100 + inbox.next, "New <new@example.test>", "Brand new", "Just came.",
                           at=time.time()))
+            # (those waiting in IDLE are told at once)
+            for o in list(IDLERS):
+                try: o.send("* %d EXISTS\r\n" % len(inbox.msgs))
+                except OSError: IDLERS.discard(o)
             ok()
     elif not c.authed:
         c.send("%s BAD sign in first\r\n" % tag)
+    elif cmd == "IDLE":
+        c.idle_tag = tag
+        IDLERS.add(c)
+        c.send("+ idling\r\n")
     elif cmd == "ENABLE":
         if "CONDSTORE" in rest.upper(): c.condstore = True
         c.send("* ENABLED %s\r\n" % rest); ok()

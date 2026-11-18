@@ -107,10 +107,8 @@ proc startPage() =
           for a in accountsC:
             let state = if a.state == "signin": "sign in again"
                         elif a.state.len > 0: a.state
-                        else: (case a.kind
-                               of akGmail: "Gmail"
-                               of akImap: "IMAP"
-                               of akGraph: "Microsoft 365") & ", in step"
+                        elif isLocal(a): "On this computer"
+                        else: kindName(a.kind) & ", in step"
             if startLink(pxGlobe, a.email, state):
               if a.state == "signin": signInAgain(a)
               else:

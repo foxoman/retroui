@@ -135,7 +135,7 @@ proc optionsDialog() =
   let width = if isCompact(): ui.w - dp(16) else: dp(640)
   dialog optOpen, "Options", width:
     tabs(optTab, ["General", "Accounts", "Signatures", "Spelling", "Swipe", "Tags", "Assistant",
-                  "Look"]):
+                  "Security", "Look"]):
       case optTab
       of 0:
         group "Send and receive":
@@ -230,6 +230,7 @@ proc optionsDialog() =
           for a in accountsC:
             names.add a.email & "   (" & (if isLocal(a): "on this computer" elif a.kind == akGmail: "Gmail"
                                          elif a.kind == akImap: "IMAP, " & serversOf(a).imapHost
+                                         elif a.kind in passwordKinds: kindName(a.kind)
                                          else: "Microsoft") &
                       (if a.state == "signin": ", sign in again" elif a.state.len > 0: ", " & a.state
                        else: "") & ")"
@@ -239,7 +240,7 @@ proc optionsDialog() =
               if button("&Add...", w = dp(140)):
                 optOpen = false
                 openWizard()
-              let imapAcc = optAcct in 0 ..< accountsC.len and accountsC[optAcct].kind == akImap
+              let imapAcc = optAcct in 0 ..< accountsC.len and accountsC[optAcct].kind in passwordKinds
               if button(if imapAcc: "&Servers..." else: "&Sign In Again", w = dp(140),
                         enabled = optAcct in 0 ..< accountsC.len and not isLocal(accountsC[optAcct])):
                 optOpen = false
@@ -380,6 +381,26 @@ proc optionsDialog() =
                     "they show in Outlook and Gmail too."
       of 6:
         assistantTab()
+      of 7:
+        group "The mail kept here":
+          var enc = prefBool("encryptStore", true)
+          if checkbox("&Keep the mail on this device encrypted", enc): prefs.put("encryptStore", enc)
+          paragraph "Encrypted (XChaCha20-Poly1305, page by page), with a key kept in this " &
+                    "system's keyring: someone with the disk, or a copy of it, reads nothing. " &
+                    "A change takes effect when Retro Mail starts again." &
+                    (if storeEncrypt != enc: " (Restart Retro Mail to " &
+                       (if enc: "encrypt" else: "decrypt") & " it.)" else: "")
+        group "Messages that may not be what they say":
+          var w = prefBool("phishWarn", true)
+          if checkbox("&Warn about senders and links that may not be who and where they say", w):
+            prefs.put("phishWarn", w)
+          var t = prefBool("noTrackers", true)
+          if checkbox("Take out &tracking pictures and tracking codes", t): prefs.put("noTrackers", t)
+          paragraph "Who a message is from is checked with your provider's own checks (DMARC, " &
+                    "DKIM, SPF) and its signature, verified here; a name that says a company " &
+                    "the mail is not from, a domain made to look like a known one, a link whose " &
+                    "words name another site are told over the message. Pictures from the web " &
+                    "stay hidden until you show them."
       else:
         if appearanceSettings():
           storeAppearance(prefs)

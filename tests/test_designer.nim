@@ -226,6 +226,72 @@ block changes:
   let (ok, text) = nimCheck(tmp / "plain.nim")
   expect(ok, "the changed file compiles:\n" & text)
 
+block severalChosen:
+  # controls chosen together: by a box, then deleted, moved, given a property, grouped -- each one
+  # change, one Undo
+  writeFile(tmp / "several.nim", """import retroui
+
+app "Several", 480, 320:
+  label "One"
+  label "Two"
+  label "Three"
+  button "Go"
+""")
+  openFile(tmp / "several.nim")
+  var e = initEval(design)
+  discard drawAll(design, e)
+  var labels: seq[Item]
+  for it in page().root.walk:
+    if it.kind == ikControl and it.name == "label": labels.add it
+  expect(labels.len == 3 and labels[0].drawn and labels[1].drawn, "three labels drawn")
+  # a box from the first label's middle to the second's: those two, not the third, not the window
+  let r1 = labels[0].rect
+  let r2 = labels[1].rect
+  let box = rect(r1.x + 1, r1.y + r1.h div 2, max(4, r2.x + r2.w div 2 - r1.x), r2.y + r2.h div 2 - r1.y - r1.h div 2 + 1)
+  let got = bandPicks(box, page().root)
+  expect(got.len == 2 and labels[0] in got and labels[1] in got, "the box chose the two it touches: " & $got.len)
+  # a box round everything: the controls, not the window
+  let all = bandPicks(rect(-1000, -1000, 4000, 4000), page().root)
+  expect(all.len >= 4 and page().root notin all, "a box round all: " & $all.len)
+  # a property set on both
+  sel = got
+  buildProps(sel[0])
+  var k = -1
+  for i, p in props:
+    if p.name == "s" or p.name == "text": k = i
+  expect(k >= 0, "the label's text")
+  if k >= 0:
+    props[k].text = "Same"
+    propChanged(k)
+    expect(src.text.count("label \"Same\"") == 2 and "label \"Three\"" in src.text,
+           "the property on both: " & status)
+    expect(sel.len == 2, "both still chosen")
+  # moved down together, past the third
+  var two: seq[Item]
+  for it in page().root.walk:
+    if it.kind == ikControl and it.name == "label" and "\"Same\"" in src.textOf(it.call): two.add it
+  sel = two
+  moveBy(1)
+  expect(src.ok and src.text.find("label \"Three\"") < src.text.find("label \"Same\""),
+         "moved down together: " & status)
+  expect(sel.len == 2, "both still chosen after moving")
+  # deleted together, one Undo brings both back
+  let beforeDelete = src.text
+  deleteSel()
+  expect("Same" notin src.text and "Three" in src.text and src.ok, "both deleted: " & status)
+  doUndo()
+  expect(src.text == beforeDelete, "one Undo brings both back")
+  # grouped together
+  two.setLen(0)
+  for it in page().root.walk:
+    if it.kind == ikControl and "\"Same\"" in src.textOf(it.call): two.add it
+  sel = two
+  wrapSel("group \"Both\":")
+  expect("group \"Both\":" in src.text and src.ok, "put in a group together")
+  save()
+  let (ok, text) = nimCheck(tmp / "several.nim")
+  expect(ok, "the changed file compiles:\n" & text)
+
 block renameKeepsFields:
   # a variable renamed: not a field of the same name, not an argument's
   # label, not a proc's own parameter of that name

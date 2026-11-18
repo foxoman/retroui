@@ -22,7 +22,17 @@
 ## where it has them. What is made is 7-bit, with CRLF lines of at most 76
 ## characters.
 
-import std/[strutils, base64, sysrand, times, random, math, algorithm]
+import std/[strutils, base64, sysrand, times, random, math, algorithm, os]
+
+const
+  textSimd = not defined(retroNoSimd)
+    ## (sixteen bytes at a time: src/retroui/simdtext.h; -d:retroNoSimd the plain loops)
+  textKernels = currentSourcePath().parentDir / "simdtext.h"
+
+proc asciiRun(p: ptr char; n: int): int {.importc: "rut_ascii_run", header: textKernels, cdecl.}
+proc find3(p: ptr char; n: int; a, b, c: char): int {.importc: "rut_find3", header: textKernels, cdecl.}
+proc b64Decode16(inp: ptr char; n: int; outp: ptr char): int
+  {.importc: "rut_b64_decode16", header: textKernels, cdecl.}
 
 type
   MimePart* = ref object
@@ -84,20 +94,37 @@ const b64Values = block:
 proc b64decode(s: openArray[char]): string =
   ## Lenient: other characters are skipped, padding is optional, and "="
   ## ends a group (so two encoded pieces one after the other both come out).
-  result = newStringOfCap(s.len * 3 div 4 + 3)
+  ## Sixteen letters at a time where a line has them (`simdtext.h`).
+  result = newString(s.len * 3 div 4 + 16)
+  var used = 0
   var acc = 0'u32
   var bits = 0
-  for c in s:
+  var letters = 0              # (in this group of four: the fast way starts at a group's start)
+  var i = 0
+  while i < s.len:
+    when textSimd:
+      if letters == 0 and i + 16 <= s.len:
+        let k = b64Decode16(unsafeAddr s[i], s.len - i, addr result[used])
+        if k > 0:
+          i += k
+          used += k div 4 * 3
+          continue
+    let c = s[i]
     let v = b64Values[ord(c)]
     if v >= 0:
       acc = ((acc shl 6) or uint32(v)) and 0xFFFFFF'u32
       bits += 6
+      letters = (letters + 1) and 3
       if bits >= 8:
         bits -= 8
-        result.add char((acc shr bits) and 0xFF)
+        result[used] = char((acc shr bits) and 0xFF)
+        inc used
     elif c == '=':
       bits = 0
       acc = 0
+      letters = 0
+    inc i
+  result.setLen(used)
 
 proc wrap76(s: string): string =
   result = newStringOfCap(s.len + s.len div 38 + 2)
@@ -127,34 +154,48 @@ proc hexVal(c: char): int {.inline.} =
 
 proc quotedPrintableDecode*(s: string): string =
   ## Undoes quoted-printable: "=XX" bytes, "=" soft line breaks, and the
-  ## spaces a line may have gathered at its end. A stray "=" stays.
+  ## spaces a line may have gathered at its end. A stray "=" stays. The
+  ## plain stretches between are copied whole (`simdtext.h` finds where
+  ## they end).
   result = newStringOfCap(s.len)
   var i = 0
+  var keep = 0          # (result[0 ..< keep] stays: spaces after it, at a line's end, go)
+  template trim() =
+    while result.len > keep and result[^1] in {' ', '\t'}: result.setLen(result.len - 1)
   while i < s.len:
+    # a plain stretch, up to the next "=" or line end
+    var n = 0
+    when textSimd:
+      n = find3(unsafeAddr s[i], s.len - i, '=', '\r', '\n')
+    else:
+      while i + n < s.len and s[i + n] notin {'=', '\r', '\n'}: inc n
+    if n > 0:
+      result.addRange(s, i, i + n - 1)
+      i += n
+      if i >= s.len: break
     let c = s[i]
     if c == '=':
       if i + 2 < s.len and hexVal(s[i+1]) >= 0 and hexVal(s[i+2]) >= 0:
         result.add char(hexVal(s[i+1]) * 16 + hexVal(s[i+2]))
         i += 3
-        continue
-      var j = i + 1
-      while j < s.len and s[j] in {' ', '\t'}: inc j
-      if j >= s.len: i = j                         # (at the end)
-      elif s[j] == '\n': i = j + 1                 # a soft line break
-      elif s[j] == '\r':
-        i = j + 1
-        if i < s.len and s[i] == '\n': inc i
       else:
-        result.add '='
-        inc i
-    elif c in {' ', '\t'}:
-      var j = i
-      while j < s.len and s[j] in {' ', '\t'}: inc j
-      if j < s.len and s[j] notin {'\r', '\n'}: result.addRange(s, i, j - 1)
-      i = j                                        # (spaces at a line's end: dropped)
+        var j = i + 1
+        while j < s.len and s[j] in {' ', '\t'}: inc j
+        if j >= s.len: i = j                         # (at the end)
+        elif s[j] == '\n': i = j + 1                 # a soft line break
+        elif s[j] == '\r':
+          i = j + 1
+          if i < s.len and s[i] == '\n': inc i
+        else:
+          result.add '='
+          inc i
+      keep = result.len
     else:
+      trim()                                       # (spaces at a line's end: dropped)
       result.add c
       inc i
+      keep = result.len
+  trim()
 
 proc quotedPrintableEncode*(s: string): string =
   ## Quoted-printable with CRLF line breaks (a "\n", "\r\n" or "\r" in `s`
@@ -226,6 +267,9 @@ proc utf8Len(s: openArray[char]; i: int): int =
 proc isUtf8(s: string): bool =
   var i = 0
   while i < s.len:
+    when textSimd:
+      i += asciiRun(unsafeAddr s[i], s.len - i)    # (the ASCII, sixteen at a time)
+      if i >= s.len: break
     if ord(s[i]) < 0x80: inc i
     else:
       let n = utf8Len(s, i)
@@ -553,9 +597,18 @@ proc table8(cs: string): ptr Table8 =
 
 proc decode8(s: string; t: ptr Table8): string =
   result = newStringOfCap(s.len + s.len div 2)
-  for c in s:
+  var i = 0
+  while i < s.len:
+    when textSimd:
+      let n = asciiRun(unsafeAddr s[i], s.len - i)   # (the ASCII as it is, at once)
+      if n > 0:
+        result.addRange(s, i, i + n - 1)
+        i += n
+        if i >= s.len: break
+    let c = s[i]
     if ord(c) < 0x80: result.add c
     else: result.addCp int(t[][ord(c) - 0x80])
+    inc i
 
 # the rest, through the system where it can
 when defined(windows):
@@ -655,8 +708,11 @@ proc toUtf8*(data, charset: string): string =
   let t = table8(cs)
   if t != nil:
     var ascii = true
-    for c in data:
-      if ord(c) >= 0x80: (ascii = false; break)
+    when textSimd:
+      ascii = data.len == 0 or asciiRun(unsafeAddr data[0], data.len) == data.len
+    else:
+      for c in data:
+        if ord(c) >= 0x80: (ascii = false; break)
     return (if ascii: data else: decode8(data, t))
   var ok = false
   let s = systemDecode(data, cs, ok)

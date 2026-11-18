@@ -27,6 +27,7 @@ type
   GraphBody* = object
     html*, toList*, ccList*, msgId*: string
     unsub*, unsubPost*: string   ## List-Unsubscribe and List-Unsubscribe-Post (a newsletter's)
+    headers*: seq[(string, string)]   ## its internet header fields, top first (retroui/mailauth)
     atts*: seq[tuple[remoteId, name, mime, cid: string; size: int; inline: bool; data: string; hasData: bool]]
 
 proc url(path: string): string = graphBase() & path
@@ -147,6 +148,7 @@ proc graphBody*(token, remoteId: string): GraphBody =
   result.ccList = addrList(j{"ccRecipients"})
   result.msgId = j{"internetMessageId"}.getStr
   for h in j{"internetMessageHeaders"}.getElems:
+    result.headers.add (h{"name"}.getStr, h{"value"}.getStr)
     case h{"name"}.getStr.toLowerAscii
     of "list-unsubscribe": result.unsub = h{"value"}.getStr.strip
     of "list-unsubscribe-post": result.unsubPost = h{"value"}.getStr.strip

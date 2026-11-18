@@ -43,6 +43,8 @@ const
 # (-O2 always: in a debug build the C would otherwise be compiled without
 # optimization, and SQLite would be several times slower)
 {.compile("vendor/sqlite/sqlite3.c", sqliteFlags).}
+{.compile("cryptvfs.c", "-O2").}      # (an encrypted database: openDb's key)
+import vault                          # (Monocypher, which it seals the pages with)
 
 type
   CDbObj {.incompleteStruct.} = object
@@ -97,6 +99,9 @@ proc sqlite3_last_insert_rowid(db: CDb): int64 {.importc, cdecl.}
 proc sqlite3_changes64(db: CDb): int64 {.importc, cdecl.}
 proc sqlite3_get_autocommit(db: CDb): cint {.importc, cdecl.}
 proc sqlite3_libversion(): cstring {.importc, cdecl.}
+proc sqlite3_file_control(db: CDb; name: cstring; op: cint; arg: pointer): cint {.importc, cdecl.}
+proc retro_cryptvfs_register(key: pointer; name: ptr char): cint {.importc, cdecl.}
+proc retro_cryptvfs_root(): cstring {.importc, cdecl.}
 proc sqlite3_create_function_v2(db: CDb; name: cstring; nArg, flags: cint; app: pointer;
                                 fn: proc (ctx: pointer; n: cint; args: ptr UncheckedArray[pointer]) {.cdecl.};
                                 step, final, destroy: pointer): cint {.importc, cdecl.}
@@ -356,10 +361,75 @@ proc execScript*(db: Db; sql: string) =
     if err != nil: sqlite3_free(err)
     fail(msg, int(sqlite3_extended_errcode(db.c.p)), sql)
 
-proc openDb*(path: string; readOnly = false): Db =
+const
+  SQLITE_OPEN_URI = 0x00000040
+  SQLITE_FCNTL_RESERVE_BYTES = 38
+  SealedReserve = 40        # (the nonce and tag of each page: cryptvfs.c)
+
+proc cryptVfs(key: string): string =
+  ## (the VFS that seals pages with `key`, registered the first time)
+  if key.len != 32: fail("a database key is 32 bytes", 21, "")
+  var name: array[64, char]
+  if retro_cryptvfs_register(unsafeAddr key[0], addr name[0]) != 0:
+    fail("the encrypted database could not be set up", 1, "")
+  $cast[cstring](addr name[0])
+
+proc isPlainDb*(path: string): bool =
+  ## The file is an SQLite database as SQLite writes it (not encrypted).
+  try:
+    var f: File
+    if not open(f, path): return false
+    defer: f.close()
+    var head = newString(16)
+    result = f.readChars(toOpenArray(head, 0, 15)) == 16 and head == "SQLite format 3\0"
+  except IOError, OSError: result = false
+
+proc openRaw(path, vfs: string; readOnly, uri: bool): CDb =
+  let flags = (if readOnly: SQLITE_OPEN_READONLY else: SQLITE_OPEN_READWRITE or SQLITE_OPEN_CREATE) or
+              SQLITE_OPEN_NOMUTEX or SQLITE_OPEN_EXRESCODE or (if uri: SQLITE_OPEN_URI else: 0)
+  var p: CDb
+  let rc = sqlite3_open_v2(path.cstring, p, cint(flags), (if vfs.len > 0: vfs.cstring else: nil))
+  if rc != SQLITE_OK:
+    let msg = if p != nil: $sqlite3_errmsg(p) else: $sqlite3_errstr(rc)
+    if p != nil: discard sqlite3_close_v2(p)
+    fail(msg & ": " & path, int(rc), "")
+  p
+
+proc pragmaInt(p: CDb; sql: string): tuple[ok: bool; v: int64] =
+  ## (one number from a PRAGMA, before the statement cache is there)
+  var st: CStmt
+  var tail: cstring
+  if sqlite3_prepare_v3(p, sql.cstring, cint(sql.len), 0, st, tail) != SQLITE_OK: return
+  if sqlite3_step(st) == SQLITE_ROW: result = (true, sqlite3_column_int64(st, 0))
+  discard sqlite3_finalize(st)
+
+proc wipeFile(path: string) =
+  ## (zeros over the file's bytes, then it is removed)
+  try:
+    let f = open(path, fmReadWriteExisting)
+    let size = getFileSize(f)
+    let zero = newString(65536)
+    var at = 0'i64
+    while at < size:
+      let n = int(min(65536'i64, size - at))
+      discard f.writeBuffer(unsafeAddr zero[0], n)
+      at += n
+    f.flushFile()
+    f.close()
+  except IOError, OSError: discard
+  try: removeFile(path) except OSError: discard
+
+proc openDb*(path: string; readOnly = false; key = ""): Db =
   ## Opens (or makes) the database file at `path`, making its folder too:
   ## WAL journal, foreign keys on, synchronous NORMAL, and waiting up to 5 s
   ## when another connection is writing. ":memory:" is a database in memory.
+  ##
+  ## With `key` (32 bytes: keep it in `retroui/secrets`), the file and its
+  ## WAL are encrypted (XChaCha20-Poly1305, every page sealed where it is,
+  ## SQLite's temporary files too): without the key it is noise, and a
+  ## byte changed on disk is found when it is read (`DbError`, code 8202). A
+  ## file made without a key is made encrypted by `encryptDb`; one made
+  ## with a key opens with that key only (else `DbError`).
   let mem = path.len == 0 or path == ":memory:"
   if not mem and not readOnly:
     let dir = path.parentDir
@@ -367,16 +437,37 @@ proc openDb*(path: string; readOnly = false): Db =
       try: createDir(dir)
       except OSError as e: fail("cannot make the folder " & dir & ": " & e.msg, 14, "")
   result = Db(path: path)
-  let flags = (if readOnly: SQLITE_OPEN_READONLY else: SQLITE_OPEN_READWRITE or SQLITE_OPEN_CREATE) or
-              SQLITE_OPEN_NOMUTEX or SQLITE_OPEN_EXRESCODE
-  var p: CDb
-  let rc = sqlite3_open_v2(path.cstring, p, cint(flags), nil)
+  let sealed = key.len > 0 and not mem
+  if sealed and isPlainDb(path):
+    fail("this database is not encrypted (encryptDb makes it so): " & path, 26, "")
+  let p = openRaw(path, (if sealed: cryptVfs(key) else: ""), readOnly, false)
   result.c.p = p
-  if rc != SQLITE_OK:
-    let msg = if p != nil: $sqlite3_errmsg(p) else: $sqlite3_errstr(rc)
-    fail(msg & ": " & path, int(rc), "")
   discard sqlite3_busy_timeout(p, 5000)
   discard sqlite3_create_function_v2(p, "fts_text", 1, SQLITE_UTF8_FN, nil, ftsTextSql, nil, nil, nil)
+  if sealed:
+    # (temporary tables and sorts in memory; no memory-mapped reading; and,
+    # in a new file, 4096-byte pages with 40 bytes of each kept for the seal)
+    # (and a bigger page cache: a page read again from it is not opened again)
+    result.execScript("PRAGMA temp_store=MEMORY; PRAGMA mmap_size=0; PRAGMA cache_size=-16384")
+    var n = cint(-1)
+    let pc = pragmaInt(p, "PRAGMA page_count")
+    if not pc.ok:
+      let msg = $sqlite3_errmsg(p)
+      result.c.p = nil
+      discard sqlite3_close_v2(p)
+      fail("the database could not be opened: a wrong key, or the file is damaged (" & msg & "): " &
+           path, 26, "")
+    let fresh = pc.v == 0
+    if fresh and not readOnly:
+      result.execScript("PRAGMA page_size=4096")
+      n = SealedReserve
+      discard sqlite3_file_control(p, "main", SQLITE_FCNTL_RESERVE_BYTES, addr n)
+    n = -1
+    discard sqlite3_file_control(p, "main", SQLITE_FCNTL_RESERVE_BYTES, addr n)
+    if n != SealedReserve and not fresh:
+      result.c.p = nil
+      discard sqlite3_close_v2(p)
+      fail("not an encrypted database: " & path, 26, "")
   if not readOnly and not mem:
     result.execScript("PRAGMA journal_mode=WAL")
   result.execScript("PRAGMA foreign_keys=ON; PRAGMA synchronous=NORMAL")
@@ -642,3 +733,71 @@ proc ftsQuery*(typed: string; fold = false): string =
     result.add '"'
     if k == words.high: result.add '*'
   if words.len == 0: result = "\"\""
+
+proc fileUri(path: string): string =
+  ## (a path as an SQLite URI: "file:/home/me/x.db", "file:///C:/Users/me/x.db")
+  var u = path.replace('\\', '/').multiReplace(("%", "%25"), ("?", "%3f"), ("#", "%23"), (" ", "%20"))
+  if u.len > 1 and u[1] == ':': u = "///" & u
+  "file:" & u
+
+proc rewriteDb(path, key: string; seal: bool) =
+  ## (the database copied into a new file -- sealed with `key`, or opened
+  ## with it and written plain -- checked, and put in the old one's place)
+  let tmp = path & (if seal: ".sealing" else: ".opening")
+  let old = path & (if seal: ".plain" else: ".sealed")
+  template done(p: string): bool = (if seal: not isPlainDb(p) else: isPlainDb(p))
+  # (a crash last time, between the two renames: the new file is there, checked)
+  if not fileExists(path) and fileExists(tmp):
+    moveFile(tmp, path)
+  if fileExists(old):
+    if fileExists(path) and done(path): wipeFile(old)
+    elif not fileExists(path): moveFile(old, path)
+  if not fileExists(path) or done(path): return
+  let vfs = cryptVfs(key)
+  try: removeFile(tmp) except OSError: discard
+  # the copy: VACUUM INTO -- through the sealing VFS with room for the seals, or out of it
+  block:
+    let src = Db(path: path)
+    src.c.p = openRaw(path, (if seal: "" else: vfs), false, true)
+    try:
+      if not seal:
+        src.execScript("PRAGMA temp_store=MEMORY; PRAGMA mmap_size=0")
+      src.execScript("PRAGMA wal_checkpoint(TRUNCATE)")
+      var n = cint(if seal: SealedReserve else: 0)
+      discard sqlite3_file_control(src.c.p, "main", SQLITE_FCNTL_RESERVE_BYTES, addr n)
+      # (the copy's VFS named: else it would be the connection's own)
+      src.exec("VACUUM INTO ?", fileUri(tmp) & "?vfs=" & (if seal: vfs else: $retro_cryptvfs_root()))
+    finally:
+      src.close()
+  # checked: it opens and SQLite finds nothing wrong in it
+  block:
+    let t = openDb(tmp, key = (if seal: key else: ""))
+    try:
+      let r = t.one("PRAGMA integrity_check")
+      if r.len == 0 or r[0].str != "ok": fail("the new copy is not right: " & r[0].str, 11, "")
+      if seal:
+        var n = cint(-1)
+        discard sqlite3_file_control(t.c.p, "main", SQLITE_FCNTL_RESERVE_BYTES, addr n)
+        if n != SealedReserve: fail("the encrypted copy has no room for its seals", 11, "")
+      t.execScript("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+      t.close()
+  for ext in ["-wal", "-shm"]:
+    try: removeFile(path & ext) except OSError: discard
+  moveFile(path, old)
+  moveFile(tmp, path)
+  wipeFile(old)
+
+proc encryptDb*(path, key: string) =
+  ## Makes the (unencrypted) database at `path` an encrypted one, opened
+  ## from then on with `key`: copied into a new file, sealed, checked, and
+  ## put in its place; the old file overwritten and removed. Nothing else
+  ## may have it open. A file already encrypted, or none, is left as it is;
+  ## a crash part way leaves either the old file or the new one.
+  rewriteDb(path, key, true)
+
+proc decryptDb*(path, key: string) =
+  ## The other way: the encrypted database at `path` (opened with `key`)
+  ## made an ordinary one again, the same way. One not encrypted, or none,
+  ## is left as it is.
+  rewriteDb(path, key, false)

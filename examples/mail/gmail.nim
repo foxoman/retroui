@@ -23,6 +23,7 @@ type
     html*, text*, toList*, ccList*: string
     unsub*, unsubPost*: string   ## List-Unsubscribe and List-Unsubscribe-Post (a newsletter's)
     atts*: seq[tuple[remoteId, name, mime, cid: string; size: int; inline: bool; data: string; hasData: bool]]
+    headers*: seq[(string, string)]   ## all its header fields, top first (who it is from: retroui/mailauth)
   GmailLabel* = object
     id*, name*, kind*, color*: string
     unread*, total*: int
@@ -204,6 +205,7 @@ proc gmailBody*(token, remoteId: string): GmailBody =
   result.ccList = decodeWords(headerOf(j{"payload"}, "cc"))
   result.unsub = headerOf(j{"payload"}, "list-unsubscribe").strip
   result.unsubPost = headerOf(j{"payload"}, "list-unsubscribe-post").strip
+  for h in j{"payload"}{"headers"}.getElems: result.headers.add (h{"name"}.getStr, h{"value"}.getStr)
   var htmls, texts: seq[string]
   proc walk(p: JsonNode; res: var GmailBody; htmls, texts: var seq[string]) =
     if p == nil: return

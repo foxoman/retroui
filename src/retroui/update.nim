@@ -54,15 +54,6 @@ from codec import unbase64
 when not (defined(wasm) or defined(android) or defined(ios)):
   import std/osproc                       # (a desktop starts the update itself)
 
-{.compile: "vendor/monocypher-ed25519.c".}
-
-proc crypto_ed25519_key_pair(secretKey: ptr array[64, byte]; publicKey: ptr array[32, byte];
-                             seed: ptr array[32, byte]) {.importc, cdecl.}
-proc crypto_ed25519_sign(sig: ptr array[64, byte]; secretKey: ptr array[64, byte];
-                         msg: pointer; len: csize_t) {.importc, cdecl.}
-proc crypto_ed25519_check(sig: ptr array[64, byte]; publicKey: ptr array[32, byte];
-                          msg: pointer; len: csize_t): cint {.importc, cdecl.}
-
 type
   UpdateError* = object of CatchableError
     ## The update could not be had: no network, a signature that does not

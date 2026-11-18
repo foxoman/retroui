@@ -21,8 +21,8 @@
 import std/[os, strutils, json, times, tables, sets, algorithm, sequtils, unicode, hashes, math]
 import retroui, retroui/[db, http, oauth, secrets, mime, richedit, spell, pdfview, mailimport, notify,
                      bgcheck]
-import retroui/[mailsetup, netconn]
-import mail/[store, api, sync, graph, gmail, appids, rules, forward, importer, calendar, imapsync]
+import retroui/[mailsetup, netconn, mailauth, mailsafety, domains]
+import mail/[store, api, sync, graph, gmail, appids, rules, forward, importer, calendar, imapsync, othersync]
 
 include mail/ui_state
 include mail/ui_data
@@ -268,7 +268,22 @@ proc startup() =
   listH = prefInt("listH", listH)
   mainW = prefInt("mainW", mainW)
   paneW = prefInt("paneW", paneW)
-  store0 = openStore()
+  # the store encrypted (or not) as Options say, before anything opens it;
+  # one whose key is gone set aside, and the mail downloaded again
+  storeEncrypt = prefBool("encryptStore", true)
+  try: secureStore(storeEncrypt)
+  except CatchableError as e:
+    storeNote = "The mail on this device could not be " &
+                (if storeEncrypt: "encrypted" else: "decrypted") & " (" & e.msg & "); it is kept as it was."
+  store0 = try: openStore()
+           except DbError as e:
+             let p = mailDir() / "mail.db"
+             let aside = p & ".unreadable-" & now().format("yyyyMMdd-HHmmss")
+             for ext in ["", "-wal", "-shm"]:
+               try: moveFile(p & ext, aside & ext) except OSError: discard
+             storeNote = "The mail kept on this device could not be opened (" & e.msg & "). It was set " &
+                         "aside, and your accounts need adding again; their mail is downloaded again."
+             openStore()
   link.cmds.open()
   link.events.open()
   link.dbPath = mailDir() / "mail.db"
@@ -341,6 +356,7 @@ app appName, 1280, 800:
     mainWindow()
   tagMenu()
   smallDialogs()
+  storeNoteDialog()
   customizeDialog()
   readerWindow()
   goFolderDialog()
@@ -383,6 +399,7 @@ app appName, 1280, 800:
     sentAction = 0
   aboutDialog()
   wizardDialog()
+  linkAskDialog()
 
 if started:
   link.cmds.send(SyncCmd(kind: scQuit))

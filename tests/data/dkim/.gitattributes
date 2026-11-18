@@ -1,0 +1,2 @@
+# (signed messages: their bytes as signed, line ends and all)
+*.eml -text

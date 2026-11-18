@@ -71,6 +71,28 @@ proc signIn(acc: Account; secret = ""): OAuthTokens =
 
 echo "sign in"
 let store0 = openStore()
+store0.exec("INSERT INTO notes(title, body, updated) VALUES('QuokkaNote', 'kept here', 0)")
+store0.execScript("PRAGMA wal_checkpoint(TRUNCATE)")
+check not isPlainDb(mailDir() / "mail.db") and "QuokkaNote" notin readFile(mailDir() / "mail.db") and
+      storeKey(make = false).len == 32, "the store is encrypted, its key in the keyring"
+store0.exec("DELETE FROM notes WHERE title = 'QuokkaNote'")
+block:
+  # a store from 1.1 (not encrypted) made encrypted as the window starts, and back
+  let p = mailDir() / "older.db"
+  storeEncrypt = false
+  let o = openStore(p)
+  o.exec("INSERT INTO notes(title, body, updated) VALUES('Older', 'from 1.1', 0)")
+  o.close()
+  storeEncrypt = true
+  check isPlainDb(p), "a store from before, not encrypted"
+  secureStore(true, p)
+  let e = openStore(p)
+  check not isPlainDb(p) and e.value("SELECT count(*) FROM notes WHERE title = 'Older'").num == 1,
+        "encrypted as the window starts, nothing lost"
+  e.close()
+  secureStore(false, p)
+  check isPlainDb(p) and openStore(p).value("SELECT count(*) FROM notes").num == 1,
+        "and back when Options say so"
 var ms = Account(kind: akGraph, clientId: "11111111-2222-3333-4444-555555555555", tenant: "organizations")
 let mt = signIn(ms)
 check mt.accessToken.len > 0 and mt.refreshToken.len > 0, "Microsoft: a token through the browser flow"

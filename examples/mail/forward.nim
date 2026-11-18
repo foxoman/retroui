@@ -6,10 +6,12 @@
 
 import std/[json, strutils, os, times, hashes]
 import retroui/[http, mime]
-import api, store, imapsync
+import api, store, imapsync, othersync
+import retroui/db
 
-proc rawMessage*(acc: Account; token, remoteId: string): string =
-  ## The message's whole MIME source. Graph: its $value; Gmail: format=raw.
+proc rawMessage*(acc: Account; token, remoteId: string; db: Db = nil): string =
+  ## The message's whole MIME source. Graph: its $value; Gmail: format=raw;
+  ## a POP3 account's: as it was downloaded (kept in `db`), else again.
   case acc.kind
   of akGraph:
     let r = call("GET", graphBase() & "/me/messages/" & remoteId & "/$value", token, timeout = 300)
@@ -21,6 +23,11 @@ proc rawMessage*(acc: Account; token, remoteId: string): string =
     base64UrlDecode(j{"raw"}.getStr)
   of akImap:
     imapRaw(acc, token, remoteId)
+  of akPop:
+    let kept = if db != nil: popKept(db, acc, remoteId) else: ""
+    if kept.len > 0: kept else: popRawServer(acc, token, remoteId)
+  of akJmap: jmapRaw(acc, token, remoteId)
+  of akEws: ewsRaw(acc, token, remoteId)
 
 const reservedNames = ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6",
                        "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6",

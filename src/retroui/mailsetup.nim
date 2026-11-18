@@ -4,7 +4,10 @@
 ## records, RFC 6186 and 8314; its MX records, then the list again for
 ## the mail host's provider), and last the usual names (imap.example.com,
 ## mail.example.com). A user types an address and a password; the rest is
-## found.
+## found. With them, where the provider has them: its POP3 server, its
+## JMAP session (Fastmail; any domain's by DNS, RFC 8620), and what to do
+## where it wants an app password rather than the account's own (Gmail,
+## Yahoo, iCloud...).
 ##
 ## .. code-block:: nim
 ##   import retroui/mailsetup
@@ -13,15 +16,19 @@
 ##     echo s.imap.host, ":", s.imap.port, " ", s.imap.security   # imap.example.com:993 tls
 ##     echo s.smtp.host, ":", s.smtp.port, " ", s.smtp.security
 ##     echo "user name: ", s.imap.user, " (", s.source, ")"
+##   if s.pop3.host.len > 0: echo "POP3: ", s.pop3.host
+##   if s.jmap.len > 0: echo "JMAP: ", s.jmap
+##   if s.appPassword.len > 0: echo s.appPassword     # (where to make one)
 ##
-## Blocking (a few web requests, each waiting at most `timeoutSec`): call it
-## from a thread of its own. The addresses it asks are changeable for
-## tests: $RETRO_MAIL_ISPDB, $RETRO_MAIL_DOH.
+## Blocking (a few web requests and DNS questions, each waiting at most
+## `timeoutSec`): call it from a thread of its own. The addresses it asks
+## are changeable for tests: $RETRO_MAIL_ISPDB, $RETRO_MAIL_DOH (DNS over
+## HTTPS instead of the system's resolver).
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[strutils, json, xmlparser, xmltree, os, uri]
-import http, netconn
+import http, netconn, dnsquery
 export netconn.Security
 
 type
@@ -35,6 +42,9 @@ type
     found*: bool                ## both found (else a guess, to check)
     source*: string             ## where they came from ("the provider", "ISPDB", "DNS", "a guess")
     oauthOnly*: bool            ## the provider takes no password (it wants its own sign-in)
+    pop3*: MailServer           ## its POP3 server (host "": none known)
+    jmap*: string               ## its JMAP session's address ("": none known)
+    appPassword*: string        ## where it wants an app password, how to make one ("": its own password)
 
 proc ispdbBase(): string = getEnv("RETRO_MAIL_ISPDB", "https://autoconfig.thunderbird.net/v1.1/")
 proc dohBase(): string = getEnv("RETRO_MAIL_DOH", "https://dns.google/resolve")
@@ -70,6 +80,9 @@ proc parseAutoconfig*(xml, email: string): MailServers =
     for kind in 0 .. 1:
       for n in p.findAll(if kind == 0: "incomingServer" else: "outgoingServer"):
         let want = if kind == 0: "imap" else: "smtp"
+        if kind == 0 and n.attr("type").toLowerAscii == "pop3" and result.pop3.host.len == 0:
+          let ps = serverOf(n)
+          if ps.host.len > 0 and ps.port > 0: result.pop3 = ps
         if n.attr("type").toLowerAscii != want: continue
         sawAny = true
         var auths: seq[string]
@@ -94,7 +107,10 @@ proc fetchConfig(url, email: string; timeoutSec: int): MailServers =
     result = parseAutoconfig(r.body, email)
 
 proc dns(name, kind: string; timeoutSec: int): seq[string] =
-  ## (answers of a DNS question, asked of a DNS-over-HTTPS resolver)
+  ## (answers of a DNS question: the system's resolver, `retroui/dnsquery`
+  ## -- or, when $RETRO_MAIL_DOH names one, that DNS-over-HTTPS service)
+  if getEnv("RETRO_MAIL_DOH").len == 0:
+    return dnsLookup(name, kind, timeoutSec)
   let r = httpRequest("GET", dohBase() & "?name=" & encodeUrl(name) & "&type=" & kind,
                       [("Accept", "application/dns-json")], timeoutSec = timeoutSec)
   if not r.ok: return
@@ -127,35 +143,72 @@ proc knownServers(domain, email: string): MailServers =
     result = MailServers(imap: MailServer(host: ih, port: ip, security: isec, user: email),
                          smtp: MailServer(host: sh, port: sp, security: ssec, user: email),
                          found: true, source: "the provider")
+  template pop(h: string; p = 995; sec = secTls) =
+    result.pop3 = MailServer(host: h, port: p, security: sec, user: email)
   case domain
   of "gmail.com", "googlemail.com":
     both("imap.gmail.com", 993, secTls, "smtp.gmail.com", 465, secTls)
+    pop("pop.gmail.com")
+    result.appPassword = "Gmail wants an app password here: turn on 2-Step Verification, then " &
+      "make one at myaccount.google.com/apppasswords (or sign in with Google instead)."
   of "outlook.com", "hotmail.com", "live.com", "msn.com":
     both("outlook.office365.com", 993, secTls, "smtp-mail.outlook.com", 587, secStartTls)
+    pop("outlook.office365.com")
   of "yahoo.com", "ymail.com", "rocketmail.com":
     both("imap.mail.yahoo.com", 993, secTls, "smtp.mail.yahoo.com", 465, secTls)
+    pop("pop.mail.yahoo.com")
+    result.appPassword = "Yahoo wants an app password here: Account Info, Account Security, " &
+      "Generate app password (login.yahoo.com/account/security)."
   of "icloud.com", "me.com", "mac.com":
     both("imap.mail.me.com", 993, secTls, "smtp.mail.me.com", 587, secStartTls)
+    result.appPassword = "iCloud wants an app-specific password here: appleid.apple.com, " &
+      "Sign-In and Security, App-Specific Passwords. Your user name is the part before the @."
+    result.imap.user = email.split('@')[0]
   of "aol.com":
     both("imap.aol.com", 993, secTls, "smtp.aol.com", 465, secTls)
+    pop("pop.aol.com")
+    result.appPassword = "AOL wants an app password here: Account Info, Account Security, " &
+      "Generate app password."
   of "fastmail.com", "fastmail.fm":
     both("imap.fastmail.com", 993, secTls, "smtp.fastmail.com", 465, secTls)
+    pop("pop.fastmail.com")
+    result.jmap = "https://api.fastmail.com/jmap/session"
+    result.appPassword = "Fastmail wants an app password (IMAP, POP3) or an API token (JMAP): " &
+      "Settings, Privacy & Security, Manage app passwords and access."
   of "gmx.com", "gmx.net", "gmx.de":
     both("imap.gmx.net", 993, secTls, "mail.gmx.net", 465, secTls)
+    pop("pop.gmx.net")
+    result.appPassword = "GMX: turn on POP3 and IMAP first, in its settings (E-mail, POP3 & IMAP)."
   of "web.de":
     both("imap.web.de", 993, secTls, "smtp.web.de", 587, secStartTls)
+    pop("pop3.web.de")
+    result.appPassword = "WEB.DE: turn on POP3 and IMAP first, in its settings (E-Mail, POP3/IMAP)."
   of "mailbox.org":
     both("imap.mailbox.org", 993, secTls, "smtp.mailbox.org", 465, secTls)
+    pop("pop3.mailbox.org")
   of "posteo.de", "posteo.net":
     both("posteo.de", 993, secTls, "posteo.de", 465, secTls)
+    pop("posteo.de")
   of "zoho.com", "zohomail.com":
     both("imap.zoho.com", 993, secTls, "smtp.zoho.com", 465, secTls)
+    pop("pop.zoho.com")
+    result.appPassword = "Zoho: turn on IMAP or POP access in Mail Settings; with two-factor " &
+      "sign-in, make an app password (accounts.zoho.com, Security, App Passwords)."
   of "yandex.com", "yandex.ru", "ya.ru":
     both("imap.yandex.com", 993, secTls, "smtp.yandex.com", 465, secTls)
+    pop("pop.yandex.com")
+    result.appPassword = "Yandex wants an app password here: id.yandex.com, Security, App passwords."
+  of "mail.ru", "inbox.ru", "list.ru", "bk.ru":
+    both("imap.mail.ru", 993, secTls, "smtp.mail.ru", 465, secTls)
+    pop("pop.mail.ru")
+    result.appPassword = "Mail.ru wants an app password here: its settings, Security, Passwords for " &
+      "external applications."
   of "proton.me", "protonmail.com", "pm.me":
     # (Proton's mail is read through its Bridge, on this computer)
     both("127.0.0.1", 1143, secStartTls, "127.0.0.1", 1025, secStartTls)
     result.source = "Proton Mail Bridge, on this computer"
+    result.appPassword = "Proton: run Proton Mail Bridge on this computer and use the password it " &
+      "shows (not your Proton password)."
   else: discard
 
 proc findMailServers*(email: string; timeoutSec = 8): MailServers =
@@ -167,6 +220,12 @@ proc findMailServers*(email: string; timeoutSec = 8): MailServers =
   let domain = e[at + 1 .. ^1].toLowerAscii
   result = knownServers(domain, e)
   if result.found: return
+  # (a JMAP server of the domain's own, by DNS: RFC 8620's SRV record)
+  let j = srv("_jmap._tcp." & domain, timeoutSec)
+  let jmapUrl = if j.host.len > 0: "https://" & j.host & (if j.port in [0, 443]: "" else: ":" & $j.port) &
+                                   "/.well-known/jmap" else: ""
+  defer:
+    if result.jmap.len == 0: result.jmap = jmapUrl
   # the provider's own file, then the Thunderbird list
   for (url, src) in [("https://autoconfig." & domain & "/mail/config-v1.1.xml?emailaddress=" &
                       encodeUrl(e), "the provider"),

@@ -13,7 +13,22 @@
 
 import std/[sysrand, strutils]
 
-{.compile: "vendor/monocypher.c".}
+{.compile("vendor/monocypher.c", "-O2").}
+{.compile("vendor/monocypher-ed25519.c", "-O2").}
+  # (here once: the modules that sign and check with Ed25519 -- updates, mail
+  # signatures -- import this one; compiled twice, a program would not link.
+  # -O2 always: a debug build's C is otherwise unoptimized, and an encrypted
+  # database (retroui/db) six times slower)
+
+proc crypto_ed25519_key_pair*(secretKey: ptr array[64, byte]; publicKey: ptr array[32, byte];
+                              seed: ptr array[32, byte]) {.importc, cdecl.}
+  ## (Monocypher: a key pair from a 32-byte seed, which it wipes)
+proc crypto_ed25519_sign*(sig: ptr array[64, byte]; secretKey: ptr array[64, byte];
+                          msg: pointer; len: csize_t) {.importc, cdecl.}
+  ## (Monocypher: an Ed25519 signature, RFC 8032)
+proc crypto_ed25519_check*(sig: ptr array[64, byte]; publicKey: ptr array[32, byte];
+                           msg: pointer; len: csize_t): cint {.importc, cdecl.}
+  ## (Monocypher: 0 when `sig` is the key's signature of the message)
 
 type
   VaultError* = object of CatchableError

@@ -122,7 +122,7 @@ proc getAutoReply*(acc: Account; token: string): AutoReply =
   of akGmail:
     gmailAutoReply(callJson("GET", gmailBase() & "/gmail/v1/users/me/settings/vacation", token,
                             what = "the vacation responder"))
-  of akImap:
+  of akImap, akPop, akJmap, akEws:
     raise noAutoReply()
 
 proc setAutoReply*(acc: Account; token: string; r: AutoReply) =
@@ -135,5 +135,5 @@ proc setAutoReply*(acc: Account; token: string; r: AutoReply) =
   of akGmail:
     discard callJson("PUT", gmailBase() & "/gmail/v1/users/me/settings/vacation", token,
                      gmailAutoReplyJson(r, acc.email), what = "the vacation responder")
-  of akImap:
+  of akImap, akPop, akJmap, akEws:
     raise noAutoReply()

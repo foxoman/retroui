@@ -39,7 +39,7 @@ type
     list, owner: PNode
     index: int
     bar: Rect
-  DragKind = enum dkNone, dkPress, dkMove
+  DragKind = enum dkNone, dkPress, dkMove, dkBand
 
 var
   filePath = ""
@@ -93,6 +93,7 @@ var
   # the surface
   pageRect: Rect
   drag: tuple[kind: DragKind; item: Item; x, y: int]
+  band: tuple[ok, add: bool; before: seq[Item]; within: Item]   ## (a box drag: what it may choose in)
   onSurface = false                # the window being designed was clicked last: its keys
   target: Target
   # what screen readers and drivers know of the page (`accessKeep`)
@@ -114,10 +115,20 @@ proc page(): Page =
 proc selLine(): int =
   if sel.len > 0: sel[0].line else: -1
 
+var afterLines: seq[int]          ## (the lines to choose again after a change: several chosen)
+
 proc selectLine(line: int) =
   sel.setLen(0)
   let pg = page()
-  if pg == nil or line < 0: return
+  if pg == nil: return
+  if afterLines.len > 0:
+    # (the controls chosen together: chosen again where they are now)
+    for l in afterLines:
+      let it = pg.itemAtLine(l)
+      if it != nil and it notin sel: sel.add it
+    afterLines.setLen(0)
+    if sel.len > 0: return
+  if line < 0: return
   let it = pg.itemAtLine(line)
   if it != nil: sel.add it
 
@@ -556,14 +567,49 @@ proc targetAt(x, y: int; moving: Item = nil): Target =
 
 # ---- the commands -----------------------------------------------------------------------------
 
+proc bandPicks(r: Rect; within: Item): seq[Item] =
+  ## The controls a box chooses: those it touches, and the rows and groups it holds whole --
+  ## not what is inside a chosen one, nor `within` itself.
+  if within == nil: return
+  proc meets(a, b: Rect): bool = a.x < b.x + b.w and b.x < a.x + a.w and a.y < b.y + b.h and b.y < a.y + a.h
+  proc holds(a, b: Rect): bool = b.x >= a.x and b.y >= a.y and b.x + b.w <= a.x + a.w and b.y + b.h <= a.y + a.h
+  for x in within.walk:
+    if x == within or not x.drawn or x.rect.w <= 0 or x.rect.h <= 0: continue
+    if x.kind in {ikArm, ikCode}: continue
+    let isBox = x.containerOf or x.kind == ikBranch
+    if (if isBox: holds(r, x.rect) else: meets(r, x.rect)): result.add x
+  # (what is inside a chosen one: that one stands for it)
+  var outer: seq[Item]
+  for x in result:
+    var inner = false
+    for y in result:
+      if y != x and x.inside(y): inner = true
+    if not inner: outer.add x
+  result = outer
+
 proc deleteSel() =
   if sel.len == 0: return
-  let it = sel[0]
-  if it == page().root: return
-  let (list, _) = it.parentList
-  let line = it.line
-  tryChange(proc (): string = src.deleteStmt(it.node, list), line)
-  status = "Deleted"
+  let root = page().root
+  if sel.len == 1:
+    let it = sel[0]
+    if it == root: return
+    let (list, _) = it.parentList
+    let line = it.line
+    tryChange(proc (): string = src.deleteStmt(it.node, list), line)
+    status = "Deleted"
+    return
+  # (several chosen: all of them, in one change -- one Undo brings them back)
+  var its: seq[tuple[n, list: PNode]]
+  var first = high(int)
+  for it in sel:
+    if it == root or it.kind == ikArm: continue
+    let (list, _) = it.parentList
+    its.add (it.node, list)
+    first = min(first, it.line)
+  if its.len == 0: return
+  let n = its.len
+  tryChange(proc (): string = src.deleteStmts(its), first)
+  status = $n & " deleted"
 
 proc copySel(): string =
   if sel.len == 0: return ""
@@ -590,9 +636,51 @@ proc pasteCode(code: string) =
     t = Target(ok: true, list: pg.body, owner: pg.node, index: pg.body.stmts.len)
   tryChange(proc (): string = src.insertAt(t.list, t.owner, t.index, code))
 
+proc chosenBlock(): tuple[ok: bool; nodes: seq[PNode]; list, owner: PNode] =
+  ## (the controls chosen, when they are side by side in one body: in order)
+  if sel.len == 0: return
+  let (list, owner) = sel[0].parentList
+  if list == nil: return
+  let ss = list.stmts
+  var idx: seq[int]
+  for it in sel:
+    let (l2, _) = it.parentList
+    if l2 != list: return
+    idx.add ss.find(it.node)
+  idx.sort()
+  for k in 1 ..< idx.len:
+    if idx[k] != idx[k - 1] + 1: return
+  result.ok = idx.len > 0 and idx[0] >= 0
+  for k in idx: result.nodes.add ss[k]
+  result.list = list
+  result.owner = owner
+
 proc moveBy(d: int) =
   ## The selection one place up (-1) or down (+1) among its neighbours.
   if sel.len == 0: return
+  if sel.len > 1:
+    # (several side by side: together, the neighbour going to their other side)
+    let b = chosenBlock()
+    if not b.ok:
+      status = "Choose controls that follow each other in one place"
+      return
+    let ss = b.list.stmts
+    let i0 = ss.find(b.nodes[0])
+    let i1 = ss.find(b.nodes[^1])
+    var lines: seq[int]
+    let nb = if d < 0 and i0 > 0: src.stmtLines(ss[i0 - 1])
+             elif d > 0 and i1 + 1 < ss.len: src.stmtLines(ss[i1 + 1])
+             else: (first: 0, last: -1, indent: 0, whole: true)
+    let shift = (nb.last - nb.first + 1) * (if d < 0: -1 else: 1)
+    for it in sel: lines.add it.line + shift
+    try:
+      let t = src.moveStmts(b.nodes, b.list, b.owner, d)
+      afterLines = lines
+      change(t, lines[0])
+    except DesignError as e:
+      afterLines.setLen(0)
+      status = "Not done: " & e.msg
+    return
   let it = sel[0]
   let (list, owner) = it.parentList
   if list == nil: return
@@ -619,21 +707,16 @@ proc wrapSel(header: string) =
   if sel.len == 0: return
   let (list, _) = sel[0].parentList
   if list == nil: return
-  let ss = list.stmts
-  var idx: seq[int]
   for it in sel:
     let (l2, _) = it.parentList
     if l2 != list:
       status = "Choose controls side by side in one place"
       return
-    idx.add ss.find(it.node)
-  idx.sort()
-  for k in 1 ..< idx.len:
-    if idx[k] != idx[k - 1] + 1:
-      status = "Choose controls that follow each other"
-      return
-  var nodes: seq[PNode]
-  for k in idx: nodes.add ss[k]
+  let b = chosenBlock()
+  if not b.ok:
+    status = "Choose controls that follow each other"
+    return
+  let nodes = b.nodes
   let first = src.stmtLines(nodes[0]).first
   tryChange(proc (): string = src.wrapStmts(nodes, header), first)
 
@@ -907,6 +990,21 @@ proc propChanged(k: int) =
       else: change(t1, line)
     except DesignError as e: status = "Not done: " & e.msg
     return
+  # (several of its kind chosen: set on all of them, in one change)
+  if sel.len > 1:
+    var edits: seq[Edit]
+    var lines: seq[int]
+    for x in sel:
+      lines.add x.line
+      if x.call == nil or x.name != it.name or x.kind notin {ikControl, ikEvent, ikValue}: continue
+      try: edits.add src.argEdit(x.call, pi, p.name, code, x.argNode(ovParams, pi))
+      except DesignError: discard
+    if edits.len > 1:
+      let n = edits.len
+      afterLines = lines
+      tryChange(proc (): string = apply(src.text, edits), line)
+      status = p.name & " set on " & $n & " " & it.name & " controls"
+      return
   # (back to the default: the argument taken out, when it is named or last)
   let a = it.argNode(ovParams, pi)
   if a != nil and p.default.len > 0 and code == p.default:
@@ -1409,17 +1507,43 @@ proc surface() =
   if ui.pressed and over:
     ui.focus = 0
     let it = hoverItem
+    let adding = CtrlPressed in ui.mods or ShiftPressed in ui.mods
     drag = (dkPress, it, ui.mx, ui.my)
+    # (a press on the window itself -- or, with Ctrl or Shift, on a row or a group -- dragged:
+    # a box that chooses what it touches)
+    band = (it == nil or it == pg.root or (adding and it.containerOf), adding, sel,
+            if it != nil and it != pg.root and adding and it.containerOf: it else: pg.root)
     if it == nil:
-      sel = @[pg.root]
-    elif CtrlPressed in ui.mods and sel.len > 0 and sel[0] != pg.root:
-      if it in sel: sel.keepItIf(it != it) else: sel.add it
+      if not adding: sel = @[pg.root]
+    elif adding and sel.len > 0 and sel[0] != pg.root:
+      let picked = it
+      if it in sel: sel.keepItIf(it != picked) else: sel.add it
+      if sel.len == 0: sel = @[pg.root]
     elif it notin sel:
       sel = @[it]
     if ui.clicks >= 2 and it != nil: eventCode(it)
-  if drag.kind == dkPress and ui.mouseDown and drag.item != nil and
-     abs(ui.mx - drag.x) + abs(ui.my - drag.y) > dp(6):
-    drag.kind = dkMove
+  if drag.kind == dkPress and ui.mouseDown and abs(ui.mx - drag.x) + abs(ui.my - drag.y) > dp(6):
+    if band.ok:
+      drag.kind = dkBand
+      sel = band.before                  # (the press chose nothing yet: the box does)
+    elif drag.item != nil: drag.kind = dkMove
+  if drag.kind == dkBand:
+    let r = rect(min(drag.x, ui.mx), min(drag.y, ui.my), abs(ui.mx - drag.x) + 1, abs(ui.my - drag.y) + 1)
+    let got = bandPicks(r, band.within)
+    for x in got: outlineRect(x.rect, th.select, 2)
+    outlineRect(r, th.select)
+    ui.redraw = true
+    if not ui.mouseDown:
+      drag.kind = dkNone
+      var s2 = if band.add: band.before.filterIt(it != pg.root) else: @[]
+      for x in got:
+        if x notin s2: s2.add x
+      sel = if s2.len > 0: s2 else: @[pg.root]
+      status = if got.len == 0: "Nothing in the box"
+               elif sel.len == 1: "Chose " & sel[0].name
+               else: $sel.len & " chosen: Delete, Copy, Cut, Duplicate, Group (Ctrl+G), Row (Ctrl+R) and " &
+                     "Alt+Up/Down take them together; a property set goes to all of its kind"
+    return
   if drag.kind == dkMove:
     target = targetAt(ui.mx, ui.my, drag.item)
     fill(target.bar, th.select)
@@ -1528,6 +1652,12 @@ proc propertiesPane() =
           putClipboardText(cmd)
           status = "Copied: retrokit drive PORT " & cmd
         tooltip "The command that clicks it, for `retrokit drive` (the app run with RETRO_DRIVE=PORT)"
+  if sel.len > 1:
+    var same = 0
+    for x in sel:
+      if x.name == it.name: inc same
+    label($sel.len & " chosen" & (if same > 1: ": what you set goes to the " & $same & " " & it.name & " controls"
+                                  else: ": these are the first one's"), color = ui.theme.gray)
   if it != propsFor or propsText != src.text: buildProps(it)
   if props.len == 0:
     label "It has nothing to set."
@@ -1640,6 +1770,15 @@ proc keys() =
     ui.keyUsed = true
     let t = copySel()
     if t.len > 0: pasteCode(t)
+  elif ctrl(KeyA):
+    ui.keyUsed = true
+    let pg = page()
+    if pg != nil:
+      # (every control on the window: what a box round all of it would choose)
+      let all = bandPicks(rect(-100000, -100000, 200000, 200000), pg.root)
+      if all.len > 0:
+        sel = all
+        status = $all.len & " chosen"
   elif ctrl(KeyR):
     ui.keyUsed = true
     wrapSel("row:")
@@ -1773,6 +1912,11 @@ proc main() =
           let t = copySel()
           if t.len > 0: pasteCode(t)
         if menuItem("&Delete", "Del", enabled = sel.len > 0): deleteSel()
+        if menuItem("Select &All", "Ctrl+A"):
+          let pg = page()
+          if pg != nil:
+            let all = bandPicks(rect(-100000, -100000, 200000, 200000), pg.root)
+            if all.len > 0: sel = all
         menuSeparator()
         if menuItem("Edit &Code", "Enter", enabled = sel.len > 0): eventCode(sel[0])
         if menuItem("Se&ttings..."): settingsOpen = true

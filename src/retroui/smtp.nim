@@ -121,9 +121,31 @@ proc loginOAuth*(c: SmtpClient; user, token: string) =
   elif r.code != 235:
     smtpFail(r.code, "signing in: " & r.lines.join(" "))
 
-proc sendMail*(c: SmtpClient; fromAddr: string; rcpts: openArray[string]; message: string) =
+proc withoutBcc*(message: string): string =
+  ## `message` without its Bcc header (what every recipient would see):
+  ## those it goes to secretly are given to the server, not written in it.
+  var i = 0
+  var cut = false
+  result = newStringOfCap(message.len)
+  while i < message.len:
+    var e = message.find('\n', i)
+    if e < 0: e = message.len - 1
+    let line = message[i .. e]
+    if line == "\r\n" or line == "\n":
+      result.add message[i .. ^1]                  # (the header's end: the rest as it is)
+      return
+    if line[0] in {' ', '\t'}:
+      if not cut: result.add line                  # (a folded line: its field's)
+    else:
+      cut = line.len >= 4 and line[0 .. 3].toLowerAscii == "bcc:"
+      if not cut: result.add line
+    i = e + 1
+
+proc sendMail*(c: SmtpClient; fromAddr: string; rcpts: openArray[string]; message0: string) =
   ## Sends one message (its RFC 5322 bytes) to `rcpts` (the To, Cc and
-  ## Bcc addresses). Raises `SmtpError` with the server's words.
+  ## Bcc addresses; a Bcc header in it is taken out, `withoutBcc`). Raises
+  ## `SmtpError` with the server's words.
+  let message = withoutBcc(message0)
   var ascii = true
   for ch in fromAddr & rcpts.join(""):
     if ord(ch) >= 0x80: ascii = false

@@ -1,0 +1,24 @@
+DKIM-Signature: v=1; a=ed25519-sha256; c=relaxed/simple; d=example.org;
+ i=@example.org; q=dns/txt; s=ed1; t=1794989701; h=from : to : subject
+ : date : message-id : mime-version : content-type : from;
+ bh=LRkyCfsn3kNw/yphKsE3w2sXGMrZtuupLRJkh5oip7E=;
+ b=9kblWwZ4psCFlCDTflmusBgnETrXRbrlCp2ap8GiU6gLgzdm0/OuFsIjdo98VS6n2vw6O
+ t4nM0y9xhzqUicRAQ==
+From: =?UTF-8?B?2LPZhNi32KfZhg==?= <sultan@mail.example.org>
+To:  Maryam <maryam@example.net>, 
+	Said <said@example.net>
+Subject:   A   report 	 with
+  folded   spaces  
+Date: Tue, 17 Nov 2026 10:00:00 +0400
+Message-ID: <r1@mail.example.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+مرحبا   with  spaces   
+	tabbed line	
+
+Last line.
+
+
+

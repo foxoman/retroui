@@ -58,6 +58,18 @@ var
   checkCh: Channel[string]
   imapChansOpen = false
   wizImapSec, wizSmtpSec: int   ## the combos' choices: 0 SSL/TLS, 1 STARTTLS, 2 None
+  wizProto = 0              ## how the mail is read: 0 IMAP, 1 POP3, 2 JMAP, 3 Exchange (EWS)
+  wizPopHost = ""
+  wizPopPort = 995
+  wizPopSec = 0
+  wizLeave = true           ## POP3: a copy left on the server
+  wizJmapUrl = ""
+  wizJmapUser = ""          ## JMAP: a user name with the password ("": the password is an API token)
+  wizEwsUrl = ""
+  wizEwsUser = ""
+  wizHint = ""              ## the provider's own words: where to make an app password
+
+const protoNames = ["IMAP", "POP3", "JMAP", "Exchange"]
 
 const secNames = ["SSL/TLS", "STARTTLS", "None"]
 
@@ -85,14 +97,22 @@ proc findMain(email: string) {.thread.} =
     findCh.send($(%*{"imapHost": s.imap.host, "imapPort": s.imap.port, "imapSec": $s.imap.security,
                      "imapUser": s.imap.user, "smtpHost": s.smtp.host, "smtpPort": s.smtp.port,
                      "smtpSec": $s.smtp.security, "smtpUser": s.smtp.user, "found": s.found,
-                     "source": s.source, "oauthOnly": s.oauthOnly}))
+                     "source": s.source, "oauthOnly": s.oauthOnly, "popHost": s.pop3.host,
+                     "popPort": s.pop3.port, "popSec": $s.pop3.security, "jmap": s.jmap,
+                     "hint": s.appPassword}))
 
 proc checkMain(job: string) {.thread.} =
   ## Signs in to both servers once: "" when both took the password.
   {.gcsafe.}:
     let j = parseJson(job)
-    let acc = Account(email: j{"email"}.getStr, server: j{"server"}.getStr)
-    checkCh.send(checkImapAccount(acc, j{"password"}.getStr))
+    let kind = case j{"kind"}.getStr
+               of "pop3": akPop
+               of "jmap": akJmap
+               of "ews": akEws
+               else: akImap
+    let acc = Account(kind: kind, email: j{"email"}.getStr, server: j{"server"}.getStr)
+    checkCh.send(if kind == akImap: checkImapAccount(acc, j{"password"}.getStr)
+                 else: checkOtherAccount(acc, j{"password"}.getStr))
 
 proc startImapSetup() =
   ## The servers of the address, found while the password is typed.
@@ -103,6 +123,11 @@ proc startImapSetup() =
   wizSrvShown = false
   wizFound = ""
   wizPass = ""
+  wizProto = 0
+  wizHint = ""
+  wizLeave = true
+  wizJmapUser = ""
+  wizEwsUser = ""
   ui.textFocusWanted = true
   if findT.running: joinThread(findT)          # (one search at a time)
   while findCh.tryRecv().dataAvailable: discard
@@ -117,23 +142,57 @@ proc wizServers(): ImapServers =
   result.imapUser = result.imapUser.strip
   result.smtpUser = result.imapUser          # (one user name for both: the form has one)
 
+proc wizKindNow(): AccountKind =
+  case wizProto
+  of 1: akPop
+  of 2: akJmap
+  of 3: akEws
+  else: akImap
+
+proc wizServerJson(): string =
+  ## (the account's servers as the store keeps them, for the kind chosen)
+  let s = wizServers()
+  case wizProto
+  of 1:
+    $(%*{"pop": {"host": wizPopHost.strip, "port": wizPopPort, "security": $secOf(wizPopSec),
+                 "user": s.imapUser},
+         "smtp": {"host": s.smtpHost, "port": s.smtpPort, "security": $s.smtpSec, "user": s.smtpUser},
+         "leave": wizLeave, "deleteWithLocal": true, "insecure": s.insecure})
+  of 2:
+    $(%*{"jmap": {"url": wizJmapUrl.strip, "user": wizJmapUser.strip,
+                  "auth": (if wizJmapUser.strip.len > 0: "basic" else: "bearer")}})
+  of 3:
+    $(%*{"ews": {"url": wizEwsUrl.strip, "user": (if wizEwsUser.strip.len > 0: wizEwsUser.strip
+                                                  else: wizMail.strip)},
+         "insecure": s.insecure})
+  else: serverJson(s)
+
+proc wizReady(): bool =
+  ## (enough typed to sign in)
+  if not wizSrvShown or wizPass.len == 0: return false
+  case wizProto
+  of 1: wizPopHost.strip.len > 0 and wizSrv.smtpHost.strip.len > 0
+  of 2: wizJmapUrl.strip.len > 4
+  of 3: wizEwsUrl.strip.len > 4
+  else: wizSrv.imapHost.strip.len > 0 and wizSrv.smtpHost.strip.len > 0
+
 proc startImapCheck() =
   wizError = ""
   wizStep = 7
-  let job = %*{"email": wizMail.strip, "server": serverJson(wizServers()), "password": wizPass}
+  let job = %*{"email": wizMail.strip, "server": wizServerJson(), "password": wizPass,
+               "kind": $wizKindNow()}
   if checkT.running: joinThread(checkT)
   createThread(checkT, checkMain, $job)
 
 proc finishImap() =
   ## Both servers took the password: the account is kept.
-  let s = wizServers()
   let email = wizMail.strip
   let id = if wizAccount > 0:
              store0.setAccountState(wizAccount, "")
-             store0.setAccountServer(wizAccount, serverJson(s))
+             store0.setAccountServer(wizAccount, wizServerJson())
              wizAccount
-           else: store0.addAccount(akImap, email, wizName.strip, "imap", "",
-                                   prefInt("syncDays", 90), server = serverJson(s))
+           else: store0.addAccount(wizKindNow(), email, wizName.strip, $wizKindNow(), "",
+                                   prefInt("syncDays", 90), server = wizServerJson())
   discard saveSecret(secretApp, tokenKey(id), $(%*{"password": wizPass}))
   wizPass = ""
   link.cmds.send(SyncCmd(kind: scAccounts))
@@ -204,13 +263,28 @@ proc ownRegistration*() =
 proc signInAgain(acc: Account) =
   openWizard()
   wizAccount = acc.id
-  if acc.kind == akImap:
+  if acc.kind in passwordKinds:
     # (the password, typed again; the servers, to change)
     openImapChans()
     wizKind = 3
     wizMail = acc.email
     wizName = acc.name
     wizSrv = serversOf(acc)
+    let j = try: parseJson(acc.server) except CatchableError: newJObject()
+    wizProto = case acc.kind
+               of akPop: 1
+               of akJmap: 2
+               of akEws: 3
+               else: 0
+    wizPopHost = j{"pop"}{"host"}.getStr
+    wizPopPort = j{"pop"}{"port"}.getInt(995)
+    wizPopSec = secIndex(parseSecurity(j{"pop"}{"security"}.getStr("tls")))
+    if acc.kind == akPop: wizSrv.imapUser = j{"pop"}{"user"}.getStr(acc.email)
+    wizLeave = j{"leave"}.getBool(true)
+    wizJmapUrl = j{"jmap"}{"url"}.getStr
+    wizJmapUser = j{"jmap"}{"user"}.getStr
+    wizEwsUrl = j{"ews"}{"url"}.getStr
+    wizEwsUser = j{"ews"}{"user"}.getStr
     wizImapSec = secIndex(wizSrv.imapSec)
     wizSmtpSec = secIndex(wizSrv.smtpSec)
     wizSrvShown = true
@@ -244,7 +318,7 @@ proc finishSignIn() =
       let p = gmailProfile(t.accessToken)
       if p.email.len > 0: email = p.email
       if name.len == 0: name = claims(t){"name"}.getStr
-    of akImap: discard
+    else: discard
   except CatchableError as e:
     let c = claims(t)
     if email.len == 0: email = c{"email"}.getStr(c{"preferred_username"}.getStr)
@@ -330,6 +404,16 @@ proc wizardDialog() =
                            smtpUser: j{"smtpUser"}.getStr(wizMail.strip))
       wizImapSec = secIndex(wizSrv.imapSec)
       wizSmtpSec = secIndex(wizSrv.smtpSec)
+      wizPopHost = j{"popHost"}.getStr
+      if wizPopHost.len == 0:
+        let d = wizMail.strip.split('@')[^1]
+        wizPopHost = "pop." & d
+      wizPopPort = j{"popPort"}.getInt(995)
+      if wizPopPort == 0: wizPopPort = 995
+      wizPopSec = secIndex(parseSecurity(j{"popSec"}.getStr("tls")))
+      wizJmapUrl = j{"jmap"}.getStr
+      wizEwsUrl = "https://mail." & wizMail.strip.split('@')[^1] & "/EWS/Exchange.asmx"
+      wizHint = j{"hint"}.getStr
       wizFound = if j{"found"}.getBool: j{"source"}.getStr else: ""
       wizSrvShown = true
       if j{"oauthOnly"}.getBool:
@@ -397,22 +481,27 @@ proc wizardDialog() =
             wizError = ""
             chooseService(2)
           space()
-          if serviceButton(pxComputer, "Another provider (IMAP)",
+          if serviceButton(pxComputer, "Another provider (IMAP, POP3, JMAP, Exchange)",
                            "Any mail server, with your password"):
             startImapSetup()
         of 6:
           label (if wizAccount > 0: "Your Password Again" else: "Your Mail Server"), bold = true
           if wizAccount == 0:
-            paragraph "Retro Mail reads your mail with IMAP and sends it with SMTP, signed in " &
-                      "with your password (kept encrypted on this computer). Gmail, Yahoo, " &
-                      "iCloud and others want an app password here: make one in your " &
-                      "account's security settings."
+            paragraph "Retro Mail reads your mail with IMAP, POP3, JMAP or Exchange (EWS), " &
+                      "signed in with your password (kept encrypted on this computer). " &
+                      (if wizHint.len > 0: wizHint
+                       else: "Gmail, Yahoo, iCloud and others want an app password here: make " &
+                             "one in your account's security settings.")
+            row:
+              label "Read with:"
+              for i, n in protoNames:
+                radio(n, wizProto, i)
           else:
             paragraph "The server did not take the password kept for " & wizMail.strip &
                       " (changed?). Type it again; the servers can be changed below."
           form dp(110):
             if wizAccount == 0: field "Your &name:": edit wizName
-            field "&Password:": edit(wizPass, password = true)
+            field (if wizProto == 2: "&Password or token:" else: "&Password:"): edit(wizPass, password = true)
           if not wizSrvShown:
             row:
               spinner()
@@ -423,21 +512,43 @@ proc wizardDialog() =
                    else: "Not found: these are a guess, check them:"),
                   color = ui.theme.gray
             form dp(110):
-              field "&Incoming (IMAP):":
-                row([-1, dp(64), dp(96)]):
-                  edit wizSrv.imapHost
-                  intEdit(wizSrv.imapPort, lo = 1, hi = 65535)
-                  if combo(secNames, wizImapSec):
-                    wizSrv.imapPort = defaultPort(true, secOf(wizImapSec))
-              field "&Outgoing (SMTP):":
-                row([-1, dp(64), dp(96)]):
-                  edit wizSrv.smtpHost
-                  intEdit(wizSrv.smtpPort, lo = 1, hi = 65535)
-                  if combo(secNames, wizSmtpSec):
-                    wizSrv.smtpPort = defaultPort(false, secOf(wizSmtpSec))
-              field "&User name:": edit wizSrv.imapUser
-            checkbox("&Take the server's own certificate (a server of yours, at home)",
-                     wizSrv.insecure)
+              case wizProto
+              of 2:
+                field "&JMAP server:": edit wizJmapUrl
+                field "&User name:": edit wizJmapUser
+                label "No user name: the password is an API token (Fastmail's).", color = ui.theme.gray
+              of 3:
+                field "&EWS address:": edit wizEwsUrl
+                field "&User name:": edit wizEwsUser
+                label "DOMAIN\name, or your address (" & wizMail.strip & ") when empty.",
+                      color = ui.theme.gray
+              else:
+                if wizProto == 1:
+                  field "&Incoming (POP3):":
+                    row([-1, dp(64), dp(96)]):
+                      edit wizPopHost
+                      intEdit(wizPopPort, lo = 1, hi = 65535)
+                      if combo(secNames, wizPopSec):
+                        wizPopPort = if secOf(wizPopSec) == secTls: 995 else: 110
+                else:
+                  field "&Incoming (IMAP):":
+                    row([-1, dp(64), dp(96)]):
+                      edit wizSrv.imapHost
+                      intEdit(wizSrv.imapPort, lo = 1, hi = 65535)
+                      if combo(secNames, wizImapSec):
+                        wizSrv.imapPort = defaultPort(true, secOf(wizImapSec))
+                field "&Outgoing (SMTP):":
+                  row([-1, dp(64), dp(96)]):
+                    edit wizSrv.smtpHost
+                    intEdit(wizSrv.smtpPort, lo = 1, hi = 65535)
+                    if combo(secNames, wizSmtpSec):
+                      wizSrv.smtpPort = defaultPort(false, secOf(wizSmtpSec))
+                field "&User name:": edit wizSrv.imapUser
+            if wizProto == 1:
+              checkbox("&Leave a copy of each message on the server", wizLeave)
+            if wizProto != 2:
+              checkbox("&Take the server's own certificate (a server of yours, at home)",
+                       wizSrv.insecure)
           if wizError.len > 0:
             space()
             label wizError, color = rgb(200, 0, 0)
@@ -446,7 +557,11 @@ proc wizardDialog() =
           space()
           row:
             spinner()
-            label "Signing in to " & wizSrv.imapHost.strip & " and " & wizSrv.smtpHost.strip & "...",
+            label "Signing in to " & (case wizProto
+                                      of 1: wizPopHost.strip & " and " & wizSrv.smtpHost.strip
+                                      of 2: wizJmapUrl.strip
+                                      of 3: wizEwsUrl.strip
+                                      else: wizSrv.imapHost.strip & " and " & wizSrv.smtpHost.strip) & "...",
                   bold = true
         of 1:
           label (if wizKind == 2: "Your Google App" else: "Your Organisation's App"), bold = true
@@ -506,9 +621,7 @@ proc wizardDialog() =
                  else: wizClient.strip.len > 10
         if button("&Sign In", isDefault = true, enabled = ok, w = dp(84)): startSignIn()
       elif wizStep == 6:
-        if button("&Next >", isDefault = true, w = dp(84),
-                  enabled = wizSrvShown and wizPass.len > 0 and wizSrv.imapHost.strip.len > 0 and
-                            wizSrv.smtpHost.strip.len > 0): startImapCheck()
+        if button("&Next >", isDefault = true, w = dp(84), enabled = wizReady()): startImapCheck()
       elif wizStep == 3:
         if button("&Finish", isDefault = true, w = dp(84)):
           wizOpen = false

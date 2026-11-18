@@ -98,12 +98,13 @@ Tree shows that arm.
 | | |
 |---|---|
 | Add a control | choose it in the Widget Box, click on the window (Ctrl+click: add more of it); or drag it there |
-| Choose | click it; Ctrl+click adds to what is chosen; Esc chooses the container it is in |
-| Move | drag it (a line shows where it goes, in a row, a group, a tab); Alt+Up, Alt+Down |
+| Choose | click it; Ctrl+click (or Shift+click) adds to what is chosen, or takes it away; Esc chooses the container it is in |
+| Choose several | drag a box on the window from an empty place: the controls it touches are chosen (a container only when the box holds all of it); Ctrl or Shift as you start adds them to what is chosen; Ctrl+A chooses them all |
+| Move | drag it (a line shows where it goes, in a row, a group, a tab); Alt+Up, Alt+Down -- several chosen move together |
 | Put in a row, a group | choose controls side by side, then Ctrl+R (a row) or Ctrl+G (a group); Layout also puts them in a column, a panel, a card or a form |
 | Take out of a container | Layout > Take Out of Its Container: its controls go where it was |
 | Cut, copy, paste, duplicate | Ctrl+X, Ctrl+C, Ctrl+V, Ctrl+D: the controls as Nim, pasted after what is chosen |
-| Delete | Del (the last control of a body leaves a `discard`) |
+| Delete | Del -- the controls chosen, one change and one Undo (the last control of a body leaves a `discard`) |
 | Undo, redo | Ctrl+Z, Ctrl+Y (Ctrl+Shift+Z) |
 | Save | Ctrl+S |
 | Preview | F5 |
@@ -123,6 +124,9 @@ works out is shown as code
 A parameter the control changes (`edit name`: a `var`) takes a variable's
 name; a name the file does not have yet becomes a new `var` at the top.
 **Reset** takes the parameter out of the call: the control's default again.
+With several controls of the same kind chosen (four buttons, three edits),
+the panel says how many: a value set goes to each of them, one change in the
+file, one Undo.
 
 ### Events
 

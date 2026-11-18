@@ -2,7 +2,8 @@
 
 Outlook Express 4 to look at and to use, with what the new Outlook does:
 Microsoft 365 (work or school), Outlook.com, Gmail -- and any other
-provider's mail, through IMAP and SMTP -- side by side.
+provider's mail, through IMAP, POP3, JMAP or a company's own Exchange --
+side by side.
 
 - **Signed in in the browser.** The service's own sign-in page opens in
   your browser (OAuth 2.0 with PKCE, answered on a loopback address).
@@ -17,6 +18,18 @@ provider's mail, through IMAP and SMTP -- side by side.
 - **Offline first.** Mail is kept in a local SQLite file with a full-text
   index: the list opens at once, search answers in milliseconds without the
   network, and changes made offline go out when the network comes back.
+- **Kept encrypted.** That file, and its journal, are encrypted page by
+  page (XChaCha20-Poly1305), with a key made the first time and kept in the
+  system's keyring: whoever has the disk, or a copy of it, reads nothing
+  (below: *Safety*).
+- **New mail at once.** An IMAP server that can (IDLE) says the moment mail
+  comes, is read elsewhere or goes; Retro Mail fetches it then, not at the
+  next check.
+- **Who it is from, checked.** The provider's own checks (DMARC, DKIM,
+  SPF), believed only from its own servers, and the message's DKIM
+  signature verified here; a sender's name that is a company's they are
+  not, a look-alike domain, a link that goes elsewhere than it says,
+  tracking pictures and codes: told, or taken out.
 - **What the new Outlook does:** threads, Focused and Other, tags (Outlook
   categories, Gmail labels, with their colors), flags, pin, snooze,
   quick replies, the calendar, people, to do, notes, signatures for new
@@ -50,10 +63,12 @@ on by itself. That is all.
 (An organisation that allows only apps it registered itself: Tools >
 Options > Accounts > *Organisation's App* takes its Application ID.)
 
-### Any other provider: IMAP
+### Any other provider: IMAP, POP3, JMAP, Exchange
 
-An address Retro Mail does not know, or *Another provider (IMAP)* on the
-wizard's "Where Is Your Mail?" page: type your name and your password,
+An address Retro Mail does not know, or *Another provider (IMAP, POP3,
+JMAP, Exchange)* on the wizard's "Where Is Your Mail?" page: choose how
+its mail is read (*Read with:* IMAP, POP3, JMAP or Exchange), type your
+name and your password,
 and the servers are found meanwhile -- the biggest providers by name,
 then the provider's own autoconfig file, Thunderbird's list of providers,
 the domain's DNS (its SRV records; its MX host's provider), and last the
@@ -63,9 +78,13 @@ ports and encryption -- SSL/TLS or STARTTLS -- and the user name),
 change what is wrong, and *Next* signs in to both; the mail comes.
 
 - Many providers want an **app password** here, not the account's own:
-  Gmail (with 2-step verification), Yahoo, iCloud, AOL, Outlook.com.
-  Make one in the account's security settings (Gmail and Outlook.com are
-  added better through their own sign-in, above).
+  Gmail (with 2-step verification), Yahoo, iCloud, AOL, Fastmail, Zoho,
+  Yandex, Mail.ru, Proton (its Bridge's). The wizard says where to make
+  one for the provider it found (Gmail and Outlook.com are added better
+  through their own sign-in, above).
+- **New mail at once:** an IMAP account whose server can (IDLE: most can)
+  is watched on a connection of its own; the server tells, Retro Mail
+  fetches. (On Android and iOS the system's own background checks do it.)
 - A server of your own with a certificate it signed itself: *Take the
   server's own certificate* (the mail is still encrypted).
 - What it does: the folders with what they are for (Sent, Drafts, Trash,
@@ -80,6 +99,83 @@ change what is wrong, and *Next* signs in to both; the mail comes.
 - When the server stops taking the password (it was changed), the
   account says so and asks for it again. Tools > Options > Accounts >
   *Servers...* changes the servers.
+
+**POP3** reads a provider's Inbox (POP3 has nothing else): each message
+downloaded whole, once, and left on the server unless *Leave a copy of each
+message on the server* is cleared; the other folders -- Sent, Drafts,
+Trash, Junk -- are kept here, and a message deleted from the Trash here is
+deleted on the server too. Sending is through SMTP, a copy kept in Sent.
+The big providers' POP3 servers are known (Gmail, Outlook.com, Yahoo, AOL,
+Fastmail, GMX, WEB.DE, Zoho, Yandex, mailbox.org, Posteo).
+
+**JMAP** (Fastmail, Stalwart, Cyrus): the JMAP server's address (Fastmail's
+is found by itself; another domain's from its DNS), and an API token as the
+password -- or a user name and a password. The mailboxes, then only what
+changed since the last time; read, flags, tags (as keywords), moves,
+deletes, sending (kept in Sent), the server's search.
+
+**Exchange** (a company's own, 2010 and later, through Exchange Web
+Services): its EWS address (`https://mail.example.com/EWS/Exchange.asmx`)
+and your user name (`DOMAIN\name`, or your address); Retro Mail signs in
+as Windows does (NTLM) where the server will not take the password plainly.
+The folders, what changed in each since the last time, read, flags,
+categories (as tags), moves, deletes, sending (kept in Sent Items), the
+server's search. (Microsoft 365 is added better through its own sign-in,
+above.)
+
+## Safety
+
+**Who a message is from.** As its body comes, Retro Mail checks its
+sender -- the domain of its From address:
+
+- the results the account's provider wrote when it took the message in
+  (Authentication-Results: DMARC, DKIM, SPF), believed only from the
+  provider's own servers (Gmail's mx.google.com, Microsoft's, iCloud's,
+  Yahoo's, Fastmail's, Zoho's -- or, for another provider, the server that
+  wrote the topmost of them on at least 50 of its messages and 80 in a
+  hundred) and only the topmost one: anyone can write one into a message
+  they send;
+- else its DKIM signature, verified here (RSA and Ed25519) against the key
+  its domain publishes in DNS, asked of the system's own resolver: a
+  signature of the From address's own domain (or its organization's,
+  `mail.example.com` for `example.com`) proves who sent it; one of another
+  domain proves nothing;
+- else the domain's DMARC policy: a domain that asks for its mail to be
+  proven (quarantine, reject), on a message nothing proves, is said to be
+  unproven.
+
+A message that is not from who it says is marked in red over the message,
+with *Block Sender* and *Move to Junk*; one that could not be confirmed, in
+yellow; one checked says so quietly, in gray ("From example.com, checked").
+
+**What is there to fool.** Over the message: a sender whose name says a
+company (PayPal, Microsoft, Apple, a bank, a courier) while the mail comes
+from another domain; an address in the name that is not the sender's; a
+domain that looks like a well-known one or like one of the people you write
+to (`paypa1.com`, `rnicrosoft.com`, letters of another alphabet); links
+whose words name one site and go to another, or that hide where they go (a
+name before an `@`, a bare IP address). Clicking such a link asks first; a
+link that runs a script is not opened.
+
+**Tracking.** Pictures from the web are hidden until you show them (for the
+message, the sender, or always), so a sender cannot see when you read it;
+the pictures that are there only for that -- a pixel or two, hidden, a
+tracking service's -- are taken out even then, and tracking codes
+(`utm_source`, `fbclid`, `gclid`, `mc_eid`...) come off the links you open.
+The pane says what it took out.
+
+**The mail kept here** is encrypted (Tools > Options > Security: *Keep the
+mail on this device encrypted*, on from the start; the mail of an older
+version is encrypted the first time this one starts, and decrypted again
+when the box is cleared). The key is made the first time and kept in the
+system's keyring (DPAPI, the keychain, libsecret, the app's private
+folder): without it the file is noise, and a byte changed on disk is found
+when it is read. Should the key be lost (the keyring wiped), the file is
+set aside and the accounts are added again: their mail comes down again
+from the servers.
+
+Tools > Options > Security turns the warnings and the taking out of
+tracking off (and on again).
 
 ## For whoever builds it: the app registrations, once
 
@@ -169,7 +265,10 @@ remove and order its buttons and to choose how its labels show.
 
 Search understands `from:`, `to:`, `subject:`, `has:attachment`, `tag:`,
 `is:unread`, `is:flagged`, `is:pinned`, `in:sent`, `before:2026-01-01`,
-`after:` and plain words; *Search the server* goes beyond what is kept.
+`after:` and plain words; *Search the server* goes beyond what is kept --
+and asks each server the same thing its own way (IMAP's SEARCH, Gmail's
+search, Microsoft's KQL, JMAP's filter, Exchange's AQS), so it finds what
+the same search finds here.
 
 On a phone each screen comes alone (folders, list, conversation, writing)
 and the Outlook bar sits at the bottom; swipe a message right to archive

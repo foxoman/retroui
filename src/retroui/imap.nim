@@ -16,6 +16,7 @@
 ##   for m in c.fetchHeaders(uids): echo m.uid, " ", m.flags
 ##   echo c.fetchMessage(uids[^1])            # the whole message (RFC 5322)
 ##   c.addFlags(@[uids[^1]], ["\\Seen"])
+##   for news in c.idle(9 * 60): echo news   # ("4 EXISTS": new mail in the folder)
 ##   c.logout()
 ##
 ## The connection is `retroui/netconn`'s: the system's own TLS (secTls at
@@ -719,6 +720,53 @@ proc append*(c: ImapClient; folder, message: string; flags: openArray[string] = 
   let a = c.cmd(line)
   let u = copyUidOf(a.text)
   if u.len > 0: u[0] else: 0
+
+proc idle*(c: ImapClient; seconds: int; stop: proc (): bool {.closure, gcsafe.} = nil): seq[string] =
+  ## Waits for the selected folder to change (IDLE, RFC 2177: the server
+  ## says so itself, at once -- no asking every few minutes): its words as
+  ## soon as one comes ("4 EXISTS", a new message; "2 EXPUNGE"; "3 FETCH
+  ## (FLAGS (\\Seen))"), none after `seconds` or when `stop` says so (asked
+  ## twice a second). The server's "still here" lines are not counted.
+  ## Needs `c.has("IDLE")`; a server drops an IDLE after 30 minutes, and a
+  ## home router a quiet connection after some 10: ask again every 9.
+  let tag = c.nextTag()
+  c.sendLine(tag & " IDLE")
+  while true:
+    let r = c.readFull()
+    if r.startsWith("+"): break
+    if r.startsWith("* "): result.add r[2 .. ^1]
+    elif r.startsWith(tag & " "):
+      let rest = r[tag.len + 1 .. ^1]
+      imapFail(if rest.len > 0: rest else: "the server would not wait (IDLE)")
+  let until = epochTime() + float(seconds)
+  var ended = false
+  while result.len == 0:
+    if stop != nil and stop(): break
+    if epochTime() >= until: break
+    if c.conn.waitRead(500):
+      let r = c.readFull()
+      if r.startsWith("* "):
+        let u = r[2 .. ^1]
+        if not u.toUpperAscii.startsWith("OK"): result.add u
+      elif r.startsWith(tag & " "):
+        ended = true          # (the server ended it itself)
+        break
+  if result.len > 0:
+    # (what comes with it: "* 5 EXISTS" then "* 1 RECENT", within a moment)
+    while c.conn.waitRead(50):
+      let r = c.readFull()
+      if r.startsWith("* "): result.add r[2 .. ^1]
+      elif r.startsWith(tag & " "):
+        ended = true
+        break
+  if not ended:
+    c.sendLine("DONE")
+    while true:
+      let r = c.readFull()
+      if r.startsWith("* "):
+        let u = r[2 .. ^1]
+        if not u.toUpperAscii.startsWith("OK"): result.add u
+      elif r.startsWith(tag & " "): break
 
 proc command*(c: ImapClient; line: string): seq[string] =
   ## Any other command (an extension the server has, `"GETQUOTAROOT INBOX"`):

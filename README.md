@@ -178,7 +178,7 @@ nimble charts         # Chart Viewer: a CSV file as charts, saved as PNG
 nimble photo          # Retro Atelier, the image editor
 nimble board          # Retro Board, the whiteboard
 nimble taskman        # Retro Task Manager: the programs, the processor, the memory, the network
-nimble mail           # Retro Mail: Microsoft 365, Outlook.com, Gmail, any IMAP (mailexe, mailapk)
+nimble mail           # Retro Mail: Microsoft 365, Outlook.com, Gmail, IMAP, POP3, JMAP, Exchange (mailexe, mailapk)
 nimble hrbook         # HR Book: employee records of several hotels, sealed with a PIN
 nimble apk            # Retro Files as an Android APK (build/RetroFiles.apk)
 nimble photoapk       # Retro Atelier as an APK (photoinstall: build and adb install)
@@ -1712,23 +1712,38 @@ drawing (`fill`, `box`, `line`, `text`, `disc`, `polygon`…).
 
 ![Retro Mail: All Inboxes in threads, tags, the conversation in the preview pane](docs/mail.png)
 
-`examples/mail.nim` is **Retro Mail 1.1.3**: Outlook Express 4 to look at and to
+`examples/mail.nim` is **Retro Mail 1.2.0**: Outlook Express 4 to look at and to
 use, with what the new Outlook does, for Microsoft 365, Outlook.com and Gmail
--- and any other provider through IMAP and SMTP. It is the toolkit's network
-modules at work:
+-- and any other provider through IMAP (new mail the moment it comes),
+POP3, JMAP (Fastmail) or a company's own Exchange (EWS). Its mail is kept
+encrypted on the device; who a message is from is checked (the
+provider's checks, its DKIM signature verified here), and what is there to
+fool -- a sender's name that is not theirs, a look-alike domain, a link that
+goes somewhere other than it says, tracking pictures -- is told or taken
+out. It is the toolkit's network modules at work:
 
 - `retroui/oauth` signs in in the system browser (OAuth 2.0, PKCE, a loopback
   address) and `retroui/secrets` keeps the tokens (DPAPI, the keychain,
   libsecret): no password is ever typed into the app.
 - `retroui/http` talks to Microsoft Graph and the Gmail API from the sync
   thread (WinHTTP, libcurl, Java's HTTP on Android).
-- `retroui/imap` and `retroui/smtp` read and send any other provider's mail,
-  over `retroui/netconn`'s connections (the system's own TLS: SChannel,
-  Secure Transport, Java's, OpenSSL loaded when needed);
-  `retroui/mailsetup` finds an address's servers (autoconfig, Thunderbird's
-  list, DNS).
-- `retroui/db` keeps every message in SQLite with a full-text index: search
-  is offline and instant; `retroui/mime` reads and writes the messages.
+- `retroui/imap` (with IDLE: push), `retroui/pop3`, `retroui/jmap`,
+  `retroui/ews` (Exchange, signed in with NTLM by `retroui/ntlm`) and
+  `retroui/smtp` read and send any other provider's mail, over
+  `retroui/netconn`'s connections (the system's own TLS: SChannel, Secure
+  Transport, Java's, OpenSSL loaded when needed); `retroui/mailsetup` finds
+  an address's servers (autoconfig, Thunderbird's list, DNS; the big
+  providers' POP3 and app-password steps known).
+- `retroui/mailauth` checks who a message is from: DKIM (RSA and Ed25519)
+  verified here against the keys in DNS (`retroui/dnsquery`: the system's
+  resolver), the provider's Authentication-Results believed from its own
+  servers only, DMARC's policy; `retroui/mailsafety` takes tracking out and
+  finds the links and senders made to fool, by the Public Suffix List and
+  Unicode's look-alike letters (`retroui/domains`).
+- `retroui/db` keeps every message in SQLite with a full-text index --
+  encrypted, page by page (`openDb(path, key = ...)`): search is offline
+  and instant; `retroui/mime` reads and writes the messages (base64,
+  quoted-printable and charsets sixteen bytes at a time).
 - `htmlView` draws the mail -- newsletters' nested tables and styles,
   hidden preheaders, quotes, Arabic -- with no browser and no script;
   pictures from the web wait until asked.
@@ -1748,7 +1763,12 @@ swipe a message right to archive it, left to delete it, hold one to choose
 several, pull to refresh. Adding an account is your address and Enter: the browser opens the
 right sign-in page, done (`docs/retromail.md`: the app registrations a build
 carries, made once); for any other provider, the password, and the servers
-are found.
+are found -- IMAP, POP3, JMAP or Exchange, and where the provider wants an
+app password, how to make one.
+
+How fast (`tools/mailbench.nim`, 50,000 messages, encrypted): the store
+opens in under a millisecond, a folder of 3,000 shows in 9 ms, a search in
+6 ms, a sync stores 28,000 headers a second.
 
 | | |
 |---|---|
@@ -3422,6 +3442,11 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_mockups` | each mockup a document: the design a Smart Object where it goes (bent round the mug), the light and shade over it mixed by Multiply, the scene round it |
 | `test_designstyles` | a style on a design: colors to the palette by their lightness, big type in the heading font, the rest in the body font, locked layers left as they are; font pairs of the fonts there are |
 | `test_aiconnect` | an AI service's requests (OpenAI's chat completions, Anthropic's Messages), its answers read, only the app's own commands taken, errors told; a service on this computer the whole way round; nothing asked with no service set |
+| `test_mailauth` | who a message is from: RFC 8463's own example (Ed25519 and RSA) and messages another program (dkimpy) signed, in all four canonicalizations, verified here; changed after signing, a withdrawn or testing key, a body signed in part, a second From; the provider's Authentication-Results believed from its own servers only (Gmail, Microsoft, iCloud) and only the topmost; DMARC policies; the Public Suffix List, IDN, look-alike names; DNS over UDP and TCP against a server of the test's own |
+| `test_mailsafety` | tracking pictures taken out (tiny, hidden, a tracking service's), tracking codes taken off links, links whose words name another site or that hide where they go, senders whose name or domain is a company's they are not, or a look-alike of a contact's |
+| `test_dbcrypt` | an encrypted database: nothing readable in the file or its WAL, a wrong key or none refused, a byte changed on disk found, FTS5 and big rows, two connections, VACUUM, a rollback journal; an unencrypted file made encrypted and back, a crash between its renames put right; a writer killed five times (kill -9) leaves every transaction it finished |
+| `test_mailkinds` | POP3, JMAP and Exchange (EWS, NTLM checked by the server against MS-NLMP's own numbers) against servers of the test's own; then Retro Mail with an account of each: the first sync, bodies, changes on the server, sending (a Bcc too), new mail on all three, a POP3 message deleted here gone from the server; a search said each server's way |
+| `test_mimefast` | mail's text sixteen bytes at a time: base64, quoted-printable, UTF-8 checked and Latin-1 made UTF-8 give the plain loops' very bytes on thousands of inputs; how fast each is |
 | `test_photoblurs`, `test_pathtools` | Average, Box, Shape, Smart and Lens Blur; the drawing program's path operations (erase, smooth, cut, knife, join, blob, arcs, grids, flare, the mesh's points); tangent and perpendicular Smart Guides, Replace Spine, Round Corners and Scribble |
 | `test_handpass` | the hand pass: every tool of Retro Atelier's toolbar used through the window's input -- a click, Alt+click, a drag, Shift, Alt and Ctrl, a double click, the arrows, a finger's tap, drag and long press, a pen and its eraser -- nothing failing, and everything undone to the picture it began with (975 tries) |
 | `test_systemfiles` | the system's own file picker behind the kit's file dialogs, with a made-up system: a document opened as a copy and written back when the app saves it, Save As where the picker said (asked before, or after the file is there), what cannot be written told |
@@ -3430,7 +3455,7 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_scale` | fractional scales (125 % to 300 %): controls and text the size asked for, lines on whole pixels, a change of scale followed |
 | `test_touchsizes` | `RETRO_TOUCH` and `RETRO_CONTROLS`: finger-sized controls on a tablet's screen when asked, desktop and automatic sizes |
 | `test_shm` | the frame drawn into memory shared with the X server and what the window then shows, with and without it (`RETRO_SURFACE=0`) |
-| `test_designer` | Retro Designer: every example app read and drawn, each of their controls deleted and the file still Nim, every control of the Widget Box dropped into one app that compiles, moves, groups, events, properties, renames, undo, the lock on the file; `windowBox`, `inert`, `showMenu` |
+| `test_designer` | Retro Designer: every example app read and drawn, each of their controls deleted and the file still Nim, every control of the Widget Box dropped into one app that compiles, moves, groups, events, properties, renames, undo, the lock on the file; several controls chosen with a box (and Ctrl, Shift, Ctrl+A) and a property set, moved, grouped and deleted on all of them at once; `windowBox`, `inert`, `showMenu` |
 | `android_mock/run.sh` | the real Android driver against a fake Android (looper, input queue, window, JNI): frames, taps, keyboard, Arabic text, insets, cancelled touches, keys, rotation, Back, an input method composing |
 | `soak_maps3d` (not in `nimble test`: a few minutes, `nim c -r -d:release -d:useMalloc tests/soak_maps3d.nim`) | a long session: the street map moved and zoomed over the world through thousands of tiles, then a model's clips played for thousands of frames -- the memory levels off |
 

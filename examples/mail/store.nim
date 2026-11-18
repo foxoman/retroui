@@ -2,18 +2,25 @@
 ## index for instant offline search), tags, contacts, calendar events, the
 ## queue of changes waiting for the server, signatures, notes and tasks.
 ## One SQLite file; the window and the sync thread each open their own
-## connection to it (WAL lets them work at the same time).
+## connection to it (WAL lets them work at the same time). Encrypted
+## (retroui/db's key) unless the user turns it off: the key is made the
+## first time and kept in the system's keyring (retroui/secrets).
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[os, strutils, json, times, tables, algorithm, sequtils]
-import retroui/db
+import std/[os, strutils, json, times, tables, algorithm, sequtils, sysrand, locks]
+import retroui/[db, secrets]
+from retroui/codec import unbase64
+from std/base64 import encode
 
 type
   AccountKind* = enum
     akGraph = "graph"      ## Microsoft 365 / Outlook.com through Microsoft Graph
     akGmail = "gmail"      ## Gmail through the Gmail API
     akImap = "imap"        ## any provider through IMAP and SMTP, with a password
+    akPop = "pop3"         ## a provider's Inbox through POP3 (the other folders kept here), SMTP to send
+    akJmap = "jmap"        ## Fastmail and other JMAP servers (a token or a password)
+    akEws = "ews"          ## a company's own Exchange through Exchange Web Services (a password: NTLM)
   Account* = object
     id*: int
     kind*: AccountKind
@@ -131,10 +138,64 @@ proc mailDir*(): string =
       result = getEnv("XDG_DATA_HOME", getHomeDir() / ".local" / "share") / "retro-mail"
   try: createDir(result) except OSError: discard
 
-proc openStore*(path = ""): Db =
-  ## The store (made on first use).
+var keyLock: Lock
+initLock(keyLock)
+var storeEncrypt* = true
+  ## A new store is made encrypted (Options: "Keep mail encrypted on this
+  ## device"); one already there opens as it is.
+
+const passwordKinds* = {akImap, akPop, akJmap, akEws}
+  ## (the kinds signed in with a password or token kept here, not a browser sign-in)
+
+proc kindName*(k: AccountKind): string =
+  ## How the account's kind is named to the user.
+  case k
+  of akGraph: "Microsoft 365"
+  of akGmail: "Gmail"
+  of akImap: "IMAP"
+  of akPop: "POP3"
+  of akJmap: "JMAP"
+  of akEws: "Exchange"
+
+proc storeKey*(make = true): string {.gcsafe.} =
+  ## The key the store is encrypted with: made the first time (`make`) and
+  ## kept in the system's keyring; "" when there is none (or it cannot be kept).
+  withLock keyLock:
+    let saved = loadSecret("Retro Mail", "store key")
+    if saved.len > 0:
+      result = try: unbase64(saved) except ValueError: ""
+      if result.len == 32: return
+      result = ""
+    if not make: return
+    var k = newString(32)
+    if not urandom(k.toOpenArrayByte(0, 31)): return
+    if saveSecret("Retro Mail", "store key", encode(k)) and
+       loadSecret("Retro Mail", "store key") == encode(k):
+      result = k
+
+proc secureStore*(on: bool; path = "") =
+  ## The store made encrypted (`on`) or not, as Options say, before any
+  ## connection opens it (the window does this as it starts).
   let p = if path.len > 0: path else: mailDir() / "mail.db"
-  result = openDb(p)
+  if not fileExists(p) and not fileExists(p & ".sealing") and not fileExists(p & ".opening"): return
+  if on:
+    let k = storeKey()
+    if k.len > 0: encryptDb(p, k)
+  else:
+    let k = storeKey(make = false)
+    if k.len > 0: decryptDb(p, k)
+
+proc openStore*(path = ""): Db =
+  ## The store (made on first use: encrypted when `storeEncrypt`). Raises
+  ## `DbError` when it is encrypted and its key is gone or wrong.
+  let p = if path.len > 0: path else: mailDir() / "mail.db"
+  let key = if fileExists(p) and getFileSize(p) > 0:
+              (if isPlainDb(p): "" else: storeKey(make = false))
+            elif storeEncrypt: storeKey()
+            else: ""
+  if fileExists(p) and getFileSize(p) > 0 and not isPlainDb(p) and key.len == 0:
+    raise newException(DbError, "the mail kept on this device is encrypted, and its key is gone")
+  result = openDb(p, key = key)
   result.execScript(schema)
   # (columns added since 1.0: a store made by an older version gets them)
   var cols: seq[string]
@@ -174,6 +235,9 @@ proc toAccount(r: DbRow): Account =
   Account(id: int r[0].num, kind: (case r[1].str
                                     of "gmail": akGmail
                                     of "imap": akImap
+                                    of "pop3": akPop
+                                    of "jmap": akJmap
+                                    of "ews": akEws
                                     else: akGraph),
           email: r[2].str, name: r[3].str, clientId: r[4].str, tenant: r[5].str,
           syncDays: int r[6].num, state: r[7].str, history: r[8].str, server: r[9].str)
@@ -750,3 +814,39 @@ proc unsubOf*(db: Db; id: int): tuple[header, post: string] =
   db.exec("CREATE TABLE IF NOT EXISTS unsub(message INTEGER PRIMARY KEY, header TEXT, post TEXT)")
   let r = db.one("SELECT header, post FROM unsub WHERE message = ?", id)
   if r.len > 0: (r[0].str, r[1].str) else: ("", "")
+
+# ---- who a message is from: the checks (retroui/mailauth) -------------------------------
+
+proc setSenderCheck*(db: Db; id: int; state: int; domain, by, detail: string) =
+  ## Message `id`'s sender, as checked when its body came (`state`: mailauth's
+  ## SenderState as a number).
+  db.exec("CREATE TABLE IF NOT EXISTS senderchk(message INTEGER PRIMARY KEY, state INTEGER, " &
+          "domain TEXT, by TEXT, detail TEXT)")
+  db.exec("INSERT OR REPLACE INTO senderchk(message, state, domain, by, detail) VALUES(?, ?, ?, ?, ?)",
+          id, state, domain, by, detail)
+
+proc senderCheckOf*(db: Db; id: int): tuple[state: int; domain, by, detail: string] =
+  ## The check of message `id`'s sender; state -1 when it was not checked.
+  db.exec("CREATE TABLE IF NOT EXISTS senderchk(message INTEGER PRIMARY KEY, state INTEGER, " &
+          "domain TEXT, by TEXT, detail TEXT)")
+  let r = db.one("SELECT state, domain, by, detail FROM senderchk WHERE message = ?", id)
+  if r.len == 0: return (-1, "", "", "")
+  (int r[0].num, r[1].str, r[2].str, r[3].str)
+
+proc noteAuthserv*(db: Db; account: int; id: string) =
+  ## The server that wrote a message's topmost Authentication-Results, counted
+  ## (for a provider not known: `learnedAuthservs`).
+  db.exec("CREATE TABLE IF NOT EXISTS authserv(account INTEGER, id TEXT, n INTEGER, PRIMARY KEY(account, id))")
+  db.exec("INSERT INTO authserv(account, id, n) VALUES(?, ?, 1) ON CONFLICT(account, id) DO UPDATE SET n = n + 1",
+          account, id)
+
+proc learnedAuthservs*(db: Db; account: int): seq[string] =
+  ## The account's provider's own server, learned: the one that wrote the
+  ## topmost Authentication-Results of at least 50 of its messages, and of
+  ## 80 in a hundred (a sender's own, written into one message, is not it).
+  db.exec("CREATE TABLE IF NOT EXISTS authserv(account INTEGER, id TEXT, n INTEGER, PRIMARY KEY(account, id))")
+  let total = db.value("SELECT coalesce(sum(n), 0) FROM authserv WHERE account = ?", account).num
+  if total < 50: return
+  for r in db.rows("SELECT id, n FROM authserv WHERE account = ? ORDER BY n DESC LIMIT 1", account):
+    if r[1].num >= 50 and r[1].num * 100 >= total * 80: result.add r[0].str
+

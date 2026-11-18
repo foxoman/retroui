@@ -6,7 +6,8 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[json, strutils, times, sets, sequtils]
-import retroui/[db, imap, smtp, netconn, mime, secrets]
+import retroui/[db, imap, smtp, netconn, mime, secrets, mailauth]
+import std/uri
 import api, store
 
 type
@@ -118,11 +119,41 @@ proc msgOfImap*(acc: Account; f: Folder; im: ImapMessage): Msg =
   result.mine = acc.email.len > 0 and result.fromEmail.toLowerAscii == acc.email.toLowerAscii
   result.labels = im.flags.join(" ")
 
+proc providerHost*(acc: Account): string =
+  ## The host the account's mail comes from (whose servers' checks of
+  ## senders are to be believed: retroui/mailauth's providerAuthservs).
+  let j = try: parseJson(acc.server) except CatchableError: newJObject()
+  case acc.kind
+  of akGmail: "gmail"
+  of akGraph: "microsoft"
+  of akPop: j{"pop"}{"host"}.getStr
+  of akJmap: parseUri(j{"jmap"}{"url"}.getStr).hostname
+  of akEws: parseUri(j{"ews"}{"url"}.getStr).hostname
+  of akImap: j{"imap"}{"host"}.getStr
+
+proc checkRaw*(db: Db; id: int; raw: string) =
+  ## Who message `id` is from, checked from its source (its provider's
+  ## results, its signatures, its domain's policy) and kept.
+  let m = db.message(id)
+  if m.id == 0: return
+  let acc = db.account(m.account)
+  if acc.id == 0 or acc.clientId == "local": return
+  var trusted = providerAuthservs(providerHost(acc))
+  let learning = trusted.len == 0
+  if learning: trusted = db.learnedAuthservs(acc.id)
+  let c = try: checkSender(raw, trusted)
+          except CatchableError: SenderCheck()
+  if learning:
+    let t = topAuthserv(parseMime(raw).headers)
+    if t.found: db.noteAuthserv(acc.id, t.id)
+  db.setSenderCheck(id, ord(c.state), c.domain, c.by, c.detail)
+
 proc storeImapBody*(db: Db; id: int; raw: string;
                     textToHtml: proc (text: string): string {.nimcall, gcsafe.}) =
   ## A message's whole source, fetched: its body (`textToHtml` makes a plain
   ## one HTML, as the window shows it), its attachments, the headers the
-  ## list did not have, a few words for the list.
+  ## list did not have, a few words for the list; who it is from, checked.
+  checkRaw(db, id, raw)
   let root = parseMime(raw)
   let (html0, text) = bodies(root)
   let html = if html0.len > 0: html0 else: textToHtml(text)
@@ -279,6 +310,19 @@ proc calendarPart*(raw: string): string =
       bestRank = rank
   walk(parseMime(raw), best, bestRank)
   best
+
+proc checkSmtp*(acc: Account; pw: string): string =
+  ## Signs in to the SMTP server once: "" when it took the password.
+  let s = serversOf(acc)
+  var sc: SmtpClient
+  try:
+    sc = smtpConnect(s.smtpHost, s.smtpPort, s.smtpSec, timeoutSec = 30, insecure = s.insecure)
+    sc.login(s.smtpUser, pw)
+    sc.quit()
+  except CatchableError as e:
+    if sc != nil: sc.quit()
+    return e.msg
+  ""
 
 proc checkImapAccount*(acc: Account; pw: string): string =
   ## Signs in to the IMAP and the SMTP server once: "" when both took the

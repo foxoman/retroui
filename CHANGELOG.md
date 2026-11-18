@@ -1,5 +1,105 @@
 # Changes
 
+## 0.61.0
+
+Retro Mail made safe, and for any mail: who a
+message is from checked -- its provider's own checks, believed only from its
+own servers, and its DKIM signature verified here -- the senders, domains
+and links made to fool told over the message, tracking pictures and codes
+taken out, the mail kept on the device encrypted; new mail the moment it
+comes (IMAP IDLE), and POP3, JMAP and a company's own Exchange besides IMAP,
+Microsoft 365 and Gmail. The kit got each piece: DNS, domain names as people
+read them, DKIM and DMARC, an encrypted SQLite, POP3, JMAP, EWS with NTLM,
+mail's text sixteen bytes at a time. And Retro Designer chooses several
+controls at once, with a box.
+
+- **Who a message is from** (`retroui/mailauth`: `checkSender`,
+  `checkHeaders`, `verifyDkim`, `dmarcPolicy`, `parseAuthResults`,
+  `providerAuthservs`, `topAuthserv`; `SenderCheck`, `DkimResult`): DKIM
+  verified here, RSA and Ed25519 (RFC 6376, 8463), in each
+  canonicalization, the key asked of DNS; a signature counts only for the
+  From address's own domain or its organization's, and one that proves
+  nothing (SHA-1, a body signed in part, a testing key, a short key) is not
+  counted as proof. The provider's Authentication-Results (DMARC, DKIM,
+  SPF; Microsoft's compauth) believed only from its own servers -- Gmail's,
+  Microsoft's, iCloud's, Yahoo's, Fastmail's, Zoho's, or one learned from
+  the account's mail -- and only the topmost. A domain's DMARC policy makes
+  an unproven message unproven. Tested with RFC 8463's own example and
+  messages dkimpy signed.
+- **DNS** (`retroui/dnsquery`: `dnsQuery`, `dnsLookup`): TXT, MX, SRV, A,
+  AAAA from the system's own resolver over UDP and TCP (resolv.conf,
+  Windows' list), DNS over HTTPS where there is none; answers kept as long
+  as they say; names kept for examples never asked. Retro Mail's setup
+  asks it too, rather than Google's DNS over HTTPS.
+- **Domain names as people read them** (`retroui/domains`:
+  `registrableDomain`, `publicSuffix`, `sameOrganization`, `toAsciiHost`,
+  `toUnicodeHost`, `punyEncode`, `punyDecode`, `skeleton`, `looksLike`,
+  `mixedScripts`, `editDistance`): the Public Suffix List (10,000 rules,
+  packed), IDNA's Punycode both ways, and Unicode's look-alike letters
+  (UTS #39).
+- **What is there to fool** (`retroui/mailsafety`: `cleanMail`,
+  `isTracker`, `stripTracking`, `linkWarning`, `senderWarnings`;
+  `MailSafety`, `LinkProblem`): tracking pictures taken out (a pixel or
+  two, hidden, a tracking service's), tracking codes taken off links (utm_*,
+  fbclid, gclid, mc_eid and seventy more), links whose words name another
+  site or that hide where they go (a name before an @, an IP address,
+  letters of two alphabets, a well-known site's look-alike), a sender whose
+  name says a company the mail is not from, an address in the name that is
+  not theirs, a domain like a contact's.
+- **An encrypted database** (`openDb(path, key = ...)`, `encryptDb`,
+  `decryptDb`, `isPlainDb`; `src/retroui/cryptvfs.c`): every page of the
+  file and its WAL sealed with XChaCha20-Poly1305 where it is (a fresh
+  nonce each write, its place bound in), a byte changed on disk found when
+  it is read (code 8202), SQLite's journal and temporary files encrypted
+  too; a file made without a key made encrypted and back, a crash part way
+  put right. A writer killed five times (kill -9) leaves every transaction
+  it finished. Writing takes about twice as long (20,000 rows in 120 ms,
+  65 without); reading is as quick once a page is in the cache (16 MB for
+  an encrypted file). Monocypher is now always compiled with -O2.
+- **POP3** (`retroui/pop3`: `pop3Connect`, `login`, `loginOAuth`, `stat`,
+  `uidl`, `list`, `top`, `retr`, `dele`, `rset`, `quit`; CAPA, STLS,
+  SASL), **JMAP** (`retroui/jmap`: `jmapConnect`, `jmapBearer`,
+  `jmapBasic`, `call`, `mailboxes`, `queryEmails`, `getEmails`,
+  `emailChanges`, `setKeyword`, `setMailboxes`, `destroyEmails`,
+  `download`, `upload`, `importEmail`, `identities`, `sendRaw`) and
+  **Exchange Web Services** (`retroui/ews`: `ewsConnect`, `folders`,
+  `syncItems`, `getItems`, `mimeOf`, `setRead`, `setFlag`, `setCategories`,
+  `moveItems`, `deleteItems`, `sendMime`, `findItems`; Exchange 2010 and
+  later), signed in with Basic or **NTLM** (`retroui/ntlm`: NTLMv2, with
+  MD4, MD5 and HMAC-MD5 of its own, checked against MS-NLMP's numbers).
+- **IMAP IDLE** (`idle(c, seconds, stop)`) and `waitRead` on a connection
+  (`retroui/netconn`): the server says when mail comes.
+- **SMTP never writes the Bcc header** (`withoutBcc`): a message sent
+  through SMTP with Bcc showed it to everyone it went to.
+- **Mail's text sixteen bytes at a time** (`simdtext.h`, in
+  `retroui/mime`): base64 2x as fast, quoted-printable 9x, UTF-8 checked
+  3.6x, an 8-bit charset made UTF-8 8x -- the plain loops' very bytes
+  (`test_mimefast`).
+- `retroui/mailsetup`: each big provider's POP3 server and how to make its
+  app password (`MailServers.pop3`, `jmap`, `appPassword`); a domain's
+  JMAP server from DNS; Proton Mail Bridge, Mail.ru.
+- `retroui/rsa`'s SHA-256 is `retroui/sha2`'s (it was a slow one of its own).
+- **Retro Mail 1.2.0:** POP3, JMAP and Exchange accounts in the Add Account
+  Wizard (*Read with:*), with the provider's app-password steps; new mail
+  at once on IMAP; who a message is from checked as its body comes, a red
+  or yellow banner over one that is not, or may not be, from who it says,
+  with Block Sender and Move to Junk; a sender's name or domain, or a link,
+  made to fool, told; a link that is not what it looks like asked about
+  before it opens, tracking codes taken off the links opened, tracking
+  pictures taken out; the mail on the device encrypted (Tools > Options >
+  Security), an older version's encrypted as it starts; *Search the
+  server* said each server's way (IMAP SEARCH, Gmail's q, Microsoft's KQL,
+  JMAP's filter, Exchange's AQS). 50,000 messages: a folder of 3,000 in
+  9 ms, a search in 6 ms, 28,000 headers stored a second
+  (`tools/mailbench.nim`).
+- **Retro Designer** chooses several controls at once: a box dragged on the
+  window (Ctrl or Shift to add), Ctrl+A, Ctrl+click and Shift+click; a
+  property set on all of them of the same kind, moved, grouped and deleted
+  together, one Undo each.
+- The docs: `docs/retromail.md` (the new accounts, Safety), `docs/designer.md`,
+  `THIRD-PARTY-NOTICES.md` (the Public Suffix List, Unicode's
+  confusables).
+
 ## 0.60.0
 
 The rest of what the four programs have that Retro Atelier had not, in one

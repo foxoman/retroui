@@ -27,7 +27,7 @@ hello, notepad, ledger, charts, invoice, then the apps.
 | [photo](#retro-photo) | Retro Atelier, an image editor |
 | [magazine](#the-magazine) | three magazine pages made with Retro Atelier's engine |
 | [retroboard](#retro-board) | Retro Board, a whiteboard |
-| [mail](#retro-mail) | Retro Mail, for Microsoft 365, Outlook.com and Gmail |
+| [mail](#retro-mail) | Retro Mail, for Microsoft 365, Outlook.com, Gmail, IMAP, POP3, JMAP and Exchange |
 | [communicator](#retro-communicator) | Retro Communicator, chat on XMPP |
 | [taskman](#retro-task-manager) | Retro Task Manager, what the computer is doing |
 | [hrbook](#hr-book) | HR Book, a private book of a hotel group's staff |
@@ -378,8 +378,14 @@ new Outlook does: Microsoft 365, Outlook.com and Gmail signed in in the
 browser (no password typed here), threads, Focused and Other, tags, pin,
 snooze, offline search of everything kept, rich text writing,
 signatures, send later, and the calendar, people, to do and notes beside
-the mail. The app registrations it signs in with are made once by
-whoever builds it (`examples/mail/appids.nim`, `docs/retromail.md`).
+the mail -- and any other provider through IMAP (new mail told at once),
+POP3, JMAP (Fastmail) or a company's own Exchange. Its mail is kept
+encrypted on the device; who a message is from is checked (the provider's
+checks, the DKIM signature verified here) and what is there to fool -- a
+look-alike sender, a link that goes elsewhere than it says, tracking
+pictures -- is told or taken out. The app registrations it signs in with
+are made once by whoever builds it (`examples/mail/appids.nim`,
+`docs/retromail.md`).
 
 ```sh
 nimble mail                 # or: nim c -r -d:release examples/mail.nim

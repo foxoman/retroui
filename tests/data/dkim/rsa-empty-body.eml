@@ -1,0 +1,12 @@
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=example.org;
+ i=@example.org; q=dns/txt; s=k2048; t=1794989701; h=from : to :
+ subject : date : message-id : mime-version : content-type : from;
+ bh=47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=;
+ b=jECDuSJvowZvaTPaIVqvEFKlNRAQvsU6cydxPVsY4iMY0plxoB0aLXFj+nVOFY/xRF80R
+ bgJUZhsZ6pIg+g8rklsVE3Ntrb4vBuLXjAn2H4gJs8GhoiDztgILMPmCRjaZsTWIYKmUEpZ
+ aUmE+V9i0izVw8WU6M7vOZB1H3dLBEqFmi442prM7sZz072UgKkUiwirX1mCdIvGsFmYTTe
+ rWZ44JfMqDn+14ZJGIwy6ht6ypbRVWJgUrv+enYWWF5JqP7HUcVLdwoaMPZctevz9jAR2yb
+ A1PtV/odmNybHXpNBi40LOeYLH+YYVwIsRe4t6NAd3pmu7iFDStKNpVxpqkA==
+From: a@example.org
+Subject: x
+

@@ -101,6 +101,7 @@ var
   newTagColor = 0
   confirmDelete = false
   status = ""
+  storeNote = ""        ## what happened to the store as the app started ("" nothing to tell)
   # the panes' sizes
   barW = 86
   treeW = 230
@@ -116,7 +117,7 @@ var
 
 const
   appName = "Retro Mail"
-  appVersion = "1.1.6"
+  appVersion = "1.2.0"
   credit = "Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net"
   tagPalette = [("Blue", "#0063b1"), ("Green", "#00a300"), ("Red", "#e81123"),
                 ("Orange", "#ff8c00"), ("Purple", "#7a3ba0"), ("Teal", "#008080"),
