@@ -50,7 +50,7 @@ import http
 when defined(android) and defined(ssl):
   # (bionic has glob() only from Android 9, and std/net looks for the
   # certificate authorities with it: ours before that)
-  {.passC: "-include " & quoteShell(currentSourcePath().parentDir / "androidglob.h").}
+  {.passC: "-include " & quoteShell(currentSourcePath().substr(0, currentSourcePath().rfind({'/', '\\'})) & "androidglob.h").}
   {.compile: "androidglob.c".}
 
 type

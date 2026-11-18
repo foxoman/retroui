@@ -336,10 +336,12 @@ proc psMenus() =
         ci("Layer via &Copy", enabled = some)
         ci("Layer via Cu&t", enabled = sel)
         ci("Layer by Lifting the &Subject", "Lift Subject", enabled = edits)
-      ci(if grp: "&Duplicate Group..." else: "&Duplicate Layer...",
-         if grp: "Duplicate Group" else: "Duplicate Layer", enabled = some)
+      let many = some and d.severalPicked
+      ci(if many: "&Duplicate Layers..." elif grp: "&Duplicate Group..." else: "&Duplicate Layer...",
+         if many: "Duplicate Layers" elif grp: "Duplicate Group" else: "Duplicate Layer", enabled = some)
       psSub "De&lete":
-        ci(if grp: "&Group" else: "&Layer", if grp: "Delete Group" else: "Delete Layer",
+        ci(if many: "&Layers" elif grp: "&Group" else: "&Layer",
+           if many: "Delete Layers" elif grp: "Delete Group" else: "Delete Layer",
            enabled = some and d.layers.len > 1)
       ci("Rena&me Layer...", if grp: "Group Properties..." else: "Layer Options...", enabled = some)
       ci("Object E&xport Options...", "Object Export Options...", enabled = some)
@@ -693,8 +695,18 @@ proc psMenus() =
         ci("&Full Screen Mode", checked = screenMode == 2)
       sep()
       ci("E&xtras", "Hide Edges", enabled = some, checked = dw != nil and not dw.view.hideEdges)
+      # (a drawing: the objects' outlines, as the drawing program names them; a layout: the
+      # frames' edges, as the layout program does -- the same switch, Ctrl+H)
+      case active.pickLook
+      of plDrawing:
+        ci(if dw != nil and dw.view.hideEdges: "Show &Edges" else: "Hide &Edges", "Hide Edges", enabled = some)
+      of plLayout:
+        ci(if dw != nil and dw.view.hideEdges: "Show &Frame Edges" else: "Hide &Frame Edges", "Hide Frame Edges",
+           enabled = some)
+      of plPhoto: discard
       psSub "Sho&w":
         ci("&Selection Edges", "Hide Edges", enabled = some, checked = dw != nil and not dw.view.hideEdges)
+        ci("&Layer Edges", "Layer Edges", enabled = some, checked = showLayerEdges)
         ci("&Guides", "Show Guides", enabled = some, checked = dw != nil and dw.view.showGuides)
         ci("G&rid", "Show Grid", enabled = some, checked = dw != nil and dw.view.showGrid)
         ci("S&mart Guides", "Smart Guides", checked = smartGuidesOn)
@@ -1247,6 +1259,9 @@ proc taskBarItems(dw: DocWin): seq[(string, string)] =
     @[("Crop", "\1crop"), ("Cancel", "\1nocrop")]
   elif te.on:
     @[("Done", "\1type"), ("Character", "Character"), ("Glyphs", "Glyphs"), ("Warp Text", "\1warp")]
+  elif touchPick:
+    # (picking by touch: what to do with those picked, and Done)
+    @[("Done", "\1pickdone"), ("Group", "Group Layers"), ("Delete", "Delete Layer"), ("Transform", "Free Transform")]
   elif d.pickedLayers.len > 1:
     # (several layers picked: into a group -- a folder -- of their own)
     @[("Group", "Group Layers"), ("Merge", "Merge Layers"), ("Transform", "Free Transform")]
@@ -1313,6 +1328,7 @@ proc taskBarDraw(dw: DocWin) =
   case chosen
   of "": discard
   of "\1ok": finishTransform(true)
+  of "\1pickdone": endTouchPick()
   of "\1no": finishTransform(false)
   of "\1crop":
     commitCropNow()

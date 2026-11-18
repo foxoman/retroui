@@ -1057,9 +1057,74 @@ proc liveShape(d: Doc; L: Layer) =
       d.setShape(L, s)
       d.endStep()
 
+proc scaleLayersTo(d: Doc; to: Rect) =
+  ## (Properties: W and H of several layers -- them all stretched into `to`,
+  ## each as what it is; in the step open)
+  let shots = d.shotsOf(d.transformLayersOf)
+  let r = shotsBox(shots)
+  if r.w <= 0 or r.h <= 0 or to.w <= 0 or to.h <= 0: return
+  for s in shots:
+    if s.kind != skPixels: d.touch(s.layer, d.bounds)
+  d.carryShots(shots, r, quadOf(to), proc (L: Layer) = d.renderSmartLayer(L))
+  d.putDownShots(shots, r, quadOf(to))
+
+proc severalProps(d: Doc) =
+  ## Properties with several layers picked (as the photo editor shows them):
+  ## how many, where they are together -- W, H, X, Y set them all -- and
+  ## Align and Distribute.
+  let idxs = d.pickedLayers
+  row:
+    let ir = place(dp(16), dp(16))
+    image(ir.x, ir.y, glyphIcon(pxLayers, ui.theme.text, dp(16)))
+    label($idxs.len & " Layers", bold = true)
+  let b = d.pickedBox
+  let locked = d.transformLayersOf.allIt(it.locked or it.lockPosition)
+  if b.w > 0 and b.h > 0:
+    group("Transform"):
+      var w = b.w
+      var h = b.h
+      var x = b.x
+      var y = b.y
+      row:
+        label "W:"
+        let cw = spin(w, 1, 30000, w = dp(70), enabled = not locked)
+        label "H:"
+        let ch = spin(h, 1, 30000, w = dp(70), enabled = not locked)
+        if cw or ch:
+          let to = rect(b.x, b.y, w, h)
+          d.stepOnce("Scale", proc () = d.scaleLayersTo(to))
+      row:
+        label "X:"
+        let mx = spin(x, -30000, 30000, w = dp(70), enabled = not locked)
+        label "Y:"
+        let my = spin(y, -30000, 30000, w = dp(70), enabled = not locked)
+        if mx or my:
+          let dx = x - b.x
+          let dy = y - b.y
+          let ls = d.transformLayersOf.filterIt(not it.locked and not it.lockPosition and not it.background)
+          d.stepOnce("Move", proc () = d.shiftLayers(ls, dx, dy))
+  group("Align"):
+    row:
+      for (how, icon) in [(AlignHow.alLeft, pxAlignEdgeLeft), (alHCenter, pxAlignEdgeHCenter), (AlignHow.alRight, pxAlignEdgeRight),
+                          (alTop, pxAlignEdgeTop), (alVCenter, pxAlignEdgeVCenter), (alBottom, pxAlignEdgeBottom)]:
+        if toolButton(glyphIcon(icon, ui.theme.text, dp(16)), "Align " & $how):
+          let to = d.alignTarget(idxs)
+          d.layersChange("Align " & $how): d.alignLayers(idxs, how, to)
+  if idxs.len >= 3:
+    group("Distribute"):
+      for how in [dsHSpace, dsVSpace, dsHCenter, dsVCenter]:
+        if button($how, w = dp(150)):
+          d.layersChange("Distribute " & $how): d.distributeLayers(idxs, how)
+  row:
+    if button("Group", w = dp(70)): runCommand("Group Layers")
+    if button("Merge", w = dp(70)): runCommand("Merge Layers")
+
 proc propertiesBody(d: Doc) =
   if d == nil:
     label("(no image)", color = ui.theme.gray)
+    return
+  if d.severalPicked and not d.hasSelection and not d.quickMask:
+    severalProps(d)
     return
   let L = d.current
   beginScroll(remainingH(), "propscroll")

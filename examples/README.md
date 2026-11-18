@@ -238,6 +238,25 @@ pages or spreads, a range) and Save Book as IDML; Type > Text Effects.
 `--run "Command"`, `--script file.rs` and `--list-commands` on the
 command line.
 
+**Several layers at once** (5.7): picked as each kind of document's
+program shows them -- a photo: one box with handles round all of them; a
+drawing (SVG, AI, EPS): each object's outline in its layer's color, with
+its anchor points, and one box; a page of a book: each frame's edge in its
+layer's color, and one box. A box dragged with the Move tool picks the
+layers it touches (from the gray round the image too, each outlined as the
+box goes); Shift+click adds one and, on one picked, takes it out; on a
+phone or a tablet a long press on a layer picks by taps until Done. Free
+Transform and the box's handles change them all together (pixels warped,
+shapes still shapes, type still type -- turned or in perspective, drawn
+through its corners -- Smart Objects from what they hold; one Undo);
+Delete, Duplicate, Opacity, Fill, the blend mode and the locks take them
+all; Properties shows them together (W, H, X, Y, Align, Distribute).
+Layer Options > Color (the drawing and layout programs' colors; a
+drawing's or a layout's new group gets the next one; kept in PSD);
+View > Show > Layer Edges; Hide Edges and Hide Frame Edges by the
+document. File > Open on a phone starts in the folder used last (not
+Recent, which lists no PSD, AI or IDML).
+
 **Print, output and making** (5.6): View > Separations Preview (the
 plates, each on or off, the ink at the pointer) and Overprint Preview;
 Edit > Ink Manager and New Spot Ink (a shape's fill on a plate of its

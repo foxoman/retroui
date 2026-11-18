@@ -969,8 +969,13 @@ proc freeformPaint*(points: openArray[tuple[x, y: float; color: uint32]]): Shape
 
 const MeshRes = 256      # (a mesh's colors made once, on a grid this fine, then read between)
 
+const MeshKeep = 16      # (the meshes' colors kept, the last made)
+
 var
-  meshCache: seq[tuple[key: Hash; px: ptr UncheckedArray[uint32]]]
+  meshSlots: array[MeshKeep, tuple[key: Hash; px: ptr UncheckedArray[uint32]]]
+    ## (in a ring -- an array, not a seq: nothing frees it as the program ends, so
+    ## what it points at is still held then, not lost)
+  meshNext: int
   meshLock: Lock
 initLock(meshLock)
 
@@ -1041,23 +1046,22 @@ proc meshKey(points: openArray[tuple[x, y: float; color: uint32]]; cols: int): H
   result = !$result
 
 proc meshRasterOf(points: openArray[tuple[x, y: float; color: uint32]]; cols: int): ptr UncheckedArray[uint32] =
-  ## (the mesh's colors, made once and kept -- the last 16 -- for every pixel to read; a
+  ## (the mesh's colors, made once and kept -- the last `MeshKeep` -- for every pixel to read; a
   ## shape drawn on another thread at the same time waits its turn here)
   let h = meshKey(points, cols)
   {.cast(gcsafe).}:
     acquire(meshLock)
     try:
-      for e in meshCache:
-        if e.key == h: result = e.px
+      for e in meshSlots:
+        if e.px != nil and e.key == h: result = e.px
       if result == nil:
         result = cast[ptr UncheckedArray[uint32]](allocShared(MeshRes * MeshRes * 4))
         let r = meshRaster(points, cols)
         copyMem(result, unsafeAddr r[0], MeshRes * MeshRes * 4)
-        meshCache.add (h, result)
-        if meshCache.len > 16:
-          # (the oldest let go: no shape of it is being drawn by now -- 16 drawn since)
-          deallocShared(meshCache[0].px)
-          meshCache.delete(0)
+        # (the oldest let go: no shape of it is being drawn by now -- 16 made since)
+        if meshSlots[meshNext].px != nil: deallocShared(meshSlots[meshNext].px)
+        meshSlots[meshNext] = (h, result)
+        meshNext = (meshNext + 1) mod MeshKeep
     finally: release(meshLock)
 
 proc meshAt*(points: openArray[tuple[x, y: float; color: uint32]]; cols: int; u, v: float): uint32 =

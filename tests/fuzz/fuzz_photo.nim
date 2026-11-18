@@ -352,6 +352,9 @@ for step in 1 .. steps:
     move(x, y)
     run(3)
   quitAsked = false
+  # (Quit taken -- Enter on its question: a program would end there; this one goes on, as if
+  # started again. Left ended, each frame was drawn over the last one and never let go: 4 GB)
+  ui.running = true
   if docs.len == 0 and rand(3) == 0:
     addDoc(sample(rand(1 .. 150), rand(1 .. 110)))
     run()

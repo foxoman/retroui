@@ -181,7 +181,9 @@ line.
 - **Start fast**: work the first frame can do without waits for
   `framesShown() > 0`; `scanFontsSoon()` at the start of an app that lists
   the system's fonts; `addFontData(..., packed = true)` early (unpacked on
-  a thread from then).
+  a thread from then). A font offered only to be shown once (a preview of
+  a font file) is let go after with `dropFontData(family)`: offered fonts
+  are kept for as long as the app runs.
 - `&` in a label underlines the next letter (Alt+letter). `isDefault = true`
   makes Enter press the button -- unless the focused control acts on Enter
   itself (a drop-down, a date, a button, a grid cell, a multi-line text
@@ -278,6 +280,11 @@ app "Staff", 520, 420:
   undoKeys(history)                                 # Ctrl+Z, Ctrl+Y: after the text boxes
 ```
 
+- `history.record(label, v, before)` keeps two whole copies of `v` a step
+  (up to 200 steps): for a small value. For a big one (a list of shows
+  with their episodes, a table of every item's state) use
+  `history.did(label, undo, redo)` with closures that hold only what
+  changed (the one row, and where it was).
 - `job(proc (c: JobCtl): T = ...)` runs on a worker; read `progress`,
   `done`, `value`, `failed`, `error`, `cancel()` in the frames. The
   closure must not touch the UI or the app's globals (copy what it needs
@@ -319,7 +326,9 @@ every system's answer and what the app declares): `notify`, `setBadge`,
 `requestAttention`, `online`, `systemLanguage`, `battery`, `deviceInfo`,
 `revealFile`. "Not here" answers false (never raises): fall back
 (`share` false -> `putClipboardText`; `notify` false -> `toast`). Ask from a
-click (phones and browsers ask the user). Secrets: `retroui/secrets`;
+click (phones and browsers ask the user). Secrets: `retroui/secrets` (on
+macOS and Linux a keyring may wait for its password: ask for a secret
+needed at start on a thread, not in the first frame);
 signing in: `retroui/oauth`; updates inside the app, signed:
 `retroui/update` (`checkForUpdate(url, publicKey, version)`,
 `downloadUpdate`, `installUpdate`, `restartApp`; `retrokit update-key`,

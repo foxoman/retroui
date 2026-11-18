@@ -172,7 +172,9 @@ system's keyring (DPAPI, the keychain, libsecret, the app's private
 folder): without it the file is noise, and a byte changed on disk is found
 when it is read. Should the key be lost (the keyring wiped), the file is
 set aside and the accounts are added again: their mail comes down again
-from the servers.
+from the servers. The keyring is asked as the window opens, not before:
+one that asks for its password first (a keychain locked) shows *Opening
+the mail kept on this device...* until it is answered.
 
 Tools > Options > Security turns the warnings and the taking out of
 tracking off (and on again).

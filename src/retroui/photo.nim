@@ -17,7 +17,7 @@
 import std/[math, tables, strutils, json, os, base64, algorithm, locks, atomics, hashes, times]
 when compileOption("threads"):
   import std/typedthreads
-import gfx, imaging, zip, jpeg, parallel, textengine, busy, photoinks, simd, codec, hijri, inks
+import gfx, imaging, zip, jpeg, parallel, textengine, busy, photoinks, simd, simdkit, codec, hijri, inks
 from codec import unbase64
 export photoinks, inks
 
@@ -400,6 +400,29 @@ proc overOpaque(d, s: uint32; ea: int; lut: ptr UncheckedArray[uint8]): uint32 {
 
 # ---- documents -------------------------------------------------------------------------------------
 
+
+var tallies: array[1, int]   # (how many documents there are: `docsAlive`)
+
+type Tally = object
+  ## (one in each document: counted while it is there -- a soak's memory log says how many
+  ## there are, and so whether closed ones are still held)
+  kind: int8                 # 0 not counted, 1 a document
+
+proc `=destroy`(t: Tally) =
+  if t.kind > 0: discard atomicDec(tallies[t.kind - 1])
+
+proc `=copy`(a: var Tally; b: Tally) =
+  a.kind = b.kind
+  if b.kind > 0: discard atomicInc(tallies[b.kind - 1])
+
+proc tally(kind: int8): Tally =
+  discard atomicInc(tallies[kind - 1])
+  Tally(kind: kind)
+
+proc docsAlive*(): int = tallies[0]
+  ## How many documents there are (made and not yet freed): with none open,
+  ## 0 -- else something still holds one.
+
 type
   ColorMode* = enum
     ## The mode of an image (Mode menu): it limits the colors it holds.
@@ -511,6 +534,8 @@ type
     collapsed*: bool        ## a group closed in the Layers palette
     passThrough*: bool      ## a group whose layers mix with what is under it (its mode unused)
     picked*: bool           ## picked with others in the Layers palette (Ctrl+click)
+    label*: int             ## its color (Layer Options: `LayerColors[label - 1]`; 0 none -- a
+                            ## group's it is in, else Light Blue: `labelColorOf`)
     blendIf*: BlendIf       ## Blending Options: shown only where it and what is under are in ranges
     maskClear: int          # 100 - its mask's Density
     maskFeather*: float     ## its mask softened by so many pixels (Properties)
@@ -958,6 +983,7 @@ type
     anchorTo, anchorAt: int
     anchorDx, anchorDy: float32
     attrs: LayerAttrs
+    label: int
 
   LayerSnap = object
     layer: Layer
@@ -1061,6 +1087,7 @@ type
 
   Doc* = ref object
     ## An image: its layers, selection, channels, paths and history.
+    tally: Tally                   # (counted: `docsAlive`)
     w*, h*: int                    ## its size in pixels
     dpi*: float                    ## pixels per inch
     exposure*: float               ## a 32-bit document: the exposure it is shown at (stops; see photohdr)
@@ -1211,6 +1238,20 @@ proc `=destroy`(x: var SpillObj) =
 proc `=copy`(a: var SpillObj; b: SpillObj) {.error.}
 
 const TileSize = 64
+
+const LayerColors* = [
+  ("Light Blue", 0xFF4F80FF'u32), ("Red", 0xFFFF4F4F'u32), ("Green", 0xFF4FFF4F'u32),
+  ("Blue", 0xFF0000FF'u32), ("Yellow", 0xFFFFFF4F'u32), ("Magenta", 0xFFFF4FFF'u32),
+  ("Cyan", 0xFF4FFFFF'u32), ("Gray", 0xFF808080'u32), ("Black", 0xFF000000'u32),
+  ("Orange", 0xFFFF6600'u32), ("Dark Green", 0xFF005400'u32), ("Teal", 0xFF009999'u32),
+  ("Tan", 0xFFCC9966'u32), ("Brown", 0xFF993300'u32), ("Violet", 0xFF9933FF'u32),
+  ("Gold", 0xFFFF9900'u32), ("Dark Blue", 0xFF000087'u32), ("Pink", 0xFFFF99CC'u32),
+  ("Lavender", 0xFF9999FF'u32), ("Brick Red", 0xFF990000'u32), ("Olive Green", 0xFF666600'u32),
+  ("Peach", 0xFFFF9966'u32), ("Burgundy", 0xFF990033'u32), ("Grass Green", 0xFF99CC00'u32),
+  ("Ochre", 0xFF996600'u32), ("Purple", 0xFF660066'u32), ("Light Gray", 0xFFBABABA'u32)]
+  ## The colors a layer may have (`Layer.label`), in the order the drawing and
+  ## layout programs give them to new layers: what is picked on it is drawn in
+  ## its color, and the Layers palette marks it.
 
 const LutN* = 33
   ## An adjustment layer's table of colors: 33 x 33 x 33 (read between).
@@ -1472,7 +1513,7 @@ proc blankDoc(w, h: int; dpi = 72.0; name = "Untitled-1"; mode = cmRGB): Doc =
   ## A document without layers yet.
   checkSize(max(1, w), max(1, h))
   result = Doc(w: max(1, w), h: max(1, h), dpi: dpi, mode: mode, name: name, curPath: -1,
-               viewChannel: -1, maxUndoBytes: undoBudget, depth: 8)
+               viewChannel: -1, maxUndoBytes: undoBudget, depth: 8, tally: tally(1))
   result.channelsOn = [true, true, true, true]
   result.dirty = rect(0, 0, result.w, result.h)     # (`comp` is made when first needed)
 
@@ -3791,7 +3832,8 @@ proc settingsOf(L: Layer): LayerSettings =
                 depth: L.depth, blendIf: L.blendIf, maskClear: L.maskClear, maskFeather: L.maskFeather,
                 gradFeather: L.gradFeather, smart: L.smart, wrap: L.wrap, wrapGap: L.wrapGap, wrapSide: L.wrapSide,
                 ignoreWrap: L.ignoreWrap, meta: L.meta, anchorTo: L.anchorTo, anchorAt: L.anchorAt,
-                anchorDx: L.anchorDx, anchorDy: L.anchorDy, objectStyle: L.objectStyle, attrs: L.attrs)
+                anchorDx: L.anchorDx, anchorDy: L.anchorDy, objectStyle: L.objectStyle, attrs: L.attrs,
+                label: L.label)
 
 proc setSettings(L: Layer; s: LayerSettings) =
   ## (not its text or shape: they are drawn again when changed)
@@ -3811,6 +3853,7 @@ proc setSettings(L: Layer; s: LayerSettings) =
   L.anchorDx = s.anchorDx
   L.anchorDy = s.anchorDy
   L.attrs = s.attrs
+  L.label = s.label
 
 proc snapOf(d: Doc): DocSnap =
   result = DocSnap(w: d.w, h: d.h, dpi: d.dpi, mode: d.mode, palette: d.palette, duotone: d.duotone, cur: d.cur,
@@ -5474,6 +5517,25 @@ proc pickedLayers*(d: Doc): seq[int] =
   for i in countdown(d.layers.high, 0):
     if d.layers[i].picked or i == d.cur: result.add i
 
+proc labelColorOf*(d: Doc; i: int): uint32 =
+  ## The color layer `i` is marked in: its own (`label`), else that of the
+  ## group it is in (the nearest that has one), else Light Blue.
+  if i < 0 or i >= d.layers.len: return LayerColors[0][1]
+  if d.layers[i].label > 0: return LayerColors[d.layers[i].label - 1][1]
+  for g in i + 1 .. d.layers.high:
+    let G = d.layers[g]
+    if G.group and G.label > 0 and d.blockStart(g) <= i: return LayerColors[G.label - 1][1]
+  LayerColors[0][1]
+
+proc nextLabel*(d: Doc): int =
+  ## The color a new group gets (`label`), as the drawing and layout
+  ## programs give their new layers one: the next after those used (Light
+  ## Blue is the document's own: the first group is Red).
+  var used = 1
+  for L in d.layers:
+    if L.group and L.label > 0: used = max(used, L.label)
+  used mod LayerColors.len + 1
+
 proc clearPicks*(d: Doc) =
   ## No layer picked in the Layers palette.
   for L in d.layers: L.picked = false
@@ -5579,6 +5641,41 @@ proc deleteLayer*(d: Doc; i = -1) =
   elif d.cur >= lo: d.cur = lo
   d.cur = clamp(d.cur, 0, d.layers.high)
   d.fixDepths()
+  d.markAll()
+
+proc deleteLayers*(d: Doc; idxs: seq[int]) =
+  ## The layers `idxs` (a group: with all in it) thrown away together, as
+  ## Delete does with several picked -- not the last layer of pixels; the
+  ## layer under the lowest becomes the current one.
+  var lowest = -1
+  for (lo, hi) in d.blocksOf(idxs):     # (the top first: those under keep their places)
+    var others = 0
+    for j, L in d.layers:
+      if (j < lo or j > hi) and not L.group: inc others
+    if others == 0: continue
+    for j in countdown(hi, lo): d.layers.delete(j)
+    lowest = lo
+  if lowest < 0: return
+  d.clearPicks()
+  d.cur = clamp(lowest - 1, 0, d.layers.high)
+  d.fixDepths()
+  d.markAll()
+
+proc duplicateLayers*(d: Doc; idxs: seq[int]): seq[Layer] =
+  ## A copy of each of the layers `idxs` (a group: with all in it) above
+  ## it, as Duplicate does with several picked; the copies are picked, the
+  ## topmost current.
+  d.clearPicks()
+  for (lo, hi) in d.blocksOf(idxs):     # (the top first: those under keep their places)
+    var copies: seq[Layer]
+    for j in lo .. hi:
+      let L = d.layers[j]
+      copies.add copyLayer(L, if j == hi: L.name & " copy" else: L.name)
+    copies[^1].visible = true
+    for c in countdown(copies.high, 0): d.layers.insert(copies[c], hi + 1)
+    result.add copies[^1]
+  for L in result: L.picked = result.len > 1
+  if result.len > 0: d.cur = d.layers.find(result[0])
   d.markAll()
 
 proc moveBlock*(d: Doc; i, gap: int; depth = -1): bool {.discardable.} =
@@ -6396,15 +6493,22 @@ proc contentBounds*(d: Doc; L: Layer): Rect =
   parallelRows(h, y):
     var a = -1
     var b = -1
-    for x in 0 ..< w:
-      if (lp[y * w + x] shr 24) != 0:
-        a = x
-        break
-    if a >= 0:
-      for x in countdown(w - 1, a):
+    when kitSimd:
+      # (four pixels at a time: simdkit's)
+      let f = firstAlpha(addr lp[y * w], w)
+      if f < w:
+        a = f
+        b = lastAlpha(addr lp[y * w], w)
+    else:
+      for x in 0 ..< w:
         if (lp[y * w + x] shr 24) != 0:
-          b = x
+          a = x
           break
+      if a >= 0:
+        for x in countdown(w - 1, a):
+          if (lp[y * w + x] shr 24) != 0:
+            b = x
+            break
     yp[y] = (a, b)
   var x0 = w
   var x1 = -1
@@ -7562,8 +7666,10 @@ proc vacatedCopy*(d: Doc; px: seq[uint32]; r: Rect; vacated: uint32): seq[uint32
   let c = d.clip(r)
   parallelRows(d.h, y):
     copyMem(addr op[y * w], addr sp[y * w], w * 4)
-    if y >= c.y and y < c.y + c.h:
-      for x in c.x ..< c.x + c.w: op[y * w + x] = vacated
+    if y >= c.y and y < c.y + c.h and c.w > 0:
+      when kitSimd: fill32(addr op[y * w + c.x], c.w, vacated)
+      else:
+        for x in c.x ..< c.x + c.w: op[y * w + x] = vacated
 
 proc warpedPixels*(d: Doc; original: seq[uint32]; r: Rect; mask: seq[uint8]; q: Quad;
                    vacated: uint32): seq[uint32] =
@@ -8723,6 +8829,7 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
     if L.fill != 100: lj["fill"] = %L.fill
     if L.depth > 0: lj["depth"] = %L.depth
     if L.locked: lj["locked"] = %true
+    if L.label > 0: lj["label"] = %L.label
     if L.lockPixels: lj["lockPixels"] = %true
     if L.lockPosition: lj["lockPosition"] = %true
     if L.link != 0: lj["link"] = %L.link
@@ -8968,6 +9075,7 @@ proc loadRpd*(path: string): Doc =
         L.hi = newSeqUninit[uint16](w * h * 4)
         copyMem(addr L.hi[0], unsafeAddr raw[0], raw.len)
     L.locked = lj{"locked"}.getBool
+    L.label = clamp(lj{"label"}.getInt, 0, LayerColors.len)
     L.lockPixels = lj{"lockPixels"}.getBool
     L.lockPosition = lj{"lockPosition"}.getBool
     L.link = max(0, lj{"link"}.getInt)

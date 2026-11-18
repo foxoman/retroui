@@ -1,5 +1,109 @@
 # Changes
 
+## 0.62.0
+
+Retro Atelier picks several layers at once as each of the three programs
+does -- a photo shows one box with handles round all of them, a drawing
+each object's outline in its layer's color with its anchor points, a page
+each frame's edge -- and transforms, deletes, duplicates and sets them
+together, picked by touch too; layers have the drawing and layout
+programs' colors. File > Open on a phone starts where you were. And what
+GitHub's checks found: the Windows programs build again, Retro Mail no
+longer waits for a keychain before its window shows, Retro Atelier lets
+go of the images it closes, Retro Files no longer stops at a file it
+cannot read to its end, a zip with impossible sizes is refused instead
+of crashing, and Retro Podcast's History keeps what changed, not copies
+of the whole library.
+
+- **Several layers picked, seen** (Retro Atelier 5.7, `examples/photo/picking.nim`):
+  shown as the program the document is for shows them -- a photo as the
+  photo editor (one box with handles round all of them, Show Transform
+  Controls; View > Show > Layer Edges outlines each, with any tool), a
+  drawing (SVG, AI, EPS) as the drawing program (each object's outline in
+  its layer's color, its anchor points, and one box in that color; View >
+  Hide Edges), a page of a book as the layout program (each frame's edge in
+  its layer's color, one box; View > Extras > Hide Frame Edges). The layer
+  under the pointer is outlined and its row in Layers framed; the row the
+  pointer is over in Layers outlines its layer on the image.
+- **Picked** with the Move tool: a box dragged from where nothing is --
+  from the gray round the image too -- picks what it touches, each outlined
+  as the box goes (Shift: added to those picked); Shift+click adds a layer
+  and, on one picked, takes it out; a click on one of those picked keeps
+  them all. On a phone or a tablet a long press on a layer (or Pick Several
+  in its menu) picks by taps -- here and on the image, a tick on each row --
+  until Done in the bar under the image (or Esc).
+- **Worked together**: Free Transform (Ctrl+T, the bar's Transform) and
+  the box's handles change all of them in one box, one step -- pixels
+  warped once at the end (each only where it has something: three layers of
+  6000 x 4000 put down in 0.2 s, a frame of them shown live in 18 ms), shapes
+  still shapes, type still type (scaled; turned, slanted or in perspective,
+  set flat and drawn through its corners), Smart Objects drawn again from
+  what they hold (`retroui/photowarp`: `LayerShot`, `shotsOf`, `shotsBox`,
+  `carryShots`, `liveShots`, `putDownShots`, `squareQuad`). Moving them
+  moves type and shapes as what they are. Delete (the key, the bin, the
+  menus), Duplicate, the blend mode, Opacity, Fill and the four locks take
+  all of them (`deleteLayers`, `duplicateLayers`); Properties shows them
+  together -- how many, W, H, X, Y (set: all of them scaled or moved),
+  Align, Distribute, Group, Merge.
+- **Layer colors** (`Layer.label`, `LayerColors`, `labelColorOf`,
+  `nextLabel`): Layer Options > Color, the drawing and layout programs'
+  twenty-seven (Light Blue, Red, Green...); a layer without one has its
+  group's; a new group in a drawing or a layout gets the next, as those
+  programs give their new layers one. The Layers panel marks it in the
+  eye's column; PSD keeps it ('lclr', Photoshop's seven).
+- **Open on a phone** (`tools/android/RetroActivity.java`): the system's
+  picker starts in the folder of the file last opened or saved (else
+  Downloads), not in Recent -- which lists pictures and PDFs only, never a
+  PSD, an AI or an IDML. A web page's file chooser on a phone offers them
+  too (`application/octet-stream` asked with the names it has no type for).
+- **SIMD**: where a layer has something, a row four pixels at a time
+  (`retroui/simdkit`: `firstAlpha`, `lastAlpha`; 2.7 times sooner: the
+  Move tool's box, Align, Properties); the place left by a transform filled
+  as fast as memory. A warp of the transform four pixels at a time was
+  tried and dropped: its sixteen reads a pixel cost as much as it saved.
+  The layers' boxes are kept while they are the same (the Move tool's box
+  is drawn each frame).
+- **What GitHub's checks found**: a `return` after `result` in
+  `retroui/dnsquery` and three variables given twice (`tools/returncheck.py`,
+  `tools/writecheck.py`); the Windows programs (built on Linux) not
+  building since 0.58 -- the SIMD headers' paths were turned into Windows'
+  (`os./` with Windows the target): cut from the module's own path now;
+  Retro Mail on macOS waiting for a keychain that never answered before its
+  first frame -- the store's key is asked on a thread of its own now, *Opening
+  the mail kept on this device...* shown meanwhile, asked once and kept
+  (`storeKey`), and `retroui/secrets`' tools stopped after two minutes and
+  not asked again (Retro Mail 1.2.1); macOS's own openssl, which will not act
+  as a time-stamping authority, skipped in `test_store`; the gradient mesh's
+  colors kept in a ring the leak checker sees held; `test_bigpicture`'s
+  memory bound not asked of the sanitizers' build.
+- **What the nightly runs found**: Retro Atelier kept every image closed
+  once Save As had been begun for it -- the Save As dialog held its window
+  (800 MB of closed images in an hour of random input); it, the question
+  asked on closing and Lighting Effects let go of it now, as do the
+  caches, sources and dialogs that held an image or its layers
+  (`forgetDoc`), and the memory log says how many documents are still
+  alive (`docsAlive`). Retro Files stopped at a file that gives an error
+  partway through reading it (Linux's own under /sys; a disk failing, a
+  share gone would too): `retroui/textfile` shows what was read and keeps
+  why (`TextFile.error`, `HexFile.error`; the status says *could not be
+  read further*; Retro Files 3.6.1, which also lets go of a font it showed
+  once its sheet is drawn: `dropFontData` in `retroui/textengine`; each
+  was kept for as long as it ran). The store's fuzzer found a zip whose
+  zip64 numbers, near the largest there is, overflowed a sum in
+  `retroui/zip` (a crash, not *damaged*): each limit is asked by taking
+  away now (`zipEntries`, `readEntry`). Retro Podcast's History kept two
+  copies of every show for each Unfollow and of every episode's state for
+  each Mark Played (`UndoStack.record`), up to 200 steps: on GitHub, where
+  the hour of random input reads real feeds, Retro Podcast's memory still
+  grew in the second half (+17 MB, up to 380 MB); it keeps the one show
+  and the one episode now (`did`; 120 steps on a library of 8 shows of 300
+  episodes: 89 MB more before, nothing now; Retro Podcast 1.2.1). The
+  photo fuzzer, once it took Quit, drew each frame over the last until it
+  ran out of memory: it goes on as if started again -- and then found a
+  floating palette dragged onto the dock by its title faulting
+  (`retroui/dock`: it left the list of floating palettes in the middle of
+  their loop; `dockPanels` walks copies of its lists now).
+
 ## 0.61.0
 
 Retro Mail made safe, and for any mail: who a

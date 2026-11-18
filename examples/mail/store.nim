@@ -140,6 +140,7 @@ proc mailDir*(): string =
 
 var keyLock: Lock
 initLock(keyLock)
+var keyKnown: string     ## (guarded by keyLock: the key once the keyring gave it -- asked once)
 var storeEncrypt* = true
   ## A new store is made encrypted (Options: "Keep mail encrypted on this
   ## device"); one already there opens as it is.
@@ -159,19 +160,30 @@ proc kindName*(k: AccountKind): string =
 
 proc storeKey*(make = true): string {.gcsafe.} =
   ## The key the store is encrypted with: made the first time (`make`) and
-  ## kept in the system's keyring; "" when there is none (or it cannot be kept).
+  ## kept in the system's keyring; "" when there is none (or it cannot be
+  ## kept). The keyring is asked once; the key is kept for the other
+  ## connections (the sync's, the background check's).
+  var key = ""
   withLock keyLock:
-    let saved = loadSecret("Retro Mail", "store key")
-    if saved.len > 0:
-      result = try: unbase64(saved) except ValueError: ""
-      if result.len == 32: return
-      result = ""
-    if not make: return
-    var k = newString(32)
-    if not urandom(k.toOpenArrayByte(0, 31)): return
-    if saveSecret("Retro Mail", "store key", encode(k)) and
-       loadSecret("Retro Mail", "store key") == encode(k):
-      result = k
+    {.cast(gcsafe).}: key = keyKnown
+    if key.len != 32:
+      let saved = loadSecret("Retro Mail", "store key")
+      let had = if saved.len > 0: (try: unbase64(saved) except ValueError: "") else: ""
+      if had.len == 32: key = had
+      elif make:
+        var k = newString(32)
+        if urandom(k.toOpenArrayByte(0, 31)) and saveSecret("Retro Mail", "store key", encode(k)) and
+           loadSecret("Retro Mail", "store key") == encode(k):
+          key = k
+        else: key = ""
+      else: key = ""
+      if key.len == 32:
+        {.cast(gcsafe).}: keyKnown = key
+  key
+
+proc forgetStoreKey*() =
+  ## The key no longer kept here (the keyring asked again next time).
+  withLock keyLock: keyKnown = ""
 
 proc secureStore*(on: bool; path = "") =
   ## The store made encrypted (`on`) or not, as Options say, before any

@@ -9,9 +9,11 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/os
+from std/strutils import rfind
 
-const kitKernels = currentSourcePath().parentDir / "simdkit.h"
+const kitKernels = currentSourcePath().substr(0, currentSourcePath().rfind({'/', '\\'})) & "simdkit.h"
+  ## (cut from the source's own path: `os.parentDir` and `/` turn its "/" into "\" when
+  ## Windows is the target, and a compiler on Linux building for Windows finds no such file)
 
 const kitSimd* = not defined(retroNoSimd)
   ## The kernels are used (else the plain Nim loops)
@@ -34,6 +36,12 @@ proc gatherOpaque*(dst, src: ptr uint32; xs: ptr int32; n: int): int
   {.importc: "ruk_gather_opaque", header: kitKernels, cdecl.}
   ## `dst[i] = src[xs[i]]` from the first while `xs[i] >= 0` and the pixel is opaque: how many
   ## (a zoomed view's row; the caller does the one it stopped at).
+
+proc firstAlpha*(p: ptr uint32; n: int): int {.importc: "ruk_first_alpha", header: kitKernels, cdecl.}
+  ## The first of `n` pixels from `p` with some alpha (`n`: none).
+
+proc lastAlpha*(p: ptr uint32; n: int): int {.importc: "ruk_last_alpha", header: kitKernels, cdecl.}
+  ## The last of `n` pixels from `p` with some alpha (-1: none).
 
 proc idctBlock*(blk: ptr int32; outp: ptr uint8; stride: int): cint
   {.importc: "ruk_idct", header: kitKernels, cdecl.}

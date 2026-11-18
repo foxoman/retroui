@@ -344,7 +344,10 @@ proc bigPictures(dir: string) =
       let m = measured(args)
       echo "  ", what, ": ", m.ms, " ms, at most ", (m.kb - base) div 1024, " MB more than an idle process (",
            base div 1024, " MB); the picture whole: ", whole div 1024, " MB"
-      doAssert m.kb - base < whole div 8, what & ": " & $(m.kb - base) & " KB"
+      # (under the sanitizers each allocation carries their own bookkeeping: the
+      # memory is theirs as much as ours, and not measured)
+      when not defined(retroSanitized):
+        doAssert m.kb - base < whole div 8, what & ": " & $(m.kb - base) & " KB"
 
 # ---- Retro Photo: a picture too big to edit whole ------------------------------------------------------
 

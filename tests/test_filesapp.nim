@@ -15,6 +15,7 @@ putEnv("XDG_CACHE_HOME", home / ".cache")
 import retroui
 import retroui/uirelays/input
 import retroui/xlsx
+from retroui/textengine import fontFamilies
 import harness
 import ../examples/filemanager
 
@@ -152,6 +153,8 @@ block kinds:
     key(KeyEsc)
     run(2)
     doAssert viewerShown() == "vkNone", name & " closed"
+  # a font shown is let go once its sheet is drawn (each was kept for as long as the app ran)
+  for f in fontFamilies(): doAssert not f.startsWith("Files preview"), f
   # a pipe is no file to open, whatever it is called: reading one would never end
   # (a night's random input opened one, and the app never came back)
   when defined(posix):

@@ -508,10 +508,11 @@ proc ewsAction*(db: Db; acc: Account; pw: string; a: Action; m: Msg) =
       of "read": c.setRead(m.remoteId, not d{"unread"}.getBool)
       of "flag": c.setFlag(m.remoteId, d{"flagged"}.getBool)
       of "tags":
-        var tags: seq[string]
-        for t in d{"tags"}.getElems: tags.add t.getStr
         let now = db.message(m.id)
+        var tags: seq[string] = @[]
         if now.id > 0: tags = now.tags
+        else:
+          for t in d{"tags"}.getElems: tags.add t.getStr
         c.setCategories(m.remoteId, tags)
       of "move":
         let dest = db.folder(d{"folder"}.getInt)

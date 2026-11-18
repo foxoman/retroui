@@ -116,6 +116,25 @@ for avx in [0'i32, 1]:
       doAssert got == stop, "gather " & $n & ": " & $got & " not " & $stop
       doAssert dst == want, "gather " & $n
 
+  block alphaExtents:
+    # (where a layer has something, a row at a time: the first and the last pixel with alpha)
+    for n in lengths:
+      var row = newSeq[uint32](n + 1)
+      for i in 0 ..< n:
+        row[i] = if r.rand(3) == 0: (px() and 0x00FFFFFF'u32) or (uint32(r.rand(1 .. 255)) shl 24)
+                 else: px() and 0x00FFFFFF'u32
+      if n > 0 and r.rand(4) == 0:
+        for i in 0 ..< n: row[i] = row[i] and 0x00FFFFFF'u32      # (nothing in it)
+      var first = n
+      for i in 0 ..< n:
+        if (row[i] shr 24) != 0: (first = i; break)
+      var last = -1
+      for i in countdown(n - 1, 0):
+        if (row[i] shr 24) != 0: (last = i; break)
+      let f = if n > 0: firstAlpha(addr row[0], n) else: 0
+      let l = if n > 0: lastAlpha(addr row[0], n) else: -1
+      doAssert f == first and l == last, "alpha extents " & $n & ": " & $f & ", " & $l & " not " & $first & ", " & $last
+
   block jpegIdct:
     # (the 64-bit loop of jpeg.nim, here as it is)
     proc idctRef(blk: array[64, int32]; o: var array[64, uint8]) =

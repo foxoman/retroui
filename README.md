@@ -2219,7 +2219,13 @@ Paint**, **Intertwine** and **Pattern Options**, the photo program's **Relight**
 dragged on the image, no AI), **Remove with its shadow**, **Upscale** and each layer's size, and
 the quick-design programs' **Mockups**, **Styles** and font pairs, **Tidy Up**, **Lift
 Subject**, templates with photo placeholders and an **AI service of your own** that runs the
-app's commands (shown first, nothing sent before you set one). The
+app's commands (shown first, nothing sent before you set one). Since 5.7 **several layers
+picked** are shown as each program shows them -- a photo: one box with handles round them all;
+a drawing: each object's outline in its layer's color with its anchor points; a page: each
+frame's edge -- and transformed, deleted, duplicated and set together (each as what it is:
+`retroui/photowarp`'s `LayerShot`, `shotsOf`, `carryShots`, `putDownShots`); a long press
+picks them by touch; layers have the drawing and layout programs' colors (`Layer.label`,
+`LayerColors`, kept in PSD). The
 layers are mixed, blurred and resized four or eight pixels at a time (`retroui/simd`, AVX2
 where the processor has it), the layers under the one painted on kept mixed (painting over nine
 layers six times sooner), idle layers kept small in memory; the kit draws the screen, opens

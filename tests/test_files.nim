@@ -238,7 +238,24 @@ block bigText:
   doAssert h.lineCount == (s.len + 15) div 16
   doAssert h.line(0).startsWith("00000000  6C 69 6E 65 20 30"), h.line(0)
   doAssert h.line(0).endsWith("line 0.end.line "), h.line(0)
+  doAssert h.error == "" and t.error == ""
   h.close()
+  # a file whose reading fails (a disk failing, a share gone; here one of Linux's own files that
+  # says 4 KB and gives an I/O error read): what was read shown, why kept -- no raise from a frame
+  # (an hour of random input in the file manager went into /sys and stopped there)
+  const failing = "/sys/devices/virtual/mem/zero/power/autosuspend_delay_ms"
+  when defined(linux):
+    if fileExists(failing):
+      let ft = openTextFile(failing)
+      for i in 0 .. 3: ft.index(5)
+      doAssert ft.done
+      discard ft.line(0)
+      let fh = openHexFile(failing)
+      for i in 0 ..< fh.lineCount: discard fh.line(i)
+      doAssert fh.lineCount == 0 or fh.error == ""
+      echo "a failing file: ", (if ft.error.len > 0: ft.error else: "read whole here")
+      ft.close()
+      fh.close()
 
 block workInTheBackground:
   for i in 0 ..< 30: mk("bg/f" & $i & ".txt", "z")
@@ -427,6 +444,52 @@ block damagedFilesAreRefusedNotCrashing:
   let bomb = zlibCompress(newSeq[byte](1_000_000))
   doAssert zlibDecompress(bomb).len == 1_000_000
   doAssertRaises(InflateError): discard zlibDecompress(bomb, maxOut = 1000)
+
+block zipNumbersNearTheLargest:
+  # a zip64 number a damaged file sets near the largest there is: refused, not added to another
+  # and overflowed (the nightly fuzzer of the store's packages found one; a Defect, not ZipError)
+  var zw = newZipWriter()
+  zw.addFile("a.txt", "hello hello hello")
+  let good = zw.finish()
+  proc le(v: int64; n: int): string =
+    for k in 0 ..< n: result.add char((v shr (8 * k)) and 255)
+  proc rd(s: string; at, n: int): int =
+    for k in countdown(n - 1, 0): result = (result shl 8) or ord(s[at + k])
+  proc put(s: var string; at: int; v: int64; n: int) =
+    for k in 0 ..< n: s[at + k] = char((v shr (8 * k)) and 255)
+  let eocd = good.len - 22
+  doAssert rd(good, eocd, 4) == 0x06054b50
+  let ending = block:
+    var e = good[eocd .. ^1]
+    e.put(16, 0xFFFFFFFF'i64, 4)               # (its directory's place: in the zip64 record)
+    e
+  proc refused(data: string): bool =
+    writeFile(root / "over.zip", data)
+    try:
+      for e in zipEntries(root / "over.zip"): discard readEntry(root / "over.zip", e)
+      false
+    except ZipError: true
+  let locatorFar = le(0x07064b50, 4) & le(0, 4) & le(0x7FFFFFFFFFFFFFF0, 8) & le(1, 4)
+  doAssert refused(good[0 ..< eocd] & locatorFar & ending)
+  let record = le(0x06064b50, 4) & le(44, 8) & le(45, 2) & le(45, 2) & le(0, 4) & le(0, 4) &
+               le(1, 8) & le(1, 8) & le(0x7000000000000000, 8) & le(0x7000000000000000, 8)
+  doAssert record.len == 56
+  let locator = le(0x07064b50, 4) & le(0, 4) & le(eocd, 8) & le(1, 4)
+  doAssert refused(good[0 ..< eocd] & record & locator & ending)
+  # an entry whose stored size is in a zip64 field, near the largest
+  let cd = rd(good, eocd + 16, 4)
+  let nameLen = rd(good, cd + 28, 2)
+  doAssert rd(good, cd + 30, 2) == 0
+  var big = good[0 ..< cd + 46 + nameLen] & le(1, 2) & le(8, 2) & le(0x7FFFFFFFFFFFFFF0, 8) &
+            good[cd + 46 + nameLen .. ^1]
+  big.put(cd + 20, 0xFFFFFFFF'i64, 4)
+  big.put(cd + 30, 12, 2)
+  big.put(eocd + 12 + 12, rd(good, eocd + 12, 4) + 12, 4)
+  when sizeof(int) == 8:
+    # (listed: refused when it is read -- a 32-bit program refuses it as it lists, its size past an int)
+    doAssert zipEntries((writeFile(root / "over.zip", big); root / "over.zip")).len == 1
+  doAssert refused(big)
+  doAssert not refused(good)
 
 block deflateMatchesAtAnyOffset:
   # (matches compared eight bytes at a time from any byte offset -- once

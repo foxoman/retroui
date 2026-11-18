@@ -769,7 +769,12 @@ proc dockPanels*(d: Dock; area = ""; body: proc (key: string); menu: proc (key: 
     d.win.r = rect(a.w - total, 0, total, a.h)
     if beginMdiWindow(d.win):
       var x = a.x + a.w
-      for ci, c in d.columns:
+      # (a copy of the list walked: a panel drawn -- the app's own code -- may open, close or
+      # move one, and the list itself must not change under its loop)
+      let cols = d.columns
+      for c in cols:
+        let ci = d.columns.find(c)
+        if ci < 0: continue
         let w = c.colWidth
         x -= w
         let r = rect(x, a.y, w, a.h)
@@ -817,7 +822,9 @@ proc dockPanels*(d: Dock; area = ""; body: proc (key: string); menu: proc (key: 
           ui.redraw = true
   # the floating groups
   var lost: seq[DockGroup]
-  for g in d.floating:
+  let floats = d.floating            # (walked as a copy: dropped on the dock, a group leaves the list)
+  for g in floats:
+    if g notin d.floating: continue
     if not g.win.open:
       lost.add g
       continue
@@ -841,7 +848,8 @@ proc dockPanels*(d: Dock; area = ""; body: proc (key: string); menu: proc (key: 
     # (its close box: its panels closed, where they were kept)
     for p in g.panels:
       d.closed.add (p, -1, -1)
-    d.floating.delete(d.floating.find(g))
+    let i = d.floating.find(g)
+    if i >= 0: d.floating.delete(i)
   # a panel dragged: where it would go lights up, its tab follows the mouse
   if d.dragging:
     d.target = d.targetOf()

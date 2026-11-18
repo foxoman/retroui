@@ -121,6 +121,8 @@ type
     ranges*: seq[array[4, int]] ## Blend If: this layer's then the ones under's range, for gray then
                                 ## each channel (black, black's split, white's split, white)
     extra*: seq[(string, string)]  ## (writing) more additional information: key, data
+    color*: int                 ## its color in the Layers panel ('lclr'): 0 none, 1 red, 2 orange,
+                                ## 3 yellow, 4 green, 5 blue, 6 violet, 7 gray
     textTransform*: array[6, float]  ## a type layer: its transform (xx, xy, yx, yy, tx, ty)
     textDesc*: PsdValue         ## ... its text descriptor ('TxLr': "Txt ", "EngineData" (raw), bounds...)
     textWarp*: PsdValue         ## ... its warp ('warp': warpStyle, warpValue...)
@@ -1022,6 +1024,7 @@ proc readLayers(r: var Reader; doc: var PsdDoc; infoEnd: int) =
           if n >= 12 and r.key4() == "8BIM":
             L.blend = r.key4()                # (a group's own blend mode: "pass" through)
         of "iOpa": L.fill = r.u8
+        of "lclr": L.color = int(r.u16)
         of "TySh":
           discard r.u16                     # version
           for k in 0 .. 5: L.textTransform[k] = r.f64
@@ -1794,6 +1797,12 @@ proc layerInfo(doc: PsdDoc; mode: PsdColorMode; big, deep, transparent: bool): s
       o.be32(4)
       o.add char(clamp(L.fill, 0, 255))
       o.add "\0\0\0"
+    if L.color in 1 .. 7:
+      o.add "8BIMlclr"
+      o.be32(8)
+      o.add char(0)
+      o.add char(L.color)
+      o.add "\0\0\0\0\0\0"
     if L.section != psLayer:
       o.add "8BIMlsct"
       o.be32(12)

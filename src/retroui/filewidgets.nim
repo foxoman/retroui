@@ -2198,8 +2198,10 @@ proc hexFileView*(h: HexFile; sel: var int; height = -1; w = 0): LineViewEvent {
   lineView(h.lineCount, proc (i: int): string = h.line(i), sel, height, w)
 
 proc textFileStatus*(t: TextFile): string =
-  ## "12,345 lines, 1.2 MB", or "counting lines... 40%" while it counts.
+  ## "12,345 lines, 1.2 MB", or "counting lines... 40%" while it counts
+  ## ("..., could not be read further": the lines read before it failed).
   if t == nil: ""
+  elif t.error.len > 0: countText(t.lineCount, "line") & tr(", ") & tr("could not be read further")
   elif t.done: countText(t.lineCount, "line") & tr(", ") & sizeText(t.size)
   else: tr("counting lines... ") & $int(t.progress * 100) & "%"
 

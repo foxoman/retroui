@@ -103,7 +103,8 @@ proc zipEntries*(archive: string): seq[ZipEntry] =
     if e < 20 or tail.rd32(e - 20) != 0x07064b50:
       raise newException(ZipError, "the zip directory is damaged")
     let at = tail.rd64(e - 20 + 8)
-    if at < 0 or at + 56 > size: raise newException(ZipError, "the zip directory is damaged")
+    # (each limit asked by taking away: a damaged number near the largest would overflow a sum)
+    if at < 0 or at > size - 56: raise newException(ZipError, "the zip directory is damaged")
     var rec = newString(56)
     f.setFilePos(at)
     if f.readBuffer(addr rec[0], 56) != 56 or rec.rd32(0) != 0x06064b50:
@@ -111,7 +112,7 @@ proc zipEntries*(archive: string): seq[ZipEntry] =
     n = rec.rd64(32)
     cdSize = rec.rd64(40)
     cdAt = rec.rd64(48)
-  if cdAt < 0 or cdSize < 0 or n < 0 or cdAt + cdSize > size or cdSize > high(int) or
+  if cdAt < 0 or cdSize < 0 or n < 0 or cdAt > size or cdSize > size - cdAt or cdSize > high(int) or
      n > cdSize div 46 + 1:
     raise newException(ZipError, "the zip directory is damaged")
   var s = newString(int(cdSize))
@@ -166,7 +167,8 @@ proc readEntry*(archive: string; e: ZipEntry): string =
   if f.readBuffer(addr head[0], 30) != 30 or head.rd32(0) != 0x04034b50:
     raise newException(ZipError, "damaged entry: " & e.name)
   let skip = head.rd16(26) + head.rd16(28)
-  if e.packed < 0 or e.size < 0 or e.offset + 30 + skip + e.packed > getFileSize(f):
+  let room = getFileSize(f) - 30 - skip           # (taken away: a sum of damaged sizes could overflow)
+  if e.packed < 0 or e.size < 0 or e.offset < 0 or e.offset > room or e.packed > room - e.offset:
     raise newException(ZipError, "damaged entry: " & e.name)
   var packed = newString(e.packed)
   f.setFilePos(e.offset + 30 + skip)

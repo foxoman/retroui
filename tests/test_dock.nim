@@ -204,6 +204,31 @@ block dragOutAndBack:
   run(2)
   doAssert dk.hasPanel("layers")
 
+block floatingDroppedOnTheDock:
+  # the floating palette dragged by its title and let go over the dock: docked there -- while
+  # the floating palettes are being drawn (it leaves their list in the middle of their loop:
+  # the photo fuzzer found that a fault)
+  let g = DockGroup(panels: @[dockPanel("notes", "Notes")], share: 100,
+                    win: MdiWindow(palette: true, sizable: true, open: true, r: rect(40, 60, 160, 120)))
+  dk.floating.add g
+  run(2)
+  doAssert dk.floating.len == 1, $dk.floating.len
+  discard takeFaults()
+  let tx = a.x + g.win.r.x + g.win.r.w div 2
+  let ty = a.y + g.win.r.y + dp(4)
+  let over = (a.x + a.w - dk.width div 2, a.y + panelHeaderH() + dp(40))
+  down(tx, ty)
+  run()
+  move(tx + 20, ty + 10)
+  run()
+  move(over[0], over[1])
+  run(2)
+  up(over[0], over[1])
+  run(3)
+  doAssert takeFaults() == ""
+  doAssert dk.floating.len == 0, $dk.floating.len
+  doAssert dk.hasPanel("notes")
+
 block keptAsJson:
   let j = dk.toJson
   var dk2 = newDock()

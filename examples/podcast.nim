@@ -27,7 +27,7 @@ from retroui/system import sharedIn, homeWidget, notificationActions
 import podcast/library
 
 const
-  PodcastVersion = "1.2.0"
+  PodcastVersion = "1.2.1"
   IconPng = staticRead("assets/podcast-icon.png")
   PlayerKey = "podcast-player"
   Speeds = [0.75, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
@@ -230,12 +230,17 @@ proc playNext(): bool =
   true
 
 proc markPlayed(audio: string; played = true) =
-  let before = lib.heard
-  var h = lib.heard.getOrDefault(audio)
+  let had = audio in lib.heard
+  let before = lib.heard.getOrDefault(audio)
+  var h = before
   h.played = played
   h.posMs = 0
   lib.heard[audio] = h
-  history.record(if played: "Mark Played" else: "Mark Unplayed", lib.heard, before)
+  # (the History keeps this episode's own entry, before and after -- not the whole table twice
+  # a step: with a real network's feeds that grew by megabytes a step, for 200 steps)
+  history.did(if played: "Mark Played" else: "Mark Unplayed",
+              proc () = (if had: lib.heard[audio] = before else: lib.heard.del audio),
+              proc () = lib.heard[audio] = h)
   dirty = true
 
 proc enqueue(audio: string) =
@@ -248,10 +253,13 @@ proc enqueue(audio: string) =
 
 proc unfollow(i: int) =
   if i notin 0 ..< lib.shows.len: return
-  let before = lib.shows
-  let title = lib.shows[i].title
+  let show = lib.shows[i]
+  let title = show.title
   lib.shows.delete(i)
-  history.record("Unfollow", lib.shows, before)
+  # (the History keeps the one show and where it was, not every show twice)
+  history.did("Unfollow",
+              proc () = (if lib.showOf(show.url) < 0: lib.shows.insert(show, min(i, lib.shows.len))),
+              proc () = (let k = lib.showOf(show.url); if k >= 0: lib.shows.delete(k)))
   showSel = min(showSel, lib.shows.len - 1)
   status = "Unfollowed " & title & " (Edit, Undo brings it back)"
   dirty = true

@@ -3,7 +3,7 @@
 ## packages, macOS bundles signed ad hoc, iOS archives. Checked again with
 ## osslsigncode, jarsigner and rcodesign when this machine has them.
 
-import std/[os, osproc, strutils, base64]
+import std/[os, osproc, strutils, base64, sequtils]
 import retroui/[sign, rsa, msix, macapp, zip, codec]
 
 let tmp = getTempDir() / "retro-test-store"
@@ -141,10 +141,20 @@ if openssl.len > 0:
                                                    "-queryfile", t / "q.tsq", "-out", t / "r.tsr"]))
       doAssert code == 0, o
       bytesOf(readFile(t / "r.tsr"))
-    let stamped = authenticodeSign(pe, key, cert, "Retro Test", "", @[], stamper)
-    doAssert stamped.len > signed.len + 500, "the authority's token in it"
-    doAssert "\x06\x0a\x2b\x06\x01\x04\x01\x82\x37\x03\x03\x01" in stamped, "where Windows looks for it"
-    if ossl.len > 0:
+    # (an openssl that will not be an authority -- macOS's own LibreSSL refuses
+    # some of what its config asks -- answers "rejection": the stamp is not
+    # tried there, the refusal itself is checked below)
+    var stamped = ""
+    try: stamped = authenticodeSign(pe, key, cert, "Retro Test", "", @[], stamper)
+    except SignError as e:
+      if "refused" notin e.msg: raise
+      let (why, _) = execCmdEx(quoteShellCommand([openssl, "ts", "-reply", "-in", t / "r.tsr", "-text"]))
+      echo "(this system's openssl would not stamp -- ", e.msg, ": ",
+           why.splitLines.filterIt("Status" in it).join(" ").strip, ")"
+    if stamped.len > 0:
+      doAssert stamped.len > signed.len + 500, "the authority's token in it"
+      doAssert "\x06\x0a\x2b\x06\x01\x04\x01\x82\x37\x03\x03\x01" in stamped, "where Windows looks for it"
+    if ossl.len > 0 and stamped.len > 0:
       writeFile(tmp / "stamped.exe", stamped)
       let (o, code) = execCmdEx(quoteShellCommand([ossl, "verify", "-CAfile", certPem, "-TSA-CAfile",
                                                    t / "tsa.pem", "-in", tmp / "stamped.exe"]))

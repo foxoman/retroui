@@ -8,6 +8,7 @@ var
   layerOptsName = ""
   layerOptsOpacity = 100
   layerOptsMode = 0
+  layerOptsLabel = 0               ## (Layer Options: the color, `Layer.label`)
   newLayerOpen = false
   newLayerName = ""
   brushOptsOpen = false
@@ -957,35 +958,67 @@ proc layersBody(d: Doc) =
       d.layersChange("Layer Opacity"): discard
     body
     d.showOpacity()
+  # (several picked: the mode, Opacity, Fill and locks set go to them all, as the
+  # photo editor has it)
+  let all = d.pickedLayersOf
   row:
     if combo((if L.group: groupModeNames() else: layerModeNames()), m, w = max(dp(80), available() - dp(122))):
-      d.setLayerMode(L, m)
+      if all.len > 1:
+        # (the combo of a group has Pass Through first)
+        let pass = L.group and m == 0
+        let mode = LayerModes[clamp(m - (if L.group: 1 else: 0), 0, LayerModes.high)]
+        d.layersChange("Layer Mode"):
+          for P in all:
+            if P.background: continue
+            if P.group: P.passThrough = pass
+            if not pass: P.mode = mode
+          d.markAll()
+      else: d.setLayerMode(L, m)
     var op0 = L.opacity
     if scrubLabel("Opacity:", op0, 0, 100) and op0 != L.opacity:
-      opacityStep: L.opacity = op0
+      opacityStep:
+        for P in all: P.opacity = op0
     layerOpacityBox = L.opacity
     if popupSlider(layerOpacityBox, 0, 100, w = dp(54)) and layerOpacityBox != L.opacity:
-      opacityStep: L.opacity = clamp(layerOpacityBox, 0, 100)
+      opacityStep:
+        for P in all: P.opacity = clamp(layerOpacityBox, 0, 100)
   template fillControls() =
     var f0 = L.fill
     if scrubLabel("Fill:", f0, 0, 100) and f0 != L.fill:
-      opacityStep: L.fill = f0
+      opacityStep:
+        for P in all:
+          if not P.group: P.fill = f0
     layerFillBox = L.fill
     if popupSlider(layerFillBox, 0, 100, w = dp(54), enabled = not L.group) and layerFillBox != L.fill:
-      opacityStep: L.fill = clamp(layerFillBox, 0, 100)
+      opacityStep:
+        for P in all:
+          if not P.group: P.fill = clamp(layerFillBox, 0, 100)
   # the locks and the Fill (on a narrow panel the Fill on a row of its own)
   let fillApart = textWidth("Lock:") + 4 * (CtrlH + 1) + textWidth("Fill:") + dp(54) + 7 * Gap > available()
   row:
     label "Lock:"
     let can = not L.background
     if lockButton(nfTh, "Lock transparent pixels", L.lockAlpha, can and not L.group):
-      d.layersChange("Lock Transparent Pixels"): L.lockAlpha = not L.lockAlpha
+      let on = not L.lockAlpha
+      d.layersChange("Lock Transparent Pixels"):
+        for P in all:
+          if not P.group and not P.background: P.lockAlpha = on
     if lockButton(pxBrush, "Lock image pixels", L.lockPixels, can):
-      d.layersChange("Lock Image Pixels"): L.lockPixels = not L.lockPixels
+      let on = not L.lockPixels
+      d.layersChange("Lock Image Pixels"):
+        for P in all:
+          if not P.background: P.lockPixels = on
     if lockButton(pxMoveTool, "Lock position", L.lockPosition, can):
-      d.layersChange("Lock Position"): L.lockPosition = not L.lockPosition
+      let on = not L.lockPosition
+      d.layersChange("Lock Position"):
+        for P in all:
+          if not P.background: P.lockPosition = on
     if lockButton(pxLock, "Lock all", L.locked, can):
-      d.layersChange(if L.locked: "Unlock Layer" else: "Lock Layer"): L.locked = not L.locked
+      let on = not L.locked
+      d.layersChange(if on: (if all.len > 1: "Lock Layers" else: "Lock Layer")
+                     else: (if all.len > 1: "Unlock Layers" else: "Unlock Layer")):
+        for P in all:
+          if not P.background: P.locked = on
     if not fillApart: fillControls()
   if fillApart:
     row:
@@ -1009,6 +1042,9 @@ proc layersBody(d: Doc) =
                       indent: l.depth, group: l.group, collapsed: l.collapsed,
                       picked: l.picked and i != d.cur, locked: l.locked,
                       linked: l.link != 0,
+                      label: (if l.label > 0: LayerColors[l.label - 1][1] else: 0'u32),
+                      lit: hoverLit.d == d and hoverLit.L == l,
+                      tick: (if not touchPick or l.background: 0 elif l.picked or i == d.cur: 2 else: 1),
                       note: (if prefs.layerSizes and not l.group: bytesText(layerBytes(l)) else: ""))
   let listH = max(rowH, remainingH() - (CtrlH + 1) - Gap - 1)   # (the buttons under it)
   if layerListFollow != (cast[pointer](d), d.cur):
@@ -1024,6 +1060,16 @@ proc layersBody(d: Doc) =
       state(sid).scrollY = max(0, y)
   beginScroll(listH, "layerlist")
   let ev = layerRows(rows, available(), rowH, "layers", brushColumn = true)
+  # (the row under the pointer: its layer outlined on the image)
+  rowLit = if ev.hovered >= 0: (d, d.layers[idx[ev.hovered]]) else: (nil, nil)
+  if ev.held >= 0 and finger() and not touchPick:
+    # (a long press on a layer, by finger: picking several by taps begins, it the first)
+    let i = idx[ev.held]
+    if i != d.cur:
+      d.clearPicks()
+      d.cur = i
+    startTouchPick(d)
+    ui.rpressed = false          # (not the menu: picking)
   # (a right click on the layers: group them -- several picked -- or ungroup, and the rest)
   contextMenu:
     let several = d.pickedLayers.len > 1
@@ -1031,10 +1077,12 @@ proc layersBody(d: Doc) =
       runCommand("Group Layers")
     if menuItem("&Ungroup Layers", "Ctrl+Shift+G", enabled = d.current.group): runCommand("Ungroup Layers")
     menuSeparator()
-    if menuItem("&Duplicate Layer"):
-      d.layersChange("Duplicate Layer"): discard d.duplicateLayer()
-    if menuItem("De&lete Layer", enabled = d.layers.len > 1):
-      d.layersChange(if d.current.group: "Delete Group" else: "Delete Layer"): d.deleteLayer()
+    if menuItem(if several: "&Duplicate Layers" else: "&Duplicate Layer"): runCommand("Duplicate Layer")
+    if menuItem(if several: "De&lete Layers" else: "De&lete Layer", enabled = d.layers.len > 1):
+      runCommand(if d.current.group and not several: "Delete Group" else: "Delete Layer")
+    if finger() and not touchPick:
+      # (a phone, a tablet: several picked by taps from here on, until Done)
+      if menuItem("&Pick Several"): startTouchPick(d)
     if menuItem(if d.current.group: "Merge Grou&p" else: "Merge Do&wn", "Ctrl+E"):
       runCommand(if d.current.group: "Merge Group" else: "Merge Down")
     if menuItem("Rename by Co&ntent", enabled = not d.current.background): runCommand("Rename Layers by Content")
@@ -1089,6 +1137,9 @@ proc layersBody(d: Doc) =
     d.touchSel()
     d.setSelection(m, op)
     d.endStep()
+  elif ev.clicked >= 0 and touchPick and ev.maskClicked < 0 and not d.layers[idx[ev.clicked]].background:
+    # (picking by touch: a tap adds it, or takes it out)
+    d.togglePick(idx[ev.clicked])
   elif ev.clicked >= 0:
     let i = idx[ev.clicked]
     let l = d.layers[i]
@@ -1130,6 +1181,7 @@ proc layersBody(d: Doc) =
     else:
       layerOptsName = l.name
       layerOptsOpacity = l.opacity
+      layerOptsLabel = l.label
       layerOptsMode = if l.group: (if l.passThrough: 0 else: 1 + max(0, LayerModes.find(l.mode)))
                       else: max(0, LayerModes.find(l.mode))
       layerOptsOpen = true
@@ -1190,12 +1242,12 @@ proc layersBody(d: Doc) =
       else:
         d.layersChange("New Group"): discard d.addGroup()
     if toolButton(glyphIcon(pxNew, ui.theme.text, dp(16)), "New Layer (Alt: Duplicate Layer)"):
-      if AltPressed in ui.mods:
-        d.layersChange("Duplicate Layer"): discard d.duplicateLayer()
+      if AltPressed in ui.mods: runCommand("Duplicate Layer")
       else:
         d.layersChange("New Layer"): discard d.addLayer()
-    if toolButton(glyphIcon(pxTrash, ui.theme.text, dp(16)), "Delete Layer", enabled = d.layers.len > 1):
-      d.layersChange(if L.group: "Delete Group" else: "Delete Layer"): d.deleteLayer()
+    if toolButton(glyphIcon(pxTrash, ui.theme.text, dp(16)),
+                  (if several: "Delete the layers picked" else: "Delete Layer"), enabled = d.layers.len > 1):
+      runCommand(if L.group and not several: "Delete Group" else: "Delete Layer")
   popupMenu("adjlayermenu"): adjustLayerMenu(d)
   popupMenu("fxmenu"): layerStyleMenu(d)
 
@@ -1316,10 +1368,8 @@ proc layerMenuItems(tab: int) =
       newLayerOpen = true
       typeFirst()
     if menuItem("New Layer from File...", enabled = d != nil): runCommand("Layer from File...")
-    if menuItem("Duplicate Layer", enabled = d != nil):
-      d.layersChange("Duplicate Layer"): discard d.duplicateLayer()
-    if menuItem("Delete Layer", enabled = d != nil and d.layers.len > 1):
-      d.layersChange("Delete Layer"): d.deleteLayer()
+    if menuItem("Duplicate Layer", enabled = d != nil): runCommand("Duplicate Layer")
+    if menuItem("Delete Layer", enabled = d != nil and d.layers.len > 1): runCommand("Delete Layer")
     if menuItem("New Group...", enabled = d != nil): runCommand("New Group...")
     if menuItem("Group Layers", enabled = d != nil): runCommand("Group Layers")
     if menuItem("Ungroup Layers", enabled = d != nil and d.current.group): runCommand("Ungroup Layers")

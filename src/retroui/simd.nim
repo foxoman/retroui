@@ -9,9 +9,11 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/os
+from std/strutils import rfind
 
-const kernels = currentSourcePath().parentDir / "simdkern.h"
+const kernels = currentSourcePath().substr(0, currentSourcePath().rfind({'/', '\\'})) & "simdkern.h"
+  ## (cut from the source's own path: `os.parentDir` and `/` turn its "/" into "\" when
+  ## Windows is the target, and a compiler on Linux building for Windows finds no such file)
 
 const simdOn* = not defined(retroNoSimd)
   ## The kernels are used (else the plain Nim loops)

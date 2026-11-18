@@ -2850,10 +2850,19 @@ when defined(wasm):
       if webPicking != key:
         webPicking = key
         var accept = ""
+        var unknown = false
         for p in patterns:
           let ext = p.replace("*", "")
           if ext.startsWith(".") and '"' notin ext and '\\' notin ext:
             accept.add (if accept.len > 0: "," else: "") & ext
+            # (a phone's browser hands its picker MIME types, not names: one it has
+            # no type for -- a PSD, an IDML -- is "application/octet-stream" there,
+            # and left out unless that is asked for too)
+            if ext.toLowerAscii notin [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".pdf",
+                                       ".txt", ".html", ".htm", ".csv", ".json", ".zip", ".mp3", ".mp4",
+                                       ".heic", ".heif", ".avif", ".tif", ".tiff"]:
+              unknown = true
+        if unknown: accept.add ",application/octet-stream"
         discard systemCall("pick", "{\"accept\":\"" & accept & "\"}")
         return false
       let r = systemCall("pick.result", "")

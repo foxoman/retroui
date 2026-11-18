@@ -199,6 +199,7 @@ const toolkitArabic* = [
   ("(no folders)", "(لا توجد مجلدات)"),
   ("More...", "المزيد..."),
   ("counting lines... ", "جارٍ عد الأسطر... "),
+  ("could not be read further", "تعذّرت قراءة الباقي"),
   (" min ", " دقيقة "),
   (" min", " دقيقة"),
   ("Name taken", "الاسم مستخدم"),

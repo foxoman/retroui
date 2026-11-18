@@ -18,7 +18,7 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[os, strutils, json, times, tables, sets, algorithm, sequtils, unicode, hashes, math]
+import std/[os, strutils, json, times, tables, sets, algorithm, sequtils, unicode, hashes, math, atomics]
 import retroui, retroui/[db, http, oauth, secrets, mime, richedit, spell, pdfview, mailimport, notify,
                      bgcheck]
 import retroui/[mailsetup, netconn, mailauth, mailsafety, domains]
@@ -245,9 +245,23 @@ proc mainWindow() =
 # ---- start -------------------------------------------------------------------------------
 
 var started = false
+var mailOpen = false       ## (the store opened and the threads going: once the keyring answered)
 var fetchIn, fetchOut: Channel[string]
 
 var panesMoved = false
+
+var
+  keyDone: Atomic[bool]    ## the keyring answered (or was not needed)
+  keyThread: Thread[bool]
+  keyAskedAt = 0           ## (when it was asked: ui.now)
+
+proc keyMain(make: bool) {.thread.} =
+  ## (the store's key asked of the keyring away from the window: a keychain
+  ## that waits for its password, or one that never answers, does not stop it)
+  discard storeKey(make)
+  {.cast(gcsafe).}: keyDone.store(true)
+
+proc openMail()
 
 proc startup() =
   ## (on the first frame: on Android the app's folder is known only then)
@@ -268,9 +282,21 @@ proc startup() =
   listH = prefInt("listH", listH)
   mainW = prefInt("mainW", mainW)
   paneW = prefInt("paneW", paneW)
+  storeEncrypt = prefBool("encryptStore", true)
+  # the store's key, from the keyring: asked on a thread of its own (the
+  # window shows meanwhile); none needed for a store kept as it is
+  let p = mailDir() / "mail.db"
+  let plainKept = not storeEncrypt and (not fileExists(p) or getFileSize(p) == 0 or isPlainDb(p))
+  if plainKept: keyDone.store(true)
+  else:
+    keyAskedAt = ui.now
+    createThread(keyThread, keyMain, storeEncrypt)
+
+proc openMail() =
+  ## (the keyring has answered: the store opened, the threads started)
+  mailOpen = true
   # the store encrypted (or not) as Options say, before anything opens it;
   # one whose key is gone set aside, and the mail downloaded again
-  storeEncrypt = prefBool("encryptStore", true)
   try: secureStore(storeEncrypt)
   except CatchableError as e:
     storeNote = "The mail on this device could not be " &
@@ -337,8 +363,16 @@ proc checkMail() {.nimcall, gcsafe.} =
 onBackgroundCheck(checkMail)     # (before the window: a check's process stops here)
 
 reportedVersion = appVersion     # (what a fault's report says)
-app appName, 1280, 800:
-  if not started: startup()
+proc keyringWait() =
+  ## (until the keyring answers: what is happening, said)
+  let waited = ui.now - keyAskedAt
+  emptyState(pxMail, "Opening the mail kept on this device...",
+             detail = if waited > 3000: "Waiting for the system's keyring, where its key is kept: it may " &
+                                        "be asking for its password."
+                      else: "")
+  wakeIn(100)
+
+proc mailFrame() =
   handleEvents()
   # (the new-mail notification's "Mark as read" pressed: the Inbox's unread read)
   for (tag, action) in notificationActions():
@@ -401,7 +435,13 @@ app appName, 1280, 800:
   wizardDialog()
   linkAskDialog()
 
-if started:
+app appName, 1280, 800:
+  if not started: startup()
+  if not mailOpen and keyDone.load: openMail()
+  if mailOpen: mailFrame()
+  else: keyringWait()
+
+if mailOpen:
   link.cmds.send(SyncCmd(kind: scQuit))
   fetchIn.send("")
   savePrefs()

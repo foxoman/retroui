@@ -4096,6 +4096,18 @@ proc layerDialogs() =
       row:
         label "Mode:"
         combo((if isGroup: groupModeNames() else: layerModeNames()), layerOptsMode, w = dp(130))
+      # its color: the Layers panel marks it, and what is picked on it is drawn in it (a
+      # drawing's outlines, a layout's frame edges)
+      row:
+        label "Color:"
+        var names = @["None"]
+        for (n, _) in LayerColors: names.add n
+        combo(names, layerOptsLabel, w = dp(130))
+        if layerOptsLabel > 0:
+          let c = LayerColors[layerOptsLabel - 1][1]
+          let sw = place(dp(18), dp(18))
+          fill(sw, color(uint8((c shr 16) and 255), uint8((c shr 8) and 255), uint8(c and 255)))
+          box(sw, ui.theme.frame)
       row:
         spring()
         if button("OK", isDefault = true, w = dp(80)) and d != nil:
@@ -4104,6 +4116,7 @@ proc layerDialogs() =
             let L = d.layers[d.cur]
             L.name = layerOptsName.strip
             L.opacity = layerOptsOpacity
+            L.label = clamp(layerOptsLabel, 0, LayerColors.len)
             if isGroup:
               L.passThrough = layerOptsMode == 0
               if layerOptsMode > 0: L.mode = LayerModes[clamp(layerOptsMode - 1, 0, LayerModes.high)]

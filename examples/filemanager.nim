@@ -40,7 +40,7 @@ const TermuxHome = "/data/data/com.termux/files/home"
 const
   AppTitle = "Retro Files"
   AppId = "RetroFiles"
-  AppVersion = "3.6.0"
+  AppVersion = "3.6.1"
 
 type
   ViewerKind = enum vkNone, vkText, vkMarkdown, vkImage, vkHex, vkZip, vkPdf, vkVideo, vkAudio,
@@ -673,6 +673,8 @@ proc fontSheet(path, name: string): Bitmap =
   let data = readFile(path)
   let family = "Files preview " & $hash(path)
   addFontData(family, "Regular", data)
+  # (the sheet drawn, the font let go: each one shown was kept for as long as the app ran)
+  defer: dropFontData(family)
   let f = fontFace(family, "Regular")
   let shown = if f.face != nil and f.face.family.len > 0: f.face.family else: name
   let W = max(dp(480), min(screenSize(), dp(1400)))
@@ -1067,7 +1069,8 @@ proc viewerScreen() =
         (if viewSheetAt < viewSheets.len: countText(viewSheets[viewSheetAt].rows.len, "row") else: "")
       of vkModel: countText(viewModel.meshes.len, "mesh", "meshes")
       of vkText: (if editing: sizeText(viewText.len) else: textFileStatus(bigText))
-      of vkHex: (if hexFile != nil: sizeText(hexFile.size) else: "")
+      of vkHex: (if hexFile == nil: "" elif hexFile.error.len > 0: tr("could not be read further")
+                 else: sizeText(hexFile.size))
       of vkPdf: (if viewPdf != nil: $viewPdf.zoomPercent & "%" else: "")
       else: sizeText(viewInfo.size)
     if viewer == vkPdf and viewPdf != nil:
@@ -1984,7 +1987,11 @@ proc helpDialogs() =
             tr("Copyright (c) 2026 Sultan Al Isaiee. MIT licence.")],
            tagline = tr("Your files, as in 1994"),
            iconPng = FilesIconPng, glyph = pxFolderOpen,
-           whatsNew = [tr("3.6.0: the window no longer waits on a disk that is slow to answer -- a " &
+           whatsNew = [tr("3.6.1: a file that gives an error partway through reading it (some of " &
+                            "the system's own, a disk failing, a share gone) shows what was read and " &
+                            "says it could not be read further, instead of closing the app; a font shown is let go " &
+                            "once its sheet is drawn"),
+                       tr("3.6.0: the window no longer waits on a disk that is slow to answer -- a " &
                             "network drive that is not connected, a cloud folder: the tree, the drives, " &
                             "the free space and the details are asked for behind it; cloud files that " &
                             "are not on this disk are not fetched for a thumbnail or a preview; an " &

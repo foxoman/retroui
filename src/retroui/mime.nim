@@ -27,7 +27,7 @@ import std/[strutils, base64, sysrand, times, random, math, algorithm, os]
 const
   textSimd = not defined(retroNoSimd)
     ## (sixteen bytes at a time: src/retroui/simdtext.h; -d:retroNoSimd the plain loops)
-  textKernels = currentSourcePath().parentDir / "simdtext.h"
+  textKernels = currentSourcePath().substr(0, currentSourcePath().rfind({'/', '\\'})) & "simdtext.h"
 
 proc asciiRun(p: ptr char; n: int): int {.importc: "rut_ascii_run", header: textKernels, cdecl.}
 proc find3(p: ptr char; n: int; a, b, c: char): int {.importc: "rut_find3", header: textKernels, cdecl.}

@@ -424,7 +424,10 @@ proc doCommand(name: string) =
   of "Paste Into":
     if d != nil: d.paste(true)
   of "Clear":
-    if d != nil:
+    if d != nil and not d.hasSelection and d.severalPicked and not d.quickMask and not d.editMask:
+      # (several layers picked, nothing selected: they go, as Delete has it in the three programs)
+      d.layersChange("Delete Layers"): d.deleteLayers(d.pickedLayers)
+    elif d != nil:
       d.paintStep("Clear"): d.clearSelection(bg)
   of "Fill...":
     if not noteNoImage(): fillOpen = true
@@ -970,8 +973,10 @@ proc doCommand(name: string) =
       d.paintStep("Similar"):
         d.touchSel()
         d.growSelection(wandTol, similar = true)
-  of "Hide Edges":
+  of "Hide Edges", "Hide Frame Edges", "Show Edges", "Show Frame Edges":
     if dw != nil: dw.view.hideEdges = not dw.view.hideEdges
+  of "Layer Edges":
+    showLayerEdges = not showLayerEdges
   of "Load Selection":
     if d != nil and d.alphas.len > 0:
       d.paintStep("Load Selection"):
@@ -1083,11 +1088,16 @@ proc doCommand(name: string) =
         else: status = "The Background cannot be merged that way: Merge Down, or Flatten Image."
   of "New Group...":
     if d != nil:
-      d.layersChange("New Group"): discard d.addGroup()
+      d.layersChange("New Group"):
+        let g = d.addGroup()
+        # (a drawing's, a layout's new layer gets the next color, as their programs give it)
+        if g != nil and active.pickLook != plPhoto: g.label = d.nextLabel
   of "Group Layers":
     if d != nil:
       d.layersChange("Group Layers"):
-        if d.groupLayers(d.pickedLayers) == nil: status = "The Background cannot be in a group."
+        let g = d.groupLayers(d.pickedLayers)
+        if g == nil: status = "The Background cannot be in a group."
+        elif active.pickLook != plPhoto: g.label = d.nextLabel
   of "Ungroup Layers":
     if d != nil and d.current.group:
       d.layersChange("Ungroup Layers"): d.ungroup()
@@ -1096,6 +1106,7 @@ proc doCommand(name: string) =
       let l = d.current
       layerOptsName = l.name
       layerOptsOpacity = l.opacity
+      layerOptsLabel = l.label
       layerOptsMode = if l.group: (if l.passThrough: 0 else: 1 + max(0, LayerModes.find(l.mode)))
                       else: max(0, LayerModes.find(l.mode))
       layerOptsOpen = true
@@ -1140,11 +1151,15 @@ proc doCommand(name: string) =
       newLayerName = ""
       newLayerOpen = true
       typeFirst()
-  of "Duplicate Layer", "Duplicate Group":
-    if d != nil:
+  of "Duplicate Layer", "Duplicate Group", "Duplicate Layers":
+    if d != nil and d.severalPicked:
+      d.layersChange("Duplicate Layers"): discard d.duplicateLayers(d.pickedLayers)
+    elif d != nil:
       d.layersChange(name): discard d.duplicateLayer()
-  of "Delete Layer", "Delete Group":
-    if d != nil and d.layers.len > 1:
+  of "Delete Layer", "Delete Group", "Delete Layers":
+    if d != nil and d.severalPicked:
+      d.layersChange("Delete Layers"): d.deleteLayers(d.pickedLayers)
+    elif d != nil and d.layers.len > 1:
       d.layersChange(name): d.deleteLayer()
   of "Character": showTypePal(0)
   of "Paragraph": showTypePal(1)
@@ -1409,8 +1424,9 @@ proc classicMenus() =
       item("Layer via &Copy", "Ctrl+J", some)
       item("Layer via Cu&t", "Ctrl+Shift+J", some and d.hasSelection)
       item("Layer from &File...", enabled = some)
-      item(if grp: "&Duplicate Group" else: "&Duplicate Layer", enabled = some)
-      item(if grp: "Delete Group" else: "Delete Layer", enabled = some and d.layers.len > 1)
+      let many = some and d.severalPicked
+      item(if many: "&Duplicate Layers" elif grp: "&Duplicate Group" else: "&Duplicate Layer", enabled = some)
+      item(if many: "Delete Layers" elif grp: "Delete Group" else: "Delete Layer", enabled = some and d.layers.len > 1)
       menuSeparator()
       item(if grp: "Group &Properties..." else: "Layer &Options...", enabled = some)
       item("&Blending Options...", enabled = some and not d.current.background)
@@ -1575,6 +1591,7 @@ proc classicMenus() =
       item("Si&milar", enabled = sel)
       menuSeparator()
       item("&Hide Edges", "Ctrl+H", sel, checked = dw != nil and dw.view.hideEdges)
+      item("&Layer Edges", "", sel, checked = showLayerEdges)
       item("&Load Selection", enabled = some and d.alphas.len > 0)
       item("&Save Selection", enabled = sel)
       item("Make &Work Path", enabled = sel)
@@ -1722,7 +1739,15 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.6.0: print and output -- View > Separations Preview and Overprint Preview, spot " &
+           whatsNew = ["5.7.0: several layers picked at once, shown as each kind of document's program " &
+                       "shows them -- a photo: one box with handles round them all; a drawing: each object's " &
+                       "outline in its layer's color with its anchor points; a layout: each frame's edge -- " &
+                       "and a box dragged picks what it touches (from the pasteboard too), Shift+click adds " &
+                       "and takes away, a long press picks by touch. Free Transform, Delete, Duplicate, " &
+                       "Opacity, Fill, blend mode and the locks take them all; Properties shows them " &
+                       "together with Align and Distribute. Layer Options > Color; View > Show > Layer Edges; " &
+                       "Open on a phone starts in the folder you used last.",
+                       "5.6.0: print and output -- View > Separations Preview and Overprint Preview, spot " &
                        "inks and the Ink Manager, a tagged PDF with each picture's alt text (Layer > Object " &
                        "Export Options), PDF forms and buttons (Window > Buttons and Forms), page transitions, " &
                        "EPUB and Publish as Web Page; Layout > Flex Layout and Tidy Up; Type > Paragraph " &
@@ -2300,6 +2325,9 @@ proc escapeKey(): bool =
   if d.hasSelection:
     runCommand("None")                # (Select > Deselect)
     status = "Deselected"
+    return true
+  if touchPick:
+    endTouchPick()
     return true
   if d.pickedLayers.len > 1:
     d.clearPicks()

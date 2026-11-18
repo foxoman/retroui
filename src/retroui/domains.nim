@@ -253,13 +253,14 @@ proc skeleton*(s: string): string =
   ## "paypal"; "rnicrosoft" and "microsoft"; "g00gle" and "google").
   ## Lower case; xn-- labels read as their letters first.
   let t = confusables()
+  var mapped = ""
   for r in toUnicodeHost(s).runes:
     let c = int32(r)
     let low = int32(unicode.toLower(r))
-    if c in t[]: result.add t[][c]
-    elif low in t[]: result.add t[][low]
-    else: result.add unicode.toLower($r)
-  result = unicode.toLower(result)
+    if c in t[]: mapped.add t[][c]
+    elif low in t[]: mapped.add t[][low]
+    else: mapped.add unicode.toLower($r)
+  unicode.toLower(mapped)
 
 type Script = enum scOther, scLatin, scGreek, scCyrillic, scArmenian, scCherokee, scArabic,
                    scHebrew, scHan, scKana, scHangul, scThai, scDevanagari

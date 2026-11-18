@@ -18,7 +18,7 @@
 ##
 ## Positions are in pixels of the picture drawn on (y down).
 
-import std/[math, os, strutils, tables, algorithm, json]
+import std/[math, os, strutils, tables, algorithm, json, sequtils]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import ttf, typeset, raster, otshape, unpacking, hyphenate
 
@@ -125,7 +125,8 @@ proc builtinEntries(): seq[FontEntry] =
                              (styled(fam, true, true), (if fam == fSerif: "Bold Italic" else: "Bold Oblique"),
                               700, true)]:
       result.add FontEntry(family: name, style: st, builtin: id, weight: wt, italic: it)
-  for m in memFonts: result.add m.entry
+  for m in memFonts:
+    if m.entry.family.len > 0: result.add m.entry     # (not one let go: `dropFontData`)
 
 const formerFonts = [("DejaVu Sans", "FreeSans"), ("DejaVu Sans Mono", "FreeMono"), ("Amiri", "FreeSerif"),
                      ("Retro Sans", "FreeSans"), ("MS W98 UI", "FreeSans"), ("Open Sans", "FreeSans"),
@@ -257,6 +258,26 @@ proc carriedEntries(family: string): bool =
     carriedFor = memFonts.len
   for e in carriedList:
     if e.family == family: return true
+
+proc dropFontData*(family: string) =
+  ## Lets go of the fonts offered as `family` (`addFontData`) -- their bytes
+  ## and faces: a font shown once and not to be kept (a file manager's sheet
+  ## of a font file; a CJK one is 20 MB). Text set in it afterwards is drawn
+  ## in FreeSans.
+  var any = false
+  for m in memFonts.mitems:
+    if m.entry.family == family and family.len > 0:
+      # (its place kept, empty: the others are found by where they are, "<mem:N>")
+      m.entry.family = ""
+      m.face = nil
+      if m.ticket >= 0: discard unpacked(m.ticket)
+      m.ticket = -1
+      any = true
+  if not any: return
+  catalog.keepItIf(it.family != family)
+  carriedFor = -1
+  # (its outlines, kept by where its face was: a face made later may be there)
+  outlineCache.clear()
 
 proc fontFamilies*(): seq[string] =
   ## The families there are, the built-in ones first, the rest by name.

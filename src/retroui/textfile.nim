@@ -1,7 +1,9 @@
 ## Files of any size, read a window at a time: `TextFile` finds the lines
 ## of a text (in slices, so a 1 GB log opens at once and its lines are
 ## counted while you read the first ones), `HexFile` shows any file as
-## hex dump lines. Both feed `lineView`.
+## hex dump lines. Both feed `lineView`. A file that cannot be read on
+## (a disk failing, a share gone, some of the system's own files) shows what
+## was read; why, in `error`.
 ##
 ## .. code-block:: nim
 ##   var t = openTextFile("big.log")
@@ -22,6 +24,7 @@ type
     buf: string                ## a window of the file ...
     bufAt: int64               ## ... starting here
     open: bool
+    error: string              ## why the file could be read no further ("": it could)
 
   TextFile* = ref object
     ## A text file open for reading by lines (`openTextFile`); its lines are
@@ -56,8 +59,15 @@ proc fetch(b: var BlockFile; at, n: int64): string =
     let start = max(0'i64, at - Window div 4)
     let len = int(min(int64(max(Window, int(n) + Window div 4)), b.size - start))
     b.buf.setLen(max(1, len))
-    b.f.setFilePos(start)
-    let got = if len > 0: b.f.readBuffer(addr b.buf[0], len) else: 0
+    var got = 0
+    try:
+      b.f.setFilePos(start)
+      got = if len > 0: b.f.readBuffer(addr b.buf[0], len) else: 0
+    except IOError as e:
+      # (read no further: the file ends here for what shows it)
+      b.error = e.msg
+      b.size = start
+      got = 0
     b.buf.setLen(max(0, got))
     b.bufAt = start
   # (the file may have become shorter since it was opened: a log rotated)
@@ -82,8 +92,15 @@ proc index*(t: TextFile; budgetMs = 8) =
   let deadline = getMonoTime() + initDuration(milliseconds = budgetMs)
   var chunk = newString(1024 * 1024)
   while not t.done and getMonoTime() < deadline:
-    t.data.f.setFilePos(t.scanned)
-    let got = t.data.f.readBuffer(addr chunk[0], chunk.len)
+    var got = 0
+    try:
+      t.data.f.setFilePos(t.scanned)
+      got = t.data.f.readBuffer(addr chunk[0], chunk.len)
+    except IOError as e:
+      # (the lines found so far are all it has)
+      t.data.error = e.msg
+      t.data.size = t.scanned
+      got = 0
     if got <= 0:
       t.done = true
       break
@@ -98,6 +115,9 @@ proc index*(t: TextFile; budgetMs = 8) =
   # the last line has no line end
   if t.done and t.starts.len > 1 and t.starts[^1] >= t.data.size:
     t.starts.setLen(t.starts.len - 1)
+
+proc error*(t: TextFile): string = t.data.error
+  ## Why the file could be read no further ("": it could).
 
 proc progress*(t: TextFile): float =
   ## How much of the file has been looked at (0..1).
@@ -129,6 +149,9 @@ proc openHexFile*(path: string): HexFile =
 
 proc size*(h: HexFile): int64 = h.data.size
   ## The file's size in bytes.
+
+proc error*(h: HexFile): string = h.data.error
+  ## Why the file could be read no further ("": it could).
 
 proc lineCount*(h: HexFile): int = int((h.data.size + 15) div 16)
   ## How many lines of 16 bytes it shows.

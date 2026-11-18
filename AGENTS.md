@@ -237,13 +237,56 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   memory; a rollback journal and temporary files are encrypted too.
   `tests/test_dbcrypt.nim` kills a writer part way: run it after any change
   there. Retro Mail's store is encrypted by default (its key in
-  `retroui/secrets`); `secureStore` runs before anything opens it.
+  `retroui/secrets`); `secureStore` runs before anything opens it. The
+  key is asked of the keyring on a thread of its own (`keyMain`) while the
+  window shows -- a keychain that waits for its password, or one that never
+  answers (a home of a test's own on macOS), never holds the first frame;
+  `storeKey` asks it once and keeps it. `retroui/secrets`' tools stop
+  after two minutes and are not asked again then (the files instead).
   Sending over SMTP never writes the Bcc header (`withoutBcc`).
+- Several layers picked (Retro Atelier, `examples/photo/picking.nim`):
+  shown as the document's own program shows them (`pickLook`: a photo,
+  a drawing -- SVG, AI, EPS --, a page of a book); what a transform of
+  them changes is `transformLayersOf` (each picked, a group's layers,
+  those linked), carried by `retroui/photowarp`'s `LayerShot` (`shotsOf`,
+  `carryShots`, `liveShots`, `putDownShots`): pixels shown live and warped
+  once at the end (each only where it has something), shapes and type made
+  again as the corners move (turned type set through its corners,
+  `TextData.persp`), all in one step. A setting of the Layers panel goes
+  to every picked layer (`pickedLayersOf`); a layer's color is
+  `Layer.label` (`LayerColors`; PSD's 'lclr').
+- Header files of the kit's C (`simdkern.h`, `simdkit.h`, `simdtext.h`)
+  are named by cutting the module's own path (`currentSourcePath()` up to
+  its last slash), never with `os./` or `parentDir`: those turn "/" into
+  "\" when Windows is the target, and the release builds Windows programs
+  on Linux.
+- A loop of the kit that calls the app's own code (a panel's body, a
+  window's, a callback) walks a copy of its list and skips what has left
+  it: that code may open, close or move what the list holds, and Nim's
+  `items` stops the program when a list changes under it (`retroui/dock`'s
+  `dockPanels`).
+- `UndoStack.record` keeps two whole copies of its value a step, up to 200
+  steps: an app records that way only what is small; a list or a table
+  that grows with the user's data (Retro Podcast's shows, its played
+  episodes) goes through `did` with closures holding what changed.
+- A closed image in Retro Atelier lets go of all it was (`forgetDoc`,
+  called by `closeDoc`): a variable of the app that holds a `Doc`, a
+  `DocWin` or one of its layers -- a dialog's, a cache's, a drag's -- is
+  dropped there too, or every image closed stays in memory. Under random
+  input the memory log (`RETRO_MEMLOG`) says how many are still alive
+  (`docsAlive`; one is the Scratch panel's pad, always there).
 - A file that is a device or a pipe is never read (`specialFile`,
-  `FileItem.special`): a read of one may never end. What an app does that
-  reaches outside itself -- ending a process, following feeds without
-  end -- is not done under random input (`smokeOn()`): the soak runs for
-  an hour on GitHub with a real network and real processes.
+  `FileItem.special`): a read of one may never end. A read made while
+  drawing (`retroui/textfile`: a text or hex shown a piece at a time)
+  stops at an `IOError` and keeps why (`error`): some files give one
+  partway -- Linux's own under /sys, a disk failing, a share gone. A size
+  or a place a file gives is checked against what is left by taking away
+  (`at > size - n`), never by adding (`at + n > size`): a damaged 64-bit
+  number near the largest overflows the sum, a Defect and not the reader's
+  own error (`retroui/zip`'s zip64, found by `fuzz_store`). What an app
+  does that reaches outside itself -- ending a process, following feeds
+  without end -- is not done under random input (`smokeOn()`): the soak
+  runs for an hour on GitHub with a real network and real processes.
 - `docs/controls.md` -- every control with pictures, made by `tools/shots.nim`.
   Pictures that change only with the day (the calendar, the agenda, the
   Gantt chart, the About and splash boxes, the file pickers) are not

@@ -2631,4 +2631,125 @@ block release56:
   askDlg.open = false
   run(2)
 
+block severalPicked:
+  # several layers picked: shown, transformed, deleted, set together (examples/photo/picking)
+  let d = newDoc(300, 200, 0xFFFFFFFF'u32)
+  let A = d.addLayer("A")
+  for y in 20 ..< 60:
+    for x in 20 ..< 80: A.px[y * 300 + x] = 0xFFFF0000'u32
+  inc A.ver
+  let S = d.addShapeLayer(ShapeData(path: rectPath(150, 100, 200, 150), fill: ShapePaint(kind: spColor,
+                          color: 0xFF0000FF'u32, opacity: 100)), "S")
+  let T = d.addTextLayer(newText("Hi", defaultStyle(), 220, 60))
+  T.name = "T"
+  d.markAll()
+  addDoc(d)
+  run(2)
+  let dw = active
+  doAssert dw.pickLook == plPhoto
+  # picked: Shift+click adds, and on one picked takes it out
+  d.cur = d.layers.find(A)
+  d.togglePick(d.layers.find(S))
+  d.togglePick(d.layers.find(T))
+  doAssert d.pickedLayers.len == 3 and d.severalPicked
+  d.togglePick(d.layers.find(S))
+  doAssert d.pickedLayers.len == 2 and not S.picked
+  d.togglePick(d.layers.find(S))
+  # one box round them all (what the handles hold)
+  let box = d.pickedBox
+  doAssert box.x <= 20 and box.y <= 20 and box.x + box.w >= 200 and box.y + box.h >= 150, $box
+  doAssert d.moveBoxOf == box
+  # Free Transform: all of them, each as what it is; one step
+  let size0 = T.text.spans[0].style.size
+  let steps0 = d.undoSteps.len
+  startTransform(xkScale)
+  doAssert xf.on and xfShots.len == 3 and d.live.len == 1      # (the pixels shown live; type and shapes made again)
+  let r = xf.r
+  xf.quad = quadOf(rect(r.x, r.y, r.w * 2, r.h * 2))
+  xfApply()
+  finishTransform(true)
+  doAssert d.undoSteps.len == steps0 + 1 and xfShots.len == 0
+  doAssert S.isShape and pathBounds(S.shape.path)[2] > 300, "the shape carried, still a shape"
+  doAssert T.isText and abs(T.text.spans[0].style.size - size0 * 2) < 0.01, "the type twice as big, still type"
+  let (sx, sy) = (r.x + 2 * (40 - r.x), r.y + 2 * (40 - r.y))      # (where A's pixel at 40, 40 went)
+  let (fx, fy) = (r.x + 2 * (85 - r.x), r.y + 2 * (65 - r.y))      # (and where a pixel past it went)
+  doAssert A.px[sy * 300 + sx] == 0xFFFF0000'u32 and A.px[fy * 300 + fx] == 0, "the pixels stretched"
+  runCommand("Undo")
+  doAssert abs(T.text.spans[0].style.size - size0) < 0.01 and pathBounds(S.shape.path)[2] < 201
+  # turned: type stays type, drawn through the corners
+  d.cur = d.layers.find(T)
+  for L in [A, S, T]: L.picked = true
+  startTransform(xkRotate)
+  let r2 = xf.r
+  xf.quad = [(r2.x.float + 30, r2.y.float), ((r2.x + r2.w).float, r2.y.float + 30),
+             ((r2.x + r2.w).float - 30, (r2.y + r2.h).float), (r2.x.float, (r2.y + r2.h).float - 30)]
+  xfApply()
+  finishTransform(true)
+  doAssert T.isText and T.text.perspOn, "turned type: still type, set through its corners"
+  runCommand("Undo")
+  doAssert not T.text.perspOn
+  # Delete and Duplicate take all of them; Opacity in Layers too
+  for L in [A, S, T]: L.picked = true
+  let n0 = d.layers.len
+  runCommand("Duplicate Layer")
+  doAssert d.layers.len == n0 + 3 and d.pickedLayers.len == 3
+  runCommand("Delete Layer")
+  doAssert d.layers.len == n0
+  runCommand("Undo")
+  doAssert d.layers.len == n0 + 3
+  runCommand("Undo")
+  doAssert d.layers.len == n0
+  # Esc lets them go; picking by touch: a tap adds, another takes out, Done ends it
+  d.clearPicks()
+  d.cur = d.layers.find(A)
+  startTouchPick(d)
+  doAssert touchPick
+  d.togglePick(d.layers.find(S))
+  doAssert d.pickedLayers.len == 2
+  doAssert taskBarItems(dw)[0][0] == "Done"
+  endTouchPick()
+  doAssert not touchPick
+  # colors: a layer's own, else its group's, else Light Blue; a drawing's new group gets the next
+  doAssert d.labelColorOf(d.layers.find(A)) == LayerColors[0][1]
+  d.clearPicks()
+  for L in [A, S]: L.picked = true
+  d.cur = d.layers.find(S)
+  runCommand("Group Layers")
+  let g = d.current
+  doAssert g.group and g.label == 0, "a photo's groups get no color"
+  doAssert d.moveBoxOf.w > 0, "a group: its box and handles round what it holds"
+  g.label = 3
+  doAssert d.labelColorOf(d.layers.find(A)) == LayerColors[2][1]
+  doAssert d.nextLabel == 4
+  # a drawing is shown as the drawing program shows it; a page of a book, as the layout program
+  d.format = "svg"
+  doAssert dw.pickLook == plDrawing and dw.boxColorOf == colorOfLabel(d.labelColorOf(d.cur))
+  # View > Show > Layer Edges; Hide Edges hides a drawing's outlines
+  runCommand("Layer Edges")
+  doAssert showLayerEdges
+  runCommand("Layer Edges")
+  run(2)
+
+block closedLetGo:
+  # an image closed: nothing the program keeps holds it any more (an hour of random input found
+  # images closed and still held -- by a clone source, a cache of the Object Finder's, the
+  # Histogram's, a dialog left open)
+  let d = newDoc(400, 300, 0xFFFFFFFF'u32)
+  addDoc(d)
+  run(2)
+  let dw = active
+  stampSrc = (true, 1.0, 1.0, d)
+  cloneSlots[0] = (true, 1.0, 1.0, d)
+  finderSeg.d = d
+  finderShown.d = d
+  histPanel.d = d
+  selOverlay.d = d
+  hoverLit = (d, d.layers[0])
+  rowLit = (d, d.layers[0])
+  vecGroupClick = (d, d.layers[0])
+  closeDoc(dw)
+  doAssert stampSrc.doc == nil and cloneSlots[0].doc == nil and finderSeg.d == nil and finderShown.d == nil and
+           histPanel.d == nil and selOverlay.d == nil and hoverLit.d == nil and rowLit.d == nil and
+           vecGroupClick.d == nil
+
 echo "photo app tests passed"

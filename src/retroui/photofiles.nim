@@ -117,6 +117,19 @@ proc blendOfKey*(k: string): BlendMode =
 proc keyOfBlend*(m: BlendMode): string = blendKeys[m]
   ## A blend mode's Photoshop key ("mul ").
 
+const psdLabels = [0, 2, 10, 5, 3, 4, 15, 8]
+  ## (Photoshop's layer colors -- none, red, orange, yellow, green, blue, violet, gray -- as
+  ## `Layer.label`s: their places in `LayerColors`, from 1)
+
+proc labelOfPsd(c: int): int =
+  ## (a PSD layer's color as a `Layer.label`)
+  if c in 0 .. 7: psdLabels[c] else: 0
+
+proc psdOfLabel(label: int): int =
+  ## (a `Layer.label` as a PSD layer's color: Photoshop has seven; Light Blue is its blue)
+  if label == 1: return 5
+  max(0, psdLabels.find(label))
+
 proc blendOfEnum(e: string): BlendMode =
   ## The blend mode of an effect ("Mltp").
   case e
@@ -962,6 +975,7 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
         L.mask = Layer(name: "Layer Mask", pxRaw: newSeq[uint32](n), opacity: 100, visible: true, gray: true)
         for k in 0 ..< n: L.mask.px[k] = grayPx(int(vm[k]))
     L.clipped = P.clipping
+    L.label = labelOfPsd(P.color)
     # its effects
     if P.effects != nil: L.fx = fxOf(P.effects, p.globalAngle, p.globalAltitude, p.patterns)
     # Blend If: the first channel that leaves something out
@@ -1022,6 +1036,7 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
       L.mode = if L.passThrough: bmNormal else: blendOfKey(G.blend)
       L.visible = G.visible
       L.collapsed = G.section == psGroupClosed
+      L.label = labelOfPsd(G.color)
       let m = groupMask(G)
       if m.len == n:
         L.mask = Layer(name: "Layer Mask", pxRaw: m, opacity: 100, visible: true, gray: true)
@@ -1235,6 +1250,7 @@ proc psdOf*(d: Doc; composite = true): PsdDoc =
         else:
           P.ranges.add [0, 0, 255, 255]
           P.ranges.add [0, 0, 255, 255]
+    P.color = psdOfLabel(L.label)
     if L.group:
       P.section = if L.collapsed: psGroupClosed else: psGroupOpen
       if L.passThrough: P.blend = "pass"

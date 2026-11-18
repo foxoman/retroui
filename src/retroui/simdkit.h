@@ -611,4 +611,35 @@ static inline intptr_t ruk_gather_opaque(uint32_t* dst, const uint32_t* src, con
   return ruk_gather_opaque1(dst, src, xs, n);
 }
 
+/* ---- where a layer has something --------------------------------------------------------- */
+
+/* The first pixel from p (of n) whose alpha is not 0, four at a time; n when none. */
+static inline intptr_t ruk_first_alpha(const uint32_t* p, intptr_t n) {
+  intptr_t i = 0;
+  const ruk_u4 am = {0xFF000000u, 0xFF000000u, 0xFF000000u, 0xFF000000u};
+  for (; i + 16 <= n; i += 16) {
+    ruk_u4 v = (ruk_load4(p + i) | ruk_load4(p + i + 4) | ruk_load4(p + i + 8) | ruk_load4(p + i + 12)) & am;
+    uint64_t t[2];
+    memcpy(t, &v, 16);
+    if (t[0] | t[1]) break;
+  }
+  for (; i < n; i++) if (p[i] >> 24) return i;
+  return n;
+}
+
+/* The last pixel before p + n (of n) whose alpha is not 0, four at a time; -1 when none. */
+static inline intptr_t ruk_last_alpha(const uint32_t* p, intptr_t n) {
+  intptr_t i = n;
+  const ruk_u4 am = {0xFF000000u, 0xFF000000u, 0xFF000000u, 0xFF000000u};
+  for (; i - 16 >= 0; i -= 16) {
+    const uint32_t* q = p + i - 16;
+    ruk_u4 v = (ruk_load4(q) | ruk_load4(q + 4) | ruk_load4(q + 8) | ruk_load4(q + 12)) & am;
+    uint64_t t[2];
+    memcpy(t, &v, 16);
+    if (t[0] | t[1]) break;
+  }
+  for (i = i - 1; i >= 0; i--) if (p[i] >> 24) return i;
+  return -1;
+}
+
 #endif

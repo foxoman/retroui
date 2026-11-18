@@ -2073,6 +2073,9 @@ type
     picked*: bool             ## picked with others (highlighted too)
     locked*: bool             ## all locked (a padlock)
     linked*: bool             ## linked to other layers (a chain at the right)
+    label*: uint32            ## its color (0xAARRGGBB; 0 none): the eye's column in it
+    lit*: bool                ## the layer under the pointer on the image: framed
+    tick*: int                ## picking by touch: 1 an empty box before it, 2 ticked (0 none)
   LayerRowsEvent* = object
     ## What happened in `layerRows` this frame.
     clicked*: int             ## the row clicked (-1 none)
@@ -2088,6 +2091,8 @@ type
     toggled*: int             ## a group's triangle clicked (-1 none)
     clipAt*: int              ## Alt+click on the line under a row: that row clipped to
                               ## the one under it, or let go (-1 none)
+    hovered*: int             ## the row the pointer is over (-1 none)
+    held*: int                ## a long press on a row -- a finger's (-1 none)
     shift*, ctrl*, alt*: bool ## the keys held at the click
 
 proc layerRows*(rows: seq[LayerRow]; w: int; rowH: int; key: string;
@@ -2097,7 +2102,7 @@ proc layerRows*(rows: seq[LayerRow]; w: int; rowH: int; key: string;
   ## moves it. `brushColumn`: a second column with a paintbrush beside the
   ## row that painting goes to (the Layers palette of 1994).
   result = LayerRowsEvent(clicked: -1, eyeToggled: -1, activated: -1, moved: (-1, -1), thumbClicked: -1,
-                          maskClicked: -1, fxClicked: -1, toggled: -1, into: -1, clipAt: -1)
+                          maskClicked: -1, fxClicked: -1, toggled: -1, into: -1, clipAt: -1, hovered: -1, held: -1)
   let indentW = dp(12)
   let eyeW = dp(20)
   let brushW = if brushColumn: dp(20) + 1 else: 0
@@ -2110,7 +2115,11 @@ proc layerRows*(rows: seq[LayerRow]; w: int; rowH: int; key: string;
   for i, row in rows:
     let rr = rect(r.x, r.y + i * rowH, r.w, rowH)
     let eye = rect(rr.x, rr.y, eyeW, rowH)
-    fill(eye, th.face)
+    if row.label != 0:
+      # (its color, as the photo editor marks it: the eye's column)
+      let lc = color(uint8((row.label shr 16) and 255), uint8((row.label shr 8) and 255), uint8(row.label and 255))
+      fill(eye, mixColor(lc, th.face, 0.45))
+    else: fill(eye, th.face)
     vline(eye.x + eye.w, rr.y, rowH, th.shadow)
     if row.visible:
       image(eye.x + (eye.w - dp(16)) div 2, eye.y + (rowH - dp(16)) div 2, glyphIcon(pxEye, th.text, dp(16)))
@@ -2124,7 +2133,22 @@ proc layerRows*(rows: seq[LayerRow]; w: int; rowH: int; key: string;
     let body = rect(eye.x + eyeW + 1 + brushW, rr.y, rr.w - eyeW - 1 - brushW, rowH)
     if row.active or row.picked: fill(body, th.select)
     let fg = if row.active or row.picked: th.selectText else: th.text
+    if row.lit and not (row.active or row.picked):
+      # (under the pointer on the image: its row framed)
+      box(inset(body, 1), th.select)
     var x = body.x + dp(3) + row.indent * indentW
+    if row.tick > 0:
+      # (picking by touch: a box before it, ticked when picked)
+      let cs = dp(14)
+      let cb = rect(x, body.y + (rowH - cs) div 2, cs, cs)
+      fill(cb, th.window)
+      box(cb, th.text)
+      if row.tick == 2:
+        thickLine(float(cb.x + dp(3)), float(cb.y + cs div 2), float(cb.x + cs div 2 - 1), float(cb.y + cs - dp(4)),
+                  float(max(1, dp(2))), th.text)
+        thickLine(float(cb.x + cs div 2 - 1), float(cb.y + cs - dp(4)), float(cb.x + cs - dp(3)), float(cb.y + dp(3)),
+                  float(max(1, dp(2))), th.text)
+      x += cs + dp(5)
     let th2 = rowH - dp(6)
     var thumbR, maskR, fxR, triR: Rect
     if row.group:
@@ -2224,6 +2248,8 @@ proc layerRows*(rows: seq[LayerRow]; w: int; rowH: int; key: string;
     if onSeam:
       ui.cursor = curSizeNS
       hline(body.x, rr.y + rowH - 1, body.w, th.text)
+    if mouseIn(rr) and canHover(): result.hovered = i
+    if ui.rpressed and longPressed() and mouseIn(rr) and not mouseIn(eye): result.held = i
     if hit.down and ui.pressed and onSeam:
       result.clipAt = i
     elif hit.down and ui.pressed and mouseIn(rr):

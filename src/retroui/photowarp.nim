@@ -877,3 +877,149 @@ proc fieldRadius*(w, h: int; pins: openArray[(float, float, float)]): seq[float3
         s += wt * b
         sw += wt
       rp[y * w + x] = float32(if exact >= 0: exact else: s / sw)
+
+# ---- several layers transformed together ---------------------------------------------------------
+
+type
+  ShotKind* = enum
+    ## What a layer is, for a transform of several (`LayerShot`).
+    skPixels   ## pixels: shown warped live, put down once (`putDownShots`)
+    skShape    ## a shape: its outline carried, drawn again sharp
+    skText     ## type: its letters scaled and carried -- turned, slanted or in perspective, set
+               ## flat and drawn through the corners (`TextData.persp`): it stays type
+    skSmart    ## a Smart Object: its corners carried, drawn again from what it holds
+  LayerShot* = object
+    ## A layer as it was when a transform of several began (`shotsOf`): what
+    ## it is made again from as the box's corners move.
+    layer*: Layer
+    kind*: ShotKind
+    shape*: ShapeData
+    text*: TextData
+    smart*: SmartData
+    box*: Rect          ## where it was
+
+proc shotsOf*(d: Doc; ls: openArray[Layer]): seq[LayerShot] =
+  ## The layers `ls` as they are, for a transform of them all together (Free
+  ## Transform with several picked): not the Background, a group (its layers
+  ## are given), an adjustment, a layer locked or locked in place, nor one
+  ## with nothing in it.
+  for L in ls:
+    if L == nil or L.background or L.group or L.adjust.kind.len > 0 or L.locked or L.lockPosition: continue
+    var s = LayerShot(layer: L, box: d.layerBox(L))
+    if L.isText: (s.kind = skText; s.text = L.text)
+    elif L.isShape and not L.isFill: (s.kind = skShape; s.shape = L.shape)
+    elif L.isSmart: (s.kind = skSmart; s.smart = L.smart)
+    elif L.px.len == d.w * d.h:
+      s.kind = skPixels
+      s.box = d.contentBounds(L)
+    else: continue
+    if s.box.w > 0 and s.box.h > 0: result.add s
+
+proc shotsBox*(shots: openArray[LayerShot]): Rect =
+  ## The box round them all: what the transform's handles hold.
+  var x0, y0 = high(int)
+  var x1, y1 = low(int)
+  for s in shots:
+    x0 = min(x0, s.box.x); y0 = min(y0, s.box.y)
+    x1 = max(x1, s.box.x + s.box.w); y1 = max(y1, s.box.y + s.box.h)
+  if x1 > x0 and y1 > y0: rect(x0, y0, x1 - x0, y1 - y0) else: rect(0, 0, 0, 0)
+
+proc squareQuad*(q: Quad): bool =
+  ## The corners make a rectangle square to the image (scaled, moved, maybe
+  ## flipped -- not turned, slanted or in perspective).
+  abs(q[0][1] - q[1][1]) < 1e-6 and abs(q[2][1] - q[3][1]) < 1e-6 and
+    abs(q[0][0] - q[3][0]) < 1e-6 and abs(q[1][0] - q[2][0]) < 1e-6
+
+proc textBoxOf(d: Doc; L: Layer; t: TextData): array[4, float32] =
+  ## (the flat box type is set in: its box, else its lines' with a little room)
+  if t.boxW > 0 and t.boxH > 0: return [t.x, t.y, t.x + t.boxW, t.y + t.boxH]
+  let lay = layoutText(d.effectiveText(L))
+  [lay.x0 - 2, lay.y0 - 2, lay.x1 + 2, lay.y1 + 2]
+
+proc carryShots*(d: Doc; shots: openArray[LayerShot]; r: Rect; q: Quad;
+                 smartDrawn: proc (L: Layer) = nil) =
+  ## The shapes, type and Smart Objects of `shots` made again where box `r`
+  ## went (its corners `q`), each staying what it is; `smartDrawn` draws a
+  ## Smart Object again from what it holds (the app's: its filters).
+  ## (The pixel layers are shown live, `liveShots`, and put down at the end.)
+  let f = quadMap(r, q)
+  let square = squareQuad(q)
+  let sx = (q[1][0] - q[0][0]) / max(1.0, r.w.float)
+  let sy = (q[3][1] - q[0][1]) / max(1.0, r.h.float)
+  for s in shots:
+    let L = s.layer
+    case s.kind
+    of skPixels: discard
+    of skShape:
+      var sh = s.shape
+      sh.path.mapPoints(f)
+      d.setShape(L, sh)
+    of skSmart:
+      var c: Quad
+      for k in 0 .. 3: c[k] = f(s.smart.quad[k][0], s.smart.quad[k][1])
+      L.smart = s.smart.withQuad(c)
+      if smartDrawn != nil: smartDrawn(L)
+    of skText:
+      var t = s.text
+      if square and not t.perspOn and sx > 0 and sy > 0:
+        # (scaled and moved: its letters as much bigger, wider when it is wider)
+        for sp in t.spans.mitems:
+          sp.style.size = max(1'f32, sp.style.size * float32(sy))
+          let hs = if sp.style.hScale <= 0: 1'f32 else: sp.style.hScale
+          sp.style.hScale = hs * float32(sx / sy)
+          if sp.style.leading > 0: sp.style.leading *= float32(sy)
+        let (nx, ny) = f(t.x.float, t.y.float)
+        t.x = float32(nx)
+        t.y = float32(ny)
+        if t.boxW > 0:
+          t.boxW *= float32(sx)
+          t.boxH *= float32(sy)
+      else:
+        # (turned, slanted, flipped, in perspective: set flat where it was, drawn through
+        # where its corners went)
+        let b = if t.perspOn: t.perspBox else: d.textBoxOf(L, t)
+        let from0 = if t.perspOn: t.persp
+                    else: [(b[0], b[1]), (b[2], b[1]), (b[2], b[3]), (b[0], b[3])]
+        for k in 0 .. 3:
+          let (cx, cy) = f(from0[k][0].float, from0[k][1].float)
+          t.persp[k] = (float32(cx), float32(cy))
+        t.perspBox = b
+        t.perspOn = true
+      d.setText(L, t)
+
+proc pixelPart(d: Doc; r: Rect; q: Quad; own: Rect): tuple[r: Rect; q: Quad] =
+  ## (a pixel layer's own part of box `r` -- where it has something, on the
+  ## image -- and where its corners go: only that is warped)
+  let c = d.clip(intersect(own, r))
+  if c.w <= 0 or c.h <= 0: return (c, q)
+  let f = quadMap(r, q)
+  (c, [f(c.x.float, c.y.float), f((c.x + c.w).float, c.y.float), f((c.x + c.w).float, (c.y + c.h).float),
+       f(c.x.float, (c.y + c.h).float)])
+
+proc liveShots*(d: Doc; shots: openArray[LayerShot]; r: Rect; q: Quad): seq[LivePart] =
+  ## How the pixel layers of `shots` are shown while the corners move (each
+  ## stretched from box `r` into `q`, nothing left where they were): for
+  ## `setLive`.
+  for s in shots:
+    if s.kind != skPixels: continue
+    let (pr, pq) = d.pixelPart(r, q, s.box)
+    if pr.w <= 0 or pr.h <= 0: continue
+    let L = s.layer
+    result.add LivePart(layer: L, kind: lkWarp, src: cast[ptr UncheckedArray[uint32]](addr L.px[pr.y * d.w + pr.x]),
+                        srcStride: d.w, srcR: pr, quad: pq, hole: true)
+
+proc putDownShots*(d: Doc; shots: openArray[LayerShot]; r: Rect; q: Quad) =
+  ## The pixel layers of `shots` put down where box `r` went (`q`): each
+  ## warped at full size once (on all the cores), its pixels as they were
+  ## to the step open (`touchWhole`).
+  for s in shots:
+    if s.kind != skPixels: continue
+    let (pr, pq) = d.pixelPart(r, q, s.box)
+    if pr.w <= 0 or pr.h <= 0 or not quadIsFine(pq): continue
+    let L = s.layer
+    var res = d.vacatedCopy(L.px, pr, 0'u32)
+    d.warpOnto(res, cast[ptr UncheckedArray[uint32]](addr L.px[pr.y * d.w + pr.x]), d.w, pr, pq)
+    discard d.touchWhole(L)
+    L.px = move(res)
+    inc L.ver
+  d.markAll()

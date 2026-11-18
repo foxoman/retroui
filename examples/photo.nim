@@ -34,7 +34,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 const
   AppName = "Retro Atelier"         # (Retro Photo until 5.0)
   AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
-  AppVersion = "5.6.0"
+  AppVersion = "5.7.0"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -982,7 +982,7 @@ proc memLogTick() =
   let before = memoryUsed() shr 20
   trimMemory()                     # (what was let go of, back: what is left is what is held)
   var s = "memlog: " & $(memoryUsed() shr 20) & " MB held (" & $before & " before the heap was trimmed); " &
-          $docs.len & " images"
+          $docs.len & " images (" & $docsAlive() & " documents alive)"
   for dw in docs:
     let d = dw.doc
     let (all, ram) = d.historyBytes
@@ -1788,7 +1788,7 @@ var
   moveShowControls = true          ## ... and shows the box and handles of the current one
   moveAutoGroup = false            ## ... picks the outermost group of the layer clicked (Auto-Select: Group)
   textBoxCaches: Table[pointer, tuple[fp: Hash; r: Rect]]   # (type layers' boxes, while their text is the same)
-  hoverBox: tuple[x, y: int; r: Rect]
+  hoverBox: tuple[x, y: int; r: Rect; i: int]
 
 proc layerBox(d: Doc; L: Layer): Rect =
   ## Where a layer has something: its text's box, its shape's, a Smart
@@ -2058,9 +2058,10 @@ proc rotateBadge(x, y: int) =
     thickLine(hx, hy, hx + float(dp(4)), hy - float(dp(1)), w, c)
     thickLine(hx, hy, hx + float(dp(1)), hy - float(dp(4)), w, c)
 
-proc drawBox(dw: DocWin; q: Quad; handles = true; edges = true; hot = -1) =
-  ## the usual transform box: a thin blue line, white handles edged in
-  ## blue. `hot`, what the mouse is over (`boxHit`), lights up: a handle
+proc drawBox(dw: DocWin; q: Quad; handles = true; edges = true; hot = -1; col = XfBlue) =
+  ## the usual transform box: a thin blue line (`col`: the drawing and
+  ## layout programs draw it in the layer's color), white handles edged in
+  ## it. `hot`, what the mouse is over (`boxHit`), lights up: a handle
   ## filled blue and larger, a side drawn thicker, the whole outline thicker
   ## from inside (it moves), a curved arrow by the pointer (it turns).
   let d = dw.doc
@@ -2071,9 +2072,9 @@ proc drawBox(dw: DocWin; q: Quad; handles = true; edges = true; hot = -1) =
     let (a, b) = pts[k]
     let (c, e) = pts[(k + 1) mod 4]
     if hot == 4 or hot == 6 + k:
-      thickLine(a.float, b.float, c.float, e.float, float(max(2, dp(2))), XfBlue)
+      thickLine(a.float, b.float, c.float, e.float, float(max(2, dp(2))), col)
     else:
-      line(a, b, c, e, XfBlue)
+      line(a, b, c, e, col)
   if hot == 5: rotateBadge(ui.mx, ui.my)
   if not handles: return
   let hs = if finger(): dp(5) else: dp(3)
@@ -2083,12 +2084,17 @@ proc drawBox(dw: DocWin; q: Quad; handles = true; edges = true; hot = -1) =
     let on = (k < 4 and hot == k) or (k >= 4 and hot == k + 2)
     let s = if on: hs + dp(1) else: hs
     let r = rect(hx - s, hy - s, 2 * s + 1, 2 * s + 1)
-    fill(r, if on: XfBlue else: color(255, 255, 255))
-    box(r, if on: color(255, 255, 255) else: XfBlue)
-    if on: box(inset(r, -1), XfBlue)
+    fill(r, if on: col else: color(255, 255, 255))
+    box(r, if on: color(255, 255, 255) else: col)
+    if on: box(inset(r, -1), col)
+
+include photo/picking
 
 proc xfApply() =
   let d = xf.dw.doc
+  if xfShots.len > 0:
+    xfApplyMany()
+    return
   if xfText.on:
     # (type: the letters as much bigger as the box, wider if it is wider)
     var x0, y0 = 1e18
@@ -2136,6 +2142,9 @@ proc xfApply() =
 proc putDownTransform() =
   ## (the pixels transformed live: warped into the layer at full size, once)
   let d = xf.dw.doc
+  if xfShots.len > 0:
+    putDownMany()
+    return
   if d.live.len == 0 or d.live[0].kind != lkWarp: return
   d.endLive()
   beginBusy("Transforming")
@@ -2162,6 +2171,8 @@ proc startTransform(kind: XfKind) =
   if dw == nil: return
   let d = dw.doc
   let L = d.layer
+  # (several layers picked: one box round them all)
+  if not d.hasSelection and not d.quickMask and not d.editMask and startTransformMany(kind): return
   if L.isShape and not d.hasSelection:
     let b = pathBounds(L.shape.path)
     let r = rect(int(floor(b[0])), int(floor(b[1])), max(1, int(ceil(b[2] - floor(b[0])))),
@@ -2245,6 +2256,7 @@ proc finishTransform(ok: bool) =
   xf.base = @[]
   xfSmart = nil
   xfText.on = false
+  xfShots.setLen(0)
   status = ""
 
 proc inQuad(q: Quad; x, y: float): bool =
@@ -2684,8 +2696,9 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
     var takes = tool in {tHand, tZoom} or springing or dw.polyLassoOn
     if tool == tCrop and pendingCrop.on and pendingCrop.dw == dw: takes = true
     if tool == tMove and d.current.isLine and dw.lineEndAt(d.current, ui.mx, ui.my) >= 0: takes = true
-    if tool == tMove and moveShowControls and not d.current.background and not d.editMask and not d.quickMask:
-      let r = if d.hasSelection: d.clip(d.selBounds) else: d.layerBox(d.current)
+    if tool == tMove and moveShowControls and (not d.current.background or d.severalPicked) and
+       not d.editMask and not d.quickMask:
+      let r = d.moveBoxOf
       if r.w > 0 and r.h > 0:
         let h = dw.boxHit(quadOf(r), ui.mx, ui.my)
         if h >= 0: takes = true      # (a handle, or inside: it moves -- back onto the image)
@@ -2702,6 +2715,14 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
             inc d.ver
           takes = true
           break
+    if not takes and tool == tMove and moveKind == 0 and moveAutoSelect and not d.editMask and
+       not d.quickMask and not d.hasSelection and not springing:
+      # (from the pasteboard round the image, as the three programs have it:
+      # a box dragged picks the layers it touches)
+      if te.on: commitType()
+      drag = Drag(on: true, dw: dw, tool: tool, x0: ev.x, y0: ev.y, x1: ev.x, y1: ev.y, band: true,
+                  lastTick: ui.now)
+      return
     if not takes:
       if te.on: commitType()            # (a click away from the text: it is done)
       drag = Drag()
@@ -2850,10 +2871,10 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
     # (a handle of the current layer's box -- its corners, its sides, the
     # turning zone just outside them: the transform, at once; before
     # Auto-Select, which would pick the layer under the pointer there)
-    if moveShowControls and not d.current.background and not d.editMask and not ev.alt and
-       not d.quickMask and not d.current.isLine and
+    if moveShowControls and (not d.current.background or d.severalPicked) and not d.editMask and
+       not ev.alt and not d.quickMask and (not d.current.isLine or d.severalPicked) and
        not ((d.current.locked or d.current.lockPosition) and d.movedLayers.len == 1):
-      let r = if d.hasSelection: d.clip(d.selBounds) else: d.layerBox(d.current)
+      let r = d.moveBoxOf
       if r.w > 0 and r.h > 0:
         let h = dw.boxHit(quadOf(r), ui.mx, ui.my)
         if h >= 0 and h != 4:
@@ -2868,23 +2889,35 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
       # Ctrl+click when it is off, as the usual; Shift+click: picked with
       # the one picked before, they move together)
       let i = d.autoPicked(d.layerAt(xi, yi, dw.pickRadius))
-      # (not on the current layer's own box: a layer picked by its box -- type off the
-      # image's edge -- is moved by it)
-      let cb = d.layerBox(d.current)
-      let onCur = not d.current.background and cb.w > 0 and xi >= cb.x and xi < cb.x + cb.w and
-                  yi >= cb.y and yi < cb.y + cb.h
+      # (not on the current layer's own box -- the box round all those picked: a layer
+      # picked by its box, type off the image's edge, is moved by it)
+      let cb = if d.severalPicked: d.pickedBox else: d.boxOf(d.current)
+      let onCur = (not d.current.background or d.severalPicked) and cb.w > 0 and xi >= cb.x and
+                  xi < cb.x + cb.w and yi >= cb.y and yi < cb.y + cb.h
       if (i < 0 or d.layers[i].background or d.layers[i].fromMaster != 0) and not onCur and
          not d.hasSelection and not d.editMask and not d.quickMask and moveAutoSelect:
         # (where nothing is: a box is dragged, and what it touches is picked)
         drag.band = true
         return
-      if i >= 0 and i != d.cur and ev.shift:
+      if i >= 0 and (ev.shift or touchPick) and not d.layers[i].background:
+        # Shift+click (a tap, picking by touch): picked with the others -- or, picked
+        # already, taken out of them, as the three programs have it
+        let was = i == d.cur or d.layers[i].picked
+        if was and not d.severalPicked:
+          discard                          # (the only one: it stays)
+        else:
+          d.togglePick(i)
+          justPicked = true
+          if was:
+            status = "Took " & d.layers[i].name & " out of those picked"
+            drag.on = false
+            return
+          status = "Picked " & d.layers[i].name & " with the others: they move together"
+      elif i >= 0 and i != d.cur and d.layers[i].picked:
+        # (one of those picked: the current one now -- they all stay picked, and move)
         d.current.picked = true
-        d.layers[i].picked = true
         d.cur = i
-        inc d.ver
-        justPicked = true
-        status = "Picked " & d.layers[i].name & " with the others: they move together"
+        ui.redraw = true
       elif i >= 0 and i != d.cur:
         d.clearPicks()
         d.cur = i
@@ -2913,12 +2946,13 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
       discard d.duplicateLayer()
       d.endStep()
     let L = d.current
-    if L.isText and not d.hasSelection and not d.editMask and not d.quickMask:
+    let alone = d.movedLayers.len == 1     # (several: all lifted together, each as what it is)
+    if L.isText and alone and not d.hasSelection and not d.editMask and not d.quickMask:
       # a type layer: its text moves (and stays text)
       d.beginStep("Move")
       d.touchLayers()
       textMove = (true, L.text)
-    elif L.isShape and not d.hasSelection and not d.editMask and not d.quickMask:
+    elif L.isShape and alone and not d.hasSelection and not d.editMask and not d.quickMask:
       # a shape layer: its outline moves (and stays a shape)
       d.beginStep("Move")
       d.touchLayers()
@@ -3524,30 +3558,30 @@ proc releaseOn(ev: PhotoEvent) =
   sg.on = false                    # (the Smart Guides of a move: gone with it)
   if drag.band:
     # the Move tool's box: the layers it touches are picked (they move, align and group together)
-    let x0 = int(floor(min(drag.x0, drag.x1)))
-    let y0 = int(floor(min(drag.y0, drag.y1)))
-    let r = rect(x0, y0, int(ceil(max(drag.x0, drag.x1))) - x0, int(ceil(max(drag.y0, drag.y1))) - y0)
+    # (Shift, or picking by touch: added to those picked)
+    let adding = ev.shift or touchPick
+    let r = bandRect()
     if r.w >= 3 or r.h >= 3:
-      var got: seq[int]
-      for i, L in d.layers:
-        if L.background or L.group or not L.visible or L.fromMaster != 0 or L.locked: continue
-        let b = d.layerBox(L)
-        if b.w > 0 and b.h > 0 and b.x < r.x + r.w and b.x + b.w > r.x and b.y < r.y + r.h and b.y + b.h > r.y:
-          got.add i
+      let got = d.bandTouches(r)
       if got.len > 0:
-        if not ev.shift: d.clearPicks()
-        for i in got: d.layers[i].picked = got.len > 1 or ev.shift
-        if ev.shift: d.current.picked = true
+        if not adding: d.clearPicks()
+        let had = d.pickedLayers.len
+        for i in got: d.layers[i].picked = got.len > 1 or adding
+        if adding: d.current.picked = true
         d.cur = got[^1]
-        inc d.ver
-        status = if got.len == 1: "Picked the layer " & d.layers[got[0]].name
-                 else: $got.len & " layers picked: they move, align and group together"
-      elif not ev.shift:
+        if d.pickedLayers.len <= 1: d.clearPicks()
+        ui.redraw = true                 # (no change of the image: not `inc d.ver`)
+        let n = d.pickedLayers.len
+        status = if n == 1: "Picked the layer " & d.layers[got[0]].name
+                 elif adding and had > 1: $(n - had) & " more picked: " & $n & " layers, they move, align and " &
+                                          "group together"
+                 else: $n & " layers picked: they move, align and group together"
+      elif not adding:
         d.clearPicks()
-        inc d.ver
-    elif not ev.shift:
+        ui.redraw = true
+    elif not adding:
       d.clearPicks()
-      inc d.ver
+      ui.redraw = true
     drag = Drag()
     return
   if drag.selMove:
@@ -3957,9 +3991,11 @@ proc overlays(dw: DocWin; ev: PhotoEvent) =
   dw.vectorOverlay(ev)
   dw.makersOverlay(ev)
   if drag.on and drag.dw == dw and drag.band:
+    dw.bandOverlay()
     let (x0, y0) = v.toScreen(d, min(drag.x0, drag.x1), min(drag.y0, drag.y1))
     let (x1, y1) = v.toScreen(d, max(drag.x0, drag.x1), max(drag.y0, drag.y1))
     box(rect(x0, y0, max(1, x1 - x0), max(1, y1 - y0)), color(0, 120, 255))
+  dw.layerEdgesOverlay()
   polyLassoOverlay(dw, ev)
   if tool == tWand and wandMode == 3 and selBrushOverlay: dw.drawSelOverlay()
   if tool == tPen and penMode == 8: dw.traceOverlay(ev)
@@ -4083,9 +4119,19 @@ proc overlays(dw: DocWin; ev: PhotoEvent) =
       let (ix, iy) = (int(floor(ev.x)), int(floor(ev.y)))
       if (ix, iy) != (hoverBox.x, hoverBox.y):
         let i = d.autoPicked(d.layerAt(ix, iy, dw.pickRadius))
-        hoverBox = (ix, iy, if i >= 0 and i != d.cur: d.blockBox(i) else: rect(0, 0, 0, 0))
-      if hoverBox.r.w > 0: dw.drawBox(quadOf(hoverBox.r), handles = false)
-    if d.current.isLine and not d.hasSelection and not d.editMask and not d.quickMask:
+        let shown = i >= 0 and i != d.cur and not d.layers[i].picked and not d.layers[i].background
+        hoverBox = (ix, iy, (if shown: d.blockBox(i) else: rect(0, 0, 0, 0)), (if shown: i else: -1))
+      if hoverBox.r.w > 0 and hoverBox.i < d.layers.len:
+        # (as the photo editor shows it: outlined, its row lit in Layers; the
+        # drawing and layout programs: in its layer's color)
+        if dw.pickLook == plPhoto: dw.drawBox(quadOf(hoverBox.r), handles = false)
+        else: dw.outlineLayer(hoverBox.i, colorOfLabel(d.labelColorOf(hoverBox.i)), false)
+        hoverLit = (d, d.layers[hoverBox.i])
+      else: hoverLit = (nil, nil)
+    else: hoverLit = (nil, nil)
+    # what is picked: each object's outline (a drawing), each frame's edge (a layout)
+    dw.drawPicked()
+    if d.current.isLine and not d.hasSelection and not d.editMask and not d.quickMask and not d.severalPicked:
       # a line: a handle at each end (dragged: the line follows)
       let sp = d.current.shape.path.subs[0]
       let hot = if ev.over and not ui.mouseDown: dw.lineEndAt(d.current, ui.mx, ui.my) else: -1
@@ -4096,11 +4142,12 @@ proc overlays(dw: DocWin; ev: PhotoEvent) =
         fill(r, if hot == i or (lineGrab.on and lineGrab.i == i): color(0, 120, 215) else: color(255, 255, 255))
         box(r, color(0, 120, 215))
       if hot >= 0: ui.cursor = curCrosshair
-    elif moveShowControls and not d.current.background and not d.editMask and not d.quickMask:
-      let r = if d.hasSelection: d.clip(d.selBounds) else: d.layerBox(d.current)
+    elif moveShowControls and (not d.current.background or d.severalPicked) and not d.editMask and not d.quickMask:
+      # (the box and its handles: round all the layers picked)
+      let r = d.moveBoxOf
       if r.w > 0 and r.h > 0:
         let h = if ev.over and not ui.mouseDown: dw.boxHit(quadOf(r), ui.mx, ui.my) else: -1
-        dw.drawBox(quadOf(r), hot = h)
+        dw.drawBox(quadOf(r), hot = h, col = dw.boxColorOf)
         if h >= 0: dw.boxCursor(quadOf(r), h)
   if drag.on and drag.dw == dw and not drag.moving and not drag.selMove:
     case drag.tool
@@ -5033,8 +5080,11 @@ proc forgetDoc(dw: DocWin) =
   if showNext == dw: showNext = nil
   if tabMenuDoc == dw: tabMenuDoc = nil
   if underMenu.dw == dw: drop(underMenu)
-  if pdfDoc == dw: pdfDoc = nil
+  if pdfDoc == dw: (pdfDoc = nil; pdfPick = false)
   if exportDoc == dw: exportDoc = nil
+  if saveDoc == dw: (saveDoc = nil; savePick = false; jpegOpen = false)   # (Save As of it: no more to save)
+  if closeAsk.dw == dw: drop(closeAsk)
+  if rlDlg.doc == d: drop(rlDlg)
   if adjDoc == d: adjDoc = nil
   if mine(adjLayer): adjLayer = nil
   if mine(adjOnLayer): adjOnLayer = nil
@@ -5061,6 +5111,59 @@ proc forgetDoc(dw: DocWin) =
   counts.keepItIf(it.d != d)
   slices.keepItIf(it.d != d)
   smartEdits.keepItIf(it.child != d and it.parent != d)
+  # (the rest that may hold the image or its layers -- a cache made from it, a source, a dialog
+  # left with one: an hour of random input found images closed and still held, 800 MB of them)
+  if stampSrc.doc == d: drop(stampSrc)
+  for slot in cloneSlots.mitems:
+    if slot.doc == d: slot = default(typeof(slot))
+  if gEdit.doc == d or mine(gEdit.src): drop(gEdit)
+  if finderSeg.d == d: drop(finderSeg)
+  if finderShown.d == d: drop(finderShown)
+  if sg.d == d: drop(sg)
+  if selOverlay.d == d: drop(selOverlay)
+  if tileView.d == d: drop(tileView)
+  if fDraft.doc == d: drop(fDraft)
+  if lensDepthCache.doc == d or mine(lensDepthCache.layer): drop(lensDepthCache)
+  if pgCache.d == d: drop(pgCache)
+  if pgDrag.dw == dw: drop(pgDrag)
+  if histPanel.d == d: drop(histPanel)
+  if bgDoc == d: bgDoc = nil
+  if tl.dw == dw or tl.doc == d: drop(tl)
+  if vecPts.d == d or mine(vecPts.layer): drop(vecPts)
+  if vecGroupClick.d == d or mine(vecGroupClick.layer): drop(vecGroupClick)
+  if liveSlider == d: liveSlider = nil
+  pdfDlg.docs.keepItIf(it != d)
+  if epsDlg.dw == dw: drop(epsDlg)
+  if tbar.dw == dw: drop(tbar)
+  if polyLasso.dw == dw: drop(polyLasso)
+  if vd.dw == dw or mine(vd.layer): drop(vd)
+  if hoverLit.d == d: drop(hoverLit)
+  if rowLit.d == d: drop(rowLit)
+  if xfShots.anyIt(mine(it.layer)): xfShots.setLen(0)
+  for L in [abDlg.board, gfDlg.layer, meshDlg.layer, poDlg.layer, pbDlg.src, pbDlg.made, spellDlg.layer,
+            tfDlg.layer, tlOverset.layer, blendPair[0], blendPair[1], ffDlg.layer, gmDlg.layer, meshDrag.layer,
+            persDrag.layer, widthDrag.layer, leDlg.layer, seDlg.layer, linkLayer]:
+    if mine(L):
+      # (a dialog or a drag left with one of its layers: let go of)
+      if L == abDlg.board: drop(abDlg)
+      if L == gfDlg.layer: drop(gfDlg)
+      if L == meshDlg.layer: drop(meshDlg)
+      if L == poDlg.layer: drop(poDlg)
+      if L == pbDlg.src or L == pbDlg.made: drop(pbDlg)
+      if L == spellDlg.layer: drop(spellDlg)
+      if L == tfDlg.layer: drop(tfDlg)
+      if L == tlOverset.layer: drop(tlOverset)
+      if L == blendPair[0] or L == blendPair[1]: drop(blendPair)
+      if L == ffDlg.layer: drop(ffDlg)
+      if L == gmDlg.layer: drop(gmDlg)
+      if L == meshDrag.layer: drop(meshDrag)
+      if L == persDrag.layer: drop(persDrag)
+      if L == widthDrag.layer: drop(widthDrag)
+      if L == leDlg.layer: drop(leDlg)
+      if L == seDlg.layer: drop(seDlg)
+      if L == linkLayer: linkLayer = nil
+  if sbDlg.layers.anyIt(mine(it)): drop(sbDlg)
+  boxCache.clear()
   chanThumbs.clear()               # (keyed by where the image was: a new one may come there)
   GC_fullCollect()                 # (an image's parts that point at each other: let go now)
 

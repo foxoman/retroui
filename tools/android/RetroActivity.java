@@ -576,6 +576,12 @@ public class RetroActivity extends NativeActivity {
       for (int k = 1; k < a.length; k++) if (a[k].length() > 0) types.add(a[k]);
       if (types.size() == 1) i.setType(types.get(0));
       else if (types.size() > 1) i.putExtra("android.intent.extra.MIME_TYPES", types.toArray(new String[0]));
+      // (in the folder last opened from -- else Downloads -- not Recent, which lists
+      // only pictures and documents it knows: a PSD, an AI, an IDML are not there)
+      if (Build.VERSION.SDK_INT >= 26) {
+        Uri at = openFolder();
+        if (at != null) i.putExtra("android.provider.extra.INITIAL_URI", at);
+      }
       i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
                  0x00000040);              // FLAG_GRANT_PERSISTABLE_URI_PERMISSION
       synchronized (shared) { pickedOpen = ""; }
@@ -762,6 +768,7 @@ public class RetroActivity extends NativeActivity {
         synchronized (shared) { pickedOpen = "\u0001"; }
         return;
       }
+      keepOpenFolder(uris.get(0));
       final Intent got = data;
       // (a big file takes its time: not on the thread that draws)
       new Thread(new Runnable() {
@@ -784,12 +791,36 @@ public class RetroActivity extends NativeActivity {
       String r = "\u0001";
       if (result == RESULT_OK && data != null && data.getData() != null) {
         keepUri(data.getData(), data);
+        keepOpenFolder(data.getData());
         r = data.getData().toString();
       }
       synchronized (shared) { pickedSave = r; }
       return;
     }
     super.onActivityResult(request, result, data);
+  }
+
+  static final String STORAGE_DOCS = "com.android.externalstorage.documents";
+
+  Uri openFolder() {
+    // (the folder of the file last opened or saved through the system's picker; else Downloads)
+    String kept = getSharedPreferences("retro", MODE_PRIVATE).getString("openFolder", null);
+    if (kept != null) return Uri.parse(kept);
+    return DocumentsContract.buildDocumentUri(STORAGE_DOCS, "primary:Download");
+  }
+
+  void keepOpenFolder(Uri u) {
+    // (a file of the device's storage: its folder, for the next Open)
+    try {
+      if (u == null || !STORAGE_DOCS.equals(u.getAuthority())) return;
+      String id = DocumentsContract.getDocumentId(u);
+      int slash = id.lastIndexOf('/');
+      int colon = id.indexOf(':');
+      String parent = slash > 0 ? id.substring(0, slash) : (colon >= 0 ? id.substring(0, colon + 1) : null);
+      if (parent == null) return;
+      getSharedPreferences("retro", MODE_PRIVATE).edit()
+        .putString("openFolder", DocumentsContract.buildDocumentUri(STORAGE_DOCS, parent).toString()).apply();
+    } catch (Throwable t) { }
   }
 
   @Override

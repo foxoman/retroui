@@ -59,13 +59,15 @@ proc dohBase(): string = getEnv("RETRO_MAIL_DOH", "https://dns.google/resolve")
 
 proc question*(name: string; code: int; id: uint16): string =
   ## (a query: one question, recursion asked for, EDNS0 for a 1232-byte answer)
+  let labels = name.strip(chars = {'.'}).split('.')
+  for label in labels:
+    if label.len == 0 or label.len > 63: return ""
   result = newStringOfCap(64)
   result.add char(id shr 8)
   result.add char(id and 0xFF)
   result.add "\x01\x00"                        # RD
   result.add "\x00\x01\x00\x00\x00\x00\x00\x01" # one question, one additional (OPT)
-  for label in name.strip(chars = {'.'}).split('.'):
-    if label.len == 0 or label.len > 63: return ""
+  for label in labels:
     result.add char(label.len)
     result.add label
   result.add '\0'

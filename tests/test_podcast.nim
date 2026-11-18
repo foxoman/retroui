@@ -75,10 +75,16 @@ block undoes:
   doAssert lib.heard[sound & "3"].played and unplayed(lib.shows[0]) == 2
   doAssert history.undo()
   doAssert not lib.heard.getOrDefault(sound & "3").played
+  doAssert sound & "3" notin lib.heard          # (it had no entry: none again)
+  doAssert history.redo() and lib.heard[sound & "3"].played
+  doAssert history.undo() and sound & "3" notin lib.heard
   unfollow(0)
   doAssert lib.shows.len == 0
   doAssert history.undoLabel == "Unfollow"
   doAssert history.undo() and lib.shows.len == 1 and lib.shows[0].title == "Test Show"
+  doAssert lib.shows[0].episodes.len == 3
+  doAssert history.redo() and lib.shows.len == 0
+  doAssert history.undo() and lib.shows.len == 1 and lib.shows[0].episodes.len == 3
 
 block opml:
   var links: seq[FeedLink]

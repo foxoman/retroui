@@ -184,7 +184,8 @@ when not defined(windows):
 # ---- macOS keychain, Linux keyring --------------------------------------------------------
 
 when not defined(windows) and not androidApp and not defined(ios):
-  var keyringBroken = false              # guarded by secretsLock: secret-tool failed
+  var keyringBroken = false              # guarded by secretsLock: secret-tool failed, or the
+                                         # keyring did not answer in time
 
   proc toHexText(s: string): string =
     ## (the keychain and the keyring keep text: any bytes go as hex)
@@ -200,13 +201,25 @@ when not defined(windows) and not androidApp and not defined(ios):
   proc run(tool: string; args: openArray[string]; input = ""): tuple[output: string; code: int] =
     ## Runs `tool` with `args` (`input` on its standard input) and waits;
     ## code -1 when it would not run or took over two minutes (a keyring
-    ## that asks for its password waits for the user).
+    ## that asks for its password waits for the user): then it is stopped,
+    ## and what it said is not waited for -- a keychain that cannot be
+    ## found (a home of a test's own) never answers.
     try:
       let p = startProcess(tool, args = args, options = {poStdErrToStdOut})
       if input.len > 0: p.inputStream.write(input)
       p.inputStream.close()
+      var waited = 0
+      while p.running and waited < 120_000:
+        sleep(10)
+        waited += 10
+      if p.running:
+        p.kill()
+        discard p.waitForExit(2000)
+        p.close()
+        withLock secretsLock: keyringBroken = true      # (not asked again: the files instead)
+        return ("", -1)
       result.output = p.outputStream.readAll()
-      result.code = p.waitForExit(120_000)
+      result.code = p.waitForExit()
       p.close()
     except OSError, IOError:
       result = ("", -1)
@@ -216,11 +229,18 @@ when not defined(windows) and not androidApp and not defined(ios):
   when defined(macosx):
     const security = "/usr/bin/security"
 
+    proc keychainAnswers(): bool =
+      ## (not once it took too long: then the files)
+      withLock secretsLock: result = not keyringBroken
+
     proc keychainSave(app, name, value: string): bool =
+      if not keychainAnswers(): return false
       run(security, ["add-generic-password", "-U", "-a", name, "-s", "retro." & app,
                      "-l", app & ": " & name, "-w", toHexText(value)]).code == 0
 
     proc keychainLoad(app, name: string; found: var bool): string =
+      found = false
+      if not keychainAnswers(): return ""
       let r = run(security, ["find-generic-password", "-a", name, "-s", "retro." & app, "-w"])
       found = r.code == 0
       if found: result = fromHexText(r.output)
