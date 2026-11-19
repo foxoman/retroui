@@ -25,7 +25,7 @@ import retroui/[photo, photopaint, photofx, photoartistic, photohdr, otshape, tt
               photobrushes, adobefiles, photobook, imagetrace, layouttemplates, liveshapes, idml, preflight,
               booklists, datamerge, textsearch, headless, perspectivegrid, pathbrush, photoblurs, pathtools,
               liveeffects, photoseps, mathtype, flexlayout, vectormake, photorelight, mockups, designstyles,
-              aiconnect, photopublish,
+              aiconnect, photopublish, flows, dastkhat, fontfolders,
               imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files]
 {.push warning[UnusedImport]: off.}
 import retroui/photodeep   # (imported for what it sets up: filters, flattening and gradients at 16 and 32 bits)
@@ -34,7 +34,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 const
   AppName = "Retro Atelier"         # (Retro Photo until 5.0)
   AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
-  AppVersion = "5.7.0"
+  AppVersion = "5.8.0"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -1110,6 +1110,18 @@ proc smokeBound() =
   ## would, not how much it was made to pile up)
   if not smokeOn(): return
   while docs.len > 4: closeDoc(docs[0])
+  # (and what their layers hold together kept under 256 MB: four images of forty big layers
+  # are 1.6 GB, and how many layers stood open at the end, not a leak, made the hour's memory)
+  var held = 0
+  for dw in docs:
+    if dw.doc != nil: held += dw.doc.docSizes.layered
+  if held > 256 shl 20 and docs.len > 1 and not docs[0].doc.stepOpen: closeDoc(docs[0])
+  elif held > 256 shl 20 and docs.len == 1 and docs[0].doc != nil and docs[0].doc.layers.len > 2 and
+       not docs[0].doc.stepOpen:
+    let d = docs[0].doc
+    let (w, h) = (min(d.w, 1600), min(d.h, 1600))
+    closeDoc(docs[0])
+    if docs.len == 0: addDoc(newUntitled(w, h, white, 72, cmRGB, "Untitled"))
   for i in countdown(docs.high, 0):
     let d = docs[i].doc
     if d != nil and d.layers.len > 40 and not d.stepOpen:
@@ -4874,9 +4886,9 @@ proc frame() =
         dw.docBody()
     for dw in docs:
       if not dw.win.open:
-        if dw.doc.modified and not closeAsk.on:
-          closeAsk = (true, dw)
+        if dw.doc.modified:
           dw.win.open = true
+          closeFlow(dw)
         elif not dw.doc.modified:
           closeDoc(dw)
           break
@@ -4936,6 +4948,8 @@ proc setup() =
   # after the documents' own readers, which come first)
   addMorePictures()
   addFontDir(dataDir(AppData) / "Fonts")   # (fonts got from Google Fonts)
+  carryDastkhat()                          # (new text's font: Arabic, Persian and Latin)
+  useFontFolders(AppData)                  # (the user's own font folders: Preferences > Type)
   findRecovery()
   loadPresets()
   loadMyPresets()
@@ -5051,7 +5065,7 @@ proc photoFrame() =
     # while documents are open -- asked first)
     cancelClose()
     if docs.len == 0 and not saving(): quitApp()
-    elif not quitAsked: quitConfirm = true
+    elif not quitAsked and not flowRunning("quit"): quitConfirm = true
   if ui.paused and not wasPaused:
     # (the phone put the program away: it may be closed to free memory --
     # the session kept now, as it is)
@@ -5083,7 +5097,7 @@ proc forgetDoc(dw: DocWin) =
   if pdfDoc == dw: (pdfDoc = nil; pdfPick = false)
   if exportDoc == dw: exportDoc = nil
   if saveDoc == dw: (saveDoc = nil; savePick = false; jpegOpen = false)   # (Save As of it: no more to save)
-  if closeAsk.dw == dw: drop(closeAsk)
+  cancelFlows(docKey(dw))
   if rlDlg.doc == d: drop(rlDlg)
   if adjDoc == d: adjDoc = nil
   if mine(adjLayer): adjLayer = nil

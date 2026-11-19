@@ -3,7 +3,7 @@
 
 import std/[math, json, strutils, os]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
-import retroui/[textengine, ttf, typeset, hyphenate, unpacking]
+import retroui/[textengine, ttf, typeset, hyphenate, unpacking, dastkhat, pdf]
 
 proc style(size = 40'f32): CharStyle =
   result = defaultStyle()
@@ -491,6 +491,64 @@ block arabicSetFiner:
   for g in layoutText(l).glyphs:
     if g.color == 0xFF0000FF'u32: inc blue
   doAssert blue <= 1
+
+block dastkhatCarried:
+  # (Dastkhat carried: one variable font, its nine weights styles of the family, a weight drawn
+  # by its axis -- not made bold --, Arabic, Persian and Latin in it, PDF given its outlines)
+  carryDastkhat()
+  doAssert DastkhatFamily in fontFamilies()
+  doAssert fontStyles(DastkhatFamily) == @["Thin", "ExtraLight", "Light", "Regular", "Medium", "SemiBold",
+                                          "Bold", "ExtraBold", "Black"], $fontStyles(DastkhatFamily)
+  let reg = fontFace(DastkhatFamily, "Regular")
+  let bold = fontFace(DastkhatFamily, "Bold")
+  doAssert not reg.face.isInstance and bold.face.isInstance and not bold.fauxBold
+  let a = reg.face.glyphOf(ord('m'))
+  doAssert bold.face.advance(a) == 1650 and reg.face.advance(a) == 1670, "its axis' advances (as fontTools)"
+  doAssert bold.face.bounds(a).x1 - bold.face.bounds(a).x0 > reg.face.bounds(a).x1 - reg.face.bounds(a).x0,
+           "Bold's strokes heavier"
+  doAssert fontFace(DastkhatFamily, "Black").face == fontFace(DastkhatFamily, "Black").face
+  doAssert fontFace(DastkhatFamily, "Bold Italic").fauxItalic and fontFace(DastkhatFamily, "Bold Italic").face.isInstance
+  for r in "العربية كتب يوم فارسی پگچژ Latin ٠١٢ ۴۵۶".runes:
+    if r != Rune(' '): doAssert reg.face.glyphOf(int(r)) != 0, "missing " & $r
+  doAssert reg.face.glyphOf(0x0416) == 0          # (Cyrillic: the kit's fonts draw it)
+  doAssert canEmbed(reg.face) and not canEmbed(bold.face), "an instance's outlines go to a PDF as drawn"
+  var st = defaultStyle()
+  st.family = DastkhatFamily
+  st.style = "SemiBold"
+  let t = newText("Retro مرحبا سلام Жук", st)
+  doAssert layoutText(t).glyphs.len > 10
+
+block dotsAreTheLettersNotTashkeel:
+  # a font that builds ب ت ي ق... from a dotless letter and dot glyphs (Reem Kufi: the dots are
+  # mark glyphs, placed by `mark`): the tashkeel's color, raise and "without tashkeel" leave them
+  # with their letter -- raised 24 px, the dots under ي went into the letter's own ink, those over
+  # ق floated with the tashkeel (a tablet, Reem Kufi at 150 px)
+  addFontData("Reem Kufi Test", "Regular",
+              readFile(currentSourcePath().parentDir / "data" / "fonts" / "ReemKufi-Subset.ttf"))
+  let st = CharStyle(family: "Reem Kufi Test", size: 60, color: 0xFF000000'u32, hScale: 1, vScale: 1)
+  let voweled = "الْخَيْلُ وَاللَّيْلُ وَالْقَلَمُ بِئْرٌ"
+  var bareText = ""
+  for r in voweled.runes:
+    if int(r) notin 0x064B .. 0x0652: bareText.add r
+  let letters = layoutText(newText(bareText, st, 10, 80)).glyphs.len
+  var t = newText(voweled, st, 10, 80)
+  let plain = layoutText(t)
+  doAssert plain.glyphs.len > letters
+  t.spans[0].style.markColor = 0xFFC00000'u32
+  t.spans[0].style.markRaise = 24
+  let marked = layoutText(t)
+  var red, black = 0
+  for i, g in marked.glyphs:
+    if g.color == 0xFFC00000'u32:
+      inc red
+      doAssert abs(plain.glyphs[i].y - g.y - 24) < 0.01
+    else:
+      inc black
+      doAssert g.y == plain.glyphs[i].y and g.x == plain.glyphs[i].x, "a letter or its dots moved"
+  doAssert black == letters, "the letters with all their dots: " & $black & " of " & $letters
+  doAssert red == plain.glyphs.len - letters
+  t.spans[0].style.noMarks = true
+  doAssert layoutText(t).glyphs.len == letters, "without tashkeel: the dots stay"
 
 block rightToLeftLinesStayInTheirBox:
   # a line broken at a space: the space hangs out at the line's end (its left), the letters

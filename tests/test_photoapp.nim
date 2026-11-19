@@ -1526,6 +1526,18 @@ block masksPhotoshopWays:
   commitType()
   typeMaskMode = false
   doAssert d.hasSelection and d.layers.len == before, "the letters selected, no layer left"
+  # new text that starts in Arabic takes Arabic as its language (it was English: USA), Latin
+  # stays as it was, and a language chosen is kept
+  for (s, chosen, want) in [("الْخَيْلُ وَاللَّيْلُ", "", "ar"), ("١٢ مَرْحَبًا", "", "ar"), ("Hello مرحبا", "", ""),
+                            ("مرحبا", "fr", "fr")]:
+    d.beginStep("Type Tool")
+    d.touchLayers()
+    let AL = d.addTextLayer(newText(s, CharStyle(family: "", size: 40, color: 0xFF000000'u32, hScale: 1,
+                                                 vScale: 1, lang: chosen), 20, 60))
+    d.drawText(AL)
+    startTypeEdit(active, AL, true, 0)
+    commitType()
+    doAssert AL.text.spans[0].style.lang == want, s & ": " & AL.text.spans[0].style.lang
 
 block smartExtraction:
   # a red ball on gray: Remove Background keeps the ball; the Object Finder
@@ -2751,5 +2763,48 @@ block closedLetGo:
   doAssert stampSrc.doc == nil and cloneSlots[0].doc == nil and finderSeg.d == nil and finderShown.d == nil and
            histPanel.d == nil and selOverlay.d == nil and hoverLit.d == nil and rowLit.d == nil and
            vecGroupClick.d == nil
+
+block closingWithChangesNotSaved:
+  # (retroui/flows: asked; Cancel keeps it; Yes waits for Save As -- cancelled there, it stays
+  # open; No closes it)
+  let d = newDoc(40, 30, 0xFFFFFFFF'u32, name = "unsaved")
+  addDoc(d)
+  run(2)
+  var dw: DocWin
+  for o in docs:
+    if o.doc == d: dw = o
+  d.modified = true
+  dw.win.open = false
+  run(3)
+  doAssert flowRunning("close") and dw in docs, "asked first"
+  key(KeyEsc)
+  run(3)
+  doAssert not flowRunning("close") and dw in docs and dw.win.open, "Cancel: it stays"
+  dw.win.open = false
+  run(3)
+  key(KeyEnter)                          # (Yes: an untitled document goes to Save As)
+  run(3)
+  doAssert savePick and flowRunning("close"), "waiting for Save As"
+  savePick = false                       # (the picker cancelled)
+  run(3)
+  doAssert not flowRunning("close") and dw in docs, "not saved: still open"
+  dw.win.open = false
+  run(3)
+  key(KeyN, {AltPressed})                # (No)
+  run(4)
+  doAssert dw notin docs and not flowRunning("close"), "No: closed"
+
+block assetThumbsLetGo:
+  # the asset browser's pictures let go when it closes (each one ever shown was kept)
+  runCommand("Browse Assets...")
+  run(4)
+  doAssert asOpen
+  asThumbs["https://example.com/a.jpg"] = newBitmap(180, 120)   # (as a fetched one comes)
+  asThumbOf[99] = "https://example.com/b.jpg"
+  run(2)
+  doAssert asThumbs.len > 0, "kept while it is open"
+  asOpen = false
+  run(2)
+  doAssert asThumbs.len == 0 and asThumbOf.len == 0, "closed: its pictures let go"
 
 echo "photo app tests passed"

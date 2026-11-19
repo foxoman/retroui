@@ -178,8 +178,9 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   in its `CharStyle` (`added`, `deleted`, `memo`, `condition`), and
   `effectiveText` leaves out what is deleted or hidden as it prints.
   `retroui/aiconnect` sends nothing until the user has set a service, and
-  Retro Atelier shows the commands before running them; keys stay in the
-  app's own settings. Spot inks are named on `ShapePaint.spot`; a name
+  Retro Atelier shows the commands before running them; its key is kept
+  in `retroui/secrets` (`saveAiSettings`/`loadAiSettings`), never in a
+  settings file, and asked for only when it is wanted (`withKey`). Spot inks are named on `ShapePaint.spot`; a name
   `Doc.spotInks` does not hold prints in process inks.
 - Open and Save As on a phone: `retroui/systemfiles` behind `fileDialog`
   and `filePicker` (Android: `tools/android/RetroActivity.java`, then
@@ -228,7 +229,10 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   names kept for examples (.test, .example, example.com...) are never asked
   of DNS. The Public Suffix List and the confusables are vendored data
   (`THIRD-PARTY-NOTICES.md`): fetched again from publicsuffix.org and
-  Unicode's own files, packed with `tools/packlzma.py`.
+  Unicode's own files, packed with `tools/packlzma.py`. Google Fonts'
+  families (`src/retroui/googlefontlist.txt`, `googleFontCatalog`) are made
+  by `tools/gengooglefonts.py` from the google-font-metadata package's
+  api-response.json (npm pack, in a folder of its own); never by hand.
 - An encrypted database (`openDb(path, key = ...)`, `src/retroui/cryptvfs.c`):
   4096-byte pages with 40 kept free for each page's nonce and tag, made so
   when the file is new (`SQLITE_FCNTL_RESERVE_BYTES`); the VFS refuses to
@@ -260,6 +264,12 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   its last slash), never with `os./` or `parentDir`: those turn "/" into
   "\" when Windows is the target, and the release builds Windows programs
   on Linux.
+- Tashkeel is what a combining mark made (`ShapedGlyph.fromMark`), never
+  every mark glyph of the font: a font may build its letters from a
+  dotless shape and dot glyphs (Reem Kufi), marks in GDEF too, and those
+  dots are the letter's -- the tashkeel's color, raise and hiding leave
+  them alone. A new font's shaping is checked against HarfBuzz
+  (`otshape-cases.txt.z`, made with uharfbuzz) before its fix is trusted.
 - A loop of the kit that calls the app's own code (a panel's body, a
   window's, a callback) walks a copy of its list and skips what has left
   it: that code may open, close or move what the list holds, and Nim's
@@ -494,10 +504,30 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
    once the app has done it); in a headless test, `accessKeep = true` and
    `findNode(accessLast, "OK", {arButton})` with `nodeRect`. `RETRO_INSPECT=1`
    (or F12 in a debug build) says why each frame ran and which line asked
-   for it -- the place to look when an app is not at rest.
+   for it -- the place to look when an app is not at rest. For a picture of
+   an app in a given state (release pictures, a README), no port:
+   `RETRO_SCRIPT="click:Add;type:Milk" RETRO_SNAPSHOT=out.png ./app`
+   (`RETRO_SIZE` its size); `RETRO_PLAY` for a film of a feature.
 
 ## Rules
 
+- **Movement through `animated` or `retroui/motion`** (`sprung`,
+  `presence`, `glided`, `dragSnap`, `staggered`, `fixedSteps`): they ask for
+  frames only while something moves and are at their end at once when
+  less movement is asked (`reducedMotion`). Not a `wakeIn` of an app's own
+  every frame for a decoration -- an app at rest takes no time.
+  `test_motion` runs them on a clock of its own (`inputRelays.getTicks`).
+- **A question and what follows it is a flow** (`retroui/flows`): ask,
+  wait for a save or a worker, go on -- written one after another in
+  `flow(name): ...`, not as flags kept across frames. Its templates take
+  their own names (`ownedFlow`, not an overload of `flow`: the compiler
+  tries a body against a string parameter first and fails on `yield`), and
+  build their steps through procs (a template's parameter named like an
+  object's field replaces the field's name too).
+- **A graph's layout without a window is `retroui/forcelayout`**; the
+  control (`graphView`) is `retroui/forcegraph`, which imports the UI. A
+  module that draws nothing on screen (`retroui/board`) imports the
+  layout alone.
 - **Nim 2.4 refuses a loop variable kept by a nested proc**
   (`for (kind, title) in [...]: grid(..., proc () = use(kind))`: "'kind'
   is of type <lent string> which cannot be captured"). Give the loop a

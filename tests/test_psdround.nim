@@ -493,4 +493,26 @@ suite "files Photoshop and others wrote":
         while raw.len > 0 and raw[^1] == '\0': raw.setLen(raw.len - 1)
         check engineDataText(parseEngineData(raw)) == raw
 
+  test "what opening kept, what became pixels, what not, the fonts not here (`opened`)":
+    let c = docOfPsd(readPsd(readFile(dataDir / "ps-text-complex.psd")))
+    check c.opened.kept == @["1 type layer (its text)", "1 pixel layer"]
+    check "Myriad Pro" in c.opened.missingFonts                # (never on a test machine)
+    check "Arial MT" notin c.opened.missingFonts                # (named as people know it: Arial)
+    for f in c.opened.missingFonts: check f.len > 0
+    check openReportText(c.opened).contains("Myriad Pro")
+    let a = docOfPsd(readPsd(readFile(dataDir / "agpsd-arabic.psd")))
+    check "1 Smart Object" in a.opened.kept and a.opened.lost.len == 0 and a.opened.pixels.len == 0
+    # an adjustment not done here, a placed file not in the document: said
+    var p = PsdDoc(w: 4, h: 4, depth: 8, mode: pmRGB, dpi: 72)
+    p.layers.add PsdLayer(name: "Color Lookup 1", adjustment: "clrL", opacity: 255, fill: 255, blend: "norm",
+                          visible: true, section: psLayer)
+    p.layers.add PsdLayer(name: "Linked", placedId: "nowhere", opacity: 255, fill: 255, blend: "norm",
+                          visible: true, section: psLayer, w: 4, h: 4, px: newSeq[uint32](16))
+    let v = docOfPsd(p)
+    check v.opened.lost.len == 1 and v.opened.lost[0].startsWith("Color Lookup 1: an adjustment not done here")
+    check v.opened.pixels.len == 1 and v.opened.pixels[0].startsWith("Linked: a placed file")
+    check openReportText(v.opened).contains("Not kept -- Color Lookup 1")
+    # nothing to say: no text
+    check openReportText(OpenReport(kept: @["2 pixel layers"])) == ""
+
 echo "(written: ", outDir, ")"

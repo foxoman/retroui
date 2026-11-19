@@ -15,6 +15,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: jiro4989/setup-nim-action@v2
+        id: setupnim
+        continue-on-error: true   # (a download cut off: tried once more below)
+        with:
+          nim-version: "2.2.6"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: jiro4989/setup-nim-action@v2
+        if: steps.setupnim.outcome == 'failure'
         with:
           nim-version: "2.2.6"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -64,6 +71,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: jiro4989/setup-nim-action@v2
+        id: setupnim
+        continue-on-error: true   # (a download cut off: tried once more below)
+        with:
+          nim-version: "2.2.6"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: jiro4989/setup-nim-action@v2
+        if: steps.setupnim.outcome == 'failure'
         with:
           nim-version: "2.2.6"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -88,6 +102,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: jiro4989/setup-nim-action@v2
+        id: setupnim
+        continue-on-error: true   # (a download cut off: tried once more below)
+        with:
+          nim-version: "2.2.6"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: jiro4989/setup-nim-action@v2
+        if: steps.setupnim.outcome == 'failure'
         with:
           nim-version: "2.2.6"
           repo-token: ${{ secrets.GITHUB_TOKEN }}

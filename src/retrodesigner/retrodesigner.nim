@@ -573,19 +573,18 @@ proc bandPicks(r: Rect; within: Item): seq[Item] =
   if within == nil: return
   proc meets(a, b: Rect): bool = a.x < b.x + b.w and b.x < a.x + a.w and a.y < b.y + b.h and b.y < a.y + a.h
   proc holds(a, b: Rect): bool = b.x >= a.x and b.y >= a.y and b.x + b.w <= a.x + a.w and b.y + b.h <= a.y + a.h
+  var picked: seq[Item]
   for x in within.walk:
     if x == within or not x.drawn or x.rect.w <= 0 or x.rect.h <= 0: continue
     if x.kind in {ikArm, ikCode}: continue
     let isBox = x.containerOf or x.kind == ikBranch
-    if (if isBox: holds(r, x.rect) else: meets(r, x.rect)): result.add x
+    if (if isBox: holds(r, x.rect) else: meets(r, x.rect)): picked.add x
   # (what is inside a chosen one: that one stands for it)
-  var outer: seq[Item]
-  for x in result:
+  for x in picked:
     var inner = false
-    for y in result:
+    for y in picked:
       if y != x and x.inside(y): inner = true
-    if not inner: outer.add x
-  result = outer
+    if not inner: result.add x
 
 proc deleteSel() =
   if sel.len == 0: return

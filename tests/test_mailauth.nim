@@ -180,12 +180,17 @@ block names:
   check mixedScripts("pаypal") and not mixedScripts("paypal") and not mixedScripts("яндекс") and
         not mixedScripts("東京abc"), "letters of two alphabets in one name"
 
+proc stopAtExit(p: Process) =
+  # (the exit proc keeps its own reference: what the block holds is freed
+  # before the exit procs run)
+  addExitProc(proc () = p.terminate())
+
 block wire:
   echo "DNS over UDP and TCP (a server of the test's own)"
   let python = if findExe("python3").len > 0: "python3" else: "python"
   let p = startProcess(python, args = [currentSourcePath().parentDir / "dnsmock.py", data / "zone.txt"],
                        options = {poUsePath})
-  addExitProc(proc () = p.terminate())
+  stopAtExit(p)
   let port = p.outputStream.readLine.strip
   putEnv("RETRO_DNS", "127.0.0.1:" & port)
   let ed = dnsQuery("brisbane._domainkey.football.example.com", "TXT")

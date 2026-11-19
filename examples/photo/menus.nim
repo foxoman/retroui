@@ -1739,7 +1739,14 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.7.0: several layers picked at once, shown as each kind of document's program " &
+           whatsNew = ["5.8.0: new text in Dastkhat -- Arabic, Persian and Latin in nine weights; your own " &
+                       "font folders (Preferences > Type), on a phone too; every family of Google Fonts in " &
+                       "Get Google Fonts, the Arabic ones first; Arabic in fonts that build letters from " &
+                       "dots (Reem Kufi) drawn right, tashkeel styled apart; a Photoshop document says as it " &
+                       "opens what it kept, what became pixels and which fonts are missing; closing with " &
+                       "changes asks, saves (Save As too) and closes in one go; the AI service's key kept in " &
+                       "the system's keyring; big images' layers read back from the GPU while it works.",
+                       "5.7.0: several layers picked at once, shown as each kind of document's program " &
                        "shows them -- a photo: one box with handles round them all; a drawing: each object's " &
                        "outline in its layer's color with its anchor points; a layout: each frame's edge -- " &
                        "and a box dragged picks what it touches (from the pasteboard too), Shift+click adds " &

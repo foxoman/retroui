@@ -25,7 +25,11 @@ template check(cond: bool; what: string) =
 
 let python = if findExe("python3").len > 0: "python3" else: "python"
 let mock = startProcess(python, args = [currentSourcePath().parentDir / "protomock.py"], options = {poUsePath})
-addExitProc(proc () = mock.terminate())
+proc stopAtExit(p: Process) =
+  # (the exit proc keeps its own reference: the program's globals, `mock`
+  # too, are freed before the exit procs run)
+  addExitProc(proc () = p.terminate())
+stopAtExit(mock)
 let ports = mock.outputStream.readLine.splitWhitespace
 let popPort = parseInt(ports[0])
 let jmapUrl = "http://127.0.0.1:" & ports[1]

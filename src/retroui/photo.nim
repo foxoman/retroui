@@ -1085,9 +1085,18 @@ type
     hole, replace, keepAlpha: bool
     sel: ptr UncheckedArray[uint8]
 
+  OpenReport* = object
+    ## What opening a file kept as it was and what it could not (a Photoshop document's:
+    ## `loadPsd`) -- for the app to say once; empty when there is nothing to say.
+    kept*: seq[string]             ## kept to change: "3 type layers (their text)", "2 shapes"
+    pixels*: seq[string]           ## kept as their pixels only: "Title: its text could not be read"
+    lost*: seq[string]             ## not kept: "Color Lookup 1: an adjustment not done here"
+    missingFonts*: seq[string]     ## fonts its type uses that are not on this device
+
   Doc* = ref object
     ## An image: its layers, selection, channels, paths and history.
     tally: Tally                   # (counted: `docsAlive`)
+    opened*: OpenReport            ## what opening its file kept and what not (`loadPsd`)
     w*, h*: int                    ## its size in pixels
     dpi*: float                    ## pixels per inch
     exposure*: float               ## a 32-bit document: the exposure it is shown at (stops; see photohdr)

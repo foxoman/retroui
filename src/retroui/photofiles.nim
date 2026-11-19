@@ -876,6 +876,9 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
       for xx in 0 ..< P.mask.w:
         let x = P.mask.x + xx
         if x >= 0 and x < p.w: result[y * p.w + x] = grayPx(int(P.mask.px[yy * P.mask.w + xx]))
+  # (what is kept and what not: `d.opened`)
+  var nType, nShapes, nSmart, nAdjust, nStyled, nGroups: int
+  var fontsSeen: seq[string]
   proc layerOf(P: PsdLayer): Layer =
     let L = d.newLayer(if P.name.len > 0: P.name else: "Layer " & $(d.layers.len + 1))
     L.opacity = clamp((P.opacity * 100 + 127) div 255, 0, 100)
@@ -903,6 +906,7 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
       L.adjust = adj
       L.gray = true
       for v in L.px.mitems: v = 0xFFFFFFFF'u32
+      inc nAdjust
     elif P.w * P.h > 0 and P.px.len == P.w * P.h:
       let lp = cast[ptr UncheckedArray[uint32]](addr L.px[0])
       let pp = cast[ptr UncheckedArray[uint32]](unsafeAddr P.px[0])
@@ -926,8 +930,11 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
         d.setHi(L, hi)
     elif P.adjustment.len > 0:
       # (an adjustment we have not: kept as a hidden, empty layer)
+      d.opened.lost.add L.name & ": an adjustment not done here (" & P.adjustment.strip &
+                        "), kept as a hidden, empty layer"
       L.name = L.name & " (" & P.adjustment.strip & ", not kept)"
       L.visible = false
+    if L.isShape: inc nShapes
     if P.adjustment.len == 0 and not L.isShape:
       # a type layer: its text still to edit (its pixels Photoshop's until
       # it is); a placed layer: a Smart Object
@@ -935,10 +942,28 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
         let (ok, t) = textOfPsd(P)
         if ok:
           L.text = t
+          inc nType
+          # (its fonts: one not here draws the text in another when it is changed)
+          for sp in t.spans:
+            let f = sp.style.family
+            if f.len > 0 and f notin fontsSeen:
+              fontsSeen.add f
+              if fontProblem(f).len > 0:
+                # (named as a person knows it: "Arial", not the "Arial MT" its PostScript name makes)
+                var shown = f
+                for suffix in [" PSMT", " MT"]:
+                  if shown.endsWith(suffix) and shown.len > suffix.len: shown.setLen(shown.len - suffix.len)
+                if shown notin d.opened.missingFonts: d.opened.missingFonts.add shown
           if P.w * P.h == 0 or P.px.len != P.w * P.h: d.drawText(L)    # (written without its pixels)
+        else:
+          d.opened.pixels.add L.name & ": its text could not be read -- the type as pixels"
       if P.placedId.len > 0:
         let s = smartOfPsd(P, p)
-        if s != nil: L.smart = s
+        if s != nil:
+          L.smart = s
+          inc nSmart
+        else:
+          d.opened.pixels.add L.name & ": a placed file not in the document -- its pixels"
     # its mask
     if P.hasMask and P.mask.px.len == P.mask.w * P.mask.h:
       var m = newSeq[uint32](n)
@@ -977,7 +1002,9 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
     L.clipped = P.clipping
     L.label = labelOfPsd(P.color)
     # its effects
-    if P.effects != nil: L.fx = fxOf(P.effects, p.globalAngle, p.globalAltitude, p.patterns)
+    if P.effects != nil:
+      L.fx = fxOf(P.effects, p.globalAngle, p.globalAltitude, p.patterns)
+      inc nStyled
     # Blend If: the first channel that leaves something out
     for ch in 0 .. 3:
       if 2 * ch + 1 >= P.ranges.len: break
@@ -1011,6 +1038,8 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
       if G.effects != nil:
         # (a group with a style -- which ours cannot have: its layers mixed
         # into one layer that has it)
+        d.opened.pixels.add (if G.name.len > 0: G.name else: "Group") &
+                            ": a group with a style -- its layers mixed into one layer that has it"
         let kids = emit(nd.kids, 0)
         let L = d.newLayer(if G.name.len > 0: G.name else: "Group")
         d.compositeInto(L.px, d.bounds, kids)
@@ -1027,6 +1056,7 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
         result.add L
         continue
       result.add emit(nd.kids, depth + 1)
+      inc nGroups
       let L = d.newGroupLayer(if G.name.len > 0: G.name else: "Group")
       L.depth = depth
       # (a group's Fill Opacity: how much of what it holds shows -- as an
@@ -1058,6 +1088,31 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
   d.cur = d.layers.high
   d.markAll()
   d.modified = false
+  # what was kept to change, in a few words
+  proc some(n: int; one, many: string): string = $n & " " & (if n == 1: one else: many)
+  var pixelLayers = 0
+  for L in d.layers:
+    if not L.group and not L.isText and not L.isShape and not L.isSmart and L.adjust.kind.len == 0: inc pixelLayers
+  if nType > 0: d.opened.kept.add some(nType, "type layer (its text)", "type layers (their text)")
+  if nShapes > 0: d.opened.kept.add some(nShapes, "shape", "shapes")
+  if nSmart > 0: d.opened.kept.add some(nSmart, "Smart Object", "Smart Objects")
+  if nAdjust > 0: d.opened.kept.add some(nAdjust, "adjustment layer", "adjustment layers")
+  if nGroups > 0: d.opened.kept.add some(nGroups, "group", "groups")
+  if nStyled > 0: d.opened.kept.add some(nStyled, "layer style", "layer styles")
+  if pixelLayers > 0: d.opened.kept.add some(pixelLayers, "pixel layer", "pixel layers")
+  if p.mode == pmDuotone: d.opened.lost.add "Duotone: its inks -- opened as Grayscale"
+  elif p.mode == pmBitmap: d.opened.kept.add "a Bitmap image, opened as Grayscale"
+
+proc openReportText*(r: OpenReport): string =
+  ## The report in a few lines ("" when there is nothing but what was kept).
+  if r.pixels.len == 0 and r.lost.len == 0 and r.missingFonts.len == 0: return ""
+  if r.kept.len > 0: result.add "Kept to change: " & r.kept.join(", ") & ".\n"
+  if r.missingFonts.len > 0:
+    result.add "Fonts not on this device (the type shows as it was drawn; changed, another " &
+               "font draws it): " & r.missingFonts.join(", ") & ".\n"
+  for x in r.pixels: result.add "As pixels -- " & x & ".\n"
+  for x in r.lost: result.add "Not kept -- " & x & ".\n"
+  result.stripLineEnd()
 
 proc loadPsd*(path: string): Doc =
   ## Opens a Photoshop document. Raises `IOError` when it cannot be read.

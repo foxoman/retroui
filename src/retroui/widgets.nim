@@ -518,6 +518,9 @@ proc label*(s: string; bold = false; color = Color(); enabled = true; literal = 
   ## a 3.1 static text does. In another language (`setUiLanguage`) the
   ## whole text is looked up before it wraps. `literal`: shown as it is --
   ## a file's name: not translated, its '&' kept.
+  ## Ending in ':', it names the field after it: in a row that wraps, the
+  ## two go to the next line together (`keepWithNext`).
+  if not literal and s.len > 1 and s[^1] == ':': keepWithNext()
   if '\n' notin s and (literal or uiLanguageCode() in ["", "en"]):
     # (one line, nothing to look up: when it fits, drawn as below, without
     # the text split into lines and copied every frame)

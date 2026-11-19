@@ -283,7 +283,8 @@ WebAssembly, the tools -- and ends with the number that failed
 
 **Testing it all**, in a clone: `nimble test` (headless, as many at once
 as there are cores: `sh tests/runall.sh`), `sh tools/soak.sh` (each app an
-hour under random input, its memory watched), `nimble fuzz`,
+hour under random input, its memory watched; one that fails prints the
+end of its own log), `nimble fuzz`,
 `sh tests/run32.sh` (as 32-bit programs: `apt install gcc-multilib` and
 the i386 X11 libraries), `sh tests/web/run.sh` (Playwright's Chromium),
 `sh tests/wayland/run.sh` (sway), `sh tests/kiosk/run.sh`,
@@ -966,6 +967,10 @@ environment of its own: `adb shell am start -n PACKAGE/org.retro.RetroActivity
 | `RETRO_DNS=HOST:PORT` | `retroui/dnsquery` asks that DNS server only (the tests' own) |
 | `RETRO_BLENDER=PATH` | the Blender that turns `.blend` models into glTF |
 | `RETRO_GPU_COMPOSITE=0` | Retro Atelier's layers put together on the CPU |
+| `RETRO_SCRIPT=STEPS` | the steps run in the app as it starts: `click:NAME;type:TEXT;key:ctrl+s;wait:2` (`retroui/drive`) |
+| `RETRO_SNAPSHOT=FILE.png` | the window kept in memory, its picture written once the steps are done, the app ended (1: a step failed) |
+| `RETRO_PLAY=STEPS` | the steps played in the window at a person's pace, a dot where each click lands (films and GIFs of a feature) |
+| `RETRO_GPU_ASYNC=0` | the GPU's composite read back waiting for each tile (not through pixel buffers and fences) |
 | `RETRO_GPU_DEBUG=1`, `RETRO_3D_DEBUG=1`, `RETRO_WAYLAND_DEBUG=1` | what the GPU, the 3D view, the Wayland driver find, on stderr |
 
 **The tools** (`retrokit`, `retroapk`, `retroweb`)

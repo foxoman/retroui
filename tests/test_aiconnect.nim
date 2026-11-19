@@ -1,8 +1,9 @@
 ## Tests of the AI connector (retroui/aiconnect): the request each kind of service takes, the
-## commands read from its answer -- only the app's own --, a service served here.
+## commands read from its answer -- only the app's own --, a service served here, the key kept
+## in the keyring and not in the settings file.
 
-import std/[json, strutils, net]
-import retroui/aiconnect
+import std/[json, strutils, net, os]
+import retroui/[aiconnect, platform, secrets]
 
 let cmds = @["Black & White...", "Gaussian Blur...", "Stroke...", "Flatten Image", "Invert"]
 
@@ -20,7 +21,54 @@ block requests:
   doAssert ("x-api-key", "s") in r2.headers and ("anthropic-version", "2023-06-01") in r2.headers
   doAssert parseJson(r2.body)["system"].getStr.startsWith("You drive")
   doAssert not AiSettings().connected and o.connected
-  doAssert aiSettingsFrom(o.toJson) == o
+  var noKey = o
+  noKey.key = ""
+  doAssert aiSettingsFrom(o.toJson) == noKey and not o.toJson.hasKey("key")
+  doAssert aiSettingsFrom(%*{"url": "u", "model": "m", "key": "old"}).key == "old"   # (an older file's)
+
+block keptInTheKeyring:
+  # (in folders of the test's own: the settings and the secrets)
+  let root = getTempDir() / "retro-aiconnect-test"
+  removeDir(root)
+  putEnv("XDG_DATA_HOME", root / "data")
+  putEnv("RETRO_SECRETS_DIR", root / "secrets")
+  const app = "Retro AI Test"
+  let file = dataDir(app) / "settings.ini"
+  doAssert not loadAiSettings(app).connected and loadAiSettings(app).key == ""
+  # an older version's settings, the key in them in plain text:
+  var st = loadSettings(app)
+  st["ai.kind"] = $akAnthropic
+  st["ai.url"] = "https://api.anthropic.com/v1/messages"
+  st["ai.model"] = "claude-x"
+  st["ai.key"] = "sk-old-key"
+  st["theme"] = "kept"
+  doAssert saveSettings(app, st)
+  let noAsk = loadAiSettings(app, withKey = false)
+  doAssert noAsk.connected and noAsk.kind == akAnthropic and noAsk.key == ""
+  doAssert "sk-old-key" in readFile(file)                 # (not moved before the key is wanted)
+  let moved = loadAiSettings(app)
+  doAssert moved.key == "sk-old-key" and moved.model == "claude-x"
+  doAssert "sk-old-key" notin readFile(file) and not loadSettings(app).hasKey("ai.key")
+  doAssert loadSecret(app, AiKeyName) == "sk-old-key"
+  doAssert loadSettings(app)["theme"] == "kept"           # (the app's other settings stay)
+  doAssert loadAiSettings(app) == moved
+  # kept again, a new key:
+  var s = moved
+  s.key = "sk-new-key"
+  s.timeoutSec = 30
+  doAssert saveAiSettings(app, s)
+  doAssert "sk-new-key" notin readFile(file) and loadSecret(app, AiKeyName) == "sk-new-key"
+  doAssert loadAiSettings(app) == s
+  # disconnected: nothing kept
+  doAssert saveAiSettings(app, AiSettings())
+  doAssert loadSecret(app, AiKeyName) == "" and not loadAiSettings(app).connected
+  # an empty key an older version wrote is taken out of the file, the keyring not asked
+  st = loadSettings(app)
+  st["ai.key"] = ""
+  doAssert saveSettings(app, st)
+  discard loadAiSettings(app, withKey = false)
+  doAssert not loadSettings(app).hasKey("ai.key")
+  removeDir(root)
 
 block answers:
   let t = replyText(akOpenAi, $(%*{"choices": [{"message": {"content": "{\"commands\": [\"black & white...\", " &

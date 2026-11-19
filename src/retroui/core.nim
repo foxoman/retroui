@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy, hangwatch
 export busy
 
-const RetroVersion* = "0.62.0"
+const RetroVersion* = "0.63.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -124,6 +124,10 @@ type
     zeroNow: int                   ## rows: how wide its own-width (0) columns
                                    ## are on the first line (they come off the
                                    ## room the shares (-n) take, next frame)
+    keepNext: bool                 ## rows: the next cell keeps with the one after
+                                   ## it (`keepWithNext`: a label and its field)
+    keepTo: int                    ## ... which cell that is (+1; 0 none): its
+                                   ## width is kept for the next frame
     title: string
 
 const
@@ -2292,6 +2296,21 @@ proc endClipped*() =
   ## Ends a `beginClipped`.
   if clippedDepth > 0: dec clippedDepth
 
+var keepWidths, keepWidthsNow: Table[Hash, int]
+  ## (rows: how wide the cell each `keepWithNext` keeps with was, last frame and now)
+
+proc keepKey(id: Id; idx: int): Hash = !$(hash(id) !& hash(idx))
+
+proc keepWithNext*() =
+  ## In a row that wraps (`row:` without widths): the next widget goes to
+  ## the next line with the one after it when the two do not fit on this
+  ## one together -- a label stays with its field. A `label` that ends in
+  ## ':' does this of itself. (The second widget's width is last frame's:
+  ## the first frame, one frame more.)
+  if ui.frames.len == 0: return
+  let f = top()
+  if f.kind == lkRow and f.nw == 0: f.keepNext = true
+
 proc beginCell*(w: int; fill = false): Rect =
   ## Reserve the next layout cell; its height is given later to `endCell`.
   let f = top()
@@ -2308,9 +2327,21 @@ proc beginCell*(w: int; fill = false): Rect =
       elif f.idx < f.nw: f.zeroNow += ww
     elif fill:
       ww = max(20, f.x + f.w - f.cx)
+    if f.keepTo > 0 and f.idx + 1 == f.keepTo:
+      # (the cell a label keeps with: how wide it is, for the label next frame)
+      let k = keepKey(f.id, f.idx)
+      keepWidthsNow[k] = ww
+      if keepWidths.getOrDefault(k, -1) != ww: ui.redraw = true
+      f.keepTo = 0
+    var after = 0                      # (a label: the room its field needs too)
+    if f.keepNext:
+      f.keepNext = false
+      f.keepTo = f.idx + 2
+      let next = keepWidths.getOrDefault(keepKey(f.id, f.idx + 1), 0)
+      if next > 0 and ww + Gap + next <= f.w: after = Gap + next
     if f.springX >= 0:
       f.tailNow += ww + Gap            # after a spring: measured, not wrapped
-    elif f.nw == 0 and f.cx > f.x and f.cx + ww > f.x + f.w: newline(f)
+    elif f.nw == 0 and f.cx > f.x and f.cx + ww + after > f.x + f.w: newline(f)
     result = rect(f.cx, f.cy, ww, 0)
     # a row of fixed widths wider than the window: the page scrolls sideways
     if layer() == 0 and not f.fixed and clippedDepth == 0 and
@@ -2651,6 +2682,11 @@ proc popFrame*(): int =
 
 proc frameBottom*(): int = top().bottom
   ## The lowest point the current column or row has reached.
+
+proc layoutOrigin*(): (int, int) =
+  ## The top left corner of the row or column being laid out (where it is
+  ## now: scrolled with its page).
+  if ui.frames.len == 0: (0, 0) else: (top().x, top().y)
 
 proc layoutY*(): int = top().cy
   ## Where the current column's next cell starts (in a row: its line's top).
@@ -4719,6 +4755,8 @@ proc frameFinish(main: bool) =
       if ui.frames[i].kind != lkRow: springEnd(ui.frames[i])
     swap(springTails, springTailsNow)
     springTailsNow.clear()
+    swap(keepWidths, keepWidthsNow)
+    keepWidthsNow.clear()
   # What a key or a click changed late in the frame (after the widgets that
   # show it were drawn) appears on one more frame. (When nothing asked for
   # it -- a letter typed into a box, which shows it at once -- this frame is

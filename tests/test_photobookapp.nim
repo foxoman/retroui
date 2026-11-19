@@ -279,7 +279,8 @@ block acrossTheSpine:
     doAssert px(sx, sy) == 0x20A040'u32, toHex(px(sx, sy).int, 6)
   active.win.open = false
   run(2)
-  closeAsk.on = false
+  doAssert flowRunning("close"), "its changes not saved: asked first"
+  for dw in docs: cancelFlows(docKey(dw))
   var mine: seq[DocWin]
   for dw in docs:
     if isBookWin(dw): mine.add dw

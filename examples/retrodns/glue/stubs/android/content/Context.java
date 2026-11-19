@@ -2,6 +2,7 @@ package android.content;
 public abstract class Context {
   public static final int MODE_PRIVATE = Integer.parseInt("0");
   public static final String NOTIFICATION_SERVICE = new String("notification");
+  public static final String CONNECTIVITY_SERVICE = new String("connectivity");
   public SharedPreferences getSharedPreferences(String name, int mode) { return null; }
   public String getPackageName() { return null; }
   public android.content.pm.PackageManager getPackageManager() { return null; }

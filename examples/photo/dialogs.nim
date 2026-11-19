@@ -4,7 +4,6 @@
 # layer, brush and file dialogs.
 
 var
-  closeAsk: tuple[on: bool; dw: DocWin]
   quitChecked = false
 
 # ---- New ------------------------------------------------------------------------------------------
@@ -630,6 +629,20 @@ proc bigPictureDialogs() =
       openBig(bigPart.path, part = true)
     if not bigPart.on: bigPart.preview = nil
 
+var
+  openedBox: tuple[open: bool; name, text: string]
+  openedNote = ""                ## (what the status bar says once a file has opened)
+
+proc tellOpened(d: Doc; path: string) =
+  ## (what opening it kept, said once: a box when something became pixels, was not kept or its
+  ## fonts are not here -- as Photoshop warns of missing fonts --, else a line in the status bar)
+  let text = openReportText(d.opened)
+  if text.len > 0:
+    openedBox = (true, path.extractFilename, text)
+  elif d.opened.kept.len > 0:
+    openedNote = "Opened " & path.extractFilename & ": " & d.opened.kept.join(", ")
+  d.opened = OpenReport()
+
 proc openFile(path: string) =
   ## Opens a picture in a window (a raw photo in Camera Raw first); it is
   ## first in File › Open Recent. A picture too big to edit whole asks
@@ -668,17 +681,28 @@ proc openFile(path: string) =
         addDoc(d)
         startCameraRaw(raw)
       else:
-        addDoc(openPicture(path))
+        let d = openPicture(path)
+        addDoc(d)
+        tellOpened(d, path)
     finally:
       endBusy()
       busyPicture = nil
-    status = ""
+    status = openedNote
+    openedNote = ""
     rememberFile(path)
   except CatchableError:
     status = "Could not open " & path.extractFilename & ": " & getCurrentExceptionMsg()
 
 proc fileDialogs() =
   bigPictureDialogs()
+  if openedBox.open:
+    # (a Photoshop document opened: what became pixels, what was not kept, the fonts not here)
+    dialog(openedBox.open, "Opened " & openedBox.name, 480):
+      for line in openedBox.text.splitLines:
+        paragraph(line)
+      row:
+        spring()
+        if button("OK", isDefault = true, w = dp(80)): openedBox.open = false
   if filePicker(openPick, openPath, fmOpen, openPatterns, "Open"):
     openFile(openPath)
   if filePicker(placePick, openPath, fmOpen, openPatterns, "Place"):
@@ -4208,21 +4232,47 @@ proc histogramDialog() =
 
 # ---- closing --------------------------------------------------------------------------------------------------
 
+proc docKey(dw: DocWin): string = "doc " & $cast[int](dw)
+  ## (whose a flow is: `cancelFlows` when the document closes)
+
+proc saveUnderWay(): bool = savePick or jpegOpen or flatWarn
+  ## (Save As's picker, the JPEG options, the flatten warning: what a save may still ask)
+
+template saveOrDrop(dw: DocWin) =
+  ## (in a flow: asked whether to save the document's changes; saved -- a Save As waited for,
+  ## to its end --, or let go; Cancel, or a save that did not happen, ends the flow)
+  case ask("Save changes to the document \"" & dw.doc.name & "\" before closing?",
+           ["&Yes", "&No", "Cancel"], AppName)
+  of 1:
+    dw.save()
+    waitUntil(not saveUnderWay())
+    if dw.doc.modified: return             # (not saved: the picker cancelled, or it failed)
+  of 2: discard
+  else: return
+
+proc closeFlow(dw: DocWin) =
+  ## Closing a document whose changes are not saved: asked, saved (Save As too: the document
+  ## closes once it is saved), closed -- one step after another (retroui/flows).
+  if flowRunning("close") or flowRunning("quit"): return
+  discard ownedFlow(docKey(dw), "close"):
+    saveOrDrop(dw)
+    closeDoc(dw)
+
+proc quitFlow() =
+  ## Quitting with changes not saved: each document asked in turn, then the program ends;
+  ## Cancel stops it.
+  if flowRunning("quit"): return
+  discard flow("quit"):
+    let open = docs
+    for dw in open:
+      if dw notin docs or not dw.doc.modified: continue
+      dw.win.open = true
+      dw.showDoc()
+      saveOrDrop(dw)
+    discard waitForSave()                   # (a save in the background: finished first)
+    quitApp()
+
 proc closingDialogs() =
-  if closeAsk.on:
-    var open = true
-    case msgBox(open, AppName, "Save changes to the document \"" & closeAsk.dw.doc.name & "\" before closing?",
-                ["&Yes", "&No", "Cancel"], miQuestion)
-    of 1:
-      closeAsk.dw.save()
-      if not closeAsk.dw.doc.modified: closeDoc(closeAsk.dw)
-      closeAsk.on = false
-    of 2:
-      closeDoc(closeAsk.dw)
-      closeAsk.on = false
-    of 3:
-      closeAsk.on = false
-    else: discard
   if quitConfirm:
     # (documents open: the program does not just go)
     var open = true
@@ -4246,19 +4296,9 @@ proc closingDialogs() =
     of 2: quitConfirm = false
     else:
       if not open: quitConfirm = false
-  if quitAsked and not closeAsk.on:
-    var unsaved: DocWin = nil
-    for dw in docs:
-      if dw.doc.modified:
-        unsaved = dw
-        break
-    if unsaved == nil:
-      discard waitForSave()                 # (a save in the background: finished first)
-      quitApp()
-    else:
-      unsaved.win.open = false
-      closeAsk = (true, unsaved)
-      unsaved.win.open = true
+  if quitAsked:
+    quitAsked = false
+    quitFlow()
 
 # ---- Quick Mask Options ---------------------------------------------------------------------------------
 

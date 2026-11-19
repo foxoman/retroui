@@ -580,6 +580,35 @@ block timing:
   doAssert maxDiff(cpu, gpu).worst <= 1
   echo "1600 x 1200, 7 layers: GPU ", tg, " ms, CPU ", tc, " ms (", gpuDescription(), ")"
 
+block readBackWhileTheGpuGoesOn:
+  # (each tile's result into a pixel buffer with a fence, taken while the GPU makes the next: the
+  # same pixels as read back waiting; how long each took, and how long the CPU waited)
+  let d = newDoc(4096, 3072, 0xFFFFFFFF'u32)
+  d.fillNoise(d.layers[0], 201, [255])
+  for k in 0 ..< 3:
+    discard d.pixLayer("r" & $k, [bmMultiply, bmScreen, bmLuminosity][k], 80, 202 + k)
+  d.markAll()
+  d.comp = newSeq[uint32](d.w * d.h)
+  discard gpuComposite(d, d.bounds)               # (sent, programs made)
+  proc timed(async: bool): (int64, float, seq[uint32]) =
+    putEnv("RETRO_GPU_ASYNC", if async: "1" else: "0")
+    d.comp = newSeq[uint32](d.w * d.h)
+    let t0 = getMonoTime()
+    doAssert gpuComposite(d, d.bounds)
+    result = ((getMonoTime() - t0).inMilliseconds, gpuCompositeStats.lastWaitMs, d.comp)
+  let reads0 = gpuCompositeStats.asyncReads
+  let (ta, wa, ca) = timed(true)
+  let usedAsync = gpuCompositeStats.asyncReads - reads0
+  let (tw, ww, cw) = timed(false)
+  delEnv("RETRO_GPU_ASYNC")
+  doAssert gpuCompositeStats.asyncReads - reads0 == usedAsync, "RETRO_GPU_ASYNC=0: waiting"
+  doAssert ca == cw, "the same pixels either way"
+  doAssert maxDiff(ca, d.cpuComposite()).worst <= 1
+  if usedAsync > 0:
+    doAssert usedAsync == 4, "4096 x 3072: four tiles, each read while the next is made: " & $usedAsync
+  echo "4096 x 3072, 4 layers, 4 tiles: read back while the GPU goes on ", ta, " ms (", wa.round(1),
+       " ms waited; ", usedAsync, " tiles so), waiting ", tw, " ms"
+
 echo "worst difference by mode:"
 var line = ""
 for m, w in modeDiff:

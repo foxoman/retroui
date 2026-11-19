@@ -19,12 +19,12 @@
 
 import std/[strutils, sequtils, tables, os, algorithm, times]
 import retroui
-import retroui/[parallel, admin]
+import retroui/[parallel, admin, forcegraph, domains]
 from retroui/system import homeWidget, notificationActions
 import retrodns/[catalog, androidglue, tester, vpn, desktop]
 
 const
-  retrodnsVersion {.strdefine.} = "1.3"   # (build.sh passes its VERSION)
+  retrodnsVersion {.strdefine.} = "1.4"   # (build.sh passes its VERSION)
   AppTitle = "Retro DNS"
   AppVersion = retrodnsVersion
   AppId = "RetroDNS"
@@ -637,6 +637,49 @@ proc lookupGraph() =
       label("Lookups' time:", color = ui.theme.gray)
       sparkline(lookupMs, w = dp(200), h = FontH + dp(10), color = cTeal)
 
+var
+  reach = newForceGraph(linkLength = 45)
+  reachAt = 0
+  reachSel = -1
+
+proc appWord(pkg: string): string =
+  ## "com.google.android.youtube" -> "youtube"; "" -> "This phone" (Android 9 and older).
+  if pkg.len == 0: return "This phone"
+  let parts = pkg.split('.')
+  result = parts[^1]
+  if result in ["android", "app", "mobile", "client"] and parts.len > 1: result = parts[^2]
+
+proc reachGraph() =
+  ## What this phone reached through the VPN: each app joined to the sites it looked up (their
+  ## registrable domains: maps.google.com and mail.google.com are google.com), the last 2
+  ## minutes, as a graph that lays itself out.
+  if ui.now - reachAt >= 2000 or reachAt == 0:
+    reachAt = ui.now
+    let recent = vpnRecent()
+    var fresh: seq[tuple[app, name: string]]
+    for r in recent:
+      if r.agoMs > 120_000: continue
+      let site = registrableDomain(r.name)
+      fresh.add (r.app, if site.len > 0: site else: r.name)
+    let newest = if reach.len > 160 and fresh.len > 80: fresh.len - 80 else: 0
+    if reach.len > 160:
+      reach = newForceGraph(linkLength = 45)       # (too many: the newest only)
+      reachSel = -1
+    for (app, site) in fresh[newest .. ^1]:
+      let a = reach.addNode("app:" & app, appWord(app), group = 0)
+      let d = reach.addNode("site:" & site, site, group = 1)
+      reach.link(a, d)
+  if reach.len == 0: return
+  label("What this phone reached (the last 2 minutes):", color = ui.theme.gray)
+  discard graphView(reach, dp(220), reachSel)
+  if reachSel >= 0:
+    let n = reach.nodes[reachSel]
+    var with: seq[string]
+    for l in reach.links:
+      if l.a == reachSel: with.add reach.nodes[l.b].label
+      elif l.b == reachSel: with.add reach.nodes[l.a].label
+    label(n.label & ": " & with.join(", "), color = ui.theme.gray)
+
 proc vpnPart() =
   if not vpnNow.present:
     paragraph("This build has no VPN in it: build it with sh build.sh, whose " &
@@ -649,6 +692,7 @@ proc vpnPart() =
   if on:
     label(lookupLine())
     lookupGraph()
+    reachGraph()
   if on and vpnNow.memKb > 0:
     label("The VPN's own process: " & $((vpnNow.memKb + 512) div 1024) & " MB of memory")
   if vpnNow.state == vsFailed and vpnNow.error.len > 0: label(vpnNow.error, color = cMaroon)

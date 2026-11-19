@@ -815,8 +815,11 @@ proc embedded(d: PdfDoc; f: Face): int =
   d.embFonts.high
 
 proc canEmbed*(f: Face): bool =
-  ## The font can go into a PDF whole (a TrueType font with outlines).
-  f != nil and fontData(f).len > 12 and fontData(f)[0 .. 3] in ["\x00\x01\x00\x00", "true"]
+  ## The font can go into a PDF whole (a TrueType font with outlines) -- not a variable font
+  ## at another weight than its default, whose file has its default outlines: that is drawn
+  ## as its own outlines (Type 3).
+  f != nil and not f.isInstance and fontData(f).len > 12 and
+    fontData(f)[0 .. 3] in ["\x00\x01\x00\x00", "true"]
 
 proc textRender*(p: PdfPage; mode: int) =
   ## How the next text is painted: 0 filled, 1 stroked, 2 both, 3 not at all.

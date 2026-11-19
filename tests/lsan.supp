@@ -24,3 +24,9 @@ leak:newTimezone
 # installed)
 leak:libavutil.so
 leak:libgstvideo-1.0.so
+
+# Mesa keeps what it read of the system's drivers once a display was opened
+# (the GPU tests' offscreen EGL: eglInitialize, never all given back)
+leak:libEGL_mesa.so
+leak:libgallium
+leak:libGLX_mesa.so

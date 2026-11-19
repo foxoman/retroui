@@ -1151,10 +1151,11 @@ proc lineText(gs: seq[tuple[x, y, w, size: float; s: string; actual: bool]]): st
     if strongDir(gs[k].s) == 1 and strongDir(gs[k - 1].s) == 1:
       if gs[k].x < gs[k - 1].x: inc left else: inc right
   if left > right:
+    var t = ""
     for k in 0 ..< gs.len:
-      if k > 0 and spaced(k - 1, k) and not result.endsWith(" "): result.add ' '
-      result.add piece(k)
-    result = result.strip; return
+      if k > 0 and spaced(k - 1, k) and not t.endsWith(" "): t.add ' '
+      t.add piece(k)
+    result = t.strip; return
   var given = true
   for g in gs:
     if not g.actual and g.s.strip.len > 0: given = false

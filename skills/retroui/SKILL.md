@@ -209,8 +209,9 @@ line.
 
 ## 5. Layout
 
-`row:` / `row([w1, w2, -1]):` (left to right), plain statements stack top
-to bottom, `group "Title":`, `card`, `form(labelWidth): field("&Name:"): edit x`,
+`row:` / `row([w1, w2, -1]):` (left to right; a plain `row:` wraps when
+full, and a label ending in ':' wraps with its field -- `keepWithNext()`
+for another pair), plain statements stack top to bottom, `group "Title":`, `card`, `form(labelWidth): field("&Name:"): edit x`,
 `spring()` (pushes the rest to the far side: a row's right end, a column's bottom), `space(n)`, `adaptive(minW): ...`
 (columns that fold into one on a phone), `scrollPanel`/`panel(h)`/`pane`
 (a list or a carousel inside one passes a swipe on to it at its ends, as
@@ -238,7 +239,7 @@ Files: `fileDialog`, `fileList`, `folderTree`, `filePicker`, `filePreview`, `pla
 Charts and more: `chart` (21 kinds, from your numbers or a CSV table), `barChart`, `lineChart`, `pieChart`, `liveGraph` (a task manager's graph that moves: a frame costs a copy), the world map (`retroui/mapview`), street maps (`tileMap`, `retroui/tilemap`; places and routes `retroui/geo`), 3D (`retroui/view3d`; Blender's models `retroui/gltf`),
 HTML and Markdown (`htmlView`: its CSS, flexible boxes and grids too), web pages (`webView`), canvas (`canvas`, `retroui/canvas2d`), reports and PDF (`retroui/report`),
 sound and video (`retroui/media`; the system's media controls `retroui/mediasession`; camera and microphone `retroui/capture`), spreadsheets (`retroui/xlsx`), more windows (`window`),
-an image editor's engine (`retroui/photo`: layers, masks, styles, type, shapes; books of pages `retroui/photobook`; a picture as vector shapes `retroui/imagetrace`; type as shapes and blends `retroui/photovector`; presets and templates for new drawings and books `retroui/layouttemplates`; charts and maps as SVG `retroui/infographics`; shapes from a few numbers `retroui/liveshapes`; IDML `retroui/idml`; Check Document `retroui/preflight`; tables, a font for each script, footnotes and Auto-Size in `retroui/textengine`; threaded text frames `threadText`/`threadPages`; a table of contents and an index `retroui/booklists`; hyphenation `retroui/hyphenate`; Find/Change with GREP `retroui/textsearch`; Data Merge `retroui/datamerge`; a perspective grid `retroui/perspectivegrid`; brushes along a path `retroui/pathbrush`; more blurs `retroui/photoblurs`; the drawing program's path tools `retroui/pathtools` and live effects `retroui/liveeffects`; each paragraph its own format, the Paragraph Composer, keeps, spans, nested and GREP styles in `retroui/textengine` -- change paragraphs with `setParaFmt`/`changeParas`; Object Styles, Graphic Styles, Find/Change's Object search (`findObjects`, `changeObjects`), text variables (the Hijri date: `retroui/hijri`), hyperlinks and bookmarks in `retroui/photo`; hyphenation in seven languages by each word's `CharStyle.lang`; hanging punctuation and Optical Margin Alignment (`ParaStyle.hanging`, `TextData.opticalMargin`); nested line styles (`ParaStyle.lineStyles`); masters based on masters (`setBasedOn`); Data Merge into files (`exportRows`); layers renamed by content (`autoRename`, `retroui/photocc`); idle layers kept small (`parkLayer`, `parkAll`); spot inks and separations `retroui/inks`, `retroui/photoseps`; a tagged PDF with alt text, form fields, buttons and page transitions (`LayerAttrs`, `PdfOptions.tagged`, `interactive`); conditional text, track changes and notes (`withConditions`, `trackedInsert`, `acceptChanges`, `addMemo`); equations `retroui/mathtype`; a row or a column of frames `retroui/flexlayout` (`setFlex`, `arrangeFlex` in `retroui/vectormake`); EPUB and web pages `retroui/publish`, `retroui/photopublish`; Global Edit, Live Paint, Intertwine, Pattern Options and Tidy Up `retroui/vectormake`; Envelope Distort (`leEnvelope`); Relight, Upscale and an object's shadow `retroui/photorelight`; mockups `retroui/mockups`; styles and font pairs `retroui/designstyles`; an AI service of the user's own `retroui/aiconnect` -- nothing sent before one is set, its commands shown before they run; work that follows each change in its own step: `stepEndHook`; the phone's folder picker behind `fileDialog(..., fmFolder)` with `systemFiles(true)`). A program with no window (a command line, a server, a test that takes a picture of it): `retroui/headless` (`useHeadless` before `startApp`, `headlessInput`, `headlessShot`).
+an image editor's engine (`retroui/photo`: layers, masks, styles, type, shapes; books of pages `retroui/photobook`; a picture as vector shapes `retroui/imagetrace`; type as shapes and blends `retroui/photovector`; presets and templates for new drawings and books `retroui/layouttemplates`; charts and maps as SVG `retroui/infographics`; shapes from a few numbers `retroui/liveshapes`; IDML `retroui/idml`; Check Document `retroui/preflight`; tables, a font for each script, footnotes and Auto-Size in `retroui/textengine`; threaded text frames `threadText`/`threadPages`; a table of contents and an index `retroui/booklists`; hyphenation `retroui/hyphenate`; Find/Change with GREP `retroui/textsearch`; Data Merge `retroui/datamerge`; a perspective grid `retroui/perspectivegrid`; brushes along a path `retroui/pathbrush`; more blurs `retroui/photoblurs`; the drawing program's path tools `retroui/pathtools` and live effects `retroui/liveeffects`; each paragraph its own format, the Paragraph Composer, keeps, spans, nested and GREP styles in `retroui/textengine` -- change paragraphs with `setParaFmt`/`changeParas`; Object Styles, Graphic Styles, Find/Change's Object search (`findObjects`, `changeObjects`), text variables (the Hijri date: `retroui/hijri`), hyperlinks and bookmarks in `retroui/photo`; hyphenation in seven languages by each word's `CharStyle.lang`; hanging punctuation and Optical Margin Alignment (`ParaStyle.hanging`, `TextData.opticalMargin`); nested line styles (`ParaStyle.lineStyles`); masters based on masters (`setBasedOn`); Data Merge into files (`exportRows`); layers renamed by content (`autoRename`, `retroui/photocc`); idle layers kept small (`parkLayer`, `parkAll`); spot inks and separations `retroui/inks`, `retroui/photoseps`; a tagged PDF with alt text, form fields, buttons and page transitions (`LayerAttrs`, `PdfOptions.tagged`, `interactive`); conditional text, track changes and notes (`withConditions`, `trackedInsert`, `acceptChanges`, `addMemo`); equations `retroui/mathtype`; a row or a column of frames `retroui/flexlayout` (`setFlex`, `arrangeFlex` in `retroui/vectormake`); EPUB and web pages `retroui/publish`, `retroui/photopublish`; Global Edit, Live Paint, Intertwine, Pattern Options and Tidy Up `retroui/vectormake`; Envelope Distort (`leEnvelope`); Relight, Upscale and an object's shadow `retroui/photorelight`; mockups `retroui/mockups`; styles and font pairs `retroui/designstyles`; an AI service of the user's own `retroui/aiconnect` -- nothing sent before one is set, its commands shown before they run, kept with `saveAiSettings`/`loadAiSettings` (the key in the keyring); work that follows each change in its own step: `stepEndHook`; the phone's folder picker behind `fileDialog(..., fmFolder)` with `systemFiles(true)`). A program with no window (a command line, a server, a test that takes a picture of it): `retroui/headless` (`useHeadless` before `startApp`, `headlessInput`, `headlessShot`).
 
 **Parts most apps need** (all in `import retroui` but jobs, tray, feeds):
 
@@ -294,6 +295,32 @@ app "Staff", 520, 420:
 - `animated(target, ms)` glides a number (a panel's x, a bar's width);
   `start = 0` counts up from there the first time (a score as its page opens);
   `easedSince(shownAt, ms, delay)` a page's own timeline (bars rising one after another).
+- `retroui/motion`: `sprung(target, springBouncy)` (a spring: sent elsewhere
+  half way it turns with its speed), `presence(shown)` (`.present` while it
+  comes in or goes out, `.t` 0..1 to move and fade by), `glided(place(w, h),
+  key = item.name)` (a box the layout moved glides there; a scroll does
+  not), `dragSnap(r, points)` (`.r`, `.dragging`, `.snapped`),
+  `staggered(i)`, `fixedSteps(10, running = playing)` (`.n` steps, `.alpha`).
+  Frames only while something moves; at the end at once with less movement.
+- From the command line, any app: `RETRO_SCRIPT="click:Add;type:Milk;key:enter"
+  RETRO_SNAPSHOT=out.png ./app` (steps, then its picture, the app ended; 1 when
+  a step fails); `RETRO_PLAY=...` plays them in the window (a demo film).
+- `retroui/flows`: steps that wait, one after another --
+  `discard flow("close"): (case ask("Save?", ["&Yes", "&No", "Cancel"]) of 1:
+  save(); waitUntil(not saving) ...; return ends it)`; `pickFile`,
+  `onWorker(T, work)`, `pause(ms)`, `nextFrame()`; `ownedFlow(owner, name)`
+  with `cancelFlows(owner)` when its window closes. Not state flags kept
+  across frames for a question and its answer.
+- `retroui/fontfolders`: `useFontFolders(app)` at the start,
+  `fontFoldersPanel(app)` in settings -- the user's own font folders on
+  every system.
+- `retroui/dastkhat`: `carryDastkhat()` -- Arabic, Persian and Latin in one
+  font, nine weights (`fontStyles("Dastkhat")`: Thin .. Black); a variable
+  font's weights are styles (`fontFace(family, "SemiBold")`).
+- `retroui/forcegraph`: `var g = newForceGraph(); g.link(g.addNode("a", "A"),
+  g.addNode("b", "B"))`, then `graphView(g, dp(300), sel)` (`look = nlBox` for
+  a mind map; `.clicked`, `.doubleClicked`, `.dropped`). The layout alone,
+  no window: `retroui/forcelayout` (`settle`, then `g.x[i]`, `g.y[i]`).
 - `trayIcon(png, tip, ["&Show", "-", "E&xit"])` (`retroui/tray`) every
   frame while wanted: `.clicked`, `.picked` (the item's index).
 - `retroui/feeds`: `parseFeed(xml)` (RSS, Atom), `parseOpml`, `toOpml`.

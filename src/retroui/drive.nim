@@ -58,6 +58,21 @@
 ## taken it and drawn the frames after it, with the control as it is then
 ## (`node`): the next command sees what it did.
 ##
+## **A script from the command line**, no port: `RETRO_SCRIPT` -- steps split by ";" --
+## runs them in the app as it starts; `RETRO_SNAPSHOT` keeps the window in memory (nothing
+## shown, `RETRO_SIZE` its size), writes its picture as a PNG once the steps are done and the
+## app is at rest, and ends the app (1: a step failed, said on stderr; 2: not a script);
+## `RETRO_PLAY` plays the steps in the window at a person's pace, a dot where each click lands
+## -- for a film or a GIF of a feature:
+##
+## .. code-block:: sh
+##   RETRO_SCRIPT="click:New;type:Shopping list;key:ctrl+s;wait:Saved" RETRO_SNAPSHOT=new.png ./notes
+##   RETRO_PLAY="click:Add;type:Milk;key:enter;wait:2" ./notes
+##
+## The steps: `click:NAME`, `dblclick:NAME`, `rclick:NAME`, `type:TEXT`, `key:ctrl+s`,
+## `wait:SECONDS` or `wait:NAME` (until it is there), `focus:NAME`, `set:NAME=VALUE`,
+## `shot:FILE` (a picture then), `quit`; "\;" a semicolon in a step.
+##
 ## Only the machine itself can connect (127.0.0.1), one program at a time,
 ## and only an app started with RETRO_DRIVE opens a port; RETRO_DRIVE=0
 ## takes any free port and says which on stderr. While it waits for a
@@ -70,7 +85,7 @@ import uirelays/[input, access]
 when not defined(wasm):
   import std/[os, nativesockets]
   import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
-  import core, gfx, inspect
+  import core, gfx, inspect, headless, appicon
 
 var drivePortNow = 0
 
@@ -273,8 +288,28 @@ when not defined(wasm):
     inBuf.setLen(0)
     pending = Pending()
 
+  var
+    scripting = false             # (RETRO_SCRIPT, RETRO_SNAPSHOT, RETRO_PLAY: the steps given)
+    playing = false               # (RETRO_PLAY: at a person's pace, a dot where each lands)
+    steps: seq[Req]
+    stepAt = 0
+    scriptFailed = false
+    snapshotPath = ""
+    nextStepAt = 0
+    restFrom = 0                  # (the steps done: when it began to wait for the app to rest)
+    dots: seq[tuple[x, y, at: int]]
+
   proc answer(req: Req; res: string) =
     ## (`res`: the answer's fields, `"ok":true,...`; the command's id added)
+    if scripting:
+      # (a step of a script: a failure said, and the script ends there)
+      if res.startsWith("\"ok\":false"):
+        scriptFailed = true
+        var why = res
+        let e = res.find("\"error\":")
+        if e >= 0: why = res[e + 8 .. ^1]
+        stderr.writeLine "RETRO_SCRIPT: step " & $stepAt & " (" & req.str("step") & ") failed: " & why
+      return
     if clientFd == osInvalidSocket: return
     var line = "{" & res
     for f in req:
@@ -614,6 +649,157 @@ when not defined(wasm):
         continue
       doCommand(req)
 
+  # ---- a script: RETRO_SCRIPT, RETRO_SNAPSHOT, RETRO_PLAY -----------------------------------------
+
+  proc parseScript*(s: string; steps: var seq[string]): string =
+    ## (a script's steps, split at ";" -- "\;" a semicolon in a step --; "" or why it is not one)
+    var cur = ""
+    var i = 0
+    while i < s.len:
+      if s[i] == '\\' and i + 1 < s.len and s[i + 1] == ';':
+        cur.add ';'
+        i += 2
+        continue
+      if s[i] == ';':
+        if cur.strip.len > 0: steps.add cur.strip
+        cur = ""
+      else: cur.add s[i]
+      inc i
+    if cur.strip.len > 0: steps.add cur.strip
+    for st in steps:
+      let verb = st.split(':', 1)[0].strip.toLowerAscii
+      if verb notin ["click", "dblclick", "rclick", "type", "key", "wait", "shot", "quit", "focus", "set"]:
+        return "no step \"" & verb & "\" (click, dblclick, rclick, type, key, wait, shot, focus, set, quit)"
+    ""
+
+  proc stepReq(st: string): Req =
+    ## (a step as a driver's command: "click:Open", "type:Hi", "key:ctrl+s", "wait:2" seconds or
+    ## "wait:Saved" a control, "shot:FILE", "set:Name=value", "focus:Name", "quit")
+    let parts = st.split(':', 1)
+    let verb = parts[0].strip.toLowerAscii
+    let arg = if parts.len > 1: parts[1] else: ""
+    result.add ("step", st, true)
+    case verb
+    of "click", "dblclick", "rclick":
+      result.add ("cmd", "click", true)
+      result.add ("name", arg.strip, true)
+      if verb == "dblclick": result.add ("clicks", "2", false)
+      if verb == "rclick": result.add ("button", "right", true)
+    of "type": result.add [("cmd", "type", true), ("text", arg, true)]
+    of "key": result.add [("cmd", "key", true), ("key", arg.strip, true)]
+    of "wait":
+      result.add ("cmd", "wait", true)
+      try: result.add ("ms", $int(parseFloat(arg.strip) * 1000), false)
+      except ValueError: result.add ("name", arg.strip, true)
+    of "shot": result.add [("cmd", "shot", true), ("file", arg.strip, true)]
+    of "focus": result.add [("cmd", "focus", true), ("name", arg.strip, true)]
+    of "set":
+      let kv = arg.split('=', 1)
+      result.add [("cmd", "set", true), ("name", kv[0].strip, true),
+                  ("value", (if kv.len > 1: kv[1] else: ""), true)]
+    else: result.add ("cmd", "quit", true)
+
+  proc writeShot(path: string): bool =
+    ## (the window's picture as a PNG: the window kept in memory, `headless`)
+    if path.len == 0: return false
+    let b = headlessShot()
+    if b == nil or b.w <= 0: return false
+    let data = png(b.w, b.h, b.px)
+    var str = newString(data.len)
+    if data.len > 0: copyMem(addr str[0], unsafeAddr data[0], data.len)
+    try:
+      if path.parentDir.len > 0: createDir(path.parentDir)
+      writeFile(path, str)
+      true
+    except IOError, OSError: false
+
+  proc finishScript() =
+    ## (the steps done: the picture written once the app is at rest -- or two seconds -- and the
+    ## app ended; a script alone leaves it running)
+    if snapshotPath.len > 0:
+      if restFrom == 0: restFrom = ui.now
+      if not scriptFailed and ui.wakeAt != 0 and ui.now - restFrom < 2000:
+        nextFrame()                   # (an animation finishing first)
+        return
+      var code = if scriptFailed: 1 else: 0
+      if not scriptFailed and not writeShot(snapshotPath):
+        stderr.writeLine "RETRO_SNAPSHOT: could not write " & snapshotPath
+        code = 1
+      quit(code)
+    if scriptFailed and not playing: quit(1)
+    scripting = false
+
+  proc dotsDraw() =
+    ## (RETRO_PLAY: a dot where each click landed, fading)
+    var i = 0
+    while i < dots.len:
+      let age = ui.now - dots[i].at
+      if age > 700:
+        dots.delete(i)
+        continue
+      let a = uint8(160 * (700 - age) div 700)
+      disc(dots[i].x.float, dots[i].y.float, float(dpf(14.0)), color(230, 40, 40, a))
+      wakeIn(16)
+      inc i
+
+  proc scriptFrame() =
+    ## (every frame's start while a script runs: its next step once the last one is done)
+    inc framesRun
+    if not scripting: return
+    if pending.what != wNone and not pendingDone(): return
+    if accessLast.len == 0:
+      nextFrame()                     # (the first frame first)
+      return
+    if scriptFailed or stepAt >= steps.len:
+      finishScript()
+      return
+    if playing and ui.now < nextStepAt:
+      wakeIn(nextStepAt - ui.now)
+      return
+    let req = steps[stepAt]
+    inc stepAt
+    if req.str("cmd") == "shot":
+      if not writeShot(req.str("file")):
+        stderr.writeLine "RETRO_SCRIPT: step " & $stepAt & " (" & req.str("step") &
+                         "): no picture (RETRO_SNAPSHOT keeps the window in memory; RETRO_PLAY shows it)"
+      nextFrame()
+      return
+    if playing:
+      if req.str("cmd") == "click":
+        let i = lookup(req)
+        if i >= 0:
+          let r = nodeRect(accessLast[i])
+          dots.add (r.x + r.w div 2, r.y + r.h div 2, ui.now)
+      if req.str("cmd") == "type" and req.str("text").runeLen > 1:
+        # (typed a letter at a time, as a person types)
+        var rest: seq[Req]
+        for r in req.str("text").runes:
+          rest.add @[("step", req.str("step"), true), ("cmd", "type", true), ("text", r.toUTF8, true)]
+        steps = steps[0 ..< stepAt - 1] & rest & steps[stepAt .. ^1]
+        dec stepAt
+        nextFrame()
+        return
+      nextStepAt = ui.now + (if req.str("cmd") == "type": 90 else: 700)
+    doCommand(req)
+
+  proc startScript*(script: string; play = false; snapshot = ""): string =
+    ## Runs the steps of `script` in this app (as RETRO_SCRIPT does): each a control clicked,
+    ## text typed, a key, a wait -- `play` at a person's pace with a dot where each click lands
+    ## (RETRO_PLAY: for a film of the app); `snapshot`: the window kept in memory, its picture
+    ## written there once the steps are done and the app ended (RETRO_SNAPSHOT). "" or why the
+    ## script is not one.
+    var texts: seq[string]
+    let why = parseScript(script, texts)
+    if why.len > 0: return why
+    for t in texts: steps.add stepReq(t)
+    scripting = true
+    playing = play
+    snapshotPath = snapshot
+    accessKeep = true
+    beginFrameHooks.add scriptFrame
+    if play: endFrameHooks.add dotsDraw
+    ""
+
   proc drivePoll(): bool =
     ## (while the app waits: something to accept or to read)
     if clientFd != osInvalidSocket: clientFd.readable
@@ -645,6 +831,24 @@ when not defined(wasm):
     idlePollers.add drivePoll
     drivePortNow
 
+  block:
+    # (a script of steps from the command line: RETRO_SCRIPT, its picture RETRO_SNAPSHOT --
+    # the window in memory, nothing shown --, RETRO_PLAY played in the window as a person would)
+    let play = getEnv("RETRO_PLAY")
+    let script = getEnv("RETRO_SCRIPT")
+    let shot = getEnv("RETRO_SNAPSHOT")
+    if play.len > 0 or script.len > 0 or shot.len > 0:
+      if shot.len > 0 and play.len == 0:
+        var (w, h) = (1280, 800)
+        let size = getEnv("RETRO_SIZE").split('x')
+        if size.len == 2:
+          try: (w, h) = (parseInt(size[0]), parseInt(size[1])) except ValueError: discard
+        useHeadless(w, h)
+      let why = startScript(if play.len > 0: play else: script, play = play.len > 0,
+                            snapshot = if play.len > 0: "" else: shot)
+      if why.len > 0:
+        stderr.writeLine "RETRO_SCRIPT: " & why
+        quit(2)
   block:
     let v = getEnv("RETRO_DRIVE")
     if v.len > 0:

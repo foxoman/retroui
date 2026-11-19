@@ -283,7 +283,7 @@ def empty_when(lines, c, name):
     return False
 
 
-def leaves(lines, w):
+def leaves(lines, w, later=None):
     """(the write is followed by a `return` or a `raise` in its branch: it never
     reaches a later one)"""
     l = code_of(lines[w])
@@ -301,6 +301,19 @@ def leaves(lines, w):
             return False
         if indent(c) == ind and re.match(r'^\s*(return|raise)\b', c):
             return True
+        # (`break name`: out of the block `name:`, past the later write when
+        # that write is in it)
+        b = re.match(r'^\s*break\s+(\w+)\s*$', c)
+        if indent(c) == ind and b and later is not None:
+            for h in range(w, -1, -1):
+                hb = re.match(r'^(\s*)block\s+%s\s*:\s*$' % re.escape(b.group(1)), code_of(lines[h]))
+                if hb:
+                    end = h + 1
+                    while end < len(lines) and (not code_of(lines[end]).strip() or
+                                                indent(code_of(lines[end])) > len(hb.group(1))):
+                        end += 1
+                    return h < later < end
+            return False
     return False
 
 
@@ -338,12 +351,17 @@ def check(path, mem, plain_known):
                 j += 1
         # (a proc's `result`: declared at its start, without a value)
         r = re.search(r'\)\s*:\s*([^={]+?)\s*(\{\.[^}]*\.\})?\s*=\s*$', l)
+        if r:
+            # (the signature's last line: its parameters' own `): T` before the result's type)
+            rt = r.group(1)
+            while rt.count(')') > rt.count('('):
+                rt = rt[rt.index(')') + 1:].lstrip(' :')
         if r and routine_start(lines, i):
             j = i + 1
             while j < len(lines) and not code_of(lines[j]).strip():
                 j += 1
             if j < len(lines) and indent(lines[j]) > indent(lines[routine_start(lines, i) - 1]):
-                decls.append(('result', r.group(1), indent(lines[j]), i + 1))
+                decls.append(('result', rt, indent(lines[j]), i + 1))
         for decl in decls:
             name, typ, top = decl[:3]
             first = decl[3] if len(decl) > 3 else i + 1
@@ -356,7 +374,13 @@ def check(path, mem, plain_known):
                 if c.strip() and indent(c) < top:
                     break
                 if c.strip() and indent(c) == top and ROUTINE.match(c):
-                    break
+                    if top == 0:
+                        break                # (the next routine: a global's writes end)
+                    # (a routine inside the proc, as its own lines: not the proc's writes)
+                    k += 1
+                    while k < len(lines) and (not code_of(lines[k]).strip() or indent(code_of(lines[k])) > top):
+                        k += 1
+                    continue
                 given = re.search(WRITE % re.escape(name), c)
                 if (given or re.search(FILL % {'n': re.escape(name)}, c)) and \
                    not in_closure(lines, k, top):
@@ -373,7 +397,7 @@ def check(path, mem, plain_known):
                 if empty_when(lines, c2, name):
                     continue                 # (only when it holds nothing: none to free)
                 earlier = [(w1, c1) for w1, c1, _ in writes[:n2]
-                           if w1 != w2 and not exclusive(lines, c1, c2) and not leaves(lines, w1)]
+                           if w1 != w2 and not exclusive(lines, c1, c2) and not leaves(lines, w1, w2)]
                 if earlier:
                     found.append((path, i + 1, name, typ, earlier[0][0] + 1, w2 + 1))
                     break

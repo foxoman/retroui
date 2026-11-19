@@ -78,6 +78,16 @@ const
   GL_LINES* = 0x0001'u32  ## `drawArrays`: separate lines
   GL_ELEMENT_ARRAY_BUFFER* = 0x8893'u32  ## `bindBuffer`: indices
   GL_STATIC_DRAW* = 0x88E4'u32  ## `bufferData`: set once
+  # (for reading results back without waiting, `retroui/photogpu`: OpenGL ES 3, OpenGL 3.2)
+  GL_PIXEL_PACK_BUFFER* = 0x88EB'u32  ## `bindBuffer`: where `readPixels` writes (an offset, not memory)
+  GL_STREAM_READ* = 0x88E1'u32  ## `bufferData`: written by the GPU, read once
+  GL_MAP_READ_BIT* = 0x0001'u32  ## `mapBufferRange`: to read
+  GL_SYNC_GPU_COMMANDS_COMPLETE* = 0x9117'u32  ## `fenceSync`: when all before it is done
+  GL_SYNC_FLUSH_COMMANDS_BIT* = 0x0001'u32  ## `clientWaitSync`: send what waits first
+  GL_ALREADY_SIGNALED* = 0x911A'u32  ## `clientWaitSync`: it was done
+  GL_TIMEOUT_EXPIRED* = 0x911B'u32  ## `clientWaitSync`: not done yet
+  GL_CONDITION_SATISFIED* = 0x911C'u32  ## `clientWaitSync`: done while it waited
+  GL_WAIT_FAILED* = 0x911D'u32  ## `clientWaitSync`: an error
   GL_UNSIGNED_SHORT* = 0x1403'u32  ## `drawElements`: 16-bit indices
   GL_UNSIGNED_INT* = 0x1405'u32  ## `drawElements`: 32-bit indices
   GL_RENDERBUFFER* = 0x8D41'u32  ## `bindRenderbuffer`
@@ -228,6 +238,18 @@ type
       ## `glDepthMask`
     uniform3f*: proc (loc: GLint; a, b, c: GLf32) {.cdecl, gcsafe.}
       ## `glUniform3f`
+    # (OpenGL ES 3 / OpenGL 3.2: results read back while the GPU goes on; nil where the
+    # driver has none -- and look at GL_VERSION: a desktop driver hands out names it lacks)
+    mapBufferRange*: proc (target: GLenum; offset, length: int; access: GLbitfield): pointer {.cdecl, gcsafe.}
+      ## `glMapBufferRange`
+    unmapBuffer*: proc (target: GLenum): GLboolean {.cdecl, gcsafe.}
+      ## `glUnmapBuffer`
+    fenceSync*: proc (cond: GLenum; flags: GLbitfield): pointer {.cdecl, gcsafe.}
+      ## `glFenceSync`
+    clientWaitSync*: proc (sync: pointer; flags: GLbitfield; timeout: uint64): GLenum {.cdecl, gcsafe.}
+      ## `glClientWaitSync`
+    deleteSync*: proc (sync: pointer) {.cdecl, gcsafe.}
+      ## `glDeleteSync`
 
 proc loadGl*(t: var GlTable; getProc: proc (name: cstring): pointer {.nimcall.}; es: bool): bool =
   ## Every function from `getProc` (the driver's) into `t`; `es`: the driver
@@ -307,5 +329,10 @@ proc loadGl*(t: var GlTable; getProc: proc (name: cstring): pointer {.nimcall.};
   opt(depthFunc, "glDepthFunc")
   opt(depthMask, "glDepthMask")
   opt(uniform3f, "glUniform3f")
+  opt(mapBufferRange, "glMapBufferRange")
+  opt(unmapBuffer, "glUnmapBuffer")
+  opt(fenceSync, "glFenceSync")
+  opt(clientWaitSync, "glClientWaitSync")
+  opt(deleteSync, "glDeleteSync")
   t.ok = not missing
   t.ok

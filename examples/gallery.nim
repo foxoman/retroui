@@ -6,7 +6,7 @@
 
 import std/[strutils, os, json, math, times]
 import retroui
-import retroui/[tilemap, system, capture, secrets, jobs, tray]
+import retroui/[tilemap, system, capture, secrets, jobs, tray, motion, forcegraph]
 
 const
   languages = ["English", "Deutsch", "Français", "Español", "Italiano",
@@ -1155,6 +1155,13 @@ var
   wideBar = false
   trayOn = false
   showCode = false
+  springOver = false                   # (the Motion page's)
+  noteShown = false
+  glideRows = @["Mail", "Files", "Atelier", "Board", "Navigator"]
+  dropAt = -1
+  staggerRound = 0
+  ballOn = false
+  ball, ballWas: tuple[x, y, vx, vy: float] = (20.0, 10.0, 160.0, 0.0)
 
 proc countPrimes(top: int): Job[int] =
   ## (the primes below `top` counted on another thread: a job)
@@ -1172,8 +1179,127 @@ proc countPrimes(top: int): Job[int] =
         inc d
       if prime: inc result)
 
+proc topicMapOf(): ForceGraph =
+  ## (the Graph page's topic map: the kit, its apps, their parts)
+  result = newForceGraph(linkLength = 45)
+  let kit = result.addNode("kit", "Retro Nim UI", group = 0)
+  for (app, parts) in [("Mail", @["IMAP", "SMTP", "Calendar"]), ("Atelier", @["Layers", "Type", "PSD", "PDF"]),
+                       ("Board", @["Shapes", "Arrows"]), ("Files", @["Columns", "Preview"])]:
+    let a = result.addNode(app, app, group = 1)
+    result.link(kit, a, length = 80)
+    for part in parts: result.link(a, result.addNode(app & "/" & part, part, group = 2))
+
+proc mindMapOf(): ForceGraph =
+  ## (the Graph page's mind map)
+  result = newForceGraph(linkLength = 90, push = 60)
+  let trip = result.addNode("trip", "A trip to Salalah", group = 0)
+  for (k, kids) in [("Getting there", @["Flight", "Car"]), ("Staying", @["Hotel", "Camp"]),
+                    ("Seeing", @["Wadi Darbat", "Mughsail", "Al Baleed"])]:
+    let a = result.addNode(k, k, group = 1)
+    result.link(trip, a, length = 120)
+    for kid in kids: result.link(a, result.addNode(kid, kid, group = 2))
+
+var
+  topicMap = topicMapOf()
+  topicSel = -1
+  mindMap = mindMapOf()
+  added = 0
+
+proc graphPage() =
+  ## (retroui/forcegraph: graphs that lay themselves out)
+  adaptive(340):
+    group "graphView: a topic map":
+      discard graphView(topicMap, dp(260), topicSel)
+      row:
+        if button("&Add a node"):
+          inc added
+          let to = if topicSel >= 0: topicSel else: topicMap.find("kit")
+          topicMap.link(to, topicMap.addNode("new" & $added, "New " & $added, group = 3))
+        if button("&Shake"):
+          for i in 0 ..< topicMap.len:
+            topicMap.x[i] += float((i * 37) mod 61 - 30)
+            topicMap.y[i] += float((i * 53) mod 61 - 30)
+          topicMap.reheat()
+      label((if topicSel >= 0: "Selected: " & topicMap.nodes[topicSel].label
+             else: "Drag a node: the others make room."), color = ui.theme.gray)
+    group "graphView(look = nlBox): a mind map":
+      discard graphView(mindMap, dp(260), look = nlBox)
+      label("Settles by itself; frames only while it moves.", color = ui.theme.gray)
+
+proc motionPage() =
+  ## (retroui/motion: springs, in and out, glides, drag and snap, one after another, a simulation)
+  label("With less movement asked (the system's setting, or Smooth scrolling off) each is at its " &
+        "end at once; the simulation goes on.", color = ui.theme.gray)
+  adaptive(300):
+    group "sprung: a spring":
+      if button(if springOver: "&Back" else: "&Go", w = dp(80)): springOver = not springOver
+      let lane = place(0, dp(56))
+      let span = float(lane.w - dp(28))
+      for i, (spec, name) in [(springSmooth, "smooth"), (springBouncy, "bouncy")]:
+        let x = sprung(if springOver: span else: 0.0, spec, key = name)
+        fill(rect(lane.x + int(x), lane.y + i * dp(30), dp(28), dp(24)), ui.theme.select)
+      label("Pressed again half way, it turns with the speed it has.", color = ui.theme.gray)
+    group "presence: in, and out before it is gone":
+      if button(if noteShown: "&Hide the note" else: "Show a &note"): noteShown = not noteShown
+      let room = place(0, dp(40))
+      let p = presence(noteShown, 220)
+      if p.present:
+        pushClip(room)
+        let n = rect(room.x, room.y + int(mix(-dp(40).float, 0.0, p.t)), min(room.w, dp(240)), dp(32))
+        fill(n, ui.theme.tip)
+        box(n, ui.theme.frame)
+        text(n.x + dp(8), n.y + dp(9), "Saved. (Still drawn while it goes.)", ui.theme.tipText)
+        popClip()
+    group "glided: the layout moved them":
+      if button("&Move the first down"): glideRows = glideRows[1 .. ^1] & glideRows[0]
+      for name in glideRows:
+        let r = glided(place(0, dp(22)), key = name)
+        fill(r, ui.theme.face2)
+        box(r, ui.theme.shadow)
+        text(r.x + dp(6), r.y + dp(4), name, ui.theme.text)
+    group "dragSnap: dragged, thrown, snapped":
+      let field = place(0, dp(120))
+      box(field, ui.theme.shadow)
+      let sz = dp(36)
+      let points = [(field.x + dp(8), field.y + dp(8)), (field.x + field.w - sz - dp(8), field.y + dp(8)),
+                    (field.x + (field.w - sz) div 2, field.y + field.h - sz - dp(8))]
+      for pt in points: box(rect(pt[0], pt[1], sz, sz), ui.theme.gray)
+      let d = dragSnap(rect(points[0][0], points[0][1], sz, sz), points)
+      fill(d.r, if d.dragging: ui.theme.select else: color(200, 120, 40))
+      if d.dropped: dropAt = d.snapped
+      label((if dropAt < 0: "Drag the square, or throw it" else: "At point " & $(dropAt + 1)),
+            color = ui.theme.gray)
+    group "staggered: one after another":
+      if button("&Again"): inc staggerRound
+      for i in 0 ..< 5:
+        let a = staggered(i, key = $staggerRound)
+        let bar = place(0, dp(12))
+        fill(rect(bar.x, bar.y, int(float(bar.w) * a * (0.45 + 0.11 * i.float)), bar.h), ui.theme.select)
+    group "fixedSteps: a simulation":
+      if button(if ballOn: "Pa&use" else: "&Run", w = dp(80)): ballOn = not ballOn
+      let area = place(0, dp(100))
+      box(area, ui.theme.shadow)
+      let size = dp(14).float
+      let (w, h) = (float(area.w) - size, float(area.h) - size)
+      let st = fixedSteps(10, running = ballOn)
+      for _ in 0 ..< st.n:
+        # (100 steps a second, whatever the frame rate: a ball that falls and bounces)
+        ballWas = ball
+        ball.vy += 900 * 0.01
+        ball.x += ball.vx * 0.01
+        ball.y += ball.vy * 0.01
+        if ball.x < 0 or ball.x > w:
+          ball.vx = -ball.vx
+          ball.x = clamp(ball.x, 0, w)
+        if ball.y > h:
+          ball.vy = -ball.vy * 0.9
+          ball.y = h
+      let x = mix(ballWas.x, ball.x, st.alpha)
+      let y = mix(ballWas.y, ball.y, st.alpha)
+      disc(float(area.x) + x + size / 2, float(area.y) + y + size / 2, size / 2, ui.theme.select)
+
 proc kitTab() =
-  tabs kTab, ["F&orms", "Co&de", "&Pages", "&Jobs"]:
+  tabs kTab, ["F&orms", "Co&de", "&Pages", "&Jobs", "Mo&tion", "&Graph"]:
     case kTab
     of 0:
       adaptive(300):
@@ -1219,6 +1345,8 @@ proc kitTab() =
           pageHeader(nav, contacts[contactSel][0])
           label "Works in " & contacts[contactSel][2] & " as a " & contacts[contactSel][1].toLowerAscii & "."
           label("Back, Esc or Alt+Left goes back; the phone's Back too.", color = ui.theme.gray)
+    of 4: motionPage()
+    of 5: graphPage()
     else:
       adaptive(300):
         group "A job on another thread (retroui/jobs)":
@@ -1746,7 +1874,9 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
             "for Nim on Windows, macOS, Linux, Android and iOS."],
            tagline = "Every control of Retro Nim UI",
            iconPng = GalleryIconPng, glyph = pxApp,
-           whatsNew = ["Forms and grids from your types, Undo, pages, jobs on worker threads, a code " &
+           whatsNew = ["Forms & Code > Motion: springs, a note in and out, rows gliding, a square thrown " &
+                       "to a point, a simulation; > Graph: a topic map and a mind map that lay themselves out",
+                       "Forms and grids from your types, Undo, pages, jobs on worker threads, a code " &
                        "editor, translations with plurals, the tray; View, This Page's Code (Ctrl+U)",
                        "Retro Podcast: a podcast player for every system and the web, built from them",
                        "Nine more color schemes: High Contrast and High Contrast White, Midnight, " &

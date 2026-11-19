@@ -76,8 +76,12 @@ Its Forms & Code page shows the kit's newer parts: a form and a grid made
 from a Nim type (`formOf`, `gridOf`), the Edit menu's Undo taking back the
 form's changes (`UndoStack`), the code editor, pages over pages and a list
 beside its details (`pageView`, `listDetail`), a sum counted on a worker
-thread (`job`), a bar that glides (`animated`) and the gallery's icon in
-the system's tray (`trayIcon`).
+thread (`job`), a bar that glides (`animated`), the gallery's icon in
+the system's tray (`trayIcon`), Motion (`retroui/motion`): two springs,
+a note that comes and goes, rows the layout moves gliding, a square
+dragged and thrown to a point, bars one after another and a bouncing ball
+on a fixed time step -- and Graph (`retroui/forcegraph`): a topic map and
+a mind map that lay themselves out, their nodes dragged.
 
 ```sh
 nimble gallery              # or: nim c -r examples/gallery.nim
@@ -183,6 +187,15 @@ panoramas, raw photos, CMYK, Lab, duotones and Multichannel images, PDF
 for print, and many undos. On a phone held upright the picture fills the
 screen, the tools in rows under it and the panels sliding up; two fingers
 zoom. Its engine is in `retroui/photo`.
+
+New text is in **Dastkhat** (Arabic, Persian and Latin, nine weights,
+carried in it: `retroui/dastkhat`); Preferences > Type > Your Font Folders
+adds a folder of your own fonts on any system (`retroui/fontfolders`), and
+Type > Get Google Fonts every family of Google Fonts, the Arabic ones
+first. A Photoshop document says as it opens what it kept to change, what
+became pixels and which of its fonts this device has not. Closing a
+document with changes not saved asks, saves -- Save As waited for -- and
+closes, one step after another (`retroui/flows`).
 
 **SVG** is one of its formats: an .svg opens as layers -- its shapes as
 shape layers, its text as type you can type in (fonts, sizes, colours,
@@ -381,7 +394,12 @@ notes, frames and pictures; select, move, turn, snap, group, align;
 pages, pinch to zoom, autosave, a dark mode; PNG, SVG and PDF export;
 **presenting** the frames as slides (View > Present the Frames, F5), and
 pictures dropped from other programs. Zoomed out on thousands of shapes it
-draws those too small to read in brief, and keeps moving.
+draws those too small to read in brief, and keeps moving. Arrange > Tidy
+Up by Arrows lays out the shapes arrows join (a mind map dropped in a
+heap, a diagram grown crooked) as a graph that settles -- each pushes the
+others away and keeps out of their room, each arrow pulls its shapes to a
+length -- and they glide there, one step to undo (`linkedLayout`,
+`retroui/forcelayout`).
 
 ```sh
 nimble board                # or: nim c -r -d:release examples/retroboard.nim
@@ -610,7 +628,10 @@ own (CSV, imported and exported). Each system the way it allows:
   turns it on and off with the server last used, and so does the kit's
   widget on the home screen (`--widget`, `homeWidget`); a graph shows
   each server's speed over its last 30 tests, and the lookups while the
-  VPN is on.
+  VPN is on -- and what the phone reached: each app joined to the sites it
+  looked up in the last two minutes (their registrable domains), a graph
+  that lays itself out (`graphView`). Android 10 and later say which app
+  asked; before, the phone is one node.
 - **Windows, Linux, macOS:** Use on This Computer gives the computer the
   server's addresses as its administrator, the system asking first
   (`retroui/admin`: UAC, polkit, the password dialog): every adapter's

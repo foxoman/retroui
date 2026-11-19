@@ -108,6 +108,8 @@ proc askPage(page: int) =
     asSel = -1
     asTotal = -1
     cancelFetches(2)
+    asThumbOf.clear()
+    if asThumbs.len > 200: asThumbs.clear()   # (a new search: those of the old ones let go)
   asError = ""
   asPage = page
   if q.source == asLibrary:
@@ -400,7 +402,13 @@ proc downloadAsset(it: var AssetItem) =
 # ---- the window ----------------------------------------------------------------------------------------------
 
 proc assetsDialog() =
-  if not asOpen: return
+  if not asOpen:
+    # (closed: its pictures let go -- each one ever shown was kept, an hour's browsing online
+    # a hundred MB)
+    if asThumbs.len > 0 or asThumbOf.len > 0:
+      asThumbs.clear()
+      asThumbOf.clear()
+    return
   assetsPoll()
   if fetchPending() > 0 or asTicket >= 0: wakeIn(50)
   let avail = int(ui.w.float / ui.k)

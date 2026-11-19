@@ -11,7 +11,9 @@
 ## integer arithmetic exactly (32-bit floats holding whole numbers) -- the
 ## modes that mix channels alone through the CPU's own table of them --
 ## and read back into `comp`: whatever reads the composite reads it as
-## always. The pixels the GPU cannot be sure of are marked and done again
+## always. Where the GPU has pixel buffers and fences (OpenGL ES 3, OpenGL
+## 3.2) each tile is read back while the GPU makes the next -- one wait for
+## the last tile, not one for each (`GpuCompositeStats.lastWaitMs`). The pixels the GPU cannot be sure of are marked and done again
 ## on the CPU, those alone: Darker / Lighter Color where both colors are
 ## equally light, and Hue / Saturation / Color / Luminosity where a value
 ## falls (within the GPU's rounding) on a half -- the CPU's choice there is
@@ -35,7 +37,7 @@
 ## (`setGpuMode(gmCpu)`). It times itself against the CPU and keeps to the
 ## CPU where the GPU is slower (`gpuCompositeGuard`).
 
-import std/[tables, monotimes, times, os, hashes, math, algorithm]
+import std/[tables, monotimes, times, os, hashes, math, algorithm, strutils]
 import gfx, glapi, photo
 import uirelays/screen
 
@@ -75,6 +77,8 @@ type
     fixedPixels*: int     ## pixels made again on the CPU (Darker / Lighter Color ties)
     passes*: int          ## passes drawn
     lastReason*: string   ## why the last one was declined
+    asyncReads*: int      ## parts read back while the GPU went on (pixel buffers and fences)
+    lastWaitMs*: float    ## how long the last composite waited for the GPU's results
 
 var gpuCompositeStats*: GpuCompositeStats
   ## What the GPU composite has done since the program started.
@@ -634,6 +638,12 @@ type
     lut3: bool
     used: int
 
+type PendingRead = object
+  ## (a part's pixels on their way back: `readPixels` into a pixel buffer, and a fence after)
+  c: Rect                      # the part, in the image
+  pbo, flagPbo: GLuint         # its colors; its flags (0: none)
+  sync: pointer
+
 var
   progs: Table[int, Prog]
   progBad: Table[int, bool]
@@ -657,6 +667,13 @@ var
   poolUsedAt: MonoTime
   scratch: seq[uint32]
   readBuf: seq[uint32]
+  # results read back while the GPU goes on (`queueRead`)
+  pboFree, pboAll: seq[GLuint]
+  pboBytes = 0
+  pending: seq[PendingRead]
+  asyncChecked = false
+  asyncOk = false
+  waitNs: int64
   # the tile being made
   curW, curH: int
   curOrgX, curOrgY: int
@@ -677,6 +694,11 @@ proc forgetAll() =
   poolW = 0
   poolH = 0
   for b in bound.mitems: b = 0
+  pboFree.setLen(0)
+  pboAll.setLen(0)
+  pboBytes = 0
+  pending.setLen(0)
+  asyncChecked = false
 
 proc delTex(t: GLuint) =
   if t != 0:
@@ -687,8 +709,18 @@ proc freeEntry(e: var LayerTex) =
   for t in e.tiles: delTex(t.tex)
   e.tiles.setLen(0)
 
+proc freePbos() =
+  let gl = gpuGl()
+  for b in pboAll:
+    var id = b
+    gl.deleteBuffers(1, addr id)
+  pboAll.setLen(0)
+  pboFree.setLen(0)
+  pboBytes = 0
+
 proc freePool() =
   let gl = gpuGl()
+  freePbos()
   for i in 0 ..< poolTex.len:
     var f = poolFbo[i]
     if f != 0: gl.deleteFramebuffers(1, addr f)
@@ -1186,6 +1218,126 @@ proc fixPixels(d: Doc; c: Rect; flags: seq[uint32]) =
       d.compositeInto(d.comp, rect(int(xs[0]), iy, int(xs[^1] - xs[0]) + 1, 1), d.layers)
     gpuCompositeStats.fixedPixels += xs.len
 
+# ---- reading the results back while the GPU goes on --------------------------------------------------------
+#
+# A plain readPixels waits for every pass before it, then copies: the CPU idle while the GPU works,
+# the GPU idle while the CPU copies -- for each tile. Here each tile's result goes into a pixel buffer
+# with a fence after it, and is taken (mapped, copied into `comp`, its unsure pixels done again)
+# while the GPU makes the next tile: one wait for the last tile, not one for each. OpenGL ES 3 and
+# OpenGL 3.2 have them (not WebGL, nor OpenGL ES 2: the plain readPixels there);
+# `RETRO_GPU_ASYNC=0` turns it off.
+
+proc canReadAsync(): bool =
+  ## (pixel buffers and fences here: a desktop driver hands out the names of functions it has
+  ## not, so its version says)
+  if getEnv("RETRO_GPU_ASYNC") == "0": return false
+  if asyncChecked: return asyncOk
+  asyncChecked = true
+  asyncOk = false
+  let gl = gpuGl()
+  if gl.mapBufferRange == nil or gl.unmapBuffer == nil or gl.fenceSync == nil or
+     gl.clientWaitSync == nil or gl.deleteSync == nil or gl.flush == nil:
+    return false
+  let v = $gl.getString(GL_VERSION)          # "OpenGL ES 3.2 Mesa 25", "4.6.0 NVIDIA 550", "WebGL 2.0"
+  let es = v.startsWith("OpenGL ES ")
+  if gl.es and not es: return false
+  let nums = (if es: v[10 .. ^1] else: v).split({'.', ' '})
+  var major, minor: int
+  try:
+    major = parseInt(nums[0])
+    minor = if nums.len > 1: parseInt(nums[1]) else: 0
+  except ValueError: return false
+  asyncOk = if es: major >= 3 else: major > 3 or (major == 3 and minor >= 2)
+  dbg("results read back " & (if asyncOk: "while the GPU goes on" else: "waiting") & " (" & v & ")")
+  asyncOk
+
+proc takePbo(bytes: int): GLuint =
+  ## (a pixel buffer `bytes` big: one given back, or a new one)
+  let gl = gpuGl()
+  if bytes != pboBytes:
+    freePbos()
+    pboBytes = bytes
+  if pboFree.len > 0: return pboFree.pop()
+  gl.genBuffers(1, addr result)
+  gl.bindBuffer(GL_PIXEL_PACK_BUFFER, result)
+  gl.bufferData(GL_PIXEL_PACK_BUFFER, bytes, nil, GL_STREAM_READ)
+  gl.bindBuffer(GL_PIXEL_PACK_BUFFER, 0)
+  pboAll.add result
+
+proc giveBack(p: PendingRead) =
+  let gl = gpuGl()
+  if p.sync != nil: gl.deleteSync(p.sync)
+  if p.pbo != 0: pboFree.add p.pbo
+  if p.flagPbo != 0: pboFree.add p.flagPbo
+
+proc queueRead(c: Rect; fbo, flagFbo: GLuint): bool =
+  ## The part just made (`c`, at the pool's corner; its flags in `flagFbo`, 0 none) on its way
+  ## into pixel buffers, a fence after it: `takeRead` takes it.
+  let gl = gpuGl()
+  var p = PendingRead(c: c)
+  let bytes = poolW * poolH * 4
+  gl.pixelStorei(GL_PACK_ALIGNMENT, 4)
+  p.pbo = takePbo(bytes)
+  gl.bindFramebuffer(GL_FRAMEBUFFER, fbo)
+  gl.bindBuffer(GL_PIXEL_PACK_BUFFER, p.pbo)
+  gl.readPixels(0, 0, GLsizei(c.w), GLsizei(c.h), GL_RGBA, GL_UNSIGNED_BYTE, nil)
+  if flagFbo != 0:
+    p.flagPbo = takePbo(bytes)
+    gl.bindFramebuffer(GL_FRAMEBUFFER, flagFbo)
+    gl.bindBuffer(GL_PIXEL_PACK_BUFFER, p.flagPbo)
+    gl.readPixels(0, 0, GLsizei(c.w), GLsizei(c.h), GL_RGBA, GL_UNSIGNED_BYTE, nil)
+  gl.bindBuffer(GL_PIXEL_PACK_BUFFER, 0)
+  p.sync = gl.fenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0)
+  if p.sync == nil:
+    giveBack(p)
+    return false
+  gl.flush()                                   # (the GPU starts on it now)
+  pending.add p
+  inc gpuCompositeStats.asyncReads
+  true
+
+proc takeRead(d: Doc): bool =
+  ## The oldest part on its way back: waited for (when the GPU has not finished it), copied
+  ## into `comp`, its unsure pixels made again on the CPU.
+  let gl = gpuGl()
+  let p = pending[0]
+  pending.delete(0)
+  defer: giveBack(p)
+  let c = p.c
+  let t0 = getMonoTime()
+  var r = GL_TIMEOUT_EXPIRED
+  var flags = GL_SYNC_FLUSH_COMMANDS_BIT
+  while true:
+    r = gl.clientWaitSync(p.sync, flags, 20_000_000'u64)       # (20 ms at a time)
+    if r != GL_TIMEOUT_EXPIRED: break
+    flags = 0
+    if (getMonoTime() - t0).inSeconds >= 10: break             # (a GPU that never answers)
+  waitNs += (getMonoTime() - t0).inNanoseconds
+  if r != GL_ALREADY_SIGNALED and r != GL_CONDITION_SATISFIED: return false
+  proc mapped(pbo: GLuint; into: proc (px: ptr UncheckedArray[uint32])): bool =
+    gl.bindBuffer(GL_PIXEL_PACK_BUFFER, pbo)
+    let m = gl.mapBufferRange(GL_PIXEL_PACK_BUFFER, 0, c.w * c.h * 4, GL_MAP_READ_BIT)
+    if m != nil:
+      into(cast[ptr UncheckedArray[uint32]](m))
+      result = gl.unmapBuffer(GL_PIXEL_PACK_BUFFER) != 0
+    gl.bindBuffer(GL_PIXEL_PACK_BUFFER, 0)
+  if not mapped(p.pbo, proc (px: ptr UncheckedArray[uint32]) =
+      for y in 0 ..< c.h:
+        copyMem(addr d.comp[(c.y + y) * d.w + c.x], addr px[y * c.w], c.w * 4)):
+    return false
+  if p.flagPbo != 0:
+    readBuf.setLen(c.w * c.h)
+    if not mapped(p.flagPbo, proc (px: ptr UncheckedArray[uint32]) =
+        copyMem(addr readBuf[0], addr px[0], c.w * c.h * 4)):
+      return false
+    fixPixels(d, c, readBuf)
+  true
+
+proc dropReads() =
+  ## (those on their way back, given up: a failure)
+  for p in pending: giveBack(p)
+  pending.setLen(0)
+
 proc runTile(d: Doc; plan: Plan; c: Rect; tx, ty, ts: int): bool =
   ## Part `c` (in tile `tx`, `ty`) made on the GPU and read back into `comp`.
   let gl = gpuGl()
@@ -1399,7 +1551,10 @@ proc runTile(d: Doc; plan: Plan; c: Rect; tx, ty, ts: int): bool =
       let t = fresh()
       if ok and draw(s, t): setSlot(phys[p], t) else: ok = false
   if ok and lvl != 0: ok = false
-  if ok:
+  if ok and canReadAsync():
+    # (read back while the GPU goes on: `runGpu` takes it when the next tile is on its way)
+    ok = queueRead(c, poolFbo[phys[0]], if flagSlot >= 0: poolFbo[flagSlot] else: 0)
+  elif ok:
     # read back into the composite
     readBuf.setLen(c.w * c.h)
     gl.bindFramebuffer(GL_FRAMEBUFFER, poolFbo[phys[0]])
@@ -1487,6 +1642,7 @@ proc runGpu(d: Doc; c: Rect; plan: Plan): bool =
     gl.bufferData(GL_ARRAY_BUFFER, sizeof(quadV), addr quadV[0], GL_STREAM_DRAW)
     gl.vertexAttribPointer(0, 2, GL_FLOAT, 0, 8, nil)
     gl.enableVertexAttribArray(0)
+    waitNs = 0
     for ty in ty0 .. ty1:
       for tx in tx0 .. tx1:
         let part = intersect(c, rect(tx * ts, ty * ts, ts, ts))
@@ -1494,9 +1650,16 @@ proc runGpu(d: Doc; c: Rect; plan: Plan): bool =
         if not runTile(d, plan, part, tx, ty, ts):
           result = false
           break
+        # (the tile before this one taken while the GPU makes this one)
+        while result and pending.len > 1:
+          if not takeRead(d): result = false
       if not result: break
+    while result and pending.len > 0:
+      if not takeRead(d): result = false
     if result and gl.getError() != GL_NO_ERROR: result = false
+    gpuCompositeStats.lastWaitMs = waitNs.float / 1e6
   finally:
+    dropReads()
     gpuEndOffscreen(oldFb)
     bound[0] = 0xFFFFFFFF'u32                       # (units 0 and 1: the frame's again)
     bound[1] = 0xFFFFFFFF'u32

@@ -36,7 +36,14 @@ jobs:
       - uses: actions/checkout@v5
         if: env.HAS_KEY == 'true'
       - uses: jiro4989/setup-nim-action@v2
+        id: setupnim
+        continue-on-error: true   # (a download cut off: tried once more below)
         if: env.HAS_KEY == 'true'
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: jiro4989/setup-nim-action@v2
+        if: env.HAS_KEY == 'true' && steps.setupnim.outcome == 'failure'
         with:
           nim-version: ${{ env.NIM_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}

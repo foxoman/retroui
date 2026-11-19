@@ -18,7 +18,7 @@ var
   stylePick = -1
   styleColorsOn = true
   styleFontsOn = true
-  aiDlg: tuple[open: bool; s: AiSettings; loaded: bool]
+  aiDlg: tuple[open: bool; s: AiSettings; loaded, keyed: bool]
   askDlg: tuple[open: bool; prompt: string; answer: AiAnswer; asked: bool]
   liveSeen: Table[pointer, int]
 
@@ -749,23 +749,15 @@ proc liftSubject(d: Doc) =
 
 # ---- the AI connector ------------------------------------------------------------------------------------------
 
-proc loadAi() =
-  if aiDlg.loaded: return
+proc loadAi(withKey = true) =
+  ## (the key -- kept in the system's keyring -- only asked for when it is wanted: the
+  ## keychain may wait for its password)
+  if aiDlg.loaded and (aiDlg.keyed or not withKey): return
+  aiDlg.s = loadAiSettings(AppData, withKey)
   aiDlg.loaded = true
-  let st = loadSettings(AppData)
-  for k in AiKind:
-    if $k == st.getOrDefault("ai.kind"): aiDlg.s.kind = k
-  aiDlg.s.url = st.getOrDefault("ai.url")
-  aiDlg.s.model = st.getOrDefault("ai.model")
-  aiDlg.s.key = st.getOrDefault("ai.key")
+  aiDlg.keyed = withKey
 
-proc saveAi() =
-  var st = loadSettings(AppData)
-  st["ai.kind"] = $aiDlg.s.kind
-  st["ai.url"] = aiDlg.s.url
-  st["ai.model"] = aiDlg.s.model
-  st["ai.key"] = aiDlg.s.key
-  discard saveSettings(AppData, st)
+proc saveAi(): bool = saveAiSettings(AppData, aiDlg.s)
 
 proc appCommands(): seq[string] =
   ## (every command of the menus, by the names `runCommand` takes -- not those that end the app
@@ -805,7 +797,7 @@ proc aiDialogs() =
       row:
         if button("Disconnect", w = dp(100), enabled = aiDlg.s.connected):
           aiDlg.s = AiSettings()
-          saveAi()
+          discard saveAi()
         spring()
         if button("OK", isDefault = true, w = dp(80)): ok = true
         if button("Cancel", w = dp(80)):
@@ -813,10 +805,11 @@ proc aiDialogs() =
           aiDlg.loaded = false
     if ok:
       aiDlg.open = false
-      saveAi()
-      status = if aiDlg.s.connected: "AI Connector: " & aiDlg.s.model else: "AI Connector: off"
+      status = if not saveAi(): "AI Connector: not kept -- the settings or the keyring could not be written"
+               elif aiDlg.s.connected: "AI Connector: " & aiDlg.s.model
+               else: "AI Connector: off"
   if askDlg.open:
-    loadAi()
+    loadAi(withKey = false)
     var run = false
     dialog(askDlg.open, "Ask AI", 480):
       if not aiDlg.s.connected:
@@ -833,7 +826,9 @@ proc aiDialogs() =
                                  d.current.name & (if d.hasSelection: ", with a selection" else: "")
                     else: "no document open"
           beginBusy("Ask AI")
-          try: askDlg.answer = askAi(aiDlg.s, askDlg.prompt, appCommands(), ctx)
+          try:
+            loadAi()
+            askDlg.answer = askAi(aiDlg.s, askDlg.prompt, appCommands(), ctx)
           finally: endBusy()
           askDlg.asked = true
         if askDlg.asked:

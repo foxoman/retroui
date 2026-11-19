@@ -11,10 +11,14 @@
 ##   if a.error.len == 0:
 ##     for c in a.commands: runCommand(c)
 ##
+## `saveAiSettings`/`loadAiSettings` keep the service for an app: the kind, address and model
+## in its settings, the key in `retroui/secrets` (the system's keyring) -- never in a file
+## anyone can read.
+##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[json, strutils]
-import http
+import http, platform, secrets
 
 type
   AiKind* = enum
@@ -134,9 +138,11 @@ proc askAi*(s: AiSettings; prompt: string; commands: openArray[string]; context 
   commandsOf(text, commands)
 
 proc toJson*(s: AiSettings): JsonNode =
-  %*{"kind": $s.kind, "url": s.url, "model": s.model, "key": s.key, "timeout": s.timeoutSec}
+  ## The service as JSON -- without its key, which `saveAiSettings` keeps in the keyring.
+  %*{"kind": $s.kind, "url": s.url, "model": s.model, "timeout": s.timeoutSec}
 
 proc aiSettingsFrom*(j: JsonNode): AiSettings =
+  ## (a key in `j` -- an older version's -- is read too)
   if j == nil or j.kind != JObject: return
   for k in AiKind:
     if $k == j{"kind"}.getStr: result.kind = k
@@ -144,3 +150,43 @@ proc aiSettingsFrom*(j: JsonNode): AiSettings =
   result.model = j{"model"}.getStr
   result.key = j{"key"}.getStr
   result.timeoutSec = clamp(j{"timeout"}.getInt(0), 0, 600)
+
+const AiKeyName* = "AI key"
+  ## The name the service's key is kept under in `retroui/secrets`, the app's own.
+
+proc saveAiSettings*(app: string; s: AiSettings): bool {.discardable.} =
+  ## Keeps the service for `app`: its kind, address, model and wait in the app's settings
+  ## (`saveSettings`), its key in `retroui/secrets` (an empty key: the one kept is forgotten).
+  ## False when either could not be kept.
+  var st = loadSettings(app)
+  st["ai.kind"] = $s.kind
+  st["ai.url"] = s.url
+  st["ai.model"] = s.model
+  if s.timeoutSec > 0: st["ai.timeout"] = $s.timeoutSec
+  else: st.del "ai.timeout"
+  st.del "ai.key"
+  result = saveSettings(app, st)
+  if s.key.len > 0: result = saveSecret(app, AiKeyName, s.key) and result
+  else: deleteSecret(app, AiKeyName)
+
+proc loadAiSettings*(app: string; withKey = true): AiSettings =
+  ## The service `saveAiSettings` kept for `app` (none: an empty one, not connected). Its key
+  ## is asked of the keyring only `withKey` -- a keychain may wait for its password: ask when
+  ## the key is wanted, not as the window first shows. A key an older version wrote into the
+  ## settings file is moved into the keyring then, and out of the file.
+  var st = loadSettings(app)
+  for k in AiKind:
+    if $k == st.getOrDefault("ai.kind"): result.kind = k
+  result.url = st.getOrDefault("ai.url")
+  result.model = st.getOrDefault("ai.model")
+  try: result.timeoutSec = clamp(parseInt(st.getOrDefault("ai.timeout", "0")), 0, 600)
+  except ValueError: discard
+  if st.hasKey("ai.key"):
+    let old = st["ai.key"]
+    if old.len == 0 or (withKey and saveSecret(app, AiKeyName, old)):
+      st.del "ai.key"
+      discard saveSettings(app, st)
+    if old.len > 0:
+      if withKey: result.key = old
+      return
+  if withKey: result.key = loadSecret(app, AiKeyName)

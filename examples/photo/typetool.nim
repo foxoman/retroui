@@ -6,9 +6,10 @@
 # edits it again.
 
 var
-  typeStyle = CharStyle(family: defaultFamily, style: "Regular", size: 48, color: 0xFF000000'u32,
+  typeStyle = CharStyle(family: DastkhatFamily, style: "Regular", size: 48, color: 0xFF000000'u32,
                         hScale: 1, vScale: 1)
-    ## the Character palette's settings for the next text
+    ## the Character palette's settings for the next text (Dastkhat: Arabic, Persian and Latin
+    ## alike, nine weights -- retroui/dastkhat)
   typePara: ParaStyle               ## ... the Paragraph palette's
   typeAA = true
   te: tuple[on: bool; dw: DocWin; layer: Layer; caret, anchor: int; style: CharStyle; isNew: bool;
@@ -84,6 +85,17 @@ var typeBackToMove* = false  ## the text was taken to be edited by a double-clic
                              ## Move tool: when it is done, the Move tool again
 var typeVertical* = false    ## the Vertical Type tools: new text runs down
 
+proc startsArabic(s: string): bool =
+  ## (its first letter is Arabic: the first strong one, digits and marks passed over)
+  for r in s.toRunes:
+    let c = int(r)
+    if c in 0x0600 .. 0x06FF or c in 0x0750 .. 0x077F or c in 0x08A0 .. 0x08FF or
+       c in 0xFB50 .. 0xFDFF or c in 0xFE70 .. 0xFEFF:
+      if c in 0x064B .. 0x065F or c in 0x0660 .. 0x0669 or c == 0x0670 or c == 0x0640: continue
+      return true
+    if c in 0x41 .. 0x5A or c in 0x61 .. 0x7A or c in 0xC0 .. 0x24F: return false
+  false
+
 proc commitType() =
   ## The text edited is done (one undo step); an empty new one is dropped.
   if not te.on: return
@@ -119,6 +131,15 @@ proc commitType() =
     return
   else:
     if te.autoName: L.name = L.text.layerName
+    if te.isNew and startsArabic(L.text.plainText):
+      # (new text that starts in Arabic: its language Arabic where none was chosen -- not English)
+      var t = L.text
+      var changed = false
+      for sp in t.spans.mitems:
+        if sp.style.lang.len == 0:
+          sp.style.lang = "ar"
+          changed = true
+      if changed: d.setText(L, t)
     if L.text.notes.len > 0 or L.text.noteMarks.len > 0:
       # (notes whose references were deleted go; the rest in the order of their references)
       var t = L.text

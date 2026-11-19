@@ -9,10 +9,18 @@ var
   gf: tuple[open: bool; search: string; cat: int; sel: int; name: string; msg: string; ok: bool]
   gfJob: Job[tuple[files: int; error: string]]
   gfFam = ""                           ## (the family being fetched)
+  gfGot = 0                            ## (how many downloads ended: the list's "[installed]" again)
+  gfList: tuple[key: string; shown: seq[GoogleFont]; names: seq[string]]
 
 const gfCats = ["All", "Arabic", "Sans Serif", "Serif", "Display", "Handwriting", "Monospace"]
 
 proc fontsFolder(): string = dataDir(AppData) / "Fonts"
+
+var catalog: seq[GoogleFont]
+proc fontCatalog(): seq[GoogleFont] =
+  ## (all of Google Fonts' families, read once)
+  if catalog.len == 0: catalog = googleFontCatalog()
+  catalog
 
 proc startGetFonts() =
   gf.open = true
@@ -20,6 +28,7 @@ proc startGetFonts() =
 
 proc gotFont(fam: string) =
   ## (the download ended: the fonts it brought put in the lists, or why not)
+  inc gfGot
   let low = fam.toLowerAscii
   if gfJob.failed:
     gf.msg = gfJob.error
@@ -53,7 +62,7 @@ proc getFontsNow(family: string) =
   let fam = family.strip
   if fam.len == 0 or gfJob.running: return
   var arabic = false
-  for f in googleFontList:
+  for f in fontCatalog():
     if f.family.toLowerAscii == fam.toLowerAscii: arabic = f.arabic
   let low = fam.toLowerAscii
   if "arabic" in low or "kufi" in low or "naskh" in low: arabic = true
@@ -73,22 +82,32 @@ proc getFontsNow(family: string) =
 proc getFontsDialog() =
   if not gf.open: return
   dialog(gf.open, "Get Google Fonts", 460):
-    paragraph("Free fonts from Google Fonts (open licenses), fetched once onto this device.",
-              color = ui.theme.gray)
+    paragraph("Every family of Google Fonts, the Arabic ones first: open licenses, fetched once onto " &
+              "this device.", color = ui.theme.gray)
     row([-1, 130]):
       edit gf.search
       discard combo(gfCats, gf.cat, w = dp(130))
-    var shown: seq[GoogleFont]
     let q = gf.search.strip.toLowerAscii
-    for f in googleFontList:
-      if gf.cat > 0 and f.category != gfCats[gf.cat] and not (gf.cat == 1 and f.arabic): continue
-      if q.len > 0 and q notin f.family.toLowerAscii: continue
-      shown.add f
-    var names: seq[string]
-    let dir = fontsFolder()
-    for f in shown:
-      names.add (if isInstalled(dir, f.family): "[installed] " else: "") & f.family & "  -- " & f.category &
-                (if f.arabic and f.category != "Arabic": ", Arabic" else: "")
+    let key = q & "|" & $gf.cat & "|" & $gfGot
+    if gfList.key != key or gfList.names.len == 0:
+      # (made again when the search, the kind or what is installed changed: not every frame,
+      # the whole of Google Fonts and a look in the folder for each)
+      gfList.key = key
+      gfList.shown.setLen(0)
+      gfList.names.setLen(0)
+      let dir = fontsFolder()
+      var there: seq[string]
+      for kind, d in walkDir(dir):
+        if kind == pcDir: there.add d.extractFilename
+      for f in fontCatalog():
+        if gf.cat > 0 and f.category != gfCats[gf.cat] and not (gf.cat == 1 and f.arabic): continue
+        if q.len > 0 and q notin f.family.toLowerAscii: continue
+        gfList.shown.add f
+        let got = f.family.replace(" ", "") in there and isInstalled(dir, f.family)
+        gfList.names.add (if got: "[installed] " else: "") & f.family & "  -- " & f.category &
+                         (if f.arabic and f.category != "Arabic": ", Arabic" else: "")
+    template shown: untyped = gfList.shown        # (not copied every frame)
+    template names: untyped = gfList.names
     gf.sel = clamp(gf.sel, -1, names.high)
     listbox(names, gf.sel, rows = 10)
     let busyNow = gfJob.running

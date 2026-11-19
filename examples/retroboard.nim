@@ -23,7 +23,7 @@ import retroui/[board, freehand]
 
 const
   AppName = "Retro Board"
-  BoardVersion = "1.5.1"
+  BoardVersion = "1.6.0"
   iconPng = staticRead("assets/board-icon.png")
 
 type
@@ -768,6 +768,29 @@ proc unlockAll() =
   bd.change("Unlock All"):
     for s in bd.page.shapes:
       if s.locked: bd.update(s.id, proc (t: var Shape) = t.locked = false)
+
+var tidy: tuple[on: bool; t0: int; moves: seq[tuple[id: int; dx, dy: float]]; done: float]
+  ## (Arrange > Tidy Up by Arrows: the shapes going to their places, one step to undo)
+
+proc startTidy() =
+  ## The shapes arrows join laid out as a graph (the picked ones, or all), gliding there.
+  let moves = bd.linkedLayout(if sel.len > 1: sel else: @[])
+  if moves.len == 0:
+    status = "No arrow joins two shapes" & (if sel.len > 1: " of those picked" else: "")
+    return
+  bd.begin("Tidy Up")
+  tidy = (true, ui.now, moves, 0.0)
+
+proc stepTidy() =
+  ## (each frame while they move; a click or a key: there at once)
+  if not tidy.on: return
+  let e = if ui.pressed or ui.key != KeyNone: 1.0 else: easedSince(tidy.t0, 450)
+  for m in tidy.moves: bd.moveShapes([m.id], m.dx * (e - tidy.done), m.dy * (e - tidy.done))
+  tidy.done = e
+  if e >= 1:
+    bd.commit()
+    tidy.on = false
+    status = "Tidied up: " & $tidy.moves.len & " shapes"
 
 proc arrange(how: string) =
   if sel.len == 0: return
@@ -2966,6 +2989,7 @@ proc mainMenu() =
           bd.change("Distribute"): bd.distribute(sel, true)
         if menuItem("&Vertically", enabled = sel.len > 2):
           bd.change("Distribute"): bd.distribute(sel, false)
+      if menuItem("&Tidy Up by Arrows", enabled = not tidy.on): startTidy()
       if menuItem("Flip &Horizontal", "Shift+H", enabled = some):
         bd.change("Flip"): bd.flipShapes(sel, true)
       if menuItem("Flip &Vertical", "Shift+V", enabled = some):
@@ -3373,7 +3397,9 @@ proc dialogs() =
             "on as many pages as you like.",
             "Made with Retro Nim UI " & RetroVersion & " (retroui/board, retroui/freehand)."],
            tagline = "Draw, sketch and think together", iconPng = iconPng,
-           whatsNew = ["1.5.1: text shared from another app comes as a note, a picture as a picture",
+           whatsNew = ["1.6.0: Arrange > Tidy Up by Arrows -- the shapes arrows join laid out as a graph " &
+                       "that settles, gliding into place, one step to undo",
+                       "1.5.1: text shared from another app comes as a note, a picture as a picture",
                        "1.5.0: zoomed in on thousands of notes it keeps moving -- the drawings " &
                        "still to make are drawn in brief for a frame or two, then in full; Next step " &
                        "pressed while an empty text was typed in no longer closes it",
@@ -3465,6 +3491,7 @@ proc boardFrame() =
       cancelClose()
       askQuit = true
   captionBar()                     # (phones and tablets: the 3.1 title bar, navy)
+  stepTidy()
   mainMenu()
   if showStatus: statusLine()
   cleanSel()

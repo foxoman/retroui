@@ -90,6 +90,28 @@ var memFonts: seq[tuple[entry: FontEntry; ticket: int; face: Face]]
   ## (a packed one: unpacked on a thread from when it is offered, `unpacking`)
   ## Fonts an app (or a module) carries in itself (`addFontData`).
 
+var fileFonts: seq[FontEntry]
+  ## Font files offered one by one (`addFontFile`): a folder of the user's own.
+
+var fontReader*: proc (path: string): string {.nimcall, gcsafe.}
+  ## Reads a font the program cannot open by its path -- a phone's folder given through its
+  ## picker ("<doc:...>", `retroui/fontfolders`) --: its bytes ("" when it is not there).
+
+proc addFontFile*(family, style, path: string; weight = 400; italic = false; index = 0) =
+  ## Offers a font file as `family` / `style` without reading it now: read the first time it
+  ## draws (a path starting with "<" through `fontReader`). Again with the same family, style
+  ## and path: nothing.
+  for e in fileFonts:
+    if e.family == family and e.style == style and e.path == path: return
+  let e = FontEntry(family: family, style: style, path: path, index: index, weight: weight, italic: italic)
+  fileFonts.add e
+  if scanned: catalog.add e
+
+proc dropFontFiles*(prefix: string) =
+  ## Lets go of the font files offered whose path starts with `prefix` (a folder taken away).
+  fileFonts.keepItIf(not it.path.startsWith(prefix))
+  if scanned: catalog.keepItIf(not (it.path.startsWith(prefix) and it.path.len > 0))
+
 proc addFontData*(family, style: string; data: string; packed = false; weight = 400; italic = false) =
   ## Offers a font the program carries -- its bytes (`packed`: zlib or
   ## LZMA compressed, as `staticRead` of a ".ttf.z", unpacked on a thread
@@ -127,6 +149,7 @@ proc builtinEntries(): seq[FontEntry] =
       result.add FontEntry(family: name, style: st, builtin: id, weight: wt, italic: it)
   for m in memFonts:
     if m.entry.family.len > 0: result.add m.entry     # (not one let go: `dropFontData`)
+  for e in fileFonts: result.add e
 
 const formerFonts = [("DejaVu Sans", "FreeSans"), ("DejaVu Sans Mono", "FreeMono"), ("Amiri", "FreeSerif"),
                      ("Retro Sans", "FreeSans"), ("MS W98 UI", "FreeSans"), ("Open Sans", "FreeSans"),
@@ -166,6 +189,13 @@ proc addFontDir*(dir: string) =
   ## Fonts in `dir` (and below) are offered too (an app's own fonts).
   if dir notin extraDirs:
     extraDirs.add dir
+    scanned = false
+
+proc removeFontDir*(dir: string) =
+  ## Fonts in `dir` are no longer offered (a font folder taken away; next `scanFonts`).
+  let i = extraDirs.find(dir)
+  if i >= 0:
+    extraDirs.delete(i)
     scanned = false
 
 proc scanDirs(dirs: seq[string]): seq[FontEntry] =
@@ -215,6 +245,12 @@ proc scanFontsSoon*() =
     scanSoon = 1
     createThread(scanThread, scanWork, scanSoonDirs)
 
+var
+  instCache: Table[string, seq[tuple[name: string; coords: seq[(string, float)]]]]
+    ## (a variable font's named instances, by its file)
+  varStyles: Table[string, Face]
+    ## (a variable font's face for a style it has as an instance or a weight; nil: not variable)
+
 proc scanFonts*(force = false) =
   ## Looks through the font folders (once; again with `force`).
   if scanned and not force: return
@@ -222,6 +258,8 @@ proc scanFonts*(force = false) =
   if force:
     loaded.clear()                    # (files fetched or replaced since: read again)
     unreadable.clear()
+    instCache.clear()
+    varStyles.clear()
   catalog = builtinEntries()
   var seen: Table[string, bool]
   for e in catalog: seen[e.family & "/" & e.style] = true
@@ -278,6 +316,8 @@ proc dropFontData*(family: string) =
   carriedFor = -1
   # (its outlines, kept by where its face was: a face made later may be there)
   outlineCache.clear()
+  instCache.clear()
+  varStyles.clear()
 
 proc fontFamilies*(): seq[string] =
   ## The families there are, the built-in ones first, the rest by name.
@@ -291,8 +331,26 @@ proc fontFamilies*(): seq[string] =
   rest.sort(proc (a, b: string): int = cmpIgnoreCase(a, b))
   result.add rest
 
+proc entryFace(e: FontEntry): Face
+
+proc styleWeight*(style: string): int =
+  ## The weight a style's name says: Thin 100 .. Black 900 (0: it does not say).
+  let s = style.toLowerAscii.replace(" ", "").replace("-", "")
+  for (word, w) in [("extralight", 200), ("ultralight", 200), ("semibold", 600), ("demibold", 600),
+                    ("extrabold", 800), ("ultrabold", 800), ("hairline", 100), ("thin", 100),
+                    ("light", 300), ("regular", 400), ("normal", 400), ("book", 400),
+                    ("medium", 500), ("bold", 700), ("black", 900), ("heavy", 900)]:
+    if word in s: return w
+  0
+
+proc instancesOf(e: FontEntry; f: Face): seq[tuple[name: string; coords: seq[(string, float)]]] =
+  let key = e.path & "#" & $e.index & "#" & e.family
+  if key notin instCache: instCache[key] = (if f.axes.len > 0: f.instances else: @[])
+  instCache[key]
+
 proc fontStyles*(family: string): seq[string] =
-  ## The styles of a family ("Regular", "Bold", "Italic"...), lighter first.
+  ## The styles of a family ("Regular", "Bold", "Italic"...), lighter first; a variable font
+  ## alone in its family: its named instances (Thin .. Black).
   let own = not scanned and carriedEntries(family)
   if not own: scanFonts()
   var es: seq[FontEntry]
@@ -302,6 +360,11 @@ proc fontStyles*(family: string): seq[string] =
     result = cmp(a.weight, b.weight)
     if result == 0: result = cmp(ord(a.italic), ord(b.italic)))
   for e in es: result.add e.style
+  if es.len == 1:
+    for ins in instancesOf(es[0], entryFace(es[0])):
+      if ins.name notin result: result.add ins.name
+    if result.len > 1:
+      result.sort(proc (a, b: string): int = cmp(styleWeight(a), styleWeight(b)))
   if result.len == 0: result = @["Regular"]
 
 proc entryFace(e: FontEntry): Face =
@@ -310,7 +373,8 @@ proc entryFace(e: FontEntry): Face =
   let key = e.path & "#" & $e.index
   if loaded.hasKey(key): return loaded[key]
   try:
-    result = parseFace(readFile(e.path), e.index)
+    let data = if e.path.startsWith("<") and fontReader != nil: fontReader(e.path) else: readFile(e.path)
+    result = parseFace(data, e.index)
   except CatchableError, Defect:
     # (drawn in FreeSans instead -- and said: `fontProblem`)
     let x = getCurrentException()
@@ -378,7 +442,24 @@ proc fontFace*(family, style: string): tuple[face: Face; fauxBold, fauxItalic: b
     let id = styled(fSans, wantBold, wantItalic)
     return (face(id), fauxStyle(id).bold, fauxStyle(id).italic)
   let e = list[][best]
-  (entryFace(e), wantBold and e.weight < 600, wantItalic and not e.italic)
+  let f = entryFace(e)
+  if style != e.style:
+    # (a variable font: the style one of its named instances, or a weight its wght axis has --
+    # worked out once for each font and style)
+    let key = e.path & "#" & $e.index & "#" & e.family & "#" & style
+    var v = varStyles.getOrDefault(key)
+    if key notin varStyles:
+      if f.axes.len > 0:
+        for ins in instancesOf(e, f):
+          if cmpIgnoreCase(ins.name.replace(" ", ""), style.replace(" ", "")) == 0:
+            v = f.variation(ins.coords)
+        let w = styleWeight(style)
+        if v == nil and w > 0:
+          for a in f.axes:
+            if a.tag == "wght": v = f.variation([("wght", clamp(w.float, a.minV, a.maxV))])
+      varStyles[key] = v
+    if v != nil: return (v, false, wantItalic and not e.italic)
+  (f, wantBold and e.weight < 600, wantItalic and not e.italic)
 
 # ---- styles -------------------------------------------------------------------------------------------------
 
@@ -2689,8 +2770,9 @@ proc layoutPlain(t: TextData): TextLayout =
           let j = k + clamp(g.cluster, 0, e - k - 1)
           let sc = chars[j].size / em
           chars[j].parts.add GlyphPart(gid: g.gid,
-                                       mark: fc.placesMark(g.gid) or
-                                             (g.xAdv == 0 and j + 1 < e and isMark(chars[j + 1].cp)),
+                                       # (tashkeel: what a combining mark made -- not the dots and
+                                       # hamza a font builds its letters from, mark glyphs too)
+                                       mark: g.fromMark,
                                        dx: float32(g.xOff) * sc * st.hScale,
                                        dy: float32(g.yOff) * sc * st.vScale, adv: float32(g.xAdv) * sc * st.hScale)
         for j in k ..< e:

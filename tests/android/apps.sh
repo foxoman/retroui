@@ -93,8 +93,10 @@ back() {
   adb shell am start -n "$act" < /dev/null > /dev/null 2>&1
   sleep 4
 }
+appNo=0
 while read -r pkg apk; do
   [ -z "$pkg" ] && continue
+  appNo=$((appNo + 1))
   name=$(basename "$apk" .apk)
   echo "== $name ($pkg)"
   online || echo "(the emulator is offline)"
@@ -144,16 +146,19 @@ while read -r pkg apk; do
   # menus) and the on-screen keyboard (it comes for a box tapped, the box
   # above it, it goes with the focus)
   if [ -z "$bad" ] && [ -x build/tour ]; then
+    # (a port of its own: an app before it that lives on -- frozen in the background by Android,
+    # holding its port -- would take the connection and never answer)
+    port=$((7000 + appNo))
     adb shell am force-stop "$pkg" < /dev/null
     act=$(adb shell cmd package resolve-activity --brief -c android.intent.category.LAUNCHER "$pkg" \
           < /dev/null 2>/dev/null | tr -d '\r' | tail -1)
-    adb shell am start -W -n "$act" --es RETRO_DRIVE 7000 < /dev/null > /dev/null 2>&1
-    adb forward tcp:7000 tcp:7000 < /dev/null > /dev/null 2>&1
+    adb shell am start -W -n "$act" --es RETRO_DRIVE $port < /dev/null > /dev/null 2>&1
+    adb forward tcp:$port tcp:$port < /dev/null > /dev/null 2>&1
     sleep 5
-    build/tour --port 7000 --name "$name" --touch --keyboard < /dev/null > "$out/$name-tour.txt" 2>&1
+    build/tour --port $port --name "$name" --touch --keyboard < /dev/null > "$out/$name-tour.txt" 2>&1
     tour=$?
     cat "$out/$name-tour.txt"
-    adb forward --remove tcp:7000 < /dev/null > /dev/null 2>&1
+    adb forward --remove tcp:$port < /dev/null > /dev/null 2>&1
     [ $tour -ne 0 ] && bad="its driven tour failed (see above)"
     [ -z "$bad" ] && ! alive "$pkg" && { bad="it closed while driven"; why "$pkg" "$bad"; }
   fi
@@ -212,7 +217,15 @@ while read -r pkg apk; do
   else
     echo "ok   $name"
   fi
+  adb shell am force-stop "$pkg" < /dev/null > /dev/null 2>&1
   adb uninstall "$pkg" < /dev/null >/dev/null 2>&1
+  # (what the app may have opened over itself and left -- the system's file picker its File >
+  # Open showed, a share sheet -- closed, and back home: else the next app starts behind it,
+  # paused, drawing no frame, and its driver never answers)
+  for other in com.android.documentsui com.google.android.documentsui com.android.intentresolver; do
+    adb shell am force-stop "$other" < /dev/null > /dev/null 2>&1
+  done
+  adb shell input keyevent KEYCODE_HOME < /dev/null > /dev/null 2>&1
 done < "$list"
 echo "apps on Android: $failed failed"
 exit $failed

@@ -370,7 +370,9 @@ proc keyringWait() =
              detail = if waited > 3000: "Waiting for the system's keyring, where its key is kept: it may " &
                                         "be asking for its password."
                       else: "")
-  wakeIn(100)
+  # (looked at four times a second, then -- a keyring that takes its time -- once a second: an
+  # app left alone waiting for a keychain that never answers is not busy)
+  wakeIn(if waited < 1000: 250 else: 1000)
 
 proc mailFrame() =
   handleEvents()

@@ -42,6 +42,16 @@ proc vpnStatus*(): VpnStatus =
   result.error = f[7]
   if f.len > 9: result.memKb = toInt(f[9])
 
+proc vpnRecent*(): seq[tuple[app, name: string; count, agoMs: int]] =
+  ## What the VPN looked up lately, the newest last: which app asked (its package; "" before
+  ## Android 10, which does not say), the name, how often, how long ago.
+  if not javaAvailable(): return
+  let s = javaStatic(VpnClass, "recent", jactivity())
+  if javaError().len > 0: return
+  for line in s.splitLines:
+    let f = line.split('\t')
+    if f.len >= 4: result.add (f[0], f[1], toInt(f[2]), toInt(f[3]))
+
 proc vpnAllowed*(): bool =
   ## Android has allowed this app's VPN already (no dialog on connect).
   javaAvailable() and javaStatic(VpnClass, "prepared", jactivity()) == "true"

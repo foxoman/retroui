@@ -62,7 +62,47 @@ const googleFontList*: seq[GoogleFont] = @[
   ("Fira Code", "Monospace", false), ("JetBrains Mono", "Monospace", false), ("IBM Plex Mono", "Monospace", false),
   ("Source Code Pro", "Monospace", false), ("Space Mono", "Monospace", false), ("Courier Prime", "Monospace", false),
   ("Special Elite", "Monospace", false)]
-  ## Families worth having, by kind.
+  ## Families worth having, by kind (`googleFontCatalog`: all of them).
+
+const catalogText = staticRead("googlefontlist.txt")
+  ## (every family of Google Fonts: "Name|kind|a" a line -- tools/gengooglefonts.py)
+
+proc googleFontCatalog*(): seq[GoogleFont] =
+  ## Every family Google Fonts has (1,908 when the list was made) -- those
+  ## with Arabic letters first, then the well-liked ones of `googleFontList`,
+  ## then the rest by name. A family that came later is fetched by its name
+  ## all the same (`installGoogleFont`).
+  var all: seq[GoogleFont]
+  for line in catalogText.splitLines:
+    let p = line.split('|')
+    if p.len < 2 or p[0].len == 0: continue
+    let kind = case p[1]
+               of "r": "Serif"
+               of "d": "Display"
+               of "h": "Handwriting"
+               of "m": "Monospace"
+               else: "Sans Serif"
+    all.add (p[0], kind, p.len > 2 and p[2] == "a")
+  proc arabicOf(fam: string; was: bool): bool =
+    for f in all:
+      if f.family == fam: return f.arabic
+    was
+  var seen: seq[string]
+  # the Arabic ones: those picked first, in their order, then the others by name
+  for f in googleFontList:
+    if f.category == "Arabic" or arabicOf(f.family, f.arabic):
+      result.add (f.family, f.category, true)
+      seen.add f.family
+  for f in all:
+    if f.arabic and f.family notin seen:
+      result.add f
+      seen.add f.family
+  for f in googleFontList:
+    if f.family notin seen:
+      result.add (f.family, f.category, arabicOf(f.family, f.arabic))
+      seen.add f.family
+  for f in all:
+    if f.family notin seen: result.add f
 
 type
   FontFetchHooks* = object

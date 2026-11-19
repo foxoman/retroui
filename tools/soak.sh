@@ -26,7 +26,7 @@ set -u
 mins=${1:-60}
 [ $# -gt 0 ] && shift
 # (Retro Board starts a new board past 400 shapes, Retro Navigator keeps
-# 8 tabs at most and Retro Atelier 4 images of 40 layers at most under the
+# 8 tabs at most and Retro Atelier 4 images of 40 layers, 256 MB of layers, at most under the
 # random input: what they hold does not grow without end -- `smokeOn`. Navigator shows its pages with the kit's engine
 # here, RETRO_WEB=kit: under random input WebKitGTK's own memory grows,
 # 20 MB a minute in the app's process, with or without the kit)
@@ -87,7 +87,14 @@ for app in $apps; do
       printf "%s\t%.1f\t%.1f\t%.1f\t%+.1f\t%d\t%s\n", app, early / 1024, late / 1024, most / 1024, grew, code, verdict
     }' "$out/$app.mem")
   echo "$line" | tee -a "$out/results.txt"
-  case "$line" in *FAIL*|*"too few"*) failed="$failed $app" ;; esac
+  case "$line" in
+    *FAIL*|*"too few"*)
+      failed="$failed $app"
+      # (what it said last -- a fault's trace, the memory log's last lines --
+      # in this log too: a CI's own files are not always reachable)
+      echo "-- the end of $out/$app-run.txt:"
+      tail -n 60 "$out/$app-run.txt" | cut -c1-300 ;;
+  esac
 done
 {
   echo "| App | Half way in | At the end | Most | Grew | Exit | |"

@@ -15,6 +15,7 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.drawable.Icon;
+import android.net.ConnectivityManager;
 import android.net.VpnService;
 import android.os.Binder;
 import android.os.Build;
@@ -88,7 +89,8 @@ public final class DnsVpn extends VpnService implements Runnable {
   static final int NOTICE = 1;
   static final int ASK = 0x5d01;                       // (the consent dialog's request)
   static final int ASK_NOTICES = 0x5d02;               // (the notification permission's)
-  static final int STATUS = 1;                         // (the Binder's one call)
+  static final int STATUS = 1;                         // (the Binder's calls: how it goes,
+  static final int RECENT = 2;                         //  what was looked up lately)
 
   // ---- the VPN's process: what status() reports ----
   static volatile DnsVpn current;
@@ -101,6 +103,9 @@ public final class DnsVpn extends VpnService implements Runnable {
   static final AtomicLong failed = new AtomicLong();
   static final AtomicLong msTotal = new AtomicLong();
   static long pssKb, pssAt;
+  // what was looked up lately: "app\tdomain" -> {how often, when last}, the oldest let go
+  static final java.util.LinkedHashMap<String, long[]> recent = new java.util.LinkedHashMap<String, long[]>();
+  static final int RECENT_MOST = 300;
 
   private volatile Upstream upstream;
   private volatile ParcelFileDescriptor tun;
@@ -386,6 +391,10 @@ public final class DnsVpn extends VpnService implements Runnable {
     return new Binder() {                     // the app asking how it goes
       @Override
       protected boolean onTransact(int code, Parcel data, Parcel reply, int flags) {
+        if (code == RECENT) {
+          reply.writeString(recentText());
+          return true;
+        }
         if (code != STATUS) return false;
         reply.writeString(localStatus());
         return true;
@@ -562,7 +571,69 @@ public final class DnsVpn extends VpnService implements Runnable {
     } catch (RejectedExecutionException e) { }
   }
 
+  /** The name a query asks for ("" when it cannot be read): its labels, dotted. */
+  static String qname(byte[] q) {
+    StringBuilder b = new StringBuilder();
+    int i = 12;
+    while (i < q.length) {
+      int n = q[i] & 255;
+      if (n == 0) break;
+      if (n > 63 || i + 1 + n > q.length) return "";          // (a pointer, or cut short)
+      if (b.length() > 0) b.append('.');
+      for (int k = 0; k < n; k++) {
+        int c = q[i + 1 + k] & 255;
+        b.append(c > 32 && c < 127 ? Character.toLowerCase((char) c) : '?');
+      }
+      i += 1 + n;
+    }
+    return b.toString();
+  }
+
+  /** Which app asked (its package; "" when Android does not say: before Android 10). */
+  private String askedBy(byte[] client, int clientPort, byte[] us) {
+    if (Build.VERSION.SDK_INT < 29) return "";
+    try {
+      ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+      int uid = cm.getConnectionOwnerUid(17,
+          new java.net.InetSocketAddress(java.net.InetAddress.getByAddress(client), clientPort),
+          new java.net.InetSocketAddress(java.net.InetAddress.getByAddress(us), 53));
+      if (uid < 0) return "";
+      String name = getPackageManager().getNameForUid(uid);
+      return name == null ? "" : name;
+    } catch (Throwable e) {
+      return "";
+    }
+  }
+
+  /** A lookup noted for the app's picture of what this phone reaches. */
+  private void note(byte[] q, byte[] client, int clientPort, byte[] us) {
+    String name = qname(q);
+    if (name.length() == 0) return;
+    String key = askedBy(client, clientPort, us) + "\t" + name;
+    synchronized (recent) {
+      long[] c = recent.remove(key);                // (to the end: the newest last)
+      if (c == null) c = new long[2];
+      c[0]++;
+      c[1] = System.currentTimeMillis();
+      recent.put(key, c);
+      while (recent.size() > RECENT_MOST) recent.remove(recent.keySet().iterator().next());
+    }
+  }
+
+  /** What was looked up lately, the newest last: "app\tdomain\tcount\tms ago" a line. */
+  static String recentText() {
+    StringBuilder b = new StringBuilder();
+    long now = System.currentTimeMillis();
+    synchronized (recent) {
+      for (java.util.Map.Entry<String, long[]> e : recent.entrySet())
+        b.append(e.getKey()).append('\t').append(e.getValue()[0]).append('\t')
+         .append(now - e.getValue()[1]).append('\n');
+    }
+    return b.toString();
+  }
+
   private void answer(Upstream u, byte[] q, byte[] client, int clientPort, byte[] us) {
+    try { note(q, client, clientPort, us); } catch (Throwable e) { }
     long t0 = System.nanoTime();
     byte[] r;
     try {
@@ -806,12 +877,21 @@ public final class DnsVpn extends VpnService implements Runnable {
     }
   }
 
-  static String askVpn() {
+  /** What the VPN looked up lately (`recentText`), "" when it is not on. */
+  public static String recent(Context c) {
+    bind(c);
+    String s = askVpn(RECENT);
+    return s == null ? "" : s;
+  }
+
+  static String askVpn() { return askVpn(STATUS); }
+
+  static String askVpn(int code) {
     IBinder b = remote;
     if (b == null) return null;
     Parcel d = Parcel.obtain(), r = Parcel.obtain();
     try {
-      return b.transact(STATUS, d, r, 0) ? r.readString() : null;
+      return b.transact(code, d, r, 0) ? r.readString() : null;
     } catch (Throwable e) {
       remote = null;                          // (its process ended)
       return null;

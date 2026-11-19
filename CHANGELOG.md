@@ -1,5 +1,163 @@
 # Changes
 
+## 0.63.0
+
+Movement and graphs in the kit -- springs that keep their speed, boxes
+that come and go, rows that glide, a box thrown to a point, a graph that
+lays itself out (Retro Board tidies a mind map by its arrows, Retro DNS
+shows what the phone reached) -- and UI steps that wait written one after
+another (`retroui/flows`: Retro Atelier's close asks, saves and closes in
+one go). Any app scripted and pictured from the command line. In Retro
+Atelier 5.8: new text in Dastkhat (Arabic, Persian and Latin, nine
+weights), font folders of your own on every system, every Google Fonts
+family, Arabic in fonts that build letters from dots drawn right, a report
+when a PSD opens, the AI key in the keyring, the GPU's results read back
+while it works. A label stays with its field when a row wraps.
+
+- **Arabic in fonts that build their letters from dots** (Reem Kufi and
+  the other fonts that make ب ت ي ق from a dotless letter and dot glyphs):
+  the tashkeel's own color, its raise and "without tashkeel" took those
+  dots for tashkeel -- raised, the dots under ي and ب went into the
+  letter's ink and those over ق floated with the marks. Tashkeel is now
+  what a combining mark made (`ShapedGlyph.fromMark`, from the character
+  the glyph came from, as HarfBuzz keeps it), the dots stay with their
+  letter. Reem Kufi's shaping checked against HarfBuzz: 209 runs more in
+  `test_otshape` (the test lines, letters and tashkeel at random), all the
+  same glyph for glyph.
+- **Retro Atelier**: new text that starts in Arabic takes Arabic as its
+  language (it was English: USA); a language chosen is kept.
+- **The AI service's key in the system's keyring** (`retroui/aiconnect`:
+  `saveAiSettings`, `loadAiSettings`): Retro Atelier's AI Connector wrote
+  the key into its settings file in plain text. The settings keep the
+  service, its address and model; the key is in `retroui/secrets` (the
+  keychain, the desktop's keyring, DPAPI, sealed on a phone and in a web
+  page), asked for only when it is wanted, and a key an older version
+  left in the file is moved over then. `toJson` leaves the key out.
+- **Any app scripted and pictured from the command line**
+  (`retroui/drive`): `RETRO_SCRIPT="click:Add;type:Milk;key:ctrl+s;wait:Saved"`
+  runs the steps as the app starts -- no port, unlike `RETRO_DRIVE` --;
+  `RETRO_SNAPSHOT=out.png` keeps the window in memory and writes its
+  picture once they are done and the app is at rest, then ends it (1: a
+  step failed, saying which; 2: not a script); `RETRO_PLAY` plays them in
+  the window at a person's pace, a dot where each click lands, letters
+  typed one at a time -- for films and GIFs of a feature. After nanoui's
+  `--nanoui-script`, `--nanoui-snapshot`, `--nanoui-play`. `test_script`.
+- **Flows that wait** (`retroui/flows`): UI steps that wait -- a question
+  (`ask`), a file picked (`pickFile`), a job on a worker (`onWorker`), a
+  condition (`waitUntil`), a pause, the next frame -- written one after
+  another as a plain proc reads (`flow(name): ...`), not as state kept
+  across frames: a closure iterator taken on at the end of a frame once
+  what it waits for has come; `return` ends it; `ownedFlow(owner, ...)` and
+  `cancelFlows(owner)` drop a closed window's; a flow that fails is ended
+  and its fault logged. The shape of Nimony's `.passive` procs on Nim 2.
+  **Retro Atelier**'s closing with changes not saved is one: asked, saved
+  -- Save As waited for, the document closing once it is saved (it stayed
+  open before: a second Close was needed) --, closed; quitting asks each
+  document in turn, Cancel stops it. `test_flows` (Nim 2.2 and 2.4).
+- **Font folders of your own** (`retroui/fontfolders`: `useFontFolders`,
+  `fontFoldersPanel`): a folder of fonts the user keeps, its fonts in every
+  font list -- on a desktop by its path, looked through again when it
+  changes; on Android picked through the system's folder picker, the right
+  kept for good, its fonts listed once and read through the documents
+  provider the first time they draw; on iOS a bookmark of the folder picked
+  in Files; in a web page font files chosen, kept in the page's storage.
+  Retro Atelier: Preferences > Type > Your Font Folders (Add, Remove,
+  Refresh). The text engine takes font files one by one, read when first
+  drawn (`addFontFile`, `fontReader`, `dropFontFiles`, `removeFontDir`);
+  `faceInfo` reads an open file. `test_fontfolders`.
+- **Dastkhat, new text's font in Retro Atelier** (`retroui/dastkhat`:
+  `carryDastkhat`): Arabic -- its kaf and yeh --, Persian and Latin in one
+  font (from Vazirmatn, its Latin from Roboto; SIL Open Font License), nine
+  weights from Thin to Black in one variable font, 160 KB packed; scripts
+  it has not are drawn in the kit's fonts. Its shaping checked against
+  HarfBuzz. **A variable font's weights are styles of its family**
+  (`fontStyles`: its named instances; `fontFace(family, "SemiBold")` drawn
+  at that weight by its axis, not made bold from Regular; `styleWeight`),
+  and a PDF gets such a weight's own outlines, not the file's default ones
+  (`canEmbed`, `isInstance`).
+- **Graphs that lay themselves out** (`retroui/forcelayout`,
+  `retroui/forcegraph`): `ForceGraph` -- nodes push each other away and
+  keep out of each other's room, links pull their ends to a length, a
+  gentle pull to the middle, cooling until it settles (as d3-force does);
+  the push among neighbours only, in a grid, so 1,500 nodes settle in a
+  moment; a node linked to one there is starts a link's length from it, so
+  a tree starts unfolded; the same layout every time. `graphView` shows one
+  -- dots with labels or boxes (a mind map) -- a fixed step at a time while
+  it moves; a node clicked is selected, dragged it stays where it is held
+  while the others make room; each node a list item for a screen reader.
+  **Retro Board**: Arrange > Tidy Up by Arrows lays out the shapes arrows
+  join, gliding there, one step to undo (`linkedLayout`). **Retro DNS**: on
+  Android, what the phone reached -- each app joined to the sites it looked
+  up in the last two minutes, live (the VPN notes each lookup's name and,
+  from Android 10, its app). The gallery's Forms & Code > Graph page;
+  `test_forcegraph`, `test_board`.
+- **Motion** (`retroui/motion`): `sprung` -- a spring that, sent somewhere
+  else half way, turns with the speed it has (`springSmooth`,
+  `springSnappy`, `springBouncy`), the same at any frame rate; `presence`
+  -- a box that comes in and goes out, drawn until it is out; `glided` --
+  a box the layout moved glides to its new place (a scroll moves it at
+  once); `dragSnap` -- a box dragged follows the pointer and, let go,
+  springs with its throw to the nearest point; `staggered` -- rows one
+  after another; `fixedSteps` -- a simulation's whole steps whatever the
+  frame rate. Each keeps its state by where it is in the code; frames are
+  asked for only while something moves; with less movement asked each is
+  at its end at once (`reducedMotion`). The gallery's Forms & Code >
+  Motion page; `test_motion`. After nanoui's `ui.motion`.
+- **The GPU's layers read back while it goes on** (`retroui/photogpu`):
+  each tile of a big image's composite went back to the processor with a
+  plain readPixels, the processor idle while the GPU worked and the GPU
+  idle while it copied -- once for each tile. Each tile now goes into a
+  pixel buffer with a fence after it and is taken while the GPU makes the
+  next: one wait, for the last tile (OpenGL ES 3 and OpenGL 3.2; WebGL and
+  ES 2 read back as before; `RETRO_GPU_ASYNC=0` turns it off). The same
+  pixels either way (`test_gpucomposite`, which also times both). Retro
+  Atelier's Preferences > Performance says how often the GPU mixed the
+  layers and how long the last one waited.
+- **What a Photoshop document kept, said when it opens** (`Doc.opened`,
+  `openReportText`): Retro Atelier said nothing -- only a layer's name
+  took "not kept". Now a box, when something needs saying: the type layers
+  whose fonts are not on this device (as Photoshop warns -- named as
+  people know them, "Arial", not "Arial MT"), what became pixels (type
+  whose text could not be read, a placed file not in the document, a group
+  with a style mixed into one layer), what was not kept (an adjustment not
+  done here, a Duotone's inks); else the status bar says what was kept to
+  change (type layers, shapes, Smart Objects, adjustment layers, groups,
+  styles).
+- **Every Google Fonts family** (`googleFontCatalog`, made by
+  `tools/gengooglefonts.py` from Google Fonts' list): Retro Atelier's Type >
+  Get Google Fonts showed about 130 picked families -- Kufam was not
+  there. It shows all 1,908, the 53 with Arabic letters first (Kufam,
+  Vazirmatn, Qahiri, Reem Kufi Fun and Ink, Beiruti, Ruwudu among them);
+  the list is made once, not every frame. Kufam's shaping checked against
+  HarfBuzz.
+- **A label stays with its field** (`keepWithNext`): in a row that wraps,
+  a label that ends in ':' goes to the next line with the control after
+  it -- Retro Atelier's Properties on a tablet left "Y:" at the end of the
+  X line and its box on the next. Any other pair: `keepWithNext()`.
+- **What GitHub's runs of 0.62.0 found**: on macOS Retro Mail (1.2.2) asked the
+  keyring ten times a second while it waited, which the smoke run takes
+  for an app busy with nothing (four times a second for the first second
+  now, then once a second); Android's emulator run left a picker or a frozen app
+  holding the driver's port, and every app after Retro Atelier had no
+  answer (each app its own port now, stopped before it is taken off, the
+  pickers closed); the Nim setup's download cut off in three jobs (tried
+  once more now, in every workflow). Under the sanitizers: two of Retro
+  Mail's tests stopped their mock servers through an object already freed
+  (the exit proc keeps its own reference now, as the other mail tests'
+  do); Retro Designer's box selection left its first list behind
+  (`bandPicks`: a `result` filled in a loop, then given another -- Nim's
+  leak, `docs/nim-bugs.md` 5), which `tools/writecheck.py` missed because
+  of a proc declared inside it: it reads past those now, and found one
+  more (the text of a PDF line written right to left, `pageText`); the
+  GPU tests' leaks are Mesa's own (`tests/lsan.supp`). A soak that fails
+  prints the end of the app's own log -- a fault's trace, Retro Atelier's
+  memory log -- in the run's log as well. Retro Atelier's asset browser
+  kept every picture it had ever shown (with GitHub's seed the random
+  input browses it for most of the hour, online there): they are let go
+  when it closes and on a new search. Its random input keeps its images
+  under 256 MB of layers (four of forty big layers are 1.6 GB: how many
+  stood open at the end, not a leak, would make the hour's memory).
+
 ## 0.62.0
 
 Retro Atelier picks several layers at once as each of the three programs

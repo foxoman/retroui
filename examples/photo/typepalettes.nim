@@ -590,7 +590,7 @@ proc typeMenuItems() =
   openTypeItems()
   menuSeparator()
   if menuItem("Reset Character"):
-    typeStyle = CharStyle(family: defaultFamily, style: "Regular", size: 48, color: fg, hScale: 1, vScale: 1)
+    typeStyle = CharStyle(family: DastkhatFamily, style: "Regular", size: 48, color: fg, hScale: 1, vScale: 1)
   if menuItem("Reset Paragraph"): typePara = ParaStyle()
 
 proc typeTargetNote() =

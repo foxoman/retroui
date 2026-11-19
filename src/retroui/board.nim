@@ -21,7 +21,7 @@
 
 import std/[math, tables, json, strutils, algorithm, base64, hashes, sets, os, monotimes, times]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
-import gfx, freehand, textengine, raster, imaging, pdf, ttf
+import gfx, freehand, textengine, raster, imaging, pdf, ttf, forcelayout
 from codec import unbase64
 from typeset import FaceId, unpackFacesSoon
 
@@ -2375,6 +2375,64 @@ proc alignShapes*(b: Board; ids: openArray[int]; how: string) =
     of "bottom": dy = box.y + box.h - (k.y + k.h)
     else: discard
     if dx != 0 or dy != 0: b.moveShapes([id], dx, dy)
+
+proc linkedLayout*(b: Board; ids: openArray[int] = []): seq[tuple[id: int; dx, dy: float]] =
+  ## Where the shapes arrows join would go, laid out as a graph (`retroui/forcelayout`): each
+  ## pushes the others away and keeps out of their room, each arrow pulls its two shapes to a
+  ## length that fits their size -- starting from where they are, so the drawing keeps its
+  ## shape where it can, its middle where it was. `ids`: those shapes alone (none: every shape
+  ## an arrow joins to another on the page). How far each would move (`moveShapes`); empty when
+  ## no arrow joins two of them.
+  let only = toHashSet(b.members(ids))
+  var g = newForceGraph()
+  var nodeOf: Table[int, int]
+  var ids2: seq[int]
+  var size = 0.0
+  var cx0, cy0 = 0.0
+  for s in b.page.shapes:
+    if s.kind != skArrow or s.t0.bound == 0 or s.t1.bound == 0 or s.t0.bound == s.t1.bound: continue
+    if ids.len > 0 and (s.t0.bound notin only or s.t1.bound notin only): continue
+    var ends: array[2, int]
+    var ok = true
+    for k, e in [s.t0.bound, s.t1.bound]:
+      if not nodeOf.hasKey(e):
+        let t = b.find(e)
+        if t == nil or t.kind in {skArrow, skGroup}:
+          ok = false
+          break
+        let k2 = b.boundsOf(t[])
+        let n = g.addNode($e, x = k2.x + k2.w / 2, y = k2.y + k2.h / 2)
+        g.setRoom(n, k2.w + 24, k2.h + 24)
+        size += max(k2.w, k2.h)
+        cx0 += k2.x + k2.w / 2
+        cy0 += k2.y + k2.h / 2
+        nodeOf[e] = n
+        ids2.add e
+      ends[k] = nodeOf[e]
+    if ok: g.link(ends[0], ends[1])
+  if g.links.len == 0: return
+  let n = g.len.float
+  cx0 /= n
+  cy0 /= n
+  # (scaled to the shapes: a link a shape and a half long, the push as strong for it)
+  let length = max(60.0, 1.5 * size / n)
+  g.linkLength = length
+  g.push = 30 * (length / 40) * (length / 40)
+  g.reach = 7.5 * length
+  for i in 0 ..< g.len:
+    g.x[i] -= cx0
+    g.y[i] -= cy0
+  g.settle(800)
+  var cx1, cy1 = 0.0
+  for i in 0 ..< g.len:
+    cx1 += g.x[i]
+    cy1 += g.y[i]
+  cx1 /= n
+  cy1 /= n
+  for i, id in ids2:
+    let t = b.find(id)
+    let k = b.boundsOf(t[])
+    result.add (id, g.x[i] - cx1 + cx0 - (k.x + k.w / 2), g.y[i] - cy1 + cy0 - (k.y + k.h / 2))
 
 proc distribute*(b: Board; ids: openArray[int]; horizontal: bool) =
   ## Spaces shapes `ids` evenly between the first and the last, across or

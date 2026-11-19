@@ -376,6 +376,14 @@ proc pageMemory() =
     label("With the GPU, zooming and scrolling the picture and drawing the window cost the " &
           "processor nothing; without it, everything is drawn on the processor's cores.",
           color = ui.theme.gray)
+    let gs = gpuCompositeStats
+    if gs.gpu + gs.cpu > 0:
+      # (what mixing the layers on the GPU has done since the start: to see it on this device)
+      label("Big images' layers mixed on the GPU " & $gs.gpu & (if gs.gpu == 1: " time" else: " times") &
+            ", on the processor " & $gs.cpu & " (quicker there)" &
+            (if gs.asyncReads > 0: "; read back while the GPU worked, the last waited " &
+                                   formatFloat(gs.lastWaitMs, ffDecimal, 1) & " ms"
+             else: ""), color = ui.theme.gray)
 
 proc pageScratch() =
   group("Scratch Disk"):
@@ -476,6 +484,9 @@ proc pageGuides() =
     gridPrefsRows()
 
 proc pageType() =
+  group("Your Font Folders"):
+    # (retroui/fontfolders: a folder of fonts kept by the user, on each system its way)
+    fontFoldersPanel(AppData)
   group("Type Options"):
     checkbox("Use Smart Quotes", prefs.smartQuotes)
     label("Typed \" and ' become “ ” and ‘ ’ (and ’ inside a word).", color = ui.theme.gray)

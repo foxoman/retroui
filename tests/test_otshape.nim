@@ -35,6 +35,11 @@
 ##   (OFL, EBGaramond-OFL.txt) cut to ASCII and a few accents with liga,
 ##   dlig, kern, mark, smcp, onum, frac, ss01, case..., made static at
 ##   wght 400 by `varLib.instancer`.
+## * ReemKufi-Subset.ttf: Reem Kufi[wght] from github.com/google/fonts
+##   (OFL, ReemKufi-OFL.txt) made static at wght 400 by `varLib.instancer`
+##   and cut to the Arabic letters, tashkeel and the test lines: a font that
+##   builds ب ت ي ق... from a dotless letter and dot glyphs (`ccmp`), placed
+##   by `mark` -- the dots are the letter's, not tashkeel.
 ## * otshape-cases.txt.z (zlib): one run per line, "font|ltr or rtl|script|
 ##   language|features|axis values|code points (hex)|HarfBuzz's glyphs",
 ##   each glyph "gid=cluster@xOffset,yOffset+xAdvance"; the texts are fixed
@@ -120,7 +125,7 @@ block shapingMatchesHarfBuzz:
     perFont[p[0]] = pf
   for k, v in perFont: echo "  ", k, ": ", v[0] - v[1], " of ", v[0], " runs as HarfBuzz"
   echo "shaping: ", total - bad, " of ", total, " runs exactly as HarfBuzz"
-  doAssert total == 4097
+  doAssert total == 4306
   doAssert bad == 0
 
 proc lsbShift(f: Face; g: int): float32 =

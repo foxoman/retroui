@@ -31,9 +31,9 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 - **[Containers](#containers)**: [expander](#expander) · [accordionHeader](#accordionheader) · [tabStrip (document tabs)](#tabstrip-document-tabs) · [pageView, pageHeader: pages over pages](#pageview-pageheader-pages-over-pages) · [listDetail](#listdetail)
 - **[Menus and bars](#menus-and-bars)**: [menubar, menu, menuItem, submenu](#menubar-menu-menuitem-submenu) · [UndoStack, undoMenuItems, undoKeys](#undostack-undomenuitems-undokeys) · [contextMenu](#contextmenu) · [popupMenu, openPopupMenu](#popupmenu-openpopupmenu) · [breadcrumb](#breadcrumb) · [pager, stepper](#pager-stepper) · [recordNav](#recordnav) · [findBar, findIn, replaceAllIn](#findbar-findin-replaceallin)
 - **[Dialogs](#dialogs)**: [msgBox](#msgbox) · [inputBox](#inputbox) · [dialog](#dialog) · [progressBox](#progressbox) · [wizard, stepDone](#wizard-stepdone) · [aboutBox](#aboutbox) · [splashBox](#splashbox) · [problemBox, reportProblem](#problembox-reportproblem) · [stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen](#stoppedscreen-stoppedframe-stoppedpending-startfresh-showstoppedscreen) · [fileDialog (3.1)](#filedialog-31)
-- **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator, toolSpace](#toolbar-toolbutton-toolseparator-toolspace) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [animated](#animated) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
+- **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator, toolSpace](#toolbar-toolbutton-toolseparator-toolspace) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [animated](#animated) · [sprung, presence, glided, dragSnap, staggered, fixedSteps](#sprung-presence-glided-dragsnap-staggered-fixedsteps) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
 - **[Files](#files)**: [fileList](#filelist) · [fileList: large icons](#filelist-large-icons) · [folderTree](#foldertree) · [placesView](#placesview) · [filePreview](#filepreview) · [pathBar](#pathbar) · [driveBar](#drivebar) · [filePicker](#filepicker) · [trashList](#trashlist) · [propertiesDialog](#propertiesdialog) · [runJobDialog](#runjobdialog) · [textFileView, hexFileView](#textfileview-hexfileview) · [pictureBox](#picturebox) · [storageDialog](#storagedialog)
-- **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [gauge in bands, rangeBar](#gauge-in-bands-rangebar) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart) · [liveGraph](#livegraph)
+- **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [gauge in bands, rangeBar](#gauge-in-bands-rangebar) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart) · [liveGraph](#livegraph) · [graphView](#graphview)
 - **[Planning and dashboards](#planning-and-dashboards)**: [kpiTile, statCard, kpiRow](#kpitile-statcard-kpirow) · [kanbanBoard](#kanbanboard) · [ganttView](#ganttview) · [agendaView](#agendaview) · [orgChart](#orgchart)
 - **[Maps and 3D](#maps-and-3d)**: [mapView](#mapview) · [tileMap](#tilemap) · [view3d](#view3d) · [Models: parts and clips](#models-parts-and-clips) · [bars3d](#bars3d)
 - **[HTML, Markdown and rich text](#html-markdown-and-rich-text)**: [htmlView, htmlBlock](#htmlview-htmlblock) · [webView, webRun, webPost](#webview-webrun-webpost) · [markdownView, markdown](#markdownview-markdown) · [richEdit, richToolbar](#richedit-richtoolbar)
@@ -181,7 +181,7 @@ taller or wider than the window, always with the standard scroll bars.
 
 ### Rows and columns
 
-`row` puts controls side by side at their own widths; when the row is full they wrap. `col` makes a column inside a row.
+`row` puts controls side by side at their own widths; when the row is full they wrap. A label that ends in ':' wraps with the control after it, never alone at the end of a line (`keepWithNext` for any other pair). `col` makes a column inside a row.
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -241,6 +241,16 @@ template rowPx*(widths: openArray[int]; body: untyped)
 
 `row` with widths in logical pixels, as they are (measured on the
 screen: `textWidth`, `dp`): not scaled again.
+
+```nim
+proc keepWithNext*()
+```
+
+In a row that wraps (`row:` without widths): the next widget goes to
+the next line with the one after it when the two do not fit on this
+one together -- a label stays with its field. A `label` that ends in
+':' does this of itself. (The second widget's width is last frame's:
+the first frame, one frame more.)
 
 ### Widths in a row
 
@@ -723,7 +733,7 @@ to left everywhere.
 
 ### label, paragraph, heading
 
-Static text. A `&` before a letter underlines it, and Alt with that letter moves the focus to the control after the label.
+Static text. A `&` before a letter underlines it, and Alt with that letter moves the focus to the control after the label. Ending in ':', it names that control: in a row that wraps, the two go to the next line together.
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -748,6 +758,8 @@ Wider than the room it is in (a narrow dialog, a phone), it wraps, as
 a 3.1 static text does. In another language (`setUiLanguage`) the
 whole text is looked up before it wraps. `literal`: shown as it is --
 a file's name: not translated, its '&' kept.
+Ending in ':', it names the field after it: in a row that wraps, the
+two go to the next line together (`keepWithNext`).
 
 ```nim
 proc paragraph*(s: string; w = 0; color = Color())
@@ -4642,6 +4654,171 @@ follow one another take delays of their own (a bar a year, each 140
 ms after the one before). 1 at once when the user asked for less
 movement (`smoothScrolling` off).
 
+### sprung, presence, glided, dragSnap, staggered, fixedSteps
+
+Movement as a thing moves (`retroui/motion`). `sprung` reaches its target as a spring does: sent somewhere else half way, it turns with the speed it has (`springSmooth`, `springSnappy`, `springBouncy`). `presence` is a box that comes in and goes out -- still drawn while it goes. `glided` draws a box the layout moved gliding there from where it was (a scroll moves it at once). `dragSnap` follows the pointer and, let go, springs with its throw to the nearest point. `staggered` brings a list's rows in one after another; `fixedSteps` counts a simulation's steps whatever the frame rate. Each keeps its state by where it is in the code (`key` in a loop); frames come only while something moves, and with less movement asked each is at its end at once. The gallery's Forms & Code > Motion page has them all.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![sprung, presence, glided, dragSnap, staggered, fixedSteps, normal](controls/motion-normal.png) | ![sprung, presence, glided, dragSnap, staggered, fixedSteps, touch screen](controls/motion-touch-screen.png) | ![sprung, presence, glided, dragSnap, staggered, fixedSteps, dark scheme](controls/motion-dark-scheme.png) |
+
+```nim
+var noteOn = true
+var apps = @["Mail", "Files", "Atelier"]
+
+let x = sprung(if noteOn:
+  200.0
+else:
+  0.0, springBouncy)
+let lane = place(0, 24)
+fill(rect(lane.x + int(x), lane.y, 40, 24), ui.theme.select)
+let p = presence(noteOn)
+if p.present:
+  label("Saved", color = ui.theme.text)
+for name in apps:
+  let r = glided(place(0, 20), key = name)
+  fill(r, ui.theme.face2)
+  text(r.x + 4, r.y + 3, name, ui.theme.text)
+```
+
+**API**
+
+```nim
+template sprung*(target: float; spec = springSmooth; key = ""; start = NaN): float
+```
+
+`target`, reached as a spring would (`Spring`: `springSmooth`, `springSnappy`,
+`springBouncy`): sent somewhere else on the way, it turns from where it is with the speed
+it has -- no stop and start again as `animated` does. The first time it is `target` at
+once, or springs there from `start`. Each call is its own value, by where it is in the code
+(and `key`, for one call in a loop).
+
+```nim
+proc sprungAt*(id: Id; target: float; spec = springSmooth; start = NaN): float
+```
+
+`sprung` for a value of your own id (`idOf`).
+
+```nim
+template presence*(shown: bool; ms = 180; msOut = -1; key = ""; enter = false): Presence
+```
+
+A box that comes in when `shown` turns true and goes out when it turns false -- still
+drawn, `present`, until it is out: a toast, a menu, a row deleted. `t` goes 0 to 1 in `ms`
+milliseconds (out in `msOut`, -1 the same), eased; move and fade the box by it. The first
+time it is where `shown` says at once, unless `enter` (a row just added: it comes in).
+
+```nim
+let p = presence(saved)
+if p.present:
+  let r = rect(x, int(mix(-40.0, 12.0, p.t)), 220, 32)
+  fill(r, withAlpha(ui.theme.tip, uint8(255 * p.t)))
+```
+
+```nim
+proc presenceAt*(id: Id; shown: bool; ms = 180; msOut = -1; enter = false): Presence
+```
+
+`presence` for a box of your own id (`idOf`).
+
+```nim
+template glided*(r: Rect; key = ""; spec = springSmooth): Rect
+```
+
+Where to draw a box the layout put at `r`: when the layout puts it somewhere else (a row
+moved up a list, a card to another column, a window made wider), it springs there from
+where it was. Its place is taken in the row or column it is in, so a scroll moves it at
+once. A box in a loop takes the `key` of what it shows (its name, not its index: the row
+keeps its key when it moves).
+
+```nim
+for t in tasks:
+  let r = glided(place(dp(240), dp(28)), key = t.name)
+  drawTask(r, t)
+```
+
+```nim
+proc glidedAt*(id: Id; r: Rect; origin: (int, int) = (0, 0); spec = springSmooth): Rect
+```
+
+`glided` for a box of your own id (`idOf`), its place taken from `origin` (what moving it
+does not glide: a scroll).
+
+```nim
+template dragSnap*(r: Rect; snaps: openArray[(int, int)] = []; key = ""; spec = springSnappy): Drag
+```
+
+A box at `r` that a mouse or a finger drags: it follows the pointer, and let go it springs
+-- with the speed it was thrown at -- to the nearest of `snaps` (top left corners), and
+stays there; with none, back to `r`. Draw it at `.r`; `.snapped` says which point it is
+at (keep it: the box's new place). Its place is taken in the row or column it is in, so
+a scroll moves it at once.
+
+```nim
+let d = dragSnap(place(dp(64), dp(64)), [(20, 300), (200, 300)])
+fill(d.r, if d.dragging: ui.theme.select else: ui.theme.face)
+```
+
+```nim
+proc dragSnapAt*(id: Id; r: Rect; snaps: openArray[(int, int)]; origin: (int, int) = (0, 0);
+                 spec = springSnappy; throw = 0.12): Drag
+```
+
+`dragSnap` for a box of your own id (`idOf`); its springs kept from `origin` (what moving
+it does not spring: a scroll).
+
+```nim
+template staggered*(i: int; ms = 220; step = 40; maxDelay = 400; key = ""): float
+```
+
+How far row `i` of a list that has just come into view is in, 0 .. 1: each row `step`
+milliseconds after the one before (no more than `maxDelay`), `ms` to come in. All the rows
+of one call share when the list came; not shown for half a second, it comes in again.
+
+```nim
+for i, m in mails:
+  let a = staggered(i)
+  let r = place(dp(300), dp(40))
+  drawMail(rect(r.x + int(24 * (1 - a)), r.y, r.w, r.h), m, alpha = a)
+```
+
+```nim
+template fixedSteps*(stepMs = 1000 / 60; running = true; maxSteps = 8; key = ""): tuple[n: int; alpha: float]
+```
+
+How many steps of `stepMs` milliseconds a simulation (a game, physics) takes this frame,
+whatever the frame rate: the time since the last frame, plus what was left over, in whole
+steps -- `alpha` is how far into the next one this frame is (draw between the last two
+states by it). No more than `maxSteps` at once (a slow frame drops time, not the app);
+while `running`, frames come at the step's pace; not running, nothing is counted. Less
+movement does not change it: a simulation is not a decoration.
+
+```nim
+proc mix*(a, b, t: float): float {.inline.}
+```
+
+From `a` (t 0) to `b` (t 1).
+
+```nim
+proc mix*(a, b: Rect; t: float): Rect
+```
+
+A box between `a` (t 0) and `b` (t 1).
+
+```nim
+proc reducedMotion*(): bool
+```
+
+Less movement is asked (the system's setting when the app started, or `smoothScrolling`
+turned off): every movement here is at its end at once.
+
+```nim
+proc layoutOrigin*(): (int, int)
+```
+
+The top left corner of the row or column being laid out (where it is
+now: scrolled with its page).
+
 ### appearanceSettings
 
 The look of every app in a few rows: the color scheme, the size of everything, the size of the text, controls for a mouse or fingers, the window's frame, the title bars' buttons and the font. `app`'s `look` keeps the user's choice by itself.
@@ -5574,6 +5751,94 @@ is the top; `step` the design pixels between two values (0: the width
 over 60 values); `label` and `caption` are written over it, top left
 and top right; `fillUnder` fills below the line with its color, darker.
 `w` 0 fills the width; `h` 0 is 80 design pixels.
+
+### graphView
+
+A graph that lays itself out (`retroui/forcegraph`): nodes push each other away and keep out of each other's room, links pull their ends to a length, a gentle pull to the middle -- it moves until it settles, frames asked for only meanwhile. Dots with their labels, or boxes (`look = nlBox`, a mind map); a node clicked is selected, dragged it stays where it is held while the others make room. `ForceGraph` (`retroui/forcelayout`) is the layout alone: `settle` lays one out with no window (Retro Board's Tidy Up by Arrows).
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![graphView, normal](controls/graphview-normal.png) | ![graphView, touch screen](controls/graphview-touch-screen.png) | ![graphView, dark scheme](controls/graphview-dark-scheme.png) |
+
+```nim
+var gvGraph = newForceGraph()
+let gvKit = gvGraph.addNode("kit", "Retro Nim UI", group = 0)
+for app in ["Mail", "Atelier", "Board", "Files", "DNS"]:
+  gvGraph.link(gvKit, gvGraph.addNode(app, app, group = 1))
+gvGraph.settle()
+var gvSel = -1
+
+discard graphView(gvGraph, 200, gvSel)
+```
+
+**API**
+
+```nim
+template graphView*(g: var ForceGraph; h: int; sel: var int; look = nlDot; key = ""): GraphEvent
+```
+
+A graph laid out by its forces, as wide as the room and `h` pixels high: links as lines,
+nodes as dots with their labels (`nlDot`) or as boxes (`nlBox`: a mind map), the whole of
+it fitted in the box. It moves until it settles, frames asked for only meanwhile. A node
+clicked is selected (`sel`); dragged, it stays where it is let go while it is held and
+the others make room. Each call is its own view, by where it is in the code (`key` in a
+loop).
+
+```nim
+template graphView*(g: var ForceGraph; h: int; look = nlDot; key = ""): GraphEvent
+```
+
+`graphView` without a node kept selected.
+
+```nim
+proc newForceGraph*(linkLength = 40.0; push = 30.0; pull = 0.05): ForceGraph
+```
+
+An empty graph.
+
+```nim
+proc addNode*(scene: var Scene3; n: Node3): int {.discardable.}
+```
+
+Puts `n` in the scene (under its `parent`); its index.
+
+```nim
+proc link*(caption: string; enabled = true): bool {.discardable.}
+```
+
+Underlined clickable text; true when clicked (or Enter/Space).
+
+```nim
+proc settle*(g: var ForceGraph; most = 600)
+```
+
+Steps until it has settled (no more than `most`): laid out now, without a window.
+
+```nim
+proc step*(g: var ForceGraph)
+```
+
+One step of the layout: links pull, nodes push their neighbours, the middle pulls; each
+node moves by its speed, which slows.
+
+```nim
+proc reheat*(g: var ForceGraph; alpha = 1.0)
+```
+
+Moving again (a node or a link added, a node moved): it settles anew.
+
+```nim
+proc moveNode*(scene: var Scene3; node: string; by: Vec3)
+```
+
+Moves a part by `by` (in its parent's directions).
+
+```nim
+proc setRoom*(g: var ForceGraph; i: int; w, h: float)
+```
+
+Node `i` takes a box `w` x `h` (its label's, a box's): others are kept out of it.
+(`graphView` sets it from what it draws.)
 
 ## Planning and dashboards
 
@@ -7926,6 +8191,18 @@ proc failed*(c: PictureCache; path: string; stamp = 0'i64): bool
 ```
 
 The picture could not be decoded (show an icon instead).
+
+```nim
+proc error*(t: TextFile): string
+```
+
+Why the file could be read no further ("": it could).
+
+```nim
+proc error*(h: HexFile): string
+```
+
+Why the file could be read no further ("": it could).
 
 ```nim
 proc cancel*(j: FileJob)

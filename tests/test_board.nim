@@ -166,6 +166,42 @@ suite "arrows":
     check p1.y > 190
     let after = b.drawingOf(b.find(a)[])
     check after.pieces.len > 0 and after.pieces[^1].contours != before.pieces[^1].contours
+  test "shapes joined by arrows tidied up as a graph (linkedLayout)":
+    let b = newBoard()
+    var ids: seq[int]
+    b.change("Make"):
+      # a mind map dropped in a heap: a root and five notes, all near one spot
+      for i in 0 ..< 6:
+        ids.add b.addShape(b.noteShape(100 + float(i * 7), 100 + float(i * 5), "n" & $i))
+      for i in 1 ..< 6:
+        let c0 = b.boundsOf(b.find(ids[0])[])
+        let c1 = b.boundsOf(b.find(ids[i])[])
+        var ar = b.arrowShape(c0.x, c0.y, c1.x, c1.y)
+        ar.t0 = Terminal(x: c0.x, y: c0.y, bound: ids[0], nx: 0.5, ny: 0.5)
+        ar.t1 = Terminal(x: c1.x, y: c1.y, bound: ids[i], nx: 0.5, ny: 0.5)
+        discard b.addShape(ar)
+      discard b.addShape(b.geoShape(gkRectangle, 900, 900, 50, 50))     # (no arrow: left where it is)
+    var before: seq[Box]
+    for id in ids: before.add b.boundsOf(b.find(id)[])
+    let moves = b.linkedLayout()
+    check moves.len == 6
+    b.change("Tidy Up"):
+      for m in moves: b.moveShapes([m.id], m.dx, m.dy)
+    var boxes: seq[Box]
+    for id in ids: boxes.add b.boundsOf(b.find(id)[])
+    # none on another any more, the middle where it was
+    for i in 0 ..< boxes.len:
+      for j in i + 1 ..< boxes.len:
+        let (p, q) = (boxes[i], boxes[j])
+        check p.x + p.w <= q.x or q.x + q.w <= p.x or p.y + p.h <= q.y or q.y + q.h <= p.y
+    var mx0, mx1 = 0.0
+    for k in 0 ..< 6:
+      mx0 += before[k].x + before[k].w / 2
+      mx1 += boxes[k].x + boxes[k].w / 2
+    check abs(mx0 - mx1) / 6 < 1
+    check b.linkedLayout([ids[3], ids[4]]).len == 0                # (no arrow between those two)
+    b.undo()
+    check b.boundsOf(b.find(ids[2])[]) == before[2]                 # (one step to undo)
   test "a bent arrow passes its middle point":
     let b = newBoard()
     var ar = b.arrowShape(0, 0, 200, 0)

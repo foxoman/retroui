@@ -43,6 +43,9 @@ type
     cluster*: int      ## index (into the input) of the first code point it came from
     xAdv*, yAdv*: int  ## advance, font units, after GPOS
     xOff*, yOff*: int  ## where it is drawn from the pen, font units
+    fromMark*: bool    ## made from a combining mark (Arabic tashkeel, an accent typed as a mark),
+                       ## not from a letter: a font's dots and hamza made from their letter
+                       ## (Reem Kufi's ب is a dotless ب and a dot) are the letter's
 
   Feature* = tuple[tag: string; on: bool]
     ## A feature turned on or off: ("liga", false), ("ss01", true), ("salt", true)...
@@ -2700,7 +2703,8 @@ proc shape*(f: Face; cps: openArray[int]; rtl: bool; script = ""; lang = "";
   for i in 0 ..< b.len:
     result[i] = ShapedGlyph(gid: int(b.info[i].cp), cluster: int(b.info[i].cluster),
                             xAdv: int(b.pos[i].xa), yAdv: int(b.pos[i].ya),
-                            xOff: int(b.pos[i].xo), yOff: int(b.pos[i].yo))
+                            xOff: int(b.pos[i].xo), yOff: int(b.pos[i].yo),
+                            fromMark: b.info[i].isUnicodeMark)
 
 # ---- what a font offers -----------------------------------------------------------------
 

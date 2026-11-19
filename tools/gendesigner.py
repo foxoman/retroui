@@ -31,7 +31,7 @@ import controlscheck as cc  # noqa: E402
 
 OUT = os.path.join(ROOT, "src", "retrodesigner", "registry.nim")
 EXTRA = ["textwidgets", "richedit", "qrcode", "pdfview",    # not in `import retroui`
-         "tilemap", "gltf", "capture", "mediasession"]
+         "tilemap", "gltf", "capture", "mediasession", "forcegraph"]
 # Layout from core that the designer offers (the rest of core is the frame
 # loop, input, ids).
 CORE = {"row", "col", "rowPx", "spring", "space", "withId", "adaptive",
@@ -77,6 +77,9 @@ STD = {
                        "systemLanguage", "battery", "revealFile", "psOk", "psWaiting"},
     "retroui/secrets": {"saveSecret", "loadSecret", "deleteSecret"},
     "retroui/update": {"checkForUpdate", "downloadUpdate", "installUpdate", "restartApp"},
+    # (movement: values that move, not controls to drop)
+    "retroui/motion": {"sprung", "presence", "glided", "dragSnap", "staggered", "fixedSteps",
+                       "springSmooth", "springSnappy", "springBouncy", "reducedMotion"},
 }
 
 # Examples of the guide that are about showing a window, not a control to drop.

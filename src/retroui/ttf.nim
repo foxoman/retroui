@@ -451,14 +451,9 @@ proc sfntOf*(data: string; index: int): string =
     while body.len mod 4 != 0: body.add '\0'
   result.add body
 
-proc faceInfo*(path: string): seq[tuple[family, style: string; weight: int; italic: bool; index: int;
-                                       variable: bool]] =
-  ## The faces a font file holds (their names, weight and slant, whether it
-  ## is a variable font), read without loading it: only TrueType outlines
-  ## (.ttf, .ttc). Empty when it is not one.
-  var f: File
-  if not open(f, path): return
-  defer: close(f)
+proc faceInfo*(f: File): seq[tuple[family, style: string; weight: int; italic: bool; index: int;
+                                  variable: bool]] =
+  ## `faceInfo` of a font file open already (a document a phone's provider gave).
   proc readAt(f: File; pos, n: int): string =
     result = newString(n)
     f.setFilePos(pos)
@@ -510,6 +505,17 @@ proc faceInfo*(path: string): seq[tuple[family, style: string; weight: int; ital
       for k in 0 .. st.len - w.len:
         if st[k ..< k + w.len] == w: italic = true
     result.add (fake.family, fake.style, weight, italic, idx, fvar)
+
+
+proc faceInfo*(path: string): seq[tuple[family, style: string; weight: int; italic: bool; index: int;
+                                       variable: bool]] =
+  ## The faces a font file holds (their names, weight and slant, whether it
+  ## is a variable font), read without loading it: only TrueType outlines
+  ## (.ttf, .ttc). Empty when it is not one.
+  var f: File
+  if not open(f, path): return
+  defer: close(f)
+  faceInfo(f)
 
 proc parseFace*(data: string; index = 0; loose = false): Face =
   ## A face from the bytes of a .ttf file (or the `index`th of a .ttc).
@@ -952,6 +958,10 @@ proc axes*(f: Face): seq[Axis] =
   for a in f.varFont.axes:
     result.add Axis(tag: a.tag, name: f.fontName(a.nameId), minV: a.minV, defV: a.defV,
                     maxV: a.maxV)
+
+proc isInstance*(f: Face): bool = f.coords.len > 0
+  ## A variable font at axis values other than its default (`variation`): its file's own
+  ## outlines are not these.
 
 proc instances*(f: Face): seq[tuple[name: string; coords: seq[(string, float)]]] =
   ## The named instances of a variable font ("Bold", "Condensed Light"...)

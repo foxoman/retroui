@@ -18,7 +18,7 @@ from std/times import fromUnix, epochTime
 from std/unicode import runes, toUTF8
 import retroui
 import retroui/[textwidgets, richedit, qrcode, pdfview, tilemap, mvt, capture, mediasession, system,
-                secrets, update, jobs, tray]
+                secrets, update, jobs, tray, motion, forcegraph]
 import retroui/uirelays/[coords, screen, input, services]
 include "../tests/carscene"
 
@@ -423,8 +423,8 @@ taller or wider than the window, always with the standard scroll bars.
 """)
 
 example("rows", "Rows and columns",
-        "`row` puts controls side by side at their own widths; when the row is full they wrap. `col` makes a column inside a row.",
-        360, 110, ["row", "col", "rowPx"], std3):
+        "`row` puts controls side by side at their own widths; when the row is full they wrap. A label that ends in ':' wraps with the control after it, never alone at the end of a line (`keepWithNext` for any other pair). `col` makes a column inside a row.",
+        360, 110, ["row", "col", "rowPx", "keepWithNext"], std3):
   var colA = true
   var colB = false
 do:
@@ -561,7 +561,7 @@ to left everywhere.
 """)
 
 example("label", "label, paragraph, heading",
-        "Static text. A `&` before a letter underlines it, and Alt with that letter moves the focus to the control after the label.",
+        "Static text. A `&` before a letter underlines it, and Alt with that letter moves the focus to the control after the label. Ending in ':', it names that control: in a row that wraps, the two go to the next line together.",
         360, 120, ["label", "paragraph", "heading"], std3):
   heading("Quarterly report", 2)
   label "&Name: (a label with a mnemonic)"
@@ -1598,6 +1598,23 @@ do:
   let r = place(0, 14)
   fill(rect(r.x, r.y, int(r.w.float * animated(if barOn: 0.8 else: 0.2, 300)), r.h), ui.theme.select)
 
+example("motion", "sprung, presence, glided, dragSnap, staggered, fixedSteps",
+        "Movement as a thing moves (`retroui/motion`). `sprung` reaches its target as a spring does: sent somewhere else half way, it turns with the speed it has (`springSmooth`, `springSnappy`, `springBouncy`). `presence` is a box that comes in and goes out -- still drawn while it goes. `glided` draws a box the layout moved gliding there from where it was (a scroll moves it at once). `dragSnap` follows the pointer and, let go, springs with its throw to the nearest point. `staggered` brings a list's rows in one after another; `fixedSteps` counts a simulation's steps whatever the frame rate. Each keeps its state by where it is in the code (`key` in a loop); frames come only while something moves, and with less movement asked each is at its end at once. The gallery's Forms & Code > Motion page has them all.",
+        360, 150, ["sprung", "sprungAt", "presence", "presenceAt", "glided", "glidedAt", "dragSnap", "dragSnapAt",
+                   "staggered", "fixedSteps", "mix", "reducedMotion", "layoutOrigin"], std3):
+  var noteOn = true
+  var apps = @["Mail", "Files", "Atelier"]
+do:
+  let x = sprung(if noteOn: 200.0 else: 0.0, springBouncy)
+  let lane = place(0, 24)
+  fill(rect(lane.x + int(x), lane.y, 40, 24), ui.theme.select)
+  let p = presence(noteOn)
+  if p.present: label("Saved", color = ui.theme.text)
+  for name in apps:
+    let r = glided(place(0, 20), key = name)
+    fill(r, ui.theme.face2)
+    text(r.x + 4, r.y + 3, name, ui.theme.text)
+
 example("appearance", "appearanceSettings",
         "The look of every app in a few rows: the color scheme, the size of everything, the size of the text, controls for a mouse or fingers, the window's frame, the title bars' buttons and the font. `app`'s `look` keeps the user's choice by itself.",
         460, 610, ["appearanceSettings", "storeAppearance", "restoreAppearance"], std3):
@@ -1844,6 +1861,18 @@ example("livegraph", "liveGraph",
   for i in 0 ..< 60: lgValues.add 35 + 25 * sin(i.float / 4) + float((i * 37) mod 11)
 do:
   liveGraph("guide", lgValues, 60, h = 100, label = "% Utilization", caption = "60 seconds")
+
+example("graphview", "graphView",
+        "A graph that lays itself out (`retroui/forcegraph`): nodes push each other away and keep out of each other's room, links pull their ends to a length, a gentle pull to the middle -- it moves until it settles, frames asked for only meanwhile. Dots with their labels, or boxes (`look = nlBox`, a mind map); a node clicked is selected, dragged it stays where it is held while the others make room. `ForceGraph` (`retroui/forcelayout`) is the layout alone: `settle` lays one out with no window (Retro Board's Tidy Up by Arrows).",
+        420, 240, ["graphView", "newForceGraph", "addNode", "link", "settle", "step", "reheat", "moveNode", "setRoom"], std3):
+  var gvGraph = newForceGraph()
+  let gvKit = gvGraph.addNode("kit", "Retro Nim UI", group = 0)
+  for app in ["Mail", "Atelier", "Board", "Files", "DNS"]:
+    gvGraph.link(gvKit, gvGraph.addNode(app, app, group = 1))
+  gvGraph.settle()
+  var gvSel = -1
+do:
+  discard graphView(gvGraph, 200, gvSel)
 
 # ======================================================================================================
 # Planning and dashboards
@@ -2714,7 +2743,7 @@ const apiModules = ["widgets", "extras", "business", "morecontrols", "records", 
   "toolcustom", "dock", "textwidgets", "filewidgets", "charts", "planning", "mapview",
   "view3d", "htmlview", "markdown", "richedit", "media", "qrcode", "pdfview", "core", "gfx",
   "platform", "files", "textfile", "mediagif", "imaging", "templates", "native", "canvas2d",
-  "report", "tilemap", "gltf", "capture", "mediasession"]
+  "report", "tilemap", "gltf", "capture", "mediasession", "motion", "forcegraph", "forcelayout"]
   ## Where the API is read from; a name in several is shown from the first
   ## (or as "module.name").
 

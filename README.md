@@ -677,6 +677,25 @@ app "Notes", 420, 300:
 - **Movement** (`animated(target, ms)`): a number that glides to where it
   is asked to be, a frame at a time; at once when the user asked for less;
   `start = 0` counts up from there when its page first shows.
+  `retroui/motion` moves things as things move: `sprung` (a spring that
+  turns with the speed it has when sent elsewhere), `presence` (a box
+  that comes in, and goes out before it is gone), `glided` (a box the
+  layout moved glides there), `dragSnap` (dragged, thrown, sprung to the
+  nearest point), `staggered` (rows one after another), `fixedSteps` (a
+  simulation's steps at any frame rate) -- frames only while something
+  moves, nothing to hold.
+- **Flows that wait** (`retroui/flows`): `flow("close"): case ask("Save
+  changes?", ["&Yes", "&No", "Cancel"]) ...` -- a question, a file picked,
+  work on a worker, a condition, each waited for, written one after
+  another; the window goes on meanwhile.
+- **Font folders of your own** (`retroui/fontfolders`): `useFontFolders(app)`
+  at the start, `fontFoldersPanel(app)` in a settings page -- a folder of
+  fonts on a desktop, a phone (the system's picker) or in a web page.
+- **Graphs that lay themselves out** (`retroui/forcegraph`):
+  `graphView(g, h, sel)` shows a `ForceGraph` -- nodes that push each
+  other away, links that pull -- moving until it settles, its nodes
+  dragged; `retroui/forcelayout` is the layout alone, with no window
+  (`settle`: a mind map arranged, Retro Board's Tidy Up by Arrows).
 - **Words in other languages:** `retrokit strings app.nim --lang:ar`
   writes every text the app shows into app-ar.txt for a translator (and
   keeps the translations when run again); `loadUiStrings` reads it for
@@ -793,6 +812,10 @@ The twelve files take 0.88 MB in every app (packed with LZMA by
 program unpacks as it starts, the UI's text, its bold and the icons, with
 zlib, five times as fast to unpack; the fonts before them took 0.96 MB,
 and apps with `retroui/textengine` carried Amiri's 0.21 MB more).
+An app that wants more for its documents' type carries Dastkhat
+(`retroui/dastkhat`, 160 KB packed): Arabic, Persian and Latin in one
+variable font, nine weights from Thin to Black, each a style of its family
+-- Retro Atelier's new text is in it.
 
 **Crisp at every scale.** Glyphs are drawn by the kit's own TrueType
 engine (`retroui/ttf`), at the screen's own resolution, on the CPU and the
@@ -3431,7 +3454,12 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_booklists` | a book's table of contents from its paragraph styles (each a level) or its type's size, in the pages' order, a master's text left out; the index's words on their pages (whole words, any case, Arabic with or without its marks), sorted; both as text boxes; hyphenation's own words |
 | `test_datamerge` | Data Merge: the fields a design asks for, a row's values in its text, a picture in each frame named for it, the design left as it was; a PNG or JPEG a row, named by a column (made safe, made unique) or numbered |
 | `test_textsearch` | Find/Change: GREP patterns (digits Arabic-Indic too, classes, groups, either-or, counts, the fewest, line and word edges) in characters, changes with their groups keeping the styles, plain words in any case or whole, the story editor's edit keeping the styles, a pattern that cannot be read refused; a glyph in a font found and changed to another in a font of its own; the queries it comes with at work, saved queries kept as JSON |
-| `test_headless` | a program without a window: frames drawn in memory, a click given as a person would, the picture of what it drew |
+| `test_headless` | a program without a window: frames drawn in memory, a click given as a person would, the picture of what it drew; a label that ends in ':' wrapping with its field |
+| `test_script` | an app run by `RETRO_SCRIPT`: clicks, typing, a key, a wait for a control done in order, `RETRO_SNAPSHOT`'s picture written and the app ended; a step that fails names itself and ends it with 1; a script that is not one, 2 |
+| `test_flows` | on a clock of its own: a flow goes on at the end of a frame; a question answered (Esc: the last button); a wait until something is so, a pause, work on a worker and its value; a file picker cancelled; a closed window's flow dropped; one that fails ended, the others going on |
+| `test_fontfolders` | a folder's fonts offered and its families named, taken away with it, a font put in while the app runs found, fonts chosen kept in "Your Fonts", a font read through `fontReader` the first time it draws |
+| `test_forcegraph` | a graph laid out: linked nodes near their length, the others apart, a pinned node where it is put, the same layout every time, 1,500 nodes settled; the control on a clock of its own: frames while it moves and none once settled, a node clicked and dragged |
+| `test_motion` | on a clock of its own: a spring keeps its speed when sent elsewhere and is the same at 8 and 40 ms a frame, a bouncy one goes past and a smooth one never does; a box in and out (turned back half way: no jump); a box the layout moved glides, a scroll does not; dragged, thrown and let go to the nearest point, or back; rows one after another, again after a while; a fixed step's whole steps, no more than its most; less movement at the end at once; no frame asked once all is at rest |
 | `test_perspectivegrid` | the perspective grid: the planes meet where they should (two points and one), go back to their points, a path laid on a plane (its corners kept, the far side shorter, a curve cut and still on it), refused over the horizon; a painted layer laid on a plane and undone |
 | `test_pathbrush` | brushes along a path: Art from end to end as wide as asked, round a corner, Pattern and Scatter copies counted and turned, a closed path, drawn |
 | `test_photoparity` | Retro Atelier's 5.4 additions through its menus and its window's input: every new filter by its menu name (changing the picture, undone), Lens Blur's depth sources, Light, Pattern Overlay, Matting, Pattern Preview and the Pixel Grid; the drawing program's tools (Group Selection, the shape Magic Wand and Lasso, Smooth, Path Eraser, Join, Eraser, Scissors, Knife, the Paintbrush, the Blob Brush, Width, Arc, grids, Flare, Mesh, Perspective Selection), Appearance, live effects, Repeat, Transform Each and the Eyedropper's look; paragraphs in formats of their own while typing, the Justification, Keep Options and Span Columns dialogs (Preview, Cancel, OK), Text Frame Options' inset, vertical justification and balance; Next Style, nested and GREP styles, Paragraph Style Options, Object Styles; Check Spelling and Dynamic Spelling; hyperlinks, destinations, cross-references, text variables and bookmarks; Place Linked, the Links panel's states and File > Package (the document, its pictures, fonts, IDML, PDF and report) |
@@ -3447,7 +3475,7 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_relight` | Relight's point, spot and sun lights (bright by the light, dim far off, warm where a warm one falls, the side of a mound toward the sun lit), Upscale (made smaller again: the picture it came from; its edges as sharp as the picture's), an object's shadow found and not the floor, the object or what is far off |
 | `test_mockups` | each mockup a document: the design a Smart Object where it goes (bent round the mug), the light and shade over it mixed by Multiply, the scene round it |
 | `test_designstyles` | a style on a design: colors to the palette by their lightness, big type in the heading font, the rest in the body font, locked layers left as they are; font pairs of the fonts there are |
-| `test_aiconnect` | an AI service's requests (OpenAI's chat completions, Anthropic's Messages), its answers read, only the app's own commands taken, errors told; a service on this computer the whole way round; nothing asked with no service set |
+| `test_aiconnect` | an AI service's requests (OpenAI's chat completions, Anthropic's Messages), its answers read, only the app's own commands taken, errors told; a service on this computer the whole way round; nothing asked with no service set; the key kept in the keyring, an older settings file's moved over and out of it |
 | `test_mailauth` | who a message is from: RFC 8463's own example (Ed25519 and RSA) and messages another program (dkimpy) signed, in all four canonicalizations, verified here; changed after signing, a withdrawn or testing key, a body signed in part, a second From; the provider's Authentication-Results believed from its own servers only (Gmail, Microsoft, iCloud) and only the topmost; DMARC policies; the Public Suffix List, IDN, look-alike names; DNS over UDP and TCP against a server of the test's own |
 | `test_mailsafety` | tracking pictures taken out (tiny, hidden, a tracking service's), tracking codes taken off links, links whose words name another site or that hide where they go, senders whose name or domain is a company's they are not, or a look-alike of a contact's |
 | `test_dbcrypt` | an encrypted database: nothing readable in the file or its WAL, a wrong key or none refused, a byte changed on disk found, FTS5 and big rows, two connections, VACUUM, a rollback journal; an unencrypted file made encrypted and back, a crash between its renames put right; a writer killed five times (kill -9) leaves every transaction it finished |
@@ -3716,7 +3744,9 @@ says how.
   the picture: delete inks from RGB's three). PostScript and EPS files open by the picture they hold (or their
   preview): there is no PostScript interpreter. Get Google Fonts has not
   been tried against the live catalog in this release (only against saved
-  copies of its answers).
+  copies of its answers); its list of families is the one made with the
+  kit (`tools/gengooglefonts.py`) -- a family Google added since is
+  fetched by its name in the box below the list.
 - Retro Files: sounds play from the start, without seeking, where
   neither GStreamer nor Android plays them (Windows and macOS use the
   system's sound playing). Paste Shortcut makes a symbolic link, and on

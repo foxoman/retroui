@@ -25,6 +25,26 @@ var arabic = 0
 for f in googleFontList:
   if f.arabic: inc arabic
 doAssert arabic >= 25
+# every family of Google Fonts: the Arabic ones first (those picked, then the rest), each once
+let all = googleFontCatalog()
+doAssert all.len > 1800
+var names: seq[string]
+for f in all:
+  doAssert f.family notin names, f.family & " twice"
+  names.add f.family
+doAssert all[0].family == "Cairo" and all[0].arabic
+var firstOther = -1
+for i, f in all:
+  if not f.arabic:
+    firstOther = i
+    break
+doAssert firstOther >= 50
+for f in all[firstOther .. ^1]: doAssert not f.arabic or f.family in ["Rubik"], f.family
+for fam in ["Kufam", "Vazirmatn", "Reem Kufi Fun", "Qahiri"]:
+  let i = names.find(fam)
+  doAssert i >= 0 and i < firstOther and all[i].arabic, fam
+doAssert all[names.find("Roboto")].category == "Sans Serif" and all[names.find("ABeeZee")].category == "Sans Serif"
+doAssert all[names.find("Lobster")].category == "Display"
 
 let dir = getTempDir() / "retro-fetch-test"
 removeDir(dir)
