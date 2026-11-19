@@ -20,6 +20,7 @@ proc panelBody(key: string) =
   of "properties": propertiesBody(d)
   of "adjustments": adjustmentsBody()
   of "libraries": librariesBody()
+  of "assistant": assistantBody()
   of "layers": layersBody(d)
   of "channels": channelsBody(d)
   of "paths": pathsBody(d)

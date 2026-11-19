@@ -186,20 +186,25 @@ proc runNow(exe: string; args: seq[string]; why: string): AdminRun =
 
 when compileOption("threads") and not defined(js) and not defined(wasm):
   import std/[typedthreads, tables]
-  type
-    Job = ref object
-      thread: Thread[(string, string, seq[string], string)]
+  # (one thread for all of them, for the program's life: a thread each would leave behind,
+  # as it ended, what Nim's cycle collector had begun for it -- a soak of Retro DNS grew
+  # 1.5 MB a minute)
   var
-    jobs: Table[string, Job]
+    asks: Channel[(string, string, seq[string], string)]
     done: Channel[(string, AdminRun)]
+    worker: Thread[void]
     opened = false
+    waiting: Table[string, bool]
     came: Table[string, AdminRun]
 
-  proc work(a: (string, string, seq[string], string)) {.thread.} =
-    var r: AdminRun
-    {.cast(gcsafe).}:
-      r = runNow(a[1], a[2], a[3])
-    done.send((a[0], r))
+  proc work() {.thread.} =
+    while true:
+      let a = asks.recv()
+      if a[0].len == 0: break
+      var r: AdminRun
+      {.cast(gcsafe).}:
+        r = runNow(a[1], a[2], a[3])
+      done.send((a[0], r))
 
 proc runAsAdmin*(key, exe: string; args: openArray[string] = []; why = ""): AdminRun =
   ## Runs `exe` with `args` as the administrator, the system asking the user
@@ -210,8 +215,10 @@ proc runAsAdmin*(key, exe: string; args: openArray[string] = []; why = ""): Admi
     AdminRun(state: adNone, output: "There is no administrator to ask here.")
   elif compileOption("threads"):
     if not opened:
+      asks.open()
       done.open()
       opened = true
+      createThread(worker, work)
     while true:
       let (got, d) = done.tryRecv()
       if not got: break
@@ -219,14 +226,11 @@ proc runAsAdmin*(key, exe: string; args: openArray[string] = []; why = ""): Admi
     if key in came:
       result = came[key]
       came.del key
-      if key in jobs:
-        joinThread(jobs[key].thread)
-        jobs.del key
+      waiting.del key
       return
-    if key notin jobs:
-      let j = Job()
-      jobs[key] = j
-      createThread(j.thread, work, (key, exe, @args, why))
+    if key notin waiting:
+      waiting[key] = true
+      asks.send((key, exe, @args, why))
     AdminRun(state: adWaiting)
   else:
     runNow(exe, @args, why)

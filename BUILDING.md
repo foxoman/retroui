@@ -156,6 +156,14 @@ adb forward tcp:7000 tcp:7000
 retrokit drive 7000 tree
 ```
 
+**An AI agent works any app the same way**: `retrokit mcp 7000` speaks
+the Model Context Protocol on its standard input and output for the app
+driven on port 7000 -- an agent's settings name it as the command to start
+(`{"command": "retrokit", "args": ["mcp", "7000"]}`) -- with the window's
+controls listed, clicked and typed into, a picture of the window, and the
+app's own tools where it publishes them (`publishTools`). The driver's
+`shot` command is that picture (`retrokit drive 7000 shot window.png`).
+
 The kit's own tour of its apps (`sh tests/drive/run.sh`; `TOUR_STRICT=1`:
 a finding fails it, as on the CI's Linux job) builds them and drives each
 with the keyboard alone; `build/drive/tour --touch` as on a touch screen

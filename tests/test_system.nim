@@ -92,6 +92,21 @@ block runAsAdministrator:
       sleep 10
       r = runAsAdmin("t", "true")
     doAssert r.state == adFailed and "pkexec" in r.output, $r
+    when defined(linux):
+      # (one thread for them all, for the program's life: twenty asks leave no more threads
+      # than the first -- a thread each left what ORC began for it behind)
+      proc threadsNow(): int =
+        for l in lines("/proc/self/status"):
+          if l.startsWith("Threads:"): return parseInt(l[8 .. ^1].strip)
+      let before = threadsNow()
+      for k in 0 ..< 20:
+        var q = runAsAdmin("u" & $k, "true")
+        for _ in 0 ..< 500:
+          if q.state != adWaiting: break
+          sleep 5
+          q = runAsAdmin("u" & $k, "true")
+        doAssert q.state == adFailed, $q
+      doAssert threadsNow() == before, "one thread for every ask"
 
 block systemSettings:
   # GNOME's answers read; here, whatever this machine has

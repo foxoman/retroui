@@ -1739,7 +1739,13 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.8.0: new text in Dastkhat -- Arabic, Persian and Latin in nine weights; your own " &
+           whatsNew = ["5.9.0: the Assistant (Window > Assistant, Edit > Ask AI): a conversation with your own " &
+                       "AI service that does what you ask with the app's tools -- type and shapes added, layers " &
+                       "set, a selection made, menu commands run -- asking before each change, one step to " &
+                       "undo, the image shown to it if you like; Generate Image, Generative Fill (to change or " &
+                       "take away what is selected) and Generative Expand through your image service (Edit > " &
+                       "AI Connector, Pictures); AI agents outside work it as an MCP server (retrokit mcp).",
+                       "5.8.0: new text in Dastkhat -- Arabic, Persian and Latin in nine weights; your own " &
                        "font folders (Preferences > Type), on a phone too; every family of Google Fonts in " &
                        "Get Google Fonts, the Arabic ones first; Arabic in fonts that build letters from " &
                        "dots (Reem Kufi) drawn right, tashkeel styled apart; a Photoshop document says as it " &

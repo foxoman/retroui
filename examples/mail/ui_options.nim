@@ -103,7 +103,35 @@ proc assistantTab() =
   if not aiKeyLoaded:
     aiKeyLoaded = true
     aiKey = loadSecret(secretApp, "ai-key")
-  group "Assistant":
+  loadMailAi()
+  group "The Assistant pane (View, Assistant)":
+    paragraph "An AI service of your own -- on your computer (Ollama, LM Studio) or online -- that " &
+              "finds and reads your mail when you ask and drafts replies for you to send. It sends " &
+              "only what it reads to answer."
+    var s = mailAi.s
+    var changed = false
+    form dp(160):
+      field "S&peaks:":
+        block:
+          var k = ord(s.kind)
+          if combo([$akOpenAi, $akAnthropic], k):
+            s.kind = AiKind(k)
+            if s.url.len == 0 or s.url == defaultUrl(AiKind(1 - k)): s.url = defaultUrl(s.kind)
+            changed = true
+      field "&Address:":
+        block:
+          if edit(s.url): changed = true
+      field "M&odel:":
+        block:
+          if edit(s.model): changed = true
+      field "K&ey:":
+        block:
+          if edit(s.key, password = true): changed = true
+    if changed:
+      mailAi.s = s
+      saveAiSettings(secretApp, s)
+      if mailChat != nil: mailChat.settings = s
+  group "Summarize and Translate":
     var on = prefBool("aiOn", false)
     if checkbox("Show &Summarize and Translate over a conversation", on): prefs.put("aiOn", on)
     paragraph "They send the text of the conversation you ask about (nothing else, and only " &

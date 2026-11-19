@@ -1557,6 +1557,12 @@ proc main() =
     if strip.len > 0: removeFile(lib)
     run(quoteShellCommand(args), "compiling for " & abi.name)
     buildEnded(cache)
+    # (a library linked as a program -- its compiler not given -shared, or given its own start
+    # files -- wants libc's start of a program, which Android does not give a library it loads:
+    # the app would not start at all)
+    if "\0__libc_init\0" in readFile(lib):
+      die abi.name & ": libmain.so was linked as a program, not as a library (" & tc.what &
+          " was not given -shared, or gave its own start files): Android could not load it"
     for n in neededLibs(lib):
       if n notin SystemLibs:
         die abi.name & ": libmain.so needs " & n & ", which is not part of " &

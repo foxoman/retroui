@@ -21,8 +21,9 @@
 import std/[os, strutils, json, times, tables, sets, algorithm, sequtils, unicode, hashes, math, atomics]
 import retroui, retroui/[db, http, oauth, secrets, mime, richedit, spell, pdfview, mailimport, notify,
                      bgcheck]
-import retroui/[mailsetup, netconn, mailauth, mailsafety, domains]
+import retroui/[mailsetup, netconn, mailauth, mailsafety, domains, aiconnect, aichat, assistant]
 import mail/[store, api, sync, graph, gmail, appids, rules, forward, importer, calendar, imapsync, othersync]
+import mail/assist as mailAssist
 
 include mail/ui_state
 include mail/ui_data
@@ -30,6 +31,7 @@ include mail/ui_compose
 include mail/ui_mail
 include mail/ui_more
 include mail/ui_extra
+include mail/ui_assist
 include mail/ui_classic
 include mail/ui_wizard
 include mail/ui_start
@@ -221,7 +223,12 @@ proc mainWindow() =
       split(treeW, -1):
         leftPane()
       do:
-        if prefBool("myday", true) and available() > dp(1000):
+        if prefBool("assistant", false) and available() > dp(800):
+          split(mainW, -1):
+            mailArea()
+          do:
+            mailAssistantPane()
+        elif prefBool("myday", true) and available() > dp(1000):
           split(mainW, -1):
             mailArea()
           do:
@@ -437,14 +444,15 @@ proc mailFrame() =
   wizardDialog()
   linkAskDialog()
 
-app appName, 1280, 800:
-  if not started: startup()
-  if not mailOpen and keyDone.load: openMail()
-  if mailOpen: mailFrame()
-  else: keyringWait()
+when not declared(mailUnderTest):   # (tests/test_mailassist.nim takes the app's procs, not its window)
+  app appName, 1280, 800:
+    if not started: startup()
+    if not mailOpen and keyDone.load: openMail()
+    if mailOpen: mailFrame()
+    else: keyringWait()
 
-if mailOpen:
-  link.cmds.send(SyncCmd(kind: scQuit))
-  fetchIn.send("")
-  savePrefs()
-  store0.close()
+  if mailOpen:
+    link.cmds.send(SyncCmd(kind: scQuit))
+    fetchIn.send("")
+    savePrefs()
+    store0.close()

@@ -33,7 +33,7 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 - **[Dialogs](#dialogs)**: [msgBox](#msgbox) · [inputBox](#inputbox) · [dialog](#dialog) · [progressBox](#progressbox) · [wizard, stepDone](#wizard-stepdone) · [aboutBox](#aboutbox) · [splashBox](#splashbox) · [problemBox, reportProblem](#problembox-reportproblem) · [stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen](#stoppedscreen-stoppedframe-stoppedpending-startfresh-showstoppedscreen) · [fileDialog (3.1)](#filedialog-31)
 - **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator, toolSpace](#toolbar-toolbutton-toolseparator-toolspace) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [animated](#animated) · [sprung, presence, glided, dragSnap, staggered, fixedSteps](#sprung-presence-glided-dragsnap-staggered-fixedsteps) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
 - **[Files](#files)**: [fileList](#filelist) · [fileList: large icons](#filelist-large-icons) · [folderTree](#foldertree) · [placesView](#placesview) · [filePreview](#filepreview) · [pathBar](#pathbar) · [driveBar](#drivebar) · [filePicker](#filepicker) · [trashList](#trashlist) · [propertiesDialog](#propertiesdialog) · [runJobDialog](#runjobdialog) · [textFileView, hexFileView](#textfileview-hexfileview) · [pictureBox](#picturebox) · [storageDialog](#storagedialog)
-- **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [gauge in bands, rangeBar](#gauge-in-bands-rangebar) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart) · [liveGraph](#livegraph) · [graphView](#graphview)
+- **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [gauge in bands, rangeBar](#gauge-in-bands-rangebar) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart) · [liveGraph](#livegraph) · [graphView](#graphview) · [assistantPanel](#assistantpanel)
 - **[Planning and dashboards](#planning-and-dashboards)**: [kpiTile, statCard, kpiRow](#kpitile-statcard-kpirow) · [kanbanBoard](#kanbanboard) · [ganttView](#ganttview) · [agendaView](#agendaview) · [orgChart](#orgchart)
 - **[Maps and 3D](#maps-and-3d)**: [mapView](#mapview) · [tileMap](#tilemap) · [view3d](#view3d) · [Models: parts and clips](#models-parts-and-clips) · [bars3d](#bars3d)
 - **[HTML, Markdown and rich text](#html-markdown-and-rich-text)**: [htmlView, htmlBlock](#htmlview-htmlblock) · [webView, webRun, webPost](#webview-webrun-webpost) · [markdownView, markdown](#markdownview-markdown) · [richEdit, richToolbar](#richedit-richtoolbar)
@@ -5839,6 +5839,105 @@ proc setRoom*(g: var ForceGraph; i: int; w, h: float)
 
 Node `i` takes a box `w` x `h` (its label's, a box's): others are kept out of it.
 (`graphView` sets it from what it draws.)
+
+### assistantPanel
+
+An assistant in any app (`retroui/assistant`): a conversation with your own AI service (`retroui/aichat` -- any OpenAI-compatible one, a local Ollama or LM Studio, or Anthropic's), which does things with the app's tools -- each a Nim proc with its arguments -- and asks first when a tool changes something (Allow, Allow All, Don't). `uiTools` lets it work the app's own controls by their names; `publishTools` offers the app's tools to agents outside it too (`retrokit mcp`). Its words read as Markdown.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![assistantPanel, normal](controls/assistant-normal.png) | ![assistantPanel, touch screen](controls/assistant-touch-screen.png) | ![assistantPanel, dark scheme](controls/assistant-dark-scheme.png) |
+
+```nim
+var asChat = newAiChat(AiSettings(kind: akOpenAi, url: "http://localhost:11434/v1/chat/completions",
+                                  model: "llama3.1"))
+asChat.messages = @[AiMessage(role: arUser, text: "Put a title on it"), AiMessage(
+    role: arAssistant, calls: @[AiCall(id: "1", name: "add_text", state: acDone, result: "added a type layer, \"Summer Sale\"")]), AiMessage(
+    role: arAssistant,
+    text: "I put **Summer Sale** at the top, in Dastkhat Bold."), AiMessage(
+    role: arUser, text: "and a red circle behind it?"), AiMessage(
+    role: arAssistant, calls: @[AiCall(id: "2", name: "add_shape",
+                                       state: acAsking, args: %*{
+    "kind": "ellipse", "fill": "#d02020", "w": 300, "h": 300})])]
+asChat.state = ciConfirm
+
+assistantPanel(asChat, height = 300)
+```
+
+**API**
+
+```nim
+proc newAiChat*(s: AiSettings; system = ""; tools: openArray[AiTool] = []): AiChat
+```
+
+A conversation with the service `s` (none connected: `send` says so).
+
+```nim
+proc aiTool*(name, description: string; params: openArray[AiParam];
+             run: proc (args: JsonNode): string {.closure.}; confirm = false): AiTool
+```
+
+A tool done at once: `run` returns what it did (or why it could not), in words.
+
+```nim
+proc aiToolLater*(name, description: string; params: openArray[AiParam];
+                  start: proc (args: JsonNode; done: proc (text: string) {.closure.}) {.closure.};
+                  confirm = false): AiTool
+```
+
+A tool whose work ends in a later frame: it says what it did through `done`.
+
+```nim
+proc param*(name, kind, description: string; choices: openArray[string] = [];
+            optional = false): AiParam
+```
+
+A tool's argument: `kind` "string", "number", "integer" or "boolean".
+
+```nim
+proc send*(c: WebCall; value: JsonNode)
+```
+
+One value of a stream: the page's `retro.stream` gets it (its callback);
+`finish` ends it.
+
+```nim
+proc allow*(c: AiChat; always = false)
+```
+
+The tool waiting for the user runs (`always`: those after it too, this conversation).
+
+```nim
+proc deny*(c: AiChat)
+```
+
+The tool waiting for the user does not run: the service is told so.
+
+```nim
+proc uiTools*(): seq[AiTool]
+```
+
+Tools that let the service see and work the app's own controls, by the names a screen
+reader reads (`retroui/drive`): the controls listed, a click, typing, a key, a value set.
+Those that change something ask first. Any app has them -- an assistant for an app that
+has no tools of its own.
+
+```nim
+proc commandTool*(commands: seq[string]; run: proc (command: string) {.closure.};
+                  name = "run_command"): AiTool
+```
+
+A tool that runs one of the app's menu commands by its name (`commands`: those the
+service may use) -- what the AI Connector's Ask did in one tool.
+
+```nim
+proc publishTools*(tools: openArray[AiTool])
+```
+
+Offers `tools` to AI agents outside the app as well: through the driver (an app started
+with RETRO_DRIVE; `retrokit mcp PORT` makes them an MCP server's tools), each run on the
+UI thread as the app's own assistant runs it. (`confirm` is the app's own assistant's: an
+agent's program asks its user before a tool runs, as MCP's do.)
 
 ## Planning and dashboards
 

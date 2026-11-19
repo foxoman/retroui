@@ -1,5 +1,95 @@
 # Changes
 
+## 0.64.0
+
+AI in any app, with the service you choose. `retroui/aichat` is a
+conversation with your own AI service that can use the app: the app gives
+it tools -- Nim procs with their arguments --, the service calls them,
+sees what they did and goes on; a tool that changes something asks you
+first. `retroui/assistant` draws it beside the app's work, as a copilot
+does in an office program, and `uiTools` lets it work any app's own
+controls by their names. Every app can be worked by an AI agent outside it
+too: `retrokit mcp` makes it an MCP server. `retroui/aiimage` makes
+pictures from words and changes a picture where a mask says. In Retro
+Atelier 5.9: the Assistant, Generate Image, Generative Fill and
+Generative Expand; in Retro Mail 1.3: the Assistant pane, which finds and
+reads your mail and drafts replies for you to send. Nothing is sent
+anywhere until you set a service.
+
+- **A conversation that uses the app** (`retroui/aichat`: `newAiChat`,
+  `aiTool`, `aiToolLater`, `param`, `send`, `allow`, `deny`, `stop`,
+  `clear`): any service that speaks OpenAI's chat completions with tools
+  (OpenAI, a local Ollama or LM Studio, many more) or Anthropic's Messages
+  with tool use -- the same tools for both. The request goes on a worker;
+  the tools run on the UI thread at the start of a frame and may touch
+  anything; a tool that finishes some frames later says so through
+  `done` (`aiToolLater`); one that `confirm`s waits for the user (Allow,
+  Allow All for the conversation, Don't -- the service is told it was not
+  done). Several calls in one answer go in order, their results back
+  together; the rounds are limited (8). A picture goes with what is
+  written to services that see them (`send(text, png)`, or `attach` each
+  time); `context` tells it what the app shows. `commandTool` runs the
+  app's menu commands by name, the AI Connector's Ask in one tool.
+  `chatRequest`/`chatReply` are the two kinds' requests and answers.
+  `test_aichat` (against `tests/aimock.py`, a service of the test's own).
+- **An assistant in any app** (`retroui/assistant`: `assistantPanel`,
+  `uiTools`): the messages (Markdown, Arabic right to left), what each
+  tool did, a tool waiting with Allow and Don't, Thinking..., the box to
+  write in (Enter sends), Stop and New. `uiTools`: the app's own window
+  as tools -- its controls listed, a control clicked, typed into, a key,
+  a value set -- by the names a screen reader reads, so an app with no
+  tools of its own has an assistant too.
+- **Any app worked by AI agents** (`retroui/mcpserver`, `retrokit mcp
+  PORT`): the app started with RETRO_DRIVE, `retrokit mcp` speaks the
+  Model Context Protocol on its standard input and output -- what an
+  agent's program (Claude's desktop app, an editor's agent) starts --
+  with the window's tools (`ui_controls`, `ui_click`, `ui_type`, `ui_key`,
+  `ui_set`, `ui_wait`, `ui_screenshot`, a picture) and the app's own
+  (`publishTools`). The driver has three commands more: `shot` (the
+  window's picture as a PNG), `tools` and `tool` (the app's own tools,
+  listed and run), and `driveAsk` runs a driver's command from inside the
+  app. `test_mcp`.
+- **Pictures from words, and a picture changed through a mask**
+  (`retroui/aiimage`: `generateImage`, `editImage`): any service that
+  speaks OpenAI's images API (gpt-image-1, dall-e-2, a server on your
+  computer that takes the same requests); asked at the nearest of its
+  sizes, the picture comes back at the size asked; the key in the
+  keyring (`saveAiImageSettings`).
+- **Retro Atelier 5.9**: the Assistant (Window > Assistant; Edit > Ask AI
+  opens it) -- a conversation with the AI Connector's service that works
+  the image with the app's tools: the document described, type added (in
+  Dastkhat, Arabic as Arabic), shapes added, a layer set (made current,
+  renamed, shown or hidden, its opacity, moved, deleted), a selection
+  made, any menu command run, a picture made, the selection filled; each
+  change asked first and one step to undo; the image shown to it with
+  each message if you like (Show it the image). **Generate Image**,
+  **Generative Fill** (the selection made again as you describe it, or
+  -- said nothing -- filled from what is round it, to take something
+  away) and **Generative Expand** (the canvas grown, what is new made to
+  carry the picture on) in the Edit menu, each a new layer (masked to
+  where it is new), through the image service: Edit > AI Connector,
+  Pictures. Its tools are published to agents outside it too.
+- **Retro Mail 1.3**: the Assistant pane (View > Assistant): ask it what
+  came from the bank this week, to sum up a thread, to answer someone --
+  it lists, finds and reads messages (without what they quote) and opens
+  a reply or a new message for you to read and send, never sending; it
+  marks messages read or flagged when asked. Any service (Tools > Options
+  > Assistant: OpenAI-compatible or Anthropic); an older version's
+  Anthropic key is used until one is set. `test_mailassist`.
+- `markdown` keeps 48 laid-out texts (6): a conversation's messages are
+  laid out once, not every frame.
+- **Retro DNS grew 1.5 MB a minute** under random input where `pkexec`
+  was there (not on GitHub's runners): `retroui/admin` started a thread
+  for each command run as the administrator, and a thread that ends leaves
+  behind what Nim's cycle collector began for it (`docs/nim-bugs.md` 6,
+  ready to report). One thread runs them all now, for the program's life;
+  the soak is flat (15 MB). `test_system` checks twenty asks start no
+  thread more.
+- `retroapk` refuses a library linked as a program (its compiler not given
+  `-shared`, or given its own start files: a compiler wrapper did that to
+  Retro Atelier 5.8.0's first APK): Android cannot load one, and the app
+  would not start at all.
+
 ## 0.63.0
 
 Movement and graphs in the kit -- springs that keep their speed, boxes

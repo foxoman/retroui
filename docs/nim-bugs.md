@@ -1,4 +1,4 @@
-# Three leaks in Nim 2.2 (ORC), an overflow and a cut letter, ready to report
+# Four leaks in Nim 2.2 (ORC), an overflow and a cut letter, ready to report
 
 Retro Nim UI works around the leaks (see `tools/returncheck.py`,
 `tools/writecheck.py` and AGENTS.md) and the cut letter (`import std/unicode except strip`, kept by
@@ -262,6 +262,54 @@ Retro Nim UI had some 70 of these (a chart's area points every frame, the
 names a screen reader is given every frame, a picture's dash lists, a
 whole picture opened to make a layer); `tools/writecheck.py` lists them,
 and each now has its value where it is declared.
+
+---
+
+## 6. A thread that ends leaves ORC's cycle buffer behind
+
+**Title:** ORC: each thread that registers a cycle candidate leaks the
+collector's buffer for it when the thread ends
+
+A thread that drops a reference of a type that can make cycles (ORC
+registers it with its cycle collector) allocates the collector's
+thread-local buffer of roots (`registerCycle`, `CellSeq` in
+lib/system/orc.nim). When the thread ends the buffer is not given back:
+about 4 KB a thread.
+
+```nim
+import std/[typedthreads, strutils]
+type Node = ref object
+  next: Node
+  data: string
+proc work() {.thread.} =
+  var a = Node(data: "x")
+  a.next = Node(next: a)     # (a cycle: its decrement registers it with ORC's collector)
+  a = nil
+proc rss(): int =
+  for l in lines("/proc/self/status"):
+    if l.startsWith("VmRSS:"): return parseInt(l.splitWhitespace[1])
+var t: Thread[void]
+let before = rss()
+for i in 0 ..< 3000:
+  createThread(t, work)
+  joinThread(t)
+echo "RSS grew ", rss() - before, " KB over 3000 threads"
+```
+
+```
+RSS grew 12716 KB over 3000 threads
+```
+
+Expected: about what the same program grows without the cycle (`a.next =
+...` taken out): 388 KB. Seen with Nim 2.2.6 and 2.4.2, `-d:useMalloc`
+(the buffer is the collector's own, whatever allocates it). A buffer of
+roots wants freeing when its thread ends, as the thread's heap is.
+
+Retro Nim UI started a thread for each command run as the administrator
+(`retroui/admin`): Retro DNS's random-input soak grew 1.5 MB a minute
+where `pkexec` was there to run (`execCmdEx`'s process and streams are
+such types). It keeps one thread for them all now; AGENTS.md says to use
+the kit's lasting workers (`retroui/jobs`) rather than a thread a task.
 
 ---
 

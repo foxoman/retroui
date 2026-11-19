@@ -39,6 +39,7 @@
 ##   retrokit symbolize REPORT [SYMBOLS]  a crash report's frames named
 ##   retrokit drive PORT COMMAND...   an app started with RETRO_DRIVE=PORT,
 ##                                    driven: click, type, key, wait, tree
+##   retrokit mcp PORT                that app as an MCP server, for AI agents
 ##
 ## No dependencies but Nim and a C compiler.
 
@@ -46,8 +47,8 @@ import std/[os, osproc, strutils, sequtils, times, hashes]
 when not defined(windows):
   import std/dynlib
 import retroweb, retrostore
-import retroui/[buildjobs, symbolize, driveclient, uistrings]
-import std/json
+import retroui/[buildjobs, symbolize, driveclient, uistrings, mcpserver]
+import std/[json, base64]
 
 const usage = """
 retrokit -- start, check and build Retro Nim UI apps
@@ -134,9 +135,14 @@ retrokit -- start, check and build Retro Nim UI apps
         press NAME | focus NAME | set NAME VALUE | move NAME
         scroll NAME LINES | key ctrl+s | type TEXT | quit
         wait MS | wait --frames N | wait NAME [--gone] [--timeout MS]
+        shot FILE [--max N] (the window's picture)
       each answered once the app has done it; exit 1 when it could not.
       `retrokit drive PORT -` takes one command a line from stdin (words or
       JSON), stopping at the first that fails
+  retrokit mcp PORT
+      the app started with RETRO_DRIVE=PORT as an MCP server on stdin and
+      stdout, for an AI agent (Claude's desktop app, an editor's): its window's
+      controls listed, clicked, typed into, pictured, and the app's own tools
 """
 
 const templates = [
@@ -902,11 +908,24 @@ proc driveCmd(args: seq[string]): int =
     except CatchableError as e:
       echo "retrokit: ", e.msg
       return 2
+    # (a picture is written here, not where the app runs: an app on a phone)
+    var shotFile = ""
+    if req{"cmd"}.getStr == "shot" and req.hasKey("file"):
+      shotFile = req["file"].getStr
+      req.delete("file")
     var r: JsonNode
     try: r = app.ask(req, timeoutMs = 60000)
     except DriveError as e:
       echo "retrokit: ", e.msg
       return 1
+    if shotFile.len > 0 and r{"ok"}.getBool:
+      try:
+        writeFile(shotFile, base64.decode(r{"png"}.getStr))
+        r.delete("png")
+        echo shotFile, ": ", r{"w"}.getInt, " x ", r{"h"}.getInt
+      except CatchableError as e:
+        echo "retrokit: ", shotFile, ": ", e.msg
+        return 1
     if raw: echo r
     elif not r{"ok"}.getBool: echo "retrokit: ", r{"error"}.getStr
     elif r.hasKey("nodes"):
@@ -991,6 +1010,10 @@ proc main() =
   of "update-key": quit updateKeyCmd(args[1 .. ^1])
   of "update-sign": quit updateSignCmd(args[1 .. ^1])
   of "drive": quit driveCmd(args[1 .. ^1])
+  of "mcp":
+    let port = if args.len >= 2: (try: parseInt(args[1]) except ValueError: -1) else: -1
+    if port notin 1 .. 65535: quit usage
+    quit serveMcp(port)
   of "symbolize":
     if args.len < 2 or not fileExists(args[1]): quit usage
     var syms = if args.len >= 3: args[2] else: ""

@@ -19,8 +19,19 @@ var
   styleColorsOn = true
   styleFontsOn = true
   aiDlg: tuple[open: bool; s: AiSettings; loaded, keyed: bool]
-  askDlg: tuple[open: bool; prompt: string; answer: AiAnswer; asked: bool]
+  imgAi: tuple[loaded, keyed: bool; s: AiImageSettings]   ## (the image service: photo/assist)
+  genDlg: tuple[open: bool; kind: int; prompt: string; w, h: int]
+    ## Generative Fill (0), Generative Expand (1), Generate Image (2): photo/assist
+  assist: AiChat                  ## (the Assistant panel's conversation: photo/assist)
   liveSeen: Table[pointer, int]
+
+proc genDialog()                  # (in photo/assist)
+
+proc loadImgAi(withKey = true) =
+  if imgAi.loaded and (imgAi.keyed or not withKey): return
+  imgAi.s = loadAiImageSettings(AppData, withKey)
+  imgAi.loaded = true
+  imgAi.keyed = withKey
 
 const
   TileNames = ["Grid", "Brick by Row", "Brick by Column", "Hex by Column", "Hex by Row"]
@@ -768,12 +779,14 @@ proc appCommands(): seq[string] =
   finally: mIndex.on = false
   for (_, _, c) in mIndex.found:
     if c in result or c.len == 0: continue
-    if c in ["Quit", "Exit", "Close All", "Close", "Revert", "Ask AI...", "AI Connector..."]: continue
+    if c in ["Quit", "Exit", "Close All", "Close", "Revert", "Ask AI...", "AI Connector...", "Assistant",
+             "Generative Fill...", "Generative Expand...", "Generate Image..."]: continue
     result.add c
 
 proc aiDialogs() =
   if aiDlg.open:
     loadAi()
+    loadImgAi()
     var ok = false
     dialog(aiDlg.open, "AI Connector", 460):
       paragraph("An AI service of your own -- on your computer (Ollama, LM Studio) or online -- turns what you " &
@@ -794,61 +807,38 @@ proc aiDialogs() =
       row([100, -1]):
         label "Key:"
         edit(aiDlg.s.key, password = true)
+      label("Pictures (Generate Image, Generative Fill and Expand):", bold = true)
+      paragraph("A service that speaks OpenAI's images API: its address and model (gpt-image-1, dall-e-2...); " &
+                "the key, if it is not the one above.", color = ui.theme.gray)
+      row([100, -1]):
+        label "Address:"
+        edit(imgAi.s.url)
+      row([100, -1]):
+        label "Model:"
+        edit(imgAi.s.model)
+      row([100, -1]):
+        label "Key:"
+        edit(imgAi.s.key, password = true)
       row:
-        if button("Disconnect", w = dp(100), enabled = aiDlg.s.connected):
+        if button("Disconnect", w = dp(100), enabled = aiDlg.s.connected or imgAi.s.connected):
           aiDlg.s = AiSettings()
+          imgAi.s = AiImageSettings()
           discard saveAi()
+          saveAiImageSettings(AppData, imgAi.s)
         spring()
         if button("OK", isDefault = true, w = dp(80)): ok = true
         if button("Cancel", w = dp(80)):
           aiDlg.open = false
           aiDlg.loaded = false
+          imgAi.loaded = false
     if ok:
       aiDlg.open = false
-      status = if not saveAi(): "AI Connector: not kept -- the settings or the keyring could not be written"
+      if imgAi.s.url.strip.len > 0 and imgAi.s.key.len == 0: imgAi.s.key = aiDlg.s.key
+      let pics = saveAiImageSettings(AppData, imgAi.s)
+      if assist != nil: assist.settings = aiDlg.s
+      status = if not saveAi() or not pics: "AI Connector: not kept -- the settings or the keyring could not be written"
                elif aiDlg.s.connected: "AI Connector: " & aiDlg.s.model
                else: "AI Connector: off"
-  if askDlg.open:
-    loadAi(withKey = false)
-    var run = false
-    dialog(askDlg.open, "Ask AI", 480):
-      if not aiDlg.s.connected:
-        paragraph("No AI service is connected: Edit > AI Connector sets one.", color = ui.theme.gray)
-        if button("AI Connector...", w = dp(130)):
-          askDlg.open = false
-          aiDlg.open = true
-      else:
-        label("What should be done?", bold = true)
-        editArea(askDlg.prompt, lines = 3)
-        if button("Ask", isDefault = not askDlg.asked, w = dp(80), enabled = askDlg.prompt.strip.len > 0):
-          let d = cur()
-          let ctx = if d != nil: $d.w & " x " & $d.h & " pixels, " & $d.layers.len & " layers, the current one " &
-                                 d.current.name & (if d.hasSelection: ", with a selection" else: "")
-                    else: "no document open"
-          beginBusy("Ask AI")
-          try:
-            loadAi()
-            askDlg.answer = askAi(aiDlg.s, askDlg.prompt, appCommands(), ctx)
-          finally: endBusy()
-          askDlg.asked = true
-        if askDlg.asked:
-          let a = askDlg.answer
-          if a.error.len > 0: label(a.error, color = color(170, 0, 0))
-          else:
-            if a.note.len > 0: paragraph(a.note)
-            for i, c in a.commands: label($(i + 1) & ". " & tr(c))
-            if a.unknown.len > 0:
-              paragraph("Not commands of Retro Atelier (left out): " & a.unknown.join(", "), color = ui.theme.gray)
-            if a.commands.len == 0: label("Nothing to run.", color = ui.theme.gray)
-      row:
-        spring()
-        if button("Run", isDefault = askDlg.asked, w = dp(80),
-                  enabled = askDlg.asked and askDlg.answer.commands.len > 0): run = true
-        if button("Close", w = dp(80)): askDlg.open = false
-    if run:
-      askDlg.open = false
-      for c in askDlg.answer.commands: runCommand(c)
-      status = "Ask AI: " & $askDlg.answer.commands.len & " commands run"
 
 # ---- on the canvas ----------------------------------------------------------------------------------------------
 
@@ -1027,7 +1017,13 @@ proc makersCommand(name: string): bool =
     prefs.layerSizes = not prefs.layerSizes
     savePrefs()
   of "AI Connector...": aiDlg.open = true
-  of "Ask AI...": askDlg = (true, askDlg.prompt, AiAnswer(), false)
+  of "Ask AI...": showPanel("assistant")
+  of "Generative Fill...":
+    if d != nil: genDlg = (true, 0, "", 0, 0)
+  of "Generative Expand...":
+    if d != nil: genDlg = (true, 1, "", d.w + d.w div 4, d.h + d.h div 4)
+  of "Generate Image...":
+    if d != nil: genDlg = (true, 2, genDlg.prompt, 0, 0)
   else: result = false
 
 proc makersDialogs() =
@@ -1036,3 +1032,4 @@ proc makersDialogs() =
   upscaleDialog()
   mockupDialog()
   aiDialogs()
+  genDialog()

@@ -489,6 +489,9 @@ proc menus() =
       if menuItem("&My Day", checked = prefBool("myday", true)):
         prefs.put("myday", not prefBool("myday", true))
         savePrefs()
+      if menuItem("A&ssistant", checked = prefBool("assistant", false)):
+        prefs.put("assistant", not prefBool("assistant", false))
+        savePrefs()
       if menuItem("&Contacts Pane", checked = prefBool("contactspane", true)):
         prefs.put("contactspane", not prefBool("contactspane", true))
         savePrefs()

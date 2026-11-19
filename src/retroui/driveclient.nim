@@ -106,6 +106,7 @@ proc request*(words: openArray[string]): JsonNode =
   ## - `move NAME`, `scroll NAME LINES` (up > 0)
   ## - `set NAME VALUE`, `key ctrl+s`, `type TEXT`
   ## - `wait MS`, `wait --frames N`, `wait NAME [--gone] [--timeout MS]`
+  ## - `shot FILE` (the window's picture as a PNG; `--max N` its longest side)
   ##
   ## and after a name `--role R` (button, textField, menuItem...), `--nth N`.
   ## A word that starts with `{` is a command in JSON.
@@ -129,7 +130,7 @@ proc request*(words: openArray[string]): JsonNode =
       of "double": result["clicks"] = %2
       of "finger": result["finger"] = %true
       of "gone": result["gone"] = %true
-      of "role", "nth", "timeout", "frames", "index", "hold":
+      of "role", "nth", "timeout", "frames", "index", "hold", "max":
         if v.len == 0 and i + 1 < words.len:
           inc i
           v = words[i]
@@ -163,6 +164,8 @@ proc request*(words: openArray[string]): JsonNode =
       else: result["name"] = %free[0]
   of "click", "move":
     if free.len > 0: place(free[0])
+  of "shot":
+    if free.len > 0: result["file"] = %free[0]
   else:
     if free.len > 0: result["name"] = %free[0]
 

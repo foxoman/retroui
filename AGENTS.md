@@ -40,6 +40,10 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   job's value is moved out, never shared (ORC counts a closure's
   references on one thread only). A loop that makes jobs makes each in a
   proc of its own (closures in a loop share the loop's variables).
+- No thread for each task: a thread that ends leaves behind what ORC's
+  cycle collector began for it (`docs/nim-bugs.md` 6, about 4 KB each).
+  Work goes to the kit's lasting workers (`retroui/jobs`), or to one
+  thread kept for the program's life (`retroui/admin`).
 - uirelays' X11 and Wayland drivers also wait on the descriptors of
   `addWaitSource` (the tray's D-Bus connection): a kit module that needs
   the loop woken by a socket adds one there, generic, never a driver of
@@ -524,6 +528,17 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   tries a body against a string parameter first and fails on `yield`), and
   build their steps through procs (a template's parameter named like an
   object's field replaces the field's name too).
+- **AI goes through the user's own service, off until it is set**
+  (`retroui/aiconnect`, `retroui/aichat`, `retroui/aiimage`): nothing is
+  sent before; keys in `retroui/secrets`, never in a settings file. A tool
+  that changes something `confirm`s (the assistant asks; Allow All for the
+  conversation); a tool's change is one step to undo. Tools run on the UI
+  thread (`aiTool`; `aiToolLater` when the work ends in a later frame);
+  the request and an image service's work go on a worker (a job's closure
+  copies what it needs). An app's assistant is `assistantPanel`, its
+  window's controls `uiTools`; `publishTools` for agents outside
+  (`retrokit mcp`). The tests speak to `tests/aimock.py`, never to a real
+  service.
 - **A graph's layout without a window is `retroui/forcelayout`**; the
   control (`graphView`) is `retroui/forcegraph`, which imports the UI. A
   module that draws nothing on screen (`retroui/board`) imports the

@@ -18,7 +18,7 @@ from std/times import fromUnix, epochTime
 from std/unicode import runes, toUTF8
 import retroui
 import retroui/[textwidgets, richedit, qrcode, pdfview, tilemap, mvt, capture, mediasession, system,
-                secrets, update, jobs, tray, motion, forcegraph]
+                secrets, update, jobs, tray, motion, forcegraph, assistant]
 import retroui/uirelays/[coords, screen, input, services]
 include "../tests/carscene"
 
@@ -1874,6 +1874,22 @@ example("graphview", "graphView",
 do:
   discard graphView(gvGraph, 200, gvSel)
 
+example("assistant", "assistantPanel",
+        "An assistant in any app (`retroui/assistant`): a conversation with your own AI service (`retroui/aichat` -- any OpenAI-compatible one, a local Ollama or LM Studio, or Anthropic's), which does things with the app's tools -- each a Nim proc with its arguments -- and asks first when a tool changes something (Allow, Allow All, Don't). `uiTools` lets it work the app's own controls by their names; `publishTools` offers the app's tools to agents outside it too (`retrokit mcp`). Its words read as Markdown.",
+        400, 330, ["newAiChat", "aiTool", "aiToolLater", "param", "send", "allow", "deny", "uiTools", "commandTool", "publishTools"], std3):
+  var asChat = newAiChat(AiSettings(kind: akOpenAi, url: "http://localhost:11434/v1/chat/completions", model: "llama3.1"))
+  asChat.messages = @[
+    AiMessage(role: arUser, text: "Put a title on it"),
+    AiMessage(role: arAssistant, calls: @[AiCall(id: "1", name: "add_text", state: acDone,
+              result: "added a type layer, \"Summer Sale\"")]),
+    AiMessage(role: arAssistant, text: "I put **Summer Sale** at the top, in Dastkhat Bold."),
+    AiMessage(role: arUser, text: "and a red circle behind it?"),
+    AiMessage(role: arAssistant, calls: @[AiCall(id: "2", name: "add_shape", state: acAsking,
+              args: %*{"kind": "ellipse", "fill": "#d02020", "w": 300, "h": 300})])]
+  asChat.state = ciConfirm
+do:
+  assistantPanel(asChat, height = 300)
+
 # ======================================================================================================
 # Planning and dashboards
 # ======================================================================================================
@@ -2743,7 +2759,7 @@ const apiModules = ["widgets", "extras", "business", "morecontrols", "records", 
   "toolcustom", "dock", "textwidgets", "filewidgets", "charts", "planning", "mapview",
   "view3d", "htmlview", "markdown", "richedit", "media", "qrcode", "pdfview", "core", "gfx",
   "platform", "files", "textfile", "mediagif", "imaging", "templates", "native", "canvas2d",
-  "report", "tilemap", "gltf", "capture", "mediasession", "motion", "forcegraph", "forcelayout"]
+  "report", "tilemap", "gltf", "capture", "mediasession", "motion", "forcegraph", "forcelayout", "assistant", "aichat", "aiimage"]
   ## Where the API is read from; a name in several is shown from the first
   ## (or as "module.name").
 

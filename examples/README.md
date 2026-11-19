@@ -197,6 +197,16 @@ became pixels and which of its fonts this device has not. Closing a
 document with changes not saved asks, saves -- Save As waited for -- and
 closes, one step after another (`retroui/flows`).
 
+**The Assistant** (Window > Assistant, or Edit > Ask AI) is a
+conversation with an AI service of your own (Edit > AI Connector: a local
+Ollama or LM Studio, or a service online) that does what you ask with
+Retro Atelier's tools -- type and shapes added, layers set, a selection
+made, any menu command run -- asking before each change, and one step to
+undo. **Generate Image**, **Generative Fill** (the selection made again as
+you describe it, or filled from what is round it to take something away)
+and **Generative Expand** (the canvas grown, what is new made to carry the
+picture on) go through your image service, each on a new layer.
+
 **SVG** is one of its formats: an .svg opens as layers -- its shapes as
 shape layers, its text as type you can type in (fonts, sizes, colours,
 bold and italic runs, lines, text along a path, an outline, a gradient,
@@ -422,7 +432,9 @@ checks, the DKIM signature verified here) and what is there to fool -- a
 look-alike sender, a link that goes elsewhere than it says, tracking
 pictures -- is told or taken out. The app registrations it signs in with
 are made once by whoever builds it (`examples/mail/appids.nim`,
-`docs/retromail.md`).
+`docs/retromail.md`). View > Assistant opens a conversation with an AI
+service of your own that finds and reads your mail when you ask and opens
+a reply or a new message for you to read and send.
 
 ```sh
 nimble mail                 # or: nim c -r -d:release examples/mail.nim

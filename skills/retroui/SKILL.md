@@ -321,6 +321,15 @@ app "Staff", 520, 420:
   g.addNode("b", "B"))`, then `graphView(g, dp(300), sel)` (`look = nlBox` for
   a mind map; `.clicked`, `.doubleClicked`, `.dropped`). The layout alone,
   no window: `retroui/forcelayout` (`settle`, then `g.x[i]`, `g.y[i]`).
+- AI with the user's own service (`retroui/aichat`, `retroui/assistant`):
+  `let chat = newAiChat(loadAiSettings(app), "You help with...", [aiTool("add_note",
+  "Adds a note.", [param("text", "string", "the note")], proc (a: JsonNode): string =
+  notes.add a["text"].getStr; "added", confirm = true)])`, then
+  `assistantPanel(chat)` in a pane; `chat.tools.add uiTools()` lets it work the
+  app's controls by name; `aiToolLater` for a tool done frames later (`done(text)`);
+  `publishTools(tools)` for agents outside (`retrokit mcp PORT` with RETRO_DRIVE).
+  Pictures: `retroui/aiimage` (`generateImage`, `editImage` through a mask) as a
+  job's work. A tool that changes something: `confirm = true`.
 - `trayIcon(png, tip, ["&Show", "-", "E&xit"])` (`retroui/tray`) every
   frame while wanted: `.clicked`, `.picked` (the item's index).
 - `retroui/feeds`: `parseFeed(xml)` (RSS, Atom), `parseOpml`, `toOpml`.

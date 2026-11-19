@@ -558,5 +558,18 @@ const toolkitArabic* = [
   ("Always on Top", "دائماً في المقدمة"),
   ("Always on Top: on (click: off)", "دائماً في المقدمة: مفعّل (انقر للإلغاء)"),
   ("Always on Top: not while maximized", "دائماً في المقدمة: ليس أثناء التكبير"),
+  # (retroui/assistant)
+  ("You", "أنت"),
+  ("Assistant", "المساعد"),
+  ("Allow this?", "أتسمح بهذا؟"),
+  ("Allow", "اسمح"),
+  ("Allow All", "اسمح بالكل"),
+  ("Don't", "لا"),
+  ("Thinking...", "يفكّر..."),
+  ("Send", "أرسل"),
+  ("Stop", "أوقف"),
+  ("No AI service is connected.", "لا توجد خدمة ذكاء اصطناعي موصولة."),
+  ("(a picture with it)", "(ومعها صورة)"),
+  ("Ask the assistant", "اسأل المساعد"),
 ]
   ## The toolkit's words in Arabic: (English key, Arabic), for `setUiLanguage`.

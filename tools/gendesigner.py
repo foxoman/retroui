@@ -83,7 +83,7 @@ STD = {
 }
 
 # Examples of the guide that are about showing a window, not a control to drop.
-NOT_IN_BOX = {"windowbox", "jobs", "tray"}   # (and work and the system's tray: nothing to draw)
+NOT_IN_BOX = {"windowbox", "jobs", "tray", "assistant"}   # (and work, the system's tray, a conversation with a service: nothing to draw)
 
 # The names templates give their bodies (besides `body`): two bodies side by side.
 BODY_NAMES = {"left", "right", "top", "bottom", "upper", "lower", "main", "pane", "first", "second", "header", "footer"}

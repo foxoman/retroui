@@ -691,6 +691,17 @@ app "Notes", 420, 300:
 - **Font folders of your own** (`retroui/fontfolders`): `useFontFolders(app)`
   at the start, `fontFoldersPanel(app)` in a settings page -- a folder of
   fonts on a desktop, a phone (the system's picker) or in a web page.
+- **AI in your app, with the service its user chooses** (`retroui/aichat`,
+  `retroui/assistant`): `newAiChat(settings, "You help with...", tools)`
+  -- the tools are Nim procs with their arguments (`aiTool(name, what,
+  [param(...)], proc)`); the service (any OpenAI-compatible one, a local
+  Ollama or LM Studio, or Anthropic's) calls them, sees what they did and
+  answers; one that changes something asks first. `assistantPanel(chat)`
+  draws the conversation beside the app's work, a copilot; `uiTools()`
+  lets it work the app's own controls by their names. `publishTools`
+  offers the tools to agents outside the app, which `retrokit mcp PORT`
+  serves over MCP -- any app worked by an AI agent. `retroui/aiimage`:
+  pictures from words, and a picture changed where a mask says.
 - **Graphs that lay themselves out** (`retroui/forcegraph`):
   `graphView(g, h, sel)` shows a `ForceGraph` -- nodes that push each
   other away, links that pull -- moving until it settles, its nodes
@@ -3458,6 +3469,9 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_script` | an app run by `RETRO_SCRIPT`: clicks, typing, a key, a wait for a control done in order, `RETRO_SNAPSHOT`'s picture written and the app ended; a step that fails names itself and ends it with 1; a script that is not one, 2 |
 | `test_flows` | on a clock of its own: a flow goes on at the end of a frame; a question answered (Esc: the last button); a wait until something is so, a pause, work on a worker and its value; a file picker cancelled; a closed window's flow dropped; one that fails ended, the others going on |
 | `test_fontfolders` | a folder's fonts offered and its families named, taken away with it, a font put in while the app runs found, fonts chosen kept in "Your Fonts", a font read through `fontReader` the first time it draws |
+| `test_aichat` | a conversation against a service of the test's own: OpenAI's and Anthropic's requests and answers (tools, calls, results, a picture), a tool called, one that asks first allowed or denied, two calls in one answer, a tool done frames later, the rounds limited; the assistant's panel and its Allow; a picture made and one changed through a mask, at the sizes asked |
+| `test_mcp` | the driver's picture of the window and the app's own tools, a command run from inside the app, the assistant's tools that work the controls, the MCP server: initialize, the tools listed, a control clicked, read, pictured, the app's tool run |
+| `test_mailassist` | Retro Mail's Assistant tools on a store of the test's own: the Inbox, its unread, a search, a message read without what it quotes, a reply and a new message opened (not sent), a message marked; the service from the kit's settings or an older key |
 | `test_forcegraph` | a graph laid out: linked nodes near their length, the others apart, a pinned node where it is put, the same layout every time, 1,500 nodes settled; the control on a clock of its own: frames while it moves and none once settled, a node clicked and dragged |
 | `test_motion` | on a clock of its own: a spring keeps its speed when sent elsewhere and is the same at 8 and 40 ms a frame, a bouncy one goes past and a smooth one never does; a box in and out (turned back half way: no jump); a box the layout moved glides, a scroll does not; dragged, thrown and let go to the nearest point, or back; rows one after another, again after a while; a fixed step's whole steps, no more than its most; less movement at the end at once; no frame asked once all is at rest |
 | `test_perspectivegrid` | the perspective grid: the planes meet where they should (two points and one), go back to their points, a path laid on a plane (its corners kept, the far side shorter, a curve cut and still on it), refused over the horizon; a painted layer laid on a plane and undone |

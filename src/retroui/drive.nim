@@ -51,6 +51,12 @@
 ##             window's bottom the system covers: its bars, the keyboard)
 ## quit        the window's close box, as a person clicks it (the app may
 ##             still ask "Save changes?")
+## shot        the window's picture: `png` (base64), `w`, `h`; `max` the
+##             longest side (smaller: scaled down); `file`: written there
+## tools       the app's own tools (`retroui/aichat`'s `publishTools`):
+##             `tools`, each `name`, `description`, `params` (a JSON Schema)
+## tool        one of them run: `name`, `args` (its arguments as JSON text);
+##             `text`, what it did
 ## ==========  ===============================================================
 ##
 ## Every answer has `ok` (and `error` when it is false) and the `id` the
@@ -73,6 +79,10 @@
 ## `wait:SECONDS` or `wait:NAME` (until it is there), `focus:NAME`, `set:NAME=VALUE`,
 ## `shot:FILE` (a picture then), `quit`; "\;" a semicolon in a step.
 ##
+## **Inside the app**: `driveAsk(command, done)` runs a command as a client would and gives its
+## answer to `done` -- an assistant's tools that click and type (`retroui/assistant`'s
+## `uiTools`). `retrokit mcp PORT` speaks the driver to an AI agent as an MCP server.
+##
 ## Only the machine itself can connect (127.0.0.1), one program at a time,
 ## and only an app started with RETRO_DRIVE opens a port; RETRO_DRIVE=0
 ## takes any free port and says which on stderr. While it waits for a
@@ -83,14 +93,20 @@
 import std/strutils
 import uirelays/[input, access]
 when not defined(wasm):
-  import std/[os, nativesockets]
+  import std/[os, nativesockets, base64]
   import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
-  import core, gfx, inspect, headless, appicon
+  import core, gfx, inspect, headless, appicon, imaging
 
 var drivePortNow = 0
 
 proc drivePort*(): int = drivePortNow
   ## The port the driver listens on; 0 when it does not (no RETRO_DRIVE).
+
+var
+  appToolsJson*: proc (): string {.closure.}
+    ## (the app's own tools as a JSON array: `retroui/aichat`'s `publishTools` sets it)
+  appToolCall*: proc (name, args: string; done: proc (text: string) {.closure.}) {.closure.}
+    ## (one of them run, its arguments as JSON text: `publishTools` sets it)
 
 proc roleWord*(r: AccessRole): string =
   ## A role as the driver names it: "button", "textField", "menuItem".
@@ -254,7 +270,7 @@ when not defined(wasm):
     result.add '"'
 
   type
-    Waiting = enum wNone, wSettle, wFrames, wMs, wNode, wHold
+    Waiting = enum wNone, wSettle, wFrames, wMs, wNode, wHold, wTool
     Pending = object
       what: Waiting
       req: Req
@@ -299,8 +315,20 @@ when not defined(wasm):
     restFrom = 0                  # (the steps done: when it began to wait for the app to rest)
     dots: seq[tuple[x, y, at: int]]
 
+  var
+    asked: seq[tuple[req: Req; done: proc (answer: string) {.closure.}]]  # (driveAsk's, in turn)
+    askedNow: proc (answer: string) {.closure.}  # (the one being done: its answer goes here)
+    pendingOurs = false           # (what `pending` waits for is driveAsk's, not a client's)
+    toolSaid: tuple[done: bool; text: string]
+
   proc answer(req: Req; res: string) =
     ## (`res`: the answer's fields, `"ok":true,...`; the command's id added)
+    if askedNow != nil:
+      let d = askedNow
+      askedNow = nil
+      pendingOurs = false
+      d("{" & res & "}")
+      return
     if scripting:
       # (a step of a script: a failure said, and the script ends there)
       if res.startsWith("\"ok\":false"):
@@ -546,9 +574,41 @@ when not defined(wasm):
     of "quit":
       answer(req, "\"ok\":true")
       feedEvent Event(kind: WindowCloseEvent)
+    of "shot":
+      var b = framePicture()
+      if b == nil: b = headlessShot()
+      if b == nil or b.w <= 0:
+        fail(req, "no picture of the window: the GPU draws it (RETRO_GPU=cpu: the processor does)")
+        return
+      let most = req.num("max")
+      if most > 0 and max(b.w, b.h) > most: b = thumbnail(b, most, most)
+      let data = png(b.w, b.h, b.px)
+      var bytes = newString(data.len)
+      if data.len > 0: copyMem(addr bytes[0], unsafeAddr data[0], data.len)
+      if req.has("file"):
+        try:
+          writeFile(req.str("file"), bytes)
+          answer(req, "\"ok\":true,\"w\":" & $b.w & ",\"h\":" & $b.h)
+        except IOError, OSError: fail(req, "could not write " & req.str("file"))
+      else:
+        answer(req, "\"ok\":true,\"w\":" & $b.w & ",\"h\":" & $b.h & ",\"png\":" & jstr(base64.encode(bytes)))
+    of "tools":
+      answer(req, "\"ok\":true,\"tools\":" & (if appToolsJson != nil: appToolsJson() else: "[]"))
+    of "tool":
+      if appToolCall == nil:
+        fail(req, "the app has no tools of its own")
+        return
+      toolSaid = (false, "")
+      pending = Pending(what: wTool, req: req)
+      try:
+        appToolCall(req.str("name"), req.str("args", "{}"), proc (text: string) =
+          toolSaid = (true, text)
+          wakeIn(1))
+      except CatchableError as e: toolSaid = (true, "failed: " & e.msg)
+      nextFrame()
     else:
       fail(req, "no command \"" & cmd & "\" (tree, find, focused, info, click, move, scroll, " &
-                "press, focus, set, key, type, wait, quit)")
+                "press, focus, set, key, type, wait, quit, shot, tools, tool)")
 
   proc pendingDone(): bool =
     ## (the command waited for is done: answered)
@@ -606,6 +666,10 @@ when not defined(wasm):
       # (the app's own frames show it, or the time runs out)
       wakeIn(p.untilMs - ui.now)
       return false
+    of wTool:
+      if not toolSaid.done: return false
+      pending = Pending()
+      answer(p.req, "\"ok\":true,\"text\":" & jstr(toolSaid.text))
     true
 
   proc driveFrame() =
@@ -632,6 +696,7 @@ when not defined(wasm):
       if inBuf.len > 1 shl 24:
         dropClient()                  # (no line in 16 MB: not a driver's client)
         return
+    if pendingOurs: return            # (driveAsk's: `askFrame` sees to it)
     if pending.what != wNone and not pendingDone(): return
     if accessLast.len == 0:
       if inBuf.len > 0: nextFrame()     # (the first frame first)
@@ -745,7 +810,7 @@ when not defined(wasm):
   proc scriptFrame() =
     ## (every frame's start while a script runs: its next step once the last one is done)
     inc framesRun
-    if not scripting: return
+    if not scripting or pendingOurs: return
     if pending.what != wNone and not pendingDone(): return
     if accessLast.len == 0:
       nextFrame()                     # (the first frame first)
@@ -799,6 +864,39 @@ when not defined(wasm):
     beginFrameHooks.add scriptFrame
     if play: endFrameHooks.add dotsDraw
     ""
+
+  proc askFrame() =
+    ## (every frame's start: the next of `driveAsk`'s commands, once the last is done and no
+    ## client's is waiting)
+    if pending.what != wNone:
+      if not pendingOurs or not pendingDone(): return
+    if asked.len == 0: return
+    if accessLast.len == 0:
+      nextFrame()                     # (the first frame first)
+      return
+    let (req, done) = asked[0]
+    asked.delete(0)
+    askedNow = done
+    pendingOurs = true
+    doCommand(req)
+    if pending.what == wNone and askedNow == nil: pendingOurs = false
+
+  var askHooked = false
+
+  proc driveAsk*(command: string; done: proc (answer: string) {.closure.}) =
+    ## Runs a driver's command (its JSON object, as a client sends it) inside the app, in a
+    ## later frame, as a client's would run; its answer (the JSON a client gets) goes to `done`
+    ## once it is done -- a click answered once the app has drawn what it did.
+    var req: Req
+    if not parseReq(command, req):
+      done("{\"ok\":false,\"error\":" & jstr("not a command: " & command) & "}")
+      return
+    asked.add (req, done)
+    accessKeep = true
+    if not askHooked:
+      askHooked = true
+      beginFrameHooks.add askFrame
+    nextFrame()
 
   proc drivePoll(): bool =
     ## (while the app waits: something to accept or to read)
@@ -861,3 +959,6 @@ when not defined(wasm):
 else:
   proc startDriver*(port: int): int = 0
     ## (no sockets in a web page)
+  proc driveAsk*(command: string; done: proc (answer: string) {.closure.}) =
+    ## (not in a web page yet)
+    done("{\"ok\":false,\"error\":\"not in a web page\"}")

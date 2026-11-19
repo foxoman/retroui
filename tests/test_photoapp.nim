@@ -2,7 +2,8 @@
 ## headless: its actions (recording, playing, keeping them), Batch, Fit
 ## Image, Trim and the options bar.
 
-import std/[strutils, os, math, random]
+import std/[strutils, os, math, random, exitprocs, streams]
+import std/osproc except countProcessors
 import retroui/uirelays/input
 import harness
 
@@ -2638,9 +2639,92 @@ block release56:
   let cmds = appCommands()
   doAssert "Invert" in cmds and "Tidy Up" in cmds and "Relight..." in cmds and "Quit" notin cmds
   doAssert commandsOf("""{"commands": ["invert", "Nope"], "note": "x"}""", cmds).commands == @["Invert"]
+
+block assistant:
+  # the Assistant panel and the image service, against a service of the test's own
+  # (tests/aimock.py): a type layer asked for, allowed, undone in one step; the document
+  # described; Generative Fill, Generate Image and Generative Expand, each a layer of its own
+  let python = if findExe("python3").len > 0: "python3" else: "python"
+  let mock = startProcess(python, args = [currentSourcePath().parentDir / "aimock.py"], options = {poUsePath})
+  proc stopAtExit(p: Process) =
+    addExitProc(proc () = p.terminate())     # (its own reference: the block's is freed first)
+  stopAtExit(mock)
+  let base = "http://127.0.0.1:" & mock.outputStream.readLine.strip
+  template waitUntil(cond: untyped) =
+    for i in 0 ..< 1000:
+      run()
+      if cond: break
+      os.sleep(10)
+    doAssert cond, astToStr(cond)
+  let d = sample(200, 120)
+  addDoc(d)
+  run(2)
+  aiDlg.s = AiSettings(kind: akOpenAi, url: base & "/v1/chat/completions", model: "mock")
+  aiDlg.loaded = true
+  aiDlg.keyed = true
   runCommand("Ask AI...")
   run(2)
-  askDlg.open = false
+  doAssert panelShown("assistant"), "Ask AI shows the Assistant"
+  let c = atelierChat()
+  let layersBefore = d.layers.len
+  c.send("tool: add_text {\"text\": \"سلام\", \"x\": 20, \"y\": 60, \"size\": 30, \"color\": \"#c00000\"}")
+  waitUntil(c.state == ciConfirm)
+  doAssert d.layers.len == layersBefore, "asked first: nothing added yet"
+  c.allow()
+  waitUntil(c.state == ciIdle)
+  doAssert d.layers.len == layersBefore + 1 and d.current.isText and d.current.text.plainText == "سلام" and
+           d.current.text.spans[0].style.lang == "ar" and d.current.text.spans[0].style.family == DastkhatFamily and
+           d.current.text.spans[0].style.color == 0xFFC00000'u32, "a type layer, in Arabic, in Dastkhat"
+  doAssert c.lastAnswer.startsWith("Done: added a type layer"), c.lastAnswer
+  let st = parseJson(httpRequest("GET", base & "/state").body)
+  doAssert st["chat"]["messages"][1]["content"][1]["type"].getStr == "image_url", "the image went with it"
+  doAssert "\"document\"" in $st["chat"]["tools"] and "add_shape" in $st["chat"]["tools"], "Atelier's tools offered"
+  runCommand("Undo")
+  run(2)
+  doAssert d.layers.len == layersBefore, "one step to undo"
+  c.send("tool: document {}")
+  waitUntil(c.state == ciIdle)
+  doAssert "200 x 120 pixels" in c.lastAnswer, "the document described without asking"
+  c.send("tool: select {\"shape\": \"rectangle\", \"x\": 50, \"y\": 30, \"w\": 40, \"h\": 20}")
+  waitUntil(c.state == ciIdle)
+  doAssert d.hasSelection and d.selBounds == rect(50, 30, 40, 20), "a selection made"
+  # the image service: Generative Fill through the dialog
+  imgAi.s = AiImageSettings(url: base & "/v1/images/generations", model: "gpt-image-1")
+  imgAi.loaded = true
+  imgAi.keyed = true
+  runCommand("Generative Fill...")
+  run(2)
+  doAssert genDlg.open and genDlg.kind == 0
+  genDlg.prompt = "a red ball"
+  okDialog()
+  doAssert not genDlg.open
+  waitUntil(genRun.job == nil)
+  let gf = d.current
+  doAssert gf.name == "a red ball" and gf.mask != nil and (gf.px[40 * 200 + 60] and 0xFFFFFF'u32) == 0x1EC81E'u32 and
+           (gf.mask.px[40 * 200 + 60] and 0xFF'u32) == 255 and (gf.mask.px[5 * 200 + 5] and 0xFF'u32) == 0,
+           "Generative Fill: a layer of what the service made, masked to the selection"
+  let fillEdit = parseJson(httpRequest("GET", base & "/state").body)["edits"]
+  doAssert fillEdit["prompt"].getStr == "a red ball" and fillEdit["pngs"].getInt == 2, "the picture and the mask sent"
+  # Generate Image: in the selection's box
+  doAssert startGen(2, "a lighthouse") == ""
+  waitUntil(genRun.job == nil)
+  doAssert d.current.name == "a lighthouse" and (d.current.px[35 * 200 + 55] and 0xFFFFFF'u32) == 0xDC1E1E'u32 and
+           d.current.px[5 * 200 + 5] == 0, "Generate Image: the picture in the selection's box"
+  # Generative Expand: the canvas grown, what is new on a layer at the top
+  runCommand("None")
+  doAssert startGen(1, "", 250, 150) == ""
+  waitUntil(genRun.job == nil)
+  doAssert d.w == 250 and d.h == 150 and d.current == d.layers[^1] and d.current.name == "Generative Expand" and
+           (d.current.mask.px[2 * 250 + 2] and 0xFF'u32) == 255 and
+           (d.current.mask.px[75 * 250 + 125] and 0xFF'u32) == 0, "Generative Expand: shown only where it is new"
+  let noSel = startGen(0, "x")
+  doAssert noSel.startsWith("nothing is selected"), "Generative Fill without a selection: said -- " & noSel
+  imgAi.s = AiImageSettings()
+  doAssert startGen(2, "x").startsWith("no image service"), "no image service: said"
+  c.clear()
+  aiDlg.s = AiSettings()
+  mock.terminate()
+  closeDoc(active)
   run(2)
 
 block severalPicked:

@@ -1317,7 +1317,8 @@ proc layoutOf(md: string; w: int; dir: string): ptr Layout =
   lay.height = y
   lay.pieces.sort(proc (a, b: Piece): int = cmp(a.y, b.y))
   layoutCache.insert((key, lay), 0)
-  if layoutCache.len > 6: layoutCache.setLen(6)
+  # (a conversation shows many short ones at once: each laid out once, not every frame)
+  if layoutCache.len > 48: layoutCache.setLen(48)
   addr layoutCache[0][1]
 
 # ---- drawing ---------------------------------------------------------------------------------

@@ -302,6 +302,15 @@ What 1.0.2 adds to the way you work:
 - **Assistant** (Tools > Options > Assistant): Summarize a conversation and
   Translate a message with your own key (Claude, by Anthropic). Nothing is
   sent before you turn it on, and then only what you ask about.
+- **The Assistant pane** (View > Assistant, 1.3): a conversation with an AI
+  service of your own -- one on your computer (Ollama, LM Studio), OpenAI's,
+  Anthropic's -- set in Tools > Options > Assistant. Ask it what came from
+  someone, to sum up a thread, to answer a message: it lists, finds and
+  reads messages (without what they quote) and opens a reply or a new
+  message for you to read and send -- it never sends; it marks messages read
+  or flagged when you allow it. It sends the service only what it reads to
+  answer you. Until a service is set, the key of the Summarize above is
+  used with Anthropic's.
 - **Spelling** as you type and **AutoCorrect** in English and Arabic (Tools >
   Options > Spelling).
 
