@@ -2207,7 +2207,8 @@ Roman, letters, abjad), text that **goes on from page to page** (Flow Onto the N
 Autoflow adds the pages a long text needs) and **keeps out of pictures** (Window > Text Wrap, a
 panel that applies as you change it: round a layer's box -- a placed picture's turned or slanted
 box as it is --, round its shape (traced from its pixels or its edges, a threshold and an inset,
-or a path you edit point by point: Edit as a Path), under it, or on in the next column; its offsets on each side
+or a path you edit point by point: Edit as a Path), under it, or on in the next column -- the text
+flowing round it while you drag it, its boundary outlined, its offsets dragged by their handles; its offsets on each side
 in the rulers' unit; on both sides, one, the side with more room, toward or away from the spine;
 the text inside it instead; the shortest piece of a line set beside an object, so no word is left
 alone there; kept in Object Styles and in IDML; a shape drawn with the Pen at Opacity 0 is a

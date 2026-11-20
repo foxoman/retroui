@@ -1060,6 +1060,63 @@ block textWrapRoundItsShape:
   doAssert w5 > 155 and w5 < 168, $w5
   if dump.len > 0: discard d.toBitmap(0xFFFFFFFF'u32).savePng(dump / "wrap-contour.png")
 
+block textWrapFollowsTheMouse:
+  # moved (shown moved, not put down yet), the text flows round it where it is shown; put down,
+  # it stays so; Esc (the step cancelled), back round where it was. Transformed: round its
+  # outline as it is shown turned. Its boundary and the handles of its offsets, to draw.
+  let d = newDoc(600, 400, 0xFFFFFFFF'u32)
+  let T = d.textLayer(150, 20, 20, 560, 360)
+  let B = d.block0("Picture", 100, 100, 250, 220)
+  B.wrap = 1
+  d.rewrap()
+  doAssert d.ink(T, 104, 104, 246, 216) == 0
+  d.cur = d.layers.find(B)
+  d.beginStep("Move")
+  var lift = d.beginMove(0'u32)
+  d.moveTo(lift, 250, 0)
+  d.rewrap()
+  doAssert d.wrapHoles(T) == @[(350'f32, 100'f32, 500'f32, 220'f32)], $d.wrapHoles(T)
+  doAssert d.ink(T, 104, 104, 246, 216) > 0 and d.ink(T, 354, 104, 496, 216) == 0, "round it as it goes"
+  d.endMove(lift)
+  d.endStep()
+  d.rewrap()
+  doAssert d.ink(T, 354, 104, 496, 216) == 0 and d.ink(T, 104, 104, 246, 216) > 0, "put down there"
+  d.beginStep("Move")
+  lift = d.beginMove(0'u32)
+  d.moveTo(lift, -250, 0)
+  d.rewrap()
+  doAssert d.ink(T, 104, 104, 246, 216) == 0
+  d.endLive()
+  d.cancelStep()
+  doAssert d.ink(T, 354, 104, 496, 216) == 0 and d.ink(T, 104, 104, 246, 216) > 0, "Esc: back round it"
+  # transformed: shown turned
+  let r = rect(350, 100, 150, 120)
+  let c = (425.0, 160.0)
+  var q: Quad
+  for k, p in [(350.0, 100.0), (500.0, 100.0), (500.0, 220.0), (350.0, 220.0)]:
+    let (x, y) = (p[0] - c[0], p[1] - c[1])
+    q[k] = (c[0] + x * cos(0.5) - y * sin(0.5), c[1] + x * sin(0.5) + y * cos(0.5))
+  d.setLive(@[LivePart(layer: B, kind: lkWarp, src: cast[ptr UncheckedArray[uint32]](addr B.px[r.y * d.w + r.x]),
+                       srcStride: d.w, srcR: r, quad: q, hole: true)])
+  doAssert d.wrapHoles(T).len > 20, "band by band, turned"
+  d.endLive()
+  doAssert d.wrapHoles(T).len == 1
+  # its boundary and handles: its box grown by its offsets, a handle in the middle of each side
+  d.dpi = 144
+  B.wrapOpts.offsets = [3'f32, 6, 9, 12]
+  let bd = d.wrapBoundary(B)
+  doAssert bd.len == 1 and bd[0].len == 4 and bd[0][0] == (332'f32, 94'f32) and bd[0][2] == (524'f32, 232'f32), $bd
+  let hs = d.wrapHandles(B)
+  doAssert hs.len == 4
+  for h in hs:
+    case h.side
+    of 0: doAssert h.y == 94 and h.ny < 0, $h
+    of 1: doAssert h.y == 232 and h.ny > 0, $h
+    of 2: doAssert h.x == 332 and h.nx < 0, $h
+    else: doAssert h.x == 524 and h.nx > 0, $h
+  B.wrap = 2
+  doAssert d.wrapHandles(B).len == 1 and d.wrapBoundary(B).len == 1
+
 block textWrapKept:
   # in the document's file, in an Object Style; a file from before -- its gap -- as it was
   let d = newDoc(300, 200, 0xFFFFFFFF'u32)

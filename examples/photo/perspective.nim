@@ -153,6 +153,7 @@ proc canvasExtras(dw: DocWin; ev: PhotoEvent): bool =
   ## What a press on the image takes before the tools: a text frame's ports and the loaded text
   ## (textframes), the perspective grid's widget and handles. True when it took it.
   if dw.threadPress(ev): return true
+  if dw.wrapHandlePress(ev): return true
   if dw.makersCanvas(ev): return true
   if dw.vectorEvents(ev): return true
   if dw.appearancePick(ev): return true

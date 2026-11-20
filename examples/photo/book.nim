@@ -412,6 +412,85 @@ proc pointsField(d: Doc; pts: float32; w: int; enabled = true): tuple[changed: b
     result = (true, float32(v * perUnit))
   else: result = (false, pts)
 
+var wrapGrab: tuple[on: bool; dw: DocWin; layer: Layer; side: int; x0, y0: float; offs: array[4, float32];
+                   nx, ny: float32]
+  ## (a Text Wrap offset's handle dragged on the image)
+
+proc wrapOffsetsPt(d: Doc; L: Layer): array[4, float32] =
+  ## (its offsets in points: a file before them, its gap on every side)
+  result = L.wrapOpts.offsets
+  if result == [0'f32, 0, 0, 0] and L.wrapGap > 0:
+    let g = float32(L.wrapGap.float * 72 / max(1.0, d.dpi))
+    result = [g, g, g, g]
+
+proc wrapOverlay(dw: DocWin; ev: PhotoEvent) =
+  ## (the current layer's Text Wrap: where it keeps text out of, outlined in light blue; with
+  ## the Text Wrap panel open and the Move tool, the handles that set its offsets)
+  let d = dw.doc
+  if dw != active or dw.view.hideEdges or d.cur < 0 or d.cur >= d.layers.len: return
+  let L = d.current
+  if L.wrap == 0 or L.background or not L.visible: return
+  let c = color(40, 160, 235)
+  for o in d.wrapBoundary(L):
+    if o.len < 2: continue
+    var (px, py) = dw.view.toScreen(d, o[^1][0].float, o[^1][1].float)
+    for q in o:
+      let (sx, sy) = dw.view.toScreen(d, q[0].float, q[1].float)
+      if sx != px or sy != py: line(px, py, sx, sy, c)
+      (px, py) = (sx, sy)
+  if tool != tMove or not panelShown("textwrap") or L.locked: return
+  for h in d.wrapHandles(L):
+    let (sx, sy) = dw.view.toScreen(d, h.x.float, h.y.float)
+    let r = rect(sx - dp(3), sy - dp(3), dp(7), dp(7))
+    let on = wrapGrab.on and wrapGrab.side == h.side
+    fill(r, if on: c else: color(255, 255, 255))
+    box(r, c)
+    if ev.over and not ui.mouseDown and abs(ui.mx - sx) <= dp(6) and abs(ui.my - sy) <= dp(6):
+      ui.tip = tr("Drag: how far the text keeps from it")
+
+proc wrapHandlePress(dw: DocWin; ev: PhotoEvent): bool =
+  ## (a press on a Text Wrap handle, and its drag: the offset of that side -- of every side, round
+  ## its shape or with them made the same -- as far out as the mouse goes, in points; one step)
+  let d = dw.doc
+  if wrapGrab.on and wrapGrab.dw == dw:
+    let L = wrapGrab.layer
+    if L notin d.layers:
+      wrapGrab.on = false
+      if d.stepOpen: d.endStep()
+      return false
+    let along = (ev.x - wrapGrab.x0) * wrapGrab.nx.float + (ev.y - wrapGrab.y0) * wrapGrab.ny.float
+    let k = 72 / max(1.0, d.dpi)
+    let v = max(0'f32, float32(round((wrapGrab.offs[wrapGrab.side].float + along * k) * 2) / 2))
+    var o = wrapGrab.offs
+    if L.wrap == 2 or L.wrapOpts.linked: o = [v, v, v, v] else: o[wrapGrab.side] = v
+    if o != L.wrapOpts.offsets:
+      L.wrapOpts.offsets = o
+      L.wrapGap = 0
+      d.rewrap()
+      d.markAll()
+    let u = viewPrefs.rulerUnit
+    status = tr("Text Wrap offset: ") & inUnits(v.float / k, u, d.dpi, d.w)
+    if ev.released or not ui.mouseDown:
+      wrapGrab.on = false
+      if d.stepOpen: d.endStep()
+      d.rewrap()
+      d.markAll()
+      let bw = curBook()
+      if bw != nil and bw.master == 0: bw.book.touch(bw.page)
+    return true
+  if tool != tMove or not ev.pressed or ev.right or not panelShown("textwrap"): return false
+  if d.cur < 0 or d.cur >= d.layers.len: return false
+  let L = d.current
+  if L.wrap notin {1, 2} or L.locked or L.background or not L.visible: return false
+  for h in d.wrapHandles(L):
+    let (sx, sy) = dw.view.toScreen(d, h.x.float, h.y.float)
+    if abs(ui.mx - sx) <= dp(6) and abs(ui.my - sy) <= dp(6):
+      d.beginStep("Text Wrap Offset")
+      d.touchLayers()
+      wrapGrab = (true, dw, L, h.side, ev.x, ev.y, d.wrapOffsetsPt(L), h.nx, h.ny)
+      return true
+  false
+
 proc textWrapBody(d: Doc) =
   ## The Text Wrap panel: how text keeps out of the current layer -- not, round its box, round
   ## its shape, under it (Jump Object), in the next column (Jump to Next Column) --, on which side,

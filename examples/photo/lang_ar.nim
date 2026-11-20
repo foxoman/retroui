@@ -3825,6 +3825,8 @@ const photoArabic* = [
    "0: قدر حرفين من حروفه. ما هو أضيق بجانب الكائن يُترك فارغًا."),
   ("Pick a layer: the Background has no Text Wrap.", "اختر طبقة: الخلفية ليس لها التفاف نص."),
   ("Text Wrap Offset", "مسافة التفاف النص"),
+  ("Drag: how far the text keeps from it", "اسحب: كم يبتعد النص عنه"),
+  ("Text Wrap offset: ", "مسافة التفاف النص: "),
   ("Outline:", "الحدود:"),
   ("Its path", "مساره"),
   ("Its pixels", "بكسلاته"),

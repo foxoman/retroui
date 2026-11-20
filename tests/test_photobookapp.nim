@@ -205,6 +205,45 @@ block textWrapByCommand:
     P.wrapOpts.offsets = [4'f32, 4, 4, 4])
   run(2)
   doAssert inkUnder() == 0 and d.wrapOffsetsPx(P)[0] > 3.9 * d.dpi / 72
+  # its bottom handle dragged down with the Move tool: that offset only, the layer not moved
+  selectTool(tMove)
+  d.cur = d.layers.find(P)
+  run(2)
+  var hb: tuple[side: int; x, y, nx, ny: float32]
+  for h in d.wrapHandles(P):
+    if h.side == 1: hb = h
+  let (hx, hy) = active.view.toScreen(d, hb.x.float, hb.y.float)
+  let px0 = P.px
+  let steps = d.stepsMade
+  down(hx, hy)
+  run()
+  move(hx, hy + 30)
+  run()
+  up(hx, hy + 30)
+  run(2)
+  doAssert P.wrapOpts.offsets[1] > 4 and P.wrapOpts.offsets[0] == 4 and P.wrapOpts.offsets[3] == 4,
+           "the bottom one only: " & $P.wrapOpts.offsets
+  doAssert P.px == px0, "not moved"
+  doAssert d.stepsMade == steps + 1, "one step"
+  runCommand("Undo")
+  doAssert P.wrapOpts.offsets[1] == 4
+  # dragged away with the Move tool: the text flows back in as it goes, before the mouse is up
+  let (cx, cy) = active.view.toScreen(d, float(m.x + 80), float(m.y + 90))
+  let (fx, _) = active.view.toScreen(d, float(m.x + 80 + 160), float(m.y + 90))
+  down(cx, cy)
+  run()
+  move(cx + (fx - cx) div 2, cy)
+  run()
+  move(fx, cy)
+  run(2)
+  doAssert ui.mouseDown and d.stepOpen, "still dragging"
+  doAssert inkUnder() > 0, "the text where it was, at once"
+  up(fx, cy)
+  run(2)
+  doAssert inkUnder() > 0 and not d.stepOpen
+  runCommand("Undo")
+  run(2)
+  doAssert inkUnder() == 0, "undone: round it again"
   runCommand("Undo")
   togglePanel("textwrap")
   run(2)

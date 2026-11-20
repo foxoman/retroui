@@ -66,7 +66,8 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   ".rpb", PDF), Text Wrap in `retroui/photo` and `retroui/textengine`
   (`Layer.wrap`, `wrapSide`, `wrapOpts`, `wrapHoles`, `wrapOutline`, `wrapContour`
   -- an object's real outline from its pixels, its edges or a document path --;
-  `TextData.holes` and `wrapLeast`; the line breaker's `freeSpans`). The app (`examples/photo/book.nim`)
+  `wrapBoundary`, `wrapHandles` to draw and drag it; `rewrap` while a layer is
+  dragged follows its live shift or warp; `TextData.holes` and `wrapLeast`; the line breaker's `freeSpans`). The app (`examples/photo/book.nim`)
   only shows them. A page's document is an ordinary `Doc`; the book sees
   changes by `Doc.ver`. Pages not shown are parked: never keep a page's
   `Doc` across a call that parks (`park`, `reflow`, `saveBook`,

@@ -57,6 +57,14 @@
   band, two pixels a band, grown by the offset round every side, in place
   of the four-pixel bands of before. In IDML as the ContourOption
   (AlphaChannel, DetectEdges, PhotoshopPath and its name).
+- **Text Wrap as an object moves** (`retroui/photo`): `wrapHoles` takes a
+  layer where it is shown while it is moved or transformed and not put
+  down yet (`setLive`'s shift or warp), so `rewrap` in the middle of a drag
+  sets the text round it as it goes; a step cancelled sets it round where
+  it is again. `wrapBoundary` (the outline it keeps text out of, grown by
+  its offsets: to draw) and `wrapHandles` (a handle in the middle of each
+  side, with the way out of it; one for round its shape); `wrapBands`
+  (round its shape, band by band, each part of it).
 - **Submenus in submenus** (`retroui/widgets`): a submenu opens one of its
   own, four deep at most, by the pointer (the way to it kept open as for
   the first level), a finger, its letter and the arrow keys; Left and Esc
@@ -67,6 +75,11 @@
   program's Draw Inside.
 - **Scripts click a point** (`retroui/drive`): `click:@X,Y` in
   `RETRO_SCRIPT`, a point in logical pixels -- a canvas, a picture.
+- **Retro Atelier**: text flows round a picture or a shape while you drag,
+  turn or size it, not once it is put down; the layer picked shows where
+  its Text Wrap keeps text out of, outlined in light blue, and with the
+  Text Wrap panel open the Move tool drags a side's handle to set its
+  offset (round its shape, or with the four made the same, all of them).
 - **Retro Atelier**: Text Wrap's Round its Shape in the panel: where its
   outline comes from (its pixels, its edges, a path), the threshold, the
   inset, and Edit as a Path -- the outline a path of the document, to drag

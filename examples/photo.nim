@@ -472,6 +472,8 @@ proc bookCommand(name: string): bool
 proc bookSave(dw: DocWin; saveAs = false): bool
 proc openBook(path: string)
 proc bookOverlay(dw: DocWin)
+proc wrapOverlay(dw: DocWin; ev: PhotoEvent)
+proc wrapHandlePress(dw: DocWin; ev: PhotoEvent): bool
 proc bookGhostPress(dw: DocWin): bool
 proc bookPdfWrite(path: string; o: PdfOptions): bool
 proc bookPdfFor(dw: DocWin)
@@ -4006,6 +4008,7 @@ proc overlays(dw: DocWin; ev: PhotoEvent) =
   dw.pixelGridOverlay()
   dw.spellOverlay()
   bookOverlay(dw)
+  dw.wrapOverlay(ev)
   dw.pgOverlay(ev)
   dw.threadOverlay(ev)
   dw.vectorOverlay(ev)
@@ -4442,6 +4445,9 @@ var docHeight = -1        # (the picture's height on a phone: its room above the
 
 proc docBody(dw: DocWin) =
   let d = dw.doc
+  # (a layer with Text Wrap being moved, turned or sized: the text flows round it as it goes,
+  # not only once it is put down)
+  if d.stepOpen and ((drag.on and drag.dw == dw) or (xf.on and xf.dw == dw)): d.rewrap()
   dw.view.allowGuideGrab = tool == tMove and not drag.on
   dw.taskBarPress()                # (its buttons before the image takes the mouse)
   # (the status under the image, left of its scroll bar: as today's editors)

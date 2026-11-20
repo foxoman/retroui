@@ -1985,6 +1985,117 @@ proc textIsRtl(t: TextData): bool =
       if c in 0x0590 .. 0x08FF or c in 0xFB1D .. 0xFDFF or c in 0xFE70 .. 0xFEFF: return true
       if c in 0x41 .. 0x5A or c in 0x61 .. 0x7A or c in 0xC0 .. 0x24F: return false
 
+proc quadMap*(r: Rect; q: Quad): proc (x, y: float): (float, float)
+
+proc liveOutline(d: Doc; M: Layer; poly: openArray[(float32, float32)]): seq[(float32, float32)] =
+  ## (an outline of layer `M` where it is shown while it is being moved or transformed -- a
+  ## live part of it, not put down yet --, else where it is: Text Wrap follows the mouse)
+  result = @poly
+  for p in d.live:
+    if p.layer != M: continue
+    case p.kind
+    of lkShift:
+      for q in result.mitems: q = (q[0] + float32(p.dx), q[1] + float32(p.dy))
+    of lkWarp:
+      if p.srcR.w > 0 and p.srcR.h > 0:
+        let f = quadMap(p.srcR, p.quad)
+        for q in result.mitems:
+          let (x, y) = f(q[0].float, q[1].float)
+          q = (float32(x), float32(y))
+    else: discard
+    return
+
+proc wrapBands*(d: Doc; M: Layer): tuple[parts: seq[seq[TextHole]]; box: seq[(float32, float32)]] =
+  ## Round its shape (`wrap` 2): each part of layer `M`'s outline (`wrapContour`, where it is
+  ## shown while it moves) band by band, two pixels each, grown by its offset round every side --
+  ## a band takes in the bands its offset reaches --, a shape's stroke too; and the box round
+  ## them all.
+  let off = d.wrapOffsetsPx(M)
+  # (a shape's stroke: half of it is outside its path)
+  let g = max(0'f32, off[0]) + (if M.isShape and M.wrapOpts.contour == 0 and M.shape.stroke.kind != spNone:
+                                   float32(M.shape.strokeWidth / 2) else: 0'f32)
+  const band = 2'f32
+  var all: seq[(float32, float32)]
+  for part0 in d.wrapContour(M):
+    let part = d.liveOutline(M, part0)
+    var bands: seq[tuple[y, x0, x1: float32]]
+    var top = 1e30'f32
+    var bottom = -1e30'f32
+    for q in part:
+      top = min(top, q[1]); bottom = max(bottom, q[1])
+      all.add q
+    var y = top
+    while y < bottom:
+      let sp = bandSpan(part, y, min(bottom, y + band))
+      if sp.ok: bands.add (y, sp.x0, sp.x1)
+      y += band
+    if bands.len == 0: continue
+    var mine: seq[TextHole]
+    if g <= 0:
+      for bd in bands: mine.add (bd.x0, bd.y, bd.x1, bd.y + band)
+    else:
+      let y1 = bottom + g
+      var yy = top - g
+      while yy < y1:
+        var x0 = 1e30'f32
+        var x1 = -1e30'f32
+        for bd in bands:
+          let dy = if bd.y + band < yy: yy - (bd.y + band) elif bd.y > yy + band: bd.y - (yy + band) else: 0'f32
+          if dy > g: continue
+          let reach = sqrt(max(0'f32, g * g - dy * dy))
+          x0 = min(x0, bd.x0 - reach)
+          x1 = max(x1, bd.x1 + reach)
+        if x1 > x0: mine.add (x0, yy, x1, yy + band)
+        yy += band
+    result.parts.add mine
+  if all.len < 3: return
+  var ax0, ay0 = 1e30'f32
+  var ax1, ay1 = -1e30'f32
+  for q in all:
+    ax0 = min(ax0, q[0]); ax1 = max(ax1, q[0]); ay0 = min(ay0, q[1]); ay1 = max(ay1, q[1])
+  result.box = @[(ax0 - g, ay0 - g), (ax1 + g, ay0 - g), (ax1 + g, ay1 + g), (ax0 - g, ay1 + g)]
+
+proc wrapBoundary*(d: Doc; M: Layer): seq[seq[(float32, float32)]] =
+  ## Where layer `M`'s Text Wrap keeps text out of, as outlines to draw on the screen: its box or
+  ## its turned outline grown by its offsets, or each part of its shape grown round (down its
+  ## left edge's bands, back up its right's); none without a wrap of those kinds.
+  case M.wrap
+  of 2:
+    for part in d.wrapBands(M).parts:
+      if part.len == 0: continue
+      var o: seq[(float32, float32)]
+      for h in part: (o.add (h.x0, h.y0); o.add (h.x0, h.y1))
+      for k in countdown(part.high, 0): (o.add (part[k].x1, part[k].y1); o.add (part[k].x1, part[k].y0))
+      result.add o
+  of 1, 3, 4:
+    let q = grownQuad(d.liveOutline(M, d.wrapOutline(M)), d.wrapOffsetsPx(M))
+    if q.len >= 3: result.add q
+  else: discard
+
+proc wrapHandles*(d: Doc; M: Layer): seq[tuple[side: int; x, y, nx, ny: float32]] =
+  ## The handles that set layer `M`'s Text Wrap offsets on the screen: round its box (`wrap` 1)
+  ## one in the middle of each side -- `side` 0 top, 1 bottom, 2 left, 3 right, as
+  ## `WrapOptions.offsets` -- with the way out of it (`nx`, `ny`); round its shape one, at its
+  ## top (side 0: the offset round every side).
+  case M.wrap
+  of 1:
+    let q = grownQuad(d.liveOutline(M, d.wrapOutline(M)), d.wrapOffsetsPx(M))
+    if q.len != 4: return
+    # (the sides in turn: top, right, bottom, left -- as the corners go)
+    const sideOf = [0, 3, 1, 2]
+    for i in 0 .. 3:
+      let a = q[i]
+      let b = q[(i + 1) mod 4]
+      let dx = b[0] - a[0]
+      let dy = b[1] - a[1]
+      let l = max(1e-6'f32, sqrt(dx * dx + dy * dy))
+      result.add (sideOf[i], (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, dy / l, -dx / l)
+  of 2:
+    let bx = d.wrapBands(M)
+    if bx.box.len == 4:
+      result.add (0, (bx.box[0][0] + bx.box[1][0]) / 2, bx.box[0][1], 0'f32, -1'f32)
+  else: discard
+
 proc wrapHoles*(d: Doc; L: Layer): seq[TextHole] =
   ## What is in the way of the type layer `L`'s lines: the layers with Text Wrap (`Layer.wrap`)
   ## that are shown (or at Opacity 0), each as the places its lines keep out of -- its outline
@@ -2002,50 +2113,12 @@ proc wrapHoles*(d: Doc; L: Layer): seq[TextHole] =
     let first = result.len
     var poly: WrapPoly
     if M.wrap == 2:
-      # (its shape: its outline -- each part of it -- band by band, two pixels each, grown by its
-      # offset round every side: a band takes in the bands its offset reaches)
-      # (a shape's stroke: half of it is outside its path)
-      let g = max(0'f32, off[0]) + (if M.isShape and M.wrapOpts.contour == 0 and M.shape.stroke.kind != spNone:
-                                       float32(M.shape.strokeWidth / 2) else: 0'f32)
-      const band = 2'f32
-      var all: WrapPoly
-      for part in d.wrapContour(M):
-        var bands: seq[tuple[y, x0, x1: float32]]
-        var top = 1e30'f32
-        var bottom = -1e30'f32
-        for q in part:
-          top = min(top, q[1]); bottom = max(bottom, q[1])
-          all.add q
-        var y = top
-        while y < bottom:
-          let sp = bandSpan(part, y, min(bottom, y + band))
-          if sp.ok: bands.add (y, sp.x0, sp.x1)
-          y += band
-        if bands.len == 0: continue
-        if g <= 0:
-          for bd in bands: result.add (bd.x0, bd.y, bd.x1, bd.y + band)
-          continue
-        let y1 = bottom + g
-        var yy = top - g
-        while yy < y1:
-          var x0 = 1e30'f32
-          var x1 = -1e30'f32
-          for bd in bands:
-            let dy = if bd.y + band < yy: yy - (bd.y + band) elif bd.y > yy + band: bd.y - (yy + band) else: 0'f32
-            if dy > g: continue
-            let reach = sqrt(max(0'f32, g * g - dy * dy))
-            x0 = min(x0, bd.x0 - reach)
-            x1 = max(x1, bd.x1 + reach)
-          if x1 > x0: result.add (x0, yy, x1, yy + band)
-          yy += band
-      if all.len < 3: continue
-      var ax0, ay0 = 1e30'f32
-      var ax1, ay1 = -1e30'f32
-      for q in all:
-        ax0 = min(ax0, q[0]); ax1 = max(ax1, q[0]); ay0 = min(ay0, q[1]); ay1 = max(ay1, q[1])
-      poly = @[(ax0 - g, ay0 - g), (ax1 + g, ay0 - g), (ax1 + g, ay1 + g), (ax0 - g, ay1 + g)]
+      let bands = d.wrapBands(M)
+      if bands.box.len < 3: continue
+      for part in bands.parts: result.add part
+      poly = bands.box
     else:
-      poly = grownQuad(d.wrapOutline(M), off)
+      poly = grownQuad(d.liveOutline(M, d.wrapOutline(M)), off)
       if poly.len < 3: continue
     var px0, py0 = 1e30'f32
     var px1, py1 = -1e30'f32
@@ -5169,6 +5242,7 @@ proc cancelStep*(d: Doc) =
     d.curPath = if s.curPath < d.paths.len: s.curPath else: -1
   d.modified = s.wasModified
   d.redoSteps = move(d.parkedRedo)
+  d.rewrap()          # (text that flowed round a layer as it moved: round it where it is again)
 
 proc swapStep(d: Doc; s: var Step; undoing: bool) =
   template doTiles() =
