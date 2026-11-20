@@ -8,7 +8,7 @@
 ## nearest); the store's window and the AI Connector's form drawn.
 
 import std/[os, strutils, json, times]
-import retroui, retroui/[headless, aichat, assistant, devicemodel, modelstore, sha2, fetch, meaning, jobs]
+import retroui, retroui/[headless, aichat, assistant, devicemodel, modelstore, sha2, fetch, meaning, jobs, zip]
 
 var failures = 0
 template check(cond: bool; what: string) =
@@ -159,6 +159,40 @@ block store:
         "a damaged one refused and taken away: " & bad.errorOf
   m.deleteModel()
   check not m.isInstalled and not fileExists(modelPath(m)), "deleted"
+  # (a model of several files: one of its own, two out of an archive -- a Python wheel's way)
+  var z = newZipWriter()
+  z.addFile("pkg/models/det.onnx", "the detector")
+  z.addFile("pkg/models/rec.onnx", "the reader")
+  z.addFile("pkg/other.py", "print()")
+  let wheel = dir / "pkg.whl"
+  writeFile(wheel, z.finish())
+  let wsum = fileSha256(wheel)
+  let multi = StoreModel(id: "multi", name: "Multi", use: muText, file: "det.onnx", url: "file://" & wheel,
+                         sha256: wsum, size: getFileSize(wheel), member: "pkg/models/det.onnx",
+                         more: @[ModelFile(file: "rec.onnx", url: "file://" & wheel, sha256: wsum,
+                                           member: "pkg/models/rec.onnx"),
+                                 ModelFile(file: "words.txt", url: "file://" & src, sha256: want,
+                                           size: getFileSize(src))])
+  check multi.filesOf.len == 3 and not multi.isInstalled, "a model of three files: not there"
+  ended = false
+  getModel(multi, proc () = ended = true)
+  let t2 = epochTime()
+  while not ended and epochTime() - t2 < 30:
+    frame()
+    sleep(5)
+  check ended and multi.isInstalled and multi.errorOf == "", "each file downloaded and checked: " & multi.errorOf
+  check readFile(modelsDir / "det.onnx") == "the detector" and readFile(modelsDir / "rec.onnx") == "the reader" and
+        readFile(modelsDir / "words.txt") == readFile(src), "  the members taken out of the archive"
+  var leftovers = 0
+  for f in walkFiles(modelsDir / ".*.zip*"): inc leftovers
+  check leftovers == 0, "  the archive let go of"
+  removeFile(modelsDir / "rec.onnx")
+  check not multi.isInstalled, "one file gone: not installed"
+  multi.deleteModel()
+  check not fileExists(modelsDir / "det.onnx") and not fileExists(modelsDir / "words.txt.ok"), "all its files deleted"
+  check storeModel("ppocr-v3").more.len == 1 and storeModel("ppocr-v3").member.len > 0 and
+        storeModel("u2netp").use == muSubject and storeModel("depth-anything-v2-small").use == muDepth,
+        "the store's models of pictures"
   # (a GGUF of your own, put in the folder)
   copyFile(src, modelsDir / "mine.gguf")
   check otherModelFiles() == @[modelsDir / "mine.gguf"], "a model of your own in the folder"
@@ -218,11 +252,21 @@ block windows:
     aiServiceForm(s, models)
     endFrame()
   check open, "the store's window drawn"
-  check storeModels.len == 3 and storeModels[0].license == "MIT" and storeModels[2].use == muEmbed,
-        "the store: BitNet (MIT), Qwen3 (Apache 2.0), an embedding model"
+  check storeModels.len == 8 and storeModels[0].license == "MIT" and storeModels[2].use == muEmbed,
+        "the store: BitNet (MIT), Qwen3 (Apache 2.0), an embedding model, and the models of pictures"
   for m in storeModels:
-    check m.sha256.len == 64 and m.url.startsWith("https://huggingface.co/") and m.url.endsWith(m.file),
-          "  " & m.name & ": its checksum and address"
+    for f in m.filesOf:
+      # (each from Hugging Face, a GitHub release or PyPI -- an archive's member named in it)
+      check f.sha256.len == 64 and f.url.startsWith("https://") and
+            (f.member.len > 0 and f.member.endsWith(f.file) or f.url.endsWith(f.file) or
+             f.url.endsWith(".onnx")),
+            "  " & m.name & ", " & f.file & ": its checksum and address"
+    check m.license in ["MIT", "Apache 2.0"] and m.licenseUrl.startsWith("https://"), "  " & m.name & "'s license"
+  for i in 0 ..< 3:
+    discard beginFrame()
+    modelStoreDialog(open, {muChat, muEmbed, muDepth, muSubject, muText})
+    endFrame()
+  check open, "the window with every kind of model"
 
 if failures > 0:
   echo failures, " failed"

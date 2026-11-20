@@ -293,13 +293,21 @@ proc photoRestoration*(enhance = 50; scratches = 50; noise = 30; colorNoise = 40
 
 # ---- Depth Blur -----------------------------------------------------------------------------------------------------
 
+var depthHook*: proc (src: Img): seq[uint8] {.closure.} = nil
+  ## When set, `depthMapOf` asks it first -- a model trained to see depth in one picture
+  ## (`retroui/vision`'s `depthOf`, as Retro Atelier sets it when one is on the device) -- 0 near
+  ## .. 255 far per pixel of `src`; empty: the picture's own cues, as without it.
+
 proc depthMapOf*(src: Img; subject: seq[uint8] = @[]): seq[uint8] =
   ## How far each pixel seems (0 near .. 255 far), without a depth camera:
   ## the subject is near (`subject`: its mask, as `selectSubject` finds;
   ## empty: found here), the ground nearer toward the bottom, what is
-  ## already soft (out of focus, haze) farther.
+  ## already soft (out of focus, haze) farther. (`depthHook`, when set, first.)
   let w = src.w
   let h = src.h
+  if depthHook != nil and w >= 8 and h >= 8:
+    let m = depthHook(src)
+    if m.len == w * h: return m
   let subj = if subject.len == w * h: subject else: selectSubject(src)
   # (sharpness: the local contrast of the light, blurred wide)
   var lum = newSeq[float32](w * h)

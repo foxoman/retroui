@@ -1,5 +1,73 @@
 # Changes
 
+## 0.66.0
+
+Models trained for pictures, run by the app itself. `retroui/nnet` runs
+ONNX models in Nim -- convolutions, attention, normalizations, resizing,
+the shape operations models are full of -- on the device's own cores, with
+the compilers' vectors; `retroui/vision` puts pictures through them: how
+near each place is (Depth Anything), a picture's subject (U-2-Net), the
+text in it (PaddleOCR's detector and readers, Arabic too). The model store
+offers them, downloaded when you ask, as the language models of 0.65 are.
+Retro Atelier 5.11 uses them: Select Subject and Remove Background with
+U-2-Net, Depth Blur, Lens Blur and Relight with the photo's own depth, and
+Type > Text in Picture. Without them, each works as it did.
+
+- **ONNX models in Nim** (`retroui/onnx`: `readOnnx`, `metaOf`;
+  `retroui/nnet`: `loadNet`, `run`, `Tensor`, `floats`, `matmul`, `conv`):
+  the file read by hand (protobuf, the weights in it or beside it), 88
+  operations of ONNX's own domain (opsets 11 to 21: Conv grouped, strided,
+  dilated and transposed, MatMul and Gemm, BatchNormalization,
+  LayerNormalization, InstanceNormalization, GroupNormalization, Softmax,
+  the pools with `ceil_mode`, Resize nearest, linear and cubic with every
+  coordinate transformation, DFT, Reshape, Transpose, Slice, Gather, Pad,
+  Where and the rest), floats and whole numbers. The matrix products four
+  rows by sixteen columns at a time (`simdnet.h`: AVX2 with FMA picked at
+  run time, SSE2, NEON, SIMD128), b's blocks packed side by side;
+  convolutions in strips of places gathered as columns, 1 x 1 ones read as
+  they are, depthwise ones directly, a Relu after a Conv in the same pass,
+  a BatchNormalization after one folded into its weights as it loads;
+  softmax, exp and erf several at a time; the operations' inputs moved,
+  not copied, at their last use; the model's own threads (the kit's pool
+  belongs to the drawing thread: models run in jobs). `netProfile` adds up
+  each operation's time. `test_nnet`: four graphs of random weights
+  against onnxruntime (`tools/gennet.py`); `tools/netcheck.py` and
+  `tools/netcheck.nim` compare any model with onnxruntime -- Depth
+  Anything V2 Small, both U-2-Nets and PP-OCRv3's detector and reader
+  agree within 1e-4 of their outputs' size.
+- **Pictures understood** (`retroui/vision`): `depthOf` (0 .. 1 a pixel,
+  1 the nearest, as Depth Anything sees it), `subjectOf` (0 .. 255, as
+  U-2-Net finds it), `readText` (each line's words, its corners and how
+  sure: DB's boxes found -- the places joined, the smallest rectangle,
+  grown as the detector was taught -- each line made upright and read,
+  CTC; a reader's characters its own or a dictionary, `arabicChars` for
+  the Arabic one; Arabic put in the order it is written, `logicalOrder`).
+  `test_vision`, with stand-in models.
+- **The store's models of pictures** (`retroui/modelstore`: `muDepth`,
+  `muSubject`, `muText`; `ModelFile`, `filesOf`, `modelFilePath`): a
+  model of several files, and files taken out of an archive (a Python
+  wheel) once its checksum is right. Depth Anything V2 Small (99 MB),
+  U-2-Net small (4.6 MB) and U-2-Net (176 MB), PP-OCRv3 for English and
+  Chinese (RapidOCR's, 12 MB), PP-OCRv3 Arabic (11 MB: Arabic, Persian,
+  Urdu) -- each Apache 2.0.
+- **A prompt read together** (`retroui/llm`: `readMany`, `readChunk`): a
+  language model reads a prompt's tokens 32 at a time, each matrix's rows
+  read from memory once for all of them -- the very numbers of reading
+  them one by one (`test_llm` checks it), and the first answer sooner
+  where the cores wait on memory, as a phone's do. `generate` and `embed`
+  read so.
+- `photosmart.subjectHook` and `photoneural.depthHook`: Select Subject and
+  the depth of Depth Blur, Lens Blur and Relight ask a model first when an
+  app sets them.
+- **Retro Atelier 5.11**: Edit > Models on This Device has the models of
+  pictures too; Select Subject and Remove Background use U-2-Net when it
+  is on the device (the larger first), Depth Blur, Lens Blur's Estimated
+  Depth and Relight use Depth Anything's depth; Type > Text in Picture:
+  the selection, else the whole picture, read by the reader chosen --
+  the text to change, Copy All, or Add as Type: each line a type layer
+  over the line it was read from, as wide as it, in the type tool's
+  font, one step to undo.
+
 ## 0.65.0
 
 An AI of the device's own. `retroui/llm` runs language models in Nim, in

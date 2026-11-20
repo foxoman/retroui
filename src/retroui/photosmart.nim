@@ -1639,10 +1639,18 @@ proc subjectSaliency(lab: seq[Col]; w, h: int): seq[float32] =
   boxBlur(result, w, h, 1)
   normalize(result)
 
+var subjectHook*: proc (src: Img): seq[uint8] {.closure.} = nil
+  ## When set, `selectSubject` asks it first -- a model trained to find a picture's subject
+  ## (`retroui/vision`'s `subjectOf`, as Retro Atelier sets it when one is on the device) --
+  ## 0..255 per pixel of `src`; empty: the picture's own cues, as without it.
+
 proc selectSubject*(src: Img; detail = 360): seq[uint8] =
   ## Select Subject: the main thing in the picture (what stands out from
   ## the edges, nearer the middle), its outline following the picture's
-  ## edges. 0..255 per pixel of `src`.
+  ## edges. 0..255 per pixel of `src`. (`subjectHook`, when set, first.)
+  if subjectHook != nil and src.w >= 8 and src.h >= 8:
+    let m = subjectHook(src)
+    if m.len == src.w * src.h: return m
   result = newSeq[uint8](src.w * src.h)
   if src.w < 8 or src.h < 8: return
   let (small, lab, lum) = proxyOf(src, detail)

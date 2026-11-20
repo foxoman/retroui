@@ -920,6 +920,24 @@ Not yet tried: an upload to Google Play, to Partner Center, to App Store
 Connect; Apple's notarization from `retrokit mac` (its steps are Apple's
 own commands).
 
+## A model of your own, against onnxruntime
+
+`retroui/nnet` runs ONNX models in Nim. Before an app uses a model the
+store does not offer, check that the runner gives what onnxruntime does
+(and how long it takes here):
+
+```sh
+pip install numpy onnxruntime
+python3 tools/netcheck.py model.onnx /tmp/check 518 518    # its first input: (1, 3, 518, 518)
+nim r -d:release tools/netcheck.nim model.onnx /tmp/check --times
+```
+
+Each output's largest value and how far the runner is from onnxruntime;
+`--times` adds each operation's time. An operation the runner does not
+have stops it with that operation's name. The models the store offers
+were checked this way: Depth Anything V2 Small, both U-2-Nets, PP-OCRv3's
+detector and reader.
+
 ## Every RETRO_ setting
 
 An app built with the kit reads these from its environment when it starts
@@ -965,7 +983,7 @@ environment of its own: `adb shell am start -n PACKAGE/org.retro.RetroActivity
 | `RETRO_STATS=1` | the frames' times and counts on stderr, every 2 seconds, and each frame of 250 ms or more (where the mouse was, the key) |
 | `RETRO_LANG=pseudo` | every text stretched a third and marked ("[Šåvé ··]"): the layouts too tight for longer words, and the words not translated, seen at once |
 | `RETRO_BENCH=SCENE`, `RETRO_BENCH_OUT=FILE` | tools/bench.nim's scene (rest, list, dashboard, document) and where its numbers go (`python3 tools/bench.py` runs them all) |
-| `RETRO_THREADS=N` | the worker threads (else one a processor, at most 16) |
+| `RETRO_THREADS=N` | the worker threads (else one a processor, at most 16); the language models' and the picture models' own threads too |
 | `RETRO_MODELS=DIR` | where the models of `retroui/modelstore` are kept (else "Retro Models" in the system's place for an app's data, shared by the kit's apps) |
 | `RETRO_WEB=system` | every `webView` in the system's browser engine |
 | `RETRO_WEB_TOOLS=1` | the system's web view with its developer tools |

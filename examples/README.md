@@ -211,7 +211,12 @@ picture on) go through your image service, each on a new layer. The
 service can be **this device's own model** (Edit > Models on This Device
 downloads one; Edit > AI Connector > This device): the Assistant then
 works offline and sends nothing anywhere. **Type > Shorten to Fit (AI)**
-makes an overset box's text as short as fits.
+makes an overset box's text as short as fits. **Models trained for
+pictures** come the same way: with U-2-Net on the device Select Subject
+and Remove Background use it, with Depth Anything Depth Blur, Lens Blur
+and Relight see the photo's own depth, and **Type > Text in Picture**
+reads the text in a photo or a scan (English, Chinese, Arabic) -- to copy,
+or added as type where it was.
 
 **SVG** is one of its formats: an .svg opens as layers -- its shapes as
 shape layers, its text as type you can type in (fonts, sizes, colours,

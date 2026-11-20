@@ -338,6 +338,13 @@ app "Staff", 520, 420:
   `onceAnswer(settings, job)`. Search by meaning: `retroui/meaning`
   (`openMeaningIndex(file, modelPath(m))`, `update(items)`, `find(task,
   question)`). Never put a model in the app.
+- Pictures through trained models (`retroui/nnet`, `retroui/vision`), each in a
+  `job`: `depthOf(loadNet(modelPath(storeModel("depth-anything-v2-small"))), px,
+  w, h)` (0 .. 1, 1 nearest), `subjectOf(net, px, w, h)` (0 .. 255),
+  `readText(det, rec, px, w, h)` (`TextLine`: `text`, `corners`, `score`; the
+  files of `storeModel("ppocr-v3")` by `filesOf`/`modelFilePath`; Arabic:
+  `chars = arabicChars, arabic = true`). `modelStoreDialog(open, {muDepth,
+  muSubject, muText})` offers them.
 - `trayIcon(png, tip, ["&Show", "-", "E&xit"])` (`retroui/tray`) every
   frame while wanted: `.clicked`, `.picked` (the item's index).
 - `retroui/feeds`: `parseFeed(xml)` (RSS, Atom), `parseOpml`, `toOpml`.

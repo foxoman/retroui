@@ -555,6 +555,17 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   models of `tests/data/llm` (made by `tools/genllm.py`, against numpy's
   own reference: change a kernel, run it); a change to `simdllm.h` builds
   with `-f` (Nim does not see a header change).
+- **Models of pictures run in jobs, on `retroui/nnet`'s own threads**
+  (`retroui/nnet`, `retroui/vision`): the kit's `parallelFor` belongs to
+  the drawing thread, so the runner has its own pool, one model at a time
+  (`run` holds it); an app runs `depthOf`, `subjectOf`, `readText` in a
+  `job` (or on the UI thread with `stop` ticking the busy box, as Retro
+  Atelier's hooks do). A node's inputs are its own (moved at their last
+  use, else copied): an operation may change or move them, never a
+  weight. A new operation gets a graph in `tools/gennet.py` checked
+  against onnxruntime; a real model, `tools/netcheck.py` then
+  `tools/netcheck.nim`. The store's models of pictures are as its
+  language models: downloaded when asked, checked, never bundled.
 - **A graph's layout without a window is `retroui/forcelayout`**; the
   control (`graphView`) is `retroui/forcegraph`, which imports the UI. A
   module that draws nothing on screen (`retroui/board`) imports the

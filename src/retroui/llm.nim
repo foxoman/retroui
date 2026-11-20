@@ -253,29 +253,51 @@ proc ternaryDot(m: Mat; r: int; xq: Bytes; sums: Sums; all: int32): float32 =
 
 type
   Work = object
-    ## (the rows of up to three matrices, shared out)
+    ## (the rows of up to three matrices, shared out, each times `nb` inputs: a prompt's
+    ## tokens read together -- each row read from memory once for all of them)
     mats: array[3, Mat]
-    outs: array[3, Vec]
-    x: Vec
-    xq: Bytes                    ## (the input as whole numbers, for ternary rows, Q8_0's, Q4_0's)
+    outs: array[3, Vec]          ## (input b's answer for row r of matrix i: outs[i][b * rows + r])
+    nb: int                      ## (the inputs)
+    x: Vec                       ## (... one after another, `cols` each)
+    xq: Bytes                    ## (the inputs as whole numbers, for ternary rows, Q8_0's, Q4_0's)
     xd: Vec                      ## (... Q8_0's and Q4_0's: the scale of each 32)
-    sums: Sums                   ## (... its sums, 256 at a time)
-    all: int32                   ## (... its sum)
-    xScale: float32              ## (... back to what it was)
+    sums: Sums                   ## (... their sums, 256 at a time)
+    all: ptr UncheckedArray[int32]   ## (... each one's sum)
+    xScale: Vec                  ## (... each back to what it was)
+    cols: int
     rowsEnd: array[3, int]       ## (the matrices' rows, end to end)
 
 proc runRows(w: ptr Work; lo, hi: int) =
-  var mi = 0
-  var start = 0
-  for r in lo ..< hi:
-    while r >= w.rowsEnd[mi]:
-      start = w.rowsEnd[mi]
-      inc mi
-    let m = w.mats[mi]
-    w.outs[mi][r - start] =
-      if w.xd != nil: m.blockDot(r - start, w.xq, w.xd) * m.scale
-      elif w.xq != nil: m.ternaryDot(r - start, w.xq, w.sums, w.all) * w.xScale * m.scale
-      else: m.denseDot(r - start, w.x) * m.scale
+  ## (rows lo ..< hi: with several inputs, sixteen rows at a time against four inputs at a
+  ## time -- the rows' weights and the inputs both kept in the first cache, the weights read
+  ## from memory once for all the inputs)
+  let cols = w.cols
+  let nsum = (cols + 255) div 256
+  var r0 = lo
+  while r0 < hi:
+    let r1 = min(hi, r0 + (if w.nb > 1: 16 else: hi - r0))
+    var b0 = 0
+    while b0 < w.nb:
+      let b1 = min(w.nb, b0 + 4)
+      var mi = 0
+      var start = 0
+      for r in r0 ..< r1:
+        while r >= w.rowsEnd[mi]:
+          start = w.rowsEnd[mi]
+          inc mi
+        let m = w.mats[mi]
+        let rows = m.rows
+        let rr = r - start
+        for b in b0 ..< b1:
+          w.outs[mi][b * rows + rr] =
+            if w.xd != nil:
+              m.blockDot(rr, cast[Bytes](addr w.xq[b * cols]), cast[Vec](addr w.xd[b * (cols div 32)])) * m.scale
+            elif w.xq != nil:
+              m.ternaryDot(rr, cast[Bytes](addr w.xq[b * cols]), cast[Sums](addr w.sums[b * nsum]), w.all[b]) *
+                w.xScale[b] * m.scale
+            else: m.denseDot(rr, cast[Vec](addr w.x[b * cols])) * m.scale
+      b0 = b1
+    r0 = r1
 
 var llmThreadsWanted = 0
 
@@ -360,13 +382,17 @@ proc share(fn: Fn; w: ptr Work; n, grain: int) =
     fn(w, 0, n)
 
 var
-  xqBuf: seq[int8]               ## (the input as whole numbers: one model works at a time)
+  xqBuf: seq[int8]               ## (the inputs as whole numbers: one model works at a time)
   sumBuf: seq[int32]
   xdBuf: seq[float32]
+  allBuf: seq[int32]
+  scaleBuf: seq[float32]
 
-proc mulAll(ms: openArray[Mat]; x: var seq[float32]; outs: openArray[ptr seq[float32]]) =
-  ## (each of `ms` times `x`, into `outs`: their rows shared out at once)
-  var w = Work(x: cast[Vec](addr x[0]))
+proc mulAll(ms: openArray[Mat]; x: var seq[float32]; outs: openArray[ptr seq[float32]]; nb = 1) =
+  ## (each of `ms` times each of the `nb` inputs one after another in `x`, into `outs` -- input
+  ## b's answers after b - 1's: the rows shared out at once)
+  let cols = x.len div nb
+  var w = Work(x: cast[Vec](addr x[0]), nb: nb, cols: cols)
   var rows = 0
   for i, m in ms:
     w.mats[i] = m
@@ -375,28 +401,36 @@ proc mulAll(ms: openArray[Mat]; x: var seq[float32]; outs: openArray[ptr seq[flo
     w.rowsEnd[i] = rows
   for i in ms.len .. 2: w.rowsEnd[i] = high(int)
   if ternary(ms[0].kind):
-    # (as BitNet b1.58 was taught: the input as whole numbers, -127 .. 127, one scale)
+    # (as BitNet b1.58 was taught: each input as whole numbers, -127 .. 127, one scale)
+    let nsum = (cols + 255) div 256
     xqBuf.setLen(x.len)
-    sumBuf.setLen((x.len + 255) div 256)
-    w.xScale = quant8(addr x[0], addr xqBuf[0], x.len)
-    for b in 0 ..< sumBuf.len:
-      var t = 0'i32
-      for i in b * 256 ..< min(x.len, b * 256 + 256): t += int32(xqBuf[i])
-      sumBuf[b] = t
-      w.all += t
+    sumBuf.setLen(nsum * nb)
+    allBuf.setLen(nb)
+    scaleBuf.setLen(nb)
+    for v in 0 ..< nb:
+      scaleBuf[v] = quant8(addr x[v * cols], addr xqBuf[v * cols], cols)
+      var all = 0'i32
+      for b in 0 ..< nsum:
+        var t = 0'i32
+        for i in v * cols + b * 256 ..< v * cols + min(cols, b * 256 + 256): t += int32(xqBuf[i])
+        sumBuf[v * nsum + b] = t
+        all += t
+      allBuf[v] = all
     w.xq = cast[Bytes](addr xqBuf[0])
     w.sums = cast[Sums](addr sumBuf[0])
-  elif ms[0].kind in {gtQ8_0, gtQ4_0} and x.len mod 32 == 0:
-    # (as llama.cpp does: the input whole numbers too, a scale each 32)
+    w.all = cast[ptr UncheckedArray[int32]](addr allBuf[0])
+    w.xScale = cast[Vec](addr scaleBuf[0])
+  elif ms[0].kind in {gtQ8_0, gtQ4_0} and cols mod 32 == 0:
+    # (as llama.cpp does: the inputs whole numbers too, a scale each 32)
     xqBuf.setLen(x.len)
     xdBuf.setLen(x.len div 32)
     for b in 0 ..< xdBuf.len: xdBuf[b] = quant8(addr x[b * 32], addr xqBuf[b * 32], 32)
     w.xq = cast[Bytes](addr xqBuf[0])
     w.xd = cast[Vec](addr xdBuf[0])
-  share(runRows, addr w, rows, 16)
+  share(runRows, addr w, rows, max(1, 16 div nb))
 
-proc mul(m: Mat; x: var seq[float32]; into: var seq[float32]) =
-  mulAll([m], x, [addr into])
+proc mul(m: Mat; x: var seq[float32]; into: var seq[float32]; nb = 1) =
+  mulAll([m], x, [addr into], nb)
 
 proc rowOf(m: Mat; r: int; into: var seq[float32]) =
   ## Row `r` of `m` as numbers (a token's embedding).
@@ -632,88 +666,145 @@ proc rope(m: Llm; v: var seq[float32]; heads, pos: int) =
       v[i0] = x0 * c - x1 * s
       v[i1] = x0 * s + x1 * c
 
+proc readMany*(s: LlmState; tokens: openArray[int]; scores = true) =
+  ## Reads `tokens` one after another, as `step` does each -- but together: each matrix's rows
+  ## read from memory once for all of them, which is what a prompt is read quickest by on a
+  ## phone's cores. The last token's scores in `s.logits` (`scores` false: not worked out) and
+  ## its vector in `s.hidden`. Raises `LlmError` as `step` does (and reads none of them then).
+  let m = s.m
+  let nb = tokens.len
+  if nb == 0: return
+  if s.pos + nb > m.ctxMax: fail("the conversation is as long as the model reads (" & $m.ctxMax & " tokens)")
+  for token in tokens:
+    if token < 0 or token >= m.nVocab: fail("token " & $token & " is not one of the model's")
+  when compileOption("threads"):
+    poolStart()
+    acquire(pUse)
+  try:
+    let e = m.nEmbd
+    let hd = m.headDim
+    let qDim = m.nHead * hd
+    let kvDim = m.nHeadKv * hd
+    let group = m.nHead div m.nHeadKv
+    let scale = 1'f32 / sqrt(float32(hd))
+    # (the tokens' rows one after another: x, its normed copy, the queries, keys and values...)
+    var x = newSeq[float32](nb * e)
+    var xb = newSeq[float32](nb * e)
+    var xb2 = newSeq[float32](nb * e)
+    var q = newSeq[float32](nb * qDim)
+    var k = newSeq[float32](nb * kvDim)
+    var v = newSeq[float32](nb * kvDim)
+    var att = newSeq[float32](nb * qDim)
+    var hb = newSeq[float32](nb * m.nFf)
+    var hb2 = newSeq[float32](nb * m.nFf)
+    var row = newSeq[float32](e)
+    var one = newSeq[float32](max(e, max(qDim, m.nFf)))
+    template rowOp(buf: var seq[float32]; width, b: int; body: untyped) =
+      # (`body` on token b's row of `buf`, as `step` works on one token's: `one` holds it)
+      one.setLen(width)
+      for i in 0 ..< width: one[i] = buf[b * width + i]
+      body
+      for i in 0 ..< width: buf[b * width + i] = one[i]
+    for b, token in tokens:
+      m.tokEmbd.rowOf(token, row)
+      for i in 0 ..< e: x[b * e + i] = row[i]
+    var w = newSeq[float32](s.pos + nb)
+    var normed = newSeq[float32](e)
+    for li in 0 ..< m.nLayer:
+      let L = addr m.layers[li]
+      for b in 0 ..< nb:
+        for i in 0 ..< e: row[i] = x[b * e + i]
+        rmsNorm(row, L.attnNorm, m.rmsEps, normed)
+        for i in 0 ..< e: xb[b * e + i] = normed[i]
+      if L.wq.kind == L.wk.kind and L.wk.kind == L.wv.kind:
+        mulAll([L.wq, L.wk, L.wv], xb, [addr q, addr k, addr v], nb)
+      else:
+        mul(L.wq, xb, q, nb)
+        mul(L.wk, xb, k, nb)
+        mul(L.wv, xb, v, nb)
+      for b in 0 ..< nb:
+        let pos = s.pos + b
+        rowOp(q, qDim, b):
+          one.addTo L.bq
+          one.normHeads(m.nHead, hd, L.qNorm, m.rmsEps)
+          m.rope(one, m.nHead, pos)
+        rowOp(k, kvDim, b):
+          one.addTo L.bk
+          one.normHeads(m.nHeadKv, hd, L.kNorm, m.rmsEps)
+          m.rope(one, m.nHeadKv, pos)
+        rowOp(v, kvDim, b):
+          one.addTo L.bv
+        for i in 0 ..< kvDim:
+          s.kc[li].add k[b * kvDim + i]
+          s.vc[li].add v[b * kvDim + i]
+      let kc = cast[Vec](addr s.kc[li][0])
+      let vc = cast[Vec](addr s.vc[li][0])
+      for b in 0 ..< nb:
+        # (token b sees the conversation so far and the tokens before it, not after)
+        let n = s.pos + b + 1
+        for h in 0 ..< m.nHead:
+          let ko = (h div group) * hd
+          let qo = b * qDim + h * hd
+          var top = -Inf.float32
+          for t in 0 ..< n:
+            var d = 0'f32
+            let kt = t * kvDim + ko
+            for i in 0 ..< hd: d += q[qo + i] * kc[kt + i]
+            w[t] = d * scale
+            top = max(top, w[t])
+          var sum = 0'f32
+          for t in 0 ..< n:
+            w[t] = exp(w[t] - top)
+            sum += w[t]
+          for i in 0 ..< hd: att[qo + i] = 0
+          for t in 0 ..< n:
+            let a = w[t] / sum
+            let vt = t * kvDim + ko
+            for i in 0 ..< hd: att[qo + i] += a * vc[vt + i]
+        if L.attnSubNorm.len > 0:
+          rowOp(att, qDim, b): rmsNorm(one, L.attnSubNorm, m.rmsEps, one)
+      mul(L.wo, att, xb2, nb)
+      for b in 0 ..< nb:
+        rowOp(xb2, e, b): one.addTo L.bo
+        for i in 0 ..< e: x[b * e + i] += xb2[b * e + i]
+        for i in 0 ..< e: row[i] = x[b * e + i]
+        rmsNorm(row, L.ffnNorm, m.rmsEps, normed)
+        for i in 0 ..< e: xb[b * e + i] = normed[i]
+      if L.gate.kind == L.up.kind: mulAll([L.gate, L.up], xb, [addr hb, addr hb2], nb)
+      else:
+        mul(L.gate, xb, hb, nb)
+        mul(L.up, xb, hb2, nb)
+      for i in 0 ..< nb * m.nFf:
+        let g = hb[i]
+        let a = case m.act
+                of actSilu: g / (1'f32 + exp(-g))
+                of actReluSquared: (let r = max(g, 0'f32); r * r)
+        hb[i] = a * hb2[i]
+      if L.ffnSubNorm.len > 0:
+        for b in 0 ..< nb:
+          rowOp(hb, m.nFf, b): rmsNorm(one, L.ffnSubNorm, m.rmsEps, one)
+      mul(L.down, hb, xb2, nb)
+      for i in 0 ..< nb * e: x[i] += xb2[i]
+    # (the last token's: its vector and its scores)
+    for i in 0 ..< e: s.x[i] = x[(nb - 1) * e + i]
+    rmsNorm(s.x, m.outNorm, m.rmsEps, s.xb)
+    if scores: mul(m.output, s.xb, s.logits)
+  finally:
+    when compileOption("threads"): release(pUse)
+  s.pos += nb
+  for t in tokens: s.tokens.add t
+
+var readChunk* = 32
+  ## How many of a prompt's tokens `generate` and `embed` read together (`readMany`): more, the
+  ## weights read fewer times; fewer, less memory (each token's rows, the feed-forward's the
+  ## largest).
+
 proc step*(s: LlmState; token: int; scores = true) =
   ## Reads one token: the next token's scores in `s.logits` (`scores` false: not worked out --
   ## a text read for `embed`, or a prompt but its last token), and its vector, the model's last
   ## layer normed, in `s.hidden`. Raises `LlmError` when the conversation is as long as the
   ## model reads, or `token` is not one of its own.
-  let m = s.m
-  if s.pos >= m.ctxMax: fail("the conversation is as long as the model reads (" & $m.ctxMax & " tokens)")
-  if token < 0 or token >= m.nVocab: fail("token " & $token & " is not one of the model's")
-  when compileOption("threads"):
-    poolStart()
-    acquire(pUse)
-  try:
-    m.tokEmbd.rowOf(token, s.x)
-    let hd = m.headDim
-    let kvDim = m.nHeadKv * hd
-    let group = m.nHead div m.nHeadKv
-    let n = s.pos + 1
-    let scale = 1'f32 / sqrt(float32(hd))
-    var w = newSeq[float32](n)
-    for li in 0 ..< m.nLayer:
-      let L = addr m.layers[li]
-      rmsNorm(s.x, L.attnNorm, m.rmsEps, s.xb)
-      if L.wq.kind == L.wk.kind and L.wk.kind == L.wv.kind:
-        mulAll([L.wq, L.wk, L.wv], s.xb, [addr s.q, addr s.k, addr s.v])
-      else:
-        mul(L.wq, s.xb, s.q)
-        mul(L.wk, s.xb, s.k)
-        mul(L.wv, s.xb, s.v)
-      s.q.addTo L.bq
-      s.k.addTo L.bk
-      s.v.addTo L.bv
-      s.q.normHeads(m.nHead, hd, L.qNorm, m.rmsEps)
-      s.k.normHeads(m.nHeadKv, hd, L.kNorm, m.rmsEps)
-      m.rope(s.q, m.nHead, s.pos)
-      m.rope(s.k, m.nHeadKv, s.pos)
-      s.kc[li].add s.k
-      s.vc[li].add s.v
-      let kc = cast[Vec](addr s.kc[li][0])
-      let vc = cast[Vec](addr s.vc[li][0])
-      for h in 0 ..< m.nHead:
-        let ko = (h div group) * hd
-        let qo = h * hd
-        var top = -Inf.float32
-        for t in 0 ..< n:
-          var d = 0'f32
-          let kt = t * kvDim + ko
-          for i in 0 ..< hd: d += s.q[qo + i] * kc[kt + i]
-          w[t] = d * scale
-          top = max(top, w[t])
-        var sum = 0'f32
-        for t in 0 ..< n:
-          w[t] = exp(w[t] - top)
-          sum += w[t]
-        for i in 0 ..< hd: s.att[qo + i] = 0
-        for t in 0 ..< n:
-          let a = w[t] / sum
-          let vt = t * kvDim + ko
-          for i in 0 ..< hd: s.att[qo + i] += a * vc[vt + i]
-      if L.attnSubNorm.len > 0: rmsNorm(s.att, L.attnSubNorm, m.rmsEps, s.att)
-      mul(L.wo, s.att, s.xb2)
-      s.xb2.addTo L.bo
-      for i in 0 ..< m.nEmbd: s.x[i] += s.xb2[i]
-      rmsNorm(s.x, L.ffnNorm, m.rmsEps, s.xb)
-      if L.gate.kind == L.up.kind: mulAll([L.gate, L.up], s.xb, [addr s.hb, addr s.hb2])
-      else:
-        mul(L.gate, s.xb, s.hb)
-        mul(L.up, s.xb, s.hb2)
-      for i in 0 ..< m.nFf:
-        let g = s.hb[i]
-        let a = case m.act
-                of actSilu: g / (1'f32 + exp(-g))
-                of actReluSquared: (let r = max(g, 0'f32); r * r)
-        s.hb[i] = a * s.hb2[i]
-      if L.ffnSubNorm.len > 0: rmsNorm(s.hb, L.ffnSubNorm, m.rmsEps, s.hb)
-      mul(L.down, s.hb, s.xb2)
-      for i in 0 ..< m.nEmbd: s.x[i] += s.xb2[i]
-    rmsNorm(s.x, m.outNorm, m.rmsEps, s.xb)
-    if scores: mul(m.output, s.xb, s.logits)
-  finally:
-    when compileOption("threads"): release(pUse)
-  inc s.pos
-  s.tokens.add token
+  s.readMany([token], scores)
 
 proc hidden*(s: LlmState): lent seq[float32] =
   ## The last token's vector: the model's last layer, normed (what its scores are made of).
@@ -731,15 +822,23 @@ proc embed*(m: Llm; s: LlmState; text: string): seq[float32] =
   if ids.len == 0: ids.add max(0, m.tok.eos)
   if ids.len > m.ctxMax: ids.setLen(m.ctxMax)
   result = newSeq[float32](m.nEmbd)
-  for i, t in ids:
-    s.step(t, scores = false)
-    case m.pooling
-    of poolMean:
-      for j in 0 ..< m.nEmbd: result[j] += s.xb[j]
-    of poolFirst:
-      if i == 0: result = s.xb
-    of poolLast:
-      if i == ids.high: result = s.xb
+  if m.pooling == poolLast:
+    # (the last token's alone: the text read together, `readChunk` at a time)
+    var i = 0
+    while i < ids.len:
+      let n = min(readChunk, ids.len - i)
+      s.readMany(ids.toOpenArray(i, i + n - 1), scores = false)
+      i += n
+    result = s.xb
+  else:
+    for i, t in ids:
+      s.step(t, scores = false)
+      case m.pooling
+      of poolMean:
+        for j in 0 ..< m.nEmbd: result[j] += s.xb[j]
+      of poolFirst:
+        if i == 0: result = s.xb
+      of poolLast: discard
   var n = 0'f32
   for v in result: n += v * v
   if n > 0:
@@ -848,9 +947,13 @@ proc generate*(s: LlmState; prompt: openArray[int]; maxTokens = 256; how = sampl
   ## stop).
   ## The tokens written.
   let m = s.m
-  for i, t in prompt:
+  # (the prompt read `readChunk` tokens at a time: each matrix read once for all of them)
+  var i = 0
+  while i < prompt.len:
     if s.pos >= m.ctxMax: return
-    s.step(t, scores = i == prompt.high)
+    let n = min(min(readChunk, prompt.len - i), m.ctxMax - s.pos)
+    s.readMany(prompt.toOpenArray(i, i + n - 1), scores = i + n == prompt.len)
+    i += n
   var held = ""
   for i in 0 ..< maxTokens:
     let t = s.pick(how)

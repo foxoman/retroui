@@ -602,5 +602,18 @@ const toolkitArabic* = [
    "أفضل هذه النماذج في استعمال أدوات التطبيق (أوامر المساعد)، ويكتب بالعربية."),
   ("Search by meaning: finds mail and documents that say what you ask in other words.",
    "البحث بالمعنى: يجد البريد والمستندات التي تقول ما تسأل عنه بكلمات أخرى."),
+  # the models of pictures (retroui/vision)
+  ("How near each place of a photo is: Depth Blur, Lens Blur and Relight with the photo's own depth.",
+   "مدى قرب كل موضع في الصورة: تمويه العمق والتمويه العدسي وإعادة الإضاءة بعمق الصورة نفسها."),
+  ("The subject of a photo: Select Subject and Remove Background -- small and quick.",
+   "موضوع الصورة: تحديد الموضوع وإزالة الخلفية -- صغير وسريع."),
+  ("The subject of a photo, finer than the small one's edges: Select Subject and Remove Background.",
+   "موضوع الصورة، بحواف أدق من النموذج الصغير: تحديد الموضوع وإزالة الخلفية."),
+  ("The text in photos and scans: Type > Text in Picture.",
+   "النص في الصور والمستندات الممسوحة: الكتابة > النص في الصورة."),
+  ("The Arabic text in photos and scans: Type > Text in Picture.",
+   "النص العربي في الصور والمستندات الممسوحة: الكتابة > النص في الصورة."),
+  ("English, Chinese", "الإنجليزية والصينية"),
+  ("Arabic, Persian, Urdu", "العربية والفارسية والأردية"),
 ]
   ## The toolkit's words in Arabic: (English key, Arabic), for `setUiLanguage`.

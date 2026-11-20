@@ -25,7 +25,7 @@ import retroui/[photo, photopaint, photofx, photoartistic, photohdr, otshape, tt
               photobrushes, adobefiles, photobook, imagetrace, layouttemplates, liveshapes, idml, preflight,
               booklists, datamerge, textsearch, headless, perspectivegrid, pathbrush, photoblurs, pathtools,
               liveeffects, photoseps, mathtype, flexlayout, vectormake, photorelight, mockups, designstyles,
-              aiconnect, aichat, aiimage, assistant, modelstore, photopublish, flows, dastkhat, fontfolders,
+              aiconnect, aichat, aiimage, assistant, modelstore, nnet, vision, photopublish, flows, dastkhat, fontfolders,
               imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files]
 {.push warning[UnusedImport]: off.}
 import retroui/photodeep   # (imported for what it sets up: filters, flattening and gradients at 16 and 32 bits)
@@ -34,7 +34,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 const
   AppName = "Retro Atelier"         # (Retro Photo until 5.0)
   AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
-  AppVersion = "5.10.0"
+  AppVersion = "5.11.0"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -4663,6 +4663,7 @@ include photo/vectortools
 include photo/output
 include photo/makers
 include photo/assist
+include photo/trained
 include photo/dockpanels
 
 proc phoneLayout(): bool =
@@ -4927,6 +4928,7 @@ proc setup() =
   defaultScratch = scratchDir
   imaging.maxPicturePixels = maxPixels
   enableGpuComposite()                 # (layers mixed on the GPU when it is quicker there; the CPU else)
+  trainedHooks()                       # (Select Subject, the depth: a trained model's, when one is here)
   openAnimations = false               # (no timeline here: an animated GIF, WebP opens as its first picture)
   # (the thumbnails of slow files kept on disk: the Open dialog, the Assets
   # window; and when the device runs short of memory, what is only kept to

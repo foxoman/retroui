@@ -130,6 +130,29 @@ block models:
     check got == want, name & ": its greedy answer as numpy's" & (if got != want: " " & $got & " " & $want else: "")
     m.close()
 
+block together:
+  # (a prompt read together -- `readMany`: each matrix read once for all its tokens -- gives the
+  # very numbers reading it a token at a time gives, and the conversation goes on the same)
+  for name in ["tiny-llama", "tiny-bitnet-b158", "tiny-bitnet", "tiny-qwen2", "tiny-qwen3"]:
+    let m = loadLlm(data / name & ".gguf")
+    let a = newLlmState(m)
+    let b = newLlmState(m)
+    var toks: seq[int]
+    for i in 0 ..< 13: toks.add (i * 37 + 5) mod m.nVocab
+    for t in toks: a.step(t)
+    b.readMany(toks)
+    check a.logits == b.logits and a.hidden == b.hidden and a.pos == b.pos and a.tokens == b.tokens,
+          name & ": read together, the same scores"
+    a.step(3)
+    b.step(3)
+    check a.logits == b.logits, "  and the next token's"
+    let c = newLlmState(m)
+    c.readMany(toks[0 .. 5])
+    c.readMany(toks[6 .. ^1])
+    c.step(3)
+    check c.logits == a.logits, "  in two pieces too"
+    m.close()
+
 block embeddings:
   let m = loadLlm(data / "tiny-qwen3.gguf")
   check m.pooling == poolLast and m.headDim == 48, "Qwen 3: the last token's vector, heads of 48"

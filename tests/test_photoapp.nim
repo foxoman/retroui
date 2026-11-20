@@ -2925,4 +2925,72 @@ block assetThumbsLetGo:
   run(2)
   doAssert asThumbs.len == 0 and asThumbOf.len == 0, "closed: its pictures let go"
 
+block trainedModels:
+  # models trained for pictures, put where the store keeps them as if downloaded (stand-ins of
+  # the tests' own, tools/gennet.py: a "subject" model and a "depth" one that see brightness, a
+  # "detector" that sees dark places, a "reader" whose answer is fixed): Select Subject and the
+  # depth through them, Type > Text in Picture's reading and its type layers
+  let nd = currentSourcePath().parentDir / "data" / "nnet"
+  modelsDir = getTempDir() / "retro-photo-apptest-models"
+  removeDir(modelsDir)
+  createDir(modelsDir)
+  proc put(id, file, src: string) =
+    copyFile(nd / src, modelsDir / file)
+    for f in storeModel(id).filesOf:
+      if f.file == file: writeFile(modelsDir / file & ".ok", f.sha256 & "\n")
+  let px = block:
+    var p = newSeq[uint32](120 * 80)
+    for i in 0 ..< p.len: p[i] = 0xFFF4F4F4'u32
+    for y in 20 ..< 32:
+      for x in 20 ..< 100: p[y * 120 + x] = 0xFF101010'u32
+    p
+  let pic = Img(w: 120, h: 80, px: px)
+  let own = selectSubject(pic)
+  put("u2netp", "u2netp.onnx", "vision-subject.onnx")
+  put("depth-anything-v2-small", "depth_anything_v2_vits_dynamic.onnx", "vision-depth.onnx")
+  doAssert storeModel("u2netp").isInstalled and storeModel("depth-anything-v2-small").isInstalled
+  let m = selectSubject(pic)
+  doAssert m.len == 120 * 80 and m != own and m[26 * 120 + 60] < 40 and m[60 * 120 + 10] > 215,
+           "Select Subject through the model on the device: " & $m[26 * 120 + 60] & " " & $m[60 * 120 + 10]
+  let dm = depthMapOf(pic)
+  doAssert dm.len == 120 * 80 and dm[26 * 120 + 60] > dm[60 * 120 + 10], "the depth through it (0 near .. 255 far)"
+  # Type > Text in Picture
+  put("ppocr-v3", "ch_PP-OCRv3_det_infer.onnx", "vision-textdet.onnx")
+  put("ppocr-v3", "ch_PP-OCRv3_rec_infer.onnx", "vision-textrec2.onnx")
+  let doc = newDoc(120, 80, white, name = "scan")
+  doc.layer.px = px
+  inc doc.layer.ver
+  doc.markAll()
+  addDoc(doc)
+  run(2)
+  runCommand("Text in Picture...")
+  run(2)
+  doAssert readDlg.open and readDlg.doc == doc and readDlg.area == doc.bounds
+  startReading()
+  var waited = 0
+  while readDlg.job != nil and readDlg.job.running and waited < 3000:
+    run(1)
+    os.sleep(5)
+    inc waited
+  run(2)
+  doAssert readDlg.lines.len == 1 and readDlg.lines[0].text == "xyz" and readDlg.text.strip == "xyz",
+           "the line read, in the reader's own characters: " & readDlg.err
+  let before = doc.layers.len
+  placeLines(doc, readDlg.lines, readDlg.area)
+  doAssert doc.layers.len == before + 1 and doc.current.isText and doc.undoName == "Text in Picture",
+           "added as a type layer, one step"
+  block:
+    # (over the line it was found in: from its left, its middle on the line's)
+    let c = readDlg.lines[0].corners
+    let b = doc.current.textBounds
+    let (left, mid) = (readDlg.area.x.float + c[0][0], readDlg.area.y.float + (c[0][1] + c[3][1]) / 2)
+    doAssert b.w > 0 and abs(b.x.float - left) <= 3 and abs(b.y.float + b.h / 2 - mid) <= 3,
+             "the type over its line: " & $b & " " & $c
+  readDlg.open = false
+  run(2)
+  removeDir(modelsDir)
+  modelsDir = ""
+  subjectHook = nil
+  depthHook = nil
+
 echo "photo app tests passed"

@@ -711,6 +711,15 @@ app "Notes", 420, 300:
   the assistant, a summary or a shorter text work offline and send
   nothing anywhere; `retroui/meaning` finds texts by what they mean.
   `aiServiceForm` is the AI Connector's form.
+- **Models trained for pictures** (`retroui/nnet`, `retroui/vision`):
+  ONNX models run in Nim on the device's own cores -- convolutions,
+  attention, 88 of ONNX's operations, the matrix products with the
+  compilers' vectors (`simdnet.h`) -- and pictures put through them:
+  `depthOf` (how near each place is, Depth Anything), `subjectOf` (the
+  subject, U-2-Net), `readText` (the lines of text and where they are,
+  PaddleOCR's detector and readers, Arabic too). The store downloads them
+  as it does the language models; `tools/netcheck.py` and `netcheck.nim`
+  compare any model with onnxruntime.
 - **Graphs that lay themselves out** (`retroui/forcegraph`):
   `graphView(g, h, sel)` shows a `ForceGraph` -- nodes that push each
   other away, links that pull -- moving until it settles, its nodes
@@ -2263,7 +2272,9 @@ dragged on the image, no AI), **Remove with its shadow**, **Upscale** and each l
 the quick-design programs' **Mockups**, **Styles** and font pairs, **Tidy Up**, **Lift
 Subject**, templates with photo placeholders and an **AI service of your own** that runs the
 app's commands (shown first, nothing sent before you set one) -- since 5.10 also **the device's
-own model**, offline, and **Shorten to Fit** for overset text. Since 5.7 **several layers
+own model**, offline, and **Shorten to Fit** for overset text; since 5.11 **models trained for
+pictures** on the device -- U-2-Net for Select Subject and Remove Background, Depth Anything for
+Depth Blur, Lens Blur and Relight, PaddleOCR for **Text in Picture** (Arabic too). Since 5.7 **several layers
 picked** are shown as each program shows them -- a photo: one box with handles round them all;
 a drawing: each object's outline in its layer's color with its anchor points; a page: each
 frame's edge -- and transformed, deleted, duplicated and set together (each as what it is:
@@ -3483,7 +3494,9 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_mcp` | the driver's picture of the window and the app's own tools, a command run from inside the app, the assistant's tools that work the controls, the MCP server: initialize, the tools listed, a control clicked, read, pictured, the app's tool run |
 | `test_mailassist` | Retro Mail's Assistant tools on a store of the test's own: the Inbox, its unread, a search, a message read without what it quotes, a reply and a new message opened (not sent), a message marked; the service from the kit's settings or an older key |
 | `test_llm` | five small models of random weights, one of each kind (Llama, BitNet b1.58, BitNet, Qwen 2, Qwen 3; F16, Q8_0, Q4_0, I2_S, TQ2_0, TQ1_0): each kind's rows with and without AVX2, the scores token by token and the greedy answers against numpy's, the byte-pair tokens against Hugging Face's tokenizer, SentencePiece's, the conversation forms, a conversation kept, texts as vectors, the text in whole letters, files that are not models |
-| `test_devicemodel` | this device as an AI service: the conversation and its tools as the model reads them, its calls read back, its answer as OpenAI's, a chat answered and stopped; a model downloaded (a file address), stopped and gone on with, its checksum checked, a damaged one refused, deleted; search by meaning; the store's window and the AI Connector's form |
+| `test_nnet` | ONNX models run in Nim: four graphs of random weights -- convolutions grouped, strided, dilated and transposed, a Conv and its Relu in one pass, pools past the edge, attention, normalizations, the shape operations, resizing nearest, linear and cubic, DFT -- against onnxruntime's answers (`tools/gennet.py`) |
+| `test_vision` | pictures through models: the text detector's boxes (joined, the smallest rectangle, grown), the reader's answer (CTC), Arabic in its written order, `readText`, `subjectOf` and `depthOf` with stand-in models, stopped |
+| `test_devicemodel` | this device as an AI service: the conversation and its tools as the model reads them, its calls read back, its answer as OpenAI's, a chat answered and stopped; a model downloaded (a file address), stopped and gone on with, its checksum checked, a damaged one refused, deleted; a model of several files, two out of an archive; search by meaning; the store's window and the AI Connector's form |
 | `test_forcegraph` | a graph laid out: linked nodes near their length, the others apart, a pinned node where it is put, the same layout every time, 1,500 nodes settled; the control on a clock of its own: frames while it moves and none once settled, a node clicked and dragged |
 | `test_motion` | on a clock of its own: a spring keeps its speed when sent elsewhere and is the same at 8 and 40 ms a frame, a bouncy one goes past and a smooth one never does; a box in and out (turned back half way: no jump); a box the layout moved glides, a scroll does not; dragged, thrown and let go to the nearest point, or back; rows one after another, again after a while; a fixed step's whole steps, no more than its most; less movement at the end at once; no frame asked once all is at rest |
 | `test_perspectivegrid` | the perspective grid: the planes meet where they should (two points and one), go back to their points, a path laid on a plane (its corners kept, the far side shorter, a curve cut and still on it), refused over the horizon; a painted layer laid on a plane and undone |

@@ -525,6 +525,7 @@ proc psMenus() =
       ci("Flow Into a &New Box", enabled = some and d.current.isText and d.current.text.boxW > 0)
       ci("Unlink Text Bo&x", "Unlink Text Box", enabled = some and d.current.flowFrom != 0)
       ci("Shorten to &Fit (AI)", "Shorten to Fit", enabled = some and d.current.isText and d.current.text.boxW > 0)
+      ci("Text &in Picture...", "Text in Picture...", enabled = some)
       ci("Paste &Lorem Ipsum", "Paste Lorem Ipsum", enabled = some)
       ci("Word &Shapes...", "Word Shapes...", enabled = some)
       ci("Insert Page N&umber", "Insert Page Number", enabled = some)

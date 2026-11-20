@@ -30,6 +30,8 @@ var
 
 proc genDialog()                  # (in photo/assist)
 proc startShorten(L: Layer; tries = 0)   # (in photo/assist)
+proc openReadText()               # (in photo/trained)
+proc readTextDialog()             # (in photo/trained)
 
 proc loadImgAi(withKey = true) =
   if imgAi.loaded and (imgAi.keyed or not withKey): return
@@ -788,7 +790,8 @@ proc appCommands(): seq[string] =
     result.add c
 
 proc aiDialogs() =
-  modelStoreDialog(modelsOpen, onChange = proc () = (if assist != nil: assist.settings = aiDlg.s))
+  modelStoreDialog(modelsOpen, {muChat, muEmbed, muSubject, muDepth, muText},
+                   onChange = proc () = (if assist != nil: assist.settings = aiDlg.s))
   if aiDlg.open:
     loadAi()
     loadImgAi()
@@ -1012,6 +1015,7 @@ proc makersCommand(name: string): bool =
   of "Models...": modelsOpen = true
   of "Shorten to Fit":
     if d != nil and d.current.isText: startShorten(d.current)
+  of "Text in Picture...": openReadText()
   of "Ask AI...": showPanel("assistant")
   of "Generative Fill...":
     if d != nil: genDlg = (true, 0, "", 0, 0)
@@ -1022,6 +1026,7 @@ proc makersCommand(name: string): bool =
   else: result = false
 
 proc makersDialogs() =
+  readTextDialog()
   meshDialog()
   relightDialog()
   upscaleDialog()

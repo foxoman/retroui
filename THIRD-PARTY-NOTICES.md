@@ -79,6 +79,23 @@ phone's own libraries run.
   `simdllm.h`) is the kit's own: it reads the GGUF format and the layouts
   of the weights as llama.cpp and bitnet.cpp (both MIT) describe them, and
   copies no code of theirs.
+- **Models of pictures** (`retroui/modelstore`, when the user downloads
+  one; never carried in an app or the repository): Depth Anything V2 Small
+  (Apache License 2.0; the ONNX file as fabio-sim's Depth-Anything-ONNX
+  releases it, Apache 2.0), U-2-Net and its small one (Xuebin Qin and
+  others, Apache License 2.0; the ONNX files as rembg releases them, MIT),
+  PaddleOCR's PP-OCRv3 detector and readers (Baidu, Apache License 2.0;
+  as RapidOCR packs them on PyPI, Apache 2.0, and as monkt's
+  paddleocr-onnx has the Arabic one, Apache 2.0). The Arabic reader's
+  characters (`arabicChars` in `retroui/vision`) are its dictionary's,
+  from PaddleOCR (Apache License 2.0). The code that runs them
+  (`retroui/onnx`, `retroui/nnet`, `simdnet.h`, `retroui/vision`) is the
+  kit's own: it reads the ONNX format as its specification describes it
+  and follows the models' published pre- and post-processing (DB's boxes,
+  CTC), and copies no code of onnxruntime's or PaddleOCR's.
+- **The test graphs' generator** (`tools/gennet.py`, run only to make
+  `tests/data/nnet` again) and `tools/netcheck.py`: numpy (BSD), onnx and
+  onnxruntime (MIT), installed by whoever runs them.
 - **The test models' generator** (`tools/genllm.py`, run only to make
   `tests/data/llm` again): numpy (BSD), gguf-py (MIT) and Hugging Face's
   `tokenizers` (Apache 2.0), installed by whoever runs it.
