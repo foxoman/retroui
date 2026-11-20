@@ -14,11 +14,12 @@
 ##   useFontFolders("My App")        # at the start: their fonts offered
 ##   fontFoldersPanel("My App")      # in a settings page: the list, Add, Remove, Refresh
 ##
-## Only TrueType fonts (.ttf, .ttc): the text engine draws TrueType outlines.
+## Fonts with TrueType or CFF outlines (.ttf, .otf, .ttc, .otc), in the folder and every folder
+## inside it (CFF made TrueType when a font is first drawn: retroui/cff).
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[os, strutils, json, times, tables, algorithm]
+import std/[os, strutils, json, times, tables, algorithm, sets, monotimes]
 import core, widgets, platform, textengine, ttf
 import uirelays/target
 when not androidApp and not defined(ios):
@@ -37,11 +38,6 @@ type
     kind*: FontFolderKind
     place*: string            ## where it is (see `FontFolderKind`)
 
-  FolderFont = object
-    file, family, style: string
-    weight, index: int
-    italic: bool
-    size, modified: int64
 
 var
   fontsOf: Table[string, seq[string]]           # (each folder's families, by its place)
@@ -83,7 +79,7 @@ proc familiesIn*(f: FontFolder): seq[string] = fontsOf.getOrDefault(f.place)
 
 proc isFontFile(name: string): bool =
   let e = name.splitFile.ext.toLowerAscii
-  e in [".ttf", ".ttc"]
+  e in fontFileExts
 
 # ---- Android: through the documents provider ------------------------------------------------------
 
@@ -106,47 +102,6 @@ proc readDoc(path: string): string {.nimcall, gcsafe.} =
     if not openDoc(p[0], p[1], f): return ""
     defer: close(f)
     try: result = readAll(f) except IOError: result = ""
-
-proc indexTree(app: string; folder: FontFolder; index: JsonNode): seq[FolderFont] =
-  ## (the fonts in a folder given through the picker, and below: those seen before by their
-  ## size and time, the others opened for their names)
-  let p = folder.place.split('\t')
-  if p.len < 2: return
-  let tree = p[0]
-  var dirs = @[p[1]]
-  var seen = 0
-  while dirs.len > 0 and seen < 4000:
-    let dir = dirs.pop()
-    let r = systemCall("list", tree & "\t" & dir)
-    if r.len == 0 or r == "\0": continue
-    for line in r.splitLines:
-      let q = line.split('\t')
-      if q.len < 5: continue
-      inc seen
-      if q[2] == "vnd.android.document/directory":
-        dirs.add q[0]
-        continue
-      if not isFontFile(q[1]): continue
-      let size = (try: parseBiggestInt(q[3]) except ValueError: 0'i64)
-      let modified = (try: parseBiggestInt(q[4]) except ValueError: 0'i64)
-      let known = index{q[0]}
-      if known != nil and known{"size"}.getBiggestInt == size and known{"modified"}.getBiggestInt == modified:
-        for fj in known{"faces"}:
-          result.add FolderFont(file: q[0], family: fj{"family"}.getStr, style: fj{"style"}.getStr,
-                                weight: fj{"weight"}.getInt(400), index: fj{"index"}.getInt,
-                                italic: fj{"italic"}.getBool, size: size, modified: modified)
-        continue
-      var f: File
-      if not openDoc(tree, q[0], f): continue
-      var faces = newJArray()
-      try:
-        for fi in faceInfo(f):
-          faces.add %*{"family": fi.family, "style": fi.style, "weight": fi.weight, "index": fi.index,
-                       "italic": fi.italic}
-          result.add FolderFont(file: q[0], family: fi.family, style: fi.style, weight: fi.weight,
-                                index: fi.index, italic: fi.italic, size: size, modified: modified)
-      finally: close(f)
-      index[q[0]] = %*{"size": size, "modified": modified, "faces": faces}
 
 # ---- iOS: a bookmark of the folder picked in Files -------------------------------------------------
 
@@ -223,51 +178,206 @@ proc pathOf(f: FontFolder): string =
     else: ""
   of ffTree: ""
 
-proc familiesOfDir(dir: string): seq[string] =
-  for path in walkDirRec(dir):
-    if not isFontFile(path): continue
-    for fi in faceInfo(path):
-      if fi.family notin result: result.add fi.family
-  result.sort(cmpIgnoreCase)
+# ---- looking through them: a little each frame, its progress shown --------------------------------------
+#
+# A folder of fonts can hold thousands of files in folders inside folders, on a phone each one
+# reached through the documents provider: looked through all at once the app would stop
+# answering. So it is looked through a few milliseconds each frame -- the folders inside
+# folders too, to the last --, what was found before taken from the index kept beside the
+# list (a file's faces by its size and time: not opened again), and `fontScan` says how far
+# it has got for a progress bar; `stopFontScan` lets it go.
 
-proc useFontFolders*(app: string) =
-  ## The fonts of `app`'s font folders offered to every font list (at the start; again after a
-  ## folder is added: `refreshFontFolders`).
-  fontReader = readDoc
-  let list = fontFolders(app)
-  var index = newJObject()
+type
+  FontScan* = object
+    ## How far looking through the font folders has got (`fontScan`).
+    running*: bool             ## it is looking
+    looked*: int               ## files and folders looked at so far
+    found*: int                ## fonts (faces) found so far
+    left*: int                 ## files and folders seen and not looked at yet
+    folder*: string            ## the font folder it is in
+  ScanDir = tuple[folder: int; dir: string]         # (a folder still to look in: a path or a document)
+  ScanFile = tuple[folder: int; file: string; size, modified: int64]
+
+var
+  scan: FontScan
+  scanApp = ""
+  scanList: seq[FontFolder]
+  scanDirs: seq[ScanDir]
+  scanFiles: seq[ScanFile]
+  scanFams: seq[seq[string]]           # (each folder's families, as they are found)
+  scanIndex = newJObject()             # (each font file's faces, by its path or document)
+  scanUsed: HashSet[string]            # (the files of the index still there)
+  scanStop = false
+  hooked = false
+
+proc fontScan*(): FontScan =
+  ## How far looking through the font folders has got (running: false when it is not).
+  result = scan
+  result.left = scanDirs.len + scanFiles.len
+
+proc fontScanDone*(s: FontScan): float =
+  ## About how much of it is done, 0 .. 1 (the folders inside folders are only known as it
+  ## comes to them: it can go back a little).
+  if not s.running: 1.0 else: s.looked / max(1, s.looked + s.left)
+
+proc stopFontScan*() =
+  ## Stops looking through the font folders: the fonts found so far stay offered.
+  if scan.running: scanStop = true
+
+proc offer(folder: int; file: string; faces: JsonNode) =
+  let f = scanList[folder]
+  for fj in faces:
+    let fam = fj{"family"}.getStr
+    if fam.len == 0: continue
+    let path = if f.kind == ffTree: docPrefix(f.place.split('\t')[0]) & file & ">" else: file
+    addFontFile(fam, fj{"style"}.getStr, path, fj{"weight"}.getInt(400), fj{"italic"}.getBool,
+                fj{"index"}.getInt)
+    if fam notin scanFams[folder]: scanFams[folder].add fam
+    inc scan.found
+
+proc facesJson(fs: seq[tuple[family, style: string; weight: int; italic: bool; index: int;
+                             variable: bool]]): JsonNode =
+  result = newJArray()
+  for fi in fs:
+    result.add %*{"family": fi.family, "style": fi.style, "weight": fi.weight, "index": fi.index,
+                  "italic": fi.italic}
+
+proc scanOne(): bool =
+  ## (one step of looking: a file's faces, or a folder's list; false when there is nothing left)
+  if scanFiles.len > 0:
+    let it = scanFiles.pop()
+    inc scan.looked
+    let key = it.file
+    let known = scanIndex{key}
+    scanUsed.incl key
+    if known != nil and known{"size"}.getBiggestInt == it.size and known{"modified"}.getBiggestInt == it.modified:
+      offer(it.folder, it.file, known{"faces"})
+      return true
+    var faces = newJArray()
+    let f = scanList[it.folder]
+    if f.kind == ffTree:
+      when androidApp:
+        var fh: File
+        if openDoc(f.place.split('\t')[0], it.file, fh):
+          try: faces = facesJson(faceInfo(fh))
+          finally: close(fh)
+    else:
+      faces = facesJson(faceInfo(it.file))
+    scanIndex[key] = %*{"size": it.size, "modified": it.modified, "faces": faces}
+    offer(it.folder, it.file, faces)
+    return true
+  if scanDirs.len > 0:
+    let d = scanDirs.pop()
+    inc scan.looked
+    let f = scanList[d.folder]
+    scan.folder = f.name
+    if f.kind == ffTree:
+      when androidApp:
+        let r = systemCall("list", f.place.split('\t')[0] & "\t" & d.dir)
+        if r.len > 0 and r != "\0":
+          for line in r.splitLines:
+            let q = line.split('\t')
+            if q.len < 5: continue
+            if q[2] == "vnd.android.document/directory": scanDirs.add (d.folder, q[0])
+            elif isFontFile(q[1]):
+              scanFiles.add (d.folder, q[0], (try: parseBiggestInt(q[3]) except ValueError: 0'i64),
+                             (try: parseBiggestInt(q[4]) except ValueError: 0'i64))
+    else:
+      try:
+        for kind, p in walkDir(d.dir):
+          case kind
+          of pcDir, pcLinkToDir: scanDirs.add (d.folder, p)
+          of pcFile, pcLinkToFile:
+            if isFontFile(p):
+              let size = try: getFileSize(p) except OSError: 0'i64
+              let t = try: getLastModificationTime(p).toUnix except OSError: 0'i64
+              scanFiles.add (d.folder, p, size, t)
+        try: stamps[d.dir] = getLastModificationTime(d.dir) except OSError: discard
+      except OSError: discard
+    return true
+  false
+
+proc finishScan() =
+  scan.running = false
+  scan.folder = ""
+  for i, f in scanList:
+    scanFams[i].sort(cmpIgnoreCase)
+    fontsOf[f.place] = scanFams[i]
+  # (the index: the files still there, so it does not grow with fonts taken away)
+  if not scanStop:
+    var kept = newJObject()
+    for k, v in scanIndex:
+      if k in scanUsed: kept[k] = v
+    scanIndex = kept
+  keep(scanApp, scanList, scanIndex)
+  scanStop = false
+  scanFonts(force = true)
+
+proc scanFrame() {.nimcall.} =
+  ## (each frame while it looks: what a few milliseconds allow)
+  if not scan.running: return
+  if scanStop:
+    scanDirs.setLen(0)
+    scanFiles.setLen(0)
+  let until = getMonoTime() + initDuration(milliseconds = 12)
+  while true:
+    if not scanOne():
+      finishScan()
+      return
+    if getMonoTime() > until: break
+  # (and the next frame soon: the progress drawn, the looking going on)
+  wakeIn(1)
+
+proc waitFontScan*() =
+  ## Looks through the font folders to the end now, if it is looking (a tool without frames,
+  ## a test).
+  while scan.running:
+    if scanStop or not scanOne():
+      finishScan()
+      return
+
+proc startScan(app: string) =
+  ## (the folders looked through from the start: what each offers dropped first)
+  scanApp = app
+  scanList = fontFolders(app)
+  scanDirs.setLen(0)
+  scanFiles.setLen(0)
+  scanUsed.clear()
+  scanFams = newSeq[seq[string]](scanList.len)
   try:
     let old = parseFile(folderList(app)){"index"}
-    if old != nil and old.kind == JObject: index = old
-  except CatchableError: discard
-  var touched = false
-  for f in list:
+    scanIndex = if old != nil and old.kind == JObject: old else: newJObject()
+  except CatchableError: scanIndex = newJObject()
+  for i, f in scanList:
     case f.kind
+    of ffTree:
+      let p = f.place.split('\t')
+      dropFontFiles(docPrefix(p[0]))
+      if p.len >= 2: scanDirs.add (i, p[1])
     of ffPath, ffBookmark:
       let dir = pathOf(f)
-      if dir.len > 0 and dirExists(dir):
-        addFontDir(dir)
-        fontsOf[f.place] = familiesOfDir(dir)
-        try: stamps[dir] = getLastModificationTime(dir) except OSError: discard
-    of ffTree:
-      when androidApp:
-        let before = index.len
-        var fams: seq[string]
-        for ff in indexTree(app, f, index):
-          addFontFile(ff.family, ff.style, docPrefix(f.place.split('\t')[0]) & ff.file & ">", ff.weight,
-                      ff.italic, ff.index)
-          if ff.family notin fams: fams.add ff.family
-        fams.sort(cmpIgnoreCase)
-        fontsOf[f.place] = fams
-        if index.len != before: touched = true
-  if touched: keep(app, list, index)
-  scanFonts(force = true)
+      if dir.len > 0:
+        dropFontFiles(dir)
+        if dirExists(dir): scanDirs.add (i, dir)
+  scanDirs.reverse()                   # (the first folder first)
+  scan = FontScan(running: true)
+  scanStop = false
+  if not hooked:
+    hooked = true
+    beginFrameHooks.add scanFrame
+  wakeIn(1)
+
+proc useFontFolders*(app: string) =
+  ## The fonts of `app`'s font folders -- in them and in every folder inside them -- offered to
+  ## every font list (at the start; again after a folder is added: `refreshFontFolders`). They
+  ## are looked through a little each frame from now (`fontScan`: how far it has got), the
+  ## fonts it found before offered as it comes to them without being opened again.
+  fontReader = readDoc
+  startScan(app)
 
 proc refreshFontFolders*(app: string) =
   ## Looks through `app`'s font folders again (fonts added or taken away).
-  for f in fontFolders(app):
-    if f.kind == ffTree: dropFontFiles(docPrefix(f.place.split('\t')[0]))
-  useFontFolders(app)
+  startScan(app)
 
 proc addFontFolder*(app: string; f: FontFolder) =
   ## Keeps a font folder for `app` and offers its fonts.
@@ -287,14 +397,14 @@ proc removeFontFolder*(app: string; i: int) =
   keep(app, list)
   case f.kind
   of ffTree: dropFontFiles(docPrefix(f.place.split('\t')[0]))
-  else: removeFontDir(pathOf(f))
+  else: dropFontFiles(pathOf(f))
   fontsOf.del f.place
   scanFonts(force = true)
 
 proc watchFontFolders*(app: string) =
   ## (desktops: every few seconds, a folder that changed looked through again -- fonts put in
   ## or taken away while the app runs)
-  if ui.now - lastLook < 5000: return
+  if ui.now - lastLook < 5000 or scan.running: return
   lastLook = ui.now
   for dir, t in stamps:
     try:
@@ -337,12 +447,19 @@ proc fontFoldersPanel*(app: string) =
   var names: seq[string]
   for f in list:
     let fams = f.familiesIn
-    names.add f.name & "  -- " & (if fams.len == 0: "no fonts found"
+    names.add f.name & "  -- " & (if fams.len == 0: tr("no fonts found")
                                   elif fams.len <= 3: fams.join(", ")
-                                  else: fams[0 .. 2].join(", ") & " and " & $(fams.len - 3) & " more")
+                                  else: fams[0 .. 2].join(", ") & tr(" and ") & $(fams.len - 3) & tr(" more"))
   if names.len == 0:
     label("No folder yet: fonts you keep in a folder of your own come into every font list.",
           color = ui.theme.gray)
+  let sc = fontScan()
+  if sc.running:
+    label(tr("Looking through ") & sc.folder & ": " & $sc.looked & tr(" files and folders, ") & $sc.found &
+          tr(" fonts"))
+    row:
+      progress(sc.fontScanDone, w = dp(240))
+      if button("Stop", w = dp(70)): stopFontScan()
   else:
     pickSel = clamp(pickSel, -1, names.high)
     listbox(names, pickSel, rows = min(6, max(3, names.len)))
@@ -359,7 +476,7 @@ proc fontFoldersPanel*(app: string) =
     if button("Remove", w = dp(80), enabled = pickSel in 0 ..< list.len):
       removeFontFolder(app, pickSel)
       pickSel = -1
-    if button("Refresh", w = dp(80), enabled = list.len > 0): refreshFontFolders(app)
+    if button("Refresh", w = dp(80), enabled = list.len > 0 and not sc.running): refreshFontFolders(app)
   # what a picker gave
   when androidApp:
     if picking:
@@ -385,6 +502,6 @@ proc fontFoldersPanel*(app: string) =
   else:
     if filePicker(picking, pickPath, fmFolder, [], "Add a Font Folder"):
       addFontFolder(app, FontFolder(name: pickPath.lastPathPart, kind: ffPath, place: pickPath))
-    if filePicker(storeOpen, storePath, fmOpen, ["*.ttf", "*.ttc"], "Add Fonts"):
+    if filePicker(storeOpen, storePath, fmOpen, ["*.ttf", "*.otf", "*.ttc", "*.otc"], "Add Fonts"):
       discard storeFonts(app, [storePath])
   watchFontFolders(app)

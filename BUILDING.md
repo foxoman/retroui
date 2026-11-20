@@ -553,7 +553,9 @@ retroapk app.nim --name:"My App" --id:com.me.myapp \
 Three more an app may need: `--cleartext` lets it use plain `http://`
 addresses (Android 9 and later refuse them; without it the kit asks for
 the https address instead), `--share-target:text/plain,image/*` puts
-it in the other apps' share sheets (what comes is `sharedIn()`), and
+it in the other apps' share sheets (what comes is `sharedIn()`),
+`--opens:image/*,application/pdf` in a file manager's "Open with" (the
+same, with the document to write back to when that app allows it), and
 `--widget` gives it a widget for the home screen: its icon, a title, a
 line and two buttons, which the app sets with `homeWidget` (its buttons
 come as `notificationActions()` with the tag "widget"). Retro DNS and

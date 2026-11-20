@@ -16,7 +16,7 @@
 ## keeps text crisp on 1x screens; 2x and 4K screens need none.
 
 import std/[tables, math, algorithm, bitops]
-import raster
+import raster, cff
 
 type
   FontError* = object of CatchableError
@@ -476,7 +476,7 @@ proc faceInfo*(f: File): seq[tuple[family, style: string; weight: int; italic: b
   for idx, at in offsets:
     let hdr = f.readAt(at, 12)
     if hdr.len < 12: continue
-    if hdr[0 .. 3] != "\x00\x01\x00\x00" and hdr[0 .. 3] != "true": continue
+    if hdr[0 .. 3] notin ["\x00\x01\x00\x00", "true", "OTTO"]: continue
     let n = be16(hdr, 4)
     if n <= 0 or n > 200: continue
     let dir = f.readAt(at + 12, 16 * n)
@@ -487,7 +487,7 @@ proc faceInfo*(f: File): seq[tuple[family, style: string; weight: int; italic: b
       let tag = dir[16 * i ..< 16 * i + 4]
       if tag == "name": (nameAt, nameLen) = (be32(dir, 16 * i + 8), be32(dir, 16 * i + 12))
       elif tag == "OS/2": (os2At, os2Len) = (be32(dir, 16 * i + 8), be32(dir, 16 * i + 12))
-      elif tag == "glyf": glyf = true
+      elif tag == "glyf" or tag == "CFF ": glyf = true   # (CFF: made TrueType when it is read)
       elif tag == "fvar": fvar = true
     if not glyf or nameLen <= 0 or nameLen > 1_000_000: continue
     let fake = Face(src: FontSrc(bytes: f.readAt(nameAt, nameLen)))
@@ -510,8 +510,8 @@ proc faceInfo*(f: File): seq[tuple[family, style: string; weight: int; italic: b
 proc faceInfo*(path: string): seq[tuple[family, style: string; weight: int; italic: bool; index: int;
                                        variable: bool]] =
   ## The faces a font file holds (their names, weight and slant, whether it
-  ## is a variable font), read without loading it: only TrueType outlines
-  ## (.ttf, .ttc). Empty when it is not one.
+  ## is a variable font), read without loading it: TrueType outlines and
+  ## CFF ones (.ttf, .otf, .ttc, .otc; CFF2's not). Empty when it is not one.
   var f: File
   if not open(f, path): return
   defer: close(f)
@@ -529,8 +529,13 @@ proc parseFace*(data: string; index = 0; loose = false): Face =
     at = f.u32(12 + 4 * index)
     if at + 12 > data.len: fail("damaged font collection")
   let tag0 = data[at .. at + 3]
+  if tag0 == "OTTO":
+    # (PostScript outlines: the font made one with TrueType outlines -- `cff`)
+    let conv = otfToTtf(sfntOf(data, index))
+    if conv.len == 0: fail("its PostScript (CFF) outlines could not be read")
+    return parseFace(conv, 0, loose)
   if tag0 != "\x00\x01\x00\x00" and tag0 != "true":
-    fail("only TrueType outlines are supported")
+    fail("only TrueType and CFF outlines are supported")
   var tables: Table[string, int]
   let n = f.u16(at + 4)
   for i in 0 ..< n:

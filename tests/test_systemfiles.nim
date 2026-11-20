@@ -71,6 +71,20 @@ block opening:
   doAssert not systemFileDialog(open, path, false, "open") and not open
   doAssert path == copy, "the path is as it was"
 
+block adopted:
+  # a file another app gave ("Open with" a file manager that let it be written): its copy's
+  # changes go back to its document as a picked one's do
+  written.setLen(0)
+  let copy = dir / "given.idml"
+  writeFile(copy, "IDML1")
+  adoptSystemFile(copy, "content://files/given")
+  frames(16)
+  doAssert written.len == 0, "not changed: nothing goes back"
+  writeFile(copy, "IDML2")
+  frames(18)
+  doAssert written == @[("content://files/given", "IDML2")], $written
+  adoptSystemFile(dir / "other.png", "")       # (no document: nothing to write back to)
+
 block saving:
   written.setLen(0)
   asked.setLen(0)

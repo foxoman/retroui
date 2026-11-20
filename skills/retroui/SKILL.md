@@ -358,8 +358,11 @@ app "Staff", 520, 420:
   `http://` addresses need `retroapk --cleartext` / `retroios --cleartext`
   (else the kit asks for https).
 - Shared in: `retroapk --share-target:text/plain,image/*` puts an Android
-  app in the other apps' share sheets; `sharedIn()` (`retroui/system`,
-  each frame) gives what came: `text`, `files` (copied into the cache).
+  app in the other apps' share sheets, `--opens:image/*,application/pdf` in
+  a file manager's "Open with"; `sharedIn()` (`retroui/system`, each frame)
+  gives what came: `text`, `files` (copied into the cache), `origins` (the
+  document each came from when it may be written back to:
+  `adoptSystemFile(file, origin)` writes the copy's changes back).
 - Android extras (`retroui/system`): `notify(..., actions = ["Mark as
   read"])` puts buttons on a notification and `notificationActions()`
   (each frame) gives the presses as (tag, action); `retroapk --widget`

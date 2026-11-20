@@ -165,8 +165,7 @@ proc fontCheck*(path: string; needArabic = false): string =
   if data.len < 12: return "it is empty"
   case data[0 .. 3]
   of "wOF2", "wOFF": return "it is a web font (WOFF), not a TrueType file"
-  of "OTTO": return "its outlines are PostScript (CFF), which are not drawn here"
-  of "\x00\x01\x00\x00", "true", "ttcf": discard
+  of "\x00\x01\x00\x00", "true", "ttcf", "OTTO": discard   # (OTTO: CFF outlines, made TrueType: retroui/cff)
   else: return "it is not a font file"
   try:
     let f = parseFace(data)

@@ -1,5 +1,42 @@
 # Changes
 
+## 0.67.0 (in progress)
+
+- **Fonts with PostScript outlines** (`retroui/cff`, new): .otf fonts whose
+  outlines are CFF -- most Arabic fonts sold today, Adobe's and Google's CJK
+  fonts, .otc collections -- read, drawn, shaped and put in PDFs as
+  TrueType ones are: each glyph's cubic curves cut into quadratic ones
+  within a thousandth of an em as the font is first drawn (`otfToTtf`;
+  65,535 CJK glyphs in about a second, an Arabic font in milliseconds),
+  every other table as it was. `faceInfo` names their faces; font folders,
+  the system's fonts, Get Google Fonts and every font picker take them.
+  The PDF reader's CFF code is this module's now (`parseCff`, `cffGlyph`),
+  and no longer copies the whole font at every charstring it runs. CFF2
+  (variable PostScript outlines) is not read.
+- **Font folders looked through as the app runs** (`retroui/fontfolders`):
+  every folder inside a font folder, to the last (on Android there was a
+  limit of 4,000 files and folders), a few milliseconds each frame
+  instead of all at once as the app started; `fontScan` says how far it
+  has got (files and folders looked at, fonts found, the folder it is in)
+  for a progress bar, `stopFontScan` stops it, `waitFontScan` finishes it
+  at once (tools, tests). A desktop's folder's fonts are kept in the index
+  beside the list too, by their size and time, and not opened again at the
+  next start. The Font Folders panel shows the progress with Stop.
+- **"Open with" on Android** (`retroapk --opens:TYPES`, new): an app in a
+  file manager's "Open with" for the kinds named (VIEW and EDIT); the file
+  comes through `sharedIn` as a shared one does, with `origins` -- the
+  document it came from when the other app let it be written --, and
+  `adoptSystemFile` (`retroui/systemfiles`, new) writes the copy's changes
+  back to it as a picked document's are.
+- **Retro Atelier**: a font folder's progress in the status line while
+  it is looked through; .otf fonts in every font list. On Android,
+  Preferences > General > Open and Save: the system's file picker or
+  Retro Atelier's own dialog -- your folders, PSD, IDML, PDF and the rest
+  with their previews, with the access to all your files (asked for when
+  it is chosen). In a file manager's "Open with" and in the share sheets
+  for pictures, PSD, PDF, AI, EPS and IDML; a file opened so is written
+  back when that app allows it, else Save asks where.
+
 ## 0.66.0
 
 Models trained for pictures, run by the app itself. `retroui/nnet` runs

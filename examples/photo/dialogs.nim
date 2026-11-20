@@ -237,10 +237,15 @@ proc startSavePdf(dw: DocWin) =
     pdfPick = true
   if storageFor(go): go()
 
+var readOnlyCopies: seq[string]
+  ## files another app gave to read only ("Open with", a share): a copy in the cache, which
+  ## Save does not write over -- it asks where, as Save As
+
 proc save(dw: DocWin) =
   if saveSmartChild(dw): return
   if bookSave(dw): return
-  if dw.doc.path.len == 0 or (dw.doc.format notin keepsLayers and dw.doc.layers.len > 1):
+  if dw.doc.path.len == 0 or dw.doc.path in readOnlyCopies or
+     (dw.doc.format notin keepsLayers and dw.doc.layers.len > 1):
     dw.startSaveAs()
   else:
     saveCopy = false
@@ -692,6 +697,14 @@ proc openFile(path: string) =
     rememberFile(path)
   except CatchableError:
     status = "Could not open " & path.extractFilename & ": " & getCurrentExceptionMsg()
+
+proc openShared(path, origin: string) =
+  ## A file another app gave (Android's share sheet, a file manager's "Open with"): opened; its
+  ## changes written back to its document when that app let it be written, else Save asks
+  ## where.
+  openFile(path)
+  if origin.len > 0: adoptSystemFile(path, origin)
+  elif path notin readOnlyCopies: readOnlyCopies.add path
 
 proc fileDialogs() =
   bigPictureDialogs()

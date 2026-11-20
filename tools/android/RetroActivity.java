@@ -462,13 +462,20 @@ public class RetroActivity extends NativeActivity {
   void takeShared(Intent i) {
     if (i == null) return;
     String act = i.getAction();
-    if (!Intent.ACTION_SEND.equals(act) && !Intent.ACTION_SEND_MULTIPLE.equals(act)) return;
+    // ("Open with" in a file manager: VIEW or EDIT, its document in the data -- an APK made
+    // with retroapk --opens)
+    boolean opened = Intent.ACTION_VIEW.equals(act) || Intent.ACTION_EDIT.equals(act);
+    if (!opened && !Intent.ACTION_SEND.equals(act) && !Intent.ACTION_SEND_MULTIPLE.equals(act)) return;
     try {
       java.util.ArrayList<String> got = new java.util.ArrayList<String>();
-      CharSequence t = i.getCharSequenceExtra(Intent.EXTRA_TEXT);
+      CharSequence t = opened ? null : i.getCharSequenceExtra(Intent.EXTRA_TEXT);
       if (t != null && t.length() > 0) got.add("t" + t);
       java.util.ArrayList<Uri> uris = new java.util.ArrayList<Uri>();
-      if (Intent.ACTION_SEND_MULTIPLE.equals(act)) {
+      // (written back to when the other app let it be written)
+      boolean writable = opened && (i.getFlags() & Intent.FLAG_GRANT_WRITE_URI_PERMISSION) != 0;
+      if (opened) {
+        if (i.getData() != null) uris.add(i.getData());
+      } else if (Intent.ACTION_SEND_MULTIPLE.equals(act)) {
         java.util.ArrayList<Uri> l = i.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
         if (l != null) uris.addAll(l);
       } else {
@@ -498,7 +505,7 @@ public class RetroActivity extends NativeActivity {
         while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
         out.close();
         in.close();
-        got.add("f" + f.getAbsolutePath());
+        got.add("f" + f.getAbsolutePath() + (writable ? "\t" + u.toString() : ""));
       }
       synchronized (shared) { shared.addAll(got); }
     } catch (Throwable ignored) { }

@@ -122,6 +122,7 @@ required, so the app installs on a device without a camera or GPS.
 | background checks | | `--background` |
 | plain `http://` addresses (Android 9+ refuses them; the kit asks for https instead) | | `--cleartext` (a browser, a podcast player) |
 | in the other apps' share sheets (`sharedIn`) | | `--share-target:text/plain,image/*` |
+| in a file manager's "Open with" (`sharedIn`, `adoptSystemFile`) | | `--opens:image/*,application/pdf` |
 | a widget on the home screen (`homeWidget`) | | `--widget` |
 | a sound playing on in the background (`audioView`) | ✓ (`FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, the playback service) | `--permission:FOREGROUND_SERVICE --permission:FOREGROUND_SERVICE_MEDIA_PLAYBACK` |
 | Java of the app's own (a service, a receiver) | | `--java:DIR` (its classes.dex, its manifest.txt) |
@@ -214,8 +215,14 @@ made with `retroapk --share-target:text/plain,image/*`):
 ```nim
 let came = sharedIn()                 # each frame: what came since, taken
 if came.text.len > 0: follow(came.text)
-for f in came.files: openPicture(f)   # copied into the app's cache
+for k, f in came.files:
+  openPicture(f)                      # copied into the app's cache
+  adoptSystemFile(f, came.origins[k]) # "Open with" that allows it: changes written back
 ```
+
+`retroapk --opens:TYPES` puts the app in a file manager's "Open with" for
+those kinds (`application/octet-stream` for files the system has no kind
+for, as IDML often is); the file comes through `sharedIn` the same way.
 
 A desktop app gets files on its command line instead (`appArguments`).
 

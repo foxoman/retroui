@@ -68,6 +68,11 @@ Options:
   --share-target:TYPES  the app is in other apps' share sheets for these
                      kinds (comma separated: text/plain, image/*, */*); what
                      comes is retroui/system's sharedIn()
+  --opens:TYPES      the app is in a file manager's "Open with" for these
+                     kinds (comma separated MIME types; application/octet-stream
+                     for files the system has no kind for, as IDML often is):
+                     the file comes as sharedIn() does, with its document to
+                     write back to when the other app allows it
   --widget           the app has a widget for the home screen: its icon, a
                      title, a line and two buttons, which the app sets
                      (retroui/system's homeWidget)
@@ -1426,7 +1431,7 @@ proc main() =
     nimFlags: seq[string]
     javaDirs, manifestFiles: seq[string]
     debuggable, install, runIt, storage, background, clean, aab, cleartext, widget = false
-    shareTypes: seq[string]
+    shareTypes, openTypes: seq[string]
     signer = "auto"
     workDir = ""
     toolchain = getEnv("RETRO_ANDROID_TOOLCHAIN", "auto").toLowerAscii
@@ -1452,6 +1457,9 @@ proc main() =
       of "sharetarget":
         for t in val.split(','):
           if t.strip.len > 0: shareTypes.add t.strip
+      of "opens":
+        for t in val.split(','):
+          if t.strip.len > 0: openTypes.add t.strip
       of "java": javaDirs.add val
       of "manifest": manifestFiles.add val
       of "minsdk": minSdk = parseInt(val)
@@ -1634,6 +1642,17 @@ proc main() =
         f.kids.add XNode(name: "data", attrs: @[sAttr("mimeType", 0x01010026, t)])
         any = true
       if any: activity.kids.add f
+  if openTypes.len > 0:
+    # (in a file manager's "Open with" for these kinds: the file opened -- a copy, written back
+    # when the other app let it be written: retroui/system's sharedIn)
+    for action in ["android.intent.action.VIEW", "android.intent.action.EDIT"]:
+      var f = XNode(name: "intent-filter", kids: @[
+        XNode(name: "action", attrs: @[sAttr("name", 0x01010003, action)]),
+        XNode(name: "category", attrs: @[
+          sAttr("name", 0x01010003, "android.intent.category.DEFAULT")])])
+      for t in openTypes:
+        f.kids.add XNode(name: "data", attrs: @[sAttr("mimeType", 0x01010026, t)])
+      activity.kids.add f
   var app = XNode(name: "application", attrs: @[
     sAttr("label", 0x01010001, name),
     iAttr("icon", 0x01010002, int(IconRes), TRef),

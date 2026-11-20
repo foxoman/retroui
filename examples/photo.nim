@@ -630,6 +630,8 @@ type AppPrefs = object
   legacyNew: bool              ## File > New: the 1994 dialog (not today's, with presets and templates)
   lorem: string                ## Type > Paste Lorem Ipsum: your own placeholder text ("" the Latin)
   layerSizes: bool             ## the Layers panel shows how much memory each layer takes
+  ownFiles: bool               ## a phone: Open and Save As with the app's own dialog (the user's folders,
+                               ## with the access to all files) -- not the system's picker
 
 const DefaultPrefs = AppPrefs(interp: 2, zoomResizes: false, zoomCenter: false, docTabs: true,
                               optionsBar: true, history: 100, autosave: 10, bgSave: true, recent: 10,
@@ -4778,6 +4780,15 @@ proc docStatus(dw: DocWin) =
     arrow(ar.x + ar.w div 2, ar.y + ar.h div 2, dRight, if ah.showsHover: ui.theme.select else: ui.theme.text, dp(4))
     if ah.clicked: openPopupMenu("statusinfo", ar.x, ar.y)
     tooltip("What the status shows")
+    let fs = fontScan()
+    if dw == active and fs.running and available() > dp(200):
+      # (your font folders being looked through: how far, the fonts found so far)
+      statusSep()
+      progress(fs.fontScanDone, w = dp(70), showText = false)
+      let ft = tr("Fonts: ") & $fs.found
+      let fr = place(textWidth(ft) + dp(8), EditH)
+      text(fr.x + dp(4), fr.y + (fr.h - FontH) div 2, ft, ui.theme.text)
+      tooltip("Your font folders are being looked through (Preferences > Type: Stop)")
     if dw == active and available() > dp(40):
       statusSep()
       let hint = if status.len > 0: status
@@ -4945,6 +4956,7 @@ proc setup() =
       for dw in docs: dw.doc.purgeCaches()
     trimMemory())
   loadPrefs()
+  systemFiles(not prefs.ownFiles)  # (Preferences > General: the system's picker or the app's own dialog)
   setThreadCount(prefs.threads)
   addDocumentPreviews()          # (.rpd and .psd pictures in the Open dialog's preview)
   # (thumbnails -- the Open dialog, recent files, the Assets window -- of the
@@ -5320,8 +5332,9 @@ proc main() =
     # (the type tool's fonts looked for on a thread once the window shows)
     if framesShown() > 0: scanFontsSoon()
     # (pictures shared from another app -- Android's share sheet, "Edit in
-    # Retro Atelier": each opened)
-    for f in sharedIn().files: openFile(f)
+    # Retro Atelier", a file manager's "Open with": each opened)
+    let si = sharedIn()
+    for k, f in si.files: openShared(f, (if k < si.origins.len: si.origins[k] else: ""))
     photoFrame()
     endFrame()
   if saving(): discard waitForSave()

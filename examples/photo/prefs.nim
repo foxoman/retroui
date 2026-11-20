@@ -116,6 +116,7 @@ proc loadPrefs() =
   p.taskBar = st.getBool("pref.taskbar", p.taskBar)
   p.legacyXf = st.getBool("pref.legacyxf", p.legacyXf)
   p.legacyNew = st.getBool("pref.legacynew", p.legacyNew)
+  p.ownFiles = st.getBool("pref.ownfiles", p.ownFiles)
   p.language = if st.getOrDefault("pref.language") == "ar": 1 else: 0
   p.lorem = st.getOrDefault("pref.lorem", "")
   p.layerSizes = st.getBool("pref.layerSizes", p.layerSizes)
@@ -191,6 +192,7 @@ proc savePrefs() =
   st["pref.taskbar"] = $p.taskBar
   st["pref.legacyxf"] = $p.legacyXf
   st["pref.legacynew"] = $p.legacyNew
+  st["pref.ownfiles"] = $p.ownFiles
   st["pref.language"] = (if p.language == 1: "ar" else: "en")
   storeKeymap(st, keymap)
   st["pref.reset"] = $p.resetOnQuit
@@ -257,6 +259,18 @@ proc pageGeneral() =
     checkbox("Zoom with Scroll Wheel", viewPrefs.wheelZooms)
     checkbox("Reset Preferences on Quit", prefs.resetOnQuit)
     checkbox("Use Legacy \"New Document\" Interface", prefs.legacyNew)
+  if platformName() == "android":
+    group("Open and Save"):
+      var k = ord(prefs.ownFiles)
+      if combo(["The system's file picker (any folder, Drive, an SD card)",
+                "Retro Atelier's own dialog (your folders, with access to all your files)"], k, w = dp(420)):
+        prefs.ownFiles = k == 1
+        systemFiles(not prefs.ownFiles)
+        if prefs.ownFiles:
+          discard askStorage(AppName, "Retro Atelier's own Open and Save As dialog shows your folders " &
+                             "and files -- PSD, IDML, PDF and the rest -- when it may see them.")
+      label("The system's picker: the files of every app and place Android offers; Retro Atelier's own " &
+            "dialog: previews of every kind it opens, in your phone's folders.", color = ui.theme.gray)
   label("Preferences take effect at once; Reset Preferences on Quit brings back every default the " &
         "next time Retro Atelier starts.", color = ui.theme.gray)
 

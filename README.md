@@ -2972,7 +2972,8 @@ without it when the answer is no.
 gives the app a widget (`homeWidget`: its icon, a title, a line, two
 buttons; Retro DNS and Retro Podcast have one), `--share-target` puts it
 in the other apps' share sheets (`sharedIn`: Files, Photo, Board, Notepad
-and Podcast are there), and `notify(..., actions = ["Mark as read"])`
+and Podcast are there), `--opens` in a file manager's "Open with" (Retro
+Atelier: pictures, PSD, PDF, AI, IDML), and `notify(..., actions = ["Mark as read"])`
 puts buttons on a notification (`notificationActions`). Retro DNS adds a
 tile to the quick settings with Java of its own (`--java`).
 

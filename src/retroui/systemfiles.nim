@@ -140,6 +140,12 @@ proc watch(path, origin: string; fresh: bool) =
   let s = if fresh: (-1'i64, Time()) else: stampOf(path)
   watched.add Watched(path: path, origin: origin, given: s, seen: s, since: getMonoTime())
 
+proc adoptSystemFile*(path, origin: string) =
+  ## A copy of a document another app gave (`system.sharedIn`'s files and origins: "Open
+  ## with" a file manager) written back to that document when it changes, as one the system's
+  ## picker opened is.
+  if path.len > 0 and origin.len > 0: watch(path, origin, fresh = false)
+
 proc folderLook(dir: string): string =
   ## (what is in a folder: each file's place in it, size and date)
   var items: seq[string]

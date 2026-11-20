@@ -214,12 +214,16 @@ type SharedIn* = object
   ## What another app shared with this one (`sharedIn`).
   text*: string          ## a text, a link
   files*: seq[string]    ## files, copied into the app's cache
+  origins*: seq[string]  ## ... for each, the document it came from when the other app let it be
+                         ## written ("Open with" a file manager: `systemfiles.adoptSystemFile`
+                         ## writes the copy back to it as it changes); "" not
 
 proc sharedIn*(): SharedIn =
   ## What the user shared with this app from another one since it was last
   ## asked, taken: in an Android app made with `retroapk --share-target`
   ## (it is then in the other apps' share sheet), a text or a link, and
-  ## files copied into the app's cache. Nothing elsewhere: a desktop app
+  ## files copied into the app's cache; with `retroapk --opens`, the file
+  ## a file manager's "Open with" gave too. Nothing elsewhere: a desktop app
   ## gets files on its command line (`appArguments`). Cheap: ask it each
   ## frame.
   when androidApp:
@@ -228,7 +232,11 @@ proc sharedIn*(): SharedIn =
     for e in r.split('\x01'):
       if e.len < 2: continue
       if e[0] == 't': result.text.add (if result.text.len > 0: "\n" else: "") & e[1 .. ^1]
-      elif e[0] == 'f': result.files.add e[1 .. ^1]
+      elif e[0] == 'f':
+        # ("f" path, and the document it came from when it may be written back to)
+        let p = e[1 .. ^1].split('\t')
+        result.files.add p[0]
+        result.origins.add (if p.len > 1: p[1] else: "")
 
 type ApkInstall* = enum
   ## What `installApk` did.

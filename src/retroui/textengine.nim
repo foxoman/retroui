@@ -23,6 +23,9 @@ import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import ttf, typeset, raster, otshape, unpacking, hyphenate
 
 const defaultFamily* = "FreeSans"
+const fontFileExts* = [".ttf", ".ttc", ".otf", ".otc"]
+  ## The font files offered from a folder: TrueType outlines and CFF ones (made TrueType when
+  ## read: retroui/cff), alone or in a collection.
   ## The family of new text
 
 # ---- fonts ------------------------------------------------------------------------------------------------
@@ -206,7 +209,7 @@ proc scanDirs(dirs: seq[string]): seq[FontEntry] =
     if not dirExists(dir): continue
     for path in walkDirRec(dir):
       let ext = path.splitFile.ext.toLowerAscii
-      if ext notin [".ttf", ".ttc"]: continue
+      if ext notin fontFileExts: continue
       try:
         if getFileSize(path) > 40_000_000: continue
       except OSError: continue

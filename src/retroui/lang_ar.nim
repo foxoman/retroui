@@ -123,7 +123,7 @@ const toolkitArabic* = [
   ("Line (Nerd Fonts symbols)", "خطية (رموز Nerd Fonts)"),
   ("Font file", "ملف الخط"),
   ("Choose...", "اختيار..."),
-  ("TrueType Fonts (*.ttf;*.ttc)", "خطوط TrueType (*.ttf;*.ttc)"),
+  ("Fonts (*.ttf;*.otf;*.ttc;*.otc)", "خطوط (*.ttf;*.otf;*.ttc;*.otc)"),
   ("All Files (*.*)", "كل الملفات (*.*)"),
   ("Font File", "ملف الخط"),
   (": not a font we read", ": ليس خطًا نقرؤه"),

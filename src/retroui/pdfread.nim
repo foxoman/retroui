@@ -18,7 +18,7 @@
 
 import std/[tables, strutils, math, algorithm]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
-import gfx, codec, jpeg, ttf, typeset, canvas2d
+import gfx, codec, jpeg, ttf, typeset, canvas2d, cff
 
 type
   PdfError* = object of CatchableError
@@ -69,21 +69,6 @@ type
     symbolic: bool
     builtin: FaceId
     codeBytes: seq[tuple[lo, hi: int; bytes: int]]   ## (a CMap's code space)
-
-  CffFont = ref object
-    data: string
-    charStrings: seq[(int, int)]           ## glyph -> (start, end)
-    gsubrs, lsubrs: seq[(int, int)]
-    fdSubrs: seq[seq[(int, int)]]          ## (CID-keyed) per font dict
-    fdSelect: seq[uint8]
-    charset: seq[int]                      ## glyph -> SID or CID
-    names: Table[string, int]              ## glyph name -> glyph
-    cidGlyph: Table[int, int]              ## (CID-keyed) CID -> glyph
-    encoding: array[256, int]              ## code -> glyph (its own encoding)
-    cid: bool
-    strings: seq[string]
-    matrix: array[6, float]
-    nominalW, defaultW: float
 
   Type1Font = ref object
     charStrings: Table[string, string]     ## name -> charstring (decrypted)

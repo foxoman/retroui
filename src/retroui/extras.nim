@@ -1459,7 +1459,7 @@ proc appearanceRows(): bool =
     result = true
   if uiFont() == ufFile:
     if settingButtons("Font file", ["Choose..."], uiFontPath.extractFilenameOf) == 1: fontFileOpen = true
-  if fileDialog(fontFileOpen, fontFilePath, fmOpen, ["TrueType Fonts (*.ttf;*.ttc)", "All Files (*.*)"],
+  if fileDialog(fontFileOpen, fontFilePath, fmOpen, ["Fonts (*.ttf;*.otf;*.ttc;*.otc)", "All Files (*.*)"],
                 "Font File"):
     try:
       loadUiFontFile(fontFilePath)
