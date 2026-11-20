@@ -14,7 +14,7 @@
 ## endnotes as text after the story.
 
 import std/[strutils, os, tables, hashes]
-from std/unicode import runeAt, runeLenAt, runeLen
+from std/unicode import runeAt, runeLenAt, runeLen, toUTF8
 import gfx, imaging, jpeg, photo, photobook, photoshapes, textengine, zip
 
 type
@@ -162,6 +162,20 @@ proc styleProps(o: var IdmlOut; p: ParaStyle): string =
       items.add "<ListItem type=\"record\"><AppliedCharacterStyle type=\"object\">" & o.charStyleRef(g.name, g.look) &
                  "</AppliedCharacterStyle><GrepExpression type=\"string\">" & x(g.pattern) & "</GrepExpression></ListItem>"
     items.add "</AllGREPStyles>"
+  if p.tabs.len > 0:
+    # (its tab stops: where, in points from the edge its lines start from; how; their leaders)
+    items.add "<TabList type=\"list\">"
+    for t in p.tabs:
+      let al = case t.align
+               of tabLeft: "LeftAlign"
+               of tabRight: "RightAlign"
+               of tabCenter: "CenterAlign"
+               of tabChar: "CharacterAlign"
+      items.add "<ListItem type=\"record\"><Alignment type=\"enumeration\">" & al &
+                 "</Alignment><AlignmentCharacter type=\"string\">" & x(if t.alignOn.len > 0: t.alignOn else: ".") &
+                 "</AlignmentCharacter><Leader type=\"string\">" & x(t.leader) &
+                 "</Leader><Position type=\"unit\">" & f(t.pos * o.k) & "</Position></ListItem>"
+    items.add "</TabList>"
   if items.len > 0: result = "<Properties>" & items & "</Properties>\n"
 
 proc pageDestOf(o: var IdmlOut; n: int): string
@@ -378,6 +392,11 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): s
           if linkSrc.len > 0:
             linkSrc = o.linkOpen(st.link)
             body.add linkSrc
+      elif s[i] == '\b':
+        # (a Right Indent Tab: the layout program's own character)
+        flush(body, piece)
+        body.add "<Content><?ACE 8?></Content>\n"
+        inc i
       elif master and s.continuesWith("<##>", i):
         flush(body, piece)
         body.add "<Content><?ACE 18?></Content>\n"
@@ -1046,7 +1065,9 @@ proc readIdml*(file: string; dpi = 150.0): Book =
   for e in entries: files[e.name] = e
   proc get(name: string): XmlNode =
     if name notin files: return nil
-    try: parseXml(readEntry(file, files[name]))
+    # (a Right Indent Tab, a processing instruction XML drops: a character kept in its place --
+    # U+E008, made "\b" again as the text is read)
+    try: parseXml(readEntry(file, files[name]).replace("<?ACE 8?>", "\uE008"))
     except CatchableError: nil
   let dm = get("designmap.xml")
   if dm == nil: raise newException(IdmlError, "not an IDML package (no designmap.xml)")
@@ -1247,6 +1268,21 @@ proc readIdml*(file: string; dpi = 150.0): Book =
       proc field(li: XmlNode; tag: string): string =
         for e in li.childrenNamed(tag): return e.innerText
       for pp in psr.childrenNamed("Properties"):
+        for lst in pp.childrenNamed("TabList"):
+          for li in lst.childrenNamed("ListItem"):
+            if result.tabs.len >= 100: break
+            let at = try: clamp(parseFloat(li.field("Position")), 0, 1e5) except ValueError: 0.0
+            var ts = TabStop(pos: float32(at * k))
+            ts.align = case li.field("Alignment")
+                       of "RightAlign": tabRight
+                       of "CenterAlign": tabCenter
+                       of "CharacterAlign": tabChar
+                       else: tabLeft
+            ts.leader = li.field("Leader")
+            if ts.align == tabChar:
+              let on = li.field("AlignmentCharacter")
+              ts.alignOn = if on.len > 0 and on != ".": on.runeAt(0).toUTF8 else: ""
+            result.setTab(ts)
         for lst in pp.childrenNamed("AllNestedStyles"):
           for li in lst.childrenNamed("ListItem"):
             if result.nested.len >= 50: break
@@ -1335,7 +1371,7 @@ proc readIdml*(file: string; dpi = 150.0): Book =
             txt = ""
         for c in csr:
           if c.kind != xnElement: continue
-          if c.tag == "Content": txt.add c.innerText
+          if c.tag == "Content": txt.add c.innerText.replace("\uE008", "\b")
           elif c.tag == "Br": txt.add "\n"
           elif c.tag == "HyperlinkTextDestination":
             flushRun()

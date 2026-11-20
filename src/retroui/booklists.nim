@@ -5,9 +5,10 @@
 ##   least so big -- with the page each is on, in the order of the pages.
 ## - `indexEntries`: each word or phrase asked for, with the pages it is on
 ##   (any case; Arabic too: its letters with or without their marks).
-## - `tocText`, `indexText`: either as a text box to place -- a table of two
-##   columns, the page numbers at the edge, each level standing in; an
-##   index in the order of its letters, a heading for each first letter.
+## - `tocText`, `indexText`: either as a text box to place -- each entry's
+##   page numbers at the edge, at a right tab stop with dots before them
+##   (right to left: at the left edge), each level standing in; an index in
+##   the order of its letters, a heading for each first letter.
 ##
 ## .. code-block:: nim
 ##   import retroui/[photobook, booklists]
@@ -133,21 +134,14 @@ proc indexEntries*(b: Book; terms: seq[string]; keep: openArray[int] = []): seq[
       result.add e
   result.sort(proc (a, c: IndexEntry): int = cmp(folded(a.term), folded(c.term)))
 
-proc listStyle(): TableStyle =
-  ## (a list's table: no lines, no fills, the numbers at the edge)
-  result = tableTheme("Minimal")
-  result.border = 0
-  result.inner = false
-  result.rowLines = false
-  result.headerRows = 0
-  result.fill = 0
-  result.altFill = 0
-  result.numbersRight = true
-  result.widths = @[0.85'f32, 0.15]
+proc dotted(t: var TextData; width: float32) =
+  ## (a list's page numbers at its box's far edge -- the left, right to left --, dots before them:
+  ## a right tab stop with a leader)
+  t.para.setTab(TabStop(pos: width, align: tabRight, leader: ". "))
 
 proc tocText*(entries: seq[TocEntry]; title: string; style: CharStyle; width: float32; rtl = false): TextData =
-  ## The table of contents as a text box `width` wide: its title, then a row a heading -- the
-  ## heading (standing in by its level), its page's number at the edge.
+  ## The table of contents as a text box `width` wide: its title, then a line a heading -- the
+  ## heading (standing in by its level), dots, its page's number at the edge.
   var rows = ""
   for e in entries:
     if rows.len > 0: rows.add "\n"
@@ -156,21 +150,20 @@ proc tocText*(entries: seq[TocEntry]; title: string; style: CharStyle; width: fl
   result = newText(rows, body, 0, 0)
   result.boxW = width
   result.boxH = max(40'f32, float32(entries.len + 1) * style.size * 1.6)
-  result.table = listStyle()
-  result.table.pad = style.size * 0.18
   if rtl: result.para.rtl = 2
+  result.dotted(width)
   if title.len > 0:
-    # (the title: a row of its own, bold, larger)
+    # (the title: a line of its own, bold, larger)
     var ts = style
     ts.size = style.size * 1.5
     ts.fauxBold = true
-    result.spans.insert(TextSpan(text: title & "\t\n", style: ts), 0)
+    result.spans.insert(TextSpan(text: title & "\n", style: ts), 0)
     result.boxH += style.size * 2.4
 
 proc indexText*(entries: seq[IndexEntry]; title: string; style: CharStyle; width: float32; rtl = false;
                 letters = true): TextData =
-  ## The index as a text box `width` wide: each term, its pages' numbers after it ("Muscat,
-  ## 3, 7"); `letters`: a heading for each first letter.
+  ## The index as a text box `width` wide: each term, dots, its pages' numbers at the edge
+  ## ("Muscat . . . 3, 7"); `letters`: a heading for each first letter.
   var spans: seq[TextSpan]
   var head = style
   head.fauxBold = true
@@ -188,8 +181,7 @@ proc indexText*(entries: seq[IndexEntry]; title: string; style: CharStyle; width
       spans.add TextSpan(text: (if spans.len > 0: "\n" else: "") & first & "\n", style: head)
       last = first
       inc lines
-    spans.add TextSpan(text: e.term & (if rtl: "، " else: ", ") & e.labels.join(if rtl: "، " else: ", ") & "\n",
-                       style: style)
+    spans.add TextSpan(text: e.term & "\t" & e.labels.join(if rtl: "، " else: ", ") & "\n", style: style)
     inc lines
   result = newText("", style, 0, 0)
   result.spans = spans
@@ -198,3 +190,4 @@ proc indexText*(entries: seq[IndexEntry]; title: string; style: CharStyle; width
   result.boxW = width
   result.boxH = max(40'f32, float32(lines + 3) * style.size * 1.6)
   if rtl: result.para.rtl = 2
+  result.dotted(width)

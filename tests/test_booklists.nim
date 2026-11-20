@@ -45,13 +45,15 @@ block tocAndIndex:
   doAssert got == @["fort:2", "Muscat:1,2", "Sohar:1,5", "عُمان:4"], $got
   # as text boxes
   var tt = tocText(toc, "Contents", st(16), 400)
-  doAssert tt.table.on and tt.table.numbersRight and "Dhofar\t3" in tt.plainText
+  doAssert not tt.table.on and tt.para.tabs.len == 1 and tt.para.tabs[0].align == tabRight and
+           tt.para.tabs[0].leader.len > 0 and "Dhofar\t3" in tt.plainText
   let lay = layoutText(tt)
   doAssert lay.overflow == -1 and lay.glyphs.len > 40
+  for ln in lay.lines[1 .. ^1]: doAssert abs(ln.x1 - 400) < 1, "each number at the edge: " & $ln.x1
   var it = indexText(ix, "Index", st(14), 400)
-  doAssert "Muscat, 1, 2" in it.plainText and "\nM\n" in it.plainText
+  doAssert "Muscat\t1, 2" in it.plainText and "\nM\n" in it.plainText and it.para.tabs.len == 1
   let itAr = indexText(ix, "الفهرس", st(14), 400, rtl = true)
-  doAssert "Muscat، 1، 2" in itAr.plainText and itAr.para.rtl == 2
+  doAssert "Muscat\t1، 2" in itAr.plainText and itAr.para.rtl == 2
   b.close()
 
 block hyphenationWords:

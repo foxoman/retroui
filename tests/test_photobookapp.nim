@@ -783,7 +783,7 @@ block tableOfContentsAndIndex:
   var ixL: Layer
   for L in curBook().dw.doc.layers:
     if L.meta.startsWith("{\"index\""): ixL = L
-  doAssert ixL != nil and "Sohar, 2, 3, 4" in ixL.text.plainText and "nowhere" notin ixL.text.plainText,
+  doAssert ixL != nil and "Sohar\t2, 3, 4" in ixL.text.plainText and "nowhere" notin ixL.text.plainText,
            ixL.text.plainText
 
 block dataMergeInTheApp:
@@ -1154,6 +1154,60 @@ block brushesAlongAPath:
   pbDlg.open = false
   if d.stepOpen: d.endStep()
   doAssert d.layers.len == n0 + 1 and pbDlg.made.shape.path.subs.len > 10
+
+block tabsPanel:
+  # the Tabs panel: a click on its ruler puts a stop there (a right one, picked first), a drag
+  # moves it, off the ruler takes it away -- each the text's own at once, one step a drag;
+  # Shift+Tab typed: a Right Indent Tab
+  let d = newDoc(600, 300, 0xFFFFFFFF'u32)
+  addDoc(d)
+  run(2)
+  var ts = typeStyle
+  ts.size = 16
+  var t = newText("Chapter\t12", ts, 20, 20)
+  t.boxW = 400
+  t.boxH = 100
+  var L: Layer
+  d.layersChange("Type"): L = d.addTextLayer(t)
+  d.cur = d.layers.find(L)
+  showPanel("tabs")
+  run(3)
+  let r = tabsUi.ruler
+  doAssert r.w > 50, "the ruler drawn: " & $r
+  tabsUi.kind = tabRight
+  let x = r.x + dp(6) + (r.w - dp(12)) div 2                       # (the middle: 200 pixels in)
+  down(x, r.y + r.h div 2)
+  run()
+  up(x, r.y + r.h div 2)
+  run(2)
+  doAssert L.text.para.tabs.len == 1 and L.text.para.tabs[0].align == tabRight and
+           abs(L.text.para.tabs[0].pos - 200) < 3, $L.text.para.tabs
+  let lay = layoutText(d.effectiveText(L))
+  doAssert abs(lay.lines[0].x1 - 220) < 3, "the number ends at it: " & $lay.lines[0].x1
+  # dragged further: moved, one step
+  let steps = d.stepsMade
+  down(x, r.y + r.h div 2)
+  run()
+  move(x + (r.w - dp(12)) div 4, r.y + r.h div 2)
+  run()
+  move(x + (r.w - dp(12)) div 4, r.y + r.h div 2)
+  run()
+  up(x + (r.w - dp(12)) div 4, r.y + r.h div 2)
+  run(2)
+  doAssert L.text.para.tabs.len == 1 and abs(L.text.para.tabs[0].pos - 300) < 3, $L.text.para.tabs
+  doAssert d.stepsMade == steps + 1, "a drag, one step: " & $(d.stepsMade - steps)
+  # off the ruler: gone
+  let x2 = x + (r.w - dp(12)) div 4
+  down(x2, r.y + r.h div 2)
+  run()
+  move(x2, r.y + r.h + dp(40))
+  run()
+  up(x2, r.y + r.h + dp(40))
+  run(2)
+  doAssert L.text.para.tabs.len == 0, "taken away"
+  togglePanel("tabs")
+  active.win.open = false
+  run(3)
 
 block picturesIntoFrames:
   # File > Place with a photo placeholder picked: the picture inside it, covering it, clipped;

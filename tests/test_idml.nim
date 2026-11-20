@@ -313,6 +313,36 @@ block paragraphFormats:
   r.close()
 
 
+block tabStopsInIdml:
+  # a paragraph's tab stops (each kind, a leader, the character it aligns on) and a Right Indent
+  # Tab: the layout program's TabList and its own character, and back
+  let d = newDoc(800, 600, 0xFFFFFFFF'u32, dpi = 144)
+  var t = newText("Chapter\t12\nPrice\t3.50\nTitle\bPage", st(20), 20, 40)
+  t.boxW = 600
+  t.boxH = 300
+  t.para.setTab(TabStop(pos: 600, align: tabRight, leader: ". "))
+  t.para.setTab(TabStop(pos: 300, align: tabChar, alignOn: ","))
+  t.para.setTab(TabStop(pos: 100, align: tabCenter))
+  discard d.addTextLayer(t)
+  d.saveDocIdml(dir / "tabs.idml")
+  var all = ""
+  for e in zipEntries(dir / "tabs.idml"): all.add readEntry(dir / "tabs.idml", e)
+  doAssert "<TabList type=\"list\">" in all and "<Position type=\"unit\">300</Position>" in all and
+           "CharacterAlign" in all and "<?ACE 8?>" in all, "the program's own"
+  let r = readIdml(dir / "tabs.idml", dpi = 144)
+  var ok = false
+  for L in r.doc(0).layers:
+    if L.isText and L.text.plainText.startsWith("Chapter"):
+      let u = L.text
+      doAssert "Title\bPage" in u.plainText, "the Right Indent Tab back"
+      let tabs = u.paraFmtAt(0).tabs
+      doAssert tabs.len == 3 and abs(tabs[0].pos - 100) < 0.5 and tabs[0].align == tabCenter and
+               abs(tabs[1].pos - 300) < 0.5 and tabs[1].align == tabChar and tabs[1].alignOn == "," and
+               abs(tabs[2].pos - 600) < 0.5 and tabs[2].align == tabRight and tabs[2].leader == ". ", $tabs
+      ok = true
+  doAssert ok
+  r.close()
+
 block stylesLinksBookmarks:
   # nested, line and GREP styles (the character styles they name, in Styles.xml), an Object Style
   # on a frame and a shape, hyperlinks (an address, a destination, a page), the destination, the

@@ -392,6 +392,7 @@ const panelList = [
   ("graphicstyles", "Graphic Styles", pxSwatches), ("separations", "Separations Preview", pxChannels),
   ("attributes", "Attributes", pxProperties), ("buttons", "Buttons and Forms", pxProperties),
   ("textwrap", "Text Wrap", pxParagraph),
+  ("tabs", "Tabs", pxParagraph),
   ("conditions", "Conditional Text", pxParagraph), ("review", "Track Changes and Notes", pxParagraph),
   ("designstyles", "Styles and Fonts", pxColorThemes), ("patternoptions", "Pattern Options", pxPatterns)]
   ## (each panel: its key, its title, its icon in a column collapsed to icons)

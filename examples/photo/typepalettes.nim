@@ -361,6 +361,184 @@ proc directionButtons() =
       typePara.rtl = nv
       applyPara("Text Direction", proc (p: var ParaStyle) = p.rtl = nv)
 
+var tabsUi: tuple[kind: TabAlign; sel: int; drag: int; off: bool; ruler: Rect]
+  ## (the Tabs panel: the kind a new stop gets, the stop picked, the one dragged -- `off`: dragged
+  ## off the ruler, it goes when let go)
+
+proc tabsBody() =
+  ## The Tabs panel: the stops of the paragraphs typed in (or of all of the type layer's) on a
+  ## ruler as wide as its column -- mirrored for right-to-left text, its zero at the right --; a
+  ## click puts one of the kind picked there, a drag moves it, off the ruler takes it away; where
+  ## the stop picked is in the rulers' unit, its leader, the character it aligns on; Repeat Tab,
+  ## Clear All. Shift+Tab, typing: a Right Indent Tab.
+  let L = typeTarget()
+  let d = cur()
+  if L == nil or d == nil or L.text.boxW <= 0:
+    paragraph("Pick a text box (or type in one): its paragraphs' tab stops are set here.", color = ui.theme.gray)
+    return
+  let p = curPara()
+  let rtl = p.rtl == 2 or (p.rtl == 0 and textIsRtl(L.text.plainText))
+  let t = L.text
+  let cols = max(1, t.columns)
+  let gut = if t.gutter > 0: t.gutter else: 12'f32
+  let colW = max(10'f32, (t.boxW - gut * float32(cols - 1)) / float32(cols))
+  var tabs = p.tabs
+  tabsUi.sel = clamp(tabsUi.sel, -1, tabs.high)
+  proc setTabs(name: string; ts: seq[TabStop]) =
+    let v = ts
+    applyPara(name, proc (q: var ParaStyle) = q.tabs = v)
+  # the kinds
+  row:
+    for (k, cap, tip) in [(tabLeft, "Left", "Left-justified tab: the text starts at it"),
+                          (tabCenter, "Center", "Center-justified tab: the text's middle at it"),
+                          (tabRight, "Right", "Right-justified tab: the text ends at it"),
+                          (tabChar, "Align On", "Align on a character: a decimal point at it")]:
+      if toolButton(cap, tip, down = (if tabsUi.sel >= 0: tabs[tabsUi.sel].align == k else: tabsUi.kind == k)):
+        tabsUi.kind = k
+        if tabsUi.sel >= 0:
+          tabs[tabsUi.sel].align = k
+          setTabs("Tabs", tabs)
+  # the ruler: the column's width across the panel (right to left: its zero at the right)
+  let r = place(available(), dp(30))
+  tabsUi.ruler = r
+  let id = idOf("tabsruler")
+  let hit = interact(id, r, focusable = false)
+  fill(r, color(255, 255, 255))
+  box(r, ui.theme.frame)
+  let k = float32(r.w - dp(12)) / colW               # (screen pixels a text pixel)
+  let x0 = r.x + dp(6)
+  # (its zero at the right for right-to-left text -- an interface right to left mirrors what is
+  # drawn already: then for left-to-right text)
+  let flip = rtl != ui.rtl
+  proc toScreen(pos: float32): int = (if flip: x0 + r.w - dp(12) - int(pos * k) else: x0 + int(pos * k))
+  proc fromScreen(sx: int): float32 =
+    max(0'f32, min(colW, (if flip: float32(x0 + r.w - dp(12) - sx) else: float32(sx - x0)) / k))
+  let u = viewPrefs.rulerUnit
+  let unitPx = unitPixels(u, d.dpi, d.w)
+  # (ticks: one a unit, longer every so many)
+  var every = unitPx
+  while every * k < float(dp(6)): every *= 2
+  var tv = 0.0
+  var n = 0
+  while tv <= colW.float + 0.01:
+    let sx = toScreen(float32(tv))
+    vline(sx, r.y + r.h - (if n mod 4 == 0: dp(8) else: dp(4)), (if n mod 4 == 0: dp(8) else: dp(4)), ui.theme.text)
+    tv += every
+    inc n
+  # (the indents)
+  for (pos, c) in [((if rtl: p.indentRight else: p.indentLeft), color(120, 120, 120)),
+                   (colW - (if rtl: p.indentLeft else: p.indentRight), color(120, 120, 120))]:
+    let sx = toScreen(pos)
+    vline(sx, r.y + 2, r.h - 4, c)
+  # (the stops: a mark for each kind, the one picked filled)
+  for i, ts in tabs:
+    let sx = toScreen(ts.pos)
+    let y = r.y + dp(4)
+    let on = i == tabsUi.sel
+    let c = if on: ui.theme.select else: ui.theme.text
+    vline(sx, y, dp(12), c)
+    case ts.align
+    of tabLeft: hline((if flip: sx - dp(5) else: sx), y + dp(11), dp(6), c)
+    of tabRight: hline((if flip: sx else: sx - dp(5)), y + dp(11), dp(6), c)
+    of tabCenter: hline(sx - dp(4), y + dp(11), dp(9), c)
+    of tabChar:
+      hline(sx - dp(4), y + dp(11), dp(9), c)
+      fill(rect(sx + dp(2), y + dp(5), dp(2), dp(2)), c)
+    if on: fill(rect(sx - dp(1), y, dp(3), dp(3)), c)
+  if hit.hover: ui.cursor = curHand
+  if ui.active == id and ui.pressed:
+    # (on a stop: picked, to drag; else a new one there)
+    tabsUi.drag = -1
+    for i, ts in tabs:
+      if abs(toScreen(ts.pos) - ui.mx) <= dp(5): tabsUi.drag = i
+    if tabsUi.drag < 0:
+      let pos = fromScreen(ui.mx)
+      var p2 = p
+      p2.setTab(TabStop(pos: pos, align: tabsUi.kind, alignOn: (if tabsUi.kind == tabChar: "." else: "")))
+      tabs = p2.tabs
+      for i, ts in tabs:
+        if abs(ts.pos - pos) < 0.5: tabsUi.drag = i
+      setTabs("New Tab Stop", tabs)
+    tabsUi.sel = tabsUi.drag
+    tabsUi.off = false
+  elif ui.active == id and ui.mouseDown and tabsUi.drag in 0 .. tabs.high:
+    tabsUi.off = ui.my > r.y + r.h + dp(16) or ui.my < r.y - dp(16)
+    let pos = fromScreen(ui.mx)
+    if abs(tabs[tabsUi.drag].pos - pos) >= 0.5 and not tabsUi.off:
+      var moved = tabs[tabsUi.drag]
+      moved.pos = pos
+      tabs.delete(tabsUi.drag)
+      var p2 = p
+      p2.tabs = tabs
+      p2.setTab(moved)
+      tabs = p2.tabs
+      for i, ts in tabs:
+        if abs(ts.pos - pos) < 0.5: tabsUi.drag = i
+      tabsUi.sel = tabsUi.drag
+      setTabs("Move Tab Stop", tabs)
+    if tabsUi.off: ui.cursor = curArrow
+  if ui.released and tabsUi.drag >= 0:
+    if tabsUi.off and tabsUi.drag <= tabs.high:
+      tabs.delete(tabsUi.drag)
+      tabsUi.sel = -1
+      setTabs("Delete Tab Stop", tabs)
+    tabsUi.drag = -1
+    tabsUi.off = false
+  tooltip("Click: a tab stop there; drag one to move it, off the ruler to take it away")
+  # the stop picked: where (the rulers' unit), its leader, the character it aligns on
+  let i = tabsUi.sel
+  row([30, 76, 56, -1]):
+    label "X:"
+    var v = if i >= 0: float(tabs[i].pos) / unitPx else: 0.0
+    if numberEdit(v, decimals = (if u == ruPixels: 0 else: 2), w = dp(66), lo = 0, hi = 99999, enabled = i >= 0) and
+       i >= 0:
+      var moved = tabs[i]
+      moved.pos = float32(v * unitPx)
+      tabs.delete(i)
+      var p2 = p
+      p2.tabs = tabs
+      p2.setTab(moved)
+      for j, ts in p2.tabs:
+        if abs(ts.pos - moved.pos) < 0.5: tabsUi.sel = j
+      setTabs("Tabs", p2.tabs)
+    label "Leader:"
+    var ld = if i >= 0: tabs[i].leader else: ""
+    if edit(ld, w = dp(38), enabled = i >= 0) and i >= 0:
+      let rs = ld.toRunes
+      var cut = ""
+      for q in rs[0 ..< min(8, rs.len)]: cut.add q.toUTF8
+      tabs[i].leader = cut
+      setTabs("Tabs", tabs)
+  row([86, -1]):
+    label "Align On:"
+    var on = if i >= 0: tabs[i].alignOn else: ""
+    if edit(on, w = dp(28), enabled = i >= 0 and tabs[i].align == tabChar) and i >= 0:
+      let rs = on.toRunes
+      tabs[i].alignOn = (if rs.len > 0: rs[0].toUTF8 else: "")
+      setTabs("Tabs", tabs)
+  row:
+    if button("Repeat Tab", w = dp(96), enabled = i >= 0):
+      # (as far from it as it is from the one before -- the edge for the first --, again to the end)
+      let step = tabs[i].pos - (if i > 0: tabs[i - 1].pos else: 0'f32)
+      if step >= 1:
+        var p2 = p
+        var at = tabs[i].pos + step
+        while at <= colW + 0.01:
+          var c = tabs[i]
+          c.pos = at
+          p2.setTab(c)
+          at += step
+        setTabs("Repeat Tab", p2.tabs)
+    if button("Delete", w = dp(64), enabled = i >= 0):
+      tabs.delete(i)
+      tabsUi.sel = -1
+      setTabs("Tabs", tabs)
+    if button("Clear All", w = dp(80), enabled = tabs.len > 0):
+      tabsUi.sel = -1
+      setTabs("Clear All Tabs", @[])
+  paragraph((if rtl: tr("Right to left: measured from the column's right edge. ") else: "") &
+            tr("Shift+Tab while typing: a Right Indent Tab."), color = ui.theme.gray)
+
 proc paragraphBody() =
   let L = typeTarget()
   let p = curPara()

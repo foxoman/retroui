@@ -431,7 +431,8 @@ proc typeKeys() =
       if ctrl: commitType()
       else: insertTyped("\n")
     of KeyTab:
-      if not t.table.on: insertTyped("\t")
+      # (Shift+Tab: a Right Indent Tab -- what follows at the lines' end, as the layout program's)
+      if not t.table.on: insertTyped(if shift: "\b" else: "\t")
       else:
         # (a table: to the next cell -- a new row after the last -- or with Shift the one before)
         let rs = t.plainText.toRunes

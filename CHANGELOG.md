@@ -65,6 +65,24 @@
   its offsets: to draw) and `wrapHandles` (a handle in the middle of each
   side, with the way out of it; one for round its shape); `wrapBands`
   (round its shape, band by band, each part of it).
+- **Tab stops** (`retroui/textengine`): a paragraph's own (`ParaStyle.tabs`,
+  `TabStop`: where, from the edge its lines start from; Left, Right,
+  Center, or Align On a character -- a decimal point --; a leader that
+  fills the room before it, again and again, the dots of one line over the
+  next's), past them one every two ems (a tab was two ems wide wherever it
+  was); `setTab`, `removeTab`. Right to left, measured from the right edge,
+  numbers on their decimal point too. A Right Indent Tab ("\b"): what
+  follows it ends where the lines do. Kept in JSON, in Paragraph Styles,
+  and in IDML (TabList, the program's own Right Indent Tab). A paragraph
+  with tabs is broken a line at a time.
+- **Tables of contents and indexes with dot leaders** (`retroui/booklists`):
+  `tocText` and `indexText` set each entry's page numbers at the box's far
+  edge -- the left one, right to left -- at a right tab stop with dots
+  before them, in place of a table of two columns.
+- **Fonts of one name** (`retroui/textengine`): a TrueType face before a
+  PostScript-outlined .otf of the same family and style (no converting;
+  it may be the variable font the other is one instance of), the files in
+  the same order on every system.
 - **Submenus in submenus** (`retroui/widgets`): a submenu opens one of its
   own, four deep at most, by the pointer (the way to it kept open as for
   the first level), a finger, its letter and the arrow keys; Left and Esc
@@ -80,6 +98,13 @@
   its Text Wrap keeps text out of, outlined in light blue, and with the
   Text Wrap panel open the Move tool drags a side's handle to set its
   offset (round its shape, or with the four made the same, all of them).
+- **Retro Atelier**: the Tabs panel (Window > Tabs; Type > Panels > Tabs):
+  the paragraphs' stops on a ruler as wide as the column -- its zero at the
+  right for Arabic --, a click putting one of the kind picked there, a drag
+  moving it, off the ruler taking it away; where it is in the rulers' unit,
+  its leader, the character it aligns on, Repeat Tab, Clear All. Paragraph
+  Style Options has a Tabs page; Shift+Tab, typing, is a Right Indent Tab.
+  The table of contents and the index have dots to their page numbers.
 - **Retro Atelier**: Text Wrap's Round its Shape in the panel: where its
   outline comes from (its pixels, its edges, a path), the threshold, the
   inset, and Edit as a Path -- the outline a path of the document, to drag

@@ -203,11 +203,15 @@ proc removeFontDir*(dir: string) =
 
 proc scanDirs(dirs: seq[string]): seq[FontEntry] =
   ## (the faces of the font files in `dirs` and below, the first of each
-  ## family and style)
-  var seen: Table[string, bool]
+  ## family and style -- a TrueType one before a PostScript-outlined .otf of the same name: it
+  ## needs no converting, and may be a variable font the other is one instance of)
+  var seen: Table[string, int]
   for dir in dirs:
     if not dirExists(dir): continue
-    for path in walkDirRec(dir):
+    var paths: seq[string]
+    for path in walkDirRec(dir): paths.add path
+    paths.sort()                         # (the same order on every system)
+    for path in paths:
       let ext = path.splitFile.ext.toLowerAscii
       if ext notin fontFileExts: continue
       try:
@@ -215,10 +219,14 @@ proc scanDirs(dirs: seq[string]): seq[FontEntry] =
       except OSError: continue
       for fi in faceInfo(path):
         let key = fi.family & "/" & fi.style
-        if seen.hasKey(key): continue
-        seen[key] = true
-        result.add FontEntry(family: fi.family, style: fi.style, path: path, index: fi.index,
-                             weight: fi.weight, italic: fi.italic)
+        let e = FontEntry(family: fi.family, style: fi.style, path: path, index: fi.index,
+                          weight: fi.weight, italic: fi.italic)
+        if seen.hasKey(key):
+          let was = result[seen[key]].path.splitFile.ext.toLowerAscii
+          if was in [".otf", ".otc"] and ext in [".ttf", ".ttc"]: result[seen[key]] = e
+          continue
+        seen[key] = result.len
+        result.add e
 
 const ScanThreads = compileOption("threads") and not defined(js) and not defined(emscripten)
 when ScanThreads:
@@ -604,6 +612,26 @@ type
     border*: uint32            ## Paragraph Border: its color (ARGB; 0 none)
     borderWidths*: array[4, float32]  ## ... its lines' widths, top, right, bottom, left (all 0: 1 all round)
     borderOffsets*: array[4, float32] ## ... how far out from the text
+    tabs*: seq[TabStop]        ## its tab stops (the Tabs panel), nearest the edge its lines start
+                               ## from first; past the last, one every two ems of its type
+
+  TabAlign* = enum
+    ## How the text after a tab stands at its stop. Right to left the ruler is mirrored: Left is
+    ## the edge lines start from -- the right --, as the Paragraph palette's alignments are.
+    tabLeft = "Left",          ## it starts at the stop
+    tabRight = "Right",        ## it ends at it
+    tabCenter = "Center",      ## its middle at it
+    tabChar = "Align On"       ## a character of it at it (`TabStop.alignOn`: a decimal point)
+
+  TabStop* = object
+    ## A paragraph's tab stop: where, how the text after the tab stands at it, what fills the
+    ## room before it.
+    pos*: float32             ## pixels from the edge of its column its lines start from (left;
+                              ## right to left, the right), its indent not counted
+    align*: TabAlign
+    leader*: string           ## what fills the room before it, again and again ("": nothing;
+                              ## ". " dots, "_" a line to write on)
+    alignOn*: string          ## `tabChar`: the character ("": ".")
 
   Composer* = enum
     ## How a paragraph's lines are broken.
@@ -2721,12 +2749,12 @@ proc layoutPlain(t: TextData): TextLayout =
       c.face = f
       c.gid = g
       c.size = size
-      c.space = c.cp == 32 or c.cp == 9 or c.cp == 0x3000
+      c.space = c.cp == 32 or c.cp == 9 or c.cp == 0x3000 or c.cp == 8   # (8: Right Indent Tab)
       c.adv = if shown < 0: 0'f32
               else: float32(f.advance(g)) / float32(f.unitsPerEm) * size * st.hScale +
                     float32(st.tracking) / 1000 * st.size +
                     (if c.space: float32(st.wordSpace) / 1000 * st.size else: 0'f32)
-      if c.cp == 9: c.adv = st.size * 2
+      if c.cp == 9 or c.cp == 8: c.adv = st.size * 2      # (a tab: to its stop, once its line is known)
     # OpenType: runs of one style and direction in a font with layout tables,
     # set as the font says -- its joined forms, ligatures, marks placed,
     # kerning, the features chosen (else the forms above, one a character)
@@ -2735,12 +2763,12 @@ proc layoutPlain(t: TextData): TextLayout =
       while k < paraEnd:
         let si = chars[k].style
         let fc = faces[si].face
-        if fc == nil or not fc.hasLayout or chars[k].cp in [9, 10]:
+        if fc == nil or not fc.hasLayout or chars[k].cp in [8, 9, 10]:
           inc k
           continue
         let odd = chars[k].level and 1
         var e = k + 1
-        while e < paraEnd and chars[e].style == si and (chars[e].level and 1) == odd and chars[e].cp notin [9, 10]:
+        while e < paraEnd and chars[e].style == si and (chars[e].level and 1) == odd and chars[e].cp notin [8, 9, 10]:
           inc e
         # (all of it in the font: else as before, a character at a time; Thai
         # too, in a font that does not place its marks -- the kit's
@@ -2788,7 +2816,7 @@ proc layoutPlain(t: TextData): TextLayout =
           if chars[j].parts.len > 0:
             a += float32(st.tracking) / 1000 * st.size
             if chars[j].space: a += float32(st.wordSpace) / 1000 * st.size
-          chars[j].adv = (if chars[j].cp == 9: st.size * 2 else: a)
+          chars[j].adv = (if chars[j].cp in [8, 9]: st.size * 2 else: a)
           if chars[j].parts.len > 0: chars[j].gid = chars[j].parts[0].gid
         k = e
     # Thai vowels and tone marks a character at a time (the kit's FreeSerif
@@ -2860,6 +2888,56 @@ proc layoutPlain(t: TextData): TextLayout =
       result.w0 = a - ws
       result.w1 = b - ws
       for q in a ..< b: result.word.add Rune(chars[q].cp)
+    # (tabs: the room each takes -- to its stop -- by where on its line it is, and what fills it)
+    var hasTabs = false
+    for k in paraStart ..< paraEnd:
+      if chars[k].cp in [8, 9]:
+        hasTabs = true
+        break
+    var tabLeader: seq[string]
+    if hasTabs: tabLeader = newSeq[string](paraEnd - paraStart)
+    var tabWin = 0'f32                 # (a line beside a hole: how far in from its column's edge it starts)
+    let tabFull = if boxed: ownW - pp.indentLeft - pp.indentRight else: 0'f32
+    proc tabSeg(k: int; upTo = -1): float32 =
+      ## (the text after the tab at `k`, to the next tab or the paragraph's end -- or to the
+      ## character `upTo` --: how wide)
+      var j = k + 1
+      while j < paraEnd and chars[j].cp notin [8, 9, 10]:
+        if chars[j].cp == upTo: break
+        result += chars[j].adv
+        inc j
+    proc tabAdv(k: int; x: float32): float32 =
+      ## (the room the tab at `k` takes, the pen `x` from the edge its column's lines start from)
+      tabLeader[k - paraStart] = ""
+      if chars[k].cp == 8:
+        # (Right Indent Tab: what follows it ends where the lines do)
+        return max(0'f32, (if rtlPara: pp.indentRight else: pp.indentLeft) + tabFull - x - tabSeg(k))
+      for s in pp.tabs:
+        if s.pos <= x + 0.01: continue
+        let w = case s.align
+                of tabLeft: 0'f32
+                of tabRight: tabSeg(k)
+                of tabCenter: tabSeg(k) / 2
+                of tabChar:
+                  let on = if s.alignOn.len > 0: int(s.alignOn.runeAt(0)) else: ord('.')
+                  let before = tabSeg(k, on)
+                  # (right to left, a number -- left to right in it --: its part after the point is
+                  # the one between the stop and the point)
+                  var j = k + 1
+                  while j < paraEnd and chars[j].cp notin [8, 9, 10] and chars[j].cp != on: inc j
+                  if rtlPara and j < paraEnd and chars[j].cp == on and (chars[j].level and 1) == 0:
+                    tabSeg(k) - before - chars[j].adv
+                  else: before
+        let a = s.pos - x - w
+        if a >= -0.01:
+          tabLeader[k - paraStart] = s.leader
+          return max(0'f32, a)
+      # (past its stops -- or what follows does not fit before one: one every two ems)
+      let step = max(1'f32, chars[k].size * 2)
+      var last = 0'f32
+      for s in pp.tabs: last = max(last, s.pos)
+      let at = max(last, x)
+      (floor(at / step) + 1) * step - x
     template breakLine(ls: int; room: float32; whole = false): int =
       ## (where the line that starts at `ls` ends, `room` wide; `whole`:
       ## nothing of it when not a word of it fits; Hyphenate: the word that
@@ -2868,7 +2946,9 @@ proc layoutPlain(t: TextData): TextLayout =
       var k = ls
       var lastBreak = -1
       var wAtWord = w
+      let edge0 = (if rtlPara: pp.indentRight else: pp.indentLeft) + tabWin
       while k < paraEnd:
+        if hasTabs and chars[k].cp in [8, 9]: chars[k].adv = tabAdv(k, edge0 + w)
         if chars[k].space:
           lastBreak = k
           wAtWord = w + chars[k].adv
@@ -2902,7 +2982,7 @@ proc layoutPlain(t: TextData): TextLayout =
     var lines: seq[(int, int)]
     var ls = paraStart
     let justified = pp.align in {justifyLeft, justifyCenter, justifyRight, justifyAll}
-    let composed = boxed and not holed and paraEnd - paraStart > 1 and
+    let composed = boxed and not holed and not hasTabs and paraEnd - paraStart > 1 and
                    (pp.composer == cpParagraph or (pp.composer == cpAuto and justified))
     if composed:
       # the Paragraph Composer: every way of breaking the paragraph weighed at once (Knuth and
@@ -3051,11 +3131,13 @@ proc layoutPlain(t: TextData): TextLayout =
           winL = max(0'f32, seg.x0 - bx0)
           winR = max(0'f32, bx1 - seg.x1)
           # (beside a hole a word is not broken to fit: it goes to the next room)
+          tabWin = if rtlPara: winR else: winL
           b = breakLine(ls, max(1'f32, avail - winL - winR), seg.x1 - seg.x0 < bx1 - bx0 - 0.5)
           if b > ls or ls >= paraEnd: break
         if b <= ls and ls < paraEnd:
           winL = 0
           winR = 0
+          tabWin = 0
           b = breakLine(ls, avail)
         ls = b
       var asc, desc, lead = 0'f32
@@ -3123,8 +3205,13 @@ proc layoutPlain(t: TextData): TextLayout =
       let boxL = t.x + pp.indentLeft + (if rtlPara: 0'f32 else: firstInd) + winL
       let boxR = t.x + (if boxed: ownW - pp.indentRight - (if rtlPara: firstInd else: 0'f32) else: 0'f32) - winR
       let avail = avail - winL - winR       # (the room a hole leaves this line)
-      let justify = boxed and (align == justifyAll or (align in {justifyLeft, justifyCenter, justifyRight} and
-                                                        not lastOfPara))
+      # (a line with tabs: set from the edge its lines start from, its stops where they are)
+      var lineTabs = false
+      if hasTabs:
+        for k in a ..< e:
+          if chars[k].cp in [8, 9]: lineTabs = true
+      let justify = boxed and not lineTabs and
+                    (align == justifyAll or (align in {justifyLeft, justifyCenter, justifyRight} and not lastOfPara))
       var spaces = 0
       var extraPerLetter = 0'f32
       var gScale = 1'f32
@@ -3203,7 +3290,7 @@ proc layoutPlain(t: TextData): TextLayout =
           width += used
           extraPerSpace = if spaces > 0: max(0'f32, (room - used) / spaces.float32) else: 0'f32
       let lineW = width + extraPerSpace * spaces.float32
-      var effAlign = if justify: textLeft
+      var effAlign = if justify or lineTabs: textLeft
                      elif align == justifyLeft: textLeft
                      elif align == justifyCenter: textCenter
                      elif align == justifyRight: textRight
@@ -3289,6 +3376,28 @@ proc layoutPlain(t: TextData): TextLayout =
                                       shear: (if st.fauxItalic or fb.fauxItalic: 0.21'f32 else: 0'f32),
                                       color: (if mk and st.markColor != 0: st.markColor else: st.color),
                                       index: k, adv: adv)
+        if lineTabs and c.cp in [8, 9] and tabLeader[k - paraStart].len > 0:
+          # (its leader: the room before its stop filled, again and again -- on a grid from the
+          # box's edge, so the dots of one line are over the next's)
+          let ff = faces[c.style].face
+          var gl: seq[tuple[f: Face; g: int; a: float32]]
+          var lw = 0'f32
+          for r in tabLeader[k - paraStart].runes:
+            let (f, g) = pickGlyph(ff, int(r))
+            let ga = float32(f.advance(g)) / float32(f.unitsPerEm) * c.size * st.hScale
+            gl.add (f, g, ga)
+            lw += ga
+          if lw > 0.5:
+            var gx = t.x + ceil((x - t.x) / lw) * lw
+            while gx + lw <= x + adv + 0.01:
+              var px = gx
+              for q in gl:
+                if q.g != 0:
+                  result.glyphs.add LaidGlyph(face: q.f, gid: q.g, x: px, y: penY - st.baselineShift, size: c.size,
+                                              hScale: st.hScale, vScale: st.vScale, color: st.color, index: k,
+                                              adv: q.a)
+                px += q.a
+              gx += lw
         if (st.underline or st.strike) and k < e:
           let f = c.face
           let em = float32(f.unitsPerEm)
@@ -4394,6 +4503,22 @@ proc textSlice*(t: TextData; a, b: int): string =
   let r = t.plainText.toRunes
   $r[clamp(a, 0, r.len) ..< clamp(b, 0, r.len)]
 
+proc setTab*(p: var ParaStyle; stop: TabStop) =
+  ## A tab stop put in a paragraph's format: in place of one where it is (within half a pixel),
+  ## else among the others by where they are.
+  for t in p.tabs.mitems:
+    if abs(t.pos - stop.pos) < 0.5:
+      t = stop
+      return
+  var at = 0
+  while at < p.tabs.len and p.tabs[at].pos < stop.pos: inc at
+  p.tabs.insert(stop, at)
+
+proc removeTab*(p: var ParaStyle; pos: float32) =
+  ## The tab stop at `pos` (within half a pixel) taken out of a paragraph's format.
+  for i in countdown(p.tabs.high, 0):
+    if abs(p.tabs[i].pos - pos) < 0.5: p.tabs.delete(i)
+
 proc listToJson(p: ParaStyle; j: JsonNode) =
   ## (a list's settings into a paragraph's JSON: there only for a list)
   if p.list == lkNone: return
@@ -4470,6 +4595,15 @@ proc composeToJson(p: ParaStyle; j: JsonNode) =
     for n in p.lineStyles: a.add %*{"name": n.name, "look": n.look.toJson, "lines": n.lines}
     j["lineStyles"] = a
     if p.repeatLast > 0: j["repeatLast"] = %p.repeatLast
+  if p.tabs.len > 0:
+    var a = newJArray()
+    for t in p.tabs:
+      var o = %*{"pos": t.pos}
+      if t.align != tabLeft: o["align"] = %($t.align)
+      if t.leader.len > 0: o["leader"] = %t.leader
+      if t.alignOn.len > 0: o["alignOn"] = %t.alignOn
+      a.add o
+    j["tabs"] = a
 
 proc composeFrom(p: var ParaStyle; j: JsonNode) =
   p.composer = enumOf(j.getS("composer"), cpAuto)
@@ -4509,6 +4643,14 @@ proc composeFrom(p: var ParaStyle; j: JsonNode) =
     p.lineStyles.add NestedLine(name: n.getS("name"), look: charStyleFrom(n{"look"}),
                                 lines: clamp(int(n.getF("lines")), 0, 1000))
   p.repeatLast = clamp(int(j.getF("repeatLast")), 0, 1000)
+  for e in j{"tabs"}.getElems:
+    if p.tabs.len >= 100 or e.kind != JObject: break
+    var ld = e.getS("leader")
+    if ld.runeLen > 8: ld = $ld.toRunes[0 ..< 8]
+    var on = e.getS("alignOn")
+    if on.runeLen > 1: on = $on.runeAt(0)
+    p.tabs.add TabStop(pos: clamp(float32(e.getF("pos")), 0, 100_000), align: enumOf(e.getS("align"), tabLeft),
+                       leader: ld, alignOn: on)
 
 proc dropToJson(p: ParaStyle; j: JsonNode) =
   if p.hyphenate: j["hyphenate"] = %true

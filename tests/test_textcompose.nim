@@ -2,7 +2,7 @@
 ## formats of their own, the Paragraph Composer, Justification, Keep Options, Span Columns, nested
 ## and GREP styles, Inset Spacing, Vertical Justification, Balance Columns.
 
-import std/[json, strutils]
+import std/[json, strutils, math]
 import std/unicode except strip
 import retroui/textengine
 {.push warning[UnusedImport]: off.}
@@ -453,5 +453,67 @@ block opticalMargin:
   r.para.hanging = true
   let r1 = layoutText(r)
   doAssert r1.lines[0].x0 > r0.lines[0].x0 + 1
+
+block tabStops:
+  # a paragraph's tab stops -- left, right, centre, on a decimal point, past them one every two
+  # ems --, their leaders, right to left from the right edge, a Right Indent Tab; kept in JSON
+  var t = boxText("A\tB\tC\tD\t1234.5\tE", 600, 100)
+  var p = t.para
+  p.setTab(TabStop(pos: 100, align: tabLeft))
+  p.setTab(TabStop(pos: 300, align: tabRight))
+  p.setTab(TabStop(pos: 200, align: tabCenter))
+  p.setTab(TabStop(pos: 400, align: tabChar))
+  doAssert p.tabs.len == 4 and p.tabs[0].pos == 100 and p.tabs[3].pos == 400, "kept in order"
+  p.setTab(TabStop(pos: 300.2, align: tabRight))
+  doAssert p.tabs.len == 4, "in place of the one there"
+  t.para = p
+  let l = layoutText(t)
+  # (A0 tab1 B2 tab3 C4 tab5 D6 tab7 1234.5 at 8..13 tab14 E15; the box's edge at 10)
+  doAssert abs(l.caretX[2] - 110) < 0.6, "left: B starts at it " & $l.caretX[2]
+  doAssert abs((l.caretX[4] + l.caretX[5]) / 2 - 210) < 0.6, "centre: C's middle at it"
+  doAssert abs(l.caretX[7] - 310) < 0.6, "right: D ends at it " & $l.caretX[7]
+  doAssert abs(l.caretX[12] - 410) < 0.6, "on its point: the point at it " & $l.caretX[12]
+  let past = l.caretX[15] - 10
+  doAssert past > l.caretX[14] - 10 and abs(past / 40 - round(past / 40)) < 0.02, "past them: every two ems " & $past
+  doAssert paraFrom(paraToJson(p)).tabs == p.tabs, "kept in JSON"
+  # a leader: dots up to a page number at the right edge
+  var c = boxText("Chapter\t12", 400, 60)
+  c.para.setTab(TabStop(pos: 400, align: tabRight, leader: ". "))
+  let cl = layoutText(c)
+  doAssert abs(cl.caretX[10] - 410) < 0.6 or abs(cl.lines[0].x1 - 410) < 0.6, "the number at the edge"
+  var dots = 0
+  for g in cl.glyphs:
+    if g.index == 7: inc dots
+  doAssert dots > 20, "dots before it: " & $dots
+  var prevX = -1e9'f32
+  for g in cl.glyphs:
+    if g.index == 7:
+      doAssert g.x > prevX and g.x >= cl.caretX[7] - 0.01
+      prevX = g.x
+  # right to left: from the right edge; the number at the left one, dots before it
+  var r = boxText("باب\t١٢", 400, 60)
+  r.para.rtl = 2
+  r.para.setTab(TabStop(pos: 400, align: tabRight, leader: "."))
+  let rl = layoutText(r)
+  doAssert rl.lines.len == 1 and abs(rl.lines[0].x0 - 10) < 0.6 and abs(rl.lines[0].x1 - 410) < 0.6,
+           "from the right edge to the left one: " & $rl.lines[0]
+  var rdots = 0
+  for g in rl.glyphs:
+    if g.index == 3: inc rdots
+  doAssert rdots > 20
+  # right to left, numbers on their decimal point: the points one over the other, at the stop
+  var dn = boxText("قهوة\t3.50\nلبان\t125.75", 400, 100)
+  dn.para.rtl = 2
+  dn.para.setTab(TabStop(pos: 300, align: tabChar))
+  let dl = layoutText(dn)
+  let p1 = "قهوة\t3".runeLen
+  let p2 = "قهوة\t3.50\nلبان\t125".runeLen
+  doAssert abs(dl.caretX[p1 + 1] - 110) < 0.6 and abs(dl.caretX[p2 + 1] - 110) < 0.6,
+           "the points at it: " & $dl.caretX[p1 + 1] & " " & $dl.caretX[p2 + 1]
+  # Right Indent Tab: what follows it at the lines' end
+  var ri = boxText("Title\bPage", 400, 60)
+  ri.para.indentRight = 20
+  let rli = layoutText(ri)
+  doAssert abs(rli.lines[0].x1 - 390) < 0.6, "at the indent: " & $rli.lines[0].x1
 
 echo "test_textcompose: ok"

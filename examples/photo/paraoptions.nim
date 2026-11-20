@@ -322,6 +322,44 @@ proc paraOptionsDialog() =
 # ---- Paragraph Style Options -------------------------------------------------------------------------------
 
 var psoDlg: tuple[open: bool; old, name: string; f: ParaStyle; page: int]
+var psoTab: tuple[sel: int; pos: float; kind: int; leader: string]   ## (the dialog's Tabs: the stop picked, a new one)
+
+proc tabRows(d: Doc; f: var ParaStyle) =
+  ## (a paragraph style's tab stops: a list, each where (the rulers' unit), its kind, its
+  ## leader; one put in by where, its kind and leader; the one picked taken away)
+  let u = viewPrefs.rulerUnit
+  let unitPx = unitPixels(u, d.dpi, d.w)
+  var names: seq[string]
+  for t in f.tabs:
+    names.add inUnits(t.pos.float, u, d.dpi, d.w) & "   " & tr($t.align) &
+              (if t.align == tabChar: " \"" & (if t.alignOn.len > 0: t.alignOn else: ".") & "\"" else: "") &
+              (if t.leader.len > 0: "   " & tr("leader") & " \"" & t.leader & "\"" else: "")
+  if names.len == 0: label("No tab stops: one every two ems.", color = ui.theme.gray)
+  else: listbox(names, psoTab.sel, rows = min(6, max(3, names.len)))
+  row([70, 80, 50, 110, 60, -1]):
+    label "Position:"
+    discard numberEdit(psoTab.pos, decimals = (if u == ruPixels: 0 else: 2), w = dp(74), lo = 0, hi = 99999)
+    label "Kind:"
+    var kinds: seq[string]
+    for a in TabAlign: kinds.add tr($a)
+    discard combo(kinds, psoTab.kind, w = dp(104))
+    label "Leader:"
+    discard edit(psoTab.leader, w = dp(48))
+  row:
+    if button("Add", w = dp(70)):
+      var ld = ""
+      var n = 0
+      for c in psoTab.leader.toRunes:
+        if n < 8: ld.add c.toUTF8
+        inc n
+      f.setTab(TabStop(pos: float32(psoTab.pos * unitPx), align: TabAlign(clamp(psoTab.kind, 0, ord(high(TabAlign)))),
+                       leader: ld))
+    if button("Delete", w = dp(70), enabled = psoTab.sel in 0 .. f.tabs.high):
+      f.tabs.delete(psoTab.sel)
+      psoTab.sel = -1
+    if button("Clear All", w = dp(80), enabled = f.tabs.len > 0):
+      f.tabs.setLen(0)
+      psoTab.sel = -1
   ## (the style being changed: its name before, its name and paragraph settings in the dialog,
   ## the page shown)
 var psoOk*: bool     ## (its OK pressed from outside: the tests)
@@ -349,7 +387,7 @@ proc styleOptionsDialog() =
       label "Style Name:"
       edit(psoDlg.name)
     discard tabStrip([tr("General"), tr("Keep Options"), tr("Justification"), tr("Drop Caps and Nested Styles"),
-              tr("GREP Style")], psoDlg.page)
+              tr("GREP Style"), tr("Tabs")], psoDlg.page)
     case psoDlg.page
     of 0:
       row([110, -1]):
@@ -425,6 +463,8 @@ proc styleOptionsDialog() =
       nestedRows(d, psoDlg.f.nested)
       label("Nested Line Styles:")
       lineRows(d, psoDlg.f.lineStyles, psoDlg.f.repeatLast)
+    of 5:
+      tabRows(d, psoDlg.f)
     else:
       grepRows(d, psoDlg.f.grepStyles)
     row:

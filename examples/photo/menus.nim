@@ -1694,6 +1694,7 @@ proc classicMenus() =
         menuSeparator()
         item("Character", checked = panelShown("character"))
         item("Paragraph", checked = panelShown("paragraph"))
+        item("Tabs", checked = panelShown("tabs"))
         menuSeparator()
         item(if palettesHidden: "Show Palettes" else: "Hide Palettes", "Tab")
         item("Reset Palettes")
