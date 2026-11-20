@@ -474,6 +474,10 @@ proc openBook(path: string)
 proc bookOverlay(dw: DocWin)
 proc bookGhostPress(dw: DocWin): bool
 proc bookPdfWrite(path: string; o: PdfOptions): bool
+proc bookPdfFor(dw: DocWin)
+proc bookPdfPagesGroup()
+proc bookPdfNote(): string
+proc bookPdfName(dw: DocWin): string
 proc layoutMenu()
 proc bookFrame()
 proc bookDialogs()

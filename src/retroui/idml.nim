@@ -445,14 +445,21 @@ const
   WrapSides = ["BothSides", "LeftSide", "RightSide", "LargestArea", "SideTowardsSpine", "SideAwayFromSpine"]
     ## (... and TextWrapSide for each of `wrapSide`)
 
-proc wrapPrefXml(wrap, side: int; o: array[4, float32]; invert: bool): string =
-  ## (Text Wrap as IDML has it: its kind, side, whether the text is inside it, its offsets in points)
+const ContourTypes = ["AlphaChannel", "DetectEdges", "PhotoshopPath"]
+  ## (IDML's ContourType for each of `WrapOptions.contour`: its pixels, its edges, a path)
+
+proc wrapPrefXml(wrap, side: int; o: array[4, float32]; invert: bool; contour = 0; path = ""): string =
+  ## (Text Wrap as IDML has it: its kind, side, whether the text is inside it, its offsets in
+  ## points, and round its shape where its outline comes from)
   if wrap == 0: return ""
   "<TextWrapPreference Inverse=\"" & (if invert: "true" else: "false") & "\" TextWrapSide=\"" &
     WrapSides[clamp(side, 0, 5)] & "\" TextWrapMode=\"" & WrapModes[clamp(wrap, 0, 4)] & "\">\n" &
     "<Properties><TextWrapOffset Top=\"" & f(o[0]) & "\" Left=\"" & f(o[2]) & "\" Bottom=\"" & f(o[1]) &
     "\" Right=\"" & f(o[3]) & "\"/></Properties>\n" &
-    (if wrap == 2: "<ContourOption ContourType=\"SameAsClipping\"/>\n" else: "") & "</TextWrapPreference>\n"
+    (if wrap == 2:
+       "<ContourOption ContourType=\"" & ContourTypes[clamp(contour, 0, 2)] & "\"" &
+         (if contour == 2 and path.len > 0: " ContourPathName=\"" & x(path) & "\"" else: "") & "/>\n"
+     else: "") & "</TextWrapPreference>\n"
 
 proc wrapXml(d: Doc; L: Layer): string =
   ## (a layer's Text Wrap; a file before the offsets: its gap on every side)
@@ -460,7 +467,7 @@ proc wrapXml(d: Doc; L: Layer): string =
   if o == [0'f32, 0, 0, 0] and L.wrapGap > 0:
     let g = float32(L.wrapGap) * 72 / float32(max(1.0, d.dpi))
     o = [g, g, g, g]
-  wrapPrefXml(L.wrap, L.wrapSide, o, L.wrapOpts.invert)
+  wrapPrefXml(L.wrap, L.wrapSide, o, L.wrapOpts.invert, L.wrapOpts.contour, L.wrapOpts.contourPath)
 
 proc objRef(o: var IdmlOut; d: Doc; name: string; k: float): string =
   ## (a frame's Object Style: its name on the frame, its fill and stroke in Styles.xml)
@@ -483,7 +490,8 @@ proc objRef(o: var IdmlOut; d: Doc; name: string; k: float): string =
         attrs.add " EnableParagraphStyle=\"true\""
       if os.useWrap:
         attrs.add " EnableTextWrapAndOthers=\"true\"\x01" & wrapPrefXml(os.wrap, os.wrapSide, os.wrapOpts.offsets,
-                                                                       os.wrapOpts.invert)
+                                                                       os.wrapOpts.invert, os.wrapOpts.contour,
+                                                                       os.wrapOpts.contourPath)
     o.objStyles[name] = attrs
   " AppliedObjectStyle=\"ObjectStyle/" & x(name) & "\""
 
@@ -1004,6 +1012,15 @@ proc wrapIn(it: XmlNode; wrap, side: var int; opts: var WrapOptions): bool =
     side = max(0, WrapSides.find(c.attr("TextWrapSide")))
     opts.invert = c.attr("Inverse") == "true"
     for pp in c:
+      if pp.kind == xnElement and pp.tag == "ContourOption":
+        # (where its outline comes from: a path, its edges, else its pixels -- its frame's or its
+        # clipping's outline is its own shape's)
+        case pp.attr("ContourType")
+        of "PhotoshopPath":
+          opts.contour = 2
+          opts.contourPath = pp.attr("ContourPathName")
+        of "DetectEdges": opts.contour = 1
+        else: opts.contour = 0
       if pp.kind != xnElement or pp.tag != "Properties": continue
       for o in pp:
         if o.kind != xnElement or o.tag != "TextWrapOffset": continue

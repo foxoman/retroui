@@ -3271,15 +3271,35 @@ var
     ## (its rows last frame, the app's window's and a window's of its own:
     ## the menus wrap on a narrow screen)
   menuSwitch: int
-  pms: seq[PopMenu]  ## the open menu, and its open submenu
-  subId: Id          ## the open submenu
-  subHi = -1         ## highlighted item in the submenu
+  pms: seq[PopMenu]  ## the open menu, and its open submenus (one in another)
   lastPopup: Id
-  subSpan = (a: -1, b: -1)  ## the open submenu's drawing (put over its menu)
-  subRect: Rect      ## where the open submenu was drawn
-  aimX, aimY: int    ## where the pointer was last frame (on its way to a submenu?)
-  waitRow = -1       ## the row the pointer rests on while a submenu stays open
   waitSince: int
+
+const MenuDepth = 4
+  ## (a menu and the submenus open one in another: four deep at most)
+
+var
+  subIds: array[MenuDepth, Id]
+    ## (the submenu each open menu has open, by the menu's level: 0 the menu's own)
+  subHis: array[MenuDepth, int] = [-1, -1, -1, -1]   ## (... the item lit in it)
+  subSpans: array[MenuDepth, tuple[a, b: int]] = [(-1, -1), (-1, -1), (-1, -1), (-1, -1)]
+    ## (... its drawing, put over its menu's)
+  subRects: array[MenuDepth, Rect]                   ## (... where it was drawn)
+  aims: array[MenuDepth, tuple[x, y: int]]
+    ## (where the pointer was last frame, by the menu's level: on its way to its submenu?)
+  waitRows: array[MenuDepth, int] = [-1, -1, -1, -1]
+    ## (the row the pointer rests on while the submenu stays open, by the menu's level)
+
+proc closeSubs(level: int) =
+  ## (the submenus open from the menu at `level` -- and those in them -- closed)
+  for j in max(0, level) ..< MenuDepth: subIds[j] = 0
+
+proc openSub(level: int; id: Id; hi: int) =
+  ## (the menu at `level` opens its submenu `id`, item `hi` of it lit; one in it closes)
+  subIds[level] = id
+  subHis[level] = hi
+  closeSubs(level + 1)
+  ui.redraw = true
 
 const SubMenuRest = 300
   ## (ms the pointer, on its way to an open submenu, may rest on another
@@ -3294,7 +3314,7 @@ template MenuRowH: int =
 
 proc hiOf(level: int): var int =
   if level == 0: return ui.popupHi
-  return subHi
+  return subHis[clamp(level - 1, 0, MenuDepth - 1)]
 
 proc beginMenubar*() =
   ## Starts the menu bar (see `menubar`).
@@ -3360,12 +3380,12 @@ proc menuCols(st: WState; y: int; fixedTop: bool): int =
 proc beginPopupMenu(id: Id; x, y: int; level = 0; fixedTop = false): bool =
   ## (`fixedTop`: a menu bar's menu, which hangs from its title)
   let st = state(id)
+  if level < MenuDepth: subSpans[level] = (-1, -1)
   if level == 0:
-    subSpan = (-1, -1)
     if id != lastPopup:
       lastPopup = id
-      subId = 0
-      waitRow = -1
+      closeSubs(0)
+      for w in waitRows.mitems: w = -1
   # A menu that would pass the bottom of the screen moves up as far as it
   # needs (by last frame's height in one column); only one taller than the
   # whole screen -- or a menu bar's, which stays under its title -- goes on
@@ -3416,23 +3436,30 @@ proc endMenu*() =
   fill(r.x + 3, r.y + r.h, r.w, 3, th.frame)
   fill(r.x + r.w, r.y + 3, 3, r.h, th.frame)
   if m.level == 0: ui.popupRectNow = rect(r.x, r.y, r.w + 3, r.h + 3)
-  else: ui.popupRect2Now = rect(r.x, r.y, r.w + 3, r.h + 3)
+  elif ui.popupRect2Now.w == 0: ui.popupRect2Now = rect(r.x, r.y, r.w + 3, r.h + 3)
+  else:
+    # (submenus one in another: the box round them all)
+    let o = ui.popupRect2Now
+    let x0 = min(o.x, r.x)
+    let y0 = min(o.y, r.y)
+    ui.popupRect2Now = rect(x0, y0, max(o.x + o.w, r.x + r.w + 3) - x0, max(o.y + o.h, r.y + r.h + 3) - y0)
   # (the lines between columns)
   for c in 1 ..< m.cols: vline(m.x + c * m.w, m.y + 2, r.h - 4, th.shadow)
-  if m.level == 1:
-    subSpan = (m.mark, cmdMark())
-    subRect = rect(r.x, r.y, r.w + 3, r.h + 3)
-    if subRect.contains(point(ui.mx, ui.my)): waitRow = -1
-  if m.level == 0:
-    aimX = ui.mx
-    aimY = ui.my
-    if subId == 0: subRect = rect(0, 0, 0, 0)
-  if m.level == 0 and subSpan.a >= 0:
-    # (the submenu over the rows and frame of its menu drawn after it)
+  let lv = clamp(m.level, 0, MenuDepth - 1)
+  if m.level >= 1:
+    # (a submenu: where it is, for the menu it opened from)
+    subSpans[lv - 1] = (m.mark, cmdMark())
+    subRects[lv - 1] = rect(r.x, r.y, r.w + 3, r.h + 3)
+    if subRects[lv - 1].contains(point(ui.mx, ui.my)): waitRows[lv - 1] = -1
+  aims[lv] = (ui.mx, ui.my)
+  if subIds[lv] == 0: subRects[lv] = rect(0, 0, 0, 0)
+  if subSpans[lv].a >= 0:
+    # (its submenu over the rows and frame of this menu drawn after it)
     let e = cmdMark()
-    if subSpan.a < subSpan.b and subSpan.b <= e:
-      reorderSpans([subSpan, (subSpan.b, e)], [1, 0])
-    subSpan = (-1, -1)
+    let sp = subSpans[lv]
+    if sp.a < sp.b and sp.b <= e:
+      reorderSpans([sp, (sp.b, e)], [1, 0])
+    subSpans[lv] = (-1, -1)
   var st = state(m.id)
   let natural = m.natural + 6
   if m.measured != st.aux or r.h != st.aux2 or m.cols != st.anchor or
@@ -3443,7 +3470,7 @@ proc endMenu*() =
     st.caret = natural
     state(m.id) = st
     ui.redraw = true
-  if canInput() and not ui.keyUsed and (m.level == 1 or subId == 0):
+  if canInput() and not ui.keyUsed and subIds[lv] == 0:
     var hi = addr hiOf(m.level)
     case ui.key
     of KeyUp:
@@ -3459,14 +3486,14 @@ proc endMenu*() =
       hi[] = max(0, m.n - 1)
       ui.keyUsed = true
     of KeyLeft:
-      if m.level == 1: subId = 0
+      if m.level >= 1: closeSubs(lv - 1)
       else: menuSwitch = -1
       ui.keyUsed = true
     of KeyRight:
       if m.level == 0: menuSwitch = 1
       ui.keyUsed = true
     of KeyEsc:
-      if m.level == 1: subId = 0
+      if m.level >= 1: closeSubs(lv - 1)
       else:
         ui.popup = 0
         ui.menuOpen = false
@@ -3546,9 +3573,11 @@ template menu*(title: string; body: untyped) =
 
 type MenuShown* = object
   ## What `showMenu` put aside (for `hideMenu`).
-  popup, sub: Id
+  popup: Id
+  subs: array[MenuDepth, Id]
   open: bool
-  hi, subHi: int
+  hi: int
+  subHis: array[MenuDepth, int]
 
 proc showMenu*(path: openArray[string]): MenuShown =
   ## Opens the menu bar's menu `path[0]` -- and in it the submenu `path[1]`
@@ -3556,23 +3585,24 @@ proc showMenu*(path: openArray[string]): MenuShown =
   ## showing the menu whose items are being set, a tour of an app. The
   ## titles are written as in `menu` and `submenu`; `hideMenu` puts back
   ## what was open.
-  result = MenuShown(popup: ui.popup, open: ui.menuOpen, hi: ui.popupHi, sub: subId,
-                     subHi: subHi)
+  result = MenuShown(popup: ui.popup, open: ui.menuOpen, hi: ui.popupHi, subs: subIds,
+                     subHis: subHis)
   if path.len == 0: return
   let id = peekId(fnv(path[0], fnv("menu:")))     # (the id its `menu` will take)
   ui.popup = id
   ui.menuOpen = true
   ui.popupHi = -1
-  subId = if path.len > 1: mixId(id, fnv("sub:" & path[1])) else: Id(0)
-  subHi = -1
+  closeSubs(0)
+  if path.len > 1: subIds[0] = mixId(id, fnv("sub:" & path[1]))
+  subHis[0] = -1
 
 proc hideMenu*(s: MenuShown) =
   ## What was open before `showMenu` open again.
   ui.popup = s.popup
   ui.menuOpen = s.open
   ui.popupHi = s.hi
-  subId = s.sub
-  subHi = s.subHi
+  subIds = s.subs
+  subHis = s.subHis
 
 proc newMenuColumn() =
   ## (the open menu goes on in a column beside)
@@ -3610,9 +3640,10 @@ proc itemRow(label, shortcut: string; checked, enabled, arrowRight: bool;
   if arrowRight: arrow(r.x + r.w - dp(10), r.y + r.h div 2, dRight, c)
 
 proc overSub(): bool =
-  ## (the pointer is on the open submenu, over its menu's rows: they leave
-  ## it alone)
-  pm.level == 0 and subId != 0 and subRect.contains(point(ui.mx, ui.my))
+  ## (the pointer is on an open submenu of this menu -- or one in it --, over this menu's rows:
+  ## they leave it alone)
+  for j in clamp(pm.level, 0, MenuDepth - 1) ..< MenuDepth:
+    if subIds[j] != 0 and subRects[j].contains(point(ui.mx, ui.my)): return true
 
 proc towardSub(): bool =
   ## (the pointer moving toward the open submenu: inside the triangle from
@@ -3620,7 +3651,10 @@ proc towardSub(): bool =
   ## on the way -- another column of the menu among them -- leave it open;
   ## moving any other way, down the menu say, the row under it takes over
   ## at once, as Windows' and the Mac's menus do)
-  if subId == 0 or subRect.w == 0 or ui.mouseDown or ui.mx == aimX: return false
+  let lv = clamp(pm.level, 0, MenuDepth - 1)
+  let subRect = subRects[lv]
+  let (aimX, aimY) = aims[lv]
+  if subIds[lv] == 0 or subRect.w == 0 or ui.mouseDown or ui.mx == aimX: return false
   let right = subRect.x >= aimX
   if right != (ui.mx > aimX): return false
   let nx = float(if right: subRect.x else: subRect.x + subRect.w)
@@ -3638,27 +3672,28 @@ proc rowTakesOver(i: int): bool =
   ## (row `i` under the pointer, another submenu open: true when the row
   ## takes over -- a click, a move that is not toward the submenu, a rest
   ## on the way of `SubMenuRest`; false while it heads for the submenu)
+  let lv = clamp(pm.level, 0, MenuDepth - 1)
   if ui.pressed: return true
   if ui.mouseMoved:
     if not towardSub():
-      waitRow = -1
+      waitRows[lv] = -1
       return true
-    waitRow = i                           # (on its way: the rest starts again)
+    waitRows[lv] = i                      # (on its way: the rest starts again)
     waitSince = ui.now
     wakeIn(SubMenuRest)
     return false
-  if waitRow != i: return false
+  if waitRows[lv] != i: return false
   let left = SubMenuRest - (ui.now - waitSince)
   if left > 0:
     wakeIn(left)
     return false
-  waitRow = -1
+  waitRows[lv] = -1
   true
 
 proc menuKeysLive(): bool =
   ## Keys reach this menu level: a menu with an open submenu leaves them
   ## to the submenu.
-  canInput() and not ui.keyUsed and (pm.level == 1 or subId == 0)
+  canInput() and not ui.keyUsed and subIds[clamp(pm.level, 0, MenuDepth - 1)] == 0
 
 proc menuLetter(label: string; enabled: bool; i, level: int): bool =
   ## (the letter pressed is item `i`'s: true when it is chosen by it -- the
@@ -3698,11 +3733,12 @@ proc menuItem*(label: string; shortcut = ""; checked = false;
   let level = pm.level
   let r = menuSlot(MenuRowH)
   if canInput() and not overSub():
-    if mouseIn(r) and (ui.mouseMoved or ui.mouseDown or (level == 0 and waitRow == i)):
-      if level == 0 and subId != 0:
+    let lv = clamp(level, 0, MenuDepth - 1)
+    if mouseIn(r) and (ui.mouseMoved or ui.mouseDown or waitRows[lv] == i):
+      if subIds[lv] != 0:
         if rowTakesOver(i):
           hiOf(level) = i
-          subId = 0
+          closeSubs(lv)
           ui.redraw = true
       else:
         hiOf(level) = i
@@ -3720,7 +3756,7 @@ proc menuItem*(label: string; shortcut = ""; checked = false;
   if result:
     ui.popup = 0
     ui.menuOpen = false
-    subId = 0
+    closeSubs(0)
     ui.redraw = true
   discard itemRow(label, shortcut, checked, enabled, false, i)
   if accessOn:
@@ -3738,40 +3774,34 @@ proc beginSubmenu*(label: string; enabled = true): bool =
   let level = pm.level
   let id = mixId(pm.id, fnv("sub:" & label))
   let r = itemRow(label, "", false, enabled, true, i)
-  if menuLetter(label, enabled and level == 0, i, level):
+  let lv = clamp(level, 0, MenuDepth - 1)
+  let deeper = level < MenuDepth - 1               # (room for a menu in it)
+  if menuLetter(label, enabled and deeper, i, level):
     # (its letter: it opens, its first item lit)
-    ui.popupHi = i
-    subId = id
-    subHi = 0
-    ui.redraw = true
+    hiOf(level) = i
+    openSub(lv, id, 0)
   if accessOn:
     let k = accessNode(arMenuItem, label, id = id, r = r,
                        states = offWhen(enabled) + {asExpandable} +
-                                (if subId == id: {asExpanded} else: {}))
-    if ui.popupHi == i and level == 0: accessFocus(k)
-  if accessPress != 0 and accessPress == id and enabled and level == 0:
+                                (if subIds[lv] == id: {asExpanded} else: {}))
+    if hiOf(level) == i: accessFocus(k)
+  if accessPress != 0 and accessPress == id and enabled and deeper:
     accessPress = 0
-    ui.popupHi = i
-    subId = id
-    subHi = 0
-    ui.redraw = true
-  if level != 0 or not enabled: return false
+    hiOf(level) = i
+    openSub(lv, id, 0)
+  if not deeper or not enabled: return false
   if canInput() and not overSub():
-    if mouseIn(r) and (ui.mouseMoved or ui.pressed or waitRow == i):
-      if subId == 0 or (subId != id and rowTakesOver(i)):
-        ui.popupHi = i
-        subId = id
-        subHi = -1
-        ui.redraw = true
-      elif subId == id:
-        ui.popupHi = i
-    if ui.popupHi == i and subId != id and not ui.keyUsed and
+    if mouseIn(r) and (ui.mouseMoved or ui.pressed or waitRows[lv] == i):
+      if subIds[lv] == 0 or (subIds[lv] != id and rowTakesOver(i)):
+        hiOf(level) = i
+        openSub(lv, id, -1)
+      elif subIds[lv] == id:
+        hiOf(level) = i
+    if hiOf(level) == i and subIds[lv] == 0 and not ui.keyUsed and
        (ui.key == KeyRight or ui.key == KeyEnter):   # (an open menu's)
       ui.keyUsed = true
-      subId = id
-      subHi = 0
-      ui.redraw = true
-  if subId != id: return false
+      openSub(lv, id, 0)
+  if subIds[lv] != id: return false
   # Right of the whole menu (all its columns), else left of it, else on the
   # side with more room
   let st = state(id)
@@ -3783,10 +3813,10 @@ proc beginSubmenu*(label: string; enabled = true): bool =
     if pm.x - sw + 3 >= ui.winX: x = pm.x - sw + 3
     elif right - (pm.x + mw) >= pm.x - ui.winX: x = max(ui.winX, right - sw - 3)
     else: x = ui.winX
-  beginPopupMenu(id, x, r.y - 3, 1)
+  beginPopupMenu(id, x, r.y - 3, level + 1)
 
 template submenu*(label: string; body: untyped) =
-  ## An item that opens a menu of its own (one level deep).
+  ## An item that opens a menu of its own -- in a menu, or in a submenu (four deep at most).
   if beginSubmenu(label):
     body
     endMenu()

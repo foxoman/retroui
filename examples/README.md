@@ -242,11 +242,14 @@ remove pages; master pages put a running head or a page number
 (Layout > Page Numbers > Insert Page Number) on every page that has them;
 a text box goes on onto the next page, and Autoflow adds the pages a long
 text needs; Layout > Text Wrap makes text keep out of a layer -- round its
-box, round its shape, on both sides or one (a shape drawn with the Pen,
-at Opacity 0, is a wrap of your own outline). Type, a shape or a placed
-picture dragged past the spine goes on, on the facing page. The book is one file
-(.rpb), and File > Export Book as PDF writes all its pages with the type
-as type. Window > Workspace sets the panels and tools out for Photo,
+box, round its shape (its pixels, its edges, or a path you edit: Edit as
+a Path), on both sides or one (a shape drawn with the Pen, at Opacity 0,
+is a wrap of your own outline). Type, a shape or a placed picture dragged
+past the spine goes on, on the facing page. A picture goes into a frame
+with File > Place Into Frame (or a double-click on a template's frame),
+other layers with Layer > Put Inside. The book is one file (.rpb), and
+File > Save as PDF writes all its pages, a range or its spreads, with the
+type as type. Window > Workspace sets the panels and tools out for Photo,
 Drawing or Layout. In Paragraph: a text box as a list, with bullets of
 any shape or numbers in any style. In Character: the room between words and the tashkeel
 (coloured, raised, hidden); Type > Word Shapes shows the other shapes a

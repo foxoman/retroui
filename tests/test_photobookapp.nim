@@ -218,9 +218,42 @@ block savedOpenedAndAsPdf:
   run(2)
   doAssert not active.doc.modified, "saved: nothing to save"
   let pdf = home / "test.pdf"
+  proc pdfPages(f: string): int =
+    let s = readFile(f)
+    var i = 0
+    while true:
+      i = s.find("/Type /Page ", i)
+      if i < 0: break
+      inc result
+      i += 11
   bookPdf = bw
   doAssert bookPdfWrite(pdf, pdfPreset(ppWeb))
-  doAssert readFile(pdf).startsWith("%PDF")
+  doAssert readFile(pdf).startsWith("%PDF") and pdfPages(pdf) == count, "every page: " & $pdfPages(pdf)
+  # File > Save as PDF of a book's page: the book -- all of it, the page shown, a range, spreads
+  startSavePdf(bw.dw)
+  doAssert pdfPath.endsWith(bw.book.name & ".pdf"), "named after the book: " & pdfPath
+  pdfPick = false
+  startPdfOptions(@[bw.dw.doc], pdf)
+  bookPdfFor(bw.dw)
+  doAssert bookPdf == bw and bookPdfNote() == $count & " pages"
+  bookPdfPages = (1, "", false)
+  doAssert bookPdfNote() == "1 page"
+  bookPdfPages = (2, "1-2", false)
+  doAssert bookPdfNote() == "2 pages"
+  pdfDlg.open = false
+  writePdfNow()
+  doAssert pdfPages(pdf) == 2, "a range: " & $pdfPages(pdf)
+  startPdfOptions(@[bw.dw.doc], pdf)
+  bookPdfFor(bw.dw)
+  bookPdfPages = (0, "", true)
+  pdfDlg.open = false
+  writePdfNow()
+  doAssert pdfPages(pdf) < count, "as spreads, fewer sheets: " & $pdfPages(pdf)
+  bookPdfPages = (0, "", false)
+  # a picture's own Save as PDF: no book in it
+  startPdfOptions(@[bw.dw.doc], pdf)
+  doAssert bookPdf == nil
+  pdfDlg.open = false
   # closed, opened again through File > Open
   active.win.open = false
   run(3)
@@ -1082,5 +1115,63 @@ block brushesAlongAPath:
   pbDlg.open = false
   if d.stepOpen: d.endStep()
   doAssert d.layers.len == n0 + 1 and pbDlg.made.shape.path.subs.len > 10
+
+block picturesIntoFrames:
+  # File > Place with a photo placeholder picked: the picture inside it, covering it, clipped;
+  # placed again: in the first one's place. Layer > Put Inside; Edit > Paste Into a frame.
+  let d = newDoc(400, 300, 0xFFFFFFFF'u32)
+  addDoc(d)
+  run(2)
+  var F: Layer
+  d.layersChange("Frame"):
+    F = d.addShapeLayer(ShapeData(path: rectPath(100, 50, 300, 250), fill: solidPaint(0xFFC8C8C8'u32),
+                                  kind: "Rectangle"), "Frame")
+    F.attrs.placeholder = 1
+  let pic = home / "pic.png"
+  var bm = newBitmap(80, 40)
+  for k in 0 ..< bm.px.len: bm.px[k] = 0xFF3080C0'u32
+  discard bm.savePng(pic)
+  d.cur = d.layers.find(F)
+  placeSmart(d, pic)
+  var at = d.layers.find(F)
+  doAssert d.layers[at + 1].isSmart and d.layers[at + 1].clipped, "inside it"
+  let b = d.layerBox(d.layers[at + 1])
+  doAssert b.w >= 200 and b.h >= 200, "covering it: " & $b
+  run(2)
+  d.cur = d.layers.find(F)
+  let n = d.layers.len
+  placeSmart(d, pic)
+  doAssert d.layers.len == n, "in the first one's place"
+  # fitting it whole, as a placeholder of that kind says
+  F.attrs.placeholder = 2
+  d.cur = d.layers.find(F)
+  placeSmart(d, pic)
+  at = d.layers.find(F)
+  let fb = d.layerBox(d.layers[at + 1])
+  doAssert fb.w <= 201 and fb.h < 150, "fitting it: " & $fb
+  # Layer > Put Inside: the picked layers into the frame picked last
+  var D: Layer
+  d.layersChange("Dot"):
+    D = d.addShapeLayer(ShapeData(path: ellipsePath(20, 20, 60, 60), fill: solidPaint(0xFF000000'u32),
+                                  kind: "Ellipse"), "Dot")
+  d.clearPicks()
+  D.picked = true
+  F.picked = true
+  d.cur = d.layers.find(F)
+  runCommand("Put Inside")
+  doAssert D.clipped and d.layers.find(D) > d.layers.find(F), "inside the frame"
+  runCommand("Undo")
+  doAssert not D.clipped, "one step"
+  # Edit > Paste Into, nothing selected, the frame picked: over its middle, clipped to it
+  d.selectAll()
+  d.cur = d.layers.find(D)
+  copyToClip(d, false)
+  d.selectNone()
+  d.cur = d.layers.find(F)
+  runCommand("Paste Into")
+  let P = d.current
+  doAssert P.clipped and d.layers.find(P) > d.layers.find(F), "pasted inside it"
+  active.win.open = false
+  run(3)
 
 echo "photo book app tests passed"

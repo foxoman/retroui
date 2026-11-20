@@ -570,6 +570,8 @@ type
                             ## on the side with more room (3), on the side toward the spine (4) or
                             ## away from it (5) -- a book's page: the binding decides which that is
     wrapSig: string         # (what was in a type layer's way when it was last drawn: `rewrap`)
+    wrapCache: tuple[key: string; polys: seq[seq[(float32, float32)]]]
+                            # (its outline for Round its shape, and what it was made from: `wrapContour`)
     fromSpan*: int          ## a book's page: the part of an object of the facing page (the page that
                             ## is this `id`) that lies on this one -- a copy, locked, made again
                             ## when the object changes (0: the page's own)
@@ -912,6 +914,13 @@ type
     invert*: bool                ## the text inside its outline, not round it
     least*: float32              ## a type layer: the shortest piece of a line set beside an object,
                                  ## points (0: two of its letters' size) -- no word or two alone there
+    contour*: int                ## round its shape: its outline from its pixels' alpha (0; a shape: its
+                                 ## path), from its edges -- what is not its border's color: a photo on
+                                 ## a plain background (1) --, or a path of the document (2)
+    contourPath*: string         ## ... that path's name (edited with the path tools, the wrap follows)
+    threshold*: int              ## ... how solid (alpha) or how far from the border's color (edges) a
+                                 ## pixel is to count, 0..255 (0: 24)
+    inset*: float32              ## ... its outline drawn in by this many points (out: negative)
 
   ObjectStyleDef* = object
     ## An Object Style: how a shape or a text frame looks, kept by name in the document and given
@@ -1783,6 +1792,171 @@ proc grownQuad(q: WrapPoly; off: array[4, float32]): WrapPoly =
     let t = ((B.px - A.px) * B.dy - (B.py - A.py) * B.dx) / den
     result.add (A.px + A.dx * t, A.py + A.dy * t)
 
+proc pathPolygons(p: Path; steps = 12): seq[seq[(float32, float32)]] =
+  ## (a path's closed outlines as polygons, its curves in short straight pieces)
+  for sp in p.subs:
+    if sp.pts.len < 2: continue
+    var poly: seq[(float32, float32)]
+    let n = sp.pts.len
+    poly.add (float32(sp.pts[0].p[0]), float32(sp.pts[0].p[1]))
+    for k in 0 ..< n:
+      let a = sp.pts[k]
+      let b = sp.pts[(k + 1) mod n]
+      if a.outH == a.p and b.inH == b.p:
+        poly.add (float32(b.p[0]), float32(b.p[1]))
+        continue
+      for t in 1 .. steps:
+        let u = t / steps
+        let mu = 1 - u
+        poly.add (float32(mu*mu*mu*a.p[0] + 3*mu*mu*u*a.outH[0] + 3*mu*u*u*b.inH[0] + u*u*u*b.p[0]),
+                  float32(mu*mu*mu*a.p[1] + 3*mu*mu*u*a.outH[1] + 3*mu*u*u*b.inH[1] + u*u*u*b.p[1]))
+    if poly.len > 1 and poly[^1] == poly[0]: poly.setLen(poly.len - 1)
+    if poly.len >= 3: result.add poly
+
+proc thinned(poly: seq[(float32, float32)]; tol: float32): seq[(float32, float32)] =
+  ## (a closed outline with the points it can do without taken away: Douglas-Peucker, `tol` pixels)
+  if poly.len < 8: return poly
+  var keep = newSeq[bool](poly.len)
+  proc dp(a, b: int) =
+    if b <= a + 1: return
+    let (ax, ay) = poly[a]
+    let (bx, by) = poly[b]
+    let dx = bx - ax
+    let dy = by - ay
+    let l = max(1e-6'f32, sqrt(dx * dx + dy * dy))
+    var far = -1
+    var most = tol
+    for i in a + 1 ..< b:
+      let dist = abs((poly[i][0] - ax) * dy - (poly[i][1] - ay) * dx) / l
+      if dist > most: (most, far) = (dist, i)
+    if far >= 0:
+      keep[far] = true
+      dp(a, far)
+      dp(far, b)
+  let mid = poly.len div 2
+  keep[0] = true
+  keep[mid] = true
+  dp(0, mid)
+  dp(mid, poly.len - 1)
+  keep[poly.len - 1] = true
+  for i, q in poly:
+    if keep[i]: result.add q
+
+proc wrapContour*(d: Doc; M: Layer): seq[seq[(float32, float32)]] =
+  ## The outline Text Wrap's Round its shape keeps text out of for layer `M`, document pixels:
+  ## a document's path when its options say so (`wrapOpts.contourPath`: edit it with the path
+  ## tools and the wrap follows); a shape's own path (with its stroke); else traced from its
+  ## pixels -- those more solid than the threshold, or (edges) those further from the color of
+  ## the picture's border than it: a photo on a plain background --, drawn in by its inset;
+  ## each part an outline of its own (its holes left out). Kept until the layer or its options
+  ## change.
+  let o = M.wrapOpts
+  let thr = if o.threshold > 0: o.threshold else: 24
+  let insetPx = o.inset * float32(max(1.0, d.dpi) / 72)
+  var key = $M.ver & "|" & $o.contour & "|" & $thr & "|" & $insetPx & "|" & $d.w & "x" & $d.h
+  var path: Path
+  var hasPath = false
+  if o.contour == 2 and o.contourPath.len > 0:
+    for p in d.paths:
+      if p.name == o.contourPath:
+        path = p
+        hasPath = true
+    if hasPath:
+      key.add "|p"
+      for sp in path.subs:
+        for q in sp.pts: key.add "," & $int(q.p[0] * 4) & ":" & $int(q.p[1] * 4) & ":" & $int(q.inH[0] * 4) &
+                                 ":" & $int(q.outH[1] * 4)
+  elif M.isShape and o.contour == 0:
+    key.add "|s" & $M.shape.strokeWidth
+    path = M.shape.path
+    hasPath = true
+    for sp in path.subs:
+      for q in sp.pts: key.add "," & $int(q.p[0] * 4) & ":" & $int(q.p[1] * 4)
+  if M.wrapCache.key == key: return M.wrapCache.polys
+  var polys: seq[seq[(float32, float32)]]
+  if hasPath: polys = pathPolygons(path)
+  elif M.px.len == d.w * d.h:
+    let b = d.contentBounds(M)
+    if b.w > 0 and b.h > 0:
+      # (on a grid of at most 600 cells across: each cell in or out)
+      let step = max(1, max(b.w, b.h) div 600)
+      let gw = b.w div step + 1
+      let gh = b.h div step + 1
+      # (the inset in cells: a negative one draws it out -- room round it for that)
+      let r = min(60, int(round(abs(insetPx) / step.float32)))
+      let pad = 1 + (if insetPx < 0: r else: 0)
+      let rowW = gw + 2 * pad
+      var cell = newSeq[bool](rowW * (gh + 2 * pad))
+      template at(gx, gy: int): untyped = cell[(gy + pad) * rowW + gx + pad]
+      var border = 0'u32
+      if o.contour == 1:
+        # (the border's color: what is most on the edges of its box)
+        var counts: CountTable[uint32]
+        for x in b.x ..< b.x + b.w:
+          for y in [b.y, b.y + b.h - 1]: counts.inc(M.px[y * d.w + x] and 0xFCFCFCFC'u32)
+        for y in b.y ..< b.y + b.h:
+          for x in [b.x, b.x + b.w - 1]: counts.inc(M.px[y * d.w + x] and 0xFCFCFCFC'u32)
+        border = counts.largest[0]
+      let br = int((border shr 16) and 255)
+      let bgc = int((border shr 8) and 255)
+      let bb = int(border and 255)
+      for gy in 0 ..< gh:
+        let y = min(b.y + b.h - 1, b.y + gy * step + step div 2)
+        for gx in 0 ..< gw:
+          let x = min(b.x + b.w - 1, b.x + gx * step + step div 2)
+          let c = M.px[y * d.w + x]
+          let a = int(c shr 24)
+          at(gx, gy) =
+            if o.contour == 1:
+              a > thr and max(abs(int((c shr 16) and 255) - br), max(abs(int((c shr 8) and 255) - bgc),
+                                                                    abs(int(c and 255) - bb))) > thr
+            else: a > thr
+      # (the inset: the cells drawn in -- or, a negative one, out -- a cell's width at a time)
+      let lo = 1 - pad
+      for _ in 0 ..< r:
+        var next = cell
+        for gy in lo ..< gh + pad - 1:
+          for gx in lo ..< gw + pad - 1:
+            let n = at(gx - 1, gy) and at(gx + 1, gy) and at(gx, gy - 1) and at(gx, gy + 1)
+            let any = at(gx - 1, gy) or at(gx + 1, gy) or at(gx, gy - 1) or at(gx, gy + 1)
+            next[(gy + pad) * rowW + gx + pad] = if insetPx > 0: at(gx, gy) and n else: at(gx, gy) or any
+        cell = next
+      # (the cells' edges with the inside on the right, joined into loops: outer ones go round
+      # clockwise as the screen shows them, holes the other way -- those are left out)
+      var starts = initTable[(int, int), seq[int]]()
+      var edges: seq[((int, int), (int, int))]
+      template add(a, c: (int, int)) =
+        starts.mgetOrPut(a, @[]).add edges.len
+        edges.add (a, c)
+      for gy in -pad + 1 ..< gh + pad - 1:
+        for gx in -pad + 1 ..< gw + pad - 1:
+          if not at(gx, gy): continue
+          if not at(gx, gy - 1): add((gx, gy), (gx + 1, gy))
+          if not at(gx + 1, gy): add((gx + 1, gy), (gx + 1, gy + 1))
+          if not at(gx, gy + 1): add((gx + 1, gy + 1), (gx, gy + 1))
+          if not at(gx - 1, gy): add((gx, gy + 1), (gx, gy))
+      var used = newSeq[bool](edges.len)
+      for e0 in 0 ..< edges.len:
+        if used[e0]: continue
+        var loop: seq[(float32, float32)]
+        var e = e0
+        var area = 0.0
+        while not used[e]:
+          used[e] = true
+          let (p0, p1) = edges[e]
+          area += float(p0[0] * p1[1] - p1[0] * p0[1])
+          loop.add (float32(b.x + p0[0] * step), float32(b.y + p0[1] * step))
+          var nx = -1
+          for k in starts.getOrDefault(p1):
+            if not used[k]:
+              nx = k
+              break
+          if nx < 0: break
+          e = nx
+        if loop.len >= 3 and area > 0: polys.add thinned(loop, max(0.75'f32, step.float32 * 0.75))
+  M.wrapCache = (key, polys)
+  polys
+
 proc bandSpan*(poly: openArray[(float32, float32)]; ya, yb: float32): tuple[ok: bool; x0, x1: float32] =
   ## Where an outline lies across the band from `ya` down to `yb`: from its leftmost to its
   ## rightmost point there (not `ok`: it is not in the band).
@@ -1828,29 +2002,48 @@ proc wrapHoles*(d: Doc; L: Layer): seq[TextHole] =
     let first = result.len
     var poly: WrapPoly
     if M.wrap == 2:
-      # (its shape: every four rows, from its first pixel across to its last)
-      let b = d.contentBounds(M)
-      if b.w <= 0 or b.h <= 0: continue
-      let g = off[0]
-      const band = 4
-      var y = b.y
-      while y < b.y + b.h:
-        var x0 = high(int)
-        var x1 = -1
-        for yy in y ..< min(b.y + b.h, y + band):
-          let row = yy * d.w
-          var xa = b.x
-          while xa < b.x + b.w and (M.px[row + xa] shr 24) <= 8: inc xa
-          if xa >= b.x + b.w: continue
-          var xb = b.x + b.w - 1
-          while xb > xa and (M.px[row + xb] shr 24) <= 8: dec xb
-          x0 = min(x0, xa)
-          x1 = max(x1, xb + 1)
-        if x1 > x0:
-          result.add (x0.float32 - g, y.float32 - g, x1.float32 + g, float32(min(b.y + b.h, y + band)) + g)
-        y += band
-      poly = @[(b.x.float32 - g, b.y.float32 - g), (float32(b.x + b.w) + g, b.y.float32 - g),
-               (float32(b.x + b.w) + g, float32(b.y + b.h) + g), (b.x.float32 - g, float32(b.y + b.h) + g)]
+      # (its shape: its outline -- each part of it -- band by band, two pixels each, grown by its
+      # offset round every side: a band takes in the bands its offset reaches)
+      # (a shape's stroke: half of it is outside its path)
+      let g = max(0'f32, off[0]) + (if M.isShape and M.wrapOpts.contour == 0 and M.shape.stroke.kind != spNone:
+                                       float32(M.shape.strokeWidth / 2) else: 0'f32)
+      const band = 2'f32
+      var all: WrapPoly
+      for part in d.wrapContour(M):
+        var bands: seq[tuple[y, x0, x1: float32]]
+        var top = 1e30'f32
+        var bottom = -1e30'f32
+        for q in part:
+          top = min(top, q[1]); bottom = max(bottom, q[1])
+          all.add q
+        var y = top
+        while y < bottom:
+          let sp = bandSpan(part, y, min(bottom, y + band))
+          if sp.ok: bands.add (y, sp.x0, sp.x1)
+          y += band
+        if bands.len == 0: continue
+        if g <= 0:
+          for bd in bands: result.add (bd.x0, bd.y, bd.x1, bd.y + band)
+          continue
+        let y1 = bottom + g
+        var yy = top - g
+        while yy < y1:
+          var x0 = 1e30'f32
+          var x1 = -1e30'f32
+          for bd in bands:
+            let dy = if bd.y + band < yy: yy - (bd.y + band) elif bd.y > yy + band: bd.y - (yy + band) else: 0'f32
+            if dy > g: continue
+            let reach = sqrt(max(0'f32, g * g - dy * dy))
+            x0 = min(x0, bd.x0 - reach)
+            x1 = max(x1, bd.x1 + reach)
+          if x1 > x0: result.add (x0, yy, x1, yy + band)
+          yy += band
+      if all.len < 3: continue
+      var ax0, ay0 = 1e30'f32
+      var ax1, ay1 = -1e30'f32
+      for q in all:
+        ax0 = min(ax0, q[0]); ax1 = max(ax1, q[0]); ay0 = min(ay0, q[1]); ay1 = max(ay1, q[1])
+      poly = @[(ax0 - g, ay0 - g), (ax1 + g, ay0 - g), (ax1 + g, ay1 + g), (ax0 - g, ay1 + g)]
     else:
       poly = grownQuad(d.wrapOutline(M), off)
       if poly.len < 3: continue
@@ -5975,6 +6168,27 @@ proc moveLayer*(d: Doc; i, to: int) =
   let gap = if to > i: to + 1 else: to
   discard d.moveBlock(i, gap)
 
+proc putInside*(d: Doc; frame: Layer; layers: openArray[Layer]): int {.discardable.} =
+  ## Layers put inside `frame` -- a shape, type, a photo placeholder --, as the layout program's
+  ## Paste Into and the drawing program's Draw Inside have it: each just over it (over what is in
+  ## it already), clipped to it, in the order they were in; the frame itself, groups and the
+  ## Background stay where they are. The number put in; the frame the current layer.
+  ## (Undoable in a step: `touchLayers` first.)
+  if frame == nil or frame.background or d.layers.find(frame) < 0: return
+  var order: seq[Layer]
+  for L in d.layers:                      # (bottom to top, as they were)
+    if L in layers and L != frame and not L.background and not L.group: order.add L
+  for M in order:
+    var gap = d.layers.find(frame) + 1
+    while gap < d.layers.len and d.layers[gap].clipped and d.layers[gap] != M: inc gap
+    let i = d.layers.find(M)
+    if i < 0: continue
+    if i != gap: d.moveBlock(i, gap, frame.depth)
+    M.clipped = true
+    inc result
+  d.cur = d.layers.find(frame)
+  d.markAll()
+
 type Arrange* = enum
   ## Where Layer > Arrange moves a layer (`arrange`).
   arFront = "Bring to Front", arForward = "Bring Forward", arBackward = "Send Backward",
@@ -8936,6 +9150,10 @@ proc wrapToJson*(w: WrapOptions): JsonNode =
   if w.linked: result["linked"] = %true
   if w.invert: result["invert"] = %true
   if w.least > 0: result["least"] = %w.least
+  if w.contour != 0: result["contour"] = %w.contour
+  if w.contourPath.len > 0: result["contourPath"] = %w.contourPath
+  if w.threshold != 0: result["threshold"] = %w.threshold
+  if w.inset != 0: result["inset"] = %w.inset
 
 proc wrapFromJson*(j: JsonNode): WrapOptions =
   ## (none: the options of a file before 0.67 -- its `wrapGap` stands)
@@ -8946,6 +9164,10 @@ proc wrapFromJson*(j: JsonNode): WrapOptions =
   result.linked = j{"linked"}.getBool
   result.invert = j{"invert"}.getBool
   result.least = clamp(float32(j{"least"}.getFloat(0)), 0, 2000)
+  result.contour = clamp(j{"contour"}.getInt(0), 0, 2)
+  result.contourPath = j{"contourPath"}.getStr("")
+  result.threshold = clamp(j{"threshold"}.getInt(0), 0, 255)
+  result.inset = clamp(float32(j{"inset"}.getFloat(0)), -2000, 2000)
 
 proc objectStyleToJson*(s: ObjectStyleDef): JsonNode =
   result = %*{"name": s.name, "useFill": s.useFill, "useStroke": s.useStroke, "useEffects": s.useEffects,

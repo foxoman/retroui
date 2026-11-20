@@ -272,8 +272,8 @@ proc magazine(): Book =
     discard d.words("MASTHEAD", st(124, navy, bold = true), 44, 40, W - 88, 170)
     discard d.box(52, 214, W - 52, 220, navy)
     discard d.words("No. 1   MONTH 2026", st(14, ink), 52, 232, 400, 22)
-    discard d.box(52, 280, W - 52, 900, 0xFFD9D4CB'u32, 0, "Picture frame")
-    discard d.words("File > Place a picture here", st(20, 0xFF777777'u32, italic = true), 52, 570, W - 104, 40, textCenter)
+    # (a photo placeholder: the program says on it how a picture goes in -- not in the file)
+    d.box(52, 280, W - 52, 900, 0xFFD9D4CB'u32, 0, "Picture frame").attrs.placeholder = 1
     discard d.box(52, 940, 62, 1080, amber)
     discard d.words("THE COVER\nSTORY", st(54, navy, bold = true), 80, 932, W - 130, 140, leading = 58)
     discard d.words("A line that tells the reader why it matters", st(22, ink, "FreeSerif", italic = true),
@@ -345,9 +345,7 @@ proc cards(rtl: bool): Book =
   for i in 0 .. 1: b.setMaster(i, m.id)
   block:
     let d = b.doc(0)
-    discard d.box(60, 150, W - 60, 640, 0xFFDCE6E2'u32, 36, "Picture panel")
-    discard d.words((if rtl: "ضع الصورة هنا: ملف > وضع" else: "File > Place a picture here"),
-                    st(26, indigo), 60, 380, W - 120, 40, textCenter, dir)
+    d.box(60, 150, W - 60, 640, 0xFFDCE6E2'u32, 36, "Picture panel").attrs.placeholder = 1
     discard d.box(60, 664, W - 60, 852, indigo, 36, "Title band")
     discard d.words((if rtl: "العنوان الرئيسي" else: "Main Title"), st(84, 0xFFFFFFFF'u32, bold = true),
                     100, 680, W - 200, 100, textCenter, dir)

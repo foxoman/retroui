@@ -1,5 +1,5 @@
 ## Tests of an app run from the command line by a script (retroui/drive): RETRO_SCRIPT's steps
-## (a click, typing, a key, a wait for a control) done in order, RETRO_SNAPSHOT's picture of the
+## (a click -- on a control, or at a point --, typing, a key, a wait for a control) done in order, RETRO_SNAPSHOT's picture of the
 ## window kept in memory written once they are done and the app ended; a step that fails says
 ## which and ends the app with 1; a script that is not one, with 2. This program is the app
 ## too: started with the variables, it is the app; without, it starts itself with them.
@@ -12,7 +12,11 @@ if getEnv("RETRO_SCRIPT").len > 0 or getEnv("RETRO_SNAPSHOT").len > 0:
   var name = ""
   var count = 0
   var saved = false
+  var taps = 0
   app "Script Test", 360, 240:
+    # (a place with no name -- a canvas's: a click at a point lands there)
+    if ui.pressed and rect(300, 200, 50, 30).contains(point(ui.mx, ui.my)): inc taps
+    if taps > 0: label("Tapped " & $taps)
     row:
       label "&Name:"
       edit(name, w = dp(160))
@@ -43,6 +47,10 @@ block stepsAndPicture:
                   dir / "app.png")
   doAssert r.code == 0, r.output
   doAssert fileExists(dir / "app.png") and readFile(dir / "app.png").startsWith("\x89PNG")
+
+block aClickAtAPoint:
+  let r = runWith("click:@320,210;wait:Tapped 1;click:@10,10;click:@320,215;wait:Tapped 2", dir / "point.png")
+  doAssert r.code == 0, r.output
 
 block aPictureOnly:
   let r = runWith("", dir / "first.png")

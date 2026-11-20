@@ -134,6 +134,7 @@ proc psMenus() =
       ci("Place &Embedded...", "Place...", enabled = some)
       ci("Place Lin&ked...", "Place Linked...", enabled = some)
       ci("Place as &Layer...", "Layer from File...", enabled = some)
+      ci("Place &Into Frame...", "Place Into...", enabled = some and not bgl)
       sep()
       psSub "Au&tomate":
         ci("&Batch...")
@@ -443,6 +444,7 @@ proc psMenus() =
          if some and d.current.locked: "Unlock Layer" else: "Lock Layer", enabled = some and not bgl)
       sep()
       ci("&Place Into...", enabled = some and not bgl)
+      ci("Put &Inside", enabled = some and not bgl and d.pickedLayers.len > 1)
       psSub "Fitti&ng":
         let fc = frameAndContent(d).content != nil
         ci("&Fill Frame Proportionally", enabled = fc)

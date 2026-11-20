@@ -75,7 +75,8 @@
 ##   RETRO_SCRIPT="click:New;type:Shopping list;key:ctrl+s;wait:Saved" RETRO_SNAPSHOT=new.png ./notes
 ##   RETRO_PLAY="click:Add;type:Milk;key:enter;wait:2" ./notes
 ##
-## The steps: `click:NAME`, `dblclick:NAME`, `rclick:NAME`, `type:TEXT`, `key:ctrl+s`,
+## The steps: `click:NAME` (or `click:@X,Y`, a point in logical pixels: a canvas, a picture),
+## `dblclick:NAME`, `rclick:NAME`, `type:TEXT`, `key:ctrl+s`,
 ## `wait:SECONDS` or `wait:NAME` (until it is there), `focus:NAME`, `set:NAME=VALUE`,
 ## `shot:FILE` (a picture then), `quit`; "\;" a semicolon in a step.
 ##
@@ -747,7 +748,13 @@ when not defined(wasm):
     case verb
     of "click", "dblclick", "rclick":
       result.add ("cmd", "click", true)
-      result.add ("name", arg.strip, true)
+      let a = arg.strip
+      let xy = if a.startsWith("@"): a[1 .. ^1].split(',') else: @[]
+      if xy.len == 2 and xy[0].strip.len > 0 and xy[1].strip.len > 0 and
+         allCharsInSet(xy[0].strip, Digits) and allCharsInSet(xy[1].strip, Digits):
+        # (a point, logical pixels: "click:@120,48" -- a canvas has no names)
+        result.add [("x", xy[0].strip, false), ("y", xy[1].strip, false)]
+      else: result.add ("name", a, true)
       if verb == "dblclick": result.add ("clicks", "2", false)
       if verb == "rclick": result.add ("button", "right", true)
     of "type": result.add [("cmd", "type", true), ("text", arg, true)]

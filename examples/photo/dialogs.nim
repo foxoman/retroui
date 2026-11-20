@@ -233,7 +233,8 @@ proc startSavePdf(dw: DocWin) =
   proc go() =
     let dir = if dw.doc.path.len > 0 and dirExists(dw.doc.path.parentDir): dw.doc.path.parentDir
               else: picturesDir()
-    pdfPath = dir / dw.doc.name.changeFileExt("") & ".pdf"
+    let book = bookPdfName(dw)
+    pdfPath = dir / (if book.len > 0: book else: dw.doc.name.changeFileExt("")) & ".pdf"
     pdfPick = true
   if storageFor(go): go()
 
@@ -738,6 +739,7 @@ proc fileDialogs() =
       var p = pdfPath
       if p.splitFile.ext.toLowerAscii != ".pdf": p.add ".pdf"
       startPdfOptions(@[pdfDoc.doc], p)
+      bookPdfFor(pdfDoc)         # (a book's page: the book, its pages chosen in the dialog)
   if filePicker(savePick, savePath, fmSave, savePatterns, "Save As"):
     if saveDoc != nil:
       var p = savePath
@@ -1792,6 +1794,9 @@ const
                    "Torn Edges", "Water Paper"]
   galleryStylize = ["Glowing Edges"]
   galleryTexture = ["Craquelure", "Grain", "Mosaic Tiles", "Patchwork", "Stained Glass", "Texturizer"]
+  galleryGroups = [("Artistic", @galleryArtistic), ("Brush Strokes", @galleryBrush), ("Distort", @galleryDistort),
+                   ("Sketch", @gallerySketch), ("Stylize", @galleryStylize), ("Texture", @galleryTexture)]
+    ## (the Filter Gallery's groups: its window goes from one filter to another of them)
   lightAngles = ["Bottom", "Bottom Left", "Left", "Top Left", "Top", "Top Right", "Right", "Bottom Right"]
   lightDegrees = [270.0, 225, 180, 135, 90, 45, 0, 315]
 
@@ -2427,6 +2432,25 @@ proc filterDialog() =
   elif not canvasOk and fCanvasOn.doc != nil:
     dropCanvasPreview()
   dialog(fOpen, fSpec.name, 470):
+    # (a Filter Gallery filter: the gallery's groups and filters, to go to another at once)
+    var gi = -1
+    for k, g in galleryGroups:
+      if fSpec.name in g[1]: gi = k
+    if gi >= 0:
+      row:
+        label "Filter Gallery:"
+        var gk = gi
+        var names: seq[string]
+        for g in galleryGroups: names.add g[0]
+        if combo(names, gk, w = dp(120)) and gk != gi:
+          dropCanvasPreview()
+          dropDraft()
+          startFilter(galleryGroups[gk][1][0])
+        var fk = max(0, galleryGroups[gi][1].find(fSpec.name))
+        if combo(galleryGroups[gi][1], fk, w = dp(170)) and galleryGroups[gi][1][fk] != fSpec.name:
+          dropCanvasPreview()
+          dropDraft()
+          startFilter(galleryGroups[gi][1][fk])
     row([156, -1, 86]):
       col:
         # the preview: a part of the image, filtered; drag it to see another part

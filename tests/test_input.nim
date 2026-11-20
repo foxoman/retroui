@@ -867,6 +867,82 @@ block submenuReachedAcrossColumns:
   run(2)
   view = nil
 
+block submenusInSubmenus:
+  # a submenu in a submenu (Filter > Gallery > Artistic): it opens by the pointer and by the
+  # keys, beside the one it is in; its item chosen; Left closes it only
+  var chosen = ""
+  view = proc () =
+    menubar:
+      menu "&Filter":
+        if menuItem("&Last Filter"): chosen = "Last"
+        submenu "&Gallery":
+          submenu "&Artistic":
+            if menuItem("&Cutout"): chosen = "Cutout"
+            if menuItem("&Fresco"): chosen = "Fresco"
+            submenu "&More":
+              if menuItem("&Deep"): chosen = "Deep"
+          submenu "&Texture":
+            if menuItem("&Grain"): chosen = "Grain"
+        if menuItem("&Blur"): chosen = "Blur"
+  run(2)
+  # the keys: Alt+F, down to Gallery, Right, Right (Artistic), Down, Enter
+  key(KeyF, {AltPressed})
+  run(2)
+  key(KeyDown)
+  run()
+  key(KeyRight)
+  run(2)
+  let g = ui.popupRect2Now
+  doAssert g.w > 0, "Gallery open"
+  key(KeyRight)
+  run(3)
+  let both = ui.popupRect2Now
+  doAssert both.w > g.w + dp(60), "Artistic open beside it: " & $both & " " & $g
+  key(KeyDown)
+  run()
+  key(KeyEnter)
+  run(2)
+  doAssert chosen == "Fresco", chosen
+  doAssert ui.popup == 0, "all of it closed"
+  # Left closes the inner one only
+  key(KeyF, {AltPressed})
+  run(2)
+  key(KeyDown); run()
+  key(KeyRight); run(2)
+  key(KeyRight); run(3)
+  let wide = ui.popupRect2Now.w
+  key(KeyLeft)
+  run(3)
+  doAssert ui.popup != 0 and ui.popupRect2Now.w > 0 and ui.popupRect2Now.w < wide,
+           "Artistic closed, Gallery open: " & $ui.popupRect2Now
+  key(KeyEsc); run(2); key(KeyEsc); run(2)
+  # the pointer: onto Gallery, then onto Artistic, then a click on Cutout; a third level, too
+  key(KeyF, {AltPressed})
+  run(3)
+  let m = ui.popupRect
+  move(m.x + 20, m.y + 3 + 1 * (ui.popupRect.h - 6) div 3 + 6)
+  run(3)
+  let gal = ui.popupRect2Now
+  doAssert gal.w > 0 and gal.x >= m.x + m.w - 6, "Gallery beside the menu: " & $gal
+  move(gal.x + 20, gal.y + 10)               # (Artistic, its first row)
+  run(3)
+  let art = ui.popupRect2Now
+  doAssert art.w > gal.w + dp(60), "Artistic beside Gallery: " & $art
+  let ax = art.x + art.w - 40                # (in Artistic: right of Gallery)
+  move(ax, gal.y + 10)
+  run(2)
+  move(ax, gal.y + 10 + 2 * (MenuH + 1))     # (More, its third row)
+  run(3)
+  doAssert ui.popupRect2Now.w > art.w + dp(60), "More beside Artistic: " & $ui.popupRect2Now
+  move(ax, gal.y + 10)
+  run(2)
+  down(ax, gal.y + 10)
+  run()
+  up(ax, gal.y + 10)
+  run(2)
+  doAssert chosen == "Cutout", chosen
+  view = nil
+
 block sidewaysWheel:
   # A sideways wheel (a tilted one, a touch pad, macOS's Shift + the wheel)
   # is Shift + the wheel, as Windows and X11 send that: what scrolls

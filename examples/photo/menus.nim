@@ -71,6 +71,26 @@ proc paste(d: Doc; into: bool) =
     status = "Nothing to paste"
     return
   let selBefore = d.sel
+  if into and not d.hasSelection and d.cur >= 0 and not d.current.background and
+     (d.current.isShape or d.current.isText or d.current.isSmart or d.current.attrs.placeholder != 0):
+    # (nothing selected, a frame the current layer: what was copied inside it -- over its middle,
+    # clipped to it -- as the layout program's Paste Into)
+    let frame = d.current
+    let b = d.layerBox(frame)
+    d.layersChange("Paste Into"):
+      let L = d.addLayer("")
+      let x0 = b.x + (b.w - clip.w) div 2
+      let y0 = b.y + (b.h - clip.h) div 2
+      for y in 0 ..< clip.h:
+        for x in 0 ..< clip.w:
+          let tx = x0 + x
+          let ty = y0 + y
+          if tx >= 0 and ty >= 0 and tx < d.w and ty < d.h: L.px[ty * d.w + tx] = clip.px[y * clip.w + x]
+      inc L.ver
+      discard d.putInside(frame, [L])
+      d.cur = d.layers.find(L)
+    status = tr("Pasted inside ") & frame.name & tr(" (the Move tool moves it in there)")
+    return
   d.change(if into: "Paste Into" else: "Paste"):
     let into2 = into and d.hasSelection
     let L = d.pasteAsLayer(clip, centered = into2, name = "")
@@ -911,6 +931,20 @@ proc doCommand(name: string) =
     if d != nil and not d.current.background:
       placeInto = true
       runCommand("Place...")
+  of "Put Inside":
+    # the other picked layers into the current one (a frame, a shape, type): clipped to it
+    if d != nil and not d.current.background:
+      let frame = d.current
+      var others: seq[Layer]
+      for i in d.pickedLayers:
+        if d.layers[i] != frame: others.add d.layers[i]
+      if others.len == 0:
+        status = "Pick what goes inside, then the frame last (Shift+click): Put Inside puts them in it"
+      else:
+        var n = 0
+        d.layersChange("Put Inside"): n = d.putInside(frame, others)
+        d.clearPicks()
+        status = $n & tr(" put inside ") & frame.name & tr(" (Release Clipping Mask takes one out)")
   of "New Frame":
     # the usual Frame tool: a box (the selection's, else the middle of the
     # image; an ellipse with the elliptical marquee) to place a picture into
@@ -1237,6 +1271,7 @@ proc classicMenus() =
           settingsCache.at = -1
       item("Open &As...")
       item("&Place...", enabled = some)
+      item("Place &Into...", enabled = some and not d.current.background)
       menuSeparator()
       item("&Close", "Ctrl+W", some)
       item("&Save", "Ctrl+S", some)
@@ -1480,6 +1515,7 @@ proc classicMenus() =
         menuSeparator()
         item("&Gradient Mask", enabled = mk)
       item("&Place Into...", enabled = some and not d.current.background)
+      item("Put &Inside", enabled = some and not d.current.background and d.pickedLayers.len > 1)
       item("New &Frame", enabled = some)
       menuSeparator()
       item(if grp: "Merge Grou&p" else: "Merge Do&wn", "Ctrl+E", some and canMergeDown(d))

@@ -109,6 +109,10 @@ proc placeSmart(d: Doc; path: string) =
   ## current layer (type, a shape, a frame), as big as it needs to cover
   ## it, clipped to it -- the photo inside the letters. An SVG comes in as
   ## layers (its shapes vectors, its text type), half the image's size.
+  # (a photo placeholder -- a template's frame, Make Photo Placeholder -- the current layer: the
+  # picture goes into it, as the layout program's Place does with a frame picked)
+  if d.cur >= 0 and d.cur < d.layers.len and d.current.attrs.placeholder != 0 and not d.current.background:
+    placeInto = true
   if path.toLowerAscii.endsWith(".svg") and not placeInto:
     try:
       let data = readFile(path)
@@ -140,12 +144,21 @@ proc placeSmart(d: Doc; path: string) =
         file = readFile(tmp)
         removeFile(tmp)
       var k = min(1.0, min(d.w / src.w, d.h / src.h))
-      if target.w > 0 and target.h > 0: k = max(target.w / src.w, target.h / src.h)
+      # (into a frame: covering it -- or, a placeholder that fits it whole, inside it)
+      if target.w > 0 and target.h > 0:
+        k = if base.attrs.placeholder == 2: min(target.w / src.w, target.h / src.h)
+            else: max(target.w / src.w, target.h / src.h)
       let w = src.w.float * k
       let h = src.h.float * k
       let x = if target.w > 0: target.x.float + (target.w.float - w) / 2 else: (d.w.float - w) / 2
       let y = if target.w > 0: target.y.float + (target.h.float - h) / 2 else: (d.h.float - h) / 2
       d.layersChange("Place"):
+        # (a placeholder's picture before: this one in its place)
+        if into and base.attrs.placeholder != 0:
+          let bi = d.layers.find(base)
+          if bi >= 0 and bi + 1 < d.layers.len and d.layers[bi + 1].clipped and d.layers[bi + 1].isSmart:
+            d.deleteLayer(bi + 1)
+            d.cur = d.layers.find(base)
         let L = d.newLayer(path.splitFile.name)
         L.smart = SmartData(src: px, w: src.w, h: src.h, name: path.extractFilename, file: file,
                             quad: [(x, y), (x + w, y), (x + w, y + h), (x, y + h)],

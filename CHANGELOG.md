@@ -47,6 +47,45 @@
   in the .rpd, in Object Styles (`useWrap`), and in IDML
   (TextWrapPreference, its offsets, Inverse, IgnoreWrap -- written and
   read). Wraps round objects across the spine on both facing pages.
+- **Text Wrap round an object's shape** (`wrap` 2, `wrapContour`): its
+  real outline, kept until the layer or its options change -- from its
+  pixels (those more solid than `WrapOptions.threshold`, 24 of 255 when 0),
+  from its edges (what is not the plain background round it: a photo on
+  white), from a document path (`contour` 2, `contourPath`: edit its points
+  and the text follows), or a shape's own path with its stroke; drawn in or
+  out by `inset` (points). Each part of the outline is kept out of band by
+  band, two pixels a band, grown by the offset round every side, in place
+  of the four-pixel bands of before. In IDML as the ContourOption
+  (AlphaChannel, DetectEdges, PhotoshopPath and its name).
+- **Submenus in submenus** (`retroui/widgets`): a submenu opens one of its
+  own, four deep at most, by the pointer (the way to it kept open as for
+  the first level), a finger, its letter and the arrow keys; Left and Esc
+  close the innermost. Before, a submenu in a submenu never opened.
+- **Put inside a frame** (`putInside`, `retroui/photo`): layers put inside
+  a shape, type or a photo placeholder -- each just over it, clipped to it,
+  in their order -- as the layout program's Paste Into and the drawing
+  program's Draw Inside.
+- **Scripts click a point** (`retroui/drive`): `click:@X,Y` in
+  `RETRO_SCRIPT`, a point in logical pixels -- a canvas, a picture.
+- **Retro Atelier**: Text Wrap's Round its Shape in the panel: where its
+  outline comes from (its pixels, its edges, a path), the threshold, the
+  inset, and Edit as a Path -- the outline a path of the document, to drag
+  point by point with the Direct Selection tool.
+- **Retro Atelier**: File > Save as PDF of a book's page saves the book --
+  all its pages, the page shown or a range (1-3, 5, 8-), as pages or as
+  spreads -- and Export Book as PDF has the same choices; before, Save as
+  PDF saved only the page shown.
+- **Retro Atelier**: pictures into frames. File > Place Into Frame; File >
+  Place with a photo placeholder picked puts the picture inside it (in
+  place of the one there, filling it or fitting it whole as the
+  placeholder says); the templates' picture frames are placeholders (a
+  double-click or a tap puts a picture in, the screen says so on an empty
+  one, the file has no words about it); Layer > Put Inside puts the
+  picked layers inside the frame picked last; Edit > Paste Into with
+  nothing selected pastes inside the frame picked.
+- **Retro Atelier**: Filter > Filter Gallery's groups open (their submenus
+  are in a submenu); a gallery filter's window goes to another of the
+  gallery's filters from its group and name.
 - **Retro Atelier**: the Text Wrap panel (Window > Text Wrap; Layout >
   Text Wrap; a layer's right-click menu) in place of the dialog: its five
   kinds as buttons, Invert, the four offsets in the rulers' unit with one

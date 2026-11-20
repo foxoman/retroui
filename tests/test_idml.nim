@@ -442,6 +442,17 @@ block textWrapInIdml:
   c.boxH = 40
   let C = d.addTextLayer(c)
   C.ignoreWrap = true
+  # round its shape: from its edges; from a path of the document, by its name
+  let E = d.addLayer("Edges")
+  for y in 620 ..< 700:
+    for x in 300 ..< 400: E.px[y * d.w + x] = 0xFFFFFFFF'u32
+  inc E.ver
+  E.wrap = 2
+  E.wrapOpts.contour = 1
+  let K = d.addShapeLayer(ShapeData(path: rectPath(420, 620, 500, 700), fill: solidPaint(0xFF808080'u32)), "Kept")
+  K.wrap = 2
+  K.wrapOpts.contour = 2
+  K.wrapOpts.contourPath = "Around"
   var def = objectStyleOf(S, "Jumps")
   d.redefineObjectStyle(def)
   d.applyObjectStyle(S, "Jumps")
@@ -449,14 +460,17 @@ block textWrapInIdml:
   d.saveDocIdml(dir / "wrap.idml")
   let r = readIdml(dir / "wrap.idml")
   let rd = r.doc(0)
-  var seenBand, seenBox, seenCaption = false
+  var seenBand, seenBox, seenCaption, seenEdges, seenPath = false
   for L in rd.layers:
     if L.wrap == 1:
       doAssert L.wrapSide == 4 and L.wrapOpts.offsets == [3'f32, 6, 9, 12], $L.wrapOpts
       seenBand = true
     elif L.wrap == 3 and L.isShape: seenBox = true
+    elif L.wrap == 2 and L.wrapOpts.contour == 1: seenEdges = true
+    elif L.wrap == 2 and L.wrapOpts.contour == 2 and L.wrapOpts.contourPath == "Around": seenPath = true
     elif L.isText and L.ignoreWrap: seenCaption = true
-  doAssert seenBand and seenBox and seenCaption, $(seenBand, seenBox, seenCaption)
+  doAssert seenBand and seenBox and seenCaption and seenEdges and seenPath,
+           $(seenBand, seenBox, seenCaption, seenEdges, seenPath)
   let k = rd.objectStyleIndex("Jumps")
   doAssert k >= 0 and rd.objectStyles[k].useWrap and rd.objectStyles[k].wrap == 3, "the Object Style keeps it"
   r.close()

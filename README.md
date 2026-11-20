@@ -2206,12 +2206,16 @@ pages**, **page numbers** (Layout > Page Numbers > Insert Page Number: digits, A
 Roman, letters, abjad), text that **goes on from page to page** (Flow Onto the Next Page;
 Autoflow adds the pages a long text needs) and **keeps out of pictures** (Window > Text Wrap, a
 panel that applies as you change it: round a layer's box -- a placed picture's turned or slanted
-box as it is --, round its shape, under it, or on in the next column; its offsets on each side
+box as it is --, round its shape (traced from its pixels or its edges, a threshold and an inset,
+or a path you edit point by point: Edit as a Path), under it, or on in the next column; its offsets on each side
 in the rulers' unit; on both sides, one, the side with more room, toward or away from the spine;
 the text inside it instead; the shortest piece of a line set beside an object, so no word is left
 alone there; kept in Object Styles and in IDML; a shape drawn with the Pen at Opacity 0 is a
 wrap of any outline). The **Pages** panel turns, adds, copies and removes pages; the book
-is one file (.rpb) and one PDF, type as type. Type, a shape or a placed picture drawn out
+is one file (.rpb) and one PDF, type as type -- all its pages, a range, or as spreads (File > Save as
+PDF). A picture goes **into a frame** with File > Place Into Frame, with File > Place when a photo
+placeholder is picked (the templates' frames are; a double-click or a tap does it too), and the
+picked layers with Layer > Put Inside. Type, a shape or a placed picture drawn out
 past the spine **goes on, on the facing page** (one object on both pages). **Window > Workspace** sets the panels and tools
 out for Photo, Drawing or Layout. Arabic is set finer: the room between words, the tashkeel in
 a colour of its own, raised or hidden, **lists** (Paragraph > List: bullets of any shape, numbers

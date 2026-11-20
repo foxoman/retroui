@@ -151,14 +151,74 @@ proc bookSave(dw: DocWin; saveAs = false): bool =
     bookSavePick = true
   if storageFor(go): go()
 
+var bookPdfPages: tuple[which: int; range: string; spreads: bool]
+  ## the Save PDF dialog of a book: all its pages (0), the page shown (1) or a range (2); as
+  ## spreads (facing pages on one sheet)
+
+proc bookPdfFor(dw: DocWin) =
+  ## (the Save PDF dialog for `dw`: when it is a book's page, for the book -- its pages chosen in
+  ## the dialog; else, or nil, for no book)
+  let bw = if dw != nil: bookOf(dw) else: nil
+  bookPdf = if bw != nil and bw.master == 0: bw else: nil
+  if bookPdf != nil: pdfDlg.o.title = bw.book.name
+
+proc bookPdfName(dw: DocWin): string =
+  ## (a book's page: the book's name -- its PDF's; else "")
+  let bw = bookOf(dw)
+  if bw != nil: bw.book.name else: ""
+
+proc bookPdfRange(bw: BookWin): string =
+  ## (the pages asked for, as `pageList` reads them)
+  case bookPdfPages.which
+  of 1: $(bw.page + 1)
+  of 2: (if bookPdfPages.range.strip.len > 0: bookPdfPages.range else: $(bw.page + 1))
+  else: ""
+
+proc bookPdfPagesGroup() =
+  ## (the Save PDF dialog's Pages, for a book: which, and as pages or spreads)
+  let bw = bookPdf
+  if bw == nil or bw notin books: return
+  let b = bw.book
+  group("Pages"):
+    var a = bookPdfPages.which
+    row:
+      if radio(tr("All") & " (" & $b.pages.len & ")", a, 0): bookPdfPages.which = 0
+      if radio(tr("This page") & " (" & $(bw.page + 1) & ")", a, 1): bookPdfPages.which = 1
+    row:
+      if radio("Range:", a, 2): bookPdfPages.which = 2
+      if edit(bookPdfPages.range, w = dp(120)): bookPdfPages.which = 2
+      label("1-3, 5, 8-", color = ui.theme.gray)
+    var sp = if bookPdfPages.spreads: 1 else: 0
+    row:
+      label "Export as:"
+      if radio("Pages", sp, 0) or radio("Spreads", sp, 1): bookPdfPages.spreads = sp == 1
+    if bookPdfPages.spreads and not b.setup.facing:
+      label("The pages do not face (Document Setup): each is a sheet of its own.", color = ui.theme.gray)
+
+proc bookPdfNote(): string =
+  ## (the Save PDF dialog's foot, for a book: how many pages, on how many sheets)
+  let bw = bookPdf
+  if bw == nil or bw notin books: return ""
+  let b = bw.book
+  let sheets = b.exportSheets(b.pageList(bw.bookPdfRange), bookPdfPages.spreads)
+  var n = 0
+  for sh in sheets: n += sh.len
+  result = $n & (if n == 1: tr(" page") else: tr(" pages"))
+  if bookPdfPages.spreads: result.add ", " & $sheets.len & (if sheets.len == 1: tr(" sheet") else: tr(" sheets"))
+
 proc bookPdfWrite(path: string; o: PdfOptions): bool =
-  ## (the Save PDF dialog's OK, when it is for a book)
+  ## (the Save PDF dialog's OK, when it is for a book: the pages asked for, as pages or spreads)
   let bw = bookPdf
   if bw == nil or bw notin books: return false
   bookPdf = nil
   endModes()
-  bw.book.saveBookPdf(path, o, bw.keepOf)
-  status = "Saved " & path.extractFilename & " (" & $bw.book.pages.len & " pages)"
+  let e = BookExport(kind: exPdf, pages: bw.bookPdfRange, spreads: bookPdfPages.spreads, pdf: o)
+  let b = bw.book
+  var n = 0
+  for sh in b.exportSheets(b.pageList(e.pages), e.spreads): n += sh.len
+  discard b.exportBook(path, e, bw.keepOf)
+  status = tr("Saved ") & path.extractFilename & " (" & $n & (if n == 1: tr(" page") else: tr(" pages")) &
+           (if e.spreads: tr(", as spreads") else: "") & ")"
   true
 
 proc setupOf(): BookSetup =
@@ -386,6 +446,67 @@ proc textWrapBody(d: Doc) =
         d.wrapStep(L, "Text Wrap Offset", proc () =
           L.wrapGap = 0
           L.wrapOpts.offsets = [r.pts, r.pts, r.pts, r.pts])
+    # (where its outline comes from: its pixels, its edges, a path -- the path tools edit that)
+    row([90, -1]):
+      label("Outline:")
+      var src = L.wrapOpts.contour
+      if combo([(if L.isShape: "Its path" else: "Its pixels"), "Its edges", "A path"], src,
+               w = min(dp(210), available())):
+        let ss = src
+        d.wrapStep(L, "Text Wrap", proc () = L.wrapOpts.contour = ss)
+    tooltip("Its pixels: those more solid than the threshold; its edges: what is not the plain " &
+            "background round it; a path: one of the document's, edited with the path tools")
+    if L.wrapOpts.contour == 2:
+      var names: seq[string]
+      for p in d.paths: names.add p.name
+      if names.len == 0:
+        label("No path yet: Edit as a Path makes one of its outline.", color = ui.theme.gray)
+      else:
+        row([90, -1]):
+          label("Path:")
+          var k = max(0, names.find(L.wrapOpts.contourPath))
+          if combo(names, k, w = min(dp(210), available())) or L.wrapOpts.contourPath notin names:
+            let nm = names[k]
+            d.wrapStep(L, "Text Wrap", proc () = L.wrapOpts.contourPath = nm)
+    elif not L.isShape or L.wrapOpts.contour == 1:
+      row([90, -1]):
+        label("Threshold:")
+        var t = if L.wrapOpts.threshold > 0: L.wrapOpts.threshold else: 24
+        if spin(t, 1, 255, w = dp(66)):
+          let tt = t
+          d.wrapStep(L, "Text Wrap", proc () = L.wrapOpts.threshold = tt)
+      tooltip("How solid a pixel is to count (of 255): lower takes in a faint glow or shadow too")
+      row([90, -1]):
+        label(tr("Inset") & " (" & unitAbbrev(u) & "):")
+        let r = d.pointsField(L.wrapOpts.inset, dp(70))
+        if r.changed:
+          d.wrapStep(L, "Text Wrap", proc () = L.wrapOpts.inset = r.pts)
+    row:
+      if button("Edit as a Path", w = dp(130)):
+        # (its outline now as a path of the document, to change point by point with the path tools)
+        let polys = d.wrapContour(L)
+        if polys.len > 0:
+          var p = Path(name: tr("Text Wrap: ") & L.name)
+          for poly in polys:
+            var sp = SubPath(closed: true)
+            for q in poly:
+              let pt = (float(q[0]), float(q[1]))
+              sp.pts.add PathPoint(p: pt, inH: pt, outH: pt)
+            p.subs.add sp
+          let nm = p.name
+          d.wrapStep(L, "Edit Text Wrap as a Path", proc () =
+            var at = -1
+            for i, q in d.paths:
+              if q.name == nm: at = i
+            if at >= 0: d.paths[at] = p else: d.paths.add p
+            d.curPath = (if at >= 0: at else: d.paths.high)
+            L.wrapOpts.contour = 2
+            L.wrapOpts.contourPath = nm)
+          selectTool(tPen)
+          penMode = 0                      # (the Direct Selection tool: its points)
+          showPanel("paths")
+          status = tr("The outline is the path ") & nm & tr(": drag its points, and the text follows")
+      tooltip("Its outline as a path of the document: drag its points with the Direct Selection tool")
   else:
     # (a file before the offsets: its gap shown in them)
     var offs = L.wrapOpts.offsets
@@ -421,7 +542,8 @@ proc textWrapBody(d: Doc) =
     label("Text goes:")
     var side = L.wrapSide
     if combo(["On both sides", "At its left only", "At its right only", "On the side with more room",
-              "On the side toward the spine", "On the side away from the spine"], side, w = dp(210),
+              "On the side toward the spine", "On the side away from the spine"], side,
+             w = min(dp(210), available()),
              enabled = L.wrap in {1, 2} and not L.wrapOpts.invert):
       let ss = side
       d.wrapStep(L, "Text Wrap", proc () = L.wrapSide = ss)
@@ -1059,9 +1181,8 @@ proc bookDialogs() =
     if bw != nil:
       var p = bookPath
       if p.splitFile.ext.toLowerAscii != ".pdf": p.add ".pdf"
-      bookPdf = bw
       startPdfOptions(@[bw.dw.doc], p)
-      pdfDlg.o.title = bw.book.name
+      bookPdfFor(bw.dw)
   if masterDlg.open:
     # Master Options: its name, and the master it is based on (its layers on this one's pages
     # too, under its own)

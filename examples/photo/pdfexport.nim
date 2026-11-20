@@ -18,6 +18,7 @@ proc startPdfOptions(docs: seq[Doc]; path: string; drawing = false) =
   pdfDlg.open = true
   pdfDlg.docs = docs
   pdfDlg.path = path
+  bookPdfFor(nil)              # (for a book, its caller says so after this)
   if pdfDlg.o.quality == 0:
     pdfDlg.preset = 1
     pdfDlg.o = pdfPreset(ppPrint)
@@ -59,6 +60,7 @@ proc pdfDialogs() =
           let keep = (o.title, o.author)
           o = pdfPreset(PdfPresetKind(pdfDlg.preset))
           (o.title, o.author) = keep
+      bookPdfPagesGroup()
       group("Compression and Resolution"):
         row:
           label "Pictures at:"
@@ -142,7 +144,9 @@ proc pdfDialogs() =
           pdfDlg.preset = ord(ppCustom)
       pdfDlg.o = o
       row:
-        label(if pdfDlg.docs.len == 1: "1 page" else: $pdfDlg.docs.len & " pages", color = ui.theme.gray)
+        let note = bookPdfNote()
+        label(if note.len > 0: note elif pdfDlg.docs.len == 1: "1 page" else: $pdfDlg.docs.len & " pages",
+              color = ui.theme.gray)
         spring()
         if button("Save PDF", isDefault = true, w = dp(90)): ok = true
         if button("Cancel", w = dp(80)): pdfDlg.open = false

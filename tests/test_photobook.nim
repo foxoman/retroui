@@ -4,8 +4,8 @@
 ## that goes on from page to page, the book's file and its PDF. With
 ## PHOTO_DUMP set to a folder, pages are written there as pictures.
 
-import std/[os, strutils, json]
-import retroui/[imaging, photo, photobook, photopdf, photoshapes, photowarp, textengine, zip]
+import std/[os, strutils, json, math]
+import retroui/[imaging, photo, photobook, photopdf, photoshapes, photowarp, textengine, zip, layouttemplates]
 
 let dump = getEnv("PHOTO_DUMP")
 if dump.len > 0: createDir(dump)
@@ -985,13 +985,89 @@ block textWrapAcrossTheSpine:
   doAssert f.ink(Tr, 0, 152, 58, 208) == 0 and f.ink(Tr, 70, 152, w - 10, 208) > 0, "and on the facing page"
   b.close()
 
+block textWrapRoundItsShape:
+  # Round its shape: the outline traced from its pixels (those more solid than the threshold,
+  # drawn in by the inset), from its edges (a photo on a plain background), or a path of the
+  # document -- edit it, and the text follows
+  let d = newDoc(600, 400, 0xFFFFFFFF'u32)
+  let T = d.textLayer(300, 10, 10, 580, 380, size = 12)
+  let P = d.addLayer("Disc")
+  for y in 0 ..< d.h:
+    for x in 0 ..< d.w:
+      let r = hypot(float(x - 300), float(y - 200))
+      if r <= 80: P.px[y * d.w + x] = 0xFF2040C0'u32
+      elif r <= 110: P.px[y * d.w + x] = 0x10FFFFFF'u32     # (a faint glow round it)
+  inc P.ver
+  P.wrap = 2
+  d.markAll()
+  d.rewrap()
+  proc widest(d: Doc; T: Layer): float32 =
+    for h in d.wrapHoles(T): result = max(result, h.x1 - h.x0)
+  let w0 = d.widest(T)
+  doAssert w0 > 155 and w0 < 168, "its disc, not its glow: " & $w0
+  doAssert d.ink(T, 285, 185, 315, 215) == 0, "nothing on it"
+  doAssert d.ink(T, 360, 122, 378, 140) > 0, "text in its box's corners, where the disc is not"
+  doAssert d.wrapContour(P) == d.wrapContour(P), "the same outline asked again"
+  # the threshold: the glow is solid enough
+  P.wrapOpts.threshold = 10
+  let w1 = d.widest(T)
+  doAssert w1 > 215 and w1 < 228, "the glow too: " & $w1
+  P.wrapOpts.threshold = 0
+  # the inset: drawn in 10 points (pixels at 72 dpi); out, a negative one
+  P.wrapOpts.inset = 10
+  let w2 = d.widest(T)
+  doAssert w2 > 135 and w2 < 148, "drawn in: " & $w2
+  P.wrapOpts.inset = -10
+  let w3 = d.widest(T)
+  doAssert w3 > 175 and w3 < 188, "drawn out: " & $w3
+  P.wrapOpts.inset = 0
+  # its edges: a photo of a disc on white, solid all over -- its pixels are all of it, its edges
+  # the disc
+  let Q = d.addLayer("Photo")
+  for y in 60 ..< 340:
+    for x in 160 ..< 440:
+      Q.px[y * d.w + x] = (if hypot(float(x - 300), float(y - 200)) <= 80: 0xFF2040C0'u32 else: 0xFFFFFFFF'u32)
+  inc Q.ver
+  P.wrap = 0
+  Q.wrap = 2
+  doAssert d.widest(T) >= 278, "its pixels: all of it"
+  Q.wrapOpts.contour = 1
+  let w4 = d.widest(T)
+  doAssert w4 > 155 and w4 < 168, "its edges: the disc (" & $w4 & ")"
+  Q.wrap = 0
+  # a path of the document: a triangle, its top then moved down -- the text follows it
+  let tri = Path(name: "Around", subs: @[SubPath(closed: true, pts: @[
+    PathPoint(p: (300.0, 100.0), inH: (300.0, 100.0), outH: (300.0, 100.0)),
+    PathPoint(p: (400.0, 300.0), inH: (400.0, 300.0), outH: (400.0, 300.0)),
+    PathPoint(p: (200.0, 300.0), inH: (200.0, 300.0), outH: (200.0, 300.0))])])
+  d.paths.add tri
+  P.wrap = 2
+  P.wrapOpts.contour = 2
+  P.wrapOpts.contourPath = "Around"
+  proc across(d: Doc; T: Layer; y: float32): float32 =
+    for h in d.wrapHoles(T):
+      if h.y0 <= y and h.y1 >= y: result = max(result, h.x1 - h.x0)
+  doAssert d.across(T, 150) > 40 and d.across(T, 150) < 60 and d.across(T, 290) > 175, "the triangle"
+  d.rewrap()
+  doAssert d.ink(T, 330, 122, 370, 140) > 0, "text beside its top"
+  d.paths[^1].subs[0].pts[0] = PathPoint(p: (300.0, 220.0), inH: (300.0, 220.0), outH: (300.0, 220.0))
+  d.rewrap()
+  doAssert d.across(T, 150) == 0, "its top moved down: nothing in the way there"
+  doAssert d.ink(T, 285, 140, 315, 200) > 0, "the text where its top was"
+  # a path that is not there (deleted): its pixels again
+  P.wrapOpts.contourPath = "Gone"
+  let w5 = d.widest(T)
+  doAssert w5 > 155 and w5 < 168, $w5
+  if dump.len > 0: discard d.toBitmap(0xFFFFFFFF'u32).savePng(dump / "wrap-contour.png")
+
 block textWrapKept:
   # in the document's file, in an Object Style; a file from before -- its gap -- as it was
   let d = newDoc(300, 200, 0xFFFFFFFF'u32)
   let B = d.block0("Picture", 50, 50, 150, 150)
   B.wrap = 1
   B.wrapSide = 5
-  B.wrapOpts = WrapOptions(offsets: [1'f32, 2, 3, 4], linked: false, invert: true)
+  B.wrapOpts = WrapOptions(offsets: [1'f32, 2, 3, 4], linked: false, invert: true, contour: 2,
+                           contourPath: "Around", threshold: 40, inset: 2.5)
   let path = getTempDir() / "wrap-kept.rpd"
   d.saveRpd(path)
   let back = loadRpd(path)
@@ -1009,5 +1085,39 @@ block textWrapKept:
   let j = objectStyleToJson(def)
   doAssert objectStyleFromJson(j).wrapOpts == def.wrapOpts and objectStyleFromJson(parseJson($j)).useWrap
 
+
+block putInsideAFrame:
+  # Put Inside: picked layers into a frame -- just over it, over what is in it already, clipped to
+  # it, in their order; the frame, a group and the Background stay where they are
+  let d = newDoc(400, 300, 0xFFFFFFFF'u32)
+  let A = d.block0("Under", 0, 0, 400, 300, 0xFF00A000'u32)
+  let F = d.addShapeLayer(ShapeData(path: ellipsePath(100, 50, 300, 250), fill: solidPaint(0xFFC0C0C0'u32)), "Frame")
+  let P = d.block0("Picture", 0, 0, 400, 300, 0xFFC02020'u32)
+  let Q = d.block0("Stamp", 150, 100, 250, 200, 0xFF2020C0'u32)
+  doAssert d.putInside(F, [Q, A, F]) == 2
+  let at = d.layers.find(F)
+  doAssert d.layers[at + 1] == A and d.layers[at + 2] == Q and A.clipped and Q.clipped and not F.clipped,
+           "just over it, in their order, clipped"
+  doAssert d.current == F
+  doAssert d.putInside(F, [P]) == 1 and d.layers[d.layers.find(F) + 3] == P, "over what is in it already"
+  d.updateComposite()
+  doAssert d.compPtr[10 * d.w + 10] == 0xFFFFFFFF'u32, "nothing of them outside it"
+  doAssert d.compPtr[150 * d.w + 200] == 0xFFC02020'u32 and d.compPtr[150 * d.w + 120] == 0xFFC02020'u32,
+           "inside it, the top one over the others"
+  doAssert d.putInside(F, [d.layers[0]]) == 0, "not the Background"
+
+block placeholdersInTemplates:
+  # the templates' picture frames are photo placeholders (what goes in them, the program says on
+  # the screen -- no words in the file about it)
+  for bt in bookTemplates():
+    if bt.name != "Magazine": continue
+    let b = bt.build()
+    let d = b.doc(0)
+    var frames = 0
+    for L in d.layers:
+      if L.attrs.placeholder != 0: inc frames
+      if L.isText: doAssert "Place" notin plainText(L.text), "no words about it in the file"
+    doAssert frames == 1
+    b.close()
 
 echo "test_photobook: ok"

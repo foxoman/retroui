@@ -904,10 +904,30 @@ proc makersCanvas(dw: DocWin; ev: PhotoEvent): bool =
         runCommand("Place Into...")
         return true
 
+proc placeholderHints(dw: DocWin) =
+  ## (an empty photo placeholder -- no picture clipped to it yet -- says how a picture goes in:
+  ## on the screen only, never in the file, its print or its PDF)
+  let d = dw.doc
+  if dw.view.hideEdges: return
+  for i, L in d.layers:
+    if L.attrs.placeholder == 0 or not L.visible or L.px.len != d.w * d.h: continue
+    if i + 1 < d.layers.len and d.layers[i + 1].clipped: continue
+    let b = d.boxOf(L)
+    if b.w <= 0 or b.h <= 0: continue
+    let (x0, y0) = dw.view.toScreen(d, b.x.float, b.y.float)
+    let (x1, y1) = dw.view.toScreen(d, (b.x + b.w).float, (b.y + b.h).float)
+    let lines = [tr(if not canHover(): "Double-tap: a picture in it" else: "Double-click: a picture in it"),
+                 tr("(or File > Place Into Frame)")]
+    if x1 - x0 < textWidth(lines[0]) + dp(8) or y1 - y0 < FontH * 3: continue
+    for k, s in lines:
+      text((x0 + x1 - textWidth(s)) div 2, (y0 + y1) div 2 - FontH + k * (FontH + dp(2)), s,
+           color(110, 110, 110))
+
 proc makersOverlay(dw: DocWin; ev: PhotoEvent) =
   ## (the lights of Relight and of Lighting Effects on the image; the Live Paint Bucket's
-  ## and Intertwine's cursor)
+  ## and Intertwine's cursor; the hint on an empty photo placeholder)
   let d = dw.doc
+  dw.placeholderHints()
   if dw != active: return
   if rlDlg.open and d == rlDlg.doc:
     for i, l in rlDlg.lights:
