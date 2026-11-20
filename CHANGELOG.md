@@ -28,6 +28,31 @@
   document it came from when the other app let it be written --, and
   `adoptSystemFile` (`retroui/systemfiles`, new) writes the copy's changes
   back to it as a picked document's are.
+- **Text Wrap, as layout programs have it** (`retroui/photo`,
+  `retroui/textengine`): the line breaker asks for each line's free spans
+  beside what is in its band (`freeSpans`, public now) and sets the line in
+  them in turn, right to left for Arabic. A layer's outline
+  (`wrapOutline`): a placed picture's corners as it is placed -- turned or
+  slanted, kept out of band by band, not its upright box --, a shape's
+  narrowest box, a text box. `Layer.wrapOpts` (`WrapOptions`): an offset
+  for each side in points (top, bottom, left, right, along the object's own
+  sides as it is turned; files before keep their one gap), Invert (the
+  text inside the outline), and for a type layer the shortest piece of a
+  line set beside an object (no word left alone in a sliver). New kinds
+  and sides: Jump to the Next Column (`wrap` 4: below its top the columns
+  it is in take no more, the text goes on in the next one or the next
+  box), toward and away from the spine (`wrapSide` 4 and 5: `Doc.spine`,
+  set for a book's pages by their side as the binding has them); the side
+  with more room takes the text's direction when both are the same. Kept
+  in the .rpd, in Object Styles (`useWrap`), and in IDML
+  (TextWrapPreference, its offsets, Inverse, IgnoreWrap -- written and
+  read). Wraps round objects across the spine on both facing pages.
+- **Retro Atelier**: the Text Wrap panel (Window > Text Wrap; Layout >
+  Text Wrap; a layer's right-click menu) in place of the dialog: its five
+  kinds as buttons, Invert, the four offsets in the rulers' unit with one
+  to make them the same, the side, and for a type layer Ignore Text Wrap
+  and the shortest line beside an object; each change applied at once,
+  one step to undo.
 - **Retro Atelier**: a font folder's progress in the status line while
   it is looked through; .otf fonts in every font list. On Android,
   Preferences > General > Open and Save: the system's file picker or

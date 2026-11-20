@@ -64,7 +64,8 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
 - Layout in Retro Atelier is the kit's: `retroui/photobook` (a `Book` of
   page `Doc`s: facing pages, masters, numbers, text from page to page,
   ".rpb", PDF), Text Wrap in `retroui/photo` and `retroui/textengine`
-  (`Layer.wrap`, `TextData.holes`). The app (`examples/photo/book.nim`)
+  (`Layer.wrap`, `wrapSide`, `wrapOpts`, `wrapHoles`, `wrapOutline`;
+  `TextData.holes` and `wrapLeast`; the line breaker's `freeSpans`). The app (`examples/photo/book.nim`)
   only shows them. A page's document is an ordinary `Doc`; the book sees
   changes by `Doc.ver`. Pages not shown are parked: never keep a page's
   `Doc` across a call that parks (`park`, `reflow`, `saveBook`,

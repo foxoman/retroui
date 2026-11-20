@@ -784,6 +784,8 @@ type
                                ## widest room a hole leaves it, and goes under the hole when
                                ## that is too little. Not kept with the text: whoever lays it
                                ## out says what is in its way then
+    wrapLeast*: float32        ## text in a box with holes: the shortest piece of a line set beside one,
+                               ## pixels (0: two of its letters' size, 24 at least)
 
 proc hangOf*(cp: int; letters: bool): float32 =
   ## How much of a character, a fraction of its width, hangs out of a line's edge: Roman Hanging
@@ -1565,9 +1567,11 @@ proc joinsForward(chars: seq[CharInfo]; k, e: int): bool =
   if chars[k].cp == 0x0644 and n.cp in [0x0622, 0x0623, 0x0625, 0x0627]: return false
   joiningType(n.cp) in {'D', 'R'}
 
-proc freeRooms(holes: seq[TextHole]; ya, yb, bx0, bx1, least: float32): seq[tuple[x0, x1: float32]] =
-  ## (the rooms between `bx0` and `bx1` that the holes leave a line lying
-  ## from `ya` down to `yb`, from left to right: those `least` wide or more)
+proc freeSpans*(holes: openArray[TextHole]; ya, yb, bx0, bx1, least: float32): seq[tuple[x0, x1: float32]] =
+  ## The free horizontal spans a line lying from `ya` down to `yb` has between `bx0` and `bx1`,
+  ## beside the holes in its band (`TextData.holes`), from left to right: those `least` wide or
+  ## more (a narrower piece is left empty: no word or two beside an object). The line breaker
+  ## sets each line in them in turn -- right to left for a right-to-left paragraph.
   var cuts: seq[(float32, float32)]
   for h in holes:
     if h.y0 < yb and h.y1 > ya and h.x1 > bx0 and h.x0 < bx1: cuts.add (max(bx0, h.x0), min(bx1, h.x1))
@@ -3023,7 +3027,7 @@ proc layoutPlain(t: TextData): TextLayout =
         let desc0 = size0 * 0.24'f32
         let bx0 = t.x + pp.indentLeft
         let bx1 = t.x + ownW - pp.indentRight
-        let least = min(bx1 - bx0, max(24'f32, size0 * 2))
+        let least = min(bx1 - bx0, if t.wrapLeast > 0: t.wrapLeast else: max(24'f32, size0 * 2))
         var y = 0'f32
         var haveY = false
         a = ls
@@ -3039,7 +3043,7 @@ proc layoutPlain(t: TextData): TextLayout =
               y += lead0
               jump += lead0
             sameBand = false
-            segs = freeRooms(t.holes, y - asc0, y + desc0, bx0, bx1, least)
+            segs = freeSpans(t.holes, y - asc0, y + desc0, bx0, bx1, least)
             if rtlPara: segs.reverse()
             if segs.len == 0: continue
           let seg = segs[0]

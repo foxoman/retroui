@@ -439,6 +439,29 @@ proc writtenFrame(L: Layer): bool =
 proc frameSelf(page, uid: int): string = "tf" & $page & "x" & $uid
 proc storySelf(page, uid: int): string = "st" & $page & "x" & $uid
 
+const
+  WrapModes = ["None", "BoundingBoxTextWrap", "Contour", "JumpObjectTextWrap", "NextColumnTextWrap"]
+    ## (IDML's TextWrapMode for each of `Layer.wrap`)
+  WrapSides = ["BothSides", "LeftSide", "RightSide", "LargestArea", "SideTowardsSpine", "SideAwayFromSpine"]
+    ## (... and TextWrapSide for each of `wrapSide`)
+
+proc wrapPrefXml(wrap, side: int; o: array[4, float32]; invert: bool): string =
+  ## (Text Wrap as IDML has it: its kind, side, whether the text is inside it, its offsets in points)
+  if wrap == 0: return ""
+  "<TextWrapPreference Inverse=\"" & (if invert: "true" else: "false") & "\" TextWrapSide=\"" &
+    WrapSides[clamp(side, 0, 5)] & "\" TextWrapMode=\"" & WrapModes[clamp(wrap, 0, 4)] & "\">\n" &
+    "<Properties><TextWrapOffset Top=\"" & f(o[0]) & "\" Left=\"" & f(o[2]) & "\" Bottom=\"" & f(o[1]) &
+    "\" Right=\"" & f(o[3]) & "\"/></Properties>\n" &
+    (if wrap == 2: "<ContourOption ContourType=\"SameAsClipping\"/>\n" else: "") & "</TextWrapPreference>\n"
+
+proc wrapXml(d: Doc; L: Layer): string =
+  ## (a layer's Text Wrap; a file before the offsets: its gap on every side)
+  var o = L.wrapOpts.offsets
+  if o == [0'f32, 0, 0, 0] and L.wrapGap > 0:
+    let g = float32(L.wrapGap) * 72 / float32(max(1.0, d.dpi))
+    o = [g, g, g, g]
+  wrapPrefXml(L.wrap, L.wrapSide, o, L.wrapOpts.invert)
+
 proc objRef(o: var IdmlOut; d: Doc; name: string; k: float): string =
   ## (a frame's Object Style: its name on the frame, its fill and stroke in Styles.xml)
   if name.len == 0: return ""
@@ -458,6 +481,9 @@ proc objRef(o: var IdmlOut; d: Doc; name: string; k: float): string =
         attrs.add " EnableTextFrameGeneralOptions=\"true\""
       if os.useParagraph and os.paraStyle.len > 0:
         attrs.add " EnableParagraphStyle=\"true\""
+      if os.useWrap:
+        attrs.add " EnableTextWrapAndOthers=\"true\"\x01" & wrapPrefXml(os.wrap, os.wrapSide, os.wrapOpts.offsets,
+                                                                       os.wrapOpts.invert)
     o.objStyles[name] = attrs
   " AppliedObjectStyle=\"ObjectStyle/" & x(name) & "\""
 
@@ -490,9 +516,11 @@ proc itemsOf(o: var IdmlOut; d: Doc; ox, oy, k: float; master: bool; name: strin
                  "\" NextTextFrame=\"" & th.next & "\" ContentType=\"TextType\" Name=\"" & x(L.name) &
                  "\"" & o.objRef(d, L.objectStyle, k) & " ItemTransform=\"1 0 0 1 0 0\">\n" &
                  boxGeometry(a[0], a[1], b[0], b[1]) & op &
+                 wrapXml(d, L) &
                  "<TextFramePreference TextColumnCount=\"" & $max(1, t.columns) & "\" TextColumnGutter=\"" &
                  f((if t.gutter > 0: t.gutter else: 12'f32) * k) & "\" VerticalJustification=\"" &
                  VertJusts[t.vjust] & "\"" & (if t.balance: " VerticalBalanceColumns=\"true\"" else: "") &
+                 (if L.ignoreWrap: " IgnoreWrap=\"true\"" else: "") &
                  (if t.autoSize != asOff: " AutoSizingType=\"" & AutoSizing[t.autoSize] & "\" AutoSizingReferencePoint=\"" &
                                          RefPoints[clamp(t.autoRef, 0, 8)] & "\"" else: "") &
                  (if t.inset == [0'f32, 0, 0, 0]: "/>\n"
@@ -524,7 +552,8 @@ proc itemsOf(o: var IdmlOut; d: Doc; ox, oy, k: float; master: bool; name: strin
       result.add "<" & tag & " Self=\"" & o.uid("p") & "\" ContentType=\"Unassigned\" Name=\"" & x(L.name) &
                  "\"" & o.objRef(d, L.objectStyle, k) & " FillColor=\"" & fill & "\" StrokeColor=\"" & stroke & "\" StrokeWeight=\"" &
                  f(s.strokeWidth * k) & "\" ItemTransform=\"1 0 0 1 0 0\">\n" &
-                 "<Properties><PathGeometry>" & geo & "</PathGeometry></Properties>\n" & op & "</" & tag & ">\n"
+                 "<Properties><PathGeometry>" & geo & "</PathGeometry></Properties>\n" & op & wrapXml(d, L) &
+                 "</" & tag & ">\n"
     else:
       # (anything else -- pixels, a Smart Object, what has a style or a mode -- as a picture of it)
       let box = d.layerBox(L).intersect(d.bounds)
@@ -548,7 +577,7 @@ proc itemsOf(o: var IdmlOut; d: Doc; ox, oy, k: float; master: bool; name: strin
           let (a, b) = (P(box.x.float, box.y.float), P(float(box.x + box.w), float(box.y + box.h)))
           result.add "<Rectangle Self=\"" & o.uid("r") & "\" ContentType=\"Unassigned\" Name=\"" & x(L.name) &
                      "\" FillColor=\"" & o.colorRef(c0) & "\" StrokeColor=\"Swatch/None\" ItemTransform=\"1 0 0 1 0 0\">\n" &
-                     boxGeometry(a[0], a[1], b[0], b[1]) & op & "</Rectangle>\n"
+                     boxGeometry(a[0], a[1], b[0], b[1]) & op & wrapXml(d, L) & "</Rectangle>\n"
           continue
       else:
         # (with its mode, style, mask or clipping: how it looks, alone -- its opacity in it)
@@ -572,7 +601,7 @@ proc itemsOf(o: var IdmlOut; d: Doc; ox, oy, k: float; master: bool; name: strin
       let uri = "file:" & (o.linksDir / file).replace('\\', '/')
       result.add "<Rectangle Self=\"" & o.uid("r") & "\" ContentType=\"GraphicType\" Name=\"" & x(L.name) &
                  "\" FillColor=\"Swatch/None\" StrokeColor=\"Swatch/None\" ItemTransform=\"1 0 0 1 0 0\">\n" &
-                 boxGeometry(a[0], a[1], b[0], b[1]) & op &
+                 boxGeometry(a[0], a[1], b[0], b[1]) & op & wrapXml(d, L) &
                  "<Image Self=\"" & o.uid("i") & "\" ItemTransform=\"" & f(sx) & " 0 0 " & f(sy) & " " & f(a[0]) & " " &
                  f(a[1]) & "\">\n<Properties><Profile type=\"string\">$ID/None</Profile><GraphicBounds Left=\"0\" " &
                  "Top=\"0\" Right=\"" & $box.w & "\" Bottom=\"" & $box.h & "\"/></Properties>\n" &
@@ -596,7 +625,9 @@ proc resources(o: var IdmlOut; pageW, pageH: float; pages: int; facing, rtl: boo
                 (if st.allCaps: " Capitalization=\"AllCaps\"" elif st.smallCaps: " Capitalization=\"SmallCaps\"" else: "") &
                 "><Properties><AppliedFont type=\"string\">" & x(fam) & "</AppliedFont></Properties></CharacterStyle>\n"
   for name, attrs in o.objStyles:
-    objXml.add "<ObjectStyle Self=\"ObjectStyle/" & x(name) & "\" Name=\"" & x(name) & "\"" & attrs & "/>\n"
+    let parts = attrs.split('\x01')
+    objXml.add "<ObjectStyle Self=\"ObjectStyle/" & x(name) & "\" Name=\"" & x(name) & "\"" & parts[0] &
+               (if parts.len > 1 and parts[1].len > 0: ">\n" & parts[1] & "</ObjectStyle>\n" else: "/>\n")
   var g = head & "<idPkg:Graphic " & ns & ">\n" &
     "<Color Self=\"Color/Black\" Model=\"Process\" Space=\"CMYK\" ColorValue=\"0 0 0 100\" ColorOverride=\"Specialblack\" " &
     "AlternateSpace=\"NoAlternateColor\" AlternateColorValue=\"\" Name=\"Black\" ColorEditable=\"false\" " &
@@ -963,6 +994,26 @@ proc pathOf(n: XmlNode; m: seq[float]): seq[seq[tuple[a, l, r: (float, float)]]]
       sub.add (applyT(m, (a[0], a[1])), applyT(m, la), applyT(m, ra))
     if sub.len > 0: result.add sub
 
+proc wrapIn(it: XmlNode; wrap, side: var int; opts: var WrapOptions): bool =
+  ## (an item's or an Object Style's Text Wrap read: false when it has none)
+  for c in it:
+    if c.kind != xnElement or c.tag != "TextWrapPreference": continue
+    let mode = WrapModes.find(c.attr("TextWrapMode"))
+    if mode <= 0: return false
+    wrap = mode
+    side = max(0, WrapSides.find(c.attr("TextWrapSide")))
+    opts.invert = c.attr("Inverse") == "true"
+    for pp in c:
+      if pp.kind != xnElement or pp.tag != "Properties": continue
+      for o in pp:
+        if o.kind != xnElement or o.tag != "TextWrapOffset": continue
+        proc num(k: string): float32 =
+          try: float32(parseFloat(o.attr(k))) except ValueError: 0'f32
+        opts.offsets = [num("Top"), num("Bottom"), num("Left"), num("Right")]
+    opts.linked = opts.offsets[0] == opts.offsets[1] and opts.offsets[1] == opts.offsets[2] and
+                  opts.offsets[2] == opts.offsets[3] and opts.offsets[0] != 0
+    return true
+
 proc readIdml*(file: string; dpi = 150.0): Book =
   ## An IDML package as a book: its pages (spreads, facing or not, bound
   ## either way), each text frame a text box with its story's runs (fonts,
@@ -1053,6 +1104,7 @@ proc readIdml*(file: string; dpi = 150.0): Book =
         if sc.len > 0 and sc != "Swatch/None":
           os.shape.stroke = ShapePaint(kind: spColor, color: colorOf(sc, 0xFF000000'u32))
           os.shape.strokeWidth = (try: parseFloat(c.attr("StrokeWeight")) * k0 except ValueError: 1.0)
+      os.useWrap = wrapIn(c, os.wrap, os.wrapSide, os.wrapOpts)
       objDefs[c.attr("Self")] = os
   # (hyperlinks: each source's link -- an address, "page:N", "#name" -- and the text destinations'
   # names; the bookmarks)
@@ -1443,6 +1495,9 @@ proc readIdml*(file: string; dpi = 150.0): Book =
         if t.spans.len > 0:
           let L = d.addTextLayer(t)
           if it.attr("Name").len > 0 and it.attr("Name") != "$ID/": L.name = it.attr("Name")
+          discard wrapIn(it, L.wrap, L.wrapSide, L.wrapOpts)
+          for pref in it.childrenNamed("TextFramePreference"):
+            if pref.attr("IgnoreWrap") == "true": L.ignoreWrap = true
           let osr = it.attr("AppliedObjectStyle")
           if osr in objDefs:
             L.objectStyle = objDefs[osr].name
@@ -1487,6 +1542,7 @@ proc readIdml*(file: string; dpi = 150.0): Book =
                   let v = (yy - sy0) * pic.h div max(1, h)
                   if u >= 0 and v >= 0 and u < pic.w and v < pic.h: L.px[yy * d.w + xx] = pic.px[v * pic.w + u]
               inc L.ver
+              discard wrapIn(it, L.wrap, L.wrapSide, L.wrapOpts)
               placed = true
             except CatchableError: discard
         if not placed:
@@ -1509,6 +1565,7 @@ proc readIdml*(file: string; dpi = 150.0): Book =
           if it.tag == "GraphicLine":
             for sub in sd.path.subs.mitems: sub.closed = false
           let SL = d.addShapeLayer(sd, if it.attr("Name").len > 0 and it.attr("Name") != "$ID/": it.attr("Name") else: "")
+          if SL != nil: discard wrapIn(it, SL.wrap, SL.wrapSide, SL.wrapOpts)
           let osr = it.attr("AppliedObjectStyle")
           if osr in objDefs and SL != nil:
             SL.objectStyle = objDefs[osr].name

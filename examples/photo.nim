@@ -391,6 +391,7 @@ const panelList = [
   ("objectstyles", "Object Styles", pxCustomShape), ("bookmarks", "Bookmarks", pxNew), ("links", "Links", pxOpen),
   ("graphicstyles", "Graphic Styles", pxSwatches), ("separations", "Separations Preview", pxChannels),
   ("attributes", "Attributes", pxProperties), ("buttons", "Buttons and Forms", pxProperties),
+  ("textwrap", "Text Wrap", pxParagraph),
   ("conditions", "Conditional Text", pxParagraph), ("review", "Track Changes and Notes", pxParagraph),
   ("designstyles", "Styles and Fonts", pxColorThemes), ("patternoptions", "Pattern Options", pxPatterns)]
   ## (each panel: its key, its title, its icon in a column collapsed to icons)
@@ -4515,6 +4516,7 @@ proc docBody(dw: DocWin) =
       if menuItem("&Duplicate Layer"): runCommand("Duplicate Layer")
       if menuItem("De&lete Layer", enabled = d.layers.len > 1): runCommand("Delete Layer")
       if menuItem("&Blending Options...", enabled = not d.current.background): runCommand("Blending Options...")
+      if menuItem("Text &Wrap...", enabled = not d.current.background): runCommand("Text Wrap...")
   if ev.pressed:
     if xf.on: finishTransform(true)            # (a click in another image)
     beginBusy(toolName(tool))

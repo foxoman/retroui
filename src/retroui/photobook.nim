@@ -359,6 +359,7 @@ proc masterDoc*(b: Book; m: Master; side: PageSide): Doc =
                                          else: "-Master, right"), paper = false)
   result.pageLabel = "#"
   result.pageTotal = "#"
+  result.spine = if not b.setup.facing: 0 elif side == psLeft: 1 else: -1
   # (based on another master: its layers on this one too, under its own, locked -- as its
   # pages show them)
   let sp = m.sides[k]
@@ -638,6 +639,14 @@ proc dress(b: Book; i: int) =
     d.pageLabel = lab
     d.pageTotal = total
     relabel = true
+  # (where its spine is: Text Wrap's toward and away from the spine)
+  let spine = case b.sideOf(i)
+              of psRight: -1
+              of psLeft: 1
+              else: 0
+  if d.spine != spine:
+    d.spine = spine
+    d.rewrap()
   # its text destinations and running headers -- for the cross-references and running headers
   # of the pages (each page's as it was when last open)
   var dests: seq[string]

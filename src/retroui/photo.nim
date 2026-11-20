@@ -15,6 +15,7 @@
 ##   d.undo()
 
 import std/[math, tables, strutils, json, os, base64, algorithm, locks, atomics, hashes, times]
+import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 when compileOption("threads"):
   import std/typedthreads
 import gfx, imaging, zip, jpeg, parallel, textengine, busy, photoinks, simd, simdkit, codec, hijri, inks
@@ -549,10 +550,13 @@ type
     link*: int              ## linked layers share a number (0: not linked): they move together
     board*: Rect            ## (a group) an artboard's page: what is in it shown only there
     uid*: int               ## who it is, for what refers to it (layer comps; 0: not asked yet)
-    wrap*: int              ## text keeps out of it (Text Wrap): 0 not; 1 out of its box; 2 out of
-                            ## its shape, row by row; 3 text goes under it (no line beside it).
-                            ## A layer at Opacity 0 still wraps: a shape drawn only to wrap by
-    wrapGap*: int           ## ... and stays this many pixels away from it
+    wrap*: int              ## text keeps out of it (Text Wrap): 0 not; 1 out of its box (a placed
+                            ## picture's turned one); 2 out of its shape; 3 text goes under it (no
+                            ## line beside it); 4 the text below its top goes to the next column or
+                            ## box. A layer at Opacity 0 still wraps: a shape drawn only to wrap by
+    wrapGap*: int           ## ... and stays this many pixels away from it (files before 0.67;
+                            ## `wrapOpts.offsets` when they are set)
+    wrapOpts*: WrapOptions  ## ... its offsets on each side, the text inside it, the shortest line
     meta*: string           ## what an app keeps with the layer (a chart's or a map's settings, as
                             ## JSON, to make it again): saved with it, kept by undo
     objectStyle*: string    ## the Object Style it has (`applyObjectStyle`; "" none)
@@ -562,8 +566,9 @@ type
     anchorDx*, anchorDy*: float32  ## ... where the layer's top left is from the anchor's place
     ignoreWrap*: bool       ## a type layer: its text does not keep out of layers with Text Wrap (a
                             ## caption on a picture, a pull quote on its panel)
-    wrapSide*: int          ## ... on both its sides (0), on its left only (1), on its right only (2), or
-                            ## on the side with more room (3)
+    wrapSide*: int          ## ... on both its sides (0), on its left only (1), on its right only (2),
+                            ## on the side with more room (3), on the side toward the spine (4) or
+                            ## away from it (5) -- a book's page: the binding decides which that is
     wrapSig: string         # (what was in a type layer's way when it was last drawn: `rewrap`)
     fromSpan*: int          ## a book's page: the part of an object of the facing page (the page that
                             ## is this `id`) that lies on this one -- a copy, locked, made again
@@ -899,6 +904,15 @@ type
     opacity*: int
     mode*: BlendMode
 
+  WrapOptions* = object
+    ## Text Wrap's settings past its kind and side (`Layer.wrap`, `wrapSide`).
+    offsets*: array[4, float32]  ## how far the text stays from it, points: top, bottom, left, right
+                                 ## (its own sides, turned with it; all 0: `wrapGap`)
+    linked*: bool                ## the four kept the same (the panel's chain)
+    invert*: bool                ## the text inside its outline, not round it
+    least*: float32              ## a type layer: the shortest piece of a line set beside an object,
+                                 ## points (0: two of its letters' size) -- no word or two alone there
+
   ObjectStyleDef* = object
     ## An Object Style: how a shape or a text frame looks, kept by name in the document and given
     ## to layers with a click (`applyObjectStyle`) -- each layer that has it changes when it is
@@ -921,6 +935,9 @@ type
     balance*: bool
     autoSize*: TextAutoSize
     paraStyle*: string
+    useWrap*: bool              ## Text Wrap: its kind, side and options
+    wrap*, wrapSide*: int
+    wrapOpts*: WrapOptions
 
   ImageInfo* = object
     ## What File Info keeps with the image.
@@ -978,6 +995,7 @@ type
     gradFeather: GradientFeather
     smart: SmartData
     wrap, wrapGap, wrapSide: int
+    wrapOpts: WrapOptions
     ignoreWrap: bool
     meta: string
     anchorTo, anchorAt: int
@@ -1182,6 +1200,8 @@ type
     pageLabel*: string             ## a book's page: its number as it is printed ("7", "vii", "٧");
                                    ## what `<#>` in a type layer shows ("": not a page: `<#>` stays)
     pageTotal*: string             ## ... and how many pages the book has, so written: `<##>`
+    spine*: int                    ## ... where the spine is: -1 at its left edge (a right page), 1 at
+                                   ## its right (a left page), 0 none (Text Wrap's toward the spine)
     flowIn*: Table[int, TextData]  ## a book's page: for a type layer (`uid`) whose box goes on from
                                    ## another page (`Layer.flowPage`), the text that did not fit there
     perspective*: string           ## its perspective grid (`retroui/perspectivegrid`'s `gridToJson`;
@@ -1628,26 +1648,190 @@ proc flowsOn*(d: Doc; L: Layer): bool =
 
 proc contentBounds*(d: Doc; L: Layer): Rect
 
+type WrapPoly = seq[(float32, float32)]
+
+proc hullOf(pts: seq[(float32, float32)]): WrapPoly =
+  ## (the convex hull, counterclockwise as y goes up: Andrew's monotone chain)
+  var p = pts
+  p.sort(proc (a, b: (float32, float32)): int = (if a[0] != b[0]: cmp(a[0], b[0]) else: cmp(a[1], b[1])))
+  if p.len < 3: return p
+  proc cross(o, a, b: (float32, float32)): float32 = (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+  var lower, upper: WrapPoly
+  for q in p:
+    while lower.len >= 2 and cross(lower[^2], lower[^1], q) <= 0: lower.setLen(lower.len - 1)
+    lower.add q
+  for i in countdown(p.high, 0):
+    let q = p[i]
+    while upper.len >= 2 and cross(upper[^2], upper[^1], q) <= 0: upper.setLen(upper.len - 1)
+    upper.add q
+  lower.setLen(lower.len - 1)
+  upper.setLen(upper.len - 1)
+  lower & upper
+
+proc narrowestBox(pts: seq[(float32, float32)]): WrapPoly =
+  ## (the smallest rectangle round points, as it is turned -- each side of their hull tried:
+  ## a turned rectangle's own corners -- turned no more than 45 degrees: its corners top left,
+  ## top right, bottom right, bottom left)
+  let h = hullOf(pts)
+  if h.len < 3:
+    var x0, y0 = 1e30'f32
+    var x1, y1 = -1e30'f32
+    for q in pts:
+      x0 = min(x0, q[0]); y0 = min(y0, q[1]); x1 = max(x1, q[0]); y1 = max(y1, q[1])
+    return @[(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+  var best = (1e30'f32, 0'f32, 0'f32, 0'f32, 0'f32, 0'f32)    # (area, angle, box in turned axes)
+  for i in 0 ..< h.len:
+    let a = h[i]
+    let b = h[(i + 1) mod h.len]
+    var ang = arctan2(b[1] - a[1], b[0] - a[0])
+    # (turned no more than a quarter of a right angle either way: its top stays its top)
+    while ang > PI / 4: ang -= PI / 2
+    while ang <= -PI / 4: ang += PI / 2
+    let c = cos(ang)
+    let sn = sin(ang)
+    var u0, v0 = 1e30'f32
+    var u1, v1 = -1e30'f32
+    for q in h:
+      let u = q[0] * c + q[1] * sn
+      let v = -q[0] * sn + q[1] * c
+      u0 = min(u0, u); u1 = max(u1, u); v0 = min(v0, v); v1 = max(v1, v)
+    let area = (u1 - u0) * (v1 - v0)
+    if area < best[0] - 0.01: best = (area, ang, u0, v0, u1, v1)
+  let (_, ang, u0, v0, u1, v1) = best
+  let c = cos(ang)
+  let sn = sin(ang)
+  proc back(u, v: float32): (float32, float32) = (u * c - v * sn, u * sn + v * c)
+  @[back(u0, v0), back(u1, v0), back(u1, v1), back(u0, v1)]
+
+proc wrapOutline*(d: Doc; M: Layer): seq[(float32, float32)] =
+  ## The outline Text Wrap keeps text out of for layer `M` (its box; before its offsets), in the
+  ## document's pixels, its corners top left, top right, bottom right, bottom left as it is
+  ## turned: a placed picture's corners where it is placed (turned, slanted), a shape's outline's
+  ## narrowest box (a turned rectangle's own), a text box (in perspective: its corners there),
+  ## else the box of what is painted. Empty: nothing there.
+  if M.smart != nil and M.smart.quad.len == 4:
+    var q: seq[(float32, float32)]
+    for c in M.smart.quad: q.add (float32(c[0]), float32(c[1]))
+    return q
+  if M.isShape and M.shape.path.subs.len > 0:
+    var pts: seq[(float32, float32)]
+    for sub in M.shape.path.subs:
+      for q in sub.pts:
+        pts.add (float32(q.p[0]), float32(q.p[1]))
+        pts.add (float32(q.inH[0]), float32(q.inH[1]))
+        pts.add (float32(q.outH[0]), float32(q.outH[1]))
+    if pts.len >= 2:
+      # (its stroke round it: half of it outside)
+      let w = float32(if M.shape.stroke.kind != spNone: M.shape.strokeWidth / 2 else: 0)
+      var box = narrowestBox(pts)
+      if w > 0:
+        let cx = (box[0][0] + box[2][0]) / 2
+        let cy = (box[0][1] + box[2][1]) / 2
+        for q in box.mitems:
+          let dx = q[0] - cx
+          let dy = q[1] - cy
+          let l = max(1e-3'f32, sqrt(dx * dx + dy * dy))
+          q = (q[0] + dx / l * w * 1.4142, q[1] + dy / l * w * 1.4142)
+      return box
+  if M.isText and M.text.boxW > 0 and M.text.boxH > 0 and M.text.path.len == 0:
+    let t = M.text
+    if t.perspOn:
+      var q: seq[(float32, float32)]
+      for c in t.persp: q.add (c[0], c[1])
+      return q
+    return @[(t.x, t.y), (t.x + t.boxW, t.y), (t.x + t.boxW, t.y + t.boxH), (t.x, t.y + t.boxH)]
+  let b = d.contentBounds(M)
+  if b.w <= 0 or b.h <= 0: return
+  let (x0, y0, x1, y1) = (b.x.float32, b.y.float32, float32(b.x + b.w), float32(b.y + b.h))
+  @[(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+
+proc wrapOffsetsPx*(d: Doc; M: Layer): array[4, float32] =
+  ## Layer `M`'s Text Wrap offsets in the document's pixels -- top, bottom, left, right -- from
+  ## its points (a file before 0.67: its one gap, pixels, on every side).
+  let o = M.wrapOpts.offsets
+  if o == [0'f32, 0, 0, 0]:
+    let g = float32(max(0, M.wrapGap))
+    return [g, g, g, g]
+  let k = float32(max(1.0, d.dpi) / 72)
+  [o[0] * k, o[1] * k, o[2] * k, o[3] * k]
+
+proc grownQuad(q: WrapPoly; off: array[4, float32]): WrapPoly =
+  ## (a four-cornered outline -- top left, top right, bottom right, bottom left -- with each
+  ## side moved out by its offset: top, bottom, left, right, along the side's own normal)
+  if q.len != 4: return q
+  let sideOff = [off[0], off[3], off[1], off[2]]          # (sides in turn: top, right, bottom, left)
+  var lines: array[4, tuple[px, py, dx, dy: float32]]
+  for i in 0 .. 3:
+    let a = q[i]
+    let b = q[(i + 1) mod 4]
+    var dx = b[0] - a[0]
+    var dy = b[1] - a[1]
+    let l = sqrt(dx * dx + dy * dy)
+    if l < 1e-4: return q
+    dx /= l; dy /= l
+    # (outward: the corners go round clockwise as the screen shows them)
+    let nx = dy
+    let ny = -dx
+    lines[i] = (a[0] + nx * sideOff[i], a[1] + ny * sideOff[i], dx, dy)
+  for k in 0 .. 3:
+    let A = lines[(k + 3) mod 4]
+    let B = lines[k]
+    let den = A.dx * B.dy - A.dy * B.dx
+    if abs(den) < 1e-6:
+      result.add (B.px, B.py)
+      continue
+    let t = ((B.px - A.px) * B.dy - (B.py - A.py) * B.dx) / den
+    result.add (A.px + A.dx * t, A.py + A.dy * t)
+
+proc bandSpan*(poly: openArray[(float32, float32)]; ya, yb: float32): tuple[ok: bool; x0, x1: float32] =
+  ## Where an outline lies across the band from `ya` down to `yb`: from its leftmost to its
+  ## rightmost point there (not `ok`: it is not in the band).
+  var x0 = 1e30'f32
+  var x1 = -1e30'f32
+  let n = poly.len
+  for i in 0 ..< n:
+    let (ax, ay) = poly[i]
+    let (bx, by) = poly[(i + 1) mod n]
+    if ay >= ya and ay <= yb:
+      x0 = min(x0, ax); x1 = max(x1, ax)
+    for yy in [ya, yb]:
+      if (ay - yy) * (by - yy) < 0:
+        let x = ax + (yy - ay) / (by - ay) * (bx - ax)
+        x0 = min(x0, x); x1 = max(x1, x)
+  (x1 >= x0, x0, x1)
+
+proc textIsRtl(t: TextData): bool =
+  ## (the text reads right to left: its paragraph says so, or its first strong letter is Arabic's
+  ## or Hebrew's)
+  if t.para.rtl == 2: return true
+  if t.para.rtl == 1: return false
+  for sp in t.spans:
+    for r in unicode.runes(sp.text):
+      let c = int(r)
+      if c in 0x0590 .. 0x08FF or c in 0xFB1D .. 0xFDFF or c in 0xFE70 .. 0xFEFF: return true
+      if c in 0x41 .. 0x5A or c in 0x61 .. 0x7A or c in 0xC0 .. 0x24F: return false
+
 proc wrapHoles*(d: Doc; L: Layer): seq[TextHole] =
-  ## What is in the way of the type layer `L`'s lines: the layers with Text
-  ## Wrap (`Layer.wrap`) that are shown (or at Opacity 0), each as
-  ## rectangles its lines keep out of -- its box, its shape row by row, or
-  ## the whole width where it is (the text goes under it) -- grown by its
-  ## gap. Not `L` itself, nor what is in a group that is hidden.
+  ## What is in the way of the type layer `L`'s lines: the layers with Text Wrap (`Layer.wrap`)
+  ## that are shown (or at Opacity 0), each as the places its lines keep out of -- its outline
+  ## (`wrapOutline`, grown by its offsets: a turned or slanted one band by band), its shape row
+  ## by row, the whole width where it is (Jump Object), the rest of the column below its top
+  ## (Jump to Next Column), or -- Invert -- all of `L`'s box but its outline; on one side of it
+  ## only when its side says so. Not `L` itself, nor what is in a group that is hidden.
   if L.ignoreWrap: return
+  let t = L.text
+  let fx0 = t.x
+  let fx1 = t.x + max(0'f32, t.boxW)
   for M in d.layers:
     if M == L or M.wrap == 0 or M.group or not M.visible or M.px.len != d.w * d.h: continue
-    let b = d.contentBounds(M)
-    if b.w <= 0 or b.h <= 0: continue
-    let g = float32(max(0, M.wrapGap))
-    # (on one side only: the hole reaches past the box's other edge)
-    let side = if M.wrapSide == 3: (if b.x.float32 - L.text.x >= L.text.x + L.text.boxW - float32(b.x + b.w): 1 else: 2)
-               else: M.wrapSide
+    let off = d.wrapOffsetsPx(M)
     let first = result.len
-    case M.wrap
-    of 3: result.add (-1e7'f32, b.y.float32 - g, 1e7'f32, float32(b.y + b.h) + g)
-    of 2:
+    var poly: WrapPoly
+    if M.wrap == 2:
       # (its shape: every four rows, from its first pixel across to its last)
+      let b = d.contentBounds(M)
+      if b.w <= 0 or b.h <= 0: continue
+      let g = off[0]
       const band = 4
       var y = b.y
       while y < b.y + b.h:
@@ -1665,8 +1849,65 @@ proc wrapHoles*(d: Doc; L: Layer): seq[TextHole] =
         if x1 > x0:
           result.add (x0.float32 - g, y.float32 - g, x1.float32 + g, float32(min(b.y + b.h, y + band)) + g)
         y += band
-    else: result.add (b.x.float32 - g, b.y.float32 - g, float32(b.x + b.w) + g, float32(b.y + b.h) + g)
-    if side != 0 and M.wrap != 3:
+      poly = @[(b.x.float32 - g, b.y.float32 - g), (float32(b.x + b.w) + g, b.y.float32 - g),
+               (float32(b.x + b.w) + g, float32(b.y + b.h) + g), (b.x.float32 - g, float32(b.y + b.h) + g)]
+    else:
+      poly = grownQuad(d.wrapOutline(M), off)
+      if poly.len < 3: continue
+    var px0, py0 = 1e30'f32
+    var px1, py1 = -1e30'f32
+    for q in poly:
+      px0 = min(px0, q[0]); px1 = max(px1, q[0]); py0 = min(py0, q[1]); py1 = max(py1, q[1])
+    case M.wrap
+    of 3:
+      result.add (-1e7'f32, py0, 1e7'f32, py1)
+      continue
+    of 4:
+      # (Jump to Next Column: below its top, the columns it is in take no more -- the text goes
+      # on in the next one, or the next box)
+      let cols = max(1, t.columns)
+      let gutter = if t.gutter > 0: t.gutter else: 12'f32
+      let colW = if cols > 1: (t.boxW - gutter * float32(cols - 1)) / float32(cols) else: t.boxW
+      for c in 0 ..< cols:
+        let cx0 = fx0 + float32(c) * (colW + gutter)
+        let cx1 = cx0 + colW
+        if px1 > cx0 and px0 < cx1: result.add (cx0 - 1, py0, cx1 + 1, 1e7'f32)
+      continue
+    of 1:
+      let axis = poly.len == 4 and abs(poly[0][1] - poly[1][1]) < 0.01 and abs(poly[1][0] - poly[2][0]) < 0.01 and
+                 abs(poly[2][1] - poly[3][1]) < 0.01 and abs(poly[3][0] - poly[0][0]) < 0.01
+      if axis: result.add (px0, py0, px1, py1)
+      else:
+        # (turned or slanted: band by band, two pixels each)
+        const band = 2'f32
+        var y = py0
+        while y < py1:
+          let sp = bandSpan(poly, y, min(py1, y + band))
+          if sp.ok: result.add (sp.x0, y, sp.x1, min(py1, y + band))
+          y += band
+    else: discard
+    if M.wrapOpts.invert:
+      # (the text inside it: all of the box but its outline, band by band)
+      let inside = result[first .. ^1]
+      result.setLen(first)
+      result.add (-1e7'f32, -1e7'f32, 1e7'f32, py0)
+      result.add (-1e7'f32, py1, 1e7'f32, 1e7'f32)
+      for h in inside:
+        result.add (-1e7'f32, h.y0, h.x0, h.y1)
+        result.add (h.x1, h.y0, 1e7'f32, h.y1)
+      continue
+    # (on one side only: the place reaches past the box's other edge)
+    var side = M.wrapSide
+    if side in {3, 4, 5}:
+      let leftRoom = px0 - fx0
+      let rightRoom = fx1 - px1
+      let largest = if abs(leftRoom - rightRoom) < 0.5: (if t.textIsRtl: 2 else: 1)
+                    elif leftRoom > rightRoom: 1 else: 2
+      side = case side
+             of 4: (if d.spine < 0: 1 elif d.spine > 0: 2 else: largest)     # toward the spine
+             of 5: (if d.spine < 0: 2 elif d.spine > 0: 1 else: largest)     # away from it
+             else: largest
+    if side in {1, 2}:
       for k in first ..< result.len:
         if side == 1: result[k].x1 = 1e7'f32 else: result[k].x0 = -1e7'f32
 
@@ -1781,7 +2022,9 @@ proc effectiveText*(d: Doc; L: Layer; depth = 0): TextData =
         if not c.visible: hidden.add c.name
       if hidden.len > 0: result = result.withConditions(hidden)
   # (the part of the facing page's text that lies here keeps the lines it has there)
-  if result.boxW > 0 and result.path.len == 0 and L.fromSpan == 0: result.holes = d.wrapHoles(L)
+  if result.boxW > 0 and result.path.len == 0 and L.fromSpan == 0:
+    result.holes = d.wrapHoles(L)
+    if L.wrapOpts.least > 0: result.wrapLeast = L.wrapOpts.least * float32(max(1.0, d.dpi) / 72)
 
 proc flowedText(d: Doc; L: Layer; depth: int): TextData =
   if L.flowFrom == 0 or depth > 16: return L.text
@@ -3840,6 +4083,7 @@ proc settingsOf(L: Layer): LayerSettings =
                 lockPixels: L.lockPixels, lockPosition: L.lockPosition, link: L.link, board: L.board,
                 depth: L.depth, blendIf: L.blendIf, maskClear: L.maskClear, maskFeather: L.maskFeather,
                 gradFeather: L.gradFeather, smart: L.smart, wrap: L.wrap, wrapGap: L.wrapGap, wrapSide: L.wrapSide,
+                wrapOpts: L.wrapOpts,
                 ignoreWrap: L.ignoreWrap, meta: L.meta, anchorTo: L.anchorTo, anchorAt: L.anchorAt,
                 anchorDx: L.anchorDx, anchorDy: L.anchorDy, objectStyle: L.objectStyle, attrs: L.attrs,
                 label: L.label)
@@ -3856,6 +4100,7 @@ proc setSettings(L: Layer; s: LayerSettings) =
   L.gradFeather = s.gradFeather
   L.smart = s.smart
   L.wrap = s.wrap; L.wrapGap = s.wrapGap; L.wrapSide = s.wrapSide; L.ignoreWrap = s.ignoreWrap
+  L.wrapOpts = s.wrapOpts
   L.meta = s.meta
   L.anchorTo = s.anchorTo
   L.anchorAt = s.anchorAt
@@ -8491,6 +8736,11 @@ proc objectStyleOf*(L: Layer; name = ""): ObjectStyleDef =
     if t.para.styleName.len > 0:
       result.useParagraph = true
       result.paraStyle = t.para.styleName
+  if L.wrap != 0:
+    result.useWrap = true
+    result.wrap = L.wrap
+    result.wrapSide = L.wrapSide
+    result.wrapOpts = L.wrapOpts
 
 proc objectStyled(d: Doc; L: Layer; def: ObjectStyleDef) =
   ## (the layer in the Object Style's looks, what it sets)
@@ -8523,6 +8773,12 @@ proc objectStyled(d: Doc; L: Layer; def: ObjectStyleDef) =
     t.autoSize = def.autoSize
     d.setText(L, t)
   if L.isText and def.useParagraph and def.paraStyle.len > 0: d.applyParaStyle(L, def.paraStyle)
+  if def.useWrap:
+    L.wrap = clamp(def.wrap, 0, 4)
+    L.wrapSide = clamp(def.wrapSide, 0, 5)
+    L.wrapOpts = def.wrapOpts
+    L.wrapGap = 0
+    d.rewrap()
 
 proc applyObjectStyle*(d: Doc; L: Layer; name: string) =
   ## Object Styles: the style `name` given to layer `L` ("": [None], the layer keeps how it looks).
@@ -8671,7 +8927,25 @@ proc objectStyleOverridden*(d: Doc; L: Layer): bool =
   if L.isText and def.useFrame and now.useFrame:
     if now.columns != def.columns or now.gutter != def.gutter or now.inset != def.inset or now.vjust != def.vjust or
        now.balance != def.balance or now.autoSize != def.autoSize: return true
+  if def.useWrap and (L.wrap != def.wrap or L.wrapSide != def.wrapSide or L.wrapOpts != def.wrapOpts): return true
   false
+
+proc wrapToJson*(w: WrapOptions): JsonNode =
+  ## Text Wrap's options as JSON (what a layer and an Object Style keep).
+  result = %*{"offsets": [w.offsets[0], w.offsets[1], w.offsets[2], w.offsets[3]]}
+  if w.linked: result["linked"] = %true
+  if w.invert: result["invert"] = %true
+  if w.least > 0: result["least"] = %w.least
+
+proc wrapFromJson*(j: JsonNode): WrapOptions =
+  ## (none: the options of a file before 0.67 -- its `wrapGap` stands)
+  if j == nil or j.kind != JObject: return
+  let o = j{"offsets"}
+  if o != nil and o.kind == JArray:
+    for k in 0 ..< min(4, o.len): result.offsets[k] = clamp(float32(o[k].getFloat), -2000, 2000)
+  result.linked = j{"linked"}.getBool
+  result.invert = j{"invert"}.getBool
+  result.least = clamp(float32(j{"least"}.getFloat(0)), 0, 2000)
 
 proc objectStyleToJson*(s: ObjectStyleDef): JsonNode =
   result = %*{"name": s.name, "useFill": s.useFill, "useStroke": s.useStroke, "useEffects": s.useEffects,
@@ -8680,6 +8954,11 @@ proc objectStyleToJson*(s: ObjectStyleDef): JsonNode =
               "columns": s.columns, "gutter": s.gutter,
               "inset": [s.inset[0], s.inset[1], s.inset[2], s.inset[3]], "vjust": $s.vjust,
               "balance": s.balance, "autoSize": $s.autoSize, "paraStyle": s.paraStyle}
+  if s.useWrap:
+    result["useWrap"] = %true
+    result["wrap"] = %s.wrap
+    result["wrapSide"] = %s.wrapSide
+    result["wrapOpts"] = s.wrapOpts.wrapToJson
 
 proc objectStyleFromJson*(j: JsonNode): ObjectStyleDef =
   if j == nil or j.kind != JObject: return
@@ -8689,6 +8968,10 @@ proc objectStyleFromJson*(j: JsonNode): ObjectStyleDef =
   result.useEffects = j{"useEffects"}.getBool
   result.useFrame = j{"useFrame"}.getBool
   result.useParagraph = j{"useParagraph"}.getBool
+  result.useWrap = j{"useWrap"}.getBool
+  result.wrap = clamp(j{"wrap"}.getInt(0), 0, 4)
+  result.wrapSide = clamp(j{"wrapSide"}.getInt(0), 0, 5)
+  result.wrapOpts = wrapFromJson(j{"wrapOpts"})
   if j.hasKey("shape"): result.shape = shapeFrom(j["shape"])
   if j.hasKey("fx"): result.fx = layerFxFrom(j["fx"])
   result.opacity = clamp(j{"opacity"}.getInt(100), 0, 100)
@@ -8818,6 +9101,7 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
     if L.wrapGap != 0: lj["wrapGap"] = %L.wrapGap
     if L.wrapSide != 0: lj["wrapSide"] = %L.wrapSide
     if L.ignoreWrap: lj["ignoreWrap"] = %true
+    if L.wrapOpts != WrapOptions(): lj["wrapOpts"] = L.wrapOpts.wrapToJson
     if L.meta.len > 0: lj["meta"] = %L.meta
     if L.objectStyle.len > 0: lj["objectStyle"] = %L.objectStyle
     let aj = L.attrs.attrsToJson
@@ -9126,10 +9410,11 @@ proc loadRpd*(path: string): Doc =
     L.flowFrom = lj{"flowFrom"}.getInt(0)
     L.flowPage = lj{"flowPage"}.getInt(0)
     L.flowOut = lj{"flowOut"}.getBool
-    L.wrap = clamp(lj{"wrap"}.getInt(0), 0, 3)
+    L.wrap = clamp(lj{"wrap"}.getInt(0), 0, 4)
     L.wrapGap = clamp(lj{"wrapGap"}.getInt(0), 0, 10000)
-    L.wrapSide = clamp(lj{"wrapSide"}.getInt(0), 0, 3)
+    L.wrapSide = clamp(lj{"wrapSide"}.getInt(0), 0, 5)
     L.ignoreWrap = lj{"ignoreWrap"}.getBool(false)
+    L.wrapOpts = wrapFromJson(lj{"wrapOpts"})
     L.meta = lj{"meta"}.getStr("")
     L.objectStyle = lj{"objectStyle"}.getStr("")
     L.attrs = attrsFrom(lj{"attrs"})

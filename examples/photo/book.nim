@@ -30,7 +30,6 @@ var
   bookPath = ""
   bookPdf: BookWin               ## the book the Save PDF dialog is for
   bookGo: tuple[open: bool; n: int; what: int]     ## Go to Page / Move Page / Start Numbering
-  wrapDlg = false
   shapesDlg: tuple[open: bool; word: string; key: string; pics: seq[Bitmap]]
   masterDlg: tuple[open: bool; id: int; name: string; based: int]   ## Master Options
 
@@ -297,60 +296,150 @@ proc bookSetupDialog() =
             status = "Could not make the book: " & getCurrentExceptionMsg()
       if button("Cancel", w = dp(80)): bookDlg.open = false
 
-# ---- Text Wrap --------------------------------------------------------------------------------------------
+# ---- Text Wrap: its panel (Window > Text Wrap; Layout > Text Wrap; a layer's right-click menu) -----------
+#
+# Applied as it is changed, a step to undo each time. The offsets are kept in points and shown in
+# the rulers' unit.
 
-proc setWrap(d: Doc; L: Layer; wrap, side, gap: int) =
-  if L.wrap == wrap and L.wrapSide == side and L.wrapGap == gap: return
-  d.beginStep("Text Wrap")
+const wrapModeIcons = [
+  icon(["................", ".gggggggggggggg.", "................", ".gggggbbbbbbggg.", "......bbbbbb....",
+        ".gggggbbbbbbggg.", "......bbbbbb....", ".gggggbbbbbbggg.", "......bbbbbb....", ".gggggbbbbbbggg.",
+        "................", ".gggggggggggggg.", "................", ".gggggggggggggg.", "................",
+        "................"]),
+  icon(["................", ".gggggggggggggg.", "................", ".ggg.bbbbbb.ggg.", ".....bbbbbb.....",
+        ".ggg.bbbbbb.ggg.", ".....bbbbbb.....", ".ggg.bbbbbb.ggg.", ".....bbbbbb.....", ".ggg.bbbbbb.ggg.",
+        "................", ".gggggggggggggg.", "................", ".gggggggggggggg.", "................",
+        "................"]),
+  icon(["................", ".gggggggggggggg.", "................", ".gggg..bb..gggg.", "......bbbb......",
+        ".ggg.bbbbbb.ggg.", ".....bbbbbb.....", ".ggg.bbbbbb.ggg.", "......bbbb......", ".gggg..bb..gggg.",
+        "................", ".gggggggggggggg.", "................", ".gggggggggggggg.", "................",
+        "................"]),
+  icon(["................", ".gggggggggggggg.", "................", ".gggggggggggggg.", "................",
+        ".....bbbbbb.....", ".....bbbbbb.....", ".....bbbbbb.....", ".....bbbbbb.....", "................",
+        ".gggggggggggggg.", "................", ".gggggggggggggg.", "................", ".gggggggggggggg.",
+        "................"]),
+  icon(["................", ".gggggg..gggggg.", "................", ".gggggg..gggggg.", "................",
+        ".gggggg..gggggg.", "..bbbb...gggggg.", "..bbbb..........", "..bbbb...gggggg.", "..bbbb..........",
+        ".........gggggg.", "................", ".........gggggg.", "................", ".........gggggg.",
+        "................"])]
+  ## no wrap, round its box, round its shape, jump over it, jump to the next column
+
+proc wrapStep(d: Doc; L: Layer; what: string; change: proc ()) =
+  ## (one step to undo: the change, the text set again round it)
+  d.beginStep(what)
   d.touchLayers()
-  L.wrap = wrap
-  L.wrapSide = side
-  L.wrapGap = gap
+  change()
   d.endStep()
+  if L.isText: d.drawText(L)
+  d.rewrap()
   d.markAll()
   let bw = curBook()
   if bw != nil and bw.master == 0: bw.book.touch(bw.page)
 
-proc textWrapDialog() =
-  if not wrapDlg: return
-  let d = cur()
+proc unitDecimalsOf(u: RulerUnit): int =
+  case u
+  of ruPixels: 0
+  of ruPoints, ruPicas, ruMillimeters, ruPercent: 1
+  of ruCentimeters: 2
+  of ruInches: 3
+
+proc pointsField(d: Doc; pts: float32; w: int; enabled = true): tuple[changed: bool; pts: float32] =
+  ## (a length kept in points, shown and typed in the rulers' unit)
+  let u = viewPrefs.rulerUnit
+  let perUnit = unitPixels(u, d.dpi, d.w) / (max(1.0, d.dpi) / 72)       # (points in one unit)
+  var v = float(pts) / perUnit
+  if numberEdit(v, decimals = unitDecimalsOf(u), w = w, lo = -9999, hi = 9999, enabled = enabled):
+    result = (true, float32(v * perUnit))
+  else: result = (false, pts)
+
+proc textWrapBody(d: Doc) =
+  ## The Text Wrap panel: how text keeps out of the current layer -- not, round its box, round
+  ## its shape, under it (Jump Object), in the next column (Jump to Next Column) --, on which side,
+  ## how far, the text inside it instead; for a type layer, whether it keeps out at all and the
+  ## shortest piece of a line beside an object.
   if d == nil:
-    wrapDlg = false
+    label("No image open", color = ui.theme.gray)
     return
-  dialog(wrapDlg, "Text Wrap", 380):
-    let L = d.current
-    label("\"" & L.name & "\"", bold = true)
-    var wrap = L.wrap
+  let L = d.current
+  if L.background:
+    label("Pick a layer: the Background has no Text Wrap.", color = ui.theme.gray)
+    return
+  label("\"" & L.name & "\"", bold = true)
+  const tips = ["No wrap: text runs over it", "Round its box", "Round its shape (what is drawn on it)",
+                "Jump over it: no text beside it", "Jump to the next column: no text below its top in it"]
+  row:
+    for k in 0 .. 4:
+      if toolButton(wrapModeIcons[k], tips[k], down = L.wrap == k) and L.wrap != k:
+        let kk = k
+        d.wrapStep(L, "Text Wrap", proc () = L.wrap = kk)
+  let on = L.wrap != 0
+  var inv = L.wrapOpts.invert
+  if checkbox("Invert: the text inside it", inv, enabled = L.wrap in {1, 2}):
+    d.wrapStep(L, "Text Wrap", proc () = L.wrapOpts.invert = inv)
+  # the offsets: four, or one round its shape
+  let u = viewPrefs.rulerUnit
+  if L.wrap == 2:
+    row([90, -1]):
+      label(tr("Offset") & " (" & unitAbbrev(u) & "):")
+      let r = d.pointsField(L.wrapOpts.offsets[0], dp(70))
+      if r.changed:
+        d.wrapStep(L, "Text Wrap Offset", proc () =
+          L.wrapGap = 0
+          L.wrapOpts.offsets = [r.pts, r.pts, r.pts, r.pts])
+  else:
+    # (a file before the offsets: its gap shown in them)
+    var offs = L.wrapOpts.offsets
+    if offs == [0'f32, 0, 0, 0] and L.wrapGap > 0:
+      let g = float32(L.wrapGap) * 72 / float32(max(1.0, d.dpi))
+      offs = [g, g, g, g]
+    const sides = ["Top:", "Bottom:", "Left:", "Right:"]
+    # (two to a row where the panel is wide enough, else one)
+    let wide = available() >= dp(300)
+    let groups = if wide: @[@[0, 1], @[2, 3]] else: @[@[0], @[1], @[2], @[3]]
+    for g in groups:
+      row(if wide: @[60, 80, 60, 80] else: @[60, 80]):
+        for k in g:
+          label(sides[k])
+          let r = d.pointsField(offs[k], dp(72), enabled = on)
+          if r.changed:
+            let kk = k
+            d.wrapStep(L, "Text Wrap Offset", proc () =
+              L.wrapGap = 0
+              var o = offs
+              if L.wrapOpts.linked: o = [r.pts, r.pts, r.pts, r.pts] else: o[kk] = r.pts
+              L.wrapOpts.offsets = o)
+    row:
+      var link = L.wrapOpts.linked
+      if checkbox("Make all four the same", link, enabled = on):
+        d.wrapStep(L, "Text Wrap", proc () =
+          L.wrapOpts.linked = link
+          if link:
+            L.wrapGap = 0
+            L.wrapOpts.offsets = [offs[0], offs[0], offs[0], offs[0]])
+      label("(" & unitAbbrev(u) & ")", color = ui.theme.gray)
+  row([90, -1]):
+    label("Text goes:")
     var side = L.wrapSide
-    var gap = L.wrapGap
-    radio("No wrap: text runs over it", wrap, 0)
-    radio("Round its box", wrap, 1)
-    radio("Round its shape (what is drawn on it)", wrap, 2)
-    radio("Jump over it: no text beside it", wrap, 3)
-    row:
-      label "Text goes:"
-      combo(["On both sides", "At its left only", "At its right only", "On the side with more room"], side,
-            w = dp(210), enabled = wrap in {1, 2})
-    row:
-      label "Stays away:"
-      spin(gap, 0, 2000, w = dp(64))
-      label "pixels"
-    if L.isText:
-      var ig = L.ignoreWrap
-      if checkbox("This text ignores Text Wrap (a caption on a picture, a quote on its panel)", ig):
-        d.beginStep("Ignore Text Wrap")
-        d.touchLayers()
-        L.ignoreWrap = ig
-        d.endStep()
-        d.drawText(L)
-        d.markAll()
-    paragraph("Text in a box keeps out of this layer. To wrap round a shape of your own, draw it with the Pen " &
-              "or a shape tool on a layer, give that layer Round its shape, and set its Opacity to 0: it does " &
-              "not show, the text still keeps out of it.", color = ui.theme.gray)
-    d.setWrap(L, wrap, side, gap)
-    row:
-      spring()
-      if button("Close", isDefault = true, w = dp(80)): wrapDlg = false
+    if combo(["On both sides", "At its left only", "At its right only", "On the side with more room",
+              "On the side toward the spine", "On the side away from the spine"], side, w = dp(210),
+             enabled = L.wrap in {1, 2} and not L.wrapOpts.invert):
+      let ss = side
+      d.wrapStep(L, "Text Wrap", proc () = L.wrapSide = ss)
+  if L.isText:
+    separator()
+    var ig = L.ignoreWrap
+    if checkbox("This text ignores Text Wrap (a caption on a picture, a quote on its panel)", ig):
+      d.wrapStep(L, "Ignore Text Wrap", proc () = L.ignoreWrap = ig)
+    row([170, -1]):
+      label(tr("Shortest line beside it") & " (" & unitAbbrev(u) & "):")
+      let r = d.pointsField(L.wrapOpts.least, dp(70))
+      if r.changed:
+        d.wrapStep(L, "Text Wrap", proc () = L.wrapOpts.least = max(0'f32, r.pts))
+    label("0: two of its letters' size. A narrower piece beside an object is left empty.",
+          color = ui.theme.gray)
+  paragraph("Text in a box keeps out of this layer. To wrap round a shape of your own, draw it with the Pen " &
+            "or a shape tool on a layer, give that layer Round its shape, and set its Opacity to 0: it " &
+            "does not show, the text still keeps out of it.", color = ui.theme.gray)
 
 # ---- the shapes of a word (the font's alternates) ---------------------------------------------------------
 
@@ -598,7 +687,7 @@ proc bookCommand(name: string): bool =
         bw.book.park([bw.page])
       else: status = "This box does not go on from another page."
   of "Text Wrap...":
-    if d != nil: wrapDlg = true
+    showPanel("textwrap")
   of "Word Shapes...":
     shapesDlg.word = wordForShapes()
     if shapesDlg.word.len == 0: status = "Select a word (or pick a type layer) first."
@@ -945,7 +1034,6 @@ proc bookFrame() =
 proc bookDialogs() =
   bookSetupDialog()
   bookExportDialog()
-  textWrapDialog()
   wordShapesDialog()
   if filePicker(bookSavePick, bookPath, fmSave, ["*.rpb"], "Save Book As"):
     let bw = curBook()

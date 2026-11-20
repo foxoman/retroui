@@ -788,6 +788,7 @@ proc psMenus() =
       ci("Adjustments", checked = panelShown("adjustments"))
       ci("Appearance", checked = panelShown("appearance"))
       ci("Attributes", checked = panelShown("attributes"))
+      ci("Text Wrap", "Text Wrap Panel", checked = panelShown("textwrap"))
       ci("Brush Settings", checked = panelShown("brushsettings"), shortcut = "F5")
       ci("Brushes", checked = panelShown("brushes"))
       ci("Brushes (Vector)", checked = panelShown("vbrushes"))

@@ -847,7 +847,8 @@ variable font, nine weights from Thin to Black, each a style of its family
 -- Retro Atelier's new text is in it.
 
 **Crisp at every scale.** Glyphs are drawn by the kit's own TrueType
-engine (`retroui/ttf`), at the screen's own resolution, on the CPU and the
+engine (`retroui/ttf`; .otf fonts' PostScript outlines made TrueType as they are read:
+`retroui/cff`), at the screen's own resolution, on the CPU and the
 same masks on the GPU: the coverage of each pixel computed exactly, in
 gray, the baseline, x-height, cap height and ascender set on whole pixels
 at small sizes (below 26 pixels to the em), the strokes as the font draws
@@ -2203,9 +2204,13 @@ Since 5.0 it lays out too: **File > New Book** makes a document of pages in one 
 or facing, bound on the left or (Arabic) on the right, with margins and columns, **master
 pages**, **page numbers** (Layout > Page Numbers > Insert Page Number: digits, Arabic-Indic,
 Roman, letters, abjad), text that **goes on from page to page** (Flow Onto the Next Page;
-Autoflow adds the pages a long text needs) and **keeps out of pictures** (Layout > Text Wrap:
-round a layer's box or its shape, on both sides or one; a shape drawn with the Pen at Opacity 0
-is a wrap of any outline). The **Pages** panel turns, adds, copies and removes pages; the book
+Autoflow adds the pages a long text needs) and **keeps out of pictures** (Window > Text Wrap, a
+panel that applies as you change it: round a layer's box -- a placed picture's turned or slanted
+box as it is --, round its shape, under it, or on in the next column; its offsets on each side
+in the rulers' unit; on both sides, one, the side with more room, toward or away from the spine;
+the text inside it instead; the shortest piece of a line set beside an object, so no word is left
+alone there; kept in Object Styles and in IDML; a shape drawn with the Pen at Opacity 0 is a
+wrap of any outline). The **Pages** panel turns, adds, copies and removes pages; the book
 is one file (.rpb) and one PDF, type as type. Type, a shape or a placed picture drawn out
 past the spine **goes on, on the facing page** (one object on both pages). **Window > Workspace** sets the panels and tools
 out for Photo, Drawing or Layout. Arabic is set finer: the room between words, the tashkeel in

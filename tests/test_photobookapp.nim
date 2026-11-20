@@ -192,14 +192,21 @@ block textWrapByCommand:
       for x in m.x + 42 ..< m.x + 118:
         if (box.px[y * d.w + x] shr 24) > 0: inc result
   doAssert inkUnder() > 0
-  d.setWrap(P, 1, 0, 2)
+  d.wrapStep(P, "Text Wrap", proc () = P.wrap = 1)
   doAssert inkUnder() == 0, "the text keeps out of the picture"
   runCommand("Undo")
   doAssert P.wrap == 0 and inkUnder() > 0
+  # the panel: opened by the command, drawn; its offsets in points (the rulers' unit shown)
   runCommand("Text Wrap...")
-  doAssert wrapDlg
-  run(3)                           # (the dialog is drawn)
-  wrapDlg = false
+  doAssert panelShown("textwrap")
+  run(3)
+  d.wrapStep(P, "Text Wrap", proc () =
+    P.wrap = 1
+    P.wrapOpts.offsets = [4'f32, 4, 4, 4])
+  run(2)
+  doAssert inkUnder() == 0 and d.wrapOffsetsPx(P)[0] > 3.9 * d.dpi / 72
+  runCommand("Undo")
+  togglePanel("textwrap")
   run(2)
 
 block savedOpenedAndAsPdf:

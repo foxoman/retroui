@@ -59,6 +59,7 @@ proc panelBody(key: string) =
   of "links": linksBody()
   of "separations": separationsBody(d)
   of "attributes": attributesBody(d)
+  of "textwrap": textWrapBody(d)
   of "buttons": buttonsBody(d)
   of "conditions": conditionsBody(d)
   of "review": reviewBody(d)

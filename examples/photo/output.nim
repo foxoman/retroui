@@ -768,6 +768,7 @@ proc outputCommand(name: string): bool =
     if d != nil:
       spotDlg = (true, "Spot " & $(d.spotInks.len + 1), fg or 0xFF000000'u32, 100)
   of "Attributes": togglePanel("attributes")
+  of "Text Wrap Panel": togglePanel("textwrap")
   of "Separations Preview Panel": togglePanel("separations")
   of "Buttons and Forms": togglePanel("buttons")
   of "Conditional Text": togglePanel("conditions")

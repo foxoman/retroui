@@ -420,5 +420,47 @@ block opticalMarginAndLanguage:
   doAssert seen
   echo "Optical Margin Alignment, a word's language: in IDML and back"
 
+block textWrapInIdml:
+  # Text Wrap: a picture's kind, side, offsets (points) and Invert; a shape's; a frame that ignores
+  # it; an Object Style that has it -- written and read back
+  let d = newDoc(600, 800, 0xFFFFFFFF'u32, dpi = 72)
+  var t = newText(repeat("Words round a picture. ", 60), st(12), 40, 40)
+  t.boxW = 520
+  t.boxH = 700
+  let T = d.addTextLayer(t)
+  let P = d.addLayer("Band")
+  for y in 200 ..< 300:
+    for x in 200 ..< 400: P.px[y * d.w + x] = 0xFF2040C0'u32
+  inc P.ver
+  P.wrap = 1
+  P.wrapSide = 4
+  P.wrapOpts = WrapOptions(offsets: [3'f32, 6, 9, 12], invert: false)
+  let S = d.addShapeLayer(ShapeData(path: rectPath(100, 500, 200, 600), fill: solidPaint(0xFF20A040'u32)), "Box")
+  S.wrap = 3
+  var c = newText("Caption", st(10), 210, 210)
+  c.boxW = 180
+  c.boxH = 40
+  let C = d.addTextLayer(c)
+  C.ignoreWrap = true
+  var def = objectStyleOf(S, "Jumps")
+  d.redefineObjectStyle(def)
+  d.applyObjectStyle(S, "Jumps")
+  discard T
+  d.saveDocIdml(dir / "wrap.idml")
+  let r = readIdml(dir / "wrap.idml")
+  let rd = r.doc(0)
+  var seenBand, seenBox, seenCaption = false
+  for L in rd.layers:
+    if L.wrap == 1:
+      doAssert L.wrapSide == 4 and L.wrapOpts.offsets == [3'f32, 6, 9, 12], $L.wrapOpts
+      seenBand = true
+    elif L.wrap == 3 and L.isShape: seenBox = true
+    elif L.isText and L.ignoreWrap: seenCaption = true
+  doAssert seenBand and seenBox and seenCaption, $(seenBand, seenBox, seenCaption)
+  let k = rd.objectStyleIndex("Jumps")
+  doAssert k >= 0 and rd.objectStyles[k].useWrap and rd.objectStyles[k].wrap == 3, "the Object Style keeps it"
+  r.close()
+  echo "Text Wrap: in IDML and back"
+
 removeDir(dir)
 echo "test_idml: ok"

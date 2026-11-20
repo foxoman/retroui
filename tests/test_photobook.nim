@@ -808,4 +808,206 @@ block olderFilesKeepTheirText:
     if X.isText: doAssert X.text.autoSize == asOff and X.text.boxH == 40
   removeFile(path)
 
+block freeSpansOfALine:
+  # the line breaker's question: what room does a line lying from ya to yb have, beside the holes
+  let box = (0'f32, 500'f32)
+  doAssert freeSpans([], 10, 30, box[0], box[1], 24) == @[(0'f32, 500'f32)], "no hole: the whole line"
+  # two objects on one line: three pieces, left to right
+  let two = [(100'f32, 0'f32, 160'f32, 100'f32), (300'f32, 20'f32, 360'f32, 80'f32)]
+  doAssert freeSpans(two, 30, 50, box[0], box[1], 24) == @[(0'f32, 100'f32), (160'f32, 300'f32), (360'f32, 500'f32)]
+  # a band only one of them is in
+  doAssert freeSpans(two, 85, 99, box[0], box[1], 24) == @[(0'f32, 100'f32), (160'f32, 500'f32)]
+  # the shortest piece: what is narrower is left empty
+  let near = [(30'f32, 0'f32, 470'f32, 100'f32)]
+  doAssert freeSpans(near, 10, 30, box[0], box[1], 24) == @[(470'f32, 500'f32)] or
+           freeSpans(near, 10, 30, box[0], box[1], 24) == @[(0'f32, 30'f32), (470'f32, 500'f32)]
+  doAssert freeSpans(near, 10, 30, box[0], box[1], 40).len == 0, "no piece 40 wide: none"
+  # an outline's place in a band (a turned square, a diamond)
+  let diamond = [(100'f32, 0'f32), (200'f32, 100'f32), (100'f32, 200'f32), (0'f32, 100'f32)]
+  let mid = bandSpan(diamond, 95, 105)
+  doAssert mid.ok and abs(mid.x0) < 0.01 and abs(mid.x1 - 200) < 0.01, $mid
+  let top = bandSpan(diamond, 10, 20)
+  doAssert top.ok and abs(top.x0 - 80) < 0.01 and abs(top.x1 - 120) < 0.01, $top
+  doAssert not bandSpan(diamond, 210, 220).ok
+
+proc arabicWords(n: int): string =
+  for k in 0 ..< n: result.add "كلمة" & $k & " "
+
+proc textLayer(d: Doc; n: int; x, y, w, h: float32; size = 16.0; rtl = false): Layer =
+  var t = newText((if rtl: arabicWords(n) else: words(n)), style(size), x, y)
+  t.boxW = w
+  t.boxH = h
+  if rtl: t.para.rtl = 2
+  d.addTextLayer(t)
+
+block textWrapSidesAndOffsets:
+  let d = newDoc(600, 400, 0xFFFFFFFF'u32)
+  d.dpi = 144                                  # (two pixels a point)
+  let T = d.textLayer(150, 20, 20, 560, 360)
+  let B = d.block0("Picture", 200, 100, 400, 220)
+  # offsets of their own on each side, points: top 3, bottom 6, left 9, right 12
+  B.wrap = 1
+  B.wrapOpts.offsets = [3'f32, 6, 9, 12]
+  doAssert d.wrapHoles(T) == @[(182'f32, 94'f32, 424'f32, 232'f32)], $d.wrapHoles(T)
+  d.rewrap()
+  doAssert d.ink(T, 184, 100, 422, 220) == 0 and d.ink(T, 20, 100, 178, 220) > 0
+  # the old gap (a file before them): every side
+  B.wrapOpts.offsets = [0'f32, 0, 0, 0]
+  B.wrapGap = 5
+  doAssert d.wrapHoles(T) == @[(195'f32, 95'f32, 405'f32, 225'f32)]
+  B.wrapGap = 0
+  # two objects on one line: the line goes on beside both of them, on one baseline
+  let C = d.block0("Second", 460, 120, 500, 200)
+  C.wrap = 1
+  d.rewrap()
+  block:
+    let lay = layoutText(d.effectiveText(T))
+    var pieces = 0
+    for ln in lay.lines:
+      if ln.baseline > 140 and ln.baseline < 180: inc pieces
+    doAssert pieces >= 3 * 2, "three pieces a line beside the two (" & $pieces & ")"
+  d.layers.delete(d.layers.find(C))
+  # the side with more room -- Arabic: on its right when they are the same
+  let R = d.textLayer(150, 20, 20, 560, 360, rtl = true)
+  T.visible = false
+  B.wrapSide = 3
+  d.layers.delete(d.layers.find(B))
+  let mid = d.block0("Middle", 250, 100, 350, 220)
+  mid.wrap = 1
+  mid.wrapSide = 3
+  d.rewrap()
+  doAssert d.ink(R, 360, 104, 580, 216) > 0 and d.ink(R, 20, 104, 240, 216) == 0,
+           "the same room either side: Arabic on its right"
+  R.visible = false
+  T.visible = true
+  d.rewrap()
+  doAssert d.ink(T, 20, 104, 240, 216) > 0 and d.ink(T, 360, 104, 580, 216) == 0, "... Latin on its left"
+  # Invert: the text inside it only
+  mid.wrapSide = 0
+  mid.wrapOpts.invert = true
+  d.rewrap()
+  doAssert d.ink(T, 20, 20, 240, 380) == 0 and d.ink(T, 360, 20, 580, 380) == 0 and d.ink(T, 252, 100, 348, 220) > 0,
+           "the text inside its box only"
+  mid.wrapOpts.invert = false
+  # the shortest piece of a line beside it, points: 200 points (400 pixels) -- no line beside it
+  T.wrapOpts.least = 200
+  d.drawText(T)
+  doAssert d.ink(T, 20, 104, 240, 216) == 0 and d.ink(T, 360, 104, 580, 216) == 0, "nothing beside it"
+  T.wrapOpts.least = 0
+  d.drawText(T)
+  doAssert d.ink(T, 20, 104, 240, 216) > 0
+  if dump.len > 0: discard d.toBitmap(0xFFFFFFFF'u32).savePng(dump / "wrap-sides.png")
+
+block textWrapTurned:
+  # a turned picture (a placed one, its corners where they are): the text comes into the corners
+  # of its box -- its own outline is what it keeps out of, band by band
+  let d = newDoc(600, 400, 0xFFFFFFFF'u32)
+  let T = d.textLayer(220, 10, 10, 580, 380, size = 12)
+  var pic = newSeq[uint32](100 * 100)
+  for k in 0 ..< pic.len: pic[k] = 0xFF2040C0'u32
+  let P = d.addLayer("Turned")
+  # (a square turned 45 degrees round (300, 200): a diamond 200 across)
+  P.smart = SmartData(src: pic, w: 100, h: 100,
+                      quad: [(300.0, 129.29), (370.71, 200.0), (300.0, 270.71), (229.29, 200.0)])
+  P.px = renderSmart(P.smart, d.w, d.h)
+  inc P.ver
+  P.wrap = 1
+  d.rewrap()
+  let holes = d.wrapHoles(T)
+  doAssert holes.len > 50, "band by band: " & $holes.len
+  var widest = 0'f32
+  for h in holes: widest = max(widest, h.x1 - h.x0)
+  doAssert widest > 130 and widest < 146 and holes[0].x1 - holes[0].x0 < 10, "a diamond, not its box"
+  doAssert d.ink(T, 285, 190, 315, 210) == 0, "nothing in its middle"
+  doAssert d.ink(T, 232, 132, 262, 160) > 0, "text in its box's corner, where the diamond is not"
+  if dump.len > 0: discard d.toBitmap(0xFFFFFFFF'u32).savePng(dump / "wrap-turned.png")
+
+block textWrapJumpsToTheNextColumn:
+  let d = newDoc(600, 400, 0xFFFFFFFF'u32)
+  var t = newText(words(200), style(14), 10, 10)
+  t.boxW = 580
+  t.boxH = 380
+  t.columns = 2
+  t.gutter = 20
+  let T = d.addTextLayer(t)
+  let B = d.block0("Picture", 40, 150, 200, 250)
+  B.wrap = 4
+  d.rewrap()
+  doAssert d.ink(T, 10, 150, 290, 390) == 0, "below its top the first column takes no more"
+  doAssert d.ink(T, 10, 10, 290, 140) > 0 and d.ink(T, 310, 10, 590, 390) > 0, "the text goes on in the next one"
+
+block textWrapTowardTheSpine:
+  # a book's pages: toward the spine is right on a left page and left on a right page, as the
+  # binding has them -- and bound on the right, the other way round
+  for binding in [bindLeft, bindRight]:
+    let s = bookSetup(140, 100, dpi = 72, facing = true, binding = binding)
+    let b = newBook(s, pages = 3)
+    for i in [1, 2]:
+      let d = b.doc(i)
+      let T = d.textLayer(120, 10, 10, float32(d.w - 20), float32(d.h - 20), size = 10)
+      let B = d.block0("Picture", d.w div 2 - 40, 80, d.w div 2 + 40, 160)
+      B.wrap = 1
+      B.wrapSide = 4
+      d.rewrap()
+      let spineRight = b.sideOf(i) == psLeft
+      let l = d.ink(T, 10, 84, d.w div 2 - 44, 156)
+      let r = d.ink(T, d.w div 2 + 44, 84, d.w - 10, 156)
+      doAssert (if spineRight: r > 0 and l == 0 else: l > 0 and r == 0),
+               "toward the spine, page " & $i & " " & $binding & ": " & $l & " " & $r
+      B.wrapSide = 5
+      d.rewrap()
+      let l2 = d.ink(T, 10, 84, d.w div 2 - 44, 156)
+      let r2 = d.ink(T, d.w div 2 + 44, 84, d.w - 10, 156)
+      doAssert (if spineRight: l2 > 0 and r2 == 0 else: r2 > 0 and l2 == 0), "away from it"
+    b.close()
+
+block textWrapAcrossTheSpine:
+  # a picture across the spine, wrapped: the text on both pages keeps out of it
+  let s = bookSetup(100, 140, dpi = 72, facing = true)
+  let b = newBook(s, pages = 3)
+  let w = s.w
+  let d = b.doc(1)
+  let f = b.doc(2)
+  let Tl = d.textLayer(120, 10, 10, float32(w - 20), float32(d.h - 20), size = 10)
+  let Tr = f.textLayer(120, 10, 10, float32(w - 20), float32(f.h - 20), size = 10)
+  var pic = newSeq[uint32](120 * 60)
+  for k in 0 ..< pic.len: pic[k] = 0xFF2040C0'u32
+  let P = d.addLayer("Photo")
+  P.smart = SmartData(src: pic, w: 120, h: 60, quad: quadOf(rect(w - 60, 150, 120, 60)), name: "photo")
+  P.px = renderSmart(P.smart, d.w, d.h)
+  inc P.ver
+  P.wrap = 1
+  d.markAll()
+  d.rewrap()
+  discard b.syncSpread(1)
+  f.rewrap()
+  doAssert d.ink(Tl, w - 58, 152, w, 208) == 0, "kept out on its own page"
+  doAssert f.ink(Tr, 0, 152, 58, 208) == 0 and f.ink(Tr, 70, 152, w - 10, 208) > 0, "and on the facing page"
+  b.close()
+
+block textWrapKept:
+  # in the document's file, in an Object Style; a file from before -- its gap -- as it was
+  let d = newDoc(300, 200, 0xFFFFFFFF'u32)
+  let B = d.block0("Picture", 50, 50, 150, 150)
+  B.wrap = 1
+  B.wrapSide = 5
+  B.wrapOpts = WrapOptions(offsets: [1'f32, 2, 3, 4], linked: false, invert: true)
+  let path = getTempDir() / "wrap-kept.rpd"
+  d.saveRpd(path)
+  let back = loadRpd(path)
+  var K: Layer
+  for X in back.layers:
+    if X.name == "Picture": K = X
+  doAssert K.wrap == 1 and K.wrapSide == 5 and K.wrapOpts == B.wrapOpts, "kept in its file"
+  removeFile(path)
+  var def = objectStyleOf(B, "Wrapped")
+  doAssert def.useWrap and def.wrapOpts == B.wrapOpts
+  d.redefineObjectStyle(def)
+  let C = d.block0("Other", 200, 50, 250, 100)
+  d.applyObjectStyle(C, "Wrapped")
+  doAssert C.wrap == 1 and C.wrapSide == 5 and C.wrapOpts == B.wrapOpts, "given by the Object Style"
+  let j = objectStyleToJson(def)
+  doAssert objectStyleFromJson(j).wrapOpts == def.wrapOpts and objectStyleFromJson(parseJson($j)).useWrap
+
+
 echo "test_photobook: ok"
