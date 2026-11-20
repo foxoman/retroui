@@ -122,27 +122,38 @@ proc ask(key, model, system, user: string; maxTokens: int): string =
 proc forWhom(me: string): string =
   if me.strip.len > 0: " (" & me.strip & ")" else: ""
 
-proc summarize*(key, model: string; thread: seq[tuple[sender, date, text: string]];
-                language = ""; me = ""): string =
-  ## A few short bullet points on the thread (oldest message first), then
-  ## what is asked of the reader (`me`: their name or address). In
-  ## `language`, else the thread's own. Raises ApiError (the API's message:
-  ## a key refused, too many requests -- `retryAfter` -- ...).
+proc summaryAsk*(thread: seq[tuple[sender, date, text: string]]; language = ""; me = "";
+                 budget = maxText): tuple[system, user: string] =
+  ## What `summarize` asks: a few short bullet points on the thread (oldest message first), then
+  ## what is asked of the reader (`me`: their name or address), in `language` (else the
+  ## thread's own) -- for any service (`retroui/aichat`'s `askOnce`).
   let lang = if language.strip.len > 0: language.strip else: "the language most of the thread is written in"
-  let system = "You sum up e-mail threads for the person reading them" & forWhom(me) & ". Write in " &
+  result.system = "You sum up e-mail threads for the person reading them" & forWhom(me) & ". Write in " &
     lang & ", in plain text (no headings, no bold). First 2 to 5 short bullet points, each starting " &
     "with \"- \": what the thread is about, what was decided, what is still open. Then a line " &
     "\"What is asked of you:\" (in the same language) and one or two short bullet points saying " &
     "what the others ask of the reader, or \"- Nothing.\""
-  ask(key, model, system, "<thread>\n" & threadForAi(thread) & "\n</thread>", 700)
+  result.user = "<thread>\n" & threadForAi(thread, budget) & "\n</thread>"
 
-proc translate*(key, model, text, toLanguage: string): string =
-  ## `text` (plain, at most `maxText` bytes of it) in `toLanguage`.
-  if text.strip.len == 0: return ""
-  let system = "Translate the text the user gives into " & toLanguage.strip & ". Keep its meaning " &
+proc translateAsk*(text, toLanguage: string; budget = maxText): tuple[system, user: string] =
+  ## What `translate` asks: `text` (plain, at most `budget` bytes of it) in `toLanguage`.
+  result.system = "Translate the text the user gives into " & toLanguage.strip & ". Keep its meaning " &
     "and tone, names, numbers, addresses, links and line breaks. Answer with the translation only, " &
     "nothing before or after it."
-  ask(key, model, system, clip(text.strip, maxText), 8192)
+  result.user = clip(text.strip, budget)
+
+proc summarize*(key, model: string; thread: seq[tuple[sender, date, text: string]];
+                language = ""; me = ""): string =
+  ## `summaryAsk` asked of Claude with the user's key. Raises ApiError (the API's message: a key
+  ## refused, too many requests -- `retryAfter` -- ...).
+  let (system, user) = summaryAsk(thread, language, me)
+  ask(key, model, system, user, 700)
+
+proc translate*(key, model, text, toLanguage: string): string =
+  ## `text` (plain, at most `maxText` bytes of it) in `toLanguage`, by Claude with the user's key.
+  if text.strip.len == 0: return ""
+  let (system, user) = translateAsk(text, toLanguage)
+  ask(key, model, system, user, 8192)
 
 proc suggestReplies*(key, model, threadText: string; me = ""): seq[string] =
   ## Three short replies to the thread's last message, ready to send.

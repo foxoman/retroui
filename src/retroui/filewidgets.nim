@@ -662,6 +662,21 @@ proc search*(m: FolderModel; text: string) =
   m.marked.setLen(0)
   m.sel = 0
 
+proc showFound*(m: FolderModel; paths: openArray[string]; query: string) =
+  ## Shows `paths` -- found by other means: by meaning (`retroui/meaning`) -- in their order, as
+  ## a search's results for `query` (`stopSearch` lists the folder again).
+  m.filter = query
+  m.deep = true
+  m.searchFor = query.toLowerAscii
+  if m.searchFor.len == 0: m.searchFor = " "
+  m.todo.setLen(0)
+  m.items.setLen(0)
+  for p in paths:
+    if fileExists(p) or dirExists(p): m.items.add infoOf(p)
+  m.marked = newSeq[bool](m.items.len)
+  m.sel = 0
+  ui.redraw = true
+
 proc searchBusy*(m: FolderModel): bool = m.deep and m.todo.len > 0
   ## The search is still going through folders.
 

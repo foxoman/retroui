@@ -2,8 +2,8 @@
 ## and where it needs to it calls the app's own tools -- each a Nim proc the app gives, with
 ## the arguments it takes -- sees what they did and goes on, until it has an answer. The
 ## service is yours (`retroui/aiconnect`: any OpenAI-compatible one -- OpenAI, a local Ollama
-## or LM Studio -- or Anthropic's), nothing is sent before one is set, and a tool that changes
-## something can ask you first.
+## or LM Studio -- Anthropic's, or this device's own model, `retroui/devicemodel`), nothing is
+## sent before one is set, and a tool that changes something can ask you first.
 ##
 ## .. code-block:: nim
 ##   let chat = newAiChat(loadAiSettings("notes"), "You help with the notes of this app.")
@@ -25,7 +25,7 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[json, strutils, base64]
-import core, jobs, aiconnect, drive
+import core, jobs, aiconnect, drive, devicemodel
 export json, aiconnect
 
 type
@@ -148,8 +148,8 @@ proc chatRequest*(s: AiSettings; system: string; tools: openArray[AiTool]; messa
   result.url = if s.url.strip.len > 0: s.url.strip else: defaultUrl(s.kind)
   result.headers = @[("Content-Type", "application/json")]
   case s.kind
-  of akOpenAi:
-    if s.key.len > 0: result.headers.add ("Authorization", "Bearer " & s.key)
+  of akOpenAi, akDevice:
+    if s.key.len > 0 and s.kind == akOpenAi: result.headers.add ("Authorization", "Bearer " & s.key)
     var msgs = newJArray()
     if system.len > 0: msgs.add %*{"role": "system", "content": system}
     for m in messages:
@@ -225,7 +225,7 @@ proc chatReply*(kind: AiKind; body: string): tuple[msg: AiMessage; error: string
     result.error = if e.kind == JObject: e{"message"}.getStr($e) else: $e
     return
   case kind
-  of akOpenAi:
+  of akOpenAi, akDevice:
     let ch = j{"choices"}.getElems
     if ch.len == 0:
       result.error = "the service said nothing"
@@ -294,9 +294,18 @@ proc ask(c: AiChat) =
   var sys = c.system
   if c.context != nil:
     let ctx = c.context()
-    if ctx.len > 0: sys.add (if sys.len > 0: "\n\n" else: "") & "What the app shows now: " & ctx
+    if ctx.len > 0:
+      if c.settings.kind == akDevice:
+        # (the device's own model keeps what it read of the conversation: what changes goes last,
+        # with the newest of the user's, so the rest is not read again)
+        var at = msgs.high
+        while at >= 0 and msgs[at].role != arUser: dec at
+        if at >= 0: msgs[at].text = "(What the app shows now: " & ctx & ")\n\n" & msgs[at].text
+      else: sys.add (if sys.len > 0: "\n\n" else: "") & "What the app shows now: " & ctx
   let r = chatRequest(c.settings, sys, c.tools, msgs)
-  c.req = fetch(r.url, "POST", r.headers, r.body,
+  c.req =
+    if c.settings.kind == akDevice: deviceFetch(c.settings.url, r.body)
+    else: fetch(r.url, "POST", r.headers, r.body,
                 timeoutSec = (if c.settings.timeoutSec > 0: c.settings.timeoutSec else: 120))
   c.state = ciAsking
 
@@ -451,11 +460,42 @@ proc stepChats() {.nimcall.} =
     if c.state == ciTools: wakeIn(30)    # (a tool that says so later: looked at again soon)
     inc i
 
+proc partialAnswer*(c: AiChat): string =
+  ## What the service has written so far of the answer it is writing ("" when it says it only
+  ## once whole: a service online; the device's own model writes as it goes) -- its words, not
+  ## its thinking or the tool calls it writes.
+  if c == nil or c.state != ciAsking or c.settings.kind != akDevice: return ""
+  result = devicePartial()
+  let t = result.find("<tool_call>")
+  if t >= 0: result.setLen(t)
+  result = thoughtLess(result)
+
 proc lastAnswer*(c: AiChat): string =
   ## The service's last words.
   if c == nil: return
   for i in countdown(c.messages.high, 0):
     if c.messages[i].role == arAssistant and c.messages[i].text.len > 0: return c.messages[i].text
+
+# ---- one question, no conversation -----------------------------------------------------------------------
+
+proc askOnce*(s: AiSettings; system, user: string; onDone: proc () {.closure.} = nil): Job[HttpResponse] =
+  ## One question to the service `s`, with no tools and no conversation, on a worker: a text
+  ## made shorter, a summary. Its words when it ends: `onceAnswer`.
+  let r = chatRequest(s, system, [], [AiMessage(role: arUser, text: user)])
+  if s.kind == akDevice: deviceFetch(s.url, r.body, onDone)
+  else: fetch(r.url, "POST", r.headers, r.body,
+              timeoutSec = (if s.timeoutSec > 0: s.timeoutSec else: 120), onDone = onDone)
+
+proc onceAnswer*(s: AiSettings; j: Job[HttpResponse]): tuple[text, error: string] =
+  ## The service's words for `askOnce`'s job (without a model's thinking), or why there are
+  ## none ("", "" while it runs).
+  if j == nil or not j.ended: return ("", "")
+  if not j.done: return ("", if j.failed: j.error else: "stopped")
+  let resp = j.value
+  if resp.status == 0: return ("", resp.error)
+  let (m, err) = chatReply(s.kind, resp.body)
+  if err.len > 0: return ("", (if resp.status >= 400: "HTTP " & $resp.status & ": " else: "") & err)
+  (thoughtLess(m.text), "")
 
 # ---- tools any app has --------------------------------------------------------------------------------------
 

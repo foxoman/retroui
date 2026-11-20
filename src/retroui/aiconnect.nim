@@ -2,7 +2,9 @@
 ## it answers with the app's own commands (from the list the app gives it), and the app runs
 ## those -- after showing you them. Off until you connect one; nothing is sent anywhere
 ## before. Any service that speaks OpenAI's chat completions (OpenAI, a local Ollama or LM
-## Studio, many more) or Anthropic's Messages: its address, its model, your key.
+## Studio, many more) or Anthropic's Messages: its address, its model, your key. Or this
+## device's own model (`akDevice`: `retroui/devicemodel`, its file the address), which sends
+## nothing anywhere at all.
 ##
 ## .. code-block:: nim
 ##   let s = AiSettings(kind: akOpenAi, url: "http://localhost:11434/v1/chat/completions",
@@ -17,19 +19,20 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[json, strutils]
+import std/[json, strutils, os]
 import http, platform, secrets
 
 type
   AiKind* = enum
     ## How the service is spoken to.
     akOpenAi = "OpenAI-compatible (chat completions)",
-    akAnthropic = "Anthropic (Messages)"
+    akAnthropic = "Anthropic (Messages)",
+    akDevice = "This device (a model of its own)"
 
   AiSettings* = object
     ## A connected AI service (empty `url`: none).
     kind*: AiKind
-    url*: string                 ## its address ("" none: the connector off)
+    url*: string                 ## its address ("" none: the connector off); `akDevice`: the model's file
     model*: string               ## the model asked
     key*: string                 ## your key for it ("" a service on your own computer)
     timeoutSec*: int             ## (0: 90)
@@ -41,14 +44,20 @@ type
     unknown*: seq[string]        ## what it asked that the app has not
     error*: string               ## why there is no answer ("" there is)
 
-proc connected*(s: AiSettings): bool = s.url.strip.len > 0 and s.model.strip.len > 0
-  ## A service is connected.
+proc connected*(s: AiSettings): bool =
+  ## A service is connected (the device's own: its model's file is there).
+  if s.kind == akDevice: s.url.len > 0 and fileExists(s.url)
+  else: s.url.strip.len > 0 and s.model.strip.len > 0
+
+var deviceAnswerHook*: proc (path, body: string): HttpResponse {.gcsafe.}
+  ## (`retroui/devicemodel`'s answer, set when it is imported: `askAi` with `akDevice`)
 
 proc defaultUrl*(k: AiKind): string =
   ## The usual address of a kind of service.
   case k
   of akOpenAi: "https://api.openai.com/v1/chat/completions"
   of akAnthropic: "https://api.anthropic.com/v1/messages"
+  of akDevice: ""
 
 const Instructions = "You drive an image and layout editor by naming its menu commands. " &
   "Answer ONLY with JSON: {\"commands\": [\"...\"], \"note\": \"one short sentence\"}. " &
@@ -70,8 +79,8 @@ proc requestOf*(s: AiSettings; prompt: string; commands: openArray[string]; cont
   result.url = if s.url.strip.len > 0: s.url.strip else: defaultUrl(s.kind)
   result.headers = @[("Content-Type", "application/json")]
   case s.kind
-  of akOpenAi:
-    if s.key.len > 0: result.headers.add ("Authorization", "Bearer " & s.key)
+  of akOpenAi, akDevice:
+    if s.key.len > 0 and s.kind == akOpenAi: result.headers.add ("Authorization", "Bearer " & s.key)
     result.body = $(%*{"model": s.model, "temperature": 0,
                        "messages": [{"role": "system", "content": sys}, {"role": "user", "content": prompt}]})
   of akAnthropic:
@@ -88,7 +97,7 @@ proc replyText*(kind: AiKind; body: string): tuple[text, error: string] =
     let e = j["error"]
     return ("", if e.kind == JObject: e{"message"}.getStr($e) else: $e)
   case kind
-  of akOpenAi:
+  of akOpenAi, akDevice:
     for c in j{"choices"}.getElems:
       let t = c{"message"}{"content"}.getStr
       if t.len > 0: return (t, "")
@@ -131,7 +140,11 @@ proc askAi*(s: AiSettings; prompt: string; commands: openArray[string]; context 
   ## Asks the connected service for the commands that do `prompt` (waits for its answer).
   if not s.connected: return AiAnswer(error: "no AI service is connected (Preferences > AI Connector)")
   let r = s.requestOf(prompt, commands, context)
-  let resp = httpRequest("POST", r.url, r.headers, r.body, timeoutSec = (if s.timeoutSec > 0: s.timeoutSec else: 90))
+  let resp =
+    if s.kind == akDevice:
+      if deviceAnswerHook == nil: HttpResponse(error: "the device's own model is not in this app (import retroui/devicemodel)")
+      else: deviceAnswerHook(s.url, r.body)
+    else: httpRequest("POST", r.url, r.headers, r.body, timeoutSec = (if s.timeoutSec > 0: s.timeoutSec else: 90))
   if resp.status == 0: return AiAnswer(error: resp.error)
   let (text, err) = replyText(s.kind, resp.body)
   if err.len > 0: return AiAnswer(error: (if resp.status >= 400: "HTTP " & $resp.status & ": " else: "") & err)

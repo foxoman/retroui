@@ -23,9 +23,13 @@ var
   genDlg: tuple[open: bool; kind: int; prompt: string; w, h: int]
     ## Generative Fill (0), Generative Expand (1), Generate Image (2): photo/assist
   assist: AiChat                  ## (the Assistant panel's conversation: photo/assist)
+  modelsOpen = false              ## (Edit > Models on This Device: the store's window)
+  fitRun: tuple[job: Job[HttpResponse]; layer: Layer; d: Doc; tries, want: int]
+    ## (Type > Shorten to Fit: the request out, the box it is for -- photo/assist)
   liveSeen: Table[pointer, int]
 
 proc genDialog()                  # (in photo/assist)
+proc startShorten(L: Layer; tries = 0)   # (in photo/assist)
 
 proc loadImgAi(withKey = true) =
   if imgAi.loaded and (imgAi.keyed or not withKey): return
@@ -780,33 +784,21 @@ proc appCommands(): seq[string] =
   for (_, _, c) in mIndex.found:
     if c in result or c.len == 0: continue
     if c in ["Quit", "Exit", "Close All", "Close", "Revert", "Ask AI...", "AI Connector...", "Assistant",
-             "Generative Fill...", "Generative Expand...", "Generate Image..."]: continue
+             "Generative Fill...", "Generative Expand...", "Generate Image...", "Models...", "Shorten to Fit"]: continue
     result.add c
 
 proc aiDialogs() =
+  modelStoreDialog(modelsOpen, onChange = proc () = (if assist != nil: assist.settings = aiDlg.s))
   if aiDlg.open:
     loadAi()
     loadImgAi()
     var ok = false
-    dialog(aiDlg.open, "AI Connector", 460):
-      paragraph("An AI service of your own -- on your computer (Ollama, LM Studio) or online -- turns what you " &
-                "ask into Retro Atelier's own commands, shown before they run. Off until you set one; nothing " &
-                "is sent anywhere before.", color = ui.theme.gray)
-      row([100, -1]):
-        label "Speaks:"
-        var k = ord(aiDlg.s.kind)
-        if combo([$akOpenAi, $akAnthropic], k, w = dp(260)):
-          aiDlg.s.kind = AiKind(k)
-          if aiDlg.s.url.len == 0: aiDlg.s.url = defaultUrl(aiDlg.s.kind)
-      row([100, -1]):
-        label "Address:"
-        edit(aiDlg.s.url)
-      row([100, -1]):
-        label "Model:"
-        edit(aiDlg.s.model)
-      row([100, -1]):
-        label "Key:"
-        edit(aiDlg.s.key, password = true)
+    dialog(aiDlg.open, "AI Connector", 500):
+      paragraph("An AI service of your own -- this device's own model, one on your computer (Ollama, LM " &
+                "Studio) or one online -- works Retro Atelier for you in the Assistant (Window > Assistant): " &
+                "each change shown before it is made. Off until you set one; nothing is sent anywhere before.",
+                color = ui.theme.gray)
+      aiServiceForm(aiDlg.s, modelsOpen)
       label("Pictures (Generate Image, Generative Fill and Expand):", bold = true)
       paragraph("A service that speaks OpenAI's images API: its address and model (gpt-image-1, dall-e-2...); " &
                 "the key, if it is not the one above.", color = ui.theme.gray)
@@ -1017,6 +1009,9 @@ proc makersCommand(name: string): bool =
     prefs.layerSizes = not prefs.layerSizes
     savePrefs()
   of "AI Connector...": aiDlg.open = true
+  of "Models...": modelsOpen = true
+  of "Shorten to Fit":
+    if d != nil and d.current.isText: startShorten(d.current)
   of "Ask AI...": showPanel("assistant")
   of "Generative Fill...":
     if d != nil: genDlg = (true, 0, "", 0, 0)

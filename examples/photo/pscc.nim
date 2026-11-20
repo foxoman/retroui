@@ -243,6 +243,7 @@ proc psMenus() =
       ci("&Keyboard Shortcuts...")
       ci("Tool&bar...")
       ci("AI Co&nnector...", "AI Connector...")
+      ci("&Models on This Device...", "Models...")
       psSub "Pre&ferences":
         ci("&General...")
         ci("&Interface...")
@@ -523,6 +524,7 @@ proc psMenus() =
                                                                                     d.current.text.boxW > 0)))
       ci("Flow Into a &New Box", enabled = some and d.current.isText and d.current.text.boxW > 0)
       ci("Unlink Text Bo&x", "Unlink Text Box", enabled = some and d.current.flowFrom != 0)
+      ci("Shorten to &Fit (AI)", "Shorten to Fit", enabled = some and d.current.isText and d.current.text.boxW > 0)
       ci("Paste &Lorem Ipsum", "Paste Lorem Ipsum", enabled = some)
       ci("Word &Shapes...", "Word Shapes...", enabled = some)
       ci("Insert Page N&umber", "Insert Page Number", enabled = some)

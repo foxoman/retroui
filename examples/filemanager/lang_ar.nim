@@ -505,4 +505,16 @@ check boxes on the rows, and Back goes back a folder.
   ("To: ", "إلى: "),
   ("Cc: ", "نسخة إلى: "),
   ("Date: ", "التاريخ: "),
+  # 3.7: search by meaning
+  ("By meaning", "بالمعنى"),
+  ("By Meaning...", "بالمعنى..."),
+  ("Models on This Device...", "النماذج على هذا الجهاز..."),
+  ("Get a model for it...", "احصل على نموذج لذلك..."),
+  ("Looking through the folders...", "يجري البحث في المجلدات..."),
+  ("Reading the files: ", "قراءة الملفات: "),
+  ("Finding...", "يجري البحث..."),
+  ("3.7.0: Tools > Find > By Meaning -- files found by what they say, not their names, read on this device by a model of its own (Tools > Models on This Device): nothing leaves it",
+   "3.7.0: أدوات > بحث > بالمعنى -- ملفات يُعثر عليها بما تقوله لا بأسمائها، يقرؤها على هذا الجهاز نموذج خاص به (أدوات > النماذج على هذا الجهاز): لا شيء يغادره"),
+  ("Tools > Find > By Meaning: files found by what they say, not their names -- read on this device by a model of its own (Tools > Models on This Device)",
+   "أدوات > بحث > بالمعنى: ملفات يُعثر عليها بما تقوله لا بأسمائها -- يقرؤها على هذا الجهاز نموذج خاص به (أدوات > النماذج على هذا الجهاز)"),
 ]

@@ -95,6 +95,7 @@ proc spellingTab() =
 var
   aiKey = ""
   aiKeyLoaded = false
+  mailModels = false                ## (the models on this device: their window)
 
 proc assistantTab() =
   ## Tools, Options, Assistant: Summarize and Translate with the user's own
@@ -105,28 +106,13 @@ proc assistantTab() =
     aiKey = loadSecret(secretApp, "ai-key")
   loadMailAi()
   group "The Assistant pane (View, Assistant)":
-    paragraph "An AI service of your own -- on your computer (Ollama, LM Studio) or online -- that " &
-              "finds and reads your mail when you ask and drafts replies for you to send. It sends " &
-              "only what it reads to answer."
+    paragraph "An AI service of your own -- this device's own model, one on your computer (Ollama, " &
+              "LM Studio) or one online -- that finds and reads your mail when you ask and drafts " &
+              "replies for you to send; Summarize and Translate use it too. It sends only what it " &
+              "reads to answer, and this device's own model sends nothing anywhere."
     var s = mailAi.s
-    var changed = false
-    form dp(160):
-      field "S&peaks:":
-        block:
-          var k = ord(s.kind)
-          if combo([$akOpenAi, $akAnthropic], k):
-            s.kind = AiKind(k)
-            if s.url.len == 0 or s.url == defaultUrl(AiKind(1 - k)): s.url = defaultUrl(s.kind)
-            changed = true
-      field "&Address:":
-        block:
-          if edit(s.url): changed = true
-      field "M&odel:":
-        block:
-          if edit(s.model): changed = true
-      field "K&ey:":
-        block:
-          if edit(s.key, password = true): changed = true
+    let changed = aiServiceForm(s, mailModels, labelW = 160)
+    modelStoreDialog(mailModels)
     if changed:
       mailAi.s = s
       saveAiSettings(secretApp, s)
@@ -134,9 +120,10 @@ proc assistantTab() =
   group "Summarize and Translate":
     var on = prefBool("aiOn", false)
     if checkbox("Show &Summarize and Translate over a conversation", on): prefs.put("aiOn", on)
-    paragraph "They send the text of the conversation you ask about (nothing else, and only " &
-              "when you ask) to Claude, with your own key from console.anthropic.com. The key " &
-              "is kept encrypted on this device."
+    paragraph "They use the Assistant's service above (this device's own model sends nothing " &
+              "anywhere). With none set, they send the text of the conversation you ask about " &
+              "(nothing else, and only when you ask) to Claude, with your own key from " &
+              "console.anthropic.com -- kept encrypted on this device."
     form dp(160):
       field "&Key:":
         block:

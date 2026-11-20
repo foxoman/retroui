@@ -702,6 +702,15 @@ app "Notes", 420, 300:
   offers the tools to agents outside the app, which `retrokit mcp PORT`
   serves over MCP -- any app worked by an AI agent. `retroui/aiimage`:
   pictures from words, and a picture changed where a mask says.
+- **An AI of the device's own** (`retroui/llm`, `retroui/modelstore`,
+  `retroui/devicemodel`, `retroui/meaning`): language models run in Nim
+  in the app itself -- BitNet b1.58's ternary ones, Llama's, Qwen's,
+  from their GGUF files -- downloaded when the user asks
+  (`modelStoreDialog`: size, license, Cancel, checksum, Delete), kept
+  outside the app; "This device" is one more AI service (`akDevice`), so
+  the assistant, a summary or a shorter text work offline and send
+  nothing anywhere; `retroui/meaning` finds texts by what they mean.
+  `aiServiceForm` is the AI Connector's form.
 - **Graphs that lay themselves out** (`retroui/forcegraph`):
   `graphView(g, h, sel)` shows a `ForceGraph` -- nodes that push each
   other away, links that pull -- moving until it settles, its nodes
@@ -1473,7 +1482,7 @@ toast("Copied 12 items", title = "Files")    # a yellow Windows 95 balloon
 ### Retro Files
 
 `examples/filemanager.nim` (about 2,100 lines: the rest is the toolkit's)
-is **Retro Files 3.5.0**, a complete file manager in the manner of the Windows 98
+is **Retro Files 3.7.0**, a complete file manager in the manner of the Windows 98
 Explorer -- the Standard Buttons with their labels under the icons (View >
 Toolbars > Text Labels), the Address bar, View as Web Page (the folder's
 name large and the selection described at the left), Large and Small icons,
@@ -1746,7 +1755,7 @@ drawing (`fill`, `box`, `line`, `text`, `disc`, `polygon`…).
 
 ![Retro Mail: All Inboxes in threads, tags, the conversation in the preview pane](docs/mail.png)
 
-`examples/mail.nim` is **Retro Mail 1.2.0**: Outlook Express 4 to look at and to
+`examples/mail.nim` is **Retro Mail 1.4.0**: Outlook Express 4 to look at and to
 use, with what the new Outlook does, for Microsoft 365, Outlook.com and Gmail
 -- and any other provider through IMAP (new mail the moment it comes),
 POP3, JMAP (Fastmail) or a company's own Exchange (EWS). Its mail is kept
@@ -2102,7 +2111,7 @@ s.dehaze = 10
 p.applyFilter(developMargin(s), develop(s))
 ```
 
-`examples/photo.nim` is **Retro Atelier 5.2.0** (Retro Photo until 5.0: its modules, documents and package id keep that name), an image editor in the manner
+`examples/photo.nim` is **Retro Atelier 5.10.0** (Retro Photo until 5.0: its modules, documents and package id keep that name), an image editor in the manner
 of the ones of 1994: the toolbox, the tabbed floating palettes (Brushes
 and Options; Picker, Swatches and Scratch; Layers, Channels and Paths;
 Info; Commands; Navigator, History and Actions; Properties), an options
@@ -2253,7 +2262,8 @@ Paint**, **Intertwine** and **Pattern Options**, the photo program's **Relight**
 dragged on the image, no AI), **Remove with its shadow**, **Upscale** and each layer's size, and
 the quick-design programs' **Mockups**, **Styles** and font pairs, **Tidy Up**, **Lift
 Subject**, templates with photo placeholders and an **AI service of your own** that runs the
-app's commands (shown first, nothing sent before you set one). Since 5.7 **several layers
+app's commands (shown first, nothing sent before you set one) -- since 5.10 also **the device's
+own model**, offline, and **Shorten to Fit** for overset text. Since 5.7 **several layers
 picked** are shown as each program shows them -- a photo: one box with handles round them all;
 a drawing: each object's outline in its layer's color with its anchor points; a page: each
 frame's edge -- and transformed, deleted, duplicated and set together (each as what it is:
@@ -3472,6 +3482,8 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_aichat` | a conversation against a service of the test's own: OpenAI's and Anthropic's requests and answers (tools, calls, results, a picture), a tool called, one that asks first allowed or denied, two calls in one answer, a tool done frames later, the rounds limited; the assistant's panel and its Allow; a picture made and one changed through a mask, at the sizes asked |
 | `test_mcp` | the driver's picture of the window and the app's own tools, a command run from inside the app, the assistant's tools that work the controls, the MCP server: initialize, the tools listed, a control clicked, read, pictured, the app's tool run |
 | `test_mailassist` | Retro Mail's Assistant tools on a store of the test's own: the Inbox, its unread, a search, a message read without what it quotes, a reply and a new message opened (not sent), a message marked; the service from the kit's settings or an older key |
+| `test_llm` | five small models of random weights, one of each kind (Llama, BitNet b1.58, BitNet, Qwen 2, Qwen 3; F16, Q8_0, Q4_0, I2_S, TQ2_0, TQ1_0): each kind's rows with and without AVX2, the scores token by token and the greedy answers against numpy's, the byte-pair tokens against Hugging Face's tokenizer, SentencePiece's, the conversation forms, a conversation kept, texts as vectors, the text in whole letters, files that are not models |
+| `test_devicemodel` | this device as an AI service: the conversation and its tools as the model reads them, its calls read back, its answer as OpenAI's, a chat answered and stopped; a model downloaded (a file address), stopped and gone on with, its checksum checked, a damaged one refused, deleted; search by meaning; the store's window and the AI Connector's form |
 | `test_forcegraph` | a graph laid out: linked nodes near their length, the others apart, a pinned node where it is put, the same layout every time, 1,500 nodes settled; the control on a clock of its own: frames while it moves and none once settled, a node clicked and dragged |
 | `test_motion` | on a clock of its own: a spring keeps its speed when sent elsewhere and is the same at 8 and 40 ms a frame, a bouncy one goes past and a smooth one never does; a box in and out (turned back half way: no jump); a box the layout moved glides, a scroll does not; dragged, thrown and let go to the nearest point, or back; rows one after another, again after a while; a fixed step's whole steps, no more than its most; less movement at the end at once; no frame asked once all is at rest |
 | `test_perspectivegrid` | the perspective grid: the planes meet where they should (two points and one), go back to their points, a path laid on a plane (its corners kept, the far side shorter, a curve cut and still on it), refused over the horizon; a painted layer laid on a plane and undone |

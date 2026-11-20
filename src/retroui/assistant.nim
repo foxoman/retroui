@@ -82,6 +82,12 @@ proc assistantPanel*(c: AiChat; height = -1;
     of arTool: discard
     if mi == c.messages.high: lastY = ui.lastRect.y
   if c.state == ciAsking:
+    # (the device's own model writes as it goes: what it has so far)
+    let so = c.partialAnswer
+    if so.strip.len > 0:
+      label("Assistant", bold = true)
+      markdown(so)
+      wakeIn(100)
     row:
       spinner()
       label("Thinking...", color = gray)

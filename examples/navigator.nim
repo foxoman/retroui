@@ -11,7 +11,9 @@
 ## cleared. Pages in their own look (Modern), in 1995's type and colors
 ## (Classic), or as the HTML alone (Plain), with 3.1's scroll bars. Where
 ## the system has no engine it shows its own pages and opens the others in
-## the browser.
+## the browser. View > Summary sums up the page with an AI service of your
+## own -- this device's own model sends nothing anywhere (Options > AI
+## Connector).
 ##
 ##   nimble navigator     (or: nim c -r -d:release examples/navigator.nim;
 ##                         Linux and BSD: libwebkit2gtk-4.1 installed)
@@ -19,12 +21,12 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[os, strutils, json, math]
-import retroui
+import retroui, retroui/[aiconnect, aichat, modelstore, jobs, devicemodel]
 from retroui/system import revealFile   # (Downloads: Show in Folder)
 import navigator/[places, pages, markup]
 
 const
-  NavigatorVersion = "0.5.1"
+  NavigatorVersion = "0.6.0"
   SleepAfter = 5 * 60_000                          # a tab not seen this long sleeps (ms)
   IconPng = staticRead("assets/navigator-icon.png")
   Directory = [("&Welcome", "about:welcome"),
@@ -108,6 +110,12 @@ var
   downloads: seq[WebDownload]         # this session's downloads, the last last (Ctrl+J)
   downloadSel = 0
   readerAsk = 0                       # (the Reader's script)
+  summaryAsk = 0                      # (View > Summary: the page's text asked for)
+  summaryJob: Job[HttpResponse]       # (... and the service asked about it)
+  summary = ""                        # the page's summary, or why there is none
+  showSummary, showAi, showModels = false
+  navAi: AiSettings                   # (Options > AI Connector: the service)
+  navAiLoaded = false
   reader = ""                         # the page as the Reader shows it (HTML)
 
 proc historyFile(): string = dataDir(SettingsName) / "history.txt"
@@ -338,6 +346,23 @@ const ReaderJs =
   ".forEach(function(e){var t=e.tagName.toLowerCase(),s=e.innerText.trim();if(!s)return;" &
   "if(t=='li')o+='<p>&bull; '+x(s)+'</p>';else o+='<'+t+'>'+x(s)+'</'+t+'>';});return o;})()"
 
+proc loadNavAi() =
+  if not navAiLoaded:
+    navAi = loadAiSettings(SettingsName)
+    navAiLoaded = true
+
+proc askSummary() =
+  ## View > Summary: the page's article asked of the page (the Reader's script), then summed up
+  ## by the AI service (none set: Options > AI Connector first).
+  loadNavAi()
+  if not navAi.connected:
+    showAi = true
+    status = "Set an AI service first (this device's own model sends nothing anywhere)"
+    return
+  summary = ""
+  showSummary = true
+  summaryAsk = webRun(t.key, ReaderJs)
+
 const PopOut = "(function(){var v=null,best=-1;document.querySelectorAll('video').forEach(function(x){" &
   "var s=(x.paused?0:1e9)+x.clientWidth*x.clientHeight;if(s>best){best=s;v=x}});if(!v)return 'none';" &
   "if(document.pictureInPictureElement){document.exitPictureInPicture();return 'back'}" &
@@ -453,6 +478,7 @@ app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = 
       if menuItem("&Pop Out Video", enabled = native): popAsk = webRun(t.key, PopOut)
       if menuItem("&Reader", "Ctrl+Alt+R", enabled = native and t.shown.len > 0):
         readerAsk = webRun(t.key, ReaderJs)
+      if menuItem("S&ummary", enabled = native and t.shown.len > 0): askSummary()
       menuSeparator()
       if menuItem("Document So&urce", enabled = native):
         sourceAsk = webRun(t.key, "document.documentElement.outerHTML")
@@ -481,6 +507,7 @@ app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = 
       if menuItem("&Appearance..."): openPrefs(1)
       if menuItem("&Security Preferences..."): openPrefs(2)
       if menuItem("&Network Preferences..."): openPrefs(3)
+      if menuItem("AI Co&nnector..."): showAi = true
       menuSeparator()
       if menuItem("Allow Ads on This S&ite", checked = adsHere,
                   enabled = shBlockAds in shields and host.len > 0):
@@ -697,7 +724,22 @@ app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = 
                elif d.done: "Saved in Downloads: " & name
                else: "Downloading " & name & " " & $d.progress & "%"
     for r in ev.results:
-      if r.id == readerAsk and readerAsk != 0:
+      if r.id == summaryAsk and summaryAsk != 0:
+        summaryAsk = 0
+        let html = try: parseJson(r.value).getStr except CatchableError: ""
+        var text = htmlToText(html).strip
+        let most = if navAi.kind == akDevice: 5000 else: 24000
+        if text.len > most: text.setLen(most)
+        if text.len < 40:
+          summary = "This page has too little text to sum up."
+        else:
+          summaryJob = askOnce(navAi, "You sum up web pages for the person reading them, in the language " &
+            "the page is written in: first one sentence of what the page is, then 3 to 6 short bullet " &
+            "points, each starting with \"- \". Plain text, no headings.",
+            "<page title=\"" & t.title & "\">\n" & text & "\n</page>", onDone = proc () =
+              let (s, err) = onceAnswer(navAi, summaryJob)
+              summary = if err.len > 0: "It did not work: " & err else: s)
+      elif r.id == readerAsk and readerAsk != 0:
         readerAsk = 0
         reader = try: parseJson(r.value).getStr except CatchableError: ""
         if reader.len > 0: showReader = true
@@ -922,6 +964,46 @@ app "Retro Navigator", 900, 680, id = SettingsName, look = SettingsName, icon = 
         downloads = kept
       spring()
       if button("Close", isDefault = true): showDownloads = false
+
+  # View, Summary: the page summed up by the AI service (as it comes, from this device's own)
+  dialog(showSummary, "Summary", 560):
+    label(t.title, bold = true)
+    let going = summaryAsk != 0 or (summaryJob != nil and summaryJob.running)
+    if going:
+      let so = if navAi.kind == akDevice: thoughtLess(devicePartial()) else: ""
+      if so.len > 0: paragraph(so)
+      row:
+        spinner()
+        label("Reading the page...", color = ui.theme.gray)
+      if navAi.kind == akDevice: wakeIn(100)
+    else: paragraph(summary)
+    row:
+      spring()
+      if going and button("Stop", w = dp(80)):
+        if summaryJob != nil: summaryJob.cancel()
+        summaryAsk = 0
+      if button("Close", isDefault = true, w = dp(80)): showSummary = false
+
+  # Options, AI Connector: the service View > Summary asks
+  if showAi:
+    var ok = false
+    dialog(showAi, "AI Connector", 500):
+      paragraph("An AI service of your own sums up pages (View > Summary): this device's own model -- " &
+                "nothing leaves it -- one on your computer (Ollama, LM Studio) or one online. Off until you " &
+                "set one; the page is sent only when you ask.", color = ui.theme.gray)
+      aiServiceForm(navAi, showModels)
+      row:
+        spring()
+        if button("OK", isDefault = true, w = dp(80)): ok = true
+        if button("Cancel", w = dp(80)):
+          showAi = false
+          navAiLoaded = false
+    if ok:
+      showAi = false
+      status = if not saveAiSettings(SettingsName, navAi): "AI Connector: not kept"
+               elif navAi.connected: "AI Connector: " & navAi.model
+               else: "AI Connector: off"
+  modelStoreDialog(showModels, {muChat})
 
   # View, Reader: the page's article alone, in the window's own look
   dialog(showReader, "Reader", 680):

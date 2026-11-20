@@ -111,7 +111,7 @@ NOT_CONTROLS = {
         "searching", "applyView", "newFolderModel", "reload", "open",
         "askAccess", "accessApp", "canGoBack", "canGoForward", "canGoUp",
         "goBack", "goForward", "goUp", "loadingPath", "loadingFor",
-        "selectAfterLoad", "setFilter", "search", "searchBusy", "stopSearch",
+        "selectAfterLoad", "setFilter", "search", "searchBusy", "stopSearch", "showFound",
         "update", "current", "markedCount", "selectedItems", "selectedPaths",
         "selectAll", "selectMatching", "clearSelection", "folderStats",
         "makeFolder", "makeFile", "rename", "batchNames", "renameAll", "dropped",

@@ -330,6 +330,14 @@ app "Staff", 520, 420:
   `publishTools(tools)` for agents outside (`retrokit mcp PORT` with RETRO_DRIVE).
   Pictures: `retroui/aiimage` (`generateImage`, `editImage` through a mask) as a
   job's work. A tool that changes something: `confirm = true`.
+- The device's own model (`retroui/modelstore`, `retroui/devicemodel`): the AI
+  Connector's form is `aiServiceForm(settings, modelsOpen)` (it offers "This
+  device", `akDevice`), and `modelStoreDialog(modelsOpen)` downloads models when
+  asked; then `newAiChat(settings, ...)` works offline. One answer, no
+  conversation: `askOnce(settings, system, text, onDone)` and
+  `onceAnswer(settings, job)`. Search by meaning: `retroui/meaning`
+  (`openMeaningIndex(file, modelPath(m))`, `update(items)`, `find(task,
+  question)`). Never put a model in the app.
 - `trayIcon(png, tip, ["&Show", "-", "E&xit"])` (`retroui/tray`) every
   frame while wanted: `.clicked`, `.picked` (the item's index).
 - `retroui/feeds`: `parseFeed(xml)` (RSS, Atom), `parseOpml`, `toOpml`.

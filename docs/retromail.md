@@ -300,8 +300,10 @@ What 1.0.2 adds to the way you work:
   Mail, a Gmail Takeout (mbox) or .eml files. File > Export writes the list
   out as an mbox file.
 - **Assistant** (Tools > Options > Assistant): Summarize a conversation and
-  Translate a message with your own key (Claude, by Anthropic). Nothing is
-  sent before you turn it on, and then only what you ask about.
+  Translate a message with the Assistant's service below (1.4) -- this
+  device's own model sends nothing anywhere -- or, with none set, with your
+  own key (Claude, by Anthropic). Nothing is sent before you turn it on,
+  and then only what you ask about.
 - **The Assistant pane** (View > Assistant, 1.3): a conversation with an AI
   service of your own -- one on your computer (Ollama, LM Studio), OpenAI's,
   Anthropic's -- set in Tools > Options > Assistant. Ask it what came from
@@ -310,7 +312,11 @@ What 1.0.2 adds to the way you work:
   message for you to read and send -- it never sends; it marks messages read
   or flagged when you allow it. It sends the service only what it reads to
   answer you. Until a service is set, the key of the Summarize above is
-  used with Anthropic's.
+  used with Anthropic's. Since 1.4 the service can be **this device's own
+  model** (Models: BitNet b1.58 2B, Qwen3 1.7B), which sends nothing
+  anywhere; with Qwen3 Embedding on the device it also **finds mail by
+  meaning** -- "the invoice from Ahmed" finds a bill from Ahmad (the
+  newest 400 messages, read once each).
 - **Spelling** as you type and **AutoCorrect** in English and Arabic (Tools >
   Options > Spelling).
 

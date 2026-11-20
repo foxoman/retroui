@@ -26,9 +26,12 @@ import javax.net.ssl.X509TrustManager;
 /** Downloads for retro's asset store (src/retro/assetfetch.nim) and web
  *  requests for retro/http. The native side calls "net.what" with
  *  tab-separated arguments, from any thread (its download workers):
- *  "net.download" url, dest, user agent, timeout in ms[, headers] downloads
- *  url into the file dest (through dest + ".part", renamed when whole) and
- *  answers "1", or "e" and what went wrong. Headers ("Name: value", split
+ *  "net.download" url, dest, user agent, timeout in ms[, headers[, "r"]]
+ *  downloads url into the file dest (through dest + ".part", renamed when
+ *  whole) and answers "1", or "e" and what went wrong. With "r" a part
+ *  there already is gone on with (a Range request; from the start when the
+ *  server does not take one); the file dest + ".stop" there ends it
+ *  ("estopped"), the part kept. Headers ("Name: value", split
  *  by "\r": an API's key) go only to the address's own host. Redirects are followed by hand, also
  *  from http to https and back, which HttpURLConnection does not do; an
  *  http address the app may not use (Android 9 and later, unless the APK
@@ -78,7 +81,8 @@ public class RetroNet {
         try { ms = Math.max(1000, Integer.parseInt(args[3].trim())); } catch (Throwable t) { }
       }
       String hs = args.length > 4 ? args[4] : "";
-      return download(args[0], args[1], ua, ms, hs);
+      boolean resume = args.length > 5 && args[5].equals("r");
+      return download(args[0], args[1], ua, ms, hs, resume);
     }
     return null;
   }
@@ -131,9 +135,12 @@ public class RetroNet {
     } catch (Throwable t) { return url; }
   }
 
-  static String download(String url, String dest, String ua, int ms, String headers) {
+  static String download(String url, String dest, String ua, int ms, String headers, boolean resume) {
     File out = new File(dest);
     File part = new File(dest + ".part");
+    File stop = new File(dest + ".stop");
+    long from = resume && part.isFile() ? part.length() : 0;
+    boolean kept = false;
     HttpURLConnection c = null;
     try {
       File dir = out.getParentFile();
@@ -151,6 +158,7 @@ public class RetroNet {
         c.setReadTimeout(ms);
         c.setUseCaches(false);
         c.setRequestProperty("User-Agent", ua);
+        if (from > 0) c.setRequestProperty("Range", "bytes=" + from + "-");
         if (headers != null && headers.length() > 0 && u.getHost().equalsIgnoreCase(home)) {
           for (String h : headers.split("\r")) {
             int k = h.indexOf(':');
@@ -167,7 +175,17 @@ public class RetroNet {
           u = new URL(u, loc);
           continue;
         }
-        if (code != 200) return "ethe server answered " + code;
+        if (code == 416 && from > 0) {
+          // (the part is whole already, or longer than the file: from the start)
+          c.disconnect();
+          c = null;
+          part.delete();
+          from = 0;
+          u = new URL(url);
+          continue;
+        }
+        if (code == 200) from = 0;          // (no Range taken: from the start)
+        else if (code != 206) return "ethe server answered " + code;
         break;
       }
       long want = -1;
@@ -179,20 +197,28 @@ public class RetroNet {
       } catch (Throwable t) { }
       long got = 0;
       InputStream in = c.getInputStream();
-      OutputStream os = new FileOutputStream(part);
+      OutputStream os = new FileOutputStream(part, from > 0);
       try {
         byte[] buf = new byte[65536];
         int n;
+        long looked = 0;
         while ((n = in.read(buf)) > 0) {
           os.write(buf, 0, n);
           got += n;
+          if (got - looked >= (1 << 20)) {
+            looked = got;
+            if (stop.exists()) {
+              kept = true;
+              return "estopped";
+            }
+          }
         }
       } finally {
         try { os.close(); } catch (Throwable t) { }
         try { in.close(); } catch (Throwable t) { }
       }
       if (want >= 0 && got != want) {
-        part.delete();
+        if (!resume) part.delete();
         return "ethe download was cut off (" + got + " of " + want + " bytes)";
       }
       if (out.exists()) out.delete();
@@ -202,11 +228,12 @@ public class RetroNet {
       }
       return "1";
     } catch (Throwable t) {
-      part.delete();
+      if (!resume) part.delete();
       String m = t.getMessage();
       return "e" + (m != null && m.length() > 0 ? m : t.toString());
     } finally {
       if (c != null) c.disconnect();
+      if (!kept && !resume && part.isFile() && !out.isFile()) part.delete();
     }
   }
 

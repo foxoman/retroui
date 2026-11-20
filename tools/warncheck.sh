@@ -54,6 +54,21 @@ check macos $out/allmods.nim --os:macosx
 check ios $out/allmods.nim --os:macosx -d:ios --noMain
 check web $out/allmods.nim $web --threads:off
 check web-threads $out/allmods.nim $web --threads:on
+# the vector kernels: no vector of 32 bytes or more handed to or from a function by value -- AVX2's
+# functions and the others pass it two ways (a register, memory), and a build without optimizing
+# calls them (each function kept, at -O0, as such a build has it)
+if command -v gcc > /dev/null; then
+  for h in src/retroui/simd*.h; do
+    n=$(basename "$h" .h)
+    # (one another includes, with its own settings, is checked in it)
+    grep -lq "#include \"$n.h\"" src/retroui/*.h && continue
+    echo "#include \"$n.h\"" | gcc -O0 -fkeep-static-functions -Wpsabi -S -o /dev/null -x c -I src/retroui - \
+      > "$out/c-$n.log" 2>&1
+    grep -E "psabi|error:" "$out/c-$n.log" | sed "s|^|c-$n: |" > "$out/c-$n.found"
+    m=$(wc -l < "$out/c-$n.found")
+    if [ "$m" -gt 0 ]; then cat "$out/c-$n.found"; found=$((found + m)); fi
+  done
+fi
 echo "the tools" >&2
 for t in retrokit retroapk retroios retroweb retrostore; do
   check "$t" src/$t.nim

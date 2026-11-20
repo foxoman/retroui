@@ -1,5 +1,96 @@
 # Changes
 
+## 0.65.0
+
+An AI of the device's own. `retroui/llm` runs language models in Nim, in
+the app itself: BitNet b1.58's ternary ones (their weights -1, 0 or 1: a
+2B model in 1.2 GB) and Llama's, Qwen 2's and 3's, from their GGUF files.
+`retroui/modelstore` downloads one when you ask -- the size, the license,
+Cancel, the checksum checked, Delete -- into a folder outside the app, and
+`retroui/devicemodel` makes it one more AI service (`akDevice`: "This
+device"), so the assistant, a summary or a text made shorter work offline
+and send nothing anywhere. `retroui/meaning` finds texts by what they mean
+with an embedding model. Retro Atelier 5.10 works offline with it and
+shortens overset text to fit its box; Retro Mail 1.4 sums up and
+translates with any service and finds mail by meaning; Retro Files 3.7
+finds files by what they say; Retro Navigator 0.6 sums up a page.
+
+- **A language model in Nim** (`retroui/llm`: `loadLlm`, `newLlmState`,
+  `step`, `pick`, `generate`, `chat`, `chatPrompt`, `embed`,
+  `similarity`; `retroui/gguf`, `retroui/llmtokens`): the architectures
+  llama (and mistral), qwen2, qwen3, bitnet, bitnet-25 and bitnet-b1.58
+  (the norms inside attention and the feed-forward, ReLU squared), the
+  weights F32, F16, BF16, Q8_0, Q4_0 and the ternary TQ1_0, TQ2_0 and
+  I2_S (bitnet.cpp's, as it packs it on x86), mapped from the file, not
+  read into memory. Byte-pair tokenizers as Llama 3 and Qwen cut text,
+  SentencePiece as Llama 2's, the control tokens kept whole; the
+  conversation in the form each was taught (Llama 3's headers, ChatML,
+  BitNet's roles), Qwen 3 without its thinking; a conversation kept
+  between answers (only what is new is read); sampling by temperature,
+  top-k, top-p and a repeat penalty; the text given as it comes, in whole
+  letters. The rows go sixteen weights at a time (`simdllm.h`: SSE2, AVX2
+  where it is, NEON, SIMD128), the ternary rows -- and Q8_0's and
+  Q4_0's -- with the input as whole numbers, as BitNet was taught and
+  llama.cpp does, so their sums are exact; on the model's own lasting
+  threads. Measured on one core of the test machine, a model of BitNet
+  b1.58 2B's shape reads a token in 0.22 s and writes one in 0.30 s (its
+  2560 x 128256 F16 scores the rest) -- bitnet.cpp's 29 ms is on eight
+  cores with its own assembly. `test_llm`: five small models of random
+  weights (`tools/genllm.py`), each kind's rows, the scores token by token
+  and the greedy answers against numpy's own reference, the tokens
+  against Hugging Face's tokenizer.
+- **Models when you ask for them** (`retroui/modelstore`:
+  `storeModels`, `getModel`, `stopModel`, `deleteModel`, `isInstalled`,
+  `modelStoreDialog`, `deviceModelPicker`, `aiServiceForm`): BitNet b1.58
+  2B (Microsoft, MIT), Qwen3 1.7B (Apache 2.0) and Qwen3 Embedding 0.6B
+  (Apache 2.0), each license letting any app use it; downloaded on a
+  worker into "Retro Models" in the system's place for an app's data
+  ($RETRO_MODELS), one copy for every app of the kit on a computer;
+  Cancel keeps what came and Download goes on from there (a Range
+  request: `downloadFile(resume = true)`, `stopDownload`, on Android too);
+  the SHA-256 checked before it is used. `aiServiceForm` is the AI
+  Connector's form any app shows: the kind of service, its address,
+  model and key -- or which model on this device.
+- **This device as an AI service** (`retroui/devicemodel`: `akDevice`,
+  `deviceAnswer`, `deviceFetch`, `deviceAsk`, `deviceEmbed`): an OpenAI
+  request in, an OpenAI answer out, so `retroui/aichat` and
+  `assistantPanel` use it as any service -- the tools offered as Qwen 3
+  was taught them (`<tool_call>`), its calls read back; the model kept
+  loaded; the answer shown as it is written. `askOnce`/`onceAnswer` in
+  `retroui/aichat`: one question to any service, no conversation.
+  `test_devicemodel`.
+- **Search by meaning** (`retroui/meaning`: `openMeaningIndex`,
+  `update`, `find`, `rank`): texts made vectors by the embedding model on
+  a worker, kept in a file, read again only when they change; a question's
+  nearest first.
+- **Retro Atelier 5.10**: Edit > Models on This Device; Edit > AI
+  Connector > This device: the Assistant offline (fewer tools for it, the
+  commands matched as it writes them -- what it reads first, it reads
+  slowly); Type > Shorten to Fit (AI): an overset box's text made as short
+  as fits by the AI service, asked again shorter when it still does not,
+  one step to undo. A swatch, the foreground color, a library's color or
+  the eyedropper chosen while the Type tool is on a type layer colors the
+  text (the selection while editing, else the whole layer), as the layout
+  program does.
+- **Retro Mail 1.4**: Summarize and Translate use the Assistant's service
+  (this device's own sends nothing anywhere; with none set, Claude with the
+  older key); the Assistant finds mail by meaning (`find_by_meaning`) when
+  an embedding model is on the device; Tools > Options > Assistant:
+  This device, and its models.
+- **Retro Files 3.7**: Tools > Find > By Meaning: the folder's files and
+  its subfolders' found by what they say, read on the device (2000 files
+  at most; text files' first 1500 letters, the others' names), kept for
+  the next time. `showFound` (`retroui/filewidgets`) shows files found by
+  other means as a search's results.
+- **Retro Navigator 0.6**: View > Summary: the page's article summed up
+  by the AI service of Options > AI Connector -- this device's own too.
+- `tools/warncheck.sh` checks the vector kernels too: no vector of 32
+  bytes or more handed to or from a function by value, which a function of
+  AVX2 and one without pass two ways -- a build without optimizing (the
+  tests') called one, and the model's rows read from the wrong place.
+  `test_hardening`: no glob where an Android app runs (Android's libc has
+  none before Android 9; the store first listed its folder with one).
+
 ## 0.64.0
 
 AI in any app, with the service you choose. `retroui/aichat` is a

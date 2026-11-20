@@ -911,6 +911,40 @@ block transformControls:
   finishTransform(true)
   doAssert L.isText and abs(L.text.spans[0].style.size - 40) < 2, $L.text.spans[0].style.size
   doAssert d.layerBox(L).w > b0.w * 3 div 2
+  # a swatch chosen (any foreground: the Color panel, a library) with the Type tool on a type
+  # layer: the text takes it, one step to undo; with another tool, only the foreground
+  tool = tType
+  run(1)
+  setColor(0xFFCC2244'u32)
+  run(2)
+  doAssert L.text.spans[0].style.color == 0xFFCC2244'u32 and d.undoName == "Text Color", $L.text.spans[0].style.color
+  tool = tMove
+  setColor(0xFF2244CC'u32)
+  run(2)
+  doAssert L.text.spans[0].style.color == 0xFFCC2244'u32 and fg == 0xFF2244CC'u32
+  # Type > Shorten to Fit with the device's own model (one of the tests', of random weights):
+  # the overset box's text sent, the answer put in it, one step to undo
+  block shorten:
+    var bt = newText("This is a long line of text that will never fit in its small box, however it is set",
+                     CharStyle(family: "", size: 20, color: 0xFF000000'u32, hScale: 1, vScale: 1), 20, 20)
+    bt.boxW = 80
+    bt.boxH = 26
+    let BL = d.addTextLayer(bt)
+    run(2)
+    doAssert layoutText(d.effectiveText(BL)).overflow >= 0, "overset"
+    aiDlg.s = AiSettings(kind: akDevice, url: currentSourcePath().parentDir / "data" / "llm" / "tiny-bitnet.gguf")
+    aiDlg.loaded = true
+    aiDlg.keyed = true
+    let before = BL.text.plainText
+    startShorten(BL)
+    doAssert fitRun.job != nil, status
+    var waited = 0
+    while fitRun.job != nil and waited < 6000:
+      run(1)
+      os.sleep(10)
+      inc waited
+    doAssert d.undoName == "Shorten to Fit" and BL.text.plainText != before, status
+    aiDlg.s = AiSettings()
   # Ctrl+T on pixels, a side's middle dragged: wider only
   d.cur = d.layers.find(red)
   startTransform(xkScale)

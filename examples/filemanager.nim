@@ -31,7 +31,7 @@
 
 import std/[os, strutils, times, algorithm, monotimes, hashes]
 import retroui, retroui/[pdfview, morepictures, lang_ar, apkinfo, tar, htmlview, view3d, gltf,
-                          xlsx, mime, textengine, imaging, webp]
+                          xlsx, mime, textengine, imaging, webp, modelstore, meaning, jobs]
 from retroui/system import installApk, ApkInstall, sharedIn
 import filemanager/lang_ar as filesLang
 
@@ -40,7 +40,7 @@ const TermuxHome = "/data/data/com.termux/files/home"
 const
   AppTitle = "Retro Files"
   AppId = "RetroFiles"
-  AppVersion = "3.6.1"
+  AppVersion = "3.7.0"
 
 type
   ViewerKind = enum vkNone, vkText, vkMarkdown, vkImage, vkHex, vkZip, vkPdf, vkVideo, vkAudio,
@@ -1501,6 +1501,112 @@ proc setView*(step: int) =
   if viewSteps[viewStep][0] in {fvIcons, fvTiles, fvSmallIcons, fvList}: lastIconStep = viewStep
   saveSettings()
 
+# ---- search by meaning (an embedding model on this device: Tools, Models) ----------------------------
+
+var
+  byMeaning = false               ## (the search: by what the files say, not their names)
+  meaningIx: MeaningIndex
+  meaningRun: tuple[t: Tab; query: string; step: int; gather: Job[seq[MeaningItem]]; upd: Job[int];
+                    find: Job[seq[MeaningHit]]; keys: seq[string]]
+  modelsOpen = false
+
+const meaningTexts = ["txt", "md", "markdown", "csv", "tsv", "json", "xml", "html", "htm", "nim", "py", "js",
+                      "ts", "c", "h", "cpp", "hpp", "java", "kt", "rs", "go", "rb", "sh", "ini", "cfg", "yaml",
+                      "yml", "toml", "log", "tex", "srt", "vtt", "eml", "rst", "org", "nims", "nimble"]
+
+proc embedModel(): string =
+  for m in installedModels(muEmbed): return modelPath(m)
+
+proc meaningText(p: string): string {.gcsafe.} =
+  ## (what a file says, for its meaning: its name, and the start of its text -- a text file's; of
+  ## the others, their names)
+  result = p.extractFilename.changeFileExt("").replace('_', ' ').replace('-', ' ') & "\n"
+  let ext = p.splitFile.ext.toLowerAscii.strip(chars = {'.'})
+  try:
+    if ext in meaningTexts:
+      var f: File
+      if open(f, p):
+        var buf = newString(6000)
+        buf.setLen(f.readChars(toOpenArray(buf, 0, buf.high)))
+        f.close()
+        result.add buf
+  except CatchableError: discard
+  result = result[0 ..< min(result.len, readMost * 2)]
+
+proc gatherMeaning(dir: string; hidden: bool): seq[MeaningItem] {.gcsafe.} =
+  ## (the files under `dir` -- 2000 at most -- with what they say)
+  var todo = @[dir]
+  while todo.len > 0 and result.len < 2000:
+    let d = todo.pop()
+    try:
+      for kind, p in walkDir(d):
+        let name = p.extractFilename
+        if not hidden and name.startsWith("."): continue
+        if kind == pcDir: todo.add p
+        elif kind == pcFile:
+          let ext = p.splitFile.ext.toLowerAscii.strip(chars = {'.'})
+          if ext notin meaningTexts and ext notin ["pdf", "docx", "xlsx", "pptx", "jpg", "png", "mp3", "mp4"]: continue
+          let info = getFileInfo(p)
+          result.add (p, $info.lastWriteTime.toUnix & ":" & $info.size, meaningText(p))
+    except CatchableError: discard
+
+proc meaningSearch(t: Tab; query: string) =
+  ## The folder's files (and its subfolders') ranked by what `query` means: the files read by the
+  ## embedding model first -- once: the index keeps them -- then the question.
+  let model = embedModel()
+  if model.len == 0:
+    modelsOpen = true
+    return
+  if meaningRun.step != 0: return
+  if meaningIx == nil or meaningIx.model != model:
+    meaningIx = openMeaningIndex(dataDir(AppId) / "meaning.idx", model)
+  let dir = t.m.dir
+  let hidden = showHidden
+  meaningRun = (t, query, 1, nil, nil, nil, @[])
+  meaningRun.gather = job(proc (): seq[MeaningItem] {.gcsafe.} = gatherMeaning(dir, hidden), proc () =
+    if meaningRun.step != 1: return
+    if not meaningRun.gather.done:
+      meaningRun.step = 0
+      return
+    let items = meaningRun.gather.value
+    for it in items: meaningRun.keys.add it.key
+    meaningRun.step = 2
+    meaningRun.upd = meaningIx.update(items, proc () =
+      if meaningRun.step != 2: return
+      meaningRun.step = 3
+      meaningRun.find = meaningIx.find("Find the files whose content answers the question", meaningRun.query,
+                                       50, meaningRun.keys, proc () =
+        let r = meaningRun
+        meaningRun.step = 0
+        if r.find.done and r.t != nil:
+          var paths: seq[string]
+          for h in r.find.value: paths.add h.key
+          r.t.m.showFound(paths, r.query))))
+
+proc meaningLine(t: Tab; query: string) =
+  ## (the search's line: by meaning -- Find --, and how far it is)
+  if checkbox("By &meaning", byMeaning) and not byMeaning: t.m.stopSearch()
+  if not byMeaning: return
+  if embedModel().len == 0:
+    if link(tr("Get a model for it...")): modelsOpen = true
+    return
+  if meaningRun.step == 0 and button(tr("&Find"), w = dp(70), enabled = query.strip.len > 0):
+    t.m.stopSearch()
+    meaningSearch(t, query.strip)
+  case meaningRun.step
+  of 1:
+    spinner()
+    label tr("Looking through the folders..."), color = ui.theme.gray
+  of 2:
+    spinner()
+    let p = if meaningRun.upd != nil: meaningRun.upd.progress else: 0.0
+    label tr("Reading the files: ") & $int(p * 100) & "%", color = ui.theme.gray
+    if link(tr("Stop")): meaningRun.upd.cancel()
+  of 3:
+    spinner()
+    label tr("Finding..."), color = ui.theme.gray
+  else: discard
+
 proc paneTop(p: int; strip = true; key = "") =
   ## The tabs, the path bar and the search box of pane `p` (`strip` false:
   ## no tabs -- a folder's window).
@@ -1625,12 +1731,15 @@ proc paneTop(p: int; strip = true; key = "") =
     row:
       if checkbox("Search in all &subfolders", pane.deep):
         if pane.deep: t.m.search(pane.query) else: t.m.stopSearch()
-      if t.m.searching:
+      meaningLine(t, pane.query)
+      if t.m.searching and not byMeaning:
         if t.m.searchBusy: spinner()
         label countText(t.m.items.len, "found", "found"), color = ui.theme.gray
 
 proc terminalHere()
 proc emptyTrashAsk()
+
+
 
 proc treePane() =
   treeSel = if tab.special == spDevice: deviceId
@@ -1987,7 +2096,10 @@ proc helpDialogs() =
             tr("Copyright (c) 2026 Sultan Al Isaiee. MIT licence.")],
            tagline = tr("Your files, as in 1994"),
            iconPng = FilesIconPng, glyph = pxFolderOpen,
-           whatsNew = [tr("3.6.1: a file that gives an error partway through reading it (some of " &
+           whatsNew = [tr("3.7.0: Tools > Find > By Meaning -- files found by what they say, not their " &
+                            "names, read on this device by a model of its own (Tools > Models on This " &
+                            "Device): nothing leaves it"),
+                       tr("3.6.1: a file that gives an error partway through reading it (some of " &
                             "the system's own, a disk failing, a share gone) shows what was read and " &
                             "says it could not be read further, instead of closing the app; a font shown is let go " &
                             "once its sheet is drawn"),
@@ -2051,6 +2163,8 @@ proc helpDialogs() =
                        tr("Smart memory: the caches follow the device's memory and let go when it " &
                             "runs short or the app goes to the background"),
                        tr("Arabic interface, mirrored right to left (Folder Options > Look)"),
+                       tr("Tools > Find > By Meaning: files found by what they say, not their names " &
+                            "-- read on this device by a model of its own (Tools > Models on This Device)"),
                        tr("Tools > Folder Sizes: what takes the room"),
                        tr("Copy To Folder, Move To Folder, Send To, Share, New Markdown Document"),
                        tr("Help > Report a Problem: a fault no longer closes the app"),
@@ -2270,11 +2384,15 @@ proc menus() =
         if menuItem("In All &Subfolders...", enabled = tab.special == spFolder):
           panes[active].deep = true
           panes[active].findNow = true
+        if menuItem("By &Meaning...", enabled = tab.special == spFolder):
+          byMeaning = true
+          panes[active].findNow = true
       if menuItem("&Go to Folder...", "Ctrl+G"): panes[active].editPath = true
       if canOpenTerminal() and menuItem("Open &Terminal Here", "Ctrl+Alt+T",
                                         enabled = tab.special == spFolder):
         terminalHere()
       menuSeparator()
+      if menuItem("&Models on This Device..."): modelsOpen = true
       if menuItem("Copy as Pat&h"):
         let p = folder.selectedPaths
         putClipboardText(if p.len > 0: p.join("\n") else: folder.dir)
@@ -2799,6 +2917,7 @@ proc filesFrame*() =
     matchDialog()
     pickDialog()
     sizesDialog()
+    modelStoreDialog(modelsOpen, {muEmbed})
   helpDialogs()
   if ui.lastFault.len > 0:
     toast(tr("Something went wrong -- kept in the fault log: Help > Report a Problem"),

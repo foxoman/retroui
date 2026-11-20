@@ -33,7 +33,7 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 - **[Dialogs](#dialogs)**: [msgBox](#msgbox) · [inputBox](#inputbox) · [dialog](#dialog) · [progressBox](#progressbox) · [wizard, stepDone](#wizard-stepdone) · [aboutBox](#aboutbox) · [splashBox](#splashbox) · [problemBox, reportProblem](#problembox-reportproblem) · [stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen](#stoppedscreen-stoppedframe-stoppedpending-startfresh-showstoppedscreen) · [fileDialog (3.1)](#filedialog-31)
 - **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator, toolSpace](#toolbar-toolbutton-toolseparator-toolspace) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [animated](#animated) · [sprung, presence, glided, dragSnap, staggered, fixedSteps](#sprung-presence-glided-dragsnap-staggered-fixedsteps) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
 - **[Files](#files)**: [fileList](#filelist) · [fileList: large icons](#filelist-large-icons) · [folderTree](#foldertree) · [placesView](#placesview) · [filePreview](#filepreview) · [pathBar](#pathbar) · [driveBar](#drivebar) · [filePicker](#filepicker) · [trashList](#trashlist) · [propertiesDialog](#propertiesdialog) · [runJobDialog](#runjobdialog) · [textFileView, hexFileView](#textfileview-hexfileview) · [pictureBox](#picturebox) · [storageDialog](#storagedialog)
-- **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [gauge in bands, rangeBar](#gauge-in-bands-rangebar) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart) · [liveGraph](#livegraph) · [graphView](#graphview) · [assistantPanel](#assistantpanel)
+- **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [gauge in bands, rangeBar](#gauge-in-bands-rangebar) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart) · [liveGraph](#livegraph) · [graphView](#graphview) · [assistantPanel](#assistantpanel) · [aiServiceForm](#aiserviceform)
 - **[Planning and dashboards](#planning-and-dashboards)**: [kpiTile, statCard, kpiRow](#kpitile-statcard-kpirow) · [kanbanBoard](#kanbanboard) · [ganttView](#ganttview) · [agendaView](#agendaview) · [orgChart](#orgchart)
 - **[Maps and 3D](#maps-and-3d)**: [mapView](#mapview) · [tileMap](#tilemap) · [view3d](#view3d) · [Models: parts and clips](#models-parts-and-clips) · [bars3d](#bars3d)
 - **[HTML, Markdown and rich text](#html-markdown-and-rich-text)**: [htmlView, htmlBlock](#htmlview-htmlblock) · [webView, webRun, webPost](#webview-webrun-webpost) · [markdownView, markdown](#markdownview-markdown) · [richEdit, richToolbar](#richedit-richtoolbar)
@@ -5938,6 +5938,82 @@ Offers `tools` to AI agents outside the app as well: through the driver (an app 
 with RETRO_DRIVE; `retrokit mcp PORT` makes them an MCP server's tools), each run on the
 UI thread as the app's own assistant runs it. (`confirm` is the app's own assistant's: an
 agent's program asks its user before a tool runs, as MCP's do.)
+
+### aiServiceForm
+
+This device's own model (`retroui/devicemodel`, `retroui/llm`): a model the app runs itself -- BitNet b1.58's ternary weights, Qwen3 -- as one more AI service (`akDevice`): the assistant, a summary, a text made shorter, with nothing sent anywhere. `aiServiceForm` is the AI Connector's form (the kind of service; its address, model and key, or the model on this device), `modelStoreDialog` the window that downloads models when asked (`retroui/modelstore`: the size, the license, Cancel, the checksum checked, Delete), kept outside the app. `retroui/meaning` finds texts by what they mean, with an embedding model.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![aiServiceForm, normal](controls/devicemodel-normal.png) | ![aiServiceForm, touch screen](controls/devicemodel-touch-screen.png) | ![aiServiceForm, dark scheme](controls/devicemodel-dark-scheme.png) |
+
+```nim
+modelsDir = getTempDir() / "retroui-shot-models"
+createDir(modelsDir)
+let qm = storeModel("qwen3-1.7b")
+writeFile(modelPath(qm), "")
+writeFile(modelPath(qm) & ".ok", qm.sha256)
+var dmS = AiSettings(kind: akDevice, url: modelPath(qm))
+var dmOpen = false
+
+aiServiceForm(dmS, dmOpen)
+```
+
+**API**
+
+```nim
+proc aiServiceForm*(s: var AiSettings; openModels: var bool; labelW = 100): bool {.discardable.}
+```
+
+The AI Connector's form: the kind of service (`AiKind`), then its address, model and key --
+or, the device's own, which installed model (and Models..., which sets `openModels`: the
+app shows `modelStoreDialog`). True when something changed.
+
+```nim
+proc modelStoreDialog*(open: var bool; uses: set[ModelUse] = {muChat, muEmbed};
+                       onChange: proc () {.closure.} = nil)
+```
+
+The models window: each of the store's models of `uses` with what it is, its maker and
+license, its size, and Download (Cancel while it comes, and how far it is) or Delete.
+`onChange` runs when one is installed or taken away.
+
+```nim
+proc deviceModelPicker*(path: var string; use = muChat; w = 0): bool {.discardable.}
+```
+
+A list of the installed models of `use` (and GGUF files put in the folder by hand) to
+choose one; `path` its file. True when the choice changed.
+
+```nim
+proc getModel*(m: StoreModel; onDone: proc () {.closure.} = nil)
+```
+
+Downloads `m` on a worker (`retroui/jobs`), going on from what a stopped one left, then
+checks its checksum: a damaged file is taken away. `downloading`, `progressOf` and
+`errorOf` say how it goes; `onDone` runs on the UI thread when it ends.
+
+```nim
+proc loadLlm*(path: string): Llm
+```
+
+The model in the GGUF file at `path`. Raises `LlmError` (or `GgufError`) when it is not one
+run here: its architecture, or a kind of weights.
+
+```nim
+proc deviceAsk*(path, system, user: string; maxTokens = 512; temperature = 0.3;
+                onDone: proc () {.closure.} = nil): Job[string]
+```
+
+One answer of the model at `path` to `user` (`system` first), on a worker: a summary, a
+text made shorter. The job's value is the answer's words.
+
+```nim
+proc openMeaningIndex*(path, model: string): MeaningIndex
+```
+
+The index kept at `path` for the embedding model at `model` (another model's, or none
+there: an empty one).
 
 ## Planning and dashboards
 

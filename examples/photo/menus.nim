@@ -1739,7 +1739,12 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.9.0: the Assistant (Window > Assistant, Edit > Ask AI): a conversation with your own " &
+           whatsNew = ["5.10.0: an AI of the device's own -- nothing you ask leaves it: Edit > Models on This " &
+                       "Device downloads one (BitNet b1.58 2B, Qwen3 1.7B), Edit > AI Connector > This device " &
+                       "uses it, and the Assistant works offline; Type > Shorten to Fit (AI): an overset " &
+                       "box's text made as short as fits, one step to undo; a swatch, the foreground color or " &
+                       "a library's color chosen with the Type tool colors the text.",
+                       "5.9.0: the Assistant (Window > Assistant, Edit > Ask AI): a conversation with your own " &
                        "AI service that does what you ask with the app's tools -- type and shapes added, layers " &
                        "set, a selection made, menu commands run -- asking before each change, one step to " &
                        "undo, the image shown to it if you like; Generate Image, Generative Fill (to change or " &

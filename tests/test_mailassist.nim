@@ -1,7 +1,8 @@
 ## Retro Mail's Assistant pane (examples/mail/ui_assist): its tools on a store of the test's
 ## own -- the Inbox listed, its unread, a search, a message read without what it quotes, a
 ## reply drafted and opened (not sent), a new message, a message marked -- and the service it
-## speaks to (the kit's AI settings, an older version's Anthropic key).
+## speaks to (the kit's AI settings, an older version's Anthropic key, this device's own model:
+## Summarize and Translate through it, find by meaning offered with an embedding model).
 
 import std/[os, json, strutils, times]
 
@@ -93,6 +94,31 @@ saveAiSettings(secretApp, AiSettings(kind: akOpenAi, url: "http://127.0.0.1:1/v1
 mailAi.loaded = false
 check mailAssistChat().settings.kind == akOpenAi, "the kit's AI settings first"
 check "unread messages" in mailChat.context(), "what the app shows told with each request"
+
+echo "this device's own model"
+let tinyDir = currentSourcePath().parentDir / "data" / "llm"
+mailAi.s = AiSettings(kind: akDevice, url: tinyDir / "tiny-bitnet.gguf")
+mailAi.loaded = true
+assistFor = bill
+assistWaiting = true
+check askViaService("summary", store0.message(bill), ""), "Summarize through the Assistant's service"
+let w0 = epochTime()
+while not serviceAsk.job.ended and epochTime() - w0 < 120: sleep(20)
+let (summed, why) = onceAnswer(mailAi.s, serviceAsk.job)
+check serviceAsk.job.done and why == "" and summed.len > 0, "  the model on this device answered: " & why
+check askViaService("translate", store0.message(bill), "Arabic"), "Translate too"
+while not serviceAsk.job.ended and epochTime() - w0 < 240: sleep(20)
+check serviceAsk.job.done, "  answered"
+# (an embedding model on the device: the Assistant finds mail by meaning)
+modelsDir = home / "Models"
+createDir(modelsDir)
+let em = storeModel("qwen3-embed-0.6b")
+copyFile(tinyDir / "tiny-qwen3.gguf", modelPath(em))
+writeFile(modelPath(em) & ".ok", em.sha256)
+var named: seq[string]
+for t in mailAiTools(): named.add t.name
+check "find_by_meaning" in named, "find_by_meaning offered when an embedding model is there"
+modelsDir = ""
 
 store0.close()
 removeDir(home)

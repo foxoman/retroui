@@ -18,7 +18,7 @@ from std/times import fromUnix, epochTime
 from std/unicode import runes, toUTF8
 import retroui
 import retroui/[textwidgets, richedit, qrcode, pdfview, tilemap, mvt, capture, mediasession, system,
-                secrets, update, jobs, tray, motion, forcegraph, assistant]
+                secrets, update, jobs, tray, motion, forcegraph, assistant, modelstore]
 import retroui/uirelays/[coords, screen, input, services]
 include "../tests/carscene"
 
@@ -1890,6 +1890,20 @@ example("assistant", "assistantPanel",
 do:
   assistantPanel(asChat, height = 300)
 
+example("devicemodel", "aiServiceForm",
+        "This device's own model (`retroui/devicemodel`, `retroui/llm`): a model the app runs itself -- BitNet b1.58's ternary weights, Qwen3 -- as one more AI service (`akDevice`): the assistant, a summary, a text made shorter, with nothing sent anywhere. `aiServiceForm` is the AI Connector's form (the kind of service; its address, model and key, or the model on this device), `modelStoreDialog` the window that downloads models when asked (`retroui/modelstore`: the size, the license, Cancel, the checksum checked, Delete), kept outside the app. `retroui/meaning` finds texts by what they mean, with an embedding model.",
+        400, 190, ["aiServiceForm", "modelStoreDialog", "deviceModelPicker", "getModel", "loadLlm", "deviceAsk", "openMeaningIndex"], std3):
+  # (a model there, as downloaded: its file and the mark its checksum was found right)
+  modelsDir = getTempDir() / "retroui-shot-models"
+  createDir(modelsDir)
+  let qm = storeModel("qwen3-1.7b")
+  writeFile(modelPath(qm), "")
+  writeFile(modelPath(qm) & ".ok", qm.sha256)
+  var dmS = AiSettings(kind: akDevice, url: modelPath(qm))
+  var dmOpen = false
+do:
+  aiServiceForm(dmS, dmOpen)
+
 # ======================================================================================================
 # Planning and dashboards
 # ======================================================================================================
@@ -2759,7 +2773,7 @@ const apiModules = ["widgets", "extras", "business", "morecontrols", "records", 
   "toolcustom", "dock", "textwidgets", "filewidgets", "charts", "planning", "mapview",
   "view3d", "htmlview", "markdown", "richedit", "media", "qrcode", "pdfview", "core", "gfx",
   "platform", "files", "textfile", "mediagif", "imaging", "templates", "native", "canvas2d",
-  "report", "tilemap", "gltf", "capture", "mediasession", "motion", "forcegraph", "forcelayout", "assistant", "aichat", "aiimage"]
+  "report", "tilemap", "gltf", "capture", "mediasession", "motion", "forcegraph", "forcelayout", "assistant", "aichat", "aiimage", "modelstore", "devicemodel", "llm", "meaning"]
   ## Where the API is read from; a name in several is shown from the first
   ## (or as "module.name").
 

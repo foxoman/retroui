@@ -172,8 +172,11 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   loop's very bytes, on x86 with AVX2 (`kitForceAvx2`) and without, on
   32-bit and on ARM -- `test_simdkit` checks each against its loop; one
   that cannot be sure (JPEG's IDCT past its bounds) hands the work back to
-  the loop. Helpers taking 32-byte vectors are macros in `simdkit.h` (as
-  parameters they make GCC's ABI notes). What follows a change in another
+  the loop. Helpers taking or giving 32-byte vectors are macros in
+  `simdkit.h` and `simdllm.h`: a function of AVX2 and one without pass
+  them two ways, and a build without optimizing calls them (the model's
+  rows read the wrong place in the tests' builds) -- `tools/warncheck.sh`
+  checks every header. What follows a change in another
   layer -- a Flex Layout's frames, a Global Edit's shapes -- is done in the
   same step through `stepEndHook` (`touch`, `touchLayers` there, never
   `endStep`), so one undo takes both back and an undo is not followed. A
@@ -539,6 +542,19 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   window's controls `uiTools`; `publishTools` for agents outside
   (`retrokit mcp`). The tests speak to `tests/aimock.py`, never to a real
   service.
+- **The device's own model is one more service, never bundled**
+  (`retroui/llm`, `retroui/modelstore`, `retroui/devicemodel`,
+  `retroui/meaning`): an app offers models through `modelStoreDialog` --
+  downloaded when the user asks, into the models folder outside the app,
+  their checksum checked; a model is never put into an APK or the
+  repository. A model the store offers has a license that lets any app use
+  it (MIT, Apache 2.0) and its SHA-256 from its maker's page. What a small
+  model reads first it reads slowly: give it fewer tools (no enums of
+  hundreds of commands), what changes last (`aichat` puts the context in
+  the newest message for it), and less text. The tests use the small
+  models of `tests/data/llm` (made by `tools/genllm.py`, against numpy's
+  own reference: change a kernel, run it); a change to `simdllm.h` builds
+  with `-f` (Nim does not see a header change).
 - **A graph's layout without a window is `retroui/forcelayout`**; the
   control (`graphView`) is `retroui/forcegraph`, which imports the UI. A
   module that draws nothing on screen (`retroui/board`) imports the

@@ -593,6 +593,25 @@ proc typeMenuItems() =
     typeStyle = CharStyle(family: DastkhatFamily, style: "Regular", size: 48, color: fg, hScale: 1, vScale: 1)
   if menuItem("Reset Paragraph"): typePara = ParaStyle()
 
+var fgSeen = 0'u32               ## (the foreground color as last seen: `fgToText`)
+
+proc fgToText() {.nimcall.} =
+  ## A foreground color chosen -- a swatch, the Color panel, the picker, a library's color, the
+  ## eyedropper -- while the Type tool works on a type layer (or its text is edited): the text
+  ## takes it too (the selection, else the whole layer), as the layout program does; one undo step
+  ## for a slider's whole drag.
+  if fg == fgSeen: return
+  let first = fgSeen == 0
+  fgSeen = fg
+  if first or (tool != tType and not te.on): return
+  let L = typeTarget()
+  if L == nil or (L.locked and not te.on): return
+  if shownStyle().color == fg: return
+  let c = fg
+  applyChar("Text Color", proc (x: var CharStyle) = x.color = c)
+
+beginFrameHooks.add fgToText
+
 proc typeTargetNote() =
   let L = typeTarget()
   if L == nil:

@@ -215,6 +215,27 @@ block noCommandLineInApps:
           if call in code: bad.add rel & "(" & $n & "): " & line.strip
   doAssert bad.len == 0, "asks the command line where an app may have none:\n" & bad.join("\n")
 
+block noGlobForAndroid:
+  # Retro Atelier 5.10's first APK did not build: the model store listed its folder with
+  # `walkFiles`, which calls glob -- not in Android's libc before Android 9. The kit's
+  # modules and the apps list a folder with `walkDir` and a filter; only what never runs on
+  # Android (a Linux camera's /dev, the task manager's desktop files) may glob.
+  let allowed = ["src/retroui/capture.nim", "src/retroui/sysmon.nim"]
+  let root = currentSourcePath().parentDir.parentDir
+  var bad: seq[string]
+  for dir in ["src/retroui", "examples"]:
+    for f in walkDirRec(root / dir):
+      if not f.endsWith(".nim") or "/build/" in f: continue
+      let rel = f.relativePath(root).replace('\\', '/')
+      if rel in allowed: continue
+      var n = 0
+      for line in readFile(f).splitLines:
+        inc n
+        let code = line.split('#')[0]
+        for call in ["walkFiles(", "walkPattern(", "walkDirs("]:
+          if call in code: bad.add rel & "(" & $n & "): " & line.strip
+  doAssert bad.len == 0, "globs where an Android app may run (no glob before Android 9):\n" & bad.join("\n")
+
 block noCFunctionCallsItself:
   # Every Mac app (0.29 to 0.32) stopped at its first event: the Cocoa
   # backend's sendOne called itself where it meant [NSApp sendEvent:]. A C

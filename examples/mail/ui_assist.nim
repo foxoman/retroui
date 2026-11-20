@@ -41,6 +41,39 @@ proc msgArg(a: JsonNode): Msg =
            else: (try: parseInt(a{"id"}.getStr.strip(chars = {'#', ' '})) except ValueError: 0)
   if id > 0: store0.message(id) else: Msg()
 
+var
+  mailMeaning: MeaningIndex          ## (search by meaning: the newest messages' vectors)
+
+proc findByMeaning(question: string; count: int; answer: proc (text: string) {.closure.}) =
+  ## (the newest messages -- 400 at most -- made vectors by the embedding model on this device,
+  ## once each; then those nearest the question)
+  var model = ""
+  for m in installedModels(muEmbed): model = modelPath(m)
+  if model.len == 0:
+    answer("no embedding model is on this device (Tools, Options, Assistant, Models: Qwen3 Embedding)")
+    return
+  if mailMeaning == nil or mailMeaning.model != model:
+    mailMeaning = openMeaningIndex(mailDir() / "meaning.idx", model)
+  var items: seq[MeaningItem]
+  var keys: seq[string]
+  for m in store0.whereMessages("1 = 1", @[], 400):
+    let text = "From: " & (if m.fromName.len > 0: m.fromName else: m.fromEmail) & "\nSubject: " & m.subject &
+               "\n" & m.snippet
+    items.add ($m.id, $m.date, text)
+    keys.add $m.id
+  let ix = mailMeaning
+  discard ix.update(items, proc () =
+    var found: Job[seq[MeaningHit]]
+    found = ix.find("Find the e-mail messages that answer the question", question, count, keys, proc () =
+      if not found.done:
+        answer("the search failed: " & found.error)
+        return
+      var ms: seq[Msg]
+      for h in found.value:
+        let m = store0.message(parseInt(h.key))
+        if m.id != 0: ms.add m
+      answer(msgLines(ms))))
+
 proc mailAiTools(): seq[AiTool] =
   result.add aiTool("list_messages", "Lists the newest messages of a folder (the Inbox if none is named).",
     [param("folder", "string", "inbox, sent, drafts, archive, junk, deleted, or a folder's name", optional = true),
@@ -66,6 +99,13 @@ proc mailAiTools(): seq[AiTool] =
         for i in 0 ..< 4: args.add toDbValue("%" & w & "%")
       if where.len == 0: return "say what to look for"
       msgLines(store0.whereMessages(where, args, clamp(a{"count"}.getInt(20), 1, 100))))
+  if installedModels(muEmbed).len > 0:
+    result.add aiToolLater("find_by_meaning", "Finds messages by what they are about, not their words: \"the " &
+                           "invoice from Ahmed\" finds a bill from Ahmad. Slower than search_mail the first time.",
+      [param("question", "string", "what the messages should be about"),
+       param("count", "integer", "how many (10 if not given)", optional = true)],
+      proc (a: JsonNode; done: proc (text: string) {.closure.}) =
+        findByMeaning(a{"question"}.getStr, clamp(a{"count"}.getInt(10), 1, 50), done))
   result.add aiTool("read_message", "Reads a message: who sent it, to whom, when, its subject and its text " &
                     "(without what it quotes).", [param("id", "integer", "the message's #id")],
     proc (a: JsonNode): string =
@@ -145,3 +185,40 @@ proc offerMailTools() {.nimcall.} =
   mailToolsOffered = true
   publishTools(mailAiTools())
 beginFrameHooks.add offerMailTools
+
+# ---- Summarize and Translate through the Assistant's service ---------------------------------------
+
+var serviceAsk: tuple[job: Job[HttpResponse]; id: int]
+
+proc askViaService(kind: string; m: Msg; lang: string): bool =
+  ## (Summarize or Translate asked of the Assistant's service when one is set -- this device's
+  ## own model sends nothing anywhere; else of Claude with the older key, on the sync worker)
+  loadMailAi()
+  if not mailAi.s.connected or store0 == nil: return false
+  # (the device's own model reads slowly: less of a long thread)
+  let budget = if mailAi.s.kind == akDevice: 6000 else: mailAssist.maxText
+  var q: tuple[system, user: string]
+  if kind == "summary":
+    var thread: seq[tuple[sender, date, text: string]]
+    let ms = store0.threadMessages(m.account, m.thread)
+    for k in countdown(ms.high, 0):
+      let x = ms[k]
+      let body = if x.text.len > 0: x.text else: plainOf(x.html)
+      thread.add ((if x.fromName.len > 0: x.fromName else: x.fromEmail),
+                  fromUnixFloat(x.date).local.format("yyyy-MM-dd HH:mm"),
+                  (if body.len > 0: body else: x.snippet))
+    if thread.len == 0: thread.add ((if m.fromName.len > 0: m.fromName else: m.fromEmail), "", m.snippet)
+    q = summaryAsk(thread, lang, store0.account(m.account).name, budget)
+  else:
+    let x = store0.message(m.id)
+    let body = if x.text.len > 0: x.text else: plainOf(x.html)
+    q = translateAsk(if body.len > 0: body else: x.snippet, lang, budget)
+  let id = m.id
+  serviceAsk.id = id
+  serviceAsk.job = askOnce(mailAi.s, q.system, q.user, onDone = proc () =
+    if serviceAsk.id != id or assistFor != id: return
+    let (t, err) = onceAnswer(mailAi.s, serviceAsk.job)
+    assistWaiting = false
+    assistText = if err.len > 0: "It did not work: " & err else: t
+    ui.redraw = true)
+  true

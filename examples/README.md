@@ -164,7 +164,9 @@ the Windows 3.1 File Manager with what Explorer has today: tabs, two
 panes, an address bar, a folder tree, details, tiles, icons and a list
 with picture thumbnails, a preview pane, drag and drop, copy and move in the
 background with "Replace or keep both?", Paste Shortcut, the trash, undo,
-zip, search, favorites, the disks and how full they are, and viewers for
+zip, search -- by name, or by what the files say (Tools > Find > By
+Meaning, read on the device by a model of its own) --, favorites, the disks
+and how full they are, and viewers for
 text, pictures, PDF, Markdown, web pages, fonts, 3D models, spreadsheets,
 mail, zip and tar archives and Android packages (an .apk's icon, version
 and permissions; Install on Android). It runs on phones and tablets too,
@@ -205,7 +207,11 @@ made, any menu command run -- asking before each change, and one step to
 undo. **Generate Image**, **Generative Fill** (the selection made again as
 you describe it, or filled from what is round it to take something away)
 and **Generative Expand** (the canvas grown, what is new made to carry the
-picture on) go through your image service, each on a new layer.
+picture on) go through your image service, each on a new layer. The
+service can be **this device's own model** (Edit > Models on This Device
+downloads one; Edit > AI Connector > This device): the Assistant then
+works offline and sends nothing anywhere. **Type > Shorten to Fit (AI)**
+makes an overset box's text as short as fits.
 
 **SVG** is one of its formats: an .svg opens as layers -- its shapes as
 shape layers, its text as type you can type in (fonts, sizes, colours,
@@ -433,8 +439,10 @@ look-alike sender, a link that goes elsewhere than it says, tracking
 pictures -- is told or taken out. The app registrations it signs in with
 are made once by whoever builds it (`examples/mail/appids.nim`,
 `docs/retromail.md`). View > Assistant opens a conversation with an AI
-service of your own that finds and reads your mail when you ask and opens
-a reply or a new message for you to read and send.
+service of your own that finds and reads your mail when you ask -- by
+meaning too, with an embedding model on the device -- and opens a reply or
+a new message for you to read and send; Summarize and Translate use it
+too. It can be this device's own model, which sends nothing anywhere.
 
 ```sh
 nimble mail                 # or: nim c -r -d:release examples/mail.nim
@@ -575,6 +583,9 @@ So today's web works in it -- sign-ins, maps, video -- in a window of 1995:
   pages, Back to its own pages too;
 - its own pages, `about:welcome` and `about:handbook`, written in HTML and
   CSS (`examples/navigator/pages.nim`);
+- **View > Summary**: the page's article summed up by an AI service of
+  your own (Options > AI Connector) -- this device's own model too, which
+  sends nothing anywhere;
 - **tabs**, shown above the page while there are two or more, in Windows
   3.1's document style: New Tab (Ctrl+T), Close Tab (Ctrl+W), Reopen
   Closed Tab (Ctrl+Shift+T), Ctrl+Tab; a link with Ctrl or the middle

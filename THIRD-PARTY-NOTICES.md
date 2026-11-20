@@ -70,6 +70,18 @@ phone's own libraries run.
   agreement with them.
 - **Google Fonts** (`retroui/googlefonts`, when an app downloads a family):
   each family's license (mostly SIL Open Font License 1.1), saved with it.
+- **Language models** (`retroui/modelstore`, when the user downloads one;
+  never carried in an app or the repository): BitNet b1.58 2B 4T
+  (Microsoft, MIT License), Qwen3 1.7B and Qwen3 Embedding 0.6B (Alibaba's
+  Qwen team, Apache License 2.0), from their makers' pages on Hugging Face;
+  the store shows each one's license before it is downloaded. The code
+  that runs them (`retroui/llm`, `retroui/gguf`, `retroui/llmtokens`,
+  `simdllm.h`) is the kit's own: it reads the GGUF format and the layouts
+  of the weights as llama.cpp and bitnet.cpp (both MIT) describe them, and
+  copies no code of theirs.
+- **The test models' generator** (`tools/genllm.py`, run only to make
+  `tests/data/llm` again): numpy (BSD), gguf-py (MIT) and Hugging Face's
+  `tokenizers` (Apache 2.0), installed by whoever runs it.
 
 ## Reached on the system, not carried
 

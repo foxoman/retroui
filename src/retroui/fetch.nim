@@ -18,21 +18,27 @@ when androidApp:
 elif defined(wasm) or defined(ios):
   import http
 else:
-  import std/osproc
+  import std/[osproc, streams]
 
 const defaultAgent* = "curl/8.4.0"
   ## (a plain user agent: servers give such a client plain files)
 
 proc downloadFile*(url, dest: string; userAgent = defaultAgent; timeoutSec = 60;
-                   headers: openArray[(string, string)] = []): string =
+                   headers: openArray[(string, string)] = []; resume = false): string =
   ## Downloads `url` into the file `dest` (through `dest.part`, moved into
   ## place when whole), sending `headers` too ("Authorization", the key of
   ## an API). "" when it worked, else what went wrong. Any thread may call
   ## it (a job: `retroui/jobs`' `download`); `downloadedSoFar` says how far
   ## it is.
+  ##
+  ## `resume` (a big file: a model, a disk image): a `dest.part` there from
+  ## before is gone on with, and kept when the download stops or is cut
+  ## off; `stopDownload(dest)` stops it ("stopped"). `timeoutSec` 0: no
+  ## limit on the whole, only on a minute with nothing coming.
   block:
     let part = dest & ".part"
     try: createDir(dest.parentDir) except OSError: discard
+    try: removeFile(dest & ".stop") except OSError: discard
     when androidApp:
       # (the app's Java part, RetroNet: any thread may ask, any Android; it
       # writes `part` and moves it into place itself)
@@ -40,8 +46,9 @@ proc downloadFile*(url, dest: string; userAgent = defaultAgent; timeoutSec = 60;
       var hs: seq[string]
       for (k, v) in headers:
         if '\t' notin k and '\t' notin v: hs.add k & ": " & v
+      let ms = if timeoutSec > 0: timeoutSec * 1000 else: 60_000
       let r = systemCall("net.download", url & "\t" & dest & "\t" & userAgent.replace('\t', ' ') &
-                         "\t" & $(max(1, timeoutSec) * 1000) & "\t" & hs.join("\r"))
+                         "\t" & $ms & "\t" & hs.join("\r") & (if resume: "\tr" else: ""))
       if r == "1": return ""
       if r.len > 1 and r[0] == 'e': return r[1 .. ^1]
       if r == "\0": return "downloading is not available (the app's Java part is older than this program)"
@@ -59,25 +66,63 @@ proc downloadFile*(url, dest: string; userAgent = defaultAgent; timeoutSec = 60;
         except IOError as e: return e.msg
       else:
         var tool = findExe("curl")
-        var cmd: string
-        if tool.len > 0:
-          cmd = quoteShell(tool) & " -fsSL --max-time " & $timeoutSec & " -A " & quoteShell(userAgent)
-          for (k, v) in headers: cmd.add " -H " & quoteShell(k & ": " & v)
-          cmd.add " -o " & quoteShell(part) & " " & quoteShell(url)
+        var args: seq[string]
+        let curl = tool.len > 0
+        if curl:
+          args = @["-fsSL", "-A", userAgent]
+          if timeoutSec > 0: args.add ["--max-time", $timeoutSec]
+          else: args.add ["--speed-limit", "1", "--speed-time", "60"]
+          if resume and fileExists(part): args.add ["-C", "-"]
+          for (k, v) in headers: args.add ["-H", k & ": " & v]
+          args.add ["-o", part, url]
         else:
           tool = findExe("wget")
           if tool.len == 0: return "neither curl nor wget is installed"
-          cmd = quoteShell(tool) & " -q -T " & $timeoutSec & " -U " & quoteShell(userAgent)
-          for (k, v) in headers: cmd.add " --header=" & quoteShell(k & ": " & v)
-          cmd.add " -O " & quoteShell(part) & " " & quoteShell(url)
-        let (outp, code) = try: execCmdEx(cmd) except OSError as e: (e.msg, -1)
+          args = @["-q", "-T", $(if timeoutSec > 0: timeoutSec else: 60), "-U", userAgent]
+          if resume: args.add "-c"
+          for (k, v) in headers: args.add "--header=" & k & ": " & v
+          args.add ["-O", part, url]
+        let stop = dest & ".stop"
+        var outp = ""
+        var code = -1
+        try:
+          let p = startProcess(tool, args = args, options = {poStdErrToStdOut})
+          # (looked at a few times a second: a stop asked for ends it, the part kept)
+          var stopped = false
+          while p.peekExitCode() == -1:
+            if fileExists(stop):
+              p.terminate()
+              discard p.waitForExit()
+              stopped = true
+              break
+            sleep(200)
+          if not stopped:
+            code = p.waitForExit()
+            outp = try: p.outputStream.readAll() except CatchableError: ""
+          p.close()
+          if stopped:
+            if not resume:
+              try: removeFile(part) except OSError: discard
+            return "stopped"
+        except OSError as e:
+          outp = e.msg
         if code != 0:
-          try: removeFile(part) except OSError: discard
+          if not resume or (curl and code == 33):
+            # (33: the server takes no range -- the part is of no use)
+            try: removeFile(part) except OSError: discard
           return (if outp.strip.len > 0: outp.strip else: "the download failed (" & $code & ")")
       try:
         moveFile(part, dest)
       except OSError as e: return e.msg
       return ""
+
+proc stopDownload*(dest: string) =
+  ## Stops a download into `dest` that `downloadFile` is doing (on another thread): it ends
+  ## within a second, answering "stopped" -- its part kept when it was asked to `resume`.
+  try:
+    createDir(dest.parentDir)
+    writeFile(dest & ".stop", "")
+  except CatchableError: discard
 
 proc downloadedSoFar*(dest: string): int64 =
   ## How many bytes of a download into `dest` are there so far (its

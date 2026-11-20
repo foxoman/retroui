@@ -328,12 +328,16 @@ var
 
 proc aiReady(): bool = prefBool("aiOn", false)
 
+proc askViaService(kind: string; m: Msg; lang: string): bool
+  ## (ui_assist: the Assistant's service takes it -- this device's own model too)
+
 proc askAssistant(kind: string; m: Msg) =
   assistFor = m.id
   assistKind = kind
   assistText = ""
   assistWaiting = true
   let lang = if kind == "summary": pref("aiSummaryLang", "") else: pref("aiTranslateTo", "English")
+  if askViaService(kind, m, lang): return
   link.cmds.send(SyncCmd(kind: scAssist, text: $(%*{"kind": kind, "id": m.id, "to": lang,
                                                     "model": pref("aiModel", "claude-haiku-5-5")})))
 

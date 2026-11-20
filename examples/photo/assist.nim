@@ -231,11 +231,30 @@ proc genDialog() =
 
 # ---- the assistant's tools ------------------------------------------------------------------------------------
 
-proc assistTools(): seq[AiTool] =
+proc leanCommandTool(): AiTool =
+  ## (the device's own model: the commands not listed in the tool -- hundreds of names would be
+  ## thousands of tokens to read first -- but matched as it writes one, with the nearest
+  ## offered when it is not one)
+  aiTool("run_command", "Runs one of Retro Atelier's menu commands by its name as in the menus: Black & White, " &
+         "Invert, Gaussian Blur..., Flatten Image, Image Size..., Trim..., Crop...",
+         [param("command", "string", "the command's name")],
+    proc (a: JsonNode): string =
+      let want = a{"command"}.getStr.strip.strip(chars = {'.'})
+      var near: seq[string]
+      for c in appCommands():
+        let bare = c.strip(chars = {'.'})
+        if cmpIgnoreCase(bare, want) == 0:
+          runCommand(c)
+          return "ran " & c
+        if want.len >= 3 and want.toLowerAscii in c.toLowerAscii and near.len < 8: near.add c
+      "not a command of Retro Atelier: " & want & (if near.len > 0: " (near: " & near.join(", ") & ")" else: ""),
+    confirm = true)
+
+proc assistTools(device = false): seq[AiTool] =
   result.add aiTool("document", "Describes the open image: its size, its layers (index, name, kind, where), " &
                     "the current layer, the selection.", [],
     proc (a: JsonNode): string = docText(cur()))
-  result.add commandTool(appCommands(), proc (c: string) = runCommand(c))
+  result.add(if device: leanCommandTool() else: commandTool(appCommands(), proc (c: string) = runCommand(c)))
   result.add aiTool("add_text", "Adds a type layer: text at x, y (the first line's baseline starts there).",
     [param("text", "string", "what it says (\\n: a new line)"), param("x", "number", "pixels from the left"),
      param("y", "number", "pixels from the top"), param("size", "number", "its size in pixels", optional = true),
@@ -381,14 +400,23 @@ proc assistTools(): seq[AiTool] =
     confirm = true)
 
 proc atelierChat(): AiChat =
-  ## (the assistant's conversation: made when first wanted, the service asked of the keyring then)
-  if assist == nil:
+  ## (the assistant's conversation: made when first wanted, the service asked of the keyring then;
+  ## the device's own model with fewer tools -- what it reads first is read slowly -- and no
+  ## picture, which it cannot see)
+  let device = aiDlg.s.kind == akDevice
+  if assist == nil or (assist.settings.kind == akDevice) != device:
     loadAi()
-    assist = newAiChat(aiDlg.s, assistSystem, assistTools())
+    if assist != nil: assist.close()
+    var tools = assistTools(device)
+    if device and not imgAi.s.connected:
+      var i = 0
+      while i < tools.len:
+        if tools[i].name in ["generate_image", "generative_fill"]: tools.delete(i) else: inc i
+    assist = newAiChat(aiDlg.s, assistSystem, tools)
     assist.context = proc (): string = docText(cur())
     assist.attach = proc (): string =
       let d = cur()
-      if not assistPicture or d == nil: return ""
+      if not assistPicture or d == nil or aiDlg.s.kind == akDevice: return ""
       let b = thumbnail(pictureOfDoc(d, rect(0, 0, d.w, d.h)), 768, 768)
       encodePng(b, level = 3)
   else:
@@ -405,7 +433,8 @@ proc assistantBody() =
     if button("AI Connector...", w = dp(130)): aiDlg.open = true
     return
   let c = atelierChat()
-  checkbox("Show it the image", assistPicture)
+  if aiDlg.s.kind != akDevice: checkbox("Show it the image", assistPicture)
+  else: label(tr("This device's model: ") & aiDlg.s.model, color = ui.theme.gray)
   assistantPanel(c)
 
 # (the same tools for an AI agent outside, when the app is driven: RETRO_DRIVE, `retrokit mcp`)
@@ -415,3 +444,63 @@ proc offerTools() {.nimcall.} =
   toolsOffered = true
   publishTools(assistTools())
 beginFrameHooks.add offerTools
+
+# ---- Type > Shorten to Fit: overset text made shorter by the AI service ---------------------------------------
+
+proc runeLenOf(s: string): int = unicode.runeLen(s)
+
+const shortenSystem = "You shorten texts to fit a box of a page layout. Keep the meaning, the language, the tone " &
+  "and the paragraphs. Answer with the shortened text only: no quotes, no notes, nothing else."
+
+proc shortenDone() =
+  ## (the answer: the box's text, one step to undo; still overset -- asked again, shorter, twice at most)
+  let run = fitRun
+  fitRun.job = nil
+  var (t, err) = onceAnswer(aiDlg.s, run.job)
+  let L = run.layer
+  let d = run.d
+  if err.len > 0:
+    status = tr("Shorten to Fit: ") & err
+    return
+  if d == nil or L notin d.layers or not L.isText:
+    status = tr("Shorten to Fit: the box is gone")
+    return
+  t = t.strip(chars = Whitespace + {'"', '\'', '`'})
+  if t.len == 0:
+    status = tr("Shorten to Fit: the service answered nothing")
+    return
+  var nt = L.text
+  let style = if nt.spans.len > 0: nt.spans[0].style else: CharStyle()
+  nt.spans = @[TextSpan(text: t, style: style)]
+  d.stepOnce("Shorten to Fit", proc () = d.setText(L, nt))
+  d.markAll()
+  if layoutText(d.effectiveText(L)).overflow >= 0 and run.tries < 2:
+    startShorten(L, run.tries + 1)
+  else:
+    status = tr("Shortened to ") & $t.runeLenOf & tr(" letters") &
+             (if layoutText(d.effectiveText(L)).overflow >= 0: tr(" -- still overset: size the box or flow it on")
+              else: tr(" -- it fits"))
+
+proc startShorten(L: Layer; tries = 0) =
+  ## (the box's overset text sent to the service, to be made as short as fits -- the whole
+  ## text in its first span's style)
+  let d = cur()
+  if d == nil or L == nil or not L.isText or L.text.boxW <= 0: return
+  if fitRun.job != nil and fitRun.job.running:
+    status = tr("Shorten to Fit: the last one is not done yet")
+    return
+  loadAi()
+  if not aiDlg.s.connected:
+    status = tr("Shorten to Fit: connect an AI service first (Edit > AI Connector)")
+    aiDlg.open = true
+    return
+  let text = L.text.plainText
+  let lay = layoutText(d.effectiveText(L))
+  if lay.overflow < 0 and tries == 0:
+    status = tr("Shorten to Fit: the text fits its box already")
+    return
+  let fits = if lay.overflow >= 0: lay.overflow else: text.runeLenOf
+  let want = max(4, int(float(fits) * (0.92 - 0.12 * float(tries))))
+  fitRun = (askOnce(aiDlg.s, shortenSystem, "Shorten this to at most " & $want & " characters:\n\n" & text,
+                    onDone = shortenDone), L, d, tries, want)
+  status = tr("Shortening the text to ") & $want & tr(" letters...")

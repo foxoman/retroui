@@ -966,6 +966,7 @@ environment of its own: `adb shell am start -n PACKAGE/org.retro.RetroActivity
 | `RETRO_LANG=pseudo` | every text stretched a third and marked ("[Šåvé ··]"): the layouts too tight for longer words, and the words not translated, seen at once |
 | `RETRO_BENCH=SCENE`, `RETRO_BENCH_OUT=FILE` | tools/bench.nim's scene (rest, list, dashboard, document) and where its numbers go (`python3 tools/bench.py` runs them all) |
 | `RETRO_THREADS=N` | the worker threads (else one a processor, at most 16) |
+| `RETRO_MODELS=DIR` | where the models of `retroui/modelstore` are kept (else "Retro Models" in the system's place for an app's data, shared by the kit's apps) |
 | `RETRO_WEB=system` | every `webView` in the system's browser engine |
 | `RETRO_WEB_TOOLS=1` | the system's web view with its developer tools |
 | `RETRO_SPELL=none` | no spell checking (else the system's checker, or Hunspell) |

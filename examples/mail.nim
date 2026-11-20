@@ -21,7 +21,7 @@
 import std/[os, strutils, json, times, tables, sets, algorithm, sequtils, unicode, hashes, math, atomics]
 import retroui, retroui/[db, http, oauth, secrets, mime, richedit, spell, pdfview, mailimport, notify,
                      bgcheck]
-import retroui/[mailsetup, netconn, mailauth, mailsafety, domains, aiconnect, aichat, assistant]
+import retroui/[mailsetup, netconn, mailauth, mailsafety, domains, aiconnect, aichat, assistant, modelstore, jobs, meaning]
 import mail/[store, api, sync, graph, gmail, appids, rules, forward, importer, calendar, imapsync, othersync]
 import mail/assist as mailAssist
 
