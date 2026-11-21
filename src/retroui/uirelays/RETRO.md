@@ -62,7 +62,8 @@ is in `docs/uirelays-pr.md`.
   Cocoa (the menu bar's Window menu), X11 (EWMH, or the driver's own
   moving, sizing and maximizing without a window manager), GTK 4 (Wayland
   too), SDL 3 and SDL 2 (the hit test), Siwin; minimize for SDL and GTK.
-- `eglload.nim` -- EGL loaded at run time; `gpuRelays` in `screen.nim`.
+- `eglload.nim` -- EGL loaded at run time (OpenGL ES 2 or 3 off screen, on a display
+  others share; `contextCurrentHere`); `gpuRelays` in `screen.nim`.
 - Screen readers: `access.nim` (a tree of nodes -- role, name, value,
   states, place, range, caret -- and `accessRelays` to hand it on, with the
   requests that come back: press, focus, set a value, a step), `dbus.nim`

@@ -6,8 +6,10 @@
 # with threads (`--threads`: the page loaded once more through its service
 # worker to be kept apart from other sites, its drawing on every core),
 # and tests/web/threadcheck.nim: threads, locks, channels, files from a
-# thread, the page's fallback without them; tests/web/chatcheck.nim: XMPP
-# over a WebSocket (tests/web/xmppws.py, Python's websockets).
+# thread, the page's fallback without them; tests/web/bigcheck.nim: big
+# files left in the browser's storage, working offline, WebGPU's numbers for
+# a thread; tests/web/chatcheck.nim: XMPP over a WebSocket
+# (tests/web/xmppws.py, Python's websockets).
 #
 #   sh tests/web/run.sh
 #
@@ -49,6 +51,16 @@ sleep 1
 echo "== threads"
 node tests/web/threads.js "http://127.0.0.1:$PORT/" threads || failed=$((failed + 1))
 node tests/web/threads.js "http://127.0.0.1:$PORT/?threads=0" one || failed=$((failed + 1))
+kill $server 2> /dev/null
+# a big app's needs (tests/web/bigcheck): big files left in the browser's storage, working offline,
+# WebGPU's numbers for a thread
+"$OUT/retroweb" tests/web/bigcheck.nim --threads:4 --out:"$OUT/bigcheck" --path:src \
+  > "$OUT/bigcheck.log" 2>&1 || { echo "FAIL bigcheck's build"; tail "$OUT/bigcheck.log"; exit 1; }
+( cd "$OUT/bigcheck" && python3 -m http.server "$PORT" --bind 127.0.0.1 > "$OUT/http.log" 2>&1 ) &
+server=$!
+sleep 1
+echo "== a big app"
+node tests/web/big.js "http://127.0.0.1:$PORT/" || failed=$((failed + 1))
 kill $server 2> /dev/null
 # chat over a WebSocket (a small XMPP server of Python's websockets)
 if python3 -c "import websockets" 2> /dev/null; then

@@ -88,6 +88,26 @@ proc inset(p: seq[(float, float)]; d: float): seq[(float, float)] =
     let cosHalf = max(0.25, m[0] * n1[0] + m[1] * n1[1])   # (sharp corners not sent far)
     result.add (b[0] + m[0] * d / cosHalf, b[1] + m[1] * d / cosHalf)
 
+type Seeing = object
+  ## (how a shape is turned -- sines and cosines about x, y, z -- and seen: the eye's distance, 0
+  ## none, and the middle it is put back round)
+  sx, cxr, sy, cyr, sz, czr: float
+  focal, cx, cy: float
+
+proc turn(w: Seeing; v: V3): V3 =
+  ## (turned: x, then y, then z; z toward the eye, y down)
+  var (x, y, z) = v
+  (y, z) = (y * w.cxr - z * w.sx, y * w.sx + z * w.cxr)
+  (x, z) = (x * w.cyr + z * w.sy, -x * w.sy + z * w.cyr)
+  (x, y) = (x * w.czr - y * w.sz, x * w.sz + y * w.czr)
+  (x, y, z)
+
+proc seen(w: Seeing; v: V3): V3 =
+  ## (seen from the front, with perspective when the eye is near)
+  if w.focal <= 0: return (v.x + w.cx, v.y + w.cy, v.z)
+  let k = w.focal / max(1e-6, w.focal - v.z)
+  (v.x * k + w.cx, v.y * k + w.cy, v.z)
+
 proc shadeOf(base: uint32; n: V3; t: ThreeD): uint32 =
   ## (a face's color: the base dimmed by the light on it, a highlight on a shiny one)
   let la = degToRad(t.lightAngle)
@@ -131,25 +151,15 @@ proc threeDParts*(s: ShapeData): seq[ShapeData] =
   let (sx, cxr) = (sin(degToRad(t.rx)), cos(degToRad(t.rx)))
   let (sy, cyr) = (sin(degToRad(t.ry)), cos(degToRad(t.ry)))
   let (sz, czr) = (sin(degToRad(t.rz)), cos(degToRad(t.rz)))
-  proc turn(v: V3): V3 =
-    # (z toward the eye; y down)
-    var (x, y, z) = v
-    (y, z) = (y * cxr - z * sx, y * sx + z * cxr)
-    (x, z) = (x * cyr + z * sy, -x * sy + z * cyr)
-    (x, y) = (x * czr - y * sz, x * sz + y * czr)
-    (x, y, z)
   let span = max(x1 - x0, y1 - y0)
   let focal = if t.perspective > 0: span / (2 * tan(degToRad(clamp(t.perspective, 1, 160)) / 2)) else: 0.0
-  proc seen(v: V3): V3 =
-    if focal <= 0: return (v.x + cx, v.y + cy, v.z)
-    let k = focal / max(1e-6, focal - v.z)
-    (v.x * k + cx, v.y * k + cy, v.z)
+  let w = Seeing(sx: sx, cxr: cxr, sy: sy, cyr: cyr, sz: sz, czr: czr, focal: focal, cx: cx, cy: cy)
   var faces: seq[Face]
   proc addFace(pts: seq[V3]; holes: seq[seq[V3]] = @[]) =
     # (turned, its normal from its first three distinct corners; seen)
     if pts.len < 3: return
     var tp: seq[V3]
-    for p in pts: tp.add turn(p)
+    for p in pts: tp.add w.turn(p)
     var n: V3 = (0.0, 0.0, 0.0)
     # (Newell: robust for any polygon)
     for i in 0 ..< tp.len:
@@ -162,12 +172,12 @@ proc threeDParts*(s: ShapeData): seq[ShapeData] =
     var sp: seq[V3]
     var dsum = 0.0
     for p in tp:
-      sp.add seen(p)
+      sp.add w.seen(p)
       dsum += p.z
     var hs: seq[seq[V3]]
     for h in holes:
       var q: seq[V3]
-      for p in h: q.add seen(turn(p))
+      for p in h: q.add w.seen(w.turn(p))
       hs.add q
     faces.add Face(pts: sp, normal: n, depth: dsum / tp.len.float, holes: hs)
   proc v(p: (float, float); z: float): V3 = (p[0] - cx, p[1] - cy, z)

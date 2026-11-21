@@ -256,6 +256,36 @@
 
   (the stroke drawn on the CPU; the same work, 1.2 and 1.8 s, done as it
   ends.)
+- **The image models' big products on the GPU** (`retroui/gpucompute`,
+  new; `setNetGpu`, `setNetGpuWork`, `netGpuUsed` in `retroui/nnet`; in
+  uirelays' `eglload`, `openOffscreen`'s `version`, `Egl.shared`,
+  `contextCurrentHere`): products of matrices worked out in an off-screen
+  OpenGL ES context of the runner's thread -- with OpenGL ES 3 and float
+  textures to draw into, four floats a texel and four sums a pixel; else
+  (any OpenGL ES 2 GPU with 32-bit floats in its shaders) floats carried in
+  8-bit textures, each float's bytes a texel put together again in the
+  shader -- the CPU's numbers within rounding. The runner sends its big
+  products there (convolutions gathered as columns, linear layers,
+  attention's) on a real GPU that a product timed both ways once found the
+  quicker; `$RETRO_NET_GPU` 1 any GPU, -1 never. Never on a thread that
+  draws with EGL already. Here, with only the processor drawing
+  (llvmpipe), the CPU's own vectors are some 28 times quicker (a 3 x 3
+  convolution of 64 channels at 96 x 96: 11.9 ms against 331.8 ms) -- so a
+  software GPU is never taken by itself.
+- **What a big app needs in a web page** (`retroui/web/retro.js`,
+  `retroui/gpucompute`): a big file (8 MB or more) dropped on the page,
+  picked, or kept from an earlier visit stays in the browser's own storage
+  -- a Blob, on its disk -- and is read 4 MB at a time as the app asks (the
+  last eight pieces kept): the page holds no second copy of a big PSD;
+  written to, it becomes an ordinary file; kept files of 8 MB or more go to
+  IndexedDB as Blobs, left on the disk at the next visit until read. Beside
+  WebGL2, WebGPU works out the image models' products for the app's
+  threads: the thread hands its numbers over and waits on a word of the
+  shared memory the page sets once the GPU is done (the page's own thread
+  is never asked). Threads (crossOriginIsolated through the service worker
+  on any server) and working offline after the first visit were there;
+  `tests/web/bigcheck.nim` and `tests/web/big.js` now check them with the
+  big files and WebGPU in Chromium.
 - **Scrubby labels in the app's language** (`retroui/widgets`): `scrubLabel`
   draws its label translated, as it was measured (in Arabic the Layers
   panel's Opacity and Fill were English and cut off). Retro Atelier's

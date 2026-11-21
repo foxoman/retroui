@@ -20,6 +20,7 @@ const
   EGL_PBUFFER_BIT = 0x0001'i32
   EGL_RENDERABLE_TYPE = 0x3040'i32
   EGL_OPENGL_ES2_BIT = 0x0004'i32
+  EGL_OPENGL_ES3_BIT = 0x0040'i32
   EGL_RED_SIZE = 0x3024'i32
   EGL_GREEN_SIZE = 0x3023'i32
   EGL_BLUE_SIZE = 0x3022'i32
@@ -40,6 +41,8 @@ type
   Egl* = object
     ## A context and its surface (`ok`), and the calls.
     ok*: bool              ## the context is made and current
+    shared*: bool          ## the display is others' too (another context of this program may
+                           ## be on it): `close` and a failed open never end it
     lib: LibHandle
     dpy*: EGLDisplay       ## the EGL display
     cfg*: EGLConfig        ## the configuration chosen
@@ -142,14 +145,15 @@ proc close*(e: var Egl) =
     if e.makeCurrent != nil: discard e.makeCurrent(e.dpy, nil, nil, nil)
     if e.surf != nil: discard e.destroySurface(e.dpy, e.surf)
     if e.ctx != nil: discard e.destroyContext(e.dpy, e.ctx)
-    discard e.terminate(e.dpy)
+    if not e.shared: discard e.terminate(e.dpy)
   e.surf = nil
   e.ctx = nil
   e.dpy = nil
   e.ok = false
 
-proc pickConfig(e: var Egl; surfaceBit: EGLint; visual: int): bool =
-  var attrs = [EGL_SURFACE_TYPE, surfaceBit, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+proc pickConfig(e: var Egl; surfaceBit: EGLint; visual: int; version = 2): bool =
+  var attrs = [EGL_SURFACE_TYPE, surfaceBit, EGL_RENDERABLE_TYPE,
+               (if version >= 3: EGL_OPENGL_ES3_BIT else: EGL_OPENGL_ES2_BIT),
                EGL_RED_SIZE, 8'i32, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_NONE]
   var cfgs: array[64, EGLConfig]
   var n: EGLint
@@ -164,9 +168,9 @@ proc pickConfig(e: var Egl; surfaceBit: EGLint; visual: int): bool =
         return true
   true
 
-proc makeContext(e: var Egl): bool =
+proc makeContext(e: var Egl; version = 2): bool =
   discard e.bindAPI(EGL_OPENGL_ES_API)
-  var ca = [EGL_CONTEXT_CLIENT_VERSION, 2'i32, EGL_NONE]
+  var ca = [EGL_CONTEXT_CLIENT_VERSION, EGLint(version), EGL_NONE]
   e.ctx = e.createContext(e.dpy, e.cfg, nil, addr ca[0])
   e.ctx != nil
 
@@ -193,9 +197,10 @@ proc openOnWindow*(e: var Egl; xDisplay: pointer; xWindow: uint; visual: int): b
   e.ok = true
   true
 
-proc openOffscreen*(e: var Egl; w, h: int): bool =
+proc openOffscreen*(e: var Egl; w, h: int; version = 2): bool =
   ## A context drawing into an off-screen surface `w` x `h` (no window, no
-  ## display: Mesa's surfaceless platform when there is one).
+  ## display: Mesa's surfaceless platform when there is one), of OpenGL ES
+  ## `version` (2, or 3: false where the driver has none).
   if not loadEgl(e): return false
   if e.getPlatformDisplay != nil:
     e.dpy = e.getPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA, nil, nil)
@@ -205,7 +210,7 @@ proc openOffscreen*(e: var Egl; w, h: int): bool =
   if e.initialize(e.dpy, addr ma, addr mi) == 0:
     e.dpy = nil
     return false
-  if not e.pickConfig(EGL_PBUFFER_BIT, 0) or not e.makeContext():
+  if not e.pickConfig(EGL_PBUFFER_BIT, 0, version) or not e.makeContext(version):
     e.close()
     return false
   var sa = [EGL_WIDTH, EGLint(w), EGL_HEIGHT, EGLint(h), EGL_NONE]
@@ -215,6 +220,18 @@ proc openOffscreen*(e: var Egl; w, h: int): bool =
     return false
   e.ok = true
   true
+
+var currentLib: LibHandle
+
+proc contextCurrentHere*(): bool =
+  ## This thread has an EGL context current already (a window drawn with it): making another
+  ## current here would take it away.
+  if currentLib == nil:
+    currentLib = loadLib("libEGL.so.1")
+    if currentLib == nil and not androidShell: currentLib = loadLib("libEGL.so")
+    if currentLib == nil: return false
+  let f = cast[proc (): EGLContext {.cdecl, gcsafe.}](symAddr(currentLib, "eglGetCurrentContext"))
+  f != nil and f() != nil
 
 proc glProc*(e: Egl; name: cstring): pointer =
   ## A GL function: from EGL, else from the GL ES library itself.

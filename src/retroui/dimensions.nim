@@ -15,7 +15,7 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[json, math, strutils]
-import gfx, photo, photoshapes, textengine, photowidgets
+import photo, photoshapes, textengine, photowidgets
 
 type
   DimKind* = enum

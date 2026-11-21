@@ -51,6 +51,12 @@ const S_IFDIR = 0o040000, S_IFREG = 0o100000;
 // files the app came with (read only). A file the app writes in
 // /downloads is handed to the user when it is done (the browser's "Save
 // as", or a download): that is where a web app's "Save as" goes.
+// A big file (8 MB or more: dropped on the page, picked, kept from an
+// earlier visit) stays in the browser's own storage -- a Blob, on its disk
+// -- and is read a piece at a time (4 MB pieces, the last eight kept): the
+// page holds no copy of it until the app writes to it.
+
+const BIG_FILE = 8 << 20, PIECE = 4 << 20, PIECES_KEPT = 8;
 
 class RetroFS {
   constructor(name, persist) {
@@ -92,6 +98,76 @@ class RetroFS {
     }
     this.dirty.add(p);
     if (!this.saveTimer) this.saveTimer = setTimeout(() => this.save(), 400);
+  }
+  // a big file left where the browser keeps it (a File the user gave, a Blob from IndexedDB)
+  addBlob(p, blob, mtime) {
+    p = this.norm(p);
+    this.mkdirp(this.parent(p));
+    this.nodes.set(p, { dir: false, data: null, blob, size: blob.size, mtime: mtime || blob.lastModified || Date.now(),
+                        ino: this.nextIno++, pieces: new Map() });
+  }
+  // a file the user gave: a big one left in the browser's storage, a small one read in
+  async addGiven(p, f) {
+    if (f.size >= BIG_FILE) this.addBlob(p, f);
+    else this.addFile(p, new Uint8Array(await f.arrayBuffer()));
+  }
+  // bytes a..b of a big file's Blob: in a worker with FileReaderSync, on the page with a request
+  // of the Blob's address for those bytes (it waits, as reading a file does)
+  blobRange(n, a, b) {
+    if (typeof FileReaderSync !== "undefined")
+      return new Uint8Array(new FileReaderSync().readAsArrayBuffer(n.blob.slice(a, b)));
+    if (!n.burl) n.burl = URL.createObjectURL(n.blob);
+    try {
+      const x = new XMLHttpRequest();
+      x.open("GET", n.burl, false);
+      x.overrideMimeType("text/plain; charset=x-user-defined");
+      if (a > 0 || b < n.size) x.setRequestHeader("Range", "bytes=" + a + "-" + (b - 1));
+      x.send();
+      const t = x.responseText || "";
+      // (a browser that sends it all: the part asked for taken from it)
+      const off = t.length === n.size && b - a !== n.size ? a : 0;
+      if (t.length < off + (b - a)) return null;
+      const d = new Uint8Array(b - a);
+      for (let i = 0; i < d.length; i++) d[i] = t.charCodeAt(off + i) & 255;
+      return d;
+    } catch (e) {
+      return null;
+    }
+  }
+  // (bytes a..b of a big file: its 4 MB pieces fetched as they are needed, the last eight kept)
+  piece(n, a, b) {
+    if (!n.pieces) n.pieces = new Map();
+    const out = new Uint8Array(Math.max(0, b - a));
+    let o = 0;
+    for (let c = Math.floor(a / PIECE); c * PIECE < b; c++) {
+      let d = n.pieces.get(c);
+      if (d) n.pieces.delete(c);          // (kept as the latest)
+      else {
+        d = this.blobRange(n, c * PIECE, Math.min(n.size, (c + 1) * PIECE));
+        if (!d) return null;
+      }
+      n.pieces.set(c, d);
+      if (n.pieces.size > PIECES_KEPT) n.pieces.delete(n.pieces.keys().next().value);
+      const s0 = Math.max(a, c * PIECE) - c * PIECE, e0 = Math.min(b, (c + 1) * PIECE) - c * PIECE;
+      out.set(d.subarray(s0, e0), o);
+      o += e0 - s0;
+    }
+    return out;
+  }
+  // a big file's bytes brought into the page (the app writes to it): an ordinary file from then on
+  own(n) {
+    if (!n.blob || n.data) return true;
+    const d = this.blobRange(n, 0, n.size);
+    if (!d) return false;
+    n.data = d;
+    if (n.burl) URL.revokeObjectURL(n.burl);
+    n.blob = null; n.burl = null; n.pieces = null;
+    return true;
+  }
+  // a file as a Blob (to give, share, show): a big one's own
+  blobOf(n, type) {
+    if (n.blob && !n.data) return type ? new Blob([n.blob], { type }) : n.blob;
+    return new Blob([n.data.slice(0, n.size)], type ? { type } : undefined);
   }
   addFile(p, bytes, readOnly, url) {
     p = this.norm(p);
@@ -150,6 +226,7 @@ class RetroFS {
     all.sort((a, b) => a[0].length - b[0].length);
     for (const [p, v] of all) {
       if (v.dir) this.mkdirp(p);
+      else if (v.blob) this.addBlob(p, v.blob, v.mtime);         // (a big one: left on the disk)
       else {
         this.mkdirp(this.parent(p));
         this.nodes.set(p, { dir: false, data: new Uint8Array(v.data), size: v.data.byteLength,
@@ -168,6 +245,9 @@ class RetroFS {
       const n = this.nodes.get(p);
       if (!n) st.delete(p);
       else if (n.dir) st.put({ dir: true, mtime: n.mtime }, p);
+      else if (n.blob && !n.data) st.put({ dir: false, mtime: n.mtime, blob: n.blob }, p);
+      // (a big one as a Blob: the next visit leaves it on the disk until it is read)
+      else if (n.size >= BIG_FILE) st.put({ dir: false, mtime: n.mtime, blob: new Blob([n.data.subarray(0, n.size)]) }, p);
       else st.put({ dir: false, mtime: n.mtime, data: n.data.slice(0, n.size).buffer }, p);
     }
     this.dirty.clear();
@@ -190,6 +270,8 @@ class RetroFS {
     if (n.dir && acc !== 0) return -E.ISDIR;
     if (n.ro && acc !== 0) return -E.ROFS;
     if (!n.dir && !this.load(n)) return -E.IO;
+    if (trunc && acc !== 0 && !n.dir && n.blob && !n.data) { n.data = new Uint8Array(0); n.blob = null; n.pieces = null; }
+    if (acc !== 0 && !n.dir && !this.own(n)) return -E.IO;
     if (trunc && acc !== 0 && !n.dir) { n.size = 0; n.mtime = Date.now(); this.touch(p); }
     if (this.fds.size > 1000) return -E.MFILE;
     const fd = this.nextFd++;
@@ -206,6 +288,7 @@ class RetroFS {
     this.touch(p);
   }
   ensure(n, size) {
+    this.own(n);
     if (n.data.length >= size) return;
     const d = new Uint8Array(Math.max(size, n.data.length * 2, 256));
     d.set(n.data.subarray(0, n.size));
@@ -273,6 +356,53 @@ class Retro {
       return 0;
     };
     const env = {
+      // WebGPU for a thread (see `webgpuStart`): 1 a device is ready; its name; a product started
+      rw_gpu_ready: () => webgpu.dev ? (webgpu.fallback ? 2 : 1) : 0,
+      rw_gpu_info: (p, cap) => rt.putStr(webgpu.info, p, cap),
+      rw_gpu_matmul: (a, b, c, m, k, n, flag) => {
+        const g = webgpu;
+        if (!g.dev || !g.pipe) return 0;
+        const ba = m * k * 4, bb = k * n * 4, bc = m * n * 4;
+        const lim = g.dev.limits.maxStorageBufferBindingSize;
+        if (ba > lim || bb > lim || bc > lim || n > 65535 * 16 || m > 65535 * 16) return 0;
+        (async () => {
+          let ok = false;
+          const made = [];
+          try {
+            const dev = g.dev, S = GPUBufferUsage;
+            const buf = (size, usage) => { const x = dev.createBuffer({ size: Math.max(16, size), usage }); made.push(x); return x; };
+            const A = buf(ba, S.STORAGE | S.COPY_DST), B = buf(bb, S.STORAGE | S.COPY_DST);
+            const C = buf(bc, S.STORAGE | S.COPY_SRC), D = buf(16, S.UNIFORM | S.COPY_DST);
+            const R = buf(bc, S.MAP_READ | S.COPY_DST);
+            // (copies out of the shared memory: WebGPU takes no view of it)
+            dev.queue.writeBuffer(A, 0, new Uint8Array(rt.mem.buffer, a, ba).slice());
+            dev.queue.writeBuffer(B, 0, new Uint8Array(rt.mem.buffer, b, bb).slice());
+            dev.queue.writeBuffer(D, 0, new Uint32Array([m, k, n, 0]));
+            const bind = dev.createBindGroup({ layout: g.pipe.getBindGroupLayout(0), entries: [
+              { binding: 0, resource: { buffer: A } }, { binding: 1, resource: { buffer: B } },
+              { binding: 2, resource: { buffer: C } }, { binding: 3, resource: { buffer: D } }] });
+            const enc = dev.createCommandEncoder();
+            const pass = enc.beginComputePass();
+            pass.setPipeline(g.pipe);
+            pass.setBindGroup(0, bind);
+            pass.dispatchWorkgroups(Math.ceil(n / 16), Math.ceil(m / 16));
+            pass.end();
+            enc.copyBufferToBuffer(C, 0, R, 0, bc);
+            dev.queue.submit([enc.finish()]);
+            await R.mapAsync(GPUMapMode.READ);
+            new Uint8Array(rt.mem.buffer, c, bc).set(new Uint8Array(R.getMappedRange(0, bc)));
+            R.unmap();
+            ok = true;
+          } catch (e) {
+            console.warn("retro: WebGPU product", e);
+          }
+          for (const x of made) x.destroy();
+          const w = new Int32Array(rt.mem.buffer);
+          Atomics.store(w, flag >> 2, ok ? 1 : 2);
+          Atomics.notify(w, flag >> 2);
+        })();
+        return 1;
+      },
       rl_open: (p, flags, mode) => fs.open_(rt.str(p), flags),
       rl_close: (fd) => {
         const f = fs.fds.get(fd);
@@ -286,7 +416,13 @@ class Retro {
         if (!f) return -E.BADF;
         if (f.n.dir) return -E.ISDIR;
         const k = Math.max(0, Math.min(n, f.n.size - f.pos));
-        rt.u8().set(f.n.data.subarray(f.pos, f.pos + k), p);
+        if (f.n.data) rt.u8().set(f.n.data.subarray(f.pos, f.pos + k), p);
+        else if (k > 0) {
+          // (a big file left in the browser's storage: the pieces it needs)
+          const d = fs.piece(f.n, f.pos, f.pos + k);
+          if (!d) return -E.IO;
+          rt.u8().set(d, p);
+        }
         f.pos += k;
         return k;
       },
@@ -736,7 +872,8 @@ void main() { vec4 c = texture(t, uv); o = vec4(c.b, c.g, c.r, 1.0); }`);
     addEventListener("blur", () => this.push({ kind: EV.blur }));
     document.addEventListener("visibilitychange", () =>
       this.push({ kind: document.hidden ? EV.hide : EV.show }));
-    // files dropped on the page: into /tmp/dropped, their paths to the app
+    // files dropped on the page: into /tmp/dropped (a big one left in the browser's storage), their
+    // paths to the app
     c.addEventListener("dragover", (e) => e.preventDefault());
     c.addEventListener("drop", async (e) => {
       e.preventDefault();
@@ -744,7 +881,7 @@ void main() { vec4 c = texture(t, uv); o = vec4(c.b, c.g, c.r, 1.0); }`);
       const paths = [];
       for (const f of e.dataTransfer ? e.dataTransfer.files : []) {
         const p = "/tmp/dropped/" + f.name.replace(/[\/\\]/g, "_");
-        this.rt.fs.addFile(p, new Uint8Array(await f.arrayBuffer()));
+        await this.rt.fs.addGiven(p, f);
         paths.push(p);
       }
       if (paths.length) this.push({ kind: EV.drop, x, y, text: paths.join("\n") });
@@ -836,7 +973,7 @@ void main() { vec4 c = texture(t, uv); o = vec4(c.b, c.g, c.r, 1.0); }`);
       fs.fresh.delete(p);
       const n = fs.nodes.get(p);
       if (!n || n.dir) continue;
-      this.give(name, n.data.slice(0, n.size));
+      this.give(name, fs.blobOf(n));
     }
   }
   give(name, data) {
@@ -1038,7 +1175,7 @@ registerProcessor("retro-sound", RetroSound);`;
         const files = [];
         for (const p of o.files) {
           const n = this.rt.fs.nodes.get(this.rt.fs.norm(p));
-          if (n && !n.dir && this.rt.fs.load(n)) files.push(new File([n.data.slice(0, n.size)], p.slice(p.lastIndexOf("/") + 1)));
+          if (n && !n.dir && this.rt.fs.load(n)) files.push(new File([this.rt.fs.blobOf(n)], p.slice(p.lastIndexOf("/") + 1)));
         }
         if (files.length && (!nav.canShare || nav.canShare({ files }))) data.files = files;
       }
@@ -1102,7 +1239,7 @@ registerProcessor("retro-sound", RetroSound);`;
         const paths = [];
         for (const f of inp.files) {
           const p = "/tmp/opened/" + (f.webkitRelativePath || f.name).replace(/[\\]/g, "_");
-          this.rt.fs.addFile(p, new Uint8Array(await f.arrayBuffer()));
+          await this.rt.fs.addGiven(p, f);
           paths.push(p);
         }
         st.pick = paths.length ? paths.join("\n") : "\u0001";
@@ -1143,7 +1280,7 @@ registerProcessor("retro-sound", RetroSound);`;
       // a PDF in a frame of its own, printed by the browser (its print dialog)
       const n = this.rt.fs.nodes.get(this.rt.fs.norm(arg));
       if (!n || n.dir || !this.rt.fs.load(n)) return "0";
-      const url = URL.createObjectURL(new Blob([n.data.slice(0, n.size)], { type: "application/pdf" }));
+      const url = URL.createObjectURL(this.rt.fs.blobOf(n, "application/pdf"));
       const f = document.createElement("iframe");
       f.style.cssText = "position:fixed;right:0;bottom:0;width:1px;height:1px;border:0;opacity:0";
       f.onload = () => {
@@ -1386,8 +1523,7 @@ registerProcessor("retro-sound", RetroSound);`;
             if (st.artPath !== o.art) {
               if (st.artUrl) URL.revokeObjectURL(st.artUrl);
               st.artPath = o.art;
-              st.artUrl = URL.createObjectURL(new Blob([n.data.slice(0, n.size)],
-                { type: /\.png$/i.test(o.art) ? "image/png" : "image/jpeg" }));
+              st.artUrl = URL.createObjectURL(this.rt.fs.blobOf(n, /\.png$/i.test(o.art) ? "image/png" : "image/jpeg"));
             }
             art = [{ src: st.artUrl, sizes: "512x512" }];
           }
@@ -1888,7 +2024,7 @@ registerProcessor("retro-sound", RetroSound);`;
         const path = rt.fs.norm(str(p)), n = rt.fs.nodes.get(path);
         if (!n || n.dir || !rt.fs.load(n)) return 0;
         const a = document.createElement("a");
-        a.href = URL.createObjectURL(new Blob([n.data.slice(0, n.size)]));
+        a.href = URL.createObjectURL(rt.fs.blobOf(n));
         a.download = path.slice(path.lastIndexOf("/") + 1);
         document.body.appendChild(a);
         a.click();
@@ -2012,7 +2148,7 @@ registerProcessor("retro-sound", RetroSound);`;
             const type = { mp4: "video/mp4", m4v: "video/mp4", webm: "video/webm", ogv: "video/ogg",
                            mp3: "audio/mpeg", m4a: "audio/mp4", ogg: "audio/ogg", wav: "audio/wav",
                            opus: "audio/ogg" }[ext] || "";
-            url = URL.createObjectURL(new Blob([n.data.slice(0, n.size)], { type }));
+            url = URL.createObjectURL(rt.fs.blobOf(n, type));
           }
         }
         const id = (self.nextVideo = (self.nextVideo || 0) + 1);
@@ -2198,6 +2334,68 @@ function onceIsolated() {
 // ---- starting an app built with `retrokit web` ----------------------------------------------------
 // Retro.boot({ wasm: "app.wasm", name: "app", files: ["app/index.html", ...], element })
 
+// ---- WebGPU: numbers for the app's threads -----------------------------------------------------
+// Beside WebGL2 (the window's drawing), a WebGPU device works out products of matrices for a
+// thread that asks (`retroui/gpucompute`, the image models' runner): the thread hands its numbers
+// over (rw_gpu_matmul) and waits on a word of the shared memory, which the page sets once the GPU
+// is done (1) or could not (2). Only threads can wait so: the page's own thread is never asked.
+
+const GEMM_WGSL = `
+struct Dims { m: u32, k: u32, n: u32, pad: u32 }
+@group(0) @binding(0) var<storage, read> A: array<f32>;
+@group(0) @binding(1) var<storage, read> B: array<f32>;
+@group(0) @binding(2) var<storage, read_write> C: array<f32>;
+@group(0) @binding(3) var<uniform> d: Dims;
+var<workgroup> ta: array<array<f32, 16>, 16>;
+var<workgroup> tb: array<array<f32, 16>, 16>;
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_id) l: vec3<u32>) {
+  let row = g.y;
+  let col = g.x;
+  var acc = 0.0;
+  let tiles = (d.k + 15u) / 16u;
+  for (var t = 0u; t < tiles; t++) {
+    let ka = t * 16u + l.x;
+    let kb = t * 16u + l.y;
+    var va = 0.0;
+    if (row < d.m && ka < d.k) { va = A[row * d.k + ka]; }
+    var vb = 0.0;
+    if (kb < d.k && col < d.n) { vb = B[kb * d.n + col]; }
+    ta[l.y][l.x] = va;
+    tb[l.y][l.x] = vb;
+    workgroupBarrier();
+    for (var q = 0u; q < 16u; q++) { acc += ta[l.y][q] * tb[q][l.x]; }
+    workgroupBarrier();
+  }
+  if (row < d.m && col < d.n) { C[row * d.n + col] = acc; }
+}`;
+
+const webgpu = { dev: null, pipe: null, started: false, info: "", fallback: false };
+
+function webgpuStart() {
+  if (webgpu.started) return;
+  webgpu.started = true;
+  (async () => {
+    try {
+      if (typeof navigator === "undefined" || !navigator.gpu) return;
+      const ad = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+      if (!ad) return;
+      const lim = ad.limits;
+      const dev = await ad.requestDevice({ requiredLimits: {
+        maxStorageBufferBindingSize: lim.maxStorageBufferBindingSize, maxBufferSize: lim.maxBufferSize } });
+      const mod = dev.createShaderModule({ code: GEMM_WGSL });
+      webgpu.pipe = await dev.createComputePipelineAsync({ layout: "auto", compute: { module: mod, entryPoint: "main" } });
+      const info = ad.info || {};
+      webgpu.info = [info.vendor, info.architecture, info.device, info.description].filter((s) => s).join(" ") || "WebGPU";
+      webgpu.fallback = !!(ad.isFallbackAdapter || info.isFallbackAdapter);
+      webgpu.dev = dev;
+      dev.lost.then(() => { webgpu.dev = null; });
+    } catch (e) {
+      console.warn("retro: no WebGPU", e);
+    }
+  })();
+}
+
 async function boot(opts) {
   const root = typeof opts.element === "string" ? document.querySelector(opts.element)
              : opts.element || document.getElementById("retro") || document.body;
@@ -2240,6 +2438,7 @@ async function boot(opts) {
       return new Promise(() => {});
     } catch (e) { console.warn("retro: no threads (the service worker)", e); }
   }
+  if (threads) webgpuStart();      // (WebGPU for the app's threads: made while the page loads)
   if (threads) {
     // (the memory a build with threads shares, made at its largest up front: a phone may not
     // give it -- then the build without threads, one thread)

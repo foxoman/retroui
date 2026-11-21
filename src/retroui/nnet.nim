@@ -15,7 +15,7 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[math, tables, strutils, algorithm, monotimes, times, os]
-import onnx
+import onnx, gpucompute
 export onnx
 
 when compileOption("threads"):
@@ -343,6 +343,78 @@ proc netGemm(a, b, c: ptr float32; m, k, lda, ldb, ldc, j0, j1: int; over: cint)
 proc netSoftmax(x: ptr float32; n: int) {.importc: "ruk_net_softmax", header: netKernels, cdecl.}
 proc netErf(x: ptr float32; n: int) {.importc: "ruk_net_erf", header: netKernels, cdecl.}
 
+# (the GPU: big products worked out there -- `retroui/gpucompute`, a context of the runner's thread)
+const DefaultGpuWork = 32_000_000
+
+var
+  netGpuMode = 0               # (0: a real GPU, 1: any, a software one too; -1: none)
+  netGpuWork = DefaultGpuWork  # (multiply-adds a product needs to go to the GPU)
+
+proc setNetGpu*(mode: int) =
+  ## Where the runner's big matrix products are worked out: 0 on a real GPU (not the processor
+  ## drawing) when one is here and a product timed both ways once found it the quicker, 1 on any
+  ## GPU, -1 always on the CPU. The numbers are the same within rounding. $RETRO_NET_GPU sets it
+  ## at the start.
+  netGpuMode = clamp(mode, -1, 1)
+
+proc setNetGpuWork*(macs: int) =
+  ## How big a product goes to the GPU, in multiply-adds (-1: the default, 32 million).
+  netGpuWork = if macs < 0: DefaultGpuWork else: macs
+
+block:
+  let e = getEnv("RETRO_NET_GPU")
+  if e.len > 0:
+    try: setNetGpu(parseInt(e))
+    except ValueError: discard
+
+var gpuChoice = 0               # (0: not tried yet; 1: the GPU is quicker here; -1: the CPU)
+
+proc gemm(a: ptr UncheckedArray[float32]; b: ptr UncheckedArray[float32]; c: ptr UncheckedArray[float32];
+          m, n, k: int; transB = false; accumulate = false; cpuOnly = false)
+
+proc gpuQuicker(): bool =
+  ## (a real GPU is used only where it is the quicker: a product of 256 x 1024 by 1024 x 256 timed
+  ## both ways once, the GPU taken when it takes at most four fifths of the CPU's time)
+  block:
+    if gpuChoice == 0:
+      const m = 256
+      const k = 1024
+      const n = 256
+      var a = newSeq[float32](m * k)
+      var b = newSeq[float32](k * n)
+      for i in 0 ..< a.len: a[i] = float32((i * 7919) mod 1000) / 1000 - 0.5
+      for i in 0 ..< b.len: b[i] = float32((i * 104729) mod 1000) / 1000 - 0.5
+      var c = newSeq[float32](m * n)
+      template ms(t: MonoTime): float = (getMonoTime() - t).inMicroseconds.float / 1000
+      discard gpuMatmul(a, b, 16, k, 16)                     # (the GPU's shaders ready first)
+      let t0 = getMonoTime()
+      let g = gpuMatmul(a, b, m, k, n)
+      let gpuMs = ms(t0)
+      let t1 = getMonoTime()
+      gemm(cast[ptr UncheckedArray[float32]](addr a[0]), cast[ptr UncheckedArray[float32]](addr b[0]),
+           cast[ptr UncheckedArray[float32]](addr c[0]), m, n, k, cpuOnly = true)
+      let cpuMs = ms(t1)
+      gpuChoice = if g.len == m * n and gpuMs <= cpuMs * 0.8: 1 else: -1
+    gpuChoice > 0
+
+proc netGpuUsed*(): bool =
+  ## The runner's big products go to the GPU on this thread (`setNetGpu`; on 0, a real GPU found
+  ## quicker than the CPU, timed once). In a web page, WebGPU, for the runner's threads.
+  netGpuMode >= 0 and computeReady() and (netGpuMode == 1 or (not computeSoftware() and gpuQuicker()))
+
+proc gpuWorth(m, n, k: int): bool =
+  ## (a product of these sizes goes to the GPU: big enough, and a GPU worth it for this thread)
+  m * n * k >= netGpuWork and k <= computeMaxSide() and n <= computeMaxSide() and netGpuUsed()
+
+proc gpuGemm(a, b, c: ptr UncheckedArray[float32]; m, n, k: int; accumulate: bool): bool =
+  ## (c (+)= a * b on the GPU; false: not done there)
+  let g = gpuMatmul(toOpenArray(a, 0, m * k - 1), toOpenArray(b, 0, k * n - 1), m, k, n)
+  if g.len != m * n: return false
+  if accumulate:
+    for i in 0 ..< m * n: c[i] += g[i]
+  else: copyMem(c, unsafeAddr g[0], m * n * sizeof(float32))
+  true
+
 proc plainGemm(a, b, c: ptr UncheckedArray[float32]; m, k, n, j0, j1: int) =
   # (-d:retroNoSimd: the same sums, lane by lane)
   for i in 0 ..< m:
@@ -351,9 +423,9 @@ proc plainGemm(a, b, c: ptr UncheckedArray[float32]; m, k, n, j0, j1: int) =
       for j in j0 ..< j1: c[i * n + j] += av * b[t * n + j]
 
 proc gemm(a: ptr UncheckedArray[float32]; b: ptr UncheckedArray[float32]; c: ptr UncheckedArray[float32];
-          m, n, k: int; transB = false; accumulate = false) =
-  ## (c[m x n] (+)= a[m x k] * b[k x n] -- b given as n x k when `transB`: pieces of rows and
-  ## columns shared among the cores, `simdnet.h`'s blocks)
+          m, n, k: int; transB = false; accumulate = false; cpuOnly = false) =
+  ## (c[m x n] (+)= a[m x k] * b[k x n] -- b given as n x k when `transB`: on the GPU when it is big
+  ## and worth it, else pieces of rows and columns shared among the cores, `simdnet.h`'s blocks)
   if m == 0 or n == 0: return
   if k == 0:
     if not accumulate: zeroMem(c, m * n * sizeof(float32))
@@ -367,6 +439,7 @@ proc gemm(a: ptr UncheckedArray[float32]; b: ptr UncheckedArray[float32]; c: ptr
     for j in 0 ..< n:
       for t in 0 ..< k: bt[t * n + j] = b[j * k + t]
     bp = cast[ptr UncheckedArray[float32]](addr bt[0])
+  if not cpuOnly and gpuWorth(m, n, k) and gpuGemm(a, bp, c, m, n, k, accumulate): return
   let (ap, bq, cp) = (a, bp, c)
   # (pieces of 64 rows by up to 128 columns: enough of them for every core, whatever the shape)
   const rowsEach = 64
@@ -476,6 +549,26 @@ proc conv*(x, w: Tensor; bias: Tensor; strides, pads, dilations: seq[int]; group
       let op = cast[ptr UncheckedArray[float32]](addr ob[gi * ocg * places])
       if kh == 1 and kw == 1 and sh == 1 and sw == 1 and pt == 0 and pl == 0 and pb == 0 and pr == 0:
         gemm(wp, xp, op, ocg, places, icg, accumulate = true)     # (the input is its own columns)
+        continue
+      if gpuWorth(ocg, places, kk):
+        # (the GPU: every place's inputs gathered in columns, then one product there)
+        var cols = newSeq[float32](kk * places)
+        let cp = cast[ptr UncheckedArray[float32]](addr cols[0])
+        netFor(kk, proc (lo, hi: int) =
+          for r in lo ..< hi:
+            let ci = r div (kh * kw)
+            let ky = (r div kw) mod kh
+            let kx = r mod kw
+            for oy in 0 ..< oh:
+              let iy = oy * sh - pt + ky * dh
+              let row = r * places + oy * ow
+              if iy < 0 or iy >= h: continue
+              let src = (ci * h + iy) * wd
+              for ox in 0 ..< ow:
+                let ix = ox * sw - pl + kx * dw
+                if ix >= 0 and ix < wd: cp[row + ox] = xp[src + ix])
+        if gpuGemm(wp, cp, op, ocg, places, kk, accumulate = true): continue
+        gemm(wp, cp, op, ocg, places, kk, accumulate = true)
         continue
       # (strips of places: as many as keep a strip's columns some 256 KB)
       let strip = clamp((65536 div max(1, kk)) div 16 * 16, 16, 1024)

@@ -271,7 +271,9 @@ with threads (an app that needs them; elsewhere the page says so). A
 browser that will not give the shared memory up front (a phone short of
 it) gets the build without threads. Code
 that starts threads itself compiles both ways: `when
-compileOption("threads")`. Other sites' pages in a frame need to allow
+compileOption("threads")`. With threads the page also makes a WebGPU
+device (where the browser has one) for numbers its threads ask for
+(`retroui/gpucompute`: the image models' products). Other sites' pages in a frame need to allow
 being embedded (`Cross-Origin-Resource-Policy`) in a page with threads.
 
 **Fonts in programs:** `-d:retroFonts=all` (the default: twelve faces,

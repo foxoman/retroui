@@ -11,7 +11,7 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[strutils, math, tables]
-import gfx, photo, photoshapes, textengine
+import photo, photoshapes, textengine
 
 type
   DxfError* = object of CatchableError
