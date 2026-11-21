@@ -221,6 +221,14 @@
   makes the object over a layer its mask (light shows, dark and nothing
   hide) and `releaseOpacityMask` makes it a layer again; `layerCopy` copies
   a layer as a new one, for any document of its size.
+- **Ink on the GPU** (`retroui/ink`, new; `gpuStampDabs` in
+  `retroui/gfxgpu`): a brush's dabs spaced along a stroke (`dabsAlong`: a
+  part of the stroke at a time as it is drawn, the spacing going on from
+  one part to the next; pressure to size and opacity; scatter, angle and
+  roundness), a tip from its hardness, and `stampInk` putting them down --
+  drawn into a texture on the GPU where there is one and the stroke is big
+  enough, else on the CPU, the same pixels within a few levels either way;
+  the eraser too.
 - **Scrubby labels in the app's language** (`retroui/widgets`): `scrubLabel`
   draws its label translated, as it was measured (in Arabic the Layers
   panel's Opacity and Fill were English and cut off). Retro Atelier's

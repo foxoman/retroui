@@ -1796,6 +1796,132 @@ proc gpuWarpMesh*(px: openArray[uint32]; w, h: int; dx, dy: openArray[float32]; 
 # as the filters' are, the state frames are drawn with put aside and put
 # back. Only while `gpuFiltersReady` (on the GPU's thread).
 
+# ---- ink: dabs stamped on the GPU ----------------------------------------------------------------------------
+
+const InkVertex = """
+attribute vec2 aPos;
+attribute vec2 aUv;
+attribute float aOp;
+uniform vec2 uSize;
+varying vec2 vUv;
+varying float vOp;
+void main() {
+  vUv = aUv;
+  vOp = aOp;
+  gl_Position = vec4(aPos / uSize * 2.0 - 1.0, 0.0, 1.0);
+}
+"""
+
+const InkFragment = """
+uniform sampler2D uTip;
+uniform float uCol[4];
+varying vec2 vUv;
+varying float vOp;
+void main() {
+  float a = texture2D(uTip, vUv).r * vOp;
+  gl_FragColor = vec4(uCol[0] * a, uCol[1] * a, uCol[2] * a, a);
+}
+"""
+
+var
+  inkProg: GLuint
+  inkFailed: bool
+  inkVbo: GLuint
+
+proc inkProgram(): GLuint =
+  if inkProg != 0 or inkFailed: return inkProg
+  let vs = compile(GL_VERTEX_SHADER, InkVertex)
+  let fs = compile(GL_FRAGMENT_SHADER, InkFragment)
+  if vs == 0 or fs == 0:
+    inkFailed = true
+    return 0
+  let p = gl.createProgram()
+  gl.attachShader(p, vs)
+  gl.attachShader(p, fs)
+  gl.bindAttribLocation(p, 0, "aPos")
+  gl.bindAttribLocation(p, 1, "aUv")
+  gl.bindAttribLocation(p, 2, "aOp")
+  gl.linkProgram(p)
+  gl.deleteShader(vs)
+  gl.deleteShader(fs)
+  var ok: GLint
+  gl.getProgramiv(p, GL_LINK_STATUS, addr ok)
+  if ok == 0:
+    inkFailed = true
+    gl.deleteProgram(p)
+    return 0
+  inkProg = p
+  p
+
+proc gpuStampDabs*(pre: openArray[uint32]; w, h: int; tip: openArray[uint8]; tw, th: int;
+                   quads: openArray[float32]; color: uint32; erase = false): seq[uint32] =
+  ## Dabs stamped on the GPU (`retroui/ink` makes `quads` and reads the result): `pre` -- a picture
+  ## `w` x `h`, its colors multiplied by its alpha -- with each dab's quad drawn over it through the
+  ## tip `tip` (`tw` x `th`, 0..255, read between its pixels), in `color` (straight ARGB) over what
+  ## is there, or (`erase`) taking it away; `quads` 6 corners a dab, each x, y (pixels), u, v (the
+  ## tip, 0..1) and its opacity (0..1). The picture after them, still multiplied by alpha; empty
+  ## when the GPU cannot.
+  result = @[]         # (a value at once: see tools/writecheck.py)
+  {.cast(gcsafe).}:
+    if not gpuFiltersReady() or w <= 0 or h <= 0 or pre.len != w * h or tip.len != tw * th or tw < 2 or
+       th < 2 or quads.len mod 30 != 0: return
+    if w > maxTexture() or h > maxTexture() or tw > maxTexture() or th > maxTexture(): return
+    let p = inkProgram()
+    if p == 0: return
+    var tipPx = newSeq[uint32](tip.len)
+    for i, v in tip: tipPx[i] = 0xFF000000'u32 or (uint32(v) shl 16) or (uint32(v) shl 8) or uint32(v)
+    var texTip = newTexture(tw, th, GL_RGBA, GL_LINEAR, addr tipPx[0])
+    var texOut = newTexture(w, h, GL_RGBA, GL_NEAREST, unsafeAddr pre[0])
+    var oldFb: GLint
+    gl.getIntegerv(GL_FRAMEBUFFER_BINDING, addr oldFb)
+    let fb = fxTarget(texOut)
+    try:
+      if fb != 0 and quads.len > 0:
+        if inkVbo == 0: gl.genBuffers(1, addr inkVbo)
+        gl.bindBuffer(GL_ARRAY_BUFFER, inkVbo)
+        gl.bufferData(GL_ARRAY_BUFFER, quads.len * sizeof(float32), unsafeAddr quads[0], GL_STREAM_DRAW)
+        gl.vertexAttribPointer(0, 2, GL_FLOAT, 0, 20, nil)
+        gl.vertexAttribPointer(1, 2, GL_FLOAT, 0, 20, cast[pointer](8))
+        gl.vertexAttribPointer(2, 1, GL_FLOAT, 0, 20, cast[pointer](16))
+        gl.enableVertexAttribArray(0)
+        gl.enableVertexAttribArray(1)
+        gl.enableVertexAttribArray(2)
+        gl.disable(GL_SCISSOR_TEST)
+        gl.colorMask(1, 1, 1, 1)
+        gl.viewport(0, 0, GLsizei(w), GLsizei(h))
+        gl.useProgram(p)
+        gl.uniform1i(gl.getUniformLocation(p, "uTip"), 0)
+        gl.uniform2f(gl.getUniformLocation(p, "uSize"), GLf32(w), GLf32(h))
+        # (the texture's bytes are B G R A as the pixels lie: its "red" is the color's blue)
+        var col = [GLf32(int(color and 255)) / 255, GLf32(int((color shr 8) and 255)) / 255,
+                   GLf32(int((color shr 16) and 255)) / 255, 1]
+        gl.uniform1fv(gl.getUniformLocation(p, "uCol"), 4, addr col[0])
+        gl.activeTexture(GL_TEXTURE0)
+        gl.bindTexture(GL_TEXTURE_2D, texTip)
+        gl.enable(GL_BLEND)
+        if erase: gl.blendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA)
+        else: gl.blendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA)
+        gl.drawArrays(GL_TRIANGLES, 0, GLsizei(quads.len div 5))
+        result = newSeq[uint32](w * h)
+        gl.pixelStorei(GL_PACK_ALIGNMENT, 4)
+        gl.readPixels(0, 0, GLsizei(w), GLsizei(h), GL_RGBA, GL_UNSIGNED_BYTE, addr result[0])
+        if gl.getError() != GL_NO_ERROR: result = @[]
+    finally:
+      # (the frame's own drawing sets its attributes again each time)
+      gl.bindFramebuffer(GL_FRAMEBUFFER, GLuint(oldFb))
+      gl.useProgram(prog)
+      gl.blendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+      gl.colorMask(1, 1, 1, 0)
+      gl.enable(GL_BLEND)
+      gl.viewport(0, 0, GLsizei(fbW), GLsizei(fbH))
+      gl.activeTexture(GL_TEXTURE0)
+      if fb != 0:
+        var ff = fb
+        gl.deleteFramebuffers(1, addr ff)
+      for t in [texTip, texOut]:
+        var tt = t
+        gl.deleteTextures(1, addr tt)
+
 proc gpuGl*(): ptr GlTable =
   ## The OpenGL functions (for work of one's own on the GPU: only while
   ## `gpuFiltersReady`).
