@@ -1,14 +1,19 @@
 # (included by photo.nim) Tables: Type > Insert Table (rows, columns, a
 # theme: a text box whose paragraphs are rows and tabs cells), Type >
-# Table Options (its theme from a gallery, its header, fills, stripes,
-# lines, padding, the columns' widths), Convert Text to Table and back.
-# The table is the type engine's (`TextData.table`, `tableTheme`).
+# Table Options (its theme from a gallery, its header and footer, fills,
+# stripes, lines, padding, the columns' widths), Cell Options (inset, place
+# up and down, turn, fill, sides, the row's height), rows and columns put in
+# and taken out, cells merged and apart, Table and Cell Styles, Convert Text
+# to Table and back. The table is the type engine's (`TextData.table`,
+# `tableTheme`, `TableCell`, `mergeCells`...).
 
 var
   tblIns: tuple[open: bool; rows, cols, header: int; theme: int] = (false, 5, 3, 1, 1)
   tblDlg = false
   tblPics: Table[string, Bitmap]
   tblWidths = ""
+  cellDlg: tuple[open: bool; page: int; f: TableCell; row: TableRowFmt; sides: array[4, bool]; strokeW: float;
+                 strokeC: uint32; applied: string]
 
 proc tablePicture(theme: string): Bitmap =
   ## (a small table in a theme, for the gallery)
@@ -71,10 +76,78 @@ proc insertTableNow() =
   d.markAll()
   status = "A table: type in its cells (Tab goes to the next one); Type > Table Options sets its look"
 
+proc tableTarget(): Layer =
+  ## (the table worked on: the one typed in, else the current layer when it is one)
+  let L = typeTarget()
+  if L != nil and L.isText and L.text.table.on: L else: nil
+
+proc pickedCells(L: Layer): tuple[r0, c0, r1, c1: int] =
+  ## (the cells picked: those the selection reaches while typing in the table; else all of them)
+  if te.on and te.layer == L:
+    let a = L.text.cellOfChar(min(te.caret, te.anchor))
+    let b = L.text.cellOfChar(max(te.caret, te.anchor))
+    return (min(a.r, b.r), min(a.c, b.c), max(a.r, b.r), max(a.c, b.c))
+  let rows = L.text.tableCells
+  var nc = 1
+  for r in rows: nc = max(nc, r.len)
+  (0, 0, rows.high, nc - 1)
+
+proc tableEdit(name: string; change: proc (t: var TextData)) =
+  ## (the table changed: as typed, while typing in it; else one step)
+  let L = tableTarget()
+  if L == nil:
+    status = tr(name) & tr(": pick a table, or type in one.")
+    return
+  if te.on and te.layer == L: editText(change)
+  else: applyText(name, change)
+
+proc startCellOptions() =
+  let L = tableTarget()
+  if L == nil:
+    status = tr("Cell Options: pick a table, or type in one.")
+    return
+  let p = pickedCells(L)
+  cellDlg.f = L.text.table.cellAt(p.r0, p.c0)
+  cellDlg.row = L.text.table.rowFmtAt(p.r0)
+  cellDlg.sides = [true, true, true, true]
+  cellDlg.strokeW = 1
+  cellDlg.strokeC = 0xFF000000'u32
+  for k in 0 .. 3:
+    if cellDlg.f.strokes[k].on:
+      cellDlg.strokeW = cellDlg.f.strokes[k].width
+      cellDlg.strokeC = cellDlg.f.strokes[k].color
+  cellDlg.applied = $(cellDlg.f, cellDlg.row)
+  cellDlg.open = true
+
 proc tableCommand(name: string): bool =
   ## (the Type menu's table commands; true: done here)
   result = true
   case name
+  of "Insert Row Above", "Insert Row Below", "Insert Column Before", "Insert Column After", "Delete Rows",
+     "Delete Columns", "Merge Cells", "Unmerge Cells":
+    let L = tableTarget()
+    if L == nil:
+      status = tr(name) & tr(": pick a table, or type in one.")
+      return
+    let p = pickedCells(L)
+    let nm = name
+    tableEdit(name, proc (t: var TextData) =
+      case nm
+      of "Insert Row Above": t.insertRow(p.r0)
+      of "Insert Row Below": t.insertRow(p.r1 + 1)
+      of "Insert Column Before": t.insertColumn(p.c0)
+      of "Insert Column After": t.insertColumn(p.c1 + 1)
+      of "Delete Rows":
+        for r in countdown(p.r1, p.r0): t.deleteRow(r)
+      of "Delete Columns":
+        for c in countdown(p.c1, p.c0): t.deleteColumn(c)
+      of "Merge Cells": t.mergeCells(p.r0, p.c0, p.r1, p.c1)
+      else:
+        for r in p.r0 .. p.r1:
+          for c in p.c0 .. p.c1: t.unmergeCells(r, c))
+  of "Cell Options...": startCellOptions()
+  of "Table Styles": togglePanel("tablestyles")
+  of "Cell Styles": togglePanel("cellstyles")
   of "Insert Table...": startInsertTable()
   of "Table Options...":
     let L = typeTarget()
@@ -131,14 +204,19 @@ proc tableDialogs() =
         adaptive(130):
           for th in tableThemes:
             if tblCard("o" & th, th, tablePicture(th), ts.theme == th):
-              let keep = (ts.headerRows, ts.widths)
+              let keep = (ts.headerRows, ts.widths, ts.footerRows, ts.noRepeat, ts.cells, ts.rowFmts)
               ts = tableTheme(th)
-              (ts.headerRows, ts.widths) = keep
+              (ts.headerRows, ts.widths, ts.footerRows, ts.noRepeat, ts.cells, ts.rowFmts) = keep
         group("Header and rows"):
           row:
             label "Header rows:"
             spin(ts.headerRows, 0, 20, w = dp(56))
+            label "Footer rows:"
+            spin(ts.footerRows, 0, 20, w = dp(56))
             checkbox("Bold", ts.headerBold)
+          row:
+            var again = not ts.noRepeat
+            if checkbox("Header and footer again in each box it goes on into", again): ts.noRepeat = not again
             checkbox("Numbers at the right", ts.numbersRight)
           template wellRow(lab: string; field: untyped; key: string) {.redefine.} =
             row([150, -1]):
@@ -195,3 +273,157 @@ proc tableDialogs() =
       row:
         spring()
         if button("Close", isDefault = true, w = dp(80)): tblDlg = false
+  if cellDlg.open:
+    let L = tableTarget()
+    if L == nil:
+      cellDlg.open = false
+      return
+    let p = pickedCells(L)
+    dialog(cellDlg.open, "Cell Options", 520):
+      label(tr("Cells: rows ") & $(p.r0 + 1) & "-" & $(p.r1 + 1) & tr(", columns ") & $(p.c0 + 1) & "-" & $(p.c1 + 1),
+            color = ui.theme.gray)
+      discard tabStrip([tr("Text"), tr("Strokes and Fills"), tr("Rows")], cellDlg.page)
+      case cellDlg.page
+      of 0:
+        group("Cell Insets"):
+          for (k, cap) in [(0, "Top:"), (2, "Bottom:"), (3, "Left:"), (1, "Right:")]:
+            row([90, -1]):
+              label cap
+              var v = cellDlg.f.inset[k].float
+              if numberEdit(v, decimals = 1, w = dp(70), lo = 0, hi = 2000): cellDlg.f.inset[k] = v.float32
+          label("Pixels (all 0: the table's padding).", color = ui.theme.gray)
+        row([150, -1]):
+          label "Vertical Justification:"
+          var vj = ord(cellDlg.f.vAlign)
+          var vn: seq[string]
+          for v in VertJust: vn.add tr($v)
+          if combo(vn, vj, w = dp(140)): cellDlg.f.vAlign = VertJust(clamp(vj, 0, ord(high(VertJust))))
+        row([150, -1]):
+          label "Text Rotation:"
+          var rk = max(0, [0, 90, 180, 270].find(cellDlg.f.rotation))
+          if combo(["0°", "90°", "180°", "270°"], rk, w = dp(90)): cellDlg.f.rotation = [0, 90, 180, 270][rk]
+      of 1:
+        row([150, -1]):
+          var on = cellDlg.f.fill != 0
+          if checkbox("Cell Fill", on): cellDlg.f.fill = if on: (fg or 0xFF000000'u32) else: 0'u32
+          if on:
+            var c = cellDlg.f.fill
+            if colorWell(c, "cellfill", dp(40)): cellDlg.f.fill = c or 0xFF000000'u32
+        group("Cell Stroke"):
+          row:
+            label "Sides:"
+            for (k, cap) in [(0, "Top"), (1, "Right"), (2, "Bottom"), (3, "Left")]:
+              discard checkbox(cap, cellDlg.sides[k])
+          row:
+            label "Weight:"
+            discard numberEdit(cellDlg.strokeW, decimals = 1, w = dp(64), lo = 0, hi = 100)
+            label "px"
+            var c = cellDlg.strokeC
+            if colorWell(c, "cellstroke", dp(40)): cellDlg.strokeC = c or 0xFF000000'u32
+          row:
+            if button("Set the Sides", w = dp(110)):
+              for k in 0 .. 3:
+                if cellDlg.sides[k]:
+                  cellDlg.f.strokes[k] = CellStroke(on: true, width: float32(cellDlg.strokeW), color: cellDlg.strokeC)
+            if button("The Table's Lines", w = dp(130)):
+              for k in 0 .. 3:
+                if cellDlg.sides[k]: cellDlg.f.strokes[k] = CellStroke()
+          label("Weight 0: no line on those sides.", color = ui.theme.gray)
+      else:
+        row([150, -1]):
+          label "Row Height:"
+          var k = ord(cellDlg.row.kind)
+          var kn: seq[string]
+          for v in RowHeight: kn.add tr($v)
+          if combo(kn, k, w = dp(120)): cellDlg.row.kind = RowHeight(clamp(k, 0, ord(high(RowHeight))))
+        if cellDlg.row.kind != rhAuto:
+          row([150, -1]):
+            label ""
+            var h = cellDlg.row.height.float
+            if numberEdit(h, decimals = 1, w = dp(70), lo = 1, hi = 10000): cellDlg.row.height = h.float32
+        label("Exactly: what does not fit in the row is cut off.", color = ui.theme.gray)
+      if $(cellDlg.f, cellDlg.row) != cellDlg.applied:
+        # (applied at once to every cell picked: their merges kept)
+        cellDlg.applied = $(cellDlg.f, cellDlg.row)
+        let f = cellDlg.f
+        let rf = cellDlg.row
+        tableEdit("Cell Options", proc (t: var TextData) =
+          for r in p.r0 .. p.r1:
+            for c in p.c0 .. p.c1:
+              var cref = t.table.cellRef(r, c)
+              let (rs, cs, st) = (cref.rowSpan, cref.colSpan, cref.style)
+              cref = f
+              cref.rowSpan = rs
+              cref.colSpan = cs
+              cref.style = st
+              t.table.cellRef(r, c) = cref
+            while t.table.rowFmts.len <= r: t.table.rowFmts.add TableRowFmt()
+            t.table.rowFmts[r] = rf)
+      row:
+        spring()
+        if button("Close", isDefault = true, w = dp(80)): cellDlg.open = false
+
+proc tableStylesBody(cells: bool) =
+  ## The Table Styles and Cell Styles panels: the document's styles; a click gives one to the
+  ## table (to the cells picked); New makes one of how it looks, Redefine makes it so again.
+  let d = cur()
+  if d == nil:
+    label("No image open", color = ui.theme.gray)
+    return
+  let L = tableTarget()
+  var names = @[tr(if cells: "[None]" else: "[Basic Table]")]
+  if cells:
+    for st in d.cellStyles: names.add st.name
+  else:
+    for st in d.tableStyles: names.add st.name
+  var curName = ""
+  if L != nil:
+    let p = pickedCells(L)
+    curName = if cells: L.text.table.cellAt(p.r0, p.c0).style else: L.text.table.styleName
+  var sel = max(0, names.find(curName))
+  let before = sel
+  listbox(names, sel, rows = min(8, max(4, names.len)))
+  if sel != before and L != nil:
+    let nm = if sel <= 0: "" else: names[sel]
+    let p = pickedCells(L)
+    d.beginStep(if cells: "Apply Cell Style" else: "Apply Table Style")
+    d.touchLayers()
+    if cells: d.applyCellStyle(L, p.r0, p.c0, p.r1, p.c1, nm) else: d.applyTableStyle(L, nm)
+    d.endStep()
+  row:
+    if button("New", w = dp(64), enabled = L != nil):
+      let p = pickedCells(L)
+      var n = (if cells: d.cellStyles.len else: d.tableStyles.len) + 1
+      let base = if cells: tr("Cell Style ") else: tr("Table Style ")
+      while (base & $n) in names: inc n
+      let nm = base & $n
+      d.beginStep(if cells: "New Cell Style" else: "New Table Style")
+      d.touchLayers()
+      if cells:
+        d.setCellStyle(nm, L.text.table.cellAt(p.r0, p.c0))
+        d.applyCellStyle(L, p.r0, p.c0, p.r1, p.c1, nm)
+      else:
+        d.setTableStyle(nm, L.text.table)
+        d.applyTableStyle(L, nm)
+      d.endStep()
+    if button("Redefine", w = dp(80), enabled = L != nil and sel > 0):
+      let p = pickedCells(L)
+      d.beginStep(if cells: "Redefine Cell Style" else: "Redefine Table Style")
+      d.touchLayers()
+      if cells: d.setCellStyle(names[sel], L.text.table.cellAt(p.r0, p.c0))
+      else: d.setTableStyle(names[sel], L.text.table)
+      d.endStep()
+    if button("Delete", w = dp(64), enabled = sel > 0):
+      let nm = names[sel]
+      d.beginStep(if cells: "Delete Cell Style" else: "Delete Table Style")
+      d.touchLayers()
+      if cells:
+        for i in countdown(d.cellStyles.high, 0):
+          if d.cellStyles[i].name == nm: d.cellStyles.delete(i)
+      else:
+        for i in countdown(d.tableStyles.high, 0):
+          if d.tableStyles[i].name == nm: d.tableStyles.delete(i)
+      d.endStep()
+  paragraph(tr(if cells: "Type in a table, select across cells: a click gives them the style."
+               else: "Pick a table or type in one: a click gives it the style; its cells keep their own looks."),
+            color = ui.theme.gray)

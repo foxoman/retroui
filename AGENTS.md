@@ -68,7 +68,9 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   -- an object's real outline from its pixels, its edges or a document path --;
   `wrapBoundary`, `wrapHandles` to draw and drag it; `rewrap` while a layer is
   dragged follows its live shift or warp; `TextData.holes` and `wrapLeast`; tab stops
-  `ParaStyle.tabs` -- `tabAdv` in `layoutPlain` sets each tab as its line is broken; the line breaker's `freeSpans`). The app (`examples/photo/book.nim`)
+  `ParaStyle.tabs` -- `tabAdv` in `layoutPlain` sets each tab as its line is broken; tables
+  `tableLaid` (cells `TableStyle.cells`, rows `rowFmts`, a continued box's `tableRow0` and
+  `tableHead` set by `remainder`), Table and Cell Styles in `retroui/photo`; the line breaker's `freeSpans`). The app (`examples/photo/book.nim`)
   only shows them. A page's document is an ordinary `Doc`; the book sees
   changes by `Doc.ver`. Pages not shown are parked: never keep a page's
   `Doc` across a call that parks (`park`, `reflow`, `saveBook`,

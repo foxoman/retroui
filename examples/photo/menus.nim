@@ -331,6 +331,11 @@ proc doCommand(name: string) =
   if name.startsWith("OpenType: "):
     toggleOpenType(name["OpenType: ".len .. ^1])
     return
+  if te.on and name in ["Cell Options...", "Insert Row Above", "Insert Row Below", "Insert Column Before",
+                        "Insert Column After", "Delete Rows", "Delete Columns", "Merge Cells", "Unmerge Cells",
+                        "Table Styles", "Cell Styles", "Table Options..."]:
+    discard tableCommand(name)             # (the cells the selection reaches: the text stays as it is typed)
+    return
   if te.on: commitType()                   # (and the text being typed)
   if name == "Clear" and deletePickedPoints(): return   # (points the Lasso (Points) picked: they go)
   if bookCommand(name): return             # (books, the Layout menu: photo/book)
@@ -780,7 +785,9 @@ proc doCommand(name: string) =
   of "Image Size...": startImageSize()
   of "Image Trace...": startImageTrace()
   of "Convert to Shape", "Create Outlines": convertTypeToShape()
-  of "Insert Table...", "Table Options...", "Convert Text to Table", "Convert Table to Text":
+  of "Insert Table...", "Table Options...", "Convert Text to Table", "Convert Table to Text", "Cell Options...",
+     "Insert Row Above", "Insert Row Below", "Insert Column Before", "Insert Column After", "Delete Rows",
+     "Delete Columns", "Merge Cells", "Unmerge Cells", "Table Styles", "Cell Styles":
     discard tableCommand(name)
   of "More Shapes...": startMoreShapes()
   of "Footnotes...": discard notesCommand(name)

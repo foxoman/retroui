@@ -1302,6 +1302,17 @@ proc typeMenu(d: Doc) =
   if menuItem(if isT and L.text.table.on: "Convert Table to Text" else: "Convert Text to Table",
               enabled = isT and L.text.boxW > 0):
     runCommand(if L.text.table.on: "Convert Table to Text" else: "Convert Text to Table")
+  let isTable = isT and L.text.table.on
+  submenu "Ta&ble":
+    for (cap, cmd) in [("Cell &Options...", "Cell Options..."), ("-", ""),
+                       ("Insert Row &Above", "Insert Row Above"), ("Insert Row &Below", "Insert Row Below"),
+                       ("Insert Column &Before", "Insert Column Before"),
+                       ("Insert Column A&fter", "Insert Column After"), ("&Delete Rows", "Delete Rows"),
+                       ("Delete &Columns", "Delete Columns"), ("-", ""), ("&Merge Cells", "Merge Cells"),
+                       ("&Unmerge Cells", "Unmerge Cells"), ("-", ""), ("&Table Styles", "Table Styles"),
+                       ("Ce&ll Styles", "Cell Styles")]:
+      if cap == "-": menuSeparator()
+      elif menuItem(cap, enabled = isTable or cmd in ["Table Styles", "Cell Styles"]): runCommand(cmd)
   menuSeparator()
   if menuItem("Rasterize Type", enabled = isT):
     if te.on: commitType()

@@ -1155,6 +1155,70 @@ block brushesAlongAPath:
   if d.stepOpen: d.endStep()
   doAssert d.layers.len == n0 + 1 and pbDlg.made.shape.path.subs.len > 10
 
+block realTablesInTheApp:
+  # typing in a table: Enter a paragraph more in the cell; cells picked across, merged; Cell
+  # Options on them (a fill, at the foot); a row put in; a Table Style and a Cell Style made and
+  # given from their panels
+  let d = newDoc(800, 600, 0xFFFFFFFF'u32)
+  addDoc(d)
+  run(2)
+  tblIns = (false, 3, 3, 1, 1)
+  insertTableNow()
+  let T = d.current
+  let tb = d.layerBox(T)
+  tool = tMove
+  moveKind = 0
+  pressOn(active, PhotoEvent(over: true, x: float(tb.x + 10), y: float(tb.y + 10), pressed: true, down: true,
+                             clicks: 2))
+  doAssert te.on and te.layer == T
+  # (the second row's first cell: after the first row's new line)
+  let rows = T.text.tableCells
+  te.caret = rows[1][0].a
+  te.anchor = te.caret
+  insertTyped("One")
+  key(KeyEnter)
+  run()
+  insertTyped("Two")
+  run()
+  doAssert "One Two" in T.text.plainText, "a paragraph more in the cell: " & T.text.plainText
+  # (from the second row's first cell to its second: picked, merged)
+  let r2 = T.text.tableCells
+  te.anchor = r2[1][0].a
+  te.caret = r2[1][1].b
+  runCommand("Merge Cells")
+  doAssert T.text.table.cellAt(1, 0).colSpan == 2, "merged"
+  runCommand("Cell Options...")
+  doAssert cellDlg.open
+  run(2)
+  cellDlg.f.fill = 0xFFFFE000'u32
+  cellDlg.f.vAlign = vjBottom
+  run(2)
+  doAssert T.text.table.cellAt(1, 0).fill == 0xFFFFE000'u32 and T.text.table.cellAt(1, 0).colSpan == 2,
+           "Cell Options: its fill, its merge kept"
+  cellDlg.open = false
+  let n0 = T.text.tableCells.len
+  runCommand("Insert Row Below")
+  doAssert T.text.tableCells.len == n0 + 1
+  commitType()
+  run(2)
+  # the style panels: a Table Style and a Cell Style made from it
+  d.cur = d.layers.find(T)
+  showPanel("tablestyles")
+  run(2)
+  tableStylesBody(false)
+  doAssert d.tableStyles.len == 0
+  d.setTableStyle("Mine", T.text.table)
+  d.applyTableStyle(T, "Mine")
+  doAssert T.text.table.styleName == "Mine" and T.text.table.cellAt(1, 0).colSpan == 2
+  togglePanel("tablestyles")
+  showPanel("cellstyles")
+  run(2)
+  togglePanel("cellstyles")
+  run(2)
+  d.modified = false                    # (closed without asking to save it)
+  active.win.open = false
+  run(3)
+
 block tabsPanel:
   # the Tabs panel: a click on its ruler puts a stop there (a right one, picked first), a drag
   # moves it, off the ruler takes it away -- each the text's own at once, one step a drag;
@@ -1206,6 +1270,7 @@ block tabsPanel:
   run(2)
   doAssert L.text.para.tabs.len == 0, "taken away"
   togglePanel("tabs")
+  d.modified = false
   active.win.open = false
   run(3)
 

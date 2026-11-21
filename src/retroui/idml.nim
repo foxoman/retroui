@@ -322,13 +322,20 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): s
     let rowH = max(1.0, base.size.float * k * 1.6)
     let lineW = (if tb.borderW > 0: tb.borderW.float else: 1.0) * k
     body.add csrOpen(o, base)
-    body.add "<Table Self=\"" & tid & "\" HeaderRowCount=\"" & $min(tb.headerRows, rows.len) & "\" FooterRowCount=\"0\" " &
-             "BodyRowCount=\"" & $(rows.len - min(tb.headerRows, rows.len)) & "\" ColumnCount=\"" & $ncol &
+    let hr = min(tb.headerRows, rows.len)
+    let fr = min(tb.footerRows, rows.len - hr)
+    body.add "<Table Self=\"" & tid & "\" HeaderRowCount=\"" & $hr & "\" FooterRowCount=\"" & $fr & "\" " &
+             "BodyRowCount=\"" & $(rows.len - hr - fr) & "\" ColumnCount=\"" & $ncol &
              "\" AppliedTableStyle=\"TableStyle/$ID/[Basic Table]\" TableDirection=\"" &
              (if rtl: "RightToLeftDirection" else: "LeftToRightDirection") & "\">\n"
     for r in 0 ..< rows.len:
-      body.add "<Row Self=\"" & tid & "Row" & $r & "\" Name=\"" & $r & "\" MinimumHeight=\"" & f(rowH) &
-               "\" AutoGrow=\"true\"/>\n"
+      # (its height: as tall as it needs from a least one, at least so tall, exactly so tall)
+      let rf = tb.rowFmtAt(r)
+      body.add "<Row Self=\"" & tid & "Row" & $r & "\" Name=\"" & $r & "\" " &
+               (case rf.kind
+                of rhExactly: "AutoGrow=\"false\" SingleRowHeight=\"" & f(max(1.0, rf.height.float * k)) & "\""
+                of rhAtLeast: "AutoGrow=\"true\" MinimumHeight=\"" & f(max(1.0, rf.height.float * k)) & "\""
+                of rhAuto: "AutoGrow=\"true\" MinimumHeight=\"" & f(rowH) & "\"") & "/>\n"
     for c in 0 ..< ncol:
       body.add "<Column Self=\"" & tid & "Column" & $c & "\" Name=\"" & $c & "\" SingleColumnWidth=\"" &
                f(w * widths[c] / sum) & "\"/>\n"
@@ -337,7 +344,18 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): s
       let fillC = if header: tb.headerFill
                   elif tb.altFill != 0 and (r - tb.headerRows) mod 2 == 1: tb.altFill
                   else: tb.fill
+      # (the cells merged into another: not written -- that one spans them)
+      var covered = newSeq[bool](ncol)
+      for r0 in 0 .. r:
+        for c0 in 0 ..< ncol:
+          let f0 = tb.cellAt(r0, c0)
+          if f0.rowSpan > 1 or f0.colSpan > 1:
+            if r < r0 + max(1, f0.rowSpan):
+              for cc in c0 ..< min(ncol, c0 + max(1, f0.colSpan)):
+                if r != r0 or cc != c0: covered[cc] = true
       for c in 0 ..< ncol:
+        if covered[c]: continue
+        let cf = tb.cellAt(r, c)
         let cell = if c < rows[r].len: rows[r][c] else: ("", 0)
         var st = t.styleAt(cell.at)
         if header and tb.headerColor != 0: st.color = tb.headerColor
@@ -349,15 +367,36 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): s
           let bottom = tb.inner or r == rows.high or tb.rowLines or (r == tb.headerRows - 1)
           let left = tb.inner or c == 0
           let right = tb.inner or c == ncol - 1
-          for (name, on) in [("Top", top), ("Bottom", bottom), ("Left", left), ("Right", right)]:
+          for (name, on, side) in [("Top", top, 0), ("Bottom", bottom, 2), ("Left", left, 3), ("Right", right, 1)]:
+            let own = cf.strokes[side]
+            if own.on: continue
             edges.add " " & name & "EdgeStrokeWeight=\"" & (if on: f(lineW) else: "0") & "\""
             if on: edges.add " " & name & "EdgeStrokeColor=\"" & o.colorRef(tb.border) & "\""
+        # (its own sides, inset, place up and down, turn)
+        for (name, side) in [("Top", 0), ("Bottom", 2), ("Left", 3), ("Right", 1)]:
+          let own = cf.strokes[side]
+          if not own.on: continue
+          edges.add " " & name & "EdgeStrokeWeight=\"" & f(own.width.float * k) & "\""
+          if own.width > 0 and own.color != 0: edges.add " " & name & "EdgeStrokeColor=\"" & o.colorRef(own.color) & "\""
+        if cf.inset != [0'f32, 0, 0, 0]:
+          for (name, side) in [("Top", 0), ("Right", 1), ("Bottom", 2), ("Left", 3)]:
+            edges.add " " & name & "Inset=\"" & f(cf.inset[side].float * k) & "\""
+        if cf.vAlign != vjTop: edges.add " VerticalJustification=\"" & VertJusts[cf.vAlign] & "\""
+        if cf.rotation != 0: edges.add " RotationAngle=\"" & $cf.rotation & "\""
+        let fill = if cf.fill != 0: cf.fill else: fillC
+        var content = ""
+        var first = true
+        for para in cell.text.split("\u2029"):
+          if not first: content.add "<Br/>\n"
+          first = false
+          content.add "<Content>" & x(para) & "</Content>\n"
         body.add "<Cell Self=\"" & tid & "i" & $r & "_" & $c & "\" Name=\"" & $c & ":" & $r &
-                 "\" RowSpan=\"1\" ColumnSpan=\"1\" AppliedCellStyle=\"CellStyle/$ID/[None]\"" &
-                 (if fillC != 0: " FillColor=\"" & o.colorRef(fillC) & "\"" else: "") & edges & ">\n" &
+                 "\" RowSpan=\"" & $max(1, cf.rowSpan) & "\" ColumnSpan=\"" & $max(1, cf.colSpan) &
+                 "\" AppliedCellStyle=\"CellStyle/$ID/[None]\"" &
+                 (if fill != 0: " FillColor=\"" & o.colorRef(fill) & "\"" else: "") & edges & ">\n" &
                  "<ParagraphStyleRange AppliedParagraphStyle=\"ParagraphStyle/$ID/NormalParagraphStyle\"" &
                  (if tb.numbersRight and looksNumeric(newText(cell.text)): " Justification=\"RightAlign\"" else: "") & ">\n" &
-                 csrOpen(o, st) & "<Content>" & x(cell.text) & "</Content>\n</CharacterStyleRange>\n" &
+                 csrOpen(o, st) & content & "</CharacterStyleRange>\n" &
                  "</ParagraphStyleRange>\n</Cell>\n"
     body.add "</Table>\n</CharacterStyleRange>\n"
   for sp in (if t.table.on: @[] else: t.spans):
@@ -1396,15 +1435,31 @@ proc readIdml*(file: string; dpi = 150.0): Book =
             try:
               ncol = max(1, parseInt(c.attr("ColumnCount")))
               nrow = parseInt(c.attr("HeaderRowCount")) + parseInt(c.attr("BodyRowCount"))
+              if c.attr("FooterRowCount").len > 0: nrow += parseInt(c.attr("FooterRowCount"))
             except ValueError: discard
             var grid = newSeq[seq[string]](max(0, min(nrow, 10_000)))
             for row in grid.mitems: row = newSeq[string](min(ncol, 1000))
             var ts = TableStyle(on: true)
             try: ts.headerRows = parseInt(c.attr("HeaderRowCount")) except ValueError: discard
+            try: ts.footerRows = clamp(parseInt(c.attr("FooterRowCount")), 0, 100) except ValueError: discard
+            # (each row's height: exactly so tall, or at least)
+            var ri = 0
+            for row0 in c.childrenNamed("Row"):
+              let row = row0
+              proc num(a: string): float = (try: parseFloat(row.attr(a)) except ValueError: 0.0)
+              var rf = TableRowFmt()
+              if row.attr("AutoGrow") == "false" and num("SingleRowHeight") > 0:
+                rf = TableRowFmt(kind: rhExactly, height: float32(num("SingleRowHeight") * k))
+              elif num("MinimumHeight") > 0:
+                rf = TableRowFmt(kind: rhAtLeast, height: float32(num("MinimumHeight") * k))
+              if ri < 10_000: ts.rowFmts.add rf
+              inc ri
             var widths: seq[float32]
             for col in c.childrenNamed("Column"):
               try: widths.add float32(parseFloat(col.attr("SingleColumnWidth"))) except ValueError: widths.add 1
             ts.widths = widths
+            var fills = newSeq[seq[tuple[seen: bool; c: uint32]]](grid.len)
+            for row in fills.mitems: row = newSeq[tuple[seen: bool; c: uint32]](ncol)
             for cell in c.childrenNamed("Cell"):
               let nm = cell.attr("Name").split(':')
               if nm.len != 2: continue
@@ -1414,16 +1469,66 @@ proc readIdml*(file: string; dpi = 150.0): Book =
                 rr = parseInt(nm[1])
               except ValueError: continue
               if rr < 0 or rr >= grid.len or cc < 0 or cc >= grid[rr].len: continue
+              # (its paragraphs apart: U+2029)
               var ct = ""
-              for e in cell.findAll("Content"): ct.add e.innerText
+              proc walk(n: XmlNode; acc: var string) =
+                for e in n:
+                  if e.kind != xnElement: continue
+                  if e.tag == "Content": acc.add e.innerText
+                  elif e.tag == "Br":
+                    if acc.len > 0: acc.add "\u2029"
+                  else: walk(e, acc)
+              walk(cell, ct)
+              while ct.endsWith("\u2029"): ct.setLen(ct.len - "\u2029".len)
               grid[rr][cc] = ct.replace("\t", " ").replace("\n", " ")
-              let fc = colorOf(cell.attr("FillColor"), 0)
-              if fc != 0:
-                if rr < ts.headerRows: ts.headerFill = fc
-                elif ts.fill == 0: ts.fill = fc
-                elif fc != ts.fill and ts.altFill == 0: ts.altFill = fc
+              # (its own look: fill, sides, merged, inset, place up and down, turn)
+              var cf = TableCell()
+              cf.fill = colorOf(cell.attr("FillColor"), 0)
+              fills[rr][cc] = (true, cf.fill)
+              cf.fill = 0
               let bc = colorOf(cell.attr("TopEdgeStrokeColor"), 0)
               if bc != 0 and ts.border == 0: ts.border = bc
+              let cellNode = cell
+              proc cnum(a: string): float = (try: parseFloat(cellNode.attr(a)) except ValueError: -1.0)
+              for (name, side) in [("Top", 0), ("Right", 1), ("Bottom", 2), ("Left", 3)]:
+                let w = cnum(name & "EdgeStrokeWeight")
+                if w >= 0:
+                  cf.strokes[side] = CellStroke(on: true, width: float32(w * k),
+                                                color: colorOf(cell.attr(name & "EdgeStrokeColor"), 0xFF000000'u32))
+                let ins = cnum(name & "Inset")
+                if ins >= 0: cf.inset[side] = float32(ins * k)
+              cf.rowSpan = max(1, int(cnum("RowSpan")))
+              cf.colSpan = max(1, int(cnum("ColumnSpan")))
+              cf.vAlign = case cell.attr("VerticalJustification")
+                          of "CenterAlign": vjCenter
+                          of "BottomAlign": vjBottom
+                          of "JustifyAlign": vjJustify
+                          else: vjTop
+              let rot = int(cnum("RotationAngle"))
+              cf.rotation = if rot in [90, 180, 270]: rot else: 0
+              if cf != TableCell(rowSpan: 1, colSpan: 1): ts.cellRef(rr, cc) = cf
+            # (the fills: a row's, when all its cells have it -- the header's, the body's and every
+            # other one's, as a theme has them --; a cell's own, else)
+            var common = newSeq[uint32](grid.len)
+            for r2, row in fills:
+              var f = 0'u32
+              var same = true
+              var any = false
+              for cell in row:
+                if not cell.seen: continue
+                if not any: (f, any) = (cell.c, true)
+                elif cell.c != f: same = false
+              common[r2] = if same: f else: 0'u32
+            let b0 = min(ts.headerRows, grid.len)
+            if ts.headerRows > 0 and grid.len > 0: ts.headerFill = common[0]
+            if b0 < grid.len: ts.fill = common[b0]
+            if b0 + 1 < grid.len and common[b0 + 1] != ts.fill: ts.altFill = common[b0 + 1]
+            for r2, row in fills:
+              let rowFill = if r2 < ts.headerRows: ts.headerFill
+                            elif ts.altFill != 0 and (r2 - ts.headerRows) mod 2 == 1: ts.altFill
+                            else: ts.fill
+              for c2, cell in row:
+                if cell.seen and cell.c != rowFill and cell.c != 0: ts.cellRef(r2, c2).fill = cell.c
             for i, row in grid:
               if i > 0: txt.add "\n"
               txt.add row.join("\t")

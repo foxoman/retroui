@@ -2242,7 +2242,10 @@ a range) and **Save Book as IDML**; an .idml opens as a book, and Save As writes
 Text Effects** has eight looks. Since 5.3 a page is set as the layout program sets it:
 **footnotes and endnotes**, a **table of contents** and an **index** (Layout; dots to their page
 numbers), **tab stops** (Window > Tabs: left, right, centre, on a decimal point, with leaders; mirrored
-for Arabic; Shift+Tab a Right Indent Tab), English
+for Arabic; Shift+Tab a Right Indent Tab), **tables with real cells** (Type > Table: cells merged,
+several paragraphs in one, each cell's fill, sides, inset, vertical place and turned text; rows at least
+or exactly so tall; header and footer rows repeated in each box a long table goes on into; Table and Cell
+Styles; right to left; in IDML), English
 **hyphenation**, objects **anchored to text**, **Edit > Find/Change** (words or GREP patterns, in
 a text, the page or the book) and the **Story Editor**, **Layout > Data Merge** (a design and a
 CSV: a page a row), and text frames as there: text that does not fit is overset, **Type > Text

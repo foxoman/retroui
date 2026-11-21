@@ -75,6 +75,25 @@
   follows it ends where the lines do. Kept in JSON, in Paragraph Styles,
   and in IDML (TabList, the program's own Right Indent Tab). A paragraph
   with tabs is broken a line at a time.
+- **Tables with real cells** (`retroui/textengine`): a table's cells merged
+  across and down (`TableCell.rowSpan`, `colSpan`; `mergeCells`,
+  `unmergeCells`), several paragraphs in a cell (U+2029 between them), a
+  cell's own fill, sides (`CellStroke`), inset, place up and down
+  (`vAlign`) and turned text (90, 180, 270: `LaidGlyph.angle`); each row
+  as tall as it needs, at least or exactly so tall (`TableRowFmt`,
+  `rhAtLeast`, `rhExactly`: what passes its foot cut off); footer rows
+  (`footerRows`); too long for its box, the rows that fit and the footer
+  under them, the rest on in the next box under the header again
+  (`tableRow0`, `tableHead`; `noRepeat` not), right to left from the right.
+  Rows and columns put in and taken out with their cells' looks
+  (`insertRow`, `deleteRow`, `insertColumn`, `deleteColumn`; `tableCells`,
+  `cellOfChar`). Table Styles and Cell Styles (`retroui/photo`:
+  `TableStyleDef`, `CellStyleDef`, `setTableStyle`, `applyTableStyle`,
+  `setCellStyle`, `applyCellStyle`; made again, the tables and cells that
+  have them follow), kept in the document. In IDML: merged cells, their
+  paragraphs, fills, sides, insets, Vertical Justification, rotation, the
+  rows' heights, the footer -- written and read. The tables of before are
+  these tables, their cells the table's look.
 - **Tables of contents and indexes with dot leaders** (`retroui/booklists`):
   `tocText` and `indexText` set each entry's page numbers at the box's far
   edge -- the left one, right to left -- at a right tab stop with dots
@@ -98,6 +117,14 @@
   its Text Wrap keeps text out of, outlined in light blue, and with the
   Text Wrap panel open the Move tool drags a side's handle to set its
   offset (round its shape, or with the four made the same, all of them).
+- **Retro Atelier**: tables with real cells -- Type > Table: Cell Options
+  (inset, Vertical Justification, rotation, fill, sides, the row's height),
+  Insert Row Above and Below, Insert Column Before and After, Delete Rows
+  and Columns, Merge Cells and Unmerge Cells, for the cells a selection
+  reaches while typing; Enter in a cell a paragraph more in it; the Table
+  Styles and Cell Styles panels (a click gives one; New, Redefine,
+  Delete); Table Options' footer rows and the header and footer again in
+  each box a table goes on into.
 - **Retro Atelier**: the Tabs panel (Window > Tabs; Type > Panels > Tabs):
   the paragraphs' stops on a ruler as wide as the column -- its zero at the
   right for Arabic --, a click putting one of the kind picked there, a drag

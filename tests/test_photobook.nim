@@ -1143,6 +1143,45 @@ block textWrapKept:
   doAssert objectStyleFromJson(j).wrapOpts == def.wrapOpts and objectStyleFromJson(parseJson($j)).useWrap
 
 
+block tableAndCellStyles:
+  # Table Styles and Cell Styles: given, made again (the tables and cells that have them follow),
+  # a table's cells' own looks and merges kept; in the document's file
+  let d = newDoc(600, 400, 0xFFFFFFFF'u32)
+  var t = newText("Item\tQty\nPaper\t12\nTotal\t12", style(14), 20, 20)
+  t.boxW = 400
+  t.table = tableTheme("Plain Grid")
+  t.table.cellRef(0, 0).colSpan = 2
+  let L = d.addTextLayer(t)
+  var look = tableTheme("Striped Blue")
+  look.headerRows = 1
+  d.setTableStyle("Striped", look)
+  d.applyTableStyle(L, "Striped")
+  doAssert L.text.table.styleName == "Striped" and L.text.table.altFill == look.altFill and
+           L.text.table.cellAt(0, 0).colSpan == 2, "its look, its merge kept"
+  d.setCellStyle("Total", TableCell(fill: 0xFFFFE000'u32, vAlign: vjBottom, inset: [4'f32, 4, 4, 4]))
+  d.applyCellStyle(L, 2, 0, 2, 1, "Total")
+  doAssert L.text.table.cellAt(2, 1).fill == 0xFFFFE000'u32 and L.text.table.cellAt(2, 0).style == "Total"
+  d.applyCellStyle(L, 0, 0, 0, 0, "Total")
+  doAssert L.text.table.cellAt(0, 0).colSpan == 2 and L.text.table.cellAt(0, 0).fill == 0xFFFFE000'u32,
+           "a merged cell stays merged"
+  # made again: those that have them follow
+  d.setCellStyle("Total", TableCell(fill: 0xFF00C000'u32))
+  doAssert L.text.table.cellAt(2, 1).fill == 0xFF00C000'u32 and L.text.table.cellAt(2, 1).vAlign == vjTop
+  look.border = 0xFFFF0000'u32
+  d.setTableStyle("Striped", look)
+  doAssert L.text.table.border == 0xFFFF0000'u32 and L.text.table.cellAt(0, 0).colSpan == 2
+  # kept in the file
+  let path = getTempDir() / "table-styles.rpd"
+  d.saveRpd(path)
+  let back = loadRpd(path)
+  removeFile(path)
+  doAssert back.tableStyles.len == 1 and back.tableStyles[0].look.border == 0xFFFF0000'u32 and
+           back.cellStyles.len == 1 and back.cellStyles[0].cell.fill == 0xFF00C000'u32
+  var K: Layer
+  for X in back.layers:
+    if X.isText: K = X
+  doAssert K.text.table.cellAt(0, 0).colSpan == 2 and K.text.table.cellAt(2, 1).style == "Total"
+
 block putInsideAFrame:
   # Put Inside: picked layers into a frame -- just over it, over what is in it already, clipped to
   # it, in their order; the frame, a group and the Background stay where they are

@@ -922,6 +922,18 @@ type
                                  ## pixel is to count, 0..255 (0: 24)
     inset*: float32              ## ... its outline drawn in by this many points (out: negative)
 
+  TableStyleDef* = object
+    ## A Table Style: a table's look -- its header and footer rows, fills, stripes, lines, room
+    ## in its cells -- kept by name in the document (not its cells' or rows' own, nor its columns).
+    name*: string
+    look*: TableStyle
+
+  CellStyleDef* = object
+    ## A Cell Style: a cell's look -- fill, sides, inset, place up and down, turn -- kept by name
+    ## (not the cells it is merged with).
+    name*: string
+    cell*: TableCell
+
   ObjectStyleDef* = object
     ## An Object Style: how a shape or a text frame looks, kept by name in the document and given
     ## to layers with a click (`applyObjectStyle`) -- each layer that has it changes when it is
@@ -1184,6 +1196,8 @@ type
     charStyles*: seq[TextStyleDef] ## its Character Styles
     paraStyles*: seq[TextStyleDef] ## its Paragraph Styles
     objectStyles*: seq[ObjectStyleDef] ## its Object Styles
+    tableStyles*: seq[TableStyleDef] ## its Table Styles
+    cellStyles*: seq[CellStyleDef]   ## its Cell Styles
     graphicStyles*: seq[GraphicStyleDef] ## its Graphic Styles
     bookmarks*: seq[DocBookmark]   ## its bookmarks (a PDF's outline)
     spotInks*: seq[SpotInk]        ## its spot colors (Swatches: New Spot Ink) -- an ink of their own
@@ -9068,6 +9082,112 @@ proc objectStyled(d: Doc; L: Layer; def: ObjectStyleDef) =
     L.wrapGap = 0
     d.rewrap()
 
+proc tableLookOf*(t: TableStyle): TableStyle =
+  ## A table's look as a Table Style keeps it: not its cells' or rows' own, nor its columns.
+  result = t
+  result.cells = @[]
+  result.rowFmts = @[]
+  result.widths = @[]
+  result.styleName = ""
+
+proc cellLookOf*(c: TableCell): TableCell =
+  ## A cell's look as a Cell Style keeps it: not what it is merged with, nor its style's name.
+  result = c
+  result.rowSpan = 0
+  result.colSpan = 0
+  result.style = ""
+
+proc setTableStyle*(d: Doc; name: string; look: TableStyle) =
+  ## Table Styles: style `name` made (or made again) with `look`; the tables that have it, so.
+  ## (Undoable in a step: `touchLayers`.)
+  var def = TableStyleDef(name: name, look: tableLookOf(look))
+  def.look.on = true
+  var at = -1
+  for i, st in d.tableStyles:
+    if st.name == name: at = i
+  if at >= 0: d.tableStyles[at] = def else: d.tableStyles.add def
+  for L in d.layers:
+    if L.isText and L.text.table.on and L.text.table.styleName == name:
+      var t = L.text
+      var look2 = def.look
+      look2.cells = t.table.cells
+      look2.rowFmts = t.table.rowFmts
+      look2.widths = t.table.widths
+      look2.styleName = name
+      t.table = look2
+      d.setText(L, t)
+
+proc applyTableStyle*(d: Doc; L: Layer; name: string) =
+  ## Table Styles: style `name` given to type layer `L`'s table -- its look; its cells' and rows'
+  ## own looks and its columns kept ("": none, the look stays). Undoable in a step (`touchLayers`).
+  if not L.isText: return
+  var t = L.text
+  if name.len == 0:
+    t.table.styleName = ""
+    d.setText(L, t)
+    return
+  for st in d.tableStyles:
+    if st.name != name: continue
+    var look = st.look
+    look.on = true
+    look.cells = t.table.cells
+    look.rowFmts = t.table.rowFmts
+    look.widths = t.table.widths
+    look.styleName = name
+    t.table = look
+    d.setText(L, t)
+    return
+
+proc setCellStyle*(d: Doc; name: string; cell: TableCell) =
+  ## Cell Styles: style `name` made (or made again) with `cell`'s look; the cells that have it, so.
+  ## (Undoable in a step: `touchLayers`.)
+  let def = CellStyleDef(name: name, cell: cellLookOf(cell))
+  var at = -1
+  for i, st in d.cellStyles:
+    if st.name == name: at = i
+  if at >= 0: d.cellStyles[at] = def else: d.cellStyles.add def
+  for L in d.layers:
+    if not L.isText or not L.text.table.on: continue
+    var t = L.text
+    var changed = false
+    for row in t.table.cells.mitems:
+      for c in row.mitems:
+        if c.style == name:
+          let (rs, cs) = (c.rowSpan, c.colSpan)
+          c = def.cell
+          c.rowSpan = rs
+          c.colSpan = cs
+          c.style = name
+          changed = true
+    if changed: d.setText(L, t)
+
+proc applyCellStyle*(d: Doc; L: Layer; r0, c0, r1, c1: int; name: string) =
+  ## Cell Styles: style `name` given to the cells of type layer `L`'s table from row `r0`, column
+  ## `c0` to `r1`, `c1` -- their look; what they are merged with kept ("": none, their looks stay).
+  ## Undoable in a step (`touchLayers`).
+  if not L.isText or not L.text.table.on: return
+  var def = CellStyleDef()
+  var found = name.len == 0
+  for st in d.cellStyles:
+    if st.name == name:
+      def = st
+      found = true
+  if not found: return
+  var t = L.text
+  for r in min(r0, r1) .. max(r0, r1):
+    for c in min(c0, c1) .. max(c0, c1):
+      var cref = t.table.cellRef(r, c)
+      if name.len == 0:
+        cref.style = ""
+      else:
+        let (rs, cs) = (cref.rowSpan, cref.colSpan)
+        cref = def.cell
+        cref.rowSpan = rs
+        cref.colSpan = cs
+        cref.style = name
+      t.table.cellRef(r, c) = cref
+  d.setText(L, t)
+
 proc applyObjectStyle*(d: Doc; L: Layer; name: string) =
   ## Object Styles: the style `name` given to layer `L` ("": [None], the layer keeps how it looks).
   ## Undoable in a step (`touchLayers`).
@@ -9528,6 +9648,14 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
     var a = newJArray()
     for st in d.objectStyles: a.add objectStyleToJson(st)
     j["objectStyles"] = a
+  if d.tableStyles.len > 0:
+    var a = newJArray()
+    for st in d.tableStyles: a.add %*{"name": st.name, "look": tableToJson(st.look)}
+    j["tableStyles"] = a
+  if d.cellStyles.len > 0:
+    var a = newJArray()
+    for st in d.cellStyles: a.add %*{"name": st.name, "cell": cellToJson(st.cell)}
+    j["cellStyles"] = a
   if d.graphicStyles.len > 0:
     var a = newJArray()
     for st in d.graphicStyles: a.add graphicStyleToJson(st)
@@ -9811,6 +9939,12 @@ proc loadRpd*(path: string): Doc =
                                        para: paraFrom(sj{"para"}))
   for sj in j{"objectStyles"}.getElems:
     if result.objectStyles.len < 10_000: result.objectStyles.add objectStyleFromJson(sj)
+  for sj in j{"tableStyles"}.getElems:
+    if result.tableStyles.len < 10_000:
+      result.tableStyles.add TableStyleDef(name: sj{"name"}.getStr, look: tableFrom(sj{"look"}))
+  for sj in j{"cellStyles"}.getElems:
+    if result.cellStyles.len < 10_000:
+      result.cellStyles.add CellStyleDef(name: sj{"name"}.getStr, cell: cellFrom(sj{"cell"}))
   for sj in j{"graphicStyles"}.getElems:
     if result.graphicStyles.len < 10_000: result.graphicStyles.add graphicStyleFromJson(sj)
   for sj in j{"spotInks"}.getElems:

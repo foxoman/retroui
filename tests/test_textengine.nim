@@ -774,6 +774,156 @@ block tables:
   one.table = tableTheme("")
   doAssert layoutText(one).glyphs.len == 1
 
+block realTables:
+  # cells merged across and down, several paragraphs in one, a cell's own fill, lines, inset,
+  # place up and down, turned text; rows at least or exactly so tall; a table too long for its box:
+  # the rows that fit, the footer under them, the rest on in the next box under the header again;
+  # right to left; kept with the text
+  let st = CharStyle(family: "", size: 16, color: 0xFF000000'u32, hScale: 1, vScale: 1)
+  var t = newText("A\tB\tC\nD\tE\tF\nG\tH\tI", st, 10, 10)
+  t.boxW = 300
+  t.boxH = 400
+  t.table = tableTheme("Plain Grid")
+  t.table.cellRef(0, 0).colSpan = 2
+  t.table.cellRef(0, 0).fill = 0xFFFF0000'u32
+  t.table.cellRef(1, 2).rowSpan = 2
+  proc glyphOf(l: TextLayout; i: int): int =
+    result = -1
+    for k, g in l.glyphs:
+      if g.index == i: return k
+  var l = layoutText(t)
+  doAssert l.glyphOf(2) < 0, "B, merged into A, not drawn"
+  doAssert l.glyphOf(16) < 0 and l.glyphOf(10) >= 0, "I, merged into F, not drawn"
+  var wide = false
+  for b in l.backs:
+    if b.color == 0xFFFF0000'u32 and abs(b.x0 - 10) < 0.5 and abs(b.x1 - 210) < 0.5: wide = true
+  doAssert wide, "A's fill over two columns"
+  # F as tall as two rows: its text at the top of them, the row line under E not across it
+  let fY = l.glyphs[l.glyphOf(10)].y
+  let eY = l.glyphs[l.glyphOf(8)].y
+  doAssert abs(fY - eY) < 0.5
+  # several paragraphs in a cell; a cell's own inset; at the foot of its row
+  var u = newText("One\u2029Two\tX\nY\tZ", st, 10, 10)
+  u.boxW = 300
+  u.boxH = 400
+  u.table = tableTheme("Plain Grid")
+  u.table.cellRef(0, 1).inset = [20'f32, 20, 20, 20]
+  u.table.cellRef(0, 1).vAlign = vjBottom
+  let ul = layoutText(u)
+  let gOne = ul.glyphs[ul.glyphOf(0)]
+  let gTwo = ul.glyphs[ul.glyphOf(4)]
+  doAssert gTwo.y > gOne.y + 10 and abs(gTwo.x - gOne.x) < 0.5, "two paragraphs, one under the other"
+  let gX = ul.glyphs[ul.glyphOf(8)]
+  doAssert gX.x >= 160 + 20 - 0.5, "its inset: " & $gX.x
+  doAssert gX.y > gOne.y + 5, "at the foot of its row: " & $gX.y & " " & $gOne.y
+  # rows: at least so tall, exactly so tall (what passes its foot not drawn)
+  var h = newText("a\tb\nc\td", st, 10, 10)
+  h.boxW = 300
+  h.boxH = 400
+  h.table = tableTheme("Plain Grid")
+  h.table.rowFmts = @[TableRowFmt(kind: rhAtLeast, height: 80)]
+  let hl = layoutText(h)
+  doAssert hl.glyphs[hl.glyphOf(4)].y > 10 + 80, "the second row under a row 80 tall"
+  var x = newText("a b c d e f g h i j k l m n o p q r s t u v w x y z a b c d e f g h\tq", st, 10, 10)
+  x.boxW = 200
+  x.boxH = 400
+  x.table = tableTheme("Plain Grid")
+  x.table.rowFmts = @[TableRowFmt(kind: rhExactly, height: 24)]
+  let xl = layoutText(x)
+  doAssert xl.y1 - 10 < 25 and xl.glyphs.len < 30, "exactly 24 tall, the rest cut: " & $xl.glyphs.len
+  # turned up: its glyphs turned, up the cell
+  var r = newText("Up\tside", st, 10, 10)
+  r.boxW = 300
+  r.boxH = 400
+  r.table = tableTheme("Plain Grid")
+  r.table.cellRef(0, 0).rotation = 90
+  let rl = layoutText(r)
+  let gU = rl.glyphs[rl.glyphOf(0)]
+  let gP = rl.glyphs[rl.glyphOf(1)]
+  doAssert gU.angle == 90 and gP.y < gU.y - 3 and abs(gP.x - gU.x) < 0.5, "up the cell: " & $gU & " " & $gP
+  # a cell's own line
+  var sk = newText("a\tb", st, 10, 10)
+  sk.boxW = 300
+  sk.table = tableTheme("Plain Grid")
+  sk.table.cellRef(0, 0).strokes[1] = CellStroke(on: true, width: 4, color: 0xFF00FF00'u32)
+  var green = false
+  for d in layoutText(sk).decorations:
+    if d.color == 0xFF00FF00'u32 and abs(d.x1 - d.x0 - 4) < 0.1 and abs((d.x0 + d.x1) / 2 - 160) < 0.5: green = true
+  doAssert green, "its right side, green and 4 wide"
+  # too long for its box: the rows that fit, the footer under them; the rest under the header again
+  var rows = "Name\tValue"
+  for k in 1 .. 30: rows.add "\nRow " & $k & "\t" & $(k * 10)
+  rows.add "\nTotal\t4650"
+  var lt = newText(rows, st, 10, 10)
+  lt.boxW = 300
+  lt.boxH = 260
+  lt.table = tableTheme("Plain Grid")
+  lt.table.headerRows = 1
+  lt.table.footerRows = 1
+  let ll = layoutText(lt)
+  doAssert ll.overflow > 0 and ll.y1 <= 10 + 260 + 0.5, "cut at a row, within the box: " & $ll.y1
+  var copies = 0
+  for g in ll.glyphs:
+    if g.index == -1: inc copies
+  doAssert copies >= 5, "the footer under the rows that fit"
+  let rest = lt.remainder(ll.overflow)
+  doAssert rest.tableRow0 > 1 and rest.tableHead.len > 0, $rest.tableRow0
+  var r2 = rest
+  r2.x = 10
+  r2.y = 300
+  let rl2 = layoutText(r2)
+  var top = 1e9'f32
+  var headSeen = false
+  for g in rl2.glyphs:
+    top = min(top, g.y)
+    if g.index == -1 and g.y < 300 + 30: headSeen = true
+  doAssert headSeen, "the header again at its top"
+  # right to left: a cell merged across, from the right
+  var ar = newText("البند\tالعدد\tالسعر\nورق\t١٢\t٣", st, 10, 10)
+  ar.boxW = 300
+  ar.table = tableTheme("Plain Grid")
+  ar.table.cellRef(0, 0).colSpan = 2
+  ar.table.cellRef(0, 0).fill = 0xFF0000FF'u32
+  var rightSpan = false
+  for b in layoutText(ar).backs:
+    if b.color == 0xFF0000FF'u32 and abs(b.x1 - 310) < 0.5 and abs(b.x0 - 110) < 0.5: rightSpan = true
+  doAssert rightSpan, "from the right, two columns"
+  # kept with the text
+  let back = textFrom(t.toJson)
+  doAssert back.table.cellAt(0, 0).colSpan == 2 and back.table.cellAt(1, 2).rowSpan == 2 and
+           back.table.cellAt(0, 0).fill == 0xFFFF0000'u32
+  let back2 = textFrom(lt.toJson)
+  doAssert back2.table.footerRows == 1
+  let back3 = textFrom(h.toJson)
+  doAssert back3.table.rowFmts == h.table.rowFmts
+
+block tableRowsColumnsMerging:
+  # rows and columns put in and taken out, the cells' own looks moving with them; cells merged
+  # (what they said gathered, a paragraph each) and apart
+  let st = CharStyle(family: "", size: 16, color: 0xFF000000'u32, hScale: 1, vScale: 1)
+  var t = newText("a\tb\nc\td", st, 10, 10)
+  t.boxW = 300
+  t.table = tableTheme("Plain Grid")
+  t.table.cellRef(1, 1).fill = 0xFF00FF00'u32
+  t.insertRow(1)
+  doAssert t.plainText == "a\tb\n\t\nc\td" and t.table.cellAt(2, 1).fill == 0xFF00FF00'u32, t.plainText
+  t.insertRow(3)
+  doAssert t.plainText == "a\tb\n\t\nc\td\n\t", t.plainText
+  t.deleteRow(3)
+  t.deleteRow(1)
+  doAssert t.plainText == "a\tb\nc\td" and t.table.cellAt(1, 1).fill == 0xFF00FF00'u32
+  t.insertColumn(1)
+  doAssert t.plainText == "a\t\tb\nc\t\td" and t.table.cellAt(1, 2).fill == 0xFF00FF00'u32, t.plainText
+  t.deleteColumn(1)
+  doAssert t.plainText == "a\tb\nc\td"
+  doAssert t.cellOfChar(4) == (1, 0) and t.cellOfChar(6) == (1, 1) and t.cellOfChar(3) == (0, 1)
+  t.mergeCells(0, 0, 1, 0)
+  doAssert t.plainText == "a\u2029c\tb\n\td" and t.table.cellAt(0, 0).rowSpan == 2, t.plainText
+  let l = layoutText(t)
+  doAssert l.glyphs.len == 4, "a, c in one cell; b, d"
+  t.unmergeCells(0, 0)
+  doAssert t.table.cellAt(0, 0).rowSpan <= 1
+
 block scriptFonts:
   # a font for the Arabic letters and one for the Latin: each run in its own, its size, raise,
   # color; the spaces and digits with the letters about them; kept with the text

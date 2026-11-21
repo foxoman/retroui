@@ -357,7 +357,9 @@ Cross-References; File > Place Linked and Package.
 
 **The layout program's ways** (5.3): Type > Insert Footnote and Insert
 Endnote; Layout > Table of Contents and Index; Window > Tabs (stops on a
-ruler, leaders, decimal tabs; Shift+Tab a Right Indent Tab); Paragraph > Hyphenate;
+ruler, leaders, decimal tabs; Shift+Tab a Right Indent Tab); Type > Table
+(Cell Options, rows and columns, Merge Cells; Table and Cell Styles; a
+long table's header again in the next box); Paragraph > Hyphenate;
 Layer > Anchor to Text; Edit > Find/Change (words or GREP patterns) and
 Type > Story Editor; Layout > Data Merge. Text that does not fit its box
 is overset; Type > Text Frame Options sizes a box to its text

@@ -429,6 +429,7 @@ proc typeKeys() =
     of KeyEsc: cancelType()
     of KeyEnter:
       if ctrl: commitType()
+      elif t.table.on: insertTyped("\u2029")       # (in a table: a paragraph more in the cell)
       else: insertTyped("\n")
     of KeyTab:
       # (Shift+Tab: a Right Indent Tab -- what follows at the lines' end, as the layout program's)
