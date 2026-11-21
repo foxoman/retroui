@@ -1,5 +1,37 @@
 # Changes
 
+## 0.68.0
+
+(In progress.)
+
+- **Tables edited as a layout program edits them** (`retroui/textengine`):
+  a table's columns and rows as laid out (`TextLayout.gridCols`,
+  `gridRows`, `gridRtl`), their edges found under the pointer
+  (`tableEdgeAt`) and dragged (`dragColumnEdge`: the columns either side
+  change, or with `grow` only the one before it and the box as much wider;
+  `dragRowEdge`: the row at least so tall); columns and rows made even
+  (`distributeColumns`, `distributeRows`); a cell split across or down
+  (`splitCell`: a merged cell parted, else a row or column put in and the
+  other cells merged over it, a column's width halved); the body sorted by
+  a column (`sortTable`: numbers by their value, words as a dictionary has
+  them -- Arabic with its marks passed over and its alefs as one --, empty
+  cells last, each row's cells' looks and height going with it); a row no
+  taller than so much, kept with the next row, started in the next box
+  (`TableRowFmt.maxHeight`, `keepNext`, `startNext`); the header left out
+  of the first box and the footer out of the last
+  (`TableStyle.skipFirstHeader`, `skipLastFooter`); `tableParts`; all kept
+  in the file and in IDML. A right-to-left table's column widths are its
+  columns' own now (they were taken from the other end).
+
+- **Retro Atelier**: a table's column edges and row feet dragged with the
+  Type tool (Shift: the table wider), the pointer showing where; Type >
+  Table: Insert Rows... and Insert Columns... (several at once, above or
+  below), Delete Table, Select (Cell, Row, Column, Table -- the cells lit as
+  cells), Split Cell Horizontally and Vertically, Distribute Rows Evenly and
+  Distribute Columns Evenly, Sort... (by a column, ascending or
+  descending); Table Options' Skip First and Skip Last; Cell Options > Rows:
+  Maximum, Start Row (In Next Frame), Keep with Next Row.
+
 ## 0.67.0
 
 The whole list in one release. The layout program's ways: Text Wrap as

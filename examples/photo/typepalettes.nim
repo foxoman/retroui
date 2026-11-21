@@ -1313,15 +1313,27 @@ proc typeMenu(d: Doc) =
     runCommand(if L.text.table.on: "Convert Table to Text" else: "Convert Text to Table")
   let isTable = isT and L.text.table.on
   submenu "Ta&ble":
-    for (cap, cmd) in [("Cell &Options...", "Cell Options..."), ("-", ""),
-                       ("Insert Row &Above", "Insert Row Above"), ("Insert Row &Below", "Insert Row Below"),
-                       ("Insert Column &Before", "Insert Column Before"),
-                       ("Insert Column A&fter", "Insert Column After"), ("&Delete Rows", "Delete Rows"),
-                       ("Delete &Columns", "Delete Columns"), ("-", ""), ("&Merge Cells", "Merge Cells"),
-                       ("&Unmerge Cells", "Unmerge Cells"), ("-", ""), ("&Table Styles", "Table Styles"),
-                       ("Ce&ll Styles", "Cell Styles")]:
-      if cap == "-": menuSeparator()
-      elif menuItem(cap, enabled = isTable or cmd in ["Table Styles", "Cell Styles"]): runCommand(cmd)
+    let typing = isTable and te.on and te.layer == L
+    proc items(list: openArray[(string, string)]) =
+      for (cap, cmd) in list:
+        if cap == "-": menuSeparator()
+        elif menuItem(cap, enabled = (if cmd.startsWith("Select "): typing
+                                      else: isTable or cmd in ["Table Styles", "Cell Styles"])): runCommand(cmd)
+    items([("Cell &Options...", "Cell Options..."), ("-", ""),
+           ("Insert Row &Above", "Insert Row Above"), ("Insert Row &Below", "Insert Row Below"),
+           ("Insert &Column Before", "Insert Column Before"), ("Insert Column A&fter", "Insert Column After"),
+           ("Insert Ro&ws...", "Insert Rows..."), ("Insert Colum&ns...", "Insert Columns..."),
+           ("&Delete Rows", "Delete Rows"), ("Delete Co&lumns", "Delete Columns"),
+           ("Delete &Table", "Delete Table"), ("-", "")])
+    submenu "S&elect":
+      items([("&Cell", "Select Cell"), ("&Row", "Select Row"), ("C&olumn", "Select Column"),
+             ("&Table", "Select Table")])
+    items([("-", ""), ("&Merge Cells", "Merge Cells"), ("&Unmerge Cells", "Unmerge Cells"),
+           ("Split Cell &Horizontally", "Split Cell Horizontally"),
+           ("Split Cell &Vertically", "Split Cell Vertically"), ("-", ""),
+           ("D&istribute Rows Evenly", "Distribute Rows Evenly"),
+           ("Distribute Columns Evenl&y", "Distribute Columns Evenly"), ("So&rt...", "Sort..."), ("-", ""),
+           ("Table &Styles", "Table Styles"), ("Cell Style&s", "Cell Styles")])
   menuSeparator()
   if menuItem("Rasterize Type", enabled = isT):
     if te.on: commitType()

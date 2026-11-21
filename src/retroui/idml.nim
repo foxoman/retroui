@@ -327,7 +327,9 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): s
     body.add "<Table Self=\"" & tid & "\" HeaderRowCount=\"" & $hr & "\" FooterRowCount=\"" & $fr & "\" " &
              "BodyRowCount=\"" & $(rows.len - hr - fr) & "\" ColumnCount=\"" & $ncol &
              "\" AppliedTableStyle=\"TableStyle/$ID/[Basic Table]\" TableDirection=\"" &
-             (if rtl: "RightToLeftDirection" else: "LeftToRightDirection") & "\">\n"
+             (if rtl: "RightToLeftDirection" else: "LeftToRightDirection") & "\"" &
+             (if tb.skipFirstHeader: " SkipFirstHeader=\"true\"" else: "") &
+             (if tb.skipLastFooter: " SkipLastFooter=\"true\"" else: "") & ">\n"
     for r in 0 ..< rows.len:
       # (its height: as tall as it needs from a least one, at least so tall, exactly so tall)
       let rf = tb.rowFmtAt(r)
@@ -335,7 +337,11 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): s
                (case rf.kind
                 of rhExactly: "AutoGrow=\"false\" SingleRowHeight=\"" & f(max(1.0, rf.height.float * k)) & "\""
                 of rhAtLeast: "AutoGrow=\"true\" MinimumHeight=\"" & f(max(1.0, rf.height.float * k)) & "\""
-                of rhAuto: "AutoGrow=\"true\" MinimumHeight=\"" & f(rowH) & "\"") & "/>\n"
+                of rhAuto: "AutoGrow=\"true\" MinimumHeight=\"" & f(rowH) & "\"") &
+               (if rf.maxHeight > 0 and rf.kind != rhExactly: " MaximumHeight=\"" & f(rf.maxHeight.float * k) & "\""
+                else: "") &
+               (if rf.keepNext: " KeepWithNextRow=\"true\"" else: "") &
+               (if rf.startNext: " StartRow=\"NextFrame\"" else: "") & "/>\n"
     for c in 0 ..< ncol:
       body.add "<Column Self=\"" & tid & "Column" & $c & "\" Name=\"" & $c & "\" SingleColumnWidth=\"" &
                f(w * widths[c] / sum) & "\"/>\n"
@@ -1442,6 +1448,8 @@ proc readIdml*(file: string; dpi = 150.0): Book =
             var ts = TableStyle(on: true)
             try: ts.headerRows = parseInt(c.attr("HeaderRowCount")) except ValueError: discard
             try: ts.footerRows = clamp(parseInt(c.attr("FooterRowCount")), 0, 100) except ValueError: discard
+            ts.skipFirstHeader = c.attr("SkipFirstHeader") == "true"
+            ts.skipLastFooter = c.attr("SkipLastFooter") == "true"
             # (each row's height: exactly so tall, or at least)
             var ri = 0
             for row0 in c.childrenNamed("Row"):
@@ -1452,6 +1460,11 @@ proc readIdml*(file: string; dpi = 150.0): Book =
                 rf = TableRowFmt(kind: rhExactly, height: float32(num("SingleRowHeight") * k))
               elif num("MinimumHeight") > 0:
                 rf = TableRowFmt(kind: rhAtLeast, height: float32(num("MinimumHeight") * k))
+              # (its most height, kept with the next row, started in the next frame -- or column, page)
+              if rf.kind != rhExactly and num("MaximumHeight") > 0:
+                rf.maxHeight = float32(num("MaximumHeight") * k)
+              rf.keepNext = row.attr("KeepWithNextRow") == "true"
+              rf.startNext = row.attr("StartRow") notin ["", "Anywhere"]
               if ri < 10_000: ts.rowFmts.add rf
               inc ri
             var widths: seq[float32]

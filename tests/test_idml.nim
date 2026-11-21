@@ -158,7 +158,9 @@ block tables:
   u.table.cellRef(2, 1).inset = [6'f32, 6, 6, 6]
   u.table.cellRef(2, 1).vAlign = vjBottom
   u.table.cellRef(2, 2).rotation = 90
-  u.table.rowFmts = @[TableRowFmt(), TableRowFmt(kind: rhExactly, height: 40), TableRowFmt(kind: rhAtLeast, height: 50)]
+  u.table.rowFmts = @[TableRowFmt(), TableRowFmt(kind: rhExactly, height: 40, startNext: true),
+                      TableRowFmt(kind: rhAtLeast, height: 50, maxHeight: 80, keepNext: true)]
+  u.table.skipLastFooter = true
   let d2 = newDoc(600, 400, 0xFFFFFFFF'u32, dpi = 72)
   discard d2.addTextLayer(u)
   d2.saveDocIdml(dir / "tb2.idml")
@@ -167,6 +169,8 @@ block tables:
   doAssert "FooterRowCount=\"1\"" in all2 and "ColumnSpan=\"2\"" in all2 and "RotationAngle=\"90\"" in all2 and
            "VerticalJustification=\"BottomAlign\"" in all2 and "SingleRowHeight=\"40\"" in all2 and
            "<Br/>" in all2 and "Name=\"2:0\"" notin all2, "the program's own: merged cells not written"
+  doAssert "MaximumHeight=\"80\"" in all2 and "KeepWithNextRow=\"true\"" in all2 and
+           "StartRow=\"NextFrame\"" in all2 and "SkipLastFooter=\"true\"" in all2, "rows' keep options"
   let r2 = readIdml(dir / "tb2.idml", dpi = 72)
   var ok2 = false
   for L in r2.doc(0).layers:
@@ -178,6 +182,8 @@ block tables:
                tb.cellAt(2, 2).rotation == 90, "its cells"
       doAssert tb.rowFmtAt(1).kind == rhExactly and abs(tb.rowFmtAt(1).height - 40) < 0.01 and
                tb.rowFmtAt(2).kind == rhAtLeast and abs(tb.rowFmtAt(2).height - 50) < 0.01, "its rows"
+      doAssert tb.rowFmtAt(1).startNext and tb.rowFmtAt(2).keepNext and abs(tb.rowFmtAt(2).maxHeight - 80) < 0.01 and
+               tb.skipLastFooter and not tb.skipFirstHeader, "its rows' keep options"
       ok2 = true
   doAssert ok2
   r2.close()

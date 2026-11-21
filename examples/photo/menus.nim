@@ -424,7 +424,10 @@ proc doCommand(name: string) =
     return
   if te.on and name in ["Cell Options...", "Insert Row Above", "Insert Row Below", "Insert Column Before",
                         "Insert Column After", "Delete Rows", "Delete Columns", "Merge Cells", "Unmerge Cells",
-                        "Table Styles", "Cell Styles", "Table Options..."]:
+                        "Table Styles", "Cell Styles", "Table Options...", "Select Cell", "Select Row",
+                        "Select Column", "Select Table", "Split Cell Horizontally", "Split Cell Vertically",
+                        "Distribute Rows Evenly", "Distribute Columns Evenly", "Insert Rows...",
+                        "Insert Columns...", "Sort..."]:
     discard tableCommand(name)             # (the cells the selection reaches: the text stays as it is typed)
     return
   if te.on: commitType()                   # (and the text being typed)
@@ -976,7 +979,9 @@ proc doCommand(name: string) =
   of "Convert to Shape", "Create Outlines": convertTypeToShape()
   of "Insert Table...", "Table Options...", "Convert Text to Table", "Convert Table to Text", "Cell Options...",
      "Insert Row Above", "Insert Row Below", "Insert Column Before", "Insert Column After", "Delete Rows",
-     "Delete Columns", "Merge Cells", "Unmerge Cells", "Table Styles", "Cell Styles":
+     "Delete Columns", "Merge Cells", "Unmerge Cells", "Table Styles", "Cell Styles", "Select Cell", "Select Row",
+     "Select Column", "Select Table", "Split Cell Horizontally", "Split Cell Vertically", "Distribute Rows Evenly",
+     "Distribute Columns Evenly", "Insert Rows...", "Insert Columns...", "Sort...", "Delete Table":
     discard tableCommand(name)
   of "More Shapes...": startMoreShapes()
   of "Footnotes...": discard notesCommand(name)

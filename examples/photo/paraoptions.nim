@@ -387,7 +387,7 @@ proc styleOptionsDialog() =
       label "Style Name:"
       edit(psoDlg.name)
     discard tabStrip([tr("General"), tr("Keep Options"), tr("Justification"), tr("Drop Caps and Nested Styles"),
-              tr("GREP Style"), tr("Tabs")], psoDlg.page)
+              tr("GREP Style"), tr("Tabs")], psoDlg.page, closable = false, addButton = false)
     case psoDlg.page
     of 0:
       row([110, -1]):

@@ -100,7 +100,10 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   Check Document are the kit's: `retroui/textengine` (`TableStyle`,
   `tableTheme`, `ScriptFont`, `scriptFontsApplied` -- anything that reads
   runs of one font, as the PSD writer and IDML do, takes the text through
-  it), `retroui/infographics` (`chartSvg`, `mapSvg`: SVG placed with
+  it; a table's widths are its columns' own, in their order, right to left
+  too, and its edges as drawn are `TextLayout.gridCols` and `gridRows` --
+  an app finds and drags them with `tableEdgeAt`, `dragColumnEdge` and
+  `dragRowEdge`, not its own sums), `retroui/infographics` (`chartSvg`, `mapSvg`: SVG placed with
   `placeSvg`, so a chart is shapes and type), `retroui/liveshapes`,
   `retroui/idml`, `retroui/preflight`. What an app keeps with a layer
   (a chart's or a live shape's settings, as JSON) goes in `Layer.meta`,

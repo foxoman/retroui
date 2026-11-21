@@ -1,10 +1,13 @@
 # (included by photo.nim) Tables: Type > Insert Table (rows, columns, a
 # theme: a text box whose paragraphs are rows and tabs cells), Type >
-# Table Options (its theme from a gallery, its header and footer, fills,
-# stripes, lines, padding, the columns' widths), Cell Options (inset, place
-# up and down, turn, fill, sides, the row's height), rows and columns put in
-# and taken out, cells merged and apart, Table and Cell Styles, Convert Text
-# to Table and back. The table is the type engine's (`TextData.table`,
+# Table Options (its theme from a gallery, its header and footer -- skipped in
+# the first or last box --, fills, stripes, lines, padding, the columns' widths),
+# Cell Options (inset, place up and down, turn, fill, sides, the row's height
+# and its most, kept with the next row, started in the next box), rows and
+# columns put in -- several at once -- and taken out, the table deleted, cells
+# merged, apart and split, rows and columns made even, cells, rows, columns or
+# the table selected, the body sorted by a column, the edges dragged with the
+# Type tool (typetool), Table and Cell Styles, Convert Text to Table and back. The table is the type engine's (`TextData.table`,
 # `tableTheme`, `TableCell`, `mergeCells`...).
 
 var
@@ -14,6 +17,9 @@ var
   tblWidths = ""
   cellDlg: tuple[open: bool; page: int; f: TableCell; row: TableRowFmt; sides: array[4, bool]; strokeW: float;
                  strokeC: uint32; applied: string]
+  tblMore: tuple[open: bool; rows: bool; n: int; after: bool] = (false, true, 1, true)
+    ## Insert Rows... and Insert Columns...: how many, and where
+  tblSort: tuple[open: bool; col: int; desc: bool]    ## Sort...
 
 proc tablePicture(theme: string): Bitmap =
   ## (a small table in a theme, for the gallery)
@@ -119,10 +125,73 @@ proc startCellOptions() =
   cellDlg.applied = $(cellDlg.f, cellDlg.row)
   cellDlg.open = true
 
+proc selectCells(L: Layer; r0, c0, r1, c1: int) =
+  ## (the cells from row `r0`, column `c0` to `r1`, `c1` selected while typing in the table)
+  let rows = L.text.tableCells
+  let ra = clamp(r0, 0, rows.high)
+  let rb = clamp(r1, 0, rows.high)
+  te.anchor = rows[ra][clamp(c0, 0, rows[ra].high)].a
+  te.caret = rows[rb][clamp(c1, 0, rows[rb].high)].b
+  te.blink = ui.now
+  inc te.dw.doc.ver
+
 proc tableCommand(name: string): bool =
   ## (the Type menu's table commands; true: done here)
   result = true
   case name
+  of "Select Cell", "Select Row", "Select Column", "Select Table":
+    let L = tableTarget()
+    if L == nil or not te.on or te.layer != L:
+      status = tr(name) & tr(": type in a table first.")
+      return
+    let (r, c) = L.text.cellOfChar(te.caret)
+    let rows = L.text.tableCells
+    var nc = 1
+    for row in rows: nc = max(nc, row.len)
+    case name
+    of "Select Cell": selectCells(L, r, c, r, c)
+    of "Select Row": selectCells(L, r, 0, r, rows[r].high)
+    of "Select Column": selectCells(L, 0, c, rows.high, c)
+    else:
+      te.anchor = 0
+      te.caret = L.text.runeLen
+  of "Split Cell Horizontally", "Split Cell Vertically", "Distribute Rows Evenly", "Distribute Columns Evenly":
+    let L = tableTarget()
+    if L == nil:
+      status = tr(name) & tr(": pick a table, or type in one.")
+      return
+    let p = pickedCells(L)
+    let nm = name
+    tableEdit(name, proc (t: var TextData) =
+      case nm
+      of "Split Cell Horizontally": t.splitCell(p.r0, p.c0, across = true)
+      of "Split Cell Vertically": t.splitCell(p.r0, p.c0, across = false)
+      of "Distribute Rows Evenly": t.distributeRows(p.r0, p.r1)
+      else: t.distributeColumns(p.c0, p.c1))
+    if nm.startsWith("Distribute") and (if nm.endsWith("Rows Evenly"): p.r0 == p.r1 else: p.c0 == p.c1):
+      status = tr(name) & tr(": select the cells of two rows or columns at least (or none: the whole table).")
+  of "Insert Rows...", "Insert Columns...":
+    if tableTarget() == nil:
+      status = tr(name) & tr(": pick a table, or type in one.")
+      return
+    tblMore.rows = name == "Insert Rows..."
+    tblMore.open = true
+  of "Sort...":
+    if tableTarget() == nil:
+      status = tr("Sort: pick a table, or type in one.")
+      return
+    tblSort.col = pickedCells(tableTarget()).c0
+    tblSort.open = true
+  of "Delete Table":
+    let L = tableTarget()
+    if L == nil:
+      status = tr("Delete Table: pick a table, or type in one.")
+      return
+    if te.on: commitType()
+    let d = cur()
+    if d.layers.len > 1 and L in d.layers:
+      d.cur = d.layers.find(L)
+      d.layersChange("Delete Table"): d.deleteLayer()
   of "Insert Row Above", "Insert Row Below", "Insert Column Before", "Insert Column After", "Delete Rows",
      "Delete Columns", "Merge Cells", "Unmerge Cells":
     let L = tableTarget()
@@ -166,7 +235,65 @@ proc tableCommand(name: string): bool =
     if L != nil: applyText("Convert Table to Text", proc (t: var TextData) = t.table = TableStyle())
   else: result = false
 
+proc tableMoreDialogs() =
+  ## (Insert Rows... / Insert Columns..., Sort...)
+  if tblMore.open:
+    var ok = false
+    dialog(tblMore.open, if tblMore.rows: "Insert Rows" else: "Insert Columns", 360):
+      row([90, -1]):
+        label "Number:"
+        discard spin(tblMore.n, 1, 200, w = dp(70))
+      row:
+        var k = ord(tblMore.after)
+        if radio(if tblMore.rows: "Above" else: "Before", k, 0): tblMore.after = false
+        if radio(if tblMore.rows: "Below" else: "After", k, 1): tblMore.after = true
+      row:
+        spring()
+        if button("OK", isDefault = true, w = dp(80)): ok = true
+        if button("Cancel", w = dp(80)): tblMore.open = false
+    if ok:
+      tblMore.open = false
+      let L = tableTarget()
+      if L != nil:
+        let p = pickedCells(L)
+        let m = tblMore
+        tableEdit(if m.rows: "Insert Rows" else: "Insert Columns", proc (t: var TextData) =
+          for k in 1 .. m.n:
+            if m.rows: t.insertRow(if m.after: p.r1 + 1 else: p.r0)
+            else: t.insertColumn(if m.after: p.c1 + 1 else: p.c0))
+  if tblSort.open:
+    let L = tableTarget()
+    if L == nil:
+      tblSort.open = false
+      return
+    var ok = false
+    dialog(tblSort.open, "Sort", 380):
+      let rows = L.text.tableCells
+      var names: seq[string]
+      for c in 0 ..< (if rows.len > 0: rows[0].len else: 1):
+        let head = if L.text.table.headerRows > 0: L.text.textSlice(rows[0][c].a, rows[0][c].b).strip else: ""
+        names.add tr("Column ") & $(c + 1) & (if head.len > 0: " (" & head & ")" else: "")
+      row([90, -1]):
+        label "Sort by:"
+        discard combo(names, tblSort.col, w = dp(220))
+      row:
+        var k = ord(tblSort.desc)
+        if radio("Ascending", k, 0): tblSort.desc = false
+        if radio("Descending", k, 1): tblSort.desc = true
+      label("The rows between the header and the footer; numbers by their value.", color = ui.theme.gray)
+      row:
+        spring()
+        if button("OK", isDefault = true, w = dp(80)): ok = true
+        if button("Cancel", w = dp(80)): tblSort.open = false
+    if ok:
+      tblSort.open = false
+      var done = false
+      let (col, desc) = (tblSort.col, tblSort.desc)
+      tableEdit("Sort", proc (t: var TextData) = done = t.sortTable(col, desc))
+      if not done: status = tr("Sort: cells merged across rows of the body, or fewer than two rows to sort.")
+
 proc tableDialogs() =
+  tableMoreDialogs()
   if tblIns.open:
     var ok = false
     dialog(tblIns.open, "Insert Table", 560):
@@ -204,9 +331,11 @@ proc tableDialogs() =
         adaptive(130):
           for th in tableThemes:
             if tblCard("o" & th, th, tablePicture(th), ts.theme == th):
-              let keep = (ts.headerRows, ts.widths, ts.footerRows, ts.noRepeat, ts.cells, ts.rowFmts)
+              let keep = (ts.headerRows, ts.widths, ts.footerRows, ts.noRepeat, ts.cells, ts.rowFmts,
+                          ts.skipFirstHeader, ts.skipLastFooter)
               ts = tableTheme(th)
-              (ts.headerRows, ts.widths, ts.footerRows, ts.noRepeat, ts.cells, ts.rowFmts) = keep
+              (ts.headerRows, ts.widths, ts.footerRows, ts.noRepeat, ts.cells, ts.rowFmts, ts.skipFirstHeader,
+               ts.skipLastFooter) = keep
         group("Header and rows"):
           row:
             label "Header rows:"
@@ -218,6 +347,9 @@ proc tableDialogs() =
             var again = not ts.noRepeat
             if checkbox("Header and footer again in each box it goes on into", again): ts.noRepeat = not again
             checkbox("Numbers at the right", ts.numbersRight)
+          row:
+            checkbox("Skip First (no header in its first box)", ts.skipFirstHeader, enabled = ts.headerRows > 0)
+            checkbox("Skip Last (no footer in its last box)", ts.skipLastFooter, enabled = ts.footerRows > 0)
           template wellRow(lab: string; field: untyped; key: string) {.redefine.} =
             row([150, -1]):
               var on = ts.field != 0
@@ -294,7 +426,8 @@ proc tableDialogs() =
     dialog(cellDlg.open, "Cell Options", 520):
       label(tr("Cells: rows ") & $(p.r0 + 1) & "-" & $(p.r1 + 1) & tr(", columns ") & $(p.c0 + 1) & "-" & $(p.c1 + 1),
             color = ui.theme.gray)
-      discard tabStrip([tr("Text"), tr("Strokes and Fills"), tr("Rows")], cellDlg.page)
+      discard tabStrip([tr("Text"), tr("Strokes and Fills"), tr("Rows")], cellDlg.page, closable = false,
+                       addButton = false)
       case cellDlg.page
       of 0:
         group("Cell Insets"):
@@ -367,7 +500,18 @@ proc tableDialogs() =
             label ""
             discard d.lengthField(cellDlg.row.height, dp(70), 1, 20000)
             label unitShort()
-        label("Exactly: what does not fit in the row is cut off.", color = ui.theme.gray)
+        if cellDlg.row.kind != rhExactly:
+          row([150, 80, -1]):
+            label "Maximum:"
+            discard d.lengthField(cellDlg.row.maxHeight, dp(70), 0, 20000)
+            label(tr(unitShort()) & tr(" (0: none)"))
+        label("Exactly, or past the maximum: what does not fit in the row is cut off.", color = ui.theme.gray)
+        group("Keep Options"):
+          row([150, -1]):
+            label "Start Row:"
+            var sk = ord(cellDlg.row.startNext)
+            if combo([tr("Anywhere"), tr("In Next Frame")], sk, w = dp(140)): cellDlg.row.startNext = sk == 1
+          checkbox("Keep with Next Row", cellDlg.row.keepNext)
       if $(cellDlg.f, cellDlg.row) != cellDlg.applied:
         # (applied at once to every cell picked: their merges kept)
         cellDlg.applied = $(cellDlg.f, cellDlg.row)

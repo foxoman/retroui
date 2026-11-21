@@ -720,7 +720,10 @@ app "Notes", 420, 300:
   subject, U-2-Net), `readText` (the lines of text and where they are,
   PaddleOCR's detector and readers, Arabic too). The store downloads them
   as it does the language models; `tools/netcheck.py` and `netcheck.nim`
-  compare any model with onnxruntime.
+  compare any model with onnxruntime. Their big matrix products go to the
+  GPU (`retroui/gpucompute`) where there is a real one and a product timed
+  both ways found it quicker -- `setNetGpu`, or `RETRO_NET_GPU` at the
+  start: 1 any GPU, a software one too, -1 the CPU only.
 - **Graphs that lay themselves out** (`retroui/forcegraph`):
   `graphView(g, h, sel)` shows a `ForceGraph` -- nodes that push each
   other away, links that pull -- moving until it settles, its nodes
@@ -2419,6 +2422,8 @@ import retroui/[photo, photoshapes, photobook, textengine, infographics, livesha
 var t = newText("Name\tQ1\tQ2\nNorth\t120\t140\nSouth\t90\t95", defaultStyle(), 40, 40)
 t.boxW = 500; t.boxH = 200
 t.table = tableTheme("Striped Blue")                               # a table: rows, tabs between cells
+discard t.sortTable(1, descending = true)                          # its body by the second column
+t.splitCell(0, 0, across = false)                                  # a cell split in two, side by side
 t.spans[0].style.arabicFont = ScriptFont(family: "Amiri", scale: 1.1)   # Arabic in a font of its own
 discard d.addTextLayer(t)
 let (labels, series) = chartData("Name,Q1,Q2\nNorth,120,140\nSouth,90,95")

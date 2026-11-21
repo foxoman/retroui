@@ -924,6 +924,151 @@ block tableRowsColumnsMerging:
   t.unmergeCells(0, 0)
   doAssert t.table.cellAt(0, 0).rowSpan <= 1
 
+block tableEditing:
+  # the grid as laid (for its edges dragged), right to left too; columns and rows made even; a
+  # cell split across and down, merged cells parted; the body sorted by a column; a row no
+  # taller than so much; rows kept with the next, started in the next box; header and footer
+  # skipped in the first and last box; kept with the text
+  let st = CharStyle(family: "", size: 16, color: 0xFF000000'u32, hScale: 1, vScale: 1)
+  proc glyphOf(l: TextLayout; i: int): int =
+    result = -1
+    for k, g in l.glyphs:
+      if g.index == i: return k
+  var t = newText("a\tb\tc\nd\te\tf", st, 10, 10)
+  t.boxW = 300
+  t.table = tableTheme("Plain Grid")
+  var l = layoutText(t)
+  doAssert l.gridCols.len == 4 and abs(l.gridCols[1] - 110) < 0.5 and abs(l.gridCols[3] - 310) < 0.5, $l.gridCols
+  doAssert l.gridRows.len == 2 and l.gridRows[1].row == 1 and abs(l.gridRows[0].y1 - l.gridRows[1].y0) < 0.01
+  # (right to left: the first column at the right, its own width)
+  var ar = newText("البند\tالعدد\tالسعر", st, 10, 10)
+  ar.boxW = 300
+  ar.table = tableTheme("Plain Grid")
+  ar.table.widths = @[2'f32, 1, 1]
+  let al = layoutText(ar)
+  doAssert al.gridRtl and abs(al.gridCols[1] - 85) < 0.5 and abs(al.gridCols[2] - 160) < 0.5, $al.gridCols
+  doAssert al.glyphs[al.glyphOf(0)].x > 160, "the first, wide column at the right"
+  # (the edges found under the pointer and dragged)
+  doAssert l.tableEdgeAt(111, 20, 3) == (1, 1) and l.tableEdgeAt(60, 20, 3).kind == 0
+  doAssert l.tableEdgeAt(60, l.gridRows[0].y1 + 1, 3) == (2, 0)
+  var dg = t
+  dg.dragColumnEdge(l, 1, 40)
+  let dl = layoutText(dg)
+  doAssert abs(dl.gridCols[1] - 150) < 0.5 and abs(dl.gridCols[2] - 210) < 0.5 and abs(dl.gridCols[3] - 310) < 0.5,
+           "the two beside it: " & $dl.gridCols
+  var gw = t
+  gw.dragColumnEdge(l, 1, 40, grow = true)
+  let gl = layoutText(gw)
+  doAssert abs(gw.boxW - 340) < 0.01 and abs(gl.gridCols[2] - 250) < 0.5 and abs(gl.gridCols[3] - 350) < 0.5,
+           "the table wider: " & $gl.gridCols
+  var ad = ar
+  ad.dragColumnEdge(al, 2, 30)                 # (right to left: the first column, at the right, narrower)
+  doAssert ad.tableParts == @[120'f32, 105, 75] and abs(layoutText(ad).gridCols[2] - 190) < 0.5, $ad.tableParts
+  var rh = t
+  rh.dragRowEdge(l, 0, 30)
+  let rl = layoutText(rh)
+  doAssert rh.table.rowFmts[0].kind == rhAtLeast and
+           abs((rl.gridRows[0].y1 - rl.gridRows[0].y0) - (l.gridRows[0].y1 - l.gridRows[0].y0) - 30) < 0.5
+  t.table.widths = @[3'f32, 1, 1]
+  t.distributeColumns(0, 2)
+  doAssert t.tableParts == @[5'f32 / 3, 5'f32 / 3, 5'f32 / 3], $t.tableParts
+  t.table.widths = @[]
+  t.table.rowFmts = @[TableRowFmt(kind: rhAtLeast, height: 80)]
+  let tall = layoutText(t).gridRows
+  t.distributeRows(0, 1)
+  let even = layoutText(t).gridRows
+  doAssert abs((even[0].y1 - even[0].y0) - (even[1].y1 - even[1].y0)) < 0.5 and
+           abs((even[1].y1 - even[0].y0) - (tall[1].y1 - tall[0].y0)) < 0.5, $even
+  # split
+  var sp = newText("a\tb\nc\td", st, 10, 10)
+  sp.boxW = 300
+  sp.table = tableTheme("Plain Grid")
+  sp.splitCell(0, 0, across = false)
+  doAssert sp.plainText == "a\t\tb\nc\t\td" and sp.table.cellAt(1, 0).colSpan == 2 and
+           sp.tableParts == @[0.5'f32, 0.5, 1], sp.plainText & " " & $sp.tableParts
+  var sa = newText("a\tb\nc\td", st, 10, 10)
+  sa.boxW = 300
+  sa.table = tableTheme("Plain Grid")
+  sa.splitCell(0, 1, across = true)
+  doAssert sa.plainText == "a\tb\n\t\nc\td" and sa.table.cellAt(0, 0).rowSpan == 2 and
+           sa.table.cellAt(0, 1).rowSpan <= 1, sa.plainText
+  doAssert layoutText(sa).gridRows.len == 3
+  var sm = newText("a\tb\tc", st, 10, 10)
+  sm.boxW = 300
+  sm.table = tableTheme("Plain Grid")
+  sm.mergeCells(0, 0, 0, 2)
+  sm.splitCell(0, 0, across = false)
+  doAssert sm.table.cellAt(0, 0).colSpan == 2 and sm.table.cellAt(0, 2).colSpan == 1, "parted 2 and 1"
+  # sort
+  var so = newText("Item\tQty\nPens\t12\nPaper\t3\nInk\t100\nTotal\t115", st, 10, 10)
+  so.boxW = 300
+  so.table = tableTheme("Plain Grid")
+  so.table.headerRows = 1
+  so.table.footerRows = 1
+  so.table.cellRef(1, 0).fill = 0xFF00FF00'u32
+  doAssert so.sortTable(1)
+  doAssert so.plainText == "Item\tQty\nPaper\t3\nPens\t12\nInk\t100\nTotal\t115", so.plainText
+  doAssert so.table.cellAt(2, 0).fill == 0xFF00FF00'u32, "Pens' fill went with it"
+  doAssert so.sortTable(0, descending = true)
+  doAssert so.plainText == "Item\tQty\nPens\t12\nPaper\t3\nInk\t100\nTotal\t115", so.plainText
+  var sar = newText("باسم\nإدريس\nأحمد", st, 10, 10)
+  sar.boxW = 300
+  sar.table = tableTheme("Plain Grid")
+  sar.table.headerRows = 0
+  doAssert sar.sortTable(0)
+  doAssert sar.plainText == "أحمد\nإدريس\nباسم", sar.plainText
+  var sg = newText("a\tb\nc\td\ne\tf", st, 10, 10)
+  sg.boxW = 300
+  sg.table = tableTheme("Plain Grid")
+  sg.mergeCells(0, 0, 1, 0)
+  doAssert not sg.sortTable(1), "rows merged: not sorted"
+  # no taller than so much: the rest cut off
+  var mx = newText("a b c d e f g h i j k l m n o p q r s t u v w x y z a b c d e f g h\tq", st, 10, 10)
+  mx.boxW = 200
+  mx.boxH = 400
+  mx.table = tableTheme("Plain Grid")
+  mx.table.rowFmts = @[TableRowFmt(kind: rhAtLeast, height: 10, maxHeight: 30)]
+  let ml = layoutText(mx)
+  doAssert ml.y1 - 10 < 31 and ml.glyphs.len < 40, "no taller than 30: " & $(ml.y1 - 10)
+  # kept with the next, started in the next box
+  var rows = "Name\tValue"
+  for k in 1 .. 30: rows.add "\nRow " & $k & "\t" & $(k * 10)
+  var lt = newText(rows, st, 10, 10)
+  lt.boxW = 300
+  lt.boxH = 260
+  lt.table = tableTheme("Plain Grid")
+  lt.table.headerRows = 1
+  let cells = lt.tableCells
+  let natural = layoutText(lt).overflow
+  var cutRow = 0
+  for r, row in cells:
+    if row[0].a == natural: cutRow = r
+  doAssert cutRow > 3, $cutRow
+  lt.table.rowFmts = newSeq[TableRowFmt](cutRow)
+  lt.table.rowFmts[cutRow - 1].keepNext = true
+  doAssert layoutText(lt).overflow == cells[cutRow - 1][0].a, "kept with the row after it"
+  lt.table.rowFmts[cutRow - 1].keepNext = false
+  lt.table.rowFmts[3].startNext = true
+  doAssert layoutText(lt).overflow == cells[3][0].a, "row 3 in the next box"
+  # header skipped in the first box, footer in the last
+  var sk = newText("Head\tH\na\tb\nFoot\tF", st, 10, 10)
+  sk.boxW = 300
+  sk.boxH = 400
+  sk.table = tableTheme("Plain Grid")
+  sk.table.headerRows = 1
+  sk.table.footerRows = 1
+  sk.table.skipFirstHeader = true
+  sk.table.skipLastFooter = true
+  let kl = layoutText(sk)
+  doAssert kl.glyphOf(0) < 0 and kl.glyphOf(7) >= 0 and kl.glyphOf(11) < 0, "only the body"
+  doAssert kl.gridRows.len == 1 and kl.gridRows[0].row == 1
+  let back = textFrom(sk.toJson)
+  doAssert back.table.skipFirstHeader and back.table.skipLastFooter
+  let back2 = textFrom(lt.toJson)
+  doAssert back2.table.rowFmts == lt.table.rowFmts
+  let back3 = textFrom(mx.toJson)
+  doAssert back3.table.rowFmts[0].maxHeight == 30
+
 block scriptFonts:
   # a font for the Arabic letters and one for the Latin: each run in its own, its size, raise,
   # color; the spaces and digits with the letters about them; kept with the text

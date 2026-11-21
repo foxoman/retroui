@@ -4662,6 +4662,7 @@ proc docBody(dw: DocWin) =
     ui.takesEnter = true
   dw.overlays(ev)
   cursorFor(ev)
+  if ev.over and tool == tType: dw.tableCursor(ev)     # (over a table's edge: it sizes it)
   # (off the image: an arrow -- the tools wait -- but for the Hand, the Zoom,
   # what is being dragged, a box's handles)
   if ev.over and not d.inImage(ev) and tool notin {tHand, tZoom} and not drag.on and

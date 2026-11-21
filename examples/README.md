@@ -295,6 +295,16 @@ pages or spreads, a range) and Save Book as IDML; Type > Text Effects.
 `--run "Command"`, `--script file.rs` and `--list-commands` on the
 command line.
 
+**Tables as a layout program edits them** (5.13): the Type tool drags a
+table's column edges (Shift: the table wider) and its rows' feet; Type >
+Table inserts several rows or columns at once, deletes the table, selects
+a cell, a row, a column or the table, splits a cell across or down, makes
+rows or columns even and sorts the body by a column (numbers by their
+value, Arabic as a dictionary has it); Table Options skips the header in
+the first box and the footer in the last; Cell Options > Rows sets a
+row's most height and keeps it with the next row or starts it in the next
+box.
+
 **Arabic typesetting** (5.12), from Yaqout's manual: Type > Quran... --
 the text downloaded once from Tanzil (or a Tanzil file opened), a sura's
 ayat with their numbers in ornate brackets set into the text being typed

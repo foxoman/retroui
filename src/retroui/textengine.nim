@@ -795,6 +795,8 @@ type
     footerRows*: int           ## the last rows a footer
     noRepeat*: bool            ## header and footer rows not repeated in each box the table goes on
                                ## into (else at the top and foot of each)
+    skipFirstHeader*: bool     ## the header not in the first box (Skip First: only where it goes on)
+    skipLastFooter*: bool      ## the footer not in the last box (Skip Last: only where it is cut)
     cells*: seq[seq[TableCell]]  ## each cell's own look, by row and column (missing: the table's);
                                ## a cell's text may hold several paragraphs (U+2029 between them)
     rowFmts*: seq[TableRowFmt] ## each row's height (missing: as tall as it needs)
@@ -807,9 +809,13 @@ type
     rhExactly = "Exactly"      ## its height: what does not fit cut off
 
   TableRowFmt* = object
-    ## A table row's height.
+    ## A table row's height and where it may break (Cell Options > Rows and Columns).
     kind*: RowHeight
     height*: float32           ## pixels (`rhAtLeast`, `rhExactly`)
+    maxHeight*: float32        ## no taller than this, what does not fit cut off (0: no limit; not
+                               ## `rhExactly`)
+    keepNext*: bool            ## Keep with Next Row: in the same box as the row after it
+    startNext*: bool           ## Start Row: In Next Frame (the box it goes on into)
 
   CellStroke* = object
     ## A side of a cell's frame the cell sets (else the table's lines).
@@ -1635,6 +1641,11 @@ type
     overflow*: int             ## text in a box, columns: the first character that did not fit
                                ## (it flows on into the next box); -1: all of it fits
     paras*: seq[ParaStyle]     ## each paragraph's format (`LaidLine.para` says which a line is in)
+    gridCols*: seq[float32]    ## a table: its columns' edges as drawn, left to right (right to left:
+                               ## the first column the rightmost), one more than its columns
+    gridRows*: seq[tuple[row: int; y0, y1: float32]]  ## ... the rows in this box: each one's
+                               ## number in the whole table and its top and foot
+    gridRtl*: bool             ## ... its first column at the right
 
   GlyphPart = object
     gid: int
@@ -4610,6 +4621,271 @@ proc unmergeCells*(t: var TextData; r, c: int) =
     t.table.cells[r][c].rowSpan = 0
     t.table.cells[r][c].colSpan = 0
 
+proc tableParts*(t: TextData): seq[float32] =
+  ## A table's columns' widths as parts of its box, one a column, in its order (a column it
+  ## gives none the average of those it gives; none given: all even).
+  let n = max(1, t.columnCount)
+  result = newSeq[float32](n)
+  var sum = 0'f32
+  var known = 0
+  for c in 0 ..< n:
+    if c < t.table.widths.len and t.table.widths[c] > 0:
+      result[c] = t.table.widths[c]
+      sum += result[c]
+      inc known
+  let avg = if known > 0: sum / known.float32 else: 1'f32
+  for p in result.mitems:
+    if p <= 0: p = avg
+
+proc distributeColumns*(t: var TextData; c0, c1: int) =
+  ## Columns `c0` to `c1` of a table made as wide as each other, as wide together as they were
+  ## (Distribute Columns Evenly).
+  var p = t.tableParts
+  let a = clamp(min(c0, c1), 0, p.high)
+  let b = clamp(max(c0, c1), 0, p.high)
+  if a == b: return
+  var sum = 0'f32
+  for c in a .. b: sum += p[c]
+  for c in a .. b: p[c] = sum / float32(b - a + 1)
+  t.table.widths = p
+
+proc distributeRows*(t: var TextData; r0, r1: int) =
+  ## Rows `r0` to `r1` of a table made as tall as each other: each at least the height they
+  ## have on average as they are laid now (Distribute Rows Evenly; a row of an exact height
+  ## stays exact).
+  let a = min(r0, r1)
+  let b = max(r0, r1)
+  if a == b: return
+  let l = layoutText(t)
+  var sum = 0'f32
+  var n = 0
+  for g in l.gridRows:
+    if g.row in a .. b:
+      sum += g.y1 - g.y0
+      inc n
+  if n == 0: return
+  let h = sum / n.float32
+  for r in a .. b:
+    while t.table.rowFmts.len <= r: t.table.rowFmts.add TableRowFmt()
+    if t.table.rowFmts[r].kind != rhExactly: t.table.rowFmts[r].kind = rhAtLeast
+    t.table.rowFmts[r].height = h
+
+proc tableCover(t: TextData): seq[seq[bool]] =
+  ## (each cell of the table: whether another merged with it covers it)
+  let rows = t.tableCells
+  let nc = max(1, t.columnCount)
+  result = newSeq[seq[bool]](rows.len)
+  for r in 0 ..< rows.len: result[r] = newSeq[bool](nc)
+  for r in 0 ..< rows.len:
+    for c in 0 ..< nc:
+      if result[r][c]: continue
+      let f = t.table.cellAt(r, c)
+      for rr in r ..< min(rows.len, r + max(1, f.rowSpan)):
+        for cc in c ..< min(nc, c + max(1, f.colSpan)):
+          if rr != r or cc != c: result[rr][cc] = true
+
+proc splitCell*(t: var TextData; r, c: int; across: bool) =
+  ## The cell at row `r`, column `c` split in two -- `across` (Split Cell Horizontally) into a
+  ## top and a bottom one, else (Vertically) a left and a right one. A cell merged with others
+  ## is parted between them; else a row (a column) is put in under it (beside it, its width
+  ## halved), the table's other cells merged over it so they stay as they were.
+  let rows = t.tableCells
+  if r < 0 or r > rows.high or c < 0: return
+  let cover = t.tableCover
+  if c < cover[r].len and cover[r][c]: return
+  let f = t.table.cellAt(r, c)
+  let rs = max(1, f.rowSpan)
+  let cs = max(1, f.colSpan)
+  if across and rs > 1:
+    let top = (rs + 1) div 2
+    t.table.cellRef(r, c).rowSpan = top
+    t.table.cellRef(r + top, c).rowSpan = rs - top
+    t.table.cellRef(r + top, c).colSpan = cs
+    return
+  if not across and cs > 1:
+    let left = (cs + 1) div 2
+    t.table.cellRef(r, c).colSpan = left
+    t.table.cellRef(r, c + left).colSpan = cs - left
+    t.table.cellRef(r, c + left).rowSpan = rs
+    return
+  let nc = max(1, t.columnCount)
+  # (the cells merged over the row or column the new one goes beside, this one apart: grown)
+  var grow: seq[(int, int)]
+  for rr in 0 ..< rows.len:
+    for cc in 0 ..< nc:
+      if cover[rr][cc] or (rr, cc) == (r, c): continue
+      let g = t.table.cellAt(rr, cc)
+      if across and rr <= r and rr + max(1, g.rowSpan) - 1 >= r and (rr + max(1, g.rowSpan) - 1 > r or
+         cc < c or cc >= c + cs):
+        grow.add (rr, cc)
+      elif not across and cc <= c and cc + max(1, g.colSpan) - 1 >= c and (cc + max(1, g.colSpan) - 1 > c or
+           rr < r or rr >= r + rs):
+        grow.add (rr, cc)
+  if across:
+    t.insertRow(r + 1)
+    for (rr, cc) in grow:
+      let g = t.table.cellAt(rr, cc)
+      t.table.cellRef(rr, cc).rowSpan = max(1, g.rowSpan) + 1
+      t.table.cellRef(rr, cc).colSpan = max(1, g.colSpan)
+    if cs > 1: t.table.cellRef(r + 1, c).colSpan = cs
+  else:
+    var p = t.tableParts
+    t.insertColumn(c + 1)
+    if c < p.len:
+      let half = p[c] / 2
+      p[c] = half
+      p.insert(half, c + 1)
+      t.table.widths = p
+    for (rr, cc) in grow:
+      let g = t.table.cellAt(rr, cc)
+      t.table.cellRef(rr, cc).colSpan = max(1, g.colSpan) + 1
+      t.table.cellRef(rr, cc).rowSpan = max(1, g.rowSpan)
+    if rs > 1: t.table.cellRef(r, c + 1).rowSpan = rs
+
+proc sortFold(s: string): string =
+  ## (a cell's words as they are sorted: small letters, Arabic without its marks and tatweel,
+  ## its alefs and its ya and ta marbuta as one)
+  var folded = ""
+  for r in s.toLower.runes:
+    let c = int(r)
+    if c in 0x064B .. 0x065F or c == 0x0670 or c == 0x0640: continue
+    case c
+    of 0x0622, 0x0623, 0x0625, 0x0671: folded.add "\u0627"
+    of 0x0649: folded.add "\u064A"
+    of 0x0629: folded.add "\u0647"
+    else: folded.add r.toUTF8
+  folded.strip
+
+proc sortNumber(s: string): float =
+  ## (a cell that says a number: its value -- Arabic-Indic digits, ٫ for the point)
+  var digits = ""
+  for r in s.runes:
+    let c = int(r)
+    if c in int('0') .. int('9'): digits.add char(c)
+    elif c in 0x0660 .. 0x0669: digits.add char(int('0') + c - 0x0660)
+    elif c in 0x06F0 .. 0x06F9: digits.add char(int('0') + c - 0x06F0)
+    elif c == int('.') or c == 0x066B: digits.add '.'
+    elif c == int('-') and digits.len == 0: digits.add '-'
+  try: parseFloat(digits) except ValueError: 0.0
+
+proc sortTable*(t: var TextData; col: int; descending = false): bool =
+  ## A table's body rows -- those between its header and its footer -- in the order of what
+  ## they say in column `col` (numbers by their value, before words; words as a dictionary has
+  ## them, Arabic with its marks passed over; empty cells last), each row's cells' looks and
+  ## height going with it. False, nothing done, when a cell merges rows of the body or there
+  ## are not two rows to sort.
+  var rows = t.tableCells
+  var tail = false               # (the text ends with a new line: that empty last row kept last)
+  if rows.len > 1 and rows[^1].len == 1 and rows[^1][0].a == rows[^1][0].b:
+    rows.setLen(rows.len - 1)
+    tail = true
+  let nr = rows.len
+  let first = clamp(t.table.headerRows, 0, nr)
+  let stop = max(first, nr - max(0, t.table.footerRows))
+  if stop - first < 2: return false
+  let cover = t.tableCover
+  for r in 0 ..< stop:
+    for c in 0 ..< cover[r].len:
+      let g = t.table.cellAt(r, c)
+      if not cover[r][c] and max(1, g.rowSpan) > 1 and r + g.rowSpan - 1 >= first: return false
+  var keys: seq[tuple[r: int; empty, num: bool; v: float; s: string]]
+  for r in first ..< stop:
+    let s = if col >= 0 and col < rows[r].len: t.textSlice(rows[r][col].a, rows[r][col].b) else: ""
+    let u = TextData(spans: @[TextSpan(text: s)])
+    keys.add (r, s.strip.len == 0, s.strip.len > 0 and looksNumeric(u), sortNumber(s), sortFold(s))
+  proc byKey(x, y: tuple[r: int; empty, num: bool; v: float; s: string]): int =
+    if x.empty != y.empty: return (if x.empty: 1 else: -1)
+    if x.empty: return cmp(x.r, y.r)
+    result = if x.num and y.num: cmp(x.v, y.v)
+             elif x.num != y.num: (if x.num: -1 else: 1)
+             else: cmp(x.s, y.s)
+    if descending: result = -result
+    if result == 0: result = cmp(x.r, y.r)
+  keys.sort(byKey)
+  var order: seq[int]
+  for r in 0 ..< first: order.add r
+  for k in keys: order.add k.r
+  for r in stop ..< nr: order.add r
+  var spans: seq[TextSpan]
+  for k, r in order:
+    let a = rows[r][0].a
+    let b = rows[r][^1].b
+    if b > a: spans.add cellOf(t, a, b).spans
+    if k < order.high or tail:
+      # (the new line after it: the one that ended the row in its place before)
+      let nl = rows[min(k, nr - 1)][^1].b
+      spans.add TextSpan(text: "\n", style: t.styleAt(nl))
+  if spans.len == 0: return false
+  # (each row's cells' own looks and its height go with it)
+  var cells = t.table.cells
+  var fmts = t.table.rowFmts
+  let need = nr
+  while cells.len < need: cells.add @[]
+  while fmts.len < need: fmts.add TableRowFmt()
+  var nc = cells
+  var nf = fmts
+  for k, r in order:
+    nc[k] = cells[r]
+    nf[k] = fmts[r]
+  t.table.cells = nc
+  t.table.rowFmts = nf
+  t.spans = spans
+  t.normalize()
+  true
+
+proc tableEdgeAt*(l: TextLayout; x, y, slack: float32): tuple[kind, index: int] =
+  ## A table's edge near `x`, `y` (as it is laid out in `l`): kind 1 the edge between two of its
+  ## columns -- `index` 1 the one after the first column as drawn (from the left; right to left
+  ## too) --, kind 2 a row's foot (`index` its row's number in the table), 0 none (its outer
+  ## sides are its box's).
+  if l.gridCols.len < 2 or l.gridRows.len == 0: return (0, 0)
+  let top = l.gridRows[0].y0
+  let foot = l.gridRows[^1].y1
+  if x < l.gridCols[0] - slack or x > l.gridCols[^1] + slack or y < top - slack or y > foot + slack:
+    return (0, 0)
+  var best = slack
+  for k in 1 ..< l.gridCols.high:
+    if abs(x - l.gridCols[k]) <= best and y >= top and y <= foot:
+      best = abs(x - l.gridCols[k])
+      result = (1, k)
+  if result.kind != 0: return
+  best = slack
+  for g in l.gridRows:
+    if abs(y - g.y1) <= best:
+      best = abs(y - g.y1)
+      result = (2, g.row)
+
+proc dragColumnEdge*(t: var TextData; l: TextLayout; edge: int; dx: float32; grow = false) =
+  ## A table's column edge `edge` (as `tableEdgeAt` gives it, of the table laid out in `l`)
+  ## moved `dx` pixels: the columns either side of it changed, the table as wide as it was --
+  ## `grow`: only the one before it, the box as much wider (no column narrower than 8 pixels).
+  let n = l.gridCols.len - 1
+  if edge < 1 or edge >= n: return
+  var w = newSeq[float32](n)
+  for j in 0 ..< n: w[j] = l.gridCols[j + 1] - l.gridCols[j]
+  const least = 8'f32
+  if grow:
+    let d = max(dx, least - w[edge - 1])
+    w[edge - 1] += d
+    t.boxW = max(least, t.boxW + d)
+  else:
+    let d = clamp(dx, least - w[edge - 1], w[edge] - least)
+    w[edge - 1] += d
+    w[edge] -= d
+  var parts = newSeq[float32](n)
+  for j in 0 ..< n: parts[if l.gridRtl: n - 1 - j else: j] = w[j]
+  t.table.widths = parts
+
+proc dragRowEdge*(t: var TextData; l: TextLayout; row: int; dy: float32) =
+  ## A table row's foot (of the table laid out in `l`) moved `dy` pixels: the row at least so
+  ## tall (exactly, when it was exact) -- what is in it keeps it as tall as that needs.
+  for g in l.gridRows:
+    if g.row == row:
+      while t.table.rowFmts.len <= row: t.table.rowFmts.add TableRowFmt()
+      if t.table.rowFmts[row].kind != rhExactly: t.table.rowFmts[row].kind = rhAtLeast
+      t.table.rowFmts[row].height = max(4'f32, g.y1 - g.y0 + dy)
+      return
+
 proc tableLaid(t: TextData): TextLayout =
   ## (a table: each paragraph a row, tabs between cells, each cell's text -- its paragraphs
   ## apart, U+2029 -- laid out in its column, or in the cells it is merged with, inset, up and
@@ -4663,9 +4939,10 @@ proc tableLaid(t: TextData): TextLayout =
     sum += p
   let tx0 = t.x + t.para.indentLeft
   let tw = max(8'f32, t.boxW - t.para.indentLeft - t.para.indentRight)
+  # (the columns' edges as drawn, left to right: right to left, the last column's first)
   var colX = newSeq[float32](ncol + 1)
   colX[0] = tx0
-  for c in 0 ..< ncol: colX[c + 1] = colX[c] + tw * parts[c] / sum
+  for j in 0 ..< ncol: colX[j + 1] = colX[j] + tw * parts[if rtl: ncol - 1 - j else: j] / sum
   proc spanX(c, n: int): (float32, float32) =
     ## (where columns `c` ..< `c + n` are, as drawn: the first at the right, right to left)
     let a = clamp(c, 0, ncol - 1)
@@ -4684,6 +4961,7 @@ proc tableLaid(t: TextData): TextLayout =
     h.boxH = 0
     h.table.footerRows = 0
     let hl = tableLaid(h)
+    for gr in hl.gridRows: result.gridRows.add gr
     for g in hl.glyphs:
       var g2 = g
       g2.index = -1
@@ -4773,13 +5051,23 @@ proc tableLaid(t: TextData): TextLayout =
     of rhExactly: (if fmt.height > 0: rowH[r] = fmt.height)
     of rhAtLeast: rowH[r] = max(rowH[r], fmt.height)
     of rhAuto: discard
+    if fmt.maxHeight > 0 and fmt.kind != rhExactly: rowH[r] = min(rowH[r], max(fmt.maxHeight, fmt.height))
   # (a cell merged down: the last row it reaches as tall as it needs, the others as they are)
   for cl in cells:
     if cl.rs <= 1: continue
     var have = 0'f32
     for rr in cl.r ..< cl.r + cl.rs: have += rowH[rr]
     let last = cl.r + cl.rs - 1
-    if cl.need > have and ts.rowFmtAt(row0 + last).kind != rhExactly: rowH[last] += cl.need - have
+    let lf = ts.rowFmtAt(row0 + last)
+    if cl.need > have and lf.kind != rhExactly:
+      rowH[last] += cl.need - have
+      if lf.maxHeight > 0: rowH[last] = min(rowH[last], max(lf.maxHeight, lf.height))
+  # (Skip First: the header not in the table's first box)
+  var hidden = newSeq[bool](nr)
+  if row0 == 0 and ts.skipFirstHeader:
+    for r in 0 ..< min(nr, ts.headerRows):
+      hidden[r] = true
+      rowH[r] = 0
   # (a box too short for all the rows: those that fit -- one at least --, the footer's under them;
   # a row merged with the one before stays with it)
   let firstFoot = max(0, nr - ts.footerRows)
@@ -4793,24 +5081,39 @@ proc tableLaid(t: TextData): TextLayout =
     for r in 0 ..< nr:
       let isFoot = r >= firstFoot and ts.footerRows > 0
       let footRoom = if isFoot or ts.noRepeat or ts.footerRows == 0: 0'f32 else: footH
-      if not isFoot and bodyShown > 0 and yy + rowH[r] + footRoom > bottom + 0.5:
+      if not isFoot and bodyShown > 0 and (yy + rowH[r] + footRoom > bottom + 0.5 or
+                                           ts.rowFmtAt(row0 + r).startNext):
         var cut = r
-        while cut > 0 and cover[cut].len > 0:
-          var merged = false
-          for c in 0 ..< ncol:
-            if cover[cut][c]:
-              # (covered from a row above: the break goes before that one)
-              var up = cut
-              while up > 0 and cover[up][c]: dec up
-              if up < cut and ts.cellAt(row0 + up, c).rowSpan > 1: merged = true
-          if not merged: break
-          dec cut
+        # (a row kept with the next one: the break before it; one row of the body stays at least)
+        let minCut = if row0 == 0: min(nr, ts.headerRows) + 1 else: 1
+        while true:
+          var moved = false
+          while cut > 0 and cover[cut].len > 0:
+            var merged = false
+            for c in 0 ..< ncol:
+              if cover[cut][c]:
+                # (covered from a row above: the break goes before that one)
+                var up = cut
+                while up > 0 and cover[up][c]: dec up
+                if up < cut and ts.cellAt(row0 + up, c).rowSpan > 1: merged = true
+            if not merged: break
+            dec cut
+            moved = true
+          if cut > minCut and ts.rowFmtAt(row0 + cut - 1).keepNext:
+            dec cut
+            moved = true
+          if not moved: break
         if cut > 0:
           last = cut
           break
       if not isFoot and row0 + r >= ts.headerRows: inc bodyShown
       yy += rowH[r]
   let cut = last < nr
+  # (Skip Last: the footer not in the table's last box)
+  if not cut and ts.skipLastFooter and ts.footerRows > 0:
+    for r in firstFoot ..< nr:
+      hidden[r] = true
+      rowH[r] = 0
   # where each row is: those shown, then -- cut -- the footer again under them
   var rowY = newSeq[float32](nr + 1)
   block:
@@ -4829,7 +5132,11 @@ proc tableLaid(t: TextData): TextLayout =
   let bottomY = if cut: (if footAt >= 0: footAt + footH else: rowY[last - 1] + rowH[last - 1])
                 else: rowY[nr]
   if cut: result.overflow = rows[last][0][0]
-  proc shown(r: int): bool = r < last or (cut and footAt >= 0 and r >= firstFoot)
+  proc shown(r: int): bool = not hidden[r] and (r < last or (cut and footAt >= 0 and r >= firstFoot))
+  result.gridCols = colX
+  result.gridRtl = rtl
+  for r in 0 ..< nr:
+    if shown(r): result.gridRows.add (row0 + r, rowY[r], rowY[r] + rowH[r])
   proc cellBox(r, c, rs, cs: int): tuple[x0, y0, x1, y1: float32] =
     let (x0, x1) = spanX(c, cs)
     var h = 0'f32
@@ -4898,7 +5205,8 @@ proc tableLaid(t: TextData): TextLayout =
       let room = bx.y1 - bx.y0 - ins[0] - ins[2] - cl.contentH
       l.movedBy(bx.x0 + ins[3], bx.y0 + ins[0] + max(0'f32, room) * k)
     # (a row of an exact height: what passes its foot not drawn)
-    let clip = ts.rowFmtAt(row0 + cl.r + cl.rs - 1).kind == rhExactly and cl.f.rotation notin [90, 270]
+    let lastFmt = ts.rowFmtAt(row0 + cl.r + cl.rs - 1)
+    let clip = (lastFmt.kind == rhExactly or lastFmt.maxHeight > 0) and cl.f.rotation notin [90, 270]
     let base = result.lines.len
     for g in l.glyphs:
       if clip and g.y > bx.y1 + 0.5: continue
@@ -5478,6 +5786,8 @@ proc tableToJson*(ts: TableStyle): JsonNode =
   result["widths"] = ws
   if ts.footerRows > 0: result["footerRows"] = %ts.footerRows
   if ts.noRepeat: result["noRepeat"] = %true
+  if ts.skipFirstHeader: result["skipFirstHeader"] = %true
+  if ts.skipLastFooter: result["skipLastFooter"] = %true
   if ts.altFirst > 1: result["altFirst"] = %ts.altFirst
   if ts.altNext > 1: result["altNext"] = %ts.altNext
   if ts.altSkip > 0: result["altSkip"] = %ts.altSkip
@@ -5495,7 +5805,12 @@ proc tableToJson*(ts: TableStyle): JsonNode =
   if any: result["cells"] = cs
   if ts.rowFmts.len > 0:
     var rf = newJArray()
-    for f in ts.rowFmts: rf.add %*{"kind": $f.kind, "h": f.height}
+    for f in ts.rowFmts:
+      var o = %*{"kind": $f.kind, "h": f.height}
+      if f.maxHeight > 0: o["max"] = %f.maxHeight
+      if f.keepNext: o["keepNext"] = %true
+      if f.startNext: o["startNext"] = %true
+      rf.add o
     result["rowFmts"] = rf
 
 proc tableFrom*(j: JsonNode): TableStyle =
@@ -5513,6 +5828,8 @@ proc tableFrom*(j: JsonNode): TableStyle =
       if result.widths.len < 200 and w.kind in {JInt, JFloat}: result.widths.add clamp(float32(w.getFloat), 0, 1000)
   result.footerRows = clamp(int(j.getF("footerRows")), 0, 100)
   result.noRepeat = j.getB("noRepeat")
+  result.skipFirstHeader = j.getB("skipFirstHeader")
+  result.skipLastFooter = j.getB("skipLastFooter")
   result.altFirst = clamp(int(j.getF("altFirst")), 0, 100)
   result.altNext = clamp(int(j.getF("altNext")), 0, 100)
   result.altSkip = clamp(int(j.getF("altSkip")), 0, 1000)
@@ -5527,7 +5844,9 @@ proc tableFrom*(j: JsonNode): TableStyle =
     result.cells.add r
   for f in j{"rowFmts"}.getElems:
     if result.rowFmts.len >= 10_000: break
-    result.rowFmts.add TableRowFmt(kind: enumOf(f.getS("kind"), rhAuto), height: clamp(float32(f.getF("h")), 0, 100_000))
+    result.rowFmts.add TableRowFmt(kind: enumOf(f.getS("kind"), rhAuto), height: clamp(float32(f.getF("h")), 0, 100_000),
+                                   maxHeight: clamp(float32(f.getF("max")), 0, 100_000),
+                                   keepNext: f.getB("keepNext"), startNext: f.getB("startNext"))
 
 proc composeToJson(p: ParaStyle; j: JsonNode) =
   ## (the composer, justification, keep options, columns, next style, nested and GREP styles:

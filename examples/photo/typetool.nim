@@ -18,6 +18,9 @@ var
     ## the text being edited (`grab`: the box's corner being dragged, 4 the
     ## whole text, -1 none)
   teLayout: tuple[ver: int; layer: Layer; l: TextLayout]
+  tblEdge: tuple[on: bool; kind, index: int; x0, y0: float; t0: TextData; l0: TextLayout; grow: bool]
+    ## a table's edge dragged with the Type tool (a column's width, a row's height)
+  edgeLook: tuple[L: Layer; ver: int; l: TextLayout]   ## (a table's layout, for the pointer over it)
   textMove: tuple[on: bool; orig: TextData]   ## the Move tool on a type layer
   rasterAsk: tuple[open: bool; then: string]  ## "rasterize the type first?"
   reviewer = ""                     ## Track Changes and Notes: who the changes and notes are by ("" the
@@ -304,10 +307,50 @@ proc needPixels(d: Doc; then = ""): bool =
 
 # ---- the mouse ------------------------------------------------------------------------------------------
 
+proc tableEdgeUnder(dw: DocWin; x, y: float): tuple[L: Layer; l: TextLayout; kind, index: int] =
+  ## (a table's column edge or row foot under the pointer: the table typed in, else the top one
+  ## there)
+  let d = dw.doc
+  let slack = float32(dp(4).float / dw.view.scaleOf)
+  if te.on and te.dw == dw and te.layer in d.layers and te.layer.text.table.on:
+    let l = typeLayout()
+    let e = l.tableEdgeAt(x.float32, y.float32, slack)
+    if e.kind != 0: return (te.layer, l, e.kind, e.index)
+  for i in countdown(d.layers.high, 0):
+    let L = d.layers[i]
+    if not L.visible or not L.isText or not L.text.table.on or L.locked or L.fromMaster != 0 or
+       L.fromSpan != 0 or L.text.boxW <= 0: continue
+    let t = L.text
+    if x < t.x - slack or x > t.x + t.boxW + slack or y < t.y - slack or
+       (t.boxH > 0 and y > t.y + t.boxH + slack): continue
+    if edgeLook.L != L or edgeLook.ver != L.ver: edgeLook = (L, L.ver, layoutText(t))
+    let e = edgeLook.l.tableEdgeAt(x.float32, y.float32, slack)
+    if e.kind != 0: return (L, edgeLook.l, e.kind, e.index)
+
+proc tableCursor(dw: DocWin; ev: PhotoEvent) =
+  ## (the Type tool over a table's edge: the pointer that sizes it)
+  if tblEdge.on:
+    ui.cursor = if tblEdge.kind == 1: curSizeWE else: curSizeNS
+    return
+  let e = tableEdgeUnder(dw, ev.x, ev.y)
+  if e.kind == 1: ui.cursor = curSizeWE
+  elif e.kind == 2: ui.cursor = curSizeNS
+
 proc typePress(dw: DocWin; ev: PhotoEvent) =
   ## The Type tool pressed on a document.
   let d = dw.doc
   let slack = dp(6).float / dw.view.scaleOf
+  # a table's edge: dragged -- a column's width (Shift: the table wider), a row's height
+  block:
+    let e = tableEdgeUnder(dw, ev.x, ev.y)
+    if e.kind != 0:
+      if not (te.on and te.layer == e.L):
+        if te.on: commitType()
+        d.cur = d.layers.find(e.L)
+        startTypeEdit(dw, e.L, false, 0)
+      tblEdge = (true, e.kind, e.index, ev.x, ev.y, e.L.text, e.l, ev.shift)
+      status = if e.kind == 1: tr("Column width: drag (Shift: the table wider)") else: tr("Row height: drag")
+      return
   if te.on and te.dw == dw and te.layer in d.layers:
     let L = te.layer
     let t = L.text
@@ -370,6 +413,13 @@ proc typeDrag(dw: DocWin; ev: PhotoEvent) =
   ## The mouse dragged with the Type tool.
   if not te.on or te.dw != dw: return
   let d = dw.doc
+  if tblEdge.on:
+    let e = tblEdge
+    editText(proc (t: var TextData) =
+      t = e.t0
+      if e.kind == 1: t.dragColumnEdge(e.l0, e.index, float32(ev.x - e.x0), e.grow)
+      else: t.dragRowEdge(e.l0, e.index, float32(ev.y - e.y0)))
+    return
   if te.grab >= 0:
     let dx = float32(ev.x - te.grabFrom[0])
     let dy = float32(ev.y - te.grabFrom[1])
@@ -394,6 +444,7 @@ proc typeDrag(dw: DocWin; ev: PhotoEvent) =
 proc typeRelease(dw: DocWin; ev: PhotoEvent) =
   ## The Type tool let go: new text where it was pressed (a box when it was
   ## dragged).
+  tblEdge.on = false
   if te.on:
     te.selecting = false
     te.grab = -1
@@ -600,9 +651,22 @@ proc typeOverlay(dw: DocWin) =
         let (a, b) = v.toScreen(d, ln.x0.float, ln.baseline.float)
         let (c, _) = v.toScreen(d, max(ln.x1, ln.x0 + 1).float, ln.baseline.float)
         hline(a, b + 1, max(1, c - a), color(80, 80, 255))
-  # the selection: each line's part of it
+  # the selection: each line's part of it -- across a table's cells, the cells
   let (sa, sb) = selRange()
-  if sa != sb:
+  var byCells = false
+  if sa != sb and t.table.on and l.gridCols.len > 1:
+    let a = t.cellOfChar(sa)
+    let b = t.cellOfChar(sb)
+    if a != b:
+      byCells = true
+      let n = l.gridCols.len - 1
+      for g in l.gridRows:
+        if g.row < min(a.r, b.r) or g.row > max(a.r, b.r): continue
+        for c in min(a.c, b.c) .. min(n - 1, max(a.c, b.c)):
+          let j = if l.gridRtl: n - 1 - c else: c
+          polygon(@[scr(l.gridCols[j], g.y0), scr(l.gridCols[j + 1], g.y0), scr(l.gridCols[j + 1], g.y1),
+                    scr(l.gridCols[j], g.y1)], color(40, 90, 255, 80))
+  if sa != sb and not byCells:
     for li, ln in l.lines:
       var x0 = 1e9'f32
       var x1 = -1e9'f32
