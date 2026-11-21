@@ -2316,7 +2316,7 @@ kit's (`retroui/photobook`, `retroui/textengine`, `retroui/imagetrace`, `retroui
 `retroui/pathtools`, `retroui/liveeffects`, `retroui/hijri`, `retroui/simd`, `retroui/inks`,
 `retroui/photoseps`, `retroui/mathtype`, `retroui/flexlayout`, `retroui/publish`,
 `retroui/photopublish`, `retroui/vectormake`, `retroui/photorelight`, `retroui/mockups`,
-`retroui/designstyles`, `retroui/aiconnect`), for any app:
+`retroui/designstyles`, `retroui/aiconnect`, `retroui/quran`, `retroui/geopatterns`), for any app:
 
 ```nim
 import retroui/[photo, photopdf, textengine]
@@ -3558,6 +3558,16 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_touchsizes` | `RETRO_TOUCH` and `RETRO_CONTROLS`: finger-sized controls on a tablet's screen when asked, desktop and automatic sizes |
 | `test_shm` | the frame drawn into memory shared with the X server and what the window then shows, with and without it (`RETRO_SURFACE=0`) |
 | `test_designer` | Retro Designer: every example app read and drawn, each of their controls deleted and the file still Nim, every control of the Widget Box dropped into one app that compiles, moves, groups, events, properties, renames, undo, the lock on the file; several controls chosen with a box (and Ctrl, Shift, Ctrl+A) and a property set, moved, grouped and deleted on all of them at once; `windowBox`, `inert`, `showMenu` |
+| `test_cff` | .otf fonts with PostScript outlines: each glyph drawn as the same TrueType font draws it, its advances, Arabic shaped the same, its faces named, a PDF made with it; what is not such a font refused |
+| `test_colorfonts` | colour fonts: COLR/CPAL layers, sbix and CBDT pictures and a layer in the text's own colour, found by the font reader, drawn by the text engine, in PDF and SVG |
+| `test_threed`, `test_dimensions` | 3D on shapes (extruded, bevelled, revolved, inflated: faces of their own shade, kept in the file, in SVG and PDF); dimensions fixed to what they measure, drawn again when it moves, in another unit, undone, kept |
+| `test_dxf`, `test_psvector` | DXF drawings opened as shape layers by layer and colour (lines, arcs, splines, text, blocks); PostScript's drawing read as shapes (drawing programs' short names, holes, curves, CMYK), an endless loop stopped |
+| `test_screenexport`, `test_apng` | Export for Screens at 1x, 2x and 3x in each format, artboards cut to their pages, type drawn again; animated PNG written and read back (delays, the loop, partial frames), a document's animation saved and opened as one |
+| `test_editcommands`, `test_photokeys`, `test_objectcmds` | Edit > Fade, Paste in Place, the Spin and Path blurs, a style's effects as layers, Split and Merge Channels, proofs for colour blindness, sums in number boxes; the three programs' keys (a tool's letter held or tapped, blend modes, F2-F4); Corner Options, Release to Layers, opacity masks |
+| `test_layoutmore` | table stripes in a pattern and cell diagonals (in the file and the PDF), column rules, Print Booklet's spreads and creep, Find Font, page colour labels, Smart Text Reflow |
+| `test_ink`, `test_paintbehind` | brush dabs along a stroke stamped on the CPU and on the GPU (EGL, off screen) to the same pixels within a few levels; a big brush painted behind its stroke giving the very pixels of painting at once, the stroke shown as ink until it ends, one step to undo |
+| `test_gpucompute` | products of matrices on the GPU (float textures, or floats in 8-bit ones) within rounding of the CPU's, on another thread too; the image models' convolution, linear layers and attention through it; skipped without OpenGL |
+| `test_arabictype` | Arabic found as written either way, break characters, the pages a story comes from and goes on in, white spaces of a set width, Copyfit, the Quran's text (a Tanzil file's lines: looked up, searched, ayah numbers, a typed text checked), the tashkeel moved by hand, Islamic patterns |
 | `android_mock/run.sh` | the real Android driver against a fake Android (looper, input queue, window, JNI): frames, taps, keyboard, Arabic text, insets, cancelled touches, keys, rotation, Back, an input method composing |
 | `soak_maps3d` (not in `nimble test`: a few minutes, `nim c -r -d:release -d:useMalloc tests/soak_maps3d.nim`) | a long session: the street map moved and zoomed over the world through thousands of tiles, then a model's clips played for thousands of frames -- the memory levels off |
 

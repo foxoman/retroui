@@ -26,7 +26,8 @@ import retroui/[photo, photopaint, photofx, photoartistic, photohdr, otshape, tt
               booklists, datamerge, textsearch, headless, perspectivegrid, pathbrush, photoblurs, pathtools,
               liveeffects, photoseps, mathtype, flexlayout, vectormake, photorelight, mockups, designstyles,
               aiconnect, aichat, aiimage, assistant, modelstore, nnet, vision, photopublish, flows, dastkhat, fontfolders,
-              imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files, photoanim, webp, screenexport, threed, dimensions]
+              imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files, photoanim, webp, screenexport, threed, dimensions, quran, fetch,
+              geopatterns]
 {.push warning[UnusedImport]: off.}
 import retroui/photodeep   # (imported for what it sets up: filters, flattening and gradients at 16 and 32 bits)
 {.pop.}
@@ -576,6 +577,10 @@ proc startPrintBooklet()
 proc printBookletDialog()
 proc startFindFont()
 proc findFontDialog()
+proc startQuran()
+proc quranDialog()
+proc startGeoPattern()
+proc geoPatternDialog()
 proc splitChannelsNow()
 proc startMergeChannels()
 proc mergeChannelsDialog()
@@ -4787,6 +4792,7 @@ include photo/threedui
 include photo/fade
 include photo/channelsplit
 include photo/layoutmore
+include photo/quranui
 include photo/dockpanels
 
 proc phoneLayout(): bool =

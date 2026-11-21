@@ -310,12 +310,19 @@ proc characterBody() =
       applyChar("Tashkeel", proc (x: var CharStyle) =
         x.noMarks = v == 2
         x.markColor = if v == 1: c else: 0'u32)
+  var shift0 = int(s.markShift)
   row:
     label "... raised:"
     if spin(raise0, -200, 200, w = dp(64)):
       let v = raise0.float32
       applyChar("Raise Tashkeel", proc (x: var CharStyle) = x.markRaise = v)
     label "px"
+    label "moved:"
+    if spin(shift0, -200, 200, w = dp(64)):
+      let v = shift0.float32
+      applyChar("Move Tashkeel", proc (x: var CharStyle) = x.markShift = v)
+    label "px"
+  row:
     if button("Word Shapes...", w = dp(110)): runCommand("Word Shapes...")
   scriptFontRows(s)
 

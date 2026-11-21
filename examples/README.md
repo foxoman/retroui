@@ -295,6 +295,17 @@ pages or spreads, a range) and Save Book as IDML; Type > Text Effects.
 `--run "Command"`, `--script file.rs` and `--list-commands` on the
 command line.
 
+**Arabic typesetting** (5.12), from Yaqout's manual: Type > Quran... --
+the text downloaded once from Tanzil (or a Tanzil file opened), a sura's
+ayat with their numbers in ornate brackets set into the text being typed
+or as a new text box, searched as written either way, and a passage typed by hand
+checked against it, the places it differs marked; Layout > Islamic
+Pattern... (eight-pointed stars and crosses, six-pointed stars, octagons
+with stars, a border of stars) as a shape over the page or the selection;
+Type > Insert White Space, Insert Break Character, the next and previous
+page numbers and Copyfit; Find/Change's "Arabic as written either way";
+the Character panel's Move Tashkeel.
+
 **Several layers at once** (5.7): picked as each kind of document's
 program shows them -- a photo: one box with handles round all of them; a
 drawing (SVG, AI, EPS): each object's outline in its layer's color, with

@@ -693,6 +693,28 @@ proc dress(b: Book; i: int) =
   for k, v in refs: varSig.add k & "\x1F" & v
   for k, v in heads: varSig.add "\x1E" & k & "\x1F" & v
   varSig.sort()
+  # the pages its stories come from and go on to (`<#->`, `<#+>`)
+  var jumps: Table[int, tuple[prev, next: string]]
+  for L in d.layers:
+    if not L.isText or L.fromMaster != 0 or L.fromSpan != 0: continue
+    var prev, next = ""
+    if L.flowPage != 0:
+      let j = b.indexOfId(L.flowPage)
+      if j >= 0: prev = b.label(j)
+    elif L.flowFrom != 0: prev = lab
+    if L.flowOut:
+      let key = (b.pages[i].id, uidOf(L))
+      for j, q in b.pages:
+        if key in q.ins:
+          next = b.label(j)
+          break
+    else:
+      for M in d.layers:
+        if M.isText and M.flowFrom == uidOf(L) and M.flowPage == 0: next = lab
+    if prev.len > 0 or next.len > 0: jumps[uidOf(L)] = (prev, next)
+  if jumps != d.jumps:
+    d.jumps = jumps
+    relabel = true
   # the text that comes to it from other pages
   pg.ins = @[]
   var sig: Hash = (if varSig.len > 0: hash(varSig) else: Hash(0))

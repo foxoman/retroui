@@ -7,7 +7,7 @@
 # for what did not change.
 
 var
-  fcDlg: tuple[open: bool; what, change: string; patterns, matchCase, wholeWord: bool; scope: int;
+  fcDlg: tuple[open: bool; what, change: string; patterns, matchCase, wholeWord, arabic: bool; scope: int;
                note: string; mode: int; font, toFont: string; oq: ObjectQuery; oc: ObjectChange;
                queries: seq[SavedQuery]; loaded: bool; qi: int; naming: bool; qname: string]
   seDlg: tuple[open: bool; layer: Layer; words, orig: string]
@@ -97,10 +97,11 @@ proc fcFind(d: Doc; L: Layer; start: int): textsearch.Match =
         break
     return
   try:
-    let p = patternOf(fcDlg.what, fcDlg.patterns, fcDlg.matchCase, fcDlg.wholeWord)
+    let p = patternOf(if fcDlg.arabic: arabicFolded(fcDlg.what) else: fcDlg.what, fcDlg.patterns,
+                      fcDlg.matchCase, fcDlg.wholeWord)
     var cps: seq[int]
     for r in L.text.plainText.toRunes: cps.add int(r)
-    result = p.find(cps, start)
+    result = if fcDlg.arabic: p.findFolded(cps, start) else: p.find(cps, start)
     fcDlg.note = ""
   except PatternError as e:
     fcDlg.note = tr("The pattern: ") & e.msg
@@ -194,7 +195,8 @@ proc fcChangeAll() =
       var n = 0
       try:
         n = if fcDlg.mode == 2: t.changeGlyph(glyphOf(fcDlg.what), fcDlg.font, glyphOf(fcDlg.change), fcDlg.toFont)
-            else: t.changeIn(fcDlg.what, fcDlg.change, fcDlg.patterns, fcDlg.matchCase, fcDlg.wholeWord)
+            else: t.changeIn(fcDlg.what, fcDlg.change, fcDlg.patterns, fcDlg.matchCase, fcDlg.wholeWord,
+                             fcDlg.arabic)
       except PatternError as e:
         fcDlg.note = tr("The pattern: ") & e.msg
         return
@@ -422,6 +424,7 @@ proc findDialogs() =
           row:
             checkbox("Match case", fcDlg.matchCase)
             checkbox("Whole word", fcDlg.wholeWord)
+          checkbox("Arabic as written either way (harakat, tatweel, hamza, ى/ي, ة/ه)", fcDlg.arabic)
       row([110, -1]):
         label "Search:"
         combo(if fcDlg.mode == 3: @["This page", "This page", "The book"] else: @["This text", "This page", "The book"],

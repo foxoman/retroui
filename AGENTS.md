@@ -120,7 +120,11 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   `test_textengine` checks), `retroui/textsearch` (GREP patterns over
   characters; glyphs and saved queries), `retroui/hijri` (the Hijri
   dates of the Text Variables: Umm al-Qura's table, its MIT notice in
-  `vendor/LICENSE-hijridate.txt`),
+  `vendor/LICENSE-hijridate.txt`), `retroui/quran` (a Tanzil text
+  file the user downloads or has; never put the Quran's text in the
+  repository, a test's data or an app: Tanzil's terms want it copied
+  verbatim with its source named -- `test_arabictype` has five ayat as
+  they are written, to read), `retroui/geopatterns` (Islamic patterns as one path),
   `retroui/datamerge`, `retroui/perspectivegrid` (`ontoPlane`,
   `pixelsOntoPlane`; the grid is `Doc.perspective`, saved),
   `retroui/pathbrush`. Text in a box keeps to it: what does not fit is

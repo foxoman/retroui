@@ -190,3 +190,58 @@ proc findFontDialog() =
     status = $n & tr(" type layers now in ") & fontShown(toF) & " " & toS
     fontFindScan()
     fontFind.pick = clamp(fontFind.pick, 0, max(0, fontFind.fonts.high))
+
+# ---- Islamic patterns --------------------------------------------------------------------------------------
+# Layout > Islamic Pattern: eight-pointed stars and crosses, six-pointed stars, octagons with stars,
+# or a border of stars along the edges (`retroui/geopatterns`) -- a shape layer over the selection
+# (else the whole picture), filled with the foreground color and stroked with the background's.
+
+var gpDlg: tuple[open: bool; kind: int; cell: int; stroke: int]
+
+proc startGeoPattern() =
+  if cur() == nil:
+    status = tr("Islamic Pattern: open a picture or a book first")
+    return
+  if gpDlg.cell <= 0: gpDlg = (true, 0, 0, 2)
+  if gpDlg.cell <= 0: gpDlg.cell = max(16, min(cur().w, cur().h) div 8)
+  gpDlg.open = true
+
+proc geoPatternDialog() =
+  if not gpDlg.open: return
+  var go = false
+  dialog(gpDlg.open, "Islamic Pattern", 420):
+    var names: seq[string]
+    for k in GeoPattern: names.add tr($k)
+    names.add tr("A Border of Stars")
+    row([130, -1]):
+      label "Pattern:"
+      discard combo(names, gpDlg.kind, w = dp(250))
+    row([130, 90, -1]):
+      label(if gpDlg.kind == names.high: "Border width:" else: "Cell size:")
+      discard spin(gpDlg.cell, 8, 4000, w = dp(80))
+      label "px"
+    row([130, 90, -1]):
+      label "Stroke:"
+      discard spin(gpDlg.stroke, 0, 200, w = dp(80))
+      label "px"
+    paragraph(tr("Over the selection, else the whole picture: filled with the foreground color, " &
+                 "stroked with the background's. Put it inside a frame to cut it to the frame's edge."),
+              color = ui.theme.gray)
+    row:
+      spring()
+      if button("OK", isDefault = true, w = dp(80)): go = true
+      if button("Cancel", w = dp(80)): gpDlg.open = false
+  if go:
+    gpDlg.open = false
+    let d = cur()
+    if d == nil: return
+    let r = if d.hasSelection: d.selBounds else: rect(0, 0, d.w, d.h)
+    let border = gpDlg.kind > ord(high(GeoPattern))
+    let p = if border: geoBorder(r.x.float, r.y.float, (r.x + r.w).float, (r.y + r.h).float, gpDlg.cell.float)
+            else: geoPattern(GeoPattern(gpDlg.kind), r.x.float, r.y.float, (r.x + r.w).float, (r.y + r.h).float,
+                             gpDlg.cell.float)
+    var sd = ShapeData(path: p, fill: solidPaint(fg or 0xFF000000'u32), strokeWidth: gpDlg.stroke.float)
+    if gpDlg.stroke > 0: sd.stroke = solidPaint(bg or 0xFF000000'u32)
+    let nm = if border: tr("A Border of Stars") else: tr($GeoPattern(gpDlg.kind))
+    d.stepOnce("Islamic Pattern", proc () = discard d.addShapeLayer(sd, nm))
+    status = nm & ": " & $p.subs.len & tr(" shapes")

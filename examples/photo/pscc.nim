@@ -543,16 +543,33 @@ proc psMenus() =
       sep()
       ci("Get Google &Fonts...", "Get Google Fonts...")
       ci("Fi&nd Font...", "Find Font...", enabled = some)
+      ci("&Quran...", "Quran...")
       sep()
       ci("Text Frame &Options...", "Text Frame Options...", enabled = some and (te.on or (d.current.isText and
                                                                                     d.current.text.boxW > 0)))
       ci("Flow Into a &New Box", enabled = some and d.current.isText and d.current.text.boxW > 0)
       ci("Unlink Text Bo&x", "Unlink Text Box", enabled = some and d.current.flowFrom != 0)
       ci("Shorten to &Fit (AI)", "Shorten to Fit", enabled = some and d.current.isText and d.current.text.boxW > 0)
+      ci("Cop&yfit", "Copyfit", enabled = some and d.current.isText and d.current.text.boxW > 0)
       ci("Text &in Picture...", "Text in Picture...", enabled = some)
       ci("Paste &Lorem Ipsum", "Paste Lorem Ipsum", enabled = some)
       ci("Word &Shapes...", "Word Shapes...", enabled = some)
       ci("Insert Page N&umber", "Insert Page Number", enabled = some)
+      psSub "Insert Special C&haracter":
+        ci("&Current Page Number", "Insert Page Number", enabled = some)
+        ci("&Next Page Number", "Insert Next Page Number", enabled = some)
+        ci("&Previous Page Number", "Insert Previous Page Number", enabled = some)
+      psSub "Insert &White Space":
+        for (lab, nm) in [("&Em Space", "Em Space"), ("E&n Space", "En Space"), ("&Third Space", "Third Space"),
+                          ("&Quarter Space", "Quarter Space"), ("&Sixth Space", "Sixth Space"),
+                          ("T&hin Space", "Thin Space"), ("H&air Space", "Hair Space"),
+                          ("&Figure Space", "Figure Space"), ("&Punctuation Space", "Punctuation Space"),
+                          ("Non&breaking Space", "Nonbreaking Space")]:
+          ci(lab, "Insert White Space: " & nm, enabled = some and te.on)
+      psSub "Insert &Break Character":
+        ci("&Column Break", "Insert Break: Column Break", enabled = some and te.on)
+        ci("&Frame Break", "Insert Break: Frame Break", enabled = some and te.on)
+        ci("&Page Break", "Insert Break: Page Break", enabled = some and te.on)
       psSub "Text &Variables":
         ci("Insert &Page Number", "Insert Page Number", enabled = some)
         ci("Insert &Number of Pages", "Insert Number of Pages", enabled = some)

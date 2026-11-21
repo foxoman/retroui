@@ -19,6 +19,10 @@
 ##   it changes.
 ## - `editPlain`: a text's words made another's (a story editor's): only
 ##   what changed changes, the styles of the rest kept.
+## - `arabicFold`, `findFolded`: Arabic as written either way -- with or
+##   without harakat and the other marks, tatweel, hamza's seats (أ إ آ ٱ
+##   as ا, ؤ as و, ئ as ي), ى as ي and ة as ه -- found as the same; `findIn`
+##   and `changeIn` take it as `arabic`.
 ## - `findGlyph`, `changeGlyph`: Find/Change's Glyph search -- a character
 ##   in a font (or any), changed to another, in a font of its own.
 ## - `SavedQuery`, `builtInQueries`, `queriesToJson`, `queriesFrom`:
@@ -361,6 +365,53 @@ proc expand*(change: string; m: Match; cps: seq[int]): string =
       result.add c
       inc i
 
+# ---- Arabic as written either way ----------------------------------------------------------------------
+
+proc arabicLeftOut*(c: int): bool =
+  ## Left out when Arabic is matched as written either way: the harakat and the Quran's marks (all
+  ## combining marks of the Arabic block), tatweel.
+  c in 0x0610 .. 0x061A or c in 0x064B .. 0x065F or c == 0x0670 or c in 0x06D6 .. 0x06DC or
+    c in 0x06DF .. 0x06E4 or c in 0x06E7 .. 0x06E8 or c in 0x06EA .. 0x06ED or c in 0x08D3 .. 0x08FF or
+    c == 0x0640
+
+proc arabicBase*(c: int): int =
+  ## A letter as Arabic matched either way has it: hamza's seats as the letter (أ إ آ ٱ ا, ؤ و,
+  ## ئ ي), ى as ي, ة as ه; the rest as it is.
+  case c
+  of 0x0622, 0x0623, 0x0625, 0x0671, 0x0672, 0x0673: 0x0627
+  of 0x0624: 0x0648
+  of 0x0626, 0x0649, 0x06CC: 0x064A
+  of 0x0629: 0x0647
+  else: c
+
+proc arabicFold*(cps: openArray[int]): tuple[cps: seq[int]; at: seq[int]] =
+  ## `cps` as Arabic is matched either way (`arabicLeftOut` gone, each letter its `arabicBase`),
+  ## and where each of what is left came from.
+  for i, c in cps:
+    if arabicLeftOut(c): continue
+    result.cps.add arabicBase(c)
+    result.at.add i
+
+proc arabicFolded*(s: string): string =
+  ## A string as Arabic is matched either way.
+  for r in s.runes:
+    let c = int(r)
+    if not arabicLeftOut(c): result.add $Rune(arabicBase(c))
+
+proc findFolded*(p: Pattern; cps: seq[int]; start = 0): Match =
+  ## As `find`, Arabic matched as written either way (`p` made from an `arabicFolded` search): the
+  ## places in `cps` as they are -- a letter's marks after it with it.
+  result = Match(a: -1, b: -1)
+  let (f, at) = arabicFold(cps)
+  var s0 = 0
+  while s0 < at.len and at[s0] < start: inc s0
+  let m = p.find(f, s0)
+  if m.a < 0: return
+  template back(j: int): int = (if j >= at.len: cps.len else: at[j])
+  result = Match(a: back(m.a), b: (if m.b > m.a: back(m.b) else: back(m.a)))
+  for g in m.groups:
+    result.groups.add(if g[0] < 0: (-1, -1) else: (back(g[0]), back(g[1])))
+
 # ---- in a text, keeping its styles ----------------------------------------------------------------------
 
 proc patternOf*(what: string; patterns, matchCase, wholeWord: bool): Pattern =
@@ -371,19 +422,29 @@ proc patternOf*(what: string; patterns, matchCase, wholeWord: bool): Pattern =
     compilePattern(src, ignoreCase = not matchCase)
   else: literalPattern(what, ignoreCase = not matchCase, wholeWord = wholeWord)
 
-proc findIn*(t: TextData; what: string; patterns = false; matchCase = false; wholeWord = false): seq[Match] =
-  ## Each place `what` is in the text (characters).
+proc findIn*(t: TextData; what: string; patterns = false; matchCase = false; wholeWord = false;
+             arabic = false): seq[Match] =
+  ## Each place `what` is in the text (characters); `arabic`: Arabic matched as written either way
+  ## (`findFolded`).
   if what.len == 0: return
-  patternOf(what, patterns, matchCase, wholeWord).findAll(t.plainText)
+  if not arabic: return patternOf(what, patterns, matchCase, wholeWord).findAll(t.plainText)
+  let p = patternOf(arabicFolded(what), patterns, matchCase, wholeWord)
+  let cps = runesOf(t.plainText)
+  var at = 0
+  while at <= cps.len:
+    let m = p.findFolded(cps, at)
+    if m.a < 0: break
+    result.add m
+    at = if m.b > m.a: m.b else: m.a + 1
 
 proc changeIn*(t: var TextData; what, change: string; patterns = false; matchCase = false;
-               wholeWord = false): int =
+               wholeWord = false; arabic = false): int =
   ## Each place `what` is in the text changed to `change` (its groups in it); the rest keeps its
   ## styles, each change takes the style of the first letter it replaces. How many changed.
+  ## `arabic`: Arabic matched as written either way.
   if what.len == 0: return 0
-  let p = patternOf(what, patterns, matchCase, wholeWord)
   let cps = runesOf(t.plainText)
-  let found = p.findAll(t.plainText)
+  let found = t.findIn(what, patterns, matchCase, wholeWord, arabic)
   for k in countdown(found.high, 0):
     let m = found[k]
     let st = t.styleAt(m.a)

@@ -999,6 +999,13 @@ proc misspelledWord(w, lang: string): bool =
   if sc != c.script: return false             # (a dictionary knows its own letters only)
   if engineSpells(c, w): return false
   if "\xE2\x80\x99" in w and engineSpells(c, w.replace("\xE2\x80\x99", "'")): return false
+  if sc == scArabic:
+    # (Arabic written with harakat, tatweel or the Quran's marks: the dictionary has the letters)
+    var bare = ""
+    for r in w.runes:
+      let k = int(r)
+      if not (isMark(k) or k == 0x0640): bare.add r.toUTF8
+    if bare.len > 0 and bare != w and engineSpells(c, bare): return false
   true
 
 proc isMisspelled*(word: string; lang = ""): bool =

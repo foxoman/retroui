@@ -216,6 +216,14 @@ proc insertTyped(s: string) =
       te.style = d.paraStyles[k2].char
       te.style.styleName = ""
 
+proc insertBreak(kind: ParaStart) =
+  ## Type > Insert Break Character: the paragraph ended at the caret, the next one starting in the
+  ## next column, frame or page (its Keep Options' Start Paragraph).
+  insertTyped("\n")
+  let c = te.caret
+  editText(proc (t: var TextData) =
+    t.changeParas(c, c, proc (p: var ParaStyle) = p.startAt = kind))
+
 proc deleteSel(): bool =
   let (a, b) = selRange()
   if a == b: return false

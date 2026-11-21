@@ -68,6 +68,11 @@ phone's own libraries run.
   refuses them); Google, Mapbox, HERE, Azure Maps, TomTom, MapTiler,
   Stadia, Esri, Amap, Tencent and Tianditu need your own key and your
   agreement with them.
+- **The Quran's text** (`retroui/quran`; Retro Atelier's Type > Quran...,
+  when the user downloads it): Tanzil's Quran text (tanzil.net), under
+  its terms -- copied verbatim, never changed, tanzil.net named as its
+  source. It is never carried in an app or the repository; the file is
+  kept as Tanzil gives it, its notice with it.
 - **Google Fonts** (`retroui/googlefonts`, when an app downloads a family):
   each family's license (mostly SIL Open Font License 1.1), saved with it.
 - **Language models** (`retroui/modelstore`, when the user downloads one;

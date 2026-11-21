@@ -1257,6 +1257,10 @@ type
     pageLabel*: string             ## a book's page: its number as it is printed ("7", "vii", "٧");
                                    ## what `<#>` in a type layer shows ("": not a page: `<#>` stays)
     pageTotal*: string             ## ... and how many pages the book has, so written: `<##>`
+    jumps*: Table[int, tuple[prev, next: string]]
+                                   ## ... for a type layer (`uid`) whose story goes on in other boxes,
+                                   ## the page numbers of the box before and after it, as printed:
+                                   ## `<#->` and `<#+>` ("Continued from page", "on page")
     spine*: int                    ## ... where the spine is: -1 at its left edge (a right page), 1 at
                                    ## its right (a left page), 0 none (Text Wrap's toward the spine)
     flowIn*: Table[int, TextData]  ## a book's page: for a type layer (`uid`) whose box goes on from
@@ -2320,9 +2324,22 @@ proc effectiveText*(d: Doc; L: Layer; depth = 0): TextData =
   ## The text a type layer shows: its own; or, flowing on from another box
   ## (`flowFrom`; a book: from another page, `flowPage`), what did not fit
   ## that one, set in this one's box. A page of a book: `<#>` is its number
-  ## and `<##>` the number of pages (not while it is typed in: `rawText`).
+  ## and `<##>` the number of pages (not while it is typed in: `rawText`);
+  ## `<#->` and `<#+>` the pages of the boxes its story comes from and goes on
+  ## in (`jumps`; in one document, its own page).
   ## Text in a box keeps out of what has Text Wrap (`wrapHoles`).
   result = d.flowedText(L, depth)
+  if L.uid == 0 or d.rawText != L.uid:
+    # (the box before's and after's page: the book's, else this page -- or nothing)
+    var jump = d.jumps.getOrDefault(L.uid, ("", ""))
+    if jump.prev.len == 0 and jump.next.len == 0 and L.uid != 0:
+      let here = if d.pageLabel.len > 0: d.pageLabel else: "1"
+      if L.flowFrom != 0: jump.prev = here
+      for M in d.layers:
+        if M.isText and M.flowFrom == L.uid: jump.next = here
+    for s in result.spans.mitems:
+      if "<#-" in s.text or "<#+" in s.text:
+        s.text = s.text.multiReplace(("<#->", jump.prev), ("<#+>", jump.next))
   if d.pageLabel.len > 0 and (L.uid == 0 or d.rawText != L.uid):
     for s in result.spans.mitems:
       if "<#" in s.text:

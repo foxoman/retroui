@@ -920,6 +920,7 @@ proc layoutMenu() =
   ci("Insert Ma&p...", "Insert Map...", enabled = some)
   ci("Edit Chart or Ma&p...", "Edit Chart or Map...", enabled = some and igOf(d) != nil)
   ci("Photo &Grid...", "Photo Grid...", enabled = some)
+  ci("Islamic Patter&n...", "Islamic Pattern...", enabled = some)
   sep()
   ci("Resi&ze for...", "Resize for...", enabled = some)
   ci("&Brand Kit...", "Brand Kit...")

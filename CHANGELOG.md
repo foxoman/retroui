@@ -290,6 +290,35 @@
   256 to 4096): the most memory the build with threads may have (1 GB
   else) -- a big picture's; a browser that will not give it gets the build
   without threads.
+- **Arabic typesetting, from Yaqout's manual** (`retroui/textsearch`,
+  `retroui/textengine`, `retroui/spell`, `retroui/photo`): Arabic found as
+  it is written either way (`arabicFolded`, `findFolded`; `findIn` and
+  `changeIn` with `arabic`) -- harakat and tatweel left out, أ إ آ ٱ as ا,
+  ؤ as و, ئ and ى as ي, ة as ه --, each match where it is in the text as
+  typed; a word with harakat spelled without them. White spaces of a set
+  width (`fixedSpaceEm`): em, en, third, quarter, sixth, thin (an eighth),
+  hair (a 24th), figure (a digit's width) and punctuation (a full stop's),
+  neither broken at nor stretched by justification. Copyfit (`copyfit`,
+  `scaledType`): a box's type made as big as still fits it whole, smaller
+  or bigger, its sizes kept in proportion. `<#->` and `<#+>` in a type
+  layer: the pages of the boxes its story comes from and goes on in
+  (`Doc.jumps`, filled for a book's pages; in one document, its own page).
+  The tashkeel moved by hand (`CharStyle.markShift`, with `markRaise`):
+  across, toward the line's end, the letters where they were.
+- **The Quran's text** (`retroui/quran`, new): a Tanzil text file
+  (`sura|aya|text`, Uthmani or simple) read (`loadQuran`, `parseQuran`); a
+  sura's ayat, an ayah, a passage with each ayah's number in Arabic-Indic
+  digits in ornate brackets (﴿١﴾, which most Arabic fonts draw) or after
+  the end-of-ayah sign (۝١, a Quran font's ornament; `AyahEnds`,
+  `passage`), searched as written either way
+  (`search`), the sura names; a text typed by hand checked against it
+  letter by letter and mark by mark (`checkTyped`: the places it differs).
+  No text in the library: the file is the user's own or downloaded.
+- **Islamic geometric patterns** (`retroui/geopatterns`, new): eight-pointed
+  stars and crosses (khatam), six-pointed stars, octagons with a star cut
+  out of each (`geoPattern`), and a border of eight-pointed stars
+  (`geoBorder`), as a path of closed motifs -- a shape layer's outline, to
+  fill, stroke or put inside a frame.
 - **Scrubby labels in the app's language** (`retroui/widgets`): `scrubLabel`
   draws its label translated, as it was measured (in Arabic the Layers
   panel's Opacity and Fill were English and cut off). Retro Atelier's
@@ -450,6 +479,18 @@
   it is chosen). In a file manager's "Open with" and in the share sheets
   for pictures, PSD, PDF, AI, EPS and IDML; a file opened so is written
   back when that app allows it, else Save asks where.
+- **Retro Atelier**, from Yaqout's Arabic typesetting manual: Type >
+  Quran... -- the text downloaded once from Tanzil or opened from a file,
+  a sura's ayat set in the text being typed or as a new text box (each
+  ayah's number in ornate brackets, after the end-of-ayah sign, or none), searched, and a passage typed by hand checked
+  against it (the places it differs marked). Layout > Islamic Pattern...
+  (a pattern or a border over the page or the selection, filled with the
+  foreground colour, stroked with the background one). Type > Insert White
+  Space (em to hair, figure, punctuation, nonbreaking), Insert Break
+  Character (column, frame, page), Insert Special Character's next and
+  previous page numbers ("continued on page"), and Copyfit. Find/Change's
+  "Arabic as written either way". The Character panel's "Move Tashkeel"
+  beside raising it. All of it in Arabic too.
 
 ## 0.66.0
 

@@ -350,11 +350,55 @@ proc doCommand(name: string) =
   ## Does what menu item `name` (without its "&") says.
   if xf.on: finishTransform(true)          # (another command: the transform is done)
   if wm.kind != wkNone and name notin ["OK", "Cancel"]: modeFinish(true)
-  if name in ["Insert Page Number", "Insert Number of Pages"]:
-    # (into the text being typed: a marker the page's number is shown for)
-    if te.on: insertTyped(if name == "Insert Page Number": "<#>" else: "<##>")
+  if name in ["Insert Page Number", "Insert Number of Pages", "Insert Next Page Number",
+              "Insert Previous Page Number"]:
+    # (into the text being typed: a marker the page's number is shown for -- or the page of the box
+    # the story goes on in, or comes from: "Continued on page", "Continued from page")
+    if te.on:
+      insertTyped(case name
+                  of "Insert Page Number": "<#>"
+                  of "Insert Number of Pages": "<##>"
+                  of "Insert Next Page Number": "<#+>"
+                  else: "<#->")
     else: status = "Click in a text with the Type tool first: the number goes where the caret is. " &
                    "On a master page it is on every page."
+    return
+  if name == "Copyfit":
+    # (Type > Copyfit: the type made as big as fills its box, none of it overset)
+    let d = cur()
+    if d == nil: return
+    if te.on: commitType()
+    let L = d.current
+    if L == nil or not L.isText or L.text.boxW <= 0 or L.text.path.len > 0:
+      status = "Copyfit: pick a text in a box first"
+      return
+    let (u, k) = copyfit(L.text)
+    if abs(k - 1) < 0.0005:
+      status = "Copyfit: the text fills its box already"
+      return
+    d.stepOnce("Copyfit", proc () = d.setText(L, u))
+    status = tr("Copyfit: the type made ") & formatFloat(k * 100, ffDecimal, 1) & tr("% of its size -- it fills its box") &
+             (if layoutText(u).overflow >= 0: tr(" (some still overset at the smallest)") else: "")
+    return
+  if name.startsWith("Insert White Space: ") or name.startsWith("Insert Break: "):
+    if not te.on:
+      status = "Click in a text with the Type tool first: it goes where the caret is."
+      return
+    case name
+    of "Insert White Space: Em Space": insertTyped("\u2003")
+    of "Insert White Space: En Space": insertTyped("\u2002")
+    of "Insert White Space: Third Space": insertTyped("\u2004")
+    of "Insert White Space: Quarter Space": insertTyped("\u2005")
+    of "Insert White Space: Sixth Space": insertTyped("\u2006")
+    of "Insert White Space: Thin Space": insertTyped("\u2009")
+    of "Insert White Space: Hair Space": insertTyped("\u200A")
+    of "Insert White Space: Figure Space": insertTyped("\u2007")
+    of "Insert White Space: Punctuation Space": insertTyped("\u2008")
+    of "Insert White Space: Nonbreaking Space": insertTyped("\u00A0")
+    of "Insert Break: Column Break": insertBreak(psNextColumn)
+    of "Insert Break: Frame Break": insertBreak(psNextFrame)
+    of "Insert Break: Page Break": insertBreak(psNextPage)
+    else: discard
     return
   if te.on and name == "Word Shapes...":   # (for the letters selected: the text stays as it is typed)
     discard bookCommand(name)
@@ -522,6 +566,8 @@ proc doCommand(name: string) =
   of "Corner Options...": startLiveEffect(leCornerOptions)
   of "Print Booklet...": startPrintBooklet()
   of "Find Font...": startFindFont()
+  of "Quran...": startQuran()
+  of "Islamic Pattern...": startGeoPattern()
   of "Release to Layers (Sequence)", "Release to Layers (Build)":
     if d != nil and d.current.isShape:
       let L = d.current
@@ -2385,6 +2431,8 @@ proc moreDialogs() =
   mergeChannelsDialog()
   printBookletDialog()
   findFontDialog()
+  quranDialog()
+  geoPatternDialog()
   imageTraceDialog()
   makeBlendDialog()
   shapeBuilderDialog()

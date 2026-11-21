@@ -520,6 +520,8 @@ type
                                ## as marks) in a color of their own, ARGB (0: the letters')
     markRaise*: float32        ## ... raised by this many pixels from where the font puts them
                                ## (negative: lowered)
+    markShift*: float32        ## ... moved so many pixels toward the line's end (negative: back) --
+                               ## with `markRaise`, a mark nudged by hand where the font sets it
     noMarks*: bool             ## ... not drawn (Arabic without its tashkeel)
     lang*: string              ## its language (the Character panel's Language), as its words are
                                ## hyphenated: "en" ("": English), "fr", "de", "es", "it", "pt", "nl"
@@ -2307,6 +2309,23 @@ proc notesAsText*(t: TextData): TextData =
   for n in t.notes: ids.add n.id
   result.spans.add t.noteSpans(ids)
 
+proc fixedSpaceEm*(cp: int): float32 =
+  ## A white space of a set width (Type > Insert White Space): its width in ems -- em space 1, en
+  ## space 1/2, third 1/3, quarter 1/4, sixth 1/6, thin 1/8, hair 1/24; -1 a figure space (a
+  ## digit's width), -2 a punctuation space (a full stop's); 0 not one. Neither broken at nor
+  ## stretched by justification.
+  case cp
+  of 0x2001, 0x2003: 1'f32
+  of 0x2000, 0x2002: 0.5'f32
+  of 0x2004: 1'f32 / 3
+  of 0x2005: 0.25'f32
+  of 0x2006: 1'f32 / 6
+  of 0x2009: 0.125'f32
+  of 0x200A: 1'f32 / 24
+  of 0x2007: -1'f32
+  of 0x2008: -2'f32
+  else: 0'f32
+
 proc layoutText*(t: TextData): TextLayout
 
 proc notesLaid(t: TextData): TextLayout =
@@ -2571,6 +2590,41 @@ proc fitsBox(t: TextData; w, h: float32): bool =
   u.boxW = w
   u.boxH = h
   layoutText(u).overflow < 0
+
+proc scaledType*(t: TextData; k: float32): TextData =
+  ## The text's type made `k` times as big: each style's size, leading and baseline shift, the
+  ## paragraphs' indents and the room above and below them.
+  result = t
+  template scaleChar(c: var CharStyle) =
+    c.size *= k
+    if c.leading > 0: c.leading *= k
+    c.baselineShift *= k
+  template scalePara(p: var ParaStyle) =
+    p.indentLeft *= k
+    p.indentRight *= k
+    p.indentFirst *= k
+    p.spaceBefore *= k
+    p.spaceAfter *= k
+  for sp in result.spans.mitems: scaleChar(sp.style)
+  scalePara(result.para)
+  for p in result.paraFmts.mitems: scalePara(p)
+
+proc copyfit*(t: TextData; lo = 0.25'f32; hi = 4'f32): tuple[text: TextData; scale: float32] =
+  ## Copyfit: text in a box with its type made as big as still fits it whole -- smaller when some is
+  ## overset, bigger when room is left --, the sizes kept in proportion (`scaledType`), to a part in a
+  ## thousand; and by how much. `t` as it is when it is not in a box. Where even `lo` does not fit:
+  ## `lo`, still overset.
+  if t.boxW <= 0 or t.boxH <= 0 or t.path.len > 0 or t.spans.len == 0: return (t, 1'f32)
+  template fits(k: float32): bool = layoutText(scaledType(t, k)).overflow < 0
+  if not fits(lo): return (scaledType(t, lo), lo)
+  var a = lo
+  var b = hi
+  if fits(b): return (scaledType(t, b), b)
+  for _ in 0 ..< 24:
+    if b - a < 0.001'f32: break
+    let mid = (a + b) / 2
+    if fits(mid): a = mid else: b = mid
+  (scaledType(t, a), a)
 
 proc autoSized*(t: TextData): TextData =
   ## Text in a box with Auto-Size: the box as big as its text needs -- taller or shorter (Height
@@ -2946,6 +3000,12 @@ proc layoutPlain(t: TextData): TextLayout =
       if st.digits > 0 and c.cp >= ord('0') and c.cp <= ord('9'):
         nom = (if st.digits == 2: 0x06F0 else: 0x0660) + c.cp - ord('0')
       if st.allCaps or st.smallCaps: nom = int(Rune(nom).toUpper)
+      # (a white space of a set width -- em, en, thin, hair...: drawn and shaped as a space, sized
+      # below)
+      let fixedW = fixedSpaceEm(c.cp)
+      if fixedW != 0:
+        shown = 32
+        nom = 32
       c.nominal = nom
       let (f, g) = pickGlyph(faces[c.style].face, shown,
                              emoji = k + 1 < paraEnd and chars[k + 1].cp == 0xFE0F)
@@ -2961,6 +3021,13 @@ proc layoutPlain(t: TextData): TextLayout =
                     float32(st.tracking) / 1000 * st.size +
                     (if c.space: float32(st.wordSpace) / 1000 * st.size else: 0'f32)
       if c.cp == 9 or c.cp == 8: c.adv = st.size * 2      # (a tab: to its stop, once its line is known)
+      if fixedW != 0:
+        # (as wide as its kind says, whatever the font: a part of the em, a figure's, a full stop's)
+        let w = if fixedW > 0: fixedW * size
+                elif f != nil: float32(f.advance(f.glyphOf(if fixedW == -1: ord('0') else: ord('.')))) /
+                               float32(f.unitsPerEm) * size
+                else: size / 2
+        c.adv = w * st.hScale + float32(st.tracking) / 1000 * st.size
     # OpenType: runs of one style and direction in a font with layout tables,
     # set as the font says -- its joined forms, ligatures, marks placed,
     # kerning, the features chosen (else the forms above, one a character)
@@ -3022,7 +3089,16 @@ proc layoutPlain(t: TextData): TextLayout =
           if chars[j].parts.len > 0:
             a += float32(st.tracking) / 1000 * st.size
             if chars[j].space: a += float32(st.wordSpace) / 1000 * st.size
-          chars[j].adv = (if chars[j].cp in [8, 9]: st.size * 2 else: a)
+          let fw = fixedSpaceEm(chars[j].cp)
+          chars[j].adv = if chars[j].cp in [8, 9]: st.size * 2
+                         elif fw > 0:
+                           # (a white space of a set width, as the font's own space sets it)
+                           fw * chars[j].size * st.hScale + float32(st.tracking) / 1000 * st.size
+                         elif fw < 0 and chars[j].face != nil:
+                           float32(chars[j].face.advance(chars[j].face.glyphOf(if fw == -1: ord('0') else: ord('.')))) /
+                             float32(chars[j].face.unitsPerEm) * chars[j].size * st.hScale +
+                             float32(st.tracking) / 1000 * st.size
+                         else: a
           if chars[j].parts.len > 0: chars[j].gid = chars[j].parts[0].gid
         k = e
     # Thai vowels and tone marks a character at a time (the kit's FreeSerif
@@ -3557,7 +3633,9 @@ proc layoutPlain(t: TextData): TextLayout =
           let gs = if c.space: 1'f32 else: gScale
           for p in c.parts:
             if not c.space and not (p.mark and st.noMarks):
-              result.glyphs.add LaidGlyph(face: c.face, gid: p.gid, x: px + p.dx * gs,
+              let nudge = if p.mark and st.markShift != 0: (if rtlChar: -st.markShift else: st.markShift)
+                          else: 0'f32
+              result.glyphs.add LaidGlyph(face: c.face, gid: p.gid, x: px + p.dx * gs + nudge,
                                           y: y - p.dy - (if p.mark: st.markRaise else: 0'f32), size: c.size,
                                           hScale: st.hScale * gs, vScale: st.vScale,
                                           embolden: (if st.fauxBold or fb.fauxBold: max(0.6'f32, c.size / 28) else: 0'f32),
@@ -3574,7 +3652,8 @@ proc layoutPlain(t: TextData): TextLayout =
           elif st.script == scSub: y += st.size * 0.15
           let fb = faces[c.style]
           let mk = isMark(c.cp)
-          result.glyphs.add LaidGlyph(face: f, gid: g, x: x + c.markDx,
+          let nudge = if mk and st.markShift != 0: (if rtlChar: -st.markShift else: st.markShift) else: 0'f32
+          result.glyphs.add LaidGlyph(face: f, gid: g, x: x + c.markDx + nudge,
                                       y: y - c.markDy - (if mk: st.markRaise else: 0'f32), size: c.size,
                                       hScale: st.hScale * gScale,
                                       vScale: st.vScale,
@@ -5034,6 +5113,7 @@ proc toJson*(st: CharStyle): JsonNode =
   if st.wordSpace != 0: result["wordSpace"] = %st.wordSpace
   if st.markColor != 0: result["markColor"] = %int64(st.markColor)
   if st.markRaise != 0: result["markRaise"] = %st.markRaise
+  if st.markShift != 0: result["markShift"] = %st.markShift
   if st.noMarks: result["noMarks"] = %true
   if st.lang.len > 0: result["lang"] = %st.lang
   for (k, f) in [("arabicFont", st.arabicFont), ("latinFont", st.latinFont)]:
@@ -5087,6 +5167,7 @@ proc charStyleFrom*(j: JsonNode): CharStyle =
   result.wordSpace = clamp(int(j.getF("wordSpace")), -1000, 10_000)
   result.markColor = uint32(int64(j.getF("markColor")) and 0xFFFFFFFF'i64)
   result.markRaise = float32(j.getF("markRaise"))
+  result.markShift = float32(j.getF("markShift"))
   result.noMarks = j.getB("noMarks")
   result.lang = j.getS("lang")
   if result.lang.len > 35: result.lang.setLen(0)
