@@ -520,6 +520,8 @@ proc doCommand(name: string) =
       status = if active.outline: tr("Outline View: the paths, type and pictures' boxes alone (again: as they look)")
                else: ""
   of "Corner Options...": startLiveEffect(leCornerOptions)
+  of "Print Booklet...": startPrintBooklet()
+  of "Find Font...": startFindFont()
   of "Release to Layers (Sequence)", "Release to Layers (Build)":
     if d != nil and d.current.isShape:
       let L = d.current
@@ -2381,6 +2383,8 @@ proc moreDialogs() =
   fadeDialog()
   scaleEffectsDialog()
   mergeChannelsDialog()
+  printBookletDialog()
+  findFontDialog()
   imageTraceDialog()
   makeBlendDialog()
   shapeBuilderDialog()

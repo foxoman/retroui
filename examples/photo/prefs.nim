@@ -108,6 +108,8 @@ proc loadPrefs() =
   p.printRes = st.getInt("pref.printRes", p.printRes)
   p.screenRes = st.getInt("pref.screenRes", p.screenRes)
   p.smartQuotes = st.getBool("pref.smartQuotes", p.smartQuotes)
+  p.smartReflow = st.getBool("pref.smartReflow", p.smartReflow)
+  p.deleteEmptyPages = st.getBool("pref.deleteEmptyPages", p.deleteEmptyPages)
   p.workingSpace = st.getInt("pref.workingSpace", p.workingSpace)
   p.embedProfile = st.getBool("pref.embed", p.embedProfile)
   p.keySet = st.getInt("pref.keyset", p.keySet)
@@ -182,6 +184,8 @@ proc savePrefs() =
   st["pref.printRes"] = $p.printRes
   st["pref.screenRes"] = $p.screenRes
   st["pref.smartQuotes"] = $p.smartQuotes
+  st["pref.smartReflow"] = $p.smartReflow
+  st["pref.deleteEmptyPages"] = $p.deleteEmptyPages
   st["pref.lorem"] = p.lorem
   st["pref.layerSizes"] = $p.layerSizes
   st["pref.workingSpace"] = $p.workingSpace
@@ -323,6 +327,7 @@ proc pageTools() =
     checkbox("Smart Guides (a move lines up with the other layers; Ctrl held: free)", smartGuidesOn)
   group("Type"):
     checkbox("Use Smart Quotes", prefs.smartQuotes)
+    checkbox("Smart Text Reflow", prefs.smartReflow)
 
 proc pageFiles() =
   group("File Saving Options"):
@@ -504,6 +509,10 @@ proc pageType() =
   group("Type Options"):
     checkbox("Use Smart Quotes", prefs.smartQuotes)
     label("Typed \" and ' become “ ” and ‘ ’ (and ’ inside a word).", color = ui.theme.gray)
+    checkbox("Smart Text Reflow", prefs.smartReflow)
+    label("In a book: text that no longer fits its box goes on through new pages at the end.",
+          color = ui.theme.gray)
+    checkbox("Delete Empty Pages", prefs.deleteEmptyPages, enabled = prefs.smartReflow)
   group("Placeholder Text"):
     editArea(prefs.lorem, lines = 3)
     label("Type > Paste Lorem Ipsum puts this in (empty: the Latin of Lorem Ipsum).", color = ui.theme.gray)

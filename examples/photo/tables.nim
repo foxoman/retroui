@@ -230,6 +230,18 @@ proc tableDialogs() =
           wellRow("Text", bodyColor, "tblbc")
           wellRow("Rows' fill", fill, "tblf")
           wellRow("Stripes", altFill, "tbla")
+          if ts.altFill != 0:
+            # (the stripes' pattern: so many plain rows, then so many striped, after some left plain)
+            row([150, -1, 60]):
+              label "Plain rows:"
+              discard spin(ts.altFirst, 1, 20, w = dp(56))
+            row([150, -1, 60]):
+              label "Striped rows:"
+              discard spin(ts.altNext, 1, 20, w = dp(56))
+            row([150, -1, 60]):
+              label "Skip first:"
+              discard spin(ts.altSkip, 0, 100, w = dp(56))
+          wellRow("Column stripes", colAltFill, "tblca")
         group("Lines"):
           var kind = if ts.border == 0: 0 elif ts.inner: 3 elif ts.rowLines: 2 else: 1
           row:
@@ -330,6 +342,19 @@ proc tableDialogs() =
               for k in 0 .. 3:
                 if cellDlg.sides[k]: cellDlg.f.strokes[k] = CellStroke()
           label("Weight 0: no line on those sides.", color = ui.theme.gray)
+        group("Diagonal Lines"):
+          row:
+            label "Line:"
+            discard combo([tr("None"), tr("Top Left to Bottom Right"), tr("Bottom Left to Top Right"),
+                           tr("Both")], cellDlg.f.diagonal, w = dp(200))
+          if cellDlg.f.diagonal > 0:
+            row:
+              label "Weight:"
+              discard d.lengthField(cellDlg.f.diagWidth, dp(64), 0, 100)
+              label unitShort()
+              var c = if cellDlg.f.diagColor != 0: cellDlg.f.diagColor else: 0xFF000000'u32
+              if colorWell(c, "celldiag", dp(40)): cellDlg.f.diagColor = c or 0xFF000000'u32
+            label("Weight 0: as the table's lines.", color = ui.theme.gray)
       else:
         row([150, -1]):
           label "Row Height:"

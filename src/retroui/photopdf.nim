@@ -253,6 +253,14 @@ proc addVector(p: PdfPage; d: Doc; L: Layer; ox, oy, k: float; o: PdfOptions) =
       template bars(list: seq[Decoration]) =
         # (a table's fills under the letters; underlines, strikes and a table's lines over them)
         for dcr in list:
+          if dcr.line:
+            # (a table cell's diagonal: a line)
+            p.paintOf(dcr.color, o.cmyk, true)
+            p.lineWidth(dcr.thick.float * k)
+            p.moveTo(X(dcr.x0.float), Y(dcr.y.float))
+            p.lineTo(X(dcr.x1.float), Y(float(dcr.y + dcr.rise)))
+            p.stroke()
+            continue
           p.paintOf(dcr.color, o.cmyk, false)
           p.rect(X(dcr.x0.float), Y(float(dcr.y - dcr.thick / 2)), float(dcr.x1 - dcr.x0) * k, dcr.thick.float * k)
           p.fill()
@@ -599,6 +607,30 @@ proc addSpreadPage*(pdf: PdfDoc; docs: openArray[Doc]; o: PdfOptions): PdfPage {
                 else: "")
     discard p.text(room, room + ph + room - 12, info, size = 6, color = color(0, 0, 0))
 
+
+proc addBookletPage*(pdf: PdfDoc; left, right: Doc; o: PdfOptions; space = 0.0; shift = 0.0;
+                     w = 0; h = 0): PdfPage {.discardable.} =
+  ## A printer's spread of a booklet at the end of `pdf`: page `left` and page `right` side by side
+  ## (nil: a blank page, `w` x `h` pixels as the others), `space` points between them, each one's
+  ## content moved `shift` points toward the fold (negative: away from it -- creep) and cut at its
+  ## own page's edges.
+  let d0 = if left != nil: left else: right
+  let dpi = if d0 != nil and d0.dpi > 0: d0.dpi else: 72.0
+  let k = 72 / dpi
+  let pw = (if d0 != nil: d0.w else: w).float * k
+  let ph = (if d0 != nil: d0.h else: h).float * k
+  result = pdf.addPage((2 * pw + space, ph))
+  let p = result
+  for side in 0 .. 1:
+    let dd = if side == 0: left else: right
+    if dd == nil: continue
+    let x0 = if side == 0: 0.0 else: pw + space
+    let dx = if side == 0: shift else: -shift
+    p.saveState()
+    p.rect(x0, 0, pw, ph)
+    p.clip()
+    p.drawDocAt(dd, x0 + dx, 0, k, o, bleed = false)
+    p.restoreState()
 
 proc addDocPage*(pdf: PdfDoc; d: Doc; o: PdfOptions): PdfPage {.discardable.} =
   ## `d` as a page at the end of `pdf`: its size the document's (its pixels

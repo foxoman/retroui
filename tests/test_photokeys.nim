@@ -256,6 +256,20 @@ block objects:
   run(1)
   check pair.mask == nil and e.layers.len == 3, "Release Opacity Mask: a layer again"
 
+block findFont:
+  let f = newDoc(200, 80, 0xFFFFFFFF'u32, name = "fonts")
+  addDoc(f)
+  run(2)
+  var st = defaultStyle()
+  st.family = "FreeSerif"
+  f.layersChange("Type"): discard f.addTextLayer(newText("Serif here", st, 10, 40))
+  runCommand("Find Font...")
+  run(2)
+  check fontFind.open and fontFind.fonts.len == 1 and fontFind.fonts[0].family == "FreeSerif",
+        "Find Font: the font the type is in"
+  fontFind.open = false
+  run(1)
+
 if failures > 0:
   echo "test_photokeys: ", failures, " failed"
   quit(1)

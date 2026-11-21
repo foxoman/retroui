@@ -257,7 +257,9 @@ moment, Shift+Alt and a letter for a blend mode, Shift and a number for flow),
 and Edit > Fade, Paste Outside, the Path and Spin blurs, Create Layers, Split and
 Merge Channels and proofs for color blindness are there; so are Paste in Front
 and in Back, Outline View, Corner Options on any shape, Release to Layers and
-opacity masks. File > Export > Export for Screens writes artboards or objects at 1x, 2x, 3x...
+opacity masks; and for books, Print Booklet (saddle stitch or perfect bound,
+with creep), Find Font, column rules, table stripes in a pattern and diagonal
+cell lines, page color labels and Smart Text Reflow. File > Export > Export for Screens writes artboards or objects at 1x, 2x, 3x...
 as PNG, JPEG, WebP, SVG and PDF; DXF drawings and EPS files open as shapes.
 Window > Timeline plays an animation's frames (an animated GIF,
 WebP or PNG opens as them) and File > Export > Save Animation saves them. Type takes colour fonts and emoji; the layout dialogs' lengths

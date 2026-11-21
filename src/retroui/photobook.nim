@@ -93,6 +93,7 @@ type
     id*: int                         ## who it is, wherever it is moved to
     master*: int                     ## its master (`Master.id`; 0: none)
     restart*: int                    ## > 0: page numbers start again here, at this number
+    label*: int                      ## its color in the Pages panel (`LayerColors`, from 1; 0: none)
     doc: Doc                         # (in memory; nil: parked in `file`)
     file: string
     dirty: bool                      # (changed since it was written to `file`)
@@ -342,6 +343,13 @@ proc touch*(b: Book; i: int) =
   ## changes to save. What is drawn again is seen by itself.
   b.pages[i].dirty = true
   b.pages[i].thumbStale = true
+  b.modified = true
+
+proc setPageLabel*(b: Book; i, label: int) =
+  ## Page `i` marked in a color in the Pages panel (`LayerColors`, from 1; 0: none) -- to see at a
+  ## glance which pages are done, waiting, to check.
+  if i notin 0 .. b.pages.high: return
+  b.pages[i].label = clamp(label, 0, LayerColors.len)
   b.modified = true
 
 proc changed*(b: Book): bool =
@@ -1141,6 +1149,84 @@ proc autoflow*(b: Book; i: int; L: Layer; most = 500; keep: openArray[int] = [])
     b.stow(b.pages[at])
     b.pages[at].doc = nil
 
+proc plainPaper(L: Layer): bool =
+  ## (a page's Background with nothing on it: one color all over)
+  if L.px.len == 0: return true
+  let p0 = L.px[0]
+  for p in L.px:
+    if p != p0: return false
+  true
+
+proc smartReflow*(b: Book; i: int; added: var seq[int]; deleteEmpty = false; keep: openArray[int] = []):
+                  tuple[added, removed: int] =
+  ## Smart Text Reflow, as text is typed or set: a story threaded through pages that has a box on
+  ## page `i` -- its text set again along its boxes to its last one -- goes on through new pages at
+  ## the book's end when that last box cannot hold the rest (`autoflow`; the new pages' ids kept in
+  ## `added`); a box alone stays overset. `deleteEmpty`: the pages it added, at the book's end, that
+  ## the text no longer reaches -- nothing on them but empty boxes it would go on into -- taken out
+  ## again. The pages it opens are parked again, but for page `i` and those at `keep`.
+  if i notin 0 .. b.pages.high: return
+  let d = b.doc(i)
+  discard b.settle(i)
+  var stories: seq[Layer]
+  for L in d.layers:
+    if L.isText and L.text.boxW > 0 and L.text.boxH > 0 and L.text.path.len == 0 and L.fromMaster == 0 and
+       (L.flowOut or L.flowFrom != 0):
+      stories.add L
+  let held = @keep & @[i]
+  for L in stories:
+    # (along the story to its last box, each page's text set as it goes)
+    var at = i
+    var box = L
+    var seen = 0
+    while seen < MaxBookPages:
+      inc seen
+      let (j, next) = b.follower(at, box)
+      if j < 0 or next == nil: break
+      if at notin held and b.pages[at].doc != nil and at != j:
+        b.stow(b.pages[at])
+        b.pages[at].doc = nil
+      discard b.doc(j)
+      discard b.settle(j)
+      at = j
+      box = next
+    # (the last box: what it cannot hold goes on through new pages -- nothing added when it holds all)
+    let before = b.pages.len
+    let n = b.autoflow(at, box, keep = held)
+    for k in before ..< b.pages.len: added.add b.pages[k].id
+    result.added += n
+  if deleteEmpty:
+    while b.pages.len > 1:
+      let j = b.pages.high
+      let pg = b.pages[j]
+      if pg.id notin added or j in held: break
+      let pd = b.doc(j)
+      discard b.settle(j)
+      var empty = true
+      for L in pd.layers:
+        if L.fromMaster != 0 or (L.background and L.plainPaper): continue
+        if not L.isText or L.flowFrom == 0:
+          empty = false
+          break
+        if pd.flowIn.getOrDefault(uidOf(L), emptyText()).plainText.strip.len > 0:
+          empty = false
+          break
+      if not empty:
+        if j notin held:
+          b.stow(pg)
+          pg.doc = nil
+        break
+      # (the box before it goes on nowhere now)
+      for L in pd.layers:
+        if L.isText and L.flowFrom != 0:
+          let src = b.pageOfId(L.flowPage)
+          if src != nil and src.doc != nil:
+            for M in src.doc.layers:
+              if uidOf(M) == L.flowFrom: M.flowOut = false
+      added.delete(added.find(pg.id))
+      b.deletePage(j)
+      inc result.removed
+
 # ---- pictures of pages ---------------------------------------------------------------------
 
 proc pageOpen*(b: Book; i: int): bool =
@@ -1234,7 +1320,7 @@ proc setupJson(s: BookSetup): JsonNode =
      "baseline": s.baseline, "baselineStart": s.baselineStart}
 
 proc pageJson(pg: BookPage): JsonNode =
-  result = %*{"id": pg.id, "master": pg.master, "restart": pg.restart, "applied": pg.applied,
+  result = %*{"id": pg.id, "master": pg.master, "restart": pg.restart, "label": pg.label, "applied": pg.applied,
               "storedWith": int64(pg.storedWith), "inSig": int64(pg.inSig),
               "spanOut": int64(pg.spanOut), "spanApplied": int64(pg.spanApplied)}
   if pg.outText.len > 0:
@@ -1338,6 +1424,7 @@ proc loadBook*(path: string): Book =
     if pg == nil: continue
     pg.master = pj{"master"}.getInt(0)
     pg.restart = pj{"restart"}.getInt(0)
+    pg.label = clamp(pj{"label"}.getInt(0), 0, LayerColors.len)
     pg.applied = pj{"applied"}.getStr("")
     pg.storedWith = hashOf(pj{"storedWith"}.getBiggestInt(0))
     pg.spanOut = hashOf(pj{"spanOut"}.getBiggestInt(0))
@@ -1525,6 +1612,74 @@ proc exportBook*(b: Book; path: string; e: BookExport; keep: openArray[int] = []
   if pdf != nil:
     pdf.save(path)
     result.add path
+
+type
+  BookletKind* = enum
+    ## How File > Print Booklet puts the pages on sheets.
+    bkSaddle = "2-up Saddle Stitch"   ## folded sheets one in another, stapled through the fold
+    bkPerfect = "2-up Perfect Bound"  ## signatures of folded sheets, stacked and glued at the spine
+  Booklet* = object
+    ## Print Booklet's choices.
+    kind*: BookletKind
+    signature*: int      ## Perfect Bound: the pages of a signature -- 4, 8, 12, 16 or 32 (0: 4)
+    space*: float        ## points between the two pages of a printer's spread
+    creep*: float        ## points: the paper's thickness made up for -- negative, the inner sheets'
+                         ## pages moved toward the fold (the cover stays); positive, the outer
+                         ## sheets' away from it (the middle stays)
+
+proc bookletSpreads*(pages: int; bl: Booklet): seq[tuple[left, right: int; shift: float]] =
+  ## The printer's spreads of a booklet of `pages` pages, in the order they print: the pages side
+  ## by side (from 0; -1 a blank one, added to fill the last sheet or signature) and how far each
+  ## one's content moves toward the fold for creep (points). A sheet is two spreads, its front and
+  ## its back.
+  if pages <= 0: return
+  let sig = if bl.kind == bkSaddle: 0 else: (if bl.signature in [4, 8, 12, 16, 32]: bl.signature else: 4)
+  let n = if sig == 0: (pages + 3) div 4 * 4 else: (pages + sig - 1) div sig * sig
+  let size = if sig == 0: n else: sig
+  let sheets = size div 4                       # (sheets in one signature, or in the whole saddle)
+  for base in countup(0, n - 1, size):
+    for k in 0 ..< size div 2:
+      let lo = base + k
+      let hi = base + size - 1 - k
+      var (l, r) = if k mod 2 == 0: (hi, lo) else: (lo, hi)
+      if l >= pages: l = -1
+      if r >= pages: r = -1
+      let s = k div 2                           # (0: the outermost sheet)
+      let c = abs(bl.creep) / 2
+      let shift = if sheets <= 1 or bl.creep == 0: 0.0
+                  elif bl.creep < 0: c * s.float / float(sheets - 1)
+                  else: -c * float(sheets - 1 - s) / float(sheets - 1)
+      result.add (l, r, shift)
+
+proc saveBookletPdf*(b: Book; path: string; bl: Booklet; o: PdfOptions; keep: openArray[int] = []) =
+  ## File > Print Booklet: the book's pages on printer's spreads (`bookletSpreads`) in one PDF at
+  ## `path`, a spread a page -- printed both sides and folded, they read in order. The pages
+  ## opened for it are parked again, but for those at `keep`. Raises `IOError` when it cannot be
+  ## written.
+  b.reflow(keep)
+  let spreads = bookletSpreads(b.pages.len, bl)
+  if spreads.len == 0: return
+  let pdf = newPressPdf(o, b.name)
+  for (l, r, shift) in spreads:
+    var opened: seq[int]
+    for j in [l, r]:
+      if j >= 0 and b.pages[j].doc == nil: opened.add j
+    let dl = if l >= 0: b.doc(l) else: nil
+    let dr = if r >= 0: b.doc(r) else: nil
+    # (making the PDF is not a change to the pages)
+    if l >= 0 and r >= 0:
+      b.quietly(b.pages[l]):
+        b.quietly(b.pages[r]): pdf.addBookletPage(dl, dr, o, bl.space, shift, b.setup.w, b.setup.h)
+    elif l >= 0:
+      b.quietly(b.pages[l]): pdf.addBookletPage(dl, dr, o, bl.space, shift, b.setup.w, b.setup.h)
+    elif r >= 0:
+      b.quietly(b.pages[r]): pdf.addBookletPage(dl, dr, o, bl.space, shift, b.setup.w, b.setup.h)
+    else: pdf.addBookletPage(dl, dr, o, bl.space, shift, b.setup.w, b.setup.h)
+    for j in opened:
+      if j notin keep:
+        b.stow(b.pages[j])
+        b.pages[j].doc = nil
+  pdf.save(path)
 
 proc saveBookPdf*(b: Book; path: string; o: PdfOptions; keep: openArray[int] = []; first = 0; last = -1) =
   ## The book as a PDF, a page each, in order (pages `first` to `last`;

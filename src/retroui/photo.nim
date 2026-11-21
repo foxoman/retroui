@@ -2598,6 +2598,31 @@ proc setText*(d: Doc; L: Layer; t: TextData) =
   L.text = t
   d.drawText(L)
 
+proc fontsUsed*(d: Doc): seq[tuple[family, style: string; chars, layers: int]] =
+  ## Find Font: the fonts the document's type is set in, with the characters each sets and the
+  ## type layers it is in (the most used first).
+  for L in d.layers:
+    if not L.isText: continue
+    for (f, s, n) in L.text.fontsOf:
+      var found = false
+      for x in result.mitems:
+        if x.family == f and x.style == s:
+          x.chars += n
+          inc x.layers
+          found = true
+      if not found: result.add (f, s, n, 1)
+  result.sort(proc (a, b: tuple[family, style: string; chars, layers: int]): int = cmp(b.chars, a.chars))
+
+proc replaceFontAll*(d: Doc; fromFamily, fromStyle, toFamily, toStyle: string): int =
+  ## Find Font's Change All: `replaceFont` in every type layer, each drawn again. The number of
+  ## layers changed. (Undoable in a step: `touchLayers` first.)
+  for L in d.layers:
+    if not L.isText: continue
+    var t = L.text
+    if t.replaceFont(fromFamily, fromStyle, toFamily, toStyle) > 0:
+      d.setText(L, t)
+      inc result
+
 # ---- Character and Paragraph Styles -------------------------------------------------------------------------
 
 proc styleIndex*(list: seq[TextStyleDef]; name: string): int =

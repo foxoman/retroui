@@ -747,7 +747,12 @@ type
     headerBold*: bool          ## ... their text made bold (faux bold where the font has none)
     bodyColor*: uint32         ## the other rows' text color (0: as typed)
     fill*: uint32              ## the rows' fill (0: none)
-    altFill*: uint32           ## every other row's (0: as `fill`): stripes
+    altFill*: uint32           ## every other row's (0: as `fill`): stripes...
+    altFirst*, altNext*: int   ## ... `altFirst` rows of `fill`, then `altNext` of `altFill`, in turn
+                               ## (0: 1 each)
+    altSkip*: int              ## ... the first rows after the header left plain (`fill`)
+    colAltFill*: uint32        ## every other column's fill (0: none): stripes down the table (where a
+                               ## row has no stripe of its own)
     border*: uint32            ## the lines' color (0: no lines)
     borderW*: float32          ## ... their width in pixels (0: 1)
     inner*: bool               ## lines between all the cells (else round the table and under the header)
@@ -788,9 +793,22 @@ type
     inset*: array[4, float32]  ## room inside it, top, right, bottom, left (all 0: the table's `pad`)
     vAlign*: VertJust          ## where its text stands in its height
     rotation*: int             ## its text turned, degrees: 0, 90 (running up), 180, 270 (running down)
+    diagonal*: int             ## a line across it: 0 none, 1 top left to bottom right, 2 bottom left
+                               ## to top right, 3 both
+    diagColor*: uint32         ## ... its color (0: the table's lines', else black)
+    diagWidth*: float32        ## ... its width, pixels (0: the table's lines')
     rowSpan*, colSpan*: int    ## merged with the cells under and beside it (0, 1: itself alone);
                                ## the ones it covers say nothing
     style*: string             ## its Cell Style ("" none)
+
+  ColumnRule* = object
+    ## Lines down a text box's gutters, between its columns (Text Frame Options > Column Rules).
+    on*: bool
+    color*: uint32             ## ARGB (0: black)
+    width*: float32            ## pixels (0: 1)
+    dashed*: bool              ## in dashes (else a solid line)
+    top*, bottom*: float32     ## how far in from the top and from the bottom they stop (pixels)
+    frameHeight*: bool         ## from the box's top to its foot (else as far down as the text goes)
 
   TextHole* = tuple[x0, y0, x1, y1: float32]
     ## A rectangle a text's lines keep out of (`TextData.holes`).
@@ -820,6 +838,7 @@ type
     columns*: int              ## text in a box: in this many columns (0, 1: one), side by side;
                                ## what is more than the box holds is not drawn (`overflow`)
     gutter*: float32           ## ... the room between them (0: 12 pixels)
+    colRule*: ColumnRule       ## ... lines down the gutters between them
     clipOverflow*: bool        ## text in a box: what does not fit not drawn (it flows on into
                                ## another box -- `remainder`)
     gridStep*, gridStart*: float32  ## text in a box: its baselines on a grid of lines `gridStep`
@@ -1026,6 +1045,49 @@ proc normalize(t: var TextData) =
     else: o.add s
   if o.len == 0 and t.spans.len > 0: o.add TextSpan(text: "", style: t.spans[0].style)
   t.spans = o
+
+proc fontsOf*(t: TextData): seq[tuple[family, style: string; chars: int]] =
+  ## The fonts a text is set in -- each span's, and its Arabic or Latin letters' own font --
+  ## with how many characters each sets ("" family: FreeSans; "" style: Regular).
+  proc addFont(r: var seq[tuple[family, style: string; chars: int]]; f, s: string; n: int) =
+    let st = if s.len == 0: "Regular" else: s
+    for x in r.mitems:
+      if x.family == f and x.style == st:
+        x.chars += n
+        return
+    r.add (f, st, n)
+  for sp in t.spans:
+    let n = sp.text.runeLen
+    result.addFont sp.style.family, sp.style.style, n
+    if sp.style.arabicFont.family.len > 0:
+      result.addFont sp.style.arabicFont.family, (if sp.style.arabicFont.style.len > 0: sp.style.arabicFont.style
+                                             else: sp.style.style), 0
+    if sp.style.latinFont.family.len > 0:
+      result.addFont sp.style.latinFont.family, (if sp.style.latinFont.style.len > 0: sp.style.latinFont.style
+                                            else: sp.style.style), 0
+
+proc replaceFont*(t: var TextData; fromFamily, fromStyle, toFamily, toStyle: string): int =
+  ## Find Font's Change All in a text: every span (or Arabic or Latin font of one) set in
+  ## `fromFamily` `fromStyle` ("" style: any) set in `toFamily` `toStyle` ("" style: the style it
+  ## had). The number of spans changed.
+  template same(s: string): bool = fromStyle.len == 0 or (if s.len == 0: "Regular" else: s) == fromStyle
+  for sp in t.spans.mitems:
+    var hit = false
+    if sp.style.family == fromFamily and same(sp.style.style):
+      sp.style.family = toFamily
+      if toStyle.len > 0: sp.style.style = toStyle
+      hit = true
+    if sp.style.arabicFont.family == fromFamily and fromFamily.len > 0 and
+       same(if sp.style.arabicFont.style.len > 0: sp.style.arabicFont.style else: sp.style.style):
+      sp.style.arabicFont.family = toFamily
+      if toStyle.len > 0: sp.style.arabicFont.style = toStyle
+      hit = true
+    if sp.style.latinFont.family == fromFamily and fromFamily.len > 0 and
+       same(if sp.style.latinFont.style.len > 0: sp.style.latinFont.style else: sp.style.style):
+      sp.style.latinFont.family = toFamily
+      if toStyle.len > 0: sp.style.latinFont.style = toStyle
+      hit = true
+    if hit: inc result
 
 proc styleAt*(t: TextData; i: int): CharStyle =
   ## The style of character `i` (of the one before it at the end).
@@ -1521,9 +1583,13 @@ type
     para*: int                 ## the paragraph it is in (0 the first)
 
   Decoration* = object
-    ## An underline or a strike: a bar from `x0` to `x1` at `y`, `thick` thick.
+    ## An underline or a strike: a bar from `x0` to `x1` at `y`, `thick` thick
+    ## (`line`: a line from `x0`, `y` to `x1`, `y` + `rise`, `thick` wide -- a
+    ## table cell's diagonal).
     x0*, x1*, y*, thick*: float32  ## where it runs and how thick it is (pixels)
     color*: uint32                 ## ARGB
+    line*: bool                    ## a slanted line (else a bar)
+    rise*: float32                 ## ... how far its end is below its start
 
   TextLayout* = object
     ## A text laid out (`layoutText`): its glyphs, lines and bars, ready to
@@ -2351,6 +2417,31 @@ proc lineRunsOf(lay: TextLayout): seq[tuple[at, a, b, k: int]] =
     inc p
     i = j
 
+proc columnRules(l: var TextLayout; t: TextData; colW, gutter: float32) =
+  ## (Column Rules: a line down the middle of each gutter -- the box's height, or as far down as
+  ## its text goes -- in from the top and the foot as asked, solid or dashed)
+  let r = t.colRule
+  let w = if r.width > 0: r.width else: 1'f32
+  let c = if r.color != 0: r.color else: 0xFF000000'u32
+  var foot = t.y + t.boxH
+  if not r.frameHeight:
+    foot = t.y
+    for ln in l.lines: foot = max(foot, ln.baseline + ln.descent)
+  let y0 = t.y + r.top
+  let y1 = foot - r.bottom
+  if y1 - y0 < 1: return
+  for k in 1 ..< max(1, t.columns):
+    let x = t.x + float32(k) * colW + (float32(k) - 0.5'f32) * gutter
+    if r.dashed:
+      let dash = max(2'f32, w * 3)
+      var y = y0
+      while y < y1:
+        let e = min(y1, y + dash)
+        l.decorations.add Decoration(x0: x - w / 2, x1: x + w / 2, y: (y + e) / 2, thick: e - y, color: c)
+        y += dash * 2
+    else:
+      l.decorations.add Decoration(x0: x - w / 2, x1: x + w / 2, y: (y0 + y1) / 2, thick: y1 - y0, color: c)
+
 proc layoutText*(t: TextData): TextLayout =
   ## Where each glyph of the text goes (straight: warps and paths are made
   ## from this when drawn). Dynamic Text: as big as fills its box. Text in
@@ -2473,6 +2564,7 @@ proc layoutOnce(t: TextData): TextLayout =
   if not (t.table.on and t.boxH > 0): result.overflow = -1     # (a table cut where its box ends says so)
   if boxedCols: result.columnize(t, colW, gutter, starts)
   result.paraFrames(t, if boxedCols: colW else: t.boxW, gutter)
+  if boxedCols and cols > 1 and t.colRule.on: result.columnRules(t, colW, gutter)
 
 proc fitsBox(t: TextData; w, h: float32): bool =
   var u = t
@@ -4044,6 +4136,17 @@ proc textOutlines*(t: TextData; layout: TextLayout; fine = false): seq[TextOutli
       result.add pc
   for dcr in l.decorations:
     if onPath: continue
+    if dcr.line:
+      # (a slanted line: a thin quadrilateral round it)
+      let ex = dcr.x1 - dcr.x0
+      let ey = dcr.rise
+      let el = max(1e-6'f32, sqrt(ex * ex + ey * ey))
+      let nx = -ey / el * dcr.thick / 2
+      let ny = ex / el * dcr.thick / 2
+      let q = @[t.placePoint(l, dcr.x0 + nx, dcr.y + ny), t.placePoint(l, dcr.x1 + nx, dcr.y + dcr.rise + ny),
+                t.placePoint(l, dcr.x1 - nx, dcr.y + dcr.rise - ny), t.placePoint(l, dcr.x0 - nx, dcr.y - ny)]
+      result.add TextOutline(polys: @[q], color: dcr.color, glyph: -1)
+      continue
     var poly: seq[(float32, float32)]
     let n = if warped: max(1, int((dcr.x1 - dcr.x0) / 4)) else: 1
     let top = dcr.y - dcr.thick / 2
@@ -4267,6 +4370,16 @@ proc cellRef*(t: var TableStyle; r, c: int): var TableCell =
   while t.cells.len <= r: t.cells.add @[]
   while t.cells[r].len <= c: t.cells[r].add TableCell()
   t.cells[r][c]
+
+proc rowStriped*(ts: TableStyle; row: int): bool =
+  ## Row `row` (of the whole table, from 0) takes `altFill`: past the header and the rows
+  ## skipped, `altFirst` plain rows then `altNext` striped ones, in turn.
+  if ts.altFill == 0 or row < ts.headerRows: return false
+  let br = row - ts.headerRows - max(0, ts.altSkip)
+  if br < 0: return false
+  let a = max(1, ts.altFirst)
+  let b = max(1, ts.altNext)
+  br mod (a + b) >= a
 
 proc rowFmtAt*(t: TableStyle; r: int): TableRowFmt =
   ## A table row's height (auto where it has none).
@@ -4621,7 +4734,8 @@ proc tableLaid(t: TextData): TextLayout =
     let header = gr < ts.headerRows
     let f = if cl.f.fill != 0: cl.f.fill
             elif header and ts.headerFill != 0: ts.headerFill
-            elif ts.altFill != 0 and (gr - ts.headerRows) mod 2 == 1: ts.altFill
+            elif ts.rowStriped(gr): ts.altFill
+            elif ts.colAltFill != 0 and not header and cl.c mod 2 == 1: ts.colAltFill
             else: ts.fill
     if f != 0:
       let bx = cellBox(cl.r, cl.c, cl.rs, cl.cs)
@@ -4742,6 +4856,18 @@ proc tableLaid(t: TextData): TextLayout =
         vlines.add Decoration(x0: xx - s.width / 2, x1: xx + s.width / 2, y: (bx.y0 + bx.y1) / 2,
                               thick: bx.y1 - bx.y0 + s.width, color: s.color)
   for v in vlines: result.decorations.add v
+  # the cells' diagonals, over their lines
+  for cl in cells:
+    if not shown(cl.r) or cl.f.diagonal notin 1 .. 3: continue
+    let bx = cellBox(cl.r, cl.c, cl.rs, cl.cs)
+    let w = if cl.f.diagWidth > 0: cl.f.diagWidth else: bw
+    let c = if cl.f.diagColor != 0: cl.f.diagColor elif ts.border != 0: ts.border else: 0xFF000000'u32
+    if cl.f.diagonal in {1, 3}:
+      result.decorations.add Decoration(x0: bx.x0, x1: bx.x1, y: bx.y0, thick: w, color: c, line: true,
+                                        rise: bx.y1 - bx.y0)
+    if cl.f.diagonal in {2, 3}:
+      result.decorations.add Decoration(x0: bx.x0, x1: bx.x1, y: bx.y1, thick: w, color: c, line: true,
+                                        rise: bx.y0 - bx.y1)
   result.x0 = colX[0]
   result.x1 = colX[ncol]
   result.y0 = t.y
@@ -5009,6 +5135,10 @@ proc toJson*(t: TextData): JsonNode =
   if t.fit: result["fit"] = %true
   if t.columns > 1: result["columns"] = %t.columns
   if t.gutter > 0: result["gutter"] = %t.gutter
+  if t.colRule.on:
+    let r = t.colRule
+    result["colRule"] = %*{"color": int64(r.color), "width": r.width, "dashed": r.dashed, "top": r.top,
+                           "bottom": r.bottom, "frameHeight": r.frameHeight}
   if t.clipOverflow: result["clipOverflow"] = %true
   if t.paraFmts.len > 0:
     var a = newJArray()
@@ -5070,6 +5200,14 @@ proc textFrom*(j: JsonNode): TextData =
   result.fit = j.getB("fit")
   result.columns = j{"columns"}.getInt(0)
   result.gutter = j{"gutter"}.getFloat(0).float32
+  let cr = j{"colRule"}
+  if cr != nil and cr.kind == JObject:
+    result.colRule = ColumnRule(on: true, color: uint32(cr{"color"}.getBiggestInt(0) and 0xFFFFFFFF'i64),
+                                width: clamp(cr{"width"}.getFloat(0).float32, 0, 1000),
+                                dashed: cr{"dashed"}.getBool(false),
+                                top: clamp(cr{"top"}.getFloat(0).float32, 0, 100_000),
+                                bottom: clamp(cr{"bottom"}.getFloat(0).float32, 0, 100_000),
+                                frameHeight: cr{"frameHeight"}.getBool(false))
   result.clipOverflow = j.getB("clipOverflow")
   for f in j{"paraFmts"}.getElems:
     if result.paraFmts.len >= 100_000: break
@@ -5192,6 +5330,10 @@ proc cellToJson*(c: TableCell): JsonNode =
   if c.rowSpan > 1: result["rowSpan"] = %c.rowSpan
   if c.colSpan > 1: result["colSpan"] = %c.colSpan
   if c.style.len > 0: result["style"] = %c.style
+  if c.diagonal in 1 .. 3:
+    result["diagonal"] = %c.diagonal
+    if c.diagColor != 0: result["diagColor"] = %int64(c.diagColor)
+    if c.diagWidth > 0: result["diagWidth"] = %c.diagWidth
 
 proc cellFrom*(j: JsonNode): TableCell =
   if j == nil or j.kind != JObject: return
@@ -5210,6 +5352,9 @@ proc cellFrom*(j: JsonNode): TableCell =
   result.rowSpan = clamp(int(j.getF("rowSpan")), 0, 10_000)
   result.colSpan = clamp(int(j.getF("colSpan")), 0, 1000)
   result.style = j.getS("style")
+  result.diagonal = clamp(int(j.getF("diagonal")), 0, 3)
+  result.diagColor = uint32(int64(j.getF("diagColor")) and 0xFFFFFFFF'i64)
+  result.diagWidth = clamp(float32(j.getF("diagWidth")), 0, 1000)
 
 proc tableToJson*(ts: TableStyle): JsonNode =
   result = %*{"headerRows": ts.headerRows, "headerFill": int64(ts.headerFill),
@@ -5223,6 +5368,10 @@ proc tableToJson*(ts: TableStyle): JsonNode =
   result["widths"] = ws
   if ts.footerRows > 0: result["footerRows"] = %ts.footerRows
   if ts.noRepeat: result["noRepeat"] = %true
+  if ts.altFirst > 1: result["altFirst"] = %ts.altFirst
+  if ts.altNext > 1: result["altNext"] = %ts.altNext
+  if ts.altSkip > 0: result["altSkip"] = %ts.altSkip
+  if ts.colAltFill != 0: result["colAltFill"] = %int64(ts.colAltFill)
   if ts.styleName.len > 0: result["styleName"] = %ts.styleName
   var any = false
   var cs = newJArray()
@@ -5254,6 +5403,10 @@ proc tableFrom*(j: JsonNode): TableStyle =
       if result.widths.len < 200 and w.kind in {JInt, JFloat}: result.widths.add clamp(float32(w.getFloat), 0, 1000)
   result.footerRows = clamp(int(j.getF("footerRows")), 0, 100)
   result.noRepeat = j.getB("noRepeat")
+  result.altFirst = clamp(int(j.getF("altFirst")), 0, 100)
+  result.altNext = clamp(int(j.getF("altNext")), 0, 100)
+  result.altSkip = clamp(int(j.getF("altSkip")), 0, 1000)
+  result.colAltFill = c("colAltFill")
   result.styleName = j.getS("styleName")
   for row in j{"cells"}.getElems:
     if result.cells.len >= 10_000: break

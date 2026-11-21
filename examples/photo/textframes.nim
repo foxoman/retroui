@@ -16,7 +16,7 @@ var
     ## does: 0 thread, 1 the out port of a threaded box (its thread broken at the next box), 2 the
     ## in port of one (broken at the box before))
   tfDlg: tuple[open: bool; layer: Layer; cols: int; gutter: float32; auto, refPt: int;
-               inset: array[4, float32]; vjust: int; balance: bool]
+               inset: array[4, float32]; vjust: int; balance: bool; rule: ColumnRule]
     ## (lengths in the document's pixels, shown in the rulers' unit)
   tfApplied = ""
   tfPending = false
@@ -357,8 +357,9 @@ proc startTextFrameOptions() =
     return
   let ins = L.text.inset
   tfDlg = (true, L, max(1, L.text.columns), (if L.text.gutter > 0: L.text.gutter else: 12'f32),
-           ord(L.text.autoSize), L.text.autoRef, ins, ord(L.text.vjust), L.text.balance)
-  tfApplied = $(tfDlg.cols, tfDlg.gutter, tfDlg.auto, tfDlg.refPt, tfDlg.inset, tfDlg.vjust, tfDlg.balance)
+           ord(L.text.autoSize), L.text.autoRef, ins, ord(L.text.vjust), L.text.balance, L.text.colRule)
+  tfApplied = $(tfDlg.cols, tfDlg.gutter, tfDlg.auto, tfDlg.refPt, tfDlg.inset, tfDlg.vjust, tfDlg.balance,
+                tfDlg.rule)
   tfPending = true
   d.beginStep("Text Frame Options")
   d.touchLayers()
@@ -397,6 +398,26 @@ proc textFrameDialog() =
     row([130, -1]):
       label ""
       checkbox("Balance Columns", tfDlg.balance)
+    # (Column Rules: lines down the gutters)
+    row([130, -1]):
+      label ""
+      checkbox("Column Rules", tfDlg.rule.on, enabled = tfDlg.cols > 1)
+    if tfDlg.rule.on and tfDlg.cols > 1:
+      row([130, 90, -1]):
+        label "Rule weight:"
+        discard d.lengthField(tfDlg.rule.width, dp(80), 0, 400)
+        var c = if tfDlg.rule.color != 0: tfDlg.rule.color else: 0xFF000000'u32
+        if colorWell(c, "colrule", dp(40)): tfDlg.rule.color = c or 0xFF000000'u32
+      row([130, 90, 40, 90, -1]):
+        label "Rule: from top"
+        discard d.lengthField(tfDlg.rule.top, dp(80), 0, 20000)
+        label "foot"
+        discard d.lengthField(tfDlg.rule.bottom, dp(80), 0, 20000)
+        label unitShort()
+      row([130, -1]):
+        label ""
+        checkbox("Dashed", tfDlg.rule.dashed)
+        checkbox("The box's height", tfDlg.rule.frameHeight)
     # (Inset Spacing: room kept inside the box's sides)
     row([130, 90, 40, 90, -1]):
       label "Inset: top"
@@ -444,7 +465,8 @@ proc textFrameDialog() =
       if button("OK", isDefault = true, w = dp(80)): ok = true
       if button("Cancel", w = dp(80)): cancel = true
   let L = tfDlg.layer
-  let key = $(tfDlg.cols, tfDlg.gutter, tfDlg.auto, tfDlg.refPt, tfDlg.inset, tfDlg.vjust, tfDlg.balance)
+  let key = $(tfDlg.cols, tfDlg.gutter, tfDlg.auto, tfDlg.refPt, tfDlg.inset, tfDlg.vjust, tfDlg.balance,
+              tfDlg.rule)
   if key != tfApplied and not cancel:
     tfApplied = key
     var t = L.text
@@ -455,6 +477,7 @@ proc textFrameDialog() =
     for q in 0 .. 3: t.inset[q] = tfDlg.inset[q]
     t.vjust = VertJust(clamp(tfDlg.vjust, 0, ord(high(VertJust))))
     t.balance = tfDlg.balance
+    t.colRule = tfDlg.rule
     d.setText(L, t)
   if ok:
     tfDlg.open = false

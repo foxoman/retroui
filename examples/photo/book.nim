@@ -13,6 +13,8 @@ type BookWin = ref object
   master: int                    ## > 0: a master is worked on (its id), not a page
   side: PageSide                 ## ... its left or right page
   thumbAt: int                   ## (when the shown page's small picture was last made)
+  reflowVer: int                 ## (the page's `ver` Smart Text Reflow last looked at)
+  reflowAdded: seq[int]          ## (the pages it added: their ids)
 
 var
   books: seq[BookWin]
@@ -1003,6 +1005,19 @@ proc pageCell(bw: BookWin; i: int; w, h: int) =
   let t = (try: b.thumb(i, 200, fresh) except CatchableError: nil)
   if t != nil and t.w > 0: drawBitmap(pr, t)
   box(pr, (if on: ui.theme.select elif hit.hover: ui.theme.text else: ui.theme.edge), (if on: 2 else: 1))
+  let lb = b.pages[i].label
+  if lb in 1 .. LayerColors.len:
+    # (its color label: a band along its foot)
+    let c = LayerColors[lb - 1][1]
+    fill(rect(pr.x + 1, pr.y + pr.h - dp(5), pr.w - 2, dp(4)),
+         color(uint8((c shr 16) and 255), uint8((c shr 8) and 255), uint8(c and 255)))
+  ui.lastId = id
+  ui.lastRect = r
+  contextMenu:
+    submenu "Color Label":
+      if menuItem("None", checked = lb == 0): b.setPageLabel(i, 0)
+      for k, (name, _) in LayerColors:
+        if menuItem(name, checked = lb == k + 1): b.setPageLabel(i, k + 1)
   let st = style(size = 0.85, bold = on)
   let lab = b.label(i) & (if b.pages[i].master != 0 and b.masterOf(b.pages[i].master) != nil:
                             "  " & b.masterOf(b.pages[i].master).name else: "")
@@ -1206,6 +1221,19 @@ proc bookFrame() =
         status = "What reaches past the spine goes on, on the facing page"
     except CatchableError:
       status = "Could not read the facing page: " & getCurrentExceptionMsg()
+    # Smart Text Reflow: a box's text past its end goes on through new pages
+    if prefs.smartReflow and bw.dw.doc.ver != bw.reflowVer:
+      bw.reflowVer = bw.dw.doc.ver
+      try:
+        let r = bw.book.smartReflow(bw.page, bw.reflowAdded, prefs.deleteEmptyPages, keep = [bw.page])
+        if r.added > 0 or r.removed > 0:
+          status = tr("Smart Text Reflow: ") &
+                   (if r.added > 0: $r.added & tr(" pages added") else: $r.removed & tr(" empty pages taken out")) &
+                   " (" & $bw.book.pages.len & tr(" pages") & ")"
+          inc bw.dw.doc.ver
+          bw.reflowVer = bw.dw.doc.ver
+      except CatchableError:
+        status = "Smart Text Reflow: " & getCurrentExceptionMsg()
   if bw != nil and bw.master == 0 and canInput() and not ui.keyUsed and not te.on and
      ShiftPressed in ui.mods and CtrlPressed notin ui.mods:
     if ui.key == KeyPageDown and bw.page < bw.book.pages.high:

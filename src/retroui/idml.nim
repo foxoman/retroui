@@ -342,7 +342,7 @@ proc storyOf(o: var IdmlOut; t0: TextData; k: float; master: bool; self = ""): s
     for r in 0 ..< rows.len:
       let header = r < tb.headerRows
       let fillC = if header: tb.headerFill
-                  elif tb.altFill != 0 and (r - tb.headerRows) mod 2 == 1: tb.altFill
+                  elif tb.rowStriped(r): tb.altFill
                   else: tb.fill
       # (the cells merged into another: not written -- that one spans them)
       var covered = newSeq[bool](ncol)

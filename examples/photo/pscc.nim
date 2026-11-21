@@ -160,6 +160,7 @@ proc psMenus() =
       ci("File &Info...", enabled = some)
       sep()
       ci("&Print...", enabled = some)
+      ci("Print &Booklet...", "Print Booklet...", enabled = active != nil and active.isBookWin)
       ci("Page Set&up...")
       sep()
       ci("E&xit")
@@ -541,6 +542,7 @@ proc psMenus() =
         ci("&OpenType Panel", "OpenType", checked = panelShown("opentype"))
       sep()
       ci("Get Google &Fonts...", "Get Google Fonts...")
+      ci("Fi&nd Font...", "Find Font...", enabled = some)
       sep()
       ci("Text Frame &Options...", "Text Frame Options...", enabled = some and (te.on or (d.current.isText and
                                                                                     d.current.text.boxW > 0)))

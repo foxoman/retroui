@@ -571,6 +571,10 @@ proc startFade()
 proc fadeDialog()
 proc startScaleEffects()
 proc scaleEffectsDialog()
+proc startPrintBooklet()
+proc printBookletDialog()
+proc startFindFont()
+proc findFontDialog()
 proc splitChannelsNow()
 proc startMergeChannels()
 proc mergeChannelsDialog()
@@ -648,6 +652,8 @@ type AppPrefs = object
   otherCursor: int             ## standard, precise
   printRes, screenRes: int     ## pixels per inch of new documents for print and screen
   smartQuotes: bool
+  smartReflow: bool            ## a book's box whose text no longer fits goes on through new pages at the end
+  deleteEmptyPages: bool       ## ... and the pages it added that its text no longer reaches go again
   workingSpace: int            ## the profile of new documents: none, then the built-in ones
   embedProfile: bool           ## the profile in exported files
   keySet: int                  ## the shortcuts: the usual (0) or Retro Atelier 1994's (1)
@@ -667,7 +673,7 @@ const DefaultPrefs = AppPrefs(interp: 2, zoomResizes: false, zoomCenter: false, 
                               optionsBar: true, history: 100, autosave: 10, bgSave: true, recent: 10,
                               lowerExt: true, psdComposite: true, memory: 70, threads: 0,
                               paintCursor: 2, crosshair: false, otherCursor: 1,
-                              printRes: 300, screenRes: 72, smartQuotes: true, workingSpace: 1,
+                              printRes: 300, screenRes: 72, smartQuotes: true, smartReflow: true, workingSpace: 1,
                               embedProfile: true, toolCols: 2, taskBar: true, session: true)
 
 var prefs = DefaultPrefs        ## Preferences (photo/prefs)
@@ -4762,6 +4768,7 @@ include photo/screens
 include photo/threedui
 include photo/fade
 include photo/channelsplit
+include photo/layoutmore
 include photo/dockpanels
 
 proc phoneLayout(): bool =

@@ -197,6 +197,21 @@
   and put them together again (RGB, Lab, CMYK); `colorBlindTablePtr` and
   `colorBlind` show colors as someone with Protanopia or Deuteranopia sees
   them, and `Doc.blindView` shows the canvas so.
+- **More of a layout program** (`retroui/textengine`, `retroui/photobook`,
+  `retroui/photopdf`, `retroui/photo`): a table's stripes in a pattern
+  (`TableStyle.altFirst`, `altNext`, `altSkip`, `rowStriped`; columns
+  striped, `colAltFill`) and a cell's diagonal lines (`TableCell.diagonal`,
+  `diagColor`, `diagWidth`; `Decoration.line` and `rise` -- drawn, in the
+  PDF, kept in the file); column rules down a text box's gutters
+  (`TextData.colRule`, `ColumnRule`: weight, color, dashed, in from the top
+  and foot, the box's height or the text's); Print Booklet
+  (`bookletSpreads`, `saveBookletPdf`, `Booklet`, `BookletKind`: 2-up saddle
+  stitch or perfect bound in signatures of 4 to 32, blanks added, space
+  between pages, creep; `addBookletPage`); Find Font (`fontsOf`,
+  `replaceFont`, `fontsUsed`, `replaceFontAll`); a page's color label
+  (`BookPage.label`, `setPageLabel`, kept in the book); Smart Text Reflow
+  (`smartReflow`: a threaded story's last box goes on through new pages
+  at the end; the empty pages it added taken out again).
 - **Objects as the drawing and layout programs have them** (`retroui/liveeffects`,
   `retroui/pathtools`, `retroui/photo`): Corner Options as a live effect
   (`leCornerOptions`, `cornerEffect`, `CornerShapes`: rounded, inverse
@@ -228,6 +243,12 @@
   program's Draw Inside.
 - **Scripts click a point** (`retroui/drive`): `click:@X,Y` in
   `RETRO_SCRIPT`, a point in logical pixels -- a canvas, a picture.
+- **Retro Atelier**, from the layout program's help: Table Options' stripes
+  (plain and striped rows, rows skipped, column stripes) and Cell Options'
+  diagonal lines; Text Frame Options > Column Rules; File > Print Booklet;
+  Type > Find Font (a book: every page); the Pages panel's Color Label (its
+  right-click menu); Preferences > Type > Smart Text Reflow (on) and Delete
+  Empty Pages.
 - **Retro Atelier**, from the drawing and layout programs' help: Edit > Paste
   Special > Paste in Front and Paste in Back (Copy and Cut with nothing
   selected keep the picked layers whole); View > Outline View (the paths,
