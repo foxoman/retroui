@@ -185,6 +185,8 @@ proc psMenus() =
         ci("Paste in &Place", "Paste in Place", enabled = hasClip)
         ci("Paste &Into", enabled = sel and hasClip)
         ci("Paste &Outside", "Paste Outside", enabled = sel and hasClip)
+        ci("Paste in &Front", "Paste in Front", enabled = some and objClip.len > 0)
+        ci("Paste in &Back", "Paste in Back", enabled = some and objClip.len > 0)
         ci("Paste as &Layer...", "Paste Layer...", enabled = some and hasClip)
       ci("Cl&ear", "Clear", enabled = some)
       sep()
@@ -379,6 +381,9 @@ proc psMenus() =
         ci(if hasMask and d.current.maskOff: "E&nable" else: "Disa&ble", "Toggle Layer Mask", enabled = hasMask)
         sep()
         ci("&Gradient Mask", enabled = mk)
+        sep()
+        ci("&Make Opacity Mask", "Make Opacity Mask", enabled = mk and not hasMask and d.cur + 1 < d.layers.len)
+        ci("Release &Opacity Mask", "Release Opacity Mask", enabled = hasMask)
       if some and d.current.clipped:
         ci("Release &Clipping Mask", enabled = true)
       else:
@@ -477,6 +482,10 @@ proc psMenus() =
       ci("Layer &Cleanup...", "Layer Cleanup...", enabled = some)
       ci("Show Layer Si&zes", "Show Layer Sizes", checked = prefs.layerSizes)
       ci("Rename Layers by Co&ntent", "Rename Layers by Content", enabled = some and not bgl)
+      ci("Release to Layers (Se&quence)", "Release to Layers (Sequence)",
+         enabled = some and d.current.isShape and d.current.shape.path.subs.len > 1)
+      ci("Release to Layers (B&uild)", "Release to Layers (Build)",
+         enabled = some and d.current.isShape and d.current.shape.path.subs.len > 1)
       sep()
       ci(if grp: "Merge Grou&p" else: "Merge Do&wn", if grp: "Merge Group" else: "Merge Down",
          enabled = some and canMergeDown(d))
@@ -507,6 +516,7 @@ proc psMenus() =
           ci("&Mirror Repeat...", enabled = shp)
         psSub "&Stylize":
           ci("Round &Corners...", enabled = shp)
+          ci("Corner &Options...", "Corner Options...", enabled = shp)
           ci("&Scribble...", enabled = shp)
         ci("&3D and Materials...", "3D and Materials...", enabled = shp)
         sep()
@@ -711,6 +721,7 @@ proc psMenus() =
          checked = some and d.gamutWarning)
       ci("32-bit &Preview Options...", enabled = some and d.depth == 32)
       ci("O&verprint Preview", "Overprint Preview", enabled = some, checked = some and d.overprintView)
+      ci("Ou&tline View", "Outline View", enabled = some, checked = active != nil and active.outline)
       ci("Separations Pre&view", "Separations Preview", enabled = some, checked = some and d.sepView.on)
       sep()
       ci("Zoom &In", enabled = some)
@@ -1292,8 +1303,14 @@ var tbar: tuple[dw: DocWin; r: Rect; items: seq[(string, string)]; rects: seq[Re
   ## the Contextual Task Bar of this frame (its buttons take the mouse
   ## before the image does; drawn after it)
 
+proc taskBarItems0(dw: DocWin): seq[(string, string)]
+
 proc taskBarItems(dw: DocWin): seq[(string, string)] =
-  ## (label, command) for what is there now
+  ## (label, command) for what is there now -- the label in the app's language
+  result = taskBarItems0(dw)
+  for it in result.mitems: it[0] = tr(it[0])
+
+proc taskBarItems0(dw: DocWin): seq[(string, string)] =
   let d = dw.doc
   if xf.on and xf.dw == dw:
     @[("Commit", "\1ok"), ("Cancel", "\1no"), ("Warp", "Warp"), ("Flip H", "Flip Layer Horizontal")]

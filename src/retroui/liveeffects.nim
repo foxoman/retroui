@@ -373,6 +373,80 @@ proc roundCorners*(p: Path; radius: float): Path =
       o.add PathPoint(p: p2, inH: (p2[0] - ub[0] * k, p2[1] - ub[1] * k), outH: p2)
     s.pts = o
 
+const CornerShapes* = ["Rounded", "Inverse Rounded", "Inset", "Bevel", "Fancy"]
+  ## Corner Options' shapes, by `LiveEffect.style`.
+
+proc cornerEffect*(p: Path; size: float; shape: int): Path =
+  ## Object > Corner Options on any path: each corner (a point with no handles, not an open path's
+  ## end) cut back along its two sides by `size` (at most half of each) and joined by the shape
+  ## asked for -- 0 rounded (out), 1 inverse rounded (a round bite, its middle at the corner), 2
+  ## inset (a square bite), 3 bevel (a straight cut), 4 fancy (a small step and a curl). Smooth
+  ## points and curves stay as they are.
+  result = p
+  if size <= 0: return
+  const Kappa = 0.5522847498
+  for s in result.subs.mitems:
+    let n = s.pts.len
+    if n < 3: continue
+    var o: seq[PathPoint]
+    template sharp(q: Pt): PathPoint = PathPoint(p: q, inH: q, outH: q)
+    for i in 0 ..< n:
+      let q = s.pts[i]
+      let atEnd = not s.closed and (i == 0 or i == n - 1)
+      if atEnd or q.inH != q.p or q.outH != q.p:
+        o.add q
+        continue
+      let a = s.pts[(i + n - 1) mod n].p
+      let b = s.pts[(i + 1) mod n].p
+      let la = hypot(a[0] - q.p[0], a[1] - q.p[1])
+      let lb = hypot(b[0] - q.p[0], b[1] - q.p[1])
+      if la < 1e-6 or lb < 1e-6:
+        o.add q
+        continue
+      let r = min(size, min(la, lb) / 2)
+      let ua = ((a[0] - q.p[0]) / la, (a[1] - q.p[1]) / la)
+      let ub = ((b[0] - q.p[0]) / lb, (b[1] - q.p[1]) / lb)
+      let p1 = (q.p[0] + ua[0] * r, q.p[1] + ua[1] * r)
+      let p2 = (q.p[0] + ub[0] * r, q.p[1] + ub[1] * r)
+      case shape
+      of 1:
+        # an arc round the corner itself, from one side to the other (it bites in)
+        let dot = clamp(ua[0] * ub[0] + ua[1] * ub[1], -1.0, 1.0)
+        let theta = arccos(dot)
+        let h = r * 4 / 3 * tan(theta / 4)
+        var t1 = (ub[0] - dot * ua[0], ub[1] - dot * ua[1])
+        var t2 = (ua[0] - dot * ub[0], ua[1] - dot * ub[1])
+        let l1 = max(1e-9, hypot(t1[0], t1[1]))
+        let l2 = max(1e-9, hypot(t2[0], t2[1]))
+        t1 = (t1[0] / l1, t1[1] / l1)
+        t2 = (t2[0] / l2, t2[1] / l2)
+        o.add PathPoint(p: p1, inH: p1, outH: (p1[0] + t1[0] * h, p1[1] + t1[1] * h))
+        o.add PathPoint(p: p2, inH: (p2[0] + t2[0] * h, p2[1] + t2[1] * h), outH: p2)
+      of 2:
+        # a square bite: in from each side, meeting inside the corner
+        o.add sharp(p1)
+        o.add sharp((q.p[0] + (ua[0] + ub[0]) * r, q.p[1] + (ua[1] + ub[1]) * r))
+        o.add sharp(p2)
+      of 3:
+        o.add sharp(p1)
+        o.add sharp(p2)
+      of 4:
+        # fancy: a short step in from each side, a curl between the steps
+        let m1 = (q.p[0] + ua[0] * r + ub[0] * r * 0.35, q.p[1] + ua[1] * r + ub[1] * r * 0.35)
+        let m2 = (q.p[0] + ub[0] * r + ua[0] * r * 0.35, q.p[1] + ub[1] * r + ua[1] * r * 0.35)
+        let c = (q.p[0] + (ua[0] + ub[0]) * r * 0.15, q.p[1] + (ua[1] + ub[1]) * r * 0.15)
+        o.add sharp(p1)
+        o.add PathPoint(p: m1, inH: m1, outH: (m1[0] - ua[0] * r * 0.5, m1[1] - ua[1] * r * 0.5))
+        o.add PathPoint(p: c, inH: (c[0] + ua[0] * r * 0.25, c[1] + ua[1] * r * 0.25),
+                        outH: (c[0] + ub[0] * r * 0.25, c[1] + ub[1] * r * 0.25))
+        o.add PathPoint(p: m2, inH: (m2[0] - ub[0] * r * 0.5, m2[1] - ub[1] * r * 0.5), outH: m2)
+        o.add sharp(p2)
+      else:
+        let k = r * (1 - Kappa)
+        o.add PathPoint(p: p1, inH: p1, outH: (p1[0] - ua[0] * k, p1[1] - ua[1] * k))
+        o.add PathPoint(p: p2, inH: (p2[0] - ub[0] * k, p2[1] - ub[1] * k), outH: p2)
+    s.pts = o
+
 proc scribble*(p: Path; spacing, width, angle, variation: float; seed = 1): Path =
   ## Stylize > Scribble: the shape's inside as lines drawn back and forth across it at `angle`
   ## degrees, `spacing` apart, each `width` wide (`variation` %: their spacing and ends loose),
@@ -555,6 +629,7 @@ proc applyEffects*(p: Path; es: seq[LiveEffect]): Path =
              of leEnvelope:
                if e.envelope.len >= 3: envelopeTop(result, e.envelope)
                else: envelopeMesh(result, e.copies, int(e.detail), e.mesh)
+             of leCornerOptions: cornerEffect(result, e.amount, e.style)
 
 proc defaultLiveEffect*(k: LiveEffectKind): LiveEffect =
   ## An effect with the settings it starts with (as the drawing program's boxes open).
@@ -574,5 +649,6 @@ proc defaultLiveEffect*(k: LiveEffectKind): LiveEffect =
   of leRoundCorners: LiveEffect(kind: k, amount: 10)
   of leScribble: LiveEffect(kind: k, amount: 6, detail: 2, angle: 30, sx: 20, seed: 1)
   of leEnvelope: LiveEffect(kind: k, copies: 4, detail: 4, mesh: newSeq[(float, float)](25))
+  of leCornerOptions: LiveEffect(kind: k, amount: 12, style: 0)
 
 liveEffectsHook = applyEffects

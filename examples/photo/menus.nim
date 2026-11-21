@@ -62,9 +62,47 @@ proc duplicateDoc(d: Doc; name: string; merged: bool): Doc =
   result.modified = true
   result.clearHistory()
 
+var objClip: seq[Layer]
+  ## (Copy and Cut with no pixels selected keep the picked layers too, whole -- shapes, type,
+  ## pictures -- for Paste in Front and Paste in Back; `objClipW`, `objClipH`: the size of the image
+  ## they came from)
+var objClipW, objClipH: int
+
+proc keepObjects(d: Doc) =
+  objClip.setLen(0)
+  for i in countdown(d.layers.high, 0):
+    if not (d.layers[i].picked or i == d.cur): continue
+    if i in 0 .. d.layers.high and not d.layers[i].background:
+      objClip.insert(layerCopy(d.layers[i]), 0)            # (the lowest first)
+  objClipW = d.w
+  objClipH = d.h
+
+proc pasteObjects(d: Doc; behind: bool) =
+  ## Paste in Front (just over the current layer) or in Back (just under it): the layers copied,
+  ## where they were.
+  if objClip.len == 0:
+    status = tr("Nothing copied to paste in front or in back")
+    return
+  if d.w != objClipW or d.h != objClipH:
+    status = tr("Paste in Front and in Back: into an image of the size they were copied from")
+    return
+  d.layersChange(if behind: "Paste in Back" else: "Paste in Front"):
+    let base = d.current
+    var at = if behind: max(if base.background: 1 else: 0, d.cur) else: d.cur + 1
+    d.clearPicks()
+    for L in objClip:
+      let n = layerCopy(L)
+      n.depth = base.depth
+      d.layers.insert(n, at)
+      inc at
+      n.picked = true
+    d.cur = at - 1
+    d.markAll()
+
 proc copyToClip(d: Doc; merged: bool) =
   clip = d.copySelection(merged)
   hasClip = clip.w > 0 and clip.h > 0
+  if not merged and not d.hasSelection: d.keepObjects()      # (no pixels selected: the objects copied)
 
 var proofSetup = 0
   ## View > Proof Setup: what Proof Colors shows -- the printing inks (0), as
@@ -474,6 +512,31 @@ proc doCommand(name: string) =
     if d != nil: d.paste(false, outside = true)
   of "Paste in Place":
     if d != nil: d.paste(false, inPlace = true)
+  of "Paste in Front", "Paste in Back":
+    if d != nil: d.pasteObjects(name == "Paste in Back")
+  of "Outline View":
+    if active != nil:
+      active.outline = not active.outline
+      status = if active.outline: tr("Outline View: the paths, type and pictures' boxes alone (again: as they look)")
+               else: ""
+  of "Corner Options...": startLiveEffect(leCornerOptions)
+  of "Release to Layers (Sequence)", "Release to Layers (Build)":
+    if d != nil and d.current.isShape:
+      let L = d.current
+      var made: seq[Layer]
+      d.layersChange(name): made = d.releaseToLayers(L, build = name.endsWith("(Build)"))
+      status = $made.len & tr(" layers made from ") & L.name
+  of "Make Opacity Mask":
+    if d != nil and d.cur + 1 < d.layers.len:
+      let art = d.current
+      let top = d.layers[d.cur + 1]
+      var ok = false
+      d.layersChange("Make Opacity Mask"): ok = d.makeOpacityMask(art, top)
+      status = if ok: top.name & tr(" is the opacity mask of ") & art.name
+               else: tr("Make Opacity Mask: the layer under the mask already has a mask, or cannot have one")
+  of "Release Opacity Mask":
+    if d != nil and d.current.mask != nil:
+      d.layersChange("Release Opacity Mask"): discard d.releaseOpacityMask(d.current)
   of "Fade...": startFade()
   of "Clear":
     if d != nil and not d.hasSelection and d.severalPicked and not d.quickMask and not d.editMask:
@@ -880,7 +943,7 @@ proc doCommand(name: string) =
   of "Check Spelling...", "Dynamic Spelling": discard spellingCommand(name)
   of "Package...", "Place Linked...": discard packageCommand(name)
   of "Apply Brush to Path...": discard pathBrushCommand(name)
-  of "Free Distort...", "Pucker & Bloat...", "Roughen...", "Transform Effect...", "Tweak...", "Twist...",
+  of "Pucker & Bloat...", "Roughen...", "Transform Effect...", "Tweak...", "Twist...", "Free Distort...",
      "Zig Zag...", "Offset Path Effect...", "Expand Appearance", "Brushes (Vector)", "Appearance",
      "Radial Repeat...", "Grid Repeat...", "Mirror Repeat...", "Transform Each...", "Round Corners...",
      "Scribble...":

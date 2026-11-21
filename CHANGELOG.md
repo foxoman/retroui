@@ -197,6 +197,15 @@
   and put them together again (RGB, Lab, CMYK); `colorBlindTablePtr` and
   `colorBlind` show colors as someone with Protanopia or Deuteranopia sees
   them, and `Doc.blindView` shows the canvas so.
+- **Objects as the drawing and layout programs have them** (`retroui/liveeffects`,
+  `retroui/pathtools`, `retroui/photo`): Corner Options as a live effect
+  (`leCornerOptions`, `cornerEffect`, `CornerShapes`: rounded, inverse
+  rounded, inset, bevel, fancy, a size; on any path's corners, kept in the
+  file); `releaseToLayers` makes each part of a shape a layer of its own, or
+  builds them up a part at a time (an animation's frames); `makeOpacityMask`
+  makes the object over a layer its mask (light shows, dark and nothing
+  hide) and `releaseOpacityMask` makes it a layer again; `layerCopy` copies
+  a layer as a new one, for any document of its size.
 - **Scrubby labels in the app's language** (`retroui/widgets`): `scrubLabel`
   draws its label translated, as it was measured (in Arabic the Layers
   panel's Opacity and Fill were English and cut off). Retro Atelier's
@@ -219,6 +228,13 @@
   program's Draw Inside.
 - **Scripts click a point** (`retroui/drive`): `click:@X,Y` in
   `RETRO_SCRIPT`, a point in logical pixels -- a canvas, a picture.
+- **Retro Atelier**, from the drawing and layout programs' help: Edit > Paste
+  Special > Paste in Front and Paste in Back (Copy and Cut with nothing
+  selected keep the picked layers whole); View > Outline View (the paths,
+  the type's letters, the pictures' boxes alone, on white); Layer > Live
+  Effects > Stylize > Corner Options; Layer > Release to Layers (Sequence)
+  and (Build); Layer > Layer Mask > Make Opacity Mask and Release Opacity
+  Mask. The contextual task bar's buttons in Arabic.
 - **Retro Atelier**, from the three programs' help: a tool's letter held is
   that tool while it is (let go, the one before; a tap keeps the new one);
   Shift+Alt and a letter picks a blend mode (the painting tool's, or the

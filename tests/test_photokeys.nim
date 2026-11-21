@@ -1,8 +1,9 @@
-## Retro Atelier's keys as the three programs' help has them, headless: a tool's letter held
+## Retro Atelier's keys and commands as the three programs' help has them, headless: a tool's letter held
 ## (the tool while it is, the one before after), tapped (the new one stays); Shift+Alt and a
 ## letter (a blend mode: the brush's, the layer's with the Move tool), Shift with + and - (the
 ## next and the one before), Shift and the numbers (the brush's flow); F2-F4; and Edit > Fade,
-## Paste Outside, Paste in Place, Split Channels, Proof Setup's color blindness from their names.
+## Paste Outside, Paste in Place, Split Channels, Proof Setup's color blindness from their names;
+## Paste in Front and in Back, Outline View, Corner Options, Release to Layers, opacity masks.
 
 import std/[strutils, os]
 import retroui/uirelays/input
@@ -196,6 +197,64 @@ block channelsAndProof:
   check proofSetup == 0 and active.doc.blindView == 0 and active.doc.proof, "Working CMYK: the inks"
   runCommand("CMYK Preview")
   run(1)
+
+block objects:
+  let e = newDoc(120, 80, 0xFFFFFFFF'u32, name = "objects")
+  addDoc(e)
+  run(2)
+  var s = ShapeData(kind: "Rectangle", fill: solidPaint(0xFF3366CC'u32))
+  s.path = rectPath(10, 10, 50, 50)
+  s.path.subs.add rectPath(60, 10, 100, 50).subs[0]
+  e.layersChange("Shape"): discard e.addShapeLayer(s, "Pair")
+  let pair = e.current
+  # Copy with nothing selected keeps the layer; Paste in Back puts it under, in its place
+  runCommand("Copy")
+  check objClip.len == 1, "Copy with nothing selected: the layer kept too"
+  let n0 = e.layers.len
+  runCommand("Paste in Back")
+  run(1)
+  check e.layers.len == n0 + 1 and e.layers.find(e.current) == e.layers.find(pair) - 1 and e.current.isShape,
+        "Paste in Back: the copy just under it"
+  runCommand("Undo")
+  runCommand("Paste in Front")
+  run(1)
+  check e.layers.find(e.current) == e.layers.find(pair) + 1, "Paste in Front: just over it"
+  runCommand("Undo")
+  e.cur = e.layers.find(pair)
+  # Outline View draws the outlines on white
+  runCommand("Outline View")
+  run(2)
+  check active.outline, "Outline View on"
+  runCommand("Outline View")
+  run(1)
+  check not active.outline, "and off"
+  # Corner Options: a live effect on the shape
+  runCommand("Corner Options...")
+  run(2)
+  check leDlg.open and leDlg.e.kind == leCornerOptions, "Corner Options: its box"
+  leDlg.e.style = 2
+  run(2)
+  leDlg.open = false
+  run(2)
+  # Release to Layers
+  e.cur = e.layers.find(pair)
+  runCommand("Release to Layers (Sequence)")
+  run(1)
+  check pair notin e.layers and e.current.name == "Pair 2", "Release to Layers: a layer a part"
+  runCommand("Undo")
+  run(1)
+  check pair in e.layers, "undone"
+  # Make Opacity Mask: the layer over the current one its mask
+  var c = ShapeData(kind: "Ellipse", fill: solidPaint(0xFFFFFFFF'u32))
+  c.path = ellipsePath(20, 20, 60, 60)
+  e.layersChange("Shape"): discard e.addShapeLayer(c, "Circle")
+  e.cur = e.layers.find(pair)
+  runCommand("Make Opacity Mask")
+  run(1)
+  check pair.mask != nil and e.layers.len == 2, "Make Opacity Mask: the circle its mask"
+  runCommand("Release Opacity Mask")
+  run(1)
+  check pair.mask == nil and e.layers.len == 3, "Release Opacity Mask: a layer again"
 
 if failures > 0:
   echo "test_photokeys: ", failures, " failed"

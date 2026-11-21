@@ -119,6 +119,8 @@ type
     autoVer: int                   ## (the document's `ver` when it was last kept aside)
     parkVer: int                   ## (the document's `ver` when it was last looked at to be kept
                                    ## small while idle: `parkTick`)
+    outline: bool                  ## View > Outline View: the shapes' paths, the type's letters, the
+                                   ## pictures' boxes alone, on white (`outlineOverlay`)
 
   Drag = object
     ## What the mouse is doing on a document.
@@ -4026,11 +4028,58 @@ proc pixelGridOverlay(dw: DocWin) =
     let (sx1, _) = v.toScreen(d, min(d.w, vx1 + 1).float, y.float)
     hline(sx0, sy, sx1 - sx0, c)
 
+var outlineCache: Table[pointer, tuple[ver: int; polys: seq[seq[(float, float)]]]]
+  ## (View > Outline View: each layer's outline, made again when the layer changes)
+
+proc outlineOverlay(dw: DocWin) =
+  ## View > Outline View: white over the image, and on it in black each visible layer's outline --
+  ## a shape's path, type's letters, a picture's box crossed -- as the drawing program shows
+  ## the drawing.
+  if not dw.outline: return
+  let d = dw.doc
+  let v = dw.view
+  let (ax, ay) = v.toScreen(d, 0, 0)
+  let (bx, by) = v.toScreen(d, d.w.float, d.h.float)
+  if v.angle == 0: fill(rect(min(ax, bx), min(ay, by), abs(bx - ax), abs(by - ay)), color(255, 255, 255))
+  let ink = color(0, 0, 0)
+  proc poly(ps: seq[(float, float)]; closed: bool) =
+    for k in 1 ..< ps.len:
+      let (x0, y0) = v.toScreen(d, ps[k - 1][0], ps[k - 1][1])
+      let (x1, y1) = v.toScreen(d, ps[k][0], ps[k][1])
+      line(x0, y0, x1, y1, ink)
+    if closed and ps.len > 2:
+      let (x0, y0) = v.toScreen(d, ps[^1][0], ps[^1][1])
+      let (x1, y1) = v.toScreen(d, ps[0][0], ps[0][1])
+      line(x0, y0, x1, y1, ink)
+  for L in d.layers:
+    if not L.visible or L.background or L.group or L.adjust.kind.len > 0: continue
+    let key = cast[pointer](L)
+    var c = outlineCache.getOrDefault(key, (-1, @[]))
+    if c.ver != L.ver:
+      c = (L.ver, @[])
+      if L.isShape:
+        # (as drawn: its live effects, more fills and strokes, an artwork brush, 3D -- their paths)
+        for part in expanded(L.shape):
+          for q in flatten(part.shape.path, 12): c.polys.add q
+      elif L.isText:
+        for s in textShapes(L.text, 0.5):
+          for q in flatten(s.path, 8): c.polys.add q
+      else:
+        let b = d.layerBox(L)
+        if b.w > 0 and b.h > 0:
+          let (x0, y0, x1, y1) = (b.x.float, b.y.float, (b.x + b.w).float, (b.y + b.h).float)
+          c.polys = @[@[(x0, y0), (x1, y0), (x1, y1), (x0, y1)], @[(x0, y0), (x1, y1)], @[(x1, y0), (x0, y1)]]
+      if outlineCache.len > 2048: outlineCache.clear()
+      outlineCache[key] = c
+    for ps in c.polys: poly(ps, ps.len > 2)
+  box(rect(min(ax, bx), min(ay, by), abs(bx - ax), abs(by - ay)), ink)
+
 proc overlays(dw: DocWin; ev: PhotoEvent) =
   ## The rubber bands, the crop box, the path, the brush's size.
   let d = dw.doc
   let v = dw.view
   pushClip(v.view)
+  dw.outlineOverlay()
   dw.patternPreviewOverlay()
   dw.pixelGridOverlay()
   dw.spellOverlay()

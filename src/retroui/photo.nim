@@ -811,7 +811,7 @@ type
     leTwist = "Twist", leZigZag = "Zig Zag", leFreeDistort = "Free Distort", leWarp = "Warp",
     leOffset = "Offset Path", leRepeatRadial = "Repeat: Radial", leRepeatGrid = "Repeat: Grid",
     leRepeatMirror = "Repeat: Mirror", leRoundCorners = "Round Corners", leScribble = "Scribble",
-    leEnvelope = "Envelope"
+    leEnvelope = "Envelope", leCornerOptions = "Corner Options"
 
   LiveEffect* = object
     ## One live effect and its settings (which it reads: `retroui/liveeffects`).
@@ -826,7 +826,9 @@ type
                                 ## Mirror the axis's place past the shape's right edge
     angle*: float               ## Transform: degrees; Repeat: Radial where it starts, Mirror the axis's turn
     copies*: int                ## Transform: copies; Repeat: Radial instances, Grid columns (`detail` rows)
-    style*: int                 ## Warp: its style (0 Arc .. 14 Twist)
+    style*: int                 ## Warp: its style (0 Arc .. 14 Twist); Corner Options: its corners' shape
+                                ## (`CornerShapes`: 0 Rounded, 1 Inverse Rounded, 2 Inset, 3 Bevel, 4 Fancy),
+                                ## `amount` their size (pixels)
     seed*: int                  ## Roughen, Tweak: their randomness
     smooth*: bool               ## Roughen, Zig Zag: smooth points (else corners)
     vertical*: bool             ## Warp: bent up and down (else across)
@@ -6267,6 +6269,11 @@ proc copyLayer(L: Layer; name: string): Layer =
   if L.mask != nil:
     result.mask = Layer(name: "Layer Mask", pxRaw: L.mask.px, opacity: 100, visible: true, gray: true)
 
+proc layerCopy*(L: Layer; name = ""): Layer =
+  ## A copy of a layer -- its pixels, mask, text or shape, style, settings -- a new one (its own
+  ## `uid`), not in any document (Paste in Front, Paste in Back put it in one of the same size).
+  copyLayer(L, if name.len > 0: name else: L.name)
+
 proc cloneLayer*(L: Layer): Layer =
   ## A copy of a layer with all it is and has -- its pixels, its mask, its
   ## text or shape, its style, who it is (`uid`) and what it flows on from
@@ -6716,6 +6723,48 @@ proc addLayerMask*(d: Doc; how = mfRevealAll; i = -1) =
     of mfHideSelection: 255 - d.selAt(k))
   L.maskOff = false
   inc L.ver
+  d.markAll()
+
+proc makeOpacityMask*(d: Doc; art, maskArt: Layer): bool =
+  ## Make Opacity Mask: `maskArt` (an object over `art`) made `art`'s mask -- where it is light
+  ## `art` shows, where it is dark or there is nothing of it `art` is hidden, grays between (its
+  ## colors' lightness times its opacity) -- and taken out of the document. False (nothing done)
+  ## for the Background, an adjustment layer or a layer that has a mask already. Undoable (in a
+  ## step: `touchLayers` first).
+  if art == nil or maskArt == nil or art == maskArt or art.background or art.mask != nil or
+     art.adjust.kind.len > 0 or art notin d.layers or maskArt notin d.layers: return false
+  var px = newSeq[uint32](d.w * d.h)
+  let tmp = Layer(pxRaw: maskArt.px, opacity: maskArt.opacity, mode: bmNormal, visible: true,
+                  fx: maskArt.fx, mask: maskArt.mask, maskOff: maskArt.maskOff)
+  d.compositeInto(px, d.bounds, @[tmp])
+  art.mask = d.grayLayer("Opacity Mask", proc (k: int): int =
+    let p = px[k]
+    let lum = (int((p shr 16) and 255) * 77 + int((p shr 8) and 255) * 150 + int(p and 255) * 29) shr 8
+    lum * int(p shr 24) div 255)
+  art.maskOff = false
+  inc art.ver
+  let i = d.layers.find(maskArt)
+  d.layers.delete(i)
+  d.cur = d.layers.find(art)
+  d.markAll()
+  true
+
+proc releaseOpacityMask*(d: Doc; art: Layer): Layer =
+  ## Release Opacity Mask: `art`'s mask a layer of pixels over it again -- its grays, nothing where
+  ## it hid all -- and the mask taken off. Nil when it has none. Undoable (in a step:
+  ## `touchLayers` first).
+  if art == nil or art.mask == nil or art.mask.px.len != d.w * d.h: return nil
+  result = d.newLayer("Opacity Mask")
+  for k in 0 ..< result.px.len:
+    let g = uint32(art.mask.px[k] and 255)
+    if g > 0: result.px[k] = 0xFF000000'u32 or (g shl 16) or (g shl 8) or g
+  inc result.ver
+  art.mask = nil
+  art.maskOff = false
+  inc art.ver
+  result.depth = art.depth
+  d.layers.insert(result, d.layers.find(art) + 1)
+  d.cur = d.layers.find(result)
   d.markAll()
 
 proc removeLayerMask*(d: Doc; apply = false; i = -1) =

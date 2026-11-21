@@ -814,3 +814,32 @@ proc snapTangentPerp*(paths: openArray[Path]; anchor, p: (float, float);
           if dd <= best:
             best = dd
             result = (q, "tangent")
+
+# ---- Release to Layers ---------------------------------------------------------------------------------
+
+proc releaseToLayers*(d: Doc; L: Layer; build = false): seq[Layer] =
+  ## Release to Layers: each part of a shape (each of its subpaths) a shape layer of its own, in
+  ## the shape's place, the first lowest, the shape itself gone -- `build`: each holding the parts
+  ## before it too, one more each (an animation's frames built up, a layer each). The layers
+  ## made (none when it is not a shape of two parts or more). (An undoable change:
+  ## `touchLayers` first.)
+  if L == nil or not L.isShape or L.shape.path.subs.len < 2: return
+  let at = d.layers.find(L)
+  if at < 0: return
+  let n = L.shape.path.subs.len
+  var below = at
+  for k in 0 ..< n:
+    var s = L.shape
+    s.path = Path(subs: (if build: L.shape.path.subs[0 .. k] else: @[L.shape.path.subs[k]]))
+    let M = d.addShapeLayer(s, L.name & " " & $(k + 1), above = below)
+    M.depth = L.depth
+    M.opacity = L.opacity
+    M.mode = L.mode
+    M.fx = L.fx
+    below = d.layers.find(M)
+    result.add M
+  let i = d.layers.find(L)
+  if i >= 0: d.layers.delete(i)
+  d.cur = d.layers.find(result[^1])
+  d.markAll()
+

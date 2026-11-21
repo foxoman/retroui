@@ -1165,6 +1165,7 @@ proc liveEffectCommand(name: string): bool =
   of "Grid Repeat...": startLiveEffect(leRepeatGrid)
   of "Mirror Repeat...": startLiveEffect(leRepeatMirror)
   of "Round Corners...": startLiveEffect(leRoundCorners)
+  of "Corner Options...": startLiveEffect(leCornerOptions)
   of "Scribble...": startLiveEffect(leScribble)
   of "Transform Each...": startTransformEach()
   of "Expand Appearance":
@@ -1284,6 +1285,13 @@ proc liveEffectDialog() =
       num("Axis Angle:", e.angle, -90, 90, "°")
       num("Axis Offset:", e.dx, -500, 500, " px")
     of leRoundCorners: num("Radius:", e.amount, 0, 1000, " px")
+    of leCornerOptions:
+      row([120, -1]):
+        label "Shape:"
+        var names: seq[string]
+        for n in CornerShapes: names.add tr(n)
+        discard combo(names, e.style, w = dp(170))
+      num("Size:", e.amount, 0, 1000, " px")
     of leScribble:
       num("Angle:", e.angle, -180, 180, "°")
       num("Stroke Width:", e.detail, 0.1, 100, " px")
