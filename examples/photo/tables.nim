@@ -243,18 +243,17 @@ proc tableDialogs() =
                 ts.rowLines = kind == 2
           if ts.border != 0:
             row:
-              label "Width:"
-              var bw = int(round((if ts.borderW > 0: ts.borderW else: 1'f32) * 2))
-              if spin(bw, 1, 40, w = dp(56)): ts.borderW = bw.float32 / 2
-              label "half pixels"
+              label "Weight:"
+              var bw = if ts.borderW > 0: ts.borderW else: 1'f32
+              if cur().lengthField(bw, dp(56), 0.5, 20): ts.borderW = bw
+              label unitShort()
               var c = ts.border
               if colorWell(c, "tblline", dp(40)): ts.border = c or 0xFF000000'u32
         group("Cells"):
           row:
             label "Padding:"
-            var p = int(round(ts.pad))
-            if spin(p, 0, 200, w = dp(56)): ts.pad = p.float32
-            label "px (0: a third of the type's size)"
+            discard cur().lengthField(ts.pad, dp(56), 0, 400)
+            label(tr(unitShort()) & tr(" (0: a third of the type's size)"))
           row([150, -1]):
             label "Column widths:"
             if edit(tblWidths):
@@ -279,6 +278,7 @@ proc tableDialogs() =
       cellDlg.open = false
       return
     let p = pickedCells(L)
+    let d = cur()
     dialog(cellDlg.open, "Cell Options", 520):
       label(tr("Cells: rows ") & $(p.r0 + 1) & "-" & $(p.r1 + 1) & tr(", columns ") & $(p.c0 + 1) & "-" & $(p.c1 + 1),
             color = ui.theme.gray)
@@ -287,11 +287,11 @@ proc tableDialogs() =
       of 0:
         group("Cell Insets"):
           for (k, cap) in [(0, "Top:"), (2, "Bottom:"), (3, "Left:"), (1, "Right:")]:
-            row([90, -1]):
+            row([90, 80, -1]):
               label cap
-              var v = cellDlg.f.inset[k].float
-              if numberEdit(v, decimals = 1, w = dp(70), lo = 0, hi = 2000): cellDlg.f.inset[k] = v.float32
-          label("Pixels (all 0: the table's padding).", color = ui.theme.gray)
+              discard d.lengthField(cellDlg.f.inset[k], dp(70), 0, 4000)
+              label unitShort()
+          label("All 0: the table's padding.", color = ui.theme.gray)
         row([150, -1]):
           label "Vertical Justification:"
           var vj = ord(cellDlg.f.vAlign)
@@ -316,8 +316,9 @@ proc tableDialogs() =
               discard checkbox(cap, cellDlg.sides[k])
           row:
             label "Weight:"
-            discard numberEdit(cellDlg.strokeW, decimals = 1, w = dp(64), lo = 0, hi = 100)
-            label "px"
+            var sw = float32(cellDlg.strokeW)
+            if d.lengthField(sw, dp(64), 0, 100): cellDlg.strokeW = float(sw)
+            label unitShort()
             var c = cellDlg.strokeC
             if colorWell(c, "cellstroke", dp(40)): cellDlg.strokeC = c or 0xFF000000'u32
           row:
@@ -337,10 +338,10 @@ proc tableDialogs() =
           for v in RowHeight: kn.add tr($v)
           if combo(kn, k, w = dp(120)): cellDlg.row.kind = RowHeight(clamp(k, 0, ord(high(RowHeight))))
         if cellDlg.row.kind != rhAuto:
-          row([150, -1]):
+          row([150, 80, -1]):
             label ""
-            var h = cellDlg.row.height.float
-            if numberEdit(h, decimals = 1, w = dp(70), lo = 1, hi = 10000): cellDlg.row.height = h.float32
+            discard d.lengthField(cellDlg.row.height, dp(70), 1, 20000)
+            label unitShort()
         label("Exactly: what does not fit in the row is cut off.", color = ui.theme.gray)
       if $(cellDlg.f, cellDlg.row) != cellDlg.applied:
         # (applied at once to every cell picked: their merges kept)

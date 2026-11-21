@@ -857,6 +857,14 @@ letters placed at quarter pixels without drift; FreeMono's thin strokes
 (half a pixel at 12) are darkened to a whole pixel there; small text is
 drawn with a light gamma (1.2). Lines take the font's own line gap.
 
+**Colour fonts and emoji.** In documents (`retroui/textengine`: the
+canvas, PDF, SVG), a colour font's glyphs are drawn in its colours: layers
+of colour (COLR and CPAL, any of its palettes) and pictures (sbix, as
+Apple's emoji are; CBDT, as Noto Color Emoji is), turned and scaled with
+their text. A character no font of the text's has comes from an emoji
+font in the font folders. In a PDF the pictures go in as pictures and the
+other letters stay text. (The UI's own labels draw in one colour.)
+
 **Sharp text** (`setSubpixelText(true)`, or "Text edges: Sharp" in
 `appearanceSettings`; `RETRO_TEXT=sharp`) draws the letters in the
 screen's red, green and blue strips, three times as fine across, as

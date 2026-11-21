@@ -98,6 +98,36 @@
   `tocText` and `indexText` set each entry's page numbers at the box's far
   edge -- the left one, right to left -- at a right tab stop with dots
   before them, in place of a table of two columns.
+- **Colour fonts and emoji** (`retroui/ttf`, `retroui/textengine`): a
+  glyph in layers of colour (COLR version 0, its colours from CPAL: any of
+  its palettes, `colorLayers`; an entry of 0xFFFF the text's own colour)
+  drawn layer by layer, each in its colour; a glyph that is a picture
+  (sbix, as Apple's emoji are; CBDT and CBLC, formats 17 and 18, as Noto
+  Color Emoji is: `colorPicture`) drawn as its picture from the strike
+  nearest its size, halved again and again so it stays smooth small, turned,
+  slanted and scaled with its text, on a path and in a warp. A font of
+  pictures only (no outlines) is read, listed in the font folders and
+  picked. A character no font of the text's has comes from an emoji font
+  in the font folders (Noto Color Emoji, Apple Color Emoji, Segoe UI Emoji,
+  Twemoji...); a joiner or variation selector no font has is drawn as
+  nothing. `TextOutline` has `picture` and `glyph`; `isColorGlyph`. In a
+  PDF the layers are filled outlines and the pictures pictures, the other
+  letters still text (`PdfPage.image` takes three corners); in SVG with
+  type as outlines, pictures. COLR version 1 (gradients) and OpenType SVG
+  glyphs are not drawn in colour (their plain outlines are). tools/
+  gencolorfont.py makes the tests' font.
+- **The Gap tool's engine** (`retroui/photo`): `gapAt` finds the space
+  between objects at a point -- side by side or above and below, or
+  between one and the page's edge -- with every object whose edge lines up
+  with it as far as they touch (or the two nearest); `applyGap` drags it:
+  the gap moved (the objects one side grow, the other shrink), sized, the
+  objects moved or spread instead (`GapKind`), no object less than a pixel
+  and no gap less than nothing. `sizeLayerBox` sizes a frame (a box of
+  type, a shape stretched, its stroke as thick); `sizable`, `objectBox`.
+- **Objects carried between documents** (`retroui/photo`): `layerFor`
+  copies a layer for a document of another size (its pixels and mask put
+  where they go, its type, shape or placed picture moved); `placeLayers`
+  puts copies in and draws them there.
 - **Fonts of one name** (`retroui/textengine`): a TrueType face before a
   PostScript-outlined .otf of the same family and style (no converting;
   it may be the variable font the other is one instance of), the files in
@@ -112,6 +142,27 @@
   program's Draw Inside.
 - **Scripts click a point** (`retroui/drive`): `click:@X,Y` in
   `RETRO_SCRIPT`, a point in logical pixels -- a canvas, a picture.
+- **Retro Atelier**: the Gap tool (in the Move tool's group): the space
+  between frames shaded under the pointer, dragged to move it -- the frames
+  on each side grow and shrink with it --; Shift, the two nearest only;
+  Ctrl, the gap sized; Alt, the objects moved; Ctrl+Alt, spread. Pictures
+  and pixels, which have no frame, move with their edge.
+- **Retro Atelier**: the Content Collector and Content Placer tools: a
+  click puts a copy of an object (or of all picked) on a conveyor; on any
+  page or document a click puts it down there -- then taken off and the
+  next loaded, kept and the next loaded, or put down again and again; the
+  options bar goes through the conveyor, takes one off, empties it.
+- **Retro Atelier**: emoji and colour fonts in type -- on the canvas, in
+  PDFs and in SVG -- in their own colours; an emoji typed in a font that
+  has none comes from the system's emoji font.
+- **Retro Atelier**: the layout dialogs' lengths in the rulers' unit
+  (Preferences > Units & Rulers: millimetres, points, inches...), each
+  with its unit's name: Text Frame Options (gutter, inset), the Type
+  panel's columns, the Paragraph panel (indents, space before and after),
+  Table Options (line weight, padding), Cell Options (inset, stroke
+  weight, row height), Object Style Options' text frame, Paragraph Shading
+  and Borders, Flex Layout, Footnotes (space above them), Photo Grid,
+  Frame Options' moves, New Guide. Before, they were pixels.
 - **Retro Atelier**: text flows round a picture or a shape while you drag,
   turn or size it, not once it is put down; the layer picked shows where
   its Text Wrap keeps text out of, outlined in light blue, and with the

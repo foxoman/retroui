@@ -246,6 +246,7 @@ proc savePs*(d: Doc; path: string; eps = false; cmyk = false; vectors = true) =
     o.add "gsave\n"
     if L.isText:
       for t in textOutlines(L.text, layoutText(L.text), fine = true):
+        if t.picture != nil: continue   # (an emoji's picture: not in PostScript)
         o.add "newpath\n"
         for poly in t.polys:
           if poly.len < 3: continue

@@ -142,8 +142,15 @@ proc frameDialogs() =
           label unit
     frNum("Scale:", frDlg.scale, 1, 2000, "%")
     frNum("Rotate:", frDlg.angle, -360, 360, "°")
-    frNum("Move across:", frDlg.dx, -20000, 20000, "px")
-    frNum("Move down:", frDlg.dy, -20000, 20000, "px")
+    for (lab, k) in [("Move across:", 0), ("Move down:", 1)]:
+      # (lengths in the rulers' unit)
+      row([110, -1]):
+        label lab
+        var v = float32(if k == 0: frDlg.dx else: frDlg.dy)
+        row:
+          if cur().lengthField(v, dp(70), -20000, 20000):
+            if k == 0: frDlg.dx = v.float else: frDlg.dy = v.float
+          label unitShort()
     row:
       checkbox("Flip across", frDlg.flipH)
       checkbox("Flip down", frDlg.flipV)

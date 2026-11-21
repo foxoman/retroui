@@ -492,11 +492,8 @@ proc linkToPage*(p: PdfPage; x, y, w, h: float; page: int; top = 0.0) =
 
 # ---- pictures --------------------------------------------------------------------------------------
 
-proc image*(p: PdfPage; b: Bitmap; x, y, w, h: float) =
-  ## The picture `b` stretched into the rectangle (stored once per
-  ## document, however often it is used; transparency kept).
-  if b == nil or b.w <= 0 or b.h <= 0 or b.px.len < b.w * b.h: return
-  if b.w > 65535 or b.h > 65535: return
+proc imageIndex(p: PdfPage; b: Bitmap): int =
+  ## (the picture stored once per document: its number)
   let d = p.doc
   let key = cast[uint64](b)              # (the same picture: stored once)
   var idx = d.imageOf.getOrDefault(key, -1)
@@ -519,8 +516,29 @@ proc image*(p: PdfPage; b: Bitmap; x, y, w, h: float) =
     d.imageOf[key] = idx
     d.held.add b
   if idx notin p.imagesUsed: p.imagesUsed.add idx
+  idx
+
+proc image*(p: PdfPage; b: Bitmap; x, y, w, h: float) =
+  ## The picture `b` stretched into the rectangle (stored once per
+  ## document, however often it is used; transparency kept).
+  if b == nil or b.w <= 0 or b.h <= 0 or b.px.len < b.w * b.h: return
+  if b.w > 65535 or b.h > 65535: return
+  let idx = p.imageIndex(b)
   p.ops.add "q\n"
   p.ops.nums(w, 0.0, 0.0, h, x, p.py(y) - h)
+  p.ops.add " cm\n/Im" & $idx & " Do\nQ\n"
+
+proc image*(p: PdfPage; b: Bitmap; topLeft, topRight, bottomLeft: (float, float)) =
+  ## The picture `b` with its corners at these points (turned, slanted or
+  ## stretched as they say; y down, as `image`'s rectangle is).
+  if b == nil or b.w <= 0 or b.h <= 0 or b.px.len < b.w * b.h: return
+  if b.w > 65535 or b.h > 65535: return
+  let idx = p.imageIndex(b)
+  let (blx, bly) = (bottomLeft[0], p.py(bottomLeft[1]))
+  let (tlx, tly) = (topLeft[0], p.py(topLeft[1]))
+  let (trx, try0) = (topRight[0], p.py(topRight[1]))
+  p.ops.add "q\n"
+  p.ops.nums(trx - tlx, try0 - tly, tlx - blx, tly - bly, blx, bly)
   p.ops.add " cm\n/Im" & $idx & " Do\nQ\n"
 
 proc jpegImage*(p: PdfPage; data: string; x, y, w, h: float): bool {.discardable.} =

@@ -148,9 +148,8 @@ proc footnotesDialog() =
         label $rs & "%"
       row([150, -1, 50]):
         label "Space above the notes:"
-        var g = int(round(o.gap))
-        if spin(g, 0, 500, w = dp(60)): o.gap = g.float32
-        label "px"
+        discard cur().lengthField(o.gap, dp(60), 0, 2000)
+        label unitShort()
       if o.kind == nkFootnotes:
         row:
           var rule = not o.noRule

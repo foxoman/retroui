@@ -396,21 +396,6 @@ proc wrapStep(d: Doc; L: Layer; what: string; change: proc ()) =
   let bw = curBook()
   if bw != nil and bw.master == 0: bw.book.touch(bw.page)
 
-proc unitDecimalsOf(u: RulerUnit): int =
-  case u
-  of ruPixels: 0
-  of ruPoints, ruPicas, ruMillimeters, ruPercent: 1
-  of ruCentimeters: 2
-  of ruInches: 3
-
-proc pointsField(d: Doc; pts: float32; w: int; enabled = true): tuple[changed: bool; pts: float32] =
-  ## (a length kept in points, shown and typed in the rulers' unit)
-  let u = viewPrefs.rulerUnit
-  let perUnit = unitPixels(u, d.dpi, d.w) / (max(1.0, d.dpi) / 72)       # (points in one unit)
-  var v = float(pts) / perUnit
-  if numberEdit(v, decimals = unitDecimalsOf(u), w = w, lo = -9999, hi = 9999, enabled = enabled):
-    result = (true, float32(v * perUnit))
-  else: result = (false, pts)
 
 var wrapGrab: tuple[on: bool; dw: DocWin; layer: Layer; side: int; x0, y0: float; offs: array[4, float32];
                    nx, ny: float32]

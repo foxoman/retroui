@@ -123,6 +123,10 @@ proc u32(f: Face; i: int): int {.inline.} =
   when sizeof(int) == 8: int(v)
   else: (if v > 0x7FFFFFFF'u32: high(int) else: int(v))
 
+proc s8(f: Face; i: int): int {.inline.} =
+  let v = f.u8(i)
+  if v >= 0x80: v - 0x100 else: v
+
 proc s32(f: Face; i: int): int {.inline.} =
   int(cast[int32]((uint32(f.u16(i)) shl 16) or uint32(f.u16(i + 2))))
 
@@ -261,11 +265,169 @@ proc hasKerning*(f: Face): bool =
   f.gposPairs.len > 0
 
 proc glyphSpan(f: Face; g: int): (int, int) =
-  if g < 0 or g >= f.numGlyphs: return (0, 0)
+  if g < 0 or g >= f.numGlyphs or f.loca < 0: return (0, 0)
   if f.locaLong:
     (f.glyf + f.u32(f.loca + 4 * g), f.glyf + f.u32(f.loca + 4 * g + 4))
   else:
     (f.glyf + 2 * f.u16(f.loca + 2 * g), f.glyf + 2 * f.u16(f.loca + 2 * g + 2))
+
+
+# ---- colour glyphs: COLR and CPAL (layers), sbix and CBDT (pictures) ---------------------------------
+
+proc colorLayers*(f: Face; gid: int; palette = 0): seq[tuple[gid: int; color: uint32]] =
+  ## A colour font's glyph `gid` as COLR (version 0) draws it: its layers, the lowest first, each
+  ## a glyph of the font in a colour of CPAL's palette `palette` (ARGB; 0: the text's own colour).
+  ## Empty: the glyph has none (it is drawn as it is).
+  let (c, clen) = f.tableRange("COLR")
+  if c < 0 or clen < 14 or gid < 0: return
+  let nBase = f.u16(c + 2)
+  let baseAt = c + f.u32(c + 4)
+  let layerAt = c + f.u32(c + 8)
+  let nLayers = f.u16(c + 12)
+  if baseAt + nBase * 6 > c + clen or layerAt + nLayers * 4 > c + clen: return
+  # (the base glyph records, by glyph: halved)
+  var lo = 0
+  var hi = nBase - 1
+  var first, count = -1
+  while lo <= hi:
+    let mid = (lo + hi) div 2
+    let g = f.u16(baseAt + mid * 6)
+    if g == gid:
+      first = f.u16(baseAt + mid * 6 + 2)
+      count = f.u16(baseAt + mid * 6 + 4)
+      break
+    if g < gid: lo = mid + 1 else: hi = mid - 1
+  if first < 0 or first + count > nLayers: return
+  # (the palette's colours)
+  let (p, plen) = f.tableRange("CPAL")
+  var colors: seq[uint32]
+  if p >= 0 and plen >= 12:
+    let nEntries = f.u16(p + 2)
+    let nPalettes = f.u16(p + 4)
+    let nRecords = f.u16(p + 6)
+    let recAt = p + f.u32(p + 8)
+    let pi = clamp(palette, 0, max(0, nPalettes - 1))
+    if 12 + nPalettes * 2 <= plen and recAt + nRecords * 4 <= p + plen:
+      let start = f.u16(p + 12 + pi * 2)
+      for e in 0 ..< nEntries:
+        let r = start + e
+        if r >= nRecords: break
+        let at = recAt + r * 4
+        # (blue, green, red, alpha)
+        colors.add (uint32(f.u8(at + 3)) shl 24) or (uint32(f.u8(at + 2)) shl 16) or
+                   (uint32(f.u8(at + 1)) shl 8) or uint32(f.u8(at))
+  for k in first ..< first + count:
+    let lg = f.u16(layerAt + k * 4)
+    let pe = f.u16(layerAt + k * 4 + 2)
+    let col = if pe == 0xFFFF or pe >= colors.len: 0'u32 else: colors[pe]
+    result.add (lg, col)
+
+proc hasColorLayers*(f: Face): bool =
+  ## The font draws some glyphs in layers of colour (COLR).
+  f.tableRange("COLR").at >= 0
+
+proc isColorGlyphId*(f: Face; gid: int): bool
+
+proc hasColorPictures*(f: Face): bool =
+  ## The font draws some glyphs as pictures (sbix, or CBDT and CBLC).
+  f.tableRange("sbix").at >= 0 or (f.tableRange("CBDT").at >= 0 and f.tableRange("CBLC").at >= 0)
+
+proc colorPicture*(f: Face; gid: int; ppem: float): tuple[png: string; strike: int; x, y, w, h: float32] =
+  ## A colour font's glyph `gid` as a picture (PNG), from the strike nearest above `ppem` (else
+  ## the largest): its PNG, the strike's pixels an em, where it goes from the pen and how big --
+  ## in the strike's pixels, y down (`x`, `y` its top left). An empty PNG: none.
+  if gid < 0 or gid >= f.numGlyphs: return
+  let (s, slen) = f.tableRange("sbix")
+  if s >= 0 and slen >= 8:
+    let nStrikes = f.u32(s + 4)
+    var best = -1
+    var bestPpem = 0
+    for k in 0 ..< min(nStrikes, 64):
+      if s + 8 + k * 4 + 4 > s + slen: break
+      let at = s + f.u32(s + 8 + k * 4)
+      if at + 4 > s + slen: continue
+      let pp = f.u16(at)
+      # (the smallest at least as big, else the biggest)
+      if best < 0 or (pp >= int(ppem) and (bestPpem < int(ppem) or pp < bestPpem)) or
+         (bestPpem < int(ppem) and pp > bestPpem):
+        best = at
+        bestPpem = pp
+    if best >= 0 and best + 4 + (gid + 2) * 4 <= s + slen:
+      let a = best + f.u32(best + 4 + gid * 4)
+      let b = best + f.u32(best + 4 + (gid + 1) * 4)
+      if b > a + 8 and b <= s + slen and f.src.bytes[a + 4 ..< a + 8] == "png ":
+        let png = f.src.bytes[a + 8 ..< b]
+        if png.len > 24 and png[0 .. 3] == "\x89PNG":
+          let w = (f.u16(a + 8 + 16) shl 16) or f.u16(a + 8 + 18)
+          let h = (f.u16(a + 8 + 20) shl 16) or f.u16(a + 8 + 22)
+          let ox = float32(f.i16(a))
+          let oy = float32(f.i16(a + 2))
+          # (its origin offset: its bottom left from the pen, y up)
+          return (png, bestPpem, ox, -(oy + float32(h)), float32(w), float32(h))
+  let (cb, cblen) = f.tableRange("CBLC")
+  let (cd, cdlen) = f.tableRange("CBDT")
+  if cb < 0 or cd < 0 or cblen < 8 or cdlen < 4: return
+  let nSizes = f.u32(cb + 4)
+  var best = -1
+  var bestPpem = 0
+  for k in 0 ..< min(nSizes, 64):
+    let at = cb + 8 + k * 48
+    if at + 48 > cb + cblen: break
+    let first = f.u16(at + 40)
+    let last = f.u16(at + 42)
+    if gid < first or gid > last: continue
+    let pp = f.u8(at + 45)
+    if best < 0 or (pp >= int(ppem) and (bestPpem < int(ppem) or pp < bestPpem)) or
+       (bestPpem < int(ppem) and pp > bestPpem):
+      best = at
+      bestPpem = pp
+  if best < 0: return
+  let arrAt = cb + f.u32(best)
+  let nSub = f.u32(best + 8)
+  for k in 0 ..< min(nSub, 4096):
+    let e = arrAt + k * 8
+    if e + 8 > cb + cblen: return
+    let first = f.u16(e)
+    let last = f.u16(e + 2)
+    if gid < first or gid > last: continue
+    let sub = arrAt + f.u32(e + 4)
+    if sub + 8 > cb + cblen: return
+    let fmt = f.u16(sub)
+    let imgFmt = f.u16(sub + 2)
+    let dataAt = cd + f.u32(sub + 4)
+    var a, b = -1
+    case fmt
+    of 1:
+      a = dataAt + f.u32(sub + 8 + (gid - first) * 4)
+      b = dataAt + f.u32(sub + 8 + (gid - first + 1) * 4)
+    of 3:
+      a = dataAt + f.u16(sub + 8 + (gid - first) * 2)
+      b = dataAt + f.u16(sub + 8 + (gid - first + 1) * 2)
+    else: return
+    if a < cd or b > cd + cdlen or b <= a: return
+    case imgFmt
+    of 17:
+      let h = f.u8(a)
+      let w = f.u8(a + 1)
+      let bx = float32(f.s8(a + 2))
+      let by = float32(f.s8(a + 3))
+      let n = f.u32(a + 5)
+      if a + 9 + n > b: return
+      return (f.src.bytes[a + 9 ..< a + 9 + n], bestPpem, bx, -by, float32(w), float32(h))
+    of 18:
+      let h = f.u8(a)
+      let w = f.u8(a + 1)
+      let bx = float32(f.s8(a + 2))
+      let by = float32(f.s8(a + 3))
+      let n = f.u32(a + 8)
+      if a + 12 + n > b: return
+      return (f.src.bytes[a + 12 ..< a + 12 + n], bestPpem, bx, -by, float32(w), float32(h))
+    else: return
+
+proc isColorGlyphId*(f: Face; gid: int): bool =
+  ## Glyph `gid` is drawn in colour: in layers (COLR) or as a picture.
+  if f.hasColorLayers and f.colorLayers(gid).len > 0: return true
+  f.hasColorPictures and f.colorPicture(gid, 64).png.len > 0
 
 proc bounds*(f: Face; g: int): tuple[x0, y0, x1, y1: int] =
   ## The bounding box of glyph `g` in font units (all 0 when empty).
@@ -488,6 +650,7 @@ proc faceInfo*(f: File): seq[tuple[family, style: string; weight: int; italic: b
       if tag == "name": (nameAt, nameLen) = (be32(dir, 16 * i + 8), be32(dir, 16 * i + 12))
       elif tag == "OS/2": (os2At, os2Len) = (be32(dir, 16 * i + 8), be32(dir, 16 * i + 12))
       elif tag == "glyf" or tag == "CFF ": glyf = true   # (CFF: made TrueType when it is read)
+      elif tag == "CBDT" or tag == "sbix": glyf = true   # (a font of pictures: emoji)
       elif tag == "fvar": fvar = true
     if not glyf or nameLen <= 0 or nameLen > 1_000_000: continue
     let fake = Face(src: FontSrc(bytes: f.readAt(nameAt, nameLen)))
@@ -543,8 +706,10 @@ proc parseFace*(data: string; index = 0; loose = false): Face =
     if r + 16 > data.len: fail("damaged font directory")
     tables[data[r ..< r + 4]] = f.u32(r + 8)
     f.tabs[data[r ..< r + 4]] = (f.u32(r + 8), f.u32(r + 12))
+  # (a font of pictures only -- Noto Color Emoji: CBDT, no outlines -- is read too)
+  let pictures = ("CBDT" in tables and "CBLC" in tables) or "sbix" in tables
   for t in ["head", "hhea", "maxp", "loca", "glyf", "hmtx"]:
-    if t notin tables: fail("the font has no " & t & " table")
+    if t notin tables and not (pictures and t in ["loca", "glyf"]): fail("the font has no " & t & " table")
   if "cmap" notin tables and not loose: fail("the font has no cmap table")
   let head = tables["head"]
   f.unitsPerEm = f.u16(head + 18)
@@ -555,8 +720,9 @@ proc parseFace*(data: string; index = 0; loose = false): Face =
   f.lineGap = f.i16(hhea + 8)
   f.numHMetrics = f.u16(hhea + 34)
   f.numGlyphs = f.u16(tables["maxp"] + 4)
-  f.loca = tables["loca"]
-  f.glyf = tables["glyf"]
+  f.loca = tables.getOrDefault("loca", -1)
+  f.glyf = tables.getOrDefault("glyf", -1)
+  if f.loca < 0 or f.glyf < 0: (f.loca, f.glyf) = (-1, -1)
   f.hmtx = tables["hmtx"]
   # cmap: a Unicode subtable, the full-range one if there is one
   let cm = tables.getOrDefault("cmap", -1)

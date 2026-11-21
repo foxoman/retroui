@@ -586,12 +586,12 @@ proc flexDialog() =
       combo(["Start", "Center", "End", "Stretch"], flexDlg.align, w = dp(160))
     row([110, 80, -1]):
       label "Gap:"
-      discard spin(flexDlg.gap, 0, 2000, w = dp(64))
-      label "pixels"
+      discard d.lengthField(flexDlg.gap, dp(64), 0, 4000)
+      label unitShort()
     row([110, 80, -1]):
       label "Padding:"
-      discard spin(flexDlg.pad, 0, 2000, w = dp(64))
-      label "pixels"
+      discard d.lengthField(flexDlg.pad, dp(64), 0, 4000)
+      label unitShort()
     checkbox("Wrap onto more lines", flexDlg.wrap)
     checkbox("Hug Width (as wide as its frames)", flexDlg.hugW)
     checkbox("Hug Height (as tall as its frames)", flexDlg.hugH)
@@ -660,12 +660,12 @@ proc shadeDialog() =
         colorWell(shadeDlg.borderColor, "paraborder", dp(50))
       row([110, 80, -1]):
         label "Weight:"
-        discard spin(shadeDlg.width, 1, 50, w = dp(64))
-        label "pixels"
+        discard d.lengthField(shadeDlg.width, dp(64), 1, 100)
+        label unitShort()
     row([110, 80, -1]):
       label "Offset:"
-      discard spin(shadeDlg.offset, 0, 200, w = dp(64))
-      label "pixels"
+      discard d.lengthField(shadeDlg.offset, dp(64), 0, 400)
+      label unitShort()
     row:
       spring()
       if button("OK", isDefault = true, w = dp(80)): ok = true

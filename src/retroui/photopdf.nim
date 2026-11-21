@@ -198,6 +198,34 @@ proc addRaster(p: PdfPage; d: Doc; px: seq[uint32]; ox, oy, k: float; o: PdfOpti
     for x in 0 ..< w2: ext[y * w2 + x] = px[sy * d.w + clamp(x - e, 0, d.w - 1)]
   p.addRasterPx(ext, w2, h2, d.dpi, ox - e.float * k, oy - e.float * k, k, o)
 
+proc colorPiece(p: PdfPage; t: TextOutline; ox, oy, k: float; o: PdfOptions) =
+  ## (a piece of type as outlines, filled; a colour font's picture of a glyph put in as a picture)
+  template X(v: float): float = ox + v * k
+  template Y(v: float): float = oy + v * k
+  if t.polys.len == 0: return
+  if t.picture != nil:
+    let q = t.polys[0]
+    if q.len < 4: return
+    if t.opacity < 255:
+      p.saveState()
+      p.opacity(t.opacity / 255)
+    p.image(t.picture, (X(q[0][0].float), Y(q[0][1].float)), (X(q[1][0].float), Y(q[1][1].float)),
+            (X(q[3][0].float), Y(q[3][1].float)))
+    if t.opacity < 255: p.restoreState()
+    return
+  for poly in t.polys:
+    if poly.len < 3: continue
+    p.moveTo(X(poly[0][0].float), Y(poly[0][1].float))
+    for q in 1 ..< poly.len: p.lineTo(X(poly[q][0].float), Y(poly[q][1].float))
+    p.closePath()
+  p.paintOf(t.color, o.cmyk, false)
+  if t.embolden > 0:
+    p.paintOf(t.color, o.cmyk, true)
+    p.lineWidth(t.embolden.float * k)
+    p.lineJoin(joinRound)
+    p.fillStroke()
+  else: p.fill()
+
 proc addVector(p: PdfPage; d: Doc; L: Layer; ox, oy, k: float; o: PdfOptions) =
   ## (a type or shape layer as outlines)
   if L.opacity < 100:
@@ -215,8 +243,12 @@ proc addVector(p: PdfPage; d: Doc; L: Layer; ox, oy, k: float; o: PdfOptions) =
     for sp in tx.spans:
       for r in sp.text.runes: cps.add r.toUTF8
     var allOk = true
+    var colored: seq[bool]            # (a colour font's glyphs: drawn as outlines and pictures)
+    var anyColored = false
     for g in lay.glyphs:
-      if not canEmbed(g.face): allOk = false
+      colored.add g.isColorGlyph
+      if colored[^1]: anyColored = true
+      elif not canEmbed(g.face): allOk = false
     if allOk:
       template bars(list: seq[Decoration]) =
         # (a table's fills under the letters; underlines, strikes and a table's lines over them)
@@ -228,12 +260,16 @@ proc addVector(p: PdfPage; d: Doc; L: Layer; ox, oy, k: float; o: PdfOptions) =
       var i = 0
       while i < lay.glyphs.len:
         let g0 = lay.glyphs[i]
+        if colored[i]:
+          inc i
+          continue
         var j = i
         var run: seq[tuple[gid: int; x, y: float; text: string]]
         while j < lay.glyphs.len:
           let g = lay.glyphs[j]
-          if g.face != g0.face or g.size != g0.size or g.color != g0.color or g.hScale != g0.hScale or
-             g.vScale != g0.vScale or g.shear != g0.shear or g.embolden != g0.embolden: break
+          if colored[j] or g.face != g0.face or g.size != g0.size or g.color != g0.color or
+             g.hScale != g0.hScale or g.vScale != g0.vScale or g.shear != g0.shear or
+             g.embolden != g0.embolden: break
           run.add (g.gid, X(g.x.float), Y(g.y.float), (if g.index in 0 .. cps.high: cps[g.index] else: ""))
           inc j
         p.paintOf(g0.color, o.cmyk, false)
@@ -246,24 +282,14 @@ proc addVector(p: PdfPage; d: Doc; L: Layer; ox, oy, k: float; o: PdfOptions) =
                     shear = g0.shear.float)
         if g0.embolden > 0: p.textRender(0)
         i = j
+      if anyColored:
+        for t in textOutlines(tx, lay, fine = true):
+          if t.glyph >= 0 and colored[t.glyph]: p.colorPiece(t, ox, oy, k, o)
       bars(lay.decorations)
       if L.opacity < 100: p.restoreState()
       return
   if L.isText:
-    for t in textOutlines(tx, layoutText(tx), fine = true):
-      if t.polys.len == 0: continue
-      for poly in t.polys:
-        if poly.len < 3: continue
-        p.moveTo(X(poly[0][0].float), Y(poly[0][1].float))
-        for q in 1 ..< poly.len: p.lineTo(X(poly[q][0].float), Y(poly[q][1].float))
-        p.closePath()
-      p.paintOf(t.color, o.cmyk, false)
-      if t.embolden > 0:
-        p.paintOf(t.color, o.cmyk, true)
-        p.lineWidth(t.embolden.float * k)
-        p.lineJoin(joinRound)
-        p.fillStroke()
-      else: p.fill()
+    for t in textOutlines(tx, layoutText(tx), fine = true): p.colorPiece(t, ox, oy, k, o)
   else:
     for (s, _, _) in (if L.shape.isPlain: @[(L.shape, 100, bmNormal)] else: exportParts(L.shape)):
       template path() =

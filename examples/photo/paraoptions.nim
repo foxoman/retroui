@@ -524,15 +524,12 @@ proc objectStyleOptionsDialog() =
         label "Columns:"
         spin(osoDlg.f.columns, 1, 12, w = dp(80))
         label "gap"
-        var g = int(osoDlg.f.gutter)
-        if spin(g, 0, 2000, w = dp(80)): osoDlg.f.gutter = float32(g)
-        label "px"
+        discard cur().lengthField(osoDlg.f.gutter, dp(80), 0, 4000)
+        label unitShort()
       row([130, 60, 60, 60, 60, -1]):
         label "Inset:"
-        for q in [0, 3, 2, 1]:
-          var v = int(osoDlg.f.inset[q])
-          if spin(v, 0, 2000, w = dp(54)): osoDlg.f.inset[q] = float32(v)
-        label "px"
+        for q in [0, 3, 2, 1]: discard cur().lengthField(osoDlg.f.inset[q], dp(54), 0, 4000)
+        label unitShort()
       row([130, -1]):
         label "Vertical Justification:"
         var vj = ord(osoDlg.f.vjust)

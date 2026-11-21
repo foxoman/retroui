@@ -544,7 +544,7 @@ block paragraphsOfTheirOwn:
   runCommand("Text Frame Options...")
   run(1)
   doAssert tfDlg.open
-  tfDlg.inset = [5, 6, 7, 8]
+  tfDlg.inset = [5'f32, 6, 7, 8]
   tfDlg.vjust = ord(vjCenter)
   tfDlg.balance = true
   run(2)

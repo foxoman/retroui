@@ -247,7 +247,11 @@ a Path), on both sides or one (a shape drawn with the Pen, at Opacity 0,
 is a wrap of your own outline). Type, a shape or a placed picture dragged
 past the spine goes on, on the facing page. A picture goes into a frame
 with File > Place Into Frame (or a double-click on a template's frame),
-other layers with Layer > Put Inside. The book is one file (.rpb), and
+other layers with Layer > Put Inside. The Gap tool (with the Move tool)
+drags the space between frames -- they grow and shrink with it --, and the
+Content Collector and Placer carry copies of objects to another page or
+document. Type takes colour fonts and emoji; the layout dialogs' lengths
+are in the rulers' unit. The book is one file (.rpb), and
 File > Save as PDF writes all its pages, a range or its spreads, with the
 type as type. Window > Workspace sets the panels and tools out for Photo,
 Drawing or Layout. In Paragraph: a text box as a list, with bullets of

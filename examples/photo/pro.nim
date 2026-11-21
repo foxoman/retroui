@@ -928,8 +928,9 @@ proc newGuideDialog() =
       radio("Vertical", ngVertical, 1)
     row:
       label "Position:"
-      numberEdit(ngPos, decimals = 1, w = dp(80), lo = -30000, hi = 30000)
-      label "pixels"
+      var v = float32(ngPos)
+      if d.lengthField(v, dp(80), -30000, 30000): ngPos = v.float
+      label unitShort()
     row:
       spring()
       if button("OK", isDefault = true, w = dp(80)):

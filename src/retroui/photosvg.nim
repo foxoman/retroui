@@ -475,6 +475,20 @@ proc svgOf*(d: Doc; pixels = true; outlines = false): string =
           first = false
           pd = ""
       for o in textOutlines(td, layoutText(td), fine = true):
+        if o.picture != nil:
+          # (a colour font's picture of a glyph, an emoji: a picture with its corners where they go)
+          flushPath()
+          let q = o.polys[0]
+          let bw = float(max(1, o.picture.w))
+          let bh = float(max(1, o.picture.h))
+          body.add "<image width=\"" & num(bw) & "\" height=\"" & num(bh) & "\" transform=\"matrix(" &
+                   num((q[1][0] - q[0][0]).float / bw) & " " & num((q[1][1] - q[0][1]).float / bw) & " " &
+                   num((q[3][0] - q[0][0]).float / bh) & " " & num((q[3][1] - q[0][1]).float / bh) & " " &
+                   num(q[0][0].float) & " " & num(q[0][1].float) & ")\"" &
+                   (if o.opacity < 255: " opacity=\"" & num(o.opacity / 255) & "\"" else: "") &
+                   " preserveAspectRatio=\"none\" href=\"data:image/png;base64," & encode(encodePng(o.picture)) &
+                   "\"/>\n"
+          continue
         if o.color != col: flushPath()
         col = o.color
         for poly in o.polys:

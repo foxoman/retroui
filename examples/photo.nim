@@ -1494,9 +1494,9 @@ const
                 "Spiral", "Triangle", "Arc", "Rectangular Grid", "Polar Grid", "Flare"]
   vecToolNames = ["Group Selection", "Magic Wand (Shapes)", "Lasso (Points)", "Paintbrush (Vector)", "Blob Brush",
                   "Smooth", "Path Eraser", "Join", "Eraser (Shapes)", "Scissors", "Knife", "Width", "Mesh",
-                  "Perspective Selection", "Shape Builder"]
+                  "Perspective Selection", "Shape Builder", "Gap", "Content Collector", "Content Placer"]
   vecToolGlyphs = [pxPathSelect, pxMagicWand, pxPolyLasso, pxBrush, pxPaint, pxCurvaturePen, pxEraser, pxConvertPoint,
-                   pxBgEraser, pxCut, pxSlice, pxWarp, pxGrid, pxPerspCrop, pxBucket]
+                   pxBgEraser, pxCut, pxSlice, pxWarp, pxGrid, pxPerspCrop, pxBucket, pxColumns, pxInbox, pxPaste]
 
 proc toolName(t: Tool): string =
   case t
@@ -4628,6 +4628,7 @@ var showFgPicker, showBgPicker = false
 proc startQuickMaskOptions()
 var fgPicker, bgPicker: ColorPickerState
 
+include photo/units
 include photo/toolbar
 include photo/brushpanel
 include photo/palettes
@@ -4824,7 +4825,7 @@ proc docStatus(dw: DocWin) =
                    "to edit it; right-click: the layers there"
                  else: toolHints[tool]
       let hr = place(0, EditH, fill = true)
-      text(hr.x + dp(4), hr.y + (hr.h - FontH) div 2, ellipsize(hint, hr.w - dp(6)),
+      text(hr.x + dp(4), hr.y + (hr.h - FontH) div 2, ellipsize(tr(hint), hr.w - dp(6)),
            if status.len > 0: ui.theme.text else: ui.theme.gray)
       ui.lastRect = hr
       tooltip(hint)

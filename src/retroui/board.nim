@@ -1566,6 +1566,7 @@ proc textPieces(f: LabelFrame; text: string; color: uint32; dst: var seq[Piece])
   let (t, l, oy) = f.placed(text, color)
   var piece = Piece(color: color)
   for o in textOutlines(t, l, fine = false):
+    if o.picture != nil: continue   # (an emoji's picture: not an outline)
     for poly in o.polys:
       var c: seq[(float, float)]
       for p in poly:

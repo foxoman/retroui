@@ -30,7 +30,11 @@ proc ti(name: string; t: Tool; glyph: string; mv = mvNone; mode = 0): ToolItem =
 
 let toolGroups = @[
   ToolGroup(name: "Move", key: 'V', items: @[ti("Move Tool", tMove, pxMoveTool, mvMove, 0),
-                                              ti("Artboard Tool", tMove, pxNew, mvMove, 1)]),
+                                              ti("Artboard Tool", tMove, pxNew, mvMove, 1),
+                                              ti("Gap Tool", tVector, pxColumns, mvVector, 15)]),
+  ToolGroup(name: "Content Collector", key: ' ', items: @[
+    ti("Content Collector Tool", tVector, pxInbox, mvVector, 16),
+    ti("Content Placer Tool", tVector, pxPaste, mvVector, 17)]),
   ToolGroup(name: "Marquee", key: 'M', items: @[
     ti("Rectangular Marquee Tool", tMarquee, pxMarqueeRect, mvMarquee, 0),
     ti("Elliptical Marquee Tool", tMarquee, pxMarqueeEllipse, mvMarquee, 1),

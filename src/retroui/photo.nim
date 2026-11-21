@@ -6958,6 +6958,253 @@ proc shiftLayers*(d: Doc; layers: seq[Layer]; dx, dy: int) =
                           linkStamp: L.smart.linkStamp)
   d.markAll()
 
+proc fullBox*(d: Doc; L: Layer): tuple[ok: bool; x0, y0, x1, y1: float]
+
+# ---- the Gap tool: the space between objects, and the objects about it -----------------------------
+
+type
+  GapKind* = enum
+    ## What a drag of the Gap tool does.
+    gkMove = "Move the gap"                 ## the gap moves: the objects on one side grow, on the other shrink
+    gkResize = "Size the gap"               ## the gap grows or shrinks: the objects about it shrink or grow
+    gkMoveObjects = "Move the objects"      ## the gap and the objects about it move, as they are
+    gkSpread = "Spread the objects"         ## the gap grows or shrinks: the objects about it move apart or together
+
+  GapInfo* = object
+    ## A gap between objects (`gapAt`): `vertical`, it runs down between objects side by side
+    ## (dragged across); else across between objects above and below (dragged up and down).
+    vertical*: bool
+    a*, b*: float              ## where it begins and ends across it (x when `vertical`, else y)
+    lo*, hi*: float            ## how far it runs along it
+    before*, after*: seq[Layer] ## the objects whose edge it begins at (left, top), ends at (right, bottom)
+                               ## -- none: the page's edge
+
+proc objectBox*(d: Doc; L: Layer): tuple[ok: bool; x0, y0, x1, y1: float] =
+  ## An object's box as the Gap tool and the Content Collector see it: a frame's, a shape's
+  ## with its stroke, a placed picture's, what a layer of pixels has. Not `ok` for what is not
+  ## an object there: hidden, locked, a group, the background, an adjustment, a fill, a layer
+  ## clipped inside another.
+  if not L.visible or L.locked or L.lockPosition or L.group or L.background or L.clipped or
+     L.adjust.kind.len > 0 or L.isFill:
+    return
+  let f = d.fullBox(L)
+  if f.ok: return (true, f.x0, f.y0, f.x1, f.y1)
+  let r = d.contentBounds(L)
+  if r.w > 0 and r.h > 0: return (true, r.x.float, r.y.float, float(r.x + r.w), float(r.y + r.h))
+
+proc sizable*(d: Doc; L: Layer): bool =
+  ## The layer has a frame to size (`sizeLayerBox`): a box of type, a shape.
+  if L.isText: return L.text.boxW > 0 and L.text.path.len == 0 and L.text.warp.style == wsNone and
+                      not L.text.vertical
+  L.isShape and d.fullBox(L).ok
+
+proc sizeLayerBox*(d: Doc; L: Layer; x0, y0, x1, y1: float): bool {.discardable.} =
+  ## A frame's box made `x0, y0` to `x1, y1` (its box as `fullBox` has it: a shape's with its
+  ## stroke): a box of type sized (its text set again in it), a shape's path stretched into it
+  ## (its stroke as thick). False, and nothing done, for what has no frame to size -- pixels, a
+  ## placed picture, point type, type on a path, a group: move those (`shiftLayers`). Undoable
+  ## in a step.
+  if x1 - x0 < 1 or y1 - y0 < 1 or not d.sizable(L): return false
+  let b = d.fullBox(L)
+  if L.isText:
+    var t = L.text.moved(float32(x0) - L.text.x, float32(y0) - L.text.y)
+    t.boxW = float32(x1 - x0)
+    t.boxH = float32(y1 - y0)
+    d.touchLayers()
+    d.setText(L, t)
+    return true
+  let m = max(0.0, L.shape.strokeWidth.float) / 2
+  let ow = b.x1 - b.x0 - 2 * m
+  let oh = b.y1 - b.y0 - 2 * m
+  let nw = max(0.0, x1 - x0 - 2 * m)
+  let nh = max(0.0, y1 - y0 - 2 * m)
+  # (a line across or down: its length scaled, its other side moved)
+  let sx = if ow > 0.01: nw / ow else: 1.0
+  let sy = if oh > 0.01: nh / oh else: 1.0
+  let (ox, oy, nx, ny) = (b.x0 + m, b.y0 + m, x0 + m, y0 + m)
+  var s = L.shape
+  s.path.mapPoints(proc (x, y: float): (float, float) = (nx + (x - ox) * sx, ny + (y - oy) * sy))
+  d.touchLayers()
+  d.setShape(L, s)
+  true
+
+proc gapAt*(d: Doc; x, y: float; nearest = false): tuple[ok: bool; gap: GapInfo] =
+  ## The gap at `x, y` (image pixels): the space between the objects beside it -- or between
+  ## one and the page's edge -- across or down, the one between objects on both sides first,
+  ## else the narrower. Its objects: every one whose edge is where it begins or ends along
+  ## it (`nearest`: only the two nearest the point). Not `ok`: the point is on an object.
+  var boxes: seq[tuple[L: Layer; x0, y0, x1, y1: float]]
+  for L in d.layers:
+    let b = d.objectBox(L)
+    if not b.ok: continue
+    if x >= b.x0 and x <= b.x1 and y >= b.y0 and y <= b.y1: return
+    boxes.add (L, b.x0, b.y0, b.x1, b.y1)
+  proc scan(vertical: bool): tuple[a, b: float; na, nb: int] =
+    # (the nearest edge before the point and after it, among the objects across from it)
+    result = (0.0, (if vertical: d.w.float else: d.h.float), -1, -1)
+    for i, bx in boxes:
+      let (p0, p1, q0, q1, p, q) = if vertical: (bx.x0, bx.x1, bx.y0, bx.y1, x, y)
+                                   else: (bx.y0, bx.y1, bx.x0, bx.x1, y, x)
+      if q < q0 or q > q1: continue
+      if p1 <= p and p1 >= result.a:
+        result.a = p1
+        result.na = i
+      if p0 >= p and p0 <= result.b:
+        result.b = p0
+        result.nb = i
+  let v = scan(true)
+  let h = scan(false)
+  let vBoth = v.na >= 0 and v.nb >= 0
+  let hBoth = h.na >= 0 and h.nb >= 0
+  let vAny = v.na >= 0 or v.nb >= 0
+  let hAny = h.na >= 0 or h.nb >= 0
+  if not vAny and not hAny: return
+  let vertical = if vAny != hAny: vAny
+                 elif vBoth != hBoth: vBoth
+                 else: (v.b - v.a) <= (h.b - h.a)
+  let s = if vertical: v else: h
+  var g = GapInfo(vertical: vertical, a: s.a, b: s.b)
+  template along(i: int): (float, float) =
+    (if vertical: (boxes[i].y0, boxes[i].y1) else: (boxes[i].x0, boxes[i].x1))
+  template across(i: int): (float, float) =
+    (if vertical: (boxes[i].x0, boxes[i].x1) else: (boxes[i].y0, boxes[i].y1))
+  var lo = 1e18
+  var hi = -1e18
+  var inBefore, inAfter: seq[int]
+  for i in [s.na, s.nb]:
+    if i < 0: continue
+    lo = min(lo, along(i)[0])
+    hi = max(hi, along(i)[1])
+    if i == s.na: inBefore.add i else: inAfter.add i
+  if lo > hi: (lo, hi) = (if vertical: (y, y) else: (x, x))
+  if not nearest:
+    # (every object whose edge lines up with the gap's, along it as far as they go on touching)
+    const tol = 1.0
+    var grew = true
+    while grew:
+      grew = false
+      for i in 0 ..< boxes.len:
+        if i in inBefore or i in inAfter: continue
+        let (q0, q1) = along(i)
+        if q1 < lo - tol or q0 > hi + tol: continue
+        let (p0, p1) = across(i)
+        if s.na >= 0 and abs(p1 - s.a) <= tol: inBefore.add i
+        elif s.nb >= 0 and abs(p0 - s.b) <= tol: inAfter.add i
+        else: continue
+        lo = min(lo, q0)
+        hi = max(hi, q1)
+        grew = true
+  for i in inBefore: g.before.add boxes[i].L
+  for i in inAfter: g.after.add boxes[i].L
+  g.lo = lo
+  g.hi = hi
+  (true, g)
+
+proc applyGap*(d: Doc; g: GapInfo; delta: float; kind = gkMove): float =
+  ## A drag of the Gap tool `delta` pixels across the gap `g` (right or down when positive):
+  ## the objects about it sized or moved as `kind` says -- a frame sized (`sizeLayerBox`), what
+  ## has none moved by as much as its edge. No object made less than a pixel, no gap less than
+  ## nothing: what it was held to is given back. Undoable in a step; `g` as `gapAt` found it,
+  ## the objects as they were then.
+  var lo = -1e18
+  var hi = 1e18
+  let width = g.b - g.a
+  proc span(L: Layer): float =
+    let b = d.objectBox(L)
+    if g.vertical: b.x1 - b.x0 else: b.y1 - b.y0
+  case kind
+  of gkMove:
+    for L in g.before:
+      if d.sizable(L): lo = max(lo, 1 - L.span)
+    for L in g.after:
+      if d.sizable(L): hi = min(hi, L.span - 1)
+  of gkResize:
+    lo = max(lo, -width)
+    for L in g.before & g.after:
+      if d.sizable(L): hi = min(hi, 2 * (L.span - 1))
+  of gkMoveObjects: discard
+  of gkSpread: lo = max(lo, -width)
+  if lo > hi: return 0
+  let dl = clamp(delta, lo, hi)
+  if dl == 0: return 0
+  # (how far each side's edge at the gap goes)
+  let (eb, ea) = case kind
+                 of gkMove, gkMoveObjects: (dl, dl)
+                 of gkResize, gkSpread: (-dl / 2, dl / 2)
+  let move = kind in {gkMoveObjects, gkSpread}
+  for k in 0 .. 1:
+    let e = if k == 0: eb else: ea
+    for L in (if k == 0: g.before else: g.after):
+      let b = d.objectBox(L)
+      if not b.ok: continue
+      if not move and d.sizable(L):
+        # (the edge at the gap moved: the right or bottom one before it, the left or top after)
+        var (x0, y0, x1, y1) = (b.x0, b.y0, b.x1, b.y1)
+        if k == 0:
+          if g.vertical: x1 += e else: y1 += e
+        else:
+          if g.vertical: x0 += e else: y0 += e
+        d.sizeLayerBox(L, x0, y0, x1, y1)
+      else:
+        let k = int(round(e))
+        if k != 0: d.shiftLayers(@[L], (if g.vertical: k else: 0), (if g.vertical: 0 else: k))
+  d.markAll()
+  dl
+
+# ---- the Content Collector: objects carried from page to page, document to document ---------------------------
+
+proc layerFor*(L: Layer; srcW, srcH, dstW, dstH: int; dx, dy: int): Layer =
+  ## A copy of layer `L` of a document `srcW` x `srcH` for one `dstW` x `dstH` (the same, or
+  ## another), `dx`, `dy` further: its pixels and its mask where they go there, its type, shape
+  ## or placed picture moved -- in no document yet (`placeLayers` puts copies in and draws them).
+  ## Not what it flows on from, nor its anchor.
+  result = Layer(name: L.name)
+  result.setSettings(settingsOf(L))
+  result.name = L.name
+  result.picked = false
+  result.background = false
+  result.anchorTo = 0
+  result.text = if L.isText: L.text.moved(dx.float32, dy.float32) else: L.text
+  result.shape = L.shape
+  if L.isShape:
+    result.shape.path.mapPoints(proc (x, y: float): (float, float) = (x + dx.float, y + dy.float))
+  if L.smart != nil:
+    var q = L.smart.quad
+    for c in q.mitems: c = (c[0] + dx.float, c[1] + dy.float)
+    result.smart = SmartData(src: L.smart.src, w: L.smart.w, h: L.smart.h, quad: q, filters: L.smart.filters,
+                             name: L.smart.name, file: L.smart.file, warp: L.smart.warp, link: L.smart.link,
+                             linkStamp: L.smart.linkStamp)
+  proc moved(px: seq[uint32]; fill: uint32): seq[uint32] =
+    result = newSeq[uint32](dstW * dstH)
+    if fill != 0:
+      for p in result.mitems: p = fill
+    if px.len != srcW * srcH: return
+    for y in 0 ..< srcH:
+      let ty = y + dy
+      if ty < 0 or ty >= dstH: continue
+      for x in 0 ..< srcW:
+        let tx = x + dx
+        if tx >= 0 and tx < dstW: result[ty * dstW + tx] = px[y * srcW + x]
+  result.pxRaw = moved(L.px, 0)
+  if L.mask != nil:
+    result.mask = Layer(name: "Layer Mask", pxRaw: moved(L.mask.px, 0xFFFFFFFF'u32), opacity: 100, visible: true,
+                        gray: true)
+
+proc placeLayers*(d: Doc; layers: seq[Layer]; above = -1): int =
+  ## Copies made by `layerFor` put in `d` above layer `above` (-1: the current one), in their
+  ## order, the last one current, each drawn in `d` (type set, shapes drawn); how many.
+  var at = (if above < 0: d.cur else: above) + 1
+  at = clamp(at, 0, d.layers.len)
+  for L in layers:
+    d.layers.insert(L, at)
+    inc at
+    if L.isText: d.setText(L, L.text)
+    elif L.isShape: d.setShape(L, L.shape)
+  if layers.len > 0: d.cur = at - 1
+  d.fixDepths()
+  d.markAll()
+  layers.len
+
 proc anchorOrigin*(d: Doc; L: Layer): tuple[x, y: float32] =
   ## The point of a layer its anchor keeps in place: a text's place, a shape's or a placed
   ## picture's top left, else the top left of what it has.

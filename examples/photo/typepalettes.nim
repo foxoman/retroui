@@ -7,7 +7,7 @@ var
   # the boxes of the Character palette (what they show, each frame)
   cpFamily, cpStyle: string
   cpSize, cpLead, cpTrack, cpVS, cpHS, cpBase, cpKern, cpAA: int
-  cpIndL, cpIndR, cpIndF, cpSpB, cpSpA, cpDir: int
+  cpDir: int
   well: tuple[open: bool; key: string; c: uint32; done: bool; picker: ColorPickerState]
   warpDlg: tuple[open: bool; w: TextWarp; orig: TextWarp; layer: Layer; ownStep: bool; style: int]
   lsDlg: tuple[open: bool; layer: Layer; page: int; ownStep: bool; split, blendOnly: bool]
@@ -545,24 +545,23 @@ proc paragraphBody() =
   row:
     alignButtons(p.align, true)
     directionButtons()
-  cpIndL = int(round(p.indentLeft))
-  cpIndR = int(round(p.indentRight))
-  cpIndF = int(round(p.indentFirst))
-  cpSpB = int(round(p.spaceBefore))
-  cpSpA = int(round(p.spaceAfter))
   cpDir = p.rtl
-  template num(lab: string; v: var int; lo, hi: int; name: string; field: untyped) =
-    row([96, -1]):
+  let d = cur()
+  template num(lab: string; lo, hi: float; name: string; field: untyped) =
+    # (in the rulers' unit)
+    row([96, 72, -1]):
       label lab
-      if spin(v, lo, hi, w = dp(64)):
-        let x = float32(v)
+      var v = p.field
+      if d.lengthField(v, dp(64), lo, hi):
+        let x = v
         typePara.field = x
         applyPara(name, proc (p: var ParaStyle) = p.field = x)
-  num("Indent left:", cpIndL, -2000, 2000, "Indent", indentLeft)
-  num("Indent right:", cpIndR, -2000, 2000, "Indent", indentRight)
-  num("First line:", cpIndF, -2000, 2000, "Indent", indentFirst)
-  num("Space before:", cpSpB, 0, 2000, "Paragraph Spacing", spaceBefore)
-  num("Space after:", cpSpA, 0, 2000, "Paragraph Spacing", spaceAfter)
+      label unitShort()
+  num("Indent left:", -4000, 4000, "Indent", indentLeft)
+  num("Indent right:", -4000, 4000, "Indent", indentRight)
+  num("First line:", -4000, 4000, "Indent", indentFirst)
+  num("Space before:", 0, 4000, "Paragraph Spacing", spaceBefore)
+  num("Space after:", 0, 4000, "Paragraph Spacing", spaceAfter)
   row:
     label "Direction:"
     if combo(["Of the text", "Left to right", "Right to left"], cpDir, w = dp(120)):
@@ -703,17 +702,17 @@ proc paragraphBody() =
               else: "Text in a box: drag its corners to size it.", color = ui.theme.gray)
     # columns, and the text flowing on into another box (threaded frames)
     var cols = max(1, L.text.columns)
-    var gut = int(if L.text.gutter > 0: L.text.gutter else: 12'f32)
+    var gut = if L.text.gutter > 0: L.text.gutter else: 12'f32
     row:
       label "Columns:"
       if spin(cols, 1, 12, w = dp(52)):
         let v = cols
         applyText("Columns", proc (t: var TextData) = t.columns = v)
       label "Gutter:"
-      if spin(gut, 0, 2000, w = dp(60)):
-        let v = gut.float32
+      if cur().lengthField(gut, dp(60), 0, 4000):
+        let v = gut
         applyText("Gutter", proc (t: var TextData) = t.gutter = max(0.01'f32, v))
-      label "px"
+      label unitShort()
     let d = cur()
     let lay = layoutText(d.effectiveText(L))
     if L.flowFrom != 0:

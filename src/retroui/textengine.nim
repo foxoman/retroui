@@ -21,6 +21,8 @@
 import std/[math, os, strutils, tables, algorithm, json, sequtils]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import ttf, typeset, raster, otshape, unpacking, hyphenate
+from gfx import Bitmap
+from imaging import decodePng
 
 const defaultFamily* = "FreeSans"
 const fontFileExts* = [".ttf", ".ttc", ".otf", ".otc"]
@@ -64,6 +66,8 @@ proc typeWorker*(): bool {.inline.} =
 
 var workerFaces {.threadvar.}: Table[int, Face]
 var outlineCache {.threadvar.}: Table[(pointer, int, int), seq[seq[(float32, float32)]]]
+var pictureCache {.threadvar.}: Table[(pointer, int, int), seq[Bitmap]]
+  # (a colour font's glyph pictures, each halved again and again: by face, glyph and strike)
   # (each thread its own: a worker's faces are its own too)
 
 when compileOption("threads"):
@@ -78,7 +82,8 @@ proc workerCaches() =
     onThreadDestruction(proc () {.closure, gcsafe, raises: [].} =
       {.cast(gcsafe).}:
         reset(workerFaces)
-        reset(outlineCache))
+        reset(outlineCache)
+        reset(pictureCache))
 
 proc ownFace(id: FaceId): Face =
   ## (a face of the program's for this thread: the one all drawing shares
@@ -327,6 +332,7 @@ proc dropFontData*(family: string) =
   carriedFor = -1
   # (its outlines, kept by where its face was: a face made later may be there)
   outlineCache.clear()
+  pictureCache.clear()
   instCache.clear()
   varStyles.clear()
 
@@ -1558,14 +1564,56 @@ proc effective(st: CharStyle): CharStyle =
   if result.vScale <= 0: result.vScale = 1
   if result.family.len == 0: result.family = defaultFamily
 
-proc pickGlyph(f: Face; cp: int): (Face, int) =
+var emojiPick: Face
+var emojiLookedAt = -1    # (the catalog's size when it was looked for: looked for again when it changes)
+
+const EmojiFamilies = ["Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", "Twemoji",
+                       "Twitter Color Emoji", "EmojiOne Color", "JoyPixels", "OpenMoji Color",
+                       "Noto Emoji"]
+
+proc emojiFace(): Face =
+  ## (a font of emoji in the font folders, for what no other font has: one that draws them in
+  ## colour first; nil: none)
+  if typeWorker(): return nil
+  scanFonts()
+  if emojiLookedAt == catalog.len: return emojiPick
+  emojiLookedAt = catalog.len
+  emojiPick = nil
+  for fam in EmojiFamilies:
+    for e in catalog:
+      if e.family == fam:
+        emojiPick = try: entryFace(e) except CatchableError: nil
+        if emojiPick != nil: return emojiPick
+  for e in catalog:
+    if "emoji" in e.family.toLowerAscii:
+      emojiPick = try: entryFace(e) except CatchableError: nil
+      if emojiPick != nil: return emojiPick
+
+proc ignorable(cp: int): bool {.inline.} =
+  ## (a character drawn as nothing when no font has it: joiners, variation selectors, tags)
+  cp in 0x200B .. 0x200F or cp in 0x2060 .. 0x2064 or cp in 0xFE00 .. 0xFE0F or cp == 0x034F or
+    cp in 0xE0000 .. 0xE0FFF or cp in 0x180B .. 0x180E
+
+proc pickGlyph(f: Face; cp: int; emoji = false): (Face, int) =
+  ## (`emoji`: an emoji's look asked for -- U+FE0F after it --: from a font of emoji first)
   if cp < 0: return (f, 0)
+  if emoji and cp >= 0x2000:
+    let ef = emojiFace()
+    if ef != nil and ef != f:
+      let gg = ef.glyphOf(cp)
+      if gg != 0 and ef.isColorGlyphId(gg): return (ef, gg)
   let g = f.glyphOf(cp)
   if g != 0: return (f, g)
   for id in [fSans, arabicSource(false), fSerif, fIcons]:
     let ff = ownFace(id)
     let gg = ff.glyphOf(cp)
     if gg != 0: return (ff, gg)
+  if cp >= 0x2000 and not ignorable(cp):
+    # (an emoji: from a font of them)
+    let ef = emojiFace()
+    if ef != nil:
+      let gg = ef.glyphOf(cp)
+      if gg != 0: return (ef, gg)
   (f, 0)
 
 proc joiningType(cp: int): char =
@@ -2807,7 +2855,11 @@ proc layoutPlain(t: TextData): TextLayout =
         nom = (if st.digits == 2: 0x06F0 else: 0x0660) + c.cp - ord('0')
       if st.allCaps or st.smallCaps: nom = int(Rune(nom).toUpper)
       c.nominal = nom
-      let (f, g) = pickGlyph(faces[c.style].face, shown)
+      let (f, g) = pickGlyph(faces[c.style].face, shown,
+                             emoji = k + 1 < paraEnd and chars[k + 1].cp == 0xFE0F)
+      if g == 0 and shown >= 0 and ignorable(shown):
+        shown = -1
+        c.shown = -1
       c.face = f
       c.gid = g
       c.size = size
@@ -3740,6 +3792,128 @@ proc glyphPolys(g: LaidGlyph; fine = false): seq[seq[(float32, float32)]] =
         poly.add (g.x + ux * ca + uy * sa, g.y - ux * sa + uy * ca)
     result.add poly
 
+proc picturesOf(f: Face; gid, strike: int; png: string): seq[Bitmap] =
+  ## (a glyph's picture decoded, then halved till it is a pixel: kept)
+  let key = (cast[pointer](f), gid, strike)
+  if pictureCache.hasKey(key): return pictureCache[key]
+  if pictureCache.len > 2000: pictureCache.clear()
+  workerCaches()
+  var b: Bitmap = nil
+  try: b = decodePng(png)
+  except CatchableError: b = nil
+  if b != nil and b.w > 0 and b.h > 0 and b.w <= 4096 and b.h <= 4096:
+    result.add b
+    while b.w > 1 or b.h > 1:
+      let nw = max(1, b.w div 2)
+      let nh = max(1, b.h div 2)
+      var hb = Bitmap(w: nw, h: nh, px: newSeq[uint32](nw * nh))
+      for y in 0 ..< nh:
+        for x in 0 ..< nw:
+          # (the four pixels it stands for, each by how opaque it is)
+          var a, r, g, bl = 0
+          for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)]:
+            let c = b.px[min(b.h - 1, y * 2 + dy) * b.w + min(b.w - 1, x * 2 + dx)]
+            let ca = int(c shr 24)
+            a += ca
+            r += int((c shr 16) and 255) * ca
+            g += int((c shr 8) and 255) * ca
+            bl += int(c and 255) * ca
+          hb.px[y * nw + x] = if a == 0: 0'u32
+                              else: (uint32(a div 4) shl 24) or (uint32(r div a) shl 16) or
+                                    (uint32(g div a) shl 8) or uint32(bl div a)
+      result.add hb
+      b = hb
+  pictureCache[key] = result
+
+proc isColorGlyph*(g: LaidGlyph): bool =
+  ## The glyph is drawn in a colour font's own colours: in layers, or as a picture (an emoji).
+  g.face != nil and g.face.isColorGlyphId(g.gid)
+
+proc glyphPicture(g: LaidGlyph): tuple[pics: seq[Bitmap]; quad: seq[(float32, float32)]] =
+  ## (a colour font's glyph drawn as a picture: the picture, and where its corners go -- top left,
+  ## top right, bottom right, bottom left, picture pixels, y down; none: it has no picture)
+  if g.face == nil or not g.face.hasColorPictures: return
+  let cp = g.face.colorPicture(g.gid, g.size * max(g.hScale, g.vScale))
+  if cp.png.len == 0 or cp.strike <= 0: return
+  let pics = picturesOf(g.face, g.gid, cp.strike, cp.png)
+  if pics.len == 0: return
+  let s = g.size / float32(cp.strike)
+  let a = degToRad(g.angle)
+  let (ca, sa) = (cos(a), sin(a))
+  for (px, py) in [(cp.x, cp.y), (cp.x + cp.w, cp.y), (cp.x + cp.w, cp.y + cp.h), (cp.x, cp.y + cp.h)]:
+    let ux = (px * s - g.shear * py * s) * g.hScale
+    let uy = py * s * g.vScale
+    result.quad.add (g.x + ux * ca + uy * sa, g.y - ux * sa + uy * ca)
+  result.pics = pics
+
+proc drawPicture(px: var seq[uint32]; w, h: int; quad: seq[(float32, float32)]; pics: seq[Bitmap];
+                 opacity: int; box: var DrawnBox) =
+  ## (a glyph's picture drawn over `px` with its corners at `quad`: the halving of it nearest its
+  ## size, each pixel between its four nearest)
+  if quad.len < 4 or pics.len == 0 or opacity <= 0: return
+  let (ax, ay) = quad[0]
+  let ux = quad[1][0] - ax
+  let uy = quad[1][1] - ay
+  let vx = quad[3][0] - ax
+  let vy = quad[3][1] - ay
+  let det = ux * vy - uy * vx
+  if abs(det) < 1e-6: return
+  let wide = max(hypot(ux, uy), 1'f32)
+  var lv = 0
+  while lv + 1 < pics.len and float32(pics[lv + 1].w) >= wide: inc lv
+  let b = pics[lv]
+  var x0 = 1e9'f32
+  var y0 = 1e9'f32
+  var x1 = -1e9'f32
+  var y1 = -1e9'f32
+  for (x, y) in quad:
+    x0 = min(x0, x); y0 = min(y0, y); x1 = max(x1, x); y1 = max(y1, y)
+  let ix0 = max(0, int(floor(x0)))
+  let iy0 = max(0, int(floor(y0)))
+  let ix1 = min(w - 1, int(ceil(x1)))
+  let iy1 = min(h - 1, int(ceil(y1)))
+  var bx0 = high(int)
+  var by0 = high(int)
+  var bx1, by1 = -1
+  for y in iy0 .. iy1:
+    for x in ix0 .. ix1:
+      let dx = float32(x) + 0.5 - ax
+      let dy = float32(y) + 0.5 - ay
+      let u = (dx * vy - dy * vx) / det
+      let v = (ux * dy - uy * dx) / det
+      if u < 0 or v < 0 or u >= 1 or v >= 1: continue
+      let fx = u * float32(b.w) - 0.5
+      let fy = v * float32(b.h) - 0.5
+      let sx = int(floor(fx))
+      let sy = int(floor(fy))
+      let tx = fx - float32(sx)
+      let ty = fy - float32(sy)
+      var a, r, g, bl = 0'f32
+      for (ox, oy, wt) in [(0, 0, (1 - tx) * (1 - ty)), (1, 0, tx * (1 - ty)), (0, 1, (1 - tx) * ty),
+                           (1, 1, tx * ty)]:
+        let c = b.px[clamp(sy + oy, 0, b.h - 1) * b.w + clamp(sx + ox, 0, b.w - 1)]
+        let ca = float32(c shr 24) * wt
+        a += ca
+        r += float32((c shr 16) and 255) * ca
+        g += float32((c shr 8) and 255) * ca
+        bl += float32(c and 255) * ca
+      if a <= 0.5: continue
+      let sa8 = int(a * float32(opacity) / 255 + 0.5)
+      if sa8 <= 0: continue
+      let cr = int(r / a + 0.5)
+      let cg = int(g / a + 0.5)
+      let cb = int(bl / a + 0.5)
+      let i = y * w + x
+      let d = px[i]
+      let da = int(d shr 24)
+      let oa = sa8 + da * (255 - sa8) div 255
+      if oa <= 0: continue
+      template ch(sv, sh: int): uint32 =
+        uint32(clamp((sv * sa8 + int((d shr sh) and 255) * da * (255 - sa8) div 255) div oa, 0, 255)) shl sh
+      px[i] = (uint32(oa) shl 24) or ch(cr, 16) or ch(cg, 8) or ch(cb, 0)
+      bx0 = min(bx0, x); bx1 = max(bx1, x); by0 = min(by0, y); by1 = max(by1, y)
+  if bx1 >= 0: box.grow(bx0, by0, bx1 + 1, by1 + 1)
+
 proc onPath*(t: TextData): bool {.inline.} = t.path.len >= 2
   ## The text runs along a path.
 proc warped*(t: TextData): bool {.inline.} = t.warp.style != wsNone and not t.onPath
@@ -3787,10 +3961,17 @@ proc placePoint*(t: TextData; l: TextLayout; x, y: float32): (float32, float32) 
 
 type TextOutline* = object
   ## A piece of drawn text as outlines: closed polygons (picture pixels, y
-  ## down) filled nonzero in `color`, widened by `embolden` (faux bold).
+  ## down) filled nonzero in `color`, widened by `embolden` (faux bold). A
+  ## colour font's glyph drawn as a picture (an emoji): `picture` set, its
+  ## corners the one polygon's four points (top left, top right, bottom
+  ## right, bottom left) and `color` 0 -- nothing to fill.
   polys*: seq[seq[(float32, float32)]]  ## the closed polygons
   color*: uint32                        ## ARGB
   embolden*: float32                    ## pixels to widen them by (0: none)
+  picture*: Bitmap                      ## a glyph's picture (nil: none)
+  pictures: seq[Bitmap]                 ## (it halved again and again, to draw it small)
+  opacity*: int                         ## how opaque the picture is drawn (0..255)
+  glyph*: int                           ## the glyph of the layout it draws (-1: a bar, a fill)
 
 proc textOutlines*(t: TextData; layout: TextLayout; fine = false): seq[TextOutline] =
   ## The text as outlines, placed as it is drawn (on its path, warped,
@@ -3806,37 +3987,61 @@ proc textOutlines*(t: TextData; layout: TextLayout; fine = false): seq[TextOutli
     # (a table's fills, under its letters)
     let poly = @[(dcr.x0, dcr.y - dcr.thick / 2), (dcr.x1, dcr.y - dcr.thick / 2),
                  (dcr.x1, dcr.y + dcr.thick / 2), (dcr.x0, dcr.y + dcr.thick / 2)]
-    result.add TextOutline(polys: @[poly], color: dcr.color)
-  for g in l.glyphs:
-    var polys = glyphPolys(g, fine)
+    result.add TextOutline(polys: @[poly], color: dcr.color, glyph: -1)
+  for gi, g in l.glyphs:
+    # (a colour font's glyph: its layers, each in its colour, or its picture)
+    var pieces: seq[TextOutline]
+    let layers = if g.face != nil and g.face.hasColorLayers: g.face.colorLayers(g.gid) else: @[]
+    let pic = if layers.len == 0: glyphPicture(g) else: (pics: newSeq[Bitmap](), quad: newSeq[(float32, float32)]())
+    if pic.pics.len > 0:
+      pieces.add TextOutline(polys: @[pic.quad], picture: pic.pics[0], pictures: pic.pics,
+                             opacity: int(g.color shr 24))
+    elif layers.len > 0:
+      for (lg, col) in layers:
+        var gl = g
+        gl.gid = lg
+        let c = if col == 0: g.color
+                else: (col and 0xFFFFFF'u32) or (((col shr 24) * (g.color shr 24) div 255) shl 24)
+        pieces.add TextOutline(polys: glyphPolys(gl, fine), color: c, embolden: g.embolden)
+    else:
+      pieces.add TextOutline(polys: glyphPolys(g, fine), color: g.color, embolden: g.embolden)
     if onPath:
       # the glyph turned to follow the path at its middle (gone past its ends)
       let s = t.pathOffset + (g.x - t.x) + g.adv / 2
       if s < 0 or s > total: continue
       let (px, py, tx, ty) = pp.at(s)
-      for poly in polys.mitems:
-        for p in poly.mitems:
-          let lx = p[0] - (g.x + g.adv / 2)
-          let ly = base0 - p[1]                # up from the first baseline
-          p = (px + lx * tx + ly * ty, py + lx * ty - ly * tx)
+      for pc in pieces.mitems:
+        for poly in pc.polys.mitems:
+          for p in poly.mitems:
+            let lx = p[0] - (g.x + g.adv / 2)
+            let ly = base0 - p[1]                # up from the first baseline
+            p = (px + lx * tx + ly * ty, py + lx * ty - ly * tx)
     elif t.vertical and not warped:
-      for poly in polys.mitems:
-        for p in poly.mitems: p = t.turned(p[0], p[1])
+      for pc in pieces.mitems:
+        for poly in pc.polys.mitems:
+          for p in poly.mitems: p = t.turned(p[0], p[1])
     elif warped:
-      # (long straight edges cut so they bend)
-      var cut: seq[seq[(float32, float32)]]
-      for poly in polys:
-        var np: seq[(float32, float32)]
-        for i in 0 ..< poly.len:
-          let a = poly[i]
-          let b = poly[(i + 1) mod poly.len]
-          let n = max(1, int(hypot(b[0] - a[0], b[1] - a[1]) / 4))
-          for k in 0 ..< n:
-            let tt = k.float32 / n.float32
-            np.add t.placePoint(l, a[0] + (b[0] - a[0]) * tt, a[1] + (b[1] - a[1]) * tt)
-        cut.add np
-      polys = cut
-    result.add TextOutline(polys: polys, color: g.color, embolden: g.embolden)
+      for pc in pieces.mitems:
+        if pc.picture != nil:
+          # (a picture's corners moved: it stays a picture, leaning as the warp leans)
+          for p in pc.polys[0].mitems: p = t.placePoint(l, p[0], p[1])
+          continue
+        # (long straight edges cut so they bend)
+        var cut: seq[seq[(float32, float32)]]
+        for poly in pc.polys:
+          var np: seq[(float32, float32)]
+          for i in 0 ..< poly.len:
+            let a = poly[i]
+            let b = poly[(i + 1) mod poly.len]
+            let n = max(1, int(hypot(b[0] - a[0], b[1] - a[1]) / 4))
+            for k in 0 ..< n:
+              let tt = k.float32 / n.float32
+              np.add t.placePoint(l, a[0] + (b[0] - a[0]) * tt, a[1] + (b[1] - a[1]) * tt)
+          cut.add np
+        pc.polys = cut
+    for pc in pieces.mitems:
+      pc.glyph = gi
+      result.add pc
   for dcr in l.decorations:
     if onPath: continue
     var poly: seq[(float32, float32)]
@@ -3845,13 +4050,14 @@ proc textOutlines*(t: TextData; layout: TextLayout; fine = false): seq[TextOutli
     let bot = dcr.y + dcr.thick / 2
     for k in 0 .. n: poly.add t.placePoint(l, dcr.x0 + (dcr.x1 - dcr.x0) * k.float32 / n.float32, top)
     for k in countdown(n, 0): poly.add t.placePoint(l, dcr.x0 + (dcr.x1 - dcr.x0) * k.float32 / n.float32, bot)
-    result.add TextOutline(polys: @[poly], color: dcr.color)
+    result.add TextOutline(polys: @[poly], color: dcr.color, glyph: -1)
 
 proc renderTextInto*(t: TextData; px: var seq[uint32]; w, h: int; layout: TextLayout): DrawnBox =
   ## The text drawn over `px` (`w` x `h`, straight ARGB); the pixels it
   ## touched.
   for o in textOutlines(t, layout):
-    fillPolys(px, w, h, o.polys, o.color, o.embolden, t.antialias, result)
+    if o.picture != nil: drawPicture(px, w, h, o.polys[0], o.pictures, o.opacity, result)
+    else: fillPolys(px, w, h, o.polys, o.color, o.embolden, t.antialias, result)
 
 proc inkTop(s: string; st: CharStyle): float32 =
   ## (how far the letters of `s` reach above their baseline)

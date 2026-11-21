@@ -304,15 +304,17 @@ proc photoGridDialog() =
     row([90, -1]):
       label "Layout:"
       combo(gridLayouts, gridDlg.layout, w = dp(220))
+    let d = cur()
     row:
       label "Gap:"
-      spin(gridDlg.gap, 0, 400, w = dp(60))
+      discard d.lengthField(gridDlg.gap, dp(60), 0, 2000)
       label "Corners:"
-      spin(gridDlg.radius, 0, 400, w = dp(60))
+      discard d.lengthField(gridDlg.radius, dp(60), 0, 2000)
+      label unitShort()
     row:
       label "Margin:"
-      spin(gridDlg.margin, 0, 2000, w = dp(60))
-      label("px (a book's page: its margins)", color = ui.theme.gray)
+      discard d.lengthField(gridDlg.margin, dp(60), 0, 8000)
+      label(tr(unitShort()) & tr(" (a book's page: its margins)"), color = ui.theme.gray)
     row:
       spring()
       if button("OK", isDefault = true, w = dp(80)): ok = true

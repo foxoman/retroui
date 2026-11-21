@@ -43,6 +43,69 @@ var widthProfiles: seq[tuple[name: string; ws: seq[WidthPoint]]] = @[
   ## the width profiles: those it comes with, then the ones saved (the Width tool's options)
 var widthProfilePick = 0
 
+# (the Gap tool, the Content Collector and Placer)
+type ConveyorItem = object
+  name: string
+  layers: seq[Layer]           ## copies, each `w` x `h`: the box they were in, its top left their 0, 0
+  w, h: int
+
+var
+  gapDrag: tuple[on: bool; dw: DocWin; g: GapInfo; x0, y0: float; kind: GapKind; used: float]
+  conveyor: seq[ConveyorItem]  ## the Content Collector's conveyor (as long as the app is open)
+  conveyorAt = 0               ## the one the Content Placer puts down
+  placeMode = 0                ## after it: 0 taken off and the next loaded, 1 kept and the next loaded, 2 kept
+
+proc gapKindOf(ev: PhotoEvent): GapKind =
+  if ev.ctrl and ev.alt: gkSpread
+  elif ev.ctrl: gkResize
+  elif ev.alt: gkMoveObjects
+  else: gkMove
+
+proc collect(d: Doc; layers: seq[Layer]) =
+  ## (the Content Collector: copies of `layers` -- their box's pixels -- on the conveyor, the
+  ## Content Placer to put down next)
+  var x0, y0 = 1e18
+  var x1, y1 = -1e18
+  var ls: seq[Layer]
+  for L in layers:
+    let b = d.objectBox(L)
+    if not b.ok: continue
+    ls.add L
+    x0 = min(x0, b.x0); y0 = min(y0, b.y0); x1 = max(x1, b.x1); y1 = max(y1, b.y1)
+  if ls.len == 0: return
+  let bx = int(floor(x0))
+  let by = int(floor(y0))
+  let w = clamp(int(ceil(x1)) - bx, 1, 16384)
+  let h = clamp(int(ceil(y1)) - by, 1, 16384)
+  var item = ConveyorItem(name: (if ls.len == 1: ls[0].name else: $ls.len & tr(" objects")), w: w, h: h)
+  for L in ls: item.layers.add layerFor(L, d.w, d.h, w, h, -bx, -by)
+  conveyor.add item
+  conveyorAt = conveyor.high
+  status = tr("Content Collector: on the conveyor -- ") & item.name & " (" & $conveyor.len & ")"
+
+proc placeConveyor(d: Doc; x, y: float) =
+  ## (the Content Placer: the conveyor's item put down with its top left at `x, y`)
+  if conveyor.len == 0:
+    status = "Content Placer: the conveyor is empty -- collect objects with the Content Collector first"
+    return
+  conveyorAt = clamp(conveyorAt, 0, conveyor.high)
+  let it = conveyor[conveyorAt]
+  var copies: seq[Layer]
+  for L in it.layers: copies.add layerFor(L, it.w, it.h, d.w, d.h, int(round(x)), int(round(y)))
+  if te.on: commitType()
+  d.beginStep("Content Placer")
+  d.touchLayers()
+  discard d.placeLayers(copies)
+  d.endStep()
+  status = tr("Content Placer: put down -- ") & it.name
+  case placeMode
+  of 0:
+    conveyor.delete(conveyorAt)
+    if conveyorAt > conveyor.high: conveyorAt = 0
+  of 1:
+    conveyorAt = (conveyorAt + 1) mod conveyor.len
+  else: discard
+
 const calligraphicPresets = [("3 pt. Round", 0.0, 100.0, 3), ("5 pt. Oval", 45.0, 40.0, 5),
                              ("10 pt. Flat", 30.0, 10.0, 10), ("15 pt. Oval", 60.0, 50.0, 15),
                              ("20 pt. Flat", 0.0, 8.0, 20)]
@@ -105,6 +168,19 @@ proc vectorEvents(dw: DocWin; ev: PhotoEvent): bool =
   if tool != tVector or ev.right: return false
   let d = dw.doc
   let r = dw.pickRadius
+  if gapDrag.on and gapDrag.dw == dw:
+    # (the Gap tool: the gap dragged -- the objects about it as they were, then as far as it went)
+    let delta = if gapDrag.g.vertical: ev.x - gapDrag.x0 else: ev.y - gapDrag.y0
+    if ev.down and ev.moved:
+      if d.stepOpen: d.cancelStep()
+      d.beginStep("Gap Tool")
+      d.touchLayers()
+      gapDrag.used = d.applyGap(gapDrag.g, delta, gapDrag.kind)
+    if ev.released or not ui.mouseDown:
+      gapDrag.on = false
+      if d.stepOpen:
+        if abs(gapDrag.used) < 0.5: d.cancelStep() else: d.endStep()
+    return true
   if vd.on and vd.dw == dw:
     if ev.down and ev.moved:
       if vd.pts.len == 0 or hypot(ev.x - vd.pts[^1][0], ev.y - vd.pts[^1][1]) >= 0.75:
@@ -231,6 +307,32 @@ proc vectorEvents(dw: DocWin; ev: PhotoEvent): bool =
         vd.moving = true
   of 3, 4, 5, 6, 7, 8, 10, 14:
     discard                                     # (the line drawn: made when it ends)
+  of 15:
+    # the Gap tool: the gap under the pointer taken (Shift: between the two nearest only)
+    vd.on = false
+    let (ok, g) = d.gapAt(ev.x, ev.y, nearest = ev.shift)
+    if not ok:
+      status = "Gap Tool: point at the space between objects, or between one and the page's edge"
+      return true
+    gapDrag = (true, dw, g, ev.x, ev.y, gapKindOf(ev), 0.0)
+    status = tr("Gap Tool: ") & tr($gapDrag.kind)
+  of 16:
+    # the Content Collector: the object clicked on the conveyor (with others picked: those)
+    vd.on = false
+    let i = d.layerAt(int(floor(ev.x)), int(floor(ev.y)), r)
+    if i < 0:
+      status = "Content Collector: click an object to put a copy of it on the conveyor"
+      return true
+    let L = d.layers[i]
+    var ls = @[L]
+    if L.picked:
+      ls = @[]
+      for k in d.pickedLayers: ls.add d.layers[k]
+    d.collect(ls)
+  of 17:
+    # the Content Placer: the conveyor's item put down where it is clicked
+    vd.on = false
+    d.placeConveyor(ev.x, ev.y)
   of 9:
     # Scissors: the path cut where it is clicked
     let L = d.vecShapeAt(ev.x, ev.y, r)
@@ -599,6 +701,45 @@ proc vectorOverlay(dw: DocWin; ev: PhotoEvent) =
       let (ax, ay) = v.toScreen(d, vd.pts[^1][0], vd.pts[^1][1])
       let (bx, by) = v.toScreen(d, vd.pts[0][0], vd.pts[0][1])
       line(ax, ay, bx, by, color(0, 120, 255, 120))
+  # the Gap tool: the gap under the pointer (or the one dragged, where it is now) shaded
+  if vecMode == 15 and (ev.over or gapDrag.on):
+    var g: GapInfo
+    var ok = false
+    if gapDrag.on and gapDrag.dw == dw:
+      g = gapDrag.g
+      ok = true
+      let u = gapDrag.used
+      case gapDrag.kind
+      of gkMove, gkMoveObjects:
+        g.a += u
+        g.b += u
+      of gkResize, gkSpread:
+        g.a -= u / 2
+        g.b += u / 2
+    else: (ok, g) = d.gapAt(ev.x, ev.y, nearest = ev.shift)
+    if ok:
+      let (x0, y0, x1, y1) = if g.vertical: (g.a, g.lo, g.b, g.hi) else: (g.lo, g.a, g.hi, g.b)
+      let (sx0, sy0) = v.toScreen(d, x0, y0)
+      let (sx1, sy1) = v.toScreen(d, x1, y1)
+      let gr = rect(min(sx0, sx1), min(sy0, sy1), max(1, abs(sx1 - sx0)), max(1, abs(sy1 - sy0)))
+      fill(gr, color(128, 128, 128, 110))
+      box(gr, color(90, 90, 90))
+      ui.cursor = if g.vertical: curSizeWE else: curSizeNS
+  # the Content Collector: the object it would take; the Placer: where the item goes
+  if ev.over and vecMode == 16:
+    let i = d.layerAt(int(floor(ev.x)), int(floor(ev.y)), dw.pickRadius)
+    if i >= 0:
+      let b = d.objectBox(d.layers[i])
+      if b.ok:
+        let (sx0, sy0) = v.toScreen(d, b.x0, b.y0)
+        let (sx1, sy1) = v.toScreen(d, b.x1, b.y1)
+        box(rect(sx0, sy0, max(1, sx1 - sx0), max(1, sy1 - sy0)), color(0, 120, 255))
+  if ev.over and vecMode == 17 and conveyor.len > 0:
+    let it = conveyor[clamp(conveyorAt, 0, conveyor.high)]
+    let (sx0, sy0) = v.toScreen(d, ev.x, ev.y)
+    let (sx1, sy1) = v.toScreen(d, ev.x + it.w.float, ev.y + it.h.float)
+    box(rect(sx0, sy0, max(1, sx1 - sx0), max(1, sy1 - sy0)), color(0, 120, 255))
+    text(sx0 + dp(4), sy0 + dp(3), it.name, color(0, 90, 220))
   # the size of what paints or erases, round the pointer
   if ev.over and vecMode in {4, 5, 6, 8}:
     let size = case vecMode
@@ -713,6 +854,31 @@ proc vectorBar() =
   of 13: label("Drag a shape along the perspective grid's active plane", color = ui.theme.gray)
   of 10: label("Drag right across filled shapes to cut them", color = ui.theme.gray)
   of 14: label("Drag across the parts of overlapping shapes: one shape; Alt+drag: they go", color = ui.theme.gray)
+  of 15: label("Drag the space between objects: they grow and shrink with it. Shift: the two nearest only; " &
+               "Ctrl: size the gap; Alt: move the objects; Ctrl+Alt: spread them", color = ui.theme.gray)
+  of 16, 17:
+    label(tr("Conveyor:") & " " & $conveyor.len)
+    if conveyor.len > 0:
+      conveyorAt = clamp(conveyorAt, 0, conveyor.high)
+      if button("<", w = dp(26)): conveyorAt = (conveyorAt + conveyor.len - 1) mod conveyor.len
+      label($(conveyorAt + 1) & ": " & conveyor[conveyorAt].name)
+      if button(">", w = dp(26)): conveyorAt = (conveyorAt + 1) mod conveyor.len
+    if vecMode == 16:
+      let d = cur()
+      if button("Collect the Picked", w = dp(140), enabled = d != nil and d.pickedLayers.len > 0):
+        var ls: seq[Layer]
+        for k in d.pickedLayers: ls.add d.layers[k]
+        d.collect(ls)
+      label("Click an object: a copy of it on the conveyor", color = ui.theme.gray)
+    else:
+      combo(["Put down, take off, load the next", "Put down, keep, load the next", "Put down again and again"],
+            placeMode, w = dp(240))
+      if button("Take Off", w = dp(80), enabled = conveyor.len > 0):
+        conveyor.delete(clamp(conveyorAt, 0, conveyor.high))
+        if conveyorAt > conveyor.high: conveyorAt = 0
+    if button("Empty the Conveyor", w = dp(130), enabled = conveyor.len > 0):
+      conveyor.setLen(0)
+      conveyorAt = 0
   of 11:
     let d = cur()
     var names: seq[string]

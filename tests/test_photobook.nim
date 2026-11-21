@@ -1216,4 +1216,110 @@ block placeholdersInTemplates:
     doAssert frames == 1
     b.close()
 
+block gapTool:
+  # the Gap tool: the space between two frames side by side found, moved (one grows, the other
+  # shrinks), sized, the objects moved instead; a gap to the page's edge; only the two nearest
+  let d = newDoc(1000, 600, 0xFFFFFFFF'u32)
+  let st = CharStyle(size: 20, color: 0xFF000000'u32, hScale: 1, vScale: 1)
+  var ta = newText("Left column of words", st, 100, 100)
+  ta.boxW = 300
+  ta.boxH = 200
+  let A = d.addTextLayer(ta)
+  var s = ShapeData(kind: "Rectangle", fill: solidPaint(0xFF3366CC'u32))
+  s.path = rectPath(500, 100, 800, 300)
+  let B = d.addShapeLayer(s, "box")
+  # (one below the shape, its left edge on the shape's: the gap above it is another one)
+  var tc = newText("Below", st, 500, 400)
+  tc.boxW = 300
+  tc.boxH = 100
+  let C = d.addTextLayer(tc)
+  let (ok, g) = d.gapAt(450, 200)
+  doAssert ok and g.vertical and g.a == 400 and g.b == 500, $(ok, g.vertical, g.a, g.b)
+  doAssert g.before == @[A] and g.after == @[B] and g.lo == 100 and g.hi == 300, $(g.lo, g.hi)
+  doAssert not d.gapAt(200, 200).ok, "on an object: no gap"
+  let (ok2, g2) = d.gapAt(650, 350)
+  doAssert ok2 and not g2.vertical and g2.a == 300 and g2.b == 400 and g2.before == @[B] and g2.after == @[C],
+           $(g2.vertical, g2.a, g2.b)
+  # (to the page's edge: nothing after it)
+  let (ok3, g3) = d.gapAt(900, 200)
+  doAssert ok3 and g3.vertical and g3.a == 800 and g3.b == 1000 and g3.before == @[B] and g3.after.len == 0
+  # moved 30 right: the left frame 30 wider, the shape 30 narrower from its left
+  d.beginStep("Gap Tool")
+  d.touchLayers()
+  doAssert d.applyGap(g, 30) == 30
+  d.endStep()
+  doAssert A.text.boxW == 330 and A.text.x == 100
+  let pb = d.fullBox(B)
+  doAssert abs(pb.x0 - 530) < 0.01 and abs(pb.x1 - 800) < 0.01, $(pb.x0, pb.x1)
+  d.undo()
+  doAssert A.text.boxW == 300 and abs(d.fullBox(B).x0 - 500) < 0.01, "undone"
+  # held: the shape no narrower than a pixel
+  d.beginStep("Gap Tool")
+  d.touchLayers()
+  doAssert d.applyGap(g, 5000) == 299
+  d.cancelStep()
+  # sized 40 wider: each side 20 smaller; never less than nothing
+  d.beginStep("Gap Tool")
+  d.touchLayers()
+  doAssert d.applyGap(g, 40, gkResize) == 40
+  doAssert A.text.boxW == 280 and abs(d.fullBox(B).x0 - 520) < 0.01
+  d.cancelStep()
+  d.beginStep("Gap Tool")
+  d.touchLayers()
+  doAssert d.applyGap(g, -500, gkResize) == -100
+  doAssert A.text.boxW == 350
+  d.cancelStep()
+  # the objects moved, as they are
+  d.beginStep("Gap Tool")
+  d.touchLayers()
+  discard d.applyGap(g, 25, gkMoveObjects)
+  doAssert A.text.boxW == 300 and A.text.x == 125 and abs(d.fullBox(B).x0 - 525) < 0.01 and
+           abs(d.fullBox(B).x1 - 825) < 0.01
+  d.cancelStep()
+  # every object whose edge lines up with the gap's; Shift: only the two nearest
+  # (one under the left frame, touching it, its right edge on the gap's: in; the one below the
+  # shape is not -- the gap ends before it)
+  var td = newText("Also left", st, 200, 300)
+  td.boxW = 200
+  td.boxH = 60
+  let D = d.addTextLayer(td)
+  let (_, g4) = d.gapAt(450, 200)
+  doAssert D in g4.before and C notin g4.after and g4.hi == 360, $(g4.before.len, g4.after.len, g4.hi)
+  let (_, g5) = d.gapAt(450, 200, nearest = true)
+  doAssert g5.before == @[A] and g5.after == @[B]
+  doAssert d.sizable(A) and d.sizable(B) and not d.sizable(d.layers[0])
+
+block contentCollector:
+  # the Content Collector: objects copied out of one document (their box's pixels only) and
+  # put in another of another size, where the click is; type set again there
+  let a = newDoc(800, 600, 0xFFFFFFFF'u32)
+  let L = a.addLayer("dot")
+  for y in 100 ..< 140:
+    for x in 200 ..< 260: L.px[y * 800 + x] = 0xFFCC0000'u32
+  inc L.ver
+  var t = newText("Carried", CharStyle(size: 24, color: 0xFF000000'u32, hScale: 1, vScale: 1), 200, 160)
+  t.boxW = 200
+  t.boxH = 60
+  let T = a.addTextLayer(t)
+  # (kept as their box: 200 x 120 at 200, 100)
+  let bl = a.objectBox(L)
+  let bt = a.objectBox(T)
+  doAssert bl.ok and bt.ok and bl.x0 == 200 and bl.y0 == 100 and bt.y1 == 220
+  let kept = @[layerFor(L, 800, 600, 200, 120, -200, -100), layerFor(T, 800, 600, 200, 120, -200, -100)]
+  doAssert kept[0].px.len == 200 * 120 and kept[0].px[0] == 0xFFCC0000'u32 and kept[1].text.x == 0
+  let b = newDoc(500, 400, 0xFFFFFFFF'u32)
+  let n0 = b.layers.len
+  b.beginStep("Content Placer")
+  b.touchLayers()
+  var copies: seq[Layer]
+  for k in kept: copies.add layerFor(k, 200, 120, 500, 400, 50, 70)
+  doAssert b.placeLayers(copies) == 2
+  b.endStep()
+  doAssert b.layers.len == n0 + 2 and b.current.isText and b.current.text.x == 50 and b.current.text.y == 130
+  let P = b.layers[n0]
+  doAssert P.px.len == 500 * 400 and P.px[70 * 500 + 50] == 0xFFCC0000'u32 and P.px[69 * 500 + 50] == 0
+  doAssert b.objectBox(b.current).ok, "the type drawn there"
+  b.undo()
+  doAssert b.layers.len == n0, "undone"
+
 echo "test_photobook: ok"
