@@ -62,7 +62,8 @@ let toolGroups = @[
     ti("Color Sampler Tool", tEyedropper, pxSelect, mvDrop, 1),
     ti("Ruler Tool", tEyedropper, pxGuides, mvDrop, 2),
     ti("Note Tool", tEyedropper, pxNote, mvDrop, 3),
-    ti("Count Tool", tEyedropper, pxCount, mvDrop, 4)]),
+    ti("Count Tool", tEyedropper, pxCount, mvDrop, 4),
+    ti("Dimension Tool", tVector, pxLineTool, mvVector, 18)]),
   ToolGroup(name: "Healing", key: 'J', items: @[
     ti("Spot Healing Brush Tool", tHeal, pxSpotHeal, mvHeal, 0),
     ti("Remove Tool", tHeal, pxRemoveTool, mvHeal, 3),

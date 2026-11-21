@@ -250,7 +250,9 @@ with File > Place Into Frame (or a double-click on a template's frame),
 other layers with Layer > Put Inside. The Gap tool (with the Move tool)
 drags the space between frames -- they grow and shrink with it --, and the
 Content Collector and Placer carry copies of objects to another page or
-document. File > Export > Export for Screens writes artboards or objects at 1x, 2x, 3x...
+document. Layer > Live Effects > 3D and Materials extrudes, revolves or inflates a shape, lit
+and shaded; the Dimension tool measures distances, angles and radii that follow
+what they measure. File > Export > Export for Screens writes artboards or objects at 1x, 2x, 3x...
 as PNG, JPEG, WebP, SVG and PDF; DXF drawings and EPS files open as shapes.
 Window > Timeline plays an animation's frames (an animated GIF,
 WebP or PNG opens as them) and File > Export > Save Animation saves them. Type takes colour fonts and emoji; the layout dialogs' lengths

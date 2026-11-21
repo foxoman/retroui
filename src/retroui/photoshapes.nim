@@ -1380,6 +1380,8 @@ var
   brushOutlineHook*: proc (p: Path; b: StrokeBrush; width: float): Path {.nimcall.}
     ## The outline an Art, Pattern or Scatter brush draws along a path (set
     ## by `retroui/pathbrush`).
+  threeDHook*: proc (s: ShapeData): seq[ShapeData] {.nimcall.}
+    ## A shape's 3D as faces, back to front (set by `retroui/threed`).
 
 proc translated*(p: Path; dx, dy: float): Path =
   ## The path moved by (`dx`, `dy`).
@@ -1399,8 +1401,9 @@ proc withEffects*(p: Path; es: seq[LiveEffect]): Path =
   if not on or liveEffectsHook == nil: p else: liveEffectsHook(p, es)
 
 proc isStacked(s: ShapeData): bool =
-  ## (drawn in parts: effects, an artwork brush, more fills and strokes)
+  ## (drawn in parts: effects, an artwork brush, more fills and strokes, 3D)
   if s.appearance.len > 0 or s.brush.kind in {sbArt, sbPattern, sbScatter}: return true
+  if s.threeD.kind != tdNone and threeDHook != nil: return true
   for e in s.effects:
     if not e.off: return true
 
@@ -1425,7 +1428,10 @@ proc expanded*(s: ShapeData): seq[tuple[shape: ShapeData; opacity: int; mode: Bl
       result.align = a.align
   for a in s.appearance:
     if a.below and not a.off: result.add (item(a), clamp(a.opacity, 0, 100), a.mode)
-  if base.brush.kind in {sbArt, sbPattern, sbScatter} and base.stroke.kind != spNone and base.strokeWidth > 0:
+  if base.threeD.kind != tdNone and threeDHook != nil:
+    # (3D: its faces in place of its fill and stroke)
+    for f in threeDHook(base): result.add (f, 100, bmNormal)
+  elif base.brush.kind in {sbArt, sbPattern, sbScatter} and base.stroke.kind != spNone and base.strokeWidth > 0:
     # (an artwork brush: its outline filled with the stroke's paint, over the fill)
     var fillOnly = base
     fillOnly.stroke = ShapePaint(kind: spNone)

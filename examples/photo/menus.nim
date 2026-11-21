@@ -851,6 +851,7 @@ proc doCommand(name: string) =
      "Radial Repeat...", "Grid Repeat...", "Mirror Repeat...", "Transform Each...", "Round Corners...",
      "Scribble...":
     discard liveEffectCommand(name)
+  of "3D and Materials...": startThreeD()
   of "Resize for...", "Brand Kit...", "Photo Grid...", "Text Effects...", "Recolor Design...", "Check Document...",
      "Preflight...":
     discard quickCommand(name)
@@ -1592,6 +1593,7 @@ proc classicMenus() =
         submenu "&Stylize":
           item("Round &Corners...", enabled = shp)
           item("&Scribble...", enabled = shp)
+        item("&3D and Materials...", enabled = shp)
         menuSeparator()
         item("E&xpand Appearance", enabled = shp)
         item("Transform &Each...", enabled = some)
@@ -2251,6 +2253,7 @@ proc moreDialogs() =
   bookDialogs()
   timelineDialogs()
   screenExportDialog()
+  threeDDialog()
   imageTraceDialog()
   makeBlendDialog()
   shapeBuilderDialog()

@@ -80,6 +80,7 @@ proc globalEditAfterStep(d: Doc) =
 proc afterStep(d: Doc) =
   globalEditAfterStep(d)
   flexAfterStep(d)
+  d.updateDimensions(viewPrefs.rulerUnit)    # (dimensions drawn again where what they measure is now)
 
 stepEndHook = afterStep
 

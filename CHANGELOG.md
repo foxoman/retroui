@@ -169,6 +169,20 @@
   RGB or CMYK colors, widths and dashes, through the transformations, a
   path's holes kept; an endless program cut short. `importPs` opens an EPS
   so (a run of shapes alike one layer) before its preview picture.
+- **3D on shapes, live** (`retroui/threed`, new; `ShapeData.threeD`,
+  `ThreeD`): a shape's outline extruded (with a bevel), revolved round its
+  left edge, or inflated; turned in three dimensions, seen flat or with
+  perspective, lit from an angle and height, shaded matte, shiny or in flat
+  colors -- drawn as flat faces in their shades, back to front (vectors:
+  SVG and PDF get them as they are), made again when the outline or the
+  settings change; kept in the file (`threeDParts`, `defaultThreeD`).
+- **Dimensions** (`retroui/dimensions`, new): a distance, an angle or a
+  radius drawn as a drawing program draws it -- a line with arrowheads and
+  extension lines, an arc, a radius line -- with its value in the rulers'
+  unit; each point may be fixed to a layer's corner, side's middle or centre
+  (`anchorAt`), and `updateDimensions` draws them again when what they
+  measure moves or changes size, in the step that moved it
+  (`addDimension`, `dimensionOf`).
 - **Fonts of one name** (`retroui/textengine`): a TrueType face before a
   PostScript-outlined .otf of the same family and style (no converting;
   it may be the variable font the other is one instance of), the files in
@@ -183,6 +197,11 @@
   program's Draw Inside.
 - **Scripts click a point** (`retroui/drive`): `click:@X,Y` in
   `RETRO_SCRIPT`, a point in logical pixels -- a canvas, a picture.
+- **Retro Atelier**: Layer > Live Effects > 3D and Materials (Extrude &
+  Bevel, Revolve, Inflate; rotation, perspective, light, material; live);
+  the Dimension tool (in the Eyedropper's group: a distance dragged, an
+  angle's three points clicked, a circle's radius clicked; fixed to the
+  objects it touches, drawn again as they move, in the rulers' unit).
 - **Retro Atelier**: File > Export > Export for Screens (artboards, the
   objects picked or the document; 0.5x to 4x with their suffixes; PNG,
   JPEG, WebP, SVG, PDF; a prefix; folders for scales and formats). File >

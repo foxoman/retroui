@@ -851,6 +851,24 @@ type
     below*: bool                ## under the shape's own fill and stroke
     off*: bool                  ## hidden (kept)
 
+  ThreeDKind* = enum
+    ## A shape's 3D (`ShapeData.threeD`, `retroui/threed`).
+    tdNone = "None", tdExtrude = "Extrude & Bevel", tdRevolve = "Revolve", tdInflate = "Inflate"
+
+  ThreeD* = object
+    ## A shape's 3D: how it is made solid, turned, seen, lit and shaded.
+    kind*: ThreeDKind
+    depth*: float               ## Extrude: how deep; Inflate: how high (pixels)
+    bevel*: float               ## Extrude: the bevel round its front (pixels; 0 none)
+    rx*, ry*, rz*: float        ## turned round x, y and z (degrees)
+    perspective*: float         ## the lens's angle (degrees; 0: none, seen flat)
+    angle*: float               ## Revolve: how far round (degrees; 0: 360)
+    segments*: int              ## Revolve: faces round; Inflate: rings in
+    lightAngle*, lightHeight*: float  ## where the light comes from: round the page (0 the right, 90
+                                ## the top) and how high over it (degrees)
+    intensity*, ambient*, highlight*: float  ## the light, what lights it all, the shine (%)
+    shading*: int               ## 0 matte, 1 shiny, 2 none (flat colors)
+
   ShapeData* = object
     ## A shape layer: its outline (a path) filled and stroked, drawn again
     ## sharp when it changes size or turns.
@@ -870,6 +888,7 @@ type
     widths*: seq[WidthPoint]    ## a variable width (the Width tool), by place along each subpath
     appearance*: seq[Appearance]  ## more fills and strokes (the Appearance panel)
     effects*: seq[LiveEffect]   ## live effects on the path (Distort & Transform, Warp), in order
+    threeD*: ThreeD             ## 3D, drawn as shaded faces (`retroui/threed`; kind None: flat)
 
   FrameLayer* = object
     ## A layer in a frame of an animation: shown or not, how opaque, where.
@@ -9335,6 +9354,12 @@ proc toJson*(s: ShapeData): JsonNode =
     for wp in s.widths: a.add %*[wp.t, wp.w]
     result["widths"] = a
   if s.effects.len > 0: result["effects"] = liveEffectsJson(s.effects)
+  if s.threeD.kind != tdNone:
+    let t = s.threeD
+    result["threeD"] = %*{"kind": ord(t.kind), "depth": t.depth, "bevel": t.bevel, "rx": t.rx, "ry": t.ry, "rz": t.rz,
+                          "perspective": t.perspective, "angle": t.angle, "segments": t.segments,
+                          "lightAngle": t.lightAngle, "lightHeight": t.lightHeight, "intensity": t.intensity,
+                          "ambient": t.ambient, "highlight": t.highlight, "shading": t.shading}
   if s.appearance.len > 0:
     var a = newJArray()
     for ap in s.appearance:
@@ -9380,6 +9405,15 @@ proc shapeFrom*(j: JsonNode): ShapeData =
     if v.kind == JArray and v.len == 2 and result.widths.len < 1000:
       result.widths.add WidthPoint(t: clamp(v[0].getFloat, 0.0, 1.0), w: clamp(v[1].getFloat, 0.0, 100.0))
   result.effects = liveEffectsFrom(j{"effects"})
+  let tj = j{"threeD"}
+  if tj != nil and tj.kind == JObject:
+    result.threeD = ThreeD(kind: ThreeDKind(clamp(tj{"kind"}.getInt, 0, ord(high(ThreeDKind)))),
+                           depth: tj{"depth"}.getFloat, bevel: tj{"bevel"}.getFloat, rx: tj{"rx"}.getFloat,
+                           ry: tj{"ry"}.getFloat, rz: tj{"rz"}.getFloat, perspective: tj{"perspective"}.getFloat,
+                           angle: tj{"angle"}.getFloat, segments: tj{"segments"}.getInt,
+                           lightAngle: tj{"lightAngle"}.getFloat, lightHeight: tj{"lightHeight"}.getFloat,
+                           intensity: tj{"intensity"}.getFloat, ambient: tj{"ambient"}.getFloat,
+                           highlight: tj{"highlight"}.getFloat, shading: tj{"shading"}.getInt)
   for aj in j{"appearance"}.getElems:
     if aj.kind != JObject or result.appearance.len >= 64: continue
     var ap = Appearance(paint: paintFrom(aj{"paint"}), width: clamp(aj{"width"}.getFloat(1), 0.0, 1000.0),

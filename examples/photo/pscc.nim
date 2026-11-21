@@ -506,6 +506,7 @@ proc psMenus() =
         psSub "&Stylize":
           ci("Round &Corners...", enabled = shp)
           ci("&Scribble...", enabled = shp)
+        ci("&3D and Materials...", "3D and Materials...", enabled = shp)
         sep()
         ci("E&xpand Appearance", enabled = shp)
       if mIndex.on:

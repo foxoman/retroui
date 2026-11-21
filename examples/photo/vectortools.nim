@@ -55,6 +55,10 @@ var
   conveyorAt = 0               ## the one the Content Placer puts down
   placeMode = 0                ## after it: 0 taken off and the next loaded, 1 kept and the next loaded, 2 kept
 
+var
+  dimKind = 0                  ## the Dimension tool: a distance, an angle, a radius
+  dimPts: seq[(float, float)]  ## ... an angle's points clicked so far (its corner first)
+
 proc gapKindOf(ev: PhotoEvent): GapKind =
   if ev.ctrl and ev.alt: gkSpread
   elif ev.ctrl: gkResize
@@ -333,6 +337,20 @@ proc vectorEvents(dw: DocWin; ev: PhotoEvent): bool =
     # the Content Placer: the conveyor's item put down where it is clicked
     vd.on = false
     d.placeConveyor(ev.x, ev.y)
+  of 18:
+    # the Dimension tool: a distance dragged; an angle's three points clicked; a radius clicked
+    if dimKind == 2:
+      vd.on = false
+      let i = d.layerAt(int(floor(ev.x)), int(floor(ev.y)), r)
+      if i < 0 or d.layers[i].background:
+        status = "Dimension: click a circle (or any shape) to show its radius"
+        return true
+      d.beginStep("Dimension")
+      d.touchLayers()
+      discard d.addDimension(Dimension(kind: dkRadius, a: DimAnchor(uid: d.layers[i].uidOf, fx: 0.5, fy: 0.5),
+                                       offset: 45), viewPrefs.rulerUnit)
+      d.endStep()
+      status = "Dimension: the radius, kept as the shape changes"
   of 9:
     # Scissors: the path cut where it is clicked
     let L = d.vecShapeAt(ev.x, ev.y, r)
@@ -466,6 +484,38 @@ proc vecRelease(dw: DocWin; ev: PhotoEvent) =
     if d.stepOpen: d.endStep()
     return
   case vecMode
+  of 18:
+    # (the Dimension tool: a distance from where the drag began to where it ended; an angle's
+    # points one a click)
+    let reach = float(dw.pickRadius) * 2
+    if dimKind == 1:
+      dimPts.add pts[^1]
+      if dimPts.len < 3:
+        status = if dimPts.len == 1: "Dimension: now click along the angle's first side"
+                 else: "Dimension: now click along its second side"
+        inc d.ver
+        return
+      let a = d.anchorAt(dimPts[0][0], dimPts[0][1], reach)
+      let b = d.anchorAt(dimPts[1][0], dimPts[1][1], reach)
+      let c = d.anchorAt(dimPts[2][0], dimPts[2][1], reach)
+      dimPts.setLen(0)
+      d.beginStep("Dimension")
+      d.touchLayers()
+      discard d.addDimension(Dimension(kind: dkAngle, a: a, b: b, c: c, offset: 40), viewPrefs.rulerUnit)
+      d.endStep()
+      status = "Dimension: the angle, kept as what it measures moves"
+      return
+    if pts.len < 2 or hypot(pts[^1][0] - pts[0][0], pts[^1][1] - pts[0][1]) < 3:
+      status = "Dimension: drag from one point to another (corners and middles of objects hold it)"
+      return
+    let a = d.anchorAt(pts[0][0], pts[0][1], reach)
+    let b = d.anchorAt(pts[^1][0], pts[^1][1], reach)
+    d.beginStep("Dimension")
+    d.touchLayers()
+    discard d.addDimension(Dimension(kind: dkDistance, a: a, b: b, offset: 24), viewPrefs.rulerUnit)
+    d.endStep()
+    status = if a.uid != 0 or b.uid != 0: "Dimension: fixed to the objects -- it follows them"
+             else: "Dimension: between two points"
   of 2:
     # the loop: the points inside it picked (on the shape picked, else on every shape it holds)
     if pts.len < 3:
@@ -854,6 +904,13 @@ proc vectorBar() =
   of 13: label("Drag a shape along the perspective grid's active plane", color = ui.theme.gray)
   of 10: label("Drag right across filled shapes to cut them", color = ui.theme.gray)
   of 14: label("Drag across the parts of overlapping shapes: one shape; Alt+drag: they go", color = ui.theme.gray)
+  of 18:
+    accessName(tr("What the dimension measures"))
+    if combo(["Distance", "Angle", "Radius"], dimKind, w = dp(100)): dimPts.setLen(0)
+    label(case dimKind
+          of 0: "Drag from one point to another; on an object's corner or middle it is fixed there"
+          of 1: "Click the angle's corner, then a point on each side"
+          else: "Click a circle: its radius", color = ui.theme.gray)
   of 15: label("Drag the space between objects: they grow and shrink with it. Shift: the two nearest only; " &
                "Ctrl: size the gap; Alt: move the objects; Ctrl+Alt: spread them", color = ui.theme.gray)
   of 16, 17:

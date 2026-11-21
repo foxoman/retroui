@@ -26,7 +26,7 @@ import retroui/[photo, photopaint, photofx, photoartistic, photohdr, otshape, tt
               booklists, datamerge, textsearch, headless, perspectivegrid, pathbrush, photoblurs, pathtools,
               liveeffects, photoseps, mathtype, flexlayout, vectormake, photorelight, mockups, designstyles,
               aiconnect, aichat, aiimage, assistant, modelstore, nnet, vision, photopublish, flows, dastkhat, fontfolders,
-              imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files, photoanim, webp, apng, screenexport]
+              imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files, photoanim, webp, apng, screenexport, threed, dimensions]
 {.push warning[UnusedImport]: off.}
 import retroui/photodeep   # (imported for what it sets up: filters, flattening and gradients at 16 and 32 bits)
 {.pop.}
@@ -563,6 +563,8 @@ proc timelineOverlay(dw: DocWin)
 proc timelineDialogs()
 proc startSaveAnimation()
 proc startScreenExport()
+proc startThreeD()
+proc threeDDialog()
 proc screenExportDialog()
 proc vectorBar()
 proc deletePickedPoints(): bool
@@ -1503,9 +1505,9 @@ const
                 "Spiral", "Triangle", "Arc", "Rectangular Grid", "Polar Grid", "Flare"]
   vecToolNames = ["Group Selection", "Magic Wand (Shapes)", "Lasso (Points)", "Paintbrush (Vector)", "Blob Brush",
                   "Smooth", "Path Eraser", "Join", "Eraser (Shapes)", "Scissors", "Knife", "Width", "Mesh",
-                  "Perspective Selection", "Shape Builder", "Gap", "Content Collector", "Content Placer"]
+                  "Perspective Selection", "Shape Builder", "Gap", "Content Collector", "Content Placer", "Dimension"]
   vecToolGlyphs = [pxPathSelect, pxMagicWand, pxPolyLasso, pxBrush, pxPaint, pxCurvaturePen, pxEraser, pxConvertPoint,
-                   pxBgEraser, pxCut, pxSlice, pxWarp, pxGrid, pxPerspCrop, pxBucket, pxColumns, pxInbox, pxPaste]
+                   pxBgEraser, pxCut, pxSlice, pxWarp, pxGrid, pxPerspCrop, pxBucket, pxColumns, pxInbox, pxPaste, pxLineTool]
 
 proc toolName(t: Tool): string =
   case t
@@ -4699,6 +4701,7 @@ include photo/assist
 include photo/trained
 include photo/timeline
 include photo/screens
+include photo/threedui
 include photo/dockpanels
 
 proc phoneLayout(): bool =
