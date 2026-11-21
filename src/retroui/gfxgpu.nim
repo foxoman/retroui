@@ -772,9 +772,10 @@ proc gpuTex(c: Cmd; clip: Rect) =
   let filter = if (c.flags and 1) != 0: GL_LINEAR else: GL_NEAREST
   let kx = dw / float32(p.w)
   let ky = dh / float32(p.h)
+  let al = uint8(clamp(c.mag, 0, 255))
   for t in p.tiles:
     quad(dx + float32(t.x) * kx, dy + float32(t.y) * ky, dx + float32(t.x + t.w) * kx,
-         dy + float32(t.y + t.h) * ky, 0, 0, 1, 1, 0, 255, ModeBitmap, cl, tex = t.tex, filter = filter)
+         dy + float32(t.y + t.h) * ky, 0, 0, 1, 1, 0, al, ModeBitmap, cl, tex = t.tex, filter = filter)
 
 proc gpuChecker(c: Cmd; clip: Rect) =
   let cl = intersect(clip, devClip(c.clip))
@@ -1921,6 +1922,83 @@ proc gpuStampDabs*(pre: openArray[uint32]; w, h: int; tip: openArray[uint8]; tw,
       for t in [texTip, texOut]:
         var tt = t
         gl.deleteTextures(1, addr tt)
+
+proc gpuInkImage*(key: uint64; w, h: int; tip: openArray[uint8]; tw, th: int; quads: openArray[float32];
+                  color: uint32; clear = true): bool =
+  ## (with the GPU) Dabs drawn straight into picture `key` -- as `gpuImage` makes one, `w` x `h`,
+  ## for `drawGpuImage` --: cleared to nothing first (`clear`, or new), then each dab's quad
+  ## (corners as `gpuStampDabs` takes them) through the tip over what is there, in `color`;
+  ## nothing sent, nothing read back. False when the GPU cannot.
+  {.cast(gcsafe).}:
+    if not gpuFiltersReady() or w <= 0 or h <= 0 or tip.len != tw * th or tw < 2 or th < 2 or
+       quads.len mod 30 != 0: return false
+    if w > maxTexture() or h > maxTexture() or tw > maxTexture() or th > maxTexture(): return false
+    let p = inkProgram()
+    if p == 0: return false
+    let e = addr texCache.mgetOrPut(cast[pointer](key), TexEntry())
+    e.used = gpuFrame
+    var clear = clear
+    if e.w != w or e.h != h or e.tiles.len != 1:
+      clear = true
+      for t in e.tiles:
+        var id = t.tex
+        gl.deleteTextures(1, addr id)
+      e.tiles.setLen(0)
+      gl.activeTexture(GL_TEXTURE0 + 2)
+      e.tiles.add (newTexture(w, h, GL_RGBA), 0, 0, w, h, GL_NEAREST)
+      e.w = w
+      e.h = h
+    var tipPx = newSeq[uint32](tip.len)
+    for i, v in tip: tipPx[i] = 0xFF000000'u32 or (uint32(v) shl 16) or (uint32(v) shl 8) or uint32(v)
+    var texTip = newTexture(tw, th, GL_RGBA, GL_LINEAR, addr tipPx[0])
+    var oldFb: GLint
+    gl.getIntegerv(GL_FRAMEBUFFER_BINDING, addr oldFb)
+    let fb = fxTarget(e.tiles[0].tex)
+    try:
+      if fb != 0:
+        gl.disable(GL_SCISSOR_TEST)
+        gl.viewport(0, 0, GLsizei(w), GLsizei(h))
+        # (its color everywhere, nothing of it shown: the texture's bytes B G R A as pixels lie)
+        if clear:
+          gl.colorMask(1, 1, 1, 1)
+          gl.clearColor(GLf32(int(color and 255)) / 255, GLf32(int((color shr 8) and 255)) / 255,
+                        GLf32(int((color shr 16) and 255)) / 255, 0)
+          gl.clear(GL_COLOR_BUFFER_BIT)
+        if quads.len > 0:
+          if inkVbo == 0: gl.genBuffers(1, addr inkVbo)
+          gl.bindBuffer(GL_ARRAY_BUFFER, inkVbo)
+          gl.bufferData(GL_ARRAY_BUFFER, quads.len * sizeof(float32), unsafeAddr quads[0], GL_STREAM_DRAW)
+          gl.vertexAttribPointer(0, 2, GL_FLOAT, 0, 20, nil)
+          gl.vertexAttribPointer(1, 2, GL_FLOAT, 0, 20, cast[pointer](8))
+          gl.vertexAttribPointer(2, 1, GL_FLOAT, 0, 20, cast[pointer](16))
+          gl.enableVertexAttribArray(0)
+          gl.enableVertexAttribArray(1)
+          gl.enableVertexAttribArray(2)
+          gl.useProgram(p)
+          gl.uniform1i(gl.getUniformLocation(p, "uTip"), 0)
+          gl.uniform2f(gl.getUniformLocation(p, "uSize"), GLf32(w), GLf32(h))
+          var col = [GLf32(1), 1, 1, 1]
+          gl.uniform1fv(gl.getUniformLocation(p, "uCol"), 4, addr col[0])
+          gl.activeTexture(GL_TEXTURE0)
+          gl.bindTexture(GL_TEXTURE_2D, texTip)
+          gl.enable(GL_BLEND)
+          # (only how much shows builds up, each dab over those before it)
+          gl.colorMask(0, 0, 0, 1)
+          gl.blendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA)
+          gl.drawArrays(GL_TRIANGLES, 0, GLsizei(quads.len div 5))
+        result = gl.getError() == GL_NO_ERROR
+    finally:
+      gl.bindFramebuffer(GL_FRAMEBUFFER, GLuint(oldFb))
+      gl.useProgram(prog)
+      gl.blendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+      gl.colorMask(1, 1, 1, 0)
+      gl.enable(GL_BLEND)
+      gl.viewport(0, 0, GLsizei(fbW), GLsizei(fbH))
+      gl.activeTexture(GL_TEXTURE0)
+      if fb != 0:
+        var ff = fb
+        gl.deleteFramebuffers(1, addr ff)
+      gl.deleteTextures(1, addr texTip)
 
 proc gpuGl*(): ptr GlTable =
   ## The OpenGL functions (for work of one's own on the GPU: only while

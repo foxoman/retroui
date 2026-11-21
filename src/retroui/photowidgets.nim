@@ -26,7 +26,8 @@
 
 import std/[math, strutils, tables, algorithm]
 import uirelays/input
-import core, gfx, widgets, photo, photopaint, pixelicons, nerdicons, parallel, iccprofile, photoinks, adobefiles, simdkit
+import core, gfx, widgets, photo, photopaint, pixelicons, nerdicons, parallel, iccprofile, photoinks, adobefiles, simdkit,
+       ink
 import photoseps
 
 template th: untyped = ui.theme
@@ -56,6 +57,15 @@ type
     hideEdges*: bool         ## the selection's marching ants not drawn
     angle*: float            ## the view turned so many degrees clockwise (Rotate View, R); the
                              ## image itself unchanged
+    ink*: StrokeInk          ## a stroke painted behind it (`strokeInk`): drawn over the picture,
+                             ## which stays as it was until the stroke ends -- on the GPU when frames
+                             ## are drawn with it
+    inkKey: uint64           # (its picture on the GPU)
+    inkVer: int
+    inkSig: string           # (... the stroke and the view it was drawn for)
+    inkDone: int             # (... the dabs in it)
+    inkPre: seq[uint32]      # (on the CPU: the dabs so far, multiplied by alpha)
+    inkBuf: Bitmap           # (... as drawn)
     buf: Bitmap
     pinchAt: float           # (two fingers: how far they pinched since the last zoom step)
     big: Bitmap              # (turned: the view drawn straight, bigger, then turned into `buf`)
@@ -714,7 +724,7 @@ proc renderTurned(v: var PhotoView; d: Doc; bw, bh: int; bg: uint32) =
       dp[by * bw + bx] = o
   v.buf.changed()
 
-proc gpuView(v: var PhotoView; d: Doc; area: Rect; bg: uint32): bool =
+proc gpuView(v: var PhotoView; d: Doc; area: Rect; bg: uint32; hold = false): bool =
   ## (with the GPU) The image as a texture the GPU zooms and moves: nothing
   ## drawn again on the processor when the view scrolls or zooms, only what
   ## was painted on sent. False when the view needs the processor (a
@@ -734,21 +744,25 @@ proc gpuView(v: var PhotoView; d: Doc; area: Rect; bg: uint32): bool =
   var level = 0
   if z <= -2:
     while (1 shl (level + 1)) <= -z and level < 7: inc level
-  let (src, lw, lh) = d.mipLevel(level)
-  if src == nil: return false
   let key = v.gpuKey or uint64(level)
-  # (all of it the first time; then the part painted on, in this copy's pixels)
+  var lw = (d.w + (1 shl level) - 1) shr level
+  # (all of it the first time; then the part painted on, in this copy's pixels -- nothing while a
+  # stroke is painted behind it: the picture as it was)
   let was = v.gpuVers[level]
-  if was == 0 or was > d.ver or not gpuHasImage(key):
-    gpuImage(key, lw, lh, src, rect(0, 0, 0, 0), whole = true)
-  elif was != d.ver:
-    let c = d.changedSince(was)
-    if c.w > 0 and c.h > 0:
-      let x0 = c.x shr level
-      let y0 = c.y shr level
-      gpuImage(key, lw, lh, src, rect(x0, y0, ((c.x + c.w - 1) shr level) - x0 + 1,
-                                      ((c.y + c.h - 1) shr level) - y0 + 1))
-  v.gpuVers[level] = max(1, d.ver)
+  if not (hold and was > 0 and was <= d.ver and gpuHasImage(key)):
+    let (src, mw, mh) = d.mipLevel(level)
+    if src == nil: return false
+    lw = mw
+    if was == 0 or was > d.ver or not gpuHasImage(key):
+      gpuImage(key, mw, mh, src, rect(0, 0, 0, 0), whole = true)
+    elif was != d.ver:
+      let c = d.changedSince(was)
+      if c.w > 0 and c.h > 0:
+        let x0 = c.x shr level
+        let y0 = c.y shr level
+        gpuImage(key, mw, mh, src, rect(x0, y0, ((c.x + c.w - 1) shr level) - x0 + 1,
+                                        ((c.y + c.h - 1) shr level) - y0 + 1))
+    v.gpuVers[level] = max(1, d.ver)
   let s = pxScale
   let (ox, oy) = v.origin(d)
   let (iw, ih) = v.devSize(d)
@@ -765,6 +779,95 @@ proc gpuView(v: var PhotoView; d: Doc; area: Rect; bg: uint32): bool =
   drawGpuImage(key, img, d.ver, smooth = lw != iw)
   popClip()
   true
+
+proc drawInk(v: var PhotoView; d: Doc; area: Rect; cpuOnly = false) =
+  ## (a stroke painted behind it over the picture as it was, at the screen's own resolution: each
+  ## new dab added to what is there -- on the GPU into a picture of its own, else on the CPU)
+  if v.ink.id == 0 or v.ink.dabs.len == 0:
+    if v.inkSig.len > 0:
+      v.inkSig = ""
+      v.inkPre = @[]
+      v.inkBuf = nil
+    return
+  let t = v.ink.tip
+  if t.mask.len != t.mw * t.mh or t.mw < 2 or t.mh < 2: return
+  let s = pxScale
+  let bw = area.w * s
+  let bh = area.h * s
+  if bw <= 0 or bh <= 0: return
+  let k = v.scaleOf.float32
+  let (ox, oy) = v.origin(d)
+  if v.inkKey == 0:
+    v.inkKey = nextGpuKey shl 8
+    inc nextGpuKey
+  let gpu = not cpuOnly and drawnWithGpu() and gpuFiltersReady() and bw <= gpuMaxTextureSize() and
+            bh <= gpuMaxTextureSize()
+  let sig = $v.ink.id & "/" & $v.zoom & "/" & $ox & "," & $oy & "/" & $v.angle & "/" & $area & "/" & $s &
+            "/" & $gpu
+  var fresh = sig != v.inkSig or v.inkDone > v.ink.dabs.len or (gpu and not gpuHasImage(v.inkKey)) or
+              (not gpu and v.inkPre.len != bw * bh)
+  if fresh:
+    v.inkSig = sig
+    v.inkDone = 0
+  # (the new dabs in the view's device pixels, from its corner)
+  var dabs = newSeqOfCap[InkDab](v.ink.dabs.len - v.inkDone)
+  var bx0 = Inf.float32
+  var by0 = Inf.float32
+  var bx1 = -Inf.float32
+  var by1 = -Inf.float32
+  for i in v.inkDone ..< v.ink.dabs.len:
+    let dd = v.ink.dabs[i]
+    var nd = dd
+    nd.x = ox.float32 + dd.x * k
+    nd.y = oy.float32 + dd.y * k
+    if v.angle != 0:
+      let (lx, ly) = v.turned(area.x.float + nd.x / s.float32, area.y.float + nd.y / s.float32, false)
+      nd.x = (float32(lx) - area.x.float32) * s.float32
+      nd.y = (float32(ly) - area.y.float32) * s.float32
+      nd.angle = dd.angle + float32(v.angle)
+    nd.size = max(0.5'f32, dd.size * k)
+    let r = nd.size / 2 * 1.42'f32 + 1
+    bx0 = min(bx0, nd.x - r); by0 = min(by0, nd.y - r)
+    bx1 = max(bx1, nd.x + r); by1 = max(by1, nd.y + r)
+    dabs.add nd
+  let alpha = clamp(int(v.ink.opacity * 255 + 0.5), 0, 255)
+  if dabs.len > 0 or fresh: inc v.inkVer
+  var drawn = false
+  if gpu:
+    if dabs.len == 0 and not fresh: drawn = true
+    elif gpuInkImage(v.inkKey, bw, bh, t.mask, t.mw, t.mh, dabQuads(dabs), v.ink.color, clear = fresh):
+      drawn = true
+    if drawn:
+      v.inkPre = @[]
+      v.inkBuf = nil
+      pushClip(area)
+      drawGpuImage(v.inkKey, rect(area.x * s, area.y * s, bw, bh), v.inkVer, alpha = alpha)
+      popClip()
+      v.inkDone = v.ink.dabs.len
+      return
+    # (the GPU could not: all of it again on the CPU)
+    v.inkSig = ""
+    v.drawInk(d, area, cpuOnly = true)
+    return
+  if fresh:
+    v.inkPre = newSeq[uint32](bw * bh)
+    v.inkBuf = newBitmap(bw, bh)
+    v.inkBuf.opaque = false
+  stampCpu(v.inkPre, bw, bh, t.mask, t.mw, t.mh, dabs, 0xFFFFFFFF'u32)
+  # (what the new dabs touched, as drawn)
+  let x0 = if fresh: 0 else: clamp(int(floor(bx0)), 0, bw)
+  let y0 = if fresh: 0 else: clamp(int(floor(by0)), 0, bh)
+  let x1 = if fresh: bw else: clamp(int(ceil(bx1)) + 1, 0, bw)
+  let y1 = if fresh: bh else: clamp(int(ceil(by1)) + 1, 0, bh)
+  let rgb = v.ink.color and 0xFFFFFF'u32
+  for y in y0 ..< y1:
+    for x in x0 ..< x1:
+      let i = y * bw + x
+      let a = (v.inkPre[i] shr 24) * uint32(alpha) div 255
+      v.inkBuf.px[i] = if a == 0: 0'u32 else: (a shl 24) or rgb
+  if x1 > x0 and y1 > y0: v.inkBuf.changed(rect(x0, y0, x1 - x0, y1 - y0))
+  v.inkDone = v.ink.dabs.len
+  drawBitmap(area, v.inkBuf)
 
 proc antsSegments(v: PhotoView; d: Doc; bw, bh: int): seq[array[4, int32]] =
   ## The selection's outline in the view (device pixels); moved with what
@@ -925,14 +1028,16 @@ proc photoView*(d: Doc; v: var PhotoView; height = -1; key = ""; drawAntsNow = t
   # (made again only where something changed: what scrolled is moved, what
   # was painted on is drawn again -- the composite first, so that a layer
   # style that moved says where its shadow was)
-  if d.live.len == 0: d.updateComposite()
+  # (a stroke painted behind it: the picture as it was until it ends, the stroke drawn over it)
+  let hold = v.ink.id != 0
+  if d.live.len == 0 and not hold: d.updateComposite()
   let org = v.origin(d)
   if v.angle != 0:
     let kt = k & "/turned" & $v.angle & "/" & $org
-    if kt != v.key or v.buf == nil or v.buf.w != bw or v.buf.h != bh or d.ver != v.shownVer:
+    if kt != v.key or v.buf == nil or v.buf.w != bw or v.buf.h != bh or (d.ver != v.shownVer and not hold):
       v.renderTurned(d, bw, bh, bg)
       v.key = kt
-  elif v.gpuView(d, area, bg):
+  elif v.gpuView(d, area, bg, hold):
     v.buf = nil                  # (not needed while the GPU shows the image)
     v.key = ""
   elif k != v.key or v.buf == nil or v.buf.w != bw or v.buf.h != bh:
@@ -956,7 +1061,7 @@ proc photoView*(d: Doc; v: var PhotoView; height = -1; key = ""; drawAntsNow = t
         if dx != 0 and dy != 0:
           v.renderView(d, bw, bh, bg, if dx > 0: rect(0, 0, dx, bh) else: rect(bw + dx, 0, -dx, bh))
           part = if dy > 0: rect(0, 0, bw, dy) else: rect(0, bh + dy, bw, -dy)
-    if d.ver != v.shownVer:
+    if d.ver != v.shownVer and not hold:
       let c = d.changedSince(v.shownVer)
       let vr = v.viewRect(d, c, bw, bh)
       if org != v.shownOff:
@@ -969,9 +1074,10 @@ proc photoView*(d: Doc; v: var PhotoView; height = -1; key = ""; drawAntsNow = t
     elif org != v.shownOff:
       v.renderView(d, bw, bh, bg, part)
       v.buf.changed()
-  v.shownVer = d.ver
+  if not hold: v.shownVer = d.ver
   v.shownOff = org
   if v.buf != nil: drawBitmap(area, v.buf)
+  v.drawInk(d, area)
   if d.selVer != v.antsVer:
     v.computeEdges(d)
     v.antsVer = d.selVer

@@ -13,11 +13,11 @@
 ##   s.endStroke()
 ##   d.endStep()
 
-import std/[math, algorithm, strutils, tables, random]
+import std/[math, algorithm, strutils, tables, random, monotimes, times]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import parallel
-import gfx, photo, canvas2d
-export photo.gradientColorF
+import gfx, photo, canvas2d, ink
+export photo.gradientColorF, ink.InkTip, ink.InkDab
 
 # ---- brush tips --------------------------------------------------------------------------------------
 
@@ -426,6 +426,19 @@ type
                                 ## Color, Hue...) only over the color sampled as the Background
                                 ## Eraser does -- `bgTolerance`, `bgSampling`, `bgLimits`
 
+  DabPlan = object
+    ## (a dab as it was placed: where, its tip as the dynamics made it -- its picture left out --,
+    ## its size, how strong, its color, the dual brush's offset, where the stroke was)
+    cx, cy: float
+    tip: BrushTip
+    k: float
+    changed: bool
+    strength, flowK: float
+    color: uint32
+    dox, doy: int
+    lastX, lastY: float
+    skip: bool
+
   Stroke* = object
     ## A stroke being painted (between the press and the release).
     d: Doc
@@ -436,6 +449,12 @@ type
     lastX, lastY: float
     carry: float                 # the distance left before the next dab
     dabs*: int                   ## the dabs painted so far
+    placed*: int                 ## the dabs placed so far (painted, or kept to be: `deferDabs`)
+    queue: seq[DabPlan]          # (every dab placed while deferred: `qHead` the next to paint)
+    qHead: int
+    deferOn: bool
+    dabMs: float                 # (how long a dab takes, lately)
+    inkId: int                   # (the stroke's, for its ink)
     cov: TileBuf[uint16]         # what the stroke covers (0..65535), in tiles made as painted
     col: TileBuf[uint32]         # the color each pixel was given (fades)
     rng: Rand
@@ -560,17 +579,20 @@ proc colorDistance(a, b: uint32): int {.inline.} =
   ## (how far apart two colors are: their most different channel, 0..255)
   max(abs(rOf(a) - rOf(b)), max(abs(gOf(a) - gOf(b)), abs(bOf(a) - bOf(b))))
 
-proc dab(s: var Stroke; cx, cy: float) =
-  let d = s.d
-  let L = s.L
-  var m = s.mask
+proc planDab(s: var Stroke; cx, cy: float): DabPlan =
+  ## (a dab as it is placed: its tip as the dynamics make it, how strong, its color -- the
+  ## stroke's random numbers drawn now, in order, so that it paints the same now or later)
   let dy = s.o.dyn
+  let custom = s.tip.custom.len > 0
   let shaped = s.o.tool in {tkBrush, tkAirbrush, tkEraser, tkStamp, tkSmudge, tkBlur, tkSharpen, tkDodge, tkMixer,
                             tkBurn, tkSponge} and not (s.o.tool == tkEraser and s.o.eraseMode in {emPencil, emBlock})
   let byPressure = s.o.sizeByPressure or dy.sizeControl == dcPressure
   var k = if byPressure and s.pressure < 0.999 and s.o.tool in {tkBrush, tkAirbrush, tkEraser, tkMixer}:
             s.pressure else: 1.0
-  var tip = s.tip
+  # (the tip without its picture: the stroke's is put back when it is painted)
+  var tip = BrushTip(diameter: s.tip.diameter, hardness: s.tip.hardness, spacing: s.tip.spacing,
+                     angle: s.tip.angle, roundness: s.tip.roundness, cw: s.tip.cw, ch: s.tip.ch,
+                     flipX: s.tip.flipX, flipY: s.tip.flipY)
   var changed = k < 0.999
   if shaped and dy.sizeControl == dcTilt and s.tilt > 0.01:
     # (Pen Tilt: smaller as the pen is laid down)
@@ -579,7 +601,7 @@ proc dab(s: var Stroke; cx, cy: float) =
   if shaped and dy.sizeControl == dcFade and dy.sizeFade > 0:
     # (smaller each dab, down to the minimum)
     let lo = clamp(dy.minDiameter, 0, 100).float / 100
-    k *= max(lo, 1 - s.dabs.float / dy.sizeFade.float)
+    k *= max(lo, 1 - s.placed.float / dy.sizeFade.float)
     changed = true
   if shaped and dy.sizeJitter > 0:
     let lo = clamp(dy.minDiameter, 0, 100).float / 100
@@ -598,13 +620,13 @@ proc dab(s: var Stroke; cx, cy: float) =
     let deg = if dy.angleControl == anPenTilt: radToDeg(s.azimuth) else: s.twist
     tip.angle = tip.angle - int(round(deg))
     changed = true
-  if shaped and not dy.pose and dy.roundTilt and s.tilt > 0.02 and tip.custom.len == 0:
+  if shaped and not dy.pose and dy.roundTilt and s.tilt > 0.02 and not custom:
     tip.roundness = max(5, int(round(tip.roundness.float * (1 - 0.75 * min(1.0, s.tilt)))))
     changed = true
   if shaped and dy.angleJitter > 0:
     tip.angle = tip.angle + int(round((s.rng.rand(2.0) - 1) * 180 * dy.angleJitter.float / 100))
     changed = true
-  if shaped and dy.roundJitter > 0 and tip.custom.len == 0:
+  if shaped and dy.roundJitter > 0 and not custom:
     tip.roundness = max(1, int(round(tip.roundness.float * (1 - s.rng.rand(1.0) * dy.roundJitter.float / 100))))
     changed = true
   if shaped and dy.pose:
@@ -621,33 +643,20 @@ proc dab(s: var Stroke; cx, cy: float) =
   if shaped and dy.flipYJitter and s.rng.rand(1.0) < 0.5:
     tip.flipY = not tip.flipY
     changed = true
-  if tip.custom.len > 0 and tip.angle mod 360 != 0:
-    # (a sampled tip turned: its picture turned)
-    tip = tip.turned(tip.angle)
-    changed = true
-  if changed: m = tipMask(tip, max(0.02, k))
-  let fw = m.fullW
-  let fh = m.fullH
-  let x0 = int(floor(cx)) - fw div 2
-  let y0 = int(floor(cy)) - fh div 2
-  let r = d.clip(rect(x0, y0, fw, fh))
-  if r.w <= 0 or r.h <= 0:
-    inc s.dabs
-    return
-  # the stroke's own sources first (the stamp), then what it paints on
-  if s.o.tool == tkStamp and s.o.stamp in {smCloneAligned, smClone, smImpressionist}:
-    d.touch(L, d.clip(rect(x0 + int(s.offX), y0 + int(s.offY), fw, fh)))
-  d.touch(L, r)
-  s.area = if s.area.w <= 0: r else: union(s.area, r)
+  if custom and tip.angle mod 360 != 0: changed = true      # (a sampled tip turned: its picture turned)
+  result = DabPlan(cx: cx, cy: cy, tip: tip, k: k, changed: changed, lastX: s.lastX, lastY: s.lastY)
+  inc s.placed
   # fading
   var strength = s.o.opacity.float / 100
   if s.o.opacityByPressure or dy.opacityControl == dcPressure: strength *= s.pressure
   if dy.opacityControl == dcTilt: strength *= max(0.05, 1 - s.tilt)
-  if dy.opacityControl == dcFade and dy.opacityFade > 0: strength *= max(0.0, 1 - s.dabs.float / dy.opacityFade.float)
+  if dy.opacityControl == dcFade and dy.opacityFade > 0:
+    strength *= max(0.0, 1 - (s.placed - 1).float / dy.opacityFade.float)
   if dy.opacityJitter > 0: strength *= 1 - s.rng.rand(1.0) * dy.opacityJitter.float / 100
   var flowK = if dy.flow > 0 and dy.flow < 100: dy.flow.float / 100 else: 1.0
   if dy.flowControl == dcPressure: flowK *= s.pressure
-  if dy.flowControl == dcFade and dy.flowFade > 0: flowK *= max(0.0, 1 - s.dabs.float / dy.flowFade.float)
+  if dy.flowControl == dcFade and dy.flowFade > 0:
+    flowK *= max(0.0, 1 - (s.placed - 1).float / dy.flowFade.float)
   if dy.flowJitter > 0: flowK *= 1 - s.rng.rand(1.0) * dy.flowJitter.float / 100
   var color = if s.useBg: s.o.bg else: s.o.color
   if dy.fgBgJitter > 0: color = mix(color, s.o.bg, s.rng.rand(1.0) * dy.fgBgJitter.float / 100)
@@ -661,12 +670,53 @@ proc dab(s: var Stroke; cx, cy: float) =
     hsb.b = clamp(hsb.b * (1 - s.rng.rand(1.0) * dy.brightJitter.float / 100), 0.0, 1.0)
     color = fromHsb(hsb.h, hsb.s, hsb.b, aOf(color))
   if s.o.fade > 0:
-    let t = s.dabs.float / s.o.fade.float
+    let t = (s.placed - 1).float / s.o.fade.float
     if s.o.fadeToBg: color = mix(s.o.color, s.o.bg, min(1.0, t))
     elif t >= 1:
-      inc s.dabs
+      result.skip = true
       return
     else: strength *= 1 - t
+  result.strength = strength
+  result.flowK = flowK
+  result.color = color
+  if s.dualMask.w > 0:
+    let dsc = clamp(s.o.dualScatter, 0, 400).float / 100
+    result.dox = int((s.rng.rand(2.0) - 1) * dsc * s.dualMask.w.float)
+    result.doy = int((s.rng.rand(2.0) - 1) * dsc * s.dualMask.h.float)
+
+proc paintDab(s: var Stroke; pl: DabPlan) =
+  ## (a dab painted as it was planned)
+  let d = s.d
+  let L = s.L
+  let dy = s.o.dyn
+  let cx = pl.cx
+  let cy = pl.cy
+  if pl.skip:
+    inc s.dabs
+    return
+  var m = s.mask
+  if pl.changed:
+    var tip = pl.tip
+    if s.tip.custom.len > 0:
+      tip.custom = s.tip.custom
+      if tip.angle mod 360 != 0: tip = tip.turned(tip.angle)
+    m = tipMask(tip, max(0.02, pl.k))
+  let fw = m.fullW
+  let fh = m.fullH
+  let x0 = int(floor(cx)) - fw div 2
+  let y0 = int(floor(cy)) - fh div 2
+  let r = d.clip(rect(x0, y0, fw, fh))
+  if r.w <= 0 or r.h <= 0:
+    inc s.dabs
+    return
+  # the stroke's own sources first (the stamp), then what it paints on
+  if s.o.tool == tkStamp and s.o.stamp in {smCloneAligned, smClone, smImpressionist}:
+    d.touch(L, d.clip(rect(x0 + int(s.offX), y0 + int(s.offY), fw, fh)))
+  d.touch(L, r)
+  s.area = if s.area.w <= 0: r else: union(s.area, r)
+  let strength = pl.strength
+  let flowK = pl.flowK
+  let color = pl.color
   let w = d.w
   # the texture's grain, the dual brush: how much of the dab shows at a pixel
   let textured = s.o.texture.len > 0 and s.o.tw > 0 and s.o.th > 0 and s.o.texture.len == s.o.tw * s.o.th
@@ -684,9 +734,8 @@ proc dab(s: var Stroke; cx, cy: float) =
       if texInv: g = 1 - g
       1 - tdepth * (1 - g)
   let dualOn = s.dualMask.w > 0
-  let dsc = clamp(s.o.dualScatter, 0, 400).float / 100
-  let dox = if dualOn: int((s.rng.rand(2.0) - 1) * dsc * s.dualMask.w.float) else: 0
-  let doy = if dualOn: int((s.rng.rand(2.0) - 1) * dsc * s.dualMask.h.float) else: 0
+  let dox = pl.dox
+  let doy = pl.doy
   let dmW = max(1, s.dualMask.w)
   let dmH = max(1, s.dualMask.h)
   let dmP = if dualOn: cast[ptr UncheckedArray[float32]](addr s.dualMask.a[0]) else: nil
@@ -758,6 +807,7 @@ proc dab(s: var Stroke; cx, cy: float) =
         if s.needCol: discard s.col.slot(tx shl 6, ty shl 6)
     let sp = addr s
     let mp = addr m
+    let plp = unsafeAddr pl
     let top = if air: 65535.0 else: strength * 65535
     let fk = if air: flow else: flowK
     let wet = s.o.wet and s.o.tool == tkBrush
@@ -840,8 +890,8 @@ proc dab(s: var Stroke; cx, cy: float) =
               colp[] =
                 case s.o.stamp
                 of smPattern, smPatternAligned:
-                  s.o.patternAt(if s.o.stamp == smPattern: x - int(s.lastX) else: x,
-                                if s.o.stamp == smPattern: y - int(s.lastY) else: y)
+                  s.o.patternAt(if s.o.stamp == smPattern: x - int(plp.lastX) else: x,
+                                if s.o.stamp == smPattern: y - int(plp.lastY) else: y)
                 of smFromSnapshot, smFromSaved:
                   if s.o.saved.len == d.w * d.h: s.o.saved[i] else: orig.at(x, y)
                 else:
@@ -937,6 +987,12 @@ proc dab(s: var Stroke; cx, cy: float) =
   inc s.dabs
   inc L.ver
   d.markDirty(r)
+
+proc dab(s: var Stroke; cx, cy: float) =
+  ## (a dab placed: painted now, or kept to be painted in order -- `deferDabs`)
+  let pl = s.planDab(cx, cy)
+  if s.deferOn: s.queue.add pl
+  else: s.paintDab(pl)
 
 proc symmetric*(o: PaintOpts; w, h: int; x, y: float): seq[(float, float)] =
   ## Where a dab at `x`, `y` is painted with the symmetry (itself first).
@@ -1054,8 +1110,120 @@ proc coverage*(s: Stroke; i: int): int =
 proc stampOffset*(s: Stroke): (float, float) = (s.offX, s.offY)
   ## The rubber stamp's stroke: from where it paints to where it copies.
 
+proc dabsLeft*(s: Stroke): int =
+  ## The dabs placed and not painted yet (`deferDabs`).
+  s.queue.len - s.qHead
+
+proc paintDabs*(s: var Stroke; budgetMs = 0.0; one = false): int {.discardable.} =
+  ## Paints the dabs kept (`deferDabs`), in the order they were placed -- all of them, or
+  ## (`budgetMs` > 0) as many as fit in so many milliseconds by how long a dab takes: none when one
+  ## takes longer (those wait for the end, or for `one`: one at least -- the pen resting). How many
+  ## are left.
+  if s.qHead >= s.queue.len: return 0
+  let t0 = getMonoTime()
+  var any = false
+  while s.qHead < s.queue.len:
+    let el = (getMonoTime() - t0).inMicroseconds.float / 1000
+    if budgetMs > 0 and el + s.dabMs > budgetMs and not (one and not any): break
+    let pl = s.queue[s.qHead]
+    inc s.qHead
+    let t1 = getMonoTime()
+    s.paintDab(pl)
+    any = true
+    if not pl.skip:
+      let took = (getMonoTime() - t1).inMicroseconds.float / 1000
+      s.dabMs = if s.dabMs <= 0: took else: s.dabMs * 0.7 + took * 0.3
+  if any and s.L == s.d.maskLayer: s.d.syncQuickMask()
+  s.dabsLeft
+
+var strokeIds = 0
+
+proc deferDabs*(s: var Stroke; on = true) =
+  ## The dabs placed from now on kept, in order, to be painted by `paintDabs` -- a frame's spare
+  ## time at a time while the pen moves, the stroke drawn over the picture as it was until then
+  ## (`strokeInk`) -- and those left by `endStroke`: the same pixels as each painted at once. For
+  ## the paintbrush, the pencil and the airbrush painting normally (not Wet Edges) on a layer's
+  ## colors; the rest is painted at once.
+  s.deferOn = on and s.o.tool in {tkBrush, tkPencil, tkAirbrush} and s.o.mode == bmNormal and not s.o.wet and
+              s.L != nil and not s.L.gray and not s.d.quickMask
+  if s.deferOn and s.inkId == 0:
+    inc strokeIds
+    s.inkId = strokeIds
+    # (how long a dab may take, until one is timed: some 40 ns a pixel on a core)
+    s.dabMs = float(s.mask.fullW * s.mask.fullH) * 4e-5 / max(1, threadCount()).float
+  if not s.deferOn: discard s.paintDabs()
+
+proc deferred*(s: Stroke): bool =
+  ## The stroke is painted behind it (`deferDabs` took it).
+  s.deferOn
+
+proc bigDabs*(s: Stroke): bool =
+  ## The stroke's dabs so big (512 x 512 image pixels or more) that painting each as the pen
+  ## moves would keep it waiting: worth `deferDabs`.
+  s.mask.fullW * s.mask.fullH >= 512 * 512
+
+type
+  StrokeInk* = object
+    ## A stroke painted behind it (`deferDabs`) as `retroui/ink` draws it over the picture as it
+    ## was (`strokeInk`): its dabs so far in image pixels, the tip, the color; together at most
+    ## `opacity` strong. `id` is the stroke's (0: none).
+    id*: int
+    tip*: InkTip
+    dabs*: seq[InkDab]
+    color*: uint32
+    opacity*: float32
+
+proc inkTipOf(m: TipMask): InkTip =
+  ## (a dab's mask as the ink's tip: at most 128 pixels across, each the mask's under it averaged)
+  let fw = max(1, m.w)
+  let fh = max(1, m.h)
+  let tw = clamp(fw, 2, 128)
+  let th = clamp(fh, 2, 128)
+  result = InkTip(mask: newSeq[uint8](tw * th), mw: tw, mh: th)
+  for y in 0 ..< th:
+    let sy0 = y * fh div th
+    let sy1 = max(sy0 + 1, (y + 1) * fh div th)
+    for x in 0 ..< tw:
+      let sx0 = x * fw div tw
+      let sx1 = max(sx0 + 1, (x + 1) * fw div tw)
+      var acc = 0'f32
+      var n = 0
+      for sy in sy0 ..< min(sy1, m.h):
+        for sx in sx0 ..< min(sx1, m.w):
+          acc += m.a[sy * m.w + sx]
+          inc n
+      result.mask[y * tw + x] = uint8(clamp(int(acc / max(1, n).float32 * 255 + 0.5), 0, 255))
+
+proc strokeInk*(s: Stroke): StrokeInk =
+  ## A stroke painted behind it (`deferDabs`), every dab placed so far -- painted or not -- to be
+  ## drawn over the picture as it was before it: the tip, each dab's size, turn and strength, the
+  ## color. Nothing for a stroke painted as it goes.
+  if s.d == nil or not s.deferOn or s.queue.len == 0: return
+  let fw = max(1, s.mask.fullW).float32
+  let fh = max(1, s.mask.fullH).float32
+  let air = s.o.tool == tkAirbrush or (s.o.dyn.buildUp and s.o.tool == tkBrush)
+  let top = clamp(s.o.opacity.float32 / 100, 0.01, 1)
+  result.id = s.inkId
+  result.tip = inkTipOf(s.mask)
+  result.color = if s.useBg: s.o.bg else: s.o.color
+  result.opacity = if air: 1'f32 else: top
+  let r0 = max(1, s.tip.roundness).float32
+  result.dabs = newSeqOfCap[InkDab](s.queue.len)
+  for pl in s.queue:
+    if pl.skip: continue
+    let k = if pl.changed: pl.k.float32 else: 1'f32
+    let op = if air: pl.strength.float32 * 0.18'f32 else: pl.flowK.float32 * pl.strength.float32 / top
+    result.color = pl.color
+    result.dabs.add InkDab(x: pl.cx.float32, y: pl.cy.float32, size: fw * k,
+                           angle: float32(pl.tip.angle - s.tip.angle),
+                           roundness: clamp(fh / fw * pl.tip.roundness.float32 / r0, 0.01, 1),
+                           opacity: clamp(op, 0, 1))
+
 proc endStroke*(s: var Stroke) =
-  ## Ends the stroke (the Quick Mask takes it as the selection).
+  ## Ends the stroke: the dabs left painted (`deferDabs`); the Quick Mask takes it as the selection.
+  if s.dabsLeft > 0: discard s.paintDabs()
+  s.queue = @[]
+  s.qHead = 0
   if s.L == s.d.maskLayer: s.d.syncQuickMask()
   s.cov = TileBuf[uint16]()
   s.col = TileBuf[uint32]()

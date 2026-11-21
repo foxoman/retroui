@@ -134,6 +134,7 @@ type
     op: SelOp
     moving: bool                   ## dragging the selection's pixels
     lastTick: int
+    movedAt: int                   ## when the mouse last moved (a stroke painted behind it: the pen resting)
     sx, sy: int                    ## the mouse on the screen (the hand)
     smx, smy: float                ## where the smoothed stroke has got to
     board: int                     ## the Artboard tool: the artboard moved (-1: one drawn)
@@ -668,13 +669,18 @@ type AppPrefs = object
   layerSizes: bool             ## the Layers panel shows how much memory each layer takes
   ownFiles: bool               ## a phone: Open and Save As with the app's own dialog (the user's folders,
                                ## with the access to all files) -- not the system's picker
+  paintBehind: bool            ## a big brush's dabs painted a frame's worth at a time, the stroke shown
+                               ## over the picture until then (`deferDabs`): the pen never waits
 
 const DefaultPrefs = AppPrefs(interp: 2, zoomResizes: false, zoomCenter: false, docTabs: true,
                               optionsBar: true, history: 100, autosave: 10, bgSave: true, recent: 10,
                               lowerExt: true, psdComposite: true, memory: 70, threads: 0,
                               paintCursor: 2, crosshair: false, otherCursor: 1,
                               printRes: 300, screenRes: 72, smartQuotes: true, smartReflow: true, workingSpace: 1,
-                              embedProfile: true, toolCols: 2, taskBar: true, session: true)
+                              embedProfile: true, toolCols: 2, taskBar: true, session: true, paintBehind: true)
+
+const PaintBudgetMs = 10.0
+  ## (a frame's time for a stroke's dabs when they are painted behind it: `prefs.paintBehind`)
 
 var prefs = DefaultPrefs        ## Preferences (photo/prefs)
 
@@ -3317,10 +3323,12 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
     d.beginStep(toolName(tool))
     if ev.shift and dw.hasLastPaint:
       drag.stroke = d.beginStroke(o, tipFor(tool), dw.lastPaint[0], dw.lastPaint[1], ui.pressure)
+      drag.stroke.deferDabs(prefs.paintBehind and drag.stroke.bigDabs)
       drag.stroke.penPose(ui.tilt, ui.azimuth, ui.twist)
       drag.stroke.strokeTo(ev.x, ev.y, ui.pressure)
     else:
       drag.stroke = d.beginStroke(o, tipFor(tool), ev.x, ev.y, ui.pressure)
+      drag.stroke.deferDabs(prefs.paintBehind and drag.stroke.bigDabs)
       drag.stroke.penPose(ui.tilt, ui.azimuth, ui.twist)
       drag.stroke.startStroke()
     dw.lastPaint = (ev.x, ev.y)
@@ -3881,10 +3889,12 @@ proc releaseOn(ev: PhotoEvent) =
       d.endStep()
       drag = Drag()
       return
-    if brushSmoothing > 0 and tool notin {tStamp} and drag.stroke.dabs > 0:
+    if brushSmoothing > 0 and tool notin {tStamp} and drag.stroke.placed > 0:
       drag.stroke.strokeTo(drag.x1, drag.y1)      # (it catches up at the end)
+    let behind = drag.stroke.deferred
     drag.stroke.endStroke()
     d.endStep()
+    if behind: d.updateComposite()             # (the picture as it is now, while it says it is busy)
   of tHeal:
     case healMode
     of 0:
@@ -4536,6 +4546,7 @@ proc docBody(dw: DocWin) =
   dw.taskBarPress()                # (its buttons before the image takes the mouse)
   # (the status under the image, left of its scroll bar: as today's editors)
   let stW = clamp(available() * 55 div 100, dp(170), dp(560))
+  dw.view.ink = if drag.on and drag.dw == dw: drag.stroke.strokeInk() else: StrokeInk()
   var ev = photoView(d, dw.view, height = docHeight, key = $cast[uint](dw), statusW = stW)
   beginKeepSides(dw.view.keepRect)     # (what is drawn over the image: as it is, right to left too)
   defer: endKeepSides()
@@ -4627,6 +4638,13 @@ proc docBody(dw: DocWin) =
       drag.stroke.strokeTick()
       drag.lastTick = ui.now
     wakeIn(60)
+  if drag.on and drag.dw == dw and drag.stroke.dabsLeft > 0:
+    # (a big brush: the stroke drawn over the picture as it was -- on the GPU when frames are drawn
+    # with it --, its dabs painted in each frame's spare time, those too slow for it as it ends)
+    if ev.moved: drag.movedAt = ui.now
+    let before = drag.stroke.dabsLeft
+    let left = drag.stroke.paintDabs(PaintBudgetMs, one = ui.now - drag.movedAt > 150)
+    if left > 0: wakeIn(if left < before: 1 else: 160)
   if drag.on and drag.dw == dw:
     info.sized = true
     info.w = abs(drag.x1 - drag.x0)

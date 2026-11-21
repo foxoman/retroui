@@ -259,7 +259,9 @@ Merge Channels and proofs for color blindness are there; so are Paste in Front
 and in Back, Outline View, Corner Options on any shape, Release to Layers and
 opacity masks; and for books, Print Booklet (saddle stitch or perfect bound,
 with creep), Find Font, column rules, table stripes in a pattern and diagonal
-cell lines, page color labels and Smart Text Reflow. File > Export > Export for Screens writes artboards or objects at 1x, 2x, 3x...
+cell lines, page color labels and Smart Text Reflow. A brush 512 pixels across or more
+is painted behind its stroke: the stroke shows at once where the pen goes (drawn by
+the GPU when it draws the window), the picture's pixels follow. File > Export > Export for Screens writes artboards or objects at 1x, 2x, 3x...
 as PNG, JPEG, WebP, SVG and PDF; DXF drawings and EPS files open as shapes.
 Window > Timeline plays an animation's frames (an animated GIF,
 WebP or PNG opens as them) and File > Export > Save Animation saves them. Type takes colour fonts and emoji; the layout dialogs' lengths

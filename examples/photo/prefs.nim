@@ -97,6 +97,7 @@ proc loadPrefs() =
   p.memory = st.getInt("pref.memory", p.memory)
   p.threads = st.getInt("pref.threads", p.threads)
   p.gpu = clamp(st.getInt("pref.gpu", p.gpu), 0, 2)
+  p.paintBehind = st.getBool("pref.paintBehind", p.paintBehind)
   p.scratch = st.getOrDefault("pref.scratch", "")
   p.paintCursor = st.getInt("pref.paintCursor", p.paintCursor)
   p.crosshair = st.getBool("pref.crosshair", p.crosshair)
@@ -173,6 +174,7 @@ proc savePrefs() =
   st["pref.memory"] = $p.memory
   st["pref.threads"] = $p.threads
   st["pref.gpu"] = $p.gpu
+  st["pref.paintBehind"] = $p.paintBehind
   st["pref.scratch"] = p.scratch
   st["pref.paintCursor"] = $p.paintCursor
   st["pref.crosshair"] = $p.crosshair
@@ -372,15 +374,15 @@ proc pageMemory() =
     checkbox("Show Each Layer's Size in the Layers Panel", prefs.layerSizes)
   group("Processor"):
     var t = prefs.threads
-    var names = @["Automatic (" & $countProcessors() & " cores)"]
-    for n in [1, 2, 4, 8, 16]: names.add $n & (if n == 1: " thread" else: " threads")
+    var names = @[tr("Automatic (") & $countProcessors() & tr(" cores)")]
+    for n in [1, 2, 4, 8, 16]: names.add $n & tr(if n == 1: " thread" else: " threads")
     var k = if t <= 0: 0 else: max(0, [1, 2, 4, 8, 16].find(t) + 1)
     row:
       label "Use:"
       if combo(names, k, w = dp(170)): prefs.threads = if k == 0: 0 else: [1, 2, 4, 8, 16][k - 1]
     label("(takes effect when Retro Atelier starts again)", color = ui.theme.gray)
   group("Graphics Processor Settings"):
-    label("Detected: " & gpuDescription())
+    label(tr("Detected: ") & tr(gpuDescription()), literal = true)
     var useGpu = prefs.gpu != 2
     if checkbox("Use Graphics Processor", useGpu):
       prefs.gpu = if useGpu: 0 else: 2
@@ -394,6 +396,10 @@ proc pageMemory() =
           setGpuMode(GpuMode(k))
     label("With the GPU, zooming and scrolling the picture and drawing the window cost the " &
           "processor nothing; without it, everything is drawn on the processor's cores.",
+          color = ui.theme.gray)
+    checkbox("Paint Big Brushes Behind the Stroke", prefs.paintBehind)
+    label("The stroke shows at once where the pen goes (drawn by the GPU when it draws the window); " &
+          "the picture's own pixels follow it a frame's worth at a time, all of them as the stroke ends.",
           color = ui.theme.gray)
     let gs = gpuCompositeStats
     if gs.gpu + gs.cpu > 0:
@@ -567,7 +573,7 @@ proc prefsDialog() =
   var open = prefsOpen
   dialog(open, "Preferences", 640):
     var names: seq[string]
-    for p in PrefPage: names.add $p
+    for p in PrefPage: names.add tr($p)        # (a list's rows are not translated by it)
     let pageH = names.len * ItemH + 2 + 2 * (CtrlH + Gap)
     row([150, -1]):
       col:

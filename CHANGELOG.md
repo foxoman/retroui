@@ -229,6 +229,33 @@
   drawn into a texture on the GPU where there is one and the stroke is big
   enough, else on the CPU, the same pixels within a few levels either way;
   the eraser too.
+- **Big brushes painted behind the stroke** (`retroui/photopaint`:
+  `deferDabs`, `paintDabs`, `strokeInk`, `bigDabs`, `deferred`, `placed`;
+  `PhotoView.ink` in `retroui/photowidgets`; `gpuInkImage` and
+  `drawGpuImage`'s `alpha` in `retroui/gfx`): a stroke's dabs kept as they
+  are placed -- each one's size, turn, strength and color decided then, the
+  stroke's random numbers drawn in the same order -- and painted in each
+  frame's spare time, or as the stroke ends when one takes longer than a
+  frame (one while the pen rests): the very pixels of painting each at once.
+  Until it ends the canvas holds the picture as it was and draws the stroke
+  over it at the screen's own resolution -- on the GPU straight into a
+  picture of its own, nothing sent or read back, else on the CPU -- each new
+  dab added to what is there; the picture as it is once the stroke ends.
+  The picture's own pixels stay the CPU's: the same with or without a GPU,
+  every brush setting, undo and tiles as they were. For the paintbrush, the
+  pencil and the airbrush painting normally on a layer's colors; the other
+  tools, modes and masks painted as before. On 6000 x 4000 over nine
+  layers, two cores, a soft brush moved 0.4 of its size a frame:
+
+  | | each dab at once | behind the stroke |
+  |---|---|---|
+  | 1500 px, a frame | 37.8 ms | 2.8 ms |
+  | 1500 px, the slowest frame | 143.8 ms | 7.3 ms |
+  | 3000 px, a frame | 64.8 ms | 4.2 ms |
+  | 3000 px, the slowest frame | 573.9 ms | 27.0 ms |
+
+  (the stroke drawn on the CPU; the same work, 1.2 and 1.8 s, done as it
+  ends.)
 - **Scrubby labels in the app's language** (`retroui/widgets`): `scrubLabel`
   draws its label translated, as it was measured (in Arabic the Layers
   panel's Opacity and Fill were English and cut off). Retro Atelier's
@@ -251,6 +278,13 @@
   program's Draw Inside.
 - **Scripts click a point** (`retroui/drive`): `click:@X,Y` in
   `RETRO_SCRIPT`, a point in logical pixels -- a canvas, a picture.
+- **Retro Atelier**: a paintbrush, pencil or airbrush 512 pixels across or
+  more is painted behind its stroke -- the stroke drawn where the pen goes
+  at once (by the GPU when it draws the window), the picture's pixels
+  following in each frame's spare time and the rest as it ends, while it
+  says it is busy. Preferences > Performance > Paint Big Brushes Behind the
+  Stroke (on). In Arabic, the Preferences' list of pages, the processor's
+  choices and the device found are in Arabic too.
 - **Retro Atelier**, from the layout program's help: Table Options' stripes
   (plain and striped rows, rows skipped, column stripes) and Cell Options'
   diagonal lines; Text Frame Options > Column Rules; File > Print Booklet;

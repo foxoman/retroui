@@ -1255,19 +1255,20 @@ proc devBoxOf(d: Rect): Rect =
   let y0 = floorDiv(d.y, s)
   rect(x0, y0, floorDiv(d.x + d.w + s - 1, s) - x0, floorDiv(d.y + d.h + s - 1, s) - y0)
 
-proc drawGpuImage*(key: uint64; dev: Rect; ver: int; smooth = false) =
-  ## A picture sent with `gpuImage` drawn at `dev` (device pixels, any
-  ## size: the GPU scales it, smoothly when `smooth`); `ver` changes with
-  ## what it shows. Nothing when the CPU draws.
+proc drawGpuImage*(key: uint64; dev: Rect; ver: int; smooth = false; alpha = 255) =
+  ## A picture sent with `gpuImage` (or drawn with `gpuInkImage`) drawn at `dev` (device pixels,
+  ## any size: the GPU scales it, smoothly when `smooth`), `alpha` of it showing (0..255); `ver`
+  ## changes with what it shows. Nothing when the CPU draws.
   let box = devBoxOf(dev)
-  if dev.w <= 0 or dev.h <= 0 or intersect(box, curClip).w == 0: return
+  if dev.w <= 0 or dev.h <= 0 or intersect(box, curClip).w == 0 or alpha <= 0: return
   let a = imgArena.len
   imgArena.add uint32(key and 0xFFFFFFFF'u64)
   imgArena.add uint32(key shr 32)
   for v in [dev.x, dev.y, dev.w, dev.h]: imgArena.add cast[uint32](int32(v))
-  add Cmd(kind: ckTex, r: box, clip: curClip, a: a.int32, b: 6, flags: uint8(ord(smooth)))
+  add Cmd(kind: ckTex, r: box, clip: curClip, a: a.int32, b: 6, flags: uint8(ord(smooth)),
+          mag: int32(clamp(alpha, 0, 255)))
   mixLast(key xor (uint64(ver) shl 20) xor uint64(dev.x) xor (uint64(dev.y) shl 16) xor
-          (uint64(dev.w) shl 32) xor (uint64(dev.h) shl 48))
+          (uint64(dev.w) shl 32) xor (uint64(dev.h) shl 48) xor (uint64(clamp(alpha, 0, 255)) shl 56))
 
 proc checkerAt*(dev: Rect; cell, ox, oy: int; c0, c1: Color) =
   ## A checkerboard over device rectangle `dev`: squares of `cell` device
