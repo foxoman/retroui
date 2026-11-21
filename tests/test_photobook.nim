@@ -223,6 +223,45 @@ block sidesAndMargins:
   doAssert b.label(5) == "iv"
   b.close()
 
+block marginsOfAPageAndAMaster:
+  # Layout > Margins and Columns: a master's own, a page's own -- else the one under it -- in the
+  # boxes, the snapping and a new box's columns; kept in the file
+  var s = bookSetup(100, 150, dpi = 72, facing = true)
+  s.inside = 40
+  s.outside = 20
+  s.top = 30
+  s.bottom = 30
+  let b = newBook(s, pages = 4)
+  let a = b.addMaster("A")
+  let c = b.addMaster("C")
+  doAssert b.setBasedOn(c.id, a.id)
+  for i in 0 ..< 4: b.setMaster(i, c.id)
+  doAssert b.marginsOf(2) == bookMargins(s), "none of their own: the book's"
+  b.setMasterMargins(a.id, PageMargins(own: true, top: 50, bottom: 40, inside: 30, outside: 10, columns: 2,
+                                       gutter: 12))
+  doAssert b.marginsOf(1).top == 50 and b.masterMargins(c).columns == 2, "C based on A: A's"
+  doAssert b.marginBox(1) == rect(10, 50, b.setup.w - 40, b.setup.h - 90), $b.marginBox(1)
+  doAssert b.marginBox(2).x == 30, "a right page: the inside at its left"
+  b.setPageMargins(3, PageMargins(own: true, top: 5, bottom: 5, inside: 5, outside: 5, columns: 3, gutter: 6))
+  doAssert b.marginBox(3) == rect(5, 5, b.setup.w - 10, b.setup.h - 10) and b.columnBoxes(3).len == 3
+  doAssert b.snapLines(3).xs.len == 6 and b.snapLines(1).xs.len == 4
+  let t = b.boxed(newText("Some text", style(11), 0, 0), 3)
+  doAssert t.columns == 3 and t.gutter == 6 and t.x == 5
+  doAssert b.marginBox(a, psRight).x == 30 and b.columnBoxes(c, psLeft).len == 2
+  # too big for the page: kept within it
+  b.setPageMargins(0, PageMargins(own: true, top: 100_000, bottom: 100_000, inside: 1, outside: 1, columns: 99))
+  doAssert b.marginsOf(0).top + b.marginsOf(0).bottom < b.setup.h and b.marginsOf(0).columns == 12
+  b.setPageMargins(0, PageMargins())
+  doAssert b.marginsOf(0).top == 50, "its master's again"
+  let path = getTempDir() / "margins-test.rpb"
+  b.saveBook(path)
+  b.close()
+  let r = loadBook(path)
+  doAssert r.marginsOf(3).columns == 3 and r.marginsOf(1).top == 50 and r.marginsOf(0).top == 50 and
+           not r.pages[0].margins.own
+  r.close()
+  removeFile(path)
+
 block snapLinesAndTheBaselineGrid:
   # boxes snap to the margins, the columns' edges and the baseline grid; text on the grid
   # follows it when Document Setup changes it
@@ -370,6 +409,84 @@ block mastersAndNumbers:
   doAssert n == 0
   doAssert b.changed
   b.close()
+
+block masterItemsOverridden:
+  # a master's item made a page's own (Ctrl+Shift+click), changed there; all of them; given back
+  # (Remove Local Overrides); let go of (Detach); hidden; a master's item that may not be made a
+  # page's own; undone; kept in the file
+  var s = bookSetup(120, 160, dpi = 72, facing = false)
+  let b = newBook(s, pages = 2)
+  let m = b.addMaster()
+  let md = b.masterDoc(m, psRight)
+  let head = md.addShapeLayer(ShapeData(path: rectPath(10, 10, 100, 30), fill: solidPaint(0xFF2040C0'u32)), "Head")
+  let rule = md.addShapeLayer(ShapeData(path: rectPath(10, 140, 100, 142), fill: solidPaint(0xFF000000'u32)), "Rule")
+  md.markAll()
+  for i in 0 ..< 2: b.setMaster(i, m.id)
+  proc copies(d: Doc): seq[Layer] =
+    for L in d.layers:
+      if L.fromMaster != 0: result.add L
+  proc owns(d: Doc): seq[Layer] =
+    for L in d.layers:
+      if L.fromMaster == 0 and L.masterUid != 0: result.add L
+  let d = b.doc(0)
+  doAssert d.copies.len == 2 and d.copies[0].masterUid == uidOf(head) and d.copies[0].masterId == m.id
+  let c = d.copies[0]
+  doAssert b.overridable(c)
+  d.beginStep("Override")
+  d.touchLayers()
+  doAssert b.overrideMasterItem(0, c)
+  d.endStep()
+  doAssert not c.locked and c.fromMaster == 0 and b.pages[0].overrides.len == 1
+  doAssert b.doc(0).copies.len == 1 and b.doc(0).owns.len == 1, "the master's Head left off, the page's own there"
+  # undone: the master's again
+  d.undo()
+  doAssert c.fromMaster == m.id and c.locked
+  discard b.doc(0)
+  doAssert b.pages[0].overrides.len == 0 and b.doc(0).copies.len == 2, "undone: as the master's"
+  let c2 = b.doc(0).copies[0]
+  doAssert b.overrideMasterItem(0, c2)
+  c2.name = "My head"
+  # the master changes: its other item follows, the page keeps its own
+  md.beginStep("x")
+  md.shiftLayers(@[rule], 0, -5)
+  md.endStep()
+  md.markAll()
+  discard b.changed()
+  let d2 = b.doc(0)
+  doAssert d2.copies.len == 1 and d2.owns.len == 1 and d2.owns[0].name == "My head"
+  doAssert b.removeLocalOverrides(0) == 1 and b.doc(0).copies.len == 2
+  # all of them; given back; let go of
+  doAssert b.overrideAllMasterItems(0) == 2 and b.doc(0).copies.len == 0
+  doAssert b.removeLocalOverrides(0) == 2 and b.doc(0).copies.len == 2 and b.doc(0).owns.len == 0
+  doAssert b.detachFromMaster(0) == 2
+  let d3 = b.doc(0)
+  doAssert d3.copies.len == 0 and d3.owns.len == 0 and b.pages[0].overrides.len == 2, "plain layers now"
+  doAssert b.removeLocalOverrides(0) == 0 and b.doc(0).copies.len == 0, "let go of: not given back"
+  # hidden
+  doAssert b.doc(1).copies.len == 2
+  b.setHideMaster(1, true)
+  doAssert b.doc(1).copies.len == 0
+  b.setHideMaster(1, false)
+  doAssert b.doc(1).copies.len == 2
+  # a master item its pages may not make their own
+  head.noOverride = true
+  md.markAll()
+  discard b.changed()
+  var hc: Layer
+  for L in b.doc(1).copies:
+    if L.masterUid == uidOf(head): hc = L
+  doAssert hc != nil and not b.overridable(hc) and not b.overrideMasterItem(1, hc)
+  # kept
+  doAssert b.overrideMasterItem(1, b.doc(1).copies[^1])
+  b.setHideMaster(0, true)
+  let path = getTempDir() / "retro-test-overrides.rpb"
+  b.saveBook(path)
+  b.close()
+  let r = loadBook(path)
+  doAssert r.pages[0].hideMaster and r.pages[0].overrides.len == 2 and r.pages[1].overrides.len == 1
+  doAssert r.doc(1).copies.len == 1 and r.doc(1).owns.len == 1
+  r.close()
+  removeFile(path)
 
 block mastersBasedOnMasters:
   # a master based on another (Based on Master): the other's layers on its pages too, under its
@@ -650,6 +767,59 @@ block objectsAcrossTheSpine:
   discard sd.addShapeLayer(ShapeData(path: rectPath(250, 40, 400, 80), fill: solidPaint(0xFFC02020'u32)))
   doAssert not single.syncSpread(0).changed
   single.close()
+
+block aPhotoInAFrameAcrossTheSpine:
+  # a photo put inside a frame that goes past the spine goes on with it, clipped to the frame's
+  # part on the facing page; inside a frame that stays on its page it shows nothing there; moved
+  # wholly past the spine with its frame, still inside it
+  var s = bookSetup(100, 140, dpi = 72, facing = true)
+  let b = newBook(s, pages = 3)
+  let w = s.w
+  let d = b.doc(1)
+  let frame = d.addShapeLayer(ShapeData(path: rectPath(float(w - 80), 40, float(w + 80), 120),
+                                        fill: solidPaint(0xFF4060A0'u32)), "Frame")
+  var pic = newSeq[uint32](300 * 120)
+  for k in 0 ..< pic.len: pic[k] = 0xFF20A040'u32
+  let photo = d.addLayer("Photo")
+  photo.smart = SmartData(src: pic, w: 300, h: 120, quad: quadOf(rect(w - 150, 20, 300, 120)), name: "photo")
+  photo.px = renderSmart(photo.smart, d.w, d.h)
+  inc photo.ver
+  d.beginStep("Put Inside")
+  d.touchLayers()
+  doAssert d.putInside(frame, [photo]) == 1 and photo.clipped
+  d.endStep()
+  d.markAll()
+  doAssert b.syncSpread(1).changed
+  let f = b.doc(2)
+  var ff, fp: Layer
+  for k, L in f.layers:
+    if L.fromSpan == 0: continue
+    if L.isShape: ff = L
+    elif L.smart != nil: fp = L
+  doAssert ff != nil and fp != nil, "the frame's part and the photo's"
+  doAssert fp.clipped and f.layers.find(fp) == f.layers.find(ff) + 1, "inside the frame's part"
+  # (what shows: the photo over the frame where the frame is, nothing past it)
+  let pc = f.flattened()
+  doAssert (pc[80 * w + 40] and 0xFFFFFF'u32) == 0x20A040'u32, "the photo in the frame's part"
+  doAssert (pc[130 * w + 40] and 0xFFFFFF'u32) == 0xFFFFFF'u32, "past the frame: the paper"
+  # a frame that stays on its page: the photo past the spine shows nothing there
+  d.beginStep("Move")
+  d.shiftLayers(@[frame], -100, 0)
+  d.endStep()
+  discard b.syncSpread(1)
+  for L in b.doc(2).layers: doAssert L.fromSpan == 0 or L.smart == nil, "no photo without its frame"
+  # the frame wholly past the spine: it goes, and the photo with it, still inside it
+  d.beginStep("Move")
+  d.shiftLayers(@[frame, photo], 300, 0)
+  d.endStep()
+  let m = b.syncSpread(1)
+  doAssert m.moved == 2 and frame notin d.layers and photo notin d.layers, $m.moved
+  var of2, op2: int = -1
+  for k, L in b.doc(2).layers:
+    if L.fromSpan == 0 and L.isShape: of2 = k
+    if L.fromSpan == 0 and L.smart != nil: op2 = k
+  doAssert of2 >= 0 and op2 == of2 + 1 and b.doc(2).layers[op2].clipped
+  b.close()
 
 block aBoxThatHoldsNothingEnds:
   # a letter bigger than the page: pages are not added for ever

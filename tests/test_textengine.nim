@@ -1069,6 +1069,48 @@ block tableEditing:
   let back3 = textFrom(mx.toJson)
   doAssert back3.table.rowFmts[0].maxHeight == 30
 
+block baselineOptionsAndColumnWidths:
+  # a box's first baseline under its top: the ascent, the capitals' height, the small letters',
+  # the leading, a fixed distance, at least so far; columns of a fixed width (as many as fit, the
+  # text as wide as they are) or of a most width (as many as keep each no wider); kept
+  let st = CharStyle(family: "", size: 40, color: 0xFF000000'u32, hScale: 1, vScale: 1)
+  var t = newText("Hxample text that goes on and on over several lines of the box", st, 10, 10)
+  t.boxW = 600
+  t.boxH = 400
+  let asc = layoutText(t).lines[0].baseline - 10
+  t.firstBase = fbCapHeight
+  let cap = layoutText(t).lines[0].baseline - 10
+  t.firstBase = fbXHeight
+  let xh = layoutText(t).lines[0].baseline - 10
+  t.firstBase = fbLeading
+  let lead = layoutText(t).lines[0].baseline - 10
+  doAssert xh < cap and cap < asc and abs(lead - 48) < 0.5, $(asc, cap, xh, lead)
+  t.firstBase = fbFixed
+  t.firstMin = 70
+  doAssert abs(layoutText(t).lines[0].baseline - 80) < 0.5
+  t.firstBase = fbCapHeight
+  doAssert abs(layoutText(t).lines[0].baseline - 80) < 0.5, "at least 70 down"
+  let back = textFrom(t.toJson)
+  doAssert back.firstBase == fbCapHeight and back.firstMin == 70
+  var c = newText(repeat("words and more words ", 60), CharStyle(family: "", size: 14, color: 0xFF000000'u32,
+                  hScale: 1, vScale: 1), 0, 0)
+  c.boxW = 700
+  c.boxH = 300
+  c.gutter = 20
+  c.colMode = cmFixedWidth
+  c.colWidth = 200
+  doAssert c.columnsOf == 3
+  var right = 0'f32
+  for g in layoutText(c).glyphs: right = max(right, g.x)
+  doAssert right < 660 and right > 400, "three columns 200 wide: " & $right
+  c.colMode = cmFlexible
+  c.colWidth = 300
+  doAssert c.columnsOf == 3, "no wider than 300: three"
+  c.colWidth = 400
+  doAssert c.columnsOf == 2
+  let back2 = textFrom(c.toJson)
+  doAssert back2.colMode == cmFlexible and back2.colWidth == 400
+
 block scriptFonts:
   # a font for the Arabic letters and one for the Latin: each run in its own, its size, raise,
   # color; the spaces and digits with the letters about them; kept with the text

@@ -23,6 +23,45 @@
   in the file and in IDML. A right-to-left table's column widths are its
   columns' own now (they were taken from the other end).
 
+- **Margins and columns of a page or a master** (`retroui/photobook`):
+  `PageMargins` on a page and on a master (`BookPage.margins`,
+  `Master.margins`) -- a page's own, else its master's (or the master it is
+  based on), else the book's (`marginsOf`, `masterMargins`, `bookMargins`);
+  `setPageMargins`, `setMasterMargins` (kept within the page, 1 to 12
+  columns); `marginBox`, `columnBoxes`, `snapLines` and `boxed` by page or
+  by master; kept in the book's file and in IDML both ways. IDML's Left and
+  Right margins are written as the inside and the outside, as the layout
+  program reads them (a left page's were written the other way round).
+- **A master's items made a page's own** (`retroui/photobook`,
+  `retroui/photo`): `overrideMasterItem` (the layout program's
+  Ctrl+Shift+click: the item unlocked on that page, to change there, the
+  master's left off it -- `BookPage.overrides` --, the rest of the master
+  still followed), `overrideAllMasterItems`, `removeLocalOverrides` (all,
+  or those given: the master's items as on the master again),
+  `detachFromMaster` (ordinary layers of the page from then on),
+  `setHideMaster` (`BookPage.hideMaster`), `overridable` and
+  `Layer.noOverride` (a master's item its pages may not make their own);
+  a page's copy of a master item knows which it is (`Layer.masterUid`,
+  `masterId`; `fromMaster` is the master it came from, the page's or one
+  it is based on); an override undone is the master's again; kept in the
+  book's file. In IDML a page's own items are written as its items; the
+  layout program's override list is not written yet.
+- **A photo inside a frame across the spine** (`retroui/photobook`): a
+  layer clipped to a frame (Place Into, Put Inside) goes on past the
+  spine with its frame, clipped to the frame's part on the facing page --
+  it went across as a picture of its own, not clipped, or not at all;
+  inside a frame that stays on its page it shows nothing there; a frame
+  moved wholly past the spine takes what is inside it along. Place Into
+  sizes the picture to the whole frame, past the page's edge too (it
+  covered only the frame's part on the page).
+- **A box's first baseline and its columns' widths** (`retroui/textengine`):
+  `TextData.firstBase` (`FirstBaseline`: the ascent, the capitals' height,
+  the leading, the small letters' height, fixed) and `firstMin` (at least so
+  far under the top); `colMode` (`ColumnMode`: so many columns, columns of a
+  fixed width -- as many as fit, the text as wide as they are --, or as many
+  as keep each no wider than `colWidth`) and `columnsOf`; kept in the file
+  and in IDML (`FirstBaselineOffset`, `MinimumFirstBaselineOffset`,
+  `UseFixedColumnWidth`, `UseFlexibleColumnWidth`).
 - **Retro Atelier**: a table's column edges and row feet dragged with the
   Type tool (Shift: the table wider), the pointer showing where; Type >
   Table: Insert Rows... and Insert Columns... (several at once, above or
@@ -31,6 +70,22 @@
   Distribute Columns Evenly, Sort... (by a column, ascending or
   descending); Table Options' Skip First and Skip Last; Cell Options > Rows:
   Maximum, Start Row (In Next Frame), Keep with Next Row.
+
+- **Retro Atelier**: Layout > Margins and Columns... for the page shown or the
+  master being edited (As the Master's, As the Book's to take its own
+  away; View's toggle is Show Margins and Columns now); Type > Text Frame
+  Options in tabs -- General (columns: Fixed Number, Fixed Width, Flexible
+  Width; the inset; Ignore Text Wrap), Baseline Options (the first
+  baseline, its least distance), Auto-Size, Column Rules; the four sides of
+  a frame's inset, a cell's inset and a paragraph's shading and border
+  (its offsets and its weights, each side its own now) typed with a link
+  that makes them the same.
+
+- **Retro Atelier**: Ctrl+Shift+click on a master's item on a page makes it the
+  page's own; Layout > Masters: Override All Master Page Items, Remove
+  All Local Overrides, Remove Selected Local Overrides, Detach All Objects
+  from Master, Detach Selection from Master, Hide Master Items, Allow
+  Master Item Overrides on Selection (while editing a master).
 
 ## 0.67.0
 

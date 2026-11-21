@@ -14,7 +14,8 @@ var
   eqDlg: tuple[open: bool; src: string; size: int; bmp: Bitmap; key: string; err: string]
   flexDlg: tuple[open: bool; dir, justify, align: int; wrap, hugW, hugH: bool; gap, pad: int]
   shadeDlg: tuple[open: bool; shade, border: bool; shadeColor, borderColor: uint32; toText: bool;
-                  offset, width: int]
+                  shadeOffs, widths, borderOffs: array[4, float32]]
+    ## (top, right, bottom, left each, as the type engine keeps them)
   pubDlg: tuple[open: bool; kind: int; fixed: bool; pick: bool; path: string]
   condName = ""
   noteText = ""
@@ -654,35 +655,34 @@ proc shadeDialog() =
         checkbox("Shading", shadeDlg.shade)
         colorWell(shadeDlg.shadeColor, "parashade", dp(50))
       checkbox("As wide as the text (else the column)", shadeDlg.toText)
+      label("Offsets: how much further it reaches", color = ui.theme.gray)
+      discard d.sidesFields(shadeDlg.shadeOffs, "shadeoffs", hi = 400)
     group("Border"):
       row:
         checkbox("Border", shadeDlg.border)
         colorWell(shadeDlg.borderColor, "paraborder", dp(50))
-      row([110, 80, -1]):
-        label "Weight:"
-        discard d.lengthField(shadeDlg.width, dp(64), 1, 100)
-        label unitShort()
-    row([110, 80, -1]):
-      label "Offset:"
-      discard d.lengthField(shadeDlg.offset, dp(64), 0, 400)
-      label unitShort()
+      label("Stroke weight", color = ui.theme.gray)
+      discard d.sidesFields(shadeDlg.widths, "borderws", hi = 100)
+      label("Offsets: how far out from the text", color = ui.theme.gray)
+      discard d.sidesFields(shadeDlg.borderOffs, "borderoffs", hi = 400)
     row:
       spring()
       if button("OK", isDefault = true, w = dp(80)): ok = true
       if button("Cancel", w = dp(80)): shadeDlg.open = false
   if ok:
     shadeDlg.open = false
-    let o = shadeDlg.offset.float32
-    let w = shadeDlg.width.float32
+    let so = shadeDlg.shadeOffs
+    let ws = shadeDlg.widths
+    let bo = shadeDlg.borderOffs
     d.layersChange("Paragraph Shading and Borders"):
       var t = L.text
       var p = t.para
       p.shading = if shadeDlg.shade: shadeDlg.shadeColor or 0xFF000000'u32 else: 0
-      p.shadeOffsets = [o, o, o, o]
+      p.shadeOffsets = so
       p.shadeToText = shadeDlg.toText
       p.border = if shadeDlg.border: shadeDlg.borderColor or 0xFF000000'u32 else: 0
-      p.borderWidths = [w, w, w, w]
-      p.borderOffsets = [o, o, o, o]
+      p.borderWidths = ws
+      p.borderOffsets = bo
       t.para = p
       for f in t.paraFmts.mitems:
         f.shading = p.shading; f.shadeOffsets = p.shadeOffsets; f.shadeToText = p.shadeToText
@@ -846,9 +846,11 @@ proc outputCommand(name: string): bool =
     if L == nil: status = "Pick a type layer first"
     else:
       let p = L.text.para
+      var ws = p.borderWidths
+      if ws == [0'f32, 0, 0, 0]: ws = [1'f32, 1, 1, 1]
       shadeDlg = (true, p.shading != 0, p.border != 0, (if p.shading != 0: p.shading else: 0xFFFFF2B3'u32),
                   (if p.border != 0: p.border else: 0xFF333333'u32), p.shadeToText,
-                  int(p.shadeOffsets[0]), max(1, int(p.borderWidths[0])))
+                  p.shadeOffsets, ws, p.borderOffsets)
   of "Export EPUB...": pubDlg = (true, 0, false, false, "")
   of "Publish as Web Page...": pubDlg = (true, 1, false, false, "")
   else: result = false

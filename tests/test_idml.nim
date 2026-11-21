@@ -36,6 +36,10 @@ block aBookAndBack:
   for y in 1100 ..< 1150:
     for x in 50 ..< 400: F.px[y * d.w + x] = 0xFFE0B020'u32
   inc F.ver
+  # (a page's margins and columns of its own)
+  let own = PageMargins(own: true, top: 120, bottom: 90, inside: 60, outside: 150, columns: 2, gutter: 30)
+  b.setPageMargins(2, own)
+  let sm = bookMargins(b.setup)
   let path = dir / "book.idml"
   b.saveBookIdml(path)
   b.close()
@@ -68,6 +72,8 @@ block aBookAndBack:
   # read back
   let r = readIdml(path)
   doAssert r.pages.len == 3 and r.setup.facing
+  doAssert bookMargins(r.setup) == sm and r.marginsOf(2) == own and not r.pages[1].margins.own,
+           $bookMargins(r.setup) & " " & $r.marginsOf(2)
   let d2 = r.doc(1)
   var text, shape, pic, band = false
   for L2 in d2.layers:
@@ -187,6 +193,38 @@ block tables:
       ok2 = true
   doAssert ok2
   r2.close()
+
+block frameBaselineAndColumnWidths:
+  # Text Frame Options' first baseline and its columns of a fixed or a most width, in IDML and back
+  let d = newDoc(600, 400, 0xFFFFFFFF'u32, dpi = 72)
+  var t = newText("Columns of a fixed width, the first baseline at the capitals' height.", st(14), 20, 20)
+  t.boxW = 500
+  t.boxH = 300
+  t.firstBase = fbCapHeight
+  t.firstMin = 12
+  t.colMode = cmFixedWidth
+  t.colWidth = 150
+  discard d.addTextLayer(t)
+  var u = t
+  u.y = 340
+  u.boxH = 50
+  u.firstBase = fbFixed
+  u.colMode = cmFlexible
+  u.colWidth = 220
+  discard d.addTextLayer(u)
+  d.saveDocIdml(dir / "fb.idml")
+  let r = readIdml(dir / "fb.idml", dpi = 72)
+  var seen = 0
+  for L in r.doc(0).layers:
+    if not L.isText: continue
+    if L.text.colMode == cmFixedWidth:
+      doAssert L.text.firstBase == fbCapHeight and abs(L.text.firstMin - 12) < 0.01 and abs(L.text.colWidth - 150) < 0.01
+      inc seen
+    elif L.text.colMode == cmFlexible:
+      doAssert L.text.firstBase == fbFixed and abs(L.text.colWidth - 220) < 0.01
+      inc seen
+  doAssert seen == 2, $seen
+  r.close()
 
 block oneDocumentAndDamage:
   let d = newDoc(400, 300, 0xFFFFFFFF'u32)

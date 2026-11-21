@@ -38,6 +38,8 @@ const
                 asProportional: "HeightAndWidthProportionally"]
     ## (Auto-Size as the layout program writes it)
   VertJusts = [vjTop: "TopAlign", vjCenter: "CenterAlign", vjBottom: "BottomAlign", vjJustify: "JustifyAlign"]
+  FirstBases = [fbAscent: "AscentOffset", fbCapHeight: "CapHeight", fbLeading: "LeadingOffset",
+                fbXHeight: "XHeight", fbFixed: "FixedHeight"]
   RefPoints = ["TopLeftPoint", "TopCenterPoint", "TopRightPoint", "LeftCenterPoint", "CenterPoint",
                "RightCenterPoint", "BottomLeftPoint", "BottomCenterPoint", "BottomRightPoint"]
 
@@ -593,6 +595,12 @@ proc itemsOf(o: var IdmlOut; d: Doc; ox, oy, k: float; master: bool; name: strin
                  f((if t.gutter > 0: t.gutter else: 12'f32) * k) & "\" VerticalJustification=\"" &
                  VertJusts[t.vjust] & "\"" & (if t.balance: " VerticalBalanceColumns=\"true\"" else: "") &
                  (if L.ignoreWrap: " IgnoreWrap=\"true\"" else: "") &
+                 (if t.firstBase != fbAscent: " FirstBaselineOffset=\"" & FirstBases[t.firstBase] & "\"" else: "") &
+                 (if t.firstMin > 0: " MinimumFirstBaselineOffset=\"" & f(t.firstMin * k) & "\"" else: "") &
+                 (case t.colMode
+                  of cmFixedWidth: " UseFixedColumnWidth=\"true\" TextColumnFixedWidth=\"" & f(t.colWidth * k) & "\""
+                  of cmFlexible: " UseFlexibleColumnWidth=\"true\" TextColumnMaxWidth=\"" & f(t.colWidth * k) & "\""
+                  of cmNumber: "") &
                  (if t.autoSize != asOff: " AutoSizingType=\"" & AutoSizing[t.autoSize] & "\" AutoSizingReferencePoint=\"" &
                                          RefPoints[clamp(t.autoRef, 0, 8)] & "\"" else: "") &
                  (if t.inset == [0'f32, 0, 0, 0]: "/>\n"
@@ -927,10 +935,9 @@ proc saveBookIdml*(b: Book; path: string; keep: openArray[int] = []) =
   let pw = s.w.float * k
   let ph = s.h.float * k
   let rtl = s.binding == bindRight
-  let mL = b.marginBox(psLeft)
-  let mR = b.marginBox(psRight)
-  proc marginsOf(m: Rect): array[4, float] =
-    [m.y.float * k, float(s.h - m.y - m.h) * k, m.x.float * k, float(s.w - m.x - m.w) * k]
+  proc marginsOf(m: PageMargins): array[4, float] =
+    # (the layout program's Left and Right are the inside and the outside on facing pages)
+    [m.top.float * k, m.bottom.float * k, m.inside.float * k, m.outside.float * k]
   let gut = s.gutter.float * k
   # masters
   var masters: seq[(string, string)]
@@ -946,8 +953,9 @@ proc saveBookIdml*(b: Book; path: string; keep: openArray[int] = []) =
       let tx = if s.facing: (if j == 0: -pw else: 0.0) else: 0.0
       let ty = -ph / 2
       let md = b.masterDoc(m, side)
-      pagesXml.add pageXml(o.uid("mp"), m.name, parent, pw, ph, tx, ty, marginsOf(if side == psLeft: mL else: mR),
-                           s.columns, gut)
+      let mm = b.masterMargins(m)
+      pagesXml.add pageXml(o.uid("mp"), m.name, parent, pw, ph, tx, ty, marginsOf(mm), mm.columns,
+                           mm.gutter.float * k)
       items.add o.itemsOf(md, tx, ty, k, master = true, name = path.splitFile.name & "-master-" & m.name)
     masters.add ("MasterSpreads/MasterSpread_" & self & ".xml",
                  spreadXml(self, items, pagesXml, sides.len, master = true, name = m.name))
@@ -970,8 +978,8 @@ proc saveBookIdml*(b: Book; path: string; keep: openArray[int] = []) =
       let pself = o.pageSelf[pi]
       if firstPage.len == 0: firstPage = pself
       let ms = if b.pages[pi].master != 0 and b.pages[pi].master in masterSelf: masterSelf[b.pages[pi].master] else: "n"
-      pagesXml.add pageXml(pself, b.label(pi), ms, pw, ph, tx, ty, marginsOf(if side == psLeft: mL else: mR),
-                           s.columns, gut)
+      let pm = b.marginsOf(pi)
+      pagesXml.add pageXml(pself, b.label(pi), ms, pw, ph, tx, ty, marginsOf(pm), pm.columns, pm.gutter.float * k)
       let here = pi
       let threads = proc (L: Layer; fresh: string): Thread = b.threadOf(here, L, fresh)
       items.add o.itemsOf(d, tx, ty, k, master = false, name = path.splitFile.name & "-p" & $(pi + 1),
@@ -980,7 +988,7 @@ proc saveBookIdml*(b: Book; path: string; keep: openArray[int] = []) =
       if not was and pi notin keep: b.park(keep)
     spreads.add ("Spreads/Spread_" & self & ".xml", spreadXml(self, items, pagesXml, sheet.len, master = false))
   o.bookmarksOut(bms)
-  let res = o.resources(pw, ph, b.pages.len, s.facing, rtl, marginsOf(mR), s.columns, gut)
+  let res = o.resources(pw, ph, b.pages.len, s.facing, rtl, marginsOf(bookMargins(s)), s.columns, gut)
   let data = o.package(spreads, masters, res, b.pages.len, firstPage)
   if o.links.len > 0:
     createDir(o.linksDir)
@@ -1207,6 +1215,7 @@ proc readIdml*(file: string; dpi = 150.0): Book =
     of "HyperlinkTextDestination": destNames[e.attr("Self")] = e.attr("Name")
     else: discard
   var pageSelfs: seq[string]                       # (the pages' Selfs, in order: filled with the spreads)
+  var pageMargins: seq[PageMargins]                # (... their margins and columns, as they say)
   var sourceLink = initTable[string, string]()     # (a HyperlinkTextSource's Self -> its link)
   var sourceDest = initTable[string, string]()     # (... -> its destination's Self, to settle)
   for e in dm.childrenNamed("Hyperlink"):
@@ -1233,6 +1242,22 @@ proc readIdml*(file: string; dpi = 150.0): Book =
   let k = dpi / 72                       # (pixels a point)
   var s = bookSetup(pw * 25.4 / 72, ph * 25.4 / 72, dpi = dpi, facing = facing,
                     binding = (if rtl: bindRight else: bindLeft))
+  proc marginsIn(n: XmlNode): PageMargins =
+    ## (a MarginPreference: points to pixels; Left and Right the inside and the outside)
+    proc num(a: string): float = (try: parseFloat(n.attr(a)) except ValueError: -1.0)
+    if n == nil or num("Top") < 0: return
+    PageMargins(own: true, top: int(num("Top") * k + 0.5), bottom: int(max(0.0, num("Bottom")) * k + 0.5),
+                inside: int(max(0.0, num("Left")) * k + 0.5), outside: int(max(0.0, num("Right")) * k + 0.5),
+                columns: clamp((try: parseInt(n.attr("ColumnCount")) except ValueError: 1), 1, 12),
+                gutter: int(max(0.0, num("ColumnGutter")) * k + 0.5))
+  block:
+    var mps: seq[XmlNode]
+    findAll(pr, "MarginPreference", mps)
+    if mps.len > 0:
+      let m = marginsIn(mps[0])
+      if m.own:
+        (s.top, s.bottom, s.inside, s.outside) = (m.top, m.bottom, m.inside, m.outside)
+        (s.columns, s.gutter) = (m.columns, m.gutter)
   # stories
   var stories = initTable[string, XmlNode]()
   for name in files.keys:
@@ -1597,6 +1622,9 @@ proc readIdml*(file: string; dpi = 150.0): Book =
       for pi, p in pages:
         pagesOut.add (items[pi], mats[pi], pageMats[pi])
         pageSelfs.add p.attr("Self")
+        var pm = PageMargins()
+        for mp in p.childrenNamed("MarginPreference"): pm = marginsIn(mp)
+        pageMargins.add pm
   if pagesOut.len == 0: raise newException(IdmlError, "the package has no pages")
   for src, dest in sourceDest:
     if dest in urlDests: sourceLink[src] = urlDests[dest]
@@ -1606,6 +1634,9 @@ proc readIdml*(file: string; dpi = 150.0): Book =
     elif dest in destNames: sourceLink[src] = "#" & destNames[dest]
   result = newBook(s, pages = pagesOut.len, name = file.splitFile.name)
   let b = result
+  # (a page's margins of its own: where they are not the document's)
+  for i, pm in pageMargins:
+    if i < b.pages.len and pm.own and pm != bookMargins(s): b.setPageMargins(i, pm)
   var frameAt = initTable[string, (int, int)]()     # (a text frame's Self: its page, its layer)
   var threaded: seq[(int, int, string)]             # (a frame that goes on from another)
   for i, pg in pagesOut:
@@ -1644,6 +1675,21 @@ proc readIdml*(file: string; dpi = 150.0): Book =
           for e in VertJust:
             if pref.attr("VerticalJustification") == VertJusts[e]: t.vjust = e
           t.balance = pref.attr("VerticalBalanceColumns") == "true"
+          # (Baseline Options' first baseline; columns of a fixed or a most width)
+          for e in FirstBaseline:
+            if pref.attr("FirstBaselineOffset") == FirstBases[e]: t.firstBase = e
+          try: t.firstMin = clamp(float32(parseFloat(pref.attr("MinimumFirstBaselineOffset")) * k), 0, 10_000)
+          except ValueError: discard
+          if pref.attr("UseFixedColumnWidth") == "true":
+            try:
+              t.colWidth = clamp(float32(parseFloat(pref.attr("TextColumnFixedWidth")) * k), 1, 100_000)
+              t.colMode = cmFixedWidth
+            except ValueError: discard
+          elif pref.attr("UseFlexibleColumnWidth") == "true":
+            try:
+              t.colWidth = clamp(float32(parseFloat(pref.attr("TextColumnMaxWidth")) * k), 1, 100_000)
+              t.colMode = cmFlexible
+            except ValueError: discard
           var ins: seq[float32]
           for pp in pref.childrenNamed("Properties"):
             for il in pp.childrenNamed("InsetSpacing"):

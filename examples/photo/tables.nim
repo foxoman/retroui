@@ -431,11 +431,7 @@ proc tableDialogs() =
       case cellDlg.page
       of 0:
         group("Cell Insets"):
-          for (k, cap) in [(0, "Top:"), (2, "Bottom:"), (3, "Left:"), (1, "Right:")]:
-            row([90, 80, -1]):
-              label cap
-              discard d.lengthField(cellDlg.f.inset[k], dp(70), 0, 4000)
-              label unitShort()
+          discard d.sidesFields(cellDlg.f.inset, "cellinset")
           label("All 0: the table's padding.", color = ui.theme.gray)
         row([150, -1]):
           label "Vertical Justification:"

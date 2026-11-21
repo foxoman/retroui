@@ -305,6 +305,20 @@ the first box and the footer in the last; Cell Options > Rows sets a
 row's most height and keeps it with the next row or starts it in the next
 box.
 
+**Margins and padding** (5.13): Layout > Margins and Columns sets a page's
+or a master's own margins and columns; Text Frame Options, in tabs, sets
+columns of a fixed or a most width, the first baseline (cap height, x
+height, leading, fixed) and Ignore Text Wrap; a frame's inset, a cell's and
+a paragraph's shading and border take each side apart or all together
+(the link beside them).
+
+**Master pages' items, a page's own** (5.13): Ctrl+Shift+click on a master's
+item on a page makes it that page's to change; Layout > Masters overrides
+all of them, gives them back (Remove Local Overrides), detaches them or
+hides them on the page, and on a master says which items its pages may
+not make their own. A photo inside a frame goes across the spine with the
+frame.
+
 **Arabic typesetting** (5.12), from Yaqout's manual: Type > Quran... --
 the text downloaded once from Tanzil (or a Tanzil file opened), a sura's
 ayat with their numbers in ornate brackets set into the text being typed

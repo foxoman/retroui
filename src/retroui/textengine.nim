@@ -755,6 +755,20 @@ type
     wsWave = "Wave", wsFish = "Fish", wsRise = "Rise", wsFisheye = "Fisheye", wsInflate = "Inflate",
     wsSqueeze = "Squeeze", wsTwist = "Twist"
 
+  FirstBaseline* = enum
+    ## Where a box's first baseline is under its top (Text Frame Options > Baseline Options).
+    fbAscent = "Ascent",           ## its tallest letters' height (the font's ascent): the default
+    fbCapHeight = "Cap Height",    ## its capitals touch the top
+    fbLeading = "Leading",         ## the line's leading
+    fbXHeight = "x Height",        ## its small letters touch the top
+    fbFixed = "Fixed"              ## `TextData.firstMin` down
+
+  ColumnMode* = enum
+    ## How a box's columns follow its width (Text Frame Options > Columns).
+    cmNumber = "Fixed Number",     ## so many (`columns`), as wide as the box makes them
+    cmFixedWidth = "Fixed Width",  ## each `colWidth` wide: as many as fit, the text as wide as they are
+    cmFlexible = "Flexible Width"  ## as many as keep each no wider than `colWidth`
+
   TextAutoSize* = enum
     ## How a text box follows its text (Text Frame Options > Auto-Size, as the layout program's).
     asOff = "Off", asHeight = "Height Only", asWidth = "Width Only", asBoth = "Height and Width",
@@ -896,6 +910,10 @@ type
     inset*: array[4, float32]  ## text in a box: room kept inside it, top, right, bottom, left (Inset
                                ## Spacing)
     vjust*: VertJust           ## ... where its lines stand up and down
+    firstBase*: FirstBaseline  ## ... where its first baseline is under its top
+    firstMin*: float32         ## ... at least so far under it, pixels (`fbFixed`: just so far)
+    colMode*: ColumnMode       ## ... how its columns follow its width
+    colWidth*: float32         ## ... a column's width (`cmFixedWidth`) or its most (`cmFlexible`), pixels
     balance*: bool             ## ... its columns made as even as they can be
     track*: bool               ## Track Changes: what is typed and deleted kept as changes (`trackedInsert`,
                                ## `trackedDelete`), accepted or rejected later
@@ -2606,6 +2624,16 @@ proc layoutOnce(t: TextData): TextLayout =
     t.y += t.inset[0]
     if t.boxH > 0: t.boxH = max(4'f32, t.boxH - t.inset[0] - t.inset[2])
     t.inset = [0'f32, 0, 0, 0]
+  if t.boxW > 0 and t.colWidth > 0 and t.colMode != cmNumber and t.path.len == 0 and not t.table.on:
+    # (columns of a fixed width -- as many as fit, the text as wide as they are -- or as many as
+    # keep each no wider than its most)
+    let g = if t.gutter > 0: t.gutter else: 12'f32
+    if t.colMode == cmFixedWidth:
+      let n = clamp(int((t.boxW + g) / (t.colWidth + g)), 1, 64)
+      t.columns = n
+      t.boxW = min(t.boxW, float32(n) * t.colWidth + float32(n - 1) * g)
+    else:
+      t.columns = clamp(int(ceil((t.boxW + g) / (t.colWidth + g))), 1, 64)
   var u = t
   let cols = max(1, t.columns)
   # (text in a box keeps to it, as the layout programs have it: what does not fit is overset --
@@ -2624,6 +2652,16 @@ proc layoutOnce(t: TextData): TextLayout =
   if boxedCols: result.columnize(t, colW, gutter, starts)
   result.paraFrames(t, if boxedCols: colW else: t.boxW, gutter)
   if boxedCols and cols > 1 and t.colRule.on: result.columnRules(t, colW, gutter)
+
+proc columnsOf*(t: TextData): int =
+  ## How many columns text in a box is set in: its `columns`, or -- columns of a fixed width, or of
+  ## a most width (`colMode`) -- as many as its width makes.
+  result = max(1, t.columns)
+  if t.boxW > 0 and t.colWidth > 0 and t.colMode != cmNumber and not t.table.on:
+    let w = t.boxW - t.inset[1] - t.inset[3]
+    let g = if t.gutter > 0: t.gutter else: 12'f32
+    result = if t.colMode == cmFixedWidth: clamp(int((w + g) / (t.colWidth + g)), 1, 64)
+             else: clamp(int(ceil((w + g) / (t.colWidth + g))), 1, 64)
 
 proc fitsBox(t: TextData; w, h: float32): bool =
   var u = t
@@ -2916,6 +2954,15 @@ proc charStylesIn(cps: seq[int]; pp: ParaStyle): seq[tuple[a, b: int; look: Char
       if g.pattern.len == 0 or g.name.len == 0: continue
       for (a, b) in grepHook(g.pattern, cps):
         if b > a: result.add (a, b, g.look)
+
+proc letterTop(f: Face; cp: int; share: float32): float32 =
+  ## (how high letter `cp` reaches in font units -- the capitals' or the small letters' height;
+  ## a font without it: that share of its ascent)
+  let g = f.glyphOf(cp)
+  if g > 0:
+    let bx = f.bounds(g)
+    if bx.y1 > 0: return float32(bx.y1)
+  float32(f.ascent) * share
 
 proc layoutPlain(t: TextData): TextLayout =
   for sp in t.spans:
@@ -3484,7 +3531,24 @@ proc layoutPlain(t: TextData): TextLayout =
       # the first baseline: at y (point text) or under the box's top
       if sameBand: discard                  # (on the baseline of the line it lies beside)
       elif firstLine:
-        penY = (if boxed: t.y + asc else: t.y) + jump
+        # (text in a box: as far under its top as its Baseline Options say -- the ascent, the
+        # capitals' or the small letters' height, the leading, a fixed distance; at least `firstMin`)
+        var first = asc
+        if boxed and t.firstBase != fbAscent and a < b:
+          first = 0
+          for k in a ..< b:
+            let c = chars[k]
+            let st = styles[c.style]
+            let em = float32(c.face.unitsPerEm)
+            let h = case t.firstBase
+                    of fbCapHeight: c.face.letterTop(int('H'), 0.7) / em * c.size * st.vScale
+                    of fbXHeight: c.face.letterTop(int('x'), 0.48) / em * c.size * st.vScale
+                    of fbLeading: (if st.leading > 0: st.leading else: st.size * 1.2)
+                    else: 0'f32
+            first = max(first, h)
+          if t.firstBase == fbFixed: first = t.firstMin
+        if boxed and t.firstBase != fbFixed: first = max(first, t.firstMin)
+        penY = (if boxed: t.y + first else: t.y) + jump
         firstLine = false
       else: penY += lead + jump             # (`jump`: moved down past a hole)
       if boxed and t.gridStep >= 2 and not sameBand:
@@ -5011,6 +5075,9 @@ proc tableLaid(t: TextData): TextLayout =
       u.para.list = lkNone
       u.holes = @[]
       u.columns = 1
+      u.colMode = cmNumber
+      u.firstBase = fbAscent
+      u.firstMin = 0
       u.fit = false
       u.clipOverflow = false
       u.gridStep = 0
@@ -5565,6 +5632,11 @@ proc toJson*(t: TextData): JsonNode =
   if t.tailFmt > 0: result["tailFmt"] = %t.tailFmt
   if t.inset != [0'f32, 0, 0, 0]: result["inset"] = %[t.inset[0], t.inset[1], t.inset[2], t.inset[3]]
   if t.vjust != vjTop: result["vjust"] = %($t.vjust)
+  if t.firstBase != fbAscent: result["firstBase"] = %($t.firstBase)
+  if t.firstMin > 0: result["firstMin"] = %t.firstMin
+  if t.colMode != cmNumber:
+    result["colMode"] = %($t.colMode)
+    result["colWidth"] = %t.colWidth
   if t.balance: result["balance"] = %true
   if t.opticalMargin: result["opticalMargin"] = %true
   if t.track: result["track"] = %true
@@ -5635,6 +5707,10 @@ proc textFrom*(j: JsonNode): TextData =
     for q in 0 .. 3: result.inset[q] = clamp(float32(ins[q].getFloat), 0, 10_000)
   result.tailFmt = clamp(int(j.getF("tailFmt")), 0, result.paraFmts.len + 1)
   result.vjust = enumOf(j.getS("vjust"), vjTop)
+  result.firstBase = enumOf(j.getS("firstBase"), fbAscent)
+  result.firstMin = clamp(float32(j.getF("firstMin")), 0, 100_000)
+  result.colMode = enumOf(j.getS("colMode"), cmNumber)
+  result.colWidth = clamp(float32(j.getF("colWidth")), 0, 100_000)
   result.balance = j.getB("balance")
   result.opticalMargin = j.getB("opticalMargin")
   result.track = j.getB("track")

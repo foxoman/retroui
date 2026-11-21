@@ -479,6 +479,7 @@ proc ccDialogs()
 # (books: photo/book)
 proc isBookWin(dw: DocWin): bool
 proc bookCommand(name: string): bool
+proc overrideAt(dw: DocWin; i: int): bool
 proc bookSave(dw: DocWin; saveAs = false): bool
 proc openBook(path: string)
 proc bookOverlay(dw: DocWin)
@@ -2952,6 +2953,13 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
             dw.transformMouse(ev)
           return
     var justPicked = false
+    if ev.ctrl and ev.shift and not ev.alt and not springing and dw.isBookWin:
+      # (Ctrl+Shift+click: a master's item on the page made the page's own, as the layout program)
+      let mi = d.layerAt(xi, yi, dw.pickRadius)
+      if mi >= 0 and d.layers[mi].fromMaster != 0:
+        drag.on = false
+        discard dw.overrideAt(mi)
+        return
     if (moveAutoSelect != (ev.ctrl and not springing)) and not ev.alt:
       # (Auto-Select: the top layer with something where it was clicked --
       # Ctrl+click when it is off, as the usual; Shift+click: picked with
@@ -2998,7 +3006,7 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
       status = if d.current.fromSpan != 0: "This is the part of an object of the facing page that lies on this one: " &
                                            "click the facing page to turn to it, and move or change it there."
                elif d.current.fromMaster != 0: "This is on the page's master: Layout > Masters > Edit Master to change it " &
-                                               "(on every page that has it)."
+                                               "(on every page that has it), or Ctrl+Shift+click it to make it this page's own."
                else: "\"" & d.current.name & "\" is locked in place (the lock of Position in Layers)."
       drag.on = false
       return

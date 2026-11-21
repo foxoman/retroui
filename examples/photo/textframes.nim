@@ -7,8 +7,11 @@
 # then on the box at the other end of the thread (or a double-click on the port), breaks it:
 # the boxes after it empty, the text overset in the box before. Esc lets the loaded text go.
 # A threaded box picked shows the thread's lines (View > Show > Text Threads). Type > Text
-# Frame Options: columns, their gutter, and Auto-Size -- the box as big as its text, from the
-# reference point picked -- live.
+# Frame Options, live, in tabs: General (columns -- so many, of a fixed width, or of a most
+# width --, their gutter, balanced, the inset on four sides with a link, vertical justification,
+# Ignore Text Wrap), Baseline Options (the first baseline: ascent, cap height, leading, x height
+# or fixed, at least so far down), Auto-Size (the box as big as its text, from the reference
+# point picked), Column Rules.
 
 var
   tl: tuple[loaded: bool; dw: DocWin; doc: Doc; page, uid, mode: int; pressing: bool; x0, y0, x1, y1: float]
@@ -16,7 +19,8 @@ var
     ## does: 0 thread, 1 the out port of a threaded box (its thread broken at the next box), 2 the
     ## in port of one (broken at the box before))
   tfDlg: tuple[open: bool; layer: Layer; cols: int; gutter: float32; auto, refPt: int;
-               inset: array[4, float32]; vjust: int; balance: bool; rule: ColumnRule]
+               inset: array[4, float32]; vjust: int; balance: bool; rule: ColumnRule; page: int;
+               colMode: int; colWidth: float32; firstBase: int; firstMin: float32; ignoreWrap: bool]
     ## (lengths in the document's pixels, shown in the rulers' unit)
   tfApplied = ""
   tfPending = false
@@ -136,11 +140,12 @@ proc newFrameFor(dw: DocWin; S: Layer; x0, y0, x1, y1: float) =
     if bw != nil and bw.master == 0:
       let b = bw.book
       let m = b.marginBox(bw.page)
-      let n = max(1, b.setup.columns)
-      let cw = (m.w - b.setup.gutter * (n - 1)) / n
-      var c = int((x0 - m.x.float) / max(1.0, cw + b.setup.gutter.float))
+      let mg = b.marginsOf(bw.page)
+      let n = max(1, mg.columns)
+      let cw = (m.w - mg.gutter * (n - 1)) / n
+      var c = int((x0 - m.x.float) / max(1.0, cw + mg.gutter.float))
       c = clamp(c, 0, n - 1)
-      let cx = m.x.float + c.float * (cw + b.setup.gutter.float)
+      let cx = m.x.float + c.float * (cw + mg.gutter.float)
       let top = clamp(y0, m.y.float, float(m.y + m.h) - 24)
       r = (cx, top, cx + cw, float(m.y + m.h))
     else:
@@ -348,6 +353,11 @@ proc threadOverlay(dw: DocWin; ev: PhotoEvent) =
 
 # ---- Text Frame Options ---------------------------------------------------------------------------------
 
+proc tfKey(): string =
+  ## (what the dialog says: applied when it changes)
+  $(tfDlg.cols, tfDlg.gutter, tfDlg.auto, tfDlg.refPt, tfDlg.inset, tfDlg.vjust, tfDlg.balance, tfDlg.rule,
+    tfDlg.colMode, tfDlg.colWidth, tfDlg.firstBase, tfDlg.firstMin, tfDlg.ignoreWrap)
+
 proc startTextFrameOptions() =
   let d = cur()
   if te.on: commitType()
@@ -356,10 +366,12 @@ proc startTextFrameOptions() =
     status = "Text Frame Options: pick a box of type (drag one with the Type tool)."
     return
   let ins = L.text.inset
+  let cw = if L.text.colWidth > 0: L.text.colWidth
+           else: (L.text.boxW - 12 * float32(max(1, L.text.columns) - 1)) / float32(max(1, L.text.columns))
   tfDlg = (true, L, max(1, L.text.columns), (if L.text.gutter > 0: L.text.gutter else: 12'f32),
-           ord(L.text.autoSize), L.text.autoRef, ins, ord(L.text.vjust), L.text.balance, L.text.colRule)
-  tfApplied = $(tfDlg.cols, tfDlg.gutter, tfDlg.auto, tfDlg.refPt, tfDlg.inset, tfDlg.vjust, tfDlg.balance,
-                tfDlg.rule)
+           ord(L.text.autoSize), L.text.autoRef, ins, ord(L.text.vjust), L.text.balance, L.text.colRule,
+           tfDlg.page, ord(L.text.colMode), max(8'f32, cw), ord(L.text.firstBase), L.text.firstMin, L.ignoreWrap)
+  tfApplied = tfKey()
   tfPending = true
   d.beginStep("Text Frame Options")
   d.touchLayers()
@@ -386,87 +398,112 @@ proc textFrameDialog() =
     tfDlg.open = false
     return
   var ok, cancel = false
-  dialog(tfDlg.open, "Text Frame Options", 450):
-    row([130, 90, -1]):
-      label "Columns:"
-      spin(tfDlg.cols, 1, 12, w = dp(80))
-      discard
-    row([130, 90, -1]):
-      label "Gutter:"
-      discard d.lengthField(tfDlg.gutter, dp(80), 0, 4000)
-      label unitShort()
-    row([130, -1]):
-      label ""
-      checkbox("Balance Columns", tfDlg.balance)
-    # (Column Rules: lines down the gutters)
-    row([130, -1]):
-      label ""
-      checkbox("Column Rules", tfDlg.rule.on, enabled = tfDlg.cols > 1)
-    if tfDlg.rule.on and tfDlg.cols > 1:
-      row([130, 90, -1]):
-        label "Rule weight:"
-        discard d.lengthField(tfDlg.rule.width, dp(80), 0, 400)
-        var c = if tfDlg.rule.color != 0: tfDlg.rule.color else: 0xFF000000'u32
-        if colorWell(c, "colrule", dp(40)): tfDlg.rule.color = c or 0xFF000000'u32
-      row([130, 90, 40, 90, -1]):
-        label "Rule: from top"
-        discard d.lengthField(tfDlg.rule.top, dp(80), 0, 20000)
-        label "foot"
-        discard d.lengthField(tfDlg.rule.bottom, dp(80), 0, 20000)
-        label unitShort()
+  dialog(tfDlg.open, "Text Frame Options", 470):
+    discard tabStrip([tr("General"), tr("Baseline Options"), tr("Auto-Size"), tr("Column Rules")], tfDlg.page,
+                     closable = false, addButton = false)
+    case tfDlg.page
+    of 0:
+      group("Columns"):
+        row([130, -1]):
+          label ""
+          var modes: seq[string]
+          for m in ColumnMode: modes.add tr($m)
+          combo(modes, tfDlg.colMode, w = dp(160))
+        if tfDlg.colMode == 0:
+          row([130, 90, -1]):
+            label "Number:"
+            spin(tfDlg.cols, 1, 12, w = dp(80))
+            discard
+        else:
+          row([130, 90, -1]):
+            label(if tfDlg.colMode == 1: "Width:" else: "Maximum:")
+            discard d.lengthField(tfDlg.colWidth, dp(80), 8, 20000)
+            label unitShort()
+        row([130, 90, -1]):
+          label "Gutter:"
+          discard d.lengthField(tfDlg.gutter, dp(80), 0, 4000)
+          label unitShort()
+        row([130, -1]):
+          label ""
+          checkbox("Balance Columns", tfDlg.balance)
+      group("Inset Spacing"):
+        discard d.sidesFields(tfDlg.inset, "tfinset")
+      row([130, -1]):
+        label "Vertical Justification:"
+        var vn: seq[string]
+        for v in VertJust: vn.add tr($v)
+        combo(vn, tfDlg.vjust, w = dp(120))
+      checkbox("Ignore Text Wrap", tfDlg.ignoreWrap)
+    of 1:
+      group("First Baseline"):
+        row([130, -1]):
+          label "Offset:"
+          var fb: seq[string]
+          for f in FirstBaseline: fb.add tr($f)
+          combo(fb, tfDlg.firstBase, w = dp(140))
+        row([130, 90, -1]):
+          label(if tfDlg.firstBase == ord(fbFixed): "Distance:" else: "Min:")
+          discard d.lengthField(tfDlg.firstMin, dp(80), 0, 4000)
+          label unitShort()
+      paragraph(case FirstBaseline(tfDlg.firstBase)
+                of fbAscent: "The first line's tallest letters touch the top of the box (its inset under it)."
+                of fbCapHeight: "The first line's capitals touch the top of the box."
+                of fbLeading: "The first baseline its leading under the top, as the next ones are under it."
+                of fbXHeight: "The first line's small letters touch the top of the box."
+                of fbFixed: "The first baseline just so far under the top.", color = ui.theme.gray)
+    of 2:
+      row([130, -1]):
+        label "Auto-Size:"
+        var names: seq[string]
+        for a in TextAutoSize: names.add tr($a)
+        combo(names, tfDlg.auto, w = dp(250))
+      if tfDlg.auto != 0:
+        row([130, -1]):
+          label "Reference point:"
+          # (the nine points of the box, as the layout program's proxy: the one that stays)
+          let s = dp(14)
+          let g = dp(6)
+          let r = place(3 * s + 2 * g, 3 * s + 2 * g)
+          for k in 0 .. 8:
+            let cell = rect(r.x + (k mod 3) * (s + g), r.y + (k div 3) * (s + g), s, s)
+            let on = k == tfDlg.refPt
+            fill(cell, if on: ui.theme.text else: ui.theme.window)
+            box(cell, ui.theme.text)
+            if mouseIn(cell) and ui.pressed: tfDlg.refPt = k
+        paragraph(case TextAutoSize(tfDlg.auto)
+                  of asHeight: "The box as tall as its text: taller as it grows, shorter as it shrinks."
+                  of asWidth: "The box as wide as its longest line: lines break only where they end."
+                  of asBoth: "The box as wide as its longest line and as tall as its lines."
+                  of asProportional: "The box as small as holds its text, in the shape it has."
+                  else: "", color = ui.theme.gray)
+    else:
+      # (Column Rules: lines down the gutters)
+      let many = tfDlg.cols > 1 or tfDlg.colMode != 0
       row([130, -1]):
         label ""
-        checkbox("Dashed", tfDlg.rule.dashed)
-        checkbox("The box's height", tfDlg.rule.frameHeight)
-    # (Inset Spacing: room kept inside the box's sides)
-    row([130, 90, 40, 90, -1]):
-      label "Inset: top"
-      discard d.lengthField(tfDlg.inset[0], dp(80), 0, 4000)
-      label "left"
-      discard d.lengthField(tfDlg.inset[3], dp(80), 0, 4000)
-      label unitShort()
-    row([130, 90, 40, 90, -1]):
-      label "bottom"
-      discard d.lengthField(tfDlg.inset[2], dp(80), 0, 4000)
-      label "right"
-      discard d.lengthField(tfDlg.inset[1], dp(80), 0, 4000)
-      label unitShort()
-    row([130, -1]):
-      label "Vertical Justification:"
-      var vn: seq[string]
-      for v in VertJust: vn.add tr($v)
-      combo(vn, tfDlg.vjust, w = dp(120))
-    row([130, -1]):
-      label "Auto-Size:"
-      var names: seq[string]
-      for a in TextAutoSize: names.add tr($a)
-      combo(names, tfDlg.auto, w = dp(250))
-    if tfDlg.auto != 0:
-      row([130, -1]):
-        label "Reference point:"
-        # (the nine points of the box, as the layout program's proxy: the one that stays)
-        let s = dp(14)
-        let g = dp(6)
-        let r = place(3 * s + 2 * g, 3 * s + 2 * g)
-        for k in 0 .. 8:
-          let cell = rect(r.x + (k mod 3) * (s + g), r.y + (k div 3) * (s + g), s, s)
-          let on = k == tfDlg.refPt
-          fill(cell, if on: ui.theme.text else: ui.theme.window)
-          box(cell, ui.theme.text)
-          if mouseIn(cell) and ui.pressed: tfDlg.refPt = k
-      paragraph(case TextAutoSize(tfDlg.auto)
-                of asHeight: "The box as tall as its text: taller as it grows, shorter as it shrinks."
-                of asWidth: "The box as wide as its longest line: lines break only where they end."
-                of asBoth: "The box as wide as its longest line and as tall as its lines."
-                of asProportional: "The box as small as holds its text, in the shape it has."
-                else: "", color = ui.theme.gray)
+        checkbox("Column Rules", tfDlg.rule.on, enabled = many)
+      if tfDlg.rule.on and many:
+        row([130, 90, -1]):
+          label "Rule weight:"
+          discard d.lengthField(tfDlg.rule.width, dp(80), 0, 400)
+          var c = if tfDlg.rule.color != 0: tfDlg.rule.color else: 0xFF000000'u32
+          if colorWell(c, "colrule", dp(40)): tfDlg.rule.color = c or 0xFF000000'u32
+        row([130, 90, 40, 90, -1]):
+          label "Rule: from top"
+          discard d.lengthField(tfDlg.rule.top, dp(80), 0, 20000)
+          label "foot"
+          discard d.lengthField(tfDlg.rule.bottom, dp(80), 0, 20000)
+          label unitShort()
+        row([130, -1]):
+          label ""
+          checkbox("Dashed", tfDlg.rule.dashed)
+          checkbox("The box's height", tfDlg.rule.frameHeight)
     row:
       spring()
       if button("OK", isDefault = true, w = dp(80)): ok = true
       if button("Cancel", w = dp(80)): cancel = true
   let L = tfDlg.layer
-  let key = $(tfDlg.cols, tfDlg.gutter, tfDlg.auto, tfDlg.refPt, tfDlg.inset, tfDlg.vjust, tfDlg.balance,
-              tfDlg.rule)
+  let key = tfKey()
   if key != tfApplied and not cancel:
     tfApplied = key
     var t = L.text
@@ -478,6 +515,15 @@ proc textFrameDialog() =
     t.vjust = VertJust(clamp(tfDlg.vjust, 0, ord(high(VertJust))))
     t.balance = tfDlg.balance
     t.colRule = tfDlg.rule
+    t.colMode = ColumnMode(clamp(tfDlg.colMode, 0, ord(high(ColumnMode))))
+    t.colWidth = if t.colMode == cmNumber: 0'f32 else: tfDlg.colWidth
+    if t.colMode == cmFixedWidth:
+      # (columns of a fixed width: the box as wide as the ones that fit, its inset too)
+      let n = t.columnsOf
+      t.boxW = float32(n) * t.colWidth + float32(n - 1) * t.gutter + t.inset[1] + t.inset[3]
+    t.firstBase = FirstBaseline(clamp(tfDlg.firstBase, 0, ord(high(FirstBaseline))))
+    t.firstMin = tfDlg.firstMin
+    L.ignoreWrap = tfDlg.ignoreWrap
     d.setText(L, t)
   if ok:
     tfDlg.open = false

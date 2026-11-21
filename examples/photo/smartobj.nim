@@ -131,7 +131,12 @@ proc placeSmart(d: Doc; path: string) =
   let linking = placeLinking
   placeLinking = false
   let base = d.current
-  let target = if into: d.layerBox(base) else: rect(0, 0, 0, 0)
+  # (into a frame: all of it -- a frame across a book's spine, past the page's edge too)
+  var target = if into: d.layerBox(base) else: rect(0, 0, 0, 0)
+  if into:
+    let f = d.fullBox(base)
+    if f.ok and f.x1 > f.x0 and f.y1 > f.y0:
+      target = rect(int(floor(f.x0)), int(floor(f.y0)), int(ceil(f.x1 - floor(f.x0))), int(ceil(f.y1 - floor(f.y0))))
   try:
     beginBusy("Placing " & path.extractFilename)
     try:

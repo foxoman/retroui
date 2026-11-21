@@ -34,6 +34,9 @@ var
   bookGo: tuple[open: bool; n: int; what: int]     ## Go to Page / Move Page / Start Numbering
   shapesDlg: tuple[open: bool; word: string; key: string; pics: seq[Bitmap]]
   masterDlg: tuple[open: bool; id: int; name: string; based: int]   ## Master Options
+  mcDlg: tuple[open: bool; v: array[4, float32]; cols: int; gutter: float32; master: int]
+    ## Layout > Margins and Columns: the page's margins (or the master's being edited) -- top,
+    ## outside, bottom, inside, as the four-sides field has them -- and its columns
 
 const bookDpis = [96, 150, 200, 300]
 
@@ -267,8 +270,8 @@ proc bookSnapLines(dw: DocWin): tuple[xs, ys: seq[float]] =
   let bw = bookOf(dw)
   if bw == nil: return
   let b = bw.book
-  let side = if bw.master > 0: (if b.setup.facing: bw.side else: psSingle) else: b.sideOf(bw.page)
-  b.snapLines(side)
+  if bw.master > 0: b.snapLines(b.masterOf(bw.master), if b.setup.facing: bw.side else: psSingle)
+  else: b.snapLines(bw.page)
 
 proc bookFields(setup: bool; withPaper = true) =
   ## (the book's setup as fields: its size, resolution and pages when it is new -- with a
@@ -753,6 +756,28 @@ proc flowNext(bw: BookWin; auto: bool) =
 
 proc setWorkspace(kind: int)
 
+proc overrideAt(dw: DocWin; i: int): bool =
+  ## (Ctrl+Shift+click on a master's item on a book's page: made the page's own, picked; one
+  ## step)
+  let bw = bookOf(dw)
+  if bw == nil or bw.master > 0: return false
+  let d = dw.doc
+  if i notin 0 .. d.layers.high: return false
+  let L = d.layers[i]
+  if not bw.book.overridable(L):
+    status = tr("Its master does not let its pages make it their own (Allow Master Item Overrides).")
+    return false
+  d.beginStep("Override Master Item")
+  d.touchLayers()
+  result = bw.book.overrideMasterItem(bw.page, L)
+  d.endStep()
+  if result:
+    d.clearPicks()
+    d.cur = d.layers.find(L)
+    d.markAll()
+    status = tr("Made this page's own: \"") & L.name & tr("\" (Layout > Masters > Remove Selected Local Overrides " &
+             "gives it back to the master)")
+
 proc bookCommand(name: string): bool =
   ## The Layout menu's commands and the book's own in File (true: done here).
   result = true
@@ -846,6 +871,53 @@ proc bookCommand(name: string): bool =
       if id == 0 and bw.book.masters.len > 0: id = bw.book.masters[0].id
       if id == 0: id = bw.book.addMaster().id
       bw.editMaster(id, if name.endsWith("Left Page"): psLeft else: psRight)
+  of "Override All Master Page Items", "Remove All Local Overrides", "Remove Selected Local Overrides",
+     "Detach All Objects from Master", "Detach Selection from Master", "Hide Master Items":
+    need:
+      if bw.master > 0:
+        status = tr(name) & tr(": for a page -- go back to one first (Layout > Masters > Back to the Page).")
+      else:
+        endModes()
+        let b = bw.book
+        let i = bw.page
+        let d = b.doc(i)
+        var sel: seq[Layer]
+        for k in d.pickedLayers: sel.add d.layers[k]
+        if d.current != nil and d.current notin sel: sel.add d.current
+        case name
+        of "Override All Master Page Items":
+          d.beginStep(name)
+          d.touchLayers()
+          let n = b.overrideAllMasterItems(i)
+          d.endStep()
+          d.markAll()
+          status = $n & tr(" of the master's items made this page's own")
+        of "Remove All Local Overrides", "Remove Selected Local Overrides":
+          let n = if name == "Remove All Local Overrides": b.removeLocalOverrides(i)
+                  else: b.removeLocalOverrides(i, sel)
+          bw.showPage(i)
+          status = $n & tr(" of the page's own taken away: the master's items as on the master")
+        of "Detach All Objects from Master", "Detach Selection from Master":
+          d.beginStep(name)
+          d.touchLayers()
+          let n = if name == "Detach All Objects from Master": b.detachFromMaster(i) else: b.detachFromMaster(i, sel)
+          d.endStep()
+          d.markAll()
+          status = $n & tr(" let go of the master: this page's own layers")
+        else:
+          b.setHideMaster(i, not b.pages[i].hideMaster)
+          bw.showPage(i)
+          status = if b.pages[i].hideMaster: tr("The master's items hidden on this page") else: tr("The master's items shown")
+  of "Allow Master Item Overrides on Selection":
+    need:
+      let d = cur()
+      if bw.master == 0 or d == nil or d.current == nil or d.current.background:
+        status = tr("Allow Master Item Overrides: pick an item while editing a master.")
+      else:
+        let L = d.current
+        d.stepOnce(name, proc () = L.noOverride = not L.noOverride)
+        bw.book.touch(0)
+        status = if L.noOverride: tr("Its pages may not make it their own") else: tr("Its pages may make it their own")
   of "No Master":
     need:
       if bw.master == 0:
@@ -884,6 +956,13 @@ proc bookCommand(name: string): bool =
       shapesDlg.key = ""
       shapesDlg.open = true
   of "Margins and Columns": showMargins = not showMargins
+  of "Margins and Columns...":
+    need:
+      let b = bw.book
+      let mg = if bw.master > 0: b.masterMargins(b.masterOf(bw.master)) else: b.marginsOf(bw.page)
+      mcDlg = (true, [mg.top.float32, mg.outside.float32, mg.bottom.float32, mg.inside.float32],
+               max(1, mg.columns), mg.gutter.float32, bw.master)
+      showMargins = true
   of "Facing Page": showFacing = not showFacing
   of "Baseline Grid": showBaseline = not showBaseline
   of "Pages": togglePanel("pages")
@@ -915,6 +994,7 @@ proc layoutMenu() =
   let box = some and d.current.isText and d.current.text.boxW > 0
   ci("&New Book...", "New Book...")
   ci("Document &Setup...", "Document Setup...", enabled = isBook)
+  ci("Margins and Col&umns...", "Margins and Columns...", enabled = isBook)
   sep()
   ci("Insert &Table...", "Insert Table...", enabled = some)
   ci("Insert C&hart...", "Insert Chart...", enabled = some)
@@ -960,6 +1040,18 @@ proc layoutMenu() =
        enabled = isBook and (bw.master > 0 or bw.book.pages[bw.page].master != 0))
     sep()
     ci("No &Master on This Page", "No Master", enabled = onPage, checked = onPage and bw.book.pages[bw.page].master == 0)
+    sep()
+    let hasMaster = onPage and bw.book.pages[bw.page].master != 0
+    ci("O&verride All Master Page Items", "Override All Master Page Items", enabled = hasMaster)
+    ci("Remove All Local Overr&ides", "Remove All Local Overrides", enabled = onPage)
+    ci("Remove Selected Local Overrides", "Remove Selected Local Overrides", enabled = onPage)
+    ci("Detach All Objects &from Master", "Detach All Objects from Master", enabled = hasMaster)
+    ci("Detach Selection from Master", "Detach Selection from Master", enabled = onPage)
+    ci("&Hide Master Items", "Hide Master Items", enabled = hasMaster,
+       checked = onPage and bw.book.pages[bw.page].hideMaster)
+    ci("Allo&w Master Item Overrides on Selection", "Allow Master Item Overrides on Selection",
+       enabled = isBook and bw.master > 0 and some,
+       checked = isBook and bw.master > 0 and some and not d.current.noOverride)
     live:
       if isBook:
         for m in bw.book.masters:
@@ -979,7 +1071,7 @@ proc layoutMenu() =
   ci("Auto&flow Through New Pages", "Autoflow Through New Pages", enabled = onPage and box)
   ci("&Unlink From the Page Before", "Unlink From the Page Before", enabled = onPage and some and d.current.flowPage != 0)
   sep()
-  ci("Mar&gins and Columns", "Margins and Columns", checked = showMargins)
+  ci("Show Mar&gins and Columns", "Margins and Columns", checked = showMargins)
   ci("Fa&cing Page", "Facing Page", checked = showFacing)
   ci("&Baseline Grid", "Baseline Grid", checked = showBaseline, enabled = isBook and bw.book.setup.baseline >= 2)
   ci("Pages Pane&l", "Pages", checked = panelShown("pages"))
@@ -1109,20 +1201,24 @@ proc bookOverlay(dw: DocWin) =
   let d = dw.doc
   let v = dw.view
   let side = if bw.master > 0: (if b.setup.facing: bw.side else: psSingle) else: b.sideOf(bw.page)
+  # (the page's own margins and columns, its master's, or the book's)
+  let ma = if bw.master > 0: b.masterOf(bw.master) else: nil
+  let mbox = if ma != nil: b.marginBox(ma, side) else: b.marginBox(bw.page)
+  let mg = if ma != nil: b.masterMargins(ma) else: b.marginsOf(bw.page)
   if showMargins:
-    let m = b.marginBox(side)
+    let m = mbox
     let (ax, ay) = v.toScreen(d, m.x.float, m.y.float)
     let (bx, by) = v.toScreen(d, float(m.x + m.w), float(m.y + m.h))
     box(rect(ax, ay, max(1, bx - ax), max(1, by - ay)), color(230, 60, 200))
-    let n = max(1, b.setup.columns)
+    let n = max(1, mg.columns)
     if n > 1:
-      let cwid = (m.w - b.setup.gutter * (n - 1)) div n
+      let cwid = (m.w - mg.gutter * (n - 1)) div n
       for c in 1 ..< n:
-        for x in [m.x + c * (cwid + b.setup.gutter) - b.setup.gutter, m.x + c * (cwid + b.setup.gutter)]:
+        for x in [m.x + c * (cwid + mg.gutter) - mg.gutter, m.x + c * (cwid + mg.gutter)]:
           let (sx, _) = v.toScreen(d, x.float, 0)
           line(sx, ay, sx, by, color(150, 90, 230))
   if showBaseline:
-    let m = b.marginBox(side)
+    let m = mbox
     let (ax, _) = v.toScreen(d, m.x.float, 0)
     let (bx, _) = v.toScreen(d, float(m.x + m.w), 0)
     var last = -100
@@ -1138,7 +1234,7 @@ proc bookOverlay(dw: DocWin) =
     if t != nil and t.w > 0: drawBitmap(g.r, t)
     box(g.r, ui.theme.shadow)
     let st = style(size = 0.85)
-    let lab = "Page " & b.label(g.page) & ": click to turn to it"
+    let lab = tr("Page ") & b.label(g.page) & tr(": click to turn to it")
     if g.r.w > textWidth(lab, st) + dp(8):
       text(g.r.x + dp(4), g.r.y + g.r.h + dp(2), lab, ui.theme.text, st)
 
@@ -1247,7 +1343,50 @@ proc bookFrame() =
   let note = systemFilesNote()
   if note.len > 0: status = note
 
+proc marginsDialog() =
+  ## (Layout > Margins and Columns: the page's own -- or the master's being edited --, or as the
+  ## one under it again)
+  if not mcDlg.open: return
+  let bw = curBook()
+  if bw == nil or (mcDlg.master > 0 and bw.book.masterOf(mcDlg.master) == nil):
+    mcDlg.open = false
+    return
+  let b = bw.book
+  let d = bw.dw.doc
+  var ok, under = false
+  dialog(mcDlg.open, "Margins and Columns", 430):
+    let m = if mcDlg.master > 0: b.masterOf(mcDlg.master) else: nil
+    label(if m != nil: tr("Master ") & m.name & tr(": its pages without margins of their own take these")
+          else: tr("Page ") & b.label(bw.page), color = ui.theme.gray, literal = true)
+    group("Margins"):
+      let caps = if b.setup.facing: ["Top:", "Outside:", "Bottom:", "Inside:"]
+                 else: ["Top:", "Right:", "Bottom:", "Left:"]
+      discard d.sidesFields(mcDlg.v, "margins", caps, hi = float(min(b.setup.w, b.setup.h)))
+    group("Columns"):
+      row([80, 84, 70, 84, -1]):
+        label "Number:"
+        discard spin(mcDlg.cols, 1, 12, w = dp(80))
+        label "Gutter:"
+        discard d.lengthField(mcDlg.gutter, dp(80), 0, 4000)
+        label unitShort()
+    row:
+      if button(if m != nil: "As the Book's" else: "As the Master's", w = dp(130)): under = true
+      spring()
+      if button("OK", isDefault = true, w = dp(80)): ok = true
+      if button("Cancel", w = dp(80)): mcDlg.open = false
+  if ok or under:
+    mcDlg.open = false
+    let v = mcDlg.v
+    let mg = if under: PageMargins()
+             else: PageMargins(own: true, top: int(round(v[0])), outside: int(round(v[1])), bottom: int(round(v[2])),
+                               inside: int(round(v[3])), columns: mcDlg.cols, gutter: int(round(mcDlg.gutter)))
+    if mcDlg.master > 0: b.setMasterMargins(mcDlg.master, mg)
+    else: b.setPageMargins(bw.page, mg)
+    inc bw.dw.doc.ver
+    status = if under: tr("Margins and Columns: as the one under it again") else: tr("Margins and Columns set")
+
 proc bookDialogs() =
+  marginsDialog()
   bookSetupDialog()
   bookExportDialog()
   wordShapesDialog()

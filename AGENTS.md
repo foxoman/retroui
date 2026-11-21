@@ -83,7 +83,15 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   `setSetup` moves them when the grid changes. Drop caps are the type
   engine's (`ParaStyle.dropLines`): the big letters are drawn apart, the
   same letters stay in the text as wide as nothing (carets and indexes
-  as they were).
+  as they were). A page's margins and columns may be its own or its
+  master's (`marginsOf`, `masterMargins`): take them from there -- by page
+  (`marginBox(b, i)`, `columnBoxes`, `snapLines(b, i)`) or by master --,
+  never from `BookSetup` (that is the book's default only). A master's
+  item made a page's own is that page's layer with `masterUid` (and the
+  master's item left off the page: `BookPage.overrides`); go through
+  `overrideMasterItem`, `removeLocalOverrides`, `detachFromMaster`, never
+  by clearing `fromMaster` yourself. A layer clipped to a frame crosses
+  the spine only with its frame, clipped to its copy.
   `tests/test_photobook.nim` and `tests/test_photobookapp.nim`.
 - Vectors from pictures and type: `retroui/imagetrace` (`traceImage`),
   `retroui/photovector` (`textShapes`, `blendShapes`); templates for new

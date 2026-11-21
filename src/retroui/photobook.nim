@@ -7,10 +7,14 @@
 ##   (a left and a right page side by side), bound on the left (read left
 ##   to right) or on the right (Arabic, Hebrew: `bindRight`);
 ## - **margins** (inside and outside swap on facing pages) and the columns
-##   new text boxes get;
+##   new text boxes get -- the book's, or a master's or a page's own
+##   (`PageMargins`, `marginsOf`, `setPageMargins`, `setMasterMargins`);
 ## - **master pages**: what is on a master is on every page that has it
 ##   (a running head, a folio, a rule) -- a left and a right one for
-##   facing pages; change the master and the pages follow;
+##   facing pages; change the master and the pages follow; a page may make
+##   a master's item its own to change (`overrideMasterItem`, then
+##   `removeLocalOverrides` or `detachFromMaster`), or hide them all
+##   (`setHideMaster`);
 ## - **page numbers**: `<#>` in any text is the page's number and `<##>`
 ##   the number of pages; counted from `firstNumber`, started again where
 ##   a page says so (`restart`), written as digits, Arabic-Indic or
@@ -88,10 +92,24 @@ type
     paper*: uint32                   ## the paper's color (0: white)
     baseline*: float                 ## the baseline grid: its lines this many pixels apart (0: none)
     baselineStart*: float            ## ... its first line so far under the top margin
+  PageMargins* = object
+    ## A page's margins and columns (Layout > Margins and Columns): its own, else its master's,
+    ## else the book's (`marginsOf`).
+    own*: bool                       ## set for this page or master (else as the one under it)
+    top*, bottom*: int               ## pixels
+    inside*, outside*: int           ## ... at the spine and at the outer edge (not facing: left, right)
+    columns*: int                    ## the columns a new text box in the margins gets (0, 1: one)
+    gutter*: int                     ## ... and the room between them
   BookPage* = ref object
     ## A page of a book (or a side of a master).
     id*: int                         ## who it is, wherever it is moved to
     master*: int                     ## its master (`Master.id`; 0: none)
+    margins*: PageMargins            ## its own margins and columns (`own` false: its master's)
+    overrides*: seq[tuple[master, uid: int; detached: bool]]
+                                     ## its master's items it does not show: made its own
+                                     ## (`overrideMasterItem`: a layer of the page stands for each,
+                                     ## `Layer.masterUid`), or -- `detached` -- let go of
+    hideMaster*: bool                ## its master's items hidden (Hide Master Items)
     restart*: int                    ## > 0: page numbers start again here, at this number
     label*: int                      ## its color in the Pages panel (`LayerColors`, from 1; 0: none)
     doc: Doc                         # (in memory; nil: parked in `file`)
@@ -120,6 +138,8 @@ type
     basedOn*: int                    ## the master it is based on (Based on Master): what is on that
                                      ## one is on this one's pages too, under its own (0: none;
                                      ## `setBasedOn`)
+    margins*: PageMargins            ## its own margins and columns (`own` false: the one it is based
+                                     ## on's, else the book's)
     sides: array[2, BookPage]        # (left, right; not facing: the right one only)
     ver: int
   Book* = ref object
@@ -180,23 +200,59 @@ proc spreadOf*(b: Book; i: int): seq[int] =
   if j < 0: return @[i]
   if b.sideOf(i) == psLeft: @[i, j] else: @[j, i]
 
-proc marginBox*(b: Book; side: PageSide): Rect =
-  ## What is inside the margins of a page on that side.
+proc bookMargins*(s: BookSetup): PageMargins =
+  ## The book's own margins and columns (File > Document Setup), as a page's.
+  PageMargins(own: true, top: s.top, bottom: s.bottom, inside: s.inside, outside: s.outside,
+              columns: s.columns, gutter: s.gutter)
+
+proc masterOf*(b: Book; id: int): Master
+proc masterChain*(b: Book; m: Master): seq[Master]
+
+proc masterMargins*(b: Book; m: Master): PageMargins =
+  ## A master's margins and columns: its own, else those of the master it is based on, else the
+  ## book's.
+  if m != nil:
+    let chain = b.masterChain(m)
+    for k in countdown(chain.high, 0):
+      if chain[k].margins.own: return chain[k].margins
+  bookMargins(b.setup)
+
+proc marginsOf*(b: Book; i: int): PageMargins =
+  ## Page `i`'s margins and columns: its own, else its master's, else the book's.
+  if i < 0 or i >= b.pages.len: return bookMargins(b.setup)
+  if b.pages[i].margins.own: return b.pages[i].margins
+  b.masterMargins(b.masterOf(b.pages[i].master))
+
+proc marginRect(b: Book; mg: PageMargins; side: PageSide): Rect =
+  ## (what is inside margins `mg` on a page of that side)
   let s = b.setup
-  let left = if side == psLeft: s.outside else: s.inside
-  let right = if side == psLeft: s.inside else: s.outside
-  rect(left, s.top, max(1, s.w - left - right), max(1, s.h - s.top - s.bottom))
+  let left = if side == psLeft: mg.outside else: mg.inside
+  let right = if side == psLeft: mg.inside else: mg.outside
+  rect(left, mg.top, max(1, s.w - left - right), max(1, s.h - mg.top - mg.bottom))
 
-proc marginBox*(b: Book; i: int): Rect = b.marginBox(b.sideOf(i))
-  ## What is inside the margins of page `i`.
+proc marginBox*(b: Book; side: PageSide): Rect =
+  ## What is inside the book's margins on a page of that side.
+  b.marginRect(bookMargins(b.setup), side)
 
-proc columnBoxes*(b: Book; i: int): seq[Rect] =
-  ## The setup's columns in page `i`'s margins, from left to right.
-  let m = b.marginBox(i)
-  let n = max(1, b.setup.columns)
-  let g = if n > 1: b.setup.gutter else: 0
+proc marginBox*(b: Book; i: int): Rect = b.marginRect(b.marginsOf(i), b.sideOf(i))
+  ## What is inside the margins of page `i` (its own, its master's or the book's).
+
+proc marginBox*(b: Book; m: Master; side: PageSide): Rect = b.marginRect(b.masterMargins(m), side)
+  ## What is inside the margins of master `m`'s page on that side.
+
+proc columnRects(m: Rect; mg: PageMargins): seq[Rect] =
+  let n = max(1, mg.columns)
+  let g = if n > 1: mg.gutter else: 0
   let cw = (m.w - g * (n - 1)) div n
   for c in 0 ..< n: result.add rect(m.x + c * (cw + g), m.y, cw, m.h)
+
+proc columnBoxes*(b: Book; i: int): seq[Rect] =
+  ## The columns in page `i`'s margins, from left to right.
+  columnRects(b.marginBox(i), b.marginsOf(i))
+
+proc columnBoxes*(b: Book; m: Master; side: PageSide): seq[Rect] =
+  ## The columns in master `m`'s margins on that side, from left to right.
+  columnRects(b.marginBox(m, side), b.masterMargins(m))
 
 proc gridLines*(b: Book): seq[float] =
   ## The baseline grid's lines (y, in a page's pixels) from the top margin
@@ -208,20 +264,30 @@ proc gridLines*(b: Book): seq[float] =
     result.add y
     y += s.baseline
 
-proc snapLines*(b: Book; side: PageSide): tuple[xs, ys: seq[float]] =
-  ## Where boxes on a page of that side snap to: its margins and the edges
-  ## of its columns (x), its margins and the baseline grid's lines (y).
-  let m = b.marginBox(side)
+proc snapAt(b: Book; m: Rect; mg: PageMargins): tuple[xs, ys: seq[float]] =
   result.xs = @[m.x.float, float(m.x + m.w)]
   result.ys = @[m.y.float, float(m.y + m.h)]
-  let n = max(1, b.setup.columns)
+  let n = max(1, mg.columns)
   if n > 1:
-    let g = b.setup.gutter
+    let g = mg.gutter
     let cw = (m.w - g * (n - 1)) div n
     for c in 1 ..< n:
       result.xs.add float(m.x + c * (cw + g) - g)
       result.xs.add float(m.x + c * (cw + g))
   for y in b.gridLines: result.ys.add y
+
+proc snapLines*(b: Book; side: PageSide): tuple[xs, ys: seq[float]] =
+  ## Where boxes on a page of that side snap to, with the book's margins: its margins and the
+  ## edges of its columns (x), its margins and the baseline grid's lines (y).
+  b.snapAt(b.marginBox(side), bookMargins(b.setup))
+
+proc snapLines*(b: Book; i: int): tuple[xs, ys: seq[float]] =
+  ## Where boxes on page `i` snap to: its own margins and columns (or its master's), the grid.
+  b.snapAt(b.marginBox(i), b.marginsOf(i))
+
+proc snapLines*(b: Book; m: Master; side: PageSide): tuple[xs, ys: seq[float]] =
+  ## Where boxes on master `m`'s page on that side snap to.
+  b.snapAt(b.marginBox(m, side), b.masterMargins(m))
 
 proc alignToGrid*(b: Book; t: var TextData; on = true) =
   ## Align to Baseline Grid: the text's lines on the book's baseline grid
@@ -352,6 +418,31 @@ proc setPageLabel*(b: Book; i, label: int) =
   b.pages[i].label = clamp(label, 0, LayerColors.len)
   b.modified = true
 
+proc sane(b: Book; mg: PageMargins): PageMargins =
+  ## (margins that leave room on the page; columns 1 to 12)
+  result = mg
+  result.top = clamp(mg.top, 0, b.setup.h - 2)
+  result.bottom = clamp(mg.bottom, 0, max(0, b.setup.h - 2 - result.top))
+  result.inside = clamp(mg.inside, 0, b.setup.w - 2)
+  result.outside = clamp(mg.outside, 0, max(0, b.setup.w - 2 - result.inside))
+  result.columns = clamp(mg.columns, 1, 12)
+  result.gutter = clamp(mg.gutter, 0, 10_000)
+
+proc setPageMargins*(b: Book; i: int; mg: PageMargins) =
+  ## Page `i` given margins and columns of its own (`own` false: its master's again, or the
+  ## book's).
+  if i notin 0 .. b.pages.high: return
+  b.pages[i].margins = if mg.own: b.sane(mg) else: PageMargins()
+  b.modified = true
+
+proc setMasterMargins*(b: Book; id: int; mg: PageMargins) =
+  ## Master `id` given margins and columns of its own (`own` false: those of the master it is
+  ## based on again, or the book's): its pages that have none of their own take them.
+  let m = b.masterOf(id)
+  if m == nil: return
+  m.margins = if mg.own: b.sane(mg) else: PageMargins()
+  b.modified = true
+
 proc changed*(b: Book): bool =
   ## The book has changes that are not saved.
   b.noteMasters()
@@ -456,6 +547,12 @@ proc crosses(d: Doc; L: Layer; side: int): int =
   if side > 0: (if f.x0 >= d.w.float: 2 elif f.x1 > d.w.float + 0.5: 1 else: 0)
   else: (if f.x1 <= 0: 2 elif f.x0 < -0.5: 1 else: 0)
 
+proc clipBase(d: Doc; k: int): int =
+  ## (the layer a clipped layer at `k` is clipped to -- the frame a photo is inside: the first one
+  ## under it not clipped; -1 none)
+  result = k - 1
+  while result >= 0 and d.layers[result].clipped: dec result
+
 proc lookOf(b: Book; pg: BookPage; L: Layer): Hash =
   ## (what an object is and looks like, the same when its page is read back from its file
   ## -- a layer's `ver` counts from the start again then: worked out when `ver` changed)
@@ -507,10 +604,11 @@ proc spanSig(b: Book; i: int): Hash =
   result = !$(h !& hash((b.pages[b.partner(i)].id, side)))
   if result == 0: result = 1
 
-proc acrossCopy(sd: Doc; S: Layer; d: Doc; dx: int; owner: int): Layer =
+proc acrossCopy(sd: Doc; S: Layer; d: Doc; dx: int; owner: int; keepClip = false): Layer =
   ## (the layer `S` of `sd` as a layer for `d`, `dx` to the side: its part there as a copy
   ## of the page `owner`'s, or -- `owner` 0 -- the object itself, moved; type and shapes
-  ## are drawn once it is among `d`'s layers)
+  ## are drawn once it is among `d`'s layers; `keepClip`: still clipped to the layer under it --
+  ## a photo inside its frame, the frame's copy put just under it)
   result = cloneLayer(S)
   result.fromSpan = owner
   result.fromMaster = 0
@@ -519,7 +617,7 @@ proc acrossCopy(sd: Doc; S: Layer; d: Doc; dx: int; owner: int): Layer =
   result.flowPage = 0
   result.flowOut = false
   result.depth = 0
-  result.clipped = false
+  result.clipped = keepClip and S.clipped
   result.picked = false
   result.locked = owner != 0 or S.locked
   if result.mask != nil and result.mask.px.len == d.w * d.h:
@@ -557,6 +655,33 @@ proc drawAcross(d: Doc; c: Layer) =
   if c.isText: d.drawText(c)
   elif c.isShape: d.drawShape(c)
 
+proc masterSig(b: Book; i: int): string =
+  ## (what a page's master items are made from: its master and those it is based on, the side,
+  ## their versions; hidden; the items it made its own)
+  let pg = b.pages[i]
+  let m = b.masterOf(pg.master)
+  if m != nil:
+    for cm in b.masterChain(m):
+      result.add (if result.len > 0: "/" else: "") & $cm.id & ":" & $ord(b.sideOf(i)) & ":" & $cm.ver
+  if pg.hideMaster: result.add "|hidden"
+  for o in pg.overrides: result.add "|" & $o.master & "." & $o.uid & (if o.detached: "d" else: "")
+
+proc pruneOverrides(b: Book; i: int) =
+  ## (an item the page made its own whose own copy is a copy of the master's again -- the step
+  ## that made it its own was undone: the master's again)
+  let pg = b.pages[i]
+  if pg.doc == nil: return
+  var k = pg.overrides.high
+  while k >= 0:
+    let o = pg.overrides[k]
+    if not o.detached:
+      var own, copy = false
+      for L in pg.doc.layers:
+        if L.masterUid == o.uid and L.masterId == o.master:
+          if L.fromMaster == 0: own = true else: copy = true
+      if copy and not own: pg.overrides.delete(k)
+    dec k
+
 proc dress(b: Book; i: int) =
   ## (a page's document made what its place in the book makes it: its
   ## master's layers, its number, the text that comes to it)
@@ -569,8 +694,8 @@ proc dress(b: Book; i: int) =
   let side = b.sideOf(i)
   let m = b.masterOf(pg.master)
   let chain = if m == nil: @[] else: b.masterChain(m)
-  var want = ""
-  for cm in chain: want.add (if want.len > 0: "/" else: "") & $cm.id & ":" & $ord(side) & ":" & $cm.ver
+  b.pruneOverrides(i)
+  let want = b.masterSig(i)
   var relabel = false
   var remastered = false
   if pg.applied != want:
@@ -578,16 +703,23 @@ proc dress(b: Book; i: int) =
     for k in countdown(d.layers.high, 0):
       if d.layers[k].fromMaster != 0: d.layers.delete(k)
     var at = if d.layers.len > 0 and d.layers[0].background: 1 else: 0
-    for cm in chain:
-      # (the master it is based on first, under: then its own)
+    for cm in (if pg.hideMaster: @[] else: chain):
+      # (the master it is based on first, under: then its own -- but those the page made its own)
       let md = b.masterDoc(cm, side)
       for L in md.layers:
         if L.background or L.px.len != d.w * d.h or L.fromMaster != 0: continue
         # (a layer with nothing on it -- a new master's "Layer 1" -- stays there)
         if not L.isText and md.contentBounds(L).w <= 0: continue
+        let u = uidOf(L)
+        var skip = false
+        for o in pg.overrides:
+          if o.master == cm.id and o.uid == u: skip = true
+        if skip: continue
         let c = cloneLayer(L)
         c.depth = 0
-        c.fromMaster = m.id
+        c.fromMaster = cm.id
+        c.masterId = cm.id
+        c.masterUid = u
         c.uid = 0
         c.flowFrom = 0
         c.flowPage = 0
@@ -625,9 +757,13 @@ proc dress(b: Book; i: int) =
         # (under the page's own, over its paper and its master's)
         var at = 0
         while at < d.layers.len and (d.layers[at].background or d.layers[at].fromMaster != 0): inc at
-        for S in sd.layers:
+        for k, S in sd.layers:
           if crosses(sd, S, side) == 0: continue
-          let c = acrossCopy(sd, S, d, -side, pj.id)
+          # (inside a frame -- clipped to it --: only when the frame goes past the spine too, and
+          # clipped to the frame's copy there)
+          let bk = if S.clipped: clipBase(sd, k) else: -1
+          if S.clipped and (bk < 0 or crosses(sd, sd.layers[bk], side) == 0): continue
+          let c = acrossCopy(sd, S, d, -side, pj.id, keepClip = S.clipped)
           d.layers.insert(c, at)
           inc at
           d.drawAcross(c)
@@ -765,6 +901,106 @@ proc doc*(b: Book; i: int): Doc =
   b.dress(i)
   b.pages[i].doc
 
+proc masterItemOf(b: Book; L: Layer): Layer =
+  ## (the master's own item a page's copy -- or its own layer standing for it -- is of; nil: gone)
+  let m = b.masterOf(L.masterId)
+  if m == nil: return nil
+  for k in 0 .. 1:
+    if m.sides[k] == nil: continue
+    for M in b.masterDoc(m, if k == 0: psLeft else: psRight).layers:
+      if M.uid == L.masterUid and M.fromMaster == 0: return M
+
+proc overridable*(b: Book; L: Layer): bool =
+  ## A master's item on a page that the page may make its own (its master allows it).
+  if L == nil or L.fromMaster == 0 or L.masterUid == 0: return false
+  let M = b.masterItemOf(L)
+  M == nil or not M.noOverride
+
+proc overrideMasterItem*(b: Book; i: int; L: Layer): bool =
+  ## A master's item on page `i` (a layer of its document with `fromMaster`) made the page's own,
+  ## to change there only -- the layout program's Ctrl+Shift+click: unlocked, the master's item
+  ## left off the page from now on (`BookPage.overrides`). False: not one, or its master does not
+  ## allow it (`Layer.noOverride`). In place, as a step of the document may (undone: the master's
+  ## again).
+  if i notin 0 .. b.pages.high: return false
+  let pg = b.pages[i]
+  if pg.doc == nil or L notin pg.doc.layers or not b.overridable(L): return false
+  L.fromMaster = 0
+  L.locked = false
+  pg.overrides.add (L.masterId, L.masterUid, false)
+  pg.applied = b.masterSig(i)
+  pg.dirty = true
+  pg.thumbStale = true
+  b.modified = true
+  inc pg.doc.ver
+  true
+
+proc overrideAllMasterItems*(b: Book; i: int): int =
+  ## Every master item on page `i` that may be made the page's own, made so (Override All Master
+  ## Page Items); how many.
+  let d = b.doc(i)
+  for L in d.layers:
+    if L.fromMaster != 0 and b.overrideMasterItem(i, L): inc result
+
+proc removeLocalOverrides*(b: Book; i: int; only: openArray[Layer] = []): int =
+  ## The page's own layers that stand for master items (`only`: those of them), taken away: the
+  ## master's items shown again as they are on the master (Remove Selected / All Local
+  ## Overrides); how many. Its document is dressed again (its steps forgotten, as when its master
+  ## changes).
+  if i notin 0 .. b.pages.high: return 0
+  let pg = b.pages[i]
+  let d = b.doc(i)
+  var gone: seq[(int, int)]
+  for k in countdown(d.layers.high, 0):
+    let L = d.layers[k]
+    if L.fromMaster == 0 and L.masterUid != 0 and (only.len == 0 or L in only):
+      gone.add (L.masterId, L.masterUid)
+      d.layers.delete(k)
+      inc result
+  if only.len == 0:
+    # (all: the items left off that the page has no layer for -- deleted after it made them its own)
+    for o in pg.overrides:
+      if not o.detached and (o.master, o.uid) notin gone: gone.add (o.master, o.uid)
+  if gone.len == 0: return
+  var keep: seq[tuple[master, uid: int; detached: bool]]
+  for o in pg.overrides:
+    if o.detached or (o.master, o.uid) notin gone: keep.add o
+  pg.overrides = keep
+  d.cur = clamp(d.cur, 0, d.layers.high)
+  pg.applied = ""
+  discard b.doc(i)
+  b.modified = true
+
+proc detachFromMaster*(b: Book; i: int; only: openArray[Layer] = []): int =
+  ## The page's own layers that stand for master items (`only`: those of them; none given: all,
+  ## every master item on it made its own first) let go of the master: ordinary layers of the page,
+  ## the master's items still left off it (Detach Selection / All Objects from Master); how many.
+  if i notin 0 .. b.pages.high: return 0
+  let pg = b.pages[i]
+  if only.len == 0: discard b.overrideAllMasterItems(i)
+  let d = b.doc(i)
+  for L in d.layers:
+    if L.fromMaster == 0 and L.masterUid != 0 and (only.len == 0 or L in only):
+      for o in pg.overrides.mitems:
+        if o.master == L.masterId and o.uid == L.masterUid: o.detached = true
+      L.masterUid = 0
+      L.masterId = 0
+      inc result
+  if result > 0:
+    pg.applied = b.masterSig(i)
+    pg.dirty = true
+    b.modified = true
+    inc d.ver
+
+proc setHideMaster*(b: Book; i: int; hide: bool) =
+  ## Page `i`'s master items hidden or shown again (Hide / Show Master Items); its document is
+  ## dressed again.
+  if i notin 0 .. b.pages.high or b.pages[i].hideMaster == hide: return
+  b.pages[i].hideMaster = hide
+  b.pages[i].thumbStale = true
+  b.modified = true
+  discard b.doc(i)
+
 proc settle*(b: Book; i: int): bool =
   ## What does not fit page `i`'s boxes that go on to other pages, worked
   ## out again (the page is opened when it is not). True when it changed:
@@ -822,12 +1058,16 @@ proc syncSpread*(b: Book; i: int): tuple[changed: bool; moved: int] =
   let d = pg.doc
   let side = b.spineSide(i)
   var gone: seq[Layer]
-  for L in d.layers:
-    if crosses(d, L, side) == 2 and L.flowFrom == 0 and not L.flowOut and not L.locked: gone.add L
+  for k, L in d.layers:
+    if L.clipped:
+      # (inside a frame: goes with its frame -- all of it, past the spine or not --, never alone)
+      let bk = clipBase(d, k)
+      if bk >= 0 and d.layers[bk] in gone: gone.add L
+    elif crosses(d, L, side) == 2 and L.flowFrom == 0 and not L.flowOut and not L.locked: gone.add L
   if gone.len > 0:
     let d2 = b.doc(j)
     for L in gone:
-      let c = acrossCopy(d, L, d2, -side, 0)
+      let c = acrossCopy(d, L, d2, -side, 0, keepClip = L.clipped)
       d2.layers.add c
       d2.drawAcross(c)
       d.layers.delete(d.layers.find(L))
@@ -937,6 +1177,9 @@ proc duplicatePage*(b: Book; i: int): BookPage =
   b.stow(pg)
   result = b.newPage()
   result.master = pg.master
+  result.margins = pg.margins
+  result.overrides = pg.overrides
+  result.hideMaster = pg.hideMaster
   result.file = b.folder / ("p" & $result.id & ".rpd")
   copyFile(pg.file, result.file)
   result.dirty = false
@@ -974,10 +1217,10 @@ proc setSetup*(b: Book; s: BookSetup) =
 # ---- text from page to page ----------------------------------------------------------------
 
 proc boxed*(b: Book; t: TextData; i: int): TextData =
-  ## `t` as text in a box that fills page `i`'s margins, in the setup's
-  ## columns.
+  ## `t` as text in a box that fills page `i`'s margins, in its columns.
   result = t
   let m = b.marginBox(i)
+  let mg = b.marginsOf(i)
   result.x = m.x.float32
   result.y = m.y.float32
   result.boxW = m.w.float32
@@ -985,9 +1228,9 @@ proc boxed*(b: Book; t: TextData; i: int): TextData =
   result.path = @[]
   result.warp = TextWarp()
   result.fit = false
-  if b.setup.columns > 1:
-    result.columns = b.setup.columns
-    result.gutter = b.setup.gutter.float32
+  if mg.columns > 1:
+    result.columns = mg.columns
+    result.gutter = mg.gutter.float32
 
 proc follower*(b: Book; i: int; L: Layer): tuple[page: int; layer: Layer] =
   ## The box that takes what does not fit `L` of page `i`: its page and
@@ -1341,10 +1584,26 @@ proc setupJson(s: BookSetup): JsonNode =
      "firstNumber": s.firstNumber, "numbers": ord(s.numbers), "paper": int64(s.paper),
      "baseline": s.baseline, "baselineStart": s.baselineStart}
 
+proc marginsJson(m: PageMargins): JsonNode =
+  %*{"top": m.top, "bottom": m.bottom, "inside": m.inside, "outside": m.outside, "columns": m.columns,
+     "gutter": m.gutter}
+
+proc marginsFrom(j: JsonNode): PageMargins =
+  if j == nil or j.kind != JObject: return
+  PageMargins(own: true, top: max(0, j{"top"}.getInt(0)), bottom: max(0, j{"bottom"}.getInt(0)),
+              inside: max(0, j{"inside"}.getInt(0)), outside: max(0, j{"outside"}.getInt(0)),
+              columns: clamp(j{"columns"}.getInt(1), 1, 12), gutter: clamp(j{"gutter"}.getInt(0), 0, 10_000))
+
 proc pageJson(pg: BookPage): JsonNode =
   result = %*{"id": pg.id, "master": pg.master, "restart": pg.restart, "label": pg.label, "applied": pg.applied,
               "storedWith": int64(pg.storedWith), "inSig": int64(pg.inSig),
               "spanOut": int64(pg.spanOut), "spanApplied": int64(pg.spanApplied)}
+  if pg.margins.own: result["margins"] = marginsJson(pg.margins)
+  if pg.hideMaster: result["hideMaster"] = %true
+  if pg.overrides.len > 0:
+    var a = newJArray()
+    for o in pg.overrides: a.add %*[o.master, o.uid, o.detached]
+    result["overrides"] = a
   if pg.outText.len > 0:
     var o = newJObject()
     for uid, t in pg.outText: o[$uid] = t.toJson
@@ -1389,6 +1648,7 @@ proc saveBook*(b: Book; path: string; keep: openArray[int] = []) =
         sides.add %s.id
     masters.add %*{"id": m.id, "name": m.name, "ver": m.ver, "sides": sides}
     if m.basedOn != 0: masters[^1]["basedOn"] = %m.basedOn
+    if m.margins.own: masters[^1]["margins"] = marginsJson(m.margins)
   let j = %*{"retroBook": 1, "name": b.name, "setup": setupJson(b.setup), "pages": pages, "masters": masters,
              "nextId": b.nextId}
   z.addFile("book.json", $j)
@@ -1447,6 +1707,12 @@ proc loadBook*(path: string): Book =
     pg.master = pj{"master"}.getInt(0)
     pg.restart = pj{"restart"}.getInt(0)
     pg.label = clamp(pj{"label"}.getInt(0), 0, LayerColors.len)
+    pg.margins = b.sane(marginsFrom(pj{"margins"}))
+    if pj{"margins"} == nil: pg.margins = PageMargins()
+    pg.hideMaster = pj{"hideMaster"}.getBool(false)
+    for o in pj{"overrides"}.getElems:
+      if o.kind == JArray and o.len == 3 and pg.overrides.len < 10_000:
+        pg.overrides.add (o[0].getInt(0), o[1].getInt(0), o[2].getBool(false))
     pg.applied = pj{"applied"}.getStr("")
     pg.storedWith = hashOf(pj{"storedWith"}.getBiggestInt(0))
     pg.spanOut = hashOf(pj{"spanOut"}.getBiggestInt(0))
@@ -1480,6 +1746,7 @@ proc loadBook*(path: string): Book =
     seen.add id
     let m = Master(id: id, name: mj{"name"}.getStr("A"), ver: max(1, mj{"ver"}.getInt(1)),
                    basedOn: max(0, mj{"basedOn"}.getInt(0)))
+    if mj{"margins"} != nil: m.margins = b.sane(marginsFrom(mj{"margins"}))
     let sides = mj{"sides"}.getElems
     for k in 0 ..< min(2, sides.len):
       let sid = sides[k].getInt(0)

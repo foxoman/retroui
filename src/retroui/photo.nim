@@ -575,9 +575,14 @@ type
     fromSpan*: int          ## a book's page: the part of an object of the facing page (the page that
                             ## is this `id`) that lies on this one -- a copy, locked, made again
                             ## when the object changes (0: the page's own)
-    fromMaster*: int        ## a book's page: a copy of the master page's layer of this `uid`, put
-                            ## on the page by the book and made again when the master changes
-                            ## (0: the page's own)
+    fromMaster*: int        ## a book's page: a copy of a master's item (the master of this id: the
+                            ## page's, or one it is based on), put on the page by the book, locked,
+                            ## made again when the master changes (0: the page's own)
+    masterUid*, masterId*: int  ## ... that item's `uid` on the master of `masterId`; on a page's own
+                            ## layer (`fromMaster` 0): the master item it overrides -- the page's
+                            ## to change, the master's left off the page (0: none; detached)
+    noOverride*: bool       ## a master's item: its pages may not make it their own (Allow Master
+                            ## Item Overrides off)
     flowPage*: int          ## a book: this type layer's box shows what did not fit a box on
                             ## another page (the page of this id; `flowFrom`: the box's `uid`
                             ## there). The book gives it the text (`Doc.flowIn`). 0: this page
@@ -1042,6 +1047,8 @@ type
     wrap, wrapGap, wrapSide: int
     wrapOpts: WrapOptions
     ignoreWrap: bool
+    fromMaster, masterUid, masterId: int   # (a master's item made a page's own is undone too)
+    noOverride: bool
     meta: string
     anchorTo, anchorAt: int
     anchorDx, anchorDy: float32
@@ -4452,7 +4459,8 @@ proc settingsOf(L: Layer): LayerSettings =
                 wrapOpts: L.wrapOpts,
                 ignoreWrap: L.ignoreWrap, meta: L.meta, anchorTo: L.anchorTo, anchorAt: L.anchorAt,
                 anchorDx: L.anchorDx, anchorDy: L.anchorDy, objectStyle: L.objectStyle, attrs: L.attrs,
-                label: L.label)
+                label: L.label, fromMaster: L.fromMaster, masterUid: L.masterUid, masterId: L.masterId,
+                noOverride: L.noOverride)
 
 proc setSettings(L: Layer; s: LayerSettings) =
   ## (not its text or shape: they are drawn again when changed)
@@ -4474,6 +4482,10 @@ proc setSettings(L: Layer; s: LayerSettings) =
   L.anchorDy = s.anchorDy
   L.attrs = s.attrs
   L.label = s.label
+  L.fromMaster = s.fromMaster
+  L.masterUid = s.masterUid
+  L.masterId = s.masterId
+  L.noOverride = s.noOverride
 
 proc snapOf(d: Doc): DocSnap =
   result = DocSnap(w: d.w, h: d.h, dpi: d.dpi, mode: d.mode, palette: d.palette, duotone: d.duotone, cur: d.cur,
@@ -6328,6 +6340,9 @@ proc cloneLayer*(L: Layer): Layer =
   result.flowPage = L.flowPage
   result.flowOut = L.flowOut
   result.fromMaster = L.fromMaster
+  result.masterUid = L.masterUid
+  result.masterId = L.masterId
+  result.noOverride = L.noOverride
   result.hi = L.hi
   result.hdr = L.hdr
 
@@ -10168,6 +10183,8 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
     if aj.len > 0: lj["attrs"] = aj
     if L.anchorTo != 0: lj["anchor"] = %*[L.anchorTo, L.anchorAt, L.anchorDx, L.anchorDy]
     if L.fromMaster != 0: lj["fromMaster"] = %L.fromMaster
+    if L.masterUid != 0: lj["master"] = %*[L.masterId, L.masterUid]
+    if L.noOverride: lj["noOverride"] = %true
     if L.fromSpan != 0: lj["fromSpan"] = %L.fromSpan
     if L.isText and L.textFull.x1 > L.textFull.x0:
       lj["textFull"] = %*[L.textFull.x0, L.textFull.y0, L.textFull.x1, L.textFull.y1]
@@ -10495,6 +10512,10 @@ proc loadRpd*(path: string): Doc =
       L.anchorDx = an[2].getFloat.float32
       L.anchorDy = an[3].getFloat.float32
     L.fromMaster = lj{"fromMaster"}.getInt(0)
+    if lj{"master"} != nil and lj["master"].kind == JArray and lj["master"].len == 2:
+      L.masterId = lj["master"][0].getInt(0)
+      L.masterUid = lj["master"][1].getInt(0)
+    L.noOverride = lj{"noOverride"}.getBool(false)
     L.fromSpan = lj{"fromSpan"}.getInt(0)
     if lj{"textFull"} != nil and lj["textFull"].kind == JArray and lj["textFull"].len == 4:
       let f = lj["textFull"]
