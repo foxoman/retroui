@@ -250,7 +250,9 @@ with File > Place Into Frame (or a double-click on a template's frame),
 other layers with Layer > Put Inside. The Gap tool (with the Move tool)
 drags the space between frames -- they grow and shrink with it --, and the
 Content Collector and Placer carry copies of objects to another page or
-document. Window > Timeline plays an animation's frames (an animated GIF,
+document. File > Export > Export for Screens writes artboards or objects at 1x, 2x, 3x...
+as PNG, JPEG, WebP, SVG and PDF; DXF drawings and EPS files open as shapes.
+Window > Timeline plays an animation's frames (an animated GIF,
 WebP or PNG opens as them) and File > Export > Save Animation saves them. Type takes colour fonts and emoji; the layout dialogs' lengths
 are in the rulers' unit. The book is one file (.rpb), and
 File > Save as PDF writes all its pages, a range or its spreads, with the

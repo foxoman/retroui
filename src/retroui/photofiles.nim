@@ -23,7 +23,7 @@ import std/[os, strutils, math, tables, algorithm, json, hashes]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import gfx, imaging, jpeg, imageformats, psd, photo, parallel, photoshapes, mediagif, iccprofile, rawphoto,
        photoimport, pdfview, photohdr, textengine, ttf, exr, gifanim, photoanim, webp, rawformats, systemimage, jxl, svgimport,
-       apng,
+       apng, dxf,
        bigpicture, photodevelop
 export bigpicture.readScaled, bigpicture.readRegion, bigpicture.BigProgress, bigpicture.BigPictureError
 export pdfview.pdfPreview, pdfview.pdfPage, pdfview.addPdfPreviews
@@ -97,7 +97,7 @@ var openAnimations* = true
 const openableExts* = [".rpd", ".rp3", ".psd", ".psb", ".png", ".jpg", ".jpeg", ".jpe", ".bmp", ".gif", ".tif", ".tiff",
                        ".tga", ".hdr", ".pfm", ".exr", ".webp", ".dng", ".nef", ".nrw", ".arw", ".srf",
                        ".sr2", ".cr2", ".cr3", ".orf", ".rw2", ".pef", ".raf", ".heic", ".heif", ".hif", ".avif",
-                       ".jxl", ".svg"]
+                       ".jxl", ".svg", ".dxf"]
   ## The files `openPicture` reads (by their name's ending, lower case).
 const rawExts* = [".dng", ".nef", ".nrw", ".arw", ".srf", ".sr2", ".cr2", ".cr3", ".orf", ".rw2", ".pef", ".raf"]
   ## Camera raw files (`readRaw`).
@@ -1527,9 +1527,18 @@ proc openPicture*(path: string): Doc =
     raise e
   case ext
   of ".psd", ".psb": return loadPsd(path)
+  of ".dxf":
+    # (a CAD drawing: its layers as shape layers, its text as type)
+    let data = try: readFile(path)
+               except IOError, OSError: raise newException(IOError, "cannot read " & path.extractFilename)
+    result = try: importDxf(data, path.splitFile.name)
+             except CatchableError as e: raise newException(IOError, path.extractFilename & ": " & e.msg)
+    result.path = path
+    result.format = "dxf"
+    result.modified = false
   of ".pdf", ".ai", ".eps", ".ps":
     # (a PDF, an Illustrator drawing: drawn at 300 ppi -- the drawing's
-    # outlines kept as shapes; an EPS: its picture)
+    # outlines kept as shapes; an EPS: what it draws as shapes, else its picture)
     let data = try: readFile(path)
                except IOError, OSError: raise newException(IOError, "cannot read " & path.extractFilename)
     result = if ext in [".pdf", ".ai"] and data.find("%PDF-") in 0 .. 1024:

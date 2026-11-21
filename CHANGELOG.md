@@ -149,6 +149,26 @@
   `apngLoop`. `openPicture` opens one as layers and frames (looking at its
   first bytes only), `exportAnimation` saves one (`format = "apng"`). The
   Timeline's frames and how many times it plays are undone with the layers.
+- **Export for Screens** (`retroui/screenexport`, new): artboards
+  (`artboardItems`), the objects picked (`assetItems`: each cut to what it
+  shows) or the whole document (`documentItem`), each written at several
+  scales -- type and shapes drawn again at each, sharp (`itemDoc`) -- with
+  each scale's suffix, as PNG, JPEG and WebP, and once each as SVG and PDF;
+  a prefix; a folder for each scale or format (`ScreenExport`,
+  `exportForScreens`).
+- **DXF drawings opened as vectors** (`retroui/dxf`, new): `importDxf` --
+  each layer of the drawing a shape layer in its color (the CAD palette,
+  `aciColor`; true color) and weight, layers turned off left out; lines,
+  polylines with their bulges, circles, arcs, ellipses, splines, solids,
+  blocks inserted where they are (scaled, turned, nested); text and MTEXT
+  as type; fitted on a page, y up made y down. `openPicture` opens .dxf.
+- **EPS drawings opened as vectors** (`retroui/psvector`, new): `psShapes`,
+  a small PostScript interpreter -- its stack, dictionaries, procedures,
+  arithmetic, loops and conditions, enough for what drawing programs write
+  (cairo's, the kit's own) --, its fills and strokes shapes in their gray,
+  RGB or CMYK colors, widths and dashes, through the transformations, a
+  path's holes kept; an endless program cut short. `importPs` opens an EPS
+  so (a run of shapes alike one layer) before its preview picture.
 - **Fonts of one name** (`retroui/textengine`): a TrueType face before a
   PostScript-outlined .otf of the same family and style (no converting;
   it may be the variable font the other is one instance of), the files in
@@ -163,6 +183,10 @@
   program's Draw Inside.
 - **Scripts click a point** (`retroui/drive`): `click:@X,Y` in
   `RETRO_SCRIPT`, a point in logical pixels -- a canvas, a picture.
+- **Retro Atelier**: File > Export > Export for Screens (artboards, the
+  objects picked or the document; 0.5x to 4x with their suffixes; PNG,
+  JPEG, WebP, SVG, PDF; a prefix; folders for scales and formats). File >
+  Open takes DXF drawings, and an EPS opens as shapes.
 - **Retro Atelier**: the Timeline panel (Window > Timeline): the frames
   side by side with their pictures and delays, a click showing one; play,
   stop, first, back, on, last; once, three times or for ever; New Frame,

@@ -6062,7 +6062,7 @@ proc addGroup*(d: Doc; name = ""): Layer =
   result = d.newGroupLayer(name)
   d.insertLayer(result)
 
-proc blocksOf(d: Doc; idxs: seq[int]): seq[(int, int)] =
+proc blocksOf*(d: Doc; idxs: seq[int]): seq[(int, int)] =
   ## The blocks (`lo .. hi`) of the layers `idxs`, the top first, none in
   ## another.
   var hs = idxs

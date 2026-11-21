@@ -19,7 +19,7 @@
 ## ```
 
 import std/[os, strutils, math]
-import gfx, photo, photoshapes, photoinks, pdfread, textengine, imageformats
+import gfx, photo, photoshapes, photoinks, pdfread, textengine, imageformats, psvector
 
 type
   ImportOptions* = object
@@ -407,6 +407,34 @@ proc importPs*(data: string; name: string): Doc =
           result.markAll()
           result.modified = false
           return
+  # (what it draws, read as a program: its paths as shapes -- one layer for each run of them
+  # alike in their fill and stroke)
+  let vec = try: psShapes(data) except CatchableError: (x0: 0.0, y0: 0.0, x1: 0.0, y1: 0.0, shapes: newSeq[ShapeData]())
+  if vec.shapes.len > 0 and vec.x1 > vec.x0 and vec.y1 > vec.y0:
+    const ppi = 150.0
+    let k = ppi / 72
+    let w = max(1, int(ceil((vec.x1 - vec.x0) * k)))
+    let h = max(1, int(ceil((vec.y1 - vec.y0) * k)))
+    if sizeOk(w, h):
+      result = newDoc(w, h, 0xFFFFFFFF'u32, ppi, name)
+      var merged: seq[ShapeData]
+      for s0 in vec.shapes:
+        var s = s0
+        s.path.mapPoints(proc (x, y: float): (float, float) = ((x - vec.x0) * k, (vec.y1 - y) * k))
+        s.strokeWidth *= k
+        if merged.len > 0 and merged.len < 4000 and merged[^1].fill == s.fill and merged[^1].stroke == s.stroke and
+           merged[^1].strokeWidth == s.strokeWidth and merged[^1].dashes == s.dashes:
+          # (its first piece a part of its own; the rest joined to it, as they were)
+          for j, sp in s.path.subs:
+            var q = sp
+            if j == 0: q.joined = false
+            merged[^1].path.subs.add q
+        else: merged.add s
+      for s in merged: discard result.addShapeLayer(s)
+      result.cur = result.layers.high
+      result.markAll()
+      result.modified = false
+      return
   if tiff.len > 0:
     try:
       let b = decodeTiff(tiff)

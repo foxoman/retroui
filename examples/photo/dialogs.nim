@@ -123,7 +123,7 @@ const
   openPatterns = ["*.rpd", "*.rpb", "*.rp3", "*.psd", "*.psb", "*.png", "*.jpg", "*.jpeg", "*.tif", "*.tiff", "*.bmp", "*.gif",
                   "*.tga", "*.dng", "*.pdf", "*.ai", "*.eps", "*.ps", "*.hdr", "*.pfm", "*.exr", "*.webp",
                   "*.nef", "*.nrw", "*.arw", "*.cr2", "*.cr3", "*.orf", "*.rw2", "*.pef", "*.raf", "*.heic", "*.heif",
-                  "*.avif", "*.jxl", "*.svg", "*.rpb", "*.idml"]
+                  "*.avif", "*.jxl", "*.svg", "*.rpb", "*.idml", "*.dxf"]
   savePatterns = ["*.rpd", "*.psd", "*.pdf", "*.ai", "*.idml", "*.eps", "*.ps", "*.png", "*.jpg", "*.tif", "*.bmp", "*.gif", "*.tga",
                   "*.hdr", "*.pfm", "*.exr", "*.webp", "*.jxl", "*.svg"]
   layeredFormats = ["rpd", "rp3", "psd", "psb"]

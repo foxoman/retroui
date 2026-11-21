@@ -26,7 +26,7 @@ import retroui/[photo, photopaint, photofx, photoartistic, photohdr, otshape, tt
               booklists, datamerge, textsearch, headless, perspectivegrid, pathbrush, photoblurs, pathtools,
               liveeffects, photoseps, mathtype, flexlayout, vectormake, photorelight, mockups, designstyles,
               aiconnect, aichat, aiimage, assistant, modelstore, nnet, vision, photopublish, flows, dastkhat, fontfolders,
-              imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files, photoanim, webp, apng]
+              imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files, photoanim, webp, apng, screenexport]
 {.push warning[UnusedImport]: off.}
 import retroui/photodeep   # (imported for what it sets up: filters, flattening and gradients at 16 and 32 bits)
 {.pop.}
@@ -562,6 +562,8 @@ proc layoutModesOverlay(dw: DocWin)
 proc timelineOverlay(dw: DocWin)
 proc timelineDialogs()
 proc startSaveAnimation()
+proc startScreenExport()
+proc screenExportDialog()
 proc vectorBar()
 proc deletePickedPoints(): bool
 proc startLiveEffect(k: LiveEffectKind; idx = -1)
@@ -4696,6 +4698,7 @@ include photo/makers
 include photo/assist
 include photo/trained
 include photo/timeline
+include photo/screens
 include photo/dockpanels
 
 proc phoneLayout(): bool =
