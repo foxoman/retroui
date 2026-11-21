@@ -232,8 +232,10 @@ var
   shapeFillKind = 1              ## No Color, Solid Color, Gradient
   shapeFill = 0xFF3A6EA5'u32
   shapeFill2 = 0xFFFFFFFF'u32
-  shapeStrokeKind = 0            ## No Color, Solid Color
+  shapeStrokeKind = 0            ## No Color, Solid Color, Gradient
   shapeStroke = 0xFF000000'u32
+  shapeStroke2 = 0xFFFFFFFF'u32  ## (a gradient stroke's second color)
+  shapeStrokeOn = 0              ## a gradient stroke: within it, along it, across it
   shapeStrokeW = 3
   shapeAlign = 0                 ## Inside, Center, Outside
   shapeDash = 0                  ## Solid, Dashed, Dotted
@@ -555,6 +557,7 @@ proc spellOverlay(dw: DocWin)
 proc pathBrushCommand(name: string): bool
 proc vectorEvents(dw: DocWin; ev: PhotoEvent): bool
 proc vectorOverlay(dw: DocWin; ev: PhotoEvent)
+proc layoutModesOverlay(dw: DocWin)
 proc vectorBar()
 proc deletePickedPoints(): bool
 proc startLiveEffect(k: LiveEffectKind; idx = -1)
@@ -1566,7 +1569,7 @@ proc shapeBox(ev: PhotoEvent): (float, float, float, float) =
 
 proc lineColor(): uint32 =
   ## (the Line tool's color: the stroke's, else the fill's)
-  (if shapeStrokeKind == 1: shapeStroke elif shapeFillKind > 0: shapeFill else: fg) or 0xFF000000'u32
+  (if shapeStrokeKind >= 1: shapeStroke elif shapeFillKind > 0: shapeFill else: fg) or 0xFF000000'u32
 
 proc lineShape(x0, y0, x1, y1: float): ShapeData =
   ## The Line tool's line: a stroke along two points (open: its ends can be
@@ -1676,7 +1679,9 @@ proc shapeSettings(): ShapeData =
                 of 0: ShapePaint(kind: spNone, color: shapeFill, color2: shapeFill2, angle: 90, opacity: 100)
                 of 2: gradientPaint(shapeFill, shapeFill2, 0)
                 else: solidPaint(shapeFill)
-  result.stroke = if shapeStrokeKind == 1: solidPaint(shapeStroke)
+  result.stroke = case shapeStrokeKind
+                  of 1: solidPaint(shapeStroke)
+                  of 2: (var g = gradientPaint(shapeStroke, shapeStroke2, 0); g.onStroke = shapeStrokeOn; g)
                   else: ShapePaint(kind: spNone, color: shapeStroke, color2: shapeStroke, opacity: 100)
   result.strokeWidth = shapeStrokeW.float
   result.align = StrokeAlign(clamp(shapeAlign, 0, 2))
@@ -1754,7 +1759,8 @@ proc finishShape(dw: DocWin; ev: PhotoEvent) =
       if shapeKind in {7, 9, 10, 11} and not (shapeKind == 9 and arcClosed):
         # (a spiral, an arc, a grid are lines: stroked, not filled)
         s.fill = ShapePaint(kind: spNone)
-        s.stroke = solidPaint(if shapeStrokeKind == 1: shapeStroke else: shapeFill)
+        s.stroke = if shapeStrokeKind == 2: shapeSettings().stroke
+                   else: solidPaint(if shapeStrokeKind == 1: shapeStroke else: shapeFill)
         s.strokeWidth = max(if shapeKind in {10, 11}: 1.0 else: 2.0, s.strokeWidth)
         s.align = saCenter
       if shapeKind == 12:
@@ -1929,6 +1935,7 @@ proc layerAt(d: Doc; x, y: int; radius = 0): int =
     let L = d.layers[i]
     if not L.visible or L.group or L.adjust.kind.len > 0 or L.opacity == 0: continue
     if d.inHiddenGroup(i): continue
+    if not d.inIsolation(L): continue          # (Isolation Mode: only what is isolated)
     if not d.hitsAt(L, x, y, radius): continue
     if L.clipped:
       # (shown only where the base of its clipping mask is)
@@ -4015,6 +4022,7 @@ proc overlays(dw: DocWin; ev: PhotoEvent) =
   dw.pgOverlay(ev)
   dw.threadOverlay(ev)
   dw.vectorOverlay(ev)
+  dw.layoutModesOverlay()
   dw.makersOverlay(ev)
   if drag.on and drag.dw == dw and drag.band:
     dw.bandOverlay()

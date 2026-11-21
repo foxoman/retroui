@@ -337,6 +337,19 @@ proc doCommand(name: string) =
     discard tableCommand(name)             # (the cells the selection reaches: the text stays as it is typed)
     return
   if te.on: commitType()                   # (and the text being typed)
+  if name.startsWith("Same: "):
+    # Select > Same: the layers like the current one in that
+    let d = cur()
+    if d != nil and not d.current.background:
+      let want = name["Same: ".len .. ^1]
+      for by in SameBy:
+        if $by == want:
+          let ls = d.selectSame(d.current, by)
+          d.clearPicks()
+          for L in ls: L.picked = true
+          inc d.ver
+          status = tr("Same ") & tr($by) & ": " & $ls.len
+    return
   if name == "Clear" and deletePickedPoints(): return   # (points the Lasso (Points) picked: they go)
   if bookCommand(name): return             # (books, the Layout menu: photo/book)
   if outputCommand(name): return           # (print, PDF and the screen: photo/output)
@@ -532,6 +545,36 @@ proc doCommand(name: string) =
   of "Pixel Grid":
     pixelGridOn = not pixelGridOn
     savePrefs()
+  of "Align to Pixel Grid":
+    if d != nil:
+      d.pixelAlign = not d.pixelAlign
+      d.modified = true
+      status = if d.pixelAlign: "Align to Pixel Grid: shapes' straight sides on whole pixels as they are drawn and changed"
+               else: "Align to Pixel Grid off"
+  of "Enter Isolation Mode":
+    if d != nil and not d.current.background:
+      var ls: seq[Layer]
+      for i in d.pickedLayers: ls.add d.layers[i]
+      if ls.len == 0: ls.add d.current
+      d.isolate(ls)
+      d.clearPicks()
+      status = tr("Isolation Mode: ") & d.current.name & tr(" -- the rest dimmed; Esc leaves")
+  of "Exit Isolation Mode":
+    if d != nil:
+      d.exitIsolation()
+      status = "Isolation Mode left"
+  of "Draw Normal", "Draw Behind", "Draw Inside":
+    if d != nil:
+      let m = if name == "Draw Behind": dmBehind elif name == "Draw Inside": dmInside else: dmNormal
+      if m == dmInside and (d.current.background or not (d.current.isShape or d.current.isText)):
+        status = "Draw Inside: pick a shape or type to draw inside first"
+      else:
+        d.drawMode = m
+        if m == dmInside: d.drawInto = d.current.uidOf
+        status = case m
+                 of dmBehind: tr("Draw Behind: new shapes and type go under everything")
+                 of dmInside: tr("Draw Inside: new shapes and type go inside ") & d.current.name
+                 else: tr("Draw Normal")
   of "Pattern Preview":
     if d != nil:
       d.patternPreview = not d.patternPreview
@@ -1632,6 +1675,9 @@ proc classicMenus() =
       menuSeparator()
       item("&Grow", enabled = sel)
       item("Si&milar", enabled = sel)
+      submenu "Sam&e":
+        for by in SameBy:
+          if menuItem($by, enabled = some and not d.current.background): runCommand("Same: " & $by)
       menuSeparator()
       item("&Hide Edges", "Ctrl+H", sel, checked = dw != nil and dw.view.hideEdges)
       item("&Layer Edges", "", sel, checked = showLayerEdges)
@@ -2389,6 +2435,10 @@ proc escapeKey(): bool =
     ruler.on = false
     inc d.ver
     return true
+  if d.isolated.len > 0:
+    d.exitIsolation()
+    status = "Isolation Mode left"
+    return true
   if d.hasSelection:
     runCommand("None")                # (Select > Deselect)
     status = "Deselected"
@@ -2532,8 +2582,14 @@ proc keys() =
       swap(fg, bg)
     of KeyD:
       ui.keyUsed = true
-      fg = black
-      bg = white
+      if shift and d != nil:
+        # (Shift+D: the next Draw Mode -- Normal, Behind, Inside the current shape or type)
+        let next = DrawMode((ord(d.drawMode) + 1) mod 3)
+        runCommand($next)
+        if d.drawMode != next and next == dmInside: runCommand($dmNormal)
+      else:
+        fg = black
+        bg = white
     of KeyQ:
       if d != nil:
         ui.keyUsed = true

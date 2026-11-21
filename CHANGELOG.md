@@ -128,6 +128,20 @@
   copies a layer for a document of another size (its pixels and mask put
   where they go, its type, shape or placed picture moved); `placeLayers`
   puts copies in and draws them there.
+- **Selecting, aligning and drawing as the drawing program does**
+  (`retroui/photo`, `retroui/pathtools`, `retroui/photoshapes`):
+  `selectSame` (`SameBy`: fill and stroke, fill color -- type's too --,
+  stroke color and weight, opacity, blending mode, appearance, Object
+  Style, font, kind of shape, kind of layer); `alignBox` (`AlignTo`: the
+  selection, a key object that stays put, the artboard) and
+  `distributeSpacing` (a set room between objects, out from the key
+  object); Isolation Mode (`isolate`, `exitIsolation`, `inIsolation`: the
+  rest not picked); `Doc.drawMode` (`DrawMode`: Draw Behind puts new shapes
+  and type under everything, Draw Inside puts them inside `drawInto`;
+  `drawModePlace`); Align to Pixel Grid (`alignToPixels`, `Doc.pixelAlign`:
+  straight sides across and down on whole pixels, on the middle of one for
+  an odd stroke, kept as shapes change; saved); a gradient on a stroke
+  along it or across it (`ShapePaint.onStroke`), as well as within it.
 - **Fonts of one name** (`retroui/textengine`): a TrueType face before a
   PostScript-outlined .otf of the same family and style (no converting;
   it may be the variable font the other is one instance of), the files in
@@ -142,6 +156,13 @@
   program's Draw Inside.
 - **Scripts click a point** (`retroui/drive`): `click:@X,Y` in
   `RETRO_SCRIPT`, a point in logical pixels -- a canvas, a picture.
+- **Retro Atelier**: Select > Same; Align To (the selection, the key
+  object -- the current layer, outlined thick --, the artboard) in the
+  options bar, Properties and Layer > Align, and Distribute Spacing by a
+  value (Properties, Layer > Distribute); Layer > Enter Isolation Mode (the
+  rest washed out and not picked, Esc leaves); Layer > Draw Mode (Normal,
+  Behind, Inside; Shift+D), shown at the canvas's corner; View > Align to
+  Pixel Grid; a shape's stroke as a gradient within, along or across it.
 - **Retro Atelier**: the Gap tool (in the Move tool's group): the space
   between frames shaded under the pointer, dragged to move it -- the frames
   on each side grow and shrink with it --; Shift, the two nearest only;

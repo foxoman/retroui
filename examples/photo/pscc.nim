@@ -445,6 +445,10 @@ proc psMenus() =
       sep()
       ci("&Place Into...", enabled = some and not bgl)
       ci("Put &Inside", enabled = some and not bgl and d.pickedLayers.len > 1)
+      if some and d.isolated.len > 0: ci("E&xit Isolation Mode", "Exit Isolation Mode")
+      else: ci("Enter Is&olation Mode", "Enter Isolation Mode", enabled = some and not bgl)
+      psSub "Dra&w Mode":
+        for m in DrawMode: ci($m, $m, enabled = some, checked = some and d.drawMode == m)
       psSub "Fitti&ng":
         let fc = frameAndContent(d).content != nil
         ci("&Fill Frame Proportionally", enabled = fc)
@@ -609,6 +613,8 @@ proc psMenus() =
       sep()
       ci("&Grow", enabled = sel)
       ci("Si&milar", enabled = sel)
+      psSub "Sam&e":
+        for by in SameBy: ci($by, "Same: " & $by, enabled = some and not bgl)
       sep()
       ci("Edit in &Quick Mask Mode", "Quick Mask", enabled = some, checked = some and d.quickMask)
       sep()
@@ -721,6 +727,7 @@ proc psMenus() =
         ci("S&mart Guides", "Smart Guides", checked = smartGuidesOn)
         ci("&Pixel Grid", "Pixel Grid", checked = pixelGridOn)
         ci("&Text Threads", "Show Text Threads", checked = showThreads)
+      ci("Align to Pi&xel Grid", "Align to Pixel Grid", enabled = some, checked = some and d.pixelAlign)
       ci("&Rulers", "Show Rulers", enabled = some, checked = dw != nil and dw.view.rulers)
       ci("Pattern Pre&view", "Pattern Preview", enabled = some, checked = some and d.patternPreview)
       sep()

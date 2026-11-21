@@ -508,6 +508,62 @@ proc similarShapes*(d: Doc; L: Layer; by: set[WandBy] = {wbFill}; tolerance = 32
     if wbMode in by and M.mode != L.mode: ok = false
     if ok: result.add M
 
+type SameBy* = enum
+  ## What Select > Same compares (`selectSame`).
+  sbFillAndStroke = "Fill & Stroke", sbFillColor = "Fill Color", sbStrokeColor = "Stroke Color",
+  sbStrokeWeight = "Stroke Weight", sbOpacity = "Opacity", sbBlendMode = "Blending Mode",
+  sbAppearance = "Appearance", sbObjectStyle = "Object Style", sbFont = "Font", sbShapeKind = "Shape Kind",
+  sbLayerKind = "Kind of Layer"
+
+proc fillOf(L: Layer): ShapePaint =
+  ## (what a layer is filled with, as Select > Same sees it: a shape's fill, type's color)
+  if L.isShape: return L.shape.fill
+  if L.isText and L.text.spans.len > 0:
+    return ShapePaint(kind: spColor, color: L.text.spans[0].style.color)
+  ShapePaint(kind: spNone)
+
+proc kindOf(L: Layer): int =
+  if L.isText: 1
+  elif L.isShape: 2
+  elif L.smart != nil: 3
+  elif L.adjust.kind.len > 0: 4
+  else: 0
+
+proc selectSame*(d: Doc; L: Layer; by: SameBy): seq[Layer] =
+  ## Select > Same: the layers like `L` in what `by` says -- exactly, not near -- `L` among
+  ## them: shapes and type (their color), the font of type, the kind of shape ("Rectangle",
+  ## "Ellipse"...), the Object Style; hidden, locked, groups and the Background left out.
+  if L == nil or L notin d.layers: return
+  for M in d.layers:
+    if not M.visible or M.locked or M.group or M.background: continue
+    if not d.inIsolation(M): continue
+    let ok = case by
+      of sbFillAndStroke:
+        M.isShape and L.isShape and paintNear(M.shape.fill, L.shape.fill, 0) and
+          paintNear(M.shape.stroke, L.shape.stroke, 0) and M.shape.strokeWidth == L.shape.strokeWidth
+      of sbFillColor: (M.isShape or M.isText) and paintNear(M.fillOf, L.fillOf, 0)
+      of sbStrokeColor:
+        M.isShape and L.isShape and paintNear(M.shape.stroke, L.shape.stroke, 0) and
+          M.shape.stroke.kind != spNone
+      of sbStrokeWeight:
+        M.isShape and L.isShape and M.shape.stroke.kind != spNone and L.shape.stroke.kind != spNone and
+          abs(M.shape.strokeWidth - L.shape.strokeWidth) < 0.01
+      of sbOpacity: M.opacity == L.opacity
+      of sbBlendMode: M.mode == L.mode
+      of sbAppearance:
+        M.kindOf == L.kindOf and M.opacity == L.opacity and M.mode == L.mode and M.fx == L.fx and
+          (not M.isShape or (paintNear(M.shape.fill, L.shape.fill, 0) and
+                             paintNear(M.shape.stroke, L.shape.stroke, 0) and
+                             M.shape.strokeWidth == L.shape.strokeWidth))
+      of sbObjectStyle: L.objectStyle.len > 0 and M.objectStyle == L.objectStyle
+      of sbFont:
+        M.isText and L.isText and M.text.spans.len > 0 and L.text.spans.len > 0 and
+          M.text.spans[0].style.family == L.text.spans[0].style.family
+      of sbShapeKind: M.isShape and L.isShape and M.shape.kind == L.shape.kind
+      of sbLayerKind: M.kindOf == L.kindOf
+    if ok: result.add M
+  if L notin result and not L.background and not L.group: result.insert(L, 0)
+
 proc groupOfLayer*(d: Doc; L: Layer): seq[Layer] =
   ## Group Selection's second click: the layers of the group `L` is in
   ## (its innermost), or `L` alone when it is in none.

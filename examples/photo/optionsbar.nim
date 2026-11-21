@@ -125,9 +125,14 @@ proc barShape() =
     if shapeFillKind == 2:
       if colorWell(shapeFill2, "barshapefill2", dp(26)): changed = true
     label "Stroke:"
-    if combo(["None", "Color"], shapeStrokeKind, w = dp(70)): changed = true
+    if combo(["None", "Color", "Gradient"], shapeStrokeKind, w = dp(80)): changed = true
     if shapeStrokeKind > 0:
       if colorWell(shapeStroke, "barshapestroke", dp(26)): changed = true
+      if shapeStrokeKind == 2:
+        if colorWell(shapeStroke2, "barshapestroke2", dp(26)): changed = true
+        accessName(tr("The gradient on the stroke"))
+        if combo(["Within the stroke", "Along the stroke", "Across the stroke"], shapeStrokeOn, w = dp(130)):
+          changed = true
       if spin(shapeStrokeW, 1, 500, w = dp(56)): changed = true
       label "px"
     if changed: applyShapeOptions()
@@ -193,10 +198,12 @@ proc barAlign() =
   let some = d != nil and not d.current.background
   for (how, g) in [(alTop, pxAlignEdgeTop), (alVCenter, pxAlignEdgeVCenter), (alBottom, pxAlignEdgeBottom),
                    (alLeft, pxAlignEdgeLeft), (alHCenter, pxAlignEdgeHCenter), (alRight, pxAlignEdgeRight)]:
-    if barIcon(g, "Align " & $how, enabled = some):
-      let idxs = d.pickedLayers
-      let to = d.alignTarget(idxs)
-      d.layersChange("Align " & $how): d.alignLayers(idxs, how, to)
+    if barIcon(g, "Align " & $how, enabled = some): d.alignNow(how)
+  var k = ord(alignToKind)
+  var names: seq[string]
+  for a in AlignTo: names.add tr($a)
+  accessName(tr("Align To"))
+  if combo(names, k, w = dp(170)): alignToKind = AlignTo(k)
 
 proc optionsBar() =
   ## The strip under the menu bar.

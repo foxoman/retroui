@@ -243,4 +243,113 @@ block snapsSpineCornersScribble:
   let (sx0, sy0, sx1, sy1) = pathBounds(sc)
   doAssert sx0 > -15 and sy0 > -15 and sx1 < 215 and sy1 < 115, $(sx0, sy0, sx1, sy1)
 
+block selectSameAndAlign:
+  # Select > Same; Align to a key object, to the artboard; Distribute Spacing by a value
+  let d = newDoc(800, 600, 0xFFFFFFFF'u32)
+  var red = ShapeData(kind: "Rectangle", fill: solidPaint(0xFFFF0000'u32), stroke: solidPaint(0xFF000000'u32),
+                      strokeWidth: 2)
+  red.path = rectPath(10, 10, 60, 60)
+  let A = d.addShapeLayer(red, "a")
+  red.path = rectPath(200, 100, 260, 180)
+  let B = d.addShapeLayer(red, "b")
+  var blue = ShapeData(kind: "Ellipse", fill: solidPaint(0xFF0000FF'u32), stroke: solidPaint(0xFF000000'u32),
+                       strokeWidth: 4)
+  blue.path = ellipsePath(400, 300, 500, 380)
+  let C = d.addShapeLayer(blue, "c")
+  doAssert d.selectSame(A, sbFillColor) == @[A, B]
+  doAssert d.selectSame(A, sbStrokeColor).len == 3
+  doAssert d.selectSame(C, sbStrokeWeight) == @[C]
+  doAssert d.selectSame(A, sbShapeKind) == @[A, B]
+  doAssert d.selectSame(A, sbFillAndStroke) == @[A, B]
+  B.opacity = 50
+  doAssert d.selectSame(A, sbAppearance) == @[A]
+  B.opacity = 100
+  let ia = d.layers.find(A)
+  let ib = d.layers.find(B)
+  let ic = d.layers.find(C)
+  # (the key object stays; the others line up with it)
+  let kb = d.alignBox(@[ia, ib, ic], atKeyObject, B)
+  doAssert kb == d.contentBounds(B)
+  let bBefore = d.contentBounds(B)
+  d.alignLayers(@[ia, ib, ic], alTop, kb)
+  doAssert d.contentBounds(B) == bBefore and d.contentBounds(A).y == bBefore.y and d.contentBounds(C).y == bBefore.y
+  doAssert d.alignBox(@[ia], atArtboard) == d.bounds
+  # spaced 20 apart across, out from the key object
+  d.distributeSpacing(@[ia, ib, ic], 20, horizontal = true, key = B)
+  let ra = d.contentBounds(A)
+  let rb = d.contentBounds(B)
+  let rc = d.contentBounds(C)
+  doAssert rb == bBefore, "the key stays"
+  doAssert ra.x + ra.w + 20 == rb.x and rb.x + rb.w + 20 == rc.x, $(ra, rb, rc)
+
+block isolationAndDrawModes:
+  let d = newDoc(400, 300, 0xFFFFFFFF'u32)
+  var s = ShapeData(kind: "Rectangle", fill: solidPaint(0xFF00AA00'u32))
+  s.path = rectPath(10, 10, 100, 100)
+  let A = d.addShapeLayer(s, "a")
+  s.path = rectPath(150, 10, 250, 100)
+  let B = d.addShapeLayer(s, "b")
+  d.isolate([A])
+  doAssert d.inIsolation(A) and not d.inIsolation(B)
+  doAssert d.selectSame(A, sbFillColor) == @[A], "what is not isolated is not picked"
+  d.exitIsolation()
+  doAssert d.inIsolation(B)
+  # Draw Behind: a new shape under everything (over the Background)
+  d.drawMode = dmBehind
+  s.path = rectPath(20, 20, 40, 40)
+  let C = d.addShapeLayer(s, "behind")
+  doAssert d.layers.find(C) == 1 and d.layers[0].background
+  # Draw Inside: a new one inside B, clipped to it
+  d.drawMode = dmInside
+  d.drawInto = B.uidOf
+  s.path = rectPath(200, 50, 300, 150)
+  let D = d.addShapeLayer(s, "inside")
+  doAssert D.clipped and d.layers.find(D) == d.layers.find(B) + 1
+  d.drawMode = dmNormal
+  s.path = rectPath(0, 0, 5, 5)
+  let E = d.addShapeLayer(s, "normal")
+  doAssert not E.clipped and d.layers.find(E) == d.layers.high
+
+block pixelGridAndStrokeGradients:
+  # Align to Pixel Grid: straight sides on whole pixels (an odd stroke on the middle of one)
+  var s = ShapeData(kind: "Rectangle", fill: solidPaint(0xFF000000'u32))
+  s.path = rectPath(10.3, 20.6, 50.4, 70.2)
+  alignToPixels(s)
+  let (x0, y0, x1, y1) = pathBounds(s.path)
+  doAssert (x0, y0, x1, y1) == (10.0, 21.0, 50.0, 70.0), $(x0, y0, x1, y1)
+  s.stroke = solidPaint(0xFFFF0000'u32)
+  s.strokeWidth = 1
+  s.align = saCenter
+  s.path = rectPath(10.3, 20.6, 50.4, 70.2)
+  alignToPixels(s)
+  doAssert pathBounds(s.path)[0] == 10.5
+  let curve = ellipsePath(0.3, 0.3, 40.7, 40.7)
+  var e = ShapeData(kind: "Ellipse", fill: solidPaint(0xFF000000'u32), path: curve)
+  alignToPixels(e)
+  doAssert e.path == curve, "curves as they are"
+  let d = newDoc(200, 100, 0xFFFFFFFF'u32)
+  d.pixelAlign = true
+  var r = ShapeData(kind: "Rectangle", fill: solidPaint(0xFF000000'u32))
+  r.path = rectPath(5.4, 5.4, 30.6, 30.6)
+  let L = d.addShapeLayer(r)
+  doAssert pathBounds(L.shape.path) == (5.0, 5.0, 31.0, 31.0)
+  # a gradient along a line: red at its start, blue at its end; across: red on one side, blue on the other
+  var g = ShapeData(kind: "Line", stroke: ShapePaint(kind: spGradient, color: 0xFFFF0000'u32,
+                                                      color2: 0xFF0000FF'u32, onStroke: 1), strokeWidth: 20)
+  g.path = openLine(10, 50, 190, 50)
+  var px = newSeq[uint32](200 * 100)
+  discard renderShape(g, px, 200, 100)
+  let a = px[50 * 200 + 15]
+  let b = px[50 * 200 + 185]
+  doAssert ((a shr 16) and 255) > 200 and (a and 255) < 50, "along: red at the start"
+  doAssert ((b shr 16) and 255) < 50 and (b and 255) > 200, "along: blue at the end"
+  g.stroke.onStroke = 2
+  px = newSeq[uint32](200 * 100)
+  discard renderShape(g, px, 200, 100)
+  let up = px[42 * 200 + 100]          # (left of the way it goes: above, y down)
+  let down = px[58 * 200 + 100]
+  doAssert ((up shr 16) and 255) > 160 and ((down) and 255) > 160, "across: one color each side"
+  let mid = px[50 * 200 + 100]
+  doAssert abs(int((mid shr 16) and 255) - int(mid and 255)) < 60, "across: between them in the middle"
+
 echo "test_pathtools: ok"

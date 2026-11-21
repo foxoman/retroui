@@ -759,6 +759,9 @@ type
     spot*: string               ## a spot ink's name (`Doc.spotInks`): printed with it, `color` how it
                                 ## looks ("" process inks)
     tint*: int                  ## ... so much of it, % (0: 100)
+    onStroke*: int              ## a stroke's gradient: 0 within it (across the shape, as a fill),
+                                ## 1 along it (from where each path begins to where it ends), 2
+                                ## across it (from one side of the stroke to the other)
 
   StrokeAlign* = enum
     ## Where a shape's stroke is: inside its outline, centered on it, outside.
@@ -1132,6 +1135,10 @@ type
     lost*: seq[string]             ## not kept: "Color Lookup 1: an adjustment not done here"
     missingFonts*: seq[string]     ## fonts its type uses that are not on this device
 
+  DrawMode* = enum
+    ## Where a new shape or type layer goes (`Doc.drawMode`).
+    dmNormal = "Draw Normal", dmBehind = "Draw Behind", dmInside = "Draw Inside"
+
   Doc* = ref object
     ## An image: its layers, selection, channels, paths and history.
     tally: Tally                   # (counted: `docsAlive`)
@@ -1236,6 +1243,13 @@ type
     heads*: Table[string, string]  ## ... a Paragraph Style's running header coming from the pages
                                    ## before (its last paragraph there: `<head:name>`, when none here)
     wrapped: bool                  # (some layer had Text Wrap when `rewrap` last looked)
+    drawMode*: DrawMode            ## where new shapes and type go: as usual, behind everything, or
+                                   ## inside `drawInto` (`addShapeLayer`, `addTextLayer`)
+    drawInto*: int                 ## Draw Inside: the layer (`uid`) new ones are put inside
+    isolated*: seq[int]            ## Isolation Mode: the layers (`uid`) being worked on, the rest
+                                   ## dimmed and not picked (empty: not isolated)
+    pixelAlign*: bool              ## shapes' straight sides kept on whole pixels (`alignToPixels`),
+                                   ## saved with it
 
 when defined(linux) and not defined(android):
   proc mallocTrim(pad: csize_t): cint {.importc: "malloc_trim", header: "<malloc.h>".}
@@ -2849,10 +2863,13 @@ proc shapeArea*(L: Layer): Rect =
   if L.isShape and b.x1 > b.x0 and b.y1 > b.y0: rect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0)
   else: rect(0, 0, 0, 0)
 
+proc alignToPixels*(s: var ShapeData)
+
 proc setShape*(d: Doc; L: Layer; s: ShapeData) =
   ## A shape layer's shape changed (undoable in a step: `touchLayers`
-  ## first).
+  ## first); its straight sides on whole pixels when the document says so (`Doc.pixelAlign`).
   L.shape = s
+  if d.pixelAlign and not L.isFill: alignToPixels(L.shape)
   d.drawShape(L)
 
 proc rasterizeShape*(d: Doc; L: Layer) =
@@ -6277,6 +6294,78 @@ proc putInside*(d: Doc; frame: Layer; layers: openArray[Layer]): int {.discardab
   d.cur = d.layers.find(frame)
   d.markAll()
 
+proc isolate*(d: Doc; layers: openArray[Layer]) =
+  ## Isolation Mode: `layers` (a group: with all in it) worked on alone -- the others dimmed and
+  ## not picked (`inIsolation`) -- until `exitIsolation`.
+  d.isolated.setLen(0)
+  for L in layers:
+    let i = d.layers.find(L)
+    if i < 0: continue
+    for j in d.blockStart(i) .. i:
+      let u = d.layers[j].uidOf
+      if u notin d.isolated: d.isolated.add u
+  inc d.ver
+
+proc exitIsolation*(d: Doc) =
+  ## Isolation Mode left: every layer as it was.
+  if d.isolated.len == 0: return
+  d.isolated.setLen(0)
+  inc d.ver
+
+proc inIsolation*(d: Doc; L: Layer): bool =
+  ## The layer may be worked on: Isolation Mode is off, or it is one isolated (or made inside the
+  ## group isolated since).
+  if d.isolated.len == 0: return true
+  if L.uid != 0 and L.uid in d.isolated: return true
+  # (one made inside an isolated group: in it too)
+  let i = d.layers.find(L)
+  if i < 0: return false
+  for g in i + 1 .. d.layers.high:
+    let G = d.layers[g]
+    if G.group and d.blockStart(g) <= i and G.uid != 0 and G.uid in d.isolated: return true
+  false
+
+proc alignToPixels*(s: var ShapeData) =
+  ## Align to Pixel Grid: the shape's straight sides across and down put on whole pixels (a
+  ## stroke of an odd width, centred, on the middle of one) -- each point where such a side
+  ## begins or ends moved there, its handles with it; curves and slanted sides as they are.
+  let odd = s.stroke.kind != spNone and s.strokeWidth > 0 and s.align == saCenter and
+            (int(round(s.strokeWidth)) mod 2 == 1)
+  let off = if odd: 0.5 else: 0.0
+  proc snap(v: float): float = floor(v - off + 0.5) + off
+  for sp in s.path.subs.mitems:
+    let n = sp.pts.len
+    if n < 2: continue
+    var nx = newSeq[float](n)
+    var ny = newSeq[float](n)
+    var fx = newSeq[bool](n)
+    var fy = newSeq[bool](n)
+    for i in 0 ..< n:
+      nx[i] = sp.pts[i].p[0]
+      ny[i] = sp.pts[i].p[1]
+    let segs = if sp.closed: n else: n - 1
+    for i in 0 ..< segs:
+      let a = sp.pts[i]
+      let j = (i + 1) mod n
+      let b = sp.pts[j]
+      let straight = a.outH == a.p and b.inH == b.p
+      if not straight: continue
+      if abs(a.p[0] - b.p[0]) < 1e-6:          # (a side down: its x)
+        let x = snap(a.p[0])
+        nx[i] = x; nx[j] = x; fx[i] = true; fx[j] = true
+      if abs(a.p[1] - b.p[1]) < 1e-6:          # (a side across: its y)
+        let y = snap(a.p[1])
+        ny[i] = y; ny[j] = y; fy[i] = true; fy[j] = true
+    for i in 0 ..< n:
+      let dx = if fx[i]: nx[i] - sp.pts[i].p[0] else: 0.0
+      let dy = if fy[i]: ny[i] - sp.pts[i].p[1] else: 0.0
+      if dx == 0 and dy == 0: continue
+      var q = sp.pts[i]
+      q.p = (q.p[0] + dx, q.p[1] + dy)
+      q.inH = (q.inH[0] + dx, q.inH[1] + dy)
+      q.outH = (q.outH[0] + dx, q.outH[1] + dy)
+      sp.pts[i] = q
+
 type Arrange* = enum
   ## Where Layer > Arrange moves a layer (`arrange`).
   arFront = "Bring to Front", arForward = "Bring Forward", arBackward = "Send Backward",
@@ -6325,6 +6414,25 @@ proc arrange*(d: Doc; how: Arrange; i = -1): bool {.discardable.} =
     else:
       d.moveBlock(k, d.blockStart(lo - 1), L.depth)
 
+proc drawModePlace*(d: Doc; L: Layer) =
+  ## A layer just made put where `Doc.drawMode` says: behind every other (over the Background),
+  ## or inside `Doc.drawInto` (`putInside`); as it is when the mode is Normal or that layer is
+  ## gone. `addShapeLayer` and `addTextLayer` do it for one put where they put it.
+  case d.drawMode
+  of dmNormal: discard
+  of dmBehind:
+    let i = d.layers.find(L)
+    var at = 0
+    while at < d.layers.len and d.layers[at].background: inc at
+    if i > at:
+      d.moveBlock(i, at, 0)
+      d.cur = d.layers.find(L)
+      d.markAll()
+  of dmInside:
+    let F = d.layerOfUid(d.drawInto)
+    if F != nil and F != L: d.putInside(F, [L])
+    d.cur = d.layers.find(L)
+
 proc addTextLayer*(d: Doc; t: TextData; above = -1): Layer =
   ## A new type layer showing `t` (named after what it says), the current
   ## one. (Undoable in a step: `touchLayers` first.)
@@ -6332,6 +6440,7 @@ proc addTextLayer*(d: Doc; t: TextData; above = -1): Layer =
   result.text = t
   if result.text.spans.len == 0: result.text.spans.add TextSpan(text: "", style: defaultStyle())
   d.drawText(result)
+  if above < 0: d.drawModePlace(result)
 
 proc layerFromBackground*(d: Doc; i = 0) =
   ## The Background as an ordinary layer ("Layer 0") that can be
@@ -7448,6 +7557,64 @@ proc alignTarget*(d: Doc; idxs: seq[int]): Rect =
   for b in bl:
     let c = d.contentBounds(d.layers[b[1]])
     if c.w > 0: result = if result.w > 0: union(result, c) else: c
+
+type AlignTo* = enum
+  ## What Align lines layers up with (`alignBox`).
+  atSelection = "Align to Selection", atKeyObject = "Align to Key Object", atArtboard = "Align to Artboard"
+
+proc alignBox*(d: Doc; idxs: seq[int]; to: AlignTo; key: Layer = nil): Rect =
+  ## The box Align lines the layers `idxs` up with: the layers together (or the selection, as
+  ## `alignTarget`), the key object's box (it stays where it is; without one, as the
+  ## selection), or the artboard the first of them is on -- the canvas when it is on none.
+  case to
+  of atSelection: d.alignTarget(idxs)
+  of atKeyObject:
+    if key != nil and key in d.layers:
+      let c = d.contentBounds(key)
+      if c.w > 0: return c
+    d.alignTarget(idxs)
+  of atArtboard:
+    for i in idxs:
+      if i < 0 or i >= d.layers.len: continue
+      let c = d.contentBounds(d.layers[i])
+      for G in d.layers:
+        if G.group and G.board.w > 0 and c.w > 0 and G.board.intersects(c): return G.board
+      break
+    d.bounds
+
+proc distributeSpacing*(d: Doc; idxs: seq[int]; gap: float; horizontal: bool; key: Layer = nil) =
+  ## Distribute Spacing by a value: the layers (a group: all in it) side by side -- or one under
+  ## another -- `gap` pixels apart, in the order they are in; the key object stays where it is
+  ## and the others go out from it (without one, the first stays). Undoable in a step.
+  var items: seq[(int, int, Rect)]
+  for b in d.blocksOf(idxs):
+    let L = d.layers[b[1]]
+    if L.background or L.locked: continue
+    let c = d.contentBounds(L)
+    if c.w > 0: items.add (b[0], b[1], c)
+  if items.len < 2: return
+  items.sort(proc (a, b: (int, int, Rect)): int =
+    if horizontal: cmp(a[2].x, b[2].x) else: cmp(a[2].y, b[2].y))
+  var k0 = 0
+  if key != nil:
+    for k, it in items:
+      if d.layers[it[1]] == key or (key in d.layers[it[0] .. it[1]]): k0 = k
+  template lo(r: Rect): int = (if horizontal: r.x else: r.y)
+  template size(r: Rect): int = (if horizontal: r.w else: r.h)
+  template move(k: int; to: float) =
+    let r = items[k][2]
+    let dv = int(round(to)) - lo(r)
+    if dv != 0:
+      d.shiftLayers(d.layers[items[k][0] .. items[k][1]], (if horizontal: dv else: 0), (if horizontal: 0 else: dv))
+  var at = float(lo(items[k0][2]) + size(items[k0][2])) + gap
+  for k in k0 + 1 ..< items.len:
+    move(k, at)
+    at += float(size(items[k][2])) + gap
+  at = float(lo(items[k0][2])) - gap
+  for k in countdown(k0 - 1, 0):
+    at -= float(size(items[k][2]))
+    move(k, at)
+    at -= gap
 
 proc distributeLayers*(d: Doc; idxs: seq[int]; how: DistributeHow) =
   ## Layer > Distribute: three or more layers spaced evenly between the two
@@ -9038,6 +9205,7 @@ proc toJson*(p: ShapePaint): JsonNode =
     for q in p.points: a.add %*[q.x, q.y, int64(q.color)]
     result["points"] = a
     if p.meshCols > 0: result["meshCols"] = %p.meshCols
+    if p.onStroke > 0: result["onStroke"] = %p.onStroke
   if p.pattern.len > 0 and p.pattern.len == p.pw * p.ph:
     let b = newBitmap(p.pw, p.ph)
     b.px = p.pattern
@@ -9056,6 +9224,7 @@ proc paintFrom(j: JsonNode): ShapePaint =
   result.style = clamp(j{"style"}.getInt(0), 0, 6)
   result.reverse = j{"reverse"}.getBool
   result.meshCols = clamp(j{"meshCols"}.getInt(0), 0, 16)
+  result.onStroke = clamp(j{"onStroke"}.getInt(0), 0, 2)
   result.opacity = clamp(j{"opacity"}.getInt(100), 0, 100)
   result.scale = clamp(j{"scale"}.getInt(100), 10, 1000)
   result.spot = j{"spot"}.getStr
@@ -9863,6 +10032,7 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
     for c in d.comps: cs.add c.compToJson
     j["comps"] = cs
   if d.perspective.len > 0: j["perspective"] = %d.perspective
+  if d.pixelAlign: j["pixelAlign"] = %true
   if d.spotInks.len > 0:
     var a = newJArray()
     for sp in d.spotInks: a.add sp.toJson
@@ -10168,6 +10338,7 @@ proc loadRpd*(path: string): Doc =
   result.cur = clamp(j{"current"}.getInt(0), 0, result.layers.high)
   for cj in j{"comps"}.getElems: result.comps.add compFrom(cj)
   result.perspective = j{"perspective"}.getStr
+  result.pixelAlign = j{"pixelAlign"}.getBool(false)
   for fj in j{"frames"}.getElems:
     var f = AnimFrame(delay: fj{"delay"}.getInt(100))
     for lj in fj{"layers"}.getElems:

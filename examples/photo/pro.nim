@@ -9,23 +9,99 @@ proc actionsBody(d: Doc)
 proc propertiesBody(d: Doc)
 proc quickActions(d: Doc): seq[(string, string)]
 
+var
+  alignToKind = atSelection          ## what Align lines layers up with (the key object: the current layer)
+  spacingPx = 20'f32                 ## Distribute Spacing's room between them, pixels
+
+proc alignNow(d: Doc; how: AlignHow) =
+  ## (the picked layers lined up as Align To says)
+  let idxs = d.pickedLayers
+  let to = d.alignBox(idxs, alignToKind, d.current)
+  d.layersChange("Align " & $how): d.alignLayers(idxs, how, to)
+
+proc layoutModesOverlay(dw: DocWin) =
+  ## (Isolation Mode: the rest washed out, a strip naming what is isolated; the key object
+  ## outlined thick; Draw Behind or Inside said at the canvas's corner)
+  let d = dw.doc
+  let v = dw.view
+  proc scr(x0, y0, x1, y1: float): Rect =
+    let (a, b) = v.toScreen(d, x0, y0)
+    let (c, e) = v.toScreen(d, x1, y1)
+    rect(min(a, c), min(b, e), max(1, abs(c - a)), max(1, abs(e - b)))
+  if d.isolated.len > 0:
+    var keep: seq[Rect]
+    for L in d.layers:
+      if L.visible and not L.group and d.inIsolation(L):
+        let b = d.objectBox(L)
+        if b.ok: keep.add scr(b.x0, b.y0, b.x1, b.y1)
+    let wash = color(255, 255, 255, 150)
+    for L in d.layers:
+      if not L.visible or L.group or d.inIsolation(L): continue
+      let b = if L.background: (ok: true, x0: 0.0, y0: 0.0, x1: d.w.float, y1: d.h.float) else: d.objectBox(L)
+      if not b.ok: continue
+      # (what is isolated is not washed, where it is: the rest of the box in up to four pieces)
+      var parts = @[scr(b.x0, b.y0, b.x1, b.y1)]
+      for k in keep:
+        var next: seq[Rect]
+        for p in parts:
+          let i = intersect(p, k)
+          if i.w <= 0 or i.h <= 0:
+            next.add p
+            continue
+          if i.y > p.y: next.add rect(p.x, p.y, p.w, i.y - p.y)
+          if i.y + i.h < p.y + p.h: next.add rect(p.x, i.y + i.h, p.w, p.y + p.h - i.y - i.h)
+          if i.x > p.x: next.add rect(p.x, i.y, i.x - p.x, i.h)
+          if i.x + i.w < p.x + p.w: next.add rect(i.x + i.w, i.y, p.x + p.w - i.x - i.w, i.h)
+        parts = next
+      for p in parts: fill(p, wash)
+    let nm = block:
+      var s = ""
+      for L in d.layers:
+        if L.uid != 0 and L.uid in d.isolated and (s.len == 0 or L.group): s = L.name
+      s
+    let t = tr("Isolation Mode: ") & nm & tr(" (Esc leaves)")
+    let r = rect(v.view.x + dp(6), v.view.y + dp(6), textWidth(t) + dp(12), FontH + dp(8))
+    fill(r, color(255, 255, 210))
+    box(r, color(120, 120, 80))
+    text(r.x + dp(6), r.y + dp(4), t, color(40, 40, 20))
+  if alignToKind == atKeyObject and d.pickedLayers.len >= 2 and d.current.picked:
+    let b = d.objectBox(d.current)
+    if b.ok:
+      box(scr(b.x0, b.y0, b.x1, b.y1), color(0, 90, 220), dp(3))
+  if d.drawMode != dmNormal:
+    let t = tr($d.drawMode)
+    let r = rect(v.view.x + v.view.w - textWidth(t) - dp(18), v.view.y + dp(6), textWidth(t) + dp(12), FontH + dp(8))
+    fill(r, color(220, 235, 255))
+    box(r, color(60, 90, 140))
+    text(r.x + dp(6), r.y + dp(4), t, color(20, 40, 80))
+
+proc spaceNow(d: Doc; horizontal: bool) =
+  ## (Distribute Spacing: the picked layers `spacingPx` apart, out from the key object)
+  if d == nil or d.pickedLayers.len < 2: return
+  d.layersChange("Distribute Spacing"):
+    d.distributeSpacing(d.pickedLayers, spacingPx, horizontal, (if alignToKind == atKeyObject: d.current else: nil))
+
 proc alignItems(d: Doc) =
   ## Layer > Align: the picked layers lined up (with the selection when
-  ## there is one; one layer alone: with the canvas).
+  ## there is one; one layer alone: with the canvas), the key object or the artboard.
   let some = d != nil and not d.current.background
   for (how, icon) in [(alTop, pxAlignEdgeTop), (alVCenter, pxAlignEdgeVCenter), (alBottom, pxAlignEdgeBottom),
                       (alLeft, pxAlignEdgeLeft), (alHCenter, pxAlignEdgeHCenter), (alRight, pxAlignEdgeRight)]:
-    if menuItem(icon & " " & $how, enabled = some):
-      let idxs = d.pickedLayers
-      let to = d.alignTarget(idxs)
-      d.layersChange("Align " & $how): d.alignLayers(idxs, how, to)
+    if menuItem(icon & " " & $how, enabled = some): d.alignNow(how)
+  menuSeparator()
+  for k in AlignTo:
+    if menuItem($k, checked = alignToKind == k): alignToKind = k
 
 proc distributeItems(d: Doc) =
-  ## Layer > Distribute: three or more picked layers spaced evenly.
+  ## Layer > Distribute: three or more picked layers spaced evenly; two or more a set room apart.
   let some = d != nil and d.pickedLayers.len >= 3
   for how in DistributeHow:
     if menuItem($how, enabled = some):
       d.layersChange("Distribute " & $how): d.distributeLayers(d.pickedLayers, how)
+  menuSeparator()
+  let two = d != nil and d.pickedLayers.len >= 2
+  if menuItem("Distribute Spacing Across", enabled = two): d.spaceNow(true)
+  if menuItem("Distribute Spacing Down", enabled = two): d.spaceNow(false)
 
 # ---- the History palette -----------------------------------------------------------------------------------
 
@@ -1108,9 +1184,19 @@ proc severalProps(d: Doc) =
     row:
       for (how, icon) in [(AlignHow.alLeft, pxAlignEdgeLeft), (alHCenter, pxAlignEdgeHCenter), (AlignHow.alRight, pxAlignEdgeRight),
                           (alTop, pxAlignEdgeTop), (alVCenter, pxAlignEdgeVCenter), (alBottom, pxAlignEdgeBottom)]:
-        if toolButton(glyphIcon(icon, ui.theme.text, dp(16)), "Align " & $how):
-          let to = d.alignTarget(idxs)
-          d.layersChange("Align " & $how): d.alignLayers(idxs, how, to)
+        if toolButton(glyphIcon(icon, ui.theme.text, dp(16)), "Align " & $how): d.alignNow(how)
+    var k = ord(alignToKind)
+    var names: seq[string]
+    for a in AlignTo: names.add tr($a)
+    if combo(names, k, w = dp(190)): alignToKind = AlignTo(k)
+    if alignToKind == atKeyObject:
+      label(tr("The key object: the current layer") & " (" & d.current.name & ")", color = ui.theme.gray)
+    row:
+      label "Spacing:"
+      discard d.lengthField(spacingPx, dp(60), 0, 20000)
+      label unitShort()
+      if button("Space Across", w = dp(96), enabled = idxs.len >= 2): d.spaceNow(true)
+      if button("Space Down", w = dp(90), enabled = idxs.len >= 2): d.spaceNow(false)
   if idxs.len >= 3:
     group("Distribute"):
       for how in [dsHSpace, dsVSpace, dsHCenter, dsVCenter]:
@@ -1248,9 +1334,16 @@ proc propertiesBody(d: Doc) =
           if colorWell(shapeFill, "propshapefill", dp(26)): changed = true
       row:
         label "Stroke:"
-        if combo(["No Color", "Solid Color"], shapeStrokeKind, w = dp(96)): changed = true
+        if combo(["No Color", "Solid Color", "Gradient"], shapeStrokeKind, w = dp(96)): changed = true
         if shapeStrokeKind > 0:
           if colorWell(shapeStroke, "propshapestroke", dp(26)): changed = true
+        if shapeStrokeKind == 2:
+          if colorWell(shapeStroke2, "propshapestroke2", dp(26)): changed = true
+      if shapeStrokeKind == 2:
+        row:
+          label "Gradient:"
+          if combo(["Within the stroke", "Along the stroke", "Across the stroke"], shapeStrokeOn, w = dp(150)):
+            changed = true
       if shapeStrokeKind > 0:
         row:
           label "Width:"

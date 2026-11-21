@@ -254,8 +254,13 @@ proc syncShapeOptions(L: Layer) =
   shapeFillKind = ord(s.fill.kind)
   shapeFill = s.fill.color or 0xFF000000'u32
   shapeFill2 = s.fill.color2 or 0xFF000000'u32
-  shapeStrokeKind = if s.stroke.kind == spNone: 0 else: 1
+  shapeStrokeKind = case s.stroke.kind
+                    of spNone: 0
+                    of spGradient: 2
+                    else: 1
   shapeStroke = s.stroke.color or 0xFF000000'u32
+  shapeStroke2 = s.stroke.color2 or 0xFF000000'u32
+  shapeStrokeOn = s.stroke.onStroke
   shapeStrokeW = max(1, int(round(s.strokeWidth)))
   shapeAlign = ord(s.align)
   shapeDash = if s.dashes.len == 0: 0 elif s.dashes[0] < 0.5: 2 else: 1
@@ -281,6 +286,10 @@ proc applyShapeOptions() =
     s.fill.angle = L.shape.fill.angle
     s.fill.style = L.shape.fill.style
   s.stroke = n.stroke
+  if L.shape.stroke.kind == spGradient and n.stroke.kind == spGradient:
+    s.stroke.angle = L.shape.stroke.angle
+    s.stroke.style = L.shape.stroke.style
+    s.stroke.stops = L.shape.stroke.stops
   s.strokeWidth = n.strokeWidth
   s.align = n.align
   s.cap = n.cap
@@ -307,9 +316,16 @@ proc shapeOptions() =
         if colorWell(shapeFill2, "shapefill2", dp(26)): changed = true
     row:
       label "Stroke:"
-      if combo(["No Color", "Solid Color"], shapeStrokeKind, w = dp(96)): changed = true
+      if combo(["No Color", "Solid Color", "Gradient"], shapeStrokeKind, w = dp(96)): changed = true
       if shapeStrokeKind > 0:
         if colorWell(shapeStroke, "shapestroke", dp(26)): changed = true
+      if shapeStrokeKind == 2:
+        if colorWell(shapeStroke2, "shapestroke2", dp(26)): changed = true
+    if shapeStrokeKind == 2:
+      row:
+        label "Gradient:"
+        if combo(["Within the stroke", "Along the stroke", "Across the stroke"], shapeStrokeOn, w = dp(150)):
+          changed = true
     if shapeStrokeKind > 0:
       row:
         label "Width:"

@@ -1092,6 +1092,8 @@ proc stopsColor*(stops: openArray[GradientStop]; t: float): uint32 =
   ## The color at `t` of a gradient through `stops` (in order).
   gradientColor(stops, t)
 
+proc gradientAtT(p: ShapePaint; t0, x, y: float): uint32
+
 proc paintAt(p: ShapePaint; x, y: float; box: (float, float, float, float);
              mesh: ptr UncheckedArray[uint32] = nil): uint32 {.inline.} =
   case p.kind
@@ -1111,7 +1113,14 @@ proc paintAt(p: ShapePaint; x, y: float; box: (float, float, float, float);
       let mx = clamp(int(u * float(MeshRes - 1) + 0.5), 0, MeshRes - 1)
       let my = clamp(int(v * float(MeshRes - 1) + 0.5), 0, MeshRes - 1)
       return mesh[my * MeshRes + mx]
-    var t = gradientT(p.style, p.angle.float, (if p.scale <= 0: 1.0 else: p.scale / 100), x, y, box)
+    let t = gradientT(p.style, p.angle.float, (if p.scale <= 0: 1.0 else: p.scale / 100), x, y, box)
+    gradientAtT(p, t, x, y)
+  else: p.color
+
+proc gradientAtT(p: ShapePaint; t0, x, y: float): uint32 =
+  ## (a gradient's color `t0` of the way along it, dithered at pixel `x, y`)
+  block:
+    var t = t0
     if p.reverse: t = 1 - t
     # (dithered: the color worked out between levels, then rounded up or down by a pattern that
     # stays put -- a smooth gradient, no bands)
@@ -1130,7 +1139,75 @@ proc paintAt(p: ShapePaint; x, y: float; box: (float, float, float, float);
     let dth = (bayer[iy * 4 + ix] + 0.5'f32) / 16 - 0.5'f32
     template q(v: float32): uint32 = uint32(clamp(int(floor(v * 255 + 0.5'f32 + dth)), 0, 255))
     (q(f[3]) shl 24) or (q(f[0]) shl 16) or (q(f[1]) shl 8) or q(f[2])
-  else: p.color
+
+type StrokeParams = object
+  ## (a stroke's paths flattened, for a gradient along or across it: each piece, how far along
+  ## its path it begins, how long that path is; a grid of the pieces near each cell)
+  segs: seq[tuple[ax, ay, bx, by, s0, len: float32]]
+  cell: float32
+  gx, gy, gw, gh: int
+  grid: seq[seq[int32]]
+
+proc strokeParams(polys: seq[tuple[pts: seq[(float, float)]; closed: bool]]; reach: float): StrokeParams =
+  var x0, y0 = 1e18
+  var x1, y1 = -1e18
+  for (pts, closed) in polys:
+    var total = 0.0
+    let n = pts.len
+    let m = if closed: n else: n - 1
+    for i in 0 ..< m:
+      let a = pts[i]
+      let b = pts[(i + 1) mod n]
+      total += hypot(b[0] - a[0], b[1] - a[1])
+    var at = 0.0
+    for i in 0 ..< m:
+      let a = pts[i]
+      let b = pts[(i + 1) mod n]
+      let l = hypot(b[0] - a[0], b[1] - a[1])
+      result.segs.add (a[0].float32, a[1].float32, b[0].float32, b[1].float32, at.float32, max(1e-6, total).float32)
+      at += l
+      x0 = min(x0, min(a[0], b[0])); y0 = min(y0, min(a[1], b[1]))
+      x1 = max(x1, max(a[0], b[0])); y1 = max(y1, max(a[1], b[1]))
+  if result.segs.len == 0: return
+  result.cell = float32(max(8.0, reach))
+  result.gx = int(floor((x0 - reach) / result.cell.float))
+  result.gy = int(floor((y0 - reach) / result.cell.float))
+  result.gw = min(4096, int(floor((x1 + reach) / result.cell.float)) - result.gx + 1)
+  result.gh = min(4096, int(floor((y1 + reach) / result.cell.float)) - result.gy + 1)
+  result.grid = newSeq[seq[int32]](result.gw * result.gh)
+  for k, sg in result.segs:
+    let cx0 = clamp(int(floor((min(sg.ax, sg.bx) - reach) / result.cell)) - result.gx, 0, result.gw - 1)
+    let cx1 = clamp(int(floor((max(sg.ax, sg.bx) + reach) / result.cell)) - result.gx, 0, result.gw - 1)
+    let cy0 = clamp(int(floor((min(sg.ay, sg.by) - reach) / result.cell)) - result.gy, 0, result.gh - 1)
+    let cy1 = clamp(int(floor((max(sg.ay, sg.by) + reach) / result.cell)) - result.gy, 0, result.gh - 1)
+    for cy in cy0 .. cy1:
+      for cx in cx0 .. cx1: result.grid[cy * result.gw + cx].add int32(k)
+
+proc strokeAt(sp: ptr StrokeParams; x, y: float32): tuple[along, side: float32] =
+  ## (where pixel `x, y` is on the stroke: how far along its path, 0..1, and how far to the right
+  ## of it -- negative: the left --, pixels)
+  if sp.segs.len == 0: return
+  let cx = int(floor(x / sp.cell)) - sp.gx
+  let cy = int(floor(y / sp.cell)) - sp.gy
+  if cx < 0 or cy < 0 or cx >= sp.gw or cy >= sp.gh: return
+  var best = 1e30'f32
+  for k in sp.grid[cy * sp.gw + cx]:
+    let sg = sp.segs[k]
+    let dx = sg.bx - sg.ax
+    let dy = sg.by - sg.ay
+    let l2 = dx * dx + dy * dy
+    var t = if l2 > 0: ((x - sg.ax) * dx + (y - sg.ay) * dy) / l2 else: 0'f32
+    t = clamp(t, 0'f32, 1'f32)
+    let px = sg.ax + dx * t
+    let py = sg.ay + dy * t
+    let d2 = (x - px) * (x - px) + (y - py) * (y - py)
+    if d2 < best:
+      best = d2
+      let l = sqrt(l2)
+      result.along = (sg.s0 + t * l) / sg.len
+      # (to the right of the way it goes: y is down)
+      let cr = dx * (y - sg.ay) - dy * (x - sg.ax)
+      result.side = (if cr >= 0: 1'f32 else: -1'f32) * sqrt(d2)
 
 proc hasEnds*(s: ShapeData): bool = s.startEnd != leNone or s.endEnd != leNone
   ## The shape's open lines have arrowheads (or other ends).
@@ -1477,6 +1554,19 @@ proc renderPlain(s: ShapeData; px: var seq[uint32]; w, h: int; clearFirst = Rect
         for v in s.dashes: pat.add max(0.0, v) * s.strokeWidth
         for piece in dashed(poly, closed, pat): strokeEdges(piece, false, r, s.cap, s.join, strokeE)
       else: strokeEdges(poly, closed, r, s.cap, s.join, strokeE)
+  # (a gradient along the stroke or across it: where each pixel is on it)
+  let strokeGrad = stroking and s.stroke.kind == spGradient and s.stroke.onStroke in 1 .. 2 and
+                   s.stroke.style notin 5 .. 6
+  var sparams: StrokeParams
+  if strokeGrad:
+    var polys: seq[tuple[pts: seq[(float, float)]; closed: bool]]
+    for sp in s.path.subs:
+      let poly = flat(sp)
+      if poly.len >= 2: polys.add (poly, sp.closed and poly.len > 2)
+    sparams = strokeParams(polys, s.strokeWidth + 2)
+  let spp = unsafeAddr sparams
+  let across = s.stroke.onStroke == 2
+  let sw0 = max(0.01, s.strokeWidth).float32
   let fillOp = (if s.fill.opacity <= 0: 100 else: s.fill.opacity).float / 100
   let strokeOp = (if s.stroke.opacity <= 0: 100 else: s.stroke.opacity).float / 100
   let filling = s.fill.kind != spNone
@@ -1511,7 +1601,15 @@ proc renderPlain(s: ShapeData; px: var seq[uint32]; w, h: int; clearFirst = Rect
       if sa <= 0.001 and fa >= 0.999 and aOf(fc) == 255:
         pp[y * w + x] = fc
       else:
-        let sc = if stroking: paintAt(sP[].stroke, x.float, y.float, bb, strokeMesh) else: 0'u32
+        var sc = 0'u32
+        if stroking:
+          if strokeGrad:
+            let at = strokeAt(spp, x.float32 + 0.5, y.float32 + 0.5)
+            let t = if not across: at.along
+                    elif align == saCenter: clamp(0.5'f32 + at.side / sw0, 0'f32, 1'f32)
+                    else: clamp(abs(at.side) / sw0, 0'f32, 1'f32)
+            sc = gradientAtT(sP[].stroke, t.float, x.float, y.float)
+          else: sc = paintAt(sP[].stroke, x.float, y.float, bb, strokeMesh)
         let fa2 = fa * aOf(fc).float / 255
         let sa2 = sa * aOf(sc).float / 255
         let oa = sa2 + fa2 * (1 - sa2)
@@ -1604,7 +1702,9 @@ proc addShapeLayer*(d: Doc; s: ShapeData; name = ""; above = -1): Layer =
       except ValueError: discard
   result = d.addLayer(if name.len > 0: name else: "Shape " & $n, above, fresh = true)
   result.shape = s
+  if d.pixelAlign: alignToPixels(result.shape)
   d.drawShape(result)
+  if above < 0: d.drawModePlace(result)
 
 proc addFillLayer*(d: Doc; paint: ShapePaint; name = ""): Layer =
   ## Layer > New Fill Layer: a layer filled with a color, a gradient or a
