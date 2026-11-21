@@ -319,6 +319,14 @@ hides them on the page, and on a master says which items its pages may
 not make their own. A photo inside a frame goes across the spine with the
 frame.
 
+**Footnotes and the table of contents** (5.13): Footnotes restart their numbers
+on each page, show the prefix and suffix where asked, take a reference as
+big as the text, room between notes and a line set in, set off and in
+dashes; Table of Contents keeps its settings by name (TOC Style), gives
+each level a paragraph style's letters, puts the page number after the
+entry, before it or nowhere, sorts the entries, takes text on hidden
+layers, makes PDF bookmarks and replaces the table there is.
+
 **Arabic typesetting** (5.12), from Yaqout's manual: Type > Quran... --
 the text downloaded once from Tanzil (or a Tanzil file opened), a sura's
 ayat with their numbers in ornate brackets set into the text being typed

@@ -742,6 +742,16 @@ type
     ruleColor*: uint32           ## its color, ARGB (0: the text's)
     gap*: float32                ## the room above the notes, pixels (0: half the text's size)
     heading*: string             ## the endnotes' heading ("": "Notes", "الحواشي" for Arabic)
+    restart*: bool               ## the numbers from `start` again in each box -- each page --, by the
+                                 ## references' order there (else on through the story)
+    affixIn*: int                ## `prefix` and `suffix`: 0 round the reference, 1 there and round the
+                                 ## note's number, 2 round the note's number only
+    refNormal*: bool             ## the reference as big as the text, on its line (else smaller, raised)
+    between*: float32            ## footnotes: room between one and the next, pixels
+    ruleDash*: bool              ## ... the line above them in dashes
+    ruleIndent*: float32         ## ... standing in so far from the box's edge (the left; right to
+                                 ## left, the right), pixels
+    ruleOffset*: float32         ## ... so far above the notes, pixels (0: half `gap`)
 
   TextSpan* = object
     ## Text in one character style.
@@ -2237,13 +2247,26 @@ proc insertAnchor*(t: var TextData; at: int): int =
   id
 
 proc noteNumber*(t: TextData; id: int): string =
-  ## Note `id`'s number as it is written: its place among the notes, counted from
-  ## `noteOpts.start`, in `noteOpts.numbers`.
+  ## Note `id`'s number as it is written: its place among the notes -- with `noteOpts.restart`,
+  ## among the references in this text, in their order (a box the story goes on into counts from
+  ## the first again) --, counted from `noteOpts.start`, in `noteOpts.numbers`.
   var k = -1
-  for i, n in t.notes:
-    if n.id == id:
-      k = i
-      break
+  if t.noteOpts.restart:
+    var seen: seq[int]
+    block find:
+      for sp in t.spans:
+        for r in sp.text.runes:
+          let cp = int(r)
+          if isNoteMark(cp) and (cp - NoteBase) notin seen:
+            if cp - NoteBase == id:
+              k = seen.len
+              break find
+            seen.add cp - NoteBase
+  else:
+    for i, n in t.notes:
+      if n.id == id:
+        k = i
+        break
   if k < 0: return "?"
   formatNumber((if t.noteOpts.start > 0: t.noteOpts.start else: 1) + k, t.noteOpts.numbers)
 
@@ -2258,8 +2281,9 @@ proc noteHeading*(t: TextData): string =
   "Notes"
 
 proc refStyle(st: CharStyle; o: NoteOptions): CharStyle =
-  ## (a reference's number: smaller, raised)
+  ## (a reference's number: smaller, raised -- or as the text is)
   result = st
+  if o.refNormal: return
   let k = if o.refScale > 0: o.refScale else: 0.6'f32
   result.baselineShift = st.baselineShift + st.size * 0.36
   result.size = st.size * k
@@ -2282,7 +2306,9 @@ proc noteSpans(t: TextData; ids: seq[int]): seq[TextSpan] =
     var text = ""
     for n in t.notes:
       if n.id == id: text = n.text
-    result.add TextSpan(text: (if q > 0: "\n" else: "") & t.noteNumber(id) & sep, style: ns)
+    let num = if t.noteOpts.affixIn in {1, 2}: t.noteOpts.prefix & t.noteNumber(id) & t.noteOpts.suffix
+              else: t.noteNumber(id)
+    result.add TextSpan(text: (if q > 0: "\n" else: "") & num & sep, style: ns)
     if text.len > 0: result.add TextSpan(text: text, style: ns)
 
 proc expandRefs(t: TextData): tuple[u: TextData; map: seq[int]; refs: seq[tuple[at, id: int]]] =
@@ -2302,7 +2328,8 @@ proc expandRefs(t: TextData): tuple[u: TextData; map: seq[int]; refs: seq[tuple[
         if piece.len > 0:
           result.u.spans.add TextSpan(text: piece, style: sp.style)
           piece = ""
-        let num = t.noteOpts.prefix & t.noteNumber(cp - NoteBase) & t.noteOpts.suffix
+        let num = if t.noteOpts.affixIn == 2: t.noteNumber(cp - NoteBase)
+                  else: t.noteOpts.prefix & t.noteNumber(cp - NoteBase) & t.noteOpts.suffix
         result.refs.add (result.map.len, cp - NoteBase)
         result.u.spans.add TextSpan(text: num, style: refStyle(sp.style, t.noteOpts))
         for _ in 0 ..< max(1, num.runeLen): result.map.add i
@@ -2433,6 +2460,7 @@ proc notesLaid(t: TextData): TextLayout =
     nt.boxW = t.boxW
     nt.boxH = 1e6
     nt.para.rtl = t.para.rtl
+    nt.para.spaceAfter = o.between
     nt.para.align = t.para.align
     if nt.para.align == justifyAll: nt.para.align = justifyLeft
     blk = layoutText(nt)
@@ -2452,12 +2480,21 @@ proc notesLaid(t: TextData): TextLayout =
       d2.y += top
       result.decorations.add d2
     if not o.noRule:
+      # (the line above them: its length, standing in, so far above them, solid or in dashes)
       let rtl = (t.para.rtl == 2) or (t.para.rtl == 0 and blk.lines.len > 0 and blk.lines[0].rtl)
       let len = t.boxW * (if o.ruleLength > 0: o.ruleLength else: 0.33'f32)
-      let x0 = if rtl: t.x + t.boxW - len else: t.x
-      result.decorations.add Decoration(x0: x0, x1: x0 + len, y: top - gap * 0.5,
-                                        thick: (if o.ruleWidth > 0: o.ruleWidth else: 1'f32),
-                                        color: (if o.ruleColor != 0: o.ruleColor else: base.color))
+      let x0 = if rtl: t.x + t.boxW - len - o.ruleIndent else: t.x + o.ruleIndent
+      let ry = top - (if o.ruleOffset > 0: o.ruleOffset else: gap * 0.5)
+      let th = if o.ruleWidth > 0: o.ruleWidth else: 1'f32
+      let rc = if o.ruleColor != 0: o.ruleColor else: base.color
+      if o.ruleDash:
+        let dash = max(2'f32, th * 4)
+        var x = x0
+        while x < x0 + len:
+          result.decorations.add Decoration(x0: x, x1: min(x0 + len, x + dash), y: ry, thick: th, color: rc)
+          x += dash * 2
+      else:
+        result.decorations.add Decoration(x0: x0, x1: x0 + len, y: ry, thick: th, color: rc)
     result.y1 = max(result.y1, t.y + t.boxH)
     result.x0 = min(result.x0, t.x)
     result.x1 = max(result.x1, t.x + t.boxW)
@@ -5654,6 +5691,13 @@ proc toJson*(t: TextData): JsonNode =
                             "refScale": o.refScale, "noRule": o.noRule, "ruleWidth": o.ruleWidth,
                             "ruleLength": o.ruleLength, "ruleColor": o.ruleColor, "gap": o.gap,
                             "heading": o.heading}
+    if o.restart: result["noteOpts"]["restart"] = %true
+    if o.affixIn != 0: result["noteOpts"]["affixIn"] = %o.affixIn
+    if o.refNormal: result["noteOpts"]["refNormal"] = %true
+    if o.between > 0: result["noteOpts"]["between"] = %o.between
+    if o.ruleDash: result["noteOpts"]["ruleDash"] = %true
+    if o.ruleIndent > 0: result["noteOpts"]["ruleIndent"] = %o.ruleIndent
+    if o.ruleOffset > 0: result["noteOpts"]["ruleOffset"] = %o.ruleOffset
   if t.gridStep > 0:
     result["gridStep"] = %t.gridStep
     result["gridStart"] = %t.gridStart
@@ -5743,6 +5787,13 @@ proc textFrom*(j: JsonNode): TextData =
     result.noteOpts.ruleColor = uint32(clamp(o{"ruleColor"}.getBiggestInt(0), 0, 0xFFFFFFFF'i64))
     result.noteOpts.gap = clamp(float32(o.getF("gap")), 0, 10_000)
     result.noteOpts.heading = o{"heading"}.getStr
+    result.noteOpts.restart = o{"restart"}.getBool
+    result.noteOpts.affixIn = clamp(o{"affixIn"}.getInt(0), 0, 2)
+    result.noteOpts.refNormal = o{"refNormal"}.getBool
+    result.noteOpts.between = clamp(float32(o.getF("between")), 0, 10_000)
+    result.noteOpts.ruleDash = o{"ruleDash"}.getBool
+    result.noteOpts.ruleIndent = clamp(float32(o.getF("ruleIndent")), 0, 10_000)
+    result.noteOpts.ruleOffset = clamp(float32(o.getF("ruleOffset")), 0, 10_000)
   if j.hasKey("para"):
     let p = j["para"]
     result.para.align = enumOf(p.getS("align"), textLeft)

@@ -62,6 +62,19 @@
   as keep each no wider than `colWidth`) and `columnsOf`; kept in the file
   and in IDML (`FirstBaselineOffset`, `MinimumFirstBaselineOffset`,
   `UseFixedColumnWidth`, `UseFlexibleColumnWidth`).
+- **Footnote options as the layout program has them** (`retroui/textengine`,
+  `NoteOptions`): `restart` (the numbers from the first again in each box
+  -- each page --, by the references' order there), `affixIn` (the prefix
+  and suffix round the reference, the note's number or both), `refNormal`
+  (the reference as big as the text, on its line), `between` (room between
+  footnotes), the line above them standing in (`ruleIndent`), so far above
+  (`ruleOffset`), in dashes (`ruleDash`); kept in the file.
+- **A table of contents set as asked** (`retroui/booklists`): `TocOptions`
+  for `tocText` -- the page number after the entry, before it or none
+  (`TocNumbers`), what is between them, the leader, the entries sorted, a
+  style for each level and for the title; `tocEntries(hidden = true)` takes
+  text on hidden layers too. `Book.tocStyles` keeps a table's settings by
+  name in the book's file (TOC Styles).
 - **Retro Atelier**: a table's column edges and row feet dragged with the
   Type tool (Shift: the table wider), the pointer showing where; Type >
   Table: Insert Rows... and Insert Columns... (several at once, above or
@@ -86,6 +99,16 @@
   All Local Overrides, Remove Selected Local Overrides, Detach All Objects
   from Master, Detach Selection from Master, Hide Master Items, Allow
   Master Item Overrides on Selection (while editing a master).
+
+- **Retro Atelier**: Layout > Table of Contents: TOC Style (kept by name in the
+  book: Save Style), a paragraph style for each level's entries, Page
+  Number (After Entry, Before Entry, No Page Number), Between, Leader,
+  Sort Entries in Alphabetical Order, Include Text on Hidden Layers,
+  Create PDF Bookmarks (each entry one, on its page, made again with the
+  table), Replace Existing Table of Contents. Type > Footnotes: Restart
+  Numbering Every Page, where the prefix and suffix show, the reference's
+  position, the space between notes, the line's indent, offset and
+  dashes.
 
 ## 0.67.0
 

@@ -125,11 +125,23 @@ proc footnotesDialog() =
         label "Start at:"
         var st = max(1, o.start)
         if spin(st, 1, 100_000, w = dp(70)): o.start = st
+      if o.kind == nkFootnotes:
+        row([110, -1]):
+          label ""
+          checkbox("Restart Numbering Every Page (each box from the first number)", o.restart)
       row([110, 60, 60, -1]):
-        label "Reference:"
+        label "Prefix, suffix:"
         edit(o.prefix, w = dp(50))
         edit(o.suffix, w = dp(50))
-        label("before and after the number", color = ui.theme.gray)
+        label("round the number", color = ui.theme.gray)
+      row([110, -1]):
+        label "Show them in:"
+        discard combo([tr("The Reference"), tr("The Reference and the Note"), tr("The Note")], o.affixIn,
+                      w = dp(210))
+      row([110, -1]):
+        label "Position:"
+        var pk = ord(o.refNormal)
+        if combo([tr("Superscript"), tr("Normal")], pk, w = dp(140)): o.refNormal = pk == 1
       row([110, 60, -1]):
         label "After the number:"
         var sep = if o.separator.len > 0: o.separator else: ". "
@@ -151,6 +163,10 @@ proc footnotesDialog() =
         discard cur().lengthField(o.gap, dp(60), 0, 2000)
         label unitShort()
       if o.kind == nkFootnotes:
+        row([150, -1, 50]):
+          label "Space between them:"
+          discard cur().lengthField(o.between, dp(60), 0, 2000)
+          label unitShort()
         row:
           var rule = not o.noRule
           if checkbox("A line above them", rule): o.noRule = not rule
@@ -163,6 +179,16 @@ proc footnotesDialog() =
             label "% wide"
             var c = if o.ruleColor != 0: o.ruleColor else: (if t.spans.len > 0: t.spans[0].style.color else: 0xFF000000'u32)
             if colorWell(c, "fnrule", dp(36)): o.ruleColor = c or 0xFF000000'u32
+        if not o.noRule:
+          row([150, 70, 70, 70, -1]):
+            label "Rule: indent"
+            discard cur().lengthField(o.ruleIndent, dp(60), 0, 4000)
+            label "offset"
+            discard cur().lengthField(o.ruleOffset, dp(60), 0, 4000)
+            label unitShort()
+          row([150, -1]):
+            label ""
+            checkbox("Dashed", o.ruleDash)
       else:
         row([150, -1]):
           label "Heading:"

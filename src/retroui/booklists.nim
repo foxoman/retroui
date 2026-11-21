@@ -8,7 +8,11 @@
 ## - `tocText`, `indexText`: either as a text box to place -- each entry's
 ##   page numbers at the edge, at a right tab stop with dots before them
 ##   (right to left: at the left edge), each level standing in; an index in
-##   the order of its letters, a heading for each first letter.
+##   the order of its letters, a heading for each first letter. A table of
+##   contents set as `TocOptions` says: the number after the entry, before
+##   it or none, what is between them, the leader, the entries sorted, a
+##   style for each level and for the title (the layout program's Table of
+##   Contents dialog).
 ##
 ## .. code-block:: nim
 ##   import retroui/[photobook, booklists]
@@ -30,6 +34,20 @@ type
     label*: string               ## ... that page's number as printed
     level*: int                  ## 0 the highest (the first style named)
 
+  TocNumbers* = enum
+    ## Where an entry's page number is (Table of Contents > Page Number).
+    tnAfter = "After Entry", tnBefore = "Before Entry", tnNone = "No Page Number"
+
+  TocOptions* = object
+    ## How a table of contents is set (`tocText`).
+    numbers*: TocNumbers
+    between*: string             ## between an entry and its number ("": a tab to the box's far edge
+                                 ## after the entry -- `leader` before the number --, two spaces before it)
+    leader*: string              ## ... the tab's leader ("": ". "; " ": none)
+    sorted*: bool                ## the entries in the order of their letters (else as the pages have them)
+    levelStyles*: seq[CharStyle] ## each level's entries' style (missing, or size 0: the style given)
+    titleStyle*: CharStyle       ## the title's (size 0: the style given, half as big again, bold)
+
   IndexEntry* = object
     ## A word of the index and where it is.
     term*: string
@@ -44,16 +62,17 @@ proc firstLine(s: string): string =
 proc biggest(t: TextData): float32 =
   for sp in t.spans: result = max(result, sp.style.size)
 
-proc tocEntries*(b: Book; styles: seq[string] = @[]; minSize = 0'f32; keep: openArray[int] = []): seq[TocEntry] =
+proc tocEntries*(b: Book; styles: seq[string] = @[]; minSize = 0'f32; keep: openArray[int] = [];
+                 hidden = false): seq[TocEntry] =
   ## The book's headings: its text boxes in the paragraph styles `styles` (each a level, in
   ## that order), or -- none named -- those set at `minSize` pixels and more; page by page,
-  ## top to bottom on a page.
+  ## top to bottom on a page (`hidden`: layers not shown too).
   for i in 0 ..< b.pages.len:
     let was = b.isOpen(i)
     let d = b.doc(i)
     var here: seq[tuple[y: float32; e: TocEntry]]
     for L in d.layers:
-      if not L.isText or not L.visible or L.fromMaster != 0: continue
+      if not L.isText or (not L.visible and not hidden) or L.fromMaster != 0: continue
       if styles.len > 0 and L.text.paraFmts.len > 0:
         # (paragraphs in formats of their own: each in a style named, an entry where it is)
         let lay = layoutText(L.text)
@@ -139,26 +158,41 @@ proc dotted(t: var TextData; width: float32) =
   ## a right tab stop with a leader)
   t.para.setTab(TabStop(pos: width, align: tabRight, leader: ". "))
 
-proc tocText*(entries: seq[TocEntry]; title: string; style: CharStyle; width: float32; rtl = false): TextData =
+proc tocText*(entries: seq[TocEntry]; title: string; style: CharStyle; width: float32; rtl = false;
+              o = TocOptions()): TextData =
   ## The table of contents as a text box `width` wide: its title, then a line a heading -- the
-  ## heading (standing in by its level), dots, its page's number at the edge.
-  var rows = ""
-  for e in entries:
-    if rows.len > 0: rows.add "\n"
-    rows.add repeat("    ", e.level) & e.text.replace("\t", " ") & "\t" & e.label
-  var body = style
-  result = newText(rows, body, 0, 0)
+  ## heading (standing in by its level), dots, its page's number at the edge -- or as `o` says.
+  var list = entries
+  if o.sorted: list.sort(proc (a, c: TocEntry): int = cmp(folded(a.text), folded(c.text)))
+  var spans: seq[TextSpan]
+  var tallest = style.size
+  for k, e in list:
+    var st = style
+    if e.level < o.levelStyles.len and o.levelStyles[e.level].size > 0: st = o.levelStyles[e.level]
+    tallest = max(tallest, st.size)
+    let entry = repeat("    ", e.level) & e.text.replace("\t", " ")
+    let row = case o.numbers
+              of tnAfter: entry & (if o.between.len > 0: o.between else: "\t") & e.label
+              of tnBefore: repeat("    ", e.level) & e.label & (if o.between.len > 0: o.between else: "  ") &
+                           e.text.replace("\t", " ")
+              of tnNone: entry
+    spans.add TextSpan(text: (if k > 0: "\n" else: "") & row, style: st)
+  result = newText("", style, 0, 0)
+  if spans.len > 0: result.spans = spans
   result.boxW = width
-  result.boxH = max(40'f32, float32(entries.len + 1) * style.size * 1.6)
+  result.boxH = max(40'f32, float32(list.len + 1) * tallest * 1.6)
   if rtl: result.para.rtl = 2
-  result.dotted(width)
+  if o.numbers == tnAfter and o.between.len == 0:
+    result.para.setTab(TabStop(pos: width, align: tabRight, leader: (if o.leader.len > 0: o.leader else: ". ")))
   if title.len > 0:
-    # (the title: a line of its own, bold, larger)
-    var ts = style
-    ts.size = style.size * 1.5
-    ts.fauxBold = true
+    # (the title: a line of its own, bold, larger -- or in its own style)
+    var ts = o.titleStyle
+    if ts.size <= 0:
+      ts = style
+      ts.size = style.size * 1.5
+      ts.fauxBold = true
     result.spans.insert(TextSpan(text: title & "\n", style: ts), 0)
-    result.boxH += style.size * 2.4
+    result.boxH += ts.size * 1.6
 
 proc indexText*(entries: seq[IndexEntry]; title: string; style: CharStyle; width: float32; rtl = false;
                 letters = true): TextData =

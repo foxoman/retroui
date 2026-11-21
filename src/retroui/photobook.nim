@@ -149,6 +149,9 @@ type
     modified*: bool                  ## changed since saved (see `changed`)
     pages*: seq[BookPage]            ## in order
     masters*: seq[Master]
+    tocStyles*: seq[tuple[name, settings: string]]
+                                     ## TOC Styles: a table of contents' settings kept by name (as the
+                                     ## app writes them; JSON)
     nextId: int
     dir: string                      # (where parked pages are)
     looks: Table[(int, int), (int, Hash)]   # (a page's layer: its `ver`, and what it looked like then)
@@ -1651,6 +1654,10 @@ proc saveBook*(b: Book; path: string; keep: openArray[int] = []) =
     if m.margins.own: masters[^1]["margins"] = marginsJson(m.margins)
   let j = %*{"retroBook": 1, "name": b.name, "setup": setupJson(b.setup), "pages": pages, "masters": masters,
              "nextId": b.nextId}
+  if b.tocStyles.len > 0:
+    var ts = newJArray()
+    for (n, v) in b.tocStyles: ts.add %*{"name": n, "settings": v}
+    j["tocStyles"] = ts
   z.addFile("book.json", $j)
   let tmp = path & ".part"
   writeFile(tmp, z.finish())
@@ -1754,6 +1761,8 @@ proc loadBook*(path: string): Book =
     b.nextId = max(b.nextId, id)
     b.masters.add m
   b.nextId = max(b.nextId, j{"nextId"}.getInt(0))
+  for ts in j{"tocStyles"}.getElems:
+    if b.tocStyles.len < 200 and ts{"name"}.getStr.len > 0: b.tocStyles.add (ts{"name"}.getStr, ts{"settings"}.getStr)
   for pg in b.pages:
     if pg.master != 0 and b.masterOf(pg.master) == nil: pg.master = 0
   for m in b.masters:

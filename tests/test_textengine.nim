@@ -1215,6 +1215,58 @@ block footnotes:
   doAssert back.notes == t3.notes and back.noteOpts.numbers == nsArabicIndic and back.noteOpts.prefix == "("
   doAssert layoutText(back).glyphs.len == layoutText(t3).glyphs.len
 
+block footnoteOptions:
+  # numbers again in each box, by the references' order there; the prefix and suffix round the
+  # reference, the note or both; the reference as big as the text; room between notes; the line
+  # above them standing in, so far above, in dashes; kept
+  var st = defaultStyle()
+  st.size = 20
+  var t = newText(repeat("Words that fill the box line after line. ", 14), st, 10, 10)
+  t.boxW = 300
+  t.boxH = 260
+  let a = t.insertNote(5, "The first note.")
+  let b = t.insertNote(t.runeLen, "The second, at the end.")
+  t.noteOpts.prefix = "["
+  t.noteOpts.suffix = "]"
+  let lay0 = layoutText(t)
+  let rest = t.remainder(lay0.overflow)
+  doAssert rest.noteNumber(b) == "2"
+  var r2 = rest
+  r2.noteOpts.restart = true
+  doAssert r2.noteNumber(b) == "1", "again from the first in the next box"
+  t.noteOpts.restart = true
+  doAssert t.noteNumber(a) == "1"
+  # the prefix and suffix: round the note's number only
+  t.noteOpts.affixIn = 2
+  let ex = layoutText(t)
+  var u = t
+  u.noteOpts.affixIn = 0
+  proc inText(l: TextLayout): int =
+    for g in l.glyphs:
+      if g.index >= 0: inc result
+  doAssert inText(ex) < inText(layoutText(u)), "no brackets round the reference"
+  # the reference as the text is: not raised
+  t.noteOpts.affixIn = 0
+  t.noteOpts.refNormal = true
+  var raised = false
+  for g in layoutText(t).glyphs:
+    if g.index >= 5 and g.index <= 7 and g.size < 19: raised = true
+  doAssert not raised, "the reference full size"
+  # the line: in from the edge, so far above, in dashes
+  t.noteOpts.ruleIndent = 30
+  t.noteOpts.ruleOffset = 12
+  t.noteOpts.ruleDash = true
+  t.noteOpts.between = 6
+  var dashes = 0
+  var left = 1e9'f32
+  for d in layoutText(t).decorations:
+    inc dashes
+    left = min(left, d.x0)
+  doAssert dashes > 3 and abs(left - 40) < 0.5, $dashes & " " & $left
+  let back = textFrom(t.toJson)
+  doAssert back.noteOpts.restart and back.noteOpts.refNormal and back.noteOpts.ruleDash and
+           back.noteOpts.ruleIndent == 30 and back.noteOpts.ruleOffset == 12 and back.noteOpts.between == 6
+
 block hyphenation:
   # Liang's patterns: where English words break; a paragraph that hyphenates breaks the word
   # that does not fit at a line's end, a hyphen after it, and fills its lines better

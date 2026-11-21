@@ -50,6 +50,27 @@ block tocAndIndex:
   let lay = layoutText(tt)
   doAssert lay.overflow == -1 and lay.glyphs.len > 40
   for ln in lay.lines[1 .. ^1]: doAssert abs(ln.x1 - 400) < 1, "each number at the edge: " & $ln.x1
+  # set as the layout program's dialog says: the number before, or none; something between; sorted;
+  # a style for a level and for the title; a dashed leader
+  let before = tocText(toc, "", st(16), 400, o = TocOptions(numbers: tnBefore, between: " -- "))
+  doAssert "3 -- Dhofar" in before.plainText and before.para.tabs.len == 0, before.plainText
+  let bare = tocText(toc, "", st(16), 400, o = TocOptions(numbers: tnNone, sorted: true))
+  doAssert bare.plainText.startsWith("    Before Dhofar\nDhofar") and "\t" notin bare.plainText, bare.plainText
+  var big = st(20)
+  big.fauxBold = true
+  var tts = st(40)
+  let styled = tocText(toc, "Contents", st(16), 400,
+                       o = TocOptions(levelStyles: @[big], titleStyle: tts, leader: "- "))
+  doAssert styled.spans[0].style.size == 40 and styled.para.tabs[0].leader == "- "
+  var chapterSized, sectionSized = false
+  for sp in styled.spans:
+    if "Muscat" in sp.text and sp.style.size == 20 and sp.style.fauxBold: chapterSized = true
+    if "Before Dhofar" in sp.text and sp.style.size == 16: sectionSized = true
+  doAssert chapterSized and sectionSized, "the first level in its style, the second as the list"
+  # text on a hidden layer: only when asked
+  for L in b.doc(2).layers:
+    if L.isText and "Before Dhofar" in L.text.plainText: L.visible = false
+  doAssert b.tocEntries(@["Chapter", "Section"]).len == 5 and b.tocEntries(@["Chapter", "Section"], hidden = true).len == 6
   var it = indexText(ix, "Index", st(14), 400)
   doAssert "Muscat\t1, 2" in it.plainText and "\nM\n" in it.plainText and it.para.tabs.len == 1
   let itAr = indexText(ix, "الفهرس", st(14), 400, rtl = true)

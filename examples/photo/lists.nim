@@ -3,11 +3,16 @@
 # the text at a size and up -- with their pages; Layout > Index takes the words asked for and
 # finds their pages. Each is placed as a text box on a page of its own (or on this one), and
 # keeps how it was made (`Layer.meta`): Update Table of Contents, Update Index make it again
-# as the pages are now.
+# as the pages are now. A table of contents as the layout program sets it: the page number
+# after the entry, before it or none, what is between them, the leader, the entries sorted, a
+# paragraph style's letters for each level, text on hidden layers, PDF bookmarks for its
+# entries, the one there is replaced; its settings kept by name in the book (TOC Styles).
 
 var
   listDlg: tuple[open, index: bool; title: string; styles: seq[string]; picked: seq[bool];
-                 minSize: int; words: string; letters, newPage: bool]
+                 minSize: int; words: string; letters, newPage: bool; numbers, leader: int; between: string;
+                 sorted, hidden, bookmarks, replace: bool; levelStyles: seq[string]; tocStyle: int;
+                 saveName: string]
 
 proc bookStyles(b: Book): seq[string] =
   ## (the paragraph styles the book's text boxes are in)
@@ -43,13 +48,50 @@ proc startLists(index: bool) =
   if listDlg.minSize <= 0: listDlg.minSize = max(12, int(round(bw.book.setup.dpi / 72 * 18)))
   listDlg.letters = true
   listDlg.newPage = true
+  listDlg.replace = true
+  listDlg.tocStyle = 0
+  listDlg.levelStyles = newSeq[string](listDlg.styles.len)
+
+const tocLeaders = [". ", "- ", "_", " "]   ## (dots, dashes, a line, none)
 
 proc listSettings(): JsonNode =
-  var picked: seq[string]
+  var picked, looks: seq[string]
   for i, s in listDlg.styles:
-    if listDlg.picked[i]: picked.add s
-  %*{(if listDlg.index: "index" else: "toc"): {"title": listDlg.title, "styles": picked,
+    if listDlg.picked[i]:
+      picked.add s
+      looks.add (if i < listDlg.levelStyles.len: listDlg.levelStyles[i] else: "")
+  result = %*{(if listDlg.index: "index" else: "toc"): {"title": listDlg.title, "styles": picked,
       "minSize": listDlg.minSize, "words": listDlg.words, "letters": listDlg.letters}}
+  if not listDlg.index:
+    let o = result["toc"]
+    o["numbers"] = %listDlg.numbers
+    o["between"] = %listDlg.between
+    o["leader"] = %tocLeaders[clamp(listDlg.leader, 0, tocLeaders.high)]
+    o["sorted"] = %listDlg.sorted
+    o["hidden"] = %listDlg.hidden
+    o["bookmarks"] = %listDlg.bookmarks
+    o["levelStyles"] = %looks
+
+proc takeTocStyle(j: JsonNode) =
+  ## (a kept TOC Style's settings into the dialog)
+  let o = j{"toc"}
+  if o == nil: return
+  listDlg.title = o{"title"}.getStr(listDlg.title)
+  var want: seq[string]
+  for s in o{"styles"}.getElems: want.add s.getStr
+  var looks: seq[string]
+  for s in o{"levelStyles"}.getElems: looks.add s.getStr
+  for i, s in listDlg.styles:
+    let k = want.find(s)
+    listDlg.picked[i] = k >= 0
+    listDlg.levelStyles[i] = if k >= 0 and k < looks.len: looks[k] else: ""
+  listDlg.minSize = o{"minSize"}.getInt(listDlg.minSize)
+  listDlg.numbers = clamp(o{"numbers"}.getInt(0), 0, 2)
+  listDlg.between = o{"between"}.getStr
+  listDlg.leader = max(0, tocLeaders.find(o{"leader"}.getStr(". ")))
+  listDlg.sorted = o{"sorted"}.getBool
+  listDlg.hidden = o{"hidden"}.getBool
+  listDlg.bookmarks = o{"bookmarks"}.getBool
 
 proc makeList(bw: BookWin; j: JsonNode; into: Layer = nil) =
   ## (the table of contents or the index made from `j`, placed -- or put in `into`, made again)
@@ -70,8 +112,37 @@ proc makeList(bw: BookWin; j: JsonNode; into: Layer = nil) =
   else:
     var styles: seq[string]
     for s in o{"styles"}.getElems: styles.add s.getStr
-    let toc = b.tocEntries(styles, (if styles.len == 0: o{"minSize"}.getInt(24).float32 else: 0), keep = [bw.page])
-    t = tocText(toc, o{"title"}.getStr, st, m.w.float32, rtl)
+    let toc = b.tocEntries(styles, (if styles.len == 0: o{"minSize"}.getInt(24).float32 else: 0), keep = [bw.page],
+                           hidden = o{"hidden"}.getBool)
+    # (each level in a paragraph style's letters -- the page's styles --, at the list's size)
+    var opts = TocOptions(numbers: TocNumbers(clamp(o{"numbers"}.getInt(0), 0, 2)), between: o{"between"}.getStr,
+                          leader: o{"leader"}.getStr, sorted: o{"sorted"}.getBool)
+    let page = bw.dw.doc
+    for ls in o{"levelStyles"}.getElems:
+      var look = CharStyle()
+      for def in page.paraStyles:
+        if def.name == ls.getStr and ls.getStr.len > 0:
+          look = def.char
+          if look.size <= 0: look.size = st.size
+      opts.levelStyles.add look
+    t = tocText(toc, o{"title"}.getStr, st, m.w.float32, rtl, opts)
+    if o{"bookmarks"}.getBool:
+      # (PDF bookmarks: each entry one, on its page -- those an earlier table made taken away first)
+      var made = newJArray()
+      if into != nil:
+        try:
+          for e in parseJson(into.meta){"toc"}{"made"}.getElems:
+            if e.kind == JArray and e.len == 2 and e[0].getInt(-1) in 0 .. b.pages.high:
+              let pd = b.doc(e[0].getInt)
+              for k in countdown(pd.bookmarks.high, 0):
+                if pd.bookmarks[k].title == e[1].getStr and pd.bookmarks[k].dest.len == 0: pd.bookmarks.delete(k)
+        except CatchableError: discard
+      for e in toc:
+        let pd = b.doc(e.page)
+        pd.bookmarks.add DocBookmark(title: e.text, level: e.level)
+        b.touch(e.page)
+        made.add %*[e.page, e.text]
+      o["made"] = made
   t.x = m.x.float32
   t.y = m.y.float32
   t.boxH = min(t.boxH, m.h.float32)
@@ -85,6 +156,7 @@ proc makeList(bw: BookWin; j: JsonNode; into: Layer = nil) =
     t.boxW = into.text.boxW
     t.boxH = max(t.boxH, into.text.boxH)
     d.setText(into, t)
+    into.meta = $j
     d.endStep()
   else:
     d.beginStep(if index: "Index" else: "Table of Contents")
@@ -133,6 +205,17 @@ proc listOk() =
   listDlg.open = false
   if bw == nil: return
   let j = listSettings()
+  if not listDlg.index and listDlg.replace:
+    # (Replace Existing Table of Contents: the one there is, made again as this says)
+    let b = bw.book
+    for i in 0 ..< b.pages.len:
+      let d = b.doc(i)
+      for L in d.layers:
+        if L.isText and L.meta.startsWith("{\"toc\""):
+          if i != bw.page: bw.showPage(i)
+          makeList(bw, j, L)
+          return
+      if i != bw.page: b.park([bw.page])
   if listDlg.newPage:
     let at = if listDlg.index: bw.book.pages.len else: 0
     try:
@@ -159,10 +242,24 @@ proc listsDialog() =
       editArea(listDlg.words, lines = 8)
       checkbox("A heading for each first letter", listDlg.letters)
     else:
+      let b = bw.book
+      row([90, -1, 90]):
+        label "TOC Style:"
+        var names = @[tr("[Default]")]
+        for (n, _) in b.tocStyles: names.add n
+        if combo(names, listDlg.tocStyle, w = dp(200)) and listDlg.tocStyle > 0:
+          try: takeTocStyle(parseJson(b.tocStyles[listDlg.tocStyle - 1].settings))
+          except CatchableError: discard
       if listDlg.styles.len > 0:
-        label "The headings: text boxes in these paragraph styles (the first picked the highest level):"
+        label "The headings: text boxes in these paragraph styles (the first picked the highest level), each in:"
+        var looks = @[tr("[As the list]")]
+        for def in bw.dw.doc.paraStyles: looks.add def.name
         for i, s in listDlg.styles:
-          checkbox(s, listDlg.picked[i])
+          row([200, -1]):
+            checkbox(s, listDlg.picked[i])
+            if listDlg.picked[i]:
+              var k = max(0, looks.find(listDlg.levelStyles[i]))
+              if combo(looks, k, w = dp(180)): listDlg.levelStyles[i] = if k <= 0: "" else: looks[k]
       var any = false
       for p in listDlg.picked: any = any or p
       if not any:
@@ -170,7 +267,42 @@ proc listsDialog() =
           label "Or the text set at, and over:"
           spin(listDlg.minSize, 4, 2000, w = dp(70))
         label("(pixels: the headings by their size)", color = ui.theme.gray)
-    checkbox("On a new page (else on this one)", listDlg.newPage)
+      group("Page Number"):
+        row([120, -1]):
+          label ""
+          var nk = listDlg.numbers
+          if combo([tr("After Entry"), tr("Before Entry"), tr("No Page Number")], nk, w = dp(170)):
+            listDlg.numbers = nk
+        if listDlg.numbers != 2:
+          row([120, -1]):
+            label "Between:"
+            edit(listDlg.between, w = dp(120))
+          if listDlg.numbers == 0 and listDlg.between.len == 0:
+            row([120, -1]):
+              label "Leader:"
+              discard combo([tr("Dots"), tr("Dashes"), tr("A line"), tr("None")], listDlg.leader, w = dp(120))
+          label(if listDlg.numbers == 0: "Empty: a tab to the far edge, the leader before the number."
+                else: "Empty: two spaces.", color = ui.theme.gray)
+      checkbox("Sort Entries in Alphabetical Order", listDlg.sorted)
+      checkbox("Include Text on Hidden Layers", listDlg.hidden)
+      checkbox("Create PDF Bookmarks", listDlg.bookmarks)
+      checkbox("Replace Existing Table of Contents", listDlg.replace)
+      row([90, -1, 110]):
+        label "Save as:"
+        edit(listDlg.saveName, w = dp(160))
+        if button("Save Style", w = dp(100), enabled = listDlg.saveName.strip.len > 0):
+          let n = listDlg.saveName.strip
+          let v = $listSettings()
+          var found = false
+          for e in b.tocStyles.mitems:
+            if e.name == n:
+              e.settings = v
+              found = true
+          if not found: b.tocStyles.add (n, v)
+          b.modified = true
+          status = tr("TOC Style kept: ") & n
+    checkbox(if listDlg.index: "On a new page (else on this one)"
+             else: "On a new page when there is none to replace (else on this one)", listDlg.newPage)
     row:
       spring()
       if button("OK", isDefault = true, w = dp(80)): ok = true
