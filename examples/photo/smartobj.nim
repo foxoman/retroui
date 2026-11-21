@@ -657,7 +657,7 @@ proc warpModeBar() =
 
 var
   bgOpen = false
-  bgKind = 1                     ## Field, Iris, Tilt-Shift
+  bgKind = 1                     ## Field, Iris, Tilt-Shift, Path, Spin
   bgDoc: Doc
   bgSmall: Img
   bgK = 1.0                      ## small / full
@@ -672,6 +672,13 @@ var
   bgBokeh = 0                    ## Light Bokeh %
   bgPins: seq[(float, float, float)]   ## Field: x, y (0..1) and its blur
   bgPin = 0
+  bgSpin = 15                    ## Spin: degrees the wheel turns
+  bgSpinFeather = 15             ## Spin: % of the way out it softens over
+  bgPath: seq[(float, float)]    ## Path: its points (0..1 of the image)
+  bgPathPt = -1
+  bgSpeed = 40                   ## Path: pixels of motion
+  bgTaper = 0                    ## Path: % less towards its end
+  bgCentered = true              ## Path: as much before the pixel as after
   bgPreview: Bitmap
   bgKey = ""
 
@@ -687,6 +694,7 @@ proc startBlurGallery(kind: int) =
   bgSmall = Img(w: small.w, h: small.h, px: small.px)
   bgK = pw / d.w
   if bgPins.len == 0: bgPins = @[(0.3, 0.5, 0.0), (0.75, 0.5, 15.0)]
+  if bgPath.len < 2: bgPath = @[(0.25, 0.55), (0.5, 0.45), (0.75, 0.55)]
   bgKey = ""
   bgOpen = true
 
@@ -705,6 +713,20 @@ proc bgRadius(w, h: int; k: float): seq[float32] =
     tiltShiftRadius(w, h, bgCx * w.float, bgCy * h.float, bgAngle.float, bgBand / 100 * h.float,
                     bgFade / 100 * h.float, blur)
 
+const bgNames = ["Field Blur", "Iris Blur", "Tilt-Shift", "Path Blur", "Spin Blur"]
+
+proc bgMoving(src: Img; w, h: int; k, ox, oy: float): Img =
+  ## (Path and Spin: `src` blurred, the image `w` x `h` at scale `k`; `ox`,
+  ## `oy`: where `src`'s corner is in it)
+  if bgKind == 3:
+    var pts: seq[(float, float)]
+    for (u, v) in bgPath: pts.add (u * w.float, v * h.float)
+    pathBlurImg(src, pts, bgSpeed.float * k, bgTaper / 100, bgCentered, ox, oy)
+  else:
+    let rx = bgSize / 100 * min(w, h).float
+    spinBlurImg(src, bgCx * w.float, bgCy * h.float, rx, rx * bgAspect.float / 100, bgAngle.float,
+                bgSpin.float, bgSpinFeather / 100, ox, oy)
+
 proc bgMax(k: float): float =
   var m = bgBlur.float
   if bgKind == 0:
@@ -720,9 +742,12 @@ proc blurGalleryDialog() =
     row([350, -1]):
       col:
         let key = $bgKind & "/" & $bgBlur & "/" & $bgCx & "/" & $bgCy & "/" & $bgSize & "/" & $bgAspect & "/" &
-                  $bgSharp & "/" & $bgAngle & "/" & $bgBand & "/" & $bgFade & "/" & $bgBokeh & "/" & $bgPins
+                  $bgSharp & "/" & $bgAngle & "/" & $bgBand & "/" & $bgFade & "/" & $bgBokeh & "/" & $bgPins &
+                  "/" & $bgSpin & "/" & $bgSpinFeather & "/" & $bgPath & "/" & $bgSpeed & "/" & $bgTaper & "/" &
+                  $bgCentered
         if key != bgKey or bgPreview == nil:
-          let o = variableBlur(bgSmall, bgRadius(bgSmall.w, bgSmall.h, bgK), bgMax(bgK), bgBokeh / 100)
+          let o = if bgKind >= 3: bgMoving(bgSmall, bgSmall.w, bgSmall.h, bgK, 0, 0)
+                  else: variableBlur(bgSmall, bgRadius(bgSmall.w, bgSmall.h, bgK), bgMax(bgK), bgBokeh / 100)
           bgPreview = newBitmap(o.w, o.h)
           bgPreview.px = o.px
           bgKey = key
@@ -740,13 +765,29 @@ proc blurGalleryDialog() =
               let (hx, hy) = at(x, y)
               ellipseOnScreen(hx - 6, hy - 6, hx + 6, hy + 6, if i == bgPin: color(255, 255, 0) else: color(255, 255, 255))
               ellipseOnScreen(hx - 7, hy - 7, hx + 7, hy + 7, color(0, 0, 0))
-          of 1:
+          of 3:
+            for i in 0 ..< bgPath.len:
+              let (hx, hy) = at(bgPath[i][0], bgPath[i][1])
+              if i > 0:
+                let (px0, py0) = at(bgPath[i - 1][0], bgPath[i - 1][1])
+                line(px0, py0, hx, hy, color(255, 255, 255))
+              ellipseOnScreen(hx - 5, hy - 5, hx + 5, hy + 5, if i == bgPathPt: color(255, 255, 0) else: color(255, 255, 255))
+              ellipseOnScreen(hx - 6, hy - 6, hx + 6, hy + 6, color(0, 0, 0))
+            if bgPath.len >= 2:
+              # (an arrowhead at its end: the way it goes)
+              let (ex, ey) = at(bgPath[^1][0], bgPath[^1][1])
+              let (bx, by) = at(bgPath[^2][0], bgPath[^2][1])
+              let a = arctan2((ey - by).float, (ex - bx).float)
+              for s in [-0.5, 0.5]:
+                line(ex, ey, ex - int(cos(a + s) * 12), ey - int(sin(a + s) * 12), color(255, 255, 255))
+          of 1, 4:
             let (hx, hy) = at(bgCx, bgCy)
             let rx = int(bgSize / 100 * min(pw, ph))
             let ry = rx * bgAspect div 100
             ellipseOnScreen(hx - rx, hy - ry, hx + rx, hy + ry, color(255, 255, 255))
-            let sx = rx * bgSharp div 100
-            let sy = ry * bgSharp div 100
+            let inner = if bgKind == 4: 100 - bgSpinFeather else: bgSharp
+            let sx = rx * inner div 100
+            let sy = ry * inner div 100
             ellipseOnScreen(hx - sx, hy - sy, hx + sx, hy + sy, color(0, 0, 0))
             fill(rect(hx - 3, hy - 3, 7, 7), color(255, 255, 255))
             box(rect(hx - 3, hy - 3, 7, 7), color(0, 0, 0))
@@ -766,7 +807,19 @@ proc blurGalleryDialog() =
           if pb.dragging or (ui.pressed and mouseIn(pb.pic)):
             let u = clamp((ui.mx - pb.pic.x).float / pw, 0.0, 1.0)
             let v = clamp((ui.my - pb.pic.y).float / ph, 0.0, 1.0)
-            if bgKind == 0:
+            if bgKind == 3:
+              if ui.pressed:
+                # a point near: picked; elsewhere: one more at the path's end
+                var best = -1
+                for i, (x, y) in bgPath:
+                  if abs((x - u) * pw) < 9 and abs((y - v) * ph) < 9: best = i
+                if best < 0:
+                  bgPath.add (u, v)
+                  best = bgPath.high
+                bgPathPt = best
+              elif bgPathPt in 0 .. bgPath.high:
+                bgPath[bgPathPt] = (u, v)
+            elif bgKind == 0:
               if ui.pressed:
                 # a pin near: picked; elsewhere: a new one
                 var best = -1
@@ -785,8 +838,23 @@ proc blurGalleryDialog() =
       col:
         row:
           label "Blur:"
-          combo(["Field Blur", "Iris Blur", "Tilt-Shift"], bgKind, w = dp(140))
-        if bgKind == 0:
+          combo(bgNames, bgKind, w = dp(140))
+        if bgKind == 3:
+          wideSlider("Speed:", bgSpeed, 0, 500, " px")
+          wideSlider("Taper:", bgTaper, 0, 100, "%")
+          checkbox("Centered Blur", bgCentered)
+          if button("Clear the Path", w = dp(140)):
+            bgPath = @[(0.3, 0.5), (0.7, 0.5)]
+            bgPathPt = -1
+          label("Click the picture to go on with the path; drag a point to move it.", color = ui.theme.gray)
+        elif bgKind == 4:
+          wideSlider("Blur Angle:", bgSpin, 0, 360, "°")
+          wideSlider("Size:", bgSize, 2, 100, "%")
+          wideSlider("Roundness:", bgAspect, 10, 300, "%")
+          wideSlider("Feather:", bgSpinFeather, 1, 100, "%")
+          wideSlider("Angle:", bgAngle, -90, 90, "°")
+          label("Drag on the picture to move its middle.", color = ui.theme.gray)
+        elif bgKind == 0:
           if bgPin in 0 .. bgPins.high:
             var b = int(bgPins[bgPin][2])
             if wideSlider("Pin's Blur:", b, 0, 200, " px"): bgPins[bgPin][2] = b.float
@@ -805,15 +873,32 @@ proc blurGalleryDialog() =
             wideSlider("Fade:", bgFade, 1, 60, "%")
           wideSlider("Angle:", bgAngle, -90, 90, "°")
           label("Drag on the picture to move its middle.", color = ui.theme.gray)
-        group("Effects"):
-          wideSlider("Light Bokeh:", bgBokeh, 0, 100, "%")
+        if bgKind < 3:
+          group("Effects"):
+            wideSlider("Light Bokeh:", bgBokeh, 0, 100, "%")
     row:
       spring()
       if button("OK", isDefault = true, w = dp(80)): go = true
       if button("Cancel", w = dp(80)): bgOpen = false
   if go:
     bgOpen = false
-    let name = ["Field Blur", "Iris Blur", "Tilt-Shift"][clamp(bgKind, 0, 2)]
+    let name = bgNames[clamp(bgKind, 0, bgNames.high)]
+    if bgKind >= 3:
+      # (Path and Spin: motion -- the room round each part as far as it moves)
+      let wr = d.workRect
+      let dw0 = d.w
+      let dh0 = d.h
+      let reach = if bgKind == 3: bgSpeed.float
+                  else: bgSize / 100 * min(d.w, d.h).float * max(1.0, bgAspect / 100) *
+                        min(PI, degToRad(bgSpin.float) / 2)
+      beginBusy(name)
+      try:
+        d.beginStep(name)
+        d.applyFilter(min(int(reach) + 2, max(d.w, d.h)), proc (src: Img; inner: Rect): Img =
+          bgMoving(src, dw0, dh0, 1.0, float(wr.x - inner.x), float(wr.y - inner.y)))
+        d.endStep()
+      finally: endBusy()
+      return
     let rad = bgRadius(d.w, d.h, 1.0)
     let mx = bgMax(1.0)
     let bok = bgBokeh / 100

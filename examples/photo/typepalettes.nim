@@ -1241,6 +1241,9 @@ proc layerStyleMenu(d: Doc) =
     d.stepOnce("Hide Effects", proc () =
       L.fx.hidden = not L.fx.hidden
       d.markAll())
+  menuSeparator()
+  if menuItem("Create Layers", enabled = ok and L.hasStyle and not L.fx.hidden): runCommand("Create Layers")
+  if menuItem("Scale Effects...", enabled = ok and L.hasStyle): runCommand("Scale Effects...")
 
 proc typeMenu(d: Doc) =
   let L = if d != nil: (if te.on: te.layer else: d.current) else: nil

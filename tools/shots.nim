@@ -801,12 +801,12 @@ do:
 
 part("Numbers, dates, colors", """
 Numbers are typed and shown as the user reads them ("1,234.50";
-`formatNumber`, `parseNumber`). `Date` is a plain (year, month, day) with
+`formatNumber`, `parseNumber`; a sum typed, "1200/2", is its number: `evalNumber`). `Date` is a plain (year, month, day) with
 `today()`, `addDays`, `addMonths`, `weekday` and `parseDate`.
 """)
 
 example("numbers", "spin, intEdit, numberEdit",
-        "Numbers to type: `spin` with its arrows (the wheel and Up/Down too), `intEdit` whole numbers, `numberEdit` decimals with `lo`, `hi` and `decimals`.",
+        "Numbers to type: `spin` with its arrows (the wheel and Up/Down too), `intEdit` whole numbers, `numberEdit` decimals with `lo`, `hi` and `decimals`. Each takes a little sum too (\"1200/2\", \"40+15\").",
         340, 100, ["spin", "intEdit", "numberEdit"], input4):
   var copies = 2
   var qty = 12

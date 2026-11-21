@@ -500,7 +500,7 @@ proc scrubLabel*(s: string; v: var int; lo, hi: int; step = 1): bool {.discardab
       v = nv
       result = true
   state(id) = st
-  text(r.x, r.y + (r.h - FontH) div 2, s, th.text)
+  drawLabel(r.x, r.y + (r.h - FontH) div 2, s, th.text)    # (in the app's language, as it was measured)
   if accessOn:
     # (read as the label it is, naming the field after it)
     accessLabelFor(s)
@@ -2228,6 +2228,67 @@ proc progress*(value: float; w = 0; showText = true) =
     text(tx, ty, s, th.selectText)
     popClip()
 
+type SumReader = object
+  t: string
+  i: int
+  bad: bool
+
+proc sumExpr(r: var SumReader): float
+
+proc sumAtom(r: var SumReader): float =
+  if r.i < r.t.len and r.t[r.i] in {'-', '+'}:
+    let neg = r.t[r.i] == '-'
+    inc r.i
+    let x = r.sumAtom()
+    return (if neg: -x else: x)
+  if r.i < r.t.len and r.t[r.i] == '(':
+    inc r.i
+    result = r.sumExpr()
+    if r.i < r.t.len and r.t[r.i] == ')': inc r.i else: r.bad = true
+    return
+  let st = r.i
+  while r.i < r.t.len and r.t[r.i] in {'0'..'9', '.'}: inc r.i
+  if r.i == st:
+    r.bad = true
+    return 0
+  try: result = parseFloat(r.t[st ..< r.i])
+  except ValueError: r.bad = true
+
+proc sumTerm(r: var SumReader): float =
+  result = r.sumAtom()
+  while not r.bad and r.i < r.t.len and r.t[r.i] in {'*', '/'}:
+    let op = r.t[r.i]
+    inc r.i
+    let y = r.sumAtom()
+    if op == '*': result *= y
+    elif y == 0: r.bad = true
+    else: result /= y
+
+proc sumExpr(r: var SumReader): float =
+  result = r.sumTerm()
+  while not r.bad and r.i < r.t.len and r.t[r.i] in {'+', '-'}:
+    let op = r.t[r.i]
+    inc r.i
+    let y = r.sumTerm()
+    if op == '+': result += y else: result -= y
+
+proc evalNumber*(s: string; v: var float): bool =
+  ## A number typed, or a little sum that makes one -- "1200/2", "40+15",
+  ## "3*(8-2)", "-2.5" -- into `v` (as Photoshop's fields take them): + - * /,
+  ## brackets, decimals, spaces; thousands separators (",") ignored. False (`v`
+  ## left alone) when it is not one yet ("12*"), divides by nothing, or is too big.
+  var r = SumReader()
+  for c in s:
+    if c notin {' ', ','}: r.t.add c
+  if r.t.len == 0: return false
+  let x = r.sumExpr()
+  if r.bad or r.i != r.t.len or classify(x) in {fcNan, fcInf, fcNegInf}: return false
+  v = x
+  true
+
+const NumberSumChars* = {'0'..'9', '-', '+', '*', '/', '(', ')', ' '}
+  ## (what a number box takes: digits and a little sum's signs)
+
 proc spinBox(v: var int; lo, hi, w, step: int; enabled: bool; h, uiFontH: int): bool =
   let r = place(w, styledH(h, EditH, uiFontH))
   let id = idOf(v, "spin")
@@ -2245,9 +2306,9 @@ proc spinBox(v: var int; lo, hi, w, step: int; enabled: bool; h, uiFontH: int): 
   let ups = rect(r.x + r.w - aw, r.y, aw, r.h div 2 + 1)
   let downs = rect(r.x + r.w - aw, r.y + r.h div 2, aw, r.h - r.h div 2)
   if editAt(editId, st.buf, rect(r.x, r.y, r.w - aw + 1, r.h), false, false,
-             enabled, {'0'..'9', '-'}):
-    try: nv = parseInt(st.buf)
-    except ValueError: discard
+             enabled, NumberSumChars):
+    var x: float
+    if evalNumber(st.buf, x) and abs(x) < 1e15: nv = int(round(x))
   if enabled and canInput():
     if ui.focus == editId:
       if keyHit(KeyUp): nv += step
@@ -2295,9 +2356,9 @@ proc spinBox(v: var int; lo, hi, w, step: int; enabled: bool; h, uiFontH: int): 
 proc spin*(v: var int; lo, hi: int; w = 80; step = 1;
            enabled = true; h = 0; style = TextStyle()): bool {.discardable.} =
   ## A number box with up and down arrows bound to `v` in `lo..hi`: type a
-  ## number, click or hold the arrows, or with the focus Up / Down (`step`),
-  ## Page Up / Page Down (ten steps) and the wheel. `style`: its digits'
-  ## (`style(size = 1.6, bold = true)`); the box and its arrows grow with
+  ## number (or a little sum: "1200/2", `evalNumber`), click or hold the arrows, or with the
+  ## focus Up / Down (`step`), Page Up / Page Down (ten steps) and the wheel. `style`: its
+  ## digits' (`style(size = 1.6, bold = true)`); the box and its arrows grow with
   ## them, or to `h`.
   let uiFontH = FontH
   withTextStyle(style):
@@ -2306,7 +2367,7 @@ proc spin*(v: var int; lo, hi: int; w = 80; step = 1;
 proc popupSlider*(v: var int; lo, hi: int; w = 0; unit = "%";
                   enabled = true): bool {.discardable.} =
   ## A number box with a slider that drops down from its arrow, as a tool's
-  ## options bar has for Opacity, Flow or Tolerance: type the number; or
+  ## options bar has for Opacity, Flow or Tolerance: type the number (or a sum); or
   ## press the arrow and drag (letting go closes it); or click the arrow,
   ## then click or drag on the slider (Enter, Esc or a click outside close
   ## it). Up / Down and the wheel step it when it has the focus; F4 or
@@ -2320,16 +2381,16 @@ proc popupSlider*(v: var int; lo, hi: int; w = 0; unit = "%";
   if ui.focus != editId: st.buf = $v & unit
   let field = rect(r.x, r.y, r.w - SbW + 1, r.h)
   let btn = rect(r.x + r.w - SbW, r.y, SbW, r.h)
-  var allowed = {'0'..'9', '-'}
+  var allowed = NumberSumChars
   for c in unit: allowed.incl c
   var buf = st.buf
   var nv = v
   if editAt(editId, buf, field, false, false, enabled, allowed):
-    var digits = ""
+    var sum = ""
     for c in buf:
-      if c in {'0'..'9'} or (c == '-' and digits.len == 0): digits.add c
-    try: nv = parseInt(digits)
-    except ValueError: discard
+      if c in NumberSumChars: sum.add c
+    var x: float
+    if evalNumber(sum, x) and abs(x) < 1e15: nv = int(round(x))
   st.buf = buf
   if enabled and canInput():
     if hover(btn) and takePress():

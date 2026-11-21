@@ -37,7 +37,8 @@ const recordableCommands = [
   "Grayscale", "RGB Color", "CMYK Color", "Lab Color", "Horizontal", "Vertical", "Flip Layer Horizontal",
   "Flip Layer Vertical", "180°", "90° CW", "90° CCW", "Duplicate Layer", "Delete Layer", "Layer via Copy",
   "Layer via Cut", "Group Layers", "Ungroup Layers", "Crop", "Clear", "Erase Image", "Content-Aware Fill",
-  "Subject", "Sky", "Grow", "Similar", "Copy", "Copy Merged", "Paste", "Paste Into", "Cut", "Bring to Front",
+  "Subject", "Sky", "Grow", "Similar", "Copy", "Copy Merged", "Paste", "Paste Into", "Paste Outside",
+  "Paste in Place", "Create Layers", "Split Channels", "Cut", "Bring to Front",
   "Bring Forward", "Send Backward", "Send to Back", "Rasterize Layer Style", "New Snapshot", "Lock Layer",
   "Unlock Layer", "Create Clipping Mask", "Release Clipping Mask", "Save Selection", "Load Selection",
   "Trim"]

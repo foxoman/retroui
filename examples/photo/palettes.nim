@@ -1448,6 +1448,9 @@ proc layerMenuItems(tab: int) =
     if menuItem("Show All Channels", enabled = d != nil):
       d.showAllChannels()
       inc d.ver
+    menuSeparator()
+    if menuItem("Split Channels", enabled = d != nil and d.depth == 8): runCommand("Split Channels")
+    if menuItem("Merge Channels..."): runCommand("Merge Channels...")
   else:
     if menuItem("Make Work Path", enabled = d != nil and d.hasSelection):
       d.snapStep("Make Path")

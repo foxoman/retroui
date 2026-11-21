@@ -175,14 +175,16 @@ proc psMenus() =
         ci("&Undo")
         ci("&Redo")
       ci("T&oggle Last State", enabled = some and (d.canUndo or d.canRedo))
+      ci("&Fade...", "Fade...", enabled = some and d.canUndo)
       sep()
       ci("Cu&t", "Cut", enabled = sel)
       ci("&Copy", enabled = some)
       ci("Copy &Merged", enabled = some and d.layers.len > 1)
       ci("&Paste", enabled = some or hasClip)
       psSub "Paste &Special":
-        ci("Paste in &Place", "Paste", enabled = hasClip)
+        ci("Paste in &Place", "Paste in Place", enabled = hasClip)
         ci("Paste &Into", enabled = sel and hasClip)
+        ci("Paste &Outside", "Paste Outside", enabled = sel and hasClip)
         ci("Paste as &Layer...", "Paste Layer...", enabled = some and hasClip)
       ci("Cl&ear", "Clear", enabled = some)
       sep()
@@ -654,6 +656,8 @@ proc psMenus() =
         ci("&Field Blur...", enabled = edits)
         ci("&Iris Blur...", enabled = edits)
         ci("&Tilt-Shift...", enabled = edits)
+        ci("&Path Blur...", "Path Blur...", enabled = edits)
+        ci("&Spin Blur...", "Spin Blur...", enabled = edits)
       psSub "&Distort":
         psFilters(["&Pinch...", "Polar &Coordinates...", "&Ripple..."])
         ci("S&hear...", "Shear...", enabled = edits)
@@ -694,7 +698,15 @@ proc psMenus() =
       ci("&Before && After", "Before & After", enabled = some, checked = active != nil and
          cast[pointer](active) in baSplit)
       sep()
-      ci("Proof &Colors", "CMYK Preview", enabled = some and d.mode in {cmRGB, cmLab}, checked = some and d.proof)
+      psSub "Proof Set&up":
+        ci("Working &CMYK", "Proof Setup: Working CMYK", enabled = some, checked = proofSetup == 0)
+        sep()
+        ci("Color Blindness - &Protanopia-type", "Proof Setup: Color Blindness - Protanopia-type",
+           enabled = some, checked = proofSetup == 1)
+        ci("Color Blindness - &Deuteranopia-type", "Proof Setup: Color Blindness - Deuteranopia-type",
+           enabled = some, checked = proofSetup == 2)
+      ci("Proof &Colors", "CMYK Preview", enabled = some and (proofSetup > 0 or d.mode in {cmRGB, cmLab}),
+         checked = some and (d.proof or d.blindView != 0))
       ci("Gamut Wa&rning", "Gamut Warning", enabled = some and d.mode in colorModes,
          checked = some and d.gamutWarning)
       ci("32-bit &Preview Options...", enabled = some and d.depth == 32)

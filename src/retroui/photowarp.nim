@@ -2,8 +2,8 @@
 ## with a brush, on a mesh), Lens Correction (distortion, chromatic
 ## aberration, vignette, perspective, angle, scale), Straighten, Warp (a
 ## grid of 4 x 4 points, or a style), Puppet Warp (pins), Smart Objects
-## drawn from what they hold, and the Blur Gallery (Field, Iris and
-## Tilt-Shift blurs).
+## drawn from what they hold, and the Blur Gallery (Field, Iris,
+## Tilt-Shift, Path and Spin blurs).
 ##
 ## ```nim
 ## var m = newLiquifyMesh(img.w, img.h)
@@ -877,6 +877,124 @@ proc fieldRadius*(w, h: int; pins: openArray[(float, float, float)]): seq[float3
         s += wt * b
         sw += wt
       rp[y * w + x] = float32(if exact >= 0: exact else: s / sw)
+
+proc mixSamples(sp: ptr UncheckedArray[uint32]; w, h: int; pts: openArray[(float32, float32)]): uint32 =
+  ## (the average of the picture at `pts`, alpha weighted)
+  var a, r, g, b = 0.0'f32
+  for (x, y) in pts:
+    let p = bilinear(sp, w, h, x, y, 0, true)
+    let al = float32(aOf(p))
+    a += al; r += float32(rOf(p)) * al; g += float32(gOf(p)) * al; b += float32(bOf(p)) * al
+  let n = float32(max(1, pts.len))
+  if a <= 0: return 0
+  argb(int(a / n + 0.5), int(r / a + 0.5), int(g / a + 0.5), int(b / a + 0.5))
+
+proc spinBlurImg*(src: Img; cx, cy, rx, ry, angle, spin: float; feather = 0.15; ox = 0.0; oy = 0.0): Img =
+  ## Spin Blur: what is inside an ellipse (round `cx`, `cy`, radii `rx`, `ry`,
+  ## turned `angle` degrees) blurred round its middle, as a wheel turning
+  ## through `spin` degrees while the shutter is open; softening to nothing
+  ## over the last `feather` (0..1) of the way out. (`ox`, `oy`: where `src`'s
+  ## corner is in the image the middle is measured in.)
+  result = newImg(src.w, src.h)
+  let sp = pptr(src.px)
+  let dp = pptr(result.px)
+  let ca = cos(degToRad(angle))
+  let sa = sin(degToRad(angle))
+  let arc = degToRad(clamp(spin, 0.0, 360.0))
+  let w = src.w
+  let h = src.h
+  parallelRows(h, y):
+    var pts: seq[(float32, float32)]
+    for x in 0 ..< w:
+      let ix = x.float + 0.5 + ox
+      let iy = y.float + 0.5 + oy
+      let dx = ix - cx
+      let dy = iy - cy
+      let u = (dx * ca + dy * sa) / max(1.0, rx)
+      let v = (-dx * sa + dy * ca) / max(1.0, ry)
+      let t = 1 - smoothstep(1 - clamp(feather, 0.001, 1.0), 1.0, sqrt(u * u + v * v))
+      let i = y * w + x
+      let rad = hypot(dx, dy)
+      if t <= 0 or arc <= 0 or rad < 0.5:
+        dp[i] = sp[i]
+        continue
+      # (as many samples as the arc is long there, up to 64)
+      let n = clamp(int(rad * arc * t / 1.5) + 1, 1, 64)
+      pts.setLen(0)
+      for k in 0 ..< n:
+        let a = (if n == 1: 0.0 else: (k.float / (n - 1).float - 0.5)) * arc * t
+        let c = cos(a)
+        let s = sin(a)
+        pts.add (float32(cx + dx * c - dy * s - ox), float32(cy + dx * s + dy * c - oy))
+      dp[i] = mixSamples(sp, w, h, pts)
+
+proc pathBlurImg*(src: Img; path: openArray[(float, float)]; speed: float; taper = 0.0;
+                  centered = true; ox = 0.0; oy = 0.0): Img =
+  ## Path Blur: motion along a path (its points, in the image) -- each pixel
+  ## smeared `speed` pixels along the way the path goes near it (the nearer
+  ## parts of it count more); `taper` (0..1) makes it less towards the path's
+  ## end. `centered`: as much before as after the pixel (otherwise the smear
+  ## trails behind it). (`ox`, `oy`: where `src`'s corner is in the image.)
+  result = newImg(src.w, src.h)
+  let sp = pptr(src.px)
+  let dp = pptr(result.px)
+  if path.len < 2 or speed <= 0.5:
+    result.px = src.px
+    return
+  var segs: seq[(float, float, float, float, float)]   # (x0, y0, ux, uy, where along it 0..1)
+  var total = 0.0
+  for i in 0 ..< path.len - 1: total += hypot(path[i + 1][0] - path[i][0], path[i + 1][1] - path[i][1])
+  var run = 0.0
+  for i in 0 ..< path.len - 1:
+    let (x0, y0) = path[i]
+    let (x1, y1) = path[i + 1]
+    let l = hypot(x1 - x0, y1 - y0)
+    if l < 1e-6: continue
+    segs.add (x0, y0, (x1 - x0) / l, (y1 - y0) / l, run / max(1e-9, total))
+    run += l
+  if segs.len == 0:
+    result.px = src.px
+    return
+  let w = src.w
+  let h = src.h
+  let pieces = segs
+  let segLens = block:
+    var s: seq[float]
+    for i in 0 ..< path.len - 1:
+      let l = hypot(path[i + 1][0] - path[i][0], path[i + 1][1] - path[i][1])
+      if l >= 1e-6: s.add l
+    s
+  parallelRows(h, y):
+    var pts: seq[(float32, float32)]
+    for x in 0 ..< w:
+      let ix = x.float + 0.5 + ox
+      let iy = y.float + 0.5 + oy
+      # the way to go: each piece of the path weighted by how near it is
+      var vx, vy, along, sw = 0.0
+      for k, (x0, y0, ux, uy, at) in pieces:
+        let l = segLens[k]
+        let t = clamp((ix - x0) * ux + (iy - y0) * uy, 0.0, l)
+        let d2 = (ix - (x0 + ux * t)) ^ 2 + (iy - (y0 + uy * t)) ^ 2 + 1.0
+        let wt = 1 / d2
+        vx += ux * wt
+        vy += uy * wt
+        along += (at + t / max(1e-9, total)) * wt
+        sw += wt
+      let vl = hypot(vx, vy)
+      let i = y * w + x
+      if vl < 1e-9:
+        dp[i] = sp[i]
+        continue
+      vx /= vl
+      vy /= vl
+      let len = speed * (1 - clamp(taper, 0.0, 1.0) * along / sw)
+      let n = clamp(int(len / 1.5) + 1, 1, 64)
+      pts.setLen(0)
+      for k in 0 ..< n:
+        let f = if n == 1: 0.0 else: k.float / (n - 1).float
+        let s = if centered: (f - 0.5) * len else: -f * len
+        pts.add (float32(ix + vx * s - ox), float32(iy + vy * s - oy))
+      dp[i] = mixSamples(sp, w, h, pts)
 
 # ---- several layers transformed together ---------------------------------------------------------
 

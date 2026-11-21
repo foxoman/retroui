@@ -1219,7 +1219,8 @@ proc propertiesBody(d: Doc) =
   row:
     let ir = place(dp(16), dp(16))
     image(ir.x, ir.y, glyphIcon(icon, ui.theme.text, dp(16)))
-    label(ellipsize(kind & (if L.background: "" else: ": " & L.name), available()), bold = true)
+    label(ellipsize(tr(kind) & (if L.background: "" else: ": " & L.name), available()), bold = true,
+          literal = true)                 # (its kind in the app's language, its name as it is)
   if L.background and d.layers.len == 1 or (L.background and L.mask == nil):
     documentProps(d)
   if not L.background:

@@ -2539,9 +2539,9 @@ proc numberAt(id: Id; v: var float; decimals, w: int; lo, hi: float;
       st.aux = 2                              # (selected: typing replaces it)
   var buf = st.buf
   if editAt(editId, buf, r, false, false, enabled,
-            {'0'..'9', '-', '.', ','}, right = true):
+            NumberSumChars + {'.', ','}, right = true):
     var x: float
-    if parseNumber(buf, x) and x >= lo and x <= hi and x != v:
+    if evalNumber(buf, x) and x >= lo and x <= hi and x != v:
       v = x
       result = true
   # (the focus come, by a click or by Tab: the whole number selected, so
@@ -2563,7 +2563,8 @@ proc numberEdit*(v: var float; decimals = 2; w = 110; lo = NegInf;
                  enabled = true; h = 0; style = TextStyle()): bool {.discardable.} =
   ## A right-aligned number field; shows `decimals` places (0 to 12) and
   ## thousands separators when it does not have the focus. Only numbers
-  ## from `lo` to `hi` are taken (true when `v` changed). Clicking or
+  ## from `lo` to `hi` are taken (true when `v` changed); a little sum typed
+  ## ("12.5*4", `evalNumber`) is taken as the number it makes. Clicking or
   ## tabbing into it selects the number, so typing replaces it. `style`:
   ## its digits' (large, bold); the field grows with them, or to `h`.
   let uiFontH = FontH

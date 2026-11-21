@@ -1187,6 +1187,8 @@ type
     spots*: seq[SpotChannel]       ## Multichannel: its channels, each an ink
     spotBase*: ColorMode           ## Multichannel: the mode its channels came from (RGB, CMYK, Grayscale)
     proof*: bool                   ## View > Proof Colors: shown as it prints
+    blindView*: int                ## View > Proof Setup > Color Blindness: 0 off, 1 Protanopia, 2 Deuteranopia
+                                   ## (shown so; `colorBlindTablePtr`)
     icc*: string                   ## its color profile (ICC); "": sRGB, the working space
     gamutWarning*: bool            ## View > Gamut Warning: what cannot be printed in gray
     quickMask*: bool               ## the selection shown and painted as a red mask
@@ -5402,6 +5404,44 @@ proc redo*(d: Doc) =
   d.collectSpills()
   d.rewrap()
 
+proc dropRedo*(d: Doc) =
+  ## Forgets the steps `redo` would do again (a trial taken back: Cancel).
+  if d.stepOpen: return
+  d.redoSteps.setLen(0)
+  d.parkedRedo.setLen(0)
+  d.collectSpills()
+
+proc fadeLast*(d: Doc; opacity: int; mode = bmNormal; name = ""): bool =
+  ## Edit > Fade: the last change to the current layer's pixels -- a filter, an
+  ## adjustment, a stroke, a fill -- mixed back with the layer as it was before
+  ## it, `opacity` (0..100) of it, in `mode`; a step of its own ("Fade" and the
+  ## step's name). False (nothing done) when the last step changed none of the
+  ## current layer's pixels, or the layer has more than 8 bits a channel.
+  if not d.canUndo or d.cur < 0 or d.editMask: return false
+  let L = d.current
+  if L.px.len != d.w * d.h or L.hi.len > 0 or L.hdr.len > 0: return false
+  let after = L.px
+  let what = d.undoName
+  d.undo()
+  let ok = L in d.layers and L.px.len == after.len
+  let before = if ok: L.px else: @[]
+  d.redo()
+  if not ok or d.current != L or before == after: return false
+  d.beginStep(if name.len > 0: name else: "Fade " & what)
+  d.touch(L, d.bounds)
+  let t = clamp(opacity, 0, 100)
+  for i in 0 ..< after.len:
+    let b = before[i]
+    if b == after[i]: continue
+    let m = if mode == bmNormal: after[i] else: blendPx(b, after[i], 255, mode, i mod d.w, i div d.w)
+    template mix(sh: int): uint32 =
+      uint32(((int((b shr sh) and 255) * (100 - t) + int((m shr sh) and 255) * t + 50) div 100) and 255) shl sh
+    L.px[i] = mix(24) or mix(16) or mix(8) or mix(0)
+  inc L.ver
+  d.markAll()
+  d.endStep()
+  true
+
 proc clearHistory*(d: Doc) =
   ## Forgets the undo and redo steps (a step being made stays).
   if d.undoSteps.len > (if d.stepOpen: 1 else: 0): d.historyCut = true
@@ -5907,6 +5947,54 @@ proc channelGrayOf*(d: Doc; p: uint32; ch: int): int =
     let s = d.spots[clamp(ch, 0, d.spots.high)]
     channelGray(d.spotBase, p, s.ch)
   else: channelGray(d.mode, p, ch)
+
+proc splitChannels*(d: Doc): seq[tuple[name: string; px: seq[uint32]]] =
+  ## Channels > Split Channels: each color channel of the image as it looks
+  ## (and each saved selection) as a gray picture of its own, named for it
+  ## ("photo_Red"): ink as black for CMYK, as the Channels panel shows them.
+  d.updateComposite()
+  let comp = d.compCopy
+  let names = d.channelNames
+  let first = if names.len > 1 and d.mode != cmMultichannel: 1 else: 0
+  let base = d.name.splitFile.name
+  for ch in 0 ..< max(1, d.channelCount):
+    var px = newSeqUninit[uint32](comp.len)
+    for i, p in comp:
+      let g = uint32(clamp(d.channelGrayOf(p, ch), 0, 255))
+      px[i] = 0xFF000000'u32 or (g shl 16) or (g shl 8) or g
+    result.add (base & "_" & names[min(first + ch, names.high)], px)
+  for a in d.alphas:
+    var px = newSeqUninit[uint32](a.m.len)
+    for i, v in a.m:
+      let g = uint32(v)
+      px[i] = 0xFF000000'u32 or (g shl 16) or (g shl 8) or g
+    result.add (base & "_" & a.name, px)
+
+proc mergeChannels*(grays: openArray[seq[uint32]]; mode = cmRGB): seq[uint32] =
+  ## Channels > Merge Channels: gray pictures of one size (their red is read)
+  ## made one color picture -- red, green, blue (or Lab's three, or CMYK's four
+  ## plates, black ink where they are dark). Empty when they differ in size or
+  ## there are too few.
+  let need = case mode
+             of cmCMYK: 4
+             of cmRGB, cmLab: 3
+             else: 1
+  if grays.len < need: return
+  let n = grays[0].len
+  for g in grays:
+    if g.len != n: return
+  result = newSeqUninit[uint32](n)
+  template v(k, i: int): int = int((grays[k][i] shr 16) and 255)
+  for i in 0 ..< n:
+    case mode
+    of cmCMYK:
+      result[i] = fromInk([uint8(255 - v(0, i)), uint8(255 - v(1, i)), uint8(255 - v(2, i)), uint8(255 - v(3, i))])
+    of cmLab:
+      result[i] = fromLabBytes([v(0, i), v(1, i), v(2, i)])
+    of cmRGB:
+      result[i] = 0xFF000000'u32 or (uint32(v(0, i)) shl 16) or (uint32(v(1, i)) shl 8) or uint32(v(2, i))
+    else:
+      result[i] = grays[0][i] or 0xFF000000'u32
 
 proc keepIn(mode: ColorMode; on: array[4, bool]; before, after: uint32): uint32 =
   case mode
@@ -6830,12 +6918,15 @@ proc copySelection*(d: Doc; merged = false): Clip =
       let p = src[i]
       result.px[y * r.w + x] = withAlpha(p, aOf(p) * d.selAt(i) div 255)
 
-proc pasteAsLayer*(d: Doc; c: Clip; centered = false; name = ""): Layer =
-  ## The clipboard in a new layer, where it was copied from (or centered).
+proc pasteAsLayer*(d: Doc; c: Clip; centered = false; name = ""; keepPlace = false): Layer =
+  ## The clipboard in a new layer, where it was copied from (or centered;
+  ## centered too when it would reach past the image, unless `keepPlace`:
+  ## Paste in Place, what falls outside cut off).
   ## (An undoable change: `snapStep` first.)
   result = d.addLayer(name)
-  let x0 = if centered or c.x + c.w > d.w or c.y + c.h > d.h: (d.w - c.w) div 2 else: c.x
-  let y0 = if centered or c.x + c.w > d.w or c.y + c.h > d.h: (d.h - c.h) div 2 else: c.y
+  let off = not keepPlace and (c.x + c.w > d.w or c.y + c.h > d.h)
+  let x0 = if centered or off: (d.w - c.w) div 2 else: c.x
+  let y0 = if centered or off: (d.h - c.h) div 2 else: c.y
   for y in 0 ..< c.h:
     for x in 0 ..< c.w:
       let tx = x0 + x

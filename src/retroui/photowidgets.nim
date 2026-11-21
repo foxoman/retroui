@@ -545,6 +545,7 @@ proc renderView(v: var PhotoView; d: Doc; bw, bh: int; bg: uint32; part = rect(0
                 mode in {cmRGB, cmIndexed, cmGray}: iccDisplayPtr(d.icc)
              else: nil
   let reproof = mode == cmCMYK or d.proof
+  let blindT = if ch < 0 and opPic == nil: colorBlindTablePtr(d.blindView) else: nil
   let warn = d.gamutWarning and ch < 0
   var duo: seq[uint32]
   if ch < 0 and mode == cmDuotone: duo = @(duotoneTable(d.duotone))
@@ -560,7 +561,7 @@ proc renderView(v: var PhotoView; d: Doc; bw, bh: int; bg: uint32; part = rect(0
   # (nothing done to a pixel but the checkerboard under what is not opaque: the opaque ones
   # copied as they are)
   let plain = lpp == nil and src != nil and ch < 0 and duoP == nil and proofT == nil and iccT == nil and
-              mask == nil and not sep.on
+              mask == nil and not sep.on and blindT == nil
   let (ck0, ck1) = checkerPair(viewPrefs.checkerColors)
   let cks = if viewPrefs.checkerSize == ckNone: 0
             else: checkerShift(viewPrefs.checkerSize) + (if pxScale >= 4: 2 elif pxScale >= 2: 1 else: 0)
@@ -607,6 +608,7 @@ proc renderView(v: var PhotoView; d: Doc; bw, bh: int; bg: uint32; part = rect(0
           p = lookupProof(iccT, p)
         elif sepP.on:
           p = (p and 0xFF000000'u32) or (sepPixel(sepP, p, irow0 + int(xp0[bx])) and 0xFFFFFF'u32)
+        if blindT != nil: p = lookupProof(blindT, p)
         let a = p shr 24
         var o: uint32
         if a == 255: o = p
@@ -720,7 +722,7 @@ proc gpuView(v: var PhotoView; d: Doc; area: Rect; bg: uint32): bool =
   if not drawnWithGpu() or d.live.len > 0: return false
   let quick = d.quickMask and d.maskLayer != nil
   if d.viewChannel >= 0 or d.mode notin {cmRGB, cmGray, cmIndexed} or d.proof or d.gamutWarning or
-     quick or (d.icc.len > 0 and iccDisplayPtr(d.icc) != nil):
+     quick or (d.icc.len > 0 and iccDisplayPtr(d.icc) != nil) or d.blindView != 0:
     return false
   if v.gpuKey == 0:
     v.gpuKey = nextGpuKey shl 8
@@ -914,7 +916,8 @@ proc photoView*(d: Doc; v: var PhotoView; height = -1; key = ""; drawAntsNow = t
   let bh = area.h * s
   let bg = rgbOf(th.shadow)
   let k = $v.zoom & "/" & $bw & "x" & $bh &
-          "/" & $d.viewChannel & "/" & $d.mode & "/" & $d.proof & "/" & $d.gamutWarning & "/" & $d.duotone.len &
+          "/" & $d.viewChannel & "/" & $d.mode & "/" & $d.proof & "/" & $d.blindView & "/" & $d.gamutWarning &
+          "/" & $d.duotone.len &
           "/" & $d.icc.len & "/" & $viewPrefs.checkerSize & $viewPrefs.checkerColors & $gamutColor &
           "/" & $d.quickMask & "/" & $d.w & "x" & $d.h & "/" & $bg &
           (if d.live.len > 0: "/live" & $d.liveVer else: "") &

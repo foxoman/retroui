@@ -183,6 +183,28 @@
   (`anchorAt`), and `updateDimensions` draws them again when what they
   measure moves or changes size, in the step that moved it
   (`addDimension`, `dimensionOf`).
+- **Edit > Fade, and more of a photo editor's commands** (`retroui/photo`,
+  `retroui/photowarp`, `retroui/photostyles`, `retroui/photoinks`):
+  `fadeLast` mixes the last change to a layer's pixels back with the layer as
+  it was, at an opacity in a blend mode, as a step of its own (`dropRedo`
+  forgets what a trial left to redo); `pasteAsLayer(keepPlace)` pastes where
+  it was copied from even past the edges; `spinBlurImg` (a wheel turning in
+  an ellipse, softening to its edge) and `pathBlurImg` (motion along a path,
+  centred or trailing, tapering); `scaleEffects` scales a style's sizes and
+  distances; `effectLayers` / `createEffectLayers` make each effect a layer of
+  its own (named for it; those over the layer clipped to it), the look kept;
+  `splitChannels` and `mergeChannels` take an image apart into gray channels
+  and put them together again (RGB, Lab, CMYK); `colorBlindTablePtr` and
+  `colorBlind` show colors as someone with Protanopia or Deuteranopia sees
+  them, and `Doc.blindView` shows the canvas so.
+- **Scrubby labels in the app's language** (`retroui/widgets`): `scrubLabel`
+  draws its label translated, as it was measured (in Arabic the Layers
+  panel's Opacity and Fill were English and cut off). Retro Atelier's
+  Properties panel names the layer's kind in the app's language.
+- **Number boxes take sums** (`retroui/widgets`, `retroui/business`):
+  `spin`, `popupSlider`, `numberEdit` and `intEdit` take "1200/2", "40+15",
+  "3*(8-2)" as the number they make (`evalNumber`; + - * /, brackets,
+  decimals).
 - **Fonts of one name** (`retroui/textengine`): a TrueType face before a
   PostScript-outlined .otf of the same family and style (no converting;
   it may be the variable font the other is one instance of), the files in
@@ -197,6 +219,18 @@
   program's Draw Inside.
 - **Scripts click a point** (`retroui/drive`): `click:@X,Y` in
   `RETRO_SCRIPT`, a point in logical pixels -- a canvas, a picture.
+- **Retro Atelier**, from the three programs' help: a tool's letter held is
+  that tool while it is (let go, the one before; a tap keeps the new one);
+  Shift+Alt and a letter picks a blend mode (the painting tool's, or the
+  layer's), Shift with + and - the next and the one before; Shift and the
+  numbers set the brush's flow; F2, F3, F4 Cut, Copy, Paste; Ctrl+Shift+V
+  Paste in Place, Ctrl+Shift+F Edit > Fade, Ctrl+Alt+Shift+C Content-Aware
+  Scale, Ctrl+Alt+V Vanishing Point (today's keys). Edit > Fade, Paste
+  Special > Paste Outside and Paste in Place (no longer plain Paste); Filter >
+  Blur Gallery > Path Blur and Spin Blur; Layer > Layer Style > Create Layers
+  and Scale Effects; the Channels panel's Split Channels and Merge Channels;
+  View > Proof Setup (Working CMYK, Color Blindness - Protanopia-type and
+  Deuteranopia-type: what Proof Colors shows).
 - **Retro Atelier**: Layer > Live Effects > 3D and Materials (Extrude &
   Bevel, Revolve, Inflate; rotation, perspective, light, material; live);
   the Dimension tool (in the Eyedropper's group: a distance dragged, an

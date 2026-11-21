@@ -411,6 +411,43 @@ proc lookupProof*(t: ptr UncheckedArray[uint32]; p: uint32): uint32 {.inline.} =
   ## `proofOf` through the table `proofTablePtr` gave (its alpha kept).
   (lookup(t, p) and 0xFFFFFF'u32) or (p and 0xFF000000'u32)
 
+var blindTables: array[1 .. 2, seq[uint32]]   # (made once, when first shown)
+
+proc colorBlindTablePtr*(kind: int): ptr UncheckedArray[uint32] =
+  ## A table of colors as someone with color blindness sees them -- `kind` 1
+  ## Protanopia (no red cones), 2 Deuteranopia (no green ones) -- for
+  ## `lookupProof` (View > Proof Setup > Color Blindness; Machado's model, in
+  ## linear light). Nil for another `kind`.
+  if kind notin 1 .. 2: return nil
+  if blindTables[kind].len == 0:
+    const prot = [[0.152286, 1.052583, -0.204868], [0.114503, 0.786281, 0.099216], [-0.003882, -0.048116, 1.051998]]
+    const deut = [[0.367322, 0.860646, -0.227968], [0.280085, 0.672501, 0.047413], [-0.011820, 0.042940, 0.968881]]
+    let m = if kind == 1: prot else: deut
+    proc lin(v: int): float =
+      let c = v / 255
+      if c <= 0.04045: c / 12.92 else: pow((c + 0.055) / 1.055, 2.4)
+    proc enc(v: float): uint32 =
+      let c = clamp(v, 0.0, 1.0)
+      uint32(clamp(int(round(255 * (if c <= 0.0031308: c * 12.92 else: 1.055 * pow(c, 1 / 2.4) - 0.055))), 0, 255))
+    var t = newSeq[uint32](N * N * N)
+    for ri in 0 ..< N:
+      for gi in 0 ..< N:
+        for bi in 0 ..< N:
+          let r = lin((ri * 255 + (N - 1) div 2) div (N - 1))
+          let g = lin((gi * 255 + (N - 1) div 2) div (N - 1))
+          let b = lin((bi * 255 + (N - 1) div 2) div (N - 1))
+          var o = 0xFF000000'u32
+          for c in 0 .. 2:
+            o = o or (enc(m[c][0] * r + m[c][1] * g + m[c][2] * b) shl (16 - 8 * c))
+          t[(ri * N + gi) * N + bi] = o
+    blindTables[kind] = t
+  cast[ptr UncheckedArray[uint32]](addr blindTables[kind][0])
+
+proc colorBlind*(p: uint32; kind: int): uint32 =
+  ## One color as `colorBlindTablePtr(kind)` shows it (its alpha kept).
+  let t = colorBlindTablePtr(kind)
+  if t == nil: p else: lookupProof(t, p)
+
 proc gamutDistance*(p: uint32): int =
   ## How far a color is from what can be printed (0..255). With a profile:
   ## from the color taken to the inks and back colorimetrically (relative,

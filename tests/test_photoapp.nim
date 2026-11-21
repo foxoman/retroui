@@ -2299,8 +2299,8 @@ d.resizeCanvas(80, 50, "#ff0000");""", "test")
   doAssert abs(sx - (dw.view.view.x + dw.view.view.w div 2)) <= 1 and
            abs(sy - (dw.view.view.y + dw.view.view.h div 2)) <= 1
   dw.view.angle = 0
-  # (no Timeline in the app: an animated GIF opens as its first picture)
-  doAssert not openAnimations
+  # (Window > Timeline: an animated GIF, WebP or PNG opens as its frames)
+  doAssert openAnimations
   # the Arabic interface: labels translated, the frame mirrored
   setUiLanguage("ar", @toolkitArabic, @photoArabic)
   doAssert ui.rtl and tr("File") != "File" and splitMnemonic("&Edit").text == tr("Edit")

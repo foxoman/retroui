@@ -565,6 +565,13 @@ proc startSaveAnimation()
 proc startScreenExport()
 proc startThreeD()
 proc threeDDialog()
+proc startFade()
+proc fadeDialog()
+proc startScaleEffects()
+proc scaleEffectsDialog()
+proc splitChannelsNow()
+proc startMergeChannels()
+proc mergeChannelsDialog()
 proc screenExportDialog()
 proc vectorBar()
 proc deletePickedPoints(): bool
@@ -673,7 +680,9 @@ const
     # Edit
     ("Ctrl+Z", "Undo"), ("Ctrl+Shift+Z", "Redo"), ("Ctrl+X", "Cut"), ("Ctrl+C", "Copy"), ("Ctrl+Shift+C", "Copy Merged"),
     ("Ctrl+Shift+K", "Color Settings..."),
-    ("Ctrl+V", "Paste"), ("Ctrl+Shift+Alt+V", "Paste Into"), ("Shift+F5", "Fill..."),
+    ("Ctrl+V", "Paste"), ("Ctrl+Shift+Alt+V", "Paste Into"), ("Ctrl+Shift+V", "Paste in Place"),
+    ("F2", "Cut"), ("F3", "Copy"), ("F4", "Paste"), ("Ctrl+Shift+F", "Fade..."), ("Shift+F5", "Fill..."),
+    ("Ctrl+Alt+Shift+C", "Content-Aware Scale..."),
     ("Shift+Backspace", "Fill..."), ("Ctrl+T", "Free Transform"), ("Ctrl+Shift+T", "Transform Again"),
     ("Ctrl+F", "Search..."), ("Ctrl+Alt+Z", "Toggle Last State"), ("Ctrl+Alt+P", "Close Others"),
     ("F12", "Revert"), ("Ctrl+Alt+Shift+I", "File Info..."),
@@ -699,7 +708,7 @@ const
     ("Ctrl+Alt+R", "Select and Mask..."),
     # Filter
     ("Ctrl+Alt+F", "Last Filter"), ("Ctrl+Shift+A", "Develop..."), ("Ctrl+Shift+X", "Liquify..."),
-    ("Ctrl+Shift+R", "Lens Correction..."),
+    ("Ctrl+Shift+R", "Lens Correction..."), ("Ctrl+Alt+V", "Vanishing Point..."),
     # View
     ("Ctrl+Y", "CMYK Preview"), ("Ctrl+Shift+Y", "Gamut Warning"), ("Ctrl+Plus", "Zoom In"),
     ("Ctrl+Equal", "Zoom In"), ("Ctrl+Minus", "Zoom Out"), ("Ctrl+0", "Fit on Screen"), ("Ctrl+1", "Actual Pixels"),
@@ -4702,6 +4711,8 @@ include photo/trained
 include photo/timeline
 include photo/screens
 include photo/threedui
+include photo/fade
+include photo/channelsplit
 include photo/dockpanels
 
 proc phoneLayout(): bool =
@@ -4857,6 +4868,8 @@ proc docStatus(dw: DocWin) =
 
 proc frame() =
   springTool()
+  springKeys()
+  modeKeys()
   typeWatch()
   bookFrame()
   if cur() != nil and not te.on: keepLive(cur())   # (Flex Layouts, Live Paint, Global Edit kept up)

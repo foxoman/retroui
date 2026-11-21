@@ -86,6 +86,8 @@ proc phoneFrame() =
   ## One frame of the phone's layout (photoFrame calls it in place of the
   ## workspace's on a narrow screen).
   springTool()
+  springKeys()
+  modeKeys()
   typeWatch()
   captionBar()
   if phoneMenu: menus()

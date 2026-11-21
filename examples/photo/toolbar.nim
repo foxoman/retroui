@@ -241,24 +241,57 @@ proc pickTool(g, k: int) =
 
 proc groupHidden(g: int): bool = ("," & toolGroups[g].name & ",") in ("," & prefs.toolHidden & ",")
 
+var springKey: tuple[on, back, used: bool; key: KeyCode; shift: bool; at, last: int; t: Tool; g, k: int]
+  ## a tool's letter held down: that tool while it is; let go after a moment, or
+  ## after the tool was used, the tool before comes back (a quick tap keeps the new one)
+
 proc toolKeyPressed(k: KeyCode; shift: bool): bool =
   ## the usual letters: a group's tool; with Shift, the next tool of the
   ## group. True when a group took it. (R: Rotate View, as today's
   ## today's editors have it -- Shift+R the Blur tools; the 1994 keys: R the Blur
-  ## tools.)
+  ## tools.) Held, the key repeating changes nothing more (with Shift now, it is a press of its own).
+  if springKey.on and k == springKey.key and shift == springKey.shift:
+    springKey.last = ui.now
+    return true
+  let wasT = tool
+  let wasG = groupOf(tool)
+  let wasK = if wasG >= 0: shownItem(wasG) else: 0
+  template took() =
+    if tool != wasT and ui.keyUp != k:          # (let go in this frame already: a tap)
+      springKey = (true, false, false, k, shift, ui.now, ui.now, wasT, wasG, wasK)
+    return true
   if k == KeyR and not shift and prefs.keySet == 0:
     for g, grp in toolGroups:
       if grp.name == "Hand":
         pickTool(g, 1)
-        return true
+        took()
   for g, grp in toolGroups:
     if grp.key in {'A' .. 'Z'} and k == KeyCode(ord(KeyA) + ord(grp.key) - ord('A')):
       let cur = shownItem(g)
       if shift and grp.items.len > 1 and groupOf(tool) == g:
         pickTool(g, (cur + 1) mod grp.items.len)
       else: pickTool(g, cur)
-      return true
+      took()
   false
+
+proc springKeys() =
+  ## (each frame) a tool's letter let go: back to the tool before when it was
+  ## held a moment or the tool was used while it was -- after the drag ends.
+  if not springKey.on: return
+  if not springKey.back:
+    if ui.mouseDown or ui.rmouseDown: springKey.used = true
+    if ui.keyUp == springKey.key:
+      if springKey.used or ui.now - springKey.at > 500: springKey.back = true
+      else: springKey.on = false
+    elif ui.key != KeyNone and ui.key != springKey.key:
+      springKey.on = false                # (another key: the new tool stays)
+    elif ui.now - springKey.last > 1500 and not springKey.used:
+      springKey.on = false                # (no repeat and no letting go seen: taken as a tap)
+  if springKey.back and not ui.mouseDown and not ui.rmouseDown and not drag.on:
+    springKey.on = false
+    if te.on: return                      # (the type tool began a text: it stays)
+    if springKey.g >= 0: pickTool(springKey.g, springKey.k)
+    else: selectTool(springKey.t)
 
 proc toolCell(): (int, int) = (dp(27), dp(25))
 

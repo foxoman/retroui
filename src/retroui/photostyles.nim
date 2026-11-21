@@ -566,3 +566,80 @@ proc renderFx*(w, h: int; L: Layer): FxRender =
 {.pop.}
 
 layerFxRender = renderFx
+
+# ---- Scale Effects, Create Layers ----------------------------------------------------------------------------
+
+proc scaleEffects*(fx: var LayerFx; percent: float) =
+  ## Layer > Layer Style > Scale Effects: every effect's distance, size and
+  ## softening (and the overlays' pattern and gradient scale) times `percent`
+  ## / 100 -- the look kept for a layer made bigger or smaller.
+  let k = max(0.0, percent) / 100
+  for e in fx.fx.mitems:
+    e.distance = int(round(e.distance.float * k))
+    e.size = int(round(e.size.float * k))
+    e.soften = int(round(e.soften.float * k))
+    e.scale = clamp(int(round((if e.scale == 0: 100 else: e.scale).float * k)), 1, 1000)
+
+proc effectLayers*(d: Doc; L: Layer; nameOf: proc (layer, effect: string): string = nil):
+                   tuple[below, above: seq[Layer]] =
+  ## Layer > Layer Style > Create Layers: each effect of `L`'s style as a layer
+  ## of its own, named for it ("Layer 1's Drop Shadow"; `nameOf` names it in another
+  ## language, from the layer's name and the effect's), in its blend mode and
+  ## opacity -- the ones drawn under `L` (shadows, glows) in `below`, bottom
+  ## first; the ones drawn over it (overlays, inner effects, the stroke, the
+  ## bevel's highlights and shadows) in `above`, bottom first, to be clipped to
+  ## `L`. Not put in the document (`createEffectLayers` does that).
+  if not L.hasStyle or L.px.len != d.w * d.h: return
+  for k in FxKind:
+    if not L.fx.fx[k].on: continue
+    var one = LayerFx()
+    one.fx[k] = L.fx.fx[k]
+    let tmp = Layer(pxRaw: L.px, opacity: 100, mode: bmNormal, visible: true, fx: one, mask: L.mask,
+                    maskOff: L.maskOff)
+    let fr = renderFx(d.w, d.h, tmp)
+    if fr == nil: continue
+    for side in 0 .. 1:
+      let planes = if side == 0: fr.below else: fr.above
+      for i, p in planes:
+        var what = StyleNames[k]
+        if k == fxBevel and planes.len == 2: what.add(if i == 0: " Highlights" else: " Shadows")
+        let name = if nameOf != nil: nameOf(L.name, what) else: L.name & "'s " & what
+        let n = newLayer(d, name)
+        n.mode = p.mode
+        n.opacity = clamp((p.opacity * 100 + 127) div 255, 0, 100)
+        let r = fr.r
+        for y in 0 ..< r.h:
+          let iy = r.y + y
+          if iy < 0 or iy >= d.h: continue
+          for x in 0 ..< r.w:
+            let ix = r.x + x
+            if ix < 0 or ix >= d.w: continue
+            let j = y * r.w + x
+            if j >= p.a.len or p.a[j] == 0: continue
+            let c = if p.colors.len == p.a.len: p.colors[j] else: p.color
+            n.px[iy * d.w + ix] = withAlpha(c, aOf(c) * int(p.a[j]) div 255)
+        inc n.ver
+        if side == 0: result.below.add n else: result.above.add n
+
+proc createEffectLayers*(d: Doc; L: Layer; nameOf: proc (layer, effect: string): string = nil): int =
+  ## `effectLayers` put in the document round `L` (those over it clipped to
+  ## it) and its style taken off -- what it looked like kept. The number of
+  ## layers made. (An undoable change: `touchLayers` first.)
+  let (below, above) = d.effectLayers(L, nameOf)
+  if below.len + above.len == 0: return 0
+  if L.fill < 100:
+    L.opacity = L.opacity * L.fill div 100
+    L.fill = 100
+  L.fx = LayerFx()
+  var at = d.layers.find(L)
+  for n in below:
+    n.depth = L.depth
+    d.layers.insert(n, at)
+    inc at
+  for i, n in above:
+    n.depth = L.depth
+    n.clipped = true
+    d.layers.insert(n, at + 1 + i)
+  d.cur = d.layers.find(L)
+  d.markAll()
+  below.len + above.len

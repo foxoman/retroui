@@ -205,7 +205,9 @@ line.
 - **Focus:** call `focusFirstText()` when a screen or dialog opens so the
   user can type at once (`focusFirstText(inDialog = true)` for a dialog
   opened this frame); `focusNext()` moves to the next control. Clicking a
-  `numberEdit` / `intEdit` selects its text, so typing replaces it.
+  `numberEdit` / `intEdit` selects its text, so typing replaces it. Number
+  boxes (`spin`, `popupSlider`, `numberEdit`, `intEdit`) take a little sum
+  too ("1200/2": `evalNumber`).
 
 ## 5. Layout
 

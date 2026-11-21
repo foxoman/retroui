@@ -1621,12 +1621,12 @@ codeEdit(source, lines = 9, lang = clNim, find = "count",
 ## Numbers, dates, colors
 
 Numbers are typed and shown as the user reads them ("1,234.50";
-`formatNumber`, `parseNumber`). `Date` is a plain (year, month, day) with
+`formatNumber`, `parseNumber`; a sum typed, "1200/2", is its number: `evalNumber`). `Date` is a plain (year, month, day) with
 `today()`, `addDays`, `addMonths`, `weekday` and `parseDate`.
 
 ### spin, intEdit, numberEdit
 
-Numbers to type: `spin` with its arrows (the wheel and Up/Down too), `intEdit` whole numbers, `numberEdit` decimals with `lo`, `hi` and `decimals`.
+Numbers to type: `spin` with its arrows (the wheel and Up/Down too), `intEdit` whole numbers, `numberEdit` decimals with `lo`, `hi` and `decimals`. Each takes a little sum too ("1200/2", "40+15").
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -1660,9 +1660,9 @@ proc spin*(v: var int; lo, hi: int; w = 80; step = 1;
 ```
 
 A number box with up and down arrows bound to `v` in `lo..hi`: type a
-number, click or hold the arrows, or with the focus Up / Down (`step`),
-Page Up / Page Down (ten steps) and the wheel. `style`: its digits'
-(`style(size = 1.6, bold = true)`); the box and its arrows grow with
+number (or a little sum: "1200/2", `evalNumber`), click or hold the arrows, or with the
+focus Up / Down (`step`), Page Up / Page Down (ten steps) and the wheel. `style`: its
+digits' (`style(size = 1.6, bold = true)`); the box and its arrows grow with
 them, or to `h`.
 
 ```nim
@@ -1684,7 +1684,8 @@ proc numberEdit*(v: var float; decimals = 2; w = 110; lo = NegInf;
 
 A right-aligned number field; shows `decimals` places (0 to 12) and
 thousands separators when it does not have the focus. Only numbers
-from `lo` to `hi` are taken (true when `v` changed). Clicking or
+from `lo` to `hi` are taken (true when `v` changed); a little sum typed
+("12.5*4", `evalNumber`) is taken as the number it makes. Clicking or
 tabbing into it selects the number, so typing replaces it. `style`:
 its digits' (large, bold); the field grows with them, or to `h`.
 
@@ -1789,7 +1790,7 @@ proc popupSlider*(v: var int; lo, hi: int; w = 0; unit = "%";
 ```
 
 A number box with a slider that drops down from its arrow, as a tool's
-options bar has for Opacity, Flow or Tolerance: type the number; or
+options bar has for Opacity, Flow or Tolerance: type the number (or a sum); or
 press the arrow and drag (letting go closes it); or click the arrow,
 then click or drag on the slider (Enter, Esc or a click outside close
 it). Up / Down and the wheel step it when it has the focus; F4 or

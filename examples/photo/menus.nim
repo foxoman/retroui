@@ -66,7 +66,14 @@ proc copyToClip(d: Doc; merged: bool) =
   clip = d.copySelection(merged)
   hasClip = clip.w > 0 and clip.h > 0
 
-proc paste(d: Doc; into: bool) =
+var proofSetup = 0
+  ## View > Proof Setup: what Proof Colors shows -- the printing inks (0), as
+  ## someone with Protanopia (1) or Deuteranopia (2) sees it
+
+proc paste(d: Doc; into: bool; outside = false; inPlace = false) =
+  ## Paste (where it was copied from), Paste Into (inside the selection, or the
+  ## current frame), Paste Outside (outside the selection), Paste in Place
+  ## (where it was copied from, even past the edges).
   if not hasClip:
     status = "Nothing to paste"
     return
@@ -91,13 +98,15 @@ proc paste(d: Doc; into: bool) =
       d.cur = d.layers.find(L)
     status = tr("Pasted inside ") & frame.name & tr(" (the Move tool moves it in there)")
     return
-  d.change(if into: "Paste Into" else: "Paste"):
+  let outside2 = outside and d.hasSelection
+  d.change(if into: "Paste Into" elif outside2: "Paste Outside" elif inPlace: "Paste in Place" else: "Paste"):
     let into2 = into and d.hasSelection
-    let L = d.pasteAsLayer(clip, centered = into2, name = "")
-    if into2:
-      # what falls outside the selection is hidden
+    let L = d.pasteAsLayer(clip, centered = into2, name = "", keepPlace = inPlace or outside2)
+    if into2 or outside2:
+      # what falls outside the selection (or, Paste Outside, inside it) is hidden
       for i in 0 ..< L.px.len:
-        L.px[i] = withAlpha(L.px[i], aOf(L.px[i]) * int(selBefore[i]) div 255)
+        let s = if outside2: 255 - int(selBefore[i]) else: int(selBefore[i])
+        L.px[i] = withAlpha(L.px[i], aOf(L.px[i]) * s div 255)
       inc L.ver
     d.selectNone()
     d.markAll()
@@ -461,6 +470,11 @@ proc doCommand(name: string) =
       cur().paste(false)
   of "Paste Into":
     if d != nil: d.paste(true)
+  of "Paste Outside":
+    if d != nil: d.paste(false, outside = true)
+  of "Paste in Place":
+    if d != nil: d.paste(false, inPlace = true)
+  of "Fade...": startFade()
   of "Clear":
     if d != nil and not d.hasSelection and d.severalPicked and not d.quickMask and not d.editMask:
       # (several layers picked, nothing selected: they go, as Delete has it in the three programs)
@@ -676,8 +690,28 @@ proc doCommand(name: string) =
     if d != nil and d.mode in {cmGray, cmDuotone, cmRGB, cmCMYK, cmLab}: startDuotone(d)
   of "Printing Inks Setup...": startInksSetup()
   of "CMYK Preview":
-    if d != nil and d.mode != cmCMYK:
+    # (Proof Colors: what Proof Setup chose -- the printing inks, or as someone
+    # color-blind sees it)
+    if d != nil and proofSetup > 0:
+      d.blindView = if d.blindView == proofSetup: 0 else: proofSetup
+      d.proof = false
+      inc d.ver
+    elif d != nil and d.mode != cmCMYK:
       d.proof = not d.proof
+      d.blindView = 0
+      inc d.ver
+  of "Proof Setup: Working CMYK", "Proof Setup: Color Blindness - Protanopia-type",
+     "Proof Setup: Color Blindness - Deuteranopia-type":
+    let k = if name.endsWith("CMYK"): 0 elif name.contains("Protanopia"): 1 else: 2
+    proofSetup = k
+    if d != nil:
+      # (shown at once, as choosing it in the menu shows it)
+      if k == 0:
+        d.blindView = 0
+        d.proof = d.mode != cmCMYK
+      else:
+        d.proof = false
+        d.blindView = k
       inc d.ver
   of "Gamut Warning":
     if d != nil:
@@ -883,6 +917,8 @@ proc doCommand(name: string) =
   of "Field Blur...": startBlurGallery(0)
   of "Iris Blur...": startBlurGallery(1)
   of "Tilt-Shift...": startBlurGallery(2)
+  of "Path Blur...": startBlurGallery(3)
+  of "Spin Blur...": startBlurGallery(4)
   of "Assign Profile...": startProfile(false)
   of "Convert to Profile...": startProfile(true)
   of "Photomerge...": startMerge(mkPanorama)
@@ -1216,6 +1252,18 @@ proc doCommand(name: string) =
             d.touch(l, d.bounds)
             break
         d.mergeVisible()
+  of "Create Layers":
+    if d != nil and d.current.hasStyle:
+      let L = d.current
+      var n = 0
+      d.layersChange("Create Layers"):
+        d.touch(L, d.bounds)
+        n = d.createEffectLayers(L, proc (layer, effect: string): string =
+          if uiLanguageCode() in ["", "en"]: layer & "'s " & effect else: tr(effect) & " " & layer)
+      status = $n & tr(" layers made from the style of ") & L.name
+  of "Scale Effects...": startScaleEffects()
+  of "Split Channels": splitChannelsNow()
+  of "Merge Channels...": startMergeChannels()
   of "Rasterize Layer Style":
     if d != nil and d.current.hasStyle:
       let L = d.current
@@ -1391,6 +1439,7 @@ proc classicMenus() =
       item("Copy &Merged", enabled = some and d.layers.len > 1)
       item("&Paste", "Ctrl+V", some or hasClip)
       item("Paste &Into", enabled = sel and hasClip)
+      item("Paste &Outside", enabled = sel and hasClip)
       item("Paste &Layer...", enabled = some and hasClip)
       item("Cl&ear", "Del", some)
       menuSeparator()
@@ -1612,6 +1661,8 @@ proc classicMenus() =
         item("&Field Blur...", enabled = edits)
         item("&Iris Blur...", enabled = edits)
         item("&Tilt-Shift...", enabled = edits)
+        item("&Path Blur...", enabled = edits)
+        item("&Spin Blur...", enabled = edits)
       submenu "Retouch":
         filterItems(["&Skin Smoothing..."])
       submenu "Distort":
@@ -2135,7 +2186,17 @@ proc helpText(): string =
     "- **X** swaps the colors, **D** makes them black and white\n" &
     "- **Q** turns Quick Mask on and off: paint the selection in red\n" &
     "- **Tab** hides the palettes, **F** changes the screen mode\n" &
-    "- **1** to **0** set the opacity of the tool (10 % to 100 %)\n" &
+    "- **1** to **0** set the opacity of the tool (10 % to 100 %), two typed quickly the number they " &
+    "make (**4** **5**: 45 %); with **Shift**, the brush's flow\n" &
+    "- **Shift+Alt** and a letter: a blend mode -- the painting tool's, or with the other tools the " &
+    "layer's (**N** Normal, **M** Multiply, **S** Screen, **O** Overlay, **F** Soft Light, **H** Hard " &
+    "Light, **C** Color, **Y** Luminosity...); **Shift** with **+** and **-**: the next mode and the " &
+    "one before\n" &
+    "- hold a tool's letter: that tool while it is held (use it), the one before when it is let go; a " &
+    "quick tap keeps the new one\n" &
+    "- **F2**, **F3**, **F4** Cut, Copy, Paste; **Ctrl+Shift+V** Paste in Place; **Ctrl+Shift+F** " &
+    "Edit > Fade (the last filter, adjustment or stroke weaker, or in another mode)\n" &
+    "- a number box takes a little sum: type **1200/2** or **40+15**\n" &
     "- **[** and **]** make the brush smaller and bigger, **Shift+[** and **Shift+]** softer and " &
     "harder, **,** and **.** the brush preset before and after; Alt and the right button " &
     "dragged: sideways the size, up and down the hardness\n" &
@@ -2254,6 +2315,9 @@ proc moreDialogs() =
   timelineDialogs()
   screenExportDialog()
   threeDDialog()
+  fadeDialog()
+  scaleEffectsDialog()
+  mergeChannelsDialog()
   imageTraceDialog()
   makeBlendDialog()
   shapeBuilderDialog()
@@ -2460,6 +2524,71 @@ proc escapeKey(): bool =
     return true
   false
 
+const modeLetters = [(KeyN, bmNormal), (KeyI, bmDissolve), (KeyQ, bmBehind), (KeyR, bmClear),
+                     (KeyK, bmDarken), (KeyM, bmMultiply), (KeyB, bmColorBurn), (KeyA, bmLinearBurn),
+                     (KeyG, bmLighten), (KeyS, bmScreen), (KeyD, bmColorDodge), (KeyW, bmLinearDodge),
+                     (KeyO, bmOverlay), (KeyF, bmSoftLight), (KeyH, bmHardLight), (KeyV, bmVividLight),
+                     (KeyJ, bmLinearLight), (KeyZ, bmPinLight), (KeyL, bmHardMix), (KeyE, bmDifference),
+                     (KeyX, bmExclusion), (KeyU, bmHue), (KeyT, bmSaturation), (KeyC, bmColor),
+                     (KeyY, bmLuminosity)]
+  ## Shift+Alt and a letter: a blend mode (the usual letters)
+
+proc modeKeys() =
+  ## (before the menu bar sees Alt and a letter) Shift+Alt+letter: the painting
+  ## tool's mode -- with the other tools, the current layer's; Shift with + or -:
+  ## the next mode or the one before. The usual keys only.
+  if ui.key == KeyNone or ui.keyUsed or prefs.keySet != 0 or not canInput() or
+     ui.takesText or te.on: return
+  let ctrl = CtrlPressed in ui.mods
+  let shift = ShiftPressed in ui.mods
+  let alt = AltPressed in ui.mods
+  if not shift or ctrl: return
+  let step = if alt: 0
+             elif ui.key in {KeyEqual, KeyPlus}: 1
+             elif ui.key == KeyMinus: -1
+             else: return
+  var want = bmNormal
+  if step == 0:
+    var found = false
+    for (k, m) in modeLetters:
+      if k == ui.key:
+        want = m
+        found = true
+    if not found: return
+  ui.keyUsed = true
+  ui.mnemonic = '\0'
+  let d = cur()
+  let t = if springing: springBase else: tool     # (Alt held springs the Eyedropper: the brush's)
+  if t in {tBrush, tPencil, tAirbrush, tStamp, tBucket, tGradient}:
+    var i = clamp(opts[t].mode, 0, PaintModes.high)
+    if step != 0: i = (i + step + PaintModes.len) mod PaintModes.len
+    else:
+      let at = PaintModes.find(want)
+      if at < 0: return
+      i = at
+    opts[t].mode = i
+    status = toolName(t) & tr(" mode: ") & tr($PaintModes[i])
+  elif d != nil and not d.current.background:
+    let L = d.current
+    var i = LayerModes.find(L.mode)
+    if L.group:
+      # (0 is Pass Through)
+      let n = LayerModes.len + 1
+      var k = if L.passThrough: 0 else: i + 1
+      if step != 0: k = (k + step + n) mod n
+      else:
+        let at = LayerModes.find(want)
+        if at < 0: return
+        k = at + 1
+      d.setLayerMode(L, k)
+    else:
+      if step != 0: i = (max(0, i) + step + LayerModes.len) mod LayerModes.len
+      else:
+        i = LayerModes.find(want)
+        if i < 0: return                  # (Behind and Clear: painting only)
+      d.setLayerMode(L, i)
+    status = L.name & tr(" mode: ") & tr(if L.group and L.passThrough: "Pass Through" else: $L.mode)
+
 proc keys() =
   moreDialogs()
   if te.on and canInput():
@@ -2617,7 +2746,11 @@ proc keys() =
         digitFirst = -1
       else: digitFirst = k
       digitAt = ui.now
-      if tool in paintTools + {tBucket, tGradient, tHeal}:
+      if shift and tool in {tBrush, tAirbrush, tStamp, tEraser, tPencil}:
+        # (Shift and the numbers: the brush's flow)
+        opts[tool].dyn.flow = v
+        status = toolName(tool) & tr(" flow: ") & $v & "%"
+      elif tool in paintTools + {tBucket, tGradient, tHeal}:
         opts[tool].opacity = v
         status = toolName(tool) & " opacity: " & $v & "%"
       elif d != nil and not d.current.background:
