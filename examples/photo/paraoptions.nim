@@ -1,12 +1,17 @@
-## Retro Atelier: the Paragraph panel's Justification, Keep Options and Span Columns dialogs, as
-## the layout program's -- for the paragraphs the selection is in while typing, all of a text
-## picked otherwise; Preview shows them as set, Cancel puts them back (included by photo.nim).
+## Retro Atelier: the Paragraph panel's Justification (with Auto Leading and Single Word
+## Justification), Hyphenation, Paragraph Rules, Keep Options and Span Columns dialogs, as the
+## layout program's -- for the paragraphs the selection is in while typing, all of a text picked
+## otherwise; Preview shows them as set, Cancel puts them back; the Character panel's Underline
+## and Strikethrough Options (included by photo.nim).
 
 var
   poDlg: tuple[open: bool; kind: string; layer: Layer; snap: TextData; editing: bool; a, b: int;
                f: ParaStyle; preview: bool; applied: string]
     ## (the dialog open: which, the text as it was, the paragraphs, the settings in it)
   okPara*: bool      ## (its OK pressed from outside: the tests)
+  poDlgRule: int     ## (Paragraph Rules: Rule Above or Rule Below shown)
+  lineDlg: tuple[open, strike, on: bool; weight, offset: float32; color: uint32]
+    ## (Underline Options, Strikethrough Options)
   poPending: bool    ## (a dialog open, its Preview to take back if it is closed from outside)
 
 proc poCopy(dst: var ParaStyle; src: ParaStyle; kind: string) =
@@ -17,6 +22,21 @@ proc poCopy(dst: var ParaStyle; src: ParaStyle; kind: string) =
     dst.letterSpacing = src.letterSpacing
     dst.glyphScaling = src.glyphScaling
     dst.composer = src.composer
+    dst.autoLead = src.autoLead
+    dst.singleWord = src.singleWord
+  of "Hyphenation...":
+    dst.hyphenate = src.hyphenate
+    dst.hyphWord = src.hyphWord
+    dst.hyphAfter = src.hyphAfter
+    dst.hyphBefore = src.hyphBefore
+    dst.hyphLimit = src.hyphLimit
+    dst.hyphZone = src.hyphZone
+    dst.noHyphCaps = src.noHyphCaps
+    dst.noHyphLast = src.noHyphLast
+    dst.balanceRagged = src.balanceRagged
+  of "Paragraph Rules...":
+    dst.ruleAbove = src.ruleAbove
+    dst.ruleBelow = src.ruleBelow
   of "Keep Options...":
     dst.keepWithNext = src.keepWithNext
     dst.keepTogether = src.keepTogether
@@ -205,6 +225,17 @@ proc paraOptionsDialog() =
           of 1: poDlg.f.letterSpacing = v
           else: poDlg.f.glyphScaling = v
           label unit
+      row([120, 70, -1]):
+        label "Auto Leading:"
+        var al = if poDlg.f.autoLead > 0: int(poDlg.f.autoLead) else: 120
+        if spin(al, 50, 500, w = dp(62)): poDlg.f.autoLead = int16(if al == 120: 0 else: al)
+        label "%"
+      row([120, -1]):
+        label "Single Word:"
+        var sw = ord(poDlg.f.singleWord)
+        var swn: seq[string]
+        for e in SingleWord: swn.add tr($e)
+        if combo(swn, sw, w = dp(160)): poDlg.f.singleWord = SingleWord(clamp(sw, 0, ord(high(SingleWord))))
       row([120, -1]):
         label "Composer:"
         var c = ord(poDlg.f.composer)
@@ -214,6 +245,69 @@ proc paraOptionsDialog() =
       paragraph("Justified lines get their room from the spaces first, then between the letters, then by " &
                 "making the letters a little wider or narrower. The Paragraph Composer weighs the whole " &
                 "paragraph at once; the Single-line Composer a line at a time.", color = ui.theme.gray)
+    of "Hyphenation...":
+      checkbox("Hyphenate", poDlg.f.hyphenate)
+      for (cap, unit, lo, hi, which) in [("Words with at Least:", "letters", 3, 25, 0),
+                                         ("After First:", "letters", 1, 15, 1),
+                                         ("Before Last:", "letters", 1, 15, 2),
+                                         ("Hyphen Limit:", "hyphens", 0, 25, 3)]:
+        row([180, 70, -1]):
+          label cap
+          var v = case which
+                  of 0: (if poDlg.f.hyphWord > 0: int(poDlg.f.hyphWord) else: 5)
+                  of 1: (if poDlg.f.hyphAfter > 0: int(poDlg.f.hyphAfter) else: 2)
+                  of 2: (if poDlg.f.hyphBefore > 0: int(poDlg.f.hyphBefore) else: 2)
+                  else: int(poDlg.f.hyphLimit)
+          if spin(v, lo, hi, w = dp(62), enabled = poDlg.f.hyphenate):
+            case which
+            of 0: poDlg.f.hyphWord = int16(v)
+            of 1: poDlg.f.hyphAfter = int16(v)
+            of 2: poDlg.f.hyphBefore = int16(v)
+            else: poDlg.f.hyphLimit = int16(v)
+          label unit
+      row([180, 70, -1]):
+        label "Hyphenation Zone:"
+        discard d.lengthField(poDlg.f.hyphZone, dp(62), 0, 4000, enabled = poDlg.f.hyphenate)
+        label unitShort()
+      var caps = not poDlg.f.noHyphCaps
+      if checkbox("Hyphenate Capitalized Words", caps, enabled = poDlg.f.hyphenate): poDlg.f.noHyphCaps = not caps
+      var last = not poDlg.f.noHyphLast
+      if checkbox("Hyphenate Last Word", last, enabled = poDlg.f.hyphenate): poDlg.f.noHyphLast = not last
+      paragraph("Hyphen Limit 0: no limit. The zone: text not justified is broken only where a line would " &
+                "otherwise leave more room than this at its end. The words in the language of their letters " &
+                "(Character > Language).", color = ui.theme.gray)
+      checkbox("Balance Ragged Lines", poDlg.f.balanceRagged)
+    of "Paragraph Rules...":
+      var which = poDlgRule
+      discard tabStrip([tr("Rule Above"), tr("Rule Below")], which, closable = false, addButton = false)
+      poDlgRule = which
+      var r = if which == 0: poDlg.f.ruleAbove else: poDlg.f.ruleBelow
+      let onePt = float32(max(1.0, d.dpi) / 72)
+      if checkbox("Rule On", r.on) and r.on and r.weight <= 0: r.weight = onePt   # (1 pt to start)
+      row([120, 80, -1]):
+        label "Weight:"
+        var wt = if r.weight > 0: r.weight else: onePt
+        if d.lengthField(wt, dp(70), 0.1, 400, enabled = r.on): r.weight = wt
+        var c = if r.color != 0: r.color else: 0xFF000000'u32
+        if colorWell(c, "pararule" & $which, dp(40)): r.color = c or 0xFF000000'u32
+      row([120, -1]):
+        label "Width:"
+        var tw = ord(r.toText)
+        if combo([tr("Column"), tr("Text")], tw, w = dp(120)): r.toText = tw == 1
+      row([120, 80, -1]):
+        label "Offset:"
+        discard d.lengthField(r.offset, dp(70), -2000, 2000, enabled = r.on)
+        label unitShort()
+      row([120, 80, 60, 80, -1]):
+        label "Left Indent:"
+        discard d.lengthField(r.indentLeft, dp(70), 0, 4000, enabled = r.on)
+        label "Right:"
+        discard d.lengthField(r.indentRight, dp(70), 0, 4000, enabled = r.on)
+        label unitShort()
+      checkbox("Dashed", r.dashed)
+      label(if which == 0: "Offset: from the first line's baseline up to the rule's foot."
+            else: "Offset: from the last line's baseline down to the rule's top.", color = ui.theme.gray)
+      if which == 0: poDlg.f.ruleAbove = r else: poDlg.f.ruleBelow = r
     of "Keep Options...":
       row([180, 70, -1]):
         label "Keep with Next:"
@@ -318,6 +412,61 @@ proc paraOptionsDialog() =
     poDlg.applied = key
     d.setText(L, if poDlg.preview: poApplied(poDlg.snap) else: poDlg.snap)
     d.markAll()
+
+proc startLineOptions(strike: bool) =
+  ## (Underline Options, Strikethrough Options: as the letters picked have them)
+  if typeTarget() == nil:
+    status = tr(if strike: "Strikethrough Options" else: "Underline Options") & ": " & tr("pick a type layer, or type in one")
+    return
+  let s = shownStyle()
+  lineDlg = if strike: (true, true, s.strike, s.stWeight, s.stOffset, s.stColor)
+            else: (true, false, s.underline, s.ulWeight, s.ulOffset, s.ulColor)
+
+proc lineOptionsDialog() =
+  if not lineDlg.open: return
+  let d = cur()
+  if d == nil or typeTarget() == nil:
+    lineDlg.open = false
+    return
+  var ok = false
+  let title = if lineDlg.strike: "Strikethrough Options" else: "Underline Options"
+  dialog(lineDlg.open, title, 380):
+    checkbox(if lineDlg.strike: "Strikethrough On" else: "Underline On", lineDlg.on)
+    row([110, 80, -1]):
+      label "Weight:"
+      discard d.lengthField(lineDlg.weight, dp(70), 0, 400, enabled = lineDlg.on)
+      label unitShort()
+    row([110, 80, -1]):
+      label "Offset:"
+      discard d.lengthField(lineDlg.offset, dp(70), 0, 400, enabled = lineDlg.on)
+      label unitShort()
+    row([110, -1]):
+      label "Color:"
+      var own = lineDlg.color != 0
+      if checkbox("Its own (else the letters')", own):
+        lineDlg.color = if own: (fg or 0xFF000000'u32) else: 0
+      if own:
+        var c = lineDlg.color
+        if colorWell(c, "linecolor", dp(40)): lineDlg.color = c or 0xFF000000'u32
+    label("0: as the font sets it.", color = ui.theme.gray)
+    row:
+      spring()
+      if button("OK", isDefault = true, w = dp(80)): ok = true
+      if button("Cancel", w = dp(80)): lineDlg.open = false
+  if ok:
+    lineDlg.open = false
+    let v = lineDlg
+    applyChar(title, proc (x: var CharStyle) =
+      if v.strike:
+        x.strike = v.on
+        x.stWeight = v.weight
+        x.stOffset = v.offset
+        x.stColor = v.color
+      else:
+        x.underline = v.on
+        x.ulWeight = v.weight
+        x.ulOffset = v.offset
+        x.ulColor = v.color)
 
 # ---- Paragraph Style Options -------------------------------------------------------------------------------
 

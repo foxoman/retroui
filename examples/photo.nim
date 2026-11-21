@@ -547,6 +547,8 @@ proc textFrameCommand(name: string): bool
 proc textFrameDialog()
 proc startParaOptions(name: string)
 proc paraOptionsDialog()
+proc startLineOptions(strike: bool)
+proc lineOptionsDialog()
 proc startStyleOptions(name: string)
 proc styleOptionsDialog()
 proc startObjectStyleOptions(name: string)

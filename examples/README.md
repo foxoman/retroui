@@ -327,6 +327,13 @@ each level a paragraph style's letters, puts the page number after the
 entry, before it or nowhere, sorts the entries, takes text on hidden
 layers, makes PDF bookmarks and replaces the table there is.
 
+**Typesetting** (5.13): the Paragraph panel's Hyphenation (the shortest word,
+the letters before and after a hyphen, hyphens in a row, the zone,
+capitals, the last word, Balance Ragged Lines) and Paragraph Rules;
+Justification's Auto Leading and Single Word Justification; Underline and
+Strikethrough Options; OpenType's Figure Style, Positional Form and the
+font's Stylistic Sets by its own names.
+
 **Arabic typesetting** (5.12), from Yaqout's manual: Type > Quran... --
 the text downloaded once from Tanzil (or a Tanzil file opened), a sura's
 ayat with their numbers in ornate brackets set into the text being typed

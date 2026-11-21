@@ -601,6 +601,10 @@ proc psMenus() =
       ci("Story Edi&tor...", "Story Editor...", enabled = some and (te.on or d.current.isText))
       ci("Paragraph Shading and &Borders...", "Paragraph Shading and Borders...",
          enabled = some and (te.on or d.current.isText))
+      ci("Paragraph R&ules...", "Paragraph Rules...", enabled = some and (te.on or d.current.isText))
+      ci("H&yphenation...", "Hyphenation...", enabled = some and (te.on or d.current.isText))
+      ci("Underline Options...", "Underline Options...", enabled = some and (te.on or d.current.isText))
+      ci("Strikethrough Options...", "Strikethrough Options...", enabled = some and (te.on or d.current.isText))
       ci("Insert E&quation...", "Insert Equation...", enabled = some)
       psSub "Trac&k Changes":
         let tl = if some: d.storyLayer else: nil
@@ -617,6 +621,17 @@ proc psMenus() =
       psSub "Open&Type":
         for (nm, tag) in OpenTypeMenu:
           ci(otLabel(nm, tag, ts), "OpenType: " & nm, checked = featureOn(ts.features, tag))
+        sep()
+        psSub "&Figure Style":
+          let fs = figureStyleOf(ts.features)
+          for k, (nm, _) in FigureStyles: ci(nm, "Figure Style: " & nm, checked = k == fs)
+        psSub "&Positional Form":
+          let pf = positionalFormOf(ts.features)
+          for k, (nm, _) in PositionalForms: ci(nm, "Positional Form: " & nm, checked = k == pf)
+        psSub "&Stylistic Sets":
+          let sets = fontSets(ts)
+          if sets.len == 0: ci("(none in this font)", enabled = false)
+          for (tag, nm) in sets: ci(nm, "Stylistic Set: " & tag, checked = featureOn(ts.features, tag))
       sep()
       live: typeMenu(d)
       if mIndex.on: ci("Rasterize Type Layer", "Rasterize Type")

@@ -604,6 +604,9 @@ proc paragraphBody() =
   row:
     if button("Nested Styles...", w = dp(104)): runCommand("Drop Caps and Nested Styles...")
     if button("GREP Styles...", w = dp(104)): runCommand("GREP Styles...")
+    if button("Hyphenation...", w = dp(104)): runCommand("Hyphenation...")
+  row:
+    if button("Paragraph Rules...", w = dp(104)): runCommand("Paragraph Rules...")
   row:
     var hy = p.hyphenate
     if checkbox("Hyphenate", hy):
@@ -761,6 +764,15 @@ proc toggleOpenType(name: string) =
         x.features = withFeature(x.features, t, on)
         if t == "c2sc": x.features = withFeature(x.features, "smcp", on))   # (All Small Caps: both)
 
+proc fontSets(s: CharStyle): seq[tuple[tag, name: string]] =
+  ## (the stylistic sets and character variants the style's font has, with its own names for them)
+  when declared(featureTags):
+    let f = fontFace(s.family, s.style).face
+    if f != nil:
+      for t in f.featureTags:
+        if t.len == 4 and (t.startsWith("ss") or t.startsWith("cv")) and t[2 .. 3].allCharsInSet(Digits):
+          result.add (t, f.featureName(t))
+
 proc openTypeItems() =
   ## Ligatures and the OpenType menu (the Character panel's, Type's).
   let s = shownStyle()
@@ -768,6 +780,20 @@ proc openTypeItems() =
   submenu("OpenType"):
     for (nm, tag) in OpenTypeMenu:
       if menuItem(otLabel(nm, tag, s), checked = featureOn(s.features, tag)): toggleOpenType(nm)
+    menuSeparator()
+    submenu("Figure Style"):
+      let fs = figureStyleOf(s.features)
+      for k, (nm, _) in FigureStyles:
+        if menuItem(nm, checked = k == fs): runCommand("Figure Style: " & nm)
+    submenu("Positional Form"):
+      let pf = positionalFormOf(s.features)
+      for k, (nm, _) in PositionalForms:
+        if menuItem(nm, checked = k == pf): runCommand("Positional Form: " & nm)
+    let sets = fontSets(s)
+    if sets.len > 0:
+      submenu("Stylistic Sets"):
+        for (tag, nm) in sets:
+          if menuItem(nm, checked = featureOn(s.features, tag)): runCommand("Stylistic Set: " & tag)
 
 proc typeMenuItems() =
   ## The menu of Character, Paragraph, Glyphs.
@@ -776,6 +802,9 @@ proc typeMenuItems() =
   if menuItem("Reset Character"):
     typeStyle = CharStyle(family: DastkhatFamily, style: "Regular", size: 48, color: fg, hScale: 1, vScale: 1)
   if menuItem("Reset Paragraph"): typePara = ParaStyle()
+  menuSeparator()
+  if menuItem("Underline Options..."): runCommand("Underline Options...")
+  if menuItem("Strikethrough Options..."): runCommand("Strikethrough Options...")
 
 var fgSeen = 0'u32               ## (the foreground color as last seen: `fgToText`)
 

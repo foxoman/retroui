@@ -539,6 +539,12 @@ type
     fauxBold*, fauxItalic*: bool  ## made bolder (its outline widened), slanted
     allCaps*, smallCaps*: bool    ## drawn in capitals; small letters as small capitals
     underline*, strike*: bool     ## a line under it, through it
+    ulWeight*, ulOffset*: float32 ## Underline Options: its thickness and how far under the baseline,
+                                  ## pixels (0: the font's)
+    ulColor*: uint32              ## ... its color, ARGB (0: the letters')
+    stWeight*, stOffset*: float32 ## Strikethrough Options: its thickness and how far over the
+                                  ## baseline, pixels (0: the font's, a third of the size)
+    stColor*: uint32              ## ... its color (0: the letters')
     script*: Script            ## superscript or subscript
     digits*: int               ## 0 as typed, 1 Arabic-Indic (٠١٢), 2 Persian (۰۱۲)
     features*: string          ## OpenType features changed from the font's own, "+ss01 -liga dlig"
@@ -612,6 +618,19 @@ type
     dropLines*: int            ## text in a box: a drop cap -- its first letters as tall as so many
                                ## lines (2 and more), the lines beside them standing in (0: none)
     dropChars*: int            ## ... how many letters (0: one)
+    hyphWord*, hyphAfter*, hyphBefore*: int16  ## Hyphenation Settings: words with at least so many
+                               ## letters (0: 5), so many letters at least before a hyphen and
+                               ## after it (0: the language's)
+    hyphLimit*: int16          ## ... at most so many hyphens on lines one after another (0: no limit)
+    hyphZone*: float32         ## ... text not justified: a word broken only when the line would
+                               ## leave more room than this at its end, pixels (0: always)
+    noHyphCaps*, noHyphLast*: bool  ## ... words with a capital, the last word of a paragraph, not broken
+    balanceRagged*: bool       ## Balance Ragged Lines: a paragraph not justified broken into lines
+                               ## as even as they can be (a heading)
+    singleWord*: SingleWord    ## a justified line of one word: spread, or at the left, middle, right
+    autoLead*: int16           ## Auto Leading: a line's leading this % of its type's size where it
+                               ## sets none (0: 120)
+    ruleAbove*, ruleBelow*: ParaRule  ## Paragraph Rules: a line over its first line, under its last
     hyphenate*: bool           ## text in a box: a word that does not fit at a line's end broken
                                ## where it may be, with a hyphen, in its language (`CharStyle.lang`:
                                ## English, French, German, Spanish, Italian, Portuguese, Dutch --
@@ -669,6 +688,21 @@ type
     leader*: string           ## what fills the room before it, again and again ("": nothing;
                               ## ". " dots, "_" a line to write on)
     alignOn*: string          ## `tabChar`: the character ("": ".")
+
+  SingleWord* = enum
+    ## How a justified line of a single word is set (Justification > Single Word Justification).
+    swFull = "Full Justify", swLeft = "Align Left", swCenter = "Align Center", swRight = "Align Right"
+
+  ParaRule* = object
+    ## A line over or under a paragraph (Paragraph Rules).
+    on*: bool
+    weight*: float32           ## pixels (0: 1)
+    color*: uint32             ## ARGB (0: the text's)
+    toText*: bool              ## as wide as the line's text (else the column)
+    offset*: float32           ## over the first baseline (above: its foot) or under the last (below:
+                               ## its top), pixels
+    indentLeft*, indentRight*: float32  ## in from the edges, pixels
+    dashed*: bool
 
   Composer* = enum
     ## How a paragraph's lines are broken.
@@ -1070,6 +1104,44 @@ proc withFeature*(features, tag: string; on: bool): string =
   if on != (tag in DefaultFeatures): ws.add (if on: "+" else: "-") & tag
   ws.join(" ")
 
+const FigureStyles* = [("Tabular Lining", "tnum lnum"), ("Proportional Oldstyle", "pnum onum"),
+                       ("Proportional Lining", "pnum lnum"), ("Tabular Oldstyle", "tnum onum"),
+                       ("Default Figure Style", "")]
+  ## The figure styles a layout program's OpenType menu offers, and the features each turns on.
+
+const PositionalForms* = [("General Form", ""), ("Initial Form", "init"), ("Medial Form", "medi"),
+                          ("Final Form", "fina"), ("Isolated Form", "isol")]
+  ## The positional forms it offers (a script that joins -- Arabic -- has them by itself).
+
+proc withFeatureGroup(features: string; group: openArray[string]; want: string): string =
+  ## (the list with the group's features off but those in `want`)
+  result = features
+  for tag in group: result = withFeature(result, tag, false)
+  for tag in strutils.splitWhitespace(want): result = withFeature(result, tag, true)
+
+proc withFigureStyle*(features: string; k: int): string =
+  ## The list with figure style `k` of `FigureStyles` (its last: the font's own).
+  withFeatureGroup(features, ["tnum", "pnum", "lnum", "onum"], FigureStyles[clamp(k, 0, FigureStyles.high)][1])
+
+proc figureStyleOf*(features: string): int =
+  ## Which of `FigureStyles` the list has (the last: none of them, the font's own).
+  for k, (_, tags) in FigureStyles:
+    if tags.len == 0: continue
+    var all = true
+    for tag in strutils.splitWhitespace(tags): all = all and featureOn(features, tag)
+    if all: return k
+  FigureStyles.high
+
+proc withPositionalForm*(features: string; k: int): string =
+  ## The list with positional form `k` of `PositionalForms` (the first: none).
+  withFeatureGroup(features, ["init", "medi", "fina", "isol"], PositionalForms[clamp(k, 0, PositionalForms.high)][1])
+
+proc positionalFormOf*(features: string): int =
+  ## Which of `PositionalForms` the list has (0: none).
+  for k, (_, tag) in PositionalForms:
+    if tag.len > 0 and featureOn(features, tag): return k
+  0
+
 proc ligaturesOn*(s: CharStyle): bool = featureOn(s.features, "liga")
   ## Ligatures (the Character panel's): the font's standard ligatures --
   ## fi, fl; an Arabic font's optional ones -- are on.
@@ -1083,7 +1155,9 @@ const OpenTypeMenu* = [("Discretionary Ligatures", "dlig"), ("Fractions", "frac"
                        ("Swash", "swsh"), ("Titling Alternates", "titl"), ("Contextual Alternates", "calt"),
                        ("All Small Caps", "c2sc"), ("Slashed Zero", "zero"), ("Superscript", "sups"),
                        ("Subscript", "subs"), ("Oldstyle Figures", "onum"), ("Tabular Figures", "tnum"),
-                       ("Stylistic Alternates", "salt"), ("Historical Forms", "hist")]
+                       ("Stylistic Alternates", "salt"), ("Historical Forms", "hist"),
+                       ("Scientific Inferior", "sinf"), ("Numerator", "numr"),
+                       ("Denominator", "dnom")]
   ## The OpenType features a layout program's Character panel names in its
   ## OpenType menu, and their tags (a font without one shows it in [brackets]).
 
@@ -2591,7 +2665,7 @@ proc paraFrames(lay: var TextLayout; t: TextData; colW, gutter: float32) =
   if lay.lines.len == 0 or lay.paras.len == 0: return
   var any = false
   for p in lay.paras:
-    if p.shading != 0 or p.border != 0: any = true
+    if p.shading != 0 or p.border != 0 or p.ruleAbove.on or p.ruleBelow.on: any = true
   if not any: return
   var i = 0
   var nb = 0                       # (the fills go under a table's, in order)
@@ -2644,6 +2718,36 @@ proc paraFrames(lay: var TextLayout; t: TextData; colW, gutter: float32) =
                                                       color: ps.border)
           if w[1] > 0: lay.decorations.add Decoration(x0: bx1, x1: bx1 + w[1], y: (by0 + by1) / 2, thick: by1 - by0,
                                                       color: ps.border)
+    if ps.ruleAbove.on or ps.ruleBelow.on:
+      # (Paragraph Rules: a line over its first line -- its foot so far over the baseline -- and
+      # under its last -- its top so far under it --, as wide as the column or the line's text)
+      let firstRun = i == 0 or lay.lines[i - 1].para != pi
+      let lastRun = j >= lay.lines.len or lay.lines[j].para != pi
+      for (r, at, below) in [(ps.ruleAbove, i, false), (ps.ruleBelow, j - 1, true)]:
+        if not r.on or (if below: not lastRun else: not firstRun): continue
+        let ln = lay.lines[at]
+        var x0 = ln.x0
+        var x1 = ln.x1
+        if not r.toText and t.boxW > 0 and colW > 0 and t.path.len == 0:
+          let col = clamp(int((ln.x0 - t.x) / (colW + gutter)), 0, max(0, t.columns - 1))
+          x0 = t.x + float32(col) * (colW + gutter) + ps.indentLeft
+          x1 = t.x + float32(col) * (colW + gutter) + colW - ps.indentRight
+        x0 += r.indentLeft
+        x1 -= r.indentRight
+        if x1 <= x0: continue
+        let wt = if r.weight > 0: r.weight else: 1'f32
+        let y = if below: ln.baseline + r.offset + wt / 2 else: ln.baseline - r.offset - wt / 2
+        let c = if r.color != 0: r.color
+                elif ln.first < lay.caretX.len and lay.glyphs.len > 0: lay.glyphs[0].color
+                else: 0xFF000000'u32
+        if r.dashed:
+          let dash = max(2'f32, wt * 3)
+          var x = x0
+          while x < x1:
+            lay.decorations.add Decoration(x0: x, x1: min(x1, x + dash), y: y, thick: wt, color: c)
+            x += dash * 2
+        else:
+          lay.decorations.add Decoration(x0: x0, x1: x1, y: y, thick: wt, color: c)
     i = j
 
 proc layoutOnce(t: TextData): TextLayout =
@@ -3344,6 +3448,16 @@ proc layoutPlain(t: TextData): TextLayout =
       for s in pp.tabs: last = max(last, s.pos)
       let at = max(last, x)
       (floor(at / step) + 1) * step - x
+    let justified = pp.align in {justifyLeft, justifyCenter, justifyRight, justifyAll}
+    let autoK = if pp.autoLead > 0: float32(pp.autoLead) / 100 else: 1.2'f32   # (Auto Leading)
+    var hyphRun = 0                     # (hyphens on the lines just before, one after another)
+    let hyphL = if pp.hyphAfter > 0: int(pp.hyphAfter) else: -1
+    let hyphR = if pp.hyphBefore > 0: int(pp.hyphBefore) else: -1
+    template hyphOk(word: string; letters, wordEnd: int): bool =
+      ## (a word that may be broken: long enough; with a capital, the paragraph's last, as asked)
+      letters >= (if pp.hyphWord > 0: int(pp.hyphWord) else: 5) and
+        not (pp.noHyphCaps and word.len > 0 and word.runeAt(0).isUpper) and
+        not (pp.noHyphLast and wordEnd >= paraEnd - 1)
     template breakLine(ls: int; room: float32; whole = false): int =
       ## (where the line that starts at `ls` ends, `room` wide; `whole`:
       ## nothing of it when not a word of it fits; Hyphenate: the word that
@@ -3360,20 +3474,25 @@ proc layoutPlain(t: TextData): TextLayout =
           wAtWord = w + chars[k].adv
         let endHang = if hangs and (k + 1 >= paraEnd or chars[k + 1].space or chars[k + 1].cp == 10): hangAt(k)
                       else: 0'f32
-        if w + chars[k].adv - endHang > room and k > ls and not chars[k].space:
+        # (a hundredth of a pixel over is not over: a right tab at the box's edge puts its
+        # text's end on it, give or take the sums' rounding)
+        if w + chars[k].adv - endHang > room + 0.01'f32 and k > ls and not chars[k].space:
           break
         w += chars[k].adv
         inc k
       var cut = (if k >= paraEnd: paraEnd elif lastBreak >= ls: lastBreak + 1 elif whole: ls else: k)
-      if pp.hyphenate and boxed and k < paraEnd and not rtlPara:
+      # (Hyphenation Settings: not after so many hyphens in a row; ragged, not within the zone)
+      let zoneOk = pp.hyphZone <= 0 or justified or room - (if lastBreak >= ls: wAtWord else: 0'f32) > pp.hyphZone
+      let limitOk = pp.hyphLimit <= 0 or hyphRun < pp.hyphLimit
+      if pp.hyphenate and boxed and k < paraEnd and not rtlPara and zoneOk and limitOk:
         # (the word at the break: its letters, a place in it that fits with a hyphen)
         let ws = if lastBreak >= ls: lastBreak + 1 else: ls
         var we = ws
         while we < paraEnd and not chars[we].space and chars[we].cp != 10: inc we
         # (the word's letters without what is round them: "word," "(word")
         let (w0, w1, word) = wordLetters(ws, we)
-        if w1 - w0 >= 5:
-          let pts = hyphenPoints(word, lang = styles[chars[ws].style].lang)
+        if hyphOk(word, w1 - w0, we):
+          let pts = hyphenPoints(word, hyphL, hyphR, lang = styles[chars[ws].style].lang)
           var best = -1
           for p in pts:
             let at = ws + w0 + p
@@ -3383,11 +3502,11 @@ proc layoutPlain(t: TextData): TextLayout =
           if best > 0:
             cut = best
             hyphenAt[cut] = true
+      hyphRun = if hyphenAt[cut]: hyphRun + 1 else: 0
       cut
     var hyphenAt = newSeq[bool](paraEnd + 1)
     var lines: seq[(int, int)]
     var ls = paraStart
-    let justified = pp.align in {justifyLeft, justifyCenter, justifyRight, justifyAll}
     let composed = boxed and not holed and not hasTabs and paraEnd - paraStart > 1 and
                    (pp.composer == cpParagraph or (pp.composer == cpAuto and justified))
     if composed:
@@ -3407,8 +3526,9 @@ proc layoutPlain(t: TextData): TextLayout =
         while we < paraEnd and not chars[we].space: inc we
         if pp.hyphenate and not rtlPara:
           let (w0, w1, word) = wordLetters(k, we)
-          if w1 - w0 >= 5:
-            for hp in hyphenPoints(word, lang = styles[chars[k].style].lang): cands.add (k + w0 + hp, true)
+          if hyphOk(word, w1 - w0, we):
+            for hp in hyphenPoints(word, hyphL, hyphR, lang = styles[chars[k].style].lang):
+              cands.add (k + w0 + hp, true)
         k = we
       cands.add (paraEnd, false)
       let nc = cands.len
@@ -3490,6 +3610,33 @@ proc layoutPlain(t: TextData): TextLayout =
         lines.add (ls, cut)
         if cut >= paraEnd: break
         ls = cut
+      if pp.balanceRagged and boxed and not justified and lines.len >= 2 and not hasTabs:
+        # (Balance Ragged Lines: the narrowest room that keeps as many lines -- the lines as even
+        # as they can be)
+        let want = lines.len
+        var lo = avail * 0.3'f32
+        var hi = avail
+        for _ in 0 ..< 14:
+          let mid = (lo + hi) / 2
+          for q in hyphenAt.mitems: q = false
+          hyphRun = 0
+          var n = 0
+          ls = paraStart
+          while true:
+            let cut = breakLine(ls, mid)
+            inc n
+            if cut >= paraEnd or cut <= ls or n > want: break
+            ls = cut
+          if n <= want: hi = mid else: lo = mid
+        for q in hyphenAt.mitems: q = false
+        hyphRun = 0
+        lines.setLen(0)
+        ls = paraStart
+        while true:
+          let cut = breakLine(ls, hi)
+          lines.add (ls, cut)
+          if cut >= paraEnd or cut <= ls: break
+          ls = cut
     if paraStart != 0: penY += pp.spaceBefore
     var li = -1
     var segs: seq[tuple[x0, x1: float32]]     # (the rooms left of the line being filled, beside holes)
@@ -3554,7 +3701,7 @@ proc layoutPlain(t: TextData): TextLayout =
         let em = float32(c.face.unitsPerEm)
         asc = max(asc, float32(c.face.ascent) / em * c.size * st.vScale)
         desc = max(desc, -float32(c.face.descent) / em * c.size * st.vScale)
-        lead = max(lead, if st.leading > 0: st.leading else: st.size * 1.2)
+        lead = max(lead, if st.leading > 0: st.leading else: st.size * autoK)
         any = true
       if not any:
         # (a text of no spans at all has no style either: a box that takes what did not
@@ -3674,6 +3821,10 @@ proc layoutPlain(t: TextData): TextLayout =
           if gScale != 1:
             for k in a ..< e:
               if not chars[k].space and chars[k].cp != 10: width += chars[k].adv * (gScale - 1)
+        elif letters > 1 and pp.singleWord == swFull and not rtlPara and need > 0:
+          # (a line of one word: its letters spread across it -- Single Word Justification)
+          extraPerLetter = need / float32(letters - 1)
+          width += extraPerLetter * float32(letters - 1)
       # (justified Arabic: lengthened at its joins first, with tatweel -- one
       # join a word, the best place in it; as long as Insert Kashida lets)
       var kashidaAt = newSeq[float32](b - a)
@@ -3713,7 +3864,13 @@ proc layoutPlain(t: TextData): TextLayout =
           width += used
           extraPerSpace = if spaces > 0: max(0'f32, (room - used) / spaces.float32) else: 0'f32
       let lineW = width + extraPerSpace * spaces.float32
-      var effAlign = if justify or lineTabs: textLeft
+      var effAlign = if lineTabs: textLeft
+                     elif justify and spaces == 0 and pp.singleWord != swFull:
+                       (case pp.singleWord
+                        of swCenter: textCenter
+                        of swRight: textRight
+                        else: textLeft)
+                     elif justify: textLeft
                      elif align == justifyLeft: textLeft
                      elif align == justifyCenter: textCenter
                      elif align == justifyRight: textRight
@@ -3829,10 +3986,17 @@ proc layoutPlain(t: TextData): TextLayout =
           let em = float32(f.unitsPerEm)
           let th = max(1'f32, float32(f.underlineThick) / em * c.size)
           if st.underline:
-            let below = max(-float32(f.underlinePos) / em * c.size, c.size * 0.08'f32) + th / 2
-            result.decorations.add Decoration(x0: x, x1: x + adv, y: penY + below, thick: th, color: st.color)
+            # (as the font puts it -- or its own weight, offset and color: Underline Options)
+            let uw = if st.ulWeight > 0: st.ulWeight else: th
+            let below = if st.ulOffset > 0: st.ulOffset + uw / 2
+                        else: max(-float32(f.underlinePos) / em * c.size, c.size * 0.08'f32) + uw / 2
+            result.decorations.add Decoration(x0: x, x1: x + adv, y: penY + below, thick: uw,
+                                              color: (if st.ulColor != 0: st.ulColor else: st.color))
           if st.strike:
-            result.decorations.add Decoration(x0: x, x1: x + adv, y: penY - c.size * 0.3, thick: th, color: st.color)
+            let sw = if st.stWeight > 0: st.stWeight else: th
+            let above = if st.stOffset > 0: st.stOffset else: c.size * 0.3
+            result.decorations.add Decoration(x0: x, x1: x + adv, y: penY - above, thick: sw,
+                                              color: (if st.stColor != 0: st.stColor else: st.color))
         x += adv
       if hyphenated:
         # (the word broken here: its hyphen after it)
@@ -5549,6 +5713,10 @@ proc toJson*(st: CharStyle): JsonNode =
                     ("smallCaps", st.smallCaps), ("underline", st.underline), ("strike", st.strike)]:
     if v: result[name] = %true
   if st.script != d.script: result["script"] = %($st.script)
+  if st.ulWeight > 0 or st.ulOffset > 0 or st.ulColor != 0:
+    result["ul"] = %*[st.ulWeight, st.ulOffset, int64(st.ulColor)]
+  if st.stWeight > 0 or st.stOffset > 0 or st.stColor != 0:
+    result["st"] = %*[st.stWeight, st.stOffset, int64(st.stColor)]
   if st.digits != 0: result["digits"] = %st.digits
   if st.features.len > 0: result["features"] = %st.features
   if st.wordSpace != 0: result["wordSpace"] = %st.wordSpace
@@ -5602,6 +5770,16 @@ proc charStyleFrom*(j: JsonNode): CharStyle =
   result.fauxBold = j.getB("fauxBold"); result.fauxItalic = j.getB("fauxItalic")
   result.allCaps = j.getB("allCaps"); result.smallCaps = j.getB("smallCaps")
   result.underline = j.getB("underline"); result.strike = j.getB("strike")
+  let ul = j{"ul"}
+  if ul != nil and ul.kind == JArray and ul.len == 3:
+    result.ulWeight = clamp(float32(ul[0].getFloat), 0, 1000)
+    result.ulOffset = clamp(float32(ul[1].getFloat), 0, 1000)
+    result.ulColor = uint32(ul[2].getBiggestInt and 0xFFFFFFFF'i64)
+  let sk = j{"st"}
+  if sk != nil and sk.kind == JArray and sk.len == 3:
+    result.stWeight = clamp(float32(sk[0].getFloat), 0, 1000)
+    result.stOffset = clamp(float32(sk[1].getFloat), 0, 1000)
+    result.stColor = uint32(sk[2].getBiggestInt and 0xFFFFFFFF'i64)
   result.script = enumOf(j.getS("script"), scNormal)
   result.digits = int(j.getF("digits"))
   result.features = j.getS("features")
@@ -5979,6 +6157,17 @@ proc composeToJson(p: ParaStyle; j: JsonNode) =
   ## (the composer, justification, keep options, columns, next style, nested and GREP styles:
   ## there only when they are not their defaults)
   if p.composer != cpAuto: j["composer"] = %($p.composer)
+  if p.hyphWord != 0 or p.hyphAfter != 0 or p.hyphBefore != 0 or p.hyphLimit != 0 or p.hyphZone > 0 or
+     p.noHyphCaps or p.noHyphLast:
+    j["hyphenation"] = %*{"word": p.hyphWord, "after": p.hyphAfter, "before": p.hyphBefore, "limit": p.hyphLimit,
+                          "zone": p.hyphZone, "noCaps": p.noHyphCaps, "noLast": p.noHyphLast}
+  if p.balanceRagged: j["balanceRagged"] = %true
+  if p.singleWord != swFull: j["singleWord"] = %($p.singleWord)
+  if p.autoLead > 0: j["autoLead"] = %p.autoLead
+  for (k, r) in [("ruleAbove", p.ruleAbove), ("ruleBelow", p.ruleBelow)]:
+    if r.on:
+      j[k] = %*{"weight": r.weight, "color": int64(r.color), "toText": r.toText, "offset": r.offset,
+                "left": r.indentLeft, "right": r.indentRight, "dashed": r.dashed}
   if p.hanging: j["hanging"] = %true
   if p.ignoreOptical: j["ignoreOptical"] = %true
   if p.shading != 0:
@@ -6027,6 +6216,26 @@ proc composeToJson(p: ParaStyle; j: JsonNode) =
 
 proc composeFrom(p: var ParaStyle; j: JsonNode) =
   p.composer = enumOf(j.getS("composer"), cpAuto)
+  let hy = j{"hyphenation"}
+  if hy != nil and hy.kind == JObject:
+    p.hyphWord = int16(clamp(hy{"word"}.getInt(0), 0, 50))
+    p.hyphAfter = int16(clamp(hy{"after"}.getInt(0), 0, 20))
+    p.hyphBefore = int16(clamp(hy{"before"}.getInt(0), 0, 20))
+    p.hyphLimit = int16(clamp(hy{"limit"}.getInt(0), 0, 50))
+    p.hyphZone = clamp(float32(hy{"zone"}.getFloat(0)), 0, 10_000)
+    p.noHyphCaps = hy{"noCaps"}.getBool
+    p.noHyphLast = hy{"noLast"}.getBool
+  p.balanceRagged = j.getB("balanceRagged")
+  p.singleWord = enumOf(j.getS("singleWord"), swFull)
+  p.autoLead = int16(clamp(int(j.getF("autoLead")), 0, 1000))
+  for (k, r) in [("ruleAbove", addr p.ruleAbove), ("ruleBelow", addr p.ruleBelow)]:
+    let o = j{k}
+    if o != nil and o.kind == JObject:
+      r[] = ParaRule(on: true, weight: clamp(float32(o{"weight"}.getFloat), 0, 1000),
+                     color: uint32(o{"color"}.getBiggestInt(0) and 0xFFFFFFFF'i64), toText: o{"toText"}.getBool,
+                     offset: clamp(float32(o{"offset"}.getFloat), -10_000, 10_000),
+                     indentLeft: clamp(float32(o{"left"}.getFloat), 0, 10_000),
+                     indentRight: clamp(float32(o{"right"}.getFloat), 0, 10_000), dashed: o{"dashed"}.getBool)
   p.hanging = j.getB("hanging")
   p.ignoreOptical = j.getB("ignoreOptical")
   p.shading = uint32(int64(j.getF("shading")) and 0xFFFFFFFF'i64)

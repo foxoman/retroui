@@ -2443,6 +2443,9 @@ var t = b.boxed(newText(story, defaultStyle()), 1)
 t.insertNote(120, "Where the number came from.")                  # a footnote at the box's foot
 t.para.hyphenate = true                                            # words broken at a line's end ...
 t.spans[0].style.lang = "fr"                                       # ... in French (de, es, it, pt, nl too)
+t.para.hyphWord = 7                                                # ... only words of 7 letters or more
+t.para.hyphLimit = 2                                               # ... no more than 2 lines in a row
+t.para.ruleBelow = ParaRule(on: true, weight: 2, offset: 6)       # a line under the paragraph
 t.opticalMargin = true                                             # punctuation hung out of the edges
 t.autoSize = asHeight                                              # the box as tall as its text
 let s = d.addTextLayer(t)

@@ -75,6 +75,25 @@
   style for each level and for the title; `tocEntries(hidden = true)` takes
   text on hidden layers too. `Book.tocStyles` keeps a table's settings by
   name in the book's file (TOC Styles).
+- **Typesetting as a layout program sets it** (`retroui/textengine`):
+  Hyphenation Settings (`ParaStyle.hyphWord`: the shortest word broken,
+  `hyphAfter`, `hyphBefore`: the letters at least before and after a
+  hyphen, `hyphLimit`: hyphens on lines one after another -- the
+  Single-line Composer --, `hyphZone`, `noHyphCaps`, `noHyphLast`);
+  `balanceRagged` (a paragraph not justified broken into lines as even
+  as they can be); `singleWord` (`SingleWord`: a justified line of one
+  word spread, or at the left, middle or right); `autoLead` (Auto
+  Leading, % of the size); Paragraph Rules (`ruleAbove`, `ruleBelow`:
+  `ParaRule` -- weight, color, the column's width or the text's, offset,
+  indents, dashed); Underline and Strikethrough Options
+  (`CharStyle.ulWeight`, `ulOffset`, `ulColor`, `stWeight`, `stOffset`,
+  `stColor`); figure styles and positional forms (`FigureStyles`,
+  `withFigureStyle`, `figureStyleOf`, `PositionalForms`,
+  `withPositionalForm`, `positionalFormOf`) and three more OpenType items
+  (Scientific Inferior, Numerator, Denominator); all kept in the file.
+  A right tab at a box's edge keeps its text on its line: a table of
+  contents' page number was sometimes put on a line of its own, the sums
+  of the widths a hair over the box.
 - **Retro Atelier**: a table's column edges and row feet dragged with the
   Type tool (Shift: the table wider), the pointer showing where; Type >
   Table: Insert Rows... and Insert Columns... (several at once, above or
@@ -109,6 +128,15 @@
   Numbering Every Page, where the prefix and suffix show, the reference's
   position, the space between notes, the line's indent, offset and
   dashes.
+
+- **Retro Atelier**: the Paragraph panel's Hyphenation... (Words with at
+  Least, After First, Before Last, Hyphen Limit, Hyphenation Zone,
+  Hyphenate Capitalized Words, Hyphenate Last Word, Balance Ragged Lines)
+  and Paragraph Rules... (Rule Above, Rule Below: weight -- 1 pt to start
+  --, color, width, offset, indents, dashed), Justification's Auto Leading and Single Word
+  Justification; Type and the Character panel's menu: Underline Options...
+  and Strikethrough Options...; OpenType > Figure Style, Positional Form
+  and Stylistic Sets (the font's own, by the font's own names).
 
 ## 0.67.0
 

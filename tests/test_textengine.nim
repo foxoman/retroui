@@ -1334,6 +1334,129 @@ block hyphenation:
   doAssert broken >= 1, "a German word broken"
   doAssert textFrom(tg.toJson).spans[0].style.lang == "de"
 
+block typesettingOptions:
+  # Hyphenation Settings (the shortest word broken, the letters before and after a hyphen, hyphens
+  # in a row, the zone, capitals, the last word); Balance Ragged Lines; Single Word Justification;
+  # Auto Leading; Paragraph Rules; Underline and Strikethrough Options; figure styles and positional
+  # forms; all kept
+  var st = defaultStyle()
+  st.size = 19
+  let words = "Typesetting with hyphenation gives justified paragraphs an even texture: international " &
+              "organizations, extraordinary considerations and characteristically long words."
+  proc hyphensIn(t: TextData): int =
+    let l = layoutText(t)
+    for ln in l.lines:
+      let txt = t.textSlice(ln.first, ln.last)
+      if ln.last < t.runeLen and txt.len > 0 and txt[^1] notin {' ', ',', ':', '.'}: inc result
+  var t = newText(words, st, 0, 0)
+  t.boxW = 290
+  t.boxH = 600
+  t.para.align = justifyLeft
+  t.para.composer = cpSingle
+  t.para.hyphenate = true
+  let many = hyphensIn(t)
+  doAssert many >= 1, $many
+  var long = t
+  long.para.hyphWord = 20
+  doAssert hyphensIn(long) == 0, "no word of 20 letters"
+  var lim = t
+  lim.para.hyphLimit = 1
+  doAssert hyphensIn(lim) <= many
+  var caps = newText("Internationalization Internationalization Internationalization Internationalization",
+                     st, 0, 0)
+  caps.boxW = 260
+  caps.boxH = 400
+  caps.para.hyphenate = true
+  caps.para.composer = cpSingle
+  doAssert hyphensIn(caps) >= 1
+  caps.para.noHyphCaps = true
+  doAssert hyphensIn(caps) == 0, "words with a capital not broken"
+  # Balance Ragged Lines: two lines nearer each other's length
+  var h = newText("A heading long enough to go on to a second short line", CharStyle(family: "", size: 30,
+                  color: 0xFF000000'u32, hScale: 1, vScale: 1), 0, 0)
+  h.boxW = 560
+  h.boxH = 300
+  let l0 = layoutText(h)
+  doAssert l0.lines.len == 2
+  h.para.balanceRagged = true
+  let l1 = layoutText(h)
+  doAssert l1.lines.len == 2 and
+           abs((l1.lines[0].x1 - l1.lines[0].x0) - (l1.lines[1].x1 - l1.lines[1].x0)) <
+           abs((l0.lines[0].x1 - l0.lines[0].x0) - (l0.lines[1].x1 - l0.lines[1].x0)), "more even"
+  # Single Word Justification: a line of one word, spread or in the middle
+  var sw = newText("Extraordinarily\nmore words here", st, 0, 0)
+  sw.boxW = 400
+  sw.boxH = 300
+  sw.para.align = justifyLeft
+  var w1 = newText("Extraordinarily more words", st, 0, 0)
+  w1.boxW = 140
+  w1.boxH = 300
+  w1.para.align = justifyLeft
+  w1.para.composer = cpSingle
+  let spread = layoutText(w1)
+  doAssert spread.lines.len >= 2 and spread.lines[0].last <= 16 and spread.lines[0].x1 > 139,
+           "spread across the line: " & $spread.lines[0]
+  w1.para.singleWord = swCenter
+  let mid = layoutText(w1)
+  doAssert mid.lines[0].x0 > 3 and mid.lines[0].x1 < 137, "in the middle: " & $mid.lines[0]
+  # Auto Leading
+  var al = newText("one\ntwo", st, 0, 0)
+  al.boxW = 300
+  al.boxH = 300
+  let a0 = layoutText(al)
+  al.para.autoLead = 200
+  let a1 = layoutText(al)
+  doAssert abs((a1.lines[1].baseline - a1.lines[0].baseline) - 38) < 0.5 and
+           abs((a0.lines[1].baseline - a0.lines[0].baseline) - 22.8) < 0.5
+  # Paragraph Rules: over the first line, under the last, as wide as the column or the text
+  var pr = newText("A heading", st, 10, 10)
+  pr.boxW = 300
+  pr.boxH = 100
+  pr.para.ruleAbove = ParaRule(on: true, weight: 3, color: 0xFFFF0000'u32, offset: 20)
+  pr.para.ruleBelow = ParaRule(on: true, weight: 2, color: 0xFF0000FF'u32, toText: true, offset: 4, dashed: true)
+  let rl = layoutText(pr)
+  var red, blue = 0
+  for d in rl.decorations:
+    if d.color == 0xFFFF0000'u32 and abs(d.x0 - 10) < 0.5 and abs(d.x1 - 310) < 0.5 and
+       abs(d.y - (rl.lines[0].baseline - 20 - 1.5)) < 0.1: inc red
+    if d.color == 0xFF0000FF'u32 and d.x1 <= rl.lines[0].x1 + 0.5: inc blue
+  doAssert red == 1 and blue >= 2, $red & " " & $blue
+  # Underline and Strikethrough Options
+  var ul = newText("under", st, 0, 40)
+  ul.spans[0].style.underline = true
+  ul.spans[0].style.ulWeight = 4
+  ul.spans[0].style.ulOffset = 6
+  ul.spans[0].style.ulColor = 0xFF00FF00'u32
+  ul.spans[0].style.strike = true
+  ul.spans[0].style.stColor = 0xFF0000FF'u32
+  var green, sblue = false
+  for d in layoutText(ul).decorations:
+    if d.color == 0xFF00FF00'u32 and abs(d.thick - 4) < 0.01 and abs(d.y - (40 + 6 + 2)) < 0.01: green = true
+    if d.color == 0xFF0000FF'u32: sblue = true
+  doAssert green and sblue
+  # figure styles, positional forms
+  let f1 = withFigureStyle("", 0)
+  doAssert featureOn(f1, "tnum") and featureOn(f1, "lnum") and figureStyleOf(f1) == 0
+  let f2 = withFigureStyle(f1, 1)
+  doAssert not featureOn(f2, "tnum") and featureOn(f2, "onum") and figureStyleOf(f2) == 1
+  doAssert figureStyleOf(withFigureStyle(f2, FigureStyles.high)) == FigureStyles.high
+  doAssert positionalFormOf(withPositionalForm("", 3)) == 3 and positionalFormOf(withPositionalForm("+fina", 0)) == 0
+  # kept
+  t.para.hyphLimit = 2
+  t.para.hyphZone = 12
+  t.para.noHyphLast = true
+  t.para.balanceRagged = true
+  t.para.singleWord = swRight
+  t.para.autoLead = 140
+  t.para.ruleAbove = pr.para.ruleAbove
+  let back = textFrom(t.toJson)
+  doAssert back.para.hyphLimit == 2 and back.para.hyphZone == 12 and back.para.noHyphLast and
+           back.para.balanceRagged and back.para.singleWord == swRight and back.para.autoLead == 140 and
+           back.para.ruleAbove == pr.para.ruleAbove
+  let back2 = textFrom(ul.toJson)
+  doAssert back2.spans[0].style.ulWeight == 4 and back2.spans[0].style.ulColor == 0xFF00FF00'u32 and
+           back2.spans[0].style.stColor == 0xFF0000FF'u32
+
 block ligatures:
   # Ligatures off: the font's standard ones apart (fi, ffi); Arabic's lam + alef stays joined
   # (a required ligature), Hebrew's marks stay placed
@@ -1410,5 +1533,22 @@ block oversetAndAutoSize:
   var none = newText("Point text", style(20), 0, 40)
   none.autoSize = asHeight
   doAssert none.autoSized.boxW == 0, "not in a box: as it is"
+
+block aRightTabAtTheBoxEdge:
+  # a table of contents: the page number on a right tab at the box's edge stays on its line,
+  # whatever the sizes' sums round to
+  carryDastkhat()
+  var wrapped = 0
+  for k in 0 ..< 300:
+    let st = CharStyle(family: DastkhatFamily, style: "Regular", size: 14'f32 + float32(k) * 0.0937,
+                       color: 0xFF000000'u32, hScale: 1, vScale: 1)
+    var t = newText("", st, 118, 89)
+    t.spans = @[TextSpan(text: "Contents\n", style: st), TextSpan(text: "Muscat and the coast\t2", style: st),
+                TextSpan(text: "\nDhofar\t14", style: st)]
+    t.boxW = 667 + float32(k mod 7) * 0.333
+    t.boxH = 400
+    t.para.tabs = @[TabStop(pos: t.boxW, align: tabRight, leader: ". ")]
+    if layoutText(t).lines.len != 3: inc wrapped
+  doAssert wrapped == 0, $wrapped & " entries broken at their number"
 
 echo "textengine ok"

@@ -415,12 +415,33 @@ proc doCommand(name: string) =
   if name == "Ligatures":                  # (the letters selected, the layer, or the next text)
     toggleLigatures()
     return
-  if name in ["Justification...", "Keep Options...", "Span Columns...", "Drop Caps and Nested Styles...",
+  if name in ["Underline Options...", "Strikethrough Options..."]:
+    startLineOptions(name.startsWith("Strike"))
+    return
+  if name in ["Justification...", "Hyphenation...", "Paragraph Rules...", "Keep Options...", "Span Columns...",
+              "Drop Caps and Nested Styles...",
               "GREP Styles..."]:
     startParaOptions(name)                 # (the paragraphs the selection is in: the text stays as it is typed)
     return
   if name.startsWith("OpenType: "):
     toggleOpenType(name["OpenType: ".len .. ^1])
+    return
+  if name.startsWith("Figure Style: ") or name.startsWith("Positional Form: ") or name.startsWith("Stylistic Set: "):
+    # (the figures' style, a positional form, a stylistic set of the font: the letters picked)
+    let arg = name[name.find(": ") + 2 .. ^1]
+    if name.startsWith("Figure Style: "):
+      for k, (nm, _) in FigureStyles:
+        if nm == arg:
+          let kk = k
+          applyChar(name, proc (x: var CharStyle) = x.features = withFigureStyle(x.features, kk))
+    elif name.startsWith("Positional Form: "):
+      for k, (nm, _) in PositionalForms:
+        if nm == arg:
+          let kk = k
+          applyChar(name, proc (x: var CharStyle) = x.features = withPositionalForm(x.features, kk))
+    else:
+      let on = not featureOn(shownStyle().features, arg)
+      applyChar(name, proc (x: var CharStyle) = x.features = withFeature(x.features, arg, on))
     return
   if te.on and name in ["Cell Options...", "Insert Row Above", "Insert Row Below", "Insert Column Before",
                         "Insert Column After", "Delete Rows", "Delete Columns", "Merge Cells", "Unmerge Cells",
@@ -2462,6 +2483,7 @@ proc moreDialogs() =
   perspectiveDialog()
   textFrameDialog()
   paraOptionsDialog()
+  lineOptionsDialog()
   styleOptionsDialog()
   objectStyleOptionsDialog()
   checkSpellingDialog()
