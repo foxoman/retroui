@@ -286,6 +286,10 @@
   on any server) and working offline after the first visit were there;
   `tests/web/bigcheck.nim` and `tests/web/big.js` now check them with the
   big files and WebGPU in Chromium.
+- **A big app's page with more memory** (`retrokit web --memory:MB`,
+  256 to 4096): the most memory the build with threads may have (1 GB
+  else) -- a big picture's; a browser that will not give it gets the build
+  without threads.
 - **Scrubby labels in the app's language** (`retroui/widgets`): `scrubLabel`
   draws its label translated, as it was measured (in Arabic the Layers
   panel's Opacity and Fill were English and cut off). Retro Atelier's
@@ -308,6 +312,13 @@
   program's Draw Inside.
 - **Scripts click a point** (`retroui/drive`): `click:@X,Y` in
   `RETRO_SCRIPT`, a point in logical pixels -- a canvas, a picture.
+- **Retro Atelier as a web page** (`retrokit web examples/photo.nim
+  --memory:2048`): no install, the files never leave the device. Its frames
+  are the page's (it ran its own loop, which a page cannot); files dropped
+  on its window open, on the desktop too. A 4000 x 3000 PSD of eight layers
+  (132 MB) dropped on the page opens in 5 seconds in Chromium on two cores,
+  the program then using 891 MB (the PSD itself left in the browser's
+  storage); `tests/web/atelier.js` measures it.
 - **Retro Atelier**: a paintbrush, pencil or airbrush 512 pixels across or
   more is painted behind its stroke -- the stroke drawn where the pen goes
   at once (by the GPU when it draws the window), the picture's pixels

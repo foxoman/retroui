@@ -5442,8 +5442,11 @@ proc main() =
   if atStart.len > 0:
     try: addDoc(openPicture(atStart))
     except CatchableError: status = "Could not open " & atStart
-  while beginFrame():
-    if stoppedFrame(): (endFrame(); continue)
+  proc oneFrame() =
+    ## (a frame of the app: a loop's turn, or the page's -- `webFrames`)
+    if stoppedFrame():
+      endFrame()
+      return
     if first:
       splashUntil = ui.now + splashMs
       splashStart = ui.now
@@ -5458,12 +5461,23 @@ proc main() =
     # Retro Atelier", a file manager's "Open with": each opened)
     let si = sharedIn()
     for k, f in si.files: openShared(f, (if k < si.origins.len: si.origins[k] else: ""))
+    # (files dropped on the window -- from the file manager, or on a web page: each opened)
+    for f in droppedFiles(): openFile(f)
     photoFrame()
     endFrame()
-  if saving(): discard waitForSave()
-  writeSession()                 # (the documents open: open again next time)
-  clearRecovery()                # (a good end: this run's copies go)
-  saveWorkspace()                # (the palettes where they were, next time)
-  stopApp()
+  proc ending() =
+    if saving(): discard waitForSave()
+    writeSession()                 # (the documents open: open again next time)
+    clearRecovery()                # (a good end: this run's copies go)
+    saveWorkspace()                # (the palettes where they were, next time)
+    stopApp()
+  when defined(wasm):
+    # (a web page runs the frames: each one of them, when something happened or one was asked for)
+    webFrames(proc () =
+      if beginFrame(): oneFrame()
+      if not appRunning(): ending())
+  else:
+    while beginFrame(): oneFrame()
+    ending()
 
 when not declared(photoUnderTest): main()

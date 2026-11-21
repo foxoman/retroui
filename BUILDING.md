@@ -233,6 +233,8 @@ retrokit run --web --watch app.nim      # served on http://localhost:8765, rebui
 ```
 
 `--out:DIR` puts the page elsewhere, `--small` optimizes for size (`-Oz`),
+`--memory:MB` gives the build with threads more memory (1024 else, up to
+4096: a big app's, Retro Atelier's 2048),
 `--debug` keeps Nim's checks and stack traces, `--jobs:N` runs N C
 compilers at once (else one a core while the memory lasts; at most 4 in
 Termux), `--lto:full|thin|none` chooses how the program is optimized as a

@@ -3095,7 +3095,9 @@ keeps it); the app's files are at `/app`, and what it writes in its home
 folder stays in the browser (IndexedDB) for the next visit; a big file (a
 PSD of hundreds of megabytes) stays in the browser's own storage and is
 read a piece at a time. With threads, WebGPU works out the image models'
-products beside WebGL 2. Input is the
+products beside WebGL 2. Retro Atelier runs as a page (`retrokit web
+examples/photo.nim --memory:2048`): a 132 MB PSD dropped on it opens in
+seconds. Input is the
 browser's: input methods, dead keys, paste, the pen, touch, the wheel;
 drops land in `/tmp/dropped`; sound plays through an AudioWorklet, video
 through the browser's own; `httpRequest` reaches the page's own site with

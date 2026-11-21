@@ -28,6 +28,9 @@
 ##                    cannot do without, Retro Mail); a browser that will not
 ##                    keep the page apart from other sites gets a message
 ##   --debug          checks and stack traces kept (slower, bigger)
+##   --memory:MB      the most memory the build with threads may have (1024, 256
+##                    to 4096: a big app's -- a big picture --, where a browser
+##                    gives it; one that will not gets the build without threads)
 ##   --jobs:N         N C compilers at once (else: one a core while the memory
 ##                    lasts, at most 4 in Termux; or $RETRO_JOBS)
 ##   --lto:K          full (one optimization of the whole program, the
@@ -213,7 +216,7 @@ template mapIt2(s, op: untyped): untyped =
   r
 
 const webThreadsMaxMemory = 1 shl 30
-  ## (with threads the memory is made at its largest size up front: 1 GB)
+  ## (with threads the memory is made at its largest size up front: 1 GB, unless `--memory`)
 
 type WebOptions* = object
   outDir*, filesDir*, icon*, name*: string
@@ -221,6 +224,7 @@ type WebOptions* = object
   threadsSet*: bool         ## --threads, --threads-only or --no-threads given (else: threads for
                             ## a page built, none for one tried with `run --web`)
   jobs*: int               ## C compilers at once (0: as the memory allows, see buildjobs)
+  memoryMb*: int            ## the build with threads: its most memory (0: 1024 MB)
   lto*: string              ## "full", "thin", "none"; "": full, thin where memory is short,
                             ## none for `run --web` (built to try, quickly)
   threads*: int             ## -1: one thread; 0: threads, as many workers as cores; N: N workers
@@ -254,6 +258,7 @@ proc parseWebOptions*(args: openArray[string]; app: var string): WebOptions =
       result.threadsSet = true
     of "debug": result.debug = true
     of "jobs": result.jobs = (try: max(1, parseInt(value)) except ValueError: 0)
+    of "memory": result.memoryMb = (try: clamp(parseInt(value), 256, 4096) except ValueError: 0)
     of "lto":
       if value notin ["full", "thin", "none"]: say "--lto: full, thin or none (not " & value & ")"
       else: result.lto = value
@@ -263,6 +268,10 @@ proc parseWebOptions*(args: openArray[string]; app: var string): WebOptions =
     else:
       if a.endsWith(".nim") and app.len == 0: app = a
       else: result.extra.add a
+
+proc maxMemory(o: WebOptions): int =
+  ## (the build with threads: its most memory, whole 64 KB pages)
+  if o.memoryMb > 0: o.memoryMb * (1 shl 20) else: webThreadsMaxMemory
 
 proc buildWeb*(app: string; o: WebOptions): int =
   ## The page of `app` in `o.outDir` (build/web): index.html, retro.js,
@@ -314,7 +323,7 @@ proc buildWeb*(app: string; o: WebOptions): int =
     if threads:
       # (one memory for the page and its workers, made by the page; each
       # worker its own stack and thread-local storage)
-      passL.add ["-Wl,--shared-memory", "-Wl,--import-memory", "-Wl,--max-memory=" & $webThreadsMaxMemory]
+      passL.add ["-Wl,--shared-memory", "-Wl,--import-memory", "-Wl,--max-memory=" & $o.maxMemory]
       exports.add ["__stack_pointer", "__wasm_init_tls", "__tls_size", "__tls_align",
                    "retro_thread_entry", "retro_thread_reap"]
     for e in exports: passL.add "-Wl,--export-if-defined=" & e
@@ -485,7 +494,7 @@ self.addEventListener("fetch", (e) => {
 """ % [htmlEsc(name), jsonStr(app.splitFile.name), fileList,
        (if o.dev: "" else: ", serviceWorker: \"sw.js\""), devPoll, kitList,
        (if o.threads < 0: "" else: ", threads: { wasm: \"app-threads.wasm\", workers: " & $o.threads &
-          ", memory: [" & $(33554432 div 65536) & ", " & $(webThreadsMaxMemory div 65536) & "]" &
+          ", memory: [" & $(33554432 div 65536) & ", " & $(o.maxMemory div 65536) & "]" &
           (if o.threadsOnly: ", only: true" else: "") & " }")])
   # (beside it, gzipped: for servers that hand out such copies -- nginx's
   # gzip_static, `retrokit run --web`; GitHub Pages and the like compress
@@ -623,7 +632,7 @@ when isMainModule:
   let args = commandLineParams()
   if args.len == 0 or args[0] in ["-h", "--help"]:
     echo "retroweb APP.nim [--out:DIR] [--files:DIR] [--icon:FILE.png] [--name:TEXT] [--small] [--threads[:N]] [--debug]"
-    echo "         [--jobs:N] [--lto:full|thin|none]"
+    echo "         [--memory:MB] [--jobs:N] [--lto:full|thin|none]"
     echo "         [--serve] [--watch] [--port:N] [--no-open]   (built, served, opened in a browser)"
     quit 0
   var serveIt, watchIt = false
