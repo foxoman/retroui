@@ -1046,6 +1046,8 @@ type
     sel: seq[uint8]
     alphas: seq[AlphaChannel]
     paths: seq[Path]
+    frames: seq[AnimFrame]         # (the Timeline's frames: undone with the layers)
+    frameCur, animLoop: int
 
   Step* = object
     ## One undoable change.
@@ -1083,6 +1085,8 @@ type
     props: seq[LayerProps]
     cur: int
     editMask: bool
+    frames: seq[AnimFrame]   # (the Timeline's frames: undone with the layers)
+    frameCur, animLoop: int
 
   LiveKind* = enum
     ## How a `LivePart` shows its layer changed.
@@ -4408,7 +4412,8 @@ proc setSettings(L: Layer; s: LayerSettings) =
 
 proc snapOf(d: Doc): DocSnap =
   result = DocSnap(w: d.w, h: d.h, dpi: d.dpi, mode: d.mode, palette: d.palette, duotone: d.duotone, cur: d.cur,
-                   sel: d.sel, alphas: d.alphas, paths: d.paths)
+                   sel: d.sel, alphas: d.alphas, paths: d.paths, frames: d.frames, frameCur: d.frameCur,
+                   animLoop: d.animLoop)
   for L in d.layers:
     # (a group's pixels are nothing: not copied)
     result.layers.add LayerSnap(layer: L, px: (if L.group: @[] else: L.px), s: settingsOf(L),
@@ -4419,6 +4424,7 @@ proc snapOf(d: Doc): DocSnap =
 proc restore(d: Doc; s: DocSnap) =
   d.w = s.w; d.h = s.h; d.dpi = s.dpi; d.mode = s.mode; d.palette = s.palette; d.duotone = s.duotone
   d.sel = s.sel; d.alphas = s.alphas; d.paths = s.paths
+  d.frames = s.frames; d.frameCur = s.frameCur; d.animLoop = s.animLoop
   d.layers.setLen(0)
   for ls in s.layers:
     let L = ls.layer
@@ -5157,10 +5163,16 @@ proc touchPaths*(d: Doc) =
 proc layerListOf(d: Doc): LayerList =
   result.cur = d.cur
   result.editMask = d.editMask
+  result.frames = d.frames
+  result.frameCur = d.frameCur
+  result.animLoop = d.animLoop
   for L in d.layers:
     result.props.add LayerProps(layer: L, s: settingsOf(L))
 
 proc restoreLayers(d: Doc; l: LayerList) =
+  d.frames = l.frames
+  d.frameCur = l.frameCur
+  d.animLoop = l.animLoop
   d.layers.setLen(0)
   for p in l.props:
     let L = p.layer

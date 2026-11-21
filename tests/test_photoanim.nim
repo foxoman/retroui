@@ -69,4 +69,26 @@ block openAndKeep:
   d.flattenFramesIntoLayers()
   doAssert d.layers.len == 6 and d.layers[^1].px[0] == argb(255, 200, 0, 0)
 
+block framesUndone:
+  # the Timeline's frames undone with the layers: a frame added, its delay changed, then undone
+  let d = newDoc(8, 8, 0xFFFFFFFF'u32)
+  discard d.addLayer("a")
+  d.beginStep("New Frame")
+  d.touchLayers()
+  d.ensureFrames()
+  d.addFrame()
+  d.endStep()
+  doAssert d.frames.len == 2
+  d.beginStep("Frame Delay")
+  d.touchLayers()
+  d.frames[1].delay = 500
+  d.animLoop = 3
+  d.endStep()
+  d.undo()
+  doAssert d.frames.len == 2 and d.frames[1].delay != 500 and d.animLoop != 3, "the delay undone"
+  d.undo()
+  doAssert d.frames.len == 0, "the frames undone"
+  d.redo()
+  doAssert d.frames.len == 2, "and done again"
+
 echo "photoanim: all passed"

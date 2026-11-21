@@ -61,6 +61,7 @@ proc panelBody(key: string) =
   of "attributes": attributesBody(d)
   of "textwrap": textWrapBody(d)
   of "tabs": tabsBody()
+  of "timeline": timelineBody()
   of "tablestyles": tableStylesBody(false)
   of "cellstyles": tableStylesBody(true)
   of "buttons": buttonsBody(d)

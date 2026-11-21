@@ -26,7 +26,7 @@ import retroui/[photo, photopaint, photofx, photoartistic, photohdr, otshape, tt
               booklists, datamerge, textsearch, headless, perspectivegrid, pathbrush, photoblurs, pathtools,
               liveeffects, photoseps, mathtype, flexlayout, vectormake, photorelight, mockups, designstyles,
               aiconnect, aichat, aiimage, assistant, modelstore, nnet, vision, photopublish, flows, dastkhat, fontfolders,
-              imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files]
+              imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files, photoanim, webp, apng]
 {.push warning[UnusedImport]: off.}
 import retroui/photodeep   # (imported for what it sets up: filters, flattening and gradients at 16 and 32 bits)
 {.pop.}
@@ -395,6 +395,7 @@ const panelList = [
   ("attributes", "Attributes", pxProperties), ("buttons", "Buttons and Forms", pxProperties),
   ("textwrap", "Text Wrap", pxParagraph),
   ("tabs", "Tabs", pxParagraph),
+  ("timeline", "Timeline", pxTimeline),
   ("tablestyles", "Table Styles", pxParagraph),
   ("cellstyles", "Cell Styles", pxParagraph),
   ("conditions", "Conditional Text", pxParagraph), ("review", "Track Changes and Notes", pxParagraph),
@@ -558,6 +559,9 @@ proc pathBrushCommand(name: string): bool
 proc vectorEvents(dw: DocWin; ev: PhotoEvent): bool
 proc vectorOverlay(dw: DocWin; ev: PhotoEvent)
 proc layoutModesOverlay(dw: DocWin)
+proc timelineOverlay(dw: DocWin)
+proc timelineDialogs()
+proc startSaveAnimation()
 proc vectorBar()
 proc deletePickedPoints(): bool
 proc startLiveEffect(k: LiveEffectKind; idx = -1)
@@ -4023,6 +4027,7 @@ proc overlays(dw: DocWin; ev: PhotoEvent) =
   dw.threadOverlay(ev)
   dw.vectorOverlay(ev)
   dw.layoutModesOverlay()
+  dw.timelineOverlay()
   dw.makersOverlay(ev)
   if drag.on and drag.dw == dw and drag.band:
     dw.bandOverlay()
@@ -4690,6 +4695,7 @@ include photo/output
 include photo/makers
 include photo/assist
 include photo/trained
+include photo/timeline
 include photo/dockpanels
 
 proc phoneLayout(): bool =
@@ -4964,7 +4970,7 @@ proc setup() =
   imaging.maxPicturePixels = maxPixels
   enableGpuComposite()                 # (layers mixed on the GPU when it is quicker there; the CPU else)
   trainedHooks()                       # (Select Subject, the depth: a trained model's, when one is here)
-  openAnimations = false               # (no timeline here: an animated GIF, WebP opens as its first picture)
+  openAnimations = true                # (an animated GIF, WebP or PNG opens as its frames: Window > Timeline)
   # (the thumbnails of slow files kept on disk: the Open dialog, the Assets
   # window; and when the device runs short of memory, what is only kept to
   # be quick let go)

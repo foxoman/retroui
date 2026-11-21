@@ -23,6 +23,7 @@ import std/[os, strutils, math, tables, algorithm, json, hashes]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import gfx, imaging, jpeg, imageformats, psd, photo, parallel, photoshapes, mediagif, iccprofile, rawphoto,
        photoimport, pdfview, photohdr, textengine, ttf, exr, gifanim, photoanim, webp, rawformats, systemimage, jxl, svgimport,
+       apng,
        bigpicture, photodevelop
 export bigpicture.readScaled, bigpicture.readRegion, bigpicture.BigProgress, bigpicture.BigPictureError
 export pdfview.pdfPreview, pdfview.pdfPage, pdfview.addPdfPreviews
@@ -1714,6 +1715,29 @@ proc openPicture*(path: string): Doc =
     except IOError, OSError: discard
     if head == "8BPS": result = loadPsd(path); return
     var depth16 = false
+    if ext == ".png" and openAnimations:
+      # (an animated PNG -- its acTL before its picture, in its first bytes --: a layer and a frame each)
+      var head = ""
+      try:
+        var f: File
+        if open(f, path):
+          head = newString(min(getFileSize(f), 65536).int)
+          if head.len > 0: head.setLen(f.readBuffer(addr head[0], head.len))
+          close(f)
+      except IOError, OSError: discard
+      let data = if isApng(head): (try: readFile(path) except IOError, OSError: "") else: ""
+      if data.len > 0 and isApng(data):
+        let fr0 = try: decodeApng(data)
+                  except CatchableError as e: raise newException(IOError, path.extractFilename & ": " & e.msg)
+        if fr0.len > 1 and sizeOk(fr0[0].bmp.w, fr0[0].bmp.h):
+          var fr: seq[tuple[px: seq[uint32]; delay: int]]
+          for f in fr0: fr.add (f.bmp.px, f.delayMs)
+          let lp = apngLoop(data)
+          result = docFromFrames(fr0[0].bmp.w, fr0[0].bmp.h, fr, path.splitFile.name, max(0, lp))
+          result.path = path
+          result.format = "png"
+          result.modified = false
+          return
     if ext == ".png":
       # (its bit depth, from the header: an 8-bit one is not decoded twice)
       try:
@@ -1868,13 +1892,17 @@ proc encodeFlat*(f: sink FlatExport; o: ExportOptions): string =
   else: ""
 
 proc exportAnimation*(d: Doc; path: string; webpFrames: proc (frames: seq[tuple[bmp: Bitmap; delayMs: int]];
-                      loop: int): string = nil) =
+                      loop: int): string = nil; format = "") =
   ## The animation (the Timeline's frames; none: the image) saved as an
-  ## animated GIF -- or, through `webpFrames`, a WebP.
+  ## animated GIF -- or, through `webpFrames`, a WebP; `format` "apng", an animated PNG.
   let shots = d.animationFrames()
   let loop = if d.animLoop <= 0: 0 else: d.animLoop
   var data: string
-  if webpFrames != nil:
+  if format == "apng":
+    var fr: seq[tuple[px: seq[uint32]; delayMs: int]]
+    for (px, delay) in shots: fr.add (px, max(10, delay))
+    data = encodeApng(d.w, d.h, fr, loop)
+  elif webpFrames != nil:
     var fr: seq[tuple[bmp: Bitmap; delayMs: int]]
     for (px, delay) in shots:
       let b = newBitmap(d.w, d.h)

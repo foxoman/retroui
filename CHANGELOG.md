@@ -142,6 +142,13 @@
   straight sides across and down on whole pixels, on the middle of one for
   an odd stroke, kept as shapes change; saved); a gradient on a stroke
   along it or across it (`ShapePaint.onStroke`), as well as within it.
+- **Animated PNG** (`retroui/apng`, new): `decodeApng` reads every frame
+  as it is shown (each put on the picture over what is there or in place
+  of it, its area cleared or put back after), `encodeApng` writes frames as
+  one (the first the picture a program that shows one shows), `isApng`,
+  `apngLoop`. `openPicture` opens one as layers and frames (looking at its
+  first bytes only), `exportAnimation` saves one (`format = "apng"`). The
+  Timeline's frames and how many times it plays are undone with the layers.
 - **Fonts of one name** (`retroui/textengine`): a TrueType face before a
   PostScript-outlined .otf of the same family and style (no converting;
   it may be the variable font the other is one instance of), the files in
@@ -156,6 +163,15 @@
   program's Draw Inside.
 - **Scripts click a point** (`retroui/drive`): `click:@X,Y` in
   `RETRO_SCRIPT`, a point in logical pixels -- a canvas, a picture.
+- **Retro Atelier**: the Timeline panel (Window > Timeline): the frames
+  side by side with their pictures and delays, a click showing one; play,
+  stop, first, back, on, last; once, three times or for ever; New Frame,
+  Delete, Tween (frames between this one and the next), Make Frames From
+  Layers, Flatten Frames Into Layers, a delay for one or for all; onion
+  skin (what the frame before has that this one does not, faint). An
+  animated GIF, WebP or PNG opens as its frames (before, as its first
+  picture); File > Export > Save Animation saves them as a GIF, WebP or
+  PNG by the name's ending.
 - **Retro Atelier**: Select > Same; Align To (the selection, the key
   object -- the current layer, outlined thick --, the artboard) in the
   options bar, Properties and Layer > Align, and Distribute Spacing by a
