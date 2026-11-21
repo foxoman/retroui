@@ -383,12 +383,14 @@ proc buildWeb*(app: string; o: WebOptions): int =
   writeFile(outDir / "icon-192.png", pngIcon(192, iconPng))
   writeFile(outDir / "icon-512.png", pngIcon(512, iconPng))
   var kitList = ""
+  var kitFiles: seq[string]
   for (n, d) in files:
     if n == "retro.js": writeFile(outDir / "retro.js", d)
     elif n.startsWith("kit/"):
       createDir((outDir / n).parentDir)
       writeFile(outDir / n, d)
       kitList.add (if kitList.len > 0: ", " else: "") & "[" & jsonStr(n) & ", " & $d.len & "]"
+      kitFiles.add n
   var appFiles: seq[string]
   var fileList = ""
   if o.filesDir.len > 0 and dirExists(o.filesDir):
@@ -416,6 +418,9 @@ proc buildWeb*(app: string; o: WebOptions): int =
   var cached = @["./", "index.html", "retro.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"]
   if not o.threadsOnly: cached.add "app.wasm"
   if o.threads >= 0: cached.add "app-threads.wasm"
+  # (the kit's fonts -- under a megabyte -- kept at once: a page whose first visit read one before
+  # its service worker had it, then went offline, would find it missing)
+  for f in kitFiles: cached.add f
   for f in appFiles:
     if getFileSize(outDir / f) <= 1 shl 20: cached.add f
   var cacheList = ""

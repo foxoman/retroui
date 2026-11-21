@@ -42,9 +42,9 @@ proc exSummary(): seq[string] =
   let sheets = exSheets()
   var pages = 0
   for s in sheets: pages += s.len
-  result.add $pages & (if pages == 1: " page" else: " pages") & ", " & $sheets.len &
-             (if e.spreads: (if sheets.len == 1: " sheet (spreads)" else: " sheets (spreads)")
-              else: (if sheets.len == 1: " sheet" else: " sheets"))
+  result.add $pages & (if pages == 1: tr(" page") else: tr(" pages")) & tr(", ") & $sheets.len &
+             (if e.spreads: (if sheets.len == 1: tr(" sheet (spreads)") else: tr(" sheets (spreads)"))
+              else: (if sheets.len == 1: tr(" sheet") else: tr(" sheets")))
   case e.kind
   of exPdf:
     let o = e.pdf

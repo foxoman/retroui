@@ -131,7 +131,7 @@ void main() {
       prog: GLuint
       vbo: GLuint
       maxTex: int
-      renderer: string
+      renderer: array[96, char]     # (its name: no string in a thread's own variable -- never freed when it ends)
       floats: bool                  # (OpenGL ES 3, float textures drawn into: `prog` is Fragment3's)
 
   var
@@ -183,7 +183,9 @@ void main() {
       return false
     let gl = c.gl
     let r = gl.getString(GL_RENDERER)
-    c.renderer = if r != nil: $r else: ""
+    if r != nil:
+      let name = $r
+      for i in 0 ..< min(name.len, c.renderer.high): c.renderer[i] = name[i]
     var mt: GLint
     gl.getIntegerv(GL_MAX_TEXTURE_SIZE, addr mt)
     c.maxTex = int(mt)
@@ -229,7 +231,7 @@ void main() {
 
   proc computeRenderer*(): string =
     ## The GPU this thread's numbers are worked out on ("" without one).
-    if computeReady(): here.renderer else: ""
+    if computeReady(): $cast[cstring](addr here.renderer[0]) else: ""
 
   proc computeSoftware*(): bool =
     ## The "GPU" is the processor drawing (llvmpipe, softpipe, SwiftShader...): slower than the CPU's
@@ -356,7 +358,9 @@ void main() {
     result = @[]         # (a value at once: see tools/writecheck.py)
     if m <= 0 or n <= 0 or k <= 0 or a.len < m * k or b.len < k * n: return
     if not computeReady(): return
-    if here.floats: return matmul4(a, b, m, k, n)
+    if here.floats:
+      result = matmul4(a, b, m, k, n)
+      return
     let gl = here.gl
     let mt = here.maxTex
     if k > mt or n > mt: return

@@ -453,7 +453,7 @@ proc findDialogs() =
       seDlg.open = false
       return
     var ok = false
-    dialog(seDlg.open, "Story Editor: " & seDlg.layer.name, 640):
+    dialog(seDlg.open, tr("Story Editor: ") & seDlg.layer.name, 640):
       editArea(seDlg.words, lines = 18)
       label($seDlg.words.toRunes.len & tr(" characters, ") & $seDlg.words.splitWhitespace.len & tr(" words"), color = ui.theme.gray)
       row:

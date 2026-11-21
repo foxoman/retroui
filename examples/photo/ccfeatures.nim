@@ -363,7 +363,7 @@ proc ccDialogs() =
           if rep.groupsRemoved > 0: parts.add $rep.groupsRemoved & " empty groups"
           if rep.hiddenRemoved > 0: parts.add $rep.hiddenRemoved & " hidden"
           status = (if parts.len > 0: "Deleted " & parts.join(", ") & "; " else: "") &
-                   $rep.renamed & " layers named after what they hold"
+                   $rep.renamed & tr(" layers named after what they hold")
         if button("Cancel", w = dp(80)): ccDlg.cleanup = false
   if ccDlg.harmonize:
     dialog(ccDlg.harmonize, "Harmonize", 400):

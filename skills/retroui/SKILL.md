@@ -38,7 +38,7 @@ retrokit new myapp --kind:business     # kinds: hello, form, business, files, ch
 cd myapp && nimble run
 ```
 
-Needs Nim 2.0+ (2.2 or 2.4) and a C compiler. Build with
+Needs Nim 2.4 (2.2 still builds it) and a C compiler. Build with
 `-d:release -d:useMalloc` (memory goes back to the system).
 
 The person may design the windows by hand in **Retro Designer**:
@@ -351,8 +351,12 @@ app "Staff", 520, 420:
   frame while wanted: `.clicked`, `.picked` (the item's index).
 - `retroui/feeds`: `parseFeed(xml)` (RSS, Atom), `parseOpml`, `toOpml`.
 - Translations: `retrokit strings app.nim --lang:ar` writes app-ar.txt;
-  `setUiLanguage("ar", loadUiStrings(path))`; numbers in text with
-  `trn(n, "{n} file", "{n} files")`.
+  `setUiLanguage("ar", @toolkitArabic, loadUiStrings(path))` (or a
+  `const` table of `("English", "translation")` pairs, keys without the
+  mnemonic's `&`); numbers in text with `trn(n, "{n} file", "{n} files")`;
+  `RETRO_LANG=pseudo` shows what is not translated. Every text the user
+  reads goes through a control or `tr` -- a status line drawn with `text`
+  is `tr(...)` first. README's "Translating an app" has the whole of it.
 - Sound: `audioView(url, speed = 1.5, title = "...", key = "player")`,
   `seekVideo("player", ms)`, `playVideo("player")`; it plays on in the
   background on Android (retroapk adds the service) and iOS. Its event's

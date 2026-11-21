@@ -4,8 +4,8 @@
 ## style's effects as layers of their own, the look kept). Split and Merge Channels, there and
 ## back. Proofs for color blindness. Sums in number boxes (`evalNumber`).
 
-import std/[math, strutils]
-import retroui/[gfx, photo, photofx, photowarp, photostyles, widgets]
+import std/math
+import retroui/[photo, photofx, photowarp, photostyles, widgets]
 
 var failures = 0
 template check(cond: bool; what: string) =

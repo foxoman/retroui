@@ -2274,7 +2274,7 @@ proc sumExpr(r: var SumReader): float =
 
 proc evalNumber*(s: string; v: var float): bool =
   ## A number typed, or a little sum that makes one -- "1200/2", "40+15",
-  ## "3*(8-2)", "-2.5" -- into `v` (as Photoshop's fields take them): + - * /,
+  ## "3*(8-2)", "-2.5" -- into `v` (as a photo editor's fields take them): + - * /,
   ## brackets, decimals, spaces; thousands separators (",") ignored. False (`v`
   ## left alone) when it is not one yet ("12*"), divides by nothing, or is too big.
   var r = SumReader()

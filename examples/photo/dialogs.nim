@@ -380,8 +380,8 @@ proc exportDialog() =
       group($f):
         let ok = (if f == efAvif: "avif" else: "heic") in systemEncodeExts()
         if not ok:
-          label("This system has no " & $f & " encoder (Linux: libavif / libheif with its plugins; " &
-                "macOS writes HEIC).", color = color(160, 0, 0))
+          label(tr("This system has no ") & $f & tr(" encoder (Linux: libavif / libheif with its plugins; " &
+                "macOS writes HEIC)."), color = color(160, 0, 0))
         row:
           label "Quality:"
           slider(exportQuality, 1, 100)
@@ -422,7 +422,7 @@ proc exportDialog() =
           label $exportScale & "%"
         let nw = max(1, int(round(d.w.float * exportScale.float / 100)))
         let nh = max(1, int(round(d.h.float * exportScale.float / 100)))
-        label($nw & " x " & $nh & " pixels", color = ui.theme.gray)
+        label($nw & " x " & $nh & tr(" pixels"), color = ui.theme.gray)
         if not (exportAlpha and f in {efPng, efPng8, efGif, efTiff, efTga, efWebp, efJxl, efAvif, efHeic}) and
            f notin {efHdr, efPfm, efExr} and
            not (f == efBmp and exportBmp32):
@@ -3487,12 +3487,12 @@ proc imageSizeDialog() =
     let aspect = d.h.float / max(1, d.w).float
     row([-1, 92]):
       col:
-        group("Current Size: " & sizeText(d.w * d.h * 3)):
-          label("Dimensions: " & $d.w & " x " & $d.h & " pixels  (" &
+        group(tr("Current Size: ") & sizeText(d.w * d.h * 3)):
+          label(tr("Dimensions: ") & $d.w & " x " & $d.h & tr(" pixels") & "  (" &
                 formatFloat(d.w.float / d.dpi, ffDecimal, 2) & " x " &
-                formatFloat(d.h.float / d.dpi, ffDecimal, 2) & " inches)")
-          label("Resolution: " & $int(round(d.dpi)) & " pixels/inch")
-        group("New Size: " & sizeText(pw * ph * 3) & "  (" & $pw & " x " & $ph & " px)"):
+                formatFloat(d.h.float / d.dpi, ffDecimal, 2) & tr(" inches") & ")")
+          label(tr("Resolution: ") & $int(round(d.dpi)) & tr(" pixels/inch"))
+        group(tr("New Size: ") & sizeText(pw * ph * 3) & "  (" & $pw & " x " & $ph & tr(" px") & ")"):
           # (the labels in one column, right of the link's)
           row([26, 66, -1]):
             label ""
@@ -3624,7 +3624,7 @@ proc contentAwareScaleDialog() =
           row([60, 70, -1]):
             label lab
             intEdit(v[], w = dp(64), lo = 10, hi = 300)
-            label("% (" & $n & " pixels)")
+            label("% (" & $n & tr(" pixels") & ")")
         checkbox("Protect the selection", caSel, enabled = d.hasSelection)
         checkbox("Protect Skin Tones", caSkin)
         if not sizeOk(nw, nh):
@@ -3657,10 +3657,10 @@ proc canvasSizeDialog() =
   dialog(csOpen, "Canvas Size", 420):
     row([-1, 92]):
       col:
-        group("Current Size: " & sizeText(d.w * d.h * 3)):
-          label("Width: " & $d.w & " pixels")
-          label("Height: " & $d.h & " pixels")
-        group("New Size: " & sizeText(csW * csH * 3) & "  (" & $csW & " x " & $csH & " px)"):
+        group(tr("Current Size: ") & sizeText(d.w * d.h * 3)):
+          label(tr("Width: ") & $d.w & tr(" pixels"))
+          label(tr("Height: ") & $d.h & tr(" pixels"))
+        group(tr("New Size: ") & sizeText(csW * csH * 3) & "  (" & $csW & " x " & $csH & tr(" px") & ")"):
           for wide in [true, false]:
             row([58, 100, -1]):
               label(if wide: "Width:" else: "Height:")
@@ -4255,13 +4255,13 @@ proc histogramDialog() =
     for v in 0 .. lvl: below += histData.counts[histChan][v]
     row([-1, -1]):
       col:
-        label("Mean: " & formatFloat(s.mean, ffDecimal, 2))
-        label("Std Dev: " & formatFloat(s.sd, ffDecimal, 2))
-        label("Median: " & $s.median)
-        label("Pixels: " & $histData.total)
+        label(tr("Mean: ") & formatFloat(s.mean, ffDecimal, 2))
+        label(tr("Std Dev: ") & formatFloat(s.sd, ffDecimal, 2))
+        label(tr("Median: ") & $s.median)
+        label(tr("Pixels: ") & $histData.total)
       col:
-        label("Level: " & (if over: $lvl else: ""))
-        label("Count: " & (if over: $histData.counts[histChan][lvl] else: ""))
+        label(tr("Level: ") & (if over: $lvl else: ""))
+        label(tr("Count: ") & (if over: $histData.counts[histChan][lvl] else: ""))
         label("Percentile: " & (if over: formatFloat(100 * below / max(1, histData.total), ffDecimal, 2) else: ""))
     row:
       spring()

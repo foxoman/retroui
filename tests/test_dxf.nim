@@ -4,8 +4,8 @@
 ## for each layer and color, and type; y up made y down; the CAD palette; what is not a DXF
 ## refused.
 
-import std/[strutils, math]
-import retroui/[gfx, photo, photoshapes, dxf]
+import std/math
+import retroui/[photo, photoshapes, dxf]
 
 var failures = 0
 template check(cond: bool; what: string) =

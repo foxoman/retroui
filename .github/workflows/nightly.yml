@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
 
 env:
-  NIM_VERSION: "2.2.6"
+  NIM_VERSION: "2.4.2"
 
 jobs:
   sanitizers:

@@ -140,7 +140,7 @@ proc newSpotDialog() =
       label "Looks like:"
       colorWell(spotDlg.color, "spotcolor", dp(60))
     let ink = inkOf(spotDlg.color)
-    label("Printed in process inks as C " & $(ink[0].int * 100 div 255) & " M " & $(ink[1].int * 100 div 255) &
+    label(tr("Printed in process inks as") & " C " & $(ink[0].int * 100 div 255) & " M " & $(ink[1].int * 100 div 255) &
           " Y " & $(ink[2].int * 100 div 255) & " K " & $(ink[3].int * 100 div 255), color = ui.theme.gray)
     row([110, 70, -1]):
       label "Tint:"

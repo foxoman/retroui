@@ -3,7 +3,7 @@
 ## inside folders too, .otf (CFF) fonts with them --, looked through a few milliseconds each
 ## frame with its progress told, stopped, taken away with it, a font put in while the app
 ## runs found, fonts chosen kept in "Your Fonts", a font read through `fontReader` the first
-## time it draws.
+## time it draws; the faces read kept within `fontMemoryBudget`.
 
 import std/[os, tables, times]
 import retroui, retroui/[headless, fontfolders, textengine, ttf]
@@ -46,6 +46,19 @@ block aFolder:
   useFontFolders(app)
   waitFontScan()
   doAssert "Reem Kufi" in fontFamilies()
+
+block keptWithinABudget:
+  # (the faces asked for least lately let go past the budget, read again when wanted)
+  let cffFam = parseFace(readFile(cffFont)).family
+  let was = fontMemoryBudget
+  fontMemoryBudget = 1
+  doAssert fontFace("Reem Kufi", "Regular").face.glyphOf(0x0628) != 0
+  let one = fontMemoryHeld()
+  doAssert fontFace(cffFam, "Regular").face.glyphOf(0x0628) != 0
+  doAssert fontMemoryHeld() <= max(one, getFileSize(cffFont).int * 4), "one face kept: " & $fontMemoryHeld()
+  doAssert fontFace("Reem Kufi", "Regular").face.glyphOf(0x0628) != 0, "read again when wanted"
+  doAssert fontMemoryHeld() == one, "the other let go: " & $fontMemoryHeld() & " " & $one
+  fontMemoryBudget = was
 
 block manyAndStopped:
   # a folder of many fonts: a frame does a few milliseconds of it, Stop leaves what was found

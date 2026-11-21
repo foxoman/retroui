@@ -372,7 +372,7 @@ proc newDocDialog() =
     dialog(ndSaveAsk, "Save Document Preset", 340):
       label tr("Preset Name:")
       edit(ndSaveName)
-      label($newW & " x " & $newH & " px, " & $newDpi & " ppi", color = ui.theme.gray)
+      label($newW & " x " & $newH & tr(" px, ") & $newDpi & tr(" ppi"), color = ui.theme.gray)
       row:
         spring()
         if button(tr("Save Preset"), isDefault = true, w = dp(100), enabled = ndSaveName.strip.len > 0):

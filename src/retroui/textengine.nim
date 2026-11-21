@@ -47,7 +47,19 @@ var
   scanned = false
   extraDirs: seq[string]
   loaded: Table[string, Face]
+  loadedUse: Table[string, int]       # (the use counter when each was last asked for)
+  loadedBytes = 0                     # (what the faces in `loaded` hold)
+  useClock = 0
   unreadable: Table[string, string]   ## family -> why its file could not be read
+
+var fontMemoryBudget* = 96 * 1024 * 1024
+  ## The fonts' files kept parsed at most (bytes): past it the faces asked for least lately are
+  ## let go (read again when wanted). A font list showing each family in its own letters reads
+  ## many -- a CJK collection, PostScript outlines made TrueType, is tens of megabytes.
+
+proc fontMemoryHeld*(): int = loadedBytes
+  ## What the fonts' files read and kept hold now (bytes): within `fontMemoryBudget`, but for
+  ## the one read last.
 
 when compileOption("threads"):
   let engineThread = getThreadId()
@@ -273,6 +285,8 @@ proc scanFonts*(force = false) =
   scanned = true
   if force:
     loaded.clear()                    # (files fetched or replaced since: read again)
+    loadedUse.clear()
+    loadedBytes = 0
     unreadable.clear()
     instCache.clear()
     varStyles.clear()
@@ -388,7 +402,10 @@ proc entryFace(e: FontEntry): Face =
   if e.path.len == 0: return face(e.builtin)
   if e.path.startsWith("<mem:"): return memFace(e.path)
   let key = e.path & "#" & $e.index
-  if loaded.hasKey(key): return loaded[key]
+  inc useClock
+  loaded.withValue(key, f):
+    loadedUse[key] = useClock
+    return f[]
   try:
     let data = if e.path.startsWith("<") and fontReader != nil: fontReader(e.path) else: readFile(e.path)
     result = parseFace(data, e.index)
@@ -398,6 +415,18 @@ proc entryFace(e: FontEntry): Face =
     result = face(fSans)
     unreadable[e.family] = e.path.extractFilename & ": " & x.msg
   loaded[key] = result
+  loadedUse[key] = useClock
+  loadedBytes += result.fontBytes.len
+  # (over the budget: the faces asked for least lately let go -- never the one just read)
+  while loadedBytes > fontMemoryBudget and loaded.len > 1:
+    var oldest = ""
+    var at = high(int)
+    for k, u in loadedUse:
+      if k != key and u < at: (oldest, at) = (k, u)
+    if oldest.len == 0: break
+    loaded.withValue(oldest, f): loadedBytes -= f[].fontBytes.len
+    loaded.del oldest
+    loadedUse.del oldest
 
 proc fontFileOf*(family, style: string): string =
   ## The file a family's style is read from ("" built in, or not found) -- File > Package

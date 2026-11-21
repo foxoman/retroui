@@ -305,6 +305,11 @@ WebAssembly under Node), `python3 tools/returncheck.py` (no `return x`
 after `result` was set: Nim 2.2 leaks the old value) and `python3
 tools/writecheck.py` (no `var` or `result` given a value in a branch or a
 loop and then another: Nim 2.2 leaks the first; `docs/nim-bugs.md`).
+The kit is built, tested and released with Nim 2.4; CI runs the suite with
+Nim 2.2.6 as well (`ci.yml`'s matrix), so code stays within what 2.2
+compiles. Nim 2.4's `--ic:on` and `--strings:sso` are not used yet: with
+2.4.2 the first gives one seq type two C names in Retro Atelier's main
+module, the second fails `test_files` and `test_mime`.
 With Nim 2.4 too: `NIM=/path/to/nim-2.4 python3 tools/lentfix.py
 examples/photo.nim` (and each app and test changed) builds it to C and
 gives a loop whose variable a nested proc keeps a copy of its own -- Nim

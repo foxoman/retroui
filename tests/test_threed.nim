@@ -4,7 +4,7 @@
 ## the file and given to SVG and PDF as faces; no 3D, no faces.
 
 import std/[math, strutils, json]
-import retroui/[gfx, photo, photoshapes, threed, photosvg]
+import retroui/[photo, photoshapes, threed, photosvg]
 
 var failures = 0
 template check(cond: bool; what: string) =

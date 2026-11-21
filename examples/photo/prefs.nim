@@ -356,17 +356,17 @@ proc pageFiles() =
 
 proc pageMemory() =
   let phys = physicalMemory()
-  let mb = proc (b: int64): string = $(b div (1024 * 1024)) & " MB"
+  let mb = proc (b: int64): string = $(b div (1024 * 1024)) & tr(" MB")
   group("Memory Usage"):
-    label("Memory in this device: " & mb(phys))
-    label("In use now: " & mb(int64(memoryUsed())))
+    label(tr("Memory in this device: ") & mb(phys))
+    label(tr("In use now: ") & mb(int64(memoryUsed())))
     row:
       label "Let Retro Atelier Use:"
       if slider(prefs.memory, 20, 90, w = dp(160), ticks = 0): applyMemory()
       label($prefs.memory & "% (" & mb(phys * prefs.memory div 100) & ")")
-    label("Largest image: " & $(maxPixels div 1_000_000) & " million pixels; undo steps kept in " &
-          "memory: " & mb(undoRamAll.int64) & ", all open images together (the rest go to the scratch " &
-          "disk).", color = ui.theme.gray)
+    label(tr("Largest image: ") & $(maxPixels div 1_000_000) & tr(" million pixels; undo steps kept in memory: ") &
+          mb(undoRamAll.int64) & tr(", all open images together (the rest go to the scratch disk)."),
+          color = ui.theme.gray)
   group("History && Cache"):
     row:
       label "History States:"
@@ -417,7 +417,8 @@ proc pageScratch() =
     label("Folder: " & dir)
     let (free, total) = diskSpace(if dirExists(dir): dir else: getTempDir())
     if total > 0:
-      label("Free: " & $(free div (1024 * 1024 * 1024)) & " GB of " & $(total div (1024 * 1024 * 1024)) & " GB")
+      label(tr("Free: ") & $(free div (1024 * 1024 * 1024)) & tr(" GB of ") & $(total div (1024 * 1024 * 1024)) &
+            tr(" GB"))
     row:
       if button("Choose...", w = dp(90)):
         scratchPicked = dir

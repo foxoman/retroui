@@ -274,7 +274,7 @@ proc look(label: string; on, off: proc (); w = 0; h = 0; touch = false): Look =
 part("Getting started", """
 ### Install
 
-You need **Nim 2.0 or newer** and **a C compiler** (on Windows `choosenim`
+You need **Nim 2.4** (2.2 still builds the kit) and **a C compiler** (on Windows `choosenim`
 brings MinGW-w64; on macOS `xcode-select --install`; on Linux `gcc` or
 `clang` from your package manager; in Termux `pkg install nim clang`).
 Then:
@@ -806,8 +806,8 @@ Numbers are typed and shown as the user reads them ("1,234.50";
 """)
 
 example("numbers", "spin, intEdit, numberEdit",
-        "Numbers to type: `spin` with its arrows (the wheel and Up/Down too), `intEdit` whole numbers, `numberEdit` decimals with `lo`, `hi` and `decimals`. Each takes a little sum too (\"1200/2\", \"40+15\").",
-        340, 100, ["spin", "intEdit", "numberEdit"], input4):
+        "Numbers to type: `spin` with its arrows (the wheel and Up/Down too), `intEdit` whole numbers, `numberEdit` decimals with `lo`, `hi` and `decimals`. Each takes a little sum too (\"1200/2\", \"40+15\"): `evalNumber` works one out, for a field of your own.",
+        340, 100, ["spin", "intEdit", "numberEdit", "evalNumber"], input4):
   var copies = 2
   var qty = 12
   var amount = 1234.5

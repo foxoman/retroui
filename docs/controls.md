@@ -47,7 +47,7 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 
 ### Install
 
-You need **Nim 2.0 or newer** and **a C compiler** (on Windows `choosenim`
+You need **Nim 2.4** (2.2 still builds the kit) and **a C compiler** (on Windows `choosenim`
 brings MinGW-w64; on macOS `xcode-select --install`; on Linux `gcc` or
 `clang` from your package manager; in Termux `pkg install nim clang`).
 Then:
@@ -1626,7 +1626,7 @@ Numbers are typed and shown as the user reads them ("1,234.50";
 
 ### spin, intEdit, numberEdit
 
-Numbers to type: `spin` with its arrows (the wheel and Up/Down too), `intEdit` whole numbers, `numberEdit` decimals with `lo`, `hi` and `decimals`. Each takes a little sum too ("1200/2", "40+15").
+Numbers to type: `spin` with its arrows (the wheel and Up/Down too), `intEdit` whole numbers, `numberEdit` decimals with `lo`, `hi` and `decimals`. Each takes a little sum too ("1200/2", "40+15"): `evalNumber` works one out, for a field of your own.
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -1688,6 +1688,15 @@ from `lo` to `hi` are taken (true when `v` changed); a little sum typed
 ("12.5*4", `evalNumber`) is taken as the number it makes. Clicking or
 tabbing into it selects the number, so typing replaces it. `style`:
 its digits' (large, bold); the field grows with them, or to `h`.
+
+```nim
+proc evalNumber*(s: string; v: var float): bool
+```
+
+A number typed, or a little sum that makes one -- "1200/2", "40+15",
+"3*(8-2)", "-2.5" -- into `v` (as a photo editor's fields take them): + - * /,
+brackets, decimals, spaces; thousands separators (",") ignored. False (`v`
+left alone) when it is not one yet ("12*"), divides by nothing, or is too big.
 
 ### slider, progress
 
@@ -3323,7 +3332,7 @@ An item of the open menu; true when chosen.
 template submenu*(label: string; body: untyped)
 ```
 
-An item that opens a menu of its own (one level deep).
+An item that opens a menu of its own -- in a menu, or in a submenu (four deep at most).
 
 ```nim
 proc menuSeparator*()
@@ -5990,9 +5999,11 @@ choose one; `path` its file. True when the choice changed.
 proc getModel*(m: StoreModel; onDone: proc () {.closure.} = nil)
 ```
 
-Downloads `m` on a worker (`retroui/jobs`), going on from what a stopped one left, then
-checks its checksum: a damaged file is taken away. `downloading`, `progressOf` and
-`errorOf` say how it goes; `onDone` runs on the UI thread when it ends.
+Downloads `m` on a worker (`retroui/jobs`) -- each of its files -- going on from what a
+stopped one left, then checks each file's checksum: a damaged file is taken away; files
+that are members of an archive are taken out of it, and the archive let go of.
+`downloading`, `progressOf` and `errorOf` say how it goes; `onDone` runs on the UI thread
+when it ends.
 
 ```nim
 proc loadLlm*(path: string): Llm

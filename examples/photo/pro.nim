@@ -661,7 +661,7 @@ proc actionDialogs() =
         var p = actFilePath
         if p.splitFile.ext.len == 0: p &= ".actions"
         writeFile(p, actionsText(actions))
-        status = "Saved " & p.extractFilename
+        status = tr("Saved ") & p.extractFilename
       else:
         let got = parseActions(readFile(actFilePath))
         if got.len == 0: status = "No actions in " & actFilePath.extractFilename
@@ -1058,8 +1058,9 @@ proc twoButtons(a, b: string; enabledA = true; enabledB = true): (bool, bool) =
 
 proc documentProps(d: Doc) =
   group("Canvas"):
-    label($d.w & " x " & $d.h & " px, " & $int(round(d.dpi)) & " ppi")
-    label($d.mode & ", " & $d.layers.len & (if d.layers.len == 1: " layer" else: " layers"), color = ui.theme.gray)
+    label($d.w & " x " & $d.h & tr(" px, ") & $int(round(d.dpi)) & tr(" ppi"))
+    label(tr($d.mode) & tr(", ") & $d.layers.len & (if d.layers.len == 1: tr(" layer") else: tr(" layers")),
+          color = ui.theme.gray)
     label(d.profileName, color = ui.theme.gray)
     let (a, b) = twoButtons("Image Size", "Canvas Size")
     if a: runCommand("Image Size...")
@@ -1153,7 +1154,7 @@ proc severalProps(d: Doc) =
   row:
     let ir = place(dp(16), dp(16))
     image(ir.x, ir.y, glyphIcon(pxLayers, ui.theme.text, dp(16)))
-    label($idxs.len & " Layers", bold = true)
+    label($idxs.len & tr(" Layers"), bold = true)
   let b = d.pickedBox
   let locked = d.transformLayersOf.allIt(it.locked or it.lockPosition)
   if b.w > 0 and b.h > 0:
@@ -1356,7 +1357,7 @@ proc propertiesBody(d: Doc) =
   elif L.isSmart:
     group("Smart Object"):
       label(if L.smart.name.len > 0: L.smart.name else: "Embedded")
-      label($L.smart.w & " x " & $L.smart.h & " pixels inside", color = ui.theme.gray)
+      label($L.smart.w & " x " & $L.smart.h & tr(" pixels inside"), color = ui.theme.gray)
       if L.smart.filters.len > 0:
         label("Smart Filters:", bold = true)
         var fs = L.smart.filters
@@ -1492,7 +1493,7 @@ proc profileDialog() =
     return
   dialog(profOpen, if profConvert: "Convert to Profile" else: "Assign Profile", 400):
     group("Source Space"):
-      label("Profile: " & d.profileName)
+      label(tr("Profile: ") & d.profileName)
     group(if profConvert: "Destination Space" else: "Assign Profile"):
       row:
         label "Profile:"
@@ -1517,7 +1518,7 @@ proc profileDialog() =
           inc d.ver
           d.markAll()
           d.endStep()
-        status = "Profile: " & d.profileName
+        status = tr("Profile: ") & d.profileName
       if button("Cancel", w = dp(80)): profOpen = false
 
 proc brushFiles() =

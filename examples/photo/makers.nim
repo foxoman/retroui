@@ -418,7 +418,7 @@ proc patternOptionsBody(d: Doc) =
   let r = place(dp(200), dp(200))
   if patOpts.prev != nil: drawFit(r, patOpts.prev)
   box(r, ui.theme.frame)
-  label($patOpts.tw & " x " & $patOpts.th & " pixels a tile", color = ui.theme.gray)
+  label($patOpts.tw & " x " & $patOpts.th & tr(" pixels a tile"), color = ui.theme.gray)
   if button("Save Pattern", w = dp(120)):
     userPatterns.add PatternPreset(name: d.current.name & " Pattern", w: patOpts.tw, h: patOpts.th,
                                    px: patOpts.tilePx)
@@ -574,7 +574,7 @@ proc upscaleDialog() =
       label "Make it:"
       combo(["2 times as big", "3 times as big", "4 times as big"], upDlg.factor, w = dp(150))
     let k = upDlg.factor + 2
-    label($d.w & " x " & $d.h & " → " & $(d.w * k) & " x " & $(d.h * k) & " pixels", color = ui.theme.gray)
+    label($d.w & " x " & $d.h & " → " & $(d.w * k) & " x " & $(d.h * k) & tr(" pixels"), color = ui.theme.gray)
     row([110, -1, 40]):
       label "Sharpen:"
       discard slider(upDlg.sharpen, 0, 100, ticks = 0)

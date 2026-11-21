@@ -1133,7 +1133,7 @@ proc startLiveEffect(k: LiveEffectKind; idx = -1) =
   ## A live effect's box: a new effect on the picked shape (`idx` -1), or one of its own changed.
   let d = cur()
   if d == nil or not d.current.isShape:
-    status = tr($k) & ": pick a shape layer first (effects are done to its path, which stays as it is)"
+    status = tr($k) & tr(": pick a shape layer first (effects are done to its path, which stays as it is)")
     return
   let L = d.current
   var e = if idx >= 0 and idx < L.shape.effects.len: L.shape.effects[idx] else: defaultLiveEffect(k)

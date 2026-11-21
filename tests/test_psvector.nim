@@ -4,8 +4,8 @@
 ## shapes in their colors and widths; the bounding box kept; an EPS of the kit's own read back
 ## as shapes; what draws nothing gives none, an endless loop is stopped.
 
-import std/[os, strutils, math]
-import retroui/[gfx, photo, photoshapes, psvector, photoimport]
+import std/[os, math]
+import retroui/[photo, photoshapes, psvector, photoimport]
 
 var failures = 0
 template check(cond: bool; what: string) =

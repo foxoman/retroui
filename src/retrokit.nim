@@ -257,7 +257,7 @@ app "$1", 800, 520:
 proc nimbleFor(name: string): string =
   "# Package\n\nversion       = \"0.1.0\"\nauthor        = \"You\"\n" &
   "description   = \"" & name & ", made with Retro Nim UI\"\nlicense       = \"MIT\"\n" &
-  "bin           = @[\"" & name & "\"]\n\n# Dependencies\n\nrequires \"nim >= 2.0.0\"\n" &
+  "bin           = @[\"" & name & "\"]\n\n# Dependencies\n\nrequires \"nim >= 2.2.0\"\n" &
   "requires \"retroui\"\n\n# Tasks\n\n" &
   "task run, \"Build and run\":\n  exec \"nim c -r -d:release " & name & ".nim\"\n\n" &
   "task small, \"The smallest build\":\n  exec \"nim c -d:release -d:useMalloc --opt:size -d:lto --passL:-s " &
@@ -379,8 +379,18 @@ proc doctor() =
     if not good and fix.len > 0: echo "        -> ", fix
   echo "Retro Nim UI doctor (", hostOS, " ", hostCPU, ")"
   let nimV = try: execProcess("nim --version").splitLines[0] except CatchableError: ""
-  line(nimV.len > 0, "Nim", nimV, "install Nim 2.x: https://nim-lang.org/install.html")
-  if nimV.len == 0: ok = false
+  # (the kit is built, tested and released with Nim 2.4; 2.2 still builds it, tested too)
+  var major, minor = 0
+  for w in nimV.split(' '):
+    let p = w.split('.')
+    if p.len == 3 and p[0].len > 0 and p[0][0] in {'0'..'9'}:
+      try: (major, minor) = (parseInt(p[0]), parseInt(p[1])) except ValueError: discard
+      break
+  let recent = (major, minor) >= (2, 4)
+  line(nimV.len > 0 and (major, minor) >= (2, 2), "Nim",
+       nimV & (if nimV.len > 0 and not recent: " (it builds the kit; Nim 2.4 is what it is made and tested with)" else: ""),
+       "install Nim 2.4: https://nim-lang.org/install.html")
+  if nimV.len == 0 or (major, minor) < (2, 2): ok = false
   var cc = ""
   for c in ["gcc", "clang", "cc", "cl"]:
     if found(c).len > 0:

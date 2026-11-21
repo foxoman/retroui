@@ -1030,7 +1030,9 @@ proc makeSky*(kind: SkyKind; w, h: int; seed = 1): Img =
   ## A sky, `w` x `h` (its horizon at the bottom), painted.
   result = newImg(w, h)
   type C3 = (float, float, float)
-  let (top, bottom, cloudLight, cloudShade, cover): (C3, C3, C3, C3, float) = case kind
+  # (the colors as one typed value, then taken apart: Nim 2.4's nifler -- incremental builds -- reads
+  # no type on a tuple taken apart)
+  let sky: (C3, C3, C3, C3, float) = case kind
     of skBlue: ((40.0, 95.0, 185.0), (165.0, 200.0, 235.0), (255.0, 255.0, 255.0), (200.0, 210.0, 225.0), 0.0)
     of skClouds: ((45.0, 105.0, 190.0), (170.0, 205.0, 238.0), (255.0, 255.0, 255.0), (190.0, 200.0, 215.0), 0.45)
     of skDramatic: ((30.0, 55.0, 95.0), (150.0, 165.0, 185.0), (240.0, 240.0, 240.0), (80.0, 88.0, 100.0), 0.7)
@@ -1038,6 +1040,7 @@ proc makeSky*(kind: SkyKind; w, h: int; seed = 1): Img =
     of skDusk: ((15.0, 25.0, 70.0), (230.0, 120.0, 90.0), (120.0, 90.0, 120.0), (40.0, 35.0, 70.0), 0.3)
     of skOvercast: ((150.0, 155.0, 165.0), (205.0, 208.0, 212.0), (230.0, 230.0, 232.0), (130.0, 133.0, 140.0), 0.95)
     of skNight: ((5.0, 8.0, 25.0), (25.0, 40.0, 80.0), (60.0, 65.0, 90.0), (10.0, 12.0, 25.0), 0.15)
+  let (top, bottom, cloudLight, cloudShade, cover) = sky
   let rp = pptr(result.px)
   let scale = 3.2 / max(w, 1).float
   parallelRows(h, y):

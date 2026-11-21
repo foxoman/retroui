@@ -528,6 +528,12 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
 
 ## Rules
 
+- **Nim 2.4 is the kit's compiler; Nim 2.2 its fallback.** Build, test
+  and release with Nim 2.4 (CI's main jobs, the APKs, the web pages, the
+  releases' files); CI runs the whole suite with Nim 2.2.6 too, so code
+  stays within what 2.2 compiles: no 2.4-only syntax in the kit (sum
+  types, `{.cyclic.}` imports, `owned` refs), and the checks for 2.2's
+  leaks (`tools/returncheck.py`, `tools/writecheck.py`) still pass.
 - **Movement through `animated` or `retroui/motion`** (`sprung`,
   `presence`, `glided`, `dragSnap`, `staggered`, `fixedSteps`): they ask for
   frames only while something moves and are at their end at once when

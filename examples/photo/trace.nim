@@ -61,7 +61,7 @@ proc itPreviewNow() =
     let (x0, y0, x1, y1) = pathBounds(s.path)
     itCover += max(0.0, x1 - x0) * max(0.0, y1 - y0) / (k * k)
   itPreview = pd.toBitmap(0xFFFFFFFF'u32)
-  itInfo = $r.shapes.len & (if r.shapes.len == 1: " color" else: " colors")
+  itInfo = $r.shapes.len & (if r.shapes.len == 1: tr(" color") else: tr(" colors"))
 
 proc itNow(): TraceResult =
   beginBusy("Tracing")
@@ -117,18 +117,18 @@ proc imageTraceDialog() =
             label "Threshold: " & $o.threshold
             slider(o.threshold, 0, 255, w = dp(240))
           else:
-            label "Colors: " & $o.colors
+            label tr("Colors: ") & $o.colors
             slider(o.colors, 2, 64, w = dp(240))
           var paths = int(o.paths * 100 + 0.5)
-          label "Paths (how closely): " & $paths & "%"
+          label tr("Paths (how closely): ") & $paths & "%"
           if slider(paths, 0, 100, w = dp(240)): o.paths = paths / 100
           var corners = int(o.corners * 100 + 0.5)
-          label "Corners: " & $corners & "%"
+          label tr("Corners: ") & $corners & "%"
           if slider(corners, 0, 100, w = dp(240)): o.corners = corners / 100
-          label "Noise: " & $o.noise & " px"
+          label tr("Noise: ") & $o.noise & tr(" px")
           slider(o.noise, 1, 200, w = dp(240))
           var blur = int(o.blur * 2 + 0.5)
-          label "Soften first: " & formatFloat(blur / 2, ffDecimal, 1) & " px"
+          label tr("Soften first: ") & formatFloat(blur / 2, ffDecimal, 1) & tr(" px")
           if slider(blur, 0, 20, w = dp(240)): o.blur = blur / 2
           checkbox("Ignore white", o.ignoreWhite)
           checkbox("Stacked (no gaps between shapes)", o.stacked)
@@ -148,7 +148,7 @@ proc imageTraceDialog() =
             drawBitmap(rect(pr.x + (pr.w - w) div 2, pr.y + (pr.h - h) div 2, w, h), itPreview)
           box(pr, ui.theme.edge)
           let mb = itMegabytes()
-          label(itInfo & "; as shape layers: about " & $mb & " MB", color = ui.theme.gray)
+          label(itInfo & tr("; as shape layers: about ") & $mb & tr(" MB"), color = ui.theme.gray)
           if mb > 1500:
             paragraph("That is a lot of memory: fewer colors, or Save as SVG (it takes none).", color = ui.theme.gray)
       row:

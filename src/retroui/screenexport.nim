@@ -39,6 +39,7 @@ proc defaultScreenExport*(): ScreenExport =
   ScreenExport(scales: @[(1.0, ""), (2.0, "@2x"), (3.0, "@3x")], formats: {sfPng}, quality: 85)
 
 proc safeName(s: string): string =
+  result = ""          # (a value at once: see tools/writecheck.py)
   for c in s:
     result.add(if c in {'/', '\\', ':', '*', '?', '"', '<', '>', '|'}: '_' else: c)
   result = result.strip

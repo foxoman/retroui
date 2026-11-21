@@ -2418,8 +2418,16 @@ async function boot(opts) {
       else console.warn("retro: " + url + " was not loaded (" + r.status + ")");
     } catch (e) { console.warn("retro: " + url + " was not loaded", e); }
   }));
-  // the kit's own files (its fonts): fetched when first read
-  for (const [url, size] of opts.kit || []) rt.fs.addLater("/" + url, url, size);
+  // the kit's own files (its fonts, under a megabyte): fetched with the page, through its service
+  // worker -- offline, from its copies (a read later, from a thread, may not go through it); one
+  // that does not come is fetched when first read
+  await Promise.all((opts.kit || []).map(async ([url, size]) => {
+    try {
+      const r = await fetch(url);
+      if (r.ok) { rt.fs.addFile("/" + url, new Uint8Array(await r.arrayBuffer()), true, url); return; }
+    } catch (e) { /* (fetched when first read) */ }
+    rt.fs.addLater("/" + url, url, size);
+  }));
   // threads (a build with them) where the page may share memory with its
   // workers: kept apart from other sites (crossOriginIsolated). A server
   // that does not say so is helped by the service worker, which does: the

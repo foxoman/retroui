@@ -102,7 +102,7 @@ proc vanishingPointDialog() =
           label((if clip.px.len > 0: "Click on the plane to put what was copied there"
                  else: "Copy something first (Edit > Copy)"), color = ui.theme.gray)
         else:
-          label((if vpPts.len < 4: "Click the plane's 4 corners (" & $vpPts.len & " of 4)"
+          label((if vpPts.len < 4: tr("Click the plane's 4 corners (") & $vpPts.len & tr(" of 4)")
                  else: "Drag a corner to move it"), color = ui.theme.gray)
         if vpPts.len > 0 and button("Delete Plane", w = dp(110)):
           vpPts.setLen(0)

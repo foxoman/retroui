@@ -9,7 +9,14 @@ on:
 jobs:
   test:
     # the headless tests (a fake screen driver: no display needed), a short
-    # run of the fuzzers, and the Android driver on a fake Android
+    # run of the fuzzers, and the Android driver on a fake Android -- with
+    # Nim 2.4 (what the kit is built and released with) and with Nim 2.2
+    # (still built and tested, for those who keep it)
+    strategy:
+      fail-fast: false
+      matrix:
+        nim: ["2.4.2", "2.2.6"]
+    name: test (Nim ${{ matrix.nim }})
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -18,12 +25,12 @@ jobs:
         id: setupnim
         continue-on-error: true   # (a download cut off: tried once more below)
         with:
-          nim-version: "2.2.6"
+          nim-version: ${{ matrix.nim }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: jiro4989/setup-nim-action@v2
         if: steps.setupnim.outcome == 'failure'
         with:
-          nim-version: "2.2.6"
+          nim-version: ${{ matrix.nim }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Libraries the GPU tests load (Mesa's EGL), ccache
         run: sh tools/apt.sh libegl1 libgles2 libegl-mesa0 ccache
@@ -33,8 +40,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-tests-${{ github.sha }}
-          restore-keys: ccache-tests-
+          key: ccache-tests-${{ matrix.nim }}-${{ github.sha }}
+          restore-keys: ccache-tests-${{ matrix.nim }}-
       - name: No return after result (Nim 2.2 leaks the old value)
         run: python3 tools/returncheck.py
       - name: No var given in a branch, then again (Nim 2.2 leaks the first)
@@ -74,12 +81,12 @@ jobs:
         id: setupnim
         continue-on-error: true   # (a download cut off: tried once more below)
         with:
-          nim-version: "2.2.6"
+          nim-version: "2.4.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: jiro4989/setup-nim-action@v2
         if: steps.setupnim.outcome == 'failure'
         with:
-          nim-version: "2.2.6"
+          nim-version: "2.4.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/setup-node@v5
         with:
@@ -105,12 +112,12 @@ jobs:
         id: setupnim
         continue-on-error: true   # (a download cut off: tried once more below)
         with:
-          nim-version: "2.2.6"
+          nim-version: "2.4.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: jiro4989/setup-nim-action@v2
         if: steps.setupnim.outcome == 'failure'
         with:
-          nim-version: "2.2.6"
+          nim-version: "2.4.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Examples (only when run by hand)
         if: github.event_name == 'workflow_dispatch'

@@ -1,6 +1,23 @@
 # Changes
 
-## 0.67.0 (in progress)
+## 0.67.0
+
+The whole list in one release. The layout program's ways: Text Wrap as
+layout programs have it -- round a picture's turned outline or its real
+shape, offsets on every side, Invert, the next column, the spine, live
+while an object moves --, tab stops with leaders, tables with real cells
+and their styles, colour fonts and emoji, fonts with PostScript outlines.
+The drawing program's: Select > Same, Align To a key object, Isolation
+Mode, Draw Behind and Inside, gradients along a stroke, 3D on shapes,
+dimensions, Export for Screens, DXF and EPS as vectors. The GPU: a brush's
+dabs stamped on it, big brushes painted behind the stroke, the image
+models' big products worked out on it where that is quicker (OpenGL ES
+natively, WebGPU in a page). Retro Atelier as a web page that opens a
+132 MB PSD in seconds. And from Yaqout's Arabic typesetting manual: Arabic
+found as it is written either way, white spaces of a set width, Copyfit,
+the Quran's text from Tanzil, Islamic patterns. Retro Atelier 5.12 has all
+of it, with the three programs' keys and commands from their help, on
+Android "Open with" and its own Open and Save dialog.
 
 - **Fonts with PostScript outlines** (`retroui/cff`, new): .otf fonts whose
   outlines are CFF -- most Arabic fonts sold today, Adobe's and Google's CJK
@@ -289,7 +306,9 @@
 - **A big app's page with more memory** (`retrokit web --memory:MB`,
   256 to 4096): the most memory the build with threads may have (1 GB
   else) -- a big picture's; a browser that will not give it gets the build
-  without threads.
+  without threads. The kit's fonts (under a megabyte) come with the page
+  and its service worker keeps them from the first visit: a page reading
+  one from a thread with the network gone found it missing.
 - **Arabic typesetting, from Yaqout's manual** (`retroui/textsearch`,
   `retroui/textengine`, `retroui/spell`, `retroui/photo`): Arabic found as
   it is written either way (`arabicFolded`, `findFolded`; `findIn` and
@@ -319,6 +338,25 @@
   out of each (`geoPattern`), and a border of eight-pointed stars
   (`geoBorder`), as a path of closed motifs -- a shape layer's outline, to
   fill, stroke or put inside a frame.
+- **Fonts kept within a memory budget** (`retroui/textengine`,
+  `retroui/textwidgets`): the faces read are let go past
+  `fontMemoryBudget` (96 MB), those asked for least lately first, and read
+  again when wanted (`fontMemoryHeld`). A font list's samples no longer
+  read a font file bigger than 8 MB (a CJK collection, tens of megabytes
+  once its PostScript outlines are made TrueType): its name is shown in the
+  kit's letters. Drawing the 60 families of a desktop with Noto's CJK
+  fonts went from 16.5 s and 465 MB kept to 1.2 s and 48 MB.
+- **Nim 2.4 is the kit's compiler** (CI, the APKs, the web pages, the
+  releases); Nim 2.2 still builds it and CI runs the whole suite with it
+  too. `retrokit doctor` says which you have; the project `retrokit new` makes asks
+  for Nim 2.2 or later. Of 2.4's new switches, incremental builds
+  (`--ic:on`, NIF files) read every module of the kit now (one tuple taken
+  apart with a type, which its parser does not read, written another way)
+  but 2.4.2's C code for Retro Atelier's main module names one seq type
+  two ways, which gcc refuses; small strings (`--strings:sso`) build it,
+  but `test_files` and `test_mime` fail -- code that reaches a string's
+  bytes by address. Both stay off for now; YRC (2.4's notes measure it
+  half as quick as ORC) is not used.
 - **Scrubby labels in the app's language** (`retroui/widgets`): `scrubLabel`
   draws its label translated, as it was measured (in Arabic the Layers
   panel's Opacity and Fill were English and cut off). Retro Atelier's
@@ -491,6 +529,14 @@
   previous page numbers ("continued on page"), and Copyfit. Find/Change's
   "Arabic as written either way". The Character panel's "Move Tashkeel"
   beside raising it. All of it in Arabic too.
+- **Retro Atelier** in Arabic, more of it: some 220 texts that had none
+  (found by running every command in Arabic and noting each text with no
+  translation) -- the Properties panel's canvas, the status line's tool
+  hints, the transform hints, Image Size, the histogram, Preferences'
+  memory, the live effects' messages, the asset store's categories, the
+  templates, the text clean-up queries, the color settings -- and the texts
+  made with a number or a name in them translated in their parts. README's
+  new "Translating an app" says how any app is translated.
 
 ## 0.66.0
 

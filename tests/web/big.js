@@ -22,6 +22,9 @@ const { chromium } = require("playwright");
     if (/^WEBGPU/.test(t)) console.log(t);
   });
   page.on("pageerror", (e) => { console.log("FAIL a page error: " + e.message); failures++; });
+  // (what could not be fetched -- offline: what the service worker did not have)
+  context.on("requestfailed", (r) => lines.push("REQUEST FAILED " + r.url() + " " +
+                                                (r.failure() ? r.failure().errorText : "")));
   const until = async (what, ms) => {
     const t0 = Date.now();
     while (!lines.some((l) => l.startsWith(what)) && Date.now() - t0 < ms) await page.waitForTimeout(100);

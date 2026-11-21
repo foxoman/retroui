@@ -302,7 +302,7 @@ proc colorSettingsDialog() =
       row:
         if pname.len > 0: label("CMYK: " & pname)
         else:
-          label("CMYK: ink model, dot gain " & $inkSetup.dotGain & "%, ink limit " & $inkSetup.inkLimit & "%")
+          label(tr("CMYK: ink model, dot gain ") & $inkSetup.dotGain & tr("%, ink limit ") & $inkSetup.inkLimit & "%")
           if button("Inks...", w = dp(70)): startInksSetup()
       row:
         if button("Load CMYK Profile...", w = dp(150)):
@@ -313,7 +313,7 @@ proc colorSettingsDialog() =
           try: removeFile(cmykProfileFile()) except OSError: discard
       label("A press's ICC profile (FOGRA39, GRACoL, SWOP...): CMYK, Proof Colors and PDF/X follow it.",
             color = ui.theme.gray)
-      label("Gray: dot gain " & $inkSetup.dotGain & "% (the inks')", color = ui.theme.gray)
+      label(tr("Gray: dot gain ") & $inkSetup.dotGain & tr("% (the inks')"), color = ui.theme.gray)
     group("Color Management Policies"):
       var pp = ord(profilePolicy)
       row:
@@ -622,7 +622,8 @@ proc doCommand(name: string) =
     chanThumbs.clear()
     trimMemory()
     let after = memoryUsed()
-    status = if before > 0 and after > 0: "Purged: " & sizeText(before) & " in use before, " & sizeText(after) & " now"
+    status = if before > 0 and after > 0: tr("Purged: ") & sizeText(before) & tr(" in use before, ") &
+                                          sizeText(after) & tr(" now")
              else: "Purged"
   of "Take Snapshot", "New Snapshot":
     if d != nil:
@@ -1099,7 +1100,7 @@ proc doCommand(name: string) =
       d.cur = clamp(d.cur + (if name == "Select Layer Above": 1 else: -1), 0, d.layers.high)
       d.editMask = false
       inc d.ver
-      status = "Layer: " & d.current.name
+      status = tr("Layer: ") & d.current.name
   of "Reveal All", "Hide All", "Reveal Selection", "Hide Selection":
     if d != nil and not d.current.background and d.current.mask == nil:
       let how = case name
@@ -1996,7 +1997,18 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.11.0: models trained for pictures, on the device: Edit > Models on This Device " &
+           whatsNew = ["5.12.0: the layout program's Text Wrap (Window > Text Wrap) -- round a placed " &
+                       "picture's turned outline or its real shape, offsets on each side, Invert, Jump to the " &
+                       "Next Column, live while you drag; tab stops with leaders (Window > Tabs); tables with " &
+                       "merged cells, cell and table styles; pictures put into frames; color fonts and emoji; " &
+                       "Select > Same, Align To a key object, Isolation Mode, Draw Behind and Inside; the " &
+                       "Timeline, animated GIF, WebP and PNG; Export for Screens; DXF and EPS opened as " &
+                       "vectors; 3D on shapes; dimensions; the three programs' keys and commands from their " &
+                       "help; big brushes painted behind the stroke; from Yaqout's Arabic typesetting manual, " &
+                       "Type > Quran..., Layout > Islamic Pattern..., Copyfit, white spaces and break " &
+                       "characters, Find/Change with Arabic as written either way; on Android, \"Open with\" " &
+                       "and the app's own Open and Save dialog; and Retro Atelier as a web page.",
+                       "5.11.0: models trained for pictures, on the device: Edit > Models on This Device " &
                        "downloads them -- U-2-Net for Select Subject and Remove Background, Depth Anything for " &
                        "Depth Blur, Lens Blur and Relight, PaddleOCR's readers for Type > Text in Picture " &
                        "(English, Chinese, Arabic): the text read, copied, or added as type where it was; " &

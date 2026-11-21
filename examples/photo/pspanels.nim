@@ -370,11 +370,11 @@ proc histogramBody() =
   let st = hs.stats(if histPanel.chan == 0: 0 else: histPanel.chan - 1)
   row:
     col:
-      label("Mean: " & formatFloat(st.mean, ffDecimal, 2))
-      label("Std Dev: " & formatFloat(st.sd, ffDecimal, 2))
+      label(tr("Mean: ") & formatFloat(st.mean, ffDecimal, 2))
+      label(tr("Std Dev: ") & formatFloat(st.sd, ffDecimal, 2))
     col:
-      label("Median: " & $st.median)
-      label("Pixels: " & $hs.total)
+      label(tr("Median: ") & $st.median)
+      label(tr("Pixels: ") & $hs.total)
   if stale: label("(the image changed: up to date when the mouse is up)", color = ui.theme.gray)
 
 # ---- Gradients ---------------------------------------------------------------------------------------------

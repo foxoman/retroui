@@ -74,12 +74,12 @@ jobs:
         id: setupnim
         continue-on-error: true   # (a download cut off: tried once more below)
         with:
-          nim-version: "2.2.6"
+          nim-version: "2.4.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: jiro4989/setup-nim-action@v2
         if: steps.setupnim.outcome == 'failure'
         with:
-          nim-version: "2.2.6"
+          nim-version: "2.4.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: zig (links against an older glibc, for older systems)
         run: pip install ziglang
@@ -105,12 +105,12 @@ jobs:
         id: setupnim
         continue-on-error: true   # (a download cut off: tried once more below)
         with:
-          nim-version: "2.2.6"
+          nim-version: "2.4.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: jiro4989/setup-nim-action@v2
         if: steps.setupnim.outcome == 'failure'
         with:
-          nim-version: "2.2.6"
+          nim-version: "2.4.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: MinGW
         run: sh tools/apt.sh mingw-w64
@@ -135,12 +135,12 @@ jobs:
         id: setupnim
         continue-on-error: true   # (a download cut off: tried once more below)
         with:
-          nim-version: "2.2.6"
+          nim-version: "2.4.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: jiro4989/setup-nim-action@v2
         if: steps.setupnim.outcome == 'failure'
         with:
-          nim-version: "2.2.6"
+          nim-version: "2.4.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Signing key
         env:
@@ -183,12 +183,12 @@ jobs:
         id: setupnim
         continue-on-error: true   # (a download cut off: tried once more below)
         with:
-          nim-version: "2.2.6"
+          nim-version: "2.4.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: jiro4989/setup-nim-action@v2
         if: steps.setupnim.outcome == 'failure'
         with:
-          nim-version: "2.2.6"
+          nim-version: "2.4.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: macOS app
         run: RETRO_APP=${{ matrix.app }} nimble macapp -y

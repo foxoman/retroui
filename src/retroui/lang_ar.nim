@@ -46,6 +46,11 @@ const toolkitArabic* = [
   ("Mahogany", "الماهوجني"),
   ("Amber", "الكهرماني"),
   ("Green Screen", "الشاشة الخضراء"),
+  ("Snow", "الثلجي"),
+  ("Mint", "النعناعي"),
+  ("Blossom", "الزهري"),
+  ("Graphite", "الغرافيتي"),
+  ("Night Notes", "ملاحظات الليل"),
   ("Automatic", "تلقائي"),
   ("Desktop", "سطح المكتب"),
   ("Touch", "اللمس"),
@@ -615,5 +620,8 @@ const toolkitArabic* = [
    "النص العربي في الصور والمستندات الممسوحة: الكتابة > النص في الصورة."),
   ("English, Chinese", "الإنجليزية والصينية"),
   ("Arabic, Persian, Urdu", "العربية والفارسية والأردية"),
+  # src/retroui/extras.nim
+  ("The desktop's own frame", "إطار سطح المكتب نفسه"),
+  ("Windows 3.1 frame", "إطار Windows 3.1"),
 ]
   ## The toolkit's words in Arabic: (English key, Arabic), for `setUiLanguage`.

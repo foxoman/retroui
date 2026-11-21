@@ -711,10 +711,10 @@ proc otfToTtf*(data: string; tolerance = -1.0): string =
   for i, (tag, body) in outTabs:
     let r = 12 + 16 * i
     for k in 0 .. 3: result[r + k] = tag[k]
-    result.put32(r + 4, int(sum(body)))
+    result.put32(r + 4, int(cast[int32](sum(body))))      # (its bits: a checksum over 2^31 on 32-bit too)
     result.put32(r + 8, result.len)
     result.put32(r + 12, body.len)
     if tag == "head": headAt = result.len
     result.add body
     while result.len mod 4 != 0: result.add '\0'
-  if headAt >= 0: result.put32(headAt + 8, int(0xB1B0AFBA'u32 - sum(result)))
+  if headAt >= 0: result.put32(headAt + 8, int(cast[int32](0xB1B0AFBA'u32 - sum(result))))

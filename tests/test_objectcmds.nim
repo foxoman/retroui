@@ -2,8 +2,8 @@
 ## rounded, inset, bevel, fancy) as a live effect, kept in the file; Release to Layers, a part a
 ## layer or built up; Make and Release Opacity Mask, undone; a layer copied for Paste in Front.
 
-import std/[math, json]
-import retroui/[gfx, photo, photoshapes, liveeffects, pathtools]
+import std/math
+import retroui/[photo, photoshapes, liveeffects, pathtools]
 
 var failures = 0
 template check(cond: bool; what: string) =

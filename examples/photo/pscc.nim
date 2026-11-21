@@ -1171,7 +1171,7 @@ proc psCommand(name: string): bool =
       d.beginStep("Rename Layers")
       let n = d.autoRename(d.pickedLayers())
       d.endStep()
-      status = $n & (if n == 1: " layer" else: " layers") & " named after what they hold"
+      status = $n & (if n == 1: tr(" layer") else: tr(" layers")) & tr(" named after what they hold")
   of "Harmonize...":
     if d != nil and d.cur > 0:
       ccDlg.harmonize = true
@@ -1199,7 +1199,7 @@ proc psCommand(name: string): bool =
       d.drawText(S)
       d.drawText(M)
       d.endStep()
-      status = "The text that does not fit \"" & S.name & "\" flows on into the new box"
+      status = tr("The text that does not fit \"") & S.name & tr("\" flows on into the new box")
     else: status = "Flow Into a New Box: pick a type layer whose text is in a box (drag a box with the Type tool)"
   of "Unlink Text Box":
     if d != nil and d.current.flowFrom != 0:

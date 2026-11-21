@@ -201,8 +201,8 @@ proc startTransformMany(kind: XfKind): bool =
   xf = (true, dw, kind, d.current, r, newSeq[uint32](), newSeq[uint8](), false, quadOf(r), quadOf(r), -1,
         (0.0, 0.0), 0'u32, ShapeData(), newSeq[uint32]())
   d.setLive(d.liveShots(shots, r, xf.quad))
-  status = $kind & " (" & $shots.len & " layers together): drag the corners; Enter or a double-click inside " &
-           "to finish, Esc to cancel"
+  status = tr($kind) & " (" & $shots.len & tr(" layers together)") &
+           tr(": drag the corners; Enter or a double-click inside to finish, Esc to cancel")
   true
 
 proc xfApplyMany() =

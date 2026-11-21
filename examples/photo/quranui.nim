@@ -17,7 +17,9 @@ proc qrShort(s: string; n: int): string =
   ## (the first `n` letters of `s`, "..." after when there is more)
   var k = 0
   for r in s.runes:
-    if k >= n: return result & " ..."
+    if k >= n:
+      result.add " ..."
+      return
     result.add r.toUTF8
     inc k
 

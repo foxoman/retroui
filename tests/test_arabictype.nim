@@ -8,9 +8,9 @@
 ## against it); the tashkeel moved by hand; Islamic patterns as shapes (stars and crosses, octagons
 ## with stars, six-pointed stars, a border).
 
-import std/[os, strutils, math, tables]
+import std/[strutils, math, tables]
 import std/unicode except strip
-import retroui/[gfx, photo, photobook, photoshapes, textengine, textsearch, quran, geopatterns]
+import retroui/[photo, photobook, photoshapes, textengine, textsearch, quran, geopatterns]
 
 var failures = 0
 template check(cond: bool; what: string) =

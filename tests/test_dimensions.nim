@@ -3,8 +3,8 @@
 ## label changed; an angle between two lines; a circle's radius; the label in another unit;
 ## undone with the step that moved the box; kept in the file.
 
-import std/[strutils, math]
-import retroui/[gfx, photo, photoshapes, textengine, photowidgets, dimensions]
+import std/math
+import retroui/[photo, photoshapes, textengine, photowidgets, dimensions]
 
 var failures = 0
 template check(cond: bool; what: string) =

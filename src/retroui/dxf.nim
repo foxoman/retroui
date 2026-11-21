@@ -207,6 +207,7 @@ proc splinePts(e: Ent): seq[(float, float)] =
 
 proc cleanMText(s: string): string =
   ## (MTEXT's codes taken out: \P a new line, the rest gone)
+  result = ""          # (a value at once: see tools/writecheck.py)
   var i = 0
   while i < s.len:
     let c = s[i]

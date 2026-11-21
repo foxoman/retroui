@@ -854,11 +854,12 @@ proc drawInk(v: var PhotoView; d: Doc; area: Rect; cpuOnly = false) =
     v.inkBuf = newBitmap(bw, bh)
     v.inkBuf.opaque = false
   stampCpu(v.inkPre, bw, bh, t.mask, t.mw, t.mh, dabs, 0xFFFFFFFF'u32)
-  # (what the new dabs touched, as drawn)
-  let x0 = if fresh: 0 else: clamp(int(floor(bx0)), 0, bw)
-  let y0 = if fresh: 0 else: clamp(int(floor(by0)), 0, bh)
-  let x1 = if fresh: bw else: clamp(int(ceil(bx1)) + 1, 0, bw)
-  let y1 = if fresh: bh else: clamp(int(ceil(by1)) + 1, 0, bh)
+  # (what the new dabs touched, as drawn -- none: nothing, not a box from infinities)
+  let none = not fresh and dabs.len == 0
+  let x0 = if fresh or none: 0 else: clamp(int(floor(bx0)), 0, bw)
+  let y0 = if fresh or none: 0 else: clamp(int(floor(by0)), 0, bh)
+  let x1 = if fresh: bw elif none: 0 else: clamp(int(ceil(bx1)) + 1, 0, bw)
+  let y1 = if fresh: bh elif none: 0 else: clamp(int(ceil(by1)) + 1, 0, bh)
   let rgb = v.ink.color and 0xFFFFFF'u32
   for y in y0 ..< y1:
     for x in x0 ..< x1:

@@ -93,7 +93,7 @@ proc framesCommand(name: string): bool =
     d.touch(T, d.bounds)
     if d.anchorToText(A, T):
       d.endStep()
-      status = A.name & " moves with its line of " & T.name & " now (Layer > Release Anchor lets it stay)"
+      status = A.name & tr(" moves with its line of ") & T.name & tr(" now (Layer > Release Anchor lets it stay)")
     else: d.cancelStep()
   of "Release Anchor":
     d.beginStep("Release Anchor")

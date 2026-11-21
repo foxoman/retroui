@@ -59,7 +59,7 @@ proc nameDoc(bw: BookWin) =
     bw.dw.doc.name = b.name & ": " & (if m != nil: m.name else: "?") & "-Master" &
                      (if not b.setup.facing: "" elif bw.side == psLeft: " (left)" else: " (right)")
   else:
-    bw.dw.doc.name = b.name & ": page " & b.label(bw.page) & " of " & $b.pages.len
+    bw.dw.doc.name = b.name & tr(": page ") & b.label(bw.page) & tr(" of ") & $b.pages.len
 
 proc nameOf(bw: BookWin): string = bw.dw.doc.name
 
@@ -134,7 +134,7 @@ proc writeBook(bw: BookWin; path: string) =
     finally: endBusy()
     bw.nameDoc()
     rememberFile(path)
-    status = "Saved " & path.extractFilename & " (" & $bw.book.pages.len & " pages)"
+    status = tr("Saved ") & path.extractFilename & " (" & $bw.book.pages.len & tr(" pages") & ")"
   except CatchableError:
     status = "Could not save " & path.extractFilename & ": " & getCurrentExceptionMsg()
 
@@ -337,9 +337,9 @@ proc bookSetupDialog() =
     if not setup:
       let s = setupOf()
       let mb = s.w.float * s.h.float * 4 / 1e6
-      paragraph("A page is " & $s.w & " x " & $s.h & " pixels: " & formatFloat(mb, ffDecimal, 0) &
-                " MB a layer while it is worked on. Type and shapes are sharp in the PDF at any resolution; " &
-                "pictures are as fine as the page.", color = ui.theme.gray)
+      paragraph(tr("A page is ") & $s.w & " x " & $s.h & tr(" pixels: ") & formatFloat(mb, ffDecimal, 0) &
+                tr(" MB a layer while it is worked on. Type and shapes are sharp in the PDF at any resolution; " &
+                   "pictures are as fine as the page."), color = ui.theme.gray)
     row:
       spring()
       if button("OK", isDefault = true, w = dp(80)):
@@ -741,7 +741,8 @@ proc flowNext(bw: BookWin; auto: bool) =
           status = "This box already goes on, on page " & $(had.page + 1)
         else:
           discard b.flowOnto(bw.page, L, bw.page + 1)
-          status = "What does not fit goes on in a box on page " & $(bw.page + 2) & " (Shift+Page Down turns to it)"
+          status = tr("What does not fit goes on in a box on page ") & $(bw.page + 2) &
+                   tr(" (Shift+Page Down turns to it)")
         b.park([bw.page])
     finally: endBusy()
     bw.nameDoc()
@@ -962,7 +963,7 @@ proc layoutMenu() =
     live:
       if isBook:
         for m in bw.book.masters:
-          if menuItem("This Page: " & m.name, checked = onPage and bw.book.pages[bw.page].master == m.id, enabled = onPage):
+          if menuItem(tr("This Page: ") & m.name, checked = onPage and bw.book.pages[bw.page].master == m.id, enabled = onPage):
             runCommand("Master: " & m.name)
         for m in bw.book.masters:
           if menuItem("All Pages: " & m.name): runCommand("Master for All Pages: " & m.name)
@@ -1045,7 +1046,7 @@ proc pagesBody() =
     for m in b.masters:
       if button(m.name & (if bw.master == m.id: " *" else: ""), w = dp(30)):
         bw.editMaster(m.id, if b.setup.facing and bw.master == m.id and bw.side == psRight: psLeft else: psRight)
-      tooltip("Work on the master " & m.name & " (again: its other page)")
+      tooltip(tr("Work on the master ") & m.name & tr(" (again: its other page)"))
     if button("New", w = dp(40)): runCommand("New Master")
   if bw.master > 0:
     row:
@@ -1317,7 +1318,7 @@ proc bookDialogs() =
     let title = ["Go to Page", "Move Page", "Start Page Numbers Again"][clamp(bookGo.what, 0, 2)]
     dialog(bookGo.open, title, 300):
       row:
-        label(["Page (1 to " & $bw.book.pages.len & "):", "To be page:", "This page's number:"][clamp(bookGo.what, 0, 2)])
+        label([tr("Page (1 to ") & $bw.book.pages.len & "):", "To be page:", "This page's number:"][clamp(bookGo.what, 0, 2)])
         spin(bookGo.n, 1, (if bookGo.what == 2: 99999 else: bw.book.pages.len), w = dp(72))
       row:
         spring()

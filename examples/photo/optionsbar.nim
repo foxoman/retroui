@@ -216,15 +216,15 @@ proc optionsBar() =
       toolSeparator()
       warpModeBar()
     elif xf.on:
-      label($xf.kind & (if xfSmart != nil: " (Smart Object)" elif xfText.on: " (type)" else: "") &
-            ": drag the handles; Shift keeps the proportions, Alt from the middle")
+      label(tr($xf.kind) & (if xfSmart != nil: tr(" (Smart Object)") elif xfText.on: tr(" (type)") else: "") &
+            tr(": drag the handles; Shift keeps the proportions, Alt from the middle"))
       toolSeparator()
       # (the size, as the usual W and H)
       var x0, y0 = 1e18
       var x1, y1 = -1e18
       for (x, y) in xf.quad:
         x0 = min(x0, x); y0 = min(y0, y); x1 = max(x1, x); y1 = max(y1, y)
-      label("W: " & $int(round((x1 - x0) * 100 / max(1, xf.r.w).float)) & "%  H: " &
+      label(tr("W: ") & $int(round((x1 - x0) * 100 / max(1, xf.r.w).float)) & "%  " & tr("H: ") &
             $int(round((y1 - y0) * 100 / max(1, xf.r.h).float)) & "%")
       toolSeparator()
       if toolButton("OK", "Finish (Enter)"): finishTransform(true)
@@ -376,7 +376,7 @@ proc optionsBar() =
         elif cropKind == 1:
           if pendingCrop.on and pendingCrop.persp:
             let (pw, ph) = perspectiveSize(pendingCrop.q)
-            label("W: " & $pw & " px   H: " & $ph & " px")
+            label(tr("W: ") & $pw & tr(" px") & "   " & tr("H: ") & $ph & tr(" px"))
           else: label "Drag a box, then its corners onto lines that should be straight"
         else:
           barCheck("Straighten", cropStraighten)

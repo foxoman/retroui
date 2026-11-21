@@ -9,7 +9,7 @@
 ## the picture as it is once the stroke ends.
 
 import std/[os, math, strutils]
-import retroui/uirelays/[coords, input, eglload, screen]
+import retroui/uirelays/[coords, eglload, screen]
 import retroui
 import retroui/[photo, photopaint, photowidgets, ink]
 import harness

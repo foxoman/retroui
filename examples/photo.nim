@@ -35,7 +35,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 const
   AppName = "Retro Atelier"         # (Retro Photo until 5.0)
   AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
-  AppVersion = "5.11.0"
+  AppVersion = "5.12.0"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -2249,7 +2249,7 @@ proc startTransform(kind: XfKind) =
     d.touchLayers()
     xf = (true, dw, kind, L, r, newSeq[uint32](), newSeq[uint8](), false, quadOf(r), quadOf(r), -1, (0.0, 0.0),
           0'u32, L.shape, newSeq[uint32]())
-    status = $kind & ": drag the corners; Enter or a double-click inside to finish, Esc to cancel"
+    status = tr($kind) & tr(": drag the corners; Enter or a double-click inside to finish, Esc to cancel")
     return
   xfSmart = nil
   xfText.on = false
@@ -2305,7 +2305,7 @@ proc startTransform(kind: XfKind) =
     d.setLive(@[LivePart(layer: L, kind: lkWarp, src: cast[ptr UncheckedArray[uint32]](addr L.px[r.y * d.w + r.x]),
                          srcStride: d.w, srcR: r, quad: xf.quad, hole: true, baseFill: vacated)])
   d.liveSel = (0, 0, true)
-  status = $kind & ": drag the corners; Enter or a double-click inside to finish, Esc to cancel"
+  status = tr($kind) & tr(": drag the corners; Enter or a double-click inside to finish, Esc to cancel")
 
 proc finishTransform(ok: bool) =
   if not xf.on: return
@@ -4841,7 +4841,7 @@ proc statusInfoText(d: Doc): string =
   case statusInfo
   of siSizes:
     let (flat, layered) = d.docSizes()
-    "Doc: " & sizeText(flat) & "/" & sizeText(layered)
+    tr("Doc: ") & sizeText(flat) & "/" & sizeText(layered)
   of siProfile:
     (if d.mode == cmGray: (if d.icc.len > 0: d.profileName else: "Untagged Gray")
      elif d.icc.len > 0: d.profileName else: "Untagged RGB") & (if d.depth == 16: " (16bpc)" else: " (8bpc)")
@@ -4851,13 +4851,13 @@ proc statusInfoText(d: Doc): string =
   of siScale: "1 pixel = 1.0000 pixels"
   of siScratch:
     let budget = physicalMemory() * int64(clamp(prefs.memory, 20, 90)) div 100
-    "Scratch: " & mb(int64(memoryUsed())) & "/" & mb(budget)
-  of siEfficiency: "Efficiency: " & $int(round(d.historyInMemory * 100)) & "%"
+    tr("Scratch: ") & mb(int64(memoryUsed())) & "/" & mb(budget)
+  of siEfficiency: tr("Efficiency: ") & $int(round(d.historyInMemory * 100)) & "%"
   of siTiming:
     if lastBusy.label.len > 0: lastBusy.label & ": " & formatFloat(lastBusy.ms / 1000, ffDecimal, 2) & " s"
     else: "Timing: -"
   of siTool: $tool
-  of siSave: (if saving(): "Saving " & savingPath().extractFilename & "..." else: "Save: idle")
+  of siSave: (if saving(): tr("Saving ") & savingPath().extractFilename & "..." else: tr("Save: idle"))
   of siSmart:
     var n = 0
     for L in d.layers:
@@ -5121,7 +5121,7 @@ proc saveWatch() =
     status = "Could not save " & r.path.extractFilename & ": " & r.error
     if bgSave.doc != nil and not bgSave.copy: bgSave.doc.modified = true
   else:
-    status = "Saved " & r.path.extractFilename
+    status = tr("Saved ") & r.path.extractFilename
     if bgSave.doc != nil and not bgSave.copy:
       for dw in docs:
         if dw.doc == bgSave.doc: dw.dropRecovery()

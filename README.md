@@ -108,7 +108,7 @@ every module is in `docs/api/` (open `docs/api/retro.html`).
 [The syntax, studied](docs/syntax.md) · [Tutorials](tutorials/) · [Install](#install) · [Your first app](#your-first-app) ·
 [Retro Designer](#retro-designer) · [How it works](#how-it-works) · [Controls](#controls) · [Layout](#layout) ·
 [Text and icons](#text-and-icons) · [Jobs, undo, pages and words](#jobs-undo-pages-and-words) ·
-[Screen readers and input methods](#screen-readers-and-input-methods) ·
+[Translating an app](#translating-an-app) · [Screen readers and input methods](#screen-readers-and-input-methods) ·
 [The inspector and the driver](#the-inspector-and-the-driver) · [Business apps](#business-apps) ·
 [Charts](#charts) · [Reports, PDF and printing](#reports-pdf-and-printing) ·
 [Planning views](#planning-views) · [Desktop apps](#desktop-apps) ·
@@ -126,7 +126,8 @@ every module is in `docs/api/` (open `docs/api/retro.html`).
 
 ## Install
 
-You need **Nim 2.0 or newer** and **a C compiler**:
+You need **Nim 2.4** (the kit is built, tested and released with it; Nim
+2.2 still builds it and is tested too) and **a C compiler**:
 
 | System | Get them | Notes |
 |---|---|---|
@@ -915,6 +916,48 @@ of screen pixels per art pixel; disabled ones look embossed. Set
 `retroIcons = false` to have `retroOr` (and the toolkit's own parts) use
 the Nerd icons. The art is original, drawn in the manner of 3.1, made by
 `tools/genicons.py`.
+
+## Translating an app
+
+Every text the kit shows -- a label, a button, a menu, a tab, a title, a
+tooltip, a status line passed through `tr` -- is looked up in the tables
+the app gives `setUiLanguage`; a text with no translation stays as it is.
+Arabic, Persian, Hebrew and Urdu lay the window out right to left.
+
+```nim
+import retroui, retroui/lang_ar                  # the toolkit's own words in Arabic
+
+const myArabic = [
+  ("&File", "ملف"),                              # ("File": the & of a mnemonic is left out of the key)
+  ("Save changes?", "حفظ التغييرات؟"),
+  ("Could not open ", "تعذّر فتح "),              # (a part glued to a value keeps its spaces)
+]
+setUiLanguage("ar", @toolkitArabic, @myArabic)  # "" or "en": English again
+```
+
+- **The keys** are the code's texts exactly as written, the `&` of a
+  mnemonic taken out ("&File" is "File", "Black && &White" is "Black &
+  White"); "...", ":" and capitals stay. Shortcuts are not part of a key.
+- **A text with a number**: `trn(n, "{n} file", "{n} files")`, its
+  forms in each language's order (Arabic's six: zero, one, two, few,
+  many, other -- `pluralForm`).
+- **For a translator without Nim**: `retrokit strings app.nim --lang:ar`
+  writes every text the app shows into `app-ar.txt`, a line each,
+  `English = translation` (empty: not done yet). Run it again after
+  changing the app: what is translated stays, new texts are added. The app
+  reads it with `setUiLanguage("ar", @toolkitArabic, loadUiStrings(getAppDir() / "app-ar.txt"))`.
+- **Finding what is not translated**: `RETRO_LANG=pseudo ./app` shows
+  every text that goes through the tables stretched and between brackets
+  (`[Šåvé ··]`): what is still plain English on screen is not looked up
+  -- a text drawn without `tr` -- and what is stretched has no entry yet.
+- **The toolkit's own words** (OK, Cancel, the file dialogs, the color
+  picker, the about box...) are in `src/retroui/lang_ar.nim`
+  (`toolkitArabic`); for another language, give a table of them too.
+- **Retro Atelier's** Arabic is `examples/photo/lang_ar.nim` (the words
+  of its menus, panels, dialogs and tool hints); Preferences > Interface >
+  Language switches it at once. To add a language, copy that file to
+  `lang_xx.nim`, translate its right-hand sides, and add it beside
+  Arabic in `applyLanguage` (`examples/photo/prefs.nim`).
 
 ## Screen readers and input methods
 

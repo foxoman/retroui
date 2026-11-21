@@ -16,7 +16,7 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[strutils, os]
+import std/strutils
 import std/unicode except strip
 import textsearch
 

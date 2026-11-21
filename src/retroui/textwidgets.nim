@@ -8,19 +8,32 @@
 ## fontStyleCombo(family, style, w = dp(100))
 ## ```
 
-import std/[tables, math]
+import std/[tables, math, os]
 import core, gfx, widgets, textengine
 
 var samples: Table[string, Bitmap]
 
+const SampleMaxFile = 8 * 1024 * 1024
+  ## (a font file bigger than this -- a CJK collection -- is not read only to show a list's sample:
+  ## its name is shown in the kit's letters; the family is read when the text uses it)
+
+proc tooBigToSample(family, style: string): bool =
+  let f = fontFileOf(family, style)
+  if f.len == 0: return false
+  try: getFileSize(f) > SampleMaxFile
+  except OSError: false
+
 proc fontSample*(family, style, text: string; h: int; color = 0xFF000000'u32): Bitmap =
-  ## `text` in a font, `h` screen pixels tall (kept: drawn once).
+  ## `text` in a font, `h` screen pixels tall (kept: drawn once). A font whose file is very big
+  ## (a CJK collection: tens of megabytes to read and make ready) is not read for it: the text is
+  ## in the kit's letters.
   let key = family & "/" & style & "/" & text & "/" & $h & "/" & $color
   if samples.hasKey(key): return samples[key]
   if samples.len > 600: samples.clear()
   var st = defaultStyle()
-  st.family = family
-  st.style = style
+  if not tooBigToSample(family, style):
+    st.family = family
+    st.style = style
   st.size = float32(h) * 0.74
   st.color = color
   var t = newText(text, st)

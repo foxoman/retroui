@@ -5,8 +5,8 @@
 ## changed for another); a page's color label kept with the book; Smart Text Reflow (pages added
 ## for a story's text, the empty ones taken out again).
 
-import std/[os, strutils, json]
-import retroui/[gfx, photo, photobook, photopdf, textengine, pdf]
+import std/[os, strutils]
+import retroui/[photo, photobook, photopdf, textengine, pdf]
 
 var failures = 0
 template check(cond: bool; what: string) =

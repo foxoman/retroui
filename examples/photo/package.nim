@@ -260,14 +260,14 @@ proc packageDialog() =
   for f in fonts:
     if f.file.len > 0 and not fileExists(f.file): inc notFound
   dialog(pkgDlg.open, "Package", 420):
-    label(what.name & (if what.book != nil: " -- " & $what.docs.len & " pages" else: ""))
+    label(what.name & (if what.book != nil: " -- " & $what.docs.len & tr(" pages") else: ""))
     row([150, -1]):
       label "Fonts:"
-      label($fonts.len & " used" & (if notFound > 0: ", " & $notFound & " missing" else: ""))
+      label($fonts.len & tr(" used") & (if notFound > 0: tr(", ") & $notFound & tr(" missing") else: ""))
     row([150, -1]):
       label "Links and Images:"
-      label($linked & " linked" & (if missing > 0: ", " & $missing & " missing" else: "") &
-            (if modified > 0: ", " & $modified & " modified" else: ""))
+      label($linked & tr(" linked") & (if missing > 0: tr(", ") & $missing & tr(" missing") else: "") &
+            (if modified > 0: tr(", ") & $modified & tr(" modified") else: ""))
     if missing > 0 or modified > 0:
       label("Window > Links updates or relinks them first.", color = color(200, 0, 0))
     checkbox("Copy Fonts", pkgDlg.fonts)
