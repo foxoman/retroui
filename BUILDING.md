@@ -94,7 +94,10 @@ service on `tty1` (`TTYPath=/dev/tty1`, `StandardInput=tty`).
 packages.
 
 **The examples** are built only when you ask, one at a time:
-`RETRO_APP=photo nimble exe` (Windows, from Linux or macOS),
+`RETRO_APP=photo nimble exe` (Windows, from Linux or macOS, with MinGW;
+`RETRO_WINCC=zig` with zig 0.15's clang -- `pip install ziglang==0.15.2`,
+or `RETRO_ZIG` the path of one -- every module optimized with the others,
+ThinLTO),
 `RETRO_APP=photo nimble appimage`, `RETRO_APP=photo nimble macapp` (on a
 Mac), `RETRO_APP=photo nimble appapk`; the apps are listed in
 `retroui.nimble` (`RetroApps`). `nimble apps` builds every one of them
@@ -104,7 +107,11 @@ for this computer.
 compiled `classes.dex`, so `retroapk --java:DIR` needs no Java on the
 computer. To change the Java, compile it again with a JDK and d8 or dx
 (Termux: `pkg install openjdk-21`, then d8 or dx; Debian: a JDK and
-`dalvik-exchange`): `sh examples/retrodns/build.sh dex`.
+`dalvik-exchange`): `sh examples/retrodns/build.sh dex`. Its tests run on
+the computer with the same JDK, openssl and python3, no phone:
+`sh examples/retrodns/glue/tests/check.sh` (the block list, switching
+servers, the reasons a lookup failed, and the TLS hello sent in pieces or
+with no name, against a TLS server of its own on 127.0.0.1).
 
 **Apps that use `retroui/xmpp`** (Retro Communicator: `nimble
 communicator`) build with `-d:ssl`: Nim's TLS through OpenSSL, loaded when
@@ -235,6 +242,10 @@ retrokit run --web --watch app.nim      # served on http://localhost:8765, rebui
 `--out:DIR` puts the page elsewhere, `--small` optimizes for size (`-Oz`),
 `--memory:MB` gives the build with threads more memory (1024 else, up to
 4096: a big app's, Retro Atelier's 2048),
+`--gpu` draws the frames with the GPU renderer where the browser has a
+real GPU (the canvas's WebGL 2 as OpenGL ES 2; a software one --
+SwiftShader -- keeps the CPU's frames, and `?gpu=1` in the page's address
+tries it anyway; `Retro.boot({ gpu: true })` in a page of your own),
 `--debug` keeps Nim's checks and stack traces, `--jobs:N` runs N C
 compilers at once (else one a core while the memory lasts; at most 4 in
 Termux), `--lto:full|thin|none` chooses how the program is optimized as a
@@ -290,8 +301,9 @@ runs -- the return check, the warnings on every system
 Termux, an Android app, Windows, macOS, iOS and the web build them, and
 neither have the examples and the tests), the
 tests, a short fuzz, the Android driver on a fake Android, the tests as
-WebAssembly, the tools -- and ends with the number that failed
-(`quick`: the longer ones left out).
+WebAssembly, the tools, Retro Atelier's Windows .exe (with MinGW: CI
+builds it on every push, the run's Artifacts) -- and ends with the number
+that failed (`quick`: the longer ones left out).
 
 **Testing it all**, in a clone: `nimble test` (headless, as many at once
 as there are cores: `sh tests/runall.sh`), `sh tools/soak.sh` (each app an

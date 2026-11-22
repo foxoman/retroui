@@ -2744,7 +2744,11 @@ proc drivePort*(): int
 
 Show the inspector as F12 does; listen for a driver as `RETRO_DRIVE` does
 (0: any free port; the port, or 0). `whyFrames` and `frameCause` (the
-core) say why each frame ran.
+core) say why each frame ran. While the inspector is shown the frame
+profiler is on (`retroui/frameprof`) and the panel lists where the last
+frames' time went: each span's average and longest -- an app's own
+`profiled("name"): ...` among them -- and the counters (glyphs drawn,
+draw calls, bytes sent).
 """)
 
 example("access", "Screen readers: what an app draws itself",

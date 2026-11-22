@@ -475,10 +475,14 @@ nimble magazine             # build/magazine: .rpd, .png, .pdf
 
 `examples/book.nim` makes a small book with the kit's layout engine alone
 (`retroui/photobook`), no window: in Arabic, bound on the right, facing
-pages; master pages with a running head, a rule and the page number at
-the outer edge in Arabic-Indic digits; a story in two columns that goes
-on through as many pages as it needs and keeps out of a picture, round
-its shape; the tashkeel of the title in a colour of its own. It writes
+pages; a title page with margins of its own and the master's items
+hidden on it, its title's two lines made one width with kashidas (point
+text justified); master pages with a running head, a paragraph rule
+under it and the page number at the outer edge in Arabic-Indic digits; a
+story in two columns that goes on through as many pages as it needs,
+keeps out of a picture, round its shape, and has footnotes numbered again
+on each page; a table at the end, sorted by a column of numbers; the
+tashkeel of the title in a colour of its own. It writes
 the book (.rpb: open it in Retro Atelier), a PDF with the type as type, and
 its spreads as pictures.
 
@@ -502,7 +506,10 @@ Up by Arrows lays out the shapes arrows join (a mind map dropped in a
 heap, a diagram grown crooked) as a graph that settles -- each pushes the
 others away and keeps out of their room, each arrow pulls its shapes to a
 length -- and they glide there, one step to undo (`linkedLayout`,
-`retroui/forcelayout`).
+`retroui/forcelayout`). File > Draw from Words asks an AI service of your
+own -- or a model on the device, nothing sent (File > AI Connector) -- for
+vector art from your words, and puts it on the board as a picture: the
+kit's Generate Vector dialog (`retroui/aivector`), as Retro Atelier has it.
 
 ```sh
 nimble board                # or: nim c -r -d:release examples/retroboard.nim
@@ -741,7 +748,23 @@ own (CSV, imported and exported). Each system the way it allows:
   VPN is on -- and what the phone reached: each app joined to the sites it
   looked up in the last two minutes (their registrable domains), a graph
   that lays itself out (`graphView`). Android 10 and later say which app
-  asked; before, the phone is one node.
+  asked; before, the phone is one node. **When a network blocks
+  encrypted DNS by the server's name**, the VPN finds its first packet --
+  the TLS hello, with the name in it -- cut, and from then sends that hello
+  in pieces of 40 bytes, so no piece holds the whole name (as GreenTunnel
+  does), or -- where the server's certificate is for its address too
+  (1.1.1.1, 8.8.8.8, 9.9.9.9) -- connects by address with no name at all
+  (`SplitTls.java`; only Retro DNS's own queries). **VPN > Switch When a
+  Server Stops Answering** (on at first): three failures in a row and it
+  goes on to the next of your favourites, then the fastest the tests
+  found, saying why ("it timed out", "the connection was cut as it said
+  hello"); each failure says why in plain words. **VPN > Block List**:
+  names answered "no such name" on the phone, sending nothing -- a name a
+  line and its subdomains, `!name` an exception (as zapret's host lists
+  have it), a hosts file's lines as they are: a hosts file without root.
+  `glue/tests/check.sh` tests the Java on a computer (its lists, answers
+  and reasons; the hello in pieces and with no name, against a TLS server
+  of its own).
 - **Windows, Linux, macOS:** Use on This Computer gives the computer the
   server's addresses as its administrator, the system asking first
   (`retroui/admin`: UAC, polkit, the password dialog): every adapter's

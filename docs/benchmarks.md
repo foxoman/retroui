@@ -17,9 +17,9 @@ A number and three buttons, 5 seconds after its first frame, nothing happening.
 
 | | |
 |---|---|
-| The program (stripped) | 3.3 MB |
-| Start to the first frame on screen | 60 ms |
-| Memory at rest (resident) | 11.4 MB |
+| The program (stripped) | 3.4 MB |
+| Start to the first frame on screen | 61 ms |
+| Memory at rest (resident) | 11.3 MB |
 | Processor at rest | 0.01% of a core |
 
 ## Busy
@@ -28,10 +28,10 @@ A number and three buttons, 5 seconds after its first frame, nothing happening.
 
 | Scene | Processor a frame | Frames a second | Slowest frames (99th percentile) | Most memory |
 |---|---|---|---|---|
-| A list: 100,000 rows of three texts, scrolled 8 pixels a frame | 0.65 ms | 61.9 | 17.1 ms | 11.5 MB |
-| A dashboard: 600 cells, each its own color and a number changing every frame | 0.95 ms | 61.8 | 17.1 ms | 11.5 MB |
-| A document: 40 paragraphs (20,000 letters) wrapped to a new width every frame | 2.11 ms | 61.9 | 17.1 ms | 13.5 MB |
-| Type: 24 lines, each in another of 48 sizes and four faces every frame | 3.92 ms | 61.8 | 17.0 ms | 16.1 MB |
+| A list: 100,000 rows of three texts, scrolled 8 pixels a frame | 0.69 ms | 61.8 | 17.2 ms | 11.6 MB |
+| A dashboard: 600 cells, each its own color and a number changing every frame | 1.05 ms | 61.8 | 17.1 ms | 11.5 MB |
+| A document: 40 paragraphs (20,000 letters) wrapped to a new width every frame | 2.15 ms | 61.8 | 17.2 ms | 13.7 MB |
+| Type: 24 lines, each in another of 48 sizes and four faces every frame | 1.45 ms | 61.9 | 17.1 ms | 17.5 MB |
 
 The processor's time is the whole process's (every thread). The frame rate
 stops at the 62 frames a second the scenes ask for (one each 16 ms); the
@@ -44,10 +44,10 @@ a frame's time in its parts, averages of the last 120 frames, ms.
 
 | Scene | A frame | The app's code | Finishing the frame | On the screen | of it, the CPU drawing | the CPU sending |
 |---|---|---|---|---|---|---|
-| A list | 0.781 | 0.076 | 0.003 | 0.681 | 0.372 | 0.025 |
-| A dashboard | 1.107 | 0.134 | 0.003 | 0.958 | 0.587 | 0.024 |
-| A document | 2.371 | 1.601 | 0.009 | 0.729 | 0.373 | 0.022 |
-| Type | 3.875 | 0.016 | 0.003 | 3.838 | 0.838 | 0.027 |
+| A list | 0.820 | 0.083 | 0.004 | 0.715 | 0.398 | 0.026 |
+| A dashboard | 1.220 | 0.156 | 0.003 | 1.036 | 0.630 | 0.025 |
+| A document | 2.351 | 1.508 | 0.010 | 0.791 | 0.429 | 0.022 |
+| Type | 1.511 | 0.017 | 0.003 | 1.465 | 0.892 | 0.027 |
 
 ## The apps
 

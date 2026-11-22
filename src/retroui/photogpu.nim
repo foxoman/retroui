@@ -1693,7 +1693,7 @@ proc checkDoc(): Doc =
     result.opacity = op
     result.depth = depth
     for i in 0 ..< w * h:
-      let v = int(hash2(i, seed))
+      let v = int(hash2(i, seed) and 0x3FF_FFFF'u32)   # (the bits used: an int of 32 bits in a web page)
       result.px[i] = argb([0, 90, 200, 255][v and 3], (v shr 2) and 255, (v shr 10) and 255, (v shr 18) and 255)
   proc maskOf(seed: int): Layer =
     result = d.newLayer("mask")

@@ -1,5 +1,86 @@
 # Changes
 
+## 0.69.0
+
+What 0.68 added, put to work in the kit and its apps: text that changes
+size drawn three times faster (the profiler found where), the GPU
+renderer in a web page, the inspector
+showing where each frame's time goes, Generate Vector as the kit's own
+dialog (Retro Atelier 5.14.0 and Retro Board 1.7.0 use it), and the Book
+sample laid out with 0.68's engine. Retro DNS 1.5 gets past networks that
+block encrypted DNS by its name, goes on to another server when one stops
+answering, says why a lookup failed, and keeps a block list.
+
+- **Text that changes size draws three times faster.** The glyphs drawn
+  on the CPU are kept in a cache twice as big (16,384), each glyph with two
+  places in it instead of one: two glyphs of a frame no longer push each
+  other out to be drawn again every frame. The bench's type scene (24
+  lines in 48 sizes and four faces): 4.2 ms a frame to 1.4 ms, its glyphs
+  drawn again 400 a frame to 12 -- found with the frame profiler, which
+  put three quarters of that frame there; 0.1 MB more at rest.
+- **Generate Vector is the kit's** (`retroui/aivector`): `newVectorAsk`
+  and `vectorDialog` -- the words, the content type, the app's colors if
+  asked, the request on a worker, the SVG handed back -- so any app has
+  Retro Atelier's dialog. Retro Atelier uses it; **Retro Board** has File
+  > Draw from Words (the art put on the board as a picture) and an AI
+  Connector of its own (a service, or a model on the device). Its words are
+  in the kit's Arabic.
+- **The Book sample shows the 0.68 engine**: the title page has margins
+  of its own and the master's items hidden, its title's two lines one
+  width with kashidas; the running head's rule is a paragraph rule; the
+  story has footnotes numbered again on each page; a table at the end,
+  sorted by its column of months.
+- **Retro DNS 1.5** (version code 8): on Android, where a network blocks
+  encrypted DNS by the server's name, the VPN finds its TLS hello cut and
+  from then sends it in pieces of 40 bytes, so no piece holds the whole
+  name (as GreenTunnel does) -- or, where the server's certificate is for
+  its address too (1.1.1.1, 8.8.8.8, 9.9.9.9), connects by address with no
+  name at all (`glue/java/.../SplitTls.java`: only Retro DNS's own queries;
+  the certificate checked as always). VPN > Switch When a Server Stops
+  Answering (on): three failures in a row and it goes on to the next of
+  your favourites, then the fastest the tests found, saying why; every
+  failure says why in plain words ("it timed out", "its certificate is not
+  trusted", "the connection was cut as it said hello"). VPN > Block List:
+  names answered "no such name" on the phone, sending nothing -- a name a
+  line and its subdomains, `!name` an exception (as zapret's host lists),
+  a hosts file's lines as they are. `glue/tests/check.sh` tests the Java
+  on a computer, against a TLS server of its own.
+- **The GPU renderer in a web page.** `retrokit web --gpu` (or
+  `Retro.boot({ gpu: true })`) draws the frames as a desktop does: the
+  canvas's WebGL 2 as OpenGL ES 2 (`drivers/webgles.nim`, retro.js's
+  `glu`), the textures, buffers and shaders of the desktop's renderer, the
+  canvas keeping the last frame so only what changed is drawn again.
+  Where the browser's GPU is a software one (SwiftShader) the CPU's frames
+  stay, as they do without `--gpu`; `?gpu=1` in the address tries it on
+  any. `tests/web/gpu.js` compares the GPU's frame with the CPU's in
+  Chromium, with and without threads: no pixel more than 24 levels apart.
+- **The inspector shows where the time goes** (F12 over any app): the
+  frame profiler is on while its panel is shown, and the panel has the
+  last frames' spans -- the app's code, finishing, putting it on the
+  screen, the CPU's and the GPU's drawing, each one's average and longest
+  -- and the counters (glyphs drawn, draw calls, bytes sent). Hidden, the
+  profiler is off again (unless the app or `RETRO_TRACE` has it on). The
+  kit's heavy parts are spans of their own now, so every app that uses
+  them shows them: a picture's composite and its view (`retroui/photo`:
+  Retro Atelier), an HTML page and a Markdown text laid out (Retro Mail,
+  the chat apps); Retro Board marks its shapes and counts those drawn.
+- **Retro Atelier for Windows again.** The 0.67 and 0.68 releases had no
+  Atelier .exe: built with link-time optimization, its main module's
+  object had more sections than MinGW's COFF holds ("file too big"), so
+  that one build failed. The big-object form (`-Wa,-mbig-obj`) is no way
+  out -- GCC's LTO plugin does not read it --, so with GCC that one module
+  is compiled without LTO (`localPassC`), the rest of the program still
+  optimized when linked. `RETRO_WINCC=zig nimble exe` builds with zig's
+  clang instead (`tools/zigcc.sh`, `RETRO_ZIG_TARGET=x86_64-windows-gnu`):
+  every module optimized with the others by LLVM (ThinLTO: Atelier's full
+  LTO needs over 6 GB to link), no COFF limit -- with zig 0.15 (`pip
+  install ziglang==0.15.2`): 0.16 and 0.17 leave their own C library's
+  names undefined in a Windows program linked so, a C program of three
+  lines too. zig's linker writes no symbol table, so that build has no
+  table of procs for a window that stops answering. CI builds Retro
+  Atelier's .exe both ways on every push (the run's Artifacts:
+  `RetroAtelier-windows`, `RetroAtelier-windows-zig`).
+
 ## 0.68.0
 
 The layout program's pages, as asked: tables edited as it edits them --

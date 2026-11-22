@@ -21,7 +21,14 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   `RETRO_APP=photo nimble exe`...), never by `nimble install`. GitHub's
   Release workflow (`.github/workflows/release.yml`, on a `v...` tag or by
   hand) builds Gallery, Files, Photo, Board, Mail, Navigator, DNS, 7GUIs
-  and Podcast for Linux, Windows, Android and macOS onto the release.
+  and Podcast for Linux, Windows, Android and macOS onto the release; CI
+  builds Retro Atelier's Windows .exe on every push, with GCC and with zig
+  (artifacts). With MinGW's GCC and LTO Atelier's main module is too big
+  for a COFF object ("file too big"; `-Wa,-mbig-obj` breaks GCC's LTO
+  plugin): it is compiled without LTO (`localPassC` in examples/photo.nim).
+  `RETRO_WINCC=zig nimble exe`: zig 0.15's clang, all of it ThinLTO (full
+  LTO needs over 6 GB; zig 0.16 and 0.17 fail to link a Windows program with
+  LTO).
 - `src/retrodesigner/` -- Retro Designer, the visual designer
   (`retrokit designer app.nim` builds it once per computer and runs it;
   docs/designer.md). It reads and changes the user's own `.nim` file with
@@ -351,7 +358,12 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   app's own Java goes in with `retroapk --java:DIR`
   (`examples/retrodns/glue`): its `classes.dex` is committed too, made
   again by `sh examples/retrodns/build.sh dex` after its Java changes
-  (javac against glue/stubs, then d8 or dx: no android.jar).
+  (javac against glue/stubs, then d8 or dx: no android.jar);
+  `sh examples/retrodns/glue/tests/check.sh` tests that Java on the
+  computer (a JDK: its block list, failover and reasons, and `SplitTls`
+  against a TLS server of its own). Its VPN gets past a network only for
+  Retro DNS's own queries (the hello in pieces, or by address with no
+  name); it never changes other apps' traffic.
 - The web view (`webView`, in `htmlview.nim`): the system's engines are
   `webnative.nim` and the file it includes for each system --
   `webnative_gtk.nim` (WebKitGTK, in a GTK thread of its own, its window
@@ -387,7 +399,12 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   itself the page does for it). Code that differs with threads:
   `compileOption("threads")` -- a build without them must still compile.
   A new import that a worker can do itself (no DOM) goes into its `local`
-  list. An exported Nim proc called from the page catches every exception
+  list. The GPU renderer in a page (`--gpu`, `?gpu=1`):
+  `drivers/webgles.nim` hands out OpenGL ES 2's functions by name, each a
+  call to `rw_glu` -- retro.js's `glu` on the canvas's own WebGL 2, the
+  same `glRun` as the 3D view's `gl3` (an op number each, the objects kept
+  by number); a function the renderer starts to use needs its op on both
+  sides, and `tests/web/gpu.js` compares the GPU's frame with the CPU's. An exported Nim proc called from the page catches every exception
   (Nim's goto exceptions would leave the error set and stop the next
   frame). The system's features (`retroui/system`, `docs/system.md`): a
   new one is a `call` name in retro.js, a branch in each system's part of
@@ -555,7 +572,10 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   speed says what it saved in the scenes' numbers, and a new stage of a
   frame's drawing gets a span (`profBegin`/`profEnd`, `profiled`) and its
   counters (`profCount`, behind `if profOn:` when they cost a loop). Off,
-  the profiler is a test of one bool; it never writes unless asked. The
+  the profiler is a test of one bool; it never writes unless asked (the
+  inspector turns it on while its panel is shown). The CPU's glyph masks
+  are kept two ways in 16,384 slots (`prepMask` in `gfx.nim`; "CPU glyphs
+  rendered" counts those made anew: a frame at rest makes next to none). The
   GPU draws a rectangle as four corners and two triangles of a kept index
   buffer (`quadIndices`; written out as six where there is no
   `glDrawElements`), at most 16,384 to a call (16-bit indices).

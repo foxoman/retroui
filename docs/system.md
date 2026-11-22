@@ -509,6 +509,7 @@ What a page can do depends on the browser:
 
 | Feature | How |
 |---|---|
+| the window's frames | drawn on the CPU -- only the tiles that changed, on every core with threads -- and shown through WebGL 2, only the changed rows sent; with `retrokit web --gpu` (or `Retro.boot({ gpu: true })`) drawn by the GPU renderer on the canvas's WebGL 2 as OpenGL ES 2, where the browser has a real GPU; `?gpu=1` tries it on any |
 | threads (`createThread`, the kit's drawing on every core) | `retrokit web --threads`: a second build with them, taken where the page can share memory with its workers (crossOriginIsolated). The page's service worker sets that up on any server (the page loads once more the first time). `?threads=0` tries the page without. An app that needs them (Retro Mail): `--threads-only`. |
 | files the app writes | in the page's storage (IndexedDB), kept across visits under `/data` and the home folder; `/downloads` goes to the user |
 | big files (8 MB or more) | dropped, picked or kept: left in the browser's own storage (a Blob) and read 4 MB at a time, no copy in the page until the app writes to them |

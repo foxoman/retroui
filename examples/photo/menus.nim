@@ -2023,7 +2023,10 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.13.0: tables edited as the layout program edits them -- column edges and row feet " &
+           whatsNew = ["5.14.0: type that changes size -- a title being sized, a zoom -- drawn three times " &
+                       "faster (each glyph drawn once, not again every frame); Edit > Generate Vector is the " &
+                       "kit's own dialog now, the same in Retro Board, its words in Arabic too.",
+                       "5.13.0: tables edited as the layout program edits them -- column edges and row feet " &
                        "dragged, cells split, rows and columns made even, the body sorted, rows kept together; " &
                        "Layout > Margins and Columns for a page or a master; a master's items made a page's own " &
                        "(Ctrl+Shift+click, Layout > Masters); a photo inside a frame across the spine; Text " &

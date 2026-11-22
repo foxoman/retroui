@@ -4,7 +4,7 @@
 # the Android driver on a fake Android, the tests as WebAssembly under Node
 # (when clang, wasm-ld and node are here), the tools built, the live check
 # and the pixel compare compiled (they run on the systems workflow), the
-# workflows' YAML read.
+# workflows' YAML read, Retro Atelier's Windows .exe (when MinGW is here).
 #
 #   sh tools/cicheck.sh          (from the repository's root)
 #   sh tools/cicheck.sh quick    (no fuzz, no WebAssembly, the warnings of the
@@ -59,5 +59,9 @@ step tools sh -c 'nim c -d:release --hints:off -o:build/cicheck/retroapk src/ret
 step subfolders sh -c 'nim c --noNimblePath --hints:off --compileOnly tests/live/livecheck.nim &&
   nim c --noNimblePath --hints:off --compileOnly tools/live/compare.nim &&
   nim c --noNimblePath --hints:off --compileOnly tests/access/accesscheck.nim'
+# (Retro Atelier for Windows, as CI and the release build it: MinGW, link-time optimization)
+if [ "$quick" != quick ] && command -v x86_64-w64-mingw32-gcc >/dev/null; then
+  step atelier-windows sh -c 'RETRO_APP=photo nimble exe -y'
+fi
 echo "cicheck: $failed failed"
 exit $failed

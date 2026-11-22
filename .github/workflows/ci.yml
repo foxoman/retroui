@@ -135,3 +135,43 @@ jobs:
           nim c -d:release --hints:off -o:build/retroapk src/retroapk.nim
           nim c -d:release --hints:off -o:build/retrokit src/retrokit.nim
           nim c -d:release --hints:off -o:build/retroios src/retroios.nim
+
+  atelier-windows:
+    # Retro Atelier's Windows program on every push, from Linux, to download
+    # from the run's Artifacts without waiting for a release: with MinGW's
+    # GCC as the release builds it (RetroAtelier-windows), and with zig's
+    # clang, every module optimized with the others by LLVM (ThinLTO;
+    # RetroAtelier-windows-zig; zig 0.15: 0.16 and 0.17 cannot link a
+    # Windows program optimized so)
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, zig]
+    name: atelier-windows (${{ matrix.cc }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jiro4989/setup-nim-action@v2
+        id: setupnim
+        continue-on-error: true   # (a download cut off: tried once more below)
+        with:
+          nim-version: "2.4.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: jiro4989/setup-nim-action@v2
+        if: steps.setupnim.outcome == 'failure'
+        with:
+          nim-version: "2.4.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: MinGW (its windres makes the icon; GCC builds it)
+        run: sh tools/apt.sh mingw-w64
+      - name: zig 0.15
+        if: matrix.cc == 'zig'
+        run: pip install ziglang==0.15.2
+      - name: Retro Atelier for Windows
+        run: RETRO_WINCC=${{ matrix.cc }} RETRO_APP=photo nimble exe -y
+      - uses: actions/upload-artifact@v6
+        with:
+          name: RetroAtelier-windows${{ matrix.cc == 'zig' && '-zig' || '' }}
+          path: build/win/*.exe
+          retention-days: 30

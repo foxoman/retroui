@@ -215,8 +215,10 @@ has lld, or zig; with neither they fetch the NDK once (about 700 MB, into
 `~/.retro/android` (`RETRO_KEYS` another folder), and need no Java, Gradle, SDK, OpenSSL or apksigner. In
 Termux the compiler is installed with `pkg` the first time.
 
-GitHub builds them too: **CI** runs the tests on each push and compiles
-the tools on Linux, Windows and macOS (the examples when run by hand);
+GitHub builds them too: **CI** runs the tests on each push, compiles
+the tools on Linux, Windows and macOS (the examples when run by hand) and
+builds Retro Atelier's Windows .exe with MinGW's GCC and with zig (the
+run's Artifacts: `RetroAtelier-windows`, `RetroAtelier-windows-zig`);
 **Release** -- a `v...` tag pushed, or by hand -- makes the apps I use
 every day, Retro Gallery, Retro Files, Retro Atelier, Retro Board and Retro
 Mail, as an AppImage, a Windows .exe, an APK and a macOS .app, and puts
@@ -707,6 +709,9 @@ app "Notes", 420, 300:
   a pattern -- as an SVG of plain shapes kept to what draws (`safeSvg`:
   no scripts, pictures, links or styles), placed as shapes to edit
   (`placeSvg`); by the user's service, or offline by the device's model.
+  `vectorDialog(ask, settings, onDone)` is the whole Generate Vector dialog
+  -- the words, the kind, the app's colors, the request on a worker --
+  as Retro Atelier and Retro Board have it.
 - **An AI of the device's own** (`retroui/llm`, `retroui/modelstore`,
   `retroui/devicemodel`, `retroui/meaning`): language models run in Nim
   in the app itself -- BitNet b1.58's ternary ones, Llama's, Qwen's,
@@ -1055,6 +1060,10 @@ build with `RETRO_INSPECT=1`, which shows it from the start) puts a panel
 at the side of the window:
 
 - the frame: how long it took to build, how many ran in the last second;
+- where the last frames' time went (the frame profiler, on while the
+  panel is shown): the app's code, finishing, putting it on the screen,
+  the CPU's and the GPU's drawing -- each one's average and longest --
+  and the counters (glyphs drawn, draw calls, bytes sent);
 - why it ran -- the input it took, or the line of your program that asked
   for it (`ui.redraw = true`, `wakeIn`) -- and what the next one waits
   for: an app at rest waits for input;
@@ -2016,7 +2025,7 @@ b.saveBoard("flow.board")
   scale, transparent or on the canvas's color), SVG and PDF (vectors,
   text as outlines).
 
-`examples/retroboard.nim` is **Retro Board 1.3.9**, a whiteboard app made of
+`examples/retroboard.nim` is **Retro Board 1.7.0**, a whiteboard app made of
 it: the 3.1 title bar on phones and tablets, a status bar (the tool's
 hint, page, shapes, zoom, memory), the color schemes and Appearance, a
 floating tool bar (select, hand, draw, highlighter, eraser, laser,
@@ -2031,7 +2040,9 @@ grid and snap; the memory) -- dragged, floated, folded to icons (on a
 phone, a strip of them), hidden with Tab, kept between runs; lines that
 hold on to the shapes they are drawn from and to; links opened from
 a badge, Ctrl+Arrow for a flowchart's next step, Find, Position and Size,
-Stats (with the memory used, and Free Memory), Zen and View modes; pinch to
+Stats (with the memory used, and Free Memory), Zen and View modes; File >
+Draw from Words (vector art by your AI service or the device's model, put
+on the board as a picture); pinch to
 zoom and two fingers to pan on a phone (the toolkit's
 `ui.pinch`, `ui.panDX` / `panDY`); a long press for the menu; the
 keyboard shortcuts of tldraw on a desktop; saved as you go. About 2 MB as
@@ -2179,7 +2190,7 @@ s.dehaze = 10
 p.applyFilter(developMargin(s), develop(s))
 ```
 
-`examples/photo.nim` is **Retro Atelier 5.10.0** (Retro Photo until 5.0: its modules, documents and package id keep that name), an image editor in the manner
+`examples/photo.nim` is **Retro Atelier 5.14.0** (Retro Photo until 5.0: its modules, documents and package id keep that name), an image editor in the manner
 of the ones of 1994: the toolbox, the tabbed floating palettes (Brushes
 and Options; Picker, Swatches and Scratch; Layers, Channels and Paths;
 Info; Commands; Navigator, History and Actions; Properties), an options
@@ -2608,7 +2619,11 @@ server of a phone or a computer: Android's with a VPN of its own Java
 an iPhone's and an iPad's with a profile of encrypted DNS
 ([the examples](examples/README.md#retro-dns)); on Android a tile in the
 quick settings and a widget on the home screen turn it on and off, and a
-graph shows each server's speed over its last tests.
+graph shows each server's speed over its last tests. Where a network
+blocks encrypted DNS by the server's name, the VPN sends its TLS hello in
+pieces (or connects by address with no name); it goes on to another server
+when one stops answering, says why each lookup failed, and keeps a block
+list of names answered on the phone (`!name` an exception).
 
 **Retro Navigator** (`examples/navigator.nim`, `nimble navigator`) is a
 whole browser made this way: a 1995 window around the system's engine,
@@ -3163,7 +3178,10 @@ printing is the browser's print dialog. The camera and the microphone,
 the media keys, notifications, sharing, the place, secrets (sealed by a
 key the browser keeps), signing in (a pop-up back to `oauth.html`), chat
 (XMPP over a WebSocket), the 3D view on the GPU (WebGL 2) and screen
-readers (the controls mirrored as ARIA) work in a page too.
+readers (the controls mirrored as ARIA) work in a page too. With `--gpu`
+the frames are drawn by the GPU renderer, as on a desktop: the canvas's
+WebGL 2 as OpenGL ES 2, where the browser has a real GPU (else the CPU's
+frames, as without it); `?gpu=1` in the page's address tries it on any.
 
 ```sh
 retrokit web app.nim --threads        # and a build with threads, taken where the browser allows it
@@ -3178,7 +3196,8 @@ that will not runs the build without threads. **Small:** SIMD,
 link-time optimization, the fonts beside the page (fetched when used), a
 gzipped copy; `--small` for the least. What a page cannot do: other
 programs and raw sockets. `tests/web/run.sh` checks it all in a real
-Chromium (at 100 % and 200 %, with and without threads), and
+Chromium (at 100 % and 200 %, with and without threads, the GPU's frame
+against the CPU's), and
 `tests/web/node.sh` runs the headless tests as WebAssembly under Node.
 
 ## Screens without a desktop
@@ -3360,8 +3379,8 @@ a list of 100,000 rows scrolling, 600 cells changing every frame, a
 document wrapped anew every frame, a page of type in 48 sizes and four
 faces -- and writes [docs/benchmarks.md](docs/benchmarks.md) (`--profile`:
 where each frame's time goes too). On a 2-core Xeon with no graphics card:
-a stripped program of 3.3 MB, its first frame 60 ms after it started, 11 MB
-of memory and 0.01 % of a core at rest, and 0.65 to 3.9 ms of the
+a stripped program of 3.4 MB, its first frame 61 ms after it started, 11 MB
+of memory and 0.01 % of a core at rest, and 0.69 to 2.2 ms of the
 processor a frame.
 
 **Where a frame's time goes.** `retroui/frameprof` is a frame profiler:
@@ -3369,7 +3388,8 @@ processor a frame.
 Chrome trace -- open it in chrome://tracing, ui.perfetto.dev or Speedscope
 -- with the kit's own spans in it (the app's code, finishing the frame,
 putting it on the screen; the CPU's drawing and sending, the GPU's drawing
-and swap) and counters under them (the GPU's draw calls, vertices, bytes,
+and swap; a picture's composite and its view, an HTML page and a Markdown
+text laid out) and counters under them (the GPU's draw calls, vertices, bytes,
 pictures and atlas uploads; the pixels the CPU drew). An app adds its own:
 
 ```nim
@@ -3380,7 +3400,9 @@ profCount("rows", rows.len)                # a counter beside the kit's
 let s = summary(lastFrames())              # the last 120 frames: each span's average and longest
 ```
 
-Off, a span costs a test of one bool.
+Off, a span costs a test of one bool. The inspector (F12) turns it on while
+its panel is shown and lists the last frames' spans and counters, an app's
+own among them.
 
 ## Safety
 
@@ -3568,11 +3590,11 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_access` | the screen readers' tree: every control's role, name (from the label before it), value, state, place in its list; the grid's headers, rows and cells, the tree's levels, the check list, the calendar's days, charts; presses, text, values and focus asked for, done by the next frame; nothing made without a screen reader |
 | `test_atspi` | Orca's side on a real X server and AT-SPI bus: the window's objects walked, text put in a box, a button pressed, the focus moved and its event heard |
 | `test_uia` | (Windows, also under Wine) the UI Automation provider: the tree a client reads, names, the patterns (invoke, value, toggle, range, selection) |
-| `test_inspect` | the inspector: its panel over the app, why each frame ran (the input, the line that asked: `ui.redraw = true`, `wakeIn`), the control under the mouse and found by name, F12 |
+| `test_inspect` | the inspector: its panel over the app, why each frame ran (the input, the line that asked: `ui.redraw = true`, `wakeIn`), where the last frames' time went (the profiler on while it is shown, off when hidden), the control under the mouse and found by name, F12 |
 | `test_drive` | the driver: a client in the same program finds controls by name, clicks, types (Arabic too), presses keys, sets values, waits for a control and for its going, opens a drop-down past a default button with Enter, closes the window |
 | `test_sevenguis` | the 7GUIs example driven by its controls' names: each task as its rules ask (the flight booked only when the dates allow, the timer stopping at its duration, CRUD's filter, the circles' undo, the cells' formulas and their cycles) |
 | `test_navigator` | Retro Navigator's places: what the Location box goes to (an address, a host, a file that is there, words searched for), the key, the bookmarks kept, the pages of a session, the history kept and what the Location box suggests; its shield: secure addresses (not on the local network), the ad and tracker hosts and patterns, a block list imported (hosts files, `||site^`), its settings and the sites ads are allowed on, its script; the pages' looks (Modern, Classic, Plain, the 3.1 scroll bars) |
-| `test_retrodns` | Retro DNS: its 47 servers well formed, the user's own kept as CSV, the VPN's settings, the scripts that change a computer's DNS (Windows, Linux, macOS) made of checked addresses only whatever a CSV holds, PowerShell's encoded command, the profile of encrypted DNS for macOS and iOS |
+| `test_retrodns` | Retro DNS: its 47 servers well formed, the user's own kept as CSV, the VPN's settings (the servers it goes on to, the block list as typed: remarks, a hosts file's lines, exceptions), the scripts that change a computer's DNS (Windows, Linux, macOS) made of checked addresses only whatever a CSV holds, PowerShell's encoded command, the profile of encrypted DNS for macOS and iOS |
 | `test_jobs`, `test_undo`, `test_pages`, `test_typeforms` | jobs on workers (values, progress, failures, cancel, more jobs than workers); the undo stack (typing merged, the saved state, a change after an undo, Ctrl+Z / Ctrl+Y, the limit); pages pushed and popped by Esc and Alt+Left, sliding in, `listDetail` side by side, `animated`; forms of an object's fields with their pragmas' rules, captions from names, typing into one, a grid of them sorted by a header |
 | `test_uistrings`, `test_codeedit`, `test_feeds` | `retrokit strings`' scan of an app's texts (comments and long strings left out, `trn`'s two forms), the file written, filled and written again with the translations kept, Arabic's six forms; the code editor (indent kept, Tab, Ctrl+/, its undo, read only, Nim's colors); RSS with the iTunes and Podcasting 2.0 tags, Atom, OPML both ways, dates and lengths as feeds write them |
 | `test_tray` | the tray icon on Linux: the app's StatusNotifierItem on a bus of the test's own, registered with a stand-in tray, its title, picture and menu as a tray reads them, a click and a menu item coming back as events, the icon gone with a frame without it |
@@ -3591,7 +3613,7 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_datamerge` | Data Merge: the fields a design asks for, a row's values in its text, a picture in each frame named for it, the design left as it was; a PNG or JPEG a row, named by a column (made safe, made unique) or numbered |
 | `test_textsearch` | Find/Change: GREP patterns (digits Arabic-Indic too, classes, groups, either-or, counts, the fewest, line and word edges) in characters, changes with their groups keeping the styles, plain words in any case or whole, the story editor's edit keeping the styles, a pattern that cannot be read refused; a glyph in a font found and changed to another in a font of its own; the queries it comes with at work, saved queries kept as JSON |
 | `test_headless` | a program without a window: frames drawn in memory, a click given as a person would, the picture of what it drew; a label that ends in ':' wrapping with its field |
-| `test_frameprof` | the frame profiler: off, nothing kept; on, each frame's spans (the app's code, finishing, on the screen, the CPU's drawing, an app's own inside its code) and counters, the last 120 frames kept and summed up, the Chrome trace a JSON array of spans and counters |
+| `test_frameprof` | the frame profiler: off, nothing kept; on, each frame's spans (the app's code, finishing, on the screen, the CPU's drawing, a Markdown text laid out, a picture's composite, an app's own inside its code) and counters, the last 120 frames kept and summed up, the Chrome trace a JSON array of spans and counters |
 | `test_script` | an app run by `RETRO_SCRIPT`: clicks, typing, a key, a wait for a control done in order, `RETRO_SNAPSHOT`'s picture written and the app ended; a step that fails names itself and ends it with 1; a script that is not one, 2 |
 | `test_flows` | on a clock of its own: a flow goes on at the end of a frame; a question answered (Esc: the last button); a wait until something is so, a pause, work on a worker and its value; a file picker cancelled; a closed window's flow dropped; one that fails ended, the others going on |
 | `test_fontfolders` | a folder's fonts offered and its families named, taken away with it, a font put in while the app runs found, fonts chosen kept in "Your Fonts", a font read through `fontReader` the first time it draws |
@@ -3666,7 +3688,7 @@ it is and how to run it.
 | `examples/native.nim` | calling the system's own APIs on each platform |
 | `examples/photo.nim` | Retro Atelier 5: an image editor of 1994 that also lays out books and magazines, laid out as today's image editors -- layers and groups, Smart Objects, 62 tools, filters, Neural Filters, PDF for print, Arabic type, panoramas, raw photos |
 | `examples/magazine.nim` | a three-page magazine made with Retro Atelier's engine, tool by tool, saved as .rpd and PDF |
-| `examples/book.nim` | a small Arabic book made with the layout engine (`retroui/photobook`): bound on the right, facing pages, masters with a running head and page numbers, a story through as many pages as it needs, round a picture; saved as .rpb, PDF and pictures of its spreads |
+| `examples/book.nim` | a small Arabic book made with the layout engine (`retroui/photobook`): bound on the right, facing pages, a title page of its own margins, its title justified with kashidas, masters with a running head under a paragraph rule and page numbers, a story through as many pages as it needs, round a picture, with footnotes, a sorted table; saved as .rpb, PDF and pictures of its spreads |
 | `examples/taskman.nim` | Retro Task Manager: the processes (end one or a tree, a priority), the processor, the memory, the disks and the network as graphs that move, what starts with the system, the connections, the last week (also an APK: `nimble taskmanapk`) |
 | `examples/retroboard.nim` | Retro Board: a whiteboard in the manner of tldraw -- ink, shapes, arrows, notes, frames, pages; PNG, SVG and PDF (also an APK: `nimble boardapk`) |
 | `examples/sevenguis.nim` | 7GUIs: the seven tasks of the GUI benchmark -- a counter, a temperature converter, a flight booker, a timer, CRUD, a circle drawer with undo, a spreadsheet with formulas (also an APK: `RETRO_APP=sevenguis nimble appapk`; released with the apps) |

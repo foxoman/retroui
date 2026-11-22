@@ -43,7 +43,7 @@ retrokit drive 7000 wait "Saved" --timeout 3000
 retrokit drive 7000 tree                 # every control, as screen readers see them
 ```
 
-`RETRO_DRIVE` lets a program on the same machine use the app as a person would, by its controls' names -- from a shell script, Python or `retroui/driveclient` in Nim. Retro Designer's File > Export Driver Test writes one for a window. F12 in a debug build (or `RETRO_INSPECT=1`) shows why each frame ran and the control under the mouse.
+`RETRO_DRIVE` lets a program on the same machine use the app as a person would, by its controls' names -- from a shell script, Python or `retroui/driveclient` in Nim. Retro Designer's File > Export Driver Test writes one for a window. F12 in a debug build (or `RETRO_INSPECT=1`) shows why each frame ran, where the last frames' time went (your code, drawing, putting it on the screen, and your own `profiled("name"): ...` spans from `retroui/frameprof`) and the control under the mouse.
 
 ## Checks the kit runs on itself
 

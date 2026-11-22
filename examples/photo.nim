@@ -11,6 +11,12 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[os, strutils, math, tables, times, algorithm, json, hashes, cpuinfo, sets, sequtils]
+when defined(windows) and defined(gcc):
+  # (MinGW's GCC: this module's C, made for link-time optimization, has more sections than a
+  # COFF object holds -- "file too big" -- and the linker's LTO plugin does not read the
+  # big-object form (-Wa,-mbig-obj): this one module compiled as it is, the rest of the
+  # program still optimized when it is linked)
+  {.localPassC: "-fno-lto".}
 from retroui/system import sharedIn
 import retroui
 import retroui/lang_ar as kitArabic
@@ -35,7 +41,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 const
   AppName = "Retro Atelier"         # (Retro Photo until 5.0)
   AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
-  AppVersion = "5.13.0"
+  AppVersion = "5.14.0"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 

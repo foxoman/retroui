@@ -2,7 +2,7 @@ import std/strutils
 
 # Package
 
-version       = "0.68.0"
+version       = "0.69.0"
 author        = "Sultan Al Isaiee (@foxoman) <sultan@foxoman.net>"
 description   = "Retro Nim UI (retroui): a small, fast, dependency-free Windows 3.1 style UI toolkit for business and desktop apps on Windows, macOS, Linux, Android and iOS"
 license       = "MIT"
@@ -97,19 +97,19 @@ type RetroApp = tuple
 const RetroApps: seq[RetroApp] = @[
   # the apps: every package of each is made from this table
   (key: "photo", src: "examples/photo.nim", name: "Retro Atelier", stem: "RetroAtelier",
-   id: "org.retro.photo", version: "5.13.0", icon: "examples/assets/photo-icon-512.png",
+   id: "org.retro.photo", version: "5.14.0", icon: "examples/assets/photo-icon-512.png",
    apk: "--storage --share-target:image/*,application/pdf,application/postscript,image/vnd.adobe.photoshop," &
         "application/x-photoshop,application/vnd.adobe.indesign-idml-package " &
         "--opens:image/*,application/pdf,application/postscript,application/illustrator,image/vnd.adobe.photoshop," &
         "application/x-photoshop,application/photoshop,application/vnd.adobe.indesign-idml-package," &
-        "application/zip,application/octet-stream --permission:INTERNET --nim:-d:lto", code: 52, small: false),
+        "application/zip,application/octet-stream --permission:INTERNET --nim:-d:lto", code: 53, small: false),
   (key: "files", src: "examples/filemanager.nim", name: "Retro Files", stem: "RetroFiles",
    id: "org.retro.files", version: "3.7.0", icon: "examples/assets/filemanager-icon.png",
    apk: "--storage --permission:REQUEST_INSTALL_PACKAGES --share-target:*/* --permission:INTERNET --nim:-d:lto",
    code: 49, small: true),
   (key: "board", src: "examples/retroboard.nim", name: "Retro Board", stem: "RetroBoard",
-   id: "org.retro.board", version: "1.6.0", icon: "examples/assets/board-icon-512.png",
-   apk: "--storage --share-target:image/*,text/plain --nim:-d:lto", code: 18, small: true),
+   id: "org.retro.board", version: "1.7.0", icon: "examples/assets/board-icon-512.png",
+   apk: "--storage --share-target:image/*,text/plain --nim:-d:lto", code: 19, small: true),
   (key: "mail", src: "examples/mail.nim", name: "Retro Mail", stem: "RetroMail",
    id: "org.retro.mail", version: "1.4.0", icon: "examples/assets/mail-icon-512.png",
    apk: "--permission:INTERNET --permission:POST_NOTIFICATIONS --background --nim:-d:lto", code: 16, small: false),
@@ -120,10 +120,10 @@ const RetroApps: seq[RetroApp] = @[
    id: "org.retro.navigator", version: "0.6.0", icon: "examples/assets/navigator-icon-512.png",
    apk: "--permission:INTERNET --cleartext --nim:-d:lto", code: 8, small: true),
   (key: "dns", src: "examples/retrodns.nim", name: "Retro DNS", stem: "RetroDNS",
-   id: "net.foxoman.retrodns", version: "1.4", icon: "examples/retrodns/icon.png",
+   id: "net.foxoman.retrodns", version: "1.5", icon: "examples/retrodns/icon.png",
    # (its VPN is Java of its own: --java)
    apk: "--java:examples/retrodns/glue --permission:INTERNET --permission:POST_NOTIFICATIONS --widget " &
-        "--target-sdk:36 --nim:-d:lto --nim:--opt:size", code: 7, small: true),
+        "--target-sdk:36 --nim:-d:lto --nim:--opt:size", code: 8, small: true),
   (key: "hrbook", src: "examples/hrbook.nim", name: "HR Book", stem: "HRBook",
    id: "org.retro.hrbook", version: "0.2.5", icon: "examples/assets/hrbook-icon-512.png",
    apk: "--storage --nim:-d:lto", code: 7, small: true),
@@ -192,7 +192,12 @@ proc frameOpt(): string =
 
 proc exeOf(a: RetroApp) =
   ## (an app for Windows from Linux or macOS, with its icon and version:
-  ## MinGW's x86_64-w64-mingw32-gcc and -windres; build/win/<Stem>.exe)
+  ## MinGW's x86_64-w64-mingw32-gcc and -windres; build/win/<Stem>.exe.
+  ## RETRO_WINCC=zig: zig's clang instead (tools/zigcc.sh; zig 0.15 -- `pip
+  ## install ziglang==0.15.2`, or RETRO_ZIG its path), every module optimized
+  ## with the others (ThinLTO: in pieces, on every core, in the memory a
+  ## small machine has -- Retro Atelier's full LTO takes over 6 GB), MinGW's
+  ## windres still making the icon)
   mkDir "build/win"
   let res = "build/win/" & a.stem & "-res.o"
   exec "nim c -r -d:release --hints:off tools/winicon.nim " & a.icon & " \"" & a.name & "\" " &
@@ -200,11 +205,24 @@ proc exeOf(a: RetroApp) =
   # (not stripped by the linker: tools/winsym.py reads its procs first, strips it, and puts
   # their table at its end -- a window that stops answering says which procs it was in)
   let exe = "build/win/" & a.stem & ".exe"
-  exec "nim c -d:release -d:lto " & (if a.small: "--opt:size " else: "") &
-       frameOpt() & "--nimcache:\"" & a.nimcacheFor("win") & "\" " &
-       "-d:mingw --cpu:amd64 --app:gui --hints:off --passL:" & res &
-       " -o:" & exe & " " & a.src
-  if gorgeEx("python3 tools/winsym.py " & exe).exitCode != 0:
+  if getEnv("RETRO_WINCC") == "zig":
+    # (zig's clang links what LLVM made of the whole program -- no object too big for COFF;
+    # -mwindows is not zig's: the subsystem said to the linker)
+    putEnv("RETRO_ZIG_TARGET", "x86_64-windows-gnu")
+    let zcc = thisDir() & "/tools/zigcc.sh"
+    exec "nim c -d:release -d:lto_incremental " & (if a.small: "--opt:size " else: "") &
+         frameOpt() & "--nimcache:\"" & a.nimcacheFor("winzig") & "\" " &
+         "--os:windows --cpu:amd64 --cc:clang --clang.exe:" & zcc & " --clang.linkerexe:" & zcc &
+         " --app:gui --passL:-Wl,--subsystem,windows --hints:off --passL:" & res &
+         " -o:" & exe & " " & a.src
+  else:
+    exec "nim c -d:release -d:lto " & (if a.small: "--opt:size " else: "") &
+         frameOpt() & "--nimcache:\"" & a.nimcacheFor("win") & "\" " &
+         "-d:mingw --cpu:amd64 --app:gui --hints:off --passL:" & res &
+         " -o:" & exe & " " & a.src
+  if getEnv("RETRO_WINCC") == "zig":
+    echo "(zig's linker writes no symbol table: no table of procs for a window that stops answering)"
+  elif gorgeEx("python3 tools/winsym.py " & exe).exitCode != 0:
     echo "(no table of procs: python3, or MinGW's nm, is not there -- stripped as it is)"
     exec "x86_64-w64-mingw32-strip " & exe
 

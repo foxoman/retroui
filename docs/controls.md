@@ -2216,7 +2216,9 @@ The styles of `family` ("Regular", "Bold"...), each in its letters.
 proc fontSample*(family, style, text: string; h: int; color = 0xFF000000'u32): Bitmap
 ```
 
-`text` in a font, `h` screen pixels tall (kept: drawn once).
+`text` in a font, `h` screen pixels tall (kept: drawn once). A font whose file is very big
+(a CJK collection: tens of megabytes to read and make ready) is not read for it: the text is
+in the kit's letters.
 
 ### grid
 
@@ -8282,12 +8284,12 @@ The device in one call (`deviceInfo`: its name, system, language, battery, dark 
 
 ```nim
 let d = deviceInfo()
-factList({"Device": d.name, "System": d.system, "Language": d.language, "Network":
+factList({"Device": d.name, "System": d.system, "Language": d.language, "Network": (
   if d.online:
     "connected"
   else:
     "offline"
-  })
+  )})
 var atLogin = openAtLogin("Shop")
 if toggle("Start with the &computer", atLogin):
   setOpenAtLogin(atLogin, "Shop")
@@ -9056,7 +9058,11 @@ proc drivePort*(): int
 
 Show the inspector as F12 does; listen for a driver as `RETRO_DRIVE` does
 (0: any free port; the port, or 0). `whyFrames` and `frameCause` (the
-core) say why each frame ran.
+core) say why each frame ran. While the inspector is shown the frame
+profiler is on (`retroui/frameprof`) and the panel lists where the last
+frames' time went: each span's average and longest -- an app's own
+`profiled("name"): ...` among them -- and the counters (glyphs drawn,
+draw calls, bytes sent).
 
 ---
 
