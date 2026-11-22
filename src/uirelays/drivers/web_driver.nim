@@ -10,9 +10,13 @@
 ## its, imported by name (the linker lets them through). The driver never
 ## waits: the page runs a frame when something happened or the program
 ## asked for one, so `waitEvent` takes what is there and returns.
+##
+## When the page asks for it (`Retro.boot({ gpu: true })`, `?gpu=1`) the
+## program draws its frames with the GPU instead: the canvas's WebGL 2 as
+## OpenGL ES 2 (`webgles`, the driver's `gpuProc`).
 
 import ../[coords, input, screen, services, access]
-import pixbuf
+import pixbuf, webgles
 import std/[strutils, os]
 
 type
@@ -417,6 +421,23 @@ proc takeAccess() =
       except ValueError: discard
   queue.add input.Event(kind: NoEvent)
 
+# ---- the GPU: the canvas's WebGL 2 as OpenGL ES 2 (webgles), when the page asks for it ----
+
+var gpuShown = (w: 0, h: 0)   # (the size of the frame last shown with the GPU)
+
+proc webStartGpu(): bool = webGlReady()
+
+proc webSwapGpu(): bool =
+  # (the browser shows what was drawn when the frame's script ends; the
+  # canvas keeps it -- preserveDrawingBuffer -- so the next frame draws only
+  # what changed)
+  gpuShown = (w: winW, h: winH)
+  webGlReady()
+
+proc webBufferAge(): int =
+  # (a canvas made another size is cleared: all of it drawn again)
+  if gpuShown.w == winW and gpuShown.h == winH: 1 else: 0
+
 proc webTicks(): int = ticks()
 proc webSleep(ms: int) = discard
 proc webShutdown() = discard
@@ -448,6 +469,9 @@ proc initWebDriver*() =
     except OSError, IOError: discard
   accessRelays = AccessRelays(start: webAccessStart, update: webAccessUpdate,
     announce: proc (text: string) = discard webCall("access.say", text))
+  gpuRelays = GpuRelays(startGpu: webStartGpu, stopGpu: proc () = gpuShown = (w: 0, h: 0),
+                        swapGpu: webSwapGpu, gpuProc: webGlProc, gpuIsEs: proc (): bool = true,
+                        gpuGeneration: webGlEpoch, gpuReady: webGlReady, gpuBufferAge: webBufferAge)
   systemRelays.call = proc (name, arg: string): string {.gcsafe.} =
     {.cast(gcsafe).}: webCall(name, arg)
   systemRelays.places = proc (): seq[tuple[name, path: string]] =
