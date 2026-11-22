@@ -3,6 +3,10 @@
 ## at the side shows
 ##
 ## - the frame: how long it took to build, how many ran in the last second;
+## - where the time of the last frames went (`retroui/frameprof`, on while
+##   the panel is shown): the app's code, finishing, putting it on the
+##   screen, the CPU's drawing, the GPU's -- each one's average and longest
+##   -- and the counters (glyphs drawn, draw calls, bytes sent);
 ## - why it ran -- the input it took, or the line of the program that asked
 ##   for it (`ui.redraw = true`, `wakeIn`) -- and what the next one waits
 ##   for: an app at rest waits for input;
@@ -15,8 +19,8 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[os, strutils, monotimes, times]
-import core, gfx
+import std/[os, strutils, monotimes, times, math]
+import core, gfx, frameprof
 import uirelays/[input, access]
 
 var
@@ -26,6 +30,17 @@ var
   frameStart: MonoTime
   frameMs: float                       # the last frame's build time
   recent: seq[MonoTime]                # the frames of the last second
+  profByUs = false                     # the profiler on because the panel is shown
+
+proc profileFollows() =
+  ## (the frame profiler on while the panel is shown -- off again when it is hidden, unless the
+  ## app or RETRO_TRACE had it on)
+  if inspectorOn and not profOn:
+    startTrace()
+    profByUs = true
+  elif not inspectorOn and profByUs:
+    stopTrace()
+    profByUs = false
 
 proc inspectorShown*(): bool = inspectorOn
   ## The inspector is shown.
@@ -36,6 +51,7 @@ proc showInspector*(on = true) =
   inspectorKey = true
   whyFrames = on
   accessKeep = on or accessKeep
+  profileFollows()
   ui.redraw = true
 
 proc kindText(r: AccessRole): string =
@@ -94,6 +110,7 @@ proc inspectBegin() =
       inspectorOn = not inspectorOn
       whyFrames = inspectorOn
       accessKeep = inspectorOn or accessKeep
+      profileFollows()
     ui.redraw = true
   if inspectorOn: frameStart = getMonoTime()
 
@@ -139,6 +156,34 @@ proc inspectDraw() =
                         wakeSite.file & ":" & $wakeSite.line
     else: "Next: when something happens (at rest)"
   line(next, if ui.redraw or ui.wakeAt > 0: th.text else: th.gray)
+  # where the time of the last frames went (the frame profiler)
+  let fs = lastFrames()
+  if fs.len > 0:
+    y += 4
+    hline(x, y, pw - 16, th.shadow)
+    y += 6
+    let sm = summary(fs)
+    line("Time, the last " & $fs.len & " frames (average, longest):", bold = true)
+    var shown = 0
+    for sp in sm.spans:
+      if shown >= 7: break
+      let name = if sp.name == "frame": "The frame" else: sp.name
+      line("  " & name & ": " & formatFloat(sp.avgMs, ffDecimal, 2) & " ms, " &
+           formatFloat(sp.maxMs, ffDecimal, 1) & " ms", if sp.name == "frame": th.text else: th.gray)
+      inc shown
+    var counts: seq[string]
+    for c in sm.counters:
+      if c.avg >= 0.05:
+        counts.add c.name & " " & (if c.avg < 10: formatFloat(c.avg, ffDecimal, 1) else: $int(round(c.avg)))
+    if counts.len > 0:
+      var cur = "  "
+      for k, c in counts:
+        if k >= 6: break
+        if cur.len > 2 and textWidth(cur & c) > pw - 24:
+          line(cur, th.gray)
+          cur = "  "
+        cur.add (if cur.len > 2: ", " else: "") & c
+      if cur.len > 2: line(cur, th.gray)
   y += 4
   hline(x, y, pw - 16, th.shadow)
   y += 6

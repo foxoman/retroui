@@ -28,7 +28,7 @@ import std/[math, strutils, tables, algorithm]
 import uirelays/input
 import core, gfx, widgets, photo, photopaint, pixelicons, nerdicons, parallel, iccprofile, photoinks, adobefiles, simdkit,
        ink
-import photoseps
+import photoseps, frameprof
 
 template th: untyped = ui.theme
 
@@ -479,7 +479,9 @@ proc renderView(v: var PhotoView; d: Doc; bw, bh: int; bg: uint32; part = rect(0
   ## smaller copy that fits -- smooth, and quick for a big photo), the
   ## checkerboard under what is transparent, the channel shown, the Quick
   ## Mask. On all the cores. Only `part` (the view's device pixels) when
-  ## given.
+  ## given. (A span of the frame profiler: "picture: view".)
+  let span = profBegin("picture: view")
+  defer: profEnd("picture: view", span)
   if v.buf == nil or v.buf.w != bw or v.buf.h != bh:
     v.buf = newBitmap(bw, bh)
     v.buf.opaque = true

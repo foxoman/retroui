@@ -1,10 +1,10 @@
 ## Tests of the frame profiler (retroui/frameprof): off, nothing kept; on, each frame's spans --
-## the kit's own (the app's code, finishing it, putting it on the screen, the CPU's drawing) and
-## an app's -- and counters, kept for the last frames and summed up, written as a Chrome trace
+## the kit's own (the app's code, finishing it, putting it on the screen, the CPU's drawing, a
+## Markdown text laid out, a picture's composite) and an app's -- and counters, kept for the last frames and summed up, written as a Chrome trace
 ## that is JSON a trace viewer reads.
 
 import std/[os, json, strutils, monotimes]
-import retroui, retroui/headless, retroui/frameprof
+import retroui, retroui/headless, retroui/frameprof, retroui/photo
 
 useHeadless(320, 200)
 startApp("Profiled", 320, 200)
@@ -85,6 +85,19 @@ let kept = lastFrames().len
 frames(2)
 doAssert lastFrames().len == kept
 doAssert readFile(path).strip.endsWith("]")
+# the kit's heavy parts, spans of their own: a Markdown text laid out (once, then kept), a
+# picture's composite
+startTrace()
+let pic = newDoc(64, 64, 0xFFFFFFFF'u32)
+ui.redraw = true
+discard beginFrame()
+discard markdown("# A title\n\nSome *words* to lay out.")
+pic.updateComposite()
+endFrame()
+var kit: seq[string]
+for sp in lastFrames()[^1].spans: kit.add sp.name
+doAssert "markdown: lay out" in kit and "picture: composite" in kit, $kit
+stopTrace()
 # kept: at most the last 120
 startTrace()
 frames(KeptFrames + 10)

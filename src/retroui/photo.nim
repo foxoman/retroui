@@ -19,6 +19,7 @@ import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 when compileOption("threads"):
   import std/typedthreads
 import gfx, imaging, zip, jpeg, parallel, textengine, busy, photoinks, simd, simdkit, codec, hijri, inks
+import frameprof
 from codec import unbase64
 export photoinks, inks
 
@@ -4209,7 +4210,10 @@ proc compositeOverBelow(d: Doc; r: Rect): bool =
 
 proc updateComposite*(d: Doc) =
   ## Makes what the image looks like again where it is out of date (`comp`;
-  ## nothing for an image of one plain layer: see `simpleLayer`).
+  ## nothing for an image of one plain layer: see `simpleLayer`). A span of the
+  ## frame profiler ("picture: composite").
+  let span = profBegin("picture: composite")
+  defer: profEnd("picture: composite", span)
   if d.simpleLayer != nil:
     # (one plain layer: it is the composite; only the smaller copies follow)
     if d.comp.len > 0: d.comp = @[]

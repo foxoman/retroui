@@ -14,7 +14,7 @@
 
 import std/[strutils, tables, os, hashes, algorithm]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
-import core, widgets, imaging
+import core, widgets, imaging, frameprof
 import uirelays/input
 
 template th: untyped = ui.theme
@@ -1310,6 +1310,8 @@ proc layoutOf(md: string; w: int; dir: string): ptr Layout =
         layoutCache.delete(i)
         layoutCache.insert(e, 0)
       return addr layoutCache[0][1]
+  let span = profBegin("markdown: lay out")  # (the frame profiler's: once a text, then kept)
+  defer: profEnd("markdown: lay out", span)
   let doc = parseMarkdown(md)
   var lay = Layout()
   var y = 0

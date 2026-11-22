@@ -47,7 +47,7 @@ import std/[strutils, tables, os, hashes, times, base64, math, json, random]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 import core, widgets, markdown, pixelicons, nerdicons, imaging, htmldom, htmllayout, htmlcss
-import webp, gifanim
+import webp, gifanim, frameprof
 import uirelays/[services, input]
 import webnative
 export webnative.WebPermission, webnative.WebDownload
@@ -697,6 +697,8 @@ proc pageOfHash(html: string; h: Hash; width: int; baseDir: string; images: Html
         pageCache.delete(i)
         pageCache.insert(x, 0)
       return pageCache[0].page
+  let span = profBegin("page: lay out")     # (the frame profiler's: once a page, then kept)
+  defer: profEnd("page: lay out", span)
   let d = docOf(html, h)
   result = new Page
   var pk = hash(baseDir)

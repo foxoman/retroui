@@ -7,6 +7,7 @@
 
 import std/[os, strutils]
 import retroui
+import retroui/frameprof
 import retroui/uirelays/[input, access]
 import harness
 
@@ -101,10 +102,20 @@ block findAndPoint:
   run(2)
   doAssert clicks == 1
 
+block frameTimes:
+  # shown, it has the frame profiler on: the last frames' spans to show (the app's code, putting
+  # it on the screen)
+  doAssert profOn, "the profiler on while it is shown"
+  run(3)
+  var names: seq[string]
+  for sp in summary(lastFrames()).spans: names.add sp.name
+  doAssert "frame" in names and "app" in names and "present" in names, $names
+
 block f12:
   key(KeyF12)
   run(2)
   doAssert not inspectorShown(), "F12 hides it"
+  doAssert not profOn, "hidden: the profiler off again"
   var same = 0
   for i in 0 ..< W * H:
     if pixels[i] == plain[i]: inc same

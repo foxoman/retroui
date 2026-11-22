@@ -141,9 +141,9 @@ var
     ## text in the color strips (`setSubpixelText`): off unless asked for
   lcdBgr = screenStripsBgr()
 
-const MaskSlots = 8192
+const MaskSlots = 16384
 var
-  maskKeys: array[MaskSlots, uint64]   ## rendered glyphs, direct mapped
+  maskKeys: array[MaskSlots, uint64]   ## rendered glyphs, two places a glyph may be in
   maskSlots: array[MaskSlots, Mask]
 
 proc forgetGlyphs() =
@@ -1551,19 +1551,30 @@ proc subpixelNow*(): bool {.inline.} = subpixelSel and pxScale == 1
   ## screen's pixels are not small).
 
 proc prepMask(f: FaceId; gid: uint16; size: float32; phase: int): int32 =
-  ## The rendered glyph, from a direct-mapped cache (one array look-up):
-  ## its slot, or (when another glyph of this frame holds the slot) a copy
-  ## of its own in `frameMasks` (-1, -2...). Not on worker threads.
+  ## The rendered glyph, from a cache where each glyph has two places (two
+  ## array look-ups): its slot, or (when glyphs of this frame hold both) a
+  ## copy of its own in `frameMasks` (-1, -2...). Not on worker threads.
   let sq = uint64(round(size * 4))
   let lcd = subpixelNow() and size <= 64
   let key = (uint64(gid) or (uint64(ord(f)) shl 16) or (uint64(phase) shl 24) or
              (uint64(ord(lcd)) shl 26) or
              (sq shl 27) or ((fontGen and 0x3FF) shl 50)) + 1
-  let slot = int(((key * 0x9E3779B97F4A7C15'u64) shr 51) and (MaskSlots - 1))
-  if maskKeys[slot] == key:
-    slotFrame[slot] = frameNo
-    return int32(slot)
+  let s1 = int(((key * 0x9E3779B97F4A7C15'u64) shr 50) and (MaskSlots - 1))
+  let s2 = int(((key * 0xC2B2AE3D27D4EB4F'u64) shr 50) and (MaskSlots - 1))
+  if maskKeys[s1] == key:
+    slotFrame[s1] = frameNo
+    return int32(s1)
+  if maskKeys[s2] == key:
+    slotFrame[s2] = frameNo
+    return int32(s2)
   let m = renderGlyph(f, int(gid), size, float32(phase) / 4, lcd)
+  if profOn: profCount("CPU glyphs rendered", 1)
+  # (its place: the one this frame does not use, the longer unused of the two -- a glyph
+  # drawn frame after frame keeps its place)
+  let slot = if slotFrame[s1] == frameNo: s2
+             elif slotFrame[s2] == frameNo: s1
+             elif slotFrame[s1] <= slotFrame[s2]: s1
+             else: s2
   if slotFrame[slot] == frameNo:
     frameMasks.add m
     return -int32(frameMasks.len)
