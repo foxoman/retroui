@@ -244,7 +244,10 @@ proc resampled(sp: SubPath; n: int): seq[(float, float)] =
   if pts.len == 0: return
   if sp.closed and pts[^1] != pts[0]: pts.add pts[0]
   var acc = @[0.0]
-  for i in 1 ..< pts.len: acc.add acc[^1] + hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+  for i in 1 ..< pts.len:
+    # (the sum taken first: Nim 2.4.2 reads `acc[^1]` after `add` has moved the seq -- docs/nim-bugs.md)
+    let next = acc[^1] + hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+    acc.add next
   let total = acc[^1]
   if total <= 1e-9:
     for i in 0 ..< n: result.add pts[0]
@@ -447,7 +450,9 @@ proc alongSpine*(shapes: seq[ShapeData]; spine: Path; orient = false): seq[Shape
   if poly.len == 0 or poly[0].len < 2: return
   let pts = poly[0]
   var cum = @[0.0]
-  for i in 1 ..< pts.len: cum.add cum[^1] + hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+  for i in 1 ..< pts.len:
+    let next = cum[^1] + hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])   # (first: nim-bugs.md)
+    cum.add next
   let total = cum[^1]
   if total <= 0: return
   proc at(d: float): tuple[p: (float, float); angle: float] =

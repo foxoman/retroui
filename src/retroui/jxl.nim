@@ -6112,7 +6112,9 @@ proc encodeLossy(b: Bitmap; distance: float; effort: int): string =
   var partQ: array[3, seq[int]]
   for k in 0 .. 2:
     var levels = @[move planes[k]]
-    for hz in steps[k]: levels.add squeezeAvg(levels[^1], hz)
+    for hz in steps[k]:
+      let next = squeezeAvg(levels[^1], hz)     # (first: tools/addcheck.py)
+      levels.add next
     let n = steps[k].len
     parts[k] = newSeq[MChannel](n + 1)
     partQ[k] = newSeq[int](n + 1)

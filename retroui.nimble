@@ -2,7 +2,7 @@ import std/strutils
 
 # Package
 
-version       = "0.67.0"
+version       = "0.68.0"
 author        = "Sultan Al Isaiee (@foxoman) <sultan@foxoman.net>"
 description   = "Retro Nim UI (retroui): a small, fast, dependency-free Windows 3.1 style UI toolkit for business and desktop apps on Windows, macOS, Linux, Android and iOS"
 license       = "MIT"
@@ -97,12 +97,12 @@ type RetroApp = tuple
 const RetroApps: seq[RetroApp] = @[
   # the apps: every package of each is made from this table
   (key: "photo", src: "examples/photo.nim", name: "Retro Atelier", stem: "RetroAtelier",
-   id: "org.retro.photo", version: "5.12.0", icon: "examples/assets/photo-icon-512.png",
+   id: "org.retro.photo", version: "5.13.0", icon: "examples/assets/photo-icon-512.png",
    apk: "--storage --share-target:image/*,application/pdf,application/postscript,image/vnd.adobe.photoshop," &
         "application/x-photoshop,application/vnd.adobe.indesign-idml-package " &
         "--opens:image/*,application/pdf,application/postscript,application/illustrator,image/vnd.adobe.photoshop," &
         "application/x-photoshop,application/photoshop,application/vnd.adobe.indesign-idml-package," &
-        "application/zip,application/octet-stream --permission:INTERNET --nim:-d:lto", code: 51, small: false),
+        "application/zip,application/octet-stream --permission:INTERNET --nim:-d:lto", code: 52, small: false),
   (key: "files", src: "examples/filemanager.nim", name: "Retro Files", stem: "RetroFiles",
    id: "org.retro.files", version: "3.7.0", icon: "examples/assets/filemanager-icon.png",
    apk: "--storage --permission:REQUEST_INSTALL_PACKAGES --share-target:*/* --permission:INTERNET --nim:-d:lto",

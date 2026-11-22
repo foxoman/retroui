@@ -304,7 +304,9 @@ the i386 X11 libraries), `sh tests/web/run.sh` (Playwright's Chromium),
 WebAssembly under Node), `python3 tools/returncheck.py` (no `return x`
 after `result` was set: Nim 2.2 leaks the old value) and `python3
 tools/writecheck.py` (no `var` or `result` given a value in a branch or a
-loop and then another: Nim 2.2 leaks the first; `docs/nim-bugs.md`).
+loop and then another: Nim 2.2 leaks the first; `docs/nim-bugs.md`) and
+`python3 tools/addcheck.py` (no `s.add` given something read from
+`s[^1]`: Nim 2.4.2 reads it after `add` has moved the seq).
 The kit is built, tested and released with Nim 2.4; CI runs the suite with
 Nim 2.2.6 as well (`ci.yml`'s matrix), so code stays within what 2.2
 compiles. Nim 2.4's `--ic:on` and `--strings:sso` are not used yet. Tried

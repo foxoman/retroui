@@ -2,7 +2,18 @@
 
 ## 0.68.0
 
-(In progress.)
+The layout program's pages, as asked: tables edited as it edits them --
+edges dragged, cells split, rows and columns made even, the body sorted,
+rows kept together --, a page's or a master's own margins and columns, a
+master's items made a page's own, a photo inside a frame across the spine,
+a box's first baseline and its columns' widths, footnote options and a
+table of contents set as asked with PDF bookmarks, Hyphenation Settings,
+Paragraph Rules, Underline and Strikethrough Options, OpenType's figure
+styles, positional forms and stylistic sets; point text justified, an
+Arabic title's lines one width with kashidas. A frame profiler that shows
+where each frame's time goes, and the GPU sending a third less a frame and
+keeping its glyphs (a skyline atlas that grows). Vector art from words, by
+the user's AI service or the device's own model.
 
 - **Tables edited as a layout program edits them** (`retroui/textengine`):
   a table's columns and rows as laid out (`TextLayout.gridCols`,
@@ -109,6 +120,12 @@
   and keeps it to what draws (`safeSvg`: shapes, groups and gradients, no
   scripts, pictures, text, links, events, styles or paint from elsewhere),
   for `placeSvg` to make shapes of.
+- **A read after free with Nim 2.4.2** (docs/nim-bugs.md, 7): `s.add
+  s[^1] + x` is built to make room in `s` first, then read `s[^1]` where
+  the seq was. Make Blend's lengths along a path came out wrong now and
+  then (and Replace Spine's, the Width tool's points); a JPEG XL decoder's
+  levels, a merge's weights and the widgets' ids took the same shape. Each takes the
+  value first now; `tools/addcheck.py` finds the shape (on every push).
 - **A frame profiler** (`retroui/frameprof`): `RETRO_TRACE=trace.json` (or
   `startTrace`) writes every frame as a Chrome trace (chrome://tracing,
   ui.perfetto.dev, Speedscope) -- the kit's spans (the app's code,
@@ -175,7 +192,9 @@
 - **Retro Atelier**: Edit > Generate Vector... -- vector art from words (Subject,
   Scene, Icon, Pattern; in the foreground and background colors if asked)
   by the AI service or this device's model, made as shapes in a group
-  named after the words, in the selection or the middle of the image.
+  named after the words, in the selection or the middle of the image; the
+  Assistant draws vector art in the conversation too (its `add_vector`
+  tool: the SVG it writes kept to shapes, placed where it says).
 
 ## 0.67.0
 

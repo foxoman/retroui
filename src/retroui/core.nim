@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy, hangwatch, frameprof
 export busy
 
-const RetroVersion* = "0.67.0"
+const RetroVersion* = "0.68.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -855,7 +855,8 @@ proc peekId*[T](v: var T; extra = ""): Id =
 proc pushId*(key: string) =
   ## Widgets made until `popId` get ids of their own under `key` (rows of a
   ## list drawn with the same code; see `withId`).
-  ui.idStack.add mixId(fnv(key), if ui.idStack.len > 0: ui.idStack[^1] else: 0)
+  let id = mixId(fnv(key), if ui.idStack.len > 0: ui.idStack[^1] else: 0)   # (first: tools/addcheck.py)
+  ui.idStack.add id
 proc pushId*(key: int) = pushId($key)
   ## `pushId` with a number (a row's index).
 proc popId*() =

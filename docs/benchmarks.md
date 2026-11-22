@@ -7,8 +7,8 @@ taking turns. Run it on your own machine for your own numbers.
 | | |
 |---|---|
 | Machine | Intel(R) Xeon(R) Processor @ 2.10GHz, 2 cores |
-| System | Linux 6.18.44-fc-v445 |
-| Compiler | Nim Compiler Version 2.2.6 [Linux: amd64], `-d:release -d:useMalloc -d:strip` |
+| System | Linux 6.18.44-fc-v726 |
+| Compiler | Nim Compiler Version 2.4.2 [Linux: amd64], `-d:release -d:useMalloc -d:strip` |
 | Drawn on | Xvfb (no graphics card: drawn by the processor) |
 
 ## At rest
@@ -17,9 +17,9 @@ A number and three buttons, 5 seconds after its first frame, nothing happening.
 
 | | |
 |---|---|
-| The program (stripped) | 3.0 MB |
-| Start to the first frame on screen | 57 ms |
-| Memory at rest (resident) | 11.1 MB |
+| The program (stripped) | 3.3 MB |
+| Start to the first frame on screen | 60 ms |
+| Memory at rest (resident) | 11.4 MB |
 | Processor at rest | 0.01% of a core |
 
 ## Busy
@@ -28,13 +28,26 @@ A number and three buttons, 5 seconds after its first frame, nothing happening.
 
 | Scene | Processor a frame | Frames a second | Slowest frames (99th percentile) | Most memory |
 |---|---|---|---|---|
-| A list: 100,000 rows of three texts, scrolled 8 pixels a frame | 0.67 ms | 61.8 | 17.2 ms | 11.5 MB |
-| A dashboard: 600 cells, each its own color and a number changing every frame | 0.95 ms | 61.8 | 17.1 ms | 11.4 MB |
-| A document: 40 paragraphs (20,000 letters) wrapped to a new width every frame | 2.29 ms | 61.8 | 17.3 ms | 13.4 MB |
+| A list: 100,000 rows of three texts, scrolled 8 pixels a frame | 0.65 ms | 61.9 | 17.1 ms | 11.5 MB |
+| A dashboard: 600 cells, each its own color and a number changing every frame | 0.95 ms | 61.8 | 17.1 ms | 11.5 MB |
+| A document: 40 paragraphs (20,000 letters) wrapped to a new width every frame | 2.11 ms | 61.9 | 17.1 ms | 13.5 MB |
+| Type: 24 lines, each in another of 48 sizes and four faces every frame | 3.92 ms | 61.8 | 17.0 ms | 16.1 MB |
 
 The processor's time is the whole process's (every thread). The frame rate
 stops at the 62 frames a second the scenes ask for (one each 16 ms); the
 slowest frames are the time between frames as each starts.
+
+## Where a frame's time goes
+
+The same scenes with the frame profiler on (`--profile`, `retroui/frameprof`):
+a frame's time in its parts, averages of the last 120 frames, ms.
+
+| Scene | A frame | The app's code | Finishing the frame | On the screen | of it, the CPU drawing | the CPU sending |
+|---|---|---|---|---|---|---|
+| A list | 0.781 | 0.076 | 0.003 | 0.681 | 0.372 | 0.025 |
+| A dashboard | 1.107 | 0.134 | 0.003 | 0.958 | 0.587 | 0.024 |
+| A document | 2.371 | 1.601 | 0.009 | 0.729 | 0.373 | 0.022 |
+| Type | 3.875 | 0.016 | 0.003 | 3.838 | 0.838 | 0.027 |
 
 ## The apps
 

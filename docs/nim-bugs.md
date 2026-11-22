@@ -1,4 +1,4 @@
-# Four leaks in Nim 2.2 (ORC), an overflow and a cut letter, ready to report
+# Four leaks in Nim 2.2 (ORC), an overflow, a cut letter and a read after free in Nim 2.4, ready to report
 
 Retro Nim UI works around the leaks (see `tools/returncheck.py`,
 `tools/writecheck.py` and AGENTS.md) and the cut letter (`import std/unicode except strip`, kept by
@@ -310,6 +310,40 @@ Retro Nim UI started a thread for each command run as the administrator
 where `pkexec` was there to run (`execCmdEx`'s process and streams are
 such types). It keeps one thread for them all now; AGENTS.md says to use
 the kit's lasting workers (`retroui/jobs`) rather than a thread a task.
+
+---
+
+## 7. Nim 2.4: `s.add s[^1] + x` reads the seq after it has moved
+
+**Title:** `add`'s argument read from the seq's old memory once `add` has
+made room (Nim 2.4.2)
+
+`s.add e`, where `e` reads `s[^1]` (the backwards index, a call that
+gives a pointer into `s`), is made as: the pointer taken, room made in
+`s` -- which may move it --, then `e` worked out through the pointer, in
+memory already given back. A sum of floats reads garbage (a Make Blend's
+lengths along a path came out wrong now and then, with other programs
+running); AddressSanitizer calls it a heap use after free. Nim 2.2.6 makes
+`e` first and is right.
+
+```nim
+proc lengths() =
+  var acc = @[0.0]
+  for i in 1 .. 100: acc.add acc[^1] + 1.0
+  echo acc[^1]
+lengths()
+```
+
+```
+$ nim c -r --cc:clang -d:useMalloc --passC:-fsanitize=address --passL:-fsanitize=address a.nim
+ERROR: AddressSanitizer: heap-use-after-free ... in a::lengths
+```
+
+Expected: `100.0` (which Nim 2.2.6 prints). `acc.add(acc[acc.high] + 1.0)`
+and `acc.add hypot(acc[^1], 1.0)` are made in the right order; an integer
+sum is too (its overflow check makes it first). Retro Nim UI takes the
+value into a `let` first; `tools/addcheck.py` lists every `add` that reads
+its own seq from the end, and must say 0.
 
 ---
 

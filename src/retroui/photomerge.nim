@@ -855,7 +855,9 @@ proc exposureFusion*(imgs: seq[Img]; contrast = 1.0; saturation = 1.0; exposure 
     for i in 0 ..< w * h: wt.v[i] = wt.v[i] / max(total.v[i], 1e-12'f32)
     # the weights' Gaussian pyramid
     var gw = @[wt]
-    for l in 1 ..< levels: gw.add down(gw[^1])
+    for l in 1 ..< levels:
+      let next = down(gw[^1])                    # (first: tools/addcheck.py)
+      gw.add next
     for c in 0 .. 2:
       var ch = newPlane(w, h)
       let sh = 16 - 8 * c

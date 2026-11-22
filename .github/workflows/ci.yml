@@ -46,6 +46,8 @@ jobs:
         run: python3 tools/returncheck.py
       - name: No var given in a branch, then again (Nim 2.2 leaks the first)
         run: python3 tools/writecheck.py
+      - name: No add that reads its own seq from the end (Nim 2.4.2 reads it after it moved)
+        run: python3 tools/addcheck.py
       - name: The docs name what is in the code; the guide shows every control
         run: |
           python3 tools/docscheck.py

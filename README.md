@@ -3357,11 +3357,12 @@ here.
 
 **Busy.** `python3 tools/bench.py` measures the kit at rest and busy --
 a list of 100,000 rows scrolling, 600 cells changing every frame, a
-document wrapped anew every frame -- and writes
-[docs/benchmarks.md](docs/benchmarks.md). On a 2-core Xeon with no graphics
-card: a stripped program of 3.0 MB, its first frame 57 ms after it started,
-11 MB of memory and 0.01 % of a core at rest, and under 2.5 ms of the
-processor a frame for each scene.
+document wrapped anew every frame, a page of type in 48 sizes and four
+faces -- and writes [docs/benchmarks.md](docs/benchmarks.md) (`--profile`:
+where each frame's time goes too). On a 2-core Xeon with no graphics card:
+a stripped program of 3.3 MB, its first frame 60 ms after it started, 11 MB
+of memory and 0.01 % of a core at rest, and 0.65 to 3.9 ms of the
+processor a frame.
 
 **Where a frame's time goes.** `retroui/frameprof` is a frame profiler:
 `RETRO_TRACE=trace.json` (or `startTrace`) and every frame is written as a
@@ -3427,7 +3428,8 @@ Off, a span costs a test of one bool.
   `tools/writecheck.py` find the two shapes of code Nim 2.2 leaks with
   (`return x` after `result` was set; a `var` or `result` given a value in
   a branch or a loop and then another, the first never freed): none in
-  the kit or the apps, on every push.
+  the kit or the apps, on every push; `tools/addcheck.py` the shape Nim
+  2.4.2 reads freed memory with (`s.add s[^1] + x`).
 - **Threads:** work on worker threads never shares state with the UI
   thread except through a locked queue; results are handed over at the
   start of a frame. A file that changes or shrinks while it is shown (a

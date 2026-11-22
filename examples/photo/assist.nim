@@ -316,6 +316,31 @@ proc assistTools(device = false): seq[AiTool] =
       d.markAll()
       "added a shape layer, \"" & L.name & "\", at index " & $d.cur,
     confirm = true)
+  if not device:
+    # (vector art from the conversation: the service writes the SVG, kept to shapes before it is read)
+    result.add aiTool("add_vector", "Adds vector art as shape layers you can change: an SVG of plain shapes " &
+                      "(path, rect, circle, ellipse, polygon, polyline, line, g, linear and radial gradients; " &
+                      "colors as #rrggbb; no text or images) fitted into x, y, w, h (the middle of the image if " &
+                      "not given).",
+      [param("svg", "string", "the SVG document, <svg viewBox=\"0 0 512 512\">...</svg>"),
+       param("x", "number", "its left", optional = true), param("y", "number", "its top", optional = true),
+       param("w", "number", "its width", optional = true), param("h", "number", "its height", optional = true),
+       param("name", "string", "the group's name", optional = true)],
+      proc (a: JsonNode): string =
+        let d = cur()
+        if d == nil: return "no image is open"
+        let svg = svgOfAnswer(a{"svg"}.getStr)
+        if svg.len == 0: return "that is not an SVG of shapes"
+        let side = max(64, min(d.w, d.h) * 3 div 4)
+        let w = max(8, int(a{"w"}.getFloat(float(side))))
+        let h = max(8, int(a{"h"}.getFloat(float(side))))
+        let at = rect(int(a{"x"}.getFloat(float((d.w - w) div 2))), int(a{"y"}.getFloat(float((d.h - h) div 2))), w, h)
+        let made = d.placeSvg(svg, at)
+        if made.len == 0: return "nothing in it to draw"
+        if a{"name"}.getStr.len > 0: made[0].name = a{"name"}.getStr
+        d.markAll()
+        "added the vector art as " & $made.len & " layers, \"" & made[0].name & "\"",
+      confirm = true)
   result.add aiTool("set_layer", "Changes a layer: makes it the current one, renames it, shows or hides it, its " &
                     "opacity, moves it by dx, dy, or deletes it.",
     [param("layer", "string", "its index or its name"), param("current", "boolean", "make it the current layer", optional = true),

@@ -2023,7 +2023,17 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.12.0: the layout program's Text Wrap (Window > Text Wrap) -- round a placed " &
+           whatsNew = ["5.13.0: tables edited as the layout program edits them -- column edges and row feet " &
+                       "dragged, cells split, rows and columns made even, the body sorted, rows kept together; " &
+                       "Layout > Margins and Columns for a page or a master; a master's items made a page's own " &
+                       "(Ctrl+Shift+click, Layout > Masters); a photo inside a frame across the spine; Text " &
+                       "Frame Options in tabs, the first baseline and columns of a fixed width; footnote options " &
+                       "and a table of contents set as asked (TOC Styles, a style a level, PDF bookmarks); " &
+                       "Hyphenation, Paragraph Rules, Underline and Strikethrough Options, Auto Leading, Single " &
+                       "Word Justification; OpenType's Figure Style, Positional Form and Stylistic Sets; point " &
+                       "text justified -- an Arabic title's lines made one width with kashidas; Edit > Generate " &
+                       "Vector: vector art from your words, by your AI service or the device's model.",
+                       "5.12.0: the layout program's Text Wrap (Window > Text Wrap) -- round a placed " &
                        "picture's turned outline or its real shape, offsets on each side, Invert, Jump to the " &
                        "Next Column, live while you drag; tab stops with leaders (Window > Tabs); tables with " &
                        "merged cells, cell and table styles; pictures put into frames; color fonts and emoji; " &

@@ -464,8 +464,8 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
    push to `main` (the only branch: no `next` to try it first).
 4. Before a release, run the tests under the sanitizers too (the command
    is at the top of `tests/lsan.supp`); a leak found goes into
-   `test_hardening`. Also `python3 tools/returncheck.py` and
-   `python3 tools/writecheck.py` (both on GitHub too), `nimble fuzz`,
+   `test_hardening`. Also `python3 tools/returncheck.py`,
+   `python3 tools/writecheck.py` and `python3 tools/addcheck.py` (all on GitHub too), `nimble fuzz`,
    `sh tests/run32.sh` (and `RETRO32_UBSAN=1`), and the checks of what
    changed: `tests/web/run.sh`, `tests/web/node.sh`, `tests/wayland/run.sh`,
    `tests/kiosk/run.sh`, `tests/store/linux.sh`. GitHub runs the long ones
@@ -618,6 +618,9 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   copy as its first line (`let kind = kind`). Only a real build says so,
   not `nim check`, so the warning check misses it:
   `python3 tools/lentfix.py FILE.nim` with Nim 2.4 finds and fixes them.
+- **Nim 2.4.2 reads `s[^1]` after `s.add` moved it** (`s.add s[^1] + x`:
+  docs/nim-bugs.md): take the value into a `let`, then add it;
+  `python3 tools/addcheck.py` finds every one and must say 0.
 - **Nim 2.2 leaks** in three shapes, worked around in the kit: `return x`
   after `result` was already set, `return nil` too (write `result = x;
   return`, or keep the value in a local until it is whole;

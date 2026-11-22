@@ -272,7 +272,8 @@ block animation:
     for y in 10 ..< 30:
       for x in 5 + 9 * k ..< 25 + 9 * k: b.px[y * b.w + x] = 0x80FF2020'u32
     frames.add (b, 30 + k)
-  frames.add (frames[^1].bmp, 50)                  # the same again: one frame, longer
+  let again = frames[^1].bmp                       # (taken first: docs/nim-bugs.md)
+  frames.add (again, 50)                           # the same again: one frame, longer
   let ll = encodeWebpFrames(frames, loop = 2, lossless = true)
   let back = decodeWebpFrames(ll)
   doAssert back.len == 5 and back[4].delayMs == 34 + 50

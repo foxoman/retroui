@@ -839,7 +839,9 @@ proc vectorOverlay(dw: DocWin; ev: PhotoEvent) =
       for pl in Path(subs: @[sp]).flatten(8): poly.add pl
       if poly.len > 1:
         var lens = @[0.0]
-        for k in 1 ..< poly.len: lens.add lens[^1] + hypot(poly[k][0] - poly[k - 1][0], poly[k][1] - poly[k - 1][1])
+        for k in 1 ..< poly.len:
+          let next = lens[^1] + hypot(poly[k][0] - poly[k - 1][0], poly[k][1] - poly[k - 1][1])   # (nim-bugs.md)
+          lens.add next
         for wp in L.shape.widths:
           let want = wp.t * lens[^1]
           var k = 0

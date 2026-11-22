@@ -18,7 +18,7 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[strutils, xmlparser, xmltree, strtabs]
-import aichat, fetch, jobs
+import aichat, jobs
 
 type
   VectorKind* = enum

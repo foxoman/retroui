@@ -335,7 +335,8 @@ Strikethrough Options; OpenType's Figure Style, Positional Form and the
 font's Stylistic Sets by its own names. Edit > Generate Vector draws
 vector art from your words -- a subject, a scene, an icon, a pattern, in
 the foreground and background colors if you like -- as shapes to change,
-by your AI service or offline by a model on the device. Point text justified (Justify All)
+by your AI service or offline by a model on the device; the Assistant draws
+it in the conversation too. Point text justified (Justify All)
 makes its lines one width -- an Arabic title's shorter line lengthened with
 kashidas as Insert Kashida lets.
 
