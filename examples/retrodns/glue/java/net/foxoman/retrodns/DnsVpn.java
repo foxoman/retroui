@@ -46,6 +46,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -102,6 +103,20 @@ public final class DnsVpn extends VpnService implements Runnable {
   static final AtomicLong answered = new AtomicLong();
   static final AtomicLong failed = new AtomicLong();
   static final AtomicLong msTotal = new AtomicLong();
+  // the servers to go on to when the one in use stops answering (Auto: the app's favourites,
+  // the fastest first), and where we are in them
+  static volatile ArrayList<Upstream> ups = new ArrayList<Upstream>();
+  static volatile int upAt;
+  static final AtomicLong streak = new AtomicLong();      // failures in a row
+  static volatile String switchNote = "";                 // why it went on to another server
+  // its hello in pieces (or no name sent): the usual hello to the server was cut
+  static volatile boolean splitOn;
+  static volatile String splitNote = "";
+  static volatile int noNameOk;                           // by address, no name: 0 untried, 1 works, 2 not
+  // names answered "no such name" on the device, and the exceptions ("!name")
+  static volatile HashSet<String> blocked = new HashSet<String>();
+  static volatile HashSet<String> allowed = new HashSet<String>();
+  static final AtomicLong blockedCount = new AtomicLong();
   static long pssKb, pssAt;
   // what was looked up lately: "app\tdomain" -> {how often, when last}, the oldest let go
   static final java.util.LinkedHashMap<String, long[]> recent = new java.util.LinkedHashMap<String, long[]>();
@@ -131,11 +146,15 @@ public final class DnsVpn extends VpnService implements Runnable {
     String mode = "doh";                  // doh, dot
     String doh = "";                      // https://host/dns-query
     String dot = "";                      // host name for port 853
+    String ip = "";                       // an address of it (no name sent, where it allows)
 
-    /** "key=value" lines: name, mode, doh, dot. */
+    /** "key=value" lines: name, mode, doh, dot, ip -- the first server of `text` (the others,
+     *  after "---" lines, are where it goes on to: `all`). */
     static Upstream parse(String text) {
       Upstream u = new Upstream();
       if (text == null) return u;
+      int more = text.indexOf("\n---\n");
+      if (more >= 0) text = text.substring(0, more);
       for (String line : text.split("\n")) {
         int eq = line.indexOf('=');
         if (eq <= 0) continue;
@@ -148,8 +167,20 @@ public final class DnsVpn extends VpnService implements Runnable {
           u.doh = t >= 0 ? v.substring(0, t) : v;
         }
         else if (k.equals("dot")) u.dot = v;
+        else if (k.equals("ip")) u.ip = v;
       }
       return u;
+    }
+
+    /** Every server of `text`, the first the one chosen; those that cannot be used left out. */
+    static ArrayList<Upstream> all(String text) {
+      ArrayList<Upstream> r = new ArrayList<Upstream>();
+      if (text == null) return r;
+      for (String part : text.split("\n---\n")) {
+        Upstream u = parse(part);
+        if (u.problem().length() == 0 || r.isEmpty()) r.add(u);
+      }
+      return r;
     }
 
     /** "" when it can be used, else why not. */
@@ -163,9 +194,158 @@ public final class DnsVpn extends VpnService implements Runnable {
     String label() { return mode.equals("dot") ? "DNS over TLS" : "DNS over HTTPS"; }
   }
 
-  /** The answer to `q` (a DNS message) from the server `u` names. */
+  /** The names to block and their exceptions, from `text`'s "block=" lines ("block=!name": not). */
+  static void blockList(String text) {
+    HashSet<String> b = new HashSet<String>();
+    HashSet<String> a = new HashSet<String>();
+    if (text != null)
+      for (String line : text.split("\n")) {
+        if (!line.startsWith("block=")) continue;
+        String v = line.substring(6).trim().toLowerCase();
+        while (v.endsWith(".")) v = v.substring(0, v.length() - 1);
+        if (v.startsWith("!")) { if (v.length() > 1) a.add(v.substring(1)); }
+        else if (v.length() > 0) b.add(v);
+      }
+    blocked = b;
+    allowed = a;
+  }
+
+  /** `name` (and its parents: "ads.example.com", "example.com") on the block list, and no
+   *  exception nearer it. */
+  static boolean isBlocked(String name) {
+    if (blocked.isEmpty()) return false;
+    String n = name.toLowerCase();
+    while (n.length() > 0) {
+      if (allowed.contains(n)) return false;
+      if (blocked.contains(n)) return true;
+      int d = n.indexOf('.');
+      if (d < 0) break;
+      n = n.substring(d + 1);
+    }
+    return false;
+  }
+
+  /** Why a query failed, in plain words. */
+  static String reasonOf(Throwable e) {
+    String m = String.valueOf(e.getMessage());
+    String low = m.toLowerCase();
+    if (e instanceof java.net.SocketTimeoutException) return "it timed out";
+    if (e instanceof java.net.UnknownHostException) return "its name could not be found";
+    if (e instanceof java.net.ConnectException || e instanceof java.net.NoRouteToHostException)
+      return "it refused, or cannot be reached";
+    if (low.contains("certificate") || low.contains("trust anchor") || e instanceof javax.net.ssl.SSLPeerUnverifiedException)
+      return "its certificate is not trusted";
+    if (cutInHello(e)) return "the connection was cut as it said hello (the network may block it by name)";
+    return m;
+  }
+
+  /** `e` looks like a network cutting the TLS hello (reset, closed, timed out) -- not a server
+   *  that answered, refused or showed a wrong certificate. */
+  static boolean cutInHello(Throwable e) {
+    if (e instanceof java.net.ConnectException || e instanceof java.net.NoRouteToHostException ||
+        e instanceof java.net.UnknownHostException || e instanceof javax.net.ssl.SSLPeerUnverifiedException)
+      return false;
+    String low = String.valueOf(e.getMessage()).toLowerCase();
+    if (low.contains("certificate") || low.contains("trust anchor") || low.contains("http ")) return false;
+    return e instanceof javax.net.ssl.SSLException || e instanceof java.net.SocketTimeoutException ||
+        e instanceof java.net.SocketException || e instanceof java.io.EOFException ||
+        low.contains("reset") || low.contains("closed") || low.contains("eof");
+  }
+
+  // ---- when the usual hello is cut: its hello in pieces, or no name sent (SplitTls) ----
+
+  static final HashMap<String, ArrayDeque<SplitTls>> splitPool = new HashMap<String, ArrayDeque<SplitTls>>();
+
+  static SplitTls splitTake(String key) {
+    synchronized (splitPool) {
+      ArrayDeque<SplitTls> d = splitPool.get(key);
+      while (d != null && !d.isEmpty()) {
+        SplitTls t = d.pollFirst();
+        if (!t.closed()) return t;
+      }
+    }
+    return null;
+  }
+
+  static void splitKeep(String key, SplitTls t) {
+    synchronized (splitPool) {
+      ArrayDeque<SplitTls> d = splitPool.get(key);
+      if (d == null) {
+        d = new ArrayDeque<SplitTls>();
+        splitPool.put(key, d);
+      }
+      if (d.size() < 4) {
+        d.addLast(t);
+        return;
+      }
+    }
+    t.close();
+  }
+
+  static void splitForget() {
+    ArrayList<SplitTls> old = new ArrayList<SplitTls>();
+    synchronized (splitPool) {
+      for (ArrayDeque<SplitTls> d : splitPool.values()) old.addAll(d);
+      splitPool.clear();
+    }
+    for (SplitTls t : old) t.close();
+  }
+
+  static byte[] viaSplit(Upstream u, byte[] q) throws IOException {
+    boolean dot = u.mode.equals("dot");
+    URL url = dot ? null : new URL(u.doh);
+    String host = dot ? u.dot : url.getHost();
+    int port = dot ? 853 : (url.getPort() > 0 ? url.getPort() : 443);
+    String key = u.mode + "|" + host;
+    IOException last = null;
+    for (int attempt = 0; attempt < 3; attempt++) {
+      SplitTls t = splitTake(key);
+      boolean fresh = t == null;
+      if (fresh) {
+        // by address with no name first, where the server has one and it has not failed
+        String ip = (u.ip.length() > 0 && noNameOk != 2) ? u.ip : "";
+        try {
+          t = SplitTls.open(host, ip, port, true);
+          if (ip.length() > 0) {
+            noNameOk = 1;
+            splitNote = "no server name sent";
+          } else splitNote = "its hello sent in pieces";
+        } catch (IOException e) {
+          last = e;
+          if (ip.length() > 0) {
+            noNameOk = 2;              // (its certificate not for the address: by name, in pieces)
+            continue;
+          }
+          throw e;
+        }
+      }
+      try {
+        byte[] r = dot ? t.dot(q) : t.doh(url, q);
+        splitKeep(key, t);
+        return r;
+      } catch (IOException e) {
+        last = e;
+        t.close();
+        if (fresh) throw e;            // (a kept one closed meanwhile: a new one)
+      }
+    }
+    throw last != null ? last : new IOException("it could not be reached");
+  }
+
+
+  /** The answer to `q` (a DNS message) from the server `u` names: the usual way, and when that
+   *  is cut as it says hello, its hello in pieces or no name sent (from then on). */
   static byte[] resolve(Upstream u, byte[] q) throws IOException {
-    return u.mode.equals("dot") ? viaTls(u.dot, q) : viaHttps(u.doh, q);
+    if (!splitOn) {
+      try {
+        return u.mode.equals("dot") ? viaTls(u.dot, q) : viaHttps(u.doh, q);
+      } catch (IOException e) {
+        if (!cutInHello(e)) throw e;
+      }
+    }
+    byte[] r = viaSplit(u, q);
+    splitOn = true;
+    return r;
   }
 
   static byte[] viaHttps(String url, byte[] q) throws IOException {
@@ -297,7 +477,12 @@ public final class DnsVpn extends VpnService implements Runnable {
   }
 
   /** "Server failure" for `q`: the app asking hears at once, and tries again. */
-  static byte[] serverFailure(byte[] q) {
+  static byte[] serverFailure(byte[] q) { return failure(q, 2); }
+
+  /** "No such name" for `q`: a name on the block list. */
+  static byte[] noSuchName(byte[] q) { return failure(q, 3); }
+
+  static byte[] failure(byte[] q, int rcode) {
     if (q.length < 12) return null;
     int i = 12;
     while (i < q.length && q[i] != 0) {
@@ -309,7 +494,7 @@ public final class DnsVpn extends VpnService implements Runnable {
     if (i > q.length) return null;
     byte[] r = Arrays.copyOf(q, i);
     r[2] = (byte) (0x80 | (q[2] & 0x79));    // an answer; the opcode and RD kept
-    r[3] = (byte) 0x82;                      // recursion available, SERVFAIL
+    r[3] = (byte) (0x80 | rcode);            // recursion available, SERVFAIL or NXDOMAIN
     r[4] = 0; r[5] = 1;
     for (int k = 6; k < 12; k++) r[k] = 0;
     return r;
@@ -374,10 +559,15 @@ public final class DnsVpn extends VpnService implements Runnable {
       stopSelf();
       return START_NOT_STICKY;
     }
+    ups = Upstream.all(config);
+    upAt = 0;
+    switchNote = "";
+    blockList(config);
     if (tun != null && !stopping) {
       // another server while connected: the tunnel stays, the queries go there
       use(u);
       tlsForget(null);
+      splitForget();
       showNotice();
       return START_STICKY;
     }
@@ -411,6 +601,23 @@ public final class DnsVpn extends VpnService implements Runnable {
     msTotal.set(0);
     lastFailure = "";
     noticeCount = -1;
+    streak.set(0);
+    splitOn = false;
+    splitNote = "";
+    noNameOk = 0;
+  }
+
+  /** On to the next server of the list (`why`: the one in use stopped answering). */
+  private synchronized void nextServer(String why) {
+    ArrayList<Upstream> list = ups;
+    if (list.size() < 2 || streak.get() < 3) return;
+    upAt = (upAt + 1) % list.size();
+    Upstream n = list.get(upAt);
+    switchNote = serverName + " stopped answering (" + why + "): now " + n.name;
+    use(n);
+    tlsForget(null);
+    splitForget();
+    showNotice();
   }
 
   private void begin(Upstream u) {
@@ -636,15 +843,24 @@ public final class DnsVpn extends VpnService implements Runnable {
     try { note(q, client, clientPort, us); } catch (Throwable e) { }
     long t0 = System.nanoTime();
     byte[] r;
-    try {
-      r = resolve(u, q);
-      answered.incrementAndGet();
-      msTotal.addAndGet((System.nanoTime() - t0) / 1000000);
-    } catch (Throwable e) {
-      failed.incrementAndGet();
-      lastFailure = String.valueOf(e.getMessage());
-      r = serverFailure(q);
+    if (isBlocked(qname(q))) {
+      // (on the block list: "no such name", here on the device -- nothing sent)
+      blockedCount.incrementAndGet();
+      r = noSuchName(q);
       if (r == null) return;
+    } else {
+      try {
+        r = resolve(u, q);
+        answered.incrementAndGet();
+        streak.set(0);
+        msTotal.addAndGet((System.nanoTime() - t0) / 1000000);
+      } catch (Throwable e) {
+        failed.incrementAndGet();
+        lastFailure = reasonOf(e);
+        if (streak.incrementAndGet() >= 3 && upstream == u) nextServer(lastFailure);
+        r = serverFailure(q);
+        if (r == null) return;
+      }
     }
     ParcelFileDescriptor t = tun;
     if (stopping || t == null) return;
@@ -749,7 +965,8 @@ public final class DnsVpn extends VpnService implements Runnable {
       pssKb = Debug.getPss();
     }
     return state + "\t" + clean(serverName) + "\t" + clean(modeLabel) + "\t" + a + "\t" +
-        failed.get() + "\t" + avg + "\t" + clean(error) + "\t" + clean(lastFailure) + "\t" + pssKb;
+        failed.get() + "\t" + avg + "\t" + clean(error) + "\t" + clean(lastFailure) + "\t" + pssKb +
+        "\t" + (splitOn ? clean(splitNote) : "") + "\t" + clean(switchNote) + "\t" + blockedCount.get();
   }
 
   // ---- the app's process: for Nim (vpn.nim), by reflection ----

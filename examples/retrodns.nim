@@ -24,7 +24,7 @@ from retroui/system import homeWidget, notificationActions
 import retrodns/[catalog, androidglue, tester, vpn, desktop]
 
 const
-  retrodnsVersion {.strdefine.} = "1.4"   # (build.sh passes its VERSION)
+  retrodnsVersion {.strdefine.} = "1.5"   # (build.sh passes its VERSION)
   AppTitle = "Retro DNS"
   AppVersion = retrodnsVersion
   AppId = "RetroDNS"
@@ -93,6 +93,10 @@ var
   helpOpen = false
   lookOpen = false
   aboutOpen = false
+  autoSwitch = true                     # the VPN goes on to another server when one stops answering
+  blockText = ""                        # the block list (a name a line, "!name" an exception)
+  blockOpen = false
+  blockEdit = ""
   failOpen = false
   failMsg = ""
 
@@ -129,6 +133,8 @@ proc saveState() =
   s["hereServer"] = hereKey
   s["hereProfile"] = $hereProfile
   s["lastVpn"] = lastVpnKey
+  s["autoSwitch"] = $autoSwitch
+  s["blockList"] = blockText
   var h: seq[string]
   for k, v in history:
     h.add k & "=" & v.mapIt($it).join(" ")
@@ -152,6 +158,8 @@ proc loadState() =
   hereKey = s.getOrDefault("hereServer")
   hereProfile = s.getOrDefault("hereProfile") == "true"
   lastVpnKey = s.getOrDefault("lastVpn")
+  autoSwitch = s.getOrDefault("autoSwitch", "true") != "false"
+  blockText = s.getOrDefault("blockList")
   for e in s.getOrDefault("history").split(';'):
     let eq = e.find('=')
     if eq <= 0: continue
@@ -253,6 +261,21 @@ proc vpnServes(s: Server): bool =
   ## The VPN is on and sends lookups to `s`.
   vpnNow.state == vsOn and vpnNow.server == s.name
 
+proc nextServers(s: Server): seq[Server] =
+  ## Where the VPN goes on to when `s` stops answering (blocked, down): the favourites with
+  ## encrypted DNS, then the others that answered the tests -- the fastest first, three at most
+  ## (none when Switch When a Server Stops Answering is off).
+  if not autoSwitch: return
+  var pool: seq[(int, int, int)]          # (not a favourite, its speed, its index)
+  for i, o in servers:
+    if o.key == s.key or not vpnReady(o): continue
+    let v = speedOf(o.key)
+    let fav = o.key in favs
+    if not fav and (v < 0 or v == int.high): continue
+    pool.add ((if fav: 0 else: 1), (if v < 0: int.high else: v), i)
+  pool.sort()
+  for k in 0 ..< min(3, pool.len): result.add servers[pool[k][2]]
+
 proc vpnStart(key: string) =
   ## Connects the VPN to `key`'s server (or moves it there): the notice
   ## first, the first time; then Android's consent dialog, the first time.
@@ -281,7 +304,7 @@ proc vpnStart(key: string) =
   vpnKey = key
   lastVpnKey = key
   stateDirty = true
-  let r = vpnConnect(vpnConfig(s))
+  let r = vpnConnect(vpnConfig(s, nextServers(s), blockLines(blockText)))
   if r == "asking":
     vpnAsking = true
     lastAsk = epochTime()
@@ -568,6 +591,15 @@ proc menus(current: int) =
       if menuItem("&Sort by speed", checked = sortBySpeed):
         sortBySpeed = not sortBySpeed
         stateDirty = true
+    if onAndroid():
+      # (the VPN's own settings: a computer's DNS is set as its administrator, without them)
+      menu "&VPN":
+        if menuItem("&Switch When a Server Stops Answering", checked = autoSwitch):
+          autoSwitch = not autoSwitch
+          stateDirty = true
+        if menuItem("&Block List..."):
+          blockEdit = blockText
+          blockOpen = true
     menu "&View":
       if menuItem("&Appearance..."): lookOpen = true
       if onAndroid() and menuItem("Android's &VPN settings"):
@@ -603,6 +635,7 @@ proc lookupLine(): string =
   result = "Lookups: " & $vpnNow.answered
   if vpnNow.avgMs >= 0: result &= ", " & $vpnNow.avgMs & " ms on average"
   if vpnNow.failed > 0: result &= ", " & $vpnNow.failed & " failed"
+  if vpnNow.blockedNames > 0: result &= ", " & $vpnNow.blockedNames & " blocked"
 
 proc speedGraph(key: string) =
   ## Its tests over time, a line (the last 30; one that did not answer, a
@@ -691,6 +724,12 @@ proc vpnPart() =
     label(vpnLine(), bold = true)
   if on:
     label(lookupLine())
+    # (why the last lookup failed; how it gets past a block; where it went on to)
+    if vpnNow.failed > 0 and vpnNow.lastFailure.len > 0:
+      label("The last that failed: " & vpnNow.lastFailure, color = cMaroon)
+    if vpnNow.getsPast.len > 0:
+      label("This network cut its hello: getting past it -- " & vpnNow.getsPast, color = cTeal)
+    if vpnNow.switched.len > 0: label(vpnNow.switched, color = cNavy)
     lookupGraph()
     reachGraph()
   if on and vpnNow.memKb > 0:
@@ -850,6 +889,25 @@ proc details(i: int) =
       if button("De&lete..."): deleteOpen = true
 
 proc dialogs() =
+  # the block list: names answered "no such name" on the phone (a hosts file without root)
+  if blockOpen:
+    var ok = false
+    dialog(blockOpen, "Block List", 480):
+      paragraph("Names the VPN answers with no such name right here, sending nothing: ads, trackers, " &
+                "sites you choose. A name a line, its subdomains too; !name an exception; # a remark. A " &
+                "hosts file's lines (0.0.0.0 name) work as they are. On Android, with the VPN.",
+                color = ui.theme.gray)
+      editArea(blockEdit, lines = 10)
+      label($blockLines(blockEdit).len & " names", color = ui.theme.gray)
+      row:
+        spring()
+        if button("OK", isDefault = true, w = dp(80)): ok = true
+        if button("Cancel", w = dp(80)): blockOpen = false
+    if ok:
+      blockOpen = false
+      blockText = blockEdit
+      stateDirty = true
+      if vpnNow.state == vsOn and vpnKey.len > 0: vpnStart(vpnKey)   # (the VPN takes it now)
   # the VPN notice, before Android's own dialog (Google Play asks for it)
   dialog(discloseOpen, "About the VPN Connection", 460):
     paragraph("Retro DNS uses Android's VPN service to change the DNS server your " &

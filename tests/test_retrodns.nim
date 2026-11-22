@@ -52,9 +52,19 @@ block vpnSettings:
     if s.key == "b:cloudflare": cf = s
   doAssert cf.name == "Cloudflare"
   doAssert vpnConfig(cf) == "name=Cloudflare\nmode=doh\ndoh=https://cloudflare-dns.com/dns-query" &
-                            "\ndot=one.one.one.one\n"
+                            "\ndot=one.one.one.one\nip=" & cf.ipv4[0] & "\n"
   let tlsOnly = Server(name: "T", dot: "dns.example.com")
   doAssert "mode=dot" in vpnConfig(tlsOnly)
+  # the servers it goes on to (after "---"; one with no encrypted DNS, or itself, left out) and
+  # the block list
+  let plainOnly = Server(name: "P", ipv4: @["9.9.9.9"])
+  let more = vpnConfig(cf, [tlsOnly, plainOnly, cf], ["ads.example.com", "!good.ads.example.com"])
+  doAssert more.count("---\n") == 1 and "---\nname=T\nmode=dot" in more, more
+  doAssert more.endsWith("block=ads.example.com\nblock=!good.ads.example.com\n"), more
+  # a block list as typed: remarks, a hosts file's lines, exceptions; what is not a name left out
+  let lines = blockLines("# ads\nAds.Example.com.\n0.0.0.0 tracker.net\n127.0.0.1  t2.net # old\n" &
+                         "!good.ads.example.com\nnot a name\nhttp://x.com\n\n!\n")
+  doAssert lines == @["ads.example.com", "tracker.net", "t2.net", "!good.ads.example.com"], $lines
 
 # a server out of a CSV file someone sent: every field tries to get into a script
 let bad = Server(key: "c:bad", name: "Bad'\"<x>", group: "Mine",

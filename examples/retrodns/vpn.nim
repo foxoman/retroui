@@ -20,7 +20,12 @@ type
     avgMs*: int           ## -1: no answer yet
     asking*: bool         ## Android's consent dialog was shown
     error*: string
+    lastFailure*: string  ## why the last lookup failed, in plain words ("it timed out")
     memKb*: int           ## the VPN process's memory (Android's count), 0: unknown
+    getsPast*: string     ## how it gets past a network that cut its hello ("its hello sent in
+                          ## pieces", "no server name sent"; "": not needed)
+    switched*: string     ## why it went on to another server (Switch When a Server Stops Answering)
+    blockedNames*: int    ## lookups the block list answered with no such name
 
 proc toInt(s: string; default = 0): int =
   try: parseInt(s.strip) except ValueError: default
@@ -40,7 +45,12 @@ proc vpnStatus*(): VpnStatus =
   result.avgMs = toInt(f[5], -1)
   result.asking = f[6] == "1"
   result.error = f[7]
+  result.lastFailure = f[8]
   if f.len > 9: result.memKb = toInt(f[9])
+  if f.len > 12:
+    result.getsPast = f[10]
+    result.switched = f[11]
+    result.blockedNames = toInt(f[12])
 
 proc vpnRecent*(): seq[tuple[app, name: string; count, agoMs: int]] =
   ## What the VPN looked up lately, the newest last: which app asked (its package; "" before
@@ -73,7 +83,29 @@ proc vpnReady*(s: Server): bool = s.doh.len + s.dot.len > 0
   ## `s` has encrypted DNS, which the VPN sends lookups with (Google Play
   ## wants what a VPN sends from the device encrypted).
 
-proc vpnConfig*(s: Server): string =
-  ## The VPN's settings for `s`: DNS over HTTPS when it has it, else TLS.
-  "name=" & s.name & "\nmode=" & (if s.doh.len > 0: "doh" else: "dot") &
-    "\ndoh=" & s.doh & "\ndot=" & s.dot & "\n"
+proc vpnConfig*(s: Server; next: openArray[Server] = []; blocks: openArray[string] = []): string =
+  ## The VPN's settings for `s`: DNS over HTTPS when it has it, else TLS, and an address of it
+  ## (no server name sent, where its certificate allows); then the servers it goes on to when
+  ## `s` stops answering, after "---" lines; then the block list ("block=name", "block=!name"
+  ## an exception).
+  proc one(s: Server): string =
+    "name=" & s.name & "\nmode=" & (if s.doh.len > 0: "doh" else: "dot") &
+      "\ndoh=" & s.doh & "\ndot=" & s.dot & "\nip=" & (if s.ipv4.len > 0: s.ipv4[0] else: "") & "\n"
+  result = one(s)
+  for n in next:
+    if vpnReady(n) and n.name != s.name: result.add "---\n" & one(n)
+  for b in blocks: result.add "block=" & b & "\n"
+
+proc blockLines*(text: string): seq[string] =
+  ## A block list's names: a line each, "!name" an exception, "#" a remark; "0.0.0.0 name" and
+  ## "127.0.0.1 name" (a hosts file's lines) read as the name.
+  for raw in text.splitLines:
+    var l = raw
+    let hash = l.find('#')
+    if hash >= 0: l = l[0 ..< hash]
+    var parts = l.splitWhitespace
+    if parts.len == 2 and parts[0] in ["0.0.0.0", "127.0.0.1", "::", "::1"]: parts = parts[1 .. 1]
+    if parts.len != 1: continue
+    let n = parts[0].toLowerAscii.strip(chars = {'.'})
+    let bare = if n.startsWith("!"): n[1 .. ^1] else: n
+    if bare.len > 0 and bare.allCharsInSet({'a'..'z', '0'..'9', '-', '.', '_'}): result.add n
