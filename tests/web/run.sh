@@ -8,8 +8,9 @@
 # and tests/web/threadcheck.nim: threads, locks, channels, files from a
 # thread, the page's fallback without them; tests/web/bigcheck.nim: big
 # files left in the browser's storage, working offline, WebGPU's numbers for
-# a thread; tests/web/chatcheck.nim: XMPP over a WebSocket
-# (tests/web/xmppws.py, Python's websockets).
+# a thread; tests/web/gpucheck.nim: the GPU renderer on the canvas's WebGL 2
+# (?gpu=1), its frame the CPU's; tests/web/chatcheck.nim: XMPP over a
+# WebSocket (tests/web/xmppws.py, Python's websockets).
 #
 #   sh tests/web/run.sh
 #
@@ -62,6 +63,18 @@ sleep 1
 echo "== a big app"
 node tests/web/big.js "http://127.0.0.1:$PORT/" || failed=$((failed + 1))
 kill $server 2> /dev/null
+# the GPU renderer in a page (tests/web/gpucheck): asked for, the canvas's WebGL 2 as OpenGL ES 2,
+# the frame the CPU's; without threads and with them (the program's memory shared)
+for t in no-threads threads:2; do
+  "$OUT/retroweb" tests/web/gpucheck.nim --$t --out:"$OUT/gpucheck-$t" --path:src \
+    > "$OUT/gpucheck.log" 2>&1 || { echo "FAIL gpucheck's build ($t)"; tail "$OUT/gpucheck.log"; exit 1; }
+  ( cd "$OUT/gpucheck-$t" && python3 -m http.server "$PORT" --bind 127.0.0.1 > "$OUT/http.log" 2>&1 ) &
+  server=$!
+  sleep 1
+  echo "== the GPU ($t)"
+  node tests/web/gpu.js "http://127.0.0.1:$PORT/" || failed=$((failed + 1))
+  kill $server 2> /dev/null
+done
 # chat over a WebSocket (a small XMPP server of Python's websockets)
 if python3 -c "import websockets" 2> /dev/null; then
   python3 tests/web/xmppws.py 8774 > "$OUT/xmppws.log" 2>&1 &

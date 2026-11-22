@@ -1436,7 +1436,8 @@ proc hasGpuDevice(): bool =
   ## render node). Without one, OpenGL could only be a software renderer
   ## (llvmpipe) -- slower than drawing on the CPU here, and loading it
   ## costs some 70 MB -- so it is not even started.
-  when (defined(linux) or defined(bsd)) and not androidApp:
+  ## (A web page's browser says itself: the GPU's name, read after.)
+  when (defined(linux) or defined(bsd)) and not androidApp and not defined(wasm):
     try:
       for kind, p in os.walkDir("/dev/dri"):
         let n = os.extractFilename(p)

@@ -27,6 +27,9 @@
 ##   --threads-only   with threads alone: no build without them (an app that
 ##                    cannot do without, Retro Mail); a browser that will not
 ##                    keep the page apart from other sites gets a message
+##   --gpu            its frames drawn with the GPU where the browser has a
+##                    real one (the canvas's WebGL 2; the CPU's else, and
+##                    without it -- `?gpu=1` in the address tries it anyway)
 ##   --debug          checks and stack traces kept (slower, bigger)
 ##   --memory:MB      the most memory the build with threads may have (1024, 256
 ##                    to 4096: a big app's -- a big picture --, where a browser
@@ -220,7 +223,7 @@ const webThreadsMaxMemory = 1 shl 30
 
 type WebOptions* = object
   outDir*, filesDir*, icon*, name*: string
-  small*, debug*, dev*, noOpen*, threadsOnly*: bool
+  small*, debug*, dev*, noOpen*, threadsOnly*, gpu*: bool
   threadsSet*: bool         ## --threads, --threads-only or --no-threads given (else: threads for
                             ## a page built, none for one tried with `run --web`)
   jobs*: int               ## C compilers at once (0: as the memory allows, see buildjobs)
@@ -257,6 +260,7 @@ proc parseWebOptions*(args: openArray[string]; app: var string): WebOptions =
       result.threadsOnly = false
       result.threadsSet = true
     of "debug": result.debug = true
+    of "gpu": result.gpu = true
     of "jobs": result.jobs = (try: max(1, parseInt(value)) except ValueError: 0)
     of "memory": result.memoryMb = (try: clamp(parseInt(value), 256, 4096) except ValueError: 0)
     of "lto":
@@ -497,7 +501,7 @@ self.addEventListener("fetch", (e) => {
 <script>Retro.boot({ wasm: "app.wasm", name: $2, files: [$3], kit: [$6]$4$7 }).catch((e) => console.error(e));</script>$5
 </body></html>
 """ % [htmlEsc(name), jsonStr(app.splitFile.name), fileList,
-       (if o.dev: "" else: ", serviceWorker: \"sw.js\""), devPoll, kitList,
+       (if o.dev: "" else: ", serviceWorker: \"sw.js\"") & (if o.gpu: ", gpu: true" else: ""), devPoll, kitList,
        (if o.threads < 0: "" else: ", threads: { wasm: \"app-threads.wasm\", workers: " & $o.threads &
           ", memory: [" & $(33554432 div 65536) & ", " & $(o.maxMemory div 65536) & "]" &
           (if o.threadsOnly: ", only: true" else: "") & " }")])

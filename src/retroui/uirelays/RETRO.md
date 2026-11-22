@@ -114,6 +114,8 @@ is in `docs/uirelays-pr.md`.
 - `drivers/web_driver.nim` -- a page in the browser (`-d:wasm`, WebAssembly):
   the frame put on a canvas, input, the clipboard, fonts and sound through
   functions the page gives the program (its imports), a frame at a time.
+  `drivers/webgles.nim` gives its `gpuProc`: OpenGL ES 2 by name on the
+  canvas's WebGL 2 (`rw_glu`), when the page asks for it.
 - More windows than the program's own: `WindowsRelays` in `screen.nim`
   (`openWindow`, `closeWindow`, `setTitle`, `layout`, `target`, `toFront`)
   and `Event.window`, the window an event came to (0 the program's). Each

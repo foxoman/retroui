@@ -308,6 +308,9 @@ class Retro {
       XDG_DATA_HOME: "/data", XDG_CONFIG_HOME: "/data/config", XDG_CACHE_HOME: "/tmp/cache",
       TMPDIR: "/tmp", PATH: "/app"
     }, this.opts.env || {});
+    // (?gpu=1: frames drawn with the GPU, whatever it is -- to try it)
+    if (typeof location !== "undefined" && /[?&]gpu=1\b/.test(location.search) && !this.env.RETRO_GPU)
+      this.env.RETRO_GPU = "1";
     this.lineBuf = ["", "", ""];
     this.exited = null;
     this.driver = null;            // (the toolkit's browser driver, retro-web.js)
@@ -681,7 +684,11 @@ class RetroWeb {
     // none (or `Retro.boot({ gl: false })`)
     if (this.rt.opts.gl !== false) this.gl = this.startGl(c);
     if (!this.gl) this.ctx2d = c.getContext("2d", { alpha: false });
-    c.addEventListener("webglcontextlost", (e) => { e.preventDefault(); this.glLost = true; });
+    c.addEventListener("webglcontextlost", (e) => {
+      e.preventDefault();
+      this.glLost = true;
+      if (this.gu) { this.gu.epoch++; this.gu.objs = [null]; this.gu.free = []; this.gu.unpack = 4; }
+    });
     c.addEventListener("webglcontextrestored", () => {
       this.glLost = false;
       this.gl = this.startGl(c);
@@ -733,6 +740,9 @@ void main() { vec4 c = texture(t, uv); o = vec4(c.b, c.g, c.r, 1.0); }`);
     const at = gl.getAttribLocation(prog, "p");
     gl.enableVertexAttribArray(at);
     gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
+    this.glProg = prog;
+    this.glBuf = buf;
+    this.glAt = at;
     this.tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.tex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
@@ -745,6 +755,23 @@ void main() { vec4 c = texture(t, uv); o = vec4(c.b, c.g, c.r, 1.0); }`);
   presentGl(px, stride, x, y, w, h, fullW, fullH) {
     const gl = this.gl;
     if (this.glLost || gl.isContextLost()) return;
+    if (this.guUsed) {
+      // (the GPU renderer drew on this context: what this needs put back)
+      this.guUsed = false;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.disable(gl.BLEND);
+      gl.disable(gl.SCISSOR_TEST);
+      gl.colorMask(true, true, true, true);
+      gl.useProgram(this.glProg);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.glBuf);
+      for (let k = 0; k < 8; k++) gl.disableVertexAttribArray(k);
+      gl.enableVertexAttribArray(this.glAt);
+      gl.vertexAttribPointer(this.glAt, 2, gl.FLOAT, false, 0, 0);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.tex);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+      this.texW = this.texH = 0;
+    }
     if (this.texW !== fullW || this.texH !== fullH) {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, fullW, fullH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
       this.texW = fullW;
@@ -1576,20 +1603,52 @@ registerProcessor("retro-sound", RetroSound);`;
   gl3(op, a, b, c, d, e, f, g, h, i) {
     let x = this.g3;
     if (!x) {
-      x = this.g3 = { gl: null, objs: [null], epoch: 1 };
+      x = this.g3 = { gl: null, objs: [null], free: [], epoch: 1, unpack: 4 };
       try {
         const cv = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(1, 1) : document.createElement("canvas");
         x.gl = cv.getContext("webgl2", { alpha: false, antialias: false, depth: false, stencil: false,
                                           premultipliedAlpha: false, preserveDrawingBuffer: false });
-        if (x.gl) cv.addEventListener("webglcontextlost", (ev) => { ev.preventDefault(); x.epoch++; x.objs = [null]; });
+        if (x.gl) cv.addEventListener("webglcontextlost", (ev) => { ev.preventDefault(); x.epoch++; x.objs = [null]; x.free = []; });
       } catch (err) { x.gl = null; }
     }
-    const gl = x.gl;
-    if (!gl) return 0;
-    if (op === 0) return gl.isContextLost() ? 0 : 1;
+    if (!x.gl) return 0;
+    if (op === 0) return x.gl.isContextLost() ? 0 : 1;
     if (op === 1) return x.epoch;
+    return this.glRun(x, op, a, b, c, d, e, f, g, h, i);
+  }
+  // the window's own GPU (the kit's GPU renderer, through
+  // `retroui/uirelays/drivers/webgles`): the canvas's WebGL 2 context drawn
+  // on as OpenGL ES 2 -- only when the page asks for it
+  // (`Retro.boot({ gpu: true })`, `?gpu=1`); else the frames stay the CPU's
+  glu(op, a, b, c, d, e, f, g, h, i) {
+    let x = this.gu;
+    if (!x) x = this.gu = { gl: null, objs: [null], free: [], epoch: 1, unpack: 4 };
+    x.gl = this.gl;
+    if (op === 0) {
+      const env = this.rt.env.RETRO_GPU;
+      const want = this.rt.opts.gpu === true || env === "1" || env === "gpu";
+      if (!want || !x.gl || this.glLost || x.gl.isContextLost()) return 0;
+      // (presentGl's rows as they were: from the start of the memory given)
+      x.gl.pixelStorei(x.gl.UNPACK_ROW_LENGTH, 0);
+      x.gl.pixelStorei(x.gl.UNPACK_SKIP_PIXELS, 0);
+      x.gl.pixelStorei(x.gl.UNPACK_SKIP_ROWS, 0);
+      return 1;
+    }
+    if (op === 1) return x.epoch;
+    if (!x.gl || this.glLost) return 0;
+    this.guUsed = true;                 // (presentGl puts its own state back)
+    return this.glRun(x, op, a, b, c, d, e, f, g, h, i);
+  }
+  // an OpenGL ES 2 call on a WebGL 2 context: its objects by number (0: none)
+  glRun(x, op, a, b, c, d, e, f, g, h, i) {
+    const gl = x.gl;
     const o = (k) => x.objs[k] || null;
-    const put = (v) => { x.objs.push(v); return x.objs.length - 1; };
+    const put = (v) => {
+      if (x.free.length) { const k = x.free.pop(); x.objs[k] = v; return k; }
+      x.objs.push(v);
+      return x.objs.length - 1;
+    };
+    const drop = (k) => { if (k > 0 && x.objs[k]) { x.objs[k] = null; x.free.push(k); } };
     const rt = this.rt;
     const mem = () => rt.mem.buffer;
     const shared = typeof SharedArrayBuffer !== "undefined" && mem() instanceof SharedArrayBuffer;
@@ -1598,10 +1657,21 @@ registerProcessor("retro-sound", RetroSound);`;
       const dv = new DataView(mem());
       for (let n = 0; n < k; n++) {
         const id = dv.getUint32(at + 4 * n, true);
-        if (x.objs[id]) { kill(x.objs[id]); x.objs[id] = null; }
+        if (x.objs[id]) { kill(x.objs[id]); drop(id); }
       }
     };
     const bytes = (at, len) => shared ? new Uint8Array(mem(), at, len).slice() : new Uint8Array(mem(), at, len);
+    // (a picture's bytes in memory: its rows as long as UNPACK_ALIGNMENT makes them)
+    const pix = (at, w, h, fmt, typ) => {
+      const ch = fmt === 0x1908 ? 4 : fmt === 0x1907 ? 3 : (fmt === 0x190A || fmt === 0x8227) ? 2 : 1;
+      const sz = typ === 0x1406 ? 4 : (typ === 0x140B || typ === 0x1403) ? 2 : 1;
+      const px = ch * sz, row = Math.ceil(w * px / x.unpack) * x.unpack;
+      const u = bytes(at, w > 0 && h > 0 ? row * (h - 1) + w * px : 0);
+      return sz === 4 ? new Float32Array(u.buffer, u.byteOffset, u.length >> 2)
+           : sz === 2 ? new Uint16Array(u.buffer, u.byteOffset, u.length >> 1) : u;
+    };
+    const int = (at, v) => new DataView(mem()).setInt32(at, v, true);
+    const num = (v) => typeof v === "boolean" ? (v ? 1 : 0) : (Number(v) | 0);
     switch (op) {
     case 2: gl.viewport(a, b, c, d); break;
     case 3: gl.clearColor(a, b, c, d); break;
@@ -1614,9 +1684,9 @@ registerProcessor("retro-sound", RetroSound);`;
     case 10: del(a, b, (t) => gl.deleteTexture(t)); break;
     case 11: gl.bindTexture(a, o(b)); break;
     case 12: gl.activeTexture(a); break;
-    case 13: gl.texImage2D(a, b, c, d, e, f, g, h, i ? bytes(i, d * e * 4) : null); break;
+    case 13: gl.texImage2D(a, b, c, d, e, f, g, h, i ? pix(i, d, e, g, h) : null); break;
     case 14: gl.texParameteri(a, b, c); break;
-    case 15: gl.pixelStorei(a, b); break;
+    case 15: gl.pixelStorei(a, b); if (a === 0x0CF5) x.unpack = b; break;
     case 16: {
       const out = new Uint8Array(c * d * 4);
       gl.readPixels(a, b, c, d, e, f, out);
@@ -1624,7 +1694,7 @@ registerProcessor("retro-sound", RetroSound);`;
       break;
     }
     case 17: gl.useProgram(o(a)); break;
-    case 18: if (o(a)) { gl.deleteProgram(o(a)); x.objs[a] = null; } break;
+    case 18: if (o(a)) { gl.deleteProgram(o(a)); drop(a); } break;
     case 19: {
       const loc = gl.getUniformLocation(o(a), rt.str(b));
       return loc ? put(loc) : -1;
@@ -1687,6 +1757,52 @@ registerProcessor("retro-sound", RetroSound);`;
       return put(pr);
     }
     case 47: gl.finish(); break;
+    // (the rest of OpenGL ES 2, for the GPU renderer: its own shaders and programs)
+    case 48: gl.scissor(a, b, c, d); break;
+    case 49: gl.texSubImage2D(a, b, c, d, e, f, g, h, pix(i, e, f, g, h)); break;
+    case 50: {
+      const v = gl.getParameter(a);
+      if (v && typeof v === "object" && "length" in v) for (let n = 0; n < v.length; n++) int(b + 4 * n, num(v[n]));
+      else int(b, num(v));
+      break;
+    }
+    case 51: { const s = gl.createShader(a); return s ? put(s) : 0; }
+    case 52: if (o(a)) gl.shaderSource(o(a), rt.str(b)); break;
+    case 53: if (o(a)) gl.compileShader(o(a)); break;
+    case 54: case 61: {
+      const it = o(a), sh = op === 54;
+      let v = 0;
+      if (it && b === 0x8B84) v = ((sh ? gl.getShaderInfoLog(it) : gl.getProgramInfoLog(it)) || "").length + 1;
+      else if (it) v = num(sh ? gl.getShaderParameter(it, b) : gl.getProgramParameter(it, b));
+      int(c, v);
+      break;
+    }
+    case 55: case 62: {
+      const it = o(a);
+      const log = it ? ((op === 55 ? gl.getShaderInfoLog(it) : gl.getProgramInfoLog(it)) || "") : "";
+      const n = b > 0 && d ? rt.putStr(log, d, b) : 0;
+      if (c) int(c, n);
+      break;
+    }
+    case 56: if (o(a)) { gl.deleteShader(o(a)); drop(a); } break;
+    case 57: { const p = gl.createProgram(); return p ? put(p) : 0; }
+    case 58: if (o(a) && o(b)) gl.attachShader(o(a), o(b)); break;
+    case 59: if (o(a)) gl.bindAttribLocation(o(a), b, rt.str(c)); break;
+    case 60: if (o(a)) gl.linkProgram(o(a)); break;
+    case 63: if (a > 0) { const u = bytes(c, 4 * b); gl.uniform1fv(o(a), new Float32Array(u.buffer, u.byteOffset, b)); } break;
+    case 64: gl.blendColor(a, b, c, d); break;
+    case 65: gl.flush(); break;
+    case 66: {
+      // GL_RENDERER: the GPU's own name where the browser says it
+      let s;
+      if (a === 0x1F01) {
+        const info = gl.getExtension("WEBGL_debug_renderer_info");
+        s = String((info && gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) || gl.getParameter(gl.RENDERER) || "");
+      } else if (a === 0x1F03) s = "GL_OES_element_index_uint GL_OES_depth24";
+      else s = String(gl.getParameter(a) || "");
+      return b && c > 0 ? rt.putStr(s, b, c) : textEncoder.encode(s).length;
+    }
+    case 67: return gl.getError();
     }
     return 0;
   }
@@ -2203,6 +2319,7 @@ registerProcessor("retro-sound", RetroSound);`;
       },
       rw_access: (p, n, focus) => { self.accessTree(text(p, n), focus); },
       rw_gl: (op, a, b, c, d, e, f, g, h, i) => self.gl3(op, a, b, c, d, e, f, g, h, i),
+      rw_glu: (op, a, b, c, d, e, f, g, h, i) => self.glu(op, a, b, c, d, e, f, g, h, i),
       rw_camera_frame: (id, px, w, h) => {
         // the camera's newest picture (0: none new), its size asked first
         // (px 0: w -1 the height, else the width)

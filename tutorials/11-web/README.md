@@ -39,11 +39,12 @@ app "Notes", 380, 200:
 - `fetch` and `httpRequest` go through the browser: another site must allow the page (CORS) -- your own site always does, and a short address (`"data/news.json"`) is your site's.
 - Files: `filePicker` is the browser's chooser; saving downloads the file; `dataDir` is kept in the browser's storage.
 - Threads: a job runs between frames in a page; `retrokit web --threads` adds a build with real workers (Web Workers sharing memory), taken where the browser allows them -- the server must send the cross-origin isolation headers (COOP and COEP).
+- The GPU: `retrokit web --gpu` draws the frames with the browser's GPU (WebGL 2) where it is a real one, as the desktop does; without it (or on a software GPU) the CPU draws them. Add `?gpu=1` to the page's address to try it on any browser.
 - Sound, video, the media keys, the camera, notifications and screen readers (ARIA) work in the page.
 
 ## What you learned
 
-- `retrokit web`; `when defined(wasm)`; CORS; `--threads`.
+- `retrokit web`; `when defined(wasm)`; CORS; `--threads`; `--gpu`.
 
 ## Try it
 

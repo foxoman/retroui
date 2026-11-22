@@ -89,6 +89,8 @@ retrokit -- start, check and build Retro Nim UI apps
       WebAssembly from clang and wasm-ld alone, no Emscripten. Options:
         --out:DIR  --files:DIR (the app's files, in /app)  --icon:FILE.png
         --name:TEXT  --small  --debug
+        --gpu          frames drawn with the GPU where the browser has a real
+                       one (WebGL 2); ?gpu=1 in the address tries it anyway
         --threads[:N]  a second build with threads, taken where the browser
                        allows them (Web Workers on one memory)
         --threads-only with threads alone (an app that needs them)
