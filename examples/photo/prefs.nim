@@ -98,6 +98,7 @@ proc loadPrefs() =
   p.threads = st.getInt("pref.threads", p.threads)
   p.gpu = clamp(st.getInt("pref.gpu", p.gpu), 0, 2)
   p.paintBehind = st.getBool("pref.paintBehind", p.paintBehind)
+  p.autoPixelLayer = st.getBool("pref.autoPixelLayer", p.autoPixelLayer)
   p.scratch = st.getOrDefault("pref.scratch", "")
   p.paintCursor = st.getInt("pref.paintCursor", p.paintCursor)
   p.crosshair = st.getBool("pref.crosshair", p.crosshair)
@@ -122,6 +123,9 @@ proc loadPrefs() =
   p.ownFiles = st.getBool("pref.ownfiles", p.ownFiles)
   p.language = if st.getOrDefault("pref.language") == "ar": 1 else: 0
   p.lorem = st.getOrDefault("pref.lorem", "")
+  p.loremLang = clamp(st.getInt("pref.loremLang", p.loremLang), 0, 3)
+  p.loremParas = clamp(st.getInt("pref.loremParas", p.loremParas), 1, 50)
+  p.loremFill = st.getBool("pref.loremFill", p.loremFill)
   p.layerSizes = st.getBool("pref.layerSizes", p.layerSizes)
   prefs = p
   restoreKeymap(st, keymap)
@@ -175,6 +179,7 @@ proc savePrefs() =
   st["pref.threads"] = $p.threads
   st["pref.gpu"] = $p.gpu
   st["pref.paintBehind"] = $p.paintBehind
+  st["pref.autoPixelLayer"] = $p.autoPixelLayer
   st["pref.scratch"] = p.scratch
   st["pref.paintCursor"] = $p.paintCursor
   st["pref.crosshair"] = $p.crosshair
@@ -189,6 +194,9 @@ proc savePrefs() =
   st["pref.smartReflow"] = $p.smartReflow
   st["pref.deleteEmptyPages"] = $p.deleteEmptyPages
   st["pref.lorem"] = p.lorem
+  st["pref.loremLang"] = $p.loremLang
+  st["pref.loremParas"] = $p.loremParas
+  st["pref.loremFill"] = $p.loremFill
   st["pref.layerSizes"] = $p.layerSizes
   st["pref.workingSpace"] = $p.workingSpace
   st["pref.embed"] = $p.embedProfile
@@ -398,6 +406,9 @@ proc pageMemory() =
           "processor nothing; without it, everything is drawn on the processor's cores.",
           color = ui.theme.gray)
     checkbox("Paint Big Brushes Behind the Stroke", prefs.paintBehind)
+    checkbox("Painting on Type or a Shape Makes a Pixel Layer", prefs.autoPixelLayer)
+    tooltip("A brush stroke on type, a shape, a group or an adjustment layer goes on a new layer above " &
+            "it, as in Affinity; off: the question to rasterize it, as in Photoshop")
     label("The stroke shows at once where the pen goes (drawn by the GPU when it draws the window); " &
           "the picture's own pixels follow it a frame's worth at a time, all of them as the stroke ends.",
           color = ui.theme.gray)
@@ -522,7 +533,7 @@ proc pageType() =
     checkbox("Delete Empty Pages", prefs.deleteEmptyPages, enabled = prefs.smartReflow)
   group("Placeholder Text"):
     editArea(prefs.lorem, lines = 3)
-    label("Type > Paste Lorem Ipsum puts this in (empty: the Latin of Lorem Ipsum).", color = ui.theme.gray)
+    label("Type > Fill with Placeholder Text, My Own: this text (empty: Lorem Ipsum).", color = ui.theme.gray)
 
 proc pageColor() =
   group("Working Space"):

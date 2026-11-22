@@ -269,6 +269,50 @@ block artboards:
   d.undo()
   doAssert G.board == rect(10, 10, 60, 40)
 
+block constraints:
+  # (where a box goes when its board changes size, by its pins; then layers on a board resized)
+  let was = rect(0, 0, 200, 100)
+  let now = rect(0, 0, 300, 160)
+  let b = rect(150, 70, 40, 20)            # (10 from the right, 10 from the bottom)
+  doAssert pinnedBox(b, was, now, {}) == b, "no pins: it stays"
+  doAssert pinnedBox(b, was, now, {lpRight, lpBottom}) == rect(250, 130, 40, 20), "right and bottom kept"
+  doAssert pinnedBox(b, was, now, {lpLeft, lpRight, lpTop}) == rect(150, 70, 140, 20), "both sides: stretched"
+  doAssert pinnedBox(b, was, now, {lpCenterX, lpTop}) == rect(235, 70, 40, 20), "centered across, in proportion"
+  doAssert pinnedBox(b, was, now, {lpScale}) == rect(225, 112, 60, 32), "scaled with the board"
+  doAssert pinnedBox(b, was, rect(50, 20, 200, 100), {lpLeft}) == rect(200, 90, 40, 20), "the board moved: with it"
+  let d = newDoc(400, 300, 0xFFC0C0C0'u32)
+  d.beginStep("New Artboard")
+  let G = d.addArtboard(rect(10, 10, 200, 100), color = 0xFFFFFFFF'u32)
+  d.endStep()
+  let k = d.layers.find(G)
+  d.beginStep("shapes")
+  d.touchLayers()
+  let bar = d.addShapeLayer(ShapeData(path: rectPath(20, 90, 200, 100), fill: solidPaint(0xFF0000FF'u32)), "Bar",
+                            above = k - 1)
+  bar.pins = {lpLeft, lpRight, lpBottom}
+  let free = d.addShapeLayer(ShapeData(path: rectPath(30, 30, 50, 50), fill: solidPaint(0xFFFF0000'u32)), "Free",
+                             above = d.layers.find(bar))
+  d.endStep()
+  let gi = d.layers.find(G)
+  doAssert d.blockStart(gi) <= d.layers.find(bar) and d.blockStart(gi) <= d.layers.find(free), "both on the board"
+  d.beginStep("Resize Artboard")
+  d.resizeArtboard(gi, rect(10, 10, 300, 160))
+  d.endStep()
+  doAssert d.layerBox(bar) == rect(20, 150, 280, 10), "the bar: along the bottom, as wide as the board less its gaps: " &
+                                                       $d.layerBox(bar)
+  doAssert d.layerBox(free) == rect(30, 30, 20, 20), "no pins: where it was"
+  let path = getTempDir() / "retro-pins.rpd"
+  d.saveRpd(path)
+  let back = loadRpd(path)
+  removeFile(path)
+  var kept = false
+  for L in back.layers:
+    if L.name == "Bar": kept = L.pins == {lpLeft, lpRight, lpBottom}
+  doAssert kept, "the pins kept in the file"
+  d.undo()
+  doAssert G.board == rect(10, 10, 200, 100) and d.layerBox(d.layers[d.layers.find(G) - 2]).w in [180, 20],
+           "undone"
+
 block patchOptions:
   let d = scene(100, 80)
   # a dark spot to patch, and the sky to patch it from

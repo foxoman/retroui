@@ -502,8 +502,23 @@ proc optionsBody() =
     pressureRow(tAirbrush)
     dynamicsRows(tAirbrush)
   of tBrush:
-    optCombo("Tool:", ["Paintbrush", "Mixer Brush", "Color Replacement", "Adjustment Brush"], brushTool, dp(150))
-    if brushTool == 3:
+    optCombo("Tool:", ["Paintbrush", "Mixer Brush", "Color Replacement", "Adjustment Brush", "Mask Brush",
+                       "Tone Brush"], brushTool, dp(150))
+    if brushTool == 5:
+      var m = ord(toneDarker)
+      if optCombo("Paints:", ["Lighten", "Darken"], m, dp(110)): toneDarker = m == 1
+      optSlider("Opacity:", opts[tBrush].opacity, 1, 100)
+      paragraph("Dodge and burn that can be taken back: paints on a Tone layer of its own (50% gray in " &
+                "Soft Light), white lighter, black darker; Alt the other. A low opacity builds up gently.",
+                color = ui.theme.gray)
+    elif brushTool == 4:
+      var m = ord(maskBrushShow)
+      if optCombo("Paints:", ["Hide", "Show"], m, dp(110)): maskBrushShow = m == 1
+      optSlider("Opacity:", opts[tBrush].opacity, 1, 100)
+      paragraph("Paints on the layer's mask, a mask made if it has none: Hide paints black (the " &
+                "layer hidden there), Show white; Alt the other. The pixels are not touched.",
+                color = ui.theme.gray)
+    elif brushTool == 3:
       optCombo("Adjustment:", adjBrushPresets, adjBrushKind, dp(150))
       if optSlider("Amount:", adjBrushAmount, -100, 100): adjBrushChanged()
       var m = ord(adjBrushSub)

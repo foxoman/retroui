@@ -38,6 +38,23 @@ The DKIM test messages (`tests/data/dkim/`) are RFC 8463's own example
 (the IETF Trust's, with its keys published in the RFC) and messages signed
 for the tests with keys made for them and thrown away.
 
+The shaper (`retroui/otshape`) is my own code, tested against HarfBuzz's
+output run by run. Its Arabic fallback and its fallback mark positioning
+follow HarfBuzz's (`hb-ot-shaper-arabic-fallback.hh`,
+`hb-ot-shape-fallback.cc`), and the ligature tables in it are HarfBuzz's
+(`hb-ot-shaper-arabic-table.hh`, made from Unicode's data): HarfBuzz is
+under the "Old MIT" license -- Copyright © 2010-2022 Google, Inc.; ©
+2006-2012 Behdad Esfahbod and others -- which asks that this notice go
+with copies: permission to use, copy, modify and distribute it is granted,
+without fee, provided the copyright notice and these paragraphs appear in
+all copies; it is provided "as is", without warranty.
+
+The tests' fonts made from FreeSerif and FreeMono (`tests/data/fonts/
+ArabicNoLayout-Test.*`, `ArabicLegacy-Test.ttf`, `HebrewThaiNoLayout-Test.ttf`, `OldBitmap-Test.fon`,
+`OldType1-Test.pfb`, `OldSymbol-Test.pfb`: `tools/genlegacy.py`,
+`tools/genoldfonts.py`) are FreeFont's, GPL 3 with the font exception;
+they are never carried in an app.
+
 JPEG XL (`retroui/jxl`) is my own code written from the standard;
 `src/retroui/vendor/LICENSE-jxl-references.txt` says what I read to write
 it. Nothing of libjxl is in it.

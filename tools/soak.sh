@@ -27,7 +27,9 @@ mins=${1:-60}
 [ $# -gt 0 ] && shift
 # (Retro Board starts a new board past 400 shapes, Retro Navigator keeps
 # 8 tabs at most and Retro Atelier 4 images of 40 layers, 256 MB of layers, at most under the
-# random input: what they hold does not grow without end -- `smokeOn`. Navigator shows its pages with the kit's engine
+# random input: what they hold does not grow without end -- `smokeOn`; Retro Atelier's Browse
+# Assets offers only the library it carries then, no downloads: clicks fetching 4K textures and
+# placing them measured the files, not a leak. Navigator shows its pages with the kit's engine
 # here, RETRO_WEB=kit: under random input WebKitGTK's own memory grows,
 # 20 MB a minute in the app's process, with or without the kit)
 apps=${*:-gallery filemanager photo retroboard mail navigator retrodns podcast grow taskman}

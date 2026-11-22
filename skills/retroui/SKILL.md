@@ -225,7 +225,7 @@ for another pair), plain statements stack top to bottom, `group "Title":`, `card
 (columns that fold into one on a phone), `scrollPanel`/`panel(h)`/`pane`
 (a list or a carousel inside one passes a swipe on to it at its ends, as
 on Android: nothing to do),
-`tabs`, `split`/`vsplit`, `sidePane`, `menubar: menu "&File": if menuItem("&Open", "Ctrl+O"): ...`,
+`tabs`, `split`/`vsplit`, `sidePane`, `menubar: menu "&File": if menuItem("&Open", "Ctrl+O"): ...` (Ctrl+Shift+P searches its commands),
 `toolbar:`, `statusbar(...)`, MDI windows (`mdiArea`, `mdiWindow`; `noPin` for no pin in the title bar), docking (`retroui/dock`).
 Sizes are design pixels; the kit scales them to the screen (`dp(n)` for your own).
 
@@ -322,7 +322,16 @@ app "Staff", 520, 420:
   across frames for a question and its answer.
 - `retroui/fontfolders`: `useFontFolders(app)` at the start,
   `fontFoldersPanel(app)` in settings -- the user's own font folders on
-  every system.
+  every system; any font file Windows has is read (.ttf, .otf, .ttc, CFF2,
+  .fon/.fnt bitmap fonts, .pfb/.pfa Type 1, .woff: `retroui/fontconv`),
+  and `unreadFontFiles(app)` says which could not be and why.
+- The command search: every app with a menu bar has it on Ctrl+Shift+P
+  (`retroui/commandhud`, nothing to write); `commandHudKeys = ""` for an
+  app with its own search, `openCommandHud()` from a menu item.
+- Placeholder text for a form, a list or a page being laid out:
+  `lorem(3)` (Lorem Ipsum), `lorem(2, loremArabic)`, `lorem(4, loremBoth)`
+  (the two in turn), `loremWords(4)` for a title -- `retroui/lorem`, in
+  `import retroui`.
 - `retroui/dastkhat`: `carryDastkhat()` -- Arabic, Persian and Latin in one
   font, nine weights (`fontStyles("Dastkhat")`: Thin .. Black); a variable
   font's weights are styles (`fontFace(family, "SemiBold")`).
@@ -690,6 +699,7 @@ costs what its visible rows cost.
 ```sh
 nim c -r -d:release -d:useMalloc app.nim                      # this computer
 nim c -d:release -d:mingw --cpu:amd64 --app:gui app.nim        # Windows .exe from Linux/macOS (MinGW)
+RETRO_APP=photo nimble exe                                     # a kit example for Windows: zig 0.15's clang, else MinGW
 retroapk app.nim --name:"My App" --id:com.me.myapp             # Android APK: no SDK, no NDK needed
 retroios app.nim --simulator --run                             # iOS, on a Mac with Xcode
 retrokit small app.nim                                         # smallest desktop build

@@ -65,9 +65,11 @@ proc busyCheck*() =
     when defined(busyDebug): writeStackTrace()
     raise newException(BusyCancelled, "cancelled")
 
-proc busyTick*() =
-  ## Keeps the window alive during long work (cheap when called often).
-  if uiThread and busyHook != nil: busyHook()
+proc busyTick*() {.gcsafe.} =
+  ## Keeps the window alive during long work (cheap when called often). Safe on any thread:
+  ## only the one that draws runs the hook.
+  if uiThread and busyHook != nil:
+    {.cast(gcsafe).}: busyHook()
 
 proc busyTickCheck*() =
   ## `busyTick` and `busyCheck`: for loops that can stop where they are.

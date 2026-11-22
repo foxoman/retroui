@@ -962,15 +962,35 @@ proc makersOverlay(dw: DocWin; ev: PhotoEvent) =
 
 # ---- each frame, the commands, the dialogs ------------------------------------------------------------------
 
+var symbolSeen: Table[pointer, Table[int, Hash]]   # (each document's symbols as they were last kept alike)
+
 proc keepLive(d: Doc) =
   if gEdit.on and gEdit.doc == d and not d.stepOpen and gEdit.src in d.layers:
     gEdit.last = gEdit.src.shape          # (an undo, a redo: not a change to follow)
   keepLivePaint(d)
+  keepLiveBlends(d)
+  if not d.stepOpen:
+    var seen = symbolSeen.getOrDefault(cast[pointer](d))
+    if d.keepSymbols(seen): status = "Symbol: its other instances changed the same"
+    symbolSeen[cast[pointer](d)] = seen
 
 proc makersCommand(name: string): bool =
   let d = cur()
   result = true
   case name
+  of "Create Symbol":
+    if d != nil and not d.current.background:
+      var idxs = d.pickedLayers
+      if idxs.len == 0: idxs = @[d.cur]
+      var made: Layer
+      d.layersChange("Create Symbol"): made = d.makeSymbol(idxs)
+      if made != nil:
+        status = "\"" & made.symbolOf.name & "\" made a symbol: Layer > Symbols > Insert places another " &
+                 "instance; change what is in one and the others change the same"
+  of "Detach from Symbol":
+    if d != nil and d.current.symbolOf.id != 0:
+      let L = d.current
+      d.layersChange("Detach from Symbol"): detachSymbol(L)
   of "Start Global Edit":
     if d != nil: d.startGlobalEdit()
   of "Stop Global Edit":
@@ -1054,7 +1074,13 @@ proc makersCommand(name: string): bool =
     if d != nil:
       vecAsk.open = true
       vecFor.d = nil                    # (where it goes: worked out as it opens)
-  else: result = false
+  else:
+    if name.startsWith("Insert Symbol:") and d != nil:
+      let id = try: parseInt(name.split(':')[1]) except ValueError: 0
+      var made: Layer
+      d.layersChange("Insert Symbol"): made = d.insertSymbol(id)
+      if made != nil: status = "Another instance of \"" & made.symbolOf.name & "\" (move it where it goes)"
+    else: result = false
 
 proc makersDialogs() =
   readTextDialog()

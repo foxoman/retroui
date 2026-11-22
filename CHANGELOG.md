@@ -1,5 +1,143 @@
 # Changes
 
+## 0.70.0
+
+Every font Windows has opens now, and Arabic is shaped as HarfBuzz shapes
+it even in a font with no shaping tables, Hebrew, Thai and Lao too; a
+command search in every app with a menu bar; placeholder text in Latin and
+Arabic; the Windows programs built with zig's clang by default. Retro
+Atelier 5.15.0 brings what the Affinity apps do best: studios, a help card
+for every tool, the Mask and Tone Brushes, Hue Curves, live blends,
+symbols, constraints, G2 curves, a diffusion gradient, Procedural Texture
+and an isometric grid.
+
+- **Traditional Arabic, and the other Arabic fonts of Windows 3.1 and
+  95, draw as they should.** Those fonts have no Unicode map: their
+  glyphs are at 0xF200 plus a byte, one glyph for each joining form, no
+  shaping tables. The kit reads that old encoding (`legacyArabic` in
+  `retroui/ttf`: the table worked out by drawing each of the font's glyphs
+  against today's Traditional Arabic) and finds each letter's forms in it;
+  before, they fell back to FreeSans. When an old font and a Unicode one
+  share a family name and style, the Unicode one is drawn.
+- **Arabic shaped as HarfBuzz shapes it in a font without the
+  features**: the joining forms and the ligatures (lam-alef, lam-lam-heh,
+  beh-meem... shadda with its vowel) from the presentation forms the
+  font's map has, as HarfBuzz's Arabic fallback makes them; marks placed by
+  their class above or below the letter, stacked, when the font has no
+  GPOS (HarfBuzz's fallback mark positioning, joiners passed over as
+  HarfBuzz 15 does); and variation sequences (cmap 14: an ideograph's or
+  an emoji's form). The shaping test now has 4,779 runs that must equal
+  HarfBuzz 15.0.0's -- 473 of them new: 185 in a font with no layout
+  tables at all (Arabic, Latin with accents, variation sequences), 288
+  in Hebrew and Thai.
+- **Hebrew, Thai and Lao shaped as HarfBuzz shapes them**: Hebrew's points
+  in the order its shaper puts them (patah or qamats, sheva or hiriq, then
+  meteg), the presentation forms of letters with dagesh, rafe and the shin
+  and sin dots for a font that does not place marks itself, the font's
+  GPOS only under its Hebrew script; Thai and Lao's SARA AM taken apart
+  into NIKHAHIT and SARA AA, the NIKHAHIT moved back over a tone mark (น้ำ
+  as Uniscribe and HarfBuzz draw it).
+- **Placeholder text** (`retroui/lorem`): `lorem(paragraphs, language)` --
+  Lorem Ipsum's Latin, Arabic written for the kit (plain sentences about a
+  page being laid out, Arabic-Indic digits in a few), or the two in turn
+  -- each paragraph three to five sentences, no two together alike, the
+  same each time; `loremWords` for a title; `loremSentenceEnd` to cut at a
+  sentence.
+- **Procedural Texture** (`retroui/proctexture`, the Affinity filter): a
+  picture made or changed by a formula for each of red, green, blue and
+  alpha and one shared value, with where the pixel is (x, y, rx, ry, cx,
+  cy, rad, ang), its colors, four sliders and noise, fbm, cells, rnd,
+  wave, smoothstep...; twelve presets (clouds, wood, marble, stripes,
+  checkerboard, vignette, halftone dots, ripples, film grain, sun rays,
+  cells, duotone). A formula that cannot be read says what and where.
+- **Shapes and layout in the kit**: `smoothCurvature` (G2: at every smooth
+  point the curve bends as much on either side, `pathCurvatureJump` says
+  how much it did not); a freeform gradient spread by diffusion
+  (`ShapePaint.diffuse`, `freeformDiffusedAt`: Laplace's equation on a
+  grid, coarse to fine, 9 ms, kept with the file); Constraints
+  (`Layer.pins`: a side kept, both sides stretched, centered, scaled when
+  an artboard changes size -- `pinnedBox`, `fitLayerTo`,
+  `resizeArtboard`); Symbols (`makeSymbol`, `insertSymbol`,
+  `keepSymbols`: change what is in one instance and the others change the
+  same, each where it is; undo brings them all back); an isometric
+  perspective grid (`isometric`: planes at 30 degrees, no vanishing
+  point).
+- **Fonts of every kind** (`retroui/fontconv`, made TrueType when read):
+  the bitmap fonts of Windows (.fon, .fnt: MS Sans Serif, Courier,
+  Fixedsys, System, Terminal -- each size a face, "Regular 13px", each
+  pixel a square, sharp at its size), PostScript Type 1 fonts (.pfb, .pfa:
+  Adobe Type Manager's, accented letters made of two), WOFF web fonts,
+  CFF2 (Adobe's variable fonts, at their default), symbol fonts typed as
+  Windows types them (Wingdings, Symbol: "a" is alpha), fonts with only a
+  Mac map, cmap formats 6, 13 and 14. The font folders list a file that
+  could not be read and say why (`unreadFontFiles`; a WOFF2 web font:
+  not read yet).
+- **A command search in every app with a menu bar** (`retroui/commandhud`):
+  Ctrl+Shift+P opens it (`commandHudKeys`), a few letters of each word
+  find the command in any menu or submenu ("sv as" is File > Save As...),
+  the ones chosen lately first, Enter does it exactly as its menu would.
+  It reads the menus the app already draws: no code to write.
+- **The Windows programs are built with zig 0.15's clang** (`nimble exe`,
+  CI and the release): every module optimized with the others (ThinLTO),
+  for Windows 10 and 11; MinGW's GCC where there is no zig 0.15, or
+  `RETRO_WINCC=gcc` (Windows before 10, and a table of the program's procs
+  for a window that stops answering). CI's artifact RetroAtelier-windows is
+  zig's now, RetroAtelier-windows-gcc GCC's.
+- **Retro Atelier: Text Wrap is easy to find.** Window lists its panels A
+  to Z (Text Wrap was among the A's), Ctrl+Shift+W shows it (InDesign's
+  Ctrl+Alt+W is Close All here), Properties has a Text Wrap part with a
+  button for the panel, and the task bar under a shape (or a picture
+  where there is type) has it too. Edit > Search lists the commands done
+  lately first.
+- **Retro Atelier 5.15.0, from the Affinity apps**:
+  - **Studios**: Window > Workspace keeps the panels, the toolbar's tools
+    and the options bar under a name of your own; Delete, Export (a
+    .rworkspace file) and Import (on another computer).
+  - **A help card for every tool**: resting on a tool shows what it does
+    and its keys; F1 while the card is up opens the tool's help.
+  - **Painting on type or a shape makes a pixel layer** above it (a group
+    or an adjustment layer too), not the question to rasterize it
+    (Preferences > Performance, on by default).
+  - **The Mask Brush** (with the Brush tools, B): paints the layer's mask
+    -- one made if it has none, the Background made a layer first --
+    black hiding, white showing, Alt the other; the pixels untouched.
+  - **The Tone Brush**: dodge and burn that can be taken back -- it paints
+    white or black on a Tone layer of its own (50% gray in Soft Light).
+  - **Hue Curves** (Image > Adjustments, and an adjustment layer): hue vs
+    hue, saturation and lightness along the color wheel.
+  - **Live blends**: Make Blend's group remembers how it was made; move or
+    change either end and the steps follow; Expand Blend makes them
+    shapes of their own.
+  - **Symbols** (Layer > Symbols): Create Symbol, Insert another instance,
+    Detach; change what is in one and the others change the same.
+  - **Constraints** (Properties, for a layer on an artboard): Left, Right,
+    Top, Bottom, Center Across, Center Down, Scale; the Artboard tool sizes
+    an artboard by its bottom right corner, and what is on it follows.
+  - **Smooth Curvature (G2)** (Object > Path Operations), **a Diffusion
+    method for the Freeform Gradient**, **Filter > Render > Procedural
+    Texture...** (a live preview, the presets, the formulas), and
+    **View > Perspective Grid > Isometric**.
+  - **Type > Fill with Placeholder Text...**: English (Lorem Ipsum),
+    Arabic, the two in turn, or your own; how many paragraphs, or as many
+    as fill the box (cut at the end of a sentence); its text replaced or
+    added to. Paste Lorem Ipsum (for actions and scripts) does it at once
+    as it was set last.
+- **Fixed**: a PDF whose dictionary was nested too deep leaked its last
+  key (the value now read before the key is put in the table); a PDF
+  number of a hundred digits overflowed in the standard library's parse
+  (the reader adds up its digits as a float now); `busyTick` can be called
+  from any thread (only the one that draws runs the hook), so zlib and the
+  font readers are safe on the font folders' thread; a vector map tile
+  with a coordinate past what an int holds crashed (`retroui/mvt` adds
+  them up in 64 bits and clamps; five minutes of libFuzzer find nothing
+  now), and the libFuzzer harness stops at a Defect instead of going on
+  with its error set; a font made from a symbol Type 1 font, and the APNG
+  test's CRC, did not build or run as 32-bit programs; the thread count
+  test waits a moment for another test's worker to end; Retro Atelier's
+  Browse Assets offers only the library it carries under the soak's random
+  input (an hour of clicks downloading 4K textures measured the files, not
+  a leak).
+
 ## 0.69.0
 
 What 0.68 added, put to work in the kit and its apps: text that changes

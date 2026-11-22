@@ -549,6 +549,8 @@ type
     lockPixels*: bool       ## Lock Image Pixels: not painted (it still moves)
     lockPosition*: bool     ## Lock Position: not moved (it is still painted)
     link*: int              ## linked layers share a number (0: not linked): they move together
+    pins*: set[LayerPin]    ## on an artboard: how it follows the board's size (Constraints; {}: it stays
+                            ## where it is)
     board*: Rect            ## (a group) an artboard's page: what is in it shown only there
     uid*: int               ## who it is, for what refers to it (layer comps; 0: not asked yet)
     wrap*: int              ## text keeps out of it (Text Wrap): 0 not; 1 out of its box (a placed
@@ -715,6 +717,14 @@ type
     ## for a corner without curves).
     p*, inH*, outH*: (float, float)  ## the point, its handle toward the point before, toward the next
 
+  LayerPin* = enum
+    ## Constraints: how a layer on an artboard follows the artboard when it changes size (Affinity's
+    ## and the screen designers'). A side pinned keeps its distance from the board's side -- both
+    ## sides of an axis: it stretches --; centered keeps its place across (down) in proportion; Scale
+    ## grows with the board. An axis with nothing pinned keeps to the left (the top).
+    lpLeft = "Left", lpRight = "Right", lpTop = "Top", lpBottom = "Bottom", lpCenterX = "Center Across",
+    lpCenterY = "Center Down", lpScale = "Scale"
+
   PathOp* = enum
     ## How a subpath of a shape goes with the ones before it.
     poAdd = "Combine Shapes", poSubtract = "Subtract Front Shape",
@@ -760,6 +770,9 @@ type
                                 ## shape's box (0..1 across and down): blended smoothly between
                                 ## them, each strongest where it is; a gradient mesh's (`style` 6)
                                 ## points, row by row, `meshCols` a row
+    diffuse*: bool              ## a freeform gradient (`style` 5): its colors spread from its points as
+                                ## heat does (Affinity's Diffusion: smooth all over, no color pooling
+                                ## round its point), not each weighed by how near it is
     meshCols*: int              ## a gradient mesh: its points in a row (its columns + 1); the points
                                 ## move where they are and the colors between them bend with them
     spot*: string               ## a spot ink's name (`Doc.spotInks`): printed with it, `color` how it
@@ -9437,6 +9450,7 @@ proc toJson*(p: ShapePaint): JsonNode =
     for q in p.points: a.add %*[q.x, q.y, int64(q.color)]
     result["points"] = a
     if p.meshCols > 0: result["meshCols"] = %p.meshCols
+    if p.diffuse: result["diffuse"] = %true
     if p.onStroke > 0: result["onStroke"] = %p.onStroke
   if p.pattern.len > 0 and p.pattern.len == p.pw * p.ph:
     let b = newBitmap(p.pw, p.ph)
@@ -9456,6 +9470,7 @@ proc paintFrom(j: JsonNode): ShapePaint =
   result.style = clamp(j{"style"}.getInt(0), 0, 6)
   result.reverse = j{"reverse"}.getBool
   result.meshCols = clamp(j{"meshCols"}.getInt(0), 0, 16)
+  result.diffuse = j{"diffuse"}.getBool
   result.onStroke = clamp(j{"onStroke"}.getInt(0), 0, 2)
   result.opacity = clamp(j{"opacity"}.getInt(100), 0, 100)
   result.scale = clamp(j{"scale"}.getInt(100), 10, 1000)
@@ -10207,6 +10222,10 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
     if L.lockPixels: lj["lockPixels"] = %true
     if L.lockPosition: lj["lockPosition"] = %true
     if L.link != 0: lj["link"] = %L.link
+    if L.pins != {}:
+      var a = newJArray()
+      for p in L.pins: a.add %($p)
+      lj["pins"] = a
     if L.board.w > 0: lj["artboard"] = %[L.board.x, L.board.y, L.board.w, L.board.h]
     if L.blendIf.isOn:
       lj["blendIf"] = %*{"channel": L.blendIf.channel, "this": rangeOf(L.blendIf.this),
@@ -10462,6 +10481,9 @@ proc loadRpd*(path: string): Doc =
     L.lockPixels = lj{"lockPixels"}.getBool
     L.lockPosition = lj{"lockPosition"}.getBool
     L.link = max(0, lj{"link"}.getInt)
+    for pj in lj{"pins"}.getElems:
+      for p in LayerPin:
+        if $p == pj.getStr: L.pins.incl p
     let ab = lj{"artboard"}.getElems
     if ab.len == 4: L.board = rect(ab[0].getInt, ab[1].getInt, ab[2].getInt, ab[3].getInt)
     if lj.hasKey("blendIf"):

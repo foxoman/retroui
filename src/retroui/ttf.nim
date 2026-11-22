@@ -16,7 +16,7 @@
 ## keeps text crisp on 1x screens; 2x and 4K screens need none.
 
 import std/[tables, math, algorithm, bitops]
-import raster, cff
+import raster, cff, arabicdata, fontconv, pdfencodings
 
 type
   FontError* = object of CatchableError
@@ -58,6 +58,8 @@ type
     cmap: int                          ## the subtable used
     cmapTable: int                     ## the cmap table (-1 none)
     cmapFormat: int
+    uvs: int                           ## (its variation sequences: the format 14 subtable; 0 none)
+    legacy: Table[int32, int32]        ## an Arabic font of before Unicode: character -> glyph
     kern: Table[uint32, int16]         ## (left shl 16) or right -> units (the `kern` table)
     gposPairs: seq[int]                ## GPOS: the pair adjustment subtables of its kerning
     gposRead: bool                     ## (`gposPairs` looked for)
@@ -135,7 +137,9 @@ proc s32(f: Face; i: int): int {.inline.} =
 proc glyphOf*(f: Face; cp: int): int =
   ## The glyph for character `cp`; 0 (the "missing" box) when there is none.
   if cp < 128 and cp >= 0 and f.ascii[cp] != 0: return int(f.ascii[cp])
-  if f.cmap == 0: return 0
+  if f.cmap == 0:
+    if f.legacy.len > 0: return int(f.legacy.getOrDefault(int32(cp)))
+    return 0
   let t = f.cmap
   case f.cmapFormat
   of 4:
@@ -163,6 +167,22 @@ proc glyphOf*(f: Face; cp: int): int =
           let g = f.u16(at)
           return if g == 0: 0 else: (g + delta) and 0xFFFF
     0
+  of 6:
+    let first = f.u16(t + 6)
+    if cp < first or cp >= first + f.u16(t + 8): return 0
+    f.u16(t + 10 + 2 * (cp - first))
+  of 13:
+    # (ranges each drawn by one glyph)
+    let n = f.u32(t + 12)
+    var lo = 0
+    var hi = n - 1
+    while lo <= hi:
+      let m = (lo + hi) div 2
+      let g = t + 16 + 12 * m
+      if f.u32(g + 4) < cp: lo = m + 1
+      elif f.u32(g) > cp: hi = m - 1
+      else: return f.u32(g + 8)
+    0
   of 12:
     let n = f.u32(t + 12)
     var lo = 0
@@ -176,6 +196,77 @@ proc glyphOf*(f: Face; cp: int): int =
     0
   else: 0
 
+const legacyArabic: array[256, uint16] = [
+  0x0000, 0xFDF2, 0xFC08, 0xFC0E, 0xFCA6, 0xFC42, 0xFC4E, 0x0000,
+  0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+  0xFD88, 0x0000, 0xFC3F, 0xFC40, 0xFC41, 0xFC6A, 0xFC70, 0xFC91,
+  0xFCB0, 0xFD30, 0xFCCD, 0x0000, 0xFC44, 0xFC6F, 0xFC75, 0xFC8F,
+  0x0020, 0x0021, 0x0022, 0x00AB, 0x00BB, 0x066A, 0x00D7, 0x00F7,
+  0x0028, 0x0029, 0x002A, 0x002B, 0x060C, 0x002D, 0x002E, 0x002F,
+  0x0660, 0x0661, 0x0662, 0x0663, 0x0664, 0x0665, 0x0666, 0x0667,
+  0x0668, 0x0669, 0x003A, 0x061B, 0x201C, 0x003D, 0x201D, 0x061F,
+  0x0640, 0x0627, 0xFE8E, 0x0623, 0xFE84, 0x0622, 0xFE82, 0x0625,
+  0xFE88, 0xFE91, 0xFE92, 0xFE90, 0x0628, 0xFE97, 0xFE98, 0xFE96,
+  0x062A, 0xFE9B, 0xFE9C, 0xFE9A, 0x062B, 0xFE9F, 0xFEA0, 0xFE9E,
+  0x062C, 0xFEA3, 0xFEA4, 0x0000, 0xFEA2, 0x0000, 0x002C, 0x0000,
+  0x062D, 0xFEA7, 0xFEA8, 0xFEA6, 0x062E, 0x062F, 0xFEAA, 0x0630,
+  0xFEAC, 0x0631, 0xFEAE, 0x0632, 0xFEB0, 0xFEB3, 0xFEB4, 0xFEB2,
+  0x0633, 0xFEB7, 0xFEB8, 0xFEB6, 0x0634, 0xFEBB, 0xFEBC, 0xFEBA,
+  0x0635, 0xFEBF, 0xFEC0, 0xFD3E, 0xFEBE, 0xFD3F, 0x0636, 0xFEC3,
+  0xFC9C, 0xFC9D, 0xFC9E, 0xFCA1, 0xFCA2, 0xFCA3, 0xFCC9, 0xFCCA,
+  0xFCCB, 0xFCCE, 0xFCCF, 0xFCD0, 0xFCD2, 0xFCD3, 0xFCD4, 0xFCDA,
+  0xFCDB, 0xFCDC, 0xFC6D, 0xFC73, 0xFC94, 0xFC43, 0xFC9F, 0xFCA4,
+  0xFCD5, 0xFCDD, 0xFCA8, 0xFCAA, 0xFCAC, 0xFCCC, 0xFCD1, 0xFC32,
+  0x00A0, 0xFEC2, 0x0637, 0xFEC7, 0xFEC8, 0xFEC6, 0x0638, 0xFECB,
+  0xFECC, 0xFECA, 0x0639, 0xFECF, 0xFED0, 0xFECE, 0x063A, 0xFED3,
+  0xFED4, 0xFED2, 0x0641, 0xFED7, 0xFED8, 0xFED6, 0x0642, 0xFEDB,
+  0xFEDC, 0xFEDA, 0x0643, 0xFEDF, 0xFEE0, 0xFEDE, 0x0644, 0xFEE3,
+  0xFEE4, 0xFEE2, 0x0645, 0xFEE7, 0xFEE8, 0xFEE6, 0x0646, 0xFEEB,
+  0xFEEC, 0xFEEA, 0x0647, 0x0648, 0xFEEE, 0xFEF3, 0xFEF4, 0xFEF2,
+  0x064A, 0x0629, 0xFE94, 0xFEF0, 0x0649, 0x0621, 0xFE8B, 0xFE8C,
+  0xFE8A, 0x0626, 0x0624, 0xFE86, 0xFEFB, 0xFEFC, 0xFEF7, 0xFEF8,
+  0xFEF5, 0xFEF6, 0xFEF9, 0xFEFA, 0x0000, 0x0000, 0x0000, 0x0000,
+  0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+  0x0000, 0xFEC4, 0x064E, 0x064F, 0x0652, 0x064B, 0x064C, 0x0651,
+  0x0650, 0x064D, 0xFC60, 0xFC61, 0x0000, 0xFC5E, 0xFC62, 0xFC5F,
+]
+
+
+proc variationGlyph*(f: Face; cp, vs: int): int =
+  ## The glyph the font draws character `cp` with when variation selector `vs` (U+FE00..FE0F,
+  ## U+E0100..E01EF: a CJK ideograph's variant, an emoji's text or picture form) follows it, from
+  ## its variation sequences (cmap format 14); -1 when it has none for the pair.
+  if f.uvs <= 0: return -1
+  let t = f.uvs
+  proc u24(i: int): int = (f.u16(i) shl 8) or (f.u16(i + 2) shr 8)
+  var lo = 0
+  var hi = f.u32(t + 6) - 1
+  while lo <= hi:
+    let m = (lo + hi) div 2
+    let r = t + 10 + 11 * m
+    let v = u24(r)
+    if v < vs: lo = m + 1
+    elif v > vs: hi = m - 1
+    else:
+      let dflt = f.u32(r + 3)
+      let nd = f.u32(r + 7)
+      if nd != 0:
+        var a = 0
+        var b = f.u32(t + nd) - 1
+        while a <= b:
+          let k = (a + b) div 2
+          let u = u24(t + nd + 4 + 5 * k)
+          if u < cp: a = k + 1
+          elif u > cp: b = k - 1
+          else: return f.u16(t + nd + 4 + 5 * k + 3)
+      if dflt != 0:
+        for k in 0 ..< f.u32(t + dflt):
+          let s = u24(t + dflt + 4 + 4 * k)
+          if cp >= s and cp <= s + (f.u16(t + dflt + 4 + 4 * k + 2) and 0xFF):
+            let g = f.glyphOf(cp)
+            return if g != 0: g else: -1
+      return -1
+  -1
 proc subtableGlyph(f: Face; t, code: int): int =
   ## (a character map subtable of format 0, 4 or 6: the glyph of `code`)
   case f.u16(t)
@@ -436,6 +527,13 @@ proc bounds*(f: Face; g: int): tuple[x0, y0, x1, y1: int] =
   if b - a < 10: return
   (f.i16(a + 2), f.i16(a + 4), f.i16(a + 6), f.i16(a + 8))
 
+proc leftBearing*(f: Face; g: int): int =
+  ## The left side bearing of glyph `g` in font units, as the font's metrics give it (`hmtx`; a
+  ## variable font: where its outline starts at its axis values).
+  if f.coords.len > 0 or f.numHMetrics == 0: return f.bounds(g).x0
+  if g < f.numHMetrics: f.i16(f.hmtx + 4 * g + 2)
+  else: f.i16(f.hmtx + 4 * f.numHMetrics + 2 * (g - f.numHMetrics))
+
 proc readOutline(f: Face; g: int; o: var Outline; depth = 0;
                  m: array[6, float32] = [1'f32, 0, 0, 1, 0, 0]) =
   ## Appends the contours of glyph `g`, transformed by the 2x3 matrix `m`.
@@ -581,9 +679,11 @@ proc readNames(f: Face; nameTab: int) =
   f.style = if best[3].s.len > 0: best[3].s elif best[1].s.len > 0: best[1].s else: "Regular"
 
 proc fontCount*(data: string): int =
-  ## How many faces a font file holds (more than one: a .ttc collection).
+  ## How many faces a font file holds (more than one: a .ttc collection, or a Windows bitmap
+  ## font's sizes).
   if data.len >= 16 and data[0 .. 3] == "ttcf":
     ((ord(data[8]) shl 24) or (ord(data[9]) shl 16) or (ord(data[10]) shl 8) or ord(data[11]))
+  elif isBitmapFon(data): fonFaces(data).len
   elif data.len >= 4: 1
   else: 0
 
@@ -613,16 +713,44 @@ proc sfntOf*(data: string; index: int): string =
     while body.len mod 4 != 0: body.add '\0'
   result.add body
 
-proc faceInfo*(f: File): seq[tuple[family, style: string; weight: int; italic: bool; index: int;
-                                  variable: bool]] =
+type FaceInfo* = tuple[family, style: string; weight: int; italic: bool; index: int;
+                       variable, symbol: bool]
+  ## What `faceInfo` tells of a face.
+
+proc faceInfoOf(readAt: proc (pos, n: int): string {.gcsafe.}; size: int): seq[FaceInfo] {.gcsafe.}
+
+proc faceInfoData*(data: string): seq[FaceInfo] =
+  ## `faceInfo` of a font file's bytes.
+  faceInfoOf(proc (pos, n: int): string =
+    if pos < 0 or pos >= data.len or n <= 0: "" else: data[pos ..< min(data.len, pos + n)],
+    data.len)
+
+proc faceInfo*(f: File): seq[FaceInfo] =
   ## `faceInfo` of a font file open already (a document a phone's provider gave).
-  proc readAt(f: File; pos, n: int): string =
-    result = newString(n)
+  let size = int(getFileSize(f))
+  faceInfoOf(proc (pos, n: int): string =
+    result = newString(max(n, 0))
     f.setFilePos(pos)
     if n > 0:
       let got = f.readBuffer(addr result[0], n)
-      result.setLen(got)
-  let head = f.readAt(0, 16)
+      result.setLen(got),
+    size)
+
+proc faceInfoOf(readAt: proc (pos, n: int): string {.gcsafe.}; size: int): seq[FaceInfo] {.gcsafe.} =
+  let head = readAt(0, 16)
+  # (the other kinds: read whole -- a web font, a Windows bitmap font, a PostScript Type 1 one)
+  if head.len >= 4 and size <= 40_000_000 and
+     (head[0 .. 3] == "wOFF" or isBitmapFon(head & readAt(16, 160)) or isType1(head)):
+    let all = readAt(0, size)
+    if (all.len >= 4 and all[0 .. 3] == "wOFF"):
+      let s = woffToSfnt(all)
+      return if s.len > 0: faceInfoData(s) else: @[]
+    if isBitmapFon(all):
+      for i, x in fonFaces(all): result.add (x.family, x.style, x.weight, x.italic, i, false, false)
+      return
+    let t = type1Info(all)
+    if t.ok: result.add (t.family, t.style, t.weight, t.italic, 0, false, false)
+    return
   if head.len < 12: return
   var offsets: seq[int]
   proc be32(s: string; i: int): int =
@@ -631,50 +759,64 @@ proc faceInfo*(f: File): seq[tuple[family, style: string; weight: int; italic: b
   if head[0 .. 3] == "ttcf":
     let n = be32(head, 8)
     if n <= 0 or n > 64: return
-    let offs = f.readAt(12, 4 * n)
+    let offs = readAt(12, 4 * n)
     if offs.len < 4 * n: return
     for i in 0 ..< n: offsets.add be32(offs, 4 * i)
   else: offsets.add 0
   for idx, at in offsets:
-    let hdr = f.readAt(at, 12)
+    let hdr = readAt(at, 12)
     if hdr.len < 12: continue
     if hdr[0 .. 3] notin ["\x00\x01\x00\x00", "true", "OTTO"]: continue
     let n = be16(hdr, 4)
     if n <= 0 or n > 200: continue
-    let dir = f.readAt(at + 12, 16 * n)
+    let dir = readAt(at + 12, 16 * n)
     if dir.len < 16 * n: continue
-    var nameAt, nameLen, os2At, os2Len = 0
+    var nameAt, nameLen, os2At, os2Len, cmapAt = 0
     var glyf, fvar = false
     for i in 0 ..< n:
       let tag = dir[16 * i ..< 16 * i + 4]
       if tag == "name": (nameAt, nameLen) = (be32(dir, 16 * i + 8), be32(dir, 16 * i + 12))
       elif tag == "OS/2": (os2At, os2Len) = (be32(dir, 16 * i + 8), be32(dir, 16 * i + 12))
-      elif tag == "glyf" or tag == "CFF ": glyf = true   # (CFF: made TrueType when it is read)
+      elif tag in ["glyf", "CFF ", "CFF2"]: glyf = true   # (CFF: made TrueType when it is read)
       elif tag == "CBDT" or tag == "sbix": glyf = true   # (a font of pictures: emoji)
       elif tag == "fvar": fvar = true
+      elif tag == "cmap": cmapAt = be32(dir, 16 * i + 8)
     if not glyf or nameLen <= 0 or nameLen > 1_000_000: continue
-    let fake = Face(src: FontSrc(bytes: f.readAt(nameAt, nameLen)))
+    let fake = Face(src: FontSrc(bytes: readAt(nameAt, nameLen)))
     fake.readNames(0)
     if fake.family.len == 0: continue
     var weight = 400
     var italic = false
     if os2Len >= 64:
-      let o = f.readAt(os2At, 64)
+      let o = readAt(os2At, 64)
       if o.len >= 64:
         weight = be16(o, 4)
+        if weight in 1 .. 9: weight *= 100      # (the old scale of 1 to 9)
         italic = (be16(o, 62) and 1) != 0
     let st = fake.style
     for w in ["Italic", "Oblique"]:
       for k in 0 .. st.len - w.len:
         if st[k ..< k + w.len] == w: italic = true
-    result.add (fake.family, fake.style, weight, italic, idx, fvar)
+    # (no Unicode map: a symbol font, or an Arabic one of before Unicode)
+    var symbol = cmapAt > 0
+    if cmapAt > 0:
+      let h = readAt(cmapAt, 4)
+      let m = if h.len == 4: min(be16(h, 2), 64) else: 0
+      let recs = readAt(cmapAt + 4, 8 * m)
+      for i in 0 ..< recs.len div 8:
+        let pid = be16(recs, 8 * i)
+        let eid = be16(recs, 8 * i + 2)
+        if pid == 0 or pid == 3 and eid in [1, 10]: symbol = false
+    result.add (fake.family, fake.style, weight, italic, idx, fvar, symbol)
 
 
-proc faceInfo*(path: string): seq[tuple[family, style: string; weight: int; italic: bool; index: int;
-                                       variable: bool]] =
+proc faceInfo*(path: string): seq[FaceInfo] =
   ## The faces a font file holds (their names, weight and slant, whether it
-  ## is a variable font), read without loading it: TrueType outlines and
-  ## CFF ones (.ttf, .otf, .ttc, .otc; CFF2's not). Empty when it is not one.
+  ## is a variable font, whether it has no Unicode character map -- a symbol
+  ## font, or an Arabic one of before Unicode), read without loading it:
+  ## TrueType outlines and CFF ones (.ttf, .otf, .ttc, .otc; CFF2's too),
+  ## WOFF web fonts, Windows bitmap fonts (.fon, .fnt: each size a face)
+  ## and PostScript Type 1 ones (.pfb, .pfa). Empty when it is not one.
   var f: File
   if not open(f, path): return
   defer: close(f)
@@ -684,8 +826,22 @@ proc parseFace*(data: string; index = 0; loose = false): Face =
   ## A face from the bytes of a .ttf file (or the `index`th of a .ttc).
   ## `loose`: a font cut down to what a document uses (a PDF's), which may
   ## have no character map -- its glyphs are reached by number.
-  let f = Face(src: FontSrc(bytes: data))
   if data.len < 12: fail("not a font file")
+  # (the other kinds, made TrueType first: retroui/fontconv)
+  if data[0 .. 3] == "wOFF":
+    let s = woffToSfnt(data)
+    if s.len == 0: fail("a damaged WOFF web font")
+    return parseFace(s, index, loose)
+  if data[0 .. 3] == "wOF2": fail("a WOFF2 web font (Brotli-packed): not read -- its .ttf or .woff is")
+  if isBitmapFon(data):
+    let s = fonToSfnt(data, index)
+    if s.len == 0: fail("a Windows font of lines (a vector .fon), or a damaged bitmap one")
+    return parseFace(s, 0, loose)
+  if isType1(data):
+    let s = type1ToSfnt(data)
+    if s.len == 0: fail("a damaged PostScript Type 1 font")
+    return parseFace(s, 0, loose)
+  let f = Face(src: FontSrc(bytes: data))
   var at = 0
   if data[0 .. 3] == "ttcf":
     if index < 0 or index >= fontCount(data) or 12 + 4 * index + 4 > data.len: fail("no such face")
@@ -734,14 +890,66 @@ proc parseFace*(data: string; index = 0; loose = false): Face =
     let eid = f.u16(r + 2)
     let off = cm + f.u32(r + 4)
     let fmt = f.u16(off)
+    if fmt == 14 and pid == 0 and eid == 5: f.uvs = off
     let score =
-      if fmt == 12 and (pid == 3 and eid == 10 or pid == 0): 3
-      elif fmt == 4 and (pid == 3 and eid == 1 or pid == 0): 2
+      if fmt == 12 and (pid == 3 and eid == 10 or pid == 0): 4
+      elif fmt == 4 and (pid == 3 and eid == 1 or pid == 0): 3
+      elif fmt == 13 and (pid == 3 and eid == 10 or pid == 0): 2   # (a last-resort font's ranges)
+      elif fmt == 6 and (pid == 3 and eid == 1 or pid == 0): 1
       else: 0
     if score > best:
       best = score
       f.cmap = off
       f.cmapFormat = fmt
+  if best == 0 and cm >= 0:
+    # (no Unicode map: an Arabic font of before Unicode, its glyphs at 0xF200 + a byte -- the
+    # characters given the glyphs their shapes are, `legacyArabic`)
+    for i in 0 ..< f.u16(cm + 2):
+      let r = cm + 4 + 8 * i
+      if f.u16(r) != 3 or f.u16(r + 2) != 0: continue
+      let t = cm + f.u32(r + 4)
+      if f.subtableGlyph(t, 0xF241) == 0 or f.subtableGlyph(t, 0xF2C7) == 0 or
+         f.subtableGlyph(t, 0xF041) != 0: continue
+      for b in 0 .. 255:
+        let g = f.subtableGlyph(t, 0xF200 + b)
+        if g == 0: continue
+        # (and at its own code: HarfBuzz's Arabic fallback names a few ligatures by it -- lam lam
+        # heh at 0xF201)
+        f.legacy[int32(0xF200 + b)] = int32(g)
+        let cp = int32(legacyArabic[b])
+        if cp != 0 and not f.legacy.hasKey(cp): f.legacy[cp] = int32(g)
+      # (a letter typed is its isolated form here, and the other way round; the shaper picks
+      # the other forms)
+      for (letter, forms) in arabicForms:
+        let iso = int32(forms[0])
+        let l = int32(letter)
+        if iso == 0: continue
+        if f.legacy.hasKey(iso) and not f.legacy.hasKey(l): f.legacy[l] = f.legacy[iso]
+        elif f.legacy.hasKey(l) and not f.legacy.hasKey(iso): f.legacy[iso] = f.legacy[l]
+      break
+    if f.legacy.len == 0:
+      # (a symbol font -- Wingdings, Symbol, Webdings: what is typed is a byte, its glyph at
+      # 0xF000 + it (or at the byte itself), as Windows and HarfBuzz have it; a font with only a
+      # Mac map: its Mac Roman characters)
+      for want in [(3, 0), (1, 0)]:
+        for i in 0 ..< f.u16(cm + 2):
+          let r = cm + 4 + 8 * i
+          if f.u16(r) != want[0] or f.u16(r + 2) != want[1]: continue
+          let t = cm + f.u32(r + 4)
+          for b in 0 .. 255:
+            if want[0] == 3:
+              var g = f.subtableGlyph(t, 0xF000 + b)
+              if g == 0: g = f.subtableGlyph(t, b)
+              if g == 0: continue
+              f.legacy[int32(0xF000 + b)] = int32(g)
+              if b >= 0x20: f.legacy[int32(b)] = int32(g)
+            else:
+              let g = f.subtableGlyph(t, b)
+              if g == 0: continue
+              let u = if b < 0x80: b else: unicodeOfGlyphName(macRomanEncoding[b])
+              if u > 0 and not f.legacy.hasKey(int32(u)): f.legacy[int32(u)] = int32(g)
+          break
+        if f.legacy.len > 0: break
   for c in 32 .. 126:
     f.ascii[c] = 0
     f.ascii[c] = uint16(f.glyphOf(c))
@@ -768,6 +976,7 @@ proc parseFace*(data: string; index = 0; loose = false): Face =
     let o = tables["OS/2"]
     if o + 64 <= data.len:
       f.weight = f.u16(o + 4)
+      if f.weight in 1 .. 9: f.weight *= 100     # (the old scale of 1 to 9: Windows 3.1's fonts)
       f.italic = (f.u16(o + 62) and 1) != 0
   if "post" in tables:
     let p = tables["post"]
@@ -785,6 +994,17 @@ proc parseFace*(data: string; index = 0; loose = false): Face =
   f.stem = -1
   f.findZones()
   f
+
+
+proc fontProblemOf*(data: string): string =
+  ## Why the bytes of a file are no font the kit can draw -- a kind it does not read, a damaged
+  ## one --, in a few words; "" when they are one.
+  if data.len < 12: return "too short to be a font"
+  if data[0 .. 3] == "wOF2": return "a WOFF2 web font (Brotli-packed): its .ttf or .woff is read"
+  try:
+    discard parseFace(data, 0)
+    ""
+  except CatchableError as e: e.msg
 
 proc findZones(f: Face) =
   ## The alignment zones from the Latin letters, for hinting small sizes.

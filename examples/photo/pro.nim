@@ -1254,6 +1254,40 @@ proc propertiesBody(d: Doc) =
               for j in d.blockStart(k) .. k: ls.add d.layers[j]
             else: ls.add L
             d.stepOnce("Move", proc () = d.shiftLayers(ls, dx, dy))
+  # how text keeps out of it (the Text Wrap panel has the rest)
+  if not L.background and not L.group and L.adjust.kind.len == 0:
+    group("Text Wrap"):
+      # (its way on a line of its own, the button under it at the right: a narrow panel has room
+      # for both)
+      label(["None: text runs over it", "Round its box", "Round its shape", "Jump over it",
+             "To the next column"][clamp(L.wrap, 0, 4)], color = ui.theme.gray)
+      row:
+        spring()
+        if button("Text Wrap...", w = dp(104)): showPanel("textwrap")
+      tooltip("The Text Wrap panel (Ctrl+Shift+W): how text keeps out of this layer, how far")
+  # on an artboard: how it follows the board's size (Constraints)
+  block constraints:
+    let k = d.layers.find(L)
+    var onBoard = false
+    for i in d.artboards:
+      if i != k and d.blockStart(i) <= k and k < i and L.depth == d.layers[i].depth + 1: onBoard = true
+    if onBoard:
+      group("Constraints"):
+        var pins = L.pins
+        row:
+          for (p, lab) in [(lpLeft, "Left"), (lpRight, "Right"), (lpTop, "Top"), (lpBottom, "Bottom")]:
+            var on = p in pins
+            if checkbox(lab, on):
+              if on: pins.incl p else: pins.excl p
+        row:
+          for (p, lab) in [(lpCenterX, "Center Across"), (lpCenterY, "Center Down"), (lpScale, "Scale")]:
+            var on = p in pins
+            if checkbox(lab, on):
+              if on: pins.incl p else: pins.excl p
+        if pins != L.pins:
+          d.layersChange("Constraints"): L.pins = pins
+        label(if L.pins == {}: "None: it stays where it is when the artboard changes size."
+              else: "When the artboard changes size it follows (both sides: it stretches).", color = ui.theme.gray)
   # what the kind of layer has
   if L.group:
     group("Group"):

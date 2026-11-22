@@ -286,11 +286,23 @@ proc nearestPathPoint(d: Doc; x, y, radius: float): tuple[ok: bool; pts: seq[(fl
         result = (true, pts, float32(along + u * l))
       along += l
 
-proc needPixels(d: Doc; then = ""): bool =
+proc needPixels(d: Doc; then = ""; paint = false): bool =
   ## Whether the layer painted on is pixels; if it is type, the question
-  ## to rasterize it is asked (then `then` is run) and false.
+  ## to rasterize it is asked (then `then` is run) and false. `paint`: a
+  ## brush stroke -- on type, a shape, a group, an adjustment or a fill, a new
+  ## pixel layer above it takes it (`prefs.autoPixelLayer`, Affinity's way).
   if d == nil or d.quickMask or d.editMask: return true
   let L = d.current
+  if paint and prefs.autoPixelLayer and not L.locked and not L.background and
+     (L.group or L.isText or L.isShape or L.isSmart or L.adjust.kind.len > 0 or L.isFill):
+    let was = L.name
+    if te.on: commitType()
+    d.beginStep("New Layer")
+    d.touchLayers()
+    discard d.addLayer("")
+    d.endStep()
+    status = "A new layer for the paint (\"" & was & "\" is not pixels): Preferences > Performance"
+    return true
   if L.group:
     status = "\"" & L.name & "\" is a group: pick one of its layers."
     return false

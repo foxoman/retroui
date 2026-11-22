@@ -57,7 +57,7 @@ proc paintOf(p: ShapePaint; id: string; box: Rect; defs: var string): string =
         for x in 0 ..< bw:
           let u = (x.float + 0.5) / bw.float
           let v = (y.float + 0.5) / bh.float
-          b.px[y * bw + x] = if p.style == 5: freeformAt(p.points, u, v) else: meshAt(p.points, p.meshCols, u, v)
+          b.px[y * bw + x] = if p.style == 5: freeformColor(p, u, v) else: meshAt(p.points, p.meshCols, u, v)
       b.opaque = false
       defs.add "<pattern id=\"" & id & "\" patternUnits=\"userSpaceOnUse\" x=\"" & num(box.x.float) & "\" y=\"" &
                num(box.y.float) & "\" width=\"" & num(max(1, box.w).float) & "\" height=\"" & num(max(1, box.h).float) &

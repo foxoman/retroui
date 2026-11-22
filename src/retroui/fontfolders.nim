@@ -205,6 +205,8 @@ var
   scanDirs: seq[ScanDir]
   scanFiles: seq[ScanFile]
   scanFams: seq[seq[string]]           # (each folder's families, as they are found)
+  scanSkipped: seq[(string, string)]   # (the font files it could not read, and why)
+  skippedOf: Table[string, seq[(string, string)]]   # (each folder's, when it was last looked through)
   scanIndex = newJObject()             # (each font file's faces, by its path or document)
   scanUsed: HashSet[string]            # (the files of the index still there)
   scanStop = false
@@ -231,16 +233,16 @@ proc offer(folder: int; file: string; faces: JsonNode) =
     if fam.len == 0: continue
     let path = if f.kind == ffTree: docPrefix(f.place.split('\t')[0]) & file & ">" else: file
     addFontFile(fam, fj{"style"}.getStr, path, fj{"weight"}.getInt(400), fj{"italic"}.getBool,
-                fj{"index"}.getInt)
+                fj{"index"}.getInt, fj{"symbol"}.getBool)
     if fam notin scanFams[folder]: scanFams[folder].add fam
     inc scan.found
 
 proc facesJson(fs: seq[tuple[family, style: string; weight: int; italic: bool; index: int;
-                             variable: bool]]): JsonNode =
+                             variable, symbol: bool]]): JsonNode =
   result = newJArray()
   for fi in fs:
     result.add %*{"family": fi.family, "style": fi.style, "weight": fi.weight, "index": fi.index,
-                  "italic": fi.italic}
+                  "italic": fi.italic, "symbol": fi.symbol}
 
 proc scanOne(): bool =
   ## (one step of looking: a file's faces, or a folder's list; false when there is nothing left)
@@ -250,8 +252,11 @@ proc scanOne(): bool =
     let key = it.file
     let known = scanIndex{key}
     scanUsed.incl key
-    if known != nil and known{"size"}.getBiggestInt == it.size and known{"modified"}.getBiggestInt == it.modified:
+    # (what it held when it was read before -- read again when that was by an older kit, "v")
+    if known != nil and known{"size"}.getBiggestInt == it.size and
+       known{"modified"}.getBiggestInt == it.modified and known{"v"}.getInt == 2:
       offer(it.folder, it.file, known{"faces"})
+      if known{"why"}.getStr.len > 0: scanSkipped.add (it.file, known{"why"}.getStr)
       return true
     var faces = newJArray()
     let f = scanList[it.folder]
@@ -263,7 +268,13 @@ proc scanOne(): bool =
           finally: close(fh)
     else:
       faces = facesJson(faceInfo(it.file))
-    scanIndex[key] = %*{"size": it.size, "modified": it.modified, "faces": faces}
+    # (a file of no face: why, said in the panel)
+    var why = ""
+    if faces.len == 0 and f.kind != ffTree and it.size <= 40_000_000:
+      why = try: fontProblemOf(readFile(it.file)) except IOError: "it could not be read"
+      if why.len == 0: why = "no face in it"
+      scanSkipped.add (it.file, why)
+    scanIndex[key] = %*{"size": it.size, "modified": it.modified, "faces": faces, "v": 2, "why": why}
     offer(it.folder, it.file, faces)
     return true
   if scanDirs.len > 0:
@@ -303,6 +314,7 @@ proc finishScan() =
   for i, f in scanList:
     scanFams[i].sort(cmpIgnoreCase)
     fontsOf[f.place] = scanFams[i]
+  skippedOf[scanApp] = scanSkipped
   # (the index: the files still there, so it does not grow with fonts taken away)
   if not scanStop:
     var kept = newJObject()
@@ -344,6 +356,7 @@ proc startScan(app: string) =
   scanFiles.setLen(0)
   scanUsed.clear()
   scanFams = newSeq[seq[string]](scanList.len)
+  scanSkipped.setLen(0)
   try:
     let old = parseFile(folderList(app)){"index"}
     scanIndex = if old != nil and old.kind == JObject: old else: newJObject()
@@ -439,6 +452,12 @@ proc storeFonts*(app: string; paths: openArray[string]): int =
 
 # ---- the panel ------------------------------------------------------------------------------------------
 
+proc unreadFontFiles*(app: string): seq[tuple[file, why: string]] =
+  ## The files in `app`'s font folders that looked like fonts and could not be read -- a kind the
+  ## kit does not read (a WOFF2 web font, a Windows font of lines), a damaged one --, and why,
+  ## as the last look through them found them.
+  for (f, w) in skippedOf.getOrDefault(app): result.add (f, w)
+
 proc fontFoldersPanel*(app: string) =
   ## The font folders of `app` -- each with its families --, and Add, Remove, Refresh: a settings
   ## page's part. Adding uses this system's way: a folder picked (the system's picker on a
@@ -463,6 +482,16 @@ proc fontFoldersPanel*(app: string) =
   else:
     pickSel = clamp(pickSel, -1, names.high)
     listbox(names, pickSel, rows = min(6, max(3, names.len)))
+    let bad = unreadFontFiles(app)
+    if bad.len > 0:
+      var s = $bad.len & (if bad.len == 1: tr(" file could not be read: ") else: tr(" files could not be read: "))
+      for i, (f, w) in bad:
+        if i == 2:
+          s.add tr(", and more")
+          break
+        if i > 0: s.add "; "
+        s.add f.extractFilename & " (" & w & ")"
+      label(s, color = ui.theme.gray)
   row:
     let web = platformName() == "web"
     if button(if web: "Add Fonts..." else: "Add Folder...", w = dp(110)):
@@ -502,6 +531,8 @@ proc fontFoldersPanel*(app: string) =
   else:
     if filePicker(picking, pickPath, fmFolder, [], "Add a Font Folder"):
       addFontFolder(app, FontFolder(name: pickPath.lastPathPart, kind: ffPath, place: pickPath))
-    if filePicker(storeOpen, storePath, fmOpen, ["*.ttf", "*.otf", "*.ttc", "*.otc"], "Add Fonts"):
+    var pats: seq[string]
+    for e in fontFileExts: pats.add "*" & e
+    if filePicker(storeOpen, storePath, fmOpen, pats, "Add Fonts"):
       discard storeFonts(app, [storePath])
   watchFontFolders(app)

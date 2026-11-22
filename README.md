@@ -860,8 +860,9 @@ variable font, nine weights from Thin to Black, each a style of its family
 -- Retro Atelier's new text is in it.
 
 **Crisp at every scale.** Glyphs are drawn by the kit's own TrueType
-engine (`retroui/ttf`; .otf fonts' PostScript outlines made TrueType as they are read:
-`retroui/cff`), at the screen's own resolution, on the CPU and the
+engine (`retroui/ttf`; .otf fonts' PostScript outlines -- CFF, and CFF2
+at its default instance -- made TrueType as they are read: `retroui/cff`),
+at the screen's own resolution, on the CPU and the
 same masks on the GPU: the coverage of each pixel computed exactly, in
 gray, the baseline, x-height, cap height and ascender set on whole pixels
 at small sizes (below 26 pixels to the em), the strokes as the font draws
@@ -877,6 +878,24 @@ Apple's emoji are; CBDT, as Noto Color Emoji is), turned and scaled with
 their text. A character no font of the text's has comes from an emoji
 font in the font folders. In a PDF the pictures go in as pictures and the
 other letters stay text. (The UI's own labels draw in one colour.)
+
+**Every font Windows has.** Besides TrueType and OpenType (.ttf, .otf,
+.ttc, .otc), the kit reads the older kinds and web fonts, each made a
+TrueType font as it is read (`retroui/fontconv`): the bitmap fonts of
+Windows (.fon, .fnt -- MS Sans Serif, Courier, Fixedsys, System,
+Terminal: each size a face of its own, "Regular 13px", each pixel a
+square, so they draw sharp at their size), PostScript Type 1 fonts (.pfb,
+.pfa: Adobe Type Manager's), WOFF web fonts. A symbol font (Wingdings,
+Symbol) is typed as Windows types it -- "a" gives its first picture --,
+the Arabic fonts of Windows 3.1 and 95 (Traditional Arabic, Simplified
+Arabic of then: no Unicode map) are read through their old encoding, and
+an Arabic font without shaping tables is joined and its marks placed as
+HarfBuzz does it. Hebrew and Thai are shaped as HarfBuzz's own shapers
+shape them (Hebrew's points in their order and, in a font that does not
+place them, its presentation forms; Thai and Lao's SARA AM taken apart). When two files have one family and style -- the old
+Traditional Arabic and today's -- the one with a Unicode map is drawn. A
+font folder lists the files it could not read and why
+(`unreadFontFiles`: a WOFF2 web font is not read yet).
 
 **Sharp text** (`setSubpixelText(true)`, or "Text edges: Sharp" in
 `appearanceSettings`; `RETRO_TEXT=sharp`) draws the letters in the
@@ -1396,6 +1415,18 @@ scroll bars.
   one and Ctrl+F4 or the close button closes; their content scrolls when it is taller. A pin
   in the title bar keeps one on top; `noPin = true` leaves it out (a
   window that is never kept on top, as Program Manager's groups).
+- **The command search** (`retroui/commandhud`): Ctrl+Shift+P in any app
+  with a menu bar opens a box where a few letters of each word find a
+  command in any of its menus and submenus ("sv as" is File > Save
+  As...), the ones chosen lately first; Enter does it as its menu would. It
+  reads the menus the app draws -- nothing to write; `commandHudKeys`
+  changes the keys ("" none: an app with a search of its own), and
+  `openCommandHud()` opens it from a menu item of your own.
+- **Placeholder text** (`retroui/lorem`): `lorem(3)` is three paragraphs
+  of Lorem Ipsum, `lorem(2, loremArabic)` two of Arabic written for the
+  kit, `lorem(4, loremBoth)` the two in turn (text of both directions, to
+  try a layout with); each paragraph three to five sentences, the same
+  each time. `loremWords(4, loremArabic)` for a title.
 - **Find and replace:** `findBar(state)` (Enter / F3 next, Shift+F3
   previous, Esc closes; Match case, Whole word, Replace, Replace all) with
   `findIn` and `replaceAllIn` for the text.
@@ -2377,7 +2408,12 @@ kit's (`retroui/photobook`, `retroui/textengine`, `retroui/imagetrace`, `retroui
 `retroui/pathtools`, `retroui/liveeffects`, `retroui/hijri`, `retroui/simd`, `retroui/inks`,
 `retroui/photoseps`, `retroui/mathtype`, `retroui/flexlayout`, `retroui/publish`,
 `retroui/photopublish`, `retroui/vectormake`, `retroui/photorelight`, `retroui/mockups`,
-`retroui/designstyles`, `retroui/aiconnect`, `retroui/quran`, `retroui/geopatterns`), for any app:
+`retroui/designstyles`, `retroui/aiconnect`, `retroui/quran`, `retroui/geopatterns`,
+`retroui/proctexture`, `retroui/lorem`), for any app. From the Affinity apps (Retro Atelier
+5.15): Procedural Texture (formulas per channel with noise, cells and waves, twelve presets),
+G2 curves (`smoothCurvature`), a freeform gradient spread by diffusion (`ShapePaint.diffuse`),
+Constraints for what is on an artboard (`Layer.pins`, `pinnedBox`), Symbols kept alike
+(`makeSymbol`, `insertSymbol`, `keepSymbols`) and an isometric grid (`isometric`):
 
 ```nim
 import retroui/[photo, photopdf, textengine]
@@ -3658,6 +3694,11 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_shm` | the frame drawn into memory shared with the X server and what the window then shows, with and without it (`RETRO_SURFACE=0`) |
 | `test_designer` | Retro Designer: every example app read and drawn, each of their controls deleted and the file still Nim, every control of the Widget Box dropped into one app that compiles, moves, groups, events, properties, renames, undo, the lock on the file; several controls chosen with a box (and Ctrl, Shift, Ctrl+A) and a property set, moved, grouped and deleted on all of them at once; `windowBox`, `inert`, `showMenu` |
 | `test_cff` | .otf fonts with PostScript outlines: each glyph drawn as the same TrueType font draws it, its advances, Arabic shaped the same, its faces named, a PDF made with it; what is not such a font refused |
+| `test_fontkinds` | the other kinds of font file against the fonts they were made from: WOFF, a Windows bitmap font (each size a face, on the pixel grid, sharp at its size), PostScript Type 1 (outlines and advances as FreeSerif's, an accented letter made of two), a symbol font typed as Windows types it, CFF2 at its default, variation sequences (cmap 14), an Arabic font of before Unicode; all of them listed from a font folder |
+| `test_commandhud` | the command search in a window with menus: its keys open it, every menu and submenu walked without being drawn, a few letters of each word find a command, Enter does it, the one done last first, a command that cannot be chosen now not done, Esc closes it |
+| `test_lorem` | placeholder text: as many paragraphs as asked, Lorem Ipsum, Arabic (no Latin letters, Arabic-Indic digits) or the two in turn, three to five sentences each, neighbours not alike, the same each time; a few words; cut at a sentence's end |
+| `test_proctexture` | Procedural Texture: formulas read and what is wrong with one said, each value and function, a channel left as it was, the shared value and the sliders, noise smooth and within 0..1, every preset read, clouds varying, the checkerboard's squares exact, the vignette dark at the corners only |
+| `test_photoaffinity` | Retro Atelier 5.15 as a program: studios kept, deleted, exported and imported; a help card for every tool of the toolbar; paint on type making a pixel layer; a live blend following its end and expanded; Hue Curves; the Mask Brush (a mask made, black hides, Alt shows, the pixels untouched, the Background made a layer); the Tone Brush; Procedural Texture's dialog; an artboard sized by its corner with what is on it following its Constraints; Symbols made, inserted, kept alike and detached; each new menu command run by its name doing its work; Fill with Placeholder Text (Arabic, paragraphs, added after, as many as fill the box, your own, the choices kept) |
 | `test_colorfonts` | colour fonts: COLR/CPAL layers, sbix and CBDT pictures and a layer in the text's own colour, found by the font reader, drawn by the text engine, in PDF and SVG |
 | `test_threed`, `test_dimensions` | 3D on shapes (extruded, bevelled, revolved, inflated: faces of their own shade, kept in the file, in SVG and PDF); dimensions fixed to what they measure, drawn again when it moves, in another unit, undone, kept |
 | `test_dxf`, `test_psvector` | DXF drawings opened as shape layers by layer and colour (lines, arcs, splines, text, blocks); PostScript's drawing read as shapes (drawing programs' short names, holes, curves, CMYK), an endless loop stopped |

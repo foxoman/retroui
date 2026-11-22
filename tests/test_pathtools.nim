@@ -352,4 +352,30 @@ block pixelGridAndStrokeGradients:
   let mid = px[50 * 200 + 100]
   doAssert abs(int((mid shr 16) and 255) - int(mid and 255)) < 60, "across: between them in the middle"
 
+block smoothCurvatureG2:
+  # (an egg of four points, its handles uneven: the curve bends more on one side of each point
+  # than on the other; made G2, it bends as much on both)
+  var sp = SubPath(closed: true)
+  sp.pts.add PathPoint(p: (100.0, 20.0), inH: (60.0, 20.0), outH: (130.0, 20.0))
+  sp.pts.add PathPoint(p: (180.0, 100.0), inH: (180.0, 40.0), outH: (180.0, 150.0))
+  sp.pts.add PathPoint(p: (100.0, 160.0), inH: (150.0, 160.0), outH: (70.0, 160.0))
+  sp.pts.add PathPoint(p: (20.0, 100.0), inH: (20.0, 120.0), outH: (20.0, 60.0))
+  let egg = Path(subs: @[sp])
+  doAssert pathCurvatureJump(egg) > 0.5, "uneven before: " & $pathCurvatureJump(egg)
+  let g2 = smoothCurvature(egg)
+  doAssert pathCurvatureJump(g2) < 0.05, "G2: the curvature the same on both sides: " & $pathCurvatureJump(g2)
+  for i in 0 ..< 4:
+    let q = g2.subs[0].pts[i]
+    doAssert q.p == sp.pts[i].p, "the points stay"
+    let (ax, ay) = (q.outH[0] - q.p[0], q.outH[1] - q.p[1])
+    let (bx, by) = (q.p[0] - q.inH[0], q.p[1] - q.inH[1])
+    doAssert abs(ax * by - ay * bx) < 1e-6 * hypot(ax, ay) * hypot(bx, by) + 1e-9, "its handles in line"
+  # (a corner stays a corner; an open path's ends are kept)
+  var c = SubPath(closed: false)
+  c.pts.add PathPoint(p: (0.0, 0.0), inH: (0.0, 0.0), outH: (30.0, 0.0))
+  c.pts.add PathPoint(p: (100.0, 0.0), inH: (70.0, 0.0), outH: (100.0, 30.0))
+  c.pts.add PathPoint(p: (100.0, 100.0), inH: (100.0, 70.0), outH: (100.0, 100.0))
+  let k = smoothCurvature(Path(subs: @[c]))
+  doAssert k.subs[0].pts == c.pts, "a corner (90 degrees) and the ends: as they were"
+
 echo "test_pathtools: ok"

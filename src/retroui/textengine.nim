@@ -25,9 +25,11 @@ from gfx import Bitmap
 from imaging import decodePng
 
 const defaultFamily* = "FreeSans"
-const fontFileExts* = [".ttf", ".ttc", ".otf", ".otc"]
+const fontFileExts* = [".ttf", ".ttc", ".otf", ".otc", ".woff", ".woff2", ".fon", ".fnt", ".pfb", ".pfa"]
   ## The font files offered from a folder: TrueType outlines and CFF ones (made TrueType when
-  ## read: retroui/cff), alone or in a collection.
+  ## read: retroui/cff), alone or in a collection; WOFF web fonts, the bitmap fonts of Windows
+  ## and PostScript Type 1 fonts (made TrueType when read: retroui/fontconv). (WOFF2 is looked
+  ## at to say it is not read: `unreadFontFiles`.)
   ## The family of new text
 
 # ---- fonts ------------------------------------------------------------------------------------------------
@@ -41,6 +43,8 @@ type
     builtin*: FaceId           ## a built-in face: which (`path` "")
     weight*: int               ## 100 (thin) .. 900 (black); 400 regular, 700 bold
     italic*: bool              ## italic or oblique
+    symbol*: bool              ## no Unicode character map (a symbol font, an Arabic one of before
+                               ## Unicode): a face of the family and style that has one goes first
 
 var
   catalog: seq[FontEntry]
@@ -117,13 +121,15 @@ var fontReader*: proc (path: string): string {.nimcall, gcsafe.}
   ## Reads a font the program cannot open by its path -- a phone's folder given through its
   ## picker ("<doc:...>", `retroui/fontfolders`) --: its bytes ("" when it is not there).
 
-proc addFontFile*(family, style, path: string; weight = 400; italic = false; index = 0) =
+proc addFontFile*(family, style, path: string; weight = 400; italic = false; index = 0;
+                  symbol = false) =
   ## Offers a font file as `family` / `style` without reading it now: read the first time it
   ## draws (a path starting with "<" through `fontReader`). Again with the same family, style
-  ## and path: nothing.
+  ## and path: nothing. `symbol`: it has no Unicode character map (`faceInfo` says).
   for e in fileFonts:
     if e.family == family and e.style == style and e.path == path: return
-  let e = FontEntry(family: family, style: style, path: path, index: index, weight: weight, italic: italic)
+  let e = FontEntry(family: family, style: style, path: path, index: index, weight: weight, italic: italic,
+                    symbol: symbol)
   fileFonts.add e
   if scanned: catalog.add e
 
@@ -237,10 +243,15 @@ proc scanDirs(dirs: seq[string]): seq[FontEntry] =
       for fi in faceInfo(path):
         let key = fi.family & "/" & fi.style
         let e = FontEntry(family: fi.family, style: fi.style, path: path, index: fi.index,
-                          weight: fi.weight, italic: fi.italic)
+                          weight: fi.weight, italic: fi.italic, symbol: fi.symbol)
         if seen.hasKey(key):
-          let was = result[seen[key]].path.splitFile.ext.toLowerAscii
-          if was in [".otf", ".otc"] and ext in [".ttf", ".ttc"]: result[seen[key]] = e
+          # (two files of one family and style: one with a Unicode map before one without -- the
+          # Traditional Arabic of Windows 3.1 and today's -- then TrueType before CFF)
+          let old = result[seen[key]]
+          let was = old.path.splitFile.ext.toLowerAscii
+          if old.symbol and not e.symbol: result[seen[key]] = e
+          elif old.symbol == e.symbol and was in [".otf", ".otc"] and ext in [".ttf", ".ttc"]:
+            result[seen[key]] = e
           continue
         seen[key] = result.len
         result.add e
@@ -471,17 +482,23 @@ proc fontFace*(family, style: string): tuple[face: Face; fauxBold, fauxItalic: b
   let wantItalic = style.toLowerAscii.contains("italic") or style.toLowerAscii.contains("oblique")
   var best = -1
   var bestScore = -1
+  var exact = -1
   let list = if own: addr carriedList else: addr catalog
   for i, e in list[]:
     if e.family != family: continue
-    if e.style == style: return (entryFace(e), false, false)
-    var sc = 0
+    if e.style == style:
+      # (a face with a Unicode map before one without: a symbol font's, an old Arabic one's)
+      if not e.symbol: return (entryFace(e), false, false)
+      if exact < 0: exact = i
+      continue
+    var sc = if e.symbol: 0 else: 10
     if (e.weight >= 600) == wantBold: sc += 2
     if e.italic == wantItalic: sc += 3
     if e.weight == 400: inc sc
     if sc > bestScore:
       bestScore = sc
       best = i
+  if exact >= 0: return (entryFace(list[][exact]), false, false)
   if best < 0:
     for (old, now) in formerFonts:
       if cmpIgnoreCase(family, old) == 0 and now != family: return fontFace(now, style)

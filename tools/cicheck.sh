@@ -4,7 +4,7 @@
 # the Android driver on a fake Android, the tests as WebAssembly under Node
 # (when clang, wasm-ld and node are here), the tools built, the live check
 # and the pixel compare compiled (they run on the systems workflow), the
-# workflows' YAML read, Retro Atelier's Windows .exe (when MinGW is here).
+# workflows' YAML read, Retro Atelier's Windows .exe (with zig 0.15 and with MinGW, when here).
 #
 #   sh tools/cicheck.sh          (from the repository's root)
 #   sh tools/cicheck.sh quick    (no fuzz, no WebAssembly, the warnings of the
@@ -59,9 +59,13 @@ step tools sh -c 'nim c -d:release --hints:off -o:build/cicheck/retroapk src/ret
 step subfolders sh -c 'nim c --noNimblePath --hints:off --compileOnly tests/live/livecheck.nim &&
   nim c --noNimblePath --hints:off --compileOnly tools/live/compare.nim &&
   nim c --noNimblePath --hints:off --compileOnly tests/access/accesscheck.nim'
-# (Retro Atelier for Windows, as CI and the release build it: MinGW, link-time optimization)
+# (Retro Atelier for Windows, as CI and the release build it: zig 0.15's clang, ThinLTO; MinGW's
+# GCC too when it is here)
+if [ "$quick" != quick ] && python3 -c "import ziglang" 2>/dev/null; then
+  step atelier-windows sh -c 'RETRO_WINCC=zig RETRO_APP=photo nimble exe -y'
+fi
 if [ "$quick" != quick ] && command -v x86_64-w64-mingw32-gcc >/dev/null; then
-  step atelier-windows sh -c 'RETRO_APP=photo nimble exe -y'
+  step atelier-windows-gcc sh -c 'RETRO_WINCC=gcc RETRO_APP=photo nimble exe -y'
 fi
 echo "cicheck: $failed failed"
 exit $failed

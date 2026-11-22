@@ -87,6 +87,7 @@ type
   GError {.importc, header: "<glib.h>", incompleteStruct.} = object
   GObject {.importc, header: "<glib-object.h>", incompleteStruct.} = object
   GAsyncResult {.importc, header: "<gio/gio.h>", incompleteStruct.} = object
+  PangoAttrList {.importc, header: "<pango/pango.h>", incompleteStruct.} = object
 
 const
   G_FALSE = gboolean(0)
@@ -471,14 +472,15 @@ proc onImCommit(ctx: pointer; str: cstring; data: pointer) {.cdecl.} =
   if str != nil:
     enqueueTextFromUtf8($str)
 
-proc gtk_im_context_get_preedit_string(im: pointer; str: ptr cstring; attrs: ptr pointer;
+# (typed as GTK's header has them: GCC 14 and later stop on a pointer of another type)
+proc gtk_im_context_get_preedit_string(im: pointer; str: ptr cstring; attrs: ptr ptr PangoAttrList;
                                        cursor: ptr cint) {.importc, nodecl, cdecl.}
-proc pango_attr_list_unref(l: pointer) {.importc, nodecl, cdecl.}
+proc pango_attr_list_unref(l: ptr PangoAttrList) {.importc, nodecl, cdecl.}
 
 proc onImPreedit(ctx: pointer; data: pointer) {.cdecl.} =
   ## What the input method composes changed: the app draws it in the text box.
   var str: cstring
-  var attrs: pointer
+  var attrs: ptr PangoAttrList
   var cursor: cint
   gtk_im_context_get_preedit_string(ctx, addr str, addr attrs, addr cursor)
   var e = Event(kind: TextEditingEvent)

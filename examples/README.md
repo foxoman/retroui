@@ -218,6 +218,22 @@ and Relight see the photo's own depth, and **Type > Text in Picture**
 reads the text in a photo or a scan (English, Chinese, Arabic) -- to copy,
 or added as type where it was.
 
+**From the Affinity apps** (5.15): Window > Workspace keeps **studios**
+of your own (the panels, the toolbar's tools, the options bar) and
+exports them to another computer; resting on a tool shows **a card** of
+what it does and its keys (F1: its help); a brush stroke on type or a
+shape goes on **a new pixel layer**; the Brush tool's **Mask Brush**
+paints the layer's mask and its **Tone Brush** dodges and burns on a Tone
+layer that can be taken away; **Hue Curves**; **live blends** whose
+steps follow their ends; **Symbols** (Layer > Symbols: change one
+instance and the others change the same); **Constraints** in Properties
+for what is on an artboard, the Artboard tool sizing a board by its
+corner; **Smooth Curvature (G2)**; a **Diffusion** freeform gradient;
+Filter > Render > **Procedural Texture**; an **isometric** grid. Type >
+**Fill with Placeholder Text** fills a box with Lorem Ipsum, Arabic, the
+two in turn or your own words -- so many paragraphs, or as many as fill
+it.
+
 **SVG** is one of its formats: an .svg opens as layers -- its shapes as
 shape layers, its text as type you can type in (fonts, sizes, colours,
 bold and italic runs, lines, text along a path, an outline, a gradient,

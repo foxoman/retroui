@@ -94,10 +94,11 @@ service on `tty1` (`TTYPath=/dev/tty1`, `StandardInput=tty`).
 packages.
 
 **The examples** are built only when you ask, one at a time:
-`RETRO_APP=photo nimble exe` (Windows, from Linux or macOS, with MinGW;
-`RETRO_WINCC=zig` with zig 0.15's clang -- `pip install ziglang==0.15.2`,
-or `RETRO_ZIG` the path of one -- every module optimized with the others,
-ThinLTO),
+`RETRO_APP=photo nimble exe` (Windows, from Linux or macOS: with zig
+0.15's clang when there is one -- `pip install ziglang==0.15.2`, or
+`RETRO_ZIG` the path of one -- every module optimized with the others,
+ThinLTO, for Windows 10 and 11; else with MinGW, or `RETRO_WINCC=gcc`
+whatever there is: every Windows, and a table of the program's procs),
 `RETRO_APP=photo nimble appimage`, `RETRO_APP=photo nimble macapp` (on a
 Mac), `RETRO_APP=photo nimble appapk`; the apps are listed in
 `retroui.nimble` (`RetroApps`). `nimble apps` builds every one of them
@@ -301,8 +302,9 @@ runs -- the return check, the warnings on every system
 Termux, an Android app, Windows, macOS, iOS and the web build them, and
 neither have the examples and the tests), the
 tests, a short fuzz, the Android driver on a fake Android, the tests as
-WebAssembly, the tools, Retro Atelier's Windows .exe (with MinGW: CI
-builds it on every push, the run's Artifacts) -- and ends with the number
+WebAssembly, the tools, Retro Atelier's Windows .exe (with zig 0.15, and
+with MinGW when it is here: CI builds both on every push, the run's
+Artifacts) -- and ends with the number
 that failed (`quick`: the longer ones left out).
 
 **Testing it all**, in a clone: `nimble test` (headless, as many at once

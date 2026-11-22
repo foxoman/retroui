@@ -86,6 +86,9 @@ proc kindIcon(k: AssetKind): string =
   of akDesign: pxSlides
 
 proc usableSources(k: AssetKind): seq[AssetSource] =
+  # (under the kit's random input -- tools/soak.sh -- the library carried in the app only: an hour of
+  # clicks downloading 4K textures and opening them measures the network's files, not a leak)
+  if smokeOn(): return @[asLibrary]
   for s in sourcesFor(k):
     if hasKey(s): result.add s
 

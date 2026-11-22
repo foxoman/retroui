@@ -106,7 +106,14 @@ block runAsAdministrator:
           sleep 5
           q = runAsAdmin("u" & $k, "true")
         doAssert q.state == adFailed, $q
-      doAssert threadsNow() == before, "one thread for every ask"
+      # (another part of the program -- a worker of an earlier test ending -- may start or end a
+      # thread meanwhile: given a moment, no more than one more; a thread an ask is twenty)
+      var now = threadsNow()
+      for _ in 0 ..< 100:
+        if now <= before: break
+        sleep 10
+        now = threadsNow()
+      doAssert now <= before + 1, "one thread for every ask: " & $before & " then " & $now
 
 block systemSettings:
   # GNOME's answers read; here, whatever this machine has

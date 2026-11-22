@@ -77,6 +77,8 @@ let toolGroups = @[
     ti("Color Replacement Tool", tBrush, pxColorReplace, mvBrush, 2),
     ti("Mixer Brush Tool", tBrush, pxMixerBrush, mvBrush, 1),
     ti("Adjustment Brush Tool", tBrush, pxAdjustBrush, mvBrush, 3),
+    ti("Mask Brush Tool", tBrush, pxLayerMask, mvBrush, 4),
+    ti("Tone Brush Tool", tBrush, pxDodge, mvBrush, 5),
     ti("Airbrush Tool", tAirbrush, pxAirbrush)]),
   ToolGroup(name: "Stamp", key: 'S', items: @[
     ti("Clone Stamp Tool", tStamp, pxStamp, mvStamp, 0),
@@ -498,8 +500,8 @@ proc toolboxContent() =
     let it = grp.items[k]
     let hit = interact(idOf("tool:" & grp.name), cr, focusable = false)
     toolFace(cr, it.glyph, hit.down, cur == g, grp.items.len > 1)
-    # the usual tooltip: the tool's name and its key
-    tooltip(it.name & (if grp.key in {'A' .. 'Z'}: " (" & grp.key & ")" else: ""))
+    # its help card: the tool's name and key, what it does, its keys (F1 for more)
+    tooltip(toolCard(it.name, if grp.key in {'A' .. 'Z'}: $grp.key else: ""))
     if hit.down and ui.pressed:
       toolPress = (g, ui.now, false)
       if AltPressed in ui.mods and grp.items.len > 1:

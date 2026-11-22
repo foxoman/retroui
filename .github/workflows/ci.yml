@@ -138,11 +138,12 @@ jobs:
 
   atelier-windows:
     # Retro Atelier's Windows program on every push, from Linux, to download
-    # from the run's Artifacts without waiting for a release: with MinGW's
-    # GCC as the release builds it (RetroAtelier-windows), and with zig's
-    # clang, every module optimized with the others by LLVM (ThinLTO;
-    # RetroAtelier-windows-zig; zig 0.15: 0.16 and 0.17 cannot link a
-    # Windows program optimized so)
+    # from the run's Artifacts without waiting for a release: with zig's
+    # clang as the release builds it, every module optimized with the others
+    # by LLVM (ThinLTO; RetroAtelier-windows; zig 0.15: 0.16 and 0.17 cannot
+    # link a Windows program optimized so), and with MinGW's GCC
+    # (RetroAtelier-windows-gcc: for Windows before 10, and a table of the
+    # program's procs)
     strategy:
       fail-fast: false
       matrix:
@@ -163,15 +164,16 @@ jobs:
         with:
           nim-version: "2.4.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: MinGW (its windres makes the icon; GCC builds it)
+      - name: MinGW (GCC builds it, its windres makes the icon)
+        if: matrix.cc == 'gcc'
         run: sh tools/apt.sh mingw-w64
-      - name: zig 0.15
+      - name: zig 0.15 (its clang builds it, the icon too)
         if: matrix.cc == 'zig'
         run: pip install ziglang==0.15.2
       - name: Retro Atelier for Windows
         run: RETRO_WINCC=${{ matrix.cc }} RETRO_APP=photo nimble exe -y
       - uses: actions/upload-artifact@v6
         with:
-          name: RetroAtelier-windows${{ matrix.cc == 'zig' && '-zig' || '' }}
+          name: RetroAtelier-windows${{ matrix.cc == 'gcc' && '-gcc' || '' }}
           path: build/win/*.exe
           retention-days: 30

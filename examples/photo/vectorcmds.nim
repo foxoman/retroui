@@ -59,6 +59,75 @@ proc convertTypeToShape() =
   status = "Converted to shape: " & $shapes.len & (if shapes.len == 1: " shape, " else: " shapes, ") &
            $pts & " points"
 
+var blendSeen: Table[pointer, int]   # (each live blend's ends as they were when its steps were made)
+
+proc blendParts(d: Doc; g: Layer): tuple[ends, steps: seq[Layer]] =
+  ## (a live blend group's two ends, the lower first, and its steps)
+  let gi = d.layers.find(g)
+  for i in countdown(gi - 1, 0):
+    let M = d.layers[i]
+    if M.depth <= g.depth: break
+    if M.depth != g.depth + 1: continue
+    if M.meta == BlendStepMeta: result.steps.add M
+    elif M.isShape: result.ends.insert(M, 0)
+
+proc keepLiveBlends(d: Doc) =
+  ## Live blends (Make Blend's groups, Affinity's way): when an end's shape, color or opacity
+  ## changed, the steps between are made again -- not an undo step of their own, so undoing the
+  ## change brings the ends back and the steps follow them again.
+  if d.stepOpen: return
+  for g in d.layers:
+    if not g.group or not g.meta.startsWith("{\"blend\""): continue
+    let (ends, steps) = d.blendParts(g)
+    if ends.len != 2: continue
+    let sig = (ends[0].ver * 31 + ends[1].ver) * 31 + hash(g.meta) + ends[0].opacity * 7 + ends[1].opacity
+    let key = cast[pointer](g)
+    if not blendSeen.hasKey(key):
+      blendSeen[key] = sig                 # (as made: nothing to do the first time it is seen)
+      continue
+    if blendSeen[key] == sig: continue
+    blendSeen[key] = sig
+    let j = try: parseJson(g.meta){"blend"} except CatchableError: nil
+    if j == nil: continue
+    let (lo, hi) = (ends[0], ends[1])
+    let n = if j{"smooth"}.getBool: colorSteps(lo.shape, hi.shape) else: max(1, j{"n"}.getInt(6))
+    let made = blendShapes(lo.shape, hi.shape, n, BlendEase(j{"ease"}.getInt), j{"strength"}.getInt(50) / 100,
+                           BlendEase(j{"colorEase"}.getInt), j{"strength"}.getInt(50) / 100)
+    let keepCur = d.current
+    for S in steps:
+      let k = d.layers.find(S)
+      if k >= 0: d.deleteLayer(k)
+    var at = d.layers.find(lo)
+    for k, s in made:
+      let L = d.addShapeLayer(s, "Blend " & $(k + 1), above = at)
+      L.meta = BlendStepMeta
+      L.opacity = lo.opacity + (hi.opacity - lo.opacity) * (k + 1) div (n + 1)
+      at = d.layers.find(L)
+    d.cur = max(0, d.layers.find(keepCur))
+    blendSeen[key] = (ends[0].ver * 31 + ends[1].ver) * 31 + hash(g.meta) + ends[0].opacity * 7 + ends[1].opacity
+    d.markAll()
+
+proc expandBlend(d: Doc) =
+  ## Expand Blend: the live blend picked made plain shapes -- its steps are kept as they are and no
+  ## longer follow its ends.
+  var g = d.current
+  while g != nil and not (g.group and g.meta.startsWith("{\"blend\"")):
+    let i = d.layers.find(g)
+    var up: Layer = nil
+    for k in i + 1 ..< d.layers.len:
+      if d.layers[k].depth < g.depth:
+        up = d.layers[k]
+        break
+    g = up
+  if g == nil:
+    status = "Expand Blend: pick a blend (its group, or a shape in it)"
+    return
+  d.layersChange("Expand Blend"):
+    let (_, steps) = d.blendParts(g)
+    for S in steps: S.meta = ""
+    g.meta = ""
+  status = "Blend expanded: its steps are shapes of their own"
+
 proc blendLayers(d: Doc): (Layer, Layer) =
   ## (the two shape layers to blend: those picked, else the current one and the shape layer
   ## under it)
@@ -107,11 +176,17 @@ proc makeBlend() =
     at = d.layers.find(L)
     idxs.add at
   idxs.add d.layers.find(if lower == a: b else: a)
+  for i in idxs[1 ..< ^1]: d.layers[i].meta = BlendStepMeta
   let g = d.groupLayers(idxs, "Blend")
-  if g != nil: d.cur = d.layers.find(g)
+  if g != nil:
+    # (live: its settings kept on the group, the steps made again when either end changes)
+    g.meta = $(%*{"blend": {"smooth": blendSpacing == 0, "n": blendSteps, "ease": blendEase,
+                            "colorEase": blendColorEase, "strength": blendStrength}})
+    d.cur = d.layers.find(g)
   d.endStep()
   d.markAll()
-  status = "Blend: " & $n & (if n == 1: " step" else: " steps") & " between the two, in the group \"Blend\""
+  status = "Blend: " & $n & (if n == 1: " step" else: " steps") & " between the two, in the group \"Blend\" " &
+           "-- live: change either end and the steps follow (Expand Blend: shapes of their own)"
 
 proc replaceSpine(orient: bool) =
   ## Blend > Replace Spine: a blend (its group) and a path picked -- the blend's shapes along the
@@ -382,7 +457,8 @@ proc shapeBuilderDialog() =
 # ---- Freeform Gradient ---------------------------------------------------------------------------------------
 
 var
-  ffDlg: tuple[open: bool; layer: Layer; pts: seq[tuple[x, y: float; color: uint32]]; sel: int; was: ShapeData]
+  ffDlg: tuple[open: bool; layer: Layer; pts: seq[tuple[x, y: float; color: uint32]]; sel: int; was: ShapeData;
+               diffuse: bool]
   ffPending = false
   ffApplied = ""                 ## (the points last put on the shape)
 
@@ -396,8 +472,8 @@ proc startFreeform() =
   if pts.len == 0 or L.shape.fill.style != 5:
     let c = if L.shape.fill.kind == spColor: L.shape.fill.color else: 0xFF3A86FF'u32
     pts = @[(0.2, 0.2, c), (0.8, 0.3, fg or 0xFF000000'u32), (0.5, 0.85, bg or 0xFF000000'u32)]
-  ffDlg = (true, L, pts, 0, L.shape)
-  ffApplied = $pts
+  ffDlg = (true, L, pts, 0, L.shape, L.shape.fill.style == 5 and L.shape.fill.diffuse)
+  ffApplied = $pts & $ffDlg.diffuse
   d.beginStep("Freeform Gradient")
   d.touchLayers()
   d.touch(L, d.bounds)
@@ -421,6 +497,12 @@ proc freeformDialog() =
   dialog(ffDlg.open, "Freeform Gradient", 420):
     label("Click to add a color point (the foreground color); a point: pick it, then its color.",
           color = ui.theme.gray)
+    row:
+      label "Method:"
+      var m = ord(ffDlg.diffuse)
+      combo(["Points (each color strongest round its point)", "Diffusion (spread smoothly, as heat)"], m,
+            w = dp(300))
+      ffDlg.diffuse = m == 1
     let pr = place(dp(380), dp(260))
     let (x0, y0, x1, y1) = pathBounds(L.shape.path)
     fill(pr, color(240, 240, 240))
@@ -434,7 +516,8 @@ proc freeformDialog() =
     while yy < gh:
       var xx = 0
       while xx < gw:
-        let c = freeformAt(ffDlg.pts, (xx.float + 0.5) / gw.float, (yy.float + 0.5) / gh.float)
+        let (u, v) = ((xx.float + 0.5) / gw.float, (yy.float + 0.5) / gh.float)
+        let c = if ffDlg.diffuse: freeformDiffusedAt(ffDlg.pts, u, v) else: freeformAt(ffDlg.pts, u, v)
         fill(rect(gr.x + xx, gr.y + yy, min(step, gw - xx), min(step, gh - yy)),
              color(uint8((c shr 16) and 255), uint8((c shr 8) and 255), uint8(c and 255)))
         xx += step
@@ -476,10 +559,12 @@ proc freeformDialog() =
       if button("OK", isDefault = true, w = dp(80)): ok = true
       if button("Cancel", w = dp(80)): cancel = true
   discard before
-  if ($ffDlg.pts != ffApplied or (ok and L.shape.fill.style != 5)) and not cancel and (ffDlg.open or ok):
-    ffApplied = $ffDlg.pts
+  if ($ffDlg.pts & $ffDlg.diffuse != ffApplied or (ok and L.shape.fill.style != 5)) and not cancel and
+     (ffDlg.open or ok):
+    ffApplied = $ffDlg.pts & $ffDlg.diffuse
     var s = L.shape
     s.fill = freeformPaint(ffDlg.pts)
+    s.fill.diffuse = ffDlg.diffuse
     d.setShape(L, s)
   if cancel or (not ffDlg.open and not ok):
     ffDlg.open = false

@@ -2,7 +2,7 @@ import std/strutils
 
 # Package
 
-version       = "0.69.0"
+version       = "0.70.0"
 author        = "Sultan Al Isaiee (@foxoman) <sultan@foxoman.net>"
 description   = "Retro Nim UI (retroui): a small, fast, dependency-free Windows 3.1 style UI toolkit for business and desktop apps on Windows, macOS, Linux, Android and iOS"
 license       = "MIT"
@@ -46,7 +46,7 @@ task test, "Run the headless tests (as many at once as there are cores: tests/ru
             "test_scroll", "test_nestedscroll", "test_rows", "test_apk", "test_xlsx", "test_letters", "test_photo",
             "test_parallel", "test_textengine", "test_uifonts", "test_photomore", "test_photopro", "test_photoapp",
             "test_photomerge", "test_icc", "test_brushfiles", "test_raw", "test_brushes",
-            "test_adobefiles", "test_deep", "test_gpu", "test_rsa", "test_morecontrols", "test_neural", "test_photopdf", "test_pdfread", "test_googlefonts", "test_filecolumns", "test_blendfast", "test_dock", "test_presets", "test_photocc", "test_photoartistic", "test_photoblurs", "test_photohdr", "test_channelspanel", "test_photodeep", "test_photoanim", "test_photovp", "test_photosvg", "test_photobook", "test_photobookapp", "test_photospeed", "test_booklists", "test_datamerge", "test_textsearch", "test_textcompose", "test_hyperlinks", "test_simd", "test_headless", "test_perspectivegrid", "test_pathbrush", "test_handpass", "test_photoparity", "test_pathtools", "test_imagetrace", "test_outlines", "test_infographics", "test_idml", "test_systemfiles", "test_otshape", "test_icccmyk", "test_webp", "test_exrgif", "test_rawformats", "test_rscript", "test_psdround", "test_phototemplates", "test_gpucomposite", "test_penmap", "test_systemimage", "test_qrcode", "test_videoenc", "test_jxl", "test_assetstore", "test_svgimport", "test_morepictures", "test_memcache", "test_memsoak", "test_filespeed", "test_filesapp", "test_bigpicture", "test_edgetrace", "test_board", "test_boardapp", "test_http", "test_oauth", "test_secrets", "test_db", "test_mime", "test_htmlmail", "test_richedit", "test_mail", "test_toolcustom", "test_mailextra", "test_calendar", "test_spell", "test_mailimport", "test_frame", "test_filedrop", "test_notify", "test_bgcheck", "test_fileout", "test_widgetfixes", "test_x11close", "test_hardening", "test_gpuparts", "test_busykeys", "test_drawalloc", "test_hrbook", "test_x11input", "test_xmpp", "test_omemo", "test_retrokit", "test_access", "test_scale", "test_touchsizes", "test_mediasession", "test_capture", "test_windows", "test_shm", "test_atspi", "test_designer", "test_tilemap", "test_gltf", "test_store", "test_system", "test_update", "test_fontsoption", "test_keys", "test_stopped", "test_buildjobs", "test_imap", "test_sysmon", "test_taskman", "test_inspect", "test_drive", "test_sevenguis", "test_navigator", "test_retrodns", "test_feeds", "test_jobs", "test_undo", "test_pages", "test_typeforms", "test_uistrings", "test_codeedit", "test_tray", "test_podcast", "test_grow", "test_lzma", "test_apkinfo", "test_looks", "test_bmi", "test_hangwatch", "test_simdkit", "test_textchanges", "test_mathtype", "test_flexlayout", "test_publish", "test_vectormake", "test_relight", "test_mockups", "test_designstyles", "test_aiconnect", "test_mailauth", "test_mailsafety", "test_dbcrypt", "test_mailkinds", "test_mimefast", "test_motion", "test_forcegraph", "test_flows", "test_fontfolders", "test_script", "test_aichat", "test_mcp", "test_mailassist", "test_llm", "test_devicemodel", "test_nnet", "test_vision", "test_cff", "test_colorfonts", "test_apng", "test_screenexport", "test_dxf", "test_psvector", "test_threed", "test_dimensions", "test_editcommands", "test_photokeys", "test_objectcmds", "test_layoutmore", "test_ink", "test_paintbehind", "test_gpucompute", "test_arabictype", "test_frameprof", "test_aivector"]:
+            "test_adobefiles", "test_deep", "test_gpu", "test_rsa", "test_morecontrols", "test_neural", "test_photopdf", "test_pdfread", "test_googlefonts", "test_filecolumns", "test_blendfast", "test_dock", "test_presets", "test_photocc", "test_photoartistic", "test_photoblurs", "test_photohdr", "test_channelspanel", "test_photodeep", "test_photoanim", "test_photovp", "test_photosvg", "test_photobook", "test_photobookapp", "test_photospeed", "test_booklists", "test_datamerge", "test_textsearch", "test_textcompose", "test_hyperlinks", "test_simd", "test_headless", "test_perspectivegrid", "test_pathbrush", "test_handpass", "test_photoparity", "test_pathtools", "test_imagetrace", "test_outlines", "test_infographics", "test_idml", "test_systemfiles", "test_otshape", "test_icccmyk", "test_webp", "test_exrgif", "test_rawformats", "test_rscript", "test_psdround", "test_phototemplates", "test_gpucomposite", "test_penmap", "test_systemimage", "test_qrcode", "test_videoenc", "test_jxl", "test_assetstore", "test_svgimport", "test_morepictures", "test_memcache", "test_memsoak", "test_filespeed", "test_filesapp", "test_bigpicture", "test_edgetrace", "test_board", "test_boardapp", "test_http", "test_oauth", "test_secrets", "test_db", "test_mime", "test_htmlmail", "test_richedit", "test_mail", "test_toolcustom", "test_mailextra", "test_calendar", "test_spell", "test_mailimport", "test_frame", "test_filedrop", "test_notify", "test_bgcheck", "test_fileout", "test_widgetfixes", "test_x11close", "test_hardening", "test_gpuparts", "test_busykeys", "test_drawalloc", "test_hrbook", "test_x11input", "test_xmpp", "test_omemo", "test_retrokit", "test_access", "test_scale", "test_touchsizes", "test_mediasession", "test_capture", "test_windows", "test_shm", "test_atspi", "test_designer", "test_tilemap", "test_gltf", "test_store", "test_system", "test_update", "test_fontsoption", "test_keys", "test_stopped", "test_buildjobs", "test_imap", "test_sysmon", "test_taskman", "test_inspect", "test_drive", "test_sevenguis", "test_navigator", "test_retrodns", "test_feeds", "test_jobs", "test_undo", "test_pages", "test_typeforms", "test_uistrings", "test_codeedit", "test_tray", "test_podcast", "test_grow", "test_lzma", "test_apkinfo", "test_looks", "test_bmi", "test_hangwatch", "test_simdkit", "test_textchanges", "test_mathtype", "test_flexlayout", "test_publish", "test_vectormake", "test_relight", "test_mockups", "test_designstyles", "test_aiconnect", "test_mailauth", "test_mailsafety", "test_dbcrypt", "test_mailkinds", "test_mimefast", "test_motion", "test_forcegraph", "test_flows", "test_fontfolders", "test_script", "test_aichat", "test_mcp", "test_mailassist", "test_llm", "test_devicemodel", "test_nnet", "test_vision", "test_cff", "test_fontkinds", "test_commandhud", "test_lorem", "test_photoaffinity", "test_proctexture", "test_colorfonts", "test_apng", "test_screenexport", "test_dxf", "test_psvector", "test_threed", "test_dimensions", "test_editcommands", "test_photokeys", "test_objectcmds", "test_layoutmore", "test_ink", "test_paintbehind", "test_gpucompute", "test_arabictype", "test_frameprof", "test_aivector"]:
     exec "nim c -r --hints:off tests/" & t & ".nim"
   # (fewer faces built in: the others drawn with FreeSans)
   exec "nim c -r --hints:off -d:retroFonts=ui tests/test_fontsoption.nim"
@@ -97,12 +97,12 @@ type RetroApp = tuple
 const RetroApps: seq[RetroApp] = @[
   # the apps: every package of each is made from this table
   (key: "photo", src: "examples/photo.nim", name: "Retro Atelier", stem: "RetroAtelier",
-   id: "org.retro.photo", version: "5.14.0", icon: "examples/assets/photo-icon-512.png",
+   id: "org.retro.photo", version: "5.15.0", icon: "examples/assets/photo-icon-512.png",
    apk: "--storage --share-target:image/*,application/pdf,application/postscript,image/vnd.adobe.photoshop," &
         "application/x-photoshop,application/vnd.adobe.indesign-idml-package " &
         "--opens:image/*,application/pdf,application/postscript,application/illustrator,image/vnd.adobe.photoshop," &
         "application/x-photoshop,application/photoshop,application/vnd.adobe.indesign-idml-package," &
-        "application/zip,application/octet-stream --permission:INTERNET --nim:-d:lto", code: 53, small: false),
+        "application/zip,application/octet-stream --permission:INTERNET --nim:-d:lto", code: 54, small: false),
   (key: "files", src: "examples/filemanager.nim", name: "Retro Files", stem: "RetroFiles",
    id: "org.retro.files", version: "3.7.0", icon: "examples/assets/filemanager-icon.png",
    apk: "--storage --permission:REQUEST_INSTALL_PACKAGES --share-target:*/* --permission:INTERNET --nim:-d:lto",
@@ -190,41 +190,67 @@ proc frameOpt(): string =
   of "", "system": ""
   else: quit "RETRO_FRAME is classic or system"
 
+proc windowsZig(): string =
+  ## (a zig that links a Windows program optimized at link time -- 0.15: 0.16 and 0.17 leave
+  ## their own C library's names undefined -- found as RETRO_ZIG, zig on the PATH or Python's
+  ## `pip install ziglang==0.15.2`; "" when there is none)
+  var found: seq[string]
+  if getEnv("RETRO_ZIG").len > 0: found.add getEnv("RETRO_ZIG")
+  let onPath = findExe("zig")
+  if onPath.len > 0: found.add onPath
+  let py = gorgeEx("python3 -c \"import ziglang, os; print(os.path.join(os.path.dirname(ziglang.__file__), 'zig'))\"")
+  if py.exitCode == 0 and py.output.strip.len > 0: found.add py.output.strip
+  for z in found:
+    let v = gorgeEx("\"" & z & "\" version")
+    if v.exitCode == 0 and v.output.strip.startsWith("0.15."): return z
+  ""
+
 proc exeOf(a: RetroApp) =
-  ## (an app for Windows from Linux or macOS, with its icon and version:
-  ## MinGW's x86_64-w64-mingw32-gcc and -windres; build/win/<Stem>.exe.
-  ## RETRO_WINCC=zig: zig's clang instead (tools/zigcc.sh; zig 0.15 -- `pip
-  ## install ziglang==0.15.2`, or RETRO_ZIG its path), every module optimized
-  ## with the others (ThinLTO: in pieces, on every core, in the memory a
-  ## small machine has -- Retro Atelier's full LTO takes over 6 GB), MinGW's
-  ## windres still making the icon)
+  ## (an app for Windows from Linux or macOS, with its icon and version,
+  ## build/win/<Stem>.exe: zig's clang where there is a zig 0.15 (`pip install
+  ## ziglang==0.15.2`, or RETRO_ZIG its path) -- every module optimized with
+  ## the others (ThinLTO: in pieces, on every core, in the memory a small
+  ## machine has; Retro Atelier's full LTO takes over 6 GB), the icon's .rc
+  ## compiled by zig itself, the Universal C Runtime of Windows 10 and 11 --,
+  ## else MinGW's x86_64-w64-mingw32-gcc and -windres (every Windows; a table
+  ## of the program's procs for a window that stops answering).
+  ## RETRO_WINCC=gcc: MinGW's GCC whatever there is.)
   mkDir "build/win"
-  let res = "build/win/" & a.stem & "-res.o"
-  exec "nim c -r -d:release --hints:off tools/winicon.nim " & a.icon & " \"" & a.name & "\" " &
-       a.version & " " & res
-  # (not stripped by the linker: tools/winsym.py reads its procs first, strips it, and puts
-  # their table at its end -- a window that stops answering says which procs it was in)
   let exe = "build/win/" & a.stem & ".exe"
-  if getEnv("RETRO_WINCC") == "zig":
+  let zig = if getEnv("RETRO_WINCC") == "gcc": "" else: windowsZig()
+  if getEnv("RETRO_WINCC") == "zig" and zig.len == 0:
+    quit "RETRO_WINCC=zig: no zig 0.15 (pip install ziglang==0.15.2, or RETRO_ZIG its path)"
+  if zig.len > 0:
+    let rc = "build/win/" & a.stem & ".rc"
+    exec "nim c -r -d:release --hints:off tools/winicon.nim " & a.icon & " \"" & a.name & "\" " &
+         a.version & " " & rc
     # (zig's clang links what LLVM made of the whole program -- no object too big for COFF;
     # -mwindows is not zig's: the subsystem said to the linker)
     putEnv("RETRO_ZIG_TARGET", "x86_64-windows-gnu")
+    putEnv("RETRO_ZIG", zig)
     let zcc = thisDir() & "/tools/zigcc.sh"
+    echo "(zig " & gorgeEx("\"" & zig & "\" version").output.strip & ": " & zig & ")"
     exec "nim c -d:release -d:lto_incremental " & (if a.small: "--opt:size " else: "") &
          frameOpt() & "--nimcache:\"" & a.nimcacheFor("winzig") & "\" " &
          "--os:windows --cpu:amd64 --cc:clang --clang.exe:" & zcc & " --clang.linkerexe:" & zcc &
-         " --app:gui --passL:-Wl,--subsystem,windows --hints:off --passL:" & res &
+         " --app:gui --passL:-Wl,--subsystem,windows --hints:off --passL:" & rc &
          " -o:" & exe & " " & a.src
+    echo "(zig's linker writes no symbol table: no table of procs for a window that stops answering)"
   else:
+    if getEnv("RETRO_WINCC") != "gcc":
+      echo "(no zig 0.15 -- pip install ziglang==0.15.2 --: MinGW's GCC)"
+    let res = "build/win/" & a.stem & "-res.o"
+    exec "nim c -r -d:release --hints:off tools/winicon.nim " & a.icon & " \"" & a.name & "\" " &
+         a.version & " " & res
     exec "nim c -d:release -d:lto " & (if a.small: "--opt:size " else: "") &
          frameOpt() & "--nimcache:\"" & a.nimcacheFor("win") & "\" " &
          "-d:mingw --cpu:amd64 --app:gui --hints:off --passL:" & res &
          " -o:" & exe & " " & a.src
-  if getEnv("RETRO_WINCC") == "zig":
-    echo "(zig's linker writes no symbol table: no table of procs for a window that stops answering)"
-  elif gorgeEx("python3 tools/winsym.py " & exe).exitCode != 0:
-    echo "(no table of procs: python3, or MinGW's nm, is not there -- stripped as it is)"
-    exec "x86_64-w64-mingw32-strip " & exe
+    # (not stripped by the linker: tools/winsym.py reads its procs first, strips it, and puts
+    # their table at its end -- a window that stops answering says which procs it was in)
+    if gorgeEx("python3 tools/winsym.py " & exe).exitCode != 0:
+      echo "(no table of procs: python3, or MinGW's nm, is not there -- stripped as it is)"
+      exec "x86_64-w64-mingw32-strip " & exe
 
 proc appImageOf(a: RetroApp) =
   ## (an app for Linux packed as an AppImage with its icon, version and menu
@@ -267,7 +293,7 @@ proc chosenApp(): RetroApp =
     quit "say which app: RETRO_APP=<" & keys.join("|") & "> nimble <task>"
   app(k)
 
-task exe, "One app for Windows from Linux or macOS: RETRO_APP=photo nimble exe (build/win/; needs MinGW)":
+task exe, "One app for Windows from Linux or macOS: RETRO_APP=photo nimble exe (build/win/; zig 0.15, else MinGW)":
   exeOf(chosenApp())
 
 task appapk, "One app as an Android APK: RETRO_APP=photo nimble appapk (build/)":
@@ -318,7 +344,7 @@ task taskman, "Build and run Retro Task Manager, what the computer is doing":
 task taskmanapk, "Build Retro Task Manager as an Android APK (build/RetroTaskManager.apk)":
   apkOf(app("taskman"))
 
-task taskmanexe, "Retro Task Manager for Windows from Linux or macOS (needs MinGW: x86_64-w64-mingw32-gcc)":
+task taskmanexe, "Retro Task Manager for Windows from Linux or macOS (zig 0.15, else MinGW)":
   exeOf(app("taskman"))
 
 task mail, "Build and run Retro Mail, the mail program (Microsoft 365, Outlook.com, Gmail)":
@@ -330,7 +356,7 @@ task communicator, "Build and run Retro Communicator, the chat program (XMPP; Op
 task mailapk, "Build Retro Mail as an Android APK (build/RetroMail.apk)":
   apkOf(app("mail"))
 
-task mailexe, "Retro Mail for Windows from Linux or macOS (needs MinGW: x86_64-w64-mingw32-gcc)":
+task mailexe, "Retro Mail for Windows from Linux or macOS (zig 0.15, else MinGW)":
   exeOf(app("mail"))
 
 task photoapk, "Build Retro Atelier as an Android APK (build/RetroAtelier.apk)":
@@ -389,19 +415,19 @@ task dist, "Everything to hand out: the apps for this computer and the Android A
   exec "nimble apps"
   exec "nimble apks"
 
-task photoexe, "Retro Atelier for Windows from Linux or macOS (needs MinGW: x86_64-w64-mingw32-gcc)":
+task photoexe, "Retro Atelier for Windows from Linux or macOS (zig 0.15, else MinGW)":
   exeOf(app("photo"))
 
-task galleryexe, "The control gallery for Windows from Linux or macOS (needs MinGW: x86_64-w64-mingw32-gcc)":
+task galleryexe, "The control gallery for Windows from Linux or macOS (zig 0.15, else MinGW)":
   exeOf(app("gallery"))
 
-task filesexe, "Retro Files for Windows from Linux or macOS (needs MinGW: x86_64-w64-mingw32-gcc)":
+task filesexe, "Retro Files for Windows from Linux or macOS (zig 0.15, else MinGW)":
   exeOf(app("files"))
 
-task boardexe, "Retro Board for Windows from Linux or macOS (needs MinGW: x86_64-w64-mingw32-gcc)":
+task boardexe, "Retro Board for Windows from Linux or macOS (zig 0.15, else MinGW)":
   exeOf(app("board"))
 
-task exes, "Every app for Windows from Linux or macOS (build/win/*.exe; needs MinGW)":
+task exes, "Every app for Windows from Linux or macOS (build/win/*.exe; zig 0.15, else MinGW)":
   for a in RetroApps: exeOf(a)
 
 task photoappimage, "Retro Atelier as a Linux AppImage (build/RetroAtelier-x86_64.AppImage)":

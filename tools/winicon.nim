@@ -10,6 +10,10 @@
 ##
 ##   nim c -d:mingw --cpu:amd64 --app:gui --passL:build/files-res.o files.nim
 ##
+## Given an .rc to write instead of an object (build/files.rc), it writes
+## the .ico and the .rc alone: zig's clang compiles an .rc given to it as it
+## links (`--passL:build/files.rc`), no MinGW needed.
+##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[os, osproc, strutils]
@@ -64,6 +68,9 @@ proc main() =
     "      VALUE \"CompanyName\", \"" & RetroDeveloper & " " & RetroHandle & " (" & RetroWebsite & ")\"\n" &
     "      VALUE \"LegalCopyright\", \"Copyright (c) 2026 " & RetroDeveloper & "\"\n" &
     "    END\n  END\n  BLOCK \"VarFileInfo\"\n  BEGIN\n    VALUE \"Translation\", 0x409, 1200\n  END\nEND\n")
+  if outObj.endsWith(".rc"):
+    echo "wrote ", base & ".rc"
+    return
   var tool = findExe("x86_64-w64-mingw32-windres")
   if tool.len == 0: tool = findExe("windres")
   if tool.len == 0: quit "winicon: windres not found (MinGW)"

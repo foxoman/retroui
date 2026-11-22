@@ -65,6 +65,66 @@ proc psFilters(names: openArray[string]) =
     let b = bare(n).strip(chars = {'.'})
     ci(n, enabled = d != nil and filters.hasKey(b) and d.mode in editModes)
 
+const windowPanels = block:
+  ## (Window's panels: label, command ("": the label), the panel, its shortcut -- A to Z)
+  var a = @[
+    ("Actions", "", "actions", ""),
+    ("Adjustments", "", "adjustments", ""),
+    ("Appearance", "", "appearance", ""),
+    ("Attributes", "", "attributes", ""),
+    ("Text Wrap", "Text Wrap Panel", "textwrap", ""),
+    ("Brush Settings", "", "brushsettings", "F5"),
+    ("Brushes", "", "brushes", ""),
+    ("Brushes (Vector)", "", "vbrushes", ""),
+    ("Buttons and Forms", "", "buttons", ""),
+    ("Bookmarks", "", "bookmarks", ""),
+    ("Channels", "", "channels", ""),
+    ("Character", "", "character", ""),
+    ("Character Styles", "", "charstyles", ""),
+    ("Clone Source", "", "clonesource", ""),
+    ("Color", "Picker", "color", ""),
+    ("Commands", "", "commands", ""),
+    ("Conditional Text", "", "conditions", ""),
+    ("Glyphs", "", "glyphs", ""),
+    ("Gradients", "", "gradients", ""),
+    ("Histogram", "", "histogram", ""),
+    ("History", "", "history", ""),
+    ("Info", "", "info", ""),
+    ("Layer Comps", "", "layercomps", ""),
+    ("Layers", "", "layers", ""),
+    ("Libraries", "", "libraries", ""),
+    ("Assistant", "", "assistant", ""),
+    ("Links", "", "links", ""),
+    ("Navigator", "", "navigator", ""),
+    ("Object Styles", "", "objectstyles", ""),
+    ("Graphic Styles", "", "graphicstyles", ""),
+    ("Paragraph", "", "paragraph", ""),
+    ("Paragraph Styles", "", "parastyles", ""),
+    ("OpenType", "", "opentype", ""),
+    ("Table Styles", "", "tablestyles", ""),
+    ("Cell Styles", "", "cellstyles", ""),
+    ("Tabs", "", "tabs", ""),
+    ("Timeline", "", "timeline", ""),
+    ("Pages", "", "pages", ""),
+    ("Paths", "", "paths", ""),
+    ("Pattern Options", "", "patternoptions", ""),
+    ("Patterns", "", "patterns", ""),
+    ("Properties", "", "properties", ""),
+    ("Scratch", "", "scratch", ""),
+    ("Separations Preview", "Separations Preview Panel", "separations", ""),
+    ("Shapes", "", "shapes", ""),
+    ("Styles", "", "styles", ""),
+    ("Styles and Fonts", "", "designstyles", ""),
+    ("Swatches", "", "swatches", ""),
+    ("Tool Presets", "", "toolpresets", ""),
+    ("Track Changes and Notes", "", "review", ""),
+    ("Assets", "Browse Assets...", "", ""),
+    ("Quick Actions", "", "quickactions", ""),
+    ("Color Themes", "", "colorthemes", ""),
+  ]
+  a.sort(proc (x, y: (string, string, string, string)): int = cmpIgnoreCase(x[0], y[0]))
+  a
+
 proc psMenus() =
   ## The menu bar as today's editors have it.
   let d = cur()
@@ -290,6 +350,7 @@ proc psMenus() =
         ci("&Brightness/Contrast...", enabled = edits)
         ci("&Levels...", enabled = edits)
         ci("&Curves...", enabled = edits)
+        ci("H&ue Curves...", "Hue Curves...", enabled = rgb)
         ci("&Exposure...", enabled = edits)
         ci("Li&ght...", enabled = edits)
         sep()
@@ -411,10 +472,13 @@ proc psMenus() =
         ci("Outline &Stroke", enabled = some and d.current.isShape and d.current.shape.strokeWidth > 0 and
                                        d.current.shape.stroke.kind != spNone)
         ci("Si&mplify Path...", enabled = pathOk)
+        ci("Smooth &Curvature (G2)", enabled = pathOk)
         ci("&Reverse Path Direction", enabled = pathOk)
         ci("&Join Paths", enabled = pathOk)
         sep()
         ci("Make &Blend...", enabled = some and (d.current.isShape or d.pickedLayers.len == 2))
+        ci("E&xpand Blend", enabled = some and (d.current.group or d.current.meta == BlendStepMeta or
+                                              d.current.isShape))
         ci("Replace S&pine", "Replace Spine", enabled = some and d.pickedLayers.len >= 2)
         ci("Replace Spine (Align to Path)", enabled = some and d.pickedLayers.len >= 2)
         ci("Shape B&uilder...", "Shape Builder...", enabled = some and d.pickedLayers.len >= 2)
@@ -437,6 +501,15 @@ proc psMenus() =
       sep()
       ci("Group Layers", enabled = some and not bgl)
       ci("&Ungroup Layers", enabled = grp)
+      psSub "S&ymbols":
+        ci("&Create Symbol", "Create Symbol", enabled = some and not bgl)
+        ci("&Detach from Symbol", "Detach from Symbol", enabled = some and d.current.symbolOf.id != 0)
+        live:
+          let syms = if some: d.symbols else: @[]
+          if syms.len > 0: menuSeparator()
+          for s in syms:
+            if menuItem(tr("Insert") & " " & s.name & " (" & $s.instances.len & ")"):
+              runCommand("Insert Symbol:" & $s.id)
       ci("&Hide Layers", "Hide Layers", enabled = some)
       ci(if some and d.current.link != 0: "Unlin&k Layers" else: "Lin&k Layers",
          if some and d.current.link != 0: "Unlink Layers" else: "Link Layers",
@@ -553,7 +626,7 @@ proc psMenus() =
       ci("Shorten to &Fit (AI)", "Shorten to Fit", enabled = some and d.current.isText and d.current.text.boxW > 0)
       ci("Cop&yfit", "Copyfit", enabled = some and d.current.isText and d.current.text.boxW > 0)
       ci("Text &in Picture...", "Text in Picture...", enabled = some)
-      ci("Paste &Lorem Ipsum", "Paste Lorem Ipsum", enabled = some)
+      ci("Fill with &Placeholder Text...", "Fill with Placeholder Text...", enabled = some)
       ci("Word &Shapes...", "Word Shapes...", enabled = some)
       ci("Insert Page N&umber", "Insert Page Number", enabled = some)
       psSub "Insert Special C&haracter":
@@ -715,6 +788,7 @@ proc psMenus() =
       psSub "&Render":
         psFilters(["&Clouds", "&Difference Clouds", "F&ibers...", "&Lens Flare...", "Lighting &Effects..."])
         ci("&Texture Fill...", enabled = edits)
+        ci("&Procedural Texture...", enabled = edits)
         ci("&Relight...", "Relight...", enabled = edits)
       psSub "&Sharpen":
         psFilters(["&Sharpen", "Sharpen &Edges", "Sharpen &More", "S&mart Sharpen...", "&Unsharp Mask..."])
@@ -810,6 +884,7 @@ proc psMenus() =
            checked = pg.shown and pg.kind == pkTwoPoint)
         ci("T&hree Point Perspective", "Three Point Perspective", enabled = some,
            checked = pg.shown and pg.kind == pkThreePoint)
+        ci("&Isometric", "Isometric Grid", enabled = some, checked = pg.shown and pg.kind == pkIsometric)
         ci("&Define Grid...", "Define Perspective Grid...", enabled = some)
         sep()
         ci("&Left Wall", "Perspective Plane: Left Wall", enabled = some and pg.shown,
@@ -848,66 +923,24 @@ proc psMenus() =
         ci("&Photo (Essentials)", "Workspace: Photo")
         ci("&Drawing", "Workspace: Drawing")
         ci("&Layout", "Workspace: Layout")
+        live:
+          # (your own, by name: Affinity's studios)
+          let ns = studioNames()
+          if ns.len > 0: menuSeparator()
+          for n in ns:
+            if menuItem(n.replace("&", "&&"), checked = n == studioDlg.current): runCommand("Studio:" & n)
         sep()
         ci("&Reset Essentials", "Reset Workspace")
         sep()
         ci("&New Workspace...", "Save Workspace")
+        ci("Dele&te Workspace...", "Delete Workspace...", enabled = studioNames().len > 0)
+        ci("E&xport Workspace...", "Export Workspace...")
+        ci("&Import Workspace...", "Import Workspace...")
         ci("&Load Saved Workspace")
       sep()
-      # (the panels, A to Z, as editors list them)
-      ci("Actions", checked = panelShown("actions"))
-      ci("Adjustments", checked = panelShown("adjustments"))
-      ci("Appearance", checked = panelShown("appearance"))
-      ci("Attributes", checked = panelShown("attributes"))
-      ci("Text Wrap", "Text Wrap Panel", checked = panelShown("textwrap"))
-      ci("Brush Settings", checked = panelShown("brushsettings"), shortcut = "F5")
-      ci("Brushes", checked = panelShown("brushes"))
-      ci("Brushes (Vector)", checked = panelShown("vbrushes"))
-      ci("Buttons and Forms", checked = panelShown("buttons"))
-      ci("Bookmarks", checked = panelShown("bookmarks"))
-      ci("Channels", checked = panelShown("channels"))
-      ci("Character", checked = panelShown("character"))
-      ci("Character Styles", checked = panelShown("charstyles"))
-      ci("Clone Source", checked = panelShown("clonesource"))
-      ci("Color", "Picker", checked = panelShown("color"))
-      ci("Commands", checked = panelShown("commands"))
-      ci("Conditional Text", checked = panelShown("conditions"))
-      ci("Glyphs", checked = panelShown("glyphs"))
-      ci("Gradients", checked = panelShown("gradients"))
-      ci("Histogram", checked = panelShown("histogram"))
-      ci("History", checked = panelShown("history"))
-      ci("Info", checked = panelShown("info"))
-      ci("Layer Comps", checked = panelShown("layercomps"))
-      ci("Layers", checked = panelShown("layers"))
-      ci("Libraries", checked = panelShown("libraries"))
-      ci("Assistant", checked = panelShown("assistant"))
-      ci("Links", checked = panelShown("links"))
-      ci("Navigator", checked = panelShown("navigator"))
-      ci("Object Styles", checked = panelShown("objectstyles"))
-      ci("Graphic Styles", checked = panelShown("graphicstyles"))
-      ci("Paragraph", checked = panelShown("paragraph"))
-      ci("Paragraph Styles", checked = panelShown("parastyles"))
-      ci("OpenType", checked = panelShown("opentype"))
-      ci("Table Styles", checked = panelShown("tablestyles"))
-      ci("Cell Styles", checked = panelShown("cellstyles"))
-      ci("Tabs", checked = panelShown("tabs"))
-      ci("Timeline", checked = panelShown("timeline"))
-      ci("Pages", checked = panelShown("pages"))
-      ci("Paths", checked = panelShown("paths"))
-      ci("Pattern Options", checked = panelShown("patternoptions"))
-      ci("Patterns", checked = panelShown("patterns"))
-      ci("Properties", checked = panelShown("properties"))
-      ci("Scratch", checked = panelShown("scratch"))
-      ci("Separations Preview", "Separations Preview Panel", checked = panelShown("separations"))
-      ci("Shapes", checked = panelShown("shapes"))
-      ci("Styles", checked = panelShown("styles"))
-      ci("Styles and Fonts", checked = panelShown("designstyles"))
-      ci("Swatches", checked = panelShown("swatches"))
-      ci("Tool Presets", checked = panelShown("toolpresets"))
-      ci("Track Changes and Notes", checked = panelShown("review"))
-      ci("Assets", "Browse Assets...")
-      ci("Quick Actions", checked = panelShown("quickactions"))
-      ci("Color Themes", checked = panelShown("colorthemes"))
+      # (the panels, A to Z, as editors list them: sorted when it is built)
+      for (lab, cmd, key, keys) in windowPanels:
+        ci(lab, cmd, checked = key.len > 0 and panelShown(key), shortcut = keys)
       sep()
       ci("&Options", "Options Bar", checked = optionsBarOn)
       ci("&Tools", "Tools", checked = toolbox.open)
@@ -979,7 +1012,9 @@ proc transformAgain() =
   xfApply()
   finishTransform(true)
 
-var searchDlg: tuple[open: bool; q: string; sel: int; shown: seq[int]]
+var searchDlg: tuple[open: bool; q: string; sel: int; shown: seq[int]; recent: seq[string]]
+  ## (Edit > Search: `recent` the entries done lately, newest first -- listed first, and alone
+  ## before anything is typed)
 
 # ---- Illustrator's path operations, on a shape layer (else the work path) ---------------------------------
 
@@ -1001,6 +1036,7 @@ proc pathOperation(d: Doc; what: string; v: int) =
     of "Offset Path": np = offsetPath(src, d.w, d.h, v.float)
     of "Simplify Path": np = simplifyPath(src, v.float)
     of "Reverse Path Direction": np = reversePath(src)
+    of "Smooth Curvature (G2)": np = smoothCurvature(src)
     of "Join Paths": np = joinPaths(src)
     of "Outline Stroke":
       if onShape: np = outlineStroke(L.shape, d.w, d.h)
@@ -1059,7 +1095,27 @@ proc psCommand(name: string): bool =
   if name.startsWith("Run Script File:"):
     runScriptFile(name["Run Script File:".len .. ^1])
     return
+  if name.startsWith("Studio:"):
+    let n = name["Studio:".len .. ^1]
+    if loadWorkspace("studio:" & n):
+      studioDlg.current = n
+      palettesHidden = false
+      status = tr("The workspace ") & "\"" & n & "\"" & tr(": its panels and its tools")
+    else: status = tr("That workspace is not kept any more")
+    return
   case name
+  of "Save Workspace":
+    studioDlg.naming = true
+    studioDlg.name = if studioDlg.current.len > 0: studioDlg.current
+                     else: tr("My Workspace ") & $(studioNames().len + 1)
+    focusFirstText(inDialog = true)
+  of "Delete Workspace...":
+    studioDlg.deleting = true
+    studioDlg.sel = 0
+  of "Export Workspace...":
+    studioDlg.exporting = true
+    studioDlg.path = (if studioDlg.current.len > 0: studioDlg.current else: "Workspace") & ".rworkspace"
+  of "Import Workspace...": studioDlg.importing = true
   of "Undo", "Redo":
     lastUndoRedo = name
     return false                 # (done by the 1994 commands)
@@ -1071,6 +1127,7 @@ proc psCommand(name: string): bool =
     searchDlg.open = true
     searchDlg.q = ""
     searchDlg.sel = 0
+    searchDlg.shown.setLen(0)        # (found again: the lately done first)
     focusFirstText(inDialog = true)
   of "Close Others":
     for o in docs:
@@ -1123,7 +1180,7 @@ proc psCommand(name: string): bool =
       if te.on: commitType()
       let L = d.current
       d.stepOnce("Rasterize Type", proc () = d.rasterizeText(L))
-  of "Merge Shape Components", "Reverse Path Direction", "Join Paths", "Outline Stroke":
+  of "Merge Shape Components", "Reverse Path Direction", "Join Paths", "Outline Stroke", "Smooth Curvature (G2)":
     if d != nil: d.pathOperation(name, 0)
   of "Offset Path...": startPathValue("Offset Path", 10, -500, 500, "pixels (negative: inward)")
   of "Simplify Path...": startPathValue("Simplify Path", 2, 1, 50, "pixels of curve fit")
@@ -1281,6 +1338,46 @@ proc runFound(e: tuple[path, label, cmd: string]) =
   else:
     runCommand(e.cmd)
 
+proc studioDialogs() =
+  ## Window > Workspace's: a name for the panels and tools as they are (kept, listed in the menu),
+  ## one taken away, one written to a file to give someone, one read from such a file.
+  case inputBox(studioDlg.naming, "New Workspace",
+                "Its name (the panels as they are now, the toolbar's tools and the options bar):",
+                studioDlg.name)
+  of 1:
+    let n = studioDlg.name.strip
+    if n.len > 0:
+      keepStudio(n)
+      studioDlg.current = n
+      status = tr("Kept: Window > Workspace > ") & n
+  else: discard
+  if studioDlg.deleting:
+    let ns = studioNames()
+    dialog(studioDlg.deleting, "Delete Workspace", 340):
+      if ns.len == 0:
+        label("No workspace of your own yet.", color = ui.theme.gray)
+      else:
+        listbox(ns, studioDlg.sel, rows = 6)
+      row:
+        spring()
+        if button("Delete", w = dp(80), enabled = studioDlg.sel in 0 ..< ns.len):
+          dropStudio(ns[studioDlg.sel])
+          if studioDlg.current == ns[studioDlg.sel]: studioDlg.current = ""
+          studioDlg.sel = 0
+        if button("Close", isDefault = true, w = dp(80)): studioDlg.deleting = false
+  if filePicker(studioDlg.exporting, studioDlg.path, fmSave, ["*.rworkspace"], "Export Workspace"):
+    let n = studioDlg.path.splitFile.name
+    keepStudio(n)
+    try:
+      writeFile(studioDlg.path, pretty(studioJson(n)))
+      status = tr("Written: ") & studioDlg.path & tr(" (Import Workspace reads it on another computer)")
+    except CatchableError as e: status = e.msg
+  var pick = ""
+  if filePicker(studioDlg.importing, pick, fmOpen, ["*.rworkspace"], "Import Workspace"):
+    let n = try: studioFromJson(parseJson(readFile(pick))) except CatchableError: ""
+    if n.len == 0: status = tr("Not a Retro Atelier workspace: ") & pick
+    else: runCommand("Studio:" & n)
+
 proc searchDialog() =
   ## Edit > Search (Ctrl+F): type a few letters of a command, a panel or a
   ## tool; Enter (or a double click) does the one picked.
@@ -1294,7 +1391,9 @@ proc searchDialog() =
       var scored: seq[(int, int)]
       var seen: HashSet[string]
       for i, e in all:
-        let s = searchScore(e.label, e.path, q)
+        var s = searchScore(e.label, e.path, q)
+        let r = searchDlg.recent.find(e.path & e.label)
+        if r >= 0 and (s > 0 or q.len == 0): s += 100 - r
         if s > 0 and (e.path & e.label) notin seen:
           seen.incl e.path & e.label
           scored.add (-s, i)
@@ -1330,6 +1429,11 @@ proc searchDialog() =
     if go and searchDlg.sel in 0 .. searchDlg.shown.high:
       let e = all[searchDlg.shown[searchDlg.sel]]
       searchDlg.open = false
+      let key = e.path & e.label
+      let at = searchDlg.recent.find(key)
+      if at >= 0: searchDlg.recent.delete(at)
+      searchDlg.recent.insert(key, 0)
+      if searchDlg.recent.len > 12: searchDlg.recent.setLen(12)
       runFound(e)
 
 # ---- the Contextual Task Bar ----------------------------------------------------------------------------
@@ -1368,10 +1472,14 @@ proc taskBarItems0(dw: DocWin): seq[(string, string)] =
     @[("Character", "Character"), ("Warp Text", "\1warp"), ("Rasterize", "Rasterize Type"),
       ("Transform", "Free Transform")]
   elif d.current.isShape:
-    @[("Transform", "Free Transform"), ("Rasterize", "Rasterize Shape"), ("Properties", "Properties")]
+    @[("Transform", "Free Transform"), ("Text Wrap", "Text Wrap Panel"), ("Rasterize", "Rasterize Shape"),
+      ("Properties", "Properties")]
   else:
-    @[("Select Subject", "Subject"), ("Remove Background", "Remove Background"),
-      ("Transform", "Free Transform"), ("Adjustments", "Adjustments")]
+    var items = @[("Select Subject", "Subject"), ("Remove Background", "Remove Background"),
+                  ("Transform", "Free Transform"), ("Adjustments", "Adjustments")]
+    # (a picture where there is type: how the type keeps out of it, at hand)
+    if not d.current.background and d.layers.anyIt(it.isText): items.insert(("Text Wrap", "Text Wrap Panel"), 3)
+    items
 
 proc taskBarPress(dw: DocWin) =
   ## (before the image: where the bar is, its buttons' clicks)

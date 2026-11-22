@@ -973,6 +973,8 @@ proc adjustmentFn*(a: Adjustment): FilterFn =
   ## - "Levels": for the master, red, green, blue: in low, in high, gamma,
   ##   out low, out high (20)
   ## - "Curves": for each of the four: the number of points, then x, y of each
+  ## - "Hue Curves": for Hue vs Hue, vs Saturation, vs Lightness: the number of points, then x, y
+  ##   of each (128 leaves a hue as it is: `hueCurves`)
   ## - "Brightness/Contrast": brightness, contrast
   ## - "Color Balance": shadows, midtones, highlights (r, g, b each), preserve luminosity (0/1)
   ## - "Hue/Saturation": colorize (0/1), then hue, saturation, lightness when
@@ -1012,6 +1014,16 @@ proc adjustmentFn*(a: Adjustment): FilterFn =
         i += 2
       if c[ch].len < 2: c[ch] = @[(0, 0), (255, 255)]
     applyLuts(curveLut(c[0]), curveLut(c[1]), curveLut(c[2]), curveLut(c[3]))
+  of "Hue Curves":
+    var c: array[3, seq[(int, int)]]
+    var i = 0
+    for ch in 0 .. 2:
+      let n = ai(i)
+      inc i
+      for k in 0 ..< n:
+        c[ch].add (ai(i), ai(i + 1))
+        i += 2
+    hueCurves(c)
   of "Brightness/Contrast": brightnessContrast(ai(0), ai(1))
   of "Color Balance":
     colorBalance([ai(0), ai(1), ai(2)], [ai(3), ai(4), ai(5)], [ai(6), ai(7), ai(8)], ai(9) != 0)

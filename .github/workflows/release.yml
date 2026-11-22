@@ -91,10 +91,12 @@ jobs:
           path: build/*.AppImage
 
   windows:
-    # from Linux, with MinGW: the icon and the version go into the .exe
+    # from Linux, with zig 0.15's clang (every module optimized with the
+    # others: ThinLTO; Windows 10 and 11), MinGW where zig could not be had:
+    # the icon and the version go into the .exe
     needs: plan
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -112,8 +114,8 @@ jobs:
         with:
           nim-version: "2.4.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: MinGW
-        run: sh tools/apt.sh mingw-w64
+      - name: zig 0.15
+        run: pip install ziglang==0.15.2 || sh tools/apt.sh mingw-w64
       - name: Windows program
         run: RETRO_APP=${{ matrix.app }} nimble exe -y
       - uses: actions/upload-artifact@v6

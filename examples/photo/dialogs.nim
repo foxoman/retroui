@@ -880,7 +880,7 @@ proc textureDialogs() =
 
 type AdjKind = enum akLevels, akCurves, akBC, akBalance, akHS, akThreshold, akPosterize, akReplace,
                    akSelective, akShadows, akVibrance, akExposure, akPhotoFilter, akBlackWhite, akMixer,
-                   akGradMap, akLookup, akLight
+                   akGradMap, akLookup, akLight, akHueCurves
 
 var
   adjOpen = false
@@ -900,6 +900,9 @@ var
   # curves
   cvChan = 0
   cv: array[4, seq[(int, int)]]
+  # hue curves (Hue vs Hue, Saturation, Lightness)
+  hcChan = 1
+  hc: array[3, seq[(int, int)]]
   # brightness / contrast
   bcB, bcC = 0
   # color balance
@@ -956,7 +959,7 @@ const adjNames: array[AdjKind, string] = ["Levels", "Curves", "Brightness/Contra
                                           "Hue/Saturation", "Threshold", "Posterize", "Replace Color",
                                           "Selective Color", "Shadows/Highlights", "Vibrance", "Exposure",
                                           "Photo Filter", "Black & White", "Channel Mixer", "Gradient Map",
-                                          "Color Lookup", "Light"]
+                                          "Color Lookup", "Light", "Hue Curves"]
 
 proc adjFn(): FilterFn =
   case adjKind
@@ -987,6 +990,7 @@ proc adjFn(): FilterFn =
     let f = colorLookup(luData)
     if f == nil: (proc (src: Img; inner: Rect): Img = src) else: f
   of akLight: lightFn(lgE / 100, lgC, lgH, lgS, lgW, lgB)
+  of akHueCurves: hueCurves(hc)
 
 proc adjSignature(): string =
   case adjKind
@@ -1008,6 +1012,7 @@ proc adjSignature(): string =
   of akGradMap: $gmStops & $gmReverse & $gmDither
   of akLookup: $luData.len & "/" & $hash(luData)
   of akLight: $[lgE, lgC, lgH, lgS, lgW, lgB]
+  of akHueCurves: $hc
 
 proc adjArgs(): seq[float]
 proc adjData(): string = (if adjKind == akLookup: luData else: "")
@@ -1112,9 +1117,13 @@ proc resetAdjust(k: AdjKind; d: Doc) =
     if luData.len == 0: luData = "look:Film Stock"
   of akLight:
     lgE = 0; lgC = 0; lgH = 0; lgS = 0; lgW = 0; lgB = 0
+  of akHueCurves:
+    for c in 0 .. 2: hc[c] = @[(0, 128), (255, 128)]
+    hcChan = 1
 
 const layerKinds = {akLevels, akCurves, akBC, akBalance, akHS, akThreshold, akPosterize, akSelective,
-                    akVibrance, akExposure, akPhotoFilter, akBlackWhite, akMixer, akGradMap, akLookup, akLight}
+                    akVibrance, akExposure, akPhotoFilter, akBlackWhite, akMixer, akGradMap, akLookup, akLight,
+                    akHueCurves}
   ## (the adjustments that can be adjustment layers)
 
 proc adjArgs(): seq[float] =
@@ -1162,6 +1171,10 @@ proc adjArgs(): seq[float] =
   of akPosterize: result = @[postLevels.float]
   of akGradMap: result = gradientMapArgs(gmStops, gmReverse, gmDither)
   of akLight: result = @[lgE / 100, lgC.float, lgH.float, lgS.float, lgW.float, lgB.float]
+  of akHueCurves:
+    for c in 0 .. 2:
+      result.add hc[c].len.float
+      for (x, y) in hc[c]: result.add [x.float, y.float]
   else: discard
 
 proc loadAdjArgs(a: seq[float]) =
@@ -1234,6 +1247,16 @@ proc loadAdjArgs(a: seq[float]) =
     gmDither = g.dither
   of akLight:
     lgE = int(round(at(0) * 100)); lgC = ai(1); lgH = ai(2); lgS = ai(3); lgW = ai(4); lgB = ai(5)
+  of akHueCurves:
+    var i = 0
+    for c in 0 .. 2:
+      hc[c] = @[]
+      let n = ai(i)
+      inc i
+      for k in 0 ..< n:
+        hc[c].add (ai(i), ai(i + 1))
+        i += 2
+      if hc[c].len < 2: hc[c] = @[(0, 128), (255, 128)]
   else: discard
 
 proc startAdjustLayer(k: AdjKind; L: Layer = nil) =
@@ -1289,9 +1312,9 @@ proc newAreaAdjustment(d: Doc; kind: string) =
 
 proc adjustLayerMenu(d: Doc) =
   ## The kinds of adjustment layer, to make one.
-  for k in [akLevels, akCurves, akBC, akBalance, akHS, akSelective, akVibrance, akExposure, akLight,
+  for k in [akLevels, akCurves, akBC, akBalance, akHS, akHueCurves, akSelective, akVibrance, akExposure, akLight,
             akPhotoFilter, akBlackWhite, akMixer, akGradMap, akLookup, akThreshold, akPosterize]:
-    if menuItem(adjNames[k].replace("&", "&&") & "...", enabled = d.mode in colorModes or k notin {akBalance, akHS, akSelective,
+    if menuItem(adjNames[k].replace("&", "&&") & "...", enabled = d.mode in colorModes or k notin {akBalance, akHS, akHueCurves, akSelective,
                                                                            akVibrance, akPhotoFilter,
                                                                            akBlackWhite, akMixer}):
       startAdjustLayer(k)
@@ -1408,6 +1431,36 @@ proc curvesBody() =
       space(dp(6))
       if button("Reset", w = dp(86)):
         cv[cvChan] = @[(0, 0), (255, 255)]
+
+proc hueCurvesBody() =
+  ## (Affinity's HSL curves: along the hues, each turned, more or less saturated, lighter or darker)
+  row([-1, 92]):
+    col:
+      row:
+        label "Curve:"
+        combo(["Hue vs Hue", "Hue vs Saturation", "Hue vs Lightness"], hcChan, w = dp(160))
+      let lut = curveLut(hc[hcChan])
+      curvesEditor(hc[hcChan], dp(256), lut, diagonal = false)
+      # (round the wheel: red at both ends, so the curve's two ends are one)
+      if hc[hcChan].len >= 2 and hc[hcChan][^1][0] == 255 and hc[hcChan][0][0] == 0:
+        hc[hcChan][^1][1] = hc[hcChan][0][1]
+      let r = place(dp(256) + 2, dp(10))
+      for x in 0 ..< r.w:
+        vline(r.x + x, r.y, r.h, colorOf(fromHsb(float(x) * 360 / float(max(1, r.w)), 1, 1)))
+      let inside = mouseIn(rect(r.x, r.y - dp(256) - 4, dp(256), dp(256)))
+      let x = clamp((ui.mx - r.x) * 255 div max(1, dp(256)), 0, 255)
+      label(if inside: "Hue: " & $(x * 360 div 255) & "°   " &
+                       (case hcChan
+                        of 0: "turned " & $((int(lut[x]) - 128) * 180 div 128) & "°"
+                        of 1: "saturation " & $(int(lut[x]) * 100 div 128) & "%"
+                        else: "lightness " & (if lut[x] >= 128: "+" else: "") & $((int(lut[x]) - 128) * 50 div 128))
+            else: "Click a hue's place on the line, drag it up or down",
+            color = ui.theme.gray)
+    col:
+      discard adjButtons()
+      space(dp(6))
+      if button("Reset", w = dp(86)):
+        hc[hcChan] = @[(0, 128), (255, 128)]
 
 proc bcBody() =
   row([300, -1]):
@@ -1670,7 +1723,7 @@ proc adjustDialog() =
   if not adjOpen: return
   var stillOpen = adjOpen
   dialog(stillOpen, adjNames[adjKind], (case adjKind
-                                         of akLevels, akCurves: 420
+                                         of akLevels, akCurves, akHueCurves: 420
                                          of akThreshold: 400
                                          of akPosterize: 340
                                          of akHS: 560
@@ -1696,6 +1749,7 @@ proc adjustDialog() =
     of akMixer: mixerBody()
     of akGradMap: gradMapBody()
     of akLookup: lookupBody()
+    of akHueCurves: hueCurvesBody()
   if not stillOpen and adjOpen:
     endAdjust(false)          # (Esc, the close box)
   if adjOpen:
@@ -2321,6 +2375,111 @@ proc filterFactoryDialog() =
         d.applyFilter(0, ffCompiled.filterFn(ctl))
         d.endStep()
       if button("Cancel", w = dp(80)): ffOpen = false
+
+# ---- Filter > Render > Procedural Texture (formulas for each channel, with presets) ----------------------
+
+var
+  ptOpen = false
+  ptEdit: TextureFormula
+  ptPreset = 0
+  ptVals: array[4, int]                ## the sliders, in thousandths of their range
+  ptError = ""
+  ptPreview: Bitmap
+  ptPreviewKey = ""
+
+proc ptValues(): seq[float] =
+  for k in 0 .. 3:
+    let p = ptEdit.params[k]
+    result.add p.lo + (p.hi - p.lo) * ptVals[k].float / 1000
+
+proc ptLoad(i: int) =
+  ptPreset = clamp(i, 0, texturePresets.high)
+  ptEdit = texturePresets[ptPreset]
+  for k in 0 .. 3:
+    let p = ptEdit.params[k]
+    ptVals[k] = if p.hi > p.lo: int((p.value - p.lo) / (p.hi - p.lo) * 1000 + 0.5) else: 0
+  ptPreviewKey = ""
+
+proc startProceduralTexture() =
+  if ptEdit.name.len == 0: ptLoad(0)
+  let d = cur()
+  if d != nil:
+    let r = d.workRect
+    fCenter = (r.x + r.w div 2, r.y + r.h div 2)
+  ptOpen = true
+
+proc proceduralTextureDialog() =
+  if not ptOpen: return
+  let d = cur()
+  if d == nil:
+    ptOpen = false
+    return
+  dialog(ptOpen, "Procedural Texture", 660):
+    ptError = ""
+    for (lab, f) in [("V", ptEdit.v), ("R", ptEdit.r), ("G", ptEdit.g), ("B", ptEdit.b), ("A", ptEdit.a)]:
+      let e = textureError(f)
+      if e.len > 0 and ptError.len == 0: ptError = lab & ": " & e
+    let ok = ptError.len == 0
+    row([156, -1]):
+      col:
+        let side = dp(150)
+        let r = place(side + 2, side + 2)
+        let n = max(1, side * pxScale)
+        let key = ptEdit.v & "\0" & ptEdit.r & "\0" & ptEdit.g & "\0" & ptEdit.b & "\0" & ptEdit.a & $ptVals &
+                  $d.ver & $fCenter
+        if ok and key != ptPreviewKey and not (ui.mouseDown and ptPreview != nil and ui.now mod 3 != 0):
+          ptPreview = d.previewFilter(0, proceduralTexture(ptEdit, ptValues()), fCenter[0], fCenter[1], n, n)
+          ptPreview.changed()
+          ptPreviewKey = key
+        box(r, ui.theme.frame)
+        if ptPreview != nil: drawBitmap(inset(r, 1), ptPreview)
+        space(dp(4))
+        label("x y w h rx ry cx cy", color = ui.theme.gray)
+        label("rad ang R G B A L v", color = ui.theme.gray)
+        label("p0..p3 pi ?: &&&& ||", color = ui.theme.gray)   # (&& shown: a label's & marks a key)
+        label("noise fbm cells rnd", color = ui.theme.gray)
+        label("mix step smoothstep", color = ui.theme.gray)
+        label("sin cos frac wave sat", color = ui.theme.gray)
+      col:
+        row:
+          label "Preset:"
+          var names: seq[string]
+          for t in texturePresets: names.add t.name
+          var i = ptPreset
+          if combo(names, i, w = dp(200)): ptLoad(i)
+        group("Sliders"):
+          for k in 0 .. 3:
+            let p = ptEdit.params[k]
+            if p.name.len == 0: continue
+            pushId("pts" & $k)
+            row([110, -1, 52]):
+              label(p.name & ":")
+              slider(ptVals[k], 0, 1000, ticks = 0)
+              label formatFloat(ptValues()[k], ffDecimal, if p.hi - p.lo >= 20: 0 else: 2)
+            popId()
+        group("Formulas (0..1)"):
+          for (lab, k) in [("V:", 0), ("R:", 1), ("G:", 2), ("B:", 3), ("A:", 4)]:
+            pushId("ptf" & $k)
+            row([20, -1]):
+              label lab
+              case k
+              of 0: edit(ptEdit.v)
+              of 1: edit(ptEdit.r)
+              of 2: edit(ptEdit.g)
+              of 3: edit(ptEdit.b)
+              else: edit(ptEdit.a)
+            popId()
+        if ptError.len > 0: label(ptError, color = color(170, 0, 0))
+        else: label("V is worked out first and used as v; an empty formula leaves its channel.",
+                    color = ui.theme.gray)
+    row:
+      spring()
+      if button("Apply", isDefault = true, w = dp(80), enabled = ok):
+        ptOpen = false
+        d.beginStep("Procedural Texture")
+        d.applyFilter(0, proceduralTexture(ptEdit, ptValues()))
+        d.endStep()
+      if button("Cancel", w = dp(80)): ptOpen = false
 
 proc runFilter(name: string; vals: seq[float]) =
   let d = cur()

@@ -2,7 +2,9 @@
 ## three vanishing points (the third the walls' uprights meet at, above or
 ## below), and the planes they make -- a wall to the left, a wall to the
 ## right, the floor (and, with one point, the wall facing) -- with lines on
-## them to draw by. A flat shape is put on a plane where it is:
+## them to draw by. Or an isometric grid (Affinity's isometric planes): no
+## vanishing point, the walls going back at 30 degrees either way, a cube's
+## sides as long as each other. A flat shape is put on a plane where it is:
 ## the corners of its box stay, the rest follows the plane -- smaller as it
 ## goes back.
 ##
@@ -28,7 +30,8 @@ import gfx, photo, photoshapes, photovp, textengine
 type
   PerspectiveKind* = enum
     ## How many vanishing points.
-    pkOnePoint = "One-Point", pkTwoPoint = "Two-Point", pkThreePoint = "Three-Point"
+    pkOnePoint = "One-Point", pkTwoPoint = "Two-Point", pkThreePoint = "Three-Point",
+    pkIsometric = "Isometric"   ## none: the planes' sides parallel, at 30 degrees
 
   PerspectivePlane* = enum
     ## The planes of a grid.
@@ -41,7 +44,8 @@ type
     leftX*, rightX*: float       ## the vanishing points on it (one point: `leftX`)
     nearX*: float                ## two points: the nearest corner, where the walls meet (x); one
                                  ## point: the facing wall's left side
-    nearW*: float                ## one point: the facing wall's width
+    nearW*: float                ## one point: the facing wall's width; isometric: how far the walls go
+                                 ## back (their bottom edges' length, before `depth`)
     ground*, top*: float         ## the near corner's (the facing wall's) foot and top (y)
     depth*: float                ## how far the planes reach toward their points (0..1)
     vertY*: float                ## three points: where the walls' uprights meet (y, under the near
@@ -74,6 +78,14 @@ proc threePoint*(w, h: int): PerspectiveGrid =
   result.kind = pkThreePoint
   result.vertY = h.float * 2.6
 
+proc isometric*(w, h: int): PerspectiveGrid =
+  ## An isometric grid for an image `w` x `h`: the near corner low in the middle, the walls going back
+  ## up at 30 degrees to the left and the right, as high as they are deep (a cube's sides).
+  PerspectiveGrid(kind: pkIsometric, horizon: h.float * 0.38, leftX: 0, rightX: w.float, nearX: w.float * 0.5,
+                  nearW: min(w.float * 0.45, h.float * 0.55), ground: h.float * 0.9,
+                  top: h.float * 0.9 - min(w.float * 0.45, h.float * 0.55) * 0.6, depth: 0.6, cells: 8,
+                  opacity: 50)
+
 proc gridToJson*(g: PerspectiveGrid): string =
   ## The grid as JSON (what a document keeps of it).
   $(%*{"kind": $g.kind, "horizon": g.horizon, "leftX": g.leftX, "rightX": g.rightX, "nearX": g.nearX,
@@ -89,6 +101,7 @@ proc gridFrom*(s: string; w, h: int): PerspectiveGrid =
     let j = parseJson(s)
     result.kind = if j{"kind"}.getStr == $pkOnePoint: pkOnePoint
                   elif j{"kind"}.getStr == $pkThreePoint: pkThreePoint
+                  elif j{"kind"}.getStr == $pkIsometric: pkIsometric
                   else: pkTwoPoint
     template f(name: string; field: untyped) =
       if j.hasKey(name): field = j[name].getFloat(field)
@@ -125,6 +138,18 @@ proc planeQuad*(g: PerspectiveGrid; plane: PerspectivePlane): Quad =
   ## side first for the walls).
   let f = clamp(g.depth, 0.05, 0.98)
   case g.kind
+  of pkIsometric:
+    # (no point: each plane's sides parallel, going back at 30 degrees)
+    let len = max(1.0, g.nearW) * f / 0.6
+    let dl = (-len * cos(PI / 6), -len * sin(PI / 6))
+    let dr = (len * cos(PI / 6), -len * sin(PI / 6))
+    let nt = (g.nearX, g.top)
+    let nb = (g.nearX, g.ground)
+    proc add(a, b: (float, float)): (float, float) = (a[0] + b[0], a[1] + b[1])
+    case plane
+    of ppLeft, ppFacing: [add(nt, dl), nt, nb, add(nb, dl)]
+    of ppRight: [nt, add(nt, dr), add(nb, dr), nb]
+    of ppFloor: [add(add(nb, dl), dr), add(nb, dr), nb, add(nb, dl)]
   of pkThreePoint:
     # (as two points, but the walls' far sides go up to the third point: their uprights meet there)
     let vl = (g.leftX, g.horizon)
@@ -175,8 +200,9 @@ proc planes*(g: PerspectiveGrid): seq[PerspectivePlane] =
   if g.kind == pkOnePoint: @[ppFacing, ppLeft, ppRight, ppFloor] else: @[ppLeft, ppRight, ppFloor]
 
 proc gridLines*(g: PerspectiveGrid; w, h: int): seq[tuple[a, b: (float, float); plane: int]] =
-  ## The lines to show: the horizon (plane -1) and each plane's (its index in `planes`).
-  result.add ((-w.float, g.horizon), (2 * w.float, g.horizon), -1)
+  ## The lines to show: the horizon (plane -1; an isometric grid has none) and each plane's (its
+  ## index in `planes`).
+  if g.kind != pkIsometric: result.add ((-w.float, g.horizon), (2 * w.float, g.horizon), -1)
   for i, pl in g.planes:
     let p = vpPlane(g.planeQuad(pl))
     if not p.ok: continue

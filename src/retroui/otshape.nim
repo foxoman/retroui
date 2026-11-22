@@ -22,19 +22,29 @@
 ## glyphs in the order they are drawn (a right-to-left run reversed), each
 ## with the index of the first input character it came from, positions in
 ## font units. A font without GSUB and GPOS gets its nominal glyphs and its
-## legacy `kern` pairs (split between the two glyphs as HarfBuzz does).
+## legacy `kern` pairs (split between the two glyphs as HarfBuzz does); an
+## Arabic font without the joining features gets them from the presentation
+## forms its map has, with the ligatures (HarfBuzz's Arabic fallback); a
+## font without GPOS has its marks placed by their class, above or below the
+## letter (HarfBuzz's fallback mark positioning); a character followed by a
+## variation selector takes the font's glyph for the pair (cmap 14).
+## Hebrew is shaped as HarfBuzz's Hebrew shaper does it (its points' order, the
+## presentation forms of letters with dagesh, rafe and the shin dots for a
+## font that does not place marks itself, the font's GPOS only under its
+## Hebrew script); Thai and Lao as its Thai shaper (SARA AM taken apart into
+## NIKHAHIT and SARA AA, the NIKHAHIT moved back over a tone mark).
 ## A face made by `variation` shapes at its axis values: feature
 ## variations pick their lookups, GPOS variation deltas move kerning and
 ## anchors.
 ##
-## Not done: the shapers HarfBuzz has for Indic, Khmer, Myanmar, Thai, Lao,
-## Hangul, Hebrew and the Universal Shaping Engine scripts (those runs get
-## the default features only); Syriac `stch`; the Arabic presentation-form
-## fallback and the mark placement HarfBuzz guesses for fonts without GSUB
-## or GPOS; vertical text.
+## Not done: the shapers HarfBuzz has for Indic, Khmer, Myanmar, Hangul (its
+## jamo put together and apart) and the Universal Shaping Engine scripts
+## (those runs get the default features only); the Thai shaper's private-use
+## glyphs for the Thai fonts of before OpenType; Syriac `stch`; the hand-made
+## GSUB HarfBuzz gives a font encoded as Windows-1256; vertical text.
 
 import std/[tables, algorithm, base64, strutils, math]
-import ttf
+import ttf, arabicdata
 
 type
   ShapedGlyph* = object
@@ -649,7 +659,7 @@ type
     mask: uint32
     autoZwnj, autoZwj, random: bool
 
-  Pause = enum pNone, pStch, pArabicFallback   ## (HarfBuzz's pauses; stch and the fallback are not done)
+  Pause = enum pNone, pStch, pArabicFallback   ## (HarfBuzz's pauses; stch is not done)
 
   StageMap = object
     last: int
@@ -658,6 +668,9 @@ type
   Plan = ref object
     rtl: bool                  ## the direction it was made for
     arabicShaper: bool
+    hebrewShaper: bool         ## HarfBuzz's Hebrew shaper: its marks' order, its presentation forms
+    thaiShaper: bool           ## ... Thai and Lao's: SARA AM taken apart
+    hasGposMark: bool          ## the font places marks itself ('mark' found)
     chosen: array[2, string]
     features: seq[FeatureMap]
     lookups: array[2, seq[LookupMap]]
@@ -667,6 +680,9 @@ type
     rtlmMask, fracMask, numrMask, dnomMask, kernMask: uint32
     hasFrac: bool
     applyGpos, applyKern, zeroMarks, adjustMarks, fallbackClasses: bool
+    arabicFallback: bool       ## Arabic forms from the font's presentation forms (it lacks the features)
+    fallbackMasks: array[7, uint32]   ## (each fallback lookup's: init, medi, fina, isol, rlig x 3)
+    fallbackMarks: bool        ## marks placed by their class (no GPOS)
 
   Layout = ref object of RootObj
     d: ptr UncheckedArray[uint8]
@@ -677,6 +693,10 @@ type
     plans: Table[string, Plan]
     numGlyphs: int
     hasKern: bool              ## a legacy kern table
+    fbMade: bool               ## (the Arabic fallback's lookups, below, made)
+    fbSingle: array[4, Table[int, int]]   ## glyph -> its initial, medial, final, isolated form's
+    fbLigs: array[3, Table[int, seq[(seq[int], int)]]]
+      ## (first glyph -> the other glyphs and the ligature: three letters, two, two marks)
 
 template u8(L: Layout; i: int): int =
   (let j = i; if j >= 0 and j < L.n: int(L.d[j]) else: 0)
@@ -1170,13 +1190,30 @@ proc makePlan(L: Layout; si: ScriptInfo; lang: string; rtl: bool;
   if p.arabicShaper:
     for i, tg in ["isol", "fina", "fin2", "fin3", "medi", "med2", "init"]:
       p.arabicMasks[i] = oneMask(tg)
+    # (a font without them -- no GSUB, or not these -- gets HarfBuzz's fallback: the Unicode
+    # presentation forms its character map has)
+    if si.iso == "Arab":
+      # (as HarfBuzz: only when the font has none of isol, fina, medi, init -- each one asked for)
+      var need = 0
+      for m in p.features:
+        if m.needsFallback and m.tag in ["isol", "fina", "medi", "init"]: inc need
+      p.arabicFallback = need == 4
+      if p.arabicFallback:
+        for i, tg in ["init", "medi", "fina", "isol", "rlig", "rlig", "rlig"]:
+          p.fallbackMasks[i] = oneMask(tg)
   # who positions
   p.fallbackClasses = L.glyphClass <= 0
   let hasGposKern = foundAt("kern", 1)
+  p.hebrewShaper = si.iso == "Hebr"
+  p.thaiShaper = si.iso in ["Thai", "Laoo"]
+  p.hasGposMark = foundAt("mark", 0) or foundAt("mark", 1)
   p.applyGpos = L.t[1].at >= 0
+  # (HarfBuzz's Hebrew shaper: the font's GPOS only under its Hebrew script)
+  if p.hebrewShaper and p.chosen[1] != "hebr": p.applyGpos = false
   p.applyKern = (not hasGposKern or not p.applyGpos) and L.hasKern
   p.zeroMarks = true
   p.adjustMarks = not p.applyGpos
+  p.fallbackMarks = not p.applyGpos and not p.thaiShaper    # (Thai and Lao: no fallback positioning)
   p
 
 # ---- the glyph buffer -----------------------------------------------------------------
@@ -1397,7 +1434,7 @@ proc allocLigId(b: Buf): int =
 # ---- applying lookups -----------------------------------------------------------------
 
 type
-  MatchKind = enum mkNone, mkGlyph, mkClass, mkCoverage
+  MatchKind = enum mkNone, mkGlyph, mkClass, mkCoverage, mkList   ## (mkList: `Ctx.list`'s glyphs)
   Matcher = object
     props: int
     ignoreZwnj, ignoreZwj, ignoreHidden: bool
@@ -1428,6 +1465,7 @@ type
     coords: seq[int]
     ops: int              ## what is left of the work budget (a damaged font stops here)
     maxLen: int           ## the buffer grows no longer than this
+    list: seq[int]        ## (the glyphs a lookup made here matches: the Arabic fallback's)
 
 proc checkGlyphProperty(c: var Ctx; x: GInfo; props: int): bool =
   let gp = int(x.gprops)
@@ -1463,6 +1501,7 @@ proc valueMatches(c: var Ctx; m: Matcher; k: int; x: GInfo): bool =
   of mkGlyph: int(x.cp) == v
   of mkClass: c.L.classOf(m.classDef, int(x.cp)) == v
   of mkCoverage: c.L.coverage(m.base + v, int(x.cp)) >= 0
+  of mkList: m.arr + k < c.list.len and int(x.cp) == c.list[m.arr + k]
   of mkNone: true
 
 proc match(c: var Ctx; it: var Iter; x: GInfo): MatchResult =
@@ -2298,7 +2337,85 @@ proc reorderMarksArabic(b: Buf; start0, stop: int) =
 
 # ---- the shaper ---------------------------------------------------------------------------
 
-proc normalize(b: Buf; f: Face; arabic: bool) =
+proc reorderMarksHebrew(b: Buf; start, stop: int) =
+  ## (HarfBuzz's: patah or qamats, then sheva or hiriq, then meteg or a mark below: the last two
+  ## change places)
+  for i in start + 2 ..< stop:
+    let c0 = b.info[i - 2].infoCc
+    let c1 = b.info[i - 1].infoCc
+    let c2 = b.info[i].infoCc
+    if c0 in [20, 21] and c1 in [22, 23] and c2 in [25, 220]:
+      swap(b.info[i - 1], b.info[i])
+      break
+
+proc composeHebrew(a, x: int; ab: var int): bool =
+  ## (HarfBuzz's Hebrew presentation forms, for a font that does not place marks itself: a letter
+  ## with dagesh, rafe, the shin and sin dots... as one glyph)
+  const dagesh = [0xFB30, 0xFB31, 0xFB32, 0xFB33, 0xFB34, 0xFB35, 0xFB36, 0, 0xFB38, 0xFB39, 0xFB3A,
+                  0xFB3B, 0xFB3C, 0, 0xFB3E, 0, 0xFB40, 0xFB41, 0, 0xFB43, 0xFB44, 0, 0xFB46, 0xFB47,
+                  0xFB48, 0xFB49, 0xFB4A]
+  ab = 0
+  case x
+  of 0x05B4:
+    if a == 0x05D9: ab = 0xFB1D
+  of 0x05B7:
+    if a == 0x05F2: ab = 0xFB1F
+    elif a == 0x05D0: ab = 0xFB2E
+  of 0x05B8:
+    if a == 0x05D0: ab = 0xFB2F
+  of 0x05B9:
+    if a == 0x05D5: ab = 0xFB4B
+  of 0x05BC:
+    if a in 0x05D0 .. 0x05EA: ab = dagesh[a - 0x05D0]
+    elif a == 0xFB2A: ab = 0xFB2C
+    elif a == 0xFB2B: ab = 0xFB2D
+  of 0x05BF:
+    case a
+    of 0x05D1: ab = 0xFB4C
+    of 0x05DB: ab = 0xFB4D
+    of 0x05E4: ab = 0xFB4E
+    else: discard
+  of 0x05C1:
+    if a == 0x05E9: ab = 0xFB2A
+    elif a == 0xFB49: ab = 0xFB2C
+  of 0x05C2:
+    if a == 0x05E9: ab = 0xFB2B
+    elif a == 0xFB49: ab = 0xFB2D
+  else: discard
+  ab != 0
+
+proc preprocessThai(b: Buf) =
+  ## (HarfBuzz's Thai and Lao: SARA AM taken apart into NIKHAHIT and SARA AA, the NIKHAHIT moved
+  ## back over the marks above before it)
+  template isSaraAm(x: int): bool = (x and not 0x80) == 0x0E33
+  template isAboveBase(x: int): bool =
+    (let y = x and not 0x80; y in 0x0E34 .. 0x0E37 or y in 0x0E47 .. 0x0E4E or y == 0x0E31 or y == 0x0E3B)
+  var any = false
+  for i in 0 ..< b.len:
+    if isSaraAm(int(b.info[i].cp)): any = true
+  if not any: return
+  b.clearOutput()
+  b.idx = 0
+  let count = b.len
+  while b.idx < count:
+    let u = int(b.cur.cp)
+    if not isSaraAm(u):
+      b.nextGlyph()
+      continue
+    b.outputGlyph(u - 0x0E33 + 0x0E4D)
+    b.outAt(b.outLen - 1).uprops = b.outAt(b.outLen - 1).uprops or upContinuation
+    b.replaceGlyph(u - 1)
+    let e = b.outLen
+    b.outAt(e - 2).uprops = (b.outAt(e - 2).uprops and not 0x1F'u16) or uint16(gcMn)
+    var start = e - 2
+    while start > 0 and isAboveBase(int(b.outAt(start - 1).cp)): dec start
+    if start + 2 < e:
+      let t = b.outAt(e - 2)
+      for k in countdown(e - 3, start): b.outAt(k + 1) = b.outAt(k)
+      b.outAt(start) = t
+  b.sync()
+
+proc normalize(b: Buf; f: Face; arabic: bool; hebrew = false; hasGposMark = true) =
   ## HarfBuzz's normalizer ("composed diacritics"): decompose what the font
   ## lacks, sort the marks, compose again what the font has.
   proc glyph(u: int): int = f.glyphOf(u)
@@ -2384,11 +2501,18 @@ proc normalize(b: Buf; f: Face; arabic: bool) =
     if hasVs:
       while b.idx < stop - 1:
         if isVs(int(b.info[b.idx + 1].cp)):
-          b.cur.glyph = int32(glyph(int(b.cur.cp)))
-          b.nextGlyph()
-          b.cur.uprops = (b.cur.uprops and 0xE0'u16) or uint16(gcCf) or upVs
-          b.cur.glyph = int32(glyph(int(b.cur.cp)))
-          b.nextGlyph()
+          let vg = f.variationGlyph(int(b.cur.cp), int(b.info[b.idx + 1].cp))
+          if vg >= 0:
+            # (the font's own glyph for the pair: one glyph, the selector gone)
+            b.cur.glyph = int32(vg)
+            b.nextGlyph()
+            b.skipGlyph()
+          else:
+            b.cur.glyph = int32(glyph(int(b.cur.cp)))
+            b.nextGlyph()
+            b.cur.uprops = (b.cur.uprops and 0xE0'u16) or uint16(gcCf) or upVs
+            b.cur.glyph = int32(glyph(int(b.cur.cp)))
+            b.nextGlyph()
           while b.idx < stop and isVs(int(b.cur.cp)):
             b.cur.glyph = int32(glyph(int(b.cur.cp)))
             b.nextGlyph()
@@ -2419,6 +2543,7 @@ proc normalize(b: Buf; f: Face; arabic: bool) =
             for m in countdown(k - 1, j): b.info[m + 1] = b.info[m]
             b.info[j] = t
         if arabic: b.reorderMarksArabic(i, stop)
+        elif hebrew: b.reorderMarksHebrew(i, stop)
       i = stop
   if b.hasCgj:
     for i in 1 ..< b.len - 1:
@@ -2434,7 +2559,8 @@ proc normalize(b: Buf; f: Face; arabic: bool) =
       if x.isUnicodeMark:
         var composed: int
         if (starter == b.outLen - 1 or b.outAt(b.outLen - 1).infoCc < x.infoCc) and
-           composePair(int(b.outAt(starter).cp), int(x.cp), composed):
+           (composePair(int(b.outAt(starter).cp), int(x.cp), composed) or
+            (hebrew and not hasGposMark and composeHebrew(int(b.outAt(starter).cp), int(x.cp), composed))):
           let g = glyph(composed)
           if g != 0:
             b.nextGlyph()
@@ -2453,6 +2579,291 @@ proc planKey(si: ScriptInfo; lang: string; rtl: bool; features: openArray[Featur
              vi: array[2, int]): string =
   result = si.iso & "|" & lang & "|" & $rtl & "|" & $vi[0] & "," & $vi[1]
   for f in features: result.add "|" & f.tag & (if f.on: "+" else: "-")
+
+# ---- HarfBuzz's fallbacks: Arabic forms from the character map, marks placed by their class --------
+
+const
+  fbLigs3 = [(0xFEDF, 0xFEE4, 0xFEA4, 0xFD88), (0xFEDF, 0xFEE0, 0xFEEA, 0xF201),
+             (0xFEDF, 0xFEE4, 0xFEA0, 0xF211)]
+    ## (HarfBuzz's three-letter ligatures: lam meem hah; lam lam heh, "lillah", and lam meem jeem
+    ## at the code points the Arabic fonts of before Unicode have them)
+  fbLigs2 = [
+    (0xFE91, 0xFEE2, 0xFC08), (0xFE91, 0xFEE4, 0xFC9F), (0xFE91, 0xFEA0, 0xFC9C),
+    (0xFE91, 0xFEA4, 0xFC9D), (0xFE91, 0xFEA8, 0xFC9E), (0xFE92, 0xFEAE, 0xFC6A),
+    (0xFE92, 0xFEE6, 0xFC6D), (0xFE92, 0xFEF2, 0xFC6F), (0xFE97, 0xFEE2, 0xFC0E),
+    (0xFE97, 0xFEE4, 0xFCA4), (0xFE97, 0xFEA0, 0xFCA1), (0xFE97, 0xFEA4, 0xFCA2),
+    (0xFE97, 0xFEA8, 0xFCA3), (0xFE98, 0xFEAE, 0xFC70), (0xFE98, 0xFEE6, 0xFC73),
+    (0xFE98, 0xFEF2, 0xFC75), (0xFE9B, 0xFEE2, 0xFC12), (0xFE9F, 0xFEE4, 0xFCA8),
+    (0xFEA3, 0xFEE4, 0xFCAA), (0xFEA7, 0xFEE4, 0xFCAC), (0xFEB3, 0xFEE4, 0xFCB0),
+    (0xFEB7, 0xFEE4, 0xFD30), (0xFED3, 0xFEF2, 0xFC32), (0xFEDF, 0xFE9E, 0xFC3F),
+    (0xFEDF, 0xFEA0, 0xFCC9), (0xFEDF, 0xFEA2, 0xFC40), (0xFEDF, 0xFEA4, 0xFCCA),
+    (0xFEDF, 0xFEA6, 0xFC41), (0xFEDF, 0xFEA8, 0xFCCB), (0xFEDF, 0xFEE2, 0xFC42),
+    (0xFEDF, 0xFEE4, 0xFCCC), (0xFEDF, 0xFEF2, 0xFC44), (0xFEDF, 0xFEEC, 0xFCCD),
+    (0xFEDF, 0xFE82, 0xFEF5), (0xFEDF, 0xFE84, 0xFEF7), (0xFEDF, 0xFE88, 0xFEF9),
+    (0xFEDF, 0xFE8E, 0xFEFB), (0xFEE0, 0xFEF0, 0xFC86), (0xFEE0, 0xFE82, 0xFEF6),
+    (0xFEE0, 0xFE84, 0xFEF8), (0xFEE0, 0xFE88, 0xFEFA), (0xFEE0, 0xFE8E, 0xFEFC),
+    (0xFEE3, 0xFEA0, 0xFCCE), (0xFEE3, 0xFEA4, 0xFCCF), (0xFEE3, 0xFEA8, 0xFCD0),
+    (0xFEE3, 0xFEE4, 0xFCD1), (0xFEE7, 0xFEE2, 0xFC4E), (0xFEE7, 0xFEE4, 0xFCD5),
+    (0xFEE7, 0xFEA0, 0xFCD2), (0xFEE7, 0xFEA4, 0xFCD3), (0xFEE8, 0xFEF2, 0xFC8F),
+    (0xFEF3, 0xFEA0, 0xFCDA), (0xFEF3, 0xFEA4, 0xFCDB), (0xFEF3, 0xFEA8, 0xFCDC),
+    (0xFEF3, 0xFEE4, 0xFCDD), (0xFEF4, 0xFEAE, 0xFC91), (0xFEF4, 0xFEE6, 0xFC94)]
+    ## (HarfBuzz's two-letter ligatures: the first form, the second, the ligature's form)
+  fbLigsMark = [(0x0651, 0x064C, 0xFC5E), (0x0651, 0x064E, 0xFC60), (0x0651, 0x064F, 0xFC61),
+                (0x0651, 0x0650, 0xFC62), (0x0651, 0x064B, 0xF2EE)]
+    ## (shadda and a vowel: one glyph)
+
+proc makeFallback(L: Layout; f: Face) =
+  ## The lookups HarfBuzz makes for an Arabic font without its features, from the presentation
+  ## forms its character map has (hb-ot-shaper-arabic-fallback): each letter's glyph to its
+  ## initial, medial, final and isolated form's; then the ligatures.
+  if L.fbMade: return
+  L.fbMade = true
+  const slotOf = [2, 3, 1, 0]          # (init, medi, fina, isol in `arabicForms`' order)
+  for (letter, forms) in arabicForms:
+    let g = f.glyphOf(int(letter))
+    if g == 0: continue
+    for k in 0 .. 3:
+      let s = int(forms[slotOf[k]])
+      if s == 0: continue
+      let sg = f.glyphOf(s)
+      if sg != 0 and sg != g and not L.fbSingle[k].hasKey(g): L.fbSingle[k][g] = sg
+  proc add(L: Layout; k: int; first: int; comps: openArray[int]; lig: int) =
+    let fg = f.glyphOf(first)
+    let lg = f.glyphOf(lig)
+    if fg == 0 or lg == 0: return
+    var cs: seq[int]
+    for c in comps:
+      let g = f.glyphOf(c)
+      if g == 0: return
+      cs.add g
+    L.fbLigs[k].mgetOrPut(fg, @[]).add (cs, lg)
+  for (a, b, c, lig) in fbLigs3: L.add(0, a, [b, c], lig)
+  for (a, b, lig) in fbLigs2: L.add(1, a, [b], lig)
+  for (a, b, lig) in fbLigsMark: L.add(2, a, [b], lig)
+
+proc arabicFallback(c: var Ctx; p: Plan) =
+  ## HarfBuzz's Arabic fallback, run where GSUB pauses for it: the forms, then the ligatures
+  ## (three letters, two -- lam-alef among them -- skipping marks; shadda and a vowel), each on
+  ## the glyphs its feature's mask is set for.
+  let L = c.L
+  let b = c.b
+  L.makeFallback(c.face)
+  c.lastBase = -1
+  c.lastBaseUntil = 0
+  c.autoZwj = true
+  c.autoZwnj = true
+  c.random = false
+  for k in 0 .. 3:
+    let m = p.fallbackMasks[k]
+    if m == 0 or L.fbSingle[k].len == 0: continue
+    for i in 0 ..< b.len:
+      if (b.info[i].mask and m) == 0 or not c.checkGlyphProperty(b.info[i], lfIgnoreMarks): continue
+      let g = L.fbSingle[k].getOrDefault(int(b.info[i].cp), -1)
+      if g < 0: continue
+      b.idx = i
+      c.setGlyphClass(g)
+      b.info[i].cp = int32(g)
+    b.idx = 0
+  for k in 0 .. 2:
+    let m = p.fallbackMasks[4 + k]
+    if m == 0 or L.fbLigs[k].len == 0: continue
+    let props = if k < 2: lfIgnoreMarks else: 0
+    c.lookupMask = m
+    c.setLookupProps(props)
+    b.clearOutput()
+    b.idx = 0
+    while b.idx < b.len:
+      let x = b.cur
+      var done = false
+      if (x.mask and m) != 0 and c.checkGlyphProperty(x, props):
+        L.fbLigs[k].withValue(int(x.cp), ligs):
+          for (comps, lg) in ligs[]:
+            c.list = comps
+            var matchEnd, total = 0
+            if c.matchInput(comps.len + 1, mkList, 0, 0, 0, matchEnd, addr total):
+              c.ligateInput(comps.len + 1, matchEnd, lg, total)
+              done = true
+              break
+      if not done: b.nextGlyph()
+    b.sync()
+
+const
+  ccAttachedBelowLeft = 200
+  ccAttachedBelow = 202
+  ccAttachedAbove = 214
+  ccAttachedAboveRight = 216
+  ccBelowLeft = 218
+  ccBelow = 220
+  ccBelowRight = 222
+  ccAboveLeft = 228
+  ccAbove = 230
+  ccAboveRight = 232
+  ccDoubleBelow = 233
+  ccDoubleAbove = 234
+
+proc recategorizeClass(u, klass: int): int =
+  ## The classes HarfBuzz's fallback places marks by: the script-specific ones (Hebrew, Arabic,
+  ## Thai, Lao, Tibetan) as above or below (hb-ot-shape-fallback's recategorize_combining_class;
+  ## these are the modified classes).
+  if klass >= 200: return klass
+  var k = klass
+  if (u and not 0xFF) == 0x0E00:
+    if k == 0:
+      case u
+      of 0x0E31, 0x0E34, 0x0E35, 0x0E36, 0x0E37, 0x0E47, 0x0E4C, 0x0E4D, 0x0E4E: k = ccAboveRight
+      of 0x0EB1, 0x0EB4, 0x0EB5, 0x0EB6, 0x0EB7, 0x0EBB, 0x0ECC, 0x0ECD: k = ccAbove
+      of 0x0EBC: k = ccBelow
+      else: discard
+    elif u == 0x0E3A: k = ccBelowRight
+  case k
+  # Hebrew (sheva .. qubuts, meteg; rafe; shin dot; sin dot, holam; varika)
+  of 22, 15, 16, 17, 23, 18, 19, 20, 21, 24, 25: ccBelow
+  of 13: ccAttachedAbove
+  of 10: ccAboveRight
+  of 11, 14: ccAboveLeft
+  of 26: ccAbove
+  # Arabic and Syriac (fathatan, dammatan, fatha, damma, shadda, sukun, superscript alef and alaph;
+  # kasratan, kasra)
+  of 28, 29, 31, 32, 27, 34, 35, 36: ccAbove
+  of 30, 33: ccBelow
+  # Thai, Lao, Tibetan
+  of 3: ccBelowRight
+  of 107: ccAboveRight
+  of 118: ccBelow
+  of 122: ccAbove
+  of 129: ccBelow
+  of 132: ccAbove
+  of 131: ccBelow
+  else: k
+
+type Ext = object
+  x, y, w, h: int      ## (HarfBuzz's extents: x the left of the ink, y its top, h down from there)
+
+proc extOf(f: Face; g: int): Ext =
+  ## (as HarfBuzz's: the left side bearing the font's metrics give, the box's width and height)
+  let bx = f.bounds(g)
+  if bx.x0 == bx.x1 and bx.y0 == bx.y1: return
+  Ext(x: f.leftBearing(g), y: bx.y1, w: bx.x1 - bx.x0, h: bx.y0 - bx.y1)
+
+proc positionMark(b: Buf; f: Face; base: var Ext; i, klass: int) =
+  let m = f.extOf(int(b.info[i].cp))
+  if m.w == 0 and m.h == 0: return
+  let gap = f.unitsPerEm div 16
+  b.pos[i].xo = 0
+  b.pos[i].yo = 0
+  var xo = 0
+  var yo = 0
+  case klass
+  of ccDoubleBelow, ccDoubleAbove:
+    if not b.rtl: xo = base.x + base.w - m.w div 2 - m.x
+    else: xo = base.x - m.w div 2 - m.x
+  of ccAttachedBelowLeft, ccBelowLeft, ccAboveLeft:
+    xo = base.x - m.x
+  of ccAttachedAboveRight, ccBelowRight, ccAboveRight:
+    xo = base.x + base.w - m.w - m.x
+  else:
+    xo = base.x + (base.w - m.w) div 2 - m.x
+  case klass
+  of ccDoubleBelow, ccBelowLeft, ccBelow, ccBelowRight, ccAttachedBelowLeft, ccAttachedBelow:
+    if klass notin [ccAttachedBelowLeft, ccAttachedBelow]: base.h -= gap
+    yo = base.y + base.h - m.y
+    # (a mark below is never moved up)
+    if (gap > 0) == (yo > 0):
+      base.h -= yo
+      yo = 0
+    base.h += m.h
+  of ccDoubleAbove, ccAboveLeft, ccAbove, ccAboveRight, ccAttachedAbove, ccAttachedAboveRight:
+    if klass notin [ccAttachedAbove, ccAttachedAboveRight]:
+      base.y += gap
+      base.h -= gap
+    yo = base.y - (m.y + m.h)
+    # (nor one above moved down much)
+    if (gap > 0) != (yo > 0):
+      let corr = -yo div 2
+      base.y += corr
+      base.h -= corr
+      yo += corr
+    base.y -= m.h
+  else: discard
+  b.pos[i].xo = int32(xo)
+  b.pos[i].yo = int32(yo)
+
+proc positionAroundBase(b: Buf; f: Face; base, e: int) =
+  # (a default ignorable is the space it is drawn as by now, in HarfBuzz)
+  var bg = int(b.info[base].cp)
+  if b.info[base].isDefIgn:
+    let sp = f.glyphOf(0x20)
+    if sp != 0: bg = sp
+  var be = f.extOf(bg)
+  be.y += int(b.pos[base].yo)
+  # (the advance across, as HarfBuzz: better, and right for a letter with no ink)
+  be.x = 0
+  be.w = f.advance(bg)
+  let ligId = b.info[base].ligId
+  let comps = b.info[base].ligNumComps
+  var xo = 0
+  var yo = 0
+  if not b.rtl:
+    xo -= int(b.pos[base].xa)
+    yo -= int(b.pos[base].ya)
+  var comp = be
+  var lastComp = -1
+  var lastClass = 255
+  var cluster = be
+  for i in base + 1 ..< e:
+    let klass = b.info[i].infoCc
+    if klass != 0:
+      if comps > 1:
+        var thisComp = b.info[i].ligComp - 1
+        if ligId == 0 or ligId != b.info[i].ligId or thisComp >= comps: thisComp = comps - 1
+        if lastComp != thisComp:
+          lastComp = thisComp
+          lastClass = 255
+          comp = be
+          if not b.rtl: comp.x += (thisComp * comp.w) div comps
+          else: comp.x += ((comps - 1 - thisComp) * comp.w) div comps
+          comp.w = comp.w div comps
+      if lastClass != klass:
+        lastClass = klass
+        cluster = comp
+      b.positionMark(f, cluster, i, klass)
+      b.pos[i].xa = 0
+      b.pos[i].ya = 0
+      b.pos[i].xo += int32(xo)
+      b.pos[i].yo += int32(yo)
+    elif not b.rtl:
+      xo -= int(b.pos[i].xa)
+      yo -= int(b.pos[i].ya)
+    else:
+      xo += int(b.pos[i].xa)
+      yo += int(b.pos[i].ya)
+
+proc fallbackMarkPosition(b: Buf; f: Face) =
+  ## Marks a font without GPOS draws where HarfBuzz's fallback puts them: on the letter before
+  ## them, centred above or below by their class, a little apart, stacked when there are more
+  ## (hb-ot-shape-fallback's _hb_ot_shape_fallback_mark_position).
+  ## (A joiner or another default ignorable between a letter and its marks is passed over.)
+  proc cluster(b: Buf; f: Face; s, e: int) =
+    if e - s < 2: return
+    var i = s
+    while i < e:
+      if not b.info[i].isUnicodeMark:
+        var j = i + 1
+        while j < e:
+          if b.info[j].isHidden or b.info[j].isDefIgn:
+            inc j
+            continue
+          if not b.info[j].isUnicodeMark: break
+          inc j
+        b.positionAroundBase(f, i, j)
+        i = j
+      else: inc i
+  var start = 0
+  for i in 1 ..< b.len:
+    if not b.info[i].isUnicodeMark and not b.info[i].isHidden and not b.info[i].isDefIgn:
+      b.cluster(f, start, i)
+      start = i
+  b.cluster(f, start, b.len)
 
 proc shape*(f: Face; cps: openArray[int]; rtl: bool; script = ""; lang = "";
             features: openArray[Feature] = []): seq[ShapedGlyph] =
@@ -2512,6 +2923,7 @@ proc shape*(f: Face; cps: openArray[int]; rtl: bool; script = ""; lang = "";
         b.info[k] = x
         inc k
     b.rtl = not rtl
+  if p.thaiShaper: b.preprocessThai()
   # mirroring
   if rtl:
     for i in 0 ..< b.len:
@@ -2519,7 +2931,7 @@ proc shape*(f: Face; cps: openArray[int]; rtl: bool; script = ""; lang = "";
       let m = mirrorOf(u)
       if m != u and f.glyphOf(m) != 0: b.info[i].cp = int32(m)
       else: b.info[i].mask = b.info[i].mask or p.rtlmMask
-  b.normalize(f, p.arabicShaper)
+  b.normalize(f, p.arabicShaper, p.hebrewShaper, p.hasGposMark)
   # masks: fractions, Arabic joining
   if b.hasFracSlash and p.hasFrac:
     let pre = if not b.rtl: p.numrMask or p.fracMask else: p.fracMask or p.dnomMask
@@ -2542,6 +2954,11 @@ proc shape*(f: Face; cps: openArray[int]; rtl: bool; script = ""; lang = "";
     for i in 0 ..< b.len:
       let a = b.info[i].action
       if a < 7: b.info[i].mask = b.info[i].mask or p.arabicMasks[a]
+  if p.fallbackMarks:
+    for i in 0 ..< b.len:
+      if b.info[i].gc == gcMn:
+        let k = recategorizeClass(int(b.info[i].cp), b.info[i].infoCc)
+        b.info[i].uprops = (b.info[i].uprops and 0xFF) or uint16(k shl 8)
   for i in 0 ..< b.len:
     b.info[i].cp = b.info[i].glyph
   # GSUB
@@ -2560,6 +2977,7 @@ proc shape*(f: Face; cps: openArray[int]; rtl: bool; script = ""; lang = "";
     while li < st.last:
       c.applyLookup(p.lookups[0][li])
       inc li
+    if st.pause == pArabicFallback and p.arabicFallback: c.arabicFallback(p)
   # positions
   b.pos = newSeq[GPos](b.len)
   for i in 0 ..< b.len:
@@ -2672,6 +3090,7 @@ proc shape*(f: Face; cps: openArray[int]; rtl: bool; script = ""; lang = "";
     else:
       for i in countdown(b.len - 1, 0):
         if b.pos[i].chain != 0: b.propagate(i, 64)
+  if p.fallbackMarks: b.fallbackMarkPosition(f)
   if b.rtl:
     b.info.setLen(b.len)
     b.info.reverse()

@@ -35,7 +35,12 @@ proc chunk(tag, data: string): string =
   result.add tag
   result.add data
   let body = tag & data
-  result.put32(int(crc32(body.toOpenArrayByte(0, body.high))))
+  let c = crc32(body.toOpenArrayByte(0, body.high))
+  # (its bytes: an int of 32 bits -- a web page, a 32-bit phone -- does not hold a CRC)
+  result.add char((c shr 24) and 255)
+  result.add char((c shr 16) and 255)
+  result.add char((c shr 8) and 255)
+  result.add char(c and 255)
 
 iterator chunks(data: string): tuple[tag, body: string] =
   ## (each chunk after the signature: its tag and what it holds)

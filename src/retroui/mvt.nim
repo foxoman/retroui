@@ -152,8 +152,9 @@ proc geometry(cmds: seq[uint32]; kind: MvtGeom): seq[seq[(float32, float32)]] =
         cur = @[]
       for _ in 0 ..< count:
         if i + 2 > cmds.len: return
-        x += zigzag(cmds[i])
-        y += zigzag(cmds[i + 1])
+        # (a damaged tile's steps may add up past an int32: they stop at its ends)
+        x = int32(clamp(int64(x) + int64(zigzag(cmds[i])), int64(low(int32)), int64(high(int32))))
+        y = int32(clamp(int64(y) + int64(zigzag(cmds[i + 1])), int64(low(int32)), int64(high(int32))))
         i += 2
         if kind == mgPoint: result.add @[(float32(x), float32(y))]
         else: cur.add (float32(x), float32(y))

@@ -1681,10 +1681,12 @@ proc shearEditor*(pts: var seq[(float, float)]; size: int;
     let (sx, sy) = toScr(p)
     fill(rect(sx - 2, sy - 2, 5, 5), th.text)
 
-proc curvesEditor*(pts: var seq[(int, int)]; size: int; lut: openArray[uint8]): bool {.discardable.} =
+proc curvesEditor*(pts: var seq[(int, int)]; size: int; lut: openArray[uint8];
+                   diagonal = true): bool {.discardable.} =
   ## The 0..255 square with a grid, the curve (`lut`) and its points: a
   ## click on the curve adds one, dragging moves it, dragging it out of the
-  ## square takes it away (the two ends stay).
+  ## square takes it away (the two ends stay). `diagonal`: the line of a curve that changes
+  ## nothing drawn under it (false for curves whose neutral is flat, as Hue Curves').
   let r = place(size + 2, size + 2)
   beginKeepSides(r)               # (as it is in a right-to-left interface too)
   defer: endKeepSides()
@@ -1737,7 +1739,7 @@ proc curvesEditor*(pts: var seq[(int, int)]; size: int; lut: openArray[uint8]): 
     let y = inner.y + inner.h * k div 4
     vline(x, inner.y, inner.h, th.face)
     hline(inner.x, y, inner.w, th.face)
-  line(inner.x, inner.y + inner.h - 1, inner.x + inner.w - 1, inner.y, th.face)
+  if diagonal: line(inner.x, inner.y + inner.h - 1, inner.x + inner.w - 1, inner.y, th.face)
   var prev = (0, 0)
   for x in 0 .. 255:
     let p = toScr((x, int(lut[x])))

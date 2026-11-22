@@ -2,6 +2,7 @@
 ## Paint, Intertwine, Pattern Options' tiles, Tidy Up, Flex Layout on a group; Envelope
 ## Distort (retroui/liveeffects).
 
+import std/[tables, hashes]
 import retroui/[photo, photoshapes, vectormake, liveeffects]
 
 proc box(d: Doc; x, y, w, h: float; c: uint32; name = ""): Layer =
@@ -134,5 +135,62 @@ block envelopes:
   let live = applyEffects(p, @[LiveEffect(kind: leEnvelope, copies: 2, detail: 2, mesh: moved)])
   doAssert abs(pathBounds(live)[2] - 240) < 1
   doAssert applyEffects(p, @[LiveEffect(kind: leEnvelope, envelope: tri)]).pathBounds[3] > 390
+
+block symbolsKeptAlike:
+  # (a group made a symbol, two more instances placed; what is in one changed: the others the same,
+  # each where it is; an instance moved: only moved; undone: all back; detached: on its own)
+  let d = newDoc(400, 300, 0xFFFFFFFF'u32)
+  d.beginStep("shapes")
+  d.touchLayers()
+  discard d.addShapeLayer(ShapeData(path: rectPath(20, 20, 60, 40), fill: solidPaint(0xFFFF0000'u32)), "Body")
+  discard d.addShapeLayer(ShapeData(path: rectPath(25, 25, 35, 35), fill: solidPaint(0xFF0000FF'u32)), "Dot")
+  let sym = d.makeSymbol(@[d.layers.len - 2, d.layers.len - 1], "Button")
+  d.endStep()
+  doAssert sym != nil and sym.symbolOf == (1, "Button"), "a symbol made"
+  var seen: Table[int, Hash]
+  discard d.keepSymbols(seen)
+  d.beginStep("Insert")
+  d.touchLayers()
+  let b = d.insertSymbol(1, 100, 0)
+  let c = d.insertSymbol(1, 0, 150)
+  d.endStep()
+  doAssert d.symbolInstances(1).len == 3 and b.symbolOf.id == 1 and c.symbolOf.id == 1, "three instances"
+  doAssert not d.keepSymbols(seen), "alike: nothing to do"
+  proc partNamed(g: Layer; name: string): Layer =
+    let gi = d.layers.find(g)
+    for j in d.blockStart(gi) ..< gi:
+      if d.layers[j].name == name: return d.layers[j]
+  # (the dot in the second made green and bigger)
+  d.beginStep("Edit")
+  d.touchLayers()
+  var s = b.partNamed("Dot").shape
+  s.fill = solidPaint(0xFF00FF00'u32)
+  s.path = rectPath(125, 25, 140, 38)
+  d.setShape(b.partNamed("Dot"), s)
+  d.endStep()
+  doAssert d.keepSymbols(seen), "changed: the others follow"
+  for (g, ox, oy) in [(sym, 0, 0), (b, 100, 0), (c, 0, 150)]:
+    let dot = g.partNamed("Dot")
+    doAssert dot != nil and dot.shape.fill.color == 0xFF00FF00'u32, g.name & ": green"
+    doAssert pathBounds(dot.shape.path) == (25.0 + ox.float, 25.0 + oy.float, 40.0 + ox.float, 38.0 + oy.float),
+             g.name & ": where its instance is: " & $pathBounds(dot.shape.path)
+  doAssert not d.keepSymbols(seen), "and alike again"
+  # (an instance moved: only it)
+  let gi = d.layers.find(c)
+  var parts: seq[Layer]
+  for j in d.blockStart(gi) .. gi: parts.add d.layers[j]
+  d.beginStep("Move")
+  d.shiftLayers(parts, 50, 0)
+  d.endStep()
+  doAssert not d.keepSymbols(seen), "moved: nothing else changes"
+  doAssert pathBounds(sym.partNamed("Body").shape.path)[0] == 20.0, "the first where it was"
+  # (undone: the edit gone from all)
+  d.undo()                                   # (the move)
+  d.undo()                                   # (the edit)
+  discard d.keepSymbols(seen)
+  for g in [sym, b, c]:
+    doAssert g.partNamed("Dot").shape.fill.color == 0xFF0000FF'u32, g.name & ": blue again"
+  detachSymbol(c)
+  doAssert c.symbolOf.id == 0 and d.symbolInstances(1).len == 2, "detached: a plain group"
 
 echo "vector making ok"

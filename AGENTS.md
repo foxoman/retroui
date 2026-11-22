@@ -22,13 +22,15 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   Release workflow (`.github/workflows/release.yml`, on a `v...` tag or by
   hand) builds Gallery, Files, Photo, Board, Mail, Navigator, DNS, 7GUIs
   and Podcast for Linux, Windows, Android and macOS onto the release; CI
-  builds Retro Atelier's Windows .exe on every push, with GCC and with zig
-  (artifacts). With MinGW's GCC and LTO Atelier's main module is too big
-  for a COFF object ("file too big"; `-Wa,-mbig-obj` breaks GCC's LTO
-  plugin): it is compiled without LTO (`localPassC` in examples/photo.nim).
-  `RETRO_WINCC=zig nimble exe`: zig 0.15's clang, all of it ThinLTO (full
-  LTO needs over 6 GB; zig 0.16 and 0.17 fail to link a Windows program with
-  LTO).
+  builds Retro Atelier's Windows .exe on every push, with zig and with GCC
+  (artifacts RetroAtelier-windows and -gcc). `nimble exe` builds with zig
+  0.15's clang where it finds one (`RETRO_ZIG`, the PATH, `pip install
+  ziglang==0.15.2`), all of it ThinLTO (full LTO needs over 6 GB; zig 0.16
+  and 0.17 fail to link a Windows program with LTO), else with MinGW's GCC
+  (`RETRO_WINCC=gcc` forces it). With GCC and LTO Atelier's main module is
+  too big for a COFF object ("file too big"; `-Wa,-mbig-obj` breaks GCC's
+  LTO plugin): it is compiled without LTO (`localPassC` in
+  examples/photo.nim).
 - `src/retrodesigner/` -- Retro Designer, the visual designer
   (`retrokit designer app.nim` builds it once per computer and runs it;
   docs/designer.md). It reads and changes the user's own `.nim` file with

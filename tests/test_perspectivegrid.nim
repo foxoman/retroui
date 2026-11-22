@@ -173,3 +173,27 @@ block threePoint:
   # a shape laid on its wall
   let sq = rectPath(380, 200, 400, 240)
   doAssert ontoPlane(sq, g, ppLeft) != sq
+
+block isometricGrid:
+  # (no vanishing point: the planes are parallelograms, their sides at 30 degrees, as deep as they
+  # are high; a square drawn on a wall stays as wide everywhere -- no side smaller, as perspective
+  # makes it -- and a grid kept comes back isometric)
+  let g = isometric(800, 600)
+  for pl in g.planes:
+    let q = g.planeQuad(pl)
+    let (a, b) = ((q[1][0] - q[0][0], q[1][1] - q[0][1]), (q[2][0] - q[3][0], q[2][1] - q[3][1]))
+    doAssert abs(a[0] - b[0]) < 1e-6 and abs(a[1] - b[1]) < 1e-6, $pl & ": a parallelogram"
+  let l = g.planeQuad(ppLeft)
+  let slope = (l[3][1] - l[2][1]) / (l[3][0] - l[2][0])
+  doAssert abs(arctan(slope) - PI / 6) < 1e-6, "the left wall's foot at 30 degrees: " & $radToDeg(arctan(slope))
+  doAssert g.gridLines(800, 600).len > 0 and g.gridLines(800, 600)[0].plane >= 0, "lines, no horizon"
+  let sq = rectPath(300, 400, 340, 440)
+  let on = ontoPlane(sq, g, ppRight)
+  let (x0, y0, x1, y1) = pathBounds(on)
+  doAssert on != sq and x1 - x0 > 30, "a square laid on the right wall"
+  let p = on.subs[0].pts
+  doAssert abs((p[1].p[1] - p[0].p[1]) - (p[2].p[1] - p[3].p[1])) < 1e-6, "its sides parallel: no point"
+  let back = gridFrom(gridToJson(g), 800, 600)
+  doAssert back.kind == pkIsometric and back.planeQuad(ppFloor) == g.planeQuad(ppFloor), "kept and back"
+
+echo "test_perspectivegrid: isometric ok"

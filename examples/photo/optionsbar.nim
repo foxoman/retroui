@@ -490,9 +490,27 @@ proc optionsBar() =
         barFlow(tAirbrush)
       of tBrush:
         accessName(tr("Brush tool"))
-        combo(["Paintbrush", "Mixer Brush", "Color Replacement", "Adjustment Brush"], brushTool, w = dp(128))
+        combo(["Paintbrush", "Mixer Brush", "Color Replacement", "Adjustment Brush", "Mask Brush", "Tone Brush"],
+              brushTool, w = dp(128))
         barBrush(tBrush)
-        if brushTool == 3:
+        if brushTool == 5:
+          var m = ord(toneDarker)
+          accessName(tr("The Tone Brush lightens or darkens"))
+          combo(["Lighten", "Darken"], m, w = dp(84))
+          toneDarker = m == 1
+          barOpacity(tBrush)
+          barFlow(tBrush)
+          label("Alt: the other", color = ui.theme.gray)
+        elif brushTool == 4:
+          # the Mask Brush: hides or shows the layer
+          var m = ord(maskBrushShow)
+          accessName(tr("The Mask Brush hides or shows"))
+          combo(["Hide", "Show"], m, w = dp(76))
+          maskBrushShow = m == 1
+          barOpacity(tBrush)
+          barFlow(tBrush)
+          label("Alt: the other", color = ui.theme.gray)
+        elif brushTool == 3:
           # the Adjustment Brush: which adjustment, how much, add or take away
           accessName(tr("Adjustment"))
           if combo(adjBrushPresets, adjBrushKind, w = dp(110)): discard

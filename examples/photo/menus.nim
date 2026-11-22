@@ -179,7 +179,7 @@ proc nextZoom(dw: DocWin; inward: bool) =
   dw.afterZoom(ix, iy, false)
 
 const pixelCommands = ["Cut", "Clear", "Fill...", "Stroke...", "Erase Image", "Invert", "Equalize",
-                       "Threshold...", "Posterize...", "Levels...", "Curves...", "Brightness/Contrast...",
+                       "Threshold...", "Posterize...", "Levels...", "Curves...", "Hue Curves...", "Brightness/Contrast...",
                        "Color Balance...", "Hue/Saturation...", "Replace Color...", "Auto Levels", "Auto Tone",
                        "Auto Contrast", "Auto Color", "Content-Aware Fill", "Shadows/Highlights...",
                        "Vibrance...", "Exposure...", "Light...", "Photo Filter...", "Black & White...", "Channel Mixer...",
@@ -511,6 +511,8 @@ proc doCommand(name: string) =
       d.layersChange("Create Clipping Mask"): L.clipped = true
   of "Filter Factory...":
     if d != nil: startFilterFactory()
+  of "Procedural Texture...":
+    if d != nil: startProceduralTexture()
   of "Edit Plug-in...":
     if plugins.len > 0:
       # (the last one run, or the first)
@@ -867,6 +869,7 @@ proc doCommand(name: string) =
   of "Posterize...": startAdjust(akPosterize)
   of "Levels...": startAdjust(akLevels)
   of "Curves...": startAdjust(akCurves)
+  of "Hue Curves...": startAdjust(akHueCurves)
   of "Brightness/Contrast...": startAdjust(akBC)
   of "Color Balance...": startAdjust(akBalance)
   of "Hue/Saturation...": startAdjust(akHS)
@@ -1010,7 +1013,7 @@ proc doCommand(name: string) =
   of "Data Merge...": discard mergeCommand(name)
   of "Find/Change...", "Story Editor...": discard findCommand(name)
   of "Show Perspective Grid", "Hide Perspective Grid", "Lock Perspective Grid", "One Point Perspective",
-     "Two Point Perspective", "Three Point Perspective", "Define Perspective Grid...", "Attach to Active Plane", "Release with Perspective",
+     "Two Point Perspective", "Three Point Perspective", "Isometric Grid", "Define Perspective Grid...", "Attach to Active Plane", "Release with Perspective",
      "Perspective Plane: Left Wall", "Perspective Plane: Right Wall", "Perspective Plane: Floor",
      "Perspective Plane: Facing Wall", "Perspective Plane: None":
     discard perspectiveCommand(name)
@@ -1034,6 +1037,8 @@ proc doCommand(name: string) =
      "Original Size", "Frame Options...", "Remove Content", "Anchor to Text", "Release Anchor":
     discard framesCommand(name)
   of "Make Blend...", "Make Blend": startMakeBlend()
+  of "Expand Blend":
+    if cur() != nil: cur().expandBlend()
   of "Replace Spine": replaceSpine(false)
   of "Replace Spine (Align to Path)": replaceSpine(true)
   of "Shape Builder...": startShapeBuilder()
@@ -2023,7 +2028,15 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Layers, type and filters -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.14.0: type that changes size -- a title being sized, a zoom -- drawn three times " &
+           whatsNew = ["5.15.0: from the Affinity apps -- studios (your workspaces by name, exported and " &
+                       "imported), a help card for every tool (F1: its help), paint on type making a pixel layer, " &
+                       "the Mask Brush and the Tone Brush, Hue Curves, live blends (Expand Blend), Symbols, " &
+                       "Constraints (an artboard sized by its corner), Smooth Curvature (G2), a Diffusion freeform " &
+                       "gradient, Filter > Render > Procedural Texture, an isometric grid; Type > Fill with " &
+                       "Placeholder Text in English or Arabic, as many paragraphs as asked or as fill the box; " &
+                       "every font Windows has (Traditional Arabic, .fon, Type 1, WOFF), Hebrew and Thai shaped " &
+                       "as HarfBuzz shapes them.",
+                       "5.14.0: type that changes size -- a title being sized, a zoom -- drawn three times " &
                        "faster (each glyph drawn once, not again every frame); Edit > Generate Vector is the " &
                        "kit's own dialog now, the same in Retro Board, its words in Arabic too.",
                        "5.13.0: tables edited as the layout program edits them -- column edges and row feet " &
@@ -2458,6 +2471,8 @@ proc helpDialog() =
 
 proc moreDialogs() =
   searchDialog()
+  toolHelpDialog()
+  studioDialogs()
   colorSettingsDialog()
   recoverDialog()
   prefsDialog()
@@ -2465,6 +2480,7 @@ proc moreDialogs() =
   presetFileDialog()
   dynamicsDialog()
   filterFactoryDialog()
+  proceduralTextureDialog()
   duotoneDialog()
   inksDialog()
   proDialogs()
@@ -2769,6 +2785,7 @@ proc keys() =
   let alt = AltPressed in ui.mods
   let d = cur()
   # the shortcuts (the usual, or 1994's; the user's own over them)
+  if toolHelpNow(): return
   let cmd = keymap.keymapPressed()
   if cmd.len > 0:
     runCommand(cmd)

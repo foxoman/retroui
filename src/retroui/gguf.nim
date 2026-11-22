@@ -139,7 +139,10 @@ proc openGguf*(path: string): Gguf =
     let key = str()
     let k = int(rd(4))
     if k notin 0 .. 12: fail(path & ": " & key & " has a value of an unknown kind")
-    result.meta[key] = value(GgufKind(k))
+    # (the value read first: a key copied for `[]=` and then a value that raises -- a file cut
+    # short -- is a copy Nim never lets go of)
+    let v = value(GgufKind(k))
+    result.meta[key] = v
   var offs: seq[int]
   for i in 0 ..< nTensors:
     var t = GgufTensor(name: str())

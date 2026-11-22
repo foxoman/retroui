@@ -47,7 +47,10 @@ block partsOfThePicture:
     proc p32(v: int): string = char((v shr 24) and 255) & char((v shr 16) and 255) & char((v shr 8) and 255) &
                                char(v and 255)
     let body = tag & data
-    p32(data.len) & body & p32(int(crc32(body.toOpenArrayByte(0, body.high))))
+    # (the CRC as its four bytes: as an int it would not fit in 32 bits)
+    let crc = crc32(body.toOpenArrayByte(0, body.high))
+    p32(data.len) & body & char((crc shr 24) and 255) & char((crc shr 16) and 255) & char((crc shr 8) and 255) &
+      char(crc and 255)
   proc idatOf(px: seq[uint32]; w, h: int): tuple[hdr, idat: string] =
     let b = newBitmap(w, h)
     b.px = px

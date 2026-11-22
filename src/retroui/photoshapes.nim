@@ -1064,6 +1064,125 @@ proc meshRasterOf(points: openArray[tuple[x, y: float; color: uint32]]; cols: in
         meshNext = (meshNext + 1) mod MeshKeep
     finally: release(meshLock)
 
+proc diffusionRaster(pts: openArray[tuple[x, y: float; color: uint32]]): seq[uint32] =
+  ## (a freeform gradient's colors spread as heat does, `MeshRes` square: each point a small round
+  ## spot held at its color, the rest the mean of its neighbours -- Laplace's equation -- worked out
+  ## on a coarse grid first, then on each finer one from it)
+  {.push checks: off.}
+  result = newSeq[uint32](MeshRes * MeshRes)
+  if pts.len == 0: return
+  var n = 8
+  # (the four channels side by side, a cell's four together)
+  var g = newSeq[float32](n * n * 4)
+  var mean: array[4, float32]
+  for p in pts:
+    for c in 0 .. 3: mean[c] += float32((p.color shr (24 - 8 * c)) and 255) / float32(pts.len)
+  for i in 0 ..< n * n:
+    for c in 0 .. 3: g[i * 4 + c] = mean[c]
+  while true:
+    # (the points held: a spot round each, at this grid's size)
+    var held = newSeq[int16](n * n)
+    for v in held.mitems: v = -1
+    let rr = max(1.0, 3.0 * float(n) / float(MeshRes))
+    for k, p in pts:
+      let (px, py) = (p.x * float(n - 1), p.y * float(n - 1))
+      for y in max(0, int(py - rr)) .. min(n - 1, int(py + rr) + 1):
+        for x in max(0, int(px - rr)) .. min(n - 1, int(px + rr) + 1):
+          if (x.float - px) ^ 2 + (y.float - py) ^ 2 <= rr * rr or (x == int(px + 0.5) and y == int(py + 0.5)):
+            held[y * n + x] = int16(k)
+    for i in 0 ..< n * n:
+      if held[i] >= 0:
+        for c in 0 .. 3: g[i * 4 + c] = float32((pts[held[i]].color shr (24 - 8 * c)) and 255)
+    # (red-black Gauss-Seidel, over-relaxed; an edge takes its inside neighbour for the one past it)
+    let gp = cast[ptr UncheckedArray[float32]](addr g[0])
+    let hp = cast[ptr UncheckedArray[int16]](addr held[0])
+    let iters = if n <= 16: 100 elif n <= 64: 40 elif n <= 128: 16 else: 8
+    for it in 0 ..< iters:
+      for parity in 0 .. 1:
+        for y in 0 ..< n:
+          let up = if y > 0: -n else: n
+          let dn = if y < n - 1: n else: -n
+          var x = (y + parity) and 1
+          while x < n:
+            let i = y * n + x
+            if hp[i] < 0:
+              let lf = if x > 0: -1 else: 1
+              let rt = if x < n - 1: 1 else: -1
+              let (a, b, u, d) = ((i + lf) * 4, (i + rt) * 4, (i + up) * 4, (i + dn) * 4)
+              let o = i * 4
+              for c in 0 .. 3:
+                let avg = (gp[a + c] + gp[b + c] + gp[u + c] + gp[d + c]) * 0.25'f32
+                gp[o + c] = gp[o + c] + 1.85'f32 * (avg - gp[o + c])
+            x += 2
+    if n >= MeshRes: break
+    # (to the next grid, twice as fine: the values read between)
+    let m = min(MeshRes, n * 2)
+    var f = newSeq[float32](m * m * 4)
+    for y in 0 ..< m:
+      let sy = y.float * float(n - 1) / float(m - 1)
+      let y0 = min(int(sy), n - 2)
+      let ty = float32(sy - y0.float)
+      for x in 0 ..< m:
+        let sx = x.float * float(n - 1) / float(m - 1)
+        let x0 = min(int(sx), n - 2)
+        let tx = float32(sx - x0.float)
+        let (i00, i01) = ((y0 * n + x0) * 4, (y0 * n + x0 + 1) * 4)
+        let (i10, i11) = (((y0 + 1) * n + x0) * 4, ((y0 + 1) * n + x0 + 1) * 4)
+        for c in 0 .. 3:
+          let a = g[i00 + c] + (g[i01 + c] - g[i00 + c]) * tx
+          let b = g[i10 + c] + (g[i11 + c] - g[i10 + c]) * tx
+          f[(y * m + x) * 4 + c] = a + (b - a) * ty
+    g = move f
+    n = m
+  for i in 0 ..< MeshRes * MeshRes:
+    var v: uint32
+    for c in 0 .. 3: v = v or (uint32(clamp(g[i * 4 + c], 0'f32, 255'f32) + 0.5) shl (24 - 8 * c))
+    result[i] = v
+  {.pop.}
+
+proc diffusionRasterOf(points: openArray[tuple[x, y: float; color: uint32]]): ptr UncheckedArray[uint32] =
+  ## (as `meshRasterOf`, for a freeform gradient spread by diffusion)
+  let h = !$(meshKey(points, -1) !& 7919)
+  {.cast(gcsafe).}:
+    acquire(meshLock)
+    try:
+      for e in meshSlots:
+        if e.px != nil and e.key == h: result = e.px
+      if result == nil:
+        result = cast[ptr UncheckedArray[uint32]](allocShared(MeshRes * MeshRes * 4))
+        let r = diffusionRaster(points)
+        copyMem(result, unsafeAddr r[0], MeshRes * MeshRes * 4)
+        if meshSlots[meshNext].px != nil: deallocShared(meshSlots[meshNext].px)
+        meshSlots[meshNext] = (h, result)
+        meshNext = (meshNext + 1) mod MeshKeep
+    finally: release(meshLock)
+
+proc gridAt(px: ptr UncheckedArray[uint32]; u, v: float): uint32 =
+  ## (a `MeshRes` grid's color at (u, v), read between its cells)
+  let fx = clamp(u, 0.0, 1.0) * float(MeshRes - 1)
+  let fy = clamp(v, 0.0, 1.0) * float(MeshRes - 1)
+  let x0 = min(int(fx), MeshRes - 2)
+  let y0 = min(int(fy), MeshRes - 2)
+  let tx = fx - x0.float
+  let ty = fy - y0.float
+  for c in 0 .. 3:
+    let sh = 24 - 8 * c
+    proc ch(x, y: int): float = float((px[y * MeshRes + x] shr sh) and 255)
+    let a = ch(x0, y0) + (ch(x0 + 1, y0) - ch(x0, y0)) * tx
+    let b = ch(x0, y0 + 1) + (ch(x0 + 1, y0 + 1) - ch(x0, y0 + 1)) * tx
+    result = result or (uint32(a + (b - a) * ty + 0.5) shl sh)
+
+proc freeformDiffusedAt*(points: openArray[tuple[x, y: float; color: uint32]]; u, v: float): uint32 =
+  ## A freeform gradient's color at (`u`, `v`) of its box (0..1), its points' colors spread from
+  ## them as heat does (Diffusion: smooth all over) -- `freeformAt`'s other way.
+  if points.len == 0: return 0
+  if points.len == 1: return points[0].color
+  gridAt(diffusionRasterOf(points), u, v)
+
+proc freeformColor*(p: ShapePaint; u, v: float): uint32 =
+  ## A freeform gradient's color at (`u`, `v`) of its box (0..1), by the way it spreads (`diffuse`).
+  if p.diffuse: freeformDiffusedAt(p.points, u, v) else: freeformAt(p.points, u, v)
+
 proc meshAt*(points: openArray[tuple[x, y: float; color: uint32]]; cols: int; u, v: float): uint32 =
   ## A gradient mesh's color at (`u`, `v`) of its box (0..1): its grid of points, `cols` a row,
   ## each with its color, the colors between them bent where the points were moved.
@@ -1105,7 +1224,10 @@ proc paintAt(p: ShapePaint; x, y: float; box: (float, float, float, float);
     p.pattern[ty * p.pw + tx]
   of spGradient:
     if p.style == 5 and p.points.len > 0:
-      return freeformAt(p.points, (x - box[0]) / max(1.0, box[2] - box[0]), (y - box[1]) / max(1.0, box[3] - box[1]))
+      let (u, v) = ((x - box[0]) / max(1.0, box[2] - box[0]), (y - box[1]) / max(1.0, box[3] - box[1]))
+      if p.diffuse and p.points.len > 1:
+        return gridAt(if mesh != nil: mesh else: diffusionRasterOf(p.points), u, v)
+      return freeformAt(p.points, u, v)
     if p.style == 6 and p.meshCols >= 2 and p.points.len >= 4:
       let u = (x - box[0]) / max(1.0, box[2] - box[0])
       let v = (y - box[1]) / max(1.0, box[3] - box[1])
@@ -1529,10 +1651,13 @@ proc renderPlain(s: ShapeData; px: var seq[uint32]; w, h: int; clearFirst = Rect
       zeroMem(addr pp[(cl.y + yy) * w + cl.x], cl.w * 4)
   if box.w <= 0 or box.h <= 0 or comps.len == 0: return (0, 0, 0, 0)
   # (a gradient mesh's colors made once, here: every pixel reads them)
-  let fillMesh = if s.fill.kind == spGradient and s.fill.style == 6 and s.fill.meshCols >= 2 and s.fill.points.len >= 4:
-                   meshRasterOf(s.fill.points, s.fill.meshCols) else: nil
-  let strokeMesh = if s.stroke.kind == spGradient and s.stroke.style == 6 and s.stroke.meshCols >= 2 and
-                      s.stroke.points.len >= 4: meshRasterOf(s.stroke.points, s.stroke.meshCols) else: nil
+  proc gridOf(p: ShapePaint): ptr UncheckedArray[uint32] =
+    if p.kind != spGradient: nil
+    elif p.style == 6 and p.meshCols >= 2 and p.points.len >= 4: meshRasterOf(p.points, p.meshCols)
+    elif p.style == 5 and p.diffuse and p.points.len > 1: diffusionRasterOf(p.points)
+    else: nil
+  let fillMesh = gridOf(s.fill)
+  let strokeMesh = gridOf(s.stroke)
   # the stroke's outline
   var strokeE: seq[Edge]
   let stroking = s.stroke.kind != spNone and s.strokeWidth > 0

@@ -78,6 +78,11 @@ proc pgLine(dw: DocWin; a, b: (float, float); c: Color) =
 
 proc pgHandles(g: PerspectiveGrid): seq[tuple[id: int; p: (float, float); tip: string]] =
   ## (the grid's handles, in the image's pixels: what each moves)
+  if g.kind == pkIsometric:
+    result.add (3, (g.nearX, g.ground), "The ground: drag to move the whole grid")
+    result.add (4, (g.nearX, g.top), "The grid's height: drag up or down")
+    result.add (5, g.planeQuad(ppFloor)[3], "How far the planes reach: drag along the left wall's foot")
+    return
   result.add (0, (g.leftX, g.horizon), "The vanishing point: drag along the horizon")
   if g.kind != pkOnePoint: result.add (1, (g.rightX, g.horizon), "The right vanishing point: drag along the horizon")
   let mid = if g.kind != pkOnePoint: g.nearX else: g.nearX + g.nearW / 2
@@ -174,9 +179,11 @@ proc canvasExtras(dw: DocWin; ev: PhotoEvent): bool =
         n.horizon += dy; n.ground += dy; n.top += dy
       of 4: n.top = min(pgDrag.g0.top + dy, n.ground - 4)
       of 5:
-        # (how far along the line from the near corner to its point the mouse is)
+        # (how far along the line from the near corner to its point the mouse is -- isometric: along
+        # the left wall's foot, as long as the walls go)
         let a = (n.nearX, n.ground)
-        let b = (n.leftX, n.horizon)
+        let b = if n.kind == pkIsometric: (n.nearX - n.nearW / 0.6 * cos(PI / 6), n.ground - n.nearW / 0.6 * 0.5)
+                else: (n.leftX, n.horizon)
         let lx = b[0] - a[0]
         let ly = b[1] - a[1]
         let l2 = max(1e-9, lx * lx + ly * ly)
@@ -280,11 +287,12 @@ proc perspectiveCommand(name: string): bool =
       var g = d.pgOf
       g.locked = not g.locked
       d.pgSet(g)
-  of "One Point Perspective", "Two Point Perspective", "Three Point Perspective":
+  of "One Point Perspective", "Two Point Perspective", "Three Point Perspective", "Isometric Grid":
     if d != nil:
       let was = d.pgOf
       var g = if name.startsWith("One"): onePoint(d.w, d.h)
               elif name.startsWith("Three"): threePoint(d.w, d.h)
+              elif name.startsWith("Iso"): isometric(d.w, d.h)
               else: defaultGrid(d.w, d.h)
       g.shown = true
       g.locked = was.locked
@@ -328,15 +336,20 @@ proc perspectiveDialog() =
   dialog(pgDlg.open, "Define Perspective Grid", 420):
     row([150, -1]):
       label "Type:"
-      combo(["One-Point Perspective", "Two-Point Perspective", "Three-Point Perspective"], pgDlg.kind, w = dp(200))
+      combo(["One-Point Perspective", "Two-Point Perspective", "Three-Point Perspective", "Isometric"], pgDlg.kind,
+            w = dp(200))
     template num(lab: string; v: untyped; lo, hi: int; unit = "px") =
       row([150, 110, -1]):
         label lab
         spin(v, lo, hi, w = dp(100))
         label unit
     let big = 4 * max(d.w, d.h)
-    num("Horizon height:", pgDlg.horizon, -big, big)
-    if pgDlg.kind >= 1:
+    if pgDlg.kind == 3:
+      num("Corner (x):", pgDlg.nearX, -big, big)
+      num("Walls' length:", pgDlg.nearW, 4, big)
+    else: num("Horizon height:", pgDlg.horizon, -big, big)
+    if pgDlg.kind == 3: discard
+    elif pgDlg.kind >= 1:
       num("Left vanishing point:", pgDlg.leftX, -big, big)
       num("Right vanishing point:", pgDlg.rightX, -big, big)
       num("Corner (x):", pgDlg.nearX, -big, big)
@@ -356,7 +369,7 @@ proc perspectiveDialog() =
       if button("Cancel", w = dp(80)): cancel = true
   # (live: the grid as the box says, while it is open)
   var g = d.pgOf
-  g.kind = PerspectiveKind(clamp(pgDlg.kind, 0, 2))
+  g.kind = PerspectiveKind(clamp(pgDlg.kind, 0, 3))
   if g.kind == pkThreePoint:
     if pgDlg.vertY == 0: pgDlg.vertY = int(d.h.float * 2.6)
     g.vertY = pgDlg.vertY.float

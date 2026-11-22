@@ -639,5 +639,12 @@ const toolkitArabic* = [
   # src/retroui/extras.nim
   ("The desktop's own frame", "إطار سطح المكتب نفسه"),
   ("Windows 3.1 frame", "إطار Windows 3.1"),
+  # src/retroui/commandhud.nim
+  ("Commands", "الأوامر"),
+  ("Find a command (a few letters of its words):", "ابحث عن أمر (بضعة أحرف من كلماته):"),
+  ("(not now)", "(غير متاح الآن)"),
+  ("This window has no menus", "لا توجد قوائم في هذه النافذة"),
+  ("No command has those letters", "لا يوجد أمر بهذه الأحرف"),
+  ("Do It", "تنفيذ"),
 ]
   ## The toolkit's words in Arabic: (English key, Arabic), for `setUiLanguage`.

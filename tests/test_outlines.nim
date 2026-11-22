@@ -191,6 +191,39 @@ block freeformGradient:
     if L.isShape: found = L.shape.fill.style == 5 and L.shape.fill.points.len == 3
   doAssert found
 
+block diffusionGradient:
+  # (the same points spread as heat does: each point's own color at it, smooth between -- no color
+  # pooling round its point: far from every point the colors are the points' mean, as Laplace has
+  # it -- drawn, kept and back)
+  let pts = @[(0.1, 0.1, 0xFFFF0000'u32), (0.9, 0.1, 0xFF00FF00'u32), (0.5, 0.9, 0xFF0000FF'u32)]
+  let at = freeformDiffusedAt(pts, 0.1, 0.1)
+  doAssert ((at shr 16) and 255) > 240 and ((at shr 8) and 255) < 15, "red at red's point: " & at.toHex
+  let c = freeformDiffusedAt(pts, 0.5, 0.4)
+  doAssert ((c shr 16) and 255) in 40'u32 .. 160'u32 and ((c shr 8) and 255) in 40'u32 .. 160'u32 and
+           (c and 255) in 30'u32 .. 160'u32, "between: some of each: " & c.toHex
+  # (smooth: no step between neighbours, unlike a point's color pooling round it)
+  var worst = 0
+  for i in 1 ..< 100:
+    let a = freeformDiffusedAt(pts, (i - 1) / 100, 0.5)
+    let b = freeformDiffusedAt(pts, i / 100, 0.5)
+    worst = max(worst, abs(int((a shr 16) and 255) - int((b shr 16) and 255)))
+  doAssert worst <= 8, "smooth across: " & $worst
+  var p = freeformPaint(pts)
+  p.diffuse = true
+  let s = ShapeData(path: rectPath(0, 0, 100, 100), fill: p)
+  let px = drawnShapes(@[s], 100, 100)
+  doAssert ((px[10 * 100 + 10] shr 16) and 255) > 230 and (px[90 * 100 + 50] and 255) > 200, "drawn"
+  let d = newDoc(100, 100, 0xFFFFFFFF'u32)
+  discard d.addShapeLayer(s)
+  let tmp = getTempDir() / "retro-diffusion.rpd"
+  d.saveRpd(tmp)
+  let back = loadRpd(tmp)
+  removeFile(tmp)
+  var kept = false
+  for L in back.layers:
+    if L.isShape: kept = L.shape.fill.diffuse
+  doAssert kept, "kept in the file"
+
 block gradientMesh:
   # a grid of color points: each point's own color at it, smooth between; a point moved bends
   # the colors with it; saved and read back; to SVG as a picture of its colors

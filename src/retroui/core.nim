@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy, hangwatch, frameprof
 export busy
 
-const RetroVersion* = "0.69.0"
+const RetroVersion* = "0.70.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -4534,20 +4534,46 @@ proc invalidate*() =
   ## Redraw the whole window on the next frame, and run that frame now.
   ui.force = true
 
+var shownTip: string      # (the tooltip the last frame showed: `tipShown`)
+
 proc drawTip() =
   ui.tipKey = if ui.tip.len == 0: 0'u32
               else: fnv(ui.tip, uint32(ui.lastRect.x * 31 + ui.lastRect.y))
   if ui.tipKey != ui.prevTipKey:
     ui.prevTipKey = ui.tipKey
     ui.hoverSince = ui.now
+  shownTip.setLen(0)
   if ui.tip.len == 0 or ui.active != 0 or ui.mouseDown: return
   if ui.now - ui.hoverSince < 600:
     wakeIn(600 - (ui.now - ui.hoverSince))
     return
+  shownTip = ui.tip
   pushLayer(LayerTip)
   let tipText = tr(ui.tip)
-  let w = textWidth(tipText) + 8
-  let tipH = FontH + 4
+  # (a tip of several lines -- "Title\nwhat it does\n..." -- is a card: its first line bold, the
+  # others wrapped at a width that reads well)
+  var lines: seq[(string, bool)]
+  if '\n' in tipText:
+    let maxW = dp(320)
+    let paras = tipText.split('\n')
+    for i, para in paras:
+      if i == 0:
+        lines.add (para, true)
+        continue
+      var cur = ""
+      let words = para.split(' ')
+      for word in words:
+        let t = if cur.len == 0: word else: cur & " " & word
+        if cur.len > 0 and textWidth(t) > maxW:
+          lines.add (cur, false)
+          cur = word
+        else: cur = t
+      lines.add (cur, false)
+  else: lines.add (tipText, false)
+  var w = 0
+  for (l, b) in lines: w = max(w, textWidth(l, b))
+  w += 8
+  let tipH = FontH * lines.len + 4
   var x, y: int
   if (androidApp or defined(ios) or ui.touch) and ui.my - tipH - dp(12) >= 0:
     # a tablet's or a phone's pointer (drawn by the system, big; or a
@@ -4563,11 +4589,17 @@ proc drawTip() =
     y = ui.my + (if androidApp or defined(ios) or ui.touch: dp(40) else: max(under, dp(22)))
     if y + tipH > ui.h: y = ui.my - tipH - dp(10)
   x = clamp(x, 0, max(0, ui.w - w))
+  y = clamp(y, 0, max(0, ui.h - tipH))
   let r = rect(x, y, w, tipH)
   fill(r, ui.theme.tip)
   box(r, ui.theme.edge)
-  text(x + 4, y + 2, tipText, ui.theme.tipText)
+  for i, (l, b) in lines: text(x + 4, y + 2 + i * FontH, l, ui.theme.tipText, b)
   popLayer()
+
+proc tipShown*(): string =
+  ## The tooltip on the screen now -- the last frame showed it -- ("" none): an app can act on
+  ## a key pressed while it is up (F1 on a tool's card: its help).
+  if ui.mouseDown: "" else: shownTip
 
 var pageBar*, pageBarX*: proc (view: Rect; v: var int; hi: int): bool {.nimcall.}
   ## Draw the window's scroll bars (set by the widgets module).

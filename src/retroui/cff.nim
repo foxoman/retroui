@@ -10,7 +10,8 @@
 ## let face = parseFace(ttf)                             # (ttf's parseFace does it by itself)
 ## ```
 ##
-## CFF2 (variable PostScript outlines) is not read.
+## CFF2 (variable PostScript outlines: Adobe's variable fonts) is read at its default instance:
+## its blends' default values taken, the deltas left.
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
@@ -38,6 +39,9 @@ type
     strings*: seq[string]
     matrix*: array[6, float]               ## the FontMatrix: units to an em of 1
     nominalW*, defaultW*: float
+    cff2*: bool                            ## a CFF2 table (variable): its default instance is read
+    regions*: seq[int]                     ## (CFF2) each item variation data's region count
+    fdVsIndex*: seq[int]                   ## (CFF2) each font dict's vsindex
 
 proc u8(s: string; i: int): int {.inline.} = (if i >= 0 and i < s.len: ord(s[i]) else: 0)
 proc u16(s: string; i: int): int {.inline.} = (u8(s, i) shl 8) or u8(s, i + 1)
@@ -59,13 +63,36 @@ proc readIndex(s: string; at: int): (seq[(int, int)], int) =
   for i in 0 ..< count: items.add (base + offs[i], base + offs[i + 1])
   (items, base + offs[count])
 
+proc readIndex2(s: string; at: int): (seq[(int, int)], int) =
+  ## A CFF2 INDEX (its count four bytes) at `at`: its items (start, end), and where it ends.
+  let count = u32(s, at)
+  if count <= 0 or count > 1_000_000: return (@[], at + 4)
+  let offSize = u8(s, at + 4)
+  if offSize notin 1 .. 4: return (@[], at + 5)
+  let base = at + 5 + (count + 1) * offSize - 1
+  var offs = newSeq[int](count + 1)
+  for i in 0 .. count:
+    var v = 0
+    for k in 0 ..< offSize: v = (v shl 8) or u8(s, at + 5 + i * offSize + k)
+    offs[i] = v
+  var items: seq[(int, int)]
+  for i in 0 ..< count: items.add (base + offs[i], base + offs[i + 1])
+  (items, base + offs[count])
+
 proc readDict(s: string; a, b: int): Table[int, seq[float]] =
-  ## A CFF DICT: operator (12 x as 1200 + x) -> its operands.
+  ## A CFF DICT: operator (12 x as 1200 + x) -> its operands. (CFF2's blend in a DICT: the
+  ## default values kept.)
   var ops: seq[float]
   var i = a
   while i < b and i < s.len:
     let c = u8(s, i)
-    if c <= 21:
+    if c == 23:
+      # (blend: n defaults, their deltas, n -- the defaults kept)
+      inc i
+      if ops.len > 0:
+        let n = int(ops.pop())
+        if n >= 0 and n <= ops.len: ops.setLen(n)
+    elif c <= 24:
       var op = c
       inc i
       if c == 12:
@@ -111,9 +138,69 @@ proc readDict(s: string; a, b: int): Table[int, seq[float]] =
       i += 2
     else: inc i
 
+proc parseCff2(data: string): CffFont =
+  ## (a CFF2 table: its top dict, global subroutines, font dicts, charstrings, regions)
+  let f = CffFont(data: data, matrix: [0.001, 0, 0, 0.001, 0, 0], cff2: true, cid: true)
+  for c in f.encoding.mitems: c = 0
+  let hdr = u8(data, 2)
+  let topLen = u16(data, 3)
+  let top = readDict(data, hdr, hdr + topLen)
+  f.gsubrs = readIndex2(data, hdr + topLen)[0]
+  if top.hasKey(1207) and top[1207].len >= 6:
+    for k in 0 .. 5: f.matrix[k] = top[1207][k]
+  if not top.hasKey(17) or top[17].len == 0: return nil
+  f.charStrings = readIndex2(data, int(top[17][0]))[0]
+  let n = f.charStrings.len
+  if top.hasKey(1236) and top[1236].len > 0:
+    for (a, b) in readIndex2(data, int(top[1236][0]))[0]:
+      let fd = readDict(data, a, b)
+      var subrs: seq[(int, int)]
+      var vsi = 0
+      if fd.hasKey(18) and fd[18].len >= 2:
+        let size = int(fd[18][0])
+        let off = int(fd[18][1])
+        let pr = readDict(data, off, off + size)
+        if pr.hasKey(19) and pr[19].len > 0: subrs = readIndex2(data, off + int(pr[19][0]))[0]
+        if pr.hasKey(22) and pr[22].len > 0: vsi = int(pr[22][0])
+      f.fdSubrs.add subrs
+      f.fdVsIndex.add vsi
+  if f.fdSubrs.len == 0: return nil
+  f.fdSelect = newSeq[uint8](n)
+  if top.hasKey(1237) and top[1237].len > 0:
+    let at = int(top[1237][0])
+    case u8(data, at)
+    of 0:
+      for g in 0 ..< n: f.fdSelect[g] = uint8(u8(data, at + 1 + g))
+    of 3:
+      let nr = u16(data, at + 1)
+      for r in 0 ..< nr:
+        let first = u16(data, at + 3 + r * 3)
+        let fdi = u8(data, at + 5 + r * 3)
+        let next = u16(data, at + 6 + r * 3)
+        for g in first ..< min(next, n): f.fdSelect[g] = uint8(fdi)
+    of 4:
+      let nr = u32(data, at + 1)
+      for r in 0 ..< min(nr, 65536):
+        let first = u32(data, at + 5 + r * 6)
+        let fdi = u16(data, at + 9 + r * 6)
+        let next = u32(data, at + 11 + r * 6)
+        for g in first ..< min(next, n): f.fdSelect[g] = uint8(min(fdi, 255))
+    else: discard
+  # (the variation store: how many regions each blend's deltas are for)
+  if top.hasKey(24) and top[24].len > 0:
+    let vs = int(top[24][0]) + 2
+    let count = u16(data, vs + 6)
+    for k in 0 ..< count:
+      let d = vs + u32(data, vs + 8 + 4 * k)
+      f.regions.add u16(data, d + 4)
+  f.charset = newSeq[int](n)
+  for g in 0 ..< n: f.charset[g] = g
+  f
+
 proc parseCff*(data: string): CffFont =
-  ## A CFF table read (its first font): nil when it is not one.
+  ## A CFF table read (its first font), or a CFF2 one (`cff2`): nil when it is not one.
   if data.len < 8: return nil
+  if u8(data, 0) == 2: return parseCff2(data)
   let f = CffFont(data: data, matrix: [0.001, 0, 0, 0.001, 0, 0])
   for c in f.encoding.mitems: c = 0
   let hdr = u8(data, 2)
@@ -230,12 +317,13 @@ proc cffGlyph*(f: CffFont; gid: int; depthIn = 0): CffPath =
   var stack: seq[float]
   var x, y = 0.0
   var nStems = 0
-  var widthDone = false
+  var widthDone = f.cff2                       # (CFF2: no widths in the charstrings)
   var open = false
   var depth = 0
   # (the font's data and subroutines reached where they are -- a `let` would copy them, the
   # whole CFF table, at every call)
   let fd = if f.cid and f.fdSelect.len > gid and int(f.fdSelect[gid]) < f.fdSubrs.len: int(f.fdSelect[gid]) else: -1
+  var vsindex = if f.cff2 and fd >= 0 and fd < f.fdVsIndex.len: f.fdVsIndex[fd] else: 0
   template nSubrs: int = (if fd >= 0: f.fdSubrs[fd].len else: f.lsubrs.len)
   template subr(k: int): (int, int) = (if fd >= 0: f.fdSubrs[fd][k] else: f.lsubrs[k])
   var path: CffPath
@@ -430,6 +518,17 @@ proc cffGlyph*(f: CffFont; gid: int; depthIn = 0): CffPath =
           let n = int(stack.pop()) + bias(f.gsubrs.len)
           if n >= 0 and n < f.gsubrs.len: run(f.gsubrs[n][0], f.gsubrs[n][1])
       of 11: break                             # return
+      of 15:                                   # vsindex (CFF2)
+        if f.cff2 and stack.len > 0: vsindex = int(stack.pop())
+        stack.setLen(0)
+      of 16:                                   # blend (CFF2): the defaults kept
+        if f.cff2 and stack.len > 0:
+          let n = int(stack.pop())
+          let k = if vsindex in 0 ..< f.regions.len: f.regions[vsindex] else: 0
+          let first = stack.len - n * (k + 1)
+          if n >= 0 and first >= 0: stack.setLen(first + n)
+          else: stack.setLen(0)
+        else: stack.setLen(0)
       of 14:                                   # endchar
         if not widthDone:
           widthDone = true
@@ -533,7 +632,7 @@ proc quadsOf(p0x, p0y, c1x, c1y, c2x, c2y, p3x, p3y, tol: float; pts: var seq[QP
     pts.add (int(round(cx)), int(round(cy)), false)
     pts.add (int(round(bx)), int(round(by)), true)
 
-proc glyfOf(path: CffPath; m: array[6, float]; upem: int; tol: float;
+proc glyfOf*(path: CffPath; m: array[6, float]; upem: int; tol: float;
             bbox: var tuple[x0, y0, x1, y1: int]; points, contours: var int): string =
   ## (one glyph's outline as a TrueType glyf entry: its contours turned round -- PostScript's
   ## outer contours go counterclockwise, TrueType's clockwise --, no instructions)
@@ -630,9 +729,10 @@ proc otfToTtf*(data: string; tolerance = -1.0): string =
     let ln = u32(data, r + 12)
     if off < 0 or ln < 0 or off + ln > data.len: return ""
     tabs[data[r ..< r + 4]] = (off, ln)
-  for t in ["CFF ", "head", "hhea", "maxp", "hmtx"]:
+  for t in ["head", "hhea", "maxp", "hmtx"]:
     if t notin tabs: return ""
-  let (co, cl) = tabs["CFF "]
+  if "CFF " notin tabs and "CFF2" notin tabs: return ""
+  let (co, cl) = if "CFF " in tabs: tabs["CFF "] else: tabs["CFF2"]
   let cff = parseCff(data[co ..< co + cl])
   if cff == nil: return ""
   let (ho, hl) = tabs["head"]

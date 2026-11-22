@@ -128,6 +128,85 @@ proc outlineStroke*(s: ShapeData; w, h: int): Path =
   for i, c in px: m[i] = uint8(c shr 24)
   tracedPath(m, sw, sh, 0.8, k)
 
+proc curvatureAt(sp: SubPath; i: int; outgoing: bool): float =
+  ## (the curvature of the curve at point `i` of `sp`, on the side of the segment after it
+  ## (`outgoing`) or before it: (2/3) h / L^2, h how far the segment's other handle is from the
+  ## tangent, L the point's handle's length; signed by the side it bends to; NaN: no curve there)
+  let n = sp.pts.len
+  let p = sp.pts[i].p
+  let (h0, other) = if outgoing: (sp.pts[i].outH, sp.pts[(i + 1) mod n].inH)
+                    else: (sp.pts[i].inH, sp.pts[(i - 1 + n) mod n].outH)
+  let (dx, dy) = (h0[0] - p[0], h0[1] - p[1])
+  let L = hypot(dx, dy)
+  if L < 1e-6: return NaN
+  let (ux, uy) = if outgoing: (dx / L, dy / L) else: (-dx / L, -dy / L)
+  let h = ux * (other[1] - p[1]) - uy * (other[0] - p[0])
+  2 / 3 * h / (L * L)
+
+proc pathCurvatureJump*(p: Path): float
+
+proc smoothCurvature*(p: Path; passes = 60): Path =
+  ## Smooth Curvature (G2), the drawing programs' smoothest join: at every smooth point -- one with
+  ## both handles, nearly in line (within 45 degrees) -- the handles put exactly in line and their
+  ## lengths changed so the curve bends as much on either side of it (its curvature continuous,
+  ## not only its direction): no kink in a highlight along it. Corners, points where the curve
+  ## turns from one side to the other, and the ends of open subpaths are kept as they are.
+  result = p
+  for s in result.subs.mitems:
+    let n = s.pts.len
+    if n < 2: continue
+    var smooth = newSeq[bool](n)
+    for i in 0 ..< n:
+      if not s.closed and (i == 0 or i == n - 1): continue
+      let q = s.pts[i]
+      let (ax, ay) = (q.outH[0] - q.p[0], q.outH[1] - q.p[1])
+      let (bx, by) = (q.p[0] - q.inH[0], q.p[1] - q.inH[1])
+      let (la, lb) = (hypot(ax, ay), hypot(bx, by))
+      if la < 1e-6 or lb < 1e-6: continue
+      if (ax * bx + ay * by) / (la * lb) < cos(PI / 4): continue
+      # (the handles in line: along both directions' mean)
+      var (ux, uy) = (ax / la + bx / lb, ay / la + by / lb)
+      let lu = hypot(ux, uy)
+      (ux, uy) = (ux / lu, uy / lu)
+      s.pts[i].outH = (q.p[0] + ux * la, q.p[1] + uy * la)
+      s.pts[i].inH = (q.p[0] - ux * lb, q.p[1] - uy * lb)
+      smooth[i] = true
+    for pass in 0 ..< passes:
+      # (each point's lengths change its neighbours' bends too: again until they agree)
+      if pass > 0 and pathCurvatureJump(Path(subs: @[s])) < 1e-4: break
+      for i in 0 ..< n:
+        if not smooth[i]: continue
+        let ko = curvatureAt(s, i, true)
+        let ki = curvatureAt(s, i, false)
+        if ko.isNaN or ki.isNaN or ko * ki <= 0: continue     # (straight on one side, or turning)
+        let target = sqrt(ko * ki)
+        let q = s.pts[i]
+        let lo = hypot(q.outH[0] - q.p[0], q.outH[1] - q.p[1])
+        let li = hypot(q.inH[0] - q.p[0], q.inH[1] - q.p[1])
+        # (h is the same at any length of this handle: the length that gives `target`)
+        let ho = abs(ko) * lo * lo * 1.5
+        let hi = abs(ki) * li * li * 1.5
+        let next = s.pts[(i + 1) mod n].p
+        let prev = s.pts[(i - 1 + n) mod n].p
+        let co = hypot(next[0] - q.p[0], next[1] - q.p[1])
+        let ci = hypot(prev[0] - q.p[0], prev[1] - q.p[1])
+        let lo2 = clamp(sqrt(2 / 3 * ho / target), 0.05 * co, 0.9 * co)
+        let li2 = clamp(sqrt(2 / 3 * hi / target), 0.05 * ci, 0.9 * ci)
+        s.pts[i].outH = (q.p[0] + (q.outH[0] - q.p[0]) / lo * lo2, q.p[1] + (q.outH[1] - q.p[1]) / lo * lo2)
+        s.pts[i].inH = (q.p[0] + (q.inH[0] - q.p[0]) / li * li2, q.p[1] + (q.inH[1] - q.p[1]) / li * li2)
+
+proc pathCurvatureJump*(p: Path): float =
+  ## How much the curvature jumps at the path's smooth points, the most of them (0: G2 everywhere;
+  ## the ratio of the bigger side's to the smaller's, less 1).
+  for s in p.subs:
+    let n = s.pts.len
+    for i in 0 ..< n:
+      if not s.closed and (i == 0 or i == n - 1): continue
+      let ko = curvatureAt(s, i, true)
+      let ki = curvatureAt(s, i, false)
+      if ko.isNaN or ki.isNaN or ko * ki <= 0: continue
+      result = max(result, max(abs(ko), abs(ki)) / min(abs(ko), abs(ki)) - 1)
+
 proc simplifyPath*(p: Path; tolerance = 2.0): Path =
   ## Simplify: each subpath with fewer points, fitted again with curves
   ## within `tolerance` pixels of where it was.

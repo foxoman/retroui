@@ -164,6 +164,7 @@ proc saveWorkspace(name = "last") =
   st["ws." & name & ".tools"] = $toolbox.r.x & "," & $toolbox.r.y & "," & $ord(toolbox.open)
   st["ws." & name & ".dock"] = $dock.toJson
   st["ws." & name & ".optionsBar"] = $optionsBarOn
+  st["ws." & name & ".toolHidden"] = prefs.toolHidden
   discard saveSettings(AppData, st)
 
 proc loadWorkspace(name = "last"): bool =
@@ -196,7 +197,56 @@ proc loadWorkspace(name = "last"): bool =
         toolbox.open = v[2] == "1"
       except ValueError: discard
   optionsBarOn = st.getBool("ws." & name & ".optionsBar", optionsBarOn)
+  if st.hasKey("ws." & name & ".toolHidden"): prefs.toolHidden = st.getOrDefault("ws." & name & ".toolHidden")
   true
+
+# ---- studios: workspaces of your own, by name -- the panels and the toolbar's tools, shared as files ---
+
+proc studioNames(): seq[string] =
+  ## (the workspaces kept by name: Window > Workspace lists them)
+  for n in loadSettings(AppData).getOrDefault("ws.studios").split('\t'):
+    if n.len > 0: result.add n
+
+proc keepStudio(name: string) =
+  ## The panels and tools as they are now kept as the workspace `name` (a new one, or the one of
+  ## that name again).
+  saveWorkspace("studio:" & name)
+  var st = loadSettings(AppData)
+  var ns = studioNames()
+  if name notin ns: ns.add name
+  st["ws.studios"] = ns.join("\t")
+  discard saveSettings(AppData, st)
+
+proc dropStudio(name: string) =
+  var st = loadSettings(AppData)
+  var ns = studioNames()
+  ns.keepItIf(it != name)
+  st["ws.studios"] = ns.join("\t")
+  for k in ["area", "tools", "dock", "optionsBar", "toolHidden"]: st.del("ws.studio:" & name & "." & k)
+  discard saveSettings(AppData, st)
+
+proc studioJson(name: string): JsonNode =
+  ## (a workspace as a file's: its name, panels, toolbar)
+  let st = loadSettings(AppData)
+  result = %*{"retroAtelierWorkspace": 1, "name": name}
+  for k in ["dock", "optionsBar", "toolHidden", "tools"]:
+    let v = st.getOrDefault("ws.studio:" & name & "." & k)
+    if v.len > 0: result[k] = (if k == "dock": parseJson(v) else: %v)
+
+proc studioFromJson(j: JsonNode): string =
+  ## A workspace file's workspace kept (its name; "" when it is not one).
+  if j.kind != JObject or j{"retroAtelierWorkspace"}.getInt == 0: return ""
+  let name = j{"name"}.getStr.strip
+  if name.len == 0 or j{"dock"} == nil: return ""
+  var st = loadSettings(AppData)
+  st["ws.studio:" & name & ".dock"] = $j["dock"]
+  for k in ["optionsBar", "toolHidden", "tools"]:
+    if j{k} != nil: st["ws.studio:" & name & "." & k] = j[k].getStr
+  var ns = studioNames()
+  if name notin ns: ns.add name
+  st["ws.studios"] = ns.join("\t")
+  discard saveSettings(AppData, st)
+  name
 
 # ---- the session: the documents open at the end, open again at the next start ------------------------------
 

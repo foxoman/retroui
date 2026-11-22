@@ -66,15 +66,102 @@ var
   baSplit: Table[pointer, float]   ## (a window shown so: where the line is, 0..1 of the image)
   baShot: tuple[d: Doc; at: int; bmp: Bitmap]
 
-const loremIpsum = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt " &
-  "ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi " &
-  "ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum " &
-  "dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui " &
-  "officia deserunt mollit anim id est laborum."
+var
+  loremOpen = false            ## Type > Fill with Placeholder Text... is open
+  loremAdd = 0                 ## ... on type: 0 its text replaced, 1 added after it
 
-proc placeholderText(): string =
-  ## (Paste Lorem Ipsum's words: your own, Preferences > Type, else the Latin)
-  if prefs.lorem.strip.len > 0: prefs.lorem else: loremIpsum
+const loremLangs = ["English (Lorem Ipsum)", "Arabic", "Arabic and English", "My Own (Preferences > Type)"]
+
+proc placeholderText(paras = prefs.loremParas; lang = prefs.loremLang): string =
+  ## (the placeholder text: `paras` paragraphs in English -- Lorem Ipsum --, Arabic, the two in
+  ## turn, or your own, Preferences > Type, its paragraphs again and again)
+  case lang
+  of 1: result = lorem(paras, loremArabic)
+  of 2: result = lorem(paras, loremBoth)
+  of 3:
+    let own = prefs.lorem.strip
+    if own.len == 0: result = lorem(paras, loremLatin)
+    else:
+      let ps = own.splitLines
+      for i in 0 ..< max(1, paras):
+        if i > 0: result.add '\n'
+        result.add ps[i mod ps.len]
+  else: result = lorem(paras, loremLatin)
+
+proc fillPlaceholder(d: Doc; replace: bool) =
+  ## (Fill with Placeholder Text: on type, its text replaced or added to; else a new box of type
+  ## -- the paragraphs asked for, or as many as fill the box, cut at the end of a sentence)
+  let fill = prefs.loremFill
+  let text = placeholderText(if fill: 60 else: prefs.loremParas)
+  proc fit(L: Layer; before: string) =
+    # (as much as fits: the box laid out, the text cut at the last sentence that ends in it)
+    if not fill or L.text.boxW <= 0 or L.text.boxH <= 0: return
+    let lay = layoutText(d.effectiveText(L))
+    if lay.overflow < 0: return
+    let all = L.text.plainText
+    let at = loremSentenceEnd(all, lay.overflow)
+    let keep = if at > before.runeLen: at else: lay.overflow
+    var t = L.text
+    let st = if t.spans.len > 0: t.spans[^1].style else: defaultStyle()
+    t.spans = @[TextSpan(text: all.runeSubStr(0, keep).strip(leading = false), style: st)]
+    L.text = t
+  if d.current.isText:
+    let L = d.current
+    d.layersChange("Fill with Placeholder Text"):
+      var t = L.text
+      let st = if t.spans.len > 0: t.spans[^1].style else: defaultStyle()
+      let before = if replace: "" else: t.plainText & "\n"
+      if replace: t.spans = @[TextSpan(text: text, style: st)]
+      else: t.spans.add TextSpan(text: "\n" & text, style: st)
+      L.text = t
+      fit(L, before)
+      d.drawText(L)
+      d.markAll()
+  else:
+    var st = defaultStyle()
+    st.size = float32(max(8.0, min(d.w, d.h).float / 32))
+    st.color = fg
+    var t = newText(text, st, float32(d.w.float * 0.1), float32(d.h.float * 0.1))
+    t.boxW = float32(d.w.float * 0.8)
+    t.boxH = float32(d.h.float * 0.8)
+    d.layersChange("Fill with Placeholder Text"):
+      let L = d.addTextLayer(t)
+      if L != nil and fill:
+        fit(L, "")
+        d.drawText(L)
+  let n = d.current.text.plainText.count('\n') + 1
+  status = "Placeholder text: " & $n & (if n == 1: " paragraph" else: " paragraphs") &
+           " (Edit > Undo takes it away)"
+
+proc loremDialog() =
+  if not loremOpen: return
+  let d = cur()
+  if d == nil:
+    loremOpen = false
+    return
+  dialog(loremOpen, "Fill with Placeholder Text", 460):
+    form 0:
+      field "Text:":
+        combo(loremLangs, prefs.loremLang, w = dp(240))
+      field "Paragraphs:":
+        row:
+          spin(prefs.loremParas, 1, 50, w = dp(70), enabled = not prefs.loremFill)
+          checkbox("As Many as Fill the Box", prefs.loremFill)
+      if d.current.isText:
+        field "The Type:":
+          combo(["Replace Its Text", "Add After Its Text"], loremAdd, w = dp(240))
+    let sample = placeholderText(1)
+    group("Sample"):
+      paragraph(if sample.runeLen > 180: sample.runeSubStr(0, 180) & "…" else: sample, color = ui.theme.gray)
+    label(if d.current.isText: "On \"" & d.current.name & "\"." else: "A new text box, most of the page.",
+          color = ui.theme.gray)
+    row:
+      spring()
+      if button("OK", isDefault = true, w = dp(80)):
+        loremOpen = false
+        fillPlaceholder(d, loremAdd == 0 or not d.current.isText)
+        savePrefs()
+      if button("Cancel", w = dp(80)): loremOpen = false
 
 proc pixelLayerOk(d: Doc): bool =
   d != nil and d.current.px.len == d.w * d.h and not d.current.group and d.current.adjust.kind.len == 0
@@ -875,25 +962,11 @@ proc dailyCommand(name: string): bool =
   of "New QR Code...":
     if d != nil: qrOpen = true
   of "Image Processor...": ipOpen = true
+  of "Fill with Placeholder Text...":
+    if d != nil: loremOpen = true
   of "Paste Lorem Ipsum":
-    if d != nil:
-      if d.current.isText:
-        let L = d.current
-        d.layersChange(name):
-          var t = L.text
-          let st = if t.spans.len > 0: t.spans[0].style else: defaultStyle()
-          t.spans = @[TextSpan(text: placeholderText(), style: st)]
-          L.text = t
-          d.drawText(L)
-          d.markAll()
-      else:
-        var st = defaultStyle()
-        st.size = float32(max(8.0, min(d.w, d.h).float / 32))
-        st.color = fg
-        var t = newText(placeholderText(), st, float32(d.w.float * 0.1), float32(d.h.float * 0.1))
-        t.boxW = float32(d.w.float * 0.8)
-        t.boxH = float32(d.h.float * 0.8)
-        d.layersChange(name): discard d.addTextLayer(t)
+    # (at once, as Fill with Placeholder Text was set last; type's text replaced)
+    if d != nil: fillPlaceholder(d, true)
   of "Before & After":
     if active != nil:
       let key = cast[pointer](active)
@@ -904,6 +977,7 @@ proc dailyCommand(name: string): bool =
   else: result = false
 
 proc dailyDialogs() =
+  loremDialog()
   qrDialog()
   matchColorDialog()
   focusAreaDialog()

@@ -12,8 +12,8 @@
 ## Targets: png, bmp, jpg, webp, inflate, md, html, pdf, gltf, mvt, lzma
 ## (the packed fonts), feed (RSS and Atom from any server), chapters,
 ## transcript (a podcast's), board (a board file: what any program wrote). A
-## Defect (an index, a range, an overflow) or a sanitizer's report is a
-## bug: libFuzzer stops and saves the input (crash-...).
+## Defect (an index, a range, an overflow: it aborts) or a sanitizer's
+## report is a bug: libFuzzer stops and saves the input (crash-...).
 
 import std/json
 import retroui/[imaging, jpeg, codec, markdown, webp, htmldom, pdfread, gltf, mvt, lzma, feeds, board]
@@ -21,6 +21,7 @@ import retroui/[imaging, jpeg, codec, markdown, webp, htmldom, pdfread, gltf, mv
 const fuzzTarget {.strdefine.} = "png"
 
 proc NimMain() {.importc, cdecl.}
+proc abort() {.importc, header: "<stdlib.h>", noreturn.}
 
 # (what Nim's own main would define: libFuzzer has the main)
 var cmdLine {.exportc: "cmdLine".}: cstringArray
@@ -63,4 +64,10 @@ proc LLVMFuzzerTestOneInput(data: ptr UncheckedArray[byte]; len: csize_t): cint 
     else: {.error: "fuzzTarget: png, bmp, jpg, webp, inflate, md, html, pdf, gltf, mvt, lzma, feed, chapters, transcript or board".}
   except CatchableError:
     discard                          # (bad input refused: as it should be)
+  except Defect as e:
+    # (a bug: said, and the process stopped so libFuzzer keeps the input -- a Defect let out of
+    # here into libFuzzer's C would leave Nim's error state set, and the run would crash later
+    # on another input, with nothing kept)
+    stderr.writeLine "Defect: ", e.name, ": ", e.msg
+    abort()
   0

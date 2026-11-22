@@ -592,14 +592,67 @@ proc moveArtboard*(d: Doc; i: int; dx, dy: int) =
   G.mask = d.boardMask(G.board)
   d.markAll()
 
+proc pinnedBox*(box, was, now: Rect; pins: set[LayerPin]): Rect =
+  ## Where a layer's box `box` goes when the board it is on goes from `was` to `now`, by its
+  ## Constraints (`pins`; {} it stays).
+  if pins == {}: return box
+  proc axis(p, size, wp, ws, np, ns: int; lo, hi, mid: LayerPin): (int, int) =
+    let before = p - wp                       # (its gap to the board's left / top)
+    let after = wp + ws - (p + size)          # (... to its right / bottom)
+    if lpScale in pins:
+      let k = ns.float / max(1, ws).float
+      (np + int(round(before.float * k)), max(1, int(round(size.float * k))))
+    elif lo in pins and hi in pins: (np + before, max(1, ns - before - after))
+    elif hi in pins: (np + ns - after - size, size)
+    elif mid in pins:
+      let c = (p.float + size / 2 - wp.float) / max(1, ws).float
+      (int(round(np.float + c * ns.float - size / 2)), size)
+    else: (np + before, size)
+  let (x, w) = axis(box.x, box.w, was.x, was.w, now.x, now.w, lpLeft, lpRight, lpCenterX)
+  let (y, h) = axis(box.y, box.h, was.y, was.h, now.y, now.h, lpTop, lpBottom, lpCenterY)
+  rect(x, y, w, h)
+
+proc fitLayerTo*(d: Doc; L: Layer; was, now: Rect) =
+  ## `L` (its box `was`) moved and sized to `now`: a shape's outline and a text box stretched, a
+  ## painted layer's pixels resampled, anything else moved. (Undoable in a step: `touchLayers` first.)
+  if was == now or was.w <= 0 or was.h <= 0: return
+  if was.w == now.w and was.h == now.h or L.group or L.isSmart:
+    d.shiftLayers(@[L], now.x - was.x, now.y - was.y)
+    return
+  let (sx, sy) = (now.w / was.w, now.h / was.h)
+  if L.isShape:
+    var s = L.shape
+    s.path.mapPoints(proc (x, y: float): (float, float) =
+      (now.x.float + (x - was.x.float) * sx, now.y.float + (y - was.y.float) * sy))
+    d.setShape(L, s)
+  elif L.isText:
+    var t = L.text
+    t.x = now.x.float32 + (t.x - was.x.float32) * sx.float32
+    t.y = now.y.float32 + (t.y - was.y.float32) * sy.float32
+    if t.boxW > 0 and t.boxH > 0:
+      t.boxW = t.boxW * sx.float32
+      t.boxH = t.boxH * sy.float32
+    L.text = t
+    d.drawText(L)
+  elif L.px.len == d.w * d.h:
+    d.transformLayer(L, was, now)
+  else: d.shiftLayers(@[L], now.x - was.x, now.y - was.y)
+  inc L.ver
+
 proc resizeArtboard*(d: Doc; i: int; r: Rect) =
-  ## An artboard's page made `r` (its fill follows; what is on it stays where
-  ## it is). Undoable in a step.
+  ## An artboard's page made `r` (its fill follows); what is on it stays where it is -- or, with
+  ## Constraints (`Layer.pins`), follows it (`pinnedBox`). Undoable in a step.
   if i < 0 or i >= d.layers.len or not d.layers[i].isArtboard: return
   let c = d.clip(r)
   if c.w <= 0 or c.h <= 0: return
   d.touchLayers()
   let G = d.layers[i]
+  let was = G.board
+  for j in d.blockStart(i) ..< i:
+    let L = d.layers[j]
+    if L.pins == {} or L.depth != G.depth + 1: continue
+    let b = d.layerBox(L)
+    if b.w > 0 and b.h > 0: d.fitLayerTo(L, b, pinnedBox(b, was, c, L.pins))
   G.board = c
   G.mask = d.boardMask(c)
   let lo = d.blockStart(i)

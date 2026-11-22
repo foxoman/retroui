@@ -1588,4 +1588,21 @@ block justifiedPointText:
   one.para.align = textLeft
   doAssert abs(o.lines[0].x0 - layoutText(one).lines[0].x0) < 0.01
 
+block oldAndNewFontOfOneName:
+  # the Traditional Arabic of Windows 3.1 and today's in one folder, one family and style: the one
+  # with a Unicode map is the one drawn, whichever was found first
+  let d = currentSourcePath().parentDir / "data" / "fonts"
+  addFontFile("Twin Test", "Regular", d / "ArabicLegacy-Test.ttf", symbol = true)
+  addFontFile("Twin Test", "Regular", d / "ArabicNoLayout-Test.ttf")
+  doAssert fontFace("Twin Test", "Regular").face.glyphOf(ord('A')) != 0, "the Unicode one"
+  doAssert fontFace("Twin Test", "Bold").face.glyphOf(ord('A')) != 0, "made bold from the Unicode one"
+  # an old font alone: drawn, its Arabic found through the old encoding
+  addFontFile("Old Only Test", "Regular", d / "ArabicLegacy-Test.ttf", symbol = true)
+  let old = CharStyle(family: "Old Only Test", style: "Regular", size: 40, color: 0xFF000000'u32,
+                      hScale: 1, vScale: 1)
+  let lay = layoutText(newText("بسم", old))
+  doAssert lay.glyphs.len == 3
+  for g in lay.glyphs: doAssert g.gid != 0 and g.face.glyphOf(0x0628) != 0
+  doAssert fontProblem("Old Only Test") == ""
+
 echo "textengine ok"

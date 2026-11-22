@@ -5,7 +5,7 @@
 ## runs found, fonts chosen kept in "Your Fonts", a font read through `fontReader` the first
 ## time it draws; the faces read kept within `fontMemoryBudget`.
 
-import std/[os, tables, times]
+import std/[os, tables, times, strutils]
 import retroui, retroui/[headless, fontfolders, textengine, ttf]
 import retroui/uirelays/input
 
@@ -19,6 +19,8 @@ let cffFont = currentSourcePath().parentDir / "data" / "fonts" / "NotoSansArabic
 copyFile(kufi, root / "mine" / "sub" / "kufi.ttf")
 createDir(root / "mine" / "sub" / "deeper" / "deepest")
 copyFile(cffFont, root / "mine" / "sub" / "deeper" / "deepest" / "naskh.otf")
+writeFile(root / "mine" / "broken.ttf", "\x00\x01\x00\x00 not a font at all, cut short")
+writeFile(root / "mine" / "web.woff2", "wOF2" & repeat('\0', 60))
 
 useHeadless(300, 200)
 startApp("Fonts", 300, 200)
@@ -42,6 +44,14 @@ block aFolder:
   doAssert cffFam in fontFamilies(), "the .otf (CFF) one too, three folders down"
   doAssert fontFace(cffFam, "Regular").face.glyphOf(0x0628) != 0, "drawn: its outlines made TrueType"
   doAssert fontFolders(app)[0].familiesIn.len == 2 and "Reem Kufi" in fontFolders(app)[0].familiesIn
+  # (the files it could not read, and why)
+  let bad = unreadFontFiles(app)
+  doAssert bad.len == 2 and bad[0].why.len > 0 and bad[1].why.len > 0,
+           "a damaged font and a WOFF2 one said, and why: " & $bad
+  var w2 = ""
+  for b in bad:
+    if b.file.endsWith("web.woff2"): w2 = b.why
+  doAssert "WOFF2" in w2, w2
   # (at the next start: offered again, from what the index kept)
   useFontFolders(app)
   waitFontScan()

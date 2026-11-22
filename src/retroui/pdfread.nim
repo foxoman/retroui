@@ -183,9 +183,35 @@ proc readName(lx: var Lexer): string =
 
 proc parseObj(lx: var Lexer; depth = 0): PObj
 
+proc pdfNumber(s: string): float =
+  ## A PDF number ("12", "-3.5", ".25", "4."): its digits added up as a float -- no integer that
+  ## overflows on a hundred digits (the standard library's parse does, in C) --; 0 when it is
+  ## not one.
+  var i = 0
+  var neg = false
+  if i < s.len and s[i] in {'+', '-'}:
+    neg = s[i] == '-'
+    inc i
+  var v = 0.0
+  var any = false
+  while i < s.len and s[i] in {'0' .. '9'}:
+    v = v * 10 + float(ord(s[i]) - 48)
+    any = true
+    inc i
+  if i < s.len and s[i] == '.':
+    inc i
+    var scale = 0.1
+    while i < s.len and s[i] in {'0' .. '9'}:
+      v += float(ord(s[i]) - 48) * scale
+      scale *= 0.1
+      any = true
+      inc i
+  if not any or i != s.len: return 0.0
+  if neg: -v else: v
+
 proc parseAfterNumber(lx: var Lexer; first: string): PObj =
   ## "12" could start "12 0 R".
-  let v = try: parseFloat(first) except ValueError: 0.0
+  let v = pdfNumber(first)
   if '.' notin first and first.len > 0 and first[0] in {'0' .. '9'}:
     let save = lx.p
     lx.skipWs()
@@ -195,7 +221,7 @@ proc parseAfterNumber(lx: var Lexer; first: string): PObj =
       if not lx.atEnd and lx.s[][lx.p] == 'R' and
          (lx.p + 1 >= lx.s[].len or lx.s[][lx.p + 1] in White + Delim):
         inc lx.p
-        return PObj(kind: pkRef, rnum: int(v), rgen: (try: parseInt(g) except ValueError: 0))
+        return PObj(kind: pkRef, rnum: (if v < 1e9: int(v) else: 0), rgen: int(min(pdfNumber(g), 1e6)))
     lx.p = save
   newNum(v)
 
@@ -227,7 +253,9 @@ proc parseObj(lx: var Lexer; depth = 0): PObj =
           continue
         inc lx.p
         let k = lx.readName()
-        d.d[k] = lx.parseObj(depth + 1)
+        # (the value first: a key copied into the table before its value raises is never freed)
+        let v = lx.parseObj(depth + 1)
+        d.d[k] = v
       d
     else:
       inc lx.p

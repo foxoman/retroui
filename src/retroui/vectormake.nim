@@ -12,11 +12,13 @@
 ## - Tidy Up: what is picked put in a neat row, column or grid, the room between them even.
 ## - Flex Layout on a group: its frames kept in a row or a column (`retroui/flexlayout`) --
 ##   change one and the others move.
+## - Symbols (Affinity's, Illustrator's): a group made a symbol, its copies (instances) placed
+##   anywhere -- change what is in one and the others change the same, each where it is.
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[math, algorithm, json, sequtils, strutils]
-import photo, photoshapes, parallel, flexlayout
+import std/[math, algorithm, json, sequtils, strutils, tables, hashes]
+import photo, photoshapes, parallel, flexlayout, textengine
 
 export flexlayout
 
@@ -434,3 +436,196 @@ proc arrangeFlex*(d: Doc; gi: int): bool =
     if dx != 0 or dy != 0:
       d.shiftLayers(@[d.layers[j]], dx, dy)
       result = true
+
+# ---- Symbols -------------------------------------------------------------------------------------------
+
+proc symbolOf*(g: Layer): tuple[id: int; name: string] =
+  ## The symbol a group is an instance of (its `meta`); id 0: none.
+  if g == nil or not g.group or "\"symbol\"" notin g.meta: return
+  try:
+    let j = parseJson(g.meta){"symbol"}
+    if j != nil and j.kind == JObject: result = (j{"id"}.getInt, j{"name"}.getStr)
+  except CatchableError: discard
+
+proc setSymbol(g: Layer; id: int; name: string) =
+  var j = try: parseJson(g.meta) except CatchableError: newJObject()
+  if j.kind != JObject: j = newJObject()
+  if id > 0: j["symbol"] = %*{"id": id, "name": name}
+  elif j.hasKey("symbol"): j.delete("symbol")
+  g.meta = if j.len > 0: $j else: ""
+
+proc symbols*(d: Doc): seq[tuple[id: int; name: string; instances: seq[int]]] =
+  ## The document's symbols, each with its instances (their places in the layers, top first).
+  for i in countdown(d.layers.high, 0):
+    let (id, name) = d.layers[i].symbolOf
+    if id == 0: continue
+    var found = false
+    for s in result.mitems:
+      if s.id == id:
+        s.instances.add i
+        found = true
+    if not found: result.add (id, name, @[i])
+
+proc symbolInstances*(d: Doc; id: int): seq[int] =
+  ## The instances of symbol `id` (their places in the layers, top first).
+  for s in d.symbols:
+    if s.id == id: return s.instances
+
+proc makeSymbol*(d: Doc; idxs: seq[int]; name = ""): Layer =
+  ## Create Symbol: the layers `idxs` (a group alone: it) made a symbol -- a group, its first instance.
+  ## nil when they cannot be. (Undoable in a step: `touchLayers` first.)
+  var nextId = 1
+  for s in d.symbols: nextId = max(nextId, s.id + 1)
+  var g: Layer
+  if idxs.len == 1 and idxs[0] in 0 .. d.layers.high and d.layers[idxs[0]].group: g = d.layers[idxs[0]]
+  else: g = d.groupLayers(idxs, if name.len > 0: name else: "Symbol " & $nextId)
+  if g == nil: return nil
+  g.setSymbol(nextId, if name.len > 0: name else: (if g.name.len > 0: g.name else: "Symbol " & $nextId))
+  g
+
+proc detachSymbol*(g: Layer) =
+  ## Detach from Symbol: an instance made a plain group (what is in it no longer follows the others).
+  g.setSymbol(0, "")
+
+proc instanceParts(d: Doc; gi: int): seq[int] =
+  ## (what is in an instance, bottom first)
+  let g = d.layers[gi]
+  for j in d.blockStart(gi) ..< gi:
+    if d.layers[j].depth > g.depth: result.add j
+
+proc instanceCorner(d: Doc; gi: int): (int, int) =
+  ## (where an instance is: the top left of what is in it)
+  var x0, y0 = high(int)
+  for j in d.instanceParts(gi):
+    let L = d.layers[j]
+    if L.group: continue
+    let b = d.layerBox(L)
+    if b.w <= 0 or b.h <= 0: continue
+    x0 = min(x0, b.x)
+    y0 = min(y0, b.y)
+  if x0 == high(int): (0, 0) else: (x0, y0)
+
+proc partKey(d: Doc; L: Layer; ox, oy: int): Hash =
+  ## (what a part of an instance is, wherever the instance is: its kind and content from the
+  ## instance's corner)
+  result = hash(L.name) !& hash(L.depth) !& hash(L.opacity) !& hash(ord(L.mode)) !& hash(L.visible)
+  if L.isShape:
+    var s = L.shape
+    s.path = s.path.translated(-ox.float, -oy.float)
+    result = result !& hash($s)
+  elif L.isText:
+    var t = L.text
+    t.x -= ox.float32
+    t.y -= oy.float32
+    result = result !& hash($t)
+  elif L.group: result = result !& hash("group")
+  elif L.px.len == d.w * d.h:
+    let b = d.layerBox(L)
+    result = result !& hash(b.x - ox) !& hash(b.y - oy) !& hash(b.w) !& hash(b.h)
+    for y in max(0, b.y) ..< min(d.h, b.y + b.h):
+      for x in max(0, b.x) ..< min(d.w, b.x + b.w): result = result !& hash(L.px[y * d.w + x])
+  result = !$result
+
+proc instanceKey(d: Doc; gi: int): Hash =
+  let (ox, oy) = d.instanceCorner(gi)
+  for j in d.instanceParts(gi): result = result !& d.partKey(d.layers[j], ox, oy)
+  result = !$result
+
+proc copyInstance(d: Doc; src, dst: int) =
+  ## (what is in instance `src` copied into instance `dst`, at `dst`'s corner)
+  let (sx, sy) = d.instanceCorner(src)
+  let (tx, ty) = d.instanceCorner(dst)
+  let (dx, dy) = (tx - sx, ty - sy)
+  let G = d.layers[dst]
+  let keepCur = d.current
+  let parts = d.instanceParts(src).mapIt(d.layers[it])
+  let srcDepth = d.layers[src].depth
+  # (its own parts out, copies of the source's in, under its group)
+  let old = d.instanceParts(dst)
+  for k in countdown(old.high, 0): d.layers.delete(old[k])
+  var at = d.layers.find(G)
+  var made: seq[Layer]
+  for P in parts:
+    let c = layerCopy(P, P.name)
+    c.depth = G.depth + (P.depth - srcDepth)
+    d.layers.insert(c, at)
+    inc at
+    made.add c
+  for c in made:
+    if dx == 0 and dy == 0: continue
+    if c.isShape:
+      var s = c.shape
+      s.path = s.path.translated(dx.float, dy.float)
+      d.setShape(c, s)
+    elif c.isText:
+      var t = c.text
+      t.x += dx.float32
+      t.y += dy.float32
+      c.text = t
+      d.drawText(c)
+    elif not c.group: d.shiftLayers(@[c], dx, dy)
+  d.cur = max(0, d.layers.find(keepCur))
+  inc G.ver
+  d.markAll()
+
+proc keepSymbols*(d: Doc; seen: var Table[int, Hash]): bool =
+  ## Each symbol's instances kept alike: when what is in one changed (not where it is: an instance
+  ## moved is only moved), the others are made the same, each where it is. Not an undo step of its
+  ## own -- undoing the change brings the others back with it. Call it when a step has ended (and
+  ## after an undo or a redo); `seen` keeps what each symbol was. True when one was changed.
+  if d.stepOpen: return
+  for s in d.symbols:
+    var keys: seq[Hash]
+    for gi in s.instances: keys.add d.instanceKey(gi)
+    let was = seen.getOrDefault(s.id, keys[0])
+    var changed = -1
+    var alike = true
+    for k, key in keys:
+      if key != keys[0]: alike = false
+      if key != was and changed < 0: changed = k
+    if alike or changed < 0:
+      seen[s.id] = keys[0]
+      continue
+    # (the one changed made the others' content: the current one first, if it is one of those changed)
+    for k, gi in s.instances:
+      if keys[k] != was and d.cur in d.blockStart(gi) .. gi: changed = k
+    let src = d.layers[s.instances[changed]]
+    let target = keys[changed]
+    for guard in 0 ..< 1000:
+      # (one at a time, found again each time: a copy moves the layers' places)
+      var did = false
+      for gi in d.symbolInstances(s.id):
+        let si = d.layers.find(src)
+        if gi != si and d.instanceKey(gi) != target:
+          d.copyInstance(si, gi)
+          did = true
+          break
+      if not did: break
+    seen[s.id] = keys[changed]
+    result = true
+
+proc insertSymbol*(d: Doc; id: int; dx = 24; dy = 24): Layer =
+  ## A new instance of symbol `id`: a copy of its first instance (the lowest in the layers: the one
+  ## made first), `dx`, `dy` from it, above it. (Undoable in a step: `touchLayers` first.)
+  let ins = d.symbolInstances(id)
+  if ins.len == 0: return nil
+  let gi = ins[^1]
+  let lo = d.blockStart(gi)
+  var copies: seq[Layer]
+  for j in lo .. gi: copies.add layerCopy(d.layers[j], d.layers[j].name)
+  for c in countdown(copies.high, 0): d.layers.insert(copies[c], gi + 1)
+  result = copies[^1]
+  for c in copies:
+    if c.isShape:
+      var s = c.shape
+      s.path = s.path.translated(dx.float, dy.float)
+      d.setShape(c, s)
+    elif c.isText:
+      var t = c.text
+      t.x += dx.float32
+      t.y += dy.float32
+      c.text = t
+      d.drawText(c)
+    elif not c.group: d.shiftLayers(@[c], dx, dy)
+  d.cur = d.layers.find(result)
+  d.markAll()

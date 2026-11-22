@@ -3377,6 +3377,34 @@ proc hiOf(level: int): var int =
   if level == 0: return ui.popupHi
   return subHis[clamp(level - 1, 0, MenuDepth - 1)]
 
+# ---- the menus walked, not drawn: what the command search lists (retroui/commandhud) ----------
+
+type MenuCommand* = tuple[path: seq[string]; keys: string; enabled, checked: bool]
+  ## An item of the menu bar's menus: its menus and its label (no '&'), its shortcut, whether it
+  ## can be chosen now, whether it is checked.
+
+var
+  menuWalk*: bool
+    ## This frame the menu bar's menus are walked, not drawn: each item noted in `menuWalked`
+    ## (set before the menu bar by `menubarHooks.before`: the command search's).
+  menuWalked*: seq[MenuCommand]
+    ## The items the walk found, in the menus' order.
+  menuWalkRun*: seq[string]
+    ## An item to choose (its menus and label, as `menuWalked` has it): the walk's `menuItem`
+    ## for it returns true, as a click would, and this is emptied.
+  menubarHooks*: tuple[before, after: proc () {.nimcall.}]
+    ## Called as the menu bar begins (before its menus) and as it ends (after them).
+  walkDepth: int                  # (how deep in the menus the walk is: 0 not walking)
+  walkPath: seq[string]
+
+proc walkItem(label, shortcut: string; checked, enabled: bool): bool =
+  var path = walkPath
+  path.add splitMnemonic(label).text
+  if menuWalkRun.len > 0 and enabled and menuWalkRun == path:
+    menuWalkRun.setLen(0)
+    result = true
+  menuWalked.add (path, shortcut, enabled, checked)
+
 proc beginMenubar*() =
   ## Starts the menu bar (see `menubar`).
   pushLayer(LayerBase)              # above the scrolled content, unclipped
@@ -3392,11 +3420,16 @@ proc beginMenubar*() =
   menuSwitch = 0
   shiftContent(MenuH * barRows + 1)
   if accessOn: accessBegin(arMenuBar, "", r)
+  walkDepth = 0
+  walkPath.setLen(0)
+  if menubarHooks.before != nil: menubarHooks.before()
 
 proc endMenubar*() =
   ## Ends the menu bar: F10 opens its first menu; Left / Right go along it.
   if accessOn: accessEnd()
   popLayer()
+  walkDepth = 0
+  if menubarHooks.after != nil: menubarHooks.after()
   ui.barY += MenuH * barRowsOf[inWindow()] + 1
   if barRow + 1 != barRowsOf[inWindow()]:
     barRowsOf[inWindow()] = barRow + 1   # (the rows its menus took: the bar that tall next frame)
@@ -3485,6 +3518,10 @@ proc beginPopupMenu(id: Id; x, y: int; level = 0; fixedTop = false): bool =
 proc endMenu*() =
   ## Ends an open menu (`beginMenu`, `beginSubmenu`, `beginContextMenu`,
   ## `beginPopupMenuFor`): draws its frame; Up, Down, Home, End, Esc.
+  if walkDepth > 0:
+    dec walkDepth
+    if walkPath.len > 0: walkPath.setLen(walkPath.len - 1)
+    return
   var m = pms.pop()
   if menuLetters.getOrDefault(m.id) != m.letters: menuLetters[m.id] = move m.letters
   if menuLetters.len > 64: menuLetters.clear()     # (menus opened long ago)
@@ -3624,6 +3661,11 @@ proc beginMenu*(title: string): bool =
        tr.contains(point(ui.mx, ui.my)):
       fill(inset(tr, 1), hoverColor())
     drawLabel(lx, tr.y + (MenuH - FontH) div 2, title, th.text, boldMenus)
+  if menuWalk and walkDepth == 0:
+    # (walked, not opened: its items noted)
+    walkDepth = 1
+    walkPath = @[splitMnemonic(title).text]
+    return true
   if open: beginPopupMenu(id, tr.x, tr.y + tr.h, fixedTop = true) else: false
 
 template menu*(title: string; body: untyped) =
@@ -3789,6 +3831,7 @@ proc menuLetter(label: string; enabled: bool; i, level: int): bool =
 proc menuItem*(label: string; shortcut = ""; checked = false;
                enabled = true): bool =
   ## An item of the open menu; true when chosen.
+  if walkDepth > 0: return walkItem(label, shortcut, checked, enabled)
   let i = pm.n
   inc pm.n
   let level = pm.level
@@ -3830,6 +3873,11 @@ proc menuItem*(label: string; shortcut = ""; checked = false;
 proc beginSubmenu*(label: string; enabled = true): bool =
   ## An item that opens a menu of its own (see `submenu`): true while it is
   ## open.
+  if walkDepth > 0:
+    if not enabled: return false
+    inc walkDepth
+    walkPath.add splitMnemonic(label).text
+    return true
   let i = pm.n
   inc pm.n
   let level = pm.level
@@ -3884,6 +3932,7 @@ template submenu*(label: string; body: untyped) =
 
 proc menuSeparator*() =
   ## A line between groups of menu items (none at the top of a column).
+  if walkDepth > 0: return
   pm.natural += dp(9)
   if pm.cy + dp(9) + MenuRowH > pm.bottom and pm.cy > pm.y + 3 + MenuRowH:
     newMenuColumn()                      # (the next row starts a column: no line)

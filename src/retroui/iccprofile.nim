@@ -656,7 +656,10 @@ proc embedInPng*(png, icc: string; name = "ICC Profile"): string =
   if z.len > 0: copyMem(addr zs[0], unsafeAddr z[0], z.len)
   let nm = name[0 ..< min(79, name.len)]
   let body = "iCCP" & nm & "\0\0" & zs
-  let chunk = be32(body.len - 4) & body & be32(int(crc32(body)))
+  let crc = crc32(body)
+  # (the CRC's bytes as they are: an int of 32 bits does not hold one)
+  let chunk = be32(body.len - 4) & body & char((crc shr 24) and 255) & char((crc shr 16) and 255) &
+              char((crc shr 8) and 255) & char(crc and 255)
   let at = 8 + 12 + u32(png, 8)
   png[0 ..< at] & chunk & png[at .. ^1]
 

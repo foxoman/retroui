@@ -6,9 +6,13 @@
 ##   "characters") gives for the same font, text, direction, script,
 ##   language, features and axis values -- Arabic (FreeSerif, Noto Sans
 ##   Arabic with its weight and width axes), Latin (EB Garamond), a font
-##   with only a legacy `kern` table (FreeSerif-KernOnly) and a small font
-##   made to hold every GSUB and GPOS lookup type, context format and
-##   lookup flag;
+##   with only a legacy `kern` table (FreeSerif-KernOnly), a font with no
+##   layout tables at all (ArabicNoLayout-Test: HarfBuzz's Arabic fallback
+##   and its fallback mark positioning, right to left and left to right) and
+##   a small font made to hold every GSUB and GPOS lookup type, context
+##   format and lookup flag;
+## * an Arabic font of before Unicode (ArabicLegacy-Test: a symbol map at
+##   0xF2xx, no layout) shaped as the same font with a Unicode map;
 ## * variable fonts: outlines, bounds and advances at several axis values
 ##   against fontTools' `varLib.instancer` (static instances) and the
 ##   advances against HarfBuzz;
@@ -49,6 +53,21 @@
 ##   of the Noto subset at the axis values in instances/list.txt, which
 ##   also holds HarfBuzz's advance of every glyph there.
 ##
+## * ArabicNoLayout-Test.ttf, ArabicLegacy-Test.ttf: tools/genlegacy.py --
+##   FreeSerif cut to Arabic, its presentation forms and ASCII with the
+##   combining accents, its layout tables dropped; one with a Unicode map,
+##   one with only the symbol map the Arabic fonts of Windows 3.1 had (each
+##   byte's glyph at 0xF200 + the byte, as `legacyArabic` in ttf.nim). Its
+##   runs in otshape-cases: fixed lines, features turned off, and seeded
+##   random ones (letters, tashkeel, lam-alef, tatweel, ZWJ/ZWNJ; Latin
+##   letters and accents; variation sequences), cluster level "characters".
+## * HebrewThaiNoLayout-Test.ttf: tools/genlegacy.py -- FreeSerif cut to Hebrew (its points and
+##   the presentation forms of letters with dagesh, rafe, the shin and sin dots), Thai and ASCII,
+##   its layout tables dropped. Its runs and FreeSerif's Hebrew and Thai ones in otshape-cases
+##   (fixed lines and seeded random ones: letters, points, cantillation; Thai letters, vowels,
+##   tone marks, SARA AM) check HarfBuzz's Hebrew shaper (the marks' order, the presentation
+##   forms for a font that does not place marks, GPOS only under hebr) and its Thai one (SARA AM
+##   taken apart, NIKHAHIT before the tone mark).
 ## * FreeSerif-KernOnly.ttf: GNU FreeSerif 0412 (GPL v3 or later with the
 ##   font exception, src/retroui/fonts/LICENSE-FreeFont.txt) cut by
 ##   `pyftsubset` to ASCII, Latin-1 and the quotes, its legacy `kern` table
@@ -125,7 +144,7 @@ block shapingMatchesHarfBuzz:
     perFont[p[0]] = pf
   for k, v in perFont: echo "  ", k, ": ", v[0] - v[1], " of ", v[0], " runs as HarfBuzz"
   echo "shaping: ", total - bad, " of ", total, " runs exactly as HarfBuzz"
-  doAssert total == 4306
+  doAssert total == 4779
   doAssert bad == 0
 
 proc lsbShift(f: Face; g: int): float32 =
@@ -265,6 +284,32 @@ block noLayoutFont:
     plain += sans.advance(g.gid)
     if i > 0: plain += sans.kerning(gs[i - 1].gid, g.gid)
   doAssert pen == plain
+
+block oldArabicFont:
+  # an Arabic font of before Unicode: its letters found through the old encoding, joined and its
+  # marks placed as the same font with a Unicode map is (the same glyphs, in the same order)
+  let old = face("ArabicLegacy-Test.ttf")
+  let uni = face("ArabicNoLayout-Test.ttf")
+  doAssert old.glyphOf(0x0628) != 0 and old.glyphOf(0x0628) == uni.glyphOf(0xFE8F)   # beh, isolated
+  doAssert old.glyphOf(0xFE91) == uni.glyphOf(0xFE91)     # beh, initial
+  doAssert old.glyphOf(0x0627) == uni.glyphOf(0xFE8D)     # alef: the letter is its isolated form
+  for line in ["بِسْمِ الرَّحْمَنِ الرَّحِيمِ", "لا إله إلا", "مَدْرَسَةٌ كِتَابٌ",
+               "قُلْ هُوَ أَحَدٌ", "ـبـ ب‍ ‍ب ب‌ب ١٢٣"]:
+    var cps: seq[int]
+    for r in line.runes: cps.add int(r)
+    let a = old.shape(cps, true, "arab")
+    let b = uni.shape(cps, true, "arab")
+    doAssert serialize(a) == serialize(b), line
+    for g in a: doAssert g.gid != 0, line
+  # lam lam heh: the old font's own ligature (HarfBuzz names it by its code there, 0xF201)
+  let lillah = old.shape(@[0x0644, 0x0644, 0x0647], true, "arab")
+  doAssert lillah.len == 1 and lillah[0].gid == old.glyphOf(0xF201)
+  # joined: beh's three forms are three glyphs
+  let bbb = old.shape(@[0x0628, 0x0628, 0x0628], true, "arab")
+  doAssert bbb[0].gid != bbb[1].gid and bbb[1].gid != bbb[2].gid
+  # what a font folder learns of them without reading them
+  doAssert faceInfo(dir / "ArabicLegacy-Test.ttf")[0].symbol
+  doAssert not faceInfo(dir / "ArabicNoLayout-Test.ttf")[0].symbol
 
 block emptyAndOdd:
   let serif = face("serif")

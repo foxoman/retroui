@@ -20,7 +20,7 @@ when defined(windows) and defined(gcc):
 from retroui/system import sharedIn
 import retroui
 import retroui/lang_ar as kitArabic
-from std/unicode import Rune, toRunes, `==`, toUTF8
+from std/unicode import Rune, toRunes, `==`, toUTF8, runeLen, runeSubStr
 import retroui/rscript except parseJson, toJson
 import retroui/jobs
 import photo/lang_ar as photoLang
@@ -33,7 +33,7 @@ import retroui/[photo, photopaint, photofx, photoartistic, photohdr, otshape, tt
               liveeffects, photoseps, mathtype, flexlayout, vectormake, photorelight, mockups, designstyles,
               aiconnect, aichat, aiimage, aivector, assistant, modelstore, nnet, vision, photopublish, flows, dastkhat, fontfolders,
               imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files, photoanim, webp, screenexport, threed, dimensions, quran, fetch,
-              geopatterns]
+              geopatterns, proctexture]
 {.push warning[UnusedImport]: off.}
 import retroui/photodeep   # (imported for what it sets up: filters, flattening and gradients at 16 and 32 bits)
 {.pop.}
@@ -41,7 +41,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 const
   AppName = "Retro Atelier"         # (Retro Photo until 5.0)
   AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
-  AppVersion = "5.14.0"
+  AppVersion = "5.15.0"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -145,6 +145,7 @@ type
     sx, sy: int                    ## the mouse on the screen (the hand)
     smx, smy: float                ## where the smoothed stroke has got to
     board: int                     ## the Artboard tool: the artboard moved (-1: one drawn)
+    boardSize: bool                ## ... sized by its bottom right corner, not moved
     selMove: bool                  ## a selection tool dragged inside the selection: its outline moves
     sel0: seq[uint8]               ## ... the outline as it was
     selStepped: bool               ## ... moved (an undo step begun)
@@ -271,7 +272,9 @@ var
   spongeMode = 0                 ## desaturate, saturate
   stampMode = 0
   stampTool = 0                  ## the rubber stamp, the history brush
-  brushTool = 0                  ## the paintbrush, the mixer brush, the color replacement, the adjustment brush
+  brushTool = 0                  ## the paintbrush, the mixer brush, the color replacement, the adjustment brush, the mask brush, the tone brush
+  toneDarker = false             ## the Tone Brush darkens (Alt: lightens), not lightens (Alt: darkens)
+  maskBrushShow = false          ## the Mask Brush paints white (shows the layer; Alt: black hides it)
   adjBrushKind = 0               ## the Adjustment Brush's adjustment (`adjBrushPresets`)
   adjBrushAmount = 40            ## ... how much (-100..100)
   adjBrushSub = false            ## ... takes the adjustment away (Alt: the other way)
@@ -526,6 +529,7 @@ proc startArtboardOptions()
 proc startGradientFeather()
 proc startShapeBuilder()
 proc replaceSpine(orient: bool)
+proc expandBlend(d: Doc)
 proc startFreeform()
 proc freeformDialog()
 proc shapeBuilderDialog()
@@ -679,10 +683,16 @@ type AppPrefs = object
   session: bool                ## the documents open at the end opened again at the next start
   language: int                ## the interface: 0 English, 1 Arabic (right to left)
   legacyNew: bool              ## File > New: the 1994 dialog (not today's, with presets and templates)
-  lorem: string                ## Type > Paste Lorem Ipsum: your own placeholder text ("" the Latin)
+  lorem: string                ## Type > Fill with Placeholder Text, My Own: your own placeholder text
+  loremLang: int               ## ... which: English (Lorem Ipsum), Arabic, Arabic and English, My Own
+  loremParas: int              ## ... how many paragraphs
+  loremFill: bool              ## ... as many as fill the text box
   layerSizes: bool             ## the Layers panel shows how much memory each layer takes
   ownFiles: bool               ## a phone: Open and Save As with the app's own dialog (the user's folders,
                                ## with the access to all files) -- not the system's picker
+  autoPixelLayer: bool         ## a brush stroke on type, a shape, a group or an adjustment: a new pixel
+                               ## layer above it takes the paint (Affinity's way), not the question to
+                               ## rasterize it
   paintBehind: bool            ## a big brush's dabs painted a frame's worth at a time, the stroke shown
                                ## over the picture until then (`deferDabs`): the pen never waits
 
@@ -691,7 +701,8 @@ const DefaultPrefs = AppPrefs(interp: 2, zoomResizes: false, zoomCenter: false, 
                               lowerExt: true, psdComposite: true, memory: 70, threads: 0,
                               paintCursor: 2, crosshair: false, otherCursor: 1,
                               printRes: 300, screenRes: 72, smartQuotes: true, smartReflow: true, workingSpace: 1,
-                              embedProfile: true, toolCols: 2, taskBar: true, session: true, paintBehind: true)
+                              embedProfile: true, toolCols: 2, taskBar: true, session: true, paintBehind: true,
+                              autoPixelLayer: true, loremParas: 3)
 
 const PaintBudgetMs = 10.0
   ## (a frame's time for a stroke's dabs when they are painted behind it: `prefs.paintBehind`)
@@ -704,6 +715,7 @@ const
     ("Ctrl+N", "New..."), ("Ctrl+O", "Open..."), ("Ctrl+W", "Close"), ("Ctrl+Alt+W", "Close All"),
     ("Ctrl+S", "Save"), ("Ctrl+Shift+S", "Save As..."), ("Ctrl+Alt+S", "Save a Copy..."),
     ("Ctrl+Alt+Shift+W", "Export As..."), ("Ctrl+P", "Print..."), ("Ctrl+Q", "Exit"),
+    ("Ctrl+Shift+W", "Text Wrap Panel"),   # (InDesign's Ctrl+Alt+W is Close All here)
     ("Ctrl+K", "General..."), ("Ctrl+Alt+Shift+K", "Keyboard Shortcuts..."),
     # Edit
     ("Ctrl+Z", "Undo"), ("Ctrl+Shift+Z", "Redo"), ("Ctrl+X", "Cut"), ("Ctrl+C", "Copy"), ("Ctrl+Shift+C", "Copy Merged"),
@@ -1404,6 +1416,73 @@ proc adjBrushPress(dw: DocWin; ev: PhotoEvent) =
   status = "Adjustment Brush: " & adjBrushPresets[clamp(adjBrushKind, 0, adjBrushPresets.high)] &
            " painted (Alt: taken away); its layer's mask is what was painted"
 
+proc maskBrushPress(dw: DocWin; ev: PhotoEvent): bool =
+  ## The Mask Brush pressed: a stroke on the current layer's mask -- one made first (showing all)
+  ## if it has none, the Background made a layer for it --, black hiding the layer, white
+  ## showing it (Alt: the other). On an adjustment layer its own pixels are its mask. False
+  ## (nothing done) on a locked layer.
+  let d = dw.doc
+  if d.quickMask: return false
+  if d.current.locked:
+    status = "\"" & d.current.name & "\" is locked (Layer > Unlock Layer)."
+    return false
+  d.beginStep("Mask Brush")
+  if d.current.background:
+    d.touchLayers()
+    d.layerFromBackground()
+  let L = d.current
+  if L.adjust.kind.len == 0:
+    if L.mask == nil:
+      d.addLayerMask(mfRevealAll)
+      status = "A mask added to \"" & L.name & "\": the Mask Brush paints on it"
+    L.maskOff = false
+    d.editMask = true
+  else: d.editMask = false
+  var o = paintOpts(tBrush, d)
+  o.tool = tkBrush
+  o.mode = bmNormal
+  o.colorReplace = false
+  o.color = if maskBrushShow != ev.alt: grayPx(255) else: grayPx(0)
+  drag.stroke = d.beginStroke(o, tipFor(tBrush), ev.x, ev.y, ui.pressure)
+  drag.stroke.penPose(ui.tilt, ui.azimuth, ui.twist)
+  drag.stroke.startStroke()
+  dw.lastPaint = (ev.x, ev.y)
+  dw.hasLastPaint = true
+  drag.smx = ev.x
+  drag.smy = ev.y
+  true
+
+const ToneMeta = "{\"tone\":1}"     ## (a Tone Brush's layer)
+
+proc toneBrushPress(dw: DocWin; ev: PhotoEvent) =
+  ## The Tone Brush pressed (dodge and burn that can be taken back): a stroke on a Tone layer -- 50%
+  ## gray in Soft Light, so it changes nothing until painted; a new one over the current layer
+  ## unless the current layer is one -- white lightening, black darkening (Alt: the other).
+  let d = dw.doc
+  d.beginStep("Tone Brush")
+  if d.current.meta != ToneMeta or d.current.px.len != d.w * d.h:
+    d.touchLayers()
+    let L = d.addLayer("Tone")
+    for i in 0 ..< L.px.len: L.px[i] = 0xFF808080'u32
+    L.mode = bmSoftLight
+    L.meta = ToneMeta
+    inc L.ver
+    d.markAll()
+    status = "A Tone layer made (50% gray in Soft Light): paint lighter or darker on it"
+  d.editMask = false
+  var o = paintOpts(tBrush, d)
+  o.tool = tkBrush
+  o.mode = bmNormal
+  o.colorReplace = false
+  o.color = if toneDarker != ev.alt: 0xFF000000'u32 else: 0xFFFFFFFF'u32
+  drag.stroke = d.beginStroke(o, tipFor(tBrush), ev.x, ev.y, ui.pressure)
+  drag.stroke.penPose(ui.tilt, ui.azimuth, ui.twist)
+  drag.stroke.startStroke()
+  dw.lastPaint = (ev.x, ev.y)
+  dw.hasLastPaint = true
+  drag.smx = ev.x
+  drag.smy = ev.y
+
 proc adjBrushChanged() =
   ## (the amount or the adjustment changed: the Adjustment Brush's layer, if it
   ## is the current one, follows)
@@ -1555,7 +1634,8 @@ proc toolName(t: Tool): string =
   of tDodge: ["Dodge", "Burn", "Sponge"][dodgeMode]
   of tHeal: ["Spot Healing Brush", "Healing Brush", "Patch", "Remove Tool", "Content-Aware Move"][healMode]
   of tStamp: ["Rubber Stamp", "History Brush", "Art History Brush"][clamp(stampTool, 0, 2)]
-  of tBrush: ["Paintbrush", "Mixer Brush", "Color Replacement", "Adjustment Brush"][clamp(brushTool, 0, 3)]
+  of tBrush: ["Paintbrush", "Mixer Brush", "Color Replacement", "Adjustment Brush", "Mask Brush",
+                "Tone Brush"][clamp(brushTool, 0, 5)]
   of tWand: ["Magic Wand", "Quick Selection", "Object Selection", "Selection Brush"][clamp(wandMode, 0, 3)]
   of tEyedropper: ["Eyedropper", "Color Sampler", "Ruler", "Note", "Count"][clamp(dropKind, 0, 4)]
   of tEraser: ["Eraser", "Magic Eraser", "Background Eraser"][clamp(eraseKind, 0, 2)]
@@ -1579,7 +1659,7 @@ proc toolGlyph(t: Tool): string =
   of tHeal: [pxSpotHeal, pxHeal, pxPatch, pxRemoveTool, pxContentMove][healMode]
   of tStamp: [pxStamp, pxHistoryBrush, pxArtHistory][clamp(stampTool, 0, 2)]
   of tHand: (if handKind == 1: pxRotateView else: pxHandTool)
-  of tBrush: [pxBrush, pxMixerBrush, pxColorReplace, pxAdjustBrush][clamp(brushTool, 0, 3)]
+  of tBrush: [pxBrush, pxMixerBrush, pxColorReplace, pxAdjustBrush, pxLayerMask, pxDodge][clamp(brushTool, 0, 5)]
   of tWand: [pxMagicWand, pxQuickSelect, pxObjectSelect, pxSelectionBrush][clamp(wandMode, 0, 3)]
   of tEraser: [pxEraser, pxMagicWand, pxBgEraser][clamp(eraseKind, 0, 2)]
   of tCrop: [pxCrop, pxPerspCrop, pxMarqueeRect, pxSlice, pxSlice][clamp(cropKind, 0, 4)]
@@ -2824,7 +2904,7 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
       (tool in {tMarquee, tLasso, tWand} and insideSel and touchSelMode == 0 and
        ev.ctrl and not (ev.shift or ev.alt)) or (tool == tMove and d.hasSelection)) and
      not (tool in {tStamp, tHeal} and (ev.alt or stampPicking)) and
-     not (tool == tBrush and brushTool == 3) and not d.needPixels():
+     not (tool == tBrush and brushTool in {3, 4, 5}) and not d.needPixels(paint = tool in {tBrush, tPencil, tAirbrush}):
     drag.on = false
     return
   if tool in {tMarquee, tLasso, tWand} and insideSel and touchSelMode == 0 and
@@ -2897,11 +2977,21 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
         let b = d.layers[i].board
         if ev.x >= b.x.float and ev.x < (b.x + b.w).float and ev.y >= b.y.float - lh and ev.y < b.y.float:
           hitBoard = i
+    # (an artboard's bottom right corner: dragged, it changes the board's size)
+    let grip = float(dp(8)) / dw.view.scaleOf
+    drag.boardSize = false
+    for i in d.artboards:
+      let b = d.layers[i].board
+      if abs(ev.x - float(b.x + b.w)) <= grip and abs(ev.y - float(b.y + b.h)) <= grip:
+        hitBoard = i
+        drag.boardSize = true
     drag.board = hitBoard
     if hitBoard >= 0:
       d.cur = hitBoard
       inc d.ver
-      status = "Drag to move \"" & d.layers[hitBoard].name & "\" with all on it"
+      status = if drag.boardSize: "Drag to size \"" & d.layers[hitBoard].name &
+                                  "\" (what is on it follows by its Constraints, in Properties)"
+               else: "Drag to move \"" & d.layers[hitBoard].name & "\" with all on it"
     return
   case tool
   of tMove:
@@ -3330,6 +3420,12 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
     if tool == tBrush and brushTool == 3:
       dw.adjBrushPress(ev)
       return
+    if tool == tBrush and brushTool == 4:
+      if not dw.maskBrushPress(ev): drag.on = false
+      return
+    if tool == tBrush and brushTool == 5:
+      dw.toneBrushPress(ev)
+      return
     if tool == tEraser and eraseKind == 2 and d.current.background and not d.onMask:
       # (the Background Eraser rubs out to transparency: the Background becomes a layer)
       d.beginStep("Layer from Background")
@@ -3750,7 +3846,13 @@ proc releaseOn(ev: PhotoEvent) =
   if drag.tool == tMove and moveKind == 1:
     let dx = int(round(drag.x1 - drag.x0))
     let dy = int(round(drag.y1 - drag.y0))
-    if drag.board >= 0 and drag.board < d.layers.len:
+    if drag.board >= 0 and drag.board < d.layers.len and drag.boardSize:
+      let b = d.layers[drag.board].board
+      if abs(dx) + abs(dy) >= 1 and b.w + dx >= 8 and b.h + dy >= 8:
+        d.beginStep("Resize Artboard")
+        d.resizeArtboard(drag.board, rect(b.x, b.y, b.w + dx, b.h + dy))
+        d.endStep()
+    elif drag.board >= 0 and drag.board < d.layers.len:
       if abs(dx) + abs(dy) >= 1:
         d.beginStep("Move Artboard")
         d.moveArtboard(drag.board, dx, dy)
@@ -4202,12 +4304,18 @@ proc overlays(dw: DocWin; ev: PhotoEvent) =
       let L = d.layers[i]
       let b = L.board
       var (dx, dy) = (0.0, 0.0)
+      var (sx, sy) = (0.0, 0.0)
       if drag.on and drag.dw == dw and tool == tMove and moveKind == 1 and drag.board == i:
-        (dx, dy) = (drag.x1 - drag.x0, drag.y1 - drag.y0)
+        if drag.boardSize: (sx, sy) = (drag.x1 - drag.x0, drag.y1 - drag.y0)
+        else: (dx, dy) = (drag.x1 - drag.x0, drag.y1 - drag.y0)
       let (x0, y0) = v.toScreen(d, b.x.float + dx, b.y.float + dy)
-      let (x1, y1) = v.toScreen(d, (b.x + b.w).float + dx, (b.y + b.h).float + dy)
+      let (x1, y1) = v.toScreen(d, (b.x + b.w).float + dx + sx, (b.y + b.h).float + dy + sy)
       let sr = rect(int(x0), int(y0), max(1, int(x1 - x0)), max(1, int(y1 - y0)))
       box(sr, if i == d.cur: ui.theme.select else: ui.theme.shadow)
+      if tool == tMove and moveKind == 1:
+        # (its size grip, the bottom right corner)
+        let g = dp(4)
+        fill(rect(sr.x + sr.w - g, sr.y + sr.h - g, 2 * g, 2 * g), ui.theme.select)
       text(sr.x, sr.y - lineHeight(st) - dp(2), L.name, if i == d.cur: ui.theme.select else: ui.theme.text, st)
     if drag.on and drag.dw == dw and tool == tMove and moveKind == 1 and drag.board < 0:
       let (x0, y0) = v.toScreen(d, min(drag.x0, drag.x1), min(drag.y0, drag.y1))
@@ -4550,6 +4658,7 @@ proc assetsDialog()
 proc dailyDialogs()
 proc beforeAfter(dw: DocWin; ev: PhotoEvent): bool
 proc searchDialog()
+proc studioDialogs()
 proc taskBarPress(dw: DocWin)
 proc straightenByRuler()
 proc taskBarDraw(dw: DocWin)
@@ -4718,8 +4827,9 @@ proc springTool() =
   elif ctrl and not alt and prefs.keySet == 0 and
        base notin {tHand, tZoom, tMove, tType, tPen, tCrop, tEyedropper, tStamp, tHeal}:
     want = tMove
-  elif alt and not ctrl and base in {tBrush, tPencil, tAirbrush, tBucket, tGradient}:
-    want = tEyedropper
+  elif alt and not ctrl and base in {tBrush, tPencil, tAirbrush, tBucket, tGradient} and
+       not (base == tBrush and brushTool in {3, 4, 5}):
+    want = tEyedropper            # (the Adjustment and Mask Brushes: Alt the other way)
   if want != base:
     if not springing:
       springBase = tool
@@ -4750,6 +4860,14 @@ proc startQuickMaskOptions()
 var fgPicker, bgPicker: ColorPickerState
 
 include photo/units
+var studioDlg: tuple[naming, deleting, exporting, importing: bool; name, current, path: string; sel: int]
+  ## (Window > Workspace: a workspace of your own named, one taken away, one written to a file or
+  ## read from one; `current` the one set last)
+
+const BlendStepMeta = "{\"blendStep\":1}"
+  ## (a live blend's step, its `Layer.meta`: made again from the blend's ends, not by hand)
+
+include photo/toolhelp
 include photo/toolbar
 include photo/brushpanel
 include photo/palettes
@@ -4942,6 +5060,12 @@ proc docStatus(dw: DocWin) =
                    "Paint what to select; Alt takes away; [ ] the size, Shift+[ ] the hardness"
                  elif tool == tBrush and brushTool == 3:
                    "Paint the adjustment where it is wanted (a layer of its own, its mask what is painted); Alt takes it away"
+                 elif tool == tBrush and brushTool == 5:
+                   (if toneDarker: "Paint to darken (on a Tone layer of its own, the pixels not touched); Alt lightens"
+                    else: "Paint to lighten (on a Tone layer of its own, the pixels not touched); Alt darkens")
+                 elif tool == tBrush and brushTool == 4:
+                   (if maskBrushShow: "Paint where the layer shows (its mask; one made if it has none); Alt hides it"
+                    else: "Paint where the layer is hidden (its mask; one made if it has none); Alt shows it again")
                  elif tool == tPen and penMode == 8:
                    "Point at an edge: it lights up; click: a path along it; Shift+click: on along an edge to there"
                  elif tool == tMove and (d.current.isText or d.current.isShape) and
@@ -5438,6 +5562,7 @@ proc main() =
   reportedVersion = AppVersion           # (for a fault's report)
   startApp(AppName & " " & AppVersion, 1280, 800)
   autoFocus = false             # (the keys are the picture's until a palette's control is clicked)
+  commandHudKeys = ""           # (its own command search: Edit > Search, Ctrl+F -- panels and tools too)
   restoreAppearance(loadSettings(AppData))      # (the look chosen in Preferences)
   if headlessAsked:
     headlessRun(appArguments())
