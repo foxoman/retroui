@@ -19,11 +19,11 @@ import std/[os, math, strutils, tables, sets, json, sequtils, hashes, algorithm]
 from retroui/system import sharedIn
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import retroui
-import retroui/[board, freehand]
+import retroui/[board, freehand, aichat, aiconnect, aivector, modelstore, svgimport, frameprof]
 
 const
   AppName = "Retro Board"
-  BoardVersion = "1.6.0"
+  BoardVersion = "1.7.0"
   iconPng = staticRead("assets/board-icon.png")
 
 type
@@ -131,6 +131,10 @@ var
   # files, dialogs
   status = ""
   openDlg, saveDlg, pictureDlg, exportDlg, exportPick, renameDlg, keysDlg, aboutDlg, askNew, askQuit: bool
+  drawAsk = newVectorAsk()         ## Insert > Draw from Words: the kit's dialog (retroui/aivector)
+  boardAi: AiSettings              ## the AI service it asks (Options > AI Connector; none at first)
+  boardAiLoaded = false
+  aiDlg, modelsDlg = false         ## the AI Connector, the models on this device
   picked = ""
   renameText = ""
   exportFormat = 0                 ## PNG, SVG, PDF
@@ -921,6 +925,31 @@ proc save(): bool =
     saveDlg = true
     false
   else: saveTo(bd.path)
+
+proc ensureAi() =
+  ## (the AI service, read once from the app's settings: none until the user sets one)
+  if not boardAiLoaded:
+    boardAi = loadAiSettings(AppName)
+    boardAiLoaded = true
+
+proc insertDrawing(svg, error, words: string) =
+  ## (Draw from Words' answer: the SVG of shapes drawn into a picture, in the middle of the view --
+  ## or why there is none, in the status bar)
+  if svg.len == 0:
+    status = "Draw from Words: " & error
+    return
+  let pic = rasterizeSvg(svg, 1024, 1024)
+  if pic == nil or pic.w <= 0:
+    status = "Draw from Words: the answer had no drawing in it"
+    return
+  let side = 400.0
+  let c = viewCenterPg()
+  var s = bd.newShape(skImage, c.x - side / 2, c.y - side / 2, side, side)
+  s.image = bd.addAsset(encodePng(pic))
+  bd.change("Draw from Words"): sel = @[bd.addShape(s)]
+  setTool(tSelect)
+  sel = @[bd.page.shapes[^1].id]
+  status = "Draw from Words: " & words
 
 proc insertPicture(path: string) =
   let pic = loadPicture(path, 2048, 2048)
@@ -1925,11 +1954,15 @@ proc drawCanvas() =
                   view.h.float / zoom() + 100 / zoom())
   # (drawings made 8 ms a frame at most: the rest in brief, made next frame)
   bd.startDrawing(8)
-  for s in bd.page.shapes:
-    if s.kind == skGroup: continue
-    if not bd.boundsOf(s).overlaps(vis): continue
-    let fade = if s.id in erasing or (s.parent != 0 and s.parent in erasing): 0.3 else: 1.0
-    drawShape(s, fade)
+  var drawn = 0
+  profiled("board: shapes"):              # (the inspector's F12 shows it, with the count)
+    for s in bd.page.shapes:
+      if s.kind == skGroup: continue
+      if not bd.boundsOf(s).overlaps(vis): continue
+      let fade = if s.id in erasing or (s.parent != 0 and s.parent in erasing): 0.3 else: 1.0
+      drawShape(s, fade)
+      inc drawn
+  if profOn: profCount("board shapes drawn", drawn)
   if bd.behind: wakeIn(1)
   # (a shape with a link: a badge at its corner, a click opens it)
   for s in bd.page.shapes:
@@ -2929,6 +2962,12 @@ proc mainMenu() =
         saveDlg = true
       menuSeparator()
       if menuItem("Insert &Picture..."): pictureDlg = true
+      if menuItem("&Draw from Words..."):
+        ensureAi()
+        drawAsk.open = true
+      if menuItem("AI &Connector..."):
+        ensureAi()
+        aiDlg = true
       if menuItem("&Export...", "Ctrl+E"):
         exportWhat = if sel.len > 0: 1 else: 0
         exportDark = darkMode
@@ -3308,6 +3347,28 @@ proc dialogs() =
   if filePicker(pictureDlg, picked, fmOpen, ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.gif", "*.webp"],
                 "Insert Picture"):
     insertPicture(picked)
+  # Draw from Words: vector art from the AI service (or this device's model), as a picture
+  vectorDialog(drawAsk, boardAi, insertDrawing, title = "Draw from Words",
+               hint = "Vector art from your words, put on the board as a picture.")
+  if aiDlg:
+    var ok = false
+    dialog(aiDlg, "AI Connector", 500):
+      paragraph("An AI service of your own draws from your words (File > Draw from Words): this device's " &
+                "own model -- nothing leaves it -- one on your computer (Ollama, LM Studio) or one online. " &
+                "Off until you set one.", color = ui.theme.gray)
+      aiServiceForm(boardAi, modelsDlg)
+      row:
+        spring()
+        if button("OK", isDefault = true, w = dp(80)): ok = true
+        if button("Cancel", w = dp(80)):
+          aiDlg = false
+          boardAiLoaded = false
+    if ok:
+      aiDlg = false
+      status = if not saveAiSettings(AppName, boardAi): "AI Connector: not kept"
+               elif boardAi.connected: "AI Connector: " & boardAi.model
+               else: "AI Connector: off"
+  modelStoreDialog(modelsDlg, {muChat})
   if filePicker(exportPick, picked, fmSave, ["*" & exportExt()], "Export"): exportTo(picked)
   if beginDialog(exportDlg, "Export", dp(330)):
     label "Format:"
@@ -3397,7 +3458,9 @@ proc dialogs() =
             "on as many pages as you like.",
             "Made with Retro Nim UI " & RetroVersion & " (retroui/board, retroui/freehand)."],
            tagline = "Draw, sketch and think together", iconPng = iconPng,
-           whatsNew = ["1.6.0: Arrange > Tidy Up by Arrows -- the shapes arrows join laid out as a graph " &
+           whatsNew = ["1.7.0: File > Draw from Words -- vector art from your words by your AI service " &
+                       "or a model on this device (File > AI Connector), put on the board as a picture",
+                       "1.6.0: Arrange > Tidy Up by Arrows -- the shapes arrows join laid out as a graph " &
                        "that settles, gliding into place, one step to undo",
                        "1.5.1: text shared from another app comes as a note, a picture as a picture",
                        "1.5.0: zoomed in on thousands of notes it keeps moving -- the drawings " &

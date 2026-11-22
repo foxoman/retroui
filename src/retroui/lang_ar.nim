@@ -27,6 +27,22 @@
 ## ```
 
 const toolkitArabic* = [
+  # src/retroui/aivector.nim (Generate Vector)
+  ("Generate Vector", "إنشاء رسم متجهي"),
+  ("Content type:", "نوع المحتوى:"),
+  ("Subject", "الموضوع"),
+  ("Scene", "مشهد"),
+  ("Icon", "أيقونة"),
+  ("Pattern", "النقش"),
+  ("In the foreground and background colors", "بلوني المقدمة والخلفية"),
+  ("Describe it:", "صِفها:"),
+  ("Generate", "أنشئ"),
+  ("No AI service is set yet: set one in the AI Connector (or a model on this device) first.",
+   "لم تُضبط خدمة ذكاء اصطناعي بعد: اضبط واحدة في موصل الذكاء الاصطناعي (أو نموذجًا على هذا الجهاز) أولًا."),
+  ("Draw from Words", "ارسم من الكلمات"),
+  ("Vector art from your words, as shapes you can change.", "رسم متجهي من كلماتك، أشكالاً تعدّلها."),
+  ("This device's model draws it: simple shapes.", "يرسمه نموذج هذا الجهاز: أشكال بسيطة."),
+  ("Vector art from your words, put on the board as a picture.", "رسم متجهي من كلماتك، يوضع على اللوح صورةً."),
   # src/retroui/core.nim
   ("Classic", "كلاسيكي"),
   ("Gray", "رمادي"),

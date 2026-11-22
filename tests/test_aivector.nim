@@ -3,7 +3,12 @@
 ## elsewhere --, placed as shape layers; asked of the test's own service (tests/aimock.py).
 
 import std/[os, osproc, strutils, streams, exitprocs]
-import retroui, retroui/[aichat, aivector, photo, svgimport, jobs]
+import retroui, retroui/[aichat, aivector, photo, svgimport, jobs, inspect]
+import retroui/uirelays/access
+import harness
+
+fakeDriver()
+startApp("Vector", W, H)
 
 # ---- what the service is told ----
 let sys = vectorSystem(vkIcon, [0xFF1E3A2A'u32, 0xFF9AB43A'u32])
@@ -70,4 +75,29 @@ let j2 = askVector(s, "a palm, please", vkScene)
 waitFor(j2)
 let (none, why) = vectorAnswer(s, j2)
 doAssert none == "" and "no drawing" in why, why
+# ---- the dialog: the words asked, the answer handed back between frames ----
+block theDialog:
+  let ask = newVectorAsk(vkIcon)
+  ask.words = "<svg viewBox=\"0 0 8 8\"><circle cx=\"4\" cy=\"4\" r=\"3\" fill=\"#00aa00\"/></svg>"
+  ask.open = true
+  var got, why, said: string
+  var answered = false
+  view = proc () =
+    vectorDialog(ask, s, proc (svg, error, words: string) =
+      got = svg
+      why = error
+      said = words
+      answered = true, colors = [0xFF000000'u32, 0xFFFFFFFF'u32])
+  accessKeep = true                     # (the frame's controls kept, to find by name)
+  run(3)
+  let gen = findNode(accessTree, "Generate", {arButton})
+  doAssert gen >= 0, "its Generate button"
+  click(nodeRect(accessTree[gen]))
+  for i in 0 ..< 300:
+    run(1)
+    if answered: break
+    sleep(20)
+  doAssert answered and not ask.open and not ask.busy
+  doAssert "<circle" in got and why == "" and said == ask.words.strip, got & why
+
 echo "aivector ok"

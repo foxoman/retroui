@@ -22,8 +22,10 @@ var
   imgAi: tuple[loaded, keyed: bool; s: AiImageSettings]   ## (the image service: photo/assist)
   genDlg: tuple[open: bool; kind: int; prompt: string; w, h: int]
     ## Generative Fill (0), Generative Expand (1), Generate Image (2): photo/assist
-  vecDlg: tuple[open: bool; prompt: string; kind: int; inColors: bool]
+  vecAsk = newVectorAsk()
     ## (Edit > Generate Vector: photo/assist)
+  vecFor: tuple[d: Doc; at: Rect]
+    ## (the image its art is for and where it goes: the selection as it opened, else the middle)
   assist: AiChat                  ## (the Assistant panel's conversation: photo/assist)
   modelsOpen = false              ## (Edit > Models on This Device: the store's window)
   fitRun: tuple[job: Job[HttpResponse]; layer: Layer; d: Doc; tries, want: int]
@@ -1049,7 +1051,9 @@ proc makersCommand(name: string): bool =
   of "Generate Image...":
     if d != nil: genDlg = (true, 2, genDlg.prompt, 0, 0)
   of "Generate Vector...":
-    if d != nil: vecDlg.open = true
+    if d != nil:
+      vecAsk.open = true
+      vecFor.d = nil                    # (where it goes: worked out as it opens)
   else: result = false
 
 proc makersDialogs() =

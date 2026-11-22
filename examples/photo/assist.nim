@@ -532,68 +532,40 @@ proc startShorten(L: Layer; tries = 0) =
 
 # ---- Edit > Generate Vector: vector art from words, by the AI service or this device's model ------------------
 
-var vecRun: tuple[job: Job[HttpResponse]; d: Doc; prompt: string; at: Rect]
-  ## (the request out: the image it is for, where it goes)
-
-proc vecDone() =
+proc vecPlace(svg, error, words: string) =
   ## (the answer: its drawing as shapes, in a group named after the words -- one step to undo)
-  let run = vecRun
-  vecRun.job = nil
-  let (svg, err) = vectorAnswer(aiDlg.s, run.job)
-  let d = run.d
-  if err.len > 0:
-    status = tr("Generate Vector: ") & err
+  if svg.len == 0:
+    status = tr("Generate Vector: ") & error
     return
+  let d = vecFor.d
   if d == nil or not docs.anyIt(it.doc == d):
     status = tr("Generate Vector: the image was closed meanwhile")
     return
-  let made = d.placeSvg(svg, run.at)
+  let made = d.placeSvg(svg, vecFor.at)
   if made.len == 0:
     status = tr("Generate Vector: the answer had no drawing in it")
     return
-  let name = if run.prompt.len > 40: run.prompt[0 ..< 40] & "..." else: run.prompt
-  made[0].name = name
+  made[0].name = if words.len > 40: words[0 ..< 40] & "..." else: words
   d.markAll()
   status = tr("Generate Vector: made as shapes -- ") & $made.len & tr(" layers, to change as any")
 
 proc vecDialog() =
-  ## Edit > Generate Vector: words to vector art -- a subject, a scene, an icon, a pattern -- drawn by
-  ## the AI service (or this device's model: Edit > Models) as shapes to edit, in the selection, else
-  ## over the middle of the image
-  if not vecDlg.open: return
-  loadAi()
-  var go = false
-  dialog(vecDlg.open, "Generate Vector", 460):
-    if not aiDlg.s.connected:
-      paragraph("No AI service is set: Edit > AI Connector (or a model on this device: Edit > Models).",
-                color = ui.theme.gray)
-    paragraph("Vector art from your words, as shapes you can change -- in the selection, else in the middle " &
-              "of the image." & (if aiDlg.s.kind == akDevice: " This device's model draws it: simple shapes." else: ""))
-    row([110, -1]):
-      label "Content type:"
-      var names: seq[string]
-      for k in VectorKind: names.add tr($k)
-      combo(names, vecDlg.kind, w = dp(140))
-    checkbox("In the foreground and background colors", vecDlg.inColors)
-    label("Describe it:")
-    editArea(vecDlg.prompt, lines = 3)
-    row:
-      spring()
-      if button("&Generate", isDefault = true, w = dp(96),
-                enabled = aiDlg.s.connected and vecDlg.prompt.strip.len > 0 and
-                          (vecRun.job == nil or not vecRun.job.running)): go = true
-      if button("Cancel", w = dp(80)): vecDlg.open = false
-  if go:
-    vecDlg.open = false
+  ## Edit > Generate Vector: the kit's dialog (retroui/aivector) -- words to vector art (a subject, a
+  ## scene, an icon, a pattern) by the AI service or this device's model (Edit > Models), placed as
+  ## shapes to edit
+  if vecAsk.open and vecFor.d != cur():
     let d = cur()
-    if d == nil: return
+    if d == nil:
+      vecAsk.open = false
+      return
     var at = if d.hasSelection: d.selBounds else: rect(0, 0, 0, 0)
     if at.w < 8 or at.h < 8:
       let side = max(64, min(d.w, d.h) * 3 div 4)
       at = rect((d.w - side) div 2, (d.h - side) div 2, side, side)
-    let colors = if vecDlg.inColors: @[fg, bg] else: @[]
-    let p = vecDlg.prompt.strip
-    vecRun = (askVector(aiDlg.s, p, VectorKind(clamp(vecDlg.kind, 0, ord(high(VectorKind)))), colors,
-                        onDone = vecDone), d, p, at)
+    vecFor = (d, at)
+  if vecAsk.open: loadAi()
+  let busy = vecAsk.busy
+  vectorDialog(vecAsk, aiDlg.s, vecPlace, colors = [fg, bg])
+  if vecAsk.busy and not busy:
     status = tr("Generate Vector: asking ") & (if aiDlg.s.kind == akDevice: tr("this device's model...")
                                                else: tr("the AI service..."))

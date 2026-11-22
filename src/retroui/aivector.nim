@@ -10,6 +10,16 @@
 ##   let (svg, err) = vectorAnswer(settings, j)
 ##   if svg.len > 0: discard doc.placeSvg(svg, rect(100, 100, 600, 600))
 ##
+## Or the whole dialog, as Retro Atelier's Edit > Generate Vector and Retro Board's Draw from
+## Words have it -- the words, the kind, the colors; the request on a worker; the SVG handed back:
+##
+## .. code-block:: nim
+##   var ask = newVectorAsk()
+##   ...
+##   if button("Draw from words..."): ask.open = true
+##   vectorDialog(ask, settings, proc (svg, error, words: string) =
+##     if svg.len > 0: discard doc.placeSvg(svg, box) else: toast(error))
+##
 ## What comes back is kept to shapes: an answer's words round the SVG are left out, and what an
 ## SVG could do besides drawing -- scripts, pictures and pages fetched, links, events, styles from
 ## elsewhere -- is taken out before it is read (`safeSvg`). Nothing is sent before the user has
@@ -18,7 +28,7 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[strutils, xmlparser, xmltree, strtabs]
-import aichat, jobs
+import core, widgets, aichat, jobs
 
 type
   VectorKind* = enum
@@ -131,3 +141,58 @@ proc vectorAnswer*(s: AiSettings; j: Job[HttpResponse]): tuple[svg, error: strin
   let svg = svgOfAnswer(text)
   if svg.len == 0: return ("", "the answer had no drawing in it")
   (svg, "")
+
+type
+  VectorAsk* = ref object
+    ## Generate Vector's dialog, kept by the app (`newVectorAsk`) and shown with `vectorDialog`:
+    ## open it with `open = true`.
+    open*: bool
+    words*: string             ## what to draw
+    kind*: VectorKind
+    inColors*: bool            ## in the app's colors (`vectorDialog`'s `colors`)
+    busy*: bool                ## a request out
+    job: Job[HttpResponse]
+
+proc newVectorAsk*(kind = vkSubject): VectorAsk =
+  ## Generate Vector's dialog, closed.
+  VectorAsk(kind: kind)
+
+proc vectorDialog*(v: VectorAsk; s: AiSettings; onDone: proc (svg, error, words: string) {.closure.};
+                   colors: openArray[uint32] = []; title = "Generate Vector";
+                   hint = "Vector art from your words, as shapes you can change.") =
+  ## The dialog (when `v.open`): `hint` (what the art becomes in the app), the words, the content
+  ## type, "In these colors" (when `colors` are given: the app's foreground and background),
+  ## Generate. The answer comes to `onDone` between frames: the SVG kept to shapes, or why there
+  ## is none. With no service set (`s.connected` false) it says where to set one; the device's
+  ## model (`akDevice`) works offline.
+  if v == nil or not v.open: return
+  var go = false
+  dialog(v.open, title, 460):
+    if not s.connected:
+      paragraph("No AI service is set yet: set one in the AI Connector (or a model on this device) first.",
+                color = ui.theme.gray)
+    paragraph(tr(hint) & (if s.kind == akDevice: " " & tr("This device's model draws it: simple shapes.") else: ""))
+    row([110, -1]):
+      label "Content type:"
+      var names: seq[string]
+      for k in VectorKind: names.add $k
+      var k = ord(v.kind)
+      if combo(names, k, w = dp(140)): v.kind = VectorKind(clamp(k, 0, ord(high(VectorKind))))
+    if colors.len > 0: checkbox("In the foreground and background colors", v.inColors)
+    label("Describe it:")
+    editArea(v.words, lines = 3)
+    row:
+      spring()
+      if button("&Generate", isDefault = true, w = dp(96),
+                enabled = s.connected and v.words.strip.len > 0 and not v.busy): go = true
+      if button("Cancel", w = dp(80)): v.open = false
+  if go:
+    v.open = false
+    v.busy = true
+    let words = v.words.strip
+    let cs = if v.inColors: @colors else: @[]
+    let vv = v
+    v.job = askVector(s, words, v.kind, cs, onDone = proc () =
+      vv.busy = false
+      let (svg, err) = vectorAnswer(s, vv.job)
+      onDone(svg, err, words))
