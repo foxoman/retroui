@@ -703,6 +703,10 @@ app "Notes", 420, 300:
   offers the tools to agents outside the app, which `retrokit mcp PORT`
   serves over MCP -- any app worked by an AI agent. `retroui/aiimage`:
   pictures from words, and a picture changed where a mask says.
+  `retroui/aivector`: vector art from words -- a subject, a scene, an icon,
+  a pattern -- as an SVG of plain shapes kept to what draws (`safeSvg`:
+  no scripts, pictures, links or styles), placed as shapes to edit
+  (`placeSvg`); by the user's service, or offline by the device's model.
 - **An AI of the device's own** (`retroui/llm`, `retroui/modelstore`,
   `retroui/devicemodel`, `retroui/meaning`): language models run in Nim
   in the app itself -- BitNet b1.58's ternary ones, Llama's, Qwen's,
@@ -3359,6 +3363,24 @@ card: a stripped program of 3.0 MB, its first frame 57 ms after it started,
 11 MB of memory and 0.01 % of a core at rest, and under 2.5 ms of the
 processor a frame for each scene.
 
+**Where a frame's time goes.** `retroui/frameprof` is a frame profiler:
+`RETRO_TRACE=trace.json` (or `startTrace`) and every frame is written as a
+Chrome trace -- open it in chrome://tracing, ui.perfetto.dev or Speedscope
+-- with the kit's own spans in it (the app's code, finishing the frame,
+putting it on the screen; the CPU's drawing and sending, the GPU's drawing
+and swap) and counters under them (the GPU's draw calls, vertices, bytes,
+pictures and atlas uploads; the pixels the CPU drew). An app adds its own:
+
+```nim
+import retroui/frameprof
+profiled("read the log"):                  # a span of its own in the frame
+  rows = readFile("app.log").splitLines()
+profCount("rows", rows.len)                # a counter beside the kit's
+let s = summary(lastFrames())              # the last 120 frames: each span's average and longest
+```
+
+Off, a span costs a test of one bool.
+
 ## Safety
 
 - **Every decoder and parser checks what it reads:** PNG, BMP, JPEG and
@@ -3567,9 +3589,11 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_datamerge` | Data Merge: the fields a design asks for, a row's values in its text, a picture in each frame named for it, the design left as it was; a PNG or JPEG a row, named by a column (made safe, made unique) or numbered |
 | `test_textsearch` | Find/Change: GREP patterns (digits Arabic-Indic too, classes, groups, either-or, counts, the fewest, line and word edges) in characters, changes with their groups keeping the styles, plain words in any case or whole, the story editor's edit keeping the styles, a pattern that cannot be read refused; a glyph in a font found and changed to another in a font of its own; the queries it comes with at work, saved queries kept as JSON |
 | `test_headless` | a program without a window: frames drawn in memory, a click given as a person would, the picture of what it drew; a label that ends in ':' wrapping with its field |
+| `test_frameprof` | the frame profiler: off, nothing kept; on, each frame's spans (the app's code, finishing, on the screen, the CPU's drawing, an app's own inside its code) and counters, the last 120 frames kept and summed up, the Chrome trace a JSON array of spans and counters |
 | `test_script` | an app run by `RETRO_SCRIPT`: clicks, typing, a key, a wait for a control done in order, `RETRO_SNAPSHOT`'s picture written and the app ended; a step that fails names itself and ends it with 1; a script that is not one, 2 |
 | `test_flows` | on a clock of its own: a flow goes on at the end of a frame; a question answered (Esc: the last button); a wait until something is so, a pause, work on a worker and its value; a file picker cancelled; a closed window's flow dropped; one that fails ended, the others going on |
 | `test_fontfolders` | a folder's fonts offered and its families named, taken away with it, a font put in while the app runs found, fonts chosen kept in "Your Fonts", a font read through `fontReader` the first time it draws |
+| `test_aivector` | vector art from words: what the service is told (the kind, the colors), the SVG found in an answer's words and kept to shapes (no script, picture, link, event, style or paint from elsewhere), placed as shape layers, asked of the test's own service |
 | `test_aichat` | a conversation against a service of the test's own: OpenAI's and Anthropic's requests and answers (tools, calls, results, a picture), a tool called, one that asks first allowed or denied, two calls in one answer, a tool done frames later, the rounds limited; the assistant's panel and its Allow; a picture made and one changed through a mask, at the sizes asked |
 | `test_mcp` | the driver's picture of the window and the app's own tools, a command run from inside the app, the assistant's tools that work the controls, the MCP server: initialize, the tools listed, a control clicked, read, pictured, the app's tool run |
 | `test_mailassist` | Retro Mail's Assistant tools on a store of the test's own: the Inbox, its unread, a search, a message read without what it quotes, a reply and a new message opened (not sent), a message marked; the service from the kit's settings or an older key |

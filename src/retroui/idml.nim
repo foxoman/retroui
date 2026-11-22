@@ -1282,15 +1282,19 @@ proc readIdml*(file: string; dpi = 150.0): Book =
       result.opticalMargin = sp.attr("OpticalMarginAlignment") == "true"
     proc paraOf(psr: XmlNode): ParaStyle =
       ## (a ParagraphStyleRange's format)
+      # (the layout program's sides are the page's; ours, a right-to-left paragraph's, where its
+      # lines start: its Right Align is our start -- as `alignOf` writes it)
+      let rtl = psr.attr("ParagraphDirection") == "RightToLeftDirection"
+      if rtl: result.rtl = 2
       case psr.attr("Justification")
+      of "LeftAlign": result.align = (if rtl: textRight else: textLeft)
       of "CenterAlign": result.align = textCenter
-      of "RightAlign": result.align = textRight
-      of "LeftJustified": result.align = justifyLeft
-      of "RightJustified": result.align = justifyRight
+      of "RightAlign": result.align = (if rtl: textLeft else: textRight)
+      of "LeftJustified": result.align = (if rtl: justifyRight else: justifyLeft)
+      of "RightJustified": result.align = (if rtl: justifyLeft else: justifyRight)
       of "CenterJustified": result.align = justifyCenter
       of "FullyJustified": result.align = justifyAll
       else: discard
-      if psr.attr("ParagraphDirection") == "RightToLeftDirection": result.rtl = 2
       if psr.attr("Hyphenation") == "true": result.hyphenate = true
       proc num(a: string; lo, hi: float): float =
         try: clamp(parseFloat(psr.attr(a)), lo, hi) except ValueError: 0.0

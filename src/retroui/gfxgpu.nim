@@ -29,10 +29,14 @@ type
   AtlasEntry = tuple[x, y, w, h: int32]
 
   Atlas = object
+    ## Small pictures (glyphs' masks, icons) in one texture, packed by a skyline: the top of
+    ## what is taken, in segments across; a picture goes where it is lowest. Full, the texture
+    ## is made twice as big (to `most`), then emptied.
     tex: GLuint
-    size: int
+    size: int                  ## its side now
+    most: int                  ## ... at most
     fmt: GLenum
-    curX, curY, shelfH: int
+    sky: seq[tuple[x, y, w: int]]   ## the skyline, left to right, all of the width
     map: Table[uint64, AtlasEntry]
 
   TexTile = tuple[tex: GLuint; x, y, w, h: int; filter: GLint]
@@ -57,9 +61,12 @@ const
   ModeChecker = 4'u8
   ModeAnts = 5'u8
   ModeChecker2 = 6'u8
-  AtlasMaskSize = 2048
-  AtlasColorSize = 1024
+  AtlasMaskSize = 1024         ## the atlases' sides to start with ...
+  AtlasColorSize = 512
+  AtlasMaskMost = 4096         ## ... and at most (as the GPU allows)
+  AtlasColorMost = 2048
   MaxParts = 8                 ## rectangles a frame's change is drawn in
+  QuadsPerDraw = 16384         ## rectangles a draw call takes at most (16-bit indices: 65,536 corners)
 
 var
   gpuThreadId = -1             # (the thread the GPU draws on: its filters there only)
@@ -82,6 +89,8 @@ var
     ## frames are drawn on the CPU (set by the app's start).
   gpuFramesOk: int
   prog, vbo: GLuint
+  ibo: GLuint                  ## the rectangles' corners as two triangles each (made once)
+  flat6: seq[Vtx]              ## (no drawElements: each rectangle's two triangles written out)
   uScaleLoc: GLint
   maskAtlas, colorAtlas: Atlas
   texCache: Table[pointer, TexEntry]
@@ -237,13 +246,12 @@ proc newTexture(w, h: int; fmt: GLenum; filter = GL_NEAREST; data: pointer = nil
   gl.texParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
   gl.texImage2D(GL_TEXTURE_2D, 0, GLint(fmt), GLsizei(w), GLsizei(h), 0, fmt, GL_UNSIGNED_BYTE, data)
 
-proc initAtlas(a: var Atlas; size: int; fmt: GLenum) =
-  a.size = size
+proc initAtlas(a: var Atlas; size, most: int; fmt: GLenum) =
+  a.size = min(size, maxTex)
+  a.most = max(a.size, min(most, maxTex))
   a.fmt = fmt
-  a.tex = newTexture(size, size, fmt)
-  a.curX = 0
-  a.curY = 0
-  a.shelfH = 0
+  a.tex = newTexture(a.size, a.size, fmt)
+  a.sky = @[(0, 0, a.size)]
   a.map.clear()
 
 proc dropGpuState() =
@@ -251,6 +259,7 @@ proc dropGpuState() =
   inc gpuEpochN
   prog = 0
   vbo = 0
+  ibo = 0
   maskAtlas = Atlas()
   colorAtlas = Atlas()
   texCache.clear()
@@ -279,6 +288,7 @@ proc freeGpuState() =
   for a in [addr maskAtlas, addr colorAtlas]:
     if a.tex != 0: gl.deleteTextures(1, addr a.tex)
   if vbo != 0: gl.deleteBuffers(1, addr vbo)
+  if ibo != 0: gl.deleteBuffers(1, addr ibo)
   if prog != 0: gl.deleteProgram(prog)
   if keptFbo != 0 and gl.deleteFramebuffers != nil: gl.deleteFramebuffers(1, addr keptFbo)
   if keptTex != 0: gl.deleteTextures(1, addr keptTex)
@@ -288,20 +298,63 @@ proc freeGpuState() =
 
 # ---- drawing ------------------------------------------------------------------------------------
 
+proc quadIndices(): bool =
+  ## (the rectangles' indices bound -- each rectangle's four corners as two triangles, 0 1 2 and
+  ## 0 2 3 --, made the first time; false: the GPU has no drawElements, the triangles are written
+  ## out)
+  if gl.drawElements == nil: return false
+  if ibo == 0:
+    gl.genBuffers(1, addr ibo)
+    if ibo == 0: return false
+    var idx = newSeq[uint16](QuadsPerDraw * 6)
+    for q in 0 ..< QuadsPerDraw:
+      let b = uint16(q * 4)
+      idx[q * 6] = b
+      idx[q * 6 + 1] = b + 1
+      idx[q * 6 + 2] = b + 2
+      idx[q * 6 + 3] = b
+      idx[q * 6 + 4] = b + 2
+      idx[q * 6 + 5] = b + 3
+    gl.bindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo)
+    gl.bufferData(GL_ELEMENT_ARRAY_BUFFER, idx.len * sizeof(uint16), addr idx[0], GL_STATIC_DRAW)
+  else:
+    gl.bindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo)   # (other code may have bound its own)
+  true
+
 proc flushDraw() =
-  ## The rectangles so far drawn.
+  ## The rectangles so far drawn: their corners sent once each (four a rectangle, the indices
+  ## kept on the GPU), drawn in as few calls as their textures and blending allow.
   if verts.len == 0:
     batches.setLen(0)
     return
+  let indexed = quadIndices()
   gl.bindBuffer(GL_ARRAY_BUFFER, vbo)
-  gl.bufferData(GL_ARRAY_BUFFER, verts.len * sizeof(Vtx), addr verts[0], GL_STREAM_DRAW)
+  if indexed:
+    gl.bufferData(GL_ARRAY_BUFFER, verts.len * sizeof(Vtx), addr verts[0], GL_STREAM_DRAW)
+  else:
+    flat6.setLen(verts.len div 4 * 6)
+    for q in 0 ..< verts.len div 4:
+      flat6[q * 6] = verts[q * 4]
+      flat6[q * 6 + 1] = verts[q * 4 + 1]
+      flat6[q * 6 + 2] = verts[q * 4 + 2]
+      flat6[q * 6 + 3] = verts[q * 4]
+      flat6[q * 6 + 4] = verts[q * 4 + 2]
+      flat6[q * 6 + 5] = verts[q * 4 + 3]
+    gl.bufferData(GL_ARRAY_BUFFER, flat6.len * sizeof(Vtx), addr flat6[0], GL_STREAM_DRAW)
   let st = GLsizei(sizeof(Vtx))
-  gl.vertexAttribPointer(0, 2, GL_FLOAT, 0, st, cast[pointer](0))
-  gl.vertexAttribPointer(1, 2, GL_FLOAT, 0, st, cast[pointer](8))
-  gl.vertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, 1, st, cast[pointer](16))
-  gl.vertexAttribPointer(3, 4, GL_UNSIGNED_BYTE, 0, st, cast[pointer](20))
+  var window = -1                       # (the 16,384 rectangles the attributes point at)
+  template pointAt(w: int) =
+    if w != window:
+      window = w
+      let off = w * QuadsPerDraw * 4 * sizeof(Vtx)
+      gl.vertexAttribPointer(0, 2, GL_FLOAT, 0, st, cast[pointer](off))
+      gl.vertexAttribPointer(1, 2, GL_FLOAT, 0, st, cast[pointer](off + 8))
+      gl.vertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, 1, st, cast[pointer](off + 16))
+      gl.vertexAttribPointer(3, 4, GL_UNSIGNED_BYTE, 0, st, cast[pointer](off + 20))
+  pointAt(0)
   for i in 0'u32 .. 3'u32: gl.enableVertexAttribArray(i)
   gl.activeTexture(GL_TEXTURE0 + 2)
+  var calls = 0
   var blendNow = 0'u32
   var texNow = GLuint(0)
   var filterNow = GLint(-1)
@@ -324,8 +377,26 @@ proc flushDraw() =
       gl.texParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, b.filter)
       texNow = b.tex
       filterNow = b.filter
-    gl.drawArrays(GL_TRIANGLES, GLint(b.first), GLsizei(b.count))
+    if indexed:
+      var q = b.first div 4
+      let qEnd = (b.first + b.count) div 4
+      while q < qEnd:
+        let w = q div QuadsPerDraw
+        pointAt(w)
+        let n = min(qEnd, (w + 1) * QuadsPerDraw) - q
+        gl.drawElements(GL_TRIANGLES, GLsizei(n * 6), GL_UNSIGNED_SHORT,
+                        cast[pointer]((q - w * QuadsPerDraw) * 6 * sizeof(uint16)))
+        inc calls
+        q += n
+    else:
+      gl.drawArrays(GL_TRIANGLES, GLint(b.first div 4 * 6), GLsizei(b.count div 4 * 6))
+      inc calls
   if blendNow != 0: gl.blendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+  if profOn:
+    profCount("GPU vertices", if indexed: verts.len else: flat6.len)
+    profCount("GPU bytes sent", (if indexed: verts.len else: flat6.len) * sizeof(Vtx))
+    profCount("GPU draw calls", calls)
+    profCount("GPU flushes", 1)
   if not intoKept and not directPart:
     # (drawn onto the screen: `overlayNow` draws this again under what it shows)
     for b in batches: lastBatches.add (b.first + lastVerts.len, b.count, b.tex, b.filter, b.lcd)
@@ -367,38 +438,86 @@ proc quad(x0, y0, x1, y1, u0, v0, u1, v1: float32; col: uint32; alpha: uint8; mo
   let md = [mode, p1, 0'u8, 0'u8]
   template v(px, py, pu, pv: float32) =
     verts.add Vtx(x: px, y: py, u: pu, v: pv, col: c, mode: md)
-  v(cx0, cy0, nu0, nv0); v(cx1, cy0, nu1, nv0); v(cx1, cy1, nu1, nv1)
-  v(cx0, cy0, nu0, nv0); v(cx1, cy1, nu1, nv1); v(cx0, cy1, nu0, nv1)
-  batches[^1].count += 6
+  # (its four corners: the triangles are 0 1 2 and 0 2 3 -- `flushDraw`)
+  v(cx0, cy0, nu0, nv0); v(cx1, cy0, nu1, nv0); v(cx1, cy1, nu1, nv1); v(cx0, cy1, nu0, nv1)
+  batches[^1].count += 4
 
-proc resetAtlas(a: var Atlas) =
-  flushDraw()                     # (what was drawn from it first)
-  a.curX = 0
-  a.curY = 0
-  a.shelfH = 0
+proc resetAtlas(a: var Atlas; grow = false) =
+  ## (the atlas emptied -- `grow`: made twice as big, up to its most -- what was drawn from it
+  ## drawn first)
+  flushDraw()
+  if grow and a.size < a.most:
+    if a.tex != 0: gl.deleteTextures(1, addr a.tex)
+    a.size = min(a.size * 2, a.most)
+    gl.activeTexture(GL_TEXTURE0 + (if a.fmt == GL_ALPHA: 0'u32 else: 1'u32))
+    a.tex = newTexture(a.size, a.size, a.fmt)       # (bound on its unit)
+    if profOn: profCount("GPU atlas grown", 1)
+  elif profOn: profCount("GPU atlas wiped", 1)
+  a.sky = @[(0, 0, a.size)]
   a.map.clear()
+
+proc skyFit(a: Atlas; w, h: int): tuple[x, y, i: int] =
+  ## (where a `w` x `h` picture goes: the lowest place along the skyline, then the leftmost; `x`
+  ## < 0: nowhere)
+  result = (-1, -1, -1)
+  var bestY = high(int)
+  for i in 0 ..< a.sky.len:
+    let x = a.sky[i].x
+    if x + w > a.size: break
+    var y = 0
+    var j = i
+    var left = w
+    while left > 0 and j < a.sky.len:
+      y = max(y, a.sky[j].y)
+      left -= a.sky[j].w
+      inc j
+    if y + h <= a.size and y < bestY:
+      bestY = y
+      result = (x, y, i)
+
+proc skyAdd(a: var Atlas; i, x, y, w, h: int) =
+  ## (the skyline with a `w` x `h` picture at `x`, `y`, segment `i`: a segment as high as its
+  ## top in place of those it covers; neighbours as high made one)
+  a.sky.insert((x, y + h, w), i)
+  let right = x + w
+  var k = i + 1
+  while k < a.sky.len and a.sky[k].x < right:
+    let segEnd = a.sky[k].x + a.sky[k].w
+    if segEnd <= right: a.sky.delete(k)
+    else:
+      a.sky[k] = (right, a.sky[k].y, segEnd - right)
+      break
+  var m = 0
+  while m + 1 < a.sky.len:
+    if a.sky[m].y == a.sky[m + 1].y:
+      a.sky[m].w += a.sky[m + 1].w
+      a.sky.delete(m + 1)
+    else: inc m
 
 proc atlasPut(a: var Atlas; key: uint64; w, h: int; data: pointer): AtlasEntry =
   ## Room in the atlas for a `w` x `h` picture (sent to the GPU); the room
   ## it already has when `key` is there. `w` < 0 when it is too big.
   a.map.withValue(key, e):
     return e[]
-  if w <= 0 or h <= 0 or w > a.size or h > a.size: return (0'i32, 0'i32, -1'i32, -1'i32)   # (`w` < 0: too big)
-  if a.curX + w > a.size:
-    a.curY += a.shelfH
-    a.curX = 0
-    a.shelfH = 0
-  if a.curY + h > a.size:
-    resetAtlas(a)
+  if w <= 0 or h <= 0 or w > a.most or h > a.most: return (0'i32, 0'i32, -1'i32, -1'i32)   # (`w` < 0: too big)
+  while (w > a.size or h > a.size) and a.size < a.most: resetAtlas(a, grow = true)
+  # (a pixel between pictures: none bleeds into the next when drawn scaled)
+  var at = a.skyFit(min(w + 1, a.size), min(h + 1, a.size))
+  if at.x < 0:
+    resetAtlas(a, grow = true)          # (full: twice as big -- at its most, emptied)
+    at = a.skyFit(min(w + 1, a.size), min(h + 1, a.size))
+    if at.x < 0: return (0'i32, 0'i32, -1'i32, -1'i32)
+  if profOn:
+    profCount("GPU atlas uploads", 1)
+    profCount("GPU atlas pixels sent", w * h)
   gl.activeTexture(GL_TEXTURE0 + (if a.fmt == GL_ALPHA: 0'u32 else: 1'u32))
   gl.bindTexture(GL_TEXTURE_2D, a.tex)
   gl.pixelStorei(GL_UNPACK_ALIGNMENT, 1)
-  gl.texSubImage2D(GL_TEXTURE_2D, 0, GLint(a.curX), GLint(a.curY), GLsizei(w), GLsizei(h),
+  gl.texSubImage2D(GL_TEXTURE_2D, 0, GLint(at.x), GLint(at.y), GLsizei(w), GLsizei(h),
                    a.fmt, GL_UNSIGNED_BYTE, data)
-  result = (int32(a.curX), int32(a.curY), int32(w), int32(h))
+  result = (int32(at.x), int32(at.y), int32(w), int32(h))
   a.map[key] = result
-  a.curX += w + 1
-  a.shelfH = max(a.shelfH, h + 1)
+  a.skyAdd(at.i, at.x, at.y, min(w + 1, a.size), min(h + 1, a.size))
 
 proc atlasQuad(a: Atlas; e: AtlasEntry; x, y, w, h: float32; col: uint32; alpha: uint8;
                clip: Rect; lcd = 0'u32) =
@@ -666,6 +785,7 @@ proc uploadRows(t: TexTile; px: ptr UncheckedArray[uint32]; pw: int; y0, y1: int
   let ra = if full: t.y else: max(y0, t.y)
   let rb = if full: t.y + t.h else: min(y1, t.y + t.h)
   if rb <= ra: return
+  if profOn: profCount("GPU picture pixels sent", t.w * (rb - ra))
   gl.bindTexture(GL_TEXTURE_2D, t.tex)
   gl.pixelStorei(GL_UNPACK_ALIGNMENT, 4)
   var p: pointer
@@ -833,8 +953,8 @@ proc beginGpuFrame(): bool =
     dropGpuState()
     gpuGen = g
     if not makeProgram(): return false
-    maskAtlas.initAtlas(AtlasMaskSize, GL_ALPHA)
-    colorAtlas.initAtlas(AtlasColorSize, GL_RGBA)
+    maskAtlas.initAtlas(AtlasMaskSize, AtlasMaskMost, GL_ALPHA)
+    colorAtlas.initAtlas(AtlasColorSize, AtlasColorMost, GL_RGBA)
   inc gpuFrame
   gl.useProgram(prog)
   gl.viewport(0, 0, GLsizei(fbW), GLsizei(fbH))
@@ -1175,6 +1295,8 @@ proc gpuPresent(force: bool; shown: var bool): bool =
   intoKept = false
   var blit = false
   var blitParts = false
+  if profOn: profCount("GPU parts drawn", partsNow.len)
+  let tDraw = profBegin("GPU: draw")
   if age == 1 and known:
     # the screen holds the last frame: only what changed, straight onto it
     directPart = true
@@ -1203,13 +1325,17 @@ proc gpuPresent(force: bool; shown: var bool): bool =
     drawFrameParts(partsNow, true)
   if blit:
     if blitParts: blitKept(partsDrawn) else: blitKept()
+  profEnd("GPU: draw", tDraw)
   if gpuDebugOn:
     gpuDebug("frame: age " & $age & (if intoKept: ", kept" else: "") & (if big: ", whole" else: "") &
              ", changed " & $partsNow & (if blit and blitParts: ", put back " & $partsDrawn
                                          elif blit: ", put back whole" else: ""))
   for b in frameBitmaps: b.dirty = rect(0, 0, 0, 0)
   if full: partsNow.setLen(0)          # (all of it changed: swapped whole)
-  if not endGpuFrame(partsNow):
+  let tSwap = profBegin("GPU: swap")
+  let swapped = endGpuFrame(partsNow)
+  profEnd("GPU: swap", tSwap)
+  if not swapped:
     gpuDebug("swap failed: back to the CPU")
     gpuOn = false
     return false
@@ -1291,9 +1417,7 @@ proc gpuSelfTest(): bool =
   lastVerts.setLen(0)
   lastBatches.setLen(0)
   maskAtlas.map.clear()
-  maskAtlas.curX = 0
-  maskAtlas.curY = 0
-  maskAtlas.shelfH = 0
+  maskAtlas.sky = @[(0, 0, maskAtlas.size)]
   template near(a, b: uint8): bool = abs(int(a) - int(b)) <= 3
   result = px[0][0] == 255 and px[0][2] == 0 and px[1][1] == 255 and px[2][2] == 255 and
            px[2][1] == 0 and near(px[3][0], 128) and near(px[3][2], 255)

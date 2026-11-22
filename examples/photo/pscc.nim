@@ -205,6 +205,7 @@ proc psMenus() =
       ci("&Generative Fill...", "Generative Fill...", enabled = sel and d.mode in editModes)
       ci("Generative E&xpand...", "Generative Expand...", enabled = some and d.mode in editModes)
       ci("Generate &Image...", "Generate Image...", enabled = some and d.mode in editModes)
+      ci("Generate &Vector...", "Generate Vector...", enabled = some and d.mode in editModes)
       sep()
       ci("Content-Aware Sc&ale", "Content-Aware Scale...", enabled = some and d.mode in editModes)
       ci("Pu&ppet Warp", "Puppet Warp", enabled = some)

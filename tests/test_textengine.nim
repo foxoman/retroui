@@ -1551,4 +1551,41 @@ block aRightTabAtTheBoxEdge:
     if layoutText(t).lines.len != 3: inc wrapped
   doAssert wrapped == 0, $wrapped & " entries broken at their number"
 
+block justifiedPointText:
+  # point text justified: each line as wide as the widest, where the lines were -- an Arabic
+  # title's second line lengthened at its joins (Insert Kashida) to the first one's width
+  carryDastkhat()
+  var big = CharStyle(family: DastkhatFamily, style: "Bold", size: 60, color: 0xFF000000'u32, hScale: 1, vScale: 1)
+  var small = big
+  small.size = 40
+  var t = newText("", big, 100, 100)
+  t.spans = @[TextSpan(text: "النخلة العمانية\n", style: big),
+              TextSpan(text: "من الحذر للثمره", style: small)]
+  t.para.rtl = 2
+  let plain = layoutText(t)
+  doAssert plain.lines.len == 2
+  let w0 = plain.lines[0].x1 - plain.lines[0].x0
+  doAssert plain.lines[1].x1 - plain.lines[1].x0 < w0 - 50
+  t.para.align = justifyAll
+  t.para.kashida = kaLong
+  let j = layoutText(t)
+  doAssert j.lines.len == 2
+  for ln in j.lines:
+    doAssert abs((ln.x1 - ln.x0) - w0) < 1, $(ln.x0, ln.x1, w0)
+    doAssert abs(ln.x0 - 100) < 1, "Justify All: from where it was (its left), as before"
+  doAssert abs(j.lines[0].baseline - plain.lines[0].baseline) < 0.01 and
+           abs(j.lines[1].baseline - plain.lines[1].baseline) < 0.01, "the lines where they were"
+  doAssert j.glyphs.len > plain.glyphs.len, "lengthened at its joins: tatweels drawn"
+  # Justify with the last line at the start: the last lines as before (a paragraph each)
+  t.para.align = justifyLeft
+  let jl = layoutText(t)
+  for i in 0 .. 1:
+    doAssert abs(jl.lines[i].x0 - plain.lines[i].x0) < 0.5 and abs(jl.lines[i].x1 - plain.lines[i].x1) < 0.5
+  # one line, or a paragraph not justified: as it was
+  var one = newText("Just one line", style(30), 50, 50)
+  one.para.align = justifyAll
+  let o = layoutText(one)
+  one.para.align = textLeft
+  doAssert abs(o.lines[0].x0 - layoutText(one).lines[0].x0) < 0.01
+
 echo "textengine ok"

@@ -1,5 +1,5 @@
 ## The kit measured: one scene of tools/bench.sh, run as an app ($RETRO_BENCH:
-## rest, list, dashboard, document), its numbers written as a JSON line to
+## rest, list, dashboard, document, type), its numbers written as a JSON line to
 ## $RETRO_BENCH_OUT (else stdout) and the app ended.
 ##
 ## - startup: the program started to its first frame shown (the kit's own
@@ -16,11 +16,19 @@
 ##   dashboard  600 cells, each its own color and a number that changes every frame
 ##   document   40 paragraphs (about 20,000 letters) wrapped again to a width
 ##              that changes every frame
+##   type       24 lines of a type specimen, each in another of 48 sizes and
+##              four faces every frame (the glyphs' caches full: the GPU's
+##              atlas grown or emptied)
+##
+## RETRO_BENCH_PROFILE=1: the frame profiler (`retroui/frameprof`) on for the scene, its spans
+## and counters over the last frames added to the numbers ("profile": each span's average and
+## longest ms, each counter's average and most) -- where a frame's time goes.
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[os, strutils, times, monotimes, algorithm, json]
 import retroui
+import retroui/frameprof
 
 let scene = getEnv("RETRO_BENCH", "rest")
 
@@ -69,6 +77,13 @@ proc finish() =
     let span = (frameStarts[^1] - frameStarts[0]).inNanoseconds.float / 1e9
     res["fps"] = %(gaps.len.float / max(1e-9, span))
   res["peakKb"] = %memKb("VmHWM")
+  if profOn:
+    let s = summary(lastFrames())
+    var spans = newJObject()
+    for sp in s.spans: spans[sp.name] = %*{"avgMs": sp.avgMs, "maxMs": sp.maxMs, "frames": sp.frames}
+    var counts = newJObject()
+    for c in s.counters: counts[c.name] = %*{"avg": c.avg, "most": c.most}
+    res["profile"] = %*{"spans": spans, "counters": counts}
   let line = $res
   let f = getEnv("RETRO_BENCH_OUT")
   if f.len > 0:
@@ -97,6 +112,7 @@ app "Bench", 800, 600:
       res["restCpuPct"] = %((cpuSeconds() - restCpu0) / 5.0 * 100)
       if scene == "rest": finish()
       phase = 2
+      if getEnv("RETRO_BENCH_PROFILE") == "1": startTrace()
       sceneCpu0 = cpuSeconds()
       wakeIn(16)
   of 2:
@@ -129,6 +145,14 @@ app "Bench", 800, 600:
   of "document":
     let w = 300 + (n * 7) mod 400
     for p in words: paragraph(p, w = w)
+  of "type":
+    let area = place(0, remainingH(), fill = true)
+    for i in 0 ..< 24:
+      let k = (n + i * 5) mod 192
+      let st = TextStyle(size: 0.6 + float32(k mod 48) * 0.1, bold: (k div 48) mod 2 == 1,
+                         serif: k div 96 == 1)
+      text(area.x + 4, area.y + i * (area.h div 24), "Sphinx of black quartz, judge my vow 0123456789",
+           ui.theme.text, st)
   else:
     label $count, bold = true
     row:

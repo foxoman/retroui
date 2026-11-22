@@ -391,6 +391,30 @@ block paragraphFormats:
   doAssert ok
   r.close()
 
+block rightToLeftAlignment:
+  # a right-to-left paragraph's alignment: where its lines start is the layout program's Right
+  # Align -- written so and read back so, its lines at the right both times
+  let d = newDoc(800, 600, 0xFFFFFFFF'u32)
+  for (i, al) in [(0, textLeft), (1, textRight), (2, justifyLeft), (3, justifyRight)]:
+    var t = newText("\u0645\u0631\u062D\u0628\u0627 \u0628\u0627\u0644\u0639\u0627\u0644\u0645", st(20), 20,
+                    float32(40 + i * 100))
+    t.boxW = 600
+    t.boxH = 80
+    t.para.rtl = 2
+    t.para.align = al
+    discard d.addTextLayer(t)
+  d.saveDocIdml(dir / "rtl.idml")
+  var all = ""
+  for e in zipEntries(dir / "rtl.idml"): all.add readEntry(dir / "rtl.idml", e)
+  doAssert "Justification=\"RightAlign\"" in all and "Justification=\"LeftAlign\"" in all and
+           "Justification=\"RightJustified\"" in all and "Justification=\"LeftJustified\"" in all
+  let r = readIdml(dir / "rtl.idml")
+  var got: seq[TextAlign]
+  for L in r.doc(0).layers:
+    if L.isText: got.add L.text.paraFmtAt(0).align
+  doAssert got == @[textLeft, textRight, justifyLeft, justifyRight], $got
+  r.close()
+
 
 block tabStopsInIdml:
   # a paragraph's tab stops (each kind, a leader, the character it aligns on) and a Right Indent

@@ -94,6 +94,40 @@
   A right tab at a box's edge keeps its text on its line: a table of
   contents' page number was sometimes put on a line of its own, the sums
   of the widths a hair over the box.
+- **Point text justified** (`retroui/textengine`): text not in a box whose
+  paragraphs are justified has each line as wide as its widest, set where
+  its lines were -- an Arabic title's second line lengthened at its joins
+  (Insert Kashida) to the first one's width; Justify All did nothing to
+  point text (its lines only went from the left). In IDML, a right-to-left
+  paragraph's alignment is read by the page's sides, as it is written: the
+  layout program's Right Align is where its lines start (its lines went to
+  the left).
+- **Vector art from words** (`retroui/aivector`): `askVector` asks the
+  user's AI service -- or, offline, the device's own model -- for a
+  subject, a scene, an icon or a pattern (`VectorKind`), in given colors,
+  as an SVG of plain shapes; `vectorAnswer` finds it in the answer's words
+  and keeps it to what draws (`safeSvg`: shapes, groups and gradients, no
+  scripts, pictures, text, links, events, styles or paint from elsewhere),
+  for `placeSvg` to make shapes of.
+- **A frame profiler** (`retroui/frameprof`): `RETRO_TRACE=trace.json` (or
+  `startTrace`) writes every frame as a Chrome trace (chrome://tracing,
+  ui.perfetto.dev, Speedscope) -- the kit's spans (the app's code,
+  finishing the frame, putting it on the screen; the CPU's drawing and
+  sending, the GPU's drawing and swap) and counters (the GPU's draw calls,
+  vertices, bytes, flushes, atlas uploads and wipes, pictures' pixels sent;
+  the pixels the CPU drew); an app's own with `profiled(name): body` and
+  `profCount`; `lastFrames` and `summary` for the last 120 frames. Off, a
+  span is a test of one bool. `tools/bench.nim` adds them to its numbers
+  with `RETRO_BENCH_PROFILE=1`, `python3 tools/bench.py --profile` to the
+  page (which keeps the apps' table now).
+- **The GPU sends less a frame**: a rectangle is four corners and two
+  triangles of an index buffer kept on the GPU (it was six corners): a
+  third fewer bytes sent a frame (the list scene: 175 KB to 117 KB). The
+  atlases of glyphs and icons are packed by a skyline, start smaller (1024
+  and 512 pixels a side) and grow to 4096 and 2048 (as the GPU allows)
+  before they are emptied: a page of type in 48 sizes and four faces sends
+  an eighth of the glyphs' pixels it did (447,000 a frame to 57,000), the
+  atlas never emptied (it was every fifth frame).
 - **Retro Atelier**: a table's column edges and row feet dragged with the
   Type tool (Shift: the table wider), the pointer showing where; Type >
   Table: Insert Rows... and Insert Columns... (several at once, above or
@@ -137,6 +171,11 @@
   Justification; Type and the Character panel's menu: Underline Options...
   and Strikethrough Options...; OpenType > Figure Style, Positional Form
   and Stylistic Sets (the font's own, by the font's own names).
+
+- **Retro Atelier**: Edit > Generate Vector... -- vector art from words (Subject,
+  Scene, Icon, Pattern; in the foreground and background colors if asked)
+  by the AI service or this device's model, made as shapes in a group
+  named after the words, in the selection or the middle of the image.
 
 ## 0.67.0
 

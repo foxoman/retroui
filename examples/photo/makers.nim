@@ -22,6 +22,8 @@ var
   imgAi: tuple[loaded, keyed: bool; s: AiImageSettings]   ## (the image service: photo/assist)
   genDlg: tuple[open: bool; kind: int; prompt: string; w, h: int]
     ## Generative Fill (0), Generative Expand (1), Generate Image (2): photo/assist
+  vecDlg: tuple[open: bool; prompt: string; kind: int; inColors: bool]
+    ## (Edit > Generate Vector: photo/assist)
   assist: AiChat                  ## (the Assistant panel's conversation: photo/assist)
   modelsOpen = false              ## (Edit > Models on This Device: the store's window)
   fitRun: tuple[job: Job[HttpResponse]; layer: Layer; d: Doc; tries, want: int]
@@ -29,6 +31,7 @@ var
   liveSeen: Table[pointer, int]
 
 proc genDialog()                  # (in photo/assist)
+proc vecDialog()                  # (in photo/assist)
 proc startShorten(L: Layer; tries = 0)   # (in photo/assist)
 proc openReadText()               # (in photo/trained)
 proc readTextDialog()             # (in photo/trained)
@@ -787,7 +790,8 @@ proc appCommands(): seq[string] =
   for (_, _, c) in mIndex.found:
     if c in result or c.len == 0: continue
     if c in ["Quit", "Exit", "Close All", "Close", "Revert", "Ask AI...", "AI Connector...", "Assistant",
-             "Generative Fill...", "Generative Expand...", "Generate Image...", "Models...", "Shorten to Fit"]: continue
+             "Generative Fill...", "Generative Expand...", "Generate Image...", "Generate Vector...", "Models...",
+             "Shorten to Fit"]: continue
     result.add c
 
 proc aiDialogs() =
@@ -1044,6 +1048,8 @@ proc makersCommand(name: string): bool =
     if d != nil: genDlg = (true, 1, "", d.w + d.w div 4, d.h + d.h div 4)
   of "Generate Image...":
     if d != nil: genDlg = (true, 2, genDlg.prompt, 0, 0)
+  of "Generate Vector...":
+    if d != nil: vecDlg.open = true
   else: result = false
 
 proc makersDialogs() =
@@ -1054,3 +1060,4 @@ proc makersDialogs() =
   mockupDialog()
   aiDialogs()
   genDialog()
+  vecDialog()

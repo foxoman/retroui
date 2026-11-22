@@ -17,7 +17,7 @@ when (defined(gcc) or defined(clang)) and not defined(retroSizeOnly):
   {.localPassC: "-O3".}
 from std/strutils import toLowerAscii, contains
 import uirelays/[coords, screen]
-import ttf, typeset, raster, parallel, simdkit
+import ttf, typeset, raster, parallel, simdkit, frameprof
 
 proc hashF*(x: float): Hash {.inline.} =
   ## A float's hash from all its bits. (Nim's `hash(float)` keeps only the
@@ -2491,6 +2491,10 @@ proc present*(devW, devH: int; force: bool): bool =
           if bandWanted[ty]: bandCmds[ty].add (uint32(l) shl 28) or uint32(i)
   template sys: untyped = bandSys
   sys.setLen(items.len)
+  if profOn:
+    profCount("CPU pixels drawn", area)
+    profCount("CPU bands", items.len)
+  let tDraw = profBegin("CPU: draw")
   if items.len >= 2 and area >= ParallelMinPx and threadCount() > 1:
     inParallel = true
     # (the bands and their answers are globals: the closure holds nothing,
@@ -2501,12 +2505,15 @@ proc present*(devW, devH: int; force: bool): bool =
     inParallel = false
   else:
     for i in 0 ..< items.len: sys[i] = drawRegion(items[i], items[i].y div BandH)
+  profEnd("CPU: draw", tDraw)
   var hasSys = false
   for v in sys: hasSys = hasSys or v
+  let tSend = profBegin("CPU: send")
   for r in runs: send(r)
   for t in 0 ..< n: shownTiles[t] = tileHash[t]
   if hasSys: drawSysTexts(runs)
   if runs.len > 0: refresh()
+  profEnd("CPU: send", tSend)
   shownHash = frameHash
   result = runs.len > 0
 

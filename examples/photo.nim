@@ -25,7 +25,7 @@ import retroui/[photo, photopaint, photofx, photoartistic, photohdr, otshape, tt
               photobrushes, adobefiles, photobook, imagetrace, layouttemplates, liveshapes, idml, preflight,
               booklists, datamerge, textsearch, headless, perspectivegrid, pathbrush, photoblurs, pathtools,
               liveeffects, photoseps, mathtype, flexlayout, vectormake, photorelight, mockups, designstyles,
-              aiconnect, aichat, aiimage, assistant, modelstore, nnet, vision, photopublish, flows, dastkhat, fontfolders,
+              aiconnect, aichat, aiimage, aivector, assistant, modelstore, nnet, vision, photopublish, flows, dastkhat, fontfolders,
               imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files, photoanim, webp, screenexport, threed, dimensions, quran, fetch,
               geopatterns]
 {.push warning[UnusedImport]: off.}

@@ -4,6 +4,11 @@ scene run 5 times (taking turns), the medians written to docs/benchmarks.md.
 
     python3 tools/bench.py            (from the repository's root)
     python3 tools/bench.py --runs 3   (fewer runs)
+    python3 tools/bench.py --profile  (where each frame's time goes too: the
+                                       frame profiler, retroui/frameprof)
+
+What the page has after its busy scenes (the apps' table of
+tools/appbench.sh) is kept.
 
 On the screen there is ($DISPLAY), else on Xvfb (software drawing: what a
 machine with no graphics card does). Developed by Sultan Al Isaiee @foxoman
@@ -13,11 +18,12 @@ import json, os, platform, statistics, subprocess, sys, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "build", "bench")
-SCENES = ["rest", "list", "dashboard", "document"]
+SCENES = ["rest", "list", "dashboard", "document", "type"]
 
 
 def main():
     runs = 5
+    profile = "--profile" in sys.argv
     if "--runs" in sys.argv:
         runs = int(sys.argv[sys.argv.index("--runs") + 1])
     os.makedirs(OUT, exist_ok=True)
@@ -36,6 +42,8 @@ def main():
         for _ in range(runs):
             for s in SCENES:
                 e = dict(env, RETRO_BENCH=s, RETRO_BENCH_OUT="")
+                if profile:
+                    e["RETRO_BENCH_PROFILE"] = "1"
                 p = subprocess.run([exe], env=e, capture_output=True, text=True, timeout=90)
                 line = [l for l in p.stdout.splitlines() if l.startswith("{")]
                 if line:
@@ -94,8 +102,9 @@ def main():
     ]
     names = {"list": "A list: 100,000 rows of three texts, scrolled 8 pixels a frame",
              "dashboard": "A dashboard: 600 cells, each its own color and a number changing every frame",
-             "document": "A document: 40 paragraphs (20,000 letters) wrapped to a new width every frame"}
-    for s in ["list", "dashboard", "document"]:
+             "document": "A document: 40 paragraphs (20,000 letters) wrapped to a new width every frame",
+             "type": "Type: 24 lines, each in another of 48 sizes and four faces every frame"}
+    for s in ["list", "dashboard", "document", "type"]:
         lines.append("| %s | %.2f ms | %.1f | %.1f ms | %.1f MB |" % (
             names[s], med(s, "cpuMsPerFrame"), med(s, "fps"), med(s, "p99Ms"),
             med(s, "peakKb", 1 / 1024)))
@@ -104,10 +113,48 @@ def main():
               "stops at the 62 frames a second the scenes ask for (one each 16 ms); the",
               "slowest frames are the time between frames as each starts.",
               ""]
+    if profile:
+        lines += profile_lines(results, names)
     path = os.path.join(ROOT, "docs", "benchmarks.md")
-    open(path, "w").write("\n".join(lines))
+    kept = ""
+    try:
+        old = open(path).read()
+        if "\n## The apps" in old:
+            kept = old[old.index("\n## The apps") + 1:]
+    except OSError:
+        pass
+    open(path, "w").write("\n".join(lines) + ("\n" + kept if kept else ""))
     print("\n".join(lines))
     print("written:", path)
+
+
+SPANS = [("app", "The app's code"), ("finish", "Finishing the frame"), ("present", "On the screen"),
+         ("CPU: draw", "of it, the CPU drawing"), ("CPU: send", "the CPU sending"),
+         ("GPU: draw", "the GPU drawing"), ("GPU: swap", "the GPU's swap")]
+
+
+def profile_lines(results, names):
+    """(the frame profiler's spans: each scene's medians of the spans' averages, ms)"""
+    def span(scene, name):
+        v = [r["profile"]["spans"][name]["avgMs"] for r in results[scene]
+             if "profile" in r and name in r["profile"]["spans"]]
+        return statistics.median(v) if v else None
+    scenes = ["list", "dashboard", "document", "type"]
+    cols = [(k, t) for k, t in SPANS if any(span(s, k) is not None for s in scenes)]
+    out = ["## Where a frame's time goes",
+           "",
+           "The same scenes with the frame profiler on (`--profile`, `retroui/frameprof`):",
+           "a frame's time in its parts, averages of the last 120 frames, ms.",
+           "",
+           "| Scene | A frame | " + " | ".join(t for _, t in cols) + " |",
+           "|---" * (len(cols) + 2) + "|"]
+    for s in scenes:
+        f = span(s, "frame")
+        cells = ["%.3f" % v if v is not None else "" for v in (span(s, k) for k, _ in cols)]
+        out.append("| %s | %s | %s |" % (names[s].split(":")[0], "%.3f" % f if f is not None else "",
+                                        " | ".join(cells)))
+    out.append("")
+    return out
 
 
 if __name__ == "__main__":

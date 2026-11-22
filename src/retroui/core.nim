@@ -19,7 +19,7 @@ import uirelays/access
 export access
 when (defined(linux) or defined(bsd)) and not defined(android):
   import uirelays/atspi           # (screen readers told the toolkit's and the app's name)
-import gfx, busy, hangwatch
+import gfx, busy, hangwatch, frameprof
 export busy
 
 const RetroVersion* = "0.67.0"
@@ -3923,7 +3923,10 @@ proc framesShown*(): int = shownCount
   ## filled -- waits for `framesShown() > 0`: the window shows something
   ## sooner.
 
+var appSpan: MonoTime                ## (the frame's span of the app's own code: the profiler)
+
 proc noteFrame(presented: bool) =
+  profFrameEnd()
   let ms = float((getMonoTime() - statT0).inMicroseconds) / 1000
   statAvg = if statAvg == 0: ms else: statAvg * 0.9 + ms * 0.1
   if presented:
@@ -4265,7 +4268,9 @@ proc frameSetup(main: bool) =
     layoutFont = uiFont()                  # the font changed: sizes follow it
     fitMetrics()
     ui.force = true
-  if main: statT0 = getMonoTime()
+  if main:
+    statT0 = getMonoTime()
+    profFrameBegin()
   ui.now = getTicks()
   if main: accessFrameStart()
   mirrorW = if ui.rtl: ui.w else: 0
@@ -4449,6 +4454,7 @@ proc beginFrame*(): bool =
   frameSetup(true)
   if startMark.len > 0: startMarkFrame()
   if smoke.secs > 0: smokeFrame()
+  appSpan = profBegin("app")
   true
 
 proc frameWaitMs*(): int =
@@ -4877,7 +4883,9 @@ proc frameFinish(main: bool) =
 proc endFrame*() =
   ## Finish the frame: keyboard focus, popups, tooltips, then put it on
   ## screen (only if it changed).
-  frameFinish(true)
+  profEnd("app", appSpan)
+  appSpan = MonoTime()
+  profiled("finish"): frameFinish(true)
   # Present -- unless another frame is due right away anyway (one that
   # shows what changed late in this one); the frame after an input that
   # nothing else asked to draw again is shown at once.
@@ -4898,7 +4906,10 @@ proc endFrame*() =
     noteFrame(false)
     return
   if ui.paused or ui.hidden: return     # (nobody sees it: not drawn)
-  if present(ui.devW, ui.devH, ui.force):
+  let tShow = profBegin("present")
+  let shown = present(ui.devW, ui.devH, ui.force)
+  profEnd("present", tShow)
+  if shown:
     ui.lastPresent = ui.now
   ui.force = false
   noteFrame(true)

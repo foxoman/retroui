@@ -150,6 +150,12 @@ line.
   the line that asked: `ui.redraw = true at app.nim:42`, `wakeIn at
   ...`), what the next one waits for, the control under the mouse and
   the frame's controls by name. An app at rest says "at rest".
+- **See where a frame's time goes:** `RETRO_TRACE=trace.json ./app` writes
+  each frame as a Chrome trace (chrome://tracing, ui.perfetto.dev):
+  the app's code, finishing, drawing, the GPU's draw and swap, with
+  counters (draw calls, vertices, bytes sent). Spans of your own:
+  `profiled("load"): ...` and `profCount("rows", n)` (`retroui/frameprof`;
+  off, a test of one bool). Measure before and after a change for speed.
 - **Use it from outside, by its controls' names:** `RETRO_DRIVE=7000 ./app
   &`, then `retrokit drive 7000 tree`, `click "Save"`, `click 120,40`,
   `type "Ada"`, `key ctrl+s`, `set "Name:" Ada`, `wait "Saved" --timeout
@@ -331,7 +337,10 @@ app "Staff", 520, 420:
   app's controls by name; `aiToolLater` for a tool done frames later (`done(text)`);
   `publishTools(tools)` for agents outside (`retrokit mcp PORT` with RETRO_DRIVE).
   Pictures: `retroui/aiimage` (`generateImage`, `editImage` through a mask) as a
-  job's work. A tool that changes something: `confirm = true`.
+  job's work. Vector art: `askVector(settings, words, vkIcon)` then
+  `vectorAnswer` (an SVG of shapes only) and `doc.placeSvg(svg, box)`
+  (`retroui/aivector`; `akDevice` works offline). A tool that changes
+  something: `confirm = true`.
 - The device's own model (`retroui/modelstore`, `retroui/devicemodel`): the AI
   Connector's form is `aiServiceForm(settings, modelsOpen)` (it offers "This
   device", `akDevice`), and `modelStoreDialog(modelsOpen)` downloads models when

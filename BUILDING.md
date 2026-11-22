@@ -307,9 +307,13 @@ tools/writecheck.py` (no `var` or `result` given a value in a branch or a
 loop and then another: Nim 2.2 leaks the first; `docs/nim-bugs.md`).
 The kit is built, tested and released with Nim 2.4; CI runs the suite with
 Nim 2.2.6 as well (`ci.yml`'s matrix), so code stays within what 2.2
-compiles. Nim 2.4's `--ic:on` and `--strings:sso` are not used yet: with
-2.4.2 the first gives one seq type two C names in Retro Atelier's main
-module, the second fails `test_files` and `test_mime`.
+compiles. Nim 2.4's `--ic:on` and `--strings:sso` are not used yet. Tried
+again with 2.4.2: `--ic:on` builds a small program and rebuilds it in 3
+seconds after a change, but stops on Retro Atelier ("internal error: expr:
+var not init" in `std/objectdollar`); with `--strings:sso` two strings of
+the same bytes compare unequal in a release build -- one from
+`newStringOfCap`, one a literal -- which fails `test_mime` and
+`test_files`.
 With Nim 2.4 too: `NIM=/path/to/nim-2.4 python3 tools/lentfix.py
 examples/photo.nim` (and each app and test changed) builds it to C and
 gives a loop whose variable a nested proc keeps a copy of its own -- Nim
@@ -992,8 +996,10 @@ environment of its own: `adb shell am start -n PACKAGE/org.retro.RetroActivity
 | `RETRO_DEVICE_MB=N` | the device taken to have N MB, the program alone on it: the caches' budgets and the memory pressure (`retroui/memwatch`) as on a small phone |
 | `RETRO_SMOKE_SEED=N`, `RETRO_SMOKE_STAY=1` | the smoke run's other clicks and keys; an Exit or a close box clicked does not end it (`tools/soak.sh`) |
 | `RETRO_STATS=1` | the frames' times and counts on stderr, every 2 seconds, and each frame of 250 ms or more (where the mouse was, the key) |
+| `RETRO_TRACE=FILE` | the frame profiler on (`retroui/frameprof`): each frame's spans -- the app's code, laying out, drawing, the GPU's draw and swap -- and counters (draw calls, vertices, bytes and pictures sent) written to FILE as a Chrome trace (chrome://tracing, ui.perfetto.dev, Speedscope) |
 | `RETRO_LANG=pseudo` | every text stretched a third and marked ("[Šåvé ··]"): the layouts too tight for longer words, and the words not translated, seen at once |
-| `RETRO_BENCH=SCENE`, `RETRO_BENCH_OUT=FILE` | tools/bench.nim's scene (rest, list, dashboard, document) and where its numbers go (`python3 tools/bench.py` runs them all) |
+| `RETRO_BENCH=SCENE`, `RETRO_BENCH_OUT=FILE` | tools/bench.nim's scene (rest, list, dashboard, document, type) and where its numbers go (`python3 tools/bench.py` runs them all) |
+| `RETRO_BENCH_PROFILE=1` | tools/bench.nim's numbers with the frame profiler's: each span's average and longest time, each counter's average (`python3 tools/bench.py --profile`) |
 | `RETRO_THREADS=N` | the worker threads (else one a processor, at most 16); the language models' and the picture models' own threads too |
 | `RETRO_MODELS=DIR` | where the models of `retroui/modelstore` are kept (else "Retro Models" in the system's place for an app's data, shared by the kit's apps) |
 | `RETRO_WEB=system` | every `webView` in the system's browser engine |

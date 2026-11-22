@@ -2750,6 +2750,15 @@ proc paraFrames(lay: var TextLayout; t: TextData; colW, gutter: float32) =
           lay.decorations.add Decoration(x0: x0, x1: x1, y: y, thick: wt, color: c)
     i = j
 
+proc movedBy(l: var TextLayout; dx, dy: float32)
+
+proc justifiedPoint(t: TextData): bool =
+  ## (point text -- not in a box, not on a path -- whose paragraphs are all justified)
+  if t.boxW > 0 or t.path.len > 0 or t.vertical or t.table.on or t.spans.len == 0: return false
+  for sp in t.spans:
+    if t.fmtOf(sp.style.para).align notin {justifyLeft, justifyCenter, justifyRight, justifyAll}: return false
+  true
+
 proc layoutOnce(t: TextData): TextLayout =
   if t.path.len == 0:
     for sp in t.spans:
@@ -2775,6 +2784,28 @@ proc layoutOnce(t: TextData): TextLayout =
       t.boxW = min(t.boxW, float32(n) * t.colWidth + float32(n - 1) * g)
     else:
       t.columns = clamp(int(ceil((t.boxW + g) / (t.colWidth + g))), 1, 64)
+  if t.justifiedPoint:
+    # (point text justified: its lines as wide as the widest -- set as in a box that wide where
+    # its lines are, the first baseline where it was; justified Arabic lengthened at its joins,
+    # as Insert Kashida lets -- a title's two lines made one width)
+    let nat = layoutPlain(t)
+    if nat.lines.len >= 2:
+      var x0 = 1e9'f32
+      var wMost = 0'f32
+      for ln in nat.lines:
+        x0 = min(x0, ln.x0)
+        wMost = max(wMost, ln.x1 - ln.x0)
+      var b = t
+      b.x = x0
+      b.boxW = wMost + 0.005'f32
+      b.boxH = 0
+      var r = layoutPlain(b)
+      if r.lines.len == nat.lines.len:
+        r.movedBy(0, nat.lines[0].baseline - r.lines[0].baseline)
+        r.overflow = -1
+        r.paraFrames(t, 0, 12)
+        return r
+      return nat                        # (a line broken in two after all: as it was)
   var u = t
   let cols = max(1, t.columns)
   # (text in a box keeps to it, as the layout programs have it: what does not fit is overset --

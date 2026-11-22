@@ -111,7 +111,11 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   it; a table's widths are its columns' own, in their order, right to left
   too, and its edges as drawn are `TextLayout.gridCols` and `gridRows` --
   an app finds and drags them with `tableEdgeAt`, `dragColumnEdge` and
-  `dragRowEdge`, not its own sums), `retroui/infographics` (`chartSvg`, `mapSvg`: SVG placed with
+  `dragRowEdge`, not its own sums; a right-to-left paragraph's `align` is
+  by where its lines start -- `textLeft` is at the right -- and IDML's
+  sides are the page's, mirrored both ways (`alignOf`, `paraOf`); point
+  text justified is set as in a box as wide as its widest line,
+  `justifiedPoint`), `retroui/infographics` (`chartSvg`, `mapSvg`: SVG placed with
   `placeSvg`, so a chart is shapes and type), `retroui/liveshapes`,
   `retroui/idml`, `retroui/preflight`. What an app keeps with a layer
   (a chart's or a live shape's settings, as JSON) goes in `Layer.meta`,
@@ -419,7 +423,8 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
 - `tools/bench.nim`, `tools/bench.py` -- the kit's own benchmark (start,
   memory and processor at rest, a list, a dashboard, a document busy):
   `python3 tools/bench.py` writes `docs/benchmarks.md`; run it again when a
-  change could cost speed or memory. `sh tools/appbench.sh` measures the
+  change could cost speed or memory (`--profile`: where each frame's time
+  goes too, from `retroui/frameprof`). `sh tools/appbench.sh` measures the
   apps themselves (size, first frame, memory at rest and at most, the
   processor at rest) for the page's last table; its smoke run clicks at
   random, so run it as a user of its own (`APPBENCH_PREBUILT=1` measures
@@ -545,6 +550,15 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   stays within what 2.2 compiles: no 2.4-only syntax in the kit (sum
   types, `{.cyclic.}` imports, `owned` refs), and the checks for 2.2's
   leaks (`tools/returncheck.py`, `tools/writecheck.py`) still pass.
+- **Speed is measured, before and after** (`retroui/frameprof`,
+  `python3 tools/bench.py --profile`, `RETRO_TRACE`): a change made for
+  speed says what it saved in the scenes' numbers, and a new stage of a
+  frame's drawing gets a span (`profBegin`/`profEnd`, `profiled`) and its
+  counters (`profCount`, behind `if profOn:` when they cost a loop). Off,
+  the profiler is a test of one bool; it never writes unless asked. The
+  GPU draws a rectangle as four corners and two triangles of a kept index
+  buffer (`quadIndices`; written out as six where there is no
+  `glDrawElements`), at most 16,384 to a call (16-bit indices).
 - **Movement through `animated` or `retroui/motion`** (`sprung`,
   `presence`, `glided`, `dragSnap`, `staggered`, `fixedSteps`): they ask for
   frames only while something moves and are at their end at once when
@@ -559,8 +573,9 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   build their steps through procs (a template's parameter named like an
   object's field replaces the field's name too).
 - **AI goes through the user's own service, off until it is set**
-  (`retroui/aiconnect`, `retroui/aichat`, `retroui/aiimage`): nothing is
-  sent before; keys in `retroui/secrets`, never in a settings file. A tool
+  (`retroui/aiconnect`, `retroui/aichat`, `retroui/aiimage`,
+  `retroui/aivector`): nothing is sent before; what a service answers is
+  data -- an SVG it draws is kept to shapes (`safeSvg`) before it is read; keys in `retroui/secrets`, never in a settings file. A tool
   that changes something `confirm`s (the assistant asks; Allow All for the
   conversation); a tool's change is one step to undo. Tools run on the UI
   thread (`aiTool`; `aiToolLater` when the work ends in a later frame);
