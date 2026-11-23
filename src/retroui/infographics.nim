@@ -40,7 +40,7 @@ type
     colors*: seq[uint32]                         ## the series' colors (ARGB) instead of the theme's
     w*, h*: int                                  ## its size (0: 800 x 500)
     font*: string                                ## its type's font ("" the kit's)
-    titleSize*, textSize*: float                 ## (0: 28, 14)
+    titleSize*, textSize*: float                 ## (0: from its size -- `chartTextSizes`)
     legend*: LegendPlace
     grid*: bool                                  ## lines across at the axis' numbers
     xTitle*, yTitle*: string                     ## the axes' names
@@ -246,14 +246,26 @@ proc roundTopRect(x, y, w, h, r: float; horizontal: bool): string =
 
 # ---- charts ------------------------------------------------------------------------------------------------
 
+proc sizeScale(w, h, refW, refH: float): float =
+  ## (how much bigger than its reference a chart or a map is: its text and lines grow with it
+  ## -- a chart across an A4 page at 300 dpi is not one for a screen)
+  max(0.75, sqrt(max(1.0, w) * max(1.0, h) / (refW * refH)))
+
+proc chartTextSizes*(c: ChartSpec): tuple[title, text: float] =
+  ## The chart's title and text sizes: as set (`titleSize`, `textSize`), else
+  ## 28 and 14 for 800 x 500 pixels and as much bigger as the chart is.
+  let k = sizeScale((if c.w > 0: c.w else: 800).float, (if c.h > 0: c.h else: 500).float, 800, 500)
+  result.title = if c.titleSize > 0: c.titleSize else: 28.0 * k
+  result.text = if c.textSize > 0: c.textSize else: 14.0 * k
+
 proc chartSvg*(c: ChartSpec): string =
   ## The chart as SVG: its shapes and its text (placed in a document,
   ## shape and type layers).
   let W = (if c.w > 0: c.w else: 800).float
   let H = (if c.h > 0: c.h else: 500).float
   let th = chartTheme(c.theme)
-  let ts = if c.titleSize > 0: c.titleSize else: 28.0
-  let fs = if c.textSize > 0: c.textSize else: 14.0
+  let (ts, fs) = c.chartTextSizes
+  let grow = sizeScale(W, H, 800, 500)     # (its lines as much thicker)
   let font = c.font
   let rtl = c.rtl or c.title.hasArabic
   var o = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" & n(W) & "\" height=\"" & n(H) &
@@ -386,7 +398,7 @@ proc chartSvg*(c: ChartSpec): string =
       let (lx, ly) = at(i, 1.12)
       if i < c.labels.len:
         o.add textEl(lx, ly + fs * 0.35, c.labels[i], fs, th.text, font, "middle", rtl = c.labels[i].hasArabic)
-    let lw = if c.lineWidth > 0: c.lineWidth else: 3.0
+    let lw = if c.lineWidth > 0: c.lineWidth else: 3.0 * grow
     for si, (_, vs) in c.series:
       var d = ""
       for i in 0 ..< k:
@@ -526,7 +538,7 @@ proc chartSvg*(c: ChartSpec): string =
                          "middle")
   else:
     # lines and areas; scatter: points only, across by the categories' numbers when they are numbers
-    let lw = if c.lineWidth > 0: c.lineWidth else: 3.0
+    let lw = if c.lineWidth > 0: c.lineWidth else: 3.0 * grow
     var xs: seq[float]
     if c.kind == ckScatter:
       for l in c.labels:
@@ -794,6 +806,7 @@ proc mapSvg*(m: MapSpec): string =
           hexOf(th.border) & "\" stroke-width=\"" & n(bw) & "\" stroke-linejoin=\"round\"/>\n"
   # labels and cities
   let fs = max(9.0, min(W, H) / 40)
+  let grow = sizeScale(W, H, 900, 500)        # (the title and the legend as much bigger as the map is)
   if m.labels or m.showValues:
     for i in 0 ..< countryCount():
       if not finite(valueOf[i]) and colorOf[i] == 0: continue
@@ -812,19 +825,19 @@ proc mapSvg*(m: MapSpec): string =
           " stroke=\"#ffffff\" stroke-width=\"1\"/>\n"
     o.add textEl(x + fs * 0.6, y - fs * 0.4, name, fs, th.text, font, rtl = name.hasArabic)
   if m.title.len > 0:
-    o.add textEl(16, 36, m.title, 26, th.text, font, bold = true, rtl = m.title.hasArabic)
+    o.add textEl(16 * grow, 36 * grow, m.title, 26 * grow, th.text, font, bold = true, rtl = m.title.hasArabic)
   if m.legend and vlo <= vhi:
     # the scale: a band from the low color to the high, its ends' numbers
-    let lw = min(260.0, W * 0.4)
-    let x = 16.0
-    let y = H - 34
+    let lw = min(260.0 * grow, W * 0.4)
+    let x = 16.0 * grow
+    let y = H - 34 * grow
     let steps = 24
     for s in 0 ..< steps:
       o.add "<rect x=\"" & n(x + lw * s.float / steps.float) & "\" y=\"" & n(y) & "\" width=\"" &
-            n(lw / steps.float + 0.5) & "\" height=\"10\" " &
+            n(lw / steps.float + 0.5) & "\" height=\"" & n(10 * grow) & "\" " &
             fillOf(mixArgb(low, high, s.float / float(steps - 1))) & "/>\n"
-    o.add textEl(x, y + 26, numText(vlo, m.decimals, "", m.suffix), fs, th.text, font)
-    o.add textEl(x + lw, y + 26, numText(vhi, m.decimals, "", m.suffix), fs, th.text, font, "end")
+    o.add textEl(x, y + 26 * grow, numText(vlo, m.decimals, "", m.suffix), fs, th.text, font)
+    o.add textEl(x + lw, y + 26 * grow, numText(vhi, m.decimals, "", m.suffix), fs, th.text, font, "end")
   o.add "</svg>\n"
   o
 

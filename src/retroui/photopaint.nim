@@ -241,6 +241,63 @@ proc turned*(t: BrushTip; deg: int): BrushTip =
           acc += t.custom[yy * t.cw + xx].float * wgt
       result.custom[y * n + x] = uint8(clamp(int(round(acc)), 0, 255))
 
+proc tipOutline*(t: BrushTip; full = false): seq[array[4, float32]] =
+  ## The tip's outline as the pointer over a picture shows it: line pieces
+  ## (x0, y0, x1, y1) in image pixels from the dab's middle, round where it
+  ## paints at least half (`full`: where it paints at all) -- a sampled tip's
+  ## own shape, turned as a stroke turns it; a round one's ellipse at its
+  ## angle and roundness. Worked out at most 160 samples across, whatever
+  ## its size: a few hundred pieces.
+  var tip = t
+  if tip.custom.len > 0 and tip.angle mod 360 != 0: tip = tip.turned(tip.angle)
+  let dia = max(1, tip.tipDia).float
+  let scale = min(1.0, 160.0 / dia)
+  let m = tipMask(tip, scale)
+  if m.w <= 0 or m.h <= 0 or m.a.len < m.w * m.h: return
+  let unit = max(1.0, m.step.float) / scale           # (image pixels to a sample)
+  let th = if full: 0.004'f32 else: 0.5'f32
+  template at(x, y: int): float32 =
+    (if x < 0 or y < 0 or x >= m.w or y >= m.h: 0'f32 else: m.a[y * m.w + x])
+  proc cross(x0, y0: float; a: float32; x1, y1: float; b: float32): (float, float) =
+    # (where the edge between two samples crosses the threshold)
+    let t = if a == b: 0.5 else: clamp(float(th - a) / float(b - a), 0.0, 1.0)
+    (x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)
+  let cx = m.w.float / 2
+  let cy = m.h.float / 2
+  template put(p, q: (float, float)) =
+    result.add [float32((p[0] + 0.5 - cx) * unit), float32((p[1] + 0.5 - cy) * unit),
+                float32((q[0] + 0.5 - cx) * unit), float32((q[1] + 0.5 - cy) * unit)]
+  # (marching squares: each cell of four samples, the threshold's line through it)
+  for y in -1 ..< m.h:
+    for x in -1 ..< m.w:
+      let a = at(x, y)
+      let b = at(x + 1, y)
+      let c = at(x + 1, y + 1)
+      let d = at(x, y + 1)
+      let k = (if a >= th: 1 else: 0) or (if b >= th: 2 else: 0) or (if c >= th: 4 else: 0) or
+              (if d >= th: 8 else: 0)
+      if k == 0 or k == 15: continue
+      let fx = x.float
+      let fy = y.float
+      let top = cross(fx, fy, a, fx + 1, fy, b)
+      let right = cross(fx + 1, fy, b, fx + 1, fy + 1, c)
+      let bottom = cross(fx, fy + 1, d, fx + 1, fy + 1, c)
+      let left = cross(fx, fy, a, fx, fy + 1, d)
+      case k
+      of 1, 14: put(left, top)
+      of 2, 13: put(top, right)
+      of 3, 12: put(left, right)
+      of 4, 11: put(right, bottom)
+      of 6, 9: put(top, bottom)
+      of 7, 8: put(left, bottom)
+      of 5:
+        put(left, top)
+        put(right, bottom)
+      of 10:
+        put(top, right)
+        put(left, bottom)
+      else: discard
+
 proc pencilMask*(dia: int): TipMask =
   ## A hard, jagged dab (the pencil): pixels in the circle or out.
   let n = max(1, dia)

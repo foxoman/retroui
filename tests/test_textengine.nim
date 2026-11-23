@@ -3,7 +3,7 @@
 
 import std/[math, json, strutils, os, importutils]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
-import retroui/[ttf, typeset, hyphenate, unpacking, dastkhat, pdf]
+import retroui/[ttf, typeset, hyphenate, unpacking, dastkhat, pdf, otshape, arabicfonts]
 import retroui/textengine {.all.}   # (its private joinsForward, CharInfo: the kashida rules tested)
 
 proc style(size = 40'f32): CharStyle =
@@ -667,6 +667,35 @@ block listsInABox:
   pt.para.list = lkBullet
   doAssert layoutText(pt).glyphs.len == 6
   doAssert formatNumber(14, nsRomanLower) == "xiv" and formatNumber(3, nsArabicIndic) == "٣"
+
+block aListOfSomeParagraphs:
+  # a list on the paragraphs the selection is in, not the whole box: the others keep their
+  # edge and have no mark; a paragraph of a format of its own (justified) stands in from its
+  # mark too -- it does not run under it; the numbers go on across a paragraph that is not
+  # the list's
+  let st = CharStyle(family: "", size: 20, color: 0xFF000000'u32, hScale: 1, vScale: 1)
+  var t = newText("A heading\nThe first point, long enough to go on to a second line of the box, and " &
+                  "more\nA paragraph between\nThe second point", st, 10, 10)
+  t.boxW = 300
+  t.boxH = 400
+  let plain = layoutText(t)
+  let p2 = t.plainText.find("The first")
+  t.changeParas(p2, p2, proc (p: var ParaStyle) = p.align = justifyLeft)
+  t.changeParas(p2, p2, proc (p: var ParaStyle) = p.list = lkNumber)
+  let p4 = t.plainText.toRunes.len - "The second point".len
+  t.changeParas(p4, p4, proc (p: var ParaStyle) = p.list = lkNumber)
+  doAssert t.hasList and t.para.list == lkNone
+  let l = layoutText(t)
+  doAssert l.glyphs.len == plain.glyphs.len + 4, "1. and 2.: " & $(l.glyphs.len - plain.glyphs.len)
+  for line in l.lines:
+    let f = t.paraFmtAt(line.first)
+    if line.last <= line.first: continue
+    if f.list == lkNone: doAssert line.x0 < 10 + 4, "a paragraph not in the list at the edge: " & $line.x0
+    else: doAssert line.x0 >= 10 + 30, "a list's line (justified too) stands in: " & $line.x0
+  var twos = 0
+  for g in l.glyphs:
+    if g.x < 10 + 20 and g.gid == fontFace("FreeSans", "Regular").face.glyphOf(int('2')): inc twos
+  doAssert twos == 1, "numbered on: 1., then 2."
 
 block dropCaps:
   # the first letters as tall as three lines: from the first line's capitals to the third
@@ -1660,5 +1689,102 @@ block caretPastASpaceTyped:
         doAssert abs(after - lc.caretX[n + 1]) < 0.5, word & ": where the next word starts " & $(after, lc.caretX[n + 1])
       doAssert abs(after - before) > 10, word & ": the caret moved " & $(before, after)
       doAssert lb.x1 - lb.x0 == la.x1 - la.x0, "the text's own width as it was"
+
+block justifiedArabicInItsBox:
+  # a justified Arabic paragraph with kashidas and a Latin run, in boxes of many widths: no line
+  # out of its box -- the space a line breaks at after "(Justified" shown at the line's end, not
+  # in its middle (Unicode's rule L1); a line the composer made a little too long has its spaces
+  # narrowed, kashidas or not
+  let s = "الـلـغـة الـعـربـيـة تـتـمـيـز بـمـرونـة الـتـمـديـد (الـكـشـيـدة) لـضـبـط مـحـاذاة " &
+          "الـفـقـرات (Justified Text) دُونَ إِخْلَالٍ بِمَوَاضِعِ النِّقَاطِ أَوِ التَّشْكِيلِ، خُصُوصًا " &
+          "فِي الْحُرُوفِ الْمُشَدَّدَةِ مِثْلَ: (مُحَمَّدٌ، الشَّمْسُ، الرَّحْمَـٰنُ)."
+  var st = defaultStyle()
+  st.family = "FreeSerif"
+  st.size = 50
+  var outside = 0
+  for w in countup(300, 1300, 23):
+    var t = newText(s, st, 20, 60)
+    t.boxW = float32(w)
+    t.boxH = 4000
+    t.para.rtl = 2
+    t.para.align = justifyRight
+    for ln in layoutText(t).lines:
+      if ln.x0 < 20 - 0.5 or ln.x1 > 20 + float32(w) + 0.5:
+        inc outside
+        echo "  out: ", w, " ", ln.first, "..", ln.last, " ", ln.x0, " .. ", ln.x1
+  doAssert outside == 0, $outside & " lines out of their box"
+
+block aCharacterTheFontLacks:
+  # a bullet the Arabic font lacks before its words: the bullet from another font, the words
+  # still shaped by their own font -- its lam-alef ligature, its joined forms -- not all of the
+  # paragraph from another font, a letter at a time (لأ lost, other letters' shapes)
+  addFontDir(currentSourcePath().parentDir / "data" / "fonts")
+  var st = defaultStyle()
+  st.family = "Noto Sans Arabic"
+  st.size = 30
+  proc laid(s: string): seq[(string, int)] =
+    var t = newText(s, st, 0, 40)
+    t.boxW = 600
+    t.boxH = 300
+    for g in layoutText(t).glyphs: result.add (g.face.family, g.gid)
+  let word = laid("الأرقام علامات")
+  doAssert word.len > 0 and word[0][0] == "Noto Sans Arabic"
+  let bulleted = laid("• الأرقام علامات")
+  var own: seq[(string, int)]
+  for g in bulleted:
+    if g[0] == "Noto Sans Arabic": own.add g
+  doAssert own == word, "the words as without the bullet: " & $bulleted
+  doAssert bulleted.len == word.len + 1
+
+block theArabicFontsCarried:
+  # Scheherazade New, Lateef and Markazi Text in the font lists, Regular and Bold; Arabic set in
+  # each with its own glyphs, joined (lam-alef one glyph)
+  carryArabicFonts()
+  for fam in ArabicFamilies:
+    doAssert fam in fontFamilies(), fam
+    doAssert "Regular" in fontStyles(fam) and "Bold" in fontStyles(fam), fam
+    var st = defaultStyle()
+    st.family = fam
+    st.size = 30
+    var t = newText("السلام", st, 0, 40)
+    let l = layoutText(t)
+    doAssert l.glyphs.len == 5, fam & ": " & $l.glyphs.len       # (lam-alef: one)
+    for g in l.glyphs: doAssert g.face.family == fam, fam & ": " & g.face.family
+    st.style = "Bold"
+    t = newText("سلام", st, 0, 40)
+    doAssert layoutText(t).glyphs[0].face.weight >= 600, fam & " Bold"
+
+block everyGlyphOfAFont:
+  # a glyph picker's list: every glyph of the face but .notdef, each with what to type for it --
+  # its character (FreeSerif's Allah ligature has one, U+FDF2), else what the font makes it of
+  # (an Arabic ligature with no character: its letters), checked by shaping them
+  let face = fontFace("FreeSerif", "Regular").face
+  let gl = fontGlyphs("FreeSerif", "Regular")
+  doAssert gl.len == face.numGlyphs - 1 and gl[0].gid == 1
+  let cm = face.charMap
+  doAssert cm.len > 3000 and (0xFDF2, face.glyphOf(0xFDF2)) in cm and (0x41, face.glyphOf(0x41)) in cm
+  doAssert gl[face.glyphOf(0xFDF2) - 1].text == "\u{FDF2}"
+  var made = 0
+  var nothing = 0
+  for g in gl:
+    if g.text.len == 0:
+      inc nothing
+      continue
+    let rs = g.text.toRunes
+    if rs.len == 1 and face.glyphOf(int(rs[0])) == g.gid: continue
+    # (a glyph with no character: typing its text gives it)
+    var cps: seq[int]
+    for r in rs: cps.add int(r)
+    let rtl = cps[0] in 0x0590 .. 0x08FF
+    let feats = if g.feature.len > 0: @[(g.feature, true)] else: newSeq[(string, bool)]()
+    var got = false
+    for sg in shape(face, cps, rtl, features = feats):
+      if sg.gid == g.gid: got = true
+    doAssert got, "glyph " & $g.gid & " from " & g.text
+    inc made
+  doAssert made > 0, "glyphs only the font's ligatures make: " & $made
+  doAssert nothing < gl.len div 10, "the rest (spaces, what a context makes): " & $nothing
+  doAssert fontGlyphs("FreeSerif", "Regular").len == gl.len          # (kept)
+  doAssert face.glyphRecipes.len > 0
 
 echo "textengine ok"

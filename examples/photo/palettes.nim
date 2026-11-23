@@ -134,7 +134,7 @@ proc selModeRow() =
   if not ui.touch: return
   optCombo("Selection:", ["New", "Add to", "Subtract from", "Intersect with"], touchSelMode)
 
-proc colorWell(c: var uint32; key: string; w = 0): bool {.discardable.}
+proc colorWell(c: var uint32; key: string; w = 0; alpha = false): bool {.discardable.}
 proc stepOnce(d: Doc; name: string; body: proc ())
 
 var
@@ -211,7 +211,7 @@ proc lineOptions(bar: bool) =
   var changed = false
   label "Color:"
   var c = lineColor()
-  if colorWell(c, (if bar: "barlinecolor" else: "linecolor"), dp(26)):
+  if colorWell(c, (if bar: "barlinecolor" else: "linecolor"), dp(26), alpha = true):
     shapeStroke = c
     shapeStrokeKind = 1
     applyShapeOptions()
@@ -252,14 +252,17 @@ proc syncShapeOptions(L: Layer) =
     if s.endW > 0: lineEndW = int(round(s.endW * 100))
     if s.endL > 0: lineEndL = int(round(s.endL * 100))
   shapeFillKind = ord(s.fill.kind)
-  shapeFill = s.fill.color or 0xFF000000'u32
-  shapeFill2 = s.fill.color2 or 0xFF000000'u32
+  # (a color or a gradient keeps its opacity -- a see-through fill; no paint's, opaque)
+  template kept(p: ShapePaint; c: uint32): uint32 =
+    (if p.kind in {spColor, spGradient}: c else: c or 0xFF000000'u32)
+  shapeFill = kept(s.fill, s.fill.color)
+  shapeFill2 = kept(s.fill, s.fill.color2)
   shapeStrokeKind = case s.stroke.kind
                     of spNone: 0
                     of spGradient: 2
                     else: 1
-  shapeStroke = s.stroke.color or 0xFF000000'u32
-  shapeStroke2 = s.stroke.color2 or 0xFF000000'u32
+  shapeStroke = kept(s.stroke, s.stroke.color)
+  shapeStroke2 = kept(s.stroke, s.stroke.color2)
   shapeStrokeOn = s.stroke.onStroke
   shapeStrokeW = max(1, int(round(s.strokeWidth)))
   shapeAlign = ord(s.align)
@@ -311,16 +314,16 @@ proc shapeOptions() =
       label "Fill:"
       if combo(["No Color", "Solid Color", "Gradient"], shapeFillKind, w = dp(96)): changed = true
       if shapeFillKind > 0:
-        if colorWell(shapeFill, "shapefill", dp(26)): changed = true
+        if colorWell(shapeFill, "shapefill", dp(26), alpha = true): changed = true
       if shapeFillKind == 2:
-        if colorWell(shapeFill2, "shapefill2", dp(26)): changed = true
+        if colorWell(shapeFill2, "shapefill2", dp(26), alpha = true): changed = true
     row:
       label "Stroke:"
       if combo(["No Color", "Solid Color", "Gradient"], shapeStrokeKind, w = dp(96)): changed = true
       if shapeStrokeKind > 0:
-        if colorWell(shapeStroke, "shapestroke", dp(26)): changed = true
+        if colorWell(shapeStroke, "shapestroke", dp(26), alpha = true): changed = true
       if shapeStrokeKind == 2:
-        if colorWell(shapeStroke2, "shapestroke2", dp(26)): changed = true
+        if colorWell(shapeStroke2, "shapestroke2", dp(26), alpha = true): changed = true
     if shapeStrokeKind == 2:
       row:
         label "Gradient:"
@@ -701,6 +704,40 @@ proc setColor(c: uint32; background = false) =
   let c2 = c or 0xFF000000'u32
   if background: bg = c2 else: fg = c2
 
+var
+  pickAnywhere: tuple[on, waiting, bg: bool]
+    ## the Color panel's eyedropper: the next press anywhere in the window takes the color shown
+    ## there (`readScreenPixel`), read as the frame after it is drawn
+  colorSource = 0                   ## the colors the Color panel offers: 0 the swatches, k the k-th library
+
+proc ensureBooksLoaded()
+
+proc pickAnywhereFrame() =
+  ## Each frame, first: the eyedropper of the Color panel on -- a press anywhere is its, not the
+  ## control's under it; its color, once the screen has it, the foreground (Alt: the background).
+  if pickAnywhere.on:
+    ui.cursor = curCrosshair
+    if ui.key == KeyEsc:
+      ui.key = KeyNone
+      pickAnywhere.on = false
+      status = ""
+    elif ui.pressed:
+      let sx = if ui.rtl: ui.w - 1 - ui.mx else: ui.mx     # (as the screen shows it)
+      readScreenPixel(sx, ui.my)
+      pickAnywhere.bg = AltPressed in ui.mods or pickerTarget == 1
+      pickAnywhere.on = false
+      pickAnywhere.waiting = true
+      ui.pressed = false
+      ui.mouseDown = false
+      ui.redraw = true
+  if pickAnywhere.waiting:
+    let (done, c) = screenPixelRead()
+    if done:
+      pickAnywhere.waiting = false
+      setColor(c, pickAnywhere.bg)
+      status = (if pickAnywhere.bg: tr("Background: ") else: tr("Foreground: ")) & "#" & toHex(c and 0xFFFFFF'u32, 6)
+    else: ui.redraw = true
+
 proc pickerBody() =
   row:
     # which one is edited: the foreground or the background
@@ -781,6 +818,34 @@ proc pickerBody() =
   box(bar, ui.theme.frame)
   if ui.active == idOf("colorbar") and ui.mouseDown and mouseIn(bar):
     setColor(barColor(ui.mx, ui.my), pickerTarget == 1 or AltPressed in ui.mods)
+  # the eyedropper -- a color from anywhere in the window -- and colors to choose from: the
+  # swatches, or a color library
+  ensureBooksLoaded()
+  row([dp(32), -1]):
+    if toolButton(pxEyedropper, "Pick a color from anywhere in the window (Alt: the background; Esc: stop)",
+                  down = pickAnywhere.on):
+      pickAnywhere.on = not pickAnywhere.on
+      status = if pickAnywhere.on: "Tap or click anywhere in the window to take its color (Alt: the background)"
+               else: ""
+    var names = @[tr("Swatches")]
+    for b in colorBooks: names.add b.title
+    colorSource = clamp(colorSource, 0, names.high)
+    discard combo(names, colorSource)
+  var colors: seq[uint32]
+  if colorSource == 0: colors = swatches
+  else:
+    for c in colorBooks[colorSource - 1].colors: colors.add c.color or 0xFF000000'u32
+  let cell = swatchSize()
+  let perRow = max(1, (available() - SbW - dp(4)) div cell)
+  let rows = (colors.len + perRow - 1) div perRow
+  beginScroll(min(cell * 5, max(cell, rows * cell) + dp(4)), "colorsource")
+  let ev = swatchGrid(colors, perRow * cell, cell, key = "colorpanel" & $colorSource)
+  endScroll()
+  if ev.pick >= 0 and ev.pick < colors.len:
+    setColor(colors[ev.pick], ev.alt or pickerTarget == 1)
+    if colorSource > 0:
+      let b = colorBooks[colorSource - 1]
+      status = b.fullName(b.colors[ev.pick])
 
 var newSwatch = 0xFF808080'u32
 

@@ -8,7 +8,8 @@
 
 import std/math
 import retroui
-import retroui/charts
+import retroui/[charts, textwidgets, textengine]
+import std/[strutils, algorithm]
 import harness
 
 fakeDriver()
@@ -177,7 +178,7 @@ proc contrast(a, b: Color): float =
   let (x, y) = (lum(a), lum(b))
   (max(x, y) + 0.05) / (min(x, y) + 0.05)
 
-doAssert builtinThemes.len == 28
+doAssert builtinThemes.len == 30
 var names: seq[string]
 for (name, t) in builtinThemes:
   doAssert name notin names, name
@@ -193,9 +194,60 @@ for (name, t) in builtinThemes:
   for c in [goodBack(), warnBack(), badBack(), infoBack()]:
     doAssert contrast(t.text, c) >= 4.5, name & ": text on a state's background"
   doAssert goodColor() != badColor() and warnColor() != infoColor()
-for want in ["Notes", "Snow", "Mint", "Sky", "Blossom", "Lavender", "Sunset", "Graphite", "Dusk", "Night Notes"]:
+for want in ["Notes", "Snow", "Mint", "Sky", "Blossom", "Lavender", "Sunset", "Graphite", "Dusk", "Night Notes",
+             "Glass Light", "Glass Dark"]:
   doAssert want in names, want
 ui.theme = before
+
+# ---- the Glass look: rounded, see-through, the highlight on what is on; every scheme; not the high
+# contrast ones ------------------------------------------------------------------------------------------
+
+var gb, gc, gs: Rect
+var gOn = true
+var gSw = true
+view = proc () =
+  button("Glass")
+  gb = ui.lastRect
+  checkbox("On", gOn)
+  gc = ui.lastRect
+  toggle("Switch", gSw)
+  gs = ui.lastRect
+for (t, want) in [(GlassLight, true), (GlassDark, true), (Emerald, true), (HighContrast, false)]:
+  ui.theme = t
+  uiLook = lookGlass
+  invalidate()
+  run(3)
+  doAssert glassLook() == want
+  let corner = px(gb.x, gb.y)
+  let win = (uint32(t.window.r) shl 16) or (uint32(t.window.g) shl 8) or uint32(t.window.b)
+  if want:
+    doAssert corner == win, "a button's corner: rounded off, the window under it " & $corner
+    doAssert count(accentColor(), gc) > 10, "a check box ticked: in the highlight"
+    doAssert count(accentColor(), gs) > 20, "a switch on: in the highlight"
+  else:
+    doAssert corner != win, "High Contrast: its square, black-edged buttons"
+  uiLook = lookClassic
+  invalidate()
+  run(3)
+  doAssert px(gb.x, gb.y) != win or not want, "Classic again: square " & $gb & " " & $px(gb.x, gb.y)
+ui.theme = before
+
+# ---- a font list: the fonts used last, then all of them from A to Z ---------------------------------
+
+block:
+  let all = fontFamilies()
+  var order = fontListOrder()
+  var az = all
+  az.sort(proc (a, b: string): int = cmpIgnoreCase(a, b))
+  doAssert order == az, "none used yet: A to Z"
+  noteFontUsed("FreeSerif")
+  noteFontUsed("FreeMono")
+  noteFontUsed("FreeSerif")
+  noteFontUsed("No Such Font")
+  order = fontListOrder()
+  doAssert order[0] == "FreeSerif" and order[1] == "FreeMono" and order[2 .. ^1] == az,
+           "the last used first (one there is), then A to Z: " & $order[0 .. 3]
+  recentFonts.setLen(0)
 
 # ---- the tool bar: a line between groups, room ------------------------------------------------------
 

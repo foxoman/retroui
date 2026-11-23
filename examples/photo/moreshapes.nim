@@ -150,7 +150,7 @@ proc moreShapesDialogs() =
           if checkbox("Fill", fillOn): sh.fill = if fillOn: solidPaint(fg or 0xFF000000'u32) else: ShapePaint()
           if sh.fill.kind == spColor:
             var c = sh.fill.color
-            if colorWell(c, "lsfill", dp(40)): sh.fill.color = c or 0xFF000000'u32
+            if colorWell(c, "lsfill", dp(40), alpha = true): sh.fill.color = c
           var strokeOn = sh.stroke.kind != spNone and sh.strokeWidth > 0
           if checkbox("Stroke", strokeOn):
             if strokeOn:
@@ -159,7 +159,7 @@ proc moreShapesDialogs() =
             else: sh.stroke = ShapePaint()
           if sh.stroke.kind == spColor:
             var c = sh.stroke.color
-            if colorWell(c, "lsstroke", dp(40)): sh.stroke.color = c or 0xFF000000'u32
+            if colorWell(c, "lsstroke", dp(40), alpha = true): sh.stroke.color = c
             var sw = int(round(sh.strokeWidth))
             if spin(sw, 0, 500, w = dp(56)): sh.strokeWidth = sw.float
             label "px"

@@ -9,7 +9,7 @@
 
 import std/[strutils, sequtils, os]
 from std/unicode import runes, toUTF8, Rune, `$`
-import retroui, retroui/[typeset, richedit, charts, pdf, pdfread, xlsx, codec, lang_ar, canvas2d]
+import retroui, retroui/[typeset, richedit, charts, pdf, pdfread, xlsx, codec, lang_ar, canvas2d, lzma]
 import retroui/uirelays/[input, services]
 import harness
 
@@ -160,6 +160,58 @@ block unicodeConformance:
     var order = visualOrderOf(lv)
     order.keepItIf(want[it] != "x")
     doAssert order == f[4].splitWhitespace.mapIt(parseInt(it)), line & ": " & $order
+
+block everyLineOfUnicodesConformanceTests:
+  # Unicode's two conformance files for the bidi algorithm (18.0), every line -- BidiTest's
+  # 770 241 runs of bidi classes in the three paragraph directions, BidiCharacterTest's
+  # 91 707 lines of characters with brackets -- each character's level and the order shown
+  # (tests/data/unicode: packed with tools/packlzma.py; Unicode's license beside them)
+  let dir = currentSourcePath().parentDir / "data" / "unicode"
+  var runs = 0
+  proc check(cps: seq[int]; d, wantPara: int; want: seq[string]; wantOrder: seq[int]; line: string) =
+    inc runs
+    var s = ""
+    for c in cps: s.add Rune(c).toUTF8
+    let bi = bidiInfo(s, d)
+    if wantPara >= 0: doAssert ord(bi.rtlPara) == wantPara, line & ": the paragraph's level"
+    var lv = bi.levels
+    if lv.len == 0: lv = newSeq[int8](cps.len)
+    for i, w in want:
+      if w != "x": doAssert $lv[i] == w, line & ": level " & $i & " is " & $lv[i]
+    var order = visualOrderOf(lv)
+    if order.len == 0: order = toSeq(0 ..< cps.len)
+    order.keepItIf(want[it] != "x")
+    doAssert order == wantOrder, line & ": shown " & $order
+  for line in unlzma(readFile(dir / "BidiCharacterTest.txt.z")).splitLines:
+    if line.len == 0 or line[0] == '#': continue
+    let f = line.split(';')
+    let d = parseInt(f[1])
+    check(f[0].splitWhitespace.mapIt(parseHexInt(it)), (if d == 2: -1 else: d), parseInt(f[2]),
+          f[3].splitWhitespace, f[4].splitWhitespace.mapIt(parseInt(it)), line)
+  doAssert runs == 91707, $runs
+  const rep = [("L", 0x41), ("R", 0x5D0), ("AL", 0x627), ("EN", 0x30), ("ES", 0x2B), ("ET", 0x24),
+               ("AN", 0x660), ("CS", 0x2C), ("NSM", 0x300), ("BN", 0xAD), ("B", 0x2029), ("S", 0x9),
+               ("WS", 0x20), ("ON", 0x21), ("LRE", 0x202A), ("LRO", 0x202D), ("RLE", 0x202B),
+               ("RLO", 0x202E), ("PDF", 0x202C), ("LRI", 0x2066), ("RLI", 0x2067), ("FSI", 0x2068),
+               ("PDI", 0x2069)]
+    ## (a character of each bidi class)
+  proc charOf(c: string): int =
+    for (k, v) in rep:
+      if k == c: return v
+    doAssert false, c
+  var levels: seq[string]
+  var order: seq[int]
+  for line in unlzma(readFile(dir / "BidiTest.txt.z")).splitLines:
+    if line.len == 0 or line[0] == '#': continue
+    if line.startsWith("@Levels:"): levels = line[8 .. ^1].splitWhitespace
+    elif line.startsWith("@Reorder:"): order = line[9 .. ^1].splitWhitespace.mapIt(parseInt(it))
+    elif line[0] != '@':
+      let f = line.split(';')
+      let cps = f[0].splitWhitespace.mapIt(charOf(it))
+      let bits = parseInt(f[1].strip)
+      for (bit, d) in [(1, -1), (2, 0), (4, 1)]:
+        if (bits and bit) != 0: check(cps, d, -1, levels, order, line & " (" & $d & ")")
+  doAssert runs == 91707 + 770241, $runs
 
 block directionOfText:
   # the first strong letter, what is inside isolates left out (P2, P3)
@@ -598,6 +650,28 @@ block rtlInterfaceCheckerboard:
   setUiLanguage("ar", @toolkitArabic)
   doAssert span(true) == (200, 299), "kept: " & $span(true)
   doAssert span(false) == (0, 99), "mirrored: " & $span(false)
+  setUiLanguage("")
+  run(2)
+
+block screenPixel:
+  # an eyedropper's color from anywhere in the window: the pixel the screen shows there, read
+  # as the next frame is shown -- in a mirrored frame too
+  for lang in ["", "ar"]:
+    setUiLanguage(lang, @toolkitArabic)
+    var r: Rect
+    view = proc () =
+      r = place(120, 40)
+      fill(rect(r.x, r.y, 60, 40), color(200, 30, 40))
+      fill(rect(r.x + 60, r.y, 60, 40), color(20, 160, 70))
+    run(2)
+    let sr = onScreen(r)
+    for (dx, want) in [(10, 0xFFC81E28'u32), (110, 0xFF14A046'u32)]:
+      let x = if ui.rtl: sr.x + sr.w - 1 - dx else: sr.x + dx
+      readScreenPixel(x, sr.y + 20)
+      doAssert not screenPixelRead().done
+      run(1)
+      let (done, c) = screenPixelRead()
+      doAssert done and c == want, lang & ": " & toHex(c) & " at " & $dx
   setUiLanguage("")
   run(2)
 

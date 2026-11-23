@@ -63,6 +63,28 @@ block oddData:
       discard rasterizeSvg(svg, 200, 120)
   discard chartSvg(ChartSpec(kind: ckColumn, w: 5, h: 5, labels: @["a"], series: @[("s", @[1.0])]))
 
+block textAsBigAsTheChart:
+  # a chart's text grows with it (a chart across an A4 page at 300 dpi: not a screen's 14 pixels);
+  # sizes set are kept; the type layers placed are that big
+  let small = ChartSpec(kind: ckColumn, title: "Chart", labels: @["Q1", "Q2"], series: @[("s", @[1.0, 2])],
+                        w: 800, h: 500)
+  doAssert small.chartTextSizes == (28.0, 14.0)
+  var big = small
+  big.w = 1600
+  big.h = 1000
+  doAssert big.chartTextSizes == (56.0, 28.0), $big.chartTextSizes
+  big.textSize = 20
+  doAssert big.chartTextSizes.text == 20 and big.chartTextSizes.title == 56
+  big.textSize = 0
+  let d = newDoc(2000, 1400, 0xFFFFFFFF'u32)
+  var biggest = 0'f32
+  for L in d.placeSvg(chartSvg(big), rect(100, 100, 1600, 1000)):
+    if L.isText: biggest = max(biggest, L.text.spans[0].style.size)
+  doAssert abs(biggest - 56) < 1, "the title as big as the chart: " & $biggest
+  # a map's title too
+  let m = mapSvg(MapSpec(region: "Middle East", title: "Map", w: 1800, h: 1000))
+  doAssert "font-size=\"52.00\" font-weight=\"bold\"" in m, "the map's title doubled"
+
 block dataAndSettings:
   let t = chartData("Month,2025,2026\nJan,10,12\nFeb,8,\nMar,15,17\n")
   doAssert t.labels == @["Jan", "Feb", "Mar"] and t.series.len == 2 and t.series[1][0] == "2026"

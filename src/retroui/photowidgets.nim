@@ -1296,6 +1296,8 @@ type ColorPickerState* = object
   libSel*: int               ## ... its color chosen
   libKey: string             ## ... the name or number typed to find one
   pickedName*: string        ## the library color's name, when OK took one
+  alpha*: int                ## its opacity, 0 (transparent) .. 255, when the picker shows it
+                             ## (`colorPickerDialog(..., alpha = true)`)
 
 var colorBooks*: seq[ColorBook]
   ## The Color Libraries: the kit's own (`builtinBooks`, there from the
@@ -1313,6 +1315,27 @@ proc setPickerColor*(p: var ColorPickerState; c: uint32) =
   if hsb.s > 0 and hsb.b > 0: p.h = hsb.h
   p.s = hsb.s
   p.b = hsb.b
+
+proc alphaSwatch*(r: Rect; c: uint32) =
+  ## `c` (ARGB) filling `r`, over a checkerboard where it is see-through.
+  let a = int(c shr 24)
+  if a >= 255:
+    fill(r, colorOf(c))
+    return
+  let s = max(2, dp(4))
+  fill(r, colorOf(blendPx(0xFFFFFFFF'u32, c, 255, bmNormal)))
+  let dark = colorOf(blendPx(0xFFC0C0C0'u32, c, 255, bmNormal))
+  pushClip(r)
+  var y = r.y
+  var k = 0
+  while y < r.y + r.h:
+    var x = r.x + (if k mod 2 == 1: s else: 0)
+    while x < r.x + r.w:
+      fill(rect(x, y, s, s), dark)
+      x += 2 * s
+    y += s
+    inc k
+  popClip()
 
 proc fieldColor(p: ColorPickerState; u, v: float): uint32 =
   ## The field's color at (u, v) in 0..1 (v up) for the channel the strip holds.
@@ -1439,17 +1462,20 @@ proc colorStrip*(p: var ColorPickerState; w, h: int): bool {.discardable.} =
   arrow(r.x + r.w - dp(4), y, dLeft, th.text, dp(4))
 
 proc colorPickerDialog*(open: var bool; title: string; c: var uint32;
-                        p: var ColorPickerState): bool =
+                        p: var ColorPickerState; alpha = false): bool =
   ## The color picker: a field and a strip for the channel chosen (H, S,
   ## B, R, G, B), the new color over the old one, and the numbers in HSB,
-  ## RGB, Lab and CMYK to type. True (once) on OK, with `c` set.
+  ## RGB, Lab and CMYK to type. True (once) on OK, with `c` set. `alpha`:
+  ## its opacity too (a gradient's color stop) -- a slider and a number, Transparent and
+  ## Opaque, the colors over a checkerboard; `c` keeps it (else `c` is opaque).
   if not open:
     p.opened = false
     return
   if not p.opened:
     p.opened = true
-    p.original = c
+    p.original = if alpha: c else: c or 0xFF000000'u32
     p.setPickerColor(c)
+    p.alpha = if alpha: int(c shr 24) else: 255
   if p.libraries:
     # Color Libraries: a book's named colors (Photoshop's dialog in place of the picker)
     ensureBooks()
@@ -1538,8 +1564,12 @@ proc colorPickerDialog*(open: var bool; title: string; c: var uint32;
       col:
         # the new color over the old
         let sw = place(dp(70), dp(60))
-        fill(rect(sw.x, sw.y, sw.w, sw.h div 2), colorOf(pickerColor(p)))
-        fill(rect(sw.x, sw.y + sw.h div 2, sw.w, sw.h - sw.h div 2), colorOf(p.original))
+        if alpha:
+          alphaSwatch(rect(sw.x, sw.y, sw.w, sw.h div 2), pickerColor(p).withAlpha(p.alpha))
+          alphaSwatch(rect(sw.x, sw.y + sw.h div 2, sw.w, sw.h - sw.h div 2), p.original)
+        else:
+          fill(rect(sw.x, sw.y, sw.w, sw.h div 2), colorOf(pickerColor(p)))
+          fill(rect(sw.x, sw.y + sw.h div 2, sw.w, sw.h - sw.h div 2), colorOf(p.original))
         box(sw, th.frame)
         let back = interact(idOf(p, "old"), rect(sw.x, sw.y + sw.h div 2, sw.w, sw.h div 2), focusable = false)
         if back.clicked: p.setPickerColor(p.original)
@@ -1572,7 +1602,7 @@ proc colorPickerDialog*(open: var bool; title: string; c: var uint32;
           p.setPickerColor(argb(255, rr, gg, bl))
       col:
         if button("OK", isDefault = true, w = dp(100)):
-          c = pickerColor(p)
+          c = if alpha: pickerColor(p).withAlpha(p.alpha) else: pickerColor(p)
           open = false
           result = true
         if button("Cancel", w = dp(100)): open = false
@@ -1612,13 +1642,26 @@ proc colorPickerDialog*(open: var bool; title: string; c: var uint32;
           box(pr, ui.theme.text)
         space(dp(6))
         var hex = "#" & toHex(int(pickerColor(p) and 0xFFFFFF'u32), 6)
+        if alpha and p.alpha < 255: hex.add toHex(p.alpha, 2)
         if edit(hex, w = dp(90)):
           var v: int
-          if hex.len == 7 and hex[0] == '#':
+          if hex.len in [7, 9] and hex[0] == '#':
             try:
-              v = parseHexInt(hex[1 .. ^1])
+              v = parseHexInt(hex[1 .. 6])
               p.setPickerColor(0xFF000000'u32 or uint32(v))
+              if alpha: p.alpha = if hex.len == 9: parseHexInt(hex[7 .. 8]) else: 255
             except ValueError: discard
+    if alpha:
+      # its opacity: 0 % is transparent (a color stop that fades the gradient out)
+      row:
+        label "Opacity:"
+        var op = int(round(p.alpha / 255 * 100))
+        if slider(op, 0, 100, w = dp(200)): p.alpha = int(round(op / 100 * 255))
+        if spin(op, 0, 100, w = dp(64)): p.alpha = int(round(op / 100 * 255))
+        label "%"
+        if button("Transparent", w = dp(100)): p.alpha = 0
+        tooltip("Opacity 0 %: the color see-through (a gradient fades out to it)")
+        if button("Opaque", w = dp(80)): p.alpha = 255
 
 # ---- curves ---------------------------------------------------------------------------------------------
 
@@ -2102,19 +2145,32 @@ type SwatchEvent* = object
   empty*: bool               ## the click was after the last swatch
   alt*, shift*, ctrl*: bool  ## the keys held
 
-proc swatchGrid*(colors: seq[uint32]; w: int; cell = 0): SwatchEvent =
-  ## The Swatches palette: small squares of colors.
+proc swatchSize*(): int =
+  ## A swatch's side: big enough to hit with the mouse at once (20), with a finger (30).
+  if fingers(): dp(30) else: dp(20)
+
+proc swatchGrid*(colors: seq[uint32]; w: int; cell = 0; key = ""): SwatchEvent =
+  ## The Swatches palette: squares of colors (`cell` each, 0 for `swatchSize`; `key`: one of
+  ## several shown at once), the one under the pointer framed, its color in a tooltip.
   result.pick = -1
-  let c = if cell > 0: cell else: dp(11)
+  let c = if cell > 0: cell else: swatchSize()
   let cols = max(1, w div c)
   let rows = max(1, (colors.len + cols) div cols)
   let r = place(cols * c, rows * c)
-  let id = idOf("swatchgrid" & $colors.len)
+  let id = idOf("swatchgrid" & key & $colors.len)
   let hit = interact(id, r, focusable = false)
   fill(r, th.window)
+  let gap = if c >= dp(16): 2 else: 1
   for i, col in colors:
     let cr = rect(r.x + (i mod cols) * c, r.y + (i div cols) * c, c, c)
-    fill(inset(cr, 1), colorOf(col))
+    let sw = inset(cr, gap)
+    if glassLook(): roundRect(sw, float(min(dp(4), sw.w div 4)), colorOf(col))
+    else:
+      fill(sw, colorOf(col))
+      if c >= dp(16): box(sw, mixColor(th.window, th.text, 0.25))
+    if hit.hover and mouseIn(cr):
+      box(inset(cr, gap - 1), th.text)
+      ui.tip = "#" & toHex(int(col and 0xFFFFFF'u32), 6)
     if hit.clicked and mouseIn(cr): result.pick = i
   if hit.clicked and result.pick < 0: result.empty = true
   if hit.clicked:

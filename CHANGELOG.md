@@ -1,5 +1,146 @@
 # Changes
 
+## 0.72.0
+
+Every tool of Retro Atelier with an icon of its own, a brush's outline
+as you paint, an eyedropper in the Color panel that takes a color from
+anywhere in the window, the swatches and libraries there to choose
+from, the Glass look (frosted, rounded controls, Glass Light and Glass
+Dark), every glyph of a font to put in the text, three Arabic families
+carried, a chart's text as big as the chart, and the Open dialog on
+Android in your own folders; and Arabic set right where it was not:
+a lam-alef lost beside a bullet, a justified line out of its box.
+Retro Atelier 5.17.0.
+
+- **The Glass look** (Appearance: **Look: Glass**; `uiLook = lookGlass`):
+  every control as frosted glass instead of 3.1's raised gray --
+  capsule buttons lit along their top with a hairline and a soft shadow,
+  check boxes, radio buttons and switches rounded and in the scheme's
+  highlight when on, a slim scroll bar thumb, menus with a soft shadow and
+  the chosen item a rounded pill, rounded group boxes, tabs and focus
+  rings -- at the same sizes, so nothing moves. Two schemes made for it,
+  **Glass Light** and **Glass Dark** (`GlassLight`, `GlassDark`), and it
+  goes with every other scheme but the high-contrast ones. For an app's
+  own controls: `glassLook()`, `glassFace`, `glassWell`, `glassAccent`,
+  `selectFill`, `roundFrame` (`retroui/gfx`).
+- **Every glyph of a font** (Window > Glyphs, Show: Entire Font):
+  the font of the text being typed, each glyph drawn in it -- the Allah
+  ligature, ornaments, a logo in the private area, a ligature or a
+  stylistic set's form no character has -- a click puts it in the
+  text, with the OpenType feature the font makes it by turned on for it
+  alone. Opening it while typing (the bar's Glyphs, Window > Glyphs) --
+  or Character, Paragraph, any panel -- no longer ends the typing. In the
+  kit: `glyphPicker` (`retroui/textwidgets`), `fontGlyphs`
+  (`retroui/textengine`: each glyph and what to type for it, checked by
+  shaping), `charMap` (`retroui/ttf`), `glyphRecipes`
+  (`retroui/otshape`: what the font's single, alternate and ligature
+  substitutions make, of what).
+- **Three Arabic families carried** (`retroui/arabicfonts`,
+  `carryArabicFonts`; 640 KB packed): Scheherazade New and Lateef,
+  SIL's naskh faces for Arabic, Persian, Urdu, Pashto and Sindhi, and
+  Markazi Text, Regular and Bold each, under the SIL Open Font License.
+  Retro Atelier offers them.
+- **A list on the paragraphs you choose**: bullets and numbers (the
+  Paragraph panel) go to the paragraphs the selection is in while
+  typing, not every paragraph of the box; each paragraph's own format
+  says whether it is a list's (`hasList`), and the numbers go on across
+  a paragraph that is not. A justified paragraph of its own format no
+  longer runs under its mark.
+- **Arabic set right**:
+  - a character the font lacks -- a bullet before Arabic words -- no
+    longer sends the whole run to another font, a letter at a time
+    (لأ, لإ and لا lost in some fonts, the letters in other shapes):
+    the font shapes what it has, the bullet comes from another;
+  - a line that breaks after "(Justified" in an Arabic paragraph shows
+    the space it breaks at at its end, not in its middle (Unicode's
+    rule L1): it was a space wider than its box;
+  - a justified line the Paragraph Composer made a little too long has
+    its spaces narrowed, kashidas or not, and a paragraph's last line
+    too: not out of its box;
+  - a kashida is stretched by its tatweel's ink, not its advance: a
+    font whose tatweel is inked wider than it steps (Dubai's) drew it
+    on past the line, out of the box.
+  - lam with alef maksura (إلى، على) is one glyph again in a font that
+    has it only as a presentation form, as HarfBuzz 15 makes it
+    (U+FC43; Traditional Arabic of Windows 3.1);
+  - the Arabic fonts of Windows 3.1 shape as HarfBuzz shapes them:
+    Simplified and Traditional Arabic (a symbol map, the font page in
+    OS/2) read through HarfBuzz's private-use map, the ones encoded as
+    Windows-1256 with its own lookups for them (their joining forms,
+    lam-alef, shadda with a vowel).
+- **Shaped as HarfBuzz, laid out as Unicode says, checked.** 13 Arabic
+  fonts (the three above, Noto Naskh and Noto Sans Arabic, FreeSerif,
+  Reem Kufi, Dastkhat, Dubai, four Traditional Arabic files of Windows
+  3.1 and later) each shaped a paragraph of fully voweled Arabic and its
+  words, 269 runs, as HarfBuzz 15 does, every glyph, cluster, advance
+  and offset; test_otshape now holds 6124 runs (the carried families'
+  and two fonts made as Windows 3.1's among them). The bidirectional
+  algorithm passes every line of Unicode 18's own conformance tests
+  (BidiTest and BidiCharacterTest: 861,948 cases, test_bidi). Both are
+  in the kit's own Nim, nothing linked.
+- **The font list: the fonts you used last first**, then every family
+  A to Z (`fontListOrder`, `recentFonts`, `noteFontUsed` in
+  `retroui/textwidgets`; Retro Atelier remembers the last eight).
+- **Bigger swatches** to click: 20 pixels a side (30 for a finger,
+  `swatchSize`), each framed, the one under the pointer outlined with
+  its color in a tooltip.
+- **A transparent color wherever one is wanted.** The color picker has
+  an Opacity (a slider and a number, **Transparent** and **Opaque**, the
+  colors over a checkerboard, #RRGGBBAA typed) where a color may be
+  see-through: a gradient's color stops (and the Gradient Editor's own
+  Transparent button: the gradient fades out to that stop, its color
+  kept), a shape's fill and stroke and their gradient's second colors
+  (the Options bar, the palette, Properties, live shapes), a line, a
+  fill layer's color, type, a paragraph's shading, a table's fills and a
+  cell's, a chart's card. Its swatch shows the checkerboard through it.
+  In the kit: `colorWell(..., alpha = true)` and
+  `openColorDialog(..., alpha = true)` (the Color dialog with its
+  Opacity, Transparent and Opaque), `checkedFill` (`retroui/extras`);
+  `colorPickerDialog(..., alpha = true)`, `ColorPickerState.alpha`,
+  `alphaSwatch` (`retroui/photowidgets`).
+- **A text box's eight handles** with the Type tool: its corners and
+  the middles of its sides size the box, the text flowing in it again at
+  its size (the Move tool's scale it); bigger for a finger.
+
+- **Retro Atelier: every tool its own icon.** 69 tools showed another
+  tool's icon (the nine Graph tools one chart, the Type tools one T,
+  the Symbol and liquify tools a zoom or a warp); each now has its own,
+  drawn as the others, with its line twin for the dark schemes -- on the
+  toolbar, its groups, the Options bar and the vector tools' strip. A
+  test keeps it so: no two tools with the same icon.
+- **The brush's outline.** The brush, pencil, eraser, stamp, healing,
+  blur and toning tools show their tip's own outline at the pointer (an
+  ellipse at its angle, a sampled tip's shape), as Preferences >
+  Cursors says (normal: where it paints at least half; full size); and
+  when a brush tool is picked or its size or tip changes, its outline a
+  moment in the view's middle with its size under it -- a finger has no
+  pointer to show it at. (`retroui/photopaint`: `tipOutline`.)
+- **The Color panel's eyedropper**: a press anywhere in the window --
+  a picture, a swatch, the toolbar -- takes the color shown there, the
+  press its own (nothing painted); Alt picks the background color. And
+  the panel's colors to choose from: the Swatches or any of the color
+  libraries, each color's name in the status line.
+  (`readScreenPixel`, `screenPixelRead`: the screen's pixel, read as the
+  next frame is drawn, by the GPU or the CPU; `swatchGrid(key = ...)`.)
+- **A chart's text as big as the chart**: an infographic's title,
+  labels and legend grow with its box (a chart drawn across a page no
+  longer has 14-pixel labels); the Chart dialog shows the sizes it will
+  have. (`chartTextSizes`.)
+- **Android: the Open dialog in your folders.** It opened in the app's
+  own cache (where the files other apps hand it are copies); it starts
+  in your Pictures now, Places (the star) goes to the phone's storage
+  and its folders, and without Android's access to your files a line
+  asks for it (Allow Access to Your Files...). (`pickerFolder`.)
+- **Pattern Options with a big tile** (found by a random-input run): its
+  preview, three times three of the tile, was made at full size -- a
+  tile thousands of pixels a side took gigabytes, and failed. It is at
+  most 600 pixels a side now, sampled; the tile saved stays whole.
+- Maintainers: `tools/genicons.py` and `tools/genlineicons.py` write
+  into `src/retroui` again; the first changes only the icons' constants,
+  count and names in `pixelicons.nim` (the rest of it is kept), the
+  second only the twins' table, and adds the new glyphs to the icon font
+  keeping the old ones exactly.
+
 ## 0.71.0
 
 Retro Atelier 5.16.0 takes what was missing from today's photo, drawing

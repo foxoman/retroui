@@ -24,7 +24,10 @@
 ## font units. A font without GSUB and GPOS gets its nominal glyphs and its
 ## legacy `kern` pairs (split between the two glyphs as HarfBuzz does); an
 ## Arabic font without the joining features gets them from the presentation
-## forms its map has, with the ligatures (HarfBuzz's Arabic fallback); a
+## forms its map has, with the ligatures (HarfBuzz's Arabic fallback; the
+## Arabic fonts of Windows 3.1 encoded as Windows-1256 get HarfBuzz's own
+## lookups for them, and Simplified and Traditional Arabic of then are read
+## through its private-use map); a
 ## font without GPOS has its marks placed by their class, above or below the
 ## letter (HarfBuzz's fallback mark positioning); a character followed by a
 ## variation selector takes the font's glyph for the pair (cmap 14).
@@ -40,8 +43,7 @@
 ## Not done: the shapers HarfBuzz has for Indic, Khmer, Myanmar, Hangul (its
 ## jamo put together and apart) and the Universal Shaping Engine scripts
 ## (those runs get the default features only); the Thai shaper's private-use
-## glyphs for the Thai fonts of before OpenType; Syriac `stch`; the hand-made
-## GSUB HarfBuzz gives a font encoded as Windows-1256; vertical text.
+## glyphs for the Thai fonts of before OpenType; Syriac `stch`; vertical text.
 
 import std/[tables, algorithm, base64, strutils, math]
 import ttf, arabicdata
@@ -696,6 +698,7 @@ type
     fbMade: bool               ## (the Arabic fallback's lookups, below, made)
     fbSingle: array[4, Table[int, int]]   ## glyph -> its initial, medial, final, isolated form's
     fbLigs: array[3, Table[int, seq[(seq[int], int)]]]
+    fbWin1256: bool            ## (the lookups HarfBuzz has for a font encoded as Windows-1256)
       ## (first glyph -> the other glyphs and the ligature: three letters, two, two marks)
 
 template u8(L: Layout; i: int): int =
@@ -2598,7 +2601,8 @@ const
     (0xFEB7, 0xFEE4, 0xFD30), (0xFED3, 0xFEF2, 0xFC32), (0xFEDF, 0xFE9E, 0xFC3F),
     (0xFEDF, 0xFEA0, 0xFCC9), (0xFEDF, 0xFEA2, 0xFC40), (0xFEDF, 0xFEA4, 0xFCCA),
     (0xFEDF, 0xFEA6, 0xFC41), (0xFEDF, 0xFEA8, 0xFCCB), (0xFEDF, 0xFEE2, 0xFC42),
-    (0xFEDF, 0xFEE4, 0xFCCC), (0xFEDF, 0xFEF2, 0xFC44), (0xFEDF, 0xFEEC, 0xFCCD),
+    (0xFEDF, 0xFEE4, 0xFCCC), (0xFEDF, 0xFEF0, 0xFC43), (0xFEDF, 0xFEF2, 0xFC44),
+    (0xFEDF, 0xFEEC, 0xFCCD),
     (0xFEDF, 0xFE82, 0xFEF5), (0xFEDF, 0xFE84, 0xFEF7), (0xFEDF, 0xFE88, 0xFEF9),
     (0xFEDF, 0xFE8E, 0xFEFB), (0xFEE0, 0xFEF0, 0xFC86), (0xFEE0, 0xFE82, 0xFEF6),
     (0xFEE0, 0xFE84, 0xFEF8), (0xFEE0, 0xFE88, 0xFEFA), (0xFEE0, 0xFE8E, 0xFEFC),
@@ -2612,12 +2616,43 @@ const
                 (0x0651, 0x0650, 0xFC62), (0x0651, 0x064B, 0xF2EE)]
     ## (shadda and a vowel: one glyph)
 
+const
+  win1256InitMedi = [(198, 162), (200, 4), (201, 5), (202, 5), (203, 6), (204, 7), (205, 9), (206, 11),
+                     (211, 13), (212, 14), (213, 15), (214, 26), (223, 140), (225, 141), (227, 142),
+                     (228, 143), (236, 154), (237, 154)]
+  win1256Init = [(218, 27), (219, 30), (221, 128), (222, 131), (229, 144)]
+  win1256Medi = [(218, 28), (219, 31), (221, 129), (222, 138), (229, 149)]
+  win1256Fina = [(194, 2), (195, 1), (197, 3), (198, 181), (199, 0), (201, 159), (204, 8), (205, 10),
+                 (206, 12), (218, 29), (219, 127), (229, 152), (236, 160), (237, 156)]
+  win1256LamAlefMediFina = [(165, 170), (178, 179), (180, 185), (252, 255)]
+  win1256LamAlef = [(199, 165), (195, 178), (194, 180), (197, 252)]   # (lam, 225, and this: one)
+  win1256Shadda = [(243, 172), (245, 173), (246, 175)]               # (shadda, 248, and this: one)
+    ## (HarfBuzz's hand-made lookups for the Arabic fonts encoded as Windows-1256 --
+    ## hb-ot-shaper-arabic-win1256.hh: Traditional Arabic, Simplified Arabic of Windows 3.1)
+
 proc makeFallback(L: Layout; f: Face) =
   ## The lookups HarfBuzz makes for an Arabic font without its features, from the presentation
   ## forms its character map has (hb-ot-shaper-arabic-fallback): each letter's glyph to its
-  ## initial, medial, final and isolated form's; then the ligatures.
+  ## initial, medial, final and isolated form's; then the ligatures. A font encoded as
+  ## Windows-1256 (its alef, lam, alef maksura, yeh and sukun where that code page has them) gets
+  ## HarfBuzz's own lookups for it instead.
   if L.fbMade: return
   L.fbMade = true
+  if f.glyphOf(0x0627) == 199 and f.glyphOf(0x0644) == 225 and f.glyphOf(0x0649) == 236 and
+     f.glyphOf(0x064A) == 237 and f.glyphOf(0x0652) == 250:
+    L.fbWin1256 = true
+    for (a, b) in win1256InitMedi:
+      L.fbSingle[0][a] = b
+      L.fbSingle[1][a] = b
+    for (a, b) in win1256Init: L.fbSingle[0][a] = b
+    for (a, b) in win1256Medi: L.fbSingle[1][a] = b
+    for (a, b) in win1256Fina: L.fbSingle[2][a] = b
+    for (a, b) in win1256LamAlefMediFina:
+      L.fbSingle[1][a] = b
+      L.fbSingle[2][a] = b
+    for (a, lig) in win1256LamAlef: L.fbLigs[1].mgetOrPut(225, @[]).add (@[a], lig)
+    for (a, lig) in win1256Shadda: L.fbLigs[2].mgetOrPut(248, @[]).add (@[a], lig)
+    return
   const slotOf = [2, 3, 1, 0]          # (init, medi, fina, isol in `arabicForms`' order)
   for (letter, forms) in arabicForms:
     let g = f.glyphOf(int(letter))
@@ -2653,20 +2688,8 @@ proc arabicFallback(c: var Ctx; p: Plan) =
   c.autoZwj = true
   c.autoZwnj = true
   c.random = false
-  for k in 0 .. 3:
-    let m = p.fallbackMasks[k]
-    if m == 0 or L.fbSingle[k].len == 0: continue
-    for i in 0 ..< b.len:
-      if (b.info[i].mask and m) == 0 or not c.checkGlyphProperty(b.info[i], lfIgnoreMarks): continue
-      let g = L.fbSingle[k].getOrDefault(int(b.info[i].cp), -1)
-      if g < 0: continue
-      b.idx = i
-      c.setGlyphClass(g)
-      b.info[i].cp = int32(g)
-    b.idx = 0
-  for k in 0 .. 2:
-    let m = p.fallbackMasks[4 + k]
-    if m == 0 or L.fbLigs[k].len == 0: continue
+  proc ligate(c: var Ctx; L: Layout; k: int; m: uint32) =
+    let b = c.b
     let props = if k < 2: lfIgnoreMarks else: 0
     c.lookupMask = m
     c.setLookupProps(props)
@@ -2686,6 +2709,24 @@ proc arabicFallback(c: var Ctx; p: Plan) =
               break
       if not done: b.nextGlyph()
     b.sync()
+  # (Windows-1256's: the lam-alef ligatures first, then the forms -- the ligature's medial and
+  # final ones among them --, then shadda and a vowel)
+  if L.fbWin1256 and p.fallbackMasks[5] != 0: c.ligate(L, 1, p.fallbackMasks[5])
+  for k in 0 .. 3:
+    let m = p.fallbackMasks[k]
+    if m == 0 or L.fbSingle[k].len == 0: continue
+    for i in 0 ..< b.len:
+      if (b.info[i].mask and m) == 0 or not c.checkGlyphProperty(b.info[i], lfIgnoreMarks): continue
+      let g = L.fbSingle[k].getOrDefault(int(b.info[i].cp), -1)
+      if g < 0: continue
+      b.idx = i
+      c.setGlyphClass(g)
+      b.info[i].cp = int32(g)
+    b.idx = 0
+  for k in 0 .. 2:
+    let m = p.fallbackMasks[4 + k]
+    if m == 0 or L.fbLigs[k].len == 0 or (L.fbWin1256 and k == 1): continue
+    c.ligate(L, k, m)
 
 const
   ccAttachedBelowLeft = 200
@@ -3148,6 +3189,72 @@ proc featureTags*(f: Face): seq[string] =
       let t = L.featureTagAt(L.t[k], i)
       if t notin result: result.add t
   result.sort()
+
+iterator coverageGlyphs(L: Layout; at: int): tuple[g, index: int] =
+  ## (a coverage table's glyphs, each with its coverage index)
+  if at > 0:
+    case L.u16(at)
+    of 1:
+      for i in 0 ..< L.u16(at + 2): yield (L.u16(at + 4 + 2 * i), i)
+    of 2:
+      for i in 0 ..< L.u16(at + 2):
+        let r = at + 4 + 6 * i
+        let (s, e, first) = (L.u16(r), L.u16(r + 2), L.u16(r + 4))
+        if e >= s and e - s < 65536:
+          for g in s .. e: yield (g, first + g - s)
+    else: discard
+
+proc glyphRecipes*(f: Face): seq[tuple[gid: int; src: seq[int]; tag: string]] =
+  ## How the face's substitutions make glyphs out of others: each glyph a feature's single,
+  ## alternate (its first) or ligature substitution gives (`gid`), the glyphs it is made
+  ## from (`src`) and the feature (`tag`: "liga", "ss01"...). With `charMap` a glyph picker
+  ## finds what to type for a glyph no character has: الله for the Allah ligature, "ffi",
+  ## a letter with a stylistic set on.
+  let L = f.layout
+  let t = L.t[0]
+  if t.at < 0: return
+  var seen: Table[int, int]               # (a lookup under a feature: read once)
+  for fi in 0 ..< L.u16(t.features):
+    let tag = L.featureTagAt(t, fi)
+    let ft = L.featureTableAt(t, fi, -1)
+    for k in 0 ..< L.u16(ft + 2):
+      let li = L.u16(ft + 4 + 2 * k)
+      if li >= t.looks.len or seen.hasKey(li * 8192 + fi): continue
+      seen[li * 8192 + fi] = 1
+      let info = t.looks[li]
+      for s in info.subs:
+        let cov = s + L.u16(s + 2)
+        case info.kind
+        of 1:
+          if L.u16(s) == 1:
+            let delta = L.i16(s + 4)
+            for (g, _) in L.coverageGlyphs(cov): result.add ((g + delta) and 0xFFFF, @[g], tag)
+          elif L.u16(s) == 2:
+            for (g, i) in L.coverageGlyphs(cov):
+              if i < L.u16(s + 4): result.add (L.u16(s + 6 + 2 * i), @[g], tag)
+        of 3:
+          for (g, i) in L.coverageGlyphs(cov):
+            if i < L.u16(s + 4):
+              let alt = s + L.u16(s + 6 + 2 * i)
+              if L.u16(alt) > 0: result.add (L.u16(alt + 2), @[g], tag)
+        of 4:
+          for (g, i) in L.coverageGlyphs(cov):
+            if i >= L.u16(s + 4): continue
+            let ls = s + L.u16(s + 6 + 2 * i)
+            for j in 0 ..< L.u16(ls):
+              let lig = ls + L.u16(ls + 2 + 2 * j)
+              let n = L.u16(lig + 2)
+              if n < 1 or n > 32: continue
+              var src = @[g]
+              for c in 1 ..< n: src.add L.u16(lig + 4 + 2 * (c - 1))
+              result.add (L.u16(lig), src, tag)
+        else: discard
+  var k = 0
+  for r in result:
+    if r.gid > 0 and r.gid < f.numGlyphs:
+      result[k] = r
+      inc k
+  result.setLen(k)
 
 const featureNames = {
   "aalt": "Access All Alternates", "abvm": "Above-base Mark Positioning",

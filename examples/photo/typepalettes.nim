@@ -8,7 +8,7 @@ var
   cpFamily, cpStyle: string
   cpSize, cpLead, cpTrack, cpVS, cpHS, cpBase, cpKern, cpAA: int
   cpDir: int
-  well: tuple[open: bool; key: string; c: uint32; done: bool; picker: ColorPickerState]
+  well: tuple[open: bool; key: string; c: uint32; done: bool; picker: ColorPickerState; alpha: bool]
   warpDlg: tuple[open: bool; w: TextWarp; orig: TextWarp; layer: Layer; ownStep: bool; style: int]
   lsDlg: tuple[open: bool; layer: Layer; page: int; ownStep: bool; split, blendOnly: bool]
   copiedStyle: tuple[has: bool; fx: LayerFx; fill: int]
@@ -18,16 +18,18 @@ const warpNames = ["None", "Arc", "Arc Lower", "Arc Upper", "Arch", "Bulge", "Sh
 
 # ---- small things ----------------------------------------------------------------------------------------
 
-proc colorWell(c: var uint32; key: string; w = 0): bool {.discardable.} =
-  ## A swatch of a color: a click opens the picker for it.
+proc colorWell(c: var uint32; key: string; w = 0; alpha = false): bool {.discardable.} =
+  ## A swatch of a color: a click opens the picker for it (`alpha`: with its opacity, to
+  ## Transparent -- a gradient's color stop; the swatch over a checkerboard).
   let r = place(if w > 0: w else: dp(34), CtrlH - dp(4))
-  fill(r, colorOf(c or 0xFF000000'u32))
+  if alpha: alphaSwatch(r, c) else: fill(r, colorOf(c or 0xFF000000'u32))
   box(r, color(0, 0, 0))
   box(inset(r, 1), color(255, 255, 255))
   if interact(idOf("well:" & key), r, focusable = false).clicked:
     well.open = true
     well.key = key
-    well.c = c or 0xFF000000'u32
+    well.c = if alpha: c else: c or 0xFF000000'u32
+    well.alpha = alpha
     well.done = false
   if well.done and well.key == key:
     well.done = false
@@ -154,10 +156,10 @@ proc fontRows(compact: bool) =
       let v = float32(cpSize)
       applyChar("Font Size", proc (x: var CharStyle) = x.size = v)
     label "px"
-    var c = if te.on or typeTarget() != nil: s.color else: fg
-    if colorWell(c, "typecolor"):
+    var c = if te.on or typeTarget() != nil: s.color else: fg or 0xFF000000'u32
+    if colorWell(c, "typecolor", alpha = true):
       let cc = c
-      if typeTarget() == nil: fg = cc
+      if typeTarget() == nil: fg = cc or 0xFF000000'u32
       applyChar("Text Color", proc (x: var CharStyle) = x.color = cc)
 
 proc directionButtons()
@@ -632,21 +634,22 @@ proc paragraphBody() =
       typePara.ignoreOptical = ig
       let v = ig
       applyPara("Ignore Optical Margin", proc (p: var ParaStyle) = p.ignoreOptical = v)
-  # a list: a mark before every paragraph of a text box
+  # a list: a mark before each paragraph of it (while typing, the paragraphs the selection is in;
+  # else every paragraph of the text box)
   var lk = ord(p.list)
   row:
     label "List:"
     if combo(["None", "Bullets", "Numbers"], lk, w = dp(100)):
       let v = ListKind(clamp(lk, 0, 2))
       typePara.list = v
-      applyAllParas("List", proc (p: var ParaStyle) = p.list = v)
+      applyPara("List", proc (p: var ParaStyle) = p.list = v)
     if p.list == lkBullet:
       const marks = ["•", "–", "▪", "◆", "★", "✓", "○", "►"]
       var mi = max(0, marks.find(if p.listMark.len > 0: p.listMark else: "•"))
       if combo(marks, mi, w = dp(56)):
         let v = marks[clamp(mi, 0, marks.high)]
         typePara.listMark = v
-        applyAllParas("List Mark", proc (p: var ParaStyle) = p.listMark = v)
+        applyPara("List Mark", proc (p: var ParaStyle) = p.listMark = v)
     elif p.list == lkNumber:
       var names: seq[string]
       for s in NumberStyle: names.add $s
@@ -654,7 +657,7 @@ proc paragraphBody() =
       if combo(names, ni, w = dp(90)):
         let v = NumberStyle(clamp(ni, 0, ord(high(NumberStyle))))
         typePara.listNumbers = v
-        applyAllParas("List Numbers", proc (p: var ParaStyle) = p.listNumbers = v)
+        applyPara("List Numbers", proc (p: var ParaStyle) = p.listNumbers = v)
   if p.list != lkNone:
     row:
       if p.list == lkNumber:
@@ -662,16 +665,16 @@ proc paragraphBody() =
         var from0 = max(1, p.listStart)
         if spin(from0, 1, 9999, w = dp(56)):
           let v = from0
-          applyAllParas("List Start", proc (p: var ParaStyle) = p.listStart = v)
+          applyPara("List Start", proc (p: var ParaStyle) = p.listStart = v)
         const ends = [".", ")", "-", ":"]
         var ei = max(0, ends.find(if p.listSuffix.len > 0: p.listSuffix else: "."))
         if combo(ends, ei, w = dp(44)):
           let v = ends[clamp(ei, 0, ends.high)]
-          applyAllParas("List Numbers", proc (p: var ParaStyle) = p.listSuffix = v)
+          applyPara("List Numbers", proc (p: var ParaStyle) = p.listSuffix = v)
       var own = p.listColor != 0
       if checkbox("Marks in the foreground color", own):
         let v = if own: (fg or 0xFF000000'u32) else: 0'u32
-        applyAllParas("List Color", proc (p: var ParaStyle) = p.listColor = v)
+        applyPara("List Color", proc (p: var ParaStyle) = p.listColor = v)
     if L != nil and L.text.boxW <= 0:
       label("(a list is text in a box: drag a box with the Type tool)", color = ui.theme.gray)
   # a drop cap: the first letters as tall as so many lines
@@ -1249,7 +1252,7 @@ proc typeDialogs() =
   warpDialog()
   layerStyleDialog()
   rasterAskDialog()
-  if colorPickerDialog(well.open, "Select color", well.c, well.picker): well.done = true
+  if colorPickerDialog(well.open, "Select color", well.c, well.picker, alpha = well.alpha): well.done = true
 
 # ---- the Layer menu's type and style items -------------------------------------------------------------------
 

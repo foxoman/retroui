@@ -7389,4 +7389,11 @@ const photoArabic* = [
   (" shapes, ", " أشكال، "),
   (" mm", " مم"),
   (" Styles from the other images", " أنماط من الصور الأخرى"),
+  ("Background: ", "الخلفية: "),
+  ("Pick a color from anywhere in the window (Alt: the background; Esc: stop)",
+   "التقط لونًا من أي مكان في النافذة (Alt: الخلفية؛ Esc: إيقاف)"),
+  ("Tap or click anywhere in the window to take its color (Alt: the background)",
+   "المس أو انقر أي مكان في النافذة لأخذ لونه (Alt: الخلفية)"),
+  ("Entire Font", "الخط كله"),
+  ("This color stop see-through: the gradient fades out to it", "نقطة اللون هذه شفافة: يتلاشى التدرج إليها"),
 ]

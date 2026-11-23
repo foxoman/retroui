@@ -181,11 +181,16 @@ proc chartFields() =
     if fontCombo(f, w = dp(180)): c.font = f
   row:
     label "Title size:"
-    var ts = int(if c.titleSize > 0: c.titleSize else: 28)
-    if spin(ts, 6, 200, w = dp(56)): c.titleSize = ts.float
+    # (as big as the chart, until set: 28 and 14 for 800 x 500)
+    var sized = c
+    sized.w = igDlg.box.w
+    sized.h = igDlg.box.h
+    let (ts0, fs0) = sized.chartTextSizes
+    var ts = int(round(ts0))
+    if spin(ts, 6, 400, w = dp(56)): c.titleSize = ts.float
     label "Text:"
-    var fs = int(if c.textSize > 0: c.textSize else: 14)
-    if spin(fs, 5, 120, w = dp(56)): c.textSize = fs.float
+    var fs = int(round(fs0))
+    if spin(fs, 5, 240, w = dp(56)): c.textSize = fs.float
   row:
     label "Corners:"
     var r = int(c.radius)
@@ -207,7 +212,7 @@ proc chartFields() =
     if checkbox("Card behind it", own): c.background = if own: 0xFFFFFFFF'u32 else: 0'u32
     if own:
       var bg = c.background
-      if colorWell(bg, "igbg", dp(40)): c.background = bg or 0xFF000000'u32
+      if colorWell(bg, "igbg", dp(40), alpha = true): c.background = max(bg, 1'u32)   # (see-through: a card of glass)
   igDlg.chart = c
 
 proc mapFields() =

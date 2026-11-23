@@ -109,6 +109,8 @@ var
   fbW, fbH: int
   frameHash, shownHash: uint64
   clearColor: uint32
+  screenPick: tuple[want, got: bool; x, y: int; c: uint32]
+    ## (a pixel of the screen asked for: `readScreenPixel`)
   pxScale* = 1      ## device pixels per logical pixel
   unitPx* = 1       ## device pixels per driver coordinate unit
   zoom* = 1         ## driver coordinate units per logical pixel
@@ -1146,6 +1148,32 @@ proc roundRect*(r: Rect; radius: float; c: Color) =
       let t = a0 + PI / 2 * float(i) / float(n)
       pt(cx + rad * cos(t), cy + rad * sin(t))
   closeContour()
+  endPath(a, c)
+
+proc roundFrame*(r: Rect; radius, width: float; c: Color) =
+  ## The outline of a rectangle with rounded corners, `width` thick, inside `r` (a hairline:
+  ## 1) -- what is in it left as it is.
+  let rad = min(radius, min(r.w, r.h) / 2)
+  if r.w <= 0 or r.h <= 0: return
+  let a = beginPath()
+  proc contour(x0, y0, x1, y1, rr: float; back: bool) =
+    let n = clamp(int(rr * float(pxScale) * 0.5) + 3, 3, 40)
+    let corners = [(x1 - rr, y0 + rr, -PI / 2), (x1 - rr, y1 - rr, 0.0),
+                   (x0 + rr, y1 - rr, PI / 2), (x0 + rr, y0 + rr, PI)]
+    var pts: seq[(float, float)]
+    for (cx, cy, a0) in corners:
+      for i in 0 .. n:
+        let t = a0 + PI / 2 * float(i) / float(n)
+        pts.add (cx + rr * cos(t), cy + rr * sin(t))
+    if back:
+      for i in countdown(pts.high, 0): pt(pts[i][0], pts[i][1])
+    else:
+      for q in pts: pt(q[0], q[1])
+    closeContour()
+  let (x0, y0, x1, y1) = (float(r.x), float(r.y), float(r.x + r.w), float(r.y + r.h))
+  contour(x0, y0, x1, y1, max(0.0, rad), false)
+  if r.w.float > 2 * width and r.h.float > 2 * width:
+    contour(x0 + width, y0 + width, x1 - width, y1 - width, max(0.0, rad - width), true)
   endPath(a, c)
 
 proc pieSlice*(cx, cy, r, a0, a1: float; c: Color) =
@@ -2444,11 +2472,30 @@ proc framePicture*(): Bitmap =
   for i in 0 ..< fbW * fbH: result.px[i] = fbMem[i] or 0xFF000000'u32
   result.opaque = true
 
+proc readScreenPixel*(x, y: int) =
+  ## Asks for the color of the window's pixel at `x`, `y` (logical pixels as
+  ## the screen shows them: a right-to-left frame's not mirrored back), read
+  ## as the next frame is shown -- the GPU's or the CPU's: `screenPixelRead`
+  ## has it then. For an eyedropper that takes a color from anywhere.
+  screenPick = (true, false, x, y, 0'u32)
+
+proc screenPixelRead*(): tuple[done: bool; color: uint32] =
+  ## The pixel `readScreenPixel` asked for (0xFFRRGGBB), once a frame was shown.
+  (screenPick.got, screenPick.c)
+
+proc takeScreenPixel(fb: ptr UncheckedArray[uint32]) =
+  ## (the pixel asked for, from the CPU's frame just drawn)
+  if not screenPick.want or fb == nil or fbW <= 0 or fbH <= 0: return
+  let s = max(1, pxScale)
+  let x = clamp(screenPick.x * s + s div 2, 0, fbW - 1)
+  let y = clamp(screenPick.y * s + s div 2, 0, fbH - 1)
+  screenPick = (false, true, screenPick.x, screenPick.y, 0xFF000000'u32 or (fb[y * fbW + x] and 0xFFFFFF'u32))
+
 proc present*(devW, devH: int; force: bool): bool =
   ## Rasterize and show the frame. Nothing happens -- not even a driver
   ## call -- when the frame is the one already on screen; otherwise only
   ## the tiles that changed are drawn and sent.
-  if not force and frameHash == shownHash and devW == fbW and devH == fbH:
+  if not force and frameHash == shownHash and devW == fbW and devH == fbH and not screenPick.want:
     return false
   var force = force
   if devW != fbW or devH != fbH:
@@ -2571,6 +2618,7 @@ proc present*(devW, devH: int; force: bool): bool =
   profEnd("CPU: draw", tDraw)
   var hasSys = false
   for v in sys: hasSys = hasSys or v
+  takeScreenPixel(fbMem)              # (an eyedropper's, from the frame as drawn)
   let tSend = profBegin("CPU: send")
   for r in runs: send(r)
   for t in 0 ..< n: shownTiles[t] = tileHash[t]

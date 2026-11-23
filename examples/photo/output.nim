@@ -653,7 +653,7 @@ proc shadeDialog() =
     group("Shading"):
       row:
         checkbox("Shading", shadeDlg.shade)
-        colorWell(shadeDlg.shadeColor, "parashade", dp(50))
+        colorWell(shadeDlg.shadeColor, "parashade", dp(50), alpha = true)
       checkbox("As wide as the text (else the column)", shadeDlg.toText)
       label("Offsets: how much further it reaches", color = ui.theme.gray)
       discard d.sidesFields(shadeDlg.shadeOffs, "shadeoffs", hi = 400)
@@ -677,7 +677,7 @@ proc shadeDialog() =
     d.layersChange("Paragraph Shading and Borders"):
       var t = L.text
       var p = t.para
-      p.shading = if shadeDlg.shade: shadeDlg.shadeColor or 0xFF000000'u32 else: 0
+      p.shading = if shadeDlg.shade: max(shadeDlg.shadeColor, 1'u32) else: 0      # (its opacity kept)
       p.shadeOffsets = so
       p.shadeToText = shadeDlg.toText
       p.border = if shadeDlg.border: shadeDlg.borderColor or 0xFF000000'u32 else: 0

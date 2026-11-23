@@ -254,9 +254,9 @@ Text: `label`, `paragraph`, `heading`, `styledText`, `link`, `badge`, `icon`, `i
 Buttons: `button`, `segmented`, `menuButton`, `splitButton`, `buttonRow`.
 Choices: `checkbox`, `radio`, `toggle`, `chips`, `tagInput`, `rating`.
 Text input: `edit`, `editArea`, `searchBox`, `autocomplete`, `maskedEdit`, `comboEdit`, `hotkeyEdit`, code (`codeEdit(s, lang = clNim)`: colored, line numbers, indent, Ctrl+/, find), rich text (`richEdit`, `richToolbar`).
-Numbers, dates, colors: `spin`, `intEdit`, `numberEdit`, `slider`, `progress`, `datePicker`, `calendar`, `timePicker`, `colorPicker`, `colorWell`.
+Numbers, dates, colors: `spin`, `intEdit`, `numberEdit`, `slider`, `progress`, `datePicker`, `calendar`, `timePicker`, `colorPicker`, `colorWell` (`alpha = true` for a color that may be see-through: Opacity, Transparent).
 Lists and data: `listbox`, `combo`, `grid` (the data grid with editing, sorting, totals), `gridOf(rows, sel)` (a grid of a seq of your object: a column a field, sorted for you), `tree`.
-Files: `fileDialog`, `fileList`, `folderTree`, `filePicker`, `filePreview`, `placesView`. On a phone, `systemFiles(true)` at the start makes `fileDialog` and `filePicker` the system's own picker (Android, iOS; what the app saves goes back into the document by itself).
+Files: `fileDialog`, `fileList`, `folderTree`, `filePicker` (`pickerFolder`: the folder it shows), `filePreview`, `placesView`. On a phone, `systemFiles(true)` at the start makes `fileDialog` and `filePicker` the system's own picker (Android, iOS; what the app saves goes back into the document by itself); without it, `filePicker` on Android starts in the user's Pictures (it asks for Android's access to the user's files when it has none). A color from anywhere in the window (an eyedropper): `readScreenPixel(x, y)`, then `screenPixelRead()` once the next frame is drawn.
 Charts and more: `chart` (21 kinds, from your numbers or a CSV table), `barChart`, `lineChart`, `pieChart`, `liveGraph` (a task manager's graph that moves: a frame costs a copy), the world map (`retroui/mapview`), street maps (`tileMap`, `retroui/tilemap`; places and routes `retroui/geo`), 3D (`retroui/view3d`; Blender's models `retroui/gltf`),
 HTML and Markdown (`htmlView`: its CSS, flexible boxes and grids too), web pages (`webView`), canvas (`canvas`, `retroui/canvas2d`), reports and PDF (`retroui/report`),
 sound and video (`retroui/media`; the system's media controls `retroui/mediasession`; camera and microphone `retroui/capture`), spreadsheets (`retroui/xlsx`), more windows (`window`),
@@ -356,6 +356,15 @@ app "Staff", 520, 420:
 - `retroui/dastkhat`: `carryDastkhat()` -- Arabic, Persian and Latin in one
   font, nine weights (`fontStyles("Dastkhat")`: Thin .. Black); a variable
   font's weights are styles (`fontFace(family, "SemiBold")`).
+- `retroui/arabicfonts`: `carryArabicFonts()` -- Scheherazade New, Lateef and
+  Markazi Text (`ArabicFamilies`), Regular and Bold: Arabic for books, Persian,
+  Urdu, Pashto, Sindhi.
+- Shaping and bidi are the kit's own Nim (`retroui/otshape`, `retroui/typeset`):
+  never link HarfBuzz or FriBidi into an app for them -- Arabic shapes as
+  HarfBuzz 15 does, the Windows 3.1 Arabic fonts too, and the bidi algorithm
+  passes Unicode's conformance tests. `fontCombo` lists the fonts used last
+  first, then A to Z (`recentFonts`: keep it in the app's settings;
+  `fontListOrder`, `noteFontUsed`); `glyphPicker` shows every glyph of a font.
 - `retroui/forcegraph`: `var g = newForceGraph(); g.link(g.addNode("a", "A"),
   g.addNode("b", "B"))`, then `graphView(g, dp(300), sel)` (`look = nlBox` for
   a mind map; `.clicked`, `.doubleClicked`, `.dropped`). The layout alone,
@@ -693,6 +702,13 @@ costs what its visible rows cost.
   corner (the status bar's end; `sizeGrip()` says where). `resizable = false`
   (`setResizable`) keeps the window's size: no sizing border, maximize
   button or grip, and the system's frame fixed too.
+- The Glass look: `uiLook = lookGlass` before `startApp` (users pick "Look" in
+  `appearanceSettings`, kept with `look`) draws every control as frosted glass --
+  capsule buttons, rounded check boxes and switches in the highlight, slim scroll
+  bars, rounded menus and groups -- at 3.1's sizes, in any scheme (`GlassLight`,
+  `GlassDark` are made for it; the high-contrast ones stay Classic). `glassLook()`
+  tells a control of the app's own which to draw; `glassFace`, `glassWell`,
+  `glassAccent`, `selectFill` and `roundFrame` draw its parts.
 - Title bars the kit draws (the 3.1 frame, dialogs, `mdiWindow`s) have
   Windows 95's minimize, maximize and close buttons; X does what Alt+F4,
   Esc (a dialog) or Ctrl+F4 (an inner window) does, so `closeRequested`

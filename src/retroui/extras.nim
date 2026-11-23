@@ -104,7 +104,21 @@ proc switchSize*(): tuple[w, h: int] =
 proc drawSwitch*(track: Rect; on, enabled: bool; down = false; thumbX = -1) =
   ## A slide switch in the manner of Windows 3.1: a black-edged slot, navy
   ## on the "on" side with the IEC "I", white with the "O" when off, and a
-  ## raised gray thumb with grip lines (at `thumbX` while it is slid).
+  ## raised gray thumb with grip lines (at `thumbX` while it is slid). (Glass: a capsule, the
+  ## highlight when on, a round white knob.)
+  if glassLook():
+    let inner = inset(track, 1)
+    let kd = inner.h
+    let kx = if thumbX >= 0: clamp(thumbX, inner.x, inner.x + inner.w - kd)
+             elif on: inner.x + inner.w - kd else: inner.x
+    let onPart = kx > inner.x + 1 or on
+    if enabled and onPart: glassAccent(track, float(track.h) / 2)
+    else: glassWell(track, float(track.h) / 2, mixColor(th.window, th.text, if enabled: 0.14 else: 0.07))
+    let k = rect(kx, inner.y, kd, kd)
+    roundRect(rect(k.x, k.y + 1, k.w, k.h), float(kd) / 2, withAlpha(color(0, 0, 0), 60))
+    disc(float(k.x) + kd / 2, float(k.y) + kd / 2, kd / 2 - 0.5,
+         if enabled: (if down: color(232, 234, 238) else: color(255, 255, 255)) else: mixColor(th.face, th.gray, 0.3))
+    return
   let inner = inset(track, 1)
   let tw = inner.w div 2
   let tx = if thumbX >= 0: clamp(thumbX, inner.x, inner.x + inner.w - tw)
@@ -783,8 +797,34 @@ proc fromHsl*(h, s, l: float): Color =
         uint8(round(hue(p, q, hh - 1 / 3) * 255)))
 
 var cdlg: tuple[open: bool; key, title: string; c, was: Color; h, s, l: float; done: bool;
-                spectrum: Bitmap; specKey: string; custom: int]
-  ## (the one Color dialog: whose well opened it, the color being made)
+                spectrum: Bitmap; specKey: string; custom: int; alpha: bool; a: int]
+  ## (the one Color dialog: whose well opened it, the color being made; `alpha`: its opacity
+  ## shown, `a`, 0..255)
+
+proc checkedFill*(r: Rect; c: Color) =
+  ## `c` filling `r` over a checkerboard where it is see-through (a color with its opacity).
+  if c.a == 255:
+    fill(r, c)
+    return
+  proc over(b: Color): Color =
+    let a = int(c.a)
+    color(uint8((int(c.r) * a + int(b.r) * (255 - a)) div 255),
+          uint8((int(c.g) * a + int(b.g) * (255 - a)) div 255),
+          uint8((int(c.b) * a + int(b.b) * (255 - a)) div 255))
+  let s = max(2, dp(4))
+  fill(r, over(color(255, 255, 255)))
+  let dark = over(color(192, 192, 192))
+  pushClip(r)
+  var y = r.y
+  var k = 0
+  while y < r.y + r.h:
+    var x = r.x + (if k mod 2 == 1: s else: 0)
+    while x < r.x + r.w:
+      fill(rect(x, y, s, s), dark)
+      x += 2 * s
+    y += s
+    inc k
+  popClip()
 
 proc setDialogColor(c: Color) =
   let hsl = toHsl(c)
@@ -793,21 +833,25 @@ proc setDialogColor(c: Color) =
   cdlg.l = hsl.l
   cdlg.c = c
 
-proc openColorDialog*(key: string; c: Color; title = "Color") =
+proc openColorDialog*(key: string; c: Color; title = "Color"; alpha = false) =
   ## Opens the Color dialog for `key` at color `c`; `colorDialogResult(key)`
-  ## gives the color chosen (`colorWell` does both).
+  ## gives the color chosen (`colorWell` does both). `alpha`: its opacity too, to
+  ## Transparent (the color chosen keeps it; else it is opaque).
   cdlg.open = true
   cdlg.key = key
   cdlg.title = title
-  cdlg.was = c
+  cdlg.alpha = alpha
+  cdlg.a = if alpha: int(c.a) else: 255
+  cdlg.was = if alpha: c else: color(c.r, c.g, c.b)
   cdlg.done = false
-  setDialogColor(c)
+  setDialogColor(color(c.r, c.g, c.b))
 
 proc colorDialogResult*(key: string; c: var Color): bool =
   ## True once, after OK in the Color dialog opened for `key`: `c` is set.
   if cdlg.done and cdlg.key == key:
     cdlg.done = false
     c = cdlg.c
+    if cdlg.alpha: c.a = uint8(clamp(cdlg.a, 0, 255))
     return true
 
 proc colorDialogBody() =
@@ -890,8 +934,9 @@ proc colorDialogBody() =
         row:
           # Color|Solid: the new color over the one the well had
           let pv = place(dp(64), 2 * EditH)
-          fill(rect(pv.x, pv.y, pv.w, pv.h div 2), cdlg.c)
-          fill(rect(pv.x, pv.y + pv.h div 2, pv.w, pv.h - pv.h div 2), cdlg.was)
+          let now = if cdlg.alpha: color(cdlg.c.r, cdlg.c.g, cdlg.c.b, uint8(clamp(cdlg.a, 0, 255))) else: cdlg.c
+          checkedFill(rect(pv.x, pv.y, pv.w, pv.h div 2), now)
+          checkedFill(rect(pv.x, pv.y + pv.h div 2, pv.w, pv.h - pv.h div 2), cdlg.was)
           box(pv, th.frame)
           col:
             var h = int(round(cdlg.h * 239 / 360))
@@ -935,6 +980,16 @@ proc colorDialogBody() =
           if button("&Add to Custom Colors", w = dp(170)):
             customColors[cdlg.custom] = cdlg.c
             cdlg.custom = (cdlg.custom + 1) mod customColors.len
+        if cdlg.alpha:
+          # its opacity: 0 % is transparent
+          row:
+            label "&Opacity:"
+            var op = int(round(cdlg.a / 255 * 100))
+            if slider(op, 0, 100, w = dp(150)): cdlg.a = int(round(op / 100 * 255))
+            if intEdit(op, w = dp(52), lo = 0, hi = 100): cdlg.a = int(round(op / 100 * 255))
+            label "%"
+            if button("&Transparent", w = dp(100)): cdlg.a = 0
+            if button("O&paque", w = dp(80)): cdlg.a = 255
     row:
       spring()
       if button("OK", isDefault = true, w = dp(80)):
@@ -945,11 +1000,14 @@ proc colorDialogBody() =
 
 endFrameHooks.add colorDialogBody
 
-proc colorWell*(c: var Color; key: string; w = 0; title = "Color"; enabled = true): bool {.discardable.} =
+proc colorWell*(c: var Color; key: string; w = 0; title = "Color"; enabled = true;
+                alpha = false): bool {.discardable.} =
   ## A swatch of `c` in a sunken frame: a click (Enter, Space) opens the
   ## Color dialog -- the basic and custom colors, the spectrum, Hue / Sat /
   ## Lum, Red / Green / Blue, "#RRGGBB" -- and OK sets `c` (true then).
   ## Use one wherever a color is chosen; `key` tells the wells apart.
+  ## `alpha`: its opacity too (Opacity, Transparent, Opaque; the swatch over a
+  ## checkerboard): for a color that may be see-through.
   let r = place(if w > 0: w else: dp(40), EditH)
   # (one id for the well, its keys and its node: a label's second `idOf` in
   # a frame is another id)
@@ -959,14 +1017,15 @@ proc colorWell*(c: var Color; key: string; w = 0; title = "Color"; enabled = tru
   if hit.focused: ui.takesEnter = true     # (as a button: a default button leaves Enter to it)
   if hit.focused and keyHit(KeyEnter): hit.clicked = true
   sunken(r)
-  fill(inset(r, 2), if enabled: c else: mixColor(c, th.face, 0.6))
+  if alpha and enabled: checkedFill(inset(r, 2), c)
+  else: fill(inset(r, 2), if enabled: color(c.r, c.g, c.b) else: mixColor(c, th.face, 0.6))
   box(inset(r, 2), th.frame)
   if hit.focused: dots(inset(r, -1), th.text)
   if accessOn:
     accessNameOr(tr(title))
     accessNode(arButton, "", id = wid, r = r, states = accessOff(enabled),
                help = hexOf(c))
-  if hit.clicked and enabled: openColorDialog(key, c, title)
+  if hit.clicked and enabled: openColorDialog(key, c, title, alpha)
   if colorDialogResult(key, c): result = true
 
 proc storeCustomColors*(s: var Settings) =
@@ -1367,7 +1426,8 @@ proc extractFilenameOf(p: string): string =
 proc appearanceRows(): bool
 
 proc appearanceSettings*(): bool {.discardable.} =
-  ## Settings rows for how every app looks: the color scheme, the size of
+  ## Settings rows for how every app looks: the color scheme, the look of the controls
+  ## (`uiLook`: Classic or Glass), the size of
   ## everything, the size of the text, the size of controls (for a mouse
   ## or fingers), the window's frame (on desktops: the system's or Windows
   ## 3.1's), the title bars' buttons (`captionButtons`) and the font. True
@@ -1382,6 +1442,15 @@ proc appearanceRows(): bool =
   for th in builtinThemes: names.add th.name
   if settingCombo("Color scheme", names, t):
     ui.theme = builtinThemes[t].theme
+    invalidate()
+    result = true
+  # (the controls' look, in whatever scheme: Windows 3.1's, or frosted glass)
+  var lk = ord(uiLook)
+  if settingCombo("Look", ["Classic (Windows 3.1)", "Glass"], lk):
+    uiLook = UiLook(lk)
+    # (Glass picked with a scheme of before: its own colors with it, light or dark as the scheme)
+    if uiLook == lookGlass and ui.theme != GlassLight and ui.theme != GlassDark and t in [0, 1, 2, 3]:
+      ui.theme = if t in [2, 3]: GlassDark else: GlassLight
     invalidate()
     result = true
   case settingButtons("Size of everything", ["Smaller", "Normal", "Larger"],

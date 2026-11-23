@@ -1336,8 +1336,8 @@ proc propertiesBody(d: Doc) =
             of spPattern: "Pattern"
             else: "None")
       if f.kind == spColor:
-        var c = f.color or 0xFF000000'u32
-        if colorWell(c, "propfill", dp(60)):
+        var c = f.color
+        if colorWell(c, "propfill", dp(60), alpha = true):
           var s = L.shape
           s.fill.color = c
           let cc = s
@@ -1367,14 +1367,14 @@ proc propertiesBody(d: Doc) =
         label "Fill:"
         if combo(["No Color", "Solid Color", "Gradient"], shapeFillKind, w = dp(96)): changed = true
         if shapeFillKind > 0:
-          if colorWell(shapeFill, "propshapefill", dp(26)): changed = true
+          if colorWell(shapeFill, "propshapefill", dp(26), alpha = true): changed = true
       row:
         label "Stroke:"
         if combo(["No Color", "Solid Color", "Gradient"], shapeStrokeKind, w = dp(96)): changed = true
         if shapeStrokeKind > 0:
-          if colorWell(shapeStroke, "propshapestroke", dp(26)): changed = true
+          if colorWell(shapeStroke, "propshapestroke", dp(26), alpha = true): changed = true
         if shapeStrokeKind == 2:
-          if colorWell(shapeStroke2, "propshapestroke2", dp(26)): changed = true
+          if colorWell(shapeStroke2, "propshapestroke2", dp(26), alpha = true): changed = true
       if shapeStrokeKind == 2:
         row:
           label "Gradient:"

@@ -26,7 +26,7 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 - **[Choices](#choices)**: [checkbox](#checkbox) · [radio](#radio) · [toggle (a switch)](#toggle-a-switch) · [chips](#chips) · [tagInput](#taginput) · [rating](#rating)
 - **[Text input](#text-input)**: [edit](#edit) · [editArea](#editarea) · [searchBox](#searchbox) · [autocomplete](#autocomplete) · [maskedEdit](#maskededit) · [comboEdit](#comboedit) · [hotkeyEdit](#hotkeyedit) · [codeEdit](#codeedit)
 - **[Numbers, dates, colors](#numbers-dates-colors)**: [spin, intEdit, numberEdit](#spin-intedit-numberedit) · [slider, progress](#slider-progress) · [rangeSlider](#rangeslider) · [popupSlider](#popupslider) · [knob](#knob) · [datePicker](#datepicker) · [calendar](#calendar) · [dateRange, presetRange](#daterange-presetrange) · [timePicker](#timepicker) · [colorPicker](#colorpicker) · [colorWell and the Color dialog](#colorwell-and-the-color-dialog)
-- **[Lists and data](#lists-and-data)**: [listbox](#listbox) · [combo](#combo) · [checkList](#checklist) · [fontCombo, fontStyleCombo](#fontcombo-fontstylecombo) · [grid](#grid) · [grid with cell kinds](#grid-with-cell-kinds) · [tree, branch, leaf](#tree-branch-leaf) · [treeGrid](#treegrid) · [iconView](#iconview) · [lineView](#lineview) · [dualList](#duallist) · [propertyGrid](#propertygrid) · [formOf, gridOf: forms and grids from your types](#formof-gridof-forms-and-grids-from-your-types) · [imageView](#imageview)
+- **[Lists and data](#lists-and-data)**: [listbox](#listbox) · [combo](#combo) · [checkList](#checklist) · [fontCombo, fontStyleCombo](#fontcombo-fontstylecombo) · [glyphPicker](#glyphpicker) · [grid](#grid) · [grid with cell kinds](#grid-with-cell-kinds) · [tree, branch, leaf](#tree-branch-leaf) · [treeGrid](#treegrid) · [iconView](#iconview) · [lineView](#lineview) · [dualList](#duallist) · [propertyGrid](#propertygrid) · [formOf, gridOf: forms and grids from your types](#formof-gridof-forms-and-grids-from-your-types) · [imageView](#imageview)
 - **[Progress and status](#progress-and-status)**: [progressRing, spinner, sparkline, usageBar](#progressring-spinner-sparkline-usagebar) · [banner](#banner) · [toast](#toast) · [showSnackbar, snackbar](#showsnackbar-snackbar) · [led, pill](#led-pill) · [timeline](#timeline) · [emptyState, busyState](#emptystate-busystate) · [statusbar](#statusbar) · [statusRow, statusSep](#statusrow-statussep)
 - **[Containers](#containers)**: [expander](#expander) · [accordionHeader](#accordionheader) · [tabStrip (document tabs)](#tabstrip-document-tabs) · [pageView, pageHeader: pages over pages](#pageview-pageheader-pages-over-pages) · [listDetail](#listdetail)
 - **[Menus and bars](#menus-and-bars)**: [menubar, menu, menuItem, submenu](#menubar-menu-menuitem-submenu) · [UndoStack, undoMenuItems, undoKeys](#undostack-undomenuitems-undokeys) · [contextMenu](#contextmenu) · [popupMenu, openPopupMenu](#popupmenu-openpopupmenu) · [breadcrumb](#breadcrumb) · [pager, stepper](#pager-stepper) · [recordNav](#recordnav) · [findBar, findIn, replaceAllIn](#findbar-findin-replaceallin)
@@ -2030,20 +2030,36 @@ row:
 **API**
 
 ```nim
-proc colorWell*(c: var Color; key: string; w = 0; title = "Color"; enabled = true): bool {.discardable.}
+proc colorWell*(c: var Color; key: string; w = 0; title = "Color"; enabled = true;
+                alpha = false): bool {.discardable.}
 ```
 
 A swatch of `c` in a sunken frame: a click (Enter, Space) opens the
 Color dialog -- the basic and custom colors, the spectrum, Hue / Sat /
 Lum, Red / Green / Blue, "#RRGGBB" -- and OK sets `c` (true then).
 Use one wherever a color is chosen; `key` tells the wells apart.
+`alpha`: its opacity too (Opacity, Transparent, Opaque; the swatch over a
+checkerboard): for a color that may be see-through -- a fill, a
+gradient's stop, a card behind something.
 
 ```nim
-proc openColorDialog*(key: string; c: Color; title = "Color")
+var fill = color(40, 110, 220, 128)        # half see-through
+colorWell(fill, "fill", alpha = true)
+```
+
+```nim
+proc openColorDialog*(key: string; c: Color; title = "Color"; alpha = false)
 ```
 
 Opens the Color dialog for `key` at color `c`; `colorDialogResult(key)`
-gives the color chosen (`colorWell` does both).
+gives the color chosen (`colorWell` does both). `alpha`: its opacity too, to
+Transparent (the color chosen keeps it; else it is opaque).
+
+```nim
+proc checkedFill*(r: Rect; c: Color)
+```
+
+`c` filling `r` over a checkerboard where it is see-through (a color with its opacity).
 
 ```nim
 proc colorDialogResult*(key: string; c: var Color): bool
@@ -2208,7 +2224,19 @@ proc fontCombo*(family: var string; w = 0; enabled = true): bool {.discardable.}
 ```
 
 A drop-down list of the font families (the system's and the built-in
-ones), each shown in its own letters.
+ones), each shown in its own letters: the ones used last first (`recentFonts`), then all
+of them from A to Z. A family picked becomes the first of the used ones.
+
+```nim
+var recentFonts*: seq[string]
+proc noteFontUsed*(family: string)
+proc fontListOrder*(): seq[string]
+```
+
+The families picked last in a font list, the latest first (up to 8): shown at the top of
+every list, before all of them from A to Z. An app keeps `recentFonts` between runs (Retro
+Atelier: in its preferences); `noteFontUsed` adds one (a family used some other way: typed,
+taken from a text); `fontListOrder` is the list as a font list shows it.
 
 ```nim
 proc fontStyleCombo*(family: string; style: var string; w = 0; enabled = true): bool {.discardable.}
@@ -2223,6 +2251,45 @@ proc fontSample*(family, style, text: string; h: int; color = 0xFF000000'u32): B
 `text` in a font, `h` screen pixels tall (kept: drawn once). A font whose file is very big
 (a CJK collection: tens of megabytes to read and make ready) is not read for it: the text is
 in the kit's letters.
+
+### glyphPicker
+
+Every glyph of a font, each drawn in it, in a grid that scrolls (only the rows in view are
+drawn: a font of tens of thousands costs what one of a hundred does). A click picks one: what
+to type for it -- its character, or the characters the font makes it of (the Allah ligature
+from الله, "ffi", a stylistic set's form) with the OpenType feature to turn on. One nothing
+types is gray. The pointer on one tells its character (U+FDF2) or what makes it. From
+`retroui/textwidgets`; Retro Atelier's Glyphs panel (Show: Entire Font).
+
+```nim
+var picked: FontGlyph
+
+if glyphPicker("Scheherazade New", "Regular", picked, h = 240):
+  var st = t.styleAt(caret)
+  if picked.feature.len > 0: st.features = withFeature(st.features, picked.feature, true)
+  t.insertText(caret, picked.text, st)
+```
+
+**API**
+
+```nim
+proc glyphPicker*(family, style: string; picked: var FontGlyph; h = 0; cell = 0): bool {.discardable.}
+```
+
+Every glyph of a font's style (`fontGlyphs`), each drawn in it, in a grid that scrolls
+(`h` high; 0: down to the bottom; `cell`: each cell's side, 0 for 32): a click on one picks
+it (`picked`, true) -- type `picked.text` with `picked.feature` on (`withFeature`) and the
+text has it, whether a character has it (U+FDF2, a logo in the private area) or the font
+makes it (the Allah ligature from الله, "ffi", a stylistic set's form). One nothing types
+is gray and cannot be picked. The pointer on one tells its character or what makes it.
+
+```nim
+proc fontGlyphs*(family, style: string): seq[FontGlyph]
+```
+
+Every glyph of a font's face (but .notdef), in its order, each with what to type for it
+(`FontGlyph`: `gid`, `text`, `feature`): its character; else the characters its OpenType
+features make it of, checked by shaping them; else nothing (`text` ""). Kept: made once.
 
 ### grid
 
@@ -4853,7 +4920,8 @@ appearanceSettings()
 proc appearanceSettings*(): bool {.discardable.}
 ```
 
-Settings rows for how every app looks: the color scheme, the size of
+Settings rows for how every app looks: the color scheme, the look of the controls
+(`uiLook`: Classic or Glass), the size of
 everything, the size of the text, the size of controls (for a mouse
 or fingers), the window's frame (on desktops: the system's or Windows
 3.1's), the title bars' buttons (`captionButtons`) and the font. True
@@ -5234,6 +5302,7 @@ if filePicker(pickOpen, picked, fmOpen, ["*.png", "*.jpg"]):
 ```nim
 proc filePicker*(open: var bool; path: var string; mode = fmOpen;
                  patterns: openArray[string] = []; title = ""; preview = true): bool
+proc pickerFolder*(): string
 ```
 
 A modern Open / Save dialog while `open` (the whole screen on a
@@ -5244,7 +5313,13 @@ the files shown (`["*.png", "*.jpg"]`). `fmFolder` picks a folder
 instead: only folders are shown, and Choose takes the one selected (or
 the one open). With `preview` (opening) the file picked -- or the one
 the mouse rests on -- is shown beside the list (under it on a phone):
-its picture or the start of its text, its size and dates.
+its picture or the start of its text, its size and dates. It starts
+where `path` is -- but not in a phone app's cache, where the files other
+apps hand it are copies: in the user's Pictures then (with Android's
+access to the user's files; without it, in the app's own folder, with a
+line asking for it). Places (the star) goes to the phone's storage and
+its folders, a desktop's home, its folders and drives. `pickerFolder`
+is the folder it shows now -- or is listing, to show next ("" when none is open).
 
 ### trashList
 
@@ -7498,6 +7573,17 @@ proc drawBitmap*(r: Rect; b: Bitmap)
 
 Draw `b` stretched into `r`; the pixels are sampled at the screen's
 full resolution, so a photo stays sharp at any zoom.
+
+```nim
+proc readScreenPixel*(x, y: int)
+proc screenPixelRead*(): tuple[done: bool; color: uint32]
+```
+
+An eyedropper's color from anywhere in the window: `readScreenPixel`
+asks for the pixel the screen shows at `x`, `y` (logical pixels, as on
+the screen -- not mirrored in an Arabic interface); it is read as the
+next frame is drawn, by the GPU or the CPU, and `screenPixelRead` gives
+it (0xFFRRGGBB) once `done`.
 
 ### canvas2d (the HTML5 Canvas 2D API)
 

@@ -451,7 +451,12 @@ proc doCommand(name: string) =
                         "Insert Columns...", "Sort..."]:
     discard tableCommand(name)             # (the cells the selection reaches: the text stays as it is typed)
     return
-  if te.on: commitType()                   # (and the text being typed)
+  # (and the text being typed -- but not for a panel shown or hidden: Glyphs, Character, the
+  # Swatches... are used while typing, the glyph clicked going where the caret is)
+  var panelShowing = false
+  for (_, pn, _) in panelList:
+    if name == pn: panelShowing = true
+  if te.on and not panelShowing: commitType()
   if name.startsWith("Same: "):
     # Select > Same: the layers like the current one in that
     let d = cur()
@@ -2060,7 +2065,19 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Pictures, drawings and pages -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.16.0: the tools of today's photo, drawing and layout programs -- 53 new drawing tools " &
+           whatsNew = ["5.17.0: the Glass look (Preferences > Appearance > Look: Glass; Glass Light and Glass " &
+                       "Dark); every glyph of a font in the Glyphs panel (Entire Font); Scheherazade New, Lateef " &
+                       "and Markazi Text carried; bullets and numbers on the paragraphs you choose; a text box's " &
+                       "eight handles; Arabic set right beside a bullet and in justified lines; every tool its " &
+                       "own icon; the brush's outline at the pointer, and in the view's middle a moment when a " &
+                       "brush is picked or sized; the Color panel's eyedropper takes a color from anywhere in " &
+                       "the window, its swatches and color libraries to choose from, the swatches bigger; a " &
+                       "color transparent from the color picker wherever it may be (its Opacity, Transparent): a " &
+                       "gradient's stops, a shape's fill and stroke, type, shading, a table's fills; the " &
+                       "font lists with the fonts you used last first, then A to Z; Arabic shaped as HarfBuzz " &
+                       "shapes it, the Arabic fonts of Windows 3.1 too; a chart's text as big as the chart; on " &
+                       "Android, the Open dialog in your Pictures.",
+                       "5.16.0: the tools of today's photo, drawing and layout programs -- 53 new drawing tools " &
                        "(Rotate, Scale, Shear, the liquify brushes, Blend, Live Paint, the Symbol and Graph tools, " &
                        "Shaper, Area Type and Type on a Path, Puppet Warp, Mesh Warp, Deform...), the Median Brush; " &
                        "Shake Reduction, Adaptive Wide Angle, Bilateral Blur, Multi Band Sharpen, Texture Detail, " &

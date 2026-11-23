@@ -81,7 +81,7 @@ change is written into the same `.nim` file.
   at 125 % and 150 %, and on HD, 2K and 4K screens, with Arabic everywhere
   (FreeSerif's). **FreeSerif**, **FreeMono** or a font file are the other
   choices (`setUiFont`, or the user in `appearanceSettings`; see "The
-  fonts" below). 255 pixel icons in
+  fonts" below). 324 pixel icons in
   the manner of the period. Lists and pages glide when scrolled, and a
   flicked finger keeps them moving.
 - **Safe.** Every decoder and parser (pictures, zip and ZIP64, CSV,
@@ -263,6 +263,19 @@ the mouse rests on it, as Windows' own does (the kit tells Windows where it
 is: `wpMaxButton`, and still takes its clicks). A phone's caption bar has no
 close button in either (Back closes the app), and a title bar the system
 draws keeps the system's buttons.
+
+**The Glass look.** `uiLook = lookGlass` (or **Look: Glass** in
+`appearanceSettings`, kept with the look) draws the controls as frosted
+glass instead of 3.1's raised gray: capsule buttons with the light on
+their upper half, a hairline round them and a soft shadow under them;
+rounded check boxes, radio buttons and switches in the scheme's
+highlight when on; a slim scroll bar thumb; menus with a soft shadow and
+the chosen item a rounded pill; group boxes and tabs with rounded
+corners. The sizes are 3.1's, so nothing moves. It goes with every color
+scheme -- its own Glass Light and Glass Dark, made for it, or any other
+-- but the high-contrast ones, which keep their clear black and white
+edges. No blur: the faces are a little see-through over what is under
+them.
 
 **A window that keeps its size:** `app "Calculator", 260, 320, resizable = false:`
 (or `setResizable(false)`). The 3.1 frame then has no sizing border to drag,
@@ -861,7 +874,10 @@ and apps with `retroui/textengine` carried Amiri's 0.21 MB more).
 An app that wants more for its documents' type carries Dastkhat
 (`retroui/dastkhat`, 160 KB packed): Arabic, Persian and Latin in one
 variable font, nine weights from Thin to Black, each a style of its family
--- Retro Atelier's new text is in it.
+-- Retro Atelier's new text is in it; and three Arabic families for books
+and text (`retroui/arabicfonts`, 640 KB packed): Scheherazade New and
+Lateef (SIL's naskh faces, for Arabic, Persian, Urdu, Pashto, Sindhi) and
+Markazi Text, Regular and Bold each.
 
 **Crisp at every scale.** Glyphs are drawn by the kit's own TrueType
 engine (`retroui/ttf`; .otf fonts' PostScript outlines -- CFF, and CFF2
@@ -892,9 +908,15 @@ square, so they draw sharp at their size), PostScript Type 1 fonts (.pfb,
 .pfa: Adobe Type Manager's), WOFF web fonts. A symbol font (Wingdings,
 Symbol) is typed as Windows types it -- "a" gives its first picture --,
 the Arabic fonts of Windows 3.1 and 95 (Traditional Arabic, Simplified
-Arabic of then: no Unicode map) are read through their old encoding, and
+Arabic of then: no Unicode map) are read through their old encoding
+(HarfBuzz's private-use map; the ones encoded as Windows-1256 shaped
+with HarfBuzz's own lookups for them), and
 an Arabic font without shaping tables is joined and its marks placed as
-HarfBuzz does it. Hebrew and Thai are shaped as HarfBuzz's own shapers
+HarfBuzz does it. Arabic is shaped glyph for glyph as HarfBuzz 15 shapes
+it (13 Arabic fonts checked, every glyph, advance and offset), and the
+bidirectional algorithm passes every line of Unicode's own conformance
+tests -- all of it the kit's own Nim, no HarfBuzz or FriBidi linked.
+Hebrew and Thai are shaped as HarfBuzz's own shapers
 shape them (Hebrew's points in their order and, in a font that does not
 place them, its presentation forms; Thai and Lao's SARA AM taken apart). When two files have one family and style -- the old
 Traditional Arabic and today's -- the one with a Unicode map is drawn. A
@@ -943,14 +965,16 @@ image(x, y, glyphIcon(pxComputer, black, 32))   # the 32x32 art at 32
 label retroOr(pxSave, nfSave) & " Save"         # pixel icon, or the Nerd one
 ```
 
-There are 255 (`pixelIconNames` lists them): folders and places, drives,
+There are 324 (`pixelIconNames` lists them): folders and places, drives,
 file kinds, the tool bar's actions, the message box signs, the
 hourglass, charts, maps, mail, calendar, clock, media keys, an image
-editor's tools and panels, and more. Each has 16x16 and 32x32 art and is drawn at a whole number
+editor's tools and panels, a drawing program's (every tool its own),
+and more. Each has 16x16 and 32x32 art and is drawn at a whole number
 of screen pixels per art pixel; disabled ones look embossed. Set
 `retroIcons = false` to have `retroOr` (and the toolkit's own parts) use
 the Nerd icons. The art is original, drawn in the manner of 3.1, made by
-`tools/genicons.py`.
+`tools/genicons.py` (and each icon's line twin, for the dark schemes, chosen
+in `tools/genlineicons.py`).
 
 ## Translating an app
 
@@ -2254,7 +2278,7 @@ s.dehaze = 10
 p.applyFilter(developMargin(s), develop(s))
 ```
 
-`examples/photo.nim` is **Retro Atelier 5.16.0** (Retro Photo until 5.0: its modules, documents and package id keep that name), a studio for
+`examples/photo.nim` is **Retro Atelier 5.17.0** (Retro Photo until 5.0: its modules, documents and package id keep that name), a studio for
 pictures, drawings and pages in the manner of the programs of 1994: the toolbox, the tabbed floating palettes (Brushes
 and Options; Picker, Swatches and Scratch; Layers, Channels and Paths;
 Info; Commands; Navigator, History and Actions; Properties), an options
@@ -2522,7 +2546,8 @@ t.splitCell(0, 0, across = false)                                  # a cell spli
 t.spans[0].style.arabicFont = ScriptFont(family: "Amiri", scale: 1.1)   # Arabic in a font of its own
 discard d.addTextLayer(t)
 let (labels, series) = chartData("Name,Q1,Q2\nNorth,120,140\nSouth,90,95")
-let c = ChartSpec(kind: ckColumn, title: "Sales", labels: labels, series: series, theme: "Ocean")
+let c = ChartSpec(kind: ckColumn, title: "Sales", labels: labels, series: series, theme: "Ocean",
+                  w: 1800, h: 1200)                                # its text as big as it: chartTextSizes(c)
 discard d.placeSvg(chartSvg(c), rect(40, 300, 600, 400))          # shapes and type layers
 let m = MapSpec(region: "Gulf", theme: "Sand", projection: "Mercator", values: mapValues("OM, 5\nQA, 3"))
 discard d.placeSvg(mapSvg(m), rect(40, 750, 600, 400))
@@ -3432,7 +3457,7 @@ stripped):
 Only what an app calls is linked: an app without the map, the 3D view or
 PDF does not carry them. The fonts (FreeSans, FreeSerif and FreeMono in
 four styles each) are about 1 MB of every app, the Nerd icons 52 KB and the
-255 pixel icons 24 KB, all stored compressed and unpacked when first used.
+324 pixel icons 32 KB, all stored compressed and unpacked when first used.
 
 **Beside other toolkits.** `tools/compare/compare.sh` builds the same
 Hello -- a label, a text box, two buttons -- with egui 0.37, iced 0.14 and
@@ -3641,7 +3666,7 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_widgets` | clicks, slide-off, default button, typing and the clipboard, Tab and Space, mnemonics, lists, modal dialogs, pixels, frame skipping, hover (mouse yes, finger no), Back versus Exit |
 | `test_business` | dates, number formats, sorting; the grid (selection, multi-select, sorting, editing, resizing, every cell kind, cell colours, record indicator, totals); tree; icon view; calendar and date picker; check list; number fields; auto-complete; splitter; dialogs |
 | `test_text` | fonts (FreeSans the default, its real bold, oblique and bold oblique, GPOS kerning, crisp stems at 100 %, 125 %, 150 % and 2x, Arabic joined in every face and in a font file, the settings of before), Arabic joining and lam-alef, bidi order, the rasterizer, sizes, rows, `spring`, `adaptive`, forms, page scrolling both ways with the standard scroll bars, Tab scrolling into view, Markdown (right to left in Arabic: lists and tables), the wrap that carries a line's width on (`LineMeter`) giving the very lines of the one that measured each line again, for 7,800 paragraphs and widths |
-| `test_bidi` | the bidi algorithm against Unicode's (a corpus of Arabic, Persian and mixed lines, explicit embeddings and isolates, conformance lines), the joiners, Arabic in text boxes and the rich editor (caret, marks, Backspace and Delete, selections, the clipboard), PDF read back in reading order, right-to-left Excel sheets, the Arabic interface's text boxes and charts |
+| `test_bidi` | the bidi algorithm against Unicode's (a corpus of Arabic, Persian and mixed lines, explicit embeddings and isolates, every line of Unicode 18's BidiTest and BidiCharacterTest: 861,948 cases), the joiners, Arabic in text boxes and the rich editor (caret, marks, Backspace and Delete, selections, the clipboard), PDF read back in reading order, right-to-left Excel sheets, the Arabic interface's text boxes and charts |
 | `test_uifonts` | the font choices and their settings words, a .ttc collection read and used as the UI's font, the canvas's font names, every character of the kit's strings and the Arabic translations in the fonts |
 | `test_input` | every kind of input on the widgets that take it: the slide switch, the tab strip, chips, the bottom bar, the menu key, the mouse's side buttons, a tall dialog on a touch screen |
 | `test_files` | listings (quick and full), natural sorting, copy / move / delete / zip / unzip jobs with conflicts, links and cancelling, JPEG decoding, big text and hex files, worker threads, what the window asks of a disk answered on a thread (`later`: six questions held up by pipes nobody writes to hold up neither the window nor a folder's listing), thousands of damaged files, zip bombs, names that climb out, a FIFO and /dev/zero left as they are by a copy, a move and a zip (said, the rest done) |
@@ -3687,7 +3712,7 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_downloads` | `downloadFile` against a server of its own (`tests/dlmock.py`), on every system -- WinHTTP on Windows, no program started: a file whole, a redirect, a 404, a download gone on with from its part, no server, `stopDownload`; on the thread that draws, the busy box ticking while it waits and its Cancel ending it |
 | `test_tray` | the tray icon on Linux: the app's StatusNotifierItem on a bus of the test's own, registered with a stand-in tray, its title, picture and menu as a tray reads them, a click and a menu item coming back as events, the icon gone with a frame without it |
 | `test_grow` | Grow without a window: the plan's numbers, the main button at the page's foot, the result's timeline played to its end (every bar risen, the coin, the goal felt), Back |
-| `test_looks` | what a control takes to look different: the accent button, a text style and a height for buttons and number boxes, groups with a title strip, options in boxes, the gauge in bands and the range bar, a tool bar's line and space, `withTheme` and `withTextStyle` -- and the 28 colour schemes, each one's text readable (4.5 to 1) on its window, fields, buttons and highlight; docs/customizing.md's own samples |
+| `test_looks` | what a control takes to look different: the accent button, a text style and a height for buttons and number boxes, groups with a title strip, options in boxes, the gauge in bands and the range bar, a tool bar's line and space, `withTheme` and `withTextStyle` -- and the 30 colour schemes, each one's text readable (4.5 to 1) on its window, fields, buttons and highlight; the Glass look (a button's corners rounded off, a check box and a switch that are on in the highlight; Classic in the high-contrast schemes); a font list's order (the fonts used last, then A to Z); docs/customizing.md's own samples |
 | `test_bmi` | BMI Studio without a window: the numbers in both unit systems (classed as shown), Calculate BMI the default button in the accent colour, another scheme taken by the bands and the button, a phone's layout |
 | `test_hangwatch` | the table of a program's procs read and a place in the program named by it (a Windows window that stops answering writes the procs its thread is in); no watch elsewhere |
 | `test_photobook`, `test_photobookapp` | text that keeps out of holes (lines on both sides on one baseline, columns), Text Wrap in a document (box, shape, jump, sides, undo, saved), page numbers in text, books: sides and margins bound either way, numbers in every style, master pages that follow, masters based on masters (the other's layers under their own, on the master too, never round, saved, let go), text through added pages (every word once), the book's file and PDF, damaged books refused; Retro Atelier's books headless: pages turned, masters, a number typed in, Autoflow, Text Wrap, save and open, the workspaces, the Move tool's box; snapping to a page's margins, columns and baseline grid, text on the grid following Document Setup; New Drawing and New Book, Image Trace, Convert to Shape and Make Blend in the app; export by pages and spreads (PDF, JPEG, PNG, a range); tables, charts, maps, Fitting and Frame Options, More Shapes and Shape Options, Resize for, Brand Kit, Photo Grid, Text Effects, Recolor, Shape Builder, Freeform Gradient (Cancel leaves it as it was), Check Document and the command list in the app; anchored objects; threaded frames on a page and across pages (a box's own words to the story's end, one put in between, the thread broken); in the app: footnotes, ligatures, the table of contents and the index, Data Merge, Find/Change and the Story Editor, the gradient mesh and anchors, the perspective grid (drawing on a plane, a handle dragged, Attach to Active Plane, Define Grid live), threading by the ports (loaded text, a new box, a double-click breaking it, Esc), Text Frame Options and Auto-Size (a template's heading growing with its size), Apply Brush to Path |
@@ -3751,7 +3776,7 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_lorem` | placeholder text: as many paragraphs as asked, Lorem Ipsum, Arabic (no Latin letters, Arabic-Indic digits) or the two in turn, three to five sentences each, neighbours not alike, the same each time; a few words; cut at a sentence's end |
 | `test_proctexture` | Procedural Texture: formulas read and what is wrong with one said, each value and function, a channel left as it was, the shared value and the sliders, noise smooth and within 0..1, every preset read, clouds varying, the checkerboard's squares exact, the vignette dark at the corners only |
 | `test_photoextras` | Retro Atelier 5.16's engine: every new filter keeps the size and changes the picture; Tone Stretch uses the whole range, Invert Channels inverts, Split Toning cools the shadows and warms the highlights, the adjustment layers with numbers, Hue Curves' Saturation vs Saturation; Bilateral Blur takes the noise and keeps the edge; the range masks and the four Compound Mask ways; the FFT there and back; a known shake found (angle, length) and taken out; a shift found exactly, six noisy frames stacked, a gradient made even; a 360 view put back; the relief's mesh; the ten live shapes in their box; letters turned, kept in the file; each Type on a Path effect kept and placing the letters elsewhere; Area Type's frame kept; the Scatter chart |
-| `test_atelierextras` | Retro Atelier 5.16 as a program: SDR to HDR, a mask from the lightness and Compound Mask; Transform Selection, Copy CSS and SVG, Define Custom Shape kept, Delete All Empty Layers, the Measurement Log; Color Lookup Tables (the Invert layer's .cube), Zoomify, Save for Web's five formats, Layer to 3D's .glb; a 360 view edited and put back; Version History and Image Assets on each save; Play Action by name; Accessibility Check; Generate Background, Generative Upscale, Style Transfer from a picture, Rewrite, Generative Recolor and Text to Pattern against the test's own service; every new tool dragged on the canvas, every new command run |
+| `test_atelierextras` | Retro Atelier 5.16 as a program: SDR to HDR, a mask from the lightness and Compound Mask; Transform Selection, Copy CSS and SVG, Define Custom Shape kept, Delete All Empty Layers, the Measurement Log; Color Lookup Tables (the Invert layer's .cube), Zoomify, Save for Web's five formats, Layer to 3D's .glb; a 360 view edited and put back; Version History and Image Assets on each save; Play Action by name; Accessibility Check; Generate Background, Generative Upscale, Style Transfer from a picture, Rewrite, Generative Recolor and Text to Pattern against the test's own service; every new tool dragged on the canvas, every new command run; 5.17's: a text box sized by its handle (its letters as big, its lines flowing again), glyphs put with the feature that makes them, the brush's outline shown and gone, a color taken from anywhere in the window, a gradient's color stop made transparent in the picker, every tool its own icon |
 | `test_signals` | signals and computed values worked out again only when what they read changed (through two, a branch not taken, an answer that stayed the same, a change in place), effects run and stopped; `keep`: nothing outside `--watch`, the values written, and a second program started with the file getting them back |
 | `test_photoaffinity` | Retro Atelier 5.15 as a program: studios kept, deleted, exported and imported; a help card for every tool of the toolbar; paint on type making a pixel layer; a live blend following its end and expanded; Hue Curves; the Mask Brush (a mask made, black hides, Alt shows, the pixels untouched, the Background made a layer); the Tone Brush; Procedural Texture's dialog; an artboard sized by its corner with what is on it following its Constraints; Symbols made, inserted, kept alike and detached; each new menu command run by its name doing its work; Fill with Placeholder Text (Arabic, paragraphs, added after, as many as fill the box, your own, the choices kept) |
 | `test_colorfonts` | colour fonts: COLR/CPAL layers, sbix and CBDT pictures and a layer in the text's own colour, found by the font reader, drawn by the text engine, in PDF and SVG |

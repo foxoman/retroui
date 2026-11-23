@@ -107,9 +107,9 @@ proc gradientEditorDialog() =
       var loc = int(round(geStops[geSel].at * 100))
       row:
         label "Color:"
-        var cc = c or 0xFF000000'u32
-        if colorWell(cc, "gestop"):
-          geStops[geSel].color = cc.withAlpha(aOf(c))
+        var cc = c
+        if colorWell(cc, "gestop", alpha = true):     # (its opacity too: Transparent)
+          geStops[geSel].color = cc
           gePicked = -1
         label "Opacity:"
         if spin(op, 0, 100, w = dp(64)):
@@ -129,6 +129,10 @@ proc gradientEditorDialog() =
           geStops[geSel].color = (fg or 0xFF000000'u32).withAlpha(aOf(c))
         if button("Use Background", w = dp(120)):
           geStops[geSel].color = (bg or 0xFF000000'u32).withAlpha(aOf(c))
+        if button("Transparent", w = dp(100), enabled = aOf(c) > 0):
+          geStops[geSel].color = c.withAlpha(0)
+          gePicked = -1
+        tooltip("This color stop see-through: the gradient fades out to it")
         if button("Delete", w = dp(80), enabled = geStops.len > 2):
           geStops.delete(geSel)
           geSel = min(geSel, geStops.high)
@@ -242,7 +246,7 @@ proc fillLayerDialog() =
     else:
       row:
         label "Color:"
-        colorWell(flColor, "fillcolor", dp(80))
+        colorWell(flColor, "fillcolor", dp(80), alpha = true)
     row:
       spring()
       if button("OK", isDefault = true, w = dp(80)): done = 1

@@ -123,6 +123,7 @@ if button("&Calculate BMI", nfCalculator, isDefault = true, accent = true,
 | a tool bar | `toolSeparator(line = true)`, `toolSpace(20)`, `toolSpace()` (what follows: at the right end) |
 | the 3.1 title bar | `app(..., frame = wfClassic, captionIcon = true, captionAlign = caLeft, captionStyle = style(...))` |
 | the title bars' buttons | `captionButtons = cbWin31` |
+| every control | `uiLook = lookGlass`: the Glass look, frosted and rounded, in any scheme (`GlassLight`, `GlassDark` made for it); a control of your own asks `glassLook()` and draws with `glassFace(r, pressed, hot)` (a capsule's face), `glassWell(r)` (a field's), `glassAccent(r)` (the highlight's, a switch that is on), `selectFill(r)` (a chosen row), `glassHair`, `glassRadius(r)`, `withAlpha(c, a)` and `roundFrame` (`retroui/gfx`) |
 | the focus ring | `focusRing = false`: 3.1's dotted rectangle alone |
 | icons | `setIconStyle(...)`: 3.1's pixel icons or their line twins |
 

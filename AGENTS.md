@@ -319,6 +319,11 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   dots are the letter's -- the tashkeel's color, raise and hiding leave
   them alone. A new font's shaping is checked against HarfBuzz
   (`otshape-cases.txt.z`, made with uharfbuzz) before its fix is trusted.
+  The shaper and the bidi algorithm are the kit's own Nim: HarfBuzz and
+  FriBidi are references to test against, never linked; a feature of
+  theirs the kit needs is written into `retroui/otshape` or
+  `retroui/typeset` (HarfBuzz's tables ported, its notice in
+  THIRD-PARTY-NOTICES).
 - A loop of the kit that calls the app's own code (a panel's body, a
   window's, a callback) walks a copy of its list and skips what has left
   it: that code may open, close or move what the list holds, and Nim's

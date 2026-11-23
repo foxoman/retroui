@@ -117,6 +117,10 @@ proc loadPrefs() =
   p.keySet = st.getInt("pref.keyset", p.keySet)
   p.toolCols = st.getInt("pref.toolcols", p.toolCols)
   p.toolHidden = st.getOrDefault("pref.toolhidden", p.toolHidden)
+  # (the fonts used last, at the top of the font lists)
+  recentFonts.setLen(0)
+  for f in st.getOrDefault("pref.recentFonts", "").split('\t'):
+    if f.len > 0: recentFonts.add f
   p.taskBar = st.getBool("pref.taskbar", p.taskBar)
   p.legacyXf = st.getBool("pref.legacyxf", p.legacyXf)
   p.scaleStrokes = st.getBool("pref.scalestrokes", p.scaleStrokes)
@@ -204,6 +208,7 @@ proc savePrefs() =
   st["pref.keyset"] = $p.keySet
   st["pref.toolcols"] = $p.toolCols
   st["pref.toolhidden"] = p.toolHidden
+  st["pref.recentFonts"] = recentFonts.join("\t")
   st["pref.taskbar"] = $p.taskBar
   st["pref.legacyxf"] = $p.legacyXf
   st["pref.scalestrokes"] = $p.scaleStrokes

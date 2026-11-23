@@ -842,21 +842,52 @@ const glyphSets = [
   ("Arabic", "ابتثجحخدذرزسشصضطظعغفقكلمنهوي٠١٢٣٤٥٦٧٨٩")]
 
 var
-  glyphSet = 0
+  glyphSet = 0                   ## 0: the font's every glyph; then `glyphSets`
   glyphRecent: seq[string]
+  glyphPicked: FontGlyph         ## (the Entire Font grid's choice)
+
+proc glyphFont(): CharStyle =
+  ## (the font the glyphs are of: the text's being typed, else the Type tool's)
+  if te.on: te.style else: typingStyle()
+
+proc putGlyph(text, feature: string) =
+  ## (a glyph typed where the text is being typed: with the feature the font makes it by on --
+  ## for it alone; the text typed next as before)
+  if not te.on:
+    status = "Click in the image with the Type tool (T) first, then on a glyph"
+    return
+  let saved = te.style
+  if feature.len > 0: te.style.features = withFeature(te.style.features, feature, true)
+  insertTyped(text)
+  te.style = saved
+  if feature.len == 0:
+    let k = glyphRecent.find(text)
+    if k >= 0: glyphRecent.delete(k)
+    glyphRecent.insert(text, 0)
+    if glyphRecent.len > 10: glyphRecent.setLen(10)
 
 proc glyphsBody() =
-  ## Window > Glyphs: a click puts the character where the text is being
-  ## typed (the Type tool first).
+  ## Window > Glyphs: every glyph of the text's font (Entire Font: a ligature, an ornament, a
+  ## logo -- what the font has), or a set of characters; a click puts it where the text is
+  ## being typed (the Type tool first).
+  let fs = glyphFont()
   row:
     label "Show:"
-    var names: seq[string]
+    var names = @["Entire Font"]
     for (n, _) in glyphSets: names.add n
     combo(names, glyphSet, w = dp(110))
+  if glyphSet == 0:
+    label(fs.family & " " & fs.style, color = ui.theme.gray)
+    if not te.on: label("Glyphs go where the Type tool is typing", color = ui.theme.gray)
+    var pg = glyphPicked
+    if glyphPicker(fs.family, fs.style, pg, h = 0, cell = dp(30)):
+      glyphPicked = pg
+      putGlyph(pg.text, pg.feature)
+    return
   var cells: seq[string]
   for g in glyphRecent: cells.add g
   let recentN = cells.len
-  let chars = glyphSets[clamp(glyphSet, 0, glyphSets.high)][1]
+  let chars = glyphSets[clamp(glyphSet - 1, 0, glyphSets.high)][1]
   for r in runes(chars): cells.add r.toUTF8
   let cs = dp(22)
   var picked = ""
@@ -869,15 +900,7 @@ proc glyphsBody() =
          if hit.down: ui.theme.selectText else: ui.theme.text)
     if hit.hover: ui.tip = "U+" & toHex(int(s.runeAt(0)), 4)
     if hit.clicked: picked = s)
-  if picked.len > 0:
-    if te.on:
-      insertTyped(picked)
-      let k = glyphRecent.find(picked)
-      if k >= 0: glyphRecent.delete(k)
-      glyphRecent.insert(picked, 0)
-      if glyphRecent.len > 10: glyphRecent.setLen(10)
-    else:
-      status = "Click in the image with the Type tool (T) first, then on a glyph"
+  if picked.len > 0: putGlyph(picked, "")
   if not te.on: label("Glyphs go where the Type tool is typing", color = ui.theme.gray)
 
 # ---- Libraries -----------------------------------------------------------------------------------------------

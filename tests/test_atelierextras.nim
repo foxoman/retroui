@@ -3,11 +3,15 @@
 ## Copy CSS, Define Custom Shape, the Measurement Log, the scripts that tidy layers, Color Lookup
 ## Tables, Zoomify, Save for Web's formats, Layer to 3D, the 360 views, Version History, Image
 ## Assets, Content Credentials, droplets; the generative edits against the test's own service
-## (tests/aimock.py); every new tool used on the canvas and every new command run once.
+## (tests/aimock.py); every new tool used on the canvas and every new command run once. And 5.17's:
+## a text box sized by its handles, a glyph put with its feature, the brush's outline, a color
+## from anywhere in the window, a gradient's color stop made transparent, every tool its own icon.
 
 import std/[strutils, os, json, tables, sequtils, exitprocs, streams]
 import std/osproc except countProcessors
 import retroui/uirelays/input
+import retroui/lineicons
+from std/unicode import runeAt
 import harness
 
 const photoUnderTest = true
@@ -171,6 +175,169 @@ block typedOnTheCanvas:
     run(2)
   prefs.language = 0
   applyLanguage()
+  run(2)
+
+block aTextBoxSizedAndAGlyphPut:
+  # a text box dragged with the Type tool: then the middle of its right side dragged -- the box
+  # wider, its letters as big as they were, its lines flowing again; a glyph of the font's put
+  # where the text is typed, with the feature the font makes it by on for it alone
+  let (d, dw) = fresh(500, 400, 0xFFFFFFFF'u32, "box")
+  selectTool(tType)
+  run(2)
+  let v = dw.view
+  let (ax, ay) = v.toScreen(d, 60, 60)
+  let (bx, by) = v.toScreen(d, 260, 260)
+  down(ax, ay)
+  run()
+  move(bx, by)
+  run()
+  up(bx, by)
+  run(2)
+  check te.on and te.layer.text.boxW > 100, "a box dragged: " & $te.layer.text.boxW
+  typeText("Words that flow on in their box as it is made wider or narrower")
+  run(2)
+  while eventsWaiting() > 0: run()        # (keys kept while a font was read: `eventsWaiting`)
+  let t0 = te.layer.text
+  let line0 = layoutText(te.layer.text).lines[0].last           # (the first line's letters)
+  # (the view as it is now: the bars of typing may have moved it)
+  let (rx, ry) = dw.view.toScreen(d, float(t0.x + t0.boxW), float(t0.y + t0.boxH / 2))
+  let (rx2, _) = dw.view.toScreen(d, float(t0.x + t0.boxW + 150), float(t0.y))
+  down(rx, ry)
+  run()
+  move(rx2, ry)
+  run()
+  up(rx2, ry)
+  run(2)
+  while eventsWaiting() > 0: run()
+  let t1 = te.layer.text
+  check t1.boxW > t0.boxW + 100 and t1.boxH == t0.boxH and t1.x == t0.x, "the box wider: " & $(t0.boxW, t1.boxW)
+  check t1.spans[0].style.size == t0.spans[0].style.size, "its letters as big as they were"
+  let line1 = layoutText(te.layer.text).lines[0].last
+  check line1 > line0, "its lines flowing again: more on the first: " & $(line0, line1)
+  let n0 = te.layer.text.runeLen
+  putGlyph("\u{FDF2}", "")
+  putGlyph("Q", "ss01")
+  run(2)
+  let t2 = te.layer.text
+  check t2.runeLen == n0 + 2 and "\u{FDF2}Q" in t2.plainText, "the glyphs put where the text is typed"
+  check featureOn(t2.styleAt(t2.runeLen - 1).features, "ss01") and not featureOn(te.style.features, "ss01"),
+        "the feature on for the glyph alone"
+  commitType()
+  selectTool(tMove)
+  run(2)
+
+block brushOutline:
+  # a brush tool picked or its size changed: its outline a moment in the view's middle, its size
+  # under it -- a finger has no pointer to show it at; then gone
+  let (d, dw) = fresh(400, 300, 0xFFFFFFFF'u32, "outline")
+  move(W - 3, H - 3)                    # (the pointer off the picture: no outline at it)
+  selectTool(tMove)
+  run(2)
+  opts[tBrush].tip.hardness = 100      # (a hard tip: its outline as big as it is)
+  selectTool(tBrush)
+  setBrushSize(tBrush, 120)
+  run(2)
+  check ui.now < outlinePreview, "the outline shown when the brush is picked"
+  let v = dw.view
+  let (ix, iy) = v.toImage(d, v.view.x + v.view.w div 2, v.view.y + v.view.h div 2)
+  let (cx, cy) = v.toScreen(d, ix, iy)
+  let (ex, _) = v.toScreen(d, ix + 60, iy)
+  proc darkNear(x, y: int): bool =
+    for dy in -2 .. 2:
+      for dx in -2 .. 2:
+        if x + dx in 0 ..< W and y + dy in 0 ..< H and px(x + dx, y + dy) == 0: return true
+  check darkNear(ex, cy) and not darkNear((cx + ex) div 2, cy - dp(12)), "a circle its size round the middle"
+  ticks += 1500
+  run(3)
+  check ui.now >= outlinePreview and not darkNear(ex, cy), "gone after a moment"
+  selectTool(tMove)
+  run(2)
+
+block colorFromAnywhere:
+  # the Color panel's eyedropper: a press anywhere in the window takes the color shown there --
+  # the press its own, not the tool's; and its colors to choose from, the swatches or a library
+  let (d, dw) = fresh(200, 150, 0xFFD02020'u32, "pick")
+  selectTool(tBrush)
+  run(2)
+  let before = d.layers[0].px
+  let v = dw.view
+  let (sx, sy) = v.toScreen(d, 100, 75)
+  pickAnywhere.on = true
+  down(sx, sy)
+  run()
+  up(sx, sy)
+  run(3)
+  check (fg and 0xFFFFFF'u32) == 0xD02020'u32 and not pickAnywhere.on, "the color under the press: " & toHex(fg)
+  check d.layers[0].px == before, "nothing painted by that press"
+  ensureBooksLoaded()
+  check colorBooks.len > 0, "libraries to choose from"
+  colorSource = 1
+  run(2)
+  colorSource = 0
+  selectTool(tMove)
+  run(2)
+
+block aTransparentColorStop:
+  # the color picker with its opacity (a gradient's color stop): Transparent, kept by OK; without
+  # it, the color opaque as before; the Gradient Editor's stop taking the picker's see-through color
+  let keep = view
+  var c = 0xFF2060C0'u32
+  var open = true
+  var st: ColorPickerState
+  view = proc () = discard colorPickerDialog(open, "Stop", c, st, alpha = true)
+  run(2)
+  check st.alpha == 255, "opened opaque, at the stop's opacity"
+  st.alpha = 0                                     # (its Transparent button)
+  okDialog()
+  check not open and c == 0x002060C0'u32, "OK: the color transparent, its own color kept: " & toHex(c)
+  c = 0x802060C0'u32
+  open = true
+  st = ColorPickerState()
+  view = proc () = discard colorPickerDialog(open, "Plain", c, st)
+  run(2)
+  okDialog()
+  check c == 0xFF2060C0'u32, "a picker without opacity: opaque, as before: " & toHex(c)
+  view = keep
+  run(2)
+  startGradientEditor(0, @[stop(0, 0xFFE03020'u32), stop(1, 0xFF2060C0'u32)])
+  geSel = 1
+  run(2)
+  # (the stop's well, then the picker's OK with Transparent: what they hand back)
+  well = (false, "gestop", 0x002060C0'u32, true, well.picker, true)
+  run(2)
+  check geStops[1].color == 0x002060C0'u32, "the stop see-through: " & toHex(geStops[1].color)
+  check gradientColor(geStops, 1.0) shr 24 == 0 and gradientColor(geStops, 0.0) shr 24 == 255,
+        "the gradient fading out to it"
+  geOpen = false
+  run(2)
+  # a shape's see-through fill: the options keep its opacity (they gave it back opaque), and its
+  # pixels are half see-through
+  let (sd, _) = fresh(120, 90, 0xFFFFFFFF'u32, "glass")
+  let L = sd.boxShape(rect(10, 10, 60, 40), 0x80FF0000'u32)
+  syncShapeOptions(L)
+  check shapeFill == 0x80FF0000'u32, "the options keep the fill's opacity: " & toHex(shapeFill)
+  let a = L.px[30 * 120 + 40] shr 24
+  check a in 120'u32 .. 136'u32, "the shape's pixels half see-through: " & $a
+  run(2)
+
+block everyToolItsOwnIcon:
+  # no two tools of the toolbar with the same icon; the one in use shown (the Options bar) with
+  # its button's; every icon drawn at both sizes, with a line twin for the dark themes
+  var seen = initTable[string, string]()
+  for grp in toolGroups:
+    for it in grp.items:
+      check it.glyph notin seen, it.name & " has the icon of " & seen.getOrDefault(it.glyph)
+      seen[it.glyph] = it.name
+      let a = pixelIcon(it.glyph)
+      let b = pixelIcon(it.glyph, big = true)
+      check a.w == 16 and a.h == 16 and b.w == 32 and b.h == 32, it.name & ": its art"
+      let i = int(it.glyph.runeAt(0)) - PixIconFirst
+      check lineTwins.anyIt(it[0] == i), it.name & ": its line twin"
+  for g, grp in toolGroups:
+    for k, it in grp.items:
+      pickTool(g, k)
+      check toolGlyph(it.tool) == it.glyph, it.name & ": the tool in use shown with its icon"
+  selectTool(tMove)
   run(2)
 
 block scaleStrokesAndEffects:
@@ -436,5 +603,49 @@ block everyNewCommand:
     run(3)
     inc ran
   check ran == names.len, "every new command ran"
+
+block aBigPatternPreview:
+  # Pattern Options with a tile thousands of pixels a side (the random-input run's): its preview at
+  # most 600 pixels a side -- 3 x 3 of the tile took gigabytes and failed -- the tile itself whole
+  let (d, _) = fresh(200, 150, 0xFFFFFFFF'u32, "pattern")
+  discard d.boxShape(rect(20, 20, 80, 60), 0xFFCC3333'u32)
+  d.cur = d.layers.high
+  patOpts.w = 3000
+  patOpts.h = 2500
+  patOpts.key = ""
+  showPanel("patternoptions")
+  run(3)
+  check patOpts.prev != nil and patOpts.prev.w <= 600 and patOpts.prev.h <= 600 and patOpts.tw == 3000 and
+        patOpts.th == 2500, "the preview small, the tile whole: " & $(patOpts.tw, patOpts.th)
+  togglePanel("patternoptions")
+  patOpts.w = 0
+  patOpts.h = 0
+  run(2)
+
+block panelsWhileTyping:
+  # the Glyphs panel opened while typing -- the bar's Glyphs, Window > Glyphs -- and Character, a
+  # panel of colors: the text still being typed, the glyph clicked going where the caret is
+  # (last: the panels stay where they were put)
+  let (d, dw) = fresh(300, 200, 0xFFFFFFFF'u32, "panels")
+  var st = defaultStyle()
+  st.size = 24
+  var L: Layer
+  d.layersChange("type"): L = d.addTextLayer(newText("Words", st, 40, 60))
+  d.cur = d.layers.find(L)
+  selectTool(tType)
+  run(2)
+  startTypeEdit(dw, L, false, 5)
+  run(2)
+  check te.on, "typing"
+  for panel in ["Glyphs", "Character", "Swatches"]:
+    runCommand(panel)
+    run(2)
+    check te.on, "the " & panel & " panel shown or hidden while typing: the text still being typed"
+  let n0 = te.layer.text.runeLen
+  putGlyph("*", "")
+  run(2)
+  check te.layer.text.runeLen == n0 + 1, "a glyph clicked: where the caret is"
+  commitType()
+  run(2)
 
 echo "atelierextras: ", passed, " passed"

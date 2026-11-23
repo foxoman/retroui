@@ -12,6 +12,7 @@ you ship one. Every license text is in the repository beside the part.
 | GNU FreeFont (FreeSans, FreeSerif, FreeMono, four styles each; subsets) | `src/retroui/fonts/Free*.ttf(.z)`, `LICENSE-FreeFont.txt` | GPL 3 with the font exception | the text of every app, PDFs |
 | Symbols Nerd Font (a subset: `Icons.ttf`) | `src/retroui/fonts/Icons.ttf(.z)`, `LICENSE-NerdFonts.txt` | MIT and SIL Open Font License 1.1 | the icons |
 | Dastkhat 1.210 (Dastyar; derived from Vazirmatn, Saber Rastikerdar and the Vazirmatn Project Authors; its Latin from Roboto, Google LLC) | `src/retroui/fonts/dastkhat/Dastkhat-Variable.ttf.z` (the variable font as published, packed), `OFL-Dastkhat.txt`, `NOTICES-Dastkhat.txt` | SIL Open Font License 1.1 (Roboto's Latin: Apache License 2.0) | `retroui/dastkhat`: Retro Atelier's type -- Arabic, Persian and Latin in nine weights |
+| Scheherazade New 4.500, Lateef 4.400 (SIL Global, with Reserved Font Names "Scheherazade", "Lateef" and "SIL"), Markazi Text 1.000 (the Markazi Text Project Authors), Regular and Bold each | `src/retroui/fonts/arabic/*.ttf.z` (the fonts as published, packed), `OFL-ScheherazadeNew.txt`, `OFL-Lateef.txt`, `OFL-MarkaziText.txt` | SIL Open Font License 1.1 | `retroui/arabicfonts`: Retro Atelier's Arabic book and text faces (Persian, Urdu, Pashto, Sindhi too) |
 | Handwriting fonts (Architects Daughter, Aref Ruqaa, Caveat, Gochi Hand, Indie Flower, Patrick Hand) | `src/retroui/fonts/hand/`, an `OFL-*.txt` beside each | SIL Open Font License 1.1 | the whiteboard's hand lettering |
 | Natural Earth country outlines (through world-atlas) | `src/retroui/worlddata.nim`, `fonts/LICENSE-NaturalEarth.txt` | public domain (world-atlas: ISC) | the map view's world |
 | uirelays | `src/retroui/uirelays/`, `LICENSE.md`, my changes in `RETRO.md` | MIT | the drivers' interface |
@@ -42,18 +43,30 @@ The shaper (`retroui/otshape`) is my own code, tested against HarfBuzz's
 output run by run. Its Arabic fallback and its fallback mark positioning
 follow HarfBuzz's (`hb-ot-shaper-arabic-fallback.hh`,
 `hb-ot-shape-fallback.cc`), and the ligature tables in it are HarfBuzz's
-(`hb-ot-shaper-arabic-table.hh`, made from Unicode's data): HarfBuzz is
+(`hb-ot-shaper-arabic-table.hh`, made from Unicode's data), as are the
+lookups for the Arabic fonts encoded as Windows-1256
+(`hb-ot-shaper-arabic-win1256.hh`, in `retroui/otshape`) and the map of
+the private-use codes of Simplified and Traditional Arabic
+(`hb-ot-shaper-arabic-pua.hh`, in `retroui/ttf`): HarfBuzz is
 under the "Old MIT" license -- Copyright © 2010-2022 Google, Inc.; ©
 2006-2012 Behdad Esfahbod and others -- which asks that this notice go
 with copies: permission to use, copy, modify and distribute it is granted,
 without fee, provided the copyright notice and these paragraphs appear in
 all copies; it is provided "as is", without warranty.
 
+Unicode's conformance tests for the bidi algorithm (`tests/data/unicode/
+BidiTest.txt.z`, `BidiCharacterTest.txt.z`, version 18.0.0, packed) are
+Unicode's, under the Unicode License v3 (`LICENSE-Unicode.txt` beside
+them); `tests/test_bidi.nim` runs every line of them. They are never
+carried in an app.
+
 The tests' fonts made from FreeSerif and FreeMono (`tests/data/fonts/
 ArabicNoLayout-Test.*`, `ArabicLegacy-Test.ttf`, `HebrewThaiNoLayout-Test.ttf`, `OldBitmap-Test.fon`,
 `OldType1-Test.pfb`, `OldSymbol-Test.pfb`: `tools/genlegacy.py`,
 `tools/genoldfonts.py`) are FreeFont's, GPL 3 with the font exception;
-they are never carried in an app.
+they are never carried in an app. `Win1256-Test.ttf` and
+`ArabicPua-Test.ttf` (plain boxes, `tools/genlegacy.py`) are made for the
+tests, public domain.
 
 JPEG XL (`retroui/jxl`) is my own code written from the standard;
 `src/retroui/vendor/LICENSE-jxl-references.txt` says what I read to write

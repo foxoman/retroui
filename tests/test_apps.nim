@@ -6,7 +6,7 @@
 import std/[os, strutils, times, unicode]
 import retroui
 import retroui/appicon
-import retroui/uirelays/input
+import retroui/uirelays/[input, services]
 import harness
 
 fakeDriver()
@@ -376,6 +376,38 @@ block dialogs:
   run(10)
   os.sleep(50)
   run(5)
+
+var phoneAccess = true
+var phoneDirs: tuple[own, pics, storage: string]
+block pickerOnAPhone:
+  # a phone app's Open: the last file a copy in its cache (handed over by "Open with" or the
+  # system's picker) -- the picker starts in the user's Pictures, not there; without access to
+  # the user's files, in the app's own folder, a line asking for it
+  let phone = root / "phone"
+  let own = phone / "data" / "app" / "files"
+  let cache = phone / "data" / "app" / "cache" / "opened"
+  let pics = phone / "storage" / "Pictures"
+  for d in [own, cache, pics]: createDir(d)
+  writeFile(cache / "shared.pdf", "%PDF-1.4")
+  writeFile(pics / "photo.png", "x")
+  let saved = systemRelays
+  phoneDirs = (own, pics, phone / "storage")
+  systemRelays.platform = proc (): string = "android"
+  systemRelays.dataDir = proc (app: string): string = phoneDirs.own
+  systemRelays.places = proc (): seq[tuple[name, path: string]] =
+    @[("Internal storage", phoneDirs.storage), ("Pictures", phoneDirs.pics)]
+  systemRelays.storageAccess = proc (): bool = phoneAccess
+  for (allowed, want) in [(true, pics), (false, own)]:
+    phoneAccess = allowed
+    var open = true
+    var p = cache / "shared.pdf"
+    view = proc () = discard filePicker(open, p, fmOpen, [], "Open on a phone " & $allowed)
+    run(3)
+    doAssert pickerFolder() == want, $allowed & ": " & pickerFolder()
+    open = false
+    run(2)
+  systemRelays = saved
+  run(2)
 
 removeDir(root)
 echo "apps tests passed"

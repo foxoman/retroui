@@ -1,7 +1,7 @@
 ## Tests of `retroui/otshape` (OpenType shaping) and of the variable fonts
 ## of `retroui/ttf`, against independent references:
 ##
-## * shaping: 4097 runs whose glyphs, clusters, advances and offsets must
+## * shaping: 6124 runs whose glyphs, clusters, advances and offsets must
 ##   equal what HarfBuzz 15.0.0 (uharfbuzz 0.57, cluster level
 ##   "characters") gives for the same font, text, direction, script,
 ##   language, features and axis values -- Arabic (FreeSerif, Noto Sans
@@ -10,7 +10,11 @@
 ##   layout tables at all (ArabicNoLayout-Test: HarfBuzz's Arabic fallback
 ##   and its fallback mark positioning, right to left and left to right) and
 ##   a small font made to hold every GSUB and GPOS lookup type, context
-##   format and lookup flag;
+##   format and lookup flag; the three Arabic families the kit carries
+##   (Scheherazade New, Lateef, Markazi Text: a paragraph of fully voweled
+##   Arabic, its words one by one) and two fonts laid out as the Arabic fonts
+##   of Windows 3.1 (Win1256-Test, ArabicPua-Test: HarfBuzz's own lookups for
+##   the Windows-1256 ones, its private-use map for Simplified Arabic);
 ## * an Arabic font of before Unicode (ArabicLegacy-Test: a symbol map at
 ##   0xF2xx, no layout) shaped as the same font with a Unicode map;
 ## * variable fonts: outlines, bounds and advances at several axis values
@@ -61,6 +65,11 @@
 ##   runs in otshape-cases: fixed lines, features turned off, and seeded
 ##   random ones (letters, tashkeel, lam-alef, tatweel, ZWJ/ZWNJ; Latin
 ##   letters and accents; variation sequences), cluster level "characters".
+## * Win1256-Test.ttf, ArabicPua-Test.ttf: tools/genlegacy.py -- plain boxes, no layout; one
+##   with each character's glyph at its Windows-1256 byte, one with OS/2 version 0, font page
+##   0xB2 and only a symbol map, a glyph at each private-use code (made for these tests, public
+##   domain). Their runs, and the carried Arabic fonts' (src/retroui/fonts/arabic, packed),
+##   in otshape-cases: the same 269 lines and words.
 ## * HebrewThaiNoLayout-Test.ttf: tools/genlegacy.py -- FreeSerif cut to Hebrew (its points and
 ##   the presentation forms of letters with dagesh, rafe, the shin and sin dots), Thai and ASCII,
 ##   its layout tables dropped. Its runs and FreeSerif's Hebrew and Thai ones in otshape-cases
@@ -79,7 +88,7 @@
 
 import std/[os, strutils, monotimes, times, tables]
 import std/unicode except splitWhitespace
-import retroui/[ttf, otshape, codec]
+import retroui/[ttf, otshape, codec, lzma]
 
 let dir = currentSourcePath().parentDir / "data" / "fonts"
 let fontDir = currentSourcePath().parentDir.parentDir / "src" / "retroui" / "fonts"
@@ -94,8 +103,9 @@ proc face(key: string): Face =
                of "garamond": dir / "EBGaramond-Subset.ttf"
                of "layout": dir / "OTLayoutTest.ttf"
                of "var": dir / "VarTest.ttf"
+               elif key.endsWith(".ttf.z"): fontDir / key      # (a font the kit carries, packed)
                else: dir / key
-    faces[key] = parseFace(readFile(path))
+    faces[key] = parseFace(if key.endsWith(".ttf.z"): unlzma(readFile(path)) else: readFile(path))
   faces[key]
 
 proc serialize(gs: seq[ShapedGlyph]): string =
@@ -144,7 +154,7 @@ block shapingMatchesHarfBuzz:
     perFont[p[0]] = pf
   for k, v in perFont: echo "  ", k, ": ", v[0] - v[1], " of ", v[0], " runs as HarfBuzz"
   echo "shaping: ", total - bad, " of ", total, " runs exactly as HarfBuzz"
-  doAssert total == 4779
+  doAssert total == 6124
   doAssert bad == 0
 
 proc lsbShift(f: Face; g: int): float32 =

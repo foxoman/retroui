@@ -356,7 +356,7 @@ proc tableDialogs() =
               if checkbox(lab, on): ts.field = if on: (fg or 0xFF000000'u32) else: 0'u32
               if on:
                 var c = ts.field
-                if colorWell(c, key, dp(40)): ts.field = c or 0xFF000000'u32
+                if colorWell(c, key, dp(40), alpha = true): ts.field = max(c, 1'u32)   # (its opacity kept)
           wellRow("Header fill", headerFill, "tblhf")
           wellRow("Header text", headerColor, "tblhc")
           wellRow("Text", bodyColor, "tblbc")
@@ -449,7 +449,7 @@ proc tableDialogs() =
           if checkbox("Cell Fill", on): cellDlg.f.fill = if on: (fg or 0xFF000000'u32) else: 0'u32
           if on:
             var c = cellDlg.f.fill
-            if colorWell(c, "cellfill", dp(40)): cellDlg.f.fill = c or 0xFF000000'u32
+            if colorWell(c, "cellfill", dp(40), alpha = true): cellDlg.f.fill = max(c, 1'u32)
         group("Cell Stroke"):
           row:
             label "Sides:"

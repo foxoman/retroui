@@ -220,6 +220,7 @@ proc storeAppearance*(s: var Settings) =
   s["look.text"] = $textScale()
   s["look.smooth"] = $smoothScrolling
   s["look.buttons"] = $captionButtons
+  s["look.look"] = $uiLook
   s["look.controls"] = (case controlSizes()
                         of csAuto: "auto"
                         of csDesktop: "desktop"
@@ -258,6 +259,10 @@ proc restoreAppearance*(s: Settings) =
   case s.getOrDefault("look.buttons", "")
   of "win95": captionButtons = cbWin95
   of "win31": captionButtons = cbWin31
+  else: discard
+  case s.getOrDefault("look.look", "")
+  of "classic": uiLook = lookClassic
+  of "glass": uiLook = lookGlass
   else: discard
   if not existsEnv("RETRO_TEXT"):
     case s.getOrDefault("look.textedges", "")

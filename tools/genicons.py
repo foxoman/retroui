@@ -15,7 +15,7 @@ wrong on a selected, navy row), the 16 VGA colors only.
   python3 tools/genicons.py sheet.png        # and a contact sheet
   python3 tools/genicons.py --appicons       # and the example apps' launcher icons
 """
-import sys, os, math
+import sys, os, math, re
 
 PAL = {'k': (0, 0, 0), 'w': (255, 255, 255), 's': (192, 192, 192), 'g': (128, 128, 128),
        'r': (255, 0, 0), 'm': (128, 0, 0), 'y': (255, 255, 0), 'o': (128, 128, 0),
@@ -4513,6 +4513,793 @@ def _(c):
         a.px(10, 12, 'k'); a.px(15, 11, 'k')
     c.over(a)
 
+
+
+# ---- every tool an icon of its own (0.72): the drawing program's, the layout program's and the
+# photo editor's tools that had another's -------------------------------------------------------
+
+def _art(name, big):
+    for n, d, s, b in ICONS:
+        if n == name:
+            return b if big else s
+    raise KeyError(name)
+
+
+def _base(c, name, box=None):
+    """Another icon's art, all of it (or the part outside `box`, which is left clear)."""
+    art = _art(name, c.big)
+    for y, row in enumerate(art):
+        for x, ch in enumerate(row):
+            if ch != '.' and not (box and box[0] <= x <= box[2] and box[1] <= y <= box[3]):
+                c.px(x, y, ch)
+
+
+def _corner(c):
+    """(the bottom right quarter, where a variant's mark goes: cleared a pixel round it)"""
+    return (8, 8, 15, 15) if not c.big else (17, 17, 31, 31)
+
+
+def _poly_path(pts):
+    out = []
+    for i in range(len(pts)):
+        (x0, y0), (x1, y1) = pts[i], pts[(i + 1) % len(pts)]
+        n = int(max(abs(x1 - x0), abs(y1 - y0))) or 1
+        for k in range(n):
+            out.append((x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n))
+    return out
+
+
+def _u(c):
+    return 2 if c.big else 1
+
+
+def _mark(c, kind):
+    """A small mark in the bottom right corner telling a variant from its tool."""
+    x0, y0, x1, y1 = _corner(c)
+    a = c.layer()
+    u = _u(c)
+    if kind == 'node':          # an anchor point and its handle: a vector tool
+        if c.big:
+            a.line(19, 29, 30, 18, 'k')
+            a.rect(18, 25, 23, 30, 'w'); a.frame(18, 25, 23, 30, 'k')
+            a.disc(29, 19, 2.5, 'b')
+        else:
+            a.line(10, 14, 15, 9, 'k')
+            a.rect(9, 12, 11, 14, 'w'); a.frame(9, 12, 11, 14, 'k')
+            a.px(14, 10, 'b'); a.px(15, 9, 'b')
+    elif kind == 'magic':       # a sparkle
+        cx, cy = (24.5, 24.5) if c.big else (12, 12)
+        r = 7 if c.big else 3.5
+        a.shape([(cx, cy - r), (cx + r / 3.5, cy - r / 3.5), (cx + r, cy), (cx + r / 3.5, cy + r / 3.5),
+                 (cx, cy + r), (cx - r / 3.5, cy + r / 3.5), (cx - r, cy), (cx - r / 3.5, cy - r / 3.5)], 'y')
+    elif kind == 'arrow':       # the pointer: picks
+        pts = [(0, 0), (0, 10), (3, 7), (5, 11), (7, 10), (5, 6), (9, 6)] if c.big else \
+              [(0, 0), (0, 6), (2, 4), (3, 6), (4, 5), (3, 3), (5, 3)]
+        ox, oy = (19, 19) if c.big else (9, 9)
+        a.shape([(ox + x, oy + y) for (x, y) in pts], 'w')
+    elif kind == 'plus':
+        if c.big:
+            a.rect(23, 18, 26, 31, 'G'); a.rect(18, 23, 31, 26, 'G'); a.outlined()
+        else:
+            a.rect(11, 9, 12, 15, 'G'); a.rect(9, 11, 14, 13, 'G'); a.outlined()
+    elif kind == 'magnet':      # a horseshoe magnet
+        if c.big:
+            a.arc(24.5, 24, 5.5, 4, 0, 180, 'r')
+            a.rect(17, 17, 20, 23, 'r'); a.rect(29, 17, 32, 23, 'r')
+            a.rect(17, 17, 20, 18, 's'); a.rect(29, 17, 32, 18, 's')
+            a.outlined()
+        else:
+            a.arc(12, 12, 2.7, 2, 0, 180, 'r')
+            a.vline(9, 9, 12, 'r'); a.vline(10, 9, 12, 'r'); a.vline(14, 9, 12, 'r'); a.vline(15, 9, 12, 'r')
+            a.px(9, 9, 's'); a.px(10, 9, 's'); a.px(14, 9, 's'); a.px(15, 9, 's')
+    elif kind == 'symbol':      # a symbol: a little clover of the drawing program's symbols
+        cx, cy = (24.5, 24.5) if c.big else (12, 12)
+        r = 3.2 if c.big else 1.7
+        for (dx, dy) in ((0, -1), (-1, 0.6), (1, 0.6)):
+            a.disc(cx + dx * r * 1.1, cy + dy * r * 1.1, r, 'G', None)
+        a.stroke(cx, cy, cx, cy + r * 2.6, 1.6 * u, 'G')
+        a.outlined()
+    elif kind == 'drop':        # a drop of paint
+        cx, cy = (24.5, 26) if c.big else (12, 12.5)
+        r = 4.5 if c.big else 2.4
+        a.disc(cx, cy, r, 'b', None)
+        a.shape([(cx - r * 0.8, cy - r * 0.5), (cx, cy - r * 2.2), (cx + r * 0.8, cy - r * 0.5)], 'b', 'b')
+        a.outlined()
+        a.px(int(cx - r / 2), int(cy - r / 3), 'w')
+    elif kind == 'shape':       # a triangle and a disc: shapes, not pixels
+        if c.big:
+            a.shape([(18, 31), (24, 19), (30, 31)], 'c')
+            a.disc(28, 21, 3.5, 'r')
+        else:
+            a.shape([(9, 15), (12, 9), (15, 15)], 'c')
+            a.px(14, 9, 'r'); a.px(15, 10, 'r')
+    elif kind == 'rotate':      # an arrow round
+        cx, cy = (24.5, 24.5) if c.big else (12, 12)
+        r = 5.5 if c.big else 2.6
+        a.arc(cx, cy, r, 2 * u, -60, 220, 'b')
+        a.shape([(cx + r + u * 1.5, cy - u * 2), (cx + r - u * 2, cy - u * 2), (cx + r, cy + u)], 'b', 'b')
+        a.outlined()
+    elif kind == 'size':        # arrows out to two corners
+        if c.big:
+            a.stroke(19, 30, 30, 19, 2, 'b')
+            a.shape([(30, 18), (30, 24), (24, 18)], 'b')
+            a.shape([(18, 30), (18, 24), (24, 30)], 'b')
+        else:
+            a.line(9, 15, 15, 9, 'b')
+            a.hline(13, 15, 9, 'b'); a.vline(15, 9, 11, 'b')
+            a.hline(9, 11, 15, 'b'); a.vline(9, 13, 15, 'b')
+    elif kind == 'in':          # two arrowheads, pointing in to the middle
+        if c.big:
+            a.shape([(17, 19.5), (23, 24.5), (17, 29.5)], 'b', 'b')
+            a.shape([(31.5, 19.5), (25.5, 24.5), (31.5, 29.5)], 'b', 'b')
+            a.outlined()
+        else:
+            a.vline(9, 10, 14, 'b'); a.vline(10, 11, 13, 'b'); a.px(11, 12, 'b')
+            a.vline(15, 10, 14, 'b'); a.vline(14, 11, 13, 'b'); a.px(13, 12, 'b')
+    elif kind == 'path':        # a dashed path
+        if c.big:
+            for k in range(0, 14, 4):
+                a.stroke(18 + k, 30 - k * 0.6, 20 + k, 28.8 - k * 0.6, 2, 'b')
+        else:
+            for k in (9, 12, 15):
+                a.px(k, 15 - (k - 9) // 2, 'b')
+    elif kind == 'grid':        # faces of a Live Paint group
+        if c.big:
+            a.rect(18, 18, 31, 31, 'w')
+            a.rect(18, 18, 24, 24, 'r'); a.rect(25, 25, 31, 31, 'b')
+            a.frame(18, 18, 31, 31, 'k'); a.hline(18, 31, 24, 'k'); a.vline(24, 18, 31, 'k')
+        else:
+            a.rect(9, 9, 15, 15, 'w'); a.rect(9, 9, 11, 11, 'r'); a.rect(13, 13, 15, 15, 'b')
+            a.frame(9, 9, 15, 15, 'k'); a.hline(9, 15, 12, 'k'); a.vline(12, 9, 15, 'k')
+    elif kind == 'eye':
+        if c.big:
+            a.ellipse(24.5, 24.5, 7, 4.5, 'w'); a.disc(24.5, 24.5, 3, 'n')
+            a.outlined()
+        else:
+            a.hline(10, 14, 11, 'k'); a.hline(10, 14, 13, 'k'); a.px(9, 12, 'k'); a.px(15, 12, 'k')
+            a.hline(10, 14, 12, 'w'); a.px(12, 12, 'n')
+    elif kind == 'down':        # an arrow down: running down
+        if c.big:
+            arrow(a, 'd', 25, 31, 13, 'b')
+        else:
+            a.vline(12, 9, 13, 'b'); a.hline(10, 14, 13, 'b'); a.hline(11, 13, 14, 'b'); a.px(12, 15, 'b')
+            a.outlined()
+    elif kind == 'tone':        # half light, half dark: lighter or darker
+        cx, cy = (24.5, 24.5) if c.big else (12, 12)
+        r = 6.5 if c.big else 3.2
+        a.disc(cx, cy, r, 'w')
+        for y in range(c.n):
+            for x in range(c.n):
+                if a.get(x, y) == 'w' and x + 0.5 > cx:
+                    a.px(x, y, 'k')
+    # (the tool's drawing cleared a pixel round the mark: the mark stands apart)
+    for y in range(c.n):
+        for x in range(c.n):
+            if a.get(x, y) != '.':
+                continue
+            if any(a.get(x + dx, y + dy) != '.' for dx in (-1, 0, 1) for dy in (-1, 0, 1)):
+                c.g[y][x] = '.'
+    c.over(a)
+
+
+def _variant(name, doc, base, mark):
+    """An icon: `base`'s art with `mark` in its bottom right corner."""
+    def f(c):
+        _base(c, base)
+        _mark(c, mark)
+    icon(name, doc)(f)
+
+
+# the variants: a tool's own art and what makes it this one
+for (name, doc, base, mark) in [
+        ('MagicEraser', 'The magic eraser: rub out the pixels of a color at a click.', 'Eraser', 'magic'),
+        ('MagicWandShapes', 'The magic wand on shapes: pick the shapes of a color or a stroke.', 'MagicWand', 'shape'),
+        ('MagneticLasso', 'The magnetic lasso: an outline that clings to the edges.', 'Lasso', 'magnet'),
+        ('LassoPoints', 'The lasso on points: select a path\'s anchor points by drawing round them.', 'PolyLasso', 'node'),
+        ('VectorCrop', 'The vector crop: a layer shown in a box, its pixels kept.', 'Crop', 'node'),
+        ('SliceSelect', 'The slice select tool: pick a slice to change it.', 'Slice', 'arrow'),
+        ('BrushVector', 'The drawing program\'s paintbrush: strokes that stay paths.', 'Brush', 'node'),
+        ('PathEraser', 'The path eraser: rub out part of a path.', 'Eraser', 'path'),
+        ('EraserShapes', 'The eraser on shapes: rub out part of the shapes it goes over.', 'BgEraser', 'shape'),
+        ('SymbolStainer', 'The symbol stainer: tint the symbols under it.', 'ColorReplace', 'symbol'),
+        ('SymbolSprayer', 'The symbol sprayer: spray symbols as paint.', 'Airbrush', 'symbol'),
+        ('SymbolShifter', 'The symbol shifter: push the symbols under it.', 'MoveTool', 'symbol'),
+        ('SymbolSizer', 'The symbol sizer: make the symbols under it bigger (Alt: smaller).', 'ZoomIn', 'symbol'),
+        ('SymbolScruncher', 'The symbol scruncher: draw the symbols together (Alt: apart).', 'PuppetWarp', 'in'),
+        ('SymbolSpinner', 'The symbol spinner: turn the symbols under it.', 'Refresh', 'symbol'),
+        ('ToneBrush', 'The tone brush: lighten or darken on a layer of its own.', 'Brush', 'tone'),
+        ('LivePaintBucket', 'The Live Paint bucket: fill a face of a Live Paint group.', 'Bucket', 'grid'),
+        ('LivePaintSelect', 'The Live Paint selection tool: pick faces and edges of a Live Paint group.', 'PathSelect', 'grid'),
+        ('GroupSelect', 'The group selection tool: a click on a shape picks it, again its group.', 'PathSelect', 'plus'),
+        ('ShapeBuilder', 'The shape builder: drag across shapes to join them (Alt: take away).', 'Bucket', 'plus'),
+        ('ColorSamplerTool', 'The color sampler: points whose colors the Info panel keeps showing.', 'Eyedropper', 'plus'),
+        ('PerspSelect', 'The perspective selection tool: move and size shapes on the perspective grid.', 'PerspCrop', 'arrow'),
+        ('TypeMaskVertical', 'The vertical type mask: letters running down that become a selection.', 'TypeMask', 'down'),
+        ('TypePathVertical', 'Vertical type on a path: letters standing along a path.', 'TypePath', 'down'),
+        ('Join', 'The join tool: drag over two ends of paths to join them.', 'ConvertPoint', 'in'),
+        ('Smooth', 'The smooth tool: drag along a path to smooth it.', 'CurvaturePen', 'path'),
+        ('Reshape', 'The reshape tool: drag a point of a path and its neighbors follow.', 'CurvaturePen', 'arrow'),
+        ('MedianBrush', 'The median brush: paint away speckles, keeping the edges.', 'Blur', 'grid'),
+        ('PageTool', 'The page tool: a page\'s size and its place on the pasteboard.', 'New', 'size'),
+        ]:
+    _variant(name, doc, base, mark)
+
+
+def _icon2(name, doc):
+    """(an icon drawn anew, at both sizes)"""
+    return icon(name, doc)
+
+
+# graphs: each kind its own chart
+def _axes(c):
+    if c.big:
+        c.vline(2, 2, 28, 'k'); c.hline(2, 31, 28, 'k')
+    else:
+        c.vline(1, 1, 14, 'k'); c.hline(1, 15, 14, 'k')
+
+
+@_icon2('ChartStacked', 'The stacked column graph tool: columns of parts.')
+def _(c):
+    b = c.layer()
+    cols = ((6, 11, (20, 13)), (14, 19, (14, 6)), (22, 27, (18, 10))) if c.big else \
+           ((3, 5, (10, 6)), (7, 9, (7, 3)), (11, 13, (9, 5)))
+    for (x0, x1, (mid, top)) in cols:
+        b.rect(x0, mid, x1, 27 if c.big else 13, 'b')
+        b.rect(x0, top, x1, mid - 1, 'y')
+    b.outlined()
+    _axes(c)
+    c.over(b)
+
+
+@_icon2('ChartBar', 'The bar graph tool: bars across.')
+def _(c):
+    b = c.layer()
+    bars = ((6, 10, 24, 'r'), (13, 17, 14, 'b'), (20, 24, 28, 'G')) if c.big else \
+           ((3, 4, 11, 'r'), (7, 8, 7, 'b'), (11, 12, 14, 'G'))
+    for (y0, y1, x1, col) in bars:
+        b.rect(3 if c.big else 2, y0, x1, y1, col)
+    b.outlined()
+    if c.big:
+        c.vline(2, 2, 29, 'k'); c.hline(2, 30, 29, 'k')
+    else:
+        c.vline(1, 1, 14, 'k'); c.hline(1, 15, 14, 'k')
+    c.over(b)
+
+
+@_icon2('ChartBarStacked', 'The stacked bar graph tool: bars of parts across.')
+def _(c):
+    b = c.layer()
+    bars = ((6, 11, 14, 24), (15, 20, 10, 20), (24, 27, 16, 28)) if c.big else \
+           ((3, 5, 7, 12), (7, 9, 5, 10), (11, 13, 8, 14))
+    for (y0, y1, mid, x1) in bars:
+        b.rect(3 if c.big else 2, y0, mid, y1, 'b')
+        b.rect(mid + 1, y0, x1, y1, 'y')
+    b.outlined()
+    if c.big:
+        c.vline(2, 2, 29, 'k'); c.hline(2, 30, 29, 'k')
+    else:
+        c.vline(1, 1, 14, 'k'); c.hline(1, 15, 14, 'k')
+    c.over(b)
+
+
+@_icon2('ChartLine', 'The line graph tool: points joined by a line.')
+def _(c):
+    _axes(c)
+    pts = [(5, 22), (11, 14), (17, 18), (23, 8), (29, 11)] if c.big else [(3, 11), (6, 7), (9, 9), (12, 4), (15, 6)]
+    for i in range(len(pts) - 1):
+        if c.big:
+            c.stroke(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], 2.2, 'r')
+        else:
+            c.line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], 'r')
+    for (x, y) in pts:
+        if c.big:
+            c.rect(x - 1, y - 1, x + 1, y + 1, 'k')
+        else:
+            c.px(x, y, 'k')
+
+
+@_icon2('ChartArea', 'The area graph tool: the room under a line filled.')
+def _(c):
+    b = c.layer()
+    if c.big:
+        b.shape([(3, 27), (3, 18), (10, 11), (17, 16), (24, 6), (30, 10), (30, 27)], 'G')
+        b.shape([(3, 27), (3, 23), (10, 19), (17, 22), (24, 15), (30, 19), (30, 27)], 'l')
+    else:
+        b.shape([(2, 13), (2, 9), (5, 5), (8, 8), (12, 3), (15, 5), (15, 13)], 'G')
+        b.shape([(2, 13), (2, 11), (5, 9), (8, 11), (12, 7), (15, 9), (15, 13)], 'l')
+    c.over(b)
+    _axes(c)
+
+
+@_icon2('ChartScatter', 'The scatter graph tool: points by two numbers.')
+def _(c):
+    _axes(c)
+    pts = [(7, 22, 'r'), (11, 15, 'b'), (16, 19, 'r'), (19, 10, 'b'), (24, 14, 'r'), (27, 6, 'b'), (13, 24, 'b')] \
+        if c.big else [(4, 11, 'r'), (6, 7, 'b'), (9, 9, 'r'), (10, 4, 'b'), (13, 6, 'r'), (14, 2, 'b')]
+    for (x, y, col) in pts:
+        if c.big:
+            c.disc(x, y, 2.6, col)
+        else:
+            c.px(x, y, col); c.px(x + 1, y, col); c.px(x, y + 1, col); c.px(x + 1, y + 1, col)
+
+
+@_icon2('ChartRadar', 'The radar graph tool: numbers on spokes, joined.')
+def _(c):
+    cx = cy = c.n / 2
+    r = 14 if c.big else 7
+    ang = [math.radians(-90 + 72 * k) for k in range(5)]
+    outer = [(cx + r * math.cos(a), cy + r * math.sin(a)) for a in ang]
+    for (x, y) in outer:
+        c.line(cx, cy, x, y, 'g')
+    c.outline(outer, 'k')
+    inner = [(cx + r * f * math.cos(a), cy + r * f * math.sin(a)) for a, f in zip(ang, (0.9, 0.5, 0.75, 0.45, 0.7))]
+    b = c.layer()
+    b.shape(inner, 'c', 'b')
+    c.over(b)
+
+
+# type: the ways of setting it
+def _bigT(c, x, y, s, col='k'):
+    """A T: its top bar at (x, y), `s` its size (16 for the type tool's)."""
+    k = s / 16.0
+    c.rect(x, y, int(x + 10 * k), int(y + 1.6 * k), col)
+    c.rect(int(x + 4 * k), y, int(x + 6 * k), int(y + 11 * k), col)
+
+
+@_icon2('TypeVertical', 'The vertical type tool: letters running down.')
+def _(c):
+    if c.big:
+        _bigT(c, 3, 3, 26)
+        arrow(c, 'd', 25, 30, 14, 'b')
+    else:
+        _bigT(c, 1, 1, 13)
+        c.vline(13, 6, 14, 'b'); c.hline(11, 15, 12, 'b'); c.hline(12, 14, 13, 'b')
+
+
+@_icon2('TypeArea', 'The area type tool: text that fills a shape.')
+def _(c):
+    if c.big:
+        _dash_path(c, _rect_path(2, 2, 29, 29), 3, 2, 'k', None)
+        _bigT(c, 8, 8, 18)
+        for y in (24, 27):
+            c.hline(6, 25, y, 'g')
+    else:
+        _dash_path(c, _rect_path(0, 0, 15, 15), 2, 1, 'k', None)
+        _bigT(c, 4, 3, 10)
+
+
+@_icon2('TypeAreaVertical', 'The vertical area type tool: letters running down, filling a shape.')
+def _(c):
+    if c.big:
+        _dash_path(c, _rect_path(2, 2, 29, 29), 3, 2, 'k', None)
+        _bigT(c, 6, 6, 16)
+        arrow(c, 'd', 23, 27, 12, 'b')
+    else:
+        _dash_path(c, _rect_path(0, 0, 15, 15), 2, 1, 'k', None)
+        _bigT(c, 2, 2, 9)
+        c.vline(12, 5, 12, 'b'); c.hline(10, 14, 11, 'b'); c.px(12, 13, 'b')
+
+
+@_icon2('TouchType', 'The touch type tool: each letter moved, sized and turned by itself.')
+def _(c):
+    if c.big:
+        _bigT(c, 2, 4, 18)
+        a = c.layer()
+        # (a letter of its own, turned, in its box)
+        pts = [(17, 12), (29, 17), (24, 29), (12, 24)]
+        _dash_path(a, [(int(x), int(y)) for (x, y) in _poly_path(pts)], 2, 2, 'b', None)
+        a.stroke(17, 24, 24, 15, 2.6, 'k'); a.stroke(19, 26.5, 26, 17.5, 2.6, 'k')
+        c.over(a)
+    else:
+        _bigT(c, 1, 1, 10)
+        c.line(8, 13, 13, 8, 'k'); c.line(9, 14, 14, 9, 'k')
+        c.px(15, 10, 'b'); c.px(7, 12, 'b'); c.px(11, 15, 'b'); c.px(12, 6, 'b')
+
+
+# shapes and frames
+@_icon2('TriangleShape', 'The triangle tool: a triangle.')
+def _(c):
+    b = c.layer()
+    if c.big:
+        b.shape([(16, 3), (29, 27), (3, 27)], 'c')
+        b.lit('c', 'w', 't')
+    else:
+        b.shape([(8, 1), (15, 14), (1, 14)], 'c')
+    c.over(b)
+
+
+@_icon2('FrameRect', 'The rectangle frame tool: a frame for a picture (a cross in it till it has one).')
+def _(c):
+    if c.big:
+        c.rect(3, 5, 28, 26, 'w'); c.frame(3, 5, 28, 26, 'k')
+        c.line(4, 6, 27, 25, 'b'); c.line(27, 6, 4, 25, 'b')
+    else:
+        c.rect(1, 2, 14, 13, 'w'); c.frame(1, 2, 14, 13, 'k')
+        c.line(2, 3, 13, 12, 'b'); c.line(13, 3, 2, 12, 'b')
+
+
+@_icon2('FrameEllipse', 'The ellipse frame tool: a round frame for a picture.')
+def _(c):
+    if c.big:
+        c.disc(16, 16, 13, 'w')
+        c.line(8, 8, 24, 24, 'b'); c.line(24, 8, 8, 24, 'b')
+    else:
+        c.disc(8, 8, 7, 'w')
+        c.line(4, 4, 11, 11, 'b'); c.line(11, 4, 4, 11, 'b')
+
+
+@_icon2('FramePolygon', 'The polygon frame tool: a frame of many sides for a picture.')
+def _(c):
+    cx = cy = c.n / 2
+    r = 14 if c.big else 7
+    pts = [(cx + r * math.cos(math.radians(-90 + 60 * k)), cy + r * math.sin(math.radians(-90 + 60 * k)))
+           for k in range(6)]
+    b = c.layer()
+    b.shape(pts, 'w')
+    c.over(b)
+    if c.big:
+        c.line(9, 9, 23, 23, 'b'); c.line(23, 9, 9, 23, 'b')
+    else:
+        c.line(4, 4, 11, 11, 'b'); c.line(11, 4, 4, 11, 'b')
+
+
+@_icon2('Contour', 'The contour tool: outlines inside and outside a shape, as a map\'s heights.')
+def _(c):
+    cx = cy = c.n / 2
+    for (r, col) in ((14, 'b'), (10, 'c'), (6, 'G')) if c.big else ((7, 'b'), (5, 'c'), (3, 'G')):
+        c.ring(cx, cy - (1 if c.big else 0.5), r - (2 if c.big else 1), r, col)
+
+
+@_icon2('PolarGrid', 'The polar grid tool: rings and spokes.')
+def _(c):
+    cx = cy = c.n / 2
+    r = 14 if c.big else 7
+    c.disc(cx, cy, r, 'w')
+    c.ring(cx, cy, r * 0.55 - 0.5, r * 0.55 + 0.5, 'g')
+    for k in range(6):
+        a = math.radians(30 * k)
+        c.line(cx - r * math.cos(a), cy - r * math.sin(a), cx + r * math.cos(a), cy + r * math.sin(a), 'k')
+    c.ring(cx, cy, r - 1, r, 'k')
+
+
+@_icon2('ArcShape', 'The arc tool: a part of a circle.')
+def _(c):
+    if c.big:
+        c.arc(4, 28, 23, 3, -90, 0, 'k')
+        c.rect(2, 3, 5, 6, 'w'); c.frame(2, 3, 5, 6, 'k'); c.rect(25, 26, 28, 29, 'w'); c.frame(25, 26, 28, 29, 'k')
+    else:
+        c.arc(2, 14, 11.5, 1.6, -90, 0, 'k')
+        c.px(2, 2, 'b'); c.px(13, 13, 'b')
+
+
+@_icon2('CornerTool', 'The corner tool: round a corner by dragging its widget.')
+def _(c):
+    if c.big:
+        c.stroke(5, 28, 5, 14, 3, 'k'); c.stroke(14, 5, 28, 5, 3, 'k')
+        c.arc(14, 14, 9, 3, 180, 270, 'k')
+        c.disc(12, 12, 3, 'w', 'b')
+    else:
+        c.vline(2, 7, 14, 'k'); c.hline(7, 14, 2, 'k')
+        c.arc(7, 7, 5, 1.4, 180, 270, 'k')
+        c.px(6, 6, 'b'); c.px(5, 6, 'b'); c.px(6, 5, 'b')
+
+
+@_icon2('Scallop', 'The scallop tool: curves into the outline, as a shell\'s.')
+def _(c):
+    cx = cy = c.n / 2
+    r = 13 if c.big else 6.5
+    b = c.layer()
+    b.disc(cx, cy, r, 'y', None)
+    for k in range(8):
+        a = math.radians(45 * k)
+        b.disc(cx + r * math.cos(a), cy + r * math.sin(a), r * 0.32, '.', None)
+    b.outlined()
+    c.over(b)
+
+
+@_icon2('Crystallize', 'The crystallize tool: spikes out of the outline.')
+def _(c):
+    cx = cy = c.n / 2
+    r0, r1 = (6, 15) if c.big else (3, 7.5)
+    pts = []
+    for k in range(18):
+        a = math.radians(20 * k)
+        r = r1 if k % 2 == 0 else r0
+        r = r * (0.75 if k % 4 == 2 else 1)
+        pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+    b = c.layer()
+    b.shape(pts, 'c', 'b')
+    c.over(b)
+
+
+@_icon2('Twirl', 'The twirl tool: turn the outline round itself.')
+def _(c):
+    cx = cy = c.n / 2
+    for k in range(240 if c.big else 120):
+        t = k / (240 if c.big else 120)
+        a = t * 4 * math.pi
+        r = 1 + t * (13 if c.big else 6.5)
+        x, y = cx + r * math.cos(a), cy + r * math.sin(a)
+        if c.big:
+            c.stroke(x, y, x, y, 2.2, 'P')
+        else:
+            c.px(int(x), int(y), 'P')
+
+
+@_icon2('Bloat', 'The bloat tool: push the outline out.')
+def _(c):
+    cx = cy = c.n / 2
+    b = c.layer()
+    r = 13 if c.big else 6.5
+    pts = [(cx + r * (1 + 0.15 * math.cos(4 * a)) * math.cos(a), cy + r * (1 + 0.15 * math.cos(4 * a)) * math.sin(a))
+           for a in [math.radians(k * 5) for k in range(72)]]
+    b.shape(pts, 'p')
+    c.over(b)
+    if c.big:
+        for (dx, dy) in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            arrow(c, {(1, 0): 'r', (-1, 0): 'l', (0, 1): 'd', (0, -1): 'u'}[(dx, dy)], int(cx + dx * 9), int(cy + dy * 9), 7, 'w')
+    else:
+        c.px(int(cx), int(cy), 'w')
+
+
+@_icon2('Wrinkle', 'The wrinkle tool: waves along the outline.')
+def _(c):
+    for (k, col) in enumerate(('b', 'n', 'b')):
+        y0 = (9 + 7 * k) if c.big else (4 + 4 * k)
+        prev = None
+        for x in range(2, c.n - 2):
+            y = y0 + (2.5 if c.big else 1.2) * math.sin(x * (0.9 if c.big else 1.6) + k)
+            if c.big:
+                c.stroke(x, y, x, y, 2, col)
+            else:
+                c.px(x, int(round(y)), col)
+
+
+@_icon2('Deform', 'The deform tool: bones in a shape, the shape bent as they turn.')
+def _(c):
+    b = c.layer()
+    if c.big:
+        b.shape([(5, 26), (8, 10), (15, 4), (24, 9), (27, 26), (21, 19), (11, 19)], 's')
+        c.over(b)
+        c.stroke(9, 22, 15, 10, 2, 'b'); c.stroke(15, 10, 23, 22, 2, 'b')
+        for (x, y) in ((9, 22), (15, 10), (23, 22)):
+            c.disc(x, y, 2.8, 'y')
+    else:
+        b.shape([(2, 13), (4, 5), (8, 2), (12, 5), (14, 13), (10, 10), (6, 10)], 's')
+        c.over(b)
+        c.line(4, 11, 8, 4, 'b'); c.line(8, 4, 12, 11, 'b')
+        c.px(4, 11, 'y'); c.px(8, 4, 'y'); c.px(12, 11, 'y')
+
+
+@_icon2('MeshTool', 'The mesh tool: a gradient mesh, its points each a color.')
+def _(c):
+    n = c.n
+    c.rect(1, 1, n - 2, n - 2, 'c')
+    c.dither(1, 1, n // 2, n // 2, 'b', 'c')
+    for k in range(1, 4):
+        t = k / 4.0
+        prevx = prevy = None
+        for s in range(0, 101, 4):
+            u = s / 100.0
+            x = 1 + u * (n - 3)
+            y = 1 + t * (n - 3) + (2 if c.big else 1) * math.sin(u * math.pi)
+            c.px(int(x), int(y), 'k')
+            x2 = 1 + t * (n - 3) + (2 if c.big else 1) * math.sin(u * math.pi)
+            y2 = 1 + u * (n - 3)
+            c.px(int(x2), int(y2), 'k')
+    c.frame(0, 0, n - 1, n - 1, 'k')
+    m = n // 2
+    c.rect(m - 1, m - 1, m + 1, m + 1, 'w') if c.big else c.px(m, m, 'w')
+
+
+@_icon2('MeshWarp', 'The mesh warp tool: a grid over a shape, its points pulled.')
+def _(c):
+    n = c.n
+    steps = 5 if c.big else 4
+    for i in range(steps + 1):
+        t = i / steps
+        for s in range(0, 101, 2):
+            u = s / 100.0
+            bend = (3 if c.big else 1.5) * math.sin(u * math.pi) * math.sin(t * math.pi)
+            x = 1 + u * (n - 3) + bend * 0.6
+            y = 1 + t * (n - 3) + bend
+            c.px(int(x), int(y), 'b')
+            x2 = 1 + t * (n - 3) + bend
+            y2 = 1 + u * (n - 3) + bend * 0.6
+            c.px(int(x2), int(y2), 'b')
+
+
+@_icon2('WidthTool', 'The width tool: a stroke made wider or thinner at a point.')
+def _(c):
+    if c.big:
+        b = c.layer()
+        pts = [(3, 16)]
+        top = [(3 + k, 16 - (2 + 6 * math.sin(k / 26 * math.pi))) for k in range(0, 27)]
+        bot = [(3 + k, 16 + (2 + 6 * math.sin(k / 26 * math.pi))) for k in range(26, -1, -1)]
+        b.shape(top + bot, 'n')
+        c.over(b)
+        c.vline(16, 6, 26, 'w'); c.rect(15, 5, 17, 7, 'y'); c.rect(15, 25, 17, 27, 'y')
+        c.frame(15, 5, 17, 7, 'k'); c.frame(15, 25, 17, 27, 'k')
+    else:
+        for x in range(1, 15):
+            h = 1 + int(3 * math.sin((x - 1) / 13 * math.pi))
+            c.vline(x, 8 - h, 8 + h, 'n')
+        c.px(8, 3, 'y'); c.px(8, 13, 'y')
+
+
+@_icon2('RotateTool', 'The rotate tool: turn a shape round a point.')
+def _(c):
+    if c.big:
+        b = c.layer()
+        b.shape([(9, 11), (21, 7), (25, 19), (13, 23)], 'c')
+        c.over(b)
+        c.disc(16, 16, 2.5, 'r')
+        c.arc(16, 16, 13, 2.2, 200, 330, 'k')
+        c.shape([(27, 6), (28, 13), (22, 10)], 'k')
+    else:
+        c.shape([(4, 6), (10, 4), (12, 10), (6, 12)], 'c')
+        c.px(8, 8, 'r')
+        c.arc(8, 8, 7, 1.2, 200, 330, 'k')
+        c.px(14, 4, 'k'); c.px(13, 4, 'k'); c.px(14, 5, 'k')
+
+
+@_icon2('ShearTool', 'The shear tool: slant a shape.')
+def _(c):
+    if c.big:
+        c.frame(4, 8, 18, 26, 'g')
+        b = c.layer()
+        b.shape([(12, 8), (28, 8), (20, 26), (4, 26)], 'c')
+        c.over(b)
+        arrow(c, 'r', 30, 4, 12, 'b')
+    else:
+        c.frame(2, 4, 9, 13, 'g')
+        c.shape([(6, 4), (14, 4), (10, 13), (2, 13)], 'c')
+        c.hline(9, 14, 1, 'b'); c.px(13, 0, 'b'); c.px(13, 2, 'b')
+
+
+@_icon2('ScaleTool', 'The scale tool: a shape made bigger or smaller round a point.')
+def _(c):
+    if c.big:
+        c.frame(3, 13, 16, 28, 'g')
+        c.rect(9, 3, 28, 22, 'c'); c.frame(9, 3, 28, 22, 'k')
+        c.stroke(5, 27, 15, 17, 2, 'b')
+        c.shape([(16, 15), (16, 21), (10, 15)], 'b')
+    else:
+        c.frame(1, 7, 8, 14, 'g')
+        c.rect(5, 1, 14, 10, 'c'); c.frame(5, 1, 14, 10, 'k')
+        c.line(2, 13, 7, 8, 'b')
+
+
+@_icon2('FreeTransform', 'The free transform tool: move, size, turn and slant with the mouse.')
+def _(c):
+    if c.big:
+        c.frame(5, 5, 26, 26, 'k')
+        for (x, y) in ((5, 5), (15, 5), (26, 5), (5, 15), (26, 15), (5, 26), (15, 26), (26, 26)):
+            c.rect(x - 2, y - 2, x + 2, y + 2, 'w'); c.frame(x - 2, y - 2, x + 2, y + 2, 'k')
+        c.arc(16, 16, 6, 2, -150, 120, 'b')
+    else:
+        c.frame(2, 2, 13, 13, 'k')
+        for (x, y) in ((2, 2), (13, 2), (2, 13), (13, 13), (7, 2), (7, 13), (2, 7), (13, 7)):
+            c.px(x, y, 'w'); c.px(x, y, 'w')
+        for (x, y) in ((2, 2), (13, 2), (2, 13), (13, 13)):
+            c.rect(x - 1, y - 1, x + 1, y + 1, 'w'); c.frame(x - 1, y - 1, x + 1, y + 1, 'k')
+        c.arc(8, 8, 3, 1.2, -150, 120, 'b')
+
+
+@_icon2('PointTransform', 'The point transform tool: points of a path moved and turned as one.')
+def _(c):
+    if c.big:
+        pts = [(5, 25), (11, 8), (21, 6), (27, 22)]
+        for i in range(3):
+            c.line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], 'k')
+        for (x, y) in pts:
+            c.rect(x - 2, y - 2, x + 2, y + 2, 'b'); c.frame(x - 2, y - 2, x + 2, y + 2, 'k')
+        c.frame(8, 4, 24, 12, 'g')
+    else:
+        pts = [(2, 13), (5, 4), (11, 3), (14, 11)]
+        for i in range(3):
+            c.line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], 'k')
+        for (x, y) in pts:
+            c.px(x, y, 'b')
+        c.frame(4, 2, 12, 6, 'g')
+
+
+@_icon2('AreaTool', 'The area tool: the area and the outline\'s length of a shape.')
+def _(c):
+    if c.big:
+        c.rect(5, 5, 26, 26, 'y'); c.frame(5, 5, 26, 26, 'k')
+        c.dither(6, 6, 25, 25, 'y', 'o')
+        c.rect(11, 12, 20, 20, 'w'); c.frame(11, 12, 20, 20, 'k')
+        c.rect(13, 14, 14, 18, 'k'); c.rect(17, 14, 18, 18, 'k'); c.hline(13, 18, 14, 'k'); c.hline(13, 18, 16, 'k')
+    else:
+        c.rect(2, 2, 13, 13, 'y'); c.frame(2, 2, 13, 13, 'k')
+        c.dither(3, 3, 12, 12, 'y', 'o')
+        c.vline(5, 5, 10, 'k'); c.vline(10, 5, 10, 'k'); c.hline(5, 10, 5, 'k'); c.hline(5, 10, 7, 'k')
+
+
+@_icon2('DimensionTool', 'The dimension tool: a measure drawn on the page, its number on it.')
+def _(c):
+    if c.big:
+        c.vline(3, 8, 26, 'k'); c.vline(28, 8, 26, 'k')
+        c.hline(4, 27, 17, 'b')
+        c.shape([(4, 17), (9, 13), (9, 21)], 'b'); c.shape([(27, 17), (22, 13), (22, 21)], 'b')
+        c.rect(11, 6, 20, 12, 'w'); c.frame(11, 6, 20, 12, 'k')
+        c.hline(13, 18, 9, 'g')
+    else:
+        c.vline(1, 4, 13, 'k'); c.vline(14, 4, 13, 'k')
+        c.hline(2, 13, 9, 'b'); c.px(3, 8, 'b'); c.px(3, 10, 'b'); c.px(12, 8, 'b'); c.px(12, 10, 'b')
+        c.hline(5, 10, 5, 'k')
+
+
+@_icon2('Shaper', 'The shaper tool: a rough drawing made a clean shape.')
+def _(c):
+    _base(c, 'Pencil')
+    a = c.layer()
+    if c.big:
+        a.shape([(17, 31), (24, 18), (31, 31)], 'w')
+        a.disc(27, 20, 4, 'w')
+    else:
+        a.shape([(9, 15), (12, 9), (15, 15)], 'w')
+    c.over(a)
+
+
+@_icon2('GradientFeather', 'The gradient feather tool: a shape fading out to see-through.')
+def _(c):
+    # a solid middle, its rim dithered thinner and thinner (an ordered dither: no noise)
+    bayer = ((0, 8, 2, 10), (12, 4, 14, 6), (3, 11, 1, 9), (15, 7, 13, 5))
+    cx, cy, r0, r1 = (15.5, 15.5, 6.0, 14.0) if c.big else (7.5, 7.5, 2.5, 7.0)
+    for y in range(c.n):
+        for x in range(c.n):
+            d = ((x + 0.5 - cx - 0.5) ** 2 + (y + 0.5 - cy - 0.5) ** 2) ** 0.5
+            if d <= r0:
+                c.px(x, y, 'b')
+            elif d < r1 and (bayer[y % 4][x % 4] + 0.5) / 16 > (d - r0) / (r1 - r0):
+                c.px(x, y, 'b')
+
+
+@_icon2('BlendTool', 'The blend tool: shapes and the steps between them.')
+def _(c):
+    if c.big:
+        cols = 'rmPnb'
+        for k in range(5):
+            r = 4.5 - k * 0.3
+            c.disc(6 + k * 5, 24 - k * 4, r, cols[k])
+    else:
+        cols = 'rPb'
+        for k in range(3):
+            c.disc(3.5 + k * 4.5, 12 - k * 3.5, 2.5, cols[k], None)
+
+
+@_icon2('ArtboardTool', 'The artboard tool: a page of its own on the canvas, its size and place.')
+def _(c):
+    if c.big:
+        c.rect(5, 9, 28, 28, 'w'); c.frame(5, 9, 28, 28, 'k')
+        c.rect(5, 3, 18, 7, 'n'); c.hline(6, 15, 5, 'w')
+        c.rect(27, 27, 30, 30, 'b')
+    else:
+        c.rect(2, 5, 14, 14, 'w'); c.frame(2, 5, 14, 14, 'k')
+        c.hline(2, 9, 2, 'n'); c.hline(2, 9, 3, 'n')
+        c.px(14, 14, 'b'); c.px(15, 15, 'b')
+
+
+@_icon2('KnifeTool', 'The knife: cut shapes along a line drawn freehand.')
+def _(c):
+    a = c.layer()
+    if c.big:
+        for k in range(0, 28, 3):
+            y = 26 - 6 * math.sin(k / 27 * math.pi)
+            a.rect(2 + k, int(y), 3 + k, int(y) + 1, 'r')
+        a.shape([(6, 18), (22, 3), (25, 6), (10, 21)], 's')
+        a.line(8, 18, 22, 4, 'w')
+        a.stroke(24, 5, 29, 1, 4, 'k')
+    else:
+        for k in range(0, 14, 2):
+            a.px(1 + k, int(13 - 3 * math.sin(k / 13 * math.pi)), 'r')
+        a.shape([(3, 9), (11, 1), (12, 3), (5, 10)], 's')
+        a.line(12, 2, 14, 0, 'k'); a.line(13, 2, 15, 0, 'k')
+    c.over(a)
+
+
 def build():
     # the icons above, in the order of their characters (keep it: the
     # characters are part of the API); new ones go after the old ones
@@ -4543,18 +5330,20 @@ def ordered():
 
 
 def write_nim(path):
+    """The icons' constants, their count and their names in pixelicons.nim (the rest of
+    it is kept as it is), and their art in pixelart.z beside it."""
     icons = ordered()
-    out = ['## Pixel-art icons in the 16 VGA colors, each drawn at 16 x 16 and at',
-           '## 32 x 32 (the detailed art, used for big icons and on 2x screens),',
-           '## usable anywhere text is: `label pxFolder & " Documents"`,',
-           '## `toolButton(pxCopy, "Copy")`, a tree node, a tab. Original designs in',
-           '## the manner of early-1990s desktops. Generated by tools/genicons.py --',
-           '## edit that, not this.', '',
-           'import std/unicode', 'import gfx, icons, codec, lineicons', '',
-           'const']
-    for i, (n, d, s, b) in enumerate(icons):
-        out.append('  px%s* = "\\u{%X}"  ## %s' % (n, 0x10F000 + i, d))
-    out.append('')
+    nim = open(path).read()
+    consts = ''.join('  px%s* = "\\u{%X}"  ## %s\n' % (n, 0x10F000 + i, d)
+                     for i, (n, d, s, b) in enumerate(icons))
+    nim = re.sub(r'(?ms)^const\n(  px\w+\* = .*?\n)+', lambda m: 'const\n' + consts, nim, count=1)
+    nim = re.sub(r'const pixelIconCount = \d+\n  ## \(.*?\)',
+                 lambda m: 'const pixelIconCount = %d\n  ## (how many icons there are: U+10F000 .. U+%X)'
+                 % (len(icons), 0x10F000 + len(icons) - 1), nim, count=1)
+    nim = re.sub(r'const pixelIconNames\* = \[.*?\]',
+                 lambda m: 'const pixelIconNames* = [' + ', '.join('"%s"' % n for n, *_ in icons) + ']',
+                 nim, count=1)
+    open(path, 'w').write(nim)
     # the art, one byte a pixel (the palette letters of `icon`), zlib-packed
     # in pixelart.z: a few dozen KB instead of half a megabyte of pixels
     import zlib
@@ -4565,52 +5354,6 @@ def write_nim(path):
             for row in art:
                 blob += row.encode('ascii')
     open(os.path.join(os.path.dirname(path), 'pixelart.z'), 'wb').write(zlib.compress(bytes(blob), 9))
-    out.append('const pixelArtPacked = staticRead("pixelart.z")')
-    out.append('  # every icon: width, height and a letter a pixel, at 16 x 16 then at 32 x 32')
-    out.append('')
-    out.append('proc unpackArt(): seq[(Icon, Icon)] =')
-    out.append('  let b = zlibDecompress(pixelArtPacked.toOpenArrayByte(0, pixelArtPacked.high))')
-    out.append('  var at = 0')
-    out.append('  proc one(): Icon =')
-    out.append('    if at + 2 > b.len: return Icon()')
-    out.append('    let w = int(b[at])')
-    out.append('    let h = int(b[at + 1])')
-    out.append('    at += 2')
-    out.append('    if w == 0 or h == 0 or at + w * h > b.len: return Icon()')
-    out.append('    var rows = newSeq[string](h)')
-    out.append('    for y in 0 ..< h:')
-    out.append('      rows[y] = newString(w)')
-    out.append('      for x in 0 ..< w: rows[y][x] = char(b[at + y * w + x])')
-    out.append('    at += w * h')
-    out.append('    icon(rows)')
-    out.append('  while at < b.len:')
-    out.append('    let small = one()')
-    out.append('    result.add (small, one())')
-    out.append('')
-    out.append('let pixelIconArt = unpackArt()')
-    out.append('')
-    out.append('for i, (small, big) in pixelIconArt: setPixelIcon(i, small, big)')
-    out.append('for (i, g, c) in lineTwins: setPixelTwin(i, g, c)')
-    out.append('  # (their line twins: see `setLineIcons`)')
-    out.append('')
-    out.append('var retroIcons* = true')
-    out.append('  ## The toolkit\'s file, place and dialog icons: these pixel icons (true),')
-    out.append('  ## or the Nerd Fonts symbols (false). `appearanceSettings` offers it.')
-    out.append('')
-    out.append('proc retroOr*(px, nf: string): string {.inline.} =')
-    out.append('  ## `px` (a pixel icon) when `retroIcons`, else `nf` (a Nerd Fonts symbol).')
-    out.append('  if retroIcons: px else: nf')
-    out.append('')
-    out.append('proc pixelIcon*(glyph: string; big = false): Icon =')
-    out.append('  ## The art of a pixel icon (`pxFolder`), 16 x 16 or 32 x 32.')
-    out.append('  let i = if glyph.len == 4: int(glyph.runeAt(0)) - PixIconFirst else: -1')
-    out.append('  if i < 0 or i >= pixelIconArt.len: return Icon()')
-    out.append('  if big and pixelIconArt[i][1].w > 0: pixelIconArt[i][1] else: pixelIconArt[i][0]')
-    out.append('')
-    out.append('const pixelIconNames* = [' + ', '.join('"%s"' % n for n, *_ in icons) + ']')
-    out.append('  ## The names of the pixel icons, in the order of their characters.')
-    out.append('')
-    open(path, 'w').write('\n'.join(out))
 
 
 def sheet(path, scales=(1, 2, 3)):
@@ -4763,13 +5506,13 @@ def write_appicon(path):
 if __name__ == '__main__':
     build()
     here = os.path.dirname(os.path.abspath(__file__))
-    write_nim(os.path.join(here, '..', 'src', 'retro', 'pixelicons.nim'))
+    write_nim(os.path.join(here, '..', 'src', 'retroui', 'pixelicons.nim'))
     args = sys.argv[1:]
     if '--appicons' in args:
         assets = os.path.join(here, '..', 'examples', 'assets')
         to_png(files_icon(), os.path.join(assets, 'filemanager-icon.png'), 6)
         to_png(gallery_icon(), os.path.join(assets, 'gallery-icon.png'), 6)
-        write_appicon(os.path.join(here, '..', 'src', 'retro', 'appicon.nim'))
+        write_appicon(os.path.join(here, '..', 'src', 'retroui', 'appicon.nim'))
         args.remove('--appicons')
     if args:
         sheet(args[0])

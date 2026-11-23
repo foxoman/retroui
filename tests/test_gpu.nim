@@ -126,6 +126,16 @@ run(2)
 active.view.setZoom(big, -2)
 run(30)                                  # (the tabs slide to the new one first)
 compare("zoomed out 1:2")
+# an eyedropper's pixel from anywhere: read from the GPU's frame as it is drawn
+setGpuMode(gmGpu)
+invalidate()
+run(1)
+let shot = gpuSnapshot()
+for (x, y) in [(W div 2, H div 2), (20, 60), (W - 30, 100)]:
+  readScreenPixel(x, y)
+  run(1)
+  let (done, c) = screenPixelRead()
+  doAssert done and (c and 0xFFFFFF'u32) == shot[y * W + x], $(x, y) & ": " & toHex(c) & " " & toHex(shot[y * W + x])
 # the Arabic interface: the frame mirrored, the picture and its checkerboard where their view
 # is, as the CPU has them (the GPU drew them where the frame would be unmirrored: off to one side)
 prefs.language = 1

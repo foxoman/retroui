@@ -88,10 +88,10 @@ proc barType() =
     let v = float32(cpSize)
     applyChar("Font Size", proc (x: var CharStyle) = x.size = v)
   label "px"
-  var c = if te.on or typeTarget() != nil: s.color else: fg
-  if colorWell(c, "bartypecolor", dp(26)):
+  var c = if te.on or typeTarget() != nil: s.color else: fg or 0xFF000000'u32
+  if colorWell(c, "bartypecolor", dp(26), alpha = true):
     let cc = c
-    if typeTarget() == nil: fg = cc
+    if typeTarget() == nil: fg = cc or 0xFF000000'u32
     applyChar("Text Color", proc (x: var CharStyle) = x.color = cc)
   toolSeparator()
   let L = typeTarget()
@@ -121,15 +121,15 @@ proc barShape() =
     label "Fill:"
     if combo(["None", "Color", "Gradient"], shapeFillKind, w = dp(80)): changed = true
     if shapeFillKind > 0:
-      if colorWell(shapeFill, "barshapefill", dp(26)): changed = true
+      if colorWell(shapeFill, "barshapefill", dp(26), alpha = true): changed = true
     if shapeFillKind == 2:
-      if colorWell(shapeFill2, "barshapefill2", dp(26)): changed = true
+      if colorWell(shapeFill2, "barshapefill2", dp(26), alpha = true): changed = true
     label "Stroke:"
     if combo(["None", "Color", "Gradient"], shapeStrokeKind, w = dp(80)): changed = true
     if shapeStrokeKind > 0:
-      if colorWell(shapeStroke, "barshapestroke", dp(26)): changed = true
+      if colorWell(shapeStroke, "barshapestroke", dp(26), alpha = true): changed = true
       if shapeStrokeKind == 2:
-        if colorWell(shapeStroke2, "barshapestroke2", dp(26)): changed = true
+        if colorWell(shapeStroke2, "barshapestroke2", dp(26), alpha = true): changed = true
         accessName(tr("The gradient on the stroke"))
         if combo(["Within the stroke", "Along the stroke", "Across the stroke"], shapeStrokeOn, w = dp(130)):
           changed = true

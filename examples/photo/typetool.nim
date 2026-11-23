@@ -348,6 +348,13 @@ proc tableCursor(dw: DocWin; ev: PhotoEvent) =
   if e.kind == 1: ui.cursor = curSizeWE
   elif e.kind == 2: ui.cursor = curSizeNS
 
+proc boxHandles(t: TextData): array[8, (float32, float32)] =
+  ## (a text box's handles: its corners -- top left, top right, bottom right, bottom left --
+  ## then the middles of its top, right, bottom and left sides)
+  let (x0, y0, x1, y1) = (t.x, t.y, t.x + t.boxW, t.y + t.boxH)
+  [(x0, y0), (x1, y0), (x1, y1), (x0, y1), ((x0 + x1) / 2, y0), (x1, (y0 + y1) / 2), ((x0 + x1) / 2, y1),
+   (x0, (y0 + y1) / 2)]
+
 proc typePress(dw: DocWin; ev: PhotoEvent) =
   ## The Type tool pressed on a document.
   let d = dw.doc
@@ -366,12 +373,13 @@ proc typePress(dw: DocWin; ev: PhotoEvent) =
   if te.on and te.dw == dw and te.layer in d.layers:
     let L = te.layer
     let t = L.text
-    # the corners of its box: sized
+    # the handles of its box -- its corners and the middles of its sides: the box sized, the
+    # text flowing in it again (its letters as they were; the Move tool's handles scale them)
     if t.boxW > 0 and not t.onPath:
-      let corners = [(t.x, t.y), (t.x + t.boxW, t.y), (t.x + t.boxW, t.y + t.boxH), (t.x, t.y + t.boxH)]
-      for k, (cx, cy) in corners:
+      let reach = if ui.touch: dp(14) else: dp(6)
+      for k, (cx, cy) in boxHandles(t):
         let (sx, sy) = dw.view.toScreen(d, cx.float, cy.float)
-        if abs(sx - ui.mx) <= dp(6) and abs(sy - ui.my) <= dp(6):
+        if abs(sx - ui.mx) <= reach and abs(sy - ui.my) <= reach:
           te.grab = k
           te.grabFrom = (ev.x, ev.y)
           te.box0 = (t.x, t.y, t.boxW, t.boxH)
@@ -440,7 +448,11 @@ proc typeDrag(dw: DocWin; ev: PhotoEvent) =
     of 0: x += dx; y += dy; w -= dx; h -= dy
     of 1: y += dy; w += dx; h -= dy
     of 2: w += dx; h += dy
-    else: x += dx; w -= dx; h += dy
+    of 3: x += dx; w -= dx; h += dy
+    of 4: y += dy; h -= dy
+    of 5: w += dx
+    of 6: h += dy
+    else: x += dx; w -= dx
     if w >= 8 and h >= 8:
       editText(proc (t: var TextData) =
         t.x = x; t.y = y; t.boxW = w; t.boxH = h)
@@ -647,9 +659,11 @@ proc typeOverlay(dw: DocWin) =
     let (a, b) = v.toScreen(d, t.x.float, t.y.float)
     let (c, e) = v.toScreen(d, (t.x + t.boxW).float, (t.y + t.boxH).float)
     dashedRect(rect(a, b, max(1, c - a), max(1, e - b)), 0)
-    for (hx, hy) in [(a, b), (c, b), (c, e), (a, e)]:
-      fill(rect(hx - 3, hy - 3, 7, 7), color(255, 255, 255))
-      box(rect(hx - 3, hy - 3, 7, 7), color(0, 0, 0))
+    let hs = if ui.touch: dp(5) else: 3        # (bigger for a finger)
+    for (hx0, hy0) in boxHandles(t):
+      let (hx, hy) = v.toScreen(d, hx0.float, hy0.float)
+      fill(rect(hx - hs, hy - hs, 2 * hs + 1, 2 * hs + 1), color(255, 255, 255))
+      box(rect(hx - hs, hy - hs, 2 * hs + 1, 2 * hs + 1), color(0, 0, 0))
   elif not t.onPath and not t.warped:
     for ln in l.lines:
       if t.vertical:

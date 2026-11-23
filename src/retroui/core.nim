@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy, hangwatch, frameprof
 export busy
 
-const RetroVersion* = "0.71.0"
+const RetroVersion* = "0.72.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -434,6 +434,30 @@ const
     line: color(104, 104, 110), edge: color(104, 104, 110),
     link: color(255, 214, 80), face2: color(62, 62, 68))
     ## Notes at night: near black, with the marker's yellow.
+  GlassLight* = Theme(
+    window: color(238, 241, 246), text: color(29, 32, 40),
+    face: color(248, 249, 251), light: color(255, 255, 255),
+    shadow: color(178, 184, 197), frame: color(92, 98, 112),
+    select: color(10, 100, 220), selectText: color(255, 255, 255),
+    gray: color(150, 155, 168), field: color(255, 255, 255),
+    fieldText: color(29, 32, 40), scroll: color(232, 235, 241),
+    tip: color(252, 252, 254), tipText: color(29, 32, 40),
+    line: color(208, 212, 221), edge: color(178, 184, 197), link: color(31, 99, 216),
+    hover: color(225, 235, 252), face2: color(252, 253, 254),
+    inactiveTitle: color(238, 241, 246), inactiveTitleText: color(107, 112, 128))
+    ## For the Glass look (`uiLook`): cool white, frosted surfaces, a blue to choose with.
+  GlassDark* = Theme(
+    window: color(28, 30, 36), text: color(236, 238, 243),
+    face: color(52, 55, 64), light: color(92, 96, 108),
+    shadow: color(16, 17, 21), frame: color(8, 9, 11),
+    select: color(36, 108, 230), selectText: color(255, 255, 255),
+    gray: color(112, 118, 132), field: color(20, 21, 26),
+    fieldText: color(236, 238, 243), scroll: color(36, 38, 45),
+    tip: color(46, 48, 56), tipText: color(236, 238, 243),
+    line: color(66, 69, 80), edge: color(78, 82, 95), link: color(110, 170, 255),
+    hover: color(40, 54, 80), face2: color(64, 67, 78),
+    inactiveTitle: color(28, 30, 36), inactiveTitleText: color(154, 160, 174))
+    ## ... and its dark one: near black, smoked glass.
   builtinThemes* = [(name: "Classic", theme: Classic), (name: "Gray", theme: Gray),
                     (name: "Dark", theme: Dark), (name: "OLED Black", theme: Oled),
                     (name: "Ocean", theme: Ocean),
@@ -449,7 +473,8 @@ const
                     (name: "Mint", theme: Mint), (name: "Sky", theme: Sky),
                     (name: "Blossom", theme: Blossom), (name: "Lavender", theme: Lavender),
                     (name: "Sunset", theme: Sunset), (name: "Graphite", theme: Graphite),
-                    (name: "Dusk", theme: Dusk), (name: "Night Notes", theme: NightNotes)]
+                    (name: "Dusk", theme: Dusk), (name: "Night Notes", theme: NightNotes),
+                    (name: "Glass Light", theme: GlassLight), (name: "Glass Dark", theme: GlassDark)]
     ## The color schemes that come with the toolkit, by name (new ones go at
     ## the end: settings keep a scheme's number).
 
@@ -1156,6 +1181,18 @@ type CaptionButtons* = enum
                       ## Windows 95 has them (the default)
   cbWin31 = "win31"   ## Windows 3.1's: minimize and maximize as triangles,
                       ## no close button (the control-menu box closes)
+
+type UiLook* = enum
+  ## How the controls are drawn (`uiLook`), in whatever color scheme.
+  lookClassic = "classic"  ## as Windows 3.1 drew them: black outlines, raised gray faces (the default)
+  lookGlass = "glass"      ## as frosted glass: rounded, see-through faces, hairlines, soft
+                           ## shadows, the scheme's highlight on what is on -- the same sizes, so
+                           ## nothing moves (the high-contrast schemes stay Classic)
+
+var uiLook* = lookClassic
+  ## The look of the controls (`UiLook`). Set it before `startApp` for the app's own default
+  ## (with `GlassLight` or `GlassDark` for colors made for it); the user's choice ("Look" in
+  ## `appearanceSettings`) is kept with the look (`storeAppearance`) and wins.
 
 var captionButtons* = cbWin95
   ## The title bars' buttons (`CaptionButtons`). Set it before `startApp`
@@ -4577,6 +4614,12 @@ proc quitApp*() = ui.running = false
 
 proc appRunning*(): bool = ui.running
   ## The app has not ended (`quitApp`, its window closed).
+
+proc glassLook*(): bool {.inline.} =
+  ## The controls drawn in the Glass look now: `uiLook` is Glass and the scheme is not one of
+  ## the high-contrast ones (their clear black and white edges kept).
+  uiLook == lookGlass and ui.theme.select != HighContrast.select and
+    ui.theme.select != HighContrastWhite.select
 
 proc themeIndex*(): int =
   ## Which of `builtinThemes` is in use (-1: a theme of the app's own).

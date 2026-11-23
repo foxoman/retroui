@@ -43,6 +43,9 @@ NOT_CONTROLS = {
         "captionArrow", "captionRestore", "captionMark", "pattern", "focusDots", "itemTextY",
         "boxH", "checkBox", "radioDisc", "drawLabeled", "labeledSize",
         "paletteTabH", "paletteTabFace",
+        # the Glass look's drawing helpers (docs/customizing.md, `uiLook`)
+        "withAlpha", "glassHair", "glassRadius", "glassFace", "glassWell", "glassAccent",
+        "selectFill",
         # input helpers for controls of one's own
         "spaceKey", "mnemonicHit", "doubleClicked", "tapped", "scrubLabel",
         # text helpers (lines, the caret's stops)

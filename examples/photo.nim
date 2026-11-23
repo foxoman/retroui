@@ -32,7 +32,7 @@ import retroui/[photo, photopaint, photofx, photoartistic, photohdr, otshape, tt
               photobrushes, adobefiles, photobook, imagetrace, layouttemplates, liveshapes, idml, preflight,
               booklists, datamerge, textsearch, headless, perspectivegrid, pathbrush, photoblurs, pathtools,
               liveeffects, photoseps, mathtype, flexlayout, vectormake, photorelight, mockups, designstyles,
-              aiconnect, aichat, aiimage, aivector, assistant, modelstore, nnet, vision, photopublish, flows, dastkhat, fontfolders,
+              aiconnect, aichat, aiimage, aivector, assistant, modelstore, nnet, vision, photopublish, flows, dastkhat, arabicfonts, fontfolders,
               imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files, photoanim, webp, screenexport, threed, dimensions, quran, fetch,
               geopatterns, proctexture, photomore, jpeg, gltf]
 {.push warning[UnusedImport]: off.}
@@ -42,7 +42,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 const
   AppName = "Retro Atelier"         # (Retro Photo until 5.0)
   AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
-  AppVersion = "5.16.0"
+  AppVersion = "5.17.0"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -1660,16 +1660,17 @@ const
                   "Color Theme", "Corner", "Point Transform", "Contour", "Vector Crop", "Transparency", "Fill", "Area",
                   "Mesh Warp", "Deform", "Touch Type", "Area Type", "Type on a Path", "Vertical Area Type",
                   "Vertical Type on a Path"]
-  vecToolGlyphs = [pxPathSelect, pxMagicWand, pxPolyLasso, pxBrush, pxPaint, pxCurvaturePen, pxEraser, pxConvertPoint,
-                   pxBgEraser, pxCut, pxSlice, pxWarp, pxGrid, pxPerspCrop, pxBucket, pxColumns, pxInbox, pxPaste, pxLineTool,
-                   pxRotateView, pxSymmetry, pxZoomIn, pxPerspCrop, pxCurvaturePen, pxSelect, pxPuppetWarp,
-                   pxWarp, pxRefresh, pxZoomOut, pxZoomIn, pxStarShape, pxStar, pxSmudge, pxGradient,
-                   pxBucket, pxPathSelect,
-                   pxAirbrush, pxMoveTool, pxPuppetWarp, pxZoomIn, pxRefresh, pxColorReplace, pxEye, pxLayerStyle,
-                   pxChart, pxChart, pxChart, pxChart, pxChart, pxChart, pxChart, pxPieChart, pxChart,
-                   pxPrint, pxPencil, pxNew, pxGradient, pxColorThemes, pxRoundRectShape, pxMoveTool, pxPolygonShape,
-                   pxCrop, pxGradLinear, pxGradRadial, pxGuides, pxGrid, pxPuppetWarp, pxTypeTool, pxTypeTool,
-                   pxTypePath, pxTypeTool, pxTypePath]
+  vecToolGlyphs = [pxGroupSelect, pxMagicWandShapes, pxLassoPoints, pxBrushVector, pxPaint, pxSmooth, pxPathEraser,
+                   pxJoin, pxEraserShapes, pxCut, pxKnifeTool, pxWidthTool, pxMeshTool, pxPerspSelect,
+                   pxShapeBuilder, pxColumns, pxInbox, pxPaste, pxDimensionTool, pxRotateTool, pxSymmetry,
+                   pxScaleTool, pxShearTool, pxReshape, pxFreeTransform, pxPuppetWarp, pxWarp, pxTwirl, pxZoomOut,
+                   pxBloat, pxScallop, pxCrystallize, pxWrinkle, pxBlendTool, pxLivePaintBucket, pxLivePaintSelect,
+                   pxSymbolSprayer, pxSymbolShifter, pxSymbolScruncher, pxSymbolSizer, pxSymbolSpinner,
+                   pxSymbolStainer, pxEye, pxLayerStyle, pxChart, pxChartStacked, pxChartBar, pxChartBarStacked,
+                   pxChartLine, pxChartArea, pxChartScatter, pxPieChart, pxChartRadar, pxPrint, pxShaper, pxPageTool,
+                   pxGradientFeather, pxColorThemes, pxCornerTool, pxPointTransform, pxContour, pxVectorCrop,
+                   pxGradLinear, pxGradRadial, pxAreaTool, pxMeshWarp, pxDeform, pxTouchType, pxTypeArea, pxTypePath,
+                   pxTypeAreaVertical, pxTypePathVertical]
 
 proc toolName(t: Tool): string =
   case t
@@ -1693,24 +1694,34 @@ proc toolName(t: Tool): string =
   of tVector: vecToolNames[clamp(vecMode, 0, vecToolNames.high)]
   else: $t
 
+proc typeToolGlyph(): string
+  ## (the Type tool's: horizontal or vertical, type or a type mask -- photo/typetool)
+
 proc toolGlyph(t: Tool): string =
+  ## (the icon of the tool in use: its toolbar button's -- every tool its own)
   case t
   of tShape: [pxRectShape, pxRoundRectShape, pxEllipseShape, pxPolygonShape, pxLineTool,
-              pxCustomShape, pxStarShape, pxSpiral, pxPolygonShape, pxSpiral, pxGrid, pxEllipseShape,
+              pxCustomShape, pxStarShape, pxSpiral, pxTriangleShape, pxArcShape, pxGrid, pxPolarGrid,
               pxStar][clamp(shapeKind, 0, 12)]
   of tVector: vecToolGlyphs[clamp(vecMode, 0, vecToolGlyphs.high)]
-  of tMarquee: (if marqueeShape == 1: pxMarqueeEllipse else: pxMarqueeRect)
-  of tBlur: (if blurMode == 1: pxSharpen else: pxBlur)
+  of tMarquee: [pxMarqueeRect, pxMarqueeEllipse, pxMarqueeRow, pxMarqueeColumn][clamp(marqueeShape, 0, 3)]
+  of tLasso: [pxLasso, pxPolyLasso, pxMagneticLasso][clamp(lassoMode, 0, 2)]
+  of tBlur: [pxBlur, pxSharpen, pxMedianBrush][clamp(blurMode, 0, 2)]
   of tDodge: [pxDodge, pxBurn, pxSponge][dodgeMode]
   of tHeal: [pxSpotHeal, pxHeal, pxPatch, pxRemoveTool, pxContentMove][healMode]
-  of tStamp: [pxStamp, pxHistoryBrush, pxArtHistory][clamp(stampTool, 0, 2)]
+  of tStamp:
+    if stampTool == 0 and stampMode in {2, 3}: pxPatternStamp
+    else: [pxStamp, pxHistoryBrush, pxArtHistory][clamp(stampTool, 0, 2)]
   of tHand: (if handKind == 1: pxRotateView else: pxHandTool)
-  of tBrush: [pxBrush, pxMixerBrush, pxColorReplace, pxAdjustBrush, pxLayerMask, pxDodge][clamp(brushTool, 0, 5)]
+  of tBrush: [pxBrush, pxMixerBrush, pxColorReplace, pxAdjustBrush, pxLayerMask, pxToneBrush][clamp(brushTool, 0, 5)]
   of tWand: [pxMagicWand, pxQuickSelect, pxObjectSelect, pxSelectionBrush][clamp(wandMode, 0, 3)]
-  of tEraser: [pxEraser, pxMagicWand, pxBgEraser][clamp(eraseKind, 0, 2)]
-  of tCrop: [pxCrop, pxPerspCrop, pxMarqueeRect, pxSlice, pxSlice][clamp(cropKind, 0, 4)]
-  of tEyedropper: [pxEyedropper, pxSelect, pxGuides, pxNote, pxCount][clamp(dropKind, 0, 4)]
-  of tMove: (if moveKind == 1: pxNew else: pxMoveTool)
+  of tEraser: [pxEraser, pxMagicEraser, pxBgEraser][clamp(eraseKind, 0, 2)]
+  of tCrop:
+    if cropKind == 2: [pxFrameRect, pxFrameEllipse, pxFramePolygon][clamp(frameShape, 0, 2)]
+    else: [pxCrop, pxPerspCrop, pxFrameRect, pxSlice, pxSliceSelect][clamp(cropKind, 0, 4)]
+  of tEyedropper: [pxEyedropper, pxColorSamplerTool, pxGuides, pxNote, pxCount][clamp(dropKind, 0, 4)]
+  of tMove: (if moveKind == 1: pxArtboardTool else: pxMoveTool)
+  of tType: typeToolGlyph()
   of tPen: [pxPathArrow, pxPen, pxPenAdd, pxPenRemove, pxConvertPoint, pxPathSelect, pxFreeformPen,
             pxCurvaturePen, pxContentTrace][clamp(penMode, 0, 8)]
   else: toolIcons[t]
@@ -1721,6 +1732,9 @@ proc slicesOf(d: Doc): seq[Rect] =
     if sl.d == d: result.add sl.r
 
 include photo/typetool
+
+proc typeToolGlyph(): string =
+  [pxTypeTool, pxTypeMask, pxTypeVertical, pxTypeMaskVertical][ord(typeMaskMode) + (if typeVertical: 2 else: 0)]
 
 # ---- the shape tools ------------------------------------------------------------------------------------
 
@@ -1739,8 +1753,9 @@ proc shapeBox(ev: PhotoEvent): (float, float, float, float) =
   (x0, y0, x1, y1)
 
 proc lineColor(): uint32 =
-  ## (the Line tool's color: the stroke's, else the fill's)
-  (if shapeStrokeKind >= 1: shapeStroke elif shapeFillKind > 0: shapeFill else: fg) or 0xFF000000'u32
+  ## (the Line tool's color: the stroke's, else the fill's -- its opacity kept, a see-through
+  ## line)
+  if shapeStrokeKind >= 1: shapeStroke elif shapeFillKind > 0: shapeFill else: fg or 0xFF000000'u32
 
 proc lineShape(x0, y0, x1, y1: float): ShapeData =
   ## The Line tool's line: a stroke along two points (open: its ends can be
@@ -4268,6 +4283,61 @@ proc outlineOverlay(dw: DocWin) =
     for ps in c.polys: poly(ps, ps.len > 2)
   box(rect(min(ax, bx), min(ay, by), abs(bx - ax), abs(by - ay)), ink)
 
+var
+  tipOutlineCache: tuple[sig: string; segs: seq[array[4, float32]]]
+    ## (the brush's outline, made once for its tool and tip)
+  outlineSeen = "-"                 ## (the tool and tip of the frame before: a change shows the outline;
+                                    ## "-" before the first frame, "" no brush)
+  outlinePreview = 0                ## (until when the outline is shown in the view's middle: `ui.now`)
+
+proc tipSig(t: Tool): string =
+  ## (what the brush's outline is made of)
+  let tip = tipFor(t)
+  $ord(t) & "/" & $tip.diameter & "/" & $tip.hardness & "/" & $tip.roundness & "/" & $tip.angle & "/" &
+    $tip.cw & "x" & $tip.ch & "/" & $tip.custom.len & "/" & $tip.flipX & $tip.flipY & "/" & $prefs.paintCursor
+
+proc usesBrush(): bool =
+  ## (the tool paints with its brush: the Patch and Content-Aware Move tools do not)
+  tool in paintTools or (tool == tHeal and healMode in {0, 1, 3})
+
+var fontsKept: seq[string]          ## (the fonts used last as the preferences have them)
+
+proc watchFonts() =
+  ## Each frame: a font picked in a font list -- the ones used last kept in the preferences
+  ## (at the top of the lists the next time too).
+  if recentFonts != fontsKept:
+    if fontsKept.len > 0 or ui.frameNo > 2: savePrefs()
+    fontsKept = recentFonts
+
+proc watchTip() =
+  ## Each frame: a brush tool picked, or its size or tip changed -- its outline shown a moment.
+  let sig = if usesBrush(): tipSig(tool) else: ""
+  if sig != outlineSeen:
+    if sig.len > 0 and outlineSeen != "-" and prefs.paintCursor >= 2: outlinePreview = ui.now + 1200
+    outlineSeen = sig
+  if ui.now < outlinePreview: wakeIn(max(16, outlinePreview - ui.now))
+
+proc tipOutlineAt(dw: DocWin; x, y: float): bool =
+  ## The current tool's brush outline round image point `x`, `y` (its own shape: a sampled tip's,
+  ## an ellipse at its angle); false when it is too small to see (a cross instead).
+  let d = dw.doc
+  let v = dw.view
+  let sig = tipSig(tool)
+  if tipOutlineCache.sig != sig:
+    tipOutlineCache = (sig, tipOutline(tipFor(tool), full = prefs.paintCursor == 3))
+  let r = tipFor(tool).diameter.float / 2
+  let (a, _) = v.toScreen(d, x - r, y)
+  let (c, _) = v.toScreen(d, x + r, y)
+  if abs(c - a) < 5: return false
+  for pass in 0 .. 1:
+    let off = 1 - pass                      # (white a pixel off, then black on it)
+    let col = if pass == 0: color(255, 255, 255) else: color(0, 0, 0)
+    for sg in tipOutlineCache.segs:
+      let (x0, y0) = v.toScreen(d, x + sg[0].float, y + sg[1].float)
+      let (x1, y1) = v.toScreen(d, x + sg[2].float, y + sg[3].float)
+      line(x0 + off, y0 + off, x1 + off, y1 + off, col)
+  true
+
 proc overlays(dw: DocWin; ev: PhotoEvent) =
   ## The rubber bands, the crop box, the path, the brush's size.
   let d = dw.doc
@@ -4612,22 +4682,26 @@ proc overlays(dw: DocWin; ev: PhotoEvent) =
       let (x0, y0) = v.toScreen(d, cx - cos(a) * rr, cy - sin(a) * rr)
       let (x1, y1) = v.toScreen(d, cx + cos(a) * rr, cy + sin(a) * rr)
       dashedLine(x0, y0, x1, y1)
-  # the brush's size under the mouse (on the image only)
-  if ev.over and d.inImage(ev) and (tool in paintTools or (tool == tHeal and healMode in {0, 1, 3}) or
+  # the brush's size and shape under the pointer (on the image only): with a mouse or a pen as it
+  # moves, with a finger while it paints (nothing left where it was lifted)
+  if ev.over and d.inImage(ev) and (canHover() or ui.mouseDown) and
+     (tool in paintTools or (tool == tHeal and healMode in {0, 1, 3}) or
                   (tool == tWand and wandMode in {1, 3})) and not drag.moving:
     # (Preferences › Cursors: the brush tip -- normal: where it paints at
     # least half; full size: all of it -- and a cross in it)
     if prefs.paintCursor >= 2:
-      let t = tipFor(tool)
-      var r = if tool == tWand: quickSize / 2 else: t.diameter.float / 2
-      if prefs.paintCursor == 2 and tool != tWand and t.custom.len == 0:
-        r *= 0.5 + clamp(t.hardness, 0, 100).float / 200
-      let (a, b) = v.toScreen(d, ev.x - r, ev.y - r)
-      let (c, e) = v.toScreen(d, ev.x + r, ev.y + r)
-      if c - a >= 5:
-        ellipseOnScreen(a + 1, b + 1, c + 1, e + 1, color(255, 255, 255))
-        ellipseOnScreen(a, b, c, e, color(0, 0, 0))
-      if prefs.crosshair or c - a < 5 or (tool == tEraser and eraseKind == 2) or (tool == tBrush and brushTool == 2):
+      var small = false
+      if tool == tWand:
+        let r = quickSize / 2
+        let (a, b) = v.toScreen(d, ev.x - r, ev.y - r)
+        let (c, e) = v.toScreen(d, ev.x + r, ev.y + r)
+        small = c - a < 5
+        if not small:
+          ellipseOnScreen(a + 1, b + 1, c + 1, e + 1, color(255, 255, 255))
+          ellipseOnScreen(a, b, c, e, color(0, 0, 0))
+      else:
+        small = not dw.tipOutlineAt(ev.x, ev.y)
+      if prefs.crosshair or small or (tool == tEraser and eraseKind == 2) or (tool == tBrush and brushTool == 2):
         # (the Background Eraser: always its cross -- the color under it is the one rubbed out)
         let (cx, cy) = v.toScreen(d, ev.x, ev.y)
         let k = dp(4)
@@ -4635,6 +4709,21 @@ proc overlays(dw: DocWin; ev: PhotoEvent) =
         vline(cx + 1, cy - k, 2 * k + 1, color(255, 255, 255))
         hline(cx - k, cy, 2 * k + 1, color(0, 0, 0))
         vline(cx, cy - k, 2 * k + 1, color(0, 0, 0))
+  # a brush tool picked, or its size or tip changed: its outline a moment in the view's middle,
+  # its size under it (a finger has no pointer to show it at)
+  if ui.now < outlinePreview and usesBrush() and not (ev.over and canHover() and d.inImage(ev)):
+    let (ix, iy) = v.toImage(d, v.view.x + v.view.w div 2, v.view.y + v.view.h div 2)
+    discard dw.tipOutlineAt(ix, iy)
+    let (cx, cy) = v.toScreen(d, ix, iy)
+    let r = tipFor(tool).diameter.float / 2
+    let (_, by) = v.toScreen(d, ix, iy + r)
+    let lab = $tipFor(tool).diameter & " px"
+    let tw = textWidth(lab) + dp(8)
+    let lr = rect(cx - tw div 2, max(cy + dp(10), by + dp(6)), tw, FontH + dp(4))
+    fill(lr, color(255, 255, 255))
+    box(lr, color(0, 0, 0))
+    text(lr.x + dp(4), lr.y + dp(2), lab, color(0, 0, 0))
+    wakeIn(max(16, outlinePreview - ui.now))
   popClip()
 
 proc cursorFor(ev: PhotoEvent) =
@@ -5153,10 +5242,13 @@ proc docStatus(dw: DocWin) =
       if menuItem($si, checked = si == statusInfo): statusInfo = si
 
 proc frame() =
+  pickAnywhereFrame()              # (the Color panel's eyedropper: a press anywhere is its)
   springTool()
   springKeys()
   modeKeys()
   typeWatch()
+  watchTip()
+  watchFonts()
   bookFrame()
   if cur() != nil and not te.on: keepLive(cur())   # (Flex Layouts, Live Paint, Global Edit kept up)
   captionBar()
@@ -5300,6 +5392,7 @@ proc setup() =
   addMorePictures()
   addFontDir(dataDir(AppData) / "Fonts")   # (fonts got from Google Fonts)
   carryDastkhat()                          # (new text's font: Arabic, Persian and Latin)
+  carryArabicFonts()                       # (Scheherazade New, Lateef, Markazi Text)
   useFontFolders(AppData)                  # (the user's own font folders: Preferences > Type)
   findRecovery()
   loadPresets()

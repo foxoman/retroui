@@ -979,6 +979,16 @@ proc endGpuFrame(changed: openArray[Rect] = []): bool =
   ## The frame put on the screen (told what `changed` since the last, when
   ## that is known); false when the context was lost.
   flushDraw()
+  if screenPick.want and fbW > 0 and fbH > 0:
+    # (an eyedropper's pixel: read from the frame as drawn, before it is shown)
+    let s = max(1, pxScale)
+    let x = clamp(screenPick.x * s + s div 2, 0, fbW - 1)
+    let y = clamp(screenPick.y * s + s div 2, 0, fbH - 1)
+    var px: array[4, uint8]
+    gl.pixelStorei(GL_PACK_ALIGNMENT, 4)
+    gl.readPixels(GLint(x), GLint(fbH - 1 - y), 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, addr px[0])
+    screenPick = (false, true, screenPick.x, screenPick.y,
+                  0xFF000000'u32 or (uint32(px[0]) shl 16) or (uint32(px[1]) shl 8) or uint32(px[2]))
   for t in tempTextures:
     var id = t
     gl.deleteTextures(1, addr id)
@@ -1259,7 +1269,7 @@ proc gpuPresent(force: bool; shown: var bool): bool =
   let canKeep = blitProg != 0 and fbW <= maxTex and fbH <= maxTex
   let age = if gpuRelays.gpuBufferAge != nil: gpuRelays.gpuBufferAge() else: 0
   let screenR = rect(0, 0, fbW, fbH)
-  var full = force
+  var full = force or screenPick.want   # (an eyedropper's pixel: read from a frame drawn whole)
   tileRuns(full, frameRuns)
   if not full and frameRuns.len == 0 and not screenStale:
     # (nothing on the screen changed: nothing drawn, nothing sent)

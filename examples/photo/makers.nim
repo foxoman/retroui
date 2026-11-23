@@ -412,14 +412,22 @@ proc patternOptionsBody(d: Doc) =
     patOpts.tilePx = t.px
     patOpts.tw = t.w
     patOpts.th = t.h
-    # (three times three of it: seen repeating)
+    # (three times three of it: seen repeating -- at most 600 pixels a side, a big tile's
+    # sampled: a tile of thousands of pixels made 3 x 3 times as big took gigabytes)
     let n = 3
-    let b = newBitmap(t.w * n, t.h * n)
-    for y in 0 ..< b.h:
-      for x in 0 ..< b.w:
-        b.px[y * b.w + x] = blendPx(0xFFFFFFFF'u32, t.px[(y mod t.h) * t.w + (x mod t.w)], 255, bmNormal)
-    b.changed()
-    patOpts.prev = b
+    if t.w > 0 and t.h > 0 and t.px.len >= t.w * t.h:
+      let fw = t.w * n
+      let fh = t.h * n
+      let s = max(1.0, max(fw, fh).float / 600)
+      let b = newBitmap(max(1, int(fw.float / s)), max(1, int(fh.float / s)))
+      for y in 0 ..< b.h:
+        let sy = min(fh - 1, int(y.float * s)) mod t.h
+        for x in 0 ..< b.w:
+          let sx = min(fw - 1, int(x.float * s)) mod t.w
+          b.px[y * b.w + x] = blendPx(0xFFFFFFFF'u32, t.px[sy * t.w + sx], 255, bmNormal)
+      b.changed()
+      patOpts.prev = b
+    else: patOpts.prev = nil
   let r = place(dp(200), dp(200))
   if patOpts.prev != nil: drawFit(r, patOpts.prev)
   box(r, ui.theme.frame)

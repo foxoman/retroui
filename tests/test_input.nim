@@ -1022,6 +1022,36 @@ block caretForTheInputMethod:
   textCaretRelay = nil
   view = nil
 
+block aColorWithItsOpacity:
+  # the Color dialog with `alpha`: Transparent (Alt+T), then OK -- the color kept, see-through;
+  # opened without it, the color comes back opaque
+  var c = color(40, 110, 220)
+  var wr: Rect
+  view = proc () =
+    colorWell(c, "alphawell", alpha = true)
+    wr = ui.lastRect
+  run(2)
+  tap(wr.x + 5, wr.y + 5)
+  run(2)
+  key(KeyT, {AltPressed})
+  run(2)
+  ui.focus = 0
+  key(KeyEnter)
+  run(3)
+  doAssert c.a == 0 and c.r == 40 and c.g == 110 and c.b == 220, "transparent, its color kept: " & $c
+  var plain = color(40, 110, 220, 100)
+  view = proc () =
+    colorWell(plain, "plainwell")
+    wr = ui.lastRect
+  run(2)
+  tap(wr.x + 5, wr.y + 5)
+  run(2)
+  ui.focus = 0
+  key(KeyEnter)
+  run(3)
+  doAssert plain.a == 255, "a well without `alpha`: opaque, as before: " & $plain
+  view = nil
+
 block shortcutWords:
   # (Ctrl+S is Cmd+S on a Mac, where the drivers report Cmd as Ctrl)
   when defined(macosx):

@@ -2376,7 +2376,7 @@ proc propertiesDialog*(open: var bool; items: openArray[FileItem]): bool {.disca
     result = true
 
 var picker: tuple[model: FolderModel; name: string; msg: string; opened: bool;
-                  pattern: int; focusName: bool; key: string]
+                  pattern: int; focusName: bool; key: string; access: bool]
 
 proc picturesDir*(): string =
   ## Where pictures are kept: the phone's Pictures folder (with the access
@@ -2384,6 +2384,9 @@ proc picturesDir*(): string =
   ## Pictures on a desktop (else the home folder).
   if platformName() == "android":
     if storageAccess():
+      for want in ["Pictures", "Camera"]:
+        for (name, dir) in places():
+          if name == want and dirExists(dir): return dir
       for d in ["/storage/emulated/0/Pictures", "/storage/emulated/0/DCIM", "/storage/emulated/0"]:
         if dirExists(d): return d
     return dataDir("")
@@ -2392,6 +2395,23 @@ proc picturesDir*(): string =
     let d = getHomeDir() / name
     if dirExists(d): return d
   getHomeDir()
+
+proc userFolder(): string =
+  ## (where a picker goes with nothing else to go by: the user's own folders -- a phone's
+  ## Pictures when the app may read them, else its own folder -- or the home folder)
+  if platformName() == "android": picturesDir()
+  elif platformName() == "ios": dataDir("")
+  else: getHomeDir()
+
+proc appPrivate(dir: string): bool =
+  ## (a phone app's own hidden folders but its documents: its cache, where the files other apps
+  ## hand it -- "Open with", the system's picker -- are copies; not a place to look for files)
+  if platformName() != "android": return false
+  let own = dataDir("")
+  if dir == own or dir.startsWith(own & "/"): return false
+  let root = own.parentDir                     # (the app's folder: its files, its cache...)
+  dir.startsWith(root & "/") or dir.startsWith("/data/") or dir.startsWith("/sdcard/Android/data/") or
+    dir.startsWith("/storage/emulated/0/Android/data/")
 
 var storageAsk: tuple[open: bool; app, why: string; then: proc ()]
 
@@ -2420,6 +2440,13 @@ proc storageDialog*() =
         storageAsk.open = false
         if storageAsk.then != nil: storageAsk.then()
 
+proc pickerFolder*(): string =
+  ## The folder the file picker (`filePicker`) shows now -- or is listing, to show next; ""
+  ## when none is open.
+  if not picker.opened or picker.model == nil: ""
+  elif picker.model.loading and picker.model.loadPath.len > 0: picker.model.loadPath
+  else: picker.model.dir
+
 proc filePicker*(open: var bool; path: var string; mode = fmOpen;
                  patterns: openArray[string] = []; title = ""; preview = true): bool =
   ## A modern Open / Save dialog while `open` (the whole screen on a
@@ -2430,7 +2457,12 @@ proc filePicker*(open: var bool; path: var string; mode = fmOpen;
   ## instead: only folders are shown, and Choose takes the one selected (or
   ## the one open). With `preview` (opening) the file picked -- or the one
   ## the mouse rests on -- is shown beside the list (under it on a phone):
-  ## its picture or the start of its text, its size and dates.
+  ## its picture or the start of its text, its size and dates. It starts
+  ## where `path` is -- but not in a phone app's cache, where the files other
+  ## apps hand it are copies: in the user's Pictures then (with Android's
+  ## access to the user's files; without it, in the app's own folder, with a
+  ## line asking for it). Places (the star) goes to the phone's storage and
+  ## its folders, a desktop's home, its folders and drives.
   # (a program may have several pickers -- Open, Save As, Place -- that
   # share this state: the one open keeps it)
   let key = $mode & ":" & title
@@ -2450,11 +2482,14 @@ proc filePicker*(open: var bool; path: var string; mode = fmOpen;
     picker.opened = true
     picker.msg = ""
     picker.focusName = mode == fmSave and not ui.touch  # (saving: the name is typed first)
-    let start = if path.len > 0 and dirExists(path): path
+    # (where the last file was -- but not a phone app's cache, which holds copies of files
+    # other apps handed over: the user's own folders then)
+    var start = if path.len > 0 and dirExists(path): path
                 elif path.len > 0 and path.parentDir.len > 0 and dirExists(path.parentDir):
                   path.parentDir
-                elif platformName() in ["android", "ios"]: dataDir("")
-                else: getHomeDir()
+                else: userFolder()
+    if appPrivate(start): start = userFolder()
+    picker.access = platformName() != "android" or storageAccess()
     picker.name = if path.len > 0 and not dirExists(path): path.extractFilename else: ""
     if picker.model == nil: picker.model = newFolderModel()
     picker.model.patterns = if mode == fmFolder: @["\0"] else: @patterns   # (folders only)
@@ -2483,7 +2518,21 @@ proc filePicker*(open: var bool; path: var string; mode = fmOpen;
     row:
       if toolButton(retroOr(pxUp, nfArrowUp), "Up one folder", size = 1.2, enabled = m.canGoUp): m.goUp()
       if toolButton(retroOr(pxHome, nfHome), "Home", size = 1.2):
-        m.open(if platformName() in ["android", "ios"]: dataDir("") else: getHomeDir())
+        let pl = places()
+        m.open(if platformName() == "android" and storageAccess() and pl.len > 0: pl[0].path
+               elif platformName() in ["android", "ios"]: dataDir("")
+               else: getHomeDir())
+      # the places: the phone's storage and its Pictures, Download, Documents...; a desktop's
+      # home and its folders, its drives
+      if toolButton(retroOr(pxFolderStar, nfFolderStar), "Places", size = 1.2):
+        let r = ui.lastRect
+        openPopupMenu("pickerplaces", r.x, r.y + r.h)
+      popupMenu("pickerplaces"):
+        for (name, dir) in places():
+          if menuItem(name.replace("&", "&&")): m.open(dir)
+        if platformName() == "android" and not storageAccess():
+          menuSeparator()
+          if menuItem("Allow Access to Your Files..."): requestStorageAccess()
       var parts: seq[string]
       var p = m.dir
       while p.len > 0:
@@ -2496,6 +2545,16 @@ proc filePicker*(open: var bool; path: var string; mode = fmOpen;
         var target = m.dir
         for _ in 0 ..< parts.len - 1 - hit: target = target.parentDir
         m.open(target)
+    if platformName() == "android":
+      let has = storageAccess()
+      if has and not picker.access and (appPrivate(m.dir) or m.dir == dataDir("")):
+        m.open(userFolder())                 # (access given meanwhile: the user's Pictures)
+      picker.access = has
+      if not has:
+        row:
+          label("Your folders -- Pictures, Download, Documents -- need Android's permission.",
+                color = th.gray)
+          if button("&Allow..."): requestStorageAccess()
     let compactPv = showPreview and isCompact()
     let listH = if isCompact(): max(dp(160), ui.h - dp(250) - (if compactPv: dp(120) else: 0))
                 else: dp(330)

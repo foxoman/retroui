@@ -169,3 +169,53 @@ suite "dynamics":
       for y in 0 ..< 100:
         if d.compPtr[y * 400 + x] != 0xFFFFFFFF'u32: inc result
     check thick(320) > thick(80) * 2
+
+suite "the tip's outline (the pointer over the picture)":
+  proc bounds(segs: seq[array[4, float32]]): (float32, float32, float32, float32) =
+    result = (1e9'f32, 1e9'f32, -1e9'f32, -1e9'f32)
+    for s in segs:
+      for (x, y) in [(s[0], s[1]), (s[2], s[3])]:
+        result[0] = min(result[0], x); result[1] = min(result[1], y)
+        result[2] = max(result[2], x); result[3] = max(result[3], y)
+
+  test "a round tip: a circle its size, at every size":
+    for d in [9, 40, 300, 2500]:
+      let segs = tipOutline(hardTip(d))
+      check segs.len >= 8
+      let (x0, y0, x1, y1) = bounds(segs)
+      check abs((x1 - x0) - d.float32) <= max(2'f32, d.float32 * 0.04)
+      check abs(x0 + x1) <= max(2'f32, d.float32 * 0.04) and abs(y0 + y1) <= max(2'f32, d.float32 * 0.04)
+      check segs.len <= 2000
+
+  test "an ellipse at its angle and roundness, and a soft tip's half point":
+    var t = hardTip(100)
+    t.roundness = 40
+    let (x0, y0, x1, y1) = bounds(tipOutline(t))
+    check x1 - x0 > 90 and y1 - y0 < 50
+    t.angle = 90
+    let (a0, b0, a1, b1) = bounds(tipOutline(t))
+    check b1 - b0 > 90 and a1 - a0 < 50
+    let soft = softTip(100)
+    let half = bounds(tipOutline(soft))
+    let all = bounds(tipOutline(soft, full = true))
+    check half[2] - half[0] < all[2] - all[0] and all[2] - all[0] >= 90
+
+  test "a sampled tip: its own shape, turned with it":
+    # an L: its outline has the L's corner, nothing at the empty quarter
+    var t = BrushTip(diameter: 80, hardness: 100, spacing: 25, roundness: 100, cw: 20, ch: 20)
+    t.custom = newSeq[uint8](400)
+    for y in 0 ..< 20:
+      for x in 0 ..< 20:
+        if x < 6 or y >= 14: t.custom[y * 20 + x] = 255
+    proc inEmpty(segs: seq[array[4, float32]]; sx, sy: float32): bool =
+      # (a piece well inside the empty quarter: x > 0, y < 0 for the upright L)
+      for s in segs:
+        let mx = (s[0] + s[2]) / 2
+        let my = (s[1] + s[3]) / 2
+        if mx * sx > 15 and my * sy < -15: return true
+    let up = tipOutline(t)
+    check up.len > 8 and not inEmpty(up, 1, 1)
+    let (x0, y0, x1, y1) = bounds(up)
+    check x1 - x0 > 70 and y1 - y0 > 70
+    t.angle = 180
+    check not inEmpty(tipOutline(t), -1, -1)

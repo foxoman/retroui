@@ -1103,6 +1103,83 @@ proc alternatesFor*(text: string; st: CharStyle): seq[tuple[tag, name: string; o
     let name = face.featureName(tag)
     result.add (tag, (if name.len > 0: name else: tag), on)
 
+type FontGlyph* = object
+  ## A glyph of a font and how to type it (`fontGlyphs`).
+  gid*: int           ## its glyph in the face
+  text*: string       ## what to type for it: its character, or the characters the font makes
+                      ## it of; "" none (no character or feature of the font gives it)
+  feature*: string    ## the OpenType feature to turn on for it ("ss01", "dlig"; "" none needed)
+
+const autoFeatures = ["liga", "clig", "calt", "rlig", "ccmp", "rclt"]
+  ## (on by themselves: what they make comes as the characters are typed)
+const placeFeatures = ["init", "medi", "med2", "fina", "fin2", "fin3", "isol", "vert", "vrt2", "rtlm",
+                       "ltrm", "rtla", "ltra", "rand", "jalt", "nalt", "rvrn", "stch", "locl"]
+  ## (what a letter becomes by where it is, how the text runs, its language: not a choice)
+
+var glyphLists: Table[string, seq[FontGlyph]]
+
+proc fontGlyphs*(family, style: string): seq[FontGlyph] =
+  ## Every glyph of a font's face (but .notdef), in its order, each with what to type for it:
+  ## its character; else the characters its OpenType features make it of -- a ligature (الله,
+  ## "ffi"), an alternate, a stylistic set's form, with the feature to turn on (`feature`,
+  ## `withFeature`), checked by shaping them -- else nothing (`text` ""): a glyph only a
+  ## context reaches, or none. What a glyph picker shows (`glyphPicker`). Kept: made once.
+  let key = family & "\t" & style
+  if glyphLists.hasKey(key): return glyphLists[key]
+  let face = fontFace(family, style).face
+  if face == nil: return
+  var texts = newSeq[string](face.numGlyphs)
+  var feats = newSeq[string](face.numGlyphs)
+  for (cp, g) in face.charMap:
+    # (not the controls, spaces and selectors: nothing to see)
+    if cp < 0x21 or cp in 0x7F .. 0xA0 or cp in 0x2000 .. 0x200F or cp in 0x2028 .. 0x202F or
+       cp in 0x205F .. 0x206F or cp == 0x3000 or cp == 0xFEFF or cp in 0xFE00 .. 0xFE0F or
+       cp in 0xE0100 .. 0xE01EF or cp in 0xD800 .. 0xDFFF:
+      continue
+    if g < texts.len and texts[g].len == 0: texts[g] = $Rune(cp)
+  if face.hasLayout:
+    let recipes = face.glyphRecipes
+    for pass in 0 .. 2:                 # (a glyph made of glyphs made by others)
+      var changed = false
+      for want in 0 .. 2:               # (the features on by themselves first, "aalt" last)
+        for r in recipes:
+          if r.gid >= texts.len or texts[r.gid].len > 0 or r.tag in placeFeatures: continue
+          let rank = if r.tag in autoFeatures: 0 elif r.tag == "aalt": 2 else: 1
+          if rank != want: continue
+          var s = ""
+          var feat = if rank == 0: "" else: r.tag
+          var ok = true
+          for g in r.src:
+            if g >= texts.len or texts[g].len == 0: ok = false
+            elif feats[g].len > 0:
+              # (made of a glyph a feature makes: that feature too -- one feature a glyph)
+              if feat.len == 0: feat = feats[g]
+              elif feat != feats[g]: ok = false
+            if not ok: break
+            s.add texts[g]
+          if not ok or s.len == 0: continue
+          # (made as said: the characters shaped with the feature on give the glyph)
+          var cps: seq[int]
+          var rtl = false
+          for ch in s.runes:
+            cps.add int(ch)
+            if int(ch) in 0x0590 .. 0x08FF or int(ch) in 0xFB1D .. 0xFDFF or int(ch) in 0xFE70 .. 0xFEFF: rtl = true
+          var got = false
+          try:
+            let fs: seq[Feature] = if feat.len > 0: @[(feat, true)] else: @[]
+            for sg in shape(face, cps, rtl, features = fs):
+              if sg.gid == r.gid: got = true
+          except CatchableError: discard
+          if got:
+            texts[r.gid] = s
+            feats[r.gid] = feat
+            changed = true
+      if not changed: break
+  for g in 1 ..< face.numGlyphs:
+    result.add FontGlyph(gid: g, text: texts[g], feature: feats[g])
+  if glyphLists.len > 12: glyphLists.clear()
+  glyphLists[key] = result
+
 proc defaultStyle*(): CharStyle =
   ## The style of a new text: FreeSans Regular, 36 pixels, black.
   CharStyle(family: defaultFamily, style: "Regular", size: 36, color: 0xFF000000'u32, hScale: 1, vScale: 1)
@@ -3053,33 +3130,48 @@ proc remainder*(t: TextData; first: int): TextData =
 
 proc listMarks(t: TextData; lay: var TextLayout; rtl: bool) =
   ## (a list's marks, each set where its paragraph's first line starts: on that line's
-  ## baseline, at the edge the text stands in from)
+  ## baseline, at the edge the text stands in from -- the paragraphs of a list each, by their
+  ## own format: a bullet here, a number there, none between; the numbers go on across the
+  ## text, from a paragraph whose own first number differs from the one before)
   var cps: seq[int]
   for s in t.spans:
     for r in s.text.runes: cps.add int(r)
-  var n = (if t.para.listStart > 0: t.para.listStart else: 1) - 1
+  var n = 0
+  var lastStart = -1                     # (the first number the last numbered paragraph had)
   for k in 0 ..< lay.lines.len:
     let a = lay.lines[k].first
     # (a paragraph's first line, of a paragraph that says something)
     if a >= cps.len or cps[a] == 10 or (a > 0 and cps[a - 1] != 10): continue
-    inc n
+    let f = t.paraFmtAt(a)
+    if f.list == lkNone: continue
+    if f.list == lkNumber:
+      if lastStart < 0 or f.listStart != lastStart: n = max(f.listStart, 1) - 1
+      lastStart = f.listStart
+      inc n
     var st = t.styleAt(a)
-    if t.para.listColor != 0: st.color = t.para.listColor
+    if f.listColor != 0: st.color = f.listColor
     st.baselineShift = 0
     st.underline = false
     st.strike = false
-    let mark = if t.para.list == lkBullet: (if t.para.listMark.len > 0: t.para.listMark else: "•")
-               else: formatNumber(n, t.para.listNumbers) & (if t.para.listSuffix.len > 0: t.para.listSuffix else: ".")
+    let mark = if f.list == lkBullet: (if f.listMark.len > 0: f.listMark else: "•")
+               else: formatNumber(n, f.listNumbers) & (if f.listSuffix.len > 0: f.listSuffix else: ".")
     var mt = newText(mark, st, 0, 0)
     mt.para.rtl = if rtl: 2 else: 1
     let ml = layoutPlain(mt)
-    let x = if rtl: t.x + t.boxW - t.para.indentRight - (ml.x1 - ml.x0) else: t.x + t.para.indentLeft
+    let x = if rtl: t.x + t.boxW - f.indentRight - (ml.x1 - ml.x0) else: t.x + f.indentLeft
     for g in ml.glyphs:
       var g2 = g
       g2.x += x - ml.x0
       g2.y += lay.lines[k].baseline
       g2.index = a
       lay.glyphs.add g2
+
+proc hasList*(t: TextData): bool =
+  ## Some paragraph of the text is a list's (`ParaStyle.list`: the text's own format's, or a
+  ## paragraph's of its own).
+  if t.para.list != lkNone: return true
+  for f in t.paraFmts:
+    if f.list != lkNone: return true
 
 proc scriptOf(c: int): int =
   ## (1 Arabic, 2 Latin, 0 neither: spaces, digits, signs -- they go with the letters about them)
@@ -3204,8 +3296,9 @@ proc layoutPlain(t: TextData): TextLayout =
   if t.para.dropLines >= 2 and t.para.list == lkNone and t.boxW > 0 and t.path.len == 0 and not t.vertical and
      t.spans.len > 0:
     return dropCapped(t)
-  if t.para.list != lkNone and t.boxW > 0 and t.path.len == 0 and t.spans.len > 0:
-    # a list: the text set standing in from one edge, then a mark before each paragraph
+  if t.boxW > 0 and t.path.len == 0 and t.spans.len > 0 and t.hasList:
+    # a list: its paragraphs set standing in from one edge, then a mark before each (a paragraph
+    # of its own format too: its own indents moved, so a justified one does not run under it)
     var rtl = t.para.rtl == 2
     if t.para.rtl == 0:
       block strong:
@@ -3217,11 +3310,16 @@ proc layoutPlain(t: TextData): TextLayout =
               break strong
             if c in int('A') .. int('Z') or c in int('a') .. int('z') or c in 0xC0 .. 0x24F: break strong
     var u = t
-    u.para.list = lkNone
-    let room = if t.para.listIndent > 0: t.para.listIndent else: max(8'f32, t.spans[0].style.size * 1.7)
-    if rtl: u.para.indentRight += room else: u.para.indentLeft += room
+    let size = t.spans[0].style.size
+    proc roomed(p: var ParaStyle) =
+      if p.list != lkNone:
+        let room = if p.listIndent > 0: p.listIndent else: max(8'f32, size * 1.7)
+        if rtl: p.indentRight += room else: p.indentLeft += room
+        p.list = lkNone
+    roomed(u.para)
+    for f in u.paraFmts.mitems: roomed(f)
     result = layoutPlain(u)
-    listMarks(t, result, rtl)
+    listMarks(t, result, rtl)               # (at the edges the paragraphs had)
     return
   var styles: seq[CharStyle]
   var faces: seq[tuple[face: Face; fauxBold, fauxItalic: bool]]
@@ -3361,21 +3459,25 @@ proc layoutPlain(t: TextData): TextLayout =
         var e = k + 1
         while e < paraEnd and chars[e].style == si and (chars[e].level and 1) == odd and chars[e].cp notin [8, 9, 10]:
           inc e
-        # (all of it in the font: else as before, a character at a time; Thai
-        # too, in a font that does not place its marks -- the kit's
-        # FreeSerif --: they are placed below)
-        var all = true
+        # (what the font has of it, shaped by it; a character it lacks -- a bullet, a symbol --
+        # as before, a character at a time from another font, and the run shaped on after it:
+        # not the whole run from another font for one character. Thai, in a font that does not
+        # place its marks -- the kit's FreeSerif --, a character at a time: placed below)
         var thai = false
-        var cps = newSeq[int](e - k)
+        var cut = e
         for j in k ..< e:
-          cps[j - k] = chars[j].nominal
           let cp = chars[j].nominal
-          if cp >= 32 and cp notin [0x200C, 0x200D, 0x200E, 0x200F] and not fc.hasGlyph(cp): all = false
+          if cp >= 32 and cp notin [0x200C, 0x200D, 0x200E, 0x200F] and not fc.hasGlyph(cp) and cut == e: cut = j
           if cp in 0x0E31 .. 0x0E4E and isMark(cp) and not fc.placesMark(fc.glyphOf(cp)): thai = true
-        if thai: all = false
-        if not all:
+        if thai:
           k = e
           continue
+        if cut == k:
+          inc k
+          continue
+        e = cut
+        var cps = newSeq[int](e - k)
+        for j in k ..< e: cps[j - k] = chars[j].nominal
         var feats: seq[Feature]
         for w in strutils.splitWhitespace(styles[si].features):
           if w.startsWith("-"): feats.add (w[1 .. ^1], false)
@@ -3838,6 +3940,11 @@ proc layoutPlain(t: TextData): TextLayout =
       # the characters in the order shown
       var levels = newSeq[int8](b - a)
       for k in a ..< b: levels[k - a] = chars[k].level
+      # (the spaces the line ends with at the paragraph's own level -- Unicode's rule L1: shown
+      # at the line's end, not in a run of the other direction they end -- "(Justified " broken
+      # after its word in an Arabic line: its space was in the line's middle, the line a space
+      # wider than its room)
+      for k in e ..< b: levels[k - a] = int8(if rtlPara: 1 else: 0)
       var order = visualOrderOf(levels)
       if order.len == 0:
         order = newSeq[int](b - a)
@@ -3915,6 +4022,20 @@ proc layoutPlain(t: TextData): TextLayout =
           # (a line of one word: its letters spread across it -- Single Word Justification)
           extraPerLetter = need / float32(letters - 1)
           width += extraPerLetter * float32(letters - 1)
+      elif boxed and not lineTabs:
+        # (a line a little too long -- the Paragraph Composer counts on its spaces narrowing, the
+        # last line of a justified paragraph's too, which is not justified -- narrowed as far as
+        # Word Spacing's least: not out of its box)
+        let over = width - (avail - (indent - pp.indentLeft) + hangL + hangR)
+        if over > 0.01:
+          var spaceW = 0'f32
+          for k in a ..< e:
+            if chars[k].space:
+              inc spaces
+              spaceW += chars[k].adv
+          if spaces > 0:
+            let least = spaceW * max(0'f32, wsDes - wsMin) / wsDes
+            extraPerSpace = -min(over, least) / spaces.float32
       # (justified Arabic: lengthened at its joins first, with tatweel -- one
       # join a word, the best place in it; as long as Insert Kashida lets)
       var kashidaAt = newSeq[float32](b - a)
@@ -3937,8 +4058,12 @@ proc layoutPlain(t: TextData): TextLayout =
               wbest = k
               wrank = rk
         if wbest >= 0: points.add wbest
-        if points.len > 0:
-          let room = max(0'f32, avail - (indent - pp.indentLeft) - width + hangL + hangR)
+        # (a line a little too long -- the composer counts on its spaces narrowing -- keeps the
+        # narrower spaces worked out above: no kashida, and its spaces not set back to their width:
+        # it ran out of its box by what they should have given)
+        let room0 = avail - (indent - pp.indentLeft) - width + hangL + hangR
+        if points.len > 0 and room0 > 0.01:
+          let room = room0
           let em = styles[chars[points[0]].style].size
           let most = case kl
                      of kaShort: 0.35'f32
@@ -4003,12 +4128,19 @@ proc layoutPlain(t: TextData): TextLayout =
         result.caretLine[k] = lineNo
         if kas > 0:
           # the tatweel filling the join: at the letter's left (the next letter's side)
+          # (its ink, not its advance, stretched across the join: a font's tatweel may be inked
+          # wider than it steps -- Dubai's, 140 units on an 80-unit advance -- and stretched by its
+          # advance it ran on past the line, out of the box)
           let (tf, tg) = pickGlyph(c.face, 0x0640)
-          let tadv = float32(tf.advance(tg)) / float32(tf.unitsPerEm) * c.size
-          if tg != 0 and tadv > 0:
-            result.glyphs.add LaidGlyph(face: tf, gid: tg, x: x - 0.4, y: penY - st.baselineShift, size: c.size,
-                                        hScale: (kas + 0.8) / tadv * st.hScale / max(0.01'f32, st.hScale),
-                                        vScale: st.vScale, color: st.color, index: k, adv: kas)
+          let k1 = c.size / float32(max(1, tf.unitsPerEm))
+          let tb = tf.bounds(tg)
+          let inkW = if tb.x1 > tb.x0: float32(tb.x1 - tb.x0) * k1 else: float32(tf.advance(tg)) * k1
+          let inkX0 = if tb.x1 > tb.x0: float32(tb.x0) * k1 else: 0'f32
+          if tg != 0 and inkW > 0:
+            let hs = (kas + 0.8) / inkW
+            result.glyphs.add LaidGlyph(face: tf, gid: tg, x: x - 0.4 - inkX0 * hs, y: penY - st.baselineShift,
+                                        size: c.size, hScale: hs, vScale: st.vScale, color: st.color, index: k,
+                                        adv: kas)
           x += kas
           adv -= kas
         if c.shaped:

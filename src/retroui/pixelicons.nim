@@ -271,6 +271,75 @@ const
   pxSelectionBrush* = "\u{10F0FC}"  ## The selection brush: paint what to select (Alt: take it away).
   pxAdjustBrush* = "\u{10F0FD}"  ## The adjustment brush: paint an adjustment (lighter, more colorful...) where it is wanted.
   pxContentTrace* = "\u{10F0FE}"  ## The content-aware tracing tool: point at an edge of the picture, click: a path along it.
+  pxMagicEraser* = "\u{10F0FF}"  ## The magic eraser: rub out the pixels of a color at a click.
+  pxMagicWandShapes* = "\u{10F100}"  ## The magic wand on shapes: pick the shapes of a color or a stroke.
+  pxMagneticLasso* = "\u{10F101}"  ## The magnetic lasso: an outline that clings to the edges.
+  pxLassoPoints* = "\u{10F102}"  ## The lasso on points: select a path's anchor points by drawing round them.
+  pxVectorCrop* = "\u{10F103}"  ## The vector crop: a layer shown in a box, its pixels kept.
+  pxSliceSelect* = "\u{10F104}"  ## The slice select tool: pick a slice to change it.
+  pxBrushVector* = "\u{10F105}"  ## The drawing program's paintbrush: strokes that stay paths.
+  pxPathEraser* = "\u{10F106}"  ## The path eraser: rub out part of a path.
+  pxEraserShapes* = "\u{10F107}"  ## The eraser on shapes: rub out part of the shapes it goes over.
+  pxSymbolStainer* = "\u{10F108}"  ## The symbol stainer: tint the symbols under it.
+  pxSymbolSprayer* = "\u{10F109}"  ## The symbol sprayer: spray symbols as paint.
+  pxSymbolShifter* = "\u{10F10A}"  ## The symbol shifter: push the symbols under it.
+  pxSymbolSizer* = "\u{10F10B}"  ## The symbol sizer: make the symbols under it bigger (Alt: smaller).
+  pxSymbolScruncher* = "\u{10F10C}"  ## The symbol scruncher: draw the symbols together (Alt: apart).
+  pxSymbolSpinner* = "\u{10F10D}"  ## The symbol spinner: turn the symbols under it.
+  pxToneBrush* = "\u{10F10E}"  ## The tone brush: lighten or darken on a layer of its own.
+  pxLivePaintBucket* = "\u{10F10F}"  ## The Live Paint bucket: fill a face of a Live Paint group.
+  pxLivePaintSelect* = "\u{10F110}"  ## The Live Paint selection tool: pick faces and edges of a Live Paint group.
+  pxGroupSelect* = "\u{10F111}"  ## The group selection tool: a click on a shape picks it, again its group.
+  pxShapeBuilder* = "\u{10F112}"  ## The shape builder: drag across shapes to join them (Alt: take away).
+  pxColorSamplerTool* = "\u{10F113}"  ## The color sampler: points whose colors the Info panel keeps showing.
+  pxPerspSelect* = "\u{10F114}"  ## The perspective selection tool: move and size shapes on the perspective grid.
+  pxTypeMaskVertical* = "\u{10F115}"  ## The vertical type mask: letters running down that become a selection.
+  pxTypePathVertical* = "\u{10F116}"  ## Vertical type on a path: letters standing along a path.
+  pxJoin* = "\u{10F117}"  ## The join tool: drag over two ends of paths to join them.
+  pxSmooth* = "\u{10F118}"  ## The smooth tool: drag along a path to smooth it.
+  pxReshape* = "\u{10F119}"  ## The reshape tool: drag a point of a path and its neighbors follow.
+  pxMedianBrush* = "\u{10F11A}"  ## The median brush: paint away speckles, keeping the edges.
+  pxPageTool* = "\u{10F11B}"  ## The page tool: a page's size and its place on the pasteboard.
+  pxChartStacked* = "\u{10F11C}"  ## The stacked column graph tool: columns of parts.
+  pxChartBar* = "\u{10F11D}"  ## The bar graph tool: bars across.
+  pxChartBarStacked* = "\u{10F11E}"  ## The stacked bar graph tool: bars of parts across.
+  pxChartLine* = "\u{10F11F}"  ## The line graph tool: points joined by a line.
+  pxChartArea* = "\u{10F120}"  ## The area graph tool: the room under a line filled.
+  pxChartScatter* = "\u{10F121}"  ## The scatter graph tool: points by two numbers.
+  pxChartRadar* = "\u{10F122}"  ## The radar graph tool: numbers on spokes, joined.
+  pxTypeVertical* = "\u{10F123}"  ## The vertical type tool: letters running down.
+  pxTypeArea* = "\u{10F124}"  ## The area type tool: text that fills a shape.
+  pxTypeAreaVertical* = "\u{10F125}"  ## The vertical area type tool: letters running down, filling a shape.
+  pxTouchType* = "\u{10F126}"  ## The touch type tool: each letter moved, sized and turned by itself.
+  pxTriangleShape* = "\u{10F127}"  ## The triangle tool: a triangle.
+  pxFrameRect* = "\u{10F128}"  ## The rectangle frame tool: a frame for a picture (a cross in it till it has one).
+  pxFrameEllipse* = "\u{10F129}"  ## The ellipse frame tool: a round frame for a picture.
+  pxFramePolygon* = "\u{10F12A}"  ## The polygon frame tool: a frame of many sides for a picture.
+  pxContour* = "\u{10F12B}"  ## The contour tool: outlines inside and outside a shape, as a map's heights.
+  pxPolarGrid* = "\u{10F12C}"  ## The polar grid tool: rings and spokes.
+  pxArcShape* = "\u{10F12D}"  ## The arc tool: a part of a circle.
+  pxCornerTool* = "\u{10F12E}"  ## The corner tool: round a corner by dragging its widget.
+  pxScallop* = "\u{10F12F}"  ## The scallop tool: curves into the outline, as a shell's.
+  pxCrystallize* = "\u{10F130}"  ## The crystallize tool: spikes out of the outline.
+  pxTwirl* = "\u{10F131}"  ## The twirl tool: turn the outline round itself.
+  pxBloat* = "\u{10F132}"  ## The bloat tool: push the outline out.
+  pxWrinkle* = "\u{10F133}"  ## The wrinkle tool: waves along the outline.
+  pxDeform* = "\u{10F134}"  ## The deform tool: bones in a shape, the shape bent as they turn.
+  pxMeshTool* = "\u{10F135}"  ## The mesh tool: a gradient mesh, its points each a color.
+  pxMeshWarp* = "\u{10F136}"  ## The mesh warp tool: a grid over a shape, its points pulled.
+  pxWidthTool* = "\u{10F137}"  ## The width tool: a stroke made wider or thinner at a point.
+  pxRotateTool* = "\u{10F138}"  ## The rotate tool: turn a shape round a point.
+  pxShearTool* = "\u{10F139}"  ## The shear tool: slant a shape.
+  pxScaleTool* = "\u{10F13A}"  ## The scale tool: a shape made bigger or smaller round a point.
+  pxFreeTransform* = "\u{10F13B}"  ## The free transform tool: move, size, turn and slant with the mouse.
+  pxPointTransform* = "\u{10F13C}"  ## The point transform tool: points of a path moved and turned as one.
+  pxAreaTool* = "\u{10F13D}"  ## The area tool: the area and the outline's length of a shape.
+  pxDimensionTool* = "\u{10F13E}"  ## The dimension tool: a measure drawn on the page, its number on it.
+  pxShaper* = "\u{10F13F}"  ## The shaper tool: a rough drawing made a clean shape.
+  pxGradientFeather* = "\u{10F140}"  ## The gradient feather tool: a shape fading out to see-through.
+  pxBlendTool* = "\u{10F141}"  ## The blend tool: shapes and the steps between them.
+  pxArtboardTool* = "\u{10F142}"  ## The artboard tool: a page of its own on the canvas, its size and place.
+  pxKnifeTool* = "\u{10F143}"  ## The knife: cut shapes along a line drawn freehand.
 
 const pixelArtPacked = staticRead("pixelart.z")
   # every icon: width, height and a letter a pixel, at 16 x 16 then at 32 x 32
@@ -279,8 +348,8 @@ var artLetters: string         # every icon's letters (one a pixel), unpacked on
 var artAt: seq[int32]         # where each icon's pair of pictures starts in them
 var artTicket = -1            # (being unpacked on a thread, from the start: `unpacking`)
 
-const pixelIconCount = 255
-  ## (how many icons there are: U+10F000 .. U+10F0FE)
+const pixelIconCount = 324
+  ## (how many icons there are: U+10F000 .. U+10F143)
 
 proc artIcon(at: var int): Icon =
   ## The picture at `at` (width, height, a letter a pixel), `at` moved past it.
@@ -339,5 +408,5 @@ proc pixelIcon*(glyph: string; big = false): Icon =
     let b = artIcon(at)
     if b.w > 0: result = b
 
-const pixelIconNames* = ["Folder", "FolderOpen", "Documents", "Downloads", "Pictures", "Music", "Videos", "FolderStar", "FolderPlus", "FolderUp", "Home", "Desktop", "Computer", "Drive", "SdCard", "Phone", "Trash", "TrashFull", "File", "Text", "Markdown", "Code", "Web", "Data", "Sheet", "Document", "Slides", "Pdf", "Image", "Audio", "Video", "Archive", "App", "Script", "Font", "Info", "Question", "Error", "Warning", "New", "Open", "Save", "Cut", "Copy", "Paste", "Print", "Help", "Back", "Forward", "Up", "Refresh", "Delete", "Rename", "Properties", "Search", "Details", "Icons", "Star", "Share", "Select", "Undo", "Redo", "Settings", "Tiles", "Tree", "Preview", "TwoPanes", "Columns", "Eye", "OpenWith", "Bell", "Check", "Lock", "Play", "User", "Inbox", "Fit", "Hourglass", "Hourglass2", "Chart", "PieChart", "Report", "Map", "Cube", "Paint", "Speaker", "Camera", "Calendar", "Clock", "Kanban", "Gantt", "OrgChart", "Calculator", "Mail", "Database", "Globe", "Window", "Terminal", "Gauge", "Key", "Add", "Remove", "Filter", "Sort", "Pin", "ZoomIn", "ZoomOut", "Pause", "Stop", "Record", "MarqueeRect", "MarqueeEllipse", "Lasso", "MoveTool", "MagicWand", "HandTool", "ZoomTool", "Crop", "Eraser", "Pencil", "LineTool", "Airbrush", "Brush", "Stamp", "Smudge", "Blur", "Sharpen", "Dodge", "Burn", "Sponge", "Pen", "PathArrow", "PenAdd", "PenRemove", "ConvertPoint", "TypeTool", "Gradient", "Bucket", "Eyedropper", "StandardMode", "QuickMask", "ScreenWindow", "ScreenFullMenu", "ScreenFull", "SpotHeal", "Heal", "Patch", "RedEye", "AdjustLayer", "LayerMask", "AlignLeft", "AlignCenter", "AlignRight", "JustifyLeft", "JustifyCenter", "JustifyRight", "JustifyAll", "FauxBold", "FauxItalic", "AllCaps", "SmallCaps", "Superscript", "Subscript", "Underline", "Strikethrough", "WarpText", "TypePath", "LayerStyle", "Character", "Paragraph", "RectShape", "RoundRectShape", "EllipseShape", "PolygonShape", "CustomShape", "ShapeLayer", "ClipLayer", "Plugin", "Symmetry", "ProofColors", "SmartObject", "QuickSelect", "ObjectSelect", "PathSelect", "HistoryBrush", "MixerBrush", "RemoveTool", "ContentMove", "Navigator", "History", "Snapshot", "Actions", "Guides", "Grid", "AlignEdgeLeft", "AlignEdgeHCenter", "AlignEdgeRight", "AlignEdgeTop", "AlignEdgeVCenter", "AlignEdgeBottom", "Warp", "PuppetWarp", "Sky", "FillLayer", "SelNew", "SelAdd", "SelSubtract", "SelIntersect", "GradLinear", "GradRadial", "GradAngle", "GradReflected", "GradDiamond", "MarqueeRow", "MarqueeColumn", "PolyLasso", "TypeMask", "PatternStamp", "MoreTools", "PerspCrop", "BgEraser", "FreeformPen", "CurvaturePen", "StarShape", "Spiral", "ColorReplace", "Slice", "Note", "Count", "RotateView", "ArtHistory", "Timeline", "ParaStyle", "CharStyle", "OpenType", "ScriptEdit", "Language", "Layers", "Channels", "Swatches", "ColorPanel", "Histogram", "Glyphs", "Commands", "ToolPresets", "LayerComps", "Libraries", "Scratch", "ColorThemes", "Patterns", "BrushSettings", "QuickActions", "SelectionBrush", "AdjustBrush", "ContentTrace"]
+const pixelIconNames* = ["Folder", "FolderOpen", "Documents", "Downloads", "Pictures", "Music", "Videos", "FolderStar", "FolderPlus", "FolderUp", "Home", "Desktop", "Computer", "Drive", "SdCard", "Phone", "Trash", "TrashFull", "File", "Text", "Markdown", "Code", "Web", "Data", "Sheet", "Document", "Slides", "Pdf", "Image", "Audio", "Video", "Archive", "App", "Script", "Font", "Info", "Question", "Error", "Warning", "New", "Open", "Save", "Cut", "Copy", "Paste", "Print", "Help", "Back", "Forward", "Up", "Refresh", "Delete", "Rename", "Properties", "Search", "Details", "Icons", "Star", "Share", "Select", "Undo", "Redo", "Settings", "Tiles", "Tree", "Preview", "TwoPanes", "Columns", "Eye", "OpenWith", "Bell", "Check", "Lock", "Play", "User", "Inbox", "Fit", "Hourglass", "Hourglass2", "Chart", "PieChart", "Report", "Map", "Cube", "Paint", "Speaker", "Camera", "Calendar", "Clock", "Kanban", "Gantt", "OrgChart", "Calculator", "Mail", "Database", "Globe", "Window", "Terminal", "Gauge", "Key", "Add", "Remove", "Filter", "Sort", "Pin", "ZoomIn", "ZoomOut", "Pause", "Stop", "Record", "MarqueeRect", "MarqueeEllipse", "Lasso", "MoveTool", "MagicWand", "HandTool", "ZoomTool", "Crop", "Eraser", "Pencil", "LineTool", "Airbrush", "Brush", "Stamp", "Smudge", "Blur", "Sharpen", "Dodge", "Burn", "Sponge", "Pen", "PathArrow", "PenAdd", "PenRemove", "ConvertPoint", "TypeTool", "Gradient", "Bucket", "Eyedropper", "StandardMode", "QuickMask", "ScreenWindow", "ScreenFullMenu", "ScreenFull", "SpotHeal", "Heal", "Patch", "RedEye", "AdjustLayer", "LayerMask", "AlignLeft", "AlignCenter", "AlignRight", "JustifyLeft", "JustifyCenter", "JustifyRight", "JustifyAll", "FauxBold", "FauxItalic", "AllCaps", "SmallCaps", "Superscript", "Subscript", "Underline", "Strikethrough", "WarpText", "TypePath", "LayerStyle", "Character", "Paragraph", "RectShape", "RoundRectShape", "EllipseShape", "PolygonShape", "CustomShape", "ShapeLayer", "ClipLayer", "Plugin", "Symmetry", "ProofColors", "SmartObject", "QuickSelect", "ObjectSelect", "PathSelect", "HistoryBrush", "MixerBrush", "RemoveTool", "ContentMove", "Navigator", "History", "Snapshot", "Actions", "Guides", "Grid", "AlignEdgeLeft", "AlignEdgeHCenter", "AlignEdgeRight", "AlignEdgeTop", "AlignEdgeVCenter", "AlignEdgeBottom", "Warp", "PuppetWarp", "Sky", "FillLayer", "SelNew", "SelAdd", "SelSubtract", "SelIntersect", "GradLinear", "GradRadial", "GradAngle", "GradReflected", "GradDiamond", "MarqueeRow", "MarqueeColumn", "PolyLasso", "TypeMask", "PatternStamp", "MoreTools", "PerspCrop", "BgEraser", "FreeformPen", "CurvaturePen", "StarShape", "Spiral", "ColorReplace", "Slice", "Note", "Count", "RotateView", "ArtHistory", "Timeline", "ParaStyle", "CharStyle", "OpenType", "ScriptEdit", "Language", "Layers", "Channels", "Swatches", "ColorPanel", "Histogram", "Glyphs", "Commands", "ToolPresets", "LayerComps", "Libraries", "Scratch", "ColorThemes", "Patterns", "BrushSettings", "QuickActions", "SelectionBrush", "AdjustBrush", "ContentTrace", "MagicEraser", "MagicWandShapes", "MagneticLasso", "LassoPoints", "VectorCrop", "SliceSelect", "BrushVector", "PathEraser", "EraserShapes", "SymbolStainer", "SymbolSprayer", "SymbolShifter", "SymbolSizer", "SymbolScruncher", "SymbolSpinner", "ToneBrush", "LivePaintBucket", "LivePaintSelect", "GroupSelect", "ShapeBuilder", "ColorSamplerTool", "PerspSelect", "TypeMaskVertical", "TypePathVertical", "Join", "Smooth", "Reshape", "MedianBrush", "PageTool", "ChartStacked", "ChartBar", "ChartBarStacked", "ChartLine", "ChartArea", "ChartScatter", "ChartRadar", "TypeVertical", "TypeArea", "TypeAreaVertical", "TouchType", "TriangleShape", "FrameRect", "FrameEllipse", "FramePolygon", "Contour", "PolarGrid", "ArcShape", "CornerTool", "Scallop", "Crystallize", "Twirl", "Bloat", "Wrinkle", "Deform", "MeshTool", "MeshWarp", "WidthTool", "RotateTool", "ShearTool", "ScaleTool", "FreeTransform", "PointTransform", "AreaTool", "DimensionTool", "Shaper", "GradientFeather", "BlendTool", "ArtboardTool", "KnifeTool"]
   ## The names of the pixel icons, in the order of their characters.

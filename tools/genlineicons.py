@@ -16,7 +16,7 @@ import os, sys, zlib, re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-FONTS = os.path.join(ROOT, "src", "retro", "fonts")
+FONTS = os.path.join(ROOT, "src", "retroui", "fonts")
 
 # pixel icon -> Nerd Fonts glyph name (and a color of its own, 0 = the text's)
 TWINS = {
@@ -108,11 +108,40 @@ TWINS = {
     "Libraries": "md-bookshelf", "Scratch": "md-draw", "ColorThemes": "md-view_column",
     "Patterns": "md-checkerboard", "BrushSettings": "md-tune_variant", "QuickActions": "md-lightning_bolt",
     "SelectionBrush": "md-brush_variant", "AdjustBrush": "md-circle_half_full", "ContentTrace": "md-draw",
+    # (0.72: every tool an icon of its own)
+    "MagicEraser": "md-auto_fix", "MagicWandShapes": "md-creation", "MagneticLasso": "md-magnet",
+    "LassoPoints": "md-vector_point", "VectorCrop": "md-crop_free", "SliceSelect": "md-cursor_pointer",
+    "BrushVector": "md-brush_outline", "PathEraser": "md-vector_polyline_remove",
+    "EraserShapes": "md-vector_difference", "SymbolStainer": "md-water_opacity",
+    "SymbolSprayer": "md-spray_bottle", "SymbolShifter": "md-arrow_all", "SymbolSizer": "md-arrow_expand",
+    "SymbolScruncher": "md-arrow_collapse_all", "SymbolSpinner": "md-rotate_3d_variant",
+    "ToneBrush": "md-contrast_circle", "LivePaintBucket": "md-pail", "LivePaintSelect": "md-select_group",
+    "GroupSelect": "md-cursor_default_click", "ShapeBuilder": "md-shape_plus",
+    "ColorSamplerTool": "md-eyedropper_variant", "PerspSelect": "md-perspective_more",
+    "TypeMaskVertical": "md-format_text_rotation_down_vertical",
+    "TypePathVertical": "md-format_text_rotation_up", "Join": "md-vector_link", "Smooth": "md-sine_wave",
+    "Reshape": "md-vector_polyline_edit", "MedianBrush": "md-blur", "PageTool": "md-book_open_page_variant",
+    "ChartStacked": "md-chart_bar_stacked", "ChartBar": "md-chart_box_outline",
+    "ChartBarStacked": "md-chart_timeline", "ChartLine": "md-chart_line",
+    "ChartArea": "md-chart_areaspline", "ChartScatter": "md-chart_scatter_plot", "ChartRadar": "md-radar",
+    "TypeVertical": "md-format_text_rotation_vertical", "TypeArea": "md-format_textbox",
+    "TypeAreaVertical": "md-text_box_outline", "TouchType": "md-format_text_variant",
+    "TriangleShape": "md-vector_triangle", "FrameRect": "md-close_box_outline",
+    "FrameEllipse": "md-close_circle_outline", "FramePolygon": "md-close_octagon_outline",
+    "Contour": "md-image_filter_hdr", "PolarGrid": "md-target", "ArcShape": "md-vector_radius",
+    "CornerTool": "md-rounded_corner", "Scallop": "md-flower_outline", "Crystallize": "md-snowflake",
+    "Twirl": "md-weather_hurricane", "Bloat": "md-circle_expand", "Wrinkle": "md-wave", "Deform": "md-bone",
+    "MeshTool": "md-dots_grid", "MeshWarp": "md-waves", "WidthTool": "md-arrow_expand_vertical",
+    "RotateTool": "md-rotate_left", "ShearTool": "md-skew_more", "ScaleTool": "md-resize",
+    "FreeTransform": "md-vector_square_edit", "PointTransform": "md-vector_square_close",
+    "AreaTool": "md-ruler_square", "DimensionTool": "md-ruler_square_compass", "Shaper": "md-draw_pen",
+    "GradientFeather": "md-feather", "BlendTool": "md-vector_combine", "ArtboardTool": "md-crop_square",
+    "KnifeTool": "md-knife",
 }
 
 
 def pixel_names():
-    src = open(os.path.join(ROOT, "src", "retro", "pixelicons.nim")).read()
+    src = open(os.path.join(ROOT, "src", "retroui", "pixelicons.nim")).read()
     m = re.search(r'const pixelIconNames\* = \[(.*?)\]', src, re.S)
     return [s.strip().strip('"') for s in m.group(1).split(',')]
 
@@ -136,32 +165,49 @@ def main():
             continue
         rows.append((i, by_name[g], col, n))
         want.add(by_name[g])
-    # the icon font as it is, and these
+    # the icon font as it is (its glyphs kept exactly: a newer Nerd Fonts may have
+    # redrawn some), and these
     path = os.path.join(FONTS, "Icons.ttf")
-    have = set(TTFont(path).getBestCmap().keys())
-    opts = subset.Options()
-    opts.layout_features = []
-    opts.name_IDs = ['*']
-    opts.notdef_outline = True
-    opts.glyph_names = False
-    opts.hinting = False
-    font = TTFont(nerd)
-    sub = subset.Subsetter(opts)
-    sub.populate(unicodes=sorted(have | want))
-    sub.subset(font)
-    font.save(path)
+    font = TTFont(path)
+    have = set(font.getBestCmap().keys())
+    add = sorted(want - have)
+    if add:
+        opts = subset.Options()
+        opts.layout_features = []
+        opts.notdef_outline = True
+        opts.glyph_names = False
+        opts.hinting = False
+        extra = TTFont(nerd)
+        sub = subset.Subsetter(opts)
+        sub.populate(unicodes=add)
+        sub.subset(extra)
+        ecmap = extra.getBestCmap()
+        glyf, hmtx = font['glyf'], font['hmtx']
+        order = list(font.getGlyphOrder())
+        for cp in add:
+            g = extra['glyf'][ecmap[cp]]
+            assert not g.isComposite(), hex(cp)
+            n = 'u%X' % cp
+            glyf[n] = g
+            hmtx[n] = extra['hmtx'][ecmap[cp]]
+            if n not in order:
+                order.append(n)
+            for t in font['cmap'].tables:
+                if t.format == 12 or cp <= 0xFFFF:
+                    t.cmap[cp] = n
+        font.setGlyphOrder(order)
+        glyf.glyphOrder = order
+        font.save(path)
     data = open(path, 'rb').read()
     open(path + '.z', 'wb').write(zlib.compress(data, 9))
-    out = ['## Line icons: a Nerd Fonts symbol for each pixel icon that has one,',
-           '## drawn in the text\'s color where the pixel art does not show (dark',
-           '## themes, OLED black) or when preferred (`setLineIcons`). Generated by',
-           '## tools/genlineicons.py -- edit that, not this.', '',
-           'const lineTwins* = [']
+    nim = os.path.join(ROOT, "src", "retroui", "lineicons.nim")
+    head = open(nim).read().split('const lineTwins* = [')[0]   # (its header kept as it is)
+    out = [head + 'const lineTwins* = [']
     for i, cp, col, n in rows:
         out.append('  (%d, "\\u{%X}", 0x%06X\'u32),  # %s' % (i, cp, col, n))
     out.append(']')
     out.append('  ## (pixel icon, its line twin, its own color -- 0: the text\'s)')
-    open(os.path.join(ROOT, "src", "retro", "lineicons.nim"), "w").write('\n'.join(out) + '\n')
+    open(nim, "w").write('\n'.join(out) + '\n')
     print(len(rows), "twins;", len(want - have), "glyphs added;", len(data), "bytes")
 
 
