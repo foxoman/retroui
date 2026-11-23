@@ -471,6 +471,72 @@ block wrapping:
   let solid = wrapLines(repeat('x', 200), 50)
   doAssert solid.join("") == repeat('x', 200) and solid.len > 2
 
+block wrappingAsBefore:
+  # plain ASCII wrapped with the line's width carried on (`LineMeter`): the very lines of the
+  # wrap that measured each line again for every word -- kept here as it was
+  proc wrapMeasured(para: string; maxW: int; bold: bool): seq[string] =
+    var line = ""
+    for w in para.split(' '):
+      var word = w
+      let cand = if line.len == 0: word else: line & " " & word
+      if line.len > 0 and textWidth(cand, bold) > maxW:
+        result.add line
+        line = ""
+      elif line.len > 0 or textWidth(word, bold) <= maxW:
+        line = cand
+        continue
+      while textWidth(word, bold) > maxW and word.len > 1:
+        var lo = 1
+        var hi = min(word.len - 1, max(1, maxW))
+        while lo < hi:
+          let mid = (lo + hi + 1) div 2
+          if textWidth(word[0 ..< mid], bold) <= maxW: lo = mid
+          else: hi = mid - 1
+        let head = word[0 ..< lo]
+        var cut = -1
+        for i in countdown(head.high, head.len div 2):
+          if head[i] in {'/', '\\', '-', '_', '.', ',', ';'}:
+            cut = i
+            break
+        if cut > 0:
+          result.add head[0 .. cut]
+          word = word[cut + 1 .. ^1]
+        else:
+          result.add head
+          word = word[lo .. ^1]
+      line = word
+    result.add line
+  # a meter's width is textWidth's, a letter at a time
+  for bold in [false, true]:
+    var m = lineMeter(bold)
+    var s = ""
+    for c in "AVAWAY To, Ty. LT 'quoted' -- f/i 0123456789 {[(@#$%^&*)]} ~`|\\ Wy":
+      m.add [c]
+      s.add c
+      doAssert m.width == textWidth(s, bold), s
+  var seed = 7
+  proc rnd(n: int): int =
+    seed = int((uint32(seed) * 1103515245'u32 + 12345'u32) and 0x7FFFFFFF'u32)   # (in 32 bits: WebAssembly's int)
+    (seed shr 8) mod n
+  let pieces = ["the", "quick", "brown", "fox", "AVAWAY", "To,", "Ty.", "/storage/emulated/0/Pictures/",
+                "IMG_20240101.jpg", "a-very-long-hyphenated-name", "x".repeat(80), "", "1,234.56", "Wa;ve",
+                "f", "W", "--", "C:\\Users\\Sultan\\Documents"]
+  var tried = 0
+  for trial in 0 ..< 600:
+    var para = ""
+    for k in 0 ..< 1 + rnd(30):
+      if k > 0: para.add ' '
+      para.add pieces[rnd(pieces.len)]
+    for maxW in [1, 2, 5, 9, 17, 33, 60, 100, 157, 240, 400, 1000, 3 + rnd(300)]:
+      let bold = rnd(2) == 1
+      doAssert wrapLines(para, maxW, bold) == wrapMeasured(para, maxW, bold), $(para, maxW, bold)
+      inc tried
+  doAssert tried == 600 * 13
+  # several paragraphs, and one with a letter that is not ASCII: each wrapped as it should be
+  let mixed = "one two three four five\nnaïve café über alles und so weiter\nsix seven eight nine"
+  let ml = wrapLines(mixed, textWidth("one two three"))
+  doAssert ml[0] == "one two three" and "naïve" in ml.join(" ") and ml[^1].endsWith("nine"), $ml
+
 block arabicEdgeCases:
   # tatweel and the zero width joiner join letters but have no forms
   for s in ["ـ", "بـب", "\u200Dب", "ب\u200D", "لا", "ل\u0651ا", "\u064Bب", "ﻻ"]:

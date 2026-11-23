@@ -513,6 +513,8 @@ check boxes on the rows, and Back goes back a folder.
   ("Looking through the folders...", "يجري البحث في المجلدات..."),
   ("Reading the files: ", "قراءة الملفات: "),
   ("Finding...", "يجري البحث..."),
+  ("3.7.1: a device, a pipe or a socket in what you copy, move or zip (/dev/zero, a FIFO) is left as it is, said, and the rest done -- reading one may never end, and a copy waited for ever",
+   "3.7.1: جهاز أو أنبوب أو مقبس فيما تنسخه أو تنقله أو تضغطه (‎/dev/zero‎، أنبوب FIFO) يُترك كما هو، ويُقال ذلك، ويتم الباقي -- قراءة أحدها قد لا تنتهي أبداً، وكان النسخ ينتظر إلى الأبد"),
   ("3.7.0: Tools > Find > By Meaning -- files found by what they say, not their names, read on this device by a model of its own (Tools > Models on This Device): nothing leaves it",
    "3.7.0: أدوات > بحث > بالمعنى -- ملفات يُعثر عليها بما تقوله لا بأسمائها، يقرؤها على هذا الجهاز نموذج خاص به (أدوات > النماذج على هذا الجهاز): لا شيء يغادره"),
   ("Tools > Find > By Meaning: files found by what they say, not their names -- read on this device by a model of its own (Tools > Models on This Device)",

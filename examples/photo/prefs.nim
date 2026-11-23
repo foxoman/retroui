@@ -119,6 +119,7 @@ proc loadPrefs() =
   p.toolHidden = st.getOrDefault("pref.toolhidden", p.toolHidden)
   p.taskBar = st.getBool("pref.taskbar", p.taskBar)
   p.legacyXf = st.getBool("pref.legacyxf", p.legacyXf)
+  p.scaleStrokes = st.getBool("pref.scalestrokes", p.scaleStrokes)
   p.legacyNew = st.getBool("pref.legacynew", p.legacyNew)
   p.ownFiles = st.getBool("pref.ownfiles", p.ownFiles)
   p.language = if st.getOrDefault("pref.language") == "ar": 1 else: 0
@@ -205,6 +206,7 @@ proc savePrefs() =
   st["pref.toolhidden"] = p.toolHidden
   st["pref.taskbar"] = $p.taskBar
   st["pref.legacyxf"] = $p.legacyXf
+  st["pref.scalestrokes"] = $p.scaleStrokes
   st["pref.legacynew"] = $p.legacyNew
   st["pref.ownfiles"] = $p.ownFiles
   st["pref.language"] = (if p.language == 1: "ar" else: "en")
@@ -327,6 +329,7 @@ proc pageTools() =
       keysOpen = true
   group("Free Transform"):
     checkbox("Use Legacy Free Transform (Shift keeps the proportions)", prefs.legacyXf)
+    checkbox("Scale Strokes && Effects (a shape's strokes, brushes and style grow with it)", prefs.scaleStrokes)
   group("Zoom"):
     checkbox("Zoom with Scroll Wheel (Ctrl or Alt + the wheel: scroll)", viewPrefs.wheelZooms)
     checkbox("Zoom Clicked Point to Center", prefs.zoomCenter)

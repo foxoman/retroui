@@ -31,6 +31,17 @@ retrokit run hello.nim --watch
 
 Change a label, save, and the window is built again where it was. Keep it open beside your editor through the lessons. `--size:360x640` shows the app at a phone's size, `--theme:Dark` in another color scheme, `--touch` with finger-sized controls.
 
+What you typed into the app starts fresh with each build. To keep it, name it once after it is declared:
+
+```nim
+import retroui, retroui/keep
+
+var name = "World"
+keep name          # comes back as the run before left it, on every save
+```
+
+With a phone connected (USB debugging on, `adb` installed), `retrokit run hello.nim --android --watch` does the same on the phone: built, installed and started again on every save, its log in your terminal.
+
 ## 4. Draw a window with the mouse
 
 ```sh

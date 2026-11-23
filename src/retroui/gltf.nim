@@ -594,7 +594,8 @@ proc blendToGlb*(blend: string; glb = ""): string =
                "''', export_format='GLB', export_animations=True, export_apply=False)"
   try:
     let p = startProcess(exe, args = ["-b", blend, "--python-expr", script],
-                         options = {poStdErrToStdOut, poUsePath})
+                         options = {poStdErrToStdOut, poUsePath} +
+                                   (when defined(windows): {poDaemon} else: {}))   # (no console window)
     discard p.outputStream.readAll()
     let code = p.waitForExit()
     p.close()

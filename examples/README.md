@@ -24,7 +24,7 @@ hello, notepad, ledger, charts, invoice, then the apps.
 | [invoice](#invoice) | an HTML template made into PDF pages |
 | [native](#native) | the system's own APIs, called from Nim |
 | [filemanager](#retro-files) | Retro Files, a file manager |
-| [photo](#retro-photo) | Retro Atelier, an image editor |
+| [photo](#retro-photo) | Retro Atelier: pictures, drawings and pages |
 | [magazine](#the-magazine) | three magazine pages made with Retro Atelier's engine |
 | [retroboard](#retro-board) | Retro Board, a whiteboard |
 | [mail](#retro-mail) | Retro Mail, for Microsoft 365, Outlook.com, Gmail, IMAP, POP3, JMAP and Exchange |
@@ -181,10 +181,11 @@ nimble apk                  # an Android APK
 
 ![Retro Atelier: a picture, its layers and the tools](../docs/photo.png)
 
-`photo.nim` is Retro Atelier, an image editor with the look of 1994 and
-the tools of today's: layers and groups with blend modes, masks and
-styles, Smart Objects, selections, channels and paths, sixty-two tools,
-filters and adjustments with previews, Neural Filters, Arabic type,
+`photo.nim` is Retro Atelier, a studio for pictures, drawings and pages
+with the look of 1994 and the tools of today's: layers and groups with
+blend modes, masks and styles, Smart Objects, selections, channels and
+paths, the photo tools and seventy vector tools, books and magazines laid
+out, over a hundred filters and the adjustments with previews, Neural Filters, Arabic type,
 panoramas, raw photos, CMYK, Lab, duotones and Multichannel images, PDF
 for print, and many undos. On a phone held upright the picture fills the
 screen, the tools in rows under it and the panels sliding up; two fingers
@@ -217,6 +218,47 @@ and Remove Background use it, with Depth Anything Depth Blur, Lens Blur
 and Relight see the photo's own depth, and **Type > Text in Picture**
 reads the text in a photo or a scan (English, Chinese, Arabic) -- to copy,
 or added as type where it was.
+
+**What today's photo, drawing and layout programs have** (5.16): **53
+drawing tools** more -- Rotate, Reflect, Scale and Shear round a reference
+point, Reshape, Free Transform, Puppet Warp; the liquify brushes (Warp,
+Twirl, Pucker, Bloat, Scallop, Crystallize, Wrinkle), Mesh Warp and
+Deform (bones); Blend; Live Paint Bucket and Selection; the eight Symbol
+tools; nine Graph tools; Shaper (a rough shape drawn becomes a neat one);
+Print Tiling, Page, Gradient Feather, Color Theme, Corner, Point
+Transform, Contour, Vector Crop, Transparency, Fill, Area; Touch Type,
+Area Type, Type on a Path and their vertical ones -- and the **Median
+Brush**. Filter > **Shake Reduction** (the shake found by itself),
+Adaptive Wide Angle, Bilateral Blur, Multi Band Sharpen, Texture Detail,
+Ambient Occlusion, Glitch, Remove Background Gradient, Render > Flame,
+Tree and Picture Frame; **Split Toning** and **Color Grading** adjustment
+layers, Channel Inversion, Mixed Light Correction, Tone Compression,
+Tone Stretch, **SDR to HDR**; Layer Mask > From Luminosity Range, From
+Hue Range, Compound Mask. Path Operations: compound paths, anchor points
+added and removed, Divide Objects Below, Split Into Grid, Clean Up,
+Objects on Path, Pixel Perfect, Soft Mix, Object Mosaic, Trim Marks,
+Step and Repeat, Convert Shape, perceptual gradients, Hatch Fill, the
+artboards'; ten more live shapes. Type: letters turned one by one, **Type
+on a Path's effects** (Rainbow, Skew, 3D Ribbon, Stair Step, Gravity),
+Change Case, Smart Punctuation, Fit Headline, Auto Style, Quick Apply,
+Sidenotes, Dynamic Text. The layout program's Create Guides, Adjust
+Layout, **Alternate Layouts**, Insert HTML, Basic and Directional
+Feather, Clipping Path, **Multi-State Objects**, Content-Aware Fit,
+Stroke Styles, Flattener Preview, Articles, Window > **Accessibility
+Check**, Merge Document and snippets. Files and photos: the
+**Measurement Log**, Define Custom Shape, Transform Selection, Copy CSS
+and SVG, Layer Based Slices, Manage Missing Fonts, Conditional Mode
+Change, the scripts that tidy layers, Layer Comps to Files, Artboards to
+PDF, **Color Lookup Tables** (.cube), Render Video, **Zoomify**, Save for
+Web, Content Credentials, Generate > **Image Assets**, **Version
+History**, Record Timelapse, the Script Events Manager, **droplets**,
+Focus Merge, the **Astrophotography Stack**, 360 views edited flat and
+put back, Decompose Layers, Layer to 3D, Select > People. Edit >
+**Generative Edits** through your own AI service: Generate Background,
+Generative Upscale, Style Transfer, Camera Angle, Rotate Object,
+Recompose, Remove Ambient Effect, Smart Portrait, Makeup Transfer,
+Landscape Mixer, Generative Recolor, Text to Pattern, Generative Shape
+Fill, Rewrite, Turntable. All of it in Arabic too.
 
 **From the Affinity apps** (5.15): Window > Workspace keeps **studios**
 of your own (the panels, the toolbar's tools, the options bar) and
@@ -279,7 +321,10 @@ cell lines, page color labels and Smart Text Reflow. A brush 512 pixels across o
 is painted behind its stroke: the stroke shows at once where the pen goes (drawn by
 the GPU when it draws the window), the picture's pixels follow. It runs as a web page too
 (`retrokit web photo.nim --memory:2048`): files dropped on it open, a big PSD in
-seconds, nothing installed and nothing sent anywhere. File > Export > Export for Screens writes artboards or objects at 1x, 2x, 3x...
+seconds, nothing installed and nothing sent anywhere. A big PSD is held once while it
+opens (5.16: a 40 MB file of five layers opens in 1.0 s at 340 MB at the most -- 2.1 s and
+844 MB in 5.15 --, and keeps 46 MB less once open), which matters most in a web page, whose
+memory never shrinks back. File > Export > Export for Screens writes artboards or objects at 1x, 2x, 3x...
 as PNG, JPEG, WebP, SVG and PDF; DXF drawings and EPS files open as shapes.
 Window > Timeline plays an animation's frames (an animated GIF,
 WebP or PNG opens as them) and File > Export > Save Animation saves them. Type takes colour fonts and emoji; the layout dialogs' lengths

@@ -176,7 +176,7 @@ nimble files          # Retro Files, the file manager (a folder after it: opens 
 nimble ledger         # a small business app: invoices, customers, reports
 nimble invoice        # an invoice from an HTML template: preview, PDF, printing
 nimble charts         # Chart Viewer: a CSV file as charts, saved as PNG
-nimble photo          # Retro Atelier, the image editor
+nimble photo          # Retro Atelier: pictures, drawings and pages
 nimble board          # Retro Board, the whiteboard
 nimble taskman        # Retro Task Manager: the programs, the processor, the memory, the network
 nimble mail           # Retro Mail: Microsoft 365, Outlook.com, Gmail, IMAP, POP3, JMAP, Exchange (mailexe, mailapk)
@@ -372,7 +372,9 @@ Only what changed is compiled again: a few seconds, most of it Nim reading
 the kit. Code that does not build leaves the window running what it had,
 with the compiler's message in the terminal; an app that crashes starts
 again with the next save. The app starts fresh each time (its variables are
-new); closing its window, or Ctrl+C, ends it. The window's place is kept by
+new) but for what `keep` names (`retroui/keep`: `keep page, names` -- each
+comes back as the run before left it, so a change to the code is seen with
+the app where you were); closing its window, or Ctrl+C, ends it. The window's place is kept by
 the X11, Windows, macOS, SDL 2 and SDL 3 drivers (`RETRO_WINDOW_STATE`,
 `keptWindowPlace`); GTK 4 and Siwin cannot place a window, so theirs opens
 where the system puts it.
@@ -380,6 +382,8 @@ where the system puts it.
 ```sh
 retrokit run --watch app.nim              # Windows, macOS, a Linux desktop
 retrokit run --live app.nim               # Termux:X11: --window and --watch
+retrokit run --android app.nim            # an APK on the phone adb sees, its log here
+retrokit run --android --watch app.nim    # ... built, installed and started again on every save
 ```
 
 On Windows from Linux: `nim c -d:release -d:useMalloc -d:lto --opt:size --passL:-s -d:mingw
@@ -972,6 +976,12 @@ setUiLanguage("ar", @toolkitArabic, @myArabic)  # "" or "en": English again
 - **A text with a number**: `trn(n, "{n} file", "{n} files")`, its
   forms in each language's order (Arabic's six: zero, one, two, few,
   many, other -- `pluralForm`).
+- **A text glued from fixed parts and values** (`status = "Could not
+  open " & name`, `$n & " pages left"`, `"Page " & $i & " of " & $n`):
+  its fixed parts are keys of their own, with their spaces as the code
+  glues them ("Could not open ", " pages left", " of "); `tr` -- and so
+  every control -- translates them when the text starts or ends with one,
+  and keeps the values as they are.
 - **For a translator without Nim**: `retrokit strings app.nim --lang:ar`
   writes every text the app shows into `app-ar.txt`, a line each,
   `English = translation` (empty: not done yet). Run it again after
@@ -1422,6 +1432,24 @@ scroll bars.
   reads the menus the app draws -- nothing to write; `commandHudKeys`
   changes the keys ("" none: an app with a search of its own), and
   `openCommandHud()` opens it from a menu item of your own.
+- **Signals** (`retroui/signals`): a value worked out from others that is
+  slow to work out -- a filtered and sorted list of thousands, a chart's
+  points -- worked out again only when what it was made from changed:
+
+  ```nim
+  import retroui/signals
+  let query = signal("")
+  let shown = computed(proc (): seq[Row] = rows.filterIt(query.value in it.name))
+  # in the frame:
+  var q = query.value
+  if edit(q): query.value = q       # shown is worked out again on its next read
+  for r in shown.value: label r.name
+  ```
+
+  `computed` finds what it read by itself (a read in an `if` counts when
+  that branch ran), and a computed value whose answer did not change
+  leaves what reads it alone; `effect` runs again when what it read
+  changes; setting a signal asks for a frame.
 - **Placeholder text** (`retroui/lorem`): `lorem(3)` is three paragraphs
   of Lorem Ipsum, `lorem(2, loremArabic)` two of Arabic written for the
   kit, `lorem(4, loremBoth)` the two in turn (text of both directions, to
@@ -1590,7 +1618,7 @@ toast("Copied 12 items", title = "Files")    # a yellow Windows 95 balloon
 ### Retro Files
 
 `examples/filemanager.nim` (about 2,100 lines: the rest is the toolkit's)
-is **Retro Files 3.7.0**, a complete file manager in the manner of the Windows 98
+is **Retro Files 3.7.1**, a complete file manager in the manner of the Windows 98
 Explorer -- the Standard Buttons with their labels under the icons (View >
 Toolbars > Text Labels), the Address bar, View as Web Page (the folder's
 name large and the selection described at the left), Large and Small icons,
@@ -2186,7 +2214,12 @@ stay sharp at any size, and layers can be clipped to the one under them.
 `retroui/photofiles` opens and saves PSD documents (.psd and .psb:
 layers, groups, masks, vector masks, shapes, clipping, adjustment and fill
 layers, layer styles) and exports to JPEG, PNG, PNG-8, GIF, TIFF, Targa
-and BMP with their options. `retroui/photoinks` models printing inks for
+and BMP with their options. A big one is held once while it opens: the
+file's bytes let go once read, a layer as big as the canvas given to the
+document as it is, the merged picture not read when there are layers (a
+40 MB file of five layers: 1.0 s and 340 MB at the most, from 2.1 s and
+844 MB in 0.70); `readPsd(data, layerPixels = false)` reads a preview's
+merged picture alone, in a quarter of the time. `retroui/photoinks` models printing inks for
 the CMYK mode, Proof Colors and the gamut warning, with Lab, duotones and
 Multichannel images (each channel an ink of its own -- RGB's become cyan,
 magenta and yellow --; one deleted in Channels takes its ink out; saved as
@@ -2221,8 +2254,8 @@ s.dehaze = 10
 p.applyFilter(developMargin(s), develop(s))
 ```
 
-`examples/photo.nim` is **Retro Atelier 5.14.0** (Retro Photo until 5.0: its modules, documents and package id keep that name), an image editor in the manner
-of the ones of 1994: the toolbox, the tabbed floating palettes (Brushes
+`examples/photo.nim` is **Retro Atelier 5.16.0** (Retro Photo until 5.0: its modules, documents and package id keep that name), a studio for
+pictures, drawings and pages in the manner of the programs of 1994: the toolbox, the tabbed floating palettes (Brushes
 and Options; Picker, Swatches and Scratch; Layers, Channels and Paths;
 Info; Commands; Navigator, History and Actions; Properties), an options
 bar, document windows, every menu of the time and its dialogs -- and
@@ -2409,7 +2442,18 @@ kit's (`retroui/photobook`, `retroui/textengine`, `retroui/imagetrace`, `retroui
 `retroui/photoseps`, `retroui/mathtype`, `retroui/flexlayout`, `retroui/publish`,
 `retroui/photopublish`, `retroui/vectormake`, `retroui/photorelight`, `retroui/mockups`,
 `retroui/designstyles`, `retroui/aiconnect`, `retroui/quran`, `retroui/geopatterns`,
-`retroui/proctexture`, `retroui/lorem`), for any app. From the Affinity apps (Retro Atelier
+`retroui/proctexture`, `retroui/lorem`, `retroui/photomore`), for any app. From today's photo,
+drawing and layout programs (Retro Atelier 5.16, `retroui/photomore`): Shake Reduction
+(`estimateShake`: the shake found from the picture's cepstrum; `shakeReduction`: taken out by
+Richardson-Lucy along it), Adaptive Wide Angle, Bilateral Blur, Multi Band Sharpen, Texture Detail,
+Ambient Occlusion, Glitch, Flame, Tree, Picture Frame, Color Grading and Split Toning as
+adjustment layers with numbers (`paramAdjust`), Channel Inversion, Mixed Light Correction, Tone
+Compression and Stretch, SDR to HDR (`sdrToHdrDeep`), masks from a range of lightness or hues
+(`luminosityMask`, `hueRangeMask`, `compoundMask`), stars stacked (`astroStack`, lined up by
+`phaseShift`; `removeGradient`), 360 views (`equirectView`, `equirectApply`) and a relief as a
+mesh (`heightfieldMesh`); letters turned one by one (`CharStyle.rotation`), Type on a Path's
+effects (`TextData.pathEffect`), Area Type's frame (`WrapOptions.frameOf`), ten more live shapes
+and the Scatter chart. From the Affinity apps (Retro Atelier
 5.15): Procedural Texture (formulas per channel with noise, cells and waves, twelve presets),
 G2 curves (`smoothCurvature`), a freeform gradient spread by diffusion (`ShapePaint.diffuse`),
 Constraints for what is on an artboard (`Layer.pins`, `pinnedBox`), Symbols kept alike
@@ -3309,7 +3353,12 @@ drawing the controls makes no string, list or closure: a frame of the kit
 takes no memory at all. A small
 change is drawn on the app's own thread; a big one on all the cores. When
 nothing happens the app sleeps: no frame, no CPU, until input or a timer.
-Glyphs are rendered once per size and kept; maps, 3D scenes, canvases and
+Glyphs are rendered once per size and kept, and mixed into the screen
+four pixels at a time in 16-bit lanes (SSE2 multiplies eight of those at
+once); a paragraph is wrapped with each word measured once, the line's
+width carried on (`LineMeter`), not the line measured again for every
+word -- the document of the benchmarks wraps in half the time it took in
+0.70. Maps, 3D scenes, canvases and
 report pages are drawn into pictures of their own only when they change;
 slow work (listing folders, decoding pictures) runs on worker threads
 (`retroui/background`).
@@ -3583,17 +3632,19 @@ decoders run under libFuzzer (`tests/fuzz/libfuzz.nim`), the tests run as
 (`tests/web/node.sh`). `.github/workflows/devices.yml` runs the live check
 on real phones (Firebase Test Lab) and on a Raspberry Pi when they are set
 up; on Windows, UI Automation reads the controls and presses a button as a
-screen reader does (`tests/access/windows.ps1`).
+screen reader does (`tests/access/windows.ps1`). `.github/workflows/strix.yml`
+(by hand) and `sh tools/strix.sh` run Strix's AI agents over the code, in
+a sandbox: the security holes they can show, each with its proof.
 
 | Test | What it checks |
 |---|---|
 | `test_widgets` | clicks, slide-off, default button, typing and the clipboard, Tab and Space, mnemonics, lists, modal dialogs, pixels, frame skipping, hover (mouse yes, finger no), Back versus Exit |
 | `test_business` | dates, number formats, sorting; the grid (selection, multi-select, sorting, editing, resizing, every cell kind, cell colours, record indicator, totals); tree; icon view; calendar and date picker; check list; number fields; auto-complete; splitter; dialogs |
-| `test_text` | fonts (FreeSans the default, its real bold, oblique and bold oblique, GPOS kerning, crisp stems at 100 %, 125 %, 150 % and 2x, Arabic joined in every face and in a font file, the settings of before), Arabic joining and lam-alef, bidi order, the rasterizer, sizes, rows, `spring`, `adaptive`, forms, page scrolling both ways with the standard scroll bars, Tab scrolling into view, Markdown (right to left in Arabic: lists and tables) |
+| `test_text` | fonts (FreeSans the default, its real bold, oblique and bold oblique, GPOS kerning, crisp stems at 100 %, 125 %, 150 % and 2x, Arabic joined in every face and in a font file, the settings of before), Arabic joining and lam-alef, bidi order, the rasterizer, sizes, rows, `spring`, `adaptive`, forms, page scrolling both ways with the standard scroll bars, Tab scrolling into view, Markdown (right to left in Arabic: lists and tables), the wrap that carries a line's width on (`LineMeter`) giving the very lines of the one that measured each line again, for 7,800 paragraphs and widths |
 | `test_bidi` | the bidi algorithm against Unicode's (a corpus of Arabic, Persian and mixed lines, explicit embeddings and isolates, conformance lines), the joiners, Arabic in text boxes and the rich editor (caret, marks, Backspace and Delete, selections, the clipboard), PDF read back in reading order, right-to-left Excel sheets, the Arabic interface's text boxes and charts |
 | `test_uifonts` | the font choices and their settings words, a .ttc collection read and used as the UI's font, the canvas's font names, every character of the kit's strings and the Arabic translations in the fonts |
 | `test_input` | every kind of input on the widgets that take it: the slide switch, the tab strip, chips, the bottom bar, the menu key, the mouse's side buttons, a tall dialog on a touch screen |
-| `test_files` | listings (quick and full), natural sorting, copy / move / delete / zip / unzip jobs with conflicts, links and cancelling, JPEG decoding, big text and hex files, worker threads, what the window asks of a disk answered on a thread (`later`: six questions held up by pipes nobody writes to hold up neither the window nor a folder's listing), thousands of damaged files, zip bombs, names that climb out |
+| `test_files` | listings (quick and full), natural sorting, copy / move / delete / zip / unzip jobs with conflicts, links and cancelling, JPEG decoding, big text and hex files, worker threads, what the window asks of a disk answered on a thread (`later`: six questions held up by pipes nobody writes to hold up neither the window nor a folder's listing), thousands of damaged files, zip bombs, names that climb out, a FIFO and /dev/zero left as they are by a copy, a move and a zip (said, the rest done) |
 | `test_apps` | settings rows, appearance, avatars, steps, pages, banners, the bottom bar, the folder model, the file list, thumbnails, the preview, text and hex views, properties, file jobs |
 | `test_explorer` | drag and drop (mouse, Ctrl, Esc, a finger held then moved), drops and the jobs and undo they lead to, the tab strip, the path bar (clicks on folders, the folder menus, typing, suggestions), names first and then sizes, balloons |
 | `test_docfs` | another app's folder through a fake documents provider: "Allow access", listing, reading and writing, renames, every file job in and out of it, undo |
@@ -3633,6 +3684,7 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_retrodns` | Retro DNS: its 47 servers well formed, the user's own kept as CSV, the VPN's settings (the servers it goes on to, the block list as typed: remarks, a hosts file's lines, exceptions), the scripts that change a computer's DNS (Windows, Linux, macOS) made of checked addresses only whatever a CSV holds, PowerShell's encoded command, the profile of encrypted DNS for macOS and iOS |
 | `test_jobs`, `test_undo`, `test_pages`, `test_typeforms` | jobs on workers (values, progress, failures, cancel, more jobs than workers); the undo stack (typing merged, the saved state, a change after an undo, Ctrl+Z / Ctrl+Y, the limit); pages pushed and popped by Esc and Alt+Left, sliding in, `listDetail` side by side, `animated`; forms of an object's fields with their pragmas' rules, captions from names, typing into one, a grid of them sorted by a header |
 | `test_uistrings`, `test_codeedit`, `test_feeds` | `retrokit strings`' scan of an app's texts (comments and long strings left out, `trn`'s two forms), the file written, filled and written again with the translations kept, Arabic's six forms; the code editor (indent kept, Tab, Ctrl+/, its undo, read only, Nim's colors); RSS with the iTunes and Podcasting 2.0 tags, Atom, OPML both ways, dates and lengths as feeds write them |
+| `test_downloads` | `downloadFile` against a server of its own (`tests/dlmock.py`), on every system -- WinHTTP on Windows, no program started: a file whole, a redirect, a 404, a download gone on with from its part, no server, `stopDownload`; on the thread that draws, the busy box ticking while it waits and its Cancel ending it |
 | `test_tray` | the tray icon on Linux: the app's StatusNotifierItem on a bus of the test's own, registered with a stand-in tray, its title, picture and menu as a tray reads them, a click and a menu item coming back as events, the icon gone with a frame without it |
 | `test_grow` | Grow without a window: the plan's numbers, the main button at the page's foot, the result's timeline played to its end (every bar risen, the coin, the goal felt), Back |
 | `test_looks` | what a control takes to look different: the accent button, a text style and a height for buttons and number boxes, groups with a title strip, options in boxes, the gauge in bands and the range bar, a tool bar's line and space, `withTheme` and `withTextStyle` -- and the 28 colour schemes, each one's text readable (4.5 to 1) on its window, fields, buttons and highlight; docs/customizing.md's own samples |
@@ -3666,10 +3718,10 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_perspectivegrid` | the perspective grid: the planes meet where they should (two points and one), go back to their points, a path laid on a plane (its corners kept, the far side shorter, a curve cut and still on it), refused over the horizon; a painted layer laid on a plane and undone |
 | `test_pathbrush` | brushes along a path: Art from end to end as wide as asked, round a corner, Pattern and Scatter copies counted and turned, a closed path, drawn |
 | `test_photoparity` | Retro Atelier's 5.4 additions through its menus and its window's input: every new filter by its menu name (changing the picture, undone), Lens Blur's depth sources, Light, Pattern Overlay, Matting, Pattern Preview and the Pixel Grid; the drawing program's tools (Group Selection, the shape Magic Wand and Lasso, Smooth, Path Eraser, Join, Eraser, Scissors, Knife, the Paintbrush, the Blob Brush, Width, Arc, grids, Flare, Mesh, Perspective Selection), Appearance, live effects, Repeat, Transform Each and the Eyedropper's look; paragraphs in formats of their own while typing, the Justification, Keep Options and Span Columns dialogs (Preview, Cancel, OK), Text Frame Options' inset, vertical justification and balance; Next Style, nested and GREP styles, Paragraph Style Options, Object Styles; Check Spelling and Dynamic Spelling; hyperlinks, destinations, cross-references, text variables and bookmarks; Place Linked, the Links panel's states and File > Package (the document, its pictures, fonts, IDML, PDF and report) |
-| `test_textcompose` | each paragraph its own format (kept when paragraphs are split and joined, an empty last one's, saved), the Paragraph Composer's even spaces, glyph scaling and letter spacing, Keep Lines Together, Keep with Next and Start Paragraph, Span Columns (the columns above balanced) and Split Column, Balance Columns, Inset Spacing, Vertical Justification, nested styles (words, up to a letter) and GREP styles; nested line styles (repeated, a nested style over them); Roman Hanging Punctuation and Optical Margin Alignment (a quote out of the box's edge, a justified line out by its period, Ignore Optical Margin, a right-aligned line, saved); tab stops (left, centre, right, on a decimal point, past them every two ems, leaders, right to left and its decimals, a Right Indent Tab, saved) |
+| `test_textcompose` | each paragraph its own format (kept when paragraphs are split and joined, an empty last one's, saved), the Paragraph Composer's even spaces, glyph scaling and letter spacing, Keep Lines Together, Keep with Next and Start Paragraph, Span Columns (the columns above balanced) and Split Column (right to left too: in the box, the first at the right), Balance Columns, Inset Spacing, Vertical Justification, nested styles (words, up to a letter) and GREP styles; nested line styles (repeated, a nested style over them); Roman Hanging Punctuation and Optical Margin Alignment (a quote out of the box's edge, a justified line out by its period, Ignore Optical Margin, a right-aligned line, saved); tab stops (left, centre, right, on a decimal point, past them every two ems, leaders, right to left and its decimals, a Right Indent Tab, saved) |
 | `test_hyperlinks` | hyperlinks kept with the text; text variables (the file's name, the date, a running header, a cross-reference in a document and across a book's pages, saved and read back; the Hijri date as Umm al-Qura has it, in English, in numbers, the Arabic date with the Levant's months, a date format of its own); the PDF's links to an address, a page and a destination, and its bookmarks under bookmarks |
 | `test_simd` | the four- and eight-lane kernels give the plain loops' pixels, with AVX2 and without: the mix over opaque pixels and over any pixels (masks, clipping, Blend If, opacity, fill; every separable mode), the tables' lookups and a CMYK proof exactly, resampling a flat color and keeping transparent colors out, Box Blur's means, a gaussian blur of a flat color |
-| `test_simdkit` | the kit's own kernels give the plain loops' very bytes, with AVX2 and without: the UI renderer's fills, blends, masks and opaque runs; JPEG's inverse DCT (big values left to the loop, a block of its DC alone), its colors and 4:2:0 upsampling; PNG's five filters and the sums that choose them, Adler-32 and CRC-32; the camera's YUYV and video's luma |
+| `test_simdkit` | the kit's own kernels give the plain loops' very bytes, with AVX2 and without: the UI renderer's fills, blends, masks and opaque runs; JPEG's inverse DCT (big values left to the loop, a block of its DC alone), its colors and 4:2:0 upsampling; PNG's five filters and the sums that choose them, Adler-32 and CRC-32; the camera's YUYV and video's luma; a glyph's coverage mixed in 16-bit lanes, every coverage through no table and two, with SSE2 and the lanes of any other system |
 | `test_textchanges` | paragraph shading (the column's width or the text's) and borders, saved; conditional text (hidden, shown, under several conditions, saved, hidden as the document prints); track changes (typed and deleted, shown underlined and struck, accepted and rejected), notes on words |
 | `test_mathtype` | equations as TeX writes them: variables in italic, sub- and superscripts, fractions, roots (a cube root's index), sums and limits with what goes over and under them, Greek letters, brackets as tall as what they hold, words; a source that cannot be read told |
 | `test_flexlayout` | Flex Layout: rows and columns, reversed, justified, aligned and stretched, growing and shrinking, wrapping, gaps and padding, a box that hugs what it holds, saved |
@@ -3698,6 +3750,9 @@ screen reader does (`tests/access/windows.ps1`).
 | `test_commandhud` | the command search in a window with menus: its keys open it, every menu and submenu walked without being drawn, a few letters of each word find a command, Enter does it, the one done last first, a command that cannot be chosen now not done, Esc closes it |
 | `test_lorem` | placeholder text: as many paragraphs as asked, Lorem Ipsum, Arabic (no Latin letters, Arabic-Indic digits) or the two in turn, three to five sentences each, neighbours not alike, the same each time; a few words; cut at a sentence's end |
 | `test_proctexture` | Procedural Texture: formulas read and what is wrong with one said, each value and function, a channel left as it was, the shared value and the sliders, noise smooth and within 0..1, every preset read, clouds varying, the checkerboard's squares exact, the vignette dark at the corners only |
+| `test_photoextras` | Retro Atelier 5.16's engine: every new filter keeps the size and changes the picture; Tone Stretch uses the whole range, Invert Channels inverts, Split Toning cools the shadows and warms the highlights, the adjustment layers with numbers, Hue Curves' Saturation vs Saturation; Bilateral Blur takes the noise and keeps the edge; the range masks and the four Compound Mask ways; the FFT there and back; a known shake found (angle, length) and taken out; a shift found exactly, six noisy frames stacked, a gradient made even; a 360 view put back; the relief's mesh; the ten live shapes in their box; letters turned, kept in the file; each Type on a Path effect kept and placing the letters elsewhere; Area Type's frame kept; the Scatter chart |
+| `test_atelierextras` | Retro Atelier 5.16 as a program: SDR to HDR, a mask from the lightness and Compound Mask; Transform Selection, Copy CSS and SVG, Define Custom Shape kept, Delete All Empty Layers, the Measurement Log; Color Lookup Tables (the Invert layer's .cube), Zoomify, Save for Web's five formats, Layer to 3D's .glb; a 360 view edited and put back; Version History and Image Assets on each save; Play Action by name; Accessibility Check; Generate Background, Generative Upscale, Style Transfer from a picture, Rewrite, Generative Recolor and Text to Pattern against the test's own service; every new tool dragged on the canvas, every new command run |
+| `test_signals` | signals and computed values worked out again only when what they read changed (through two, a branch not taken, an answer that stayed the same, a change in place), effects run and stopped; `keep`: nothing outside `--watch`, the values written, and a second program started with the file getting them back |
 | `test_photoaffinity` | Retro Atelier 5.15 as a program: studios kept, deleted, exported and imported; a help card for every tool of the toolbar; paint on type making a pixel layer; a live blend following its end and expanded; Hue Curves; the Mask Brush (a mask made, black hides, Alt shows, the pixels untouched, the Background made a layer); the Tone Brush; Procedural Texture's dialog; an artboard sized by its corner with what is on it following its Constraints; Symbols made, inserted, kept alike and detached; each new menu command run by its name doing its work; Fill with Placeholder Text (Arabic, paragraphs, added after, as many as fill the box, your own, the choices kept) |
 | `test_colorfonts` | colour fonts: COLR/CPAL layers, sbix and CBDT pictures and a layer in the text's own colour, found by the font reader, drawn by the text engine, in PDF and SVG |
 | `test_threed`, `test_dimensions` | 3D on shapes (extruded, bevelled, revolved, inflated: faces of their own shade, kept in the file, in SVG and PDF); dimensions fixed to what they measure, drawn again when it moves, in another unit, undone, kept |

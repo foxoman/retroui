@@ -181,7 +181,8 @@ F5 shows the window as it will be: its controls work -- type in the boxes,
 open the menus, switch the tabs -- and the Look list tries it on a touch
 screen, dark, or right to left. Its code does not run: the preview is of
 the window, not of the app (run the app with `retrokit run --watch app.nim`
-beside the designer to see both). Esc or F5 ends it.
+beside the designer to see both: each save the designer makes builds it
+again, what `keep` names as it was). Esc or F5 ends it.
 
 ![The preview of Ledger, dark, its View menu open](designer/preview.png)
 

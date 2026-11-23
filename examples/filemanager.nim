@@ -40,7 +40,7 @@ const TermuxHome = "/data/data/com.termux/files/home"
 const
   AppTitle = "Retro Files"
   AppId = "RetroFiles"
-  AppVersion = "3.7.0"
+  AppVersion = "3.7.1"
 
 type
   ViewerKind = enum vkNone, vkText, vkMarkdown, vkImage, vkHex, vkZip, vkPdf, vkVideo, vkAudio,
@@ -2096,7 +2096,10 @@ proc helpDialogs() =
             tr("Copyright (c) 2026 Sultan Al Isaiee. MIT licence.")],
            tagline = tr("Your files, as in 1994"),
            iconPng = FilesIconPng, glyph = pxFolderOpen,
-           whatsNew = [tr("3.7.0: Tools > Find > By Meaning -- files found by what they say, not their " &
+           whatsNew = [tr("3.7.1: a device, a pipe or a socket in what you copy, move or zip (/dev/zero, a " &
+                            "FIFO) is left as it is, said, and the rest done -- reading one may never end, " &
+                            "and a copy waited for ever"),
+                       tr("3.7.0: Tools > Find > By Meaning -- files found by what they say, not their " &
                             "names, read on this device by a model of its own (Tools > Models on This " &
                             "Device): nothing leaves it"),
                        tr("3.6.1: a file that gives an error partway through reading it (some of " &

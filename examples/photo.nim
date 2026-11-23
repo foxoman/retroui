@@ -1,10 +1,11 @@
-## Retro Atelier 3 -- an image editor in the manner of the paint programs of
-## 1994: a toolbox and floating, tabbed palettes (Brushes and Options;
-## Picker, Swatches and Scratch; Layers, Channels and Paths; Info;
-## Commands) over document windows; layers with blend modes, selections
-## with marching ants, Quick Mask, channels, paths, twenty-one tools,
-## filters and color adjustments with previews, and many undos. Made with
-## Retro Nim UI, its engine in `retroui/photo`.
+## Retro Atelier -- pictures, drawings and pages in the manner of the
+## programs of 1994: a toolbar and docked, tabbed panels over document tabs
+## or windows; photos with layers, masks, channels, over a hundred filters and
+## the color adjustments; drawings with seventy vector tools; books and
+## magazines laid out (masters, threaded text, tables, Arabic typesetting);
+## PDF, EPUB and web pages out; generative edits through the user's own AI
+## service; many undos. Made with Retro Nim UI, its engine in
+## `retroui/photo` and its neighbours.
 ##
 ##   nim c -r -d:release examples/photo.nim [picture...]
 ##
@@ -33,7 +34,7 @@ import retroui/[photo, photopaint, photofx, photoartistic, photohdr, otshape, tt
               liveeffects, photoseps, mathtype, flexlayout, vectormake, photorelight, mockups, designstyles,
               aiconnect, aichat, aiimage, aivector, assistant, modelstore, nnet, vision, photopublish, flows, dastkhat, fontfolders,
               imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files, photoanim, webp, screenexport, threed, dimensions, quran, fetch,
-              geopatterns, proctexture]
+              geopatterns, proctexture, photomore, jpeg, gltf]
 {.push warning[UnusedImport]: off.}
 import retroui/photodeep   # (imported for what it sets up: filters, flattening and gradients at 16 and 32 bits)
 {.pop.}
@@ -41,7 +42,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 const
   AppName = "Retro Atelier"         # (Retro Photo until 5.0)
   AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
-  AppVersion = "5.15.0"
+  AppVersion = "5.16.0"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -255,7 +256,7 @@ var
   eraseToSaved = false
   snapshot: tuple[doc: Doc; layer: Layer; px: seq[uint32]]   ## Edit > Take Snapshot
   savedCache: tuple[path: string; time: float; w, h: int; px: seq[uint32]]
-  blurMode = 0                   ## blur, sharpen
+  blurMode = 0                   ## blur, sharpen, median
   healMode = 0                   ## spot healing brush, healing brush, patch, remove, content-aware move
   moveKind = 0                   ## the Move tool (0) or the Artboard tool (1)
   spotKind = 0                   ## the Spot Healing Brush's Type: Content-Aware, Create Texture, Proximity Match
@@ -485,6 +486,9 @@ var ccDlg: tuple[cleanup, harmonize: bool; cEmpty, cHidden, cGroups, cRename: bo
   ## (Layer Cleanup and Harmonize: their dialogs)
 
 proc ccDialogs()
+# (2026's photo additions: photo/extras)
+proc extrasDialogs()
+proc extrasCommand(name: string): bool
 # (books: photo/book)
 proc isBookWin(dw: DocWin): bool
 proc bookCommand(name: string): bool
@@ -575,6 +579,28 @@ proc spellOverlay(dw: DocWin)
 proc pathBrushCommand(name: string): bool
 proc vectorEvents(dw: DocWin; ev: PhotoEvent): bool
 proc vectorOverlay(dw: DocWin; ev: PhotoEvent)
+# (the tools of photo/vectormore)
+proc moreVectorEvents(dw: DocWin; ev: PhotoEvent): bool
+proc moreVectorOverlay(dw: DocWin; ev: PhotoEvent)
+proc moreVectorBar()
+proc moreVectorKeys(d: Doc): bool
+proc vecFamilyOf(m: int): tuple[name: string; first, last: int]
+proc ttDialog()
+proc objectDialogs()
+proc objectCommand(name: string): bool
+proc layoutExtraDialogs()
+proc layoutExtraCommand(name: string): bool
+proc fileMoreDialogs()
+proc aiMoreDialogs()
+proc aiMoreCommand(name: string): bool
+proc imageAssetsOn(d: Doc): bool
+proc timelapseOn(): bool
+proc measureShown(): bool
+proc fileMoreCommand(name: string): bool
+proc flattenerOverlay(dw: DocWin)
+var toolXf = false               ## (a transform tool's drag holds the Free Transform's box: its events are the tool's)
+var flattenerPreview = false     ## View > Flattener Preview: what will be flattened, in red
+var lpTool = false               ## (the Live Paint Bucket tool picked: the bucket on)
 proc layoutModesOverlay(dw: DocWin)
 proc timelineOverlay(dw: DocWin)
 proc timelineDialogs()
@@ -680,6 +706,7 @@ type AppPrefs = object
   toolHidden: string           ## the toolbar's groups taken off (under "..."), by name
   taskBar: bool                ## the Contextual Task Bar under the image
   legacyXf: bool               ## Use Legacy Free Transform: Shift keeps the proportions
+  scaleStrokes: bool           ## Scale Strokes & Effects: a shape's strokes and a layer's style scaled with it
   session: bool                ## the documents open at the end opened again at the next start
   language: int                ## the interface: 0 English, 1 Arabic (right to left)
   legacyNew: bool              ## File > New: the 1994 dialog (not today's, with presets and templates)
@@ -1255,7 +1282,7 @@ proc paintOpts(t: Tool; d: Doc): PaintOpts =
                 of tAirbrush: tkAirbrush
                 of tStamp: tkStamp
                 of tSmudge: tkSmudge
-                of tBlur: (if blurMode == 0: tkBlur else: tkSharpen)
+                of tBlur: [tkBlur, tkSharpen, tkMedian][clamp(blurMode, 0, 2)]
                 of tDodge: [tkDodge, tkBurn, tkSponge][dodgeMode]
                 else: tkBrush
   result.dyn.symmetry = SymmetryKind(clamp(symmetry, 0, ord(SymmetryKind.high)))
@@ -1621,16 +1648,35 @@ const
                 "Spiral", "Triangle", "Arc", "Rectangular Grid", "Polar Grid", "Flare"]
   vecToolNames = ["Group Selection", "Magic Wand (Shapes)", "Lasso (Points)", "Paintbrush (Vector)", "Blob Brush",
                   "Smooth", "Path Eraser", "Join", "Eraser (Shapes)", "Scissors", "Knife", "Width", "Mesh",
-                  "Perspective Selection", "Shape Builder", "Gap", "Content Collector", "Content Placer", "Dimension"]
+                  "Perspective Selection", "Shape Builder", "Gap", "Content Collector", "Content Placer", "Dimension",
+                  # (photo/vectormore: 19 on)
+                  "Rotate", "Reflect", "Scale", "Shear", "Reshape", "Free Transform", "Puppet Warp",
+                  "Warp", "Twirl", "Pucker", "Bloat", "Scallop", "Crystallize", "Wrinkle", "Blend",
+                  "Live Paint Bucket", "Live Paint Selection",
+                  "Symbol Sprayer", "Symbol Shifter", "Symbol Scruncher", "Symbol Sizer", "Symbol Spinner",
+                  "Symbol Stainer", "Symbol Screener", "Symbol Styler",
+                  "Column Graph", "Stacked Column Graph", "Bar Graph", "Stacked Bar Graph", "Line Graph", "Area Graph",
+                  "Scatter Graph", "Pie Graph", "Radar Graph", "Print Tiling", "Shaper", "Page", "Gradient Feather",
+                  "Color Theme", "Corner", "Point Transform", "Contour", "Vector Crop", "Transparency", "Fill", "Area",
+                  "Mesh Warp", "Deform", "Touch Type", "Area Type", "Type on a Path", "Vertical Area Type",
+                  "Vertical Type on a Path"]
   vecToolGlyphs = [pxPathSelect, pxMagicWand, pxPolyLasso, pxBrush, pxPaint, pxCurvaturePen, pxEraser, pxConvertPoint,
-                   pxBgEraser, pxCut, pxSlice, pxWarp, pxGrid, pxPerspCrop, pxBucket, pxColumns, pxInbox, pxPaste, pxLineTool]
+                   pxBgEraser, pxCut, pxSlice, pxWarp, pxGrid, pxPerspCrop, pxBucket, pxColumns, pxInbox, pxPaste, pxLineTool,
+                   pxRotateView, pxSymmetry, pxZoomIn, pxPerspCrop, pxCurvaturePen, pxSelect, pxPuppetWarp,
+                   pxWarp, pxRefresh, pxZoomOut, pxZoomIn, pxStarShape, pxStar, pxSmudge, pxGradient,
+                   pxBucket, pxPathSelect,
+                   pxAirbrush, pxMoveTool, pxPuppetWarp, pxZoomIn, pxRefresh, pxColorReplace, pxEye, pxLayerStyle,
+                   pxChart, pxChart, pxChart, pxChart, pxChart, pxChart, pxChart, pxPieChart, pxChart,
+                   pxPrint, pxPencil, pxNew, pxGradient, pxColorThemes, pxRoundRectShape, pxMoveTool, pxPolygonShape,
+                   pxCrop, pxGradLinear, pxGradRadial, pxGuides, pxGrid, pxPuppetWarp, pxTypeTool, pxTypeTool,
+                   pxTypePath, pxTypeTool, pxTypePath]
 
 proc toolName(t: Tool): string =
   case t
   of tShape: shapeNames[clamp(shapeKind, 0, shapeNames.high)]
   of tMarquee: ["Rectangular Marquee", "Elliptical Marquee", "Single Row", "Single Column"][marqueeShape]
   of tLasso: ["Lasso", "Polygonal Lasso", "Magnetic Lasso"][clamp(lassoMode, 0, 2)]
-  of tBlur: ["Blur", "Sharpen"][blurMode]
+  of tBlur: ["Blur", "Sharpen", "Median Brush"][clamp(blurMode, 0, 2)]
   of tDodge: ["Dodge", "Burn", "Sponge"][dodgeMode]
   of tHeal: ["Spot Healing Brush", "Healing Brush", "Patch", "Remove Tool", "Content-Aware Move"][healMode]
   of tStamp: ["Rubber Stamp", "History Brush", "Art History Brush"][clamp(stampTool, 0, 2)]
@@ -1916,6 +1962,7 @@ proc finishShape(dw: DocWin; ev: PhotoEvent) =
 type XfKind = enum xkScale = "Scale", xkSkew = "Skew", xkPerspective = "Perspective",
                    xkDistort = "Distort", xkRotate = "Rotate"
 
+var xfFx0: LayerFx               ## (a shape transformed: its style when it began)
 var xf: tuple[on: bool; dw: DocWin; kind: XfKind; layer: Layer; r: Rect; orig: seq[uint32];
               mask: seq[uint8]; hadSel: bool; quad, quad0: Quad; grab: int; start: (float, float);
               vacated: uint32; shape0: ShapeData; base: seq[uint32]]
@@ -2286,9 +2333,16 @@ proc xfApply() =
     d.renderSmartLayer(xf.layer)
     return
   if xf.shape0.path.subs.len > 0:
-    # (a shape layer: its outline goes, drawn again sharp)
+    # (a shape layer: its outline goes, drawn again sharp -- its strokes and style scaled with it
+    # when Scale Strokes & Effects is on)
     var s = xf.shape0
     s.path.mapPoints(quadMap(xf.r, xf.quad))
+    if prefs.scaleStrokes:
+      let k = areaScale(xf.r, xf.quad)
+      s.scaleStrokes(k)
+      var fx = xfFx0
+      fx.scaleFx(k)
+      xf.layer.fx = fx
     d.setShape(xf.layer, s)
     return
   if d.live.len > 0 and d.live[0].kind == lkWarp:
@@ -2338,6 +2392,7 @@ proc startTransform(kind: XfKind) =
     d.touchLayers()
     xf = (true, dw, kind, L, r, newSeq[uint32](), newSeq[uint8](), false, quadOf(r), quadOf(r), -1, (0.0, 0.0),
           0'u32, L.shape, newSeq[uint32]())
+    xfFx0 = L.fx
     status = tr($kind) & tr(": drag the corners; Enter or a double-click inside to finish, Esc to cancel")
     return
   xfSmart = nil
@@ -4227,6 +4282,7 @@ proc overlays(dw: DocWin; ev: PhotoEvent) =
   dw.pgOverlay(ev)
   dw.threadOverlay(ev)
   dw.vectorOverlay(ev)
+  dw.flattenerOverlay()
   dw.layoutModesOverlay()
   dw.timelineOverlay()
   dw.makersOverlay(ev)
@@ -4691,7 +4747,7 @@ proc docBody(dw: DocWin) =
     info.y = ev.y
     info.inside = ev.x >= 0 and ev.y >= 0 and ev.x < d.w.float and ev.y < d.h.float
     if info.inside: info.c = d.pixelAt(int(ev.x), int(ev.y))
-  if xf.on and xf.dw == dw:
+  if xf.on and xf.dw == dw and not toolXf:
     dw.transformMouse(ev)
     dw.transformOverlay()
     # (the pointer the box asked for -- a handle's arrows, four arrows inside,
@@ -4919,6 +4975,9 @@ include photo/pathbrushes
 include photo/vectortools
 include photo/output
 include photo/makers
+include photo/vectormore
+include photo/objectmore
+include photo/layoutextra
 include photo/assist
 include photo/trained
 include photo/timeline
@@ -4936,6 +4995,9 @@ proc phoneLayout(): bool =
 
 include photo/phone
 include photo/ccfeatures
+include photo/filemore
+include photo/aimore
+include photo/extras
 
 # ---- the window -----------------------------------------------------------------------------------
 
@@ -5077,10 +5139,13 @@ proc docStatus(dw: DocWin) =
                    "to edit it; right-click: the layers there"
                  else: toolHints[tool]
       let hr = place(0, EditH, fill = true)
-      text(hr.x + dp(4), hr.y + (hr.h - FontH) div 2, ellipsize(tr(hint), hr.w - dp(6)),
+      # (a message glued from fixed parts and values -- "Could not open " & name: `tr` has its
+      # parts in the interface's language too)
+      let shown = tr(hint)
+      text(hr.x + dp(4), hr.y + (hr.h - FontH) div 2, ellipsize(shown, hr.w - dp(6)),
            if status.len > 0: ui.theme.text else: ui.theme.gray)
       ui.lastRect = hr
-      tooltip(hint)
+      tooltip(shown)
   discard popFrame()
   popClip()
   popupMenu("statusinfo"):

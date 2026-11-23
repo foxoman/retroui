@@ -307,6 +307,8 @@ const toolkitArabic* = [
   (" into itself.", " إلى داخل نفسه."),
   ("cannot write ", "تعذرت كتابة "),
   ("the disk is full", "القرص ممتلئ"),
+  ("a device, a pipe or a socket, not a file -- left as it is (reading one may never end)",
+   "جهاز أو أنبوب أو مقبس، لا ملف -- تُرك كما هو (قراءة أحدها قد لا تنتهي أبداً)"),
   ("a folder has that name", "يوجد مجلد بهذا الاسم"),
   (" has that name", " يحمل هذا الاسم"),
   ("Move ", "نقل "),

@@ -54,6 +54,13 @@ doAssert parseFeedDate("2024-10-02T17:00:00+04:00") == 1727874000
 doAssert parseFeedDate("2024-10-02T13:00:00.123Z") == 1727874000
 doAssert parseFeedDate("Wed, 02 Oct 2024 09:00:00 EDT") == 1727874000
 doAssert parseFeedDate("nonsense") == 0
+# numbers of any size from a server: not a length or a date, and no overflow (the nightly's
+# libFuzzer found both)
+doAssert parseDuration("1:02:03") == 3723 and parseDuration("1:2:3:4:5:6:7:8:9:10:11:12") == 0
+doAssert parseDuration("9999999999999999999") == 0 and parseDuration("99999999999:99:99") == 0
+doAssert parseFeedDate("01 Jan 99999999999999 00:00:00 GMT") == 0
+doAssert parseFeedDate("Wed, 02 Oct 9223372036854775807 13:00:00 GMT") == 0
+doAssert parseFeedDate("02 Oct -99999 13:00 GMT") == 0
 const atom = """<?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom"><title>Atom Show</title><author><name>Ann</name></author>
 <link href="https://a.example/"/>

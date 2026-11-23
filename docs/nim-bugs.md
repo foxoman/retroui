@@ -1,4 +1,4 @@
-# Four leaks in Nim 2.2 (ORC), an overflow, a cut letter and a read after free in Nim 2.4, ready to report
+# Four leaks in Nim 2.2 (ORC), an overflow, a cut letter, a read after free and a leak in Nim 2.4, ready to report
 
 Retro Nim UI works around the leaks (see `tools/returncheck.py`,
 `tools/writecheck.py` and AGENTS.md) and the cut letter (`import std/unicode except strip`, kept by
@@ -344,6 +344,37 @@ and `acc.add hypot(acc[^1], 1.0)` are made in the right order; an integer
 sum is too (its overflow check makes it first). Retro Nim UI takes the
 value into a `let` first; `tools/addcheck.py` lists every `add` that reads
 its own seq from the end, and must say 0.
+
+## 8. Nim 2.4: a string of a literal array in a `for`, its runes read, leaks a copy each time
+
+**Title:** a copy of each string leaks when `for x in ["a", "b"]` reads `x.runes` (Nim 2.4.2)
+
+A loop over an array written in the `for` itself (`for x in ["a", "b"]`) whose body goes
+through the string with an iterator over an openArray -- `x.runes`, `for c in x.toOpenArray(...)`
+-- copies the string from the program's read-only data to the heap, as for a change, and never
+frees the copy: two strings a turn of the loop. Nim 2.2.6 copies nothing. A `const` array, a
+`let` one or a seq do not leak, nor does `for c in x`, or `x` given to a proc that takes an
+openArray.
+
+```nim
+import std/unicode
+proc f() =
+  for i in 0 ..< 1000:
+    for line in ["one string", "two strings here"]:
+      var n = 0
+      for r in line.runes: inc n
+      doAssert n > 0
+f()
+```
+
+```
+$ nim c -r --cc:clang -d:useMalloc --passC:-fsanitize=address --passL:-fsanitize=address a.nim
+SUMMARY: AddressSanitizer: 44000 byte(s) leaked in 2000 allocation(s).
+```
+
+Expected: no leak (as Nim 2.2.6). Retro Nim UI puts such a list in a `let` (the nightly's
+sanitizers found it in `tests/test_otshape.nim`; none of the kit's own code reads a literal
+array's strings so).
 
 ---
 

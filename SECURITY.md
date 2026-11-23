@@ -43,6 +43,12 @@ The README's "Safety" section has the whole list; in short:
   run under AddressSanitizer, UBSan and LeakSanitizer, as 32-bit programs
   (an `int` as small as WebAssembly's) and as WebAssembly, so a number
   that only fits in 64 bits is caught.
+- **Looked at by AI agents too.** `sh tools/strix.sh` runs Strix
+  (github.com/usestrix/strix) over the code: its agents build and run the
+  kit in a sandbox and report what they can show, each with its proof
+  (what they look at first: `tools/strix/instructions.md`). It needs
+  Docker and an AI service's key; on GitHub, Actions > Strix runs it by
+  hand once the secret `LLM_API_KEY` and the variable `STRIX_LLM` are set.
 - **Pages do not run code.** The kit's own HTML view has no scripts and
   never reaches the network. The system's web view (`webView`) is the
   system's browser engine, with its own protections; an app decides what

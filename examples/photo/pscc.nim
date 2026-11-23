@@ -172,6 +172,7 @@ proc psMenus() =
       ci("Save as P&DF...", enabled = some)
       ci("Pac&kage...", "Package...", enabled = some)
       ci("Re&vert", enabled = some and d.path.len > 0 and d.modified)
+      ci("Version Histor&y...", "Version History...", enabled = some and d.path.len > 0)
       sep()
       ci("Browse &Assets...", "Browse Assets...")
       ci("S&hare...", "Share...", enabled = some)
@@ -192,11 +193,24 @@ proc psMenus() =
         sep()
         ci("E&PUB...", "Export EPUB...", enabled = some)
         ci("Publish as &Web Page...", "Publish as Web Page...", enabled = some)
+        sep()
+        ci("Save for &Web (Legacy)...", "Save for Web (Legacy)...", enabled = some)
+        ci("Artboards to P&DF...", "Artboards to PDF...", enabled = some and d.artboards.len > 0)
+        ci("Layer &Comps to Files...", "Layer Comps to Files...", enabled = some and d.comps.len > 0)
+        ci("Color Lookup &Tables...", "Color Lookup Tables...", enabled = some)
+        ci("&Render Video...", "Render Video...", enabled = some)
+        ci("&Zoomify...", "Zoomify...", enabled = some)
+        ci("Export S&nippet...", "Export Snippet...", enabled = some)
+        ci("Content Cre&dentials...", "Content Credentials...", enabled = some)
+      psSub "&Generate":
+        ci("&Image Assets", enabled = some, checked = some and d.imageAssetsOn)
       sep()
       ci("Place &Embedded...", "Place...", enabled = some)
       ci("Place Lin&ked...", "Place Linked...", enabled = some)
       ci("Place as &Layer...", "Layer from File...", enabled = some)
       ci("Place &Into Frame...", "Place Into...", enabled = some and not bgl)
+      ci("Place S&nippet...", "Place Snippet...", enabled = some)
+      ci("&Merge Document...", "Merge Document...", enabled = some)
       sep()
       psSub "Au&tomate":
         ci("&Batch...")
@@ -207,6 +221,12 @@ proc psMenus() =
         ci("Merge to &HDR Pro...")
         ci("&Photomerge...")
         ci("PDF Prese&ntation...", "PDF Presentation...", enabled = docs.len > 0)
+        sep()
+        ci("Create &Droplet...", "Create Droplet...")
+        ci("C&onditional Mode Change...", "Conditional Mode Change...", enabled = some)
+        sep()
+        ci("Focus &Merge...", "Focus Merge...")
+        ci("A&strophotography Stack...", "Astrophotography Stack...")
       psSub "S&cripts":
         ci("Script &Editor...", "Script Editor...")
         ci("&Run Script...", "Run Script...")
@@ -216,6 +236,12 @@ proc psMenus() =
           for f in sf: ci(f.splitFile.name, "Run Script File:" & f)
         sep()
         ci("&Load Files into Stack...")
+        sep()
+        ci("Delete All &Empty Layers", "Delete All Empty Layers", enabled = some)
+        ci("Flatten All Layer E&ffects", "Flatten All Layer Effects", enabled = some)
+        ci("Flatten All &Masks", "Flatten All Masks", enabled = some)
+        sep()
+        ci("Script E&vents Manager...", "Script Events Manager...")
       sep()
       ci("File &Info...", enabled = some)
       sep()
@@ -266,6 +292,25 @@ proc psMenus() =
       ci("Generative E&xpand...", "Generative Expand...", enabled = some and d.mode in editModes)
       ci("Generate &Image...", "Generate Image...", enabled = some and d.mode in editModes)
       ci("Generate &Vector...", "Generate Vector...", enabled = some and d.mode in editModes)
+      psSub "Generati&ve Edits":
+        let px = some and d.mode in editModes
+        ci("Generate &Background...", "Generate Background...", enabled = px)
+        ci("Generative &Upscale...", "Generative Upscale...", enabled = px)
+        ci("&Style Transfer...", "Style Transfer...", enabled = px)
+        ci("&Camera Angle...", "Camera Angle...", enabled = px)
+        ci("&Rotate Object...", "Rotate Object...", enabled = px and sel)
+        ci("Rec&ompose...", "Recompose...", enabled = px)
+        ci("Remove &Ambient Effect...", "Remove Ambient Effect...", enabled = px)
+        sep()
+        ci("Smart &Portrait...", "Smart Portrait...", enabled = px)
+        ci("&Makeup Transfer...", "Makeup Transfer...", enabled = px and docs.len > 1)
+        ci("&Landscape Mixer...", "Landscape Mixer...", enabled = px)
+        sep()
+        ci("Generative Re&color...", "Generative Recolor...", enabled = some)
+        ci("&Text to Pattern...", "Text to Pattern...", enabled = some)
+        ci("Generative Shape &Fill...", "Generative Shape Fill...", enabled = some and d.current.isShape)
+        ci("Re&write...", "Rewrite...", enabled = some and d.current.isText)
+        ci("Tur&ntable...", "Turntable...", enabled = some)
       sep()
       ci("Content-Aware Sc&ale", "Content-Aware Scale...", enabled = some and d.mode in editModes)
       ci("Pu&ppet Warp", "Puppet Warp", enabled = some)
@@ -293,6 +338,7 @@ proc psMenus() =
       sep()
       ci("Define &Brush Preset...", enabled = sel)
       ci("Define Patter&n...", "Define Pattern", enabled = sel)
+      ci("Define Custom &Shape...", "Define Custom Shape...", enabled = some and (d.current.isShape or d.paths.len > 0))
       sep()
       psSub "P&urge":
         ci("&Undo History", enabled = some)
@@ -355,6 +401,7 @@ proc psMenus() =
         ci("Li&ght...", enabled = edits)
         sep()
         ci("&Vibrance...", enabled = rgb)
+        ci("Color an&d Vibrance...", enabled = rgb)
         ci("&Hue/Saturation...", enabled = rgb)
         ci("Color B&alance...", enabled = rgb)
         ci("Black && &White...", enabled = rgb)
@@ -362,6 +409,9 @@ proc psMenus() =
         ci("Channel &Mixer...", enabled = rgb)
         ci("Color Loo&kup...", enabled = rgb)
         ci("Match Colo&r...", "Match Color...", enabled = rgb)
+        ci("Split To&ning...", enabled = rgb)
+        ci("Color Gr&ading...", enabled = rgb)
+        psFilters(["Channel In&version...", "Mi&xed Light Correction..."])
         sep()
         ci("&Invert", enabled = edits)
         ci("P&osterize...", enabled = edits)
@@ -370,7 +420,9 @@ proc psMenus() =
         ci("&Selective Color...", enabled = rgb)
         sep()
         ci("Shadows/Hi&ghlights...", enabled = edits)
+        psFilters(["Tone Co&mpression...", "Tone S&tretch..."])
         ci("HD&R Toning...", enabled = some and d.depth == 32)
+        ci("SDR to &HDR...", "SDR to HDR...", enabled = edits and d.mode in {cmRGB, cmGray})
         sep()
         ci("&Desaturate", enabled = rgb)
         ci("&Replace Color...", enabled = rgb)
@@ -399,6 +451,13 @@ proc psMenus() =
       ci("&Duplicate...", enabled = some)
       ci("Appl&y Image...", enabled = edits)
       ci("Calc&ulations...", enabled = edits)
+      sep()
+      psSub "Anal&ysis":
+        ci("&Record Measurements", enabled = some)
+        ci("Measurement &Log", "Measurement Log", checked = measureShown())
+      psSub "360 Pa&norama":
+        ci("&Edit 360 View...", "Edit 360 View...", enabled = some and d.w == d.h * 2)
+        ci("&Apply 360 View", "Apply 360 View", enabled = some)
     psMenu "&Layer":
       psSub "&New":
         ci("&Layer...", "New Layer...", enabled = some)
@@ -419,6 +478,11 @@ proc psMenus() =
            enabled = some and d.layers.len > 1)
       ci("Rena&me Layer...", if grp: "Group Properties..." else: "Layer Options...", enabled = some)
       ci("Object E&xport Options...", "Object Export Options...", enabled = some)
+      ci("Copy &CSS", "Copy CSS", enabled = some)
+      ci("Copy S&VG", "Copy SVG", enabled = some)
+      ci("New Layer Based Sl&ice", "New Layer Based Slice", enabled = some and not bgl)
+      ci("Decompose Layer&s", "Decompose Layers", enabled = edits)
+      ci("Layer to &3D", "Layer to 3D", enabled = some)
       psSub "Layer St&yle":
         live: layerStyleMenu(d)
         if mIndex.on: ci("Blending Options...")
@@ -444,6 +508,9 @@ proc psMenus() =
         ci(if hasMask and d.current.maskOff: "E&nable" else: "Disa&ble", "Toggle Layer Mask", enabled = hasMask)
         sep()
         ci("&Gradient Mask", enabled = mk)
+        ci("From &Luminosity Range...", enabled = some and not bgl)
+        ci("From H&ue Range...", enabled = some and not bgl)
+        ci("&Compound Mask...", enabled = some and not bgl and (hasMask or d.current.adjust.kind.len > 0))
         sep()
         ci("&Make Opacity Mask", "Make Opacity Mask", enabled = mk and not hasMask and d.cur + 1 < d.layers.len)
         ci("Release &Opacity Mask", "Release Opacity Mask", enabled = hasMask)
@@ -486,6 +553,55 @@ proc psMenus() =
         ci("Gradient &Mesh...", "Gradient Mesh...", enabled = some and d.current.isShape)
         ci("Apply &Brush to Path...", "Apply Brush to Path...", enabled = pathOk)
         ci("&Transform Each...", "Transform Each...", enabled = some)
+        sep()
+        ci("Reverse Spi&ne", "Reverse Spine", enabled = some)
+        ci("Reverse Front to Bac&k", "Reverse Front to Back", enabled = some)
+      psSub "&Compound Path":
+        ci("&Make", "Make Compound Path", enabled = some and d.pickedLayers.len >= 2)
+        ci("&Release", "Release Compound Path", enabled = some and d.current.isShape and
+                                                   d.current.shape.path.subs.len > 1)
+      psSub "&Path":
+        let shpP = some and (d.current.isShape or d.pickedLayers.len > 0)
+        ci("&Add Anchor Points", "Add Anchor Points", enabled = shpP)
+        ci("&Remove Anchor Points", "Remove Anchor Points", enabled = some and d.current.isShape)
+        ci("&Divide Objects Below", "Divide Objects Below", enabled = some and d.current.isShape)
+        ci("Split Into &Grid...", "Split Into Grid...", enabled = some and not bgl)
+        ci("&Clean Up...", "Clean Up...", enabled = some)
+        sep()
+        ci("&Open Path", "Open Path", enabled = shpP)
+        ci("C&lose Path", "Close Path", enabled = shpP)
+        ci("Objects on Pa&th", "Objects on Path", enabled = some and d.pickedLayers.len >= 2)
+        ci("Make &Pixel Perfect", "Make Pixel Perfect", enabled = shpP)
+        ci("Soft &Mix...", "Soft Mix...", enabled = some and d.pickedLayers.len == 2)
+        sep()
+        ci("Create Object &Mosaic...", "Create Object Mosaic...", enabled = some and not d.current.isShape and
+                                                                   not d.current.isText and not grp)
+        ci("Create &Trim Marks", "Create Trim Marks", enabled = some and not bgl)
+        ci("&Step and Repeat...", "Step and Repeat...", enabled = some and not bgl)
+      psSub "Con&vert Shape":
+        for n in ["Rectangle", "Rounded Rectangle", "Beveled Rectangle", "Inverse Rounded Rectangle", "Ellipse",
+                  "Triangle", "Polygon", "Line", "Orthogonal Line"]:
+          ci(n, "Convert Shape: " & n, enabled = some and (d.current.isShape or d.pickedLayers.len > 0))
+      psSub "Interacti&ve":
+        ci("Convert to &Multi-State Object", "Convert to Multi-State Object", enabled = some and
+                                                                             d.pickedLayers.len >= 2)
+        ci("&Next State", "Next State", enabled = some)
+        ci("&Previous State", "Previous State", enabled = some)
+        ci("Insert &HTML...", "Insert HTML...", enabled = some)
+      psSub "Feat&her":
+        ci("&Basic Feather...", "Basic Feather...", enabled = some and not bgl)
+        ci("&Directional Feather...", "Directional Feather...", enabled = some and not bgl)
+      ci("Clipping Pat&h...", "Clipping Path...", enabled = some and not d.current.isShape and not d.current.isText)
+      ci("Content-A&ware Fit", "Content-Aware Fit", enabled = some)
+      ci("Stroke St&yles...", "Stroke Styles...", enabled = some and d.current.isShape)
+      psSub "Fill&s":
+        ci("Make Gradient &Perceptual", "Make Gradient Perceptual", enabled = some and d.current.isShape and
+                                                                    d.current.shape.fill.kind == spGradient)
+        ci("&Hatch Fill...", "Hatch Fill...", enabled = some and d.current.isShape)
+      psSub "Artboar&ds":
+        ci("&Convert to Artboards", "Convert to Artboards", enabled = some and d.current.isShape)
+        ci("&Rearrange All Artboards...", "Rearrange All Artboards...", enabled = some)
+        ci("&Fit to Artwork Bounds", "Fit to Artwork Bounds", enabled = some)
       psSub "En&velope Distort":
         let shp1 = some and d.current.isShape
         ci("Make with &Warp...", "Envelope: Make with Warp...", enabled = shp1)
@@ -617,6 +733,7 @@ proc psMenus() =
       sep()
       ci("Get Google &Fonts...", "Get Google Fonts...")
       ci("Fi&nd Font...", "Find Font...", enabled = some)
+      ci("&Manage Missing Fonts...", "Manage Missing Fonts...", enabled = some)
       ci("&Quran...", "Quran...")
       sep()
       ci("Text Frame &Options...", "Text Frame Options...", enabled = some and (te.on or (d.current.isText and
@@ -628,6 +745,19 @@ proc psMenus() =
       ci("Text &in Picture...", "Text in Picture...", enabled = some)
       ci("Fill with &Placeholder Text...", "Fill with Placeholder Text...", enabled = some)
       ci("Word &Shapes...", "Word Shapes...", enabled = some)
+      psSub "Change Cas&e":
+        for n in ["UPPERCASE", "lowercase", "Title Case", "Sentence case"]:
+          ci(n, "Change Case: " & n, enabled = some and (d.current.isText or d.pickedLayers.len > 0))
+      ci("Smart P&unctuation...", "Smart Punctuation...", enabled = some)
+      ci("Fit &Headline", "Fit Headline", enabled = some and d.current.isText and d.current.text.boxW > 0)
+      ci("Type on a Pat&h Options...", "Type on a Path Options...", enabled = some and d.current.isText and
+                                                                      d.current.text.path.len >= 2)
+      ci("&Auto Style", "Auto Style", enabled = some and d.current.isText)
+      ci("&Quick Apply...", "Quick Apply...", enabled = some)
+      ci("Insert Side&note", "Insert Sidenote", enabled = some and d.current.isText)
+      psSub "D&ynamic Text":
+        for n in ["Circle", "Arch", "Bow"]:
+          ci(n, "Dynamic Text: " & n, enabled = some and d.current.isText)
       ci("Insert Page N&umber", "Insert Page Number", enabled = some)
       psSub "Insert Special C&haracter":
         ci("&Current Page Number", "Insert Page Number", enabled = some)
@@ -722,6 +852,7 @@ proc psMenus() =
       sep()
       ci("&Color Range...", enabled = rgb)
       ci("Su&bject", enabled = edits)
+      ci("&People", enabled = edits)
       ci("S&ky", enabled = edits)
       ci("&Focus Area...", "Focus Area...", enabled = edits)
       ci("Remove Bac&kground", enabled = edits)
@@ -744,6 +875,7 @@ proc psMenus() =
       ci("&Load Selection...", "Load Selection", enabled = some and d.alphas.len > 0)
       ci("&Save Selection...", "Save Selection", enabled = sel)
       ci("Make &Work Path", enabled = sel)
+      ci("&Transform Selection...", "Transform Selection...", enabled = sel)
       sep()
       ci("Start &Global Edit", "Start Global Edit", enabled = some and d.current.isShape and not gEdit.on)
       ci("Stop Global Edi&t", "Stop Global Edit", enabled = gEdit.on)
@@ -763,13 +895,15 @@ proc psMenus() =
         psSub "&Texture": psFilters(galleryTexture.mapIt(it & "..."))
       ci("&Neural Filters...", "Neural Filters...", enabled = edits and d.mode in {cmRGB, cmGray, cmCMYK})
       ci("&Camera Raw Filter...", "Develop...", enabled = edits and rgb)
+      psFilters(["&Adaptive Wide Angle..."])
       ci("Lens C&orrection...", enabled = edits)
       ci("Li&quify...", enabled = edits)
       ci("&Vanishing Point...", "Vanishing Point...", enabled = edits)
       sep()
       psSub "&Blur":
         psFilters(["&Average", "&Blur", "Blur &More", "Bo&x Blur...", "&Gaussian Blur...", "&Lens Blur...",
-                   "M&otion Blur...", "&Radial Blur...", "S&hape Blur...", "Smar&t Blur...", "&Surface Blur..."])
+                   "M&otion Blur...", "&Radial Blur...", "S&hape Blur...", "Smar&t Blur...", "&Surface Blur...",
+                   "Bi&lateral Blur..."])
       psSub "Blur &Gallery":
         ci("&Field Blur...", enabled = edits)
         ci("&Iris Blur...", enabled = edits)
@@ -782,18 +916,26 @@ proc psMenus() =
         psFilters(["S&pherize...", "&Twirl...", "&Wave...", "&ZigZag...", "&Displace..."])
       psSub "&Noise":
         psFilters(["&Add Noise...", "&Despeckle", "D&ust && Scratches...", "&Median...", "&Reduce Noise..."])
+        sep()
+        psFilters(["Remove Background &Gradient..."])
       psSub "&Pixelate":
         psFilters(["Color &Halftone...", "&Crystallize...", "&Facet", "F&ragment", "M&ezzotint...",
                    "&Mosaic...", "&Pointillize..."])
       psSub "&Render":
+        psFilters(["F&lame...", "Picture &Frame...", "T&ree..."])
+        sep()
         psFilters(["&Clouds", "&Difference Clouds", "F&ibers...", "&Lens Flare...", "Lighting &Effects..."])
         ci("&Texture Fill...", enabled = edits)
         ci("&Procedural Texture...", enabled = edits)
         ci("&Relight...", "Relight...", enabled = edits)
       psSub "&Sharpen":
-        psFilters(["&Sharpen", "Sharpen &Edges", "Sharpen &More", "S&mart Sharpen...", "&Unsharp Mask..."])
+        psFilters(["S&hake Reduction..."])
+        sep()
+        psFilters(["&Sharpen", "Sharpen &Edges", "Sharpen &More", "S&mart Sharpen...", "&Unsharp Mask...",
+                   "M&ulti Band Sharpen...", "&Texture Detail..."])
       psSub "St&ylize":
         psFilters(["&Oil Paint..."])
+        psFilters(["&Ambient Occlusion...", "&Glitch..."])
         psFilters(["&Diffuse...", "&Emboss...", "E&xtrude...", "&Find Edges", "&Solarize", "&Tiles...",
                    "Trace &Contour...", "&Wind..."])
       psSub "&Video":
@@ -814,6 +956,7 @@ proc psMenus() =
               let nm = f.name.replace("&", "&&") & (if f.sliders != default(array[8, string]): "..." else: "")
               if menuItem(nm, enabled = edits): runCommand(f.name & (if nm.endsWith("..."): "..." else: ""))
     psMenu "&View":
+      ci("&Flattener Preview", "Flattener Preview", enabled = some, checked = flattenerPreview)
       ci("&Before && After", "Before & After", enabled = some, checked = active != nil and
          cast[pointer](active) in baSplit)
       sep()
@@ -941,6 +1084,11 @@ proc psMenus() =
       # (the panels, A to Z, as editors list them: sorted when it is built)
       for (lab, cmd, key, keys) in windowPanels:
         ci(lab, cmd, checked = key.len > 0 and panelShown(key), shortcut = keys)
+      sep()
+      ci("Measurement &Log", "Measurement Log", checked = measureShown())
+      ci("A&rticles...", "Articles...", enabled = some)
+      ci("Accessibilit&y Check...", "Accessibility Check...", enabled = some)
+      ci("Record Ti&melapse", "Record Timelapse", enabled = some or timelapseOn(), checked = timelapseOn())
       sep()
       ci("&Options", "Options Bar", checked = optionsBarOn)
       ci("&Tools", "Tools", checked = toolbox.open)

@@ -53,10 +53,16 @@ proc parseDuration*(s: string): int =
   let t = s.strip
   if t.len == 0: return 0
   var parts = t.split(':')
+  if parts.len > 3: return 0
   for p in parts:
     if p.len == 0 or not p.allCharsInSet(Digits + {'.'}): return 0
+  var v = 0.0
   for p in parts:
-    result = result * 60 + int(try: parseFloat(p) except ValueError: 0.0)
+    v = v * 60 + (try: parseFloat(p) except ValueError: 0.0)
+  # (counted as a float: a number of any size from a server is not an overflow -- and a length
+  # of more than 60 years is not one)
+  if not (v >= 0 and v < 2e9): return 0
+  int(v)
 
 proc clockText*(seconds: int): string =
   ## A length to show: "1:02:03", "42:07" ("" when not known).
@@ -118,7 +124,9 @@ proc parseFeedDate*(s: string): int64 =
             else: 0
   except ValueError, IndexDefect:
     return 0
-  if mo notin 1 .. 12 or d notin 1 .. 31: return 0
+  # (a year of the calendar's: one of any size from a server is not a date -- nor an overflow in
+  # the arithmetic of `times`)
+  if mo notin 1 .. 12 or d notin 1 .. 31 or y notin 1 .. 9999: return 0
   try:
     let dt = dateTime(y, Month(mo), MonthdayRange(min(d, getDaysInMonth(Month(mo), y))),
                       HourRange(clamp(h, 0, 23)), MinuteRange(clamp(mi, 0, 59)),

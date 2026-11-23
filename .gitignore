@@ -55,3 +55,6 @@ tests/fuzz/fuzz_*
 # a key that signs updates (retrokit update-key): never in the repository
 *.secret
 tests/build/
+
+# reports of tools/strix.sh
+strix_runs/

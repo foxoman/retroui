@@ -217,7 +217,7 @@ app "Notepad", 360, 100:      # title, width, height
 
 ![A window titled Notepad with one line of text](syntax/f-window.png)
 
-`app` takes the title, the width and the height in design pixels, then the block. The block is one frame; it runs again on every input until the window closes. Built on one macro, `app`. In the 3.1 frame the user sizes the window by its border or by the grip in its bottom right corner, which a finger takes as well as the mouse. On a tablet in Termux, `retrokit run --window app.nim` shows the app the same way: a window of its own size in its frame, in the middle of a desktop, scaled to the screen; `retrokit run --live app.nim` also builds it again each time you save, so a change to the code shows in the window a few seconds later (on Windows, macOS and Linux desktops, `retrokit run --watch app.nim`).
+`app` takes the title, the width and the height in design pixels, then the block. The block is one frame; it runs again on every input until the window closes. Built on one macro, `app`. In the 3.1 frame the user sizes the window by its border or by the grip in its bottom right corner, which a finger takes as well as the mouse. On a tablet in Termux, `retrokit run --window app.nim` shows the app the same way: a window of its own size in its frame, in the middle of a desktop, scaled to the screen; `retrokit run --live app.nim` also builds it again each time you save, so a change to the code shows in the window a few seconds later (on Windows, macOS and Linux desktops, `retrokit run --watch app.nim`). The variables start fresh each run but for what `keep` names: `import retroui/keep`, then `keep page, names` -- each comes back as the run before left it.
 
 ### Options by name
 
@@ -543,6 +543,25 @@ app "Job", 300, 120:
 
 Work that takes a while -- a download, a search, a sum -- is one more event object: `job` runs the proc on a worker thread and returns a `Job` at once, and the frames read it as they read a click: `progress` while it runs, `value` once it is `done`, `error` when it `failed`. The worker never touches the screen; what it came to is handed over between frames, and the kit draws a frame when it ends. `fetch(url)` is a web request as a job. In a web page, without threads, the job runs between frames: the same lines work.
 
+### A value worked out only when what it came from changed
+
+```nim
+import std/[sequtils, algorithm]
+import retroui, retroui/signals
+
+let words = signal(toSeq(1 .. 20_000).mapIt("word " & $it))
+let query = signal("")
+let shown = computed(proc (): seq[string] =       # worked out again only when words or query change
+  words.value.filterIt(query.value in it).sorted)
+
+app "Find", 300, 400:
+  var q = query.value
+  if edit(q): query.value = q
+  label $shown.value.len & " found"
+```
+
+A frame reads plain variables, and most apps need nothing else. A value made from others that is slow to make is a `computed`: it remembers what it read -- the signals, other computed values -- and its answer, and works it out again only when one of them changed (a read in an `if` counts when that branch ran). Setting a signal asks for a frame, so one set from a job or a timer shows. `effect(proc ())` runs again when what it read changes: a search sent, a setting saved.
+
 ### Pages, and a list beside its details
 
 ```nim
@@ -633,7 +652,7 @@ app "Files", 260, 160:
 
 ![The Files window in Arabic, right to left: the title الملفات, then ملف واحد, ملفان, 5 ملفات and 11 ملفًا](syntax/f-words.png)
 
-Every text a control shows is looked up in the language set by `setUiLanguage`, and the window is mirrored for Arabic. A text with a number takes the number's form with `trn`: English has two, Arabic six (none, one, two, a few, many, others), Russian and Polish three, each language its own rule (`pluralForm`). The tables come from a file a translator fills in: `retrokit strings app.nim --lang:ar` writes every text the app shows -- its labels, buttons, menus, `tr` and `trn` -- into app-ar.txt, and keeps what was translated when run again; `loadUiStrings` reads it back.
+Every text a control shows is looked up in the language set by `setUiLanguage`, and the window is mirrored for Arabic. A text with a number takes the number's form with `trn`: English has two, Arabic six (none, one, two, a few, many, others), Russian and Polish three, each language its own rule (`pluralForm`). The tables come from a file a translator fills in: `retrokit strings app.nim --lang:ar` writes every text the app shows -- its labels, buttons, menus, `tr` and `trn` -- into app-ar.txt, and keeps what was translated when run again; `loadUiStrings` reads it back. A text glued from fixed parts and values -- `"Could not open " & name`, `"Page " & $i & " of " & $n` -- has its parts translated when the table has them as keys with their spaces ("Could not open ", "Page ", " of "), the values kept.
 
 ### Sizes, and your own loop
 

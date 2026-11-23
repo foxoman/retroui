@@ -2287,8 +2287,13 @@ proc runJobDialog*(job: FileJob; title: string): bool {.discardable.} =
 proc jobSummary*(job: FileJob): string =
   ## "Copied 12 items", or what went wrong.
   if job.errors.len > 0:
-    return countText(job.errors.len, "item") & tr(" could not be done:") & "\n" &
-           job.errors[0 ..< min(6, job.errors.len)].join("\n")
+    # (each a name, then what happened: that in the UI's language -- "the disk is full", "a
+    # device, a pipe or a socket...")
+    var shown: seq[string]
+    for e in job.errors[0 ..< min(6, job.errors.len)]:
+      let at = e.find(": ")
+      shown.add(if at > 0: e[0 .. at + 1] & tr(e[at + 2 .. ^1]) else: tr(e))
+    return countText(job.errors.len, "item") & tr(" could not be done:") & "\n" & shown.join("\n")
   if job.state == jsCancelled: return tr("Cancelled.")
   let what = case job.kind
     of jkCopy: "Copied"

@@ -552,6 +552,8 @@ type
     noKerning*: bool           ## the font's kerning not used
     leading*: float32          ## the distance of the lines (0: 120% of the size)
     baselineShift*: float32    ## pixels up
+    rotation*: float32         ## each letter turned round its middle, degrees against the clock
+                               ## (Touch Type; 90 on a path: vertical type on it)
     hScale*, vScale*: float32  ## 0 or 1: as drawn (0.5: half as wide / tall)
     fauxBold*, fauxItalic*: bool  ## made bolder (its outline widened), slanted
     allCaps*, smallCaps*: bool    ## drawn in capitals; small letters as small capitals
@@ -804,6 +806,11 @@ type
                                  ## left, the right), pixels
     ruleOffset*: float32         ## ... so far above the notes, pixels (0: half `gap`)
 
+  PathTypeEffect* = enum
+    ## How the letters of text on a path sit on it (the drawing program's Type on a Path Options).
+    peRainbow = "Rainbow", peSkew = "Skew", pe3dRibbon = "3D Ribbon", peStairStep = "Stair Step",
+    peGravity = "Gravity"
+
   TextSpan* = object
     ## Text in one character style.
     text*: string              ## what it says (UTF-8; "\n" ends a paragraph)
@@ -941,6 +948,7 @@ type
     perspBox*: array[4, float32]  ## ... the flat box it was laid on the plane from: x0, y0, x1, y1
     perspOn*: bool
     pathOffset*: float32       ## where along the path it starts
+    pathEffect*: PathTypeEffect  ## how its letters sit on the path (Type on a Path Options)
     antialias*: bool           ## (`newText` makes it true)
     vertical*: bool            ## vertical type: the lines run down, one after another to the left
                                ## (each set as across, turned a quarter clockwise round `x`, `y`:
@@ -1728,6 +1736,8 @@ type
     adv*: float32              ## how wide it is
     angle*: float32            ## turned round its pen, degrees, against the clock as it shows (a
                                ## table cell's text turned)
+    spin*: float32             ## turned round its own middle, degrees against the clock (its
+                               ## style's `rotation`)
 
   LaidLine* = object
     ## A line laid out.
@@ -1865,8 +1875,11 @@ proc kashidaRank(chars: seq[CharInfo]; k, e: int): int =
   ##   5  after Tah, Zah (طـ ظـ); before a final Alef, Lam, Kaf, Gaf
   ##   4  before a final Reh, Zain, Waw
   ##   3  before a final Ain, Qaf, Feh, Yeh, Alef Maksura
-  ##   1  any other join -- but never before a letter of the teeth (Beh,
-  ##      Teh, Theh, Noon, Yeh) in the middle of a word: 0)
+  ##   2  before a letter of the teeth (Beh, Teh, Theh, Noon, Yeh) that a
+  ##      final Reh, Zain, Yeh or Alef Maksura follows (كـبر، لـيرى): the
+  ##      pair is drawn as one stroke, never lengthened between
+  ##   1  any other join -- but never before a letter of the teeth in the
+  ##      middle of a word, nor between one and a final Reh or Yeh: 0)
   let c = chars[k].cp
   var j = k + 1
   while j < e and joiningType(chars[j].cp) == 'T': inc j
@@ -1879,7 +1892,21 @@ proc kashidaRank(chars: seq[CharInfo]; k, e: int): int =
              (after + 1 >= e or chars[after + 1].space)
   let final = after >= e or chars[after].space or joiningType(n) == 'R' or
               joiningType(chars[after].cp) == 'U'
+  const teeth = [0x0626, 0x0628, 0x062A, 0x062B, 0x0646, 0x064A, 0x0679, 0x067E, 0x06CC]
+  const reYeh = [0x0631, 0x0632, 0x0698, 0x0649, 0x064A, 0x06CC]   # Reh, Zain, Jeh, Alef Maksura, Yeh
+  proc endsWord(m: int): bool =
+    ## (letter `m` is drawn in its final form: the word's last, or a letter that joins only before)
+    var q = m + 1
+    while q < e and joiningType(chars[q].cp) == 'T': inc q
+    q >= e or chars[q].space or joiningType(chars[m].cp) == 'R' or joiningType(chars[q].cp) == 'U'
   if c == 0x0640: return 9
+  # (a letter of the teeth and a final Reh or Yeh after it: never lengthened between them -- before
+  # the tooth instead)
+  if c in teeth and n in reYeh and endsWord(j): return 0
+  if n in teeth:
+    var m = j + 1
+    while m < e and joiningType(chars[m].cp) == 'T': inc m
+    if m < e and not chars[m].space and chars[m].cp in reYeh and endsWord(m): return 2
   if c in [0x0633, 0x0634, 0x0635, 0x0636]: return 8                 # Seen, Sheen, Sad, Dad
   if final and n in [0x0647, 0x0629, 0x062F, 0x0630]: return 7      # Heh, Teh Marbuta, Dal, Thal
   if c in [0x062C, 0x062D, 0x062E, 0x0639, 0x063A]: return 6         # Jeem, Hah, Khah, Ain, Ghain
@@ -1906,6 +1933,7 @@ proc joinsForward(chars: seq[CharInfo]; k, e: int): bool =
   if j >= e: return false
   let n = chars[j]
   if n.shown < 0: return false                     # (joined into a ligature)
+  if n.shaped and n.parts.len == 0: return false   # (drawn in one glyph with letter `k`: the font's ligature)
   if chars[k].cp == 0x0644 and n.cp in [0x0622, 0x0623, 0x0625, 0x0627]: return false
   joiningType(n.cp) in {'D', 'R'}
 
@@ -2012,7 +2040,9 @@ proc columnize(l: var TextLayout; t: TextData; colW, gutter: float32; starts: va
         # (each sub-column from the paragraph's top)
         let up = (lines[first].baseline - lines[first].ascent) - top0
         vshift[i] = -lift - up
-        vdx[i] = float32(s) * (subW + gutter)
+        # (right to left: the first sub-column at the right -- its lines were laid out from the
+        # column's left edge, one sub-column wide, as the others')
+        vdx[i] = (if ln.rtl: float32(k - 1 - s) else: float32(s)) * (subW + gutter)
         tallest = max(tallest, ln.baseline + ln.descent - up - top0)
       let whole = lines[plast[p]].baseline + lines[plast[p]].descent - top0
       lift += max(0'f32, whole - tallest)
@@ -2102,7 +2132,7 @@ proc columnize(l: var TextLayout; t: TextData; colW, gutter: float32; starts: va
           if real:
             let rtl = lines[j].rtl
             let c = if rtl: n - 1 - col else: col   # (right to left: the first column at the right)
-            dxs[j] = float32(c) * (colW + gutter) + (if rtl: -vdx[j] else: vdx[j])
+            dxs[j] = float32(c) * (colW + gutter) + vdx[j]
             dys[j] = vshift[j] - yOff
             colOf[j] = col
           ends[col] = max(ends[col], vbot(j) - yOff)
@@ -2665,15 +2695,27 @@ proc layoutText*(t: TextData): TextLayout =
       if f.lineStyles.len > 0:
         lined = true
         break find
-  if not lined: return layoutOnce(t)
-  var u = t
-  u.lineRuns = @[]
-  result = layoutOnce(u)
-  for pass in 0 ..< 3:
-    let runs = lineRunsOf(result)
-    if runs == u.lineRuns: break
-    u.lineRuns = runs
+  if not lined:
+    result = layoutOnce(t)
+  else:
+    var u = t
+    u.lineRuns = @[]
     result = layoutOnce(u)
+    for pass in 0 ..< 3:
+      let runs = lineRunsOf(result)
+      if runs == u.lineRuns: break
+      u.lineRuns = runs
+      result = layoutOnce(u)
+  # (letters turned on their own: Touch Type)
+  var spun = false
+  for sp in t.spans:
+    if sp.style.rotation != 0: spun = true
+  if spun:
+    var rot: seq[float32]
+    for sp in t.spans:
+      for r in sp.text.runes: rot.add sp.style.rotation
+    for g in result.glyphs.mitems:
+      if g.index >= 0 and g.index < rot.len: g.spin = rot[g.index]
 
 proc paraFrames(lay: var TextLayout; t: TextData; colW, gutter: float32) =
   ## (Paragraph Shading and Borders: a fill behind each paragraph that has one, from the top of
@@ -4058,9 +4100,15 @@ proc layoutPlain(t: TextData): TextLayout =
       result.lines.add LaidLine(baseline: penY, ascent: asc, descent: desc, x0: startX, x1: startX + lineW,
                                 first: a, last: b, rtl: rtlPara, para: paraNo)
       inc lineNo
-    # the caret at the paragraph's end (before its new line, or the text's end)
+    # the caret at the paragraph's end (before its new line, or the text's end): past the
+    # spaces it ends with -- a space just typed moves it, as the word after will be
     let ll = result.lines[^1]
-    result.caretX[paraEnd] = if ll.rtl: ll.x0 else: ll.x1
+    var spacesW = 0'f32
+    var k = paraEnd - 1
+    while k >= ll.first and k < total and chars[k].space and chars[k].cp != 10:
+      spacesW += chars[k].adv
+      dec k
+    result.caretX[paraEnd] = if ll.rtl: ll.x0 - spacesW else: ll.x1 + spacesW
     result.caretLine[paraEnd] = result.lines.high
     penY += pp.spaceAfter
     inc paraNo
@@ -4314,6 +4362,16 @@ proc glyphPolys(g: LaidGlyph; fine = false): seq[seq[(float32, float32)]] =
         let ux = (fx + g.shear * fy) * s * g.hScale
         let uy = -fy * s * g.vScale
         poly.add (g.x + ux * ca + uy * sa, g.y - ux * sa + uy * ca)
+    if g.spin != 0:
+      # (turned round its middle: half its width along, a third of its size up)
+      let a = degToRad(g.spin)
+      let (ca, sa) = (cos(a), sin(a))
+      let mx = g.x + g.adv / 2
+      let my = g.y - g.size * 0.33
+      for p in poly.mitems:
+        let dx = p[0] - mx
+        let dy = p[1] - my
+        p = (mx + dx * ca + dy * sa, my - dx * sa + dy * ca)
     result.add poly
 
 proc picturesOf(f: Face; gid, strike: int; png: string): seq[Bitmap] =
@@ -4530,16 +4588,42 @@ proc textOutlines*(t: TextData; layout: TextLayout; fine = false): seq[TextOutli
     else:
       pieces.add TextOutline(polys: glyphPolys(g, fine), color: g.color, embolden: g.embolden)
     if onPath:
-      # the glyph turned to follow the path at its middle (gone past its ends)
+      # the glyph turned to follow the path at its middle (gone past its ends) -- or, by the path's
+      # effect, slanted along it, kept upright on it, turned toward its middle
       let s = t.pathOffset + (g.x - t.x) + g.adv / 2
       if s < 0 or s > total: continue
-      let (px, py, tx, ty) = pp.at(s)
+      var (px, py, tx, ty) = pp.at(s)
+      if t.pathEffect == peGravity:
+        # (turned as if pulled toward the path's middle)
+        var cx, cy = 0'f32
+        for q in t.path:
+          cx += q[0]
+          cy += q[1]
+        cx /= float32(t.path.len)
+        cy /= float32(t.path.len)
+        var rx = px - cx
+        var ry = py - cy
+        let rl = sqrt(rx * rx + ry * ry)
+        if rl > 1e-3:
+          rx /= rl
+          ry /= rl
+          var nx = -ry
+          var ny = rx
+          if nx * tx + ny * ty < 0:
+            nx = -nx
+            ny = -ny
+          tx = nx
+          ty = ny
       for pc in pieces.mitems:
         for poly in pc.polys.mitems:
           for p in poly.mitems:
             let lx = p[0] - (g.x + g.adv / 2)
             let ly = base0 - p[1]                # up from the first baseline
-            p = (px + lx * tx + ly * ty, py + lx * ty - ly * tx)
+            p = case t.pathEffect
+                of peSkew: (px + lx * tx, py + lx * ty - ly)
+                of pe3dRibbon: (px + lx + ly * ty, py - ly * tx)
+                of peStairStep: (px + lx, py - ly)
+                else: (px + lx * tx + ly * ty, py + lx * ty - ly * tx)
     elif t.vertical and not warped:
       for pc in pieces.mitems:
         for poly in pc.polys.mitems:
@@ -5755,6 +5839,7 @@ proc toJson*(st: CharStyle): JsonNode =
   if st.noKerning: result["noKerning"] = %true
   if st.leading != 0: result["leading"] = %st.leading
   if st.baselineShift != 0: result["baselineShift"] = %st.baselineShift
+  if st.rotation != 0: result["rotation"] = %st.rotation
   if st.hScale != 0 and st.hScale != 1: result["hScale"] = %st.hScale
   if st.vScale != 0 and st.vScale != 1: result["vScale"] = %st.vScale
   for (name, v) in [("fauxBold", st.fauxBold), ("fauxItalic", st.fauxItalic), ("allCaps", st.allCaps),
@@ -5813,6 +5898,7 @@ proc charStyleFrom*(j: JsonNode): CharStyle =
   result.noKerning = j.getB("noKerning")
   result.leading = float32(j.getF("leading"))
   result.baselineShift = float32(j.getF("baselineShift"))
+  result.rotation = float32(j.getF("rotation"))
   result.hScale = float32(j.getF("hScale", 1))
   result.vScale = float32(j.getF("vScale", 1))
   result.fauxBold = j.getB("fauxBold"); result.fauxItalic = j.getB("fauxItalic")
@@ -5937,6 +6023,7 @@ proc toJson*(t: TextData): JsonNode =
       p.add %y
     result["path"] = p
     result["pathOffset"] = %t.pathOffset
+    if t.pathEffect != peRainbow: result["pathEffect"] = %($t.pathEffect)
   if t.perspOn:
     var q = newJArray()
     for (x, y) in t.persp:
@@ -6045,6 +6132,9 @@ proc textFrom*(j: JsonNode): TextData =
       result.path.add (float32(p[k].getFloat), float32(p[k + 1].getFloat))
       k += 2
     result.pathOffset = float32(j.getF("pathOffset"))
+    let pe = j{"pathEffect"}.getStr("")
+    for e in PathTypeEffect:
+      if $e == pe: result.pathEffect = e
   let q = j{"persp"}
   let qb = j{"perspBox"}
   if q != nil and q.kind == JArray and q.len == 8 and qb != nil and qb.kind == JArray and qb.len == 4:

@@ -801,6 +801,8 @@ proc isRealDir(p: string): bool = vIsDir(p)
 
 proc fileSize(p: string): int64 = vSize(p)
 
+const notAFile = "a device, a pipe or a socket, not a file -- left as it is (reading one may never end)"
+
 proc plan(j: FileJob; deadline: MonoTime): bool =
   ## Lists the steps; reads folders a few at a time. True when complete.
   if not j.started:
@@ -843,6 +845,11 @@ proc plan(j: FileJob; deadline: MonoTime): bool =
     else: discard
     for s in j.sources:
       let dir = isRealDir(s)
+      # (a device, a pipe, a socket: not copied, zipped or moved -- reading one may never end,
+      # /dev/zero, or wait for ever, a FIFO with no one writing; said, the rest done)
+      if not dir and j.kind in {jkCopy, jkMove, jkZip} and specialFile(s):
+        j.errors.add s.extractFilename & ": " & notAFile
+        continue
       case j.kind
       of jkCopy:
         if dir and (j.dest == s or j.dest.startsWith(s & DirSep)):
@@ -898,6 +905,9 @@ proc plan(j: FileJob; deadline: MonoTime): bool =
           of jkZip: j.steps.add Step(kind: skZipDir, src: p)
           else: discard
         else:
+          if j.kind in {jkCopy, jkZip} and specialFile(p):
+            j.errors.add p.extractFilename & ": " & notAFile
+            continue
           let n = if kind == pcFile: fileSize(p) else: 0
           inc j.files
           j.totalBytes += n

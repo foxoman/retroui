@@ -1,7 +1,8 @@
 ## Shapes that keep their settings: arrows, chevrons, speech and thought
 ## bubbles, badges, ribbons, hearts, gears, polygons and stars, rectangles
 ## with each corner its own, crosses, rings, triangles, parallelograms,
-## trapezoids, tags, pies -- each drawn in a box from a few numbers
+## trapezoids, tags, pies; Affinity's diamonds, double and square stars,
+## segments, callouts, tears, crescents, clouds and cats -- each drawn in a box from a few numbers
 ## (`ShapeParams`) that can be changed again later, the shape drawn anew
 ## (a shape layer's path: `liveShapePath`). `paramsOf` says what each
 ## number is.
@@ -21,7 +22,10 @@ type
     lsCloud = "Thought Bubble", lsBadge = "Badge", lsRibbon = "Ribbon", lsHeart = "Heart", lsGear = "Gear",
     lsPolygon = "Polygon", lsStar = "Star", lsRoundRect = "Rectangle, Corners Apart", lsCross = "Cross",
     lsRing = "Ring", lsTriangle = "Triangle", lsParallelogram = "Parallelogram", lsTrapezoid = "Trapezoid",
-    lsTag = "Tag", lsPie = "Pie", lsBlob = "Blob"
+    lsTag = "Tag", lsPie = "Pie", lsBlob = "Blob",
+    lsDiamond = "Diamond", lsDoubleStar = "Double Star", lsSquareStar = "Square Star", lsSegment = "Segment",
+    lsCalloutRect = "Callout Rounded Rectangle", lsCalloutEllipse = "Callout Ellipse", lsTear = "Tear",
+    lsCrescent = "Crescent", lsCloudShape = "Cloud", lsCat = "Cat"
   ShapeParams* = object
     ## A live shape: its kind and its numbers (`paramsOf` names them).
     kind*: LiveShape
@@ -51,6 +55,19 @@ proc paramsOf*(k: LiveShape): seq[tuple[name: string; lo, hi, default: float]] =
   of lsTag: @[("Point length %", 5.0, 60.0, 22.0), ("Hole %", 0.0, 30.0, 8.0), ("Corners %", 0.0, 40.0, 10.0)]
   of lsPie: @[("Start angle", -360.0, 360.0, 0.0), ("Sweep", 1.0, 360.0, 270.0), ("Hole %", 0.0, 95.0, 0.0)]
   of lsBlob: @[("Lobes", 3.0, 12.0, 5.0), ("Wobble %", 0.0, 60.0, 22.0), ("Seed", 0.0, 999.0, 7.0)]
+  of lsDiamond: @[("Middle at %", 5.0, 95.0, 50.0), ("Roundness %", 0.0, 50.0, 0.0)]
+  of lsDoubleStar: @[("Points", 3.0, 40.0, 8.0), ("Inner radius %", 5.0, 95.0, 70.0),
+                     ("Second radius %", 5.0, 95.0, 40.0)]
+  of lsSquareStar: @[("Points", 3.0, 40.0, 8.0), ("Inner radius %", 5.0, 95.0, 70.0)]
+  of lsSegment: @[("Start angle", -360.0, 360.0, 0.0), ("Sweep", 1.0, 360.0, 120.0), ("Hole %", 0.0, 95.0, 50.0)]
+  of lsCalloutRect: @[("Corners %", 0.0, 50.0, 18.0), ("Tail across %", 0.0, 100.0, 20.0),
+                      ("Tail down %", 0.0, 100.0, 30.0), ("Tail width %", 2.0, 60.0, 16.0)]
+  of lsCalloutEllipse: @[("Tail across %", 0.0, 100.0, 20.0), ("Tail down %", 0.0, 100.0, 30.0),
+                         ("Tail width %", 2.0, 60.0, 16.0)]
+  of lsTear: @[("Point %", 0.0, 100.0, 60.0), ("Turn", -180.0, 180.0, 0.0)]
+  of lsCrescent: @[("Thickness %", 5.0, 100.0, 40.0), ("Turn", -180.0, 180.0, 0.0)]
+  of lsCloudShape: @[("Bumps", 3.0, 16.0, 6.0), ("Flat base %", 0.0, 60.0, 30.0)]
+  of lsCat: @[("Ears %", 0.0, 100.0, 40.0), ("Head %", 40.0, 100.0, 70.0)]
 
 proc defaultParams*(k: LiveShape): ShapeParams =
   ## A kind with its numbers where they start.
@@ -83,6 +100,40 @@ proc corner(p: Pt): PathPoint = PathPoint(p: p, inH: p, outH: p)
 proc polySub(pts: openArray[Pt]; closed = true): SubPath =
   result = SubPath(closed: closed)
   for p in pts: result.pts.add corner(p)
+
+proc fitInto(sp: var SubPath; x0, y0, x1, y1: float) =
+  ## (a smoothed outline whose curves swell past the box brought back into it: its points and
+  ## handles -- the curves stay within them -- scaled toward the box's middle)
+  var lo = (1e18, 1e18)
+  var hi = (-1e18, -1e18)
+  for q in sp.pts:
+    for p in [q.p, q.inH, q.outH]:
+      lo = (min(lo[0], p[0]), min(lo[1], p[1]))
+      hi = (max(hi[0], p[0]), max(hi[1], p[1]))
+  if lo[0] >= x0 and lo[1] >= y0 and hi[0] <= x1 and hi[1] <= y1: return
+  let kx = if hi[0] - lo[0] > x1 - x0: (x1 - x0) / max(1e-9, hi[0] - lo[0]) else: 1.0
+  let ky = if hi[1] - lo[1] > y1 - y0: (y1 - y0) / max(1e-9, hi[1] - lo[1]) else: 1.0
+  proc map(p: Pt): Pt =
+    var x = (p[0] - lo[0]) * kx + lo[0]
+    var y = (p[1] - lo[1]) * ky + lo[1]
+    (x, y)
+  for q in sp.pts.mitems:
+    q.p = map(q.p)
+    q.inH = map(q.inH)
+    q.outH = map(q.outH)
+  # (then moved inside, scaled to fit)
+  var lo2 = (1e18, 1e18)
+  var hi2 = (-1e18, -1e18)
+  for q in sp.pts:
+    for p in [q.p, q.inH, q.outH]:
+      lo2 = (min(lo2[0], p[0]), min(lo2[1], p[1]))
+      hi2 = (max(hi2[0], p[0]), max(hi2[1], p[1]))
+  let dx = if lo2[0] < x0: x0 - lo2[0] elif hi2[0] > x1: x1 - hi2[0] else: 0.0
+  let dy = if lo2[1] < y0: y0 - lo2[1] elif hi2[1] > y1: y1 - hi2[1] else: 0.0
+  for q in sp.pts.mitems:
+    q.p = (q.p[0] + dx, q.p[1] + dy)
+    q.inH = (q.inH[0] + dx, q.inH[1] + dy)
+    q.outH = (q.outH[0] + dx, q.outH[1] + dy)
 
 proc roundedPoly(pts: openArray[Pt]; r: float): SubPath =
   ## (a closed polygon with its corners rounded by `r` pixels -- at most half of each side)
@@ -320,6 +371,171 @@ proc liveShapePath*(p: ShapeParams; x0, y0, x1, y1: float): Path =
       let f = 1.0 - wob * rnd
       pts.add (cx + w / 2 * f * cos(a), cy + h / 2 * f * sin(a))
     subs.add smoothClosed(pts)
+  of lsDiamond:
+    let my = y0 + h * pct(0)
+    subs.add roundedPoly([(cx, y0), (x1, my), (cx, y1), (x0, my)], v[1] / 100 * m / 2)
+  of lsDoubleStar:
+    # (points of two lengths, one after the other, with the dips between)
+    let n = max(3, int(round(v[0])))
+    var pts: seq[Pt]
+    for i in 0 ..< n * 4:
+      let a = -PI / 2 + i.float / (n * 4).float * 2 * PI
+      let f = case i mod 4
+              of 0: 1.0
+              of 2: pct(2) + (1 - pct(2)) * 0.6
+              else: pct(1) * 0.55
+      pts.add (cx + w / 2 * f * cos(a), cy + h / 2 * f * sin(a))
+    subs.add polySub(pts)
+  of lsSquareStar:
+    # (a star of squared points: each point a little square tooth)
+    let n = max(3, int(round(v[0])))
+    let inner = pct(1)
+    var pts: seq[Pt]
+    for i in 0 ..< n:
+      for (f, r) in [(-0.5, inner), (-0.16, 1.0), (0.16, 1.0)]:
+        let a = -PI / 2 + (i.float + f) / n.float * 2 * PI
+        pts.add (cx + w / 2 * r * cos(a), cy + h / 2 * r * sin(a))
+    subs.add polySub(pts)
+  of lsSegment:
+    let a0 = (v[0] - 90) * PI / 180
+    let sweep = clamp(v[1], 1.0, 360.0) * PI / 180
+    let hole = clamp(pct(2), 0.0, 0.95)
+    let n = max(8, int(sweep / (PI / 18)))
+    var pts: seq[Pt]
+    for i in 0 .. n:
+      let a = a0 + sweep * i.float / n.float
+      pts.add (cx + w / 2 * cos(a), cy + h / 2 * sin(a))
+    for i in countdown(n, 0):
+      let a = a0 + sweep * i.float / n.float
+      pts.add (cx + w / 2 * hole * cos(a), cy + h / 2 * hole * sin(a))
+    subs.add polySub(pts)
+  of lsCalloutRect, lsCalloutEllipse:
+    let rect = p.kind == lsCalloutRect
+    let o = if rect: 1 else: 0
+    let tailDown = h * pct(o + 1)
+    let bodyB = y1 - tailDown
+    let tipX = x0 + w * pct(o)
+    let tw = w * pct(o + 2)
+    let bx = clamp(tipX, x0 + tw, x1 - tw)
+    if rect:
+      let r = min(w, bodyB - y0) * pct(0)
+      subs.add roundedPoly([(x0, y0), (x1, y0), (x1, bodyB), (bx + tw / 2, bodyB), (tipX, y1),
+                            (bx - tw / 2, bodyB), (x0, bodyB)], r)
+    else:
+      # (an ellipse with a tail: its outline broken where the tail leaves it)
+      let ry = (bodyB - y0) / 2
+      let ecy = y0 + ry
+      var pts: seq[Pt]
+      let aL = arctan2((bodyB - ecy) * 0.9, (bx - tw / 2) - cx)
+      let aR = arctan2((bodyB - ecy) * 0.9, (bx + tw / 2) - cx)
+      let n = 48
+      var a = aR
+      let span = (aL - aR + 2 * PI) mod (2 * PI)
+      let rest = 2 * PI - span
+      for i in 0 .. n:
+        a = aL + rest * i.float / n.float
+        pts.add (cx + w / 2 * cos(a), ecy + ry * sin(a))
+      pts.add (tipX, y1)
+      subs.add polySub(pts)
+  of lsTear:
+    # (a drop: round below, pointed above, turned)
+    let r = m / 2 * 0.62
+    let ccx = cx
+    let ccy = y1 - r * (h / m)
+    let tip = (cx, y0 + (ccy - r - y0) * (1 - pct(0)) * 0.4)
+    var sp = SubPath(closed: true)
+    const k = 0.5523
+    sp.pts.add PathPoint(p: tip, inH: (tip[0] - r * 0.2, tip[1] + r * 0.6), outH: (tip[0] + r * 0.2, tip[1] + r * 0.6))
+    sp.pts.add PathPoint(p: (ccx + r, ccy), inH: (ccx + r, ccy - r * 1.1), outH: (ccx + r, ccy + r * k))
+    sp.pts.add PathPoint(p: (ccx, ccy + r), inH: (ccx + r * k, ccy + r), outH: (ccx - r * k, ccy + r))
+    sp.pts.add PathPoint(p: (ccx - r, ccy), inH: (ccx - r, ccy + r * k), outH: (ccx - r, ccy - r * 1.1))
+    if v[1] != 0:
+      let a = v[1] * PI / 180
+      let ca = cos(a)
+      let sa = sin(a)
+      template rot(q: Pt): Pt = (cx + (q[0] - cx) * ca - (q[1] - cy) * sa, cy + (q[0] - cx) * sa + (q[1] - cy) * ca)
+      for pp in sp.pts.mitems:
+        pp.p = rot(pp.p); pp.inH = rot(pp.inH); pp.outH = rot(pp.outH)
+    subs.add sp
+  of lsCrescent:
+    # (a disc with a disc taken out of its side)
+    let a = v[1] * PI / 180
+    let n = 64
+    let th = clamp(pct(0), 0.05, 1.0)
+    let off = th * 2 * 0.5
+    var outer, inner: seq[Pt]
+    let ocx = cx + cos(a) * w / 2 * off
+    let ocy = cy + sin(a) * h / 2 * off
+    var pts: seq[Pt]
+    for i in 0 .. n:
+      let t = float(i) / float(n) * 2 * PI
+      let q = (cx + w / 2 * cos(t), cy + h / 2 * sin(t))
+      # (outside the inner disc: the crescent's own outline)
+      let dx = (q[0] - ocx) / (w / 2)
+      let dy = (q[1] - ocy) / (h / 2)
+      if dx * dx + dy * dy >= 0.999: outer.add q
+    for i in 0 .. n:
+      let t = float(i) / float(n) * 2 * PI
+      let q = (ocx + w / 2 * cos(t), ocy + h / 2 * sin(t))
+      let dx = (q[0] - cx) / (w / 2)
+      let dy = (q[1] - cy) / (h / 2)
+      if dx * dx + dy * dy <= 1.0: inner.add q
+    # (the outer arc, then the inner one back)
+    var start = 0
+    for i in 1 ..< outer.len:
+      if hypot(outer[i][0] - outer[i - 1][0], outer[i][1] - outer[i - 1][1]) > max(w, h) / 6: start = i
+    for i in 0 ..< outer.len: pts.add outer[(start + i) mod outer.len]
+    var ins = inner
+    var istart = 0
+    for i in 1 ..< ins.len:
+      if hypot(ins[i][0] - ins[i - 1][0], ins[i][1] - ins[i - 1][1]) > max(w, h) / 6: istart = i
+    var ordered: seq[Pt] = @[]
+    for i in 0 ..< ins.len: ordered.add ins[(istart + i) mod ins.len]
+    if ordered.len > 1 and pts.len > 1 and
+       hypot(ordered[0][0] - pts[^1][0], ordered[0][1] - pts[^1][1]) >
+       hypot(ordered[^1][0] - pts[^1][0], ordered[^1][1] - pts[^1][1]):
+      var rev: seq[Pt]
+      for i in countdown(ordered.high, 0): rev.add ordered[i]
+      ordered = rev
+    pts.add ordered
+    if pts.len >= 3: subs.add polySub(pts)
+  of lsCloudShape:
+    # (round bumps along the top, a flat-ish base)
+    let nb = max(3, int(round(v[0])))
+    let base = y1 - h * pct(1) * 0.3
+    var pts: seq[Pt]
+    pts.add (x0 + w * 0.08, base)
+    for i in 0 .. nb * 6:
+      let t = float(i) / float(nb * 6)
+      let a = PI + t * PI
+      let bump = 1 + 0.18 * abs(sin(t * float(nb) * PI))
+      pts.add (cx + w / 2 * cos(a) * 0.96, (base + y0) / 2 + (base - y0) / 2 * sin(a) * bump * 0.92)
+    pts.add (x1 - w * 0.08, base)
+    pts.add (cx, y1)
+    var c = smoothClosed(pts)
+    c.fitInto(x0, y0, x1, y1)
+    subs.add c
+  of lsCat:
+    # (a cat's head: round, two ears)
+    let hs = clamp(pct(1), 0.4, 1.0)
+    let ear = pct(0)
+    let rx = w / 2 * hs
+    let ry = h / 2 * hs * 0.9
+    let hcy = y1 - ry
+    var pts: seq[Pt]
+    let n = 40
+    for i in 0 ..< n:
+      let a = float(i) / float(n) * 2 * PI
+      pts.add (cx + rx * cos(a), hcy + ry * sin(a))
+    subs.add smoothClosed(pts)
+    for side in [-1.0, 1.0]:
+      let bx0 = cx + side * rx * 0.25
+      let bx1 = cx + side * rx * 0.85
+      let tipX = cx + side * rx * 0.8
+      let tipY = max(y0, hcy - ry - (hcy - ry - y0) * ear - ry * 0.25 * ear)
+      let a0 = (bx0, hcy - ry * 0.8)
+      let a1 = (bx1, hcy - ry * 0.45)
+      subs.add polySub([a0, (tipX, min(tipY, hcy - ry)), a1])
   for i, sp in subs:
     var x = sp
     if i > 0 and x.op == poAdd: x.joined = false

@@ -106,7 +106,9 @@ what it needs (see "What the app declares").
 
 ### What the app declares
 
-**Android** (`retroapk` / `retrokit apk`): the permissions of what the
+**Android** (`retroapk` / `retrokit apk`; `retrokit run --android app.nim`
+builds it, installs it on the phone adb sees, starts it and follows its log,
+`--watch` again on every save): the permissions of what the
 app's code uses are added by `retroapk` itself -- it reads the compiled
 code and says which it added; the hardware they imply is listed as not
 required, so the app installs on a device without a camera or GPS.

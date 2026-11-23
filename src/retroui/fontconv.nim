@@ -425,7 +425,10 @@ proc t1Decrypt(s: string; r0: uint16; skip: int): string =
   for i, c in s:
     let ci = uint16(ord(c))
     let p = ci xor (r shr 8)
-    r = (ci + r) * 52845'u16 + 22719'u16
+    # (in 32 bits without a sign, then its low 16: C makes two 16-bit numbers signed ints before
+    # it multiplies them, and 55882 * 52845 overflows one -- undefined, as a 32-bit program and
+    # WebAssembly found)
+    r = uint16(((uint32(ci) + uint32(r)) * 52845'u32 + 22719'u32) and 0xFFFF'u32)
     if i >= skip: result.add char(p and 255)
 
 const Ws = {' ', '\t', '\r', '\n', '\f', '\0'}

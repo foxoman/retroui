@@ -17,7 +17,7 @@
 ## `develop(s)` is the same as a filter of a whole layer.
 
 import std/[math, algorithm, strutils]
-import gfx, photo, photofx, parallel
+import gfx, photo, photofx, parallel, photomore
 
 type
   Develop* = object
@@ -973,8 +973,9 @@ proc adjustmentFn*(a: Adjustment): FilterFn =
   ## - "Levels": for the master, red, green, blue: in low, in high, gamma,
   ##   out low, out high (20)
   ## - "Curves": for each of the four: the number of points, then x, y of each
-  ## - "Hue Curves": for Hue vs Hue, vs Saturation, vs Lightness: the number of points, then x, y
-  ##   of each (128 leaves a hue as it is: `hueCurves`)
+  ## - "Hue Curves": for Hue vs Hue, vs Saturation, vs Lightness (and, when there, Saturation vs
+  ##   Saturation, Luminance vs Saturation): the number of points, then x, y of each (128 leaves
+  ##   a hue as it is: `hueCurves`)
   ## - "Brightness/Contrast": brightness, contrast
   ## - "Color Balance": shadows, midtones, highlights (r, g, b each), preserve luminosity (0/1)
   ## - "Hue/Saturation": colorize (0/1), then hue, saturation, lightness when
@@ -1015,9 +1016,10 @@ proc adjustmentFn*(a: Adjustment): FilterFn =
       if c[ch].len < 2: c[ch] = @[(0, 0), (255, 255)]
     applyLuts(curveLut(c[0]), curveLut(c[1]), curveLut(c[2]), curveLut(c[3]))
   of "Hue Curves":
-    var c: array[3, seq[(int, int)]]
+    var c: array[5, seq[(int, int)]]
     var i = 0
-    for ch in 0 .. 2:
+    for ch in 0 .. 4:
+      if ch >= 3 and i >= v.len: break         # (the two saturation curves: kept only when set)
       let n = ai(i)
       inc i
       for k in 0 ..< n:
@@ -1065,7 +1067,7 @@ proc adjustmentFn*(a: Adjustment): FilterFn =
     gradientMap(g.stops, g.reverse, g.dither)
   of "Color Lookup": colorLookup(a.data)
   of "Dehaze": dehazeFn(if v.len > 0: ai(0) else: 30)
-  else: nil
+  else: paramAdjustFn(a.kind, a.args)     # (Split Toning, Color Grading...: `photomore`)
 
 proc adjustmentTable(a: Adjustment): seq[uint32] =
   ## The adjustment as a table of `LutN`^3 colors (for the composite).

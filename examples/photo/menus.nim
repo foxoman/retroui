@@ -472,6 +472,9 @@ proc doCommand(name: string) =
   if psCommand(name): return               # (the modern menus' own: photo/pscc)
   if dailyCommand(name): return            # (everyday work: photo/daily)
   if assetsCommand(name): return           # (the Assets window: photo/assets)
+  if extrasCommand(name): return           # (2026's additions: photo/extras)
+  if objectCommand(name): return           # (the object and type commands of photo/objectmore)
+  if layoutExtraCommand(name): return      # (the layout program's commands of photo/layoutextra)
   let dw = active
   let d = cur()
   if d != nil and (name in pixelCommands or filters.hasKey(name.strip(chars = {'.'}))) and
@@ -931,7 +934,10 @@ proc doCommand(name: string) =
         d.setSelection(m, soReplace)
         d.endStep()
   of "Shadows/Highlights...": startAdjust(akShadows)
-  of "Vibrance...": startAdjust(akVibrance)
+  of "Vibrance...", "Color and Vibrance...": startAdjust(akVibrance)
+  of "Split Toning...", "Color Grading...":
+    apName = name.strip(chars = {'.'})
+    startAdjust(akParams)
   of "Exposure...": startAdjust(akExposure)
   of "Light...": startAdjust(akLight)
   of "Photo Filter...": startAdjust(akPhotoFilter)
@@ -1534,12 +1540,21 @@ proc classicMenus() =
         item("&Photomerge...")
         item("Merge to &HDR Pro...")
         item("&Load Files into Stack...")
+        item("Focus &Merge...")
+        item("A&strophotography Stack...")
+        menuSeparator()
+        item("Create &Droplet...")
+        item("C&onditional Mode Change...", enabled = some)
       submenu "&Export":
         item("&Export As...", "Ctrl+Alt+Shift+W", some)
         item("Quick Export as &PNG", enabled = some)
         item("Quick Export as &JPEG", enabled = some)
         item("Save &Animation...", enabled = some)
         item("Export for Scr&eens...", enabled = some)
+        item("Save for &Web (Legacy)...", enabled = some)
+        item("Color Lookup &Tables...", enabled = some)
+        item("&Render Video...", enabled = some)
+        item("&Zoomify...", enabled = some)
         menuSeparator()
         item("Paths to Illustrator...", enabled = false)
         item("TWAIN Export...", enabled = false)
@@ -1657,6 +1672,9 @@ proc classicMenus() =
         item("Channel &Mixer...", enabled = rgb)
         item("Gradient &Map...", enabled = rgb)
         item("Color Loo&kup...", enabled = rgb)
+        item("Split To&ning...", enabled = rgb)
+        item("Color &Grading...", enabled = rgb)
+        filterItems(["Channel In&version...", "Mi&xed Light Correction...", "Tone Co&mpression...", "Tone &Stretch..."])
         menuSeparator()
         item("Auto &Tone", "Ctrl+Shift+L", edits)
         item("Auto C&ontrast", "Ctrl+Alt+Shift+L", edits)
@@ -1759,6 +1777,10 @@ proc classicMenus() =
         item("Hide S&election", enabled = mk and d.current.mask == nil and d.hasSelection)
         menuSeparator()
         item("&Gradient Mask", enabled = mk)
+        item("From &Luminosity Range...", enabled = some and not d.current.background)
+        item("From H&ue Range...", enabled = some and not d.current.background)
+        item("&Compound Mask...", enabled = some and not d.current.background and
+             (d.current.mask != nil or d.current.adjust.kind.len > 0))
       item("&Place Into...", enabled = some and not d.current.background)
       item("Put &Inside", enabled = some and not d.current.background and d.pickedLayers.len > 1)
       item("New &Frame", enabled = some)
@@ -1794,12 +1816,14 @@ proc classicMenus() =
                   enabled = edits and lastFilter.set): runCommand("Last Filter")
       menuSeparator()
       item("Develo&p...", "Ctrl+Shift+A", edits and rgb)
+      filterItems(["&Adaptive Wide Angle..."])
       item("Lens C&orrection...", "Ctrl+Shift+R", edits)
       item("Li&quify...", "Ctrl+Shift+X", edits)
       menuSeparator()
       submenu "Blur":
         filterItems(["&Average", "&Blur", "Blur &More", "Bo&x Blur...", "&Gaussian Blur...", "&Lens Blur...",
-                     "M&otion Blur...", "&Radial Blur...", "S&hape Blur...", "Smar&t Blur...", "&Surface Blur..."])
+                     "M&otion Blur...", "&Radial Blur...", "S&hape Blur...", "Smar&t Blur...", "&Surface Blur...",
+                     "Bi&lateral Blur..."])
       submenu "Blur Gallery":
         item("&Field Blur...", enabled = edits)
         item("&Iris Blur...", enabled = edits)
@@ -1813,7 +1837,8 @@ proc classicMenus() =
         item("&Shear...", enabled = edits)
         filterItems(["S&pherize...", "&Twirl...", "&Wave...", "&ZigZag..."])
       submenu "Noise":
-        filterItems(["&Add Noise...", "&Despeckle", "D&ust && Scratches...", "&Median...", "&Reduce Noise..."])
+        filterItems(["&Add Noise...", "&Despeckle", "D&ust && Scratches...", "&Median...", "&Reduce Noise...",
+                     "Remove Background &Gradient..."])
       submenu "Gallery":
         submenu "Artistic": filterItems(galleryArtistic.mapIt(it & "..."))
         submenu "Brush Strokes": filterItems(galleryBrush.mapIt(it & "..."))
@@ -1825,11 +1850,14 @@ proc classicMenus() =
         filterItems(["Color &Halftone...", "&Crystallize...", "&Facet", "F&ragment", "M&ezzotint...",
                      "&Mosaic...", "&Pointillize..."])
       submenu "Render":
+        filterItems(["F&lame...", "Picture &Frame...", "T&ree..."])
         filterItems(["&Clouds", "&Difference Clouds", "F&ibers...", "&Lens Flare...", "Lighting &Effects..."])
         item("&Texture Fill...", enabled = edits)
       submenu "Sharpen":
-        filterItems(["&Sharpen", "Sharpen &Edges", "Sharpen &More", "S&mart Sharpen...", "&Unsharp Mask..."])
+        filterItems(["S&hake Reduction...", "&Sharpen", "Sharpen &Edges", "Sharpen &More", "S&mart Sharpen...",
+                     "&Unsharp Mask...", "M&ulti Band Sharpen...", "&Texture Detail..."])
       submenu "Stylize":
+        filterItems(["&Ambient Occlusion...", "&Glitch..."])
         filterItems(["&Oil Paint...", "&Diffuse...", "&Emboss..."])
         filterItems(["E&xtrude..."])
         filterItems(["&Find Edges", "&Solarize", "&Tiles...", "Trace &Contour...", "&Wind..."])
@@ -2022,13 +2050,41 @@ const AppIconPng = staticRead("../assets/photo-icon.png")
 
 proc aboutDialog() =
   aboutBox(aboutOpen, AppName, AppVersion,
-           ["An image editor in the manner of the paint programs of 1994: layers, channels, " &
-            "Quick Mask, paths, artboards, type with Arabic, forty filters and the color adjustments.",
-            "Its engine is Retro Nim UI's own: retroui/photo, retroui/photopaint, retroui/photofx.",
+           ["A studio for pictures, drawings and pages in the manner of the programs of 1994: photos with " &
+            "layers, masks, over a hundred filters and the color adjustments; drawings with seventy vector tools; " &
+            "books and magazines laid out, Arabic set as the scribes set it; PDF, EPUB and web pages out; " &
+            "generative edits through your own AI service.",
+            "Its engine is Retro Nim UI's own: retroui/photo for pictures, retroui/photovector and " &
+            "retroui/pathtools for drawings, retroui/photobook and retroui/textengine for pages, " &
+            "retroui/photomore for today's filters.",
             "Not affiliated with any maker of image software."],
-           tagline = "Layers, type and filters -- as in 1994",
+           tagline = "Pictures, drawings and pages -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.15.0: from the Affinity apps -- studios (your workspaces by name, exported and " &
+           whatsNew = ["5.16.0: the tools of today's photo, drawing and layout programs -- 53 new drawing tools " &
+                       "(Rotate, Scale, Shear, the liquify brushes, Blend, Live Paint, the Symbol and Graph tools, " &
+                       "Shaper, Area Type and Type on a Path, Puppet Warp, Mesh Warp, Deform...), the Median Brush; " &
+                       "Shake Reduction, Adaptive Wide Angle, Bilateral Blur, Multi Band Sharpen, Texture Detail, " &
+                       "Ambient Occlusion, Glitch, Flame, Tree, Picture Frame; Split Toning and Color Grading layers, " &
+                       "Channel Inversion, Mixed Light Correction, Tone Compression and Stretch, SDR to HDR; masks " &
+                       "from a range of lightness or hues; compound paths, Divide Objects Below, Split Into Grid, " &
+                       "Step and Repeat, Convert Shape, Hatch Fill; letters turned one by one, Type on a Path's " &
+                       "effects, Change Case, Smart Punctuation, Auto Style; Alternate Layouts, Multi-State " &
+                       "Objects, feathers, Accessibility Check, snippets; the Measurement Log, Version History, " &
+                       "Image Assets, droplets, Save for Web, Color Lookup Tables, Zoomify, Render Video, Focus " &
+                       "Merge, the Astrophotography Stack, 360 views, Layer to 3D, Decompose Layers; Generative " &
+                       "Edits through your AI service (a background, an upscale, a style, a camera angle, Smart " &
+                       "Portrait, Landscape Mixer, Rewrite, Generative Recolor...). " &
+                       "And: a Photoshop document opened in half the time, holding a third of the memory " &
+                       "it took while it opened (a 40 MB file: 2.1 s to 1.0 s, 844 MB to 340 MB at most), and " &
+                       "46 MB less once it is open (what is under the current layer kept only where you " &
+                       "paint); its picture while it opens shown four times sooner; a paragraph wrapped twice " &
+                       "as fast, the text of every window drawn faster; Browse Assets answers while it " &
+                       "fetches what you insert, and its Cancel stops it; on Windows, downloads through " &
+                       "Windows' own WinHTTP -- no window flashing up. Fixed: in Arabic on a phone or a tablet " &
+                       "the picture was drawn off to one side (in steps after a resize, its text away from its " &
+                       "caret); a space typed at the end did not move the caret; the status line, and labels with " &
+                       "a number or a name in them, are in Arabic now.",
+                       "5.15.0: from the Affinity apps -- studios (your workspaces by name, exported and " &
                        "imported), a help card for every tool (F1: its help), paint on type making a pixel layer, " &
                        "the Mask Brush and the Tone Brush, Hue Curves, live blends (Expand Blend), Symbols, " &
                        "Constraints (an artboard sized by its corner), Smooth Curvature (G2), a Diffusion freeform " &
@@ -2328,7 +2384,8 @@ proc helpText(): string =
     "Pick a tool in the toolbar (or press its letter), set it up in the options bar, then work on " &
     "the image. Every change can be undone with **Ctrl+Z**.\n\n" &
     "## Following a tutorial\n\n" &
-    "The menus, panels, tools and keys are named and placed as in today's image editors, so a tutorial's " &
+    "The menus, panels, tools and keys are named and placed as in today's photo, drawing and layout " &
+    "programs, so a tutorial's " &
     "steps work as written: **Image > Adjustments > Curves** (Ctrl+M), **Edit > Free Transform** " &
     "(Ctrl+T: a corner keeps the proportions, **Shift** frees them, **Ctrl** moves a corner alone, " &
     "**Ctrl+Shift** on a side skews), **Layer > New > Layer** (Ctrl+Shift+N), **Select > Modify > " &
@@ -2586,8 +2643,8 @@ proc splash() =
   let done = clamp((ui.now - splashStart) / total, 0.0, 1.0)
   let steps = ["Starting...", "Reading the brushes and presets...", "Loading the filters...",
                "Making the panels...", "Ready"]
-  splashBox(AppName, AppVersion, "An image editor in the manner of 1994",
-            ["Layers, Arabic type, 32-bit HDR, the Filter Gallery, press-ready PDF"],
+  splashBox(AppName, AppVersion, "Pictures, drawings and pages in the manner of 1994",
+            ["Layers, vector tools, books with Arabic type, 32-bit HDR, press-ready PDF"],
             art = splashBmp, iconPng = AppIconPng, progress = done,
             note = steps[min(steps.high, int(done * steps.len.float))], width = 460)
   wakeIn(max(16, min(80, splashUntil - ui.now)))

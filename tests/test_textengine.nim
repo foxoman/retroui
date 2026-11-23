@@ -1,9 +1,10 @@
 ## Tests of styled text (retroui/textengine): fonts, layout, editing, drawing,
 ## warps, text on a path.
 
-import std/[math, json, strutils, os]
+import std/[math, json, strutils, os, importutils]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
-import retroui/[textengine, ttf, typeset, hyphenate, unpacking, dastkhat, pdf]
+import retroui/[ttf, typeset, hyphenate, unpacking, dastkhat, pdf]
+import retroui/textengine {.all.}   # (its private joinsForward, CharInfo: the kashida rules tested)
 
 proc style(size = 40'f32): CharStyle =
   result = defaultStyle()
@@ -368,6 +369,35 @@ block kashidaRulesAndTashkeel:
     for g in letters:
       if g.index == k: base = g
     doAssert abs(m.x - base.x) < 1.0, "the mark over its letter: " & $m.x & " vs " & $base.x
+
+block kashidaBeforeTheTooth:
+  # a tooth (Beh, Yeh...) before a final Reh or Yeh: never lengthened between them, but before
+  # the tooth ("أكـبر", "لـيرى"); a letter drawn in one glyph with the next (a ligature of the
+  # font): no kashida inside it
+  let st = CharStyle(family: "", size: 30, color: 0xFF000000'u32, hScale: 1, vScale: 1)
+  for word in ["أكبر", "ليرى"]:
+    var t = newText(word & " " & word, st, 0, 0)
+    t.boxW = 500
+    t.boxH = 200
+    t.para.align = justifyAll
+    t.para.kashida = kaLong
+    let l = layoutText(t)
+    let r = toRunes(t.spans[0].text)
+    var n = 0
+    for g in l.glyphs:
+      if g.adv > 0 and g.hScale > 1.01 and r[g.index].int != 0x0640:
+        inc n
+        let after = r[min(r.high, g.index + 1)].int
+        doAssert after in [0x0628, 0x064A], word & ": the kashida before the tooth, not after " &
+                                            $r[g.index] & " (before " & $Rune(after) & ")"
+    doAssert n > 0, word & ": kashidas"
+  privateAccess(CharInfo)
+  privateAccess(GlyphPart)
+  var chars = @[CharInfo(cp: 0x0628, shown: 1, shaped: true, parts: @[GlyphPart(gid: 5, adv: 10)]),
+                CharInfo(cp: 0x0631, shown: 1, shaped: true)]
+  doAssert not joinsForward(chars, 0, 2), "Beh and Reh in one glyph: no kashida between"
+  chars[1].parts = @[GlyphPart(gid: 6, adv: 8)]
+  doAssert joinsForward(chars, 0, 2)
 
 block columnsAndFlow:
   # text in a box in three columns: each line in one, side by side, from
@@ -1604,5 +1634,31 @@ block oldAndNewFontOfOneName:
   doAssert lay.glyphs.len == 3
   for g in lay.glyphs: doAssert g.gid != 0 and g.face.glyphOf(0x0628) != 0
   doAssert fontProblem("Old Only Test") == ""
+
+block caretPastASpaceTyped:
+  # a space typed at the end moves the caret -- to where the next word starts -- right to
+  # left and left to right (it stayed put, and the next word jumped a space away)
+  var st = defaultStyle()
+  st.family = DastkhatFamily
+  st.size = 100
+  for (word, next) in [("مرحبا", "و"), ("Hello", "w")]:
+    for dir in [0, 2]:
+      var a = newText(word, st, 1000, 500)
+      a.para.rtl = dir
+      var b = a
+      b.spans[0].text = word & " "
+      var c = a
+      c.spans[0].text = word & " " & next
+      let la = layoutText(a)
+      let lb = layoutText(b)
+      let lc = layoutText(c)
+      let n = word.runeLen
+      let before = la.caretX[n]
+      let after = lb.caretX[n + 1]
+      if not (word == "Hello" and dir == 2):     # (Latin in a right-to-left paragraph: its space
+                                                  # at the line's left till a word follows it)
+        doAssert abs(after - lc.caretX[n + 1]) < 0.5, word & ": where the next word starts " & $(after, lc.caretX[n + 1])
+      doAssert abs(after - before) > 10, word & ": the caret moved " & $(before, after)
+      doAssert lb.x1 - lb.x0 == la.x1 - la.x0, "the text's own width as it was"
 
 echo "textengine ok"

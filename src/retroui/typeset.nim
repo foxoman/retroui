@@ -1159,6 +1159,19 @@ proc asciiWidth(s: string; base: FaceId): float32 =
     if prev >= 0: result += kern[][prev * 96 + k]
     prev = k
 
+proc asciiCarry*(em: var float32; prev: var int; s: openArray[char]; base = fSans) =
+  ## The width in ems of plain ASCII text carried on by `s`: `em` and `prev` (its last
+  ## letter's code - 32; -1, and `em` 0, before any) as `widthEm` left them for the text so
+  ## far, then for it with `s` after it -- the very sum `widthEm` makes of the two together, so
+  ## a line grown a word at a time is never measured again from its start (`LineMeter`).
+  parsed(base)
+  let kern = addr asciiKern[base]
+  for c in s:
+    let k = ord(c) - 32
+    em += asciiAdv[base][ord(c)]
+    if prev >= 0: em += kern[][prev * 96 + k]
+    prev = k
+
 proc thaiAbove(cp: int): bool {.inline.} =
   cp == 0x0E31 or cp in 0x0E34 .. 0x0E37 or cp in 0x0E47 .. 0x0E4E
 

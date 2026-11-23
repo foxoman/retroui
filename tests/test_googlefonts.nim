@@ -1,8 +1,8 @@
 ## Tests of the downloader (retroui/fetch, on a local file) and of reading
 ## Google Fonts' CSS (retroui/googlefonts) -- the network itself is not used.
 
-import std/[os, strutils]
-import retroui/[fetch, googlefonts, textengine]
+import std/[os, strutils, times]
+import retroui/[fetch, googlefonts, textengine, busy]
 
 let css = """
 @font-face {
@@ -56,6 +56,31 @@ if findExe("curl").len > 0:
   doAssert readFile(dir / "sub" / "got.bin") == "hello fonts"
   doAssert downloadFile("file://" & dir / "missing.bin", dir / "x.bin").len > 0, "a failure says so"
   doAssert not fileExists(dir / "x.bin") and not fileExists(dir / "x.bin.part")
+when defined(posix):
+  block aDownloadKeepsTheWindowAlive:
+    # on the thread that draws, a download that takes long keeps the busy box ticking (the
+    # window drawn, its events read -- Retro Atelier's Browse Assets did not answer for its
+    # whole download), and the box's Cancel ends it: a "curl" here that takes 30 s
+    let bin = dir / "slowbin"
+    createDir(bin)
+    writeFile(bin / "curl", "#!/bin/sh\nsleep 30\n")
+    setFilePermissions(bin / "curl", {fpUserRead, fpUserWrite, fpUserExec})
+    let path = getEnv("PATH")
+    putEnv("PATH", bin & ":" & path)
+    markUiThread()
+    var ticks {.global.} = 0
+    busyHook = proc () {.nimcall.} =
+      inc ticks
+      if ticks == 10: busyCancelAsked = true    # (Cancel pressed)
+    let t0 = epochTime()
+    beginBusy("Getting it", cancel = true)
+    let err = downloadFile("https://example.com/big.bin", dir / "slow" / "big.bin")
+    endBusy(cancel = true)
+    putEnv("PATH", path)
+    busyHook = nil
+    doAssert err == "cancelled", err
+    doAssert ticks >= 10 and epochTime() - t0 < 10, $(ticks, epochTime() - t0)
+    doAssert not fileExists(dir / "slow" / "big.bin") and not fileExists(dir / "slow" / "big.bin.part")
 doAssert not isInstalled(dir, "Cairo")
 createDir(familyDir(dir, "Noto Kufi Arabic"))
 writeFile(familyDir(dir, "Noto Kufi Arabic") / "NotoKufiArabic-Regular.ttf", "x")

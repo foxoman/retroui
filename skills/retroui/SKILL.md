@@ -136,6 +136,18 @@ line.
     for i in visibleRows(lines.len, key = "log", varying = true):
       withId(i): paragraph(lines[i])
   ```
+- **Wrapping text yourself:** don't measure a growing line with
+  `textWidth(line & " " & word)` for every word -- that measures each line
+  again and again. A `LineMeter` carries the width on, the same number
+  `textWidth` would give (plain ASCII; `m.ok` false: use `textWidth`):
+  ```nim
+  var m = lineMeter()            # (bold, mag as textWidth's)
+  m.add "The quick"
+  var cand = m
+  cand.add " brown"
+  if cand.width > maxW: echo "a new line" else: m = cand
+  ```
+  `paragraph` and `wrapLines` wrap so already.
 - **Check it at rest:** `RETRO_SMOKE=14 ./app` starts it for real, times
   the first frame (`firstFrameMs()`), measures 3 seconds untouched, then
   clicks and types until 14 s; it ends 0 (ok), 1 (a fault) or 2 (busy
@@ -332,6 +344,15 @@ app "Staff", 520, 420:
   `lorem(3)` (Lorem Ipsum), `lorem(2, loremArabic)`, `lorem(4, loremBoth)`
   (the two in turn), `loremWords(4)` for a title -- `retroui/lorem`, in
   `import retroui`.
+- A value worked out from others that is slow to work out (a filtered and
+  sorted list of thousands): `import retroui/signals`; `let q = signal("")`,
+  `let shown = computed(proc (): seq[Row] = rows.filterIt(q.value in it.name))`,
+  then `shown.value` in the frame -- worked out again only when `q` changed
+  (`q.value = text` sets it and asks for a frame). Not for ordinary state:
+  an immediate mode frame reads plain variables.
+- An app's image filters of today's editors: `retroui/photomore`
+  (`shakeReduction`, `bilateralBlur`, `colorGrading`, `astroStack`...) --
+  each a `FilterFn` of `retroui/photofx`.
 - `retroui/dastkhat`: `carryDastkhat()` -- Arabic, Persian and Latin in one
   font, nine weights (`fontStyles("Dastkhat")`: Thin .. Black); a variable
   font's weights are styles (`fontFace(family, "SemiBold")`).
@@ -377,7 +398,10 @@ app "Staff", 520, 420:
   mnemonic's `&`); numbers in text with `trn(n, "{n} file", "{n} files")`;
   `RETRO_LANG=pseudo` shows what is not translated. Every text the user
   reads goes through a control or `tr` -- a status line drawn with `text`
-  is `tr(...)` first. README's "Translating an app" has the whole of it.
+  is `tr(...)` first; a text glued from fixed parts and values
+  (`"Could not open " & name`, `"Page " & $i & " of " & $n`) has its parts
+  translated when they are keys with their spaces ("Could not open ",
+  " of "). README's "Translating an app" has the whole of it.
 - Sound: `audioView(url, speed = 1.5, title = "...", key = "player")`,
   `seekVideo("player", ms)`, `playVideo("player")`; it plays on in the
   background on Android (retroapk adds the service) and iOS. Its event's
@@ -745,7 +769,12 @@ the middle, in its 3.1 frame, moved and sized there, kept in view when the
 screen changes size; `--scale:N`, `--size:WxH`, `--theme:NAME` too.
 `retrokit run --live app.nim` (`--window` + `--watch`) builds it again on
 every save and shows the new one where the window was; the app's variables
-start fresh each time. `retrokit run --watch app.nim` does the same on any
+start fresh each time but for what `keep` names (`import retroui/keep`;
+`keep page, names` after they are declared: each comes back as the run
+before left it -- anything `std/jsonutils` reads and writes; nothing is kept
+outside `--watch`). `retrokit run --android app.nim` builds the APK, installs
+it on the phone adb sees, starts it and shows its log (`--watch`: again on
+every save). `retrokit run --watch app.nim` does the same on any
 desktop (Windows, macOS, Linux): the X11, Windows, macOS and SDL drivers
 reopen the window where it was ($RETRO_WINDOW_STATE, `keptWindowPlace` /
 `keepWindowPlace` in `uirelays/services`). (`uirelays/target`: `androidApp` is an APK,

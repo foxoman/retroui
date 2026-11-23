@@ -575,4 +575,30 @@ block rtlInterfaceCharts:
   setUiLanguage("")
   doAssert ltr == rtl and ltr > 150, "the same chart: " & $(ltr, rtl)
 
+block rtlInterfaceCheckerboard:
+  # a checkerboard (and a GPU's picture: its rectangle kept the same way) drawn in
+  # `beginKeepSides` stays where it is in its area; outside it, mirrored with the frame
+  # (Atelier's canvas was drawn off to one side in an Arabic interface)
+  proc span(keep: bool): (int, int) =
+    var r: Rect
+    view = proc () =
+      r = place(300, 60)
+      if keep: beginKeepSides(r)
+      checkerAt(rect(r.x + 200, r.y, 100, 60), 8, r.x + 200, r.y, color(255, 0, 0), color(0, 0, 255))
+      if keep: endKeepSides()
+    run(2)
+    let sr = onScreen(r)
+    result = (int.high, -1)
+    for x in sr.x ..< sr.x + sr.w:
+      let p = px(x, sr.y + 4)
+      if p == 0xFF0000'u32 or p == 0x0000FF'u32:
+        result[0] = min(result[0], x - sr.x)
+        result[1] = max(result[1], x - sr.x)
+  doAssert span(true) == (200, 299) and span(false) == (200, 299)
+  setUiLanguage("ar", @toolkitArabic)
+  doAssert span(true) == (200, 299), "kept: " & $span(true)
+  doAssert span(false) == (0, 99), "mirrored: " & $span(false)
+  setUiLanguage("")
+  run(2)
+
 echo "bidi tests passed"

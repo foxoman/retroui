@@ -57,6 +57,8 @@ nimble install retroui                  # the library and its tools
 retrokit doctor                       # checks what your machine has, and says how to fix it
 retrokit new myapp --kind:business    # a ready app: hello, form, business, files, charts
 cd myapp && nimble run
+retrokit run --watch myapp.nim        # built and started again on every save (`keep` keeps values)
+retrokit run --android myapp.nim      # on the phone adb sees, its log here
 ```
 
 Nothing else to install: no GTK, Qt, SDL or browser engine. The fonts,
@@ -756,8 +758,10 @@ Static text; '\n' starts a new line, '&' underlines the next letter
 in a 3.1 dialog).
 Wider than the room it is in (a narrow dialog, a phone), it wraps, as
 a 3.1 static text does. In another language (`setUiLanguage`) the
-whole text is looked up before it wraps. `literal`: shown as it is --
-a file's name: not translated, its '&' kept.
+whole text is looked up before it wraps (glued from fixed parts and
+values -- `"Page " & $i & " of " & $n` -- those parts, see `tr`).
+`literal`: shown as it is -- a file's name: not translated, its '&'
+kept.
 Ending in ':', it names the field after it: in a row that wraps, the
 two go to the next line together (`keepWithNext`).
 

@@ -764,9 +764,12 @@ proc docOfLayeredTiff*(data: string; name = "Untitled"): Doc
   ## A TIFF that keeps Photoshop's layers (tag 37724) as a document with
   ## them; nil when it keeps none. Raises `PsdError` when they are damaged.
 
-proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
+proc docOfPsd*(p: sink PsdDoc; name = "Untitled"): Doc =
   ## A Photoshop document as ours: its layers (bottom first) or, with none,
-  ## its merged picture.
+  ## its merged picture. (Given, not copied: a layer as big as the canvas
+  ## becomes ours as it is, the others are let go as each is made --
+  ## opening a big file holds it once.)
+  var p = p                              # (the procs below change it: each layer's pixels let go)
   result = newDoc(p.w, p.h, 0, dpi = p.dpi, name = name)
   let d = result
   case p.mode
@@ -880,7 +883,8 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
   # (what is kept and what not: `d.opened`)
   var nType, nShapes, nSmart, nAdjust, nStyled, nGroups: int
   var fontsSeen: seq[string]
-  proc layerOf(P: PsdLayer): Layer =
+  proc layerOf(idx: int): Layer =
+    template P: untyped = p.layers[idx]
     let L = d.newLayer(if P.name.len > 0: P.name else: "Layer " & $(d.layers.len + 1))
     L.opacity = clamp((P.opacity * 100 + 127) div 255, 0, 100)
     L.fill = clamp((P.fill * 100 + 127) div 255, 0, 100)
@@ -908,6 +912,9 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
       L.gray = true
       for v in L.px.mitems: v = 0xFFFFFFFF'u32
       inc nAdjust
+    elif P.w * P.h > 0 and P.px.len == P.w * P.h and P.x == 0 and P.y == 0 and P.w == p.w and
+         P.h == p.h and not (d.depth == 16 and P.px16.len == P.w * P.h * 4):
+      L.px = move(P.px)                   # (as big as the canvas: its pixels ours as they are)
     elif P.w * P.h > 0 and P.px.len == P.w * P.h:
       let lp = cast[ptr UncheckedArray[uint32]](addr L.px[0])
       let pp = cast[ptr UncheckedArray[uint32]](unsafeAddr P.px[0])
@@ -1030,7 +1037,11 @@ proc docOfPsd*(p: PsdDoc; name = "Untitled"): Doc =
   proc emit(nodes: seq[Node]; depth: int): seq[Layer] =
     for k, nd in nodes:
       if not nd.group:
-        let L = layerOf(p.layers[nd.idx])
+        let L = layerOf(nd.idx)
+        # (its pixels and mask ours now: the file's let go)
+        p.layers[nd.idx].px = @[]
+        p.layers[nd.idx].px16 = @[]
+        p.layers[nd.idx].mask.px = @[]
         L.depth = depth
         if k == 0: L.clipped = false
         result.add L
@@ -1117,14 +1128,18 @@ proc openReportText*(r: OpenReport): string =
 
 proc loadPsd*(path: string): Doc =
   ## Opens a Photoshop document. Raises `IOError` when it cannot be read.
-  let data = try: readFile(path)
+  var data = try: readFile(path)
              except IOError, OSError: raise newException(IOError, "cannot read " & path.extractFilename)
-  let p = try: readPsd(data)
+  # (its layers without the merged picture they make, which is made again here; the file's
+  # bytes let go once read, its layers given to the document: a file held once, not three times)
+  var p = try: readPsd(data, merged = false)
           except PsdError as e: raise newException(IOError, path.extractFilename & ": " & e.msg)
-  result = docOfPsd(p, path.splitFile.name)
+  data = ""
+  let icc = p.icc
+  result = docOfPsd(move p, path.splitFile.name)
   result.path = path
   result.format = "psd"
-  result.useProfile(p.icc)
+  result.useProfile(icc)
 
 # ---- Photoshop documents out ---------------------------------------------------------------------------
 
@@ -1986,10 +2001,11 @@ proc psdPreview*(path: string; maxW = 512; maxH = 512): Bitmap =
               return b
           p = q + size + (size and 1)
     if getFileSize(path) < 96 * 1024 * 1024:
-      let doc = readPsd(readFile(path))
+      # (its merged picture alone: its layers' pixels skipped)
+      var doc = readPsd(readFile(path), layerPixels = false)
       if doc.composite.len == doc.w * doc.h and doc.w > 0:
         result = newBitmap(doc.w, doc.h)
-        result.px = doc.composite
+        result.px = move(doc.composite)
         result.changed()
   except CatchableError, Defect: result = nil
 

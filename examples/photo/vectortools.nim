@@ -170,6 +170,7 @@ proc vecRelease(dw: DocWin; ev: PhotoEvent)
 proc vectorEvents(dw: DocWin; ev: PhotoEvent): bool =
   ## A press, drag and release of the drawing program's tools; true when the tool took it.
   if tool != tVector or ev.right: return false
+  if vecMode >= 19: return dw.moreVectorEvents(ev)    # (photo/vectormore)
   let d = dw.doc
   let r = dw.pickRadius
   if gapDrag.on and gapDrag.dw == dw:
@@ -741,6 +742,10 @@ proc vectorOverlay(dw: DocWin; ev: PhotoEvent) =
   if tool != tVector: return
   let d = dw.doc
   let v = dw.view
+  if vecMode >= 19:
+    dw.moreVectorOverlay(ev)
+    if dw == active: discard d.moreVectorKeys()
+    return
   if vd.on and vd.dw == dw and vd.pts.len > 1 and not vd.moving and vecMode notin {0, 11}:
     let c = if vecMode in {3, 4}: color(40, 40, 40) else: color(0, 120, 255)
     for k in 1 ..< vd.pts.len:
@@ -856,10 +861,14 @@ proc vectorOverlay(dw: DocWin; ev: PhotoEvent) =
 # ---- the options bar --------------------------------------------------------------------------------------
 
 proc vectorBar() =
-  ## The options of the drawing program's tools.
-  for k in 0 .. vecToolNames.high:
+  ## The options of the drawing program's tools (the icons of the tools beside the one picked).
+  let fam = vecFamilyOf(vecMode)
+  for k in fam.first .. fam.last:
     if barIcon(vecToolGlyphs[k], vecToolNames[k], down = vecMode == k): vecMode = k
   toolSeparator()
+  if vecMode >= 19:
+    moreVectorBar()
+    return
   case vecMode
   of 1:
     for w in WandBy:

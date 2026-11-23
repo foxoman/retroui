@@ -18,7 +18,7 @@ import std/[strutils, tables, math, hashes]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import uirelays/input
 import core, nerdicons, pixelicons, busy
-from typeset import bidiInfo, visualOrderOf, isMark, shownRtl, plainLetters, joinsAt
+from typeset import bidiInfo, visualOrderOf, isMark, shownRtl, plainLetters, joinsAt, plainAscii
 
 template th: untyped = ui.theme
 
@@ -571,8 +571,71 @@ proc label*(s: string; bold = false; color = Color(); enabled = true; literal = 
     else: drawLabel(r.x, y, line, c, bold)
     y += FontH
 
+proc wrapAscii(para: string; maxW: int; bold: bool; lines: var seq[string]) =
+  ## (`wrapUncached` for a paragraph of plain ASCII: the same lines, each word measured once and
+  ## the line's width carried on by `LineMeter` -- not the whole line measured again for every
+  ## word -- and each line a piece of `para`, not a string grown word by word)
+  let none = lineMeter(bold)
+  proc widthOf(a, b: int): int =
+    var m = none
+    m.add para.toOpenArray(a, b - 1)
+    m.width
+  var line = none                       # the line so far: para[ls ..< le], its width `line`
+  var ls, le = 0
+  var ws = 0                            # each word: para[ws ..< we] (split at every space)
+  while true:
+    var we = para.find(' ', ws)
+    if we < 0: we = para.len
+    var startsLine = true
+    if le > ls:
+      var cand = line                   # the line, a space and the word
+      cand.add " "
+      cand.add para.toOpenArray(ws, we - 1)
+      if cand.width > maxW:
+        lines.add para[ls ..< le]
+      else:
+        (le, line, startsLine) = (we, cand, false)
+    else:
+      var word = none                   # (measured alone only when it is a line's first)
+      word.add para.toOpenArray(ws, we - 1)
+      if word.width <= maxW:
+        (ls, le, line, startsLine) = (ws, we, word, false)
+    if startsLine:
+      # the word starts a line; broken while it is too wide -- after a "/" or "-" when there is
+      # one (paths, names), else where it must
+      var a = ws
+      while widthOf(a, we) > maxW and we - a > 1:
+        var lo = 1
+        var hi = min(we - a - 1, max(1, maxW))
+        while lo < hi:                  # the longest start that fits
+          let mid = (lo + hi + 1) div 2
+          if widthOf(a, a + mid) <= maxW: lo = mid
+          else: hi = mid - 1
+        var cut = -1
+        for i in countdown(lo - 1, lo div 2):
+          if para[a + i] in {'/', '\\', '-', '_', '.', ',', ';'}:
+            cut = i
+            break
+        if cut > 0:
+          lines.add para[a .. a + cut]
+          a += cut + 1
+        else:
+          lines.add para[a ..< a + lo]
+          a += lo
+      ls = a
+      le = we
+      line = none
+      line.add para.toOpenArray(a, we - 1)
+    if we >= para.len: break
+    ws = we + 1
+  lines.add para[ls ..< le]
+
 proc wrapUncached(s: string; maxW: int; bold: bool): seq[string] =
+  let plain = lineMeter(bold).ok
   for para in s.split('\n'):
+    if plain and plainAscii(para):
+      wrapAscii(para, maxW, bold, result)  # (no right-to-left letters: no marks to add)
+      continue
     let first = result.len
     var line = ""
     for w in para.split(' '):

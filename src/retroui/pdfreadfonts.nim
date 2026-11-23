@@ -176,7 +176,9 @@ proc decrypt(s: string; r0: uint16; skip: int): string =
   for i, c in s:
     let ci = uint16(ord(c))
     let p = ci xor (r shr 8)
-    r = (ci + r) * 52845'u16 + 22719'u16
+    # (in 32 bits without a sign, then its low 16: as `retroui/fontconv` does it -- C makes two
+    # 16-bit numbers signed ints to multiply them, and that product can overflow one)
+    r = uint16(((uint32(ci) + uint32(r)) * 52845'u32 + 22719'u32) and 0xFFFF'u32)
     if i >= skip: result.add char(p and 255)
 
 proc parseType1(data: string; len1: int): Type1Font =

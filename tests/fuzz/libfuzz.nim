@@ -3,7 +3,7 @@
 ## fuzzers (fuzz.nim) find by chance, this finds by following the code's
 ## branches. One target a build:
 ##
-##   nim c --cc:clang --noMain -d:useMalloc -d:release --debugger:native \
+##   nim c --cc:clang --noMain -d:useMalloc -d:release -d:noSignalHandler --debugger:native \
 ##     --passC:"-fsanitize=fuzzer,address,undefined -fno-sanitize=function" \
 ##     --passL:"-fsanitize=fuzzer,address,undefined" \
 ##     -d:fuzzTarget=png -o:tests/fuzz/lf_png tests/fuzz/libfuzz.nim
@@ -13,9 +13,11 @@
 ## (the packed fonts), feed (RSS and Atom from any server), chapters,
 ## transcript (a podcast's), board (a board file: what any program wrote). A
 ## Defect (an index, a range, an overflow: it aborts) or a sanitizer's
-## report is a bug: libFuzzer stops and saves the input (crash-...).
+## report is a bug: libFuzzer stops and saves the input (crash-...; a
+## Defect's also as crash-defect-...). -d:noSignalHandler: Nim's own
+## handlers, set as the harness starts, would take libFuzzer's abort.
 
-import std/json
+import std/[json, hashes]
 import retroui/[imaging, jpeg, codec, markdown, webp, htmldom, pdfread, gltf, mvt, lzma, feeds, board]
 
 const fuzzTarget {.strdefine.} = "png"
@@ -65,9 +67,13 @@ proc LLVMFuzzerTestOneInput(data: ptr UncheckedArray[byte]; len: csize_t): cint 
   except CatchableError:
     discard                          # (bad input refused: as it should be)
   except Defect as e:
-    # (a bug: said, and the process stopped so libFuzzer keeps the input -- a Defect let out of
+    # (a bug: said, the input kept here as crash-defect-<its hash> -- in the folder the run is
+    # in, as libFuzzer keeps its own crashes: built without Nim's signal handlers,
+    # -d:noSignalHandler, libFuzzer keeps it too --, and the process stopped: a Defect let out of
     # here into libFuzzer's C would leave Nim's error state set, and the run would crash later
     # on another input, with nothing kept)
     stderr.writeLine "Defect: ", e.name, ": ", e.msg
+    try: writeFile("crash-defect-" & $hash(s), s)
+    except IOError: discard
     abort()
   0

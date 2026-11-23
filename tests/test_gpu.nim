@@ -126,4 +126,17 @@ run(2)
 active.view.setZoom(big, -2)
 run(30)                                  # (the tabs slide to the new one first)
 compare("zoomed out 1:2")
+# the Arabic interface: the frame mirrored, the picture and its checkerboard where their view
+# is, as the CPU has them (the GPU drew them where the frame would be unmirrored: off to one side)
+prefs.language = 1
+applyLanguage()
+run(4)
+compare("Arabic interface")
+for dw in docs:
+  if dw.doc == d: showDoc(dw)
+run(30)
+compare("Arabic interface, a see-through picture")
+prefs.language = 0
+applyLanguage()
+run(4)
 echo "gpu tests passed"

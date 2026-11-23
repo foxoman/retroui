@@ -32,7 +32,7 @@
 import std/[strutils, uri]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 when defined(windows):
-  import std/[locks, widestrs]
+  import std/[locks, widestrs, os, atomics, monotimes, times]
 elif defined(wasm):
   discard
 elif defined(ios):
@@ -246,9 +246,36 @@ when defined(windows):
             discard WinHttpSetOption(session, optSecureProtocols, addr protocols, 4)
       result = session
 
+  type WinStop = object
+    ## (what can end a download as it goes: a flag another thread sets, a file "<dest>.stop"
+    ## made by `stopDownload`, a time limit for the whole of it -- looked at between pieces)
+    flag: ptr Atomic[bool]
+    file: string
+    until: MonoTime                   # (MonoTime(): none)
+    nextLook: MonoTime
+    why: string
+
+  proc goOn(s: ptr WinStop): bool =
+    if s == nil: return true
+    if s.flag != nil and s.flag[].load:
+      s.why = "cancelled"
+      return false
+    let now = getMonoTime()
+    if s.until != MonoTime() and now > s.until:
+      s.why = "it took longer than allowed"
+      return false
+    if s.file.len > 0 and now >= s.nextLook:
+      s.nextLook = now + initDuration(milliseconds = 200)
+      if fileExists(s.file):
+        s.why = "stopped"
+        return false
+    true
+
   proc winOnce(meth, url: string; headers: openArray[(string, string)]; body: string;
-               timeoutSec: int): HttpResponse =
-    ## One request, one answer (`httpRequest` follows the redirects).
+               timeoutSec: int; toPath = ""; resumeAt = 0'i64; stop: ptr WinStop = nil): HttpResponse =
+    ## One request, one answer (`httpRequest` follows the redirects). `toPath`: a 2xx answer's
+    ## body written into that file as it comes (added to it when the server sends what follows
+    ## `resumeAt`: 206), not kept in memory; `stop` looked at between its pieces.
     let u = try: parseUri(url) except UriParseError: Uri()
     let scheme = u.scheme.toLowerAscii
     if scheme notin ["http", "https"] or u.hostname.len == 0:
@@ -298,16 +325,30 @@ when defined(windows):
       if WinHttpQueryHeaders(req, queryRawHeaders, nil, addr buf[0], addr size, nil) != 0:
         result.headerLines($cast[WideCString](addr buf[0]))
     if meth == "HEAD": return
+    var f: File
+    let toFile = toPath.len > 0 and result.status in 200 .. 299
+    if toFile:
+      let append = resumeAt > 0 and result.status == 206
+      if not open(f, toPath, if append: fmAppend else: fmWrite):
+        result = failed("cannot write " & toPath); return
+    defer:
+      if toFile: f.close()
     var chunk = newString(65536)
     while true:
+      if not goOn(stop):
+        result = HttpResponse(status: 0, error: stop.why); return
       var got = 0'u32
       if WinHttpReadData(req, addr chunk[0], uint32(chunk.len), addr got) == 0:
         let e = GetLastError()
         result = HttpResponse(status: 0, error: "the answer was cut off: " & winError(e)); return
       if got == 0: break
-      let at = result.body.len
-      result.body.setLen(at + int(got))
-      copyMem(addr result.body[at], addr chunk[0], int(got))
+      if toFile:
+        if f.writeBuffer(addr chunk[0], int(got)) != int(got):
+          result = HttpResponse(status: 0, error: "the disk is full"); return
+      else:
+        let at = result.body.len
+        result.body.setLen(at + int(got))
+        copyMem(addr result.body[at], addr chunk[0], int(got))
 
 # ---- Android: Java's HttpURLConnection (tools/android/RetroNet.java) ---------------------
 
@@ -818,3 +859,47 @@ proc httpRequest*(meth, url: string; headers: openArray[(string, string)] = [];
           result = curlRequest(meth, url, hs, body, timeoutSec, followRedirects)
         else:
           result = commandRequest(meth, url, hs, body, timeoutSec, followRedirects)
+
+when defined(windows):
+  proc winDownload*(url, part: string; headers: openArray[(string, string)] = [];
+                    timeoutSec = 60; resume = false; stop: ptr Atomic[bool] = nil;
+                    stopFile = ""): string {.gcsafe.} =
+    ## Windows: `url` downloaded into the file `part` through WinHTTP, Windows' own -- no program
+    ## started (curl, a console program, flashed a window up for every download), the system's
+    ## proxy and certificates; what `retroui/fetch`'s `downloadFile` does there. Written as it
+    ## comes, never whole in memory; redirects followed (Authorization and cookies not sent on
+    ## to another host). `resume`: a `part` there from before is gone on with (a Range from its
+    ## end; a server that sends it all again rewrites it). It ends when `stop` is set
+    ## ("cancelled"), when `stopFile` is there ("stopped"), or past `timeoutSec` for the whole
+    ## (0: none; a minute with nothing coming, always). "" when `part` holds the file, else why
+    ## not. Any thread may call it.
+    var url = cleanUrl(url)
+    var hs: seq[(string, string)]
+    for (k, v) in headers:
+      if headerOk(k, v): hs.add (k, v)
+    let at = if resume and fileExists(part): getFileSize(part) else: 0'i64
+    if at > 0: hs.add ("Range", "bytes=" & $at & "-")
+    var s = WinStop(flag: stop, file: stopFile)
+    if timeoutSec > 0: s.until = getMonoTime() + initDuration(seconds = timeoutSec)
+    let wait = if timeoutSec > 0: min(timeoutSec, 60) else: 60
+    var r: HttpResponse
+    var hops = 0
+    while true:
+      {.cast(gcsafe).}:
+        r = winOnce("GET", url, hs, "", wait, toPath = part, resumeAt = at, stop = addr s)
+      if r.status notin [301, 302, 303, 307, 308]: break
+      inc hops
+      if hops > maxRedirects: return "too many redirects"
+      let loc = r.header("location")
+      let next = if loc.len == 0: "" else: (try: $combine(parseUri(url), parseUri(loc)) except UriParseError: "")
+      if next.len == 0: return "the server answered " & $r.status & " without saying where"
+      if not sameHost(url, next):
+        var kept: seq[(string, string)]
+        for (k, v) in hs:
+          if cmpIgnoreCase(k, "Authorization") != 0 and cmpIgnoreCase(k, "Cookie") != 0: kept.add (k, v)
+        hs = kept
+      url = cleanUrl(next)
+    if r.status == 0: return (if r.error.len > 0: r.error else: "no answer")
+    if r.status == 416 and at > 0: return ""     # (asked for what follows its end: it was whole)
+    if r.status notin 200 .. 299: return "the server answered " & $r.status
+    ""

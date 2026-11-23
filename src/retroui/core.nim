@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy, hangwatch, frameprof
 export busy
 
-const RetroVersion* = "0.70.0"
+const RetroVersion* = "0.71.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -2844,6 +2844,8 @@ proc groupEnd*(): tuple[cell: Rect, title: string] =
 
 var
   uiStrings: Table[string, string]   # (the words on screen in another language: `setUiLanguage`)
+  uiLeads, uiTails: Table[int, seq[string]]   # (its texts' fixed parts glued to a value: `tr`)
+  uiMids: seq[string]                         # (... and between two values: " of ")
   uiLanguage = ""
   uiPseudo = false                   # (every text stretched and marked: "pseudo")
 
@@ -2876,6 +2878,10 @@ proc pseudoText*(s: string): string =
     for _ in 0 ..< max(1, (letters + 2) div 3): result.add "\u00b7"
   result.add ']'
 
+proc twoOf(s: string; i: int): int {.inline.} =
+  ## (the two bytes of `s` from `i`, as one number: a key of `uiLeads`, `uiTails`)
+  (ord(s[i]) shl 8) or ord(s[i + 1])
+
 proc setUiLanguage*(lang: string; tables: varargs[seq[(string, string)]]) =
   ## The interface in another language: each label, button, menu, tab,
   ## title shown is looked up in `tables` (the English text, "&" taken out,
@@ -2885,12 +2891,25 @@ proc setUiLanguage*(lang: string; tables: varargs[seq[(string, string)]]) =
   ## the longer words of other languages and find the words not translated
   ## ($RETRO_LANG=pseudo does it as the app starts).
   uiStrings.clear()
+  uiLeads.clear()
+  uiTails.clear()
+  uiMids.setLen(0)
   uiLanguage = lang
   uiPseudo = lang == "pseudo"
   if lang notin ["", "en", "pseudo"]:
     for t in tables:
       for (k, v) in t:
         if k.len > 0 and v.len > 0: uiStrings[k] = v
+    # (the fixed parts a text is glued from -- "Could not open " & name, $n & " pages left",
+    # "Page " & $i & " of " & $n -- by their first or last two letters, the longest first)
+    for k in uiStrings.keys:
+      if k.len < 4: continue
+      if k[0] != ' ' and k[^1] in {' ', '"', '('}: uiLeads.mgetOrPut(twoOf(k, 0), @[]).add k
+      elif k[0] == ' ' and k[^1] != ' ': uiTails.mgetOrPut(twoOf(k, k.len - 2), @[]).add k
+      elif k[0] == ' ' and k[^1] == ' ' and k.strip.len > 0: uiMids.add k
+    for l in uiLeads.mvalues: l.sort(proc (a, b: string): int = cmp(b.len, a.len))
+    for l in uiTails.mvalues: l.sort(proc (a, b: string): int = cmp(b.len, a.len))
+    uiMids.sort(proc (a, b: string): int = cmp(b.len, a.len))
   ui.rtl = lang in ["ar", "fa", "he", "ur"]
   setRtlInterface(ui.rtl)     # (mixed lines read right to left, as the interface)
   ui.force = true
@@ -2898,11 +2917,46 @@ proc setUiLanguage*(lang: string; tables: varargs[seq[(string, string)]]) =
 proc uiLanguageCode*(): string = uiLanguage
   ## The interface's language ("" English).
 
+proc glued(s: string): string =
+  ## (`s` made of fixed parts the tables have and values -- "Could not open " & name, $n & "
+  ## pages left", "Page " & $i & " of " & $n: those parts translated, the values kept; "" when
+  ## it starts with none of them and ends with none)
+  var a = 0
+  var lead = ""
+  for k in uiLeads.getOrDefault(twoOf(s, 0)):
+    if k.len < s.len and s.startsWith(k):
+      lead = uiStrings[k]
+      a = k.len
+      break
+  var b = s.len
+  var tail = ""
+  for k in uiTails.getOrDefault(twoOf(s, s.len - 2)):
+    if k.len < s.len - a and s.endsWith(k):
+      tail = uiStrings[k]
+      b = s.len - k.len
+      break
+  if lead.len == 0 and tail.len == 0: return ""
+  var mid = s[a ..< b]
+  # (between two values: " of " -- only in a text known to be glued, not in a name)
+  if mid.len >= 4:
+    for k in uiMids:
+      if k.len <= mid.len and k in mid: mid = mid.replace(k, uiStrings[k])
+  lead & mid & tail
+
 proc tr*(s: sink string): string =
   ## `s` in the interface's language (as it is when it has no translation).
+  ## A text glued from fixed parts and values -- `"Could not open " & name`,
+  ## `$n & " pages left"`, `"Page " & $i & " of " & $n` -- has those parts
+  ## translated where the tables have them as the code glues them, their
+  ## spaces with them ("Could not open ", " pages left", " of "), when it
+  ## starts or ends with one; the values as they are.
   if uiPseudo: return pseudoText(s)
   if uiStrings.len == 0 or s.len == 0: return s     # (moved, not copied)
-  uiStrings.getOrDefault(s, s)
+  uiStrings.withValue(s, v): return v[]
+  if s.len >= 5 and (uiLeads.len > 0 or uiTails.len > 0):
+    let g = glued(s)
+    if g.len > 0: return g
+  s
 
 proc pluralForm*(lang: string; n: int): int =
   ## Which form of a word goes with the number `n` in `lang`, as the

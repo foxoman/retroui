@@ -232,7 +232,7 @@ proc assetFile(it: var AssetItem): string =
   if fileExists(dest) and getFileSize(dest) > 0: return dest
   let err = fetchNow(it.fullUrl, dest)
   if err.len > 0:
-    status = tr("Could not get it:") & " " & err
+    status = if err == "cancelled": tr("Cancelled.") else: tr("Could not get it:") & " " & err
     return ""
   if ext == "zip":
     # (a texture's maps: its color one)
@@ -283,10 +283,12 @@ proc insertAsset(it: var AssetItem; asDocument = false) =
                     "in a frame")
         return
     return
-  beginBusy(tr("Getting") & " " & it.title)
+  # (its download can be stopped: Cancel, or Esc, in the busy box)
+  beginBusy(tr("Getting") & " " & it.title, cancel = true)
   var path = ""
   try: path = assetFile(it)
-  finally: endBusy()
+  except BusyCancelled: status = tr("Cancelled.")
+  finally: endBusy(cancel = true)
   if path.len == 0: return
   let ext = path.splitFile.ext.toLowerAscii
   try:
@@ -382,10 +384,12 @@ proc downloadAsset(it: var AssetItem) =
   if it.fullUrl.startsWith("template:"):
     status = tr("Designs open as documents: use Open as Document, then save")
     return
-  beginBusy(tr("Getting") & " " & it.title)
+  # (its download can be stopped: Cancel, or Esc, in the busy box)
+  beginBusy(tr("Getting") & " " & it.title, cancel = true)
   var path = ""
   try: path = assetFile(it)
-  finally: endBusy()
+  except BusyCancelled: status = tr("Cancelled.")
+  finally: endBusy(cancel = true)
   if path.len == 0: return
   let dir = picturesDir() / "Retro Atelier Assets" / $it.kind
   try:

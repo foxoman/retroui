@@ -175,7 +175,7 @@ jobs:
       - name: Build
         run: |
           mkdir -p build
-          nim c --cc:clang --noMain -d:useMalloc -d:release --debugger:native --hints:off \
+          nim c --cc:clang --noMain -d:useMalloc -d:release -d:noSignalHandler --debugger:native --hints:off \
             --passC:"-fsanitize=fuzzer,address,undefined -fno-sanitize=function" \
             --passL:"-fsanitize=fuzzer,address,undefined" \
             -d:fuzzTarget=${{ matrix.target }} -o:build/lf tests/fuzz/libfuzz.nim

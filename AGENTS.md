@@ -49,6 +49,10 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   job's value is moved out, never shared (ORC counts a closure's
   references on one thread only). A loop that makes jobs makes each in a
   proc of its own (closures in a loop share the loop's variables).
+- Signals (`retroui/signals`) and values kept across `--watch`'s reloads
+  (`retroui/keep`, $RETRO_KEEP_STATE set by `retrokit`'s `watchRun`):
+  `keep` costs nothing outside `--watch`, and writes from `endFrameHooks`
+  at most four times a second, only what changed.
 - No thread for each task: a thread that ends leaves behind what ORC's
   cycle collector began for it (`docs/nim-bugs.md` 6, about 4 KB each).
   Work goes to the kit's lasting workers (`retroui/jobs`), or to one
@@ -102,6 +106,10 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   by clearing `fromMaster` yourself. A layer clipped to a frame crosses
   the spine only with its frame, clipped to its copy.
   `tests/test_photobook.nim` and `tests/test_photobookapp.nim`.
+- Today's editors' filters and adjustments: `retroui/photomore` (each a
+  `FilterFn`; adjustment layers with numbers through `paramAdjust`, which
+  `photodevelop.adjustmentFn` asks for any kind it does not know).
+  `tests/test_photoextras.nim`.
 - Vectors from pictures and type: `retroui/imagetrace` (`traceImage`),
   `retroui/photovector` (`textShapes`, `blendShapes`); templates for new
   drawings and books: `retroui/layouttemplates` (no app code in them --
@@ -484,14 +492,17 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
 4. Before a release, run the tests under the sanitizers too (the command
    is at the top of `tests/lsan.supp`); a leak found goes into
    `test_hardening`. Also `python3 tools/returncheck.py`,
-   `python3 tools/writecheck.py` and `python3 tools/addcheck.py` (all on GitHub too), `nimble fuzz`,
+   `python3 tools/writecheck.py`, `python3 tools/addcheck.py` and `python3 tools/arabiccheck.py`
+   (all on GitHub too), `nimble fuzz`,
    `sh tests/run32.sh` (and `RETRO32_UBSAN=1`), and the checks of what
    changed: `tests/web/run.sh`, `tests/web/node.sh`, `tests/wayland/run.sh`,
    `tests/kiosk/run.sh`, `tests/store/linux.sh`. GitHub runs the long ones
    every night (`.github/workflows/nightly.yml`: sanitizers, long fuzzing,
    libFuzzer on `tests/fuzz/libfuzz.nim`, 32-bit, WebAssembly, the tests
    three times over, ten apps soaked); a crash's input is in the run's
-   artifacts. An app changed: `sh tools/soak.sh 10 APP` (ten minutes of
+   artifacts. A security pass by AI agents: `sh tools/strix.sh` (Docker
+   and an AI service's key; Actions > Strix by hand) -- what it reports
+   is fixed like a test's failure, after it is shown real. An app changed: `sh tools/soak.sh 10 APP` (ten minutes of
    random input, its memory watched; as a user of its own: the clicks
    delete what they reach) -- a fault it finds has its stack in a build
    with `--stackTrace:on --lineTrace:on` and the same `RETRO_SMOKE_SEED`. Built with `-d:retroSanitized` there, a
@@ -569,6 +580,15 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   stays within what 2.2 compiles: no 2.4-only syntax in the kit (sum
   types, `{.cyclic.}` imports, `owned` refs), and the checks for 2.2's
   leaks (`tools/returncheck.py`, `tools/writecheck.py`) still pass.
+- **Every text Retro Atelier shows has its Arabic** in
+  `examples/photo/lang_ar.nim` (the kit's own words in
+  `src/retroui/lang_ar.nim`): a label, a menu item, a status message. One
+  glued to a value (`"Could not open " & name`, `"Page " & $i & " of " &
+  $n`) has its fixed parts as keys, their spaces kept: `tr` translates
+  them. `python3 tools/arabiccheck.py` lists what has none and must say 0.
+  Something drawn over a picture in the mirrored Arabic frame is drawn in
+  `beginKeepSides`; a new drawing command that keeps positions of its own
+  (in `imgArena`, as `ckTex` and `ckChecker`) is moved in `mirrorCmd` too.
 - **Speed is measured, before and after** (`retroui/frameprof`,
   `python3 tools/bench.py --profile`, `RETRO_TRACE`): a change made for
   speed says what it saved in the scenes' numbers, and a new stage of a
@@ -643,6 +663,63 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
 - **Nim 2.4.2 reads `s[^1]` after `s.add` moved it** (`s.add s[^1] + x`:
   docs/nim-bugs.md): take the value into a `let`, then add it;
   `python3 tools/addcheck.py` finds every one and must say 0.
+- **Nim 2.4.2 leaks a string of a literal array in a `for` whose runes it
+  reads** (`for s in ["a", "b"]: for r in s.runes`, or
+  `for c in s.toOpenArray(...)`: a copy of each, every time --
+  docs/nim-bugs.md 8): put the list in a `let` or a `const` first. The
+  kit's code has none; the nightly's sanitizers find a test's.
+- **Two 16-bit numbers multiplied in C are signed ints first** (C's own
+  promotion): `uint16 * uint16` that can pass 2^31 is undefined -- a
+  32-bit program's UBSan and WebAssembly find it. Multiply in `uint32`
+  and keep the bits wanted (`t1Decrypt`).
+- **A change to the kit's C headers** (`simdkit.h` and the others) is not
+  seen by Nim's cache: the C it made from a module stays, built with the
+  old header. Measure or test such a change from a fresh `--nimcache`
+  (or `XDG_CACHE_HOME`); `tools/bench.py` and the suite's clean clone do.
+- **Waiting on the thread that draws** (a process, a download, another
+  thread): tick the busy box as it waits (`busyTick()` every few tens of
+  ms) and stop at its Cancel (`busyCancelAsked`) -- a `sleep` loop alone
+  is a window that does not answer (Windows' hang report, Android's "not
+  responding"). `downloadFile` does so; a blocking call into the system
+  (Android's Java part) is made from a thread of its own meanwhile.
+- **No console program on Windows for the kit's own work:** a program
+  started there opens a window of its own (curl did, for every download).
+  Use Windows' own API (WinHTTP: `httpRequest`, `winDownload`), and where a
+  program must be started, `poDaemon` (`CREATE_NO_WINDOW`).
+- **No proc nested in a proc that `parallelFor` or `parallelRows` runs**
+  (a helper inside the worker's closure): ORC crashed on it (SIGSEGV in
+  `lineBox`). Use a template there, or a top-level proc.
+- **`for k, x in seqOfSeqs`** copies each inner seq: in a loop over
+  pixels that is a copy a pixel (`astroStack` took minutes). Index it
+  (`frames[k][i]`).
+- **A signal's value is `.value`**, never `s[]`: a `Signal` is a ref, and
+  `s[]` is Nim's own dereference, which wins over a `[]` of ours.
+- **Retro Atelier's newer commands are in their own modules**, included by
+  `examples/photo.nim` with forward declarations there:
+  `photo/extras` (HDR, range and compound masks) chains to
+  `photo/filemore` (the file and photo commands), then `photo/aimore` (the
+  generative edits); `photo/vectormore` has the drawing tools 19..71 (their
+  events through `moreVectorEvents`), `photo/objectmore` the path and type
+  commands, `photo/layoutextra` the layout program's. A variable a menu
+  reads (in `photo/pscc`, included before them) is declared in
+  `photo.nim`, or read through a forward-declared proc
+  (`imageAssetsOn`). The engine they use is the kit's
+  (`retroui/photomore`).
+- **A new command of Retro Atelier is run once by `test_atelierextras`**
+  (every `of "..."` in those modules' command procs): give one that
+  opens a file picker or waits nothing it would do without a document.
+- **Wrapping a paragraph:** a word at a time with `LineMeter` (`paragraph`,
+  `wrapLines`), never `textWidth(line & " " & word)` for each word -- that
+  measures each line again for every word it gets.
+- **Reading a file a user chose, or one walked:** a device, a pipe or a
+  socket (`specialFile`, `FileItem.special`) is never opened to be read --
+  a FIFO waits for ever, `/dev/zero` never ends. The file jobs (copy, move,
+  zip) leave one as it is and say so; a viewer shows it and reads nothing.
+- **A big file opened:** hold it once. Free the bytes read once they are
+  decoded, give a decoded buffer to its owner (`move`, a `sink`
+  parameter -- a parameter a nested proc reads is copied whole into its
+  closure otherwise), and decode only what is used (`readPsd`'s
+  `merged`, `layerPixels`).
 - **Nim 2.2 leaks** in three shapes, worked around in the kit: `return x`
   after `result` was already set, `return nil` too (write `result = x;
   return`, or keep the value in a local until it is whole;

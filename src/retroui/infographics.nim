@@ -26,7 +26,8 @@ type
   ChartKind2* = enum
     ## What a chart of a page draws.
     ckColumn = "Columns", ckBar = "Bars", ckStackedColumn = "Stacked Columns", ckStackedBar = "Stacked Bars",
-    ckLine = "Lines", ckArea = "Areas", ckPie = "Pie", ckDonut = "Donut", ckRadar = "Radar"
+    ckLine = "Lines", ckArea = "Areas", ckPie = "Pie", ckDonut = "Donut", ckRadar = "Radar",
+    ckScatter = "Scatter"
   LegendPlace* = enum
     lpNone = "None", lpTop = "Top", lpBottom = "Bottom", lpRight = "Right"
   ChartSpec* = object
@@ -524,13 +525,28 @@ proc chartSvg*(c: ChartSpec): string =
             o.add textEl(start + bw / 2, ly, num(v), fs * 0.9, (if stacked: 0xFFFFFFFF'u32 else: th.text), font,
                          "middle")
   else:
-    # lines and areas
+    # lines and areas; scatter: points only, across by the categories' numbers when they are numbers
     let lw = if c.lineWidth > 0: c.lineWidth else: 3.0
+    var xs: seq[float]
+    if c.kind == ckScatter:
+      for l in c.labels:
+        try: xs.add parseFloat(l.strip)
+        except ValueError:
+          xs = @[]
+          break
+    var xlo = Inf
+    var xhi = -Inf
+    for x in xs:
+      xlo = min(xlo, x)
+      xhi = max(xhi, x)
+    proc xPos(ci: int): float =
+      if xs.len == nCat and nCat > 0 and xhi > xlo: px0 + band / 2 + (xs[ci] - xlo) / (xhi - xlo) * (px1 - px0 - band)
+      else: catPos(ci)
     for si, (_, vs) in c.series:
       var pts: seq[(float, float)]
       for ci in 0 ..< nCat:
         let v = if ci < vs.len: vs[ci] else: NaN
-        if finite(v): pts.add (catPos(ci), vPos(v))
+        if finite(v): pts.add (xPos(ci), vPos(v))
       if pts.len == 0: continue
       let col = c.seriesColor(th, si)
       var d = ""
@@ -540,10 +556,11 @@ proc chartSvg*(c: ChartSpec): string =
       if c.kind == ckArea:
         o.add "<path d=\"" & d & " L" & n(pts[^1][0]) & " " & n(z) & " L" & n(pts[0][0]) & " " & n(z) & " Z\" " &
               fillOf((col and 0x00FFFFFF'u32) or 0x59000000'u32) & "/>\n"
-      o.add "<path d=\"" & d & "\" fill=\"none\" stroke=\"" & hexOf(col) & "\" stroke-width=\"" & n(lw) &
-            "\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n"
+      if c.kind != ckScatter:
+        o.add "<path d=\"" & d & "\" fill=\"none\" stroke=\"" & hexOf(col) & "\" stroke-width=\"" & n(lw) &
+              "\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n"
       for p in pts:
-        if c.markers:
+        if c.markers or c.kind == ckScatter:
           o.add "<circle cx=\"" & n(p[0]) & "\" cy=\"" & n(p[1]) & "\" r=\"" & n(lw * 1.4) & "\" " & fillOf(col) &
                 (if bg != 0: " stroke=\"" & hexOf(bg) & "\"" else: " stroke=\"#ffffff\"") & " stroke-width=\"" &
                 n(lw * 0.6) & "\"/>\n"

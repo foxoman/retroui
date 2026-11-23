@@ -604,7 +604,7 @@ proc buildShapes(): seq[CustomShape] =
   result.add sh("Play", "Web", ad("M15 0 L95 50 L15 100 Z"))
   result.add sh("Pause", "Web", ad(rectD(12, 0, 40, 100)), ad(rectD(60, 0, 88, 100)))
 
-let CustomShapes* = buildShapes()
+var CustomShapes* = buildShapes()
   ## The shapes of the Custom Shape tool (`category` its set in the Shapes
   ## panel): 19 of the first ones, and Photoshop's kinds of sets since.
 

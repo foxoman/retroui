@@ -1014,6 +1014,7 @@ type
     shape*: ShapeData
     text*: TextData
     smart*: SmartData
+    fx*: LayerFx        ## its style as it was (Scale Strokes & Effects: scaled from it)
     box*: Rect          ## where it was
 
 proc shotsOf*(d: Doc; ls: openArray[Layer]): seq[LayerShot] =
@@ -1023,7 +1024,7 @@ proc shotsOf*(d: Doc; ls: openArray[Layer]): seq[LayerShot] =
   ## with nothing in it.
   for L in ls:
     if L == nil or L.background or L.group or L.adjust.kind.len > 0 or L.locked or L.lockPosition: continue
-    var s = LayerShot(layer: L, box: d.layerBox(L))
+    var s = LayerShot(layer: L, box: d.layerBox(L), fx: L.fx)
     if L.isText: (s.kind = skText; s.text = L.text)
     elif L.isShape and not L.isFill: (s.kind = skShape; s.shape = L.shape)
     elif L.isSmart: (s.kind = skSmart; s.smart = L.smart)
@@ -1054,13 +1055,29 @@ proc textBoxOf(d: Doc; L: Layer; t: TextData): array[4, float32] =
   let lay = layoutText(d.effectiveText(L))
   [lay.x0 - 2, lay.y0 - 2, lay.x1 + 2, lay.y1 + 2]
 
+proc areaScale*(r: Rect; q: Quad): float =
+  ## How much bigger box `r` became as the corners `q`, along a side: the square root of how
+  ## much its area grew (Scale Strokes & Effects scales a stroke by it).
+  proc tri(a, b, c: (float, float)): float =
+    abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])) / 2
+  let area = tri(q[0], q[1], q[2]) + tri(q[0], q[2], q[3])
+  sqrt(area / max(1.0, float(r.w * r.h)))
+
 proc carryShots*(d: Doc; shots: openArray[LayerShot]; r: Rect; q: Quad;
-                 smartDrawn: proc (L: Layer) = nil) =
+                 smartDrawn: proc (L: Layer) = nil; strokes = false) =
   ## The shapes, type and Smart Objects of `shots` made again where box `r`
   ## went (its corners `q`), each staying what it is; `smartDrawn` draws a
   ## Smart Object again from what it holds (the app's: its filters).
+  ## `strokes`: Scale Strokes & Effects -- the shapes' strokes and every
+  ## layer's style scaled with it (`areaScale`).
   ## (The pixel layers are shown live, `liveShots`, and put down at the end.)
   let f = quadMap(r, q)
+  let ks = areaScale(r, q)
+  if strokes:
+    for s in shots:
+      var fx = s.fx
+      fx.scaleFx(ks)
+      s.layer.fx = fx
   let square = squareQuad(q)
   let sx = (q[1][0] - q[0][0]) / max(1.0, r.w.float)
   let sy = (q[3][1] - q[0][1]) / max(1.0, r.h.float)
@@ -1071,6 +1088,7 @@ proc carryShots*(d: Doc; shots: openArray[LayerShot]; r: Rect; q: Quad;
     of skShape:
       var sh = s.shape
       sh.path.mapPoints(f)
+      if strokes: sh.scaleStrokes(ks)
       d.setShape(L, sh)
     of skSmart:
       var c: Quad

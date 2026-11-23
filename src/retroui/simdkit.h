@@ -16,6 +16,10 @@ typedef int32_t ruk_i4 __attribute__((vector_size(16)));
 typedef uint16_t ruk_u8h __attribute__((vector_size(16)));
 typedef uint8_t ruk_b16 __attribute__((vector_size(16)));
 typedef int16_t ruk_s8 __attribute__((vector_size(16)));
+typedef uint8_t ruk_b8 __attribute__((vector_size(8)));
+#if defined(__SSE2__)
+#include <emmintrin.h>
+#endif
 
 static inline ruk_u4 ruk_load4(const uint32_t* p) { ruk_u4 v; memcpy(&v, p, 16); return v; }
 static inline void ruk_store4(uint32_t* p, ruk_u4 v) { memcpy(p, &v, 16); }
@@ -60,10 +64,89 @@ static inline ruk_u4 ruk_blend4(ruk_u4 q, ruk_u4 c, ruk_u4 a) {
 }
 
 /* a glyph's row: each pixel of fp mixed with col by its coverage m[i] (0 left alone, 255 col),
-   through lut when there is one (small text's) */
+   through lut when there is one (small text's). Four pixels at a time in 16-bit lanes, a lane
+   for each channel: c a + q (255 - a) + 128 fits in one (65,153 at most), and SSE2 multiplies
+   eight of those at once where it has no multiply of 32-bit lanes at all -- the 32-bit way,
+   red and blue in one lane, is the last below for a compiler without vector conversions. The
+   very values of ruk_blend1 (the alpha byte 0 where mixed, as there). */
 static inline void ruk_blend_mask(uint32_t* fp, const uint8_t* m, intptr_t n, uint32_t col, const uint8_t* lut) {
   intptr_t i = 0;
   ruk_u4 cv = {col, col, col, col};
+#if defined(__SSE2__)
+  const __m128i z = _mm_setzero_si128();
+  const __m128i cw = _mm_set1_epi32((int)col);
+  const __m128i c16 = _mm_unpacklo_epi8(cw, z);                       /* B G R A, twice */
+  const __m128i k255 = _mm_set1_epi16(255), k128 = _mm_set1_epi16(128);
+  const __m128i rgb = _mm_set1_epi32(0xFFFFFF);
+  for (; i + 4 <= n; i += 4) {
+    uint32_t w;
+    memcpy(&w, m + i, 4);
+    if (w == 0) continue;
+    uint32_t r0 = m[i], r1 = m[i + 1], r2 = m[i + 2], r3 = m[i + 3];
+    uint32_t a0 = r0, a1 = r1, a2 = r2, a3 = r3;
+    if (lut) { a0 = lut[r0]; a1 = lut[r1]; a2 = lut[r2]; a3 = lut[r3]; }
+    else if (w == 0xFFFFFFFFu) { _mm_storeu_si128((__m128i*)(fp + i), cw); continue; }
+    __m128i q = _mm_loadu_si128((const __m128i*)(fp + i));
+    __m128i ql = _mm_unpacklo_epi8(q, z), qh = _mm_unpackhi_epi8(q, z);
+    __m128i av = _mm_set_epi32((int)a3, (int)a2, (int)a1, (int)a0);
+    __m128i a16 = _mm_packs_epi32(av, av);                             /* a0 a1 a2 a3 a0 a1 a2 a3 */
+    __m128i al = _mm_unpacklo_epi16(a16, a16);                         /* a0 a0 a1 a1 a2 a2 a3 a3 */
+    __m128i ah = _mm_unpackhi_epi32(al, al);                           /* a2 x4, a3 x4 */
+    al = _mm_unpacklo_epi32(al, al);                                   /* a0 x4, a1 x4 */
+    __m128i xl = _mm_add_epi16(_mm_add_epi16(_mm_mullo_epi16(c16, al),
+                                             _mm_mullo_epi16(ql, _mm_sub_epi16(k255, al))), k128);
+    __m128i xh = _mm_add_epi16(_mm_add_epi16(_mm_mullo_epi16(c16, ah),
+                                             _mm_mullo_epi16(qh, _mm_sub_epi16(k255, ah))), k128);
+    xl = _mm_srli_epi16(_mm_add_epi16(xl, _mm_srli_epi16(xl, 8)), 8);
+    xh = _mm_srli_epi16(_mm_add_epi16(xh, _mm_srli_epi16(xh, 8)), 8);
+    __m128i r = _mm_and_si128(_mm_packus_epi16(xl, xh), rgb);
+    /* (where there is no coverage the pixel stays -- the table not asked; where it is full,
+       the color itself) */
+    __m128i raw = _mm_set_epi32((int)r3, (int)r2, (int)r1, (int)r0);
+    __m128i none = _mm_cmpeq_epi32(raw, z);
+    __m128i full = _mm_andnot_si128(none, _mm_cmpgt_epi32(av, _mm_set1_epi32(254)));
+    r = _mm_or_si128(_mm_andnot_si128(_mm_or_si128(none, full), r),
+                     _mm_or_si128(_mm_and_si128(none, q), _mm_and_si128(full, cw)));
+    _mm_storeu_si128((__m128i*)(fp + i), r);
+  }
+#elif defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 9)
+  ruk_b8 cb;
+  memcpy(&cb, &cv, 8);
+  const ruk_u8h c16 = __builtin_convertvector(cb, ruk_u8h);
+  const ruk_u8h k255 = {255, 255, 255, 255, 255, 255, 255, 255};
+  const ruk_u8h k128 = {128, 128, 128, 128, 128, 128, 128, 128};
+  const ruk_u4 rgb = {0xFFFFFFu, 0xFFFFFFu, 0xFFFFFFu, 0xFFFFFFu};
+  for (; i + 4 <= n; i += 4) {
+    uint32_t w;
+    memcpy(&w, m + i, 4);
+    if (w == 0) continue;
+    uint32_t r0 = m[i], r1 = m[i + 1], r2 = m[i + 2], r3 = m[i + 3];
+    uint32_t a0 = r0, a1 = r1, a2 = r2, a3 = r3;
+    if (lut) { a0 = lut[r0]; a1 = lut[r1]; a2 = lut[r2]; a3 = lut[r3]; }
+    else if (w == 0xFFFFFFFFu) { ruk_store4(fp + i, cv); continue; }
+    ruk_u4 q = ruk_load4(fp + i);
+    ruk_b8 qlo, qhi;
+    memcpy(&qlo, &q, 8);
+    memcpy(&qhi, (const char*)&q + 8, 8);
+    ruk_u8h ql = __builtin_convertvector(qlo, ruk_u8h), qh = __builtin_convertvector(qhi, ruk_u8h);
+    ruk_u8h al = {a0, a0, a0, a0, a1, a1, a1, a1}, ah = {a2, a2, a2, a2, a3, a3, a3, a3};
+    ruk_u8h xl = c16 * al + ql * (k255 - al) + k128;
+    ruk_u8h xh = c16 * ah + qh * (k255 - ah) + k128;
+    xl = (xl + (xl >> 8)) >> 8;
+    xh = (xh + (xh >> 8)) >> 8;
+    ruk_b8 rl = __builtin_convertvector(xl, ruk_b8), rh = __builtin_convertvector(xh, ruk_b8);
+    ruk_u4 r;
+    memcpy(&r, &rl, 8);
+    memcpy((char*)&r + 8, &rh, 8);
+    r &= rgb;
+    ruk_u4 a = {a0, a1, a2, a3};
+    ruk_u4 raw = {r0, r1, r2, r3};
+    ruk_u4 zero = (ruk_u4)(raw == 0);
+    ruk_u4 full = (ruk_u4)(a >= 255) & ~zero;
+    r = (r & ~zero & ~full) | (q & zero) | (cv & full);
+    ruk_store4(fp + i, r);
+  }
+#else
   for (; i + 4 <= n; i += 4) {
     uint32_t r0 = m[i], r1 = m[i + 1], r2 = m[i + 2], r3 = m[i + 3];
     if ((r0 | r1 | r2 | r3) == 0) continue;
@@ -84,6 +167,7 @@ static inline void ruk_blend_mask(uint32_t* fp, const uint8_t* m, intptr_t n, ui
     r = (r & ~zero & ~full) | (q & zero) | (cv & full);
     ruk_store4(fp + i, r);
   }
+#endif
   for (; i < n; i++) {
     uint32_t a = m[i];
     if (a == 0) continue;
@@ -344,7 +428,6 @@ static inline void ruk_ycc(uint32_t* o, const uint8_t* y, const uint8_t* cbp, co
    (half the height too; 4 * near[i] when not), out[0] = (t[0] + 2) >> 2, then for i in 1 ..< vw
    out[2i - 1] = (3 t[i-1] + t[i] + 8) >> 4 and out[2i] = (3 t[i] + t[i-1] + 8) >> 4, and
    out[2 vw - 1] = (t[vw - 1] + 2) >> 2 -- those below w; eight pairs at a time in 16-bit lanes */
-typedef uint8_t ruk_b8 __attribute__((vector_size(8)));
 static inline ruk_u8h ruk_widen8(const uint8_t* p) {
 #if defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 9)
   ruk_b8 b;

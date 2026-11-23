@@ -880,7 +880,7 @@ proc textureDialogs() =
 
 type AdjKind = enum akLevels, akCurves, akBC, akBalance, akHS, akThreshold, akPosterize, akReplace,
                    akSelective, akShadows, akVibrance, akExposure, akPhotoFilter, akBlackWhite, akMixer,
-                   akGradMap, akLookup, akLight, akHueCurves
+                   akGradMap, akLookup, akLight, akHueCurves, akParams
 
 var
   adjOpen = false
@@ -902,7 +902,7 @@ var
   cv: array[4, seq[(int, int)]]
   # hue curves (Hue vs Hue, Saturation, Lightness)
   hcChan = 1
-  hc: array[3, seq[(int, int)]]
+  hc: array[5, seq[(int, int)]]
   # brightness / contrast
   bcB, bcC = 0
   # color balance
@@ -959,7 +959,15 @@ const adjNames: array[AdjKind, string] = ["Levels", "Curves", "Brightness/Contra
                                           "Hue/Saturation", "Threshold", "Posterize", "Replace Color",
                                           "Selective Color", "Shadows/Highlights", "Vibrance", "Exposure",
                                           "Photo Filter", "Black & White", "Channel Mixer", "Gradient Map",
-                                          "Color Lookup", "Light", "Hue Curves"]
+                                          "Color Lookup", "Light", "Hue Curves", ""]
+
+var
+  apName = ""                 ## an adjustment kept by its numbers (`akParams`: retroui/photomore's
+  apVals: seq[float]          ## `paramAdjust` -- Split Toning, Color Grading...), its settings
+
+proc adjName(k: AdjKind): string =
+  ## (an adjustment's name: the one picked of those kept by their numbers, for `akParams`)
+  if k == akParams: apName else: adjNames[k]
 
 proc adjFn(): FilterFn =
   case adjKind
@@ -991,6 +999,9 @@ proc adjFn(): FilterFn =
     if f == nil: (proc (src: Img; inner: Rect): Img = src) else: f
   of akLight: lightFn(lgE / 100, lgC, lgH, lgS, lgW, lgB)
   of akHueCurves: hueCurves(hc)
+  of akParams:
+    let f = paramAdjustFn(apName, apVals)
+    if f == nil: (proc (src: Img; inner: Rect): Img = src) else: f
 
 proc adjSignature(): string =
   case adjKind
@@ -1013,6 +1024,7 @@ proc adjSignature(): string =
   of akLookup: $luData.len & "/" & $hash(luData)
   of akLight: $[lgE, lgC, lgH, lgS, lgW, lgB]
   of akHueCurves: $hc
+  of akParams: apName & $apVals
 
 proc adjArgs(): seq[float]
 proc adjData(): string = (if adjKind == akLookup: luData else: "")
@@ -1025,7 +1037,7 @@ proc adjWrite(apply: bool) =
   if adjOnLayer != nil:
     # an adjustment layer: its settings, the image made again under it
     adjOnLayer.visible = apply
-    d.setAdjustment(adjOnLayer, Adjustment(kind: adjNames[adjKind], args: adjArgs(), data: adjData()))
+    d.setAdjustment(adjOnLayer, Adjustment(kind: adjName(adjKind), args: adjArgs(), data: adjData()))
     adjShown = adjSignature() & $apply
     return
   let r = adjRect
@@ -1056,7 +1068,7 @@ proc startAdjust(k: AdjKind) =
   if adjRect.w <= 0 or adjRect.h <= 0: return
   adjKind = k
   adjSrc = d.filterImg(adjLayer, 0, proc (src: Img; inner: Rect): Img = src, adjRect)
-  d.beginStep(adjNames[k])
+  d.beginStep(adjName(k))
   d.touch(adjLayer, adjRect)
   adjOnLayer = nil
   adjSig = adjSignature()
@@ -1118,12 +1130,15 @@ proc resetAdjust(k: AdjKind; d: Doc) =
   of akLight:
     lgE = 0; lgC = 0; lgH = 0; lgS = 0; lgW = 0; lgB = 0
   of akHueCurves:
-    for c in 0 .. 2: hc[c] = @[(0, 128), (255, 128)]
+    for c in 0 .. 4: hc[c] = @[(0, 128), (255, 128)]
     hcChan = 1
+  of akParams:
+    apVals = @[]
+    for p in paramAdjustment(apName).params: apVals.add p.val
 
 const layerKinds = {akLevels, akCurves, akBC, akBalance, akHS, akThreshold, akPosterize, akSelective,
                     akVibrance, akExposure, akPhotoFilter, akBlackWhite, akMixer, akGradMap, akLookup, akLight,
-                    akHueCurves}
+                    akHueCurves, akParams}
   ## (the adjustments that can be adjustment layers)
 
 proc adjArgs(): seq[float] =
@@ -1172,9 +1187,13 @@ proc adjArgs(): seq[float] =
   of akGradMap: result = gradientMapArgs(gmStops, gmReverse, gmDither)
   of akLight: result = @[lgE / 100, lgC.float, lgH.float, lgS.float, lgW.float, lgB.float]
   of akHueCurves:
-    for c in 0 .. 2:
+    # (the two saturation curves only when they are not flat: older files' three as they were)
+    let last = if hc[3].len > 2 or hc[4].len > 2 or hc[3] != @[(0, 128), (255, 128)] or
+                  hc[4] != @[(0, 128), (255, 128)]: 4 else: 2
+    for c in 0 .. last:
       result.add hc[c].len.float
       for (x, y) in hc[c]: result.add [x.float, y.float]
+  of akParams: result = apVals
   else: discard
 
 proc loadAdjArgs(a: seq[float]) =
@@ -1249,14 +1268,19 @@ proc loadAdjArgs(a: seq[float]) =
     lgE = int(round(at(0) * 100)); lgC = ai(1); lgH = ai(2); lgS = ai(3); lgW = ai(4); lgB = ai(5)
   of akHueCurves:
     var i = 0
-    for c in 0 .. 2:
+    for c in 0 .. 4:
       hc[c] = @[]
-      let n = ai(i)
-      inc i
-      for k in 0 ..< n:
-        hc[c].add (ai(i), ai(i + 1))
-        i += 2
+      if i < a.len:
+        let n = ai(i)
+        inc i
+        for k in 0 ..< n:
+          hc[c].add (ai(i), ai(i + 1))
+          i += 2
       if hc[c].len < 2: hc[c] = @[(0, 128), (255, 128)]
+  of akParams:
+    apVals = a
+    let ps = paramAdjustment(apName).params
+    for i in apVals.len ..< ps.len: apVals.add ps[i].val
   else: discard
 
 proc startAdjustLayer(k: AdjKind; L: Layer = nil) =
@@ -1270,9 +1294,9 @@ proc startAdjustLayer(k: AdjKind; L: Layer = nil) =
   adjNewLayer = L == nil
   if L == nil:
     d.beginStep("New Adjustment Layer")
-    adjOnLayer = d.newAdjustmentLayer(Adjustment(kind: adjNames[k], args: adjArgs(), data: adjData()))
+    adjOnLayer = d.newAdjustmentLayer(Adjustment(kind: adjName(k), args: adjArgs(), data: adjData()))
   else:
-    d.beginStep(adjNames[k] & " Layer")
+    d.beginStep(adjName(k) & " Layer")
     d.touchLayers()
     adjOnLayer = L
     loadAdjArgs(L.adjust.args)
@@ -1295,8 +1319,12 @@ proc editAdjustLayer(L: Layer) =
   if L.adjust.kind in ["Clarity", "Dehaze", "Grain"]:
     showPanel("properties")                       # (set in Properties, as the usual)
     return
+  if isParamAdjust(L.adjust.kind):
+    apName = L.adjust.kind
+    startAdjustLayer(akParams, L)
+    return
   for k in AdjKind:
-    if adjNames[k] == L.adjust.kind and k in layerKinds:
+    if k != akParams and adjName(k) == L.adjust.kind and k in layerKinds:
       startAdjustLayer(k, L)
 
 proc newAreaAdjustment(d: Doc; kind: string) =
@@ -1314,7 +1342,7 @@ proc adjustLayerMenu(d: Doc) =
   ## The kinds of adjustment layer, to make one.
   for k in [akLevels, akCurves, akBC, akBalance, akHS, akHueCurves, akSelective, akVibrance, akExposure, akLight,
             akPhotoFilter, akBlackWhite, akMixer, akGradMap, akLookup, akThreshold, akPosterize]:
-    if menuItem(adjNames[k].replace("&", "&&") & "...", enabled = d.mode in colorModes or k notin {akBalance, akHS, akHueCurves, akSelective,
+    if menuItem(adjName(k).replace("&", "&&") & "...", enabled = d.mode in colorModes or k notin {akBalance, akHS, akHueCurves, akSelective,
                                                                            akVibrance, akPhotoFilter,
                                                                            akBlackWhite, akMixer}):
       startAdjustLayer(k)
@@ -1325,6 +1353,11 @@ proc adjustLayerMenu(d: Doc) =
   menuSeparator()
   for k in ["Clarity", "Dehaze", "Grain"]:
     if menuItem(k & "...", enabled = d.mode in colorModes): newAreaAdjustment(d, k)
+  menuSeparator()
+  for n in paramAdjustNames():
+    if menuItem(n & "...", enabled = d.mode in colorModes):
+      apName = n
+      startAdjustLayer(akParams)
 
 proc endAdjust(ok: bool) =
   adjOpen = false
@@ -1333,10 +1366,10 @@ proc endAdjust(ok: bool) =
   if adjOnLayer != nil:
     if ok:
       adjOnLayer.visible = true
-      adjDoc.setAdjustment(adjOnLayer, Adjustment(kind: adjNames[adjKind], args: adjArgs(), data: adjData()))
+      adjDoc.setAdjustment(adjOnLayer, Adjustment(kind: adjName(adjKind), args: adjArgs(), data: adjData()))
       adjDoc.endStep()
       if adjNewLayer and recording:
-        record(ActStep(kind: acAdjustLayer, name: adjNames[adjKind], vals: adjArgs(), data: adjData()))
+        record(ActStep(kind: acAdjustLayer, name: adjName(adjKind), vals: adjArgs(), data: adjData()))
     else:
       adjDoc.cancelStep()
     adjOnLayer = nil
@@ -1347,7 +1380,7 @@ proc endAdjust(ok: bool) =
     if adjShown != adjSignature() & "true": adjWrite(true)
     adjDoc.endStep()
     if recording and adjKind != akReplace:
-      record(ActStep(kind: acAdjust, name: adjNames[adjKind], vals: adjArgs(), data: adjData()))
+      record(ActStep(kind: acAdjust, name: adjName(adjKind), vals: adjArgs(), data: adjData()))
   else:
     adjWrite(false)
     adjDoc.cancelStep()
@@ -1438,23 +1471,33 @@ proc hueCurvesBody() =
     col:
       row:
         label "Curve:"
-        combo(["Hue vs Hue", "Hue vs Saturation", "Hue vs Lightness"], hcChan, w = dp(160))
+        combo(["Hue vs Hue", "Hue vs Saturation", "Hue vs Lightness", "Saturation vs Saturation",
+               "Luminance vs Saturation"], hcChan, w = dp(190))
       let lut = curveLut(hc[hcChan])
       curvesEditor(hc[hcChan], dp(256), lut, diagonal = false)
       # (round the wheel: red at both ends, so the curve's two ends are one)
-      if hc[hcChan].len >= 2 and hc[hcChan][^1][0] == 255 and hc[hcChan][0][0] == 0:
+      if hcChan <= 2 and hc[hcChan].len >= 2 and hc[hcChan][^1][0] == 255 and hc[hcChan][0][0] == 0:
         hc[hcChan][^1][1] = hc[hcChan][0][1]
       let r = place(dp(256) + 2, dp(10))
       for x in 0 ..< r.w:
-        vline(r.x + x, r.y, r.h, colorOf(fromHsb(float(x) * 360 / float(max(1, r.w)), 1, 1)))
+        let t = float(x) / float(max(1, r.w))
+        vline(r.x + x, r.y, r.h,
+              case hcChan
+              of 3: colorOf(fromHsb(200, t, 0.9))                  # (gray to saturated)
+              of 4: colorOf(fromHsb(0, 0, t))                       # (dark to light)
+              else: colorOf(fromHsb(t * 360, 1, 1)))
       let inside = mouseIn(rect(r.x, r.y - dp(256) - 4, dp(256), dp(256)))
       let x = clamp((ui.mx - r.x) * 255 div max(1, dp(256)), 0, 255)
-      label(if inside: "Hue: " & $(x * 360 div 255) & "°   " &
+      label(if inside: (case hcChan
+                        of 3: tr("Saturation: ") & $(x * 100 div 255) & "%   "
+                        of 4: tr("Lightness: ") & $(x * 100 div 255) & "%   "
+                        else: tr("Hue: ") & $(x * 360 div 255) & "°   ") &
                        (case hcChan
-                        of 0: "turned " & $((int(lut[x]) - 128) * 180 div 128) & "°"
-                        of 1: "saturation " & $(int(lut[x]) * 100 div 128) & "%"
-                        else: "lightness " & (if lut[x] >= 128: "+" else: "") & $((int(lut[x]) - 128) * 50 div 128))
-            else: "Click a hue's place on the line, drag it up or down",
+                        of 0: tr("turned ") & $((int(lut[x]) - 128) * 180 div 128) & "°"
+                        of 1, 3, 4: tr("saturation ") & $(int(lut[x]) * 100 div 128) & "%"
+                        else: tr("lightness ") & (if lut[x] >= 128: "+" else: "") & $((int(lut[x]) - 128) * 50 div 128))
+            elif hcChan >= 3: tr("Click a place on the line, drag it up or down")
+            else: tr("Click a hue's place on the line, drag it up or down"),
             color = ui.theme.gray)
     col:
       discard adjButtons()
@@ -1719,10 +1762,49 @@ proc lookupBody() =
                 "a grade from a video program).", color = ui.theme.gray)
     if adjButtons(): return
 
+proc paramsBody() =
+  ## (an adjustment kept by its numbers: a slider or a choice for each)
+  let ps = paramAdjustment(apName).params
+  if apVals.len < ps.len:
+    for i in apVals.len ..< ps.len: apVals.add ps[i].val
+  row([-1, 92]):
+    col:
+      for i, p in ps:
+        pushId("ap" & $i)
+        if p.choices.len > 0:
+          row:
+            label p.label
+            var k = clamp(int(apVals[i]), 0, p.choices.high)
+            if combo(p.choices, k, w = dp(170)): apVals[i] = k.float
+        elif p.check:
+          var on = apVals[i] > 0.5
+          if checkbox(p.label, on): apVals[i] = (if on: 1.0 else: 0.0)
+        else:
+          var v = int(round(apVals[i]))
+          var track: Rect
+          row([150, -1, 46]):
+            label p.label
+            if slider(v, int(p.lo), int(p.hi), ticks = 0): apVals[i] = v.float
+            track = ui.lastRect
+            label $v & p.unit
+          if p.label.endsWith("Hue:"):
+            # (the hues under the slider: what each place on it gives)
+            let r = place(dp(4), dp(6))
+            let inner = rect(track.x + dp(6), track.y, max(1, track.w - dp(12)), track.h)
+            for x in 0 ..< inner.w:
+              vline(inner.x + x, r.y, r.h, colorOf(fromHsb(float(x) * 360 / float(max(1, inner.w)), 0.8, 1)))
+        popId()
+    col:
+      discard adjButtons()
+      space(dp(6))
+      if button("Reset", w = dp(86)):
+        apVals = @[]
+        for p in ps: apVals.add p.val
+
 proc adjustDialog() =
   if not adjOpen: return
   var stillOpen = adjOpen
-  dialog(stillOpen, adjNames[adjKind], (case adjKind
+  dialog(stillOpen, adjName(adjKind), (case adjKind
                                          of akLevels, akCurves, akHueCurves: 420
                                          of akThreshold: 400
                                          of akPosterize: 340
@@ -1750,6 +1832,7 @@ proc adjustDialog() =
     of akGradMap: gradMapBody()
     of akLookup: lookupBody()
     of akHueCurves: hueCurvesBody()
+    of akParams: paramsBody()
   if not stillOpen and adjOpen:
     endAdjust(false)          # (Esc, the close box)
   if adjOpen:
@@ -1765,7 +1848,7 @@ proc adjustDialog() =
     if ui.mouseDown and canLive:
       if sig != adjSig:
         if adjOnLayer != nil:
-          d.setAdjustment(adjOnLayer, Adjustment(kind: adjNames[adjKind], args: adjArgs(), data: adjData()))
+          d.setAdjustment(adjOnLayer, Adjustment(kind: adjName(adjKind), args: adjArgs(), data: adjData()))
           adjOnLayer.visible = true
           if d.live.len == 0: d.setLive(@[LivePart(kind: lkMap)])   # (drawn from the layers)
           else: d.liveChanged()
@@ -2110,8 +2193,94 @@ proc initGallery() =
             proc (v: seq[float]): FilterFn = smartSharpen(int(v[0]), v[1], int(v[2])),
             proc (v: seq[float]): int = int(v[1] * 3) + 4)
 
+proc moreFilterBase(d: Doc): seq[(float, float)] =
+  ## (where Render > Flame's flames rise from: the current path's first line, else the bottom of
+  ## the selection, else of the image)
+  if d.curPath >= 0 and d.curPath < d.paths.len:
+    let polys = flatten(d.paths[d.curPath], 12)
+    if polys.len > 0 and polys[0].len >= 2: return polys[0]
+  let r = d.workRect
+  @[(float(r.x), float(r.y + r.h - 2)), (float(r.x + r.w), float(r.y + r.h - 2))]
+
+proc initMoreFilters() =
+  ## The filters of today's editors made here (retroui/photomore).
+  defFilter("Adaptive Wide Angle", @[pick("Correction:", ["Fisheye", "Perspective", "Full Spherical"]),
+                                     num("Focal Length:", 4, 60, 12, "mm", 1), num("Crop Factor:", 1, 6, 1, "", 2),
+                                     num("Scale:", 50, 200, 100, "%")],
+            proc (v: seq[float]): FilterFn = adaptiveWideAngle(int(v[0]), v[1], v[2], v[3]))
+  defFilter("Shake Reduction", @[num("Blur Trace Length:", 0, 200, 0, "pixels"), num("Blur Trace Angle:", 0, 179, 0, "°"),
+                                 num("Smoothing:", 0, 100, 30, "%"), num("Artifact Suppression:", 0, 100, 30, "%")],
+            proc (v: seq[float]): FilterFn = shakeReduction(int(v[1]), int(v[0]), int(v[2]), 100 - int(v[3])),
+            proc (v: seq[float]): int = (if v[0] > 0: int(v[0]) + 12 else: 64))
+  defFilter("Bilateral Blur", @[num("Radius:", 1, 100, 6, "pixels"), num("Tolerance:", 1, 100, 25, "%")],
+            proc (v: seq[float]): FilterFn = bilateralBlur(int(v[0]), int(v[1])),
+            proc (v: seq[float]): int = int(v[0]) + 2)
+  defFilter("Multi Band Sharpen", @[num("Fine:", 0, 300, 100, "%"), num("Medium:", 0, 300, 80, "%"),
+                                    num("Coarse:", 0, 300, 40, "%"),
+                                    pick("Sharpen:", ["Everywhere", "Along Edges", "High Pass Edges"]),
+                                    num("Threshold:", 0, 50, 2, "levels")],
+            proc (v: seq[float]): FilterFn = multiBandSharpen(int(v[0]), int(v[1]), int(v[2]), int(v[3]), int(v[4])),
+            proc (v: seq[float]): int = 28)
+  defFilter("Texture Detail", @[num("Amount:", -100, 100, 40)],
+            proc (v: seq[float]): FilterFn = textureDetail(int(v[0])), proc (v: seq[float]): int = 14)
+  defFilter("Ambient Occlusion", @[num("Radius:", 1, 200, 12, "pixels"), num("Intensity:", 0, 100, 60, "%"),
+                                   num("Quality:", 4, 32, 12)],
+            proc (v: seq[float]): FilterFn = ambientOcclusion(int(v[0]), int(v[1]), int(v[2])),
+            proc (v: seq[float]): int = int(v[0]) + 8)
+  defFilter("Mixed Light Correction", @[num("Strength:", 0, 100, 80, "%"), num("Radius:", 0, 4000, 0, "pixels"),
+                                        num("Keep Warmth:", 0, 100, 25, "%")],
+            proc (v: seq[float]): FilterFn = mixedLightCorrection(int(v[0]), int(v[1]), int(v[2])))
+  defFilter("Tone Compression", @[num("Amount:", 0, 95, 50, "%"), num("Detail:", -50, 200, 20, "%"),
+                                  num("Radius:", 4, 400, 40, "pixels")],
+            proc (v: seq[float]): FilterFn = toneCompression(int(v[0]), int(v[1]), int(v[2])),
+            proc (v: seq[float]): int = int(v[2]))
+  defFilter("Tone Stretch", @[num("Clip Shadows:", 0, 10, 0.1, "%", 1), num("Clip Highlights:", 0, 10, 0.1, "%", 1),
+                              flag("Each Channel")],
+            proc (v: seq[float]): FilterFn = toneStretch(v[0], v[1], v[2] > 0.5))
+  defFilter("Channel Inversion", @[pick("Mode:", ["Color Negative", "Black and White Negative", "Infrared",
+                                                  "Invert Channels"]),
+                                   num("Strength:", 0, 100, 100, "%")],
+            proc (v: seq[float]): FilterFn = channelInversion(int(v[0]), 0, int(v[1])))
+  defFilter("Glitch", @[num("Color Shift:", 0, 60, 6, "pixels"), num("Slices:", 0, 60, 8),
+                        num("Slice Offset:", 0, 200, 24, "pixels"), num("Blocks:", 0, 40, 4),
+                        num("Noise:", 0, 100, 8, "%"), num("Scanlines:", 0, 100, 25, "%"), num("Seed:", 1, 9999, 1)],
+            proc (v: seq[float]): FilterFn =
+              glitch(int(v[0]), int(v[1]), int(v[2]), int(v[3]), int(v[4]), int(v[5]), int(v[6])),
+            proc (v: seq[float]): int = int(v[0] + v[2]) + 2)
+  defFilter("Flame", @[num("Length:", 10, 2000, 120, "pixels"), num("Width:", 4, 400, 26, "pixels"),
+                       num("Number of Flames:", 0, 300, 0), num("Turbulence:", 0, 100, 50, "%"),
+                       pick("Color:", ["Natural", "Foreground Color"]), num("Seed:", 1, 9999, 1)],
+            proc (v: seq[float]): FilterFn =
+              let d = cur()
+              flame(if d != nil: moreFilterBase(d) else: @[], int(v[0]), int(v[1]), int(v[2]), int(v[3]), v[4] < 0.5,
+                    fg or 0xFF000000'u32, int(v[5])))
+  defFilter("Tree", @[pick("Kind:", ["Broad-leaved", "Conifer", "Willow", "Bare Branches", "Palm"]),
+                      num("Leaves:", 0, 100, 60, "%"), num("Leaf Size:", 0, 100, 50, "%"),
+                      num("Thickness:", 0, 100, 50, "%"), pick("Leaf Color:", ["Natural", "Foreground Color"]),
+                      num("Seed:", 1, 9999, 1)],
+            proc (v: seq[float]): FilterFn =
+              let d = cur()
+              tree(if d != nil: d.workRect else: rect(0, 0, 1, 1), int(v[0]), int(v[1]), int(v[2]), int(v[3]),
+                   (if v[4] > 0.5: fg or 0xFF000000'u32 else: 0'u32), int(v[5])))
+  defFilter("Picture Frame", @[pick("Frame:", ["Molding", "Double Line", "Beads", "Vine", "Flowers", "Ribbon",
+                                               "Zigzag"]),
+                               pick("Colors:", ["Wood", "Gold", "Foreground and Background"]),
+                               num("Margin:", 0, 1000, 10, "pixels"), num("Size:", 2, 400, 24, "pixels"),
+                               num("Number of Ornaments:", 2, 200, 40), num("Seed:", 1, 9999, 1)],
+            proc (v: seq[float]): FilterFn =
+              let d = cur()
+              let (c1, c2) = case int(v[1])
+                             of 0: (0xFF6B4E2E'u32, 0xFFD9B36C'u32)
+                             of 1: (0xFF8A6A1E'u32, 0xFFF2D27A'u32)
+                             else: (fg or 0xFF000000'u32, bg or 0xFF000000'u32)
+              pictureFrame(if d != nil: d.workRect else: rect(0, 0, 1, 1), int(v[0]), int(v[2]), int(v[3]), c1, c2,
+                           int(v[4]), int(v[5])))
+  defFilter("Remove Background Gradient", @[num("Strength:", 0, 100, 100, "%")],
+            proc (v: seq[float]): FilterFn = removeGradient(int(v[0])))
+
 proc initFilters() =
   initGallery()
+  initMoreFilters()
   defFilter("Blur", @[], proc (v: seq[float]): FilterFn = blur(), proc (v: seq[float]): int = 4)
   defFilter("Blur More", @[], proc (v: seq[float]): FilterFn = blurMore(), proc (v: seq[float]): int = 8)
   defFilter("Gaussian Blur", @[num("Radius:", 0.1, 250, 1.0, "pixels", 1)],
@@ -4585,6 +4754,7 @@ proc dialogs() =
   pathValueDialog()
   adjPresetDialogs()
   ccDialogs()
+  extrasDialogs()
   dailyDialogs()
   assetsDialog()
 

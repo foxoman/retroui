@@ -320,7 +320,9 @@ after `result` was set: Nim 2.2 leaks the old value) and `python3
 tools/writecheck.py` (no `var` or `result` given a value in a branch or a
 loop and then another: Nim 2.2 leaks the first; `docs/nim-bugs.md`) and
 `python3 tools/addcheck.py` (no `s.add` given something read from
-`s[^1]`: Nim 2.4.2 reads it after `add` has moved the seq).
+`s[^1]`: Nim 2.4.2 reads it after `add` has moved the seq) and `python3
+tools/arabiccheck.py` (every text Retro Atelier shows has its Arabic in
+`examples/photo/lang_ar.nim`: a fixed part glued to a value too).
 The kit is built, tested and released with Nim 2.4; CI runs the suite with
 Nim 2.2.6 as well (`ci.yml`'s matrix), so code stays within what 2.2
 compiles. Nim 2.4's `--ic:on` and `--strings:sso` are not used yet. Tried
@@ -338,11 +340,15 @@ nothing.
 The decoders under libFuzzer (clang):
 
 ```sh
-nim c --cc:clang --noMain -d:useMalloc -d:release --debugger:native \
+nim c --cc:clang --noMain -d:useMalloc -d:release -d:noSignalHandler --debugger:native \
   --passC:"-fsanitize=fuzzer,address,undefined -fno-sanitize=function" \
   --passL:"-fsanitize=fuzzer,address,undefined" -d:fuzzTarget=png -o:lf tests/fuzz/libfuzz.nim
 ./lf -max_total_time=300 corpus/ tests/fuzz/seeds
 ```
+
+A crash's input is kept in the folder it runs in: crash-... (and, for a
+Defect, crash-defect-...). `-d:noSignalHandler` leaves the signals to
+libFuzzer: with Nim's own handlers it saves nothing.
 
 Under the sanitizers:
 
@@ -515,7 +521,11 @@ manager running, `--window` just gives the app its 3.1 frame.
 `retrokit run --live app.nim` does the same and builds the app again on
 every save of a `.nim` file in its folder, starting the new one where the
 window was (code that does not build leaves the old one running).
-`--watch` alone does that on any desktop: Windows, macOS, Linux.
+`--watch` alone does that on any desktop: Windows, macOS, Linux. The app's
+variables start fresh each time but for what it names with `keep`
+(`retroui/keep`, through `RETRO_KEEP_STATE`). `retrokit run --android app.nim`
+builds the APK (retroapk, its options with it), installs it on the phone adb
+sees, starts it and shows its log here; with `--watch`, again on every save.
 
 A program can be the window manager itself: the X11 driver hands each event
 to `x11EventHook` (in `retroui/uirelays/drivers/x11_driver`) before it looks
@@ -991,6 +1001,7 @@ environment of its own: `adb shell am start -n PACKAGE/org.retro.RetroActivity
 | `RETRO_TEXT=sharp` / `sharp-bgr` | letters drawn in the screen's color strips |
 | `RETRO_WINDOW=1` | on a screen with no window manager (Termux:X11): the app as a window of its own size, on a desktop the kit draws |
 | `RETRO_WINDOW_STATE=FILE` | where the window's place and size are kept (`retrokit run --watch`) |
+| `RETRO_KEEP_STATE=FILE` | where the values `keep` names are kept between runs (`retrokit run --watch`, `retroui/keep`) |
 | `RETRO_GPU=cpu` / `gpu` / `auto` | drawing on the CPU or with OpenGL |
 | `RETRO_GPU_KEEP=0` | the GPU keeps no pictures between frames (to compare) |
 | `RETRO_SURFACE=0` | no memory shared with the screen (MIT-SHM, the DIB section): the frame copied |

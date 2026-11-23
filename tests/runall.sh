@@ -101,6 +101,10 @@ gh=${GITHUB_ACTIONS:-}
 for t in $flaky; do
   echo "flaky: $t (failed with the others running, passed alone; $OUT/$t.first.log)"
   [ -n "$gh" ] && echo "::warning title=$t::failed with the other tests running, passed alone"
+  # (how it failed the first time, here too: a CI's own files are not always reachable)
+  [ -n "$gh" ] && echo "::group::$t, the first time"
+  [ -n "$gh" ] && grep -v "^\s*$" "$OUT/$t.first.log" 2>/dev/null | tail -25
+  [ -n "$gh" ] && echo "::endgroup::"
 done
 for t in $bad; do
   echo "FAIL: $t"

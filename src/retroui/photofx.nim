@@ -1915,9 +1915,11 @@ proc hueCurves*(curves: openArray[seq[(int, int)]]): FilterFn =
   ## the color wheel from red round to red): how far each hue is turned (Hue vs Hue: half a turn
   ## either way at the top and the bottom), how saturated it is (Hue vs Saturation: none at the
   ## bottom, twice at the top), how light (Hue vs Lightness). 128 leaves a hue as it is; grays stay
-  ## gray, a dull color moves less than a bright one.
-  var t: array[3, Lut]
-  for k in 0 .. 2:
+  ## gray, a dull color moves less than a bright one. Two more (Affinity 3.3's), when given: how
+  ## saturated each saturation becomes (Saturation vs Saturation: x the saturation it has) and
+  ## each lightness (Luminance vs Saturation: x its lightness) -- 128 as it is.
+  var t: array[5, Lut]
+  for k in 0 .. 4:
     t[k] = curveLut(if k < curves.len and curves[k].len >= 2: curves[k] else: @[(0, 128), (255, 128)])
   proc one(p: uint32): uint32 =
     let (h, s, l) = toHsl(p)
@@ -1926,7 +1928,9 @@ proc hueCurves*(curves: openArray[seq[(int, int)]]): FilterFn =
     var nh = h + (float(t[0][i]) - 128) / 128 * 180 * min(1.0, s * 2)
     if nh < 0: nh += 360
     if nh >= 360: nh -= 360
-    let ns = clamp(s * float(t[1][i]) / 128, 0.0, 1.0)
+    let si = clamp(int(s * 255 + 0.5), 0, 255)
+    let li = clamp(int(l * 255 + 0.5), 0, 255)
+    let ns = clamp(s * float(t[1][i]) / 128 * float(t[3][si]) / 128 * float(t[4][li]) / 128, 0.0, 1.0)
     let nl = clamp(l + (float(t[2][i]) - 128) / 128 * 0.5 * s, 0.0, 1.0)
     fromHsl(nh, ns, nl, aOf(p))
   mapFn(one)

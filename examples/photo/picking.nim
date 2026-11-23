@@ -209,7 +209,7 @@ proc xfApplyMany() =
   ## (the corners moved: the shapes, type and Smart Objects carried, the
   ## pixels shown stretched)
   let d = xf.dw.doc
-  d.carryShots(xfShots, xf.r, xf.quad, proc (L: Layer) = d.renderSmartLayer(L))
+  d.carryShots(xfShots, xf.r, xf.quad, proc (L: Layer) = d.renderSmartLayer(L), prefs.scaleStrokes)
   d.setLive(d.liveShots(xfShots, xf.r, xf.quad))
 
 proc putDownMany() =

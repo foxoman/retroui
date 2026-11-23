@@ -139,7 +139,9 @@ when not defined(wasm) and not androidApp:
     ## A program started and not waited for (its input written, closed).
     if exe.len == 0: return false
     try:
-      let p = startProcess(exe, args = args, options = {poUsePath})
+      # (Windows: no console window -- PowerShell's would flash up)
+      let p = startProcess(exe, args = args, options = {poUsePath} +
+                           (when defined(windows): {poDaemon} else: {}))
       if input.len > 0:
         p.inputStream.write(input)
       p.inputStream.close()

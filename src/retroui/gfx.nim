@@ -328,6 +328,30 @@ proc mirrorCmd(c: var Cmd) =
       if c.a.int < imgArena.len:
         imgArena[c.a.int] = cast[uint32](cast[int32](imgArena[c.a.int]) + int32(noMirror[^1] * max(1, pxScale)))
     else: mirrorRect(c.r)
+  of ckTex, ckChecker:
+    # (where they go is in device pixels, after the picture's key -- its x and width -- or
+    # as the checkerboard's corners and the squares' start: moved, or mirrored, as `r`; a
+    # picture is not turned round)
+    let s = max(1, pxScale)
+    let i = c.a.int + (if c.kind == ckTex: 2 else: 0)
+    if c.a.int + 4 < imgArena.len:
+      template at(j: int): int32 = cast[int32](imgArena[j])
+      template put(j: int; v: int32) = imgArena[j] = cast[uint32](v)
+      if noMirror.len > 0:
+        let dx = int32(noMirror[^1] * s)
+        put(i, at(i) + dx)
+        if c.kind == ckChecker:
+          put(i + 2, at(i + 2) + dx)
+          put(i + 4, at(i + 4) + dx)
+      else:
+        let m = int32(mirrorW * s)
+        if c.kind == ckTex: put(i, m - at(i) - at(i + 2))
+        else:
+          let x0 = at(i)
+          put(i, m - at(i + 2))
+          put(i + 2, m - x0)
+          put(i + 4, m - at(i + 4))
+    mirrorRect(c.r)
   else: mirrorRect(c.r)
   if c.kind != ckFill and c.clip.w > 0: mirrorRect(c.clip)
 
@@ -846,6 +870,34 @@ proc plainStyle(bold: bool; mag: int): TextStyle {.inline.} =
 proc textWidth*(s: string; bold = false; mag = 1): int =
   ## Width of `s` in logical pixels.
   textWidth(s, plainStyle(bold, mag))
+
+type LineMeter* = object
+  ## A line of plain ASCII measured as it grows (`add`): `width` is each time what `textWidth`
+  ## gives for all of it, without measuring it again from its start -- a paragraph wrapped
+  ## word by word costs its letters once, not once for every word of each line. For text in
+  ## another style (`ok` false: right to left) measure with `textWidth`.
+  face: FaceId
+  scale: float32
+  em: float32
+  prev: int
+  ok*: bool              ## measured so: plain ASCII in a left-to-right style
+
+proc lineMeter*(st: TextStyle): LineMeter =
+  ## An empty line in style `st`.
+  let f = faceOf(st)
+  LineMeter(face: f, scale: emOf(st, f), prev: -1, ok: not st.rtl)
+
+proc lineMeter*(bold = false; mag = 1): LineMeter =
+  ## An empty line in the UI's text (`textWidth(s, bold, mag)`'s style).
+  lineMeter(plainStyle(bold, mag))
+
+proc add*(m: var LineMeter; s: openArray[char]) {.inline.} =
+  ## `s` (plain ASCII: 32..126) after the line.
+  asciiCarry(m.em, m.prev, s, m.face)
+
+proc width*(m: LineMeter): int {.inline.} =
+  ## The line's width in logical pixels: `textWidth` of all that was added.
+  if m.prev < 0: 0 else: int(ceil(m.em * m.scale - 0.01))
 
 proc text*(x, y: int; s: string; c: Color; st: TextStyle)
   ## Draw `s` in style `st`, the top-left corner of its line at `x`, `y`.

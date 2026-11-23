@@ -1,5 +1,260 @@
 # Changes
 
+## 0.71.0
+
+Retro Atelier 5.16.0 takes what was missing from today's photo, drawing
+and layout programs: of the 850 tools, filters, commands and extensions
+counted in four of them, 640 were here, and most of the rest are now --
+53 drawing tools, a dozen filters and adjustments, the layout program's
+commands, the file and photo commands, and generative edits through your
+own AI service. From Whisker (a Rust UI kit): values kept across
+`retrokit run --watch`'s reloads, signals, and `retrokit run --android`.
+And faster where the profiler said, and lighter: a paragraph wrapped in
+half the time, every window's text drawn faster, a Photoshop document
+opened in half the time with a third of the memory it took, and what
+0.70's nightly run found, fixed. Retro Atelier 5.16.0, Retro Files
+3.7.1, Retro Podcast 1.2.2.
+
+- **Retro Atelier: 53 new drawing tools**, each with its help card
+  (F1), in the drawing tools' families on the toolbar:
+  - transform: Rotate, Reflect, Scale, Shear (round a reference point:
+    a click sets it, Alt+click types the numbers), Reshape, Free
+    Transform, Puppet Warp;
+  - liquify: Warp, Twirl, Pucker, Bloat, Scallop, Crystallize,
+    Wrinkle -- the shape's outline worked like clay; Mesh Warp (a grid
+    over a layer of pixels), Deform (bones in a chain);
+  - Blend; Live Paint Bucket and Live Paint Selection;
+  - the eight Symbol tools (Sprayer, Shifter, Scruncher, Sizer, Spinner,
+    Stainer, Screener, Styler);
+  - nine Graph tools (column, stacked column, bar, stacked bar, line,
+    area, scatter, pie, radar: a box dragged, its numbers typed);
+  - Shaper (a rough rectangle, ellipse, triangle, polygon or line drawn
+    becomes a neat one; a scribble over shapes takes them away), Print
+    Tiling, Page, Gradient Feather, Color Theme (five colors of a place
+    to the swatches), Corner, Point Transform, Contour, Vector Crop,
+    Transparency, Fill, Area (the Measurement Log);
+  - Touch Type (one letter moved, sized, turned -- still text), Area
+    Type, Type on a Path, Vertical Area Type, Vertical Type on a Path;
+  - and the Median Brush with the Blur tools (dust and specks painted
+    away).
+- **Retro Atelier's new filters and adjustments** (`retroui/photomore`):
+  - **Shake Reduction**: which way and how far the camera moved found
+    from the picture's cepstrum (the spectra of up to nine windows
+    averaged: a shake of 11 pixels at 30° found as 12 at 29°), then taken
+    out by Richardson-Lucy along it -- the picture turned so the shake
+    runs along the rows, a running sum a pass, the change turned back
+    onto the lightness and held to the local range, so it does not ring;
+  - Adaptive Wide Angle (fisheye, perspective, full spherical), Bilateral
+    Blur, Multi Band Sharpen, Texture Detail, Ambient Occlusion, Glitch,
+    Remove Background Gradient; Filter > Render > Flame, Tree (five
+    kinds) and Picture Frame (seven);
+  - adjustment layers with numbers (`paramAdjust`): **Split Toning**,
+    **Color Grading** (shadows, midtones, highlights, global), Infrared;
+    Channel Inversion (a color negative, a black and white one, an
+    infrared swap), Mixed Light Correction, Tone Compression, Tone
+    Stretch, **SDR to HDR** (the highlights given back their light, the
+    document made 32 bits a channel); Hue Curves' two more curves
+    (Saturation vs Saturation, Luminance vs Saturation);
+  - Layer Mask > From Luminosity Range, From Hue Range, Compound Mask
+    (Affinity's).
+- **Retro Atelier's drawing and type commands**: Make and Release
+  Compound Path, Add and Remove Anchor Points, Divide Objects Below,
+  Split Into Grid, Clean Up (stray points, unpainted objects, empty text
+  paths), Objects on Path, Make Pixel Perfect, Soft Mix, Create Object
+  Mosaic, Create Trim Marks, Step and Repeat, Convert Shape, Open and
+  Close Path, Reverse Spine and Front to Back, Make Gradient Perceptual
+  (Oklab stops), Hatch Fill, Convert to Artboards, Rearrange All
+  Artboards, Fit to Artwork Bounds; ten more live shapes (diamond,
+  double and square stars, segment, two callouts, tear, crescent, cloud,
+  cat); **letters turned one by one** (`CharStyle.rotation`), **Type on a
+  Path's effects** (`TextData.pathEffect`: Rainbow, Skew, 3D Ribbon, Stair
+  Step, Gravity), Area Type's frame (`WrapOptions.frameOf`: an inverted
+  wrap for one type layer), Change Case, Smart Punctuation, Fit
+  Headline, Auto Style, Quick Apply, Insert Sidenote, Dynamic Text; the
+  Scatter chart (`ckScatter`).
+- **Scale Strokes & Effects** (Retro Atelier: Preferences, the Scale tool's
+  bar and its dialog): a shape made bigger or smaller with Free Transform,
+  the Scale tool or Transform Each takes its strokes -- its brush, its
+  Appearance strokes, its dashes and ends -- and its layer style with it
+  (`scaleStrokes`, `scaleFx` in `retroui/photo`; `areaScale` and
+  `carryShots(..., strokes = true)` in `retroui/photowarp`). Off, as before:
+  the stroke keeps its width.
+- **Retro Atelier's layout commands**: Create Guides, Adjust Layout,
+  Create Alternate Layout (scaled or re-centered), Insert HTML, Basic and
+  Directional Feather, Clipping Path (traced from the picture), Multi-State
+  Objects, Content-Aware Fit, Stroke Styles (dashed, Japanese dots, thick -
+  thin...), Flattener Preview, Articles (the reading order), Window >
+  **Accessibility Check** (text too small or too faint, a picture with no
+  alternative text, overset text, a missing font, too few pixels for
+  print, an empty frame, spelling), Merge Document, Export and Place
+  Snippet.
+- **Retro Atelier's file and photo commands**: the **Measurement Log**
+  (Image > Analysis: recorded, exported as CSV), Define Custom Shape (the
+  Shapes panel's Defined set, kept), Transform Selection, Copy CSS and
+  Copy SVG, New Layer Based Slice, Manage Missing Fonts, Conditional Mode
+  Change, Delete All Empty Layers, Flatten All Layer Effects and Masks,
+  Layer Comps to Files, Artboards to PDF; File > Export > **Color Lookup
+  Tables** (what the adjustment layers do, as a 33 x 33 x 33 .cube),
+  Render Video (the Timeline, or a timelapse of the work), **Zoomify**
+  (Deep Zoom tiles with a page that zooms and pans), Save for Web (JPEG,
+  PNG-24, PNG-8, GIF, WebP, its size seen), Content Credentials (how the
+  picture was made, as a plain record beside it -- not signed);
+  Generate > **Image Assets** (layers named like files saved as files with
+  each save); **Version History** (the last twenty saves kept); Record
+  Timelapse; the Script Events Manager; **droplets** (a script on the
+  desktop: pictures dropped on it opened, an action played, saved --
+  with the new command "Play Action: NAME"); Focus Merge; the
+  **Astrophotography Stack** (light, dark, flat and bias frames, lined up
+  on the stars by phase correlation, stacked by mean, median or sigma
+  clipping: the noise of six frames down by 60%); Image > 360 Panorama >
+  Edit and Apply 360 View; Decompose Layers; Layer to 3D (a relief, as a
+  .glb); Select > People.
+- **Retro Atelier's Generative Edits** (Edit > Generative Edits, through
+  the image service of Edit > AI Connector -- nothing is sent until you
+  set one): Generate Background (the subject kept), Generative Upscale
+  (twice or four times, a tile of 1024 at a time, their edges blended),
+  Style Transfer (from words or from another open picture, set beside the
+  one sent), Camera Angle, Rotate Object, Recompose, Remove Ambient
+  Effect, Smart Portrait, Makeup Transfer, Landscape Mixer -- each a new
+  layer or document to keep or throw away; and through the AI service:
+  Generative Recolor, Text to Pattern (seamless), Generative Shape Fill,
+  Rewrite, Turntable. Not here, and why: editing together live (it needs
+  a server), opening .indd and .af files (closed formats; IDML opens),
+  video layers (no video decoder), signed C2PA credentials. Everything
+  new is in Arabic too.
+- **Values kept across `retrokit run --watch`'s reloads**
+  (`retroui/keep`, from Whisker's hot reload that keeps state): `keep
+  page, names` -- each comes back as the run before left it, so a change
+  to the code is seen with the app where you were. Off but in `--watch`
+  ($RETRO_KEEP_STATE); anything `std/jsonutils` writes and reads; a value
+  whose type changed starts from what the code gives it.
+- **Signals** (`retroui/signals`, from Whisker's fine-grained
+  reactivity, for an immediate mode app): `signal`, `computed` (worked
+  out again only when what it read changed -- found by itself, a read in
+  an `if` counted when that branch ran; a computed value whose answer did
+  not change leaves what reads it alone) and `effect`; setting one asks
+  for a frame.
+- **Strix for the kit** (`tools/strix.sh`, the Strix workflow, by hand):
+  AI agents that build and run the kit in a sandbox and report the
+  security holes they can show, pointed at what a file, a page, a message
+  or another program can make an app do (`tools/strix/instructions.md`).
+- **`retrokit run APP.nim --android`**: built as an APK, installed on the
+  phone adb sees, started, its log shown here until it ends; with
+  `--watch`, again on every save.
+
+- **A paragraph wraps in half the time** (`paragraph`, `wrapLines`). Each
+  word is measured once and the line's width carried on (`LineMeter`:
+  `lineMeter`, `add`, `width` -- each time the very number `textWidth`
+  gives for the whole line, its sum made in the same order); before, each
+  line was measured again for every word it got. The benchmarks' document
+  (40 paragraphs wrapped to a new width every frame): 1.65 to 0.86 ms a
+  frame. The same lines as before: 7,800 paragraphs and widths in
+  `test_text` say so, one by one.
+- **Text is mixed into the screen faster**: a glyph's coverage four pixels
+  at a time in 16-bit lanes, a lane a channel (SSE2's own multiply of
+  eight; the 32-bit lanes before had none on SSE2), the very pixels of
+  before -- every coverage, through no table and two, in `test_simdkit`,
+  with GCC, clang, without SSE2 and without the kernels. The type
+  benchmark 13% faster, the dashboard 7%.
+- **A Photoshop document opens in half the time and holds a third of the
+  memory while it opens** (`loadPsd`): the file's bytes let go once read,
+  the decoded document given to ours (`docOfPsd` takes it as `sink`: a
+  parameter read by its nested procs was copied whole into their
+  closure), a layer as big as the canvas taken as it is, the others let go
+  as each is placed, and the merged picture not read when there are
+  layers (`readPsd`'s `merged`). A 40 MB file of five layers: 2.1 s to
+  1.0 s, at the most 844 MB to 340 MB -- what a web page keeps, its memory
+  never shrinking back. **Its picture while it opens** (and an Open
+  dialog's preview of one without a thumbnail) reads only the merged
+  picture (`readPsd(data, layerPixels = false)`): 959 ms to 234 ms, at
+  the most 408 MB to 178 MB.
+- **46 MB less for a document open** (Retro Atelier): what is under the
+  current layer, kept mixed to paint faster (`Doc.below`), is made only
+  where a stroke needs it -- before, opening a picture of layers made the
+  whole of it and then did not use it. The 40 MB file open: 362 MB to
+  316 MB.
+- **Fixed: Retro Atelier did not answer while Browse Assets fetched what
+  was inserted** (a hang report from Windows: the window's thread was in
+  `downloadFile`, waiting for curl). A download made on the thread that
+  draws keeps the window alive now -- the busy box drawn, the system's
+  events read -- and the box's Cancel (`beginBusy(..., cancel = true)`)
+  ends it ("cancelled"); on Android the app's Java part is asked from a
+  thread of its own meanwhile (Android calls an app that does not answer
+  for 5 seconds not responding). Browse Assets' Insert and Open as
+  Document can be cancelled.
+- **Windows downloads through WinHTTP, Windows' own** (`downloadFile`;
+  `retroui/http`'s `winDownload`): curl, a console program, flashed a
+  window up for every download. Written to the file as they come, gone on
+  with from a part (a Range), redirects followed, stopped and cancelled
+  between pieces, the system's proxy and certificates. The kit's other
+  programs started on Windows start without a window too (PowerShell's
+  speech, Blender's glTF). `test_downloads` checks a download against a
+  server of its own on every system -- on GitHub's Windows too.
+- **Fixed: kashidas in the wrong place** in justified Arabic, on the canvas
+  and in the PDF alike. In a font that draws two letters as one glyph
+  (Traditional Arabic's بر, ير, لى), the kashida went before that glyph --
+  after the word's end ("أكبرـ", "إلىـ"); no kashida goes inside a font's
+  ligature now. And a tooth (ب ت ث ن ي) before a final Reh or Yeh is
+  never drawn out between them but before the tooth, as the scribes do
+  ("أكـبر", "لـيرى", not "أكبـر", "ليـرى").
+- **Retro Atelier's About box and splash screen say what it is now**: a
+  studio for pictures, drawings and pages (they still said an image
+  editor). The About box's line under the name, and the splash screen's
+  lines, are shown in the app's language (`aboutBox`, `splashBox`: they
+  were drawn as written).
+- **Fixed: a right-to-left paragraph split into columns of its own**
+  (Paragraph > Span Columns > Split Column) drew its second column
+  outside the box, to the left of it, and its first at the left. Its
+  sub-columns are in the box now, the first at the right, as Arabic
+  reads (`test_textcompose` checks it in one column and in two).
+- **Fixed: the picture off to one side in an Arabic interface, drawn by
+  the GPU** (a phone, a tablet): Retro Atelier's page was drawn where the
+  frame would be if it were not mirrored -- in steps after the window
+  changed size, its text away from its caret -- while its box and what
+  is drawn over it were where they belong. A GPU's picture and the
+  checkerboard under it keep their place in device pixels of their own,
+  and the mirroring moved only their box; it moves them too now (the
+  3D view and the stroke painted behind the picture with them).
+  `test_bidi` checks the checkerboard kept and mirrored, `test_gpu` the
+  GPU's frame in Arabic against the CPU's.
+- **Fixed: a space typed at the end did not move the caret**: it stayed
+  at the word, and the next word came a space away from it -- in Arabic
+  as in English. A paragraph's last spaces are not part of its width
+  (they hang, as in every layout program), but the caret after them goes
+  past them now (`test_textengine`; `test_atelierextras` types Arabic on
+  the canvas key by key, in the English interface and the Arabic one).
+- **The Arabic interface says more in Arabic**: a text glued from fixed
+  parts and values -- `"Could not open " & name`, `"Page " & $i & " of "
+  & $n` -- has its parts translated by `tr` (and so by every control)
+  when the table has them, with their spaces, as keys: Retro Atelier's
+  status line, its labels and menus with a number or a name in them were
+  English. And 117 more of Atelier's texts in Arabic; `tools/arabiccheck.py`
+  (in CI) lists a text Atelier shows with no Arabic.
+- **Fixed** (0.70's nightly and release runs):
+  - **Retro Mail for Windows did not link with zig** (the Release
+    workflow): Nim's `std/selectors` names Winsock's library for GCC and
+    VC++ only; `nimble exe` names it for zig's clang.
+  - **Retro Files stopped answering** (the soak: "no frame for 754 s"):
+    a copy, a move or a zip that took in a device, a pipe or a socket
+    (/dev/zero never ends, a FIFO waits for a writer for ever) read it.
+    The file jobs leave one as it is and say so (`specialFile`); the
+    errors of a job are shown in the UI's language.
+  - **A feed's numbers** (libFuzzer): a length of many parts, or a year of
+    any size, overflowed (`parseDuration`, `parseFeedDate`: refused now);
+    the libFuzzer harness keeps a Defect's input itself
+    (crash-defect-...) and is built with `-d:noSignalHandler`, so that
+    libFuzzer keeps its own -- Nim's handlers took its abort, and the
+    nightly kept nothing.
+  - **Type 1 fonts as 32-bit programs** (UBSan): the decryption multiplied
+    two 16-bit numbers, which C makes signed ints first -- an overflow.
+    In 32 bits without a sign now (`retroui/fontconv`,
+    `retroui/pdfreadfonts`).
+  - **A leak in a test under the sanitizers** (`test_otshape`): Nim 2.4.2
+    leaks a copy of each string of a literal array in a `for` whose runes
+    are read (docs/nim-bugs.md 8; the kit's own code has none). The tests
+    that failed with others running and passed alone now show in the CI's
+    log how they failed the first time.
+
 ## 0.70.0
 
 Every font Windows has opens now, and Arabic is shaped as HarfBuzz shapes

@@ -573,12 +573,7 @@ proc scaleEffects*(fx: var LayerFx; percent: float) =
   ## Layer > Layer Style > Scale Effects: every effect's distance, size and
   ## softening (and the overlays' pattern and gradient scale) times `percent`
   ## / 100 -- the look kept for a layer made bigger or smaller.
-  let k = max(0.0, percent) / 100
-  for e in fx.fx.mitems:
-    e.distance = int(round(e.distance.float * k))
-    e.size = int(round(e.size.float * k))
-    e.soften = int(round(e.soften.float * k))
-    e.scale = clamp(int(round((if e.scale == 0: 100 else: e.scale).float * k)), 1, 1000)
+  fx.scaleFx(max(0.0, percent) / 100)
 
 proc effectLayers*(d: Doc; L: Layer; nameOf: proc (layer, effect: string): string = nil):
                    tuple[below, above: seq[Layer]] =

@@ -641,10 +641,11 @@ proc shapesBody() =
   ## Shape tool with that shape.
   let cs = dp(30)
   var picked = -1
-  combo(@["All Shapes"] & @ShapeCategories, shapeSet, w = available())
+  let sets = @["All Shapes"] & @ShapeCategories & @["Defined"]   # (Defined: Edit > Define Custom Shape's)
+  combo(sets, shapeSet, w = available())
   var shown: seq[int]
   for i, c in CustomShapes:
-    if shapeSet == 0 or c.category == ShapeCategories[clamp(shapeSet - 1, 0, ShapeCategories.high)]: shown.add i
+    if shapeSet == 0 or c.category == sets[clamp(shapeSet, 1, sets.high)]: shown.add i
   tileGrid(shown.len, cs, cs, "shapepanel", proc (k: int; r: Rect; hit: Hit) =
     let i = shown[k]
     fill(r, ui.theme.window)

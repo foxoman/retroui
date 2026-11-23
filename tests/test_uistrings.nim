@@ -57,4 +57,21 @@ block plurals:
   doAssert pluralForm("ar", 103) == 3 and pluralForm("ar", 199) == 4 and pluralForm("ar", 200) == 5
   doAssert pluralForm("ja", 7) == 0
 
+block gluedTexts:
+  # a text glued from fixed parts and values: the parts translated, the values kept
+  setUiLanguage("ar", @[("Could not open ", "تعذّر فتح "), (" pages left", " صفحات باقية"),
+                        ("Saved", "حُفظ"), ("Took ", "استغرق "), ("Took the picture ", "التُقطت الصورة "),
+                        ("Page ", "صفحة "), (" of ", " من ")])
+  doAssert tr("Could not open a.png") == "تعذّر فتح a.png"
+  doAssert tr("12 pages left") == "12 صفحات باقية"
+  doAssert tr("Could not open 3 pages left") == "تعذّر فتح 3 صفحات باقية"
+  doAssert tr("Took the picture 2") == "التُقطت الصورة 2", "the longest part first"
+  doAssert tr("Took 3 s") == "استغرق 3 s"
+  doAssert tr("Page 3 of 10") == "صفحة 3 من 10", "between two values too"
+  doAssert tr("Saved") == "حُفظ" and tr("Saved a.png") == "Saved a.png", "a whole key only whole"
+  doAssert tr("Top of the page") == "Top of the page", "a part between only in a glued text"
+  doAssert tr("Nothing known") == "Nothing known"
+  setUiLanguage("")
+  doAssert tr("Could not open a.png") == "Could not open a.png"
+
 echo "uistrings OK"

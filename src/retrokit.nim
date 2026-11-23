@@ -12,7 +12,10 @@
 ##       --touch       as on a touch screen: finger-sized controls, no hover
 ##       --controls:K  control sizes: touch, desktop or auto
 ##       --watch       built again and started again on every save, in the
-##                     same place (with --window); --live is both
+##                     same place (with --window), what `keep` names kept
+##                     (retroui/keep); --live is both
+##       --android     as an APK on the phone adb sees: installed, started,
+##                     its log followed (with --watch: again on every save)
 ##       other options go to the Nim compiler
 ##       --web         as a web page: built (`retrokit web`), served on
 ##                     localhost and opened in the browser (with --watch,
@@ -75,12 +78,16 @@ retrokit -- start, check and build Retro Nim UI apps
         --touch       as on a touch screen: finger-sized controls, no hover
         --controls:K  control sizes only: touch, desktop or auto
         --watch       on every save of a .nim file in the app's folder, built
-                      again and started again where the window was; the old
-                      one runs on while the code does not build
+                      again and started again where the window was, what
+                      `keep` names as it was (retroui/keep); the old one
+                      runs on while the code does not build
         --live        --window and --watch together
         --web         as a web page, served on localhost and opened in the
                       browser (with --watch: built again on every save, the
                       page reloading itself)
+        --android     as an APK on the phone adb sees: built, installed,
+                      started, its log shown here (with --watch: again on
+                      every save); retroapk's options (--id:...) go with it
       anything else goes to the Nim compiler (-d:..., --opt:...)
   retrokit small APP.nim       the smallest build: optimized for size, stripped
   retrokit web APP.nim [options]
@@ -557,6 +564,7 @@ proc watchRun(app: string; extra: seq[string]): int =
   let work = getTempDir() / "retrokit-" & name & "-" & $getCurrentProcessId()
   createDir(work)
   putEnv("RETRO_WINDOW_STATE", work / "window")
+  putEnv("RETRO_KEEP_STATE", work / "state.json")      # (what `keep` names: retroui/keep)
   var running: Process = nil
   var slot = 0
   var builds = 0
@@ -609,6 +617,84 @@ proc watchRun(app: string; extra: seq[string]): int =
       let exe = buildOnce()
       if exe.len > 0: start(exe)
       elif running != nil: echo "retrokit: the window keeps the code before; fix it and save"
+
+# ---- run --android: built as an APK, put on the phone, started, its log followed ---------------
+
+proc apkIdOf(app: string; extra: seq[string]): string =
+  ## (the app's package, as retroapk names it: --id, else org.retro.NAME)
+  for a in extra:
+    for p in ["--id:", "--id="]:
+      if a.startsWith(p): return a[p.len .. ^1]
+  var clean = ""
+  for c in app.splitFile.name.toLowerAscii:
+    if c in {'a'..'z', '0'..'9'}: clean.add c
+  "org.retro." & (if clean.len > 0 and clean[0] in {'a'..'z'}: clean else: "app" & clean)
+
+proc androidRun(app: string; extra: seq[string]; watch: bool): int =
+  ## `retrokit run APP.nim --android [--watch]`: the APK built (retroapk), installed on the phone
+  ## adb sees and started; its log shown here until the app ends (or Ctrl+C) -- with --watch,
+  ## built, installed and started again on every save.
+  let adb = findExe("adb")
+  if adb.len == 0:
+    echo "retrokit: --android needs adb on the PATH, and a phone with USB debugging on"
+    return 1
+  var tool = findExe("retroapk")
+  if tool.len == 0 and fileExists(getAppDir() / ("retroapk" & ExeExt)): tool = getAppDir() / ("retroapk" & ExeExt)
+  if tool.len == 0:
+    echo "retrokit: retroapk is not installed (nimble install retroui)"
+    return 1
+  let id = apkIdOf(app, extra)
+  let devices = execProcess(adb, args = ["devices"], options = {poUsePath}).splitLines.filterIt(it.endsWith("\tdevice"))
+  if devices.len == 0:
+    echo "retrokit: no phone found (adb devices): connect one with USB debugging on"
+    return 1
+  proc install(): bool =
+    let p = startProcess(tool, args = @[app, "--run"] & extra, options = {poParentStreams})
+    result = p.waitForExit() == 0
+    p.close()
+  proc pidOf(): string =
+    try: execProcess(adb, args = ["shell", "pidof", "-s", id], options = {poUsePath}).strip
+    except CatchableError: ""
+  var log: Process = nil
+  proc follow() =
+    if log != nil:
+      log.terminate()
+      discard log.waitForExit(2000)
+      log.close()
+      log = nil
+    var pid = ""
+    for i in 0 ..< 40:                               # (it starts: up to ten seconds)
+      pid = pidOf()
+      if pid.len > 0: break
+      sleep(250)
+    if pid.len == 0:
+      echo "retrokit: ", id, " did not start (adb logcat shows why)"
+      return
+    echo "retrokit: ", id, " runs (pid ", pid, "); its log:"
+    log = startProcess(adb, args = ["logcat", "-v", "brief", "--pid=" & pid], options = {poParentStreams, poUsePath})
+  if not install():
+    if not watch: return 1
+    echo "retrokit: it did not build; save a fix"
+  else: follow()
+  let dir = app.absolutePath.parentDir
+  var stamp = sourcesStamp(dir)
+  if watch: echo "retrokit: watching ", dir, " -- save to see the change on the phone; Ctrl+C to stop"
+  while true:
+    sleep(500)
+    if not watch:
+      if pidOf().len == 0:
+        if log != nil:
+          log.terminate()
+          log.close()
+        echo "retrokit: ", id, " ended"
+        return 0
+      continue
+    let now = sourcesStamp(dir)
+    if now != stamp:
+      sleep(150)
+      stamp = sourcesStamp(dir)
+      if install(): follow()
+      else: echo "retrokit: the phone keeps the code before; fix it and save"
 
 # ---- designer: Retro Designer, built for this machine and run ---------------------------------
 
@@ -990,10 +1076,11 @@ proc main() =
       let o = parseWebOptions(args[1 .. ^1].filterIt(it notin ["--watch", "--live"]), app)
       if app.len == 0: quit usage
       quit runWeb(app, o, "--watch" in args or "--live" in args)
-    let rest = runOptions(args[1 .. ^1])
+    let rest = runOptions(args[1 .. ^1].filterIt(it != "--android"))
     let app = rest.filterIt(it.endsWith(".nim"))
     if app.len == 0: quit usage
     if not fileExists(app[0]): quit "retrokit: no file " & app[0]
+    if "--android" in args: quit androidRun(app[0], rest.filterIt(it != app[0]), watching)
     if watching: quit watchRun(app[0], rest.filterIt(it != app[0]))
     quit build(app[0], rest.filterIt(it != app[0]), true)
   of "small":

@@ -293,8 +293,11 @@ block oldArabicFont:
   doAssert old.glyphOf(0x0628) != 0 and old.glyphOf(0x0628) == uni.glyphOf(0xFE8F)   # beh, isolated
   doAssert old.glyphOf(0xFE91) == uni.glyphOf(0xFE91)     # beh, initial
   doAssert old.glyphOf(0x0627) == uni.glyphOf(0xFE8D)     # alef: the letter is its isolated form
-  for line in ["بِسْمِ الرَّحْمَنِ الرَّحِيمِ", "لا إله إلا", "مَدْرَسَةٌ كِتَابٌ",
-               "قُلْ هُوَ أَحَدٌ", "ـبـ ب‍ ‍ب ب‌ب ١٢٣"]:
+  # (the lines in a `let`: a literal array in the `for` itself, its string's runes read, leaks a
+  # copy of each string under Nim 2.4.2 -- docs/nim-bugs.md)
+  let samples = ["بِسْمِ الرَّحْمَنِ الرَّحِيمِ", "لا إله إلا", "مَدْرَسَةٌ كِتَابٌ",
+                 "قُلْ هُوَ أَحَدٌ", "ـبـ ب‍ ‍ب ب‌ب ١٢٣"]
+  for line in samples:
     var cps: seq[int]
     for r in line.runes: cps.add int(r)
     let a = old.shape(cps, true, "arab")

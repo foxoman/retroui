@@ -1,6 +1,7 @@
 ## Tests of the layout programs' paragraph and frame settings in retroui/textengine: paragraph
 ## formats of their own, the Paragraph Composer, Justification, Keep Options, Span Columns, nested
-## and GREP styles, Inset Spacing, Vertical Justification, Balance Columns.
+## and GREP styles, Inset Spacing, Vertical Justification, Balance Columns; a paragraph split in
+## columns of its own, right to left too.
 
 import std/[json, strutils, math]
 import std/unicode except strip
@@ -301,6 +302,21 @@ block spanColumns:
       if abs(x - ln.x0) < 2: found = true
     if not found: xs.add ln.x0
   doAssert xs.len == 2
+  # ... right to left: its sub-columns inside the box, the first at the right (Arabic, in one
+  # column and in the first of two)
+  for cols in [1, 2]:
+    var a = boxText(repeat("هذا نص تجريبي يوضع في مكان النص ", 12), 400, 600, cols = cols)
+    a.para.splitColumns = 2
+    let la = layoutText(a)
+    var firstX = -1'f32
+    var lastX = 1e9'f32
+    for ln in la.lines:
+      doAssert ln.rtl and ln.x0 >= a.x - 0.5 and ln.x1 <= a.x + 400.5,
+               "inside the box: " & $ln.x0 & ".." & $ln.x1
+      if ln.para == 0 and firstX < 0: firstX = ln.x1
+    lastX = la.lines[^1].x1
+    doAssert firstX > lastX + 20, "the first sub-column at the right: " & $firstX & " vs " & $lastX
+    if cols == 2: doAssert firstX > a.x + 390, "in the right-hand column"
 
 block balance:
   var t = boxText(words(50, 1), 400, 600, cols = 2)

@@ -67,6 +67,30 @@ for avx in [0'i32, 1]:
         if n > 0:
           blendMaskRow(addr fp[0], addr m[0], n, col, if useLut: addr lut[0] else: nil)
         doAssert fp == want, "coverage " & $n & " lut " & $useLut
+    # every coverage, through no table and through one that makes some of them nothing and
+    # others full early -- under pixels and colors of every kind (the kernel in 16-bit lanes)
+    var lut2: array[256, uint8]
+    for i in 0 .. 255: lut2[i] = uint8(if i < 6: 0 elif i > 200: 255 else: (i - 6) * 255 div 195)
+    for useLut in 0 .. 2:
+      for trial in 0 ..< 200:
+        var fp = newSeq[uint32](256)
+        var m = newSeq[uint8](256)
+        for i in 0 ..< 256:
+          fp[i] = px()
+          m[i] = uint8((i + trial * 37) mod 256)
+        let col = if trial mod 7 == 0: 0xFFFFFFFF'u32 elif trial mod 7 == 1: 0'u32 else: px()
+        let t = case useLut
+                of 1: addr lut[0]
+                of 2: addr lut2[0]
+                else: nil
+        var want = fp
+        for i in 0 ..< 256:
+          var a = uint32(m[i])
+          if a == 0: continue
+          if t != nil: a = cast[ptr UncheckedArray[uint8]](t)[a]
+          want[i] = if a >= 255: col else: blendRef(want[i], col, a)
+        blendMaskRow(addr fp[0], addr m[0], 256, col, t)
+        doAssert fp == want, "every coverage, table " & $useLut & " trial " & $trial
 
   block pictureOver:
     for n in lengths:

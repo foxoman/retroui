@@ -131,6 +131,43 @@ block measure:
   j.finish()
   doAssert j.files == 4 and j.folders == 4 and j.totalBytes == 6 + 7, $(j.files, j.folders, j.totalBytes)
 
+when defined(posix):
+  block devicesAndPipesNotRead:
+    # a FIFO (opened for reading, it waits for a writer for ever -- the nightly soak of Retro
+    # Files stopped answering so) and /dev/zero (read, it never ends): not copied, zipped or
+    # moved -- said, and the rest done
+    proc mkfifo(path: cstring; mode: cint): cint {.importc, header: "<sys/stat.h>".}
+    createDir(root / "pipes/inner")
+    mk("pipes/plain.txt", "plain")
+    mk("pipes/inner/also.txt", "also")
+    doAssert mkfifo(cstring(root / "pipes/fifo"), 0o600) == 0
+    doAssert mkfifo(cstring(root / "pipes/inner/fifo2"), 0o600) == 0
+    doAssert specialFile(root / "pipes/fifo") and not specialFile(root / "pipes/plain.txt")
+    createDir(root / "pipesto")
+    let c = newJob(jkCopy, [root / "pipes/fifo", root / "pipes/plain.txt", "/dev/zero"], root / "pipesto")
+    c.finish()
+    # (`fileExists` is for files: a pipe is asked of with `specialFile`, what is there at all
+    # with `getFileInfo`)
+    proc there(p: string): bool =
+      try: (discard getFileInfo(p, followSymlink = false); true) except OSError: false
+    doAssert readFile(root / "pipesto/plain.txt") == "plain", $c.errors
+    doAssert not there(root / "pipesto/fifo") and not there(root / "pipesto/zero")
+    doAssert c.errors.len == 2 and "a pipe" in c.errors[0], $c.errors
+    let tree = newJob(jkCopy, [root / "pipes"], root / "pipesto")
+    tree.finish()
+    doAssert readFile(root / "pipesto/pipes/inner/also.txt") == "also", $tree.errors
+    doAssert there(root / "pipesto/pipes/inner") and not there(root / "pipesto/pipes/inner/fifo2")
+    doAssert not there(root / "pipesto/pipes/fifo") and tree.errors.len == 2, $tree.errors
+    let z = newJob(jkZip, [root / "pipes"], root / "pipes.zip")
+    z.finish()
+    var zipped: seq[string]
+    for e in zipEntries(root / "pipes.zip"): zipped.add e.name
+    doAssert "pipes/inner/also.txt" in zipped and "pipes/fifo" notin zipped, $zipped
+    let m = newJob(jkMove, [root / "pipes/fifo"], root / "pipesto")
+    m.finish()
+    doAssert specialFile(root / "pipes/fifo") and not there(root / "pipesto/fifo") and m.errors.len == 1,
+             $m.errors
+
 block zipAndUnzip:
   let z = newJob(jkZip, [root / "src"], root / "src.zip")
   z.finish()

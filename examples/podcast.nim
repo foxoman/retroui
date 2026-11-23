@@ -27,7 +27,7 @@ from retroui/system import sharedIn, homeWidget, notificationActions
 import podcast/library
 
 const
-  PodcastVersion = "1.2.1"
+  PodcastVersion = "1.2.2"
   IconPng = staticRead("assets/podcast-icon.png")
   PlayerKey = "podcast-player"
   Speeds = [0.75, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]

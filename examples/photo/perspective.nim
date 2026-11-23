@@ -159,6 +159,11 @@ proc canvasExtras(dw: DocWin; ev: PhotoEvent): bool =
   ## (textframes), the perspective grid's widget and handles. True when it took it.
   if dw.threadPress(ev): return true
   if dw.wrapHandlePress(ev): return true
+  # (the Live Paint Bucket tool: the bucket on while it is the tool, off when another is picked)
+  let wantLp = tool == tVector and vecMode == 34
+  if wantLp != lpTool:
+    lpBucket = wantLp
+    lpTool = wantLp
   if dw.makersCanvas(ev): return true
   if dw.vectorEvents(ev): return true
   if dw.appearancePick(ev): return true

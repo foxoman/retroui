@@ -1249,7 +1249,7 @@ proc systemName*(): string =
 proc aboutFacts(app, version: string): seq[(string, string)] =
   @[("Version", (if version.len > 0: version else: "-")),
     ("System", systemName()),
-    ("Screen", $ui.w & " x " & $ui.h & " at " & $(ui.k * 100).int & "%"),
+    ("Screen", $ui.w & " x " & $ui.h & tr(" at ") & $(ui.k * 100).int & "%"),
     ("Toolkit", "Retro Nim UI " & RetroVersion),
     ("Developer", RetroDeveloper & " " & RetroHandle),
     ("Memory", memoryReport(prefix = false)),
@@ -1312,7 +1312,7 @@ proc aboutBanner(r: Rect; app, version, tagline, glyph: string; icon: Bitmap) =
   if version.len > 0:
     text(tx + 1, ty, tr("Version ") & version, color(255, 232, 140), bold = true)
   ty += FontH + dp(2)
-  if tagline.len > 0: text(tx + 1, ty, tagline, color(196, 208, 255))
+  if tagline.len > 0: text(tx + 1, ty, tr(tagline), color(196, 208, 255))
   popClip()
 
 proc aboutBullets(items: openArray[string]) =
@@ -1382,10 +1382,10 @@ proc splashBox*(app: string; version = ""; tagline = ""; lines: openArray[string
   popClip()
   var y = a.y + a.h + sh + dp(8)
   if tagline.len > 0:
-    text(r.x + dp(14), y, tagline, th.text, bold = true)
+    text(r.x + dp(14), y, tr(tagline), th.text, bold = true)
     y += lh
   for l in lines:
-    text(r.x + dp(14), y, l, th.text)
+    text(r.x + dp(14), y, tr(l), th.text)
     y += lh
   if progress >= 0:
     # (a 3.1 progress bar: navy blocks in a sunken well)
@@ -1399,7 +1399,7 @@ proc splashBox*(app: string; version = ""; tagline = ""; lines: openArray[string
     for i in 0 ..< k:
       fill(rect(inner.x + i * (bw + dp(2)), inner.y, bw, inner.h), th.select)
     y += pr.h + dp(6)
-  text(r.x + dp(14), y, note, th.gray)
+  text(r.x + dp(14), y, tr(note), th.gray)
   let made = "Retro Nim UI " & RetroVersion
   text(r.x + r.w - dp(14) - textWidth(made), y, made, th.gray)
   let by = RetroCredit & "  ·  " & RetroWebsite

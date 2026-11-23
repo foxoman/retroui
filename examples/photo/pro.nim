@@ -1143,7 +1143,7 @@ proc scaleLayersTo(d: Doc; to: Rect) =
   if r.w <= 0 or r.h <= 0 or to.w <= 0 or to.h <= 0: return
   for s in shots:
     if s.kind != skPixels: d.touch(s.layer, d.bounds)
-  d.carryShots(shots, r, quadOf(to), proc (L: Layer) = d.renderSmartLayer(L))
+  d.carryShots(shots, r, quadOf(to), proc (L: Layer) = d.renderSmartLayer(L), prefs.scaleStrokes)
   d.putDownShots(shots, r, quadOf(to))
 
 proc severalProps(d: Doc) =

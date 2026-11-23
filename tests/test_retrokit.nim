@@ -1,5 +1,5 @@
 ## retrokit run's own options (what goes to the app's environment, what to
-## the compiler) and what `--watch` watches: the sources of the app's folder
+## the compiler), the package `--android` follows, and what `--watch` watches: the sources of the app's folder
 ## and two levels below it, not hidden folders, caches or links to folders.
 
 import std/[os, times]
@@ -22,6 +22,12 @@ doAssert watching and getEnv("RETRO_WINDOW") == ""
 watching = false
 discard runOptions(["--live", "app.nim"])
 doAssert watching and getEnv("RETRO_WINDOW") == "1", "--live is --window and --watch"
+
+# ---- run --android: the package it follows, as retroapk names it ------------------------------
+
+doAssert apkIdOf("examples/My App.nim", @[]) == "org.retro.myapp"
+doAssert apkIdOf("2048.nim", @[]) == "org.retro.app2048"
+doAssert apkIdOf("app.nim", @["--id:com.foxoman.notes"]) == "com.foxoman.notes"
 
 # ---- what --watch watches -----------------------------------------------------------------------
 

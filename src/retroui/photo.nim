@@ -955,6 +955,8 @@ type
                                  ## (its own sides, turned with it; all 0: `wrapGap`)
     linked*: bool                ## the four kept the same (the panel's chain)
     invert*: bool                ## the text inside its outline, not round it
+    frameOf*: int                ## Area Type: the one type layer (`uidOf`) it holds inside its outline --
+                                 ## the others' lines go past it as if it were not there (0: all of them)
     least*: float32              ## a type layer: the shortest piece of a line set beside an object,
                                  ## points (0: two of its letters' size) -- no word or two alone there
     contour*: int                ## round its shape: its outline from its pixels' alpha (0; a shape: its
@@ -2187,8 +2189,10 @@ proc wrapHoles*(d: Doc; L: Layer): seq[TextHole] =
   let t = L.text
   let fx0 = t.x
   let fx1 = t.x + max(0'f32, t.boxW)
+  let lu = uidOf(L)
   for M in d.layers:
     if M == L or M.wrap == 0 or M.group or not M.visible or M.px.len != d.w * d.h: continue
+    if M.wrapOpts.frameOf != 0 and M.wrapOpts.frameOf != lu: continue     # (Area Type: another's frame)
     let off = d.wrapOffsetsPx(M)
     let first = result.len
     var poly: WrapPoly
@@ -2975,6 +2979,23 @@ proc mapPoints*(p: var Path; f: proc (x, y: float): (float, float)) =
       q.p = f(q.p[0], q.p[1])
       q.inH = f(q.inH[0], q.inH[1])
       q.outH = f(q.outH[0], q.outH[1])
+
+proc scaleFx*(fx: var LayerFx; k: float) =
+  ## A layer style made `k` times bigger: each effect's distance, size and softening, and the
+  ## overlays' pattern and gradient scale (`scaleEffects` in `retroui/photostyles` by percent).
+  let k = max(0.0, k)
+  for e in fx.fx.mitems:
+    e.distance = int(round(e.distance.float * k))
+    e.size = int(round(e.size.float * k))
+    e.soften = int(round(e.soften.float * k))
+    e.scale = clamp(int(round((if e.scale == 0: 100 else: e.scale).float * k)), 1, 1000)
+
+proc scaleStrokes*(s: var ShapeData; k: float) =
+  ## Scale Strokes & Effects: a shape's strokes as much wider as the shape grew -- its stroke and
+  ## its Appearance strokes (its dashes, ends and widths go along: they are in stroke widths).
+  let k = max(0.0, k)
+  s.strokeWidth *= k
+  for a in s.appearance.mitems: a.width *= k
 
 proc mapShape*(d: Doc; L: Layer; f: proc (x, y: float): (float, float); scale = 1.0) =
   ## A shape layer's outline moved by `f` (its stroke `scale`d); drawn
@@ -4185,10 +4206,7 @@ proc compositeOverBelow(d: Doc; r: Rect): bool =
   let tw = (d.w + BelowTile - 1) div BelowTile
   let th = (d.h + BelowTile - 1) div BelowTile
   let sig = d.belowSignature()
-  if sig != d.belowSig or d.belowOk.len != tw * th or d.below.len != d.w * d.h:
-    d.belowSig = sig
-    d.belowOk = newSeq[bool](tw * th)
-    if d.below.len != d.w * d.h: d.below = newSeq[uint32](d.w * d.h)
+  let fresh = sig != d.belowSig or d.belowOk.len != tw * th or d.below.len != d.w * d.h
   let tx0 = c.x div BelowTile
   let ty0 = c.y div BelowTile
   let tx1 = (c.x + c.w - 1) div BelowTile
@@ -4198,9 +4216,15 @@ proc compositeOverBelow(d: Doc; r: Rect): bool =
   for ty in ty0 .. ty1:
     for tx in tx0 .. tx1:
       inc total
-      if not d.belowOk[ty * tw + tx]: inc missing
-  # (most of it to be made: not worth it this time -- a whole new picture, say)
+      if fresh or not d.belowOk[ty * tw + tx]: inc missing
+  # (most of it to be made: not worth it this time -- a whole new picture, say; and nothing
+  # kept for it yet -- a picture just opened holds no copy of what is under its layer)
   if missing * 4 > total * 3 and c.w * c.h * 4 > d.w * d.h: return false
+  if fresh:
+    d.belowSig = sig
+    d.belowOk = newSeq[bool](tw * th)
+    # (its memory taken only where tiles are made: those under the strokes)
+    if d.below.len != d.w * d.h: d.below = zeroPixels(d.w * d.h)
   if missing > 0:
     # (the missing tiles, a row of tiles at a time: the union of those in it)
     for ty in ty0 .. ty1:
@@ -10021,6 +10045,7 @@ proc wrapToJson*(w: WrapOptions): JsonNode =
   result = %*{"offsets": [w.offsets[0], w.offsets[1], w.offsets[2], w.offsets[3]]}
   if w.linked: result["linked"] = %true
   if w.invert: result["invert"] = %true
+  if w.frameOf != 0: result["frameOf"] = %w.frameOf
   if w.least > 0: result["least"] = %w.least
   if w.contour != 0: result["contour"] = %w.contour
   if w.contourPath.len > 0: result["contourPath"] = %w.contourPath
@@ -10035,6 +10060,7 @@ proc wrapFromJson*(j: JsonNode): WrapOptions =
     for k in 0 ..< min(4, o.len): result.offsets[k] = clamp(float32(o[k].getFloat), -2000, 2000)
   result.linked = j{"linked"}.getBool
   result.invert = j{"invert"}.getBool
+  result.frameOf = j{"frameOf"}.getInt(0)
   result.least = clamp(float32(j{"least"}.getFloat(0)), 0, 2000)
   result.contour = clamp(j{"contour"}.getInt(0), 0, 2)
   result.contourPath = j{"contourPath"}.getStr("")

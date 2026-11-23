@@ -297,7 +297,7 @@ type
   ToolKind* = enum
     ## The painting tool a stroke is made with (the strings: their names).
     tkBrush = "Paintbrush", tkPencil = "Pencil", tkAirbrush = "Airbrush", tkEraser = "Eraser",
-    tkSmudge = "Smudge", tkBlur = "Blur", tkSharpen = "Sharpen", tkDodge = "Dodge",
+    tkSmudge = "Smudge", tkBlur = "Blur", tkSharpen = "Sharpen", tkMedian = "Median", tkDodge = "Dodge",
     tkBurn = "Burn", tkSponge = "Sponge", tkStamp = "Rubber Stamp", tkMixer = "Mixer Brush"
 
   ToneRange* = enum
@@ -505,7 +505,7 @@ proc beginStroke*(d: Doc; o: PaintOpts; tip: BrushTip; x, y: float; pressure = 1
   result = Stroke(d: d, L: d.paintTarget, o: o, tip: tip, lastX: x, lastY: y, pressure: pressure)
   if result.o.opacity <= 0: result.o.opacity = 100
   result.tip.diameter = clamp(result.tip.diameter, 1, MaxDiameter)
-  if o.tool in {tkSmudge, tkBlur, tkSharpen, tkMixer}:
+  if o.tool in {tkSmudge, tkBlur, tkSharpen, tkMedian, tkMixer}:
     # (these carry or read the pixels under the whole dab: up to the mask's size)
     result.tip.diameter = min(result.tip.diameter, MaxMaskSide)
   if o.dyn.pose: result.pressure = clamp(o.dyn.posePressure, 1, 100).float / 100
@@ -584,7 +584,7 @@ proc planDab(s: var Stroke; cx, cy: float): DabPlan =
   ## stroke's random numbers drawn now, in order, so that it paints the same now or later)
   let dy = s.o.dyn
   let custom = s.tip.custom.len > 0
-  let shaped = s.o.tool in {tkBrush, tkAirbrush, tkEraser, tkStamp, tkSmudge, tkBlur, tkSharpen, tkDodge, tkMixer,
+  let shaped = s.o.tool in {tkBrush, tkAirbrush, tkEraser, tkStamp, tkSmudge, tkBlur, tkSharpen, tkMedian, tkDodge, tkMixer,
                             tkBurn, tkSponge} and not (s.o.tool == tkEraser and s.o.eraseMode in {emPencil, emBlock})
   let byPressure = s.o.sizeByPressure or dy.sizeControl == dcPressure
   var k = if byPressure and s.pressure < 0.999 and s.o.tool in {tkBrush, tkAirbrush, tkEraser, tkMixer}:
@@ -963,6 +963,35 @@ proc paintDab(s: var Stroke; pl: DabPlan) =
                  else: cur[k] + (cur[k] - blur) * a * 0.6
         let np = argb(int(round(o[0])), int(round(o[1])), int(round(o[2])), int(round(o[3])))
         L.px[i] = d.applyAt(L, i, p, if s.o.tool == tkSharpen: np.withAlpha(aOf(p)) else: np, 255)
+  of tkMedian:
+    # (Affinity's Median Brush: each channel the middle of the 5 x 5 round it -- dust, specks and
+    # noise taken out where it is brushed, the edges kept)
+    var src = newSeq[uint32](r.w * r.h)
+    for y in 0 ..< r.h:
+      for x in 0 ..< r.w: src[y * r.w + x] = L.px[(r.y + y) * w + r.x + x]
+    var vals: array[4, array[25, int]]
+    for y in r.y ..< r.y + r.h:
+      for x in r.x ..< r.x + r.w:
+        let a = m.maskAt(x - x0, y - y0).float * strength
+        if a <= 0: continue
+        var n = 0
+        for dy in -2 .. 2:
+          for dx in -2 .. 2:
+            let xx = clamp(x + dx, 0, d.w - 1)
+            let yy = clamp(y + dy, 0, d.h - 1)
+            let p = if xx >= r.x and yy >= r.y and xx < r.x + r.w and yy < r.y + r.h:
+                      src[(yy - r.y) * r.w + xx - r.x] else: L.px[yy * w + xx]
+            vals[0][n] = aOf(p); vals[1][n] = rOf(p); vals[2][n] = gOf(p); vals[3][n] = bOf(p)
+            inc n
+        let i = y * w + x
+        let p = src[(y - r.y) * r.w + x - r.x]
+        let cur = [aOf(p).float, rOf(p).float, gOf(p).float, bOf(p).float]
+        var o: array[4, float]
+        for k in 0 .. 3:
+          var v = vals[k]
+          v.sort()
+          o[k] = cur[k] + (float(v[12]) - cur[k]) * a
+        L.px[i] = d.applyAt(L, i, p, argb(int(round(o[0])), int(round(o[1])), int(round(o[2])), int(round(o[3]))), 255)
   of tkDodge, tkBurn, tkSponge:
     for y in r.y ..< r.y + r.h:
       for x in r.x ..< r.x + r.w:

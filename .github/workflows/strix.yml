@@ -1,0 +1,45 @@
+name: Strix
+
+# Strix's AI agents (github.com/usestrix/strix) read the kit's code, build
+# and run it in their sandbox, and report the security holes they can show,
+# each with its proof -- what to look at: tools/strix/instructions.md.
+# Needs the secret LLM_API_KEY (an AI service's key) and the variable
+# STRIX_LLM (its model as LiteLLM names it: "anthropic/...", "openai/...");
+# without them it says so and stops. By hand only (Actions > Strix > Run
+# workflow): a scan costs the AI service's tokens. The report is kept as
+# the run's artifact.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "quick, standard or deep"
+        default: "standard"
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      HAS_KEY: ${{ secrets.LLM_API_KEY != '' && vars.STRIX_LLM != '' }}
+    steps:
+      - name: Strix is set up
+        if: env.HAS_KEY != 'true'
+        run: echo "No LLM_API_KEY secret or STRIX_LLM variable -- no scan this time."
+      - uses: actions/checkout@v5
+        if: env.HAS_KEY == 'true'
+      - name: Scan
+        if: env.HAS_KEY == 'true'
+        env:
+          STRIX_LLM: ${{ vars.STRIX_LLM }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: |
+          python3 -m pip install --user strix-agent
+          export PATH=$HOME/.local/bin:$PATH
+          sh tools/strix.sh "${{ github.event.inputs.mode }}" || echo "Strix found something: see the report"
+      - uses: actions/upload-artifact@v4
+        if: env.HAS_KEY == 'true' && always()
+        with:
+          name: strix-report
+          path: strix_runs/
+          if-no-files-found: ignore
