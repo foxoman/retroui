@@ -274,8 +274,19 @@ the chosen item a rounded pill; group boxes and tabs with rounded
 corners. The sizes are 3.1's, so nothing moves. It goes with every color
 scheme -- its own Glass Light and Glass Dark, made for it, or any other
 -- but the high-contrast ones, which keep their clear black and white
-edges. No blur: the faces are a little see-through over what is under
-them.
+edges. Its menus, dialogs and the lists a combo box drops down are real
+frosted glass: what is under them shows through, blurred ("See-through
+menus and dialogs" in the Appearance settings turns it off).
+
+**Surfaces: frosted glass, shadows, masks.** `surface frostedSurface(): ...`
+is a panel of frosted glass over whatever is under it -- a photo, a map --
+blurred on the CPU or the GPU alike, and kept while what is under it does
+not change; `Surface(blur, face, corner, shadow, border)` says how one is
+drawn (a card that floats, a rounded panel), what is put in it kept in its
+rounded corners. `backdropBlur(r, radius, tint, corner)` blurs what is
+drawn so far under a rectangle of your own, and `masked(r, corner): ...`
+keeps what is drawn in it inside rounded corners -- a picture in a
+circle.
 
 **A window that keeps its size:** `app "Calculator", 260, 320, resizable = false:`
 (or `setResizable(false)`). The 3.1 frame then has no sizing border to drag,
@@ -681,6 +692,22 @@ app "Notes", 420, 300:
   `progress`, `value` once `done`, `error` when it `failed`, and `cancel`
   it. `fetch(url)` is a web request as a job. The kit draws a frame when
   one ends; in a web page, without threads, a job runs between frames.
+- **A terminal** (`retroui/terminal`): `terminalView(term)` with `term.spawn()`
+  runs the user's shell (or `top`, `vim`, a build) in a box of the window --
+  xterm's colors and keys, scrolling back, copy and paste, the mouse to a
+  program that asks; Linux, macOS, the BSDs, Android, Windows 10. Fed by the app, it shows
+  a build's output in its colors.
+- **Frosted glass, masks, surfaces**: `surface frostedSurface(): ...` (a
+  panel blurring what is under it, rounded, shadowed), `backdropBlur(r, radius,
+  tint, corner)`, `masked(r, corner): ...` (kept inside rounded corners: a
+  picture in a circle); the Glass look's menus and dialogs are frosted glass.
+- **Data loaded once and shared** (`retroui/queries`): `query("feed:" & url,
+  proc (): seq[Episode] = loadFeed(url), maxAge = 15 * 60_000)` -- loaded on a
+  worker the first time; every page asking for the same key gets the one entry
+  (`loading`, `value`, `has`, `failed`, `error`); loaded again when too old or
+  `invalidate("feed:")` says so, its value shown meanwhile; a failed load tried
+  again before it is told; `setQuery` puts a change in at once; one nobody asks
+  for let go of.
 - **Undo** (`UndoStack`): `record` keeps a value before and after a change
   (`did` takes procs, for a big document); typing in a row is one step,
   `undoMenuItems` says what Undo takes back, `changed` and `markClean`
@@ -702,8 +729,14 @@ app "Notes", 420, 300:
   that comes in, and goes out before it is gone), `glided` (a box the
   layout moved glides there), `dragSnap` (dragged, thrown, sprung to the
   nearest point), `staggered` (rows one after another), `fixedSteps` (a
-  simulation's steps at any frame rate) -- frames only while something
-  moves, nothing to hold.
+  simulation's steps at any frame rate), `played` (timed steps one after
+  another or together, played forward and back from where they are, in a
+  loop -- eleven curves: Expo, Back, Elastic, Bounce...), `travelled` (a
+  box flying from one part of the window to another: a card into the
+  dialog that shows it) -- frames only while something moves, nothing to
+  hold. And from `retroui/core`: `appeared(r)` (a box coming into sight:
+  pictures loaded only for the rows scrolled to), `resized(r)` (a box
+  laid out at another size).
 - **Flows that wait** (`retroui/flows`): `flow("close"): case ask("Save
   changes?", ["&Yes", "&No", "Cancel"]) ...` -- a question, a file picked,
   work on a worker, a condition, each waited for, written one after
@@ -2278,7 +2311,7 @@ s.dehaze = 10
 p.applyFilter(developMargin(s), develop(s))
 ```
 
-`examples/photo.nim` is **Retro Atelier 5.17.0** (Retro Photo until 5.0: its modules, documents and package id keep that name), a studio for
+`examples/photo.nim` is **Retro Atelier 5.17.1** (Retro Photo until 5.0: its modules, documents and package id keep that name), a studio for
 pictures, drawings and pages in the manner of the programs of 1994: the toolbox, the tabbed floating palettes (Brushes
 and Options; Picker, Swatches and Scratch; Layers, Channels and Paths;
 Info; Commands; Navigator, History and Actions; Properties), an options
@@ -3777,6 +3810,10 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_proctexture` | Procedural Texture: formulas read and what is wrong with one said, each value and function, a channel left as it was, the shared value and the sliders, noise smooth and within 0..1, every preset read, clouds varying, the checkerboard's squares exact, the vignette dark at the corners only |
 | `test_photoextras` | Retro Atelier 5.16's engine: every new filter keeps the size and changes the picture; Tone Stretch uses the whole range, Invert Channels inverts, Split Toning cools the shadows and warms the highlights, the adjustment layers with numbers, Hue Curves' Saturation vs Saturation; Bilateral Blur takes the noise and keeps the edge; the range masks and the four Compound Mask ways; the FFT there and back; a known shake found (angle, length) and taken out; a shift found exactly, six noisy frames stacked, a gradient made even; a 360 view put back; the relief's mesh; the ten live shapes in their box; letters turned, kept in the file; each Type on a Path effect kept and placing the letters elsewhere; Area Type's frame kept; the Scatter chart |
 | `test_atelierextras` | Retro Atelier 5.16 as a program: SDR to HDR, a mask from the lightness and Compound Mask; Transform Selection, Copy CSS and SVG, Define Custom Shape kept, Delete All Empty Layers, the Measurement Log; Color Lookup Tables (the Invert layer's .cube), Zoomify, Save for Web's five formats, Layer to 3D's .glb; a 360 view edited and put back; Version History and Image Assets on each save; Play Action by name; Accessibility Check; Generate Background, Generative Upscale, Style Transfer from a picture, Rewrite, Generative Recolor and Text to Pattern against the test's own service; every new tool dragged on the canvas, every new command run; 5.17's: a text box sized by its handle (its letters as big, its lines flowing again), glyphs put with the feature that makes them, the brush's outline shown and gone, a color taken from anywhere in the window, a gradient's color stop made transparent in the picker, every tool its own icon |
+| `test_photoleaks` | Retro Atelier lets go of a closed image: every command of the program (900 and more) run on an image of pixels, a shape, type and a selection, the image closed, no document left alive |
+| `test_queries` | `retroui/queries` on a clock of its own: an entry two pages ask for loaded once, its value kept while it is loaded again (out of date, too old), a failed load tried again then told (its value before kept), a change put in at once, another type under a key another entry, one nobody asks for let go of |
+| `test_backdrop` | frosted glass and masks: what is under a blur smoothed and lighter, its rounded corners keeping what is outside them, a mask's circle and a mask inside it; a change near a blur, far from it, of its tint and over it the very pixels of a whole frame; the GPU's frames the CPU's (3 levels at most apart), and its partial frames, at every buffer age, a whole frame's |
+| `test_terminal` | the terminal: text, the 16, 256 and RGB colors (semicolons and colons), bold, underlined, inverse, struck; the cursor moved, lines and characters erased, inserted, deleted; a line wrapped and the lines scrolled off kept; a scroll region; the other screen and back; wide characters and the line-drawing set; the answers asked for (the cursor's place, what it is), the title; the keys as xterm sends them; a size changed; a shell in a pseudo-terminal -- its colors, its size, an exit code, what is typed answered; the view taking the keys, a word chosen with a double click and copied |
 | `test_signals` | signals and computed values worked out again only when what they read changed (through two, a branch not taken, an answer that stayed the same, a change in place), effects run and stopped; `keep`: nothing outside `--watch`, the values written, and a second program started with the file getting them back |
 | `test_photoaffinity` | Retro Atelier 5.15 as a program: studios kept, deleted, exported and imported; a help card for every tool of the toolbar; paint on type making a pixel layer; a live blend following its end and expanded; Hue Curves; the Mask Brush (a mask made, black hides, Alt shows, the pixels untouched, the Background made a layer); the Tone Brush; Procedural Texture's dialog; an artboard sized by its corner with what is on it following its Constraints; Symbols made, inserted, kept alike and detached; each new menu command run by its name doing its work; Fill with Placeholder Text (Arabic, paragraphs, added after, as many as fill the box, your own, the choices kept) |
 | `test_colorfonts` | colour fonts: COLR/CPAL layers, sbix and CBDT pictures and a layer in the text's own colour, found by the font reader, drawn by the text engine, in PDF and SVG |

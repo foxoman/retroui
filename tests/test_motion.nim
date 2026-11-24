@@ -2,8 +2,10 @@
 ## target changes and is the same at any frame rate, a bouncy one goes past, a box comes in
 ## and goes out before it is gone, a box the layout moved glides (a scroll does not), a box
 ## dragged and let go springs to the nearest point, rows come in one after another, a fixed
-## time step counts whole steps -- less movement asked puts each at its end at once, and
-## nothing asks for frames once it is all at rest.
+## time step counts whole steps; the curves; timed steps one after another, played back from
+## where they were, together, round in a loop; a box travelling across the window; a box shown
+## for the first time (and again when scrolled back), a box of another size -- less movement
+## asked puts each at its end at once, and nothing asks for frames once it is all at rest.
 
 import std/math
 import retroui, retroui/[headless, motion]
@@ -228,6 +230,97 @@ block fixedTimeStep:
   rest: discard fixedStepsAt(id, 10)
   doAssert not rested                                        # (running: frames at its pace)
 
+block curves:
+  # every curve from 0 to 1; slow at the end (the default) is quick at first; Back and Elastic
+  # go past 1 on the way; Both is half way at the middle
+  for c in Curve:
+    for side in EaseSide:
+      doAssert abs(eased(0.0, c, side)) < 1e-9 and abs(eased(1.0, c, side) - 1) < 1e-9, $c & " " & $side
+  doAssert eased(0.25, cvCubic) > 0.25 and eased(0.25, cvCubic, easeStart) < 0.25
+  doAssert abs(eased(0.5, cvQuad, easeBoth) - 0.5) < 1e-9
+  var past = false
+  for i in 1 .. 99:
+    if eased(i / 100, cvBack) > 1.0: past = true
+  doAssert past, "Back goes a little past"
+  doAssert eased(0.5, cvLinear) == 0.5
+
+block stepsOneAfterAnother:
+  # a door then a panel: the panel waits for the door; back, the panel first; a loop goes round
+  let id = Id(801)
+  let steps = [tween(0, 90, 400, cvLinear), tween(0, 1, 200, cvLinear)]
+  doAssert playLength(steps) == 600 and playLength(steps, together = true) == 400
+  var v: seq[float]
+  frame(16): v = playedAt(id, true, steps)
+  for i in 0 ..< 12: frame(16): v = playedAt(id, true, steps)      # (some 200 ms in)
+  doAssert v[0] > 30 and v[0] < 70 and v[1] == 0.0, "the door on its way, the panel waiting: " & $v
+  for i in 0 ..< 30: frame(16): v = playedAt(id, true, steps)
+  doAssert v[0] == 90.0 and v[1] == 1.0, "both there: " & $v
+  rest: discard playedAt(id, true, steps)
+  doAssert rested
+  for i in 0 ..< 6: frame(16): v = playedAt(id, false, steps)      # (back: the panel first)
+  doAssert v[0] == 90.0 and v[1] < 1.0 and v[1] > 0.0, "the panel going back first: " & $v
+  for i in 0 ..< 40: frame(16): v = playedAt(id, false, steps)
+  doAssert v[0] == 0.0 and v[1] == 0.0
+  # together: both move at once
+  let both = Id(802)
+  for i in 0 ..< 6: frame(16): v = playedAt(both, true, steps, together = true)
+  doAssert v[0] > 0 and v[1] > 0
+  # a loop: round again while on, and it keeps asking for frames
+  let spin = Id(803)
+  var seen: seq[float]
+  for i in 0 ..< 80:
+    frame(16):
+      seen.add playedAt(spin, true, [tween(0, 360, 400, cvLinear)], loop = true)[0]
+  var wraps = 0
+  for i in 1 .. seen.high:
+    if seen[i] < seen[i - 1]: inc wraps
+  doAssert wraps >= 2, "round again: " & $wraps
+  rest: discard playedAt(spin, true, [tween(0, 360, 400, cvLinear)], loop = true)
+  doAssert not rested
+
+block travelsAcrossTheWindow:
+  # a card from a grid into a dialog: drawn in one place at a time, it flies from the one to the
+  # other in the window's coordinates, wherever the rows and columns are
+  let id = Id(901)
+  var r: Rect
+  frame(16): r = travelledAt(id, rect(20, 200, 60, 60))
+  doAssert r == rect(20, 200, 60, 60)
+  frame(16): r = travelledAt(id, rect(150, 40, 200, 200))
+  doAssert r.x > 20 and r.x < 150 and r.w > 60 and r.w < 200, "on its way: " & $r
+  for i in 0 ..< 100: frame(16): r = travelledAt(id, rect(150, 40, 200, 200))
+  doAssert r == rect(150, 40, 200, 200)
+
+block firstShownAndResized:
+  # a box comes into sight once (not again while it stays); scrolled away and back, again; cut
+  # away by a clip it is not seen; a size changed is told the frame it changes, not the first
+  let id = Id(1001)
+  var a, z: bool
+  frame(16): a = appearedAt(id, rect(10, 10, 50, 20))
+  doAssert a, "the first time it shows"
+  frame(16): a = appearedAt(id, rect(10, 10, 50, 20))
+  doAssert not a, "still there: not again"
+  frame(16): a = appearedAt(id, rect(10, 900, 50, 20))      # (scrolled out of the window)
+  doAssert not a and not onScreen(rect(10, 900, 50, 20))
+  frame(16): a = appearedAt(id, rect(10, 40, 50, 20))
+  doAssert a, "scrolled back into view: again"
+  frame(16):
+    pushClip(rect(0, 0, 100, 30))
+    a = appearedAt(Id(1002), rect(10, 50, 50, 20))       # (below what the panel shows)
+    popClip()
+  doAssert not a
+  frame(16): a = appearedAt(id, rect(10, 40, 50, 20))
+  frame(16): discard                                     # (not laid out this frame: gone a while)
+  frame(16): a = appearedAt(id, rect(10, 40, 50, 20))
+  doAssert a, "drawn again after a frame away"
+  frame(16): z = resizedAt(Id(1003), rect(0, 0, 100, 50))
+  doAssert not z, "not the first time"
+  frame(16): z = resizedAt(Id(1003), rect(5, 5, 100, 50))
+  doAssert not z, "moved, the same size"
+  frame(16): z = resizedAt(Id(1003), rect(5, 5, 140, 50))
+  doAssert z, "wider"
+  frame(16): z = resizedAt(Id(1003), rect(5, 5, 140, 50))
+  doAssert not z
+
 block lessMovement:
   setSmoothScrolling(false)
   doAssert reducedMotion()
@@ -244,6 +337,9 @@ block lessMovement:
   doAssert not p.present
   frame(16): v = sprungAt(Id(703), 50.0, start = 0)
   doAssert v == 50.0
+  var st: seq[float]
+  frame(16): st = playedAt(Id(704), true, [tween(0, 10, 500), tween(0, 1, 500)])
+  doAssert st == @[10.0, 1.0], "timed steps at their end at once: " & $st
   rest:
     discard sprungAt(Id(703), 50.0)
     discard presenceAt(Id(702), false)

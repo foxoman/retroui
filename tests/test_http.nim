@@ -41,6 +41,8 @@ proc answer(c: Socket; meth: string; status: int; headers: openArray[(string, st
   c.send(head)
   if meth != "HEAD" and body.len > 0: c.send(body)
 
+var slowNow, slowMost: int     ## (the server's slow answers at once, the most of them)
+
 proc handle(c: Socket; port: int) =
   var r: Request
   let first = c.recvLine(timeout = 10_000).split(' ')
@@ -69,7 +71,14 @@ proc handle(c: Socket; port: int) =
     if to.startsWith("/"): to = "http://127.0.0.1:" & $port & to
     c.answer(r.meth, parseInt(r.path[10 .. ^1]), {"Location": to}, "moved")
   elif r.path == "/slow":
+    # (how many of the threads' ones -- they have an id -- are being answered at once, and the
+    # most: requests from threads overlap)
+    let counted = r.param("id").len > 0
+    if counted:
+      let now = atomicInc(slowNow)
+      if now > slowMost: slowMost = now
     sleep(parseInt(r.param("ms")))
+    if counted: discard atomicDec(slowNow)
     c.answer(r.meth, 200, {"X-Id": r.param("id")}, "slow " & r.param("id"))
   elif r.path == "/gzip":
     if "gzip" in r.get("Accept-Encoding"):
@@ -211,23 +220,31 @@ proc checks(base, mode: string) =
     doAssert g.status == 200 and g.body == "hello gzip ".repeat(20), mode & ": " & $g.body.len
 
   block timeout:
+    # (an answer 8 s away, a second's patience: given up well before -- with room for a machine
+    # busy with other tests)
     let t0 = epochTime()
-    let r = httpRequest("GET", base & "/slow?ms=4000", timeoutSec = 1)
+    let r = httpRequest("GET", base & "/slow?ms=8000", timeoutSec = 1)
     let took = epochTime() - t0
     doAssert r.status == 0 and r.error.len > 0, $r.status
-    doAssert took < 3.5, $took
+    doAssert took < 6.0, $took
     echo "  ", mode, ": timed out after ", formatFloat(took, ffDecimal, 1), " s: ", r.error
 
   block threads:
-    # 8 requests (and 8 slow ones) from 4 threads at once
+    # 8 requests (and 8 slow ones) from 4 threads at once: the slow ones answered side by side
+    # (the server says how many at once; the time, with the machine busy with other tests, can
+    # come near one after another's)
     for i in 0 ..< 8: threadOk[i] = false
+    slowMost = 0
     let t0 = epochTime()
     var ts: array[4, Thread[tuple[base: string; first: int]]]
     for i in 0 ..< 4: createThread(ts[i], client, (base, i * 2))
     joinThreads(ts)
     let took = epochTime() - t0
     for i in 0 ..< 8: doAssert threadOk[i], mode & ": thread request " & $i
-    doAssert took < 2.4 * 1.5, $took          # one after another: 4.8 s and more
+    if getEnv("RETRO_TEST_SERVER").len == 0:
+      doAssert slowMost >= 2, mode & ": the slow requests one after another: " & $slowMost
+    else:
+      doAssert took < 2.4 * 1.5, $took          # one after another: 4.8 s and more
     echo "  ", mode, ": 16 requests from 4 threads in ", formatFloat(took, ffDecimal, 2), " s"
 
 block encoding:

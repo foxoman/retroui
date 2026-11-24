@@ -2065,7 +2065,11 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Pictures, drawings and pages -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.17.0: the Glass look (Preferences > Appearance > Look: Glass; Glass Light and Glass " &
+           whatsNew = ["5.17.1: an image closed is let go of -- its layers and its history -- where Fade, " &
+                       "Generate Vector, Record Timelapse, Text in Picture, an AI request in flight, the Gap " &
+                       "tool and the transform and warp tools kept it; in the Glass look the menus and the " &
+                       "dialogs are frosted glass, what is under them blurred.",
+                       "5.17.0: the Glass look (Preferences > Appearance > Look: Glass; Glass Light and Glass " &
                        "Dark); every glyph of a font in the Glyphs panel (Entire Font); Scheherazade New, Lateef " &
                        "and Markazi Text carried; bullets and numbers on the paragraphs you choose; a text box's " &
                        "eight handles; Arabic set right beside a bullet and in justified lines; every tool its " &

@@ -42,7 +42,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 const
   AppName = "Retro Atelier"         # (Retro Photo until 5.0)
   AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
-  AppVersion = "5.17.0"
+  AppVersion = "5.17.1"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -5595,6 +5595,9 @@ proc forgetDoc(dw: DocWin) =
   if tbar.dw == dw: drop(tbar)
   if polyLasso.dw == dw: drop(polyLasso)
   if vd.dw == dw or mine(vd.layer): drop(vd)
+  if gapDrag.dw == dw: drop(gapDrag)
+  if tt.dw == dw or mine(tt.pivotFor): drop(tt)
+  if liq.dw == dw or mine(liq.layer): drop(liq)
   if hoverLit.d == d: drop(hoverLit)
   if rowLit.d == d: drop(rowLit)
   if xfShots.anyIt(mine(it.layer)): xfShots.setLen(0)
@@ -5621,6 +5624,20 @@ proc forgetDoc(dw: DocWin) =
       if L == seDlg.layer: drop(seDlg)
       if L == linkLayer: linkLayer = nil
   if sbDlg.layers.anyIt(mine(it)): drop(sbDlg)
+  # (Edit > Fade's and Scale Effects' boxes, Record Timelapse, Generate Vector, Text in Picture,
+  # and the AI's requests in flight -- each checks for its image gone when its answer comes:
+  # a hunt over every command found these four keeping a closed image, layers and undo whole)
+  if fadeBox.d == d: drop(fadeBox)
+  if scaleFxBox.d == d or mine(scaleFxBox.L): drop(scaleFxBox)
+  if timelapse.doc == d: drop(timelapse)
+  if vecFor.d == d: drop(vecFor)
+  if readDlg.doc == d: readDlg.doc = nil
+  if aiRun.d == d: aiRun.d = nil
+  if textRun.d == d: textRun.d = nil
+  if mine(textRun.layer): textRun.layer = nil
+  if genRun.d == d: genRun.d = nil
+  if fitRun.d == d: fitRun.d = nil
+  if mine(fitRun.layer): fitRun.layer = nil
   boxCache.clear()
   chanThumbs.clear()               # (keyed by where the image was: a new one may come there)
   GC_fullCollect()                 # (an image's parts that point at each other: let go now)

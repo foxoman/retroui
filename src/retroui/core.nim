@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy, hangwatch, frameprof
 export busy
 
-const RetroVersion* = "0.72.0"
+const RetroVersion* = "0.73.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -1073,6 +1073,69 @@ proc wakeInShown*(r: Rect; ms: int) =
   ## away, it wakes nothing, and an app at rest takes no time.
   if intersects(r, clipRect()) and intersects(r, rect(0, 0, ui.w, ui.h)): wakeIn(ms)
 
+# ---- a box shown for the first time, a box of another size --------------------------------------
+
+proc onScreen*(r: Rect): bool =
+  ## `r` can be seen now: inside the window and the area it is drawn in -- what a scroll panel,
+  ## a list or a split pane has scrolled or cut out of sight is not.
+  r.w > 0 and r.h > 0 and intersects(r, clipRect()) and intersects(r, rect(0, 0, ui.w, ui.h))
+
+var boxesSeen: Table[Id, tuple[frame: int; shown, appeared, resized: bool; w, h: int]]
+  ## (each box asked about: the frame it was last laid out in, whether it showed, its size)
+
+proc boxSeen(id: Id; r: Rect): tuple[appeared, resized: bool] =
+  var s = boxesSeen.getOrDefault(id, (-10, false, false, false, -1, -1))
+  if s.frame != ui.frameNo:
+    # (laid out again the next frame, or after a while away: a box not laid out the frame before
+    # did not show then)
+    let shown = onScreen(r)
+    let was = s.shown and s.frame == ui.frameNo - 1
+    s.appeared = shown and not was
+    s.resized = s.w >= 0 and (r.w != s.w or r.h != s.h)
+    s.shown = shown
+    s.w = r.w
+    s.h = r.h
+    s.frame = ui.frameNo
+    boxesSeen[id] = s
+    if boxesSeen.len > 4096:
+      # (the boxes not laid out for a minute's worth of frames: a page gone)
+      var old: seq[Id]
+      for k, v in boxesSeen:
+        if ui.frameNo - v.frame > 3600: old.add k
+      for k in old: boxesSeen.del k
+  (s.appeared, s.resized)
+
+proc appearedAt*(id: Id; r: Rect): bool = boxSeen(id, r).appeared
+  ## `appeared` for a box of your own id (`idOf`).
+
+proc resizedAt*(id: Id; r: Rect): bool = boxSeen(mixId(id, 77), r).resized
+  ## `resized` for a box of your own id (`idOf`).
+
+template appeared*(r: Rect; key = ""): bool =
+  ## True the frame the box at `r` comes into sight: the first time it is drawn where it can be
+  ## seen, and again each time it is scrolled back into view (or drawn again after a while
+  ## away). What to do only for what is seen -- a long list's pictures loaded, a page's
+  ## rows counted as read, an animation started. A box in a loop takes a `key` of what it
+  ## shows.
+  ##
+  ## .. code-block:: nim
+  ##   for p in photos:
+  ##     let r = place(dp(96), dp(96))
+  ##     if appeared(r, key = p.path): thumbs.load(p.path)   # (only those scrolled to)
+  ##     drawThumb(r, p)
+  const at = instantiationInfo(-1, true)
+  const site = at.filename & ":" & $at.line & ":" & $at.column & ":"
+  appearedAt(idOf(site & key), r)
+
+template resized*(r: Rect; key = ""): bool =
+  ## True the frame the box at `r` is laid out at another size than the frame before (the
+  ## window or a split pane sized, a panel opened beside it): what was worked out for its
+  ## size -- a picture fitted, a chart's layout, text wrapped -- made again then, not each
+  ## frame. Not the first time it is laid out.
+  const at = instantiationInfo(-1, true)
+  const site = at.filename & ":" & $at.line & ":" & $at.column & ":"
+  resizedAt(idOf(site & key), r)
+
 # ---- smooth scrolling ------------------------------------------------------------
 #
 # Every widget that scrolls keeps its position in pixels and hands it to these
@@ -1193,6 +1256,12 @@ var uiLook* = lookClassic
   ## The look of the controls (`UiLook`). Set it before `startApp` for the app's own default
   ## (with `GlassLight` or `GlassDark` for colors made for it); the user's choice ("Look" in
   ## `appearanceSettings`) is kept with the look (`storeAppearance`) and wins.
+
+var frostedGlass* = true
+  ## In the Glass look, menus, dialogs and the lists a combo box drops down show what is under
+  ## them blurred through their faces, as frosted glass (`backdropBlur`); false: their faces
+  ## plain -- less to draw, and easier to read for some. The user's choice ("See-through menus
+  ## and dialogs" in `appearanceSettings`) is kept with the look and wins.
 
 var captionButtons* = cbWin95
   ## The title bars' buttons (`CaptionButtons`). Set it before `startApp`

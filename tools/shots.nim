@@ -18,7 +18,7 @@ from std/times import fromUnix, epochTime
 from std/unicode import runes, toUTF8
 import retroui
 import retroui/[textwidgets, richedit, qrcode, pdfview, tilemap, mvt, capture, mediasession, system,
-                secrets, update, jobs, tray, motion, forcegraph, assistant, modelstore]
+                secrets, update, jobs, tray, motion, forcegraph, assistant, modelstore, terminal]
 import retroui/uirelays/[coords, screen, input, services]
 include "../tests/carscene"
 
@@ -484,6 +484,25 @@ example("group", "Groups, cards and separators",
   separator()
   label "Under a separator"
 
+example("surface", "Surfaces: frosted glass, shadows, masks",
+        "A surface is a panel drawn as you say: what is under it blurred -- real frosted glass, on the CPU and the GPU alike, kept while what is under it does not change -- a face over the blur, its corners rounded (what is put in it kept inside them), a soft shadow under it, a hairline round it (`Surface`: `blur`, `face`, `corner`, `shadow`, `border`, `pad`). `masked` keeps what is drawn in it inside rounded corners: a picture in a circle. In the Glass look the menus, the dialogs and the lists a combo box drops down are frosted glass themselves (`frostedGlass`; the user turns it off with \"See-through menus and dialogs\" in `appearanceSettings`).",
+        380, 170, ["surface", "beginSurface", "endSurface", "frostedSurface", "drawSurface", "backdropBlur",
+                   "masked", "beginMask", "endMask", "frostedFace"], std3):
+  let area = place(0, dp(150))
+  for i in 0 ..< area.w div dp(16) + 1:
+    fill(rect(area.x + i * dp(16), area.y, dp(8), area.h),
+         if i mod 2 == 0: color(230, 120, 60) else: color(60, 150, 220))
+  let glass = rect(area.x + dp(12), area.y + dp(14), dp(190), dp(110))
+  drawSurface(glass, frostedSurface())
+  text(glass.x + dp(16), glass.y + dp(16), "Frosted glass", ui.theme.text, style(bold = true))
+  let card = rect(area.x + dp(222), area.y + dp(14), dp(130), dp(56))
+  drawSurface(card, Surface(face: ui.theme.face, corner: float(dp(8)), shadow: dp(8), border: ui.theme.shadow))
+  text(card.x + dp(12), card.y + dp(18), "A floating card", ui.theme.text)
+  let ring = rect(area.x + dp(258), area.y + dp(84), dp(56), dp(56))
+  masked(ring, float(ring.w) / 2):
+    fill(ring, color(40, 160, 110))
+    text(ring.x + dp(9), ring.y + dp(20), "circle", color(255, 255, 255))
+
 example("form", "Forms and fields",
         "`form` lines up labels and their controls in two columns (0: the labels as wide as the longest). On a phone the label goes above its control.",
         340, 120, ["form", "field"], std3):
@@ -793,6 +812,20 @@ example("codeedit", "codeEdit",
   var source = "import retroui\n\n# a counter\nvar count = 0\napp \"Counter\", 240, 90:\n  if button(\"&Add\"): inc count\n  label \"Count: \" & $count\n"
 do:
   codeEdit(source, lines = 9, lang = clNim, find = "count", readOnly = not shotEnabled)
+  aim()
+
+example("terminal", "terminalView (retroui/terminal)",
+        "A terminal (`import retroui/terminal`): the user's shell, or any program that runs in one (`top`, `vim`, `htop`, a build), through a pseudo-terminal on Linux, macOS, the BSDs and Android, and Windows 10's pseudo-console, drawn as xterm draws it -- the 16 colors, the 256 and every RGB, bold, italic, underlined, inverse; the cursor; the lines that scrolled off kept to scroll back to; the screen a full-screen program draws on and leaves; lines and boxes drawn whole from cell to cell. The mouse chooses text (a double click a word, three a line), Ctrl+Shift+C copies it (Cmd+C on a Mac), Ctrl+Shift+V or Shift+Insert pastes, a right click has the same in a menu; a program that asks for the mouse gets its clicks and the wheel. `term.spawn()` starts the user's shell (`running`, `exitCode`, `title`); without a program a terminal shows what the app `feed`s it -- a build's output in its colors -- and what is typed goes to `onInput`.",
+        420, 180, ["newTerminal", "spawn", "terminalView", "feed", "send", "paste", "update", "stop", "close",
+                   "resize", "screenText", "selectionText", "waitOutput", "defaultShell"], std3):
+  var term = newTerminal()
+  term.feed("\e[1;32msultan@desk\e[0m:\e[1;34m~/retro\e[0m$ ls\r\n" &
+            "\e[1;34mdocs\e[0m  \e[1;34mexamples\e[0m  README.md  \e[1;32mretrokit\e[0m\r\n" &
+            "\e[1;32msultan@desk\e[0m:\e[1;34m~/retro\e[0m$ git log --oneline -2\r\n" &
+            "\e[33mcd4ebc6\e[0m 0.72.0: the Glass look\r\n\e[33m0c7a157\e[0m 0.71.0: Retro Atelier 5.16\r\n" &
+            "\e[1;32msultan@desk\e[0m:\e[1;34m~/retro\e[0m$ ")
+do:
+  terminalView(term, lines = 7)
   aim()
 
 # ======================================================================================================
@@ -2777,7 +2810,7 @@ const apiModules = ["widgets", "extras", "business", "morecontrols", "records", 
   "toolcustom", "dock", "textwidgets", "filewidgets", "charts", "planning", "mapview",
   "view3d", "htmlview", "markdown", "richedit", "media", "qrcode", "pdfview", "core", "gfx",
   "platform", "files", "textfile", "mediagif", "imaging", "templates", "native", "canvas2d",
-  "report", "tilemap", "gltf", "capture", "mediasession", "motion", "forcegraph", "forcelayout", "assistant", "aichat", "aiimage", "modelstore", "devicemodel", "llm", "meaning"]
+  "report", "tilemap", "gltf", "capture", "mediasession", "motion", "forcegraph", "forcelayout", "assistant", "aichat", "aiimage", "modelstore", "devicemodel", "llm", "meaning", "terminal"]
   ## Where the API is read from; a name in several is shown from the first
   ## (or as "module.name").
 

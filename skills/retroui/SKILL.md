@@ -321,8 +321,13 @@ app "Staff", 520, 420:
   comes in or goes out, `.t` 0..1 to move and fade by), `glided(place(w, h),
   key = item.name)` (a box the layout moved glides there; a scroll does
   not), `dragSnap(r, points)` (`.r`, `.dragging`, `.snapped`),
-  `staggered(i)`, `fixedSteps(10, running = playing)` (`.n` steps, `.alpha`).
+  `staggered(i)`, `fixedSteps(10, running = playing)` (`.n` steps, `.alpha`),
+  `played(open, [tween(0, 90, 400, cvExpo), tween(0, 1, 250, cvBack)])` (timed
+  steps one after another -- back when `open` turns false; `together`, `loop`),
+  `travelled(r, key)` (a box flying across the window: a card into its dialog).
   Frames only while something moves; at the end at once with less movement.
+- `appeared(r, key = item.id)`: true the frame a box comes into sight (load a
+  list's pictures only then); `resized(r)`: laid out at another size.
 - From the command line, any app: `RETRO_SCRIPT="click:Add;type:Milk;key:enter"
   RETRO_SNAPSHOT=out.png ./app` (steps, then its picture, the app ended; 1 when
   a step fails); `RETRO_PLAY=...` plays them in the window (a demo film).
@@ -356,6 +361,12 @@ app "Staff", 520, 420:
 - `retroui/dastkhat`: `carryDastkhat()` -- Arabic, Persian and Latin in one
   font, nine weights (`fontStyles("Dastkhat")`: Thin .. Black); a variable
   font's weights are styles (`fontFace(family, "SemiBold")`).
+- `retroui/queries`: `let q = query("feed:" & url, proc (): seq[Item] =
+  load(url), maxAge = 600_000)` -- the same entry for every page asking (loaded
+  once on a worker; `q.loading`, `q.has`, `q.value`, `q.failed`, `q.error`);
+  `invalidate("feed:")` loads them again (the old value shown meanwhile);
+  `setQuery(key, v)` puts a change in at once. Use it for anything several
+  pages show that comes from a server or a slow file.
 - `retroui/arabicfonts`: `carryArabicFonts()` -- Scheherazade New, Lateef and
   Markazi Text (`ArabicFamilies`), Regular and Bold: Arabic for books, Persian,
   Urdu, Pashto, Sindhi.
@@ -708,7 +719,23 @@ costs what its visible rows cost.
   bars, rounded menus and groups -- at 3.1's sizes, in any scheme (`GlassLight`,
   `GlassDark` are made for it; the high-contrast ones stay Classic). `glassLook()`
   tells a control of the app's own which to draw; `glassFace`, `glassWell`,
-  `glassAccent`, `selectFill` and `roundFrame` draw its parts.
+  `glassAccent`, `selectFill` and `roundFrame` draw its parts. Its menus, dialogs
+  and dropped lists are real frosted glass (`frostedGlass`; `frostedFace(r, back)`
+  for a popup of the app's own).
+- A terminal: `import retroui/terminal`; `var term = newTerminal(); discard term.spawn()`
+  (the user's shell; `spawn(@["htop"], cwd = dir)` another program) and
+  `terminalView(term, lines = -1)` each frame -- xterm's colors and keys, scrolling back,
+  copy (Ctrl+Shift+C) and paste, the mouse to a program that asks; `running`,
+  `exitCode`, `title`. With no program, `feed(text)` shows an app's output in its colors
+  and `onInput` gets what is typed. Linux, macOS, the BSDs, Android, Windows 10 (1809+).
+- Surfaces: `surface frostedSurface(): ...` -- a panel that blurs what is under it
+  (a photo, a map), rounded and shadowed, what is in it kept in its corners;
+  `Surface(blur, face, corner, shadow, border, pad)` for another (a card that
+  floats: `Surface(face: ui.theme.face, corner: 8, shadow: 10)`); `drawSurface(r,
+  s)` at a rectangle of the app's. `backdropBlur(r, radius, tint, corner)` blurs
+  what is drawn so far under `r` (kept while that does not change: cheap to leave
+  on screen); `masked(r, corner): ...` keeps what is drawn inside rounded corners
+  (a picture in a circle: `corner` half its side).
 - Title bars the kit draws (the 3.1 frame, dialogs, `mdiWindow`s) have
   Windows 95's minimize, maximize and close buttons; X does what Alt+F4,
   Esc (a dialog) or Ctrl+F4 (an inner window) does, so `closeRequested`

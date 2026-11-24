@@ -37,7 +37,9 @@ const
 
 type
   CmdKind = enum ckFill, ckDots, ckImage, ckSysText, ckLine, ckBitmap,
-    ckVText, ckPath, ckPixIcon, ckAnts, ckTex, ckChecker
+    ckVText, ckPath, ckPixIcon, ckAnts, ckTex, ckChecker,
+    ckBlur, ckMaskSave, ckMaskCut
+      ## (the last three read what is drawn before them: `backdropBlur`, `beginMask`)
   Cmd = object
     kind: CmdKind
     bold: bool
@@ -99,6 +101,8 @@ var
   bitmapStamps: int      ## (atomic: worker threads make bitmaps too)
   clipStack: seq[Rect]
   curClip: Rect
+  maskOpen: seq[tuple[layer: int; r, clip: Rect; corner: float32; saved: bool]]
+    ## (the masks begun and not ended: `beginMask`)
   fb: seq[uint32]
   fbMem: ptr UncheckedArray[uint32]   ## the frame's pixels: `fb`'s, or the
                                       ## window's own (`lockSurface`)
@@ -208,6 +212,7 @@ proc beginDraw*(w, h: int; clear: Color) =
   frameBitmaps.setLen(0)
   clipStack.setLen(0)
   layerStack.setLen(0)
+  maskOpen.setLen(0)
   curLayer = 0
   curClip = rect(0, 0, w, h)
   screenRect = curClip
@@ -1364,6 +1369,61 @@ proc checkerAt*(dev: Rect; cell, ox, oy: int; c0, c1: Color) =
   mixLast(uint64(pack(c0)) xor (uint64(pack(c1)) shl 24) xor uint64(ox) shl 48 xor uint64(oy) shl 8 xor
           uint64(dev.x) xor uint64(dev.w) shl 16 xor uint64(dev.y) shl 32 xor uint64(dev.h) shl 40)
 
+proc cornerOf(r: Rect; corner: float): float32 {.inline.} =
+  float32(clamp(corner, 0.0, float(max(0, min(r.w, r.h))) / 2))
+
+proc backdropBlur*(r: Rect; radius = 16; tint = Color(); corner = 0.0) =
+  ## Frosted glass: what is drawn under `r` so far, blurred -- each color spread about `radius`
+  ## logical pixels round it -- with `tint` over it (its alpha: how much of it; none when 0), in
+  ## `r` with its corners rounded `corner` pixels (the edge smooth). What is drawn after it is
+  ## drawn over it as it is. The same on the CPU and the GPU; while it is on the screen, a
+  ## change under it or near it draws it again (what is under it read back, made smaller,
+  ## blurred and put back: a little work, more the bigger it is).
+  if r.w <= 0 or r.h <= 0 or radius <= 0 or intersect(r, curClip).w <= 0: return
+  add Cmd(kind: ckBlur, r: r, clip: curClip, mag: int32(clamp(radius, 1, 64)),
+          color: pack(tint) or (uint32(tint.a) shl 24), size: cornerOf(r, corner))
+
+proc patchBlur*(i: int; r: Rect; radius = 16; tint = Color(); corner = 0.0) =
+  ## The fill `i` from `reserveFill` made a `backdropBlur` of `r` instead: a surface whose size
+  ## is known only once what is in it is drawn (a menu), blurred under it all the same.
+  if i < 0 or i >= layers[curLayer].len: return
+  var c = Cmd(kind: ckFill)
+  if r.w > 0 and r.h > 0 and radius > 0 and intersect(r, curClip).w > 0:
+    c = Cmd(kind: ckBlur, r: r, clip: curClip, mag: int32(clamp(radius, 1, 64)),
+            color: pack(tint) or (uint32(tint.a) shl 24), size: cornerOf(r, corner))
+    if mirrorW > 0: mirrorCmd(c)
+  c.h = cmdHash(c)
+  layers[curLayer][i] = c
+  mix(frameHash, c.h)
+
+proc beginMask*(r: Rect; corner: float) =
+  ## What is drawn from here to `endMask` kept inside `r` with its corners rounded `corner`
+  ## logical pixels: clipped to `r`, and in its corners what was there before put back, the
+  ## edge smooth -- a picture in a circle (`corner` half its side), a card's content in its
+  ## rounded corners. Masks may be inside one another.
+  let c = cornerOf(r, corner)
+  pushClip(r)
+  let saved = c >= 0.5 and curClip.w > 0 and curClip.h > 0
+  maskOpen.add (curLayer, r, curClip, c, saved)
+  if saved: add Cmd(kind: ckMaskSave, r: r, clip: curClip, size: c)
+
+proc endMask*() =
+  ## Ends `beginMask` (on the layer it began on).
+  if maskOpen.len == 0: return
+  let m = maskOpen.pop()
+  if m.saved:
+    let keep = curLayer
+    curLayer = m.layer
+    add Cmd(kind: ckMaskCut, r: m.r, clip: m.clip, size: m.corner)
+    curLayer = keep
+  popClip()
+
+template masked*(r: Rect; corner: float; body: untyped) =
+  ## What `body` draws kept inside `r` with its corners rounded `corner` (`beginMask`).
+  beginMask(r, corner)
+  try: body
+  finally: endMask()
+
 proc marchingAnts*(area: Rect; segs: openArray[array[4, int32]]; phase: int) =
   ## A selection's outline over a picture drawn in `area`: `segs` are
   ## horizontal and vertical runs (x0, y0, x1, y1; device pixels from the
@@ -2051,6 +2111,7 @@ var
   frameRuns: seq[Rect]            ## (the frame's tiles to draw, in runs: kept, as the rest
   bandItems: seq[Rect]            ## below, from frame to frame -- a frame takes no memory)
   bandSys: seq[bool]
+  phaseKeys: seq[uint32]          ## (the blurs and masks in the tiles drawn, in order)
   cmdDev: array[MaxLayers, seq[Rect]]
     ## each command's device box on the screen, worked out once a frame
     ## (`tileRuns`) for all that looks where commands are
@@ -2086,6 +2147,7 @@ proc rasterCmd(c: Cmd): bool =
   of ckAnts: rasterAnts(c)
   of ckChecker: rasterChecker(c)
   of ckTex: discard              # (the GPU's own pictures)
+  of ckBlur, ckMaskSave, ckMaskCut: discard   # (between the bands: `present`)
   of ckSysText:
     let run = sysRunOf(arena[c.a ..< c.a + c.b], make = false)
     if run == nil: return true     # (drawn by the system, over the frame)
@@ -2138,23 +2200,172 @@ proc coverOf(c: Cmd): Rect =
     intersect(devClip(c.clip), rect(c.r.x * s, c.r.y * s, c.r.w * s, c.r.h * s))
   else: Rect()
 
-proc drawRegion(d: Rect; band: int): bool =
-  ## Rasterizes the device rectangle `d` (in row of tiles `band`); true if
-  ## a system-font text is there.
+# ---- blurs and masks: what reads the pixels drawn before it --------------------------------------
+#
+# A blur (`backdropBlur`) and a mask's two ends (`beginMask`) read what the commands before them
+# drew: the CPU draws the frame in phases -- every band up to the first, then it, then on to the
+# next -- and the GPU reads its pixels back where one is. A blur reads around itself too: what
+# is drawn before it there is hashed, and its blur kept while that stays the same (a menu's item
+# lit, a dialog's caret: only that drawn again, over the kept blur); when it changes, all the
+# blur reads is drawn again (on the GPU, the frame whole).
+
+type
+  BlurKept = object
+    ## (a blur, made smaller, of what was under it)
+    sw, sh, f: int
+    src: Rect
+    px: seq[uint32]
+    used: uint32          # (the last frame it was on the screen)
+    tex: uint32           # (on the GPU: its texture, 0 none yet)
+
+var
+  barriers: seq[tuple[l, i: int]]   ## (the frame's blurs and masks, in the order drawn)
+  tileWant: seq[bool]               ## (the tiles drawn this frame)
+  blurTmp: seq[uint32]
+  blurXs: seq[int32]                ## (where each column of a blur samples it)
+  blurKept: Table[uint64, BlurKept]
+    ## the blurs made, by what was under them (`blurKey`)
+
+proc blurReach(c: Cmd): int {.inline.} = max(1, int(c.mag) * max(1, pxScale))
+  ## (how far a blur spreads, device pixels: also how far round it it reads)
+
+proc blurSrc(d: Rect; c: Cmd): Rect {.inline.} =
+  ## (what a blur at device rectangle `d` reads)
+  intersect(inset(d, -blurReach(c)), rect(0, 0, fbW, fbH))
+
+proc mixPx(a, b, t: uint32): uint32 {.inline.} =
+  ## (`b` weighed `t` of 256 against `a`)
+  let u = 256'u32 - t
+  let rb = ((a and 0xFF00FF'u32) * u + (b and 0xFF00FF'u32) * t) shr 8
+  let g = ((a and 0xFF00'u32) * u + (b and 0xFF00'u32) * t) shr 8
+  (rb and 0xFF00FF'u32) or (g and 0xFF00'u32)
+
+proc cornerCover(x, y: int; dr: Rect; rad: float32): uint32 {.inline.} =
+  ## (how much of device pixel `x`, `y` is inside `dr` with its corners rounded `rad`, of 256)
+  let fx = float32(x) + 0.5
+  let fy = float32(y) + 0.5
+  let l = float32(dr.x) + rad
+  let r = float32(dr.x + dr.w) - rad
+  let t = float32(dr.y) + rad
+  let b = float32(dr.y + dr.h) - rad
+  let cx = if fx < l: l elif fx > r: r else: return 256
+  let cy = if fy < t: t elif fy > b: b else: return 256
+  let d = sqrt((fx - cx) * (fx - cx) + (fy - cy) * (fy - cy))
+  uint32(clamp(int((rad - d + 0.5) * 256), 0, 256))
+
+proc cornerRects(dr: Rect; rad: float32; inside: Rect): array[4, Rect] =
+  ## (the four corners of `dr` rounded `rad`, side by side and not over one another, each in
+  ## `inside`)
+  let sq = int(ceil(rad))
+  let wl = min(sq, (dr.w + 1) div 2)
+  let wr = min(sq, dr.w - wl)
+  let ht = min(sq, (dr.h + 1) div 2)
+  let hb = min(sq, dr.h - ht)
+  result[0] = intersect(rect(dr.x, dr.y, wl, ht), inside)
+  result[1] = intersect(rect(dr.x + dr.w - wr, dr.y, wr, ht), inside)
+  result[2] = intersect(rect(dr.x, dr.y + dr.h - hb, wl, hb), inside)
+  result[3] = intersect(rect(dr.x + dr.w - wr, dr.y + dr.h - hb, wr, hb), inside)
+
+proc boxLine(p: ptr UncheckedArray[uint32]; step, n, hs: int) =
+  ## (a row or a column of `blurSmall`, `n` pixels `step` apart: each the average of the
+  ## 2 `hs` + 1 round it, the ends taken again past them)
+  if n <= 1: return
+  if blurTmp.len < n: blurTmp.setLen(n)
+  for k in 0 ..< n: blurTmp[k] = p[k * step]
+  var r, g, b: int
+  template take(k, s: int) =
+    let q = blurTmp[clamp(k, 0, n - 1)]
+    r += s * int((q shr 16) and 255)
+    g += s * int((q shr 8) and 255)
+    b += s * int(q and 255)
+  for k in -hs .. hs: take(k, 1)
+  let w = 2 * hs + 1
+  for k in 0 ..< n:
+    p[k * step] = (uint32(r div w) shl 16) or (uint32(g div w) shl 8) or uint32(b div w)
+    take(k + hs + 1, 1)
+    take(k - hs, -1)
+
+proc shrinkBlur(px: ptr UncheckedArray[uint32]; stride: int; src: Rect; rd: int; k: var BlurKept) =
+  ## The pixels `src` of `px` (rows `stride` apart, 0x..RRGGBB) blurred about `rd` pixels, into
+  ## `k`: made `k.f` times smaller (`k.sw` x `k.sh`, each the average of its square), then
+  ## three box passes each way -- near enough a Gaussian, and cheap at any size.
+  let f = clamp(rd div 4, 1, 16)
+  let sw = max(1, (src.w + f - 1) div f)
+  let sh = max(1, (src.h + f - 1) div f)
+  k.f = f
+  k.sw = sw
+  k.sh = sh
+  template blurSmall: untyped = k.px
+  blurSmall.setLen(sw * sh)
+  for j in 0 ..< sh:
+    let y0 = src.y + j * f
+    let y1 = min(src.y + src.h, y0 + f)
+    for i in 0 ..< sw:
+      let x0 = src.x + i * f
+      let x1 = min(src.x + src.w, x0 + f)
+      var r, g, b: uint32
+      for y in y0 ..< y1:
+        let row = y * stride
+        for x in x0 ..< x1:
+          let q = px[row + x]
+          r += (q shr 16) and 255
+          g += (q shr 8) and 255
+          b += q and 255
+      let n = uint32(max(1, (y1 - y0) * (x1 - x0)))
+      blurSmall[j * sw + i] = ((r div n) shl 16) or ((g div n) shl 8) or (b div n)
+  let hs = max(1, (rd - f + (3 * f) div 2) div (3 * f))
+  let p = cast[ptr UncheckedArray[uint32]](addr blurSmall[0])
+  for pass in 0 ..< 3:
+    for j in 0 ..< sh: boxLine(cast[ptr UncheckedArray[uint32]](addr p[j * sw]), 1, sw, hs)
+    for i in 0 ..< sw: boxLine(cast[ptr UncheckedArray[uint32]](addr p[i]), sw, sh, hs)
+
+proc smallAt(k, f, n: int): tuple[i0, i1: int; t: uint32] {.inline.} =
+  ## (device pixel `k` from a blur's start: the two small pixels it is between, how far)
+  let u = ((2 * k + 1) * 128) div f - 128
+  if u <= 0: return (0, 0, 0'u32)
+  let i0 = min(u shr 8, n - 1)
+  (i0, min(i0 + 1, n - 1), uint32(u and 255))
+
+proc blurredAt(k: BlurKept; x, y: int; tint: uint32): uint32 =
+  ## (the blur at device pixel `x`, `y`: between the four small pixels round it, the tint over it)
+  let (i0, i1, tx) = smallAt(x - k.src.x, k.f, k.sw)
+  let (j0, j1, ty) = smallAt(y - k.src.y, k.f, k.sh)
+  result = mixPx(mixPx(k.px[j0 * k.sw + i0], k.px[j0 * k.sw + i1], tx),
+                 mixPx(k.px[j1 * k.sw + i0], k.px[j1 * k.sw + i1], tx), ty)
+  let ta = tint shr 24
+  if ta > 0: result = blend(result, tint and 0xFFFFFF'u32, ta)
+
+proc blurKey(c: Cmd): uint64 {.inline.} = uint64(cast[uint32](c.a)) or (uint64(cast[uint32](c.b)) shl 32)
+  ## (what was under a blur, hashed by `tileRuns`)
+
+var
+  phaseHi: uint32 = high(uint32)  ## (the phase drawn now: the commands before this one)
+  phaseFirst = true                ## (the first phase: the band cleared)
+  itemPos: seq[int]                ## (each band's place in its commands, phase to phase)
+
+proc drawRegion(d: Rect; band, item: int): bool =
+  ## Rasterizes the device rectangle `d` (in row of tiles `band`, the `item`th drawn) -- its
+  ## commands of this phase, from where the last one stopped to `phaseHi`; true if a
+  ## system-font text is there.
   bandClip = d
   let p = fbPtr()
   let cc = clearColor
   # (what a later fill or opaque picture paints over is not drawn: going back from the last
   # command, each fill or picture hidden whole by one after it is left out, a big fill drawn
-  # only where it shows -- and the clearing, when one paints all of `d`; the same pixels)
+  # only where it shows -- and the clearing, when one paints all of `d`; the same pixels. Only
+  # within the phase: a blur or a mask reads what is under the ones after it)
   let cmds = addr bandCmds[band]
+  let ja = itemPos[item]
+  var jb = ja
+  while jb < cmds[].len and cmds[][jb] < phaseHi: inc jb
+  itemPos[item] = jb
   hiddenCmds.setLen(cmds[].len)
   fillSpan.setLen(cmds[].len)
   fillParts.setLen(0)
   var covers: array[16, Rect]
   var ncov = 0
   var all = false
-  for j in countdown(cmds[].high, 0):
+  for j in countdown(jb - 1, ja):
     let k = cmds[][j]
     let l = int(k shr 28)
     let i = int(k and 0xFFFFFFF'u32)
@@ -2195,13 +2406,13 @@ proc drawRegion(d: Rect; band: int): bool =
         for q in 1 ..< ncov:
           if covers[q].w * covers[q].h < covers[small].w * covers[small].h: small = q
         if covers[small].w * covers[small].h < cv.w * cv.h: covers[small] = cv
-  if not all:
+  if not all and phaseFirst:
     for y in d.y ..< d.y + d.h:
       when kitSimd: fill32(addr p[y * fbW + d.x], d.w, cc)
       else:
         let row = y * fbW
         for x in d.x ..< d.x + d.w: p[row + x] = cc
-  for j in 0 ..< cmds[].len:
+  for j in ja ..< jb:
     let k = cmds[][j]
     let l = int(k shr 28)
     let i = int(k and 0xFFFFFFF'u32)
@@ -2222,6 +2433,80 @@ proc drawRegion(d: Rect; band: int): bool =
       continue
     if rasterCmd(layers[l][i]): result = true
   bandClip = rect(0, 0, fbW, fbH)
+
+var cpuMasks: seq[tuple[dr: Rect; rad: float32; parts: array[4, Rect]; px: seq[uint32]]]
+  ## (the masks begun in the phases drawn so far: their corners as they were)
+
+proc cpuBarrier(c: Cmd; d: Rect) =
+  ## (a blur or a mask's end at device rectangle `d`, on the CPU: what the phases so far drew)
+  let s = max(1, pxScale)
+  let dr = rect(c.r.x * s, c.r.y * s, c.r.w * s, c.r.h * s)
+  let rad = c.size * float32(s)
+  case c.kind
+  of ckBlur:
+    let src = blurSrc(d, c)
+    if d.w <= 0 or d.h <= 0 or src.w <= 0 or src.h <= 0: return
+    let key = blurKey(c)
+    if key notin blurKept:
+      # (what is under it changed: all it reads was drawn again, up to it)
+      var k = BlurKept(src: src, used: frameNo)
+      shrinkBlur(fbMem, fbW, src, blurReach(c), k)
+      blurKept[key] = move k
+    let k = addr blurKept[key]
+    template sm: untyped = k.px
+    let ta = c.color shr 24
+    let tint = c.color and 0xFFFFFF'u32
+    let round = rad >= 0.5
+    # (back at full size where the tiles are drawn, each pixel between the four small ones round
+    # it, the tint over it)
+    for run in frameRuns:
+      let part = intersect(run, d)
+      if part.w <= 0 or part.h <= 0: continue
+      blurXs.setLen(3 * part.w)
+      for j in 0 ..< part.w:
+        let (i0, i1, t) = smallAt(part.x + j - k.src.x, k.f, k.sw)
+        blurXs[3 * j] = int32(i0)
+        blurXs[3 * j + 1] = int32(i1)
+        blurXs[3 * j + 2] = int32(t)
+      for y in part.y ..< part.y + part.h:
+        let (j0, j1, ty) = smallAt(y - k.src.y, k.f, k.sh)
+        let r0 = j0 * k.sw
+        let r1 = j1 * k.sw
+        let row = y * fbW
+        for j in 0 ..< part.w:
+          let i0 = int(blurXs[3 * j])
+          let i1 = int(blurXs[3 * j + 1])
+          let tx = uint32(blurXs[3 * j + 2])
+          var q = mixPx(mixPx(sm[r0 + i0], sm[r0 + i1], tx), mixPx(sm[r1 + i0], sm[r1 + i1], tx), ty)
+          if ta > 0: q = blend(q, tint, ta)
+          let x = part.x + j
+          if round:
+            let cov = cornerCover(x, y, dr, rad)
+            if cov < 256: q = mixPx(fbMem[row + x], q, cov)
+          fbMem[row + x] = q
+  of ckMaskSave:
+    # (its corners as they are, before what is drawn in it)
+    cpuMasks.setLen(cpuMasks.len + 1)
+    template m: untyped = cpuMasks[^1]
+    m.dr = dr
+    m.rad = rad
+    m.parts = cornerRects(dr, rad, d)
+    m.px.setLen(0)
+    for r in m.parts:
+      for y in r.y ..< r.y + r.h:
+        for x in r.x ..< r.x + r.w: m.px.add fbMem[y * fbW + x]
+  of ckMaskCut:
+    # (outside its rounded corners, what was there put back)
+    if cpuMasks.len == 0: return
+    let m = cpuMasks.pop()
+    var k = 0
+    for r in m.parts:
+      for y in r.y ..< r.y + r.h:
+        for x in r.x ..< r.x + r.w:
+          let cov = cornerCover(x, y, m.dr, m.rad)
+          if cov < 256: fbMem[y * fbW + x] = mixPx(m.px[k], fbMem[y * fbW + x], cov)
+          inc k
+  else: discard
 
 proc send(d: Rect) =
   ## The framebuffer's rectangle `d` (device pixels) to the screen, widened
@@ -2310,22 +2595,63 @@ proc tileRuns(force: var bool; result: var seq[Rect]) =
         mix(tileSalt[t], b.stamp)
   tileHash.setLen(n)
   for t in 0 ..< n: tileHash[t] = (clearColor.uint64 * 31 + t.uint64) xor tileSalt[t]
+  barriers.setLen(0)
   for l in 0 ..< MaxLayers:
     cmdDev[l].setLen(layers[l].len)
     for i in 0 ..< layers[l].len:
       let d = intersect(devBox(layers[l][i]), bandClip)
       cmdDev[l][i] = d
+      if layers[l][i].kind in {ckBlur, ckMaskSave, ckMaskCut} and d.w > 0 and d.h > 0:
+        barriers.add (l, i)
       let hh = layers[l][i].h xor (uint64(l) shl 61)
       eachTile(d, t):
         mix(tileHash[t], hh)
+  # (each blur: what is drawn before it where it reads, hashed -- its key in `blurKept`)
+  for (bl, bi) in barriers:
+    template c: untyped = layers[bl][bi]
+    if c.kind != ckBlur: continue
+    let e = blurSrc(cmdDev[bl][bi], c)
+    var h = 0x84222325cbf29ce4'u64
+    mix(h, clearColor)
+    mixRect(h, e)
+    mix(h, uint64(blurReach(c)))
+    for l in 0 .. bl:
+      for i in 0 ..< (if l == bl: bi else: layers[l].len):
+        if intersects(cmdDev[l][i], e):
+          mix(h, layers[l][i].h xor (uint64(l) shl 61))
+          if layers[l][i].kind == ckBitmap: mix(h, frameBitmaps[layers[l][i].a].stamp)
+    c.a = cast[int32](uint32(h and 0xFFFFFFFF'u64))
+    c.b = cast[int32](uint32(h shr 32))
+    blurKept.withValue(h, k): k.used = frameNo
+  tileWant.setLen(n)
+  for t in 0 ..< n: tileWant[t] = force or tileHash[t] != shownTiles[t]
+  if not force and barriers.len > 0:
+    # (a blur reads round itself: when a tile it reads is drawn again, all it reads is -- and
+    # what that reaches of another blur's)
+    var more = true
+    var rounds = 0
+    while more and rounds <= barriers.len:
+      more = false
+      inc rounds
+      for (l, i) in barriers:
+        if layers[l][i].kind != ckBlur or blurKey(layers[l][i]) in blurKept: continue
+        let e = blurSrc(cmdDev[l][i], layers[l][i])
+        var touched = false
+        eachTile(e, t):
+          if tileWant[t]: touched = true
+        if touched:
+          eachTile(e, t):
+            if not tileWant[t]:
+              tileWant[t] = true
+              more = true
   # the tiles to draw, in runs along each row of tiles; whole rows together
   for ty in 0 ..< ny:
     var tx = 0
     while tx < nx:
       let t = ty * nx + tx
-      if force or tileHash[t] != shownTiles[t]:
+      if tileWant[t]:
         var e = tx
-        while e < nx and (force or tileHash[ty * nx + e] != shownTiles[ty * nx + e]): inc e
+        while e < nx and tileWant[ty * nx + e]: inc e
         let r = rect(tx * TileW, ty * BandH, min(fbW, e * TileW) - tx * TileW,
                      min(fbH, (ty + 1) * BandH) - ty * BandH)
         if result.len > 0 and r.x == 0 and r.w == fbW and result[^1].x == 0 and
@@ -2491,6 +2817,18 @@ proc takeScreenPixel(fb: ptr UncheckedArray[uint32]) =
   let y = clamp(screenPick.y * s + s div 2, 0, fbH - 1)
   screenPick = (false, true, screenPick.x, screenPick.y, 0xFF000000'u32 or (fb[y * fbW + x] and 0xFFFFFF'u32))
 
+proc forgetBlurs(all = false) =
+  ## (the blurs kept that were not on the screen in the last frames let go of: all of them)
+  var gone: seq[uint64]
+  for key, k in blurKept:
+    if all or k.used + 1 < frameNo: gone.add key
+  for key in gone:
+    let t = blurKept[key].tex
+    if t != 0 and gpuOn and gl.ok:
+      var id = GLuint(t)
+      gl.deleteTextures(1, addr id)
+    blurKept.del key
+
 proc present*(devW, devH: int; force: bool): bool =
   ## Rasterize and show the frame. Nothing happens -- not even a driver
   ## call -- when the frame is the one already on screen; otherwise only
@@ -2498,6 +2836,7 @@ proc present*(devW, devH: int; force: bool): bool =
   if not force and frameHash == shownHash and devW == fbW and devH == fbH and not screenPick.want:
     return false
   var force = force
+  if blurKept.len > 0: forgetBlurs()
   if devW != fbW or devH != fbH:
     fbW = max(1, devW)
     fbH = max(1, devH)
@@ -2605,16 +2944,40 @@ proc present*(devW, devH: int; force: bool): bool =
     profCount("CPU pixels drawn", area)
     profCount("CPU bands", items.len)
   let tDraw = profBegin("CPU: draw")
-  if items.len >= 2 and area >= ParallelMinPx and threadCount() > 1:
-    inParallel = true
-    # (the bands and their answers are globals: the closure holds nothing,
-    # so it is not made anew for every frame)
-    parallelFor(items.len, proc (lo, hi: int) =
-      for i in lo ..< hi: bandSys[i] = drawRegion(bandItems[i], bandItems[i].y div BandH),
-      keepAlive = false)
-    inParallel = false
-  else:
-    for i in 0 ..< items.len: sys[i] = drawRegion(items[i], items[i].y div BandH)
+  # (in phases: up to each blur or mask end in the tiles drawn, then it)
+  phaseKeys.setLen(0)
+  for (l, i) in barriers:
+    for r in runs:
+      if intersects(r, cmdDev[l][i]):
+        phaseKeys.add (uint32(l) shl 28) or uint32(i)
+        break
+  itemPos.setLen(items.len)
+  for i in 0 ..< items.len:
+    sys[i] = false
+    itemPos[i] = 0
+  cpuMasks.setLen(0)
+  for ph in 0 .. phaseKeys.len:
+    phaseHi = if ph < phaseKeys.len: phaseKeys[ph] else: high(uint32)
+    phaseFirst = ph == 0
+    if items.len >= 2 and area >= ParallelMinPx and threadCount() > 1:
+      inParallel = true
+      # (the bands and their answers are globals: the closure holds nothing,
+      # so it is not made anew for every frame)
+      parallelFor(items.len, proc (lo, hi: int) =
+        for i in lo ..< hi:
+          if drawRegion(bandItems[i], bandItems[i].y div BandH, i): bandSys[i] = true,
+        keepAlive = false)
+      inParallel = false
+    else:
+      for i in 0 ..< items.len:
+        if drawRegion(items[i], items[i].y div BandH, i): sys[i] = true
+    if ph < phaseKeys.len:
+      let k = phaseKeys[ph]
+      let l = int(k shr 28)
+      let i = int(k and 0xFFFFFFF'u32)
+      cpuBarrier(layers[l][i], cmdDev[l][i])
+  phaseHi = high(uint32)
+  phaseFirst = true
   profEnd("CPU: draw", tDraw)
   var hasSys = false
   for v in sys: hasSys = hasSys or v
@@ -2646,6 +3009,12 @@ proc dropDrawingCaches*() =
   bandItems = @[]
   bandSys = @[]
   frameRuns = @[]
+  itemPos = @[]
+  phaseKeys = @[]
+  blurTmp = @[]
+  forgetBlurs(all = true)
+  blurXs = @[]
+  tileWant = @[]
   for l in 0 ..< MaxLayers: cmdDev[l] = @[]
 
 proc stampOf*(b: Bitmap): uint64 =

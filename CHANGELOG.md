@@ -1,5 +1,95 @@
 # Changes
 
+## 0.73.0
+
+What Freya, the Rust toolkit, has and the kit did not: a terminal with
+your shell in it, real frosted glass and masks, data loaded once and
+shared between pages, timed steps and a box that flies across the
+window, a box's first sight and its size changed. Retro Atelier lets go
+of every closed image -- its commands and its tools tried one by one --
+and its menus and dialogs are frosted glass in the Glass look. Retro
+Atelier 5.17.1.
+
+- **A terminal** (`retroui/terminal`, from what Freya has): `terminalView(term)`
+  shows the user's shell -- or `top`, `vim`, a build -- through a
+  pseudo-terminal on Linux, macOS, the BSDs and Android, and Windows 10's
+  pseudo-console (1809 and later; cmd.exe, PowerShell), as xterm draws it:
+  16, 256 and RGB colors, bold, italic, underlined, inverse; the screen a
+  full-screen program draws on and leaves; a scroll region; the lines that
+  scrolled off kept (10,000) to scroll back to; wide characters; lines and
+  boxes drawn whole from cell to cell; the keys as xterm sends them (the
+  arrows in a program's own mode, F1 to F12, Ctrl and Alt); text chosen with
+  the mouse (a word, a line), copied and pasted (bracketed for a shell that
+  asks); the mouse and the wheel to a program that asks for them; its size
+  told as the box changes. Without a program it shows what the app writes to
+  it. The gallery's Terminal page runs your shell. (`test_terminal`)
+- **Real frosted glass** (from what Freya has): `backdropBlur(r, radius,
+  tint, corner)` blurs what is drawn under `r` so far, the tint over it,
+  its corners rounded and smooth -- on the CPU (the frame drawn in phases:
+  up to the blur, the blur, on from it) and on the GPU (read back, made
+  smaller, blurred, drawn back with its filter) alike. A blur is kept
+  while what is under it stays the same: a menu's item lit or a dialog's
+  caret draws only that again, over the kept blur. In the Glass look the
+  menus, the dialogs and the lists a combo box drops down are frosted
+  glass now -- what is under them shows through, blurred
+  (`frostedGlass`; "See-through menus and dialogs" in the Appearance
+  settings to turn it off).
+- **Masks**: `masked(r, corner): ...` keeps what is drawn in it inside
+  `r` with its corners rounded -- a picture in a circle, a card's content
+  in its rounded corners -- the edge smooth; one inside another too.
+- **Surfaces**: `surface Surface(blur: 16, face: ..., corner: 12, shadow:
+  6, border: ...): ...` -- a panel blurred, shadowed and rounded, what is
+  put in it kept in its corners; `frostedSurface()` the Glass look's own,
+  `drawSurface(r, s)` one at a rectangle of the app's. (`test_backdrop`:
+  what is under a blur smoothed, its corners and a mask's keeping what
+  was there, a change near a blur or far from it or over it the pixels of
+  a whole frame, the GPU's frames the CPU's.)
+- **Data loaded once and shared** (`retroui/queries`, from what Freya
+  has): `query("feed:" & url, proc (): seq[Episode] = loadFeed(url),
+  maxAge = 15 * 60_000)` loads on a worker the first time it is asked;
+  every page asking for the key that frame and after gets the one entry
+  -- `loading`, `value` (`has`), `failed`, `error`. Too old, or
+  `invalidate("feed:")`, it is loaded again with its value still shown; a
+  failed load is tried again a second later (then two, four) before it is
+  told, the value before it kept; `setQuery` puts a change in at once;
+  one nobody asks for in `keepFor` is let go of. The gallery's Jobs page
+  shows two views of one load. (`test_queries`)
+- **Timed steps, one after another** (`retroui/motion`, from what Freya
+  has): `played(open, [tween(0, 90, 400, cvExpo), tween(0, 1, 250,
+  cvBack)])` -- a value each, from `a` to `b` along a curve, one after
+  another or `together`, played forward while `open` and back from where
+  they are when it turns false (closing, the last step first); `loop`
+  goes round while on (a spinner). Eleven curves (`Curve`: Linear, Quad,
+  Cubic, Quart, Quint, Sine, Expo, Circ, Back, Elastic, Bounce), slow at
+  the end, the start or both (`eased`). With less movement asked, at the
+  end at once.
+- **A box that travels across the window** (`travelled(r, key)`): a card
+  drawn in a grid, then in the dialog that shows it bigger, flies from
+  the one place to the other, in the window's own coordinates (`glided`
+  glides a box within its row or column).
+- **A box coming into sight, a box of another size** (`retroui/core`):
+  `appeared(r, key)` is true the frame a box can first be seen -- and
+  again when it is scrolled back into view: a long list's pictures loaded
+  for the rows scrolled to only; `resized(r, key)` the frame it is laid
+  out at another size; `onScreen(r)`. (A control Tab moves to was already
+  scrolled into view by its scroll panel.) The gallery's Motion page has
+  the steps and the travelling box.
+- **Retro Atelier lets go of a closed image.** Edit > Fade, Generate
+  Vector, Record Timelapse and Text in Picture kept the image they were
+  opened on -- its layers and its history -- for as long as the program
+  ran, and an AI request in flight kept its own; the Gap tool, the
+  transform tools and the warp tools kept the image they were last
+  dragged on; closed, the image is let go of now (`forgetDoc`). A new test
+  runs every command of the program (900 and more) and every tool of the
+  tool box (156, dragged, double-clicked) on an image, closes it and counts
+  the documents still alive: none (`test_photoleaks`).
+- CI: a test that fails as a 32-bit program shows how in the log (the
+  sanitizer's message, the end of its output), which the CI does not keep.
+  `test_http` no longer fails on a machine busy with other tests (the
+  nightly's three rounds of four at once): its requests from four threads
+  are known to be answered side by side by its server counting them, not
+  by the clock, and its timeout is of a second against an answer 8 s away.
+
 ## 0.72.0
 
 Every tool of Retro Atelier with an icon of its own, a brush's outline

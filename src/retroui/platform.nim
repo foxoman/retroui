@@ -221,6 +221,7 @@ proc storeAppearance*(s: var Settings) =
   s["look.smooth"] = $smoothScrolling
   s["look.buttons"] = $captionButtons
   s["look.look"] = $uiLook
+  s["look.frosted"] = $frostedGlass
   s["look.controls"] = (case controlSizes()
                         of csAuto: "auto"
                         of csDesktop: "desktop"
@@ -264,6 +265,7 @@ proc restoreAppearance*(s: Settings) =
   of "classic": uiLook = lookClassic
   of "glass": uiLook = lookGlass
   else: discard
+  if s.hasKey("look.frosted"): frostedGlass = s.getBool("look.frosted", true)
   if not existsEnv("RETRO_TEXT"):
     case s.getOrDefault("look.textedges", "")
     of "sharp": setSubpixelText(true)

@@ -655,6 +655,22 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   against onnxruntime; a real model, `tools/netcheck.py` then
   `tools/netcheck.nim`. The store's models of pictures are as its
   language models: downloaded when asked, checked, never bundled.
+- **What reads the pixels drawn before it is a barrier** (`backdropBlur`,
+  `beginMask`/`endMask`: `ckBlur`, `ckMaskSave`, `ckMaskCut` in `gfx.nim`):
+  the CPU draws a frame in phases between them (every band up to one, then
+  it, then on), the GPU reads its pixels back there (`gpuBarrier`). A blur
+  reads round itself, so what is drawn before it there is hashed into its
+  key: while that stays the same its blur is kept (`blurKept`) and only the
+  tiles that changed are drawn; when it changes, all it reads is drawn
+  again (the GPU: the frame whole). A new kind of command that reads the
+  frame goes the same way; `test_backdrop` checks a partial frame against a
+  whole one, and the GPU against the CPU.
+- **A terminal's program is read without waiting** (`retroui/terminal`):
+  the pseudo-terminal non-blocking, watched with the window's events where
+  the driver can (`addWaitSource`: X11, Wayland), else asked a few times a
+  second while a program runs; on Windows the pseudo-console's pipe is
+  peeked. Between `fork` and `exec` only what is safe there (all the child
+  needs is made before). `test_terminal` feeds sequences and runs `/bin/sh`.
 - **A graph's layout without a window is `retroui/forcelayout`**; the
   control (`graphView`) is `retroui/forcegraph`, which imports the UI. A
   module that draws nothing on screen (`retroui/board`) imports the

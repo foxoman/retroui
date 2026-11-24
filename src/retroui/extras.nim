@@ -385,6 +385,84 @@ proc endCard*() =
     drawLabel(r.x + dp(12), r.y, title, th.text, true)
   endCell(r, r.h, natural)
 
+type
+  Surface* = object
+    ## How a panel is drawn (`surface`, `drawSurface`): blurred, shadowed, rounded -- frosted
+    ## glass over a picture, a card that floats, a picture in a circle.
+    blur*: int           ## what is under it blurred this far, logical pixels (0: not blurred)
+    face*: Color         ## its face, over the blur (its alpha: how much of it; 0: none)
+    corner*: float       ## its corners rounded so; what is in it is kept inside them (a mask)
+    shadow*: int         ## a soft shadow under it, this deep (0: none)
+    border*: Color       ## a hairline round it (alpha 0: none)
+    pad*: int            ## room inside it round what is in it (-1: the usual `Pad`)
+
+proc frostedSurface*(): Surface =
+  ## Frosted glass: what is under it blurred, the window's color over it most of the way,
+  ## rounded, a soft shadow and a hairline -- the Glass look's menus' and dialogs' face.
+  let dark = (int(ui.theme.window.r) * 77 + int(ui.theme.window.g) * 151 + int(ui.theme.window.b) * 28) shr 8 < 128
+  let w = ui.theme.window
+  Surface(blur: 16, face: Color(r: w.r, g: w.g, b: w.b, a: if dark: 208 else: 196), corner: float(dp(12)),
+          shadow: dp(6), border: glassHair(), pad: -1)
+
+proc drawSurface*(r: Rect; s: Surface) =
+  ## A surface's shadow, its blurred face and its border in `r` (what is drawn after it, over it).
+  if r.w <= 0 or r.h <= 0: return
+  let rad = clamp(s.corner, 0.0, float(min(r.w, r.h)) / 2)
+  if s.shadow > 0:
+    # (layers a pixel apart, faint each, lower than it: darker near it, fading away)
+    let dark = (int(ui.theme.window.r) * 77 + int(ui.theme.window.g) * 151 + int(ui.theme.window.b) * 28) shr 8 < 128
+    let n = min(s.shadow, 24)
+    let a = max(2, (if dark: 160 else: 60) div n)
+    for k in 1 .. n:
+      roundRect(rect(r.x - k, r.y - k + (n + 1) div 3, r.w + 2 * k, r.h + 2 * k), rad + float(k),
+                Color(r: 0, g: 0, b: 0, a: uint8(a)))
+  if s.blur > 0: backdropBlur(r, s.blur, s.face, rad)
+  elif s.face.a == 255 and rad < 0.5: fill(r, s.face)
+  elif s.face.a > 0: roundRect(r, rad, s.face)
+  if s.border.a > 0: roundFrame(r, rad, 1, s.border)
+
+var surfaceStack: seq[tuple[cell: Rect; id: Id; s: Surface; h: int; masked: bool]]
+
+proc beginSurface*(s: Surface; w = 0; h = 0; key = "") =
+  ## A panel drawn as `s` says, `w` wide (0: the row's width) and `h` high (0: as high as what
+  ## is in it -- known a frame later, as a dialog's); what is put in it until `endSurface` goes
+  ## inside it, kept in its rounded corners.
+  let cell = beginCell(w, fill = w <= 0)
+  let id = idOfLabel("surface", key)   # (the same key twice in a frame: two ids)
+  let pad = if s.pad < 0: Pad else: s.pad
+  let hh = if h > 0: h else: max(2 * pad + 1, state(id).aux + 2 * pad)
+  let r = rect(cell.x, cell.y, cell.w, hh)
+  drawSurface(r, s)
+  let m = s.corner >= 0.5
+  if m: beginMask(r, s.corner)
+  surfaceStack.add (cell, id, s, hh, m)
+  pushFrame(rect(r.x + pad, r.y + pad, r.w - 2 * pad, if h > 0: h - 2 * pad else: 0), inPage = true)
+
+proc endSurface*() =
+  ## Ends a `beginSurface`.
+  if surfaceStack.len == 0: return
+  let ch = popFrame()
+  let (cell, id, s, hh, m) = surfaceStack.pop()
+  if m: endMask()
+  var st = state(id)
+  if st.aux != ch:
+    st.aux = ch
+    ui.redraw = true
+  state(id) = st
+  endCell(rect(cell.x, cell.y, cell.w, hh), hh)
+
+template surface*(s: Surface; body: untyped) =
+  ## A panel drawn as `s` says, as wide as the row, as high as what is in it -- frosted glass
+  ## over a picture (`frostedSurface`), a card with a shadow, a picture in a circle.
+  ##
+  ## .. code-block:: nim
+  ##   surface frostedSurface():
+  ##     label "Now playing"
+  ##     label song.title
+  beginSurface(s)
+  body
+  endSurface()
+
 template card*(title: string; body: untyped) =
   ## A panel drawn as a 3.1 group box (its title set into the top line);
   ## in an `adaptive` row, cards make a dashboard that reflows from one
@@ -1453,6 +1531,11 @@ proc appearanceRows(): bool =
       ui.theme = if t in [2, 3]: GlassDark else: GlassLight
     invalidate()
     result = true
+  if uiLook == lookGlass:
+    if settingToggle("See-through menus and dialogs", frostedGlass,
+                     "What is under them shows blurred, as through frosted glass"):
+      invalidate()
+      result = true
   case settingButtons("Size of everything", ["Smaller", "Normal", "Larger"],
                       $uiScale() & "%")
   of 1: setUiScale(scaleStep(-1)); result = true

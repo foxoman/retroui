@@ -80,8 +80,13 @@ thread (`job`), a bar that glides (`animated`), the gallery's icon in
 the system's tray (`trayIcon`), Motion (`retroui/motion`): two springs,
 a note that comes and goes, rows the layout moves gliding, a square
 dragged and thrown to a point, bars one after another and a bouncing ball
-on a fixed time step -- and Graph (`retroui/forcegraph`): a topic map and
-a mind map that lay themselves out, their nodes dragged.
+on a fixed time step, timed steps played forward and back, a box that
+flies from a list into its own -- Graph (`retroui/forcegraph`): a topic map
+and a mind map that lay themselves out, their nodes dragged -- Terminal
+(`retroui/terminal`): your shell in a box -- and Surfaces: frosted glass
+over bands of color, a card that floats, a picture in a circle, their blur,
+shadow and corners on sliders. The Jobs page shows one slow load shared by
+two views (`retroui/queries`).
 
 ```sh
 nimble gallery              # or: nim c -r examples/gallery.nim

@@ -39,7 +39,10 @@ one() {
     echo "ok   $t"
   else
     echo "FAIL $t ($OUT/$t.log)"
-    grep -m3 "Error\|Defect\|FAIL" "$OUT/$t.log" | sed 's/^/       /'
+    # (how it failed: the sanitizer's "runtime error", a Defect, the last of its output -- the
+    # log is not kept by the CI)
+    grep -m5 "Error\|Defect\|FAIL\|runtime error\|SUMMARY" "$OUT/$t.log" | sed 's/^/       /'
+    grep -v "^\s*$" "$OUT/$t.log" | tail -15 | sed 's/^/     | /'
   fi
   rm -rf "$OUT/c_$t" "$OUT/$t"
 }

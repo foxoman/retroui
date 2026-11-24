@@ -503,6 +503,16 @@ Apple systems and Win32, from Nim (see `docs/controls.md`, Native); in a
 web page `systemCall(name, arg)` reaches retro.js, and a page of your own
 can add calls (`Retro.boot({ imports })`).
 
+## A program in a terminal
+
+`retroui/terminal` runs a shell or any program in a box of the window
+(`terminalView`, `spawn`): through a pseudo-terminal on Linux, the BSDs,
+macOS and Android (`posix_openpt`; nothing to link), and Windows 10's
+pseudo-console from 1809 on (`CreatePseudoConsole`, looked up when the
+program starts one: the app still starts on an older Windows, and `spawn`
+says why it cannot there). A web page has no programs to run: its
+terminal shows what the app writes to it.
+
 ---
 
 ## Web pages
@@ -523,8 +533,9 @@ What a page can do depends on the browser:
 | screen readers | the window's controls as ARIA elements over the canvas, the focus said as it moves (`Retro.boot({ accessible: false })` turns it off) |
 | printing | the browser's print dialog with the PDF |
 
-Not in a page: processes (`osproc`), raw sockets, the file system of the
-computer (only what the user picks), background checks.
+Not in a page: processes (`osproc`, a terminal's program), raw sockets,
+the file system of the computer (only what the user picks), background
+checks.
 
 ## A command as the administrator
 

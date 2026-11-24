@@ -20,11 +20,11 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 ## Contents
 
 - **[Getting started](#getting-started)**: [Install](#install) · [A first app](#a-first-app) · [How immediate mode works](#how-immediate-mode-works) · [The app's options](#the-apps-options) · [Building and running](#building-and-running)
-- **[Layout](#layout)**: [Rows and columns](#rows-and-columns) · [Widths in a row](#widths-in-a-row) · [spring and space](#spring-and-space) · [Groups, cards and separators](#groups-cards-and-separators) · [Forms and fields](#forms-and-fields) · [adaptive, and the window's size](#adaptive-and-the-windows-size) · [Scrolling: scrollPanel, panel, pane](#scrolling-scrollpanel-panel-pane) · [Tabs](#tabs) · [Splitters: split, vsplit](#splitters-split-vsplit) · [sidePane](#sidepane)
+- **[Layout](#layout)**: [Rows and columns](#rows-and-columns) · [Widths in a row](#widths-in-a-row) · [spring and space](#spring-and-space) · [Groups, cards and separators](#groups-cards-and-separators) · [Surfaces: frosted glass, shadows, masks](#surfaces-frosted-glass-shadows-masks) · [Forms and fields](#forms-and-fields) · [adaptive, and the window's size](#adaptive-and-the-windows-size) · [Scrolling: scrollPanel, panel, pane](#scrolling-scrollpanel-panel-pane) · [Tabs](#tabs) · [Splitters: split, vsplit](#splitters-split-vsplit) · [sidePane](#sidepane)
 - **[Text](#text)**: [label, paragraph, heading](#label-paragraph-heading) · [styledText, link, badge](#styledtext-link-badge) · [icon, iconLabel, image](#icon-iconlabel-image) · [tooltip](#tooltip)
 - **[Buttons](#buttons)**: [button](#button) · [Buttons with a picture](#buttons-with-a-picture) · [segmented](#segmented) · [menuButton, splitButton](#menubutton-splitbutton) · [buttonRow](#buttonrow) · [buttonAt](#buttonat)
 - **[Choices](#choices)**: [checkbox](#checkbox) · [radio](#radio) · [toggle (a switch)](#toggle-a-switch) · [chips](#chips) · [tagInput](#taginput) · [rating](#rating)
-- **[Text input](#text-input)**: [edit](#edit) · [editArea](#editarea) · [searchBox](#searchbox) · [autocomplete](#autocomplete) · [maskedEdit](#maskededit) · [comboEdit](#comboedit) · [hotkeyEdit](#hotkeyedit) · [codeEdit](#codeedit)
+- **[Text input](#text-input)**: [edit](#edit) · [editArea](#editarea) · [searchBox](#searchbox) · [autocomplete](#autocomplete) · [maskedEdit](#maskededit) · [comboEdit](#comboedit) · [hotkeyEdit](#hotkeyedit) · [codeEdit](#codeedit) · [terminalView (retroui/terminal)](#terminalview-retrouiterminal)
 - **[Numbers, dates, colors](#numbers-dates-colors)**: [spin, intEdit, numberEdit](#spin-intedit-numberedit) · [slider, progress](#slider-progress) · [rangeSlider](#rangeslider) · [popupSlider](#popupslider) · [knob](#knob) · [datePicker](#datepicker) · [calendar](#calendar) · [dateRange, presetRange](#daterange-presetrange) · [timePicker](#timepicker) · [colorPicker](#colorpicker) · [colorWell and the Color dialog](#colorwell-and-the-color-dialog)
 - **[Lists and data](#lists-and-data)**: [listbox](#listbox) · [combo](#combo) · [checkList](#checklist) · [fontCombo, fontStyleCombo](#fontcombo-fontstylecombo) · [glyphPicker](#glyphpicker) · [grid](#grid) · [grid with cell kinds](#grid-with-cell-kinds) · [tree, branch, leaf](#tree-branch-leaf) · [treeGrid](#treegrid) · [iconView](#iconview) · [lineView](#lineview) · [dualList](#duallist) · [propertyGrid](#propertygrid) · [formOf, gridOf: forms and grids from your types](#formof-gridof-forms-and-grids-from-your-types) · [imageView](#imageview)
 - **[Progress and status](#progress-and-status)**: [progressRing, spinner, sparkline, usageBar](#progressring-spinner-sparkline-usagebar) · [banner](#banner) · [toast](#toast) · [showSnackbar, snackbar](#showsnackbar-snackbar) · [led, pill](#led-pill) · [timeline](#timeline) · [emptyState, busyState](#emptystate-busystate) · [statusbar](#statusbar) · [statusRow, statusSep](#statusrow-statussep)
@@ -370,6 +370,117 @@ proc separator*()
 ```
 
 A horizontal etched line.
+
+### Surfaces: frosted glass, shadows, masks
+
+A surface is a panel drawn as you say: what is under it blurred -- real frosted glass, on the CPU and the GPU alike, kept while what is under it does not change -- a face over the blur, its corners rounded (what is put in it kept inside them), a soft shadow under it, a hairline round it (`Surface`: `blur`, `face`, `corner`, `shadow`, `border`, `pad`). `masked` keeps what is drawn in it inside rounded corners: a picture in a circle. In the Glass look the menus, the dialogs and the lists a combo box drops down are frosted glass themselves (`frostedGlass`; the user turns it off with "See-through menus and dialogs" in `appearanceSettings`).
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![Surfaces: frosted glass, shadows, masks, normal](controls/surface-normal.png) | ![Surfaces: frosted glass, shadows, masks, touch screen](controls/surface-touch-screen.png) | ![Surfaces: frosted glass, shadows, masks, dark scheme](controls/surface-dark-scheme.png) |
+
+```nim
+let area = place(0, dp(150))
+for i in 0 ..< area.w div dp(16) + 1:
+  fill(rect(area.x + i * dp(16), area.y, dp(8), area.h), if i mod 2 == 0:
+    color(230, 120, 60)
+  else:
+    color(60, 150, 220))
+let glass = rect(area.x + dp(12), area.y + dp(14), dp(190), dp(110))
+drawSurface(glass, frostedSurface())
+text(glass.x + dp(16), glass.y + dp(16), "Frosted glass", ui.theme.text,
+     style(bold = true))
+let card = rect(area.x + dp(222), area.y + dp(14), dp(130), dp(56))
+drawSurface(card, Surface(face: ui.theme.face, corner: float(dp(8)),
+                          shadow: dp(8), border: ui.theme.shadow))
+text(card.x + dp(12), card.y + dp(18), "A floating card", ui.theme.text)
+let ring = rect(area.x + dp(258), area.y + dp(84), dp(56), dp(56))
+masked(ring, float(ring.w) / 2):
+  fill(ring, color(40, 160, 110))
+  text(ring.x + dp(9), ring.y + dp(20), "circle", color(255, 255, 255))
+```
+
+**API**
+
+```nim
+template surface*(s: Surface; body: untyped)
+```
+
+A panel drawn as `s` says, as wide as the row, as high as what is in it -- frosted glass
+over a picture (`frostedSurface`), a card with a shadow, a picture in a circle.
+
+```nim
+surface frostedSurface():
+  label "Now playing"
+  label song.title
+```
+
+```nim
+proc beginSurface*(s: Surface; w = 0; h = 0; key = "")
+```
+
+A panel drawn as `s` says, `w` wide (0: the row's width) and `h` high (0: as high as what
+is in it -- known a frame later, as a dialog's); what is put in it until `endSurface` goes
+inside it, kept in its rounded corners.
+
+```nim
+proc endSurface*()
+```
+
+Ends a `beginSurface`.
+
+```nim
+proc frostedSurface*(): Surface
+```
+
+Frosted glass: what is under it blurred, the window's color over it most of the way,
+rounded, a soft shadow and a hairline -- the Glass look's menus' and dialogs' face.
+
+```nim
+proc drawSurface*(r: Rect; s: Surface)
+```
+
+A surface's shadow, its blurred face and its border in `r` (what is drawn after it, over it).
+
+```nim
+proc backdropBlur*(r: Rect; radius = 16; tint = Color(); corner = 0.0)
+```
+
+Frosted glass: what is drawn under `r` so far, blurred -- each color spread about `radius`
+logical pixels round it -- with `tint` over it (its alpha: how much of it; none when 0), in
+`r` with its corners rounded `corner` pixels (the edge smooth). What is drawn after it is
+drawn over it as it is. The same on the CPU and the GPU; while it is on the screen, a
+change under it or near it draws it again (what is under it read back, made smaller,
+blurred and put back: a little work, more the bigger it is).
+
+```nim
+template masked*(r: Rect; corner: float; body: untyped)
+```
+
+What `body` draws kept inside `r` with its corners rounded `corner` (`beginMask`).
+
+```nim
+proc beginMask*(r: Rect; corner: float)
+```
+
+What is drawn from here to `endMask` kept inside `r` with its corners rounded `corner`
+logical pixels: clipped to `r`, and in its corners what was there before put back, the
+edge smooth -- a picture in a circle (`corner` half its side), a card's content in its
+rounded corners. Masks may be inside one another.
+
+```nim
+proc endMask*()
+```
+
+Ends `beginMask` (on the layer it began on).
+
+```nim
+proc frostedFace*(r: Rect; back: Color; corner = 0.0): bool {.discardable.}
+```
+
+A face of frosted glass in `r` when the look draws them so (`frosted`): what is under it
+blurred, `back` over it most of the way, its corners rounded `corner`; false -- nothing
+drawn -- otherwise.
 
 ### Forms and fields
 
@@ -1621,6 +1732,134 @@ var source = "import retroui\n\n# a counter\nvar count = 0\napp \"Counter\", 240
 codeEdit(source, lines = 9, lang = clNim, find = "count",
          readOnly = not shotEnabled)
 ```
+
+### terminalView (retroui/terminal)
+
+A terminal (`import retroui/terminal`): the user's shell, or any program that runs in one (`top`, `vim`, `htop`, a build), through a pseudo-terminal on Linux, macOS, the BSDs and Android, and Windows 10's pseudo-console, drawn as xterm draws it -- the 16 colors, the 256 and every RGB, bold, italic, underlined, inverse; the cursor; the lines that scrolled off kept to scroll back to; the screen a full-screen program draws on and leaves; lines and boxes drawn whole from cell to cell. The mouse chooses text (a double click a word, three a line), Ctrl+Shift+C copies it (Cmd+C on a Mac), Ctrl+Shift+V or Shift+Insert pastes, a right click has the same in a menu; a program that asks for the mouse gets its clicks and the wheel. `term.spawn()` starts the user's shell (`running`, `exitCode`, `title`); without a program a terminal shows what the app `feed`s it -- a build's output in its colors -- and what is typed goes to `onInput`.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![terminalView (retroui/terminal), normal](controls/terminal-normal.png) | ![terminalView (retroui/terminal), touch screen](controls/terminal-touch-screen.png) | ![terminalView (retroui/terminal), dark scheme](controls/terminal-dark-scheme.png) |
+
+```nim
+var term = newTerminal()
+term.feed("\e[1;32msultan@desk\e[0m:\e[1;34m~/retro\e[0m$ ls\r\n" &
+    "\e[1;34mdocs\e[0m  \e[1;34mexamples\e[0m  README.md  \e[1;32mretrokit\e[0m\r\n" &
+    "\e[1;32msultan@desk\e[0m:\e[1;34m~/retro\e[0m$ git log --oneline -2\r\n" &
+    "\e[33mcd4ebc6\e[0m 0.72.0: the Glass look\r\n\e[33m0c7a157\e[0m 0.71.0: Retro Atelier 5.16\r\n" &
+    "\e[1;32msultan@desk\e[0m:\e[1;34m~/retro\e[0m$ ")
+
+terminalView(term, lines = 7)
+```
+
+**API**
+
+```nim
+proc newTerminal*(cols = 80; rows = 24; scrollback = 10_000): Terminal
+```
+
+A terminal of `cols` x `rows` cells (the view sizes it to its box), keeping `scrollback`
+lines that scrolled off.
+
+```nim
+proc spawn*(t: Terminal; command: seq[string] = @[]; cwd = ""; env: openArray[(string, string)] = []): bool
+```
+
+Runs `command` (the user's shell when empty: `defaultShell`) in the terminal, in `cwd`,
+with `env` added to its environment (TERM is xterm-256color); false, and why in `error`,
+when it cannot. What it writes is shown as it comes, what is typed goes to it; `running`
+while it goes on, `exitCode` once it ended.
+
+```nim
+proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false)
+```
+
+The terminal in a box `w` wide (0: the row's width) and `lines` rows of its text high (-1:
+the height left) -- its size in cells made to fit it, the program told. Takes the keys
+while it has the focus (Tab and the arrows too), the wheel scrolls back through what
+scrolled off; the mouse chooses text (double-click a word, triple a line), Ctrl+Shift+C
+copies it, Ctrl+Shift+V and Shift+Insert paste; a right click has the same in a menu.
+
+```nim
+proc feed*(t: Terminal; data: string)
+```
+
+`data` written to the terminal, as a program writes it: text, and the escape sequences
+that move the cursor, color, erase, scroll.
+
+```nim
+proc send*(c: WebCall; value: JsonNode)
+```
+
+One value of a stream: the page's `retro.stream` gets it (its callback);
+`finish` ends it.
+
+```nim
+proc paste*(t: Terminal; text: string)
+```
+
+`text` given to the program as pasted (marked so for one that asks: a shell then takes it
+as text, not as commands typed).
+
+```nim
+proc update*(m: FolderModel)
+```
+
+Once a frame (`fileList` calls it): the search goes on, and a folder
+another program changed is listed again (checked every 1.5 s).
+
+```nim
+proc stop*(scene: var Scene3; name = "")
+```
+
+Stops clip `name` (every clip: "") where it is.
+
+```nim
+proc close*(t: TextFile)
+```
+
+Closes the file.
+
+```nim
+proc close*(h: HexFile)
+```
+
+Closes the file.
+
+```nim
+proc resize*(t: Terminal; cols, rows: int)
+```
+
+The screen made `cols` x `rows` cells (the view does it as its box changes): lines cut or
+made longer; fewer rows, the top ones scroll off -- the cursor's row stays in sight; the
+program is told (SIGWINCH).
+
+```nim
+proc screenText*(t: Terminal): string
+```
+
+The screen's text, a line a row (the blanks at their ends left out).
+
+```nim
+proc selectionText*(t: Terminal): string
+```
+
+The text chosen with the mouse ("" when none): a line a row, rows the text wrapped across
+joined.
+
+```nim
+proc waitOutput*(t: Terminal; text: string; ms = 5000): bool
+```
+
+Updates the terminal until `text` is on its screen (true) or `ms` went by (false): for
+tests and scripts.
+
+```nim
+proc defaultShell*(): seq[string]
+```
+
+The user's shell: $SHELL, else /bin/sh (/system/bin/sh on Android); on Windows %COMSPEC%
+(cmd.exe).
 
 ## Numbers, dates, colors
 
@@ -8577,6 +8816,10 @@ the window, the fields, the buttons and the highlight (4.5 to 1 or more).
 | Dusk | Night Notes |
 |---|---|
 | ![Themes: Dusk](controls/themes-dusk.png) | ![Themes: Night Notes](controls/themes-night-notes.png) |
+
+| Glass Light | Glass Dark |
+|---|---|
+| ![Themes: Glass Light](controls/themes-glass-light.png) | ![Themes: Glass Dark](controls/themes-glass-dark.png) |
 
 ### A look of your own
 

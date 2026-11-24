@@ -254,6 +254,14 @@ proc initAtlas(a: var Atlas; size, most: int; fmt: GLenum) =
   a.sky = @[(0, 0, a.size)]
   a.map.clear()
 
+var
+  frameTexs: seq[GLuint]
+    ## (the blurs' and the masks' textures: kept to the next frame, which `gpuOverlay` may draw
+    ## again)
+  blurRaw: seq[uint8]
+  blurRead, texPx: seq[uint32]
+  gpuMasks: seq[tuple[dr: Rect; rad: float32; parts: array[4, Rect]; px: seq[uint32]]]
+
 proc dropGpuState() =
   ## Everything made on the GPU forgotten (a lost context: it is gone).
   inc gpuEpochN
@@ -264,6 +272,9 @@ proc dropGpuState() =
   colorAtlas = Atlas()
   texCache.clear()
   tempTextures.setLen(0)
+  frameTexs.setLen(0)
+  for k in blurKept.mvalues: k.tex = 0
+  gpuMasks.setLen(0)
   lastVerts.setLen(0)
   lastBatches.setLen(0)
   keptFbo = 0
@@ -292,6 +303,13 @@ proc freeGpuState() =
   if prog != 0: gl.deleteProgram(prog)
   if keptFbo != 0 and gl.deleteFramebuffers != nil: gl.deleteFramebuffers(1, addr keptFbo)
   if keptTex != 0: gl.deleteTextures(1, addr keptTex)
+  for k in blurKept.mvalues:
+    if k.tex != 0:
+      var id = GLuint(k.tex)
+      gl.deleteTextures(1, addr id)
+  for t in frameTexs:
+    var id = t
+    gl.deleteTextures(1, addr id)
   if blitVbo != 0: gl.deleteBuffers(1, addr blitVbo)
   if blitProg != 0: gl.deleteProgram(blitProg)
   dropGpuState()
@@ -927,6 +945,115 @@ proc gpuAnts(c: Cmd; clip: Rect) =
          0, 255, ModeAnts, cl, uint8(c.mag))
     i += 4
 
+proc readBack(r: Rect; into: var seq[uint32]) =
+  ## (the device pixels `r` of the framebuffer bound now, added to `into` as 0x00RRGGBB, top
+  ## row first)
+  if r.w <= 0 or r.h <= 0: return
+  blurRaw.setLen(r.w * r.h * 4)
+  gl.pixelStorei(GL_PACK_ALIGNMENT, 4)
+  gl.readPixels(GLint(r.x), GLint(fbH - r.y - r.h), GLsizei(r.w), GLsizei(r.h), GL_RGBA,
+                GL_UNSIGNED_BYTE, addr blurRaw[0])
+  for y in 0 ..< r.h:
+    let s0 = (r.h - 1 - y) * r.w * 4
+    for x in 0 ..< r.w:
+      let i = s0 + x * 4
+      into.add (uint32(blurRaw[i]) shl 16) or (uint32(blurRaw[i + 1]) shl 8) or uint32(blurRaw[i + 2])
+
+proc frameTexture(w, h: int; px: var seq[uint32]; filter: GLint): GLuint =
+  ## (a texture of `px`, 0xAARRGGBB, for this frame and the next)
+  gl.activeTexture(GL_TEXTURE0 + 2)
+  gl.pixelStorei(GL_UNPACK_ALIGNMENT, 4)
+  result = newTexture(w, h, GL_RGBA, filter, addr px[0])
+  frameTexs.add result
+
+proc gpuBarrier(c: Cmd) =
+  ## A blur, or a mask's end: what was drawn before it read back, and put back blurred or
+  ## where the mask's corners keep it (as `cpuBarrier`).
+  let s = max(1, pxScale)
+  let d = intersect(devBox(c), rect(0, 0, fbW, fbH))
+  if d.w <= 0 or d.h <= 0: return
+  let dr = rect(c.r.x * s, c.r.y * s, c.r.w * s, c.r.h * s)
+  let rad = c.size * float32(s)
+  flushDraw()
+  case c.kind
+  of ckBlur:
+    let src = blurSrc(d, c)
+    let key = blurKey(c)
+    if key notin blurKept:
+      # (what is under it changed: the frame is drawn whole, up to it -- read back)
+      blurRead.setLen(0)
+      readBack(src, blurRead)
+      if blurRead.len < src.w * src.h: return
+      var k = BlurKept(src: src, used: frameNo)
+      shrinkBlur(cast[ptr UncheckedArray[uint32]](addr blurRead[0]), src.w, rect(0, 0, src.w, src.h),
+                 blurReach(c), k)
+      k.src = src
+      blurKept[key] = move k
+    let k = addr blurKept[key]
+    if k.tex == 0:
+      texPx.setLen(k.px.len)
+      for i in 0 ..< k.px.len: texPx[i] = k.px[i] or 0xFF000000'u32
+      gl.activeTexture(GL_TEXTURE0 + 2)
+      gl.pixelStorei(GL_UNPACK_ALIGNMENT, 4)
+      k.tex = uint32(newTexture(k.sw, k.sh, GL_RGBA, GL_LINEAR, addr texPx[0]))
+    let ta = c.color shr 24
+    let tint = c.color and 0xFFFFFF'u32
+    # (the small blur, the GPU's filter between its pixels, the tint over it; the corners each a
+    # texture of their own, see-through as they are rounded)
+    let x0 = float32(k.src.x)
+    let y0 = float32(k.src.y)
+    let x1 = float32(k.src.x + k.sw * k.f)
+    let y1 = float32(k.src.y + k.sh * k.f)
+    let t = GLuint(k.tex)
+    template body(cl: Rect) =
+      quad(x0, y0, x1, y1, 0, 0, 1, 1, 0, 255, ModeBitmap, cl, tex = t, filter = GL_LINEAR)
+      if ta > 0: quad(x0, y0, x1, y1, 0, 0, 0, 0, tint, uint8(ta), ModeSolid, cl)
+    if rad < 0.5: body(d)
+    else:
+      # (the middle, and the bands between the corners above and below it)
+      let cs = cornerRects(dr, rad, dr)
+      let top = cs[0].y + cs[0].h
+      let bot = cs[2].y
+      body(intersect(rect(dr.x, top, dr.w, bot - top), d))
+      body(intersect(rect(cs[0].x + cs[0].w, dr.y, cs[1].x - cs[0].x - cs[0].w, top - dr.y), d))
+      body(intersect(rect(cs[2].x + cs[2].w, bot, cs[3].x - cs[2].x - cs[2].w, dr.y + dr.h - bot), d))
+      for c4 in cs:
+        let r = intersect(c4, d)
+        if r.w <= 0 or r.h <= 0: continue
+        texPx.setLen(r.w * r.h)
+        for y in 0 ..< r.h:
+          for x in 0 ..< r.w:
+            let cov = cornerCover(r.x + x, r.y + y, dr, rad)
+            let q = k[].blurredAt(r.x + x, r.y + y, c.color)
+            texPx[y * r.w + x] = q or (uint32(min(255'u32, cov * 255 div 256)) shl 24)
+        let ct = frameTexture(r.w, r.h, texPx, GL_NEAREST)
+        quad(float32(r.x), float32(r.y), float32(r.x + r.w), float32(r.y + r.h), 0, 0, 1, 1, 0, 255,
+             ModeBitmap, d, tex = ct)
+  of ckMaskSave:
+    gpuMasks.setLen(gpuMasks.len + 1)
+    template m: untyped = gpuMasks[^1]
+    m.dr = dr
+    m.rad = rad
+    m.parts = cornerRects(dr, rad, d)
+    m.px.setLen(0)
+    for r in m.parts: readBack(r, m.px)
+  of ckMaskCut:
+    if gpuMasks.len == 0: return
+    let m = gpuMasks.pop()
+    var k = 0
+    for r in m.parts:
+      if r.w <= 0 or r.h <= 0: continue
+      texPx.setLen(r.w * r.h)
+      for y in 0 ..< r.h:
+        for x in 0 ..< r.w:
+          let cov = cornerCover(r.x + x, r.y + y, m.dr, m.rad)
+          texPx[y * r.w + x] = m.px[k] or (uint32(255'u32 - min(255'u32, cov * 255 div 256)) shl 24)
+          inc k
+      let t = frameTexture(r.w, r.h, texPx, GL_NEAREST)
+      quad(float32(r.x), float32(r.y), float32(r.x + r.w), float32(r.y + r.h), 0, 0, 1, 1, 0, 255,
+           ModeBitmap, rect(0, 0, fbW, fbH), tex = t)
+  else: discard
+
 proc gpuCmd(c: Cmd) =
   let screen = rect(0, 0, fbW, fbH)
   case c.kind
@@ -944,6 +1071,7 @@ proc gpuCmd(c: Cmd) =
   of ckTex: gpuTex(c, screen)
   of ckChecker: gpuChecker(c, screen)
   of ckSysText: gpuSysText(c, devClip(c.clip))
+  of ckBlur, ckMaskSave, ckMaskCut: gpuBarrier(c)
 
 proc beginGpuFrame(): bool =
   if gpuRelays.gpuReady != nil and not gpuRelays.gpuReady(): return false
@@ -1270,6 +1398,12 @@ proc gpuPresent(force: bool; shown: var bool): bool =
   let age = if gpuRelays.gpuBufferAge != nil: gpuRelays.gpuBufferAge() else: 0
   let screenR = rect(0, 0, fbW, fbH)
   var full = force or screenPick.want   # (an eyedropper's pixel: read from a frame drawn whole)
+  # (the blurs' and masks' textures of the frame before let go of)
+  for t in frameTexs:
+    var id = t
+    gl.deleteTextures(1, addr id)
+  frameTexs.setLen(0)
+  gpuMasks.setLen(0)
   tileRuns(full, frameRuns)
   if not full and frameRuns.len == 0 and not screenStale:
     # (nothing on the screen changed: nothing drawn, nothing sent)
@@ -1285,6 +1419,18 @@ proc gpuPresent(force: bool; shown: var bool): bool =
       # (what `overlayNow` put over the frame taken away too)
       partsNow.add staleRect
       if partsNow.len > MaxParts: regather(partsNow)
+    # (a blur reads round itself, what the parts drawn cut: a frame with one in what changed is
+    # drawn whole)
+    block blurs:
+      for (l, i) in barriers:
+        if layers[l][i].kind != ckBlur or blurKey(layers[l][i]) in blurKept: continue
+        let e = blurSrc(cmdDev[l][i], layers[l][i])
+        for p in partsNow:
+          if intersects(p, e):
+            full = true
+            partsNow.setLen(1)
+            partsNow[0] = screenR
+            break blurs
   let big = full or partsArea(partsNow) * 2 >= fbW * fbH
   # what the screen's buffer lacks: this frame's change, and the changes of
   # the frames since the one it holds

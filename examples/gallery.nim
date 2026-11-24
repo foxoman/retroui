@@ -6,7 +6,7 @@
 
 import std/[strutils, os, json, math, times]
 import retroui
-import retroui/[tilemap, system, capture, secrets, jobs, tray, motion, forcegraph]
+import retroui/[tilemap, system, capture, secrets, jobs, tray, motion, forcegraph, queries, terminal]
 
 const
   languages = ["English", "Deutsch", "Français", "Español", "Italiano",
@@ -1156,12 +1156,23 @@ var
   trayOn = false
   showCode = false
   springOver = false                   # (the Motion page's)
+  motionDoor = false
+  travelPick = -1
   noteShown = false
   glideRows = @["Mail", "Files", "Atelier", "Board", "Navigator"]
   dropAt = -1
   staggerRound = 0
   ballOn = false
   ball, ballWas: tuple[x, y, vx, vy: float] = (20.0, 10.0, 160.0, 0.0)
+  term: Terminal                       # (the Terminal page's shell: started when it is first shown)
+  surfBlur = 16                        # (the Surfaces page's)
+  surfShadow = 8
+  surfCorner = 16
+
+proc slowClock(): string {.gcsafe.} =
+  ## (the Jobs page's query: something slow to fetch -- the time, a second late)
+  os.sleep(1000)
+  now().format("HH:mm:ss")
 
 proc countPrimes(top: int): Job[int] =
   ## (the primes below `top` counted on another thread: a job)
@@ -1204,6 +1215,66 @@ var
   topicSel = -1
   mindMap = mindMapOf()
   added = 0
+
+proc terminalPage() =
+  ## (retroui/terminal: the user's shell in a box)
+  if term == nil:
+    term = newTerminal()
+    if not term.spawn():
+      term.feed("\e[1mRetro Nim UI's terminal\e[0m\r\n" & term.error & "\r\n" &
+                "What an app writes to it (feed) is shown \e[32min its colors\e[0m.\r\n")
+  row:
+    if term.running: label("Your shell: " & (if term.title.len > 0: term.title else: defaultShell()[0]))
+    elif term.error.len == 0: label("The shell ended (" & $term.exitCode & ").")
+    spring()
+    if button("&New shell", enabled = not term.running):
+      term = newTerminal()
+      discard term.spawn()
+  terminalView(term, lines = -1, focusFirst = true)
+  label("Ctrl+Shift+C copies what the mouse chose, Ctrl+Shift+V pastes; the wheel goes back " &
+        "through what scrolled off.", color = ui.theme.gray)
+
+proc surfacesPage() =
+  ## (blur, shadow and masks: frosted glass over a picture, a card that floats, a circle)
+  row:
+    label "&Blur:"
+    slider(surfBlur, 0, 40, w = dp(110))
+    label "S&hadow:"
+    slider(surfShadow, 0, 24, w = dp(110))
+    label "&Corners:"
+    slider(surfCorner, 0, 40, w = dp(110))
+  let area = place(0, dp(300))
+  # (what the surfaces are over: bands of color and words)
+  for i in 0 ..< area.w div dp(24) + 1:
+    let hue = float(i) * 0.35
+    fill(rect(area.x + i * dp(24), area.y, dp(12), area.h),
+         color(uint8(128 + 120 * sin(hue)), uint8(128 + 120 * sin(hue + 2.1)), uint8(128 + 120 * sin(hue + 4.2))))
+  for k in 0 ..< 8:
+    text(area.x + dp(10), area.y + dp(12) + k * dp(36), "Frosted glass blurs what is under it", ui.theme.text,
+         style(bold = true, size = 1.4))
+  pushClip(area)
+  var s = frostedSurface()
+  s.blur = surfBlur
+  s.corner = float(dp(surfCorner))
+  s.shadow = dp(surfShadow)
+  let glass = rect(area.x + dp(24), area.y + dp(30), min(dp(300), area.w div 2), dp(150))
+  drawSurface(glass, s)
+  text(glass.x + dp(16), glass.y + dp(16), "frostedSurface()", ui.theme.text, style(bold = true, size = 1.2))
+  text(glass.x + dp(16), glass.y + dp(46), "blur " & $surfBlur & ", shadow " & $surfShadow & ", corners " &
+       $surfCorner, ui.theme.text)
+  let card = rect(glass.x + glass.w + dp(40), area.y + dp(40), dp(180), dp(110))
+  drawSurface(card, Surface(face: ui.theme.face, corner: float(dp(surfCorner)), shadow: dp(surfShadow),
+                            border: ui.theme.shadow))
+  text(card.x + dp(14), card.y + dp(14), "A card that floats", ui.theme.text)
+  # (a picture in a circle: masked)
+  let ring = rect(card.x + dp(40), card.y + card.h + dp(20), dp(100), dp(100))
+  masked(ring, float(ring.w) / 2):
+    for y in 0 ..< ring.h div 4:
+      fill(rect(ring.x, ring.y + y * 4, ring.w, 4), color(uint8(40 + y * 8), uint8(140), uint8(230 - y * 6)))
+    text(ring.x + dp(16), ring.y + ring.h div 2 - dp(8), "masked", color(255, 255, 255), style(bold = true))
+  popClip()
+  label("In the Glass look the menus, the dialogs and the lists a combo box drops down are frosted " &
+        "glass too.", color = ui.theme.gray)
 
 proc graphPage() =
   ## (retroui/forcegraph: graphs that lay themselves out)
@@ -1297,9 +1368,38 @@ proc motionPage() =
       let x = mix(ballWas.x, ball.x, st.alpha)
       let y = mix(ballWas.y, ball.y, st.alpha)
       disc(float(area.x) + x + size / 2, float(area.y) + y + size / 2, size / 2, ui.theme.select)
+    group "played: timed steps, forward and back":
+      block:
+        if button(if motionDoor: "&Close" else: "&Open", w = dp(80)): motionDoor = not motionDoor
+        # (the bar grows, then the dot drops in with a bounce; closing, the dot first)
+        let v = played(motionDoor, [tween(0, 1, 450, cvExpo), tween(0, 1, 500, cvBounce)])
+        let lane = place(0, dp(56))
+        fill(rect(lane.x, lane.y, int(float(lane.w) * v[0]), dp(16)), ui.theme.select)
+        let d = dp(16)
+        disc(float(lane.x + lane.w - d), float(lane.y + dp(16) + d div 2) + mix(-dp(16).float, dp(20).float, v[1]),
+             d / 2, color(200, 120, 40))
+        let spin = played(true, [tween(0, 2 * PI, 1600, cvLinear)], loop = true)[0]
+        let c = place(0, dp(30))
+        for k in 0 ..< 8:
+          let a = spin + k.float * PI / 4
+          disc(float(c.x + dp(15)) + cos(a) * dp(10).float, float(c.y + dp(15)) + sin(a) * dp(10).float,
+               dp(2).float + k.float * 0.3, ui.theme.text)
+    group "travelled: from the list to its own box":
+      block:
+        let names = ["Mail", "Files", "Atelier"]
+        let big = place(0, dp(60))
+        box(big, ui.theme.shadow)
+        for i, n in names:
+          let at = if travelPick == i: big else: place(0, dp(22))
+          let r = travelled(at, "gallery-travel-" & n)
+          fill(r, if travelPick == i: ui.theme.select else: ui.theme.face2)
+          box(r, ui.theme.shadow)
+          text(r.x + dp(6), r.y + dp(4), n, if travelPick == i: ui.theme.selectText else: ui.theme.text)
+          if travelPick != i and interact(idOf("travel" & n), at, focusable = false).clicked: travelPick = i
+        label("Click a row: it flies into the box; another sends it back.", color = ui.theme.gray)
 
 proc kitTab() =
-  tabs kTab, ["F&orms", "Co&de", "&Pages", "&Jobs", "Mo&tion", "&Graph"]:
+  tabs kTab, ["F&orms", "Co&de", "&Pages", "&Jobs", "Mo&tion", "&Graph", "Te&rminal", "&Surfaces"]:
     case kTab
     of 0:
       adaptive(300):
@@ -1347,6 +1447,8 @@ proc kitTab() =
           label("Back, Esc or Alt+Left goes back; the phone's Back too.", color = ui.theme.gray)
     of 4: motionPage()
     of 5: graphPage()
+    of 6: terminalPage()
+    of 7: surfacesPage()
     else:
       adaptive(300):
         group "A job on another thread (retroui/jobs)":
@@ -1364,6 +1466,18 @@ proc kitTab() =
                   of jsCancelled: "Cancelled"
                   of jsFailed: primeJob.error
                   else: "Counting... the window stays awake")
+        group "Loaded once, shared (retroui/queries)":
+          # (two views of the same entry: one load; Refresh keeps the list shown while it reloads)
+          let a = query("gallery:time", slowClock, maxAge = 30_000)
+          let b = query("gallery:time", slowClock, maxAge = 30_000)
+          if a.loading and not a.has: label "Loading..."
+          elif a.failed: label("Could not: " & a.error)
+          else:
+            label("First view: " & a.value)
+            label("Second view: " & b.value & " (the same load)")
+          row:
+            if button("&Refresh"): invalidate("gallery:")
+            if a.loading and a.has: label("Loading again...", color = ui.theme.gray)
         group "animated(value, ms)":
           if button(if wideBar: "&Narrow" else: "&Widen"): wideBar = not wideBar
           let r = place(0, dp(14))
@@ -1874,7 +1988,10 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
             "for Nim on Windows, macOS, Linux, Android and iOS."],
            tagline = "Every control of Retro Nim UI",
            iconPng = GalleryIconPng, glyph = pxApp,
-           whatsNew = ["Forms & Code > Motion: springs, a note in and out, rows gliding, a square thrown " &
+           whatsNew = ["Forms & Code > Terminal: your shell in a box, its colors, scrolling back, copy " &
+                       "and paste; > Surfaces: frosted glass, shadows, a picture in a circle; > Jobs: a " &
+                       "load shared by two views; > Motion: timed steps, a box that flies across",
+                       "Forms & Code > Motion: springs, a note in and out, rows gliding, a square thrown " &
                        "to a point, a simulation; > Graph: a topic map and a mind map that lay themselves out",
                        "Forms and grids from your types, Undo, pages, jobs on worker threads, a code " &
                        "editor, translations with plurals, the tray; View, This Page's Code (Ctrl+U)",

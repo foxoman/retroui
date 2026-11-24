@@ -168,9 +168,9 @@ proc softLight*(): Color =
   if th.face2.a != 0: th.face2 else: mixColor(th.face, th.light, 0.5)
 
 # ---- the Glass look (`uiLook`) ---------------------------------------------------------------
-# (frosted glass with no blur: a face a little see-through over what is under it, the light on
-# its upper half and along its top edge, a hairline round it, a soft shadow under it; the
-# scheme's colors -- its face, its highlight -- so Glass goes with every scheme)
+# (the light on a face's upper half and along its top edge, a hairline round it, a soft shadow
+# under it; the scheme's colors -- its face, its highlight -- so Glass goes with every scheme;
+# menus, dialogs and dropped lists of frosted glass, what is under them blurred: `frostedGlass`)
 
 proc withAlpha*(c: Color; a: int): Color {.inline.} =
   ## `c` with alpha `a` (0..255): drawn see-through.
@@ -235,6 +235,21 @@ proc glassAccent*(r: Rect; radius = -1.0) =
   roundRect(f, max(0.0, rad - 1), a)
   roundRect(rect(f.x, f.y, f.w, max(1, f.h div 2)), min(max(0.0, rad - 1), float(f.h) / 4),
             withAlpha(color(255, 255, 255), 46))
+
+proc frosted*(): bool {.inline.} = glassLook() and frostedGlass
+  ## Menus, dialogs and dropped lists drawn as frosted glass now (`frostedGlass`, in the Glass
+  ## look).
+
+proc frostAlpha(): uint8 = (if onDark(): 208 else: 196)
+  ## (how much of a frosted face's color is over the blur)
+
+proc frostedFace*(r: Rect; back: Color; corner = 0.0): bool {.discardable.} =
+  ## A face of frosted glass in `r` when the look draws them so (`frosted`): what is under it
+  ## blurred, `back` over it most of the way, its corners rounded `corner`; false -- nothing
+  ## drawn -- otherwise.
+  if not frosted(): return false
+  backdropBlur(r, dp(16), withAlpha(back, int(frostAlpha())), corner)
+  true
 
 proc selectFill*(r: Rect) =
   ## The highlight behind a chosen row -- a menu's item, a list's, an open menu's title: the
@@ -2249,8 +2264,10 @@ proc popupList(id: Id; r: Rect; items: openArray[string]; sel: var int;
       off = clamp(off, (ui.popupHi + 1) * ItemH - viewH, ui.popupHi * ItemH)
       off = clamp(off, 0, maxOff)
   scrollTick(id, off, maxOff)
-  fill(area, th.field)
-  box(area, th.edge)
+  if frostedFace(area, th.field): box(area, glassHair())
+  else:
+    fill(area, th.field)
+    box(area, th.edge)
   pushClip(inset(area, 1))
   let top = off div ItemH
   for i in top ..< min(items.len, top + vis + 1):
@@ -3802,8 +3819,10 @@ proc endMenu*() =
   notePlaced(r)
   if accessOn: accessEnd(r)
   if glassLook():
-    # (Glass: a hairline round it, a soft shadow under and beside it)
-    patchFill(m.bg, r, th.window)
+    # (Glass: a hairline round it, a soft shadow under and beside it; frosted, what is under it
+    # blurred through it)
+    if frosted(): patchBlur(m.bg, r, dp(16), withAlpha(th.window, int(frostAlpha())))
+    else: patchFill(m.bg, r, th.window)
     box(r, glassHair())
     for k in 0 .. 2:
       let a = withAlpha(color(0, 0, 0), (if onDark(): 70 else: 22) - k * 6)
@@ -4876,9 +4895,21 @@ proc beginDialog*(open: var bool; title: string; width: int): bool =
   # another dialog is over this one), the control-menu box at its left
   let active = ui.dialogTop == id or ui.dialogTop == 0
   let (tbg, tfg) = titleColors(active)
-  windowFrame(r)
-  fill(bar, tbg)
-  hline(bar.x, bar.y + bar.h, bar.w, th.frame)
+  let glass = frosted()
+  if glass:
+    # (Glass, frosted: a soft shadow round it, what is under it blurred through it, a hairline
+    # round it, its title bar a little darker glass)
+    let rad = float(dp(10))
+    for k in 1 .. 3:
+      roundRect(rect(r.x - k, r.y - k + 2, r.w + 2 * k, r.h + 2 * k), rad + float(k),
+                withAlpha(color(0, 0, 0), if onDark(): 34 else: 10))
+    frostedFace(r, th.window, rad)
+    roundFrame(r, rad, 1, glassHair())
+    fill(bar, withAlpha(tbg, if active: 150 else: 90))
+  else:
+    windowFrame(r)
+    fill(bar, tbg)
+  hline(bar.x, bar.y + bar.h, bar.w, if glass: glassHair() else: th.frame)
   captionButton(sysBox, ui.active == id + 1)
   vline(sysBox.x + sysBox.w, sysBox.y, sysBox.h, th.frame)
   controlMenuMark(sysBox)
@@ -4895,7 +4926,7 @@ proc beginDialog*(open: var bool; title: string; width: int): bool =
        bar.y + (TitleH - FontH) div 2, ellipsize(title, titleRoom - dp(8), style(bold = true)),
        tfg, true)
   let client = rect(x + 5, bar.y + bar.h + 1, w - 10, h - TitleH - 11)
-  fill(client, th.window)
+  if not glass: fill(client, th.window)
   if accessOn:
     accessBegin(arDialog, title, r, id, {asModal})
     if xBox.w > 0: accessNode(arButton, "Close", id = id + 3, r = xBox, states = accessOff(not closeOff))

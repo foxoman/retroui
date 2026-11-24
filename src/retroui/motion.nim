@@ -374,3 +374,131 @@ template fixedSteps*(stepMs = 1000 / 60; running = true; maxSteps = 8; key = "")
   const at = instantiationInfo(-1, true)
   const site = at.filename & ":" & $at.line & ":" & $at.column & ":"
   fixedStepsAt(Id(hash(site & key) and 0x7FFFFFFF) + 1, stepMs, running, maxSteps)
+
+# ---- timed steps, one after another: played forward and back -----------------------------------
+
+type
+  Curve* = enum
+    ## The shape of a timed movement (`Tween`): from even (`cvLinear`) to slow at the end
+    ## (`cvQuad` .. `cvExpo`), going a little past (`cvBack`), a spring's (`cvElastic`), a
+    ## ball's (`cvBounce`).
+    cvLinear, cvQuad, cvCubic, cvQuart, cvQuint, cvSine, cvExpo, cvCirc, cvBack, cvElastic, cvBounce
+  EaseSide* = enum
+    ## Where a curve's slowness is: at the end (`easeEnd`, the default), the start, both.
+    easeEnd, easeStart, easeBoth
+  Tween* = object
+    ## One timed step: from `a` to `b` in `ms` milliseconds, after `delay`, along `curve`.
+    a*, b*: float
+    ms*, delay*: int
+    curve*: Curve
+    side*: EaseSide
+
+proc tween*(a, b: float; ms = 300; curve = cvCubic; side = easeEnd; delay = 0): Tween =
+  ## A step from `a` to `b` (`played` runs them).
+  Tween(a: a, b: b, ms: max(1, ms), delay: max(0, delay), curve: curve, side: side)
+
+proc bounceOut(t: float): float =
+  const n = 7.5625
+  const d = 2.75
+  if t < 1 / d: n * t * t
+  elif t < 2 / d: (let u = t - 1.5 / d; n * u * u + 0.75)
+  elif t < 2.5 / d: (let u = t - 2.25 / d; n * u * u + 0.9375)
+  else: (let u = t - 2.625 / d; n * u * u + 0.984375)
+
+proc easeIn(c: Curve; t: float): float =
+  ## (the curve slow at the start)
+  case c
+  of cvLinear: t
+  of cvQuad: t * t
+  of cvCubic: t * t * t
+  of cvQuart: t * t * t * t
+  of cvQuint: t * t * t * t * t
+  of cvSine: 1 - cos(t * PI / 2)
+  of cvExpo: (if t <= 0: 0.0 else: pow(2.0, 10 * t - 10))
+  of cvCirc: 1 - sqrt(max(0.0, 1 - t * t))
+  of cvBack: 2.70158 * t * t * t - 1.70158 * t * t
+  of cvElastic:
+    (if t <= 0: 0.0 elif t >= 1: 1.0 else: -pow(2.0, 10 * t - 10) * sin((t * 10 - 10.75) * 2 * PI / 3))
+  of cvBounce: 1 - bounceOut(1 - t)
+
+proc eased*(t: float; curve = cvCubic; side = easeEnd): float =
+  ## How far a movement `t` (0 .. 1) of the time along is, along `curve`: 0 at 0, 1 at 1 (in
+  ## between beyond them for `cvBack` and `cvElastic`).
+  let t = clamp(t, 0.0, 1.0)
+  case side
+  of easeStart: easeIn(curve, t)
+  of easeEnd: 1 - easeIn(curve, 1 - t)
+  of easeBoth:
+    if t < 0.5: easeIn(curve, 2 * t) / 2 else: 1 - easeIn(curve, 2 - 2 * t) / 2
+
+proc playLength*(steps: openArray[Tween]; together = false): int =
+  ## How long `steps` take, in milliseconds: one after another, or `together`.
+  for s in steps:
+    if together: result = max(result, s.delay + s.ms) else: result += s.delay + s.ms
+
+var plays: Table[Id, tuple[pos: float; forward: bool; t, seen: int]]
+  ## (each `played`: how far along, in milliseconds; which way it goes; the last frame)
+
+proc playedAt*(id: Id; forward: bool; steps: openArray[Tween]; together = false; loop = false): seq[float] =
+  ## `played` for steps of your own id (`idOf`).
+  let total = max(1, playLength(steps, together))
+  let now = ui.now
+  var p = plays.getOrDefault(id, (0.0, forward, now, now))
+  if id notin plays and not forward: p.pos = 0
+  let el = float(clamp(now - p.t, 0, 100))     # (a frame late after a pause: not a leap)
+  p.t = now
+  p.seen = now
+  p.forward = forward
+  if reducedMotion() and not loop: p.pos = if forward: total.float else: 0.0
+  elif forward:
+    p.pos += el
+    if loop and p.pos >= total.float: p.pos = p.pos mod total.float
+  else: p.pos -= el
+  p.pos = clamp(p.pos, 0.0, total.float)
+  if (forward and (loop or p.pos < total.float)) or (not forward and p.pos > 0): wakeIn(16)
+  plays[id] = p
+  forget(plays)
+  # each step's value where the time is
+  var at = 0
+  for s in steps:
+    let start = at + s.delay
+    let t = (p.pos - start.float) / s.ms.float
+    result.add mix(s.a, s.b, if t <= 0: 0.0 else: eased(t, s.curve, s.side))
+    if not together: at = start + s.ms
+
+template played*(forward: bool; steps: openArray[Tween]; together = false; loop = false;
+                 key = ""): seq[float] =
+  ## Timed steps -- a value each, from its `a` to its `b` along its curve -- one after another
+  ## (or `together`), played on while `forward` is true and back the same way when it turns
+  ## false, from wherever they were: a door that swings open then a panel that slides out, and
+  ## closing, the panel first. `loop`: over again while `forward` (a spinner, a pulse). Frames
+  ## are asked for only while they move; with less movement asked, at their end at once (a
+  ## loop still turns).
+  ##
+  ## .. code-block:: nim
+  ##   let v = played(open, [tween(0, 90, 400, cvExpo), tween(0, 1, 250, cvBack)])
+  ##   drawDoor(angle = v[0])
+  ##   drawPanel(scale = v[1])
+  ##   let spin = played(busy, [tween(0, 360, 1200, cvLinear)], loop = true)[0]
+  const at = instantiationInfo(-1, true)
+  const site = at.filename & ":" & $at.line & ":" & $at.column & ":"
+  playedAt(Id(hash(site & key) and 0x7FFFFFFF) + 1, forward, steps, together, loop)
+
+# ---- a box that travels between places of the window --------------------------------------------
+
+proc travelledAt*(id: Id; r: Rect; spec = springSmooth): Rect =
+  ## `travelled` for a box of your own id (`idOf`).
+  glidedAt(id, r, (0, 0), spec)
+
+template travelled*(r: Rect; key: string; spec = springSmooth): Rect =
+  ## Where to draw a box that moves from one part of the window to another -- a card from a
+  ## grid into the dialog that shows it bigger, a picture from a list to the page that opens,
+  ## and back when it closes: drawn in one place at a time with the same `key`, it flies from
+  ## where it was to where it is now (in the window's own coordinates, unlike `glided`, whose
+  ## place is in its row or column). Leave the place it left empty while it is away.
+  ##
+  ## .. code-block:: nim
+  ##   if shown == i:                                      # (its dialog open: the card is there)
+  ##     dialog(open, "Card"): drawCard(travelled(place(dp(200), dp(200)), "card" & $i), i)
+  ##   else: drawCard(travelled(place(dp(96), dp(96)), "card" & $i), i)
+  travelledAt(idOf("travelled:" & key), r, spec)
