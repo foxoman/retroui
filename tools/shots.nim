@@ -815,9 +815,12 @@ do:
   aim()
 
 example("terminal", "terminalView (retroui/terminal)",
-        "A terminal (`import retroui/terminal`): the user's shell, or any program that runs in one (`top`, `vim`, `htop`, a build), through a pseudo-terminal on Linux, macOS, the BSDs and Android, and Windows 10's pseudo-console, drawn as xterm draws it -- the 16 colors, the 256 and every RGB, bold, italic, underlined, inverse; the cursor; the lines that scrolled off kept to scroll back to; the screen a full-screen program draws on and leaves; lines and boxes drawn whole from cell to cell. The mouse chooses text (a double click a word, three a line), Ctrl+Shift+C copies it (Cmd+C on a Mac), Ctrl+Shift+V or Shift+Insert pastes, a right click has the same in a menu; a program that asks for the mouse gets its clicks and the wheel. `term.spawn()` starts the user's shell (`running`, `exitCode`, `title`); without a program a terminal shows what the app `feed`s it -- a build's output in its colors -- and what is typed goes to `onInput`.",
-        420, 180, ["newTerminal", "spawn", "terminalView", "feed", "send", "paste", "update", "stop", "close",
-                   "resize", "screenText", "selectionText", "waitOutput", "defaultShell"], std3):
+        "A terminal (`import retroui/terminal`): the user's shell, or any program that runs in one (`top`, `vim`, `htop`, a build), through a pseudo-terminal on Linux, macOS, the BSDs and Android, and Windows 10's pseudo-console, drawn as xterm draws it -- the 16 colors, the 256 and every RGB, bold, italic, underlined, inverse; the cursor; the lines that scrolled off kept to scroll back to; the screen a full-screen program draws on and leaves; lines and boxes drawn whole from cell to cell. The mouse chooses text (a double click a word, three a line), Ctrl+Shift+C copies it (Cmd+C on a Mac), Ctrl+Shift+V or Shift+Insert pastes, a right click has the same in a menu -- and the app's own items (`menu`), and the terminal's (Clear Scrollback, Reset); `terminalEditItems`, `terminalViewItems` and `terminalItems` put them in the app's menu bar. Ctrl+Shift+= and Ctrl+Shift+- make its text bigger and smaller (`zoomText`), `findText` finds in all it kept. A program that asks for the mouse gets its clicks and the wheel; one that asks for kitty's keyboard protocol gets its keys as kitty sends them (Esc and Ctrl+I told from Tab, keys let go, every key as an escape: `kbFlags`), and the pictures a program sends by kitty's graphics protocol are shown in their cells and scroll with the text (`showPicture`: one of the app's own). `term.spawn()` starts the user's shell (`running`, `exitCode`, `title`); without a program a terminal shows what the app `feed`s it -- a build's output in its colors -- and what is typed goes to `onInput`.",
+        420, 180, ["newTerminal", "spawn", "terminalView", "feed", "showPicture", "terminal.send", "paste",
+                   "terminal.update", "terminal.stop", "terminal.close", "resize", "screenText", "selectionText",
+                   "selectNone", "findText", "zoomText", "terminal.reset", "terminalEditItems",
+                   "terminalViewItems", "terminalItems", "kbFlags", "kittyKeyBytes", "pictureCount",
+                   "imageCount", "waitOutput", "defaultShell"], std3):
   var term = newTerminal()
   term.feed("\e[1;32msultan@desk\e[0m:\e[1;34m~/retro\e[0m$ ls\r\n" &
             "\e[1;34mdocs\e[0m  \e[1;34mexamples\e[0m  README.md  \e[1;32mretrokit\e[0m\r\n" &
@@ -2170,7 +2173,7 @@ part("Canvas and reports")
 
 example("canvas", "canvas: your own drawing",
         "Room for your own drawing: draw into the rectangle it returns with `fill`, `box`, `line`, `text`, `image`, `drawBitmap`, and the smooth `disc`, `ring`, `roundRect`, `polygon`, `thickLine`, `pieSlice`.",
-        320, 140, ["canvas", "gfx.fill", "gfx.box", "gfx.line", "gfx.disc", "gfx.roundRect", "gfx.drawBitmap"], std3):
+        320, 140, ["canvas", "gfx.fill", "gfx.box", "gfx.line", "gfx.disc", "gfx.roundRect", "gfx.roundRectShaded", "gfx.roundFrame", "gfx.textCells", "gfx.drawBitmap"], std3):
   let r = canvas(280, 110)
   fill(r, color(255, 255, 240))
   box(r, ui.theme.frame)

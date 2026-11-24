@@ -323,6 +323,29 @@ suite "warps and Smart Objects":
     check S.filters.len == 2 and S.filters[1].off and S.warp.len == 16
     check S.quad == L.smart.quad and S.src == L.smart.src
     removeFile(path)
+    # moved whole with the Move tool: its corners go with its pixels -- its box, what it is drawn
+    # again into -- and come back with them when undone; moved by a nudge the same
+    d.cur = d.layers.find(L)
+    let q0 = L.smart.quad
+    let p0 = L.px[20 * 80 + 20]
+    d.beginStep("Move")
+    var lift = d.beginMove(0)
+    d.moveTo(lift, 7, 5)
+    d.endMove(lift)
+    d.endStep()
+    check L.smart.quad[0] == (q0[0][0] + 7, q0[0][1] + 5) and L.smart.quad[2] == (q0[2][0] + 7, q0[2][1] + 5)
+    check L.px[25 * 80 + 27] == p0
+    d.undo()
+    check L.smart.quad == q0 and L.px[20 * 80 + 20] == p0
+    d.redo()
+    check L.smart.quad[0] == (q0[0][0] + 7, q0[0][1] + 5)
+    d.undo()
+    d.beginStep("Nudge")
+    d.shiftLayers(@[L], 3, 0)
+    d.endStep()
+    check L.smart.quad[1] == (q0[1][0] + 3, q0[1][1]) and L.px[20 * 80 + 23] == p0
+    d.undo()
+    check L.smart.quad == q0
 
   test "the Blur Gallery":
     let src = Img(w: 64, h: 32, px: pattern(64, 32))

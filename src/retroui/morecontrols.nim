@@ -221,13 +221,20 @@ proc tagInput*(tags: var seq[string]; text: var string; w = 0; enabled = true;
     y += chipH + dp(3)
   let h = y + max(chipH, EditH) + dp(4)
   let r = place(room, h + 2)
-  fill(r, th.field)
-  fieldFrame(r, enabled)
+  let gl = glassLook()
+  # (Glass: a rounded field, the ring while the box in it has the keyboard; the tags pills)
+  if gl: fieldFace(r, th.field, enabled, enabled and ui.focus == peekId(text, "taginput"))
+  else:
+    fill(r, th.field)
+    fieldFrame(r, enabled)
   var drop = -1
   for i, (cx, cy, cw) in spots:
     let cr = rect(r.x + dp(3) + cx, r.y + dp(3) + cy, cw, chipH)
-    fill(cr, th.face)
-    raised(cr, 1)
+    if gl:
+      roundRect(cr, float(cr.h) / 2, mixColor(th.field, th.fieldText, 0.1))
+    else:
+      fill(cr, th.face)
+      raised(cr, 1)
     text(cr.x + dp(6), cr.y + (cr.h - lineHeight(st)) div 2, tags[i], th.text, st)
     let xr = rect(cr.x + cr.w - dp(14), cr.y + (cr.h - dp(10)) div 2, dp(10), dp(10))
     let xid = idOf("tagx:" & tags[i] & $i)     # (one id: a second `idOf` is another)

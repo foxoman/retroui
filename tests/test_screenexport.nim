@@ -70,10 +70,13 @@ block artboards:
   var r = ShapeData(kind: "Rectangle", fill: solidPaint(0xFFCC3300'u32))
   r.path = rectPath(20, 20, 120, 120)
   let L = a.addShapeLayer(r, "Square")
-  discard a.addArtboard(rect(0, 0, 300, 400), "Phone")
+  let k = a.addArtboard(rect(0, 0, 300, 400), "Phone", color = 0xFF00FF00'u32)
   let items = a.artboardItems()
-  check items.len >= 1 and items[0].box == rect(0, 0, 300, 400), "an artboard cut to its page"
-  discard L
+  check items.len == 1 and items[0].box == a.boards[k].r and items[0].name == "Phone" and L in items[0].layers,
+        "an artboard cut to its page, what is on it in it"
+  let one = a.itemDoc(items[0])
+  one.updateComposite()
+  check one.w == 300 and one.h == 400, "its document as big as it"
 
 removeDir(dir)
 if failures > 0:

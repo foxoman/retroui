@@ -83,7 +83,8 @@ dragged and thrown to a point, bars one after another and a bouncing ball
 on a fixed time step, timed steps played forward and back, a box that
 flies from a list into its own -- Graph (`retroui/forcegraph`): a topic map
 and a mind map that lay themselves out, their nodes dragged -- Terminal
-(`retroui/terminal`): your shell in a box -- and Surfaces: frosted glass
+(`retroui/terminal`): your shell in a box, a Terminal menu in the menu bar while it is
+shown, a find bar, a picture shown by kitty's graphics protocol -- and Surfaces: frosted glass
 over bands of color, a card that floats, a picture in a circle, their blur,
 shadow and corners on sliders. The Jobs page shows one slow load shared by
 two views (`retroui/queries`).
@@ -275,11 +276,39 @@ layer that can be taken away; **Hue Curves**; **live blends** whose
 steps follow their ends; **Symbols** (Layer > Symbols: change one
 instance and the others change the same); **Constraints** in Properties
 for what is on an artboard, the Artboard tool sizing a board by its
-corner; **Smooth Curvature (G2)**; a **Diffusion** freeform gradient;
+handles; **Smooth Curvature (G2)**; a **Diffusion** freeform gradient;
 Filter > Render > **Procedural Texture**; an **isometric** grid. Type >
 **Fill with Placeholder Text** fills a box with Lorem Ipsum, Arabic, the
 two in turn or your own words -- so many paragraphs, or as many as fill
 it.
+
+**Artboards as the drawing program has them** (5.17.2): pages of the
+canvas, not layers -- the artwork lies anywhere and goes with the
+artboard it is on. With the **Artboard tool** (in the Move tool's place,
+V) drag a box where there is none for a new one; click one to pick it,
+drag it to move it with its artwork (Move/Copy Artwork with Artboard in
+the options bar), Alt+drag it for a copy with its artwork, drag its
+eight handles to size it (Shift: in proportion; Alt: from its middle),
+double-click it for **Artboard Options** (name, preset, size, place,
+orientation, a center mark, cross hairs, video safe areas, its paper:
+white, black, none or a color). The canvas grows round them as they are
+made and moved, see-through round them as a pasteboard. The options bar
+has a preset (Letter, A4, Phone, Web...), Portrait and Landscape, New,
+Delete, the name, X, Y, W and H, Rearrange All and Export; **Window >
+Artboards** lists them in their order (a click fits one in the window;
+New, Duplicate, Delete, Move Up and Down, Delete Empty Artboards); Object
+> Artboards has Convert to Artboards, Rearrange All Artboards (grid by
+row or column, a row, a column, right to left, the spacing), Fit to
+Artwork Bounds and Fit to Selected Art; View has Fit Artboard in Window,
+Fit All in Window and Show > Artboards (Ctrl+Shift+H). File > New with
+Artboards makes so many; Artboards to Files, Artboards to PDF (a page
+each, its own size, type and shapes as vectors) and Export for Screens
+write what is on each over its paper. Also in 5.17.2: a chart or a map
+moved, scaled and turned as one thing; **Column Rules** down every gutter
+or the ones ticked (solid, dashed, dotted, double, thick and thin;
+tinted, offset, their gaps filled), a text box's gutter a pica when none
+is given; the color picker's swatches and Color Libraries under its
+field.
 
 **SVG** is one of its formats: an .svg opens as layers -- its shapes as
 shape layers, its text as type you can type in (fonts, sizes, colours,
@@ -467,7 +496,7 @@ phone, the phone's own spell checker; Window > Graphic Styles; Layer >
 Live Effects > Stylize > Round Corners and Scribble; the Shape Builder
 tool (drag across the parts of overlapping shapes, Alt+drag to take them
 away); Layer > Path Operations > Replace Spine; the options bar's
-Artboard Options (a color, a lock); Layer > Gradient Feather; Smart
+Artboard Options (its name, size, place and paper); Layer > Gradient Feather; Smart
 Guides for tangent and perpendicular lines; Recolor Design from another
 open picture; Layer > Rename Layers by Content; Data Merge's Export a
 File a Row; the Paragraph panel's Roman Hanging Punctuation and Optical

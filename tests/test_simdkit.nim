@@ -92,6 +92,20 @@ for avx in [0'i32, 1]:
         blendMaskRow(addr fp[0], addr m[0], 256, col, t)
         doAssert fp == want, "every coverage, table " & $useLut & " trial " & $trial
 
+  block constCoverage:
+    # (one coverage for a whole span -- a see-through card: the values of the mask's kernel)
+    for n in lengths:
+      for a in [0'u32, 1, 7, 100, 128, 150, 254, 255]:
+        var fp = newSeq[uint32](n + 1)
+        for i in 0 ..< fp.len: fp[i] = px()
+        let col = px() and 0xFFFFFF'u32
+        var want = fp
+        var m = newSeq[uint8](n + 1)
+        for i in 0 ..< n: m[i] = uint8(a)
+        if n > 0: blendMaskRow(addr want[0], addr m[0], n, col, nil)
+        if n > 0: blendConstRow(addr fp[0], n, col, a)
+        doAssert fp == want, "one coverage " & $a & " over " & $n
+
   block pictureOver:
     for n in lengths:
       var fp = newSeq[uint32](n + 1)

@@ -1,5 +1,158 @@
 # Changes
 
+## 0.74.0
+
+The terminal speaks kitty's keyboard and graphics protocols and takes the
+app's menus; the Glass look lit from above, its fields, tabs, groups,
+menus and lists rounded; the rounded shapes drawn by spans, the
+terminal's rows by runs. Retro Atelier 5.17.2: artboards as the drawing
+program has them, Column Rules down the gutters picked, the color
+picker's swatches; the new Glass look, in a third less time.
+
+- **The terminal speaks kitty's keyboard protocol** (`retroui/terminal`): a
+  program that pushes its flags (`CSI > flags u`, popped with `CSI < u`,
+  set with `CSI = flags; mode u`, asked with `CSI ? u`; a stack for each
+  screen) gets its keys as kitty sends them -- Esc, Tab, Enter and
+  Backspace told from Ctrl+[, Ctrl+I, Ctrl+M and Ctrl+H, Ctrl, Alt and
+  Super with any key (`CSI code;mods u`), the keypad's keys, keys let go
+  (flag 2), the shifted key (4), every key as an escape (8) with its text
+  (16) (`kbFlags`, `kittyKeyBytes`).
+- **And kitty's graphics protocol**: the pictures a program sends
+  (`ESC _G ... ESC \`: RGB, RGBA or PNG, zlib'ed or not, in pieces, by id
+  or number, from a file too) are shown in their cells, scaled to the cells
+  asked for, under the text or over it, and scroll with their lines into
+  what scrolled off; placed again, deleted (by id, number, cell, row,
+  column, all), asked about, answered (`OK`, `ENOENT`, `EBADPNG`) unless
+  told to be quiet; 320 MB of them kept at most. The cell's size in pixels
+  is told to the program (`CSI 14 t`, `16 t`, `18 t`, the window's pixels
+  with its size). `showPicture(png, cols, rows)` shows one of the app's own
+  (`pictureCount`, `imageCount`).
+- **Menus for the terminal**: `terminalView(term, menu = proc () = ...)`
+  puts the app's own items in its right-click menu, between Copy, Paste,
+  Select All and the terminal's own (Clear Scrollback, Reset, Reset and
+  Clear); `terminalEditItems`, `terminalViewItems` (its text bigger,
+  smaller and back: Ctrl+Shift+=, Ctrl+Shift+-, Ctrl+Shift+0, `zoomText`)
+  and `terminalItems` put them in the app's menu bar. `findText(text,
+  back, matchCase)` finds in all it kept and scrolls to it, `selectNone`,
+  `reset(clear)`, `selectionStart`. The gallery's Terminal page has a
+  Terminal menu while it is shown, a find bar (Ctrl+Shift+F) and a picture
+  shown by kitty's protocol. In the Glass look the terminal is a rounded
+  field.
+- **The Glass look, more beautiful**:
+  - buttons and what is on (a check box ticked, a switch, a slider's part)
+    lit from above, their faces shaded from top to foot
+    (`roundRectShaded`, on the CPU and the GPU alike), a softer shadow
+    under them;
+  - text boxes, lists, combo boxes, spin boxes, the search box and the tag
+    box rounded fields with the highlight's ring while they have the keys
+    (`fieldFace`); a combo box one field with a chevron, a spin box's
+    arrows a stepper; a list's rows lit and chosen as pills;
+  - a page's tabs a segmented control over a rounded card, `segmented`
+    the same (`glassTrack`); groups and cards rounded cards with their
+    titles at their tops (`glassCard`), a caption group's strip rounded;
+  - menus and dropped lists rounded with a soft shadow under them
+    (`softShadow`), their separators inset; dialogs with a deeper shadow,
+    their title bar's buttons drawn with fine strokes; document tabs' x's
+    seen on every tab.
+- **Rounded shapes drawn by spans** (`roundRect`, `roundRectShaded`,
+  `roundFrame`, `patchRoundRect`): a row at a time, filled between the
+  corners, only the corners' pixels and a frame's sides worked out --
+  not a coverage for every pixel of the shape as any shape's. On the GPU
+  its middle and its sides are rectangles and its corners small masks kept
+  in the atlas by their shape -- not a mask as big as it, a card the size
+  of the window -- the same pixels as the CPU's (`test_gpu` in the Glass
+  look). A see-through span is mixed in by one
+  kernel for all its pixels (`blendConstRow`, SSE2 or the compiler's
+  vectors), and the corners' points are worked out once
+  (`quarterArcs`). A window full of controls in the Glass look, every
+  pixel redrawn at 1600 x 1000: 3.3 ms, where 0.73's plainer Glass took
+  4.9 to 5.1 and the new one drawn as any shape 13 to 18
+  (`tests/bench_glass.nim`, docs/benchmarks.md). The shadows under menus, dropped lists and
+  dialogs are bands round their edges (`patchRoundRect`'s `width`): a
+  frosted surface no longer blurs its own shadow.
+- **The terminal drawn by runs**: a row's backgrounds a fill for each
+  run of one color, its letters a command for each run of plain ASCII in
+  one color and style (`textCells`: each letter in its cell, where it
+  would be alone -- the same pixels), its colors worked out once for
+  cells that share them. A screen of 195 x 65 colored cells redrawn: 2.1
+  ms, from 3.8; a line written to it, 1.7 ms from 3.9; its frame built in
+  0.3 ms, from 0.7 to 1.1.
+
+- **Retro Atelier 5.17.2**:
+  - a chart or a map is one thing to the Move tool: a click on its bars,
+    its labels or between them picks it whole -- moved, scaled, turned
+    as one -- where it picked a bar alone, or the page under it;
+  - the color picker ("Select color") shows the swatches under its
+    field -- the Swatches panel's, or the kit's own (`defaultSwatches`)
+    -- and any Color Library's colors from a list beside them: a click
+    takes one (`pickerSwatches`); its buttons no wider than their column;
+  - a text box's gutter is 12 points when none was given -- a pica, at the
+    document's resolution (50 pixels at 300 ppi), where it was 12 pixels
+    (a millimetre on a page for print);
+  - Column Rules as the layout program has them (`ColumnRule`): down every
+    gutter or only those ticked (`gutters`), solid, dashed, dotted, two
+    thin lines or a thick and a thin (`kind`), tinted (`tint`), a dashed
+    or dotted rule's gaps filled (`gapColor`), shifted sideways
+    (`offset`), the text frame's height or the text's, offset from the
+    top and the foot;
+  - a placed picture (a Smart Object) moved with the Move tool takes its
+    box with it: its pixels moved and its corners stayed, so the box
+    showed where it was placed -- and Free Transform or a Smart Filter
+    drew it back there; a nudge's corners are undone with its pixels;
+  - Overprint Preview no longer stops the app: the table of how inks
+    print (`printedFast`) was made by every core at once, each over the
+    others', and read where one had been freed -- now made once, under a
+    lock, before the cores read it. Separations and Overprint Preview are
+    worked out on the processor where the GPU draws the view (there they
+    showed the image as it is);
+  - **artboards as the drawing program has them**: pages of the canvas
+    the document keeps (`Doc.boards`, `Artboard`), not layers -- the
+    artwork lies anywhere, on one or round them on the canvas, and goes
+    with the artboard it is on. The Artboard tool (in the Move tool's
+    place, V): a box dragged where there is none is a new one; a click
+    picks one, a drag moves it with its artwork (Move/Copy Artwork with
+    Artboard, in the options bar), Alt+drag a copy of it and its
+    artwork; its eight handles size it (Shift: in proportion; Alt: from
+    its middle), what is on it following by its Constraints; a double
+    click its options. The canvas grows round them as they are made or
+    moved -- the view kept where it was --, see-through round them as a
+    pasteboard, each artboard's paper under its artwork (white, black,
+    none or a color); their numbers and names over them, the picked one's
+    handles, a center mark, cross hairs and video safe areas when its
+    options say (View > Show > Artboards, Ctrl+Shift+H). The options bar:
+    a preset (Letter, A4, Phone, Web...), which way round, New, Delete,
+    its name, X, Y, W, H, Options, Rearrange All, Export. Window >
+    Artboards: them in their order, a click fits one in the window, its
+    name typed over, New, Duplicate, Delete, Move Up and Down, Delete
+    Empty Artboards in its menu. Artboard Options: name, preset, size,
+    place, orientation, the marks, the paper. Object > Artboards: Convert
+    to Artboards, Rearrange All Artboards (grid by row or column, a row,
+    a column, right to left, the spacing, with the artwork or not), Fit
+    to Artwork Bounds, Fit to Selected Art; View > Fit Artboard in
+    Window, Fit All in Window. New Document makes so many artboards on a
+    see-through canvas. Artboards to Files, Artboards to PDF (each a page
+    of its own size, its type and shapes as vectors) and Export for
+    Screens take them over their paper. Kept in the file; a file of
+    before has its artboard groups made artboards when it is opened
+    (`boardsFromGroups`). In the kit (`retroui/photocc`): `addArtboard`,
+    `moveArtboard`, `duplicateArtboard`, `resizeArtboard`,
+    `deleteArtboard`, `artboardArt`, `rearrangeArtboards`,
+    `fitArtboardTo`, `convertToArtboards`, `deleteEmptyArtboards`,
+    `renameArtboard`, `reorderArtboard`, `artboardName`, `growCanvasFor`;
+    `keepInView` (`retroui/photowidgets`).
+- **A web page keeps its threads on a phone**: a browser that will not
+  give the page the shared memory its threads were built with (1 GB for
+  the gallery, 2 GB for Retro Atelier: a browser on 32 bits keeps no
+  gigabyte in one piece) gets half as much, down to 256 MB, before the
+  page falls back to one thread -- where a job (the gallery's Count)
+  held the window until it ended. The gallery's Jobs page says when it
+  runs without threads.
+
+- Tests: the harness's `run` goes on while the kit holds events
+  (`eventsWaiting`) -- keys a frame's busy work had read into the kit's own
+  list were left there, and `test_photobookapp` lost four of six Tabs on a
+  busy machine.
+
 ## 0.73.1
 
 - **Retro Atelier and the Control Gallery live on GitHub Pages**

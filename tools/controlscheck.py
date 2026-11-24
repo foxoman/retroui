@@ -45,7 +45,7 @@ NOT_CONTROLS = {
         "paletteTabH", "paletteTabFace",
         # the Glass look's drawing helpers (docs/customizing.md, `uiLook`)
         "withAlpha", "glassHair", "glassRadius", "glassFace", "glassWell", "glassAccent",
-        "selectFill",
+        "selectFill", "fieldFace", "glassCard", "glassTrack", "softShadow",
         # input helpers for controls of one's own
         "spaceKey", "mnemonicHit", "doubleClicked", "tapped", "scrubLabel",
         # text helpers (lines, the caret's stops)

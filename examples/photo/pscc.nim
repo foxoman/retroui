@@ -71,6 +71,7 @@ const windowPanels = block:
     ("Actions", "", "actions", ""),
     ("Adjustments", "", "adjustments", ""),
     ("Appearance", "", "appearance", ""),
+    ("Artboards", "", "artboards", ""),
     ("Attributes", "", "attributes", ""),
     ("Text Wrap", "Text Wrap Panel", "textwrap", ""),
     ("Brush Settings", "", "brushsettings", "F5"),
@@ -600,8 +601,13 @@ proc psMenus() =
         ci("&Hatch Fill...", "Hatch Fill...", enabled = some and d.current.isShape)
       psSub "Artboar&ds":
         ci("&Convert to Artboards", "Convert to Artboards", enabled = some and d.current.isShape)
-        ci("&Rearrange All Artboards...", "Rearrange All Artboards...", enabled = some)
-        ci("&Fit to Artwork Bounds", "Fit to Artwork Bounds", enabled = some)
+        ci("&Rearrange All Artboards...", "Rearrange All Artboards...", enabled = some and d.boards.len > 0)
+        ci("&Fit to Artwork Bounds", "Fit to Artwork Bounds", enabled = some and d.boards.len > 0)
+        ci("Fit to &Selected Art", "Fit to Selected Art", enabled = some and d.boards.len > 0)
+        sep()
+        ci("&New Artboard", "New Artboard", enabled = some)
+        ci("&Delete Artboard", "Delete Artboard", enabled = some and d.boards.len > 0)
+        ci("Artboard &Options...", "Artboard Options...", enabled = some and d.boards.len > 0)
       psSub "En&velope Distort":
         let shp1 = some and d.current.isShape
         ci("Make with &Warp...", "Envelope: Make with Warp...", enabled = shp1)
@@ -979,6 +985,8 @@ proc psMenus() =
       ci("Zoom &In", enabled = some)
       ci("Zoom &Out", enabled = some)
       ci("&Fit on Screen", enabled = some)
+      ci("Fit Art&board in Window", "Fit Artboard in Window", enabled = some and d.boards.len > 0)
+      ci("Fit A&ll in Window", "Fit All in Window", enabled = some and d.boards.len > 0)
       ci("&100%", "Actual Pixels", enabled = some)
       ci("&200%", "200%", enabled = some)
       sep()
@@ -1005,6 +1013,7 @@ proc psMenus() =
         ci("S&mart Guides", "Smart Guides", checked = smartGuidesOn)
         ci("&Pixel Grid", "Pixel Grid", checked = pixelGridOn)
         ci("&Text Threads", "Show Text Threads", checked = showThreads)
+        ci("&Artboards", "Show Artboards", checked = boardsShown)
       ci("Align to Pi&xel Grid", "Align to Pixel Grid", enabled = some, checked = some and d.pixelAlign)
       ci("&Rulers", "Show Rulers", enabled = some, checked = dw != nil and dw.view.rulers)
       ci("Pattern Pre&view", "Pattern Preview", enabled = some, checked = some and d.patternPreview)

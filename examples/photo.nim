@@ -42,7 +42,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 const
   AppName = "Retro Atelier"         # (Retro Photo until 5.0)
   AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
-  AppVersion = "5.17.1"
+  AppVersion = "5.17.2"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -146,7 +146,8 @@ type
     sx, sy: int                    ## the mouse on the screen (the hand)
     smx, smy: float                ## where the smoothed stroke has got to
     board: int                     ## the Artboard tool: the artboard moved (-1: one drawn)
-    boardSize: bool                ## ... sized by its bottom right corner, not moved
+    boardHandle: int               ## ... sized by this handle of its eight (-1: moved)
+    boardDup: bool                 ## ... a copy of it made (Alt+drag)
     selMove: bool                  ## a selection tool dragged inside the selection: its outline moves
     sel0: seq[uint8]               ## ... the outline as it was
     selStepped: bool               ## ... moved (an undo step begun)
@@ -413,7 +414,8 @@ const panelList = [
   ("tablestyles", "Table Styles", pxParagraph),
   ("cellstyles", "Cell Styles", pxParagraph),
   ("conditions", "Conditional Text", pxParagraph), ("review", "Track Changes and Notes", pxParagraph),
-  ("designstyles", "Styles and Fonts", pxColorThemes), ("patternoptions", "Pattern Options", pxPatterns)]
+  ("designstyles", "Styles and Fonts", pxColorThemes), ("patternoptions", "Pattern Options", pxPatterns),
+  ("artboards", "Artboards", pxArtboardTool)]
   ## (each panel: its key, its title, its icon in a column collapsed to icons)
 
 var dock = newDock()             ## the panels down the right (Window shows and hides them)
@@ -449,6 +451,7 @@ proc defaultDock() =
   for k in ["vbrushes", "appearance", "objectstyles", "bookmarks", "links", "graphicstyles"]:
     dock.closed.add (pdef(k), 0, 1)
   dock.closed.add (pdef("assistant"), 0, 2)   # (shown: with Layers, the tallest, for its talk)
+  dock.closed.add (pdef("artboards"), 0, 1)
 
 defaultDock()
 
@@ -489,6 +492,8 @@ proc ccDialogs()
 # (2026's photo additions: photo/extras)
 proc extrasDialogs()
 proc extrasCommand(name: string): bool
+# (artboards: photo/artboards)
+proc artboardsCommand(name: string): bool
 # (books: photo/book)
 proc isBookWin(dw: DocWin): bool
 proc bookCommand(name: string): bool
@@ -779,7 +784,8 @@ const
     # View
     ("Ctrl+Y", "CMYK Preview"), ("Ctrl+Shift+Y", "Gamut Warning"), ("Ctrl+Plus", "Zoom In"),
     ("Ctrl+Equal", "Zoom In"), ("Ctrl+Minus", "Zoom Out"), ("Ctrl+0", "Fit on Screen"), ("Ctrl+1", "Actual Pixels"),
-    ("Ctrl+Alt+0", "Actual Pixels"), ("Ctrl+H", "Hide Edges"), ("Ctrl+R", "Show Rulers"), ("Ctrl+;", "Show Guides"),
+    ("Ctrl+Alt+0", "Actual Pixels"), ("Ctrl+H", "Hide Edges"), ("Ctrl+Shift+H", "Show Artboards"),
+    ("Ctrl+R", "Show Rulers"), ("Ctrl+;", "Show Guides"),
     ("Ctrl+'", "Show Grid"), ("Ctrl+Shift+;", "Snap"), ("Ctrl+Alt+;", "Lock Guides"),
     # Window, Help
     ("F6", "Picker"), ("F7", "Layers"), ("F8", "Info"), ("Alt+F9", "Actions"), ("F1", "Contents")]
@@ -845,15 +851,8 @@ proc typeFirst() =
   if not ui.touch: focusFirstText(inDialog = true)
 
 proc initSwatches() =
-  for c in [0xFF0000, 0xFFFF00, 0x00FF00, 0x00FFFF, 0x0000FF, 0xFF00FF,
-            0xFF8080, 0xFFFF80, 0x80FF80, 0x80FFFF, 0x8080FF, 0xFF80FF,
-            0x800000, 0x808000, 0x008000, 0x008080, 0x000080, 0x800080,
-            0xFF8000, 0x80FF00, 0x00FF80, 0x0080FF, 0x8000FF, 0xFF0080,
-            0x804000, 0x408000, 0x004080, 0x400080, 0xC08040, 0x40C080]:
-    swatches.add 0xFF000000'u32 or uint32(c)
-  for k in 0 .. 11:
-    let v = 255 - k * 255 div 11
-    swatches.add argb(255, v, v, v)
+  ## (the kit's own swatches, at first)
+  for c in defaultSwatches(): swatches.add c
 
 proc initOpts() =
   for t in Tool:
@@ -2002,11 +2001,118 @@ proc findSegments(d: Doc): Segments =
 
 var
   underMenu: tuple[dw: DocWin; idx: seq[int]]   ## (the Move tool's right click: the layers there)
+  boardMoveArt = true              ## the Artboard tool: Move/Copy Artwork with Artboard
+  boardsShown = true               ## View > Show Artboards (their edges and names)
   moveAutoSelect = true            ## the Move tool picks the layer clicked (Auto-Select)
   moveShowControls = true          ## ... and shows the box and handles of the current one
   moveAutoGroup = false            ## ... picks the outermost group of the layer clicked (Auto-Select: Group)
   textBoxCaches: Table[pointer, tuple[fp: Hash; r: Rect]]   # (type layers' boxes, while their text is the same)
   hoverBox: tuple[x, y: int; r: Rect; i: int]
+
+proc boardHandles(r: Rect): array[8, (float, float)] =
+  ## (an artboard's eight handles, in the image: its corners and its sides' middles, from the top left
+  ## round)
+  let (x0, y0, x1, y1) = (r.x.float, r.y.float, (r.x + r.w).float, (r.y + r.h).float)
+  let (mx, my) = ((x0 + x1) / 2, (y0 + y1) / 2)
+  [(x0, y0), (mx, y0), (x1, y0), (x1, my), (x1, y1), (mx, y1), (x0, y1), (x0, my)]
+
+proc boardHandleAt(r: Rect; x, y, grip: float): int =
+  ## (which of an artboard's handles is at a point of the image; -1 none)
+  result = -1
+  for k, p in boardHandles(r):
+    if abs(x - p[0]) <= grip and abs(y - p[1]) <= grip: return k
+
+proc boardResized(r: Rect; h: int; dx, dy: float; proportional, fromMiddle: bool): Rect =
+  ## (an artboard's box with its handle `h` dragged so far: Shift in proportion, Alt from its middle)
+  let left = h in [0, 6, 7]
+  let right = h in [2, 3, 4]
+  let top = h in [0, 1, 2]
+  let bottom = h in [4, 5, 6]
+  var x0 = r.x.float
+  var y0 = r.y.float
+  var x1 = (r.x + r.w).float
+  var y1 = (r.y + r.h).float
+  if left: x0 += dx
+  if right: x1 += dx
+  if top: y0 += dy
+  if bottom: y1 += dy
+  if fromMiddle:
+    if left: x1 -= dx
+    if right: x0 -= dx
+    if top: y1 -= dy
+    if bottom: y0 -= dy
+  if proportional and r.w > 0 and r.h > 0:
+    let k = if (left or right) and (top or bottom): max(abs(x1 - x0) / r.w.float, abs(y1 - y0) / r.h.float)
+            elif left or right: abs(x1 - x0) / r.w.float
+            else: abs(y1 - y0) / r.h.float
+    let nw = r.w.float * k
+    let nh = r.h.float * k
+    # (what stays: the corner or side across from the handle -- or the middle)
+    let fx = if fromMiddle: 0.5 elif left: 1.0 elif right: 0.0 else: 0.5
+    let fy = if fromMiddle: 0.5 elif top: 1.0 elif bottom: 0.0 else: 0.5
+    let ax = r.x.float + fx * r.w.float
+    let ay = r.y.float + fy * r.h.float
+    x0 = ax - fx * nw
+    y0 = ay - fy * nh
+    x1 = x0 + nw
+    y1 = y0 + nh
+  let rx = int(round(min(x0, x1)))
+  let ry = int(round(min(y0, y1)))
+  rect(rx, ry, max(1, int(round(max(x0, x1))) - rx), max(1, int(round(max(y0, y1))) - ry))
+
+const BoardPresets* = [
+  # (the drawing program's artboard presets: name, width, height, in pixels (0), inches (1) or
+  # millimetres (2) -- at the document's resolution)
+  ("Custom", 0.0, 0.0, 0), ("Letter", 8.5, 11.0, 1), ("Legal", 8.5, 14.0, 1), ("Tabloid", 11.0, 17.0, 1),
+  ("A5", 148.0, 210.0, 2), ("A4", 210.0, 297.0, 2), ("A3", 297.0, 420.0, 2), ("B5", 176.0, 250.0, 2),
+  ("Phone", 1080.0, 1920.0, 0), ("Tablet", 1536.0, 2048.0, 0), ("Web", 1920.0, 1080.0, 0),
+  ("HD 720p", 1280.0, 720.0, 0), ("Square Post", 1080.0, 1080.0, 0), ("Story", 1080.0, 1920.0, 0),
+  ("Icon", 1024.0, 1024.0, 0)]
+
+proc presetSize*(d: Doc; k: int): (int, int) =
+  ## A preset's size in the document's pixels.
+  if k <= 0 or k > BoardPresets.high: return (0, 0)
+  let (_, w, h, u) = BoardPresets[k]
+  let f = case u
+          of 1: d.dpi
+          of 2: d.dpi / 25.4
+          else: 1.0
+  (max(1, int(round(w * f))), max(1, int(round(h * f))))
+
+proc presetOf*(d: Doc; w, h: int): int =
+  ## The preset of that size (either way round), 0 none (Custom).
+  for k in 1 .. BoardPresets.high:
+    let (pw, ph) = d.presetSize(k)
+    if (pw == w and ph == h) or (pw == h and ph == w): return k
+  0
+
+var
+  abName: tuple[d: Doc; i, ver: int; name: string]   ## (the artboard's name in the panel and the options bar)
+  abRenameAt: tuple[d: Doc; i, ver: int]             ## (the name step last made: typing more adds to it)
+
+proc renameBoardTyped(d: Doc; i: int; name: string) =
+  ## (a name typed in the panel or the options bar: one undo step for all of it)
+  let nm = name.strip
+  if nm.len == 0 or i < 0 or i >= d.boards.len or d.boards[i].name == nm: return
+  if abRenameAt.d == d and abRenameAt.i == i and abRenameAt.ver == d.ver and d.undoName == "Rename Artboard" and
+     d.canUndo:
+    d.boards[i].name = nm
+    d.modified = true
+    inc d.boardsVer
+  else:
+    d.beginStep("Rename Artboard")
+    d.renameArtboard(i, nm)
+    d.endStep()
+  abRenameAt = (d, i, d.ver)
+
+proc boardNameField(d: Doc; i: int; w = 0) =
+  ## (the picked artboard's name, typed over)
+  if abName.d != d or abName.i != i or abName.ver != d.boardsVer:
+    abName = (d, i, d.boardsVer, if i >= 0 and i < d.boards.len: d.boards[i].name else: "")
+  accessName(tr("Artboard name"))
+  if edit(abName.name, w = w, enabled = i >= 0 and i < d.boards.len):
+    renameBoardTyped(d, i, abName.name)
+    abName.ver = d.boardsVer
 
 proc layerBox(d: Doc; L: Layer): Rect =
   ## Where a layer has something: its text's box, its shape's, a Smart
@@ -2159,6 +2265,26 @@ proc blockBox(d: Doc; i: int): Rect =
     if d.layers[j].group: continue
     let r = d.layerBox(d.layers[j])
     if r.w > 0 and r.h > 0: result = if result.w > 0: union(result, r) else: r
+
+proc isInfographic(L: Layer): bool =
+  ## (a chart's or a map's group, Insert > Chart or Map: its settings kept with it)
+  L.group and (L.meta.startsWith("{\"chart\"") or L.meta.startsWith("{\"map\""))
+
+proc pickedAt(d: Doc; x, y, radius: int): int =
+  ## Auto-Select's pick at image pixel `x`, `y`: the layer there (`layerAt`) -- but a chart or
+  ## a map is one thing, picked whole (moved, scaled, turned as one): where any of it is, and
+  ## between its bars and its lines too, anywhere in its box over what is under it. Set to
+  ## Group: the outermost group of what is picked (`autoPicked`).
+  var i = d.layerAt(x, y, radius)
+  for g in countdown(d.layers.high, 0):
+    if i >= 0 and g < i: break                   # (what was hit is over every one left)
+    let G = d.layers[g]
+    if not G.isInfographic or not G.visible or d.inHiddenGroup(g) or not d.inIsolation(G): continue
+    let b = d.blockBox(g)
+    if b.w > 0 and x >= b.x and x < b.x + b.w and y >= b.y and y < b.y + b.h:
+      i = g
+      break
+  d.autoPicked(i)
 
 proc pickRadius(dw: DocWin): int =
   ## (how near a click must be to a layer's pixels to pick it: a few screen
@@ -3038,30 +3164,41 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
     drag.on = false
     return
   if tool == tMove and moveKind == 1:
-    # the Artboard tool: an artboard (or its name over it) dragged moves it;
-    # elsewhere a box drawn is a new one
-    let lh = (FontH + dp(4)).float / dw.view.scaleOf
-    var hitBoard = d.artboardAt(xi, yi)
-    if hitBoard < 0:
-      for i in d.artboards:
-        let b = d.layers[i].board
-        if ev.x >= b.x.float and ev.x < (b.x + b.w).float and ev.y >= b.y.float - lh and ev.y < b.y.float:
-          hitBoard = i
-    # (an artboard's bottom right corner: dragged, it changes the board's size)
-    let grip = float(dp(8)) / dw.view.scaleOf
-    drag.boardSize = false
-    for i in d.artboards:
-      let b = d.layers[i].board
-      if abs(ev.x - float(b.x + b.w)) <= grip and abs(ev.y - float(b.y + b.h)) <= grip:
-        hitBoard = i
-        drag.boardSize = true
-    drag.board = hitBoard
-    if hitBoard >= 0:
-      d.cur = hitBoard
-      inc d.ver
-      status = if drag.boardSize: "Drag to size \"" & d.layers[hitBoard].name &
-                                  "\" (what is on it follows by its Constraints, in Properties)"
-               else: "Drag to move \"" & d.layers[hitBoard].name & "\" with all on it"
+    # the Artboard tool, as the drawing program has it: the picked artboard's handles size it
+    # (Shift: in proportion; Alt: from its middle); a click on one (or on its name) picks it and a
+    # drag moves it -- its artwork with it, unless Move/Copy Artwork is off --, Alt+drag a copy; a
+    # box dragged where there is none is a new one; a double click: Artboard Options
+    let sc = max(1e-6, dw.view.scaleOf)
+    let lh = (FontH + dp(4)).float / sc
+    drag.board = -1
+    drag.boardHandle = -1
+    drag.boardDup = false
+    let c = d.boardCur
+    if c >= 0 and c < d.boards.len:
+      let h = boardHandleAt(d.boards[c].r, ev.x, ev.y, float(dp(6)) / sc)
+      if h >= 0:
+        drag.board = c
+        drag.boardHandle = h
+    if drag.board < 0:
+      var hit = d.artboardAt(xi, yi)
+      if hit < 0:
+        for i in countdown(d.boards.high, 0):
+          let b = d.boards[i].r
+          if ev.x >= b.x.float and ev.x < (b.x + b.w).float and ev.y >= b.y.float - lh and ev.y < b.y.float:
+            hit = i
+            break
+      drag.board = hit
+    if drag.board >= 0:
+      d.boardCur = drag.board
+      if ev.clicks >= 2 and drag.boardHandle < 0:
+        drag = Drag()
+        startArtboardOptions()
+        return
+      drag.boardDup = ev.alt and drag.boardHandle < 0
+      let nm = "\"" & d.artboardName(drag.board) & "\""
+      status = if drag.boardHandle >= 0: tr("Drag to size ") & nm & tr(" (Shift: in proportion; Alt: from its middle)")
+               elif drag.boardDup: tr("Drag to copy ") & nm & (if boardMoveArt: tr(" with its artwork") else: "")
+               else: tr("Drag to move ") & nm & (if boardMoveArt: tr(" with its artwork") else: "")
     return
   case tool
   of tMove:
@@ -3132,7 +3269,7 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
       # (Auto-Select: the top layer with something where it was clicked --
       # Ctrl+click when it is off, as the usual; Shift+click: picked with
       # the one picked before, they move together)
-      let i = d.autoPicked(d.layerAt(xi, yi, dw.pickRadius))
+      let i = d.pickedAt(xi, yi, dw.pickRadius)
       # (not on the current layer's own box -- the box round all those picked: a layer
       # picked by its box, type off the image's edge, is moved by it)
       let cb = if d.severalPicked: d.pickedBox else: d.boxOf(d.current)
@@ -3914,27 +4051,36 @@ proc releaseOn(ev: PhotoEvent) =
     drag = Drag()
     return
   if drag.tool == tMove and moveKind == 1:
-    let dx = int(round(drag.x1 - drag.x0))
-    let dy = int(round(drag.y1 - drag.y0))
-    if drag.board >= 0 and drag.board < d.layers.len and drag.boardSize:
-      let b = d.layers[drag.board].board
-      if abs(dx) + abs(dy) >= 1 and b.w + dx >= 8 and b.h + dy >= 8:
+    let fdx = drag.x1 - drag.x0
+    let fdy = drag.y1 - drag.y0
+    let dx = int(round(fdx))
+    let dy = int(round(fdy))
+    if drag.board >= 0 and drag.board < d.boards.len and drag.boardHandle >= 0:
+      let b = d.boards[drag.board].r
+      let r = boardResized(b, drag.boardHandle, fdx, fdy, ev.shift, ev.alt)
+      if r != b:
         d.beginStep("Resize Artboard")
-        d.resizeArtboard(drag.board, rect(b.x, b.y, b.w + dx, b.h + dy))
+        d.resizeArtboard(drag.board, r)
         d.endStep()
-    elif drag.board >= 0 and drag.board < d.layers.len:
+    elif drag.board >= 0 and drag.board < d.boards.len:
       if abs(dx) + abs(dy) >= 1:
-        d.beginStep("Move Artboard")
-        d.moveArtboard(drag.board, dx, dy)
-        d.endStep()
+        if drag.boardDup:
+          d.beginStep("Duplicate Artboard")
+          let n = d.duplicateArtboard(drag.board, dx, dy, boardMoveArt)
+          d.endStep()
+          if n >= 0: status = "\"" & d.artboardName(n) & "\""
+        else:
+          d.beginStep("Move Artboard")
+          d.moveArtboard(drag.board, dx, dy, boardMoveArt)
+          d.endStep()
     else:
-      let r = d.clip(rect(int(round(min(drag.x0, drag.x1))), int(round(min(drag.y0, drag.y1))),
-                          int(round(abs(drag.x1 - drag.x0))), int(round(abs(drag.y1 - drag.y0)))))
+      let r = rect(int(round(min(drag.x0, drag.x1))), int(round(min(drag.y0, drag.y1))),
+                   int(round(abs(drag.x1 - drag.x0))), int(round(abs(drag.y1 - drag.y0))))
       if r.w >= 8 and r.h >= 8:
         d.beginStep("New Artboard")
-        let G = d.addArtboard(r)
+        let n = d.addArtboard(r)
         d.endStep()
-        if G != nil: status = "\"" & G.name & "\": what is put in its group shows only on it"
+        if n >= 0: status = "\"" & d.artboardName(n) & "\"" & tr(": drag it to move it, its handles to size it")
     drag = Drag()
     return
   case drag.tool
@@ -4421,29 +4567,62 @@ proc overlays(dw: DocWin; ev: PhotoEvent) =
     else:
       let sr = rect(x0, y0, max(1, x1 - x0), max(1, y1 - y0))
       box(sr, ui.theme.select)
-  # the artboards: each one's name over its top left, its edge; the one
-  # dragged with the Artboard tool, where it goes; a new one's box
-  let boards = d.artboards
-  if boards.len > 0 or (tool == tMove and moveKind == 1):
+  # the artboards (View > Show Artboards): each one's edge, its number and name over its top left
+  # (the picked one's bolder), its center mark, cross hairs and video safe areas when its options
+  # say; with the Artboard tool the picked one's eight handles, where one dragged goes (a copy: a
+  # box there), a new one's box
+  let abTool = tool == tMove and moveKind == 1
+  if (boardsShown or abTool) and d.boards.len > 0 or abTool:
     let st = style(size = 0.9)
-    for i in boards:
-      let L = d.layers[i]
-      let b = L.board
-      var (dx, dy) = (0.0, 0.0)
-      var (sx, sy) = (0.0, 0.0)
-      if drag.on and drag.dw == dw and tool == tMove and moveKind == 1 and drag.board == i:
-        if drag.boardSize: (sx, sy) = (drag.x1 - drag.x0, drag.y1 - drag.y0)
-        else: (dx, dy) = (drag.x1 - drag.x0, drag.y1 - drag.y0)
-      let (x0, y0) = v.toScreen(d, b.x.float + dx, b.y.float + dy)
-      let (x1, y1) = v.toScreen(d, (b.x + b.w).float + dx + sx, (b.y + b.h).float + dy + sy)
-      let sr = rect(int(x0), int(y0), max(1, int(x1 - x0)), max(1, int(y1 - y0)))
-      box(sr, if i == d.cur: ui.theme.select else: ui.theme.shadow)
-      if tool == tMove and moveKind == 1:
-        # (its size grip, the bottom right corner)
+    let stB = style(size = 0.9, bold = true)
+    let dragging = drag.on and drag.dw == dw and abTool
+    let ink = color(48, 48, 48)
+    proc screenBox(b: Rect): Rect =
+      let (x0, y0) = v.toScreen(d, b.x.float, b.y.float)
+      let (x1, y1) = v.toScreen(d, (b.x + b.w).float, (b.y + b.h).float)
+      rect(x0, y0, max(1, x1 - x0), max(1, y1 - y0))
+    for i in 0 ..< d.boards.len:
+      let bd = d.boards[i]
+      var b = bd.r
+      var ghost = rect(0, 0, 0, 0)
+      if dragging and drag.board == i:
+        let (fdx, fdy) = (drag.x1 - drag.x0, drag.y1 - drag.y0)
+        if drag.boardHandle >= 0:
+          b = boardResized(b, drag.boardHandle, fdx, fdy, ShiftPressed in ui.mods, AltPressed in ui.mods)
+        elif drag.boardDup: ghost = rect(b.x + int(round(fdx)), b.y + int(round(fdy)), b.w, b.h)
+        else: b = rect(b.x + int(round(fdx)), b.y + int(round(fdy)), b.w, b.h)
+      let sr = screenBox(b)
+      let picked = i == d.boardCur
+      box(sr, if picked and abTool: ui.theme.select else: ink)
+      if picked: box(inset(sr, -1), if abTool: ui.theme.select else: ink)
+      if ghost.w > 0:
+        let gr = screenBox(ghost)
+        box(gr, ui.theme.select)
+        box(inset(gr, 1), ui.theme.window)
+      # (what its options show: a mark at its middle, lines through it, the video safe areas)
+      let (cx, cy) = (sr.x + sr.w div 2, sr.y + sr.h div 2)
+      if bd.crossHairs:
+        hline(sr.x, cy, sr.w, ui.theme.select)
+        vline(cx, sr.y, sr.h, ui.theme.select)
+      if bd.centerMark:
+        let m = dp(6)
+        hline(cx - m, cy, 2 * m + 1, ink)
+        vline(cx, cy - m, 2 * m + 1, ink)
+      if bd.videoSafe:
+        for f in [0.05, 0.10]:
+          let ix = int(round(sr.w.float * f))
+          let iy = int(round(sr.h.float * f))
+          box(rect(sr.x + ix, sr.y + iy, max(1, sr.w - 2 * ix), max(1, sr.h - 2 * iy)), ui.theme.select)
+      text(sr.x, sr.y - lineHeight(st) - dp(2), d.artboardName(i),
+           if picked and abTool: ui.theme.select else: ui.theme.text, if picked: stB else: st)
+      if picked and abTool:
         let g = dp(4)
-        fill(rect(sr.x + sr.w - g, sr.y + sr.h - g, 2 * g, 2 * g), ui.theme.select)
-      text(sr.x, sr.y - lineHeight(st) - dp(2), L.name, if i == d.cur: ui.theme.select else: ui.theme.text, st)
-    if drag.on and drag.dw == dw and tool == tMove and moveKind == 1 and drag.board < 0:
+        for (hx, hy) in boardHandles(b):
+          let (px, py) = v.toScreen(d, hx, hy)
+          let hr = rect(px - g, py - g, 2 * g + 1, 2 * g + 1)
+          fill(hr, color(255, 255, 255))
+          box(hr, ui.theme.select)
+    if dragging and drag.board < 0:
       let (x0, y0) = v.toScreen(d, min(drag.x0, drag.x1), min(drag.y0, drag.y1))
       let (x1, y1) = v.toScreen(d, max(drag.x0, drag.x1), max(drag.y0, drag.y1))
       let sr = rect(int(x0), int(y0), max(1, int(x1 - x0)), max(1, int(y1 - y0)))
@@ -4490,7 +4669,7 @@ proc overlays(dw: DocWin; ev: PhotoEvent) =
     if moveAutoSelect and ev.over and not ui.mouseDown:
       let (ix, iy) = (int(floor(ev.x)), int(floor(ev.y)))
       if (ix, iy) != (hoverBox.x, hoverBox.y):
-        let i = d.autoPicked(d.layerAt(ix, iy, dw.pickRadius))
+        let i = d.pickedAt(ix, iy, dw.pickRadius)
         let shown = i >= 0 and i != d.cur and not d.layers[i].picked and not d.layers[i].background
         hoverBox = (ix, iy, (if shown: d.blockBox(i) else: rect(0, 0, 0, 0)), (if shown: i else: -1))
       if hoverBox.r.w > 0 and hoverBox.i < d.layers.len:
@@ -4822,6 +5001,11 @@ proc docBody(dw: DocWin) =
   # (the status under the image, left of its scroll bar: as today's editors)
   let stW = clamp(available() * 55 div 100, dp(170), dp(560))
   dw.view.ink = if drag.on and drag.dw == dw: drag.stroke.strokeInk() else: StrokeInk()
+  if d.grown != (0, 0):
+    # (the canvas grew left or up for an artboard: every view of it kept where it was)
+    for w in docs:
+      if w.doc == d: w.view.keepInView(d, d.grown.x, d.grown.y)
+    d.grown = (0, 0)
   var ev = photoView(d, dw.view, height = docHeight, key = $cast[uint](dw), statusW = stW)
   beginKeepSides(dw.view.keepRect)     # (what is drawn over the image: as it is, right to left too)
   defer: endKeepSides()
@@ -5066,6 +5250,7 @@ include photo/output
 include photo/makers
 include photo/vectormore
 include photo/objectmore
+include photo/artboards
 include photo/layoutextra
 include photo/assist
 include photo/trained
@@ -5219,6 +5404,9 @@ proc docStatus(dw: DocWin) =
                     else: "Paint where the layer is hidden (its mask; one made if it has none); Alt shows it again")
                  elif tool == tPen and penMode == 8:
                    "Point at an edge: it lights up; click: a path along it; Shift+click: on along an edge to there"
+                 elif tool == tMove and moveKind == 1:
+                   "Drag a box: a new artboard; click one to pick it, drag it to move it (Alt: a copy), its " &
+                   "handles to size it (Shift: in proportion); double-click: its options; Delete: it goes"
                  elif tool == tMove and (d.current.isText or d.current.isShape) and
                       not d.layerBox(d.current).intersects(d.bounds):
                    "\"" & d.current.name & "\" is off the image: drag its box (round it, on the gray) back, " &
@@ -5601,12 +5789,12 @@ proc forgetDoc(dw: DocWin) =
   if hoverLit.d == d: drop(hoverLit)
   if rowLit.d == d: drop(rowLit)
   if xfShots.anyIt(mine(it.layer)): xfShots.setLen(0)
-  for L in [abDlg.board, gfDlg.layer, meshDlg.layer, poDlg.layer, pbDlg.src, pbDlg.made, spellDlg.layer,
+  if abDlg.d == d: drop(abDlg)
+  for L in [gfDlg.layer, meshDlg.layer, poDlg.layer, pbDlg.src, pbDlg.made, spellDlg.layer,
             tfDlg.layer, tlOverset.layer, blendPair[0], blendPair[1], ffDlg.layer, gmDlg.layer, meshDrag.layer,
             persDrag.layer, widthDrag.layer, leDlg.layer, seDlg.layer, linkLayer]:
     if mine(L):
       # (a dialog or a drag left with one of its layers: let go of)
-      if L == abDlg.board: drop(abDlg)
       if L == gfDlg.layer: drop(gfDlg)
       if L == meshDlg.layer: drop(meshDlg)
       if L == poDlg.layer: drop(poDlg)

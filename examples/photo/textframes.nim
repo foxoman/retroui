@@ -366,9 +366,10 @@ proc startTextFrameOptions() =
     status = "Text Frame Options: pick a box of type (drag one with the Type tool)."
     return
   let ins = L.text.inset
+  let gut = d.gutterShown(L.text)
   let cw = if L.text.colWidth > 0: L.text.colWidth
-           else: (L.text.boxW - 12 * float32(max(1, L.text.columns) - 1)) / float32(max(1, L.text.columns))
-  tfDlg = (true, L, max(1, L.text.columns), (if L.text.gutter > 0: L.text.gutter else: 12'f32),
+           else: (L.text.boxW - gut * float32(max(1, L.text.columns) - 1)) / float32(max(1, L.text.columns))
+  tfDlg = (true, L, max(1, L.text.columns), gut,
            ord(L.text.autoSize), L.text.autoRef, ins, ord(L.text.vjust), L.text.balance, L.text.colRule,
            tfDlg.page, ord(L.text.colMode), max(8'f32, cw), ord(L.text.firstBase), L.text.firstMin, L.ignoreWrap)
   tfApplied = tfKey()
@@ -477,27 +478,80 @@ proc textFrameDialog() =
                   of asProportional: "The box as small as holds its text, in the shape it has."
                   else: "", color = ui.theme.gray)
     else:
-      # (Column Rules: lines down the gutters)
-      let many = tfDlg.cols > 1 or tfDlg.colMode != 0
+      # (Column Rules: lines down the gutters -- every one, or those ticked -- as the layout
+      # program's: their stroke, how long, where across)
+      let ncols = if tfDlg.colMode == 0: tfDlg.cols else: tfDlg.layer.text.columnsOf
+      let many = ncols > 1
       row([130, -1]):
         label ""
-        checkbox("Column Rules", tfDlg.rule.on, enabled = many)
+        checkbox("Insert Column Rules", tfDlg.rule.on, enabled = many)
+      if not many:
+        paragraph("Column rules go down the gutters between columns: give the box two columns or " &
+                  "more (General).", color = ui.theme.gray)
       if tfDlg.rule.on and many:
-        row([130, 90, -1]):
-          label "Rule weight:"
-          discard d.lengthField(tfDlg.rule.width, dp(80), 0, 400)
-          var c = if tfDlg.rule.color != 0: tfDlg.rule.color else: 0xFF000000'u32
-          if colorWell(c, "colrule", dp(40)): tfDlg.rule.color = c or 0xFF000000'u32
-        row([130, 90, 40, 90, -1]):
-          label "Rule: from top"
-          discard d.lengthField(tfDlg.rule.top, dp(80), 0, 20000)
-          label "foot"
-          discard d.lengthField(tfDlg.rule.bottom, dp(80), 0, 20000)
-          label unitShort()
-        row([130, -1]):
-          label ""
-          checkbox("Dashed", tfDlg.rule.dashed)
-          checkbox("The box's height", tfDlg.rule.frameHeight)
+        if tfDlg.rule.kind == rkSolid and tfDlg.rule.dashed:
+          tfDlg.rule.kind = rkDashed            # (one from before there were kinds)
+        tfDlg.rule.dashed = tfDlg.rule.kind == rkDashed
+        group("Stroke"):
+          row([130, 90, -1]):
+            label "Weight:"
+            discard d.lengthField(tfDlg.rule.width, dp(80), 0, 400)
+            label unitShort()
+          row([130, -1]):
+            label "Type:"
+            var kinds: seq[string]
+            for k in RuleKind: kinds.add tr($k)
+            var ki = ord(tfDlg.rule.kind)
+            if combo(kinds, ki, w = dp(140)): tfDlg.rule.kind = RuleKind(ki)
+          row([130, 50, 70, 60, -1]):
+            label "Color:"
+            var c = if tfDlg.rule.color != 0: tfDlg.rule.color else: 0xFF000000'u32
+            if colorWell(c, "colrule", dp(40)): tfDlg.rule.color = c or 0xFF000000'u32
+            label "Tint:"
+            var tint = int(if tfDlg.rule.tint > 0: tfDlg.rule.tint else: 100)
+            if spin(tint, 1, 100, w = dp(56)): tfDlg.rule.tint = float32(tint)
+            label "%"
+          if tfDlg.rule.kind in {rkDashed, rkDotted}:
+            row([130, 50, -1]):
+              label "Gap Color:"
+              var g = if tfDlg.rule.gapColor != 0: tfDlg.rule.gapColor else: 0xFFFFFFFF'u32
+              if colorWell(g, "colrulegap", dp(40)):
+                tfDlg.rule.gapColor = g or 0xFF000000'u32
+              var filled = tfDlg.rule.gapColor != 0
+              if checkbox("Filled", filled):
+                tfDlg.rule.gapColor = if filled: 0xFFFFFFFF'u32 else: 0'u32
+        group("Rule Length"):
+          row([130, -1]):
+            label "From:"
+            var lens = @[tr("Text Frame Height"), tr("Text Height")]
+            var li = if tfDlg.rule.frameHeight: 0 else: 1
+            if combo(lens, li, w = dp(160)): tfDlg.rule.frameHeight = li == 0
+          row([130, 90, 50, 90, -1]):
+            label "Offset: top"
+            discard d.lengthField(tfDlg.rule.top, dp(80), 0, 20000)
+            label "bottom"
+            discard d.lengthField(tfDlg.rule.bottom, dp(80), 0, 20000)
+            label unitShort()
+        group("Horizontal Position"):
+          row([130, 90, -1]):
+            label "Offset:"
+            discard d.lengthField(tfDlg.rule.offset, dp(80), -20000, 20000)
+            label unitShort()
+        group("Between Columns"):
+          var which = if tfDlg.rule.gutters == 0: 0 else: 1
+          if radio("Every gutter", which, 0):
+            tfDlg.rule.gutters = 0
+          if radio("Only these:", which, 1) and tfDlg.rule.gutters == 0:
+            tfDlg.rule.gutters = (1'u32 shl min(31, ncols - 1)) - 1      # (all ticked, to untick some)
+          if tfDlg.rule.gutters != 0:
+            # (each gutter by the columns either side of it, from the left)
+            adaptive(90):
+              for k in 0 ..< min(31, ncols - 1):
+                var on = (tfDlg.rule.gutters and (1'u32 shl k)) != 0
+                if checkbox($(k + 1) & " | " & $(k + 2), on):
+                  tfDlg.rule.gutters = if on: tfDlg.rule.gutters or (1'u32 shl k)
+                                       else: tfDlg.rule.gutters and not (1'u32 shl k)
+            if tfDlg.rule.gutters == 0: tfDlg.rule.gutters = 1'u32 shl 31     # (none ticked: none drawn)
     row:
       spring()
       if button("OK", isDefault = true, w = dp(80)): ok = true

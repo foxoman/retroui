@@ -149,4 +149,15 @@ compare("Arabic interface, a see-through picture")
 prefs.language = 0
 applyLanguage()
 run(4)
+# the Glass look: rounded shapes everywhere -- on the GPU a card's middle and sides rectangles,
+# its corners small masks; on the CPU spans -- and the faces shaded from top to foot
+let themeBefore = ui.theme
+uiLook = lookGlass
+for (name, t) in [("light", GlassLight), ("dark", GlassDark)]:
+  ui.theme = t
+  run(4)
+  compare("the Glass look, " & name)
+uiLook = lookClassic
+ui.theme = themeBefore
+run(2)
 echo "gpu tests passed"

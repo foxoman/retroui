@@ -4710,6 +4710,8 @@ proc quickMaskDialog() =
 # ---- the color pickers of the toolbox -----------------------------------------------------------------------------
 
 proc colorDialogs() =
+  # (the pickers show the swatches under their field: the Swatches panel's)
+  if showFgPicker or showBgPicker or qmPickOpen or tablePickOpen: pickerSwatches = swatches
   if colorPickerDialog(showFgPicker, "Select foreground color", fg, fgPicker): discard
   if colorPickerDialog(showBgPicker, "Select background color", bg, bgPicker): discard
 

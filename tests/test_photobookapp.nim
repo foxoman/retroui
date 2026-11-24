@@ -557,6 +557,40 @@ block tablesChartsMapsFramesExport:
   doAssert d.current.group and d.current.meta.contains("Donut") and d.layers.len < before + 5
   d.undo()
   doAssert d.layers.find(C) >= 0, "undo: the chart as it was"
+  # the chart is one thing to the Move tool: a click on its parts or between them picks it whole
+  # (not a bar alone, not the page under it), and a drag moves all of it
+  block:
+    let ci = d.layers.find(C)
+    let cb = d.blockBox(ci)
+    doAssert cb.w > 20 and cb.h > 20, $cb
+    for (x, y) in [(cb.x + 2, cb.y + cb.h - 3), (cb.x + cb.w div 2, cb.y + cb.h div 2),
+                   (cb.x + cb.w - 3, cb.y + 2)]:
+      doAssert d.pickedAt(x, y, 0) == ci, "the chart, at " & $(x, y) & ": " & $d.pickedAt(x, y, 0)
+    tool = tMove
+    moveKind = 0
+    d.cur = 0
+    let (x0, y0) = (float(cb.x + cb.w div 2) + 0.5, float(cb.y + cb.h div 2) + 0.5)
+    pressOn(active, PhotoEvent(over: true, x: x0, y: y0, pressed: true, down: true, clicks: 1))
+    releaseOn(PhotoEvent(over: true, x: x0, y: y0, released: true))
+    run(2)
+    doAssert d.current == C, "a click picked the chart: " & d.current.name
+    # (dragged: every part of it moves by the same -- lined up by the guides, maybe, as a whole)
+    var parts: seq[(Layer, Rect)]
+    for j in d.blockStart(ci) ..< ci:
+      if not d.layers[j].group: parts.add (d.layers[j], d.layerBox(d.layers[j]))
+    pressOn(active, PhotoEvent(over: true, x: x0, y: y0, pressed: true, down: true, clicks: 1, ctrl: true))
+    drag.on = true
+    dragOn(PhotoEvent(over: true, x: x0 + 10, y: y0 + 5, down: true, ctrl: true))
+    dragOn(PhotoEvent(over: true, x: x0 + 20, y: y0 + 10, down: true, ctrl: true))
+    releaseOn(PhotoEvent(over: true, x: x0 + 20, y: y0 + 10, released: true, ctrl: true))
+    run(2)
+    let nb = d.blockBox(d.layers.find(C))
+    doAssert (nb.x, nb.y) != (cb.x, cb.y) and nb.w == cb.w and nb.h == cb.h, "moved whole: " & $cb & " " & $nb
+    for (L, b) in parts:
+      let a = d.layerBox(L)
+      doAssert (a.x - b.x, a.y - b.y) == (nb.x - cb.x, nb.y - cb.y), L.name & " moved with the rest"
+    d.undo()
+    doAssert d.blockBox(d.layers.find(C)) == cb, "undo: where it was"
   # a map
   startInfographic(true)
   run(3)

@@ -2,7 +2,7 @@ import std/strutils
 
 # Package
 
-version       = "0.73.1"
+version       = "0.74.0"
 author        = "Sultan Al Isaiee (@foxoman) <sultan@foxoman.net>"
 description   = "Retro Nim UI (retroui): a small, fast, dependency-free Windows 3.1 style UI toolkit for business and desktop apps on Windows, macOS, Linux, Android and iOS"
 license       = "MIT"

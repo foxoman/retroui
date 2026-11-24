@@ -9,6 +9,16 @@ proc unitDecimalsOf(u: RulerUnit): int =
   of ruCentimeters: 2
   of ruInches: 3
 
+proc defaultGutter(d: Doc): float32 =
+  ## (the room between a text box's columns when none was given: 12 points -- a pica, the layout
+  ## programs' -- at the document's resolution: 50 pixels at 300 ppi, not 12)
+  float32(12.0 * max(1.0, (if d != nil: d.dpi else: 72.0)) / 72.0)
+
+proc gutterShown(d: Doc; t: TextData): float32 =
+  ## (a text box's gutter as its dialogs show it: its own; with none, in columns, the 12 pixels
+  ## the type engine gives it; in one column, what its columns will get)
+  if t.gutter > 0: t.gutter elif max(1, t.columns) > 1: 12'f32 else: d.defaultGutter
+
 proc unitShort(): string =
   ## (the rulers' unit's short name: "mm", "pt", "px"...)
   unitAbbrev(viewPrefs.rulerUnit)

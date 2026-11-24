@@ -474,6 +474,7 @@ proc doCommand(name: string) =
   if bookCommand(name): return             # (books, the Layout menu: photo/book)
   if outputCommand(name): return           # (print, PDF and the screen: photo/output)
   if makersCommand(name): return           # (drawing, design and photo makers: photo/makers)
+  if artboardsCommand(name): return        # (the artboards: photo/artboards)
   if psCommand(name): return               # (the modern menus' own: photo/pscc)
   if dailyCommand(name): return            # (everyday work: photo/daily)
   if assetsCommand(name): return           # (the Assets window: photo/assets)
@@ -2065,7 +2066,20 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Pictures, drawings and pages -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.17.1: an image closed is let go of -- its layers and its history -- where Fade, " &
+           whatsNew = ["5.17.2: artboards as the drawing program has them -- pages of the canvas, not " &
+                       "layers, the artwork going with the one it is on: the Artboard tool draws, picks, " &
+                       "moves (Alt: a copy) and sizes them by eight handles; Window > Artboards; " &
+                       "Rearrange All, Fit to Artwork Bounds and Selected Art, presets, a center mark, " &
+                       "cross hairs and video safe areas; a placed picture moved keeps its box; " &
+                       "Overprint Preview no longer stops the app; " &
+                       "a chart or a map moved, scaled and turned as one -- a click anywhere on " &
+                       "it picks it whole; the swatches and the Color Libraries in the color picker; " &
+                       "a text box's gutter a pica (12 points) at the document's " &
+                       "resolution; Column Rules down every gutter or those you tick, solid, dashed, " &
+                       "dotted or doubled, tinted, shifted; the Glass look lit from above -- its buttons " &
+                       "shaded, its fields, tabs, groups and lists rounded, its menus with a soft shadow -- " &
+                       "and drawn in a third less time.",
+                       "5.17.1: an image closed is let go of -- its layers and its history -- where Fade, " &
                        "Generate Vector, Record Timelapse, Text in Picture, an AI request in flight, the Gap " &
                        "tool and the transform and warp tools kept it; in the Glass look the menus and the " &
                        "dialogs are frosted glass, what is under them blurred.",

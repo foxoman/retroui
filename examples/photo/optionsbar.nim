@@ -299,25 +299,77 @@ proc optionsBar() =
         if toolButton("Select and Mask...", enabled = cur() != nil): runCommand("Select and Mask...")
       of tMove:
         if moveKind == 1:
+          # (the Artboard tool's, as the drawing program's Control panel has them: the picked
+          # artboard's preset, which way round, New and Delete, its name, Move/Copy Artwork, its
+          # place and size, Artboard Options, Rearrange All, Export)
           let d = cur()
-          let ab = if d != nil and d.current.isArtboard: d.cur else: -1
+          let ab = if d != nil and d.boardCur >= 0 and d.boardCur < d.boards.len: d.boardCur else: -1
           if ab >= 0:
-            let b = d.layers[ab].board
-            label(d.layers[ab].name & ": " & $b.w & " x " & $b.h & " px")
+            let b = d.boards[ab].r
+            var names: seq[string]
+            for p in BoardPresets: names.add p[0]
+            var pk = d.presetOf(b.w, b.h)
+            accessName(tr("Preset"))
+            if combo(names, pk, w = dp(104)) and pk > 0:
+              let (pw, ph) = d.presetSize(pk)
+              let (nw, nh) = if b.w > b.h and pw < ph: (ph, pw) else: (pw, ph)
+              d.beginStep("Artboard Size")
+              d.resizeArtboard(ab, rect(b.x, b.y, nw, nh))
+              d.endStep()
+            if toolButton("Portrait", "Portrait: taller than wide", down = b.h >= b.w, enabled = b.w > b.h):
+              d.beginStep("Artboard Orientation")
+              d.resizeArtboard(ab, rect(b.x, b.y, b.h, b.w))
+              d.endStep()
+            if toolButton("Landscape", "Landscape: wider than tall", down = b.w > b.h, enabled = b.h > b.w):
+              d.beginStep("Artboard Orientation")
+              d.resizeArtboard(ab, rect(b.x, b.y, b.h, b.w))
+              d.endStep()
             toolSeparator()
-            for (n, w, h) in [("A4", 2480, 3508), ("Phone", 1080, 1920), ("Square", 1080, 1080),
-                              ("HD", 1920, 1080)]:
-              if toolButton(n, "Size: " & $w & " x " & $h):
-                d.beginStep("Artboard Size")
-                d.resizeArtboard(ab, rect(b.x, b.y, w, h))
-                d.endStep()
+          if toolButton("New", "New Artboard: as big as the picked one, at the right", enabled = d != nil):
+            runCommand("New Artboard")
+          if toolButton("Delete", "Delete Artboard (its artwork stays on the canvas)", enabled = ab >= 0):
+            runCommand("Delete Artboard")
+          if ab >= 0:
             toolSeparator()
-          if toolButton("Options...", "Artboard Options: its name, background, lock", enabled = ab >= 0):
+            label "Name:"
+            boardNameField(d, ab, w = dp(100))
+          if barCheck("Move/Copy Artwork", boardMoveArt): savePrefs()
+          tooltip("Move/Copy Artwork with Artboard: what is on an artboard goes with it as it is moved or copied")
+          if ab >= 0:
+            toolSeparator()
+            let b = d.boards[ab].r
+            var (x, y, w, h) = (b.x, b.y, b.w, b.h)
+            label "X:"
+            if spin(x, -30000, 30000, w = dp(62)):
+              d.beginStep("Move Artboard")
+              d.moveArtboard(ab, x - b.x, 0, boardMoveArt)
+              d.endStep()
+            label "Y:"
+            if spin(y, -30000, 30000, w = dp(62)):
+              d.beginStep("Move Artboard")
+              d.moveArtboard(ab, 0, y - b.y, boardMoveArt)
+              d.endStep()
+            label "W:"
+            if spin(w, 1, 30000, w = dp(62)):
+              d.beginStep("Resize Artboard")
+              d.resizeArtboard(ab, rect(b.x, b.y, w, b.h))
+              d.endStep()
+            label "H:"
+            if spin(h, 1, 30000, w = dp(62)):
+              d.beginStep("Resize Artboard")
+              d.resizeArtboard(ab, rect(b.x, b.y, b.w, h))
+              d.endStep()
+            toolSeparator()
+          if toolButton("Options...", "Artboard Options: its name, size, place, what it shows, its color",
+                        enabled = ab >= 0):
             runCommand("Artboard Options...")
-          if toolButton("Export...", "File > Export > Artboards to Files (the picked ones, when some are)",
-                        enabled = d != nil and d.artboards.len > 0):
+          if toolButton("Rearrange All...", "Rearrange All Artboards: in a grid, a row or a column",
+                        enabled = d != nil and d.boards.len > 0):
+            runCommand("Rearrange All Artboards...")
+          if toolButton("Export...", "File > Export > Artboards to Files", enabled = d != nil and d.boards.len > 0):
             runCommand("Artboards to Files")
-          label("Drag a box: a new artboard; drag one (or its name) to move it", color = ui.theme.gray)
+          label(tr("Drag a box: a new artboard; drag one to move it (Alt: a copy), its handles to size it"),
+                color = ui.theme.gray)
         else:
           barCheck("Auto-Select", moveAutoSelect)
           # (what a click picks: the layer, or the outermost group it is in)

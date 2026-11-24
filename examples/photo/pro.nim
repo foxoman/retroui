@@ -1267,10 +1267,10 @@ proc propertiesBody(d: Doc) =
       tooltip("The Text Wrap panel (Ctrl+Shift+W): how text keeps out of this layer, how far")
   # on an artboard: how it follows the board's size (Constraints)
   block constraints:
-    let k = d.layers.find(L)
     var onBoard = false
-    for i in d.artboards:
-      if i != k and d.blockStart(i) <= k and k < i and L.depth == d.layers[i].depth + 1: onBoard = true
+    if not L.group and not L.background:
+      let c = d.contentBounds(L)
+      onBoard = c.w > 0 and d.artboardAt(c.x + c.w div 2, c.y + c.h div 2) >= 0
     if onBoard:
       group("Constraints"):
         var pins = L.pins

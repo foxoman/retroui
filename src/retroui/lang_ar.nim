@@ -667,5 +667,9 @@ const toolkitArabic* = [
   ("Glyph", "الرمز"),
   ("glyph", "الرمز"),
   ("no character or feature of the font makes it", "لا يصنعه أي حرف أو خاصية في الخط"),
+  ("Swatches", "العينات"),
+  ("Swatches:", "العينات:"),
+  ("No swatches yet: add some in the Swatches panel, or choose a Color Library.",
+   "لا عينات بعد: أضف بعضها في لوحة العينات، أو اختر مكتبة ألوان."),
 ]
   ## The toolkit's words in Arabic: (English key, Arabic), for `setUiLanguage`.

@@ -152,6 +152,7 @@ proc sdrToHdrDialog() =
 
 proc extrasDialogs() =
   ttDialog()
+  artboardsDialogs()
   objectDialogs()
   layoutExtraDialogs()
   fileMoreDialogs()

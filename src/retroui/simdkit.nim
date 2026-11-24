@@ -26,6 +26,11 @@ proc blendMaskRow*(fp: ptr uint32; m: ptr uint8; n: int; col: uint32; lut: ptr u
   ## A glyph's row: `n` pixels of `fp` mixed with `col` by the coverages `m` (through `lut`,
   ## when not nil), as the screen's `blend` does it.
 
+proc blendConstRow*(fp: ptr uint32; n: int; col: uint32; a: uint32)
+  {.importc: "ruk_blend_const", header: kitKernels, cdecl.}
+  ## `n` pixels of `fp` mixed with `col` by one coverage `a` (a see-through color's span): the
+  ## values of `blendMaskRow` with every coverage `a`.
+
 proc overRow*(fp, sp: ptr uint32; n: int) {.importc: "ruk_over_row", header: kitKernels, cdecl.}
   ## A picture's row over the screen's, by each of its pixels' alpha (255 copied, 0 left).
 

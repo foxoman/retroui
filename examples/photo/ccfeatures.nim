@@ -205,7 +205,8 @@ proc hdrDialogs() =
         status = $toningDlg.bits & " bits a channel"
       finally: endBusy()
 
-var abDlg: tuple[open: bool; board: Layer; name: string; color: int; locked: bool]
+var abDlg: tuple[open: bool; d: Doc; i: int; name: string; preset: int; x, y, w, h: int; color: int;
+                 custom: uint32; centerMark, crossHairs, videoSafe: bool]
 var gfDlg: tuple[open: bool; layer: Layer; g: GradientFeather; was: GradientFeather; shown: string]
 var gfPending = false
 
@@ -282,57 +283,105 @@ proc gradientFeatherDialog() =
     gfDlg.layer.gradFeather = gfDlg.was
     d.markAll()
 
+proc boardOf(d: Doc): int =
+  ## (the artboard a command is for: the picked one -- with another tool than the Artboard tool, the
+  ## one the current layer is on, when it is on one)
+  result = d.boardCur
+  if d.layers.len > 0 and not d.current.background and not (tool == tMove and moveKind == 1):
+    let c = d.contentBounds(d.current)
+    if c.w > 0:
+      let k = d.artboardAt(c.x + c.w div 2, c.y + c.h div 2)
+      if k >= 0: result = k
+  if result >= d.boards.len: result = d.boards.high
+
 proc startArtboardOptions() =
-  ## Artboard Options: the artboard picked (or the one the layer picked is in).
+  ## Artboard Options: the picked artboard's (the Artboard tool's; the one the current layer is on).
   let d = cur()
   if d == nil: return
-  var i = -1
-  if d.current.isArtboard: i = d.cur
-  else:
-    for a in d.artboards:
-      if d.cur >= d.blockStart(a) and d.cur <= a: i = a
+  let i = d.boardOf
   if i < 0:
-    status = "Artboard Options: pick an artboard (or a layer in one)"
+    status = "Artboard Options: there is no artboard -- make one with the Artboard tool (V)"
     return
-  let c = d.artboardColor(i)
-  let k = if c == 0: 2 elif (c and 0xFFFFFF'u32) == 0xFFFFFF'u32: 0 elif (c and 0xFFFFFF'u32) == 0: 1 else: 3
-  abDlg = (true, d.layers[i], d.layers[i].name, k, d.layers[i].locked)
+  let b = d.boards[i]
+  let c = b.color
+  let k = if (c shr 24) == 0: 2 elif (c and 0xFFFFFF'u32) == 0xFFFFFF'u32: 0
+          elif (c and 0xFFFFFF'u32) == 0: 1 else: 3
+  abDlg = (true, d, i, b.name, d.presetOf(b.r.w, b.r.h), b.r.x, b.r.y, b.r.w, b.r.h, k,
+           (if (c shr 24) == 0: 0xFFF2E8D8'u32 else: c), b.centerMark, b.crossHairs, b.videoSafe)
 
 proc artboardOptionsDialog() =
-  ## (Artboard Options, as the photo and drawing programs have them: its name, the color of its
-  ## page -- white, black, transparent or the foreground color --, locked)
+  ## (Artboard Options, as the drawing program has them: its name, a preset and its size, its place,
+  ## which way round, what it shows -- a mark at its middle, cross hairs, the video safe areas -- and
+  ## the color of its paper: white, black, none or a color)
   if not abDlg.open: return
-  let d = cur()
-  if d == nil or abDlg.board notin d.layers:
+  let d = abDlg.d
+  if d == nil or d != cur() or abDlg.i < 0 or abDlg.i >= d.boards.len:
     abDlg.open = false
     return
   var ok = false
-  dialog(abDlg.open, "Artboard Options", 340):
-    row([100, -1]):
-      label "Name:"
-      edit(abDlg.name)
-    row([100, -1]):
-      label "Background:"
-      discard combo(["White", "Black", "Transparent", "Foreground Color"], abDlg.color, w = dp(170))
-    checkbox("Lock (not moved, resized or painted on)", abDlg.locked)
+  dialog(abDlg.open, "Artboard Options", 400):
+    form 0:
+      field "Name:": edit(abDlg.name)
+      field "Preset:":
+        var names: seq[string]
+        for p in BoardPresets: names.add p[0]
+        if combo(names, abDlg.preset, w = dp(170)) and abDlg.preset > 0:
+          let (pw, ph) = d.presetSize(abDlg.preset)
+          # (which way round it was: kept)
+          if abDlg.w > abDlg.h and pw < ph: (abDlg.w, abDlg.h) = (ph, pw)
+          else: (abDlg.w, abDlg.h) = (pw, ph)
+      field "Width:":
+        if spin(abDlg.w, 1, 30000, w = dp(90)): abDlg.preset = d.presetOf(abDlg.w, abDlg.h)
+      field "Height:":
+        if spin(abDlg.h, 1, 30000, w = dp(90)): abDlg.preset = d.presetOf(abDlg.w, abDlg.h)
+      field "Orientation:":
+        row:
+          if button("Portrait", w = dp(80), enabled = abDlg.w > abDlg.h): (abDlg.w, abDlg.h) = (abDlg.h, abDlg.w)
+          if button("Landscape", w = dp(80), enabled = abDlg.h > abDlg.w): (abDlg.w, abDlg.h) = (abDlg.h, abDlg.w)
+      field "X:": discard spin(abDlg.x, -30000, 30000, w = dp(90))
+      field "Y:": discard spin(abDlg.y, -30000, 30000, w = dp(90))
+      field "Background:":
+        discard combo(["White", "Black", "None (transparent)", "Color"], abDlg.color, w = dp(170))
+      if abDlg.color == 3:
+        field "Color:": discard colorWell(abDlg.custom, "artboardpaper", dp(50))
+    label("Display", bold = true)
+    checkbox("Show Center Mark", abDlg.centerMark)
+    checkbox("Show Cross Hairs", abDlg.crossHairs)
+    checkbox("Show Video Safe Areas", abDlg.videoSafe)
+    paragraph(tr("Artboard ") & $(abDlg.i + 1) & tr(" of ") & $d.boards.len & tr("; its size in pixels at ") &
+              $int(round(d.dpi)) & tr(" ppi."), color = ui.theme.gray)
     row:
+      if button("Delete", w = dp(80)):
+        abDlg.open = false
+        d.beginStep("Delete Artboard")
+        d.deleteArtboard(abDlg.i)
+        d.endStep()
       spring()
       if button("OK", isDefault = true, w = dp(80)): ok = true
       if button("Cancel", w = dp(80)): abDlg.open = false
   if ok:
     abDlg.open = false
-    let i = d.layers.find(abDlg.board)
-    if i < 0: return
+    let i = abDlg.i
     d.beginStep("Artboard Options")
-    d.touchLayers()
-    if abDlg.name.strip.len > 0: d.layers[i].name = abDlg.name.strip
+    d.renameArtboard(i, abDlg.name.strip)
     let c = case abDlg.color
             of 0: 0xFFFFFFFF'u32
             of 1: 0xFF000000'u32
             of 2: 0'u32
-            else: fg or 0xFF000000'u32
-    d.setArtboardColor(i, c)
-    d.lockArtboard(d.layers.find(abDlg.board), abDlg.locked)
+            else: abDlg.custom or 0xFF000000'u32
+    if c != d.boards[i].color: d.setArtboardColor(i, c)
+    # (its place first -- with its artwork, as the Artboard tool says --, then its size)
+    let b = d.boards[i].r
+    if abDlg.x != b.x or abDlg.y != b.y: d.moveArtboard(i, abDlg.x - b.x, abDlg.y - b.y, boardMoveArt)
+    let nb = d.boards[i].r
+    if abDlg.w != nb.w or abDlg.h != nb.h: d.resizeArtboard(i, rect(nb.x, nb.y, max(1, abDlg.w), max(1, abDlg.h)))
+    if abDlg.centerMark != d.boards[i].centerMark or abDlg.crossHairs != d.boards[i].crossHairs or
+       abDlg.videoSafe != d.boards[i].videoSafe:
+      d.touchLayers()
+      d.boards[i].centerMark = abDlg.centerMark
+      d.boards[i].crossHairs = abDlg.crossHairs
+      d.boards[i].videoSafe = abDlg.videoSafe
+      inc d.boardsVer
     d.endStep()
     d.markAll()
 
@@ -388,25 +437,20 @@ proc ccDialogs() =
         if button("Cancel", w = dp(80)): ccDlg.harmonize = false
 
 proc exportArtboards(d: Doc) =
-  ## File > Export > Artboards to Files: each artboard a PNG, beside the
-  ## document (or in Pictures).
+  ## File > Export > Artboards to Files: each artboard a PNG -- what is on it over its paper -- beside
+  ## the document (or in Pictures), named by its number and name ("01 - Artboard 1.png").
   let base = if d.path.len > 0: d.path.parentDir else: picturesDir()
   let dir = base / (d.name & " Artboards")
   var n = 0
-  # (the artboards picked in the Layers palette, when some are: those alone)
-  var which: seq[int]
-  for i in d.artboards:
-    if d.layers[i].picked or (i == d.cur and d.pickedLayers.len > 0 and i in d.pickedLayers): which.add i
-  if which.len == 0: which = d.artboards
   try:
     createDir(dir)
-    for i in which:
+    for i in 0 ..< d.boards.len:
       let b = d.artboardPicture(i)
       if b == nil: continue
-      var nm = d.layers[i].name
+      var nm = d.artboardName(i)
       for c in ["/", "\\", ":", "*", "?", "\"", "<", ">", "|"]: nm = nm.replace(c, "-")
       discard b.savePng(dir / nm & ".png")
       inc n
-    status = $n & " artboards saved in " & dir
+    status = $n & tr(" artboards saved in ") & dir
   except CatchableError:
     status = "Could not save the artboards: " & getCurrentExceptionMsg()

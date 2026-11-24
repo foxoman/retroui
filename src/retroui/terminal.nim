@@ -23,9 +23,9 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
-import std/[deques, strutils, os, uri, monotimes, times]
+import std/[deques, strutils, os, uri, monotimes, times, tables, base64, sequtils]
 from std/unicode import Rune, toUtf8
-import core, widgets
+import core, widgets, codec, imaging
 import uirelays/input
 
 when defined(posix) and not defined(js) and not defined(emscripten) and not defined(wasm):
@@ -113,10 +113,28 @@ type
                            ## 0x2000000 + RGB: that color
     attrs*: set[TermAttr]
 
+  TermPicture = object
+    ## (a picture placed in the text, by its top left cell: it scrolls with its line)
+    image: int               # (its image's id)
+    place: int               # (its placement's id, 0: none given)
+    col: int
+    cols, rows: int          # (the cells it covers)
+    dx, dy: int              # (device pixels into its first cell)
+    z: int                   # (under the text when < 0)
+    scaled: bool             # (its cells given: it fills them; else as many pixels as sent)
+
   TermLine* = object
     ## A row of cells, `wrapped` when the text goes on in the next (copied as one line).
     cells*: seq[TermCell]
     wrapped*: bool
+    pics: seq[TermPicture]
+
+  TermImage = ref object
+    ## (a picture the program sent: the kitty graphics protocol)
+    bmp: Bitmap
+    number: int              # (the number it was sent with, I=: 0 none)
+    bytes: int
+    serial: int              # (how recently it was sent: the oldest let go of first)
 
   TermColors* = object
     ## The colors a terminal is drawn in: its text and its background, the 16 the programs
@@ -125,7 +143,8 @@ type
     fg*, bg*, cursor*, selection*: Color
     ansi*: array[16, Color]
 
-  ParseState = enum psGround, psEsc, psEscHash, psCharset, psCsi, psOsc, psOscEsc, psStr, psStrEsc
+  ParseState = enum psGround, psEsc, psEscHash, psCharset, psCsi, psOsc, psOscEsc, psStr, psStrEsc,
+    psApc, psApcEsc
 
   Terminal* = ref object
     ## A terminal: its screen and what scrolled off it, and the program in it (`spawn`).
@@ -179,11 +198,23 @@ type
     # the view
     viewTop: int             # (pixels scrolled back from the bottom: 0 follows what comes)
     pushed: int              # (lines scrolled off since the view last looked)
+    showLine: int            # (a line the view scrolls to: `findText`; -1 none)
     selA, selB: tuple[line, col: int]   # (the chosen text: lines counted from the oldest kept)
     selOn, selecting: bool
     mouseDownAt: int
     lastMouseCell: tuple[col, row: int]
     ver: int
+    # the kitty keyboard protocol: its flags, a stack each screen
+    kbStack: array[2, seq[int]]
+    # the kitty graphics protocol
+    apc: string
+    images: Table[int, TermImage]
+    imageSerial, imageBytes, nextImage: int
+    gfxMore: bool                     # (a picture sent in pieces: more to come)
+    gfxKeys: Table[char, string]
+    gfxData: string
+    cellPxW*, cellPxH*: int  ## a cell's size in device pixels (the view sets it; programs ask)
+    picsOn*: bool            ## pictures a program sends are shown (kitty graphics; true)
 
 const
   Blank = TermCell()
@@ -217,6 +248,9 @@ const
     ## (the DEC line-drawing set, ` to ~)
 
 # ---- cells and lines -------------------------------------------------------------------------
+
+proc parseIntOr(s: string; d: int): int =
+  try: parseInt(s) except ValueError: d
 
 proc charWidth*(c: int32): int =
   ## How many cells a character takes: 2 for the wide ones (Chinese, Japanese, Korean, most
@@ -280,7 +314,8 @@ proc newTerminal*(cols = 80; rows = 24; scrollback = 10_000): Terminal =
   ## A terminal of `cols` x `rows` cells (the view sizes it to its box), keeping `scrollback`
   ## lines that scrolled off.
   result = Terminal(cols: max(2, cols), rows: max(1, rows), maxScrollback: scrollback, autowrap: true,
-                    cursorOn: true, themed: true, fontSize: 1.0, fd: -1, colors: DarkColors)
+                    cursorOn: true, themed: true, fontSize: 1.0, fd: -1, colors: DarkColors,
+                    cellPxW: 8, cellPxH: 16, picsOn: true, nextImage: 1 shl 30, showLine: -1)
   for i in 0 ..< result.rows:
     result.main.add blankLine(result.cols)
     result.alt.add blankLine(result.cols)
@@ -384,6 +419,10 @@ proc eraseCells(t: Terminal; row, a, b: int) =
   inc t.ver
 
 proc fullReset(t: Terminal) =
+  t.images.clear()
+  t.imageBytes = 0
+  t.gfxMore = false
+  t.kbStack = [@[], @[]]
   t.pen = Blank
   t.onAlt = false
   for l in t.main.mitems: l = blankLine(t.cols)
@@ -502,6 +541,13 @@ proc control(t: Terminal; b: char) =
   of '\x0E': t.gl = 1
   of '\x0F': t.gl = 0
   else: discard
+
+proc kbFlags*(t: Terminal): int =
+  ## The kitty keyboard protocol's flags the program asked for on the screen shown now (0: keys
+  ## as xterm sends them): 1 Esc and modified keys told apart, 2 releases too, 4 the shifted
+  ## key too, 8 every key as an escape, 16 the text with it.
+  let st = t.kbStack[ord(t.onAlt)]
+  if st.len > 0: st[^1] else: 0
 
 proc param(t: Terminal; i: int; default = 0): int {.inline.} =
   ## (CSI parameter `i`, `default` when it is missing or 0 -- as most take it)
@@ -647,7 +693,9 @@ proc csi(t: Terminal; final: char) =
       for r in 0 ..< t.cy: t.eraseCells(r, 0, t.cols)
       t.eraseCells(t.cy, 0, t.cx + 1)
     of 2:
-      for r in 0 ..< t.rows: t.eraseCells(r, 0, t.cols)
+      for r in 0 ..< t.rows:
+        t.eraseCells(r, 0, t.cols)
+        t.screen[r].pics.setLen(0)
     of 3:
       t.sb.clear()
       t.viewTop = 0
@@ -718,9 +766,33 @@ proc csi(t: Terminal; final: char) =
   of 's':
     if t.private == '\0' and t.params.len == 0: t.saveCursor()
   of 'u':
-    if t.private == '\0': t.restoreCursor()
+    # (the kitty keyboard protocol: its flags pushed, popped, set, asked for; without a mark,
+    # the cursor put back)
+    let st = addr t.kbStack[ord(t.onAlt)]
+    case t.private
+    of '\0': t.restoreCursor()
+    of '?': t.answer("\e[?" & $t.kbFlags & "u")
+    of '>':
+      st[].add t.param(0, 0) and 31
+      if st[].len > 64: st[].delete(0)
+    of '<':
+      for k in 0 ..< max(1, t.param(0, 1)):
+        if st[].len > 0: st[].setLen(st[].len - 1)
+    of '=':
+      let f = t.param(0, 0) and 31
+      let cur = t.kbFlags
+      let nv = case t.param(1, 1)
+               of 2: cur or f
+               of 3: cur and not f
+               else: f
+      if st[].len == 0: st[].add nv else: st[^1] = nv
+    else: discard
   of 't':
-    if t.param(0, 0) == 18: t.answer("\e[8;" & $t.rows & ";" & $t.cols & "t")
+    case t.param(0, 0)
+    of 14: t.answer("\e[4;" & $(t.rows * t.cellPxH) & ";" & $(t.cols * t.cellPxW) & "t")
+    of 16: t.answer("\e[6;" & $t.cellPxH & ";" & $t.cellPxW & "t")
+    of 18: t.answer("\e[8;" & $t.rows & ";" & $t.cols & "t")
+    else: discard
   else: discard
 
 proc oscDone(t: Terminal) =
@@ -739,6 +811,257 @@ proc oscDone(t: Terminal) =
       if p >= 0: t.cwd = decodeUrl(v[p .. ^1])
   else: discard
 
+# ---- the kitty graphics protocol: pictures in the text -----------------------------------------
+
+const ImageQuota = 320 shl 20
+  ## (the pictures' pixels kept at most: past it the oldest not on the screen are let go of)
+
+proc gfxAnswer(t: Terminal; k: Table[char, string]; msg: string) =
+  ## (an answer to a picture's command: OK or why not -- told only when it had an id or a
+  ## number, and not asked to be quiet)
+  let quiet = parseIntOr(k.getOrDefault('q', "0"), 0)
+  if (msg == "OK" and quiet >= 1) or quiet >= 2: return
+  var ids = ""
+  if k.hasKey('i'): ids.add "i=" & k['i']
+  if k.hasKey('I'): ids.add (if ids.len > 0: "," else: "") & "I=" & k['I']
+  if ids.len == 0: return
+  if k.hasKey('p'): ids.add ",p=" & k['p']
+  t.answer("\e_G" & ids & ";" & msg & "\e\\")
+
+proc imageById(t: Terminal; k: Table[char, string]): int =
+  ## (the image a command names: by its id, or the newest sent with its number; 0 none)
+  let i = parseIntOr(k.getOrDefault('i', "0"), 0)
+  if i > 0: return (if t.images.hasKey(i): i else: 0)
+  let n = parseIntOr(k.getOrDefault('I', "0"), 0)
+  if n > 0:
+    var best = -1
+    for id, im in t.images:
+      if im.number == n and im.serial > best:
+        best = im.serial
+        result = id
+
+proc placedIds(t: Terminal): seq[int] =
+  for l in t.main:
+    for p in l.pics: result.add p.image
+  for l in t.alt:
+    for p in l.pics: result.add p.image
+  for i in 0 ..< t.sb.len:
+    for p in t.sb[i].pics: result.add p.image
+
+proc trimImages(t: Terminal) =
+  ## (past the quota, the oldest images let go of -- first those placed nowhere)
+  if t.imageBytes <= ImageQuota: return
+  let placed = t.placedIds()
+  for pass in 0 .. 1:
+    while t.imageBytes > ImageQuota:
+      var oldest = 0
+      var serial = high(int)
+      for id, im in t.images:
+        if (pass == 1 or id notin placed) and im.serial < serial:
+          serial = im.serial
+          oldest = id
+      if oldest == 0: break
+      t.imageBytes -= t.images[oldest].bytes
+      t.images.del oldest
+
+proc placePicture(t: Terminal; id: int; k: Table[char, string]) =
+  ## (an image put at the cursor, cells as many as it needs at the cell's size or as asked;
+  ## the cursor after it unless C=1)
+  let im = t.images[id]
+  template num(c: char; d = 0): int = parseIntOr(k.getOrDefault(c, ""), d)
+  var bmp = im.bmp
+  let sx = clamp(num('x'), 0, bmp.w - 1)
+  let sy = clamp(num('y'), 0, bmp.h - 1)
+  let sw = if num('w') > 0: min(num('w'), bmp.w - sx) else: bmp.w - sx
+  let sh = if num('h') > 0: min(num('h'), bmp.h - sy) else: bmp.h - sy
+  var useId = id
+  if sx != 0 or sy != 0 or sw != bmp.w or sh != bmp.h:
+    # (a part of it: a picture of that part, kept as an image of its own)
+    let part = newBitmap(max(1, sw), max(1, sh))
+    for y in 0 ..< sh:
+      for x in 0 ..< sw: part.px[y * sw + x] = bmp.px[(sy + y) * bmp.w + sx + x]
+    part.changed()
+    inc t.nextImage
+    useId = t.nextImage
+    inc t.imageSerial
+    t.images[useId] = TermImage(bmp: part, bytes: sw * sh * 4, serial: t.imageSerial)
+    t.imageBytes += sw * sh * 4
+  let cw = max(1, t.cellPxW)
+  let ch = max(1, t.cellPxH)
+  let dx = clamp(num('X'), 0, cw - 1)
+  let dy = clamp(num('Y'), 0, ch - 1)
+  var cols = if num('c') > 0: num('c') else: max(1, (sw + dx + cw - 1) div cw)
+  var rows = if num('r') > 0: num('r') else: max(1, (sh + dy + ch - 1) div ch)
+  # (one of them given: the other as the picture's shape says)
+  if num('c') > 0 and num('r') <= 0: rows = max(1, (cols * cw * sh div max(1, sw) + ch - 1) div ch)
+  if num('r') > 0 and num('c') <= 0: cols = max(1, (rows * ch * sw div max(1, sh) + cw - 1) div cw)
+  let scaled = num('c') > 0 or num('r') > 0
+  let pid = num('p')
+  # (a placement of the same image with the same id: moved here)
+  if pid > 0:
+    for l in t.screen.mitems:
+      l.pics.keepItIf(not (it.image == id and it.place == pid))
+  t.screen[t.cy].pics.add TermPicture(image: useId, place: pid, col: t.cx, cols: cols, rows: rows,
+                                      dx: dx, dy: dy, z: num('z'), scaled: scaled)
+  if num('C') != 1:
+    for k in 1 ..< rows: t.lineFeed()
+    t.cx = min(t.cols - 1, t.cx + cols)
+    t.wrapNext = false
+  inc t.ver
+
+proc deletePictures(t: Terminal; k: Table[char, string]) =
+  ## (a=d: placements taken away -- all, an image's, those at a cell, a column, a row, a layer;
+  ## the upper-case kinds let go of the image too once nothing shows it)
+  let what = k.getOrDefault('d', "a")
+  let d = if what.len > 0: what[0] else: 'a'
+  let free = d in {'A'..'Z'}
+  template num(c: char; dv = 0): int = parseIntOr(k.getOrDefault(c, ""), dv)
+  let id = t.imageById(k)
+  let pid = num('p')
+  let cx = num('x') - 1
+  let cy = num('y') - 1
+  var gone: seq[int]
+  proc covers(p: TermPicture; row, col, r, c: int): bool =
+    (c < 0 or (c >= p.col and c < p.col + p.cols)) and (r < 0 or (r >= row and r < row + p.rows))
+  for row in 0 ..< t.rows:
+    var kept: seq[TermPicture]
+    for p in t.screen[row].pics:
+      let hit = case d.toLowerAscii
+                of 'a': true
+                of 'i', 'n': id != 0 and p.image == id and (pid == 0 or p.place == pid)
+                of 'c': covers(p, row, p.col, t.cy, t.cx)
+                of 'p': covers(p, row, p.col, cy, cx)
+                of 'x': cx >= p.col and cx < p.col + p.cols
+                of 'y': cy >= row and cy < row + p.rows
+                of 'z': p.z == num('z')
+                else: false
+      if hit: gone.add p.image else: kept.add p
+    t.screen[row].pics = kept
+  if d in {'i', 'I', 'n', 'N'} and id != 0:
+    # (an image's placements in what scrolled off too)
+    for i in 0 ..< t.sb.len:
+      t.sb[i].pics.keepItIf(not (it.image == id and (pid == 0 or it.place == pid)))
+    gone.add id
+  if free:
+    let placed = t.placedIds()
+    for g in gone:
+      if g notin placed and t.images.hasKey(g):
+        t.imageBytes -= t.images[g].bytes
+        t.images.del g
+  inc t.ver
+
+proc graphics(t: Terminal; cmd: string) =
+  ## A command of the kitty graphics protocol (ESC _ G keys ; data ESC \): a picture sent --
+  ## PNG, RGB or RGBA, straight or zlib'ed, here or in a file, in one piece or many -- shown,
+  ## put, asked about, taken away.
+  let semi = cmd.find(';')
+  var k: Table[char, string]
+  for part in (if semi < 0: cmd else: cmd[0 ..< semi]).split(','):
+    if part.len >= 3 and part[1] == '=': k[part[0]] = part[2 .. ^1]
+  var payload = if semi < 0: "" else: cmd[semi + 1 .. ^1]
+  template num(c: char; d = 0): int = parseIntOr(k.getOrDefault(c, ""), d)
+  if t.gfxMore:
+    # (the next piece of a picture sent in pieces: its keys were the first piece's)
+    if t.gfxData.len < 64 shl 20: t.gfxData.add payload
+    if num('m') == 1: return
+    t.gfxMore = false
+    k = t.gfxKeys
+    payload = move t.gfxData
+    t.gfxData = ""
+  elif num('m') == 1:
+    t.gfxMore = true
+    t.gfxKeys = k
+    t.gfxData = payload
+    return
+  let action = k.getOrDefault('a', "t")
+  case (if action.len > 0: action[0] else: 't')
+  of 't', 'T', 'q':
+    var data = ""
+    try:
+      let raw = decode(payload.strip)
+      case k.getOrDefault('t', "d")
+      of "d": data = raw
+      of "f", "t":
+        # (a file named: read; a temporary one, once read, removed -- only from the temp folder,
+        # and only one the protocol names so)
+        let path = raw
+        if not fileExists(path): raise newException(IOError, "no such file")
+        data = readFile(path)
+        let off = num('O')
+        let size = num('S')
+        if off > 0 or size > 0: data = data[min(off, data.len) ..< (if size > 0: min(data.len, off + size) else: data.len)]
+        if k.getOrDefault('t', "") == "t" and "tty-graphics-protocol" in path and
+           path.startsWith(getTempDir()):
+          removeFile(path)
+      else: raise newException(ValueError, "the medium is not supported")
+      if k.getOrDefault('o', "") == "z":
+        let b = zlibDecompress(data.toOpenArrayByte(0, data.high), maxOut = 256 shl 20)
+        data = newString(b.len)
+        if b.len > 0: copyMem(addr data[0], unsafeAddr b[0], b.len)
+    except CatchableError:
+      t.gfxAnswer(k, "EINVAL:" & getCurrentExceptionMsg().replace(';', ',').replace('\e', ' '))
+      return
+    var bmp: Bitmap
+    let fmt = num('f', 32)
+    try:
+      case fmt
+      of 100: bmp = decodePng(data)
+      of 24, 32:
+        let w = num('s')
+        let h = num('v')
+        let bpp = fmt div 8
+        if w <= 0 or h <= 0 or w > 10000 or h > 10000 or data.len < w * h * bpp:
+          raise newException(ValueError, "the size does not fit the data")
+        bmp = newBitmap(w, h)
+        for i in 0 ..< w * h:
+          let a = if bpp == 4: uint32(ord(data[i * 4 + 3])) else: 255'u32
+          bmp.px[i] = (a shl 24) or (uint32(ord(data[i * bpp])) shl 16) or
+                      (uint32(ord(data[i * bpp + 1])) shl 8) or uint32(ord(data[i * bpp + 2]))
+        bmp.changed()
+      else: raise newException(ValueError, "the format is not supported")
+    except CatchableError:
+      t.gfxAnswer(k, "EBADPNG:" & getCurrentExceptionMsg().replace(';', ',').replace('\e', ' '))
+      return
+    if action == "q":
+      t.gfxAnswer(k, "OK")
+      return
+    var id = num('i')
+    if id <= 0:
+      inc t.nextImage
+      id = t.nextImage
+    if t.images.hasKey(id): t.imageBytes -= t.images[id].bytes
+    inc t.imageSerial
+    t.images[id] = TermImage(bmp: bmp, number: num('I'), bytes: bmp.w * bmp.h * 4, serial: t.imageSerial)
+    t.imageBytes += bmp.w * bmp.h * 4
+    if num('I') > 0 and not k.hasKey('i'): k['i'] = $id
+    if action == "T" and t.picsOn: t.placePicture(id, k)
+    t.trimImages()
+    t.gfxAnswer(k, "OK")
+  of 'p':
+    let id = t.imageById(k)
+    if id == 0:
+      t.gfxAnswer(k, "ENOENT:no such image")
+      return
+    if t.picsOn: t.placePicture(id, k)
+    t.gfxAnswer(k, "OK")
+  of 'd': t.deletePictures(k)
+  else: t.gfxAnswer(k, "EINVAL:not supported")
+
+proc apcDone(t: Terminal) =
+  ## (an application program command ended: the kitty graphics protocol's, else left)
+  if t.apc.len > 0 and t.apc[0] == 'G': t.graphics(t.apc[1 .. ^1])
+  t.apc.setLen(0)
+
+proc pictureCount*(t: Terminal): int =
+  ## How many pictures are placed in the screen and what scrolled off (the kitty graphics
+  ## protocol's placements).
+  for l in t.main: result += l.pics.len
+  for l in t.alt: result += l.pics.len
+  for i in 0 ..< t.sb.len: result += t.sb[i].pics.len
+
+proc imageCount*(t: Terminal): int = t.images.len
+  ## How many pictures the program sent are kept (placed or not).
+
 proc escDispatch(t: Terminal; b: char) =
   case b
   of '[':
@@ -752,8 +1075,12 @@ proc escDispatch(t: Terminal; b: char) =
     t.state = psOsc
     t.osc.setLen(0)
     return
-  of 'P', 'X', '^', '_':
+  of 'P', 'X', '^':
     t.state = psStr
+    return
+  of '_':
+    t.state = psApc
+    t.apc.setLen(0)
     return
   of '(', ')':
     t.inter = $b
@@ -867,17 +1194,62 @@ proc feedByte(t: Terminal; b: char) =
     elif b == '\a': t.state = psGround
   of psStrEsc:
     t.state = if b == '\\': psGround else: psStr
+  of psApc:
+    if b == '\e': t.state = psApcEsc
+    elif b == '\a':
+      t.apcDone()
+      t.state = psGround
+    elif t.apc.len < 96 shl 20: t.apc.add b
+  of psApcEsc:
+    if b == '\\':
+      t.apcDone()
+      t.state = psGround
+    else:
+      t.apc.add '\e'
+      t.apc.add b
+      t.state = psApc
 
 proc feed*(t: Terminal; data: string) =
   ## `data` written to the terminal, as a program writes it: text, and the escape sequences
   ## that move the cursor, color, erase, scroll.
   for b in data: t.feedByte(b)
 
+proc showPicture*(t: Terminal; png: string; cols = 0; rows = 0) =
+  ## A picture (a PNG file's bytes) shown at the cursor as a program shows one by kitty's
+  ## graphics protocol -- `cols` x `rows` cells (0: as big as it is), the cursor moved past it,
+  ## scrolled with the text: what an app shows of its own in the terminal it writes to (`feed`).
+  if png.len == 0: return
+  let data = base64.encode(png)
+  var i = 0
+  while true:
+    let n = min(4096, data.len - i)
+    let more = i + n < data.len
+    var head = if i == 0: "a=T,f=100,q=2" & (if cols > 0: ",c=" & $cols else: "") &
+                          (if rows > 0: ",r=" & $rows else: "")
+               else: "q=2"
+    head.add(if more: ",m=1" else: ",m=0")
+    t.feed("\e_G" & head & ";" & data[i ..< i + n] & "\e\\")
+    i += n
+    if not more: break
+
 proc takeAnswers*(t: Terminal): string =
   ## What the terminal said back to the program since (the cursor's place asked for, what kind
   ## of terminal it is): sent to the program by itself when there is one.
   result = move t.outbuf
   t.outbuf = ""
+
+proc tellSize(t: Terminal) =
+  ## (the program told the terminal's size: its cells, and its pixels)
+  when hasPty:
+    if t.fd >= 0:
+      var ws: Winsize
+      ws.ws_row = cushort(t.rows)
+      ws.ws_col = cushort(t.cols)
+      ws.ws_xpixel = cushort(clamp(t.cols * t.cellPxW, 0, 65535))
+      ws.ws_ypixel = cushort(clamp(t.rows * t.cellPxH, 0, 65535))
+      discard ioctl(t.fd, TIOCSWINSZ, addr ws)
+  elif hasConPty:
+    if t.hpc != nil: discard conPty.resize(t.hpc, Coord(x: int16(t.cols), y: int16(t.rows)))
 
 proc resize*(t: Terminal; cols, rows: int) =
   ## The screen made `cols` x `rows` cells (the view does it as its box changes): lines cut or
@@ -919,14 +1291,7 @@ proc resize*(t: Terminal; cols, rows: int) =
   t.wrapNext = false
   t.resetTabs()
   inc t.ver
-  when hasPty:
-    if t.fd >= 0:
-      var ws: Winsize
-      ws.ws_row = cushort(rows)
-      ws.ws_col = cushort(cols)
-      discard ioctl(t.fd, TIOCSWINSZ, addr ws)
-  elif hasConPty:
-    if t.hpc != nil: discard conPty.resize(t.hpc, Coord(x: int16(cols), y: int16(rows)))
+  t.tellSize()
 
 # ---- the program in it ------------------------------------------------------------------------
 
@@ -1155,6 +1520,8 @@ proc spawn*(t: Terminal; command: seq[string] = @[]; cwd = ""; env: openArray[(s
     var ws: Winsize
     ws.ws_row = cushort(t.rows)
     ws.ws_col = cushort(t.cols)
+    ws.ws_xpixel = cushort(clamp(t.cols * t.cellPxW, 0, 65535))
+    ws.ws_ypixel = cushort(clamp(t.rows * t.cellPxH, 0, 65535))
     discard ioctl(m, TIOCSWINSZ, addr ws)
     # (all the child needs made before it is made: between fork and exec only what is safe
     # there -- no memory taken, no lock)
@@ -1344,6 +1711,106 @@ proc keyBytes*(t: Terminal; key: KeyCode; mods: set[Modifier]): string =
   of KeySlash, KeyMinus: (if ctrl: "\x1F" else: "")
   else: ""
 
+proc keyText(key: KeyCode; shift: bool): string =
+  ## (the text a key types on a US keyboard, shifted or not: "" for a key that types none)
+  const plain = [(KeyComma, ',', '<'), (KeyPeriod, '.', '>'), (KeySlash, '/', '?'), (KeyMinus, '-', '_'),
+                 (KeyEqual, '=', '+'), (KeyLeftBracket, '[', '{'), (KeyRightBracket, ']', '}'),
+                 (KeySemicolon, ';', ':'), (KeyQuote, '\'', '"'), (KeyBackslash, '\\', '|'),
+                 (KeyBackquote, '`', '~'), (KeyPlus, '+', '+'), (KeySpace, ' ', ' ')]
+  const digits = ")!@#$%^&*("
+  case key
+  of KeyA .. KeyZ:
+    let c = char(ord('a') + ord(key) - ord(KeyA))
+    $(if shift: c.toUpperAscii else: c)
+  of Key0 .. Key9:
+    let i = ord(key) - ord(Key0)
+    $(if shift: digits[i] else: char(ord('0') + i))
+  else:
+    for (k, a, b) in plain:
+      if k == key: return $(if shift: b else: a)
+    ""
+
+proc kittyKeyBytes*(t: Terminal; key: KeyCode; mods: set[Modifier]; release = false): string =
+  ## What a key sends a program that turned the kitty keyboard protocol on (`kbFlags`): Esc and
+  ## Ctrl, Alt and Super with any key told apart from what typing makes (CSI code;mods u); with
+  ## flag 2 the key let go (`release`) too; with 4 the shifted key; with 8 every key, text too,
+  ## as an escape, and with 16 the text it types. "" for a key the text it types says enough
+  ## (or a release not asked for).
+  let flags = t.kbFlags
+  let mac = defined(macosx) or defined(ios)
+  let ctrl = if mac: GuiPressed in mods else: CtrlPressed in mods
+  let super = if mac: CtrlPressed in mods else: GuiPressed in mods
+  let alt = AltPressed in mods
+  let shift = ShiftPressed in mods
+  let m = 1 + (if shift: 1 else: 0) + (if alt: 2 else: 0) + (if ctrl: 4 else: 0) + (if super: 8 else: 0)
+  let all = (flags and 8) != 0
+  let events = (flags and 2) != 0
+  if release and not events: return ""
+  # (the key's number, and the form of its escape: u, ~ or a letter)
+  var code = 0
+  var final = 'u'
+  case key
+  of KeyEnter: code = 13
+  of KeyTab: code = 9
+  of KeyBackspace: code = 127
+  of KeyEsc: code = 27
+  of KeyInsert: (code, final) = (2, '~')
+  of KeyDelete: (code, final) = (3, '~')
+  of KeyPageUp: (code, final) = (5, '~')
+  of KeyPageDown: (code, final) = (6, '~')
+  of KeyUp: (code, final) = (1, 'A')
+  of KeyDown: (code, final) = (1, 'B')
+  of KeyRight: (code, final) = (1, 'C')
+  of KeyLeft: (code, final) = (1, 'D')
+  of KeyHome: (code, final) = (1, 'H')
+  of KeyEnd: (code, final) = (1, 'F')
+  of KeyF1: (code, final) = (1, 'P')
+  of KeyF2: (code, final) = (1, 'Q')
+  of KeyF3: (code, final) = (13, '~')
+  of KeyF4: (code, final) = (1, 'S')
+  of KeyF5: (code, final) = (15, '~')
+  of KeyF6: (code, final) = (17, '~')
+  of KeyF7: (code, final) = (18, '~')
+  of KeyF8: (code, final) = (19, '~')
+  of KeyF9: (code, final) = (20, '~')
+  of KeyF10: (code, final) = (21, '~')
+  of KeyF11: (code, final) = (23, '~')
+  of KeyF12: (code, final) = (24, '~')
+  of KeyCapslock: code = 57358
+  of KeyMenu: code = 57363
+  else:
+    let txt = keyText(key, false)
+    if txt.len == 0: return ""
+    code = ord(txt[0])
+  let texty = final == 'u' and code >= 32 and code < 127
+  # what typing says enough: a key that types text, with nothing but Shift; Enter, Tab and
+  # Backspace with no modifier -- unless every key is asked for as an escape
+  if not all and not release:
+    if texty and (m == 1 or m == 2): return ""
+    if code in [13, 9, 127] and final == 'u' and m == 1: return ""
+    if final != 'u' and m == 1 and not events:
+      return t.keyBytes(key, mods)          # (the arrows, F1-F12...: as xterm sends them)
+  if release and not all and code in [13, 9, 127] and final == 'u': return ""
+  var keyField = $code
+  if (flags and 4) != 0 and shift and texty:
+    let sh = keyText(key, true)
+    if sh.len > 0 and sh[0] != char(code): keyField.add ":" & $ord(sh[0])
+  var modField = ""
+  if m != 1 or release: modField = $m
+  if release: modField.add ":3"
+  var textField = ""
+  if all and (flags and 16) != 0 and texty and not release and not ctrl and not alt and not super:
+    let tx = keyText(key, shift)
+    if tx.len > 0: textField = $ord(tx[0])
+  if final != 'u':
+    # (the legacy forms with their numbers: CSI 1;mods A -- the 1 left out alone)
+    if modField.len == 0: return (if code == 1: "\e[" & final else: "\e[" & $code & final)
+    return "\e[" & $code & ";" & modField & final
+  result = "\e[" & keyField
+  if modField.len > 0 or textField.len > 0: result.add ";" & (if modField.len > 0: modField else: "1")
+  if textField.len > 0: result.add ";" & textField
+  result.add 'u'
+
 # ---- the view ---------------------------------------------------------------------------------
 
 proc colorOf(t: Terminal; v: uint32; fg: bool): Color =
@@ -1378,6 +1845,11 @@ proc selected(t: Terminal; line, col: int): bool {.inline.} =
   if line == b.line and col > b.col: return false
   true
 
+proc selectionStart*(t: Terminal): tuple[line, col: int] =
+  ## Where the chosen text begins: its line, counted from the oldest kept that scrolled off
+  ## (then the screen's), and its cell; (-1, -1) when none is chosen.
+  if not t.selOn: (-1, -1) else: t.ordered().a
+
 proc selectionText*(t: Terminal): string =
   ## The text chosen with the mouse ("" when none): a line a row, rows the text wrapped across
   ## joined.
@@ -1404,12 +1876,99 @@ proc selectAll*(t: Terminal) =
   t.selB = (t.totalLines - 1, t.cols - 1)
   t.selOn = true
 
+proc selectNone*(t: Terminal) =
+  ## Nothing chosen (a find starts again from the bottom).
+  if t.selOn:
+    t.selOn = false
+    inc t.ver
+
 proc clearScrollback*(t: Terminal) =
   ## What scrolled off forgotten.
   t.sb.clear()
   t.viewTop = 0
   t.selOn = false
   inc t.ver
+
+proc reset*(t: Terminal; clear = false) =
+  ## The terminal as it starts: the modes, the colors, the character sets, the pictures and the
+  ## keys' flags back, the screen blank; `clear`: what scrolled off forgotten too. The program
+  ## goes on.
+  t.fullReset()
+  if clear: t.clearScrollback()
+
+proc findText*(t: Terminal; text: string; back = true; matchCase = false): bool =
+  ## The next `text` in what scrolled off and the screen -- before the text chosen (`back`) or
+  ## after it, from the bottom (or the top) when none is -- chosen, and the view scrolled to it;
+  ## false when there is no more.
+  if text.len == 0: return false
+  let needle = if matchCase: text else: text.toLowerAscii
+  let n = t.totalLines
+  var li = if t.selOn: t.ordered().a.line else: (if back: n - 1 else: 0)
+  var from0 = if t.selOn: t.ordered().a.col else: (if back: t.cols else: -1)
+  for step in 0 ..< n + 1:
+    if li < 0 or li >= n: return false
+    let l = t.lineAt(li)
+    # (the line's text, and where each of its characters is a cell)
+    var hay = ""
+    var cellAt: seq[int]
+    for c, cell in l.cells:
+      if cell.ch == -1: continue
+      let piece = if cell.ch > 0: Rune(cell.ch).toUtf8 else: " "
+      for b in piece:
+        hay.add b
+        cellAt.add c
+    if not matchCase: hay = hay.toLowerAscii
+    var found = -1
+    if back:
+      var at = hay.rfind(needle)
+      while at >= 0 and cellAt[at] >= from0:
+        at = if at > 0: hay.rfind(needle, last = at - 1) else: -1
+      found = at
+    else:
+      var at = hay.find(needle)
+      while at >= 0 and cellAt[at] <= from0: at = hay.find(needle, at + 1)
+      found = at
+    if found >= 0:
+      t.selA = (li, cellAt[found])
+      t.selB = (li, cellAt[min(cellAt.high, found + needle.len - 1)])
+      t.selOn = true
+      t.showLine = li
+      inc t.ver
+      return true
+    li += (if back: -1 else: 1)
+    from0 = if back: t.cols + 1 else: -1
+  false
+
+proc zoomText*(t: Terminal; steps: int) =
+  ## The terminal's text bigger (`steps` > 0) or smaller by a tenth a step, between half and
+  ## three times the UI's; 0: as big as the UI's.
+  t.fontSize = if steps == 0: 1.0 else: clamp(t.fontSize + 0.1 * float(steps), 0.5, 3.0)
+  inc t.ver
+
+proc terminalEditItems*(t: Terminal) =
+  ## The terminal's Copy, Paste and Select All as items of a menu of the app's own (its menu
+  ## bar's Edit menu), with their keys.
+  let mac = defined(macosx) or defined(ios)
+  if menuItem("&Copy", if mac: "Cmd+C" else: "Ctrl+Shift+C", enabled = t.selOn):
+    putClipboardText(t.selectionText())
+  if menuItem("&Paste", if mac: "Cmd+V" else: "Ctrl+Shift+V"):
+    t.paste(getClipboardText())
+  if menuItem("Select &All"): t.selectAll()
+
+proc terminalViewItems*(t: Terminal) =
+  ## The terminal's text bigger, smaller and back to its size, as items of a menu of the app's
+  ## own (View), with their keys.
+  let mac = defined(macosx) or defined(ios)
+  if menuItem("&Bigger Text", if mac: "Cmd+Shift+=" else: "Ctrl+Shift+="): t.zoomText(1)
+  if menuItem("&Smaller Text", if mac: "Cmd+Shift+-" else: "Ctrl+Shift+-"): t.zoomText(-1)
+  if menuItem("&Normal Size", if mac: "Cmd+Shift+0" else: "Ctrl+Shift+0"): t.zoomText(0)
+
+proc terminalItems*(t: Terminal) =
+  ## The terminal's own commands as items of a menu of the app's own (Terminal): Clear
+  ## Scrollback, Reset, Reset and Clear.
+  if menuItem("C&lear Scrollback"): t.clearScrollback()
+  if menuItem("&Reset"): t.reset()
+  if menuItem("Reset and &Clear"): t.reset(clear = true)
 
 proc boxChar(c: int32; r: Rect; col: Color; cw: int): bool =
   ## (lines and blocks drawn whole from cell to cell, as the programs that draw boxes mean
@@ -1507,12 +2066,26 @@ proc mouseReport(t: Terminal; button, col, row: int; press: bool; motion = false
     if col + 33 > 255 or row + 33 > 255: return
     t.send("\e[M" & char(32 + b) & char(33 + col) & char(33 + row))
 
-proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false) =
+proc memoColor(t: Terminal; memo: var tuple[raw: uint32; c: Color]; raw: uint32; fg: bool): Color {.inline.} =
+  ## (`colorOf`, the last one kept: a row's cells mostly share their colors)
+  if raw != memo.raw: memo = (raw, t.colorOf(raw, fg))
+  memo.c
+
+var
+  rowFg: seq[Color]                # (a row's letters' colors, worked out once: kept for the next)
+  rowText: string                  # (a run of a row's letters)
+
+proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false; menu: proc () = nil) =
   ## The terminal in a box `w` wide (0: the row's width) and `lines` rows of its text high (-1:
   ## the height left) -- its size in cells made to fit it, the program told. Takes the keys
-  ## while it has the focus (Tab and the arrows too), the wheel scrolls back through what
-  ## scrolled off; the mouse chooses text (double-click a word, triple a line), Ctrl+Shift+C
-  ## copies it, Ctrl+Shift+V and Shift+Insert paste; a right click has the same in a menu.
+  ## while it has the focus (Tab and the arrows too) -- as kitty sends them to a program that
+  ## asks (`kbFlags`) -- the wheel scrolls back through what scrolled off; the mouse chooses
+  ## text (double-click a word, triple a line), Ctrl+Shift+C copies it, Ctrl+Shift+V and
+  ## Shift+Insert paste, Ctrl+Shift+= and Ctrl+Shift+- make its text bigger and smaller
+  ## (Ctrl+Shift+0: back). The pictures a program sends by kitty's graphics protocol are shown
+  ## in their cells. A right click has a menu: Copy, Paste, Select All, then what `menu` adds
+  ## (its `menuItem`s: the app's own), then the terminal's own (`terminalItems`). For the
+  ## app's menu bar: `terminalEditItems`, `terminalViewItems`, `terminalItems`.
   let st = style(mono = true, size = t.fontSize)
   let cw = max(1, textWidth("M", st))
   let lh = max(1, lineHeight(st))
@@ -1528,6 +2101,11 @@ proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false) =
   let inner = rect(r.x + 2, r.y + 2, r.w - 4 - bar, r.h - 4)
   let cols = max(2, inner.w div cw)
   let rows = max(1, inner.h div lh)
+  if cw * pxScale != t.cellPxW or lh * pxScale != t.cellPxH:
+    # (a cell's size in pixels, for the programs that size pictures by it)
+    t.cellPxW = cw * pxScale
+    t.cellPxH = lh * pxScale
+    t.tellSize()
   if cols != t.cols or rows != t.rows: t.resize(cols, rows)
   # what the program wrote, shown (a view scrolled back kept on the lines it shows)
   let before = t.ver
@@ -1546,6 +2124,15 @@ proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false) =
                     else: ui.key == KeyV and CtrlPressed in ui.mods and ShiftPressed in ui.mods) or
                    (ui.key == KeyInsert and ShiftPressed in ui.mods)
     var sent = false
+    # (the text's size: Ctrl+Shift+=, Ctrl+Shift+-, Ctrl+Shift+0 -- Cmd on a Mac)
+    let zoomMods = if mac: CtrlPressed in ui.mods and ShiftPressed in ui.mods
+                   else: CtrlPressed in ui.mods and ShiftPressed in ui.mods
+    if zoomMods and not ui.keyUsed and ui.key in {KeyEqual, KeyPlus, KeyMinus, Key0}:
+      ui.keyUsed = true
+      t.zoomText(case ui.key
+                 of KeyMinus: -1
+                 of Key0: 0
+                 else: 1)
     if ui.typed.len > 0:
       # (what was typed before this frame's key: first)
       t.send(ui.typed)
@@ -1558,12 +2145,16 @@ proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false) =
       ui.keyUsed = true
       t.paste(getClipboardText())
       sent = true
-    elif ui.key != KeyNone and not ui.keyUsed and not (mac and CtrlPressed in ui.mods):
-      let b = t.keyBytes(ui.key, ui.mods)
+    elif ui.key != KeyNone and not ui.keyUsed and not (mac and CtrlPressed in ui.mods and t.kbFlags == 0):
+      let b = if t.kbFlags != 0: t.kittyKeyBytes(ui.key, ui.mods) else: t.keyBytes(ui.key, ui.mods)
       if b.len > 0:
         ui.keyUsed = true
         t.send(b)
         sent = true
+        # (a key sent as an escape: the text it types, coming after it, not sent again)
+        if t.kbFlags != 0 and keyText(ui.key, false).len > 0: dropKeyText = true
+    if ui.keyUp != KeyNone and (t.kbFlags and 2) != 0:
+      t.send(t.kittyKeyBytes(ui.keyUp, ui.mods, release = true))
     if sent:
       t.viewTop = 0
       t.selOn = false
@@ -1583,6 +2174,10 @@ proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false) =
       ui.wheelUsed = true
   var off = max(0, sbLines * lh - t.viewTop)    # (pixels from the oldest line to the view's top)
   let maxOff = sbLines * lh
+  if t.showLine >= 0:
+    # (a line found: in the middle of the view)
+    off = clamp(t.showLine * lh - (inner.h - lh) div 2, 0, maxOff)
+    t.showLine = -1
   scrollWheel(id, off, maxOff, inner, 3 * lh)
   scrollTick(id, off, maxOff)
   # the mouse: text chosen, or the program's when it asked
@@ -1639,22 +2234,58 @@ proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false) =
     elif t.selecting and not ui.mouseDown:
       t.selecting = false
   t.viewTop = maxOff - off
-  # draw: the background, then each row -- its colors, its text, its lines and blocks
-  fill(r, t.colors.bg)
+  # draw: the background, then each row -- its colors, its text, its lines and blocks (Glass: a
+  # rounded field, the highlight's ring while it has the keys)
+  let glass = glassLook()
+  if glass: fieldFace(r, t.colors.bg, focused = hit.focused)
+  else: fill(r, t.colors.bg)
   pushClip(inner)
   let first = off div lh
   let y0 = inner.y - (off mod lh)
   let cursorLine = sbLines + t.cy
+  template drawPictures(under: bool) =
+    # (each picture from its line on, a line above the view's top reaching into it too; drawn at
+    # its cells' size, in pixels as the program sent it)
+    if t.picsOn:
+      for li in max(0, first - 200) .. min(t.totalLines - 1, first + inner.h div lh + 1):
+        let l = t.lineAt(li)
+        for p in l.pics:
+          if (p.z < 0) != under or not t.images.hasKey(p.image): continue
+          let im = t.images[p.image]
+          let s = max(1, pxScale)
+          let pr = rect(inner.x + p.col * cw + p.dx div s, y0 + (li - first) * lh + p.dy div s,
+                        (im.bmp.w + s - 1) div s, (im.bmp.h + s - 1) div s)
+          let room = rect(inner.x + p.col * cw, y0 + (li - first) * lh, p.cols * cw, p.rows * lh)
+          if pr.y > inner.y + inner.h or pr.y + pr.h < inner.y: continue
+          pushClip(intersect(room, inner))
+          # (its cells given: it fills them; else as many pixels as it was sent with)
+          if p.scaled: drawBitmap(rect(pr.x, pr.y, room.w - (pr.x - room.x), room.h - (pr.y - room.y)), im.bmp)
+          else: drawBitmap(pr, im.bmp)
+          popClip()
+  drawPictures(true)
+  # (each row in two passes: its backgrounds, a fill for a run of cells of one color; then its
+  # letters, a command for a run of plain ASCII in one color and style -- `textCells`, each
+  # letter in its cell -- the others a cell at a time)
+  let styles = [style(mono = true, size = t.fontSize), style(mono = true, size = t.fontSize, bold = true),
+                style(mono = true, size = t.fontSize, italic = true),
+                style(mono = true, size = t.fontSize, bold = true, italic = true)]
+  var memoFg, memoBg = (raw: high(uint32), c: Color())
   for k in 0 .. inner.h div lh + 1:
     let li = first + k
     if li >= t.totalLines: break
     let l = t.lineAt(li)
     let y = y0 + k * lh
+    let n = min(l.cells.len, t.cols)
+    if rowFg.len < n: rowFg.setLen(n)
+    # the backgrounds, and each cell's colors
+    var bgX = -1
+    var bgEnd = 0
+    var bgC: Color
     var c = 0
-    while c < l.cells.len and c < t.cols:
+    while c < n:
       let cell = l.cells[c]
-      var fg = t.colorOf(cell.fg, true)
-      var bg = t.colorOf(cell.bg, false)
+      var fg = t.memoColor(memoFg, cell.fg, true)
+      var bg = t.memoColor(memoBg, cell.bg, false)
       if taInverse in cell.attrs: swap(fg, bg)
       if taFaint in cell.attrs: fg = mixColor(fg, bg, 0.45)
       let wide = c + 1 < l.cells.len and l.cells[c + 1].ch == -1
@@ -1669,21 +2300,55 @@ proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false) =
         swap(fg, bg)
         bg = t.colors.cursor
         fg = t.colors.bg
-      if bg != t.colors.bg: fill(rect(x, y, cw * cells, lh), bg)
+      rowFg[c] = fg
+      if bg != t.colors.bg:
+        if bgX >= 0 and bgEnd == x and bgC == bg: bgEnd = x + cw * cells
+        else:
+          if bgX >= 0: fill(rect(bgX, y, bgEnd - bgX, lh), bgC)
+          bgX = x
+          bgEnd = x + cw * cells
+          bgC = bg
+      c += cells
+    if bgX >= 0: fill(rect(bgX, y, bgEnd - bgX, lh), bgC)
+    # the letters, the lines under and through
+    var runX = -1
+    var runEnd = 0
+    var runFg: Color
+    var runSt = 0
+    rowText.setLen(0)
+    c = 0
+    while c < n:
+      let cell = l.cells[c]
+      let wide = c + 1 < l.cells.len and l.cells[c + 1].ch == -1
+      let cells = if wide: 2 else: 1
+      let x = inner.x + c * cw
+      let fg = rowFg[c]
       if cell.ch > 32 and taHidden notin cell.attrs:
-        let cr = rect(x, y, cw * cells, lh)
-        if not boxChar(cell.ch, cr, fg, cw):
-          let s = Rune(cell.ch).toUtf8
-          let bold = taBold in cell.attrs
-          let gs = style(mono = true, size = t.fontSize, bold = bold, italic = taItalic in cell.attrs)
-          if cell.ch < 128: text(x, y, s, fg, gs)
+        let sk = ord(taBold in cell.attrs) + 2 * ord(taItalic in cell.attrs)
+        if cell.ch < 127:
+          if runX >= 0 and runFg == fg and runSt == sk:
+            # (the cells between, blanks or drawn alone, as spaces)
+            for _ in 0 ..< (x - runEnd) div cw: rowText.add ' '
           else:
+            if runX >= 0: textCells(runX, y, rowText, runFg, styles[runSt], cw)
+            rowText.setLen(0)
+            runX = x
+            runFg = fg
+            runSt = sk
+          rowText.add char(cell.ch)
+          runEnd = x + cw
+        else:
+          let cr = rect(x, y, cw * cells, lh)
+          if not boxChar(cell.ch, cr, fg, cw):
             # (a character of another width in the font: in the middle of its cells)
+            let s = Rune(cell.ch).toUtf8
+            let gs = styles[sk]
             let gw = textWidth(s, gs)
             text(x + (cw * cells - gw) div 2, y, s, fg, gs)
       if taUnderline in cell.attrs: fill(rect(x, y + lh - max(1, lh div 12) - 1, cw * cells, max(1, lh div 12)), fg)
       if taStrike in cell.attrs: fill(rect(x, y + lh div 2, cw * cells, max(1, lh div 14)), fg)
       c += cells
+    if runX >= 0: textCells(runX, y, rowText, runFg, styles[runSt], cw)
   # the cursor: a block (hollow without the focus), a line under, a bar
   if t.cursorOn and t.viewTop == 0 and cursorLine >= first and cursorLine <= first + inner.h div lh + 1:
     let x = inner.x + t.cx * cw
@@ -1692,24 +2357,25 @@ proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false) =
     if t.cursorShape in [3, 4]: fill(rect(x, y + lh - max(2, lh div 8), cw, max(2, lh div 8)), cc)
     elif t.cursorShape in [5, 6]: fill(rect(x, y, max(2, cw div 6), lh), cc)
     elif not hit.focused: box(rect(x, y, cw, lh), cc)
+  drawPictures(false)
   popClip()
   endKeepSides()
   # the scroll bar
   if maxOff > 0:
     var v = off
-    scrollBarFor(id + 77, id, rect(r.x + r.w - bar, r.y, bar, r.h), true, v, maxOff,
-                 max(lh, inner.h - lh), lh)
+    let sb = if glass: rect(r.x + r.w - bar - 1, r.y + dp(4), bar, r.h - 2 * dp(4))
+             else: rect(r.x + r.w - bar, r.y, bar, r.h)
+    scrollBarFor(id + 77, id, sb, true, v, maxOff, max(lh, inner.h - lh), lh)
     if v != off: t.viewTop = maxOff - v
-  box(r, if hit.focused: ui.theme.select else: mixColor(t.colors.bg, t.colors.fg, 0.25))
-  # the right click's menu
+  if not glass: box(r, if hit.focused: ui.theme.select else: mixColor(t.colors.bg, t.colors.fg, 0.25))
+  # the right click's menu: Copy, Paste, Select All, the app's own items, the terminal's
   contextMenu:
-    if menuItem("&Copy", if mac: "Cmd+C" else: "Ctrl+Shift+C", enabled = t.selOn):
-      putClipboardText(t.selectionText())
-    if menuItem("&Paste", if mac: "Cmd+V" else: "Ctrl+Shift+V"):
-      t.paste(getClipboardText())
+    t.terminalEditItems()
+    if menu != nil:
+      menuSeparator()
+      menu()
     menuSeparator()
-    if menuItem("Select &All"): t.selectAll()
-    if menuItem("C&lear Scrollback"): t.clearScrollback()
+    t.terminalItems()
   # more frames: what comes from the program wakes the window where it can, else it is asked
   # for now and then
   if t.ver != before: wakeIn(16)             # (more may come at once)

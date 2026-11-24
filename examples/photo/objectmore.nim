@@ -1,8 +1,8 @@
 # (included by photo.nim) The drawing and layout programs' object and type commands that the others
 # here did not have: Compound Path, Add and Remove Anchor Points, Divide Objects Below, Split Into
 # Grid, Clean Up, Stray Points, Create Object Mosaic, Create Trim Marks, Flatten Transparency, Make
-# Pixel Perfect, Objects on Path, Reverse Spine and Front to Back, Convert to Artboards, Rearrange
-# All Artboards, Fit to Artwork Bounds, Outline Object, Soft Mix, Convert Shape, Open and Close
+# Pixel Perfect, Objects on Path, Reverse Spine and Front to Back (the artboards' commands: photo/
+# artboards), Outline Object, Soft Mix, Convert Shape, Open and Close
 # Path, Step and Repeat, Perceptual and Hatch fills; Change Case, Smart Punctuation, Fit Headline,
 # Type on a Path Options, Dynamic Text. Each is one step to undo.
 
@@ -14,7 +14,6 @@ var
   cleanDlg: tuple[open: bool; stray, unpainted, emptyText: bool] = (false, true, true, true)
   stepDlg: tuple[open: bool; count: int; dx, dy: float32; grid: bool; rows, cols: int] =
     (false, 3, 20, 0, false, 3, 3)
-  arrangeDlg: tuple[open: bool; cols: int; spacing: float32] = (false, 2, 40)
   smartDlg: tuple[open: bool; quotes, dashes, ellipsis, fractions, symbols, spaces, whole: bool] =
     (false, true, true, true, true, true, true, false)
   pathTypeDlg: tuple[open: bool; effect: int; flip: bool]
@@ -424,66 +423,6 @@ proc reverseSpine(d: Doc; frontToBack: bool) =
       var s = M.shape
       s.path = s.path.translated(to[0] - centers[k][0], to[1] - centers[k][1])
       d.setShape(M, s)
-  d.markAll()
-  d.endStep()
-
-proc convertToArtboards(d: Doc) =
-  ## Convert to Artboards: each rectangle picked becomes an artboard of its size (it goes).
-  let ss = d.pickedShapes
-  if ss.len == 0: return
-  d.beginStep("Convert to Artboards")
-  d.touchLayers()
-  var n = 0
-  for L in ss:
-    let b = pathBounds(L.shape.path)
-    let r = rect(int(round(b[0])), int(round(b[1])), int(round(b[2] - b[0])), int(round(b[3] - b[1])))
-    let i = d.layers.find(L)
-    if i >= 0: d.deleteLayer(i)
-    if d.addArtboard(r) != nil: inc n
-  d.endStep()
-  status = tr("Convert to Artboards: ") & $n
-
-proc rearrangeArtboards(d: Doc) =
-  ## Rearrange All Artboards: in rows of so many, so far apart, left to right, top to bottom.
-  let abs = d.artboards
-  if abs.len == 0: return
-  d.beginStep("Rearrange All Artboards")
-  d.touchLayers()
-  var x = 0
-  var y = 0
-  var rowH = 0
-  let sp = int(round(arrangeDlg.spacing))
-  for k, i in abs:
-    if k > 0 and k mod max(1, arrangeDlg.cols) == 0:
-      x = 0
-      y += rowH + sp
-      rowH = 0
-    let b = d.layers[i].board
-    d.moveArtboard(i, x - b.x, y - b.y)
-    x += b.w + sp
-    rowH = max(rowH, b.h)
-  d.markAll()
-  d.endStep()
-
-proc fitArtboard(d: Doc) =
-  ## Fit to Artwork Bounds: the artboard the current layer is on made as big as what is on it.
-  var ai = -1
-  for i in d.artboards:
-    if d.cur >= d.blockStart(i) and d.cur <= i: ai = i
-  if ai < 0 and d.artboards.len > 0: ai = d.artboards[0]
-  if ai < 0: return
-  var x0, y0 = 1e18
-  var x1, y1 = -1e18
-  for j in d.blockStart(ai) ..< ai:
-    let L = d.layers[j]
-    if L.group or (L.isShape and L.name == "Page"): continue
-    let b = d.objectBox(L)
-    if b.ok:
-      x0 = min(x0, b.x0); y0 = min(y0, b.y0); x1 = max(x1, b.x1); y1 = max(y1, b.y1)
-  if x1 <= x0: return
-  d.beginStep("Fit to Artwork Bounds")
-  d.touchLayers()
-  d.resizeArtboard(ai, rect(int(floor(x0)), int(floor(y0)), int(ceil(x1 - floor(x0))), int(ceil(y1 - floor(y0)))))
   d.markAll()
   d.endStep()
 
@@ -972,22 +911,6 @@ proc objectDialogs() =
     if go:
       stepDlg.open = false
       d.stepAndRepeat()
-  if arrangeDlg.open:
-    var go = false
-    dialog(arrangeDlg.open, "Rearrange All Artboards", 320):
-      row([110, -1]):
-        label "Columns:"
-        spin(arrangeDlg.cols, 1, 50, w = dp(70))
-      row([110, -1]):
-        label "Spacing:"
-        discard d.lengthField(arrangeDlg.spacing, dp(80))
-      row:
-        spring()
-        if button("OK", isDefault = true, w = dp(80)): go = true
-        if button("Cancel", w = dp(80)): arrangeDlg.open = false
-    if go:
-      arrangeDlg.open = false
-      d.rearrangeArtboards()
   if smartDlg.open:
     var go = false
     dialog(smartDlg.open, "Smart Punctuation", 340):
@@ -1104,9 +1027,6 @@ proc objectCommand(name: string): bool =
   of "Objects on Path": d.objectsOnPath()
   of "Reverse Spine": d.reverseSpine(false)
   of "Reverse Front to Back": d.reverseSpine(true)
-  of "Convert to Artboards": d.convertToArtboards()
-  of "Rearrange All Artboards...": arrangeDlg.open = true
-  of "Fit to Artwork Bounds": d.fitArtboard()
   of "Outline Object", "Create Outlines": runCommand("Convert to Shape")
   of "Soft Mix...": softMixDlg.open = true
   of "Open Path": d.openClosePath(false)

@@ -7,7 +7,8 @@
 
 import std/[os, strutils]
 import retroui/uirelays/[coords, input, screen]
-import retroui, retroui/terminal
+import retroui, retroui/[terminal, imaging, codec]
+import std/base64
 import harness
 
 proc fed(s: string; cols = 20; rows = 5): Terminal =
@@ -114,6 +115,112 @@ block selection:
   t.feed("one two\r\nthree")
   t.selectAll()
   doAssert t.selectionText().startsWith("one two\nthree"), t.selectionText()
+
+block found:
+  let t = newTerminal(20, 4, scrollback = 50)
+  for i in 0 ..< 10: t.feed("line " & $i & " apple\r\n")
+  doAssert t.findText("APPLE")                        # (from the bottom up, any case)
+  doAssert t.selectionText() == "apple" and t.selectionStart.line == 9
+  doAssert t.findText("apple") and t.selectionStart.line == 8
+  doAssert t.findText("line 2") and t.selectionText() == "line 2"
+  doAssert not t.findText("line 2", matchCase = true) or t.selectionStart.line < 2
+  doAssert not t.findText("pear")
+  t.selectNone()                                       # (nothing chosen: from the bottom again)
+  doAssert t.selectionStart == (-1, -1)
+  doAssert t.findText("apple") and t.selectionStart.line == 9
+  t.zoomText(2)
+  doAssert abs(t.fontSize - 1.2) < 1e-9
+  t.zoomText(0)
+  doAssert t.fontSize == 1.0
+  t.feed("\e[31mred")
+  t.reset(clear = true)
+  doAssert t.scrollbackLines == 0 and t.screenText.strip == "" and t.cursor == (0, 0)
+
+block kittyKeyboard:
+  let t = newTerminal()
+  doAssert t.kbFlags == 0
+  t.feed("\e[?u")
+  doAssert t.takeAnswers() == "\e[?0u"
+  t.feed("\e[>1u")                                   # (Esc and modified keys told apart)
+  doAssert t.kbFlags == 1
+  doAssert t.kittyKeyBytes(KeyEsc, {}) == "\e[27u"
+  when not (defined(macosx) or defined(ios)):
+    doAssert t.kittyKeyBytes(KeyA, {CtrlPressed}) == "\e[97;5u"
+    doAssert t.kittyKeyBytes(KeyEnter, {CtrlPressed}) == "\e[13;5u"
+  doAssert t.kittyKeyBytes(KeyA, {}) == "" and t.kittyKeyBytes(KeyA, {ShiftPressed}) == ""   # (typed)
+  doAssert t.kittyKeyBytes(KeyA, {AltPressed}) == "\e[97;3u"
+  doAssert t.kittyKeyBytes(KeyEnter, {}) == "" and t.kittyKeyBytes(KeyUp, {}) == "\e[A"
+  doAssert t.kittyKeyBytes(KeyUp, {ShiftPressed}) == "\e[1;2A"
+  doAssert t.kittyKeyBytes(KeyF3, {AltPressed}) == "\e[13;3~"
+  doAssert t.kittyKeyBytes(KeyA, {AltPressed}, release = true) == "", "no releases asked for"
+  t.feed("\e[=11;1u")                                # (set: 1, 2, 8)
+  doAssert t.kbFlags == 11
+  doAssert t.kittyKeyBytes(KeyA, {}) == "\e[97u", "every key an escape"
+  doAssert t.kittyKeyBytes(KeyA, {}, release = true) == "\e[97;1:3u"
+  doAssert t.kittyKeyBytes(KeyEnter, {}) == "\e[13u"
+  t.feed("\e[=16;2u")                                # (or: the text too)
+  doAssert t.kbFlags == 27 and t.kittyKeyBytes(KeyB, {ShiftPressed}) == "\e[98;2;66u"
+  t.feed("\e[>4u")                                   # (pushed: the shifted key)
+  doAssert t.kbFlags == 4
+  t.feed("\e[=12;1u")
+  doAssert t.kittyKeyBytes(KeyB, {ShiftPressed}) == "\e[98:66;2u"
+  t.feed("\e[<u")                                    # (popped: the flags before)
+  doAssert t.kbFlags == 27
+  t.feed("\e[?1049h")                                # (the other screen: a stack of its own)
+  doAssert t.kbFlags == 0
+  t.feed("\e[?1049l\e[<5u")
+  doAssert t.kbFlags == 0
+
+proc apc(keys: string; data = ""): string = "\e_G" & keys & (if data.len > 0: ";" & data else: "") & "\e\\"
+
+block kittyGraphics:
+  let t = newTerminal(40, 10)
+  # (an RGBA picture of 2 x 2 sent and shown: at the cursor, the cursor after it)
+  var px = ""
+  for c in [0xFF0000FF'u32, 0x00FF00FF'u32, 0x0000FFFF'u32, 0xFFFFFFFF'u32]:
+    for k in [24, 16, 8, 0]: px.add char((c shr k) and 255)
+  t.feed("ab" & apc("a=T,f=32,s=2,v=2,i=7", encode(px)))
+  doAssert t.takeAnswers() == "\e_Gi=7;OK\e\\"
+  doAssert t.imageCount == 1 and t.pictureCount == 1
+  doAssert t.cursor == (3, 0), $t.cursor
+  # (quiet: no answer; a placement of it again, 3 cells by 2, the cursor left where it is)
+  t.feed("\r\n" & apc("a=p,i=7,c=3,r=2,C=1,q=1"))
+  doAssert t.takeAnswers() == "" and t.pictureCount == 2 and t.cursor == (0, 1)
+  # (a PNG in two pieces, zlib'ed, with a number: its id told)
+  let png = encodePng(newBitmap(16, 8, 0xFF336699'u32))
+  let z = zlibCompress(png.toOpenArrayByte(0, png.high))
+  var zs = newString(z.len)
+  copyMem(addr zs[0], unsafeAddr z[0], z.len)
+  let b64 = encode(zs)
+  t.feed(apc("a=T,f=100,o=z,I=5,m=1", b64[0 ..< 20]) & apc("m=0", b64[20 .. ^1]))
+  let ans = t.takeAnswers()
+  doAssert ans.startsWith("\e_Gi=") and ans.endsWith(",I=5;OK\e\\"), ans.escape
+  doAssert t.imageCount == 2 and t.pictureCount == 3
+  # (asked about: not kept)
+  t.feed(apc("a=q,i=31,s=1,v=1,f=24", encode("\x01\x02\x03")))
+  doAssert t.takeAnswers() == "\e_Gi=31;OK\e\\" and t.imageCount == 2
+  # (wrong data: told why)
+  t.feed(apc("a=T,i=9,f=32,s=4,v=4", encode("short")))
+  doAssert t.takeAnswers().startsWith("\e_Gi=9;EBADPNG")
+  t.feed(apc("a=p,i=99"))
+  doAssert t.takeAnswers().startsWith("\e_Gi=99;ENOENT")
+  # (it scrolls with its line, into what scrolled off)
+  for i in 0 ..< 12: t.feed("\r\n")
+  doAssert t.pictureCount == 3 and t.scrollbackLines > 0
+  # (taken away: an image's placements, and with D the image too)
+  t.feed(apc("a=d,d=I,i=7"))
+  doAssert t.pictureCount == 1 and t.imageCount == 1, $t.pictureCount & " " & $t.imageCount
+  t.feed(apc("a=d,d=a"))
+  doAssert t.imageCount == 1, "a: placements only"
+  # (the cell's size in pixels, asked)
+  t.feed("\e[16t")
+  doAssert t.takeAnswers() == "\e[6;16;8t"
+  # (the app's own picture, in pieces as the protocol wants them: shown, nothing said back -- no
+  # answer typed into a shell)
+  let big = encodePng(newBitmap(64, 64, 0xFF808080'u32))
+  let pics = t.pictureCount
+  t.showPicture(big & newString(6000), rows = 2)   # (more than one piece of 4096)
+  doAssert t.takeAnswers() == "" and t.pictureCount == pics + 1, $t.pictureCount
 
 when defined(posix):
   block shell:

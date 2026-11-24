@@ -140,18 +140,13 @@ block graphicStylesArtboardsFeather:
   doAssert back.name == "Red Box" and back.look.fill.color == 0xFFC03030'u32 and back.opacity == 70
   d.undo()
   doAssert b.shape.fill.color == 0xFF3030C0'u32, "undone"
-  # an artboard's color, and its lock
+  # an artboard's color (its paper)
   let ab = d.addArtboard(rect(0, 0, 100, 100), "Board")
-  let i = d.layers.find(ab)
-  doAssert d.artboardColor(i) == 0xFFFFFFFF'u32
-  d.setArtboardColor(i, 0xFFEEDDCC'u32)
-  doAssert d.artboardColor(d.layers.find(ab)) == 0xFFEEDDCC'u32
-  d.setArtboardColor(d.layers.find(ab), 0)
-  doAssert d.artboardColor(d.layers.find(ab)) == 0, "transparent: no page shown"
-  d.lockArtboard(d.layers.find(ab), true)
-  doAssert ab.locked
-  d.lockArtboard(d.layers.find(ab), false)
-  doAssert not ab.locked
+  doAssert d.artboardColor(ab) == 0xFFFFFFFF'u32
+  d.setArtboardColor(ab, 0xFFEEDDCC'u32)
+  doAssert d.artboardColor(ab) == 0xFFEEDDCC'u32
+  d.setArtboardColor(ab, 0)
+  doAssert d.artboardColor(ab) == 0, "transparent: no paper shown"
   # Gradient Feather: opaque at its start, gone at its end
   let e = newDoc(200, 50, 0xFFFFFFFF'u32)
   let L = e.addLayer("Fade")
@@ -230,44 +225,120 @@ block contentAwareExpand:
   doAssert d.w == 50 and d.h == 30
 
 block artboards:
-  let d = newDoc(200, 120, 0xFFC0C0C0'u32)
+  # (the drawing program's: pages of the canvas the document keeps, not layers -- the artwork
+  # anywhere on the canvas, on one or round them)
+  let d = newDoc(200, 120, 0)
   d.beginStep("New Artboard")
-  let G = d.addArtboard(rect(10, 10, 60, 40), color = 0xFFFFFFFF'u32)
+  let n = d.addArtboard(rect(10, 10, 60, 40), color = 0xFFFFFFFF'u32)
   d.endStep()
-  doAssert G != nil and G.isArtboard and G.board == rect(10, 10, 60, 40)
-  doAssert d.artboards == @[d.layers.find(G)]
-  # a layer put in it shows only on its page
-  let k = d.layers.find(G)
-  let L = d.addLayer("Red", above = k - 1)
-  for p in L.px.mitems: p = argb(255, 255, 0, 0)
+  doAssert n == 0 and d.boards.len == 1 and d.boardCur == 0 and d.artboardName(0) == "01 - Artboard 1"
+  doAssert d.w == 230 and d.h == 150 and d.boards[0].r == rect(40, 40, 60, 40) and d.grown == (30, 30),
+           "the canvas grown round it (room for artwork beside it): " & $d.boards[0].r & " " & $d.w & "x" & $d.h
+  doAssert d.layers.len == 1, "no layer made for it"
+  let L = d.layers[0]
+  for y in 50 ..< 60:
+    for x in 50 ..< 60: L.px[y * d.w + x] = argb(255, 255, 0, 0)
   inc L.ver
-  doAssert d.blockStart(d.layers.find(G)) <= d.layers.find(L), "in the artboard's group"
+  let M = d.addLayer("Blue")
+  for y in 120 ..< 130:
+    for x in 150 ..< 160: M.px[y * d.w + x] = argb(255, 0, 0, 255)
+  inc M.ver
   d.markAll()
-  let flat = d.flattened()
-  doAssert rgbOf(flat[30 * 200 + 30]) == (255, 0, 0), "on the page"
-  doAssert rgbOf(flat[100 * 200 + 150]) == (192, 192, 192), "off the page: not shown"
-  doAssert d.artboardAt(20, 20) == d.layers.find(G) and d.artboardAt(150, 100) == -1
-  # its picture: the page alone
-  let pic = d.artboardPicture(d.layers.find(G))
-  doAssert pic.w == 60 and pic.h == 40 and rgbOf(pic.px[10 * 60 + 10]) == (255, 0, 0)
-  # moved, with all on it
+  doAssert d.artboardArt(0) == @[L], "on it: the red, not the blue off it"
+  doAssert d.artboardAt(45, 45) == 0 and d.artboardAt(150, 100) == -1
+  # its picture: what is on it over its paper
+  let pic = d.artboardPicture(0)
+  doAssert pic.w == 60 and pic.h == 40 and rgbOf(pic.px[15 * 60 + 15]) == (255, 0, 0) and
+           pic.px[0] == 0xFFFFFFFF'u32, "its picture: the red over white paper"
+  # moved, with its artwork
   d.beginStep("Move Artboard")
-  d.moveArtboard(d.layers.find(G), 100, 50)
+  d.moveArtboard(0, 50, 20)
   d.endStep()
-  doAssert G.board == rect(110, 60, 60, 40)
-  d.markAll()
-  let flat2 = d.flattened()
-  doAssert rgbOf(flat2[30 * 200 + 30]) == (192, 192, 192)
-  doAssert rgbOf(flat2[80 * 200 + 130]) == (255, 0, 0)
-  # kept in a .rpd
+  doAssert d.boards[0].r == rect(90, 60, 60, 40) and d.w == 230
+  doAssert L.px[75 * d.w + 105] == argb(255, 255, 0, 0) and L.px[55 * d.w + 55] == 0, "its artwork with it"
+  # alone (Move Artwork with Artboard off): its artwork stays
+  d.beginStep("Move Artboard")
+  d.moveArtboard(0, -50, -20, withArt = false)
+  d.endStep()
+  doAssert d.boards[0].r == rect(40, 40, 60, 40) and L.px[75 * d.w + 105] == argb(255, 255, 0, 0)
+  doAssert d.artboardArt(0).len == 0
+  d.undo()
+  doAssert d.boards[0].r == rect(90, 60, 60, 40), "undone"
+  # a copy (Alt+drag): its artwork copied too, the canvas grown for it
+  d.beginStep("Duplicate Artboard")
+  let c = d.duplicateArtboard(0, 0, 50)
+  d.endStep()
+  doAssert c == 1 and d.boards[1].r == rect(90, 110, 60, 40) and d.boards[1].name == "Artboard 1 copy" and
+           d.h == 190, $d.boards[1].r & " " & $d.h
+  proc copyOf(d: Doc; a, b: Layer): Layer =
+    for X in d.layers:
+      if X != a and X != b: return X
+  doAssert d.layers.len == 3 and d.copyOf(L, M).px[125 * d.w + 105] == argb(255, 255, 0, 0), "its artwork copied"
+  d.undo()
+  doAssert d.boards.len == 1 and d.layers.len == 2 and d.h == 150, "the copy undone: the canvas as it was"
+  d.redo()
+  doAssert d.boards.len == 2 and d.layers.len == 3 and d.h == 190 and d.boards[1].r == rect(90, 110, 60, 40), "redone"
+  # rearranged in a row, 10 apart, their artwork with them
+  d.beginStep("Rearrange All Artboards")
+  d.rearrangeArtboards(alRow, 1, 10)
+  d.endStep()
+  doAssert d.boards[0].r == rect(90, 60, 60, 40) and d.boards[1].r == rect(160, 60, 60, 40), $d.boards[1].r
+  doAssert d.copyOf(L, M).px[75 * d.w + 175] == argb(255, 255, 0, 0), "the copy's artwork with it"
+  d.beginStep("Rearrange All Artboards")
+  d.rearrangeArtboards(alGridByRow, 1, 10, withArt = false)
+  d.endStep()
+  doAssert d.boards[1].r == rect(90, 110, 60, 40), "a grid of one column: under it"
+  d.undo()
+  # fitted to its artwork
+  d.beginStep("Fit to Artwork Bounds")
+  d.fitArtboardTo(0)
+  d.endStep()
+  doAssert d.boards[0].r == rect(100, 70, 10, 10), "fitted to the red: " & $d.boards[0].r
+  d.undo()
+  # renamed, reordered
+  d.beginStep("Rename Artboard")
+  d.renameArtboard(1, "Back")
+  d.endStep()
+  d.beginStep("Reorder Artboards")
+  d.reorderArtboard(1, 0)
+  d.endStep()
+  doAssert d.boards[0].name == "Back" and d.boardCur == 0 and d.artboardName(1) == "02 - Artboard 1"
+  # kept in a .rpd: their places, names, paper and what they show
+  d.boards[1].centerMark = true
+  d.setArtboardColor(0, 0xFF102030'u32)
   let path = getTempDir() / "retro-artboard.rpd"
   d.saveRpd(path)
   let back = loadRpd(path)
-  doAssert back.artboards.len == 1 and back.layers[back.artboards[0]].board == rect(110, 60, 60, 40)
   removeFile(path)
-  # undone: back where it was
-  d.undo()
-  doAssert G.board == rect(10, 10, 60, 40)
+  doAssert back.boards.len == 2 and back.boards[0].name == "Back" and back.boards[0].r == d.boards[0].r and
+           back.boards[0].color == 0xFF102030'u32 and back.boards[1].centerMark and back.boardCur == 0, "kept"
+  # deleted: its artwork stays
+  d.beginStep("Delete Artboard")
+  d.deleteArtboard(0)
+  d.endStep()
+  doAssert d.boards.len == 1 and d.layers.len == 3
+  # a rectangle made an artboard (it goes), then empty ones deleted
+  d.beginStep("shape")
+  d.touchLayers()
+  let S = d.addShapeLayer(ShapeData(path: rectPath(5, 100, 35, 120), fill: solidPaint(0xFF00FF00'u32)), "Rect")
+  d.endStep()
+  d.beginStep("Convert to Artboards")
+  let made = d.convertToArtboards(@[S])
+  d.endStep()
+  doAssert made.len == 1 and d.boards[made[0]].r.w == 30 and d.boards[made[0]].r.h == 20 and S notin d.layers,
+           "a rectangle made an artboard: " & $d.boards[made[0]].r
+  d.beginStep("Delete Empty Artboards")
+  doAssert d.deleteEmptyArtboards() == 1 and d.boards.len == 1, "the empty one deleted"
+  d.endStep()
+  # a file of before: its artboard groups made the document's artboards
+  let o = newDoc(100, 80, 0)
+  let P = o.addShapeLayer(ShapeData(path: rectPath(10, 10, 60, 50), fill: solidPaint(0xFFFFEEDD'u32)), "Page")
+  let G = o.groupLayers(@[o.layers.find(P)], "Old Board")
+  G.board = rect(10, 10, 50, 40)
+  doAssert G.isArtboard
+  o.boardsFromGroups()
+  doAssert o.boards.len == 1 and o.boards[0].name == "Old Board" and o.boards[0].r == rect(10, 10, 50, 40) and
+           o.boards[0].color == 0xFFFFEEDD'u32 and not G.isArtboard and P notin o.layers, "an old file's artboard"
 
 block constraints:
   # (where a box goes when its board changes size, by its pins; then layers on a board resized)
@@ -282,25 +353,26 @@ block constraints:
   doAssert pinnedBox(b, was, rect(50, 20, 200, 100), {lpLeft}) == rect(200, 90, 40, 20), "the board moved: with it"
   let d = newDoc(400, 300, 0xFFC0C0C0'u32)
   d.beginStep("New Artboard")
-  let G = d.addArtboard(rect(10, 10, 200, 100), color = 0xFFFFFFFF'u32)
+  let gi = d.addArtboard(rect(10, 10, 200, 100), color = 0xFFFFFFFF'u32)
   d.endStep()
-  let k = d.layers.find(G)
+  let ob = d.boards[gi].r
   d.beginStep("shapes")
   d.touchLayers()
-  let bar = d.addShapeLayer(ShapeData(path: rectPath(20, 90, 200, 100), fill: solidPaint(0xFF0000FF'u32)), "Bar",
-                            above = k - 1)
+  let bar = d.addShapeLayer(ShapeData(path: rectPath(ob.x.float + 10, ob.y.float + 80, ob.x.float + 190,
+                                                     ob.y.float + 90), fill: solidPaint(0xFF0000FF'u32)), "Bar")
   bar.pins = {lpLeft, lpRight, lpBottom}
-  let free = d.addShapeLayer(ShapeData(path: rectPath(30, 30, 50, 50), fill: solidPaint(0xFFFF0000'u32)), "Free",
-                             above = d.layers.find(bar))
+  let free = d.addShapeLayer(ShapeData(path: rectPath(ob.x.float + 20, ob.y.float + 20, ob.x.float + 40,
+                                                      ob.y.float + 40), fill: solidPaint(0xFFFF0000'u32)), "Free")
   d.endStep()
-  let gi = d.layers.find(G)
-  doAssert d.blockStart(gi) <= d.layers.find(bar) and d.blockStart(gi) <= d.layers.find(free), "both on the board"
+  doAssert bar in d.artboardArt(gi) and free in d.artboardArt(gi), "both on the board"
   d.beginStep("Resize Artboard")
-  d.resizeArtboard(gi, rect(10, 10, 300, 160))
+  d.resizeArtboard(gi, rect(ob.x, ob.y, 300, 160))
   d.endStep()
-  doAssert d.layerBox(bar) == rect(20, 150, 280, 10), "the bar: along the bottom, as wide as the board less its gaps: " &
-                                                       $d.layerBox(bar)
-  doAssert d.layerBox(free) == rect(30, 30, 20, 20), "no pins: where it was"
+  let nb = d.boards[gi].r
+  doAssert nb.w == 300 and nb.h == 160
+  doAssert d.layerBox(bar) == rect(nb.x + 10, nb.y + 140, 280, 10),
+           "the bar: along the bottom, as wide as the board less its gaps: " & $d.layerBox(bar)
+  doAssert d.layerBox(free) == rect(nb.x + 20, nb.y + 20, 20, 20), "no pins: where it was"
   let path = getTempDir() / "retro-pins.rpd"
   d.saveRpd(path)
   let back = loadRpd(path)
@@ -310,8 +382,7 @@ block constraints:
     if L.name == "Bar": kept = L.pins == {lpLeft, lpRight, lpBottom}
   doAssert kept, "the pins kept in the file"
   d.undo()
-  doAssert G.board == rect(10, 10, 200, 100) and d.layerBox(d.layers[d.layers.find(G) - 2]).w in [180, 20],
-           "undone"
+  doAssert d.boards[gi].r == ob and d.layerBox(bar).w == 180, "undone"
 
 block patchOptions:
   let d = scene(100, 80)

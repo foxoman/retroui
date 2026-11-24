@@ -69,15 +69,28 @@ proc searchBox*(s: var string; placeholder = "Search"; w = 0;
   let id = idOf(s, "search")
   let iw = r.h
   let cw = if s.len > 0: r.h else: 0
-  fill(r, th.field)
-  fieldFrame(r, enabled)
-  let glass = retroOr(pxSearch, nfSearch)
-  let gw = textWidth(glass)
-  text(r.x + (iw - gw) div 2, r.y + (r.h - FontH) div 2, glass, th.gray)
-  let er = rect(r.x + iw - 4, r.y, r.w - iw + 4 - cw, r.h)
+  let gl = glassLook()
+  if gl:
+    # (Glass: a rounded field, the ring while it has the keyboard; a magnifier drawn smooth)
+    fieldFace(r, th.field, enabled, enabled and ui.focus == id)
+    let k = float(r.h) / 7
+    let cx = float(r.x) + float(iw) / 2 - k * 0.4
+    let cy = float(r.y) + float(r.h) / 2 - k * 0.4
+    let ink = mixColor(th.fieldText, th.field, 0.45)
+    roundFrame(rect(int(cx - k * 1.4), int(cy - k * 1.4), int(k * 2.8), int(k * 2.8)), k * 1.4, 1.5, ink)
+    thickLine(cx + k * 1.05, cy + k * 1.05, cx + k * 2.1, cy + k * 2.1, 1.8, ink)
+  else:
+    fill(r, th.field)
+    fieldFrame(r, enabled)
+    let glass = retroOr(pxSearch, nfSearch)
+    let gw = textWidth(glass)
+    text(r.x + (iw - gw) div 2, r.y + (r.h - FontH) div 2, glass, th.gray)
+  # (Glass: the text's box inside the field's hairline, not over it)
+  let er = if gl: rect(r.x + iw - 4, r.y + 1, r.w - iw + 4 - cw - 1, r.h - 2)
+           else: rect(r.x + iw - 4, r.y, r.w - iw + 4 - cw, r.h)
   if accessOn: accessNameOr(tr(placeholder))
   result = editAt(id, s, er, false, false, enabled, frameless = true)
-  fieldFrame(r, enabled)
+  if not gl: fieldFrame(r, enabled)
   if s.len == 0:
     pushClip(inset(er, 1))
     text(er.x + 3, r.y + (r.h - FontH) div 2, tr(placeholder), th.gray)
@@ -279,12 +292,30 @@ proc segmented*(options: openArray[string]; sel: var int; w = 0;
       sel = options.high
       result = true
   var x = r.x
+  let glass = glassLook()
+  if glass: glassTrack(r)
   for i, o in options:
     let br = rect(x, r.y, widths[i] + (if i < options.high: 1 else: 0), r.h)
     let down = i == sel
     if enabled and hit.clicked and br.contains(point(ui.mx, ui.my)) and sel != i:
       sel = i
       result = true
+    if glass:
+      # (Glass: the chosen one a pill of glass on the track, the others their labels, lit under
+      # the pointer)
+      let pill = rect(br.x + dp(2), br.y + dp(2), br.w - dp(4) - (if i < options.high: 1 else: 0), br.h - dp(4))
+      if down: glassFace(pill, radius = float(pill.h) / 2)
+      elif enabled and hovered(pill) and canInput():
+        roundRect(pill, float(pill.h) / 2, withAlpha(th.text, if lumaOfColor(th.window) < 128: 26 else: 14))
+      let tw = labelWidth(o, down)
+      drawLabel(br.x + (br.w - tw) div 2, br.y + (br.h - FontH) div 2, o,
+                if not enabled: th.gray elif down: th.text else: mixColor(th.text, th.window, 0.25), down)
+      if down and hit.focused: focusDots(pill)
+      if mnemonicHit(o) and enabled:
+        sel = i
+        result = true
+      x += widths[i]
+      continue
     buttonFace(br, down, rounded = i == 0 or i == options.high, bevel = 1)
     if down:
       fill(inset(br, 2), th.light)
@@ -296,7 +327,7 @@ proc segmented*(options: openArray[string]; sel: var int; w = 0;
       sel = i
       result = true
     x += widths[i]
-  if hit.focused: focusDots(inset(r, 3))
+  if hit.focused and not glass: focusDots(inset(r, 3))
   if accessOn:
     # (a group of options, the one pressed in checked)
     accessBegin(arGroup, "", r, id, accessOff(enabled), takesLabel = true)
@@ -376,6 +407,17 @@ proc endCard*() =
   let titleH = if title.len > 0: FontH + dp(2) else: 0
   let natural = h + 2 * Pad + 4 + titleH
   let r = rect(cell.x, cell.y, cell.w, max(natural, minH))
+  if glassLook():
+    # (Glass: a rounded card, a hairline round it, its title a bold line at its top)
+    let rad = float(dp(10))
+    patchRoundRect(fillAt, r, rad, glassCard())
+    roundFrame(r, rad, 1, glassHair())
+    if title.len > 0:
+      pushClip(rect(r.x + 4, r.y, r.w - 8, FontH + dp(6)))
+      drawLabel(r.x + Pad + 2, r.y + dp(4), title, mixColor(th.text, th.window, 0.3), true)
+      popClip()
+    endCell(r, r.h, natural)
+    return
   patchFill(fillAt, r, th.window)
   let top = if title.len > 0: FontH div 2 else: 0
   etchedBox(rect(r.x, r.y + top, r.w, r.h - top))

@@ -24,6 +24,7 @@ type
     name*: string
     layers*: seq[Layer]
     box*: Rect
+    paper*: uint32              ## an artboard's color under it (alpha 0: none)
 
   ScreenExport* = object
     ## How Export for Screens writes the files.
@@ -63,14 +64,19 @@ proc assetItems*(d: Doc; idxs: seq[int]): seq[ScreenItem] =
     if b.w > 0 and b.h > 0: result.add ScreenItem(name: d.layers[hi].name, layers: ls, box: b)
 
 proc artboardItems*(d: Doc; which: seq[int] = @[]): seq[ScreenItem] =
-  ## The artboards (`which`: those, by their layer; none: all), each cut to its page.
-  for i in d.layers.low .. d.layers.high:
-    let G = d.layers[i]
-    if not G.group or G.board.w <= 0 or G.board.h <= 0: continue
+  ## The artboards (`which`: those, by their number; none: all), each what is on it -- the artwork
+  ## over its paper -- cut to it.
+  for i in 0 ..< d.boards.len:
     if which.len > 0 and i notin which: continue
+    let bd = d.boards[i]
+    let box = d.clip(bd.r)
+    if box.w <= 0 or box.h <= 0: continue
     var ls: seq[Layer]
-    for j in d.blockStart(i) .. i: ls.add d.layers[j]
-    result.add ScreenItem(name: G.name, layers: ls, box: d.clip(G.board))
+    for L in d.layers:
+      if L.group: continue
+      let c = d.contentBounds(L)
+      if L.adjust.kind.len > 0 or (c.w > 0 and c.intersects(box)): ls.add L
+    result.add ScreenItem(name: bd.name, layers: ls, box: box, paper: bd.color)
 
 proc documentItem*(d: Doc): ScreenItem =
   ## The whole document.
@@ -81,7 +87,7 @@ proc itemDoc*(d: Doc; it: ScreenItem; scale = 1.0): Doc =
   ## at it): copies of its layers, the groups left out -- what is in them kept, in order.
   let w = max(1, it.box.w)
   let h = max(1, it.box.h)
-  result = newDoc(w, h, 0, d.dpi, it.name)
+  result = newDoc(w, h, (if (it.paper shr 24) > 0: it.paper or 0xFF000000'u32 else: 0'u32), d.dpi, it.name)
   var copies: seq[Layer]
   for L in it.layers:
     if L.group or not L.visible or L.adjust.kind.len > 0: continue

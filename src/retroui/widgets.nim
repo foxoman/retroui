@@ -193,25 +193,28 @@ proc glassFace*(r: Rect; pressed = false; hot = false; radius = -1.0; ring = Col
   let rad = if radius < 0: glassRadius(r) else: radius
   let dark = onDark()
   if shadow and not pressed and r.h >= 8:
-    roundRect(rect(r.x, r.y + 1, r.w, r.h), rad, withAlpha(color(0, 0, 0), if dark: 110 else: 26))
+    # (a soft shadow: wide and faint, then close and a little darker)
+    roundRect(rect(r.x - 1, r.y + 1, r.w + 2, r.h + 2), rad + 1, withAlpha(color(0, 0, 0), if dark: 60 else: 12))
+    roundRect(rect(r.x, r.y + 1, r.w, r.h), rad, withAlpha(color(0, 0, 0), if dark: 90 else: 22))
   roundRect(r, rad, if ring.a != 0: ring else: glassHair())
   let f = inset(r, 1)
   if f.w <= 0 or f.h <= 0: return
   let fr = max(0.0, rad - 1)
   let base = if pressed: mixColor(th.face, th.shadow, 0.16)
-             elif hot: mixColor(th.face, th.light, 0.5)
+             elif hot: mixColor(th.face, th.light, 0.45)
              else: th.face
-  roundRect(f, fr, base)
-  if not pressed:
-    # (the light: the upper half lighter, a bright line along the top)
-    roundRect(rect(f.x, f.y, f.w, max(1, f.h div 2)), min(fr, float(f.h) / 4),
-              withAlpha(color(255, 255, 255), if dark: 16 else: 70))
-    let cut = int(fr * 0.7)
-    if f.w > 2 * cut + 2:
-      hline(f.x + cut, f.y, f.w - 2 * cut, withAlpha(color(255, 255, 255), if dark: 46 else: 210))
-  else:
-    let cut = int(fr * 0.7)
-    if f.w > 2 * cut + 2: hline(f.x + cut, f.y, f.w - 2 * cut, withAlpha(color(0, 0, 0), if dark: 70 else: 30))
+  # (the light from above: the face shaded from lighter at its top to a little darker at its
+  # foot, a bright line along its top; pressed, the other way round)
+  let top = if pressed: mixColor(base, th.shadow, 0.12)
+            else: mixColor(base, color(255, 255, 255), if dark: 0.14 else: 0.7)
+  let foot = if pressed: base else: mixColor(base, color(0, 0, 0), if dark: 0.10 else: 0.05)
+  roundRectShaded(f, fr, top, foot)
+  let cut = int(fr * 0.7)
+  if f.w > 2 * cut + 2:
+    if not pressed:
+      hline(f.x + cut, f.y, f.w - 2 * cut, withAlpha(color(255, 255, 255), if dark: 52 else: 220))
+    else:
+      hline(f.x + cut, f.y, f.w - 2 * cut, withAlpha(color(0, 0, 0), if dark: 70 else: 30))
 
 proc glassWell*(r: Rect; radius = -1.0; back = th.field) =
   ## A sunk surface of the Glass look -- a check box's, a switch's track, a field: `back`, a
@@ -230,11 +233,28 @@ proc glassAccent*(r: Rect; radius = -1.0) =
   if r.w <= 0 or r.h <= 0: return
   let rad = if radius < 0: glassRadius(r) else: radius
   let a = accentColor()
-  roundRect(r, rad, mixColor(a, color(0, 0, 0), 0.18))
+  roundRect(r, rad, mixColor(a, color(0, 0, 0), 0.2))
   let f = inset(r, 1)
-  roundRect(f, max(0.0, rad - 1), a)
-  roundRect(rect(f.x, f.y, f.w, max(1, f.h div 2)), min(max(0.0, rad - 1), float(f.h) / 4),
-            withAlpha(color(255, 255, 255), 46))
+  roundRectShaded(f, max(0.0, rad - 1), mixColor(a, color(255, 255, 255), 0.22), mixColor(a, color(0, 0, 0), 0.06))
+  let cut = int(max(0.0, rad - 1) * 0.7)
+  if f.w > 2 * cut + 2: hline(f.x + cut, f.y, f.w - 2 * cut, withAlpha(color(255, 255, 255), 70))
+
+proc glassTrack*(r: Rect) =
+  ## Glass: the track a segmented choice sits in -- a page's tabs, `segmented`: a capsule a
+  ## little darker than the window (lighter on a dark one).
+  if r.w > 0 and r.h > 0:
+    roundRect(r, float(r.h) / 2, mixColor(th.window, th.text, if onDark(): 0.12 else: 0.07))
+
+proc softShadow*(r: Rect; radius: float; depth = 4) =
+  ## Glass: the soft shadow of a surface floating over the window -- a menu, a dropped list, a
+  ## dialog -- under `r`, `depth` pixels wide; drawn before the surface.
+  let dark = onDark()
+  for k in 0 ..< depth:
+    let g = k + 1
+    # (a band round each, as wide as it shows past the surface: the surface covers the rest, and
+    # a frosted one does not blur its own shadow)
+    roundFrame(rect(r.x - g + 1, r.y - g + 3, r.w + 2 * g - 2, r.h + 2 * g - 2), radius + float(g),
+               float(g + 3), withAlpha(color(0, 0, 0), max(2, (if dark: 34 else: 12) - (if dark: 5 else: 2) * k)))
 
 proc frosted*(): bool {.inline.} = glassLook() and frostedGlass
   ## Menus, dialogs and dropped lists drawn as frosted glass now (`frostedGlass`, in the Glass
@@ -314,6 +334,31 @@ proc fieldFrame*(r: Rect; enabled = true) =
     hline(r.x + 1, r.y + 1, r.w - 2, th.shadow)
     vline(r.x + 1, r.y + 1, r.h - 2, th.shadow)
 
+proc fieldFace*(r: Rect; back: Color; enabled = true; focused = false) =
+  ## The face of a text box, a list or another field: `back` in its frame -- the 3.1 look's
+  ## black border with its gray shadow inside; Glass: rounded, a hairline round it, a soft
+  ## shadow inside its top, a ring in the highlight while it has the keyboard.
+  if not glassLook():
+    fill(r, back)
+    fieldFrame(r, enabled)
+    return
+  if r.w <= 0 or r.h <= 0: return
+  let rad = float(min(dp(6), r.h div 2))
+  let dark = onDark()
+  if focused and enabled:
+    # (the ring: two hairlines round it, the outer fainter -- outlines, not fills under it)
+    let a = accentColor()
+    roundFrame(inset(r, -2), rad + 2, 1, Color(r: a.r, g: a.g, b: a.b, a: 70))
+    roundFrame(inset(r, -1), rad + 1, 1, Color(r: a.r, g: a.g, b: a.b, a: 186))
+  roundRect(r, rad, if focused and enabled: mixColor(accentColor(), th.field, 0.2)
+                    elif enabled: mixColor(th.field, th.fieldText, if dark: 0.3 else: 0.22)
+                    else: mixColor(th.field, th.gray, 0.4))
+  let f = inset(r, 1)
+  roundRect(f, max(0.0, rad - 1), back)
+  let cut = int(rad)
+  if f.w > 2 * cut + 2:
+    hline(f.x + cut, f.y, f.w - 2 * cut, withAlpha(color(0, 0, 0), if dark: 60 else: 16))
+
 proc etchedBox*(r: Rect) =
   ## A group box's etched line: gray, with white one pixel down and right. (Glass: a hairline
   ## with rounded corners.)
@@ -392,6 +437,13 @@ proc controlMenuMark*(r: Rect; pressed = false) =
   ## The bar in the control-menu box: white, black-edged, with a gray
   ## shadow under it.
   let o = if pressed: 1 else: 0
+  if glassLook():
+    # (Glass: a short smooth bar)
+    let w = float(max(dp(8), r.w * 2 div 5))
+    let cx = float(r.x + o) + float(r.w) / 2
+    let cy = float(r.y + o) + float(r.h) / 2
+    thickLine(cx - w / 2, cy, cx + w / 2, cy, max(1.5, float(dp(2))), th.text)
+    return
   let w = max(dp(13), r.w * 13 div 23)
   let h = max(5, dp(5))
   let x = r.x + (r.w - w) div 2 + o
@@ -469,6 +521,25 @@ proc captionMark*(r: Rect; mark: CaptionMark; pressed = false; enabled = true) =
     else: captionRestore(r, pressed)
     return
   let o = if pressed: 1 else: 0
+  if glassLook():
+    # (Glass: fine smooth strokes, a little smaller)
+    let c = if enabled: th.text else: mixColor(th.text, th.face, 0.55)
+    let g = float(max(6, r.h * 2 div 5))
+    let w = float(dp(3)) / 2
+    let x0 = float(r.x + o) + (float(r.w) - g) / 2
+    let y0 = float(r.y + o) + (float(r.h) - g) / 2
+    case mark
+    of cmMinimize: thickLine(x0, y0 + g / 2, x0 + g, y0 + g / 2, w, c)
+    of cmMaximize: roundFrame(rect(int(x0), int(y0), int(g), int(g)), 2.0, w, c)
+    of cmRestore:
+      let s = int(g * 0.75)
+      roundFrame(rect(int(x0 + g) - s, int(y0), s, s), 2.0, w, c)
+      roundRect(rect(int(x0), int(y0 + g) - s, s, s), 2.0, th.face)
+      roundFrame(rect(int(x0), int(y0 + g) - s, s, s), 2.0, w, c)
+    of cmClose:
+      thickLine(x0, y0, x0 + g, y0 + g, w, c)
+      thickLine(x0 + g, y0, x0, y0 + g, w, c)
+    return
   let g = max(7, r.h * 9 div 16)             # (the mark's square: 11 in a 20-pixel button)
   let t = max(2, (g + 3) div 7)              # (its strokes)
   let x = r.x + (r.w - g) div 2 + o
@@ -1863,9 +1934,12 @@ proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
   if right and not multi:
     tx = inner.x + 2 + max(0, inner.w - 6 - textWidth(shown(s, 0, s.len, pass)))
     if tx > inner.x + 2: st.scrollX = 0
-  fill(area, if invalid and enabled: mixColor(th.field, InvalidRed, 0.3) else: th.field)
-  if not frameless: fieldFrame(area, enabled)
-  if invalid and enabled: box(area, InvalidRed)
+  let back = if invalid and enabled: mixColor(th.field, InvalidRed, 0.3) else: th.field
+  if frameless: fill(area, back)
+  else: fieldFace(area, back, enabled, hit.focused)
+  if invalid and enabled:
+    if glassLook(): roundFrame(area, float(min(dp(6), area.h div 2)), 1, InvalidRed)
+    else: box(area, InvalidRed)
   pushClip(inset(inner, 1))
   let fg = if enabled: th.fieldText else: th.gray
   let selA = min(st.caret, st.anchor)
@@ -2139,20 +2213,30 @@ proc listbox*(items: openArray[string]; sel: var int; rows = 6; w = 0;
   st.scrollY = off
   state(id) = st
   # draw
-  fill(area, th.field)
-  fieldFrame(area, enabled)
+  fieldFace(area, th.field, enabled, hit.focused)
   pushClip(inset(area, 1))
   let top = off div ItemH
+  let glass = glassLook()
   for i in top ..< min(n, top + vis + 2):
     let y = r.y + 1 + i * ItemH - off
     let ir = rect(area.x + 1, y, area.w - 2, ItemH)
-    if i != sel and enabled and hovered(ir): fill(ir, hoverColor())
+    if i != sel and enabled and hovered(ir):
+      if glass:
+        let p = rect(ir.x + dp(3), ir.y + 1, ir.w - 2 * dp(3), ir.h - 2)
+        roundRect(p, float(min(dp(6), p.h div 2)), hoverColor())
+      else: fill(ir, hoverColor())
     if i == sel:
-      fill(ir, if enabled: th.select else: th.gray)
-      drawItem(ir.x + 2, itemTextY(y), ir.w, items[i], th.selectText, tabs)
-      if hit.focused: dots(ir, th.selectText)
+      if glass:
+        # (Glass: a rounded pill of the highlight, a little in from the row's ends)
+        if enabled: selectFill(ir)
+        else:
+          let p = rect(ir.x + dp(3), ir.y + 1, ir.w - 2 * dp(3), ir.h - 2)
+          roundRect(p, float(min(dp(6), p.h div 2)), th.gray)
+      else: fill(ir, if enabled: th.select else: th.gray)
+      drawItem(ir.x + 2 + (if glass: dp(4) else: 0), itemTextY(y), ir.w, items[i], th.selectText, tabs)
+      if hit.focused and not glass: dots(ir, th.selectText)
     else:
-      drawItem(ir.x + 2, itemTextY(y), ir.w, items[i],
+      drawItem(ir.x + 2 + (if glass: dp(4) else: 0), itemTextY(y), ir.w, items[i],
                if enabled: th.fieldText else: th.gray, tabs)
   if hit.focused and (sel < 0 or sel >= n):
     dots(rect(area.x + 1, r.y + 1, area.w - 2, ItemH), th.fieldText)
@@ -2264,7 +2348,13 @@ proc popupList(id: Id; r: Rect; items: openArray[string]; sel: var int;
       off = clamp(off, (ui.popupHi + 1) * ItemH - viewH, ui.popupHi * ItemH)
       off = clamp(off, 0, maxOff)
   scrollTick(id, off, maxOff)
-  if frostedFace(area, th.field): box(area, glassHair())
+  if glassLook():
+    # (Glass: rounded, a soft shadow under it, a hairline round it; frosted, what is under it
+    # blurred through it)
+    let rad = float(dp(8))
+    softShadow(area, rad)
+    if not frostedFace(area, th.field, rad): roundRect(area, rad, th.field)
+    roundFrame(area, rad, 1, glassHair())
   else:
     fill(area, th.field)
     box(area, th.edge)
@@ -2377,20 +2467,35 @@ proc combo*(items: openArray[string]; sel: var int; w = 0;
         result = true
   let field = rect(r.x, r.y, r.w - SbW + 1, r.h)
   let btn = rect(r.x + r.w - SbW, r.y, SbW, r.h)
-  fill(field, th.field)
-  fieldFrame(field, enabled)
   let s = if sel >= 0 and sel < items.len: tr(items[sel]) else: ""
   let ty = r.y + (r.h - FontH) div 2
-  if hit.focused and not open:
-    let tr = rect(field.x + 2, field.y + 2, field.w - 4, field.h - 4)
-    fill(tr, th.select)
-    text(field.x + 4, ty, s, th.selectText)
-    dots(tr, th.selectText)
+  if glassLook():
+    # (Glass: one rounded field, a chevron at its end; lit under the pointer, the highlight's
+    # ring while open or with the keyboard)
+    fieldFace(r, if enabled and hovered(r) and not open: mixColor(th.field, th.light, 0.5) else: th.field,
+              enabled, hit.focused or open)
+    pushClip(rect(r.x + 2, r.y, r.w - SbW - 2, r.h))
+    text(field.x + dp(6), ty, s, if enabled: th.fieldText else: th.gray)
+    popClip()
+    let cx = float(btn.x + btn.w div 2)
+    let cy = float(r.y + r.h div 2)
+    let k = float(max(3, min(btn.w, r.h) div 5))
+    let ink = if enabled: mixColor(th.fieldText, th.field, 0.25) else: th.gray
+    thickLine(cx - k, cy - k / 2, cx, cy + k / 2, 1.6, ink)
+    thickLine(cx, cy + k / 2, cx + k, cy - k / 2, 1.6, ink)
   else:
-    text(field.x + 4, ty, s, if enabled: th.fieldText else: th.gray)
-  let pressedBtn = open
-  buttonFace(btn, pressedBtn, rounded = false, bevel = 1,
-             hot = enabled and hovered(r))
+    fill(field, th.field)
+    fieldFrame(field, enabled)
+    if hit.focused and not open:
+      let tr = rect(field.x + 2, field.y + 2, field.w - 4, field.h - 4)
+      fill(tr, th.select)
+      text(field.x + 4, ty, s, th.selectText)
+      dots(tr, th.selectText)
+    else:
+      text(field.x + 4, ty, s, if enabled: th.fieldText else: th.gray)
+    let pressedBtn = open
+    buttonFace(btn, pressedBtn, rounded = false, bevel = 1,
+               hot = enabled and hovered(r))
   # (Home / End pick the first / last when it is closed)
   if enabled and hit.focused and canInput() and not open and items.len > 0 and
      ui.key in {KeyHome, KeyEnd} and not ui.keyUsed:
@@ -2399,14 +2504,15 @@ proc combo*(items: openArray[string]; sel: var int; w = 0;
       sel = to
       result = true
     ui.keyUsed = true
-  let o = if pressedBtn: 1 else: 0
-  let c = if enabled: th.frame else: th.gray
-  arrow(btn.x + btn.w div 2 + o, btn.y + btn.h div 2 - 2 + o, dDown, c)
-  hline(btn.x + btn.w div 2 - 3 + o, btn.y + btn.h div 2 + 3 + o, 7, c)
+  if not glassLook():
+    let o = if open: 1 else: 0
+    let c = if enabled: th.frame else: th.gray
+    arrow(btn.x + btn.w div 2 + o, btn.y + btn.h div 2 - 2 + o, dDown, c)
+    hline(btn.x + btn.w div 2 - 3 + o, btn.y + btn.h div 2 + 3 + o, 7, c)
   if ui.popup == id:
     let vis = min(items.len, 8)
-    var pr = rect(r.x, r.y + r.h - 1, r.w, vis * ItemH + 2)
-    if pr.y + pr.h > ui.h: pr.y = r.y - pr.h + 1
+    var pr = rect(r.x, r.y + r.h - 1 + (if glassLook(): dp(3) else: 0), r.w, vis * ItemH + 2)
+    if pr.y + pr.h > ui.h: pr.y = r.y - pr.h + 1 - (if glassLook(): dp(3) else: 0)
     if popupList(id + 17, pr, items, sel, preview): result = true
 
 # ---- values -------------------------------------------------------------------
@@ -2622,12 +2728,30 @@ proc spinBox(v: var int; lo, hi, w, step: int; enabled: bool; h, uiFontH: int): 
       accessTree.setLen(accessTree.len - 1)
     let k = accessNode(arSpinButton, nm, value = $v, id = editId, r = r, states = offWhen(enabled))
     accessRange(k, lo.float, hi.float, v.float, step.float)
-  for i, b in [ups, downs]:
-    let pr = ui.active == id + 40 + i.uint32 and ui.mouseDown and mouseIn(b)
-    buttonFace(b, pr, rounded = false, bevel = 1)
-    let o = if pr: 1 else: 0
-    arrow(b.x + b.w div 2 + o, b.y + b.h div 2 + o, if i == 0: dUp else: dDown,
-          if enabled: th.frame else: th.gray, max(3, b.h div 4))
+  if glassLook():
+    # (Glass: a stepper of glass beside the field, a chevron each way, a hairline between)
+    let sr = rect(ups.x + dp(2), r.y, aw - dp(2), r.h)
+    glassFace(sr, false, enabled and hovered(sr), radius = float(min(dp(7), sr.w div 2)), shadow = false)
+    for i, b in [ups, downs]:
+      let half = if i == 0: rect(sr.x + 1, sr.y + 1, sr.w - 2, sr.h div 2 - 1)
+                 else: rect(sr.x + 1, sr.y + sr.h div 2, sr.w - 2, sr.h - sr.h div 2 - 1)
+      if ui.active == id + 40 + i.uint32 and ui.mouseDown and mouseIn(b):
+        fill(half, withAlpha(color(0, 0, 0), if onDark(): 50 else: 22))
+      let cx = float(half.x + half.w div 2)
+      let cy = float(half.y + half.h div 2)
+      let k = float(max(2, min(half.w, half.h * 2) div 6))
+      let ink = if enabled: mixColor(th.text, th.face, 0.2) else: th.gray
+      let d = if i == 0: -1.0 else: 1.0
+      thickLine(cx - k, cy - d * k / 2, cx, cy + d * k / 2, 1.5, ink)
+      thickLine(cx, cy + d * k / 2, cx + k, cy - d * k / 2, 1.5, ink)
+    hline(sr.x + dp(3), sr.y + sr.h div 2, sr.w - 2 * dp(3), glassHair())
+  else:
+    for i, b in [ups, downs]:
+      let pr = ui.active == id + 40 + i.uint32 and ui.mouseDown and mouseIn(b)
+      buttonFace(b, pr, rounded = false, bevel = 1)
+      let o = if pr: 1 else: 0
+      arrow(b.x + b.w div 2 + o, b.y + b.h div 2 + o, if i == 0: dUp else: dDown,
+            if enabled: th.frame else: th.gray, max(3, b.h div 4))
   ui.lastId = editId
   ui.lastRect = r
 
@@ -2757,10 +2881,21 @@ var captionGroups: seq[tuple[cell: Rect; fillAt: int; title: string; minH, depth
 
 proc captionStripH(): int = FontH + dp(10)
 
+var glassGroups: seq[tuple[slot, depth: int]]
+
+proc glassCard*(): Color =
+  ## Glass: the colour of a card on the window (a group, a tab's page) -- white, a little of it
+  ## (more on a light window), so a frosted dialog still shows through it and a card on a
+  ## card stands out of it.
+  withAlpha(color(255, 255, 255), if onDark(): 11 else: 150)
+
 proc beginGroup*(title: string; look: GroupLook) =
   ## Starts a group in the `look` way (see `group`); `endGroup` ends it.
   if look == glEtched:
+    # (Glass: a card under it -- its place kept, drawn as tall as it is at the end)
+    let slot = if glassLook(): reserveFill() else: -1
     beginGroup(title)
+    if slot >= 0: glassGroups.add (slot, layoutDepth())
     return
   let cell = beginCell(0, fill = true)
   if accessOn: accessBegin(arGroup, title, rect(cell.x, cell.y, cell.w, FontH))
@@ -2784,7 +2919,13 @@ proc raisedPanel*(r: Rect; c: Color) =
 
 proc captionStrip*(r: Rect; title: string) =
   ## A strip in the highlight colour with a bold title: the head of a
-  ## panel (`glCaption`'s).
+  ## panel (`glCaption`'s). (Glass: rounded, lit from above.)
+  if glassLook():
+    glassAccent(r, float(dp(6)))
+    pushClip(r)
+    drawLabel(r.x + dp(8), r.y + (r.h - FontH) div 2, title, accentInk(), true)
+    popClip()
+    return
   fill(r, th.select)
   hline(r.x, r.y, r.w, mixColor(th.select, th.selectText, 0.25))
   pushClip(r)
@@ -2799,6 +2940,16 @@ proc endGroup*() =
     let head = if title.len > 0: captionStripH() + dp(4) else: 0
     let natural = h + 2 * Pad + 6 + head
     let r = rect(cell.x, cell.y, cell.w, max(natural, minH))
+    if glassLook():
+      # (Glass: a rounded card, its title strip a band of the highlight rounded inside it)
+      let rad = float(dp(10))
+      patchRoundRect(fillAt, r, rad, glassCard())
+      roundFrame(r, rad, 1, glassHair())
+      if title.len > 0:
+        captionStrip(rect(r.x + dp(4), r.y + dp(4), r.w - dp(8), captionStripH()), title)
+      endCell(r, r.h, natural)
+      if accessOn: accessEnd(r)
+      return
     # (the panel under what was placed in it: its place kept, filled now)
     patchFill(fillAt, r, mixColor(th.window, th.light, 0.35))
     box(r, th.shadow)
@@ -2809,8 +2960,21 @@ proc endGroup*() =
     endCell(r, r.h, natural)
     if accessOn: accessEnd(r)
     return
+  let slot = if glassGroups.len > 0 and glassGroups[^1].depth == layoutDepth(): glassGroups.pop().slot
+             else: -1
   let (cell, title) = groupEnd()
   if accessOn: accessEnd(cell)
+  if slot >= 0:
+    # (Glass: a rounded card with a hairline round it, its title a quiet bold line at its top)
+    let rad = float(dp(10))
+    let card = if title.len > 0: cell else: rect(cell.x, cell.y + FontH div 2 - 1, cell.w, cell.h - FontH div 2 + 1)
+    patchRoundRect(slot, card, rad, glassCard())
+    roundFrame(card, rad, 1, glassHair())
+    if title.len > 0:
+      pushClip(rect(cell.x + 4, cell.y, cell.w - 8, FontH + 4))
+      drawLabel(cell.x + 10, cell.y + 3, title, mixColor(th.text, th.window, 0.3), true)
+      popClip()
+    return
   let top = FontH div 2 - 1
   etchedBox(rect(cell.x, cell.y + top, cell.w, cell.h - top))
   if title.len > 0:
@@ -2831,7 +2995,7 @@ template group*(title: string; look: GroupLook; body: untyped) =
   body
   endGroup()
 
-var tabStack: seq[tuple[x, y, w, selX, selW, tabH: int; id: Id; same: bool]]
+var tabStack: seq[tuple[x, y, w, selX, selW, tabH: int; id: Id; same: bool; card: int]]
 
 type TabLook* = enum
   ## How tabs look (`tabs`, `tabStrip`; `tabLook` for all of them).
@@ -2916,7 +3080,9 @@ proc beginTabs*(sel: var int; labels: openArray[string]; sameHeight = false) =
   ## far (a settings dialog does not jump when another tab is chosen).
   let cell = beginCell(0, fill = true)
   let id = idOf(sel, "tabs")
-  let pal = tabLook == tlPalette
+  # (Glass: a page's tabs a segmented control over a card, whichever look -- a palette's own
+  # tabs, the docked panels', stay joined to their panels)
+  let pal = tabLook == tlPalette and not glassLook()
   let pst = style(size = 0.9)
   let tabH = if pal: paletteTabH() else: CtrlH - 1
   let strip = rect(cell.x, cell.y, cell.w, tabH)
@@ -3027,6 +3193,13 @@ proc beginTabs*(sel: var int; labels: openArray[string]; sameHeight = false) =
     let ph = state(id + 3).aux
     if ph > 0: fill(rect(cell.x, cell.y + tabH, cell.w, ph), th.face)
   pushClip(rect(strip.x, strip.y, room + 4, strip.h + 2))
+  if glassLook() and not pal:
+    # (Glass: the track the tabs sit in, as wide as the ones shown)
+    var tw = 0
+    for i in first ..< labels.len:
+      if cell.x + 2 + tw >= cell.x + 2 + room: break
+      tw += ws[i]
+    glassTrack(rect(cell.x, cell.y + dp(1), min(tw + 4, room + 4), tabH - dp(1)))
   for i in first ..< labels.len:
     let l = labels[i]
     let tw = ws[i]
@@ -3046,6 +3219,19 @@ proc beginTabs*(sel: var int; labels: openArray[string]; sameHeight = false) =
       text(lx, tr.y + (tr.h - lineHeight(pst)) div 2, shown, ink, pst)
       if up and hit.focused:
         focusDots(rect(lx - 3, ty - 1, lw + 6, lineHeight(pst) + 2))
+      x += tw
+      continue
+    if glassLook():
+      # (Glass: a segmented control -- the chosen one a pill of glass on a track, the others
+      # their labels, lit under the pointer; the page a card below)
+      let pill = rect(x, cell.y + dp(3), tw, tabH - dp(5))
+      if up: glassFace(pill, false, false, radius = float(pill.h) / 2, shadow = true)
+      elif hovered(pill) and canInput():
+        roundRect(pill, float(pill.h) / 2, withAlpha(th.text, if onDark(): 26 else: 14))
+      let lw = labelWidth(l, up)
+      let lx = x + (tw - lw) div 2
+      drawLabel(lx, pill.y + (pill.h - FontH) div 2, l, if up: th.text else: mixColor(th.text, th.window, 0.25), up)
+      if up and hit.focused: focusDots(pill)
       x += tw
       continue
     if up:
@@ -3085,8 +3271,12 @@ proc beginTabs*(sel: var int; labels: openArray[string]; sameHeight = false) =
     accessEnd()
     accessBegin(arPane, (if sel >= 0 and sel < labels.len: labels[sel] else: ""),
                 rect(cell.x, cell.y + tabH, cell.w, FontH), accessSubId(id, 8888))
-  tabStack.add (cell.x, cell.y, cell.w, selX, selW, tabH, id, sameHeight)
-  pushFrame(rect(cell.x + Pad + 2, cell.y + tabH + Pad + 2,
+  # (Glass: the page a card under what is put on it -- its place kept, drawn as tall as it is
+  # at the end)
+  let card = if glassLook(): reserveFill() else: -1
+  tabStack.add (cell.x, cell.y, cell.w, selX, selW, tabH, id, sameHeight, card)
+  let gap = if card >= 0: dp(4) else: 0          # (Glass: the card a little under the tabs)
+  pushFrame(rect(cell.x + Pad + 2, cell.y + tabH + gap + Pad + 2,
                  cell.w - 2*Pad - 4, 0), reserve = Pad + 2, inPage = true)
 
 proc endTabs*() =
@@ -3099,14 +3289,22 @@ proc endTabs*() =
       st.anchor = h
       state(t.id) = st
     h = st.anchor
-  let page = rect(t.x, t.y + t.tabH, t.w, h + 2*Pad + 4)
+  let gap = if t.card >= 0: dp(4) else: 0
+  let page = rect(t.x, t.y + t.tabH + gap, t.w, h + 2*Pad + 4)
   if accessOn: accessEnd(page)
-  if tabLook == tlPalette:
+  if tabLook == tlPalette and t.card < 0:
     var ps = state(t.id + 3)
     if ps.aux != page.h:
       ps.aux = page.h
       state(t.id + 3) = ps
       ui.redraw = true                 # (its gray drawn as tall as it is now)
+  if t.card >= 0:
+    # (Glass: a rounded card, a little lighter than the window, a hairline round it)
+    let rad = float(dp(10))
+    patchRoundRect(t.card, page, rad, glassCard())
+    roundFrame(page, rad, 1, glassHair())
+    endCell(rect(t.x, t.y, t.w, 0), page.y + page.h - t.y)
+    return
   let line = if glassLook(): glassHair() elif tabLook == tlPalette: th.frame else: th.edge
   if t.selW > 0:
     hline(page.x, page.y, t.selX - page.x, line)
@@ -3302,9 +3500,17 @@ proc tabStrip*(labels: openArray[string]; sel: var int; glyphs: openArray[string
     popClip()
     if closable:
       let overX = canInput() and canHover() and mouseIn(xr)
-      if overX: fill(inset(xr, dp(3)), if pal and not up: th.gray else: th.face)
-      text(xr.x + (xr.w - textWidth(nfTimes)) div 2, tr.y + (tr.h - FontH) div 2, nfTimes,
-           if overX: th.text elif pal and not up: th.light else: th.gray)
+      if glassLook():
+        # (Glass: a round spot under the pointer, the x in the label's gray)
+        let d = min(xr.w, tr.h) - dp(6)
+        if overX: disc(float(xr.x) + float(xr.w) / 2, float(tr.y) + float(tr.h) / 2, float(d) / 2,
+                       withAlpha(th.text, if onDark(): 40 else: 22))
+        text(xr.x + (xr.w - textWidth(nfTimes)) div 2, tr.y + (tr.h - FontH) div 2, nfTimes,
+             if overX: th.text else: mixColor(th.text, th.window, 0.45))
+      else:
+        if overX: fill(inset(xr, dp(3)), if pal and not up: th.gray else: th.face)
+        text(xr.x + (xr.w - textWidth(nfTimes)) div 2, tr.y + (tr.h - FontH) div 2, nfTimes,
+             if overX: th.text elif pal and not up: th.light else: th.gray)
     if result.dropOn == i or (dragging(dropKind) and dropKind.len > 0 and
                               tabSpring.id == id and tabSpring.tab == i and
                               mouseIn(tr)):
@@ -3596,10 +3802,13 @@ template pane*(height: int; body: untyped) =
 
 # ---- menus ------------------------------------------------------------------
 
+const MenuShadeN = 4      # (Glass: the soft shadow under a menu, in so many fills)
+
 type PopMenu = object
   id: Id
   x, y, w, cy: int
   n, bg, measured, level: int
+  shade: int        ## (Glass: the first of the soft shadow's fills, under its face)
   subAt: int        ## index of the item whose submenu is open, or -1
   colX: int         ## the column being filled (a menu taller than the screen
                     ## breaks into columns, as 3.1's long menus did)
@@ -3798,6 +4007,10 @@ proc beginPopupMenu(id: Id; x, y: int; level = 0; fixedTop = false): bool =
   m.colX = m.x
   pushLayer(LayerPopup)
   m.mark = cmdMark()
+  m.shade = -1
+  if glassLook():
+    m.shade = reserveFill()
+    for k in 1 ..< MenuShadeN: discard reserveFill()
   m.bg = reserveFill()
   pms.add m
   if accessOn:
@@ -3819,15 +4032,18 @@ proc endMenu*() =
   notePlaced(r)
   if accessOn: accessEnd(r)
   if glassLook():
-    # (Glass: a hairline round it, a soft shadow under and beside it; frosted, what is under it
-    # blurred through it)
-    if frosted(): patchBlur(m.bg, r, dp(16), withAlpha(th.window, int(frostAlpha())))
-    else: patchFill(m.bg, r, th.window)
-    box(r, glassHair())
-    for k in 0 .. 2:
-      let a = withAlpha(color(0, 0, 0), (if onDark(): 70 else: 22) - k * 6)
-      fill(r.x + 2 + k, r.y + r.h + k, r.w - 1, 1, a)
-      fill(r.x + r.w + k, r.y + 2 + k, 1, r.h - 2, a)
+    # (Glass: rounded, a hairline round it, a soft shadow under it -- its fills kept before its
+    # face; frosted, what is under it blurred through it)
+    let rad = float(dp(8))
+    if m.shade >= 0:
+      for k in 0 ..< MenuShadeN:
+        let g = k + 1
+        patchRoundRect(m.shade + k, rect(r.x - g + 1, r.y - g + 3, r.w + 2 * g - 2, r.h + 2 * g - 2),
+                       rad + float(g), withAlpha(color(0, 0, 0), if onDark(): 34 - 5 * k else: 12 - 2 * k),
+                       width = float(g + 3))
+    if frosted(): patchBlur(m.bg, r, dp(16), withAlpha(th.window, int(frostAlpha())), rad)
+    else: patchRoundRect(m.bg, r, rad, th.window)
+    roundFrame(r, rad, 1, glassHair())
   else:
     patchFill(m.bg, r, th.window)
     box(r, th.edge)
@@ -4240,7 +4456,8 @@ proc menuSeparator*() =
     return
   if pm.cy <= pm.y + 3 and pm.cols > 1: return
   notePlaced(rect(pm.colX + 1, pm.cy, pm.w - 2, dp(9)))
-  hline(pm.colX + 3, pm.cy + dp(4), pm.w - 6, th.shadow)
+  if glassLook(): hline(pm.colX + dp(10), pm.cy + dp(4), pm.w - 2 * dp(10), glassHair())
+  else: hline(pm.colX + 3, pm.cy + dp(4), pm.w - 6, th.shadow)
   pm.cy += dp(9)
 
 proc beginContextMenu*(): bool =
@@ -4900,9 +5117,9 @@ proc beginDialog*(open: var bool; title: string; width: int): bool =
     # (Glass, frosted: a soft shadow round it, what is under it blurred through it, a hairline
     # round it, its title bar a little darker glass)
     let rad = float(dp(10))
-    for k in 1 .. 3:
-      roundRect(rect(r.x - k, r.y - k + 2, r.w + 2 * k, r.h + 2 * k), rad + float(k),
-                withAlpha(color(0, 0, 0), if onDark(): 34 else: 10))
+    for k in 1 .. 6:
+      roundFrame(rect(r.x - k, r.y - k + 4, r.w + 2 * k, r.h + 2 * k), rad + float(k), float(k + 5),
+                 withAlpha(color(0, 0, 0), if onDark(): 30 - 4 * k else: 13 - 2 * k))
     frostedFace(r, th.window, rad)
     roundFrame(r, rad, 1, glassHair())
     fill(bar, withAlpha(tbg, if active: 150 else: 90))
@@ -4911,10 +5128,10 @@ proc beginDialog*(open: var bool; title: string; width: int): bool =
     fill(bar, tbg)
   hline(bar.x, bar.y + bar.h, bar.w, if glass: glassHair() else: th.frame)
   captionButton(sysBox, ui.active == id + 1)
-  vline(sysBox.x + sysBox.w, sysBox.y, sysBox.h, th.frame)
+  if not glass: vline(sysBox.x + sysBox.w, sysBox.y, sysBox.h, th.frame)
   controlMenuMark(sysBox)
   if xBox.w > 0:
-    vline(xBox.x, xBox.y, xBox.h, th.frame)
+    if not glass: vline(xBox.x, xBox.y, xBox.h, th.frame)
     let face = rect(xBox.x + 1, xBox.y, xBox.w - 1, xBox.h)
     captionButton(face, xHit.down)
     captionMark(face, cmClose, xHit.down, enabled = not closeOff)

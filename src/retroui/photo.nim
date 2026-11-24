@@ -1092,6 +1092,8 @@ type
     paths: seq[Path]
     frames: seq[AnimFrame]         # (the Timeline's frames: undone with the layers)
     frameCur, animLoop: int
+    boards: seq[Artboard]          # (the artboards: undone with the canvas)
+    boardCur: int
 
   Step* = object
     ## One undoable change.
@@ -1119,6 +1121,16 @@ type
     name*: string                ## shown in the History palette ("Snapshot 1")
     step: Step                   # (a step with all of it: written to the scratch disk)
 
+  Artboard* = object
+    ## An artboard, as the drawing program has them: a page of the canvas -- what is exported and
+    ## printed is what is on it -- not a layer: the artwork on the layers lies anywhere, on it or
+    ## round it on the canvas.
+    name*: string
+    r*: Rect                       ## where it is on the canvas (pixels)
+    color*: uint32                 ## its paper: ARGB (alpha 0: none -- the transparency grid
+                                   ## shown on it); white at first
+    centerMark*, crossHairs*, videoSafe*: bool  ## Artboard Options > Display
+
   Guide* = object
     ## A guide: a line across (`vertical` false: at `pos` down) or down the
     ## image, in image pixels.
@@ -1131,6 +1143,8 @@ type
     editMask: bool
     frames: seq[AnimFrame]   # (the Timeline's frames: undone with the layers)
     frameCur, animLoop: int
+    boards: seq[Artboard]    # (the artboards: undone with the layers -- made, moved, sized, gone)
+    boardCur: int
 
   LiveKind* = enum
     ## How a `LivePart` shows its layer changed.
@@ -1246,6 +1260,13 @@ type
     snapshots*: seq[Snapshot]      ## History palette: the image kept as it was (on the scratch disk)
     historyCut*: bool              ## the oldest steps were forgotten (the history is not all there)
     guides*: seq[Guide]            ## lines over the image things snap to
+    boards*: seq[Artboard]         ## its artboards (the drawing program's: pages of the canvas, not
+                                   ## layers), numbered in this order
+    boardCur*: int                 ## ... the one picked (the Artboard tool's, Artboard Options')
+    boardsVer*: int                ## ... changed so many times (the view drawn again)
+    grown*: tuple[x, y: int]       ## how far everything moved over as the canvas grew left or up
+                                   ## for an artboard (added up; the app keeps its view in place and
+                                   ## sets it back to 0, 0)
     comps*: seq[LayerComp]         ## its layer comps (Window > Layer Comps)
     frames*: seq[AnimFrame]        ## its animation's frames (Timeline; none: not animated)
     frameCur*: int                 ## ... the frame shown
@@ -4531,7 +4552,7 @@ proc setSettings(L: Layer; s: LayerSettings) =
 proc snapOf(d: Doc): DocSnap =
   result = DocSnap(w: d.w, h: d.h, dpi: d.dpi, mode: d.mode, palette: d.palette, duotone: d.duotone, cur: d.cur,
                    sel: d.sel, alphas: d.alphas, paths: d.paths, frames: d.frames, frameCur: d.frameCur,
-                   animLoop: d.animLoop)
+                   animLoop: d.animLoop, boards: d.boards, boardCur: d.boardCur)
   for L in d.layers:
     # (a group's pixels are nothing: not copied)
     result.layers.add LayerSnap(layer: L, px: (if L.group: @[] else: L.px), s: settingsOf(L),
@@ -4543,6 +4564,8 @@ proc restore(d: Doc; s: DocSnap) =
   d.w = s.w; d.h = s.h; d.dpi = s.dpi; d.mode = s.mode; d.palette = s.palette; d.duotone = s.duotone
   d.sel = s.sel; d.alphas = s.alphas; d.paths = s.paths
   d.frames = s.frames; d.frameCur = s.frameCur; d.animLoop = s.animLoop
+  if d.boards != s.boards: inc d.boardsVer
+  d.boards = s.boards; d.boardCur = s.boardCur
   d.layers.setLen(0)
   for ls in s.layers:
     let L = ls.layer
@@ -5280,6 +5303,8 @@ proc touchPaths*(d: Doc) =
 
 proc layerListOf(d: Doc): LayerList =
   result.cur = d.cur
+  result.boards = d.boards
+  result.boardCur = d.boardCur
   result.editMask = d.editMask
   result.frames = d.frames
   result.frameCur = d.frameCur
@@ -5288,6 +5313,9 @@ proc layerListOf(d: Doc): LayerList =
     result.props.add LayerProps(layer: L, s: settingsOf(L))
 
 proc restoreLayers(d: Doc; l: LayerList) =
+  if d.boards != l.boards: inc d.boardsVer
+  d.boards = l.boards
+  d.boardCur = l.boardCur
   d.frames = l.frames
   d.frameCur = l.frameCur
   d.animLoop = l.animLoop
@@ -7281,13 +7309,25 @@ proc moveTo*(d: Doc; m: var Lift; dx, dy: int) =
     d.setLive(parts)
     d.liveSel = (dx, dy, false)
 
+proc movedSmart(s: SmartData; dx, dy: int): SmartData =
+  ## (a Smart Object's data with its corners moved: a new one, as every change of it is -- undo
+  ## keeps the old)
+  result = SmartData()
+  result[] = s[]
+  for c in result.quad.mitems: c = (c[0] + dx.float, c[1] + dy.float)
+
 proc endMove*(d: Doc; m: var Lift) =
-  ## Puts the lifted pixels down where `moveTo` showed them last.
+  ## Puts the lifted pixels down where `moveTo` showed them last. A Smart Object lifted whole has
+  ## its corners moved with its pixels (its box, what it is drawn again into).
   if m.active and m.pending:
     d.endLive()
     for part in m.parts:
       if m.dx == 0 and m.dy == 0: break     # (put back where it was: nothing changes)
-      if not part.vector: d.shiftedOnto(part, m.dx, m.dy)
+      if not part.vector:
+        d.shiftedOnto(part, m.dx, m.dy)
+        if part.px.len == 0 and part.layer.smart != nil:
+          d.touchLayers()
+          part.layer.smart = part.layer.smart.movedSmart(m.dx, m.dy)
     if m.mask.len == d.w * d.h and (m.dx != 0 or m.dy != 0):
       d.sel = shiftedMask(m.mask, d.w, d.h, m.dx, m.dy)
       inc d.selVer
@@ -7329,11 +7369,8 @@ proc shiftLayers*(d: Doc; layers: seq[Layer]; dx, dy: int) =
           lp[y * w + x] = if sy >= 0 and sy < h and sx >= 0 and sx < w: sp[sy * w + sx] else: left
       inc P.ver
     if L.smart != nil:
-      var q = L.smart.quad
-      for c in q.mitems: c = (c[0] + dx.float, c[1] + dy.float)
-      L.smart = SmartData(src: L.smart.src, w: L.smart.w, h: L.smart.h, quad: q, filters: L.smart.filters,
-                          name: L.smart.name, file: L.smart.file, warp: L.smart.warp, link: L.smart.link,
-                          linkStamp: L.smart.linkStamp)
+      d.touchLayers()                      # (its corners as they were: undone with its pixels)
+      L.smart = L.smart.movedSmart(dx, dy)
   d.markAll()
 
 proc fullBox*(d: Doc; L: Layer): tuple[ok: bool; x0, y0, x1, y1: float]
@@ -7843,12 +7880,20 @@ proc alignBox*(d: Doc; idxs: seq[int]; to: AlignTo; key: Layer = nil): Rect =
       if c.w > 0: return c
     d.alignTarget(idxs)
   of atArtboard:
+    # (the artboard the first is on -- the current one when it is on none -- or the canvas)
     for i in idxs:
       if i < 0 or i >= d.layers.len: continue
       let c = d.contentBounds(d.layers[i])
-      for G in d.layers:
-        if G.group and G.board.w > 0 and c.w > 0 and G.board.intersects(c): return G.board
+      if c.w <= 0: continue
+      let mx = c.x + c.w div 2
+      let my = c.y + c.h div 2
+      for k in countdown(d.boards.high, 0):
+        let b = d.boards[k].r
+        if mx >= b.x and my >= b.y and mx < b.x + b.w and my < b.y + b.h: return b
+      for k in countdown(d.boards.high, 0):
+        if d.boards[k].r.intersects(c): return d.boards[k].r
       break
+    if d.boardCur >= 0 and d.boardCur < d.boards.len: return d.boards[d.boardCur].r
     d.bounds
 
 proc distributeSpacing*(d: Doc; idxs: seq[int]; gap: float; horizontal: bool; key: Layer = nil) =
@@ -8352,6 +8397,9 @@ proc canvasSizeAt*(d: Doc; nw, nh: int; ox, oy: int; bg: uint32) =
         q.p = (q.p[0] + ox.float, q.p[1] + oy.float)
         q.inH = (q.inH[0] + ox.float, q.inH[1] + oy.float)
         q.outH = (q.outH[0] + ox.float, q.outH[1] + oy.float)
+  # (the artboards stay with the artwork)
+  for b in d.boards.mitems: b.r = rect(b.r.x + ox, b.r.y + oy, b.r.w, b.r.h)
+  if d.boards.len > 0: inc d.boardsVer
   d.w = nw
   d.h = nh
   for L in d.layers:
@@ -8374,6 +8422,8 @@ proc crop*(d: Doc; r: Rect) =
     result = newSeq[uint8](c.w * c.h)
     for y in 0 ..< c.h:
       for x in 0 ..< c.w: result[y * c.w + x] = src[(c.y + y) * ow + c.x + x]
+  for b in d.boards.mitems: b.r = rect(b.r.x - c.x, b.r.y - c.y, b.r.w, b.r.h)
+  if d.boards.len > 0: inc d.boardsVer
   for L in d.pixelLayers:
     L.hi = if d.hiValid(L): deepCut(L.hi, ow, c) else: @[]
     L.hdr = if d.hdrValid(L): deepCut(L.hdr, ow, c) else: @[]
@@ -10191,6 +10241,44 @@ proc attrsFrom*(j: JsonNode): LayerAttrs =
       if f.choices.len < 1000: f.choices.add c.getStr
     result.field = f
 
+proc isArtboard*(L: Layer): bool = L.group and L.board.w > 0
+  ## A Photoshop artboard: a group with a page of its own (`board`) -- made a document's artboard
+  ## when its file is opened (`boardsFromGroups`).
+
+proc boardsFromGroups*(d: Doc) =
+  ## A Photoshop file's artboards -- groups with a page (`isArtboard`) -- made the document's own
+  ## artboards: each group a plain group again, its page (the "Page" shape) the artboard's paper.
+  for i in 0 ..< d.layers.len:
+    let G = d.layers[i]
+    if not G.isArtboard: continue
+    var color = 0'u32
+    let lo = d.blockStart(i)
+    if lo < i and d.layers[lo].isShape and d.layers[lo].name == "Page" and d.layers[lo].visible and
+       d.layers[lo].shape.fill.kind == spColor:
+      color = d.layers[lo].shape.fill.color
+    elif lo < i and d.layers[lo].isShape and d.layers[lo].name == "Page": color = 0
+    else: color = 0xFFFFFFFF'u32
+    d.boards.add Artboard(name: G.name, r: G.board, color: color)
+    G.board = rect(0, 0, 0, 0)
+    G.mask = nil
+    G.passThrough = true
+  # (the pages that were the artboards' paper: theirs now)
+  var k = 0
+  while k < d.layers.len:
+    let L = d.layers[k]
+    if L.isShape and L.name == "Page" and L.depth > 0:
+      var onBoard = false
+      for b in d.boards:
+        if d.layerBox(L) == b.r: onBoard = true
+      if onBoard:
+        d.layers.delete(k)
+        continue
+    inc k
+  if d.boards.len > 0:
+    d.cur = clamp(d.cur, 0, d.layers.high)
+    inc d.boardsVer
+    d.markAll()
+
 proc rpdParts*(d: Doc): seq[RpdPart] =
   ## What a ".rpd" of the document holds (its pixels copied, not yet
   ## compressed: `writeRpd` does that, on any thread).
@@ -10386,6 +10474,17 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
   var ps = newJArray()
   for p in d.paths: ps.add p.toJson
   j["paths"] = ps
+  if d.boards.len > 0:
+    # (the artboards: pages of the canvas, not layers)
+    var a = newJArray()
+    for b in d.boards:
+      var bj = %*{"name": b.name, "x": b.r.x, "y": b.r.y, "w": b.r.w, "h": b.r.h, "color": int64(b.color)}
+      if b.centerMark: bj["centerMark"] = %true
+      if b.crossHairs: bj["crossHairs"] = %true
+      if b.videoSafe: bj["videoSafe"] = %true
+      a.add bj
+    j["artboards"] = a
+    j["artboardCur"] = %d.boardCur
   if d.palette.len > 0:
     var pal = newJArray()
     for c in d.palette: pal.add %int(c and 0xFFFFFF'u32)
@@ -10619,6 +10718,13 @@ proc loadRpd*(path: string): Doc =
     result.sel = newSeq[uint8](w * h)
     for i, p in s.px: result.sel[i] = uint8(rOf(p))
   for pj in j{"paths"}.getElems: result.paths.add pathFrom(pj)
+  for bj in j{"artboards"}.getElems:
+    let r = rect(bj{"x"}.getInt(0), bj{"y"}.getInt(0), max(1, bj{"w"}.getInt(1)), max(1, bj{"h"}.getInt(1)))
+    result.boards.add Artboard(name: bj{"name"}.getStr("Artboard " & $(result.boards.len + 1)), r: r,
+                               color: uint32(bj{"color"}.getBiggestInt(0xFFFFFFFF'i64) and 0xFFFFFFFF'i64),
+                               centerMark: bj{"centerMark"}.getBool(false),
+                               crossHairs: bj{"crossHairs"}.getBool(false), videoSafe: bj{"videoSafe"}.getBool(false))
+  result.boardCur = clamp(j{"artboardCur"}.getInt(0), 0, max(0, result.boards.high))
   if files.hasKey("profile.icc"): result.icc = readEntry(path, files["profile.icc"])
   for m in ColorMode:
     if $m == j{"mode"}.getStr: result.mode = m
@@ -10637,6 +10743,7 @@ proc loadRpd*(path: string): Doc =
         result.spots.add SpotChannel(name: sj{"name"}.getStr("Ink"), ch: clamp(sj{"channel"}.getInt, 0, 3))
     if result.spots.len == 0 or result.spotBase notin {cmRGB, cmCMYK, cmGray}: result.mode = cmRGB
   result.cur = clamp(j{"current"}.getInt(0), 0, result.layers.high)
+  if not j.hasKey("artboards"): result.boardsFromGroups()     # (a file of before 0.74: its artboard groups)
   for cj in j{"comps"}.getElems: result.comps.add compFrom(cj)
   result.perspective = j{"perspective"}.getStr
   result.pixelAlign = j{"pixelAlign"}.getBool(false)

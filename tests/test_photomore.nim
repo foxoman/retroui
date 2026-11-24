@@ -8,7 +8,7 @@
 
 import std/[os, math, strutils, json]
 import retroui/[gfx, imaging, photo, photopaint, photofx, photostyles, photoshapes, photofiles, photovector,
-              psd, photoinks, filterfactory, textengine]
+              psd, photoinks, filterfactory, textengine, parallel]
 {.push warning[UnusedImport]: off.}
 import retroui/photodevelop   # (imported for what it sets up in retroui/photo: the adjustment layers' tables)
 {.pop.}
@@ -356,6 +356,17 @@ block inks:
     doAssert same(proofOf(c), c, 6), c.toHex
     doAssert same(printed(inkOf(c)), c, 8)
   doAssert same(printedFast(100, 50, 20, 10), printed(100, 50, 20, 10), 3)
+  # the print table made again, asked for on all the cores at once (Overprint Preview did so and
+  # stopped the app: each core made it over the others' and read the one freed under it)
+  setInks(InkSetup(dotGain: 26, black: bgMedium, inkLimit: 300, blackLimit: 100))
+  var got = newSeq[uint32](20000)
+  let gp = cast[ptr UncheckedArray[uint32]](addr got[0])
+  parallelFor(got.len, proc (lo, hi: int) =
+    for i in lo ..< hi: gp[i] = printedFast(i mod 256, (i * 7) mod 256, (i * 13) mod 256, (i * 3) mod 256))
+  for i in 0 ..< got.len:
+    doAssert got[i] == printedFast(i mod 256, (i * 7) mod 256, (i * 13) mod 256, (i * 3) mod 256), $i
+  doAssert same(got[300], printed(300 mod 256, 2100 mod 256, 3900 mod 256, 900 mod 256), 3)
+  setInks(defaultInks)
   # more dot gain: darker prints
   let before = printed(128, 128, 128, 0)
   setInks(InkSetup(dotGain: 35, black: bgMedium, inkLimit: 300, blackLimit: 100))

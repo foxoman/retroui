@@ -176,6 +176,35 @@ static inline void ruk_blend_mask(uint32_t* fp, const uint8_t* m, intptr_t n, ui
   }
 }
 
+/* n pixels of fp mixed with col by one coverage a (1..254: a see-through color's span -- a card
+   of the Glass look, a shadow): ruk_blend_mask's values with every m[i] a, without reading a
+   mask */
+static inline void ruk_blend_const(uint32_t* fp, intptr_t n, uint32_t col, uint32_t a) {
+  if (a == 0 || n <= 0) return;
+  if (a >= 255) { ruk_fill32(fp, n, col); return; }
+  intptr_t i = 0;
+#if defined(__SSE2__)
+  const __m128i z = _mm_setzero_si128();
+  const __m128i c16 = _mm_unpacklo_epi8(_mm_set1_epi32((int)col), z);
+  const __m128i na = _mm_set1_epi16((short)(255 - a));
+  const __m128i ca = _mm_add_epi16(_mm_mullo_epi16(c16, _mm_set1_epi16((short)a)), _mm_set1_epi16(128));
+  const __m128i rgb = _mm_set1_epi32(0xFFFFFF);
+  for (; i + 4 <= n; i += 4) {
+    __m128i q = _mm_loadu_si128((const __m128i*)(fp + i));
+    __m128i xl = _mm_add_epi16(ca, _mm_mullo_epi16(_mm_unpacklo_epi8(q, z), na));
+    __m128i xh = _mm_add_epi16(ca, _mm_mullo_epi16(_mm_unpackhi_epi8(q, z), na));
+    xl = _mm_srli_epi16(_mm_add_epi16(xl, _mm_srli_epi16(xl, 8)), 8);
+    xh = _mm_srli_epi16(_mm_add_epi16(xh, _mm_srli_epi16(xh, 8)), 8);
+    _mm_storeu_si128((__m128i*)(fp + i), _mm_and_si128(_mm_packus_epi16(xl, xh), rgb));
+  }
+#else
+  const ruk_u4 cv = {col, col, col, col};
+  const ruk_u4 av = {a, a, a, a};
+  for (; i + 4 <= n; i += 4) ruk_store4(fp + i, ruk_blend4(ruk_load4(fp + i), cv, av));
+#endif
+  for (; i < n; i++) fp[i] = ruk_blend1(fp[i], col, a);
+}
+
 /* a picture's row over the screen's: each source pixel's alpha mixes it in (255: copied, its
    alpha byte dropped; 0: left alone) */
 static inline void ruk_over_row(uint32_t* fp, const uint32_t* sp, intptr_t n) {

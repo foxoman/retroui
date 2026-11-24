@@ -2566,12 +2566,25 @@ async function boot(opts) {
   if (threads) webgpuStart();      // (WebGPU for the app's threads: made while the page loads)
   if (threads) {
     // (the memory a build with threads shares, made at its largest up front: a phone may not
-    // give it -- then the build without threads, one thread)
-    try {
-      const [initial, maximum] = threads.memory || [512, 16384];
-      threads = Object.assign({}, threads, { made: new WebAssembly.Memory({ initial, maximum, shared: true }) });
-    } catch (e) {
-      console.warn("retro: no threads (no memory for them)", e);
+    // give it -- a browser on 32 bits keeps no gigabyte in one piece -- then half as much, down
+    // to 256 MB: threads with less memory, not one thread whose long work holds the page; less
+    // than that, the build without threads)
+    const [initial, maximum] = threads.memory || [512, 16384];
+    let made = null, most = maximum, why = null;
+    while (!made) {
+      try { made = new WebAssembly.Memory({ initial, maximum: most, shared: true }); }
+      catch (e) {
+        why = e;
+        const half = Math.floor(most / 2);
+        if (half < Math.max(initial, 4096)) break;
+        most = half;
+      }
+    }
+    if (made) {
+      if (most < maximum) console.info("retro: threads with " + (most >> 4) + " MB at most, not " + (maximum >> 4));
+      threads = Object.assign({}, threads, { made });
+    } else {
+      console.warn("retro: no threads (no memory for them)", why);
       if (!threads.only) threads = null;
     }
   }

@@ -483,7 +483,7 @@ blurred, `back` over it most of the way, its corners rounded `corner`; false -- 
 drawn -- otherwise.
 
 ```nim
-proc frosted*(): bool
+proc frosted*(): bool {.inline.}
 ```
 
 Menus, dialogs and dropped lists drawn as frosted glass now (`frostedGlass`, in the Glass
@@ -1742,7 +1742,7 @@ codeEdit(source, lines = 9, lang = clNim, find = "count",
 
 ### terminalView (retroui/terminal)
 
-A terminal (`import retroui/terminal`): the user's shell, or any program that runs in one (`top`, `vim`, `htop`, a build), through a pseudo-terminal on Linux, macOS, the BSDs and Android, and Windows 10's pseudo-console, drawn as xterm draws it -- the 16 colors, the 256 and every RGB, bold, italic, underlined, inverse; the cursor; the lines that scrolled off kept to scroll back to; the screen a full-screen program draws on and leaves; lines and boxes drawn whole from cell to cell. The mouse chooses text (a double click a word, three a line), Ctrl+Shift+C copies it (Cmd+C on a Mac), Ctrl+Shift+V or Shift+Insert pastes, a right click has the same in a menu; a program that asks for the mouse gets its clicks and the wheel. `term.spawn()` starts the user's shell (`running`, `exitCode`, `title`); without a program a terminal shows what the app `feed`s it -- a build's output in its colors -- and what is typed goes to `onInput`.
+A terminal (`import retroui/terminal`): the user's shell, or any program that runs in one (`top`, `vim`, `htop`, a build), through a pseudo-terminal on Linux, macOS, the BSDs and Android, and Windows 10's pseudo-console, drawn as xterm draws it -- the 16 colors, the 256 and every RGB, bold, italic, underlined, inverse; the cursor; the lines that scrolled off kept to scroll back to; the screen a full-screen program draws on and leaves; lines and boxes drawn whole from cell to cell. The mouse chooses text (a double click a word, three a line), Ctrl+Shift+C copies it (Cmd+C on a Mac), Ctrl+Shift+V or Shift+Insert pastes, a right click has the same in a menu -- and the app's own items (`menu`), and the terminal's (Clear Scrollback, Reset); `terminalEditItems`, `terminalViewItems` and `terminalItems` put them in the app's menu bar. Ctrl+Shift+= and Ctrl+Shift+- make its text bigger and smaller (`zoomText`), `findText` finds in all it kept. A program that asks for the mouse gets its clicks and the wheel; one that asks for kitty's keyboard protocol gets its keys as kitty sends them (Esc and Ctrl+I told from Tab, keys let go, every key as an escape: `kbFlags`), and the pictures a program sends by kitty's graphics protocol are shown in their cells and scroll with the text (`showPicture`: one of the app's own). `term.spawn()` starts the user's shell (`running`, `exitCode`, `title`); without a program a terminal shows what the app `feed`s it -- a build's output in its colors -- and what is typed goes to `onInput`.
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -1778,14 +1778,19 @@ when it cannot. What it writes is shown as it comes, what is typed goes to it; `
 while it goes on, `exitCode` once it ended.
 
 ```nim
-proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false)
+proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false; menu: proc () = nil)
 ```
 
 The terminal in a box `w` wide (0: the row's width) and `lines` rows of its text high (-1:
 the height left) -- its size in cells made to fit it, the program told. Takes the keys
-while it has the focus (Tab and the arrows too), the wheel scrolls back through what
-scrolled off; the mouse chooses text (double-click a word, triple a line), Ctrl+Shift+C
-copies it, Ctrl+Shift+V and Shift+Insert paste; a right click has the same in a menu.
+while it has the focus (Tab and the arrows too) -- as kitty sends them to a program that
+asks (`kbFlags`) -- the wheel scrolls back through what scrolled off; the mouse chooses
+text (double-click a word, triple a line), Ctrl+Shift+C copies it, Ctrl+Shift+V and
+Shift+Insert paste, Ctrl+Shift+= and Ctrl+Shift+- make its text bigger and smaller
+(Ctrl+Shift+0: back). The pictures a program sends by kitty's graphics protocol are shown
+in their cells. A right click has a menu: Copy, Paste, Select All, then what `menu` adds
+(its `menuItem`s: the app's own), then the terminal's own (`terminalItems`). For the
+app's menu bar: `terminalEditItems`, `terminalViewItems`, `terminalItems`.
 
 ```nim
 proc feed*(t: Terminal; data: string)
@@ -1795,11 +1800,18 @@ proc feed*(t: Terminal; data: string)
 that move the cursor, color, erase, scroll.
 
 ```nim
-proc send*(c: WebCall; value: JsonNode)
+proc showPicture*(t: Terminal; png: string; cols = 0; rows = 0)
 ```
 
-One value of a stream: the page's `retro.stream` gets it (its callback);
-`finish` ends it.
+A picture (a PNG file's bytes) shown at the cursor as a program shows one by kitty's
+graphics protocol -- `cols` x `rows` cells (0: as big as it is), the cursor moved past it,
+scrolled with the text: what an app shows of its own in the terminal it writes to (`feed`).
+
+```nim
+proc send*(t: Terminal; data: string)
+```
+
+`data` to the program, as if typed (to `onInput` when there is none).
 
 ```nim
 proc paste*(t: Terminal; text: string)
@@ -1809,29 +1821,25 @@ proc paste*(t: Terminal; text: string)
 as text, not as commands typed).
 
 ```nim
-proc update*(m: FolderModel)
+proc update*(t: Terminal): bool {.discardable.}
 ```
 
-Once a frame (`fileList` calls it): the search goes on, and a folder
-another program changed is listed again (checked every 1.5 s).
+What the program wrote since, taken and shown; the terminal's answers sent to it. The view
+does it each frame; a terminal not drawn can be kept going with it. True when something
+came.
 
 ```nim
-proc stop*(scene: var Scene3; name = "")
+proc stop*(t: Terminal; signal = 1)
 ```
 
-Stops clip `name` (every clip: "") where it is.
+The program told to end (SIGHUP by default: as when a terminal is closed; on Windows it is
+ended).
 
 ```nim
-proc close*(t: TextFile)
+proc close*(t: Terminal)
 ```
 
-Closes the file.
-
-```nim
-proc close*(h: HexFile)
-```
-
-Closes the file.
+The program ended and the terminal let go of it.
 
 ```nim
 proc resize*(t: Terminal; cols, rows: int)
@@ -1853,6 +1861,87 @@ proc selectionText*(t: Terminal): string
 
 The text chosen with the mouse ("" when none): a line a row, rows the text wrapped across
 joined.
+
+```nim
+proc selectNone*(t: Terminal)
+```
+
+Nothing chosen (a find starts again from the bottom).
+
+```nim
+proc findText*(t: Terminal; text: string; back = true; matchCase = false): bool
+```
+
+The next `text` in what scrolled off and the screen -- before the text chosen (`back`) or
+after it, from the bottom (or the top) when none is -- chosen, and the view scrolled to it;
+false when there is no more.
+
+```nim
+proc zoomText*(t: Terminal; steps: int)
+```
+
+The terminal's text bigger (`steps` > 0) or smaller by a tenth a step, between half and
+three times the UI's; 0: as big as the UI's.
+
+```nim
+proc reset*(t: Terminal; clear = false)
+```
+
+The terminal as it starts: the modes, the colors, the character sets, the pictures and the
+keys' flags back, the screen blank; `clear`: what scrolled off forgotten too. The program
+goes on.
+
+```nim
+proc terminalEditItems*(t: Terminal)
+```
+
+The terminal's Copy, Paste and Select All as items of a menu of the app's own (its menu
+bar's Edit menu), with their keys.
+
+```nim
+proc terminalViewItems*(t: Terminal)
+```
+
+The terminal's text bigger, smaller and back to its size, as items of a menu of the app's
+own (View), with their keys.
+
+```nim
+proc terminalItems*(t: Terminal)
+```
+
+The terminal's own commands as items of a menu of the app's own (Terminal): Clear
+Scrollback, Reset, Reset and Clear.
+
+```nim
+proc kbFlags*(t: Terminal): int
+```
+
+The kitty keyboard protocol's flags the program asked for on the screen shown now (0: keys
+as xterm sends them): 1 Esc and modified keys told apart, 2 releases too, 4 the shifted
+key too, 8 every key as an escape, 16 the text with it.
+
+```nim
+proc kittyKeyBytes*(t: Terminal; key: KeyCode; mods: set[Modifier]; release = false): string
+```
+
+What a key sends a program that turned the kitty keyboard protocol on (`kbFlags`): Esc and
+Ctrl, Alt and Super with any key told apart from what typing makes (CSI code;mods u); with
+flag 2 the key let go (`release`) too; with 4 the shifted key; with 8 every key, text too,
+as an escape, and with 16 the text it types. "" for a key the text it types says enough
+(or a release not asked for).
+
+```nim
+proc pictureCount*(t: Terminal): int
+```
+
+How many pictures are placed in the screen and what scrolled off (the kitty graphics
+protocol's placements).
+
+```nim
+proc imageCount*(t: Terminal): int
+```
+
+How many pictures the program sent are kept (placed or not).
 
 ```nim
 proc waitOutput*(t: Terminal; text: string; ms = 5000): bool
@@ -7814,6 +7903,28 @@ proc roundRect*(r: Rect; radius: float; c: Color)
 A filled rectangle with rounded corners.
 
 ```nim
+proc roundRectShaded*(r: Rect; radius: float; top, bottom: Color)
+```
+
+A rectangle with rounded corners shaded from `top` at its top to `bottom` at its foot
+(`top`'s alpha for both: see-through when it is not 255).
+
+```nim
+proc roundFrame*(r: Rect; radius, width: float; c: Color)
+```
+
+The outline of a rectangle with rounded corners, `width` thick, inside `r` (a hairline:
+1) -- what is in it left as it is.
+
+```nim
+proc textCells*(x, y: int; s: string; c: Color; st: TextStyle; cellW: int)
+```
+
+Plain ASCII `s` in style `st` (monospaced: `mono`), each letter in a cell of its own
+`cellW` wide from `x` -- where `text` would put each one alone: a terminal's row, a grid of
+letters. One command for all of them, not one a letter. Not plain ASCII: drawn by `text`.
+
+```nim
 proc drawBitmap*(r: Rect; b: Bitmap)
 ```
 
@@ -9133,7 +9244,7 @@ proc captionStrip*(r: Rect; title: string)
 ```
 
 A strip in the highlight colour with a bold title: the head of a
-panel (`glCaption`'s).
+panel (`glCaption`'s). (Glass: rounded, lit from above.)
 
 ## Screen readers and input methods
 

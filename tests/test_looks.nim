@@ -22,6 +22,14 @@ proc count(c: Color; r: Rect): int =
     for x in max(0, r.x) ..< min(W, r.x + r.w):
       if px(x, y) == want: inc result
 
+proc countNear(c: Color; r: Rect; tol = 40): int =
+  ## (the pixels close to one colour in `r`: Glass lights what is on from above, so a shade of it)
+  for y in max(0, r.y) ..< min(H, r.y + r.h):
+    for x in max(0, r.x) ..< min(W, r.x + r.w):
+      let p = px(x, y)
+      if abs(int((p shr 16) and 255) - int(c.r)) + abs(int((p shr 8) and 255) - int(c.g)) +
+         abs(int(p and 255) - int(c.b)) <= tol: inc result
+
 # ---- buttons: the accent, a style, a height ---------------------------------------------------------
 
 var plain, accent, big, tall, pic: Rect
@@ -222,8 +230,8 @@ for (t, want) in [(GlassLight, true), (GlassDark, true), (Emerald, true), (HighC
   let win = (uint32(t.window.r) shl 16) or (uint32(t.window.g) shl 8) or uint32(t.window.b)
   if want:
     doAssert corner == win, "a button's corner: rounded off, the window under it " & $corner
-    doAssert count(accentColor(), gc) > 10, "a check box ticked: in the highlight"
-    doAssert count(accentColor(), gs) > 20, "a switch on: in the highlight"
+    doAssert countNear(accentColor(), gc) > 10, "a check box ticked: in the highlight"
+    doAssert countNear(accentColor(), gs) > 20, "a switch on: in the highlight"
   else:
     doAssert corner != win, "High Contrast: its square, black-edged buttons"
   uiLook = lookClassic

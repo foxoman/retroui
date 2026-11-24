@@ -5,7 +5,8 @@
 const toolHelp = [
   ("Move Tool", "Moves the layer, the pixels selected or the objects picked; drag a handle to scale them.",
    "Shift: straight lines and in proportion. Alt+drag: a copy. Ctrl+click: the layer under the pointer."),
-  ("Artboard Tool", "Draws an artboard, or moves and sizes the one picked.", "Shift: square. Alt+drag: a copy."),
+  ("Artboard Tool", "Draws an artboard where there is none; picks one, moves it with its artwork, sizes it by its handles.",
+   "Alt+drag: a copy. Shift on a handle: in proportion. Double-click: Artboard Options."),
   ("Gap Tool", "Changes the space between objects: drag the gap and the objects beside it follow.",
    "Shift: only the nearer object moves. Ctrl: the gap's size."),
   ("Content Collector Tool", "Collects objects to place again elsewhere, on another page.", ""),

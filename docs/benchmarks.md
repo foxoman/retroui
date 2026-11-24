@@ -49,6 +49,28 @@ a frame's time in its parts, averages of the last 120 frames, ms.
 | A document | 1.121 | 0.451 | 0.008 | 0.614 | 0.300 | 0.021 |
 | Type | 1.185 | 0.019 | 0.004 | 1.141 | 0.654 | 0.032 |
 
+## The Glass look and the terminal
+
+Drawn by the processor at 1600 x 1000 (2 threads), medians of 3 runs of
+`tests/bench_glass.nim` -- a window of tabs, groups, cards, fields,
+lists, buttons and a grid -- and of a terminal of 195 x 65 cells in 256
+colors, bold, underlined and with backgrounds, in 0.73.1 and 0.74.0.
+
+| | 0.73.1 | 0.74.0 |
+|---|---|---|
+| The 3.1 look, every pixel redrawn | 1.7 ms | 1.8 ms |
+| The Glass look, every pixel redrawn | 5.1 ms | 3.3 ms |
+| The Glass look (dark), every pixel redrawn | 4.9 ms | 3.3 ms |
+| The terminal, every pixel redrawn | 3.8 ms | 2.1 ms |
+| The terminal, a line written to it | 3.9 ms | 1.7 ms |
+| The terminal, a frame with nothing new (built, not drawn) | 1.1 ms | 0.3 ms |
+
+0.74's Glass look draws more than 0.73's -- faces shaded from top to
+foot, every field, group and tab page a rounded card -- and takes less:
+its rounded shapes are drawn by spans (`rasterRound`). Drawn as any
+shape, as 0.73 drew them, the same window took 13 to 18 ms. The
+terminal's rows are drawn by runs (`textCells`), not a cell at a time.
+
 ## The apps
 
 The kit's own apps, built for release (`-d:release -d:strip -d:lto`,

@@ -495,102 +495,146 @@ proc contentAwareExpand*(d: Doc; r: Rect; seed = 1) =
   d.markAll()
 
 # ---- artboards -------------------------------------------------------------------------------------------------------
-
-proc isArtboard*(L: Layer): bool = L.group and L.board.w > 0
-  ## An artboard: a group with a page of its own (`board`), what is in it
-  ## shown only there.
+#
+# As the drawing program has them: pages of the canvas (`Doc.boards`), not layers -- the artwork on the
+# layers lies anywhere, on an artboard or round it on the canvas; each is exported and printed as what
+# is on it. A Photoshop file's artboards (groups with a page: `isArtboard`) are made these when it is
+# opened (`boardsFromGroups`).
 
 proc artboards*(d: Doc): seq[int] =
-  ## The artboards, by their place in the layers (the top first).
-  for i in countdown(d.layers.high, 0):
-    if d.layers[i].isArtboard: result.add i
+  ## The artboards, by their number (from 0): `d.boards`' places.
+  for i in 0 ..< d.boards.len: result.add i
 
-proc boardMask(d: Doc; r: Rect): Layer =
-  result = Layer(name: "Layer Mask", opacity: 100, visible: true, gray: true, pxRaw: newSeq[uint32](d.w * d.h))
-  let c = d.clip(r)
-  for i in 0 ..< result.px.len: result.px[i] = grayPx(0)
-  for y in c.y ..< c.y + c.h:
-    for x in c.x ..< c.x + c.w: result.px[y * d.w + x] = grayPx(255)
+proc artboardName*(d: Doc; i: int): string =
+  ## Artboard `i` as the drawing program names it: its number and its name ("01 - Artboard 1").
+  if i < 0 or i >= d.boards.len: return ""
+  (if i + 1 < 10: "0" else: "") & $(i + 1) & " - " & d.boards[i].name
 
-proc addArtboard*(d: Doc; r: Rect; name = ""; color = 0xFFFFFFFF'u32): Layer =
-  ## The Artboard tool: a new artboard in `r` (its page filled with `color`;
-  ## transparent: none), at the top. Undoable in a step.
-  let c = d.clip(r)
-  if c.w <= 0 or c.h <= 0: return nil
+proc nextBoardName(d: Doc): string =
+  var n = d.boards.len + 1
+  while true:
+    var used = false
+    for b in d.boards:
+      if b.name == "Artboard " & $n: used = true
+    if not used: return "Artboard " & $n
+    inc n
+
+proc growCanvasFor*(d: Doc; r: Rect; margin = 0): (int, int) =
+  ## The canvas made big enough to hold `r` (and `margin` round it): room added where it is
+  ## outside -- at the left or the top, everything moved over (the artboards, the artwork); how far
+  ## (add it to `r`). The Background, if there is one, grown in its color. Undoable in a step: the
+  ## whole image saved (`snapStep`) -- so before anything else of the step.
+  let want = rect(r.x - margin, r.y - margin, r.w + 2 * margin, r.h + 2 * margin)
+  let x0 = min(0, want.x)
+  let y0 = min(0, want.y)
+  let x1 = max(d.w, want.x + want.w)
+  let y1 = max(d.h, want.y + want.h)
+  if x0 == 0 and y0 == 0 and x1 == d.w and y1 == d.h: return (0, 0)
+  if d.stepOpen: d.snapStep(d.undoName)
+  var bg = 0xFFFFFFFF'u32
+  for L in d.layers:
+    if L.background and L.px.len > 0: bg = L.px[0]
+  d.canvasSizeAt(x1 - x0, y1 - y0, -x0, -y0, bg)
+  d.grown = (d.grown.x - x0, d.grown.y - y0)
+  (-x0, -y0)
+
+proc boardMargin(d: Doc; r: Rect): int =
+  ## (the canvas round a new artboard: a third of its size, at least 40 pixels)
+  max(40, max(r.w, r.h) div 3)
+
+proc addArtboard*(d: Doc; r: Rect; name = ""; color = 0xFFFFFFFF'u32): int =
+  ## A new artboard in `r` (the Artboard tool's box, New Artboard), its paper `color` (alpha 0:
+  ## none), picked; the canvas grown to hold it (`r` moved over with everything if it grew left or
+  ## up). Its number (-1: too small). Undoable in a step.
+  if r.w < 1 or r.h < 1: return -1
+  let (sx, sy) = d.growCanvasFor(r, d.boardMargin(r))
   d.touchLayers()
-  var n = 1
-  for i in d.artboards: inc n
-  let nm = if name.len > 0: name else: "Artboard " & $n
-  d.cur = d.layers.high
-  while d.cur > 0 and d.layers[d.cur].depth > 0: dec d.cur
-  var fillL: Layer = nil
-  if (color shr 24) > 0:
-    fillL = d.addShapeLayer(ShapeData(path: rectPath(c.x.float, c.y.float, (c.x + c.w).float, (c.y + c.h).float),
-                                      fill: solidPaint(color)), "Page")
-  else:
-    fillL = d.addLayer("Layer 1")
-  let k = d.layers.find(fillL)
-  result = d.groupLayers(@[k], nm)
-  if result == nil: return
-  result.board = c
-  result.passThrough = false
-  result.mask = d.boardMask(c)
-  result.collapsed = false
-  d.cur = d.layers.find(fillL)
+  d.boards.add Artboard(name: (if name.len > 0: name else: d.nextBoardName), r: rect(r.x + sx, r.y + sy, r.w, r.h),
+                        color: color)
+  d.boardCur = d.boards.high
+  inc d.boardsVer
+  d.markAll()
+  d.boardCur
+
+proc artboardArt*(d: Doc; i: int): seq[Layer] =
+  ## The artwork on artboard `i` -- what the drawing program moves with it: each layer (a group:
+  ## all in it) whose middle is on it, not locked in place, not the Background.
+  if i < 0 or i >= d.boards.len: return
+  let b = d.boards[i].r
+  for L in d.layers:
+    if L.group or L.background or L.lockPosition or L.locked: continue
+    let c = d.layerBox(L)
+    if c.w <= 0 or c.h <= 0: continue
+    let mx = c.x + c.w div 2
+    let my = c.y + c.h div 2
+    if mx >= b.x and mx < b.x + b.w and my >= b.y and my < b.y + b.h: result.add L
+
+proc deleteArtboard*(d: Doc; i: int) =
+  ## Artboard `i` gone (its artwork stays on the canvas). Undoable in a step.
+  if i < 0 or i >= d.boards.len: return
+  d.touchLayers()
+  d.boards.delete(i)
+  d.boardCur = clamp(if d.boardCur > i: d.boardCur - 1 else: d.boardCur, 0, max(0, d.boards.high))
+  inc d.boardsVer
   d.markAll()
 
-proc artboardPage(d: Doc; i: int): Layer =
-  ## (an artboard's page: the shape named "Page" at the bottom of it, nil none)
-  if i < 0 or i >= d.layers.len or not d.layers[i].isArtboard: return nil
-  let lo = d.blockStart(i)
-  if lo < i and d.layers[lo].isShape and d.layers[lo].name == "Page": d.layers[lo] else: nil
+proc moveArtboard*(d: Doc; i: int; dx, dy: int; withArt = true) =
+  ## Artboard `i` moved -- with its artwork (Move/Copy Artwork with Artboard), or alone; the canvas
+  ## grown to hold it. Undoable in a step.
+  if i < 0 or i >= d.boards.len or (dx == 0 and dy == 0): return
+  let art = if withArt: d.artboardArt(i) else: @[]
+  let b0 = d.boards[i].r
+  let to = rect(b0.x + dx, b0.y + dy, b0.w, b0.h)
+  let (sx, sy) = d.growCanvasFor(to, d.boardMargin(to))
+  d.touchLayers()
+  if art.len > 0: d.shiftLayers(art, dx, dy)
+  d.boards[i].r = rect(to.x + sx, to.y + sy, to.w, to.h)
+  inc d.boardsVer
+  d.markAll()
+
+proc duplicateArtboard*(d: Doc; i: int; dx, dy: int; withArt = true): int =
+  ## A copy of artboard `i` so far over -- its artwork copied with it (as Alt+drag with the Artboard
+  ## tool) -- picked. Its number. Undoable in a step.
+  if i < 0 or i >= d.boards.len: return -1
+  let src = d.boards[i]
+  let to = rect(src.r.x + dx, src.r.y + dy, src.r.w, src.r.h)
+  discard d.growCanvasFor(to, d.boardMargin(to))
+  d.touchLayers()
+  let ob = d.boards[i].r                               # (where it is now the canvas grew)
+  let art = if withArt: d.artboardArt(i) else: @[]
+  var copies: seq[Layer]
+  for L in art:
+    let k = d.layers.find(L)
+    if k < 0: continue
+    let C = d.duplicateLayer(k)
+    if C != nil: copies.add C
+  let n = d.addArtboard(rect(ob.x + dx, ob.y + dy, ob.w, ob.h), src.name & " copy", src.color)
+  if n < 0: return -1
+  d.boards[n].centerMark = src.centerMark
+  d.boards[n].crossHairs = src.crossHairs
+  d.boards[n].videoSafe = src.videoSafe
+  if copies.len > 0: d.shiftLayers(copies, dx, dy)
+  d.markAll()
+  n
 
 proc artboardColor*(d: Doc; i: int): uint32 =
-  ## Artboard Options: the color of artboard `i`'s page (0: transparent, none shown).
-  let P = d.artboardPage(i)
-  if P == nil or not P.visible or P.shape.fill.kind != spColor: 0'u32 else: P.shape.fill.color
+  ## Artboard Options: the color of artboard `i`'s paper (0: none, the transparency grid shown).
+  if i < 0 or i >= d.boards.len: 0'u32 else: d.boards[i].color
 
 proc setArtboardColor*(d: Doc; i: int; color: uint32) =
-  ## Artboard Options: artboard `i`'s page in `color` (alpha 0: transparent -- its page hidden),
-  ## made when it has none. Undoable in a step (`touchLayers`).
-  if i < 0 or i >= d.layers.len or not d.layers[i].isArtboard: return
-  var P = d.artboardPage(i)
-  let b = d.layers[i].board
-  if P == nil:
-    if (color shr 24) == 0: return
-    let G = d.layers[i]
-    P = d.addShapeLayer(ShapeData(path: rectPath(b.x.float, b.y.float, (b.x + b.w).float, (b.y + b.h).float),
-                                  fill: solidPaint(color)), "Page", above = d.blockStart(i) - 1)
-    P.depth = G.depth + 1
-  P.visible = (color shr 24) > 0
-  if P.visible:
-    var s = P.shape
-    s.fill = solidPaint(color or 0xFF000000'u32)
-    d.setShape(P, s)
+  ## Artboard Options: artboard `i`'s paper in `color` (alpha 0: none). Undoable in a step.
+  if i < 0 or i >= d.boards.len: return
+  d.touchLayers()
+  d.boards[i].color = color
+  inc d.boardsVer
   d.markAll()
-
-proc lockArtboard*(d: Doc; i: int; on: bool) =
-  ## Artboard Options: artboard `i` locked (Lock All: not moved, resized, painted on) or not.
-  if i >= 0 and i < d.layers.len and d.layers[i].isArtboard: d.layers[i].locked = on
 
 proc artboardAt*(d: Doc; x, y: int): int =
-  ## The artboard at a point (its place in the layers; -1 none): the top one.
-  for i in d.artboards:
-    let b = d.layers[i].board
+  ## The artboard at a point (its number; -1 none): the last made of those there.
+  for i in countdown(d.boards.high, 0):
+    let b = d.boards[i].r
     if x >= b.x and y >= b.y and x < b.x + b.w and y < b.y + b.h: return i
   -1
-
-proc moveArtboard*(d: Doc; i: int; dx, dy: int) =
-  ## An artboard moved with all on it. Undoable in a step.
-  if i < 0 or i >= d.layers.len or not d.layers[i].isArtboard: return
-  let G = d.layers[i]
-  var inside: seq[Layer]
-  for j in d.blockStart(i) ..< i: inside.add d.layers[j]
-  d.shiftLayers(inside, dx, dy)
-  d.touchLayers()
-  G.board = rect(G.board.x + dx, G.board.y + dy, G.board.w, G.board.h)
-  G.mask = d.boardMask(G.board)
-  d.markAll()
 
 proc pinnedBox*(box, was, now: Rect; pins: set[LayerPin]): Rect =
   ## Where a layer's box `box` goes when the board it is on goes from `was` to `now`, by its
@@ -640,41 +684,168 @@ proc fitLayerTo*(d: Doc; L: Layer; was, now: Rect) =
   inc L.ver
 
 proc resizeArtboard*(d: Doc; i: int; r: Rect) =
-  ## An artboard's page made `r` (its fill follows); what is on it stays where it is -- or, with
-  ## Constraints (`Layer.pins`), follows it (`pinnedBox`). Undoable in a step.
-  if i < 0 or i >= d.layers.len or not d.layers[i].isArtboard: return
-  let c = d.clip(r)
-  if c.w <= 0 or c.h <= 0: return
+  ## Artboard `i` made `r`; its artwork stays where it is -- or, with Constraints (`Layer.pins`),
+  ## follows it (`pinnedBox`). The canvas grown to hold it. Undoable in a step.
+  if i < 0 or i >= d.boards.len or r.w < 1 or r.h < 1: return
+  let art = d.artboardArt(i)
+  let (sx, sy) = d.growCanvasFor(r, d.boardMargin(r))
   d.touchLayers()
-  let G = d.layers[i]
-  let was = G.board
-  for j in d.blockStart(i) ..< i:
-    let L = d.layers[j]
-    if L.pins == {} or L.depth != G.depth + 1: continue
+  let was = d.boards[i].r
+  let now = rect(r.x + sx, r.y + sy, r.w, r.h)
+  for L in art:
+    if L.pins == {}: continue
     let b = d.layerBox(L)
-    if b.w > 0 and b.h > 0: d.fitLayerTo(L, b, pinnedBox(b, was, c, L.pins))
-  G.board = c
-  G.mask = d.boardMask(c)
-  let lo = d.blockStart(i)
-  if lo < i and d.layers[lo].isFill.not and d.layers[lo].isShape and d.layers[lo].name == "Page":
-    var s = d.layers[lo].shape
-    s.path = rectPath(c.x.float, c.y.float, (c.x + c.w).float, (c.y + c.h).float)
-    d.setShape(d.layers[lo], s)
+    if b.w > 0 and b.h > 0: d.fitLayerTo(L, b, pinnedBox(b, was, now, L.pins))
+  d.boards[i].r = now
+  inc d.boardsVer
   d.markAll()
 
 proc artboardPicture*(d: Doc; i: int): Bitmap =
-  ## File > Export > Artboards to Files: what one artboard shows, cut to its
-  ## page.
-  if i < 0 or i >= d.layers.len or not d.layers[i].isArtboard: return nil
-  let G = d.layers[i]
-  let b = d.clip(G.board)
+  ## File > Export > Artboards to Files: what artboard `i` shows -- the artwork on it, over its
+  ## paper -- cut to it.
+  if i < 0 or i >= d.boards.len: return nil
+  let bd = d.boards[i]
+  let b = d.clip(bd.r)
+  if b.w <= 0 or b.h <= 0: return nil
   var ls: seq[Layer]
-  for j in d.blockStart(i) .. i: ls.add d.layers[j]
+  for L in d.layers: ls.add L
   var px = newSeq[uint32](d.w * d.h)
   d.compositeInto(px, b, ls)
   result = newBitmap(b.w, b.h)
+  let paper = bd.color
   for y in 0 ..< b.h:
-    copyMem(addr result.px[y * b.w], addr px[(b.y + y) * d.w + b.x], b.w * 4)
+    for x in 0 ..< b.w:
+      let p = px[(b.y + y) * d.w + b.x + x]
+      result.px[y * b.w + x] = if (paper shr 24) == 0: p else: blendPx(paper or 0xFF000000'u32, p, 255, bmNormal)
+
+type ArrangeLayout* = enum
+  ## Rearrange All Artboards: how they are laid out.
+  alGridByRow = "Grid by Row", alGridByColumn = "Grid by Column", alRow = "Arrange by Row",
+  alColumn = "Arrange by Column"
+
+proc rearrangeArtboards*(d: Doc; layout: ArrangeLayout; columns: int; spacing: int; rightToLeft = false;
+                         withArt = true) =
+  ## Rearrange All Artboards: in a grid -- `columns` across (by row) or down (by column) -- or in one
+  ## row or one column, `spacing` apart, in their order (right to left: the first at the right), from
+  ## the first one's top left; their artwork with them. Undoable in a step.
+  if d.boards.len == 0: return
+  let n = d.boards.len
+  let cols = max(1, case layout
+                    of alRow: n
+                    of alColumn: 1
+                    else: columns)
+  let byCol = layout in {alGridByColumn, alColumn}
+  let per = if byCol: (if layout == alColumn: n else: max(1, cols)) else: cols
+  # (each cell as wide as the widest in its column, as tall as the tallest in its row)
+  var colW, rowH: seq[int]
+  for k in 0 ..< n:
+    let (c, rw) = if byCol: (k div per, k mod per) else: (k mod per, k div per)
+    while colW.len <= c: colW.add 0
+    while rowH.len <= rw: rowH.add 0
+    colW[c] = max(colW[c], d.boards[k].r.w)
+    rowH[rw] = max(rowH[rw], d.boards[k].r.h)
+  let x0 = d.boards[0].r.x
+  let y0 = d.boards[0].r.y
+  var targets = newSeq[Rect](n)
+  for k in 0 ..< n:
+    var (c, rw) = if byCol: (k div per, k mod per) else: (k mod per, k div per)
+    if rightToLeft: c = colW.high - c
+    var x = x0
+    for q in 0 ..< c: x += colW[q] + spacing
+    var y = y0
+    for q in 0 ..< rw: y += rowH[q] + spacing
+    targets[k] = rect(x, y, d.boards[k].r.w, d.boards[k].r.h)
+  # (each moved where it goes -- its artwork picked before any moves, so none is taken twice)
+  var arts = newSeq[seq[Layer]](n)
+  if withArt:
+    for k in 0 ..< n: arts[k] = d.artboardArt(k)
+  var all = targets[0]
+  for t in targets: all = union(all, t)
+  let (sx, sy) = d.growCanvasFor(all, d.boardMargin(targets[0]))
+  d.touchLayers()
+  for k in 0 ..< n:
+    let t = rect(targets[k].x + sx, targets[k].y + sy, targets[k].w, targets[k].h)
+    let b = d.boards[k].r
+    if arts[k].len > 0: d.shiftLayers(arts[k], t.x - b.x, t.y - b.y)
+    d.boards[k].r = t
+  inc d.boardsVer
+  d.markAll()
+
+proc artBounds(d: Doc; layers: openArray[Layer]): Rect =
+  for L in layers:
+    if L.group or not L.visible: continue
+    let c = d.layerBox(L)
+    if c.w > 0 and c.h > 0: result = if result.w > 0: union(result, c) else: c
+
+proc fitArtboardTo*(d: Doc; i: int; layers: seq[Layer] = @[]) =
+  ## Object > Artboards > Fit to Artwork Bounds (no `layers`: what is on it) or Fit to Selected Art
+  ## (`layers`): artboard `i` made the size of the artwork, the artwork staying where it is.
+  ## Undoable in a step.
+  if i < 0 or i >= d.boards.len: return
+  let r = d.artBounds(if layers.len > 0: layers else: d.artboardArt(i))
+  if r.w <= 0 or r.h <= 0 or r == d.boards[i].r: return
+  let (sx, sy) = d.growCanvasFor(r, d.boardMargin(r))
+  d.touchLayers()
+  d.boards[i].r = rect(r.x + sx, r.y + sy, r.w, r.h)
+  inc d.boardsVer
+  d.markAll()
+
+proc convertToArtboards*(d: Doc; layers: seq[Layer]): seq[int] =
+  ## Object > Artboards > Convert to Artboards: each shape picked made an artboard of its size (the
+  ## shape gone, as the drawing program does); the new artboards' numbers. Undoable in a step.
+  var boxes: seq[(Rect, string)]
+  var gone: seq[Layer]
+  for L in layers:
+    if not L.isShape or L.locked: continue
+    let c = d.layerBox(L)
+    if c.w < 1 or c.h < 1: continue
+    boxes.add (c, L.name)
+    gone.add L
+  if boxes.len == 0: return
+  d.touchLayers()
+  for L in gone:
+    let k = d.layers.find(L)
+    if k >= 0 and d.layers.len > 1: d.layers.delete(k)
+  d.cur = clamp(d.cur, 0, d.layers.high)
+  for (c, _) in boxes:
+    let n = d.addArtboard(c)
+    if n >= 0: result.add n
+  d.markAll()
+
+proc deleteEmptyArtboards*(d: Doc): int =
+  ## The Artboards panel's Delete Empty Artboards: those with no artwork on them gone; how many.
+  ## Undoable in a step.
+  var i = d.boards.high
+  while i >= 0:
+    var any = false
+    let b = d.boards[i].r
+    for L in d.layers:
+      if L.group or L.background or not L.visible: continue
+      let c = d.layerBox(L)
+      if c.w > 0 and c.intersects(b): any = true
+    if not any:
+      d.deleteArtboard(i)
+      inc result
+    dec i
+
+proc renameArtboard*(d: Doc; i: int; name: string) =
+  ## The Artboards panel: artboard `i` named `name`. Undoable in a step.
+  if i < 0 or i >= d.boards.len or name.len == 0 or d.boards[i].name == name: return
+  d.touchLayers()
+  d.boards[i].name = name
+  inc d.boardsVer
+
+proc reorderArtboard*(d: Doc; i, to: int) =
+  ## The Artboards panel's Move Up / Move Down: artboard `i` made number `to` (the order they are
+  ## exported, printed and rearranged in). Undoable in a step.
+  if i < 0 or i >= d.boards.len or to < 0 or to >= d.boards.len or i == to: return
+  d.touchLayers()
+  let b = d.boards[i]
+  d.boards.delete(i)
+  d.boards.insert(b, to)
+  d.boardCur = to
+  inc d.boardsVer
+  d.markAll()
 
 # ---- the Magnetic Lasso -----------------------------------------------------------------------------------------------
 

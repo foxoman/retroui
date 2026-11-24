@@ -236,6 +236,15 @@ proc origin(v: PhotoView; d: Doc): (int, int) =
   let oy = if ih <= vh: (vh - ih) div 2 else: -v.offY
   (ox, oy)
 
+proc keepInView*(v: var PhotoView; d: Doc; dx, dy: int) =
+  ## After everything moved over `dx`, `dy` image pixels (the canvas grew left or up for an
+  ## artboard: `Doc.grown`): the view scrolled with it, what was shown staying where it was.
+  if dx == 0 and dy == 0: return
+  let (iw, ih) = v.devSize(d)
+  v.offX += int(round(dx.float * iw.float / max(1, d.w).float))
+  v.offY += int(round(dy.float * ih.float / max(1, d.h).float))
+  v.key = ""
+
 proc turned(v: PhotoView; x, y: float; back: bool): (float, float) =
   ## (a screen point turned round the view's middle by the view's angle;
   ## `back`: the other way)
@@ -577,6 +586,16 @@ proc renderView(v: var PhotoView; d: Doc; bw, bh: int; bg: uint32; part = rect(0
   let (ck0, ck1) = checkerPair(viewPrefs.checkerColors)
   let cks = if viewPrefs.checkerSize == ckNone: 0
             else: checkerShift(viewPrefs.checkerSize) + (if pxScale >= 4: 2 elif pxScale >= 2: 1 else: 0)
+  # (artboards: under what is see-through on one its paper -- none: the checkerboard -- and round
+  # them the pasteboard, as the view's surround)
+  var boardR: seq[Rect]
+  var boardC: seq[uint32]
+  for b in d.boards:
+    boardR.add b.r
+    boardC.add b.color
+  let nb = boardR.len
+  let bRp = if nb > 0: cast[ptr UncheckedArray[Rect]](addr boardR[0]) else: nil
+  let bCp = if nb > 0: cast[ptr UncheckedArray[uint32]](addr boardC[0]) else: nil
   drawingRows(part.h, ry):
     let by = py0 + ry
     let dy = by - oy
@@ -625,7 +644,20 @@ proc renderView(v: var PhotoView; d: Doc; bw, bh: int; bg: uint32; part = rect(0
         var o: uint32
         if a == 255: o = p
         else:
-          let chk = if cks == 0: ck0
+          var paper = 0'u32
+          var off = false
+          if nb > 0:
+            off = true
+            let fx = int(xp0[bx])
+            for k in countdown(nb - 1, 0):
+              let r = bRp[k]
+              if fx >= r.x and fx < r.x + r.w and iy0 >= r.y and iy0 < r.y + r.h:
+                off = false
+                paper = bCp[k]
+                break
+          let chk = if off: bg
+                    elif (paper shr 24) != 0: paper or 0xFF000000'u32
+                    elif cks == 0: ck0
                     elif ((((bx - ox) shr cks) + ((by - oy) shr cks)) and 1) == 0: ck0
                     else: ck1
           o = if a == 0: chk else: blendPx(chk, p, 255, bmNormal)
@@ -734,7 +766,10 @@ proc gpuView(v: var PhotoView; d: Doc; area: Rect; bg: uint32; hold = false): bo
   if not drawnWithGpu() or d.live.len > 0: return false
   let quick = d.quickMask and d.maskLayer != nil
   if d.viewChannel >= 0 or d.mode notin {cmRGB, cmGray, cmIndexed} or d.proof or d.gamutWarning or
-     quick or (d.icc.len > 0 and iccDisplayPtr(d.icc) != nil) or d.blindView != 0:
+     quick or (d.icc.len > 0 and iccDisplayPtr(d.icc) != nil) or d.blindView != 0 or
+     d.sepView.on or d.overprintView:
+    # (each point worked out on the processor: as the plates print it, Separations and Overprint
+    # Preview too -- the GPU's picture is the image as it is)
     return false
   if v.gpuKey == 0:
     v.gpuKey = nextGpuKey shl 8
@@ -773,11 +808,22 @@ proc gpuView(v: var PhotoView; d: Doc; area: Rect; bg: uint32; hold = false): bo
   let (ck0, ck1) = checkerPair(viewPrefs.checkerColors)
   template col(c: uint32): Color = color(uint8(c shr 16), uint8(c shr 8), uint8(c))
   pushClip(area)
-  if viewPrefs.checkerSize == ckNone:
-    checkerAt(img, 1 shl 20, img.x, img.y, col(ck0), col(ck0))
+  let cks = if viewPrefs.checkerSize == ckNone: 20
+            else: checkerShift(viewPrefs.checkerSize) + (if pxScale >= 4: 2 elif pxScale >= 2: 1 else: 0)
+  let ckb = if viewPrefs.checkerSize == ckNone: ck0 else: ck1
+  if d.boards.len == 0:
+    checkerAt(img, 1 shl cks, img.x, img.y, col(ck0), col(ckb))
   else:
-    let cks = checkerShift(viewPrefs.checkerSize) + (if pxScale >= 4: 2 elif pxScale >= 2: 1 else: 0)
-    checkerAt(img, 1 shl cks, img.x, img.y, col(ck0), col(ck1))
+    # (artboards: each its paper -- none: the checkerboard -- the pasteboard round them)
+    for b in d.boards:
+      let x0 = img.x + (b.r.x * iw) div max(1, d.w)
+      let y0 = img.y + (b.r.y * ih) div max(1, d.h)
+      let x1 = img.x + ((b.r.x + b.r.w) * iw + d.w - 1) div max(1, d.w)
+      let y1 = img.y + ((b.r.y + b.r.h) * ih + d.h - 1) div max(1, d.h)
+      let dr = intersect(rect(x0, y0, x1 - x0, y1 - y0), img)
+      if dr.w <= 0 or dr.h <= 0: continue
+      if (b.color shr 24) == 0: checkerAt(dr, 1 shl cks, img.x, img.y, col(ck0), col(ckb))
+      else: checkerAt(dr, 1 shl 20, img.x, img.y, col(b.color), col(b.color))
   drawGpuImage(key, img, d.ver, smooth = lw != iw)
   popClip()
   true
@@ -1025,7 +1071,7 @@ proc photoView*(d: Doc; v: var PhotoView; height = -1; key = ""; drawAntsNow = t
           "/" & $d.viewChannel & "/" & $d.mode & "/" & $d.proof & "/" & $d.blindView & "/" & $d.gamutWarning &
           "/" & $d.duotone.len &
           "/" & $d.icc.len & "/" & $viewPrefs.checkerSize & $viewPrefs.checkerColors & $gamutColor &
-          "/" & $d.quickMask & "/" & $d.w & "x" & $d.h & "/" & $bg &
+          "/" & $d.quickMask & "/" & $d.w & "x" & $d.h & "/" & $bg & "/" & $d.boardsVer & "." & $d.boards.len &
           (if d.live.len > 0: "/live" & $d.liveVer else: "") &
           (if d.quickMask: "/" & $quickMaskColor & $quickMaskOpacity & $quickMaskOnSelected else: "")
   # (made again only where something changed: what scrolled is moved, what
@@ -1292,12 +1338,31 @@ type ColorPickerState* = object
   fieldKey, stripKey: string
   opened: bool
   libraries*: bool           ## Color Libraries shown in the picker's place
+  source*: int               ## the colors under the picker: 0 the swatches (`pickerSwatches`), k
+                             ## the k-th of the Color Libraries
   book*: int                 ## ... the book shown
   libSel*: int               ## ... its color chosen
   libKey: string             ## ... the name or number typed to find one
   pickedName*: string        ## the library color's name, when OK took one
   alpha*: int                ## its opacity, 0 (transparent) .. 255, when the picker shows it
                              ## (`colorPickerDialog(..., alpha = true)`)
+
+var pickerSwatches*: seq[uint32]
+  ## The app's swatches (its Swatches panel's), shown under the color picker's field with the
+  ## Color Libraries' colors: a click takes one. None given: `defaultSwatches`.
+
+proc defaultSwatches*(): seq[uint32] =
+  ## The kit's own swatches: thirty colors -- pure, light, dark and in between -- and twelve grays
+  ## from white to black (a picker's when the app gives none, Retro Atelier's at first).
+  for c in [0xFF0000, 0xFFFF00, 0x00FF00, 0x00FFFF, 0x0000FF, 0xFF00FF,
+            0xFF8080, 0xFFFF80, 0x80FF80, 0x80FFFF, 0x8080FF, 0xFF80FF,
+            0x800000, 0x808000, 0x008000, 0x008080, 0x000080, 0x800080,
+            0xFF8000, 0x80FF00, 0x00FF80, 0x0080FF, 0x8000FF, 0xFF0080,
+            0x804000, 0x408000, 0x004080, 0x400080, 0xC08040, 0x40C080]:
+    result.add 0xFF000000'u32 or uint32(c)
+  for k in 0 .. 11:
+    let v = uint32(255 - k * 255 div 11)
+    result.add 0xFF000000'u32 or (v shl 16) or (v shl 8) or v
 
 var colorBooks*: seq[ColorBook]
   ## The Color Libraries: the kit's own (`builtinBooks`, there from the
@@ -1461,6 +1526,46 @@ proc colorStrip*(p: var ColorPickerState; w, h: int): bool {.discardable.} =
   arrow(r.x + dp(3), y, dRight, th.text, dp(4))
   arrow(r.x + r.w - dp(4), y, dLeft, th.text, dp(4))
 
+type SwatchEvent* = object
+  ## A click on the swatches: `pick` the index, `alt`/`shift`/`ctrl` held;
+  ## `empty` a click after the last one (to add a color).
+  pick*: int                 ## the swatch clicked (-1 none)
+  empty*: bool               ## the click was after the last swatch
+  alt*, shift*, ctrl*: bool  ## the keys held
+
+proc swatchSize*(): int =
+  ## A swatch's side: big enough to hit with the mouse at once (20), with a finger (30).
+  if fingers(): dp(30) else: dp(20)
+
+proc swatchGrid*(colors: seq[uint32]; w: int; cell = 0; key = ""): SwatchEvent =
+  ## The Swatches palette: squares of colors (`cell` each, 0 for `swatchSize`; `key`: one of
+  ## several shown at once), the one under the pointer framed, its color in a tooltip.
+  result.pick = -1
+  let c = if cell > 0: cell else: swatchSize()
+  let cols = max(1, w div c)
+  let rows = max(1, (colors.len + cols) div cols)
+  let r = place(cols * c, rows * c)
+  let id = idOf("swatchgrid" & key & $colors.len)
+  let hit = interact(id, r, focusable = false)
+  fill(r, th.window)
+  let gap = if c >= dp(16): 2 else: 1
+  for i, col in colors:
+    let cr = rect(r.x + (i mod cols) * c, r.y + (i div cols) * c, c, c)
+    let sw = inset(cr, gap)
+    if glassLook(): roundRect(sw, float(min(dp(4), sw.w div 4)), colorOf(col))
+    else:
+      fill(sw, colorOf(col))
+      if c >= dp(16): box(sw, mixColor(th.window, th.text, 0.25))
+    if hit.hover and mouseIn(cr):
+      box(inset(cr, gap - 1), th.text)
+      ui.tip = "#" & toHex(int(col and 0xFFFFFF'u32), 6)
+    if hit.clicked and mouseIn(cr): result.pick = i
+  if hit.clicked and result.pick < 0: result.empty = true
+  if hit.clicked:
+    result.alt = AltPressed in ui.mods
+    result.shift = ShiftPressed in ui.mods
+    result.ctrl = CtrlPressed in ui.mods
+
 proc colorPickerDialog*(open: var bool; title: string; c: var uint32;
                         p: var ColorPickerState; alpha = false): bool =
   ## The color picker: a field and a strip for the channel chosen (H, S,
@@ -1558,7 +1663,7 @@ proc colorPickerDialog*(open: var bool; title: string; c: var uint32;
     return
   dialog(open, title, 600):
     label(title & ":")
-    row([260, 36, -1, 96]):
+    row([260, 36, -1, 124]):
       p.colorField(dp(256))
       p.colorStrip(dp(28), dp(256) + 2)
       col:
@@ -1601,12 +1706,12 @@ proc colorPickerDialog*(open: var bool; title: string; c: var uint32;
         chanRow(pcBlue, "B:", bl, 255, ""):
           p.setPickerColor(argb(255, rr, gg, bl))
       col:
-        if button("OK", isDefault = true, w = dp(100)):
+        if button("OK", isDefault = true, w = dp(120)):
           c = if alpha: pickerColor(p).withAlpha(p.alpha) else: pickerColor(p)
           open = false
           result = true
-        if button("Cancel", w = dp(100)): open = false
-        if button("Color Libraries", w = dp(100)):
+        if button("Cancel", w = dp(120)): open = false
+        if button("Color Libraries", w = dp(120)):
           p.libraries = true
           p.pickedName = ""
         space(dp(6))
@@ -1662,6 +1767,33 @@ proc colorPickerDialog*(open: var bool; title: string; c: var uint32;
         if button("Transparent", w = dp(100)): p.alpha = 0
         tooltip("Opacity 0 %: the color see-through (a gradient fades out to it)")
         if button("Opaque", w = dp(80)): p.alpha = 255
+    # the swatches -- or a Color Library's colors -- to take one from with a click, as the Color
+    # panel offers them
+    ensureBooks()
+    var names = @[tr("Swatches")]
+    for b in colorBooks: names.add b.title
+    p.source = clamp(p.source, 0, names.high)
+    row:
+      label "Swatches:"
+      discard combo(names, p.source, w = dp(260))
+    var colors: seq[uint32]
+    if p.source == 0: colors = if pickerSwatches.len > 0: pickerSwatches else: defaultSwatches()
+    else:
+      for bc in colorBooks[p.source - 1].colors: colors.add bc.color or 0xFF000000'u32
+    if colors.len == 0:
+      label("No swatches yet: add some in the Swatches panel, or choose a Color Library.", color = th.gray)
+    else:
+      let cell = if fingers(): dp(26) else: dp(18)
+      let perRow = max(1, (available() - SbW - dp(4)) div cell)
+      let rows = (colors.len + perRow - 1) div perRow
+      beginScroll(min(cell * 4, rows * cell) + dp(4), "pickerswatches" & $p.source)
+      let ev = swatchGrid(colors, perRow * cell, cell, key = "picker" & $p.source)
+      endScroll()
+      if ev.pick >= 0 and ev.pick < colors.len:
+        p.setPickerColor(colors[ev.pick])
+        p.pickedName = if p.source > 0: colorBooks[p.source - 1].fullName(colorBooks[p.source - 1].colors[ev.pick])
+                       else: ""
+      if p.source > 0 and p.pickedName.len > 0: label(p.pickedName, color = th.gray)
 
 # ---- curves ---------------------------------------------------------------------------------------------
 
@@ -2138,45 +2270,6 @@ proc brushGrid*(tips: seq[BrushTip]; sel: var int; w: int; cell = 0): tuple[chan
     of KeyDown: sel = min(tips.high, sel + cols); result.changed = true; ui.keyUsed = true
     else: discard
 
-type SwatchEvent* = object
-  ## A click on the swatches: `pick` the index, `alt`/`shift`/`ctrl` held;
-  ## `empty` a click after the last one (to add a color).
-  pick*: int                 ## the swatch clicked (-1 none)
-  empty*: bool               ## the click was after the last swatch
-  alt*, shift*, ctrl*: bool  ## the keys held
-
-proc swatchSize*(): int =
-  ## A swatch's side: big enough to hit with the mouse at once (20), with a finger (30).
-  if fingers(): dp(30) else: dp(20)
-
-proc swatchGrid*(colors: seq[uint32]; w: int; cell = 0; key = ""): SwatchEvent =
-  ## The Swatches palette: squares of colors (`cell` each, 0 for `swatchSize`; `key`: one of
-  ## several shown at once), the one under the pointer framed, its color in a tooltip.
-  result.pick = -1
-  let c = if cell > 0: cell else: swatchSize()
-  let cols = max(1, w div c)
-  let rows = max(1, (colors.len + cols) div cols)
-  let r = place(cols * c, rows * c)
-  let id = idOf("swatchgrid" & key & $colors.len)
-  let hit = interact(id, r, focusable = false)
-  fill(r, th.window)
-  let gap = if c >= dp(16): 2 else: 1
-  for i, col in colors:
-    let cr = rect(r.x + (i mod cols) * c, r.y + (i div cols) * c, c, c)
-    let sw = inset(cr, gap)
-    if glassLook(): roundRect(sw, float(min(dp(4), sw.w div 4)), colorOf(col))
-    else:
-      fill(sw, colorOf(col))
-      if c >= dp(16): box(sw, mixColor(th.window, th.text, 0.25))
-    if hit.hover and mouseIn(cr):
-      box(inset(cr, gap - 1), th.text)
-      ui.tip = "#" & toHex(int(col and 0xFFFFFF'u32), 6)
-    if hit.clicked and mouseIn(cr): result.pick = i
-  if hit.clicked and result.pick < 0: result.empty = true
-  if hit.clicked:
-    result.alt = AltPressed in ui.mods
-    result.shift = ShiftPressed in ui.mods
-    result.ctrl = CtrlPressed in ui.mods
   if hit.hover and canInput(): ui.cursor = curCrosshair
 
 # ---- the foreground and background colors --------------------------------------------------------------------

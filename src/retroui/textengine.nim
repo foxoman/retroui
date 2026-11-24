@@ -920,12 +920,25 @@ type
                                ## the ones it covers say nothing
     style*: string             ## its Cell Style ("" none)
 
+  RuleKind* = enum
+    ## How a column rule is drawn (Text Frame Options > Column Rules > Type).
+    rkSolid = "Solid", rkDashed = "Dashed", rkDotted = "Dotted", rkDouble = "Thin - Thin",
+    rkThickThin = "Thick - Thin"
+
   ColumnRule* = object
-    ## Lines down a text box's gutters, between its columns (Text Frame Options > Column Rules).
+    ## Lines down a text box's gutters, between its columns (Text Frame Options > Column Rules), as
+    ## the layout program draws them: down every gutter or the ones chosen, solid, dashed, dotted
+    ## or doubled, tinted, the gaps of a dashed one in a color of their own, shifted sideways.
     on*: bool
     color*: uint32             ## ARGB (0: black)
     width*: float32            ## pixels (0: 1)
-    dashed*: bool              ## in dashes (else a solid line)
+    dashed*: bool              ## in dashes (else a solid line) -- `kind` rkDashed says the same
+    kind*: RuleKind            ## solid, dashed, dotted, two lines
+    tint*: float32             ## its color's strength, percent (0: 100)
+    gapColor*: uint32          ## ARGB: a dashed or dotted rule's gaps filled (0: left clear)
+    offset*: float32           ## pixels it is shifted right (left: below 0) of the gutter's middle
+    gutters*: uint32           ## the gutters that have one: bit k the one after the k+1th column
+                               ## from the left (0: every one)
     top*, bottom*: float32     ## how far in from the top and from the bottom they stop (pixels)
     frameHeight*: bool         ## from the box's top to its foot (else as far down as the text goes)
 
@@ -2729,12 +2742,28 @@ proc lineRunsOf(lay: TextLayout): seq[tuple[at, a, b, k: int]] =
     inc p
     i = j
 
+proc tinted(c: uint32; tint: float32): uint32 =
+  ## (a color at `tint` percent: mixed toward white, as a layout program's tint)
+  if tint <= 0 or tint >= 100: return c
+  let k = tint / 100
+  proc ch(v: uint32): uint32 = uint32(round(float32(v) * k + 255 * (1 - k)))
+  (c and 0xFF000000'u32) or (ch((c shr 16) and 255) shl 16) or (ch((c shr 8) and 255) shl 8) or ch(c and 255)
+
+proc ruleKindOf(r: ColumnRule): RuleKind =
+  ## (a rule's kind: `dashed` from before there were kinds, a dashed one)
+  if r.kind == rkSolid and r.dashed: rkDashed else: r.kind
+
+proc hasRule*(r: ColumnRule; gutter: int): bool =
+  ## Whether the gutter after column `gutter` + 1 (from the left, from 0) has a column rule.
+  r.on and (r.gutters == 0 or (gutter < 32 and (r.gutters and (1'u32 shl gutter)) != 0))
+
 proc columnRules(l: var TextLayout; t: TextData; colW, gutter: float32) =
-  ## (Column Rules: a line down the middle of each gutter -- the box's height, or as far down as
-  ## its text goes -- in from the top and the foot as asked, solid or dashed)
+  ## (Column Rules: a line down each gutter chosen -- the box's height, or as far down as its text
+  ## goes -- in from the top and the foot as asked, shifted sideways as asked; solid, dashed,
+  ## dotted, two thin lines or a thick and a thin, tinted, a dashed one's gaps in their color)
   let r = t.colRule
   let w = if r.width > 0: r.width else: 1'f32
-  let c = if r.color != 0: r.color else: 0xFF000000'u32
+  let c = tinted(if r.color != 0: r.color else: 0xFF000000'u32, r.tint)
   var foot = t.y + t.boxH
   if not r.frameHeight:
     foot = t.y
@@ -2742,17 +2771,35 @@ proc columnRules(l: var TextLayout; t: TextData; colW, gutter: float32) =
   let y0 = t.y + r.top
   let y1 = foot - r.bottom
   if y1 - y0 < 1: return
+  proc bar(l: var TextLayout; x0, x1, ya, yb: float32; col: uint32) =
+    l.decorations.add Decoration(x0: x0, x1: x1, y: (ya + yb) / 2, thick: yb - ya, color: col)
   for k in 1 ..< max(1, t.columns):
-    let x = t.x + float32(k) * colW + (float32(k) - 0.5'f32) * gutter
-    if r.dashed:
-      let dash = max(2'f32, w * 3)
+    if not r.hasRule(k - 1): continue
+    let x = t.x + float32(k) * colW + (float32(k) - 0.5'f32) * gutter + r.offset
+    case r.ruleKindOf
+    of rkDashed, rkDotted:
+      # (dashes three times as long as the rule is wide, as long gaps; dots as wide as it is, a
+      # dot's room between them -- the gaps first, in their color)
+      let dotted = r.ruleKindOf == rkDotted
+      let dash = if dotted: w else: max(2'f32, w * 3)
+      let gap = if dotted: w else: dash
+      if r.gapColor != 0: l.bar(x - w / 2, x + w / 2, y0, y1, tinted(r.gapColor, r.tint))
       var y = y0
       while y < y1:
         let e = min(y1, y + dash)
-        l.decorations.add Decoration(x0: x - w / 2, x1: x + w / 2, y: (y + e) / 2, thick: e - y, color: c)
-        y += dash * 2
-    else:
-      l.decorations.add Decoration(x0: x - w / 2, x1: x + w / 2, y: (y0 + y1) / 2, thick: y1 - y0, color: c)
+        l.bar(x - w / 2, x + w / 2, y, e, c)
+        y += dash + gap
+    of rkDouble:
+      # (two lines a third as wide each, a third between them)
+      let s = w / 3
+      l.bar(x - w / 2, x - w / 2 + s, y0, y1, c)
+      l.bar(x + w / 2 - s, x + w / 2, y0, y1, c)
+    of rkThickThin:
+      # (a thick line -- half the width -- a quarter apart from a thin one)
+      l.bar(x - w / 2, x, y0, y1, c)
+      l.bar(x + w / 4, x + w / 2, y0, y1, c)
+    of rkSolid:
+      l.bar(x - w / 2, x + w / 2, y0, y1, c)
 
 proc layoutText*(t: TextData): TextLayout =
   ## Where each glyph of the text goes (straight: warps and paths are made
@@ -6105,6 +6152,11 @@ proc toJson*(t: TextData): JsonNode =
     let r = t.colRule
     result["colRule"] = %*{"color": int64(r.color), "width": r.width, "dashed": r.dashed, "top": r.top,
                            "bottom": r.bottom, "frameHeight": r.frameHeight}
+    if r.kind != rkSolid: result["colRule"]["kind"] = %($r.kind)
+    if r.tint > 0: result["colRule"]["tint"] = %r.tint
+    if r.gapColor != 0: result["colRule"]["gapColor"] = %int64(r.gapColor)
+    if r.offset != 0: result["colRule"]["offset"] = %r.offset
+    if r.gutters != 0: result["colRule"]["gutters"] = %int64(r.gutters)
   if t.clipOverflow: result["clipOverflow"] = %true
   if t.paraFmts.len > 0:
     var a = newJArray()
@@ -6186,7 +6238,13 @@ proc textFrom*(j: JsonNode): TextData =
                                 dashed: cr{"dashed"}.getBool(false),
                                 top: clamp(cr{"top"}.getFloat(0).float32, 0, 100_000),
                                 bottom: clamp(cr{"bottom"}.getFloat(0).float32, 0, 100_000),
-                                frameHeight: cr{"frameHeight"}.getBool(false))
+                                frameHeight: cr{"frameHeight"}.getBool(false),
+                                tint: clamp(cr{"tint"}.getFloat(0).float32, 0, 100),
+                                gapColor: uint32(cr{"gapColor"}.getBiggestInt(0) and 0xFFFFFFFF'i64),
+                                offset: clamp(cr{"offset"}.getFloat(0).float32, -100_000, 100_000),
+                                gutters: uint32(cr{"gutters"}.getBiggestInt(0) and 0xFFFFFFFF'i64))
+    for k in RuleKind:
+      if cr{"kind"}.getStr("") == $k: result.colRule.kind = k
   result.clipOverflow = j.getB("clipOverflow")
   for f in j{"paraFmts"}.getElems:
     if result.paraFmts.len >= 100_000: break

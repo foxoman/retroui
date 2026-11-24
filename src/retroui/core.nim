@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy, hangwatch, frameprof
 export busy
 
-const RetroVersion* = "0.73.1"
+const RetroVersion* = "0.74.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"

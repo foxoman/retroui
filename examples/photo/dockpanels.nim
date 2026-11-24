@@ -48,6 +48,7 @@ proc panelBody(key: string) =
   of "toolpresets": toolPresetsBody()
   of "layercomps": layerCompsBody()
   of "clonesource": cloneSourceBody()
+  of "artboards": artboardsBody()
   of "quickactions": quickActionsBody()
   of "colorthemes": colorThemesBody()
   of "pages": pagesBody()
@@ -97,6 +98,7 @@ proc panelMenu(key: string) =
       brushOptsNew = false
       brushOptsOpen = true
   of "adjustments": adjustmentsMenu()
+  of "artboards": artboardsMenu()
   of "properties":
     if menuItem("Adjustment Presets..."): showPanel("adjustments")
   else:

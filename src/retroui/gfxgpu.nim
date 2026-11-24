@@ -422,6 +422,9 @@ proc flushDraw() =
   verts.setLen(0)
   batches.setLen(0)
 
+var shadeNow: tuple[on: bool; y0, y1: float32; c0, c1: uint32]
+  ## (a shaded shape being drawn: its top's and foot's rows and colors, for `quad`)
+
 proc quad(x0, y0, x1, y1, u0, v0, u1, v1: float32; col: uint32; alpha: uint8; mode: uint8;
           clip: Rect; p1 = 0'u8; tex: GLuint = 0; filter = GL_NEAREST; lcd = 0'u32) =
   ## A rectangle (device pixels), clipped, its texture coordinates cut with it.
@@ -452,12 +455,21 @@ proc quad(x0, y0, x1, y1, u0, v0, u1, v1: float32; col: uint32; alpha: uint8; mo
       batches.add (verts.len, 0, tex, filter, lcd)
   elif batches.len == 0:
     batches.add (verts.len, 0, GLuint(0), GL_NEAREST, lcd)
-  let c = [uint8((col shr 16) and 255), uint8((col shr 8) and 255), uint8(col and 255), alpha]
+  var c = [uint8((col shr 16) and 255), uint8((col shr 8) and 255), uint8(col and 255), alpha]
+  var c2 = c
+  if shadeNow.on:
+    # (a shaded shape's: its colors where the rectangle's top and foot are, between its own)
+    template at(y: float32): array[4, uint8] =
+      (let t = uint32(clamp((y - shadeNow.y0) / max(1'f32, shadeNow.y1 - shadeNow.y0), 0, 1) * 256);
+       let m = mixPx(shadeNow.c0, shadeNow.c1, t);
+       [uint8((m shr 16) and 255), uint8((m shr 8) and 255), uint8(m and 255), alpha])
+    c = at(cy0)
+    c2 = at(cy1)
   let md = [mode, p1, 0'u8, 0'u8]
-  template v(px, py, pu, pv: float32) =
-    verts.add Vtx(x: px, y: py, u: pu, v: pv, col: c, mode: md)
+  template v(px, py, pu, pv: float32; cc: array[4, uint8]) =
+    verts.add Vtx(x: px, y: py, u: pu, v: pv, col: cc, mode: md)
   # (its four corners: the triangles are 0 1 2 and 0 2 3 -- `flushDraw`)
-  v(cx0, cy0, nu0, nv0); v(cx1, cy0, nu1, nv0); v(cx1, cy1, nu1, nv1); v(cx0, cy1, nu0, nv1)
+  v(cx0, cy0, nu0, nv0, c); v(cx1, cy0, nu1, nv0, c); v(cx1, cy1, nu1, nv1, c2); v(cx0, cy1, nu0, nv1, c2)
   batches[^1].count += 4
 
 proc resetAtlas(a: var Atlas; grow = false) =
@@ -660,6 +672,64 @@ proc gpuVText(c: Cmd; clip: Rect) =
       quad(float32(c.r.x * pxScale), float32(y), float32(c.r.x * pxScale + w), float32(y + t),
            0, 0, 0, 0, c.color, 255, ModeSolid, clip)
 
+proc gpuRound(c: Cmd; clip: Rect): bool =
+  ## A rectangle with rounded corners, or its frame (`PathRound`): its middle and its sides'
+  ## rows and columns as rectangles of one coverage each, its corners as small masks kept in
+  ## the atlas by their shape -- not a mask as big as it (a card the size of the window). False
+  ## when it is too small to have a middle (then as any shape).
+  let g = roundGeom(c)
+  let ml = int(ceil(g.x0 + g.side))
+  let mr = int(floor(g.x1 - g.side))
+  let mt = int(ceil(g.y0 + g.side))
+  let mb = int(floor(g.y1 - g.side))
+  if ml >= mr or mt >= mb: return false
+  let (x0, y0, x1, y1) = (int(g.x0), int(g.y0), int(g.x1), int(g.y1))
+  let col = c.color and 0xFFFFFF'u32
+  let al = c.color shr 24
+  template alphaOf(cov: uint8): uint8 =
+    (if al == 0: cov else: uint8(uint32(cov) * al div 255))
+  template solid(xa, ya, xb, yb: int; cov: uint8) =
+    let a = alphaOf(cov)
+    if a != 0:
+      quad(float32(xa), float32(ya), float32(xb), float32(yb), 0, 0, 0, 0, col, a, ModeSolid, clip)
+  solid(ml, mt, mr, mb, g.roundAt(ml, mt))
+  # (the top's and the foot's rows, the sides' columns: runs of one coverage)
+  for (ya, yb) in [(y0, mt), (mb, y1)]:
+    var y = ya
+    while y < yb:
+      let cv = g.roundAt(ml, y)
+      var e = y + 1
+      while e < yb and g.roundAt(ml, e) == cv: inc e
+      solid(ml, y, mr, e, cv)
+      y = e
+  for (xa, xb) in [(x0, ml), (mr, x1)]:
+    var x = xa
+    while x < xb:
+      let cv = g.roundAt(x, mt)
+      var e = x + 1
+      while e < xb and g.roundAt(e, mt) == cv: inc e
+      solid(x, mt, e, mb, cv)
+      x = e
+  # (the corners: the same for every shape of this radius and thickness, wherever it is)
+  for (xa, ya, xb, yb, k) in [(x0, y0, ml, mt, 0), (mr, y0, x1, mt, 1), (x0, mb, ml, y1, 2), (mr, mb, x1, y1, 3)]:
+    let w = xb - xa
+    let h = yb - ya
+    if w <= 0 or h <= 0 or not intersects(rect(xa, ya, w, h), clip): continue
+    var key = 0x9E3779B97F4A7C15'u64
+    mix(key, uint64(cast[uint32](g.rad)) or (uint64(cast[uint32](g.irad)) shl 32))
+    mix(key, uint64(cast[uint32](g.ix0 - g.x0)) or (uint64(ord(g.frame)) shl 32) or (uint64(al) shl 40))
+    mix(key, uint64(w) or (uint64(h) shl 20) or (uint64(k) shl 40))
+    key = (5'u64 shl 56) xor (key shr 8)
+    maskAtlas.map.withValue(key, e):
+      maskAtlas.atlasQuad(e[], float32(xa), float32(ya), float32(w), float32(h), col, 255, clip)
+      continue
+    var m = Mask(w: w, h: h)
+    m.a = newSeq[uint8](w * h)
+    for j in 0 ..< h:
+      for i in 0 ..< w: m.a[j * w + i] = alphaOf(g.roundAt(xa + i, ya + j))
+    maskQuad(key, addr m, xa, ya, col, clip)
+  true
+
 proc gpuPath(c: Cmd; screen: Rect) =
   # (kept in its clip, as the CPU draws it: a canvas's shapes stay out of the
   # bars over and under it)
@@ -667,6 +737,13 @@ proc gpuPath(c: Cmd; screen: Rect) =
   let cl = intersect(clip, devClip(c.r))
   if cl.w <= 0 or cl.h <= 0: return
   let al = c.color shr 24
+  if (c.flags and 1) != 0:
+    # (shaded: the corners' colors from its top's to its foot's -- the GPU between them)
+    let ks = float32(max(1, pxScale))
+    shadeNow = (true, float32(c.r.y) * ks, float32(c.r.y + c.r.h) * ks, c.color and 0xFFFFFF'u32,
+                cast[uint32](c.mag) and 0xFFFFFF'u32)
+  defer: shadeNow.on = false
+  if (c.flags and PathRound) != 0 and gpuRound(c, clip): return
   # (a see-through rectangle, as `fill` makes them: a rectangle)
   if c.b == 10:
     template p: untyped = pathArena          # (not a copy of the whole arena per shape)

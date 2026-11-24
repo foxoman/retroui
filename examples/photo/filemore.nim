@@ -349,17 +349,15 @@ proc layerCompsToFiles(d: Doc) =
   status = $n & tr(" comps saved in ") & dir
 
 proc artboardsToPdf(d: Doc) =
-  ## File > Export > Artboards to PDF: each artboard a page of one PDF.
-  let abs = d.artboards
-  if abs.len == 0: return
-  var r = newReport(d.name)
-  for k, i in abs:
-    if k > 0: r.pageBreak()
-    let b = d.artboardPicture(i)
-    if b != nil: r.image(b, w = 180)
+  ## File > Export > Artboards to PDF: one PDF, each artboard a page of its own size -- what is on
+  ## it, its type and shapes as vectors, over its paper -- in their order.
+  if d.boards.len == 0: return
   let p = (if d.path.len > 0: d.path.parentDir else: picturesDir()) / (d.name & " Artboards.pdf")
   try:
-    r.savePdf(p)
+    let o = pdfPreset(ppPrint)
+    var pdf = newPressPdf(o, d.name)
+    for it in d.artboardItems(): pdf.addDocPage(d.itemDoc(it), o)
+    pdf.save(p)
     status = tr("Saved ") & p
   except CatchableError: status = tr("Could not save ") & p
 

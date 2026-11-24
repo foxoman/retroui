@@ -116,19 +116,37 @@ var
   printTable: seq[uint32]       # 17^4 inks -> colors
   printSetup: InkSetup
   printGen = -1
+  printReady: bool              # (atomic: the table made, safe to read from any thread)
+  printLock: Lock               # (one thread makes it; the others wait)
+
+initLock(printLock)
+
+proc printFits(): bool {.inline.} =
+  atomicLoadN(addr printReady, ATOMIC_ACQUIRE) and printGen == inkGen and printSetup == inkSetup
+
+proc ensurePrintTable() =
+  # (made by one thread, read by all: a picture's inks printed on all the cores asked for it at
+  # once -- each made it over the others' and read the one freed under it: Overprint Preview
+  # stopped the app)
+  if printFits(): return
+  withLock printLock:
+    if not printFits():
+      atomicStoreN(addr printReady, false, ATOMIC_RELEASE)
+      var t = newSeq[uint32](M4 * M4 * M4 * M4)
+      for ci in 0 ..< M4:
+        for mi in 0 ..< M4:
+          for yi in 0 ..< M4:
+            for ki in 0 ..< M4:
+              t[((ci * M4 + mi) * M4 + yi) * M4 + ki] =
+                printed(ci * 255 div (M4 - 1), mi * 255 div (M4 - 1), yi * 255 div (M4 - 1), ki * 255 div (M4 - 1))
+      printTable = move(t)
+      printSetup = inkSetup
+      printGen = inkGen
+      atomicStoreN(addr printReady, true, ATOMIC_RELEASE)
 
 proc printedFast*(c, m, y, k: int): uint32 =
-  ## `printed`, read from a table (for whole pictures of inks).
-  if printTable.len != M4 * M4 * M4 * M4 or printSetup != inkSetup or printGen != inkGen:
-    printGen = inkGen
-    printTable = newSeq[uint32](M4 * M4 * M4 * M4)
-    for ci in 0 ..< M4:
-      for mi in 0 ..< M4:
-        for yi in 0 ..< M4:
-          for ki in 0 ..< M4:
-            printTable[((ci * M4 + mi) * M4 + yi) * M4 + ki] =
-              printed(ci * 255 div (M4 - 1), mi * 255 div (M4 - 1), yi * 255 div (M4 - 1), ki * 255 div (M4 - 1))
-    printSetup = inkSetup
+  ## `printed`, read from a table (for whole pictures of inks; from any thread).
+  ensurePrintTable()
   let v = [clamp(c, 0, 255) * (M4 - 1), clamp(m, 0, 255) * (M4 - 1), clamp(y, 0, 255) * (M4 - 1),
            clamp(k, 0, 255) * (M4 - 1)]
   var i0: array[4, int]

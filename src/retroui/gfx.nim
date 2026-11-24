@@ -965,6 +965,29 @@ proc text*(x, y: int; s: string; c: Color; bold = false; mag = 1) =
   ## Draw `s` with its top-left corner at `x`, `y` (transparent background).
   text(x, y, s, c, plainStyle(bold, mag))
 
+const CellText = 0x80'u8
+  ## (a vector text command's flag: each letter in a cell of its own, `textCells`)
+
+proc textCells*(x, y: int; s: string; c: Color; st: TextStyle; cellW: int) =
+  ## Plain ASCII `s` in style `st` (monospaced: `mono`), each letter in a cell of its own
+  ## `cellW` wide from `x` -- where `text` would put each one alone: a terminal's row, a grid of
+  ## letters. One command for all of them, not one a letter. Not plain ASCII: drawn by `text`.
+  if s.len == 0: return
+  if st.rtl or not plainAscii(s):
+    text(x, y, s, c, st)
+    return
+  let h = lineHeight(st)
+  if y >= curClip.y + curClip.h or y + h <= curClip.y: return
+  let w = cellW * s.len
+  if intersect(rect(x, y, w, h), curClip).w == 0: return
+  let a = arena.len
+  arena.add s
+  add Cmd(kind: ckVText, color: pack(c), bold: st.bold, flags: flagsOf(st) or CellText,
+          size: sizeOf(st), r: rect(x, y, w, h), clip: curClip, a: a.int32, b: s.len.int32)
+  var th = 0xcbf29ce484222325'u64 xor uint64(cellW)
+  for ch in s: th = (th xor ord(ch).uint64) * 0x100000001B3'u64
+  mixLast(th)
+
 proc textScaleNow*(): float32 = sizeOf(baseStyle)
   ## How many times the UI's size plain text is now (`withTextStyle`; else 1).
 
@@ -1015,7 +1038,15 @@ template withTextStyle*(st: TextStyle; body: untyped) =
 proc beginPath(): int =
   result = pathArena.len
 
-proc endPath(a: int; c: Color) =
+const
+  PathShaded = 1'u8     ## (a path's flags: shaded from its color to `mag`'s, top to foot)
+  PathRound = 2'u8      ## (a rectangle with rounded corners, `size` its radius: drawn by spans)
+  PathFrame = 4'u8      ## (with PathRound: its outline, `mag` / 256 thick)
+
+proc endPath(a: int; c: Color; bottom = Color(); round = -1.0; frameW = 0.0) =
+  ## (`bottom`'s alpha not 0: the shape shaded from `c` at its top to `bottom` at its foot;
+  ## `round` >= 0: the points are a rectangle with corners rounded that much -- and with
+  ## `frameW` its outline that thick -- drawn by spans, not as any shape)
   let n = pathArena.len - a
   if n < 6:
     pathArena.setLen(a)
@@ -1044,8 +1075,18 @@ proc endPath(a: int; c: Color) =
     return
   # (a color's alpha, when it is not 0 or 255: the shape see-through)
   let al = if c.a == 0 or c.a == 255: 0'u32 else: uint32(c.a)
+  var fl = 0'u8
+  var mag = 0'i32
+  if bottom.a != 0:
+    fl = PathShaded
+    mag = cast[int32](pack(bottom))
+  if round >= 0:
+    fl = fl or PathRound
+    if frameW > 0 and bottom.a == 0:
+      fl = fl or PathFrame
+      mag = int32(frameW * 256)
   add Cmd(kind: ckPath, color: pack(c) or (al shl 24), r: bb, clip: curClip, a: a.int32,
-          b: n.int32)
+          b: n.int32, flags: fl, mag: mag, size: float32(max(0.0, round)))
   if not fused:
     ph = 0x84222325'u64
     for k in countup(a, pathArena.high, 2):
@@ -1136,6 +1177,44 @@ proc thickLine*(x1, y1, x2, y2, width: float; c: Color) =
   polygon([(x1 + nx, y1 + ny), (x2 + nx, y2 + ny), (x2 - nx, y2 - ny),
            (x1 - nx, y1 - ny)], c)
 
+var quarterArcs: array[41, seq[(float, float)]]
+  ## (a quarter of a circle in `n` steps -- its cosines and sines -- worked out once: the rounded
+  ## shapes of every frame take them from here)
+
+proc roundPoints(x0, y0, x1, y1, rad: float; back = false) =
+  ## (a rectangle's outline with its corners rounded `rad`, clockwise -- `back`: the other way,
+  ## a hole -- into the path being made, closed)
+  let n = clamp(int(rad * float(pxScale) * 0.5) + 3, 3, 40)
+  if quarterArcs[n].len != n + 1:
+    var q = newSeq[(float, float)](n + 1)
+    for i in 0 .. n:
+      let t = PI / 2 * float(i) / float(n)
+      q[i] = (cos(t), sin(t))
+    quarterArcs[n] = q
+  let o = pathArena.len
+  let k = 4 * (n + 1)
+  pathArena.setLen(o + 2 * k + 2)
+  let q = addr quarterArcs[n]
+  # (the corners from the top right on, each from where the last ended: -90, 0, 90, 180 degrees)
+  let cs = [(x1 - rad, y0 + rad), (x1 - rad, y1 - rad), (x0 + rad, y1 - rad), (x0 + rad, y0 + rad)]
+  var j = 0
+  for c in 0 .. 3:
+    let (cx, cy) = cs[c]
+    for i in 0 .. n:
+      let (co, si) = q[][i]
+      # (rotated by the corner's quarter: (cos, sin) of a0 + t)
+      let (ux, uy) = case c
+        of 0: (si, -co)
+        of 1: (co, si)
+        of 2: (-si, co)
+        else: (-co, -si)
+      let at = if back: o + 2 * (k - 1 - j) else: o + 2 * j
+      pathArena[at] = float32(cx + rad * ux)
+      pathArena[at + 1] = float32(cy + rad * uy)
+      inc j
+  pathArena[o + 2 * k] = NaN
+  pathArena[o + 2 * k + 1] = NaN
+
 proc roundRect*(r: Rect; radius: float; c: Color) =
   ## A filled rectangle with rounded corners.
   let rad = min(radius, min(r.w, r.h) / 2)
@@ -1143,17 +1222,46 @@ proc roundRect*(r: Rect; radius: float; c: Color) =
     fill(r, c)
     return
   let a = beginPath()
-  let n = clamp(int(rad * float(pxScale) * 0.5) + 3, 3, 40)
-  let corners = [(float(r.x + r.w) - rad, float(r.y) + rad, -PI / 2),
-                 (float(r.x + r.w) - rad, float(r.y + r.h) - rad, 0.0),
-                 (float(r.x) + rad, float(r.y + r.h) - rad, PI / 2),
-                 (float(r.x) + rad, float(r.y) + rad, PI)]
-  for (cx, cy, a0) in corners:
-    for i in 0 .. n:
-      let t = a0 + PI / 2 * float(i) / float(n)
-      pt(cx + rad * cos(t), cy + rad * sin(t))
-  closeContour()
-  endPath(a, c)
+  roundPoints(float(r.x), float(r.y), float(r.x + r.w), float(r.y + r.h), rad)
+  endPath(a, c, round = rad)
+
+proc patchRoundRect*(i: int; r: Rect; radius: float; c: Color; width = 0.0) =
+  ## The fill `i` from `reserveFill` made a rectangle with rounded corners: a card whose size is
+  ## known only once what is on it is drawn, under it all the same. `width` > 0: only a band that
+  ## wide inside its edge (`roundFrame`'s: a shadow round what covers the rest).
+  if i < 0 or i >= layers[curLayer].len: return
+  let rad = min(radius, min(r.w, r.h) / 2)
+  if r.w <= 0 or r.h <= 0 or intersect(r, curClip).w <= 0:
+    layers[curLayer][i] = Cmd(kind: ckFill)
+    return
+  let a = pathArena.len
+  let (x0, y0, x1, y1) = (float(r.x), float(r.y), float(r.x + r.w), float(r.y + r.h))
+  roundPoints(x0, y0, x1, y1, rad)
+  let band = width > 0 and r.w.float > 2 * width and r.h.float > 2 * width
+  if band: roundPoints(x0 + width, y0 + width, x1 - width, y1 - width, max(0.0, rad - width), back = true)
+  let al = if c.a == 0 or c.a == 255: 0'u32 else: uint32(c.a)
+  var cmd = Cmd(kind: ckPath, color: pack(c) or (al shl 24), r: rect(r.x, r.y, r.w + 1, r.h + 1),
+                clip: curClip, a: a.int32, b: int32(pathArena.len - a),
+                flags: PathRound or (if band: PathFrame else: 0'u8),
+                mag: (if band: int32(width * 256) else: 0'i32), size: float32(max(0.0, rad)))
+  if mirrorW > 0: mirrorCmd(cmd)
+  cmd.h = cmdHash(cmd)
+  for k in countup(a, pathArena.high, 2):
+    mix(cmd.h, uint64(cast[uint32](pathArena[k])) xor (uint64(cast[uint32](pathArena[min(k + 1, pathArena.high)])) shl 32))
+  layers[curLayer][i] = cmd
+  mix(frameHash, cmd.h)
+
+proc roundRectShaded*(r: Rect; radius: float; top, bottom: Color) =
+  ## A rectangle with rounded corners shaded from `top` at its top to `bottom` at its foot
+  ## (`top`'s alpha for both: see-through when it is not 255).
+  let rad = min(radius, min(r.w, r.h) / 2)
+  let a = beginPath()
+  if rad <= 0.5:
+    pt(float(r.x), float(r.y)); pt(float(r.x + r.w), float(r.y))
+    pt(float(r.x + r.w), float(r.y + r.h)); pt(float(r.x), float(r.y + r.h))
+    closeContour()
+  else: roundPoints(float(r.x), float(r.y), float(r.x + r.w), float(r.y + r.h), rad)
+  endPath(a, top, Color(r: bottom.r, g: bottom.g, b: bottom.b, a: 255), round = max(0.0, rad))
 
 proc roundFrame*(r: Rect; radius, width: float; c: Color) =
   ## The outline of a rectangle with rounded corners, `width` thick, inside `r` (a hairline:
@@ -1161,25 +1269,12 @@ proc roundFrame*(r: Rect; radius, width: float; c: Color) =
   let rad = min(radius, min(r.w, r.h) / 2)
   if r.w <= 0 or r.h <= 0: return
   let a = beginPath()
-  proc contour(x0, y0, x1, y1, rr: float; back: bool) =
-    let n = clamp(int(rr * float(pxScale) * 0.5) + 3, 3, 40)
-    let corners = [(x1 - rr, y0 + rr, -PI / 2), (x1 - rr, y1 - rr, 0.0),
-                   (x0 + rr, y1 - rr, PI / 2), (x0 + rr, y0 + rr, PI)]
-    var pts: seq[(float, float)]
-    for (cx, cy, a0) in corners:
-      for i in 0 .. n:
-        let t = a0 + PI / 2 * float(i) / float(n)
-        pts.add (cx + rr * cos(t), cy + rr * sin(t))
-    if back:
-      for i in countdown(pts.high, 0): pt(pts[i][0], pts[i][1])
-    else:
-      for q in pts: pt(q[0], q[1])
-    closeContour()
   let (x0, y0, x1, y1) = (float(r.x), float(r.y), float(r.x + r.w), float(r.y + r.h))
-  contour(x0, y0, x1, y1, max(0.0, rad), false)
+  roundPoints(x0, y0, x1, y1, max(0.0, rad))
   if r.w.float > 2 * width and r.h.float > 2 * width:
-    contour(x0 + width, y0 + width, x1 - width, y1 - width, max(0.0, rad - width), true)
-  endPath(a, c)
+    roundPoints(x0 + width, y0 + width, x1 - width, y1 - width, max(0.0, rad - width), back = true)
+    endPath(a, c, round = max(0.0, rad), frameW = width)
+  else: endPath(a, c, round = max(0.0, rad))
 
 proc pieSlice*(cx, cy, r, a0, a1: float; c: Color) =
   ## A slice of a disc from angle `a0` to `a1` (radians, clockwise from
@@ -1505,6 +1600,13 @@ template blend(q, c: uint32; a: uint32): uint32 =
   gg = ((gg + ((gg shr 8) and 0xFF00'u32)) shr 8) and 0xFF00'u32
   rb or gg
 
+proc mixPx(a, b, t: uint32): uint32 {.inline.} =
+  ## (`b` weighed `t` of 256 against `a`)
+  let u = 256'u32 - t
+  let rb = ((a and 0xFF00FF'u32) * u + (b and 0xFF00FF'u32) * t) shr 8
+  let g = ((a and 0xFF00'u32) * u + (b and 0xFF00'u32) * t) shr 8
+  (rb and 0xFF00FF'u32) or (g and 0xFF00'u32)
+
 proc rfill(x, y, w, h: int; c: uint32; clip: Rect) {.inline.} =
   let x0 = max(x, clip.x)
   let y0 = max(y, clip.y)
@@ -1740,8 +1842,8 @@ proc prepVText(c: var Cmd) =
                                          ascentFactor(mf, true) * emDev))
   let x0 = float32(c.r.x * pxScale)
   let a = prepGlyphs.len
-  template one(g: PGlyph) =
-    let gx = x0 + g.x * emDev
+  template one(g: PGlyph; gxAt: float32) =
+    let gx = gxAt
     var ix = int(floor(gx))
     var ph = int(round((gx - float32(ix)) * 4))
     if ph == 4:
@@ -1752,12 +1854,19 @@ proc prepVText(c: var Cmd) =
     if m.w > 0:
       let my = base - int(round(g.y * emDev)) + m.top
       prepGlyphs.add PrepGlyph(x: int32(ix + m.left), y: int32(my), slot: k)
-  if not st.rtl and plainAscii(arena.toOpenArray(c.a, c.a + c.b - 1)):
-    for g in asciiGlyphs(arena.toOpenArray(c.a, c.a + c.b - 1), f): one(g)
+  if (c.flags and CellText) != 0:
+    # (each letter in its cell: where it would be alone, at the cell's left -- whole pixels)
+    let pitch = c.r.w * pxScale div max(1, c.b.int)
+    var i = 0
+    for g in asciiGlyphs(arena.toOpenArray(c.a, c.a + c.b - 1), f):
+      one(g, float32(c.r.x * pxScale + i * pitch))
+      inc i
+  elif not st.rtl and plainAscii(arena.toOpenArray(c.a, c.a + c.b - 1)):
+    for g in asciiGlyphs(arena.toOpenArray(c.a, c.a + c.b - 1), f): one(g, x0 + g.x * emDev)
   else:
     # (the cached run read where it is: nothing in `one` shapes text)
     let run = shapeCached(arena[c.a ..< c.a + c.b], f, if st.rtl: 1 else: -1)
-    for i in 0 ..< run.glyphs.len: one(run.glyphs[i])
+    for i in 0 ..< run.glyphs.len: one(run.glyphs[i], x0 + run.glyphs[i].x * emDev)
   prepSpans.add (int32(a), int32(prepGlyphs.len - a), int32(base), emDev)
   c.mag = int32(prepSpans.len)
 
@@ -1792,10 +1901,109 @@ proc rasterVText(c: Cmd) =
     prepVText(cc)
     blitVText(cc)
 
+type RoundGeom = object
+  ## (a rounded rectangle's shape at the screen's scale: its sides, its corners' radius; a
+  ## frame's, the inside's too)
+  x0, y0, x1, y1, rad: float32
+  frame: bool
+  ix0, iy0, ix1, iy1, irad: float32
+  side: float32          ## (from each side, how far a row's pixels may be partly covered)
+
+proc roundGeom(c: Cmd): RoundGeom =
+  ## (its sides from its points -- mirrored or not, as they are -- its radius and thickness from
+  ## the command)
+  let s = float32(pxScale)
+  var x0, y0 = 1e9'f32
+  var x1, y1 = -1e9'f32
+  var i = c.a.int
+  let e = min(c.a.int + c.b.int, pathArena.len)
+  while i + 1 < e:
+    let x = pathArena[i]
+    if x == x:
+      x0 = min(x0, x); x1 = max(x1, x)
+      y0 = min(y0, pathArena[i + 1]); y1 = max(y1, pathArena[i + 1])
+    i += 2
+  result.x0 = round(x0 * s); result.y0 = round(y0 * s)
+  result.x1 = round(x1 * s); result.y1 = round(y1 * s)
+  result.rad = min(c.size * s, min(result.x1 - result.x0, result.y1 - result.y0) / 2)
+  result.side = result.rad
+  if (c.flags and PathFrame) != 0:
+    let w = float32(c.mag) / 256 * s
+    result.frame = true
+    result.ix0 = result.x0 + w; result.iy0 = result.y0 + w
+    result.ix1 = result.x1 - w; result.iy1 = result.y1 - w
+    result.irad = max(0'f32, result.rad - w)
+    result.side = max(result.rad, w)
+
+proc roundCover(x0, y0, x1, y1, rad: float32; px, py: int): float32 {.inline.} =
+  ## (how much of device pixel `px`, `py` a rounded rectangle covers: its corners by the
+  ## distance from their circles, its sides by the part of the pixel inside them)
+  let cx = float32(px) + 0.5
+  let cy = float32(py) + 0.5
+  if rad > 0:
+    let kx = if cx < x0 + rad: x0 + rad elif cx > x1 - rad: x1 - rad else: NaN
+    let ky = if cy < y0 + rad: y0 + rad elif cy > y1 - rad: y1 - rad else: NaN
+    if kx == kx and ky == ky:
+      let dx = cx - kx
+      let dy = cy - ky
+      return clamp(rad - sqrt(dx * dx + dy * dy) + 0.5, 0, 1)
+  let ox = max(0'f32, min(float32(px + 1), x1) - max(float32(px), x0))
+  let oy = max(0'f32, min(float32(py + 1), y1) - max(float32(py), y0))
+  min(1'f32, ox) * min(1'f32, oy)
+
+proc roundAt(g: RoundGeom; px, py: int): uint8 {.inline.} =
+  var v = roundCover(g.x0, g.y0, g.x1, g.y1, g.rad, px, py)
+  if g.frame and v > 0: v = max(0'f32, v - roundCover(g.ix0, g.iy0, g.ix1, g.iy1, g.irad, px, py))
+  uint8(v * 255 + 0.5)
+
+proc roundRow(g: RoundGeom; y, xa, xb: int; buf: ptr UncheckedArray[uint8]): tuple[a, b: int; mid: uint8] =
+  ## (row `y`'s coverage from `xa` to `xb` into `buf` (`buf[0]` is `xa`'s): where the middle --
+  ## all one coverage -- starts and ends, and that coverage)
+  # (in the rows between the corners only a frame's sides are partly covered, and only as wide
+  # as it is thick: a filled one's row is all one)
+  let cy = float32(y) + 0.5
+  let side = if g.rad > 0 and (cy < g.y0 + g.rad or cy > g.y1 - g.rad): g.side
+             elif g.frame: g.ix0 - g.x0
+             else: 0'f32
+  let ml = max(xa, int(ceil(g.x0 + side)))
+  let mr = min(xb, int(floor(g.x1 - side)))
+  if ml >= mr:
+    for x in xa ..< xb: buf[x - xa] = g.roundAt(x, y)
+    return (xb, xb, 0'u8)
+  let mid = g.roundAt(ml, y)
+  for x in xa ..< ml: buf[x - xa] = g.roundAt(x, y)
+  for x in mr ..< xb: buf[x - xa] = g.roundAt(x, y)
+  (ml, mr, mid)
+
+var roundBuf {.threadvar.}: seq[uint8]
+
+proc roundMaskInto(c: Cmd; clip: Rect; m: var Mask) =
+  ## (`pathMaskInto` for a rounded rectangle or its frame: the same coverage the screen's
+  ## spans draw)
+  let g = roundGeom(c)
+  let w = clip.w + 2
+  m.w = w
+  m.h = clip.h
+  m.left = 0
+  m.top = 0
+  m.a.setLen(w * clip.h)
+  if m.a.len == 0: return
+  let xa = clip.x - 1
+  for j in 0 ..< clip.h:
+    let row = cast[ptr UncheckedArray[uint8]](addr m.a[j * w])
+    let (a, b, mid) = g.roundRow(clip.y + j, xa, xa + w, row)
+    for x in a ..< b: row[x - xa] = mid
+
 proc pathMaskInto(c: Cmd; clip: Rect; r: var Raster; m: var Mask) =
   ## Path command `c`'s coverage in device rectangle `clip` (its left edge
   ## a pixel left of `clip`'s), the color's alpha in it: into `m`, drawn
   ## with `r` (both keep their memory for the next shape).
+  if (c.flags and PathRound) != 0:
+    roundMaskInto(c, clip, m)
+    let al = c.color shr 24
+    if al != 0:
+      for v in m.a.mitems: v = uint8(uint32(v) * al div 255)
+    return
   let s = float32(pxScale)
   let w = clip.w + 2
   r.reset(w, clip.h)
@@ -1843,16 +2051,75 @@ var
     ## (each drawing thread's, for one shape after another: a chart's
     ## thousands are not each given memory of their own)
 
+proc shadeAt(c: Cmd; y: int): uint32 {.inline.} =
+  ## (a shaded shape's color at device row `y`: between its top's and its foot's)
+  let s = max(1, pxScale)
+  let y0 = c.r.y * s
+  let h = max(1, c.r.h * s)
+  let t = uint32(clamp(((y - y0) * 2 + 1) * 128 div h, 0, 256))
+  mixPx(c.color and 0xFFFFFF'u32, cast[uint32](c.mag) and 0xFFFFFF'u32, t)
+
+proc blendRow(y, x, n: int; m: ptr UncheckedArray[uint8]; col: uint32) {.inline.} =
+  ## (`n` pixels of row `y` from `x` mixed with `col` by the coverages `m`)
+  if n <= 0: return
+  let fp = fbPtr()
+  let row = y * fbW
+  when kitSimd: blendMaskRow(addr fp[row + x], addr m[0], n, col, nil)
+  else:
+    for i in 0 ..< n:
+      let a = uint32(m[i])
+      if a == 0: continue
+      if a >= 255: fp[row + x + i] = col
+      else: fp[row + x + i] = blend(fp[row + x + i], col, a)
+
+proc rasterRound(c: Cmd; clip: Rect) =
+  ## A rounded rectangle or its frame, a row at a time: its middle filled (or, a frame's,
+  ## skipped), its ends mixed in by their coverage -- not a coverage worked out for every pixel
+  ## of it, as any shape's is.
+  let g = roundGeom(c)
+  let al = c.color shr 24
+  let xa = clip.x
+  let xb = clip.x + clip.w
+  if roundBuf.len < clip.w: roundBuf.setLen(clip.w)
+  let buf = cast[ptr UncheckedArray[uint8]](addr roundBuf[0])
+  for y in clip.y ..< clip.y + clip.h:
+    let col = if (c.flags and PathShaded) != 0: c.shadeAt(y) else: c.color and 0xFFFFFF'u32
+    let (a, b, mid0) = g.roundRow(y, xa, xb, buf)
+    if al != 0:
+      for x in xa ..< a: buf[x - xa] = uint8(uint32(buf[x - xa]) * al div 255)
+      for x in b ..< xb: buf[x - xa] = uint8(uint32(buf[x - xa]) * al div 255)
+    let mid = if al != 0: uint8(uint32(mid0) * al div 255) else: mid0
+    if b <= a:
+      blendRow(y, xa, xb - xa, buf, col)
+      continue
+    blendRow(y, xa, a - xa, buf, col)
+    if mid == 255: rfill(a, y, b - a, 1, col, clip)
+    elif mid != 0:
+      when kitSimd: blendConstRow(addr fbPtr()[y * fbW + a], b - a, col, uint32(mid))
+      else:
+        for x in a ..< b: buf[x - xa] = mid
+        blendRow(y, a, b - a, cast[ptr UncheckedArray[uint8]](addr buf[a - xa]), col)
+    blendRow(y, b, xb - b, cast[ptr UncheckedArray[uint8]](addr buf[b - xa]), col)
+
 proc rasterPath(c: Cmd) =
   let clip = intersect(devClip(c.clip), devClip(c.r))
   if clip.w <= 0 or clip.h <= 0: return
+  if (c.flags and PathRound) != 0:
+    rasterRound(c, clip)
+    return
+  template draw(m: Mask) =
+    if (c.flags and PathShaded) != 0:
+      # (shaded: a row at a time, each in its color)
+      for y in clip.y ..< clip.y + clip.h:
+        blendMask(m, clip.x - 1, clip.y, c.shadeAt(y), rect(clip.x, y, clip.w, 1))
+    else: blendMask(m, clip.x - 1, clip.y, c.color and 0xFFFFFF'u32, clip)
   if (clip.w + 2) * clip.h > 1 shl 18:
     # (a big one -- an overlay's -- not kept)
     let m = pathMask(c, clip)
-    blendMask(m, clip.x - 1, clip.y, c.color and 0xFFFFFF'u32, clip)
+    draw(m)
     return
   pathMaskInto(c, clip, pathRaster, pathCover)
-  blendMask(pathCover, clip.x - 1, clip.y, c.color and 0xFFFFFF'u32, clip)
+  draw(pathCover)
 
 proc rasterDots(c: Cmd) =
   let clip = devClip(c.clip)
@@ -2232,13 +2499,6 @@ proc blurReach(c: Cmd): int {.inline.} = max(1, int(c.mag) * max(1, pxScale))
 proc blurSrc(d: Rect; c: Cmd): Rect {.inline.} =
   ## (what a blur at device rectangle `d` reads)
   intersect(inset(d, -blurReach(c)), rect(0, 0, fbW, fbH))
-
-proc mixPx(a, b, t: uint32): uint32 {.inline.} =
-  ## (`b` weighed `t` of 256 against `a`)
-  let u = 256'u32 - t
-  let rb = ((a and 0xFF00FF'u32) * u + (b and 0xFF00FF'u32) * t) shr 8
-  let g = ((a and 0xFF00'u32) * u + (b and 0xFF00'u32) * t) shr 8
-  (rb and 0xFF00FF'u32) or (g and 0xFF00'u32)
 
 proc cornerCover(x, y: int; dr: Rect; rad: float32): uint32 {.inline.} =
   ## (how much of device pixel `x`, `y` is inside `dr` with its corners rounded `rad`, of 256)

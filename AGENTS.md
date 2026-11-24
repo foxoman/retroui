@@ -44,6 +44,10 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   designer's alone. It is purely a designer: it never runs or compiles the
   user's app.
 - `tests/` -- headless tests on a fake screen driver (`tests/harness.nim`).
+  Its `run` goes on while the kit holds events too (`eventsWaiting`): work
+  that keeps the window alive reads the queued input into the kit's own
+  list, and a test that stopped at an empty queue lost those keys (on a busy
+  machine only).
 - Jobs (`retroui/jobs`): a worker runs a closure made on the screen's
   thread; the closure goes back to that thread to be let go of, and a
   job's value is moved out, never shared (ORC counts a closure's
@@ -308,6 +312,23 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   `TextData.persp`), all in one step. A setting of the Layers panel goes
   to every picked layer (`pickedLayersOf`); a layer's color is
   `Layer.label` (`LayerColors`; PSD's 'lclr').
+- Artboards (Retro Atelier, `retroui/photocc`, `examples/photo/artboards.nim`)
+  are the drawing program's: the document's own list (`Doc.boards`,
+  numbered in their order), never layers or groups -- a group with a page
+  (`isArtboard`, from a file of before 0.74) is made one when it is opened
+  (`boardsFromGroups`). The artwork on one is what has its middle on it
+  (`artboardArt`). An edit that needs more canvas grows it first
+  (`growCanvasFor`: the whole image saved in the step, so before
+  `touchLayers`), and adds how far everything moved to `Doc.grown`, which
+  the app takes to keep each view in place (`keepInView`) and sets back.
+  They are undone with the layers (`LayerList`, `DocSnap`), kept in the
+  .rpd's document.json ("artboards"), drawn under the image by the view
+  (each one's paper; the pasteboard round them) and their edges, names
+  and handles over it by the app.
+- A Smart Object's box is its corners (`SmartData.quad`), which it is
+  drawn again into: whatever moves its pixels moves them too, as a new
+  `SmartData` (`movedSmart`), with `touchLayers` first so undo brings them
+  back (`shiftLayers`, `endMove`).
 - Header files of the kit's C (`simdkern.h`, `simdkit.h`, `simdtext.h`)
   are named by cutting the module's own path (`currentSourcePath()` up to
   its last slash), never with `os./` or `parentDir`: those turn "/" into
@@ -671,6 +692,21 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   second while a program runs; on Windows the pseudo-console's pipe is
   peeked. Between `fork` and `exec` only what is safe there (all the child
   needs is made before). `test_terminal` feeds sequences and runs `/bin/sh`.
+  What the terminal says back goes to the program (`takeAnswers`): a sequence
+  the app writes to it itself (`showPicture`) asks for no answer (kitty's
+  `q=2`), or the answer would be typed into the user's shell. The kitty
+  keyboard protocol's flags are a stack for each screen (the main one and
+  the other), as kitty keeps them.
+- **A rectangle with rounded corners is drawn by spans** (`roundRect`,
+  `roundRectShaded`, `roundFrame`, `patchRoundRect`: a path command with
+  `PathRound`, its radius in `size`, a frame's thickness in `mag`): its
+  rows filled between the corners, only the corners' and a frame's sides'
+  pixels worked out (`roundCover`) -- on the CPU by spans (`rasterRound`), on
+  the GPU its middle and sides as rectangles and its corners as small masks
+  kept by their shape (`gpuRound`; `roundMaskInto` when it has no middle). Its points still make the outline (the
+  sides are read from them, mirrored or not); a shape that is not such a
+  rectangle never carries the flag. The Glass look draws hundreds of them a
+  frame.
 - **A graph's layout without a window is `retroui/forcelayout`**; the
   control (`graphView`) is `retroui/forcegraph`, which imports the UI. A
   module that draws nothing on screen (`retroui/board`) imports the
@@ -710,6 +746,12 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
 - **No proc nested in a proc that `parallelFor` or `parallelRows` runs**
   (a helper inside the worker's closure): ORC crashed on it (SIGSEGV in
   `lineBox`). Use a template there, or a top-level proc.
+- **A table made the first time it is read, and read by `parallelFor`'s
+  pieces, is made under a lock** with an atomic flag that says it is
+  ready (`ensureTables`, `ensurePrintTable` in `retroui/photoinks`), and
+  made before the cores read it where that can be: each core made
+  `printedFast`'s table over the others' and read one freed under it
+  (Overprint Preview stopped Retro Atelier).
 - **`for k, x in seqOfSeqs`** copies each inner seq: in a loop over
   pixels that is a copy a pixel (`astroStack` took minutes). Index it
   (`frames[k][i]`).

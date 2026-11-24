@@ -715,12 +715,16 @@ proc paragraphBody() =
               else: "Text in a box: drag its corners to size it.", color = ui.theme.gray)
     # columns, and the text flowing on into another box (threaded frames)
     var cols = max(1, L.text.columns)
-    var gut = if L.text.gutter > 0: L.text.gutter else: 12'f32
+    var gut = cur().gutterShown(L.text)
     row:
       label "Columns:"
       if spin(cols, 1, 12, w = dp(52)):
         let v = cols
-        applyText("Columns", proc (t: var TextData) = t.columns = v)
+        let g = gut
+        # (the first columns: their gutter a pica at the document's resolution, as shown)
+        applyText("Columns", proc (t: var TextData) =
+          t.columns = v
+          if t.gutter <= 0 and v > 1: t.gutter = g)
       label "Gutter:"
       if cur().lengthField(gut, dp(60), 0, 4000):
         let v = gut
@@ -1252,6 +1256,7 @@ proc typeDialogs() =
   warpDialog()
   layerStyleDialog()
   rasterAskDialog()
+  if well.open: pickerSwatches = swatches       # (the swatches under its field)
   if colorPickerDialog(well.open, "Select color", well.c, well.picker, alpha = well.alpha): well.done = true
 
 # ---- the Layer menu's type and style items -------------------------------------------------------------------

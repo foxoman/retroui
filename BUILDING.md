@@ -283,7 +283,9 @@ adds them on any server, the page loading once more the first time;
 with the page (the cores, at most 8, else); `--threads-only` builds only
 with threads (an app that needs them; elsewhere the page says so). A
 browser that will not give the shared memory up front (a phone short of
-it) gets the build without threads. Code
+it, a browser on 32 bits) gets half as much, down to 256 MB -- threads with
+less memory -- and only then the build without threads, whose jobs run on
+the page's one thread and hold it until they end. Code
 that starts threads itself compiles both ways: `when
 compileOption("threads")`. With threads the page also makes a WebGPU
 device (where the browser has one) for numbers its threads ask for

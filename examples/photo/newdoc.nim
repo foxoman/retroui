@@ -15,7 +15,8 @@ var
   ndTemplate = -1                ## the template picked (in `docTemplates()`; -1 a blank document)
   ndUnits = 0                    ## Pixels, Inches, Centimeters, Millimeters, Points, Picas
   ndResUnits = 0                 ## Pixels/Inch, Pixels/Centimeter
-  ndArtboards = false
+  ndArtboards = false            ## artboards (the drawing program's: pages of a canvas round them)
+  ndBoards = 1                   ## ... so many, side by side in rows of up to four
   ndWv, ndHv, ndRv: float        ## the size and resolution as the fields show them
   ndSeen: tuple[w, h, dpi, units, resUnits: int]
   ndThumbs: Table[string, Bitmap]
@@ -188,8 +189,19 @@ proc ndCreate() =
     if mode == cmRGB and prefs.workingSpace > 1 and prefs.workingSpace <= builtInProfileNames.len:
       d.icc = iccBytes(builtInProfile(builtInProfileNames[prefs.workingSpace - 1]))
     if ndArtboards:
+      # (the drawing program's document: its artboards -- the size asked, the color asked their paper
+      # -- on a see-through canvas round them, room for artwork beside them)
       d.layers[0].background = false
-      discard d.addArtboard(rect(0, 0, d.w, d.h), "Artboard 1", c)
+      let (bw, bh) = (d.w, d.h)
+      let gap = max(4, int(round(20 * d.dpi / 72)))
+      discard d.addArtboard(rect(0, 0, bw, bh), "Artboard 1", c)
+      for k in 1 ..< clamp(ndBoards, 1, 100):
+        # (in rows of four, 20 points apart, from the first)
+        let b0 = d.boards[0].r
+        discard d.addArtboard(rect(b0.x + (k mod 4) * (bw + gap), b0.y + (k div 4) * (bh + gap), bw, bh),
+                              "Artboard " & $(k + 1), c)
+      d.boardCur = 0
+      d.grown = (0, 0)
       d.clearHistory()
       d.modified = false
     addDoc(d)
@@ -333,7 +345,11 @@ proc newDocDialog() =
             swap(newW, newH)
           if toolButton("▭", tr("Landscape"), down = newW > newH) and newH > newW:
             swap(newW, newH)
-          if ndTemplate < 0: checkbox(tr("Artboards"), ndArtboards)
+          if ndTemplate < 0:
+            checkbox(tr("Artboards"), ndArtboards)
+            if ndArtboards:
+              accessName(tr("Number of artboards"))
+              discard spin(ndBoards, 1, 100, w = dp(56))
         label tr("Resolution")
         row([-1, 98]):
           if numberEdit(ndRv, (if ndResUnits == 1: 2 else: 0), w = dp(80), lo = 1, hi = 9999):

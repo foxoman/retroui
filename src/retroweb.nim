@@ -33,7 +33,8 @@
 ##   --debug          checks and stack traces kept (slower, bigger)
 ##   --memory:MB      the most memory the build with threads may have (1024, 256
 ##                    to 4096: a big app's -- a big picture --, where a browser
-##                    gives it; one that will not gets the build without threads)
+##                    gives it; one that will not gets half as much, down to 256
+##                    MB, then the build without threads)
 ##   --jobs:N         N C compilers at once (else: one a core while the memory
 ##                    lasts, at most 4 in Termux; or $RETRO_JOBS)
 ##   --lto:K          full (one optimization of the whole program, the

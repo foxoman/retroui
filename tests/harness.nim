@@ -77,11 +77,12 @@ proc closeWindow*() =
 proc px*(x, y: int): uint32 = pixels[y * W + x] and 0xFFFFFF'u32
 
 proc run*(n = 1) =
-  ## Run frames until the scripted input is used up (at least `n`).
+  ## Run frames until the scripted input is used up (at least `n`) -- what the kit took from the
+  ## queue while a frame's work went on (`eventsWaiting`) too: keys typed while it was busy.
   var i = 0
   var tail = 1
-  while i < n or queue.len > 0 or tail > 0:
-    if i >= n and queue.len == 0: dec tail
+  while i < n or queue.len > 0 or eventsWaiting() > 0 or tail > 0:
+    if i >= n and queue.len == 0 and eventsWaiting() == 0: dec tail
     discard beginFrame()
     view()
     endFrame()

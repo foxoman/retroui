@@ -85,6 +85,34 @@ block columnRules:
   let back = textFrom(t.toJson)
   check back.colRule.on and back.colRule.dashed and back.colRule.width == 2 and back.colRule.frameHeight,
         "kept in the file"
+  # (the layout program's: only the gutters chosen, shifted, tinted, dotted with its gaps filled, two lines)
+  t.colRule = ColumnRule(on: true, width: 3, color: 0xFF000000'u32, frameHeight: true, gutters: 0b10,
+                         offset: 4, tint: 50)
+  rules.setLen(0)
+  for dcr in layoutText(t).decorations:
+    if dcr.color == 0xFF808080'u32 or dcr.color == 0xFF7F7F7F'u32: rules.add dcr
+  check rules.len == 1, "the second gutter alone, its black at 50 %: " & $rules.len
+  check rules.len == 1 and abs((rules[0].x0 + rules[0].x1) / 2 - (2 * colW + 30 + 4)) < 0.5, "4 pixels right of its middle"
+  t.colRule.gutters = 0
+  t.colRule.tint = 0
+  t.colRule.kind = rkDotted
+  t.colRule.gapColor = 0xFFFF0000'u32
+  var dots, gaps = 0
+  for dcr in layoutText(t).decorations:
+    if dcr.color == 0xFF000000'u32 and abs(dcr.thick - 3) < 0.01: inc dots
+    if dcr.color == 0xFFFF0000'u32: inc gaps
+  check dots > 40 and gaps == 2, "dotted, as tall as wide: " & $dots & ", its gaps filled in each gutter: " & $gaps
+  t.colRule.kind = rkDouble
+  t.colRule.gapColor = 0
+  var bars = 0
+  for dcr in layoutText(t).decorations:
+    if dcr.color == 0xFF000000'u32 and abs(dcr.thick - 300) < 0.5: inc bars
+  check bars == 4, "two thin lines in each of two gutters: " & $bars
+  t.colRule = ColumnRule(on: true, kind: rkThickThin, tint: 40, gapColor: 0xFF00FF00'u32, offset: -2,
+                         gutters: 0b1)
+  let kept = textFrom(t.toJson).colRule
+  check kept.kind == rkThickThin and kept.tint == 40 and kept.gapColor == 0xFF00FF00'u32 and kept.offset == -2 and
+        kept.gutters == 1 and kept.hasRule(0) and not kept.hasRule(1), "its kind, tint, gaps, offset and gutters kept"
 
 block booklet:
   let s = bookletSpreads(8, Booklet(kind: bkSaddle))

@@ -172,23 +172,40 @@ block proceduralTextureDialog:
   run(1)
 
 block constraintsAndBoardGrip:
-  let (d, dw) = fresh(400, 300)
-  d.beginStep("New Artboard")
-  let G = d.addArtboard(rect(10, 10, 200, 100), color = 0xFFFFFFFF'u32)
-  d.endStep()
-  d.layersChange("bar"):
-    let made = d.addShapeLayer(ShapeData(path: rectPath(20, 90, 200, 100), fill: solidPaint(0xFF0000FF'u32)), "Bar",
-                               above = d.layers.find(G) - 1)
-    made.pins = {lpLeft, lpRight, lpBottom}
-  let bar = d.layers[d.layers.find(G) - 1]
+  # (the Artboard tool, as the drawing program has it: a box drawn is a new artboard; its handles
+  # size it, what is on it following by its Constraints; dragged inside it moves it with its
+  # artwork; Alt+dragged, a copy; Delete in the panel's commands)
+  let (d, dw) = fresh(400, 300, color = 0)
   tool = tMove
   moveKind = 1
-  stroke(dw, 210, 110, 310, 170)
-  check G.board == rect(10, 10, 300, 160) and d.undoName == "Resize Artboard",
-        "the Artboard tool: its corner dragged sizes it"
-  check d.layerBox(bar) == rect(20, 150, 280, 10), "what is on it follows by its Constraints"
-  stroke(dw, 100, 60, 120, 60)
-  check G.board == rect(30, 10, 300, 160) and d.undoName == "Move Artboard", "inside it: moved, as before"
+  stroke(dw, 10, 10, 210, 110)
+  check d.boards.len == 1 and d.undoName == "New Artboard", "a box drawn: a new artboard"
+  var b = d.boards[0].r
+  check b.w == 200 and b.h == 100, "as big as the box: " & $b
+  d.layersChange("bar"):
+    let made = d.addShapeLayer(ShapeData(path: rectPath(b.x.float + 10, b.y.float + 80, b.x.float + 190,
+                                                        b.y.float + 90), fill: solidPaint(0xFF0000FF'u32)), "Bar")
+    made.pins = {lpLeft, lpRight, lpBottom}
+  let bar = d.layers[^1]
+  stroke(dw, float(b.x + b.w), float(b.y + b.h), float(b.x + b.w + 100), float(b.y + b.h + 60))
+  b = d.boards[0].r
+  check b.w == 300 and b.h == 160 and d.undoName == "Resize Artboard",
+        "the Artboard tool: its corner dragged sizes it: " & $b
+  check d.layerBox(bar) == rect(b.x + 10, b.y + 140, 280, 10), "what is on it follows by its Constraints: " &
+                                                                 $d.layerBox(bar)
+  stroke(dw, float(b.x + 90), float(b.y + 50), float(b.x + 110), float(b.y + 50))
+  let b2 = d.boards[0].r
+  check b2.x - b.x == 20 and b2.y == b.y and d.undoName == "Move Artboard", "inside it: moved"
+  check d.layerBox(bar).x == b2.x + 10, "its artwork with it"
+  stroke(dw, float(b2.x + 90), float(b2.y + 50), float(b2.x + 90), float(b2.y + 250), alt = true)
+  check d.boards.len == 2 and d.undoName == "Duplicate Artboard" and d.boards[1].r.y - d.boards[0].r.y == 200,
+        "Alt+dragged: a copy"
+  var bars = 0
+  for L in d.layers:
+    if L.name.startsWith("Bar"): inc bars
+  check bars == 2, "its artwork copied too: " & $bars
+  runCommand("Delete Artboard")
+  check d.boards.len == 1 and bars == 2, "deleted: its artwork stays on the canvas"
   moveKind = 0
 
 block symbolsInTheApp:

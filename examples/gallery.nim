@@ -1216,23 +1216,61 @@ var
   mindMap = mindMapOf()
   added = 0
 
+var
+  termFind = ""                         # (the Terminal page's find bar)
+  termFindOpen = false
+  termFindCase = false
+  termFound = true
+
+proc newShell() =
+  term = newTerminal()
+  if not term.spawn():
+    term.feed("\e[1mRetro Nim UI's terminal\e[0m\r\n" & term.error & "\r\n" &
+              "What an app writes to it (feed) is shown \e[32min its colors\e[0m.\r\n")
+
 proc terminalPage() =
-  ## (retroui/terminal: the user's shell in a box)
-  if term == nil:
-    term = newTerminal()
-    if not term.spawn():
-      term.feed("\e[1mRetro Nim UI's terminal\e[0m\r\n" & term.error & "\r\n" &
-                "What an app writes to it (feed) is shown \e[32min its colors\e[0m.\r\n")
+  ## (retroui/terminal: the user's shell in a box; the menu bar's Terminal menu while it is shown,
+  ## the app's own items in its right-click menu, a find bar)
+  if term == nil: newShell()
   row:
     if term.running: label("Your shell: " & (if term.title.len > 0: term.title else: defaultShell()[0]))
     elif term.error.len == 0: label("The shell ended (" & $term.exitCode & ").")
     spring()
-    if button("&New shell", enabled = not term.running):
-      term = newTerminal()
-      discard term.spawn()
-  terminalView(term, lines = -1, focusFirst = true)
-  label("Ctrl+Shift+C copies what the mouse chose, Ctrl+Shift+V pastes; the wheel goes back " &
-        "through what scrolled off.", color = ui.theme.gray)
+    if button("&Find...", enabled = not termFindOpen): termFindOpen = true
+    if button("&Picture"):
+      # (a picture in the terminal, as a program shows one by kitty's graphics protocol)
+      term.feed("\r\n")
+      term.showPicture(GalleryIconPng, rows = 5)
+      term.feed("\r\n")
+    if button("&New shell", enabled = not term.running): newShell()
+  if ui.key == KeyF and ui.mods * {CtrlPressed, ShiftPressed} == {CtrlPressed, ShiftPressed} and
+     not ui.keyUsed and canInput():
+    # (Ctrl+Shift+F: the find bar -- taken before the terminal sends it on to the shell)
+    ui.keyUsed = true
+    termFindOpen = true
+  if termFindOpen:
+    row([-1, 0, 0, 0, 0]):
+      # (Enter and Esc in the find box: the next one up, the bar closed -- the terminal's own
+      # while it has the keys)
+      let inBox = ui.focus == peekId(termFind, "search")
+      if inBox: ui.takesEnter = true
+      let typed = searchBox(termFind, "Find in the terminal")
+      checkbox("Match &case", termFindCase)
+      if typed:
+        # (as it is typed: the last of it, from the bottom up)
+        term.selectNone()
+        termFound = termFind.len == 0 or term.findText(termFind, matchCase = termFindCase)
+      let back = button("&Previous") or (inBox and keyHit(KeyEnter))
+      let on = button("Ne&xt")
+      if back or on: termFound = term.findText(termFind, back = not on, matchCase = termFindCase)
+      if button("Close") or (inBox and keyHit(KeyEsc)): termFindOpen = false
+    if not termFound: label("No more of it.", color = badColor())
+  terminalView(term, lines = -1, focusFirst = true, menu = proc () =
+    # (the app's own items, between the terminal's Copy, Paste, Select All and its own)
+    if menuItem("&Find...", "Ctrl+Shift+F"): termFindOpen = true
+    if menuItem("&New Shell", enabled = not term.running): newShell())
+  label("Ctrl+Shift+C copies, Ctrl+Shift+V pastes, Ctrl+Shift+F finds; kitty's keys and pictures " &
+        "for the programs that ask.", color = ui.theme.gray)
 
 proc surfacesPage() =
   ## (blur, shadow and masks: frosted glass over a picture, a card that floats, a circle)
@@ -1459,6 +1497,10 @@ proc kitTab() =
             if button("&Count", enabled = primeJob == nil or primeJob.ended):
               primeJob = countPrimes(primeTo)
             if button("C&ancel", enabled = primeJob != nil and primeJob.running): primeJob.cancel()
+          when not compileOption("threads"):
+            # (a web page the browser gave no threads: the work runs on the page's one thread)
+            label("This page runs without threads (the browser would not give it them): " &
+                  "Count holds the window until it ends.", color = ui.theme.gray)
           if primeJob != nil:
             progress(primeJob.progress)
             label(case primeJob.state
@@ -1577,6 +1619,16 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
                   "File Size", "Created", "Modified", "Printed", "Version", "Invoice Number",
                   "Customer", "Amount", "Tax", "Total", "Due Date", "Signature", "Barcode"]:
           if menuItem(f): status = "Inserted the field " & f
+    if tab == 18 and kTab == 6 and term != nil:
+      # (the Terminal page shown: a menu of its own -- the terminal's items, in an app's menu)
+      menu "&Terminal":
+        terminalEditItems(term)
+        menuSeparator()
+        if menuItem("&Find...", "Ctrl+Shift+F"): termFindOpen = true
+        menuSeparator()
+        terminalViewItems(term)
+        menuSeparator()
+        terminalItems(term)
     menu "&Window":
       # (Cascade, Tile, Always on Top for the active window, the windows)
       mdiWindowMenu("gallery")
@@ -1988,7 +2040,10 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
             "for Nim on Windows, macOS, Linux, Android and iOS."],
            tagline = "Every control of Retro Nim UI",
            iconPng = GalleryIconPng, glyph = pxApp,
-           whatsNew = ["Forms & Code > Terminal: your shell in a box, its colors, scrolling back, copy " &
+           whatsNew = ["Forms & Code > Terminal: kitty's keys and pictures for the programs that ask, a " &
+                       "Terminal menu in the menu bar, a find bar (Ctrl+Shift+F), a picture shown in it; " &
+                       "the Glass look lit from above, its fields, tabs, groups and menus rounded",
+                       "Forms & Code > Terminal: your shell in a box, its colors, scrolling back, copy " &
                        "and paste; > Surfaces: frosted glass, shadows, a picture in a circle; > Jobs: a " &
                        "load shared by two views; > Motion: timed steps, a box that flies across",
                        "Forms & Code > Motion: springs, a note in and out, rows gliding, a square thrown " &

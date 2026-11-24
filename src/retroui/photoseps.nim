@@ -128,6 +128,7 @@ proc overprintPicture*(d: Doc): ptr seq[uint32] =
     , grain = 8192)
   var o = newSeq[uint32](n)
   let opx = cast[ptr UncheckedArray[uint32]](addr o[0])
+  discard printedFast(0, 0, 0, 0)        # (its table made here, before the cores read it)
   parallelFor(n, proc (lo, hi: int) =
     for i in lo ..< hi:
       let v = ip[i]
@@ -170,6 +171,8 @@ proc sepContext*(d: Doc): SepCtx =
   ## Separations Preview of `d` made ready (`on` false when it is off).
   if not d.sepView.on: return
   result.on = true
+  discard inkOf(0xFFFFFFFF'u32)   # (the ink tables made here, on all the cores -- not by the view's
+                                  # threads, one at a time, as each asks for its first point)
   let ps = d.docPlates
   result.n = min(ps.len, MaxSepInks)
   result.black = d.sepView.black
