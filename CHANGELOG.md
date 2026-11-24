@@ -1,5 +1,14 @@
 # Changes
 
+## 0.73.1
+
+- **Retro Atelier and the Control Gallery live on GitHub Pages**
+  (https://foxoman.github.io/retroui/): a new workflow (`pages.yml`) builds
+  them as web pages when main is pushed, or by hand, and puts them there
+  with a front page (`docs/pages/index.html`).
+- CI: the guide shows `frosted` (the check that the guide names every control
+  of the kit stopped 0.73.0's run before its tests).
+
 ## 0.73.0
 
 What Freya, the Rust toolkit, has and the kit did not: a terminal with

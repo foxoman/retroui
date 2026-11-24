@@ -908,6 +908,14 @@ user, on Windows, Linux and macOS, with no package at all: `retroui/install`
 Google Play: `retroapk --aab` (above, "For Google Play"). The App Store:
 `retroios --ipa` (above). The web: `retrokit web` (above).
 
+**Live on GitHub Pages**: `.github/workflows/pages.yml` builds Retro Atelier and the
+Control Gallery as web pages when main is pushed (or by hand: Actions > Pages >
+Run workflow) and puts them on the repository's Pages site with a front page
+(`docs/pages/index.html`) -- https://foxoman.github.io/retroui/. Once, in the repository:
+Settings > Pages > Build and deployment > Source: GitHub Actions. An app of your own goes
+the same way: `retrokit web` (or `retroweb`) into a folder, that folder uploaded with
+`actions/upload-pages-artifact` and `actions/deploy-pages`.
+
 ### Updates inside the app
 
 For an app shipped outside the stores (an AppImage, a Windows program, a

@@ -9,6 +9,10 @@ apps for **Windows, macOS, Linux, Android, iOS and the web** from one code
 base, and packs them for the stores itself. The
 package and its module are called `retroui`: `nimble install retroui`, `import retroui`.
 
+**Try it live: [foxoman.github.io/retroui](https://foxoman.github.io/retroui/)** --
+Retro Atelier and the Control Gallery running in your browser, built from the
+latest version (`.github/workflows/pages.yml`).
+
 **Learn the syntax: [docs/syntax.md](docs/syntax.md)** -- the whole way of
 writing an app, every form of it as a small program with a picture of what
 it draws: what `row([50, -1])` does with the 50 and the -1, binding, events,

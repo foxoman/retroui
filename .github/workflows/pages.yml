@@ -1,0 +1,76 @@
+name: Pages
+
+# Retro Atelier and the Control Gallery as web pages, live on GitHub Pages
+# (https://foxoman.github.io/retroui/): built with retroweb from main when it is
+# pushed (a version: I push main with its tag), or by hand (Actions > Pages > Run
+# workflow), and put there -- the same WebAssembly `retrokit web` makes, with threads
+# where the browser allows them (the page's service worker sets that up on Pages too).
+# (From main, not from the tag: the github-pages environment lets only the default
+# branch deploy, unless a rule for the tags is added to it.)
+#
+# Once, in the repository: Settings > Pages > Build and deployment > Source:
+# GitHub Actions.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jiro4989/setup-nim-action@v2
+        id: setupnim
+        continue-on-error: true   # (a download cut off: tried once more below)
+        with:
+          nim-version: "2.4.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: jiro4989/setup-nim-action@v2
+        if: steps.setupnim.outcome == 'failure'
+        with:
+          nim-version: "2.4.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: clang and wasm-ld
+        run: sh tools/apt.sh clang lld
+      - name: retroweb
+        run: nim c -d:release --hints:off -o:build/retroweb src/retroweb.nim
+      - name: Retro Atelier
+        run: >-
+          build/retroweb examples/photo.nim --out:site/atelier --threads --memory:2048 --lto:thin
+          --name:"Retro Atelier" --icon:examples/assets/photo-icon-512.png
+      - name: The Control Gallery
+        run: >-
+          build/retroweb examples/gallery.nim --out:site/gallery --threads --lto:thin
+          --name:"Control Gallery" --icon:examples/assets/gallery-icon.png
+      - name: The front page
+        run: |
+          cp docs/pages/index.html site/index.html
+          cp examples/assets/photo-icon-512.png site/atelier.png
+          cp examples/assets/gallery-icon.png site/gallery.png
+          touch site/.nojekyll
+          du -sh site site/*
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

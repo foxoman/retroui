@@ -487,7 +487,7 @@ example("group", "Groups, cards and separators",
 example("surface", "Surfaces: frosted glass, shadows, masks",
         "A surface is a panel drawn as you say: what is under it blurred -- real frosted glass, on the CPU and the GPU alike, kept while what is under it does not change -- a face over the blur, its corners rounded (what is put in it kept inside them), a soft shadow under it, a hairline round it (`Surface`: `blur`, `face`, `corner`, `shadow`, `border`, `pad`). `masked` keeps what is drawn in it inside rounded corners: a picture in a circle. In the Glass look the menus, the dialogs and the lists a combo box drops down are frosted glass themselves (`frostedGlass`; the user turns it off with \"See-through menus and dialogs\" in `appearanceSettings`).",
         380, 170, ["surface", "beginSurface", "endSurface", "frostedSurface", "drawSurface", "backdropBlur",
-                   "masked", "beginMask", "endMask", "frostedFace"], std3):
+                   "masked", "beginMask", "endMask", "frostedFace", "frosted"], std3):
   let area = place(0, dp(150))
   for i in 0 ..< area.w div dp(16) + 1:
     fill(rect(area.x + i * dp(16), area.y, dp(8), area.h),

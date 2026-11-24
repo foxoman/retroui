@@ -482,6 +482,13 @@ A face of frosted glass in `r` when the look draws them so (`frosted`): what is 
 blurred, `back` over it most of the way, its corners rounded `corner`; false -- nothing
 drawn -- otherwise.
 
+```nim
+proc frosted*(): bool
+```
+
+Menus, dialogs and dropped lists drawn as frosted glass now (`frostedGlass`, in the Glass
+look).
+
 ### Forms and fields
 
 `form` lines up labels and their controls in two columns (0: the labels as wide as the longest). On a phone the label goes above its control.
