@@ -24,10 +24,11 @@ from retroui/system import homeWidget, notificationActions
 import retrodns/[catalog, androidglue, tester, vpn, desktop]
 
 const
-  retrodnsVersion {.strdefine.} = "1.5"   # (build.sh passes its VERSION)
+  retrodnsVersion {.strdefine.} = "1.6"   # (build.sh passes its VERSION)
   AppTitle = "Retro DNS"
   AppVersion = retrodnsVersion
   AppId = "RetroDNS"
+  LookKey = AppId & "-1.6"               # (1.6's look: phones start in Gloss once, whatever was kept)
   AppIconPng = staticRead("retrodns/icon.png")
   Chips = ["All", "Favourites", "Fast", "Privacy", "Security", "Ad-block", "Family",
            "Unfiltered", "Regional", "Mine"]
@@ -1045,7 +1046,306 @@ proc statusText(list: seq[int]): string =
     result &= ", " & $favs.len & (if favs.len == 1: " favourite" else: " favourites")
   if testing.len > 0: result &= ", testing " & $testing.len
 
+# ---- a phone in the newer looks: tabs, pages and rows in groups, as phone apps are ---------------
+
+var
+  phoneTab = 0
+  phoneNav = [initPages("dns"), initPages("servers"), initPages("favourites"), initPages("more")]
+  phoneDetail = ""                      # the server whose page is open
+  removeAsk = false
+
+proc phoneSpeed(key: string): string =
+  if key in testing: return "testing..."
+  let v = speedOf(key)
+  if v == int.high: "" elif v < 0: "no answer" else: $v & " ms"
+
+proc phoneFind(): seq[int] =
+  ## (the servers the search finds, all of them while it is empty)
+  for i, s in servers:
+    if query.len == 0: result.add i
+    else:
+      let hay = (s.name & " " & s.group & " " & s.note & " " & s.dot & " " & s.doh).toLowerAscii
+      var ok = true
+      for word in query.toLowerAscii.splitWhitespace:
+        if word notin hay: ok = false
+      if ok: result.add i
+
+proc serverRow(i: int; nav: var PageStack) =
+  ## (a server's row: ticked when it is the one picked; its speed; a tap picks it, its info
+  ## button opens its page)
+  let s = servers[i]
+  let inUse = vpnServes(s) or (not onAndroid() and s.key == hereKey)
+  let h = tableRow(s.name, phoneSpeed(s.key), taInfo,
+                   glyph = if s.key == selKey: nfCheck else: " ",
+                   subtitle = if inUse: "In use" elif s.key in favs: "Favourite" else: "",
+                   key = s.key)
+  if h.clicked and s.key != selKey:
+    selKey = s.key
+    stateDirty = true
+    # (the VPN on: it goes to the server picked)
+    if onAndroid() and vpnNow.state == vsOn and vpnReady(s): vpnStart(s.key)
+  if h.info:
+    phoneDetail = s.key
+    nav.push("server")
+
+proc phoneDns() =
+  let cur = indexOfKey(selKey)
+  let curName = if cur >= 0: servers[cur].name else: "Pick one"
+  if onAndroid():
+    if not vpnNow.present:
+      tableGroup("", "This build has no VPN in it: build it with build.sh, whose --java gives " &
+                     "retroapk the VPN."):
+        discard tableRow("VPN", "not here")
+    else:
+      let on = vpnNow.state == vsOn
+      var want = on or vpnNow.state == vsStarting or vpnAsking
+      let note = if vpnNow.state == vsFailed and vpnNow.error.len > 0: vpnNow.error
+                 elif on: "Lookups go to " & vpnNow.server & ", encrypted (" & vpnNow.mode & ")."
+                 else: "Turn it on to send this phone's lookups to the server picked, encrypted."
+      tableGroup("", note):
+        if tableSwitch("VPN", want, glyph = nfShield, tint = color(38, 94, 196),
+                       subtitle = if vpnAsking: "Waiting for Android's permission..." else: vpnLine(),
+                       enabled = cur >= 0 or on):
+          if want: vpnStart(selKey)
+          else:
+            vpnAsking = false
+            vpnStop()
+        if tableRow("Server", curName, taChevron, glyph = nfServer).clicked: phoneTab = 1
+      if on:
+        tableGroup("Lookups"):
+          discard tableRow("Answered", $vpnNow.answered)
+          if vpnNow.avgMs >= 0: discard tableRow("On average", $vpnNow.avgMs & " ms")
+          if vpnNow.failed > 0: discard tableRow("Failed", $vpnNow.failed, subtitle = vpnNow.lastFailure)
+          if vpnNow.blockedNames > 0: discard tableRow("Blocked", $vpnNow.blockedNames)
+          if vpnNow.memKb > 0:
+            discard tableRow("The VPN's memory", $((vpnNow.memKb + 512) div 1024) & " MB")
+        lookupGraph()
+        reachGraph()
+  else:
+    let at = indexOfKey(hereKey)
+    let i = cur
+    let way = if i >= 0: hereWay(servers[i]) else: hwNone
+    tableGroup("This " & deviceWord().capitalizeAscii,
+               if at >= 0 and hereProfile: "Its profile sends the lookups there, encrypted." else: ""):
+      discard tableRow("DNS", if at >= 0: servers[at].name else: "Automatic", glyph = nfGlobe,
+                       tint = color(40, 150, 90))
+      if tableRow("Server", curName, taChevron, glyph = nfServer).clicked: phoneTab = 1
+      if adminAsk.len > 0: discard tableRow("Waiting for the system...")
+      else:
+        let useText = if way == hwProfile: "Install Profile" else: "Use on This " & deviceWord().capitalizeAscii
+        if tableButton(useText, enabled = i >= 0 and way != hwNone and servers[i].key != hereKey):
+          useHere(selKey)
+        if at >= 0 and tableButton("Back to Automatic"): resetHere()
+  # (the two buttons of the page, side by side under its groups: the one that matters most blue
+  # in Gloss)
+  space(dp(10))
+  let room = cellRoom()
+  let bw = min((room - Gap) div 2, dp(200))
+  let bh = if fingers(): dp(44) else: 0
+  row:
+    space((room - 2 * bw - Gap) div 2)
+    if button("Test All Servers", isDefault = true, w = bw, h = bh): testAll(phoneFind())
+    if button("Pick the Fastest", w = bw, h = bh):
+      testAll(phoneFind())
+      fastestAsked = true
+  space(dp(4))
+  for ln in wrapLines("Each server reached from this network: its time is on its row.", cellRoom()):
+    let lr = place(0, FontH + dp(1), fill = true)
+    let ink = if glossLook() and lumaOfColor(ui.theme.window) >= 128: color(76, 86, 108) else: ui.theme.gray
+    text(lr.x + (lr.w - textWidth(ln)) div 2, lr.y, ln, ink)
+
+proc phoneServers(nav: var PageStack; search = true) =
+  if search: searchBar(query, "Search servers")
+  let found = phoneFind()
+  if found.len == 0:
+    emptyState(pxSearch, "No server matches", detail = "Try other words.")
+    return
+  for g in Groups:
+    var list: seq[int]
+    for i in found:
+      if servers[i].group == g or (g == "Mine" and servers[i].custom and servers[i].group notin Groups):
+        list.add i
+    if sortBySpeed:
+      list.sort(proc (a, b: int): int = cmp(speedRank(servers[a].key), speedRank(servers[b].key)))
+    if list.len == 0: continue
+    tableGroup(g):
+      for i in list: serverRow(i, nav)
+
+proc phoneServer() =
+  let i = indexOfKey(phoneDetail)
+  if i < 0:
+    emptyState(pxGlobe, "Pick a server")
+    return
+  let s = servers[i]
+  let way = hereWay(s)
+  let inUse = vpnServes(s) or (not onAndroid() and s.key == hereKey)
+  tableGroup("", s.note):
+    discard tableRow("Kind", s.group)
+    discard tableRow("Speed", timingText(s.key))
+    var fav = s.key in favs
+    if tableSwitch("Favourite", fav): toggleFav(s.key)
+  if s.dot.len + s.doh.len + s.ipv4.len + s.ipv6.len > 0:
+    tableGroup("Addresses", "Tap one to copy it."):
+      if s.dot.len > 0 and tableRow("Private DNS", s.dot).clicked:
+        putClipboardText(s.dot)
+        toast("Copied: Android's Settings, Private DNS takes it too")
+      if s.doh.len > 0 and tableRow("DoH", s.doh).clicked:
+        putClipboardText(s.doh)
+        toast("Copied: paste it in your browser's secure DNS setting")
+      if s.ipv4.len > 0 and tableRow("IPv4", s.ipv4.join(", ")).clicked:
+        putClipboardText(s.ipv4.join(", "))
+        toast("Copied the addresses")
+      if s.ipv6.len > 0 and tableRow("IPv6", s.ipv6.join(", ")).clicked:
+        putClipboardText(s.ipv6.join(", "))
+        toast("Copied the addresses")
+  let wifiOnly = (way == hwVpn and not vpnReady(s)) or
+                 (way == hwNone and defined(ios) and addrsOf(s).len > 0)
+  tableGroup("", if wifiOnly: "No encrypted DNS, so not for the " &
+                              (if way == hwVpn: "VPN" else: "profile") & ": use it on Wi-Fi or a router." else: ""):
+    if wifiOnly:
+      if tableButton("Use on Wi-Fi..."):
+        ipKey = s.key
+        ipOpen = true
+    else:
+      let useLabel = if inUse: (if way == hwVpn: "Connected" else: "In Use")
+                     elif way == hwVpn: "Connect"
+                     elif way == hwProfile: "Install Profile"
+                     else: "Use Here"
+      if tableButton(useLabel, enabled = not inUse and not vpnAsking and adminAsk.len == 0 and way != hwNone):
+        selKey = s.key
+        useHere(s.key)
+    if tableButton("Test", enabled = s.key notin testing): testServer(s)
+  if s.custom:
+    tableGroup(""):
+      if tableButton("Edit"): startEdit(s.key)
+      if tableButton("Delete Server", destructive = true): removeAsk = true
+  speedGraph(s.key)
+  case alertBox(removeAsk, "Delete " & s.name & "?", "Your server goes from the list; you can add " &
+                "it again.", ["Cancel", "Delete"], cancel = 0)
+  of 1:
+    selKey = s.key
+    deleteSelected()
+    discard phoneNav[phoneTab].pop()
+  else: discard
+
+proc phoneFavourites(nav: var PageStack) =
+  var list: seq[int]
+  for i, s in servers:
+    if s.key in favs: list.add i
+  if list.len == 0:
+    emptyState(pxStar, "No favourites yet", detail = "A server's page has Favourite.")
+    return
+  tableGroup(""):
+    for i in list: serverRow(i, nav)
+
+proc phoneMore() =
+  if onAndroid():
+    tableGroup("VPN", "Blocked names are answered \"no such name\" on the phone, sending nothing."):
+      if tableSwitch("Switch When One Stops", autoSwitch,
+                     subtitle = "To another server when this one stops answering"):
+        stateDirty = true
+      var n = 0
+      for l in blockText.splitLines:
+        if l.strip.len > 0 and not l.strip.startsWith("#"): inc n
+      if tableRow("Block List", $n & " names", taChevron).clicked:
+        blockEdit = blockText
+        blockOpen = true
+      if tableRow("Android's VPN Settings", "", taChevron).clicked:
+        openSettingsPage("android.settings.VPN_SETTINGS")
+  tableGroup("Your Servers"):
+    if tableRow("Add a Server", "", taChevron).clicked: startEdit("")
+    if tableRow("Import Servers", "", taChevron).clicked: importOpen = true
+    if tableRow("Export Your Servers", "", taChevron).clicked: exportServers()
+    if tableSwitch("Sort by Speed", sortBySpeed): stateDirty = true
+  tableGroup(""):
+    if tableRow("Appearance", "", taChevron).clicked: lookOpen = true
+    if tableRow("How It Works", "", taChevron).clicked: helpOpen = true
+    if tableRow("About Retro DNS", AppVersion, taChevron).clicked: aboutOpen = true
+
+proc phonePage(tablet = false) =
+  ## (the section's page on top, under its navigation bar; on a tablet, beside the list, the
+  ## page's groups in from its sides)
+  template nav: untyped = phoneNav[phoneTab]
+  let title = case nav.page
+              of "dns": (if tablet: "DNS" else: "Retro DNS")
+              of "servers": "Servers"
+              of "favourites": "Favourites"
+              of "more": "More"
+              else:
+                let i = indexOfKey(phoneDetail)
+                if i >= 0: servers[i].name else: "Server"
+  let back = if nav.atHome: "" elif phoneTab == 1: "Servers" elif phoneTab == 2: "Favourites" else: "Back"
+  let action = if nav.page == "servers": "Add" else: ""
+  # (on a tablet the search bar right under the navigation bar, across the page)
+  let searchOn = tablet and nav.page == "servers"
+  let g = ui.m.gap
+  if searchOn: ui.m.gap = 0
+  case navBar(title, back = back, action = action)
+  of npBack: discard nav.pop()
+  of npAction: startEdit("")
+  of npNone: discard
+  if searchOn:
+    searchBar(query, "Search servers")
+    ui.m.gap = g
+  pageView(nav):
+    beginPanel(-1, "phone:" & $phoneTab & ":" & nav.page, plain = true)
+    let m = if tablet: dp(24) else: 0
+    if m > 0:
+      let (fx, _) = layoutOrigin()
+      pushFrame(rect(fx + m, layoutY() + dp(4), layoutWidth() - 2 * m, 0))
+    case nav.page
+    of "dns": phoneDns()
+    of "servers": phoneServers(nav, search = not tablet)
+    of "favourites": phoneFavourites(nav)
+    of "more": phoneMore()
+    of "server": phoneServer()
+    else: discard
+    if m > 0: discard place(0, popFrame() + dp(12))
+    endPanel()
+
+const Sections = [(nfGlobe, "DNS", color(38, 94, 196)), (nfServer, "Servers", color(84, 96, 118)),
+                  (nfStar, "Favourites", color(236, 150, 24)), (nfCog, "More", color(128, 128, 136))]
+
+proc phoneShell() =
+  ## A phone in the Glass, Matte or Gloss look: a tab bar, a navigation bar, pages that slide
+  ## in, the servers in rows in groups.
+  var tabs: seq[(string, string)]
+  for (g, name, _) in Sections: tabs.add (g, name)
+  discard bottomNav(tabs, phoneTab)
+  phonePage()
+
+proc tabletShell() =
+  ## A tablet in the newer looks, as tablets showed their settings: the sections in a list down
+  ## the left under the app's navigation bar, the page of the one picked beside it under its
+  ## own, a line between them.
+  let top = ui.barY
+  let h = ui.bottom - top
+  let x0 = ui.winX + ui.safe.left
+  let w = ui.w - ui.safe.left - ui.safe.right
+  let mw = min(dp(320), w * 2 div 5)
+  pushFrame(rect(x0, top, mw, h))
+  discard navBar("Retro DNS")
+  beginPanel(-1, "tablet:sections", plain = true)
+  let (fx, _) = layoutOrigin()
+  pushFrame(rect(fx + dp(8), layoutY() + dp(6), layoutWidth() - dp(16), 0))
+  tableGroup(""):
+    for i, (g, name, tint) in Sections:
+      if tableRow(name, "", taChevron, glyph = g, tint = tint, selected = phoneTab == i).clicked:
+        if phoneTab == i: phoneNav[i].goHome() else: phoneTab = i
+  discard place(0, popFrame() + dp(12))
+  endPanel()
+  discard popFrame()
+  vline(x0 + mw, top, h, if lumaOfColor(ui.theme.window) < 128 or glossLook(): color(0, 0, 0)
+                         else: mixColor(ui.theme.window, ui.theme.text, 0.2))
+  pushFrame(rect(x0 + mw + 1, top, w - mw - 1, h))
+  phonePage(tablet = true)
+  discard popFrame()
+
 proc shell() =
+  if glassLook() and (isCompact() or ui.touch):
+    if isCompact(): phoneShell() else: tabletShell()
+    dialogs()
+    return
   let list = shownServers()
   let compact = isCompact()
   menus(indexOfKey(selKey))
@@ -1081,12 +1381,18 @@ proc shell() =
 
 proc main() =
   setThreadCount(2)          # (drawing on 2 threads, not one a core: less memory)
+  # (phones and tablets: the Gloss look until the user picks another, the app's own bars in the
+  # newer looks -- the window's caption left out)
+  appNavBars = true
+  when defined(android) or defined(ios):
+    uiLook = lookGloss
+    ui.theme = GlossLight
   loadState()
   servers = builtinServers()
   createDir(appDir())
   for s in loadCustom(customPath()):
     if indexOfKey(s.key) < 0: servers.add s
-  openApp(AppTitle, 1180, 760, id = AppId, icon = AppIconPng, look = AppId, version = AppVersion)
+  openApp(AppTitle, 1180, 760, id = AppId, icon = AppIconPng, look = LookKey, version = AppVersion)
   readNow()
   var lastPane = (paneW, paneH)
   while beginFrame():

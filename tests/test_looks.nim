@@ -186,7 +186,7 @@ proc contrast(a, b: Color): float =
   let (x, y) = (lum(a), lum(b))
   (max(x, y) + 0.05) / (min(x, y) + 0.05)
 
-doAssert builtinThemes.len == 30
+doAssert builtinThemes.len == 34
 var names: seq[string]
 for (name, t) in builtinThemes:
   doAssert name notin names, name
@@ -203,12 +203,12 @@ for (name, t) in builtinThemes:
     doAssert contrast(t.text, c) >= 4.5, name & ": text on a state's background"
   doAssert goodColor() != badColor() and warnColor() != infoColor()
 for want in ["Notes", "Snow", "Mint", "Sky", "Blossom", "Lavender", "Sunset", "Graphite", "Dusk", "Night Notes",
-             "Glass Light", "Glass Dark"]:
+             "Glass Light", "Glass Dark", "Matte Light", "Matte Dark", "Gloss Light", "Gloss Dark"]:
   doAssert want in names, want
 ui.theme = before
 
 # ---- the Glass look: rounded, see-through, the highlight on what is on; every scheme; not the high
-# contrast ones ------------------------------------------------------------------------------------------
+# contrast ones. Matte and Gloss the same, each with its own schemes ------------------------------------
 
 var gb, gc, gs: Rect
 var gOn = true
@@ -220,24 +220,32 @@ view = proc () =
   gc = ui.lastRect
   toggle("Switch", gSw)
   gs = ui.lastRect
-for (t, want) in [(GlassLight, true), (GlassDark, true), (Emerald, true), (HighContrast, false)]:
-  ui.theme = t
-  uiLook = lookGlass
-  invalidate()
-  run(3)
-  doAssert glassLook() == want
-  let corner = px(gb.x, gb.y)
-  let win = (uint32(t.window.r) shl 16) or (uint32(t.window.g) shl 8) or uint32(t.window.b)
-  if want:
-    doAssert corner == win, "a button's corner: rounded off, the window under it " & $corner
-    doAssert countNear(accentColor(), gc) > 10, "a check box ticked: in the highlight"
-    doAssert countNear(accentColor(), gs) > 20, "a switch on: in the highlight"
-  else:
-    doAssert corner != win, "High Contrast: its square, black-edged buttons"
-  uiLook = lookClassic
-  invalidate()
-  run(3)
-  doAssert px(gb.x, gb.y) != win or not want, "Classic again: square " & $gb & " " & $px(gb.x, gb.y)
+for look in [lookGlass, lookMatte, lookGloss]:
+  let (ownLight, ownDark) = lookSchemes(look)
+  doAssert ownLight != ownDark and ownLight.window != Classic.window
+  for (t, want) in [(ownLight, true), (ownDark, true), (Emerald, true), (HighContrast, false)]:
+    ui.theme = t
+    uiLook = look
+    invalidate()
+    run(3)
+    doAssert glassLook() == want
+    doAssert matteLook() == (want and look == lookMatte) and glossLook() == (want and look == lookGloss)
+    let corner = px(gb.x, gb.y)
+    let win = (uint32(t.window.r) shl 16) or (uint32(t.window.g) shl 8) or uint32(t.window.b)
+    # (Gloss: the window pinstriped, its stripes a little lighter)
+    let stripe = (uint32(min(255, int(t.window.r) + 6)) shl 16) or (uint32(min(255, int(t.window.g) + 6)) shl 8) or
+                 uint32(min(255, int(t.window.b) + 6))
+    if want:
+      doAssert corner == win or (glossLook() and corner == stripe),
+               $look & ": a button's corner: rounded off, the window under it " & $corner
+      doAssert countNear(accentColor(), gc) > 10, $look & ": a check box ticked: in the highlight"
+      doAssert countNear(accentColor(), gs) > 20, $look & ": a switch on: in the highlight"
+    else:
+      doAssert corner != win, "High Contrast: its square, black-edged buttons"
+    uiLook = lookClassic
+    invalidate()
+    run(3)
+    doAssert px(gb.x, gb.y) != win or not want, "Classic again: square " & $gb & " " & $px(gb.x, gb.y)
 ui.theme = before
 
 # ---- a font list: the fonts used last, then all of them from A to Z ---------------------------------

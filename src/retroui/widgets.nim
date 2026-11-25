@@ -181,8 +181,26 @@ proc glassHair*(): Color =
   lookHair()
 
 proc glassRadius*(r: Rect): float =
-  ## (a surface's corners: a capsule for a button, a card's rounding for what is bigger)
+  ## (a surface's corners: a capsule for a button, a card's rounding for what is bigger; Matte's
+  ## all but square, Gloss's a rounded rectangle)
+  if matteLook(): return min(float(min(r.w, r.h)) / 2, float(dp(3)))
+  if glossLook(): return min(float(min(r.w, r.h)) / 2, float(dp(6)))
   min(float(min(r.w, r.h)) / 2, float(dp(12)))
+
+const white = color(255, 255, 255)
+const black = color(0, 0, 0)
+
+proc glossShine(f: Rect; rad: float; base: Color; dark: bool) =
+  ## (Gloss: a face in `base` with its shine -- its top half lighter, a hard edge at its middle,
+  ## the light falling off down its top half; its foot a little darker)
+  roundRectShaded(f, rad, mixColor(base, white, if dark: 0.08 else: 0.25),
+                  mixColor(base, black, if dark: 0.16 else: 0.10))
+  let hh = f.h div 2
+  if hh >= 2:
+    pushClip(rect(f.x, f.y, f.w, hh))
+    roundRectShaded(f, rad, mixColor(base, white, if dark: 0.26 else: 0.9),
+                    mixColor(base, white, if dark: 0.10 else: 0.42))
+    popClip()
 
 proc glassFace*(r: Rect; pressed = false; hot = false; radius = -1.0; ring = Color(); shadow = true) =
   ## A surface of frosted glass in `r` (the Glass look): a soft shadow under it, a hairline round
@@ -192,6 +210,29 @@ proc glassFace*(r: Rect; pressed = false; hot = false; radius = -1.0; ring = Col
   if r.w <= 0 or r.h <= 0: return
   let rad = if radius < 0: glassRadius(r) else: radius
   let dark = onDark()
+  if matteLook():
+    # (flat: a thin line round one color; under the pointer a little darker, pressed the
+    # highlight's tint)
+    roundRect(r, rad, if ring.a != 0: ring else: mixColor(th.face, th.text, if dark: 0.30 else: 0.22))
+    let f = inset(r, 1)
+    if f.w > 0 and f.h > 0:
+      roundRect(f, max(0.0, rad - 1), if pressed: mixColor(th.face, accentColor(), 0.32)
+                                      elif hot: mixColor(th.face, th.text, if dark: 0.10 else: 0.05)
+                                      else: th.face)
+    return
+  if glossLook():
+    # (a shine on its top half, a deep outline, on a light window a white line under it: pressed
+    # in, it reads as cut into the window)
+    if shadow and not dark and r.h >= 8:
+      roundRect(rect(r.x, r.y + 1, r.w, r.h), rad, withAlpha(white, 170))
+    roundRect(r, rad, if ring.a != 0: ring else: mixColor(th.face, black, if dark: 0.6 else: 0.46))
+    let f = inset(r, 1)
+    if f.w > 0 and f.h > 0:
+      let base = if pressed: mixColor(th.face, th.shadow, 0.45)
+                 elif hot: mixColor(th.face, th.light, 0.35)
+                 else: th.face
+      glossShine(f, max(0.0, rad - 1), base, dark)
+    return
   if shadow and not pressed and r.h >= 8:
     # (a soft shadow: wide and faint, then close and a little darker)
     roundRect(rect(r.x - 1, r.y + 1, r.w + 2, r.h + 2), rad + 1, withAlpha(color(0, 0, 0), if dark: 60 else: 12))
@@ -221,6 +262,16 @@ proc glassWell*(r: Rect; radius = -1.0; back = th.field) =
   ## hairline round it, a soft shadow inside along its top.
   if r.w <= 0 or r.h <= 0: return
   let rad = if radius < 0: glassRadius(r) else: radius
+  if matteLook():
+    roundRect(r, rad, mixColor(back, th.text, if onDark(): 0.34 else: 0.3))
+    roundRect(inset(r, 1), max(0.0, rad - 1), back)
+    return
+  if glossLook():
+    # (cut into the window: a deep line round it, its inside shaded along its top)
+    roundRect(r, rad, mixColor(back, black, if onDark(): 0.5 else: 0.42))
+    let f = inset(r, 1)
+    roundRectShaded(f, max(0.0, rad - 1), mixColor(back, black, if onDark(): 0.25 else: 0.16), back)
+    return
   roundRect(r, rad, glassHair())
   let f = inset(r, 1)
   roundRect(f, max(0.0, rad - 1), back)
@@ -233,22 +284,200 @@ proc glassAccent*(r: Rect; radius = -1.0) =
   if r.w <= 0 or r.h <= 0: return
   let rad = if radius < 0: glassRadius(r) else: radius
   let a = accentColor()
+  if matteLook():
+    roundRect(r, rad, a)
+    return
+  if glossLook():
+    roundRect(r, rad, mixColor(a, black, 0.42))
+    let f = inset(r, 1)
+    if f.w > 0 and f.h > 0: glossShine(f, max(0.0, rad - 1), a, onDark())
+    return
   roundRect(r, rad, mixColor(a, color(0, 0, 0), 0.2))
   let f = inset(r, 1)
   roundRectShaded(f, max(0.0, rad - 1), mixColor(a, color(255, 255, 255), 0.22), mixColor(a, color(0, 0, 0), 0.06))
   let cut = int(max(0.0, rad - 1) * 0.7)
   if f.w > 2 * cut + 2: hline(f.x + cut, f.y, f.w - 2 * cut, withAlpha(color(255, 255, 255), 70))
 
+proc tintedFace*(r: Rect; base: Color; pressed = false; radius = -1.0) =
+  ## A button's face in a color of its own (`base`: a destructive one's red, a bar's buttons), as
+  ## the look draws one: 3.1's raised edges round it; Glass lit from above; Matte flat; Gloss
+  ## with its shine. Pressed: darker.
+  if r.w <= 0 or r.h <= 0: return
+  let b = if pressed: mixColor(base, black, 0.22) else: base
+  if not glassLook():
+    box(r, th.frame)
+    let f = inset(r, 1)
+    fill(f, b)
+    if pressed:
+      hline(f.x, f.y, f.w, mixColor(b, black, 0.4))
+      vline(f.x, f.y, f.h, mixColor(b, black, 0.4))
+    else:
+      hline(f.x, f.y, f.w, mixColor(b, white, 0.45))
+      vline(f.x, f.y, f.h, mixColor(b, white, 0.45))
+      hline(f.x, f.y + f.h - 1, f.w, mixColor(b, black, 0.4))
+      vline(f.x + f.w - 1, f.y, f.h, mixColor(b, black, 0.4))
+    return
+  let rad = if radius < 0: glassRadius(r) else: radius
+  if matteLook():
+    roundRect(r, rad, b)
+    return
+  if glossLook():
+    # (the gentler shine: white on it reads)
+    roundRect(r, rad, mixColor(b, black, 0.45))
+    let f = inset(r, 1)
+    if f.w > 0 and f.h > 0: glossShine(f, max(0.0, rad - 1), b, true)
+    return
+  roundRect(r, rad, mixColor(b, black, 0.2))
+  let f = inset(r, 1)
+  roundRectShaded(f, max(0.0, rad - 1), mixColor(b, white, 0.22), mixColor(b, black, 0.06))
+
+# ---- Gloss's parts as phones drew them then: bars, bar buttons, the blue of a chosen row ---------
+
+proc glossBarColors*(): tuple[top, foot: Color] =
+  ## Gloss: a navigation bar's, a search bar's, a title bar's gradient -- steel blue on a light
+  ## window, black on a dark one.
+  if onDark(): (color(80, 82, 88), color(12, 12, 14))
+  else: (color(176, 188, 205), color(109, 132, 162))
+
+proc glossBarFill*(r: Rect) =
+  ## Gloss: a bar's face in `r`: its gradient, a light line along its top, a dark one along its
+  ## foot.
+  if r.w <= 0 or r.h <= 0: return
+  let (top, foot) = glossBarColors()
+  roundRectShaded(r, 0, top, foot)
+  hline(r.x, r.y, r.w, withAlpha(white, if onDark(): 46 else: 140))
+  hline(r.x, r.y + r.h - 1, r.w, if onDark(): black else: color(45, 54, 66))
+
+proc glossBlue*(r: Rect; radius = 0.0) =
+  ## Gloss: the blue of a chosen row, a pressed button, a chosen segment -- lighter at its top.
+  if r.w > 0 and r.h > 0: roundRectShaded(r, radius, color(5, 140, 245), color(1, 94, 230))
+
+proc arrowPoints(r: Rect; point, radius, inset: float): seq[(float, float)] =
+  ## (a button's outline with its left end a point and its right corners rounded, `inset` in)
+  let x0 = float(r.x) + inset * 1.4
+  let y0 = float(r.y) + inset
+  let x1 = float(r.x + r.w) - inset
+  let y1 = float(r.y + r.h) - inset
+  let rr = max(0.0, radius - inset)
+  result.add (x0, (y0 + y1) / 2)
+  result.add (float(r.x) + point, y0)
+  for k in 0 .. 5:
+    let a = -PI / 2 + PI / 2 * float(k) / 5
+    result.add (x1 - rr + rr * cos(a), y0 + rr + rr * sin(a))
+  for k in 0 .. 5:
+    let a = PI / 2 * float(k) / 5
+    result.add (x1 - rr + rr * cos(a), y1 - rr + rr * sin(a))
+  result.add (float(r.x) + point, y1)
+
+proc glossBarButton*(r: Rect; pressed: bool; back = false; done = false) =
+  ## Gloss: a bar's bordered button -- darker than the bar, a dark line round it, lit along its
+  ## top inside; `back`: its left end a point (a navigation bar's Back); `done`: blue (Done,
+  ## Save). Its label goes on it white, bold.
+  if r.w <= 0 or r.h <= 0: return
+  let (top, foot) = if done: (color(72, 136, 232), color(24, 80, 196))
+                    elif onDark(): (color(76, 78, 84), color(22, 22, 24))
+                    else: (color(132, 152, 180), color(76, 101, 137))
+  let t = if pressed: mixColor(top, black, 0.28) else: top
+  let f = if pressed: mixColor(foot, black, 0.22) else: foot
+  let edge = if onDark(): black elif done: color(20, 56, 140) else: color(46, 60, 84)
+  let rad = float(min(dp(5), r.h div 2))
+  if back:
+    let p = float(min(r.h div 2, dp(13)))
+    polygon(arrowPoints(r, p, rad, 0), edge)
+    polygonShaded(arrowPoints(r, p, rad, 1), t, f)
+    hline(r.x + int(p), r.y + 1, r.w - int(p) - int(rad), withAlpha(white, if pressed: 20 else: 60))
+  else:
+    roundRect(r, rad, edge)
+    roundRectShaded(inset(r, 1), max(0.0, rad - 1), t, f)
+    hline(r.x + int(rad), r.y + 1, r.w - 2 * int(rad), withAlpha(white, if pressed: 20 else: 60))
+  # (a light line under it, as pressed into the bar)
+  hline(r.x + int(rad), r.y + r.h, r.w - 2 * int(rad), withAlpha(white, if onDark(): 20 else: 70))
+
+proc beyond(a, b: Color): Color =
+  ## (the color as far past `b` as `b` is from `a`: a gradient's end whose middle is `b`)
+  template ch(x, y: uint8): uint8 = uint8(clamp(2 * int(y) - int(x), 0, 255))
+  Color(r: ch(a.r, b.r), g: ch(a.g, b.g), b: ch(a.b, b.b), a: b.a)
+
+proc glossTwoTone*(f: Rect; rad: float; top, mid, low, foot: Color) =
+  ## Gloss: a face lit as glass was then -- its top half from `top` to `mid`, a hard edge at its
+  ## middle, its lower half from `low` to `foot`.
+  if f.w <= 0 or f.h <= 0: return
+  roundRectShaded(f, rad, beyond(foot, low), foot)
+  let hh = f.h div 2
+  if hh >= 1:
+    pushClip(rect(f.x, f.y, f.w, hh))
+    roundRectShaded(f, rad, top, beyond(top, mid))
+    popClip()
+
+proc glossButtonFace*(r: Rect; pressed: bool; primary = false; hot = false) =
+  ## Gloss on a light window: a push button as phones drew them then -- light gray lit from
+  ## above with a gray line round it (`primary`, the default one: blue), blue while it is
+  ## pressed; a white line under it, as cut into the window.
+  if r.w <= 0 or r.h <= 0: return
+  let rad = float(min(dp(7), r.h div 2))
+  if r.h >= 8: roundRect(rect(r.x, r.y + 1, r.w, r.h), rad, withAlpha(white, 150))
+  let f = inset(r, 1)
+  if pressed or primary:
+    roundRect(r, rad, color(22, 56, 132))
+    if pressed: glossTwoTone(f, max(0.0, rad - 1), color(72, 124, 222), color(36, 92, 204),
+                             color(22, 76, 190), color(18, 66, 176))
+    else: glossTwoTone(f, max(0.0, rad - 1), color(116, 166, 244), color(70, 128, 232),
+                       color(44, 102, 220), color(34, 88, 206))
+  else:
+    roundRect(r, rad, color(146, 148, 154))
+    if hot: glossTwoTone(f, max(0.0, rad - 1), white, color(248, 248, 250), color(236, 236, 240),
+                         color(222, 222, 226))
+    else: glossTwoTone(f, max(0.0, rad - 1), white, color(242, 242, 244), color(229, 229, 233),
+                       color(212, 212, 218))
+
+proc glossText*(x, y: int; s: string; c: Color; bold = true; shadowDown = false) =
+  ## Gloss: text pressed into its face, as it was written then: a dark line above white text
+  ## (on a bar, a blue button), a white one under dark text (`shadowDown`: on a light face).
+  if shadowDown: text(x, y + 1, s, withAlpha(white, 190), bold)
+  else: text(x, y - 1, s, withAlpha(black, 95), bold)
+  text(x, y, s, c, bold)
+
+proc buttonBold*(): bool =
+  ## A push button's label is bold (Gloss's buttons on a light window).
+  glossLook() and not onDark() and lumaOfColor(th.face) >= 160
+
+proc buttonInk*(pressed: bool; enabled = true; primary = false): Color =
+  ## The color of a push button's label as the look writes it: the scheme's text; Gloss on a
+  ## light window, white on the blue of the default button (`primary`) and of one pressed.
+  if not enabled: th.gray
+  elif buttonBold() and (pressed or primary): white
+  else: th.text
+
+proc buttonLabel*(x, y: int; label: string; ink: Color; bold: bool) =
+  ## (a push button's label with its mnemonic: Gloss's pressed into its face -- a white line
+  ## under dark text, a dark one over white text)
+  if buttonBold():
+    if lumaOfColor(ink) >= 160: drawLabel(x, y - 1, label, withAlpha(black, 100), bold)
+    else: drawLabel(x, y + 1, label, withAlpha(white, 200), bold)
+  drawLabel(x, y, label, ink, bold)
+
 proc glassTrack*(r: Rect) =
   ## Glass: the track a segmented choice sits in -- a page's tabs, `segmented`: a capsule a
   ## little darker than the window (lighter on a dark one).
   if r.w > 0 and r.h > 0:
+    if matteLook():
+      roundRect(r, float(dp(3)), mixColor(th.face, th.text, if onDark(): 0.30 else: 0.22))
+      roundRect(inset(r, 1), float(dp(2)), th.face)
+      return
+    if glossLook():
+      glassFace(r, radius = float(min(dp(6), r.h div 2)))
+      return
     roundRect(r, float(r.h) / 2, mixColor(th.window, th.text, if onDark(): 0.12 else: 0.07))
 
 proc softShadow*(r: Rect; radius: float; depth = 4) =
   ## Glass: the soft shadow of a surface floating over the window -- a menu, a dropped list, a
-  ## dialog -- under `r`, `depth` pixels wide; drawn before the surface.
+  ## dialog -- under `r`, `depth` pixels wide; drawn before the surface. (Matte: a faint one
+  ## pixel; Gloss: deeper.)
   let dark = onDark()
+  if matteLook():
+    roundFrame(rect(r.x - 1, r.y, r.w + 2, r.h + 2), radius + 1, 2, withAlpha(black, if dark: 70 else: 26))
+    return
+  let depth = if glossLook(): depth + 2 else: depth
   for k in 0 ..< depth:
     let g = k + 1
     # (a band round each, as wide as it shows past the surface: the surface covers the rest, and
@@ -256,7 +485,7 @@ proc softShadow*(r: Rect; radius: float; depth = 4) =
     roundFrame(rect(r.x - g + 1, r.y - g + 3, r.w + 2 * g - 2, r.h + 2 * g - 2), radius + float(g),
                float(g + 3), withAlpha(color(0, 0, 0), max(2, (if dark: 34 else: 12) - (if dark: 5 else: 2) * k)))
 
-proc frosted*(): bool {.inline.} = glassLook() and frostedGlass
+proc frosted*(): bool {.inline.} = uiLook == lookGlass and glassLook() and frostedGlass
   ## Menus, dialogs and dropped lists drawn as frosted glass now (`frostedGlass`, in the Glass
   ## look).
 
@@ -274,6 +503,14 @@ proc frostedFace*(r: Rect; back: Color; corner = 0.0): bool {.discardable.} =
 proc selectFill*(r: Rect) =
   ## The highlight behind a chosen row -- a menu's item, a list's, an open menu's title: the
   ## scheme's highlight color (Glass: a rounded pill of it, a little in from the row's ends).
+  if matteLook():
+    fill(r, th.select)
+    return
+  if glossLook():
+    # (the blue of a chosen row, lighter at its top)
+    if onDark(): roundRectShaded(r, 0, mixColor(th.select, white, 0.28), mixColor(th.select, black, 0.12))
+    else: glossBlue(r)
+    return
   if glassLook():
     let p = rect(r.x + dp(3), r.y + 1, r.w - 2 * dp(3), r.h - 2)
     if p.w > 0 and p.h > 0: roundRect(p, float(min(dp(6), p.h div 2)), th.select)
@@ -296,13 +533,21 @@ proc raisedFace*(f: Rect; bevel = 2) =
   vline(f.x + f.w - 1, f.y, f.h, th.shadow)
 
 proc buttonFace*(r: Rect; pressed: bool; t = 1; rounded = true; bevel = 2;
-                 hot = false) =
+                 hot = false; primary = false) =
   ## A push button's face: a black border, the gray face with its raised
   ## edge (`bevel` 2: two highlight lines, 1: one), or sunk in while
   ## `pressed`. `t` 2 adds the ring of the default button around it (one
   ## pixel apart, as the Win31 desktop draws it). `hot`: the mouse is over
   ## it (a little lighter). (`rounded` is kept for compatibility.) In the Glass look: a capsule
-  ## of frosted glass (`glassFace`), the default button's ring in the highlight.
+  ## of frosted glass (`glassFace`), the default button's ring in the highlight. Gloss on a light
+  ## window: the button of its time (`glossButtonFace`) -- light gray, the default one
+  ## (`primary`) blue, blue while pressed (its label in `buttonInk`); `t` 2 a glow round it.
+  if buttonBold():
+    glossButtonFace(r, pressed, primary, hot)
+    if t >= 2 and not primary and not pressed:
+      # (the keys on it: a line of the highlight inside its edge)
+      roundFrame(inset(r, 1), float(max(0, min(dp(7), r.h div 2) - 1)), 2, withAlpha(accentColor(), 150))
+    return
   if glassLook():
     if t >= 2 and r.w > 6 and r.h > 6:
       glassFace(inset(r, 1), pressed, hot, ring = withAlpha(accentColor(), 200))
@@ -343,8 +588,35 @@ proc fieldFace*(r: Rect; back: Color; enabled = true; focused = false) =
     fieldFrame(r, enabled)
     return
   if r.w <= 0 or r.h <= 0: return
-  let rad = float(min(dp(6), r.h div 2))
   let dark = onDark()
+  if matteLook():
+    # (a box: a thin line round it, two of the highlight while it has the keyboard)
+    let rad = float(dp(2))
+    if focused and enabled:
+      roundRect(r, rad, accentColor())
+      roundRect(inset(r, 2), max(0.0, rad - 2), back)
+    else:
+      roundRect(r, rad, if enabled: mixColor(th.field, th.fieldText, if dark: 0.34 else: 0.3)
+                        else: mixColor(th.field, th.gray, 0.4))
+      roundRect(inset(r, 1), max(0.0, rad - 1), back)
+    return
+  if glossLook():
+    # (rounded, cut in: shaded inside along its top; a glow of the highlight while it has the
+    # keyboard)
+    let rad = float(min(dp(6), r.h div 2))
+    if focused and enabled:
+      let a = accentColor()
+      roundFrame(inset(r, -3), rad + 3, 2, withAlpha(a, 60))
+      roundFrame(inset(r, -1), rad + 1, 1, withAlpha(a, 200))
+    roundRect(r, rad, if enabled: mixColor(back, black, if dark: 0.5 else: 0.40) else: mixColor(th.field, th.gray, 0.4))
+    let f = inset(r, 1)
+    roundRect(f, max(0.0, rad - 1), back)
+    let cut = int(rad * 0.6)
+    if f.w > 2 * cut + 2:
+      hline(f.x + cut, f.y, f.w - 2 * cut, withAlpha(black, if dark: 80 else: 40))
+      hline(f.x + cut div 2, f.y + 1, f.w - cut, withAlpha(black, if dark: 40 else: 16))
+    return
+  let rad = float(min(dp(6), r.h div 2))
   if focused and enabled:
     # (the ring: two hairlines round it, the outer fainter -- outlines, not fills under it)
     let a = accentColor()
@@ -376,16 +648,47 @@ proc etchedLine*(x, y, w: int) =
   hline(x, y, w, th.line)
   hline(x, y + 1, w, th.light)
 
+proc glossBar*(): Color =
+  ## Gloss: the color of a title bar, a navigation bar, a tool bar -- the middle of its gradient
+  ## (`glossBarColors`): steel blue, near black on a dark window.
+  let (top, foot) = glossBarColors()
+  mixColor(top, foot, 0.5)
+
 proc titleColors*(active: bool): tuple[bg, fg: Color] =
   ## A title bar's colors: navy for the window in front, white for the
   ## others (`Theme.inactiveTitle`). (Glass: the window's face with its text, the others
   ## fainter: a bar of glass, not a band of color.)
+  if glossLook():
+    return if active: (glossBar(), white) else: (mixColor(glossBar(), th.window, 0.55), mixColor(white, th.window, 0.3))
   if glassLook():
     return if active: (mixColor(th.window, th.face, 0.6), th.text)
            else: (th.window, mixColor(th.window, th.text, 0.55))
   if active: (th.select, th.selectText)
   else: ((if th.inactiveTitle.a != 0: th.inactiveTitle else: th.window),
          (if th.inactiveTitleText.a != 0: th.inactiveTitleText else: th.text))
+
+proc titleBar*(r: Rect; active: bool) =
+  ## A title bar's band in `r`, as the look draws it: one color (`titleColors`); Matte's with a
+  ## line of the highlight under it; Gloss's a glossy bar of `glossBar`.
+  let bg = titleColors(active).bg
+  if glossLook():
+    if active: glossBarFill(r)
+    elif r.w > 0 and r.h > 0: roundRectShaded(r, 0, mixColor(bg, white, 0.3), bg)
+    return
+  fill(r, bg)
+  if matteLook() and active and r.h > dp(6):
+    fill(rect(r.x, r.y + r.h - dp(2), r.w, dp(2)), accentColor())
+
+proc barFace*(r: Rect) =
+  ## A tool bar's or a status bar's face in `r`: the scheme's face color; Gloss's lit from
+  ## above, lighter at its top.
+  if r.w <= 0 or r.h <= 0: return
+  if glossLook():
+    let dark = onDark()
+    roundRectShaded(r, 0, mixColor(th.face, white, if dark: 0.08 else: 0.55),
+                    mixColor(th.face, black, if dark: 0.22 else: 0.07))
+  else:
+    fill(r, th.face)
 
 proc windowFrame*(r: Rect; border = 5) =
   ## A window's frame, `border` pixels wide: a black line, the gray band
@@ -608,7 +911,7 @@ proc checkBox*(b: Rect; checked, down, enabled: bool) =
   ## The square of a check box (pixel exact at 100%, drawn smooth when
   ## scaled). (Glass: rounded; ticked, the highlight with a white check mark.)
   if glassLook():
-    let rad = max(2.0, float(b.w) / 4)
+    let rad = if matteLook(): float(max(1, dp(2))) else: max(2.0, float(b.w) / 4)
     if checked and enabled:
       glassAccent(b, rad)
       let ink = accentInk()
@@ -647,6 +950,15 @@ proc checkBox*(b: Rect; checked, down, enabled: bool) =
 proc radioDisc*(x, y, d: int; selected, down, enabled: bool) =
   ## The circle of a radio button, `d` pixels across, top-left at `x`, `y`. (Glass: chosen, the
   ## highlight with a white dot.)
+  if matteLook():
+    # (a ring; chosen, the highlight's dot in it)
+    let r = d / 2
+    let (cx, cy) = (float(x) + r, float(y) + r)
+    disc(cx, cy, r, if selected and enabled: accentColor()
+                    else: mixColor(th.field, th.fieldText, if onDark(): 0.4 else: 0.32))
+    disc(cx, cy, r - max(1.0, d / 10), if down: mixColor(th.field, th.select, 0.15) else: th.field)
+    if selected: disc(cx, cy, d / 4, if enabled: accentColor() else: th.gray)
+    return
   if glassLook():
     let r = rect(x, y, d, d)
     if selected and enabled:
@@ -1000,7 +1312,7 @@ proc canvas*(w, h: int): Rect =
 
 proc buttonWidth*(label: string): int =
   ## How wide `button(label)` is.
-  max(dp(72), labelWidth(label) + dp(24))
+  max(dp(72), labelWidth(label, buttonBold()) + dp(24))
 
 template dressed(accent: bool; st: TextStyle; body: untyped) =
   ## (`body` in the accent's colours and in the text style `st`)
@@ -1030,13 +1342,15 @@ proc pushButton(label: string; isDefault, enabled: bool; w, h, uiFontH: int): bo
       hit.clicked = true
     if mnemonicHit(label): hit.clicked = true
   let thick = enabled and (hit.focused or (isDefault and not ui.prevTakesEnter))
-  buttonFace(r, hit.down, if thick: 2 else: 1, hot = enabled and hovered(r))
-  let tw = labelWidth(label)
-  let d = if hit.down: 1 else: 0
+  let primary = enabled and isDefault
+  buttonFace(r, hit.down, if thick: 2 else: 1, hot = enabled and hovered(r), primary = primary)
+  let bold = buttonBold()
+  let tw = labelWidth(label, bold)
+  let d = if hit.down and not bold: 1 else: 0
   let tx = r.x + (r.w - tw) div 2 + d
   let ty = r.y + (r.h - FontH) div 2 + d
-  if not enabled: drawLabel(tx + 1, ty + 1, label, th.light)   # embossed, as 3.1 grays text
-  drawLabel(tx, ty, label, if enabled: th.text else: th.gray)
+  if not enabled and not bold: drawLabel(tx + 1, ty + 1, label, th.light, bold)   # embossed, as 3.1 grays text
+  buttonLabel(tx, ty, label, buttonInk(hit.down, enabled, primary), bold)
   if hit.focused: focusDots(rect(tx - 2, ty - 1, tw + 4, FontH + 2))
   if accessOn:
     accessNode(arButton, label, id = id, r = r,
@@ -1063,11 +1377,15 @@ proc buttonAt*(key: string; r: Rect; label: string; st = TextStyle(); enabled = 
                states = (if down: {asPressed} else: {}) + offWhen(enabled))
   let pressed = down or hit.down
   buttonFace(r, pressed, 1, hot = enabled and hit.hover)
-  let d = if pressed: 1 else: 0
+  let d = if pressed and not buttonBold(): 1 else: 0
   let tx = r.x + (r.w - textWidth(label, st)) div 2 + d
   let ty = r.y + (r.h - lineHeight(st)) div 2 + d
-  if not enabled: text(tx + 1, ty + 1, label, th.light, st)
-  text(tx, ty, label, if enabled: th.text else: th.gray, st)
+  let ink = buttonInk(pressed, enabled)
+  if not enabled and not buttonBold(): text(tx + 1, ty + 1, label, th.light, st)
+  elif buttonBold():
+    if lumaOfColor(ink) >= 160: text(tx, ty - 1, label, withAlpha(black, 100), st)
+    else: text(tx, ty + 1, label, withAlpha(white, 200), st)
+  text(tx, ty, label, ink, st)
   hit.clicked
 
 proc checkbox*(label: string; v: var bool; enabled = true): bool {.discardable.} =
@@ -2559,7 +2877,45 @@ proc slider*(v: var int; lo, hi: int; w = 0; ticks = 10;
     accessRange(k, lo.float, hi.float, v.float, 1.0)
   let cx = chan.x + (clamp(v, lo, hi) - lo) * travel div span
   let thumb = rect(cx - tw div 2, r.y, tw, tht)
-  if glassLook():
+  if glossLook():
+    # (as phones had it then: a track cut in, blue up to a round white knob, light after it)
+    let dark = onDark()
+    let tk = if fingers(): dp(9) else: dp(7)
+    let tr = rect(chan.x - tk div 2, r.y + tht div 2 - tk div 2, chan.w + tk, tk)
+    let trad = float(tk) / 2
+    roundRect(tr, trad, if dark: black else: color(110, 112, 118))
+    let ti = inset(tr, 1)
+    pushClip(rect(tr.x, tr.y, max(0, cx - tr.x), tr.h))
+    if enabled: roundRectShaded(ti, trad - 1, color(18, 84, 200), color(96, 164, 244))
+    else: roundRectShaded(ti, trad - 1, color(150, 150, 150), color(200, 200, 200))
+    popClip()
+    pushClip(rect(cx, tr.y, max(0, tr.x + tr.w - cx), tr.h))
+    if dark: roundRectShaded(ti, trad - 1, color(30, 30, 34), color(70, 72, 78))
+    else: roundRectShaded(ti, trad - 1, color(190, 190, 192), color(250, 250, 250))
+    popClip()
+    let kd = if fingers(): dp(25) else: dp(17)
+    let kcx = float(cx)
+    let kcy = float(r.y + tht div 2)
+    disc(kcx, kcy + 1, float(kd) / 2, withAlpha(black, 60))
+    disc(kcx, kcy, float(kd) / 2, if dark: black else: color(148, 148, 150))
+    if hit.down: discShaded(kcx, kcy, float(kd) / 2 - 1, color(214, 214, 216), color(240, 240, 242))
+    else: discShaded(kcx, kcy, float(kd) / 2 - 1, white, color(220, 220, 222))
+  elif matteLook():
+    # (a thin line, the highlight up to a round knob: a ring round a light middle, the
+    # highlight's dot in it while it is held)
+    let dark = onDark()
+    let tk = max(2, dp(3))
+    let ty = r.y + tht div 2 - tk div 2
+    fill(rect(chan.x, ty, chan.w, tk), mixColor(th.window, th.text, if dark: 0.3 else: 0.2))
+    if enabled and cx > chan.x: fill(rect(chan.x, ty, cx - chan.x, tk), accentColor())
+    let kd = if fingers(): dp(26) else: dp(18)
+    let kcx = float(cx)
+    let kcy = float(r.y + tht div 2)
+    disc(kcx, kcy, float(kd) / 2, mixColor(th.face, th.text, if dark: 0.4 else: 0.3))
+    disc(kcx, kcy, float(kd) / 2 - float(max(2, dp(2))), if dark: mixColor(th.face, white, 0.2) else: th.light)
+    disc(kcx, kcy, float(kd) / 5, if hit.down or hit.focused: accentColor()
+                                 else: mixColor(th.face, th.text, 0.2))
+  elif glassLook():
     # (a slim track, filled in the highlight up to a round knob of glass)
     let tr = rect(chan.x, chan.y, chan.w, chan.h)
     glassWell(tr, float(tr.h) / 2, mixColor(th.window, th.text, 0.12))
@@ -2587,12 +2943,43 @@ proc progress*(value: float; w = 0; showText = true) =
   if accessOn:
     let k = accessNode(arProgressBar, value = $int(f * 100.0 + 0.5) & "%", id = 0, r = r)
     accessRange(k, 0, 100, f * 100.0, 1.0)
+  if glossLook():
+    # (Gloss: the thin bar of its time -- a gray track cut in, the blue part lit from above --,
+    # the percentage after it)
+    var tw = 0
+    if showText:
+      numBuf.setLen(0)
+      numBuf.addInt int(f * 100.0 + 0.5)
+      numBuf.add '%'
+      tw = textWidth("100%") + dp(8)
+    let bh = max(dp(9), 7)
+    let track = rect(r.x, r.y + (r.h - bh) div 2, max(bh, r.w - tw), bh)
+    let rad = float(bh) / 2
+    let dark = onDark()
+    roundRect(track, rad, if dark: black else: color(132, 136, 144))
+    roundRectShaded(inset(track, 1), rad - 1, if dark: color(30, 30, 34) else: color(196, 198, 204),
+                    if dark: color(70, 70, 76) else: color(248, 248, 250))
+    let fw = int(float(track.w) * f + 0.5)
+    if fw > 0:
+      let bar = rect(track.x, track.y, max(bh, fw), bh)
+      roundRect(bar, rad, color(20, 66, 160))
+      glossTwoTone(inset(bar, 1), rad - 1, color(120, 176, 250), color(66, 134, 236),
+                   color(40, 106, 224), color(30, 88, 206))
+    if showText:
+      text(track.x + track.w + dp(8), r.y + (r.h - FontH) div 2, numBuf,
+           if dark: th.text else: color(76, 86, 108))
+    return
   let inner = inset(r, 1)
   let done = rect(inner.x, inner.y, int(inner.w.float * f + 0.5), inner.h)
   if glassLook():
     # (a rounded well, filled in the highlight, lit from above)
-    glassWell(r, float(r.h) / 2)
-    if done.w > 0: glassAccent(rect(r.x, r.y, max(r.h, done.w + 1), r.h), float(r.h) / 2)
+    glassWell(r, glassRadius(r))
+    if done.w > 0:
+      let bar = rect(r.x, r.y, max(r.h, done.w + 1), r.h)
+      if glossLook():
+        # (Gloss: the blue bar of its time, its top half shining)
+        tintedFace(bar, color(32, 116, 230), radius = glassRadius(r))
+      else: glassAccent(bar, glassRadius(r))
   else:
     fill(inner, th.field)
     fill(done, th.select)
@@ -2609,6 +2996,9 @@ proc progress*(value: float; w = 0; showText = true) =
     text(tx, ty, s, th.select)
     popClip()
     pushClip(done)
+    if glossLook():
+      # (Gloss: on the striped bar, the label pressed in: a darker line under it)
+      text(tx, ty - 1, s, withAlpha(black, 110))
     text(tx, ty, s, th.selectText)
     popClip()
 
@@ -3055,8 +3445,10 @@ proc paletteTabFace*(r: Rect; front, hover: bool): Color =
     vline(r.x, r.y + 1, r.h - 2, th.frame)
     vline(r.x + r.w - 1, r.y + 1, r.h - 2, th.frame)
     # (the light color a candidate too: in Gray the window's color is the
-    # panel's gray, and labels were gray on dark gray -- hard to read)
-    contrastInk(back, contrastInk(back, th.window, th.light), th.gray)
+    # panel's gray, and labels were gray on dark gray -- hard to read; and the text's
+    # color when none of them stands out: Matte Light's light gray, white on it)
+    let ink = contrastInk(back, contrastInk(back, th.window, th.light), th.gray)
+    if abs(lumaOfColor(ink) - lumaOfColor(back)) < 70: contrastInk(back, ink, th.text) else: ink
 
 proc plainLabel(l: string): string =
   ## A label shown plain: "&&" an "&", a lone "&" left out (in one pass what
@@ -3632,6 +4024,22 @@ template scrollPanel*(height: int; body: untyped) =
 
 var panelStack: seq[tuple[id: Id; inner: Rect; top, reveal: int; glide: bool]]
 
+proc overlayBars*(): bool =
+  ## A page's scroll bar is a thin line over its content, taking no room, as phones show it:
+  ## the newer looks on a touch screen (the finger moves the page).
+  glassLook() and ui.touch
+
+proc scrollLine*(r: Rect; y, maxY: int) =
+  ## The thin scroll bar of `overlayBars`: a rounded line along the right of `r`, as long as the
+  ## part of the content in view, where it is.
+  if maxY <= 0 or r.h <= 0: return
+  let total = r.h + maxY
+  let len = max(dp(24), r.h * r.h div total)
+  let top = r.y + dp(2) + (r.h - dp(4) - len) * y div maxY
+  let w = max(2, dp(3))
+  roundRect(rect(r.x + r.w - w - dp(2), top, w, len), float(w) / 2,
+            if onDark(): withAlpha(white, 110) else: withAlpha(black, 100))
+
 proc beginPanel*(height = -1; key = ""; plain = false) =
   ## Starts a `panel`: a framed white area (as a list's) whose content sits
   ## `Pad` in from every side and scrolls when it is taller, with a scroll
@@ -3652,7 +4060,7 @@ proc beginPanel*(height = -1; key = ""; plain = false) =
   ui.focusRect = rect(0, 0, 0, 0)
   panelStack.add (id, inner, inner.y + Pad - y, -1, true)
   pushFrame(rect(inner.x + Pad, inner.y + Pad - y,
-                 inner.w - 2 * Pad - (if over: SbW else: 0), inner.h - 2 * Pad))
+                 inner.w - 2 * Pad - (if over and not overlayBars(): SbW else: 0), inner.h - 2 * Pad))
 
 proc endPanel*() =
   ## Ends a `beginPanel`.
@@ -3678,8 +4086,10 @@ proc endPanel*() =
       if f.y < inner.y: y = clamp(y - (inner.y + Pad - f.y), 0, maxY)
       elif f.y + f.h > inner.y + inner.h:
         y = clamp(y + (f.y + f.h + Pad - (inner.y + inner.h)), 0, maxY)
-    scrollBarFor(id + 9, id, rect(inner.x + inner.w - SbW, inner.y, SbW, inner.h), true,
-                 y, maxY, max(ItemH, inner.h - ItemH), ItemH)
+    if overlayBars(): scrollLine(inner, y, maxY)
+    else:
+      scrollBarFor(id + 9, id, rect(inner.x + inner.w - SbW, inner.y, SbW, inner.h), true,
+                   y, maxY, max(ItemH, inner.h - ItemH), ItemH)
   let over = ord(maxY > 0)
   if y != st.scrollY or over != st.aux:
     st.scrollY = y
@@ -4649,7 +5059,7 @@ proc beginToolbar*() =
   tbar.h = ToolH
   let r = rect(ui.winX, ui.barY, ui.w, tbar.h)
   notePlaced(r)
-  fill(r, th.face)
+  barFace(r)
   hline(ui.winX, r.y, ui.w, th.light)
   hline(ui.winX, r.y + r.h - 1, ui.w, th.shadow)
   pushRow(rect(ui.winX + ui.safe.left + 6, r.y + 3, ui.w - ui.safe.left - 12, tbar.h - 6),
@@ -4984,7 +5394,7 @@ proc statusbar*(parts: varargs[string]) =
   notePlaced(rect(ui.winX, r.y, ui.w, ui.h - r.y))
   pushLayer(LayerBase)
   defer: popLayer()
-  fill(rect(ui.winX, r.y, ui.w, ui.h - r.y), th.face)
+  barFace(rect(ui.winX, r.y, ui.w, ui.h - r.y))
   hline(ui.winX, r.y, ui.w, th.shadow)
   hline(ui.winX, r.y + 1, ui.w, th.light)
   ui.bottom = r.y
@@ -5065,7 +5475,10 @@ proc beginDialog*(open: var bool; title: string; width: int): bool =
   let closeOff = dlgCloseOff
   dlgCloseOff = false
   if not open: return false
-  let id = idOf(open, "dialog")
+  # (known by its title, not by where `open` is: a dialog drawn from a proc's own flag -- the
+  # Color dialog's -- has it on the stack, at an address the same each frame only by luck; under
+  # AddressSanitizer each frame's is another, the dialog never the one on top: no keys, no Tab)
+  let id = idOf("\x1Fdialog\x1F" & title)
   var st = state(id)
   ui.curDialog = id
   ui.dialogTopNow = id
@@ -5125,7 +5538,7 @@ proc beginDialog*(open: var bool; title: string; width: int): bool =
     fill(bar, withAlpha(tbg, if active: 150 else: 90))
   else:
     windowFrame(r)
-    fill(bar, tbg)
+    titleBar(bar, active)
   hline(bar.x, bar.y + bar.h, bar.w, if glass: glassHair() else: th.frame)
   captionButton(sysBox, ui.active == id + 1)
   if not glass: vline(sysBox.x + sysBox.w, sysBox.y, sysBox.h, th.frame)
@@ -5609,7 +6022,7 @@ proc classicCaption() =
   # in front), the line under it, its buttons, the title
   let (tbg, tfg) = titleColors(ui.active31 and windowActive())
   let cap = f.caption
-  fill(cap, tbg)
+  titleBar(cap, ui.active31 and windowActive())
   hline(cap.x, cap.y + cap.h, cap.w, th.frame)
   let cb = f.controlBox
   captionButton(cb, false)
@@ -5705,12 +6118,22 @@ proc captionBar*() =
   if ui.ownFrame:
     if ui.captionH > 0: classicCaption()
     return
-  if ui.captionH == 0: return
+  if ui.captionH == 0:
+    if ui.ownCaption and ui.safe.top > 0 and glassLook():
+      # (the app's own bars: the status bar over it -- black in Gloss, as phones had it then, and
+      # in Matte; Glass's the window's)
+      pushLayer(LayerBase)
+      defer: popLayer()
+      fill(rect(0, 0, ui.w, ui.safe.top), if glossLook() or matteLook(): black
+                                          else: mixColor(th.window, th.face, 0.6))
+    return
   pushLayer(LayerBase)
   defer: popLayer()
   let top = ui.safe.top
   let ch = ui.captionH
-  fill(rect(0, 0, ui.w, top + ch), th.select)
+  # (the newer looks: their title bar's color, Gloss's steel blue lit from above)
+  if glassLook(): titleBar(rect(0, 0, ui.w, top + ch), true)
+  else: fill(rect(0, 0, ui.w, top + ch), th.select)
   let cap = rect(ui.safe.left, top, ui.w - ui.safe.left - ui.safe.right, ch)
   let s = ch - 6
   let boxR = rect(cap.x + 3, cap.y + 3, s, s)
@@ -5760,14 +6183,16 @@ proc captionBar*() =
     let barR = rect(boxR.x + boxR.w + 3, cap.y, right - (boxR.x + boxR.w + 3), ch)
     if canInput() and hover(barR) and takePress(): discard startWindowMove()
   # the title, centered between them (or as `captionAlign` says)
+  let titleInk = if glassLook(): titleColors(true).fg else: th.selectText
   if captionAlign == caLeft or captionIcon or captionStyle != TextStyle():
-    captionTitle(boxR.x + boxR.w + 3, right - 3, cap.y, ch, th.selectText)
+    captionTitle(boxR.x + boxR.w + 3, right - 3, cap.y, ch, titleInk)
   else:
     let room = right - (boxR.x + boxR.w) - 12
     let t = ellipsize(ui.title, room, style(bold = true))
     let tw = textWidth(t, true)
-    text(max(boxR.x + boxR.w + 6, cap.x + (cap.w - tw) div 2),
-         cap.y + (ch - FontH) div 2, t, th.selectText, true)
+    let tx = max(boxR.x + boxR.w + 6, cap.x + (cap.w - tw) div 2)
+    if glossLook(): text(tx, cap.y + (ch - FontH) div 2 - 1, t, withAlpha(black, 110), true)
+    text(tx, cap.y + (ch - FontH) div 2, t, titleInk, true)
   # its menu
   if ui.popup == menuId and inWindow() and beginPopupMenu(menuId, boxR.x, cap.y + ch):
     # (a window besides the app's: its size is the app's)

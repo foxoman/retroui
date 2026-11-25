@@ -857,6 +857,34 @@ administrator, `Import-Certificate -FilePath dev-cert.der
 -CertStoreLocation Cert:\LocalMachine\TrustedPeople`, then open the .msix
 or `Add-AppxPackage app.msix`.
 
+**The release on GitHub signs its Windows programs** when the
+repository's secrets hold a certificate: `WINDOWS_KEY_PEM`,
+`WINDOWS_CERT_PEM` and `WINDOWS_CHAIN_PEM` (the three files above, pasted
+whole), and the variable `WINDOWS_TIMESTAMP` the authority's time server
+(DigiCert's when there is none). Without them its programs are not signed.
+
+### Windows: an antivirus says the program is a virus
+
+Some antivirus programs call a program written in Nim a virus (a
+"backdoor", "Trojan" or a name of a known tool) when it is not: Nim is used
+for malware too, and their rules match how any Nim program is built, not
+what it does. A build from this repository with MinGW or zig, and the
+release's own programs, can be called so. What helps, from the most:
+
+- **Sign it.** A program signed with a code signing certificate (above)
+  is trusted by Windows' SmartScreen and by most antivirus programs; an
+  unsigned one from the internet is looked at hardest.
+- **Report it as a false positive** to the antivirus that named it (each
+  has a page for it; Microsoft Defender's is
+  https://www.microsoft.com/wdsi/filesubmission), with the program and
+  where it comes from. A signature is updated for everyone in a day or
+  two.
+- **See what the others say:** https://www.virustotal.com scans a program
+  with some 70 of them; one or two names among many clean ones is a false
+  positive.
+- **Build it yourself** from the source, and allow that folder in the
+  antivirus, if it still blocks it.
+
 ### macOS: an app signed, notarized, stapled
 
 ```sh
@@ -1008,6 +1036,7 @@ environment of its own: `adb shell am start -n PACKAGE/org.retro.RetroActivity
 | `RETRO_ZOOM=2` | whole driver pixels per design pixel (1-4) |
 | `RETRO_TOUCH=1`, `RETRO_CONTROLS=touch` / `desktop` / `auto` | as on a touch screen; the controls' sizes only |
 | `RETRO_THEME=Dark` | a built-in theme |
+| `RETRO_LOOK=gloss` | a look: `classic`, `glass`, `matte` or `gloss` |
 | `RETRO_TEXT=sharp` / `sharp-bgr` | letters drawn in the screen's color strips |
 | `RETRO_WINDOW=1` | on a screen with no window manager (Termux:X11): the app as a window of its own size, on a desktop the kit draws |
 | `RETRO_WINDOW_STATE=FILE` | where the window's place and size are kept (`retrokit run --watch`) |

@@ -98,6 +98,10 @@ type
     draft*: string               ## (what is being written to it: `assistantPanel`'s box)
     attach*: proc (): string {.closure.}
       ## (a picture -- PNG bytes -- sent with each of the user's messages: what the app shows)
+    noReasoning*: bool
+      ## (asked with `reasoning_effort: "none"`: the service said its model reasons and does not
+      ## call tools while it does -- OpenAI's newer models through chat completions -- so it was
+      ## asked again so, and is since)
     req: Job[HttpResponse]
     rounds: int
     gone: bool
@@ -142,9 +146,12 @@ proc find*(c: AiChat; tool: string): int =
 
 proc dataUrl(png: string): string = "data:image/png;base64," & base64.encode(png)
 
-proc chatRequest*(s: AiSettings; system: string; tools: openArray[AiTool]; messages: openArray[AiMessage]):
+proc chatRequest*(s: AiSettings; system: string; tools: openArray[AiTool]; messages: openArray[AiMessage];
+                  noReasoning = false):
     tuple[url: string; headers: seq[(string, string)]; body: string] =
-  ## The request that sends the conversation, the tools with it.
+  ## The request that sends the conversation, the tools with it. `noReasoning`: an OpenAI request
+  ## asks its model not to reason (`reasoning_effort: "none"`), as one that reasons calls no tools
+  ## through chat completions.
   result.url = if s.url.strip.len > 0: s.url.strip else: defaultUrl(s.kind)
   result.headers = @[("Content-Type", "application/json")]
   case s.kind
@@ -177,6 +184,7 @@ proc chatRequest*(s: AiSettings; system: string; tools: openArray[AiTool]; messa
         ts.add %*{"type": "function", "function": {"name": t.name, "description": t.description,
                                                     "parameters": t.params}}
       body["tools"] = ts
+      if noReasoning: body["reasoning_effort"] = %"none"
     result.body = $body
   of akAnthropic:
     result.headers.add ("anthropic-version", "2023-06-01")
@@ -284,6 +292,12 @@ proc waitingFor*(c: AiChat): AiCall =
   for k in c.messages[^1].calls:
     if k.state == acAsking: return k
 
+proc reasoningRefused*(error: string): bool =
+  ## Whether a service's error says its model reasons and so takes no function tools this way
+  ## (OpenAI's: "... cannot use function tools with reasoning enabled ...; set reasoning_effort").
+  let e = error.toLowerAscii
+  "reasoning" in e and ("tool" in e or "function" in e)
+
 proc ask(c: AiChat) =
   ## (the conversation to the service)
   c.error = ""
@@ -302,7 +316,7 @@ proc ask(c: AiChat) =
         while at >= 0 and msgs[at].role != arUser: dec at
         if at >= 0: msgs[at].text = "(What the app shows now: " & ctx & ")\n\n" & msgs[at].text
       else: sys.add (if sys.len > 0: "\n\n" else: "") & "What the app shows now: " & ctx
-  let r = chatRequest(c.settings, sys, c.tools, msgs)
+  let r = chatRequest(c.settings, sys, c.tools, msgs, c.noReasoning)
   c.req =
     if c.settings.kind == akDevice: deviceFetch(c.settings.url, r.body)
     else: fetch(r.url, "POST", r.headers, r.body,
@@ -437,6 +451,13 @@ proc update*(c: AiChat) =
       c.error = resp.error
       return
     let (m, err) = chatReply(c.settings.kind, resp.body)
+    if err.len > 0 and c.settings.kind == akOpenAi and not c.noReasoning and c.tools.len > 0 and
+       reasoningRefused(err):
+      # (a model that reasons, asked through chat completions with tools: asked again without its
+      # reasoning, as the service says to)
+      c.noReasoning = true
+      c.ask()
+      return
     if err.len > 0:
       c.state = ciIdle
       c.error = (if resp.status >= 400: "HTTP " & $resp.status & ": " else: "") & err

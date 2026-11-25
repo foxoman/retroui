@@ -71,6 +71,19 @@ its rounded shapes are drawn by spans (`rasterRound`). Drawn as any
 shape, as 0.73 drew them, the same window took 13 to 18 ms. The
 terminal's rows are drawn by runs (`textCells`), not a cell at a time.
 
+The four looks in 0.75.0, the same window every pixel redrawn, medians of
+3 runs on one machine:
+
+| Look | Light | Dark |
+|---|---|---|
+| 3.1 (Classic) | 1.5 ms | |
+| Glass | 2.4 ms | 2.5 ms |
+| Matte | 2.3 ms | 2.2 ms |
+| Gloss | 2.7 ms | 2.4 ms |
+
+Matte draws flat faces and costs less than Glass; Gloss adds a shine on
+every face, the window's pinstripes and lit bars.
+
 ## The apps
 
 The kit's own apps, built for release (`-d:release -d:strip -d:lto`,

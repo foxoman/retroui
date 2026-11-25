@@ -116,6 +116,26 @@ block plain:
   check c.messages.len == 6 and c.messages[3].calls[0].state == acDone, "the call kept with what it did"
   c.close()
 
+block reasoningModel:
+  # (OpenAI's newer models reason, and through chat completions take no function tools while they
+  # do: the service says so, and the chat asks again with reasoning_effort "none" -- and since)
+  notes.setLen(0)
+  let ro = AiSettings(kind: akOpenAi, url: base & "/v1/chat/completions", model: "reasoner-1", key: "sk-test")
+  let r = chatRequest(ro, "", [noteTool(false)], [AiMessage(role: arUser, text: "hi")], noReasoning = true)
+  check parseJson(r.body)["reasoning_effort"].getStr == "none", "asked without reasoning: reasoning_effort none"
+  check "reasoning_effort" notin parseJson(chatRequest(ro, "", [], [AiMessage(role: arUser, text: "hi")],
+                                                        noReasoning = true).body),
+        "no tools: nothing to ask it"
+  check reasoningRefused("Function tools with reasoning_effort are not supported for gpt-6.1-terra") and
+        not reasoningRefused("bad key"), "the service's refusal known"
+  let c = newAiChat(ro, "You keep notes.", [noteTool(false)])
+  c.send("note: eggs")
+  check c.settle() and c.error.len == 0 and notes == @["eggs"] and c.noReasoning,
+        "refused with tools, asked again without reasoning: the tool ran (" & c.error & ")"
+  c.send("note: bread")
+  check c.settle() and notes == @["eggs", "bread"], "and so since"
+  c.close()
+
 block confirmed:
   notes.setLen(0)
   let c = newAiChat(oa, "", [noteTool(true)])

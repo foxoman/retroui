@@ -1,5 +1,149 @@
 # Changes
 
+## 0.75.0
+
+Two more looks beside Classic and Glass: Matte, flat and sharp, and
+Gloss, as phones drew their controls in 2012; the controls phones have,
+for phones and desktops alike: a navigation bar, a search bar, rows in
+groups, picker wheels, a number with - and +, page dots, rows with
+actions behind them, an action sheet, an alert, an action bar, a bottom
+sheet, a popover. Retro DNS 1.6 a phone app in them; Retro Music 1.0,
+Spotify and YouTube in one player; Retro Atelier 5.17.3 with Layout >
+Booklet.
+
+- **The Matte look** (`uiLook = lookMatte`; Look: Matte in
+  `appearanceSettings`): flat and sharp -- one color a face with a thin
+  line round it, corners of 3 pixels, the highlight a clear blue: a check
+  box ticked, a switch on, a page's chosen tab, two lines of it under a
+  title bar and round a field that has the keys; a slim shadow under what
+  floats. Its schemes: Matte Light and Matte Dark (`MatteLight`,
+  `MatteDark`).
+- **The Gloss look** (`uiLook = lookGloss`; Look: Gloss): glossy -- a
+  shine on every button's top half, a deep outline and a white line under
+  it, fields cut in, the window in pinstripes, title bars, tool bars and
+  navigation and tool bars lit from above in steel blue, a switch that says
+  ON and OFF, a thin progress bar. Its schemes: Gloss Light and Gloss Dark
+  (`GlossLight`, `GlossDark`). Picking a look with a scheme of before, or
+  with another look's own, takes its own (light or dark as it was:
+  `lookSchemes`). The test of every look on the GPU covers both.
+- **Gloss, drawn as then** (matched to the iOS 6 reference sheets): push
+  buttons light gray lit from above with a gray line round them, their
+  labels bold, the default one blue with white on it, blue while pressed
+  (`glossButtonFace`, `glossTwoTone`; `buttonFace(primary = ...)`,
+  `buttonInk(pressed, enabled, primary)`, `buttonLabel`, `buttonBold`); the
+  steel-blue bars lit from above (`glossBarFill`), their bordered buttons
+  and Back with a point (`glossBarButton`); the switch as phones had it
+  (blue with ON, gray with OFF, a round knob as tall as it); segments white
+  to gray, the chosen one blue; a slider's track cut in, blue to a white
+  knob; the progress bar thin, blue in a gray track, its percentage after
+  it; the stepper (`quantity`) one piece with - and +, after the number;
+  the chosen row blue (`glossBlue`); bolder chevrons; the tab bar black and
+  glossy; the tool bar (`actionBar`) white glyphs without words, a glow
+  round the one pressed; the popover's dark frame round its white inside;
+  the search bar lighter than the navigation bar, its box a white capsule;
+  the status bar black over an app's own bars; twelve spokes for busy; the
+  red count with a white ring. Glass's busy sign spokes too; Matte's an
+  arc.
+- **Matte, flat and sharp**: a switch as a slot with a block of a knob and
+  grip lines; radio buttons a ring with the highlight's dot; a slider's thin
+  line to a ring of a knob; the tab bar dark, the chosen one marked along
+  its top.
+- On phones the window's caption follows the look (Gloss's steel blue, its
+  title white); an app with bars of its own leaves it out (`appNavBars`),
+  the status bar over it black (Gloss, Matte) or the window's (Glass). In the newer looks a page's scroll
+  bar on a touch screen is a thin line over its content (`overlayBars`,
+  `scrollLine`). `RETRO_LOOK` picks the look (classic, glass, matte, gloss)
+  as `RETRO_THEME` picks the colors. `polygonShaded`, `discShaded` in
+  `retroui/gfx`: shapes lit from above.
+- For a control of your own: `matteLook()`, `glossLook()`, `titleBar(r,
+  active)` (a title bar's band as the look draws it), `barFace(r)` (a tool
+  bar's), `tintedFace(r, color)` (a button's face in a color of its own: a
+  destructive one's red), `glossBar()`. `glassLook()` is true in all three
+  newer looks; `frostedGlass` stays Glass's.
+- **Controls from phones** (`retroui/mobile`, in every look, with the
+  mouse, the keys, fingers and screen readers):
+  - `navBar(title, back, action)`: a phone's navigation bar -- the title in
+    the middle, Back (Alt+Left too) and a button; `NavPick`.
+  - `wheelPicker(items, sel)`: a picker wheel -- dragged and flung, a row
+    clicked, the mouse wheel, the arrows, a letter; `wheelPicker(count,
+    item, sel)` made as it shows. `dateWheels(d)` (in the order
+    `dateStyle` writes a day) and `timeWheels(h, m, minuteStep, hours12)`.
+  - `quantity(v, lo, hi, step)`: a number between - and + (held, it goes
+    on).
+  - `pageDots(page, pages)`: the dots of a phone's pages.
+  - `swipeRow(title, actions, detail, glyph)`: a row with actions behind
+    it -- swiped or dragged aside, Left and Enter, a right click;
+    `SwipeHit`.
+  - `actionSheet(open, title, actions, destructive)`: the actions, Cancel
+    apart -- from the bottom on a phone, in the middle elsewhere.
+  - `bottomSheet(open, title): ...` (a handle, dragged down to close) and
+    `popover(open, anchor, width): ...` (a bubble with an arrow to its
+    control).
+  - `tableGroup(header, footer): ...` with `tableRow(title, detail,
+    accessory, glyph, subtitle, picture, tint, selected)` (a chevron, a
+    check mark, an info button of its own; an icon on a tile, a cover; the
+    row whose page is beside the list drawn chosen; `TableHit`),
+    `tableSwitch` and `tableButton`: rows in groups as a phone's settings.
+  - `alertBox(open, title, message, buttons, cancel)`: a phone's alert that
+    waits for an answer; `searchBar(s)`: the search box on a bar, with
+    Cancel; `actionBar(actions, back, signature)`: a screen's actions along
+    the bottom; `wheelGroup: ...`: wheels as one picker, one frame and one
+    band (`dateWheels` and `timeWheels` are).
+  - The gallery's Forms & Code > Phone page shows them all; docs/controls.md
+    has a part for them (`SHOTS_MD=file SHOTS_ONLY=...` writes chosen
+    examples' parts of the guide, to put in it by hand).
+- **Retro DNS 1.6**: on a phone in the Glass, Matte or Gloss look, a phone
+  app -- a tab bar (DNS, Servers, Favourites, More), a navigation bar,
+  pages that slide in, the VPN's switch, the servers in rows in groups (the
+  one picked ticked, each one's page from its info button, its addresses
+  copied with a tap), Test All Servers and Pick the Fastest as buttons
+  under the groups, an alert before a server of yours is deleted; on a
+  tablet the sections in a list down the left and the page of the one
+  picked beside it, each under its own navigation bar. Its APK starts in
+  Gloss (its look is kept under a new name, once).
+- **Retro Music 1.0** (`examples/music.nim`, new): Spotify and YouTube in one
+  player through their own services -- Spotify's Web API with your own
+  developer app (search, playlists, liked songs, played lately) and Spotify
+  Connect (your Spotify apps and speakers play, Premium; this is their
+  remote: play, pause, next, seek, the device), the YouTube Data API (music
+  videos) and YouTube's embedded player, lyrics from LrcLib timed to the
+  song; a tab bar, a mini player and pages on a phone, the pages beside a
+  list on a computer. `tableRow(picture = ...)` shows covers.
+- **Retro Atelier: Layout > Booklet**: a booklet's format (A5 or B5 saddle
+  stitch, an A4 sheet; New Booklet), its grid in millimeters, a folio and a
+  running head on the outside -- not on the cover, the blank pages and the
+  back cover --, its pages one at a time, in spreads or on the printer's
+  sheets.
+- **A dialog is known by its title** (`beginDialog`), not by where its
+  `open` flag is: one drawn from a proc's own flag -- the Color dialog's --
+  had it on the stack, at an address the same each frame only by luck;
+  under AddressSanitizer each frame's was another, the dialog never the
+  one on top: no keys, no Tab (`test_input` failed the nightly's
+  sanitizers).
+- Retro Atelier: an adjustment dialog closes with its document (Close All
+  under it read the document closed: UBSan, `test_photoleaks`).
+- The assistant (`retroui/aichat`): an OpenAI model that reasons refuses
+  function tools through chat completions; the chat asks it again with
+  `reasoning_effort: "none"`, and so since (`AiChat.noReasoning`,
+  `reasoningRefused`; `chatRequest(..., noReasoning)`).
+- Windows: the release signs its programs (Authenticode, time stamped,
+  `retrokit sign`) when the repository's secrets hold a code signing
+  certificate (`WINDOWS_KEY_PEM`, `WINDOWS_CERT_PEM`, `WINDOWS_CHAIN_PEM`);
+  their version says their internal and original file names too
+  (`tools/winicon.nim`). BUILDING.md: what to do when an antivirus calls a
+  Nim program a virus (issue #11).
+- Tests: `test_apps`'s last view read its loop's tuple after the loop
+  (ASan: stack use after scope); timing checks give the sanitizers more
+  time (`test_imagetrace`, `test_mapview`, `test_photo`). The hand pass
+  (`test_handpass`) answers Cancel when a finger's Esc, the phone's Back,
+  asks "Quit Retro Atelier?" -- with the dialog known by its title, the
+  next Enter quit it, where before it was a new dialog each frame and let
+  the Enter go; and a headless test whose app ended with input still to
+  come fails (`tests/harness.nim`), instead of running frames forever.
+  In the Classic look with Matte Light's colors, the palette tabs behind
+  the front one have dark labels (`paletteTabFace`; white on light gray
+  before, `test_hardening`).
+
 ## 0.74.0
 
 The terminal speaks kitty's keyboard and graphics protocols and takes the

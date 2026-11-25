@@ -71,8 +71,13 @@ proc searchBox*(s: var string; placeholder = "Search"; w = 0;
   let cw = if s.len > 0: r.h else: 0
   let gl = glassLook()
   if gl:
-    # (Glass: a rounded field, the ring while it has the keyboard; a magnifier drawn smooth)
-    fieldFace(r, th.field, enabled, enabled and ui.focus == id)
+    # (Glass: a rounded field, the ring while it has the keyboard; a magnifier drawn smooth.
+    # Gloss: a capsule cut into its bar, as phones had it then)
+    if glossLook():
+      let rad = float(r.h) / 2
+      roundRect(r, rad, if lumaOfColor(th.window) < 128: color(0, 0, 0) else: color(118, 124, 134))
+      roundRect(inset(r, 1), rad - 1, th.field)
+    else: fieldFace(r, th.field, enabled, enabled and ui.focus == id)
     let k = float(r.h) / 7
     let cx = float(r.x) + float(iw) / 2 - k * 0.4
     let cy = float(r.y) + float(r.h) / 2 - k * 0.4
@@ -86,7 +91,9 @@ proc searchBox*(s: var string; placeholder = "Search"; w = 0;
     let gw = textWidth(glass)
     text(r.x + (iw - gw) div 2, r.y + (r.h - FontH) div 2, glass, th.gray)
   # (Glass: the text's box inside the field's hairline, not over it)
-  let er = if gl: rect(r.x + iw - 4, r.y + 1, r.w - iw + 4 - cw - 1, r.h - 2)
+  let er = if gl: rect(r.x + iw - 4, r.y + 1,
+                      r.w - iw + 4 - cw - 1 -
+                        (if cw > 0: 0 elif glossLook(): r.h div 2 + 1 else: min(dp(6), r.h div 2)), r.h - 2)
            else: rect(r.x + iw - 4, r.y, r.w - iw + 4 - cw, r.h)
   if accessOn: accessNameOr(tr(placeholder))
   result = editAt(id, s, er, false, false, enabled, frameless = true)
@@ -111,14 +118,83 @@ proc searchBox*(s: var string; placeholder = "Search"; w = 0;
 
 proc switchSize*(): tuple[w, h: int] =
   ## The size of a switch's slot (bigger on touch screens).
-  let h = if fingers(): dp(24) else: max(dp(16), FontH + 1)
-  (h * 2 + h div 3, h)
+  ## (Gloss: wider, room for its ON and OFF)
+  let h = if glossLook(): (if fingers(): dp(27) else: max(dp(18), FontH + 3))
+          elif fingers(): dp(24) else: max(dp(16), FontH + 1)
+  let w = if glossLook(): h * 77 div 27 else: h * 2 + h div 3
+  (w, h)
 
 proc drawSwitch*(track: Rect; on, enabled: bool; down = false; thumbX = -1) =
   ## A slide switch in the manner of Windows 3.1: a black-edged slot, navy
   ## on the "on" side with the IEC "I", white with the "O" when off, and a
   ## raised gray thumb with grip lines (at `thumbX` while it is slid). (Glass: a capsule, the
   ## highlight when on, a round white knob.)
+  if glossLook():
+    # (as phones had it then: a capsule, the blue part with ON, the gray with OFF, a round knob
+    # as tall as the switch between them)
+    let dark = lumaOfColor(th.window) < 128
+    let kd = track.h
+    let kx = if thumbX >= 0: clamp(thumbX, track.x, track.x + track.w - kd)
+             elif on: track.x + track.w - kd else: track.x
+    let rad = float(track.h) / 2
+    roundRect(track, rad, if dark: color(0, 0, 0) else: color(128, 128, 128))
+    let inner = inset(track, 1)
+    let mid = kx + kd div 2
+    let st = style(bold = true, size = 0.95)
+    let ty = track.y + (track.h - lineHeight(st)) div 2
+    pushClip(rect(track.x, track.y, max(0, mid - track.x), track.h))
+    let a = accentColor()          # (the scheme's: blue in Gloss's own)
+    roundRectShaded(inner, rad - 1, mixColor(a, color(0, 0, 0), 0.18), mixColor(a, color(255, 255, 255), 0.18))
+    let onW = kx - track.x
+    if onW > kd div 3:
+      let tw = textWidth("ON", st)
+      text(track.x + (onW - tw) div 2, ty - 1, "ON", withAlpha(color(0, 0, 0), 90), st)
+      text(track.x + (onW - tw) div 2, ty, "ON", color(255, 255, 255), st)
+    popClip()
+    pushClip(rect(mid, track.y, max(0, track.x + track.w - mid), track.h))
+    if dark: roundRectShaded(inner, rad - 1, color(40, 40, 44), color(78, 80, 86))
+    else: roundRectShaded(inner, rad - 1, color(218, 218, 218), color(252, 252, 252))
+    let offX = kx + kd
+    let offW = track.x + track.w - offX
+    if offW > kd div 3:
+      let tw = textWidth("OFF", st)
+      text(offX + (offW - tw) div 2, ty, "OFF", if dark: color(170, 170, 176) else: color(122, 122, 122), st)
+    popClip()
+    # (its inside shaded along its top)
+    hline(inner.x + int(rad), inner.y, inner.w - 2 * int(rad), withAlpha(color(0, 0, 0), 46))
+    let cx = float(kx) + kd / 2
+    let cy = float(track.y) + kd / 2
+    disc(cx, cy + 0.8, kd / 2, withAlpha(color(0, 0, 0), 50))
+    disc(cx, cy, kd / 2, if dark: color(0, 0, 0) else: color(150, 150, 150))
+    if down: discShaded(cx, cy, kd / 2 - 1, color(214, 214, 214), color(240, 240, 240))
+    else: discShaded(cx, cy, kd / 2 - 1, color(255, 255, 255), color(222, 222, 222))
+    if not enabled:
+      roundRect(track, rad, withAlpha(th.window, 130))
+    return
+  if matteLook():
+    # (flat and square: a slot, the highlight on the knob's left; the knob a block with three
+    # grip lines)
+    let dark = lumaOfColor(th.window) < 128
+    let rad = float(dp(2))
+    let kw = track.h * 6 div 5
+    let kx = if thumbX >= 0: clamp(thumbX, track.x, track.x + track.w - kw)
+             elif on: track.x + track.w - kw else: track.x
+    roundRect(track, rad, mixColor(th.face, th.text, if dark: 0.3 else: 0.25))
+    let inner = inset(track, 1)
+    roundRect(inner, rad - 1, if dark: mixColor(th.window, th.face, 0.5) else: mixColor(th.face, th.window, 0.4))
+    if kx > track.x and enabled:
+      fill(rect(inner.x, inner.y, kx - inner.x + 2, inner.h), accentColor())
+    let k = rect(kx, track.y, kw, track.h)
+    let kf = if dark: mixColor(th.face, color(255, 255, 255), 0.22) else: th.light
+    roundRect(k, rad, mixColor(th.face, th.text, if dark: 0.45 else: 0.35))
+    roundRectShaded(inset(k, 1), rad - 1, if down: mixColor(kf, th.face, 0.4) else: kf,
+                    mixColor(kf, th.face, 0.35))
+    let gh = k.h * 2 div 5
+    let gx = k.x + k.w div 2 - dp(3)
+    for g in 0 .. 2:
+      vline(gx + g * dp(3), k.y + (k.h - gh) div 2, gh, if enabled: th.gray else: th.shadow)
+    if not enabled: roundRect(track, rad, withAlpha(th.window, 120))
+    return
   if glassLook():
     let inner = inset(track, 1)
     let kd = inner.h
@@ -181,7 +257,9 @@ proc switchAt*(id: Id; track: Rect; v: var bool; hit: var Hit;
   ## Left / Right turn it off / on. Draws it; true when it changed.
   var st = state(id + 7)
   let inner = inset(track, 1)
-  let tw = inner.w div 2
+  # (the knob's width as the look draws it: it is slid by its middle)
+  let tw = if glossLook(): track.h elif matteLook(): track.h * 6 div 5
+           elif glassLook(): inner.h else: inner.w div 2
   let lo = inner.x
   let hi = inner.x + inner.w - tw
   var thumbX = -1
@@ -293,23 +371,58 @@ proc segmented*(options: openArray[string]; sel: var int; w = 0;
       result = true
   var x = r.x
   let glass = glassLook()
-  if glass: glassTrack(r)
+  let gloss = glossLook()
+  let dark = lumaOfColor(th.window) < 128
+  let grad = float(min(dp(5), r.h div 2))
+  if gloss: roundRect(r, grad, if dark: color(0, 0, 0) else: color(128, 128, 128))
+  elif glass: glassTrack(r)
   for i, o in options:
     let br = rect(x, r.y, widths[i] + (if i < options.high: 1 else: 0), r.h)
     let down = i == sel
     if enabled and hit.clicked and br.contains(point(ui.mx, ui.my)) and sel != i:
       sel = i
       result = true
+    if gloss:
+      # (as phones had them then: white to light gray, the chosen one blue, a gray line round
+      # them and between them; their labels bold, pressed into their faces)
+      pushClip(rect(br.x, r.y, br.w, r.h))
+      let face = inset(r, 1)
+      if down and enabled: roundRectShaded(face, grad - 1, color(84, 144, 234), color(26, 86, 204))
+      elif dark: roundRectShaded(face, grad - 1, color(80, 82, 88), color(34, 34, 38))
+      else: roundRectShaded(face, grad - 1, color(255, 255, 255), color(220, 220, 220))
+      popClip()
+      if i > 0: vline(br.x, r.y + 1, r.h - 2, if dark: color(0, 0, 0) else: color(128, 128, 128))
+      let tw = labelWidth(o, true)
+      let tx = br.x + (br.w - tw) div 2
+      let ty = br.y + (br.h - FontH) div 2
+      if down and enabled:
+        drawLabel(tx, ty - 1, o, withAlpha(color(0, 0, 0), 90), true)
+        drawLabel(tx, ty, o, color(255, 255, 255), true)
+      else:
+        if not dark: drawLabel(tx, ty + 1, o, withAlpha(color(255, 255, 255), 200), true)
+        drawLabel(tx, ty, o, if not enabled: th.gray elif dark: color(220, 222, 226)
+                             else: color(84, 84, 88), true)
+      if down and hit.focused: focusDots(inset(br, 3))
+      if mnemonicHit(o) and enabled:
+        sel = i
+        result = true
+      x += widths[i]
+      continue
     if glass:
       # (Glass: the chosen one a pill of glass on the track, the others their labels, lit under
       # the pointer)
       let pill = rect(br.x + dp(2), br.y + dp(2), br.w - dp(4) - (if i < options.high: 1 else: 0), br.h - dp(4))
-      if down: glassFace(pill, radius = float(pill.h) / 2)
+      # (Matte and Gloss: the chosen one in the highlight, its label in the highlight's ink)
+      let inked = down and enabled and (matteLook() or glossLook())
+      if down:
+        if inked: glassAccent(pill, glassRadius(pill))
+        else: glassFace(pill, radius = float(pill.h) / 2)
       elif enabled and hovered(pill) and canInput():
-        roundRect(pill, float(pill.h) / 2, withAlpha(th.text, if lumaOfColor(th.window) < 128: 26 else: 14))
+        roundRect(pill, glassRadius(pill), withAlpha(th.text, if lumaOfColor(th.window) < 128: 26 else: 14))
       let tw = labelWidth(o, down)
       drawLabel(br.x + (br.w - tw) div 2, br.y + (br.h - FontH) div 2, o,
-                if not enabled: th.gray elif down: th.text else: mixColor(th.text, th.window, 0.25), down)
+                if not enabled: th.gray elif inked: accentInk() elif down: th.text
+                else: mixColor(th.text, th.window, 0.25), down)
       if down and hit.focused: focusDots(pill)
       if mnemonicHit(o) and enabled:
         sel = i
@@ -604,7 +717,13 @@ proc badge*(s: string; bg = color(200, 0, 0); fg = color(255, 255, 255)) =
   let r = place(max(h, tw + dp(10)), h)
   ui.lastId = 0
   ui.lastRect = r
-  roundRect(r, h / 2, bg)
+  if glossLook():
+    # (Gloss: the red count of its time -- a white ring round it, shining, a shadow under it)
+    let big = rect(r.x - 1, r.y - 1, r.w + 2, r.h + 2)
+    roundRect(rect(big.x, big.y + 1, big.w, big.h), big.h / 2, withAlpha(color(0, 0, 0), 70))
+    roundRect(big, big.h / 2, color(255, 255, 255))
+    tintedFace(inset(big, max(1, dp(2))), bg, radius = float(big.h) / 2)
+  else: roundRect(r, h / 2, bg)
   text(r.x + (r.w - tw) div 2, r.y + (h - lineHeight(st)) div 2, s, fg, st)
 
 proc rating*(v: var int; stars = 5; enabled = true): bool {.discardable.} =
@@ -651,10 +770,37 @@ proc drawSpinner*(cx, cy, d: int; color = Color()) =
   ## The busy dots of `spinner`, `d` pixels across, centered at `cx`, `cy`
   ## (for drawing them inside your own widgets). With `retroIcons` it is
   ## the hourglass of the early 1990s, its sand running.
-  if retroIcons:
+  if retroIcons and not glassLook():
     let g = if (ui.now div 600) mod 2 == 0: pxHourglass else: pxHourglass2
     pixelIconAt(rect(cx - d div 2, cy - d div 2, d, d), g)
     wakeIn(600 - ui.now mod 600)
+    return
+  if glossLook() or (glassLook() and not matteLook()):
+    # (Gloss, Glass: twelve spokes, the light going round them)
+    let c = if color.a == 0: (if lumaOfColor(th.window) < 128: color(235, 235, 235) else: color(90, 90, 96))
+            else: color
+    let step = (ui.now div 83) mod 12
+    let r0 = float(d) / 4.2
+    let r1 = float(d) / 2 - 0.5
+    for i in 0 ..< 12:
+      let a = 2 * PI * float(i) / 12 - PI / 2
+      let k = 1.0 - float((step - i + 12) mod 12) / 12
+      thickLine(float(cx) + r0 * cos(a), float(cy) + r0 * sin(a), float(cx) + r1 * cos(a),
+                float(cy) + r1 * sin(a), max(1.5, float(d) / 9), withAlpha(c, int(50 + 205 * k)))
+    wakeIn(83 - ui.now mod 83)
+    return
+  if matteLook():
+    # (Matte: an arc of the highlight going round)
+    let c = if color.a == 0: accentColor() else: color
+    let turn = float(ui.now mod 900) / 900 * 2 * PI
+    let rad = float(d) / 2 - float(d) / 10
+    let n = 24
+    for i in 0 ..< n:
+      let a0 = turn + float(i) / float(n) * PI * 1.5
+      let a1 = turn + float(i + 1) / float(n) * PI * 1.5
+      thickLine(float(cx) + rad * cos(a0), float(cy) + rad * sin(a0), float(cx) + rad * cos(a1),
+                float(cy) + rad * sin(a1), max(1.5, float(d) / 9), c)
+    wakeIn(30)
     return
   let c = if color.a == 0: th.select else: color
   let n = 10
@@ -1547,7 +1693,7 @@ proc appearanceRows(): bool
 
 proc appearanceSettings*(): bool {.discardable.} =
   ## Settings rows for how every app looks: the color scheme, the look of the controls
-  ## (`uiLook`: Classic or Glass), the size of
+  ## (`uiLook`: Classic, Glass, Matte or Gloss), the size of
   ## everything, the size of the text, the size of controls (for a mouse
   ## or fingers), the window's frame (on desktops: the system's or Windows
   ## 3.1's), the title bars' buttons (`captionButtons`) and the font. True
@@ -1566,11 +1712,16 @@ proc appearanceRows(): bool =
     result = true
   # (the controls' look, in whatever scheme: Windows 3.1's, or frosted glass)
   var lk = ord(uiLook)
-  if settingCombo("Look", ["Classic (Windows 3.1)", "Glass"], lk):
+  if settingCombo("Look", ["Classic (Windows 3.1)", "Glass", "Matte", "Gloss"], lk):
+    let was = uiLook
     uiLook = UiLook(lk)
-    # (Glass picked with a scheme of before: its own colors with it, light or dark as the scheme)
-    if uiLook == lookGlass and ui.theme != GlassLight and ui.theme != GlassDark and t in [0, 1, 2, 3]:
-      ui.theme = if t in [2, 3]: GlassDark else: GlassLight
+    # (a look picked with a scheme of before, or with another look's own: its own colors with
+    # it, light or dark as the scheme was)
+    let (wl, wd) = lookSchemes(was)
+    if uiLook != lookClassic and (t in [0, 1, 2, 3] or (was != lookClassic and ui.theme in [wl, wd])):
+      let dark = t in [2, 3] or ui.theme == wd
+      let (l, d) = lookSchemes(uiLook)
+      ui.theme = if dark: d else: l
     invalidate()
     result = true
   if uiLook == lookGlass:
@@ -1891,9 +2042,22 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
   let r = rect(0, ui.bottom - h, ui.w, h + below)
   pushLayer(LayerBase)
   defer: popLayer()
-  fill(r, th.face)
-  hline(0, r.y, ui.w, th.frame)
-  hline(0, r.y + 1, ui.w, th.light)
+  # (Gloss: the black glossy tab bar of its time; Matte: a dark bar, the chosen one marked by
+  # the highlight along its top)
+  let gloss = glossLook()
+  let matte = matteLook()
+  if gloss:
+    roundRectShaded(r, 0, color(44, 44, 46), color(0, 0, 0))
+    roundRectShaded(rect(r.x, r.y, r.w, h div 2), 0, color(78, 78, 80), color(38, 38, 40))
+    hline(0, r.y, ui.w, color(0, 0, 0))
+    hline(0, r.y + 1, ui.w, withAlpha(color(255, 255, 255), 40))
+  elif matte:
+    fill(r, color(30, 30, 32))
+    hline(0, r.y, ui.w, color(64, 64, 68))
+  else:
+    fill(r, th.face)
+    hline(0, r.y, ui.w, th.frame)
+    hline(0, r.y + 1, ui.w, th.light)
   ui.bottom = r.y
   let inner = rect(ui.safe.left, r.y + 2, ui.w - ui.safe.left - ui.safe.right, h - 2)
   let slot = inner.w div items.len
@@ -1921,16 +2085,31 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
       sel = i
       result = true
     let on = i == sel
-    if hit.showsHover and not on: fill(inset(cell, 2), hoverColor())
-    let c = if on: th.select else: th.gray
-    if on:
-      roundRect(rect(cell.x + cell.w div 2 - dp(28), cell.y + dp(4), dp(56),
-                     lineHeight(gst) + dp(2)), (lineHeight(gst) + dp(2)) / 2,
-                mixColor(th.face, th.select, 0.18))
+    var c, lc: Color
+    if gloss:
+      if on: roundRect(rect(cell.x + dp(3), cell.y + dp(2), cell.w - dp(6), cell.h - dp(4)), float(dp(4)),
+                       withAlpha(color(255, 255, 255), 30))
+      elif hit.showsHover: roundRect(inset(cell, dp(3)), float(dp(4)), withAlpha(color(255, 255, 255), 14))
+      c = if on: color(70, 176, 252) else: color(146, 146, 150)
+      lc = if on: color(255, 255, 255) else: color(146, 146, 150)
+    elif matte:
+      if on: fill(rect(cell.x, r.y, cell.w, max(2, dp(3))), accentColor())
+      elif hit.showsHover: fill(inset(cell, 2), color(44, 44, 48))
+      c = if on: color(255, 255, 255) else: color(170, 170, 176)
+      lc = c
+    else:
+      if hit.showsHover and not on: fill(inset(cell, 2), hoverColor())
+      c = if on: th.select else: th.gray
+      lc = if on: th.text else: th.gray
+      if on:
+        roundRect(rect(cell.x + cell.w div 2 - dp(28), cell.y + dp(4), dp(56),
+                       lineHeight(gst) + dp(2)), (lineHeight(gst) + dp(2)) / 2,
+                  mixColor(th.face, th.select, 0.18))
     text(cell.x + (cell.w - textWidth(glyph, gst)) div 2, cell.y + dp(5), glyph, c, gst)
     let l = ellipsize(label, slot - dp(4), st)
-    text(cell.x + (cell.w - textWidth(l, st)) div 2,
-         cell.y + dp(6) + lineHeight(gst), l, if on: th.text else: th.gray, st)
+    let lst = if gloss: style(size = 0.8, bold = true) else: st
+    text(cell.x + (cell.w - textWidth(l, lst)) div 2,
+         cell.y + dp(6) + lineHeight(gst), l, lc, lst)
     if on and focused and not ui.touch: focusDots(inset(cell, dp(3)))
     if accessOn:
       let k = accessNode(arTab, label, id = id, r = cell, states = (if on: {asSelected} else: {}))

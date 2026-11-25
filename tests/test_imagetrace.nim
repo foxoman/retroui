@@ -208,6 +208,6 @@ block newDrawingsAndBooks:
     if dump.len > 0:
       discard b.spreadPicture(min(1, b.pages.high)).savePng(dump / ("template-" & t.name & ".png"))
     b.close()
-    doAssert (getMonoTime() - t0).inMilliseconds < 20000
+    doAssert (getMonoTime() - t0).inMilliseconds < (when defined(retroSanitized): 80_000 else: 20_000)
 
 echo "test_imagetrace: ok"

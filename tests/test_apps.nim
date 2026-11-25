@@ -401,11 +401,13 @@ block pickerOnAPhone:
     phoneAccess = allowed
     var open = true
     var p = cache / "shared.pdf"
-    view = proc () = discard filePicker(open, p, fmOpen, [], "Open on a phone " & $allowed)
+    let title = "Open on a phone " & $allowed   # (not the loop's own: the view outlives it)
+    view = proc () = discard filePicker(open, p, fmOpen, [], title)
     run(3)
     doAssert pickerFolder() == want, $allowed & ": " & pickerFolder()
     open = false
     run(2)
+  view = proc () = discard                 # (ASan: the last view read the loop's tuple after it)
   systemRelays = saved
   run(2)
 

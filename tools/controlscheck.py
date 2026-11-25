@@ -22,7 +22,7 @@ MODULES = [
     "toolcustom", "dock", "textwidgets", "filewidgets", "charts", "planning",
     "mapview", "view3d", "htmlview", "markdown", "richedit", "media",
     "qrcode", "canvas2d", "report", "pdfview", "board", "tilemap",
-    "capture", "mediasession",
+    "capture", "mediasession", "mobile",
 ]
 # Not in the list: calendar (there is no calendar.nim: `calendar` is in
 # business), photowidgets (Retro Atelier's own panels, not for other apps),
@@ -46,6 +46,12 @@ NOT_CONTROLS = {
         # the Glass look's drawing helpers (docs/customizing.md, `uiLook`)
         "withAlpha", "glassHair", "glassRadius", "glassFace", "glassWell", "glassAccent",
         "selectFill", "fieldFace", "glassCard", "glassTrack", "softShadow",
+        # ... and Matte's and Gloss's (a title bar's band, a tool bar's face, a face in a color)
+        "titleBar", "barFace", "glossBar", "tintedFace", "glossBarColors", "glossBarFill",
+        "glossBlue", "glossBarButton", "glossText", "buttonInk", "buttonBold",
+        "glossTwoTone", "glossButtonFace", "buttonLabel",
+        # a page's thin scroll bar over its content (phones, the newer looks)
+        "overlayBars", "scrollLine",
         # input helpers for controls of one's own
         "spaceKey", "mnemonicHit", "doubleClicked", "tapped", "scrubLabel",
         # text helpers (lines, the caret's stops)
@@ -131,6 +137,11 @@ NOT_CONTROLS = {
         "countryCount", "countryIndex", "countryNameAt", "countryA2At",
         "countryA3At", "cityLatLon", "mapPoint", "mapLatLonAt", "countryAtLatLon",
         "countryRings", "countryLabelAt", "countryCodeAt",
+    },
+    "mobile": {
+        # begin/end halves of templates the guide shows (bottomSheet, popover); a wheel's row
+        "beginBottomSheet", "endBottomSheet", "beginPopover", "endPopover", "wheelRowH",
+        "beginTableGroup", "endTableGroup", "beginWheelGroup", "endWheelGroup",
     },
     "capture": {  # (a webcam's pixels, a WAV header: helpers of the recorder)
         "yuyvToBitmap", "wavHeader",

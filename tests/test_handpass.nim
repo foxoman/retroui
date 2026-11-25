@@ -81,8 +81,17 @@ proc fault(where: string) =
     ui.lastFault = ""
     doAssert false, where & ": " & f
 
+proc noQuit() =
+  ## (a finger on the screen: an Esc that nothing took is the phone's Back, which asks
+  ## "Quit Retro Atelier?" while pictures are open -- Cancel, or the next Enter quits)
+  if quitConfirm:
+    key(KeyEsc)
+    run(2)
+    doAssert not quitConfirm and appRunning(), "Cancel kept the program"
+
 proc settle() =
   ## (what a tool left under way finished or let go: a transform, a crop, typing, a path)
+  noQuit()
   for k in [KeyEnter, KeyEsc]:
     key(k)
     run(2)
@@ -90,6 +99,7 @@ proc settle() =
   if xf.on: finishTransform(false)
   if pendingCrop.on: pendingCrop.on = false
   run(2)
+  noQuit()
 
 type Act = enum
   aClick = "a click", aAltClick = "Alt+click", aDrag = "a drag", aShiftDrag = "Shift+drag",

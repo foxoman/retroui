@@ -706,7 +706,32 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   kept by their shape (`gpuRound`; `roundMaskInto` when it has no middle). Its points still make the outline (the
   sides are read from them, mirrored or not); a shape that is not such a
   rectangle never carries the flag. The Glass look draws hundreds of them a
-  frame.
+  frame. `roundRectShaded` shades the color, not the alpha (`top`'s for
+  both): a fade to see-through is drawn a line at a time.
+- **The looks are four** (`uiLook`: Classic, Glass, Matte, Gloss).
+  `glassLook()` is true in the three newer ones (not with a high-contrast
+  scheme); `matteLook()` and `glossLook()` pick theirs. A control draws its
+  faces through the look's procs (`buttonFace`, `glassFace`, `glassWell`,
+  `glassAccent`, `fieldFace`, `selectFill`, `titleBar`, `barFace`,
+  `tintedFace`), not its own colors, so a new look reaches it.
+  `tests/test_looks.nim` and `tests/test_gpu.nim` go through each look and
+  its schemes (`lookSchemes`).
+- **The controls from phones are `retroui/mobile`** (navBar, searchBar, the
+  table rows, the wheels, quantity, pageDots, swipeRow, the sheets, the
+  alert, actionBar, popover). Gloss draws them as phones did in 2012 (as
+  iOS 6 drew them: gray buttons, the default one blue,
+  a thin progress bar, a one-piece stepper, a popover in a dark frame, a
+  black status bar) and Glass as they do now; keep each look's own (its colors, its corners, its
+  text pressed in or not) when a control changes. Its sheets are modal
+  as dialogs are (`ui.curDialog`, `ui.dialogTopNow`, `LayerDialog`) and put
+  back the dialog they were drawn in. To add a control's part to
+  docs/controls.md without making the guide again: `SHOTS_MD=part.md
+  SHOTS_ONLY=name ./shots` writes its section, to put in by hand.
+- **Retro Music uses the services' own ways only**: Spotify's Web API and
+  Spotify Connect (the user's own developer app; Spotify's apps play),
+  the YouTube Data API and YouTube's embedded player, LrcLib. Never a
+  re-implementation of a service's protocol, a stream pulled from private
+  endpoints, or anything that gets around copy protection.
 - **A graph's layout without a window is `retroui/forcelayout`**; the
   control (`graphView`) is `retroui/forcegraph`, which imports the UI. A
   module that draws nothing on screen (`retroui/board`) imports the

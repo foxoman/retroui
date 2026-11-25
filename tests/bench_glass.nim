@@ -1,9 +1,9 @@
-## How long a window full of controls takes, in the 3.1 look and the Glass look (light and
+## How long a window full of controls takes, in the 3.1 look and the Glass, Matte and Gloss looks (light and
 ## dark): every pixel redrawn (a theme changed, the window resized), the pointer moving over
 ## buttons, nothing changed -- at 1600 x 1000, drawn by the processor. Its tabs, groups, cards,
 ## fields and buttons are the rounded shapes the Glass look draws hundreds of a frame.
 ##
-##   nim c -d:release -d:useMalloc -r tests/bench_glass.nim [3.1|Glass|"Glass, dark"]
+##   nim c -d:release -d:useMalloc -r tests/bench_glass.nim [3.1|Glass|"Glass, dark"|Matte|Gloss...]
 import std/[os, strutils, monotimes, times, algorithm]
 import retroui/uirelays/[coords, screen, input]
 import retroui, retroui/[extras, business]
@@ -132,7 +132,9 @@ proc measure(label: string; n: int; prep: proc ()) =
        ", drawing ", f2(ps[ps.len div 2]), ")"
 
 let only = if paramCount() >= 1: paramStr(1) else: ""
-for (lookName, lk, th) in [("3.1", lookClassic, Classic), ("Glass", lookGlass, GlassLight), ("Glass, dark", lookGlass, GlassDark)]:
+for (lookName, lk, th) in [("3.1", lookClassic, Classic), ("Glass", lookGlass, GlassLight), ("Glass, dark", lookGlass, GlassDark),
+                            ("Matte", lookMatte, MatteLight), ("Matte, dark", lookMatte, MatteDark),
+                            ("Gloss", lookGloss, GlossLight), ("Gloss, dark", lookGloss, GlossDark)]:
   if only.len > 0 and only != lookName: continue
   uiLook = lk
   ui.theme = th

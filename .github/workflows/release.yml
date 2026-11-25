@@ -118,6 +118,36 @@ jobs:
         run: pip install ziglang==0.15.2 || sh tools/apt.sh mingw-w64
       - name: Windows program
         run: RETRO_APP=${{ matrix.app }} nimble exe -y
+      - name: Signed, when the secrets hold a code signing certificate
+        # (Authenticode, by retrokit, with a time stamp: Windows and the
+        # antivirus programs trust a signed program -- an unsigned Nim
+        # program is often called a virus; issue #11. The secrets, PEM:
+        # WINDOWS_KEY_PEM, WINDOWS_CERT_PEM, WINDOWS_CHAIN_PEM; the variable
+        # WINDOWS_TIMESTAMP the authority's time server. None: not signed.)
+        env:
+          KEY: ${{ secrets.WINDOWS_KEY_PEM }}
+          CERT: ${{ secrets.WINDOWS_CERT_PEM }}
+          CHAIN: ${{ secrets.WINDOWS_CHAIN_PEM }}
+          STAMP: ${{ vars.WINDOWS_TIMESTAMP }}
+        run: |
+          if [ -z "$KEY" ] || [ -z "$CERT" ]; then
+            echo "no code signing certificate in the secrets: the program is not signed"
+            exit 0
+          fi
+          umask 077
+          d="$RUNNER_TEMP/winsign"
+          mkdir -p "$d"
+          printf '%s\n' "$KEY" > "$d/key.pem"
+          printf '%s\n' "$CERT" > "$d/cert.pem"
+          chain=""
+          if [ -n "$CHAIN" ]; then printf '%s\n' "$CHAIN" > "$d/chain.pem"; chain="--chain:$d/chain.pem"; fi
+          nim c -d:release --hints:off -o:build/retrokit src/retrokit.nim
+          for f in build/win/*.exe; do
+            build/retrokit sign "$f" --key:"$d/key.pem" --cert:"$d/cert.pem" $chain \
+              --name:"$(basename "$f" .exe)" --url:https://github.com/foxoman/retroui \
+              --timestamp:"${STAMP:-http://timestamp.digicert.com}"
+          done
+          rm -rf "$d"
       - uses: actions/upload-artifact@v6
         with:
           name: windows-${{ matrix.app }}

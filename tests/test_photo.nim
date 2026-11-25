@@ -968,7 +968,7 @@ block develop:
   let t0 = epochTime()
   discard dev(bigIm, Develop(exposure: 30, shadows: 30, highlights: -30, clarity: 20, dehaze: 10,
                              vibrance: 20, noise: 30, colorNoise: 30, sharpen: 40, vignette: -20, grain: 10))
-  doAssert epochTime() - t0 < 8, "develop took " & $(epochTime() - t0)
+  doAssert epochTime() - t0 < (when defined(retroSanitized): 32 else: 8), "develop took " & $(epochTime() - t0)
 
 block newAdjustments:
   # Black & White: the default weights (red 40%), a gray stays

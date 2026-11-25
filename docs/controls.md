@@ -32,6 +32,7 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 - **[Menus and bars](#menus-and-bars)**: [menubar, menu, menuItem, submenu](#menubar-menu-menuitem-submenu) · [UndoStack, undoMenuItems, undoKeys](#undostack-undomenuitems-undokeys) · [contextMenu](#contextmenu) · [popupMenu, openPopupMenu](#popupmenu-openpopupmenu) · [breadcrumb](#breadcrumb) · [pager, stepper](#pager-stepper) · [recordNav](#recordnav) · [findBar, findIn, replaceAllIn](#findbar-findin-replaceallin)
 - **[Dialogs](#dialogs)**: [msgBox](#msgbox) · [inputBox](#inputbox) · [dialog](#dialog) · [progressBox](#progressbox) · [wizard, stepDone](#wizard-stepdone) · [aboutBox](#aboutbox) · [splashBox](#splashbox) · [problemBox, reportProblem](#problembox-reportproblem) · [stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen](#stoppedscreen-stoppedframe-stoppedpending-startfresh-showstoppedscreen) · [fileDialog (3.1)](#filedialog-31)
 - **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator, toolSpace](#toolbar-toolbutton-toolseparator-toolspace) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [animated](#animated) · [sprung, presence, glided, dragSnap, staggered, fixedSteps](#sprung-presence-glided-dragsnap-staggered-fixedsteps) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
+- **[Phone controls](#phone-controls)**: [navBar](#navbar) · [wheelPicker](#wheelpicker) · [dateWheels, timeWheels](#datewheels-timewheels) · [quantity](#quantity) · [pageDots](#pagedots) · [swipeRow](#swiperow) · [actionSheet](#actionsheet) · [bottomSheet](#bottomsheet) · [popover](#popover) · [alertBox](#alertbox) · [tableGroup, tableRow, tableSwitch, tableButton](#tablegroup-tablerow-tableswitch-tablebutton) · [searchBar](#searchbar) · [actionBar](#actionbar)
 - **[Files](#files)**: [fileList](#filelist) · [fileList: large icons](#filelist-large-icons) · [folderTree](#foldertree) · [placesView](#placesview) · [filePreview](#filepreview) · [pathBar](#pathbar) · [driveBar](#drivebar) · [filePicker](#filepicker) · [trashList](#trashlist) · [propertiesDialog](#propertiesdialog) · [runJobDialog](#runjobdialog) · [textFileView, hexFileView](#textfileview-hexfileview) · [pictureBox](#picturebox) · [storageDialog](#storagedialog)
 - **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [gauge in bands, rangeBar](#gauge-in-bands-rangebar) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart) · [liveGraph](#livegraph) · [graphView](#graphview) · [assistantPanel](#assistantpanel) · [aiServiceForm](#aiserviceform)
 - **[Planning and dashboards](#planning-and-dashboards)**: [kpiTile, statCard, kpiRow](#kpitile-statcard-kpirow) · [kanbanBoard](#kanbanboard) · [ganttView](#ganttview) · [agendaView](#agendaview) · [orgChart](#orgchart)
@@ -137,9 +138,9 @@ app "Ledger", 900, 600,
 ```
 
 A misspelled option is a compile error that lists them all. `RETRO_FRAME`,
-`RETRO_GPU`, `RETRO_SCALE`, `RETRO_THEME`, `RETRO_SIZE` and `RETRO_ZOOM`
+`RETRO_GPU`, `RETRO_SCALE`, `RETRO_THEME`, `RETRO_LOOK`, `RETRO_SIZE` and `RETRO_ZOOM`
 win over them when the app starts: handy for trying a phone's size on a
-desktop (`RETRO_SIZE=420x840 RETRO_TOUCH=1 ./myapp`).
+desktop (`RETRO_SIZE=420x840 RETRO_TOUCH=1 RETRO_LOOK=gloss ./myapp`).
 
 An app that runs its own frame loop calls `openApp` with the same options:
 
@@ -5256,7 +5257,7 @@ proc appearanceSettings*(): bool {.discardable.}
 ```
 
 Settings rows for how every app looks: the color scheme, the look of the controls
-(`uiLook`: Classic or Glass), the size of
+(`uiLook`: Classic, Glass, Matte or Gloss), the size of
 everything, the size of the text, the size of controls (for a mouse
 or fingers), the window's frame (on desktops: the system's or Windows
 3.1's), the title bars' buttons (`captionButtons`) and the font. True
@@ -5374,6 +5375,530 @@ Desktops with the 3.1 frame on (`setClassicFrame`): the title bar
 inside the sizing border, its control-menu box, its minimize, maximize
 and close buttons. `app` calls it every frame; with the system's frame
 it draws nothing.
+
+## Phone controls
+
+What phones have and desktops can use as well (`retroui/mobile`): a navigation bar, picker
+wheels, a number with - and +, page dots, rows with actions behind them, an action sheet, a
+bottom sheet and a popover. They are drawn in every look -- the pictures show the Classic
+one; the gallery's Forms & Code > Phone page shows them in Glass, Matte and Gloss -- and work
+with the mouse, the keys, fingers and screen readers. Some show the newer looks too: Gloss as
+phones drew their controls in 2012, Glass as they draw them now, Matte flat and sharp.
+
+### navBar
+
+A phone's navigation bar: the page's title in the middle, Back before it, a button after it. Alt+Left is Back too. In Gloss the glossy blue-gray bar with bordered buttons; in Glass and Matte the buttons are their labels in the highlight.
+
+| Gloss | Glass |
+|---|---|
+| ![navBar: Gloss](controls/navbar-gloss.png) | ![navBar: Glass](controls/navbar-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![navBar: Matte](controls/navbar-matte.png) | ![navBar: Gloss, dark](controls/navbar-gloss-dark.png) |
+
+```nim
+case navBar("Order 1042", back = "Orders", action = "Edit")
+of npBack:
+  discard
+of npAction:
+  discard
+of npNone:
+  discard
+```
+
+**API**
+
+```nim
+proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false): NavPick
+```
+
+A phone's navigation bar, the width of the row: the page's `title` in the middle, bold;
+a Back button before it (`back`: its label, a chevron before it; "" for none) and a
+button after it (`action`). Returns what was pressed. Alt+Left is Back too. Classic: a
+raised bar; Glass and Matte: the title bar's, its buttons' labels in the highlight; Gloss:
+the glossy blue-gray bar, white title, bordered buttons, Back with a point. `done`: the
+action is the one that finishes the page (Done, Save): blue in Gloss, filled in Matte.
+(With a `PageStack`, `pageHeader` says Back by itself.)
+
+### wheelPicker
+
+A phone's picker wheel: the items round a drum, the one chosen in the band across its middle. Drag it -- let go fast and it spins on, slowing, and stops on a row --, click a row, turn the mouse wheel; Up and Down, Page Up and Down, Home and End, a letter. A long list (years, numbers) is made as it shows: `wheelPicker(count, proc (i: int): string = ..., sel)`.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![wheelPicker, normal](controls/wheelpicker-normal.png) | ![wheelPicker, touch screen](controls/wheelpicker-touch-screen.png) | ![wheelPicker, dark scheme](controls/wheelpicker-dark-scheme.png) |
+
+More states:
+
+| Keyboard focus | Disabled |
+|---|---|
+| ![wheelPicker, keyboard focus](controls/wheelpicker-keyboard-focus.png) | ![wheelPicker, disabled](controls/wheelpicker-disabled.png) |
+
+```nim
+var portion = 1
+
+wheelPicker(["Small", "Medium", "Large", "Family", "Party"], portion,
+            label = "Size")
+```
+
+**API**
+
+```nim
+proc wheelPicker*(items: openArray[string]; sel: var int; rows = 5; w = 0; enabled = true;
+                  key = ""; label = ""): bool {.discardable.}
+```
+
+A phone's picker wheel: `items` round a drum, `sel` in the band across its middle, `rows`
+of them showing (odd). Drag it -- let go fast and it spins on, slowing, and stops on a row
+--, click a row to bring it to the band, turn the mouse wheel; the keys: Up and Down, Page
+Up and Down, Home and End, a letter (the next item that starts with it). `w`: its width
+(0: the widest item's). `key`: its own id (wheels made in a loop); `label`: the name a
+screen reader says. True when `sel` changed (when it comes to rest on another row).
+
+```nim
+proc wheelPicker*(count: int; item: proc (i: int): string; sel: var int; rows = 5; w = 0;
+                  enabled = true; key = ""; label = ""): bool {.discardable.}
+```
+
+A wheel of `count` items made as they show (`item(i)`): a long list (years, numbers)
+needs no seq of them. As the other `wheelPicker`; give `w` (else it is measured from the
+first, the last and the chosen item).
+
+### dateWheels, timeWheels
+
+A day and a time as a phone picks them: wheels side by side -- the day, the month and the year in the order `dateStyle` writes them (a day the month has not becomes its last); the hour and the minute (by a step; 1 to 12 and AM/PM with `hours12`).
+
+| Gloss | Glass |
+|---|---|
+| ![dateWheels, timeWheels: Gloss](controls/datewheels-gloss.png) | ![dateWheels, timeWheels: Glass](controls/datewheels-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![dateWheels, timeWheels: Matte](controls/datewheels-matte.png) | ![dateWheels, timeWheels: Gloss, dark](controls/datewheels-gloss-dark.png) |
+
+```nim
+var trip = date(2026, 11, 25)
+var tripHour = 9
+var tripMinute = 30
+
+row:
+  dateWheels(trip)
+  timeWheels(tripHour, tripMinute, minuteStep = 5)
+```
+
+**API**
+
+```nim
+proc dateWheels*(d: var Date; years = 1900 .. 2100; enabled = true): bool {.discardable.}
+```
+
+A day as a phone picks one: wheels for the day, the month and the year side by side, in
+the order `dateStyle` writes them. True when `d` changed. (A day the month has not --
+31 with April -- becomes its last.)
+
+```nim
+proc timeWheels*(h, m: var int; minuteStep = 1; hours12 = false; enabled = true): bool {.discardable.}
+```
+
+A time as a phone picks one: wheels for the hour (0 to 23; or 1 to 12 and AM/PM with
+`hours12`) and the minute (by `minuteStep`). True when it changed.
+
+```nim
+template wheelGroup*(body: untyped)
+```
+
+Wheels side by side as one picker, the way phones show a day or a time: one frame round
+them, one band across them (Classic: each in its own box).
+
+```nim
+wheelGroup:
+  wheelPicker(sizes, size, w = 110)
+  wheelPicker(colors, color, w = 90)
+```
+
+### quantity
+
+A number between a - and a +, as a phone's stepper: how many in a basket, a text's size. Held, a button goes on; the arrow keys, + and -, Page Up and Down, Home and End; the wheel over it.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![quantity, normal](controls/quantity-normal.png) | ![quantity, touch screen](controls/quantity-touch-screen.png) | ![quantity, dark scheme](controls/quantity-dark-scheme.png) |
+
+More states:
+
+| Keyboard focus | Disabled |
+|---|---|
+| ![quantity, keyboard focus](controls/quantity-keyboard-focus.png) | ![quantity, disabled](controls/quantity-disabled.png) |
+
+```nim
+var basket = 3
+
+row:
+  label "Cups:"
+  quantity(basket, 1, 12, label = "Cups")
+```
+
+**API**
+
+```nim
+proc quantity*(v: var int; lo, hi: int; step = 1; w = 0; enabled = true; label = ""): bool {.discardable.}
+```
+
+A number between a - and a + (a phone's stepper: how many in a basket, a text's size).
+Click or tap either -- held, it goes on --; the keys: Up and Down (Right and Left too),
++ and -, Page Up and Down (ten steps), Home and End; the mouse wheel over it. `lo` and
+`hi` bound it; `label`: the name a screen reader says. True when `v` changed.
+
+### pageDots
+
+A phone's page dots: one a page, the one shown filled. Click a dot, or either side of them for the page before or after; Left and Right, Home and End.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![pageDots, normal](controls/pagedots-normal.png) | ![pageDots, touch screen](controls/pagedots-touch-screen.png) | ![pageDots, dark scheme](controls/pagedots-dark-scheme.png) |
+
+More states:
+
+| Keyboard focus |
+|---|
+| ![pageDots, keyboard focus](controls/pagedots-keyboard-focus.png) |
+
+```nim
+var shownPage = 1
+
+pageDots(shownPage, 5)
+```
+
+**API**
+
+```nim
+proc pageDots*(page: var int; pages: int; enabled = true; label = "Page"): bool {.discardable.}
+```
+
+A phone's page dots, in the middle of the row: one a page, the one shown filled. Click a
+dot for its page, either side of them for the page before or after; the keys: Left and
+Right, Home and End. `page` from 0. True when it changed.
+
+### swipeRow
+
+A list's row with actions behind it: swiped left (or dragged with the mouse) it slides aside and shows them; a tap on one picks it. Left, Right and Enter with the keys; a right click opens them as a menu. One row's actions show at a time.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![swipeRow, normal](controls/swiperow-normal.png) | ![swipeRow, touch screen](controls/swiperow-touch-screen.png) | ![swipeRow, dark scheme](controls/swiperow-dark-scheme.png) |
+
+More states:
+
+| Keyboard focus |
+|---|
+| ![swipeRow, keyboard focus](controls/swiperow-keyboard-focus.png) |
+
+```nim
+var inbox = @["Al Noor Trading", "Sohar Port"]
+
+for i in countdown(inbox.high, 0):
+  let hit = swipeRow(inbox[i], ["Archive", "Delete"],
+                     detail = "Invoice 104" & $i, glyph = nfEnvelope,
+                     key = inbox[i])
+  if hit.action == 1:
+    inbox.delete(i)
+```
+
+**API**
+
+```nim
+proc swipeRow*(title: string; actions: openArray[string]; detail = ""; glyph = "";
+               colors: openArray[Color] = []; back = Color(); key = ""): SwipeHit
+```
+
+A list's row with actions behind it, as phones have them (Archive, Delete): swiped
+left -- or dragged with the mouse --, the row slides aside and shows them; a tap on one
+picks it, a tap on the row closes them. With the keyboard: Left shows them (Right in a
+right-to-left interface), Left and Right go along them, Enter picks, Esc hides them; a
+right click (a long press) opens them as a menu too. `detail`: a second, gray line;
+`glyph`: an icon before it (an icon font's); `colors`: the actions' (the last red when
+none is given); `back`: the row's color (the window's). One row's actions show at a
+time. `key`: its own id (rows of the same title).
+
+### actionSheet
+
+A phone's action sheet: what can be done to something, a button each -- the destructive one in red --, Cancel apart. On a phone it comes up from the bottom, elsewhere in the middle of the window; what is behind it dims. Esc, the phone's Back or a tap beside it cancel it.
+
+| Gloss | Glass |
+|---|---|
+| ![actionSheet: Gloss](controls/actionsheet-gloss.png) | ![actionSheet: Glass](controls/actionsheet-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![actionSheet: Matte](controls/actionsheet-matte.png) | ![actionSheet: Gloss, dark](controls/actionsheet-gloss-dark.png) |
+
+```nim
+var shareOpen = true
+
+case actionSheet(shareOpen, "Order 1042",
+                 ["Send by mail", "Print", "Delete order"], destructive = 2)
+of 0:
+  discard
+of 2:
+  discard
+else:
+  discard
+```
+
+**API**
+
+```nim
+proc actionSheet*(open: var bool; title: string; actions: openArray[string]; destructive = -1;
+                  cancel = "Cancel"; message = ""): int
+```
+
+A phone's action sheet, shown while `open`: what can be done to something, a button each
+-- the `destructive` one (Delete) in red --, Cancel apart under them. On a phone it comes
+up from the bottom, elsewhere in the middle of the window; what is behind it dims. Returns
+the action picked (and closes); -1 meanwhile, or when it was cancelled -- Cancel, Esc,
+the phone's Back, a tap beside it. Up and Down go along its buttons. Gloss: white glossy
+buttons on a dark sheet; Glass: its actions in a rounded card, Cancel in its own; Matte:
+flat rows.
+
+### bottomSheet
+
+A sheet that comes up from the bottom of the window, over the rest, with a handle and a title: filters, options, a short form. Esc, Back, a tap beside it or a drag of its top downward close it.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![bottomSheet, normal](controls/bottomsheet-normal.png) | ![bottomSheet, touch screen](controls/bottomsheet-touch-screen.png) | ![bottomSheet, dark scheme](controls/bottomsheet-dark-scheme.png) |
+
+```nim
+var filtersOpen = true
+var paidOnly = true
+var filterCups = 2
+
+bottomSheet(filtersOpen, "Filters"):
+  checkbox "&Paid only", paidOnly
+  row:
+    label "Cups:"
+    quantity(filterCups, 1, 12)
+  if button("&Apply", isDefault = true):
+    filtersOpen = false
+```
+
+**API**
+
+```nim
+template bottomSheet*(open: var bool; title: string; body: untyped)
+```
+
+A sheet that comes up from the bottom of the window while `open`, over the rest (dimmed),
+with a handle and its `title` at its top: filters, options, a short form. The full width
+on a phone, 560 pixels at most elsewhere. Esc, the phone's Back, a tap beside it or a
+drag of its top downward close it.
+
+### popover
+
+A bubble with an arrow to the control it is for, under it or over it as there is room: a few controls, a note. Esc or a click outside it closes it.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![popover, normal](controls/popover-normal.png) | ![popover, touch screen](controls/popover-touch-screen.png) | ![popover, dark scheme](controls/popover-dark-scheme.png) |
+
+```nim
+var infoOpen = true
+var infoAt: Rect
+
+if button("Saved"):
+  infoOpen = true
+infoAt = ui.lastRect
+popover(infoOpen, infoAt, 220):
+  label "Saved two minutes ago"
+  button("Copy link")
+```
+
+**API**
+
+```nim
+template popover*(open: var bool; anchor: Rect; width: int; body: untyped)
+```
+
+A bubble with an arrow to `anchor` -- the button that opened it (`ui.lastRect` right after
+it) --, under it or over it as there is room, `width` pixels wide, while `open`: a few
+controls or a note about it. Esc or a click outside it closes it.
+
+### alertBox
+
+A phone's alert: a title, a message, its buttons -- two side by side, more one under another. It waits for an answer: Enter presses the last button, Esc and Back its `cancel`; a tap beside it does nothing. Gloss: the dark blue glossy box of its time.
+
+| Gloss | Glass |
+|---|---|
+| ![alertBox: Gloss](controls/alertbox-gloss.png) | ![alertBox: Glass](controls/alertbox-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![alertBox: Matte](controls/alertbox-matte.png) | ![alertBox: Gloss, dark](controls/alertbox-gloss-dark.png) |
+
+```nim
+var askOpen = true
+
+case alertBox(askOpen, "Delete this order?", "It can\'t be brought back.",
+              ["Cancel", "Delete"], cancel = 0)
+of 1:
+  discard
+else:
+  discard
+```
+
+**API**
+
+```nim
+proc alertBox*(open: var bool; title: string; message = ""; buttons: openArray[string] = ["OK"];
+               cancel = -1): int
+```
+
+A phone's alert while `open`: a title, a message, its buttons -- two side by side, more one
+under another. Returns the button pressed (and closes); -1 meanwhile. Enter presses the
+last one (it has the keys first); Esc and the phone's Back press `cancel` (-1: they do
+nothing); a tap beside it does nothing -- it waits for an answer. Gloss: the dark blue
+glossy box of its time; Glass: frosted, its buttons in the highlight; Matte: a dark box,
+flat buttons; Classic: a 3.1 message box.
+
+### tableGroup, tableRow, tableSwitch, tableButton
+
+Rows in groups, as a phone's settings: a header over a group and a note under it; a row's icon, title, gray subtitle, a value at its end and a chevron (it leads to a page), a check mark (the one chosen) or an info button of its own; a switch's row; a button's row (red: destructive). Gloss: white rounded groups on pinstripes, the values in blue-gray, the chosen row blue; Glass: rounded cards; Matte: full-width rows, the header in the highlight.
+
+| Gloss | Glass |
+|---|---|
+| ![tableGroup, tableRow, tableSwitch, tableButton: Gloss](controls/tablegroup-gloss.png) | ![tableGroup, tableRow, tableSwitch, tableButton: Glass](controls/tablegroup-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![tableGroup, tableRow, tableSwitch, tableButton: Matte](controls/tablegroup-matte.png) | ![tableGroup, tableRow, tableSwitch, tableButton: Gloss, dark](controls/tablegroup-gloss-dark.png) |
+
+```nim
+var airplane = false
+
+tableGroup "":
+  tableSwitch("Airplane Mode", airplane, glyph = nfBolt)
+  discard tableRow("Wi-Fi", "Home", taChevron, glyph = nfWifi)
+tableGroup("DNS", "Lookups go to the server chosen."):
+  discard tableRow("Cloudflare", "12 ms", taCheck)
+  discard tableRow("AdGuard", "", taInfo, subtitle = "Blocks ads")
+tableGroup "":(discard tableButton("Reset Settings", destructive = true))
+```
+
+**API**
+
+```nim
+template tableGroup*(header, footer: string; body: untyped)
+```
+
+Rows (`tableRow`, `tableSwitch`, `tableButton`) in a group, as a phone's settings show
+them: `header` over it, `footer` (a note) under it. Gloss: a white rounded group with a gray
+line round it on the pinstripes, a line between its rows; Glass: a rounded card; Matte:
+full-width rows, the header in the highlight; Classic: a sunk white field.
+
+```nim
+template tableGroup*(header: string; body: untyped)
+```
+
+A group of rows with a header and no footer (see the other `tableGroup`).
+
+```nim
+proc tableRow*(title: string; detail = ""; accessory = taNone; glyph = ""; subtitle = "";
+               enabled = true; key = ""; picture: Bitmap = nil; tint = Color();
+               selected = false): TableHit
+```
+
+A row of a `tableGroup`: an icon (`glyph`, an icon font's -- Gloss and Glass draw it white
+on a rounded tile, gray or `tint`) or a `picture` (a cover, a face: square, its corners
+rounded), its `title`, a gray
+`subtitle` under it, a `detail` at its end (Gloss: in its blue-gray, as values were
+written), and an `accessory` -- a chevron (it leads to another page), a check mark (the
+one chosen) or an info button. A click, a tap, Enter or Space: `clicked`; the info
+button: `info`. `key`: its own id (rows of the same title). `selected`: the row whose
+page is shown beside the list (a tablet's): drawn chosen -- Gloss's blue.
+
+```nim
+proc tableSwitch*(title: string; v: var bool; glyph = ""; subtitle = ""; enabled = true;
+                  tint = Color()): bool {.discardable.}
+```
+
+A row of a `tableGroup` with a switch at its end (Wi-Fi, Airplane Mode): a click or a tap
+on the row or the switch flips it, Space too. True when `v` changed.
+
+```nim
+proc tableButton*(title: string; destructive = false; enabled = true): bool
+```
+
+A row of a `tableGroup` that does something at once (Sign Out, Reset): its title in the
+middle -- red when `destructive`. True when clicked.
+
+### searchBar
+
+A phone's search bar the width of the window: the search box on its bar, and while it has the keys or text, Cancel beside it (it empties it and lets the keyboard go).
+
+| Gloss | Glass |
+|---|---|
+| ![searchBar: Gloss](controls/searchbar-gloss.png) | ![searchBar: Glass](controls/searchbar-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![searchBar: Matte](controls/searchbar-matte.png) | ![searchBar: Gloss, dark](controls/searchbar-gloss-dark.png) |
+
+```nim
+var findText = ""
+
+searchBar(findText, "Search servers")
+```
+
+**API**
+
+```nim
+proc searchBar*(s: var string; placeholder = "Search"; cancel = "Cancel"): bool {.discardable.}
+```
+
+A phone's search bar, the width of the row: the search box on its bar, and while it has
+the keys or text, `cancel` beside it -- it empties the box and lets the keyboard go ("":
+none). True when the text changed. Gloss: the steel-blue bar, a capsule in it.
+
+### actionBar
+
+The bar of a phone screen's actions along the bottom of the window, called before the content: a glyph and a label each, Back at its start; -2 is Back. `signature`: the screen's main action, in a circle of the highlight (Matte). Gloss: the steel-blue tool bar; Matte: a dark bar, Back a tab with a slanted edge.
+
+| Gloss | Glass |
+|---|---|
+| ![actionBar: Gloss](controls/actionbar-gloss.png) | ![actionBar: Glass](controls/actionbar-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![actionBar: Matte](controls/actionbar-matte.png) | ![actionBar: Gloss, dark](controls/actionbar-gloss-dark.png) |
+
+```nim
+discard
+
+case actionBar([(nfPlus, "New"), (nfShare, "Share"), (nfTrash, "Delete")],
+               back = "Back", signature = 1)
+of -2:
+  discard
+of 1:
+  discard
+else:
+  discard
+label "The page\'s content"
+```
+
+**API**
+
+```nim
+proc actionBar*(actions: openArray[(string, string)]; back = ""; signature = -1): int
+```
+
+The bar of a phone screen's actions along the bottom of the window (call it before the
+content, as `bottomNav`): a glyph and a label each (`[(nfPlus, "New"), (nfTrash,
+"Delete")]`), Back at its start (`back`: its label; "" none). Returns the action tapped,
+-2 for Back, -1 meanwhile. `signature`: the screen's main action, in the middle, in a
+circle of the highlight (Matte). Gloss: the steel-blue tool bar, white glyphs; Matte:
+the dark bar, Back a tab with a slanted edge; Glass: see-through, glyphs in the highlight;
+Classic: a 3.1 tool bar at the foot.
 
 ## Files
 
@@ -8867,13 +9392,15 @@ if t.clicked or t.picked == 0:
 
 ### Themes
 
-Twenty-eight color schemes come with the kit (`builtinThemes`): Classic,
+Thirty-four color schemes come with the kit (`builtinThemes`): Classic,
 Gray, Dark, OLED Black, Ocean, Desert, Plum, Hot Dog, Paper, High Contrast,
 High Contrast White, Midnight, Emerald, Rose, Slate, Mahogany, Amber and
-Green Screen -- and ten made for a phone's screen, from white to dark:
+Green Screen -- ten made for a phone's screen, from white to dark:
 Notes (a notepad's cream paper and amber marker), Snow (white, a blue
 highlight), Mint, Sky, Blossom, Lavender and Sunset (pale, each with a
-colour of its own), and the dark Graphite, Dusk and Night Notes. Set one
+colour of its own), and the dark Graphite, Dusk and Night Notes -- and a
+light and a dark one for each of the looks: Glass, Matte and Gloss (shown
+here in their looks). Set one
 with `ui.theme = Ocean` or `app`'s `theme`, or let the user pick it in
 `appearanceSettings`. A `Theme` of your own is an object of colors
 (`window`, `text`, `face`, `select`...); in every scheme the text reads on
@@ -8938,6 +9465,14 @@ the window, the fields, the buttons and the highlight (4.5 to 1 or more).
 | Glass Light | Glass Dark |
 |---|---|
 | ![Themes: Glass Light](controls/themes-glass-light.png) | ![Themes: Glass Dark](controls/themes-glass-dark.png) |
+
+| Matte Light | Matte Dark |
+|---|---|
+| ![Themes: Matte Light](controls/themes-matte-light.png) | ![Themes: Matte Dark](controls/themes-matte-dark.png) |
+
+| Gloss Light | Gloss Dark |
+|---|---|
+| ![Themes: Gloss Light](controls/themes-gloss-light.png) | ![Themes: Gloss Dark](controls/themes-gloss-dark.png) |
 
 ### A look of your own
 

@@ -84,9 +84,11 @@ on a fixed time step, timed steps played forward and back, a box that
 flies from a list into its own -- Graph (`retroui/forcegraph`): a topic map
 and a mind map that lay themselves out, their nodes dragged -- Terminal
 (`retroui/terminal`): your shell in a box, a Terminal menu in the menu bar while it is
-shown, a find bar, a picture shown by kitty's graphics protocol -- and Surfaces: frosted glass
+shown, a find bar, a picture shown by kitty's graphics protocol -- Surfaces: frosted glass
 over bands of color, a card that floats, a picture in a circle, their blur,
-shadow and corners on sliders. The Jobs page shows one slow load shared by
+shadow and corners on sliders -- and Phone (`retroui/mobile`): a navigation bar, picker
+wheels for a size, a day and a time, rows of mail with Archive and Delete behind them, a
+number with - and +, page dots, an action sheet, a bottom sheet of filters and a popover. The Jobs page shows one slow load shared by
 two views (`retroui/queries`).
 
 ```sh
@@ -281,6 +283,19 @@ Filter > Render > **Procedural Texture**; an **isometric** grid. Type >
 **Fill with Placeholder Text** fills a box with Lorem Ipsum, Arabic, the
 two in turn or your own words -- so many paragraphs, or as many as fill
 it.
+
+**Two more looks** (5.17.3): Preferences > Appearance > Look has Matte --
+flat and sharp, a clear blue -- and Gloss -- glossy buttons on a window of
+pinstripes, title and tool bars lit from above -- beside Classic and
+Glass, each with a light and a dark scheme.
+
+**Layout > Booklet** (5.17.3): a booklet's format (A5 or B5 saddle
+stitch, an A4 sheet: New Booklet makes one), its grid in millimeters
+(columns, gutter, the four margins; back to the format's values), a folio
+and a running head where you say -- on the outside, the right of odd pages
+and the left of even ones; not on the cover, the blank pages and the back
+cover --, and its pages seen one at a time, in spreads, or on the
+printer's sheets as they fold.
 
 **Artboards as the drawing program has them** (5.17.2): pages of the
 canvas, not layers -- the artwork lies anywhere and goes with the
@@ -820,6 +835,14 @@ nimble navigator            # or: nim c -r -d:release examples/navigator.nim
 
 ## Retro DNS
 
+1.6: on a phone in the Glass, Matte or Gloss look it is a phone app -- a tab bar (DNS,
+Servers, Favourites, More), a navigation bar, pages that slide in, rows in groups (the VPN's
+switch, the server picked ticked, each server's info button for its page, its addresses copied
+with a tap, Test All Servers and Pick the Fastest under the groups) --; on a tablet the
+sections are a list down the left and the page of the one picked is beside it, each under its
+own navigation bar. Its APK starts in Gloss, as phone apps were drawn in 2012 (Settings >
+Appearance changes it).
+
 ![Retro DNS: the servers, Cloudflare's details, and Use on This Computer](../docs/examples/retrodns.png)
 
 `retrodns.nim` changes the DNS server a phone, a tablet or a computer
@@ -882,6 +905,34 @@ sh examples/retrodns/build.sh dex           # its Java compiled again (javac, d8
 
 `tests/test_retrodns.nim` checks its servers, the CSV, the VPN's
 settings, the scripts and the profile.
+
+
+## Retro Music
+
+`music.nim` (with `music/api.nim`, `music/screens.nim`) plays Spotify and
+YouTube through their own services, and nothing else:
+
+- **Spotify:** make an app of your own at developer.spotify.com, with the
+  Redirect URI `http://127.0.0.1`, and give Retro Music its Client ID in
+  Settings; Sign In opens Spotify's page in your browser (`retroui/oauth`,
+  PKCE). Search, your playlists, your liked songs and what you played
+  lately come from Spotify's Web API. The music plays in your own Spotify
+  apps and speakers -- Spotify Connect, which needs Premium -- and Retro
+  Music is their remote: play a song or a playlist from one of its songs,
+  pause, next, seek, and the device it plays on.
+- **YouTube:** a key of Google Cloud's with the YouTube Data API v3 on finds
+  music videos; YouTube's own embedded player plays them (in the app on a
+  phone; on a computer, Open in YouTube Music). Save the ones you like.
+- **Lyrics:** from LrcLib, timed: the line sung is in the highlight.
+
+A tab bar (Home, Search, Library, Settings), a mini player over it and
+pages on a phone; the pages beside a list on a computer. It starts in the
+Glass look.
+
+```sh
+nimble music                # or: nim c -r -d:release examples/music.nim
+RETRO_APP=music nimble appapk
+```
 
 ## Retro Podcast
 

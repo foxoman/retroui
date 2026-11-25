@@ -1803,6 +1803,10 @@ proc paramsBody() =
 
 proc adjustDialog() =
   if not adjOpen: return
+  if adjDoc == nil:
+    # (its document closed under it -- Close All, a script --: the dialog with it)
+    adjOpen = false
+    return
   var stillOpen = adjOpen
   dialog(stillOpen, adjName(adjKind), (case adjKind
                                          of akLevels, akCurves, akHueCurves: 420

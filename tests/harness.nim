@@ -83,7 +83,10 @@ proc run*(n = 1) =
   var tail = 1
   while i < n or queue.len > 0 or eventsWaiting() > 0 or tail > 0:
     if i >= n and queue.len == 0 and eventsWaiting() == 0: dec tail
-    discard beginFrame()
+    if not beginFrame():
+      # (the app ended -- quitApp, its window closed, the phone's Back -- and takes no more
+      # input: a test that still has some fails here, instead of running frames forever)
+      doAssert queue.len == 0 and eventsWaiting() == 0, "the app ended with input still to come"
     view()
     endFrame()
     inc i

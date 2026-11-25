@@ -995,6 +995,7 @@ proc layoutMenu() =
   ci("&New Book...", "New Book...")
   ci("Document &Setup...", "Document Setup...", enabled = isBook)
   ci("Margins and Col&umns...", "Margins and Columns...", enabled = isBook)
+  ci("&Booklet...", "Booklet...")
   ci("Create &Guides...", "Create Guides...", enabled = some)
   ci("&Adjust Layout...", "Adjust Layout...", enabled = some)
   ci("Create Alternate La&yout...", "Create Alternate Layout...", enabled = some)

@@ -9,6 +9,9 @@ Messages. It answers by rule, not by thinking:
 - the tools' results back -> "Done: " and the results joined by " | "
 - anything else -> "You said: " and the text (and "with a picture" when one came)
 
+A model whose name starts with "reasoner" refuses tools unless asked with reasoning_effort "none"
+(as OpenAI's reasoning models do through chat completions).
+
 POST /v1/images/generations and /v1/images/edits answer with a PNG of the size asked (red;
 an edit: green), as base64. GET /state: the last request of each address, as JSON.
 
@@ -126,6 +129,15 @@ class H(BaseHTTPRequestHandler):
             body = json.loads(raw)
             last['chat'] = body
             last['auth'] = self.headers.get('Authorization', '')
+            if (body.get('model', '').startswith('reasoner') and body.get('tools')
+                    and body.get('reasoning_effort') != 'none'):
+                # (a model that reasons, as OpenAI's newer ones: no function tools through chat
+                # completions while it does)
+                self.reply(400, {'error': {
+                    'message': 'Function tools with reasoning are not supported for ' + body['model'] +
+                               ' in /v1/chat/completions. Set reasoning_effort to none, or use /v1/responses.',
+                    'type': 'invalid_request_error', 'param': 'reasoning_effort'}})
+                return
             kind, what = decide(openai_msgs(body))
             if kind == 'text':
                 msg = {'role': 'assistant', 'content': what}

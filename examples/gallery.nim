@@ -1314,6 +1314,93 @@ proc surfacesPage() =
   label("In the Glass look the menus, the dialogs and the lists a combo box drops down are frosted " &
         "glass too.", color = ui.theme.gray)
 
+var
+  phSize = 1
+  phDay = date(2026, 11, 25)
+  phHour = 9
+  phMinute = 30
+  phCups = 2
+  phPage = 0
+  phSheet, phBottom, phPop, phPaid, phAlert, phWifi, phAir = false
+  phFind = ""
+  phServer = 0
+  phAt: Rect
+  phNote = "Swipe a row to the left (or drag it with the mouse) for its actions."
+  phMail = @[("Al Noor Trading", "Invoice 1042, paid"), ("Sohar Port", "Shipment at the gate"),
+             ("Nizwa Dates", "Order for the fair"), ("Salalah Frankincense", "Samples sent")]
+
+proc phonePage() =
+  ## (retroui/mobile: a navigation bar, a search bar, rows in groups, wheels, a number with - and +,
+  ## page dots, rows with actions behind them, an action sheet, an alert, a bottom sheet, a popover
+  ## -- in every look)
+  case navBar("Inbox", back = "Mail", action = "Edit")
+  of npBack: status = "Back to Mail"
+  of npAction: phSheet = true
+  of npNone: discard
+  searchBar(phFind, "Search the settings")
+  adaptive(300):
+    group "tableGroup, tableRow, tableSwitch, tableButton":
+      tableGroup "":
+        tableSwitch("Airplane Mode", phAir, glyph = nfBolt, tint = color(255, 140, 0))
+        tableSwitch("Wi-Fi", phWifi, glyph = nfWifi, tint = color(40, 120, 230))
+        if tableRow("Bluetooth", "On", taChevron, glyph = nfBluetooth, tint = color(40, 120, 230)).clicked:
+          status = "Bluetooth"
+      tableGroup("DNS", "A tap picks one; its info button tells more."):
+        for i, n in ["Cloudflare", "Quad9", "AdGuard"]:
+          let h = tableRow(n, ["12 ms", "18 ms", "21 ms"][i], if i == phServer: taCheck else: taInfo, key = n)
+          if h.clicked: phServer = i
+          if h.info: status = "About " & n
+      tableGroup "":
+        if tableButton("Reset Settings...", destructive = true): phAlert = true
+    group "wheelPicker, dateWheels, timeWheels":
+      row:
+        wheelPicker(["Small", "Medium", "Large", "Family", "Party"], phSize, label = "Size")
+        timeWheels(phHour, phMinute, minuteStep = 5)
+      dateWheels(phDay)
+      label(["Small", "Medium", "Large", "Family", "Party"][phSize] & ", " & $phDay.day & " " &
+            monthNames[phDay.month - 1] & " " & $phDay.year & ", " & $phHour & ":" &
+            (if phMinute < 10: "0" else: "") & $phMinute, color = ui.theme.gray)
+    group "swipeRow, quantity, pageDots":
+      for i in countdown(phMail.high, 0):
+        let hit = swipeRow(phMail[i][0], ["Archive", "Delete"], detail = phMail[i][1],
+                           glyph = nfEnvelope, key = "mail" & phMail[i][0])
+        if hit.clicked: phNote = "Opened " & phMail[i][0]
+        if hit.action >= 0:
+          phNote = (if hit.action == 0: "Archived " else: "Deleted ") & phMail[i][0]
+          phMail.delete(i)
+      if phMail.len == 0 and button("&Bring them back"):
+        phMail = @[("Al Noor Trading", "Invoice 1042, paid"), ("Sohar Port", "Shipment at the gate"),
+                   ("Nizwa Dates", "Order for the fair"), ("Salalah Frankincense", "Samples sent")]
+      label(phNote, color = ui.theme.gray)
+      row:
+        label "C&ups:"
+        quantity(phCups, 1, 12, label = "Cups")
+      pageDots(phPage, 5)
+      row:
+        if button("&Action sheet..."): phSheet = true
+        if button("Botto&m sheet..."): phBottom = true
+        if button("Pop&over..."): phPop = true
+        phAt = ui.lastRect
+  case actionSheet(phSheet, "Inbox", ["Mark all as read", "Move to Archive", "Delete all"], destructive = 2)
+  of 0: status = "All read"
+  of 1: status = "All moved"
+  of 2: status = "All deleted"
+  else: discard
+  bottomSheet(phBottom, "Filters"):
+    checkbox "&Paid only", phPaid
+    row:
+      label "Cups:"
+      quantity(phCups, 1, 12, label = "Cups in the filter")
+    if button("&Apply", isDefault = true): phBottom = false
+  case alertBox(phAlert, "Reset all settings?", "They go back to how they came.", ["Cancel", "Reset"], cancel = 0)
+  of 1: status = "Settings reset"
+  else: discard
+  popover(phPop, phAt, 240):
+    label "Saved two minutes ago"
+    if button("&Copy link"):
+      status = "Link copied"
+      phPop = false
+
 proc graphPage() =
   ## (retroui/forcegraph: graphs that lay themselves out)
   adaptive(340):
@@ -1437,7 +1524,8 @@ proc motionPage() =
         label("Click a row: it flies into the box; another sends it back.", color = ui.theme.gray)
 
 proc kitTab() =
-  tabs kTab, ["F&orms", "Co&de", "&Pages", "&Jobs", "Mo&tion", "&Graph", "Te&rminal", "&Surfaces"]:
+  tabs kTab, ["F&orms", "Co&de", "&Pages", "&Jobs", "Mo&tion", "&Graph", "Te&rminal", "&Surfaces",
+              "Pho&ne"]:
     case kTab
     of 0:
       adaptive(300):
@@ -1487,6 +1575,7 @@ proc kitTab() =
     of 5: graphPage()
     of 6: terminalPage()
     of 7: surfacesPage()
+    of 8: phonePage()
     else:
       adaptive(300):
         group "A job on another thread (retroui/jobs)":
@@ -2040,7 +2129,10 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
             "for Nim on Windows, macOS, Linux, Android and iOS."],
            tagline = "Every control of Retro Nim UI",
            iconPng = GalleryIconPng, glyph = pxApp,
-           whatsNew = ["Forms & Code > Terminal: kitty's keys and pictures for the programs that ask, a " &
+           whatsNew = ["Forms & Code > Phone: a navigation bar, picker wheels, a number with - and +, " &
+                       "page dots, rows with actions behind them, an action sheet, a bottom sheet, a " &
+                       "popover; two more looks, Matte and Gloss (View > Appearance)",
+                       "Forms & Code > Terminal: kitty's keys and pictures for the programs that ask, a " &
                        "Terminal menu in the menu bar, a find bar (Ctrl+Shift+F), a picture shown in it; " &
                        "the Glass look lit from above, its fields, tabs, groups and menus rounded",
                        "Forms & Code > Terminal: your shell in a box, its colors, scrolling back, copy " &

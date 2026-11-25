@@ -7,6 +7,7 @@
 ##
 ##   nim c -r -d:release --hints:off tools/shots.nim      (from the repository's root)
 ##   SHOTS_ONLY=button,combo ./shots                      only these pictures, no guide
+##   SHOTS_MD=part.md SHOTS_ONLY=button ./shots            ... and their parts of the guide in part.md
 ##
 ## Headless: a fake screen driver, the built-in fonts, no window. The files
 ## the file controls show are made in the temp folder ($HOME is set to a
@@ -360,9 +361,9 @@ app "Ledger", 900, 600,
 ```
 
 A misspelled option is a compile error that lists them all. `RETRO_FRAME`,
-`RETRO_GPU`, `RETRO_SCALE`, `RETRO_THEME`, `RETRO_SIZE` and `RETRO_ZOOM`
+`RETRO_GPU`, `RETRO_SCALE`, `RETRO_THEME`, `RETRO_LOOK`, `RETRO_SIZE` and `RETRO_ZOOM`
 win over them when the app starts: handy for trying a phone's size on a
-desktop (`RETRO_SIZE=420x840 RETRO_TOUCH=1 ./myapp`).
+desktop (`RETRO_SIZE=420x840 RETRO_TOUCH=1 RETRO_LOOK=gloss ./myapp`).
 
 An app that runs its own frame loop calls `openApp` with the same options:
 
@@ -1681,6 +1682,174 @@ example("captionbar", "captionBar",
 opts(noPicture = "Drawn with the window's frame: see the pictures in [The window's frame](#the-windows-frame).")
 
 # ======================================================================================================
+# Phone controls
+# ======================================================================================================
+
+proc lookOf(name: string; lk: UiLook; dark = false): Look =
+  ## (a picture in one of the newer looks, in its own scheme, at a finger's sizes)
+  look(name, proc () =
+    uiLook = lk
+    ui.theme = if dark: lookSchemes(lk).dark else: lookSchemes(lk).light,
+    proc () =
+      uiLook = lookClassic
+      ui.theme = Classic, touch = true)
+
+let phoneLooks = @[lookOf("Gloss", lookGloss), lookOf("Glass", lookGlass), lookOf("Matte", lookMatte),
+                   lookOf("Gloss, dark", lookGloss, true)]
+
+part("Phone controls", """
+What phones have and desktops can use as well (`retroui/mobile`): a navigation bar, picker
+wheels, a number with - and +, page dots, rows with actions behind them, an action sheet, a
+bottom sheet and a popover. They are drawn in every look -- the pictures show the Classic
+one; the gallery's Forms & Code > Phone page shows them in Glass, Matte and Gloss -- and work
+with the mouse, the keys, fingers and screen readers. Some show the newer looks too: Gloss as
+phones drew their controls in 2012, Glass as they draw them now, Matte flat and sharp.
+""")
+
+example("navbar", "navBar",
+        "A phone's navigation bar: the page's title in the middle, Back before it, a button after it. Alt+Left is Back too. In Gloss the glossy blue-gray bar with bordered buttons; in Glass and Matte the buttons are their labels in the highlight.",
+        420, 50, ["navBar", "NavPick"], @[ssNormal, ssTouch, ssDark, ssFocused, ssPressed]):
+  case navBar("Order 1042", back = "Orders", action = "Edit")
+  of npBack: discard            # (back a page)
+  of npAction: discard          # (edit it)
+  of npNone: discard
+  aimAt(0.08, 0.5)
+opts(looks = phoneLooks)
+
+example("wheelpicker", "wheelPicker",
+        "A phone's picker wheel: the items round a drum, the one chosen in the band across its middle. Drag it -- let go fast and it spins on, slowing, and stops on a row --, click a row, turn the mouse wheel; Up and Down, Page Up and Down, Home and End, a letter. A long list (years, numbers) is made as it shows: `wheelPicker(count, proc (i: int): string = ..., sel)`.",
+        200, 150, ["wheelPicker"], @[ssNormal, ssTouch, ssDark, ssFocused, ssDisabled]):
+  var portion = 1
+do:
+  wheelPicker(["Small", "Medium", "Large", "Family", "Party"], portion, label = "Size")
+  aim()
+
+example("datewheels", "dateWheels, timeWheels",
+        "A day and a time as a phone picks them: wheels side by side -- the day, the month and the year in the order `dateStyle` writes them (a day the month has not becomes its last); the hour and the minute (by a step; 1 to 12 and AM/PM with `hours12`).",
+        600, 150, ["dateWheels", "timeWheels", "wheelGroup"], std3):
+  var trip = date(2026, 11, 25)
+  var tripHour = 9
+  var tripMinute = 30
+do:
+  row:
+    dateWheels(trip)
+    timeWheels(tripHour, tripMinute, minuteStep = 5)
+opts(looks = phoneLooks)
+
+example("quantity", "quantity",
+        "A number between a - and a +, as a phone's stepper: how many in a basket, a text's size. Held, a button goes on; the arrow keys, + and -, Page Up and Down, Home and End; the wheel over it.",
+        220, 50, ["quantity"], @[ssNormal, ssTouch, ssDark, ssFocused, ssDisabled]):
+  var basket = 3
+do:
+  row:
+    label "Cups:"
+    quantity(basket, 1, 12, label = "Cups")
+    aim()
+
+example("pagedots", "pageDots",
+        "A phone's page dots: one a page, the one shown filled. Click a dot, or either side of them for the page before or after; Left and Right, Home and End.",
+        220, 40, ["pageDots"], @[ssNormal, ssTouch, ssDark, ssFocused]):
+  var shownPage = 1
+do:
+  pageDots(shownPage, 5)
+  aim()
+
+example("swiperow", "swipeRow",
+        "A list's row with actions behind it: swiped left (or dragged with the mouse) it slides aside and shows them; a tap on one picks it. Left, Right and Enter with the keys; a right click opens them as a menu. One row's actions show at a time.",
+        360, 130, ["swipeRow", "SwipeHit"], @[ssNormal, ssTouch, ssDark, ssFocused]):
+  var inbox = @["Al Noor Trading", "Sohar Port"]
+do:
+  for i in countdown(inbox.high, 0):
+    let hit = swipeRow(inbox[i], ["Archive", "Delete"], detail = "Invoice 104" & $i,
+                       glyph = nfEnvelope, key = inbox[i])
+    if hit.action == 1: inbox.delete(i)
+  aim()
+
+example("actionsheet", "actionSheet",
+        "A phone's action sheet: what can be done to something, a button each -- the destructive one in red --, Cancel apart. On a phone it comes up from the bottom, elsewhere in the middle of the window; what is behind it dims. Esc, the phone's Back or a tap beside it cancel it.",
+        420, 280, ["actionSheet"], @[ssNormal, ssDark]):
+  var shareOpen = true
+do:
+  case actionSheet(shareOpen, "Order 1042", ["Send by mail", "Print", "Delete order"], destructive = 2)
+  of 0: discard                 # (mail it)
+  of 2: discard                 # (delete it)
+  else: discard
+opts(settle = 300, reset = proc () = shareOpen = true, looks = phoneLooks)
+
+example("bottomsheet", "bottomSheet",
+        "A sheet that comes up from the bottom of the window, over the rest, with a handle and a title: filters, options, a short form. Esc, Back, a tap beside it or a drag of its top downward close it.",
+        420, 280, ["bottomSheet"], @[ssNormal, ssTouch, ssDark]):
+  var filtersOpen = true
+  var paidOnly = true
+  var filterCups = 2
+do:
+  bottomSheet(filtersOpen, "Filters"):
+    checkbox "&Paid only", paidOnly
+    row:
+      label "Cups:"
+      quantity(filterCups, 1, 12)
+    if button("&Apply", isDefault = true): filtersOpen = false
+opts(settle = 300, reset = proc () = filtersOpen = true)
+
+example("popover", "popover",
+        "A bubble with an arrow to the control it is for, under it or over it as there is room: a few controls, a note. Esc or a click outside it closes it.",
+        320, 150, ["popover"], std3):
+  var infoOpen = true
+  var infoAt: Rect
+do:
+  if button("Saved"): infoOpen = true
+  infoAt = ui.lastRect
+  popover(infoOpen, infoAt, 220):
+    label "Saved two minutes ago"
+    button("Copy link")
+opts(reset = proc () = infoOpen = true)
+
+example("alertbox", "alertBox",
+        "A phone's alert: a title, a message, its buttons -- two side by side, more one under another. It waits for an answer: Enter presses the last button, Esc and Back its `cancel`; a tap beside it does nothing. Gloss: the dark blue glossy box of its time.",
+        360, 220, ["alertBox"], @[ssNormal, ssDark]):
+  var askOpen = true
+do:
+  case alertBox(askOpen, "Delete this order?", "It can't be brought back.", ["Cancel", "Delete"], cancel = 0)
+  of 1: discard                 # (delete it)
+  else: discard
+opts(settle = 300, reset = proc () = askOpen = true, looks = phoneLooks)
+
+example("tablegroup", "tableGroup, tableRow, tableSwitch, tableButton",
+        "Rows in groups, as a phone's settings: a header over a group and a note under it; a row's icon, title, gray subtitle, a value at its end and a chevron (it leads to a page), a check mark (the one chosen) or an info button of its own; a switch's row; a button's row (red: destructive). Gloss: white rounded groups on pinstripes, the values in blue-gray, the chosen row blue; Glass: rounded cards; Matte: full-width rows, the header in the highlight.",
+        360, 330, ["tableGroup", "tableRow", "TableAccessory", "TableHit", "tableSwitch", "tableButton"], std3):
+  var airplane = false
+do:
+  tableGroup "":
+    tableSwitch("Airplane Mode", airplane, glyph = nfBolt)
+    discard tableRow("Wi-Fi", "Home", taChevron, glyph = nfWifi)
+  tableGroup("DNS", "Lookups go to the server chosen."):
+    discard tableRow("Cloudflare", "12 ms", taCheck)
+    discard tableRow("AdGuard", "", taInfo, subtitle = "Blocks ads")
+  tableGroup "":
+    discard tableButton("Reset Settings", destructive = true)
+opts(looks = phoneLooks)
+
+example("searchbar", "searchBar",
+        "A phone's search bar the width of the window: the search box on its bar, and while it has the keys or text, Cancel beside it (it empties it and lets the keyboard go).",
+        360, 60, ["searchBar"], std3):
+  var findText = ""
+do:
+  searchBar(findText, "Search servers")
+opts(looks = phoneLooks)
+
+example("actionbar", "actionBar",
+        "The bar of a phone screen's actions along the bottom of the window, called before the content: a glyph and a label each, Back at its start; -2 is Back. `signature`: the screen's main action, in a circle of the highlight (Matte). Gloss: the steel-blue tool bar; Matte: a dark bar, Back a tab with a slanted edge.",
+        360, 110, ["actionBar"], std3):
+  discard
+do:
+  case actionBar([(nfPlus, "New"), (nfShare, "Share"), (nfTrash, "Delete")], back = "Back", signature = 1)
+  of -2: discard                # (back)
+  of 1: discard                 # (share)
+  else: discard
+  label "The page's content"
+opts(looks = phoneLooks)
+
+# ======================================================================================================
 # Files
 # ======================================================================================================
 
@@ -2444,19 +2613,25 @@ proc sampleUi() =
       progress(0.6)
 
 proc themeLook(name: string; t: Theme): Look =
+  ## (a look's own schemes in their look)
   let before = Classic
-  look(name, proc () = ui.theme = t, proc () = ui.theme = before)
+  var lk = lookClassic
+  for l in [lookGlass, lookMatte, lookGloss]:
+    if t in [lookSchemes(l).light, lookSchemes(l).dark]: lk = l
+  look(name, proc () = (ui.theme = t; uiLook = lk), proc () = (ui.theme = before; uiLook = lookClassic))
 
 part("Looks", """
 ### Themes
 
-Twenty-eight color schemes come with the kit (`builtinThemes`): Classic,
+Thirty-four color schemes come with the kit (`builtinThemes`): Classic,
 Gray, Dark, OLED Black, Ocean, Desert, Plum, Hot Dog, Paper, High Contrast,
 High Contrast White, Midnight, Emerald, Rose, Slate, Mahogany, Amber and
-Green Screen -- and ten made for a phone's screen, from white to dark:
+Green Screen -- ten made for a phone's screen, from white to dark:
 Notes (a notepad's cream paper and amber marker), Snow (white, a blue
 highlight), Mint, Sky, Blossom, Lavender and Sunset (pale, each with a
-colour of its own), and the dark Graphite, Dusk and Night Notes. Set one
+colour of its own), and the dark Graphite, Dusk and Night Notes -- and a
+light and a dark one for each of the looks: Glass, Matte and Gloss (shown
+here in their looks). Set one
 with `ui.theme = Ocean` or `app`'s `theme`, or let the user pick it in
 `appearanceSettings`. A `Theme` of your own is an object of colors
 (`window`, `text`, `face`, `select`...); in every scheme the text reads on
@@ -2813,7 +2988,7 @@ const apiModules = ["widgets", "extras", "business", "morecontrols", "records", 
   "toolcustom", "dock", "textwidgets", "filewidgets", "charts", "planning", "mapview",
   "view3d", "htmlview", "markdown", "richedit", "media", "qrcode", "pdfview", "core", "gfx",
   "platform", "files", "textfile", "mediagif", "imaging", "templates", "native", "canvas2d",
-  "report", "tilemap", "gltf", "capture", "mediasession", "motion", "forcegraph", "forcelayout", "assistant", "aichat", "aiimage", "modelstore", "devicemodel", "llm", "meaning", "terminal"]
+  "report", "tilemap", "gltf", "capture", "mediasession", "motion", "forcegraph", "forcelayout", "assistant", "aichat", "aiimage", "modelstore", "devicemodel", "llm", "meaning", "terminal", "mobile"]
   ## Where the API is read from; a name in several is shown from the first
   ## (or as "module.name").
 
@@ -3123,6 +3298,24 @@ proc pictureTables(s: Shot; outDir: string; count: var int): string =
   if moreH.len > 0:
     result.add "More states:\n\n" & table(moreH, moreC)
 
+proc section(s: Shot; api: Table[string, seq[ApiDoc]]; outDir: string; count: var int): string =
+  ## (one example's part of the guide: its title, what it is, its pictures, its code, its API)
+  result.add "### " & s.title & "\n\n"
+  if s.about.len > 0: result.add s.about & "\n\n"
+  result.add pictureTables(s, outDir, count)
+  var code = cleanCode(s.code)
+  if s.decls.len > 0: code = cleanCode(s.decls) & "\n\n" & code
+  result.add "```nim\n" & code & "\n```\n\n"
+  var sigs = ""
+  var shown: seq[string]
+  for a in s.apis:
+    if a in shown: continue
+    shown.add a
+    for d in apiOf(api, a):
+      sigs.add "```nim\n" & d.sig & "\n```\n\n"
+      if d.doc.len > 0: sigs.add docText(d.doc) & "\n\n"
+  if sigs.len > 0: result.add "**API**\n\n" & sigs
+
 proc main() =
   let outDir = "docs" / "controls"
   let only = getEnv("SHOTS_ONLY").split(',').filterIt(it.len > 0)
@@ -3134,9 +3327,16 @@ proc main() =
   view = proc () = discard
   startApp("shots", W, H)
   if only.len > 0:
+    # (SHOTS_MD=file: those examples' parts of the guide written there, to put in it by hand)
+    let mdOut = getEnv("SHOTS_MD")
+    let api = if mdOut.len > 0: readApi() else: initTable[string, seq[ApiDoc]]()
     var count = 0
+    var md = ""
     for s in shots:
-      if s.name in only: discard pictureTables(s, outDir, count)
+      if s.name in only:
+        if mdOut.len > 0: md.add section(s, api, outDir, count)
+        else: discard pictureTables(s, outDir, count)
+    if mdOut.len > 0: writeFile(mdOut, md)
     echo count, " pictures in ", outDir, " (the guide not written)"
     removeDir(sampleRoot)
     return
@@ -3165,21 +3365,7 @@ proc main() =
     for s in shots:
       if s.part != p.title or s.inline: continue
       entries.add "[" & s.title & "](#" & slug(s.title, used) & ")"
-      body.add "### " & s.title & "\n\n"
-      if s.about.len > 0: body.add s.about & "\n\n"
-      body.add pictureTables(s, outDir, count)
-      var code = cleanCode(s.code)
-      if s.decls.len > 0: code = cleanCode(s.decls) & "\n\n" & code
-      body.add "```nim\n" & code & "\n```\n\n"
-      var sigs = ""
-      var shown: seq[string]
-      for a in s.apis:
-        if a in shown: continue
-        shown.add a
-        for d in apiOf(api, a):
-          sigs.add "```nim\n" & d.sig & "\n```\n\n"
-          if d.doc.len > 0: sigs.add docText(d.doc) & "\n\n"
-      if sigs.len > 0: body.add "**API**\n\n" & sigs
+      body.add section(s, api, outDir, count)
     if p.outro.len > 0:
       var outro = p.outro.strip
       while true:

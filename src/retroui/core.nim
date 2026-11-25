@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy, hangwatch, frameprof
 export busy
 
-const RetroVersion* = "0.74.0"
+const RetroVersion* = "0.75.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -458,6 +458,55 @@ const
     hover: color(40, 54, 80), face2: color(64, 67, 78),
     inactiveTitle: color(28, 30, 36), inactiveTitleText: color(154, 160, 174))
     ## ... and its dark one: near black, smoked glass.
+  MatteLight* = Theme(
+    window: color(246, 246, 246), text: color(38, 38, 38),
+    face: color(236, 236, 236), light: color(255, 255, 255),
+    shadow: color(196, 196, 196), frame: color(112, 112, 112),
+    select: color(0, 120, 192), selectText: color(255, 255, 255),
+    gray: color(146, 146, 146), field: color(255, 255, 255),
+    fieldText: color(38, 38, 38), scroll: color(236, 236, 236),
+    tip: color(250, 250, 250), tipText: color(38, 38, 38),
+    line: color(214, 214, 214), edge: color(186, 186, 186), link: color(0, 120, 196),
+    hover: color(226, 240, 250), face2: color(250, 250, 250),
+    inactiveTitle: color(246, 246, 246), inactiveTitleText: color(120, 120, 120))
+    ## For the Matte look (`uiLook`): flat whites and grays, a clear blue to choose with.
+  MatteDark* = Theme(
+    window: color(24, 24, 26), text: color(238, 238, 238),
+    face: color(50, 50, 54), light: color(84, 84, 90),
+    shadow: color(12, 12, 13), frame: color(0, 0, 0),
+    select: color(0, 120, 192), selectText: color(255, 255, 255),
+    gray: color(120, 120, 126), field: color(34, 34, 37),
+    fieldText: color(238, 238, 238), scroll: color(38, 38, 41),
+    tip: color(52, 52, 56), tipText: color(238, 238, 238),
+    line: color(62, 62, 66), edge: color(84, 84, 90), link: color(80, 180, 240),
+    hover: color(28, 56, 76), face2: color(60, 60, 64),
+    inactiveTitle: color(24, 24, 26), inactiveTitleText: color(140, 140, 146))
+    ## ... and its dark one: near black, the same blue.
+  GlossLight* = Theme(
+    window: color(197, 204, 212), text: color(34, 36, 40),
+    face: color(244, 245, 247), light: color(255, 255, 255),
+    shadow: color(150, 157, 168), frame: color(84, 92, 106),
+    select: color(30, 112, 228), selectText: color(255, 255, 255),
+    gray: color(124, 131, 144), field: color(255, 255, 255),
+    fieldText: color(34, 36, 40), scroll: color(214, 219, 226),
+    tip: color(255, 255, 244), tipText: color(34, 36, 40),
+    line: color(170, 177, 188), edge: color(126, 134, 148), link: color(56, 84, 135),
+    hover: color(222, 232, 246), face2: color(250, 251, 252),
+    inactiveTitle: color(186, 194, 205), inactiveTitleText: color(90, 98, 112))
+    ## For the Gloss look (`uiLook`): blue-gray pinstripes behind, white glossy faces, a deep
+    ## blue to choose with.
+  GlossDark* = Theme(
+    window: color(34, 36, 40), text: color(238, 240, 244),
+    face: color(78, 82, 90), light: color(118, 123, 134),
+    shadow: color(14, 15, 18), frame: color(0, 0, 0),
+    select: color(36, 112, 226), selectText: color(255, 255, 255),
+    gray: color(132, 138, 150), field: color(22, 23, 26),
+    fieldText: color(238, 240, 244), scroll: color(44, 46, 51),
+    tip: color(58, 61, 68), tipText: color(238, 240, 244),
+    line: color(72, 76, 84), edge: color(96, 101, 112), link: color(120, 170, 255),
+    hover: color(46, 62, 92), face2: color(90, 94, 103),
+    inactiveTitle: color(34, 36, 40), inactiveTitleText: color(150, 156, 168))
+    ## ... and its dark one: black gloss.
   builtinThemes* = [(name: "Classic", theme: Classic), (name: "Gray", theme: Gray),
                     (name: "Dark", theme: Dark), (name: "OLED Black", theme: Oled),
                     (name: "Ocean", theme: Ocean),
@@ -474,7 +523,9 @@ const
                     (name: "Blossom", theme: Blossom), (name: "Lavender", theme: Lavender),
                     (name: "Sunset", theme: Sunset), (name: "Graphite", theme: Graphite),
                     (name: "Dusk", theme: Dusk), (name: "Night Notes", theme: NightNotes),
-                    (name: "Glass Light", theme: GlassLight), (name: "Glass Dark", theme: GlassDark)]
+                    (name: "Glass Light", theme: GlassLight), (name: "Glass Dark", theme: GlassDark),
+                    (name: "Matte Light", theme: MatteLight), (name: "Matte Dark", theme: MatteDark),
+                    (name: "Gloss Light", theme: GlossLight), (name: "Gloss Dark", theme: GlossDark)]
     ## The color schemes that come with the toolkit, by name (new ones go at
     ## the end: settings keep a scheme's number).
 
@@ -1251,6 +1302,12 @@ type UiLook* = enum
   lookGlass = "glass"      ## as frosted glass: rounded, see-through faces, hairlines, soft
                            ## shadows, the scheme's highlight on what is on -- the same sizes, so
                            ## nothing moves (the high-contrast schemes stay Classic)
+  lookMatte = "matte"      ## flat and square-cut: thin lines, one color to a face, no shine and
+                           ## no shadow, the highlight filling what is on and what is chosen, a
+                           ## line of it under a title bar (`MatteLight`, `MatteDark`)
+  lookGloss = "gloss"      ## glossy: a shine on the top half of each face, deep outlines,
+                           ## pinstripes behind the window's controls, title bars as glossy bars,
+                           ## what is on in the highlight's gloss (`GlossLight`, `GlossDark`)
 
 var uiLook* = lookClassic
   ## The look of the controls (`UiLook`). Set it before `startApp` for the app's own default
@@ -1262,6 +1319,48 @@ var frostedGlass* = true
   ## them blurred through their faces, as frosted glass (`backdropBlur`); false: their faces
   ## plain -- less to draw, and easier to read for some. The user's choice ("See-through menus
   ## and dialogs" in `appearanceSettings`) is kept with the look and wins.
+
+proc glassLook*(): bool {.inline.} =
+  ## The controls drawn in one of the newer looks now -- Glass, Matte or Gloss, which share
+  ## their shapes (rounded faces and fields, a segmented track for a page's tabs, cards for
+  ## groups) and differ in how a face is lit (`matteLook`, `glossLook`): `uiLook` is not Classic
+  ## and the scheme is not one of the high-contrast ones (their clear black and white edges kept).
+  uiLook != lookClassic and ui.theme.select != HighContrast.select and
+    ui.theme.select != HighContrastWhite.select
+
+var appNavBars* = false
+  ## The app draws navigation bars of its own (`navBar`) on phones and tablets: in the Glass,
+  ## Matte and Gloss looks the window's caption is left out there -- the status bar over the
+  ## app in its bars' color --, as phone apps are. (Classic keeps the 3.1 caption.)
+
+proc matteLook*(): bool {.inline.} =
+  ## The controls drawn in the Matte look now (`uiLook`; not with a high-contrast scheme).
+  uiLook == lookMatte and glassLook()
+
+proc glossLook*(): bool {.inline.} =
+  ## The controls drawn in the Gloss look now (`uiLook`; not with a high-contrast scheme).
+  uiLook == lookGloss and glassLook()
+
+proc lookSchemes*(look: UiLook): tuple[light, dark: Theme] =
+  ## The color schemes made for `look` (Classic's: Classic and Dark).
+  case look
+  of lookClassic: (Classic, Dark)
+  of lookGlass: (GlassLight, GlassDark)
+  of lookMatte: (MatteLight, MatteDark)
+  of lookGloss: (GlossLight, GlossDark)
+
+proc glossStripes(w, h: int) =
+  ## (the Gloss look's window: pinstripes, a little lighter every few pixels)
+  let base = ui.theme.window
+  if (int(base.r) * 77 + int(base.g) * 151 + int(base.b) * 28) shr 8 < 128: return
+  let period = max(4, dp(6))
+  let band = max(2, period div 2)
+  let c = Color(r: uint8(min(255, int(base.r) + 6)), g: uint8(min(255, int(base.g) + 6)),
+                b: uint8(min(255, int(base.b) + 6)), a: 255)
+  var x = 0
+  while x < w:
+    fill(rect(x, 0, min(band, w - x), h), c)
+    x += period
 
 var captionButtons* = cbWin95
   ## The title bars' buttons (`CaptionButtons`). Set it before `startApp`
@@ -4336,7 +4435,14 @@ proc smokeFrame() =
 
 proc themeFromEnv*() =
   ## `RETRO_THEME` (a built-in theme's name, "OLED Black", or its number)
-  ## overrides the colors chosen: for tests and screenshots.
+  ## overrides the colors chosen: for tests and screenshots. `RETRO_LOOK` (classic, glass,
+  ## matte, gloss) the look.
+  case getEnv("RETRO_LOOK").toLowerAscii
+  of "classic": uiLook = lookClassic
+  of "glass": uiLook = lookGlass
+  of "matte": uiLook = lookMatte
+  of "gloss": uiLook = lookGloss
+  else: discard
   let t = getEnv("RETRO_THEME")
   if t.len == 0: return
   for i, b in builtinThemes:
@@ -4539,6 +4645,7 @@ proc frameSetup(main: bool) =
   # (a title in a larger style: a taller bar)
   let titleH = if captionStyle == TextStyle(): 0 else: lineHeight(captionTitleStyle()) + dp(6)
   ui.captionH = if ui.ownFrame: (if full: 0 else: max(MenuH, titleH) + 1)
+                elif ui.ownCaption and appNavBars and glassLook(): 0
                 elif ui.ownCaption: max(if fingers(): CtrlH else: MenuH, titleH)
                 else: 0
   ui.barY = ui.safe.top + ui.captionH
@@ -4565,6 +4672,7 @@ proc frameSetup(main: bool) =
   if ui.drag.active and (ui.released or not ui.mouseDown):
     ui.dragDropping = true
   beginDraw(ui.w, ui.h, ui.theme.window)
+  if glossLook(): glossStripes(ui.w, ui.h)
   ui.frames.setLen(0)
   let left = ui.safe.left + Pad
   let topY = ui.safe.top + ui.captionH + Pad
@@ -4581,6 +4689,7 @@ proc frameSetup(main: bool) =
   if ui.fingerDown and ui.mouseDown and not ui.longFired and not ui.panning and
      not ui.dragsActive:
     wakeIn(ui.pressAt + 501 - ui.now)
+
 
 proc beginFrame*(): bool =
   ## Wait for input (or a timer) and start a frame. False once the app ends.
@@ -4684,11 +4793,6 @@ proc quitApp*() = ui.running = false
 proc appRunning*(): bool = ui.running
   ## The app has not ended (`quitApp`, its window closed).
 
-proc glassLook*(): bool {.inline.} =
-  ## The controls drawn in the Glass look now: `uiLook` is Glass and the scheme is not one of
-  ## the high-contrast ones (their clear black and white edges kept).
-  uiLook == lookGlass and ui.theme.select != HighContrast.select and
-    ui.theme.select != HighContrastWhite.select
 
 proc themeIndex*(): int =
   ## Which of `builtinThemes` is in use (-1: a theme of the app's own).

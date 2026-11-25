@@ -1366,4 +1366,56 @@ block picturesIntoFrames:
   active.win.open = false
   run(3)
 
+block booklet:
+  # Layout > Booklet: an A5 saddle-stitched booklet, its grid in millimeters, a folio and a running
+  # head on the outside -- not on the cover, the blank pages and the back cover
+  startBooklet()
+  run(2)
+  doAssert bk.open
+  bk.preset = 0
+  bookletGrid(BookletPresets[0])
+  bk.folio = 1
+  bk.head = 1
+  bk.headText = "Antenna 137"
+  bk.skip = true
+  let p = BookletPresets[0]
+  addBook(newBook(bookSetup(p.w, p.h, dpi = 150, facing = true), p.pages, "Booklet"))
+  run(3)
+  let bw = curBook()
+  let b = bw.book
+  doAssert b.pages.len == 12 and b.setup.facing
+  block:
+    let d3 = b.doc(2)                                    # (page 3 not blank: a box on it)
+    let L = d3.addLayer("Photo", fresh = true)
+    for y in 10 ..< 40:
+      for x in 10 ..< 40: L.px[y * d3.w + x] = 0xFF2040A0'u32
+    inc L.ver
+  applyGrid(b)
+  applyFolios(b)
+  run(5)
+  doAssert b.setup.columns == 12 and abs(pxMm(b, b.setup.top) - 7.5) < 0.2 and abs(pxMm(b, b.setup.outside) - 4.2) < 0.2
+  let m = b.masters[0]
+  for side in [psLeft, psRight]:
+    var names: seq[string]
+    for L in b.masterDoc(m, side).layers: names.add L.name
+    doAssert "Folio" in names and "Running Head" in names, $names
+  doAssert b.pages[0].hideMaster and b.pages[^1].hideMaster, "not on the covers"
+  block:
+    let d1 = b.doc(1)
+    var info = ""
+    for L in d1.layers: info.add L.name & " fm=" & $L.fromMaster & " vis=" & $L.visible & " cb=" & $d1.contentBounds(L) & "; "
+    doAssert b.pages[1].hideMaster, "not on a blank page: " & info
+  doAssert not b.pages[2].hideMaster
+  doAssert folio(b.doc(2)) in ["3", "Antenna 137"], "page 3 has them: " & folio(b.doc(2))
+  # again: the earlier ones replaced, not added to
+  applyFolios(b)
+  var n = 0
+  for L in b.masterDoc(m, psRight).layers:
+    if L.name == "Folio": inc n
+  doAssert n == 1
+  bk.view = 2
+  run(3)
+  bk.open = false
+  run(2)
+
 echo "photo book app tests passed"

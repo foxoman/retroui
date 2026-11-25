@@ -152,11 +152,14 @@ run(4)
 # the Glass look: rounded shapes everywhere -- on the GPU a card's middle and sides rectangles,
 # its corners small masks; on the CPU spans -- and the faces shaded from top to foot
 let themeBefore = ui.theme
-uiLook = lookGlass
-for (name, t) in [("light", GlassLight), ("dark", GlassDark)]:
-  ui.theme = t
-  run(4)
-  compare("the Glass look, " & name)
+for (lookName, look) in [("Glass", lookGlass), ("Matte", lookMatte), ("Gloss", lookGloss)]:
+  # (and Matte's flat faces, Gloss's shine, its pinstripes and its lit bars)
+  uiLook = look
+  let (l, d) = lookSchemes(look)
+  for (name, t) in [("light", l), ("dark", d)]:
+    ui.theme = t
+    run(4)
+    compare("the " & lookName & " look, " & name)
 uiLook = lookClassic
 ui.theme = themeBefore
 run(2)

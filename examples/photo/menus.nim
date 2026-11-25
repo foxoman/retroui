@@ -600,6 +600,7 @@ proc doCommand(name: string) =
                else: ""
   of "Corner Options...": startLiveEffect(leCornerOptions)
   of "Print Booklet...": startPrintBooklet()
+  of "Booklet...": startBooklet()
   of "Find Font...": startFindFont()
   of "Quran...": startQuran()
   of "Islamic Pattern...": startGeoPattern()
@@ -2066,7 +2067,13 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Pictures, drawings and pages -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.17.2: artboards as the drawing program has them -- pages of the canvas, not " &
+           whatsNew = ["5.17.3: Layout > Booklet -- a booklet's format, its grid in millimeters, folios " &
+                       "and running heads on the outside, its pages on the printer's sheets; two more looks " &
+                       "(Preferences > Appearance > Look): Matte, flat and " &
+                       "sharp, and Gloss, glossy on pinstripes, each with a light and a dark scheme; an " &
+                       "adjustment dialog closes with its document; the assistant asks a model that reasons " &
+                       "again without its reasoning when it refuses the tools.",
+                       "5.17.2: artboards as the drawing program has them -- pages of the canvas, not " &
                        "layers, the artwork going with the one it is on: the Artboard tool draws, picks, " &
                        "moves (Alt: a copy) and sizes them by eight handles; Window > Artboards; " &
                        "Rearrange All, Fit to Artwork Bounds and Selected Art, presets, a center mark, " &
@@ -2589,6 +2596,7 @@ proc moreDialogs() =
   scaleEffectsDialog()
   mergeChannelsDialog()
   printBookletDialog()
+  bookletDialog()
   findFontDialog()
   quranDialog()
   geoPatternDialog()

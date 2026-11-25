@@ -65,6 +65,8 @@ proc main() =
     "      VALUE \"ProductName\", \"" & name & "\"\n" &
     "      VALUE \"FileVersion\", \"" & version & "\"\n" &
     "      VALUE \"ProductVersion\", \"" & version & "\"\n" &
+    "      VALUE \"InternalName\", \"" & name & "\"\n" &
+    "      VALUE \"OriginalFilename\", \"" & name.replace(" ", "") & ".exe\"\n" &
     "      VALUE \"CompanyName\", \"" & RetroDeveloper & " " & RetroHandle & " (" & RetroWebsite & ")\"\n" &
     "      VALUE \"LegalCopyright\", \"Copyright (c) 2026 " & RetroDeveloper & "\"\n" &
     "    END\n  END\n  BLOCK \"VarFileInfo\"\n  BEGIN\n    VALUE \"Translation\", 0x409, 1200\n  END\nEND\n")

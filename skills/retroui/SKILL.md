@@ -713,6 +713,24 @@ costs what its visible rows cost.
   corner (the status bar's end; `sizeGrip()` says where). `resizable = false`
   (`setResizable`) keeps the window's size: no sizing border, maximize
   button or grip, and the system's frame fixed too.
+- Matte and Gloss: `uiLook = lookMatte` (flat and sharp; `MatteLight`, `MatteDark`)
+  or `lookGloss` (glossy, pinstriped, lit bars, a switch with ON and OFF, gray buttons and
+  the default one blue -- `button(label, isDefault = true)`; `GlossLight`, `GlossDark`), at the same sizes; `glassLook()` is true in them too, `matteLook()` and
+  `glossLook()` tell them apart; `lookSchemes(look)`, `titleBar`, `barFace`, `tintedFace`.
+- Controls from phones, on desktops too (`retroui/mobile`): `navBar(title, back, action)`
+  (returns `npBack`, `npAction`), `wheelPicker(items, sel)` (and `wheelPicker(count, item,
+  sel)`), `dateWheels(d)`, `timeWheels(h, m, minuteStep, hours12)`, `quantity(v, lo, hi)`,
+  `pageDots(page, pages)`, `swipeRow(title, actions, detail, glyph)` (a `SwipeHit`:
+  `clicked`, `action`), `actionSheet(open, title, actions, destructive)` (the index picked),
+  `bottomSheet(open, title): ...`, `popover(open, anchor, width): ...` (`anchor`:
+  `ui.lastRect` after the button), `alertBox(open, title, message, buttons, cancel)`
+  (the button pressed), `searchBar(s)`, `actionBar(actions, back, signature)` (before
+  the content; -2 Back), `wheelGroup: ...`, and rows in groups as a phone's settings:
+  `tableGroup(header, footer): tableRow(title, detail, taChevron, glyph, subtitle,
+  picture = cover, tint = color, selected = shownBeside)` (a `TableHit`: `clicked`, `info`), `tableSwitch`,
+  `tableButton`. A phone app with its own bars: `appNavBars = true` (no 3.1 caption in
+  the newer looks); `RETRO_LOOK=gloss RETRO_SIZE=390x800 RETRO_TOUCH=1` to try it on a
+  desktop.
 - The Glass look: `uiLook = lookGlass` before `startApp` (users pick "Look" in
   `appearanceSettings`, kept with `look`) draws every control as frosted glass --
   capsule buttons, rounded check boxes and switches in the highlight, slim scroll

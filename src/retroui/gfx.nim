@@ -1166,6 +1166,23 @@ proc ring*(cx, cy, r, width: float; c: Color) =
   if width < r: circlePoints(cx, cy, r - width, reverse = true)
   endPath(a, c)
 
+proc polygonShaded*(pts: openArray[(float, float)]; top, bottom: Color) =
+  ## A filled polygon shaded from `top` at its top to `bottom` at its foot (`top`'s alpha for
+  ## both): a button with a pointed end lit from above.
+  if pts.len < 3: return
+  let a = beginPath()
+  for (x, y) in pts: pt(x, y)
+  closeContour()
+  endPath(a, top, Color(r: bottom.r, g: bottom.g, b: bottom.b, a: 255))
+
+proc discShaded*(cx, cy, r: float; top, bottom: Color) =
+  ## A filled circle shaded from `top` at its top to `bottom` at its foot (`top`'s alpha for
+  ## both): a knob lit from above.
+  if r <= 0: return
+  let a = beginPath()
+  circlePoints(cx, cy, r)
+  endPath(a, top, Color(r: bottom.r, g: bottom.g, b: bottom.b, a: 255))
+
 proc thickLine*(x1, y1, x2, y2, width: float; c: Color) =
   ## A line `width` thick between two points (square ends).
   let dx = x2 - x1

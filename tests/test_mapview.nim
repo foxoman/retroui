@@ -299,6 +299,6 @@ block speed:
     run()
   let ms = (getMonoTime() - t0).inMicroseconds.float / 1000 / 20
   echo "map frame with a new view: ", formatFloat(ms, ffDecimal, 1), " ms"
-  doAssert ms < 200
+  doAssert ms < (when defined(retroSanitized): 800 else: 200)   # (the sanitizers: some 4 times slower)
 
 echo "map view tests passed"

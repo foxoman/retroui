@@ -264,6 +264,8 @@ proc restoreAppearance*(s: Settings) =
   case s.getOrDefault("look.look", "")
   of "classic": uiLook = lookClassic
   of "glass": uiLook = lookGlass
+  of "matte": uiLook = lookMatte
+  of "gloss": uiLook = lookGloss
   else: discard
   if s.hasKey("look.frosted"): frostedGlass = s.getBool("look.frosted", true)
   if not existsEnv("RETRO_TEXT"):

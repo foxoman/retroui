@@ -282,6 +282,18 @@ edges. Its menus, dialogs and the lists a combo box drops down are real
 frosted glass: what is under them shows through, blurred ("See-through
 menus and dialogs" in the Appearance settings turns it off).
 
+**Matte and Gloss.** Two more looks, at the same sizes. `lookMatte` is
+flat and sharp: one color a face with a thin line round it, small
+corners, the highlight a clear blue under title bars and round the field
+that has the keys. `lookGloss` is glossy, as phones drew their controls in
+2012: light gray buttons with a shine on their top half (the default one
+blue), fields cut into the window, the window in pinstripes, navigation
+and tool bars lit from above in steel blue, a switch that says ON and OFF,
+a thin progress bar, the stepper in one piece, popovers in a dark frame.
+Each has a light and a dark scheme of its own
+(Matte Light, Matte Dark, Gloss Light, Gloss Dark); a control of your own
+asks `matteLook()` or `glossLook()`.
+
 **Surfaces: frosted glass, shadows, masks.** `surface frostedSurface(): ...`
 is a panel of frosted glass over whatever is under it -- a photo, a map --
 blurred on the CPU or the GPU alike, and kept while what is under it does
@@ -451,7 +463,8 @@ app "Ledger", 900, 600,
 ```
 
 A misspelled option is a compile error that lists them all.
-$RETRO_FRAME, $RETRO_GPU, $RETRO_SCALE, $RETRO_THEME, $RETRO_SIZE and
+$RETRO_FRAME, $RETRO_GPU, $RETRO_SCALE, $RETRO_THEME, $RETRO_LOOK (classic, glass,
+matte, gloss), $RETRO_SIZE and
 $RETRO_ZOOM win over the options when the app starts (tests, screenshots);
 $RETRO_SCALE makes the window larger with everything in it.
 $RETRO_WINDOW=1 opens the app as a window in its 3.1 frame, in the middle of
@@ -522,12 +535,13 @@ retrokit designer app.nim       # app.nim's windows (a new file when there is no
   lists and pages, a long press is the right click, and a held-then-moved
   finger drags items. Hover effects appear only for a real mouse.
 - **Looks.** The 3.1 look (bevels, X check boxes, navy selections, group
-  boxes, bold menus) in twenty-eight color schemes (`builtinThemes`:
+  boxes, bold menus) in thirty-four color schemes (`builtinThemes`:
   Classic, Gray, Dark, OLED Black, Ocean, Desert, Plum, Hot Dog, Paper,
   High Contrast, High Contrast White, Midnight, Emerald, Rose, Slate,
-  Mahogany, Amber, Green Screen, and ten made for a phone's screen, from
+  Mahogany, Amber, Green Screen, ten made for a phone's screen, from
   white to dark: Notes, Snow, Mint, Sky, Blossom, Lavender, Sunset,
-  Graphite, Dusk, Night Notes), or your own `Theme` (`ui.theme = Dark`).
+  Graphite, Dusk, Night Notes, and a light and a dark one for each of the
+  Glass, Matte and Gloss looks), or your own `Theme` (`ui.theme = Dark`).
   A window with a look of its own is still the kit's controls, by their
   options: the accent button (`button("Save", accent = true)`), a text
   style and a height for buttons and number boxes, groups with a title
@@ -570,6 +584,7 @@ each state, is **[docs/controls.md](docs/controls.md)**. In short:
 | Dialogs | `dialog`, `msgBox`, `inputBox`, `progressBox`, `wizard`, `aboutBox`, `fileDialog` (3.1), `filePicker` (modern), `propertiesDialog` |
 | Desktop | `mdiArea` / `mdiWindow`, `mdiWindowMenu`, `hotkeyPressed`, `findIn`, `replaceAllIn` |
 | App parts | `settingToggle`, `settingChoice`, `settingSlider`, `settingButtons`, `settingCombo`, `settingLink`, `appearanceSettings`, `avatar`, `factList`, `bottomNav`, `fab`, `captionBar` |
+| From phones | `navBar`, `searchBar`, `tableGroup` (`tableRow`, `tableSwitch`, `tableButton`), `wheelPicker`, `wheelGroup`, `dateWheels`, `timeWheels`, `quantity`, `pageDots`, `swipeRow`, `actionSheet`, `alertBox`, `actionBar`, `bottomSheet`, `popover` (`retroui/mobile`: on desktops too; `appNavBars`: the app's own bars instead of the window's caption on phones) |
 | Business views | `chart` (21 kinds), `gauge`, `kanbanBoard`, `ganttView`, `agendaView`, `kpiTile`, `statCard`, `orgChart`, `reportView` |
 | Files | `fileList`, `filePreview`, `folderTree`, `placesView`, `trashList`, `driveBar`, `pathBar`, `textFileView`, `hexFileView`, `runJobDialog` |
 | Media and more | `mapView`, `view3d`, `canvas2d`, `htmlView`, `webView`, `markdownView`, `imageView`, `animation`, `videoView`, `audioView` (any speed) |
@@ -2318,7 +2333,7 @@ s.dehaze = 10
 p.applyFilter(developMargin(s), develop(s))
 ```
 
-`examples/photo.nim` is **Retro Atelier 5.17.2** (Retro Photo until 5.0: its modules, documents and package id keep that name), a studio for
+`examples/photo.nim` is **Retro Atelier 5.17.3** (Retro Photo until 5.0: its modules, documents and package id keep that name), a studio for
 pictures, drawings and pages in the manner of the programs of 1994: the toolbox, the tabbed floating palettes (Brushes
 and Options; Picker, Swatches and Scratch; Layers, Channels and Paths;
 Info; Commands; Navigator, History and Actions; Properties), an options
@@ -2771,7 +2786,22 @@ graph shows each server's speed over its last tests. Where a network
 blocks encrypted DNS by the server's name, the VPN sends its TLS hello in
 pieces (or connects by address with no name); it goes on to another server
 when one stops answering, says why each lookup failed, and keeps a block
-list of names answered on the phone (`!name` an exception).
+list of names answered on the phone (`!name` an exception). Since 1.6 a
+phone in the Glass, Matte or Gloss look gets a phone app's design: a tab
+bar (DNS, Servers, Favourites, More), a navigation bar, pages that slide
+in, the servers in rows in groups with a switch for the VPN -- in Gloss,
+the look its APK starts in, as phone apps were drawn in 2012. On a tablet
+the sections are a list down the left, the page of the one picked beside
+it.
+
+**Retro Music** (`examples/music.nim`, `nimble music`) plays Spotify and
+YouTube through their own services: Spotify's Web API (search, your
+playlists and liked songs) with your own developer app, playback on your
+Spotify apps and speakers through Spotify Connect (Premium) with Retro
+Music as their remote and screen; YouTube's music videos found with the
+YouTube Data API and played in YouTube's own embedded player; lyrics from
+LrcLib, timed to the song. A tab bar, a mini player and pages on a phone,
+the pages beside a list on a computer ([the examples](examples/README.md#retro-music)).
 
 **Retro Navigator** (`examples/navigator.nim`, `nimble navigator`) is a
 whole browser made this way: a 1995 window around the system's engine,
@@ -3755,7 +3785,7 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_downloads` | `downloadFile` against a server of its own (`tests/dlmock.py`), on every system -- WinHTTP on Windows, no program started: a file whole, a redirect, a 404, a download gone on with from its part, no server, `stopDownload`; on the thread that draws, the busy box ticking while it waits and its Cancel ending it |
 | `test_tray` | the tray icon on Linux: the app's StatusNotifierItem on a bus of the test's own, registered with a stand-in tray, its title, picture and menu as a tray reads them, a click and a menu item coming back as events, the icon gone with a frame without it |
 | `test_grow` | Grow without a window: the plan's numbers, the main button at the page's foot, the result's timeline played to its end (every bar risen, the coin, the goal felt), Back |
-| `test_looks` | what a control takes to look different: the accent button, a text style and a height for buttons and number boxes, groups with a title strip, options in boxes, the gauge in bands and the range bar, a tool bar's line and space, `withTheme` and `withTextStyle` -- and the 30 colour schemes, each one's text readable (4.5 to 1) on its window, fields, buttons and highlight; the Glass look (a button's corners rounded off, a check box and a switch that are on in the highlight; Classic in the high-contrast schemes); a font list's order (the fonts used last, then A to Z); docs/customizing.md's own samples |
+| `test_looks` | what a control takes to look different: the accent button, a text style and a height for buttons and number boxes, groups with a title strip, options in boxes, the gauge in bands and the range bar, a tool bar's line and space, `withTheme` and `withTextStyle` -- and the 34 colour schemes, each one's text readable (4.5 to 1) on its window, fields, buttons and highlight; the Glass, Matte and Gloss looks, each with its own schemes (a button's corners rounded off, a check box and a switch that are on in the highlight; Classic in the high-contrast schemes); a font list's order (the fonts used last, then A to Z); docs/customizing.md's own samples |
 | `test_bmi` | BMI Studio without a window: the numbers in both unit systems (classed as shown), Calculate BMI the default button in the accent colour, another scheme taken by the bands and the button, a phone's layout |
 | `test_hangwatch` | the table of a program's procs read and a place in the program named by it (a Windows window that stops answering writes the procs its thread is in); no watch elsewhere |
 | `test_photobook`, `test_photobookapp` | text that keeps out of holes (lines on both sides on one baseline, columns), Text Wrap in a document (box, shape, jump, sides, undo, saved), page numbers in text, books: sides and margins bound either way, numbers in every style, master pages that follow, masters based on masters (the other's layers under their own, on the master too, never round, saved, let go), text through added pages (every word once), the book's file and PDF, damaged books refused; Retro Atelier's books headless: pages turned, masters, a number typed in, Autoflow, Text Wrap, save and open, the workspaces, the Move tool's box; snapping to a page's margins, columns and baseline grid, text on the grid following Document Setup; New Drawing and New Book, Image Trace, Convert to Shape and Make Blend in the app; export by pages and spreads (PDF, JPEG, PNG, a range); tables, charts, maps, Fitting and Frame Options, More Shapes and Shape Options, Resize for, Brand Kit, Photo Grid, Text Effects, Recolor, Shape Builder, Freeform Gradient (Cancel leaves it as it was), Check Document and the command list in the app; anchored objects; threaded frames on a page and across pages (a box's own words to the story's end, one put in between, the thread broken); in the app: footnotes, ligatures, the table of contents and the index, Data Merge, Find/Change and the Story Editor, the gradient mesh and anchors, the perspective grid (drawing on a plane, a handle dragged, Attach to Active Plane, Define Grid live), threading by the ports (loaded text, a new box, a double-click breaking it, Esc), Text Frame Options and Auto-Size (a template's heading growing with its size), Apply Brush to Path |
@@ -3824,6 +3854,8 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_queries` | `retroui/queries` on a clock of its own: an entry two pages ask for loaded once, its value kept while it is loaded again (out of date, too old), a failed load tried again then told (its value before kept), a change put in at once, another type under a key another entry, one nobody asks for let go of |
 | `test_backdrop` | frosted glass and masks: what is under a blur smoothed and lighter, its rounded corners keeping what is outside them, a mask's circle and a mask inside it; a change near a blur, far from it, of its tint and over it the very pixels of a whole frame; the GPU's frames the CPU's (3 levels at most apart), and its partial frames, at every buffer age, a whole frame's |
 | `test_terminal` | the terminal: text, the 16, 256 and RGB colors (semicolons and colons), bold, underlined, inverse, struck; the cursor moved, lines and characters erased, inserted, deleted; a line wrapped and the lines scrolled off kept; a scroll region; the other screen and back; wide characters and the line-drawing set; the answers asked for (the cursor's place, what it is), the title; the keys as xterm sends them; a size changed; a shell in a pseudo-terminal -- its colors, its size, an exit code, what is typed answered; the view taking the keys, a word chosen with a double click and copied; found text (back and on, any case), its size bigger and smaller, a reset; kitty's keyboard protocol (its flags pushed and popped per screen, Esc, Ctrl, Alt and the keypad told apart, releases, every key as an escape with its text) and graphics protocol (RGB, RGBA and PNG, zlib'ed, in pieces, by number, placed again, quiet, deleted, scrolled with the text, its answers and errors; an app's own picture) |
+| `test_mobile` | the controls from phones: the navigation bar's Back (and Alt+Left) and its action; an alert (Enter its last button, Esc its cancel, a tap beside it waits); rows in groups (a row, its info button apart, a switch's row, a button's row, Enter); a search bar's Cancel; an action bar's action and Back; a wheel picker by the keys, a click on a row, the mouse wheel, a letter, a drag, a fling that stops on a row, the app's own value, a long wheel made as it shows; a day's wheels (31 January to February: the 28th) and a time's (12 hours, a step of minutes); a number with - and + (held, it goes on; the keys, + typed, the wheel); page dots; rows with actions behind them swiped, picked, closed by a tap, one at a time, by the keys and a right click's menu; the action sheet (the keys, Esc, a click beside it, from the bottom on a phone), the bottom sheet (its controls, dragged down, Esc), the popover (under its button, closed by a click outside) -- in every look, light and dark |
+| `test_music` | Retro Music without a window: Spotify's answers read (a search, a playlist's items -- a missing track and a local file left out --, your playlists, the devices, what plays, nothing playing), the bodies of play and transfer, YouTube's search (its HTML entities), LrcLib's timed lines (several times a line, the line at a time), and its screens drawn with no account in every look |
 | `test_signals` | signals and computed values worked out again only when what they read changed (through two, a branch not taken, an answer that stayed the same, a change in place), effects run and stopped; `keep`: nothing outside `--watch`, the values written, and a second program started with the file getting them back |
 | `test_photoaffinity` | Retro Atelier 5.15 as a program: studios kept, deleted, exported and imported; a help card for every tool of the toolbar; paint on type making a pixel layer; a live blend following its end and expanded; Hue Curves; the Mask Brush (a mask made, black hides, Alt shows, the pixels untouched, the Background made a layer); the Tone Brush; Procedural Texture's dialog; the Artboard tool: a box drawn a new artboard, sized by its corner with what is on it following its Constraints, moved with its artwork, Alt+dragged a copy with its artwork, deleted with its artwork kept; Symbols made, inserted, kept alike and detached; each new menu command run by its name doing its work; Fill with Placeholder Text (Arabic, paragraphs, added after, as many as fill the box, your own, the choices kept) |
 | `test_colorfonts` | colour fonts: COLR/CPAL layers, sbix and CBDT pictures and a layer in the text's own colour, found by the font reader, drawn by the text engine, in PDF and SVG |
@@ -3862,6 +3894,7 @@ it is and how to run it.
 | `examples/sevenguis.nim` | 7GUIs: the seven tasks of the GUI benchmark -- a counter, a temperature converter, a flight booker, a timer, CRUD, a circle drawer with undo, a spreadsheet with formulas (also an APK: `RETRO_APP=sevenguis nimble appapk`; released with the apps) |
 | `examples/navigator.nim` | Retro Navigator: a web browser in the manner of 1995's -- the tool bar, the Location box, the directory buttons, a logo that moves while a page loads, the key, bookmarks, the Go menu, find, print, the source -- around the system's own engine (`webView`, `weSystem`), with tabs, ads and trackers blocked, secure connections, links loaded ahead, tabs that sleep, Clear Browsing Data |
 | `examples/retrodns.nim` | Retro DNS: a DNS changer with 47 public servers, what each is good for, speed tests and your own -- on Android a VPN of its own Java (`--java`), on Windows, Linux and macOS the computer's DNS as its administrator (`retroui/admin`), on macOS and iOS a profile of encrypted DNS |
+| `examples/music.nim` | Retro Music: Spotify and YouTube in one player through their own services -- Spotify's Web API and Spotify Connect (your devices play, Premium), the YouTube Data API and YouTube's embedded player, lyrics from LrcLib timed to the song (also an APK: `RETRO_APP=music nimble appapk`) |
 | `examples/podcast.nim` | Retro Podcast: a podcast player for every system and the web -- shows found by name or by feed, OPML, any speed, where you left off, downloads, a queue, a sleep timer, the system's media controls, the sound playing on in the background, a tray icon (also an APK: `RETRO_APP=podcast nimble appapk`; released with the apps) |
 | `examples/grow.nim` | Grow: a savings goal planner for phones -- the plan, then its result counted up, a ring, a 3D bar for each year rising one after another, a gold coin, Share (also an APK: `RETRO_APP=grow nimble appapk`) |
 | `examples/bmi.nim` | BMI Studio: a window with a look of its own made of the kit's controls -- a title bar with the app's icon, panels with title strips, options in boxes, large digits, an accent button, a dial in bands -- in its own colours or any of the kit's schemes; the worked example of docs/customizing.md (`nimble bmi`; also an APK: `RETRO_APP=bmi nimble appapk`) |
