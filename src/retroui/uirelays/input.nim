@@ -163,6 +163,8 @@ type
     waitEvent*: proc (e: var Event; timeoutMs: int;
                       flags: set[InputFlag]): bool {.nimcall.}
       ## the next event, waiting up to `timeoutMs` (-1: as long as it takes)
+    interruptWaitEvent*: proc () {.nimcall, gcsafe.}
+      ## makes a blocked `waitEvent` return false soon (from any thread)
     getTicks*: proc (): int {.nimcall.}          ## milliseconds since some start (monotonic)
     sleep*: proc (ms: int) {.nimcall.}           ## waits `ms` milliseconds
     shutdown*: proc () {.nimcall.}               ## closes the window and the driver
@@ -205,6 +207,7 @@ var inputRelays* = InputRelays(
   pollEvent: proc (e: var Event; flags: set[InputFlag]): bool = false,
   waitEvent: proc (e: var Event; timeoutMs: int;
                    flags: set[InputFlag]): bool = false,
+  interruptWaitEvent: proc () {.gcsafe.} = discard,
   getTicks: proc (): int = 0,
   sleep: proc (ms: int) = discard,
   shutdown: proc () = discard)
@@ -218,6 +221,21 @@ proc waitEvent*(e: var Event; timeoutMs: int = -1;
   ## Waits for the next event (at most `timeoutMs`, -1 for ever); false when
   ## none came in time.
   inputRelays.waitEvent(e, timeoutMs, flags)
+proc interruptWaitEvent*() =
+  ## Makes a blocked `waitEvent` return `false` as soon as possible. Safe to
+  ## call from any thread once the backend is initialized. Sticky: when no
+  ## `waitEvent` is in progress, the next one returns `false` immediately.
+  ## Repeated calls before that coalesce into one. `pollEvent` ignores it.
+  ##
+  ## Use it to wake the UI thread after handing it work from another thread
+  ## (a finished job, a channel message): enqueue the work first, then call
+  ## this. The woken loop drains its queue; like a timeout, the `false`
+  ## carries no event.
+  when defined(nimony):
+    inputRelays.interruptWaitEvent()
+  else:
+    {.cast(gcsafe).}:
+      inputRelays.interruptWaitEvent()
 proc getClipboardText*(): string = clipboardRelays.getText()
   ## The text on the system clipboard ("" when there is none).
 proc putClipboardText*(text: string) = clipboardRelays.putText(text)

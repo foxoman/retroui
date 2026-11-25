@@ -36,8 +36,8 @@
 ## the kernel writes them).
 
 import std/[posix, os, strutils, math, exitprocs]
-import ../[coords, input, screen]
-import pixbuf, ftfonts, xkbload, keysyms, cursorart
+import ../[coords, input, screen, waitinterrupt]
+import pixbuf, ftfonts, xkbload, keysyms, cursorart, wakepipe
 
 # ---- the kernel's interfaces ----------------------------------------------------------
 
@@ -1084,16 +1084,26 @@ proc fbPollEvent(e: var input.Event; flags: set[InputFlag]): bool =
 
 proc fbWaitEvent(e: var input.Event; timeoutMs: int; flags: set[InputFlag]): bool =
   if fbPollEvent(e, flags): return true
+  if takeInterrupt():
+    drainWakePipe()
+    return false
   let t0 = ticks()
   while true:
     var wait = if timeoutMs < 0: 2000 else: max(0, timeoutMs - (ticks() - t0))
     wait = min(wait, max(0, 2000 - (ticks() - lastScan)))
     var fds: seq[TPollfd]
     for d in devices: fds.add TPollfd(fd: d.fd, events: POLLIN)
+    if wakeRead >= 0: fds.add TPollfd(fd: wakeRead, events: POLLIN)   # (interruptWaitEvent)
     if fds.len > 0: discard poll(addr fds[0], Tnfds(fds.len), cint(wait))
     else: discard poll(nil, 0, cint(wait))
-    if fbPollEvent(e, flags): return true
+    drainWakePipe()
+    if fbPollEvent(e, flags): return true   # (a pending interrupt stays set for the next call)
+    if takeInterrupt(): return false
     if timeoutMs >= 0 and ticks() - t0 >= timeoutMs: return false
+
+proc fbInterruptWaitEvent() {.gcsafe.} =
+  ## (any thread: a byte in the wake pipe ends the wait)
+  if raiseInterrupt(): pokeWakePipe()
 
 proc fbScreenPixel*(x, y: int): uint32 =
   ## (tests) The pixel the screen shows at `x`, `y`, as ours (XRGB): what was
@@ -1136,7 +1146,9 @@ proc initFbDriver*() =
       pb.blit(p, w, h, dst, f),
     drawRGBA: proc (p: ptr UncheckedArray[uint32]; w, h: int; dst: Rect; f: RGBAFormat): bool =
       pb.draw(p, w, h, dst, f))
-  inputRelays = InputRelays(pollEvent: fbPollEvent, waitEvent: fbWaitEvent, getTicks: ticks,
+  inputRelays = InputRelays(pollEvent: fbPollEvent, waitEvent: fbWaitEvent,
+                            interruptWaitEvent: fbInterruptWaitEvent, getTicks: ticks,
                             sleep: proc (ms: int) = os.sleep(ms), shutdown: cleanUp)
+  openWakePipe()
   clipboardRelays = ClipboardRelays(getText: proc (): string = clipboardText,
                                     putText: proc (t: string) = clipboardText = t)

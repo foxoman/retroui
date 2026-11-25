@@ -6,7 +6,7 @@
 # other scripts.
 
 import std/os
-import ../[coords, screen, input, services]
+import ../[coords, screen, input, services, waitinterrupt]
 
 type
   UrEvent {.bycopy.} = object
@@ -35,6 +35,8 @@ const
 
 proc urWait(e: ptr UrEvent; timeoutMs: cint): cint {.importc: "uirelays_wait", cdecl.}
 proc urWaitWindow() {.importc: "uirelays_wait_window", cdecl.}
+proc urWake() {.importc: "uirelays_wake", cdecl, gcsafe.}
+  ## (any thread: ends `uirelays_wait` -- Android's looper woken, iOS's run loop stopped)
 proc urLayout(w, h, density, top, left, bottom, right: ptr cint)
   {.importc: "uirelays_layout", cdecl.}
 proc urBlit(p: ptr UncheckedArray[uint32]; w, h, dx, dy: cint): cint
@@ -260,7 +262,12 @@ proc initSurfaceDriver*(keys: proc (code: int32): KeyCode {.nimcall.}) =
     pollEvent: proc (e: var Event; flags: set[InputFlag]): bool =
       next(e, 0, flags),
     waitEvent: proc (e: var Event; t: int; flags: set[InputFlag]): bool =
-      next(e, t, flags),
+      if next(e, 0, flags): return true
+      if takeInterrupt(): return false
+      result = next(e, t, flags)   # (woken: no event, the flag taken; an event: it stays set)
+      if not result: discard takeInterrupt(),
+    interruptWaitEvent: proc () {.gcsafe.} =
+      if raiseInterrupt(): urWake(),
     getTicks: proc (): int = int(urTicks()),
     sleep: proc (ms: int) = os.sleep(ms),
     shutdown: proc () = urFinish())

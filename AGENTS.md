@@ -165,6 +165,10 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   a document's resolution by `typingStyle`; change it through `applyChar`
   or `keepTypeStyle`, never with a document's pixels. Each `typeField`
   needs its own `id`.
+- The Move tool with a selection made moves type, a shape or a Smart
+  Object whole (`movesWhole`; `beginMove` lifts it whole, the selection
+  stays); only a layer of pixels has its selected pixels lifted. Never
+  ask to rasterize a layer for a move.
 - Notes, lists, search, merge, frames, the grid and brushes are the
   kit's too: footnotes and endnotes and Auto-Size in `retroui/textengine`
   (`insertNote`, `tidyNotes`, `autoSized`: `drawText` sizes the box, so
@@ -562,7 +566,9 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
    test's limit of time or memory allows for the sanitizers (some 7 times
    slower, freed memory kept a while). A workflow installs Ubuntu packages
    with `sh tools/apt.sh PKGS` (never `apt-get` itself): it tries again
-   when a mirror does not answer.
+   when a mirror does not answer, and gives a runner with no Ubuntu
+   archive among its sources Ubuntu's own (Playwright's `--with-deps`
+   after it finds them too).
 5. Before every release, **`sh tools/uirelays.sh merge`**: what
    nim-lang/uirelays has new merged into the `uirelays` branch, then
    `pull`, and what it changes in retroui fixed and tested (the upstream
@@ -716,7 +722,8 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
 - **A terminal's program is read without waiting** (`retroui/terminal`):
   the pseudo-terminal non-blocking, watched with the window's events where
   the driver can (`addWaitSource`: X11, Wayland), else asked a few times a
-  second while a program runs; on Windows the pseudo-console's pipe is
+  second while a program runs (another thread with work for the UI thread
+  wakes its wait with uirelays' `interruptWaitEvent`, every driver natively); on Windows the pseudo-console's pipe is
   peeked. Between `fork` and `exec` only what is safe there (all the child
   needs is made before). `test_terminal` feeds sequences and runs `/bin/sh`.
   What the terminal says back goes to the program (`takeAnswers`): a sequence

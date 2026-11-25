@@ -254,6 +254,67 @@ block brushOutline:
   selectTool(tMove)
   run(2)
 
+proc dragOnView(dw: DocWin; x0, y0, x1, y1: float) =
+  ## (a press at x0, y0 of the image, moved to x1, y1 a frame a step, let go -- the pointer's own)
+  let d = dw.doc
+  let (a, b) = dw.view.toScreen(d, x0, y0)
+  let (c, e) = dw.view.toScreen(d, x1, y1)
+  move(a, b)
+  run(1)
+  down(a, b)
+  run(1)
+  for k in 1 .. 6:
+    move(a + (c - a) * k div 6, b + (e - b) * k div 6)
+    run(1)
+  up(c, e)
+  run(2)
+
+block moveTypeWithASelection:
+  # the Move tool on type or a shape while a selection is made somewhere: the layer moves whole and
+  # stays what it is, the selection stays where it was, nothing asks to rasterize it -- as the photo
+  # program has it (before: "This type layer must be rasterized" on every press); a layer of pixels
+  # still has its selected pixels moved
+  let (d, dw) = fresh(400, 300, 0xFFFFFFFF'u32, "seltype")
+  var st = defaultStyle()
+  st.size = 30
+  var T: Layer
+  d.layersChange("type"): T = d.addTextLayer(newText("Move me", st, 60, 100))
+  d.cur = d.layers.find(T)
+  d.selRect(rect(300, 200, 40, 40))
+  let sel0 = d.sel
+  selectTool(tMove)
+  run(2)
+  let x0 = T.text.x
+  let b = d.layerBox(T)
+  dw.dragOnView(float(b.x + b.w div 2), float(b.y + b.h div 2), float(b.x + b.w div 2 + 50),
+                float(b.y + b.h div 2))
+  check not rasterAsk.open, "no question to rasterize the type"
+  check T.isText and T.text.x > x0 + 25, "the type moved whole, still type (" & $(T.text.x - x0) & " px)"
+  check d.hasSelection and d.sel == sel0, "the selection where it was"
+  let S = d.boxShape(rect(40, 200, 60, 50), 0xFF2050C0'u32, "box")
+  d.cur = d.layers.find(S)
+  run(2)
+  let p0 = S.shape.path.subs[0].pts[0].p
+  dw.dragOnView(70, 225, 70, 185)
+  let p1 = S.shape.path.subs[0].pts[0].p
+  check not rasterAsk.open and S.isShape and p1[1] < p0[1] - 20, "a shape the same (" & $(p1[1] - p0[1]) & " px)"
+  var P: Layer
+  d.layersChange("pixels"):
+    P = d.addLayer("pixels")
+    for y in 200 ..< 240:
+      for x in 300 ..< 340: P.px[y * d.w + x] = 0xFF00A000'u32
+  d.cur = d.layers.find(P)
+  inc P.ver
+  d.markAll()
+  run(2)
+  dw.dragOnView(320, 220, 340, 220)
+  check (P.px[220 * d.w + 300] shr 24) == 0 and P.px[220 * d.w + 341] == 0xFF00A000'u32,
+        "a pixel layer's selected pixels moved"
+  check d.hasSelection and d.sel != sel0, "... and its selection with them"
+  rasterAsk.open = false
+  selectTool(tMove)
+  run(2)
+
 block colorFromAnywhere:
   # the Color panel's eyedropper: a press anywhere in the window takes the color shown there --
   # the press its own, not the tool's; and its colors to choose from, the swatches or a library

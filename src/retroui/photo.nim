@@ -1508,6 +1508,12 @@ proc isSmart*(L: Layer): bool {.inline.} =
   ## A Smart Object (its picture can be scaled again, its filters changed).
   L != nil and L.smart != nil and L.smart.src.len > 0
 
+proc movesWhole*(L: Layer): bool {.inline.} =
+  ## Type, a shape or a Smart Object: the Move tool moves it whole while a selection is made, the
+  ## selection left as it is (as the photo program does) -- not its selected pixels, which would
+  ## need it rasterized.
+  L != nil and (L.isText or L.isShape or L.isSmart)
+
 proc rangeOf*(a: array[4, int]): array[4, int] {.inline.} =
   ## A Blend If range as it works (all 0: the whole range).
   if a == [0, 0, 0, 0]: [0, 0, 255, 255] else: a
@@ -7228,12 +7234,13 @@ proc baseOf(part: LiftPart): ptr UncheckedArray[uint32] =
 
 proc beginMove*(d: Doc; fill: uint32; copy = false): Lift =
   ## Lifts the selection (or the whole layer: with its mask; a group: all
-  ## in it) of the current layer; `fill` is left behind on the Background.
+  ## in it; type, a shape, a Smart Object: whole, a selection or not --
+  ## `movesWhole`) of the current layer; `fill` is left behind on the Background.
   ## `copy`: a copy of the selection is lifted, nothing left behind. (The
   ## layers are not changed -- nor copied for undo -- until it is put down
   ## by `endMove`: until then it is shown moved.)
   result = Lift(active: true)
-  if d.hasSelection or d.quickMask or d.editMask:
+  if (d.hasSelection and not d.current.movesWhole) or d.quickMask or d.editMask:
     let L = d.layer
     if d.hasSelection:
       result.mask = d.sel

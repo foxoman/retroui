@@ -1728,7 +1728,9 @@ int uirelays_wait(UrEvent *out, int timeoutMs) {
       if (read(g.msgread, &cmd, 1) == 1) processCmd(cmd);
     } else if (ident == LOOPER_ID_INPUT) {
       processInput();
-    } else if (ident == ALOOPER_POLL_TIMEOUT || ident == ALOOPER_POLL_ERROR) {
+    } else if (ident == ALOOPER_POLL_TIMEOUT || ident == ALOOPER_POLL_ERROR ||
+               ident == ALOOPER_POLL_WAKE) {
+      /* (ALOOPER_POLL_WAKE: uirelays_wake, interruptWaitEvent) */
       return pop(out);
     }
     if (deadline >= 0 && nowMs() >= deadline) return pop(out);
@@ -1736,6 +1738,12 @@ int uirelays_wait(UrEvent *out, int timeoutMs) {
 }
 
 static void bgPark(void);
+
+/* interruptWaitEvent, from any thread: the looper uirelays_wait sleeps in woken
+ * (ALooper_wake may be called from any thread). */
+void uirelays_wake(void) {
+  if (g.looper) ALooper_wake(g.looper);
+}
 
 /* Wait until the activity has a window (the app's createWindow). */
 void uirelays_wait_window(void) {

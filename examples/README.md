@@ -368,7 +368,9 @@ as the photo program measures it: the Character and Paragraph panels, the
 Type tool's bar and the dialogs show sizes, leading, shift, indents and
 spacing in points at the document's resolution (12 pt: 12 pixels at 72
 ppi, 67 at 400), new type starts at 12 pt; Preferences > Units & Rulers >
-Type: Points, Pixels or Millimeters.
+Type: Points, Pixels or Millimeters. In 5.18.1 the Move tool moves type, a
+shape or a Smart Object whole while a selection is made, the selection left
+where it is, as the photo program does.
 
 **SVG** is one of its formats: an .svg opens as layers -- its shapes as
 shape layers, its text as type you can type in (fonts, sizes, colours,

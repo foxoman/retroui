@@ -3,7 +3,7 @@
 
 import sdl2 except Rect, Point
 import sdl2/ttf
-import ../coords, ../input, ../screen, ../services
+import ../coords, ../input, ../screen, ../services, ../waitinterrupt
 
 # --- Font handle management ---
 
@@ -457,6 +457,13 @@ proc lettersOf(s: cstring; e: var input.Event) =
       first = false
     else: lettersLeft.add te
 
+# A user event registered at init: interruptWaitEvent pushes one to end a
+# blocked wait (0: none registered -- then a wait is not cut short).
+var wakeEventType: uint32 = 0
+
+proc isWake(ev: sdl2.Event): bool {.inline.} =
+  wakeEventType != 0 and uint32(ev.kind) == wakeEventType
+
 proc sdlPollEvent(e: var input.Event; flags: set[InputFlag]): bool =
   if lettersLeft.len > 0:
     e = lettersLeft[0]
@@ -558,8 +565,10 @@ proc sdlTranslate(sdlEvent: var sdl2.Event; e: var input.Event) =
 proc sdlWaitEvent(e: var input.Event; timeoutMs: int;
                   flags: set[InputFlag]): bool =
   # SDL's own wait (no waking every few milliseconds to look): until an
-  # event that is one of the toolkit's, or the time asked for
+  # event that is one of the toolkit's, the time asked for, or
+  # interruptWaitEvent's event (`wakeEventType`)
   if sdlPollEvent(e, flags) and e.kind != NoEvent: return true
+  if takeInterrupt(): return false
   if timeoutMs == 0: return false
   let start = sdl2.getTicks()
   while true:
@@ -572,10 +581,22 @@ proc sdlWaitEvent(e: var input.Event; timeoutMs: int;
       if left <= 0: return false
       got = sdl2.waitEventTimeout(sdlEvent, left.cint)
     if got:
+      if isWake(sdlEvent):
+        discard takeInterrupt()
+        return false
       sdlTranslate(sdlEvent, e)
       if e.kind != NoEvent: return true
+      if takeInterrupt(): return false
     elif timeoutMs >= 0 and int(sdl2.getTicks() - start) >= timeoutMs:
       return false
+
+proc sdlInterruptWaitEvent() {.gcsafe.} =
+  # (SDL_PushEvent may be called from any thread: the event ends SDL's own wait)
+  if raiseInterrupt() and wakeEventType != 0:
+    var ev: sdl2.Event
+    ev.kind = cast[EventType](wakeEventType)
+    {.cast(gcsafe).}:
+      discard pushEvent(addr ev)
 
 proc sdlGetTicks(): int = sdl2.getTicks().int
 
@@ -593,6 +614,9 @@ proc initSdl2Driver*() =
     quit("SDL init failed")
   if ttfInit() != SdlSuccess:
     quit("TTF init failed")
+  if wakeEventType == 0:
+    let t = registerEvents(1)
+    if t != high(uint32): wakeEventType = t
   windowRelays = WindowRelays(
     createWindow: sdlCreateWindow, getWindowLayout: sdlGetWindowLayout,
     refresh: sdlRefresh,
@@ -609,6 +633,7 @@ proc initSdl2Driver*() =
   textCaretRelay = sdlTextCaret
   inputRelays = InputRelays(
     pollEvent: sdlPollEvent, waitEvent: sdlWaitEvent,
+    interruptWaitEvent: sdlInterruptWaitEvent,
     getTicks: sdlGetTicks, sleep: sdlDelay,
     shutdown: sdlQuitRequest)
   clipboardRelays = ClipboardRelays(

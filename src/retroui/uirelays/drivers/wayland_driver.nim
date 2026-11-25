@@ -32,8 +32,8 @@
 ## there is a Wayland session and no X display (see `backend`).
 
 import std/[posix, os, strutils, tables]
-import ../[coords, input, screen, services, access, atspi]
-import wlwire, pixbuf, ftfonts, xkbload, keysyms, cursorart
+import ../[coords, input, screen, services, access, atspi, waitinterrupt]
+import wlwire, pixbuf, ftfonts, xkbload, keysyms, cursorart, wakepipe
 
 type
   ObjKind = enum
@@ -1572,6 +1572,9 @@ proc wlWaitEvent(e: var input.Event; timeoutMs: int; flags: set[InputFlag]): boo
   if takeEvent(e): return true
   if wlPollEvent(e, flags): return true
   if conn == nil or conn.failed: return false
+  if takeInterrupt():
+    drainWakePipe()
+    return false
   let t0 = wlTicks()
   while true:
     var wait = if timeoutMs < 0: -1 else: max(0, timeoutMs - (wlTicks() - t0))
@@ -1582,10 +1585,17 @@ proc wlWaitEvent(e: var input.Event; timeoutMs: int; flags: set[InputFlag]): boo
     if gAtspi:
       for fd in atspiFds(): fds.add TPollfd(fd: fd, events: POLLIN)
     for fd in waitSourceFds(): fds.add TPollfd(fd: fd, events: POLLIN)
+    if wakeRead >= 0: fds.add TPollfd(fd: wakeRead, events: POLLIN)   # (interruptWaitEvent)
     discard poll(addr fds[0], Tnfds(fds.len), cint(wait))
-    if wlPollEvent(e, flags): return true
+    drainWakePipe()
+    if wlPollEvent(e, flags): return true   # (a pending interrupt stays set for the next call)
     if conn.failed: return takeEvent(e)
+    if takeInterrupt(): return false
     if timeoutMs >= 0 and wlTicks() - t0 >= timeoutMs: return false
+
+proc wlInterruptWaitEvent() {.gcsafe.} =
+  ## (any thread: a byte in the wake pipe ends the wait)
+  if raiseInterrupt(): pokeWakePipe()
 
 proc wlShutdown() =
   if conn == nil: return
@@ -1630,6 +1640,8 @@ proc initWaylandDriver*() =
     setResizable: wlSetResizable)
   systemRelays.minimize = wlMinimize
   inputRelays = InputRelays(pollEvent: wlPollEvent, waitEvent: wlWaitEvent,
+                            interruptWaitEvent: wlInterruptWaitEvent,
                             getTicks: wlTicks, sleep: wlDelay, shutdown: wlShutdown)
+  openWakePipe()
   clipboardRelays = ClipboardRelays(getText: wlGetClipboardText, putText: wlPutClipboardText,
                                     getImage: wlGetClipboardImage, putImage: wlPutClipboardImage)

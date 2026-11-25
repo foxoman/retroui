@@ -15,7 +15,7 @@
 ## program draws its frames with the GPU instead: the canvas's WebGL 2 as
 ## OpenGL ES 2 (`webgles`, the driver's `gpuProc`).
 
-import ../[coords, input, screen, services, access]
+import ../[coords, input, screen, services, access, waitinterrupt]
 import pixbuf, webgles
 import std/[strutils, os]
 
@@ -277,8 +277,9 @@ proc webPollEvent(e: var input.Event; flags: set[InputFlag]): bool =
   true
 
 proc webWaitEvent(e: var input.Event; timeoutMs: int; flags: set[InputFlag]): bool =
-  ## (never waits: the page runs the frames)
-  webPollEvent(e, flags)
+  ## (never waits: the page runs the frames -- an interrupt is taken, nothing to end)
+  if webPollEvent(e, flags): return true
+  discard takeInterrupt()
 
 # ---- drawing ----
 
@@ -453,6 +454,7 @@ proc initWebDriver*() =
   drawRelays = DrawRelays(fillRect: webFill, drawLine: webLine, drawPoint: webPoint,
                           blitRGBA: webBlit, drawRGBA: webDraw)
   inputRelays = InputRelays(pollEvent: webPollEvent, waitEvent: webWaitEvent,
+                            interruptWaitEvent: proc () {.gcsafe.} = discard raiseInterrupt(),
                             getTicks: webTicks, sleep: webSleep, shutdown: webShutdown)
   clipboardRelays = ClipboardRelays(getText: webGetClip, putText: webPutClip,
                                     putImage: webPutClipImage)

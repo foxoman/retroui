@@ -38,7 +38,7 @@ static inline int nimedit_display_is_wayland(void) {
 
 import std/[os, strutils]
 import std/unicode except strip   # (its strip cuts a letter ending in byte 0x85 or 0xA0)
-import ../coords, ../input, ../screen, ../services
+import ../coords, ../input, ../screen, ../services, ../waitinterrupt
 import penaxes
 
 const
@@ -125,6 +125,7 @@ proc g_main_context_iteration(ctx: pointer; mayBlock: gboolean): gboolean {.impo
 proc g_timeout_add(ms: cuint; fn: proc (data: pointer): gboolean {.cdecl.};
                    data: pointer): cuint {.importc, nodecl, cdecl.}
 proc g_source_remove(tag: cuint): gboolean {.importc, nodecl, cdecl.}
+proc g_main_context_wakeup(ctx: pointer) {.importc, nodecl, cdecl, gcsafe.}
 
 proc gtk_init_check(): gboolean {.importc, nodecl, cdecl.}
 proc gtk_window_new(): pointer {.importc, nodecl, cdecl.}
@@ -1195,11 +1196,16 @@ proc gtkWaitEvent(e: var Event; timeoutMs: int;
                   flags: set[InputFlag]): bool =
   if gtkPollEvent(e, flags):
     return true
+  if takeInterrupt():
+    return false
   if timeoutMs < 0:
     while true:
+      # g_main_context_wakeup (interruptWaitEvent) ends a blocking iteration.
       discard g_main_context_iteration(nil, G_TRUE)
       if gtkPollEvent(e, flags):
         return true
+      if takeInterrupt():
+        return false
   elif timeoutMs == 0:
     return false
   else:
@@ -1215,8 +1221,16 @@ proc gtkWaitEvent(e: var Event; timeoutMs: int;
       if gtkPollEvent(e, flags):
         if not due: discard g_source_remove(tag)
         return true
+      if takeInterrupt():
+        # (g_main_context_wakeup, interruptWaitEvent, ended the iteration)
+        if not due: discard g_source_remove(tag)
+        return false
     if not due: discard g_source_remove(tag)
     return gtkPollEvent(e, flags)
+
+proc gtkInterruptWaitEvent() {.gcsafe.} =
+  # Thread-safe; wakes the default context out of a blocking iteration.
+  if raiseInterrupt(): g_main_context_wakeup(nil)
 
 proc gtkGetClipboardText(): string =
   readClipboardSync()
@@ -1266,6 +1280,7 @@ proc initGtk4Driver*() =
     blitRGBA: gtkBlitRGBA, drawRGBA: gtkDrawRGBA)
   inputRelays = InputRelays(
     pollEvent: gtkPollEvent, waitEvent: gtkWaitEvent,
+    interruptWaitEvent: gtkInterruptWaitEvent,
     getTicks: gtkGetTicks, sleep: gtkDelay,
     shutdown: gtkQuitRequest)
   clipboardRelays = ClipboardRelays(

@@ -42,7 +42,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 const
   AppName = "Retro Atelier"         # (Retro Photo until 5.0)
   AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
-  AppVersion = "5.18.0"
+  AppVersion = "5.18.1"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -3120,7 +3120,7 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
   # (type: rasterized first, when asked)
   if (tool in paintTools + {tBucket, tGradient, tHeal, tRedEye} or (tool == tShape and shapeMode == 2) or
       (tool in {tMarquee, tLasso, tWand} and insideSel and touchSelMode == 0 and
-       ev.ctrl and not (ev.shift or ev.alt)) or (tool == tMove and d.hasSelection)) and
+       ev.ctrl and not (ev.shift or ev.alt)) or (tool == tMove and d.hasSelection and not d.current.movesWhole)) and
      not (tool in {tStamp, tHeal} and (ev.alt or stampPicking)) and
      not (tool == tBrush and brushTool in {3, 4, 5}) and not d.needPixels(paint = tool in {tBrush, tPencil, tAirbrush}):
     drag.on = false
@@ -3328,7 +3328,9 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
         inc d.ver
         justPicked = true
         status = "Picked the layer " & d.layers[i].name & " (Auto-Select: what you click is picked)"
-    if not d.hasSelection and not d.editMask and not d.quickMask and
+    # (a selection with type, a shape or a Smart Object current: it moves whole, the selection stays)
+    let selPixels = d.hasSelection and not d.current.movesWhole
+    if not selPixels and not d.editMask and not d.quickMask and
        (d.current.locked or d.current.lockPosition) and d.movedLayers.len == 1:
       status = if d.current.fromSpan != 0: "This is the part of an object of the facing page that lies on this one: " &
                                            "click the facing page to turn to it, and move or change it there."
@@ -3339,7 +3341,7 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
       return
     if ev.alt and not d.editMask and not d.quickMask and not d.current.background:
       # Alt: a copy moves (of the selection; else of the layer), the original stays
-      if d.hasSelection:
+      if selPixels:
         d.beginStep("Duplicate and Move")
         drag.lift = d.beginMove(bg, copy = true)
         drag.moving = true
@@ -3350,12 +3352,12 @@ proc pressOn(dw: DocWin; ev: PhotoEvent) =
       d.endStep()
     let L = d.current
     let alone = d.movedLayers.len == 1     # (several: all lifted together, each as what it is)
-    if L.isText and alone and not d.hasSelection and not d.editMask and not d.quickMask:
-      # a type layer: its text moves (and stays text)
+    if L.isText and alone and not d.editMask and not d.quickMask:
+      # a type layer: its text moves (and stays text) -- a selection or not
       d.beginStep("Move")
       d.touchLayers()
       textMove = (true, L.text)
-    elif L.isShape and alone and not d.hasSelection and not d.editMask and not d.quickMask:
+    elif L.isShape and alone and not d.editMask and not d.quickMask:
       # a shape layer: its outline moves (and stays a shape)
       d.beginStep("Move")
       d.touchLayers()

@@ -2070,7 +2070,10 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Pictures, drawings and pages -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.18.0: artboards as pages -- <#> in type on one its number, facing pages in " &
+           whatsNew = ["5.18.1: the Move tool moves type, a shape or a Smart Object whole while a " &
+                       "selection is made, the selection left where it is, as the photo program does " &
+                       "(it asked to rasterize the type).",
+                       "5.18.0: artboards as pages -- <#> in type on one its number, facing pages in " &
                        "spreads, an artboard placed at the right or left of another, under or over it, " &
                        "touching or apart, snapped to the others as it is dragged, the artwork moved onto " &
                        "another, page numbers on the outside, each one's name and size in the Artboards " &

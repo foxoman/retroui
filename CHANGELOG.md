@@ -1,5 +1,26 @@
 # Changes
 
+## 0.77.1
+
+- **The Move tool on type with a selection made** (`movesWhole` in
+  `retroui/photo`): type, a shape or a Smart Object moves whole and stays
+  what it is, the selection left where it is, as the photo program does;
+  `beginMove` lifts it whole. A press on a text box asked "This type layer
+  must be rasterized" while a selection was made anywhere. A layer of
+  pixels still has its selected pixels moved.
+- **Retro Atelier 5.18.1** with it.
+- **uirelays: `interruptWaitEvent`** (nim-lang/uirelays merged): another
+  thread ends a blocked `waitEvent` -- work handed to the UI thread is
+  taken at once. Every driver wakes natively: X11 and Wayland and the
+  screen driver through a pipe in their `select`/`poll`, Windows by an
+  event, macOS by a posted event, GTK 4 by its context's wakeup, SDL2 and
+  SDL3 by a pushed event, Android's looper woken, iOS's run loop stopped;
+  the web's wait never blocks.
+- CI: a runner with no Ubuntu archive among its apt sources (GitHub's
+  ubuntu-26.04 image had Microsoft's alone, and Every system's web job
+  could not find clang) gets Ubuntu's own for its release before
+  `tools/apt.sh` installs anything.
+
 ## 0.77.0
 
 Phones and tablets as their own apps: in the Gloss look on Android and iOS
