@@ -2,7 +2,8 @@
 # Uses Xlib for windowing/events, Xft for antialiased font rendering.
 # Double-buffered via X Pixmap.
 
-import ../coords, ../input, ../screen, ../eglload, ../services, ../target, ../access, ../atspi
+import ../coords, ../input, ../screen, ../eglload, ../services, ../target, ../access, ../atspi,
+       ../waitinterrupt
 import penaxes, cursorart, keysyms
 export cursorart.classicCursorArt
 from ../pixelutils import resizedRGBA
@@ -420,6 +421,41 @@ proc xFdSet(fd: cint; s: ptr XFdSet)
 proc xSelect(nfds: cint; readfds, writefds, exceptfds: ptr XFdSet;
              timeout: ptr XTimeval): cint
   {.importc: "select", header: "<sys/select.h>".}
+
+# ---- Self-pipe for interruptWaitEvent ----
+# Its read end sits in the select() set next to the X connection, so a byte
+# written from any thread ends the wait. Xlib itself is never touched off the
+# UI thread. The pipe is never closed: a late writer must not hit a reused fd.
+
+proc c_pipe(fds: ptr cint): cint {.importc: "pipe", header: "<unistd.h>".}
+proc c_read(fd: cint; buf: pointer; n: csize_t): int
+  {.importc: "read", header: "<unistd.h>".}
+proc c_write(fd: cint; buf: pointer; n: csize_t): int
+  {.importc: "write", header: "<unistd.h>".}
+proc c_fcntl(fd, cmd, arg: cint): cint
+  {.importc: "fcntl", header: "<fcntl.h>".}
+var F_SETFL {.importc: "F_SETFL", header: "<fcntl.h>".}: cint
+var F_SETFD {.importc: "F_SETFD", header: "<fcntl.h>".}: cint
+var O_NONBLOCK {.importc: "O_NONBLOCK", header: "<fcntl.h>".}: cint
+var FD_CLOEXEC {.importc: "FD_CLOEXEC", header: "<fcntl.h>".}: cint
+
+var gWakeRead: cint = -1
+var gWakeWrite: cint = -1
+
+proc openWakePipe() =
+  if gWakeRead >= 0: return
+  var fds = [cint(-1), cint(-1)]
+  if c_pipe(addr fds[0]) != 0: return
+  for fd in fds:
+    discard c_fcntl(fd, F_SETFL, O_NONBLOCK)
+    discard c_fcntl(fd, F_SETFD, FD_CLOEXEC)
+  gWakeRead = fds[0]
+  gWakeWrite = fds[1]
+
+proc drainWakePipe() =
+  if gWakeRead < 0: return
+  var buf: array[64, char]
+  while c_read(gWakeRead, addr buf[0], csize_t(buf.len)) > 0: discard
 
 # ---- X11 function imports ----
 
@@ -3850,12 +3886,16 @@ proc x11WaitEvent(e: var input.Event; timeoutMs: int;
     eventQueue.delete(0)
     return true
   if x11PollEvent(e, flags): return true
+  if takeInterrupt():
+    drainWakePipe()
+    return false
 
   # Block on the X11 connection fd using select() with timeout -- again
   # while what comes is the server's own traffic (a property, a selection
   # served) and no event of the program's, until the time is up: a wake-up
   # for nothing would cost the program a frame. (A screen reader's request
-  # comes as an event: `atspiWake`.)
+  # comes as an event: `atspiWake`; interruptWaitEvent's byte comes in the
+  # wake pipe.)
   let t0 = x11GetTicks()
   while true:
     let xfd = ConnectionNumber(gDisplay)
@@ -3872,6 +3912,9 @@ proc x11WaitEvent(e: var input.Event; timeoutMs: int;
     for fd in waitSourceFds():
       xFdSet(fd, addr fds)
       top = max(top, fd)
+    if gWakeRead >= 0:
+      xFdSet(gWakeRead, addr fds)
+      top = max(top, gWakeRead)
 
     if timeoutMs < 0:
       discard xSelect(top + 1, addr fds, nil, nil, nil)
@@ -3882,13 +3925,15 @@ proc x11WaitEvent(e: var input.Event; timeoutMs: int;
       discard xSelect(top + 1, addr fds, nil, nil, addr tv)
 
     # select() returned -- drain whatever arrived
+    drainWakePipe()
     if gAtspi: atspiProcess()
     if waitSources.len > 0 and waitSourcesReady(): pushEvent(input.Event(kind: NoEvent))
     drainXEvents()
     if eventQueue.len > 0:
       e = eventQueue[0]
       eventQueue.delete(0)
-      return true
+      return true  # (a pending interrupt stays set for the next call)
+    if takeInterrupt(): return false
     if timeoutMs >= 0 and x11GetTicks() - t0 >= timeoutMs: return false
 
 proc takeClipProperty(kind: var Atom): string =
@@ -4261,6 +4306,11 @@ proc x11DragFilesOut(paths: seq[string]; move, backInside: bool): DragOutResult 
   discard XSync(gDisplay, 0)
   discard XSetErrorHandler(oldHandler)
 
+proc x11InterruptWaitEvent() {.gcsafe.} =
+  if raiseInterrupt() and gWakeWrite >= 0:
+    var b = 'w'
+    discard c_write(gWakeWrite, addr b, 1)  # EAGAIN: pipe full, already awake
+
 proc x11QuitRequest() =
   if gDisplay != nil:
     # (the fonts still open closed first: the table that holds them is
@@ -4346,8 +4396,10 @@ proc initX11Driver*() =
   fileDragRelays = FileDragRelays(dragOut: x11DragFilesOut)
   inputRelays = InputRelays(
     pollEvent: x11PollEvent, waitEvent: x11WaitEvent,
+    interruptWaitEvent: x11InterruptWaitEvent,
     getTicks: x11GetTicks, sleep: x11Delay,
     shutdown: x11QuitRequest)
+  openWakePipe()
   clipboardRelays = ClipboardRelays(
     getText: x11GetClipboardText, putText: x11PutClipboardText,
     getImage: x11GetClipboardImage, putImage: x11PutClipboardImage)

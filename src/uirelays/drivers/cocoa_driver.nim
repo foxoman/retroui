@@ -26,7 +26,7 @@ typedef struct {
 } NEEvent;
 """.}
 
-import ../coords, ../input, ../screen, ../services, ../access
+import ../coords, ../input, ../screen, ../services, ../access, ../waitinterrupt
 import penaxes
 
 proc prepareSiwinSurface*(width, height: cint; scale: cdouble): cint
@@ -89,6 +89,7 @@ proc cGetWindowLayout(outW, outH, outScaleX, outScaleY: ptr cint)
 proc cRefresh() {.importc: "cocoa_refresh", cdecl.}
 proc cPollEvent(ev: ptr NEEvent): cint {.importc: "cocoa_pollEvent", cdecl.}
 proc cWaitEvent(ev: ptr NEEvent; timeoutMs: cint): cint {.importc: "cocoa_waitEvent", cdecl.}
+proc cPostWake() {.importc: "cocoa_postWake", cdecl, gcsafe.}
 
 proc cOpenFont(path: cstring; size, bold, italic: cint;
                outAsc, outDesc, outLH: ptr cint): cint {.importc: "cocoa_openFont", cdecl.}
@@ -396,7 +397,12 @@ proc cocoaPollEvent(e: var input.Event; flags: set[InputFlag]): bool =
 proc cocoaWaitEvent(e: var input.Event; timeoutMs: int;
                     flags: set[InputFlag]): bool =
   var ne: NEEvent
+  if cPollEvent(addr ne) != 0:
+    translateNEEvent(ne, e)
+    return true
+  if takeInterrupt(): return false
   if cWaitEvent(addr ne, timeoutMs.cint) == 0:
+    discard takeInterrupt()  # woken by cocoa_postWake, or timed out
     return false
   translateNEEvent(ne, e)
   result = true
@@ -418,6 +424,9 @@ proc cocoaGetClipboardImage(): ClipImage =
   if p != nil and n > 0:
     result.png = newString(n.int)
     copyMem(addr result.png[0], p, n.int)
+
+proc cocoaInterruptWaitEvent() {.gcsafe.} =
+  if raiseInterrupt(): cPostWake()
 
 proc cocoaGetTicks(): int = cGetTicks().int
 proc cocoaDelay(ms: int) = cDelay(ms.uint32)
@@ -540,6 +549,7 @@ proc initCocoaDriver*() =
     imageSize: cocoaImageSize, blitRGBA: cocoaBlitRGBA, drawRGBA: cocoaDrawRGBA)
   inputRelays = InputRelays(
     pollEvent: cocoaPollEvent, waitEvent: cocoaWaitEvent,
+    interruptWaitEvent: cocoaInterruptWaitEvent,
     getTicks: cocoaGetTicks, sleep: cocoaDelay,
     shutdown: cocoaShutdown)
   clipboardRelays = ClipboardRelays(

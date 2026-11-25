@@ -659,9 +659,20 @@ int64_t uirelays_ticks(void) {
   return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000;
 }
 
+/* interruptWaitEvent, from any thread: the main run loop uirelays_wait runs stopped
+ * (CFRunLoopStop may be called from any thread), the wait ended by the flag. */
+static volatile int gWake = 0;
+
+void uirelays_wake(void) {
+  __atomic_store_n(&gWake, 1, __ATOMIC_SEQ_CST);
+  CFRunLoopStop(CFRunLoopGetMain());
+}
+
 int uirelays_wait(UrEvent *out, int timeoutMs) {
   @autoreleasepool {
     if (pop(out)) return 1;
+    /* (gWake is not cleared here: a wake that came just before this wait ends it;
+     * a stale one only ends a later wait early, as waitEvent allows) */
     int64_t deadline = timeoutMs < 0 ? -1 : uirelays_ticks() + timeoutMs;
     for (;;) {
       double wait = 1.0;
@@ -671,6 +682,7 @@ int uirelays_wait(UrEvent *out, int timeoutMs) {
       }
       CFRunLoopRunInMode(kCFRunLoopDefaultMode, wait, true);
       if (pop(out)) return 1;
+      if (__atomic_exchange_n(&gWake, 0, __ATOMIC_SEQ_CST)) return 0;
       if (deadline >= 0 && uirelays_ticks() >= deadline) return 0;
     }
   }

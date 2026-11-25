@@ -2,7 +2,7 @@
 # Uses a double-buffered GDI approach: draw to an off-screen bitmap,
 # BitBlt to window on refresh.
 
-import ../coords, ../input, ../screen, ../services, ../access
+import ../coords, ../input, ../screen, ../services, ../access, ../waitinterrupt
 import penaxes
 import std/[widestrs, strutils, os, dynlib, unicode]
 
@@ -262,6 +262,7 @@ const
   GMEM_MOVEABLE = 0x0002'u32
 
   WAIT_TIMEOUT = 258'u32
+  WAIT_OBJECT_0 = 0'u32
   QS_ALLINPUT = 0x04FF'u32
 
   # a window without Windows' frame (the app draws its own)
@@ -377,6 +378,11 @@ proc ImmGetCompositionStringW(imc: HANDLE; index: DWORD; buf: pointer; len: DWOR
   {.stdcall, dynlib: "imm32", importc.}
 proc Sleep(dwMilliseconds: DWORD)
   {.stdcall, dynlib: "kernel32", importc.}
+proc CreateEventW(lpEventAttributes: pointer; bManualReset, bInitialState: BOOL;
+                  lpName: ptr uint16): HANDLE
+  {.stdcall, dynlib: "kernel32", importc.}
+proc SetEvent(hEvent: HANDLE): BOOL
+  {.stdcall, dynlib: "kernel32", importc, gcsafe.}
 proc GlobalAlloc(uFlags: UINT; dwBytes: uint): HGLOBAL
   {.stdcall, dynlib: "kernel32", importc.}
 proc GlobalLock(hMem: HGLOBAL): pointer
@@ -2654,6 +2660,14 @@ proc winPollEvent(e: var input.Event; flags: set[InputFlag]): bool =
     return true
   return false
 
+# Auto-reset event that interruptWaitEvent signals; waited on next to the
+# message queue. Never closed: a late SetEvent must not hit a reused handle.
+var gWakeEvent: HANDLE = nil
+
+proc winInterruptWaitEvent() {.gcsafe.} =
+  if raiseInterrupt() and gWakeEvent != nil:
+    discard SetEvent(gWakeEvent)
+
 proc winWaitEvent(e: var input.Event; timeoutMs: int;
                   flags: set[InputFlag]): bool =
   # Check already-queued events first
@@ -2664,6 +2678,9 @@ proc winWaitEvent(e: var input.Event; timeoutMs: int;
   # Drain any pending Win32 messages before blocking
   if winPollEvent(e, flags):
     return true
+  if takeInterrupt():
+    return false
+  let nHandles = if gWakeEvent != nil: 1'u32 else: 0'u32
   # Pump messages in a loop with short sleeps, like SDL does internally.
   # A single MWFMO(INFINITE) would block the thread entirely, causing
   # Windows to show the "Not Responding" ghost window after ~5 seconds
@@ -2675,8 +2692,15 @@ proc winWaitEvent(e: var input.Event; timeoutMs: int;
     if now >= deadline: return false
     let remaining = if timeoutMs < 0: 100'u32
                     else: uint32(min(deadline - now, 100'u64))
-    let res = MsgWaitForMultipleObjects(0, nil, 0, remaining, QS_ALLINPUT)
-    if res != WAIT_TIMEOUT:
+    let res = MsgWaitForMultipleObjects(nHandles, addr gWakeEvent, 0,
+                                        remaining, QS_ALLINPUT)
+    if nHandles == 1 and res == WAIT_OBJECT_0:
+      # Woken by interruptWaitEvent. A message that came in at the same
+      # time wins; the flag then stays set for the next call.
+      if winPollEvent(e, flags): return true
+      discard takeInterrupt()
+      return false
+    elif res != WAIT_TIMEOUT:
       if winPollEvent(e, flags): return true
     elif timeoutMs >= 0:
       # Finite timeout: check if expired
@@ -2914,8 +2938,11 @@ proc initWinapiDriver*() =
     blitRGBA: winBlitRGBA, drawRGBA: winDrawRGBA)
   inputRelays = InputRelays(
     pollEvent: winPollEvent, waitEvent: winWaitEvent,
+    interruptWaitEvent: winInterruptWaitEvent,
     getTicks: winGetTicks, sleep: winDelay,
     shutdown: winQuitRequest)
+  if gWakeEvent == nil:
+    gWakeEvent = CreateEventW(nil, 0, 0, nil)
   clipboardRelays = ClipboardRelays(
     getText: winGetClipboardText, putText: winPutClipboardText,
     getImage: winGetClipboardImage, putImage: winPutClipboardImage)
