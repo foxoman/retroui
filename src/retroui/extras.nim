@@ -143,8 +143,8 @@ proc drawSwitch*(track: Rect; on, enabled: bool; down = false; thumbX = -1) =
     let st = style(bold = true, size = 0.95)
     let ty = track.y + (track.h - lineHeight(st)) div 2
     pushClip(rect(track.x, track.y, max(0, mid - track.x), track.h))
-    let a = accentColor()          # (the scheme's: blue in Gloss's own)
-    roundRectShaded(inner, rad - 1, mixColor(a, color(0, 0, 0), 0.18), mixColor(a, color(255, 255, 255), 0.18))
+    # (the scheme's hue: blue in Gloss Light's -- darker at its top, as cut in)
+    roundRectShaded(inner, rad - 1, glossTone(1.0, 0.76), glossTone(0.74, 0.97))
     let onW = kx - track.x
     if onW > kd div 3:
       let tw = textWidth("ON", st)
@@ -164,10 +164,13 @@ proc drawSwitch*(track: Rect; on, enabled: bool; down = false; thumbX = -1) =
     hline(inner.x + int(rad), inner.y, inner.w - 2 * int(rad), withAlpha(color(0, 0, 0), 46))
     let cx = float(kx) + kd / 2
     let cy = float(track.y) + kd / 2
+    disc(cx, cy + 1.6, kd / 2 + 0.5, withAlpha(color(0, 0, 0), 22))
     disc(cx, cy + 0.8, kd / 2, withAlpha(color(0, 0, 0), 50))
     disc(cx, cy, kd / 2, if dark: color(0, 0, 0) else: color(150, 150, 150))
     if down: discShaded(cx, cy, kd / 2 - 1, color(214, 214, 214), color(240, 240, 240))
-    else: discShaded(cx, cy, kd / 2 - 1, color(255, 255, 255), color(222, 222, 222))
+    else: discShaded(cx, cy, kd / 2 - 1, color(252, 252, 252), color(214, 214, 218))
+    # (a shine on the knob's top half)
+    disc(cx, cy - kd / 6, kd / 4, withAlpha(color(255, 255, 255), if down: 40 else: 120))
     if not enabled:
       roundRect(track, rad, withAlpha(th.window, 130))
     return
@@ -387,9 +390,14 @@ proc segmented*(options: openArray[string]; sel: var int; w = 0;
       # them and between them; their labels bold, pressed into their faces)
       pushClip(rect(br.x, r.y, br.w, r.h))
       let face = inset(r, 1)
-      if down and enabled: roundRectShaded(face, grad - 1, color(84, 144, 234), color(26, 86, 204))
+      if down and enabled:
+        # (the chosen one in the scheme's hue, shaded as pressed in: darker along its top)
+        glossTwoTone(face, grad - 1, glossTone(0.64, 0.90), glossTone(0.78, 0.86),
+                     glossTone(0.86, 0.82), glossTone(0.88, 0.78))
+        hline(face.x, face.y, face.w, withAlpha(color(0, 0, 0), 60))
       elif dark: roundRectShaded(face, grad - 1, color(80, 82, 88), color(34, 34, 38))
-      else: roundRectShaded(face, grad - 1, color(255, 255, 255), color(220, 220, 220))
+      else: glossTwoTone(face, grad - 1, color(255, 255, 255), color(244, 244, 246),
+                         color(232, 232, 236), color(214, 214, 220))
       popClip()
       if i > 0: vline(br.x, r.y + 1, r.h - 2, if dark: color(0, 0, 0) else: color(128, 128, 128))
       let tw = labelWidth(o, true)
@@ -2090,7 +2098,7 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
       if on: roundRect(rect(cell.x + dp(3), cell.y + dp(2), cell.w - dp(6), cell.h - dp(4)), float(dp(4)),
                        withAlpha(color(255, 255, 255), 30))
       elif hit.showsHover: roundRect(inset(cell, dp(3)), float(dp(4)), withAlpha(color(255, 255, 255), 14))
-      c = if on: color(70, 176, 252) else: color(146, 146, 150)
+      c = if on: glossTone(0.72, 0.99) else: color(146, 146, 150)
       lc = if on: color(255, 255, 255) else: color(146, 146, 150)
     elif matte:
       if on: fill(rect(cell.x, r.y, cell.w, max(2, dp(3))), accentColor())
@@ -2105,7 +2113,23 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
         roundRect(rect(cell.x + cell.w div 2 - dp(28), cell.y + dp(4), dp(56),
                        lineHeight(gst) + dp(2)), (lineHeight(gst) + dp(2)) / 2,
                   mixColor(th.face, th.select, 0.18))
-    text(cell.x + (cell.w - textWidth(glyph, gst)) div 2, cell.y + dp(5), glyph, c, gst)
+    let gx = cell.x + (cell.w - textWidth(glyph, gst)) div 2
+    if gloss and on:
+      # (the chosen one's glyph lit as glass: light at its top, the scheme's hue under it -- a
+      # dark line under it, as pressed in)
+      let gy = cell.y + dp(5)
+      let gh = lineHeight(gst)
+      text(gx, gy + 1, glyph, withAlpha(color(0, 0, 0), 150), gst)
+      pushClip(rect(cell.x, gy, cell.w, gh div 2))
+      text(gx, gy, glyph, glossTone(0.42, 1.0), gst)
+      popClip()
+      pushClip(rect(cell.x, gy + gh div 2, cell.w, gh - gh div 2))
+      text(gx, gy, glyph, glossTone(0.86, 0.94), gst)
+      popClip()
+    elif gloss:
+      text(gx, cell.y + dp(5) - 1, glyph, withAlpha(color(0, 0, 0), 150), gst)
+      text(gx, cell.y + dp(5), glyph, c, gst)
+    else: text(gx, cell.y + dp(5), glyph, c, gst)
     let l = ellipsize(label, slot - dp(4), st)
     let lst = if gloss: style(size = 0.8, bold = true) else: st
     text(cell.x + (cell.w - textWidth(l, lst)) div 2,

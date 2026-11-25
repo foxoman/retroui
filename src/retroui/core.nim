@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy, hangwatch, frameprof
 export busy
 
-const RetroVersion* = "0.75.0"
+const RetroVersion* = "0.76.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -493,8 +493,8 @@ const
     line: color(170, 177, 188), edge: color(126, 134, 148), link: color(56, 84, 135),
     hover: color(222, 232, 246), face2: color(250, 251, 252),
     inactiveTitle: color(186, 194, 205), inactiveTitleText: color(90, 98, 112))
-    ## For the Gloss look (`uiLook`): blue-gray pinstripes behind, white glossy faces, a deep
-    ## blue to choose with.
+    ## For the Gloss look (`uiLook`): a blue-gray window, white glossy faces, a deep blue to
+    ## choose with (Gloss draws its bars, its blue parts in the hue of a scheme's highlight).
   GlossDark* = Theme(
     window: color(34, 36, 40), text: color(238, 240, 244),
     face: color(78, 82, 90), light: color(118, 123, 134),
@@ -1305,9 +1305,11 @@ type UiLook* = enum
   lookMatte = "matte"      ## flat and square-cut: thin lines, one color to a face, no shine and
                            ## no shadow, the highlight filling what is on and what is chosen, a
                            ## line of it under a title bar (`MatteLight`, `MatteDark`)
-  lookGloss = "gloss"      ## glossy: a shine on the top half of each face, deep outlines,
-                           ## pinstripes behind the window's controls, title bars as glossy bars,
-                           ## what is on in the highlight's gloss (`GlossLight`, `GlossDark`)
+  lookGloss = "gloss"      ## glossy, as phones drew it in 2012: a shine on the top half of each
+                           ## face, deep outlines, title and navigation bars lit from above, what
+                           ## is on in the highlight's gloss, its menus as popover lists -- the
+                           ## bars and the blue parts in the hue of the scheme's highlight
+                           ## (`GlossLight`, `GlossDark`)
 
 var uiLook* = lookClassic
   ## The look of the controls (`UiLook`). Set it before `startApp` for the app's own default
@@ -1348,19 +1350,6 @@ proc lookSchemes*(look: UiLook): tuple[light, dark: Theme] =
   of lookGlass: (GlassLight, GlassDark)
   of lookMatte: (MatteLight, MatteDark)
   of lookGloss: (GlossLight, GlossDark)
-
-proc glossStripes(w, h: int) =
-  ## (the Gloss look's window: pinstripes, a little lighter every few pixels)
-  let base = ui.theme.window
-  if (int(base.r) * 77 + int(base.g) * 151 + int(base.b) * 28) shr 8 < 128: return
-  let period = max(4, dp(6))
-  let band = max(2, period div 2)
-  let c = Color(r: uint8(min(255, int(base.r) + 6)), g: uint8(min(255, int(base.g) + 6)),
-                b: uint8(min(255, int(base.b) + 6)), a: 255)
-  var x = 0
-  while x < w:
-    fill(rect(x, 0, min(band, w - x), h), c)
-    x += period
 
 var captionButtons* = cbWin95
   ## The title bars' buttons (`CaptionButtons`). Set it before `startApp`
@@ -4672,7 +4661,6 @@ proc frameSetup(main: bool) =
   if ui.drag.active and (ui.released or not ui.mouseDown):
     ui.dragDropping = true
   beginDraw(ui.w, ui.h, ui.theme.window)
-  if glossLook(): glossStripes(ui.w, ui.h)
   ui.frames.setLen(0)
   let left = ui.safe.left + Pad
   let topY = ui.safe.top + ui.captionH + Pad

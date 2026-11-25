@@ -82,7 +82,7 @@ The four looks in 0.75.0, the same window every pixel redrawn, medians of
 | Gloss | 2.7 ms | 2.4 ms |
 
 Matte draws flat faces and costs less than Glass; Gloss adds a shine on
-every face, the window's pinstripes and lit bars.
+every face and its lit bars.
 
 ## The apps
 

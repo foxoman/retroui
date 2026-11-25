@@ -714,7 +714,8 @@ costs what its visible rows cost.
   (`setResizable`) keeps the window's size: no sizing border, maximize
   button or grip, and the system's frame fixed too.
 - Matte and Gloss: `uiLook = lookMatte` (flat and sharp; `MatteLight`, `MatteDark`)
-  or `lookGloss` (glossy, pinstriped, lit bars, a switch with ON and OFF, gray buttons and
+  or `lookGloss` (glossy, lit bars, menus as popover lists, a switch with ON and OFF, its blue
+  parts in the scheme's hue -- `glossTone(s, v)`, `glossDetail()` -- gray buttons and
   the default one blue -- `button(label, isDefault = true)`; `GlossLight`, `GlossDark`), at the same sizes; `glassLook()` is true in them too, `matteLook()` and
   `glossLook()` tell them apart; `lookSchemes(look)`, `titleBar`, `barFace`, `tintedFace`.
 - Controls from phones, on desktops too (`retroui/mobile`): `navBar(title, back, action)`

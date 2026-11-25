@@ -147,6 +147,10 @@ proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false
   let fg = if glassLook(): titleColors(true).fg else: th.text
   if glassLook():
     titleBar(full, true)
+    if glossLook():
+      # (a soft shadow under it on the page, as the bar stood over it)
+      for k in 0 ..< max(2, dp(3)):
+        hline(full.x, full.y + full.h + k, full.w, withAlpha(color(0, 0, 0), max(6, 46 - 16 * k)))
   else:
     fill(full, th.face)
     hline(full.x, full.y, full.w, th.light)
@@ -226,10 +230,10 @@ proc drumOverlay(inner, band: Rect; enabled, focused: bool) =
     # (a drum: darker toward its top and its foot; the band a pane of blue glass over it)
     fade(rect(inner.x, inner.y, inner.w, third), black, if dark: 170 else: 110, 0)
     fade(rect(inner.x, inner.y + inner.h - third, inner.w, third), black, 0, if dark: 170 else: 110)
-    roundRectShaded(band, 0, withAlpha(color(200, 210, 236), 110), color(96, 118, 190))
-    hline(band.x, band.y, band.w, withAlpha(color(120, 128, 150), 220))
+    roundRectShaded(band, 0, withAlpha(glossTone(0.15, 0.93), 110), glossTone(0.49, 0.75))
+    hline(band.x, band.y, band.w, withAlpha(glossTone(0.2, 0.59), 220))
     hline(band.x, band.y + 1, band.w, withAlpha(white, 120))
-    hline(band.x, band.y + band.h - 1, band.w, withAlpha(color(70, 80, 110), 220))
+    hline(band.x, band.y + band.h - 1, band.w, withAlpha(glossTone(0.36, 0.43), 220))
   elif glassLook():
     # (the rows fading into the field toward its top and its foot)
     fade(rect(inner.x, inner.y, inner.w, third), th.field, 210, 0)
@@ -950,11 +954,11 @@ proc beginSheet(open: var bool; id: Id; title: string; kind: SheetKind; width: i
             elif glassLook(): float(if kind == skPopover: dp(10) else: dp(14)) else: 0.0
   let fr = if kind == skBottom: rect(r.x, r.y, r.w, r.h + int(rad)) else: r
   sheetRect = r
-  let navy = (color(64, 76, 104), color(12, 18, 34))
+  let navy = (glossTone(0.385, 0.41), glossTone(0.65, 0.13))
   if not drawFace: discard
   elif edge > 0:
     softShadow(fr, rad, 6)
-    roundRect(fr, rad, color(6, 10, 20))
+    roundRect(fr, rad, glossTone(0.7, 0.08))
     roundRectShaded(inset(fr, 1), rad - 1, navy[0], navy[1])
     hline(fr.x + int(rad), fr.y + 1, fr.w - 2 * int(rad), withAlpha(white, 70))
     let inner = inset(fr, edge)
@@ -971,7 +975,7 @@ proc beginSheet(open: var bool; id: Id; title: string; kind: SheetKind; width: i
     # (its arrow, to the middle of what it is for)
     let s = dp(9)
     let at = if arrowUp: r.y else: r.y + r.h - 1
-    let line = if edge > 0: color(6, 10, 20) elif glassLook(): glassHair() else: th.frame
+    let line = if edge > 0: glossTone(0.7, 0.08) elif glassLook(): glassHair() else: th.frame
     let inside = if edge > 0: (if arrowUp: navy[0] else: navy[1]) else: th.window
     for k in 0 .. s:
       let yy = if arrowUp: at - k else: at + k
@@ -1027,7 +1031,7 @@ proc actionSheet*(open: var bool; title: string; actions: openArray[string]; des
   let sr = sheetRect
   if gloss:
     # (a dark sheet, see-through, lit along its top)
-    roundRectShaded(sr, float(if compact: 0 else: dp(10)), withAlpha(color(44, 50, 62), 236), color(4, 6, 10))
+    roundRectShaded(sr, float(if compact: 0 else: dp(10)), withAlpha(glossTone(0.29, 0.24), 236), glossTone(0.6, 0.04))
     hline(sr.x, sr.y, sr.w, withAlpha(white, 90))
   let bh = if fingers(): dp(44) else: CtrlH + dp(10)
   let titleInk = if gloss: color(208, 212, 220) else: th.gray
@@ -1187,15 +1191,15 @@ proc alertBox*(open: var bool; title: string; message = ""; buttons: openArray[s
   var ink, sub: Color
   if gloss:
     let rad = float(dp(10))
-    roundRect(r, rad, withAlpha(color(226, 232, 242), 240))
+    roundRect(r, rad, withAlpha(glossTone(0.07, 0.95), 240))
     let f = inset(r, max(2, dp(2)))
-    roundRectShaded(f, rad - 2, withAlpha(color(56, 82, 134), 238), color(12, 24, 60))
+    roundRectShaded(f, rad - 2, withAlpha(glossTone(0.58, 0.53), 238), glossTone(0.8, 0.24))
     # (the shine across its top, curved at its foot)
     pushClip(rect(f.x, f.y, f.w, dp(36)))
     disc(float(f.x + f.w div 2), float(f.y + dp(30)) - float(f.w) * 1.4, float(f.w) * 1.4, withAlpha(white, 40))
     popClip()
     ink = white
-    sub = color(232, 236, 244)
+    sub = glossTone(0.05, 0.96)
   elif glass:
     let rad = float(dp(14))
     if not frostedFace(r, glassCard(), rad): roundRect(r, rad, glassCard())
@@ -1246,7 +1250,7 @@ proc alertBox*(open: var bool; title: string; message = ""; buttons: openArray[s
     var lc = th.text
     var bold = i == buttons.high and buttons.len > 1
     if gloss:
-      tintedFace(br, if i == cancel: color(34, 50, 92) else: color(74, 100, 156), hit.down, float(dp(6)))
+      tintedFace(br, if i == cancel: glossTone(0.63, 0.36) else: glossTone(0.53, 0.61), hit.down, float(dp(6)))
       lc = white
       bold = true
     elif glass:
@@ -1311,7 +1315,7 @@ proc beginTableGroup*(header = ""; footer = "") =
     let ty = hr.y + hr.h - lineHeight(st) - dp(2)
     if gloss:
       if not onDarkWindow(): text(tx, ty + 1, t, withAlpha(white, 200), st)
-      text(tx, ty, t, if onDarkWindow(): color(196, 200, 210) else: color(76, 86, 108), st)
+      text(tx, ty, t, if onDarkWindow(): color(196, 200, 210) else: glossTone(0.30, 0.42), st)
     elif matteLook():
       text(tx, ty, t, accentText(), st)
       fill(rect(hr.x, hr.y + hr.h - 1, hr.w, 1), mixColor(th.window, accentColor(), 0.5))
@@ -1361,13 +1365,13 @@ proc endTableGroup*() =
       let tx = if gloss: lr.x + (lr.w - tw) div 2 elif glassLook(): lr.x + dp(12) else: lr.x
       if gloss:
         if not onDarkWindow(): text(tx, lr.y + 1, ln, withAlpha(white, 200))
-        text(tx, lr.y, ln, if onDarkWindow(): color(176, 180, 190) else: color(76, 86, 108))
+        text(tx, lr.y, ln, if onDarkWindow(): color(176, 180, 190) else: glossTone(0.30, 0.42))
       else: text(tx, lr.y, ln, th.gray)
 
 template tableGroup*(header, footer: string; body: untyped) =
   ## Rows (`tableRow`, `tableSwitch`, `tableButton`) in a group, as a phone's settings show
   ## them: `header` over it, `footer` (a note) under it. Gloss: a white rounded group with a gray
-  ## line round it on the pinstripes, a line between its rows; Glass: a rounded card; Matte:
+  ## line round it on the window, a line between its rows; Glass: a rounded card; Matte:
   ## full-width rows, the header in the highlight; Classic: a sunk white field.
   beginTableGroup(header, footer)
   try:
@@ -1410,7 +1414,7 @@ proc rowFrame(r: Rect; pressed: bool): tuple[first, last: bool; ink, sub, link: 
   result.sub = if pressed and gloss: white elif classicPressed: th.selectText else: th.gray
   result.link = if pressed and gloss: white
                 elif classicPressed: th.selectText
-                elif gloss: (if onDarkWindow(): color(140, 170, 230) else: color(56, 84, 135))
+                elif gloss: glossDetail()
                 elif glassLook(): th.gray
                 else: th.gray
 
@@ -1520,8 +1524,8 @@ proc tableRow*(title: string; detail = ""; accessory = taNone; glyph = ""; subti
     let cy = float(ir.y) + float(d) / 2
     if gloss:
       disc(cx, cy, float(d) / 2, if onDarkWindow(): black else: color(255, 255, 255))
-      discShaded(cx, cy, float(d) / 2 - 1.5, if ih.down: color(20, 80, 190) else: color(70, 150, 245),
-                 color(16, 84, 214))
+      discShaded(cx, cy, float(d) / 2 - 1.5, if ih.down: glossTone(0.89, 0.75) else: glossTone(0.71, 0.96),
+                 glossTone(0.93, 0.84))
       chevron(int(cx) + 1, int(cy), d * 2 div 5, false, white, max(1.6, float(dp(2))))
     else:
       ring(cx, cy, float(d) / 2, max(1.3, float(dp(1)) + 0.3), accentText())
@@ -1628,9 +1632,9 @@ proc searchBar*(s: var string; placeholder = "Search"; cancel = "Cancel"): bool 
   let gloss = glossLook()
   if gloss and not onDarkWindow():
     # (its bar lighter than a navigation bar's, as then)
-    roundRectShaded(full, 0, color(214, 221, 229), color(168, 180, 196))
+    roundRectShaded(full, 0, glossTone(0.066, 0.90), glossTone(0.143, 0.77))
     hline(full.x, full.y, full.w, withAlpha(white, 160))
-    hline(full.x, full.y + full.h - 1, full.w, color(118, 130, 148))
+    hline(full.x, full.y + full.h - 1, full.w, glossTone(0.2, 0.58))
   elif gloss: glossBarFill(full)
   elif matteLook():
     fill(full, th.face)

@@ -841,25 +841,37 @@ char *uirelays_call(const char *name, int nn, const char *arg, int na, int *len)
   return out;
 }
 
-/* The status and navigation bars take the colors drawn under them. */
-static void syncSystemBars(void) {
+/* The status and navigation bars take the colors drawn under them: `t` under the status bar,
+   `b` under the navigation bar (RGB), told to the activity when they change. */
+static void reportSystemBars(uint32_t t, uint32_t b) {
   ANativeActivity *act = liveActivity(0);
-  if (!g.shadow || !g.env || !g.barsMethod || g.shH < 2 || !act) return;
-  int top = g.haveInsets ? g.insets[0] : g.rect.top;
-  int bottom = g.haveInsets ? g.insets[2] : (g.winH - g.rect.bottom);
-  int yt = top > 0 ? top / 2 : 0;
-  int yb = bottom > 0 ? g.shH - 1 - bottom / 2 : g.shH - 1;
-  if (yb < 0) yb = 0;
-  if (yt >= g.shH) yt = g.shH - 1;
-  if (yb >= g.shH) yb = g.shH - 1;
-  uint32_t t = fromWindow(g.shadow[(size_t)yt * g.shW + g.shW / 2]);
-  uint32_t b = fromWindow(g.shadow[(size_t)yb * g.shW + g.shW / 2]);
+  if (!g.env || !g.barsMethod || !act) return;
   if (g.barsKnown && t == g.barTop && b == g.barBottom) return;
   g.barsKnown = 1;
   g.barTop = t;
   g.barBottom = b;
   (*g.env)->CallVoidMethod(g.env, act->clazz, g.barsMethod, (jint)t, (jint)b);
   jniFailed(g.env);
+}
+
+/* (the rows under the middle of the status bar and of the navigation bar, in a picture `h` tall) */
+static void barRows(int h, int *yt, int *yb) {
+  int top = g.haveInsets ? g.insets[0] : g.rect.top;
+  int bottom = g.haveInsets ? g.insets[2] : (g.winH - g.rect.bottom);
+  *yt = top > 0 ? top / 2 : 0;
+  *yb = bottom > 0 ? h - 1 - bottom / 2 : h - 1;
+  if (*yb < 0) *yb = 0;
+  if (*yt >= h) *yt = h - 1;
+  if (*yb >= h) *yb = h - 1;
+}
+
+/* Drawn on the CPU: the colors read from the frame drawn. */
+static void syncSystemBars(void) {
+  if (!g.shadow || g.shH < 2) return;
+  int yt, yb;
+  barRows(g.shH, &yt, &yb);
+  reportSystemBars(fromWindow(g.shadow[(size_t)yt * g.shW + g.shW / 2]),
+                   fromWindow(g.shadow[(size_t)yb * g.shW + g.shW / 2]));
 }
 
 void uirelays_finish(void) {
@@ -1213,6 +1225,24 @@ static int glLoad(void) {
   return 1;
 }
 
+/* Drawn with the GPU: the colors read from the frame about to be shown (the CPU's picture is not
+   drawn then -- read from it, the bars' icons went white on a light window). */
+static void syncSystemBarsGl(void) {
+  static void (*readPixels)(int, int, int, int, unsigned, unsigned, void *);
+  if (!readPixels && gl.gles) *(void **)&readPixels = dlsym(gl.gles, "glReadPixels");
+  if (!readPixels && gl.GetProcAddress) *(void **)&readPixels = gl.GetProcAddress("glReadPixels");
+  int w = g.winW, h = g.winH;
+  if (!readPixels || w < 2 || h < 2) return;
+  int yt, yb;
+  barRows(h, &yt, &yb);
+  unsigned char px[8] = {0};
+  /* (GL counts rows from the bottom; GL_RGBA, GL_UNSIGNED_BYTE) */
+  readPixels(w / 2, h - 1 - yt, 1, 1, 0x1908, 0x1401, px);
+  readPixels(w / 2, h - 1 - yb, 1, 1, 0x1908, 0x1401, px + 4);
+  reportSystemBars(((uint32_t)px[0] << 16) | ((uint32_t)px[1] << 8) | px[2],
+                   ((uint32_t)px[4] << 16) | ((uint32_t)px[5] << 8) | px[6]);
+}
+
 static int glContext(void) {
   const EGLint_ ca[] = { R_EGL_CONTEXT_CLIENT_VERSION, 2, R_EGL_NONE };
   gl.ctx = gl.CreateContext(gl.dpy, gl.cfg, 0, ca);
@@ -1306,6 +1336,7 @@ void *uirelays_gl_proc(const char *name) {
 int uirelays_gl_swap(void) {
   if (!gl.on) return 0;
   if (!gl.surf) return 1;            /* no window now: nothing to show */
+  syncSystemBarsGl();
   if (!gl.SwapBuffers(gl.dpy, gl.surf)) {
     EGLint_ e = gl.GetError();
     if (e != R_EGL_CONTEXT_LOST) return 0;
@@ -1314,7 +1345,6 @@ int uirelays_gl_swap(void) {
     if (!glContext() || !glSurfaceMake()) return 0;
     push(UR_RESUME);              /* everything is drawn again */
   }
-  syncSystemBars();
   return 1;
 }
 

@@ -1,5 +1,52 @@
 # Changes
 
+## 0.76.0
+
+Gloss in any color scheme: its bars, its blue parts and its popovers take
+the hue of the scheme's highlight, its window is one color, and its menus
+open as popover lists. Retro Music 1.1 in Gloss, on phones, tablets and
+computers, with a step-by-step guide to connect Spotify and YouTube;
+Retro DNS 1.7 and Retro Atelier 5.17.4 with it; on Android the status
+bar's icons dark on a light window again.
+
+- **Gloss in the scheme's colors** (`glossTone(s, v)`, `glossDetail`):
+  every part that was steel blue or blue -- the navigation, tool, search
+  and title bars, their bordered buttons and Done, the chosen row, the
+  default button and a pressed one, the switch, the chosen segment, the
+  slider, the progress bar, the chosen tab's glyph, check marks and values
+  at a row's end, table headers and footers, the picker's band, the info
+  button, the alert, the action sheet, the popover -- is drawn in the hue
+  of the scheme's highlight (`accentColor`), as colored as iOS 6's blue
+  parts were and as deep (a grayish highlight grays them); Gloss Light's
+  own stays the blue of then. Its window is the scheme's color, without
+  pinstripes.
+- **Gloss's menus as popover lists**: the menu bar a bar lit from above,
+  its titles white, the open one a bar button held down; a menu, a
+  submenu, a context menu in a dark frame round a white list, an arrow up
+  at its title, a line between rows, a band between groups, check marks in
+  the scheme's hue (`glossPopoverFrame`, `glossMenuEdge`); a combo box's
+  list the same, the chosen item ticked at its end.
+- **Gloss closer to then**: a soft shadow under a navigation bar, a
+  second line of light along a bar's top, the knobs of the switch and the
+  slider shining on their top half over a softer shadow, the chosen
+  segment shaded as pressed in, the chosen tab's glyph lit from above.
+- **Retro Music 1.1**: in Gloss (its look kept under a new name, once);
+  on a tablet or a computer the sections in a list down the left with
+  what plays and its controls, the page beside it under its own
+  navigation bar; Settings > Spotify and Settings > YouTube walk through
+  connecting them step by step, a button to each page (Spotify for
+  Developers; Google Cloud's project, its YouTube Data API v3, its
+  credentials), the Redirect URI copied with a tap, the Client ID and the
+  key pasted, the key tried with a search and what a refusal means in a
+  sentence; Settings > Appearance a page of its own.
+- **Retro DNS 1.7**: the new Gloss.
+- **Android: the status bar's icons on a light window** (Glass Light,
+  Gloss Light, any light scheme): drawn with the GPU, the colors under the
+  status and navigation bars were read from the processor's picture, which
+  is not drawn then -- the icons went white on white. They are read from
+  the frame the GPU shows now (`uirelays`' Android glue). Retro Atelier
+  5.17.4 with it.
+
 ## 0.75.0
 
 Two more looks beside Classic and Glass: Matte, flat and sharp, and

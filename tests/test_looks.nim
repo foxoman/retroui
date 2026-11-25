@@ -232,14 +232,12 @@ for look in [lookGlass, lookMatte, lookGloss]:
     doAssert matteLook() == (want and look == lookMatte) and glossLook() == (want and look == lookGloss)
     let corner = px(gb.x, gb.y)
     let win = (uint32(t.window.r) shl 16) or (uint32(t.window.g) shl 8) or uint32(t.window.b)
-    # (Gloss: the window pinstriped, its stripes a little lighter)
-    let stripe = (uint32(min(255, int(t.window.r) + 6)) shl 16) or (uint32(min(255, int(t.window.g) + 6)) shl 8) or
-                 uint32(min(255, int(t.window.b) + 6))
     if want:
-      doAssert corner == win or (glossLook() and corner == stripe),
-               $look & ": a button's corner: rounded off, the window under it " & $corner
+      doAssert corner == win, $look & ": a button's corner: rounded off, the window under it " & $corner
       doAssert countNear(accentColor(), gc) > 10, $look & ": a check box ticked: in the highlight"
-      doAssert countNear(accentColor(), gs) > 20, $look & ": a switch on: in the highlight"
+      # (Gloss's switch: the highlight's hue, as deep as its blue -- `glossTone`)
+      let on = if glossLook(): glossTone(0.87, 0.865) else: accentColor()
+      doAssert countNear(on, gs) > 20, $look & ": a switch on: in the highlight"
     else:
       doAssert corner != win, "High Contrast: its square, black-edged buttons"
     uiLook = lookClassic

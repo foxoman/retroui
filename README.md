@@ -287,10 +287,11 @@ flat and sharp: one color a face with a thin line round it, small
 corners, the highlight a clear blue under title bars and round the field
 that has the keys. `lookGloss` is glossy, as phones drew their controls in
 2012: light gray buttons with a shine on their top half (the default one
-blue), fields cut into the window, the window in pinstripes, navigation
+blue), fields cut into the window, navigation
 and tool bars lit from above in steel blue, a switch that says ON and OFF,
-a thin progress bar, the stepper in one piece, popovers in a dark frame.
-Each has a light and a dark scheme of its own
+a thin progress bar, the stepper in one piece, popovers in a dark frame,
+menus that open as popover lists -- its bars and blue parts in the hue of
+whatever color scheme you pick. Each has a light and a dark scheme of its own
 (Matte Light, Matte Dark, Gloss Light, Gloss Dark); a control of your own
 asks `matteLook()` or `glossLook()`.
 
@@ -2800,8 +2801,10 @@ playlists and liked songs) with your own developer app, playback on your
 Spotify apps and speakers through Spotify Connect (Premium) with Retro
 Music as their remote and screen; YouTube's music videos found with the
 YouTube Data API and played in YouTube's own embedded player; lyrics from
-LrcLib, timed to the song. A tab bar, a mini player and pages on a phone,
-the pages beside a list on a computer ([the examples](examples/README.md#retro-music)).
+LrcLib, timed to the song. A tab bar, a mini player and pages on a phone;
+on a tablet or a computer the sections down the left, the page beside
+them; in Gloss, with a step-by-step guide in its Settings to connect
+Spotify and YouTube ([the examples](examples/README.md#retro-music)).
 
 **Retro Navigator** (`examples/navigator.nim`, `nimble navigator`) is a
 whole browser made this way: a 1995 window around the system's engine,

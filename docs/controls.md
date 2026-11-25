@@ -5763,7 +5763,7 @@ flat buttons; Classic: a 3.1 message box.
 
 ### tableGroup, tableRow, tableSwitch, tableButton
 
-Rows in groups, as a phone's settings: a header over a group and a note under it; a row's icon, title, gray subtitle, a value at its end and a chevron (it leads to a page), a check mark (the one chosen) or an info button of its own; a switch's row; a button's row (red: destructive). Gloss: white rounded groups on pinstripes, the values in blue-gray, the chosen row blue; Glass: rounded cards; Matte: full-width rows, the header in the highlight.
+Rows in groups, as a phone's settings: a header over a group and a note under it; a row's icon, title, gray subtitle, a value at its end and a chevron (it leads to a page), a check mark (the one chosen) or an info button of its own; a switch's row; a button's row (red: destructive). Gloss: white rounded groups, the values in the scheme's hue, the chosen row blue; Glass: rounded cards; Matte: full-width rows, the header in the highlight.
 
 | Gloss | Glass |
 |---|---|
@@ -5793,7 +5793,7 @@ template tableGroup*(header, footer: string; body: untyped)
 
 Rows (`tableRow`, `tableSwitch`, `tableButton`) in a group, as a phone's settings show
 them: `header` over it, `footer` (a note) under it. Gloss: a white rounded group with a gray
-line round it on the pinstripes, a line between its rows; Glass: a rounded card; Matte:
+line round it on the window, a line between its rows; Glass: a rounded card; Matte:
 full-width rows, the header in the highlight; Classic: a sunk white field.
 
 ```nim
@@ -9400,7 +9400,9 @@ Notes (a notepad's cream paper and amber marker), Snow (white, a blue
 highlight), Mint, Sky, Blossom, Lavender and Sunset (pale, each with a
 colour of its own), and the dark Graphite, Dusk and Night Notes -- and a
 light and a dark one for each of the looks: Glass, Matte and Gloss (shown
-here in their looks). Set one
+here in their looks). Gloss draws its bars, its blue parts and its
+popovers in the hue of the scheme's highlight, so any scheme colors it.
+Set one
 with `ui.theme = Ocean` or `app`'s `theme`, or let the user pick it in
 `appearanceSettings`. A `Theme` of your own is an object of colors
 (`window`, `text`, `face`, `select`...); in every scheme the text reads on

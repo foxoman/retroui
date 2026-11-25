@@ -2,7 +2,7 @@ import std/strutils
 
 # Package
 
-version       = "0.75.0"
+version       = "0.76.0"
 author        = "Sultan Al Isaiee (@foxoman) <sultan@foxoman.net>"
 description   = "Retro Nim UI (retroui): a small, fast, dependency-free Windows 3.1 style UI toolkit for business and desktop apps on Windows, macOS, Linux, Android and iOS"
 license       = "MIT"
@@ -97,12 +97,12 @@ type RetroApp = tuple
 const RetroApps: seq[RetroApp] = @[
   # the apps: every package of each is made from this table
   (key: "photo", src: "examples/photo.nim", name: "Retro Atelier", stem: "RetroAtelier",
-   id: "org.retro.photo", version: "5.17.3", icon: "examples/assets/photo-icon-512.png",
+   id: "org.retro.photo", version: "5.17.4", icon: "examples/assets/photo-icon-512.png",
    apk: "--storage --share-target:image/*,application/pdf,application/postscript,image/vnd.adobe.photoshop," &
         "application/x-photoshop,application/vnd.adobe.indesign-idml-package " &
         "--opens:image/*,application/pdf,application/postscript,application/illustrator,image/vnd.adobe.photoshop," &
         "application/x-photoshop,application/photoshop,application/vnd.adobe.indesign-idml-package," &
-        "application/zip,application/octet-stream --permission:INTERNET --nim:-d:lto", code: 57, small: false),
+        "application/zip,application/octet-stream --permission:INTERNET --nim:-d:lto", code: 58, small: false),
   (key: "files", src: "examples/filemanager.nim", name: "Retro Files", stem: "RetroFiles",
    id: "org.retro.files", version: "3.7.1", icon: "examples/assets/filemanager-icon.png",
    apk: "--storage --permission:REQUEST_INSTALL_PACKAGES --share-target:*/* --permission:INTERNET --nim:-d:lto",
@@ -120,10 +120,10 @@ const RetroApps: seq[RetroApp] = @[
    id: "org.retro.navigator", version: "0.6.0", icon: "examples/assets/navigator-icon-512.png",
    apk: "--permission:INTERNET --cleartext --nim:-d:lto", code: 8, small: true),
   (key: "dns", src: "examples/retrodns.nim", name: "Retro DNS", stem: "RetroDNS",
-   id: "net.foxoman.retrodns", version: "1.6", icon: "examples/retrodns/icon.png",
+   id: "net.foxoman.retrodns", version: "1.7", icon: "examples/retrodns/icon.png",
    # (its VPN is Java of its own: --java)
    apk: "--java:examples/retrodns/glue --permission:INTERNET --permission:POST_NOTIFICATIONS --widget " &
-        "--target-sdk:36 --nim:-d:lto --nim:--opt:size", code: 9, small: true),
+        "--target-sdk:36 --nim:-d:lto --nim:--opt:size", code: 10, small: true),
   (key: "hrbook", src: "examples/hrbook.nim", name: "HR Book", stem: "HRBook",
    id: "org.retro.hrbook", version: "0.2.5", icon: "examples/assets/hrbook-icon-512.png",
    apk: "--storage --nim:-d:lto", code: 7, small: true),
@@ -156,8 +156,8 @@ const RetroApps: seq[RetroApp] = @[
    id: "org.retro.podcast", version: "1.2.2", icon: "examples/assets/podcast-icon-512.png",
    apk: "--storage --cleartext --share-target:text/plain --widget --nim:-d:lto --nim:--opt:size", code: 6, small: true),
   (key: "music", src: "examples/music.nim", name: "Retro Music", stem: "RetroMusic",
-   id: "net.foxoman.retromusic", version: "1.0", icon: "examples/assets/music-icon-512.png",
-   apk: "--permission:INTERNET --nim:-d:lto --nim:--opt:size", code: 1, small: true),
+   id: "net.foxoman.retromusic", version: "1.1", icon: "examples/assets/music-icon-512.png",
+   apk: "--permission:INTERNET --nim:-d:lto --nim:--opt:size", code: 2, small: true),
   (key: "grow", src: "examples/grow.nim", name: "Grow", stem: "Grow",
    id: "net.foxoman.grow", version: "1.0.0", icon: "examples/assets/grow-icon-512.png",
    apk: "--orientation:portrait --nim:-d:lto --nim:--opt:size", code: 1, small: true),

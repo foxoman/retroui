@@ -285,9 +285,10 @@ two in turn or your own words -- so many paragraphs, or as many as fill
 it.
 
 **Two more looks** (5.17.3): Preferences > Appearance > Look has Matte --
-flat and sharp, a clear blue -- and Gloss -- glossy buttons on a window of
-pinstripes, title and tool bars lit from above -- beside Classic and
-Glass, each with a light and a dark scheme.
+flat and sharp, a clear blue -- and Gloss -- glossy buttons, title and tool
+bars lit from above, menus that open as popover lists, its blue parts in
+the hue of the scheme you pick -- beside Classic and Glass, each with a
+light and a dark scheme.
 
 **Layout > Booklet** (5.17.3): a booklet's format (A5 or B5 saddle
 stitch, an A4 sheet: New Booklet makes one), its grid in millimeters
@@ -913,9 +914,9 @@ settings, the scripts and the profile.
 YouTube through their own services, and nothing else:
 
 - **Spotify:** make an app of your own at developer.spotify.com, with the
-  Redirect URI `http://127.0.0.1`, and give Retro Music its Client ID in
-  Settings; Sign In opens Spotify's page in your browser (`retroui/oauth`,
-  PKCE). Search, your playlists, your liked songs and what you played
+  Redirect URI `http://127.0.0.1/`, and give Retro Music its Client ID;
+  Sign In opens Spotify's page in your browser (`retroui/oauth`, PKCE, the
+  loopback address's port picked as it signs in). Search, your playlists, your liked songs and what you played
   lately come from Spotify's Web API. The music plays in your own Spotify
   apps and speakers -- Spotify Connect, which needs Premium -- and Retro
   Music is their remote: play a song or a playlist from one of its songs,
@@ -925,9 +926,19 @@ YouTube through their own services, and nothing else:
   phone; on a computer, Open in YouTube Music). Save the ones you like.
 - **Lyrics:** from LrcLib, timed: the line sung is in the highlight.
 
+Settings > Spotify and Settings > YouTube walk you through it step by
+step, a button to each page (Spotify for Developers; Google Cloud's
+project, its YouTube Data API v3, its credentials): the Redirect URI
+copied with a tap, the Client ID and the key pasted, the key tried with a
+search and what a refusal means said in a sentence (the API not on, the
+key's restrictions, the day's searches used up). YouTube Music has no API
+of its own for apps: its music is found with YouTube's.
+
 A tab bar (Home, Search, Library, Settings), a mini player over it and
-pages on a phone; the pages beside a list on a computer. It starts in the
-Glass look.
+pages on a phone; on a tablet or a computer the sections in a list down
+the left, with what plays and its controls, the page beside it under its
+own navigation bar. It starts in the Gloss look (1.1); Settings >
+Appearance changes it.
 
 ```sh
 nimble music                # or: nim c -r -d:release examples/music.nim

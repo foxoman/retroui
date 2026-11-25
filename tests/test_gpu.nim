@@ -153,7 +153,7 @@ run(4)
 # its corners small masks; on the CPU spans -- and the faces shaded from top to foot
 let themeBefore = ui.theme
 for (lookName, look) in [("Glass", lookGlass), ("Matte", lookMatte), ("Gloss", lookGloss)]:
-  # (and Matte's flat faces, Gloss's shine, its pinstripes and its lit bars)
+  # (and Matte's flat faces, Gloss's shine and its lit bars)
   uiLook = look
   let (l, d) = lookSchemes(look)
   for (name, t) in [("light", l), ("dark", d)]:

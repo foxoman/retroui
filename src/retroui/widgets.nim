@@ -190,6 +190,57 @@ proc glassRadius*(r: Rect): float =
 const white = color(255, 255, 255)
 const black = color(0, 0, 0)
 
+# ---- Gloss's colors: the scheme's own hue ---------------------------------------------------------
+
+proc hsvOf(c: Color): tuple[h, s, v: float] =
+  let r = float(c.r) / 255
+  let g = float(c.g) / 255
+  let b = float(c.b) / 255
+  let mx = max(r, max(g, b))
+  let mn = min(r, min(g, b))
+  let d = mx - mn
+  result.v = mx
+  result.s = if mx > 0: d / mx else: 0.0
+  if d <= 0: return
+  var h = if mx == r: (g - b) / d elif mx == g: 2 + (b - r) / d else: 4 + (r - g) / d
+  h *= 60
+  if h < 0: h += 360
+  result.h = h
+
+proc hsvColor(h, s, v: float): Color =
+  let s = clamp(s, 0.0, 1.0)
+  let v = clamp(v, 0.0, 1.0)
+  let c = v * s
+  let hh = (h mod 360) / 60
+  let x = c * (1 - abs(hh mod 2 - 1))
+  let (r, g, b) = if hh < 1: (c, x, 0.0) elif hh < 2: (x, c, 0.0) elif hh < 3: (0.0, c, x)
+                  elif hh < 4: (0.0, x, c) elif hh < 5: (x, 0.0, c) else: (c, 0.0, x)
+  let m = v - c
+  Color(r: uint8(clamp(int((r + m) * 255 + 0.5), 0, 255)), g: uint8(clamp(int((g + m) * 255 + 0.5), 0, 255)),
+        b: uint8(clamp(int((b + m) * 255 + 0.5), 0, 255)), a: 255)
+
+proc glossTone*(s, v: float): Color =
+  ## Gloss: a color of the scheme's own hue -- its accent's (`accentColor`) --, `s` as colored
+  ## as iOS 6's blue parts were (less in a scheme whose accent is grayish), `v` as bright. Every
+  ## part of Gloss that was steel blue or blue takes its color from here: the bars, the chosen
+  ## row, the default button, the switch, the slider, the alert, the popover -- so a scheme's
+  ## accent colors them all (Gloss Light's own: the blue of then).
+  let (h, sa, va) = hsvOf(accentColor())
+  # (how colored the scheme's accent is: a grayish one grays them, a near-black one too)
+  let k = clamp(sa / 0.6, 0.0, 1.0) * clamp(va / 0.3, 0.0, 1.0)
+  result = hsvColor(h, s * k, v)
+  # (as light as the blue would be: a green or a yellow as bright as the blue reads lighter --
+  # darker, so a hue looks as deep as Gloss's blue)
+  let want = min(255, lumaOfColor(hsvColor(215, s * k, v)) * 4 div 3)
+  let got = lumaOfColor(result)
+  if got > want and got > 0: result = hsvColor(h, s * k, v * float(want) / float(got))
+
+proc glossDetail*(): Color =
+  ## Gloss: the color of a value at a row's end, a check mark, a link in a table -- the scheme's
+  ## hue, dark on a light window, light on a dark one.
+  if lumaOfColor(th.field) < 128 or lumaOfColor(th.window) < 100: glossTone(0.4, 0.92)
+  else: glossTone(0.59, 0.53)
+
 proc glossShine(f: Rect; rad: float; base: Color; dark: bool) =
   ## (Gloss: a face in `base` with its shine -- its top half lighter, a hard edge at its middle,
   ## the light falling off down its top half; its foot a little darker)
@@ -334,10 +385,10 @@ proc tintedFace*(r: Rect; base: Color; pressed = false; radius = -1.0) =
 # ---- Gloss's parts as phones drew them then: bars, bar buttons, the blue of a chosen row ---------
 
 proc glossBarColors*(): tuple[top, foot: Color] =
-  ## Gloss: a navigation bar's, a search bar's, a title bar's gradient -- steel blue on a light
-  ## window, black on a dark one.
+  ## Gloss: a navigation bar's, a tool bar's, a title bar's gradient -- on a light window the
+  ## scheme's hue grayed, as iOS 6's steel blue (`glossTone`), black on a dark one.
   if onDark(): (color(80, 82, 88), color(12, 12, 14))
-  else: (color(176, 188, 205), color(109, 132, 162))
+  else: (glossTone(0.14, 0.80), glossTone(0.33, 0.635))
 
 proc glossBarFill*(r: Rect) =
   ## Gloss: a bar's face in `r`: its gradient, a light line along its top, a dark one along its
@@ -346,11 +397,14 @@ proc glossBarFill*(r: Rect) =
   let (top, foot) = glossBarColors()
   roundRectShaded(r, 0, top, foot)
   hline(r.x, r.y, r.w, withAlpha(white, if onDark(): 46 else: 140))
-  hline(r.x, r.y + r.h - 1, r.w, if onDark(): black else: color(45, 54, 66))
+  # (a softer light under that line, as glass catches it)
+  hline(r.x, r.y + 1, r.w, withAlpha(white, if onDark(): 14 else: 40))
+  hline(r.x, r.y + r.h - 1, r.w, if onDark(): black else: glossTone(0.32, 0.26))
 
 proc glossBlue*(r: Rect; radius = 0.0) =
-  ## Gloss: the blue of a chosen row, a pressed button, a chosen segment -- lighter at its top.
-  if r.w > 0 and r.h > 0: roundRectShaded(r, radius, color(5, 140, 245), color(1, 94, 230))
+  ## Gloss: the blue of a chosen row, a pressed button, a chosen segment -- lighter at its top;
+  ## in the scheme's hue (`glossTone`).
+  if r.w > 0 and r.h > 0: roundRectShaded(r, radius, glossTone(0.98, 0.96), glossTone(1.0, 0.86))
 
 proc arrowPoints(r: Rect; point, radius, inset: float): seq[(float, float)] =
   ## (a button's outline with its left end a point and its right corners rounded, `inset` in)
@@ -374,12 +428,12 @@ proc glossBarButton*(r: Rect; pressed: bool; back = false; done = false) =
   ## top inside; `back`: its left end a point (a navigation bar's Back); `done`: blue (Done,
   ## Save). Its label goes on it white, bold.
   if r.w <= 0 or r.h <= 0: return
-  let (top, foot) = if done: (color(72, 136, 232), color(24, 80, 196))
+  let (top, foot) = if done: (glossTone(0.69, 0.91), glossTone(0.88, 0.77))
                     elif onDark(): (color(76, 78, 84), color(22, 22, 24))
-                    else: (color(132, 152, 180), color(76, 101, 137))
+                    else: (glossTone(0.27, 0.71), glossTone(0.45, 0.54))
   let t = if pressed: mixColor(top, black, 0.28) else: top
   let f = if pressed: mixColor(foot, black, 0.22) else: foot
-  let edge = if onDark(): black elif done: color(20, 56, 140) else: color(46, 60, 84)
+  let edge = if onDark(): black elif done: glossTone(0.86, 0.55) else: glossTone(0.45, 0.33)
   let rad = float(min(dp(5), r.h div 2))
   if back:
     let p = float(min(r.h div 2, dp(13)))
@@ -418,11 +472,12 @@ proc glossButtonFace*(r: Rect; pressed: bool; primary = false; hot = false) =
   if r.h >= 8: roundRect(rect(r.x, r.y + 1, r.w, r.h), rad, withAlpha(white, 150))
   let f = inset(r, 1)
   if pressed or primary:
-    roundRect(r, rad, color(22, 56, 132))
-    if pressed: glossTwoTone(f, max(0.0, rad - 1), color(72, 124, 222), color(36, 92, 204),
-                             color(22, 76, 190), color(18, 66, 176))
-    else: glossTwoTone(f, max(0.0, rad - 1), color(116, 166, 244), color(70, 128, 232),
-                       color(44, 102, 220), color(34, 88, 206))
+    # (in the scheme's hue: blue in Gloss Light's)
+    roundRect(r, rad, glossTone(0.83, 0.52))
+    if pressed: glossTwoTone(f, max(0.0, rad - 1), glossTone(0.68, 0.87), glossTone(0.82, 0.80),
+                             glossTone(0.88, 0.75), glossTone(0.9, 0.69))
+    else: glossTwoTone(f, max(0.0, rad - 1), glossTone(0.52, 0.96), glossTone(0.70, 0.91),
+                       glossTone(0.80, 0.86), glossTone(0.84, 0.81))
   else:
     roundRect(r, rad, color(146, 148, 154))
     if hot: glossTwoTone(f, max(0.0, rad - 1), white, color(248, 248, 250), color(236, 236, 240),
@@ -485,6 +540,50 @@ proc softShadow*(r: Rect; radius: float; depth = 4) =
     roundFrame(rect(r.x - g + 1, r.y - g + 3, r.w + 2 * g - 2, r.h + 2 * g - 2), radius + float(g),
                float(g + 3), withAlpha(color(0, 0, 0), max(2, (if dark: 34 else: 12) - (if dark: 5 else: 2) * k)))
 
+proc glossMenuEdge*(): int =
+  ## Gloss: how wide the dark frame round a popover, a menu, a dropped list is (0 in the other
+  ## looks).
+  if glossLook(): max(4, dp(6)) else: 0
+
+proc glossPopoverFrame*(r: Rect; arrowX = -1; arrowUp = true) =
+  ## Gloss: the dark frame of a popover round `r` -- as tablets had it then: in the scheme's
+  ## hue (`glossTone`), lit at its top, the corners of `r` rounded off in it, an arrow at
+  ## `arrowX` (up from its top, or down from its foot; -1: none). Drawn outside `r`: what is in
+  ## `r` is the caller's, before or after.
+  let edge = max(4, dp(6))
+  let fr = inset(r, -edge)
+  let rad = float(dp(10))
+  let top = glossTone(0.385, 0.41)
+  let foot = glossTone(0.65, 0.13)
+  let line = glossTone(0.7, 0.08)
+  for strip in [rect(fr.x, fr.y, fr.w, edge), rect(fr.x, r.y + r.h, fr.w, edge),
+                rect(fr.x, r.y, edge, r.h), rect(r.x + r.w, r.y, edge, r.h)]:
+    pushClip(strip)
+    roundRect(fr, rad, line)
+    roundRectShaded(inset(fr, 1), rad - 1, top, foot)
+    popClip()
+  hline(fr.x + int(rad), fr.y + 1, fr.w - 2 * int(rad), withAlpha(white, 80))
+  # (the corners of `r` rounded: the frame's color outside a small arc in each)
+  let cr = float(max(3, dp(5)))
+  for (cx, cy, sx, sy) in [(r.x, r.y, 1, 1), (r.x + r.w, r.y, -1, 1), (r.x, r.y + r.h, 1, -1),
+                           (r.x + r.w, r.y + r.h, -1, -1)]:
+    var pts: seq[(float, float)]
+    pts.add (float(cx), float(cy))
+    for k in 0 .. 6:
+      let a = PI / 2 * float(k) / 6
+      pts.add (float(cx) + float(sx) * (cr - cr * cos(a)), float(cy) + float(sy) * (cr - cr * sin(a)))
+    let t = clamp(float(cy - fr.y) / float(max(1, fr.h)), 0.0, 1.0)
+    polygon(pts, mixColor(top, foot, t))
+  if arrowX >= 0:
+    let ah = max(6, dp(9))
+    let ax = clamp(arrowX, fr.x + int(rad) + ah, fr.x + fr.w - int(rad) - ah)
+    let at = if arrowUp: fr.y else: fr.y + fr.h - 1
+    for k in 0 .. ah:
+      let yy = if arrowUp: at - k else: at + k
+      let half = ah - k
+      hline(ax - half, yy, 2 * half + 1, if arrowUp: top else: foot)
+      fill(rect(ax - half - 1, yy, 1, 1), line)
+      fill(rect(ax + half + 1, yy, 1, 1), line)
 proc frosted*(): bool {.inline.} = uiLook == lookGlass and glassLook() and frostedGlass
   ## Menus, dialogs and dropped lists drawn as frosted glass now (`frostedGlass`, in the Glass
   ## look).
@@ -2599,15 +2698,23 @@ proc typeAheadPick(id: Id; items: openArray[string]; current: int): int =
     if unicode.toLower(tr(items[i])).startsWith(want): return i
 
 proc popupList(id: Id; r: Rect; items: openArray[string]; sel: var int;
-               preview: ItemPreview = nil): bool =
-  ## The list a combo box drops down. Runs in the popup layer.
+               preview: ItemPreview = nil; arrowX = -1; arrowUp = true): bool =
+  ## The list a combo box drops down. Runs in the popup layer. (Gloss: in a popover's frame, its
+  ## arrow at `arrowX` toward the box.)
   var st = state(id)
   let vis = min(items.len, 8)
   let viewH = vis * ItemH
   let maxOff = max(0, items.len * ItemH - viewH)
   var off = clamp(st.scrollY, 0, maxOff)
+  let gloss = glossLook()
+  let edge = glossMenuEdge()
   pushLayer(LayerPopup)
-  ui.popupRectNow = r
+  ui.popupRectNow = if gloss: inset(r, -edge - max(6, dp(9))) else: r
+  if gloss:
+    # (Gloss: as a select list was then, a popover -- its white inside, its dark frame round it)
+    softShadow(inset(r, -edge), float(dp(10)))
+    roundRect(r, float(max(3, dp(5))), th.field)
+    glossPopoverFrame(r, arrowX, arrowUp)
   let bar = maxOff > 0
   let area = if bar: rect(r.x, r.y, r.w - SbW + 1, r.h) else: r
   if bar:
@@ -2666,7 +2773,8 @@ proc popupList(id: Id; r: Rect; items: openArray[string]; sel: var int;
       off = clamp(off, (ui.popupHi + 1) * ItemH - viewH, ui.popupHi * ItemH)
       off = clamp(off, 0, maxOff)
   scrollTick(id, off, maxOff)
-  if glassLook():
+  if gloss: discard          # (drawn above, under its scroll bar)
+  elif glassLook():
     # (Glass: rounded, a soft shadow under it, a hairline round it; frosted, what is under it
     # blurred through it)
     let rad = float(dp(8))
@@ -2680,11 +2788,26 @@ proc popupList(id: Id; r: Rect; items: openArray[string]; sel: var int;
   let top = off div ItemH
   for i in top ..< min(items.len, top + vis + 1):
     let ir = rect(area.x + 1, area.y + 1 + i * ItemH - off, area.w - 2, ItemH)
+    if gloss and i > top and i != ui.popupHi and i - 1 != ui.popupHi:
+      # (Gloss: a line between the rows)
+      hline(ir.x, ir.y, ir.w, mixColor(th.field, th.fieldText, 0.12))
     if i == ui.popupHi: selectFill(ir)
     if preview != nil:
       pushClip(ir)
       preview(i, ir, i == ui.popupHi)
       popClip()
+    elif gloss:
+      # (bold, as a list's rows were; the one chosen with a check mark at its end)
+      let ink = if i == ui.popupHi: th.selectText else: th.fieldText
+      text(ir.x + dp(8), itemTextY(ir.y), tr(items[i]), ink, style(bold = true))
+      if i == sel:
+        let k = float(max(dp(4), FontH div 4))
+        let cx = float(ir.x + ir.w - dp(14))
+        let cy = float(ir.y + ir.h div 2)
+        let w = max(1.8, float(dp(2)))
+        let ck = if i == ui.popupHi: ink else: glossDetail()
+        thickLine(cx - k, cy, cx - k / 3, cy + k * 0.7, w, ck)
+        thickLine(cx - k / 3, cy + k * 0.7, cx + k, cy - k * 0.8, w, ck)
     elif i == ui.popupHi:
       text(ir.x + 2, itemTextY(ir.y), tr(items[i]), th.selectText)
     else:
@@ -2829,9 +2952,15 @@ proc combo*(items: openArray[string]; sel: var int; w = 0;
     hline(btn.x + btn.w div 2 - 3 + o, btn.y + btn.h div 2 + 3 + o, 7, c)
   if ui.popup == id:
     let vis = min(items.len, 8)
-    var pr = rect(r.x, r.y + r.h - 1 + (if glassLook(): dp(3) else: 0), r.w, vis * ItemH + 2)
-    if pr.y + pr.h > ui.h: pr.y = r.y - pr.h + 1 - (if glassLook(): dp(3) else: 0)
-    if popupList(id + 17, pr, items, sel, preview): result = true
+    # (Gloss: a popover's frame and arrow between it and the box)
+    let gap = if glossLook(): glossMenuEdge() + max(6, dp(9)) + dp(2) elif glassLook(): dp(3) else: 0
+    var pr = rect(r.x, r.y + r.h - 1 + gap, r.w, vis * ItemH + 2)
+    var up = true
+    if pr.y + pr.h + glossMenuEdge() > ui.h:
+      pr.y = r.y - pr.h + 1 - gap
+      up = false
+    if popupList(id + 17, pr, items, sel, preview, if glossLook(): r.x + r.w div 2 else: -1, up):
+      result = true
 
 # ---- values -------------------------------------------------------------------
 
@@ -2886,7 +3015,7 @@ proc slider*(v: var int; lo, hi: int; w = 0; ticks = 10;
     roundRect(tr, trad, if dark: black else: color(110, 112, 118))
     let ti = inset(tr, 1)
     pushClip(rect(tr.x, tr.y, max(0, cx - tr.x), tr.h))
-    if enabled: roundRectShaded(ti, trad - 1, color(18, 84, 200), color(96, 164, 244))
+    if enabled: roundRectShaded(ti, trad - 1, glossTone(0.91, 0.78), glossTone(0.61, 0.96))
     else: roundRectShaded(ti, trad - 1, color(150, 150, 150), color(200, 200, 200))
     popClip()
     pushClip(rect(cx, tr.y, max(0, tr.x + tr.w - cx), tr.h))
@@ -2896,10 +3025,14 @@ proc slider*(v: var int; lo, hi: int; w = 0; ticks = 10;
     let kd = if fingers(): dp(25) else: dp(17)
     let kcx = float(cx)
     let kcy = float(r.y + tht div 2)
+    # (the knob: a soft shadow under it, a gray line round it, white to light gray, a shine on
+    # its top half)
+    disc(kcx, kcy + 2, float(kd) / 2 + 1, withAlpha(black, 26))
     disc(kcx, kcy + 1, float(kd) / 2, withAlpha(black, 60))
     disc(kcx, kcy, float(kd) / 2, if dark: black else: color(148, 148, 150))
     if hit.down: discShaded(kcx, kcy, float(kd) / 2 - 1, color(214, 214, 216), color(240, 240, 242))
-    else: discShaded(kcx, kcy, float(kd) / 2 - 1, white, color(220, 220, 222))
+    else: discShaded(kcx, kcy, float(kd) / 2 - 1, white, color(214, 214, 218))
+    disc(kcx, kcy - float(kd) / 6, float(kd) / 4, withAlpha(white, if hit.down: 40 else: 110))
   elif matteLook():
     # (a thin line, the highlight up to a round knob: a ring round a light middle, the
     # highlight's dot in it while it is held)
@@ -2962,12 +3095,12 @@ proc progress*(value: float; w = 0; showText = true) =
     let fw = int(float(track.w) * f + 0.5)
     if fw > 0:
       let bar = rect(track.x, track.y, max(bh, fw), bh)
-      roundRect(bar, rad, color(20, 66, 160))
-      glossTwoTone(inset(bar, 1), rad - 1, color(120, 176, 250), color(66, 134, 236),
-                   color(40, 106, 224), color(30, 88, 206))
+      roundRect(bar, rad, glossTone(0.88, 0.63))
+      glossTwoTone(inset(bar, 1), rad - 1, glossTone(0.52, 0.98), glossTone(0.72, 0.93),
+                   glossTone(0.82, 0.88), glossTone(0.85, 0.81))
     if showText:
       text(track.x + track.w + dp(8), r.y + (r.h - FontH) div 2, numBuf,
-           if dark: th.text else: color(76, 86, 108))
+           if dark: th.text else: glossTone(0.30, 0.42))
     return
   let inner = inset(r, 1)
   let done = rect(inner.x, inner.y, int(inner.w.float * f + 0.5), inner.h)
@@ -4229,6 +4362,7 @@ type PopMenu = object
   mark: int         ## where its drawing starts (`cmdMark`)
   fixedTop: bool    ## a menu bar's (it stays under its title)
   letters: seq[char]  ## each item's underlined letter ('\0': none, or disabled)
+  arrowX: int       ## (Gloss: where its arrow points up at its title; 0: none)
 
 var
   menuLetters: Table[Id, seq[char]]
@@ -4320,8 +4454,13 @@ proc beginMenubar*() =
   # (as many rows as its menus took last frame: on a phone they wrap)
   let barRows = barRowsOf[inWindow()]
   let r = rect(ui.winX, ui.barY, ui.w, MenuH * barRows)
-  fill(r, th.window)
-  hline(ui.winX, r.y + r.h, ui.w, th.edge)
+  if glossLook():
+    # (Gloss: a bar lit from above in the scheme's hue, as a tool bar was then)
+    glossBarFill(r)
+    hline(ui.winX, r.y + r.h, ui.w, withAlpha(black, 70))
+  else:
+    fill(r, th.window)
+    hline(ui.winX, r.y + r.h, ui.w, th.edge)
   notePlaced(rect(r.x, r.y, r.w, r.h + 1))
   barX = ui.winX + ui.safe.left
   barRow = 0
@@ -4380,9 +4519,14 @@ proc menuCols(st: WState; y: int; fixedTop: bool): int =
   let room = if fixedTop: ui.h - dp(6) - y else: ui.h - dp(8)
   if st.caret == 0 or st.caret <= room: 1 else: max(1, st.anchor)
 
-proc beginPopupMenu(id: Id; x, y: int; level = 0; fixedTop = false): bool =
-  ## (`fixedTop`: a menu bar's menu, which hangs from its title)
+proc beginPopupMenu(id: Id; x, y: int; level = 0; fixedTop = false; arrowAt = -1): bool =
+  ## (`fixedTop`: a menu bar's menu, which hangs from its title; `arrowAt`: Gloss's arrow
+  ## points up there)
   let st = state(id)
+  # (Gloss: the rows inside its frame -- under the arrow for a menu bar's menu)
+  let edge = glossMenuEdge()
+  let x = x + edge
+  let y0 = y + edge + (if edge > 0 and arrowAt >= 0: max(6, dp(9)) else: 0)
   if level < MenuDepth: subSpans[level] = (-1, -1)
   if level == 0:
     if id != lastPopup:
@@ -4396,10 +4540,11 @@ proc beginPopupMenu(id: Id; x, y: int; level = 0; fixedTop = false): bool =
   let top = dp(2)
   let bottom = ui.h - dp(6)
   let nh = st.caret
-  var y = y
+  var y = y0
   if not fixedTop and nh > 0 and y + nh > bottom: y = max(top, bottom - nh)
   var m = PopMenu(id: id, x: x, y: y, w: max(st.aux, dp(120)), cy: y + 3,
-                  level: level, subAt: -1, fixedTop: fixedTop)
+                  level: level, subAt: -1, fixedTop: fixedTop,
+                  arrowX: if edge > 0 and arrowAt >= 0: arrowAt else: 0)
   # (not measured yet: in one column -- a frame later it is in place)
   m.bottom = if nh == 0 and not fixedTop: high(int) div 4 else: bottom
   if nh > 0:
@@ -4413,7 +4558,8 @@ proc beginPopupMenu(id: Id; x, y: int; level = 0; fixedTop = false): bool =
   m.cols = 1
   m.maxCy = m.cy
   let cols = menuCols(st, y, fixedTop)
-  if m.x + m.w * cols + 3 > ui.winX + ui.w: m.x = max(ui.winX, ui.winX + ui.w - m.w * cols - 3)
+  if m.x + m.w * cols + 3 + edge > ui.winX + ui.w:
+    m.x = max(ui.winX + edge, ui.winX + ui.w - m.w * cols - 3 - edge)
   m.colX = m.x
   pushLayer(LayerPopup)
   m.mark = cmdMark()
@@ -4441,7 +4587,21 @@ proc endMenu*() =
   let r = rect(m.x, m.y, m.w * m.cols, max(m.cy, m.maxCy) - m.y + 3)
   notePlaced(r)
   if accessOn: accessEnd(r)
-  if glassLook():
+  let edge = glossMenuEdge()
+  let arrowH = if m.arrowX > 0: max(6, dp(9)) else: 0
+  if edge > 0:
+    # (Gloss: as a popover was then -- its rows on white in a dark frame in the scheme's hue,
+    # lit at its top, an arrow up at the title it hangs from, a deep shadow under it)
+    let fr = inset(r, -edge)
+    let rad = float(dp(10))
+    if m.shade >= 0:
+      for k in 0 ..< MenuShadeN:
+        let g = k + 1
+        patchRoundRect(m.shade + k, rect(fr.x - g + 1, fr.y - g + 4, fr.w + 2 * g - 2, fr.h + 2 * g - 2),
+                       rad + float(g), withAlpha(color(0, 0, 0), 30 - 6 * k), width = float(g + 3))
+    patchFill(m.bg, r, th.field)
+    glossPopoverFrame(r, if m.arrowX > 0: m.arrowX else: -1)
+  elif glassLook():
     # (Glass: rounded, a hairline round it, a soft shadow under it -- its fills kept before its
     # face; frosted, what is under it blurred through it)
     let rad = float(dp(8))
@@ -4460,21 +4620,23 @@ proc endMenu*() =
     # the hard black shadow of the Win31 menus, 3 pixels down and right
     fill(r.x + 3, r.y + r.h, r.w, 3, th.frame)
     fill(r.x + r.w, r.y + 3, 3, r.h, th.frame)
-  if m.level == 0: ui.popupRectNow = rect(r.x, r.y, r.w + 3, r.h + 3)
-  elif ui.popupRect2Now.w == 0: ui.popupRect2Now = rect(r.x, r.y, r.w + 3, r.h + 3)
+  # (its place for the clicks it keeps: Gloss's frame and arrow with it)
+  let pr = rect(r.x - edge, r.y - edge - arrowH, r.w + 2 * edge, r.h + 2 * edge + arrowH)
+  if m.level == 0: ui.popupRectNow = rect(pr.x, pr.y, pr.w + 3, pr.h + 3)
+  elif ui.popupRect2Now.w == 0: ui.popupRect2Now = rect(pr.x, pr.y, pr.w + 3, pr.h + 3)
   else:
     # (submenus one in another: the box round them all)
     let o = ui.popupRect2Now
-    let x0 = min(o.x, r.x)
-    let y0 = min(o.y, r.y)
-    ui.popupRect2Now = rect(x0, y0, max(o.x + o.w, r.x + r.w + 3) - x0, max(o.y + o.h, r.y + r.h + 3) - y0)
+    let x0 = min(o.x, pr.x)
+    let y0 = min(o.y, pr.y)
+    ui.popupRect2Now = rect(x0, y0, max(o.x + o.w, pr.x + pr.w + 3) - x0, max(o.y + o.h, pr.y + pr.h + 3) - y0)
   # (the lines between columns)
   for c in 1 ..< m.cols: vline(m.x + c * m.w, m.y + 2, r.h - 4, th.shadow)
   let lv = clamp(m.level, 0, MenuDepth - 1)
   if m.level >= 1:
     # (a submenu: where it is, for the menu it opened from)
     subSpans[lv - 1] = (m.mark, cmdMark())
-    subRects[lv - 1] = rect(r.x, r.y, r.w + 3, r.h + 3)
+    subRects[lv - 1] = rect(pr.x, pr.y, pr.w + 3, pr.h + 3)
     if subRects[lv - 1].contains(point(ui.mx, ui.my)): waitRows[lv - 1] = -1
   aims[lv] = (ui.mx, ui.my)
   if subIds[lv] == 0: subRects[lv] = rect(0, 0, 0, 0)
@@ -4580,7 +4742,16 @@ proc beginMenu*(title: string): bool =
     accessNode(arMenu, title, id = id, r = tr,
                states = {asExpandable, asFocusable} + (if open: {asExpanded} else: {}))
   let lx = tr.x + dp(8)
-  if open:
+  if glossLook():
+    # (Gloss: white titles pressed into the bar; the open one a bar button held down)
+    let ty = tr.y + (MenuH - FontH) div 2
+    if open: glossBarButton(rect(tr.x + dp(2), tr.y + dp(3), tr.w - dp(4), tr.h - dp(6)), true)
+    elif barLive and canHover() and not ui.mouseDown and tr.contains(point(ui.mx, ui.my)):
+      roundRect(rect(tr.x + dp(2), tr.y + dp(3), tr.w - dp(4), tr.h - dp(6)), float(dp(5)),
+                withAlpha(white, 46))
+    drawLabel(lx, ty - 1, title, withAlpha(black, 100), boldMenus)
+    drawLabel(lx, ty, title, white, boldMenus)
+  elif open:
     selectFill(tr)
     drawLabel(lx, tr.y + (MenuH - FontH) div 2, title, th.selectText, boldMenus)
   else:
@@ -4593,7 +4764,8 @@ proc beginMenu*(title: string): bool =
     walkDepth = 1
     walkPath = @[splitMnemonic(title).text]
     return true
-  if open: beginPopupMenu(id, tr.x, tr.y + tr.h, fixedTop = true) else: false
+  if open: beginPopupMenu(id, tr.x, tr.y + tr.h, fixedTop = true, arrowAt = tr.x + tr.w div 2)
+  else: false
 
 template menu*(title: string; body: untyped) =
   ## A menu of the menu bar; `body` (its items) runs only while it is open.
@@ -4660,10 +4832,23 @@ proc itemRow(label, shortcut: string; checked, enabled, arrowRight: bool;
   pm.measured = max(pm.measured, labelWidth(label, boldMenus) + sw + dp(42))
   let r = result
   let hi = hiOf(pm.level) == i
-  let c = if not enabled: th.gray elif hi: th.selectText else: th.text
+  let gloss = glossLook()
+  let c = if not enabled: th.gray elif hi: th.selectText elif gloss: th.fieldText else: th.text
+  if gloss and r.y > pm.y + 4 and not hi:
+    # (Gloss: a line between rows, as a list in a popover)
+    hline(r.x, r.y, r.w, mixColor(th.field, th.fieldText, 0.12))
   if hi: selectFill(r)
   let ty = r.y + (r.h - FontH) div 2
-  if checked: pattern(r.x + dp(7), r.y + (r.h - 7) div 2, checkMark, "k", [c])
+  if checked and gloss:
+    # (Gloss: the check mark of a list, in the scheme's hue)
+    let k = float(max(dp(4), FontH div 4))
+    let cx = float(r.x + dp(11))
+    let cy = float(r.y + r.h div 2)
+    let w = max(1.8, float(dp(2)))
+    let ck = if hi: c else: glossDetail()
+    thickLine(cx - k, cy, cx - k / 3, cy + k * 0.7, w, ck)
+    thickLine(cx - k / 3, cy + k * 0.7, cx + k, cy - k * 0.8, w, ck)
+  elif checked: pattern(r.x + dp(7), r.y + (r.h - 7) div 2, checkMark, "k", [c])
   drawLabel(r.x + dp(22), ty, label, c, boldMenus)
   if shortcut.len > 0:
     text(r.x + r.w - dp(14) - textWidth(shortcut, boldMenus), ty, shortcut, c, boldMenus)
@@ -4843,7 +5028,8 @@ proc beginSubmenu*(label: string; enabled = true): bool =
   let st = state(id)
   let sw = max(st.aux, dp(120)) * menuCols(st, r.y - 3, false)
   let mw = pm.w * max(menuCols(state(pm.id), pm.y, pm.fixedTop), pm.cols)
-  var x = pm.x + mw - 3
+  let edge = glossMenuEdge()
+  var x = pm.x + mw - 3 + edge
   let right = ui.winX + ui.w
   if x + sw + 3 > right:
     if pm.x - sw + 3 >= ui.winX: x = pm.x - sw + 3
@@ -4866,7 +5052,12 @@ proc menuSeparator*() =
     return
   if pm.cy <= pm.y + 3 and pm.cols > 1: return
   notePlaced(rect(pm.colX + 1, pm.cy, pm.w - 2, dp(9)))
-  if glassLook(): hline(pm.colX + dp(10), pm.cy + dp(4), pm.w - 2 * dp(10), glassHair())
+  if glossLook():
+    # (Gloss: a band between the groups of rows, as between a list's groups)
+    fill(rect(pm.colX, pm.cy, pm.w, dp(9)), mixColor(th.field, th.window, 0.55))
+    hline(pm.colX, pm.cy, pm.w, mixColor(th.field, th.fieldText, 0.16))
+    hline(pm.colX, pm.cy + dp(9) - 1, pm.w, mixColor(th.field, th.fieldText, 0.16))
+  elif glassLook(): hline(pm.colX + dp(10), pm.cy + dp(4), pm.w - 2 * dp(10), glassHair())
   else: hline(pm.colX + 3, pm.cy + dp(4), pm.w - 6, th.shadow)
   pm.cy += dp(9)
 

@@ -2067,7 +2067,10 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Pictures, drawings and pages -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.17.3: Layout > Booklet -- a booklet's format, its grid in millimeters, folios " &
+           whatsNew = ["5.17.4: on Android with the GPU drawing, the status bar's icons dark on a light " &
+                       "window again (they went white); Gloss in any color scheme, its menus as popover " &
+                       "lists.",
+                       "5.17.3: Layout > Booklet -- a booklet's format, its grid in millimeters, folios " &
                        "and running heads on the outside, its pages on the printer's sheets; two more looks " &
                        "(Preferences > Appearance > Look): Matte, flat and " &
                        "sharp, and Gloss, glossy on pinstripes, each with a light and a dark scheme; an " &

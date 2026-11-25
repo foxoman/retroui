@@ -1,18 +1,23 @@
 ## Retro Music's screens: Home, Search, Library, Now Playing and Settings -- a tab bar and pages on
-## a phone, a list of them beside the page on a computer; in every look. (examples/music.nim
-## opens the window; tests/test_music.nim draws them.)
+## a phone; on a tablet or a computer the sections in a list down the left, the page beside it;
+## in every look (Gloss its own). Settings walks you through connecting Spotify and YouTube, step
+## by step, and has the Appearance settings. (examples/music.nim opens the window;
+## tests/test_music.nim draws them.)
 
 import std/[json, strutils, tables, times, os, uri]
 import retroui
 import retroui/[oauth, secrets, jobs, http, jpeg]
+import retroui/uirelays/input
 import api
 
-const AppKey* = "RetroMusic"
+const
+  AppKey* = "RetroMusic"
+  MusicVersion* = "1.1"
 
 type
   ReqKind = enum
     rkPlayback, rkDevices, rkSearch, rkVideos, rkPlaylists, rkLiked, rkRecent, rkListTracks,
-    rkCommand, rkLyrics, rkCover, rkRefresh
+    rkCommand, rkLyrics, rkCover, rkRefresh, rkKeyTest
   Pending = object
     kind: ReqKind
     key: string                          # (a cover's address, a command's name)
@@ -51,6 +56,9 @@ var
   searchedFor = ""
   queryChanged = 0
   libraryPage = ""                       # "" the list; "liked", "list"
+  settingsPage* = ""                     # "" the list; "spotify", "youtube", "appearance"
+  youtubeOk* = 0                         # the key tried: 1 it works, -1 it does not, 0 not tried
+  keyTesting = false
   idOpen, keyOpen, devicesOpen, aboutOpen*, lookOpen* = false
   idText, keyText = ""
   message* = ""
@@ -134,6 +142,29 @@ proc cover*(url: string): Bitmap =
     ask(rkCover, url, key = url)
   nil
 
+proc keyProblem*(status: int; body: string): string =
+  ## (what a YouTube key's failed answer means, in a sentence)
+  var reason = ""
+  try:
+    let j = parseJson(body)
+    for e in j{"error", "errors"}.getElems: reason = e{"reason"}.getStr
+    if reason.len == 0: reason = j{"error", "status"}.getStr
+  except CatchableError: discard
+  if status == 0: "no answer -- is the phone online?"
+  elif reason in ["keyInvalid", "badRequest"] or status == 400: "the key isn't right -- paste it again"
+  elif reason in ["accessNotConfigured", "SERVICE_DISABLED"]:
+    "the YouTube Data API v3 isn't on in the key's project (step 2)"
+  elif reason in ["quotaExceeded", "dailyLimitExceeded"]: "today's searches are used up -- tomorrow again"
+  elif status == 403: "the key isn't allowed to search YouTube -- check its restrictions (step 3)"
+  else: $status
+
+proc testYoutubeKey*() =
+  ## Tries the key with a search of one video.
+  if youtubeKey.len == 0: return
+  keyTesting = true
+  youtubeOk = 0
+  ask(rkKeyTest, youtubeSearchUrl("music", youtubeKey, limit = 1))
+
 proc pollServices*() =
   ## Every frame: the answers that came; what plays read every 3 seconds; the token renewed.
   if refreshing != nil and refreshing.ended:
@@ -204,6 +235,10 @@ proc pollServices*() =
       if r.ok:
         let b = try: decodeJpeg(r.body) except CatchableError: nil
         if b != nil: covers[p.key] = b
+    of rkKeyTest:
+      keyTesting = false
+      youtubeOk = if r.ok: 1 else: -1
+      message = if r.ok: "YouTube: connected" else: "YouTube: " & keyProblem(r.status, r.body)
     of rkRefresh: discard
     ui.redraw = true
   if pending.len > 0: wakeIn(100)
@@ -334,8 +369,12 @@ proc homeScreen() =
   if not signedIn() and youtubeKey.len == 0:
     tableGroup("", "Spotify plays in your Spotify apps and speakers (Premium); YouTube in its own " &
                    "player. Lyrics come from LrcLib."):
-      if tableRow("Sign in to Spotify", "", taChevron, glyph = nfMusic).clicked: tab = 3
-      if tableRow("Add a YouTube key", "", taChevron, glyph = nfPlay).clicked: tab = 3
+      if tableRow("Connect Spotify", "", taChevron, glyph = nfMusic, tint = color(30, 185, 84)).clicked:
+        tab = 3
+        settingsPage = "spotify"
+      if tableRow("Connect YouTube", "", taChevron, glyph = nfPlay, tint = color(226, 30, 30)).clicked:
+        tab = 3
+        settingsPage = "youtube"
   if recent.len > 0:
     label("Played Lately", bold = true)
     trackRows(recent, "recent")
@@ -390,14 +429,58 @@ proc libraryScreen() =
           if tableRow(t.title, "", taChevron, subtitle = t.artist, picture = cover(t.cover), key = "s" & t.id).clicked:
             playTracks(saved, i)
 
-proc settingsScreen() =
-  tableGroup("Spotify", "Make an app of your own at developer.spotify.com (its Redirect URI " &
-                        "http://127.0.0.1), and give its Client ID here. Spotify plays in your " &
-                        "Spotify apps and speakers, which need Premium; this is their remote."):
-    if tableRow("Client ID", if clientId.len > 0: clientId[0 ..< min(8, clientId.len)] & "..." else: "none",
+const
+  SpotifyDashboard* = "https://developer.spotify.com/dashboard"
+  SpotifyRedirect* = "http://127.0.0.1/"
+  CloudProject* = "https://console.cloud.google.com/projectcreate"
+  YouTubeApiPage* = "https://console.cloud.google.com/apis/library/youtube.googleapis.com"
+  CloudKeys* = "https://console.cloud.google.com/apis/credentials"
+
+proc pasted(): string =
+  ## (what the clipboard holds, its spaces and line ends cut off)
+  getClipboardText().strip
+
+proc note(s: string) =
+  ## (a line or two of gray text in the middle of the page, as a table's footer)
+  for ln in wrapLines(s, cellRoom()):
+    let r = place(0, FontH + dp(1), fill = true)
+    let ink = if glossLook() and lumaOfColor(ui.theme.window) >= 128: glossTone(0.30, 0.42) else: ui.theme.gray
+    text(r.x + (r.w - textWidth(ln)) div 2, r.y, ln, ink)
+
+proc spotifyGuide() =
+  ## Connecting Spotify, step by step.
+  tableGroup(""):
+    discard tableRow("Spotify", if signedIn(): "Connected" elif clientId.len > 0: "Not signed in"
+                                else: "Not connected", glyph = nfMusic, tint = color(30, 185, 84))
+  tableGroup("1. Make an app of your own",
+             "Sign in with your Spotify account, press Create app, and give it any name and " &
+             "description."):
+    if tableButton("Open Spotify for Developers"): openUrl(SpotifyDashboard)
+  tableGroup("2. Give it this Redirect URI",
+             "In the app's form, under Redirect URIs, add this one as it is (with its slash) and " &
+             "press Add; tick Web API; Save."):
+    discard tableRow("Redirect URI", SpotifyRedirect)
+    if tableButton("Copy the Redirect URI"):
+      putClipboardText(SpotifyRedirect)
+      message = "Copied: " & SpotifyRedirect
+  tableGroup("3. Its Client ID, here",
+             "On your app's page, Settings: copy its Client ID, then paste it here. (Its Client " &
+             "Secret isn't needed: keep it to yourself.)"):
+    if tableRow("Client ID", if clientId.len > 0: clientId[0 ..< min(10, clientId.len)] & "..." else: "none",
                 taChevron).clicked:
       idText = clientId
       idOpen = true
+    if tableButton("Paste the Client ID"):
+      let t = pasted()
+      if t.len == 32 and t.allCharsInSet(HexDigits):
+        clientId = t
+        discard saveSecret(AppKey, "spotify-client", clientId)
+        message = "Client ID saved -- now sign in (step 4)"
+      else: message = "That isn't a Client ID (32 letters and digits): copy it again"
+  tableGroup("4. Sign in",
+             "Your browser opens Spotify's page: allow Retro Music. Music plays in your Spotify " &
+             "app or speaker (Premium): open Spotify on one, and Retro Music is its remote. " &
+             "Another person's account: add their email under the app's User Management first."):
     if signedIn():
       if tableButton("Sign Out", destructive = true):
         tokens = OAuthTokens()
@@ -408,16 +491,70 @@ proc settingsScreen() =
     elif signIn != nil:
       discard tableRow("Signing in...", "in your browser")
       if tableButton("Cancel"): signIn.cancel()
-    elif tableButton("Sign In", enabled = clientId.len > 0):
+    elif tableButton("Sign In to Spotify", enabled = clientId.len > 0):
       signIn = beginSignIn(spotifyProvider())
-  tableGroup("YouTube", "A key from Google Cloud's console with the YouTube Data API v3 on: it " &
-                        "searches. YouTube's own player plays the videos."):
-    if tableRow("API Key", if youtubeKey.len > 0: "set" else: "none", taChevron).clicked:
+
+proc youtubeGuide() =
+  ## Connecting YouTube with a key, step by step.
+  tableGroup("", "YouTube Music has no API of its own for apps: Retro Music finds its music with " &
+                 "YouTube's (the YouTube Data API) and plays it in YouTube's own player, or " &
+                 "opens it in YouTube Music."):
+    discard tableRow("YouTube", if youtubeKey.len == 0: "Not connected" elif keyTesting: "Trying..."
+                                elif youtubeOk == 1: "Connected" elif youtubeOk == -1: "Key not working"
+                                else: "Key saved", glyph = nfPlay, tint = color(226, 30, 30))
+  tableGroup("1. A Google Cloud project",
+             "Sign in with your Google account and make a project -- any name -- or pick one " &
+             "you have."):
+    if tableButton("Open Google Cloud Console"): openUrl(CloudProject)
+  tableGroup("2. Turn on the YouTube Data API v3",
+             "In that project, on the API's page: press Enable."):
+    if tableButton("Open the YouTube Data API"): openUrl(YouTubeApiPage)
+  tableGroup("3. Make an API key",
+             "Credentials > Create credentials > API key, then copy it. Best: edit the key and " &
+             "under API restrictions allow only the YouTube Data API v3."):
+    if tableButton("Open Credentials"): openUrl(CloudKeys)
+  tableGroup("4. The key, here",
+             "Paste it: Retro Music tries it with a search. It's free -- 10,000 units a day, a " &
+             "search takes 100: about 100 searches a day."):
+    if tableRow("API Key", if youtubeKey.len > 6: youtubeKey[0 ..< 6] & "..." elif youtubeKey.len > 0: "set"
+                           else: "none", taChevron).clicked:
       keyText = youtubeKey
       keyOpen = true
-  tableGroup(""):
-    if tableRow("Appearance", "", taChevron).clicked: lookOpen = true
-    if tableRow("About Retro Music", "", taChevron).clicked: aboutOpen = true
+    if tableButton("Paste the Key"):
+      let t = pasted()
+      if t.len >= 30 and t.allCharsInSet(Letters + Digits + {'-', '_'}):
+        youtubeKey = t
+        discard saveSecret(AppKey, "youtube-key", youtubeKey)
+        testYoutubeKey()
+      else: message = "That isn't an API key: copy it again (step 3)"
+    if youtubeKey.len > 0:
+      if tableButton("Try the Key", enabled = not keyTesting): testYoutubeKey()
+      if tableButton("Remove the Key", destructive = true):
+        youtubeKey = ""
+        youtubeOk = 0
+        discard saveSecret(AppKey, "youtube-key", "")
+
+proc settingsScreen() =
+  case settingsPage
+  of "spotify": spotifyGuide()
+  of "youtube": youtubeGuide()
+  of "appearance":
+    note("The look of the controls, its colors, the sizes, the font -- kept for next time.")
+    discard appearanceSettings()
+  else:
+    tableGroup("Services", "Spotify plays in your Spotify apps and speakers; YouTube in its own " &
+                           "player. Lyrics come from LrcLib by themselves."):
+      if tableRow("Spotify", if signedIn(): "Connected" elif clientId.len > 0: "Sign in" else: "Connect",
+                  taChevron, glyph = nfMusic, tint = color(30, 185, 84)).clicked:
+        settingsPage = "spotify"
+      if tableRow("YouTube", if youtubeKey.len == 0: "Connect" elif youtubeOk == -1: "Key not working"
+                             else: "Connected", taChevron, glyph = nfPlay, tint = color(226, 30, 30)).clicked:
+        settingsPage = "youtube"
+    tableGroup(""):
+      if tableRow("Appearance", "", taChevron, glyph = nfPalette, tint = color(150, 90, 210)).clicked:
+        settingsPage = "appearance"
+      if tableRow("About Retro Music", "", taChevron, glyph = nfInfo, tint = color(128, 128, 136)).clicked:
+        aboutOpen = true
 
 proc dialogs*() =
   if idOpen and inputBox(idOpen, "Spotify Client ID", "Your app's Client ID (developer.spotify.com):", idText) == 1:
@@ -426,6 +563,7 @@ proc dialogs*() =
   if keyOpen and inputBox(keyOpen, "YouTube API Key", "A YouTube Data API v3 key:", keyText) == 1:
     youtubeKey = keyText.strip
     discard saveSecret(AppKey, "youtube-key", youtubeKey)
+    testYoutubeKey()
   var names: seq[string]
   for d in devices: names.add d.name & (if d.active: " (playing)" else: "")
   let pick = actionSheet(devicesOpen, "Play on", names)
@@ -435,7 +573,7 @@ proc dialogs*() =
     dialog(lookOpen, "Appearance", 420):
       appearanceSettings()
       if button("Close", isDefault = true): lookOpen = false
-  aboutBox(aboutOpen, "Retro Music", "1.0",
+  aboutBox(aboutOpen, "Retro Music", MusicVersion,
            ["Spotify and YouTube in one player, through their own services: Spotify Connect " &
             "plays on your devices, YouTube's player plays its videos; lyrics from LrcLib."],
            tagline = "Spotify and YouTube, one player", glyph = pxApp)
@@ -448,7 +586,22 @@ proc pageTitle(): string =
   if nowOpen: "Now Playing"
   elif tab == 2 and libraryPage == "liked": "Liked Songs"
   elif tab == 2 and libraryPage == "list": listName
+  elif tab == 3 and settingsPage == "spotify": "Spotify"
+  elif tab == 3 and settingsPage == "youtube": "YouTube"
+  elif tab == 3 and settingsPage == "appearance": "Appearance"
   else: Sections[tab]
+
+proc backLabel(): string =
+  ## (the navigation bar's Back: where it goes)
+  if nowOpen and isCompact(): "Close"
+  elif tab == 2 and libraryPage.len > 0: "Library"
+  elif tab == 3 and settingsPage.len > 0: "Settings"
+  else: ""
+
+proc goBack() =
+  if nowOpen and isCompact(): nowOpen = false
+  elif tab == 2: libraryPage = ""
+  else: settingsPage = ""
 
 proc page() =
   if nowOpen:
@@ -495,6 +648,74 @@ proc miniPlayer() =
       playbackAt = ui.now
   elif hit.clicked: nowOpen = true
 
+proc pageBody(margin: int) =
+  ## (the page under its navigation bar, in a panel; its groups `margin` in from its sides)
+  beginPanel(-1, "music:" & $tab & ":" & $nowOpen & libraryPage & settingsPage, plain = true)
+  if margin > 0:
+    let (fx, _) = layoutOrigin()
+    pushFrame(rect(fx + margin, layoutY() + dp(4), layoutWidth() - 2 * margin, 0))
+  page()
+  if margin > 0: discard place(0, popFrame() + dp(12))
+  endPanel()
+
+const SectionRows = [(nfHome, "Home", color(36, 110, 220)), (nfSearch, "Search", color(96, 104, 120)),
+                     (nfList, "Library", color(236, 140, 20)), (nfCog, "Settings", color(128, 128, 136))]
+
+proc splitView() =
+  ## A tablet's or a computer's: the sections and what plays in a list down the left under the
+  ## app's navigation bar, the page beside it under its own -- as tablets showed them then.
+  let top = ui.barY
+  let h = ui.bottom - top
+  let x0 = ui.winX + ui.safe.left
+  let w = ui.w - ui.safe.left - ui.safe.right
+  let mw = min(dp(300), w * 2 div 5)
+  pushFrame(rect(x0, top, mw, h))
+  discard navBar("Retro Music")
+  beginPanel(-1, "music:sections", plain = true)
+  let (fx, _) = layoutOrigin()
+  pushFrame(rect(fx + dp(8), layoutY() + dp(6), layoutWidth() - dp(16), 0))
+  tableGroup(""):
+    for i, (g, name, tint) in SectionRows:
+      if tableRow(name, "", taChevron, glyph = g, tint = tint, selected = tab == i and not nowOpen).clicked:
+        if tab == i:
+          libraryPage = ""
+          settingsPage = ""
+        tab = i
+        nowOpen = false
+  let t = nowTrack()
+  if t.title.len > 0:
+    tableGroup("Now Playing"):
+      if tableRow(t.title, if playback.playing: "playing" else: "", taChevron, subtitle = t.artist,
+                  picture = cover(t.cover), selected = nowOpen).clicked:
+        nowOpen = true
+    if t.source == srcSpotify:
+      # (the controls under it, as a remote's)
+      let room = cellRoom()
+      let bw = (room - 2 * Gap) div 3
+      let bh = if fingers(): dp(40) else: 0
+      row:
+        if button("Previous", nfStepBackward, blIconOnly, w = bw, h = bh): command("/me/player/previous", "POST")
+        if button(if playback.playing: "Pause" else: "Play", if playback.playing: nfPause else: nfPlay,
+                  blIconOnly, w = bw, h = bh, isDefault = true):
+          if playback.playing:
+            command("/me/player/pause")
+            playback.playing = false
+          else:
+            command("/me/player/play")
+            playback.playing = true
+            playbackAt = ui.now
+        if button("Next", nfStepForward, blIconOnly, w = bw, h = bh): command("/me/player/next", "POST")
+  discard place(0, popFrame() + dp(12))
+  endPanel()
+  discard popFrame()
+  vline(x0 + mw, top, h, if glossLook() or lumaOfColor(ui.theme.window) < 128: color(0, 0, 0)
+                         else: mixColor(ui.theme.window, ui.theme.text, 0.2))
+  pushFrame(rect(x0 + mw + 1, top, w - mw - 1, h))
+  let back = backLabel()
+  if navBar(pageTitle(), back = back) == npBack: goBack()
+  pageBody(dp(24))
+  discard popFrame()
+
 proc musicView*() =
   ## The whole window, every frame.
   pollServices()
@@ -504,50 +725,16 @@ proc musicView*() =
     if tab != before:
       nowOpen = false
       libraryPage = ""
+      settingsPage = ""
     miniPlayer()
-    let back = if nowOpen: "Close" elif tab == 2 and libraryPage.len > 0: "Library" else: ""
-    if navBar(pageTitle(), back = back) == npBack:
-      if nowOpen: nowOpen = false else: libraryPage = ""
-    beginPanel(-1, "music:" & $tab & ":" & $nowOpen & libraryPage, plain = true)
-    page()
-    endPanel()
+    if navBar(pageTitle(), back = backLabel()) == npBack: goBack()
+    pageBody(0)
   else:
-    statusbar(if message.len > 0: message elif signedIn(): "Spotify: signed in" else: "Spotify: not signed in",
-              if playback.device.name.len > 0: "Playing on " & playback.device.name else: "")
-    var sel = if nowOpen: 4 else: tab
-    row([dp(190), -1]):
-      col:
-        if listbox(["Home", "Search", "Library", "Settings", "Now Playing"], sel, rows = 5):
-          nowOpen = sel == 4
-          if sel < 4: tab = sel
-          libraryPage = ""
-        let t = nowTrack()
-        if t.title.len > 0:
-          space(dp(8))
-          let b = cover(t.cover)
-          let r = place(dp(160), dp(160))
-          if b != nil: drawBitmap(r, b)
-          label(t.title, bold = true)
-          label(t.artist, color = ui.theme.gray)
-          if t.source == srcSpotify:
-            row:
-              if button("Previous", nfStepBackward, blIconOnly): command("/me/player/previous", "POST")
-              if button(if playback.playing: "Pause" else: "Play", if playback.playing: nfPause else: nfPlay,
-                        blIconOnly):
-                if playback.playing:
-                  command("/me/player/pause")
-                  playback.playing = false
-                else:
-                  command("/me/player/play")
-                  playback.playing = true
-                  playbackAt = ui.now
-              if button("Next", nfStepForward, blIconOnly): command("/me/player/next", "POST")
-      col:
-        panel:
-          heading(pageTitle(), 2)
-          if tab == 2 and libraryPage.len > 0 and not nowOpen and button("< Library"): libraryPage = ""
-          page()
+    if not ui.touch:
+      statusbar(if message.len > 0: message elif signedIn(): "Spotify: signed in" else: "Spotify: not signed in",
+                if playback.device.name.len > 0: "Playing on " & playback.device.name else: "")
+    splitView()
   dialogs()
-  if message.len > 0 and isCompact():
+  if message.len > 0 and (isCompact() or ui.touch):
     toast(message)
     message = ""

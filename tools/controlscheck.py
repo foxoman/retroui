@@ -50,6 +50,7 @@ NOT_CONTROLS = {
         "titleBar", "barFace", "glossBar", "tintedFace", "glossBarColors", "glossBarFill",
         "glossBlue", "glossBarButton", "glossText", "buttonInk", "buttonBold",
         "glossTwoTone", "glossButtonFace", "buttonLabel",
+        "glossTone", "glossDetail", "glossPopoverFrame", "glossMenuEdge",
         # a page's thin scroll bar over its content (phones, the newer looks)
         "overlayBars", "scrollLine",
         # input helpers for controls of one's own

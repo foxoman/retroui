@@ -1815,7 +1815,7 @@ do:
 opts(settle = 300, reset = proc () = askOpen = true, looks = phoneLooks)
 
 example("tablegroup", "tableGroup, tableRow, tableSwitch, tableButton",
-        "Rows in groups, as a phone's settings: a header over a group and a note under it; a row's icon, title, gray subtitle, a value at its end and a chevron (it leads to a page), a check mark (the one chosen) or an info button of its own; a switch's row; a button's row (red: destructive). Gloss: white rounded groups on pinstripes, the values in blue-gray, the chosen row blue; Glass: rounded cards; Matte: full-width rows, the header in the highlight.",
+        "Rows in groups, as a phone's settings: a header over a group and a note under it; a row's icon, title, gray subtitle, a value at its end and a chevron (it leads to a page), a check mark (the one chosen) or an info button of its own; a switch's row; a button's row (red: destructive). Gloss: white rounded groups, the values in the scheme's hue, the chosen row blue; Glass: rounded cards; Matte: full-width rows, the header in the highlight.",
         360, 330, ["tableGroup", "tableRow", "TableAccessory", "TableHit", "tableSwitch", "tableButton"], std3):
   var airplane = false
 do:
