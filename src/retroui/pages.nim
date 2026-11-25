@@ -23,6 +23,7 @@
 ##
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
+import std/math
 import gfx, core, widgets, desktop, pixelicons
 
 type PageStack* = object
@@ -30,6 +31,9 @@ type PageStack* = object
   pages*: seq[string]
   slide: int                  # (1: one opened, from the right; -1: one closed)
   t0: int
+  swiping: bool               # (a finger drags the page from the left edge: Back as it lets go)
+  swipeX0, swipeDx: int
+  springFrom, springT0: int   # (let go short of going back: the page sliding home again)
 
 const SlideMs = 220
 
@@ -81,6 +85,42 @@ proc pageOffset*(p: var PageStack; width: int): int =
   let left = t * t * t                      # (fast, then slowing)
   if p.slide > 0: int(width.float * left) else: -int(width.float * 0.3 * left)
 
+proc pageSwipe*(p: var PageStack; area: Rect): int =
+  ## (on a touch screen: a finger from the page's left edge drags it to the right, the one
+  ## before showing; let go past a third of the way -- or flicked -- it goes back a page, else it
+  ## slides home. How far it is dragged now.)
+  if p.atHome or not ui.touch:
+    p.swiping = false
+    return 0
+  let edge = if ui.rtl: area.x + area.w - ui.mx else: ui.mx - area.x
+  if not p.swiping and canInput() and ui.pressed and ui.popup == 0 and ui.dialogTop == 0 and
+     mouseIn(area) and edge >= 0 and edge < dp(22):
+    p.swiping = true
+    p.swipeX0 = ui.mx
+    p.swipeDx = 0
+    p.springFrom = 0
+    discard takePress()
+  if p.swiping:
+    if ui.mouseDown:
+      p.swipeDx = max(0, if ui.rtl: p.swipeX0 - ui.mx else: ui.mx - p.swipeX0)
+      wakeIn(16)
+      return p.swipeDx
+    p.swiping = false
+    if p.swipeDx > area.w div 3:
+      p.pop()
+      p.slide = 0                     # (it slid off with the finger already)
+      return 0
+    p.springFrom = p.swipeDx          # (short of it: home again)
+    p.springT0 = ui.now
+  if p.springFrom > 0:
+    let d = ui.now - p.springT0
+    if d >= 200 or not smoothScrolling:
+      p.springFrom = 0
+      return 0
+    wakeIn(16)
+    return int(float(p.springFrom) * pow(1 - d / 200, 3))
+  0
+
 proc pageBackKeys*(p: var PageStack) =
   ## (Back: the phone's button, Esc, Alt+Left -- one page back)
   if p.atHome: return
@@ -98,7 +138,13 @@ template pageView*(p: var PageStack; height: int; body: untyped) =
   ## page. A page longer than that scrolls in a `scrollPanel` of its own.
   block:
     let pr = place(0, (if height < 0: remainingH() else: height), fill = true)
-    let dx = pageOffset(p, pr.w)
+    let swipe = pageSwipe(p, pr)
+    let dx = pageOffset(p, pr.w) + (if ui.rtl: -swipe else: swipe)
+    if swipe > 0:
+      # (dragged back: a shadow at its edge over the page before, as it slides off)
+      for k in 1 .. dp(8):
+        vline(if ui.rtl: pr.x + pr.w - swipe + k - 1 else: pr.x + swipe - k, pr.y, pr.h,
+              withAlpha(color(0, 0, 0), max(2, 34 - 4 * k)))
     pushClip(pr)
     beginClipped()                          # (sliding in, it never makes the window scroll)
     pushFrame(rect(pr.x + dx, pr.y, pr.w, pr.h))

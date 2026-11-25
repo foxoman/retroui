@@ -109,7 +109,8 @@ static struct {
   /* JNI: cached classes and methods (global references) */
   jclass keyEventCls, paintCls, canvasCls, bitmapCls, clipDataCls,
          intentCls, uriCls;
-  jmethodID keyEventInit, getUnicodeChar, keyboardMethod;
+  jmethodID keyEventInit, getUnicodeChar, keyboardMethod, keyboardKindMethod;
+  int kbKind, kbEnter;     /* the keyboard a field wants (uirelays_keyboard_kind) */
   /* UiRelaysActivity's services */
   jmethodID barsMethod, minimizeMethod, hasStorageMethod, askStorageMethod,
             openFileMethod, decodeImageMethod, callMethod;
@@ -602,6 +603,8 @@ static void registerNatives(JNIEnv *env, jobject activity) {
   jniFailed(env);
   g.keyboardMethod = (*env)->GetMethodID(env, cls, "keyboard", "(Z)V");
   if (!g.keyboardMethod) jniFailed(env);
+  g.keyboardKindMethod = (*env)->GetMethodID(env, cls, "keyboardKind", "(II)V");
+  if (!g.keyboardKindMethod) jniFailed(env);   /* (an activity without it: letters always) */
   struct { jmethodID *m; const char *name, *sig; } ms[] = {
     { &g.barsMethod, "systemBars", "(II)V" },
     { &g.minimizeMethod, "minimize", "()V" },
@@ -706,6 +709,20 @@ const char *uirelays_data_dir(void) {
 }
 
 int uirelays_sdk(void) { return g.activity ? g.activity->sdkVersion : 0; }
+
+/* The keyboard the field with the focus wants -- 0 letters, 1 digits, 2 a decimal number,
+ * 3 a phone number, 4 an email, 5 a web address, 6 a password -- and what its Enter key says
+ * (0 Return, 1 Next, 2 Done, 3 Search, 4 Go): told to the activity when it changes, which
+ * shows that keyboard from then on (RetroActivity.keyboardKind). */
+void uirelays_keyboard_kind(int kind, int enter) {
+  if (kind == g.kbKind && enter == g.kbEnter) return;
+  ANativeActivity *act = liveActivity(0);
+  if (!act || !g.keyboardKindMethod || !g.env) return;
+  g.kbKind = kind;
+  g.kbEnter = enter;
+  (*g.env)->CallVoidMethod(g.env, act->clazz, g.keyboardKindMethod, (jint)kind, (jint)enter);
+  jniFailed(g.env);
+}
 
 void uirelays_keyboard(int show) {
   /* asked again after every touch while a field wants text: the user may

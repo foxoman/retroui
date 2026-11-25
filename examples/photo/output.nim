@@ -513,8 +513,9 @@ proc equationDialog() =
     edit(eqDlg.src)
     row([110, 80, -1]):
       label "Size:"
-      discard spin(eqDlg.size, 6, 400, w = dp(64))
-      label "pixels"
+      let (eqSet, es) = d.typeField(float32(eqDlg.size), dp(64), "eqsize", 1, 2000)
+      if eqSet: eqDlg.size = max(6, int(round(es)))
+      label typeShort()
     let key = eqDlg.src & "|" & $eqDlg.size
     if key != eqDlg.key:
       eqDlg.key = key

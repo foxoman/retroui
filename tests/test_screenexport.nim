@@ -4,7 +4,7 @@
 ## drawn again at 2x, not stretched.
 
 import std/[os, strutils]
-import retroui/[gfx, imaging, photo, photoshapes, textengine, screenexport, photocc]
+import retroui/[gfx, imaging, photo, photoshapes, textengine, screenexport, photocc, photopdf]
 
 var failures = 0
 template check(cond: bool; what: string) =
@@ -77,6 +77,24 @@ block artboards:
   let one = a.itemDoc(items[0])
   one.updateComposite()
   check one.w == 300 and one.h == 400, "its document as big as it"
+
+block artboardPdf:
+  # (the artboards as a PDF: each a page; facing, in spreads -- the first alone, then two side by
+  # side --; those asked for; a range read)
+  let a = newDoc(800, 300, 0xFFFFFFFF'u32, name = "pages")
+  for x in [0, 200, 400, 600]: discard a.addArtboard(rect(x, 0, 150, 200))
+  check a.artboardList("2-3") == @[1, 2] and a.artboardList("") == @[0, 1, 2, 3] and
+        a.artboardList("3-, 1") == @[0, 2, 3], "a range"
+  check a.artboardSheets() == @[@[0], @[1], @[2], @[3]], "each a sheet"
+  a.boardFacing = true
+  check a.artboardSheets(spreads = true) == @[@[0], @[1, 2], @[3]], "spreads: " & $a.artboardSheets(spreads = true)
+  check a.artboardSheets(@[2, 3], spreads = true) == @[@[2], @[3]], "a spread's page not asked for: alone"
+  let p = dir / "pages.pdf"
+  createDir(dir)
+  let n = a.saveArtboardsPdf(p, PdfOptions(), spreads = true)
+  let pdf = readFile(p)
+  check n == 3 and pdf.startsWith("%PDF"), "three sheets: " & $n
+  check a.saveArtboardsPdf(p, PdfOptions()) == 4, "each a page"
 
 removeDir(dir)
 if failures > 0:

@@ -12,7 +12,7 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[os, strutils, math]
-import gfx, photo, photofiles, photosvg, photopdf
+import gfx, pdf, photo, photofiles, photosvg, photopdf, photocc
 
 type
   ScreenFormat* = enum
@@ -78,6 +78,49 @@ proc artboardItems*(d: Doc; which: seq[int] = @[]): seq[ScreenItem] =
       if L.adjust.kind.len > 0 or (c.w > 0 and c.intersects(box)): ls.add L
     result.add ScreenItem(name: bd.name, layers: ls, box: box, paper: bd.color)
 
+proc artboardList*(d: Doc; range: string): seq[int] =
+  ## The artboards (0-based) a range names, in their order, each once: "" or "all" every one;
+  ## "3", "2-5", "7-" (to the last), "-4" (from the first), commas or spaces between; by their
+  ## place in the order, from 1. What is past the last is left out.
+  let n = d.boards.len
+  var want = newSeq[bool](n)
+  let r = range.strip.toLowerAscii
+  if r.len == 0 or r == "all":
+    for i in 0 ..< n: want[i] = true
+  else:
+    for part0 in r.replace(" ", ",").split(','):
+      let part = part0.strip
+      if part.len == 0: continue
+      var a, z: int
+      try:
+        let dash = part.find('-')
+        if dash < 0:
+          a = parseInt(part)
+          z = a
+        else:
+          a = if dash == 0: 1 else: parseInt(part[0 ..< dash].strip)
+          z = if dash == part.high: n else: parseInt(part[dash + 1 .. ^1].strip)
+      except ValueError: continue
+      if a > z: swap(a, z)
+      for i in max(1, a) .. min(n, z): want[i - 1] = true
+  for i in 0 ..< n:
+    if want[i]: result.add i
+
+proc artboardSheets*(d: Doc; which: seq[int] = @[]; spreads = false): seq[seq[int]] =
+  ## The sheets the artboards print and export as (`which`: those; none: all): each alone, or with
+  ## `spreads` those of each spread (`boardSpreads`: with `boardFacing` the first alone, then two
+  ## by two) that are asked for, together, the left one first.
+  let all = which.len == 0
+  if spreads:
+    for sp in d.boardSpreads:
+      var sheet: seq[int]
+      for i in sp:
+        if all or i in which: sheet.add i
+      if sheet.len > 0: result.add sheet
+  else:
+    for i in 0 ..< d.boards.len:
+      if all or i in which: result.add @[i]
+
 proc documentItem*(d: Doc): ScreenItem =
   ## The whole document.
   ScreenItem(name: d.name, layers: d.layers, box: d.bounds)
@@ -88,6 +131,12 @@ proc itemDoc*(d: Doc; it: ScreenItem; scale = 1.0): Doc =
   let w = max(1, it.box.w)
   let h = max(1, it.box.h)
   result = newDoc(w, h, (if (it.paper shr 24) > 0: it.paper or 0xFF000000'u32 else: 0'u32), d.dpi, it.name)
+  for k, b in d.boards:
+    if b.r == it.box:
+      # (an artboard: `<#>` on it its number, `<##>` how many there are -- as on the canvas)
+      result.pageLabel = d.boardLabel(k)
+      result.pageTotal = $d.boards.len
+      break
   var copies: seq[Layer]
   for L in it.layers:
     if L.group or not L.visible or L.adjust.kind.len > 0: continue
@@ -106,6 +155,20 @@ proc itemDoc*(d: Doc; it: ScreenItem; scale = 1.0): Doc =
   if abs(scale - 1) > 1e-6:
     result.imageSize(max(1, int(round(w.float * scale))), max(1, int(round(h.float * scale))))
   result.modified = false
+
+proc saveArtboardsPdf*(d: Doc; path: string; o: PdfOptions; which: seq[int] = @[]; spreads = false): int =
+  ## The artboards as a PDF (`which`: those; none: all), each a page of its own size -- what is
+  ## on it, over its paper, its type and shapes as `o` says --, or with `spreads` each spread a
+  ## page (`artboardSheets`), its pages side by side, each showing only on its side of the spine;
+  ## how many pages. Raises `IOError` when it cannot be written.
+  let pdf = newPressPdf(o, if o.title.len > 0: o.title else: d.name)
+  for sheet in d.artboardSheets(which, spreads):
+    var docs: seq[Doc]
+    for it in d.artboardItems(sheet): docs.add d.itemDoc(it)
+    if docs.len == 0: continue
+    pdf.addSpreadPage(docs, o)
+    inc result
+  pdf.save(path)
 
 proc exportForScreens*(d: Doc; items: seq[ScreenItem]; o: ScreenExport; dir: string): seq[string] =
   ## Each item written in `dir` at each scale and in each format `o` says; the files written.

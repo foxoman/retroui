@@ -6,7 +6,7 @@ var
   typeTab = 0
   # the boxes of the Character palette (what they show, each frame)
   cpFamily, cpStyle: string
-  cpSize, cpLead, cpTrack, cpVS, cpHS, cpBase, cpKern, cpAA: int
+  cpTrack, cpVS, cpHS, cpKern, cpAA: int
   cpDir: int
   well: tuple[open: bool; key: string; c: uint32; done: bool; picker: ColorPickerState; alpha: bool]
   warpDlg: tuple[open: bool; w: TextWarp; orig: TextWarp; layer: Layer; ownStep: bool; style: int]
@@ -72,8 +72,12 @@ proc shownStyle(): CharStyle =
 
 proc applyChar(name: string; change: proc (s: var CharStyle)) =
   ## A Character setting changed: the selection (or what is typed next) of
-  ## the text edited, or all of the current type layer -- and the next text.
-  change(typeStyle)
+  ## the text edited, or all of the current type layer -- and the next text (kept in points: the
+  ## change made at the document's resolution).
+  var ts = typingStyle()
+  ts.color = typeStyle.color
+  change(ts)
+  keepTypeStyle(ts)
   if te.on:
     restyleSel(change)
     return
@@ -149,13 +153,13 @@ proc fontRows(compact: bool) =
   if fp.len > 0:
     # (a font that is listed but drawn in another: said, not hidden)
     paragraph("Drawn in FreeSans: " & fp, color = color(176, 0, 0))
-  cpSize = int(round(s.size))
   row:
     label "Size:"
-    if spin(cpSize, 1, 2000, w = dp(64)):
-      let v = float32(cpSize)
+    let (sizeSet, sz) = cur().typeField(s.size, dp(64), "charsize", 0.1, 5000)
+    if sizeSet:
+      let v = max(1'f32, sz)
       applyChar("Font Size", proc (x: var CharStyle) = x.size = v)
-    label "px"
+    label typeShort()
     var c = if te.on or typeTarget() != nil: s.color else: fg or 0xFF000000'u32
     if colorWell(c, "typecolor", alpha = true):
       let cc = c
@@ -192,8 +196,9 @@ proc scriptFontRows(s: CharStyle) =
       if spin(sc, 25, 400, w = dp(56), step = 5): f.scale = sc.float32 / 100
       label "%"
       label "Raise:"
-      if spin(sh, -500, 500, w = dp(56)): f.shift = sh.float32
-      label "px"
+      let (raised, rv) = cur().typeField(f.shift, dp(56), "scriptraise" & $which, -500, 500)
+      if raised: f.shift = rv
+      label typeShort()
     row:
       label "Track:"
       if spin(tr, -500, 5000, w = dp(56), step = 10): f.tracking = tr
@@ -215,18 +220,18 @@ proc characterBody() =
     directionButtons()
   if toolButton("+ Google Fonts", "Get free fonts (Arabic ones too) from Google Fonts"): runCommand("Get Google Fonts...")
   let s = shownStyle()
-  cpLead = int(round(s.leading))
+
   cpTrack = s.tracking
   cpKern = ord(s.noKerning)
   cpVS = int(round((if s.vScale <= 0: 1'f32 else: s.vScale) * 100))
   cpHS = int(round((if s.hScale <= 0: 1'f32 else: s.hScale) * 100))
-  cpBase = int(round(s.baselineShift))
   let half = (available() - Gap) div 2
   rowPx([half, half]):
     row:
       label "Lead:"
-      if spin(cpLead, 0, 5000, w = dp(56)):
-        let v = float32(cpLead)
+      let (leadSet, ld) = cur().typeField(s.leading, dp(56), "charlead", 0, 5000)
+      if leadSet:
+        let v = ld
         applyChar("Leading", proc (x: var CharStyle) = x.leading = v)
     row:
       label "Kern:"
@@ -241,8 +246,9 @@ proc characterBody() =
         applyChar("Tracking", proc (x: var CharStyle) = x.tracking = v)
     row:
       label "Shift:"
-      if spin(cpBase, -2000, 2000, w = dp(56)):
-        let v = float32(cpBase)
+      let (shiftSet, bs) = cur().typeField(s.baselineShift, dp(56), "charshift", -2000, 2000)
+      if shiftSet:
+        let v = bs
         applyChar("Baseline Shift", proc (x: var CharStyle) = x.baselineShift = v)
   rowPx([half, half]):
     row:
@@ -303,7 +309,6 @@ proc characterBody() =
       applyChar("Word Spacing", proc (x: var CharStyle) = x.wordSpace = v)
     label "/1000 em"
   var mk = if s.noMarks: 2 elif s.markColor != 0: 1 else: 0
-  var raise0 = int(s.markRaise)
   row:
     label "Tashkeel:"
     if combo(["As the letters", "In the foreground color", "Hidden"], mk, w = dp(150)):
@@ -312,18 +317,19 @@ proc characterBody() =
       applyChar("Tashkeel", proc (x: var CharStyle) =
         x.noMarks = v == 2
         x.markColor = if v == 1: c else: 0'u32)
-  var shift0 = int(s.markShift)
   row:
     label "... raised:"
-    if spin(raise0, -200, 200, w = dp(64)):
-      let v = raise0.float32
+    let (raisedSet, rz) = cur().typeField(s.markRaise, dp(64), "markraise", -200, 200)
+    if raisedSet:
+      let v = rz
       applyChar("Raise Tashkeel", proc (x: var CharStyle) = x.markRaise = v)
-    label "px"
+    label typeShort()
     label "moved:"
-    if spin(shift0, -200, 200, w = dp(64)):
-      let v = shift0.float32
+    let (movedSet, mv) = cur().typeField(s.markShift, dp(64), "markshift", -200, 200)
+    if movedSet:
+      let v = mv
       applyChar("Move Tashkeel", proc (x: var CharStyle) = x.markShift = v)
-    label "px"
+    label typeShort()
   row:
     if button("Word Shapes...", w = dp(110)): runCommand("Word Shapes...")
   scriptFontRows(s)
@@ -360,13 +366,17 @@ proc alignButtons(cur: TextAlign; all: bool) =
       applyPara("Paragraph Alignment", proc (p: var ParaStyle) = p.align = v)
 
 proc directionButtons() =
-  ## Left-to-right / right-to-left text, as buttons (the text being typed or
-  ## picked, else the next one); a click on the one pressed: by the text.
+  ## The paragraphs' direction, as buttons (those typed in, else all of the text picked, else the
+  ## next text's): Auto -- each paragraph by its first letter, an English one left to right in
+  ## Arabic text --, left to right, right to left.
   let cur = curPara().rtl
-  for (v, cap, tip) in [(1, "LTR", "Left-to-right text (again: as the text runs)"),
-                        (2, "RTL", "Right-to-left text, as Arabic (again: as the text runs)")]:
+  for (v, cap, tip) in [(0, "Auto", "Each paragraph as its language runs: Arabic right to left, English left " &
+                                    "to right (by its first letter)"),
+                        (1, "LTR", "Left-to-right paragraphs"),
+                        (2, "RTL", "Right-to-left paragraphs, as Arabic (an English one in them too: its " &
+                                   "full stop at its left)")]:
     if toolButton(cap, tip, down = cur == v):
-      let nv = if cur == v: 0 else: v
+      let nv = v
       typePara.rtl = nv
       applyPara("Text Direction", proc (p: var ParaStyle) = p.rtl = nv)
 
@@ -557,15 +567,15 @@ proc paragraphBody() =
   cpDir = p.rtl
   let d = cur()
   template num(lab: string; lo, hi: float; name: string; field: untyped) =
-    # (in the rulers' unit)
+    # (in type's unit, points: as the photo program's Paragraph panel)
     row([96, 72, -1]):
       label lab
-      var v = p.field
-      if d.lengthField(v, dp(64), lo, hi):
+      let (changed, v) = d.typeField(p.field, dp(64), astToStr(field), lo, hi)
+      if changed:
         let x = v
         typePara.field = x
         applyPara(name, proc (p: var ParaStyle) = p.field = x)
-      label unitShort()
+      label typeShort()
   num("Indent left:", -4000, 4000, "Indent", indentLeft)
   num("Indent right:", -4000, 4000, "Indent", indentRight)
   num("First line:", -4000, 4000, "Indent", indentFirst)
@@ -731,6 +741,8 @@ proc paragraphBody() =
         applyText("Gutter", proc (t: var TextData) = t.gutter = max(0.01'f32, v))
       label unitShort()
     let d = cur()
+    if cols > 1 and d.printSize(gut).len > 0:
+      label(tr("Gutter ") & d.printSize(gut), color = ui.theme.gray)
     let lay = layoutText(d.effectiveText(L))
     if L.flowFrom != 0:
       let S = d.layerOfUid(L.flowFrom)
@@ -807,7 +819,7 @@ proc typeMenuItems() =
   openTypeItems()
   menuSeparator()
   if menuItem("Reset Character"):
-    typeStyle = CharStyle(family: DastkhatFamily, style: "Regular", size: 48, color: fg, hScale: 1, vScale: 1)
+    typeStyle = CharStyle(family: DastkhatFamily, style: "Regular", size: 12, color: fg, hScale: 1, vScale: 1)
   if menuItem("Reset Paragraph"): typePara = ParaStyle()
   menuSeparator()
   if menuItem("Underline Options..."): runCommand("Underline Options...")

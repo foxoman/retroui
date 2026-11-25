@@ -370,6 +370,36 @@ block kashidaRulesAndTashkeel:
       if g.index == k: base = g
     doAssert abs(m.x - base.x) < 1.0, "the mark over its letter: " & $m.x & " vs " & $base.x
 
+block fewKashidasAndColumnOrder:
+  # a loose justified Arabic line: a few of its words drawn out at a join, not every one; an
+  # English paragraph in Arabic text in columns goes on in the same column, left to right
+  let st = CharStyle(family: "", size: 30, color: 0xFF000000'u32, hScale: 1, vScale: 1)
+  var t = newText("هذا نص عربي طويل داخل صندوق يلتف على عدة أسطر ليختبر المحاذاة والضبط في كل سطر منها " &
+                  "وهذا سطر آخر يكمل الفقرة حتى تمتلئ الأسطر كلها بالكلام", st, 0, 0)
+  t.boxW = 420
+  t.boxH = 600
+  t.para.align = justifyLeft
+  let l = layoutText(t)
+  var drawn = 0
+  for g in l.glyphs:
+    if g.adv > 0 and g.hScale > 1.01: inc drawn
+  let words = t.plainText.split(' ').len
+  doAssert drawn > 0 and drawn * 2 < words, "a few of its " & $words & " words drawn out: " & $drawn
+  for g in l.glyphs:
+    if g.adv > 0 and g.hScale > 1.01: doAssert g.adv >= 30 * 0.2 - 0.01, "never shorter than a fifth of an em"
+  var c = newText("هذا نص عربي في العمود الأول\nEnglish text that follows it here", st, 0, 0)
+  c.boxW = 900
+  c.boxH = 400
+  c.columns = 2
+  c.gutter = 40
+  let lc = layoutText(c)
+  var english: seq[LaidLine]
+  for ln in lc.lines:
+    if not ln.rtl: english.add ln
+  doAssert english.len > 0
+  for ln in english:
+    doAssert ln.x0 >= 450 - 1, "in the first column, the right one: " & $ln.x0 & ".." & $ln.x1
+
 block kashidaBeforeTheTooth:
   # a tooth (Beh, Yeh...) before a final Reh or Yeh: never lengthened between them, but before
   # the tooth ("أكـبر", "لـيرى"); a letter drawn in one glyph with the next (a ligature of the

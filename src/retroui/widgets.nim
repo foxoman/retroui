@@ -15,6 +15,7 @@
 ##   `checkBox`, `radioDisc`, `arrow`, `scrollbarAt`, `focusDots`
 
 import std/[strutils, tables, math, hashes]
+from std/os import getEnv
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import uirelays/input
 import core, nerdicons, pixelicons, busy
@@ -2120,6 +2121,9 @@ proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
   ## Select all. In a right-to-left interface its text keeps its own
   ## direction (a line of Arabic at the right, of Latin at the left, an
   ## empty box's caret at the right), not mirrored with the frame.
+  # (the keyboard asked for it -- `textKeyboard` --, taken by this box alone)
+  let kb = ui.nextKeyboard
+  ui.nextKeyboard.set = false
   var st: WState
   swap(st, state(id))         # (taken out and put back: no copy of its text)
   let barW = if multi: SbW else: 0
@@ -2198,6 +2202,9 @@ proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
     ui.takesText = true
     ui.editsText = true
     if multi: ui.takesEnter = true
+    # (a phone's keyboard for it: a password's, what the app asked, else letters)
+    ui.keyboard = if pass: kbPassword elif kb.set: kb.kind else: kbText
+    ui.keyboardEnter = if kb.set: kb.enter else: keReturn
     # mouse; a tap puts the caret where the finger was
     if tapAt:
       st.caret = hitIndex(st)
@@ -3286,6 +3293,7 @@ proc spin*(v: var int; lo, hi: int; w = 80; step = 1;
   ## digits' (`style(size = 1.6, bold = true)`); the box and its arrows grow with
   ## them, or to `h`.
   let uiFontH = FontH
+  if not ui.nextKeyboard.set: textKeyboard(if lo < 0: kbDecimal else: kbNumber)   # (digits)
   withTextStyle(style):
     result = spinBox(v, lo, hi, w, step, enabled, h, uiFontH)
 
@@ -4162,16 +4170,183 @@ proc overlayBars*(): bool =
   ## the newer looks on a touch screen (the finger moves the page).
   glassLook() and ui.touch
 
-proc scrollLine*(r: Rect; y, maxY: int) =
+proc scrollLine*(r: Rect; y, maxY: int; alpha = 1.0) =
   ## The thin scroll bar of `overlayBars`: a rounded line along the right of `r`, as long as the
-  ## part of the content in view, where it is.
-  if maxY <= 0 or r.h <= 0: return
+  ## part of the content in view, where it is (`alpha`: how much of it shows).
+  if maxY <= 0 or r.h <= 0 or alpha <= 0: return
   let total = r.h + maxY
   let len = max(dp(24), r.h * r.h div total)
   let top = r.y + dp(2) + (r.h - dp(4) - len) * y div maxY
   let w = max(2, dp(3))
   roundRect(rect(r.x + r.w - w - dp(2), top, w, len), float(w) / 2,
-            if onDark(): withAlpha(white, 110) else: withAlpha(black, 100))
+            if onDark(): withAlpha(white, int(110 * alpha)) else: withAlpha(black, int(100 * alpha)))
+
+type ScrollHint = object
+  frame, shownAt, lastY, lastMax: int
+
+var scrollHints: Table[Id, ScrollHint]
+
+proc scrollHint*(id: Id; r: Rect; y, maxY: int; line = true) =
+  ## On a touch screen, as phones say there is more to see: the thin scroll line flashed when the
+  ## page comes up (or grows) with more than shows, shown while it moves, fading a second after;
+  ## a hairline with a soft shadow under the top edge once the content has gone up under it.
+  ## (`overlayBars` pages call it; a scroller of your own may, `line` false when it draws its own.)
+  var h = scrollHints.getOrDefault(id)
+  if h.frame < ui.frameNo - 1 or y != h.lastY or maxY > h.lastMax: h.shownAt = ui.now   # (come up, moved, grown)
+  h.frame = ui.frameNo
+  h.lastY = y
+  h.lastMax = maxY
+  scrollHints[id] = h
+  if maxY > 0 and y > 0:
+    # (the edge content went under: a hairline, a soft shadow below it)
+    let c = if onDark(): black else: color(0, 0, 0)
+    hline(r.x, r.y, r.w, withAlpha(c, if onDark(): 120 else: 46))
+    for k in 1 .. max(2, dp(3)):
+      hline(r.x, r.y + k, r.w, withAlpha(c, max(4, (if onDark(): 60 else: 22) - 7 * k)))
+  if line and maxY > 0:
+    let age = ui.now - h.shownAt
+    let a = if age < 1000: 1.0 elif age < 1400: 1 - float(age - 1000) / 400 else: 0.0
+    scrollLine(r, y, maxY, a)
+    if a > 0: wakeIn(if age < 1000: 1000 - age + 16 else: 33)
+
+# ---- touch: the ends stretched, pull to refresh, the fast-scroll thumb ---------------------------
+
+type PanelPull = object
+  ## (a panel's stretch on a touch screen: pulled past its top or its end, as a phone's page)
+  tracking, moved: bool     # the finger down in it; past the slop
+  startY, lastY: int
+  off: float                # > 0: pulled down at the top; < 0: up at the end (pixels)
+  t: int                    # when it last sprang back a step
+  wants: bool               # `pullRefresh` this frame: let go far enough asks for fresh content
+  refreshing: bool          # ... and it is being fetched: held open, a spinner in it
+  fired: bool               # let go past the threshold: true once to the app
+  frame: int                # the frame it was last drawn in
+
+var panelPulls: Table[Id, PanelPull]
+
+var touchFeel*: proc (kind: int) {.nimcall, gcsafe.}
+  ## (a tap the user feels -- retroui/system's `haptic`, set there: 0 a tap, 5 a selection)
+
+template PullAt: int = dp(64)          # (how far a pull asks for fresh content)
+
+proc stretched*(): bool =
+  ## The ends of panels stretch under the finger and spring back, as on phones: a touch screen.
+  ui.touch
+
+proc pullRefresh*(refreshing: bool): bool =
+  ## Inside a panel (right after `beginPanel`), on a touch screen: pulling its content down from
+  ## the top and letting go past a threshold asks for fresh content -- true once, with a tap felt.
+  ## While `refreshing` is true it stays pulled open a little, a spinner turning in the room, and
+  ## closes when it is false again. (Elsewhere: false, nothing drawn.)
+  if panelStack.len == 0 or not stretched(): return false
+  let (id, inner, _, _, _) = panelStack[^1]
+  var ps = panelPulls.getOrDefault(id)
+  ps.wants = true
+  ps.refreshing = refreshing
+  result = ps.fired
+  ps.fired = false
+  panelPulls[id] = ps
+  let room = int(ps.off)
+  if room <= dp(4) and not refreshing: return
+  # the spinner in the room the pull opened, over the content's top
+  let d = dp(26)
+  let cx = inner.x + inner.w div 2
+  let cy = inner.y + max(d div 2 + dp(4), room div 2)
+  pushClip(rect(inner.x, inner.y, inner.w, max(room, 0)))
+  let ink = if onDark(): withAlpha(white, 200) else: withAlpha(black, 150)
+  let spokes = 12
+  let turn = if refreshing: (ui.now div 80) mod spokes else: 0
+  let shown = if refreshing: spokes else: clamp(int(float(spokes) * float(room) / float(PullAt)), 0, spokes)
+  for k in 0 ..< shown:
+    let a = float(k) * 2 * PI / float(spokes) - PI / 2
+    let fade = if refreshing: 60 + 195 * ((k - turn + spokes) mod spokes) div spokes else: 220
+    let (r0, r1) = (float(d) * 0.22, float(d) * 0.48)
+    thickLine(float(cx) + cos(a) * r0, float(cy) + sin(a) * r0, float(cx) + cos(a) * r1,
+              float(cy) + sin(a) * r1, float(max(2, dp(2))), withAlpha(ink, fade))
+  popClip()
+  if refreshing: wakeIn(80)
+
+proc pullStep(id: Id; inner: Rect; y: var int; maxY: int) =
+  ## (endPanel's: the finger's pull past either end -- a pan up or down begun in it, no widget
+  ## dragging by itself, no scroller inside it taking the gesture --, the spring back after it)
+  var ps = panelPulls.getOrDefault(id)
+  ps.frame = ui.frameNo
+  let mine = finger() and ui.mouseDown and ui.panAlong == 2 and not ui.dragsActive and
+             inner.contains(ui.panFrom) and (ui.panOwner == 0 or ui.panOwner == uint32(id))
+  if mine:
+    ps.tracking = true
+    let d = float(-ui.panY)                   # (down: more than 0)
+    let most = float(inner.h) * 0.4
+    if y <= 0 and (d > 0 or ps.off > 0):
+      # (past the top: held back more the further it goes; moved back first when it turns)
+      if d > 0: ps.off += d * 0.55 * max(0.1, 1 - ps.off / most)
+      else: ps.off = max(0, ps.off + d)
+      y = 0
+    elif y >= maxY and (d < 0 or ps.off < 0):
+      if d < 0: ps.off += d * 0.55 * max(0.1, 1 + ps.off / most)
+      else: ps.off = min(0, ps.off + d)
+      y = maxY
+  elif ps.tracking and not ui.mouseDown:
+    # let go: past the threshold with `pullRefresh`, fresh content asked for
+    ps.tracking = false
+    if ps.wants and ps.off >= float(PullAt):
+      ps.fired = true
+      ps.refreshing = true
+      if touchFeel != nil: touchFeel(5)
+    ps.t = ui.now
+  let goal = if ps.wants and (ps.refreshing or ps.fired): float(PullAt) * 0.75 else: 0.0
+  if not ps.tracking and ps.off != goal:
+    # (springing back -- to the spinner's room while it refreshes -- quickly, then slowing)
+    if ps.t == 0: ps.t = ui.now - 16
+    let dt = float(max(1, min(50, ui.now - ps.t)))
+    ps.t = ui.now
+    ps.off = goal + (ps.off - goal) * exp(-dt / 70)
+    if abs(ps.off - goal) < 0.5: ps.off = goal
+    if ps.off != goal: wakeIn(16)
+  elif ps.tracking: wakeIn(16)
+  ps.wants = false
+  if ps.off == 0 and not ps.tracking and not ps.fired and not ps.refreshing: panelPulls.del(id)
+  else: panelPulls[id] = ps
+
+type FastThumb = object
+  shownAt: int              # (when the list last moved: the thumb shows for a while after)
+  lastY: int
+  grab: int                 # dragged: where in the thumb it was taken (-1: not dragged)
+
+var fastThumbs: Table[Id, FastThumb]
+
+proc fastScroll(id: Id; r: Rect; y: var int; maxY: int): bool =
+  ## (a long page's thumb on a touch screen, as phones have it: shown while it moves, a pill at
+  ## the right a finger drags to go anywhere at once; true while it is dragged)
+  var ft = fastThumbs.getOrDefault(id, FastThumb(grab: -1))
+  if y != ft.lastY:
+    ft.lastY = y
+    ft.shownAt = ui.now
+  let tw = dp(6)
+  let th = dp(44)
+  let span = max(1, r.h - th - dp(8))
+  let top = r.y + dp(4) + span * y div maxY
+  let hitR = rect(r.x + r.w - dp(30), top - dp(6), dp(30), th + dp(12))
+  let shown = ft.grab >= 0 or ui.now - ft.shownAt < 1500
+  if shown and canInput() and ui.pressed and hover(hitR) and takePress():
+    ft.grab = ui.my - top
+    if touchFeel != nil: touchFeel(5)
+  if ft.grab >= 0:
+    if ui.mouseDown:
+      y = clamp((ui.my - ft.grab - r.y - dp(4)) * maxY div span, 0, maxY)
+      ft.shownAt = ui.now
+      ft.lastY = y
+      result = true
+    else: ft.grab = -1
+  let age = ui.now - ft.shownAt
+  if shown:
+    # (fading out after it stopped)
+    let a = if ft.grab >= 0 or age < 1100: 1.0 else: max(0.0, 1 - float(age - 1100) / 400)
+    let base = if onDark(): white else: color(60, 60, 64)
+    let pill = rect(r.x + r.w - tw - dp(4), top, tw + (if ft.grab >= 0: dp(2) else: 0), th)
+    roundRect(pill, float(pill.w) / 2, withAlpha(base, int(170 * a)))
+    if age < 1500: wakeIn(40)
+  fastThumbs[id] = ft
 
 proc beginPanel*(height = -1; key = ""; plain = false) =
   ## Starts a `panel`: a framed white area (as a list's) whose content sits
@@ -4188,11 +4363,13 @@ proc beginPanel*(height = -1; key = ""; plain = false) =
               else: rect(r.x + 2, r.y + 2, r.w - 3, r.h - 3)
   let over = st.aux != 0                     # (it was taller last frame)
   let y = if over: st.scrollY else: 0
+  # (pulled past an end on a touch screen: the content follows the finger, held back)
+  let pull = if id in panelPulls: int(panelPulls[id].off) else: 0
   pushClip(inner)
   beginClipped()
   ui.focusRect = rect(0, 0, 0, 0)
   panelStack.add (id, inner, inner.y + Pad - y, -1, true)
-  pushFrame(rect(inner.x + Pad, inner.y + Pad - y,
+  pushFrame(rect(inner.x + Pad, inner.y + Pad - y + pull,
                  inner.w - 2 * Pad - (if over and not overlayBars(): SbW else: 0), inner.h - 2 * Pad))
 
 proc endPanel*() =
@@ -4210,7 +4387,10 @@ proc endPanel*() =
       scrollStop(id)
       y = goal
     elif scrollTarget(id, y) != goal: scrollTo(id, y, goal, maxY)
-  if maxY > 0:
+  var thumbHeld = false
+  if maxY > 0 and overlayBars() and maxY > 2 * inner.h:
+    thumbHeld = fastScroll(id + 41, inner, y, maxY)       # (a long page: its fast-scroll thumb)
+  if maxY > 0 and not thumbHeld:
     scrollWheel(id, y, maxY, inner, 3 * ItemH)
     scrollPan(id, y, maxY, inner)
     scrollTick(id, y, maxY)
@@ -4219,7 +4399,9 @@ proc endPanel*() =
       if f.y < inner.y: y = clamp(y - (inner.y + Pad - f.y), 0, maxY)
       elif f.y + f.h > inner.y + inner.h:
         y = clamp(y + (f.y + f.h + Pad - (inner.y + inner.h)), 0, maxY)
-    if overlayBars(): scrollLine(inner, y, maxY)
+  if stretched() and not thumbHeld: pullStep(id, inner, y, maxY)
+  if maxY > 0:
+    if overlayBars(): scrollHint(id + 43, inner, y, maxY, line = maxY <= 2 * inner.h)
     else:
       scrollBarFor(id + 9, id, rect(inner.x + inner.w - SbW, inner.y, SbW, inner.h), true,
                    y, maxY, max(ItemH, inner.h - ItemH), ItemH)
@@ -5660,11 +5842,116 @@ proc statusSep*() =
 template TitleH: int = FontH + (if fingers(): dp(10) else: dp(5))
 
 var dlgCloseOff = false     # (the next dialog's close button grayed: `msgBox`)
+var dlgAlert = false        # (the next dialog a message box: a small alert, even where dialogs are pages)
+var dlgPage = false         # (the dialog drawn now is a page)
+
+type DialogPages* = enum
+  ## How dialogs open (`dialogPages`).
+  dpAuto,      ## as pages of the app in the Gloss look on Android and iOS; else over it
+  dpPages,     ## always as pages of the app
+  dpWindows    ## always as windows over the app
+
+var dialogPages* = case getEnv("RETRO_DIALOGS")
+                   of "pages": dpPages
+                   of "windows": dpWindows
+                   else: dpAuto
+  ## Dialogs as pages of the app -- the whole window, sliding up, a navigation bar with their
+  ## title and Close, their content scrolling -- as phone apps have them, or as windows over
+  ## the app. A message box (`msgBox`) stays a small alert either way, as phones show them.
+  ## $RETRO_DIALOGS ("pages", "windows") sets it at the start: to try an app's pages on a
+  ## computer.
+
+proc dialogsAsPages*(): bool =
+  ## Dialogs open as pages now (`dialogPages`).
+  case dialogPages
+  of dpPages: true
+  of dpWindows: false
+  of dpAuto: (defined(android) or defined(ios)) and glossLook()
+
+var pageDialogsOpen: Table[Id, tuple[opened, frame: int]]
+
+proc beginPageDialog(open: var bool; title: string; id: Id; st: var WState): bool =
+  ## (a dialog as a page: the whole window, sliding up when it opens, its title and Close in a
+  ## navigation bar, its content scrolling under it)
+  var pd = pageDialogsOpen.getOrDefault(id, (-1, -1))
+  if pd.frame < ui.frameNo - 1: pd.opened = ui.now          # (just opened: it slides up)
+  pd.frame = ui.frameNo
+  pageDialogsOpen[id] = pd
+  let room = ui.h - ui.winY
+  let age = ui.now - pd.opened
+  let slide = if not smoothScrolling or age >= 300: 0.0 else: pow(1 - float(age) / 300, 3)
+  if slide > 0: wakeIn(16)
+  let dy = int(slide * float(room))
+  let full = rect(ui.winX, ui.winY + dy, ui.w, room)
+  notePlaced(full)
+  # its face, and a dimmed shadow of the page under it while it slides
+  if dy > 0: fill(rect(ui.winX, ui.winY, ui.w, dy), withAlpha(black, int(60 * (1 - slide))))
+  fill(full, if glossLook() and not onDark(): mixColor(th.window, color(222, 226, 232), 0.5) else: th.window)
+  # the navigation bar: under the status bar, its title in the middle, Close at its start
+  let safeTop = max(0, ui.safe.top - ui.winY)
+  let barH = if fingers(): dp(44) else: max(dp(32), CtrlH + dp(8))
+  let bar = rect(full.x, full.y, full.w, safeTop + barH)
+  let inBar = rect(full.x + ui.safe.left, full.y + safeTop, full.w - ui.safe.left - ui.safe.right, barH)
+  if glassLook(): titleBar(bar, true)
+  else:
+    fill(bar, th.face)
+    hline(bar.x, bar.y + bar.h - 1, bar.w, th.frame)
+  let (_, tfg) = if glassLook(): titleColors(true) else: (th.face, th.text)
+  let bst = style(bold = true, size = 0.9)
+  let closeLabel = tr("Close")
+  let bw = labelWidth(closeLabel, bst) + dp(20)
+  let bh = if glossLook(): min(barH - dp(10), dp(30)) else: barH - dp(10)
+  let br = rect(inBar.x + dp(6), inBar.y + (barH - bh) div 2, bw, bh)
+  var hit: Hit
+  if canInput():
+    hit = interact(id + 3, br, focusable = false)
+    if hit.clicked or keyHit(KeyEsc) or backPressed():
+      if backPressed(): cancelClose()
+      open = false
+  if not open:
+    pageDialogsOpen.del(id)
+    popLayer()
+    ui.curDialog = 0
+    ui.redraw = true
+    return false
+  var ink = tfg
+  if glossLook():
+    glossBarButton(br, hit.down)
+    ink = white
+  elif hit.down: roundRect(br, float(dp(6)), withAlpha(th.text, 30))
+  let lw = labelWidth(closeLabel, bst)
+  let ly = br.y + (br.h - lineHeight(bst)) div 2
+  if glossLook(): drawLabel(br.x + (br.w - lw) div 2, ly - 1, closeLabel, withAlpha(black, 100), bst)
+  drawLabel(br.x + (br.w - lw) div 2, ly, closeLabel, if glossLook(): ink else: accentColor(), bst)
+  let tst = if glossLook(): style(bold = true, size = 1.2) else: style(bold = true)
+  let t = ellipsize(tr(title), max(dp(24), inBar.w - 2 * (bw + dp(16))), tst)
+  let tw = textWidth(t, tst)
+  let tx = inBar.x + (inBar.w - tw) div 2
+  let ty = inBar.y + (barH - lineHeight(tst)) div 2
+  if glossLook(): text(tx, ty - 1, t, withAlpha(black, 110), tst)
+  text(tx, ty, t, tfg, tst)
+  # its content, as wide as reads well, scrolling
+  let cy = bar.y + bar.h
+  let client = rect(full.x + ui.safe.left, cy, full.w - ui.safe.left - ui.safe.right,
+                    full.y + full.h - cy - ui.safe.bottom)
+  let cw = min(client.w, dp(680))
+  if accessOn:
+    accessBegin(arDialog, title, full, id, {asModal})
+    accessNode(arButton, closeLabel, id = id + 3, r = br)
+  dlgClient = client
+  dlgTall = true
+  dlgPage = true
+  pushClip(client)
+  pushFrame(rect(client.x + (client.w - cw) div 2 + Pad, client.y + Pad - st.caret, cw - 2 * Pad, 0))
+  true
 
 proc beginDialog*(open: var bool; title: string; width: int): bool =
   ## Starts a modal dialog (see `dialog`): true while it is `open`.
   let closeOff = dlgCloseOff
   dlgCloseOff = false
+  let alert = dlgAlert
+  dlgAlert = false
+  dlgPage = false
   if not open: return false
   # (known by its title, not by where `open` is: a dialog drawn from a proc's own flag -- the
   # Color dialog's -- has it on the stack, at an address the same each frame only by luck; under
@@ -5674,6 +5961,10 @@ proc beginDialog*(open: var bool; title: string; width: int): bool =
   ui.curDialog = id
   ui.dialogTopNow = id
   pushLayer(LayerDialog)
+  if dialogsAsPages() and not alert:
+    result = beginPageDialog(open, title, id, st)
+    state(id) = st
+    return
   let w = min(dp(width), ui.w - 8)
   let room = ui.h - ui.winY             # (the window's height: a box's in a `windowBox`)
   var h = TitleH + 10 + st.aux + 2 * Pad
@@ -5784,10 +6075,13 @@ proc endDialog*() =
     if canInput() and f.w > 0:
       if f.y < c.y: y -= c.y + Pad - f.y
       elif f.y + f.h > c.y + c.h: y += f.y + f.h + Pad - (c.y + c.h)
-    # the standard scroll bar, fingers too (they can also drag the content)
+    # the standard scroll bar, fingers too (they can also drag the content); a page's, the thin
+    # line phones show
     y = clamp(y, 0, hi)
-    scrollBarFor(id + 77, id, rect(c.x + c.w - SbW, c.y, SbW, c.h), true,
-                 y, hi, max(ItemH, c.h - 2 * ItemH), ItemH)
+    if dlgPage: scrollHint(id + 78, c, y, hi)
+    else:
+      scrollBarFor(id + 77, id, rect(c.x + c.w - SbW, c.y, SbW, c.h), true,
+                   y, hi, max(ItemH, c.h - 2 * ItemH), ItemH)
     y = clamp(y, 0, hi)
     if y != st.caret:
       st.caret = y
@@ -5795,6 +6089,7 @@ proc endDialog*() =
   state(id) = st
   popLayer()
   ui.curDialog = 0
+  dlgPage = false
 
 template dialog*(open: var bool; title: string; width: int; body: untyped) =
   ## A modal dialog, `width` pixels wide, shown while `open` is true. Esc,
@@ -5906,6 +6201,7 @@ proc msgBox*(open: var bool; title, msg: string;
   let was = open
   let last = if buttons.len > 0: buttons[^1].replace("&", "").toLowerAscii else: ""
   dlgCloseOff = buttons.len > 1 and last notin ["cancel", "close", "ok"]
+  dlgAlert = true
   if beginDialog(open, title, w):
     row:
       if icon != miNone: msgIcon(icon)

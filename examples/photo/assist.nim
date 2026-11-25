@@ -264,7 +264,7 @@ proc assistTools(device = false): seq[AiTool] =
     proc (a: JsonNode): string =
       let d = cur()
       if d == nil: return "no image is open"
-      var st = typeStyle
+      var st = typeStyle.scaledStyle(typeScale())
       st.size = a{"size"}.getFloat(max(12.0, d.h.float / 12)).float32
       st.color = hexOf(a{"color"}.getStr, 0xFF000000'u32)
       if a{"font"}.getStr.len > 0: st.family = a{"font"}.getStr

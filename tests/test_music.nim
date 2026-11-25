@@ -1,5 +1,6 @@
 ## Tests of Retro Music (examples/music): Spotify's answers read (a search, a playlist's items,
-## your playlists, the devices, what plays), YouTube's (a search, its HTML entities), LrcLib's
+## your playlists, the devices, what plays), YouTube's (a search, its HTML entities; your
+## playlists, a playlist's songs, the ones you like, lengths; the player's page), LrcLib's
 ## timed lines (LRC, several times a line, the line at a time), the requests' bodies -- and its
 ## screens drawn with no account, in every look, on a phone and a computer.
 
@@ -48,7 +49,30 @@ let vids = youtubeVideos("""{"items": [{"id": {"kind": "youtube#video", "videoId
 doAssert vids.len == 1 and vids[0].title == "Tom & Jerry's song" and vids[0].cover == "m.jpg"
 doAssert vids[0].source == srcYouTube and vids[0].uri.endsWith("v=v1")
 doAssert "videoCategoryId=10" in youtubeSearchUrl("x y", "KEY") and "q=x%20y" in youtubeSearchUrl("x y", "KEY")
-doAssert "youtube.com/embed/v1" in embedPage("v1")
+doAssert "key=" notin youtubeSearchUrl("x", ""), "signed in: no key, the token instead"
+# signed in with Google: your playlists (YouTube Music's), a playlist's songs, the ones you like
+let ypl = youtubePlaylists("""{"nextPageToken": "N2", "items": [{"kind": "youtube#playlist", "id": "PL1",
+  "snippet": {"title": "Drive &amp; Ride", "channelTitle": "Sultan", "thumbnails": {"medium": {"url": "p.jpg"}}},
+  "contentDetails": {"itemCount": 27}}]}""")
+doAssert ypl.len == 1 and ypl[0].id == "PL1" and ypl[0].name == "Drive & Ride" and ypl[0].count == 27 and
+         ypl[0].cover == "p.jpg"
+doAssert nextPage("""{"nextPageToken": "N2", "items": []}""") == "N2" and nextPage("{}") == ""
+let yitems = youtubeVideos("""{"items": [
+  {"kind": "youtube#playlistItem", "snippet": {"title": "Ya Salam", "videoOwnerChannelTitle": "Balqees - Topic",
+   "thumbnails": {"default": {"url": "d.jpg"}}}, "contentDetails": {"videoId": "vA"}},
+  {"kind": "youtube#playlistItem", "snippet": {"title": "Deleted video"}, "contentDetails": {"videoId": "vB"}}]}""")
+doAssert yitems.len == 1 and yitems[0].id == "vA" and yitems[0].artist == "Balqees" and yitems[0].cover == "d.jpg",
+         "a playlist's songs: a deleted one left out, an artist's Topic channel as the artist"
+let yliked = youtubeVideos("""{"items": [{"kind": "youtube#video", "id": "vL",
+  "snippet": {"title": "Liked", "channelTitle": "C"}, "contentDetails": {"duration": "PT3M27S"}}]}""")
+doAssert yliked.len == 1 and yliked[0].id == "vL" and yliked[0].durationMs == 207000
+doAssert youtubeDuration("PT1H2M3S") == 3723000 and youtubeDuration("PT45S") == 45000
+doAssert "mine=true" in myPlaylistsUrl() and "pageToken=N2" in myPlaylistsUrl("N2")
+doAssert "playlistId=PL1" in playlistItemsUrl("PL1") and "myRating=like" in likedVideosUrl()
+# YouTube's player in the app: its page from the app's address, the song in it, what it tells
+let pg = playerPage("vA", AppOrigin & "/")
+doAssert pg.startsWith("html:") and "videoId:'vA'" in pg and "origin:'https://net.foxoman.retromusic'" in pg and
+         "iframe_api" in pg and "retro.post" in pg
 
 # ---- lyrics ---------------------------------------------------------------------------------------
 
@@ -84,6 +108,21 @@ nowOpen = true
 run(5)
 doAssert nowTrack().title == "Ya Salam"
 nowOpen = false
+# a YouTube playlist's song tapped: its songs from there on are the queue, the player's page made
+playTracks(@[yitems[0], ts[1], yliked[0]], 0)
+doAssert ytQueue.len == 2 and ytAt == 0 and youtubeNow.id == "vA" and ytPage.len > 0, "the YouTube songs queued"
+run(3)
+ytPlay(1)
+doAssert youtubeNow.id == "vL" and ytAt == 1
+youtubeNow = Track()
+ytQueue.setLen(0)
+# Library and Settings > YouTube with no Google account: the way to sign in
+tab = 2
+run(3)
+tab = 3
+settingsPage = "youtube"
+run(3)
+settingsPage = ""
 uiLook = lookClassic
 doAssert frames > 40
 echo "music ok"

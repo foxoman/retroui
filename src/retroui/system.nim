@@ -348,6 +348,13 @@ when not defined(wasm) and not androidApp and not defined(ios) and not defined(m
      not defined(windows):
   var termuxPlace: tuple[p: Process; started: float; answer: string]
 
+
+from widgets import touchFeel
+touchFeel = proc (kind: int) {.nimcall, gcsafe.} =
+  ## (the kit's own taps felt -- a pull to refresh let go, a fast-scroll thumb taken)
+  {.cast(gcsafe).}:
+    discard haptic(if kind == 5: hSelection else: hTap)
+
 proc location*(precise = false): Place =
   ## Where the device is: asked the first time (the user is asked to allow
   ## it), then kept up to date while the app asks; `psWaiting` until the

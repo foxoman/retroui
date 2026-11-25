@@ -189,6 +189,7 @@ block g_aCaughtFlingStopsOnlyTheList:
   # (the list in view)
   while listR.y < 40:
     swipe(midX, listR.y + listR.h + 30, listR.y + listR.h + 130)
+  run(30)                       # (a page pulled past its top springs back first: at rest)
   let y = listR.y + listR.h - 10
   swipe(midX, y, listR.y + 10, flick = true, steps = 4)
   doAssert scrolling(listId), "the list flies on"

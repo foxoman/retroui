@@ -483,8 +483,12 @@ public final class RetroWeb {
   static void load(Web w, String url) {
     w.loaded = url;
     w.view.getSettings().setAllowFileAccess(url.startsWith("file:") || url.startsWith("/"));
-    if (url.startsWith("html:"))
-      w.view.loadDataWithBaseURL(null, url.substring(5), "text/html", "utf-8", null);
+    if (url.startsWith("html:")) {
+      // (from the app's address -- https:// and its package --: the Referer YouTube's player asks
+      // for, else it says "Watch on YouTube" and plays nothing)
+      String base = "https://" + w.act.getPackageName() + "/";
+      w.view.loadDataWithBaseURL(base, url.substring(5), "text/html", "utf-8", null);
+    }
     else if (url.startsWith("/")) w.view.loadUrl("file://" + url);
     else w.view.loadUrl(url);
   }

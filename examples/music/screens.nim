@@ -1,8 +1,10 @@
 ## Retro Music's screens: Home, Search, Library, Now Playing and Settings -- a tab bar and pages on
 ## a phone; on a tablet or a computer the sections in a list down the left, the page beside it;
 ## in every look (Gloss its own). Settings walks you through connecting Spotify and YouTube, step
-## by step, and has the Appearance settings. (examples/music.nim opens the window;
-## tests/test_music.nim draws them.)
+## by step, and has the Appearance settings. YouTube plays in the app, in YouTube's own player:
+## on a phone on Now Playing, on a tablet under the sections (it plays while it is on the screen,
+## as YouTube's rules ask). Signed in with Google, Library has your YouTube Music playlists and
+## the songs you like. (examples/music.nim opens the window; tests/test_music.nim draws them.)
 
 import std/[json, strutils, tables, times, os, uri]
 import retroui
@@ -12,16 +14,20 @@ import api
 
 const
   AppKey* = "RetroMusic"
-  MusicVersion* = "1.1"
+  MusicVersion* = "1.2"
+  AppOrigin* = "https://net.foxoman.retromusic"
+    ## (the app's address for YouTube's player: its identifier, as YouTube asks)
 
 type
   ReqKind = enum
     rkPlayback, rkDevices, rkSearch, rkVideos, rkPlaylists, rkLiked, rkRecent, rkListTracks,
-    rkCommand, rkLyrics, rkCover, rkRefresh, rkKeyTest
+    rkCommand, rkLyrics, rkCover, rkRefresh, rkKeyTest, rkYtPlaylists, rkYtLiked, rkYtList
   Pending = object
     kind: ReqKind
     key: string                          # (a cover's address, a command's name)
     job: Job[HttpResponse]
+
+var ytAsked = (lists: false, liked: false)   # (YouTube's library asked for, once)
 
 var
   # accounts and settings (kept with retroui/secrets)
@@ -30,6 +36,11 @@ var
   tokens*: OAuthTokens
   signIn: OAuthFlow
   refreshing: Job[OAuthTokens]
+  googleId* = ""                         # your Google Cloud project's Desktop app client
+  googleSecret* = ""                     # (its "secret": Google's desktop clients need it; not secret)
+  gTokens*: OAuthTokens                  # signed in with Google: YouTube's library
+  gSignIn: OAuthFlow
+  gRefreshing: Job[OAuthTokens]
   # what the services said
   playback*: Playback
   playbackAt = 0                         # (ui.now when it was read: the progress goes on from it)
@@ -40,6 +51,18 @@ var
   liked*, recent*, listTracks*: seq[Track]
   listName = ""
   saved*: seq[Track]                     # YouTube videos you saved (kept in a file)
+  ytPlaylists*: seq[Playlist]            # your YouTube (Music) playlists
+  ytLiked*: seq[Track]                   # the songs you like on YouTube
+  ytListId = ""                          # (the YouTube playlist open in Library)
+  # YouTube's player in the app: what it plays and what comes next
+  ytQueue*: seq[Track]
+  ytAt* = 0
+  ytPage* = ""                           # (its page, made once: the songs after are loaded in it)
+  ytReady = false
+  ytWant = ""                            # (a song asked before the player was ready)
+  ytPlaying* = false
+  ytTimeMs*, ytLengthMs* = 0
+  ytShown = false                        # (the player drawn the frame before: away, it pauses)
   lyricLines*: seq[LyricLine]
   lyricText* = ""
   lyricsFor = ""
@@ -55,12 +78,12 @@ var
   searchSource* = 0                      # Spotify, YouTube
   searchedFor = ""
   queryChanged = 0
-  libraryPage = ""                       # "" the list; "liked", "list"
+  libraryPage = ""                       # "" the list; "liked", "list", "ytliked", "ytlist"
   settingsPage* = ""                     # "" the list; "spotify", "youtube", "appearance"
   youtubeOk* = 0                         # the key tried: 1 it works, -1 it does not, 0 not tried
   keyTesting = false
-  idOpen, keyOpen, devicesOpen, aboutOpen*, lookOpen* = false
-  idText, keyText = ""
+  idOpen, keyOpen, devicesOpen, aboutOpen*, lookOpen*, gIdOpen, gSecretOpen = false
+  idText, keyText, gIdText, gSecretText = ""
   message* = ""
 
 proc spotifyProvider(): OAuthProvider =
@@ -69,15 +92,25 @@ proc spotifyProvider(): OAuthProvider =
 
 proc signedIn*(): bool = tokens.accessToken.len > 0
 
+proc googleProviderOf(): OAuthProvider = googleProvider(googleId, googleSecret, YouTubeScopes)
+
+proc googleIn*(): bool = gTokens.accessToken.len > 0
+  ## Signed in with Google: YouTube's library, and its search without a key.
+
 proc savedPath(): string = dataDir(AppKey) / "saved.json"
 
 proc loadSettings*() =
   ## The client id, the key, the sign-in and the saved videos, as they were kept.
   clientId = loadSecret(AppKey, "spotify-client")
   youtubeKey = loadSecret(AppKey, "youtube-key")
+  googleId = loadSecret(AppKey, "google-client")
+  googleSecret = loadSecret(AppKey, "google-secret")
   let t = loadSecret(AppKey, "spotify-tokens")
   if t.len > 0:
     try: tokens = toTokens(parseJson(t)) except CatchableError: discard
+  let g = loadSecret(AppKey, "google-tokens")
+  if g.len > 0:
+    try: gTokens = toTokens(parseJson(g)) except CatchableError: discard
   try:
     for it in parseJson(readFile(savedPath())).getElems:
       saved.add Track(source: srcYouTube, id: it{"id"}.getStr, uri: it{"uri"}.getStr,
@@ -86,6 +119,9 @@ proc loadSettings*() =
 
 proc keepTokens() =
   discard saveSecret(AppKey, "spotify-tokens", $(%tokens))
+
+proc keepGoogle() =
+  discard saveSecret(AppKey, "google-tokens", if googleIn(): $(%gTokens) else: "")
 
 proc keepSaved() =
   var a = newJArray()
@@ -101,6 +137,8 @@ proc ask(kind: ReqKind; url: string; meth = "GET"; body = ""; key = "") =
   ## (a request of Spotify's, with the account's token; YouTube's and LrcLib's without)
   var hs: seq[(string, string)]
   if url.startsWith(SpotifyApi): hs.add ("Authorization", "Bearer " & tokens.accessToken)
+  elif url.startsWith(YouTubeApi) and googleIn() and "&key=" notin url:
+    hs.add ("Authorization", "Bearer " & gTokens.accessToken)
   if body.len > 0: hs.add ("Content-Type", "application/json")
   pending.add Pending(kind: kind, key: key, job: fetch(url, meth, hs, body, timeoutSec = 30))
 
@@ -112,13 +150,44 @@ proc command*(path: string; meth = "PUT"; body = "") =
   ## A Spotify Connect command (play, pause, next...); what plays is read again after it.
   spotify(rkCommand, path, meth, body, key = path)
 
+proc youtube(kind: ReqKind; url: string; key = "") =
+  ## (a request of YouTube's library: signed in with Google)
+  if not googleIn() or gRefreshing != nil: return
+  ask(kind, url, key = key)
+
+proc ytSend(m: string) =
+  ## (to YouTube's player in the app: "load:ID", "play", "pause", "seek:SECONDS")
+  if ytPage.len > 0: webPost("youtube", m)
+
+proc ytPlay*(at: int) =
+  ## The queue's `at`-th song in YouTube's player (the player made the first time).
+  if at < 0 or at >= ytQueue.len: return
+  ytAt = at
+  let t = ytQueue[at]
+  youtubeNow = t
+  ytTimeMs = 0
+  ytLengthMs = t.durationMs
+  ytPlaying = true
+  if ytPage.len == 0:
+    ytPage = playerPage(t.id, AppOrigin)
+    ytReady = false
+  elif ytReady: ytSend("load:" & t.id)
+  else: ytWant = t.id
+
 proc playTracks*(list: openArray[Track]; at: int) =
   ## Plays `list` from its `at`-th track: Spotify's on your device, a video in YouTube's player.
   if at < 0 or at >= list.len: return
   let t = list[at]
   if t.source == srcYouTube:
-    youtubeNow = t
-    nowOpen = true
+    # (the YouTube songs of the list, from this one on: its queue in YouTube's player)
+    ytQueue.setLen(0)
+    var k = 0
+    for i, x in list:
+      if x.source == srcYouTube:
+        if i == at: k = ytQueue.len
+        ytQueue.add x
+    ytPlay(k)
+    if isCompact(): nowOpen = true
     return
   var uris: seq[string]
   for x in list:
@@ -179,6 +248,32 @@ proc pollServices*() =
     refreshing = job(proc (): OAuthTokens {.gcsafe.} =
       var x = t
       if refresh(p, x).len == 0: x else: OAuthTokens())
+  if gRefreshing != nil and gRefreshing.ended:
+    if gRefreshing.done and gRefreshing.value.accessToken.len > 0:
+      gTokens = gRefreshing.value
+      keepGoogle()
+    else: message = "YouTube: sign in with Google again (Settings)"
+    gRefreshing = nil
+  if googleIn() and gRefreshing == nil and gTokens.expiresAt > 0 and gTokens.expiresAt - epochTime() < 60 and
+     gTokens.refreshToken.len > 0:
+    let p = googleProviderOf()
+    let t = gTokens
+    gRefreshing = job(proc (): OAuthTokens {.gcsafe.} =
+      var x = t
+      if refresh(p, x).len == 0: x else: OAuthTokens())
+  if gSignIn != nil:
+    case gSignIn.state
+    of osDone:
+      gTokens = gSignIn.tokens
+      keepGoogle()
+      gSignIn = nil
+      message = "Signed in with Google: your YouTube Music is in Library"
+      youtube(rkYtPlaylists, myPlaylistsUrl())
+    of osFailed:
+      message = "Google: " & gSignIn.error
+      gSignIn = nil
+    of osCancelled: gSignIn = nil
+    of osWaiting: wakeIn(300)
   if signIn != nil:
     case signIn.state
     of osDone:
@@ -205,7 +300,9 @@ proc pollServices*() =
       continue
     pending.delete(i)
     let r = if p.job.done: p.job.value else: HttpResponse(error: p.job.error)
-    if r.status == 401 and signedIn(): message = "Spotify: sign in again (Settings)"
+    if r.status == 401 and p.kind in {rkYtPlaylists, rkYtLiked, rkYtList}:
+      message = "YouTube: sign in with Google again (Settings)"
+    elif r.status == 401 and signedIn(): message = "Spotify: sign in again (Settings)"
     case p.kind
     of rkPlayback:
       if r.status in [200, 204]:
@@ -216,7 +313,28 @@ proc pollServices*() =
     of rkSearch: (if r.ok: results = spotifyTracks(r.body) else: message = "Search: " & $r.status & " " & r.error)
     of rkVideos:
       if r.ok: videos = youtubeVideos(r.body)
-      else: message = "YouTube: " & (if r.status == 403: "the key is not allowed (Settings)" else: $r.status & " " & r.error)
+      else: message = "YouTube: " & keyProblem(r.status, r.body)
+    of rkYtPlaylists:
+      if r.ok:
+        if p.key.len == 0: ytPlaylists.setLen(0)
+        ytPlaylists.add youtubePlaylists(r.body)
+        let more = nextPage(r.body)
+        if more.len > 0 and ytPlaylists.len < 500: youtube(rkYtPlaylists, myPlaylistsUrl(more), key = more)
+      elif r.status != 401: message = "YouTube: " & keyProblem(r.status, r.body)
+    of rkYtLiked:
+      if r.ok:
+        if p.key.len == 0: ytLiked.setLen(0)
+        ytLiked.add youtubeVideos(r.body)
+        let more = nextPage(r.body)
+        if more.len > 0 and ytLiked.len < 1000: youtube(rkYtLiked, likedVideosUrl(more), key = more)
+    of rkYtList:
+      # (a playlist's songs, page after page, while it is the one open)
+      let (id, page) = (p.key.split('\t')[0], if '\t' in p.key: p.key.split('\t')[1] else: "")
+      if r.ok and id == ytListId:
+        if page.len == 0: listTracks.setLen(0)
+        listTracks.add youtubeVideos(r.body)
+        let more = nextPage(r.body)
+        if more.len > 0 and listTracks.len < 1000: youtube(rkYtList, playlistItemsUrl(id, more), key = id & "\t" & more)
     of rkPlaylists: (if r.ok: playlists = spotifyPlaylists(r.body))
     of rkLiked: (if r.ok: liked = spotifyTracks(r.body))
     of rkRecent: (if r.ok: recent = spotifyTracks(r.body))
@@ -269,25 +387,105 @@ proc trackRows(list: openArray[Track]; key: string) =
 proc nowTrack*(): Track =
   if youtubeNow.id.len > 0: youtubeNow else: playback.track
 
+const InAppYouTube = defined(android) or defined(ios) or defined(macosx)
+  ## (where YouTube's player plays in the app: the system's web view, its page from the app's
+  ## address; elsewhere YouTube Music opens in the browser)
+
+var ytShownNow = false
+var ytHidPaused = false
+
+proc ytNews(m: string) =
+  ## (what YouTube's player said: ready, playing or paused, where it is, an end, an error)
+  let parts = m.split(':')
+  case parts[0]
+  of "ready":
+    ytReady = true
+    if ytWant.len > 0:
+      ytSend("load:" & ytWant)
+      ytWant = ""
+  of "state":
+    let st = (try: parseInt(parts[1]) except ValueError: -1)
+    if st == 1: ytPlaying = true
+    elif st == 2: ytPlaying = false
+    elif st == 0:
+      # (the song ended: the next one of the queue)
+      if ytAt + 1 < ytQueue.len: ytPlay(ytAt + 1) else: ytPlaying = false
+  of "time":
+    if parts.len >= 3:
+      ytTimeMs = (try: parseInt(parts[1]) except ValueError: ytTimeMs)
+      let l = (try: parseInt(parts[2]) except ValueError: 0)
+      if l > 0: ytLengthMs = l
+  of "error":
+    let code = (try: parseInt(parts[1]) except ValueError: 0)
+    let name = "\"" & youtubeNow.title & "\""
+    message = if code in [101, 150]: name & " plays only on YouTube (its owner's choice)"
+              else: "YouTube could not play " & name
+    if ytAt + 1 < ytQueue.len: ytPlay(ytAt + 1) else: ytPlaying = false
+  else: discard
+  ui.redraw = true
+
+proc youtubePlayer(h: int) =
+  ## YouTube's own player, `h` high, in the app (on a computer without a web view: YouTube Music
+  ## in the browser). It plays while it is on the screen.
+  if ytPage.len == 0: return
+  when InAppYouTube:
+    let ev = webView(ytPage, height = max(h, dp(200)), key = "youtube", engine = weSystem)
+    ytShownNow = true
+    for m in ev.messages: ytNews(m)
+    if ytHidPaused:
+      ytHidPaused = false
+      ytSend("play")
+    if ytPlaying or ytWant.len > 0: wakeIn(1000)
+  else:
+    if button("Open in YouTube &Music", isDefault = true): openUrl(youtubeNow.uri)
+    label("YouTube's own player plays it: in the browser on a computer, in the app on a phone or a tablet.",
+          color = ui.theme.gray)
+
+proc youtubeControls() =
+  ## (YouTube's song: how far, the previous, play or pause, the next; Save, Open in YouTube Music)
+  let t = youtubeNow
+  if ytLengthMs > 0:
+    var at = ytTimeMs div 1000
+    if slider(at, 0, max(1, ytLengthMs div 1000), ticks = 0):
+      ytSend("seek:" & $at)
+      ytTimeMs = at * 1000
+    row:
+      label(clock(ytTimeMs), color = ui.theme.gray)
+      spring()
+      label("-" & clock(ytLengthMs - ytTimeMs), color = ui.theme.gray)
+  row:
+    spring()
+    if button("Previous", nfStepBackward, blIconOnly, enabled = ytAt > 0 or ytTimeMs > 3000):
+      if ytTimeMs > 3000 or ytAt == 0:
+        ytSend("seek:0")
+        ytTimeMs = 0
+      else: ytPlay(ytAt - 1)
+    if ytPlaying:
+      if button("Pause", nfPause, blIconOnly):
+        ytSend("pause")
+        ytPlaying = false
+    elif button("Play", nfPlay, blIconOnly):
+      ytSend("play")
+      ytPlaying = true
+    if button("Next", nfStepForward, blIconOnly, enabled = ytAt + 1 < ytQueue.len): ytPlay(ytAt + 1)
+    spring()
+  row:
+    let isSaved = block:
+      var f = false
+      for s in saved:
+        if s.id == t.id: f = true
+      f
+    if button(if isSaved: "Saved" else: "&Save", enabled = not isSaved):
+      saved.add t
+      keepSaved()
+    if button("Open in YouTube &Music"): openUrl(t.uri)
+  if ytQueue.len > 1:
+    label("Song " & $(ytAt + 1) & " of " & $ytQueue.len, color = ui.theme.gray)
+
 proc playerControls() =
   let t = nowTrack()
   if t.source == srcYouTube:
-    when defined(android) or defined(ios):
-      discard webView(embedPage(t.id), height = dp(220), key = "youtube")
-    else:
-      if button("Open in YouTube &Music", isDefault = true): openUrl(t.uri)
-      label("YouTube's own player plays it: in the browser here, in the app on a phone.",
-            color = ui.theme.gray)
-    row:
-      let isSaved = block:
-        var f = false
-        for s in saved:
-          if s.id == t.id: f = true
-        f
-      if button(if isSaved: "Saved" else: "&Save", enabled = not isSaved):
-        saved.add t
-        keepSaved()
-      if button("Open in &YouTube"): openUrl("https://www.youtube.com/watch?v=" & t.id)
+    youtubeControls()
     return
   if t.durationMs > 0:
     var at = progressNow() div 1000
@@ -325,14 +523,16 @@ proc lyricsPart() =
   if t.title.len == 0: return
   wantLyrics(t)
   if lyricLines.len > 0:
-    let at = if t.source == srcSpotify: lineAt(lyricLines, progressNow()) else: -1
+    let at = if t.source == srcSpotify: lineAt(lyricLines, progressNow())
+             elif t.source == srcYouTube and ytTimeMs > 0: lineAt(lyricLines, ytTimeMs)
+             else: -1
     tableGroup("Lyrics", "From LrcLib, timed."):
       discard
     for i, l in lyricLines:
       if l.text.len == 0: continue
       if i == at: label(l.text, bold = true, color = accentColor())
       else: label(l.text, color = if at >= 0 and i < at: ui.theme.gray else: ui.theme.text)
-    if t.source == srcSpotify: wakeIn(250)
+    if at >= 0: wakeIn(250)
   elif lyricText.len > 0:
     tableGroup("Lyrics", "From LrcLib."):
       discard
@@ -343,6 +543,14 @@ proc nowPlaying*() =
   let t = nowTrack()
   if t.title.len == 0:
     emptyState(nfMusic, "Nothing plays", detail = "Search for a song, or open Spotify on a device.")
+    return
+  if t.source == srcYouTube and isCompact() and ytPage.len > 0:
+    # (a phone: the song's video here, in YouTube's player -- on a tablet it is under the sections)
+    youtubePlayer(max(dp(200), cellRoom() * 9 div 16))
+    heading(t.title, 2)
+    label(t.artist, color = ui.theme.gray)
+    playerControls()
+    lyricsPart()
     return
   let side = min(cellRoom(), dp(300))
   let big = cover(t.cover)
@@ -359,6 +567,20 @@ proc nowPlaying*() =
   playerControls()
   lyricsPart()
 
+proc openPlaylist(p: Playlist; youtubeList: bool) =
+  ## (a playlist's songs in Library: YouTube's or Spotify's)
+  tab = 2
+  nowOpen = false
+  listName = p.name
+  listTracks.setLen(0)
+  if youtubeList:
+    ytListId = p.id
+    youtube(rkYtList, playlistItemsUrl(p.id), key = p.id)
+  else:
+    ytListId = ""
+    spotify(rkListTracks, "/playlists/" & p.id & "/tracks?limit=50")
+  libraryPage = "list"
+
 proc homeScreen() =
   let t = nowTrack()
   if t.title.len > 0:
@@ -366,7 +588,7 @@ proc homeScreen() =
       if tableRow(t.title, if playback.playing: "playing" else: "", taChevron, subtitle = t.artist,
                   picture = cover(t.cover)).clicked:
         nowOpen = true
-  if not signedIn() and youtubeKey.len == 0:
+  if not signedIn() and youtubeKey.len == 0 and not googleIn():
     tableGroup("", "Spotify plays in your Spotify apps and speakers (Premium); YouTube in its own " &
                    "player. Lyrics come from LrcLib."):
       if tableRow("Connect Spotify", "", taChevron, glyph = nfMusic, tint = color(30, 185, 84)).clicked:
@@ -375,6 +597,18 @@ proc homeScreen() =
       if tableRow("Connect YouTube", "", taChevron, glyph = nfPlay, tint = color(226, 30, 30)).clicked:
         tab = 3
         settingsPage = "youtube"
+  # (your playlists, YouTube Music's and Spotify's, on a shelf the finger slides)
+  if googleIn() and not ytAsked.lists:
+    ytAsked.lists = true
+    youtube(rkYtPlaylists, myPlaylistsUrl())
+  if ytPlaylists.len > 0 or playlists.len > 0:
+    label("Your Playlists", bold = true)
+    var cards: seq[ShelfCard]
+    for p in ytPlaylists: cards.add (p.name, "YouTube Music", cover(p.cover), nfPlay)
+    for p in playlists: cards.add (p.name, "Spotify", cover(p.cover), nfMusic)
+    let k = cardShelf(cards, "playlists")
+    if k >= 0 and k < ytPlaylists.len: openPlaylist(ytPlaylists[k], true)
+    elif k >= ytPlaylists.len: openPlaylist(playlists[k - ytPlaylists.len], false)
   if recent.len > 0:
     label("Played Lately", bold = true)
     trackRows(recent, "recent")
@@ -382,8 +616,11 @@ proc homeScreen() =
     label("Saved from YouTube", bold = true)
     trackRows(saved, "saved")
 
-proc searchScreen() =
+proc searchField() =
+  ## (Search's bar: right under the navigation bar, from one side of the page to the other)
   if searchBar(query, "Songs, artists"): queryChanged = ui.now
+
+proc searchScreen() =
   if segmented(["Spotify", "YouTube"], searchSource): searchedFor = ""
   # (asked half a second after the typing stops, or at once on Enter)
   let words = query.strip
@@ -394,8 +631,9 @@ proc searchScreen() =
       if signedIn(): spotify(rkSearch, "/search?q=" & encodeUrl(words, usePlus = false) & "&type=track&limit=20")
       else: message = "Sign in to Spotify first (Settings)"
     else:
-      if youtubeKey.len > 0: ask(rkVideos, youtubeSearchUrl(words, youtubeKey))
-      else: message = "Add a YouTube key first (Settings)"
+      if googleIn(): ask(rkVideos, youtubeSearchUrl(words, ""))
+      elif youtubeKey.len > 0: ask(rkVideos, youtubeSearchUrl(words, youtubeKey))
+      else: message = "Connect YouTube first (Settings)"
   elif words.len > 0 and words & $searchSource != searchedFor: wakeIn(520)
   let list = if searchSource == 0: results else: videos
   if list.len == 0:
@@ -403,15 +641,48 @@ proc searchScreen() =
                detail = if searchSource == 0: "Spotify's songs" else: "YouTube's music videos")
   else: trackRows(list, "search" & $searchSource)
 
+
+proc youtubeLibrary() =
+  ## (Library's YouTube part: Liked Music and your playlists, signed in with Google)
+  if not googleIn():
+    tableGroup("YouTube Music", "Sign in with Google for your playlists and the songs you like."):
+      if tableRow("Your YouTube Music", "Sign in", taChevron, glyph = nfPlay, tint = color(226, 30, 30)).clicked:
+        tab = 3
+        settingsPage = "youtube"
+    return
+  if not ytAsked.lists:
+    ytAsked.lists = true
+    youtube(rkYtPlaylists, myPlaylistsUrl())
+  tableGroup("YouTube Music"):
+    if tableRow("Liked Music", if ytLiked.len > 0: $ytLiked.len else: "", taChevron, glyph = nfHeart,
+                tint = color(226, 30, 30)).clicked:
+      libraryPage = "ytliked"
+      if not ytAsked.liked:
+        ytAsked.liked = true
+        youtube(rkYtLiked, likedVideosUrl())
+    for p in ytPlaylists:
+      let h = tableRow(p.name, $p.count, taChevron, subtitle = p.owner, picture = cover(p.cover), key = "yt" & p.id)
+      if h.clicked: openPlaylist(p, true)
+
 proc libraryScreen() =
   case libraryPage
   of "liked":
     if liked.len == 0: spotify(rkLiked, "/me/tracks?limit=50")
     trackRows(liked, "liked")
-  of "list": trackRows(listTracks, "list")
+  of "ytliked":
+    if ytLiked.len == 0:
+      emptyState(nfHeart, "Liked Music", detail = "The songs you like on YouTube Music come here.")
+    else: trackRows(ytLiked, "ytliked")
+  of "list":
+    if listTracks.len == 0: emptyState(nfList, listName, detail = "Its songs are on their way.")
+    else: trackRows(listTracks, "list")
   else:
+    youtubeLibrary()
     if not signedIn():
-      emptyState(nfList, "Your library", detail = "Sign in to Spotify (Settings) for your playlists.")
+      tableGroup("Spotify", "Sign in to Spotify (Settings) for your playlists."):
+        if tableRow("Your Spotify", "Sign in", taChevron, glyph = nfMusic, tint = color(30, 185, 84)).clicked:
+          tab = 3
+          settingsPage = "spotify"
     else:
       if playlists.len == 0 and pending.len == 0: spotify(rkPlaylists, "/me/playlists?limit=50")
       tableGroup("Spotify"):
@@ -420,11 +691,12 @@ proc libraryScreen() =
           let h = tableRow(p.name, $p.count, taChevron, subtitle = p.owner, picture = cover(p.cover), key = p.id)
           if h.clicked:
             listName = p.name
+            ytListId = ""
             listTracks.setLen(0)
             spotify(rkListTracks, "/playlists/" & p.id & "/tracks?limit=50")
             libraryPage = "list"
     if saved.len > 0:
-      tableGroup("YouTube"):
+      tableGroup("Saved from YouTube"):
         for i, t in saved:
           if tableRow(t.title, "", taChevron, subtitle = t.artist, picture = cover(t.cover), key = "s" & t.id).clicked:
             playTracks(saved, i)
@@ -435,6 +707,8 @@ const
   CloudProject* = "https://console.cloud.google.com/projectcreate"
   YouTubeApiPage* = "https://console.cloud.google.com/apis/library/youtube.googleapis.com"
   CloudKeys* = "https://console.cloud.google.com/apis/credentials"
+  CloudAudience* = "https://console.cloud.google.com/auth/audience"
+  CloudClients* = "https://console.cloud.google.com/auth/clients/create"
 
 proc pasted(): string =
   ## (what the clipboard holds, its spaces and line ends cut off)
@@ -494,14 +768,22 @@ proc spotifyGuide() =
     elif tableButton("Sign In to Spotify", enabled = clientId.len > 0):
       signIn = beginSignIn(spotifyProvider())
 
+proc youtubeState(): string =
+  ## (YouTube's row: how it is connected)
+  if googleIn(): "Signed in"
+  elif youtubeKey.len == 0: "Not connected"
+  elif keyTesting: "Trying..."
+  elif youtubeOk == 1: "Key works"
+  elif youtubeOk == -1: "Key not working"
+  else: "Key saved"
+
 proc youtubeGuide() =
-  ## Connecting YouTube with a key, step by step.
-  tableGroup("", "YouTube Music has no API of its own for apps: Retro Music finds its music with " &
-                 "YouTube's (the YouTube Data API) and plays it in YouTube's own player, or " &
-                 "opens it in YouTube Music."):
-    discard tableRow("YouTube", if youtubeKey.len == 0: "Not connected" elif keyTesting: "Trying..."
-                                elif youtubeOk == 1: "Connected" elif youtubeOk == -1: "Key not working"
-                                else: "Key saved", glyph = nfPlay, tint = color(226, 30, 30))
+  ## Connecting YouTube, step by step: signed in with Google (your playlists and likes), or with
+  ## a key alone (search).
+  tableGroup("", "YouTube Music has no API of its own for apps: Retro Music reads your music with " &
+                 "YouTube's (the YouTube Data API) -- your YouTube Music playlists are YouTube's -- and " &
+                 "plays it here, in YouTube's own player."):
+    discard tableRow("YouTube", youtubeState(), glyph = nfPlay, tint = color(226, 30, 30))
   tableGroup("1. A Google Cloud project",
              "Sign in with your Google account and make a project -- any name -- or pick one " &
              "you have."):
@@ -509,13 +791,57 @@ proc youtubeGuide() =
   tableGroup("2. Turn on the YouTube Data API v3",
              "In that project, on the API's page: press Enable."):
     if tableButton("Open the YouTube Data API"): openUrl(YouTubeApiPage)
-  tableGroup("3. Make an API key",
-             "Credentials > Create credentials > API key, then copy it. Best: edit the key and " &
-             "under API restrictions allow only the YouTube Data API v3."):
+  tableGroup("3. Let yourself sign in",
+             "Google Auth Platform: give the app a name and your email (Get started), choose External, " &
+             "then under Audience > Test users add your own Google account."):
+    if tableButton("Open Audience"): openUrl(CloudAudience)
+  tableGroup("4. A Desktop app client",
+             "Clients > Create client: Application type Desktop app, any name, Create. Copy its " &
+             "Client ID and its Client secret (a desktop app's secret isn't secret: Google wants it)."):
+    if tableButton("Open Create Client"): openUrl(CloudClients)
+  tableGroup("5. Its Client ID and secret, here", ""):
+    if tableRow("Client ID", if googleId.len > 12: googleId[0 ..< 12] & "..." elif googleId.len > 0: "set"
+                             else: "none", taChevron).clicked:
+      gIdText = googleId
+      gIdOpen = true
+    if tableButton("Paste the Client ID"):
+      let t = pasted()
+      if t.endsWith(".apps.googleusercontent.com"):
+        googleId = t
+        discard saveSecret(AppKey, "google-client", googleId)
+        message = "Client ID saved -- now its secret"
+      else: message = "That isn't a Client ID (it ends in .apps.googleusercontent.com): copy it again"
+    if tableRow("Client secret", if googleSecret.len > 0: "set" else: "none", taChevron).clicked:
+      gSecretText = googleSecret
+      gSecretOpen = true
+    if tableButton("Paste the Client Secret"):
+      let t = pasted()
+      if t.len >= 20 and ' ' notin t:
+        googleSecret = t
+        discard saveSecret(AppKey, "google-secret", googleSecret)
+        message = "Client secret saved -- now sign in (step 6)"
+      else: message = "That isn't a client secret: copy it again"
+  tableGroup("6. Sign in with Google",
+             "Your browser opens Google's page. It says Google hasn't verified the app: it is your " &
+             "own -- press Continue, and allow Retro Music to see your YouTube account. Then Library " &
+             "has your playlists and Liked Music. (While the app is in Testing, Google asks you to " &
+             "sign in again every 7 days.)"):
+    if googleIn():
+      if tableButton("Sign Out", destructive = true):
+        gTokens = OAuthTokens()
+        keepGoogle()
+        ytPlaylists.setLen(0)
+        ytLiked.setLen(0)
+        ytAsked = (false, false)
+    elif gSignIn != nil:
+      discard tableRow("Signing in...", "in your browser")
+      if tableButton("Cancel"): gSignIn.cancel()
+    elif tableButton("Sign In with Google", enabled = googleId.len > 0 and googleSecret.len > 0):
+      gSignIn = beginSignIn(googleProviderOf())
+  tableGroup("Or search only, with a key",
+             "Without signing in, an API key searches YouTube: Credentials > Create credentials > API " &
+             "key, then paste it. It's free -- 10,000 units a day, a search takes 100."):
     if tableButton("Open Credentials"): openUrl(CloudKeys)
-  tableGroup("4. The key, here",
-             "Paste it: Retro Music tries it with a search. It's free -- 10,000 units a day, a " &
-             "search takes 100: about 100 searches a day."):
     if tableRow("API Key", if youtubeKey.len > 6: youtubeKey[0 ..< 6] & "..." elif youtubeKey.len > 0: "set"
                            else: "none", taChevron).clicked:
       keyText = youtubeKey
@@ -526,7 +852,7 @@ proc youtubeGuide() =
         youtubeKey = t
         discard saveSecret(AppKey, "youtube-key", youtubeKey)
         testYoutubeKey()
-      else: message = "That isn't an API key: copy it again (step 3)"
+      else: message = "That isn't an API key: copy it again"
     if youtubeKey.len > 0:
       if tableButton("Try the Key", enabled = not keyTesting): testYoutubeKey()
       if tableButton("Remove the Key", destructive = true):
@@ -542,13 +868,14 @@ proc settingsScreen() =
     note("The look of the controls, its colors, the sizes, the font -- kept for next time.")
     discard appearanceSettings()
   else:
-    tableGroup("Services", "Spotify plays in your Spotify apps and speakers; YouTube in its own " &
+    tableGroup("Services", "Spotify plays in your Spotify apps and speakers; YouTube here, in its own " &
                            "player. Lyrics come from LrcLib by themselves."):
       if tableRow("Spotify", if signedIn(): "Connected" elif clientId.len > 0: "Sign in" else: "Connect",
                   taChevron, glyph = nfMusic, tint = color(30, 185, 84)).clicked:
         settingsPage = "spotify"
-      if tableRow("YouTube", if youtubeKey.len == 0: "Connect" elif youtubeOk == -1: "Key not working"
-                             else: "Connected", taChevron, glyph = nfPlay, tint = color(226, 30, 30)).clicked:
+      if tableRow("YouTube", if googleIn(): "Signed in" elif youtubeKey.len == 0: "Connect"
+                             elif youtubeOk == -1: "Key not working" else: "Key saved", taChevron, glyph = nfPlay,
+                  tint = color(226, 30, 30)).clicked:
         settingsPage = "youtube"
     tableGroup(""):
       if tableRow("Appearance", "", taChevron, glyph = nfPalette, tint = color(150, 90, 210)).clicked:
@@ -560,6 +887,12 @@ proc dialogs*() =
   if idOpen and inputBox(idOpen, "Spotify Client ID", "Your app's Client ID (developer.spotify.com):", idText) == 1:
     clientId = idText.strip
     discard saveSecret(AppKey, "spotify-client", clientId)
+  if gIdOpen and inputBox(gIdOpen, "Google Client ID", "Your Desktop app client's Client ID:", gIdText) == 1:
+    googleId = gIdText.strip
+    discard saveSecret(AppKey, "google-client", googleId)
+  if gSecretOpen and inputBox(gSecretOpen, "Google Client Secret", "Its Client secret:", gSecretText) == 1:
+    googleSecret = gSecretText.strip
+    discard saveSecret(AppKey, "google-secret", googleSecret)
   if keyOpen and inputBox(keyOpen, "YouTube API Key", "A YouTube Data API v3 key:", keyText) == 1:
     youtubeKey = keyText.strip
     discard saveSecret(AppKey, "youtube-key", youtubeKey)
@@ -575,7 +908,8 @@ proc dialogs*() =
       if button("Close", isDefault = true): lookOpen = false
   aboutBox(aboutOpen, "Retro Music", MusicVersion,
            ["Spotify and YouTube in one player, through their own services: Spotify Connect " &
-            "plays on your devices, YouTube's player plays its videos; lyrics from LrcLib."],
+            "plays on your devices, YouTube's own player plays your YouTube Music here; lyrics from " &
+            "LrcLib."],
            tagline = "Spotify and YouTube, one player", glyph = pxApp)
 
 # ---- the window ----------------------------------------------------------------------------------
@@ -585,6 +919,7 @@ const Sections = ["Home", "Search", "Library", "Settings"]
 proc pageTitle(): string =
   if nowOpen: "Now Playing"
   elif tab == 2 and libraryPage == "liked": "Liked Songs"
+  elif tab == 2 and libraryPage == "ytliked": "Liked Music"
   elif tab == 2 and libraryPage == "list": listName
   elif tab == 3 and settingsPage == "spotify": "Spotify"
   elif tab == 3 and settingsPage == "youtube": "YouTube"
@@ -616,7 +951,7 @@ proc page() =
 proc miniPlayer() =
   ## (a phone's: what plays, over the tab bar; a tap opens it)
   let t = nowTrack()
-  if t.title.len == 0 or nowOpen: return
+  if t.title.len == 0 or nowOpen or keyboardUp(): return
   let h = if fingers(): dp(52) else: dp(42)
   let r = rect(ui.winX, ui.bottom - h, ui.w, h)
   if glossLook(): glossBarFill(r)
@@ -634,7 +969,8 @@ proc miniPlayer() =
   text(x, r.y + h div 2, ellipsize(t.artist, r.w - x - dp(60)), if glossLook(): ink else: ui.theme.gray)
   let pr = rect(r.x + r.w - dp(48), r.y, dp(44), h)
   let ph = interact(idOf("miniplay"), pr, focusable = false)
-  let g = if playback.playing: nfPause else: nfPlay
+  let g = if (t.source == srcYouTube and ytPlaying) or (t.source == srcSpotify and playback.playing): nfPause
+          else: nfPlay
   let gs = style(size = 1.4)
   text(pr.x + (pr.w - textWidth(g, gs)) div 2, pr.y + (h - lineHeight(gs)) div 2, g,
        if glossLook(): ink else: accentColor(), gs)
@@ -646,11 +982,34 @@ proc miniPlayer() =
       command("/me/player/play")
       playback.playing = true
       playbackAt = ui.now
-  elif hit.clicked: nowOpen = true
+  elif hit.clicked or ph.clicked: nowOpen = true   # (YouTube: its player there, where it plays)
+
+proc libraryLoading(): bool =
+  ## (playlists, likes or what played lately on their way)
+  for p in pending:
+    if p.kind in {rkPlaylists, rkRecent, rkLiked, rkYtPlaylists, rkYtLiked, rkYtList, rkListTracks}: return true
+
+proc reloadLibrary() =
+  ## (pulled down: your playlists, likes and what played lately asked again)
+  if signedIn():
+    spotify(rkPlaylists, "/me/playlists?limit=50")
+    spotify(rkRecent, "/me/player/recently-played?limit=20")
+  if googleIn():
+    youtube(rkYtPlaylists, myPlaylistsUrl())
+    if ytAsked.liked: youtube(rkYtLiked, likedVideosUrl())
+    if libraryPage == "list" and ytListId.len > 0: youtube(rkYtList, playlistItemsUrl(ytListId), key = ytListId)
 
 proc pageBody(margin: int) =
-  ## (the page under its navigation bar, in a panel; its groups `margin` in from its sides)
+  ## (the page under its navigation bar, in a panel; its groups `margin` in from its sides; Search's
+  ## bar over it, under the navigation bar; Home and Library pulled down: asked again)
+  if tab == 1 and not nowOpen:
+    let g = ui.m.gap
+    ui.m.gap = 0
+    space(-g)
+    searchField()
+    ui.m.gap = g
   beginPanel(-1, "music:" & $tab & ":" & $nowOpen & libraryPage & settingsPage, plain = true)
+  if not nowOpen and tab in [0, 2] and pullRefresh(libraryLoading()): reloadLibrary()
   if margin > 0:
     let (fx, _) = layoutOrigin()
     pushFrame(rect(fx + margin, layoutY() + dp(4), layoutWidth() - 2 * margin, 0))
@@ -684,10 +1043,13 @@ proc splitView() =
         nowOpen = false
   let t = nowTrack()
   if t.title.len > 0:
+    let playing = if t.source == srcYouTube: ytPlaying else: playback.playing
     tableGroup("Now Playing"):
-      if tableRow(t.title, if playback.playing: "playing" else: "", taChevron, subtitle = t.artist,
+      if tableRow(t.title, if playing: "playing" else: "", taChevron, subtitle = t.artist,
                   picture = cover(t.cover), selected = nowOpen).clicked:
         nowOpen = true
+    # (YouTube's player here, under the sections: it plays on while you go through them)
+    if t.source == srcYouTube and ytPage.len > 0: youtubePlayer(dp(200))
     if t.source == srcSpotify:
       # (the controls under it, as a remote's)
       let room = cellRoom()
@@ -719,6 +1081,7 @@ proc splitView() =
 proc musicView*() =
   ## The whole window, every frame.
   pollServices()
+  ytShownNow = false
   if isCompact():
     let before = tab
     discard bottomNav([(nfHome, "Home"), (nfSearch, "Search"), (nfList, "Library"), (nfCog, "Settings")], tab)
@@ -735,6 +1098,13 @@ proc musicView*() =
                 if playback.device.name.len > 0: "Playing on " & playback.device.name else: "")
     splitView()
   dialogs()
+  # (YouTube's player not on the screen any more: paused, as YouTube's rules ask -- it goes on
+  # when it is shown again)
+  if ytShown and not ytShownNow and ytPlaying:
+    ytSend("pause")
+    ytPlaying = false
+    ytHidPaused = true
+  ytShown = ytShownNow
   if message.len > 0 and (isCompact() or ui.touch):
     toast(message)
     message = ""

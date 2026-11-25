@@ -2089,6 +2089,9 @@ proc columnize(l: var TextLayout; t: TextData; colW, gutter: float32; starts: va
   for c in 1 ..< n: colStarts[c] = -1
   let lines = l.lines
   let paras = l.paras
+  # (the columns' order is the box's, not each line's: right to left when its text is -- set so, or
+  # its first paragraph Arabic --, an English paragraph in it going on in the same column)
+  let boxRtl = t.para.rtl == 2 or (t.para.rtl == 0 and lines.len > 0 and lines[0].rtl)
   let bottom = t.y + t.boxH + 0.5'f32
   let nl = lines.len
   var keep = nl
@@ -2220,8 +2223,7 @@ proc columnize(l: var TextLayout; t: TextData; colW, gutter: float32; starts: va
             stopAt = j                            # (a line taller than the whole box: overset)
             return false
           if real:
-            let rtl = lines[j].rtl
-            let c = if rtl: n - 1 - col else: col   # (right to left: the first column at the right)
+            let c = if boxRtl: n - 1 - col else: col   # (right to left: the first column at the right)
             dxs[j] = float32(c) * (colW + gutter) + vdx[j]
             dys[j] = vshift[j] - yOff
             colOf[j] = col
@@ -4118,11 +4120,24 @@ proc layoutPlain(t: TextData): TextLayout =
                      of kaStylistic: 2.2'f32
                      else: 0.8'f32
           let share = if kl == kaStylistic: 0.95'f32 elif spaces == 0: 1'f32 else: 0.85'f32
-          let each = min(room * share / points.len.float32, em * most)
+          # (not every word drawn out a little -- a line of stretched joins --, but a few, each
+          # well: the best places in the line, the later of equal ones -- nearer its end, as the
+          # scribes lengthen --, each about half its most, never less than a fifth of an
+          # em; what they do not take, the spaces)
+          let want = room * share
+          var count = if spaces == 0: points.len
+                      else: clamp(int(ceil(want / (em * most * 0.5'f32))), 1, points.len)
+          while count > 1 and want / count.float32 < em * 0.2'f32: dec count
+          var ranked: seq[tuple[rank, at: int]]
+          for k in points: ranked.add (kashidaRank(chars, k, e), k)
+          ranked.sort(proc (x, y: tuple[rank, at: int]): int =
+            result = cmp(y.rank, x.rank)
+            if result == 0: result = cmp(y.at, x.at))
+          let each = min(want / count.float32, em * most)
           # (on the last of the letter's cluster: its tashkeel stays over it,
           # the tatweel drawn out after them)
-          for k in points: kashidaAt[clusterEnd(chars, k, e) - a] = each
-          let used = each * points.len.float32
+          for q in 0 ..< count: kashidaAt[clusterEnd(chars, ranked[q].at, e) - a] = each
+          let used = each * count.float32
           width += used
           extraPerSpace = if spaces > 0: max(0'f32, (room - used) / spaces.float32) else: 0'f32
       let lineW = width + extraPerSpace * spaces.float32

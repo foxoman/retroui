@@ -488,6 +488,8 @@ type
     ## A layer: as big as the document, pixels 0xAARRGGBB. An adjustment
     ## layer (`adjust`) changes what is under it; its pixels are its mask.
     name*: string           ## shown in the Layers palette
+    boardMark*: string      ## (type: the artboard's number `<#>` showed when it was last drawn --
+                            ## drawn again when it is on another one, `syncBoardNumbers`)
     pxRaw*: seq[uint32]     ## (what `px` reads: for a constructor -- `Layer(pxRaw: ...)`;
                             ## everything else `px`, which opens a parked layer out first)
     parkedPx: ParkedPx      # (its pixels kept small while it is idle: `parkLayer`)
@@ -1094,6 +1096,8 @@ type
     frameCur, animLoop: int
     boards: seq[Artboard]          # (the artboards: undone with the canvas)
     boardCur: int
+    boardFirst: int
+    boardFacing: bool
 
   Step* = object
     ## One undoable change.
@@ -1145,6 +1149,8 @@ type
     frameCur, animLoop: int
     boards: seq[Artboard]    # (the artboards: undone with the layers -- made, moved, sized, gone)
     boardCur: int
+    boardFirst: int
+    boardFacing: bool
 
   LiveKind* = enum
     ## How a `LivePart` shows its layer changed.
@@ -1264,6 +1270,10 @@ type
                                    ## layers), numbered in this order
     boardCur*: int                 ## ... the one picked (the Artboard tool's, Artboard Options')
     boardsVer*: int                ## ... changed so many times (the view drawn again)
+    boardFirst*: int               ## ... as pages: the first one's number (0: 1) -- `<#>` in type on
+                                   ## an artboard is its number, `<##>` how many there are
+    boardFacing*: bool             ## ... as pages that face, a book's: the first alone (a right
+                                   ## page), then two by two -- left and right -- in spreads
     grown*: tuple[x, y: int]       ## how far everything moved over as the canvas grew left or up
                                    ## for an artboard (added up; the app keeps its view in place and
                                    ## sets it back to 0, 0)
@@ -2366,6 +2376,26 @@ proc withVariables*(d: Doc; s: string): string =
     result.add s[i]
     inc i
 
+proc boardLabel*(d: Doc; i: int): string =
+  ## Artboard `i` as a page: its number as `<#>` shows it (from `boardFirst`).
+  $(max(1, d.boardFirst) + i)
+
+proc boardOfText*(d: Doc; L: Layer): int =
+  ## The artboard a type layer is on -- where its box's middle is, or its first line's start (-1:
+  ## none) -- what `<#>` in it says.
+  if d.boards.len == 0: return -1
+  let t = L.text
+  let px = int(if t.boxW > 0: t.x + t.boxW / 2 else: t.x)
+  let py = int(if t.boxH > 0: t.y + t.boxH / 2 else: t.y)
+  for i, b in d.boards:
+    if px >= b.r.x and px < b.r.x + b.r.w and py >= b.r.y and py < b.r.y + b.r.h: return i
+  # (its first line's start can be a little off an artboard: the nearest one it overlaps)
+  let tb = L.textBounds
+  if tb.w > 0:
+    for i, b in d.boards:
+      if tb.intersects(b.r): return i
+  -1
+
 proc effectiveText*(d: Doc; L: Layer; depth = 0): TextData =
   ## The text a type layer shows: its own; or, flowing on from another box
   ## (`flowFrom`; a book: from another page, `flowPage`), what did not fit
@@ -2390,6 +2420,14 @@ proc effectiveText*(d: Doc; L: Layer; depth = 0): TextData =
     for s in result.spans.mitems:
       if "<#" in s.text:
         s.text = s.text.multiReplace(("<##>", d.pageTotal), ("<#>", d.pageLabel))
+  elif d.boards.len > 0 and (L.uid == 0 or d.rawText != L.uid):
+    # (artboards as pages: type on one says its number, and how many there are)
+    let k = d.boardOfText(L)
+    if k >= 0:
+      let total = $d.boards.len
+      let lab = d.boardLabel(k)
+      for s in result.spans.mitems:
+        if "<#" in s.text: s.text = s.text.multiReplace(("<##>", total), ("<#>", lab))
   if L.uid == 0 or d.rawText != L.uid:
     for s in result.spans.mitems:
       if '<' in s.text and ('>' in s.text): s.text = d.withVariables(s.text)
@@ -4552,7 +4590,8 @@ proc setSettings(L: Layer; s: LayerSettings) =
 proc snapOf(d: Doc): DocSnap =
   result = DocSnap(w: d.w, h: d.h, dpi: d.dpi, mode: d.mode, palette: d.palette, duotone: d.duotone, cur: d.cur,
                    sel: d.sel, alphas: d.alphas, paths: d.paths, frames: d.frames, frameCur: d.frameCur,
-                   animLoop: d.animLoop, boards: d.boards, boardCur: d.boardCur)
+                   animLoop: d.animLoop, boards: d.boards, boardCur: d.boardCur,
+                   boardFirst: d.boardFirst, boardFacing: d.boardFacing)
   for L in d.layers:
     # (a group's pixels are nothing: not copied)
     result.layers.add LayerSnap(layer: L, px: (if L.group: @[] else: L.px), s: settingsOf(L),
@@ -4565,7 +4604,8 @@ proc restore(d: Doc; s: DocSnap) =
   d.sel = s.sel; d.alphas = s.alphas; d.paths = s.paths
   d.frames = s.frames; d.frameCur = s.frameCur; d.animLoop = s.animLoop
   if d.boards != s.boards: inc d.boardsVer
-  d.boards = s.boards; d.boardCur = s.boardCur
+  if d.boardFirst != s.boardFirst or d.boardFacing != s.boardFacing: inc d.boardsVer
+  d.boards = s.boards; d.boardCur = s.boardCur; d.boardFirst = s.boardFirst; d.boardFacing = s.boardFacing
   d.layers.setLen(0)
   for ls in s.layers:
     let L = ls.layer
@@ -5305,6 +5345,8 @@ proc layerListOf(d: Doc): LayerList =
   result.cur = d.cur
   result.boards = d.boards
   result.boardCur = d.boardCur
+  result.boardFirst = d.boardFirst
+  result.boardFacing = d.boardFacing
   result.editMask = d.editMask
   result.frames = d.frames
   result.frameCur = d.frameCur
@@ -5314,8 +5356,11 @@ proc layerListOf(d: Doc): LayerList =
 
 proc restoreLayers(d: Doc; l: LayerList) =
   if d.boards != l.boards: inc d.boardsVer
+  if d.boardFirst != l.boardFirst or d.boardFacing != l.boardFacing: inc d.boardsVer
   d.boards = l.boards
   d.boardCur = l.boardCur
+  d.boardFirst = l.boardFirst
+  d.boardFacing = l.boardFacing
   d.frames = l.frames
   d.frameCur = l.frameCur
   d.animLoop = l.animLoop
@@ -7772,6 +7817,10 @@ proc compBox(d: Doc; L: Layer): Rect =
   if L.isText:
     let b = L.textBounds
     if b.w > 0: return b
+    # (a box with nothing drawn in it yet -- empty, its text flowed on, not set: its box)
+    let t = L.text
+    if t.boxW > 0 and t.boxH > 0 and t.path.len == 0:
+      return rect(int(floor(t.x)), int(floor(t.y)), max(1, int(ceil(t.boxW))), max(1, int(ceil(t.boxH))))
   d.contentBounds(L)
 
 proc fullBox*(d: Doc; L: Layer): tuple[ok: bool; x0, y0, x1, y1: float] =
@@ -10279,6 +10328,25 @@ proc boardsFromGroups*(d: Doc) =
     inc d.boardsVer
     d.markAll()
 
+proc pixelBounds(px: openArray[uint32]; w, h: int): Rect =
+  ## (the box of the pixels that are not all zero; empty when there are none)
+  var x0 = w
+  var x1 = -1
+  var y0 = -1
+  var y1 = -1
+  for y in 0 ..< h:
+    let row = y * w
+    var a = 0
+    while a < w and px[row + a] == 0: inc a
+    if a == w: continue
+    var b = w - 1
+    while px[row + b] == 0: dec b
+    if y0 < 0: y0 = y
+    y1 = y
+    x0 = min(x0, a)
+    x1 = max(x1, b)
+  if y0 < 0: rect(0, 0, 0, 0) else: rect(x0, y0, x1 - x0 + 1, y1 - y0 + 1)
+
 proc rpdParts*(d: Doc): seq[RpdPart] =
   ## What a ".rpd" of the document holds (its pixels copied, not yet
   ## compressed: `writeRpd` does that, on any thread).
@@ -10356,7 +10424,18 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
       if L.collapsed: lj["collapsed"] = %true
       lj.delete("file")
     else:
-      addPx(file, L.px, d.w, d.h)
+      # (only where it has pixels -- a layer of type or a shape on one artboard of many is small;
+      # all of it when that is most of the image, as older versions read it; nothing when empty)
+      template px: untyped = L.px
+      let b = pixelBounds(px, d.w, d.h)
+      if b.w <= 0: lj.delete("file")
+      elif b.w * b.h * 2 >= d.w * d.h: addPx(file, px, d.w, d.h)
+      else:
+        var crop = newSeqUninit[uint32](b.w * b.h)
+        for y in 0 ..< b.h:
+          copyMem(addr crop[y * b.w], unsafeAddr px[(b.y + y) * d.w + b.x], b.w * 4)
+        addPx(file, crop, b.w, b.h)
+        lj["box"] = %*[b.x, b.y, b.w, b.h]
     if L.smart != nil and L.smart.src.len == L.smart.w * L.smart.h and L.smart.w > 0:
       # a Smart Object: its picture, corners, warp and filters
       let sf = "smart" & $i & ".png"
@@ -10485,6 +10564,8 @@ proc rpdParts*(d: Doc): seq[RpdPart] =
       a.add bj
     j["artboards"] = a
     j["artboardCur"] = %d.boardCur
+    if d.boardFirst > 1: j["artboardFirst"] = %d.boardFirst
+    if d.boardFacing: j["artboardFacing"] = %true
   if d.palette.len > 0:
     var pal = newJArray()
     for c in d.palette: pal.add %int(c and 0xFFFFFF'u32)
@@ -10551,20 +10632,33 @@ proc loadRpd*(path: string): Doc =
   # (the layers' and masks' pictures read first, then unpacked at once on
   # all the cores)
   var wanted: seq[string]
+  var boxes: seq[Rect]           # (a layer kept only where it has pixels: where that is)
   for lj in j{"layers"}.getElems:
     for key in ["file", "mask"]:
       let f = lj{key}.getStr
-      if f.len > 0 and files.hasKey(f) and f notin wanted: wanted.add f
+      if f.len > 0 and files.hasKey(f) and f notin wanted:
+        wanted.add f
+        let bj = if key == "file": lj{"box"}.getElems else: @[]
+        boxes.add(if bj.len == 4: rect(bj[0].getInt, bj[1].getInt, bj[2].getInt, bj[3].getInt) else: rect(0, 0, 0, 0))
   var packed = newSeq[string](wanted.len)
   for i, f in wanted: packed[i] = readEntry(path, files[f])
   var unpacked = newSeq[Bitmap](wanted.len)
   if wanted.len > 0:
     let pp = cast[ptr UncheckedArray[string]](addr packed[0])
     let up = cast[ptr UncheckedArray[Bitmap]](addr unpacked[0])
+    let bx = cast[ptr UncheckedArray[Rect]](addr boxes[0])
     parallelFor(wanted.len, proc (lo, hi: int) =
       for i in lo ..< hi:
         let b = try: decodePng(pp[i]) except CatchableError: nil
+        let r = bx[i]
         if b != nil and b.w == w and b.h == h: up[i] = b
+        elif b != nil and r.w > 0 and b.w == r.w and b.h == r.h and r.x >= 0 and r.y >= 0 and
+             r.x + r.w <= w and r.y + r.h <= h:
+          # (put back where it was, the rest see-through: memory only where it is painted)
+          var full = Bitmap(w: w, h: h, px: zeroPixels(w * h))
+          for y in 0 ..< r.h:
+            copyMem(addr full.px[(r.y + y) * w + r.x], unsafeAddr b.px[y * r.w], r.w * 4)
+          up[i] = full
         pp[i] = ""
     )
   proc pic(file: string): Bitmap =
@@ -10725,6 +10819,8 @@ proc loadRpd*(path: string): Doc =
                                centerMark: bj{"centerMark"}.getBool(false),
                                crossHairs: bj{"crossHairs"}.getBool(false), videoSafe: bj{"videoSafe"}.getBool(false))
   result.boardCur = clamp(j{"artboardCur"}.getInt(0), 0, max(0, result.boards.high))
+  result.boardFirst = max(0, j{"artboardFirst"}.getInt(0))
+  result.boardFacing = j{"artboardFacing"}.getBool(false)
   if files.hasKey("profile.icc"): result.icc = readEntry(path, files["profile.icc"])
   for m in ColorMode:
     if $m == j{"mode"}.getStr: result.mode = m

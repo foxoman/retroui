@@ -24,7 +24,7 @@ from retroui/system import homeWidget, notificationActions
 import retrodns/[catalog, androidglue, tester, vpn, desktop]
 
 const
-  retrodnsVersion {.strdefine.} = "1.7"   # (build.sh passes its VERSION)
+  retrodnsVersion {.strdefine.} = "1.8"   # (build.sh passes its VERSION)
   AppTitle = "Retro DNS"
   AppVersion = retrodnsVersion
   AppId = "RetroDNS"
@@ -954,12 +954,23 @@ proc dialogs() =
   let editTitle = if editKey.len == 0: "Add Server" else: "Edit Server"
   dialog(editOpen, editTitle, 460):
     form 0:
-      field "&Name:": edit eName
+      # (on a phone: a web address's keyboard for the addresses, Next from one box to the next)
+      field "&Name:":
+        textKeyboard(kbText, keNext)
+        edit eName
       field "&Group:": combo(Groups, eGroup)
-      field "DNS over &TLS host:": edit eDot
-      field "Do&H address:": edit eDoh
-      field "IPv&4:": edit eV4
-      field "IPv&6:": edit eV6
+      field "DNS over &TLS host:":
+        textKeyboard(kbUrl, keNext)
+        edit eDot
+      field "Do&H address:":
+        textKeyboard(kbUrl, keNext)
+        edit eDoh
+      field "IPv&4:":
+        textKeyboard(kbUrl, keNext)
+        edit eV4
+      field "IPv&6:":
+        textKeyboard(kbUrl, keNext)
+        edit eV6
       field "Good fo&r:": editArea(eNote, lines = 3)
     paragraph("Fill at least one address. The VPN needs the DoH address or the " &
               "DNS-over-TLS host, such as dns.example.com. NextDNS: " &
@@ -1276,8 +1287,9 @@ proc phonePage(tablet = false) =
                 if i >= 0: servers[i].name else: "Server"
   let back = if nav.atHome: "" elif phoneTab == 1: "Servers" elif phoneTab == 2: "Favourites" else: "Back"
   let action = if nav.page == "servers": "Add" else: ""
-  # (on a tablet the search bar right under the navigation bar, across the page)
-  let searchOn = tablet and nav.page == "servers"
+  # (the search bar right under the navigation bar, from one side to the other as it is, its box
+  # in it as it was -- not in the page, where it stood in from the sides)
+  let searchOn = nav.page == "servers"
   let g = ui.m.gap
   if searchOn: ui.m.gap = 0
   case navBar(title, back = back, action = action)
@@ -1289,13 +1301,15 @@ proc phonePage(tablet = false) =
     ui.m.gap = g
   pageView(nav):
     beginPanel(-1, "phone:" & $phoneTab & ":" & nav.page, plain = true)
+    # (Servers and Favourites pulled down: every server tested again, its time on its row)
+    if nav.page in ["servers", "favourites"] and pullRefresh(testing.len > 0): testAll(phoneFind())
     let m = if tablet: dp(24) else: 0
     if m > 0:
       let (fx, _) = layoutOrigin()
       pushFrame(rect(fx + m, layoutY() + dp(4), layoutWidth() - 2 * m, 0))
     case nav.page
     of "dns": phoneDns()
-    of "servers": phoneServers(nav, search = not tablet)
+    of "servers": phoneServers(nav, search = false)
     of "favourites": phoneFavourites(nav)
     of "more": phoneMore()
     of "server": phoneServer()

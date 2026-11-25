@@ -150,6 +150,7 @@ proc loadPrefs() =
   viewPrefs.checkerSize = enumOf("pref.checkerSize", viewPrefs.checkerSize)
   viewPrefs.checkerColors = enumOf("pref.checkerColors", viewPrefs.checkerColors)
   viewPrefs.rulerUnit = enumOf("pref.rulerUnit", viewPrefs.rulerUnit)
+  viewPrefs.typeUnit = enumOf("pref.typeUnit", viewPrefs.typeUnit)
   viewPrefs.gridUnit = enumOf("pref.gridUnit", viewPrefs.gridUnit)
   viewPrefs.gridStyle = enumOf("pref.gridStyle", viewPrefs.gridStyle)
   viewPrefs.guideStyle = enumOf("pref.guideStyle", viewPrefs.guideStyle)
@@ -225,6 +226,7 @@ proc savePrefs() =
   st["pref.checkerSize"] = $viewPrefs.checkerSize
   st["pref.checkerColors"] = $viewPrefs.checkerColors
   st["pref.rulerUnit"] = $viewPrefs.rulerUnit
+  st["pref.typeUnit"] = $viewPrefs.typeUnit
   st["pref.gridUnit"] = $viewPrefs.gridUnit
   st["pref.gridStyle"] = $viewPrefs.gridStyle
   st["pref.guideStyle"] = $viewPrefs.guideStyle
@@ -499,6 +501,11 @@ proc pageUnits() =
       field "Rulers:":
         var u = ord(viewPrefs.rulerUnit)
         if combo(unitNames(), u, w = dp(130)): viewPrefs.rulerUnit = RulerUnit(u)
+      field "Type:":
+        var t = ord(viewPrefs.typeUnit)
+        if combo(["Points", "Pixels", "Millimeters"], t, w = dp(130)): viewPrefs.typeUnit = TypeUnit(t)
+    paragraph("Type in points, as the photo and layout programs measure it: 12 points are 12 pixels " &
+              "at 72 ppi, 50 at 300, 67 at 400 -- the same size on paper.", color = ui.theme.gray)
   group("New Document Preset Resolutions"):
     form 0:
       field "Print Resolution:":

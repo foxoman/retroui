@@ -147,6 +147,7 @@ proc psMenus() =
       ci("&New...")
       ci("New &Drawing (SVG)...")
       ci("New &Book...", "New Book...")
+      ci("New &Carousel...", "New Carousel...")
       ci("&Open...")
       ci("Open &As...")
       live:
@@ -608,6 +609,14 @@ proc psMenus() =
         ci("&New Artboard", "New Artboard", enabled = some)
         ci("&Delete Artboard", "Delete Artboard", enabled = some and d.boards.len > 0)
         ci("Artboard &Options...", "Artboard Options...", enabled = some and d.boards.len > 0)
+        sep()
+        psSub "&Move to Artboard":
+          if some:
+            for i in 0 ..< d.boards.len:
+              ci(d.artboardName(i).replace("&", "&&"), "Move to Artboard " & $(i + 1))
+        ci("&Page Numbers...", "Artboard Page Numbers...", enabled = some and d.boards.len > 0)
+        ci("Facing &Pages (Spreads)", "Facing Artboards", enabled = some and d.boards.len > 0,
+           checked = some and d.boardFacing)
       psSub "En&velope Distort":
         let shp1 = some and d.current.isShape
         ci("Make with &Warp...", "Envelope: Make with Warp...", enabled = shp1)

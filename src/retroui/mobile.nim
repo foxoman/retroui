@@ -1617,6 +1617,64 @@ proc tableButton*(title: string; destructive = false; enabled = true): bool =
   ui.lastRect = r
   hit.clicked
 
+# ---- a shelf of cards ----------------------------------------------------------------------------
+
+type ShelfCard* = tuple[title, subtitle: string; picture: Bitmap; glyph: string]
+  ## A card of a `cardShelf`: its picture (nil: `glyph` on a tint instead), its title, a line
+  ## under it.
+
+proc cardShelf*(cards: openArray[ShelfCard]; key: string; side = 0): int =
+  ## A shelf of cards in a row the finger slides sideways, as phone apps show "your playlists"
+  ## or "recently played": each a square picture with rounded corners, its title and a gray line
+  ## under it; `side` its width (0: about a third of a phone's). Returns the one tapped (-1:
+  ## none). A wheel or Shift+wheel slides it too; the cards are read as buttons.
+  result = -1
+  let w = if side > 0: side else: clamp(cellRoom() * 2 div 5, dp(110), dp(150))
+  let gap = dp(12)
+  let lh = lineHeight(style(bold = true))
+  let h = w + dp(6) + lh + FontH + dp(4)
+  let r = place(0, h, fill = true)
+  let id = idOf("shelf:" & key)
+  var st = state(id)
+  let total = cards.len * w + max(0, cards.len - 1) * gap
+  let hi = max(0, total - r.w)
+  var x = clamp(st.scrollX, 0, hi)
+  if hi > 0:
+    scrollPan(id, x, hi, r, sideways = true)
+    if hover(r) and canInput() and (ui.wheel != 0 or ui.wheelX != 0):
+      x = clamp(x - (if ui.wheelX != 0: -ui.wheelX else: ui.wheel) * dp(48), 0, hi)
+      ui.wheel = 0
+      ui.wheelX = 0
+    scrollTick(id, x, hi)
+  pushClip(r)
+  for i, c in cards:
+    let cx = r.x + i * (w + gap) - x
+    if cx + w < r.x or cx > r.x + r.w: continue
+    let pic = rect(cx, r.y, w, w)
+    let hit = interact(id + 7 + Id(i), rect(cx, r.y, w, h), focusable = true)
+    if c.picture != nil:
+      masked(pic, float(dp(10))):
+        drawBitmap(pic, c.picture)
+    else:
+      roundRect(pic, float(dp(10)), mixColor(th.window, accentColor(), 0.25))
+      if c.glyph.len > 0:
+        let gs = style(size = 2.6)
+        text(pic.x + (pic.w - textWidth(c.glyph, gs)) div 2, pic.y + (pic.h - lineHeight(gs)) div 2, c.glyph,
+             withAlpha(th.text, 150), gs)
+    if hit.down: roundRect(pic, float(dp(10)), withAlpha(black, 50))     # (pressed: darker)
+    if hit.focused: focusDots(inset(pic, 2))
+    text(cx, r.y + w + dp(6), ellipsize(c.title, w, style(bold = true)), th.text, style(bold = true))
+    if c.subtitle.len > 0: text(cx, r.y + w + dp(6) + lh, ellipsize(c.subtitle, w), th.gray)
+    if accessOn: accessNode(arButton, c.title, id = id + 7 + Id(i), r = pic)
+    if hit.clicked and not scrollCaught(): result = i
+  popClip()
+  if x != st.scrollX:
+    st.scrollX = x
+    state(id) = st
+    ui.redraw = true
+  ui.lastId = 0
+  ui.lastRect = r
+
 # ---- a search bar --------------------------------------------------------------------------------
 
 proc searchBar*(s: var string; placeholder = "Search"; cancel = "Cancel"): bool {.discardable.} =
@@ -1685,6 +1743,7 @@ proc actionBar*(actions: openArray[(string, string)]; back = ""; signature = -1)
   ## the dark bar, Back a tab with a slanted edge; Glass: see-through, glyphs in the highlight;
   ## Classic: a 3.1 tool bar at the foot.
   result = -1
+  if keyboardUp(): return       # (the on-screen keyboard up: the bar left out, as phone apps leave it)
   let gloss = glossLook()
   let matte = matteLook()
   let below = if ui.bottom >= ui.h - ui.safe.bottom: ui.h - ui.bottom else: 0

@@ -32,7 +32,7 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 - **[Menus and bars](#menus-and-bars)**: [menubar, menu, menuItem, submenu](#menubar-menu-menuitem-submenu) · [UndoStack, undoMenuItems, undoKeys](#undostack-undomenuitems-undokeys) · [contextMenu](#contextmenu) · [popupMenu, openPopupMenu](#popupmenu-openpopupmenu) · [breadcrumb](#breadcrumb) · [pager, stepper](#pager-stepper) · [recordNav](#recordnav) · [findBar, findIn, replaceAllIn](#findbar-findin-replaceallin)
 - **[Dialogs](#dialogs)**: [msgBox](#msgbox) · [inputBox](#inputbox) · [dialog](#dialog) · [progressBox](#progressbox) · [wizard, stepDone](#wizard-stepdone) · [aboutBox](#aboutbox) · [splashBox](#splashbox) · [problemBox, reportProblem](#problembox-reportproblem) · [stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen](#stoppedscreen-stoppedframe-stoppedpending-startfresh-showstoppedscreen) · [fileDialog (3.1)](#filedialog-31)
 - **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator, toolSpace](#toolbar-toolbutton-toolseparator-toolspace) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [animated](#animated) · [sprung, presence, glided, dragSnap, staggered, fixedSteps](#sprung-presence-glided-dragsnap-staggered-fixedsteps) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
-- **[Phone controls](#phone-controls)**: [navBar](#navbar) · [wheelPicker](#wheelpicker) · [dateWheels, timeWheels](#datewheels-timewheels) · [quantity](#quantity) · [pageDots](#pagedots) · [swipeRow](#swiperow) · [actionSheet](#actionsheet) · [bottomSheet](#bottomsheet) · [popover](#popover) · [alertBox](#alertbox) · [tableGroup, tableRow, tableSwitch, tableButton](#tablegroup-tablerow-tableswitch-tablebutton) · [searchBar](#searchbar) · [actionBar](#actionbar)
+- **[Phone controls](#phone-controls)**: [navBar](#navbar) · [wheelPicker](#wheelpicker) · [dateWheels, timeWheels](#datewheels-timewheels) · [quantity](#quantity) · [pageDots](#pagedots) · [cardShelf](#cardshelf) · [pullRefresh](#pullrefresh) · [swipeRow](#swiperow) · [actionSheet](#actionsheet) · [bottomSheet](#bottomsheet) · [popover](#popover) · [alertBox](#alertbox) · [tableGroup, tableRow, tableSwitch, tableButton](#tablegroup-tablerow-tableswitch-tablebutton) · [searchBar](#searchbar) · [actionBar](#actionbar)
 - **[Files](#files)**: [fileList](#filelist) · [fileList: large icons](#filelist-large-icons) · [folderTree](#foldertree) · [placesView](#placesview) · [filePreview](#filepreview) · [pathBar](#pathbar) · [driveBar](#drivebar) · [filePicker](#filepicker) · [trashList](#trashlist) · [propertiesDialog](#propertiesdialog) · [runJobDialog](#runjobdialog) · [textFileView, hexFileView](#textfileview-hexfileview) · [pictureBox](#picturebox) · [storageDialog](#storagedialog)
 - **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [gauge in bands, rangeBar](#gauge-in-bands-rangebar) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart) · [liveGraph](#livegraph) · [graphView](#graphview) · [assistantPanel](#assistantpanel) · [aiServiceForm](#aiserviceform)
 - **[Planning and dashboards](#planning-and-dashboards)**: [kpiTile, statCard, kpiRow](#kpitile-statcard-kpirow) · [kanbanBoard](#kanbanboard) · [ganttView](#ganttview) · [agendaView](#agendaview) · [orgChart](#orgchart)
@@ -5579,6 +5579,70 @@ proc pageDots*(page: var int; pages: int; enabled = true; label = "Page"): bool 
 A phone's page dots, in the middle of the row: one a page, the one shown filled. Click a
 dot for its page, either side of them for the page before or after; the keys: Left and
 Right, Home and End. `page` from 0. True when it changed.
+
+### cardShelf
+
+A shelf of cards in a row the finger slides sideways, as phone apps show your playlists or what you played lately: a square picture with rounded corners each (or a glyph on a tint), its title and a gray line under it. Returns the one tapped; the wheel slides it too.
+
+| Gloss | Glass |
+|---|---|
+| ![cardShelf: Gloss](controls/cardshelf-gloss.png) | ![cardShelf: Glass](controls/cardshelf-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![cardShelf: Matte](controls/cardshelf-matte.png) | ![cardShelf: Gloss, dark](controls/cardshelf-gloss-dark.png) |
+
+```nim
+var shelf: seq[ShelfCard] = @[("Morning Mix", "Playlist", Bitmap(nil), nfMusic),
+                              ("Oud", "Playlist", Bitmap(nil), nfHeart),
+                              ("Focus", "Playlist", Bitmap(nil), nfBook), (
+    "Sohar Nights", "Playlist", Bitmap(nil), nfMoon)]
+
+let tapped = cardShelf(shelf, "playlists")
+if tapped >= 0:
+  discard
+```
+
+**API**
+
+```nim
+proc cardShelf*(cards: openArray[ShelfCard]; key: string; side = 0): int
+```
+
+A shelf of cards in a row the finger slides sideways, as phone apps show "your playlists"
+or "recently played": each a square picture with rounded corners, its title and a gray line
+under it; `side` its width (0: about a third of a phone's). Returns the one tapped (-1:
+none). A wheel or Shift+wheel slides it too; the cards are read as buttons.
+
+### pullRefresh
+
+On a touch screen a page pulled down past its top, and let go, asks for fresh content: true once, a tap felt; while `refreshing` it stays open a little with a spinner turning. Its ends stretch under the finger and spring back, the thin scroll line flashes when it comes up with more than shows, and a hairline shows under its top once its content has gone up under it (`scrollHint`). Call it right after `beginPanel`.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![pullRefresh, normal](controls/pullrefresh-normal.png) | ![pullRefresh, touch screen](controls/pullrefresh-touch-screen.png) | ![pullRefresh, dark scheme](controls/pullrefresh-dark-scheme.png) |
+
+```nim
+var inboxLoading = true
+
+beginPanel(-1, "inbox")
+if pullRefresh(inboxLoading):
+  inboxLoading = true
+for m in ["Al Noor Trading", "Sohar Port", "Nizwa Dates"]:
+  label m
+endPanel()
+```
+
+**API**
+
+```nim
+proc pullRefresh*(refreshing: bool): bool
+```
+
+Inside a panel (right after `beginPanel`), on a touch screen: pulling its content down from
+the top and letting go past a threshold asks for fresh content -- true once, with a tap felt.
+While `refreshing` is true it stays pulled open a little, a spinner turning in the room, and
+closes when it is false again. (Elsewhere: false, nothing drawn.)
 
 ### swipeRow
 

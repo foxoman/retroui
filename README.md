@@ -585,7 +585,7 @@ each state, is **[docs/controls.md](docs/controls.md)**. In short:
 | Dialogs | `dialog`, `msgBox`, `inputBox`, `progressBox`, `wizard`, `aboutBox`, `fileDialog` (3.1), `filePicker` (modern), `propertiesDialog` |
 | Desktop | `mdiArea` / `mdiWindow`, `mdiWindowMenu`, `hotkeyPressed`, `findIn`, `replaceAllIn` |
 | App parts | `settingToggle`, `settingChoice`, `settingSlider`, `settingButtons`, `settingCombo`, `settingLink`, `appearanceSettings`, `avatar`, `factList`, `bottomNav`, `fab`, `captionBar` |
-| From phones | `navBar`, `searchBar`, `tableGroup` (`tableRow`, `tableSwitch`, `tableButton`), `wheelPicker`, `wheelGroup`, `dateWheels`, `timeWheels`, `quantity`, `pageDots`, `swipeRow`, `actionSheet`, `alertBox`, `actionBar`, `bottomSheet`, `popover` (`retroui/mobile`: on desktops too; `appNavBars`: the app's own bars instead of the window's caption on phones) |
+| From phones | `navBar`, `searchBar`, `tableGroup` (`tableRow`, `tableSwitch`, `tableButton`), `wheelPicker`, `wheelGroup`, `dateWheels`, `timeWheels`, `quantity`, `pageDots`, `swipeRow`, `actionSheet`, `alertBox`, `actionBar`, `bottomSheet`, `popover`, `cardShelf` (`retroui/mobile`: on desktops too; `appNavBars`: the app's own bars instead of the window's caption on phones); on a touch screen a page's ends stretch, `pullRefresh`, `scrollHint`, a long page's thumb, Back by a swipe (`pageView`); dialogs as pages in Gloss on Android and iOS (`dialogPages`); the on-screen keyboard a box asks for (`textKeyboard`: digits, an email's, a web address's...; Enter as Next, Done, Search), the bottom bars left out while it is up, a tap on nothing letting it go |
 | Business views | `chart` (21 kinds), `gauge`, `kanbanBoard`, `ganttView`, `agendaView`, `kpiTile`, `statCard`, `orgChart`, `reportView` |
 | Files | `fileList`, `filePreview`, `folderTree`, `placesView`, `trashList`, `driveBar`, `pathBar`, `textFileView`, `hexFileView`, `runJobDialog` |
 | Media and more | `mapView`, `view3d`, `canvas2d`, `htmlView`, `webView`, `markdownView`, `imageView`, `animation`, `videoView`, `audioView` (any speed) |
@@ -676,7 +676,10 @@ everywhere). The user chooses in Appearance (`appearanceSettings`, Controls),
 kept with the look. `RETRO_TOUCH=1` is a finger on any screen: finger-sized
 controls, no hover, tooltips above the finger; `RETRO_CONTROLS=touch`,
 `desktop` or `auto` sets the sizes alone (`retrokit run --touch`,
-`--controls:touch`). Both win over what the user kept.
+`--controls:touch`). Both win over what the user kept. Dialogs open as pages
+of the app in the Gloss look on Android and iOS (`dialogPages`);
+`RETRO_DIALOGS=pages` tries that on a desktop, `RETRO_DIALOGS=windows` keeps
+them windows everywhere.
 
 ## Jobs, undo, pages and words
 
@@ -2372,7 +2375,13 @@ Grain, Layer Cleanup, Harmonize, Colorize, Content-Aware Expand, artboards
 (since 5.17.2 as the drawing program has them: pages of the canvas the
 document keeps, not layers -- the artwork goes with the one it is on;
 the Artboard tool's handles, Alt+drag for a copy, Window > Artboards,
-Rearrange All, Artboard Options' presets and marks), the Frame tool, the Triangle, the Magnetic Lasso, Dynamic Text, RTL/LTR and
+Rearrange All, Artboard Options' presets and marks; since 5.18 as pages:
+`<#>` their numbers, facing pages in spreads, placed beside, over or under
+one another and snapped, the artwork moved between them, page numbers,
+PDF and print as pages, spreads or the whole canvas; diagrams -- a family tree, a tree of
+dots, a timeline, a numbered list, a note, a title -- typed in two languages and placed as shapes
+and type, and File > New Carousel's bilingual slides with their page numbers; type measured in
+points at the document's resolution, as the photo program does), the Frame tool, the Triangle, the Magnetic Lasso, Dynamic Text, RTL/LTR and
 kashida lengths, and the selection tools as today's (a drag inside moves
 the outline). Since 4.2: the Filter Gallery (30 filters) with Oil Paint, Lighting
 Effects, Fibers, Displace and Smart Sharpen (`retroui/photoartistic`), 109
@@ -2525,7 +2534,7 @@ kit's (`retroui/photobook`, `retroui/textengine`, `retroui/imagetrace`, `retroui
 `retroui/photoseps`, `retroui/mathtype`, `retroui/flexlayout`, `retroui/publish`,
 `retroui/photopublish`, `retroui/vectormake`, `retroui/photorelight`, `retroui/mockups`,
 `retroui/designstyles`, `retroui/aiconnect`, `retroui/quran`, `retroui/geopatterns`,
-`retroui/proctexture`, `retroui/lorem`, `retroui/photomore`), for any app. From today's photo,
+`retroui/proctexture`, `retroui/lorem`, `retroui/photomore`, `retroui/diagrams`), for any app. From today's photo,
 drawing and layout programs (Retro Atelier 5.16, `retroui/photomore`): Shake Reduction
 (`estimateShake`: the shake found from the picture's cepstrum; `shakeReduction`: taken out by
 Richardson-Lucy along it), Adaptive Wide Angle, Bilateral Blur, Multi Band Sharpen, Texture Detail,
@@ -2596,7 +2605,7 @@ t.gridStep = 14; t.gridStart = 40                                  # its lines o
 ```
 
 ```nim
-import retroui/[photo, photoshapes, photobook, textengine, infographics, liveshapes, idml, preflight, svgimport]
+import retroui/[photo, photoshapes, photobook, textengine, infographics, liveshapes, idml, preflight, svgimport, diagrams]
 var t = newText("Name\tQ1\tQ2\nNorth\t120\t140\nSouth\t90\t95", defaultStyle(), 40, 40)
 t.boxW = 500; t.boxH = 200
 t.table = tableTheme("Striped Blue")                               # a table: rows, tabs between cells
@@ -2611,6 +2620,10 @@ discard d.placeSvg(chartSvg(c), rect(40, 300, 600, 400))          # shapes and t
 let m = MapSpec(region: "Gulf", theme: "Sand", projection: "Mercator", values: mapValues("OM, 5\nQA, 3"))
 discard d.placeSvg(mapSvg(m), rect(40, 750, 600, 400))
 discard d.addShapeLayer(ShapeData(path: liveShapePath(defaultParams(lsStar), 0, 0, 200, 200)))
+var tree = defaultDiagram(dkTree)                                  # retroui/diagrams: a family tree...
+tree.data = "الآرامية | Aramaic\n  * النبطية | Nabataean\n    * العربية | Arabic\n  ~ السريانية | Syriac"
+discard d.placeDiagram(tree, rect(40, 1200, 900, 0))               # ... boxes, lines and type in a group
+let slides = newCarousel(defaultCarousel())                        # 8 bilingual slides, "٣ / ٨" on each
 discard b.exportBook("book.pdf", BookExport(kind: exPdf, pages: "1-4", spreads: true))
 b.saveBookIdml("book.idml")                                        # for the page layout program
 for it in b.preflight(300): echo it.page + 1, ": ", it.message    # Check Document
@@ -2799,8 +2812,9 @@ it.
 YouTube through their own services: Spotify's Web API (search, your
 playlists and liked songs) with your own developer app, playback on your
 Spotify apps and speakers through Spotify Connect (Premium) with Retro
-Music as their remote and screen; YouTube's music videos found with the
-YouTube Data API and played in YouTube's own embedded player; lyrics from
+Music as their remote and screen; your YouTube Music -- your playlists and
+the songs you like, signed in with Google, and its search -- through the
+YouTube Data API, played in the app in YouTube's own player; lyrics from
 LrcLib, timed to the song. A tab bar, a mini player and pages on a phone;
 on a tablet or a computer the sections down the left, the page beside
 them; in Gloss, with a step-by-step guide in its Settings to connect
@@ -3795,8 +3809,9 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_imagetrace` | Image Trace: a picture traced looks like it (under 2 % of it differs; holes and corners kept, specks left out, curves not stairs), black and white, grays, side by side, transparency, a big picture traced smaller and scaled back, noise in under 8 s, the SVG read back the same; Pencil Sketch; every preset and template of a new drawing or book made |
 | `test_outlines` | type made shapes (at 120, 36 and 14 px they draw what the type drew; colors, faux bold), blends (point by point, walked along, a hole shrinking away, Smooth Color's steps, eased), the twenty live shapes (in their box, closed, their numbers kept), Shape Builder's regions joined and taken away, freeform gradients (each color at its point, saved); the gradient mesh (each color at its point, a point moved bending the colors) |
 | `test_infographics` | charts of every kind as SVG (bars where their numbers say, stacked, pies adding to a turn, radar, legends, labels with decimals and Arabic digits, right to left, themes), placed as shapes and type; maps (regions, projections, values on a scale, names, themes), their settings back from JSON, the numbers from a table |
+| `test_diagrams` | diagrams placed as shape and type layers in one group that gives back what it was made from (a family tree, a dendrogram, a timeline, a numbered list, a note, a title, each inside its box); a tree's highlighted boxes in the accent, a stack under its parent and beside its line, a tree too wide made smaller; a timeline's dot a date, a date for each side; a list's numbers in Arabic-Indic digits or as typed; a note's labels on one baseline; a title's rule; a carousel of eight slides in its paper, its groups side by side, its page numbers on the canvas and in an exported slide; a .rpd keeping small layers only where they have pixels, read back the same |
 | `test_idml` | IDML: a book as the package (its parts, well-formed XML, spreads, masters with the page number, stories, shapes, linked pictures) and read back; one document; a damaged package refused; Check Document's findings (text that does not fit, a missing font, a coarse picture, an empty frame, hidden layers); ligatures, footnotes, real tables, Auto-Size and columns, threaded frames written as one story and read back threaded |
-| `test_photocc` | today's features made offline: Layer Cleanup, layers renamed by what they hold (Sky, Grass, a red shape at the bottom right, a group by its layers), Find/Change's Object search and Change All (by fill, stroke, weight, opacity, kind, name, Object Style; undone), Graphic Styles (given, its outline kept, saved, undone), an artboard's paper, Gradient Feather, Harmonize, Colorize, Content-Aware Expand, artboards (made round a canvas grown for them, moved with their artwork or alone, copied with it, undone and redone, rearranged in a row and a grid, fitted to their artwork, renamed, reordered, kept in the file, deleted, a rectangle made one, the empty ones deleted, an old file's artboard groups made artboards), Dynamic Text, the locks and linked layers |
+| `test_photocc` | today's features made offline: Layer Cleanup, layers renamed by what they hold (Sky, Grass, a red shape at the bottom right, a group by its layers), Find/Change's Object search and Change All (by fill, stroke, weight, opacity, kind, name, Object Style; undone), Graphic Styles (given, its outline kept, saved, undone), an artboard's paper, Gradient Feather, Harmonize, Colorize, Content-Aware Expand, artboards (made round a canvas grown for them, moved with their artwork or alone, copied with it, undone and redone, rearranged in a row and a grid, fitted to their artwork, renamed, reordered, kept in the file, deleted, a rectangle made one, the empty ones deleted, an old file's artboard groups made artboards; as pages: `<#>` and `<##>` their numbers, numbered from another, undone, facing in spreads, rearranged as spreads, placed under and beside another, snapped while dragged, type moved onto another, page numbers outside, kept in the file), Dynamic Text, the locks and linked layers |
 | `test_photospeed` | shape and type layers light: thirty of them on an A4 page at 300 ppi under 200 MB; the composite the same with and without mixing each only where it drew (modes, opacity, masks, clipping, groups, effects, the sampled view); five copies of a layer painted in a corner of a 4000 x 3000 picture under 60 MB; the layers under the one painted on kept mixed giving the same pixels as mixing them all; idle layers parked small (in memory and on the scratch disk) and opened out unchanged |
 | `test_booklists` | a book's table of contents from its paragraph styles (each a level) or its type's size, in the pages' order, a master's text left out; the index's words on their pages (whole words, any case, Arabic with or without its marks), sorted; both as text boxes, their numbers at the edge after dots; hyphenation's own words |
 | `test_datamerge` | Data Merge: the fields a design asks for, a row's values in its text, a picture in each frame named for it, the design left as it was; a PNG or JPEG a row, named by a column (made safe, made unique) or numbered |
@@ -3858,13 +3873,14 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_backdrop` | frosted glass and masks: what is under a blur smoothed and lighter, its rounded corners keeping what is outside them, a mask's circle and a mask inside it; a change near a blur, far from it, of its tint and over it the very pixels of a whole frame; the GPU's frames the CPU's (3 levels at most apart), and its partial frames, at every buffer age, a whole frame's |
 | `test_terminal` | the terminal: text, the 16, 256 and RGB colors (semicolons and colons), bold, underlined, inverse, struck; the cursor moved, lines and characters erased, inserted, deleted; a line wrapped and the lines scrolled off kept; a scroll region; the other screen and back; wide characters and the line-drawing set; the answers asked for (the cursor's place, what it is), the title; the keys as xterm sends them; a size changed; a shell in a pseudo-terminal -- its colors, its size, an exit code, what is typed answered; the view taking the keys, a word chosen with a double click and copied; found text (back and on, any case), its size bigger and smaller, a reset; kitty's keyboard protocol (its flags pushed and popped per screen, Esc, Ctrl, Alt and the keypad told apart, releases, every key as an escape with its text) and graphics protocol (RGB, RGBA and PNG, zlib'ed, in pieces, by number, placed again, quiet, deleted, scrolled with the text, its answers and errors; an app's own picture) |
 | `test_mobile` | the controls from phones: the navigation bar's Back (and Alt+Left) and its action; an alert (Enter its last button, Esc its cancel, a tap beside it waits); rows in groups (a row, its info button apart, a switch's row, a button's row, Enter); a search bar's Cancel; an action bar's action and Back; a wheel picker by the keys, a click on a row, the mouse wheel, a letter, a drag, a fling that stops on a row, the app's own value, a long wheel made as it shows; a day's wheels (31 January to February: the 28th) and a time's (12 hours, a step of minutes); a number with - and + (held, it goes on; the keys, + typed, the wheel); page dots; rows with actions behind them swiped, picked, closed by a tap, one at a time, by the keys and a right click's menu; the action sheet (the keys, Esc, a click beside it, from the bottom on a phone), the bottom sheet (its controls, dragged down, Esc), the popover (under its button, closed by a click outside) -- in every look, light and dark |
-| `test_music` | Retro Music without a window: Spotify's answers read (a search, a playlist's items -- a missing track and a local file left out --, your playlists, the devices, what plays, nothing playing), the bodies of play and transfer, YouTube's search (its HTML entities), LrcLib's timed lines (several times a line, the line at a time), and its screens drawn with no account in every look |
+| `test_touchpages` | a page under the finger on a touch screen: pulled down past its top and let go it asks for fresh content once, a short pull nothing; a dialog as a page of the app closed by its Close; a shelf of cards, the one tapped; Back by a swipe from a page's left edge, a short one staying |
+| `test_music` | Retro Music without a window: Spotify's answers read (a search, a playlist's items -- a missing track and a local file left out --, your playlists, the devices, what plays, nothing playing), the bodies of play and transfer, YouTube's search (its HTML entities), your YouTube playlists, a playlist's songs (a deleted one left out, an artist's Topic channel as the artist), the ones you like and their lengths, the player's page, a YouTube queue, LrcLib's timed lines (several times a line, the line at a time), and its screens drawn with no account in every look |
 | `test_signals` | signals and computed values worked out again only when what they read changed (through two, a branch not taken, an answer that stayed the same, a change in place), effects run and stopped; `keep`: nothing outside `--watch`, the values written, and a second program started with the file getting them back |
 | `test_photoaffinity` | Retro Atelier 5.15 as a program: studios kept, deleted, exported and imported; a help card for every tool of the toolbar; paint on type making a pixel layer; a live blend following its end and expanded; Hue Curves; the Mask Brush (a mask made, black hides, Alt shows, the pixels untouched, the Background made a layer); the Tone Brush; Procedural Texture's dialog; the Artboard tool: a box drawn a new artboard, sized by its corner with what is on it following its Constraints, moved with its artwork, Alt+dragged a copy with its artwork, deleted with its artwork kept; Symbols made, inserted, kept alike and detached; each new menu command run by its name doing its work; Fill with Placeholder Text (Arabic, paragraphs, added after, as many as fill the box, your own, the choices kept) |
 | `test_colorfonts` | colour fonts: COLR/CPAL layers, sbix and CBDT pictures and a layer in the text's own colour, found by the font reader, drawn by the text engine, in PDF and SVG |
 | `test_threed`, `test_dimensions` | 3D on shapes (extruded, bevelled, revolved, inflated: faces of their own shade, kept in the file, in SVG and PDF); dimensions fixed to what they measure, drawn again when it moves, in another unit, undone, kept |
 | `test_dxf`, `test_psvector` | DXF drawings opened as shape layers by layer and colour (lines, arcs, splines, text, blocks); PostScript's drawing read as shapes (drawing programs' short names, holes, curves, CMYK), an endless loop stopped |
-| `test_screenexport`, `test_apng` | Export for Screens at 1x, 2x and 3x in each format, artboards cut to their pages with what is on them, type drawn again; animated PNG written and read back (delays, the loop, partial frames), a document's animation saved and opened as one |
+| `test_screenexport`, `test_apng` | Export for Screens at 1x, 2x and 3x in each format, artboards cut to their pages with what is on them, type drawn again; artboards as a PDF, each a page or in spreads, a range of them; animated PNG written and read back (delays, the loop, partial frames), a document's animation saved and opened as one |
 | `test_editcommands`, `test_photokeys`, `test_objectcmds` | Edit > Fade, Paste in Place, the Spin and Path blurs, a style's effects as layers, Split and Merge Channels, proofs for colour blindness, sums in number boxes; the three programs' keys (a tool's letter held or tapped, blend modes, F2-F4); Corner Options, Release to Layers, opacity masks |
 | `test_layoutmore` | table stripes in a pattern and cell diagonals (in the file and the PDF), column rules, Print Booklet's spreads and creep, Find Font, page colour labels, Smart Text Reflow |
 | `test_ink`, `test_paintbehind` | brush dabs along a stroke stamped on the CPU and on the GPU (EGL, off screen) to the same pixels within a few levels; a big brush painted behind its stroke giving the very pixels of painting at once, the stroke shown as ink until it ends, one step to undo |
@@ -3897,7 +3913,7 @@ it is and how to run it.
 | `examples/sevenguis.nim` | 7GUIs: the seven tasks of the GUI benchmark -- a counter, a temperature converter, a flight booker, a timer, CRUD, a circle drawer with undo, a spreadsheet with formulas (also an APK: `RETRO_APP=sevenguis nimble appapk`; released with the apps) |
 | `examples/navigator.nim` | Retro Navigator: a web browser in the manner of 1995's -- the tool bar, the Location box, the directory buttons, a logo that moves while a page loads, the key, bookmarks, the Go menu, find, print, the source -- around the system's own engine (`webView`, `weSystem`), with tabs, ads and trackers blocked, secure connections, links loaded ahead, tabs that sleep, Clear Browsing Data |
 | `examples/retrodns.nim` | Retro DNS: a DNS changer with 47 public servers, what each is good for, speed tests and your own -- on Android a VPN of its own Java (`--java`), on Windows, Linux and macOS the computer's DNS as its administrator (`retroui/admin`), on macOS and iOS a profile of encrypted DNS |
-| `examples/music.nim` | Retro Music: Spotify and YouTube in one player through their own services -- Spotify's Web API and Spotify Connect (your devices play, Premium), the YouTube Data API and YouTube's embedded player, lyrics from LrcLib timed to the song (also an APK: `RETRO_APP=music nimble appapk`) |
+| `examples/music.nim` | Retro Music: Spotify and YouTube in one player through their own services -- Spotify's Web API and Spotify Connect (your devices play, Premium), the YouTube Data API (your playlists and likes signed in with Google) and YouTube's own player in the app, lyrics from LrcLib timed to the song (also an APK: `RETRO_APP=music nimble appapk`) |
 | `examples/podcast.nim` | Retro Podcast: a podcast player for every system and the web -- shows found by name or by feed, OPML, any speed, where you left off, downloads, a queue, a sleep timer, the system's media controls, the sound playing on in the background, a tray icon (also an APK: `RETRO_APP=podcast nimble appapk`; released with the apps) |
 | `examples/grow.nim` | Grow: a savings goal planner for phones -- the plan, then its result counted up, a ring, a 3D bar for each year rising one after another, a gold coin, Share (also an APK: `RETRO_APP=grow nimble appapk`) |
 | `examples/bmi.nim` | BMI Studio: a window with a look of its own made of the kit's controls -- a title bar with the app's icon, panels with title strips, options in boxes, large digits, an accent button, a dial in bands -- in its own colours or any of the kit's schemes; the worked example of docs/customizing.md (`nimble bmi`; also an APK: `RETRO_APP=bmi nimble appapk`) |

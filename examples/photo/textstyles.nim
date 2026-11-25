@@ -70,7 +70,7 @@ proc stylesPanel(paragraph: bool) =
           typePara.styleName = name
       else:
         let k = d.charStyles.styleIndex(name)
-        if k >= 0: typeStyle = d.charStyles[k].char
+        if k >= 0: keepTypeStyle(d.charStyles[k].char)
         typeStyle.styleName = name
     else:
       d.beginStep(kind)

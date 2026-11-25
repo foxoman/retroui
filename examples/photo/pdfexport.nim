@@ -19,6 +19,7 @@ proc startPdfOptions(docs: seq[Doc]; path: string; drawing = false) =
   pdfDlg.docs = docs
   pdfDlg.path = path
   bookPdfFor(nil)              # (for a book, its caller says so after this)
+  artboardPdfFor(docs)         # (one with artboards: them, each a page, in spreads, or the whole canvas)
   if pdfDlg.o.quality == 0:
     pdfDlg.preset = 1
     pdfDlg.o = pdfPreset(ppPrint)
@@ -37,6 +38,7 @@ proc writePdfNow() =
     beginBusy("Saving " & path.extractFilename, cancel = true)
     try:
       if bookPdfWrite(path, o): book = true      # (a book: all its pages, each read as it is written)
+      elif artboardPdfWrite(path, o): book = true # (artboards: each a page, or in spreads)
       elif pdfDlg.docs.len == 1: pdfDlg.docs[0].savePdf(path, o)
       else: savePdfPresentation(pdfDlg.docs, path, o, o.title)
     finally: endBusy(cancel = true)
@@ -61,6 +63,7 @@ proc pdfDialogs() =
           o = pdfPreset(PdfPresetKind(pdfDlg.preset))
           (o.title, o.author) = keep
       bookPdfPagesGroup()
+      artboardPdfGroup()
       group("Compression and Resolution"):
         row:
           label "Pictures at:"
@@ -144,7 +147,7 @@ proc pdfDialogs() =
           pdfDlg.preset = ord(ppCustom)
       pdfDlg.o = o
       row:
-        let note = bookPdfNote()
+        let note = if bookPdfNote().len > 0: bookPdfNote() else: artboardPdfNote()
         label(if note.len > 0: note elif pdfDlg.docs.len == 1: "1 page" else: $pdfDlg.docs.len & " pages",
               color = ui.theme.gray)
         spring()

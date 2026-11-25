@@ -1004,6 +1004,8 @@ proc layoutMenu() =
   ci("Insert C&hart...", "Insert Chart...", enabled = some)
   ci("Insert Ma&p...", "Insert Map...", enabled = some)
   ci("Edit Chart or Ma&p...", "Edit Chart or Map...", enabled = some and igOf(d) != nil)
+  ci("Insert &Diagram...", "Insert Diagram...", enabled = some)
+  ci("Edit Dia&gram...", "Edit Diagram...", enabled = some and dgOf(d) != nil)
   ci("Photo &Grid...", "Photo Grid...", enabled = some)
   ci("Islamic Patter&n...", "Islamic Pattern...", enabled = some)
   sep()

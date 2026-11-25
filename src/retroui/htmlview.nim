@@ -50,7 +50,7 @@ import core, widgets, markdown, pixelicons, nerdicons, imaging, htmldom, htmllay
 import webp, gifanim, frameprof
 import uirelays/[services, input]
 import webnative
-export webnative.WebPermission, webnative.WebDownload
+export webnative.WebPermission, webnative.WebDownload, webnative.webPageBase
 
 export htmldom.decodeEntities, htmldom.htmlEscape
 

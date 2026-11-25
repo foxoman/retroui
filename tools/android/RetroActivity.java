@@ -858,6 +858,15 @@ public class RetroActivity extends NativeActivity {
     });
   }
 
+  /** The keyboard the field with the focus wants (0 letters, 1 digits, 2 a decimal number,
+   *  3 a phone number, 4 an email, 5 a web address, 6 a password) and what its Enter key says
+   *  (0 Return, 1 Next, 2 Done, 3 Search, 4 Go); called by native code when it changes. */
+  public void keyboardKind(final int kind, final int enter) {
+    runOnUiThread(new Runnable() {
+      public void run() { RetroInput.setKind(RetroActivity.this, kind, enter); }
+    });
+  }
+
   /** The native side has nativeCompose and nativeKey (set by it). */
   static volatile boolean inputNatives = false;
   public static void haveInputNatives() { inputNatives = true; }

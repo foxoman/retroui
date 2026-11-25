@@ -186,11 +186,14 @@ proc chartFields() =
     sized.w = igDlg.box.w
     sized.h = igDlg.box.h
     let (ts0, fs0) = sized.chartTextSizes
-    var ts = int(round(ts0))
-    if spin(ts, 6, 400, w = dp(56)): c.titleSize = ts.float
+    let d = cur()
+    let (tsSet, ts) = d.typeField(float32(ts0), dp(56), "igtitle", 1, 2000)
+    if tsSet: c.titleSize = max(1.0, ts.float)
+    label typeShort()
     label "Text:"
-    var fs = int(round(fs0))
-    if spin(fs, 5, 240, w = dp(56)): c.textSize = fs.float
+    let (fsSet, fs) = d.typeField(float32(fs0), dp(56), "igtext", 1, 1000)
+    if fsSet: c.textSize = max(1.0, fs.float)
+    label typeShort()
   row:
     label "Corners:"
     var r = int(c.radius)

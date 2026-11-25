@@ -340,6 +340,105 @@ block artboards:
   doAssert o.boards.len == 1 and o.boards[0].name == "Old Board" and o.boards[0].r == rect(10, 10, 50, 40) and
            o.boards[0].color == 0xFFFFEEDD'u32 and not G.isArtboard and P notin o.layers, "an old file's artboard"
 
+block artboardPages:
+  # (artboards as pages: `<#>` in type on one its number, `<##>` how many; facing in spreads;
+  # placed by another; dragged in line with them; the artwork moved onto another; page numbers)
+  let d = newDoc(400, 300, 0)
+  for x in [0, 140, 280]:
+    d.beginStep("New Artboard")
+    discard d.addArtboard(rect(x, 0, 120, 160), color = 0xFFFFFFFF'u32)
+    d.endStep()
+  let b1 = d.boards[1].r
+  var t = newText("Page <#> of <##>", defaultStyle(), 0, 0)
+  t.x = float32(b1.x + 10)
+  t.y = float32(b1.y + 20)
+  t.boxW = 100
+  t.boxH = 30
+  d.beginStep("type")
+  d.touchLayers()
+  let T = d.addTextLayer(t)
+  d.endStep()
+  doAssert d.boardOfText(T) == 1
+  doAssert d.effectiveText(T).plainText == "Page 2 of 3", d.effectiveText(T).plainText
+  discard d.syncBoardNumbers()
+  doAssert not d.syncBoardNumbers(), "drawn again only when its number changed"
+  # numbered from 5: the second is page 6
+  d.beginStep("Artboard Numbers")
+  d.touchLayers()
+  d.boardFirst = 5
+  d.endStep()
+  doAssert d.effectiveText(T).plainText == "Page 6 of 3" and d.syncBoardNumbers()
+  d.undo()
+  doAssert d.boardFirst == 0 and d.effectiveText(T).plainText == "Page 2 of 3", "the numbering undone"
+  # facing pages: the first alone (a right page), then left and right
+  doAssert d.boardSpreads == @[@[0], @[1], @[2]] and d.boardSide(1) == 0
+  d.boardFacing = true
+  doAssert d.boardSpreads == @[@[0], @[1, 2]] and d.boardSide(0) == 1 and d.boardSide(1) == -1 and
+           d.boardSide(2) == 1, $d.boardSpreads
+  # Rearrange All > Spreads: the spread's pages touching at the spine, the first where a right page goes
+  d.beginStep("Rearrange All Artboards")
+  d.rearrangeArtboards(alSpreads, 1, 20)
+  d.endStep()
+  doAssert d.boards[1].r.x + d.boards[1].r.w == d.boards[2].r.x and d.boards[1].r.y == d.boards[2].r.y,
+           "a spread's pages touching: " & $d.boards[1].r & " " & $d.boards[2].r
+  doAssert d.boards[0].r.x == d.boards[2].r.x and d.boards[1].r.y == d.boards[0].r.y + d.boards[0].r.h + 20,
+           "the first alone on the right of the spine, a spread to a row: " & $d.boards[0].r & " " & $d.boards[1].r
+  doAssert d.boardOfText(T) == 1 and d.effectiveText(T).plainText == "Page 2 of 3", "its type moved with it"
+  d.undo()
+  # placed by another: under it, the gap apart; at its left, touching
+  d.beginStep("Place Artboard")
+  d.placeArtboard(2, 0, 2, 10)
+  d.endStep()
+  doAssert d.boards[2].r.x == d.boards[0].r.x and d.boards[2].r.y == d.boards[0].r.y + d.boards[0].r.h + 10,
+           "under it: " & $d.boards[2].r
+  d.beginStep("Place Artboard")
+  d.placeArtboard(2, 1, 1, 0)
+  d.endStep()
+  doAssert d.boards[2].r.x + d.boards[2].r.w == d.boards[1].r.x and d.boards[2].r.y == d.boards[1].r.y,
+           "at its left, touching: " & $d.boards[2].r & " " & $d.boards[1].r
+  d.undo()
+  d.undo()
+  # the Artboard tool's drag: in line with another when near it
+  let a0 = d.boards[0].r
+  let a1 = d.boards[1].r
+  let (sx, sy) = d.snapArtboardMove(1, a0.x + a0.w + 3 - a1.x, a0.y - a1.y + 4, 8, 20)
+  doAssert a1.x + sx == a0.x + a0.w and a1.y + sy == a0.y, "touching it, tops in line: " & $(sx, sy) & " " & $d.boards
+  let (fx, fy) = d.snapArtboardMove(1, 300, 300, 8, 20)
+  doAssert (fx, fy) == (300, 300), "far from all: as dragged"
+  # the type moved onto the third: where it was on the second, its number the third's
+  d.beginStep("Move to Artboard")
+  d.moveToArtboard(@[T], 2)
+  d.endStep()
+  doAssert d.boardOfText(T) == 2 and d.effectiveText(T).plainText == "Page 3 of 3" and
+           int(T.text.x) - d.boards[2].r.x == 10, "moved: " & $T.text.x & " " & $d.boards[2].r
+  doAssert d.syncBoardNumbers(), "drawn again: on another one"
+  d.undo()
+  doAssert d.boardOfText(T) == 1, "undone"
+  # page numbers: a folio on each, outside -- the right of a right page, the left of a left one
+  d.beginStep("Page Numbers")
+  let n = d.artboardFolios(bfBottomOutside, bhTopInside, "Retro", skipEnds = false)
+  d.endStep()
+  doAssert n == 6, "a folio and a running head on each of the three: " & $n
+  var folios: seq[Layer]
+  for L in d.layers:
+    if L.isText and L.name == "Folio": folios.add L
+  doAssert folios.len == 3
+  for L in folios:
+    let k = d.boardOfText(L)
+    doAssert d.effectiveText(L).plainText == $(k + 1), "its number: " & d.effectiveText(L).plainText
+    doAssert L.text.para.align == (if d.boardSide(k) < 0: textLeft else: textRight), "outside"
+    doAssert L.text.y > float32(d.boards[k].r.y + d.boards[k].r.h div 2), "at the bottom"
+  doAssert d.artboardFolios(bfBottomMiddle, skipEnds = true) == 1, "again: the old ones gone, not on the ends"
+  doAssert d.artboardFolios(bfNone) == 0
+  for L in d.layers: doAssert L.name notin ["Folio", "Running Head"], "removed"
+  # kept in a .rpd: the first number and facing
+  d.boardFirst = 3
+  let path = getTempDir() / "retro-artboard-pages.rpd"
+  d.saveRpd(path)
+  let back = loadRpd(path)
+  removeFile(path)
+  doAssert back.boardFirst == 3 and back.boardFacing, "kept"
+
 block constraints:
   # (where a box goes when its board changes size, by its pins; then layers on a board resized)
   let was = rect(0, 0, 200, 100)

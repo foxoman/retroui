@@ -19,6 +19,7 @@ import android.view.inputmethod.InputMethodManager;
  *  keys (RetroActivity.nativeKey). */
 public class RetroInput extends View {
   String composing = "";
+  static int kind, enter;     // the keyboard the field wants, its Enter key (setKind)
 
   RetroInput(Context c) {
     super(c);
@@ -31,10 +32,37 @@ public class RetroInput extends View {
 
   @Override
   public InputConnection onCreateInputConnection(EditorInfo out) {
-    out.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_AUTO_CORRECT;
-    out.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI
-        | EditorInfo.IME_ACTION_NONE;
+    switch (kind) {
+      case 1: out.inputType = InputType.TYPE_CLASS_NUMBER; break;
+      case 2: out.inputType = InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL
+                              | InputType.TYPE_NUMBER_FLAG_SIGNED; break;
+      case 3: out.inputType = InputType.TYPE_CLASS_PHONE; break;
+      case 4: out.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS; break;
+      case 5: out.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI; break;
+      case 6: out.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD; break;
+      default: out.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_AUTO_CORRECT;
+    }
+    int action;
+    switch (enter) {
+      case 1: action = EditorInfo.IME_ACTION_NEXT; break;
+      case 2: action = EditorInfo.IME_ACTION_DONE; break;
+      case 3: action = EditorInfo.IME_ACTION_SEARCH; break;
+      case 4: action = EditorInfo.IME_ACTION_GO; break;
+      default: action = EditorInfo.IME_ACTION_NONE;
+    }
+    out.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI | action;
+    if (kind == 6) out.imeOptions |= 0x1000000;   // IME_FLAG_NO_PERSONALIZED_LEARNING
     return new Connection(this);
+  }
+
+  /** The keyboard the field wants now: shown so from now on (on the UI thread). */
+  static void setKind(Activity a, int k, int e) {
+    if (k == kind && e == enter) return;
+    kind = k;
+    enter = e;
+    if (view == null || !view.hasFocus()) return;
+    InputMethodManager imm = (InputMethodManager) a.getSystemService(Context.INPUT_METHOD_SERVICE);
+    if (imm != null) imm.restartInput(view);
   }
 
   final class Connection extends BaseInputConnection {
@@ -89,6 +117,18 @@ public class RetroInput extends View {
       if (e.getAction() != KeyEvent.ACTION_DOWN && e.getAction() != KeyEvent.ACTION_UP) return false;
       try { RetroActivity.nativeKey(e.getKeyCode(), e.getAction() == KeyEvent.ACTION_DOWN); }
       catch (Throwable t) { return false; }
+      return true;
+    }
+
+    /** The keyboard's action key (Next, Done, Search, Go): Next as Tab -- the next field --,
+     *  the others as Enter. */
+    @Override
+    public boolean performEditorAction(int action) {
+      int code = action == EditorInfo.IME_ACTION_NEXT ? KeyEvent.KEYCODE_TAB : KeyEvent.KEYCODE_ENTER;
+      try {
+        RetroActivity.nativeKey(code, true);
+        RetroActivity.nativeKey(code, false);
+      } catch (Throwable t) { return false; }
       return true;
     }
 

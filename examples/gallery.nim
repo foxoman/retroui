@@ -1376,6 +1376,16 @@ proc phonePage() =
         label "C&ups:"
         quantity(phCups, 1, 12, label = "Cups")
       pageDots(phPage, 5)
+    group "cardShelf":
+      # (a shelf the finger slides sideways, a card tapped opens it)
+      var cards: seq[ShelfCard]
+      for (n, g) in [("Morning Mix", nfMusic), ("Road Trip", nfGlobe), ("Oud", nfMusic), ("Focus", nfBook),
+                     ("Sohar Nights", nfMoon), ("Workout", nfBolt)]:
+        cards.add (n, "Playlist", Bitmap(nil), g)
+      let k = cardShelf(cards, "gallery")
+      if k >= 0: status = "Opened " & cards[k].title
+      label("On a touch screen a page pulled down past its top asks for fresh content (pullRefresh); " &
+            "its ends stretch and spring back; a long one has a thumb to drag.", color = ui.theme.gray)
       row:
         if button("&Action sheet..."): phSheet = true
         if button("Botto&m sheet..."): phBottom = true

@@ -99,7 +99,7 @@ proc makeList(bw: BookWin; j: JsonNode; into: Layer = nil) =
   let index = j.hasKey("index")
   let o = j[if index: "index" else: "toc"]
   let m = b.marginBox(bw.page)
-  var st = typeStyle
+  var st = typeStyle.scaledStyle(typeScale())
   st.size = max(8'f32, float32(b.setup.dpi / 72 * 11))
   let rtl = arabicBook(b)
   var t: TextData
@@ -265,8 +265,9 @@ proc listsDialog() =
       if not any:
         row([210, -1]):
           label "Or the text set at, and over:"
-          spin(listDlg.minSize, 4, 2000, w = dp(70))
-        label("(pixels: the headings by their size)", color = ui.theme.gray)
+          let (minSet, ms) = cur().typeField(float32(listDlg.minSize), dp(70), "tocmin", 1, 2000)
+          if minSet: listDlg.minSize = max(4, int(round(ms)))
+        label("(the headings by their size)", color = ui.theme.gray)
       group("Page Number"):
         row([120, -1]):
           label ""

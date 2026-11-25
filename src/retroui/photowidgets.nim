@@ -114,6 +114,11 @@ type
     ## The rulers' (and the grid's) unit.
     ruPixels = "Pixels", ruInches = "Inches", ruCentimeters = "Centimeters",
     ruMillimeters = "Millimeters", ruPoints = "Points", ruPicas = "Picas", ruPercent = "Percent"
+  TypeUnit* = enum
+    ## The unit type is measured in (its size, leading, shift; a paragraph's indents and spacing):
+    ## points, as the photo and layout programs have it -- at the document's resolution, so 12
+    ## points are 12 pixels at 72 ppi and 67 at 400 --, pixels, or millimeters.
+    tuPoints = "Points", tuPixels = "Pixels", tuMillimeters = "Millimeters"
   LineStyle* = enum
     ## How the grid's or the guides' lines are drawn.
     lsLines = "Lines", lsDashed = "Dashed Lines", lsDots = "Dots"
@@ -122,6 +127,7 @@ type
     checkerSize*: CheckerSize      ## the checkerboard's squares under what is transparent
     checkerColors*: CheckerColors  ## ... and their colors
     rulerUnit*: RulerUnit          ## the rulers' unit
+    typeUnit*: TypeUnit            ## type's unit (points: the default)
     gridEvery*: float          ## a grid line every so many `gridUnit`s
     gridUnit*: RulerUnit       ## the unit of `gridEvery`
     gridSub*: int              ## ... each cut in so many (lighter lines)
@@ -171,6 +177,21 @@ proc unitPixels*(u: RulerUnit; dpi: float; side: int): float =
   of ruPoints: dpi / 72
   of ruPicas: dpi / 6
   of ruPercent: max(1, side).float / 100
+
+proc typeUnitPixels*(u: TypeUnit; dpi: float): float =
+  ## Image pixels in one `u` of type at `dpi` (a point: `dpi` / 72).
+  let dpi = if dpi > 0: dpi else: 72.0
+  case u
+  of tuPoints: dpi / 72
+  of tuPixels: 1.0
+  of tuMillimeters: dpi / 25.4
+
+proc typeUnitAbbrev*(u: TypeUnit): string =
+  ## Its short name: "pt", "px", "mm".
+  case u
+  of tuPoints: "pt"
+  of tuPixels: "px"
+  of tuMillimeters: "mm"
 
 proc unitAbbrev*(u: RulerUnit): string =
   ## The unit's short name: "px", "in", "cm", "mm", "pt", "pc", "%".

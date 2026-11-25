@@ -51,8 +51,9 @@ NOT_CONTROLS = {
         "glossBlue", "glossBarButton", "glossText", "buttonInk", "buttonBold",
         "glossTwoTone", "glossButtonFace", "buttonLabel",
         "glossTone", "glossDetail", "glossPopoverFrame", "glossMenuEdge",
-        # a page's thin scroll bar over its content (phones, the newer looks)
-        "overlayBars", "scrollLine",
+        # a page's thin scroll bar over its content (phones, the newer looks), its hints and stretch;
+        # dialogs as pages (phones and tablets in Gloss): helpers the panels and dialogs use
+        "overlayBars", "scrollLine", "scrollHint", "stretched", "dialogsAsPages",
         # input helpers for controls of one's own
         "spaceKey", "mnemonicHit", "doubleClicked", "tapped", "scrubLabel",
         # text helpers (lines, the caret's stops)

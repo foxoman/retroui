@@ -1754,6 +1754,29 @@ do:
   pageDots(shownPage, 5)
   aim()
 
+example("cardshelf", "cardShelf",
+        "A shelf of cards in a row the finger slides sideways, as phone apps show your playlists or what you played lately: a square picture with rounded corners each (or a glyph on a tint), its title and a gray line under it. Returns the one tapped; the wheel slides it too.",
+        420, 210, ["cardShelf", "ShelfCard"], @[ssNormal, ssTouch, ssDark, ssFocused]):
+  var shelf: seq[ShelfCard] = @[("Morning Mix", "Playlist", Bitmap(nil), nfMusic),
+                                ("Oud", "Playlist", Bitmap(nil), nfHeart),
+                                ("Focus", "Playlist", Bitmap(nil), nfBook),
+                                ("Sohar Nights", "Playlist", Bitmap(nil), nfMoon)]
+do:
+  let tapped = cardShelf(shelf, "playlists")
+  if tapped >= 0: discard          # (open shelf[tapped])
+  aim()
+opts(looks = phoneLooks)
+
+example("pullrefresh", "pullRefresh",
+        "On a touch screen a page pulled down past its top, and let go, asks for fresh content: true once, a tap felt; while `refreshing` it stays open a little with a spinner turning. Its ends stretch under the finger and spring back, the thin scroll line flashes when it comes up with more than shows, and a hairline shows under its top once its content has gone up under it (`scrollHint`). Call it right after `beginPanel`.",
+        360, 160, ["pullRefresh"], @[ssNormal, ssTouch, ssDark]):
+  var inboxLoading = true          # (the mail being fetched: the spinner in the room it opened)
+do:
+  beginPanel(-1, "inbox")
+  if pullRefresh(inboxLoading): inboxLoading = true      # (fetch the mail; false when it came)
+  for m in ["Al Noor Trading", "Sohar Port", "Nizwa Dates"]: label m
+  endPanel()
+
 example("swiperow", "swipeRow",
         "A list's row with actions behind it: swiped left (or dragged with the mouse) it slides aside and shows them; a tap on one picks it. Left, Right and Enter with the keys; a right click opens them as a menu. One row's actions show at a time.",
         360, 130, ["swipeRow", "SwipeHit"], @[ssNormal, ssTouch, ssDark, ssFocused]):

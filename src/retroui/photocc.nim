@@ -721,7 +721,61 @@ proc artboardPicture*(d: Doc; i: int): Bitmap =
 type ArrangeLayout* = enum
   ## Rearrange All Artboards: how they are laid out.
   alGridByRow = "Grid by Row", alGridByColumn = "Grid by Column", alRow = "Arrange by Row",
-  alColumn = "Arrange by Column"
+  alColumn = "Arrange by Column", alSpreads = "Spreads"
+
+proc boardSpreads*(d: Doc): seq[seq[int]]
+
+proc rearrangeSpreads(d: Doc; perRow: int; spacing: int; rightToLeft: bool; withArt: bool) =
+  ## (Rearrange All Artboards > Spreads: each spread's pages side by side, touching at the spine --
+  ## the first, alone, where a right page goes --, `perRow` spreads to a row, `spacing` apart)
+  let spreads = d.boardSpreads
+  let n = d.boards.len
+  var leftW, rightW = 0                      # (the widest left and right pages: the spines in line)
+  for sp in spreads:
+    if sp.len == 2:
+      leftW = max(leftW, d.boards[sp[0]].r.w)
+      rightW = max(rightW, d.boards[sp[1]].r.w)
+    else: rightW = max(rightW, d.boards[sp[0]].r.w)
+  if leftW == 0: leftW = rightW
+  var rowH: seq[int]
+  for k, sp in spreads:
+    let rw = k div max(1, perRow)
+    while rowH.len <= rw: rowH.add 0
+    for b in sp: rowH[rw] = max(rowH[rw], d.boards[b].r.h)
+  let x0 = d.boards[0].r.x - (if d.boardFacing: leftW else: 0)
+  let y0 = d.boards[0].r.y
+  var targets = newSeq[Rect](n)
+  for k, sp in spreads:
+    var c = k mod max(1, perRow)
+    let rw = k div max(1, perRow)
+    if rightToLeft: c = max(1, perRow) - 1 - c
+    let spine = x0 + c * (leftW + rightW + spacing) + leftW
+    var y = y0
+    for q in 0 ..< rw: y += rowH[q] + spacing
+    if sp.len == 2:
+      let (l, r) = if rightToLeft: (sp[1], sp[0]) else: (sp[0], sp[1])
+      targets[l] = rect(spine - d.boards[l].r.w, y, d.boards[l].r.w, d.boards[l].r.h)
+      targets[r] = rect(spine, y, d.boards[r].r.w, d.boards[r].r.h)
+    elif d.boardFacing and not rightToLeft:
+      targets[sp[0]] = rect(spine, y, d.boards[sp[0]].r.w, d.boards[sp[0]].r.h)
+    elif d.boardFacing:
+      targets[sp[0]] = rect(spine - d.boards[sp[0]].r.w, y, d.boards[sp[0]].r.w, d.boards[sp[0]].r.h)
+    else:
+      targets[sp[0]] = rect(spine - leftW, y, d.boards[sp[0]].r.w, d.boards[sp[0]].r.h)
+  var arts = newSeq[seq[Layer]](n)
+  if withArt:
+    for k in 0 ..< n: arts[k] = d.artboardArt(k)
+  var all = targets[0]
+  for t in targets: all = union(all, t)
+  let (sx, sy) = d.growCanvasFor(all, d.boardMargin(targets[0]))
+  d.touchLayers()
+  for k in 0 ..< n:
+    let t = rect(targets[k].x + sx, targets[k].y + sy, targets[k].w, targets[k].h)
+    let b = d.boards[k].r
+    if arts[k].len > 0: d.shiftLayers(arts[k], t.x - b.x, t.y - b.y)
+    d.boards[k].r = t
+  inc d.boardsVer
+  d.markAll()
 
 proc rearrangeArtboards*(d: Doc; layout: ArrangeLayout; columns: int; spacing: int; rightToLeft = false;
                          withArt = true) =
@@ -730,6 +784,9 @@ proc rearrangeArtboards*(d: Doc; layout: ArrangeLayout; columns: int; spacing: i
   ## the first one's top left; their artwork with them. Undoable in a step.
   if d.boards.len == 0: return
   let n = d.boards.len
+  if layout == alSpreads:
+    d.rearrangeSpreads(columns, spacing, rightToLeft, withArt)
+    return
   let cols = max(1, case layout
                     of alRow: n
                     of alColumn: 1
@@ -846,6 +903,169 @@ proc reorderArtboard*(d: Doc; i, to: int) =
   d.boardCur = to
   inc d.boardsVer
   d.markAll()
+
+# ---- artboards as pages: their numbers, spreads, placing them, art moved between them ------------------------------
+
+proc boardSpreads*(d: Doc): seq[seq[int]] =
+  ## The artboards as pages, spread by spread, in their order: facing (`boardFacing`) the first
+  ## alone -- a right page, as a book's cover -- then two by two, left and right; else each alone.
+  if not d.boardFacing:
+    for i in 0 ..< d.boards.len: result.add @[i]
+    return
+  if d.boards.len == 0: return
+  result.add @[0]
+  var i = 1
+  while i < d.boards.len:
+    if i + 1 < d.boards.len: result.add @[i, i + 1] else: result.add @[i]
+    i += 2
+
+proc boardSide*(d: Doc; i: int): int =
+  ## Artboard `i` as a page: -1 a left page, 1 a right one (facing: `boardFacing`), 0 neither.
+  if not d.boardFacing or i < 0 or i >= d.boards.len: return 0
+  if i mod 2 == 0: 1 else: -1
+
+proc syncBoardNumbers*(d: Doc): bool =
+  ## Type with `<#>` or `<##>` in it drawn again when what it shows changed -- an artboard made,
+  ## moved, deleted or numbered again, the type moved onto another one (`Layer.boardMark`): true
+  ## when some was. (Call it after a change, or every frame: it costs nothing when none did.)
+  for L in d.layers:
+    if not L.isText: continue
+    var has = false
+    for sp in L.text.spans:
+      if "<#" in sp.text: has = true
+    let k = if has: d.boardOfText(L) else: -1
+    let mark = if k >= 0: d.boardLabel(k) & "/" & $d.boards.len else: ""
+    if mark != L.boardMark:
+      L.boardMark = mark
+      if has:
+        d.drawText(L)
+        result = true
+  if result: d.markAll()
+
+proc placeArtboard*(d: Doc; i, beside: int; side: int; gap: int; withArt = true) =
+  ## Artboard `i` put by artboard `beside`: `side` 0 at its right, 1 at its left, 2 under it, 3 over
+  ## it, `gap` apart (0: touching, as the pages of a spread) -- their tops in line beside it, their
+  ## left edges over or under it; its artwork with it (`withArt`). Undoable in a step.
+  if i < 0 or i >= d.boards.len or beside < 0 or beside >= d.boards.len or i == beside: return
+  let a = d.boards[i].r
+  let b = d.boards[beside].r
+  let (tx, ty) = case side
+                 of 0: (b.x + b.w + gap, b.y)
+                 of 1: (b.x - gap - a.w, b.y)
+                 of 2: (b.x, b.y + b.h + gap)
+                 else: (b.x, b.y - gap - a.h)
+  d.moveArtboard(i, tx - a.x, ty - a.y, withArt)
+
+proc snapArtboardMove*(d: Doc; i: int; dx, dy: int; tol: int; gap: int): (int, int) =
+  ## The Artboard tool's drag: (`dx`, `dy`) made to put artboard `i` in line with another when it
+  ## comes within `tol` of it -- an edge on theirs, `gap` from them or touching them, their middles
+  ## in line -- each way on its own.
+  if i < 0 or i >= d.boards.len: return (dx, dy)
+  let a = d.boards[i].r
+  var bx = (tol + 1, dx)
+  var by = (tol + 1, dy)
+  for j, bd in d.boards:
+    if j == i: continue
+    let b = bd.r
+    for tx in [b.x, b.x + b.w - a.w, b.x + b.w + gap, b.x - gap - a.w, b.x + b.w, b.x - a.w,
+               b.x + (b.w - a.w) div 2]:
+      let n = tx - a.x
+      if abs(n - dx) < bx[0]: bx = (abs(n - dx), n)
+    for ty in [b.y, b.y + b.h - a.h, b.y + b.h + gap, b.y - gap - a.h, b.y + b.h, b.y - a.h,
+               b.y + (b.h - a.h) div 2]:
+      let n = ty - a.y
+      if abs(n - dy) < by[0]: by = (abs(n - dy), n)
+  (bx[1], by[1])
+
+proc boardUnder*(d: Doc; r: Rect): int =
+  ## The artboard the middle of `r` is on (-1: none).
+  let mx = r.x + r.w div 2
+  let my = r.y + r.h div 2
+  for i, b in d.boards:
+    if mx >= b.r.x and mx < b.r.x + b.r.w and my >= b.r.y and my < b.r.y + b.r.h: return i
+  -1
+
+proc moveToArtboard*(d: Doc; layers: seq[Layer]; i: int) =
+  ## Layer > Move to Artboard: `layers` (what is picked: no group, Background or locked layer)
+  ## put on artboard `i` -- as far from its top left as they were from that of the artboard they
+  ## were on; in its middle when they were on none, or would not be on it. Undoable in a step.
+  if i < 0 or i >= d.boards.len: return
+  var ls: seq[Layer]
+  for L in layers:
+    if not L.group and not L.background and not L.locked and not L.lockPosition: ls.add L
+  let box = d.artBounds(ls)
+  if box.w <= 0 or box.h <= 0: return
+  let to = d.boards[i].r
+  let was = d.boardUnder(box)
+  var (nx, ny) = (to.x + (to.w - box.w) div 2, to.y + (to.h - box.h) div 2)
+  if was >= 0 and was != i:
+    let fb = d.boards[was].r
+    let (x, y) = (to.x + box.x - fb.x, to.y + box.y - fb.y)
+    let mx = x + box.w div 2
+    let my = y + box.h div 2
+    if mx >= to.x and mx < to.x + to.w and my >= to.y and my < to.y + to.h: (nx, ny) = (x, y)
+  elif was == i: return
+  d.touchLayers()
+  d.shiftLayers(ls, nx - box.x, ny - box.y)
+  d.markAll()
+
+type
+  BoardFolio* = enum
+    ## Page Numbers on artboards: where each one's number goes.
+    bfNone = "None", bfBottomOutside = "Bottom, outside", bfBottomMiddle = "Bottom, middle",
+    bfTopOutside = "Top, outside"
+  BoardHead* = enum
+    ## ... and its running head.
+    bhNone = "None", bhTopOutside = "Top, outside", bhTopInside = "Top, inside", bhBottomInside = "Bottom, inside"
+
+proc artboardFolios*(d: Doc; folio: BoardFolio; head = bhNone; headText = ""; size = 10.0;
+                     skipEnds = false; margin = -1): int =
+  ## Page Numbers and Running Heads on the artboards, as a book's pages have them: on each one a
+  ## type layer "Folio" with `<#>` (its number: `boardLabel`) and one "Running Head" with
+  ## `headText`, `size` points, in its margin (`margin` pixels; -1: a fourteenth of its smaller
+  ## side) -- outside: the right of a right page, the left of a left one (`boardSide`; pages that
+  ## do not face: the right); `skipEnds`: not on the first and the last. What an earlier call put
+  ## there goes first. How many layers it made. Undoable in a step.
+  d.touchLayers()
+  for k in countdown(d.layers.high, 0):
+    let L = d.layers[k]
+    if L.isText and L.name in ["Folio", "Running Head"] and d.boardOfText(L) >= 0: d.deleteLayer(k)
+  let px = size / 72 * max(1.0, d.dpi)
+  let lineH = px * 1.4
+  var made = 0
+  for i, bd in d.boards:
+    if skipEnds and d.boards.len > 1 and (i == 0 or i == d.boards.high): continue
+    let b = bd.r
+    let m = if margin >= 0: margin.float else: max(8.0, min(b.w, b.h).float / 14)
+    let side = d.boardSide(i)
+    let outside = if side < 0: textLeft else: textRight
+    let inside = if side < 0: textRight else: textLeft
+    proc put(what, name: string; atTop: bool; align: TextAlign) =
+      var st = defaultStyle()
+      st.size = float32(px)
+      var t = newText(what, st, 0, 0)
+      t.x = float32(b.x.float + m)
+      t.y = float32(if atTop: b.y.float + (m - lineH) / 2 else: (b.y + b.h).float - (m + lineH) / 2)
+      t.boxW = float32(max(1.0, b.w.float - 2 * m))
+      t.boxH = float32(lineH)
+      t.para.align = align
+      let L = d.addTextLayer(t)
+      L.name = name
+      inc made
+    case folio
+    of bfBottomOutside: put("<#>", "Folio", false, outside)
+    of bfBottomMiddle: put("<#>", "Folio", false, textCenter)
+    of bfTopOutside: put("<#>", "Folio", true, outside)
+    of bfNone: discard
+    if headText.strip.len > 0:
+      case head
+      of bhTopOutside: put(headText, "Running Head", true, outside)
+      of bhTopInside: put(headText, "Running Head", true, inside)
+      of bhBottomInside: put(headText, "Running Head", false, inside)
+      of bhNone: discard
+  discard d.syncBoardNumbers()
+  d.markAll()
+  made
 
 # ---- the Magnetic Lasso -----------------------------------------------------------------------------------------------
 

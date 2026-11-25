@@ -19,6 +19,14 @@ proc gutterShown(d: Doc; t: TextData): float32 =
   ## the type engine gives it; in one column, what its columns will get)
   if t.gutter > 0: t.gutter elif max(1, t.columns) > 1: 12'f32 else: d.defaultGutter
 
+proc printSize(d: Doc; px: float32): string =
+  ## (a length in pixels as it prints, when the rulers count pixels: "= 4.2 mm at 300 ppi" -- a
+  ## gutter of 50 pixels is narrow on a page of 300 ppi; "" in another unit, which says it)
+  if viewPrefs.rulerUnit != ruPixels or d == nil: return ""
+  let dpi = max(1.0, d.dpi)
+  let mm = float(px) / dpi * 25.4
+  "= " & formatFloat(mm, ffDecimal, (if mm < 10: 1 else: 0)) & " mm " & tr("at") & " " & $int(round(dpi)) & " ppi"
+
 proc unitShort(): string =
   ## (the rulers' unit's short name: "mm", "pt", "px"...)
   unitAbbrev(viewPrefs.rulerUnit)
@@ -84,3 +92,34 @@ proc sidesFields(d: Doc; v: var array[4, float32]; key: string;
         break
   sidesLinked[key] = linked
   v != was
+
+proc typePixels(d: Doc): float =
+  ## (pixels in one of type's unit -- Preferences > Units & Rulers > Type -- at the document's
+  ## resolution: a point is 4.2 pixels at 300 ppi; with no document, at 72)
+  typeUnitPixels(viewPrefs.typeUnit, if d != nil: d.dpi else: 72.0)
+
+proc typeShort(): string =
+  ## (type's unit's short name: "pt", "px", "mm")
+  typeUnitAbbrev(viewPrefs.typeUnit)
+
+proc typeField(d: Doc; px: float32; w: int; id: string; lo = 0.0; hi = 99999.0;
+               enabled = true): tuple[changed: bool; px: float32] =
+  ## (a length of type -- a size, a leading, a shift, an indent -- kept in the document's pixels,
+  ## shown and typed in type's unit, as the photo program shows it: "12 pt", "10.5 pt"; `lo` and
+  ## `hi` in that unit; `id` its own, each field another)
+  let per = d.typePixels
+  var v = float(px) / per
+  let dec = if abs(v - round(v)) > 0.04: 1 else: 0
+  pushId(id)
+  let ch = numberEdit(v, decimals = dec, w = w, lo = lo, hi = hi, thousands = false, enabled = enabled)
+  popId()
+  if ch: result = (true, float32(v * per))
+  else: result = (false, px)
+
+proc pointsOf(d: Doc; px: float): float =
+  ## (pixels of the document in points: 67 pixels at 400 ppi are 12 points)
+  px * 72 / max(1.0, if d != nil: d.dpi else: 72.0)
+
+proc pixelsOf(d: Doc; pt: float): float =
+  ## (points in the document's pixels)
+  pt * max(1.0, if d != nil: d.dpi else: 72.0) / 72

@@ -26,6 +26,7 @@ setCurrentDir(home)
 fakeDriver()
 setup()
 startApp("photo", W, H)
+typeStyle.size = 48        # (the type these were written with: 48 points, 48 pixels at 72 ppi)
 view = photoFrame
 
 var passed = 0
@@ -621,6 +622,88 @@ block aBigPatternPreview:
   patOpts.w = 0
   patOpts.h = 0
   run(2)
+
+block artboardsAsPages:
+  # artboards as pages in the program: the panel, Facing Pages, Page Numbers (its dialog), Move to
+  # Artboard, `<#>` drawn again when the type goes onto another, Save PDF as spreads, Print asking
+  let (d, dw) = fresh(500, 300, 0xFFFFFFFF'u32, "pages")
+  d.beginStep("New Artboard")
+  discard d.addArtboard(rect(0, 0, 100, 140))
+  d.endStep()
+  for k in 1 .. 2:
+    let b = d.boards[0].r
+    d.beginStep("New Artboard")
+    discard d.addArtboard(rect(b.x + k * 120, b.y, 100, 140))
+    d.endStep()
+  let b0 = d.boards[0].r
+  var t = newText("<#>/<##>", defaultStyle(), 0, 0)
+  t.x = float32(b0.x + 10)
+  t.y = float32(b0.y + 10)
+  t.boxW = 80
+  t.boxH = 30
+  var T: Layer
+  d.layersChange("type"): T = d.addTextLayer(t)
+  runCommand("Artboards")
+  run(3)
+  check panelShown("artboards"), "the Artboards panel"
+  check T.boardMark == "1/3", "its number drawn: " & T.boardMark
+  runCommand("Facing Artboards")
+  run(2)
+  check d.boardFacing and d.boardSpreads == @[@[0], @[1, 2]], "facing pages: in spreads"
+  d.cur = d.layers.find(T)
+  for i, L in d.layers: L.picked = L == T
+  runCommand("Move to Artboard 3")
+  run(2)
+  check d.boardOfText(T) == 2 and T.boardMark == "3/3", "moved onto the third: its number drawn again"
+  d.undo()
+  run(2)
+  check d.boardOfText(T) == 0 and T.boardMark == "1/3", "undone: back on the first"
+  runCommand("Artboard Page Numbers...")
+  run(2)
+  check folioDlg.open, "Page Numbers asks"
+  applyBoardFolios(d)                      # (its OK)
+  run(2)
+  var folios = 0
+  for L in d.layers:
+    if L.name == "Folio": inc folios
+  check not folioDlg.open and folios == 3, "a folio on each: " & $folios
+  # Save PDF: the artboards as spreads (they face), three sheets
+  let pdfPath = home / "pages.pdf"
+  startPdfOptions(@[d], pdfPath)
+  run(2)
+  check abPages.d == d and abPages.what == 1, "Save PDF: the artboards, as spreads"
+  pdfDlg.open = false
+  writePdfNow()
+  check fileExists(pdfPath) and "as spreads" in status, "saved as spreads: " & status
+  # Print asks: pages, spreads or the whole canvas
+  runCommand("Print...")
+  run(2)
+  check prDlg.open and prDlg.d == d, "Print asks how"
+  prDlg.open = false
+  run(2)
+
+block typeInPoints:
+  # type in points at the document's resolution, as the photo program has it: on an A4 page at 400
+  # ppi new type is 12 points (67 pixels), the Character panel's 18 is 100 pixels there and 18 at
+  # 72 ppi; the next text's size kept in points from one document to another; Pixels shows pixels
+  let saved = (typeStyle, viewPrefs.typeUnit)
+  typeStyle.size = 12
+  viewPrefs.typeUnit = tuPoints
+  let (d, _) = fresh(400, 300, 0xFFFFFFFF'u32, "a4")
+  d.dpi = 400
+  check abs(typingStyle().size - 12 * 400 / 72) < 0.01, "new type on a 400 ppi page: 12 pt, " &
+        $typingStyle().size & " px"
+  check abs(d.pointsOf(typingStyle().size) - 12) < 0.01 and typeShort() == "pt", "shown as 12 pt"
+  applyChar("Font Size", proc (x: var CharStyle) = x.size = float32(d.pixelsOf(18)))
+  check abs(typeStyle.size - 18) < 0.01 and abs(typingStyle().size - 100) < 0.01,
+        "18 pt set there: 100 px on it, kept as 18 pt"
+  let (e, _) = fresh(400, 300, 0xFFFFFFFF'u32, "screen")
+  check e.dpi == 72 and abs(typingStyle().size - 18) < 0.01, "... 18 px on a 72 ppi one"
+  viewPrefs.typeUnit = tuPixels
+  check typeShort() == "px" and abs(e.typePixels - 1) < 1e-9, "Type: Pixels"
+  viewPrefs.typeUnit = tuMillimeters
+  check abs(d.typePixels - 400 / 25.4) < 1e-6, "Type: Millimeters"
+  (typeStyle, viewPrefs.typeUnit) = saved
 
 block panelsWhileTyping:
   # the Glyphs panel opened while typing -- the bar's Glyphs, Window > Glyphs -- and Character, a

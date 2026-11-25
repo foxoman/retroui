@@ -113,6 +113,11 @@ proc fillPlaceholder(d: Doc; replace: bool) =
       let before = if replace: "" else: t.plainText & "\n"
       if replace: t.spans = @[TextSpan(text: text, style: st)]
       else: t.spans.add TextSpan(text: "\n" & text, style: st)
+      # (each paragraph as its language runs -- Arabic right to left, English left to right --: a
+      # box set right to left would set the English so too, its full stop at its left)
+      let from0 = before.runeLen
+      t.changeParas(from0, t.runeLen, proc (p: var ParaStyle) = p.rtl = 0)
+      if replace: t.para.rtl = 0
       L.text = t
       fit(L, before)
       d.drawText(L)

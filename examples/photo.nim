@@ -42,7 +42,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 const
   AppName = "Retro Atelier"         # (Retro Photo until 5.0)
   AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
-  AppVersion = "5.17.4"
+  AppVersion = "5.18.0"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -508,6 +508,11 @@ proc bookPdfWrite(path: string; o: PdfOptions): bool
 proc bookPdfFor(dw: DocWin)
 proc bookPdfPagesGroup()
 proc bookPdfNote(): string
+proc artboardPdfFor(docs: seq[Doc])
+proc artboardPdfGroup()
+proc artboardPdfNote(): string
+proc artboardPdfWrite(path: string; o: PdfOptions): bool
+proc startPrintPages(d: Doc)
 proc bookPdfName(dw: DocWin): string
 proc layoutMenu()
 proc bookFrame()
@@ -525,6 +530,9 @@ proc startShapeOptions()
 proc liveOf(L: Layer): tuple[ok: bool; p: ShapeParams; box, drawn: array[4, float]]
 proc igOf(d: Doc): Layer
 proc infographicDialogs()
+proc diagramCommand(name: string): bool
+proc dgOf(d: Doc): Layer
+proc diagramDialogs()
 proc framesCommand(name: string): bool
 proc frameAndContent(d: Doc): tuple[frame, content: Layer]
 proc frameDialogs()
@@ -2017,6 +2025,18 @@ proc boardHandles(r: Rect): array[8, (float, float)] =
   let (x0, y0, x1, y1) = (r.x.float, r.y.float, (r.x + r.w).float, (r.y + r.h).float)
   let (mx, my) = ((x0 + x1) / 2, (y0 + y1) / 2)
   [(x0, y0), (mx, y0), (x1, y0), (x1, my), (x1, y1), (mx, y1), (x0, y1), (x0, my)]
+
+proc boardGap(d: Doc): int =
+  ## (the room between artboards made or placed beside one another: 20 points)
+  max(4, int(round(20 * d.dpi / 72)))
+
+proc boardDragDelta(d: Doc; i: int; fdx, fdy, scale: float; snap: bool): (int, int) =
+  ## (how far the Artboard tool's drag moves artboard `i`: put in line with another one when it
+  ## comes near -- an edge on its, the gap from it, touching it as a spread's pages, their middles
+  ## in line -- unless Ctrl is held, `snap` false)
+  let (dx, dy) = (int(round(fdx)), int(round(fdy)))
+  if not snap or d.boards.len < 2: return (dx, dy)
+  d.snapArtboardMove(i, dx, dy, max(1, int(round(float(dp(8)) * pxScale.float / max(1e-6, scale)))), d.boardGap)
 
 proc boardHandleAt(r: Rect; x, y, grip: float): int =
   ## (which of an artboard's handles is at a point of the image; -1 none)
@@ -4055,8 +4075,9 @@ proc releaseOn(ev: PhotoEvent) =
   if drag.tool == tMove and moveKind == 1:
     let fdx = drag.x1 - drag.x0
     let fdy = drag.y1 - drag.y0
-    let dx = int(round(fdx))
-    let dy = int(round(fdy))
+    let (dx, dy) = if drag.board >= 0 and drag.board < d.boards.len and drag.boardHandle < 0:
+                     d.boardDragDelta(drag.board, fdx, fdy, dw.view.scaleOf, not ev.ctrl)
+                   else: (int(round(fdx)), int(round(fdy)))
     if drag.board >= 0 and drag.board < d.boards.len and drag.boardHandle >= 0:
       let b = d.boards[drag.board].r
       let r = boardResized(b, drag.boardHandle, fdx, fdy, ev.shift, ev.alt)
@@ -4591,8 +4612,28 @@ proc overlays(dw: DocWin; ev: PhotoEvent) =
         let (fdx, fdy) = (drag.x1 - drag.x0, drag.y1 - drag.y0)
         if drag.boardHandle >= 0:
           b = boardResized(b, drag.boardHandle, fdx, fdy, ShiftPressed in ui.mods, AltPressed in ui.mods)
-        elif drag.boardDup: ghost = rect(b.x + int(round(fdx)), b.y + int(round(fdy)), b.w, b.h)
-        else: b = rect(b.x + int(round(fdx)), b.y + int(round(fdy)), b.w, b.h)
+        else:
+          # (where it goes: in line with another when near it -- Ctrl: not --, a line along the edges
+          # that meet)
+          let (sx, sy) = d.boardDragDelta(i, fdx, fdy, v.scaleOf, CtrlPressed notin ui.mods)
+          let to = rect(b.x + sx, b.y + sy, b.w, b.h)
+          if drag.boardDup: ghost = to else: b = to
+          for j, o in d.boards:
+            if j == i: continue
+            let (ox0, oy0) = v.toScreen(d, o.r.x.float, o.r.y.float)
+            let (ox1, oy1) = v.toScreen(d, (o.r.x + o.r.w).float, (o.r.y + o.r.h).float)
+            let (tx0, ty0) = v.toScreen(d, to.x.float, to.y.float)
+            let (tx1, ty1) = v.toScreen(d, (to.x + to.w).float, (to.y + to.h).float)
+            let (ya, yb) = (min(oy0, ty0), max(oy1, ty1))
+            let (xa, xb) = (min(ox0, tx0), max(ox1, tx1))
+            for ex in [to.x, to.x + to.w]:
+              if ex == o.r.x or ex == o.r.x + o.r.w:
+                let (lx, _) = v.toScreen(d, ex.float, 0.0)
+                vline(lx, ya, max(1, yb - ya), ui.theme.select)
+            for ey in [to.y, to.y + to.h]:
+              if ey == o.r.y or ey == o.r.y + o.r.h:
+                let (_, ly) = v.toScreen(d, 0.0, ey.float)
+                hline(xa, ly, max(1, xb - xa), ui.theme.select)
       let sr = screenBox(b)
       let picked = i == d.boardCur
       box(sr, if picked and abTool: ui.theme.select else: ink)
@@ -5231,6 +5272,7 @@ include photo/bookexport
 include photo/tables
 include photo/frames
 include photo/infographics
+include photo/diagrams
 include photo/moreshapes
 include photo/quick
 include photo/trace
@@ -5441,6 +5483,8 @@ proc frame() =
   watchFonts()
   bookFrame()
   if cur() != nil and not te.on: keepLive(cur())   # (Flex Layouts, Live Paint, Global Edit kept up)
+  if cur() != nil and not te.on and cur().boards.len > 0:
+    discard cur().syncBoardNumbers()   # (`<#>` on an artboard: its number, again when it changed)
   captionBar()
   if screenMode != 2: menus()       # (Full Screen: no menu bar; F brings it back)
   optionsBar()

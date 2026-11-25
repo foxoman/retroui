@@ -83,11 +83,11 @@ proc barType() =
   if fontStyleCombo(s.family, cpStyle, w = dp(96)):
     let st = cpStyle
     applyChar("Font Style", proc (x: var CharStyle) = x.style = st)
-  cpSize = int(round(s.size))
-  if spin(cpSize, 1, 2000, w = dp(60)):
-    let v = float32(cpSize)
+  let (sizeSet, sz) = cur().typeField(s.size, dp(60), "barsize", 0.1, 5000)
+  if sizeSet:
+    let v = max(1'f32, sz)
     applyChar("Font Size", proc (x: var CharStyle) = x.size = v)
-  label "px"
+  label typeShort()
   var c = if te.on or typeTarget() != nil: s.color else: fg or 0xFF000000'u32
   if colorWell(c, "bartypecolor", dp(26), alpha = true):
     let cc = c

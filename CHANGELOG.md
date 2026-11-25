@@ -1,5 +1,201 @@
 # Changes
 
+## 0.77.0
+
+Phones and tablets as their own apps: in the Gloss look on Android and iOS
+dialogs open as pages of the app and controls are finger-sized on tablets
+too; a page stretches at its ends and springs back, pulls down to refresh,
+says there is more above or below it, has a thumb to drag when it is long,
+and a swipe from its left edge goes back; a shelf of cards; Appearance with
+what matters on a phone. Artboards as pages: their numbers in type, facing
+pages in spreads, placed beside, over or under one another, the artwork
+moved from one to another, each one named and sized in the Artboards
+panel; Save PDF and Print ask whether they go out as pages, as spreads or
+as the whole canvas, and a book's pages print the same way. Text: an
+English paragraph in Arabic text keeps to its column, justified Arabic
+draws out a few joins instead of almost every one, and a gutter's printed
+size is shown. Retro Music 1.2 plays your YouTube Music in the app, your
+playlists and likes signed in with Google; Retro DNS 1.8; Retro Atelier
+5.18.0. Diagrams for pages and slides -- a family tree, a dendrogram, a
+timeline, a numbered list, a note, a title -- typed as a few lines in two
+languages and placed as shapes and type, and a carousel of bilingual
+slides with their page numbers. Retro Atelier measures type in points
+at the document's resolution, as the photo program does.
+
+- **Dialogs as pages** (`dialogPages`, `DialogPages`, `dialogsAsPages`):
+  in the Gloss look on Android and iOS a dialog fills the window, slides
+  up as it opens, has a navigation bar with its title and Close (Back and
+  Esc close it too) and its content scrolls under it, as wide as reads
+  well; a message box (`msgBox`) stays a small alert. `dpPages` and
+  `dpWindows` choose either everywhere.
+- **Gloss is finger-sized on Android and iOS tablets** (`fingers`), its
+  sizes made again when the look changes.
+- **Appearance on a phone or a tablet** (`appearanceSettings` in an
+  Android or iOS app): the look, the color scheme, the sizes and the font;
+  not the desktop's controls' sizes, frame, title bar buttons, drawing,
+  icons or smooth scrolling.
+- **A page under the finger** (`beginPanel` on a touch screen,
+  `stretched`): pulled past its top or its end it follows the finger,
+  held back more the further it goes, and springs back when let go;
+  `pullRefresh(refreshing)` right after `beginPanel` asks for fresh
+  content when it is pulled down past a threshold and let go -- a tap
+  felt, a spinner in the room it opened while it refreshes.
+- **More above, more below** (`scrollHint`, the Apple way): the thin
+  scroll line flashes when a page comes up with more than shows and while
+  it moves, fading a second after; once its content has gone up under its
+  top edge, a hairline with a soft shadow there. A dialog as a page has it
+  too (`scrollLine` takes how much of it shows).
+- **A long page's thumb** (more than three screens on a touch screen): a
+  pill at the right, shown while it moves, a finger drags it anywhere at
+  once.
+- **Back by a swipe** (`pageSwipe`, in `pageView`): a finger from a page's
+  left edge (the right, right to left) drags it off with a shadow at its
+  edge; let go past a third of the way it goes back a page, else it slides
+  home.
+- **A shelf of cards** (`cardShelf`, `ShelfCard`): square pictures with
+  rounded corners, their titles and a gray line under them, in a row the
+  finger slides sideways; one tapped is returned.
+- **The on-screen keyboard as phone apps have it**: a text box asks for
+  its keyboard (`textKeyboard(kind, enter)`: `kbNumber`, `kbDecimal`,
+  `kbPhone`, `kbEmail`, `kbUrl`, `kbPassword`; its Enter key saying Next
+  -- which comes as Tab, the next box --, Done, Search or Go); number
+  boxes ask for digits by themselves, a password box for a password's, a
+  search box's Enter says Search (uirelays: `WantNumbers`... `EnterNext`...
+  with `WantTextInput`, Android's input type and action key, iOS's
+  keyboard and Return key types); while it is up the tab bar and the
+  action bar are left out (`keyboardUp`); a tap on nothing lets it go;
+  `keyboardFlagsNow`.
+- `touchFeel`: the kit's own taps felt (`haptic` sets it).
+- **YouTube's player in an app's web view** (`webPageBase`): an "html:"
+  page comes from the app's address -- in an Android app "https://" and
+  its package, in WKWebView the bundle identifier or `webPageBase` --, the
+  Referer YouTube's embedded player asks for (else it says "Watch on
+  YouTube" and plays nothing).
+- **Retro Music 1.2**: your YouTube Music plays in the app, in YouTube's
+  own player (its IFrame Player API) -- on a phone on Now Playing, on a
+  tablet under the sections, playing while it is on the screen as
+  YouTube's rules ask, the next song when one ends, previous, play, pause,
+  next and how far, timed lyrics; Sign In with Google (Settings > YouTube:
+  a Desktop app client of your own Google Cloud project, yourself a test
+  user, its Client ID and secret pasted) brings your playlists -- YouTube
+  Music's are YouTube's -- and Liked Music into Library and on a shelf on
+  Home, and searches without a key; Home and Library pulled down are asked
+  again; the search bar right under the navigation bar.
+- **Retro DNS 1.8**: the search bar right under the navigation bar, from
+  one side of the phone to the other; Servers and Favourites pulled down
+  test every server again; adding a server, a web address's keyboard for
+  its addresses and Next from one box to the next.
+
+- **Artboards as pages** (`retroui/photo`, `retroui/photocc`): type on an
+  artboard with `<#>` shows its number and `<##>` how many there are, as
+  on a book's pages (`boardOfText`, `boardLabel`); numbered from
+  `Doc.boardFirst`; drawn again when an artboard is made, moved, deleted
+  or numbered again, or the type is moved onto another one
+  (`syncBoardNumbers`, `Layer.boardMark`). `Doc.boardFacing`: facing
+  pages, the first alone (a right page), then two by two, left and right
+  (`boardSpreads`, `boardSide`). Both kept in the file and undone with the
+  artboards.
+- **Placed by another**: `placeArtboard(i, beside, side, gap)` puts one at
+  another's right or left (tops in line) or under or over it (left edges
+  in line), the gap apart or touching, its artwork with it;
+  `snapArtboardMove` brings one dragged in line with the others -- an
+  edge on theirs, the gap from them, touching them, their middles in line.
+  Rearrange All Artboards > Spreads (`alSpreads`): each spread's pages
+  touching at the spine, so many spreads to a row.
+- **The artwork moved between them**: `moveToArtboard(layers, i)` -- as far
+  from the new one's corner as it was from the old one's; `boardUnder`.
+- **Page numbers on artboards**: `artboardFolios` puts a "Folio" (`<#>`)
+  and a "Running Head" on each, in its margin, outside (the right of a
+  right page, the left of a left one), not on the first and last when
+  asked; made again each time (`BoardFolio`, `BoardHead`).
+- **Artboards out as pages or spreads** (`retroui/screenexport`):
+  `saveArtboardsPdf(path, o, which, spreads)` -- each a page of its own
+  size, or each spread one page, its pages side by side and each showing
+  only on its side of the spine; `artboardSheets`, `artboardList` (a range:
+  "1-3, 5, 8-").
+- **Text in columns**: the columns' order is the box's direction, not each
+  line's -- an English paragraph in Arabic text went on in the other
+  column.
+- **Justified Arabic**: a few joins in a loose line drawn out, the best
+  places by the scribes' rules and the later of equal ones, each about
+  half of Insert Kashida's most and never less than a fifth of an em, the
+  spaces taking the rest -- not almost every word drawn out a little.
+- A type layer's box counts as where it is while nothing is drawn in it
+  (empty, its text flowed on): it moves with its artboard.
+- **Diagrams** (`retroui/diagrams`): a family tree, a dendrogram, a
+  timeline, a numbered list, a note and a title, each typed as a few lines
+  (`|` between an item's fields, two spaces in a level down; `*`
+  highlighted, `~` dashed, `>` its children one under another) and placed
+  as shape and type layers in one group (`placeDiagram`) that keeps what it
+  was made from (`diagramOf`, `Layer.meta`) -- boxes wrapping their text,
+  every word still to change, sharp in a PDF. Two languages side by side:
+  each field's script picks its font (`DiagramTheme.arabicFont`,
+  `latinFont`; Dastkhat by itself) and its direction; Arabic first puts a
+  tree's first child, a list's numbers and a stack on the right; Arabic-
+  Indic digits. A tree's lines elbow (a bus under the parent), curve or go
+  straight, the highlighted path in the accent over the others; it is made
+  smaller when it would not fit its box and spread when there is room.
+  Six themes (`diagramThemes`: Parchment's cream, ink and rust first),
+  every color its own. `diagramParts` gives the layers without a document.
+- **Slides** (`retroui/diagrams`): `newCarousel` makes a document of
+  artboards side by side in the theme's paper, each with a header (the
+  English title and subtitle at the left, the Arabic ones at the right,
+  its subtitle in the accent, a rule under them) and a footer (a hairline,
+  the sources in both languages, the page number "3 / 8" in Arabic-Indic
+  digits: `<#> / <##>`), a title page first and a diagram on the next ones
+  to type over; `placeSlideFrame`, `slideContent` (the room between the
+  header and the footer).
+- An artboard exported as a picture, an SVG or a PDF page says its number
+  where `<#>` is (`itemDoc`), as it does on the canvas.
+- **Type in points** (`retroui/photowidgets`): `ViewPrefs.typeUnit`
+  (`TypeUnit`: points -- the default --, pixels, millimeters),
+  `typeUnitPixels(u, dpi)` (a point is `dpi` / 72 pixels),
+  `typeUnitAbbrev`.
+- **.rpd: a layer kept only where it has pixels** (`box` in its layer's
+  description; an empty one not at all), read back where it was: a
+  document of many artboards and many layers saved and opened without
+  holding every layer at the canvas's size -- eight slides' 120 layers, a
+  390 KB file, saved in a few seconds instead of running out of memory. A
+  layer that fills most of the image is kept whole, as before.
+- **Retro Atelier 5.18.0**:
+  - The Artboards panel: the picked one's name, size, preset and which way
+    round; Place it at the right or left of another, or under or over it,
+    touching (a spread) or apart; Move Art Here; Facing Pages; the first
+    page number; Page Numbers; Export. Each row says its page and side.
+  - Layer > Artboards > Move to Artboard (each one), Page Numbers, Facing
+    Pages (Spreads); Rearrange All > Spreads.
+  - The Artboard tool's drag snaps to the other artboards, a line along
+    the edges that meet (Ctrl: no snapping).
+  - Save As > PDF of a document with artboards: as pages, as spreads or
+    the whole canvas; all, this one or a range. File > Print the same; for
+    a book: all its pages, the one shown or a range, as pages or spreads.
+    Export > Artboards to PDF makes spreads when they face.
+  - The Character panel's direction: Auto (each paragraph as its language
+    runs), left to right, right to left; Fill with Placeholder Text sets
+    Auto, so its English is set left to right in an Arabic box.
+  - New type has Hyphenate on, as the layout program has it.
+  - Gutter: its size in millimeters beside its pixels when the rulers
+    count pixels ("= 4.2 mm at 300 ppi").
+  - **Type measured as in the photo program**: sizes, leading, baseline
+    shift, the tashkeel's raise, a script font's raise and the Paragraph
+    panel's indents and spacing are shown and typed in points at the
+    document's resolution -- 12 pt is 12 pixels at 72 ppi, 50 at 300, 67
+    at 400, the same size on paper -- in the Character and Paragraph
+    panels, the Type tool's bar, the Diagram, Chart, Equation and Table of
+    Contents dialogs. Preferences > Units & Rulers > Type: Points, Pixels
+    or Millimeters. New type starts at 12 pt, the next text's size kept in
+    points from one document to another: on an A4 page at 400 ppi it was
+    48 pixels (under 9 points), now 67.
+  - Layout > Insert Diagram...: the kind, its lines, the theme and each
+    color, the Arabic and the Latin font, the size, Arabic first, Arabic
+    digits, the lines and corners, with a preview; on an artboard it goes
+    between a slide's header and footer. Layout > Edit Diagram... opens it
+    again on the one picked (or a layer in it) and makes it anew.
+  - File > New Carousel...: how many slides, Portrait 1080 x 1350, Square,
+    Story or Wide, the theme, the header's and the footer's words in
+    English and Arabic, page numbers in Arabic-Indic digits, a title page
+    and a diagram on each slide to start from.
+
 ## 0.76.0
 
 Gloss in any color scheme: its bars, its blue parts and its popovers take

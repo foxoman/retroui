@@ -423,7 +423,8 @@ proc textFrameDialog() =
         row([130, 90, -1]):
           label "Gutter:"
           discard d.lengthField(tfDlg.gutter, dp(80), 0, 4000)
-          label unitShort()
+          label(unitShort() & (if d.printSize(tfDlg.gutter).len > 0: "  " & d.printSize(tfDlg.gutter) else: ""),
+                color = (if d.printSize(tfDlg.gutter).len > 0: ui.theme.gray else: ui.theme.text))
         row([130, -1]):
           label ""
           checkbox("Balance Columns", tfDlg.balance)

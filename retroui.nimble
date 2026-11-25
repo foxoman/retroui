@@ -2,7 +2,7 @@ import std/strutils
 
 # Package
 
-version       = "0.76.0"
+version       = "0.77.0"
 author        = "Sultan Al Isaiee (@foxoman) <sultan@foxoman.net>"
 description   = "Retro Nim UI (retroui): a small, fast, dependency-free Windows 3.1 style UI toolkit for business and desktop apps on Windows, macOS, Linux, Android and iOS"
 license       = "MIT"
@@ -46,7 +46,7 @@ task test, "Run the headless tests (as many at once as there are cores: tests/ru
             "test_scroll", "test_nestedscroll", "test_rows", "test_apk", "test_xlsx", "test_letters", "test_photo",
             "test_parallel", "test_textengine", "test_uifonts", "test_photomore", "test_photopro", "test_photoapp",
             "test_photomerge", "test_icc", "test_brushfiles", "test_raw", "test_brushes",
-            "test_adobefiles", "test_deep", "test_gpu", "test_rsa", "test_morecontrols", "test_neural", "test_photopdf", "test_pdfread", "test_googlefonts", "test_downloads", "test_filecolumns", "test_blendfast", "test_dock", "test_presets", "test_photocc", "test_photoartistic", "test_photoblurs", "test_photohdr", "test_channelspanel", "test_photodeep", "test_photoanim", "test_photovp", "test_photosvg", "test_photobook", "test_photobookapp", "test_photospeed", "test_booklists", "test_datamerge", "test_textsearch", "test_textcompose", "test_hyperlinks", "test_simd", "test_headless", "test_perspectivegrid", "test_pathbrush", "test_handpass", "test_photoparity", "test_pathtools", "test_imagetrace", "test_outlines", "test_infographics", "test_idml", "test_systemfiles", "test_otshape", "test_icccmyk", "test_webp", "test_exrgif", "test_rawformats", "test_rscript", "test_psdround", "test_phototemplates", "test_gpucomposite", "test_penmap", "test_systemimage", "test_qrcode", "test_videoenc", "test_jxl", "test_assetstore", "test_svgimport", "test_morepictures", "test_memcache", "test_memsoak", "test_filespeed", "test_filesapp", "test_bigpicture", "test_edgetrace", "test_board", "test_boardapp", "test_http", "test_oauth", "test_secrets", "test_db", "test_mime", "test_htmlmail", "test_richedit", "test_mail", "test_toolcustom", "test_mailextra", "test_calendar", "test_spell", "test_mailimport", "test_frame", "test_filedrop", "test_notify", "test_bgcheck", "test_fileout", "test_widgetfixes", "test_x11close", "test_hardening", "test_gpuparts", "test_busykeys", "test_drawalloc", "test_hrbook", "test_x11input", "test_xmpp", "test_omemo", "test_retrokit", "test_access", "test_scale", "test_touchsizes", "test_mediasession", "test_capture", "test_windows", "test_shm", "test_atspi", "test_designer", "test_tilemap", "test_gltf", "test_store", "test_system", "test_update", "test_fontsoption", "test_keys", "test_stopped", "test_buildjobs", "test_imap", "test_sysmon", "test_taskman", "test_inspect", "test_drive", "test_sevenguis", "test_navigator", "test_retrodns", "test_feeds", "test_jobs", "test_undo", "test_pages", "test_typeforms", "test_uistrings", "test_codeedit", "test_tray", "test_podcast", "test_grow", "test_lzma", "test_apkinfo", "test_looks", "test_bmi", "test_hangwatch", "test_simdkit", "test_textchanges", "test_mathtype", "test_flexlayout", "test_publish", "test_vectormake", "test_relight", "test_mockups", "test_designstyles", "test_aiconnect", "test_mailauth", "test_mailsafety", "test_dbcrypt", "test_mailkinds", "test_mimefast", "test_motion", "test_forcegraph", "test_flows", "test_fontfolders", "test_script", "test_aichat", "test_mcp", "test_mailassist", "test_llm", "test_devicemodel", "test_nnet", "test_vision", "test_cff", "test_fontkinds", "test_commandhud", "test_lorem", "test_photoaffinity", "test_proctexture", "test_colorfonts", "test_apng", "test_screenexport", "test_dxf", "test_psvector", "test_threed", "test_dimensions", "test_editcommands", "test_photokeys", "test_objectcmds", "test_layoutmore", "test_ink", "test_paintbehind", "test_gpucompute", "test_arabictype", "test_frameprof", "test_aivector", "test_photoextras", "test_atelierextras", "test_signals", "test_photoleaks", "test_queries", "test_backdrop", "test_terminal", "test_mobile", "test_music"]:
+            "test_adobefiles", "test_deep", "test_gpu", "test_rsa", "test_morecontrols", "test_neural", "test_photopdf", "test_pdfread", "test_googlefonts", "test_downloads", "test_filecolumns", "test_blendfast", "test_dock", "test_presets", "test_photocc", "test_photoartistic", "test_photoblurs", "test_photohdr", "test_channelspanel", "test_photodeep", "test_photoanim", "test_photovp", "test_photosvg", "test_photobook", "test_photobookapp", "test_photospeed", "test_booklists", "test_datamerge", "test_textsearch", "test_textcompose", "test_hyperlinks", "test_simd", "test_headless", "test_perspectivegrid", "test_pathbrush", "test_handpass", "test_photoparity", "test_pathtools", "test_imagetrace", "test_outlines", "test_infographics", "test_idml", "test_systemfiles", "test_otshape", "test_icccmyk", "test_webp", "test_exrgif", "test_rawformats", "test_rscript", "test_psdround", "test_phototemplates", "test_gpucomposite", "test_penmap", "test_systemimage", "test_qrcode", "test_videoenc", "test_jxl", "test_assetstore", "test_svgimport", "test_morepictures", "test_memcache", "test_memsoak", "test_filespeed", "test_filesapp", "test_bigpicture", "test_edgetrace", "test_board", "test_boardapp", "test_http", "test_oauth", "test_secrets", "test_db", "test_mime", "test_htmlmail", "test_richedit", "test_mail", "test_toolcustom", "test_mailextra", "test_calendar", "test_spell", "test_mailimport", "test_frame", "test_filedrop", "test_notify", "test_bgcheck", "test_fileout", "test_widgetfixes", "test_x11close", "test_hardening", "test_gpuparts", "test_busykeys", "test_drawalloc", "test_hrbook", "test_x11input", "test_xmpp", "test_omemo", "test_retrokit", "test_access", "test_scale", "test_touchsizes", "test_mediasession", "test_capture", "test_windows", "test_shm", "test_atspi", "test_designer", "test_tilemap", "test_gltf", "test_store", "test_system", "test_update", "test_fontsoption", "test_keys", "test_stopped", "test_buildjobs", "test_imap", "test_sysmon", "test_taskman", "test_inspect", "test_drive", "test_sevenguis", "test_navigator", "test_retrodns", "test_feeds", "test_jobs", "test_undo", "test_pages", "test_typeforms", "test_uistrings", "test_codeedit", "test_tray", "test_podcast", "test_grow", "test_lzma", "test_apkinfo", "test_looks", "test_bmi", "test_hangwatch", "test_simdkit", "test_textchanges", "test_mathtype", "test_flexlayout", "test_publish", "test_vectormake", "test_relight", "test_mockups", "test_designstyles", "test_aiconnect", "test_mailauth", "test_mailsafety", "test_dbcrypt", "test_mailkinds", "test_mimefast", "test_motion", "test_forcegraph", "test_flows", "test_fontfolders", "test_script", "test_aichat", "test_mcp", "test_mailassist", "test_llm", "test_devicemodel", "test_nnet", "test_vision", "test_cff", "test_fontkinds", "test_commandhud", "test_lorem", "test_photoaffinity", "test_proctexture", "test_colorfonts", "test_apng", "test_screenexport", "test_dxf", "test_psvector", "test_threed", "test_dimensions", "test_editcommands", "test_photokeys", "test_objectcmds", "test_layoutmore", "test_ink", "test_paintbehind", "test_gpucompute", "test_arabictype", "test_frameprof", "test_aivector", "test_photoextras", "test_atelierextras", "test_signals", "test_photoleaks", "test_queries", "test_backdrop", "test_terminal", "test_mobile", "test_music", "test_touchpages", "test_diagrams"]:
     exec "nim c -r --hints:off tests/" & t & ".nim"
   # (fewer faces built in: the others drawn with FreeSans)
   exec "nim c -r --hints:off -d:retroFonts=ui tests/test_fontsoption.nim"
@@ -97,12 +97,12 @@ type RetroApp = tuple
 const RetroApps: seq[RetroApp] = @[
   # the apps: every package of each is made from this table
   (key: "photo", src: "examples/photo.nim", name: "Retro Atelier", stem: "RetroAtelier",
-   id: "org.retro.photo", version: "5.17.4", icon: "examples/assets/photo-icon-512.png",
+   id: "org.retro.photo", version: "5.18.0", icon: "examples/assets/photo-icon-512.png",
    apk: "--storage --share-target:image/*,application/pdf,application/postscript,image/vnd.adobe.photoshop," &
         "application/x-photoshop,application/vnd.adobe.indesign-idml-package " &
         "--opens:image/*,application/pdf,application/postscript,application/illustrator,image/vnd.adobe.photoshop," &
         "application/x-photoshop,application/photoshop,application/vnd.adobe.indesign-idml-package," &
-        "application/zip,application/octet-stream --permission:INTERNET --nim:-d:lto", code: 58, small: false),
+        "application/zip,application/octet-stream --permission:INTERNET --nim:-d:lto", code: 59, small: false),
   (key: "files", src: "examples/filemanager.nim", name: "Retro Files", stem: "RetroFiles",
    id: "org.retro.files", version: "3.7.1", icon: "examples/assets/filemanager-icon.png",
    apk: "--storage --permission:REQUEST_INSTALL_PACKAGES --share-target:*/* --permission:INTERNET --nim:-d:lto",
@@ -120,10 +120,10 @@ const RetroApps: seq[RetroApp] = @[
    id: "org.retro.navigator", version: "0.6.0", icon: "examples/assets/navigator-icon-512.png",
    apk: "--permission:INTERNET --cleartext --nim:-d:lto", code: 8, small: true),
   (key: "dns", src: "examples/retrodns.nim", name: "Retro DNS", stem: "RetroDNS",
-   id: "net.foxoman.retrodns", version: "1.7", icon: "examples/retrodns/icon.png",
+   id: "net.foxoman.retrodns", version: "1.8", icon: "examples/retrodns/icon.png",
    # (its VPN is Java of its own: --java)
    apk: "--java:examples/retrodns/glue --permission:INTERNET --permission:POST_NOTIFICATIONS --widget " &
-        "--target-sdk:36 --nim:-d:lto --nim:--opt:size", code: 10, small: true),
+        "--target-sdk:36 --nim:-d:lto --nim:--opt:size", code: 11, small: true),
   (key: "hrbook", src: "examples/hrbook.nim", name: "HR Book", stem: "HRBook",
    id: "org.retro.hrbook", version: "0.2.5", icon: "examples/assets/hrbook-icon-512.png",
    apk: "--storage --nim:-d:lto", code: 7, small: true),
@@ -156,8 +156,8 @@ const RetroApps: seq[RetroApp] = @[
    id: "org.retro.podcast", version: "1.2.2", icon: "examples/assets/podcast-icon-512.png",
    apk: "--storage --cleartext --share-target:text/plain --widget --nim:-d:lto --nim:--opt:size", code: 6, small: true),
   (key: "music", src: "examples/music.nim", name: "Retro Music", stem: "RetroMusic",
-   id: "net.foxoman.retromusic", version: "1.1", icon: "examples/assets/music-icon-512.png",
-   apk: "--permission:INTERNET --nim:-d:lto --nim:--opt:size", code: 2, small: true),
+   id: "net.foxoman.retromusic", version: "1.2", icon: "examples/assets/music-icon-512.png",
+   apk: "--permission:INTERNET --nim:-d:lto --nim:--opt:size", code: 3, small: true),
   (key: "grow", src: "examples/grow.nim", name: "Grow", stem: "Grow",
    id: "net.foxoman.grow", version: "1.0.0", icon: "examples/assets/grow-icon-512.png",
    apk: "--orientation:portrait --nim:-d:lto --nim:--opt:size", code: 1, small: true),

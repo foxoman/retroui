@@ -6,11 +6,14 @@
 # edits it again.
 
 var
-  typeStyle = CharStyle(family: DastkhatFamily, style: "Regular", size: 48, color: 0xFF000000'u32,
+  typeStyle = CharStyle(family: DastkhatFamily, style: "Regular", size: 12, color: 0xFF000000'u32,
                         hScale: 1, vScale: 1)
     ## the Character palette's settings for the next text (Dastkhat: Arabic, Persian and Latin
-    ## alike, nine weights -- retroui/dastkhat)
-  typePara: ParaStyle               ## ... the Paragraph palette's
+    ## alike, nine weights -- retroui/dastkhat), its lengths in points: 12 points, as the photo
+    ## program starts -- set at each document's resolution (`typingStyle`)
+  typePara = ParaStyle(hyphenate: true)
+    ## ... the Paragraph palette's (Hyphenate on, as the layout program has it: justified English
+    ## with smaller holes)
   typeAA = true
   te: tuple[on: bool; dw: DocWin; layer: Layer; caret, anchor: int; style: CharStyle; isNew: bool;
             autoName: bool; focusId: Id; selecting: bool; blink: int; grab: int;
@@ -44,11 +47,37 @@ proc typeLayout(): TextLayout =
 
 proc selRange(): (int, int) = (min(te.caret, te.anchor), max(te.caret, te.anchor))
 
+proc scaledStyle(s: CharStyle; k: float): CharStyle =
+  ## (a character style's lengths times `k`: its size, leading, shift, the tashkeel's raise and
+  ## move, its lines' weights and offsets, its scripts' fonts' raise)
+  result = s
+  let k = float32(k)
+  result.size *= k
+  result.leading *= k
+  result.baselineShift *= k
+  result.markRaise *= k
+  result.markShift *= k
+  result.ulWeight *= k
+  result.ulOffset *= k
+  result.stWeight *= k
+  result.stOffset *= k
+  result.arabicFont.shift *= k
+  result.latinFont.shift *= k
+
+proc typeScale(): float =
+  ## (the current document's pixels in a point: the next text's points set at its resolution)
+  let d = cur()
+  if d != nil: max(1.0, d.dpi) / 72 else: 1.0
+
 proc typingStyle(): CharStyle =
-  ## What new text looks like: the Character palette's settings, in the
-  ## foreground color.
-  result = typeStyle
+  ## What new text looks like: the Character palette's settings at the document's resolution
+  ## (12 points: 12 pixels at 72 ppi, 67 at 400), in the foreground color.
+  result = typeStyle.scaledStyle(typeScale())
   result.color = fg
+
+proc keepTypeStyle(s: CharStyle) =
+  ## (a style in the current document's pixels kept as the next text's, in points)
+  typeStyle = s.scaledStyle(1 / typeScale())
 
 proc textBounds(L: Layer; slack: float): tuple[x0, y0, x1, y1: float] =
   ## Where a type layer's text is (its box, for text in a box), with room

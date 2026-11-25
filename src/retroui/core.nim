@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy, hangwatch, frameprof
 export busy
 
-const RetroVersion* = "0.76.0"
+const RetroVersion* = "0.77.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -565,6 +565,14 @@ type ControlSizes* = enum
   csDesktop = "Desktop"    ## Windows 3.1's sizes, for a mouse or a pen (also on tablets)
   csTouch = "Touch"        ## targets a finger can hit, everywhere
 
+type
+  KeyboardKind* = enum
+    ## The on-screen keyboard a text box asks for on a phone or a tablet (`textKeyboard`).
+    kbText, kbNumber, kbDecimal, kbPhone, kbEmail, kbUrl, kbPassword
+  KeyboardEnter* = enum
+    ## What the on-screen keyboard's Enter key says (`textKeyboard`).
+    keReturn, keNext, keDone, keSearch, keGo
+
 type Ctx* = object
   ## Everything the toolkit knows about the window and this frame: `ui`.
   ## Apps read a few fields (`w`, `h`, `touch`, `theme`, `mods`...);
@@ -694,6 +702,10 @@ type Ctx* = object
                                  ## or not: a list that takes keys but no Tab)
   takesEnter*, prevTakesEnter*: bool  ## the focused widget uses Enter itself (no default button)
   takesText*, prevTakesText: bool     ## the focused widget takes typing (keyboard on phones)
+  keyboard*, prevKeyboard: KeyboardKind     ## ... the keyboard it asks for (`textKeyboard`)
+  keyboardEnter*, prevKeyboardEnter: KeyboardEnter   ## ... and what its Enter key says
+  nextKeyboard*: tuple[kind: KeyboardKind; enter: KeyboardEnter; set: bool]
+                                 ## (`textKeyboard`: what the next text box asks for)
   editsText*, prevEditsText: bool     ## ... and is a text box: the arrows move its caret
   focusWanted: bool
   textFocusWanted*: bool         ## the next text box takes the focus (`focusFirstText`)
@@ -827,14 +839,17 @@ proc dp*(v: int): int =
 proc dpf*(v: float): float = v * ui.k
   ## `dp` for fractions: `v` design pixels in logical pixels, not rounded.
 
+proc glossLook*(): bool {.inline.}
+
 proc fingers*(): bool {.inline.} =
   ## Controls are finger-sized: on a phone (automatic sizes), or always
   ## (`csTouch`). A tablet has desktop sizes unless the user asks: the
-  ## screen holds a desktop app's layout, and a finger still taps it.
+  ## screen holds a desktop app's layout, and a finger still taps it --
+  ## but for the Gloss look on an Android or iOS tablet, made for fingers.
   case ui.sizes
   of csTouch: true
   of csDesktop: false
-  of csAuto: ui.touch and not ui.roomy
+  of csAuto: ui.touch and (not ui.roomy or (defined(android) or defined(ios)) and glossLook())
 
 const
   DesktopTextEm* = 12.0
@@ -987,6 +1002,44 @@ proc finger*(): bool = ui.fingerDown
 proc keyboardWanted*(): bool = ui.prevTakesText
   ## The focused control takes typing: the window asks for the on-screen
   ## keyboard (a phone, a tablet), and lets it go when this turns false.
+
+proc keyboardUp*(): bool =
+  ## The on-screen keyboard is up (a phone, a tablet): a text box has the focus and the bottom
+  ## of the window is taken by it -- the bars along the bottom (`bottomNav`, `actionBar`) are
+  ## left out meanwhile, as phone apps leave them.
+  ui.touch and ui.prevTakesText and ui.layoutSafe.bottom > dp(120)
+
+proc textKeyboard*(kind: KeyboardKind; enter = keReturn) =
+  ## The keyboard the text box drawn next asks for on a phone or a tablet: digits, a phone
+  ## number's, an email's, a web address's, a password's -- and what its Enter key says (Next
+  ## comes as Tab: the next box; Done, Search, Go as Enter). The number boxes ask for digits
+  ## by themselves, a password box for a password's, a search box's Enter says Search.
+  ui.nextKeyboard = (kind, enter, true)
+
+proc keyboardFlags(): set[InputFlag]
+
+proc keyboardFlagsNow*(): set[InputFlag] = keyboardFlags()
+  ## What the window asks of the system's keyboard now: shown (`WantTextInput`), which one, what
+  ## its Enter key says (tests; a driver of one's own).
+
+proc keyboardFlags(): set[InputFlag] =
+  ## (what the window asks of the system's keyboard: shown, which, its Enter)
+  if not ui.prevTakesText: return {}
+  result = {WantTextInput}
+  case ui.prevKeyboard
+  of kbText: discard
+  of kbNumber: result.incl WantNumbers
+  of kbDecimal: result.incl WantDecimal
+  of kbPhone: result.incl WantPhone
+  of kbEmail: result.incl WantEmail
+  of kbUrl: result.incl WantUrl
+  of kbPassword: result.incl WantSecret
+  case ui.prevKeyboardEnter
+  of keReturn: discard
+  of keNext: result.incl EnterNext
+  of keDone: result.incl EnterDone
+  of keSearch: result.incl EnterSearch
+  of keGo: result.incl EnterGo
 
 proc canHover*(): bool = ui.hovering or not ui.touch
   ## A mouse is over the window (hover effects make sense); false on a
@@ -3381,10 +3434,11 @@ proc nextEvent(e: var Event; timeout: int): bool =
     e = pending
     hasPending = false
     return true
-  let flags = if ui.prevTakesText: {WantTextInput} else: {}
+  let flags = keyboardFlags()
   if timeout == 0: pollEvent(e, flags) else: waitEvent(e, timeout, flags)
 
 var layoutFont = uiFont()       # the font the metrics were made for
+var layoutLook = uiLook         # ... and the look (Gloss on a phone's or a tablet's system: finger-sized)
 
 proc applyLayout(l: ScreenLayout) =
   unitPx = max(1, l.scaleX)
@@ -4520,8 +4574,9 @@ proc frameSetup(main: bool) =
   # (the 3.1 frame picked in the menu of the system's -- which Alt+Space
   # opened, so that key is not the new frame's)
   if main and userFrameChoice and frameMenuItemChosen(): chooseClassicFrame(not ui.ownFrame)
-  if uiFont() != layoutFont:
+  if uiFont() != layoutFont or uiLook != layoutLook:
     layoutFont = uiFont()                  # the font changed: sizes follow it
+    layoutLook = uiLook                    # (the look too: Gloss is finger-sized on Android and iOS)
     fitMetrics()
     ui.force = true
   if main:
@@ -4640,6 +4695,9 @@ proc frameSetup(main: bool) =
   ui.barY = ui.safe.top + ui.captionH
   ui.takesEnter = false
   ui.takesText = false
+  ui.keyboard = kbText
+  ui.keyboardEnter = keReturn
+  ui.nextKeyboard.set = false
   ui.editsText = false
   ui.tip.setLen(0)
   ui.idStack.setLen(0)
@@ -5152,7 +5210,16 @@ proc frameFinish(main: bool) =
     setCursor(ui.cursor)
   drawTip()
   ui.prevTakesEnter = ui.takesEnter
+  # (a finger that came down on nothing while a text box had the keys: the keyboard goes, as on
+  # phones -- a widget it came down on took it: `active`)
+  if ui.touch and ui.pressed and ui.takesText and ui.active == 0 and ui.popup == 0 and
+     ui.fingerDown and ui.focus != 0:
+    ui.focus = 0
+    ui.takesText = false
+    ui.redraw = true
   ui.prevTakesText = ui.takesText
+  ui.prevKeyboard = ui.keyboard
+  ui.prevKeyboardEnter = ui.keyboardEnter
   ui.prevEditsText = ui.editsText
   ui.prevBottom = ui.bottom
   if (ui.frameNo and 1023) == 0:
@@ -5191,8 +5258,7 @@ proc endFrame*() =
   # (events waiting: shown with the next frame -- not the one after an input,
   # which is shown now, the next event left for the frame it brings)
   if not hasPending and not ui.inputOnly:
-    hasPending = pollEvent(pending,
-      if ui.prevTakesText: {WantTextInput} else: {})
+    hasPending = pollEvent(pending, keyboardFlags())
   if hasPending and not ui.inputOnly and ui.now - ui.lastPresent < 50:
     noteFrame(false)
     return

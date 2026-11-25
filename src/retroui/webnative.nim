@@ -57,6 +57,13 @@ type
     fullscreen*: bool           ## an element of the page is full screen now (the
                                 ## engine says so: the page cannot pretend it)
 
+
+var webPageBase* = ""
+  ## The address an "html:" page comes from in WKWebView (iOS, macOS) -- its origin, and the
+  ## Referer of what it loads: YouTube's player asks for it, the app's identifier as the host
+  ## ("https://net.foxoman.retromusic/"). "": the app's bundle identifier so. (In an Android
+  ## app an "html:" page always comes from "https://" & the app's package & "/".)
+
 const
   NoSystemDriver = defined(sdl2) or defined(sdl3) or defined(gtk4) or
     defined(features.uirelays.siwin) or defined(features.uirelays.figDrawSiwin) or

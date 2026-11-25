@@ -1,8 +1,9 @@
 ## Retro Music's services, without a window: Spotify's Web API (search, your playlists and
 ## liked songs, what plays where -- Spotify Connect: play, pause, next, seek, a device), the
-## YouTube Data API (search), LrcLib (lyrics, timed) -- the requests they take and what their
-## answers hold. Nothing here plays sound: Spotify plays in your own Spotify apps and speakers
-## (Premium), YouTube in its own embedded player.
+## YouTube Data API (search; signed in with Google, your playlists -- YouTube Music's are
+## YouTube's -- and the songs you like), LrcLib (lyrics, timed) -- the requests they take and
+## what their answers hold. Nothing here plays sound: Spotify plays in your own Spotify apps and
+## speakers (Premium), YouTube in its own embedded player in the app (`playerPage`).
 
 import std/[json, strutils, uri]
 
@@ -41,6 +42,8 @@ const
                     "user-read-currently-playing", "user-library-read", "playlist-read-private",
                     "user-read-recently-played"]
   YouTubeApi* = "https://www.googleapis.com/youtube/v3"
+  YouTubeScopes* = ["https://www.googleapis.com/auth/youtube.readonly"]
+    ## (signed in with Google: your playlists and likes, read -- nothing changed)
   LrcLibApi* = "https://lrclib.net/api"
 
 proc q(s: string): string = encodeUrl(s, usePlus = false)
@@ -153,31 +156,110 @@ proc transferBody*(deviceId: string; play = true): string =
 # ---- YouTube ---------------------------------------------------------------------------------------
 
 proc youtubeSearchUrl*(words, key: string; limit = 20): string =
-  ## Videos of music (category 10) that match `words`.
+  ## Videos of music (category 10) that match `words` (`key`: an API key; "": signed in, the
+  ## token in the request's Authorization).
   YouTubeApi & "/search?part=snippet&type=video&videoCategoryId=10&maxResults=" & $limit &
-    "&q=" & q(words) & "&key=" & q(key)
+    "&q=" & q(words) & (if key.len > 0: "&key=" & q(key) else: "")
+
+proc myPlaylistsUrl*(page = ""): string =
+  ## Your playlists -- those you made in YouTube Music too (signed in).
+  YouTubeApi & "/playlists?part=snippet,contentDetails&mine=true&maxResults=50" &
+    (if page.len > 0: "&pageToken=" & q(page) else: "")
+
+proc playlistItemsUrl*(id: string; page = ""): string =
+  ## A playlist's songs, 50 at a time.
+  YouTubeApi & "/playlistItems?part=snippet,contentDetails&maxResults=50&playlistId=" & q(id) &
+    (if page.len > 0: "&pageToken=" & q(page) else: "")
+
+proc likedVideosUrl*(page = ""): string =
+  ## The songs and videos you like (signed in), 50 at a time.
+  YouTubeApi & "/videos?part=snippet,contentDetails&myRating=like&maxResults=50" &
+    (if page.len > 0: "&pageToken=" & q(page) else: "")
+
+proc nextPage*(body: string): string =
+  ## The page after this one of a YouTube list ("": the last).
+  let j = try: parseJson(body) except CatchableError: return ""
+  j.str("nextPageToken")
+
+proc unescaped(s: string): string =
+  ## (titles come with HTML's entities)
+  s.multiReplace(("&amp;", "&"), ("&#39;", "'"), ("&quot;", "\""), ("&lt;", "<"), ("&gt;", ">"))
+
+proc youtubeDuration*(iso: string): int =
+  ## A video's length as YouTube writes it ("PT3M27S", "PT1H2M") in milliseconds.
+  var n = 0
+  var secs = 0
+  for c in iso:
+    case c
+    of '0' .. '9': n = n * 10 + ord(c) - ord('0')
+    of 'H': (secs += n * 3600; n = 0)
+    of 'M': (secs += n * 60; n = 0)
+    of 'S': (secs += n; n = 0)
+    of 'D': (secs += n * 86400; n = 0)
+    else: n = 0
+  secs * 1000
+
+proc youtubeTrack(id: string; sn: JsonNode): Track =
+  ## (a video as a song: its title, its channel -- "Artist - Topic", YouTube Music's own for an
+  ## artist, as the artist --, its picture)
+  result = Track(source: srcYouTube, id: id, uri: "https://music.youtube.com/watch?v=" & id,
+                 title: sn.str("title").unescaped)
+  var artist = sn.str("videoOwnerChannelTitle")
+  if artist.len == 0: artist = sn.str("channelTitle")
+  if artist.endsWith(" - Topic"): artist = artist[0 ..< artist.len - 8]
+  result.artist = artist.unescaped
+  result.cover = sn{"thumbnails", "medium"}.str("url")
+  if result.cover.len == 0: result.cover = sn{"thumbnails", "default"}.str("url")
 
 proc youtubeVideos*(body: string): seq[Track] =
-  ## The videos of a search's answer.
+  ## The videos of a search's answer, of a playlist's items, of the ones you like.
   let j = try: parseJson(body) except CatchableError: return
   for it in j{"items"}.getElems:
-    let id = it{"id"}.str("videoId")
+    let kind = it.str("kind")
+    let id = if kind == "youtube#playlistItem": it{"contentDetails"}.str("videoId")
+             elif kind == "youtube#video": it.str("id")
+             else: it{"id"}.str("videoId")
     if id.len == 0: continue
     let sn = it{"snippet"}
-    var t = Track(source: srcYouTube, id: id, uri: "https://music.youtube.com/watch?v=" & id,
-                  title: sn.str("title"), artist: sn.str("channelTitle"))
-    t.cover = sn{"thumbnails", "medium"}.str("url")
-    if t.cover.len == 0: t.cover = sn{"thumbnails", "default"}.str("url")
-    # (titles come with HTML's entities)
-    t.title = t.title.multiReplace(("&amp;", "&"), ("&#39;", "'"), ("&quot;", "\""), ("&lt;", "<"), ("&gt;", ">"))
+    # (a video taken down or made private stays in the playlist, without a picture or a title)
+    if kind == "youtube#playlistItem" and sn.str("title") in ["Deleted video", "Private video"]: continue
+    var t = youtubeTrack(id, sn)
+    if kind == "youtube#video": t.durationMs = youtubeDuration(it{"contentDetails"}.str("duration"))
     result.add t
 
-proc embedPage*(videoId: string): string =
-  ## A page with YouTube's own embedded player, playing the video (a web view shows it).
+proc youtubePlaylists*(body: string): seq[Playlist] =
+  ## Your playlists: each one's name, its owner, its picture, how many songs.
+  let j = try: parseJson(body) except CatchableError: return
+  for p in j{"items"}.getElems:
+    let sn = p{"snippet"}
+    var cover = sn{"thumbnails", "medium"}.str("url")
+    if cover.len == 0: cover = sn{"thumbnails", "default"}.str("url")
+    result.add Playlist(id: p.str("id"), uri: "https://music.youtube.com/playlist?list=" & p.str("id"),
+                        name: sn.str("title").unescaped, owner: sn.str("channelTitle"), cover: cover,
+                        count: p{"contentDetails"}{"itemCount"}.getInt(0))
+
+proc playerPage*(videoId, origin: string): string =
+  ## A page with YouTube's own player (its IFrame Player API) playing `videoId`, for a web view
+  ## of the app whose address is `origin` ("https://net.foxoman.retromusic"): it tells the app
+  ## through `retro.post` -- "ready", "state:N:ID" (0 ended, 1 playing, 2 paused, 3 loading),
+  ## "time:MS:LENGTH" each second, "error:N" (101 and 150: its owner keeps it on YouTube) -- and
+  ## takes "load:ID", "play", "pause" and "seek:SECONDS" as `retro` events (`webPost`).
+  let o = origin.strip(leading = false, chars = {'/'})
   "html:<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'>" &
-    "<style>html,body{margin:0;background:#000;height:100%}iframe{border:0;width:100%;height:100%}</style>" &
-    "<iframe src='https://www.youtube.com/embed/" & videoId &
-    "?autoplay=1&playsinline=1' allow='autoplay; encrypted-media; picture-in-picture' allowfullscreen></iframe>"
+    "<meta name=referrer content=strict-origin-when-cross-origin>" &
+    "<style>html,body{margin:0;background:#000;height:100%;overflow:hidden}#p{width:100%;height:100%}</style>" &
+    "<div id=p></div><script>var P,ok=false,R=function(m){if(window.retro&&window.retro.post)window.retro.post(m)};" &
+    "function onYouTubeIframeAPIReady(){P=new YT.Player('p',{videoId:'" & videoId & "',width:'100%',height:'100%'," &
+    "playerVars:{autoplay:1,playsinline:1,rel:0,origin:'" & o & "',widget_referrer:'" & o & "'}," &
+    "events:{onReady:function(e){ok=true;e.target.playVideo();R('ready')}," &
+    "onStateChange:function(e){var d=P.getVideoData?P.getVideoData():null;R('state:'+e.data+':'+(d?d.video_id:''))}," &
+    "onError:function(e){R('error:'+e.data)}}})}" &
+    "window.addEventListener('retro',function(e){var m=String(e.detail||'');if(!ok)return;" &
+    "if(m.indexOf('load:')==0)P.loadVideoById(m.substr(5));else if(m=='pause')P.pauseVideo();" &
+    "else if(m=='play')P.playVideo();else if(m.indexOf('seek:')==0)P.seekTo(+m.substr(5),true)});" &
+    "setInterval(function(){if(ok&&P.getCurrentTime)R('time:'+Math.floor(P.getCurrentTime()*1000)+':'+" &
+    "Math.floor((P.getDuration?P.getDuration():0)*1000))},1000);</script>" &
+    "<script src='https://www.youtube.com/iframe_api'></script>"
 
 # ---- lyrics: LrcLib, and LRC's timed lines ---------------------------------------------------------
 

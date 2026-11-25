@@ -543,7 +543,7 @@ proc doCommand(name: string) =
       infoOpen = true
       typeFirst()
   of "Print...":
-    if d != nil: printDoc(d)
+    if d != nil: startPrintPages(d)   # (artboards or a book's pages: which, and how -- else the image)
   of "General...": startPrefs(ord(ppGeneral))
   of "Interface...": startPrefs(ord(ppInterface))
   of "Workspace...": startPrefs(ord(ppWorkspace))
@@ -1046,6 +1046,8 @@ proc doCommand(name: string) =
   of "Shape Options...": startShapeOptions()
   of "Chart...", "Insert Chart...", "Map...", "Insert Map...", "Edit Chart or Map...":
     discard infographicCommand(name)
+  of "Diagram...", "Insert Diagram...", "Edit Diagram...", "New Carousel...":
+    discard diagramCommand(name)
   of "Fill Frame Proportionally", "Fit Content Proportionally", "Fit Content to Frame", "Center Content",
      "Original Size", "Frame Options...", "Remove Content", "Anchor to Text", "Release Anchor":
     discard framesCommand(name)
@@ -1510,6 +1512,7 @@ proc classicMenus() =
       item("&New...", "Ctrl+N")
       item("New &Drawing (SVG)...")
       item("New &Book...")
+      item("New &Carousel...")
       item("&Open...", "Ctrl+O")
       let recent = recentFiles(loadSettingsCached())
       submenu "Open &Recent":
@@ -2067,7 +2070,20 @@ proc aboutDialog() =
             "Not affiliated with any maker of image software."],
            tagline = "Pictures, drawings and pages -- as in 1994",
            iconPng = AppIconPng, glyph = pxBrush,
-           whatsNew = ["5.17.4: on Android with the GPU drawing, the status bar's icons dark on a light " &
+           whatsNew = ["5.18.0: artboards as pages -- <#> in type on one its number, facing pages in " &
+                       "spreads, an artboard placed at the right or left of another, under or over it, " &
+                       "touching or apart, snapped to the others as it is dragged, the artwork moved onto " &
+                       "another, page numbers on the outside, each one's name and size in the Artboards " &
+                       "panel; Save PDF and Print ask for pages, spreads or the whole canvas (a book's " &
+                       "pages too); an English paragraph in Arabic text keeps to its column, the " &
+                       "direction's Auto; justified Arabic draws out a few joins, not almost every one; " &
+                       "new type hyphenated; a gutter's size in millimeters; Layout > Insert Diagram " &
+                       "(a family tree, a tree of dots, a timeline, a numbered list, a note, a title -- " &
+                       "typed in two languages, shapes and type you can change) and File > New Carousel " &
+                       "(bilingual slides with their page numbers); type measured in points at the " &
+                       "document's resolution, as the photo program does (Preferences > Units & " &
+                       "Rulers > Type), new type 12 pt.",
+                       "5.17.4: on Android with the GPU drawing, the status bar's icons dark on a light " &
                        "window again (they went white); Gloss in any color scheme, its menus as popover " &
                        "lists.",
                        "5.17.3: Layout > Booklet -- a booklet's format, its grid in millimeters, folios " &
@@ -2628,6 +2644,7 @@ proc moreDialogs() =
   quickDialogs()
   moreShapesDialogs()
   infographicDialogs()
+  diagramDialogs()
   frameDialogs()
   newDrawingDialog()
   newBookDialog()

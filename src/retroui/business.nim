@@ -2568,6 +2568,7 @@ proc numberEdit*(v: var float; decimals = 2; w = 110; lo = NegInf;
   ## tabbing into it selects the number, so typing replaces it. `style`:
   ## its digits' (large, bold); the field grows with them, or to `h`.
   let uiFontH = FontH
+  if not ui.nextKeyboard.set: textKeyboard(kbDecimal)           # (digits and the point)
   withTextStyle(style):
     result = numberAt(idOf(v, "number"), v, decimals, w, lo, hi, thousands, enabled, h, uiFontH)
 
@@ -2580,6 +2581,7 @@ proc intEdit*(v: var int; w = 80; lo = low(int); hi = high(int);
   ## `numberEdit`'s.
   var f = v.float
   let uiFontH = FontH
+  if not ui.nextKeyboard.set: textKeyboard(if lo < 0: kbDecimal else: kbNumber)   # (digits)
   # (a float as large as high(int) is past it: it would not convert)
   withTextStyle(style):
     if numberAt(idOf(v, "int"), f, 0, w, lo.float, hi.float, thousands,

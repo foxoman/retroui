@@ -350,15 +350,14 @@ proc layerCompsToFiles(d: Doc) =
 
 proc artboardsToPdf(d: Doc) =
   ## File > Export > Artboards to PDF: one PDF, each artboard a page of its own size -- what is on
-  ## it, its type and shapes as vectors, over its paper -- in their order.
+  ## it, its type and shapes as vectors, over its paper -- in their order; facing pages (Layer >
+  ## Artboards > Facing Pages): each spread a page. (Save As > PDF asks which, and how.)
   if d.boards.len == 0: return
   let p = (if d.path.len > 0: d.path.parentDir else: picturesDir()) / (d.name & " Artboards.pdf")
   try:
-    let o = pdfPreset(ppPrint)
-    var pdf = newPressPdf(o, d.name)
-    for it in d.artboardItems(): pdf.addDocPage(d.itemDoc(it), o)
-    pdf.save(p)
-    status = tr("Saved ") & p
+    let n = d.saveArtboardsPdf(p, pdfPreset(ppPrint), spreads = d.boardFacing)
+    status = tr("Saved ") & p & " (" & $n & (if n == 1: tr(" page") else: tr(" pages")) &
+             (if d.boardFacing: tr(", as spreads") else: "") & ")"
   except CatchableError: status = tr("Could not save ") & p
 
 # ---- Color Lookup Tables, Render Video, Zoomify -----------------------------------------------------------------

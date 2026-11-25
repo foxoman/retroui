@@ -64,7 +64,8 @@ proc styledText*(s: string; st: TextStyle; color = Color()) =
 proc searchBox*(s: var string; placeholder = "Search"; w = 0;
                 enabled = true): bool {.discardable.} =
   ## A text box with a magnifier and a clear button; true when the text
-  ## changed. Esc clears it.
+  ## changed. Esc clears it. (On a phone its keyboard's Enter says Search.)
+  if not ui.nextKeyboard.set: textKeyboard(kbText, keSearch)
   let r = place(if w > 0: w else: 0, EditH, fill = w <= 0)
   let id = idOf(s, "search")
   let iw = r.h
@@ -1704,11 +1705,16 @@ proc appearanceSettings*(): bool {.discardable.} =
   ## (`uiLook`: Classic, Glass, Matte or Gloss), the size of
   ## everything, the size of the text, the size of controls (for a mouse
   ## or fingers), the window's frame (on desktops: the system's or Windows
-  ## 3.1's), the title bars' buttons (`captionButtons`) and the font. True
+  ## 3.1's), the title bars' buttons (`captionButtons`) and the font. In an
+  ## Android or iOS app only the look, its colors, the sizes and the font. True
   ## when something changed (store them with
   ## `storeAppearance`; `app`'s `look` keeps them by itself).
   result = appearanceRows()
   if result: noteLookChanged()
+
+const phoneSystem = androidApp or defined(ios)
+  ## (an Android or iOS app: Appearance has what matters on a phone or a tablet -- the look, its
+  ## colors, the sizes, the font --, not a desktop's frame, title bar buttons, drawing, icons)
 
 proc appearanceRows(): bool =
   var t = max(0, themeIndex())
@@ -1744,11 +1750,11 @@ proc appearanceRows(): bool =
   of 3: setUiScale(scaleStep(1)); result = true
   else: discard
   var cs = ord(controlSizes())
-  if settingCombo("Controls", ["Automatic (touch sizes on phones)", "Desktop sizes (mouse, pen)",
-                               "Touch sizes (fingers)"], cs):
+  if not phoneSystem and settingCombo("Controls", ["Automatic (touch sizes on phones)",
+                                                   "Desktop sizes (mouse, pen)", "Touch sizes (fingers)"], cs):
     setControlSizes(ControlSizes(cs))
     result = true
-  if canClassicFrame() and userFrameChoice:
+  if canClassicFrame() and userFrameChoice and not phoneSystem:
     # (the window's frame: the desktop's, or the 3.1 one the app draws --
     # on X11 and Wayland the way back to the 3.1 one, their window
     # managers' menus taking no item of the app's)
@@ -1760,13 +1766,13 @@ proc appearanceRows(): bool =
       result = true
   # (the title bars the toolkit draws: the 3.1 frame's, dialogs', the windows' in the app)
   var cb = ord(captionButtons)
-  if settingCombo("Title bar buttons", ["Windows 95 (with close)", "Windows 3.1 (no close)"], cb):
+  if not phoneSystem and settingCombo("Title bar buttons", ["Windows 95 (with close)", "Windows 3.1 (no close)"], cb):
     captionButtons = CaptionButtons(cb)
     invalidate()
     result = true
   var gm = ord(gpuMode())
-  if settingCombo("Drawing", ["Automatic (the GPU when there is a real one)", "With the GPU",
-                              "On the CPU"], gm):
+  if not phoneSystem and settingCombo("Drawing", ["Automatic (the GPU when there is a real one)", "With the GPU",
+                                                  "On the CPU"], gm):
     setGpuMode(GpuMode(gm))
     result = true
   case settingButtons("Size of the text", ["A-", "A", "A+"], $textScale() & "%")
@@ -1800,14 +1806,14 @@ proc appearanceRows(): bool =
       if settingCombo("Text edges", ["Sharp", "Smooth"], sharp):
         setSubpixelText(sharp == 0)
         result = true
-  if pxScale >= 2:
+  if pxScale >= 2 and not phoneSystem:
     var hd = if hdText(): 0 else: 1
     if settingCombo("Pixel icons on HD screens", ["Smooth", "Pixels (as in 1998, magnified)"], hd):
       setHdText(hd == 0)
       result = true
   var ics = ord(iconStyle())
-  if settingCombo("Icons", ["Automatic (line icons in dark colors)", "Pixels (as in 1994)",
-                            "Line (Nerd Fonts symbols)"], ics):
+  if not phoneSystem and settingCombo("Icons", ["Automatic (line icons in dark colors)", "Pixels (as in 1994)",
+                                                "Line (Nerd Fonts symbols)"], ics):
     setIconStyle(IconStyle(ics))
     result = true
   if uiFont() == ufFile:
@@ -1822,7 +1828,7 @@ proc appearanceRows(): bool =
   if fontFileError.len > 0:
     label(fontFileError, color = color(160, 0, 0))
   var smooth = smoothScrolling
-  if settingToggle("Smooth scrolling", smooth,
+  if not phoneSystem and settingToggle("Smooth scrolling", smooth,
                    "Lists and pages glide; a flicked finger keeps them moving"):
     setSmoothScrolling(smooth)
     result = true
@@ -2042,7 +2048,8 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
   ## The navigation bar of a phone app at the bottom of the window: a glyph
   ## and a label per place (`[(nfHome, "Home"), (nfSearch, "Search")]`).
   ## Call it before the content (like `statusbar`). True when `sel` changed.
-  if items.len == 0: return
+  ## While the on-screen keyboard is up it is left out, as phone apps leave it (`keyboardUp`).
+  if items.len == 0 or keyboardUp(): return
   let st = style(size = 0.8)
   # (the bottom-most bar also covers the system's gesture area)
   let below = if ui.bottom >= ui.h - ui.safe.bottom: ui.h - ui.bottom else: 0

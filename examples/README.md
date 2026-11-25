@@ -326,6 +326,50 @@ tinted, offset, their gaps filled), a text box's gutter a pica when none
 is given; the color picker's swatches and Color Libraries under its
 field.
 
+**Artboards as pages** (5.18.0): type on an artboard with `<#>` shows its
+number and `<##>` how many there are, as on a book's pages -- numbered
+from the panel's First page number, drawn again as artboards are made,
+moved or deleted and as the type goes onto another one. **Facing Pages
+(spreads)** (the panel, Layer > Artboards): the first alone, a right
+page, then two by two, left and right; Rearrange All > Spreads lays them
+so, each spread's pages touching. The **Artboards panel** has the picked
+one's name, size, preset and which way round, and **Place**: at the right
+or left of another, under or over it, touching (a spread) or 20 points
+apart, its artwork with it; the Artboard tool's drag snaps to the others
+(an edge on theirs, the gap, touching, their middles; Ctrl: free), a line
+along the edges that meet. **Move Art Here** and Layer > Artboards > Move
+to Artboard put the layers picked on another one, where they were on
+theirs. **Page Numbers** puts a folio and a running head on each, on the
+outside. **Save As > PDF** asks for artboards as pages, as spreads (each
+spread one page) or the whole canvas, and which (all, this one, a range);
+**File > Print** asks the same, and for a book its pages as pages or
+spreads. Also in 5.18.0: an English paragraph in an Arabic text box keeps
+to its column; the direction's **Auto** (each paragraph as its language
+runs), which Fill with Placeholder Text sets; justified Arabic draws out a
+few joins in a loose line, not almost every one; new type has Hyphenate
+on; a gutter in pixels shows its size in millimeters.
+
+**Diagrams and slides** (5.18.0): **Layout > Insert Diagram...** -- a
+family tree, a dendrogram (a tree of dots), a timeline, a numbered list, a
+note or a title, typed as a few lines with `|` between an item's two
+languages (two spaces in: a level down; `*` highlighted, `~` dashed, `>`
+its children one under another), with a preview, a theme (Parchment's
+cream, ink and rust first) and each color, an Arabic and a Latin font,
+Arabic first and Arabic-Indic digits. It is a group of shape and type
+layers -- each box, line and word to change, sharp in a PDF -- and
+**Layout > Edit Diagram...** opens it again. **File > New Carousel...**
+makes slides as artboards (1080 x 1350, square, a story or wide), each
+with an English and an Arabic header, a rule, a footer with both sources
+and its page number in Arabic digits ("٣ / ٨"), a title page with its tree
+of dots and a diagram on each slide to type over; Save As > PDF or Export
+> Artboards to Files gives the slides. A document of many artboards saves
+small: each layer only where it has pixels. **Type in points** (5.18.0),
+as the photo program measures it: the Character and Paragraph panels, the
+Type tool's bar and the dialogs show sizes, leading, shift, indents and
+spacing in points at the document's resolution (12 pt: 12 pixels at 72
+ppi, 67 at 400), new type starts at 12 pt; Preferences > Units & Rulers >
+Type: Points, Pixels or Millimeters.
+
 **SVG** is one of its formats: an .svg opens as layers -- its shapes as
 shape layers, its text as type you can type in (fonts, sizes, colours,
 bold and italic runs, lines, text along a path, an outline, a gradient,
@@ -842,7 +886,8 @@ switch, the server picked ticked, each server's info button for its page, its ad
 with a tap, Test All Servers and Pick the Fastest under the groups) --; on a tablet the
 sections are a list down the left and the page of the one picked is beside it, each under its
 own navigation bar. Its APK starts in Gloss, as phone apps were drawn in 2012 (Settings >
-Appearance changes it).
+Appearance changes it). 1.8: the search bar right under the navigation bar, from one side of
+the phone to the other; Servers and Favourites pulled down test every server again.
 
 ![Retro DNS: the servers, Cloudflare's details, and Use on This Computer](../docs/examples/retrodns.png)
 
@@ -921,18 +966,25 @@ YouTube through their own services, and nothing else:
   apps and speakers -- Spotify Connect, which needs Premium -- and Retro
   Music is their remote: play a song or a playlist from one of its songs,
   pause, next, seek, and the device it plays on.
-- **YouTube:** a key of Google Cloud's with the YouTube Data API v3 on finds
-  music videos; YouTube's own embedded player plays them (in the app on a
-  phone; on a computer, Open in YouTube Music). Save the ones you like.
+- **YouTube Music:** Sign In with Google -- a Desktop app client of your
+  own Google Cloud project, the YouTube Data API v3 on, yourself a test
+  user -- and Library has your playlists (YouTube Music's are YouTube's)
+  and Liked Music, Home a shelf of your playlists. They play in the app, in
+  YouTube's own player: on a phone on Now Playing, on a tablet under the
+  sections, the next song when one ends, with previous, play, pause, next
+  and how far, and the lyrics timed. YouTube asks that its player be on the
+  screen while it plays: away from it, it pauses, and goes on when it is
+  shown again. A key alone (no sign-in) searches. Save the ones you like.
 - **Lyrics:** from LrcLib, timed: the line sung is in the highlight.
 
 Settings > Spotify and Settings > YouTube walk you through it step by
 step, a button to each page (Spotify for Developers; Google Cloud's
-project, its YouTube Data API v3, its credentials): the Redirect URI
-copied with a tap, the Client ID and the key pasted, the key tried with a
-search and what a refusal means said in a sentence (the API not on, the
-key's restrictions, the day's searches used up). YouTube Music has no API
-of its own for apps: its music is found with YouTube's.
+project, its YouTube Data API v3, its audience, a new client, its
+credentials): the Redirect URI copied with a tap, the Client IDs, the
+secret and the key pasted, the key tried with a search and what a refusal
+means said in a sentence (the API not on, the key's restrictions, the
+day's searches used up). YouTube Music has no API of its own for apps: its
+music is read with YouTube's. Home and Library pulled down are asked again.
 
 A tab bar (Home, Search, Library, Settings), a mini player over it and
 pages on a phone; on a tablet or a computer the sections in a list down

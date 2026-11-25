@@ -319,7 +319,15 @@ proc loadInto(v: var WkView; url: string) =
   v.url = url
   v.st.progress = 0
   if url.startsWith("html:"):
-    discard objcSend(ObjcId, v.view, "loadHTMLString:baseURL:", nsString(url[5 .. ^1]), ObjcId(nil))
+    # (from the app's address -- its bundle identifier --: a page with YouTube's player plays)
+    var base = webPageBase
+    if base.len == 0:
+      let bundle = objcSend(ObjcId, objcClass("NSBundle"), "mainBundle")
+      let ident = if bundle != nil: objcSend(ObjcId, bundle, "bundleIdentifier") else: ObjcId(nil)
+      if ident != nil: base = "https://" & toNim(ident) & "/"
+    let baseUrl = if base.len > 0: objcSend(ObjcId, objcClass("NSURL"), "URLWithString:", nsString(base))
+                  else: ObjcId(nil)
+    discard objcSend(ObjcId, v.view, "loadHTMLString:baseURL:", nsString(url[5 .. ^1]), baseUrl)
   elif url.len > 0 and url[0] == '/':
     let file = objcSend(ObjcId, objcClass("NSURL"), "fileURLWithPath:", nsString(url))
     let dir = objcSend(ObjcId, objcClass("NSURL"), "fileURLWithPath:", nsString(url.parentDir))

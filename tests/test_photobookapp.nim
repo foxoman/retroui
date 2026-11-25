@@ -21,6 +21,7 @@ setCurrentDir(home)
 fakeDriver()
 setup()
 startApp("photo", W, H)
+typeStyle.size = 48        # (the type these were written with: 48 points, 48 pixels at 72 ppi)
 view = photoFrame
 run(3)
 

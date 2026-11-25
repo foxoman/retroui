@@ -145,6 +145,26 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   ones last applied, ends the step on OK, and cancels it on Cancel -- or
   when it is closed any other way (a `pending` flag, checked before the
   dialog is drawn). `tests/test_infographics.nim`, `tests/test_idml.nim`.
+  `retroui/diagrams` (`placeDiagram`, `diagramOf`, `newCarousel`,
+  `placeSlideFrame`, `slideContent`) builds its shape and type layers
+  itself, not through SVG, so its text stays in boxes that wrap; each
+  field's script picks its font and direction. A group made in code
+  (`groupLayers`) is open, and `insertLayer` puts what comes next inside
+  it: close it (`collapsed = true`) before adding layers that belong
+  beside it -- else every next group nests in the last and the Properties
+  panel measures them all each frame. A .rpd keeps a layer only where it
+  has pixels (`box` in its description; whole when it fills most of the
+  image); a document of many artboards saves and opens small. Measure
+  memory with `-d:useMalloc` (as the programs and the tests are built):
+  without it every layer takes the canvas's size. `tests/test_diagrams.nim`.
+- Retro Atelier shows a length of type (a size, leading, shift, an
+  indent, a paragraph's spacing) in type's unit, points by default, at the
+  document's resolution: `typeField` in `examples/photo/units.nim`
+  (`typePixels`, `typeShort`, `pointsOf`, `pixelsOf`); the document keeps
+  pixels. The next text's style (`typeStyle`) is kept in points and set at
+  a document's resolution by `typingStyle`; change it through `applyChar`
+  or `keepTypeStyle`, never with a document's pixels. Each `typeField`
+  needs its own `id`.
 - Notes, lists, search, merge, frames, the grid and brushes are the
   kit's too: footnotes and endnotes and Auto-Size in `retroui/textengine`
   (`insertNote`, `tidyNotes`, `autoSized`: `drawText` sizes the box, so
@@ -324,7 +344,14 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   They are undone with the layers (`LayerList`, `DocSnap`), kept in the
   .rpd's document.json ("artboards"), drawn under the image by the view
   (each one's paper; the pasteboard round them) and their edges, names
-  and handles over it by the app.
+  and handles over it by the app. As pages: `boardFirst` (their first
+  number) and `boardFacing` (spreads: the first alone, a right page) are
+  undone with them too and kept ("artboardFirst", "artboardFacing"); type
+  on one shows its number for `<#>` in `effectiveText` (by `boardOfText`),
+  and the app calls `syncBoardNumbers` every frame -- cheap when nothing
+  moved -- to draw again the type whose number changed (`Layer.boardMark`).
+  The columns of a text box run in the box's direction (`columnize`'s
+  `boxRtl`), never by each line's.
 - A Smart Object's box is its corners (`SmartData.quad`), which it is
   drawn again into: whatever moves its pixels moves them too, as a new
   `SmartData` (`movedSmart`), with `touchLayers` first so undo brings them
@@ -727,11 +754,30 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   back the dialog they were drawn in. To add a control's part to
   docs/controls.md without making the guide again: `SHOTS_MD=part.md
   SHOTS_ONLY=name ./shots` writes its section, to put in by hand.
+- **On Android and iOS, Gloss is an app of the phone's**: dialogs are pages
+  (`beginPageDialog` behind `beginDialog`; a `msgBox` stays an alert:
+  `dlgAlert`), controls are finger-sized on tablets too (`fingers`; the
+  metrics fitted again when `uiLook` changes), Appearance has the look,
+  its colors, the sizes and the font only (`phoneSystem` in extras.nim).
+  The touch behaviors of a page -- its ends stretched (`pullStep`, by the
+  kit's own pan: `panAlong`, `panOwner`, `dragsActive`), `pullRefresh`,
+  `scrollHint`, the long page's thumb (`fastScroll`), Back by a swipe
+  (`pageSwipe`) -- are the kit's, for every app: keep them to a touch
+  screen (`ui.touch`), never in the way of a widget that drags by itself.
+  The keyboard a box wants goes down as input flags with `WantTextInput`
+  (`keyboardFlags`: `WantNumbers`... `EnterNext`...): the surface driver
+  tells the system (`uirelays_keyboard_kind`; Android's RetroInput and
+  RetroActivity.keyboardKind, iOS's UrView traits); a new kind is a flag,
+  a number in both and a case in each.
 - **Retro Music uses the services' own ways only**: Spotify's Web API and
   Spotify Connect (the user's own developer app; Spotify's apps play),
-  the YouTube Data API and YouTube's embedded player, LrcLib. Never a
-  re-implementation of a service's protocol, a stream pulled from private
-  endpoints, or anything that gets around copy protection.
+  the YouTube Data API (signed in with Google through the user's own
+  Desktop app client, `youtube.readonly`) and YouTube's embedded player
+  (the IFrame Player API, its page from the app's address -- `webPageBase`,
+  the package on Android -- and on the screen while it plays: paused away
+  from it), LrcLib. Never a re-implementation of a service's protocol, a
+  stream pulled from private endpoints, audio taken from YouTube's player,
+  or anything that gets around copy protection.
 - **A graph's layout without a window is `retroui/forcelayout`**; the
   control (`graphView`) is `retroui/forcegraph`, which imports the UI. A
   module that draws nothing on screen (`retroui/board`) imports the
