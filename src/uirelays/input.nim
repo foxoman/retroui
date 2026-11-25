@@ -79,6 +79,17 @@ type
 
   InputFlag* = enum
     WantTextInput   ## show on-screen keyboard / enable IME
+    # (the keyboard it is, with WantTextInput: the drivers of phones show it so)
+    WantNumbers     ## digits only
+    WantDecimal     ## digits, a sign and the decimal point
+    WantPhone       ## a phone number's
+    WantEmail       ## with @ and .
+    WantUrl         ## with / and .com
+    WantSecret      ## a password's: no suggestions, nothing learned
+    EnterNext       ## its Enter key says Next (it comes as Tab)
+    EnterDone       ## ... Done
+    EnterSearch     ## ... Search
+    EnterGo         ## ... Go
 
   Event* = object
     kind*: EventKind

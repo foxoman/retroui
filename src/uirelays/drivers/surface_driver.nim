@@ -54,6 +54,10 @@ proc urClipboardPut(s: cstring; n: cint) {.importc: "uirelays_clipboard_put", cd
 proc urOpenUrl(s: cstring; n: cint): cint {.importc: "uirelays_open_url", cdecl.}
 proc urDataDir(): cstring {.importc: "uirelays_data_dir", cdecl.}
 proc urKeyboard(show: cint) {.importc: "uirelays_keyboard", cdecl.}
+proc urKeyboardKind(kind, enter: cint) {.importc: "uirelays_keyboard_kind", cdecl.}
+  ## (the keyboard a field wants: 0 letters, 1 digits, 2 a decimal number, 3 a phone number,
+  ## 4 an email, 5 a web address, 6 a password; its Enter: 0 Return, 1 Next, 2 Done, 3 Search,
+  ## 4 Go)
 proc urFinish() {.importc: "uirelays_finish", cdecl.}
 proc urTicks(): int64 {.importc: "uirelays_ticks", cdecl.}
 proc urMinimize(): cint {.importc: "uirelays_minimize", cdecl.}
@@ -92,6 +96,12 @@ var composeTake*: proc (caret: var int): string {.nimcall.}
   ## set by a driver whose keyboard composes (Android's).
 
 proc next(e: var Event; timeoutMs: int; flags: set[InputFlag]): bool =
+  if WantTextInput in flags:
+    let kind = if WantNumbers in flags: 1 elif WantDecimal in flags: 2 elif WantPhone in flags: 3
+               elif WantEmail in flags: 4 elif WantUrl in flags: 5 elif WantSecret in flags: 6 else: 0
+    let enter = if EnterNext in flags: 1 elif EnterDone in flags: 2 elif EnterSearch in flags: 3
+                elif EnterGo in flags: 4 else: 0
+    urKeyboardKind(cint(kind), cint(enter))
   urKeyboard(cint(WantTextInput in flags))
   var r: UrEvent
   if urWait(addr r, cint(timeoutMs)) == 0: return false

@@ -37,7 +37,7 @@ typedef struct {
 /* meta bits as on Android, so the Nim side reads both the same way */
 enum { META_SHIFT = 0x1, META_ALT = 0x2, META_CTRL = 0x1000, META_GUI = 0x10000 };
 /* key codes that are not HID usages: soft keyboard Return and Backspace */
-enum { HID_RETURN = 40, HID_BACKSPACE = 42 };
+enum { HID_RETURN = 40, HID_BACKSPACE = 42, HID_TAB = 43 };
 
 #define QN 512
 static UrEvent q[QN];
@@ -105,6 +105,7 @@ static struct { int x, y, w, h; } clip, clipStack[8];
 static int clipDepth;
 static int launched, finishing;
 static int wantText, reshow;       /* a field wants the keyboard; a new tap */
+static int kbKind, kbEnter;        /* the keyboard it wants and its Return key (uirelays_keyboard_kind) */
 static int kbInset;                /* pixels the on-screen keyboard covers */
 static int lightBackground = 1;    /* for the status bar's text color */
 static UIView *noKeyboard;         /* inputView while no field wants text */
@@ -303,6 +304,27 @@ static int touchMeta(UIEvent *event) {
   return UITextAutocapitalizationTypeNone;
 }
 - (UITextSpellCheckingType)spellCheckingType { return UITextSpellCheckingTypeNo; }
+/* the keyboard the field wants: digits, a phone number's, an email's, a web address's */
+- (UIKeyboardType)keyboardType {
+  switch (kbKind) {
+    case 1: return UIKeyboardTypeNumberPad;
+    case 2: return UIKeyboardTypeDecimalPad;
+    case 3: return UIKeyboardTypePhonePad;
+    case 4: return UIKeyboardTypeEmailAddress;
+    case 5: return UIKeyboardTypeURL;
+    default: return UIKeyboardTypeDefault;
+  }
+}
+- (BOOL)isSecureTextEntry { return kbKind == 6; }
+- (UIReturnKeyType)returnKeyType {
+  switch (kbEnter) {
+    case 1: return UIReturnKeyNext;
+    case 2: return UIReturnKeyDone;
+    case 3: return UIReturnKeySearch;
+    case 4: return UIReturnKeyGo;
+    default: return UIReturnKeyDefault;
+  }
+}
 
 static void keyPress(int code, int meta) {
   UrEvent *d = push(UR_KEYDOWN);
@@ -488,7 +510,8 @@ static NSInteger clampIndex(NSInteger i, NSUInteger n) {
       uint32_t lo = [text characterAtIndex:i];
       if (lo >= 0xDC00 && lo < 0xE000) { c = 0x10000 + ((c - 0xD800) << 10) + (lo - 0xDC00); i++; }
     }
-    if (c == '\n' || c == '\r') { keyPress(HID_RETURN, 0); continue; }
+    /* (the Return key: Next moves to the next field, as Tab) */
+    if (c == '\n' || c == '\r') { keyPress(kbEnter == 1 ? HID_TAB : HID_RETURN, 0); continue; }
     push(UR_KEYDOWN);              /* a key press opens the way for text */
     UrEvent *t = push(UR_TEXT);
     utf8Of(c, t->text);
@@ -832,6 +855,15 @@ static const char *dataDirImpl(void) {
                                            attributes:nil error:nil];
   strncpy(path, d.fileSystemRepresentation, sizeof path - 1);
   return path;
+}
+
+void uirelays_keyboard_kind(int kind, int enter) {
+  if (kind == kbKind && enter == kbEnter) return;
+  kbKind = kind;
+  kbEnter = enter;
+  if (gView && gView.isFirstResponder) {
+    @autoreleasepool { [gView reloadInputViews]; }
+  }
 }
 
 void uirelays_keyboard(int show) {
