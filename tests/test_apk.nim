@@ -1,10 +1,11 @@
 ## Unit checks of the APK builder's own SHA-256, CRC-32 and PNG writer, and
 ## of the Android sysroot it carries (APKs without the NDK).
 
-import std/[strutils, os, osproc]
+import std/[strutils, os, osproc, algorithm]
 import ../src/retroapk {.all.}
 import retroui/[appicon, rsa, zip, androiddex]
 from retroui/sign import jarSign
+from retroui/sha2 import sha256Hex
 import retroui/symbolize
 
 proc hex(b: Bytes): string =
@@ -19,6 +20,23 @@ for i in 0 ..< long.len: long[i] = byte('a')
 doAssert hex(sha256(long)) ==
   "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
 doAssert crc32("123456789".toBytes) == 0xCBF43926'u32
+
+proc javaSources(): string =
+  ## (the SHA-256 of tools/android/*.java -- each file's name and text, by name -- as
+  ## tools/android/build_dex.sh takes it)
+  var names: seq[string]
+  for f in walkFiles(currentSourcePath.parentDir.parentDir / "tools" / "android" / "*.java"):
+    names.add f.extractFilename
+  names.sort(system.cmp)
+  var all = ""
+  for n in names:
+    all.add n & "\n"
+    all.add readFile(currentSourcePath.parentDir.parentDir / "tools" / "android" / n).replace("\r\n", "\n")
+  sha256Hex(all)
+# (the Java in every APK is androiddex.nim, made from tools/android/*.java by build_dex.sh:
+# a change to the Java not made into it again never reaches an APK -- as 0.77.0's did not)
+doAssert classesDexOf == javaSources(),
+  "tools/android/*.java changed: run sh tools/android/build_dex.sh"
 let icon = iconPng(192)
 doAssert icon[1 .. 3] == "PNG".toBytes and icon.len < 10_000, "a small PNG"
 

@@ -483,6 +483,9 @@ public final class RetroWeb {
   static void load(Web w, String url) {
     w.loaded = url;
     w.view.getSettings().setAllowFileAccess(url.startsWith("file:") || url.startsWith("/"));
+    // (the app's own page plays when the app says so -- YouTube's player started by Retro Music's
+    // Play and Next, not a tap on the page; a website still waits for a tap before it plays sound)
+    w.view.getSettings().setMediaPlaybackRequiresUserGesture(!url.startsWith("html:"));
     if (url.startsWith("html:")) {
       // (from the app's address -- https:// and its package --: the Referer YouTube's player asks
       // for, else it says "Watch on YouTube" and plays nothing)

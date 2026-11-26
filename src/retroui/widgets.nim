@@ -236,11 +236,114 @@ proc glossTone*(s, v: float): Color =
   let got = lumaOfColor(result)
   if got > want and got > 0: result = hsvColor(h, s * k, v * float(want) / float(got))
 
+proc glossTint*(c: Color): Color =
+  ## Gloss: one of iOS 6's colors -- drawn then in its blue, Gloss Light's highlight's hue -- in
+  ## the scheme's own hue, as `glossTone` colors Gloss's parts: in Gloss Light the very color, in
+  ## a green scheme the same steel in green, grayed in a grayish one. Its alpha kept.
+  let (ah, sa, va) = hsvOf(accentColor())
+  let k = clamp(sa / 0.6, 0.0, 1.0) * clamp(va / 0.3, 0.0, 1.0)
+  let shift = ah - hsvOf(GlossLight.select).h
+  if abs(shift) < 0.5 and k > 0.999: return c
+  let (h, s, v) = hsvOf(c)
+  result = hsvColor(h + shift, s * k, v)
+  # (as light as the color was: a green or a yellow as bright reads lighter -- darker, as
+  # `glossTone` does)
+  let want = min(255, lumaOfColor(c) * 4 div 3)
+  let got = lumaOfColor(result)
+  if got > want and got > 0: result = hsvColor(h + shift, s * k, v * float(want) / float(got))
+  result.a = c.a
+
+proc towards(a, b: Color; t: float): Color =
+  ## (the color `t` of the way from `a` to `b` -- past `b` when `t` > 1 --, clamped)
+  template ch(x, y: uint8): uint8 = uint8(clamp(int(round(float(x) + (float(y) - float(x)) * t)), 0, 255))
+  Color(r: ch(a.r, b.r), g: ch(a.g, b.g), b: ch(a.b, b.b), a: a.a)
+
+proc bandOf(r: Rect; stops: openArray[Color]; i: int): tuple[band: Rect; top, foot: Color] =
+  ## (the `i`th band of a face shaded through `stops`, and the colors at the face's top and foot
+  ## a gradient through that band's two stops would have)
+  let n = stops.len - 1
+  let y0 = r.y + r.h * i div n
+  let bh = r.y + r.h * (i + 1) div n - y0
+  if bh <= 0: return (rect(r.x, y0, r.w, 0), stops[i], stops[i])
+  let (a, b) = (stops[i], stops[i + 1])
+  (rect(r.x, y0, r.w, bh), towards(a, b, float(r.y - y0) / float(bh)),
+   towards(a, b, float(r.y + r.h - y0) / float(bh)))
+
+proc glossStopsAt*(r: Rect; rad: float; stops: openArray[(float, Color)]) =
+  ## Gloss: a face shaded through `stops` -- each a place from its top (0.0) to its foot (1.0)
+  ## and the color there --, its corners rounded `rad`: iOS 6's bars, buttons, sheets.
+  if r.w <= 0 or r.h <= 0 or stops.len == 0: return
+  if stops.len == 1 or r.h < 2 * stops.high:
+    roundRectShaded(r, rad, stops[0][1], stops[^1][1])
+    return
+  let ext = int(ceil(min(rad, float(min(r.w, r.h)) / 2)))
+  for i in 0 ..< stops.high:
+    let y0 = r.y + int(round(float(r.h) * clamp(stops[i][0], 0.0, 1.0)))
+    let y1 = r.y + int(round(float(r.h) * clamp(stops[i + 1][0], 0.0, 1.0)))
+    let bh = y1 - y0
+    if bh <= 0: continue
+    let (a, b) = (stops[i][1], stops[i + 1][1])
+    # (the band drawn longer than it is where it meets another, so the rounded corners fall
+    # outside it there: only the face's own top and foot are rounded)
+    let up = if i == 0: 0 else: ext
+    let down = if i == stops.high - 1: 0 else: ext
+    pushClip(rect(r.x, y0, r.w, bh))
+    roundRectShaded(rect(r.x, y0 - up, r.w, bh + up + down), rad,
+                    towards(a, b, -float(up) / float(bh)), towards(a, b, float(bh + down) / float(bh)))
+    popClip()
+
+proc glossStops*(r: Rect; rad: float; stops: openArray[Color]) =
+  ## Gloss: a face shaded through `stops`, spaced evenly from its top to its foot -- iOS 6's bars
+  ## and buttons, four (at 0, a third, two thirds, the foot) --, its corners rounded `rad`.
+  if stops.len == 0: return
+  var at: seq[(float, Color)]
+  for i, c in stops:
+    let t = if stops.len == 1: 0.0 else: float(i) / float(stops.high)
+    at.add (t, c)
+  glossStopsAt(r, rad, at)
+
+proc glossStopsShape*(pts: openArray[(float, float)]; r: Rect; stops: openArray[Color]) =
+  ## Gloss: the polygon `pts` (`r` round it) shaded through `stops` as `glossStops` -- a Back
+  ## button's pointed end.
+  if r.w <= 0 or r.h <= 0 or stops.len == 0: return
+  let n = stops.len - 1
+  if n == 0 or r.h < 2 * n:
+    polygonShaded(pts, stops[0], stops[^1])
+    return
+  for i in 0 ..< n:
+    let (band, top, foot) = bandOf(r, stops, i)
+    if band.h <= 0: continue
+    pushClip(band)
+    polygonShaded(pts, top, foot)
+    popClip()
+
+proc glossInsetLines*(r: Rect; top: openArray[Color]; foot: openArray[Color] = []; cut = 0) =
+  ## Gloss: the lines just inside a face's top (`top`, from the top down) and its foot (`foot`,
+  ## from the foot up) -- iOS 6's inner shadows and lights --, `cut` short of its ends.
+  for k, c in top:
+    if c.a != 0 and k < r.h: hline(r.x + cut, r.y + k, r.w - 2 * cut, c)
+  for k, c in foot:
+    if c.a != 0 and k < r.h: hline(r.x + cut, r.y + r.h - 1 - k, r.w - 2 * cut, c)
+
+proc alphaOf(c: Color; a: float): Color = withAlpha(c, int(round(a * 255)))
+
+proc glossTopShade*(f: Rect; rad: float; alphas: openArray[int]; ink = black) =
+  ## Gloss: the shadow inside a sunk face's top (`f`, its corners rounded `rad`) -- a row of
+  ## `ink` (black) each `alphas`, from the top down, as wide as the face is at that row: iOS 6's
+  ## fields and wells, cut into what holds them; in white, the light along a sheet's top.
+  let rr = min(rad, float(min(f.w, f.h)) / 2)
+  for k, a in alphas:
+    if k >= f.h or a <= 0: continue
+    let dy = rr - float(k) - 0.5
+    let dx = if dy > 0: rr - sqrt(max(0.0, rr * rr - dy * dy)) else: 0.0
+    let cut = int(round(dx))
+    if f.w > 2 * cut: hline(f.x + cut, f.y + k, f.w - 2 * cut, withAlpha(ink, min(255, a)))
+
 proc glossDetail*(): Color =
-  ## Gloss: the color of a value at a row's end, a check mark, a link in a table -- the scheme's
-  ## hue, dark on a light window, light on a dark one.
+  ## Gloss: the color of a value at a row's end, a check mark, a link in a table -- iOS 6's
+  ## slate blue in the scheme's hue, dark on a light window, light on a dark one.
   if lumaOfColor(th.field) < 128 or lumaOfColor(th.window) < 100: glossTone(0.4, 0.92)
-  else: glossTone(0.59, 0.53)
+  else: glossTint(color(56, 84, 135))
 
 proc glossShine(f: Rect; rad: float; base: Color; dark: bool) =
   ## (Gloss: a face in `base` with its shine -- its top half lighter, a hard edge at its middle,
@@ -385,22 +488,77 @@ proc tintedFace*(r: Rect; base: Color; pressed = false; radius = -1.0) =
 
 # ---- Gloss's parts as phones drew them then: bars, bar buttons, the blue of a chosen row ---------
 
+const
+  # (iOS 6's own colors, as the Legacy iOS UI Kit measures them: in Gloss Light's hue, tinted
+  # to a scheme's by `glossTint`)
+  navStops = [color(193, 209, 228), color(161, 178, 201), color(117, 140, 171), color(85, 112, 148)]
+    ## a navigation bar, a title bar
+  toolStops = [color(181, 196, 215), color(152, 171, 195), color(113, 137, 168), color(87, 114, 150)]
+    ## a tool bar at the foot
+  steelStops = [color(162, 178, 201), color(121, 142, 172), color(80, 109, 148), color(64, 95, 138)]
+    ## a bar's button, a chosen segment
+  blueStops = [color(147, 181, 246), color(103, 144, 225), color(60, 113, 218), color(37, 98, 217)]
+    ## a bar's blue button (Done, Save)
+  redStops = [color(219, 139, 146), color(195, 98, 106), color(178, 48, 59), color(176, 26, 39)]
+    ## a bar's red button (Delete)
+  segStops = [color(177, 193, 213), color(145, 163, 187), color(114, 138, 169), color(96, 125, 160)]
+    ## a bar's segment not chosen
+  cancelStops = [color(141, 155, 175), color(130, 145, 167), color(111, 129, 154), color(101, 120, 146)]
+    ## a search bar's Cancel
+  searchStops = [color(214, 221, 226), color(204, 212, 217), color(189, 199, 205), color(178, 189, 196)]
+    ## a search bar
+
+proc tinted(stops: openArray[Color]): array[4, Color] =
+  for i in 0 .. 3: result[i] = glossTint(stops[min(i, stops.high)])
+
 proc glossBarColors*(): tuple[top, foot: Color] =
-  ## Gloss: a navigation bar's, a tool bar's, a title bar's gradient -- on a light window the
-  ## scheme's hue grayed, as iOS 6's steel blue (`glossTone`), black on a dark one.
+  ## Gloss: a navigation bar's, a tool bar's, a title bar's gradient -- on a light window iOS
+  ## 6's steel blue in the scheme's hue (`glossTint`), black on a dark one.
   if onDark(): (color(80, 82, 88), color(12, 12, 14))
-  else: (glossTone(0.14, 0.80), glossTone(0.33, 0.635))
+  else: (glossTint(navStops[0]), glossTint(navStops[3]))
 
 proc glossBarFill*(r: Rect) =
-  ## Gloss: a bar's face in `r`: its gradient, a light line along its top, a dark one along its
-  ## foot.
+  ## Gloss: a navigation bar's face in `r`: iOS 6's steel blue through its four stops, a light
+  ## line along its top (two: the glass catching it), a faint dark one along its foot; black
+  ## gloss on a dark window.
   if r.w <= 0 or r.h <= 0: return
-  let (top, foot) = glossBarColors()
-  roundRectShaded(r, 0, top, foot)
-  hline(r.x, r.y, r.w, withAlpha(white, if onDark(): 46 else: 140))
-  # (a softer light under that line, as glass catches it)
-  hline(r.x, r.y + 1, r.w, withAlpha(white, if onDark(): 14 else: 40))
-  hline(r.x, r.y + r.h - 1, r.w, if onDark(): black else: glossTone(0.32, 0.26))
+  if onDark():
+    let (top, foot) = glossBarColors()
+    roundRectShaded(r, 0, top, foot)
+    hline(r.x, r.y, r.w, withAlpha(white, 46))
+    hline(r.x, r.y + 1, r.w, withAlpha(white, 14))
+    hline(r.x, r.y + r.h - 1, r.w, black)
+    return
+  glossStops(r, 0, tinted(navStops))
+  glossInsetLines(r, [alphaOf(white, 0.6), alphaOf(white, 0.3)], [alphaOf(black, 0.1)])
+
+proc glossToolFill*(r: Rect) =
+  ## Gloss: a tool bar's face at the foot of the window in `r` -- a little lighter than a
+  ## navigation bar, a dark line along its top and two of light under it; black on a dark one.
+  if r.w <= 0 or r.h <= 0: return
+  if onDark():
+    glossBarFill(r)
+    return
+  glossStops(r, 0, tinted(toolStops))
+  glossInsetLines(r, [glossTint(color(95, 116, 140)), alphaOf(white, 0.4), alphaOf(white, 0.2)])
+
+proc glossSearchFill*(r: Rect) =
+  ## Gloss: a search bar's face in `r` -- grayer and lighter than a navigation bar, a dark line
+  ## along its foot; black on a dark window.
+  if r.w <= 0 or r.h <= 0: return
+  if onDark():
+    glossBarFill(r)
+    return
+  glossStops(r, 0, tinted(searchStops))
+  glossInsetLines(r, [alphaOf(white, 0.3), alphaOf(white, 0.2)], [alphaOf(black, 0.5)])
+
+proc glossBarShadow*(r: Rect; up = false) =
+  ## Gloss: the soft shadow a bar casts on the page -- under a navigation bar, over a tool bar
+  ## (`up`).
+  for k in 0 ..< max(2, dp(2)):
+    let a = if k == 0: 70 else: 26
+    if up: hline(r.x, r.y - 1 - k, r.w, withAlpha(black, a))
+    else: hline(r.x, r.y + r.h + k, r.w, withAlpha(black, a))
 
 proc glossBlue*(r: Rect; radius = 0.0) =
   ## Gloss: the blue of a chosen row, a pressed button, a chosen segment -- lighter at its top;
@@ -424,29 +582,44 @@ proc arrowPoints(r: Rect; point, radius, inset: float): seq[(float, float)] =
     result.add (x1 - rr + rr * cos(a), y1 - rr + rr * sin(a))
   result.add (float(r.x) + point, y1)
 
-proc glossBarButton*(r: Rect; pressed: bool; back = false; done = false) =
-  ## Gloss: a bar's bordered button -- darker than the bar, a dark line round it, lit along its
-  ## top inside; `back`: its left end a point (a navigation bar's Back); `done`: blue (Done,
-  ## Save). Its label goes on it white, bold.
+proc darker(stops: openArray[Color]; k: float): array[4, Color] =
+  for i in 0 .. 3: result[i] = mixColor(stops[min(i, stops.high)], black, k)
+
+proc glossBarButton*(r: Rect; pressed: bool; back = false; done = false; destructive = false;
+                     onSearch = false) =
+  ## Gloss: a bar's bordered button, as iOS 6 drew one -- the bar's steel a shade deeper through
+  ## its four stops, a dark edge round it and a darker line inside its top (set into the bar), a
+  ## light line under it; `back`: its left end a point (a navigation bar's Back); `done`: blue
+  ## (Done, Save); `destructive`: red (Delete); `onSearch`: a search bar's grayer steel (Cancel).
+  ## Pressed: darker. Its label goes on it white, bold (`glossButtonStyle`), a dark line over it.
   if r.w <= 0 or r.h <= 0: return
-  let (top, foot) = if done: (glossTone(0.69, 0.91), glossTone(0.88, 0.77))
-                    elif onDark(): (color(76, 78, 84), color(22, 22, 24))
-                    else: (glossTone(0.27, 0.71), glossTone(0.45, 0.54))
-  let t = if pressed: mixColor(top, black, 0.28) else: top
-  let f = if pressed: mixColor(foot, black, 0.22) else: foot
-  let edge = if onDark(): black elif done: glossTone(0.86, 0.55) else: glossTone(0.45, 0.33)
+  let dark = onDark()
+  var stops = if destructive: @redStops
+              elif done: @(tinted(blueStops))
+              elif dark: @[color(92, 94, 100), color(58, 60, 66), color(34, 35, 39), color(20, 20, 22)]
+              elif onSearch: @(tinted(cancelStops))
+              else: @(tinted(steelStops))
+  if pressed: stops = @(darker(stops, 0.25))
+  let edge = mixColor(stops[3], black, if dark: 0.7 else: 0.45)
   let rad = float(min(dp(5), r.h div 2))
+  let lift = withAlpha(white, if dark: 26 else: 102)
   if back:
     let p = float(min(r.h div 2, dp(13)))
+    # (the light under it, then its edge, then its face)
+    polygon(arrowPoints(rect(r.x, r.y + 1, r.w, r.h), p, rad, 0), lift)
     polygon(arrowPoints(r, p, rad, 0), edge)
-    polygonShaded(arrowPoints(r, p, rad, 1), t, f)
-    hline(r.x + int(p), r.y + 1, r.w - int(p) - int(rad), withAlpha(white, if pressed: 20 else: 60))
+    let f = inset(r, 1)
+    glossStopsShape(arrowPoints(r, p, rad, 1), f, stops)
+    hline(r.x + int(p), r.y + 1, r.w - int(p) - int(rad), withAlpha(black, 102))
   else:
+    roundRect(rect(r.x, r.y + 1, r.w, r.h), rad, lift)
     roundRect(r, rad, edge)
-    roundRectShaded(inset(r, 1), max(0.0, rad - 1), t, f)
-    hline(r.x + int(rad), r.y + 1, r.w - 2 * int(rad), withAlpha(white, if pressed: 20 else: 60))
-  # (a light line under it, as pressed into the bar)
-  hline(r.x + int(rad), r.y + r.h, r.w - 2 * int(rad), withAlpha(white, if onDark(): 20 else: 70))
+    glossStops(inset(r, 1), max(0.0, rad - 1), stops)
+    hline(r.x + int(rad), r.y + 1, r.w - 2 * int(rad), withAlpha(black, 102))
+
+proc glossButtonStyle*(): TextStyle =
+  ## Gloss: the style of a bar button's label -- bold, iOS 6's 12 points on a phone.
+  style(bold = true, size = if fingers(): 0.8 else: 0.9)
 
 proc beyond(a, b: Color): Color =
   ## (the color as far past `b` as `b` is from `a`: a gradient's end whose middle is `b`)
@@ -465,26 +638,66 @@ proc glossTwoTone*(f: Rect; rad: float; top, mid, low, foot: Color) =
     popClip()
 
 proc glossButtonFace*(r: Rect; pressed: bool; primary = false; hot = false) =
-  ## Gloss on a light window: a push button as phones drew them then -- light gray lit from
-  ## above with a gray line round it (`primary`, the default one: blue), blue while it is
-  ## pressed; a white line under it, as cut into the window.
+  ## Gloss on a light window: a push button as iOS 6 drew one -- light gray to a shade darker,
+  ## a gray line round it (darker at its top), a white line inside its top and one under it;
+  ## the default one (`primary`) blue, and blue while it is pressed.
   if r.w <= 0 or r.h <= 0: return
-  let rad = float(min(dp(7), r.h div 2))
-  if r.h >= 8: roundRect(rect(r.x, r.y + 1, r.w, r.h), rad, withAlpha(white, 150))
+  let rad = float(min(if fingers(): dp(10) else: dp(7), r.h div 2))
+  if r.h >= 8: roundRect(rect(r.x, r.y + 1, r.w, r.h), rad, white)
   let f = inset(r, 1)
   if pressed or primary:
-    # (in the scheme's hue: blue in Gloss Light's)
-    roundRect(r, rad, glossTone(0.83, 0.52))
-    if pressed: glossTwoTone(f, max(0.0, rad - 1), glossTone(0.68, 0.87), glossTone(0.82, 0.80),
-                             glossTone(0.88, 0.75), glossTone(0.9, 0.69))
-    else: glossTwoTone(f, max(0.0, rad - 1), glossTone(0.52, 0.96), glossTone(0.70, 0.91),
-                       glossTone(0.80, 0.86), glossTone(0.84, 0.81))
+    # (in the scheme's hue: iOS 6's blue in Gloss Light's)
+    var stops = tinted(blueStops)
+    if pressed:
+      for c in stops.mitems: c = mixColor(c, black, 0.12)
+    roundRectShaded(r, rad, mixColor(stops[0], black, 0.45), mixColor(stops[3], black, 0.4))
+    glossStops(f, max(0.0, rad - 1), stops)
+    glossTopShade(f, max(0.0, rad - 1), [90, 30], white)
   else:
-    roundRect(r, rad, color(146, 148, 154))
-    if hot: glossTwoTone(f, max(0.0, rad - 1), white, color(248, 248, 250), color(236, 236, 240),
-                         color(222, 222, 226))
-    else: glossTwoTone(f, max(0.0, rad - 1), white, color(242, 242, 244), color(229, 229, 233),
-                       color(212, 212, 218))
+    let (top, foot) = if hot: (color(246, 246, 246), color(226, 226, 226))
+                      else: (color(239, 239, 239), color(219, 219, 219))
+    roundRectShaded(r, rad, color(179, 179, 179), color(186, 186, 186))
+    roundRectShaded(f, max(0.0, rad - 1), top, foot)
+    glossTopShade(f, max(0.0, rad - 1), [255, 140], white)
+
+proc glossSheetButton*(r: Rect; pressed: bool; kind = 0) =
+  ## Gloss: a button of an action sheet, as iOS 6 drew one -- in a dark well, light gray lit at
+  ## its top (`kind` 0), red (1: Delete), slate (2: Cancel; black on a dark window); blue while
+  ## it is pressed.
+  if r.w <= 0 or r.h <= 0: return
+  let wr = float(min(dp(12), r.h div 2))
+  # (its well: darker than the sheet, a light line under it, a shadow inside along its top)
+  roundRect(rect(r.x, r.y + 1, r.w, r.h), wr, withAlpha(white, 51))
+  roundRect(r, wr, withAlpha(black, 77))
+  glossTopShade(r, wr, [150, 70, 20])
+  let p = max(2, dp(3))
+  let f = inset(r, p)
+  let fr = max(0.0, wr - float(p))
+  roundRect(rect(f.x, f.y + 1, f.w, f.h + 1), fr, withAlpha(black, 90))
+  let (top, mid, foot) =
+    if pressed: (mixColor(glossTint(blueStops[0]), white, 0.2), glossTint(blueStops[2]), glossTint(blueStops[3]))
+    elif kind == 1: (mixColor(color(212, 12, 13), white, 0.55), color(212, 12, 13), mixColor(color(212, 12, 13), white, 0.3))
+    elif kind == 2 and lumaOfColor(th.window) < 128: (mixColor(color(8, 8, 8), white, 0.35), color(8, 8, 8), mixColor(color(8, 8, 8), white, 0.1))
+    elif kind == 2: (mixColor(color(43, 48, 56), white, 0.3), color(43, 48, 56), mixColor(color(43, 48, 56), white, 0.05))
+    else: (white, color(194, 195, 197), mixColor(color(194, 195, 197), white, 0.6))
+  glossStopsAt(f, fr, [(0.0, top), (0.7, mid), (1.0, foot)])
+  roundFrame(f, fr, 1, withAlpha(white, 26))
+
+proc glossAlertButton*(r: Rect; pressed: bool; primary = false) =
+  ## Gloss: a button of an alert, as iOS 6 drew one -- the alert's blue lit as glass, its top
+  ## half lighter with a hard edge at its middle (`primary`, the last of two: lighter still), a
+  ## dark line round it, a faint light one under it. Pressed: darker.
+  if r.w <= 0 or r.h <= 0: return
+  let rad = float(min(dp(5), r.h div 2))
+  roundRect(rect(r.x, r.y + 1, r.w, r.h), rad, withAlpha(white, 51))
+  roundRect(r, rad, withAlpha(black, 102))
+  let base = glossTint(color(16, 32, 78))
+  let ks = if primary: [0.6, 0.36, 0.24, 0.36] else: [0.4, 0.16, 0.04, 0.08]
+  var c: array[4, Color]
+  for i in 0 .. 3:
+    c[i] = mixColor(base, white, ks[i])
+    if pressed: c[i] = mixColor(c[i], black, 0.3)
+  glossTwoTone(inset(r, 1), max(0.0, rad - 1), c[0], c[1], c[2], c[3])
 
 proc glossText*(x, y: int; s: string; c: Color; bold = true; shadowDown = false) =
   ## Gloss: text pressed into its face, as it was written then: a dark line above white text
@@ -499,9 +712,11 @@ proc buttonBold*(): bool =
 
 proc buttonInk*(pressed: bool; enabled = true; primary = false): Color =
   ## The color of a push button's label as the look writes it: the scheme's text; Gloss on a
-  ## light window, white on the blue of the default button (`primary`) and of one pressed.
+  ## light window, iOS 6's dark gray -- white on the blue of the default button (`primary`)
+  ## and of one pressed.
   if not enabled: th.gray
   elif buttonBold() and (pressed or primary): white
+  elif buttonBold(): color(60, 60, 60)
   else: th.text
 
 proc buttonLabel*(x, y: int; label: string; ink: Color; bold: bool) =
@@ -1180,8 +1395,10 @@ proc label*(s: string; bold = false; color = Color(); enabled = true; literal = 
   ## in a 3.1 dialog).
   ## Wider than the room it is in (a narrow dialog, a phone), it wraps, as
   ## a 3.1 static text does. In another language (`setUiLanguage`) the
-  ## whole text is looked up before it wraps. `literal`: shown as it is --
-  ## a file's name: not translated, its '&' kept.
+  ## whole text is looked up before it wraps (glued from fixed parts and
+  ## values -- `"Page " & $i & " of " & $n` -- those parts, see `tr`).
+  ## `literal`: shown as it is -- a file's name: not translated, its '&'
+  ## kept.
   ## Ending in ':', it names the field after it: in a row that wraps, the
   ## two go to the next line together (`keepWithNext`).
   if not literal and s.len > 1 and s[^1] == ':': keepWithNext()
@@ -3015,31 +3232,41 @@ proc slider*(v: var int; lo, hi: int; w = 0; ticks = 10;
   let thumb = rect(cx - tw div 2, r.y, tw, tht)
   if glossLook():
     # (as phones had it then: a track cut in, blue up to a round white knob, light after it)
+    # (iOS 6's: a track 9 high cut in -- blue darker at its top up to the knob, gray to white
+    # after it, a shadow inside along its top --, a round knob gray at its top to white at its
+    # foot, a dark line round it and a light one inside its top)
     let dark = onDark()
     let tk = if fingers(): dp(9) else: dp(7)
     let tr = rect(chan.x - tk div 2, r.y + tht div 2 - tk div 2, chan.w + tk, tk)
     let trad = float(tk) / 2
-    roundRect(tr, trad, if dark: black else: color(110, 112, 118))
     let ti = inset(tr, 1)
     pushClip(rect(tr.x, tr.y, max(0, cx - tr.x), tr.h))
-    if enabled: roundRectShaded(ti, trad - 1, glossTone(0.91, 0.78), glossTone(0.61, 0.96))
-    else: roundRectShaded(ti, trad - 1, color(150, 150, 150), color(200, 200, 200))
+    if enabled:
+      roundRectShaded(tr, trad, glossTint(color(30, 56, 107)), glossTint(color(97, 128, 183)))
+      roundRectShaded(ti, trad - 1, glossTint(color(46, 89, 168)), glossTint(color(109, 159, 232)))
+    else:
+      roundRectShaded(tr, trad, color(120, 120, 120), color(160, 160, 160))
+      roundRectShaded(ti, trad - 1, color(150, 150, 150), color(200, 200, 200))
     popClip()
     pushClip(rect(cx, tr.y, max(0, tr.x + tr.w - cx), tr.h))
-    if dark: roundRectShaded(ti, trad - 1, color(30, 30, 34), color(70, 72, 78))
-    else: roundRectShaded(ti, trad - 1, color(190, 190, 192), color(250, 250, 250))
+    if dark:
+      roundRect(tr, trad, black)
+      roundRectShaded(ti, trad - 1, color(30, 30, 34), color(70, 72, 78))
+    else:
+      roundRectShaded(tr, trad, color(130, 130, 130), color(172, 172, 172))
+      roundRectShaded(ti, trad - 1, color(184, 184, 184), white)
     popClip()
-    let kd = if fingers(): dp(25) else: dp(17)
+    glossTopShade(ti, trad - 1, [51])
+    let kd = if fingers(): dp(23) else: dp(17)
     let kcx = float(cx)
     let kcy = float(r.y + tht div 2)
-    # (the knob: a soft shadow under it, a gray line round it, white to light gray, a shine on
-    # its top half)
-    disc(kcx, kcy + 2, float(kd) / 2 + 1, withAlpha(black, 26))
-    disc(kcx, kcy + 1, float(kd) / 2, withAlpha(black, 60))
-    disc(kcx, kcy, float(kd) / 2, if dark: black else: color(148, 148, 150))
-    if hit.down: discShaded(kcx, kcy, float(kd) / 2 - 1, color(214, 214, 216), color(240, 240, 242))
-    else: discShaded(kcx, kcy, float(kd) / 2 - 1, white, color(214, 214, 218))
-    disc(kcx, kcy - float(kd) / 6, float(kd) / 4, withAlpha(white, if hit.down: 40 else: 110))
+    disc(kcx, kcy + 1.5, float(kd) / 2, withAlpha(black, 77))
+    disc(kcx, kcy, float(kd) / 2, if dark: black else: color(60, 60, 60))
+    if hit.down: discShaded(kcx, kcy, float(kd) / 2 - 1, color(140, 140, 140), color(228, 228, 228))
+    else: discShaded(kcx, kcy, float(kd) / 2 - 1, color(166, 166, 166), color(252, 252, 252))
+    pushClip(rect(int(kcx) - kd, int(kcy) - kd, 2 * kd, kd div 2))
+    ring(kcx, kcy, float(kd) / 2 - 1, 1, withAlpha(white, 178))
+    popClip()
   elif matteLook():
     # (a thin line, the highlight up to a round knob: a ring round a light middle, the
     # highlight's dot in it while it is held)

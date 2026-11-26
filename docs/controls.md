@@ -32,7 +32,7 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 - **[Menus and bars](#menus-and-bars)**: [menubar, menu, menuItem, submenu](#menubar-menu-menuitem-submenu) · [UndoStack, undoMenuItems, undoKeys](#undostack-undomenuitems-undokeys) · [contextMenu](#contextmenu) · [popupMenu, openPopupMenu](#popupmenu-openpopupmenu) · [breadcrumb](#breadcrumb) · [pager, stepper](#pager-stepper) · [recordNav](#recordnav) · [findBar, findIn, replaceAllIn](#findbar-findin-replaceallin)
 - **[Dialogs](#dialogs)**: [msgBox](#msgbox) · [inputBox](#inputbox) · [dialog](#dialog) · [progressBox](#progressbox) · [wizard, stepDone](#wizard-stepdone) · [aboutBox](#aboutbox) · [splashBox](#splashbox) · [problemBox, reportProblem](#problembox-reportproblem) · [stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen](#stoppedscreen-stoppedframe-stoppedpending-startfresh-showstoppedscreen) · [fileDialog (3.1)](#filedialog-31)
 - **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator, toolSpace](#toolbar-toolbutton-toolseparator-toolspace) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [animated](#animated) · [sprung, presence, glided, dragSnap, staggered, fixedSteps](#sprung-presence-glided-dragsnap-staggered-fixedsteps) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
-- **[Phone controls](#phone-controls)**: [navBar](#navbar) · [wheelPicker](#wheelpicker) · [dateWheels, timeWheels](#datewheels-timewheels) · [quantity](#quantity) · [pageDots](#pagedots) · [cardShelf](#cardshelf) · [pullRefresh](#pullrefresh) · [swipeRow](#swiperow) · [actionSheet](#actionsheet) · [bottomSheet](#bottomsheet) · [popover](#popover) · [alertBox](#alertbox) · [tableGroup, tableRow, tableSwitch, tableButton](#tablegroup-tablerow-tableswitch-tablebutton) · [searchBar](#searchbar) · [actionBar](#actionbar)
+- **[Phone controls](#phone-controls)**: [navBar](#navbar) · [wheelPicker](#wheelpicker) · [dateWheels, timeWheels](#datewheels-timewheels) · [quantity](#quantity) · [pageDots](#pagedots) · [cardShelf](#cardshelf) · [pullRefresh](#pullrefresh) · [swipeRow](#swiperow) · [actionSheet](#actionsheet) · [bottomSheet](#bottomsheet) · [popover](#popover) · [alertBox](#alertbox) · [tableGroup, tableRow, tableSwitch, tableButton](#tablegroup-tablerow-tableswitch-tablebutton) · [searchBar](#searchbar) · [actionBar](#actionbar) · [roundButton](#roundbutton) · [indexBar](#indexbar) · [messageBubble](#messagebubble) · [clockFace](#clockface) · [appIcon](#appicon) · [texture](#texture)
 - **[Files](#files)**: [fileList](#filelist) · [fileList: large icons](#filelist-large-icons) · [folderTree](#foldertree) · [placesView](#placesview) · [filePreview](#filepreview) · [pathBar](#pathbar) · [driveBar](#drivebar) · [filePicker](#filepicker) · [trashList](#trashlist) · [propertiesDialog](#propertiesdialog) · [runJobDialog](#runjobdialog) · [textFileView, hexFileView](#textfileview-hexfileview) · [pictureBox](#picturebox) · [storageDialog](#storagedialog)
 - **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [gauge in bands, rangeBar](#gauge-in-bands-rangebar) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart) · [liveGraph](#livegraph) · [graphView](#graphview) · [assistantPanel](#assistantpanel) · [aiServiceForm](#aiserviceform)
 - **[Planning and dashboards](#planning-and-dashboards)**: [kpiTile, statCard, kpiRow](#kpitile-statcard-kpirow) · [kanbanBoard](#kanbanboard) · [ganttView](#ganttview) · [agendaView](#agendaview) · [orgChart](#orgchart)
@@ -1297,6 +1297,16 @@ More states:
 |---|---|---|
 | ![toggle (a switch), keyboard focus](controls/toggle-keyboard-focus.png) | ![toggle (a switch), pressed](controls/toggle-pressed.png) | ![toggle (a switch), disabled](controls/toggle-disabled.png) |
 
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![toggle (a switch): Gloss](controls/toggle-gloss.png) | ![toggle (a switch): Glass](controls/toggle-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![toggle (a switch): Matte](controls/toggle-matte.png) | ![toggle (a switch): Gloss, dark](controls/toggle-gloss-dark.png) |
+
 ```nim
 var wifi = true
 
@@ -1327,6 +1337,7 @@ proc switchSize*(): tuple[w, h: int]
 ```
 
 The size of a switch's slot (bigger on touch screens).
+(Gloss: wider, room for its ON and OFF)
 
 ### chips
 
@@ -1341,6 +1352,16 @@ More states:
 | Keyboard focus | Mouse over |
 |---|---|
 | ![chips, keyboard focus](controls/chips-keyboard-focus.png) | ![chips, mouse over](controls/chips-mouse-over.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![chips: Gloss](controls/chips-gloss.png) | ![chips: Glass](controls/chips-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![chips: Matte](controls/chips-matte.png) | ![chips: Gloss, dark](controls/chips-gloss-dark.png) |
 
 ```nim
 var tags = @["nim", "retro", "ui"]
@@ -1541,7 +1562,7 @@ proc searchBox*(s: var string; placeholder = "Search"; w = 0;
 ```
 
 A text box with a magnifier and a clear button; true when the text
-changed. Esc clears it.
+changed. Esc clears it. (On a phone its keyboard's Enter says Search.)
 
 ### autocomplete
 
@@ -2071,6 +2092,16 @@ More states:
 |---|---|---|
 | ![slider, progress, keyboard focus](controls/slider-keyboard-focus.png) | ![slider, progress, pressed](controls/slider-pressed.png) | ![slider, progress, disabled](controls/slider-disabled.png) |
 
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![slider, progress: Gloss](controls/slider-gloss.png) | ![slider, progress: Glass](controls/slider-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![slider, progress: Matte](controls/slider-matte.png) | ![slider, progress: Gloss, dark](controls/slider-gloss-dark.png) |
+
 ```nim
 var volume = 40
 
@@ -2583,15 +2614,17 @@ ones), each shown in its own letters: the ones used last first (`recentFonts`), 
 of them from A to Z. A family picked becomes the first of the used ones.
 
 ```nim
-var recentFonts*: seq[string]
 proc noteFontUsed*(family: string)
+```
+
+`family` used now: the first of `recentFonts`.
+
+```nim
 proc fontListOrder*(): seq[string]
 ```
 
-The families picked last in a font list, the latest first (up to 8): shown at the top of
-every list, before all of them from A to Z. An app keeps `recentFonts` between runs (Retro
-Atelier: in its preferences); `noteFontUsed` adds one (a family used some other way: typed,
-taken from a text); `fontListOrder` is the list as a font list shows it.
+The font families as a font list shows them: those used last (`recentFonts`, the ones
+there are), then every family from A to Z.
 
 ```nim
 proc fontStyleCombo*(family: string; style: var string; w = 0; enabled = true): bool {.discardable.}
@@ -2609,20 +2642,17 @@ in the kit's letters.
 
 ### glyphPicker
 
-Every glyph of a font, each drawn in it, in a grid that scrolls (only the rows in view are
-drawn: a font of tens of thousands costs what one of a hundred does). A click picks one: what
-to type for it -- its character, or the characters the font makes it of (the Allah ligature
-from الله, "ffi", a stylistic set's form) with the OpenType feature to turn on. One nothing
-types is gray. The pointer on one tells its character (U+FDF2) or what makes it. From
-`retroui/textwidgets`; Retro Atelier's Glyphs panel (Show: Entire Font).
+Every glyph of a font, each drawn in it, in a grid that scrolls (only the rows in view are drawn: a font of tens of thousands costs what one of a hundred does). A click picks one: what to type for it -- its character, or the characters the font makes it of (the Allah ligature from الله, "ffi", a stylistic set's form) with the OpenType feature to turn on. One nothing types is gray. The pointer on one tells its character (U+FDF2) or what makes it. From `retroui/textwidgets`; Retro Atelier's Glyphs panel (Show: Entire Font).
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![glyphPicker, normal](controls/glyphpicker-normal.png) | ![glyphPicker, touch screen](controls/glyphpicker-touch-screen.png) | ![glyphPicker, dark scheme](controls/glyphpicker-dark-scheme.png) |
 
 ```nim
-var picked: FontGlyph
+var glyphPicked: FontGlyph
 
-if glyphPicker("Scheherazade New", "Regular", picked, h = 240):
-  var st = t.styleAt(caret)
-  if picked.feature.len > 0: st.features = withFeature(st.features, picked.feature, true)
-  t.insertText(caret, picked.text, st)
+if glyphPicker("Scheherazade New", "Regular", glyphPicked, h = 170):
+  discard
 ```
 
 **API**
@@ -2642,9 +2672,11 @@ is gray and cannot be picked. The pointer on one tells its character or what mak
 proc fontGlyphs*(family, style: string): seq[FontGlyph]
 ```
 
-Every glyph of a font's face (but .notdef), in its order, each with what to type for it
-(`FontGlyph`: `gid`, `text`, `feature`): its character; else the characters its OpenType
-features make it of, checked by shaping them; else nothing (`text` ""). Kept: made once.
+Every glyph of a font's face (but .notdef), in its order, each with what to type for it:
+its character; else the characters its OpenType features make it of -- a ligature (الله,
+"ffi"), an alternate, a stylistic set's form, with the feature to turn on (`feature`,
+`withFeature`), checked by shaping them -- else nothing (`text` ""): a glyph only a
+context reaches, or none. What a glyph picker shows (`glyphPicker`). Kept: made once.
 
 ### grid
 
@@ -3218,6 +3250,15 @@ var staffSel = 0
 formOf(staff, labelW = 90)
 gridOf(staffRows, staffSel, height = 3)
 ```
+
+**API**
+
+```nim
+proc columnsOf*(t: TextData): int
+```
+
+How many columns text in a box is set in: its `columns`, or -- columns of a fixed width, or of
+a most width (`colMode`) -- as many as its width makes.
 
 ### imageView
 
@@ -5279,7 +5320,8 @@ Settings rows for how every app looks: the color scheme, the look of the control
 (`uiLook`: Classic, Glass, Matte or Gloss), the size of
 everything, the size of the text, the size of controls (for a mouse
 or fingers), the window's frame (on desktops: the system's or Windows
-3.1's), the title bars' buttons (`captionButtons`) and the font. True
+3.1's), the title bars' buttons (`captionButtons`) and the font. In an
+Android or iOS app only the look, its colors, the sizes and the font. True
 when something changed (store them with
 `storeAppearance`; `app`'s `look` keeps them by itself).
 
@@ -5342,6 +5384,16 @@ The parts of a phone app: the navigation bar at the bottom and the round floatin
 |---|---|---|
 | ![bottomNav, fab, normal](controls/bottomnav-normal.png) | ![bottomNav, fab, touch screen](controls/bottomnav-touch-screen.png) | ![bottomNav, fab, dark scheme](controls/bottomnav-dark-scheme.png) |
 
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![bottomNav, fab: Gloss](controls/bottomnav-gloss.png) | ![bottomNav, fab: Glass](controls/bottomnav-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![bottomNav, fab: Matte](controls/bottomnav-matte.png) | ![bottomNav, fab: Gloss, dark](controls/bottomnav-gloss-dark.png) |
+
 ```nim
 var nav = 0
 
@@ -5359,6 +5411,7 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
 The navigation bar of a phone app at the bottom of the window: a glyph
 and a label per place (`[(nfHome, "Home"), (nfSearch, "Search")]`).
 Call it before the content (like `statusbar`). True when `sel` changed.
+While the on-screen keyboard is up it is left out, as phone apps leave it (`keyboardUp`).
 
 ```nim
 proc fab*(glyph: string; tip = ""; color = Color()): bool
@@ -5453,6 +5506,16 @@ More states:
 | Keyboard focus | Disabled |
 |---|---|
 | ![wheelPicker, keyboard focus](controls/wheelpicker-keyboard-focus.png) | ![wheelPicker, disabled](controls/wheelpicker-disabled.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![wheelPicker: Gloss](controls/wheelpicker-gloss.png) | ![wheelPicker: Glass](controls/wheelpicker-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![wheelPicker: Matte](controls/wheelpicker-matte.png) | ![wheelPicker: Gloss, dark](controls/wheelpicker-gloss-dark.png) |
 
 ```nim
 var portion = 1
@@ -5582,6 +5645,16 @@ More states:
 | Keyboard focus |
 |---|
 | ![pageDots, keyboard focus](controls/pagedots-keyboard-focus.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![pageDots: Gloss](controls/pagedots-gloss.png) | ![pageDots: Glass](controls/pagedots-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![pageDots: Matte](controls/pagedots-matte.png) | ![pageDots: Gloss, dark](controls/pagedots-gloss-dark.png) |
 
 ```nim
 var shownPage = 1
@@ -5983,6 +6056,266 @@ circle of the highlight (Matte). Gloss: the steel-blue tool bar, white glyphs; M
 the dark bar, Back a tab with a slanted edge; Glass: see-through, glyphs in the highlight;
 Classic: a 3.1 tool bar at the foot.
 
+### roundButton
+
+A small round button with a sign on it, as a phone's lists have them: a green plus to add, a red minus to take away (an editing list's rows), a blue chevron for more about one, an "i". Gloss: shining discs with a white ring round them.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![roundButton, normal](controls/roundbutton-normal.png) | ![roundButton, touch screen](controls/roundbutton-touch-screen.png) | ![roundButton, dark scheme](controls/roundbutton-dark-scheme.png) |
+
+More states:
+
+| Keyboard focus | Pressed | Disabled |
+|---|---|---|
+| ![roundButton, keyboard focus](controls/roundbutton-keyboard-focus.png) | ![roundButton, pressed](controls/roundbutton-pressed.png) | ![roundButton, disabled](controls/roundbutton-disabled.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![roundButton: Gloss](controls/roundbutton-gloss.png) | ![roundButton: Glass](controls/roundbutton-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![roundButton: Matte](controls/roundbutton-matte.png) | ![roundButton: Gloss, dark](controls/roundbutton-gloss-dark.png) |
+
+```nim
+discard
+
+row:
+  if roundButton(rkRemove, "Remove the row"):
+    discard
+  if roundButton(rkAdd, "Add a row"):
+    discard
+  if roundButton(rkDetail, "More about it"):
+    discard
+  if roundButton(rkInfo, "About"):
+    discard
+```
+
+**API**
+
+```nim
+proc roundButton*(kind: RoundKind; label = ""; enabled = true): bool
+```
+
+A small round button with a sign on it, as a phone's lists have them: a green plus to add,
+a red minus to take away (an editing list's rows), a blue chevron for more about one, an
+"i". `label`: what it does, for its tooltip and screen readers (else the sign's name).
+True when clicked (Space and Enter with the focus). Gloss: iOS 6's -- a shining disc, a
+white ring round it, a shadow under it; Glass and Matte: a flat disc; Classic: 3.1's
+round button, the sign in its color.
+
+### indexBar
+
+The letters down the side of a long list: touch one, or drag along them, and it returns the one under the finger while it is down, for the list to go to. Too many for its height, every other one shows.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![indexBar, normal](controls/indexbar-normal.png) | ![indexBar, touch screen](controls/indexbar-touch-screen.png) | ![indexBar, dark scheme](controls/indexbar-dark-scheme.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![indexBar: Gloss](controls/indexbar-gloss.png) | ![indexBar: Glass](controls/indexbar-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![indexBar: Matte](controls/indexbar-matte.png) | ![indexBar: Gloss, dark](controls/indexbar-gloss-dark.png) |
+
+```nim
+var contacts = @["Aisha", "Badr", "Fatma", "Hamad", "Khalid", "Maryam", "Salim",
+                 "Zainab"]
+
+var letters: seq[string]
+for c in 'A' .. 'Z':
+  letters.add $c
+row([-1, 0]):
+  col:
+    for n in contacts:
+      label n
+  let at = indexBar(letters, h = 260)
+  if at >= 0:
+    discard
+```
+
+**API**
+
+```nim
+proc indexBar*(letters: openArray[string]; h = 0): int
+```
+
+The letters down the side of a long list -- A to Z, a contacts list's: touch one, or drag
+along them, and it returns the one under the finger (or the mouse) while it is down -- -1
+otherwise --, for the list to go to. `h`: its height (0: as the letters need); too many
+for it, every other one shows. Screen readers get a button each. Gloss: iOS 6's gray bold
+letters, a gray band behind them while they are touched; Glass and Matte: in the
+highlight; Classic: the text's color.
+
+### messageBubble
+
+A message of a conversation in a bubble with a tail: the other's on the left in gray, yours on the right -- `bkMineText`, sent as a text message, green --, a time or "Delivered" small under it. Gloss: iOS 6's shining bubbles on the window's blue-gray.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![messageBubble, normal](controls/messagebubble-normal.png) | ![messageBubble, touch screen](controls/messagebubble-touch-screen.png) | ![messageBubble, dark scheme](controls/messagebubble-dark-scheme.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![messageBubble: Gloss](controls/messagebubble-gloss.png) | ![messageBubble: Glass](controls/messagebubble-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![messageBubble: Matte](controls/messagebubble-matte.png) | ![messageBubble: Gloss, dark](controls/messagebubble-gloss-dark.png) |
+
+```nim
+discard
+
+messageBubble("Are we still on for Thursday?", bkTheirs)
+messageBubble("Yes -- the meeting room at ten.", bkMine, time = "Delivered")
+messageBubble("I\'ll bring the reports.", bkMineText)
+```
+
+**API**
+
+```nim
+proc messageBubble*(text: string; kind = bkTheirs; time = ""; maxW = 0)
+```
+
+A message of a conversation, as a phone's messages show them: in a bubble with a tail, the
+other's (`bkTheirs`) on the left in gray, yours on the right (`bkMine`; `bkMineText`, sent
+as a text message: green); `time` (or "Delivered") small under it. Its text wraps at
+`maxW` pixels (0: three quarters of the row). Gloss: iOS 6's -- shining, a dark edge, the
+words black with a light line under them; Glass: flat, rounded; Matte: flat, nearly
+square; Classic: 3.1's colors, a line round it.
+
+### clockFace
+
+A clock with hands -- the hour, the minute, a red second hand --, a city under it. Gloss: a world clock of its time, light by day, black by night (`night`); Classic: 3.1's Clock, dots for the minutes.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![clockFace, normal](controls/clockface-normal.png) | ![clockFace, touch screen](controls/clockface-touch-screen.png) | ![clockFace, dark scheme](controls/clockface-dark-scheme.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![clockFace: Gloss](controls/clockface-gloss.png) | ![clockFace: Glass](controls/clockface-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![clockFace: Matte](controls/clockface-matte.png) | ![clockFace: Gloss, dark](controls/clockface-gloss-dark.png) |
+
+```nim
+discard
+
+row:
+  clockFace(10, 9, 30, label = "Muscat")
+  clockFace(22, 41, 12, night = true, label = "Tokyo")
+```
+
+**API**
+
+```nim
+proc clockFace*(h, m: int; s = -1; size = 0; night = false; label = "")
+```
+
+A clock with hands: the hour `h` (0 to 23), the minute `m`, the second `s` (-1: no second
+hand), `size` pixels across (0: as a phone's world clock has it); `label` under it (a
+city). Gloss: iOS 6's world clock -- light gray (`night`: black), the hours' numbers, black
+hands, a red second hand, a shine across its top; Glass and Matte: flat, the hours as
+marks; Classic: 3.1's Clock -- dots for the minutes, squares for the hours.
+
+### appIcon
+
+An app to open, as a phone's home screen shows one: a rounded square with a glyph or a picture on it, its name under it, a red badge at its corner. Put them in a `row` for a grid. Classic: Program Manager's, the name chosen while it has the focus.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![appIcon, normal](controls/appicon-normal.png) | ![appIcon, touch screen](controls/appicon-touch-screen.png) | ![appIcon, dark scheme](controls/appicon-dark-scheme.png) |
+
+More states:
+
+| Keyboard focus | Pressed |
+|---|---|
+| ![appIcon, keyboard focus](controls/appicon-keyboard-focus.png) | ![appIcon, pressed](controls/appicon-pressed.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![appIcon: Gloss](controls/appicon-gloss.png) | ![appIcon: Glass](controls/appicon-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![appIcon: Matte](controls/appicon-matte.png) | ![appIcon: Gloss, dark](controls/appicon-gloss-dark.png) |
+
+```nim
+discard
+
+row:
+  if appIcon(nfEnvelope, "Mail", tint = color(36, 112, 216), badge = "3"):
+    discard
+  if appIcon(nfCalendar, "Calendar", tint = color(200, 40, 40)):
+    discard
+  if appIcon(nfMusic, "Music", tint = color(240, 120, 20)):
+    discard
+  if appIcon(nfCog, "Settings", tint = color(120, 124, 132)):
+    discard
+```
+
+**API**
+
+```nim
+proc appIcon*(glyph, label: string; tint = Color(); badge = ""; picture: Bitmap = nil;
+              enabled = true): bool
+```
+
+An app to open, as a phone's home screen shows one: a rounded square with `glyph` (an
+icon font's) or `picture` on it, `label` under it, a red `badge` at its corner ("3"; ""
+none). True when clicked (Space and Enter with the focus). Put them in a `row` for a grid.
+Gloss: iOS 6's -- `tint` (else the highlight) lit as glass, a shine across its top half, a
+shadow under it; Glass: flat `tint`, white glyph; Matte: nearly square; Classic: Program
+Manager's -- the glyph alone, its label chosen while it has the focus.
+
+### texture
+
+A surface drawn in code, in every look: linen, lined paper, felt, stitched leather, pinstripes -- a page's background, a notes page, a card table, a cover. `tint` changes its color.
+
+| Normal |
+|---|
+| ![texture, normal](controls/texture-normal.png) |
+
+```nim
+discard
+
+let r = canvas(0, dp(120))
+let w = (r.w - 4 * dp(6)) div 5
+for i, k in [txLinen, txPaper, txFelt, txLeather, txPinstripe]:
+  texture(rect(r.x + i * (w + dp(6)), r.y, w, r.h), k, tint = if k ==
+      txPinstripe:
+    color(197, 204, 212)
+  else:
+    Color())
+```
+
+**API**
+
+```nim
+proc texture*(r: Rect; kind: Texture; tint = Color(); lineH = 0)
+```
+
+Fills `r` with a surface drawn in code, in every look: linen, lined paper, felt, stitched
+leather, pinstripes -- a page's background, a notes page, a card table, a cover. `tint`:
+its color (alpha 0: its own -- linen gray, paper pale yellow, felt green, leather brown,
+pinstripes the window's). `lineH`: paper's line spacing (0: a line of text's, `FontH`
+and a little).
+
 ## Files
 
 What a file manager, an Open dialog or a photo app is made of
@@ -6245,7 +6578,6 @@ if filePicker(pickOpen, picked, fmOpen, ["*.png", "*.jpg"]):
 ```nim
 proc filePicker*(open: var bool; path: var string; mode = fmOpen;
                  patterns: openArray[string] = []; title = ""; preview = true): bool
-proc pickerFolder*(): string
 ```
 
 A modern Open / Save dialog while `open` (the whole screen on a
@@ -6261,8 +6593,14 @@ where `path` is -- but not in a phone app's cache, where the files other
 apps hand it are copies: in the user's Pictures then (with Android's
 access to the user's files; without it, in the app's own folder, with a
 line asking for it). Places (the star) goes to the phone's storage and
-its folders, a desktop's home, its folders and drives. `pickerFolder`
-is the folder it shows now -- or is listing, to show next ("" when none is open).
+its folders, a desktop's home, its folders and drives.
+
+```nim
+proc pickerFolder*(): string
+```
+
+The folder the file picker (`filePicker`) shows now -- or is listing, to show next; ""
+when none is open.
 
 ### trashList
 
@@ -8094,8 +8432,11 @@ followed in it, Back and Forward (`webGoBack`, `webGoForward`) go through
 its history. Its scripts talk to the app: `retro.post(text)` comes in
 `messages`; `webPost` sends one to them (a `retro` event on `window`),
 `webRun` runs a script and its answer comes in `results`. `webAllow`
-keeps it to some hosts, `webZoom` sizes it. It is hidden while a menu or a
-dialog of the app is over it, and when the widget is not drawn; while it
+keeps it to some hosts, `webZoom` sizes it. An "html:" page comes from the app's
+address -- "https://" and its package in an Android app, its bundle identifier or
+`webPageBase` in WKWebView: the Referer YouTube's embedded player asks for -- and in an
+Android app plays its media without a tap on it (a website waits for one). It is hidden
+while a menu or a dialog of the app is over it, and when the widget is not drawn; while it
 has the keyboard, keys go to it (a click on the app takes them back).
 Android apps need the INTERNET permission (`retroapk
 --permission:INTERNET`). Where there is no engine it is the kit's own.
@@ -8541,14 +8882,19 @@ full resolution, so a photo stays sharp at any zoom.
 
 ```nim
 proc readScreenPixel*(x, y: int)
+```
+
+An eyedropper's color from anywhere in the window: asks for the pixel the
+screen shows at `x`, `y` (logical pixels, as on the screen -- not
+mirrored in an Arabic interface); it is read as the next frame is drawn,
+by the GPU or the CPU, and `screenPixelRead` gives it (0xFFRRGGBB) once
+`done`.
+
+```nim
 proc screenPixelRead*(): tuple[done: bool; color: uint32]
 ```
 
-An eyedropper's color from anywhere in the window: `readScreenPixel`
-asks for the pixel the screen shows at `x`, `y` (logical pixels, as on
-the screen -- not mirrored in an Arabic interface); it is read as the
-next frame is drawn, by the GPU or the CPU, and `screenPixelRead` gives
-it (0xFFRRGGBB) once `done`.
+The pixel `readScreenPixel` asked for (0xFFRRGGBB), once a frame was shown.
 
 ### canvas2d (the HTML5 Canvas 2D API)
 

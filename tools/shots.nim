@@ -19,7 +19,8 @@ from std/times import fromUnix, epochTime
 from std/unicode import runes, toUTF8
 import retroui
 import retroui/[textwidgets, richedit, qrcode, pdfview, tilemap, mvt, capture, mediasession, system,
-                secrets, update, jobs, tray, motion, forcegraph, assistant, modelstore, terminal]
+                secrets, update, jobs, tray, motion, forcegraph, assistant, modelstore, terminal,
+                textengine]
 import retroui/uirelays/[coords, screen, input, services]
 include "../tests/carscene"
 
@@ -209,6 +210,7 @@ type
     decls, code: string
     draw: proc ()
     reset: proc ()            ## after each picture: the state put back
+    both: bool                ## its states' pictures, then its looks'
   Part = object
     title, intro, outro: string
 
@@ -255,8 +257,8 @@ template example(nm, ttl, ab: string; ww, hh: int; apiNames: openArray[string];
                  draw: proc () = body)
 
 proc opts(act = acNone; typed = ""; settle = 0; inline = false; noPicture = "";
-          looks: seq[Look] = @[]; reset: proc () = nil) =
-  ## More about the example just made.
+          looks: seq[Look] = @[]; reset: proc () = nil; both = false) =
+  ## More about the example just made. `both`: its states' pictures and its looks'.
   shots[^1].act = act
   shots[^1].typed = typed
   shots[^1].settle = settle
@@ -264,9 +266,31 @@ proc opts(act = acNone; typed = ""; settle = 0; inline = false; noPicture = "";
   shots[^1].noPicture = noPicture
   shots[^1].looks = looks
   shots[^1].reset = reset
+  shots[^1].both = both
 
 proc look(label: string; on, off: proc (); w = 0; h = 0; touch = false): Look =
   Look(label: label, on: on, off: off, w: w, h: h, touch: touch)
+
+proc lookOf(name: string; lk: UiLook; dark = false): Look =
+  ## (a picture in one of the newer looks, in its own scheme, at a finger's sizes)
+  look(name, proc () =
+    uiLook = lk
+    ui.theme = if dark: lookSchemes(lk).dark else: lookSchemes(lk).light,
+    proc () =
+      uiLook = lookClassic
+      ui.theme = Classic, touch = true)
+
+let phoneLooks = @[lookOf("Gloss", lookGloss), lookOf("Glass", lookGlass), lookOf("Matte", lookMatte),
+                   lookOf("Gloss, dark", lookGloss, true)]
+
+proc sized(looks: seq[Look]; w, h: int; glossOnly = true): seq[Look] =
+  ## (those looks' pictures `w` x `h` -- Gloss's alone, its iOS 6 sizes bigger)
+  for l in looks:
+    var l = l
+    if not glossOnly or l.label.startsWith("Gloss"):
+      l.w = w
+      l.h = h
+    result.add l
 
 # ======================================================================================================
 # Getting started
@@ -285,6 +309,8 @@ nimble install retroui                  # the library and its tools
 retrokit doctor                       # checks what your machine has, and says how to fix it
 retrokit new myapp --kind:business    # a ready app: hello, form, business, files, charts
 cd myapp && nimble run
+retrokit run --watch myapp.nim        # built and started again on every save (`keep` keeps values)
+retrokit run --android myapp.nim      # on the phone adb sees, its log here
 ```
 
 Nothing else to install: no GTK, Qt, SDL or browser engine. The fonts,
@@ -709,6 +735,7 @@ example("toggle", "toggle (a switch)",
 do:
   toggle("&Wi-Fi", wifi, enabled = shotEnabled)
   aim()
+opts(looks = phoneLooks, both = true)
 
 example("chips", "chips",
         "Words to turn on and off (filters), each with its x when `closable`: `ev.clicked` and `ev.closed` say which.",
@@ -719,6 +746,7 @@ do:
   let ev = chips(tags, tagOn, closable = true, enabled = shotEnabled)
   aimAt(0.5, 0.5)
   if ev.clicked >= 0: tagOn[ev.clicked] = not tagOn[ev.clicked]
+opts(looks = phoneLooks, both = true)
 
 example("taginput", "tagInput",
         "Tags as chips and a box to type the next one: Enter, a comma or Tab adds it, Backspace in the empty box takes the last one off.",
@@ -864,6 +892,7 @@ do:
   slider(volume, 0, 100, enabled = shotEnabled)
   aim()
   progress(0.62)
+opts(looks = phoneLooks, both = true)
 
 example("rangeslider", "rangeSlider",
         "A track bar with two thumbs: a range from `lo` to `hi`. Drag either, or the band between them to move both.",
@@ -934,7 +963,7 @@ do:
 
 example("colorwell", "colorWell and the Color dialog",
         "A swatch of a color: a click opens the Color dialog -- the basic and custom colors, the spectrum, Hue, Sat, Lum, Red, Green, Blue and \"#RRGGBB\". OK sets the color. The pictures show the dialog after a click.",
-        560, 400, ["colorWell", "openColorDialog", "colorDialogResult", "storeCustomColors", "restoreCustomColors"], std3):
+        560, 400, ["colorWell", "openColorDialog", "checkedFill", "colorDialogResult", "storeCustomColors", "restoreCustomColors"], std3):
   var wellColor = color(30, 120, 200)
 do:
   row:
@@ -981,7 +1010,7 @@ do:
 
 example("fontcombo", "fontCombo, fontStyleCombo",
         "Drop-down lists of the font families (the built-in ones and the system's) and of a family's styles, each shown in its own letters. From `retroui/textwidgets`.",
-        300, 260, ["fontCombo", "fontStyleCombo", "fontSample"], popup4):
+        300, 260, ["fontCombo", "noteFontUsed", "fontListOrder", "fontStyleCombo", "fontSample"], popup4):
   var fontFamily = "FreeSerif"
   var fontStyle = "Bold"
 do:
@@ -989,6 +1018,14 @@ do:
     fontCombo(fontFamily, w = 160)
     aim()
     fontStyleCombo(fontFamily, fontStyle, w = 100)
+
+example("glyphpicker", "glyphPicker",
+        "Every glyph of a font, each drawn in it, in a grid that scrolls (only the rows in view are drawn: a font of tens of thousands costs what one of a hundred does). A click picks one: what to type for it -- its character, or the characters the font makes it of (the Allah ligature from الله, \"ffi\", a stylistic set's form) with the OpenType feature to turn on. One nothing types is gray. The pointer on one tells its character (U+FDF2) or what makes it. From `retroui/textwidgets`; Retro Atelier's Glyphs panel (Show: Entire Font).",
+        340, 200, ["glyphPicker", "fontGlyphs"], @[ssNormal, ssTouch, ssDark]):
+  var glyphPicked: FontGlyph
+do:
+  if glyphPicker("Scheherazade New", "Regular", glyphPicked, h = 170):
+    discard                     # (type glyphPicked.text, with its feature on: `withFeature`)
 
 example("grid", "grid",
         "Rows and columns, the rows from a `seq` or from a proc (so a million cost what twenty do). Click a header to sort, drag its edge to size it; F2 or typing edits an `editable` cell.",
@@ -1676,6 +1713,7 @@ do:
   label "Content"
   discard bottomNav([(pxHome, "Home"), (pxSearch, "Search"), (pxUser, "Me")], nav)
   discard fab(nfPlus, "New")
+opts(looks = phoneLooks, both = true)
 
 example("captionbar", "captionBar",
         "The window's 3.1 title bar where the app draws it: on phones and tablets, and on desktops with the 3.1 frame. `app` calls it every frame, so an app has nothing to do. See [The window's frame](#the-windows-frame).",
@@ -1686,18 +1724,6 @@ opts(noPicture = "Drawn with the window's frame: see the pictures in [The window
 # ======================================================================================================
 # Phone controls
 # ======================================================================================================
-
-proc lookOf(name: string; lk: UiLook; dark = false): Look =
-  ## (a picture in one of the newer looks, in its own scheme, at a finger's sizes)
-  look(name, proc () =
-    uiLook = lk
-    ui.theme = if dark: lookSchemes(lk).dark else: lookSchemes(lk).light,
-    proc () =
-      uiLook = lookClassic
-      ui.theme = Classic, touch = true)
-
-let phoneLooks = @[lookOf("Gloss", lookGloss), lookOf("Glass", lookGlass), lookOf("Matte", lookMatte),
-                   lookOf("Gloss, dark", lookGloss, true)]
 
 part("Phone controls", """
 What phones have and desktops can use as well (`retroui/mobile`): a navigation bar, picker
@@ -1725,6 +1751,7 @@ example("wheelpicker", "wheelPicker",
 do:
   wheelPicker(["Small", "Medium", "Large", "Family", "Party"], portion, label = "Size")
   aim()
+opts(looks = phoneLooks.sized(220, 270), both = true)
 
 example("datewheels", "dateWheels, timeWheels",
         "A day and a time as a phone picks them: wheels side by side -- the day, the month and the year in the order `dateStyle` writes them (a day the month has not becomes its last); the hour and the minute (by a step; 1 to 12 and AM/PM with `hours12`).",
@@ -1736,7 +1763,7 @@ do:
   row:
     dateWheels(trip)
     timeWheels(tripHour, tripMinute, minuteStep = 5)
-opts(looks = phoneLooks)
+opts(looks = phoneLooks.sized(590, 560))
 
 example("quantity", "quantity",
         "A number between a - and a +, as a phone's stepper: how many in a basket, a text's size. Held, a button goes on; the arrow keys, + and -, Page Up and Down, Home and End; the wheel over it.",
@@ -1755,6 +1782,7 @@ example("pagedots", "pageDots",
 do:
   pageDots(shownPage, 5)
   aim()
+opts(looks = phoneLooks.sized(220, 50), both = true)
 
 example("cardshelf", "cardShelf",
         "A shelf of cards in a row the finger slides sideways, as phone apps show your playlists or what you played lately: a square picture with rounded corners each (or a glyph on a tint), its title and a gray line under it. Returns the one tapped; the wheel slides it too.",
@@ -1874,6 +1902,77 @@ do:
   label "The page's content"
 opts(looks = phoneLooks)
 
+example("roundbutton", "roundButton",
+        "A small round button with a sign on it, as a phone's lists have them: a green plus to add, a red minus to take away (an editing list's rows), a blue chevron for more about one, an \"i\". Gloss: shining discs with a white ring round them.",
+        260, 50, ["roundButton", "RoundKind"], @[ssNormal, ssTouch, ssDark, ssFocused, ssPressed, ssDisabled]):
+  discard
+do:
+  row:
+    if roundButton(rkRemove, "Remove the row", enabled = shotEnabled): discard
+    aim()
+    if roundButton(rkAdd, "Add a row", enabled = shotEnabled): discard
+    if roundButton(rkDetail, "More about it", enabled = shotEnabled): discard
+    if roundButton(rkInfo, "About", enabled = shotEnabled): discard
+opts(looks = phoneLooks, both = true)
+
+example("indexbar", "indexBar",
+        "The letters down the side of a long list: touch one, or drag along them, and it returns the one under the finger while it is down, for the list to go to. Too many for its height, every other one shows.",
+        200, 300, ["indexBar"], @[ssNormal, ssTouch, ssDark]):
+  var contacts = @["Aisha", "Badr", "Fatma", "Hamad", "Khalid", "Maryam", "Salim", "Zainab"]
+do:
+  var letters: seq[string]
+  for c in 'A' .. 'Z': letters.add $c
+  row([-1, 0]):
+    col:
+      for n in contacts: label n
+    let at = indexBar(letters, h = 260)
+    if at >= 0: discard         # (the list goes to the first name with letters[at])
+opts(looks = phoneLooks.sized(220, 330), both = true)
+
+example("messagebubble", "messageBubble",
+        "A message of a conversation in a bubble with a tail: the other's on the left in gray, yours on the right -- `bkMineText`, sent as a text message, green --, a time or \"Delivered\" small under it. Gloss: iOS 6's shining bubbles on the window's blue-gray.",
+        360, 120, ["messageBubble", "BubbleKind"], @[ssNormal, ssTouch, ssDark]):
+  discard
+do:
+  messageBubble("Are we still on for Thursday?", bkTheirs)
+  messageBubble("Yes -- the meeting room at ten.", bkMine, time = "Delivered")
+  messageBubble("I'll bring the reports.", bkMineText)
+opts(looks = phoneLooks, both = true)
+
+example("clockface", "clockFace",
+        "A clock with hands -- the hour, the minute, a red second hand --, a city under it. Gloss: a world clock of its time, light by day, black by night (`night`); Classic: 3.1's Clock, dots for the minutes.",
+        300, 90, ["clockFace"], @[ssNormal, ssTouch, ssDark]):
+  discard
+do:
+  row:
+    clockFace(10, 9, 30, label = "Muscat")
+    clockFace(22, 41, 12, night = true, label = "Tokyo")
+opts(looks = phoneLooks, both = true)
+
+example("appicon", "appIcon",
+        "An app to open, as a phone's home screen shows one: a rounded square with a glyph or a picture on it, its name under it, a red badge at its corner. Put them in a `row` for a grid. Classic: Program Manager's, the name chosen while it has the focus.",
+        400, 70, ["appIcon"], @[ssNormal, ssTouch, ssDark, ssFocused, ssPressed]):
+  discard
+do:
+  row:
+    if appIcon(nfEnvelope, "Mail", tint = color(36, 112, 216), badge = "3"): discard
+    aim()
+    if appIcon(nfCalendar, "Calendar", tint = color(200, 40, 40)): discard
+    if appIcon(nfMusic, "Music", tint = color(240, 120, 20)): discard
+    if appIcon(nfCog, "Settings", tint = color(120, 124, 132)): discard
+opts(looks = phoneLooks, both = true)
+
+example("texture", "texture",
+        "A surface drawn in code, in every look: linen, lined paper, felt, stitched leather, pinstripes -- a page's background, a notes page, a card table, a cover. `tint` changes its color.",
+        420, 140, ["texture", "Texture", "glossPinstripes"], @[ssNormal]):
+  discard
+do:
+  let r = canvas(0, dp(120))
+  let w = (r.w - 4 * dp(6)) div 5
+  for i, k in [txLinen, txPaper, txFelt, txLeather, txPinstripe]:
+    texture(rect(r.x + i * (w + dp(6)), r.y, w, r.h), k,
+            tint = if k == txPinstripe: color(197, 204, 212) else: Color())
+
 # ======================================================================================================
 # Files
 # ======================================================================================================
@@ -1942,7 +2041,7 @@ example("drivebar", "driveBar",
 
 example("filepicker", "filePicker",
         "A modern Open and Save dialog (the whole screen on a phone): places, a path bar, the folder, a preview of the file, and for saving a name. `patterns` limits the files shown; `fmFolder` picks a folder.",
-        780, 540, ["filePicker"], std3):
+        780, 540, ["filePicker", "pickerFolder"], std3):
   var pickOpen = true
   var picked = getHomeDir() / "Pictures"
 do:
@@ -2367,7 +2466,7 @@ part("Canvas and reports")
 
 example("canvas", "canvas: your own drawing",
         "Room for your own drawing: draw into the rectangle it returns with `fill`, `box`, `line`, `text`, `image`, `drawBitmap`, and the smooth `disc`, `ring`, `roundRect`, `polygon`, `thickLine`, `pieSlice`.",
-        320, 140, ["canvas", "gfx.fill", "gfx.box", "gfx.line", "gfx.disc", "gfx.roundRect", "gfx.roundRectShaded", "gfx.roundFrame", "gfx.textCells", "gfx.drawBitmap"], std3):
+        320, 140, ["canvas", "gfx.fill", "gfx.box", "gfx.line", "gfx.disc", "gfx.roundRect", "gfx.roundRectShaded", "gfx.roundFrame", "gfx.textCells", "gfx.drawBitmap", "gfx.readScreenPixel", "gfx.screenPixelRead"], std3):
   let r = canvas(280, 110)
   fill(r, color(255, 255, 240))
   box(r, ui.theme.frame)
@@ -2656,7 +2755,9 @@ Notes (a notepad's cream paper and amber marker), Snow (white, a blue
 highlight), Mint, Sky, Blossom, Lavender and Sunset (pale, each with a
 colour of its own), and the dark Graphite, Dusk and Night Notes -- and a
 light and a dark one for each of the looks: Glass, Matte and Gloss (shown
-here in their looks). Set one
+here in their looks). Gloss draws its bars, its blue parts and its
+popovers in the hue of the scheme's highlight, so any scheme colors it.
+Set one
 with `ui.theme = Ocean` or `app`'s `theme`, or let the user pick it in
 `appearanceSettings`. A `Theme` of your own is an object of colors
 (`window`, `text`, `face`, `select`...); in every scheme the text reads on
@@ -3013,7 +3114,7 @@ const apiModules = ["widgets", "extras", "business", "morecontrols", "records", 
   "toolcustom", "dock", "textwidgets", "filewidgets", "charts", "planning", "mapview",
   "view3d", "htmlview", "markdown", "richedit", "media", "qrcode", "pdfview", "core", "gfx",
   "platform", "files", "textfile", "mediagif", "imaging", "templates", "native", "canvas2d",
-  "report", "tilemap", "gltf", "capture", "mediasession", "motion", "forcegraph", "forcelayout", "assistant", "aichat", "aiimage", "modelstore", "devicemodel", "llm", "meaning", "terminal", "mobile"]
+  "report", "tilemap", "gltf", "capture", "mediasession", "motion", "forcegraph", "forcelayout", "assistant", "aichat", "aiimage", "modelstore", "devicemodel", "llm", "meaning", "terminal", "mobile", "textengine"]
   ## Where the API is read from; a name in several is shown from the first
   ## (or as "module.name").
 
@@ -3295,6 +3396,7 @@ proc pictureTables(s: Shot; outDir: string; count: var int): string =
       cells.join(" | ") & " |\n\n"
   if s.noPicture.len > 0:
     return "*" & s.noPicture & "*\n\n"
+  var looksPart = ""
   if s.looks.len > 0:
     var heads, cells: seq[string]
     for lk in s.looks:
@@ -3305,9 +3407,9 @@ proc pictureTables(s: Shot; outDir: string; count: var int): string =
     # two pictures a row: the looks are big
     var i = 0
     while i < heads.len:
-      result.add table(heads[i ..< min(i + 2, heads.len)], cells[i ..< min(i + 2, cells.len)])
+      looksPart.add table(heads[i ..< min(i + 2, heads.len)], cells[i ..< min(i + 2, cells.len)])
       i += 2
-    return
+    if not s.both: return looksPart
   var heads, cells, moreH, moreC: seq[string]
   for st in s.states:
     let file = shoot(s, st, outDir)
@@ -3322,6 +3424,7 @@ proc pictureTables(s: Shot; outDir: string; count: var int): string =
   if heads.len > 0: result.add table(heads, cells)
   if moreH.len > 0:
     result.add "More states:\n\n" & table(moreH, moreC)
+  if looksPart.len > 0: result.add "In the newer looks:\n\n" & looksPart
 
 proc section(s: Shot; api: Table[string, seq[ApiDoc]]; outDir: string; count: var int): string =
   ## (one example's part of the guide: its title, what it is, its pictures, its code, its API)

@@ -421,7 +421,9 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
 - The Java of the APKs (`tools/android/*.java`) is compiled into
   `src/retroui/androiddex.nim` by `sh tools/android/build_dex.sh` (javac,
   an android.jar of API 23, dx or dalvik-exchange): run it after changing
-  one, and use only calls API 23 has (the APKs start on Android 7). An
+  one -- `classesDexOf` there is the SHA-256 of the Java it was made from,
+  and `test_apk` fails while it is not the Java's now (0.77.0's Java
+  reached no APK) -- and use only calls API 23 has (the APKs start on Android 7). An
   app's own Java goes in with `retroapk --java:DIR`
   (`examples/retrodns/glue`): its `classes.dex` is committed too, made
   again by `sh examples/retrodns/build.sh dex` after its Java changes
@@ -760,15 +762,30 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   its schemes (`lookSchemes`).
 - **The controls from phones are `retroui/mobile`** (navBar, searchBar, the
   table rows, the wheels, quantity, pageDots, swipeRow, the sheets, the
-  alert, actionBar, popover). Gloss draws them as phones did in 2012 (as
+  alert, actionBar, popover, roundButton, indexBar, messageBubble,
+  clockFace, appIcon, texture). Gloss draws them as phones did in 2012 (as
   iOS 6 drew them: gray buttons, the default one blue,
   a thin progress bar, a one-piece stepper, a popover in a dark frame, a
   black status bar) and Glass as they do now; keep each look's own (its colors, its corners, its
   text pressed in or not) when a control changes. Its sheets are modal
   as dialogs are (`ui.curDialog`, `ui.dialogTopNow`, `LayerDialog`) and put
-  back the dialog they were drawn in. To add a control's part to
-  docs/controls.md without making the guide again: `SHOTS_MD=part.md
-  SHOTS_ONLY=name ./shots` writes its section, to put in by hand.
+  back the dialog they were drawn in.
+- **Gloss's colors and sizes are iOS 6's, measured** (from reference
+  drawings of every part; nothing of them copied in -- every part is drawn
+  in code, in the kit's font, and the look is called Gloss, never by the
+  phone's name, in an app). widgets.nim keeps them as stops (`navStops`,
+  `steelStops`, `blueStops`...): in Gloss Light's hue, turned to a scheme's
+  by `glossTint`, a face shaded through them by `glossStopsAt` or
+  `glossStops`, the lines and shadows inside it by `glossInsetLines` and
+  `glossTopShade`. A point size becomes a style's size by 15 to the em on a
+  phone (20 points: 1.333). A part with no measured color takes
+  `glossTone`. Gloss on a light window may have pinstripes
+  (`glossPinstripes`, off by default): a test that reads the window's
+  color under a control takes the stripe's too.
+- **docs/controls.md is made whole by tools/shots.nim** (`./shots`), its
+  text from the examples' and parts' words there and the doc comments of
+  the code: never edit the guide by hand -- the next full make loses it.
+  `SHOTS_ONLY=name ./shots` draws one example's pictures again.
 - **On Android and iOS, Gloss is an app of the phone's**: dialogs are pages
   (`beginPageDialog` behind `beginDialog`; a `msgBox` stays an alert:
   `dlgAlert`), controls are finger-sized on tablets too (`fingers`; the

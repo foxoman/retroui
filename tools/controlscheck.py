@@ -51,6 +51,11 @@ NOT_CONTROLS = {
         "glossBlue", "glossBarButton", "glossText", "buttonInk", "buttonBold",
         "glossTwoTone", "glossButtonFace", "buttonLabel",
         "glossTone", "glossDetail", "glossPopoverFrame", "glossMenuEdge",
+        # Gloss's iOS 6 faces: its colors in the scheme's hue, faces through stops, the lines and
+        # shadows inside them, its bars', sheets' and alerts' buttons -- drawing helpers
+        "glossTint", "glossStopsAt", "glossStops", "glossStopsShape", "glossInsetLines",
+        "glossTopShade", "glossToolFill", "glossSearchFill", "glossBarShadow", "glossButtonStyle",
+        "glossSheetButton", "glossAlertButton",
         # a page's thin scroll bar over its content (phones, the newer looks), its hints and stretch;
         # dialogs as pages (phones and tablets in Gloss): helpers the panels and dialogs use
         "overlayBars", "scrollLine", "scrollHint", "stretched", "dialogsAsPages",

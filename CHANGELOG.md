@@ -1,5 +1,107 @@
 # Changes
 
+## 0.78.0
+
+- **Gloss is iOS 6 again, measured.** Its parts now take their sizes,
+  colors, lines and shadows from a full set of iOS 6 reference drawings,
+  part by part, drawn in code (nothing copied in), in the kit's own font:
+  - **the navigation bar**: its steel blue through its four stops, two
+    light lines along its top and a faint dark one at its foot, a soft
+    shadow on the page; its title 20 points bold, pressed in; its buttons
+    29 high, 10 either side of the label (at least 32 for it), Back's point
+    13 wide (`glossBarFill`, `glossBarButton`, `glossButtonStyle`);
+  - **bar buttons in three colors**: steel, blue for Done and Save, red for
+    Delete (`glossBarButton(destructive = true)`), set into the bar with a
+    dark line inside their top;
+  - **the tool bar** at the foot (`actionBar`), a shade lighter, a dark line
+    along its top (`glossToolFill`);
+  - **the search bar**: grayer and lighter, its field a capsule with a steel
+    line round it and a shadow inside its top, Cancel in the bar's grayer
+    steel, 55 wide (`glossSearchFill`; `searchBox` in Gloss everywhere);
+  - **the tab bar** (`bottomNav`): black, its top half lit as glass, 49
+    high, the chosen tab in a lighter box, the others' glyphs gray lighter at
+    their top, a pixel icon drawn as its line twin on the black;
+  - **the switch**: 77 by 27, ON in iOS 6's blue, OFF light gray, each
+    lighter along its foot, a shadow inside along its top, the knob lighter
+    at its foot with a light ring in it;
+  - **the slider**: its track 9 high cut in, blue darker at its top up to
+    the knob, gray to white after it; the knob 23 across, gray to white;
+  - **the alert**: dark blue, see-through, a white line round it, the shine
+    across its top; its title 18 points, its message 16; its buttons 40 high,
+    10 apart, lit as glass with a hard edge at their middle, the last of two
+    lighter (`glossAlertButton`);
+  - **the action sheet**: gray and see-through (black on a dark window), the
+    light along its top fading out; each button in a dark well, 20 in from
+    the sides, light gray lit at its top, red for the destructive one, slate
+    for Cancel (black on a dark window), blue while pressed; labels 20
+    points bold (`glossSheetButton`);
+  - **the wheels** (`wheelPicker`, `dateWheels`, `timeWheels`): the
+    picker's dark glass round them, each drum white with its sides shaded
+    lavender, a dark line between the drums, the rows black and bold (25
+    points, 44 high on a phone), the drum darkest at its ends, the band a
+    pane of lavender glass under the rows;
+  - **grouped tables**: the group's faint line round it and shadow inside
+    its top, a white line under each row's separator, the header and footer
+    in iOS 6's slate, values at a row's end in its slate blue, the chevron
+    its gray;
+  - **chips** are iOS 6's tokens: pale blue capsules lit along their top,
+    deep blue when on.
+- **Gloss in any scheme still**: every one of these colors is iOS 6's own in
+  Gloss Light and turns to the scheme's hue in the others (`glossTint`),
+  grayed in a grayish one; the dark Gloss keeps its black bars.
+- **The pinstripes, when you want them**: `glossPinstripes = true` gives
+  Gloss on a light window the thin upright stripes iOS 6's settings had
+  behind their groups; the window stays plain by default.
+- **New phone parts**, drawn in every look:
+  - `roundButton`: a small round button with a sign -- a green plus to add, a
+    red minus to take away (an editing list's rows), a blue chevron for more,
+    an "i" (`RoundKind`);
+  - `indexBar`: the A to Z down a long list's side, the letter under the
+    finger while it is down;
+  - `messageBubble`: a message in a bubble with a tail, the other's gray on
+    the left, yours on the right (`bkMine`; `bkMineText`, a text message,
+    green), a time or "Delivered" under it;
+  - `clockFace`: a clock with hands and a red second hand, light by day and
+    black by `night` in Gloss, 3.1's Clock in Classic;
+  - `appIcon`: an app to open as a home screen shows it, a rounded square
+    with a glyph or a picture, its name, a red badge;
+  - `texture`: a surface drawn in code -- linen, lined paper, felt, stitched
+    leather, pinstripes (`Texture`).
+- **Faces through stops**: `glossStopsAt` and `glossStops` shade a face
+  through as many stops as it has (a band each, its corners only at its own
+  top and foot); `glossStopsShape` a polygon; `glossInsetLines` and
+  `glossTopShade` the lines and shadows inside a face.
+- **A row in a row after one that took its line** gets the whole of the next
+  line (it got 20 pixels, so its widgets stood one under another):
+  `timeWheels` after `dateWheels` in a row are side by side again.
+- **The controls guide** shows the switch, the slider, chips, the tab bar
+  and the wheels in the newer looks too, `glyphPicker` with a picture, and
+  every section is made by `tools/shots.nim` from the code (`shots` makes
+  the whole guide again with nothing lost).
+- **Retro Designer's Widget Box** has the new parts; the terminal's example
+  stays out of it (it runs a program).
+- **The APKs' Java made again** (Retro Music 1.2.1's, Retro Atelier
+  5.18.2's and Retro DNS 1.8.1's APKs had it; the source comes here). 0.77.0
+  gave an app's own page in an Android web view the app's address, but the
+  Java of the APKs (`src/retroui/androiddex.nim`) was not made again from
+  it: no APK had it, so YouTube's player had no Referer and said "Video
+  player configuration error" (Error 153) for every song. 0.77.0's other
+  Java reaches the APKs with it: the touch keyboard that fits the field
+  (digits, an email's, a web address's, a password's) and its Next, Done,
+  Search and Go keys. An app's own page ("html:") also plays its media
+  without a tap on it, so the songs start from the app's Play and Next and
+  one follows another; a website still waits for a tap. `androiddex.nim`
+  keeps the SHA-256 of the Java it was made from (`classesDexOf`) and
+  `test_apk` fails when the Java has changed since, so this cannot happen
+  again.
+- **Retro Music 1.2.2**: your YouTube Music plays (the Java above). When
+  YouTube's player can't play a song, the line at the foot says its error
+  number; when the player doesn't start in 15 seconds, it says so.
+- **Retro Atelier 5.18.2** and **Retro DNS 1.8.1**: built with that Java,
+  so their touch keyboard fits the field at last -- digits for a number,
+  an email's and a web address's keys, Next to the next field, Search in
+  the search bar -- as 0.77.0 said it did.
+
 ## 0.77.2
 
 - **The terminal reads Arabic and Hebrew** (`retroui/terminal`): a row with

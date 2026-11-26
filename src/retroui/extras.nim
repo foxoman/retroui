@@ -75,8 +75,9 @@ proc searchBox*(s: var string; placeholder = "Search"; w = 0;
     # (Glass: a rounded field, the ring while it has the keyboard; a magnifier drawn smooth.
     # Gloss: a capsule cut into its bar, as phones had it then)
     if glossLook():
+      # (iOS 6's: a steel line round it, a shadow inside along its top)
       let rad = float(r.h) / 2
-      roundRect(r, rad, if lumaOfColor(th.window) < 128: color(0, 0, 0) else: color(118, 124, 134))
+      roundRect(r, rad, if lumaOfColor(th.window) < 128: color(0, 0, 0) else: glossTint(color(124, 143, 164)))
       roundRect(inset(r, 1), rad - 1, th.field)
     else: fieldFace(r, th.field, enabled, enabled and ui.focus == id)
     let k = float(r.h) / 7
@@ -99,6 +100,7 @@ proc searchBox*(s: var string; placeholder = "Search"; w = 0;
   if accessOn: accessNameOr(tr(placeholder))
   result = editAt(id, s, er, false, false, enabled, frameless = true)
   if not gl: fieldFrame(r, enabled)
+  elif glossLook(): glossTopShade(inset(r, 1), float(r.h) / 2 - 1, [87, 41, 15])
   if s.len == 0:
     pushClip(inset(er, 1))
     text(er.x + 3, r.y + (r.h - FontH) div 2, tr(placeholder), th.gray)
@@ -131,47 +133,55 @@ proc drawSwitch*(track: Rect; on, enabled: bool; down = false; thumbX = -1) =
   ## raised gray thumb with grip lines (at `thumbX` while it is slid). (Glass: a capsule, the
   ## highlight when on, a round white knob.)
   if glossLook():
-    # (as phones had it then: a capsule, the blue part with ON, the gray with OFF, a round knob
-    # as tall as the switch between them)
+    # (iOS 6's: a capsule, the blue part with ON, the light gray with OFF, each lighter along
+    # its foot, a shadow inside along its top; a round knob as tall as the switch between them,
+    # lighter at its foot, a light ring in it)
     let dark = lumaOfColor(th.window) < 128
     let kd = track.h
     let kx = if thumbX >= 0: clamp(thumbX, track.x, track.x + track.w - kd)
              elif on: track.x + track.w - kd else: track.x
     let rad = float(track.h) / 2
-    roundRect(track, rad, if dark: color(0, 0, 0) else: color(128, 128, 128))
+    roundRect(track, rad, if dark: color(0, 0, 0) else: color(125, 125, 125))
     let inner = inset(track, 1)
+    let ir = max(0.0, rad - 1)
     let mid = kx + kd div 2
-    let st = style(bold = true, size = 0.95)
+    let st = style(bold = true, size = if fingers(): 1.07 else: 0.9)
     let ty = track.y + (track.h - lineHeight(st)) div 2
+    # (the light along its foot: 16 of its 27)
+    let gh = max(2, inner.h * 16 div 27)
+    let glow = rect(inner.x + 1, inner.y + inner.h - gh, inner.w - 2, gh)
     pushClip(rect(track.x, track.y, max(0, mid - track.x), track.h))
-    # (the scheme's hue: blue in Gloss Light's -- darker at its top, as cut in)
-    roundRectShaded(inner, rad - 1, glossTone(1.0, 0.76), glossTone(0.74, 0.97))
+    let blue = glossTint(color(0, 127, 234))
+    roundRect(inner, ir, blue)
+    roundRectShaded(glow, float(gh) / 2, mixColor(blue, color(255, 255, 255), 0.1),
+                    mixColor(blue, color(255, 255, 255), 0.5))
     let onW = kx - track.x
     if onW > kd div 3:
       let tw = textWidth("ON", st)
-      text(track.x + (onW - tw) div 2, ty - 1, "ON", withAlpha(color(0, 0, 0), 90), st)
+      text(track.x + (onW - tw) div 2, ty - 1, "ON", withAlpha(color(0, 0, 0), 64), st)
       text(track.x + (onW - tw) div 2, ty, "ON", color(255, 255, 255), st)
     popClip()
     pushClip(rect(mid, track.y, max(0, track.x + track.w - mid), track.h))
-    if dark: roundRectShaded(inner, rad - 1, color(40, 40, 44), color(78, 80, 86))
-    else: roundRectShaded(inner, rad - 1, color(218, 218, 218), color(252, 252, 252))
+    let gray = if dark: color(58, 58, 62) else: color(238, 238, 238)
+    roundRect(inner, ir, gray)
+    roundRect(glow, float(gh) / 2, mixColor(gray, color(255, 255, 255), if dark: 0.12 else: 0.4))
     let offX = kx + kd
     let offW = track.x + track.w - offX
     if offW > kd div 3:
       let tw = textWidth("OFF", st)
-      text(offX + (offW - tw) div 2, ty, "OFF", if dark: color(170, 170, 176) else: color(122, 122, 122), st)
+      text(offX + (offW - tw) div 2, ty, "OFF", if dark: color(170, 170, 176) else: color(123, 123, 123), st)
     popClip()
-    # (its inside shaded along its top)
-    hline(inner.x + int(rad), inner.y, inner.w - 2 * int(rad), withAlpha(color(0, 0, 0), 46))
+    # (its inside shaded along its top: bands round its edge, darkest at the top)
+    pushClip(rect(inner.x, inner.y, inner.w, max(1, inner.h div 6)))
+    for k in 1 .. 4: roundFrame(inner, ir, float(k), withAlpha(color(0, 0, 0), 32))
+    popClip()
     let cx = float(kx) + kd / 2
     let cy = float(track.y) + kd / 2
-    disc(cx, cy + 1.6, kd / 2 + 0.5, withAlpha(color(0, 0, 0), 22))
-    disc(cx, cy + 0.8, kd / 2, withAlpha(color(0, 0, 0), 50))
-    disc(cx, cy, kd / 2, if dark: color(0, 0, 0) else: color(150, 150, 150))
-    if down: discShaded(cx, cy, kd / 2 - 1, color(214, 214, 214), color(240, 240, 240))
-    else: discShaded(cx, cy, kd / 2 - 1, color(252, 252, 252), color(214, 214, 218))
-    # (a shine on the knob's top half)
-    disc(cx, cy - kd / 6, kd / 4, withAlpha(color(255, 255, 255), if down: 40 else: 120))
+    disc(cx, cy, kd / 2 + 1, withAlpha(color(0, 0, 0), 51))
+    disc(cx, cy, kd / 2, if dark: color(0, 0, 0) else: color(97, 97, 97))
+    if down: discShaded(cx, cy, kd / 2 - 1, color(190, 190, 190), color(232, 232, 232))
+    else: discShaded(cx, cy, kd / 2 - 1, color(208, 208, 208), color(252, 252, 252))
+    ring(cx, cy, kd / 2 - 1, 1, withAlpha(color(255, 255, 255), 153))
     if not enabled:
       roundRect(track, rad, withAlpha(th.window, 130))
     return
@@ -687,10 +697,23 @@ proc chips*(items: openArray[string]; selected: openArray[bool] = [];
     if hit.down and ui.pressed:
       ui.focus = gid
       st.caret = i
-    let bg = if on: th.select elif hit.showsHover: th.face else: th.window
-    roundRect(r, h / 2, if on: th.select else: th.shadow)
-    roundRect(inset(r, 1), (h - 2) / 2, bg)
-    let fg = if on: th.selectText elif enabled: th.text else: th.gray
+    var fg: Color
+    if glossLook():
+      # (iOS 6's tokens: pale blue lit along its top, black words; on: deep blue, white words)
+      var stops = if on: [glossTint(color(78, 143, 255)), glossTint(color(64, 117, 255)), glossTint(color(50, 92, 255))]
+                  else: [glossTint(color(221, 231, 248)), glossTint(color(205, 219, 245)), glossTint(color(189, 207, 241))]
+      if hit.down or hit.showsHover:
+        for c in stops.mitems: c = mixColor(c, color(0, 0, 0), if hit.down: 0.14 else: 0.05)
+      let rad = float(h) / 2
+      roundRect(r, rad, mixColor(stops[2], color(0, 0, 0), 0.22))
+      glossStops(inset(r, 1), rad - 1, stops)
+      glossTopShade(inset(r, 1), rad - 1, [if on: 51 else: 102], color(255, 255, 255))
+      fg = if not enabled: th.gray elif on: color(255, 255, 255) else: color(0, 0, 0)
+    else:
+      let bg = if on: th.select elif hit.showsHover: th.face else: th.window
+      roundRect(r, h / 2, if on: th.select else: th.shadow)
+      roundRect(inset(r, 1), (h - 2) / 2, bg)
+      fg = if on: th.selectText elif enabled: th.text else: th.gray
     text(r.x + dp(10), r.y + (h - FontH) div 2, s, fg)
     if ui.focus == gid and i == st.caret and not ui.touch:
       focusDots(rect(r.x + dp(7), r.y + (h - FontH) div 2 - 1, tw + 6, FontH + 2))
@@ -702,7 +725,8 @@ proc chips*(items: openArray[string]; selected: openArray[bool] = [];
     if closable:
       let xr = rect(r.x + r.w - xw - dp(6), r.y, xw + dp(6), h)
       text(xr.x, r.y + (h - FontH) div 2, nfTimes,
-           if mouseIn(xr) and canInput() and canHover(): th.text else: th.gray)
+           if glossLook(): mixColor(fg, color(128, 128, 128), 0.35)
+           elif mouseIn(xr) and canInput() and canHover(): th.text else: th.gray)
       if accessOn:
         if accessPress != 0 and accessPress == accessSubId(id, 1) and enabled:
           accessPress = 0
@@ -1282,7 +1306,12 @@ proc colorWell*(c: var Color; key: string; w = 0; title = "Color"; enabled = tru
   ## Lum, Red / Green / Blue, "#RRGGBB" -- and OK sets `c` (true then).
   ## Use one wherever a color is chosen; `key` tells the wells apart.
   ## `alpha`: its opacity too (Opacity, Transparent, Opaque; the swatch over a
-  ## checkerboard): for a color that may be see-through.
+  ## checkerboard): for a color that may be see-through -- a fill, a
+  ## gradient's stop, a card behind something.
+  ##
+  ## .. code-block:: nim
+  ##   var fill = color(40, 110, 220, 128)        # half see-through
+  ##   colorWell(fill, "fill", alpha = true)
   let r = place(if w > 0: w else: dp(40), EditH)
   # (one id for the well, its keys and its node: a label's second `idOf` in
   # a frame is another id)
@@ -2053,19 +2082,20 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
   let st = style(size = 0.8)
   # (the bottom-most bar also covers the system's gesture area)
   let below = if ui.bottom >= ui.h - ui.safe.bottom: ui.h - ui.bottom else: 0
-  let h = (if fingers(): dp(56) else: dp(44))
+  let gloss = glossLook()
+  let matte = matteLook()
+  let h = (if fingers(): (if gloss: dp(49) else: dp(56)) else: dp(44))
   let r = rect(0, ui.bottom - h, ui.w, h + below)
   pushLayer(LayerBase)
   defer: popLayer()
-  # (Gloss: the black glossy tab bar of its time; Matte: a dark bar, the chosen one marked by
-  # the highlight along its top)
-  let gloss = glossLook()
-  let matte = matteLook()
+  # (Gloss: iOS 6's black tab bar -- its top half lit as glass, a dark line along its top and a
+  # light one under it; Matte: a dark bar, the chosen one marked by the highlight along its top)
   if gloss:
-    roundRectShaded(r, 0, color(44, 44, 46), color(0, 0, 0))
-    roundRectShaded(rect(r.x, r.y, r.w, h div 2), 0, color(78, 78, 80), color(38, 38, 40))
-    hline(0, r.y, ui.w, color(0, 0, 0))
-    hline(0, r.y + 1, ui.w, withAlpha(color(255, 255, 255), 40))
+    fill(r, color(0, 0, 0))
+    roundRectShaded(rect(r.x, r.y, r.w, (h * 51 + 50) div 100), 0, color(51, 51, 51), color(20, 20, 20))
+    hline(0, r.y - 1, ui.w, withAlpha(color(0, 0, 0), 77))
+    hline(0, r.y, ui.w, color(12, 12, 12))
+    hline(0, r.y + 1, ui.w, mixColor(color(48, 48, 48), color(255, 255, 255), 0.18))
   elif matte:
     fill(r, color(30, 30, 32))
     hline(0, r.y, ui.w, color(64, 64, 68))
@@ -2076,7 +2106,7 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
   ui.bottom = r.y
   let inner = rect(ui.safe.left, r.y + 2, ui.w - ui.safe.left - ui.safe.right, h - 2)
   let slot = inner.w div items.len
-  let gst = style(size = 1.35)
+  let gst = style(size = if gloss and fingers(): 1.6 else: 1.35)
   let gid = idOf("bottomnav:" & $items.len & items[0][1])
   let focused = tabStop(gid, inner)
   if accessOn: accessBegin(arTabList, "", inner, gid)
@@ -2091,6 +2121,10 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
     if sel != before:
       ui.keyUsed = true
       result = true
+  # (Gloss: pixel icons drawn as their line twins on the black bar, in its grays and blue)
+  let lineWas = lineIcons()
+  if gloss: setLineIcons(true, color(168, 168, 168))
+  defer: (if gloss: setLineIcons(lineWas, th.text))
   for i, (glyph, label) in items:
     let cell = rect(inner.x + slot * i, inner.y, slot, inner.h)
     let id = idOf("bottomnav:" & $i & label)
@@ -2102,11 +2136,12 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
     let on = i == sel
     var c, lc: Color
     if gloss:
-      if on: roundRect(rect(cell.x + dp(3), cell.y + dp(2), cell.w - dp(6), cell.h - dp(4)), float(dp(4)),
-                       withAlpha(color(255, 255, 255), 30))
-      elif hit.showsHover: roundRect(inset(cell, dp(3)), float(dp(4)), withAlpha(color(255, 255, 255), 14))
-      c = if on: glossTone(0.72, 0.99) else: color(146, 146, 150)
-      lc = if on: color(255, 255, 255) else: color(146, 146, 150)
+      # (the chosen one in a lighter box: white at .15)
+      let box = rect(cell.x + dp(2), r.y + dp(3), cell.w - dp(4), h - dp(5))
+      if on: roundRect(box, float(dp(3)), withAlpha(color(255, 255, 255), 38))
+      elif hit.showsHover: roundRect(box, float(dp(3)), withAlpha(color(255, 255, 255), 16))
+      c = color(168, 168, 168)
+      lc = if on: color(255, 255, 255) else: color(153, 153, 153)
     elif matte:
       if on: fill(rect(cell.x, r.y, cell.w, max(2, dp(3))), accentColor())
       elif hit.showsHover: fill(inset(cell, 2), color(44, 44, 48))
@@ -2121,26 +2156,33 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
                        lineHeight(gst) + dp(2)), (lineHeight(gst) + dp(2)) / 2,
                   mixColor(th.face, th.select, 0.18))
     let gx = cell.x + (cell.w - textWidth(glyph, gst)) div 2
-    if gloss and on:
-      # (the chosen one's glyph lit as glass: light at its top, the scheme's hue under it -- a
-      # dark line under it, as pressed in)
-      let gy = cell.y + dp(5)
+    let lst = if gloss: style(size = if fingers(): 0.667 else: 0.8, bold = true) else: st
+    if gloss:
+      # (iOS 6's glyphs: gray, lighter at the top, a dark line over it; the chosen one lit as
+      # glass -- light at its top, the scheme's hue under it, a dark line under it)
+      let gy = r.y + max(dp(3), (h - lineHeight(gst) - lineHeight(lst)) div 2)
       let gh = lineHeight(gst)
-      text(gx, gy + 1, glyph, withAlpha(color(0, 0, 0), 150), gst)
-      pushClip(rect(cell.x, gy, cell.w, gh div 2))
-      text(gx, gy, glyph, glossTone(0.42, 1.0), gst)
-      popClip()
-      pushClip(rect(cell.x, gy + gh div 2, cell.w, gh - gh div 2))
-      text(gx, gy, glyph, glossTone(0.86, 0.94), gst)
-      popClip()
-    elif gloss:
-      text(gx, cell.y + dp(5) - 1, glyph, withAlpha(color(0, 0, 0), 150), gst)
+      if on:
+        text(gx, gy + 1, glyph, withAlpha(color(0, 0, 0), 150), gst)
+        pushClip(rect(cell.x, gy, cell.w, gh div 2))
+        text(gx, gy, glyph, glossTone(0.42, 1.0), gst)
+        popClip()
+        pushClip(rect(cell.x, gy + gh div 2, cell.w, gh - gh div 2))
+        text(gx, gy, glyph, glossTone(0.86, 0.94), gst)
+        popClip()
+      else:
+        text(gx, gy - 1, glyph, withAlpha(color(0, 0, 0), 191), gst)
+        for b in 0 .. 3:
+          pushClip(rect(cell.x, gy + gh * b div 4, cell.w, gh * (b + 1) div 4 - gh * b div 4))
+          text(gx, gy, glyph, mixColor(c, color(86, 86, 86), b / 3), gst)
+          popClip()
+      let l = ellipsize(label, slot - dp(4), lst)
+      text(cell.x + (cell.w - textWidth(l, lst)) div 2, gy + gh, l, lc, lst)
+    else:
       text(gx, cell.y + dp(5), glyph, c, gst)
-    else: text(gx, cell.y + dp(5), glyph, c, gst)
-    let l = ellipsize(label, slot - dp(4), st)
-    let lst = if gloss: style(size = 0.8, bold = true) else: st
-    text(cell.x + (cell.w - textWidth(l, lst)) div 2,
-         cell.y + dp(6) + lineHeight(gst), l, lc, lst)
+      let l = ellipsize(label, slot - dp(4), st)
+      text(cell.x + (cell.w - textWidth(l, st)) div 2,
+           cell.y + dp(6) + lineHeight(gst), l, lc, st)
     if on and focused and not ui.touch: focusDots(inset(cell, dp(3)))
     if accessOn:
       let k = accessNode(arTab, label, id = id, r = cell, states = (if on: {asSelected} else: {}))

@@ -76,6 +76,7 @@ STD = {
                        "openAtLogin", "setOpenAtLogin", "requestAttention", "online",
                        "systemLanguage", "battery", "revealFile", "psOk", "psWaiting"},
     "retroui/secrets": {"saveSecret", "loadSecret", "deleteSecret"},
+    "retroui/textengine": {"FontGlyph", "withFeature", "fontGlyphs"},
     "retroui/update": {"checkForUpdate", "downloadUpdate", "installUpdate", "restartApp"},
     # (movement: values that move, not controls to drop)
     "retroui/motion": {"sprung", "presence", "glided", "dragSnap", "staggered", "fixedSteps",
@@ -83,7 +84,7 @@ STD = {
 }
 
 # Examples of the guide that are about showing a window, not a control to drop.
-NOT_IN_BOX = {"windowbox", "jobs", "tray", "assistant", "devicemodel"}   # (and work, the system's tray, a conversation with a service, a model on the device: nothing to draw)
+NOT_IN_BOX = {"windowbox", "jobs", "tray", "assistant", "devicemodel", "terminal"}   # (and work, the system's tray, a conversation with a service, a model on the device, a program run in a terminal: nothing to draw)
 
 # The names templates give their bodies (besides `body`): two bodies side by side.
 BODY_NAMES = {"left", "right", "top", "bottom", "upper", "lower", "main", "pane", "first", "second", "header", "footer"}

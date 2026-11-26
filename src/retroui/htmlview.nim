@@ -2232,8 +2232,11 @@ proc webView*(url: string; height = -1; key = ""; engine = webEngine): WebEvent 
   ## its history. Its scripts talk to the app: `retro.post(text)` comes in
   ## `messages`; `webPost` sends one to them (a `retro` event on `window`),
   ## `webRun` runs a script and its answer comes in `results`. `webAllow`
-  ## keeps it to some hosts, `webZoom` sizes it. It is hidden while a menu or a
-  ## dialog of the app is over it, and when the widget is not drawn; while it
+  ## keeps it to some hosts, `webZoom` sizes it. An "html:" page comes from the app's
+  ## address -- "https://" and its package in an Android app, its bundle identifier or
+  ## `webPageBase` in WKWebView: the Referer YouTube's embedded player asks for -- and in an
+  ## Android app plays its media without a tap on it (a website waits for one). It is hidden
+  ## while a menu or a dialog of the app is over it, and when the widget is not drawn; while it
   ## has the keyboard, keys go to it (a click on the app takes them back).
   ## Android apps need the INTERNET permission (`retroapk
   ## --permission:INTERNET`). Where there is no engine it is the kit's own.

@@ -98,12 +98,13 @@ proc navButton(id: Id; r: Rect; label: string; back, primary: bool; bg: Color; e
   var ink: Color
   if glossLook():
     glossBarButton(r, hit.down, back = back, done = primary)
-    let st = style(bold = true, size = 0.9)
+    let st = glossButtonStyle()
     let tw = labelWidth(label, st)
-    let x0 = if back: r.x + min(r.h div 2, dp(13)) + (r.w - min(r.h div 2, dp(13)) - tw) div 2 - dp(2)
+    let p = min(r.h div 2, dp(13))
+    let x0 = if back: r.x + p + (r.w - p - dp(8) - tw) div 2
              else: r.x + (r.w - tw) div 2
     let ty = r.y + (r.h - lineHeight(st)) div 2
-    drawLabel(x0, ty - 1, label, withAlpha(black, 100), st)
+    drawLabel(x0, ty - 1, label, withAlpha(black, 102), st)
     drawLabel(x0, ty, label, if enabled: white else: mixColor(white, bg, 0.5), st)
     if hit.focused: focusDots(inset(r, 3))
     if accessOn: accessNode(arButton, label, id = id, r = r, states = offIf(enabled))
@@ -147,39 +148,40 @@ proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false
   let fg = if glassLook(): titleColors(true).fg else: th.text
   if glassLook():
     titleBar(full, true)
-    if glossLook():
-      # (a soft shadow under it on the page, as the bar stood over it)
-      for k in 0 ..< max(2, dp(3)):
-        hline(full.x, full.y + full.h + k, full.w, withAlpha(color(0, 0, 0), max(6, 46 - 16 * k)))
+    # (a soft shadow under it on the page, as the bar stood over it)
+    if glossLook(): glossBarShadow(full)
   else:
     fill(full, th.face)
     hline(full.x, full.y, full.w, th.light)
     hline(full.x, full.y + full.h - 2, full.w, th.shadow)
     hline(full.x, full.y + full.h - 1, full.w, th.frame)
-  let bh = if glossLook(): min(h - dp(10), if fingers(): dp(30) else: CtrlH)
+  # (Gloss: iOS 6's buttons -- 29 high on a 44 bar, 10 either side of their label, at least
+  # 32 for it; Back's point 13 wide, 8 after its label)
+  let bh = if glossLook(): min(h - dp(10), if fingers(): dp(29) else: CtrlH)
            else: h - (if fingers(): dp(12) else: dp(8))
   let by = r.y + (h - bh) div 2
   let gloss = glossLook()
-  let bst = style(bold = true, size = 0.9)
+  let bst = glossButtonStyle()
   let leftW = if back.len == 0: 0
-              elif gloss: labelWidth(back, bst) + min(bh div 2, dp(13)) + dp(12)
+              elif gloss: min(bh div 2, dp(13)) + max(dp(24), labelWidth(back, bst)) + dp(10)
               else: labelWidth(back) + dp(11) + dp(18)
   let rightW = if action.len == 0: 0
-               elif gloss: max(dp(48), labelWidth(action, bst) + dp(20))
+               elif gloss: max(dp(32), labelWidth(action, bst)) + dp(20)
                else: labelWidth(action) + dp(18)
-  if back.len > 0 and navButton(idOf(key & ":back"), rect(r.x + dp(6), by, leftW, bh), back, true,
+  let edge = if gloss: dp(5) else: dp(6)
+  if back.len > 0 and navButton(idOf(key & ":back"), rect(r.x + edge, by, leftW, bh), back, true,
                                 false, bg, enabled):
     result = npBack
-  if action.len > 0 and navButton(idOf(key & ":action"), rect(r.x + r.w - dp(6) - rightW, by, rightW, bh),
+  if action.len > 0 and navButton(idOf(key & ":action"), rect(r.x + r.w - edge - rightW, by, rightW, bh),
                                   action, false, done, bg, enabled):
     result = npAction
   # the title in the middle of the bar, short of the buttons
-  let st = if glossLook(): style(bold = true, size = 1.2) else: style(bold = true)
+  let st = if glossLook(): style(bold = true, size = if fingers(): 1.333 else: 1.2) else: style(bold = true)
   let t = ellipsize(tr(title), max(dp(24), r.w - 2 * (max(leftW, rightW) + dp(12))), st)
   let tw = textWidth(t, st)
   let tx = r.x + (r.w - tw) div 2
   let ty = r.y + (h - lineHeight(st)) div 2
-  if glossLook(): text(tx, ty - 1, t, withAlpha(black, 110), st)    # (pressed in, as Gloss writes on bars)
+  if glossLook(): text(tx, ty - 1, t, withAlpha(black, 102), st)    # (pressed in, as Gloss writes on bars)
   text(tx, ty, t, fg, st)
   if back.len > 0 and enabled and result == npNone and canInput() and not ui.keyUsed and
      ui.popup == 0 and hotkeyPressed("Alt+Left"):
@@ -211,15 +213,59 @@ proc drumColor(): Color =
 
 proc drumFrame(): int =
   ## (how thick a wheel's frame is: Gloss's a dark band round it)
-  if glossLook(): dp(5) else: 2
+  if glossLook(): dp(6) else: 2
+
+proc wheelStyle(): TextStyle =
+  ## (a wheel's rows: Gloss's bold, iOS 6's 25 points on a phone)
+  if glossLook(): style(bold = true, size = if fingers(): 1.67 else: 1.15) else: TextStyle()
+
+proc drumSide(x, y, h: int; left: bool) =
+  ## (Gloss: a drum's side at `x` -- a black line, then a band of lavender gray fading into the
+  ## drum, to its right (`left`: the drum's left side) or to its left)
+  let edge = if onDarkWindow(): mixColor(drumColor(), black, 0.5) else: glossTint(color(200, 202, 220))
+  let n = max(4, dp(4))
+  for k in 1 .. n:
+    vline(if left: x + k else: x - k, y, h, mixColor(edge, drumColor(), float(k - 1) / float(n)))
+  vline(x, y, h, black)
+
+proc drumColumn(c: Rect) =
+  ## (Gloss: a wheel's white drum, its sides shaded as it turns away)
+  fill(c, drumColor())
+  if c.w < 12: return
+  drumSide(c.x, c.y, c.h, true)
+  drumSide(c.x + c.w - 1, c.y, c.h, false)
+
+proc glossDrumFrame(o, u: Rect) =
+  ## (Gloss: the picker's dark glass round its wheels -- `o` its outside, `u` the wheels --, lit
+  ## as glass at its top, a black line round the wheels and a faint light one under them)
+  let bg = glossTint(color(32, 33, 47))
+  let rad = float(dp(6))
+  for strip in [rect(o.x, o.y, o.w, u.y - o.y), rect(o.x, u.y + u.h, o.w, o.y + o.h - u.y - u.h),
+                rect(o.x, u.y, u.x - o.x, u.h), rect(u.x + u.w, u.y, o.x + o.w - u.x - u.w, u.h)]:
+    if strip.w <= 0 or strip.h <= 0: continue
+    pushClip(strip)
+    glossTwoTone(o, rad, mixColor(bg, white, 0.35), mixColor(bg, white, 0.1), bg, mixColor(bg, white, 0.05))
+    hline(o.x + int(rad), o.y, o.w - 2 * int(rad), withAlpha(black, 153))
+    hline(o.x + int(rad), o.y + 1, o.w - 2 * int(rad), withAlpha(white, 102))
+    roundFrame(rect(u.x - 1, u.y - 1, u.w + 2, u.h + 3), float(dp(4)), 1, withAlpha(white, 51))
+    roundFrame(rect(u.x - 1, u.y - 1, u.w + 2, u.h + 2), float(dp(4)), 1, black)
+    popClip()
 
 proc drumFace(r: Rect; enabled, focused: bool) =
-  ## (a wheel's frame and face: Gloss's dark frame round a white drum)
+  ## (a wheel's frame and face: Gloss's dark glass round a white drum)
   if glossLook():
-    roundRectShaded(r, float(dp(6)), color(92, 94, 100), color(18, 18, 20))
-    fill(inset(r, drumFrame()), drumColor())
+    let u = inset(r, drumFrame())
+    glossDrumFrame(r, u)
+    drumColumn(u)
   elif glassLook(): fieldFace(r, th.field, enabled, focused)
   else: fieldFace(r, th.field, enabled)
+
+proc glossWheelBand(band: Rect) =
+  ## (Gloss: the band across the wheels, under its rows -- iOS 6's pane of lavender glass, its
+  ## top half lighter with a hard edge at its middle)
+  let base = if onDarkWindow(): mixColor(drumColor(), glossTint(color(85, 92, 153)), 0.5)
+             else: glossTint(color(170, 173, 204))
+  glossTwoTone(band, 0, mixColor(base, white, 0.8), mixColor(base, white, 0.2), base, mixColor(base, white, 0.2))
 
 proc drumOverlay(inner, band: Rect; enabled, focused: bool) =
   ## (over the rows: the drum darker or fading toward its top and foot; the band across it)
@@ -227,13 +273,17 @@ proc drumOverlay(inner, band: Rect; enabled, focused: bool) =
   let third = inner.h div 3
   let dark = onDarkWindow()
   if glossLook():
-    # (a drum: darker toward its top and its foot; the band a pane of blue glass over it)
-    fade(rect(inner.x, inner.y, inner.w, third), black, if dark: 170 else: 110, 0)
-    fade(rect(inner.x, inner.y + inner.h - third, inner.w, third), black, 0, if dark: 170 else: 110)
-    roundRectShaded(band, 0, withAlpha(glossTone(0.15, 0.93), 110), glossTone(0.49, 0.75))
-    hline(band.x, band.y, band.w, withAlpha(glossTone(0.2, 0.59), 220))
-    hline(band.x, band.y + 1, band.w, withAlpha(white, 120))
-    hline(band.x, band.y + band.h - 1, band.w, withAlpha(glossTone(0.36, 0.43), 220))
+    # (a drum: darker toward its top and its foot, darkest at its very ends; the band's lines,
+    # and its shadow on the rows under it -- its glass is under the rows, `glossWheelBand`)
+    let edge = max(4, inner.h div 14)
+    fade(rect(inner.x, inner.y, inner.w, edge), black, if dark: 190 else: 150, 0)
+    fade(rect(inner.x, inner.y + inner.h - edge, inner.w, edge), black, 0, if dark: 190 else: 150)
+    fade(rect(inner.x, inner.y, inner.w, third), black, if dark: 140 else: 102, 0)
+    fade(rect(inner.x, inner.y + inner.h - third, inner.w, third), black, 0, if dark: 140 else: 102)
+    fade(rect(band.x, band.y + band.h, band.w, max(3, dp(5))), black, 77, 0)
+    hline(band.x, band.y, band.w, withAlpha(black, 166))
+    hline(band.x, band.y + 1, band.w, withAlpha(white, 26))
+    hline(band.x, band.y + band.h - 1, band.w, withAlpha(black, 100))
   elif glassLook():
     # (the rows fading into the field toward its top and its foot)
     fade(rect(inner.x, inner.y, inner.w, third), th.field, 210, 0)
@@ -252,8 +302,8 @@ proc drumOverlay(inner, band: Rect; enabled, focused: bool) =
   popClip()
 
 proc wheelRowH*(): int =
-  ## The height of a wheel picker's row (taller for fingers).
-  if fingers(): dp(34) else: ItemH + dp(7)
+  ## The height of a wheel picker's row (taller for fingers; Gloss's iOS 6's 44 there).
+  if fingers(): (if glossLook(): dp(44) else: dp(34)) else: ItemH + dp(7)
 
 proc wheelImpl(items: openArray[string]; gen: proc (i: int): string; count: int; sel: var int;
                rows, w: int; enabled: bool; key, label: string): bool =
@@ -264,9 +314,9 @@ proc wheelImpl(items: openArray[string]; gen: proc (i: int): string; count: int;
   var ww = w
   if ww <= 0:
     if gen == nil:
-      for s in items: ww = max(ww, textWidth(s))
+      for s in items: ww = max(ww, textWidth(s, wheelStyle()))
     elif n > 0:
-      for i in [0, n - 1, clamp(sel, 0, n - 1)]: ww = max(ww, textWidth(itemAt(i)))
+      for i in [0, n - 1, clamp(sel, 0, n - 1)]: ww = max(ww, textWidth(itemAt(i), wheelStyle()))
     ww += dp(30)
   let r = place(ww, rh * rows + 4)
   let id = if key.len > 0: idOf("wheel:" & key) else: idOf(sel, "wheel")
@@ -274,7 +324,7 @@ proc wheelImpl(items: openArray[string]; gen: proc (i: int): string; count: int;
   # (in a group: its face alone, the group's frame and band round them all at its end)
   let grouped = wheelGroupOn and glassLook()
   if grouped:
-    fill(r, drumColor())
+    fill(r, drumColor())             # (Gloss: its sides drawn with the group's, `endWheelGroup`)
     wheelRects.add (r, hit.focused)
   else: drumFace(r, enabled, hit.focused)
   if n == 0: return
@@ -380,6 +430,10 @@ proc wheelImpl(items: openArray[string]; gen: proc (i: int): string; count: int;
   let band = rect(inner.x, cy - rh div 2, inner.w, rh)
   let classic = not glassLook()
   if classic: fill(band, if enabled: th.select else: mixColor(th.field, th.gray, 0.4))
+  elif glossLook():
+    pushClip(rect(inner.x + 1, inner.y, inner.w - 2, inner.h))
+    glossWheelBand(band)
+    popClip()
   let rad = float(inner.h) / 2              # (the drum's radius: its edge a quarter turn from the band)
   let fieldInk = if enabled: th.fieldText else: th.gray
   let bandInk = if not enabled: th.gray
@@ -399,9 +453,11 @@ proc wheelImpl(items: openArray[string]; gen: proc (i: int): string; count: int;
       if abs(ang) >= PI / 2: continue
       let y = float(cy) + rad * sin(ang)
       let s = itemAt(i)
+      # (Gloss: black, as iOS 6's -- the drum's shading darkens the rows toward its ends)
       let c = if pass == 2: bandInk
+              elif glossLook(): mixColor(fieldInk, drumColor(), min(0.4, (1 - cos(ang)) * 0.45))
               else: mixColor(fieldInk, drumColor(), min(0.82, 0.3 + (1 - cos(ang)) * 0.9))
-      let st = if glossLook(): style(bold = true, size = 1.15) else: TextStyle()
+      let st = wheelStyle()
       text(inner.x + (inner.w - textWidth(s, st)) div 2, int(round(y)) - lineHeight(st) div 2, s, c, st)
     popClip()
   if not grouped: drumOverlay(inner, band, enabled, hit.focused)
@@ -440,21 +496,33 @@ proc endWheelGroup*() =
     let x1 = max(u.x + u.w, r.x + r.w)
     let y1 = max(u.y + u.h, r.y + r.h)
     u = rect(min(u.x, r.x), min(u.y, r.y), x1 - min(u.x, r.x), y1 - min(u.y, r.y))
-  # (between the wheels: the drum's color, or Gloss's frame as a line)
+  let rh = wheelRowH()
+  let band = rect(u.x, u.y + u.h div 2 - rh div 2, u.w, rh)
+  # (between the wheels: the drum's color -- Gloss: the band across too, a dark line in the
+  # middle with each drum's side shaded either side of it, and at the group's ends)
   for i in 1 ..< wheelRects.len:
     let a = wheelRects[i - 1].r
     let b = wheelRects[i].r
     if b.x > a.x + a.w:
-      fill(rect(a.x + a.w, u.y, b.x - a.x - a.w, u.h), if glossLook(): color(48, 48, 52) else: drumColor())
-  let rh = wheelRowH()
-  let band = rect(u.x, u.y + u.h div 2 - rh div 2, u.w, rh)
+      let gap = rect(a.x + a.w, u.y, b.x - a.x - a.w, u.h)
+      fill(gap, drumColor())
+      if glossLook():
+        pushClip(gap)
+        glossWheelBand(band)
+        popClip()
+    if glossLook():
+      let mid = (a.x + a.w + b.x) div 2
+      let lw = max(2, dp(2))
+      drumSide(mid - lw div 2 - 1, u.y, u.h, false)
+      drumSide(mid + lw - lw div 2, u.y, u.h, true)
+      fill(rect(mid - lw div 2, u.y, lw, u.h), black)
+  if glossLook():
+    drumSide(u.x, u.y, u.h, true)
+    drumSide(u.x + u.w - 1, u.y, u.h, false)
   drumOverlay(u, band, true, false)
   if glossLook():
     let f = drumFrame()
-    let o = rect(u.x - f, u.y - f, u.w + 2 * f, u.h + 2 * f)
-    roundFrame(o, float(dp(6)), float(f), color(44, 44, 48))
-    hline(o.x + dp(6), o.y, o.w - 2 * dp(6), color(120, 122, 128))
-    hline(u.x, u.y - 1, u.w, color(20, 20, 22))
+    glossDrumFrame(rect(u.x - f, u.y - f, u.w + 2 * f, u.h + 2 * f), u)
   else:
     roundFrame(rect(u.x - 1, u.y - 1, u.w + 2, u.h + 2), float(if matteLook(): dp(2) else: dp(6)), 1,
                mixColor(th.field, th.fieldText, if onDarkWindow(): 0.34 else: 0.28))
@@ -494,7 +562,7 @@ proc dateWheels*(d: var Date; years = 1900 .. 2100; enabled = true): bool {.disc
   let k = "datewheels:" & $cast[uint](addr d)
   let first = years.a
   var monthW = 0
-  for m in monthNames: monthW = max(monthW, textWidth(tr(m)))
+  for m in monthNames: monthW = max(monthW, textWidth(tr(m), wheelStyle()))
   let order = case dateStyle
               of dsDMY: [0, 1, 2]
               of dsMDY: [1, 0, 2]
@@ -505,7 +573,7 @@ proc dateWheels*(d: var Date; years = 1900 .. 2100; enabled = true): bool {.disc
       case part
       of 0:
         accessName(tr("Day"))
-        if wheelPicker(daysInMonth(d.year, d.month), dayLabel, day, w = textWidth("30") + dp(30),
+        if wheelPicker(daysInMonth(d.year, d.month), dayLabel, day, w = textWidth("30", wheelStyle()) + dp(30),
                        enabled = enabled, key = k & "d", label = tr("Day")): changed = true
       of 1:
         accessName(tr("Month"))
@@ -514,7 +582,7 @@ proc dateWheels*(d: var Date; years = 1900 .. 2100; enabled = true): bool {.disc
       else:
         accessName(tr("Year"))
         if wheelPicker(years.b - years.a + 1, proc (i: int): string = $(first + i), yr,
-                       w = textWidth("2000") + dp(30), enabled = enabled, key = k & "y",
+                       w = textWidth("2000", wheelStyle()) + dp(30), enabled = enabled, key = k & "y",
                        label = tr("Year")): changed = true
   if changed:
     let y = years.a + yr
@@ -537,16 +605,16 @@ proc timeWheels*(h, m: var int; minuteStep = 1; hours12 = false; enabled = true)
     accessName(tr("Hours"))
     if hours12:
       if wheelPicker(12, proc (i: int): string = (if i == 0: "12" else: $i), hi,
-                     w = textWidth("12") + dp(30), enabled = enabled, key = k & "h",
+                     w = textWidth("12", wheelStyle()) + dp(30), enabled = enabled, key = k & "h",
                      label = tr("Hours")): changed = true
-    elif wheelPicker(24, twoDigits, hi, w = textWidth("00") + dp(30), enabled = enabled,
+    elif wheelPicker(24, twoDigits, hi, w = textWidth("00", wheelStyle()) + dp(30), enabled = enabled,
                      key = k & "h", label = tr("Hours")): changed = true
     accessName(tr("Minutes"))
     if wheelPicker(60 div step, proc (i: int): string = twoDigits(i * step), mi,
-                   w = textWidth("00") + dp(30), enabled = enabled, key = k & "m",
+                   w = textWidth("00", wheelStyle()) + dp(30), enabled = enabled, key = k & "m",
                    label = tr("Minutes")): changed = true
     if hours12:
-      if wheelPicker(["AM", "PM"], half, w = max(textWidth("AM"), textWidth("PM")) + dp(30),
+      if wheelPicker(["AM", "PM"], half, w = max(textWidth("AM", wheelStyle()), textWidth("PM", wheelStyle())) + dp(30),
                      enabled = enabled, key = k & "p", label = "AM/PM"): changed = true
   if changed:
     let nh = if hours12: hi + 12 * half else: hi
@@ -699,6 +767,14 @@ proc pageDots*(page: var int; pages: int; enabled = true; label = "Page"): bool 
   let cy = float(r.y + h div 2)
   for i in 0 ..< pages:
     let cx = float(x0 + gap * i + gap div 2)
+    if glossLook():
+      # (iOS 6's: white dots in a dark halo, a shadow under them, the others half as strong)
+      let k = if i == page: 1.0 else: 0.5
+      let rd = float(d) / 2 - 0.5
+      disc(cx, cy + 1.5, rd, withAlpha(black, int(51 * k)))
+      disc(cx, cy, rd + 1.5, withAlpha(black, int(110 * k)))
+      disc(cx, cy, rd, if enabled: withAlpha(white, int(235 * k)) else: withAlpha(th.gray, int(235 * k)))
+      continue
     if i == page:
       disc(cx, cy, float(d) / 2, cur)
     elif not glassLook():
@@ -920,7 +996,8 @@ proc beginSheet(open: var bool; id: Id; title: string; kind: SheetKind; width: i
     ax = clamp(anchor.x + anchor.w div 2, x + dp(18), x + w - dp(18))
   let r = rect(x, y, w, h)
   if kind != skPopover:
-    fill(room, withAlpha(black, if onDarkWindow(): 120 else: 80))     # (what is behind it, dimmed)
+    # (what is behind it, dimmed: Gloss as iOS 6 dimmed it, by half)
+    fill(room, withAlpha(black, if glossLook(): 128 elif onDarkWindow(): 120 else: 80))
   notePlaced(r)
   # Esc, Back, a press outside close it; a bottom one's top drags it down
   if canInput():
@@ -1030,11 +1107,23 @@ proc actionSheet*(open: var bool; title: string; actions: openArray[string]; des
   defer: endSheet()
   let sr = sheetRect
   if gloss:
-    # (a dark sheet, see-through, lit along its top)
-    roundRectShaded(sr, float(if compact: 0 else: dp(10)), withAlpha(glossTone(0.29, 0.24), 236), glossTone(0.6, 0.04))
-    hline(sr.x, sr.y, sr.w, withAlpha(white, 90))
+    # (iOS 6's: a gray sheet, see-through -- black on a dark window --, a shadow over what is
+    # behind it, the light along its top fading out)
+    let dark = onDarkWindow()
+    let rad = float(if compact: 0 else: dp(10))
+    if compact:
+      hline(sr.x, sr.y - 1, sr.w, withAlpha(black, 102))
+      hline(sr.x, sr.y - 2, sr.w, withAlpha(black, 40))
+    else: softShadow(sr, rad, 5)
+    roundRect(sr, rad, if dark: withAlpha(black, 153) else: withAlpha(glossTint(color(93, 98, 109)), 204))
+    let fade = dp(30)
+    var light = newSeq[int](fade)
+    for k in 0 ..< fade: light[k] = int(float(if dark: 89 else: 102) * (1 - k / fade))
+    light[0] = max(light[0], 178)
+    if fade > 1: light[1] += 50
+    glossTopShade(sr, rad, light, white)
   let bh = if fingers(): dp(44) else: CtrlH + dp(10)
-  let titleInk = if gloss: color(208, 212, 220) else: th.gray
+  let titleInk = if gloss: color(235, 236, 240) else: th.gray
   # (the title's and the message's places first: Glass draws its card under them too)
   var titleR, messageR: Rect
   if title.len > 0: titleR = place(0, FontH + dp(if cards: 12 else: 2), fill = true)
@@ -1052,19 +1141,24 @@ proc actionSheet*(open: var bool; title: string; actions: openArray[string]; des
     if not frostedFace(card, glassCard(), cardRad): roundRect(card, cardRad, glassCard())
     if top < blockR.y: hline(blockR.x, blockR.y, blockR.w, glassHair())
   if title.len > 0:
-    let t = ellipsize(tr(title), titleR.w, style(bold = true))
-    text(titleR.x + (titleR.w - textWidth(t, true)) div 2, titleR.y + (if cards: dp(4) else: 0), t,
-         titleInk, true)
+    # (Gloss: iOS 6's small title, not bold)
+    let st = if gloss: style(size = if fingers(): 0.93 else: 1.0) else: style(bold = true)
+    let t = ellipsize(tr(title), titleR.w, st)
+    let tx = titleR.x + (titleR.w - textWidth(t, st)) div 2
+    if gloss: text(tx, titleR.y - 1, t, withAlpha(black, 110), st)
+    text(tx, titleR.y + (if cards: dp(4) else: 0), t, titleInk, st)
   if message.len > 0:
     let t = ellipsize(tr(message), messageR.w)
     text(messageR.x + (messageR.w - textWidth(t)) div 2, messageR.y, t, titleInk)
   var focusedAt = -1
   for i in 0 .. actions.len:
     let isCancel = i == actions.len
-    if isCancel: space(dp(8))
+    if isCancel: space(if gloss: dp(14) else: dp(8))
     let a = if isCancel: cancel else: actions[i]
-    let r = if joined and not isCancel: rect(blockR.x, blockR.y + i * bh, blockR.w, bh)
-            else: place(0, bh, fill = true)
+    let r0 = if joined and not isCancel: rect(blockR.x, blockR.y + i * bh, blockR.w, bh)
+             else: place(0, bh, fill = true)
+    # (Gloss: iOS 6's buttons 20 in from the sheet's sides)
+    let r = if gloss and r0.w > dp(120): rect(r0.x + dp(12), r0.y, r0.w - dp(24), r0.h) else: r0
     let aid = sid + Id(1 + i)
     var hit = interact(aid, r)
     spaceKey(aid, hit)
@@ -1077,18 +1171,8 @@ proc actionSheet*(open: var bool; title: string; actions: openArray[string]; des
     var bold = isCancel
     if gloss:
       bold = true
-      if i == destructive:
-        tintedFace(r, color(206, 28, 28), hit.down, float(dp(8)))
-        ink = white
-      elif isCancel:
-        tintedFace(r, color(58, 62, 72), hit.down, float(dp(8)))
-        ink = white
-      else:
-        let rad = float(dp(8))
-        roundRect(r, rad, color(20, 22, 26))
-        roundRectShaded(inset(r, 1), rad - 1, if hit.down: color(200, 200, 204) else: white,
-                        if hit.down: color(170, 170, 176) else: color(214, 214, 220))
-        ink = color(20, 20, 22)
+      glossSheetButton(r, hit.down, if i == destructive: 1 elif isCancel: 2 else: 0)
+      ink = if i == destructive or isCancel or hit.down: white else: color(0, 0, 0)
     elif cards:
       if isCancel:
         if not frostedFace(r, glassCard(), cardRad): roundRect(r, cardRad, glassCard())
@@ -1112,10 +1196,13 @@ proc actionSheet*(open: var bool; title: string; actions: openArray[string]; des
       ink = white
     else:
       buttonFace(r, hit.down, 1, hot = hovered(r))
-    let lw = labelWidth(a, bold)
-    let ly = r.y + (r.h - FontH) div 2
-    if gloss and ink == white: drawLabel(r.x + (r.w - lw) div 2, ly - 1, a, withAlpha(black, 100), bold)
-    drawLabel(r.x + (r.w - lw) div 2, ly, a, ink, bold)
+    let lst = if gloss: style(bold = true, size = if fingers(): 1.33 else: 1.1) else: style(bold = bold)
+    let lw = labelWidth(a, lst)
+    let ly = r.y + (r.h - lineHeight(lst)) div 2
+    if gloss:
+      if ink == white: drawLabel(r.x + (r.w - lw) div 2, ly - 1, a, withAlpha(black, 102), lst)
+      else: drawLabel(r.x + (r.w - lw) div 2, ly + 1, a, withAlpha(white, 102), lst)
+    drawLabel(r.x + (r.w - lw) div 2, ly, a, ink, lst)
     if hit.focused: focusDots(inset(r, 3))
     if accessOn: accessNode(arButton, a, id = aid, r = r)
     if hit.clicked:
@@ -1179,7 +1266,7 @@ proc alertBox*(open: var bool; title: string; message = ""; buttons: openArray[s
   result = -1
   let sid = idOf("alert:" & title & "\x1F" & message)
   let wasOpen = open
-  if not beginSheet(open, sid, "", skMiddle, 284, drawFace = false, tapCloses = false,
+  if not beginSheet(open, sid, "", skMiddle, if glossLook(): 276 else: 284, drawFace = false, tapCloses = false,
                     escCloses = cancel >= 0):
     if wasOpen and not open: result = cancel
     return
@@ -1190,13 +1277,16 @@ proc alertBox*(open: var bool; title: string; message = ""; buttons: openArray[s
   let glass = glassLook() and not gloss and not matte
   var ink, sub: Color
   if gloss:
+    # (iOS 6's: dark blue, see-through, a white line round it, the shine across its top curved
+    # at its foot)
     let rad = float(dp(10))
-    roundRect(r, rad, withAlpha(glossTone(0.07, 0.95), 240))
-    let f = inset(r, max(2, dp(2)))
-    roundRectShaded(f, rad - 2, withAlpha(glossTone(0.58, 0.53), 238), glossTone(0.8, 0.24))
-    # (the shine across its top, curved at its foot)
-    pushClip(rect(f.x, f.y, f.w, dp(36)))
-    disc(float(f.x + f.w div 2), float(f.y + dp(30)) - float(f.w) * 1.4, float(f.w) * 1.4, withAlpha(white, 40))
+    softShadow(r, rad, 5)
+    let e = max(2, dp(2))
+    roundFrame(r, rad, float(e), withAlpha(white, 178))
+    let f = inset(r, e)
+    roundRect(f, rad - float(e), withAlpha(glossTint(color(8, 26, 80)), 214))
+    pushClip(rect(f.x, f.y, f.w, dp(29)))
+    disc(float(f.x + f.w div 2), float(f.y + dp(29)) - float(f.w) * 1.4, float(f.w) * 1.4, withAlpha(white, 46))
     popClip()
     ink = white
     sub = glossTone(0.05, 0.96)
@@ -1221,24 +1311,29 @@ proc alertBox*(open: var bool; title: string; message = ""; buttons: openArray[s
   let centered = gloss or glass
   for (txt, bold, c) in [(title, true, ink), (message, false, sub)]:
     if txt.len == 0: continue
-    for ln in wrapLines(tr(txt), room, bold):
-      let lr = place(0, FontH + dp(2), fill = true)
-      let tw = textWidth(ln, bold)
+    # (Gloss: iOS 6's sizes -- the title 18, the message 16 -- wrapped as wide as they are)
+    let k = if not gloss: 1.0 elif bold: (if fingers(): 1.2 else: 1.1) else: (if fingers(): 1.07 else: 1.0)
+    let st = style(bold = bold, size = k)
+    let lh = if gloss: lineHeight(st) else: FontH
+    for ln in wrapLines(tr(txt), (if k > 1.0: int(float(room) / k) - 1 else: room), bold):
+      let lr = place(0, lh + dp(2), fill = true)
+      let tw = textWidth(ln, st)
       let tx = if centered: lr.x + (lr.w - tw) div 2 else: lr.x
-      if gloss: text(tx, lr.y - 1, ln, withAlpha(black, 120), bold)
-      text(tx, lr.y, ln, c, bold)
+      if gloss: text(tx, lr.y - 1, ln, withAlpha(black, 204), st)
+      text(tx, lr.y, ln, c, st)
   space(dp(8))
-  let bh = if fingers(): dp(44) else: CtrlH + dp(8)
+  let bh = if gloss and fingers(): dp(40) elif fingers(): dp(44) else: CtrlH + dp(8)
   let side = buttons.len == 2
   let pairR = if side: place(0, bh, fill = true) else: Rect()
+  let between = if gloss: dp(10) else: dp(6)
   if glass:
     # (its buttons across its foot, a hairline over them and between them)
     let top = if side: pairR.y else: frameBottom()
     hline(r.x, top - dp(2), r.w, glassHair())
   if canInput() and ui.focus == 0 and buttons.len > 0: ui.focus = sid + Id(buttons.len)
   for i, b in buttons:
-    let br = if side: rect(pairR.x + (if i == 0: 0 else: pairR.w div 2 + dp(3)), pairR.y,
-                           pairR.w div 2 - dp(3), bh)
+    let br = if side: rect(pairR.x + (if i == 0: 0 else: pairR.w - (pairR.w - between) div 2), pairR.y,
+                           (pairR.w - between) div 2, bh)
              else: place(0, bh, fill = true)
     let bid = sid + Id(1 + i)
     var hit = interact(bid, br)
@@ -1250,7 +1345,7 @@ proc alertBox*(open: var bool; title: string; message = ""; buttons: openArray[s
     var lc = th.text
     var bold = i == buttons.high and buttons.len > 1
     if gloss:
-      tintedFace(br, if i == cancel: glossTone(0.63, 0.36) else: glossTone(0.53, 0.61), hit.down, float(dp(6)))
+      glossAlertButton(br, hit.down, primary = i == buttons.high and buttons.len > 1)
       lc = white
       bold = true
     elif glass:
@@ -1265,10 +1360,11 @@ proc alertBox*(open: var bool; title: string; message = ""; buttons: openArray[s
       lc = white
     else:
       buttonFace(br, hit.down, if i == buttons.high: 2 else: 1, hot = hovered(br))
-    let lw = labelWidth(b, bold)
-    let ly = br.y + (br.h - FontH) div 2
-    if gloss: drawLabel(br.x + (br.w - lw) div 2, ly - 1, b, withAlpha(black, 110), bold)
-    drawLabel(br.x + (br.w - lw) div 2, ly, b, lc, bold)
+    let bst = if gloss: style(bold = true, size = if fingers(): 1.2 else: 1.0) else: style(bold = bold)
+    let lw = labelWidth(b, bst)
+    let ly = br.y + (br.h - lineHeight(bst)) div 2
+    if gloss: drawLabel(br.x + (br.w - lw) div 2, ly - 1, b, withAlpha(black, 160), bst)
+    drawLabel(br.x + (br.w - lw) div 2, ly, b, lc, bst)
     if hit.focused: focusDots(inset(br, 3))
     if accessOn: accessNode(arButton, b, id = bid, r = br)
     if hit.clicked:
@@ -1314,8 +1410,8 @@ proc beginTableGroup*(header = ""; footer = "") =
     let tx = hr.x + (if glassLook(): dp(12) else: 0)
     let ty = hr.y + hr.h - lineHeight(st) - dp(2)
     if gloss:
-      if not onDarkWindow(): text(tx, ty + 1, t, withAlpha(white, 200), st)
-      text(tx, ty, t, if onDarkWindow(): color(196, 200, 210) else: glossTone(0.30, 0.42), st)
+      if not onDarkWindow(): text(tx, ty + 1, t, withAlpha(white, 204), st)
+      text(tx, ty, t, if onDarkWindow(): color(196, 200, 210) else: glossTint(color(76, 86, 108)), st)
     elif matteLook():
       text(tx, ty, t, accentText(), st)
       fill(rect(hr.x, hr.y + hr.h - 1, hr.w, 1), mixColor(th.window, accentColor(), 0.5))
@@ -1349,8 +1445,11 @@ proc endTableGroup*() =
   let r = g.r
   let rad = tableRadius()
   if glossLook():
-    roundFrame(r, rad, 1, if onDarkWindow(): black else: color(171, 171, 171))
-    if not onDarkWindow(): hline(r.x + int(rad), r.y + r.h, r.w - 2 * int(rad), withAlpha(white, 200))
+    # (iOS 6's: a faint dark line round it, a shadow inside along its top, a light line under it)
+    roundFrame(r, rad, 1, if onDarkWindow(): black else: withAlpha(black, 46))
+    if not onDarkWindow():
+      glossTopShade(inset(r, 1), rad - 1, [26])
+      hline(r.x + int(rad), r.y + r.h, r.w - 2 * int(rad), withAlpha(white, 204))
   elif matteLook():
     hline(r.x, r.y, r.w, mixColor(th.window, th.text, 0.16))
     hline(r.x, r.y + r.h - 1, r.w, mixColor(th.window, th.text, 0.16))
@@ -1364,8 +1463,8 @@ proc endTableGroup*() =
       let tw = textWidth(ln)
       let tx = if gloss: lr.x + (lr.w - tw) div 2 elif glassLook(): lr.x + dp(12) else: lr.x
       if gloss:
-        if not onDarkWindow(): text(tx, lr.y + 1, ln, withAlpha(white, 200))
-        text(tx, lr.y, ln, if onDarkWindow(): color(176, 180, 190) else: glossTone(0.30, 0.42))
+        if not onDarkWindow(): text(tx, lr.y + 1, ln, withAlpha(white, 204))
+        text(tx, lr.y, ln, if onDarkWindow(): color(176, 180, 190) else: glossTint(color(76, 86, 108)))
       else: text(tx, lr.y, ln, th.gray)
 
 template tableGroup*(header, footer: string; body: untyped) =
@@ -1394,11 +1493,13 @@ proc rowFrame(r: Rect; pressed: bool): tuple[first, last: bool; ink, sub, link: 
   let rad = tableRadius()
   let gloss = glossLook()
   if not first:
-    let lc = if gloss: (if onDarkWindow(): color(20, 20, 22) else: color(224, 224, 224))
+    let lc = if gloss: (if onDarkWindow(): color(20, 20, 22) else: color(217, 217, 217))
              elif glassLook() and not matteLook(): glassHair()
              else: mixColor(th.field, th.fieldText, 0.14)
     let lx = if glassLook() and not gloss and not matteLook(): r.x + dp(14) else: r.x + 1
     hline(lx, r.y, r.x + r.w - 1 - lx, lc)
+    # (Gloss: a white line under it, as iOS 6's rows)
+    if gloss and not onDarkWindow() and not pressed: hline(lx, r.y + 1, r.x + r.w - 1 - lx, withAlpha(white, 204))
   if pressed:
     pushClip(r)
     if gloss: glossBlue(g, rad)
@@ -1513,7 +1614,7 @@ proc tableRow*(title: string; detail = ""; accessory = taNone; glyph = ""; subti
   case accessory
   of taChevron:
     rowChevron(endX - dp(4), r.y + r.h div 2,
-               if pressed and gloss: white elif gloss: color(112, 112, 112) else: th.gray)
+               if pressed and gloss: white elif gloss: color(123, 123, 123) else: th.gray)
     endX -= dp(if gloss: 20 else: 18)
   of taCheck:
     rowCheck(endX - dp(7), r.y + r.h div 2,
@@ -1688,11 +1789,7 @@ proc searchBar*(s: var string; placeholder = "Search"; cancel = "Cancel"): bool 
   let boxId = idOf(s, "search")
   let showCancel = cancel.len > 0 and (ui.focus == boxId or s.len > 0)
   let gloss = glossLook()
-  if gloss and not onDarkWindow():
-    # (its bar lighter than a navigation bar's, as then)
-    roundRectShaded(full, 0, glossTone(0.066, 0.90), glossTone(0.143, 0.77))
-    hline(full.x, full.y, full.w, withAlpha(white, 160))
-    hline(full.x, full.y + full.h - 1, full.w, glossTone(0.2, 0.58))
+  if gloss and not onDarkWindow(): glossSearchFill(full)    # (lighter than a navigation bar, as then)
   elif gloss: glossBarFill(full)
   elif matteLook():
     fill(full, th.face)
@@ -1702,19 +1799,21 @@ proc searchBar*(s: var string; placeholder = "Search"; cancel = "Cancel"): bool 
     fill(full, th.face)
     hline(full.x, full.y, full.w, th.light)
     hline(full.x, full.y + full.h - 1, full.w, th.shadow)
-  let bst = style(bold = gloss, size = if gloss: 0.9 else: 1.0)
-  let cw = if showCancel: labelWidth(cancel, bst) + dp(if gloss: 22 else: 16) else: 0
+  let bst = if gloss: glossButtonStyle() else: style()
+  let cw = if not showCancel: 0
+           elif gloss: max(dp(55), labelWidth(cancel, bst) + dp(20))
+           else: labelWidth(cancel, bst) + dp(16)
   pushFrame(rect(r.x + dp(8), r.y + (h - EditH) div 2, r.w - dp(16) - (if cw > 0: cw + dp(8) else: 0), 0))
   result = searchBox(s, placeholder)
   discard popFrame()
   if showCancel:
-    let bh = if gloss: min(h - dp(12), CtrlH) else: EditH
+    let bh = if gloss: min(h - dp(12), if fingers(): dp(30) else: CtrlH) else: EditH
     let cr = rect(r.x + r.w - dp(8) - cw, r.y + (h - bh) div 2, cw, bh)
     let cid = boxId + 9
     var ch = interact(cid, cr, focusable = false)
     var ink = accentText()
     if gloss:
-      glossBarButton(cr, ch.down)
+      glossBarButton(cr, ch.down, onSearch = not onDarkWindow())
       ink = white
     elif not glassLook():
       buttonFace(cr, ch.down, 1)
@@ -1722,7 +1821,7 @@ proc searchBar*(s: var string; placeholder = "Search"; cancel = "Cancel"): bool 
     elif ch.down: roundRect(cr, glassRadius(cr), withAlpha(th.text, 30))
     let lw = labelWidth(cancel, bst)
     let ly = cr.y + (cr.h - lineHeight(bst)) div 2
-    if gloss: drawLabel(cr.x + (cr.w - lw) div 2, ly - 1, cancel, withAlpha(black, 100), bst)
+    if gloss: drawLabel(cr.x + (cr.w - lw) div 2, ly - 1, cancel, withAlpha(black, 102), bst)
     drawLabel(cr.x + (cr.w - lw) div 2, ly, cancel, ink, bst)
     if accessOn: accessNode(arButton, cancel, id = cid, r = cr)
     if ch.clicked:
@@ -1751,7 +1850,7 @@ proc actionBar*(actions: openArray[(string, string)]; back = ""; signature = -1)
   let r = rect(ui.winX, ui.bottom - h, ui.w, h + below)
   pushLayer(LayerBase)
   defer: popLayer()
-  if gloss: glossBarFill(r)
+  if gloss: glossToolFill(r)
   elif matte:
     fill(r, color(30, 30, 32))
     hline(r.x, r.y, r.w, color(64, 64, 68))
@@ -1769,9 +1868,10 @@ proc actionBar*(actions: openArray[(string, string)]; back = ""; signature = -1)
   var x0 = inner.x
   let onBar = if gloss or matte: white elif glassLook(): accentText() else: th.text
   if back.len > 0:
-    let bw = labelWidth(back) + dp(if gloss: 30 else: 34)
-    let br = if gloss: rect(inner.x + dp(6), inner.y + (h - min(h - dp(14), CtrlH)) div 2, bw,
-                            min(h - dp(14), CtrlH))
+    let gbh = min(h - dp(14), if fingers(): dp(29) else: CtrlH)
+    let bw = if gloss: min(gbh div 2, dp(13)) + max(dp(24), labelWidth(back, glossButtonStyle())) + dp(10)
+             else: labelWidth(back) + dp(34)
+    let br = if gloss: rect(inner.x + dp(5), inner.y + (h - gbh) div 2, bw, gbh)
              else: rect(inner.x, inner.y, bw, h)
     let bid = idOf("actionbar:back:" & back)
     var bh = interact(bid, br)
@@ -1782,9 +1882,11 @@ proc actionBar*(actions: openArray[(string, string)]; back = ""; signature = -1)
     if gloss:
       glossBarButton(br, bh.down, back = true)
       let p = min(br.h div 2, dp(13))
-      drawLabel(br.x + p + (br.w - p - labelWidth(back)) div 2 - dp(2), br.y + (br.h - FontH) div 2 - 1, back,
-                withAlpha(black, 100))
-      drawLabel(br.x + p + (br.w - p - labelWidth(back)) div 2 - dp(2), br.y + (br.h - FontH) div 2, back, white)
+      let bst = glossButtonStyle()
+      let lx = br.x + p + (br.w - p - dp(8) - labelWidth(back, bst)) div 2
+      let ly = br.y + (br.h - lineHeight(bst)) div 2
+      drawLabel(lx, ly - 1, back, withAlpha(black, 102), bst)
+      drawLabel(lx, ly, back, white, bst)
     else:
       if matte:
         # (a tab with a slanted edge, a little lighter than the bar)
@@ -1848,3 +1950,505 @@ proc actionBar*(actions: openArray[(string, string)]; back = ""; signature = -1)
     if hit.focused: focusDots(inset(cell, dp(3)))
     if accessOn: accessNode(arButton, label, id = aid, r = cell)
   if accessOn: accessEnd()
+
+# ---- more of a phone's parts: round buttons, an index, bubbles, a clock, app icons, surfaces -----
+
+type RoundKind* = enum
+  ## What a `roundButton` is for.
+  rkAdd,       ## a plus, green: add (a row of an editing list)
+  rkRemove,    ## a minus, red: take away (a row of an editing list)
+  rkDetail,    ## a chevron, blue: more about it
+  rkInfo       ## an "i": about it
+
+proc roundColor(kind: RoundKind): Color =
+  case kind
+  of rkAdd: color(4, 143, 1)
+  of rkRemove: color(189, 20, 33)
+  of rkDetail: glossTint(color(36, 112, 216))
+  of rkInfo: accentColor()
+
+proc roundSign(cx, cy: float; d: int; kind: RoundKind; c: Color) =
+  ## (a round button's sign, `d` across its middle)
+  let s = max(5, d * 13 div 23)
+  case kind
+  of rkAdd: sign(int(cx), int(cy), s, true, c)
+  of rkRemove: sign(int(cx), int(cy), s, false, c)
+  of rkDetail: chevron(int(cx) + 1, int(cy), s * 2 div 3, false, c, max(1.8, float(dp(2)) + 0.3))
+  of rkInfo:
+    let st = style(bold = true, size = float(d) / 26)
+    text(int(cx) - textWidth("i", st) div 2, int(cy) - lineHeight(st) div 2, "i", c, st)
+
+proc roundButton*(kind: RoundKind; label = ""; enabled = true): bool =
+  ## A small round button with a sign on it, as a phone's lists have them: a green plus to add,
+  ## a red minus to take away (an editing list's rows), a blue chevron for more about one, an
+  ## "i". `label`: what it does, for its tooltip and screen readers (else the sign's name).
+  ## True when clicked (Space and Enter with the focus). Gloss: iOS 6's -- a shining disc, a
+  ## white ring round it, a shadow under it; Glass and Matte: a flat disc; Classic: 3.1's
+  ## round button, the sign in its color.
+  let d = if fingers(): dp(23) else: max(dp(18), FontH + dp(2))
+  let r = place(d + dp(4), d + dp(4))
+  let name = if label.len > 0: label else: ["Add", "Remove", "More", "About"][ord(kind)]
+  let id = idOf("roundbutton:" & $ord(kind) & ":" & name)
+  var hit = interact(id, r, enabled = enabled)
+  if enabled:
+    spaceKey(id, hit)
+    if hit.focused:
+      ui.takesEnter = true
+      if keyHit(KeyEnter): hit.clicked = true
+  let cx = float(r.x) + float(r.w) / 2
+  let cy = float(r.y) + float(r.h) / 2
+  let rad = float(d) / 2
+  var base = if enabled: roundColor(kind) else: mixColor(th.face, th.gray, 0.4)
+  if hit.down: base = mixColor(base, black, 0.25)
+  if glossLook():
+    disc(cx, cy + 2, rad + 1, withAlpha(black, 60))
+    disc(cx, cy, rad + 0.5, withAlpha(black, 70))
+    disc(cx, cy, rad, white)
+    let f = rad - max(1.5, float(dp(2)))
+    disc(cx, cy, f, base)
+    # (its shine: the top two thirds, white fading)
+    pushClip(rect(int(cx - rad), int(cy - f), int(2 * rad) + 1, int(f * 1.28)))
+    discShaded(cx, cy, f, mixColor(base, white, 0.4), mixColor(base, white, 0.16))
+    popClip()
+    roundSign(cx, cy - 0.6, d, kind, withAlpha(black, 60))
+    roundSign(cx, cy, d, kind, white)
+  elif glassLook():
+    disc(cx, cy, rad, base)
+    roundSign(cx, cy, d, kind, white)
+  else:
+    disc(cx, cy, rad, th.frame)
+    disc(cx, cy, rad - 1, if hit.down: th.shadow else: th.face)
+    if not hit.down:
+      pushClip(rect(int(cx - rad), int(cy - rad), int(rad * 2) + 1, int(rad)))
+      ring(cx, cy, rad - 1, 1.4, th.light)
+      popClip()
+    roundSign(cx, cy, d, kind, if enabled: roundColor(kind) else: th.gray)
+  if hit.focused: focusDots(inset(r, 1))
+  tooltip(name)
+  if accessOn: accessNode(arButton, name, id = id, r = r, states = offIf(enabled))
+  ui.lastId = id
+  ui.lastRect = r
+  hit.clicked
+
+proc indexBar*(letters: openArray[string]; h = 0): int =
+  ## The letters down the side of a long list -- A to Z, a contacts list's: touch one, or drag
+  ## along them, and it returns the one under the finger (or the mouse) while it is down -- -1
+  ## otherwise --, for the list to go to. `h`: its height (0: as the letters need); too many
+  ## for it, every other one shows. Screen readers get a button each. Gloss: iOS 6's gray bold
+  ## letters, a gray band behind them while they are touched; Glass and Matte: in the
+  ## highlight; Classic: the text's color.
+  result = -1
+  if letters.len == 0: return
+  let st = style(bold = true, size = if fingers(): 0.73 else: 0.8)
+  let lh = lineHeight(st)
+  var w = if fingers(): dp(28) else: dp(20)
+  for l in letters: w = max(w, textWidth(l, st) + dp(6))
+  let pad = dp(6)
+  let r = place(w, if h > 0: h else: letters.len * (lh + dp(4)) + 2 * pad)
+  let id = idOf("indexbar:" & $letters.len & ":" & letters[0] & letters[^1])
+  let hit = interact(id, r, focusable = false)
+  let held = ui.active == id and ui.mouseDown
+  let gloss = glossLook()
+  if held:
+    ui.dragsActive = true
+    result = clamp((ui.my - r.y - pad) * letters.len div max(1, r.h - 2 * pad), 0, letters.high)
+    wakeIn(16)
+  if held or (hit.showsHover and not gloss):
+    roundRect(r, float(w) / 2, if gloss: withAlpha(black, 51) else: withAlpha(th.text, 20))
+  let ink = if gloss: (if onDarkWindow(): color(176, 182, 192) else: glossTint(color(106, 115, 125)))
+            elif glassLook(): accentText()
+            else: th.text
+  let step = float(r.h - 2 * pad) / float(letters.len)
+  let every = if step >= float(lh) * 0.85: 1 else: int(ceil(float(lh) * 0.85 / step))
+  for i, l in letters:
+    let y = r.y + pad + int(step * float(i) + (step - float(lh)) / 2)
+    if i mod every == 0:
+      text(r.x + (r.w - textWidth(l, st)) div 2, y, l, ink, st)
+    elif every == 2:
+      disc(float(r.x) + float(r.w) / 2, float(y) + float(lh) / 2, max(1.5, float(dp(2))), ink)
+    if accessOn:
+      let sid = accessSubId(id, i)
+      if accessPress == sid:
+        accessPress = 0
+        result = i
+      accessNode(arButton, l, id = sid, r = rect(r.x, r.y + pad + int(step * float(i)), r.w, max(1, int(step))))
+  ui.lastId = id
+  ui.lastRect = r
+
+type BubbleKind* = enum
+  ## Whose a `messageBubble` is, and how it went.
+  bkTheirs,     ## the other's: on the left, gray
+  bkMine,       ## yours: on the right, in the highlight (Gloss: iOS 6's pale blue)
+  bkMineText    ## yours, sent as a text message: on the right, green
+
+proc bubbleTail(r: Rect; right: bool; c: Color) =
+  ## (a bubble's tail at its foot, curling out to its side)
+  let t = float(max(5, dp(7)))
+  let y1 = float(r.y + r.h)
+  let x = if right: float(r.x + r.w) else: float(r.x)
+  let s = if right: 1.0 else: -1.0
+  polygon([(x - s * t * 1.6, y1 - t * 1.9), (x - s * t * 0.2, y1 - t * 1.2), (x + s * t * 0.75, y1),
+           (x - s * t * 0.4, y1 - 0.5), (x - s * t * 1.9, y1 - t * 0.6)], c)
+
+proc messageBubble*(text: string; kind = bkTheirs; time = ""; maxW = 0) =
+  ## A message of a conversation, as a phone's messages show them: in a bubble with a tail, the
+  ## other's (`bkTheirs`) on the left in gray, yours on the right (`bkMine`; `bkMineText`, sent
+  ## as a text message: green); `time` (or "Delivered") small under it. Its text wraps at
+  ## `maxW` pixels (0: three quarters of the row). Gloss: iOS 6's -- shining, a dark edge, the
+  ## words black with a light line under them; Glass: flat, rounded; Matte: flat, nearly
+  ## square; Classic: 3.1's colors, a line round it.
+  let room = cellRoom()
+  let mine = kind != bkTheirs
+  let gloss = glossLook()
+  let padX = dp(10)
+  let padY = dp(if gloss: 3 else: 5)
+  let tail = dp(7)
+  let maxText = max(dp(40), (if maxW > 0: maxW else: room * 3 div 4) - 2 * padX - tail)
+  let lines = wrapLines(tr(text), maxText)
+  var tw = 0
+  for l in lines: tw = max(tw, textWidth(l))
+  let bw = tw + 2 * padX
+  let bh = max(lines.len, 1) * FontH + 2 * padY + dp(2)
+  let small = style(bold = gloss, size = 0.8)
+  let timeH = if time.len > 0: lineHeight(small) + dp(2) else: 0
+  let cell = place(0, bh + timeH, fill = true)
+  let b = if mine: rect(cell.x + cell.w - tail - bw, cell.y, bw, bh) else: rect(cell.x + tail, cell.y, bw, bh)
+  let dark = onDarkWindow()
+  var ink = th.text
+  if gloss:
+    let base = case kind
+               of bkTheirs: (if dark: color(84, 86, 92) else: color(221, 221, 221))
+               of bkMine: glossTint(color(152, 199, 255))
+               of bkMineText: color(140, 207, 62)
+    let rad = float(min(dp(13), bh div 2))
+    let edge = mixColor(base, black, 0.45)
+    # (its shadow, its dark edge, then its face: lighter at its foot, a shine along its top)
+    roundRect(rect(b.x, b.y + 1, b.w, b.h), rad, withAlpha(black, 50))
+    roundRect(b, rad, edge)
+    bubbleTail(rect(b.x, b.y, b.w, b.h), mine, edge)
+    let f = inset(b, 1)
+    roundRectShaded(f, rad - 1, base, mixColor(base, white, 0.35))
+    bubbleTail(inset(rect(b.x, b.y, b.w, b.h), 1), mine, mixColor(base, white, 0.3))
+    let shine = rect(f.x + dp(6), f.y, f.w - dp(12), min(dp(13), f.h div 2))
+    if shine.w > 0: roundRectShaded(shine, float(shine.h) / 2, mixColor(base, white, 0.7), mixColor(base, white, 0.2))
+    ink = if dark and kind == bkTheirs: white else: black
+  elif glassLook():
+    let base = case kind
+               of bkTheirs: mixColor(th.window, th.text, if dark: 0.18 else: 0.1)
+               of bkMine: accentColor()
+               of bkMineText: color(52, 199, 89)
+    let rad = if matteLook(): float(dp(3)) else: float(min(dp(17), bh div 2))
+    roundRect(b, rad, base)
+    if not matteLook(): bubbleTail(b, mine, base)
+    ink = if kind == bkTheirs: th.text elif kind == bkMine: accentInk() else: white
+  else:
+    let base = if kind == bkTheirs: th.field elif kind == bkMine: th.select else: color(0, 128, 0)
+    bubbleTail(b, mine, th.frame)
+    roundRect(b, float(dp(6)), th.frame)
+    roundRect(inset(b, 1), float(dp(5)), base)
+    bubbleTail(inset(b, 1), mine, base)
+    ink = if kind == bkTheirs: th.fieldText else: th.selectText
+  for i, l in lines:
+    let y = b.y + padY + dp(1) + i * FontH
+    if gloss and not (dark and kind == bkTheirs): text(b.x + padX, y + 1, l, withAlpha(white, 150))
+    text(b.x + padX, y, l, ink)
+  if time.len > 0:
+    let tw2 = textWidth(time, small)
+    let tx = if mine: b.x + b.w - tw2 else: b.x
+    let tc = if gloss and not dark: glossTint(color(136, 146, 165)) else: th.gray
+    if gloss and not dark: text(tx, b.y + b.h + dp(2) + 1, time, withAlpha(white, 204), small)
+    text(tx, b.y + b.h + dp(2), time, tc, small)
+  if accessOn: accessNode(arLabel, (if mine: "You: " else: "") & text, value = time, id = 0, r = b)
+  ui.lastId = 0
+  ui.lastRect = cell
+
+proc clockFace*(h, m: int; s = -1; size = 0; night = false; label = "") =
+  ## A clock with hands: the hour `h` (0 to 23), the minute `m`, the second `s` (-1: no second
+  ## hand), `size` pixels across (0: as a phone's world clock has it); `label` under it (a
+  ## city). Gloss: iOS 6's world clock -- light gray (`night`: black), the hours' numbers, black
+  ## hands, a red second hand, a shine across its top; Glass and Matte: flat, the hours as
+  ## marks; Classic: 3.1's Clock -- dots for the minutes, squares for the hours.
+  let d = if size > 0: size elif fingers(): dp(76) else: dp(96)
+  let small = style(bold = true, size = 0.9)
+  let lh = if label.len > 0: lineHeight(small) + dp(4) else: 0
+  let cell = place(max(d, if label.len > 0: textWidth(label, small) else: 0), d + lh)
+  let cx = float(cell.x) + float(cell.w) / 2
+  let cy = float(cell.y) + float(d) / 2
+  let rad = float(d) / 2
+  let gloss = glossLook()
+  let glass = glassLook() and not gloss
+  var face, ink, mark: Color
+  if gloss:
+    face = if night: black else: color(222, 222, 222)
+    ink = if night: white else: black
+    disc(cx, cy - 0.5, rad + 0.5, withAlpha(black, 128))
+    if night: disc(cx, cy, rad, black)
+    else: discShaded(cx, cy, rad, color(213, 213, 213), color(231, 231, 231))
+    # (its numbers, a line of shadow under each)
+    let nst = style(bold = true, size = float(d) / 76 * (if fingers(): 0.62 else: 0.55))
+    for k in 1 .. 12:
+      let a = float(k) * PI / 6
+      let nx = cx + sin(a) * rad * 0.79
+      let ny = cy - cos(a) * rad * 0.79
+      let t = $k
+      let x = int(nx) - textWidth(t, nst) div 2
+      let y = int(ny) - lineHeight(nst) div 2
+      text(x, y + 1, t, if night: withAlpha(black, 204) else: withAlpha(white, 204), nst)
+      text(x, y, t, ink, nst)
+  elif glass:
+    face = th.field
+    ink = th.fieldText
+    mark = mixColor(th.field, th.fieldText, 0.5)
+    disc(cx, cy, rad, if matteLook(): mixColor(th.field, th.fieldText, 0.3) else: glassHair())
+    disc(cx, cy, rad - 1, face)
+    for k in 0 ..< 12:
+      let a = float(k) * PI / 6
+      let r0 = if k mod 3 == 0: rad * 0.78 else: rad * 0.85
+      thickLine(cx + sin(a) * r0, cy - cos(a) * r0, cx + sin(a) * rad * 0.92, cy - cos(a) * rad * 0.92,
+                if k mod 3 == 0: max(2.0, float(dp(2))) else: 1.2, mark)
+  else:
+    face = th.face
+    ink = th.text
+    disc(cx, cy, rad, th.frame)
+    disc(cx, cy, rad - 1, face)
+    for k in 0 ..< 60:
+      let a = float(k) * PI / 30
+      let px = cx + sin(a) * rad * 0.88
+      let py = cy - cos(a) * rad * 0.88
+      if k mod 5 == 0:
+        let q = max(2, dp(3))
+        fill(rect(int(px) - q div 2, int(py) - q div 2, q, q), th.select)
+      else: fill(rect(int(px), int(py), 1, 1), th.shadow)
+  # the hands
+  let hh = (float(h mod 12) + float(m) / 60) * PI / 6
+  let mm = (float(m) + (if s >= 0: float(s) / 60 else: 0.0)) * PI / 30
+  let wH = max(2.5, rad * 0.09)
+  let wM = max(2.0, rad * 0.065)
+  thickLine(cx - sin(hh) * rad * 0.12, cy + cos(hh) * rad * 0.12, cx + sin(hh) * rad * 0.5, cy - cos(hh) * rad * 0.5, wH, ink)
+  thickLine(cx - sin(mm) * rad * 0.12, cy + cos(mm) * rad * 0.12, cx + sin(mm) * rad * 0.74, cy - cos(mm) * rad * 0.74, wM, ink)
+  disc(cx, cy, wH * 0.9, ink)
+  if s >= 0:
+    let ss = float(s) * PI / 30
+    let red = if gloss or not glassLook(): color(218, 8, 18) else: accentColor()
+    thickLine(cx - sin(ss) * rad * 0.18, cy + cos(ss) * rad * 0.18, cx + sin(ss) * rad * 0.84,
+              cy - cos(ss) * rad * 0.84, max(1.2, rad * 0.025), red)
+    disc(cx, cy, max(2.0, rad * 0.06), red)
+  if gloss:
+    # (the shine across its top half)
+    pushClip(rect(int(cx - rad), int(cy - rad), int(2 * rad) + 1, int(rad * 0.92)))
+    disc(cx, cy, rad - 0.5, withAlpha(white, if night: 30 else: 80))
+    popClip()
+  if label.len > 0:
+    let tw = textWidth(label, small)
+    let ly = cell.y + d + dp(4)
+    if gloss and not onDarkWindow(): text(int(cx) - tw div 2, ly + 1, label, withAlpha(white, 204), small)
+    text(int(cx) - tw div 2, ly, label, th.text, small)
+  if accessOn:
+    accessNode(arImage, if label.len > 0: label else: "Clock",
+               value = $(h mod 24) & ":" & (if m < 10: "0" else: "") & $m, id = 0, r = cell)
+  ui.lastId = 0
+  ui.lastRect = cell
+
+proc appIcon*(glyph, label: string; tint = Color(); badge = ""; picture: Bitmap = nil;
+              enabled = true): bool =
+  ## An app to open, as a phone's home screen shows one: a rounded square with `glyph` (an
+  ## icon font's) or `picture` on it, `label` under it, a red `badge` at its corner ("3"; ""
+  ## none). True when clicked (Space and Enter with the focus). Put them in a `row` for a grid.
+  ## Gloss: iOS 6's -- `tint` (else the highlight) lit as glass, a shine across its top half, a
+  ## shadow under it; Glass: flat `tint`, white glyph; Matte: nearly square; Classic: Program
+  ## Manager's -- the glyph alone, its label chosen while it has the focus.
+  let gloss = glossLook()
+  let d = if fingers(): dp(57) else: dp(44)
+  let lst = style(bold = gloss, size = if fingers(): 0.73 else: 0.85)
+  let w = d + dp(20)
+  let r = place(w, d + dp(6) + lineHeight(lst) + dp(4))
+  let id = idOf("appicon:" & label & ":" & glyph)
+  var hit = interact(id, r, enabled = enabled)
+  if enabled:
+    spaceKey(id, hit)
+    if hit.focused:
+      ui.takesEnter = true
+      if keyHit(KeyEnter): hit.clicked = true
+  let ic = rect(r.x + (w - d) div 2, r.y + dp(3), d, d)
+  let base = if tint.a != 0: tint else: accentColor()
+  let classic = not glassLook()
+  let rad = if gloss: float(d) * 0.18 elif matteLook(): float(dp(4)) else: float(d) * 0.22
+  if not classic:
+    if gloss:
+      roundRect(rect(ic.x, ic.y + 2, ic.w, ic.h), rad, withAlpha(black, 70))
+      roundRect(rect(ic.x, ic.y + 1, ic.w, ic.h), rad, withAlpha(black, 60))
+    if picture != nil and picture.w > 0:
+      masked(ic, rad):
+        drawBitmap(ic, picture)
+    elif gloss: roundRectShaded(ic, rad, mixColor(base, white, 0.25), mixColor(base, black, 0.2))
+    else: roundRect(ic, rad, base)
+    if glyph.len > 0 and (picture == nil or picture.w == 0):
+      let gs = style(size = float(d) / 22)
+      let gw = textWidth(glyph, gs)
+      let gy = ic.y + (d - lineHeight(gs)) div 2
+      if gloss: text(ic.x + (d - gw) div 2, gy - 1, glyph, withAlpha(black, 90), gs)
+      text(ic.x + (d - gw) div 2, gy, glyph, white, gs)
+    if gloss:
+      # (the shine: the top half, curved at its foot)
+      pushClip(rect(ic.x, ic.y, ic.w, ic.h * 47 div 100))
+      roundRect(ic, rad, withAlpha(white, 64))
+      popClip()
+      roundFrame(ic, rad, 1, withAlpha(black, 46))
+    if hit.down: roundRect(ic, rad, withAlpha(black, 90))
+  else:
+    let gs = style(size = float(d) / 18)
+    let gw = textWidth(glyph, gs)
+    text(ic.x + (d - gw) div 2, ic.y + (d - lineHeight(gs)) div 2, glyph,
+         if tint.a != 0: tint else: th.text, gs)
+  if badge.len > 0:
+    let bst = style(bold = true, size = 0.8)
+    let bh = lineHeight(bst) + dp(4)
+    let bw2 = max(bh, textWidth(badge, bst) + dp(10))
+    let br = rect(ic.x + ic.w - bw2 + dp(8), ic.y - dp(6), bw2, bh)
+    if gloss:
+      roundRect(rect(br.x, br.y + 1, br.w, br.h), float(bh) / 2, withAlpha(black, 80))
+      roundRect(br, float(bh) / 2, white)
+      tintedFace(inset(br, max(1, dp(2))), color(200, 0, 0), radius = float(bh) / 2 - 2)
+    else: roundRect(br, float(bh) / 2, badColor())
+    text(br.x + (br.w - textWidth(badge, bst)) div 2, br.y + (bh - lineHeight(bst)) div 2, badge, white, bst)
+  let l = ellipsize(tr(label), w, lst)
+  let lw = textWidth(l, lst)
+  let lr = rect(r.x + (w - lw) div 2, ic.y + d + dp(4), lw, lineHeight(lst))
+  if classic and hit.focused:
+    fill(inset(lr, -2), th.select)
+    text(lr.x, lr.y, l, th.selectText, lst)
+  else:
+    if gloss: text(lr.x, lr.y + (if onDarkWindow(): -1 else: 1), l,
+                   if onDarkWindow(): withAlpha(black, 160) else: withAlpha(white, 204), lst)
+    text(lr.x, lr.y, l, if enabled: th.text else: th.gray, lst)
+    if hit.focused: focusDots(inset(ic, -2))
+  if accessOn: accessNode(arButton, label, value = badge, id = id, r = r, states = offIf(enabled))
+  ui.lastId = id
+  ui.lastRect = r
+  hit.clicked
+
+type Texture* = enum
+  ## A surface `texture` draws.
+  txLinen,      ## linen, gray: the back of a phone's panels, a notification list's
+  ## (the others' colors: `texture`'s `tint` changes them)
+  txPaper,      ## lined paper, pale yellow, a red line down its margin: a notepad's
+  txFelt,       ## felt, green: a game table's
+  txLeather,    ## leather, brown, stitched round its edge: a diary's cover
+  txPinstripe   ## thin upright stripes: Gloss's window (`glossPinstripes`)
+
+var textureTiles: Table[(Texture, uint32, int), Bitmap]
+
+proc textureTile(kind: Texture; c: Color; scale: int): Bitmap =
+  ## (a square of `kind`'s grain in `c`, made once: textures repeat it)
+  let key = (kind, (uint32(c.r) shl 16) or (uint32(c.g) shl 8) or uint32(c.b), scale)
+  textureTiles.withValue(key, t):
+    return t[]
+  let n = 128 * scale
+  result = newBitmap(n, n, 0xFF000000'u32)
+  var seed = 0x9E3779B9'u32 xor uint32(ord(kind) * 7919)
+  proc rnd(): float =
+    seed = seed xor (seed shl 13)
+    seed = seed xor (seed shr 17)
+    seed = seed xor (seed shl 5)
+    float(seed and 0xFFFF) / 65535.0
+  var rows = newSeq[float](n)
+  var cols = newSeq[float](n)
+  for i in 0 ..< n:
+    rows[i] = rnd() - 0.5
+    cols[i] = rnd() - 0.5
+  # (felt's and leather's soft blotches: noise on a coarse grid, smoothed)
+  let g = 16
+  var blot = newSeq[float](g * g)
+  for i in 0 ..< g * g: blot[i] = rnd() - 0.5
+  proc blotAt(x, y: int): float =
+    let fx = float(x) / float(n) * float(g)
+    let fy = float(y) / float(n) * float(g)
+    let x0 = int(fx) mod g
+    let y0 = int(fy) mod g
+    let x1 = (x0 + 1) mod g
+    let y1 = (y0 + 1) mod g
+    let tx = fx - floor(fx)
+    let ty = fy - floor(fy)
+    let a = blot[y0 * g + x0] * (1 - tx) + blot[y0 * g + x1] * tx
+    let b = blot[y1 * g + x0] * (1 - tx) + blot[y1 * g + x1] * tx
+    a * (1 - ty) + b * ty
+  for y in 0 ..< n:
+    for x in 0 ..< n:
+      let p = rnd() - 0.5
+      let k = case kind
+              of txLinen: rows[y] * 0.10 + cols[x] * 0.08 + p * 0.07 +
+                          (if (x + y div 2) mod 3 == 0: 0.025 else: 0.0)
+              of txPaper: p * 0.025 + cols[x] * 0.01
+              of txFelt: p * 0.11 + blotAt(x, y) * 0.07
+              of txLeather: p * 0.06 + blotAt(x, y) * 0.10 +
+                            (if ((x * 7 + y * 3) mod 11) < 2: -0.04 else: 0.0)
+              of txPinstripe: 0.0
+      template ch(v: uint8): uint32 = uint32(clamp(int(float(v) * (1 + k)), 0, 255))
+      result.px[y * n + x] = 0xFF000000'u32 or (ch(c.r) shl 16) or (ch(c.g) shl 8) or ch(c.b)
+  textureTiles[key] = result
+
+proc texture*(r: Rect; kind: Texture; tint = Color(); lineH = 0) =
+  ## Fills `r` with a surface drawn in code, in every look: linen, lined paper, felt, stitched
+  ## leather, pinstripes -- a page's background, a notes page, a card table, a cover. `tint`:
+  ## its color (alpha 0: its own -- linen gray, paper pale yellow, felt green, leather brown,
+  ## pinstripes the window's). `lineH`: paper's line spacing (0: a line of text's, `FontH`
+  ## and a little).
+  if r.w <= 0 or r.h <= 0: return
+  let own = case kind
+            of txLinen: color(62, 64, 70)
+            of txPaper: color(252, 243, 192)
+            of txFelt: color(36, 106, 58)
+            of txLeather: color(104, 64, 38)
+            of txPinstripe: th.window
+  let c = if tint.a != 0: tint else: own
+  pushClip(r)
+  if kind == txPinstripe:
+    fill(r, c)
+    let lite = mixColor(c, white, 0.12)
+    let period = max(5, dp(7))
+    let sw = max(2, period * 3 div 7)
+    var x = r.x
+    while x < r.x + r.w:
+      fill(rect(x, r.y, sw, r.h), lite)
+      x += period
+  else:
+    let t = textureTile(kind, c, max(1, pxScale))
+    let side = 128
+    var y = r.y
+    while y < r.y + r.h:
+      var x = r.x
+      while x < r.x + r.w:
+        drawBitmap(rect(x, y, side, side), t)
+        x += side
+      y += side
+    if kind == txPaper:
+      let lh = if lineH > 0: lineH else: FontH + dp(8)
+      var ly = r.y + lh + dp(10)
+      let line = mixColor(c, color(120, 132, 170), 0.35)
+      while ly < r.y + r.h:
+        hline(r.x, ly, r.w, line)
+        ly += lh
+      let mx = r.x + dp(32)
+      vline(mx, r.y, r.h, color(214, 120, 104))
+      vline(mx + max(2, dp(3)), r.y, r.h, color(214, 120, 104))
+    elif kind == txLeather and r.w > dp(40) and r.h > dp(40):
+      # (stitches round it, a little in: light, a dark line beside each)
+      let e = dp(9)
+      let dash = dp(6)
+      let gap = dp(4)
+      let st = mixColor(c, color(255, 236, 200), 0.55)
+      var x = r.x + e
+      while x + dash <= r.x + r.w - e:
+        fill(rect(x, r.y + e, dash, max(1, dp(1))), st)
+        fill(rect(x, r.y + e + max(1, dp(1)), dash, 1), withAlpha(black, 90))
+        fill(rect(x, r.y + r.h - e, dash, max(1, dp(1))), st)
+        fill(rect(x, r.y + r.h - e + max(1, dp(1)), dash, 1), withAlpha(black, 90))
+        x += dash + gap
+      var y2 = r.y + e
+      while y2 + dash <= r.y + r.h - e:
+        fill(rect(r.x + e, y2, max(1, dp(1)), dash), st)
+        fill(rect(r.x + e + max(1, dp(1)), y2, 1, dash), withAlpha(black, 90))
+        fill(rect(r.x + r.w - e, y2, max(1, dp(1)), dash), st)
+        fill(rect(r.x + r.w - e + max(1, dp(1)), y2, 1, dash), withAlpha(black, 90))
+        y2 += dash + gap
+  popClip()

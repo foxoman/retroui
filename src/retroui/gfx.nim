@@ -3076,10 +3076,11 @@ proc framePicture*(): Bitmap =
   result.opaque = true
 
 proc readScreenPixel*(x, y: int) =
-  ## Asks for the color of the window's pixel at `x`, `y` (logical pixels as
-  ## the screen shows them: a right-to-left frame's not mirrored back), read
-  ## as the next frame is shown -- the GPU's or the CPU's: `screenPixelRead`
-  ## has it then. For an eyedropper that takes a color from anywhere.
+  ## An eyedropper's color from anywhere in the window: asks for the pixel the
+  ## screen shows at `x`, `y` (logical pixels, as on the screen -- not
+  ## mirrored in an Arabic interface); it is read as the next frame is drawn,
+  ## by the GPU or the CPU, and `screenPixelRead` gives it (0xFFRRGGBB) once
+  ## `done`.
   screenPick = (true, false, x, y, 0'u32)
 
 proc screenPixelRead*(): tuple[done: bool; color: uint32] =

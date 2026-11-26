@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy, hangwatch, frameprof
 export busy
 
-const RetroVersion* = "0.77.2"
+const RetroVersion* = "0.78.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -1396,6 +1396,23 @@ proc glossLook*(): bool {.inline.} =
   ## The controls drawn in the Gloss look now (`uiLook`; not with a high-contrast scheme).
   uiLook == lookGloss and glassLook()
 
+var glossPinstripes* = false
+  ## In the Gloss look on a light window, the window's thin upright stripes, a shade lighter
+  ## than its color, as iOS 6's settings had them (true); its color plain (false, the default).
+
+proc pinstripes(w, h: int) =
+  ## (Gloss: the window's stripes, `glossPinstripes`)
+  let c = ui.theme.window
+  if (int(c.r) * 3 + int(c.g) * 6 + int(c.b)) div 10 < 150: return
+  template up(v: uint8; k: int): uint8 = uint8(min(255, int(v) + k))
+  let lite = Color(r: up(c.r, 6), g: up(c.g, 6), b: up(c.b, 5), a: 255)
+  let period = max(5, dp(7))
+  let sw = max(2, period * 3 div 7)
+  var x = 0
+  while x < w:
+    fill(rect(x, 0, sw, h), lite)
+    x += period
+
 proc lookSchemes*(look: UiLook): tuple[light, dark: Theme] =
   ## The color schemes made for `look` (Classic's: Classic and Dark).
   case look
@@ -2589,7 +2606,11 @@ proc beginCell*(w: int; fill = false): Rect =
       if next > 0 and ww + Gap + next <= f.w: after = Gap + next
     if f.springX >= 0:
       f.tailNow += ww + Gap            # after a spring: measured, not wrapped
-    elif f.nw == 0 and f.cx > f.x and f.cx + ww + after > f.x + f.w: newline(f)
+    elif f.nw == 0 and f.cx > f.x and f.cx + ww + after > f.x + f.w:
+      newline(f)
+      # (one that fills what is left of the line, wrapped: all of the new line -- a row in a
+      # row after one that took the line, as `timeWheels` after `dateWheels`)
+      if fill: ww = f.w
     result = rect(f.cx, f.cy, ww, 0)
     # a row of fixed widths wider than the window: the page scrolls sideways
     if layer() == 0 and not f.fixed and clippedDepth == 0 and
@@ -4719,6 +4740,7 @@ proc frameSetup(main: bool) =
   if ui.drag.active and (ui.released or not ui.mouseDown):
     ui.dragDropping = true
   beginDraw(ui.w, ui.h, ui.theme.window)
+  if glossPinstripes and glossLook(): pinstripes(ui.w, ui.h)
   ui.frames.setLen(0)
   let left = ui.safe.left + Pad
   let topY = ui.safe.top + ui.captionH + Pad

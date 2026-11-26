@@ -88,7 +88,9 @@ shown, a find bar, a picture shown by kitty's graphics protocol -- Surfaces: fro
 over bands of color, a card that floats, a picture in a circle, their blur,
 shadow and corners on sliders -- and Phone (`retroui/mobile`): a navigation bar, picker
 wheels for a size, a day and a time, rows of mail with Archive and Delete behind them, a
-number with - and +, page dots, an action sheet, a bottom sheet of filters and a popover. The Jobs page shows one slow load shared by
+number with - and +, page dots, an action sheet, a bottom sheet of filters and a popover,
+round buttons, message bubbles, clocks by day and by night, app icons with a badge and the
+textures drawn in code. The Jobs page shows one slow load shared by
 two views (`retroui/queries`).
 
 ```sh

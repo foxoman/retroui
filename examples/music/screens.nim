@@ -14,7 +14,7 @@ import api
 
 const
   AppKey* = "RetroMusic"
-  MusicVersion* = "1.2"
+  MusicVersion* = "1.2.2"
   AppOrigin* = "https://net.foxoman.retromusic"
     ## (the app's address for YouTube's player: its identifier, as YouTube asks)
 
@@ -59,6 +59,7 @@ var
   ytAt* = 0
   ytPage* = ""                           # (its page, made once: the songs after are loaded in it)
   ytReady = false
+  ytMadeAt = 0                           # (when its page was made: not ready in 15 seconds, said)
   ytWant = ""                            # (a song asked before the player was ready)
   ytPlaying* = false
   ytTimeMs*, ytLengthMs* = 0
@@ -171,6 +172,7 @@ proc ytPlay*(at: int) =
   if ytPage.len == 0:
     ytPage = playerPage(t.id, AppOrigin)
     ytReady = false
+    ytMadeAt = ui.now
   elif ytReady: ytSend("load:" & t.id)
   else: ytWant = t.id
 
@@ -419,7 +421,7 @@ proc ytNews(m: string) =
     let code = (try: parseInt(parts[1]) except ValueError: 0)
     let name = "\"" & youtubeNow.title & "\""
     message = if code in [101, 150]: name & " plays only on YouTube (its owner's choice)"
-              else: "YouTube could not play " & name
+              else: "YouTube could not play " & name & " (error " & $code & ")"
     if ytAt + 1 < ytQueue.len: ytPlay(ytAt + 1) else: ytPlaying = false
   else: discard
   ui.redraw = true
@@ -432,6 +434,10 @@ proc youtubePlayer(h: int) =
     let ev = webView(ytPage, height = max(h, dp(200)), key = "youtube", engine = weSystem)
     ytShownNow = true
     for m in ev.messages: ytNews(m)
+    if not ytReady and ytMadeAt > 0 and ui.now - ytMadeAt > 15_000 and message.len == 0:
+      # (its page never said it was ready: YouTube's script did not come, or the page did not run)
+      message = "YouTube's player did not start -- is the phone online?"
+    elif not ytReady and ytMadeAt > 0: wakeIn(1000)
     if ytHidPaused:
       ytHidPaused = false
       ytSend("play")

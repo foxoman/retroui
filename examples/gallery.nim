@@ -1391,6 +1391,26 @@ proc phonePage() =
         if button("Botto&m sheet..."): phBottom = true
         if button("Pop&over..."): phPop = true
         phAt = ui.lastRect
+    group "roundButton, messageBubble, clockFace":
+      row:
+        if roundButton(rkRemove, "Remove"): status = "Remove"
+        if roundButton(rkAdd, "Add"): status = "Add"
+        if roundButton(rkDetail, "More"): status = "More"
+        if roundButton(rkInfo, "About"): status = "About"
+      messageBubble("Is the shipment at the gate?", bkTheirs)
+      messageBubble("Yes, since nine.", bkMine, time = "Delivered")
+      row:
+        clockFace(9, 41, 30, label = "Sohar")
+        clockFace(21, 41, 30, night = true, label = "Tokyo")
+    group "appIcon, texture":
+      row:
+        if appIcon(nfEnvelope, "Mail", tint = color(36, 112, 216), badge = "3"): status = "Mail"
+        if appIcon(nfCalendar, "Calendar", tint = color(200, 40, 40)): status = "Calendar"
+        if appIcon(nfMusic, "Music", tint = color(240, 120, 20)): status = "Music"
+      let tr = canvas(0, dp(70))
+      let tw = (tr.w - 3 * dp(6)) div 4
+      for i, k in [txLinen, txPaper, txFelt, txLeather]:
+        texture(rect(tr.x + i * (tw + dp(6)), tr.y, tw, tr.h), k)
   case actionSheet(phSheet, "Inbox", ["Mark all as read", "Move to Archive", "Delete all"], destructive = 2)
   of 0: status = "All read"
   of 1: status = "All moved"

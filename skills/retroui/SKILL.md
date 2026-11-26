@@ -714,8 +714,10 @@ costs what its visible rows cost.
   (`setResizable`) keeps the window's size: no sizing border, maximize
   button or grip, and the system's frame fixed too.
 - Matte and Gloss: `uiLook = lookMatte` (flat and sharp; `MatteLight`, `MatteDark`)
-  or `lookGloss` (glossy, lit bars, menus as popover lists, a switch with ON and OFF, its blue
-  parts in the scheme's hue -- `glossTone(s, v)`, `glossDetail()` -- gray buttons and
+  or `lookGloss` (glossy -- iOS 6's parts measured and drawn in code --, lit bars, menus as
+  popover lists, a switch with ON and OFF, a black tab bar, the window plain or with
+  pinstripes (`glossPinstripes = true`), its blue parts in the scheme's hue -- `glossTone(s, v)`,
+  `glossTint(iOS6color)`, `glossDetail()` -- gray buttons and
   the default one blue -- `button(label, isDefault = true)`; `GlossLight`, `GlossDark`), at the same sizes; `glassLook()` is true in them too, `matteLook()` and
   `glossLook()` tell them apart; `lookSchemes(look)`, `titleBar`, `barFace`, `tintedFace`.
 - Controls from phones, on desktops too (`retroui/mobile`): `navBar(title, back, action)`
@@ -730,7 +732,13 @@ costs what its visible rows cost.
   `bottomSheet(open, title): ...`, `popover(open, anchor, width): ...` (`anchor`:
   `ui.lastRect` after the button), `alertBox(open, title, message, buttons, cancel)`
   (the button pressed), `searchBar(s)`, `actionBar(actions, back, signature)` (before
-  the content; -2 Back), `wheelGroup: ...`, and rows in groups as a phone's settings:
+  the content; -2 Back), `wheelGroup: ...`, `roundButton(rkAdd, label)` (a round button
+  with a sign: `rkAdd`, `rkRemove`, `rkDetail`, `rkInfo`), `indexBar(letters, h)` (A to Z
+  down a list's side: the letter under the finger while it is down, else -1),
+  `messageBubble(text, bkMine, time)` (`bkTheirs`, `bkMine`, `bkMineText`), `clockFace(h,
+  m, s, night = true, label = "Tokyo")`, `appIcon(glyph, label, tint, badge)` (a home
+  screen's icon: true when tapped), `texture(r, txLinen)` (`txPaper`, `txFelt`, `txLeather`,
+  `txPinstripe`: drawn in code), and rows in groups as a phone's settings:
   `tableGroup(header, footer): tableRow(title, detail, taChevron, glyph, subtitle,
   picture = cover, tint = color, selected = shownBeside)` (a `TableHit`: `clicked`, `info`), `tableSwitch`,
   `tableButton`. A phone app with its own bars: `appNavBars = true` (no 3.1 caption in

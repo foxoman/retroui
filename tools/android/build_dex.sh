@@ -9,9 +9,15 @@ dx=$(command -v dx || command -v dalvik-exchange)
 work=$(mktemp -d)
 javac -source 8 -target 8 -nowarn -bootclasspath "$jar" -d "$work" "$here"/*.java
 "$dx" --dex --min-sdk-version=24 --output="$work/classes.dex" "$work"
-python3 - "$work/classes.dex" "$here/../../src/retroui/androiddex.nim" <<'PY'
-import sys
+python3 - "$work/classes.dex" "$here/../../src/retroui/androiddex.nim" "$here" <<'PY'
+import sys, os, hashlib
 data = open(sys.argv[1], 'rb').read()
+# (the Java it was made from: each file's name and text, by name -- test_apk checks that
+# androiddex.nim was made again after a change to them)
+h = hashlib.sha256()
+for name in sorted(f for f in os.listdir(sys.argv[3]) if f.endswith('.java')):
+    h.update(name.encode() + b'\n')
+    h.update(open(os.path.join(sys.argv[3], name), 'rb').read().replace(b'\r\n', b'\n'))
 lines = []
 for i in range(0, len(data), 36):
     lines.append('"' + ''.join('\\x%02x' % b for b in data[i:i+36]) + '"')
@@ -27,6 +33,8 @@ open(sys.argv[2], 'w').write(
     "## ```nim\n"
     "## z.addFile(\"classes.dex\", classesDex.toBytes)   # into the APK's zip\n"
     "## ```\n\n"
+    "const classesDexOf* = \"" + h.hexdigest() + "\"\n"
+    "  ## the SHA-256 of the Java it was made from (`javaSources` in tests/test_apk.nim)\n\n"
     "const classesDex* =\n" + " &\n".join(groups) + "\n")
 PY
 rm -rf "$work"
