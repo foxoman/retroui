@@ -4,10 +4,12 @@
 # RETRO_SMOKE_STAY: a click on Exit does not end it) -- its memory sampled
 # every 20 seconds. Memory that keeps growing once the app has warmed up is
 # a leak's sign: an app fails when it holds more than SOAK_LIMIT_MB (16) at
-# the end than half way in -- the middle sample of the run's last sixth
-# against that of the sixth after the half (a cache filled once, a
-# page's pictures, do not count; a spike does not either) -- or ends with
-# a fault. A line an app in build/soak/results.txt (and table.md); its
+# the end than half way in -- or a twentieth more, for an app holding more
+# than 320 MB then (File Manager's random clicks open the system's folders
+# and their pictures: what it holds goes up and down by tens of MB) -- the
+# middle sample of the run's last sixth against that of the sixth after the
+# half (a cache filled once, a page's pictures, do not count; a spike does
+# not either) -- or ends with a fault. A line an app in build/soak/results.txt (and table.md); its
 # samples in build/soak/APP.mem. The apps run as on a phone of 2 GB
 # (RETRO_DEVICE_MB, SOAK_DEVICE_MB=0 for this machine's own): their caches'
 # budgets follow the device's memory, and filled up to a big machine's
@@ -85,7 +87,8 @@ for app in $apps; do
       if (w < 1) w = 1
       early = mid(w, w + k - 1); late = mid(NR - k + 1, NR)
       grew = (late - early) / 1024
-      verdict = (grew > limit || code != 0) ? "FAIL" : "ok"
+      room = limit; if (early / 1024 / 20 > room) room = early / 1024 / 20
+      verdict = (grew > room || code != 0) ? "FAIL" : "ok"
       printf "%s\t%.1f\t%.1f\t%.1f\t%+.1f\t%d\t%s\n", app, early / 1024, late / 1024, most / 1024, grew, code, verdict
     }' "$out/$app.mem")
   echo "$line" | tee -a "$out/results.txt"

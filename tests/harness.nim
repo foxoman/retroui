@@ -13,6 +13,8 @@ var
   ticks* = 1000
   clip = ""
   view*: proc ()     ## the UI under test, run once per frame
+  keepRunning* = false  ## (a fuzzer: the app ended by its own Exit goes on, `appQuits` counted)
+  appQuits* = 0
 
 proc fakeDriver*() =
   # (the same keys on every system: a Mac's Option + a letter picks the
@@ -84,9 +86,16 @@ proc run*(n = 1) =
   while i < n or queue.len > 0 or eventsWaiting() > 0 or tail > 0:
     if i >= n and queue.len == 0 and eventsWaiting() == 0: dec tail
     if not beginFrame():
-      # (the app ended -- quitApp, its window closed, the phone's Back -- and takes no more
-      # input: a test that still has some fails here, instead of running frames forever)
-      doAssert queue.len == 0 and eventsWaiting() == 0, "the app ended with input still to come"
+      if keepRunning:
+        # (a fuzzer's random clicks chose Exit and Quit: the app goes on, as a long smoke run
+        # does -- what it is checked for is what it holds, not that it never quits)
+        ui.running = true
+        inc appQuits
+        doAssert beginFrame()
+      else:
+        # (the app ended -- quitApp, its window closed, the phone's Back -- and takes no more
+        # input: a test that still has some fails here, instead of running frames forever)
+        doAssert queue.len == 0 and eventsWaiting() == 0, "the app ended with input still to come"
     view()
     endFrame()
     inc i

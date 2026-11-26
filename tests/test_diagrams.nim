@@ -120,7 +120,13 @@ block title:
   check rule, "a title's short rule, in the accent"
 
 block carousel:
-  let d = newCarousel(defaultCarousel())
+  var spec = defaultCarousel()
+  when sizeof(int) == 4:
+    # (a 32-bit program's address space holds the eight slides' layers at half the size: each
+    # layer is as big as the document, its memory only taken where it is drawn on)
+    spec.w = spec.w div 2
+    spec.h = spec.h div 2
+  let d = newCarousel(spec)
   check d.boards.len == 8 and d.boards[0].color == diagramTheme("Parchment").paper, "eight slides, in the paper"
   var deep = 0
   var groups = 0
@@ -141,7 +147,7 @@ block carousel:
   check shown == "3 / 8", "an exported slide says its number too"
   let c = slideContent(d.boards[1].r)
   let b = d.boards[1].r
-  check c.x > b.x and c.x + c.w < b.x + b.w and c.y > b.y + 150 and c.y + c.h < b.y + b.h - 100,
+  check c.x > b.x and c.x + c.w < b.x + b.w and c.y > b.y + b.h div 9 and c.y + c.h < b.y + b.h - b.h div 14,
         "a slide's room for a diagram, between its header and its footer"
 
 block rpdCropped:

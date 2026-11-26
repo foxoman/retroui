@@ -24,9 +24,10 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[deques, strutils, os, uri, monotimes, times, tables, base64, sequtils]
-from std/unicode import Rune, toUtf8
+from std/unicode import Rune, toUtf8, runeLen
 import core, widgets, codec, imaging
-import uirelays/input
+from typeset import bidiInfo, visualOrderOf
+import uirelays/[input, target]
 
 when defined(posix) and not defined(js) and not defined(emscripten) and not defined(wasm):
   import std/posix
@@ -155,6 +156,15 @@ type
     colors*: TermColors      ## the colors it is drawn in
     themed*: bool            ## its colors from the scheme, light or dark (true by default)
     fontSize*: float         ## its text, in sizes of the UI's (1.0)
+    boldBright*: bool        ## bold text in the bright eight of the 16 colors, as a PC's text
+                             ## screen and xterm showed it (the text's own color too, when it
+                             ## is one of the eight but black: MS-DOS's gray made white)
+    boldText*: bool          ## every letter bold, as a PC's chunky text screen
+    bidi*: bool              ## right-to-left text -- Arabic, Hebrew -- shown as it is read: a
+                             ## line in the order Unicode's bidirectional algorithm gives
+                             ## (its direction its first strong letter's), Arabic's letters
+                             ## joined (true); false: each character in its cell as written,
+                             ## for a program that orders its text itself
     bells*: int              ## how many times the program rang (BEL)
     onInput*: proc (data: string)
       ## what is typed into a terminal with no program in it (the bytes a program would get)
@@ -215,6 +225,7 @@ type
     gfxData: string
     cellPxW*, cellPxH*: int  ## a cell's size in device pixels (the view sets it; programs ask)
     picsOn*: bool            ## pictures a program sends are shown (kitty graphics; true)
+    viewId: core.Id          # (the view's id, the frame before: `terminalKeysFirst`)
 
 const
   Blank = TermCell()
@@ -315,7 +326,8 @@ proc newTerminal*(cols = 80; rows = 24; scrollback = 10_000): Terminal =
   ## lines that scrolled off.
   result = Terminal(cols: max(2, cols), rows: max(1, rows), maxScrollback: scrollback, autowrap: true,
                     cursorOn: true, themed: true, fontSize: 1.0, fd: -1, colors: DarkColors,
-                    cellPxW: 8, cellPxH: 16, picsOn: true, nextImage: 1 shl 30, showLine: -1)
+                    cellPxW: 8, cellPxH: 16, picsOn: true, nextImage: 1 shl 30, showLine: -1,
+                    bidi: true)
   for i in 0 ..< result.rows:
     result.main.add blankLine(result.cols)
     result.alt.add blankLine(result.cols)
@@ -1555,6 +1567,9 @@ proc spawn*(t: Terminal; command: seq[string] = @[]; cwd = ""; env: openArray[(s
       if s > 2: discard posix.close(s)
       discard posix.close(m)
       if dir[0] != '\0': discard chdir(dir)
+      # (the signals as a shell expects them: what the app ignores or catches, the program
+      # does not -- a pipe closed ends `yes | head`, a child ended is waited for)
+      for sig in [SIGPIPE, SIGCHLD, SIGINT, SIGQUIT, SIGTERM, SIGHUP]: discard signal(sig, SIG_DFL)
       discard execve(path, argv, envp)
       exitnow(127)
     deallocCStringArray(argv)
@@ -1646,6 +1661,8 @@ proc waitOutput*(t: Terminal; text: string; ms = 5000): bool =
 
 # ---- the keys --------------------------------------------------------------------------------
 
+proc keyText(key: KeyCode; shift: bool): string
+
 proc keyBytes*(t: Terminal; key: KeyCode; mods: set[Modifier]): string =
   ## What a key sends a program (as xterm sends it), "" for a key that sends nothing by itself
   ## (a letter: its text comes as typed).
@@ -1708,8 +1725,10 @@ proc keyBytes*(t: Terminal; key: KeyCode; mods: set[Modifier]): string =
   of KeyLeftBracket: (if ctrl: "\e" else: "")
   of KeyBackslash: (if ctrl: "\x1C" else: "")
   of KeyRightBracket: (if ctrl: "\x1D" else: "")
-  of KeySlash, KeyMinus: (if ctrl: "\x1F" else: "")
-  else: ""
+  of KeySlash, KeyMinus: (if ctrl: "\x1F" elif alt: "\e" & keyText(key, shift) else: "")
+  else:
+    # (Alt and a mark: Esc before it, as xterm's metaSendsEscape -- bash's Alt+. and Alt+<)
+    if alt and not ctrl and keyText(key, shift).len > 0: "\e" & keyText(key, shift) else: ""
 
 proc keyText(key: KeyCode; shift: bool): string =
   ## (the text a key types on a US keyboard, shifted or not: "" for a key that types none)
@@ -1825,6 +1844,16 @@ proc colorOf(t: Terminal; v: uint32; fg: bool): Color =
     return Color(r: steps[i div 36], g: steps[(i div 6) mod 6], b: steps[i mod 6], a: 255)
   let g = uint8(8 + (n - 232) * 10)
   Color(r: g, g: g, b: g, a: 255)
+
+proc brightOf(t: Terminal; v: uint32): uint32 =
+  ## (a bold letter's color with `boldBright`: one of the eight, its bright one; the text's own
+  ## color, the bright one of the eight it is -- not black: black on white stays black)
+  let k = v shr 24
+  if k == 1 and (v and 255) < 8: return v + 8
+  if k == 0:
+    for i in 1 ..< 8:
+      if t.colors.ansi[i] == t.colors.fg: return 0x1000000'u32 + uint32(i + 8)
+  v
 
 proc totalLines(t: Terminal): int = (if t.onAlt: 0 else: t.sb.len) + t.rows
 
@@ -2071,9 +2100,106 @@ proc memoColor(t: Terminal; memo: var tuple[raw: uint32; c: Color]; raw: uint32;
   if raw != memo.raw: memo = (raw, t.colorOf(raw, fg))
   memo.c
 
+type
+  BidiRow = object
+    ## (a row with right-to-left letters, as it is shown)
+    line: TermLine           # (its cells in the order they are shown)
+    logOf: seq[int]          # (each place shown: the column the program wrote it in)
+    visOf: seq[int]          # (each column: the place it is shown at)
+    rtl: seq[bool]           # (each place shown: in a right-to-left run -- drawn with its run)
+
+proc rtlLetter(c: int32): bool {.inline.} =
+  ## (a letter of a right-to-left script: Hebrew, Arabic, Syriac, Thaana, N'Ko..., their
+  ## presentation forms)
+  (c >= 0x0590 and c <= 0x08FF) or (c >= 0xFB1D and c <= 0xFDFF) or (c >= 0xFE70 and c <= 0xFEFF) or
+    (c >= 0x10800 and c <= 0x10FFF) or (c >= 0x1E800 and c <= 0x1EFFF)
+
+proc bidiRow(t: Terminal; l: ptr TermLine; br: var BidiRow): bool =
+  ## A row with right-to-left letters in the order it is read: the Unicode bidirectional
+  ## algorithm on the row's text up to its last letter (the blanks after stay where they are),
+  ## the row's direction its first strong letter's -- a prompt's line left to right with the
+  ## Arabic typed in it right to left, a line of an Arabic file right to left. False for a row
+  ## of left-to-right text alone (shown as written).
+  if not t.bidi: return false
+  let n = min(l.cells.len, t.cols)
+  var any = false
+  for c in 0 ..< n:
+    if rtlLetter(l.cells[c].ch):
+      any = true
+      break
+  if not any: return false
+  var ends = n
+  while ends > 0 and l.cells[ends - 1].ch in [0'i32, 32'i32] and l.cells[ends - 1].bg == 0 and
+        l.cells[ends - 1].attrs * {taInverse, taUnderline, taStrike} == {}:
+    dec ends
+  # (each character: a cell, or a wide one's two)
+  var units: seq[tuple[col, cells: int]]
+  var s = ""
+  var c = 0
+  while c < ends:
+    let ch = l.cells[c].ch
+    let k = if c + 1 < n and l.cells[c + 1].ch == -1 and ch > 0: 2 else: 1
+    units.add (c, k)
+    s.add(if ch > 32 and ch < 0x110000: Rune(ch).toUtf8 else: " ")
+    c += k
+  let info = bidiInfo(s)
+  if info.levels.len != units.len: return false
+  let order = visualOrderOf(info.levels)
+  br.line.cells.setLen(n)
+  br.logOf.setLen(n)
+  br.visOf.setLen(n)
+  br.rtl.setLen(n)
+  for i in 0 ..< n:
+    br.line.cells[i] = l.cells[i]
+    br.logOf[i] = i
+    br.rtl[i] = false
+  var vc = 0
+  for k in order:
+    let u = units[k]
+    for j in 0 ..< u.cells:
+      br.line.cells[vc + j] = l.cells[u.col + j]
+      br.logOf[vc + j] = u.col + j
+      br.rtl[vc + j] = (info.levels[k] and 1) == 1
+    vc += u.cells
+  for i in 0 ..< n: br.visOf[br.logOf[i]] = i
+  true
+
+proc shownText*(t: Terminal; row: int): string =
+  ## The text of row `row` of the screen as it is shown, its cells from left to right: a row
+  ## with right-to-left letters (Arabic, Hebrew) in the order it is read (`bidi`), else as
+  ## `text`.
+  var br: BidiRow
+  let l = addr t.screen[clamp(row, 0, t.rows - 1)]
+  if not t.bidiRow(l, br): return t.text(row)
+  br.line.lineText.strip(leading = false)
+
+proc logicalCol(t: Terminal; li, col: int): int =
+  ## (the column the program wrote what is shown at place `col` of line `li` in)
+  var br: BidiRow
+  if col < t.cols and t.bidiRow(t.lineAt(li), br) and col < br.logOf.len: br.logOf[col] else: col
+
 var
+  rowBidi: BidiRow                 # (the row drawn, when it has right-to-left letters)
   rowFg: seq[Color]                # (a row's letters' colors, worked out once: kept for the next)
   rowText: string                  # (a run of a row's letters)
+
+proc terminalKeysFirst*(t: Terminal) =
+  ## The keys an app's menu bar would take -- Alt and a letter, F10 -- given to the program in
+  ## the terminal while it has the focus (bash's Alt+B and Alt+F, Midnight Commander's and
+  ## htop's F10): call it before the menu bar. Alt pressed and let go alone still opens the
+  ## menu bar, and so does the mouse.
+  if ui.key == KeyNone or ui.keyUsed or t.viewId == 0 or ui.focus != t.viewId or not canInput() or
+     ui.popup != 0: return
+  if not (ui.key == KeyF10 or (AltPressed in ui.mods and CtrlPressed notin ui.mods and ui.mnemonic != '\0')):
+    return
+  let b = if t.kbFlags != 0: t.kittyKeyBytes(ui.key, ui.mods) else: t.keyBytes(ui.key, ui.mods)
+  if b.len == 0: return
+  ui.keyUsed = true
+  ui.mnemonic = '\0'
+  t.send(b)
+  t.viewTop = 0
+  t.selOn = false
+  wakeIn(5)
 
 proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false; menu: proc () = nil) =
   ## The terminal in a box `w` wide (0: the row's width) and `lines` rows of its text high (-1:
@@ -2092,6 +2218,7 @@ proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false; menu: pro
   let h = if lines < 0: remainingH() else: lines * lh + 4
   let r = place(if w > 0: w else: 0, h, fill = w <= 0)
   let id = makeId(mixId(fnv("terminal"), uint32(cast[uint](t) shr 4 and 0xFFFFFFFF'u)))
+  t.viewId = id
   let hit = interact(id, r)
   if focusFirst and ui.focus == 0: ui.focus = id
   beginKeepSides(r)                  # (left to right in a right-to-left window too, the mouse read so)
@@ -2145,6 +2272,13 @@ proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false; menu: pro
       ui.keyUsed = true
       t.paste(getClipboardText())
       sent = true
+    elif ui.key in {KeyPageUp, KeyPageDown} and ShiftPressed in ui.mods and CtrlPressed notin ui.mods and
+         AltPressed notin ui.mods and not t.onAlt and not ui.keyUsed:
+      # (Shift+Page Up and Page Down: back through what scrolled off and down again, a screen
+      # at a time, as xterm has them)
+      ui.keyUsed = true
+      let page = max(1, t.rows - 1) * lh
+      t.viewTop = clamp(t.viewTop + (if ui.key == KeyPageUp: page else: -page), 0, t.sb.len * lh)
     elif ui.key != KeyNone and not ui.keyUsed and not (mac and CtrlPressed in ui.mods and t.kbFlags == 0):
       let b = if t.kbFlags != 0: t.kittyKeyBytes(ui.key, ui.mods) else: t.keyBytes(ui.key, ui.mods)
       if b.len > 0:
@@ -2182,11 +2316,14 @@ proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false; menu: pro
   scrollTick(id, off, maxOff)
   # the mouse: text chosen, or the program's when it asked
   template cellAt(px, py: int): tuple[line, col: int] =
-    (clamp((py - inner.y + off) div lh, 0, t.totalLines - 1), clamp((px - inner.x) div cw, 0, t.cols - 1))
+    # (where the program wrote what is shown there: a right-to-left row is shown in another order)
+    block:
+      let li = clamp((py - inner.y + off) div lh, 0, t.totalLines - 1)
+      (li, t.logicalCol(li, clamp((px - inner.x) div cw, 0, t.cols - 1)))
   if canInput() and mouseIn(inner) and t.mouseMode != 0 and ShiftPressed notin ui.mods and
      t.viewTop == 0:
-    let mcol = clamp((ui.mx - inner.x) div cw, 0, t.cols - 1)
     let mrow = clamp((ui.my - inner.y) div lh, 0, t.rows - 1)
+    let mcol = t.logicalCol(sbLines + mrow, clamp((ui.mx - inner.x) div cw, 0, t.cols - 1))
     if ui.pressed:
       ui.focus = id
       t.mouseReport(0, mcol, mrow, true)
@@ -2266,17 +2403,25 @@ proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false; menu: pro
   # (each row in two passes: its backgrounds, a fill for a run of cells of one color; then its
   # letters, a command for a run of plain ASCII in one color and style -- `textCells`, each
   # letter in its cell -- the others a cell at a time)
-  let styles = [style(mono = true, size = t.fontSize), style(mono = true, size = t.fontSize, bold = true),
+  let styles = [style(mono = true, size = t.fontSize, bold = t.boldText),
+                style(mono = true, size = t.fontSize, bold = true),
                 style(mono = true, size = t.fontSize, italic = true),
                 style(mono = true, size = t.fontSize, bold = true, italic = true)]
   var memoFg, memoBg = (raw: high(uint32), c: Color())
+  var cursorCol = t.cx                 # (where the cursor is shown: another place in a right-to-left row)
   for k in 0 .. inner.h div lh + 1:
     let li = first + k
     if li >= t.totalLines: break
-    let l = t.lineAt(li)
+    var l = t.lineAt(li)
     let y = y0 + k * lh
     let n = min(l.cells.len, t.cols)
     if rowFg.len < n: rowFg.setLen(n)
+    # (a row with right-to-left letters: its cells in the order they are read, each one's own
+    # column kept for the chosen text and the cursor)
+    let bidi = t.bidiRow(l, rowBidi)
+    if bidi:
+      l = addr rowBidi.line
+      if li == cursorLine and t.cx < rowBidi.visOf.len: cursorCol = rowBidi.visOf[t.cx]
     # the backgrounds, and each cell's colors
     var bgX = -1
     var bgEnd = 0
@@ -2284,19 +2429,21 @@ proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false; menu: pro
     var c = 0
     while c < n:
       let cell = l.cells[c]
-      var fg = t.memoColor(memoFg, cell.fg, true)
+      var fg = t.memoColor(memoFg, (if t.boldBright and taBold in cell.attrs: t.brightOf(cell.fg) else: cell.fg), true)
       var bg = t.memoColor(memoBg, cell.bg, false)
       if taInverse in cell.attrs: swap(fg, bg)
       if taFaint in cell.attrs: fg = mixColor(fg, bg, 0.45)
       let wide = c + 1 < l.cells.len and l.cells[c + 1].ch == -1
       let cells = if wide: 2 else: 1
       let x = inner.x + c * cw
-      if t.selected(li, c):
+      let own = if bidi: rowBidi.logOf[c] else: c
+      if t.selected(li, own):
         bg = t.colors.selection
-        if themeIsDark(ui.theme) or t.colors.bg.r < 128: fg = color(255, 255, 255)
-      let onCursor = li == cursorLine and c == t.cx and t.cursorOn and t.viewTop == 0 and
+        let sc = t.colors.selection
+        if int(sc.r) * 3 + int(sc.g) * 6 + int(sc.b) < 1280: fg = color(255, 255, 255)   # (on a dark one)
+      let onCursor = li == cursorLine and own == t.cx and t.cursorOn and t.viewTop == 0 and
                      (t.cursorShape <= 2)
-      if onCursor and hit.focused:
+      if onCursor and hit.focused and ui.active31:
         swap(fg, bg)
         bg = t.colors.cursor
         fg = t.colors.bg
@@ -2323,8 +2470,39 @@ proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false; menu: pro
       let cells = if wide: 2 else: 1
       let x = inner.x + c * cw
       let fg = rowFg[c]
+      if bidi and rowBidi.rtl[c] and cell.ch > 32 and taHidden notin cell.attrs:
+        # (a right-to-left run -- the cells after this one in it of its color and style, to its
+        # last letter -- drawn as one text: Arabic's letters joined, in the run's cells)
+        let sk = ord(taBold in cell.attrs or t.boldText) + 2 * ord(taItalic in cell.attrs)
+        var e = c
+        var last = c
+        while e + 1 < n and rowBidi.rtl[e + 1] and rowFg[e + 1] == fg and
+              (ord(taBold in l.cells[e + 1].attrs or t.boldText) + 2 * ord(taItalic in l.cells[e + 1].attrs) == sk or
+               l.cells[e + 1].ch <= 32):
+          inc e
+          if l.cells[e].ch > 32: last = e
+        var word = ""
+        for v in countdown(last, c):
+          let ch = l.cells[v].ch
+          if ch > 32 and ch < 0x110000: word.add Rune(ch).toUtf8
+          elif ch != -1: word.add ' '
+        let room = (last - c + 1) * cw
+        var st = styles[sk]
+        var w = textWidth(word, st)
+        if w > room:
+          # (wider than its cells in the font: smaller, to keep in them)
+          st.size = max(0.3'f32, (if st.size > 0: st.size else: 1'f32) * float32(room) / float32(w))
+          w = textWidth(word, st)
+        text(x + (room - w) div 2, y + (lh - lineHeight(st)) div 2, word, fg, st)
+        for v in c .. last:
+          let vc = l.cells[v]
+          let vx = inner.x + v * cw
+          if taUnderline in vc.attrs: fill(rect(vx, y + lh - max(1, lh div 12) - 1, cw, max(1, lh div 12)), rowFg[v])
+          if taStrike in vc.attrs: fill(rect(vx, y + lh div 2, cw, max(1, lh div 14)), rowFg[v])
+        c = last + 1
+        continue
       if cell.ch > 32 and taHidden notin cell.attrs:
-        let sk = ord(taBold in cell.attrs) + 2 * ord(taItalic in cell.attrs)
+        let sk = ord(taBold in cell.attrs or t.boldText) + 2 * ord(taItalic in cell.attrs)
         if cell.ch < 127:
           if runX >= 0 and runFg == fg and runSt == sk:
             # (the cells between, blanks or drawn alone, as spaces)
@@ -2351,12 +2529,12 @@ proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false; menu: pro
     if runX >= 0: textCells(runX, y, rowText, runFg, styles[runSt], cw)
   # the cursor: a block (hollow without the focus), a line under, a bar
   if t.cursorOn and t.viewTop == 0 and cursorLine >= first and cursorLine <= first + inner.h div lh + 1:
-    let x = inner.x + t.cx * cw
+    let x = inner.x + cursorCol * cw
     let y = y0 + (cursorLine - first) * lh
     let cc = t.colors.cursor
     if t.cursorShape in [3, 4]: fill(rect(x, y + lh - max(2, lh div 8), cw, max(2, lh div 8)), cc)
     elif t.cursorShape in [5, 6]: fill(rect(x, y, max(2, cw div 6), lh), cc)
-    elif not hit.focused: box(rect(x, y, cw, lh), cc)
+    elif not hit.focused or not ui.active31: box(rect(x, y, cw, lh), cc)   # (hollow: another has the keys)
   drawPictures(false)
   popClip()
   endKeepSides()
@@ -2368,6 +2546,17 @@ proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false; menu: pro
     scrollBarFor(id + 77, id, sb, true, v, maxOff, max(lh, inner.h - lh), lh)
     if v != off: t.viewTop = maxOff - v
   if not glass: box(r, if hit.focused: ui.theme.select else: mixColor(t.colors.bg, t.colors.fg, 0.25))
+  if accessible():
+    # (a screen reader reads the screen as text, its caret where the cursor is)
+    var s = ""
+    var caret = 0
+    for row in 0 ..< t.rows:
+      let line = t.text(row)
+      if row > 0: s.add '\n'
+      if row == t.cy: caret = s.runeLen + min(t.cx, line.runeLen)
+      s.add line
+    let k = accessNode(arTextArea, t.title, s, {asMultiLine}, id, r)
+    accessText(k, caret, caret, caret)
   # the right click's menu: Copy, Paste, Select All, the app's own items, the terminal's
   contextMenu:
     t.terminalEditItems()
@@ -2380,5 +2569,5 @@ proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false; menu: pro
   # for now and then
   if t.ver != before: wakeIn(16)             # (more may come at once)
   if t.running:
-    const watched = (defined(linux) or defined(bsd)) and not defined(android)
+    const watched = (defined(linux) or defined(bsd)) and not androidApp   # (a program in Termux: X11's)
     wakeIn(if watched: 1000 else: 33)

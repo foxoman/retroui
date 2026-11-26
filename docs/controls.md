@@ -1743,7 +1743,7 @@ codeEdit(source, lines = 9, lang = clNim, find = "count",
 
 ### terminalView (retroui/terminal)
 
-A terminal (`import retroui/terminal`): the user's shell, or any program that runs in one (`top`, `vim`, `htop`, a build), through a pseudo-terminal on Linux, macOS, the BSDs and Android, and Windows 10's pseudo-console, drawn as xterm draws it -- the 16 colors, the 256 and every RGB, bold, italic, underlined, inverse; the cursor; the lines that scrolled off kept to scroll back to; the screen a full-screen program draws on and leaves; lines and boxes drawn whole from cell to cell. The mouse chooses text (a double click a word, three a line), Ctrl+Shift+C copies it (Cmd+C on a Mac), Ctrl+Shift+V or Shift+Insert pastes, a right click has the same in a menu -- and the app's own items (`menu`), and the terminal's (Clear Scrollback, Reset); `terminalEditItems`, `terminalViewItems` and `terminalItems` put them in the app's menu bar. Ctrl+Shift+= and Ctrl+Shift+- make its text bigger and smaller (`zoomText`), `findText` finds in all it kept. A program that asks for the mouse gets its clicks and the wheel; one that asks for kitty's keyboard protocol gets its keys as kitty sends them (Esc and Ctrl+I told from Tab, keys let go, every key as an escape: `kbFlags`), and the pictures a program sends by kitty's graphics protocol are shown in their cells and scroll with the text (`showPicture`: one of the app's own). `term.spawn()` starts the user's shell (`running`, `exitCode`, `title`); without a program a terminal shows what the app `feed`s it -- a build's output in its colors -- and what is typed goes to `onInput`.
+A terminal (`import retroui/terminal`): the user's shell, or any program that runs in one (`top`, `vim`, `htop`, a build), through a pseudo-terminal on Linux, macOS, the BSDs and Android, and Windows 10's pseudo-console, drawn as xterm draws it -- the 16 colors, the 256 and every RGB, bold, italic, underlined, inverse; the cursor; the lines that scrolled off kept to scroll back to; the screen a full-screen program draws on and leaves; lines and boxes drawn whole from cell to cell. The mouse chooses text (a double click a word, three a line), Ctrl+Shift+C copies it (Cmd+C on a Mac), Ctrl+Shift+V or Shift+Insert pastes, a right click has the same in a menu -- and the app's own items (`menu`), and the terminal's (Clear Scrollback, Reset); `terminalEditItems`, `terminalViewItems` and `terminalItems` put them in the app's menu bar. Ctrl+Shift+= and Ctrl+Shift+- make its text bigger and smaller (`zoomText`), `findText` finds in all it kept, Shift+Page Up and Page Down scroll back a screen at a time. Arabic and Hebrew are shown as they are read -- a row in the order Unicode's bidirectional algorithm gives, its direction its first strong letter's, Arabic's letters joined (`bidi`; `shownText`) -- the mouse choosing and the cursor where the letters are; a screen reader reads the screen as text. `boldBright` shows bold text in the bright eight of the 16 colors, as a PC did, `boldText` every letter bold; `terminalKeysFirst` before an app's menu bar gives the program Alt and a letter and F10. A program that asks for the mouse gets its clicks and the wheel; one that asks for kitty's keyboard protocol gets its keys as kitty sends them (Esc and Ctrl+I told from Tab, keys let go, every key as an escape: `kbFlags`), and the pictures a program sends by kitty's graphics protocol are shown in their cells and scroll with the text (`showPicture`: one of the app's own). `term.spawn()` starts the user's shell (`running`, `exitCode`, `title`); without a program a terminal shows what the app `feed`s it -- a build's output in its colors -- and what is typed goes to `onInput`.
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -1753,8 +1753,10 @@ A terminal (`import retroui/terminal`): the user's shell, or any program that ru
 var term = newTerminal()
 term.feed("\e[1;32msultan@desk\e[0m:\e[1;34m~/retro\e[0m$ ls\r\n" &
     "\e[1;34mdocs\e[0m  \e[1;34mexamples\e[0m  README.md  \e[1;32mretrokit\e[0m\r\n" &
-    "\e[1;32msultan@desk\e[0m:\e[1;34m~/retro\e[0m$ git log --oneline -2\r\n" &
-    "\e[33mcd4ebc6\e[0m 0.72.0: the Glass look\r\n\e[33m0c7a157\e[0m 0.71.0: Retro Atelier 5.16\r\n" &
+    "\e[1;32msultan@desk\e[0m:\e[1;34m~/retro\e[0m$ git log --oneline -1\r\n" &
+    "\e[33mcd4ebc6\e[0m 0.72.0: the Glass look\r\n" &
+    "\e[1;32msultan@desk\e[0m:\e[1;34m~/retro\e[0m$ echo مرحبا Retro\r\n" &
+    "مرحبا Retro\r\n" &
     "\e[1;32msultan@desk\e[0m:\e[1;34m~/retro\e[0m$ ")
 
 terminalView(term, lines = 7)
@@ -1957,6 +1959,23 @@ proc defaultShell*(): seq[string]
 
 The user's shell: $SHELL, else /bin/sh (/system/bin/sh on Android); on Windows %COMSPEC%
 (cmd.exe).
+
+```nim
+proc terminalKeysFirst*(t: Terminal)
+```
+
+The keys an app's menu bar would take -- Alt and a letter, F10 -- given to the program in
+the terminal while it has the focus (bash's Alt+B and Alt+F, Midnight Commander's and
+htop's F10): call it before the menu bar. Alt pressed and let go alone still opens the
+menu bar, and so does the mouse.
+
+```nim
+proc shownText*(t: Terminal; row: int): string
+```
+
+The text of row `row` of the screen as it is shown, its cells from left to right: a row
+with right-to-left letters (Arabic, Hebrew) in the order it is read (`bidi`), else as
+`text`.
 
 ## Numbers, dates, colors
 

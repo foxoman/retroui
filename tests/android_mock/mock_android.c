@@ -61,13 +61,25 @@ int __android_log_print(int prio, const char *tag, const char *fmt, ...) {
 
 /* ---- looper ------------------------------------------------------------- */
 
-struct ALooper { int fds[4], idents[4], n; };
+struct ALooper { int fds[4], idents[4], n; int wake[2]; };
 static __thread struct ALooper *threadLooper;
 
 ALooper *ALooper_prepare(int opts) {
   (void)opts;
-  if (!threadLooper) threadLooper = calloc(1, sizeof(struct ALooper));
+  if (!threadLooper) {
+    threadLooper = calloc(1, sizeof(struct ALooper));
+    /* (a pipe ALooper_wake writes to, from any thread: the poll returns
+     * ALOOPER_POLL_WAKE, as Android's does) */
+    if (pipe(threadLooper->wake) != 0) abort();
+    fcntl(threadLooper->wake[0], F_SETFL, O_NONBLOCK);
+    fcntl(threadLooper->wake[1], F_SETFL, O_NONBLOCK);
+  }
   return threadLooper;
+}
+
+void ALooper_wake(ALooper *l) {
+  char b = 1;
+  if (write(l->wake[1], &b, 1) < 0) { /* (full: a wake is waiting already) */ }
 }
 
 int ALooper_addFd(ALooper *l, int fd, int ident, int events, ALooper_callbackFunc cb,
@@ -94,13 +106,20 @@ int ALooper_removeFd(ALooper *l, int fd) {
 int ALooper_pollOnce(int timeoutMillis, int *outFd, int *outEvents, void **outData) {
   (void)outFd; (void)outEvents; (void)outData;
   struct ALooper *l = threadLooper;
-  struct pollfd p[4];
+  struct pollfd p[5];
   for (int i = 0; i < l->n; i++) { p[i].fd = l->fds[i]; p[i].events = POLLIN; }
-  int r = poll(p, l->n, timeoutMillis);
+  p[l->n].fd = l->wake[0];
+  p[l->n].events = POLLIN;
+  int r = poll(p, l->n + 1, timeoutMillis);
   if (r < 0) return ALOOPER_POLL_ERROR;
   if (r == 0) return ALOOPER_POLL_TIMEOUT;
   for (int i = 0; i < l->n; i++)
     if (p[i].revents & POLLIN) return l->idents[i];
+  if (p[l->n].revents & POLLIN) {
+    char b[16];
+    while (read(l->wake[0], b, sizeof b) > 0) {}
+    return ALOOPER_POLL_WAKE;
+  }
   return ALOOPER_POLL_TIMEOUT;
 }
 

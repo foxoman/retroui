@@ -6,7 +6,7 @@
 ## and copying text.
 
 import std/[os, strutils]
-import retroui/uirelays/[coords, input, screen]
+import retroui/uirelays/[coords, input, screen, access]
 import retroui, retroui/[terminal, imaging, codec]
 import std/base64
 import harness
@@ -136,6 +136,17 @@ block found:
   t.reset(clear = true)
   doAssert t.scrollbackLines == 0 and t.screenText.strip == "" and t.cursor == (0, 0)
 
+block rightToLeft:
+  # (a row with Arabic or Hebrew shown in the order it is read: the Unicode bidirectional
+  # algorithm, the row's direction its first strong letter's; what the program wrote unchanged)
+  let t = fed("ab \u0645\u0631\u062D\u0628\u0627 cd\r\n\u05E9\u05DC\u05D5\u05DD abc\r\nplain", 30, 4)
+  doAssert t.text(0) == "ab \u0645\u0631\u062D\u0628\u0627 cd"
+  doAssert t.shownText(0) == "ab \u0627\u0628\u062D\u0631\u0645 cd", t.shownText(0)
+  doAssert t.shownText(1) == "abc \u05DD\u05D5\u05DC\u05E9", t.shownText(1)
+  doAssert t.shownText(2) == "plain"
+  t.bidi = false
+  doAssert t.shownText(0) == t.text(0)
+
 block kittyKeyboard:
   let t = newTerminal()
   doAssert t.kbFlags == 0
@@ -254,6 +265,8 @@ var box: Rect
 view = proc () =
   terminalView(term, lines = 10, focusFirst = true)
   box = ui.lastRect
+var told: seq[AccessNode]
+accessRelays.update = proc (nodes: openArray[AccessNode]; focus: int) = told = @nodes
 startApp("terminal", W, H)
 run(2)
 doAssert term.cols > 20 and term.rows == 10, $term.cols & "x" & $term.rows
@@ -273,4 +286,78 @@ run()
 key(KeyC, {CtrlPressed, ShiftPressed})
 run()
 doAssert getClipboardText() == "line", getClipboardText()
+# (a double click on an Arabic word where it is shown chooses it: the mouse goes through the
+# order shown)
+term.feed("\e[H\e[2Jab \u0645\u0631\u062D\u0628\u0627 cd")
+run(2)
+down(box.x + 2 + cw * 4 + cw div 2, box.y + 2 + 3, clicks = 2)
+run()
+up(box.x + 2 + cw * 4 + cw div 2, box.y + 2 + 3)
+run()
+key(KeyC, {CtrlPressed, ShiftPressed})
+run()
+doAssert getClipboardText() == "\u0645\u0631\u062D\u0628\u0627", getClipboardText().escape
+# (bold in the bright eight, `boldBright`: a block drawn bold red is the bright red)
+let lhView = (box.h - 4) div term.rows
+term.themed = false
+term.colors = LightColors
+term.colors.ansi[1] = color(160, 0, 0)
+term.colors.ansi[9] = color(250, 0, 0)
+term.feed("\e[H\e[2J\e[1;31m\u2588\e[0m")
+run(2)
+doAssert px(box.x + 3, box.y + 2 + lhView div 2) == 0xA00000'u32 or
+         px(box.x + 3, box.y + 2 + lhView div 2) == 0x0000A0'u32, toHex(px(box.x + 3, box.y + 2 + lhView div 2))
+term.boldBright = true
+run(2)
+let bright = px(box.x + 3, box.y + 2 + lhView div 2)
+doAssert bright == 0xFA0000'u32 or bright == 0x0000FA'u32, toHex(bright)
+term.boldBright = false
+# (Shift+Page Up and Page Down: back through what scrolled off and down again, nothing sent)
+for i in 0 ..< 30: term.feed("line " & $i & "\r\n")
+run(2)
+proc shot(): seq[uint32] =
+  for y in box.y + 2 ..< box.y + box.h - 2:
+    for x in box.x + 2 ..< box.x + box.w div 2: result.add px(x, y)
+let atBottom = shot()
+typed = ""
+key(KeyPageUp, {ShiftPressed})
+run(2)
+doAssert typed == "" and shot() != atBottom, typed.escape
+key(KeyPageDown, {ShiftPressed})
+run(2)
+doAssert typed == "" and shot() == atBottom, typed.escape
+# (a screen reader reads the screen, its caret at the cursor)
+term.feed("$ ")
+accessListening = true
+run(3)
+var found = false
+for n in told:
+  if n.role == arTextArea and "line 29" in n.value:
+    found = true
+    doAssert asFocused in n.states
+    doAssert n.caret == n.value.strip(leading = false).len, $n.caret & " of " & n.value.escape
+doAssert found, $told.len
+accessListening = false
+# (the keys a menu bar would take, the program's while the terminal has the focus:
+# `terminalKeysFirst` before the menu bar; Alt and a mark is Esc and the mark)
+var opened = false
+view = proc () =
+  terminalKeysFirst(term)
+  menubar:
+    menu "&File":
+      opened = true
+      if menuItem("E&xit"): discard
+  terminalView(term, lines = 10, focusFirst = true)
+  box = ui.lastRect
+run(2)
+typed = ""
+key(KeyF, {AltPressed})
+run(2)
+doAssert typed == "\ef" and not opened and ui.popup == 0, typed.escape
+key(KeyF10)
+run(2)
+doAssert typed == "\ef\e[21~" and not opened, typed.escape
+key(KeyPeriod, {AltPressed})
+run(2)
+doAssert typed == "\ef\e[21~\e.", typed.escape
 echo "test_terminal: ok"

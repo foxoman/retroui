@@ -759,7 +759,10 @@ costs what its visible rows cost.
   menu = proc () = ...)` adds the app's items to its right-click menu; in the menu bar,
   `terminalEditItems(term)`, `terminalViewItems(term)` (text bigger, smaller: `zoomText`),
   `terminalItems(term)` (Clear Scrollback, Reset); `findText(text, back)` and
-  `selectNone` for a find bar.
+  `selectNone` for a find bar; `terminalKeysFirst(term)` before the menu bar gives the
+  program Alt and a letter and F10 (bash, mc). Arabic and Hebrew show as they are read
+  (`term.bidi`, true; `shownText(row)`); `term.boldBright` (bold in the bright colors, a
+  PC's), `term.boldText` (every letter bold); Shift+PgUp/PgDn scroll back.
 - Surfaces: `surface frostedSurface(): ...` -- a panel that blurs what is under it
   (a photo, a map), rounded and shadowed, what is in it kept in its corners;
   `Surface(blur, face, corner, shadow, border, pad)` for another (a card that

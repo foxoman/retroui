@@ -28,6 +28,7 @@ fakeDriver()
 setup()
 startApp("photo", W, H)
 view = photoFrame
+keepRunning = true          # (File > Exit and Quit, chosen by the random clicks: it goes on)
 
 proc sample(w, h: int): Doc =
   result = newDoc(w, h, white, name = "sample")
@@ -366,4 +367,4 @@ for step in 1 .. steps:
   if step mod 200 == 0:
     echo "step ", step, ": ", docs.len, " documents; tool ", tool, "; ", status
 
-echo "photo fuzz: ", steps, " steps passed"
+echo "photo fuzz: ", steps, " steps passed", (if appQuits > 0: " (it quit " & $appQuits & " times and went on)" else: "")

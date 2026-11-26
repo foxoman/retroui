@@ -730,7 +730,15 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   the app writes to it itself (`showPicture`) asks for no answer (kitty's
   `q=2`), or the answer would be typed into the user's shell. The kitty
   keyboard protocol's flags are a stack for each screen (the main one and
-  the other), as kitty keeps them.
+  the other), as kitty keeps them. A program in Termux (`androidShell`: the
+  X11 driver) is watched as on Linux: only an APK's terminal is asked a few
+  times a second. The child's signals are put back to their defaults before
+  `exec` (what the app ignores, a shell's programs must not). A row with
+  right-to-left letters is shown in the order `bidiInfo` gives (`bidiRow`:
+  its cells reordered, each one's own column kept), a right-to-left run
+  drawn as one text in its cells (Arabic joined, kept in its cells); what
+  the program wrote, the chosen text, the cursor and the mouse's reports
+  stay in the program's columns.
 - **A rectangle with rounded corners is drawn by spans** (`roundRect`,
   `roundRectShaded`, `roundFrame`, `patchRoundRect`: a path command with
   `PathRound`, its radius in `size`, a frame's thickness in `mag`): its

@@ -719,10 +719,13 @@ app "Notes", 420, 300:
   runs the user's shell (or `top`, `vim`, a build) in a box of the window --
   xterm's colors and keys, scrolling back, copy and paste, the mouse to a
   program that asks, kitty's keyboard and graphics protocols (its keys told apart,
-  its pictures in the cells); Linux, macOS, the BSDs, Android, Windows 10. Fed by the
+  its pictures in the cells), Arabic and Hebrew shown as they are read (Unicode's
+  bidirectional order, Arabic's letters joined: `bidi`), its screen read by screen
+  readers; Linux, macOS, the BSDs, Android, Windows 10. Fed by the
   app, it shows a build's output in its colors. Its right-click menu takes the app's
   own items, and its Copy, Paste, text size, Clear Scrollback and Reset go in the app's
-  menu bar (`terminalEditItems`, `terminalViewItems`, `terminalItems`).
+  menu bar (`terminalEditItems`, `terminalViewItems`, `terminalItems`;
+  `terminalKeysFirst` before it gives the program Alt and a letter and F10).
 - **Frosted glass, masks, surfaces**: `surface frostedSurface(): ...` (a
   panel blurring what is under it, rounded, shadowed), `backdropBlur(r, radius,
   tint, corner)`, `masked(r, corner): ...` (kept inside rounded corners: a

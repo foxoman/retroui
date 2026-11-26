@@ -1,5 +1,52 @@
 # Changes
 
+## 0.77.2
+
+- **The terminal reads Arabic and Hebrew** (`retroui/terminal`): a row with
+  right-to-left letters is shown as it is read -- in the order Unicode's
+  bidirectional algorithm gives, the row's direction its first strong
+  letter's: a prompt's line left to right with the Arabic typed in it right
+  to left, a line of an Arabic file right to left -- Arabic's letters
+  joined, lam and alef as one, each right-to-left run kept in its cells.
+  What the program wrote stays as it wrote it: the text chosen with the
+  mouse (a double click on an Arabic word chooses it), the cursor, Find,
+  the mouse's reports to a program and a screen reader all go by its
+  columns. `bidi` (true) turns it off for a program that orders its text
+  itself; `shownText(row)` is a row as it is shown.
+- **The terminal for screen readers**: its screen is a text area of its
+  lines, the caret at the cursor.
+- **`terminalKeysFirst(t)`**: called before an app's menu bar, the keys the
+  bar would take -- Alt and a letter, F10 -- go to the program while the
+  terminal has the keys (bash's Alt+B and Alt+F, mc's and htop's F10); Alt
+  pressed alone still opens the menus.
+- **Alt and a mark is Esc and the mark** (bash's Alt+. and Alt+<), as xterm
+  sends them; it sent nothing.
+- **Shift+Page Up and Page Down** scroll back through what scrolled off a
+  screen at a time, as xterm has them, nothing sent to the program.
+- **`boldBright`**: bold text in the bright eight of the 16 colors, as a
+  PC's text screen showed it (the text's own color too when it is one of
+  the eight: MS-DOS's gray made white); **`boldText`**: every letter bold.
+- The chosen text white on a dark selection color whatever the scheme (3.1's
+  white on navy over a white terminal); the cursor hollow while another
+  window has the keys.
+- **A program in Termux sleeps with its terminal**: in a program built for
+  Termux (the X11 driver) the pseudo-terminal is watched with the window's
+  events as on Linux -- it was asked 30 times a second while a program ran.
+- A program started in a terminal has its signals as a shell expects them
+  (SIGPIPE, SIGCHLD, SIGINT, SIGQUIT, SIGTERM, SIGHUP back to their
+  defaults): `yes | head` ends.
+- The terminal's Bigger Text, Smaller Text, Normal Size, Reset and Reset and
+  Clear in Arabic.
+- CI: the fake Android of `tests/android_mock` has `ALooper_wake` (0.77.1's
+  `interruptWaitEvent` on Android calls it: the test could not link).
+  `test_diagrams` sets its eight slides at half their size as a 32-bit
+  program (each layer is as big as the document: eight slides of 1080 x 1350
+  did not fit in its address space). The photo fuzzer goes on when its
+  random clicks choose File > Exit and Quit (`keepRunning` in the tests'
+  harness). The soak lets an app holding more than 320 MB grow by a
+  twentieth before it calls it a leak (File Manager's random clicks open the
+  system's folders and their pictures).
+
 ## 0.77.1
 
 - **The Move tool on type with a selection made** (`movesWhole` in
