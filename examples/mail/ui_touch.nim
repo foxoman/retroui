@@ -250,6 +250,9 @@ proc settingsPage() =
       tPush(tpLook)
     if tableRow("More Options", "", taChevron, glyph = nfCog, tint = rgb(128, 128, 136), key = "smore").clicked:
       optOpen = true
+    if tableRow("About Retro Mail", "", taChevron, glyph = nfInfo, tint = rgb(38, 110, 220),
+                key = "sabout").clicked:
+      aboutOpen = true
 
 proc lookPage() =
   if appearanceSettings():

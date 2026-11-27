@@ -696,8 +696,8 @@ several chosen, then Mark, Move or Trash), one message with "3 of 9" and its arr
 its sender and who it went to as names in capsules, its toolbar -- Flag or Mark (Flag, Mark as
 Unread), Move, Trash, Reply (Reply, Reply All, Forward), New Message --, writing with Cancel and
 Send on the bar, To, Cc and Bcc, Subject, Insert Photo or Video, the signature; Settings in groups
-as a phone's (the accounts, New Mail, Reading, Writing, Kept Safe, Appearance, More Options), each
-kept as it is changed. On a tablet the
+as a phone's (the accounts, New Mail, Reading, Writing, Kept Safe, Appearance, More Options, About
+Retro Mail), each kept as it is changed. On a tablet the
 mailboxes and the list stay down the left and the message is beside them. tests/test_mailtouch.nim
 works it on a phone and a tablet and draws every page in every look.
 

@@ -173,6 +173,13 @@ tPush(tpLook)               # (as a tap on Appearance, at the page's foot)
 settle()
 check tPage() == tpLook and has("Look", {arComboBox}) and has("Size of everything"), "Appearance: the look, framed"
 save("phone-look")
+tStack = @[tpBoxes, tpSettings]
+aboutOpen = true            # (as a tap on About Retro Mail, at the page's foot)
+settle()
+check has("Copy Info", {arButton}) and has("Website", {arButton}) and not has("OK", {arButton}),
+      "About Retro Mail: the phone's page of it"
+save("phone-about")
+aboutOpen = false
 tStack = @[tpBoxes]
 settle()
 

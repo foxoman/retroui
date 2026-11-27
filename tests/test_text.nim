@@ -589,9 +589,10 @@ block freeSans:
   view = proc () = discard
   setZoom(0)
   setTextScale(100)
-  doAssert uiFont() == ufSans, "the default font"
+  doAssert uiFont() == ufSuhar, "the default font: Suhar App"
+  setUiFont(ufSans)             # (FreeSans: what this test looks at; test_suhar has Suhar)
   doAssert $ufSans == "FreeSans" and $ufSerif == "FreeSerif" and $ufMono == "FreeMono"
-  doAssert builtinUiFonts == @[ufSans, ufSerif, ufMono]
+  doAssert builtinUiFonts == @[ufSuhar, ufSans, ufSerif, ufMono]
   doAssert fontName(faceOf(TextStyle())) == "FreeSans" and builtinFace(fSans)
   run(2)
   # the line from the font: FreeSans's ascent, descent and line gap
@@ -758,7 +759,7 @@ block switchFonts:
   doAssert textWidth("iii") == textWidth("WWW"), "monospaced"
   var s: Settings
   storeAppearance(s)
-  doAssert s.getOrDefault("look.font") == "mono" and s.getOrDefault("look.fontv") == "3"
+  doAssert s.getOrDefault("look.font") == "mono" and s.getOrDefault("look.fontv") == "4"
   setUiFont(ufSerif)
   run(2)
   doAssert faceOf(TextStyle()) == fSerif and faceOf(style(mono = true)) == fMono
@@ -772,7 +773,7 @@ block switchFonts:
 block oldSettings:
   # the fonts of before: their words still read (FreeSans or FreeMono) --
   # and a store from before FreeFont ("look.fontv" under 3) is the default,
-  # FreeSans, whatever it named; a font from a file stays one
+  # Suhar now, whatever it named; a font from a file stays one
   var f: UiFont
   for (key, want) in [("w98", ufSans), ("retro", ufSans), ("smooth", ufSans), ("opensans", ufSans),
                       ("kawkab", ufMono), ("fixedsys", ufMono), ("sans", ufSans), ("serif", ufSerif),
@@ -788,7 +789,7 @@ block oldSettings:
     if v.len > 0: old["look.fontv"] = v
     setUiFont(ufSerif)
     restoreAppearance(old)
-    doAssert uiFont() == ufSans, font & " " & v
+    doAssert uiFont() == ufSuhar, font & " " & v
   var chosen: Settings
   chosen["look.font"] = "serif"
   chosen["look.fontv"] = "3"

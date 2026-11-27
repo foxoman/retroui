@@ -23,14 +23,15 @@ proc ink(x0, y0, w, h: int): int =
 # ---- the names, the choices ---------------------------------------------------------------------
 
 block names:
-  doAssert uiFont() == ufSans
-  doAssert ord(ufSans) == 0 and ufFile notin builtinUiFonts
-  doAssert builtinUiFonts == @[ufSans, ufSerif, ufMono] and $ufFile == "Font File"
+  doAssert uiFont() == ufSuhar
+  doAssert ord(ufSuhar) == 0 and ufFile notin builtinUiFonts
+  doAssert builtinUiFonts == @[ufSuhar, ufSans, ufSerif, ufMono] and $ufFile == "Font File"
   for u in UiFont:
     var g = ufMono
     doAssert uiFontOfKey(uiFontKey(u), g) == (u != ufFile), $u
     if u != ufFile: doAssert g == u
-  doAssert RetroFontCredit.contains("GNU FreeFont")
+  doAssert RetroFontCredit.contains("GNU FreeFont") and RetroFontCredit.contains("Suhar")
+  setUiFont(ufSans)             # (FreeSans: what the tests below look at)
 
 # ---- a .ttc collection ------------------------------------------------------------------------------
 

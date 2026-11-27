@@ -1553,9 +1553,11 @@ proc alertBox*(open: var bool; title: string; message = ""; buttons: openArray[s
     # (Gloss: iOS 6's sizes -- the title 18, the message 16 -- wrapped as wide as they are)
     let k = if not gloss: 1.0 elif bold: (if fingers(): 1.2 else: 1.1) else: (if fingers(): 1.07 else: 1.0)
     let st = style(bold = bold, size = k)
-    let lh = if gloss: lineHeight(st) else: FontH
-    for ln in wrapLines(tr(txt), (if k > 1.0: int(float(room) / k) - 1 else: room), bold):
-      let lr = place(0, lh + dp(2), fill = true)
+    let lh = (if gloss: lineHeight(st) else: FontH) + dp(2)
+    let lines = wrapLines(tr(txt), (if k > 1.0: int(float(room) / k) - 1 else: room), bold)
+    let br = place(0, lines.len * lh, fill = true)     # (its lines close together)
+    for i, ln in lines:
+      let lr = rect(br.x, br.y + i * lh, br.w, lh)
       let tw = textWidth(ln, st)
       let tx = if centered: lr.x + (lr.w - tw) div 2 else: lr.x
       if gloss: text(tx, lr.y - 1, ln, withAlpha(black, 204), st)
@@ -1709,8 +1711,12 @@ proc endTableGroup*() =
   if g.footer.len > 0:
     let gloss = glossLook()
     let room = cellRoom() - (if glassLook(): 2 * dp(12) else: 0)
-    for ln in wrapLines(tr(g.footer), room):
-      let lr = place(0, FontH + dp(1), fill = true)
+    let lines = wrapLines(tr(g.footer), room)
+    let lh = FontH + dp(1)
+    # (one place for its lines: close together, not a row's gap apart)
+    let fr = place(0, lines.len * lh, fill = true)
+    for i, ln in lines:
+      let lr = rect(fr.x, fr.y + i * lh, fr.w, lh)
       let tw = textWidth(ln)
       let tx = if gloss: lr.x + (lr.w - tw) div 2 elif glassLook(): lr.x + dp(12) else: lr.x
       if gloss:
@@ -4005,3 +4011,106 @@ proc coverFlow*(covers: openArray[Bitmap]; sel: var int; titles: openArray[strin
                help = $(sel + 1) & " of " & $n & "; Left and Right go along, Enter opens it")
   ui.lastId = id
   ui.lastRect = r
+
+# ---- the About box as a phone's page ---------------------------------------------------------------
+
+var aboutCopiedAt = -1_000_000   # (when its Copy Info was tapped)
+
+proc wordsRows(items: openArray[string]; bullet: bool) =
+  ## (rows of words in a `tableGroup`, each wrapped -- in the UI font's cut for reading --, a dot
+  ## before each when `bullet`)
+  withTextStyle(style(read = true)):
+    let pad = if fingers(): dp(12) else: dp(10)
+    let dot = if bullet: dp(16) else: 0
+    for it in items:
+      let w = available()
+      let lines = wrapLines(tr(it), max(dp(40), w - 2 * pad - dot))
+      let h = max(tableRowH(false), lines.len * FontH + dp(18))
+      let r = place(0, h, fill = true)
+      let f = rowFrame(r, false)
+      var y = r.y + (r.h - lines.len * FontH) div 2
+      if bullet:
+        let s = float(max(dp(3), 3))
+        disc(float(r.x + pad + dp(4)), float(y + FontH div 2), s, if glossLook(): glossDetail() else: accentColor())
+      for ln in lines:
+        text(r.x + pad + dot, y, ln, f.ink)
+        y += FontH
+      if accessOn: accessNode(arLabel, tr(it), id = 0, r = r)
+
+proc phoneAbout(open: var bool; a: AboutShown) =
+  ## (`aboutBox` on a phone or a tablet: a page -- the icon large over the name, the version and
+  ## what it is for; then groups: the version, who made it, the website and the e-mail; what it
+  ## is; What's New; Credits; This Device; Copy Info)
+  dialog(open, "About " & a.app, 460):
+    # the icon, the name, the version, the tagline
+    let d = if fingers(): dp(84) else: dp(72)
+    let big = style(bold = true, size = 1.6)
+    let hr = place(0, dp(14) + d + dp(10) + lineHeight(big) + FontH + dp(4) +
+                      (if a.tagline.len > 0: FontH + dp(2) else: 0) + dp(6), fill = true)
+    let ic = rect(hr.x + (hr.w - d) div 2, hr.y + dp(14), d, d)
+    let gloss = glossLook()
+    let rad = if gloss: float(d) * 0.18 elif matteLook(): float(dp(6)) else: float(d) * 0.22
+    if gloss:
+      roundRect(rect(ic.x, ic.y + 2, ic.w, ic.h), rad, withAlpha(black, 70))
+      roundRect(rect(ic.x, ic.y + 1, ic.w, ic.h), rad, withAlpha(black, 60))
+    else: softShadow(ic, rad, 6)
+    if a.pic != nil and a.pic.w > 0:
+      masked(ic, rad):
+        drawBitmap(ic, a.pic)
+    else:
+      let base = accentColor()
+      roundRectShaded(ic, rad, mixColor(base, white, 0.25), mixColor(base, black, 0.2))
+      let g = if a.glyph.len > 0: a.glyph else: nfWindowMaximize
+      let gs = style(size = float(d) / 22)
+      text(ic.x + (d - textWidth(g, gs)) div 2, ic.y + (d - lineHeight(gs)) div 2, g, white, gs)
+    if gloss:
+      # (the shine of an icon of then: its top half)
+      pushClip(rect(ic.x, ic.y, ic.w, ic.h * 47 div 100))
+      roundRect(ic, rad, withAlpha(white, 64))
+      popClip()
+      roundFrame(ic, rad, 1, withAlpha(black, 46))
+    var y = ic.y + d + dp(10)
+    let name = ellipsize(a.app, hr.w - dp(16), big)
+    text(hr.x + (hr.w - textWidth(name, big)) div 2, y, name, th.text, big)
+    y += lineHeight(big)
+    if a.version.len > 0:
+      let v = tr("Version ") & a.version
+      text(hr.x + (hr.w - textWidth(v)) div 2, y, v, th.gray)
+    y += FontH + dp(2)
+    if a.tagline.len > 0:
+      let t = ellipsize(tr(a.tagline), hr.w - dp(16))
+      text(hr.x + (hr.w - textWidth(t)) div 2, y, t, th.gray)
+    if accessOn:
+      accessNode(arHeading, a.app & (if a.version.len > 0: " " & a.version else: ""), id = 0, r = hr,
+                 help = a.tagline)
+    # who made it, where to write
+    tableGroup(""):
+      if a.version.len > 0: discard tableRow("Version", a.version, key = "about-version")
+      discard tableRow("Developer", RetroDeveloper, key = "about-dev")
+      if tableRow("Website", RetroWebsite, taChevron, key = "about-web").clicked:
+        discard openUrl("https://" & RetroWebsite)
+      if tableRow("Email", RetroEmail, taChevron, key = "about-mail").clicked:
+        discard openUrl("mailto:" & RetroEmail)
+      if a.url.len > 0 and tableRow("More", a.url, taChevron, key = "about-url").clicked:
+        discard openUrl(a.url)
+    if a.lines.len > 0:
+      tableGroup("About"):
+        wordsRows(a.lines, false)
+    if a.whatsNew.len > 0:
+      tableGroup(tr("What's New") & (if a.version.len > 0: " " & tr("in") & " " & a.version else: "")):
+        wordsRows(a.whatsNew, true)
+    if a.credits.len > 0:
+      tableGroup("Credits"):
+        wordsRows(a.credits, false)
+    tableGroup("This Device"):
+      for (k, v) in a.facts:
+        if k in ["Version", "Developer"]: continue      # (above)
+        discard tableRow(k, v, key = "about-fact:" & k)
+    let copied = ui.now - aboutCopiedAt < 1500
+    tableGroup("", "What it runs on, as text: for a report of a fault."):
+      if tableButton(if copied: "Copied" else: "Copy Info"):
+        putClipboardText(a.info)
+        aboutCopiedAt = ui.now
+        wakeIn(1600)
+
+aboutPhone = phoneAbout

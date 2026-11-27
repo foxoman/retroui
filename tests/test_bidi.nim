@@ -551,7 +551,9 @@ block richEditLatinInArabic:
     "after G and after GPS: by the Arabic before them: " & $(x1, richCaretRect(doc).x, edge)
 
 block richEditStyleInAWord:
-  # a word with a color in the middle keeps its letters joined
+  # a word with a color in the middle keeps its letters joined (FreeSerif's Arabic, whose
+  # letters do not kern: Suhar's kerning across the color's edge is the pieces' own)
+  setUiFont(ufSans)
   var doc = richFromHtml("<p>مر<span style=\"color:#ff0000\">حب</span>ا</p>")
   view = proc () =
     discard richEdit(doc, height = 120)
@@ -565,6 +567,7 @@ block richEditStyleInAWord:
   run()
   let b = richCaretRect(doc).x
   doAssert abs((a - b) - textWidth("مرحبا")) <= 2, "as wide as the word joined: " & $(a - b, textWidth("مرحبا"))
+  setUiFont(ufSuhar)
 
 # ---- the right-to-left interface ----------------------------------------------------------------------
 

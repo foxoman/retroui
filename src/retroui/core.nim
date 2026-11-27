@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy, hangwatch, frameprof
 export busy
 
-const RetroVersion* = "0.80.0"
+const RetroVersion* = "0.81.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -32,8 +32,8 @@ const
   RetroEmail* = "sultan@foxoman.net"  ## the developer's e-mail address
   RetroCredit* = "Developed by " & RetroDeveloper & " " & RetroHandle
     ## "Developed by Sultan Al Isaiee @foxoman"
-  RetroFontCredit* = "Fonts: GNU FreeFont -- FreeSans, FreeSerif, FreeMono (GNU GPL v3 or later, " &
-                     "with the font exception)."
+  RetroFontCredit* = "Fonts: Suhar App by Sultan Al Isaiee (SIL Open Font License 1.1); GNU FreeFont -- " &
+                     "FreeSans, FreeSerif, FreeMono (GNU GPL v3 or later, with the font exception)."
     ## What an About box says of the text fonts the app carries.
   ## The version of Retro Nim UI.
 
@@ -3252,6 +3252,20 @@ proc setUiLanguage*(lang: string; tables: varargs[seq[(string, string)]]) =
 
 proc uiLanguageCode*(): string = uiLanguage
   ## The interface's language ("" English).
+
+proc setRightToLeft*(on: bool) =
+  ## The interface mirrored, right to left, as an Arabic one is -- rows and forms laid out from
+  ## the right (a caption on the right of its field, buttons in a row from the right), menus,
+  ## scroll bars and arrows on the other side -- and its mixed lines read right to left
+  ## (`setRtlInterface`), whatever its language. `setUiLanguage("ar")` (Persian, Hebrew,
+  ## Urdu) does it with the translations; `setRtlInterface` alone changes the lines' direction,
+  ## not the layout.
+  ui.rtl = on
+  setRtlInterface(on)
+  ui.force = true
+
+proc rightToLeft*(): bool = ui.rtl
+  ## The interface is mirrored, right to left (`setRightToLeft`, `setUiLanguage`).
 
 proc glued(s: string): string =
   ## (`s` made of fixed parts the tables have and values -- "Could not open " & name, $n & "

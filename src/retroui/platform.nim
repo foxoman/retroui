@@ -175,6 +175,7 @@ proc uiFontKey*(f: UiFont): string =
   ## The word settings keep font `f` as: "sans", "serif", "mono", "file"
   ## (what `storeAppearance` writes; `uiFontOfKey` reads it back).
   case f
+  of ufSuhar: "suhar"
   of ufSans: "sans"
   of ufSerif: "serif"
   of ufMono: "mono"
@@ -186,6 +187,7 @@ proc uiFontOfKey*(key: string; f: var UiFont): bool =
   ## "fixedsys" FreeMono), into `f`; false for an unknown word or "file" (a
   ## font from a file: `loadUiFontFile`).
   case key
+  of "suhar": f = ufSuhar
   of "sans", "w98", "retro", "smooth", "opensans": f = ufSans
   of "serif": f = ufSerif
   of "mono", "kawkab", "fixedsys": f = ufMono
@@ -237,7 +239,7 @@ proc storeAppearance*(s: var Settings) =
                    of gmGpu: "gpu"
                    of gmCpu: "cpu")
   s["look.font"] = uiFontKey(uiFont())
-  s["look.fontv"] = "3"
+  s["look.fontv"] = "4"
   if uiFontPath.len > 0: s["look.fontfile"] = uiFontPath
   # (the text's edges kept only when not the system's choice)
   if subpixelText() != systemSubpixelText():
@@ -301,10 +303,12 @@ proc restoreAppearance*(s: Settings) =
     of "system": chooseClassicFrame(false)
     else: discard
   # (stored before FreeFont -- "look.fontv" under 3 -- a built-in font was
-  # one of the old ones, gone now: the default again, FreeSans; a font from
-  # a file stays one)
+  # one of the old ones, gone now: the default again, Suhar; stored before
+  # Suhar -- under 4 -- FreeSans was the default: Suhar now; a font from a
+  # file stays one)
   let font = s.getOrDefault("look.font", "")
-  let current = s.getInt("look.fontv", 0) >= 3
+  let current = s.getInt("look.fontv", 0) >= 3 and
+                (font != "sans" or s.getInt("look.fontv", 0) >= 4)
   var uf: UiFont
   if font == "file":
     # (the font from a file: when it is still there)
@@ -313,7 +317,7 @@ proc restoreAppearance*(s: Settings) =
       try: loadUiFontFile(p)
       except CatchableError: discard
   elif font.len == 0 or not current:
-    setUiFont(ufSans)
+    setUiFont(ufSuhar)
     if font.len == 0: useAppFont()      # (nothing chosen yet: the app's own font, when it has one)
   elif uiFontOfKey(font, uf):
     setUiFont(uf)

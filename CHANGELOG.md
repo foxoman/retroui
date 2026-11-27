@@ -1,5 +1,46 @@
 # Changes
 
+## 0.81.0
+
+- **Suhar App is every app's font**: Suhar, my own typeface, cut for apps -- Latin and Arabic
+  drawn together, of one size and weight in a mixed line -- built in, in its regular, bold,
+  italic and bold italic (`ufSuhar`, the default). **Suhar App Read**, its cut for reading,
+  draws paragraphs: `paragraph`, Markdown's text, the About page's words, `style(read =
+  true)` (`TextStyle.read`). FreeSans, FreeSerif and FreeMono stay built in and in Appearance
+  ("Font"); a letter Suhar has not drawn (Thai, a symbol) comes from FreeFont in the same
+  style. A look kept before, with FreeSans as it was the default then, comes up in Suhar.
+  Suhar is under the SIL Open Font License 1.1 (`LICENSE-Suhar.txt`; `tools/gensuharfont.py`).
+  `-d:retroFonts=ui` carries Suhar App and its bold and FreeSans; `sans` Suhar App's four and
+  FreeSans's four. Documents (`retroui/textengine`) offer "Suhar App" and "Suhar App Read".
+- **Arabic shaped by the font's own tables**: a font with Arabic and GSUB's joining forms --
+  Suhar, a font from a file -- has its letters joined by its GSUB and its marks put where its
+  GPOS puts them (`otshape`), whether it has the presentation forms or not (one without them
+  fell back to the built-in font). FreeFont keeps the kit's own joining.
+- **Marks that cross the baseline are drawn**: a damma, a fathatan or a kasra whose outline
+  crossed y = 0 (Suhar Bold's) stayed at the baseline, inside its letter; with GPOS it goes
+  where the font says, and without it above or below its letter by where most of the mark is.
+- **`setTallLines(true)`**: lines tall enough for fully vowelled Arabic (1.3 em above the
+  baseline, 0.72 under it) in every row, label and field.
+- **`setRightToLeft(on)`**: the interface mirrored -- captions on the right of their fields,
+  buttons from the right -- without changing its language (`setUiLanguage("ar")` does it with
+  the translations); `setRtlInterface` changes only the direction mixed lines read in, as its
+  documentation now says.
+- **`setUiFontVariable(data)`**: one variable font file as the UI's font -- its regular and bold
+  at their weights, its italic where it has one, its optical size following the text's size
+  (`setUserFontVariable`, `userFontAxes` in `retroui/typeset`).
+- **The About box as a phone's page** with touch sizes in Glass, Matte and Gloss: the icon large
+  over the name and the version, then groups -- the version, who made it, the website and the
+  e-mail to tap, what it is, What's New, Credits, This Device -- and Copy Info.
+- A group's note that wraps (`tableGroup`'s footer) and an alert's message keep their lines close
+  together; a row's gap was between them.
+- The status bar over the kit's own title bar (an app without `appNavBars` on a phone) is the
+  bar's color, darker, as over the app's own bars.
+- Retro Music 2.1.1, Retro Mail 1.5.1, Retro DNS 1.9.1: Suhar, and the About page on a phone; Retro
+  Mail's from About Retro Mail at the foot of its Settings.
+- Tests: test_suhar (the default, the reading cut, the fallback, marks crossing the baseline with
+  GPOS and without, Arabic without presentation forms, tall lines, the mirrored layout, a
+  variable font); the phone's About page in test_phoneparts and test_mailtouch.
+
 ## 0.80.0
 
 - **Gloss is the default look on Android and iOS** (Gloss Light or Gloss Dark, as the system is);

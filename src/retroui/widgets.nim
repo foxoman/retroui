@@ -1733,15 +1733,17 @@ proc ellipsize*(s: string; maxW: int; st = TextStyle()): string =
   result = s.runeSubStr(0, lo) & ell
 
 proc paragraph*(s: string; w = 0; color = Color()) =
-  ## Word-wrapped text as wide as the space it is in (or `w`).
+  ## Word-wrapped text as wide as the space it is in (or `w`), in the UI font's cut for
+  ## reading (Suhar App Read: `TextStyle.read`).
   let maxW = if w > 0: w else: available()
-  let lines = wrapLines(tr(s), maxW)
-  let r = place(maxW, lines.len * FontH)
-  ui.lastId = 0
-  ui.lastRect = r
-  if accessOn: accessNode(arLabel, tr(s), id = 0, r = r)
-  let c = if color.a == 0: th.text else: color
-  for i, line in lines: text(r.x, r.y + i * FontH, line, c)
+  withTextStyle(style(read = true)):
+    let lines = wrapLines(tr(s), maxW)
+    let r = place(maxW, lines.len * FontH)
+    ui.lastId = 0
+    ui.lastRect = r
+    if accessOn: accessNode(arLabel, tr(s), id = 0, r = r)
+    let c = if color.a == 0: th.text else: color
+    for i, line in lines: text(r.x, r.y + i * FontH, line, c)
 
 proc separator*() =
   ## A horizontal etched line.

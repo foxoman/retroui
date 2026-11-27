@@ -46,12 +46,12 @@ change is written into the same `.nim` file.
 
 ## Why Retro
 
-- **Small and light.** A "hello" app is a single 2.1 MB file (Linux
-  x86-64, built with `retrokit small`; about 0.9 MB of it the fonts) that
-  runs in 7 MB of memory on one thread -- the same Hello in egui, iced or
+- **Small and light.** A "hello" app is a single 3.7 MB file (Linux
+  x86-64, built with `retrokit small`; about 1.7 MB of it the fonts) that
+  runs in 10 MB of memory on one thread -- the same Hello in egui, iced or
   Slint is a 15-22 MB file in 15-120 MB (see [Speed and size](#speed-and-size));
-  the full file manager is 4.3 MB, and the gallery with every control, the
-  street map, 3D models, the canvas and PDF 5.7 MB. Fonts, icons, the PDF writer, the world map, the 3D view and
+  the full file manager is 7.7 MB, and the gallery with every control, the
+  street map, 3D models, the canvas and PDF 8.5 MB. Fonts, icons, the PDF writer, the world map, the 3D view and
   the decoders are all built in, and only what an app calls is linked.
 - **No dependencies.** You need Nim and a C compiler — nothing else to
   install, now or on the user's machine: no GTK, Qt, SDL, Electron, browser
@@ -92,10 +92,11 @@ change is written into the same `.nim` file.
 - **Looks the part.** The 3.1 look down to the pixel — black outlines, the
   two-step bevels, the default button's ring, navy and white title bars,
   dithered scroll tracks, etched group boxes, hard menu shadows — in
-  **FreeSans** (GNU FreeFont's Helvetica-like sans, with its bold, oblique
-  and bold oblique), its heights on whole pixels so it is crisp at 100 %,
-  at 125 % and 150 %, and on HD, 2K and 4K screens, with Arabic everywhere
-  (FreeSerif's). **FreeSerif**, **FreeMono** or a font file are the other
+  **Suhar App** (my own typeface, Latin and Arabic drawn together, with its
+  bold, italic and bold italic, and Suhar App Read for paragraphs), its
+  heights on whole pixels so it is crisp at 100 %, at 125 % and 150 %, and
+  on HD, 2K and 4K screens, with Arabic everywhere. **FreeSans**,
+  **FreeSerif**, **FreeMono** (GNU FreeFont) or a font file are the other
   choices (`setUiFont`, or the user in `appearanceSettings`; see "The
   fonts" below). 324 pixel icons in
   the manner of the period. Lists and pages glide when scrolled, and a
@@ -428,7 +429,7 @@ app "Hello", 320, 120:
 
 ```sh
 nim c -r -d:release -d:useMalloc hello.nim   # or: retrokit run hello.nim
-retrokit small hello.nim          # optimized for size, LTO, stripped: about 2.1 MB, one file
+retrokit small hello.nim          # optimized for size, LTO, stripped: about 3.7 MB, one file
 retroapk hello.nim --install      # on a phone in Termux
 ```
 
@@ -613,8 +614,9 @@ retrokit designer app.nim       # app.nim's windows (a new file when there is no
   large title -- [docs/customizing.md](docs/customizing.md) goes through
   them, then through putting controls together and drawing your own, with
   BMI Studio (`examples/bmi.nim`) as the worked example.
-  Text is FreeSans (the default), FreeSerif or FreeMono -- GNU FreeFont,
-  built in, each in its four styles, Arabic everywhere -- or a font file
+  Text is Suhar App (the default, paragraphs in Suhar App Read), FreeSans,
+  FreeSerif or FreeMono -- built in, each in its four styles, Arabic
+  everywhere -- or a font file
   (`setUiFont`, `loadUiFontFile`); icons are
   the 3.1-style pixel icons or the Nerd Fonts symbols.
 - **Sizes.** Layout uses design pixels that follow the screen's density
@@ -909,9 +911,10 @@ toolButton(nfCopy, "Copy", size = 1.3)
 image(x, y, glyphIcon(nfFolder, color(222, 170, 40), 24))   # as an Icon
 ```
 
-`TextStyle` has `bold`, `italic` (the font's own italic: FreeSans Oblique,
-not a slanted copy), `mono` (FreeMono), `serif` (FreeSerif), `underline`,
-`strike`, `size` (times the UI's text size) and `rtl`. `textWidth`, `lineHeight` and
+`TextStyle` has `bold`, `italic` (the font's own italic, not a slanted
+copy), `mono` (FreeMono), `serif` (FreeSerif), `read` (a paragraph's text:
+Suhar App Read), `underline`, `strike`, `size` (times the UI's text size)
+and `rtl`. `textWidth`, `lineHeight` and
 `FontH` measure. The icon constants (`nfFolder`, `nfCog`, `nfGithub`...,
 `nerdIconNames` lists them all) come from Font Awesome, Material Design,
 Seti and Devicons via Nerd Fonts. Characters in no built-in font (CJK,
@@ -945,14 +948,36 @@ the view's size, and the full-size pixels change once, when it is put down
 70-megapixel photo, dragging a layer costs about 8 ms a frame and Free
 Transform 25 ms.
 
-**The fonts.** Every app's text is **FreeSans** unless it chooses
-otherwise: GNU FreeFont's sans (in the manner of Helvetica and Arial),
-built into the app in its regular, bold, oblique and bold oblique.
-`setUiFont(ufSerif)` gives **FreeSerif** (in the manner of Times),
+**The fonts.** Every app's text is **Suhar App** unless it chooses
+otherwise: Suhar, my own typeface, cut for apps -- Latin and Arabic drawn
+together, of one size and weight in a mixed line, with Greek, Cyrillic,
+Hebrew and the Vietnamese letters -- built into the app in its regular,
+bold, italic and bold italic (Arabic has an italic too). Paragraphs --
+`paragraph`, Markdown's text, `style(read = true)` -- are in **Suhar App
+Read**, its cut for reading. A letter Suhar has not drawn (Thai, a symbol)
+comes from GNU FreeFont in the same style. Suhar's Arabic is shaped by its
+own OpenType tables: the joining forms from GSUB, the vowels and marks where
+GPOS puts them. Suhar is under the SIL Open Font License 1.1
+(src/retroui/fonts/LICENSE-Suhar.txt; `tools/gensuharfont.py` makes the
+kit's files from the fonts).
+
+GNU FreeFont stays built in, to be chosen in Appearance or by the app:
+`setUiFont(ufSans)` gives **FreeSans** (in the manner of Helvetica and
+Arial), `setUiFont(ufSerif)` **FreeSerif** (in the manner of Times),
 `setUiFont(ufMono)` **FreeMono** (in the manner of Courier); monospaced
 text (code blocks, editors, hex) is FreeMono whatever the UI's font, and
 serif families in HTML, on the canvas and in documents are FreeSerif.
 Italic and bold italic are the fonts' own italics, not slanted copies.
+`setUiFontFile` takes a font of your own (its four styles in four files),
+`setUiFontVariable` one variable font file for all of them (its weights,
+its italic, its optical size following the text's size).
+A font with Arabic and GSUB's joining forms is shaped by its own tables,
+with presentation forms or without them; its marks go where its GPOS puts
+them, and where it has none the kit places them above or below their
+letter by where most of the mark is (a damma's foot may cross the
+baseline). Fully vowelled text -- a shadda and a vowel over a tall letter,
+tanween under a deep one -- reaches past a font's line; `setTallLines(true)`
+makes every line tall enough for it.
 **Arabic is everywhere:** FreeSans has none of its own, so its Arabic --
 in every style -- is FreeSerif's (FreeSerif Bold's in bold text), joined,
 lam-alef as one letter, right to left among Latin text, mirrored brackets;
@@ -977,8 +1002,11 @@ typed goes when Latin and Arabic meet; a selection of both is drawn where
 its parts are. PDF files carry Arabic as it is written (`/ActualText`,
 the letters themselves) and say their language (`lang`); an Arabic
 sheet written to Excel opens right to left (`XlsxSheet.direction`). The
-Arabic interface (`setUiLanguage("ar", @toolkitArabic)`) mirrors the
-frame, menus, lists, scroll bars and back and forward arrows; text
+Arabic interface (`setUiLanguage("ar", @toolkitArabic)`, or
+`setRightToLeft(true)` for the mirroring alone) mirrors the
+frame, menus, lists, scroll bars and back and forward arrows -- a caption on
+the right of its field, buttons in a row from the right --; `setRtlInterface`
+changes only the direction mixed lines read in; text
 boxes, documents and Markdown keep their own direction, and charts,
 maps, the media controls (play, the time bar) and pictures their sides.
 
@@ -991,11 +1019,10 @@ currency, arrows, mathematical operators, box drawing, geometric shapes
 and the symbols the kit's own text uses -- the bold and italic styles the
 letters, their symbols coming from the regular -- with their OpenType
 kerning, marks, ligatures and Arabic forms, without the TrueType hinting.
-The twelve files take 0.88 MB in every app (packed with LZMA by
-`tools/packlzma.py`, unpacked when a face is first used; the faces every
-program unpacks as it starts, the UI's text, its bold and the icons, with
-zlib, five times as fast to unpack; the fonts before them took 0.96 MB,
-and apps with `retroui/textengine` carried Amiri's 0.21 MB more).
+FreeFont's twelve files take 0.88 MB in every app and Suhar's eight 0.8 MB
+(packed with LZMA by `tools/packlzma.py`, unpacked when a face is first
+used; the faces every program unpacks as it starts, the UI's text, its bold
+and the icons, with zlib, five times as fast to unpack).
 An app that wants more for its documents' type carries Dastkhat
 (`retroui/dastkhat`, 160 KB packed): Arabic, Persian and Latin in one
 variable font, nine weights from Thin to Black, each a style of its family
@@ -1061,11 +1088,12 @@ face of a .ttc; its bold, italic and bold italic beside it when they are,
 `-d:retroAppFont=path/X-Regular.ttf` carries its own and starts with it
 (`useAppFont`). Choose before `app` for one app's default, or at any
 time; `uiFont()` tells which is on; `appearanceSettings` puts the choice
-in an app's Settings -- FreeSans, FreeSerif, FreeMono, a font file -- and
-`storeAppearance` / `restoreAppearance` keep it (a choice stored before
-FreeFont is FreeSans now, a font file stays one). `builtinUiFonts` lists
+in an app's Settings -- Suhar App, FreeSans, FreeSerif, FreeMono, a font
+file -- and `storeAppearance` / `restoreAppearance` keep it (a choice stored
+before FreeFont is Suhar now, and so is FreeSans kept when it was the
+default; a font file stays one). `builtinUiFonts` lists
 the built-in fonts for a menu of an app's own, `uiFontKey` / `uiFontOfKey`
-name them in its settings ("sans", "serif", "mono"; the words
+name them in its settings ("suhar", "sans", "serif", "mono"; the words
 of before -- "w98", "kawkab"... -- still read). The fonts' names of before
 compile for one release as deprecated aliases: `ufW98`, `ufRetro`,
 `ufSmooth`, `ufOpenSans` are `ufSans`, `ufKawkab`, `ufFixedsys` `ufMono`.
@@ -2094,7 +2122,7 @@ with each inbox's unread, a folder's messages with their blue dots, one
 message with "3 of 9" and its arrows, names in capsules, sheets for Flag,
 Mark as Unread and Reply, writing with Cancel and Send, Settings in groups as
 a phone's (the accounts, when mail comes, reading, writing, what is kept safe,
-Appearance; the rest in More Options); on a tablet the
+Appearance; the rest in More Options; About Retro Mail as a phone's page); on a tablet the
 list down the left, the message beside it. Adding an account is your address and Enter: the browser opens the
 right sign-in page, done (`docs/retromail.md`: the app registrations a build
 carries, made once); for any other provider, the password, and the servers
@@ -3627,23 +3655,24 @@ stripped):
 
 | App | Size |
 |---|---|
-| `examples/hello.nim` | 2.1 MB |
-| `examples/ledger.nim` (grids, forms, CSV) | 2.2 MB |
-| `examples/taskman.nim` (Retro Task Manager) | 2.3 MB |
-| `examples/charts.nim` (Chart Viewer) | 2.5 MB |
-| `examples/notepad.nim` (with the file dialogs) | 2.5 MB |
-| `examples/invoice.nim` (templates, reports, PDF, printing) | 2.6 MB |
-| `examples/communicator.nim` (chat, end-to-end encryption) | 2.8 MB |
-| `examples/hrbook.nim` (HR Book) | 3.4 MB |
-| `examples/retroboard.nim` (the whiteboard) | 3.7 MB |
-| `examples/filemanager.nim` (Retro Files) | 4.3 MB |
-| `examples/gallery.nim` (everything: street map, 3D models, canvas, PDF, HTML, media) | 5.7 MB |
-| `examples/mail.nim` (Retro Mail) | 6.0 MB |
-| `examples/photo.nim` (Retro Atelier) | 10.6 MB |
+| `examples/hello.nim` | 3.7 MB |
+| `examples/ledger.nim` (grids, forms, CSV) | 4.1 MB |
+| `examples/taskman.nim` (Retro Task Manager) | 4.1 MB |
+| `examples/charts.nim` (Chart Viewer) | 4.3 MB |
+| `examples/notepad.nim` (with the file dialogs) | 4.3 MB |
+| `examples/invoice.nim` (templates, reports, PDF, printing) | 4.4 MB |
+| `examples/communicator.nim` (chat, end-to-end encryption) | 4.5 MB |
+| `examples/hrbook.nim` (HR Book) | 5.3 MB |
+| `examples/retroboard.nim` (the whiteboard) | 6.9 MB |
+| `examples/filemanager.nim` (Retro Files) | 7.7 MB |
+| `examples/gallery.nim` (everything: street map, 3D models, canvas, PDF, HTML, media) | 8.5 MB |
+| `examples/mail.nim` (Retro Mail) | 9.3 MB |
+| `examples/photo.nim` (Retro Atelier) | 21.4 MB |
 
 Only what an app calls is linked: an app without the map, the 3D view or
-PDF does not carry them. The fonts (FreeSans, FreeSerif and FreeMono in
-four styles each) are about 1 MB of every app, the Nerd icons 52 KB and the
+PDF does not carry them. The fonts (Suhar App and Suhar App Read, FreeSans,
+FreeSerif and FreeMono, in four styles each) are about 1.7 MB of every app
+(`-d:retroFonts=ui`: 0.33 MB), the Nerd icons 52 KB and the
 324 pixel icons 32 KB, all stored compressed and unpacked when first used.
 
 **Beside other toolkits.** `tools/compare/compare.sh` builds the same
@@ -3656,9 +3685,9 @@ Resizing at 1080p draws every pixel again; CPU is per step, counted in
 
 | | file | memory idle | at 1080p | threads | CPU idle | a resize at 1080p | a hover |
 |---|---|---|---|---|---|---|---|
-| **Retro Nim UI** | **2.1 MB** | **7.1 MB** | **14.6 MB** | **1** | 0 % | 1.8 ms | **0.2 ms** |
-| Retro Nim UI, no shared memory | | 7.2 MB | 14.9 MB | 1 | 0 % | 3.8 ms | 0.15 ms |
-| Retro Nim UI, OpenGL | | 107 MB | 115 MB | 6 | 0 % | 12 ms | 0.5 ms |
+| **Retro Nim UI** | **3.9 MB** | **9.9 MB** | **17.6 MB** | **1** | 0 % | **1.5 ms** | **0.15 ms** |
+| Retro Nim UI, no shared memory | | 10.0 MB | 17.8 MB | 1 | 0 % | 3.5 ms | 0.15 ms |
+| Retro Nim UI, OpenGL | | 110 MB | 117 MB | 6 | 0 % | 12 ms | 0.6 ms |
 | egui (OpenGL) | 20.2 MB | 122 MB | 153 MB | 8 | 0 % | 46 ms | 88 ms |
 | iced (wgpu) | 15.5 MB | 120 MB | 142 MB | 12 | 0 % | 33 ms | 16 ms |
 | iced (tiny-skia, CPU) | | 15.1 MB | 26.4 MB | 6 | 0 % | 2.2 ms | 0.45 ms |
@@ -3856,9 +3885,10 @@ a sandbox: the security holes they can show, each with its proof.
 |---|---|
 | `test_widgets` | clicks, slide-off, default button, typing and the clipboard, Tab and Space, mnemonics, lists, modal dialogs, pixels, frame skipping, hover (mouse yes, finger no), Back versus Exit |
 | `test_business` | dates, number formats, sorting; the grid (selection, multi-select, sorting, editing, resizing, every cell kind, cell colours, record indicator, totals); tree; icon view; calendar and date picker; check list; number fields; auto-complete; splitter; dialogs |
-| `test_text` | fonts (FreeSans the default, its real bold, oblique and bold oblique, GPOS kerning, crisp stems at 100 %, 125 %, 150 % and 2x, Arabic joined in every face and in a font file, the settings of before), Arabic joining and lam-alef, bidi order, the rasterizer, sizes, rows, `spring`, `adaptive`, forms, page scrolling both ways with the standard scroll bars, Tab scrolling into view, Markdown (right to left in Arabic: lists and tables), the wrap that carries a line's width on (`LineMeter`) giving the very lines of the one that measured each line again, for 7,800 paragraphs and widths |
+| `test_text` | fonts (Suhar App the default and FreeSans to choose, its real bold, oblique and bold oblique, GPOS kerning, crisp stems at 100 %, 125 %, 150 % and 2x, Arabic joined in every face and in a font file, the settings of before), Arabic joining and lam-alef, bidi order, the rasterizer, sizes, rows, `spring`, `adaptive`, forms, page scrolling both ways with the standard scroll bars, Tab scrolling into view, Markdown (right to left in Arabic: lists and tables), the wrap that carries a line's width on (`LineMeter`) giving the very lines of the one that measured each line again, for 7,800 paragraphs and widths |
 | `test_bidi` | the bidi algorithm against Unicode's (a corpus of Arabic, Persian and mixed lines, explicit embeddings and isolates, every line of Unicode 18's BidiTest and BidiCharacterTest: 861,948 cases), the joiners, Arabic in text boxes and the rich editor (caret, marks, Backspace and Delete, selections, the clipboard), PDF read back in reading order, right-to-left Excel sheets, the Arabic interface's text boxes and charts |
 | `test_uifonts` | the font choices and their settings words, a .ttc collection read and used as the UI's font, the canvas's font names, every character of the kit's strings and the Arabic translations in the fonts |
+| `test_suhar` | Suhar App the default font and Suhar App Read a paragraph's, FreeFont's three to choose, a look kept before Suhar, a letter Suhar has not drawn from FreeFont; marks whose outline crosses the baseline drawn where they go (by the font's GPOS and by the kit without one); a font with Arabic and GSUB's joining but no presentation forms drawing its own Arabic, joined; tall lines for vowelled Arabic; `setRightToLeft` mirroring the layout, `setRtlInterface` the text alone; one variable font file as the UI's font, its bold the font at weight 700 |
 | `test_input` | every kind of input on the widgets that take it: the slide switch, the tab strip, chips, the bottom bar, the menu key, the mouse's side buttons, a tall dialog on a touch screen |
 | `test_files` | listings (quick and full), natural sorting, copy / move / delete / zip / unzip jobs with conflicts, links and cancelling, JPEG decoding, big text and hex files, worker threads, what the window asks of a disk answered on a thread (`later`: six questions held up by pipes nobody writes to hold up neither the window nor a folder's listing), thousands of damaged files, zip bombs, names that climb out, a FIFO and /dev/zero left as they are by a copy, a move and a zip (said, the rest done) |
 | `test_apps` | settings rows, appearance, avatars, steps, pages, banners, the bottom bar, the folder model, the file list, thumbnails, the preview, text and hex views, properties, file jobs |
@@ -3975,13 +4005,13 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_backdrop` | frosted glass and masks: what is under a blur smoothed and lighter, its rounded corners keeping what is outside them, a mask's circle and a mask inside it; a change near a blur, far from it, of its tint and over it the very pixels of a whole frame; the GPU's frames the CPU's (3 levels at most apart), and its partial frames, at every buffer age, a whole frame's |
 | `test_terminal` | the terminal: text, the 16, 256 and RGB colors (semicolons and colons), bold, underlined, inverse, struck; the cursor moved, lines and characters erased, inserted, deleted; a line wrapped and the lines scrolled off kept; a scroll region; the other screen and back; wide characters and the line-drawing set; the answers asked for (the cursor's place, what it is), the title; the keys as xterm sends them; a size changed; a shell in a pseudo-terminal -- its colors, its size, an exit code, what is typed answered; the view taking the keys, a word chosen with a double click and copied; found text (back and on, any case), its size bigger and smaller, a reset; kitty's keyboard protocol (its flags pushed and popped per screen, Esc, Ctrl, Alt and the keypad told apart, releases, every key as an escape with its text) and graphics protocol (RGB, RGBA and PNG, zlib'ed, in pieces, by number, placed again, quiet, deleted, scrolled with the text, its answers and errors; an app's own picture) |
 | `test_mobile` | the controls from phones: the navigation bar's Back (and Alt+Left) and its action; an alert (Enter its last button, Esc its cancel, a tap beside it waits); rows in groups (a row, its info button apart, a switch's row, a button's row, Enter); a search bar's Cancel; an action bar's action and Back; a wheel picker by the keys, a click on a row, the mouse wheel, a letter, a drag, a fling that stops on a row, the app's own value, a long wheel made as it shows; a day's wheels (31 January to February: the 28th) and a time's (12 hours, a step of minutes); a number with - and + (held, it goes on; the keys, + typed, the wheel); page dots; rows with actions behind them swiped, picked, closed by a tap, one at a time, by the keys and a right click's menu; the action sheet (the keys, Esc, a click beside it, from the bottom on a phone), the bottom sheet (its controls, dragged down, Esc), the popover (under its button, closed by a click outside) -- in every look, light and dark |
-| `test_phoneparts` | the phone's newer parts in every look: round buttons (a click, Space, disabled; Gloss's green inside a white ring), the index down a list (the letter under the finger, dragged past its foot, -1 let go), bubbles (the other's gray on the left, yours pale blue on the right), the clock (its red second hand, the hour hand at three), app icons (a click, Enter, the badge), the textures (their colors, the same grain each frame); Gloss's colors (iOS 6's own in Gloss Light, green in a green scheme) and the window plain by default, its pinstripes when asked for; a row in a row after one that took the line, side by side on the next; `vslider` dragged past its top and its keys, `ratingStars` (a tap, the same again, the keys, a digit), `editRow` (the minus alone deletes nothing, then Delete; a grip dragged two rows down; Alt+Down), `coverFlow` (the middle one tapped, Right, a tap at a side, a drag, End) |
+| `test_phoneparts` | the phone's newer parts in every look: round buttons (a click, Space, disabled; Gloss's green inside a white ring), the index down a list (the letter under the finger, dragged past its foot, -1 let go), bubbles (the other's gray on the left, yours pale blue on the right), the clock (its red second hand, the hour hand at three), app icons (a click, Enter, the badge), the textures (their colors, the same grain each frame); Gloss's colors (iOS 6's own in Gloss Light, green in a green scheme) and the window plain by default, its pinstripes when asked for; a row in a row after one that took the line, side by side on the next; `vslider` dragged past its top and its keys, `ratingStars` (a tap, the same again, the keys, a digit), `editRow` (the minus alone deletes nothing, then Delete; a grip dragged two rows down; Alt+Down), `coverFlow` (the middle one tapped, Right, a tap at a side, a drag, End); the About box at touch sizes in Gloss, Glass and Matte a phone's page (Website, Copy Info putting its facts on the clipboard), in Classic the desktop's |
 | `test_glosstouch` | Gloss on a touch screen: a flick into a page's top goes on past it and springs back; pull to refresh's drop and fresh content asked once; a toast as the black banner at the top; `slideToConfirm` (part way: nothing, back; all the way: once); `bigButton`; a row's count capsule; the Glass focus ring only while the keys move the focus |
 | `test_reach` | how the controls take the mouse, the keys and a finger: a finger's press just beside a small button or a round button is its, not far off, not beside a list it is on, the nearer of two, the gesture with it; a mouse not moved so; a tap or a drag by 8 points at 100 % and 200 %; a finger held on a word chooses it (Copy gives the word); a right click on a list's row chooses it; a breadcrumb by the keys; a drop-down list's wheel only with the focus; Glass and Matte light a text box, a check box, a radio button under the mouse, 3.1 not; a chip's cross for a finger |
 | `test_audiotags` | music files' tags: MP3 (ID3v2.3 in UTF-16, ID3v2.4), FLAC, M4A, Ogg Vorbis, Opus and WAV -- title with its accents, artist, album, album artist, track and disc, year, genre, composer, the cover as it was (and not read when not asked for), the length, rate, channels and bit rate, ReplayGain --, the same from memory, cut short anywhere or damaged with no fault, music by its name |
 | `test_musiclibrary` | Retro Music's own music: a folder looked through (4 songs, a title from a file's name, ReplayGain read), albums and their order, artists, genres, the lists made by themselves; played through a fake Android player -- the song asked for as a sound, its volume, the equalizer's 10 bands, a play counted once, the next at the end, Repeat One --; Play Next, Add to Queue, Shuffle and back; the sleep timer; a playlist and stars kept and read back; every page in every look |
 | `test_musicsources` | Retro Music's free sources: what Piped, Invidious, Radio Browser, Audius, the Internet Archive and a Subsonic server say, read (made-up answers, `tests/musicanswers.nim`); YouTube links; the Subsonic token (the password's salted MD5, never the password); in the app: a search with each, Piped's servers not answering and Invidious' asked, a playlist's link pasted and kept, a station kept and played live, an artist's Audius, an Archive recording, a server's "no" then signed in; Search over them; TV (a Free-TV list read: names with commas, the in-its-country mark, YouTube pages left out; its countries, a search; a country, a channel held kept, a channel played on the screen, the one before, Done: its sound on in our player, live); a music video's picture on Now Playing and its sound on when it is left, an MP4 of sound alone a song; artwork made for a song with no cover, the same for its album; the side menu on a phone (its button, a place, a tap beside it, Esc); the places down the left on a tablet; Now Playing; every place in every look on both |
-| `test_mailtouch` | Retro Mail on a phone and a tablet in the newer looks: Mailboxes (All Inboxes, the accounts), a list (Focused and Other), a message tapped and read, its place on the bar, Mark as Unread, Flag, the arrow to the one before, Reply's sheet and writing, Cancel and Delete Draft, a finger held (several chosen, Mark), an account's folders, a folder; Settings as a phone's (a switch kept at once, a choice's page of them and one tapped, Close), Appearance in groups; on a tablet the message beside the list -- every page in every look, light and dark |
+| `test_mailtouch` | Retro Mail on a phone and a tablet in the newer looks: Mailboxes (All Inboxes, the accounts), a list (Focused and Other), a message tapped and read, its place on the bar, Mark as Unread, Flag, the arrow to the one before, Reply's sheet and writing, Cancel and Delete Draft, a finger held (several chosen, Mark), an account's folders, a folder; Settings as a phone's (a switch kept at once, a choice's page of them and one tapped, Close), Appearance in groups, About Retro Mail the phone's About page; on a tablet the message beside the list -- every page in every look, light and dark |
 | `test_comfyui` | `retroui/comfyui` against a made-up ComfyUI server: found (its checkpoints, its LaMa), a picture from words (the workflow it got), a fill (the picture sent clear where the mask is), Remove (LaMa's workflow; without it, the model asked), a work that failed on the server, no server; through `retroui/aiimage` (`kind = "comfyui"`), kept |
 | `test_tasks` | Retro Tasks: tasks in lists, late or not, their days written, Today, Upcoming, Flagged, Completed, put in order; notes (their titles and previews, pinned first); the search; a reminder raised once; the file kept and read back; then by taps -- a row's check (done, not done), the row's page, Edit's minus and Delete, the phone's Back -- and every page in every look |
 | `test_touchpages` | a page under the finger on a touch screen: pulled down past its top and let go it asks for fresh content once, a short pull nothing; a dialog as a page of the app closed by its Close; a shelf of cards, the one tapped; Back by a swipe from a page's left edge, a short one staying |
@@ -4094,11 +4124,11 @@ video use the system's audio and, for compressed formats, GStreamer when
 it is there.
 
 **How big is an app?**
-About 2.1 MB for "hello" (`retrokit small`; 0.9 MB of it the fonts), 4.3 MB
-for a full file manager, 1.6 MB as an APK. Only what the app calls is
+About 3.7 MB for "hello" (`retrokit small`; 1.7 MB of it the fonts), 7.7 MB
+for a full file manager, 3.1 MB as an APK. Only what the app calls is
 linked: an app without the map does not carry the map. With fewer fonts
-built in (`-d:retroFonts=ui`: FreeSans and its bold; `sans`; `none`) hello
-is 1.4 MB; the faces left out are read from `fonts/` beside the program
+built in (`-d:retroFonts=ui`: Suhar App and its bold, and FreeSans; `sans`; `none`) hello
+is 2.4 MB; the faces left out are read from `fonts/` beside the program
 when they are there.
 
 **Is drawing every frame slow, or bad for the battery?**

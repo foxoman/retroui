@@ -292,11 +292,14 @@ device (where the browser has one) for numbers its threads ask for
 (`retroui/gpucompute`: the image models' products). Other sites' pages in a frame need to allow
 being embedded (`Cross-Origin-Resource-Policy`) in a page with threads.
 
-**Fonts in programs:** `-d:retroFonts=all` (the default: twelve faces,
-0.88 MB, packed with LZMA by `tools/packlzma.py`), `sans`, `ui` (FreeSans
-and its bold) or `none`: the faces left out are read from `fonts/`
-beside the program (the `.ttf.z` files of `src/retroui/fonts`) or
-`$RETRO_FONTS`, else drawn with FreeSans.
+**Fonts in programs:** `-d:retroFonts=all` (the default: twenty faces --
+Suhar App's and Suhar App Read's eight, FreeFont's twelve --, 1.7 MB,
+packed with LZMA by `tools/packlzma.py`), `sans` (Suhar App's four and
+FreeSans's four, 0.65 MB), `ui` (Suhar App and its bold, and FreeSans for the
+letters Suhar lacks, 0.33 MB) or `none`: the faces left out are read from
+`fonts/` beside the program (the `.ttf.z` files of `src/retroui/fonts`) or
+`$RETRO_FONTS`, else drawn with Suhar App in the same style (Suhar's) or
+FreeSans.
 
 **What CI checks, here:** `sh tools/cicheck.sh` runs the steps GitHub's CI
 runs -- the return check, the warnings on every system

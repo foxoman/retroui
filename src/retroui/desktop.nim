@@ -1406,6 +1406,18 @@ proc splashBox*(app: string; version = ""; tagline = ""; lines: openArray[string
   text(r.x + r.w - dp(14) - textWidth(by), y + FontH + dp(2), by, th.gray)
   popLayer()
 
+type AboutShown* = object
+  ## What an About box shows (`aboutBox`'s), handed to the phone's page of it.
+  app*, version*, tagline*, glyph*, url*: string
+  lines*, whatsNew*, credits*: seq[string]
+  facts*: seq[(string, string)]   ## the program and what it runs on (Version, System...)
+  info*: string                   ## the same as text: what Copy Info puts on the clipboard
+  pic*: Bitmap                    ## the program's icon (nil: `glyph`)
+
+var aboutPhone*: proc (open: var bool; a: AboutShown) {.nimcall.}
+  ## (set by `retroui/mobile`: the About box as a phone's page -- touch sizes in Glass, Matte,
+  ## Gloss)
+
 proc aboutBox*(open: var bool; app: string; version = ""; lines: openArray[string] = [];
                glyph = ""; width = 460; tagline = ""; whatsNew: openArray[string] = [];
                credits: openArray[string] = []; icon: Bitmap = nil; iconPng = "";
@@ -1417,6 +1429,9 @@ proc aboutBox*(open: var bool; app: string; version = ""; lines: openArray[strin
   ## and what it runs on; What's New -- `whatsNew`, a line each; Credits --
   ## `credits`. Copy Info puts the facts on the clipboard; OK closes it.
   ## `version` is also kept as `reportedVersion` (what a fault's report says).
+  ## With touch sizes in Glass, Matte or Gloss it is a phone's page: the icon large over the
+  ## name and version, then groups of rows -- the version, who made it, the website and the
+  ## e-mail (a tap opens them), what it is, What's New, Credits, This Device -- and Copy Info.
   if version.len > 0 and reportedVersion.len == 0: reportedVersion = version
   if not open:
     aboutTab = 0
@@ -1427,6 +1442,11 @@ proc aboutBox*(open: var bool; app: string; version = ""; lines: openArray[strin
       aboutPng = iconPng
       aboutBmp = try: decodePng(iconPng) except CatchableError: nil
     pic = aboutBmp
+  if aboutPhone != nil and fingers() and glassLook():
+    aboutPhone(open, AboutShown(app: app, version: version, tagline: tagline, glyph: glyph, url: url,
+                                lines: @lines, whatsNew: @whatsNew, credits: @credits,
+                                facts: aboutFacts(app, version), info: aboutInfo(app, version), pic: pic))
+    return
   dialog(open, "About " & app, width):
     let br = place(cellRoom(), dp(92) + (if fingers(): dp(8) else: 0))
     aboutBanner(br, app, version, tagline, glyph, pic)

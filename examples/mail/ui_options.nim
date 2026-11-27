@@ -443,7 +443,17 @@ proc optionsDialog() =
       changed()
   else: discard
 
+const MailIconPng = staticRead("../assets/mail-icon-512.png")
+
 proc aboutDialog() =
+  if fingers() and glassLook():
+    # (on a phone or a tablet: the kit's About page)
+    aboutBox(aboutOpen, appName, appVersion,
+             ["Microsoft 365, Outlook.com and Gmail, the 1997 way.", "Built with Retro Nim UI.",
+              "Copyright (c) 2026 Sultan Al Isaiee @foxoman. www.foxoman.net"],
+             tagline = "Your mail, kept here", iconPng = MailIconPng, glyph = nfEnvelope,
+             credits = [RetroFontCredit])
+    return
   dialog aboutOpen, "About " & appName, dp(380):
     row:
       image(pixelIcon(pxMail, big = true))

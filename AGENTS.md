@@ -1024,11 +1024,19 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   new or changed control: `python3 tools/gendesigner.py`
   too, and `tests/test_designer.nim` must still pass (every control of the
   Widget Box dropped into one app has to compile).
-- **The built-in fonts** are GNU FreeFont 0412 cut by
+- **The built-in fonts** are Suhar App and Suhar App Read (the UI's and
+  paragraphs', Sultan's own typeface, SIL OFL 1.1; `tools/gensuharfont.py`
+  makes the kit's files from the release he gives -- never edit their
+  glyphs here) and GNU FreeFont 0412 cut by
   `tools/genfreefont.py`; letters added since (Vietnamese, Thai) come with
   `--add` from any FreeFont release, the rest of each face kept as it is:
-  a newer release cut whole is bigger for the same letters.
-- **Looks:** the Windows 3.1 look and FreeSans drawn in gray (its heights
+  a newer release cut whole is bigger for the same letters. Suhar App is
+  the default (`ufSuhar`); a letter it lacks comes from FreeFont
+  (`chainOf`). A face with its own Arabic tables (Suhar, a font from a file:
+  `shapesOwnArabic`) is shaped by `otshape` in `typeset.build`; FreeFont
+  keeps the kit's presentation forms. Tests about FreeSans's own metrics
+  choose it (`setUiFont(ufSans)`) first.
+- **Looks:** the Windows 3.1 look and the UI's font drawn in gray (its heights
   on whole pixels, its strokes as the font has them; "Sharp" text is an
   option); the title bars the kit draws have Windows 95's minimize,
   maximize and close buttons (`captionButtons`, 3.1's two a setting away):

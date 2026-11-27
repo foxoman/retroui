@@ -23,7 +23,7 @@ import glob, lzma, os, struct, sys, zlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 # (unpacked as every program starts -- the UI's text, its bold, the icons:
 # zlib, which unpacks five times as fast; the rest only when first used)
-KEEP_ZLIB = {'FreeSans.ttf.z', 'FreeSansBold.ttf.z', 'Icons.ttf.z'}
+KEEP_ZLIB = {'FreeSans.ttf.z', 'FreeSansBold.ttf.z', 'SuharApp.ttf.z', 'SuharAppBold.ttf.z', 'Icons.ttf.z'}
 FONTS = os.path.join(HERE, '..', 'src', 'retroui', 'fonts')
 
 

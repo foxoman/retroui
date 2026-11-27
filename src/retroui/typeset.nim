@@ -11,20 +11,27 @@
 ## FreeSerif, icons from the Nerd Fonts symbols. Thai's vowels and tone
 ## marks are stacked over and under their letter here (`thaiMark`).
 ##
-## The faces are GNU FreeFont -- FreeSans, FreeSerif and FreeMono, each in
-## its regular, bold, italic (oblique) and bold italic -- built into every
-## app (`tools/genfreefont.py` cuts them down), and a font from a file
-## (`fUser`). A style a font does not have is made from its regular
-## (`fauxStyle`).
+## The faces are Suhar App -- the UI's, Sultan Al Isaiee's own, Latin and
+## Arabic drawn together -- and Suhar App Read, its cut for paragraphs
+## (`tools/gensuharfont.py`), GNU FreeFont -- FreeSans, FreeSerif and
+## FreeMono (`tools/genfreefont.py` cuts them down) --, each in its regular,
+## bold, italic (oblique) and bold italic, built into every app, and a font
+## from a file (`fUser`). A style a font does not have is made from its
+## regular (`fauxStyle`). Arabic in a face with its own OpenType tables (Suhar,
+## a font from a file) is shaped by them (`otshape`): its joining forms from
+## GSUB, its marks where GPOS puts them.
 
 import std/[tables, unicode, locks, algorithm]
-import ttf, arabicdata, unpacking
+import ttf, arabicdata, unpacking, otshape
 
 type
   FaceId* = enum
     fSans, fSansBold, fSansItalic, fSansBoldItalic,       ## FreeSans (Oblique, Bold Oblique)
     fSerif, fSerifBold, fSerifItalic, fSerifBoldItalic,   ## FreeSerif
     fMono, fMonoBold, fMonoItalic, fMonoBoldItalic,       ## FreeMono (Oblique, Bold Oblique)
+    fSuhar, fSuharBold, fSuharItalic, fSuharBoldItalic,   ## Suhar App: the UI's own
+    fSuharRead, fSuharReadBold, fSuharReadItalic, fSuharReadBoldItalic,
+      ## Suhar App Read: Suhar for paragraphs
     fUser, fUserBold, fUserItalic, fUserBoldItalic,       ## a font from a file (`setUserFont`)
     fIcons                                                ## the icons (Nerd Fonts symbols)
 
@@ -41,10 +48,12 @@ type
     rtl*: bool               ## the text reads right to left
 
 const
-  faceFiles: array[fSans .. fMonoBoldItalic, string] = [
+  faceFiles: array[fSans .. fSuharReadBoldItalic, string] = [
     "FreeSans", "FreeSansBold", "FreeSansOblique", "FreeSansBoldOblique",
     "FreeSerif", "FreeSerifBold", "FreeSerifItalic", "FreeSerifBoldItalic",
-    "FreeMono", "FreeMonoBold", "FreeMonoOblique", "FreeMonoBoldOblique"]
+    "FreeMono", "FreeMonoBold", "FreeMonoOblique", "FreeMonoBoldOblique",
+    "SuharApp", "SuharAppBold", "SuharAppItalic", "SuharAppBoldItalic",
+    "SuharAppRead", "SuharAppReadBold", "SuharAppReadItalic", "SuharAppReadBoldItalic"]
   iconsPacked = staticRead("fonts/Icons.ttf.z")
   IconCell = 1.25'f32        ## icons sit centered in cells this many ems wide
   FauxBoldEm* = 1'f32 / 24   ## a style made bold: its strokes this much thicker, its letters wider
@@ -60,16 +69,16 @@ when defined(wasm):
 else:
   const retroFonts {.strdefine.} = "all"
     ## Which faces are built into the program (`-d:retroFonts=...`):
-    ## "all" (the twelve: 1.0 MB), "sans" (FreeSans's four: 0.24 MB),
-    ## "ui" (FreeSans and its bold: 0.13 MB), "none". The others are read
-    ## from `fonts/` beside the program (or $RETRO_FONTS) when they are
-    ## there -- the .ttf.z files of src/retroui/fonts -- else drawn with
-    ## FreeSans in the same style. Arabic comes from FreeSerif: an app in
-    ## Arabic keeps "all", or FreeSerif's files beside it.
+    ## "all" (the twenty: 1.7 MB), "sans" (Suhar App's four and FreeSans's
+    ## four: 0.65 MB), "ui" (Suhar App and its bold, FreeSans for the letters
+    ## Suhar has not: 0.33 MB), "none". The others are read from `fonts/`
+    ## beside the program (or $RETRO_FONTS) when they are there -- the .ttf.z
+    ## files of src/retroui/fonts -- else drawn with FreeSans in the same
+    ## style. Suhar has its own Arabic; FreeSans's Arabic comes from FreeSerif.
   const builtin: set[FaceId] =
-    when retroFonts == "all": {fSans .. fMonoBoldItalic}
-    elif retroFonts == "sans": {fSans .. fSansBoldItalic}
-    elif retroFonts == "ui": {fSans, fSansBold}
+    when retroFonts == "all": {fSans .. fSuharReadBoldItalic}
+    elif retroFonts == "sans": {fSans .. fSansBoldItalic, fSuhar .. fSuharBoldItalic}
+    elif retroFonts == "ui": {fSans, fSuhar, fSuharBold}
     elif retroFonts == "none": {}
     else: {.error: "retroFonts: all, sans, ui or none (not " & retroFonts & ")".}
 
@@ -77,14 +86,18 @@ else:
     if id in builtin: staticRead("fonts/" & faceFiles[id] & ".ttf.z") else: ""
 
   const
-    fontPacked: array[fSans .. fMonoBoldItalic, string] =
-      # the fonts, zlib-compressed (tools/genfreefont.py): 1.6 MB of TrueType
-      # take 1.0 MB in every app, and a face is unpacked when it is first used
+    fontPacked: array[fSans .. fSuharReadBoldItalic, string] =
+      # the fonts, packed (tools/genfreefont.py, tools/gensuharfont.py): 3.8 MB
+      # of TrueType take 1.7 MB in every app, and a face is unpacked when it
+      # is first used
       [packedAt(fSans), packedAt(fSansBold), packedAt(fSansItalic), packedAt(fSansBoldItalic),
        packedAt(fSerif), packedAt(fSerifBold), packedAt(fSerifItalic), packedAt(fSerifBoldItalic),
-       packedAt(fMono), packedAt(fMonoBold), packedAt(fMonoItalic), packedAt(fMonoBoldItalic)]
+       packedAt(fMono), packedAt(fMonoBold), packedAt(fMonoItalic), packedAt(fMonoBoldItalic),
+       packedAt(fSuhar), packedAt(fSuharBold), packedAt(fSuharItalic), packedAt(fSuharBoldItalic),
+       packedAt(fSuharRead), packedAt(fSuharReadBold), packedAt(fSuharReadItalic),
+       packedAt(fSuharReadBoldItalic)]
 
-  when builtin == {fSans .. fMonoBoldItalic}:
+  when builtin == {fSans .. fSuharReadBoldItalic}:
     proc packedFont(id: FaceId): string = fontPacked[id]
   else:
     import std/os
@@ -100,6 +113,11 @@ else:
           try: return readFile(f)
           except IOError, OSError: discard
       let same = FaceId(ord(id) mod 4)                    # (FreeSans in this style)
+      if id in fSuhar .. fSuharReadBoldItalic:
+        # (Suhar left out: Suhar App in the same style, else in its weight, else its regular)
+        let st = ord(id) mod 4
+        for app in [FaceId(ord(fSuhar) + st), FaceId(ord(fSuhar) + (st and 1)), fSuhar]:
+          if app in builtin: return fontPacked[app]
       if id != same: return packedFont(same)
       if id != fSans: return packedFont(fSans)
       ""
@@ -116,6 +134,10 @@ var
   joinsArabic: array[FaceId, int8]          # the face has Arabic's joined forms: 1 yes, 0 no, -1 not known
   chains: array[FaceId, seq[FaceId]]        # the faces characters are looked for in (`chainOf`)
   boldExtra: array[FaceId, float32]         # a faux bold's extra advance, in ems
+  ownArabic: array[FaceId, int8]            # Arabic shaped by the face's own tables: 1 yes, 0 no, -1 not known
+  userVar: array[FaceId, seq[(string, float)]]
+    # a variable font from a file: each style's axis values (`setUserFontVariable`; none: the
+    # style made from the regular)
 
 var unpackLock: Lock
 initLock(unpackLock)
@@ -138,8 +160,12 @@ proc styled*(id: FaceId; bold, italic: bool): FaceId {.inline.} =
   else: FaceId(ord(regularOf(id)) + ord(bold) + 2 * ord(italic))
 
 proc builtinFace*(id: FaceId): bool {.inline.} =
-  ## Face `id` is one of the program's own (FreeFont, the icons).
-  id == fIcons or id <= fMonoBoldItalic
+  ## Face `id` is one of the program's own (FreeFont, Suhar App, the icons).
+  id == fIcons or id <= fSuharReadBoldItalic
+
+proc suharFace*(id: FaceId): bool {.inline.} =
+  ## Face `id` is Suhar App or Suhar App Read.
+  id in fSuhar .. fSuharReadBoldItalic
 
 proc lastResort(id: FaceId): FaceId =
   ## (a face with no font of its own, none of its family either: drawn as)
@@ -157,6 +183,9 @@ proc resolve(id: FaceId) =
   let bold = isBold(id)
   let italic = isItalic(id)
   let reg = regularOf(id)
+  if userVar[id].len > 0 and given[reg].len > 0:
+    standIn[id] = reg                     # (an instance of the regular's variable font)
+    return
   if given[reg].len == 0:
     standIn[id] = lastResort(id)          # (no font from a file: FreeSans)
   elif bold and italic and given[styled(reg, true, false)].len > 0:
@@ -235,12 +264,17 @@ proc threadFace*(id: FaceId): Face =
   ## Face `id` parsed anew, for a worker thread.
   {.cast(gcsafe).}:
     result = parseFace(faceBytes(id))
+    if userVar[id].len > 0: result = result.variation(userVar[id])
 
 proc face*(id: FaceId): Face =
   ## The parsed face `id` (parsed on first use).
   if faces[id] == nil:
     let d = dataOf(id)
-    if d != id:
+    if userVar[id].len > 0:
+      # (a style of a variable font: the font at that style's axis values, its data shared)
+      let v = (if d != id: face(d) else: parseFace(fontFiles[id])).variation(userVar[id])
+      faces[id] = v
+    elif d != id:
       # (drawn from another face's file: that face, shared; made bold, its
       # letters a little wider, as FreeType makes them)
       faces[id] = face(d)
@@ -250,7 +284,7 @@ proc face*(id: FaceId): Face =
       if boldExtra[id] > 0:
         for c in 32 .. 126: asciiAdv[id][c] += boldExtra[id]
       return faces[id]
-    faces[id] = parseFace(fontFiles[id])
+    if faces[id] == nil: faces[id] = parseFace(fontFiles[id])
     let f = faces[id]
     let em = float32(f.unitsPerEm)
     for c in 32 .. 126:
@@ -287,7 +321,9 @@ proc forgetFaces(ids: openArray[FaceId]) =
     rtlCache[id].clear()
     chains[id] = @[]
 
-for id in FaceId: joinsArabic[id] = -1
+for id in FaceId:
+  joinsArabic[id] = -1
+  ownArabic[id] = -1
 
 proc setUserFont*(regular: string; bold = ""; italic = ""; boldItalic = "") =
   ## The font from a file (TrueType bytes; `bold`, `italic`, `boldItalic`:
@@ -304,7 +340,30 @@ proc setUserFont*(regular: string; bold = ""; italic = ""; boldItalic = "") =
   given[fUserBold] = bold
   given[fUserItalic] = italic
   given[fUserBoldItalic] = boldItalic
+  for id in fUser .. fUserBoldItalic: userVar[id] = @[]
   forgetFaces([fUser, fUserBold, fUserItalic, fUserBoldItalic])
+
+proc setUserFontVariable*(data: string; regular, bold, italic, boldItalic: seq[(string, float)]) =
+  ## A variable font from a file as the faces `fUser` .. `fUserBoldItalic`: one file, each
+  ## style the font at its axis values (`regular` @[("wght", 400.0)], `bold` @[("wght",
+  ## 700.0)]...; an empty one: made from the regular, as a static font's missing style is).
+  ## Raises `FontError` when it is not a font we read.
+  let f = parseFace(data)
+  if f == nil or f.unitsPerEm <= 0 or f.glyphOf(ord('A')) == 0: raise newException(FontError, "not a font we read")
+  given[fUser] = data
+  given[fUserBold] = ""
+  given[fUserItalic] = ""
+  given[fUserBoldItalic] = ""
+  userVar[fUser] = regular
+  userVar[fUserBold] = bold
+  userVar[fUserItalic] = italic
+  userVar[fUserBoldItalic] = boldItalic
+  forgetFaces([fUser, fUserBold, fUserItalic, fUserBoldItalic])
+
+proc userFontAxes*(): seq[string] =
+  ## The axes of the font from a file ("wght", "opsz"...): none for a static font.
+  if given[fUser].len == 0: return
+  for a in parseFace(given[fUser]).axes: result.add a.tag
 
 proc hasUserFont*(): bool = given[fUser].len > 0
   ## A font from a file was given (`setUserFont`).
@@ -1230,12 +1289,38 @@ proc thaiMark(r: var Run; cps, at: seq[int]; li, b: int) =
   if p.left == p.left and bg.x + p.left < mg.x: mg.x = bg.x + p.left
   mg.y = p.y
 
+proc shapesOwnArabic*(id: FaceId): bool =
+  ## Face `id` shapes Arabic with its own OpenType tables (`otshape`): it has
+  ## the letters (U+0621 .. U+064A in its map) and GSUB's joining forms --
+  ## Suhar App, a font from a file. Its joined forms come from GSUB, not from
+  ## the presentation forms (a font may have none), its marks where GPOS puts
+  ## them. GNU FreeFont keeps the kit's own joining.
+  if ownArabic[id] < 0:
+    var yes = false
+    if id != fIcons and id notin fSans .. fMonoBoldItalic:
+      let f = face(id)
+      if f.glyphOf(0x0628) != 0 and f.glyphOf(0x0644) != 0 and f.glyphOf(0x0645) != 0:
+        let tags = f.featureTags
+        yes = "init" in tags or "medi" in tags or "fina" in tags
+    ownArabic[id] = int8(ord(yes))
+  ownArabic[id] == 1
+
+proc ownShaped(cp: int): bool {.inline.} =
+  ## (a character an Arabic run shaped by the face's tables takes in: the letters, the marks,
+  ## tatweel, the joiners -- not the digits, not the punctuation, which bidi orders apart)
+  (cp in 0x0610 .. 0x065F) or cp in 0x066E .. 0x06D3 or cp in 0x06D5 .. 0x06EF or
+    cp in 0x06FA .. 0x06FF or cp in 0x0750 .. 0x077F or cp in 0x08A0 .. 0x08FF or
+    cp == 0x0670 or cp in [0x200C, 0x200D]
+
 proc build(s: string; base: FaceId; rtl: int): Run =
   ## `rtl`: -1 from the text, 0 left to right, 1 right to left.
   var cps: seq[int]
   for r in s.runes: cps.add int(r)
   let sc = scanText(cps)
-  if sc.arabic: shapeArabic(cps)
+  # (a face with its own Arabic shaping: the letters kept for it, else joined here into their
+  # presentation forms)
+  let own = sc.arabic and shapesOwnArabic(base)
+  if sc.arabic and not own: shapeArabic(cps)
   result.rtl = if rtl >= 0: rtl == 1 else: textIsRtl(s) or (rtlInterface and sc.rtl)
   var order: seq[int]
   var levels: seq[int8]
@@ -1248,11 +1333,58 @@ proc build(s: string; base: FaceId; rtl: int): Run =
   # glyphs in visual order
   var at = newSeq[int](cps.len)          # logical index -> glyph index
   for i in 0 ..< at.len: at[i] = -1
+  # (the Arabic runs the face shapes itself: each the letters, marks and joiners in a row of one
+  # direction that the face has, shaped whole by its GSUB and GPOS)
+  var segOf = newSeq[int](if own: cps.len else: 0)
+  var segs: seq[tuple[first, last: int; done: bool]]
+  if own:
+    let f = face(base)
+    var li = 0
+    while li < cps.len:
+      segOf[li] = -1
+      let cp = cps[li]
+      # (a joiner starts one when a letter follows it: a word's piece in another style keeps
+      # its joining to what is before it, ZWJ before it)
+      let starts = if cp in [0x200C, 0x200D]: li + 1 < cps.len and ownShaped(cps[li + 1]) and
+                                               cps[li + 1] notin [0x200C, 0x200D] and
+                                               f.glyphOf(cps[li + 1]) != 0
+                   else: ownShaped(cp) and f.glyphOf(cp) != 0
+      if starts:
+        # (one direction: the level of its first letter -- a joiner's own level is not the
+        # words' -- the joiners going with it)
+        let first = if cp in [0x200C, 0x200D]: li + 1 else: li
+        var e = li
+        while e + 1 < cps.len and ownShaped(cps[e + 1]) and
+              (cps[e + 1] in [0x200C, 0x200D] or
+               (f.glyphOf(cps[e + 1]) != 0 and (levels.len == 0 or levels[e + 1] == levels[first]))):
+          inc e
+        for k in li .. e: segOf[k] = segs.len
+        segs.add (li, e, false)
+        li = e + 1
+      else: inc li
   var x = 0'f32
   var prevFace = fIcons
   var prevGid = 0
   for li in order:
     var cp = cps[li]
+    if own and segOf[li] >= 0:
+      let sg = segOf[li]
+      if segs[sg].done: continue
+      segs[sg].done = true
+      let f = face(base)
+      let units = em(base)
+      var lv = segs[sg].first
+      while lv < segs[sg].last and cps[lv] in [0x200C, 0x200D]: inc lv
+      let odd = if levels.len > 0: (levels[lv] and 1) == 1 else: result.rtl
+      for g in f.shape(cps.toOpenArray(segs[sg].first, segs[sg].last), odd, "arab"):
+        let k = segs[sg].first + g.cluster
+        if k < at.len and at[k] < 0: at[k] = result.glyphs.len
+        if g.gid == 0: result.missing = true
+        result.glyphs.add PGlyph(face: base, gid: uint16(g.gid), x: x + float32(g.xOff) / units,
+                                 y: float32(g.yOff) / units)
+        x += float32(g.xAdv) / units + (if g.xAdv > 0: boldExtra[base] else: 0)
+      prevGid = 0
+      continue
     if cp < 0 or isInvisible(cp): continue
     if levels.len > 0 and (levels[li] and 1) == 1: cp = mirror(cp)
     if cp == 9:
@@ -1286,6 +1418,7 @@ proc build(s: string; base: FaceId; rtl: int): Run =
   # lifted (or lowered) clear of it
   for li in 0 ..< cps.len:
     if cps[li] < 0 or not isMark(cps[li]) or at[li] < 0: continue
+    if own and segOf[li] >= 0: continue     # (placed by the face's GPOS)
     var b = li - 1
     while b >= 0 and (cps[b] < 0 or isMark(cps[b])): dec b
     if b < 0 or at[b] < 0: continue
@@ -1302,19 +1435,23 @@ proc build(s: string; base: FaceId; rtl: int): Run =
     let units = em(mg.face)
     mg.x = bg.x + (float32(bb.x0 + bb.x1) - float32(m.x0 + m.x1)) / 2 / units
     let gap = 0.06'f32 * units
-    if m.y0 > 0:                          # above
+    # (above or below by where most of it is: a mark drawn near its origin -- for a positioning
+    # table to move -- may cross the baseline a little, a damma's foot under it)
+    if m.y0 + m.y1 > 0:                   # above
       let lift = float32(bb.y1) + gap - float32(m.y0)
       if lift > 0: mg.y = lift / units
-    elif m.y1 < 0:                        # below
+    else:                                 # below
       let drop = float32(m.y1) - (float32(bb.y0) - gap)
       if drop > 0: mg.y = -drop / units
 
 proc setRtlInterface*(on: bool) =
-  ## A right-to-left interface (Arabic, `setUiLanguage`): a line that mixes
+  ## The lines of a right-to-left interface (Arabic, `setUiLanguage`): a line that mixes
   ## right-to-left letters with others reads right to left ("1.0 GB متاحة
   ## من 252 GB" in its order), as the interface does; a line without them
   ## (a file's name) keeps the direction of its first letter. Off: every
-  ## line follows its first letter.
+  ## line follows its first letter. The text's direction only: the layout mirrored --
+  ## captions on the right, rows from the right -- is `setRightToLeft` (`ui.rtl`), which calls
+  ## this too.
   if on == rtlInterface: return
   rtlInterface = on
   visualCache.clear()

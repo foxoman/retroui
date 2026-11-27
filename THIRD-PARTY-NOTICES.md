@@ -9,6 +9,7 @@ you ship one. Every license text is in the repository beside the part.
 
 | Part | Where | License | What it is for |
 |---|---|---|---|
+| Suhar App and Suhar App Read 2.800 (my own typeface, four styles each; Sultan Al Isaiee, The Suhar Project Authors) | `src/retroui/fonts/SuharApp*.ttf(.z)`, `LICENSE-Suhar.txt` | SIL Open Font License 1.1 | the text of every app: the UI's (Suhar App), paragraphs (Suhar App Read) |
 | GNU FreeFont (FreeSans, FreeSerif, FreeMono, four styles each; subsets) | `src/retroui/fonts/Free*.ttf(.z)`, `LICENSE-FreeFont.txt` | GPL 3 with the font exception | the text of every app, PDFs |
 | Symbols Nerd Font (a subset: `Icons.ttf`) | `src/retroui/fonts/Icons.ttf(.z)`, `LICENSE-NerdFonts.txt` | MIT and SIL Open Font License 1.1 | the icons |
 | Dastkhat 1.210 (Dastyar; derived from Vazirmatn, Saber Rastikerdar and the Vazirmatn Project Authors; its Latin from Roboto, Google LLC) | `src/retroui/fonts/dastkhat/Dastkhat-Variable.ttf.z` (the variable font as published, packed), `OFL-Dastkhat.txt`, `NOTICES-Dastkhat.txt` | SIL Open Font License 1.1 (Roboto's Latin: Apache License 2.0) | `retroui/dastkhat`: Retro Atelier's type -- Arabic, Persian and Latin in nine weights |
@@ -64,7 +65,9 @@ The tests' fonts made from FreeSerif and FreeMono (`tests/data/fonts/
 ArabicNoLayout-Test.*`, `ArabicLegacy-Test.ttf`, `HebrewThaiNoLayout-Test.ttf`, `OldBitmap-Test.fon`,
 `OldType1-Test.pfb`, `OldSymbol-Test.pfb`: `tools/genlegacy.py`,
 `tools/genoldfonts.py`) are FreeFont's, GPL 3 with the font exception;
-they are never carried in an app. `Win1256-Test.ttf` and
+they are never carried in an app. `SuharNoForms-Test.ttf`, `SuharMarks-Test.ttf` and
+`SuharMarksNoLayout-Test.ttf` (`tools/gensuhartestfonts.py`) are cut from Suhar App, SIL Open
+Font License 1.1 (`Suhar-OFL.txt`). `Win1256-Test.ttf` and
 `ArabicPua-Test.ttf` (plain boxes, `tools/genlegacy.py`) are made for the
 tests, public domain.
 

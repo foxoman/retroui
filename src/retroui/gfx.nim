@@ -31,6 +31,7 @@ export coords.Rect, coords.rect, coords.Point, coords.point, coords.contains
 export screen.Color, screen.color
 
 const
+  suharName = "Suhar"
   sansName = "FreeSans"
   serifName = "FreeSerif"
   monoName = "FreeMono"
@@ -43,7 +44,7 @@ type
   Cmd = object
     kind: CmdKind
     bold: bool
-    flags: uint8          ## vector text: TextStyle bits
+    flags: uint16         ## vector text: TextStyle bits
     mag: int32            ## image magnification
     size: float32         ## vector text: size in ems of the UI's text
     h: uint64             ## what it draws, hashed (for partial redraws)
@@ -67,10 +68,15 @@ type
     rtl*: bool           ## a right-to-left paragraph (else: from the text)
     size*: float32       ## times the UI's text size (0 or 1: the same)
     serif*: bool         ## in the serif font (FreeSerif), whatever the UI's
+    read*: bool          ## a paragraph's text: in the UI font's cut for reading (Suhar App
+                         ## Read, when the UI's font is Suhar; the same font otherwise)
 
   UiFont* = enum
     ## The font of the UI's text (see `setUiFont`).
-    ufSans = sansName          ## FreeSans, the default: GNU FreeFont's Helvetica-like sans
+    ufSuhar = suharName        ## Suhar App, the default: Sultan Al Isaiee's Suhar for apps --
+                               ## Latin and Arabic drawn together --, Suhar App Read its
+                               ## paragraphs (`TextStyle.read`)
+    ufSans = sansName          ## FreeSans: GNU FreeFont's Helvetica-like sans
     ufSerif = serifName        ## FreeSerif: GNU FreeFont's Times-like serif
     ufMono = monoName          ## FreeMono: GNU FreeFont's Courier-like monospaced font
     ufFile = "Font File"       ## a font from a file (`setUiFontFile`): one of the user's,
@@ -121,7 +127,7 @@ var
   sysFont: Font
   sysFontSize = 0
   textEm = 12'f32       ## the UI's text size: logical pixels per em
-  uiFontSel = ufSans
+  uiFontSel = ufSuhar
     ## the UI's font
   baseStyle: TextStyle
     ## the style plain text is drawn in (`withTextStyle`; the default: the UI's)
@@ -286,7 +292,8 @@ proc cmdHash(c: Cmd): uint64 =
   result = 0x6a09e667f3bcc909'u64
   mix(result, uint64(ord(c.kind)) or (uint64(c.color) shl 8) or
       (uint64(c.mag) shl 40) or (uint64(c.bold) shl 48) or
-      (uint64(c.flags) shl 56) or (uint64(cast[uint32](c.size)) shl 32))
+      (uint64(c.flags and 0xFF) shl 56) or (uint64(cast[uint32](c.size)) shl 32))
+  if c.flags > 0xFF: mix(result, uint64(c.flags))
   mixRect(result, c.r)
   mixRect(result, c.clip)
 
@@ -471,10 +478,10 @@ proc patchFill*(i: int; r: Rect; c: Color) =
 
 # ---- Text -------------------------------------------------------------------
 #
-# The UI's text is FreeSans (the default), FreeSerif or FreeMono -- GNU
-# FreeFont, built in, each in its four styles -- or a font from a file;
-# monospaced text is FreeMono, Arabic FreeSerif's where a face has none,
-# icons the Nerd Fonts symbols. Glyphs are rendered at the screen's own
+# The UI's text is Suhar App (the default; paragraphs in Suhar App Read),
+# FreeSans, FreeSerif or FreeMono -- built in, each in its four styles -- or a
+# font from a file; monospaced text is FreeMono, a letter a face lacks
+# FreeFont's (Arabic FreeSerif's for FreeFont), icons the Nerd Fonts symbols. Glyphs are rendered at the screen's own
 # resolution by the kit's TrueType engine (ttf.nim) -- gray, their heights
 # on whole pixels at small sizes, their strokes as the font draws them (see
 # `renderGlyph`; "Sharp" text in the screen's color strips is a choice) --
@@ -499,6 +506,7 @@ var fontGen = 0'u64
 
 proc familyOf(f: UiFont): FaceId {.inline.} =
   case f
+  of ufSuhar: fSuhar
   of ufSans: fSans
   of ufSerif: fSerif
   of ufMono: fMono
@@ -508,15 +516,52 @@ proc uiBase(): FaceId {.inline.} =
   ## The face of the UI's plain text.
   familyOf(uiFontSel)
 
-proc lineK(): float32 = lineFactor(uiBase(), withGap = true) + 0.02
+var tallLinesOn = false   # (`setTallLines`)
+
+proc lineK(): float32 =
   ## (the UI's lines: the font's height with its line gap, as a font file's
-  ## always were -- FreeSans 1.2 em -- and a little more)
+  ## always were -- FreeSans 1.2 em, Suhar 1.3 --, and a little more; tall lines: room for
+  ## fully vowelled Arabic, 1.3 em over the baseline and 0.72 under it)
+  let f = lineFactor(uiBase(), withGap = true)
+  if tallLinesOn:
+    let a = ascentFactor(uiBase(), true)
+    max(a, 1.3'f32) + max(f - a, 0.72'f32) + 0.02
+  else: f + 0.02
+
+var
+  varFont: string                           # (`setUiFontVariable`: its file)
+  varWeights: (float, float)
+  varOptical: bool
+  varGiven: float32                         # (... the text size its optical size was made for)
+
+proc varStyles() =
+  ## (the variable font's four styles at the text size now: its weights, its italic -- `ital`,
+  ## or `slnt` -- where it has them, its optical size the text's, in points)
+  let axes = parseFace(varFont).axes
+  var tags: seq[string]
+  for a in axes: tags.add a.tag
+  var common: seq[(string, float)]
+  if varOptical and "opsz" in tags: common.add ("opsz", float(textEm) * 0.75)
+  proc at(w: float; italic: bool): seq[(string, float)] =
+    # (none: no weights in it, the bold made from the regular; no italic in it, slanted from
+    # the regular)
+    if "wght" notin tags and w != varWeights[0]: return @[]
+    if italic and "ital" notin tags and "slnt" notin tags: return @[]
+    result = common
+    if "wght" in tags: result.add ("wght", w)
+    if italic:
+      if "ital" in tags: result.add ("ital", 1.0)
+      else: result.add ("slnt", -10.0)
+  setUserFontVariable(varFont, at(varWeights[0], false), at(varWeights[1], false),
+                      at(varWeights[0], true), at(varWeights[1], true))
+  varGiven = textEm
 
 proc setTextSize*(em: float) =
   ## The UI's text size in logical pixels per em (12 on desktops and
   ## tablets, 15 on phones: `core`'s `DesktopTextEm`, `TouchTextEm`).
   ## `FontH` and `FontAscent` follow.
   textEm = clamp(float32(em), 6, 96)
+  if varFont.len > 0 and varOptical and textEm != varGiven: varStyles()
   let e = textEm
   FontH = max(8, int(round(e * lineK())))
   FontAscent = int(round((float32(FontH) - lineFactor(uiBase(), true) * e) / 2 +
@@ -533,10 +578,25 @@ setTextSize(12)
 proc textSize*(): float = textEm
   ## The UI's text size in logical pixels per em.
 
+proc setTallLines*(on: bool) =
+  ## Lines of text tall enough for fully vowelled Arabic -- a shadda and a vowel over a tall
+  ## letter, tanween under a deep one: 1.3 em above the baseline, 0.72 under it -- in every
+  ## row, label and field (`FontH` grows: about 2 em instead of the font's 1.3). Off, the
+  ## default: the font's own line, where such marks reach past a row's edges. For an app whose
+  ## text is vowelled (the Quran, poetry, children's books).
+  if on == tallLinesOn: return
+  tallLinesOn = on
+  setTextSize(float(textEm))
+
+proc tallLines*(): bool = tallLinesOn
+  ## See `setTallLines`.
+
 proc setUiFont*(f: UiFont) =
-  ## The font of every app's text: `ufSans` (FreeSans, the default),
-  ## `ufSerif` (FreeSerif), `ufMono` (FreeMono) -- GNU FreeFont, built in,
-  ## with Arabic (FreeSerif's) -- or `ufFile` (a font file: `setUiFontFile`).
+  ## The font of every app's text: `ufSuhar` (Suhar App, the default -- its
+  ## paragraphs in Suhar App Read --, Latin and Arabic drawn together; a letter it
+  ## has not drawn from GNU FreeFont), `ufSans` (FreeSans), `ufSerif` (FreeSerif),
+  ## `ufMono` (FreeMono) -- GNU FreeFont, with Arabic (FreeSerif's) --, all built
+  ## in, or `ufFile` (a font file: `setUiFontFile`).
   ## Call it before `app` (or `startApp`) to choose an app's font, or at any
   ## time; `appearanceSettings` lets the user choose, `storeAppearance`
   ## keeps it. Monospaced text (code, hex) is FreeMono.
@@ -547,7 +607,7 @@ proc setUiFont*(f: UiFont) =
 proc uiFont*(): UiFont = uiFontSel
   ## The font of the UI's text (see `setUiFont`).
 
-const builtinUiFonts*: seq[UiFont] = @[ufSans, ufSerif, ufMono]
+const builtinUiFonts*: seq[UiFont] = @[ufSuhar, ufSans, ufSerif, ufMono]
   ## The fonts the kit carries, in the order a menu offers them (`$f` is a
   ## font's name; a font from a file, `ufFile`, is not among them).
 
@@ -567,10 +627,29 @@ proc setUiFontFile*(regular: string; bold = ""; italic = ""; boldItalic = "") =
   ## A font of the user's as the UI's (TrueType bytes; `bold`, `italic`,
   ## `boldItalic`: its other styles, or "" to make them from the regular):
   ## `ufFile`. Raises `FontError` when it is not a font we read.
+  varFont = ""
   setUserFont(regular, bold, italic, boldItalic)
   forgetGlyphs()
   inc fontGen
-  uiFontSel = ufSans                     # (made to apply again)
+  uiFontSel = ufSuhar                    # (made to apply again)
+  setUiFont(ufFile)
+
+proc setUiFontVariable*(data: string; regular = 400.0; bold = 700.0; opticalSize = true) =
+  ## One variable font file as the UI's font (`ufFile`): its regular and bold the font at
+  ## weights `regular` and `bold` (its `wght` axis), its italics at `ital` 1 (or `slnt`) where it
+  ## has those axes -- else slanted from the regular --, and with `opticalSize`, where it has an
+  ## `opsz` axis, the optical size of the UI's text size in points, made again when the size
+  ## changes. One file for every style: an app ships one. Raises `FontError` when it is not a
+  ## font we read.
+  varFont = ""
+  if parseFace(data) == nil: raise newException(FontError, "not a font we read")
+  varFont = data
+  varWeights = (regular, bold)
+  varOptical = opticalSize
+  varStyles()
+  forgetGlyphs()
+  inc fontGen
+  uiFontSel = ufSuhar                    # (made to apply again)
   setUiFont(ufFile)
 
 proc setPixelFont*(on: bool) {.deprecated: "the pixel fonts are gone: setUiFont(ufSans)".} =
@@ -581,10 +660,11 @@ proc usesPixelFont*(): bool {.deprecated: "the pixel fonts are gone".} = false
   ## Always false: no pixel font is left.
 
 proc style*(bold = false; italic = false; mono = false; size = 1.0;
-            underline = false; strike = false; serif = false): TextStyle =
-  ## A text style (`size` scales the UI font's size).
+            underline = false; strike = false; serif = false; read = false): TextStyle =
+  ## A text style (`size` scales the UI font's size; `read`: a paragraph's text, in the
+  ## UI font's cut for reading -- Suhar App Read).
   TextStyle(bold: bold, italic: italic, mono: mono, size: size,
-            underline: underline, strike: strike, serif: serif)
+            underline: underline, strike: strike, serif: serif, read: read)
 
 proc sizeOf(st: TextStyle): float32 {.inline.} =
   if st.size <= 0: 1 else: st.size
@@ -595,6 +675,7 @@ proc faceOf*(st: TextStyle): FaceId =
   ## slanted); FreeMono for `mono`, FreeSerif for `serif`.
   let fam = if st.mono: fMono
             elif st.serif: fSerif
+            elif st.read and uiFontSel == ufSuhar: fSuharRead
             else: familyOf(uiFontSel)
   styled(fam, st.bold, st.italic)
 
@@ -602,16 +683,17 @@ proc emOf(st: TextStyle; f: FaceId): float32 {.inline.} =
   ## The size text in style `st` (face `f`) is drawn at, logical pixels per em.
   textEm * sizeOf(st)
 
-proc flagsOf(st: TextStyle): uint8 =
-  uint8(ord(st.bold)) or (uint8(ord(st.italic)) shl 1) or
-    (uint8(ord(st.mono)) shl 2) or (uint8(ord(st.underline)) shl 3) or
-    (uint8(ord(st.strike)) shl 4) or (uint8(ord(st.rtl)) shl 5) or (uint8(ord(st.serif)) shl 6)
+proc flagsOf(st: TextStyle): uint16 =
+  uint16(ord(st.bold)) or (uint16(ord(st.italic)) shl 1) or
+    (uint16(ord(st.mono)) shl 2) or (uint16(ord(st.underline)) shl 3) or
+    (uint16(ord(st.strike)) shl 4) or (uint16(ord(st.rtl)) shl 5) or (uint16(ord(st.serif)) shl 6) or
+    (uint16(ord(st.read)) shl 8)
 
-proc styleOf(flags: uint8; size: float32): TextStyle =
+proc styleOf(flags: uint16; size: float32): TextStyle =
   TextStyle(bold: (flags and 1) != 0, italic: (flags and 2) != 0,
             mono: (flags and 4) != 0, underline: (flags and 8) != 0,
             strike: (flags and 16) != 0, rtl: (flags and 32) != 0, serif: (flags and 64) != 0,
-            size: size)
+            read: (flags and 256) != 0, size: size)
 
 proc lineHeight*(st = TextStyle()): int =
   ## Height of a line of text in style `st`.
@@ -965,7 +1047,7 @@ proc text*(x, y: int; s: string; c: Color; bold = false; mag = 1) =
   ## Draw `s` with its top-left corner at `x`, `y` (transparent background).
   text(x, y, s, c, plainStyle(bold, mag))
 
-const CellText = 0x80'u8
+const CellText = 0x80'u16
   ## (a vector text command's flag: each letter in a cell of its own, `textCells`)
 
 proc textCells*(x, y: int; s: string; c: Color; st: TextStyle; cellW: int) =
@@ -1010,6 +1092,7 @@ proc beginTextStyle*(st: TextStyle) =
   n.italic = st.italic or baseStyle.italic
   n.serif = st.serif or baseStyle.serif
   n.mono = st.mono or baseStyle.mono
+  n.read = st.read or baseStyle.read
   baseStyle = n
   let e = textEm * n.size
   FontH = max(8, int(round(e * lineK())))

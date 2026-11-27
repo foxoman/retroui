@@ -37,17 +37,17 @@ block mdi:
   # w2 is on top: its title bar is the active (navy) one
   let t2 = (area.x + w2.r.x + w2.r.w div 2, area.y + w2.r.y + 4 + barH div 2)
   let t1 = (area.x + w1.r.x + w1.r.w div 2, area.y + w1.r.y + 4 + barH div 2)
-  doAssert px(t2[0] + 60, t2[1]) == 0x000080, "the window on top is active"
-  doAssert px(t1[0] + 60, t1[1]) != 0x000080
+  doAssert px(t2[0] + 30, t2[1]) == 0x000080, "the window on top is active"
+  doAssert px(t1[0] + 30, t1[1]) != 0x000080
   # a click on the lower window brings it to the front
   tap(t1[0] + 40, t1[1])
   run(2)
-  doAssert px(t1[0] + 60, t1[1]) == 0x000080, "brought to the front"
+  doAssert px(t1[0] + 30, t1[1]) == 0x000080, "brought to the front"
   # where the windows overlap, the one on top takes the click
   let over = (area.x + 200, area.y + 140)       # inside both
   tap(over[0], over[1])
   run(2)
-  doAssert px(t1[0] + 60, t1[1]) == 0x000080, "a click on the top window keeps it on top"
+  doAssert px(t1[0] + 30, t1[1]) == 0x000080, "a click on the top window keeps it on top"
   # dragging the title bar moves it
   let x0 = w1.r.x
   down(t1[0] + 40, t1[1])
@@ -72,7 +72,7 @@ block mdi:
   # Ctrl+F6: the next window comes to the front
   key(KeyF6, {CtrlPressed})
   run(2)
-  doAssert px(area.x + w2.r.x + w2.r.w div 2 + 60, area.y + w2.r.y + 4 + barH div 2) == 0x000080
+  doAssert px(area.x + w2.r.x + w2.r.w div 2 + 30, area.y + w2.r.y + 4 + barH div 2) == 0x000080
   # maximize fills the area, restore brings it back (Windows 95's buttons:
   # the close button at the right, two pixels apart)
   let xw = barH + dp(2)
@@ -148,7 +148,7 @@ block mdi:
   tap(mid[0], mid[1])
   run(2)
   # (the click lands on w1, over w2: w2's content is not reached)
-  doAssert px(area.x + w1.r.x + w1.r.w div 2 + 60, area.y + w1.r.y + 4 + barH div 2) == 0x000080,
+  doAssert px(area.x + w1.r.x + w1.r.w div 2 + 30, area.y + w1.r.y + 4 + barH div 2) == 0x000080,
     "the pinned window takes the click and is the active one"
   doAssert clicks2 == c2
   discard c1
@@ -157,7 +157,7 @@ block mdi:
   mdiActivate(w2)
   run(3)
   doAssert w1.pinned, "kept, waiting"
-  doAssert px(area.x + w2.r.x + w2.r.w div 2 + 60, area.y + w2.r.y + 4 + barH div 2) == 0x000080,
+  doAssert px(area.x + w2.r.x + w2.r.w div 2 + 30, area.y + w2.r.y + 4 + barH div 2) == 0x000080,
     "a maximized window is not kept on top"
   w1.maximized = false
   mdiActivate(w2)
@@ -167,7 +167,7 @@ block mdi:
   w1.pinned = false
   mdiActivate(w2)
   run(3)
-  doAssert px(area.x + w2.r.x + w2.r.w div 2 + 60, area.y + w2.r.y + 4 + barH div 2) == 0x000080
+  doAssert px(area.x + w2.r.x + w2.r.w div 2 + 30, area.y + w2.r.y + 4 + barH div 2) == 0x000080
   # the pin in the title bar, clicked: on; again: off (the title bar's drag
   # does not take its press)
   let bh = FontH + dp(5)

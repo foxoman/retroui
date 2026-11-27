@@ -711,14 +711,20 @@ costs what its visible rows cost.
   phones; controls grow with the text. `setTextScale(120)` (the user's text
   size), `setUiScale(125)` (everything), `setBaseTextSize(14)` (your app's
   100 %).
-- Fonts: FreeSans (default), FreeSerif, FreeMono, built in with Arabic,
-  Thai and Vietnamese;
-  `loadUiFontFile(path)` for a font of your own; `appearanceSettings` lets
+- Fonts: Suhar App (the default -- Latin and Arabic drawn together --; its paragraphs in
+  Suhar App Read: `paragraph`, Markdown, `style(read = true)`), FreeSans, FreeSerif,
+  FreeMono (`setUiFont(ufSans)`...), built in with Arabic, Thai and Vietnamese -- a letter
+  Suhar has not drawn comes from FreeFont; `loadUiFontFile(path)` for a font of your own,
+  `setUiFontVariable(data)` one variable font file for every style; a font's own GSUB and
+  GPOS shape its Arabic (with presentation forms or without); `setTallLines(true)` for
+  fully vowelled text; `appearanceSettings` lets
   the user choose (theme, font, text size, Sharp text, window frame,
   title bar buttons) and
   `look = "myapp"` keeps it.
 - Arabic and right-to-left text work everywhere (joined, bidi);
-  `setRtlInterface(true)` mirrors the interface. Markdown in Arabic reads
+  `setRightToLeft(true)` (or `setUiLanguage("ar")`) mirrors the interface -- captions on
+  the right, rows from the right; `setRtlInterface(true)` alone only makes mixed lines read
+  right to left. Markdown in Arabic reads
   right to left by itself: its lists' bullets, its quotes' bars and its
   tables' first column at the right.
 - The window frame: the system's or the Windows 3.1 frame (`frame` option;

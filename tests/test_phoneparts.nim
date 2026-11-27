@@ -396,4 +396,35 @@ block:
     accessKeep = false
   uiLook = lookClassic
 
+# ---- the About box: a phone's page with touch sizes in the newer looks, the desktop's otherwise ----------
+
+block aboutPage:
+  accessKeep = true
+  var aboutOpen = true
+  view = proc () =
+    aboutBox(aboutOpen, "Ledger", "2.0", ["Small business accounts."], tagline = "Accounts",
+             whatsNew = ["Invoices in PDF"], credits = [RetroFontCredit])
+  run(3)
+  doAssert findNode(accessLast, "OK", {arButton}) >= 0 and findNode(accessLast, "Website", {arButton}) < 0,
+           "Classic: the desktop's About box, OK to close it"
+  for look in [lookGloss, lookGlass, lookMatte]:
+    uiLook = look
+    setControlSizes(csTouch)
+    aboutOpen = true
+    run(3)
+    doAssert findNode(accessLast, "Website", {arButton}) >= 0 and findNode(accessLast, "Copy Info", {arButton}) >= 0 and
+             findNode(accessLast, "OK", {arButton}) < 0, $look & ": the phone's page of it"
+    let c = findNode(accessLast, "Copy Info", {arButton})
+    let cr = nodeRect(accessLast[c])
+    if cr.y + cr.h < H:
+      click(cr)
+      run(2)
+      doAssert getClipboardText().len >= 6 and getClipboardText()[0 .. 5] == "Ledger",
+               $look & ": Copy Info, the facts on the clipboard"
+    setControlSizes(csAuto)
+  uiLook = lookClassic
+  aboutOpen = false
+  run(2)
+  accessKeep = false
+
 echo "phoneparts: ok"

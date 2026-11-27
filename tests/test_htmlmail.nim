@@ -91,7 +91,9 @@ block newsletterLayout:
   # the old two columns: tables aligned left and right
   let brew = wide.word("Brewing class")
   let free = wide.word("Free delivery")
-  doAssert brew.y == free.y and free.x > brew.x + 200, $brew & " " & $free
+  # (side by side: the 24-pixel picture before "Brewing class", middle-aligned, may lower its line
+  # by a pixel or two, as a browser does, by how tall the font is over its baseline)
+  doAssert abs(brew.y - free.y) <= 4 and free.x > brew.x + 200, $brew & " " & $free
   # the "button": a table cell with a background, its link over its words
   let shop = wide.word("Shop the harvest")
   var onButton = false

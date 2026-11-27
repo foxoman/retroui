@@ -24,7 +24,7 @@ from retroui/system import homeWidget, notificationActions
 import retrodns/[catalog, androidglue, tester, vpn, desktop]
 
 const
-  retrodnsVersion {.strdefine.} = "1.9.0"   # (build.sh passes its VERSION)
+  retrodnsVersion {.strdefine.} = "1.9.1"   # (build.sh passes its VERSION)
   AppTitle = "Retro DNS"
   AppVersion = retrodnsVersion
   AppId = "RetroDNS"
@@ -1302,10 +1302,12 @@ proc fastest(n: int): seq[int] =
 
 proc pageNote(s: string) =
   ## (a gray note under the page's groups, in the middle)
-  for ln in wrapLines(s, cellRoom()):
-    let lr = place(0, FontH + dp(1), fill = true)
-    let ink = if glossLook() and lumaOfColor(ui.theme.window) >= 128: color(76, 86, 108) else: ui.theme.gray
-    text(lr.x + (lr.w - textWidth(ln)) div 2, lr.y, ln, ink)
+  let lines = wrapLines(s, cellRoom())
+  let lh = FontH + dp(1)
+  let r = place(0, lines.len * lh, fill = true)     # (one place: its lines close together)
+  let ink = if glossLook() and lumaOfColor(ui.theme.window) >= 128: color(76, 86, 108) else: ui.theme.gray
+  for i, ln in lines:
+    text(r.x + (r.w - textWidth(ln)) div 2, r.y + i * lh, ln, ink)
 
 proc twoButtons(a, b: string; enabledB = true): int =
   ## (two buttons side by side under the groups, the first the default: 1 or 2 when clicked)

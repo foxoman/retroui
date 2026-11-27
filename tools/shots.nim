@@ -416,7 +416,7 @@ app "Ledger", 900, 600,
     userFrame = true,      # the user may switch the frame (kept for the app)
     gpu = gmAuto,          # gmAuto, gmGpu, gmCpu
     scale = 125,           # the size of everything, in percent
-    font = ufSans,         # the UI's font: ufSans, ufSerif, ufMono
+    font = ufSuhar,        # the UI's font: ufSuhar, ufSans, ufSerif, ufMono
     zoom = 0,              # whole-pixel magnification (0: the display's)
     id = "ledger",         # the app's name for what the toolkit keeps for it
     icon = ledgerIcon,     # the window's picture (a PNG's bytes)
@@ -639,9 +639,9 @@ do:
 # ======================================================================================================
 
 part("Text", """
-Text, headings, links, icons and tips. Text is FreeSans unless the app
-chooses another font (see [Looks](#looks)); Arabic is joined and runs right
-to left everywhere.
+Text, headings, links, icons and tips. Text is Suhar App unless the app
+chooses another font (see [Looks](#looks)), paragraphs Suhar App Read; Arabic
+is joined and runs right to left everywhere.
 """)
 
 example("label", "label, paragraph, heading",
@@ -1495,14 +1495,14 @@ do:
 opts(reset = proc () = wizOpen = true)
 
 example("aboutbox", "aboutBox",
-        "The About dialog: a banner in the blue of a 1994 Setup screen with the icon, name and version; pages About, What's New and Credits; Copy Info for a report of a fault.",
-        500, 400, ["aboutBox"], @[ssNormal, ssDark]):
+        "The About dialog: a banner in the blue of a 1994 Setup screen with the icon, name and version; pages About, What's New and Credits; Copy Info for a report of a fault. With touch sizes in Glass, Matte and Gloss it is a phone's page (on Android and iOS the whole screen, Close on its bar): the icon large over the name and the version, then groups -- the version, who made it, the website and the e-mail to tap, what it is, What's New, Credits, This Device -- and Copy Info.",
+        500, 400, ["aboutBox", "AboutShown", "aboutPhone"], @[ssNormal, ssDark]):
   var aboutOpen = true
 do:
   aboutBox(aboutOpen, "Ledger", "2.0", ["(c) 2026 Foxoman. Small business accounts."],
            glyph = pxSheet, tagline = "Small business accounts",
            whatsNew = ["Invoices in PDF", "Bank files read"], credits = [RetroFontCredit])
-opts(reset = proc () = aboutOpen = true)
+opts(reset = proc () = aboutOpen = true, looks = phoneLooks.sized(420, 760, glossOnly = false), both = true)
 
 example("splashbox", "splashBox",
         "The box a program shows while it starts, as the About box looks, with a progress bar of blocks.",
@@ -3043,12 +3043,17 @@ controls growing with it; `setBaseTextSize(14)` changes the size at 100%
 
 ### Fonts
 
-Text is **FreeSans** unless the app chooses another font: GNU FreeFont's
-sans, in the manner of Helvetica, built in with its bold, oblique and bold
-oblique, drawn smooth in gray with the font's own line gap. `setUiFont(ufSerif)`
-gives **FreeSerif** (in the manner of Times), `setUiFont(ufMono)` **FreeMono**
-(in the manner of Courier); code, editors and hex are FreeMono whatever
-the UI's font. Arabic is everywhere, joined and right to left (FreeSerif's).
+Text is **Suhar App** unless the app chooses another font: Suhar, my own
+typeface, cut for apps -- Latin and Arabic drawn together, of one size and
+weight in a mixed line -- built in with its bold, italic and bold italic,
+drawn smooth in gray with the font's own line gap. Paragraphs (`paragraph`,
+Markdown's text, `style(read = true)`) are in **Suhar App Read**, its cut for
+reading; a letter Suhar has not drawn comes from GNU FreeFont.
+`setUiFont(ufSans)` gives **FreeSans** (in the manner of Helvetica),
+`setUiFont(ufSerif)` **FreeSerif** (in the manner of Times),
+`setUiFont(ufMono)` **FreeMono** (in the manner of Courier); code, editors
+and hex are FreeMono whatever the UI's font. Arabic is everywhere, joined
+and right to left (Suhar's own; FreeSerif's with FreeFont).
 
 **A font file:** `loadUiFontFile("fonts/MyFont-Regular.ttf")` (its bold
 and italic beside it are found by their names), or build the app with
@@ -3164,9 +3169,10 @@ opts(inline = true, looks = @[
 example("fonts", "Fonts", "", 420, 200, [], @[ssNormal]):
   sampleUi()
 opts(inline = true, looks = @[
-  look("FreeSans (ufSans, the default)", proc () = discard, proc () = discard),
-  look("FreeSerif (ufSerif)", proc () = setUiFont(ufSerif), proc () = setUiFont(ufSans)),
-  look("FreeMono (ufMono)", proc () = setUiFont(ufMono), proc () = setUiFont(ufSans)),
+  look("Suhar App (ufSuhar, the default)", proc () = discard, proc () = discard),
+  look("FreeSans (ufSans)", proc () = setUiFont(ufSans), proc () = setUiFont(ufSuhar)),
+  look("FreeSerif (ufSerif)", proc () = setUiFont(ufSerif), proc () = setUiFont(ufSuhar)),
+  look("FreeMono (ufMono)", proc () = setUiFont(ufMono), proc () = setUiFont(ufSuhar)),
   look("Sharp text (setSubpixelText)", proc () = setSubpixelText(true), proc () = setSubpixelText(false))])
 
 example("frame", "The window's frame", "", 440, 200, [], @[ssNormal]):

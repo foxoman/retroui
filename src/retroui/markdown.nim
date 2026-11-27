@@ -1056,6 +1056,7 @@ proc flowSpans(f: var Flow; spans: seq[Span]; size: float; boldAll: bool;
                    size = size, strike = sp.strike,
                    underline = sp.link >= 0 or sp.underline)
     st.rtl = f.rtl
+    st.read = not boldAll and not sp.code     # (a paragraph's words: the UI font's cut for reading)
     let r = if sp.link >= 0: roLink elif sp.code: roCode else: role
     let fg = if sp.link >= 0: Color() else: sp.color
     var word = ""

@@ -161,16 +161,19 @@ proc memFace(path: string): Face =
   memFonts[i].face
 
 proc builtinEntries(): seq[FontEntry] =
-  ## GNU FreeFont, built in (FreeSerif with its Arabic, set by its OpenType
-  ## tables), and the fonts the program carries.
-  for fam in [fSans, fSerif, fMono]:
+  ## Suhar App and Suhar App Read, GNU FreeFont, built in (Suhar and FreeSerif with their
+  ## Arabic, set by their OpenType tables), and the fonts the program carries.
+  for fam in [fSuhar, fSuharRead, fSans, fSerif, fMono]:
     let name = (case fam
+                of fSuhar: "Suhar App"
+                of fSuharRead: "Suhar App Read"
                 of fSans: "FreeSans"
                 of fSerif: "FreeSerif"
                 else: "FreeMono")
+    let slanted = fam in [fSerif, fSuhar, fSuharRead]
     for (id, st, wt, it) in [(fam, "Regular", 400, false), (styled(fam, true, false), "Bold", 700, false),
-                             (styled(fam, false, true), (if fam == fSerif: "Italic" else: "Oblique"), 400, true),
-                             (styled(fam, true, true), (if fam == fSerif: "Bold Italic" else: "Bold Oblique"),
+                             (styled(fam, false, true), (if slanted: "Italic" else: "Oblique"), 400, true),
+                             (styled(fam, true, true), (if slanted: "Bold Italic" else: "Bold Oblique"),
                               700, true)]:
       result.add FontEntry(family: name, style: st, builtin: id, weight: wt, italic: it)
   for m in memFonts:
@@ -481,7 +484,9 @@ proc fontFace*(family, style: string): tuple[face: Face; fauxBold, fauxItalic: b
     # (on a worker thread: the program's own families, a face of the thread's own)
     let low = family.toLowerAscii
     let sl = style.toLowerAscii
-    let base = if "serif" in low and "sans" notin low: fSerif elif "mono" in low: fMono else: fSans
+    let base = if "suhar" in low and "read" in low: fSuharRead
+               elif "suhar" in low: fSuhar
+               elif "serif" in low and "sans" notin low: fSerif elif "mono" in low: fMono else: fSans
     let id = styled(base, "bold" in sl or "black" in sl or "heavy" in sl, "italic" in sl or "oblique" in sl)
     return (ownFace(id), fauxStyle(id).bold, fauxStyle(id).italic)
   # (FreeFont and the fonts the program carries: found without looking
